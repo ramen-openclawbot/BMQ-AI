@@ -1,3 +1,5 @@
+import type { WarehouseCopyKey } from "@/i18n/warehouse";
+import { useWarehouseCopy } from "@/i18n/useWarehouseCopy";
 import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Bot, CheckCircle2, Clock3, Menu, PackageCheck, Send, Warehouse } from "lucide-react";
@@ -65,7 +67,10 @@ interface WarehouseSnapshot {
 interface ChatMessage {
   id: string;
   role: "user" | "agent";
-  text: string;
+  text?: string;
+  copyKey?: WarehouseCopyKey;
+  copyValues?: Record<string, string | number>;
+  documentType?: string;
 }
 
 const warehouseRpc = (fn: string, args?: Record<string, unknown>) => (
@@ -77,16 +82,6 @@ const warehouseRpc = (fn: string, args?: Record<string, unknown>) => (
 const number = (value: unknown) => Number(value || 0);
 const qty = (value: unknown) => new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 2 }).format(number(value));
 
-const documentLabel: Record<string, string> = {
-  opening: "Phiếu tồn đầu",
-  supplier_order: "Đơn nhà cung cấp",
-  receipt: "Phiếu nhập",
-  outbound_order: "Phiếu giữ hàng",
-  dispatch: "Phiếu xuất",
-  stock_count: "Phiếu kiểm kê",
-  adjustment: "Phiếu điều chỉnh",
-  cancellation: "Phiếu huỷ giữ hàng",
-};
 
 const TAN_TAO_ITEMS: Array<{ sku_code: string; product_name: string; unit: string; weightKgPerUnit?: number }> = [
   { sku_code: "BMQ-001", product_name: "Bánh mì tươi", unit: "que" },
@@ -112,6 +107,17 @@ const commandArgs = (command: LegacyChatCommand, idempotencyKey: string) => ({
 });
 
 export default function TanTaoWarehouse() {
+  const c = useWarehouseCopy();
+  const documentLabel: Record<string, string> = {
+    opening: c("Phiếu tồn đầu"),
+    supplier_order: c("Đơn nhà cung cấp"),
+    receipt: c("Phiếu nhập"),
+    outbound_order: c("Phiếu giữ hàng"),
+    dispatch: c("Phiếu xuất"),
+    stock_count: c("Phiếu kiểm kê"),
+    adjustment: c("Phiếu điều chỉnh"),
+    cancellation: c("Phiếu huỷ giữ hàng"),
+  };
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [composer, setComposer] = useState("");
@@ -174,11 +180,11 @@ export default function TanTaoWarehouse() {
       queryClient.setQueryData(["tan-tao-warehouse-snapshot"], result.snapshot);
       setPhysicalCountValue("");
       setPhysicalCountReason("");
-      toast({ title: "Đã ghi nhận kiểm kê vật lý", description: result.document.document_number });
+      toast({ title: c("Đã ghi nhận kiểm kê vật lý"), description: result.document.document_number });
     },
     onError: (error: unknown) => {
-      const text = error instanceof Error ? error.message : "Không thể ghi nhận kiểm kê vật lý.";
-      toast({ title: "Cần xử lý", description: text, variant: "destructive" });
+      const text = error instanceof Error ? error.message : c("Không thể ghi nhận kiểm kê vật lý.");
+      toast({ title: c("Cần xử lý"), description: text, variant: "destructive" });
     },
     onSettled: () => {
       stockCountSubmissionLockRef.current = false;
@@ -199,16 +205,18 @@ export default function TanTaoWarehouse() {
         {
           id: crypto.randomUUID(),
           role: "agent",
-          text: `Đã lập ${documentLabel[document.document_type] || "chứng từ"} ${document.document_number}. Tồn vật lý ${qty(next.on_hand_quantity)} que · Đã giữ ${qty(next.reserved_quantity)} · ATP ${qty(next.atp_quantity)}.`,
+          copyKey: "commandRecorded",
+          documentType: document.document_type,
+          copyValues: { number: document.document_number, stock: qty(next.on_hand_quantity), reserved: qty(next.reserved_quantity), atp: qty(next.atp_quantity) },
         },
       ]);
       queryClient.setQueryData(["tan-tao-warehouse-snapshot"], next);
-      toast({ title: "BMQ Agent đã ghi nhận", description: document.document_number });
+      toast({ title: c("BMQ Agent đã ghi nhận"), description: document.document_number });
     },
     onError: (error: unknown) => {
-      const text = error instanceof Error ? error.message : "Không thể ghi nhận nghiệp vụ.";
-      setMessages((current) => [...current, { id: crypto.randomUUID(), role: "agent", text: `Cần xử lý: ${text}` }]);
-      toast({ title: "Cần xử lý", description: text, variant: "destructive" });
+      const text = error instanceof Error ? error.message : c("Không thể ghi nhận nghiệp vụ.");
+      setMessages((current) => [...current, { id: crypto.randomUUID(), role: "agent", copyKey: "commandError", copyValues: { error: text } }]);
+      toast({ title: c("Cần xử lý"), description: text, variant: "destructive" });
     },
     onSettled: () => {
       submissionLockRef.current = false;
@@ -228,7 +236,7 @@ export default function TanTaoWarehouse() {
         {
           id: crypto.randomUUID(),
           role: "agent",
-          text: "Em chưa nhận diện được nghiệp vụ. Anh có thể khai báo tồn đầu, đặt Tuyết Anh, xác nhận đã nhận, hoặc nhập đơn Đặt/Đổi/Bù.",
+          copyKey: "Em chưa nhận diện được nghiệp vụ. Anh có thể khai báo tồn đầu, đặt Tuyết Anh, xác nhận đã nhận, hoặc nhập đơn Đặt/Đổi/Bù.",
         },
       ]);
       return;
@@ -239,7 +247,7 @@ export default function TanTaoWarehouse() {
         {
           id: crypto.randomUUID(),
           role: "agent",
-          text: "Chọn mặt hàng trong form Ghi nhận kiểm kê vật lý, nhập số lượng thực tế và lý do/ghi chú. Để tránh sai SKU và thiếu lý do, hệ thống không ghi kiểm kê vật lý qua khung chat.",
+          copyKey: "Chọn mặt hàng trong form Ghi nhận kiểm kê vật lý, nhập số lượng thực tế và lý do/ghi chú. Để tránh sai SKU và thiếu lý do, hệ thống không ghi kiểm kê vật lý qua khung chat.",
         },
       ]);
       return;
@@ -253,7 +261,7 @@ export default function TanTaoWarehouse() {
 
   const submitStockCount = () => {
     if (!canSubmitStockCount || stockCountSubmissionLockRef.current) return;
-    if (!window.confirm(`Ghi nhận kiểm kê ${selectedStockCountItem.product_name} còn ${qty(countNumber)} ${selectedStockCountItem.unit}?`)) return;
+    if (!window.confirm(c("stockCountConfirm", { name: selectedStockCountItem.product_name, count: qty(countNumber), unit: selectedStockCountItem.unit }))) return;
     stockCountSubmissionLockRef.current = true;
     const idempotencyKey = `stock-count:${selectedStockCountSku}:${crypto.randomUUID()}`;
     stockCountMutation.mutate({
@@ -272,29 +280,29 @@ export default function TanTaoWarehouse() {
   ];
 
   const metrics: Array<{ label: string; value: unknown; hint: string; Icon: LucideIcon }> = [
-    { label: "Tồn vật lý", value: snapshot?.on_hand_quantity, hint: "Sổ nhập − xuất", Icon: PackageCheck },
-    { label: "Đã giữ cho đơn", value: snapshot?.reserved_quantity, hint: "Chưa xuất thực tế", Icon: Clock3 },
-    { label: "ATP khả dụng", value: snapshot?.atp_quantity, hint: "Tồn vật lý − đã giữ", Icon: CheckCircle2 },
-    { label: "Hàng đang về", value: snapshot?.incoming_quantity, hint: "Đã đặt, chưa nhập", Icon: Warehouse },
+    { label: c("Tồn vật lý"), value: snapshot?.on_hand_quantity, hint: c("Sổ nhập − xuất"), Icon: PackageCheck },
+    { label: c("Đã giữ cho đơn"), value: snapshot?.reserved_quantity, hint: c("Chưa xuất thực tế"), Icon: Clock3 },
+    { label: c("ATP khả dụng"), value: snapshot?.atp_quantity, hint: c("Tồn vật lý − đã giữ"), Icon: CheckCircle2 },
+    { label: c("Hàng đang về"), value: snapshot?.incoming_quantity, hint: c("Đã đặt, chưa nhập"), Icon: Warehouse },
   ];
 
   return (
-    <div className="min-h-screen bg-[#f7f4f1] text-[#342b2f]">
+    <div data-bmq-warehouse-i18n="v1" className="min-h-screen bg-[#f7f4f1] text-[#342b2f]">
       <div className="mx-auto max-w-7xl px-3 py-4 sm:px-6 lg:px-8">
         <header className="mb-4 flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-3">
-            <Button type="button" variant="ghost" size="icon" className="md:hidden" onClick={() => window.dispatchEvent(new Event("bmq:open-sidebar"))} aria-label="Mở menu">
+            <Button type="button" variant="ghost" size="icon" className="md:hidden" onClick={() => window.dispatchEvent(new Event("bmq:open-sidebar"))} aria-label={c("Mở menu")}>
               <Menu className="h-5 w-5" />
             </Button>
             <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white shadow-sm ring-1 ring-[#eadfe4]">
               <Warehouse className="h-6 w-6 text-[#c54f82]" />
             </div>
             <div className="min-w-0">
-              <h1 className="truncate text-xl font-black tracking-tight sm:text-2xl">Kho Tân Tạo</h1>
-              <p className="truncate text-xs font-medium text-[#817278] sm:text-sm">Kho Tân Tạo · Bánh mì tươi, bánh mì đông lạnh và Pate · Sổ kho do BMQ Agent vận hành</p>
+              <h1 className="truncate text-xl font-black tracking-tight sm:text-2xl">{c("Kho Tân Tạo")}</h1>
+              <p className="truncate text-xs font-medium text-[#817278] sm:text-sm">{c("Kho Tân Tạo · Bánh mì tươi, bánh mì đông lạnh và Pate · Sổ kho do BMQ Agent vận hành")}</p>
             </div>
           </div>
-          <Badge className="shrink-0 border-0 bg-[#f8dbe8] text-[#a83b6c] hover:bg-[#f8dbe8]">Đang thử nghiệm</Badge>
+          <Badge className="shrink-0 border-0 bg-[#f8dbe8] text-[#a83b6c] hover:bg-[#f8dbe8]">{c("Đang thử nghiệm")}</Badge>
         </header>
 
         <section className="mb-4 grid grid-cols-2 gap-2 lg:grid-cols-4">
@@ -315,14 +323,14 @@ export default function TanTaoWarehouse() {
         {snapshotQuery.isError ? (
           <div className="mb-4 flex items-start gap-3 rounded-2xl border border-rose-300 bg-rose-50 p-3 text-sm text-rose-900">
             <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
-            <div><strong>Không tải được sổ kho.</strong> Hệ thống không thay lỗi bằng tồn 0. Vui lòng tải lại hoặc kiểm tra quyền truy cập trước khi ghi nghiệp vụ.</div>
+            <div><strong>{c("Không tải được sổ kho.")}</strong> {c("Hệ thống không thay lỗi bằng tồn 0. Vui lòng tải lại hoặc kiểm tra quyền truy cập trước khi ghi nghiệp vụ.")}</div>
           </div>
         ) : null}
 
         {snapshot?.needs_attention ? (
           <div className="mb-4 flex items-start gap-3 rounded-2xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
             <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
-            <div><strong>Cần xử lý:</strong> ATP đang âm {qty(Math.abs(snapshot.atp_quantity))} que. Hệ thống giữ lịch sử nhưng sẽ chặn xuất thực tế khi tồn vật lý không đủ.</div>
+            <div><strong>{c("Cần xử lý:")}</strong> {c("ATP đang âm")} {qty(Math.abs(snapshot.atp_quantity))} {c("que. Hệ thống giữ lịch sử nhưng sẽ chặn xuất thực tế khi tồn vật lý không đủ.")}</div>
           </div>
         ) : null}
 
@@ -347,10 +355,10 @@ export default function TanTaoWarehouse() {
                   <Badge variant="outline" className="bg-[#fff8fb]">{item.unit}</Badge>
                 </div>
                 <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
-                  <div className="rounded-2xl bg-[#fcfaf9] p-2"><span className="text-[#817278]">Tồn</span><div className="font-black tabular-nums">{snapshotQuery.isLoading ? "…" : snapshotQuery.isError ? "—" : qty(item.on_hand_quantity)} {item.unit}</div></div>
+                  <div className="rounded-2xl bg-[#fcfaf9] p-2"><span className="text-[#817278]">{c("Tồn")}</span><div className="font-black tabular-nums">{snapshotQuery.isLoading ? "…" : snapshotQuery.isError ? "—" : qty(item.on_hand_quantity)} {item.unit}</div></div>
                   <div className="rounded-2xl bg-[#fcfaf9] p-2"><span className="text-[#817278]">ATP</span><div className="font-black tabular-nums">{snapshotQuery.isLoading ? "…" : snapshotQuery.isError ? "—" : qty(item.atp_quantity)} {item.unit}</div></div>
                 </div>
-                {approved?.weightKgPerUnit ? <p className="mt-3 text-xs font-bold text-[#817278]">Quy đổi tham khảo hiện tại: {qty(kgValue)}kg</p> : <p className="mt-3 text-xs font-bold text-[#817278]">Theo dõi đơn vị vận hành: {item.unit}</p>}
+                {approved?.weightKgPerUnit ? <p className="mt-3 text-xs font-bold text-[#817278]">{c("Quy đổi tham khảo hiện tại:")} {qty(kgValue)}kg</p> : <p className="mt-3 text-xs font-bold text-[#817278]">{c("Theo dõi đơn vị vận hành:")} {item.unit}</p>}
               </button>
             );
           })}
@@ -361,7 +369,7 @@ export default function TanTaoWarehouse() {
             <CardContent className="p-4">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
                 <div className="min-w-[180px] flex-1">
-                  <Label htmlFor="tan-tao-stock-count-sku" className="text-xs font-black text-[#817278]">Mặt hàng kiểm kê</Label>
+                  <Label htmlFor="tan-tao-stock-count-sku" className="text-xs font-black text-[#817278]">{c("Mặt hàng kiểm kê")}</Label>
                   <select
                     id="tan-tao-stock-count-sku"
                     value={selectedStockCountSku}
@@ -373,37 +381,36 @@ export default function TanTaoWarehouse() {
                   </select>
                 </div>
                 <div className="min-w-[160px] flex-1">
-                  <Label htmlFor="tan-tao-stock-count-quantity" className="text-xs font-black text-[#817278]">Số lượng kiểm kê vật lý</Label>
+                  <Label htmlFor="tan-tao-stock-count-quantity" className="text-xs font-black text-[#817278]">{c("Số lượng kiểm kê vật lý")}</Label>
                   <Input
                     id="tan-tao-stock-count-quantity"
                     inputMode="decimal"
                     value={physicalCountValue}
                     onChange={(event) => setPhysicalCountValue(event.target.value)}
                     disabled={stockCountMutation.isPending}
-                    placeholder={`Nhập số ${selectedStockCountItem.unit}`}
+                    placeholder={c("stockCountPlaceholder", { unit: selectedStockCountItem.unit })}
                     className="mt-1 h-11 rounded-xl border-[#e2d4da]"
                   />
                 </div>
                 <div className="min-w-[220px] flex-[1.4]">
-                  <Label htmlFor="tan-tao-stock-count-reason" className="text-xs font-black text-[#817278]">Nhập lý do/ghi chú kiểm kê</Label>
+                  <Label htmlFor="tan-tao-stock-count-reason" className="text-xs font-black text-[#817278]">{c("Nhập lý do/ghi chú kiểm kê")}</Label>
                   <Input
                     id="tan-tao-stock-count-reason"
                     value={physicalCountReason}
                     onChange={(event) => setPhysicalCountReason(event.target.value)}
                     disabled={stockCountMutation.isPending}
-                    placeholder="VD: Kiểm kê cuối ca"
+                    placeholder={c("VD: Kiểm kê cuối ca")}
                     className="mt-1 h-11 rounded-xl border-[#e2d4da]"
                   />
                 </div>
                 <Button type="button" onClick={submitStockCount} disabled={!canSubmitStockCount} className="h-11 rounded-xl bg-[#c54f82] px-5 font-black hover:bg-[#ad3e70]">
-                  Ghi nhận kiểm kê vật lý
-                </Button>
+                  {c("Ghi nhận kiểm kê vật lý")} </Button>
               </div>
-              <p className="mt-2 text-xs text-[#9a8b91]">Tổng Pate quy đổi từ tồn hiện tại: {qty(pateKgTotal)}kg. Hộp Pate 500g và Pate 200g được giữ thành hai ô riêng; kg chỉ là thông tin tham khảo.</p>
+              <p className="mt-2 text-xs text-[#9a8b91]">{c("Tổng Pate quy đổi từ tồn hiện tại:")} {qty(pateKgTotal)}{c("kg. Hộp Pate 500g và Pate 200g được giữ thành hai ô riêng; kg chỉ là thông tin tham khảo.")}</p>
             </CardContent>
           </Card>
         ) : (
-          <div className="mb-4 rounded-2xl border border-[#eadfe4] bg-white p-3 text-sm text-[#817278]">Bạn chỉ có quyền xem Kho Tân Tạo; các form ghi nghiệp vụ và kiểm kê được ẩn.</div>
+          <div className="mb-4 rounded-2xl border border-[#eadfe4] bg-white p-3 text-sm text-[#817278]">{c("Bạn chỉ có quyền xem Kho Tân Tạo; các form ghi nghiệp vụ và kiểm kê được ẩn.")}</div>
         )}
 
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(320px,.65fr)]">
@@ -412,7 +419,7 @@ export default function TanTaoWarehouse() {
               <img src={bmqLogo} alt="BMQ Agent" className="h-10 w-10 rounded-full border border-[#eadfe4] bg-white object-contain p-1" />
               <div>
                 <div className="flex items-center gap-2"><h2 className="font-black">BMQ Agent</h2><Bot className="h-4 w-4 text-[#c54f82]" /></div>
-                <p className="text-xs text-[#817278]">Trợ lý nghiệp vụ Kho Tân Tạo</p>
+                <p className="text-xs text-[#817278]">{c("Trợ lý nghiệp vụ Kho Tân Tạo")}</p>
               </div>
             </div>
 
@@ -420,18 +427,17 @@ export default function TanTaoWarehouse() {
               <div className="flex gap-2">
                 <img src={bmqLogo} alt="" className="h-7 w-7 rounded-full border bg-white object-contain p-0.5" />
                 <div className="max-w-[88%] rounded-2xl rounded-tl-md border border-[#eadfe4] bg-white px-3 py-2 text-sm leading-6 shadow-sm">
-                  Anh cứ nhắn nghiệp vụ. Em sẽ tự lập phiếu, ghi sổ kho và trả lại tồn trước/sau. Đơn NCC chỉ vào <strong>Hàng đang về</strong>; đơn khách chỉ <strong>giữ ATP</strong> cho đến khi xuất thực tế.
-                </div>
+                  {c("Anh cứ nhắn nghiệp vụ. Em sẽ tự lập phiếu, ghi sổ kho và trả lại tồn trước/sau. Đơn NCC chỉ vào")} <strong>{c("Hàng đang về")}</strong>{c("; đơn khách chỉ")} <strong>{c("giữ ATP")}</strong> {c("cho đến khi xuất thực tế.")} </div>
               </div>
               {messages.map((message) => (
                 <div key={message.id} className={`flex ${message.role === "user" ? "justify-end" : "gap-2"}`}>
                   {message.role === "agent" ? <img src={bmqLogo} alt="" className="h-7 w-7 rounded-full border bg-white object-contain p-0.5" /> : null}
                   <div className={`max-w-[88%] rounded-2xl px-3 py-2 text-sm leading-6 ${message.role === "user" ? "rounded-tr-md bg-[#c54f82] text-white" : "rounded-tl-md border border-[#eadfe4] bg-white"}`}>
-                    {message.text}
+                    {message.copyKey ? c(message.copyKey, { ...message.copyValues, document: documentLabel[message.documentType || ""] || c("chứng từ") }) : message.text}
                   </div>
                 </div>
               ))}
-              {commandMutation.isPending ? <div className="ml-9 text-xs font-semibold text-[#a83b6c]">BMQ Agent đang lập chứng từ…</div> : null}
+              {commandMutation.isPending ? <div className="ml-9 text-xs font-semibold text-[#a83b6c]">{c("BMQ Agent đang lập chứng từ…")}</div> : null}
             </div>
 
             {canManageWarehouse ? (
@@ -444,25 +450,25 @@ export default function TanTaoWarehouse() {
                   ))}
                 </div>
                 <div className="flex items-end gap-2 rounded-2xl border border-[#e2d4da] bg-white p-2 focus-within:ring-2 focus-within:ring-[#efb7cf]">
-                  <Textarea disabled={snapshotQuery.isLoading || snapshotQuery.isError} value={composer} onChange={(event) => setComposer(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); sendCommand(); } }} placeholder="Nhắn nghiệp vụ kho…" className="min-h-[44px] resize-none border-0 bg-transparent shadow-none focus-visible:ring-0" />
-                  <Button type="button" size="icon" onClick={() => sendCommand()} disabled={!composer.trim() || commandMutation.isPending || snapshotQuery.isLoading || snapshotQuery.isError} className="h-11 w-11 shrink-0 rounded-xl bg-[#c54f82] hover:bg-[#ad3e70]" aria-label="Gửi lệnh">
+                  <Textarea disabled={snapshotQuery.isLoading || snapshotQuery.isError} value={composer} onChange={(event) => setComposer(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); sendCommand(); } }} placeholder={c("Nhắn nghiệp vụ kho…")} className="min-h-[44px] resize-none border-0 bg-transparent shadow-none focus-visible:ring-0" />
+                  <Button type="button" size="icon" onClick={() => sendCommand()} disabled={!composer.trim() || commandMutation.isPending || snapshotQuery.isLoading || snapshotQuery.isError} className="h-11 w-11 shrink-0 rounded-xl bg-[#c54f82] hover:bg-[#ad3e70]" aria-label={c("Gửi lệnh")}>
                     <Send className="h-5 w-5" />
                   </Button>
                 </div>
               </div>
             ) : (
-              <div className="border-t border-[#efe5e9] p-3 text-sm text-[#817278]">Chế độ xem: BMQ Agent không hiển thị nút ghi sổ cho tài khoản không có quyền quản lý.</div>
+              <div className="border-t border-[#efe5e9] p-3 text-sm text-[#817278]">{c("Chế độ xem: BMQ Agent không hiển thị nút ghi sổ cho tài khoản không có quyền quản lý.")}</div>
             )}
           </Card>
 
           <Card className="border-[#eadfe4] bg-white shadow-sm">
             <div className="border-b border-[#efe5e9] p-4">
-              <div className="flex items-center justify-between gap-3"><h2 className="font-black">Chứng từ gần đây</h2><Badge variant="outline">{recentDocuments.length}</Badge></div>
-              <p className="mt-1 text-xs text-[#817278]">Phiếu được AI lập nhưng vẫn là dữ liệu nghiệp vụ chuẩn và có audit.</p>
+              <div className="flex items-center justify-between gap-3"><h2 className="font-black">{c("Chứng từ gần đây")}</h2><Badge variant="outline">{recentDocuments.length}</Badge></div>
+              <p className="mt-1 text-xs text-[#817278]">{c("Phiếu được AI lập nhưng vẫn là dữ liệu nghiệp vụ chuẩn và có audit.")}</p>
             </div>
             <div className="max-h-[640px] space-y-2 overflow-y-auto p-3">
               {recentDocuments.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-[#dfd0d6] p-6 text-center text-sm text-[#817278]">Chưa có chứng từ. Anh có thể bắt đầu bằng khai báo tồn đầu.</div>
+                <div className="rounded-2xl border border-dashed border-[#dfd0d6] p-6 text-center text-sm text-[#817278]">{c("Chưa có chứng từ. Anh có thể bắt đầu bằng khai báo tồn đầu.")}</div>
               ) : recentDocuments.map((document) => (
                 <div key={document.id} className="rounded-2xl border border-[#eadfe4] bg-[#fcfaf9] p-3">
                   <div className="flex items-start justify-between gap-3">
@@ -470,14 +476,14 @@ export default function TanTaoWarehouse() {
                     <Badge variant="outline" className="shrink-0 bg-white">{document.status}</Badge>
                   </div>
                   <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                    <div><span className="text-[#817278]">Số lượng</span><div className="font-black">{qty(document.physical_quantity || document.quantity)} {selectedStockCountItem.unit}</div></div>
-                    <div><span className="text-[#817278]">Nguồn</span><div className="truncate font-bold">{document.reference_label || "BMQ Agent"}</div></div>
+                    <div><span className="text-[#817278]">{c("Số lượng")}</span><div className="font-black">{qty(document.physical_quantity || document.quantity)} {selectedStockCountItem.unit}</div></div>
+                    <div><span className="text-[#817278]">{c("Nguồn")}</span><div className="truncate font-bold">{document.reference_label || "BMQ Agent"}</div></div>
                   </div>
-                  {document.document_type === "outbound_order" ? <div className="mt-2 text-xs text-[#817278]">Đặt {qty(document.ordered_quantity)} · Đổi {qty(document.exchange_quantity)} · Bù {qty(document.makeup_quantity)}</div> : null}
+                  {document.document_type === "outbound_order" ? <div className="mt-2 text-xs text-[#817278]">{c("Đặt")} {qty(document.ordered_quantity)} {c("· Đổi")} {qty(document.exchange_quantity)} {c("· Bù")} {qty(document.makeup_quantity)}</div> : null}
                   {document.document_type === "supplier_order" && number(document.supplier_credit_quantity) > 0 ? (
                     <div className="mt-2 text-xs text-[#817278]">
-                      Lò tính tiền {qty(document.supplier_billable_quantity)} · Khấu trừ công nợ lò {qty(document.supplier_credit_quantity)}{" "}
-                      (Đổi {qty(document.supplier_exchange_quantity)} · Bù {qty(document.supplier_makeup_quantity)})
+                      {c("Lò tính tiền")} {qty(document.supplier_billable_quantity)} {c("· Khấu trừ công nợ lò")} {qty(document.supplier_credit_quantity)}{" "}
+                      {c("(Đổi")} {qty(document.supplier_exchange_quantity)} {c("· Bù")} {qty(document.supplier_makeup_quantity)})
                     </div>
                   ) : null}
                 </div>

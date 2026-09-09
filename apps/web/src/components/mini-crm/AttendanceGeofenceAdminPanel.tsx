@@ -1,3 +1,4 @@
+import { useSalesCrmMessages, type SalesCrmKey } from "@/i18n/salesCrm";
 import { useMemo, useState } from "react";
 import { AlertTriangle, Crosshair, Loader2, Pencil, Save } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -82,14 +83,15 @@ const attendanceGeofenceFriendlyErrors = new Set([
   "Mã vị trí GPS hoặc Kiosk / điểm bán đã được cấu hình.",
 ]);
 
-const formatAttendanceGeofenceError = (error: unknown) => {
+const formatAttendanceGeofenceError = (error: unknown, f: ReturnType<typeof useSalesCrmMessages>) => {
   const message = error instanceof Error ? error.message : typeof error === "object" && error && "message" in error ? String((error as { message?: unknown }).message || "") : "";
   return attendanceGeofenceFriendlyErrors.has(message)
-    ? message
-    : "Không thể lưu cấu hình GPS chấm công. Vui lòng thử lại hoặc báo quản trị viên.";
+    ? f(message as SalesCrmKey)
+    : f("Không thể lưu cấu hình GPS chấm công. Vui lòng thử lại hoặc báo quản trị viên.");
 };
 
 export function AttendanceGeofenceAdminPanel({ canView, canEdit }: { canView: boolean; canEdit: boolean }) {
+  const f = useSalesCrmMessages();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [draft, setDraft] = useState<GeofenceDraft>(tanTaoDraft);
@@ -174,10 +176,10 @@ export function AttendanceGeofenceAdminPanel({ canView, canEdit }: { canView: bo
     onSuccess: async () => {
       setDraft(tanTaoDraft);
       await queryClient.invalidateQueries({ queryKey: ["attendance-geofence-locations"] });
-      toast({ title: "Đã lưu cấu hình GPS chấm công" });
+      toast({ title: f("Đã lưu cấu hình GPS chấm công") });
     },
     onError: (error: any) => {
-      toast({ title: "Lưu cấu hình GPS thất bại", description: formatAttendanceGeofenceError(error), variant: "destructive" });
+      toast({ title: f("Lưu cấu hình GPS thất bại"), description: formatAttendanceGeofenceError(error, f), variant: "destructive" });
     },
   });
 
@@ -186,18 +188,17 @@ export function AttendanceGeofenceAdminPanel({ canView, canEdit }: { canView: bo
       <Card>
         <CardContent className="flex items-start gap-3 p-4 text-sm text-amber-800">
           <AlertTriangle className="mt-0.5 h-4 w-4" />
-          Bạn cần quyền CRM để xem cấu hình GPS chấm công.
-        </CardContent>
+           {f("Bạn cần quyền CRM để xem cấu hình GPS chấm công.")} </CardContent>
       </Card>
     );
   }
 
   if (geofencesQuery.isLoading || kioskLocationsQuery.isLoading) {
-    return <Card><CardContent className="flex min-h-40 items-center justify-center text-muted-foreground"><Loader2 className="mr-2 h-5 w-5 animate-spin" />Đang tải cấu hình GPS chấm công...</CardContent></Card>;
+    return <Card><CardContent className="flex min-h-40 items-center justify-center text-muted-foreground"><Loader2 className="mr-2 h-5 w-5 animate-spin" />{f("Đang tải cấu hình GPS chấm công...")}</CardContent></Card>;
   }
 
   if (geofencesQuery.error || kioskLocationsQuery.error) {
-    return <Card><CardContent className="flex items-start gap-3 p-4 text-sm text-destructive"><AlertTriangle className="mt-0.5 h-4 w-4" />Không thể tải cấu hình GPS chấm công. Vui lòng thử lại.</CardContent></Card>;
+    return <Card><CardContent className="flex items-start gap-3 p-4 text-sm text-destructive"><AlertTriangle className="mt-0.5 h-4 w-4" />{f("Không thể tải cấu hình GPS chấm công. Vui lòng thử lại.")}</CardContent></Card>;
   }
 
   return (
@@ -205,31 +206,31 @@ export function AttendanceGeofenceAdminPanel({ canView, canEdit }: { canView: bo
       {canEdit && (
         <Card className="border-border/70 bg-gradient-to-b from-background to-muted/20 shadow-sm">
           <CardHeader>
-            <CardTitle>{draft.id ? "Sửa GPS chấm công" : "Tạo GPS chấm công"}</CardTitle>
-            <CardDescription>Khai báo geofence cho nhân viên kiosk và Kho Tân Tạo. Mặc định 20m, chưa tự gán nhân viên giao hàng.</CardDescription>
+            <CardTitle>{draft.id ? f("Sửa GPS chấm công") : f("Tạo GPS chấm công")}</CardTitle>
+            <CardDescription>{f("Khai báo geofence cho nhân viên kiosk và Kho Tân Tạo. Mặc định 20m, chưa tự gán nhân viên giao hàng.")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="grid gap-2 md:grid-cols-2">
               <div className="space-y-2">
-                <Label>Loại vị trí</Label>
+                <Label>{f("Loại vị trí")}</Label>
                 <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={draft.location_type} onChange={(event) => setDraft((current) => ({ ...current, location_type: event.target.value as "kiosk" | "warehouse", kiosk_location_id: event.target.value === "warehouse" ? "" : current.kiosk_location_id }))}>
-                  <option value="kiosk">Kiosk / điểm bán</option>
-                  <option value="warehouse">Kho</option>
+                  <option value="kiosk">{f("Kiosk / điểm bán")}</option>
+                  <option value="warehouse">{f("Kho")}</option>
                 </select>
               </div>
               <div className="space-y-2">
-                <Label>Trạng thái</Label>
+                <Label>{f("Trạng thái")}</Label>
                 <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={draft.active ? "active" : "inactive"} onChange={(event) => setDraft((current) => ({ ...current, active: event.target.value === "active" }))}>
-                  <option value="active">Đang dùng</option>
-                  <option value="inactive">Tạm ngưng</option>
+                  <option value="active">{f("Đang dùng")}</option>
+                  <option value="inactive">{f("Tạm ngưng")}</option>
                 </select>
               </div>
             </div>
             {draft.location_type === "kiosk" && (
               <div className="space-y-2">
-                <Label>Kiosk / điểm bán</Label>
+                <Label>{f("Kiosk / điểm bán")}</Label>
                 <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={draft.kiosk_location_id} onChange={(event) => setDraft((current) => ({ ...current, kiosk_location_id: event.target.value }))}>
-                  <option value="">-- Chọn Kiosk / điểm bán --</option>
+                  <option value="">{f("-- Chọn Kiosk / điểm bán --")}</option>
                   {kioskLocations.map((location) => (
                     <option key={location.id} value={location.id}>{location.location_code} - {location.location_name}</option>
                   ))}
@@ -238,39 +239,38 @@ export function AttendanceGeofenceAdminPanel({ canView, canEdit }: { canView: bo
             )}
             <div className="grid gap-2 md:grid-cols-2">
               <div className="space-y-2">
-                <Label>Mã vị trí GPS</Label>
-                <Input value={draft.code} onChange={(event) => setDraft((current) => ({ ...current, code: event.target.value }))} placeholder="VD: warehouse_tan_tao" />
+                <Label>{f("Mã vị trí GPS")}</Label>
+                <Input value={draft.code} onChange={(event) => setDraft((current) => ({ ...current, code: event.target.value }))} placeholder={f("VD: warehouse_tan_tao")} />
               </div>
               <div className="space-y-2">
-                <Label>Tên vị trí GPS</Label>
-                <Input value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} placeholder="VD: Kho Tân Tạo" />
+                <Label>{f("Tên vị trí GPS")}</Label>
+                <Input value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} placeholder={f("VD: Kho Tân Tạo")} />
               </div>
             </div>
             <div className="grid gap-2 md:grid-cols-3">
               <div className="space-y-2">
-                <Label>Vĩ độ</Label>
-                <Input inputMode="decimal" value={draft.latitude} onChange={(event) => setDraft((current) => ({ ...current, latitude: event.target.value }))} placeholder="Chưa có" />
+                <Label>{f("Vĩ độ")}</Label>
+                <Input inputMode="decimal" value={draft.latitude} onChange={(event) => setDraft((current) => ({ ...current, latitude: event.target.value }))} placeholder={f("Chưa có")} />
               </div>
               <div className="space-y-2">
-                <Label>Kinh độ</Label>
-                <Input inputMode="decimal" value={draft.longitude} onChange={(event) => setDraft((current) => ({ ...current, longitude: event.target.value }))} placeholder="Chưa có" />
+                <Label>{f("Kinh độ")}</Label>
+                <Input inputMode="decimal" value={draft.longitude} onChange={(event) => setDraft((current) => ({ ...current, longitude: event.target.value }))} placeholder={f("Chưa có")} />
               </div>
               <div className="space-y-2">
-                <Label>Bán kính chấp nhận (m)</Label>
+                <Label>{f("Bán kính chấp nhận (m)")}</Label>
                 <Input inputMode="numeric" value={draft.accepted_radius_m} onChange={(event) => setDraft((current) => ({ ...current, accepted_radius_m: event.target.value }))} placeholder="20" />
               </div>
             </div>
-            <div className="text-xs text-muted-foreground">Mặc định 20m. Kho Tân Tạo được tạo sẵn với mã warehouse_tan_tao nhưng chưa có tọa độ.</div>
+            <div className="text-xs text-muted-foreground">{f("Mặc định 20m. Kho Tân Tạo được tạo sẵn với mã warehouse_tan_tao nhưng chưa có tọa độ.")}</div>
             <div className="space-y-2">
-              <Label>Ghi chú</Label>
-              <Input value={draft.notes} onChange={(event) => setDraft((current) => ({ ...current, notes: event.target.value }))} placeholder="Nguồn xác nhận tọa độ / ghi chú vận hành" />
+              <Label>{f("Ghi chú")}</Label>
+              <Input value={draft.notes} onChange={(event) => setDraft((current) => ({ ...current, notes: event.target.value }))} placeholder={f("Nguồn xác nhận tọa độ / ghi chú vận hành")} />
             </div>
             <div className="flex justify-end gap-2 pt-1">
-              {draft.id ? <Button variant="outline" onClick={() => setDraft(tanTaoDraft)}>Huỷ sửa</Button> : null}
+              {draft.id ? <Button variant="outline" onClick={() => setDraft(tanTaoDraft)}>{f("Huỷ sửa")}</Button> : null}
               <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
                 {saveMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                Lưu GPS
-              </Button>
+                 {f("Lưu GPS")} </Button>
             </div>
           </CardContent>
         </Card>
@@ -278,8 +278,8 @@ export function AttendanceGeofenceAdminPanel({ canView, canEdit }: { canView: bo
 
       <Card className="border-border/70 bg-gradient-to-b from-background to-muted/20 shadow-sm">
         <CardHeader>
-          <CardTitle>Danh sách GPS chấm công</CardTitle>
-          <CardDescription>{geofences.length} vị trí geofence</CardDescription>
+          <CardTitle>{f("Danh sách GPS chấm công")}</CardTitle>
+          <CardDescription>{geofences.length}  {f("vị trí geofence")}</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-2">
           {geofences.map((location) => (
@@ -288,13 +288,13 @@ export function AttendanceGeofenceAdminPanel({ canView, canEdit }: { canView: bo
                 <div className="min-w-0">
                   <div className="flex items-center gap-2"><Crosshair className="h-4 w-4 text-muted-foreground" /><div className="truncate font-semibold">{location.name}</div></div>
                   <div className="mt-1 flex flex-wrap gap-1.5">
-                    <Badge variant="outline">{location.location_type === "warehouse" ? "Kho" : "Kiosk"}</Badge>
-                    {location.active ? <Badge>Đang dùng</Badge> : <Badge variant="secondary">Tạm ngưng</Badge>}
+                    <Badge variant="outline">{location.location_type === "warehouse" ? f("Kho") : f("Kiosk")}</Badge>
+                    {location.active ? <Badge>{f("Đang dùng")}</Badge> : <Badge variant="secondary">{f("Tạm ngưng")}</Badge>}
                   </div>
                   <div className="mt-2 text-sm text-muted-foreground">{location.code}</div>
-                  {location.kiosk_location_id ? <div className="text-sm">{kioskLabelById.get(location.kiosk_location_id) || "Kiosk / điểm bán"}</div> : null}
-                  <div className="text-sm">Tọa độ: {location.latitude && location.longitude ? `${location.latitude}, ${location.longitude}` : "Chưa cấu hình"}</div>
-                  <div className="text-sm font-medium">Bán kính chấp nhận: {location.accepted_radius_m || 20}m</div>
+                  {location.kiosk_location_id ? <div className="text-sm">{kioskLabelById.get(location.kiosk_location_id) || f("Kiosk / điểm bán")}</div> : null}
+                  <div className="text-sm">{f("Tọa độ:")} {location.latitude && location.longitude ? `${location.latitude}, ${location.longitude}` : f("Chưa cấu hình")}</div>
+                  <div className="text-sm font-medium">{f("Bán kính chấp nhận:")} {location.accepted_radius_m || 20}{f("m")}</div>
                   {location.notes ? <div className="mt-2 text-xs text-muted-foreground">{location.notes}</div> : null}
                 </div>
               </div>
@@ -311,12 +311,11 @@ export function AttendanceGeofenceAdminPanel({ canView, canEdit }: { canView: bo
                   active: location.active !== false,
                   notes: location.notes || "",
                 })}>
-                  <Pencil className="mr-2 h-4 w-4" />Sửa
-                </Button>
+                  <Pencil className="mr-2 h-4 w-4" />{f("Sửa")} </Button>
               )}
             </div>
           ))}
-          {geofences.length === 0 && <div className="rounded-lg border bg-background/80 p-6 text-center text-sm text-muted-foreground md:col-span-2">Chưa có cấu hình GPS chấm công.</div>}
+          {geofences.length === 0 && <div className="rounded-lg border bg-background/80 p-6 text-center text-sm text-muted-foreground md:col-span-2">{f("Chưa có cấu hình GPS chấm công.")}</div>}
         </CardContent>
       </Card>
     </div>

@@ -66,7 +66,9 @@ export function useSkuCostBridge() {
   return useQuery({
     queryKey: ["sku-cost-bridge"],
     queryFn: async () => {
-      const { data: skus } = await sb.from("product_skus").select("id,sku_code,product_name,category,unit,updated_at,cost_values,finished_output_qty,finished_output_unit,image_url,image_path,image_updated_at").order("updated_at", { ascending: false });
+      const { data: skus, error: skuError } = await sb.from("product_skus").select("id,sku_code,product_name,category,unit,updated_at,cost_values,finished_output_qty,finished_output_unit,image_url,image_path,image_updated_at").order("updated_at", { ascending: false });
+
+      if (skuError) throw skuError;
 
       const skuRows = (skus || []).filter((s: any) => isFinishedSku(String(s.category || "")));
       const skuIds = skuRows.map((s: any) => s.id);
@@ -97,6 +99,9 @@ export function useSkuCostBridge() {
           .order("received_date", { ascending: true })
           .limit(500),
       ]);
+
+      if (formulaRes.error) throw formulaRes.error;
+      if (invRes.error) throw invRes.error;
 
       const formulas = (formulaRes.data || []) as FormulaRow[];
       const purchases: ActualCostPurchase[] = [

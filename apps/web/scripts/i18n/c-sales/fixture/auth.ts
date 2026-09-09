@@ -1,0 +1,1 @@
+export function useAuth(){const readonly=location.search.includes('readonly');return {user:{id:'staff-fixture',email:'staff@example.invalid'},isOwner:!readonly,roles:readonly?[]:['staff'],canEditModule:()=>!readonly,canAccessModule:()=>!location.search.includes('denied')};}

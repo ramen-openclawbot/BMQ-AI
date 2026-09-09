@@ -1,0 +1,136 @@
+[
+  {
+    "file": "pages/ProductionPlanning.tsx",
+    "text": "Đã điều chỉnh số lượng trước khi xác nhận",
+    "line": 756,
+    "reason": "Stored production adjustment note; write payload must stay Vietnamese."
+  },
+  {
+    "file": "pages/material-master/MaterialMasterAdmin.tsx",
+    "text": "Đã duyệt",
+    "line": 88,
+    "reason": "Canonical approved status used by the badge color predicate."
+  },
+  {
+    "file": "pages/material-master/MaterialMasterAdmin.tsx",
+    "text": "Xác nhận sản phẩm Nhà cung cấp theo lựa chọn của người dùng.",
+    "line": 222,
+    "reason": "Default supplier confirmation audit reason is persisted verbatim."
+  },
+  {
+    "file": "pages/material-master/MaterialMasterAdmin.tsx",
+    "text": "Đồng bộ Duyệt chi theo sản phẩm Nhà cung cấp đã xác nhận.",
+    "line": 364,
+    "reason": "Default payment sync audit reason is persisted verbatim."
+  },
+  {
+    "file": "pages/material-master/MaterialMasterAdmin.tsx",
+    "text": "đ",
+    "line": 406,
+    "reason": "VND currency suffix retained."
+  },
+  {
+    "file": "pages/ProductionProducts.tsx",
+    "text": "thành phẩm",
+    "line": 47,
+    "reason": "Finished SKU business classification match."
+  },
+  {
+    "file": "pages/QAInspection.tsx",
+    "text": "cái",
+    "line": 436,
+    "reason": "Canonical fallback unit written to QA rows."
+  },
+  {
+    "file": "pages/QAInspection.tsx",
+    "text": "cái",
+    "line": 599,
+    "reason": "Canonical fallback unit written to QA rows."
+  },
+  {
+    "file": "pages/QAInspection.tsx",
+    "text": "QA pass từ lệnh sản xuất Q7",
+    "line": 603,
+    "reason": "Stored QA receipt note."
+  },
+  {
+    "file": "pages/QAInspection.tsx",
+    "text": "Chưa quét tem nhãn",
+    "line": 637,
+    "reason": "Stored failure reason fallback."
+  },
+  {
+    "file": "pages/QAInspection.tsx",
+    "text": "cái",
+    "line": 664,
+    "reason": "Canonical fallback unit written to QA rows."
+  },
+  {
+    "file": "pages/QAInspection.tsx",
+    "text": "cái",
+    "line": 679,
+    "reason": "Canonical fallback unit written to QA rows."
+  },
+  {
+    "file": "components/q7-material-inventory/Q7SignedMaterialIssueQueue.tsx",
+    "text": "[ẩn]",
+    "line": 124,
+    "reason": "Redaction token used by protocol sanitation, including parsed status/IDs."
+  },
+  {
+    "file": "components/q7-material-inventory/Q7SignedMaterialIssueQueue.tsx",
+    "text": "[ẩn]",
+    "line": 125,
+    "reason": "Redaction token used by protocol sanitation, including parsed status/IDs."
+  },
+  {
+    "file": "components/q7-material-inventory/Q7SignedMaterialIssueQueue.tsx",
+    "text": "[ẩn]",
+    "line": 126,
+    "reason": "Redaction token used by protocol sanitation, including parsed status/IDs."
+  },
+  {
+    "file": "components/q7-material-inventory/Q7SignedMaterialIssueQueue.tsx",
+    "text": "[ẩn]",
+    "line": 127,
+    "reason": "Redaction token used by protocol sanitation, including parsed status/IDs."
+  },
+  {
+    "file": "components/q7-material-inventory/Q7SignedMaterialIssueQueue.tsx",
+    "text": "[ẩn]",
+    "line": 191,
+    "reason": "Redaction token used by protocol sanitation, including parsed status/IDs."
+  },
+  {
+    "file": "components/q7-material-inventory/Q7SignedMaterialIssueQueue.tsx",
+    "text": "[ẩn]",
+    "line": 192,
+    "reason": "Redaction token used by protocol sanitation, including parsed status/IDs."
+  },
+  {
+    "file": "components/q7-material-inventory/Q7SignedMaterialIssueQueue.tsx",
+    "text": "[ẩn]",
+    "line": 193,
+    "reason": "Redaction token used by protocol sanitation, including parsed status/IDs."
+  },
+  {
+    "file": "pages/QAInspection.tsx",
+    "text": "Chất lượng:",
+    "reason": "Persisted QA checklist label and parser contract; display checklist uses separate UI copy."
+  },
+  {
+    "file": "pages/QAInspection.tsx",
+    "text": "Cảm quan:",
+    "reason": "Persisted QA checklist label and parser contract; display checklist uses separate UI copy."
+  },
+  {
+    "file": "pages/QAInspection.tsx",
+    "text": "Bao bì:",
+    "reason": "Persisted QA checklist label and parser contract; display checklist uses separate UI copy."
+  },
+  {
+    "file": "pages/QAInspection.tsx",
+    "text": "— nhập kho TP từ",
+    "reason": "Canonical inventory movement note written with the source production number."
+  }
+]

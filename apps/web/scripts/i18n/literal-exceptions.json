@@ -1,0 +1,898 @@
+[
+  {
+    "file": "src/pages/SkuCostsDjango.tsx",
+    "kind": "template",
+    "text": "`${new Intl.NumberFormat(\"vi-VN\").format(Math.round(Number(n || 0)))}đ`",
+    "count": 1,
+    "reason": "VND denomination/price-band contract; currency remains Vietnamese dong in both languages."
+  },
+  {
+    "file": "src/pages/SkuCostsDjango.tsx",
+    "kind": "literal",
+    "text": "0đ",
+    "count": 2,
+    "reason": "VND denomination/price-band contract; currency remains Vietnamese dong in both languages."
+  },
+  {
+    "file": "src/pages/SkuCostsDjango.tsx",
+    "kind": "literal",
+    "text": "Mã SKU",
+    "count": 1,
+    "reason": "Canonical CSV header or exported price-status value. Export bytes must not change with UI language."
+  },
+  {
+    "file": "src/pages/SkuCostsDjango.tsx",
+    "kind": "literal",
+    "text": "Tên SKU",
+    "count": 1,
+    "reason": "Canonical CSV header or exported price-status value. Export bytes must not change with UI language."
+  },
+  {
+    "file": "src/pages/SkuCostsDjango.tsx",
+    "kind": "literal",
+    "text": "Đơn vị",
+    "count": 1,
+    "reason": "Canonical CSV header or exported price-status value. Export bytes must not change with UI language."
+  },
+  {
+    "file": "src/pages/SkuCostsDjango.tsx",
+    "kind": "literal",
+    "text": "Giá bán",
+    "count": 1,
+    "reason": "Canonical CSV header or exported price-status value. Export bytes must not change with UI language."
+  },
+  {
+    "file": "src/pages/SkuCostsDjango.tsx",
+    "kind": "literal",
+    "text": "Giá vốn",
+    "count": 1,
+    "reason": "Canonical CSV header or exported price-status value. Export bytes must not change with UI language."
+  },
+  {
+    "file": "src/pages/SkuCostsDjango.tsx",
+    "kind": "literal",
+    "text": "Trạng thái giá",
+    "count": 1,
+    "reason": "Canonical CSV header or exported price-status value. Export bytes must not change with UI language."
+  },
+  {
+    "file": "src/pages/SkuCostsDjango.tsx",
+    "kind": "literal",
+    "text": "Cập nhật lúc",
+    "count": 1,
+    "reason": "Canonical CSV header or exported price-status value. Export bytes must not change with UI language."
+  },
+  {
+    "file": "src/pages/SkuCostsDjango.tsx",
+    "kind": "literal",
+    "text": "Có giá",
+    "count": 1,
+    "reason": "Canonical CSV header or exported price-status value. Export bytes must not change with UI language."
+  },
+  {
+    "file": "src/pages/SkuCostsDjango.tsx",
+    "kind": "literal",
+    "text": "Chưa giá",
+    "count": 1,
+    "reason": "Canonical CSV header or exported price-status value. Export bytes must not change with UI language."
+  },
+  {
+    "file": "src/pages/SkuCostsAnalysis.tsx",
+    "kind": "literal",
+    "text": "chà bông",
+    "count": 1,
+    "reason": "Existing preferred-SKU selection matches a stored product name; not UI copy."
+  },
+  {
+    "file": "src/pages/SkuCostsAnalysis.tsx",
+    "kind": "literal",
+    "text": "Tháng",
+    "count": 1,
+    "reason": "Canonical analysis CSV header. Export headers and format intentionally remain unchanged."
+  },
+  {
+    "file": "src/pages/SkuCostsAnalysis.tsx",
+    "kind": "literal",
+    "text": "Mã NVL",
+    "count": 1,
+    "reason": "Canonical analysis CSV header. Export headers and format intentionally remain unchanged."
+  },
+  {
+    "file": "src/pages/SkuCostsAnalysis.tsx",
+    "kind": "literal",
+    "text": "Tên NVL chuẩn",
+    "count": 1,
+    "reason": "Canonical analysis CSV header. Export headers and format intentionally remain unchanged."
+  },
+  {
+    "file": "src/pages/SkuCostsAnalysis.tsx",
+    "kind": "literal",
+    "text": "Tên NVL công thức",
+    "count": 1,
+    "reason": "Canonical analysis CSV header. Export headers and format intentionally remain unchanged."
+  },
+  {
+    "file": "src/pages/SkuCostsAnalysis.tsx",
+    "kind": "literal",
+    "text": "Giá CT",
+    "count": 1,
+    "reason": "Canonical analysis CSV header. Export headers and format intentionally remain unchanged."
+  },
+  {
+    "file": "src/pages/SkuCostsAnalysis.tsx",
+    "kind": "literal",
+    "text": "Giá TT TB dùng tính",
+    "count": 1,
+    "reason": "Canonical analysis CSV header. Export headers and format intentionally remain unchanged."
+  },
+  {
+    "file": "src/pages/SkuCostsAnalysis.tsx",
+    "kind": "literal",
+    "text": "Giá mua raw",
+    "count": 1,
+    "reason": "Canonical analysis CSV header. Export headers and format intentionally remain unchanged."
+  },
+  {
+    "file": "src/pages/SkuCostsAnalysis.tsx",
+    "kind": "literal",
+    "text": "Định lượng",
+    "count": 1,
+    "reason": "Canonical analysis CSV header. Export headers and format intentionally remain unchanged."
+  },
+  {
+    "file": "src/pages/SkuCostsAnalysis.tsx",
+    "kind": "literal",
+    "text": "Đơn vị",
+    "count": 1,
+    "reason": "Canonical analysis CSV header. Export headers and format intentionally remain unchanged."
+  },
+  {
+    "file": "src/pages/SkuCostsAnalysis.tsx",
+    "kind": "literal",
+    "text": "Δ cost",
+    "count": 1,
+    "reason": "Canonical analysis CSV header. Export headers and format intentionally remain unchanged."
+  },
+  {
+    "file": "src/pages/SkuCostsAnalysis.tsx",
+    "kind": "literal",
+    "text": "Δ %",
+    "count": 1,
+    "reason": "Canonical analysis CSV header. Export headers and format intentionally remain unchanged."
+  },
+  {
+    "file": "src/pages/SkuCostsAnalysis.tsx",
+    "kind": "literal",
+    "text": "Nguồn",
+    "count": 1,
+    "reason": "Canonical analysis CSV header. Export headers and format intentionally remain unchanged."
+  },
+  {
+    "file": "src/pages/SkuCostsAnalysis.tsx",
+    "kind": "literal",
+    "text": "Số dòng PR/PO",
+    "count": 1,
+    "reason": "Canonical analysis CSV header. Export headers and format intentionally remain unchanged."
+  },
+  {
+    "file": "src/pages/SkuCostsAnalysis.tsx",
+    "kind": "literal",
+    "text": "Cảnh báo",
+    "count": 1,
+    "reason": "Canonical analysis CSV header. Export headers and format intentionally remain unchanged."
+  },
+  {
+    "file": "src/pages/SkuCostsAnalysis.tsx",
+    "kind": "literal",
+    "text": "Ngày",
+    "count": 1,
+    "reason": "Canonical analysis CSV header. Export headers and format intentionally remain unchanged."
+  },
+  {
+    "file": "src/pages/SkuCostsAnalysis.tsx",
+    "kind": "literal",
+    "text": "Giá mua thật",
+    "count": 1,
+    "reason": "Canonical analysis CSV header. Export headers and format intentionally remain unchanged."
+  },
+  {
+    "file": "src/pages/SkuCostsAnalysis.tsx",
+    "kind": "literal",
+    "text": "% NVL có giá thật",
+    "count": 1,
+    "reason": "Canonical analysis CSV header. Export headers and format intentionally remain unchanged."
+  },
+  {
+    "file": "src/pages/SkuCostsAnalysis.tsx",
+    "kind": "literal",
+    "text": "Tổng NVL",
+    "count": 1,
+    "reason": "Canonical analysis CSV header. Export headers and format intentionally remain unchanged."
+  },
+  {
+    "file": "src/pages/SkuCostsAnalysis.tsx",
+    "kind": "literal",
+    "text": "Mã NVL/PR",
+    "count": 1,
+    "reason": "Canonical analysis source discriminator; sourceLabel translates only its rendered label, preserving export values."
+  },
+  {
+    "file": "src/pages/SkuCostsAnalysis.tsx",
+    "kind": "literal",
+    "text": "Giá CT fallback",
+    "count": 1,
+    "reason": "Canonical analysis source discriminator; sourceLabel translates only its rendered label, preserving export values."
+  },
+  {
+    "file": "src/pages/SkuCostsAnalysis.tsx",
+    "kind": "literal",
+    "text": "Cảnh báo mapping/quy đổi",
+    "count": 1,
+    "reason": "Canonical analysis source discriminator; sourceLabel translates only its rendered label, preserving export values."
+  },
+  {
+    "file": "src/pages/SkuCostsAnalysis.tsx",
+    "kind": "JSX",
+    "text": "Δ",
+    "count": 1,
+    "reason": "Language-neutral mathematical delta symbol."
+  },
+  {
+    "file": "src/pages/SkuCostsManagement.tsx",
+    "kind": "literal",
+    "text": "Bao bì",
+    "count": 1,
+    "reason": "Legacy widget metadata used by parseWidgets only; no active rendered label consumer."
+  },
+  {
+    "file": "src/pages/SkuCostsManagement.tsx",
+    "kind": "literal",
+    "text": "Nhân công trực tiếp sản xuất",
+    "count": 1,
+    "reason": "Legacy widget metadata used by parseWidgets only; no active rendered label consumer."
+  },
+  {
+    "file": "src/pages/SkuCostsManagement.tsx",
+    "kind": "literal",
+    "text": "Nhân sự quản lý",
+    "count": 1,
+    "reason": "Legacy widget metadata used by parseWidgets only; no active rendered label consumer."
+  },
+  {
+    "file": "src/pages/SkuCostsManagement.tsx",
+    "kind": "literal",
+    "text": "Giao hàng",
+    "count": 1,
+    "reason": "Legacy widget metadata used by parseWidgets only; no active rendered label consumer."
+  },
+  {
+    "file": "src/pages/SkuCostsManagement.tsx",
+    "kind": "literal",
+    "text": "Chi phí khác",
+    "count": 1,
+    "reason": "Legacy widget metadata used by parseWidgets only; no active rendered label consumer."
+  },
+  {
+    "file": "src/pages/SkuCostsManagement.tsx",
+    "kind": "literal",
+    "text": "kí",
+    "count": 1,
+    "reason": "Input unit aliases used by the existing gram conversion rule."
+  },
+  {
+    "file": "src/pages/SkuCostsManagement.tsx",
+    "kind": "literal",
+    "text": "ký",
+    "count": 1,
+    "reason": "Input unit aliases used by the existing gram conversion rule."
+  },
+  {
+    "file": "src/pages/SkuCostsManagement.tsx",
+    "kind": "literal",
+    "text": "gói",
+    "count": 4,
+    "reason": "Stored/default category, unit or OCR-generated product name. Values and payloads stay canonical."
+  },
+  {
+    "file": "src/pages/SkuCostsManagement.tsx",
+    "kind": "literal",
+    "text": "Thành phẩm",
+    "count": 4,
+    "reason": "Stored/default category, unit or OCR-generated product name. Values and payloads stay canonical."
+  },
+  {
+    "file": "src/pages/SkuCostsManagement.tsx",
+    "kind": "literal",
+    "text": "cái",
+    "count": 5,
+    "reason": "Stored/default category, unit or OCR-generated product name. Values and payloads stay canonical."
+  },
+  {
+    "file": "src/pages/SkuCostsManagement.tsx",
+    "kind": "literal",
+    "text": "Cập nhật SKU COGS từ màn hình quản trị",
+    "count": 1,
+    "reason": "Persisted audit reason in save_sku_cogs payload; not display copy."
+  },
+  {
+    "file": "src/pages/SkuCostsManagement.tsx",
+    "kind": "literal",
+    "text": "Tạo SKU COGS ban đầu",
+    "count": 1,
+    "reason": "Persisted audit reason in save_sku_cogs payload; not display copy."
+  },
+  {
+    "file": "src/pages/SkuCostsManagement.tsx",
+    "kind": "literal",
+    "text": "SKU từ ảnh",
+    "count": 2,
+    "reason": "Stored/default category, unit or OCR-generated product name. Values and payloads stay canonical."
+  },
+  {
+    "file": "src/components/layout/Header.tsx",
+    "kind": "attribute",
+    "text": "English",
+    "count": 1,
+    "reason": "Approved native-language switch accessible name; exact English/Tiếng Việt behavior preserved."
+  },
+  {
+    "file": "src/components/layout/Header.tsx",
+    "kind": "attribute",
+    "text": "Tiếng Việt",
+    "count": 1,
+    "reason": "Approved native-language switch accessible name; exact English/Tiếng Việt behavior preserved."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Tóm tắt khách hàng cần chú ý",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Tóm tắt module này",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Tóm tắt PO đang chờ xử lý",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Checklist review delta trước khi post",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Giải thích auto-post an toàn",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Tóm tắt màn hình hiện tại",
+    "count": 2,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Đề xuất 3 việc nên làm tiếp",
+    "count": 2,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Tạo checklist vận hành hôm nay",
+    "count": 2,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Tồn kho",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Kiểm tra mặt hàng sắp hết",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Tóm tắt tồn kho theo nhóm",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Đề xuất nhập hàng hôm nay",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Nhà cung cấp",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Tìm NCC theo từ khóa",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Checklist đánh giá NCC",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Tóm tắt NCC đang hoạt động",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Hóa đơn",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Tìm hóa đơn cần chú ý",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Kiểm tra ảnh hóa đơn/UNC bị thiếu file",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Đề xuất xử lý lỗi invoice",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Đề nghị chi",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Tìm đề nghị chi theo NCC",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Tìm đề nghị chi theo NVL",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Tóm tắt đề nghị chi cần xử lý",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Phiếu nhập",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Tóm tắt phiếu nhập hôm nay",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Kiểm tra phiếu lệch số lượng",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Checklist đối soát nhập kho",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Tìm PO chờ xử lý",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Checklist tạo PO",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Đối soát PO với đề nghị chi",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Sắp hết hàng",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Liệt kê item dưới ngưỡng",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Đề xuất ưu tiên nhập",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Tạo checklist bổ sung tồn",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Cài đặt",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Kiểm tra cấu hình tích hợp",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Checklist cấu hình hệ thống",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Tóm tắt thay đổi gần đây",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Checklist cập nhật cost",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Tóm tắt cost anomalies",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Đề xuất kiểm tra tuần này",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Checklist nhập kho",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Gợi ý kiểm tra tồn",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Tóm tắt thao tác theo ca",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Cảnh báo bất thường",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Chi tiết nguồn doanh thu",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Dòng nào cần kiểm tra",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "So sánh nguồn đối soát và PO",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Gợi ý kiểm tra",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Draft cần kiểm tra",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Ngoại lệ hôm nay",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Cách sửa doanh thu",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Job gần nhất",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Snapshot hôm nay",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Lịch chạy 23:59",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Quản lý doanh thu",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Doanh thu tháng này",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Dòng cần kiểm tra",
+    "count": 1,
+    "reason": "Original request prompt or route label used by VNAgent payload. chatCopyKeys localizes presentation without changing the request."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "template",
+    "text": "`${Number(value || 0).toLocaleString(\"vi-VN\")}đ`",
+    "count": 1,
+    "reason": "RevenueDailyChatCard finance workflow and its helpers are explicitly outside Batch A; source is unchanged and not claimed complete."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "attribute",
+    "text": "Logo VNAgent",
+    "count": 1,
+    "reason": "Language-neutral brand name/brand logo accessible name."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "template",
+    "text": "`Agent ${AGENT_ID} chưa được cấp quyền cho BMQ.`",
+    "count": 2,
+    "reason": "Known agent authorization error discriminator; chatCopy renders localized staff.chat_agent_not_authorized with the ID."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Tài khoản chưa được VNAgent xác nhận quyền owner.",
+    "count": 1,
+    "reason": "Known internal VNAgent error string retained as a discriminator; chatCopyKeys localizes it at render time."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Không xác thực được với VNAgent.",
+    "count": 1,
+    "reason": "Known internal VNAgent error string retained as a discriminator; chatCopyKeys localizes it at render time."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "VNAgent không trả về phiên truy cập hợp lệ.",
+    "count": 1,
+    "reason": "Known internal VNAgent error string retained as a discriminator; chatCopyKeys localizes it at render time."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Không tải được agent được cấp quyền.",
+    "count": 1,
+    "reason": "Known internal VNAgent error string retained as a discriminator; chatCopyKeys localizes it at render time."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Không tải được danh sách cuộc trò chuyện VNAgent.",
+    "count": 1,
+    "reason": "Known internal VNAgent error string retained as a discriminator; chatCopyKeys localizes it at render time."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Không kết nối được VNAgent.",
+    "count": 1,
+    "reason": "Known internal VNAgent error string retained as a discriminator; chatCopyKeys localizes it at render time."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Cuộc trò chuyện này không còn tồn tại.",
+    "count": 1,
+    "reason": "Known internal VNAgent error string retained as a discriminator; chatCopyKeys localizes it at render time."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Không tải được lịch sử VNAgent.",
+    "count": 1,
+    "reason": "Known internal VNAgent error string retained as a discriminator; chatCopyKeys localizes it at render time."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Không tiếp tục được cuộc trò chuyện.",
+    "count": 1,
+    "reason": "Known internal VNAgent error string retained as a discriminator; chatCopyKeys localizes it at render time."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "VNAgent chưa sẵn sàng.",
+    "count": 1,
+    "reason": "Known internal VNAgent error string retained as a discriminator; chatCopyKeys localizes it at render time."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Không tạo được phiên VNAgent.",
+    "count": 1,
+    "reason": "Known internal VNAgent error string retained as a discriminator; chatCopyKeys localizes it at render time."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "VNAgent không trả về mã phiên.",
+    "count": 1,
+    "reason": "Known internal VNAgent error string retained as a discriminator; chatCopyKeys localizes it at render time."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Kết nối VNAgent vừa bị gián đoạn. Vui lòng gửi lại.",
+    "count": 1,
+    "reason": "Known internal VNAgent error string retained as a discriminator; chatCopyKeys localizes it at render time."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "literal",
+    "text": "Không gửi được tin nhắn.",
+    "count": 1,
+    "reason": "Known internal VNAgent error string retained as a discriminator; chatCopyKeys localizes it at render time."
+  },
+  {
+    "file": "src/components/agent/GlobalAgentChatWidget.tsx",
+    "kind": "JSX",
+    "text": "VNAgent",
+    "count": 1,
+    "reason": "Language-neutral brand name/brand logo accessible name."
+  },
+  {
+    "file": "src/pages/PayablesManagement.tsx",
+    "kind": "template",
+    "text": "`${new Intl.NumberFormat(\"vi-VN\", { maximumFractionDigits: 0 }).format(amount)} đ`",
+    "count": 1,
+    "reason": "Preserve the approved exact Vietnamese VND number formatting and currency suffix in both languages; financial display bytes are explicitly out of translation scope."
+  },
+  {
+    "file": "src/pages/PayablesManagement.tsx",
+    "kind": "JSX",
+    "text": "PO:",
+    "count": 2,
+    "reason": "Canonical purchase-order acronym prefix before stored PO identifiers; identical in EN and VI."
+  }
+]

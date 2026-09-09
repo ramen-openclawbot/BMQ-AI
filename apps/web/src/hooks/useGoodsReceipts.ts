@@ -1,3 +1,5 @@
+import { goodsReceiptPurchasing } from "@/i18n/goodsReceiptPurchasing";
+import { PurchasingLocalError, purchasingErrorMessage, type PurchasingUiMessage } from "@/i18n/purchasingCopy";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -366,7 +368,7 @@ export function useConfirmGoodsReceipt() {
       );
 
       if (response.error || !response.data) {
-        throw new Error(response.error || "Không thể chốt phiếu nhập kho");
+        throw (response.error ? new Error(response.error) : new PurchasingLocalError({ copyKey: "finalizeFailed" }));
       }
 
       return response.data;
@@ -419,7 +421,7 @@ export function useFinalizeHistoricalPaidGoodsReceipt() {
       );
 
       if (response.error || !response.data) {
-        throw new Error(response.error || "Không thể nhập kho đơn cũ đã thanh toán");
+        throw (response.error ? new Error(response.error) : new PurchasingLocalError({ copyKey: "historicalReceiveFailed" }));
       }
       return response.data;
     },
@@ -470,7 +472,7 @@ export function useDeliveryNoteOcr() {
   const [suggestions, setSuggestions] = useState<OcrMatchResult[]>([]);
   const [extractedLines, setExtractedLines] = useState<OcrLineCandidate[]>([]);
   const [materialResolutions, setMaterialResolutions] = useState<DeliveryNoteMaterialResolution[]>([]);
-  const [ocrError, setOcrError] = useState<string | null>(null);
+  const [ocrError, setOcrError] = useState<PurchasingUiMessage<keyof typeof goodsReceiptPurchasing.vi> | null>(null);
   const [uploadedPath, setUploadedPath] = useState<string | null>(null);
 
   const process = async (
@@ -519,7 +521,7 @@ export function useDeliveryNoteOcr() {
       setStatus("done");
       return deliveryNotePath;
     } catch (err) {
-      setOcrError(err instanceof Error ? err.message : "OCR thất bại");
+      setOcrError(purchasingErrorMessage(err, "ocrFailed"));
       setStatus("error");
     }
   };

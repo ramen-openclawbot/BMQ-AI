@@ -1,3 +1,4 @@
+import { formatText } from "@/i18n/format";
 import { useEffect, useRef, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
@@ -142,6 +143,7 @@ const activeNavItemClass =
   "bg-sidebar-accent/85 text-black md:text-black border-sidebar-border/80 shadow-sm hover:text-black before:absolute before:left-0 before:top-2 before:h-6 before:w-0.5 before:rounded-full before:bg-black md:before:hidden";
 
 export function Sidebar() {
+  const { messages: { staff: s } } = useLanguage();
   const { t } = useLanguage();
   const { pathname } = useLocation();
   const { isOwner, canAccessModule } = useAuth();
@@ -271,7 +273,7 @@ export function Sidebar() {
       {isMobile && !collapsed && (
         <button
           type="button"
-          aria-label="Đóng sidebar"
+          aria-label={s.close_sidebar}
           className="fixed inset-0 z-40 bg-black/45 md:hidden"
           onClick={() => setCollapsed(true)}
         />
@@ -285,7 +287,7 @@ export function Sidebar() {
       <div className="flex h-full flex-col">
         {/* Logo */}
         <div className={cn("flex items-center gap-3 border-b border-sidebar-border", collapsed ? "px-3 py-4" : "px-4 py-3 md:px-6 md:py-5")}>
-          <img src={bmqLogo} alt="BMQ Logo" className={cn("h-10 w-auto", collapsed ? "mx-auto" : "h-10 md:h-12")} />
+          <img src={bmqLogo} alt={s.brand_logo} className={cn("h-10 w-auto", collapsed ? "mx-auto" : "h-10 md:h-12")} />
           {!collapsed && (
             <div className="flex-1">
               <h1 className="font-display text-sm font-bold text-sidebar-foreground leading-tight">
@@ -299,7 +301,7 @@ export function Sidebar() {
               "ml-auto rounded-md p-1 text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent/50",
               collapsed && "ml-0"
             )}
-            aria-label="Toggle sidebar"
+            aria-label={s.toggle_sidebar}
           >
             {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
           </button>
@@ -328,7 +330,7 @@ export function Sidebar() {
                       type="button"
                       data-sidebar-active={collapsed && groupActive ? "true" : undefined}
                       aria-expanded={!collapsed}
-                      aria-label={collapsed ? `${t[item.labelKey]}: mở submenu` : undefined}
+                      aria-label={collapsed ? formatText(s.open_submenu, { label: t[item.labelKey] }) : undefined}
                       onClick={() => collapsed && setCollapsed(false)}
                       className={cn(
                         "group relative flex h-10 w-full items-center gap-2.5 rounded-lg border border-transparent px-3 text-left text-[13px] font-bold text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.55)] md:h-auto md:gap-3 md:py-2.5 md:text-sm md:font-bold md:text-black md:drop-shadow-none",

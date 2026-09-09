@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useLowStockItems } from "@/hooks/useInventory";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useLanguage } from "@/contexts/LanguageContext";
+import { useWarehouseCopy } from "@/i18n/useWarehouseCopy";
 
 const getUrgency = (stock: number, minStock: number) => {
   const ratio = stock / minStock;
@@ -13,20 +13,19 @@ const getUrgency = (stock: number, minStock: number) => {
 };
 
 const LowStock = () => {
-  const { language } = useLanguage();
-  const isVi = language === "vi";
+  const c = useWarehouseCopy();
   const { data: lowStockItems, isLoading } = useLowStockItems();
 
   if (isLoading) {
     return (
-      <div className="space-y-6">
+      <div data-bmq-warehouse-i18n="v1" className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-display font-bold text-foreground">
-              {isVi ? "Cảnh báo tồn kho thấp" : "Low Stock Alerts"}
+              {c("Cảnh báo tồn kho thấp")}
             </h1>
             <p className="text-muted-foreground mt-1">
-              {isVi ? "Các mặt hàng cần đặt lại" : "Items that need to be reordered"}
+              {c("Các mặt hàng cần đặt lại")}
             </p>
           </div>
         </div>
@@ -40,20 +39,20 @@ const LowStock = () => {
   }
 
   return (
-    <div className="space-y-6">
+    <div data-bmq-warehouse-i18n="v1" className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-display font-bold text-foreground">
-            {isVi ? "Cảnh báo tồn kho thấp" : "Low Stock Alerts"}
+            {c("Cảnh báo tồn kho thấp")}
           </h1>
           <p className="text-muted-foreground mt-1">
-            {isVi ? "Các mặt hàng cần đặt lại" : "Items that need to be reordered"}
+            {c("Các mặt hàng cần đặt lại")}
           </p>
         </div>
         {lowStockItems && lowStockItems.length > 0 && (
           <button className="btn-gradient px-4 py-2 rounded-lg font-medium flex items-center gap-2">
             <ShoppingCart className="h-4 w-4" />
-            {isVi ? "Đặt mua tất cả" : "Order All"}
+            {c("Đặt mua tất cả")}
           </button>
         )}
       </div>
@@ -61,7 +60,7 @@ const LowStock = () => {
       {!lowStockItems?.length ? (
         <div className="card-elevated rounded-xl border border-border p-8 text-center">
           <p className="text-muted-foreground">
-            {isVi ? "Tất cả hàng hóa đang đủ tồn kho! Không có cảnh báo tồn thấp." : "All items are well stocked! No low stock alerts."}
+            {c("Tất cả hàng hóa đang đủ tồn kho! Không có cảnh báo tồn thấp.")}
           </p>
         </div>
       ) : (
@@ -81,17 +80,17 @@ const LowStock = () => {
                     <div>
                       <p className="font-medium">{item.name}</p>
                       <p className="text-sm text-muted-foreground">
-                        {item.quantity} {item.unit} {isVi ? "còn lại · Tối thiểu:" : "remaining · Min:"} {item.min_stock || 0} {item.unit}
+                        {item.quantity} {item.unit} {c("còn lại · Tối thiểu:")} {item.min_stock || 0} {item.unit}
                       </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-4">
                     <Badge variant="outline" className={urgency.className}>
-                      {isVi ? (urgency.label === "critical" ? "Khẩn cấp" : urgency.label === "high" ? "Cao" : "Trung bình") : (urgency.label === "critical" ? "Critical" : urgency.label === "high" ? "High" : "Medium")}
+                      {urgency.label === "critical" ? c("Khẩn cấp") : urgency.label === "high" ? c("Cao") : c("Trung bình")}
                     </Badge>
                     <p className="text-sm text-muted-foreground">{item.category}</p>
                     <Button size="sm" className="btn-gradient">
-                      {isVi ? "Đặt mua" : "Reorder"}
+                      {c("Đặt mua")}
                     </Button>
                   </div>
                 </div>

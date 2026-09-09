@@ -1,3 +1,5 @@
+import { formatText } from "@/i18n/format";
+import { useLanguage } from "@/contexts/LanguageContext";
  
 import { useMemo, useState } from "react";
 import { NavLink } from "react-router-dom";
@@ -10,10 +12,10 @@ import { useSkuCostBridge } from "@/hooks/useSkuCostBridge";
 import { buildSkuAnalysis, compactMoney, decimalMoney, money, pct, todayMonth, type SkuAnalysis } from "@/lib/sku-cost-analysis";
 
 const skuCostNavItems = [
-  { to: "/sku-costs/dashboard", label: "Tổng quan giá vốn" },
-  { to: "/sku-costs/analysis", label: "Xu hướng giá vốn" },
-  { to: "/sku-costs/management", label: "Quản trị SKU" },
-];
+  { to: "/sku-costs/dashboard", labelKey: "cogs_overview" },
+  { to: "/sku-costs/analysis", labelKey: "cogs_trends" },
+  { to: "/sku-costs/management", labelKey: "sku_management" },
+] as const;
 
 function DeltaBadge({ value }: { value: number | null }) {
   if (value === null) return <span className="rounded-full bg-muted/50 px-2 py-1 text-[11px] font-bold text-muted-foreground">N/A</span>;
@@ -28,11 +30,12 @@ function DeltaBadge({ value }: { value: number | null }) {
 }
 
 export default function SkuCostsAnalysis() {
+  const { messages: { skuCosts: s } } = useLanguage();
   const [period, setPeriod] = useState(todayMonth());
   const [selectedSkuId, setSelectedSkuId] = useState("");
   const [analysis, setAnalysis] = useState<SkuAnalysis | null>(null);
   const [showAllRows, setShowAllRows] = useState(false);
-  const { data, isLoading } = useSkuCostBridge();
+  const { data, isLoading, isError } = useSkuCostBridge();
 
   const items = useMemo(() => data?.items || [], [data?.items]);
   const formulas = useMemo(() => data?.formulas || [], [data?.formulas]);
@@ -64,29 +67,35 @@ export default function SkuCostsAnalysis() {
     URL.revokeObjectURL(url);
   };
 
+  const sourceLabel = (source: string) => ({ "Mã NVL/PR": s.source_material_pr, "Giá CT fallback": s.source_formula_fallback, "Cảnh báo mapping/quy đổi": s.source_mapping_warning }[source] || source);
+  const warningLabel = (row: SkuAnalysis["rows"][number]) => formatText(s.mapping_warning, {
+    price: decimalMoney(row.rawActualPrice),
+    percent: pct(row.formulaPrice ? ((Number(row.rawActualPrice) - row.formulaPrice) / row.formulaPrice) * 100 : 0),
+  });
+
   const staleAnalysis = !!analysis && (analysis.skuId !== selectedSku?.id || analysis.period !== period);
   const displayRows = analysis ? (showAllRows ? analysis.rows : analysis.rows.slice(0, 3)) : [];
   const hiddenRows = analysis ? Math.max(0, analysis.rows.length - displayRows.length) : 0;
   const warningRows = analysis ? analysis.rows.filter((row) => row.warning) : [];
 
   return (
-    <div data-stitch-sku-cost-analysis-theme="pantone-2026-light" className="-m-4 min-h-screen bg-background text-foreground md:-m-6">
+    <div data-i18n-batch="staff-sku-a-v1" data-stitch-sku-cost-analysis-theme="pantone-2026-light" className="-m-4 min-h-screen bg-background text-foreground md:-m-6">
       <div className="mx-auto min-h-screen w-full max-w-[430px] bg-background px-4 pb-28 pt-3 shadow-2xl md:max-w-[520px] md:px-5 lg:hidden">
         <header className="sticky top-0 z-20 -mx-4 border-b border-border/60 bg-background/92 px-4 pb-3 pt-2 backdrop-blur-xl md:-mx-5 md:px-5">
           <div className="grid grid-cols-[40px_minmax(0,1fr)_40px] items-start gap-2">
-            <button className="flex h-10 w-10 items-center justify-center rounded-full border border-border/70 bg-card/80 text-foreground/80 shadow-inner" aria-label="Quay lại">
+            <button className="flex h-10 w-10 items-center justify-center rounded-full border border-border/70 bg-card/80 text-foreground/80 shadow-inner" aria-label={s.back}>
               <ArrowLeft className="h-5 w-5" />
             </button>
             <div className="min-w-0 text-center">
-              <h1 className="font-sans text-[20px] font-extrabold leading-tight tracking-[-0.02em] text-foreground">Xu hướng giá vốn SKU</h1>
-              <p className="mx-auto mt-1 max-w-[300px] text-[12px] font-medium leading-snug text-muted-foreground">Theo dõi cost công thức, giá mua thực tế và biến động theo từng đợt thanh toán.</p>
+              <h1 className="font-sans text-[20px] font-extrabold leading-tight tracking-[-0.02em] text-foreground">{s.sku_cogs_trends}</h1>
+              <p className="mx-auto mt-1 max-w-[300px] text-[12px] font-medium leading-snug text-muted-foreground">{s.track_formula_costs_actual_purchase_prices_and_changes_by_payment_batch}</p>
             </div>
-            <button className="flex h-10 w-10 items-center justify-center rounded-full border border-border/70 bg-card/80 text-primary/90 shadow-inner" aria-label="Thông tin">
+            <button className="flex h-10 w-10 items-center justify-center rounded-full border border-border/70 bg-card/80 text-primary/90 shadow-inner" aria-label={s.information}>
               <Info className="h-5 w-5" />
             </button>
           </div>
 
-          <nav className="mt-4 flex gap-5 overflow-x-auto border-b border-border/70 pb-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-label="Điều hướng giá vốn">
+          <nav className="mt-4 flex gap-5 overflow-x-auto border-b border-border/70 pb-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-label={s.cogs_navigation}>
             {skuCostNavItems.map((item) => (
               <NavLink
                 key={item.to}
@@ -97,19 +106,20 @@ export default function SkuCostsAnalysis() {
                     : "shrink-0 pb-3 text-[13px] font-semibold text-muted-foreground transition hover:text-foreground/80"
                 }
               >
-                {item.label}
+                {s[item.labelKey]}
               </NavLink>
             ))}
           </nav>
         </header>
 
         <main className="space-y-4 pt-4">
+          {isError && <p role="alert" className="text-sm text-destructive">{s.unable_to_load_skus} {s.please_try_again}</p>}
           <section className="rounded-[24px] border border-border/70 bg-card/70 p-4 shadow-card backdrop-blur-xl">
             <div className="space-y-3">
               <label className="block text-[11px] font-extrabold uppercase tracking-[0.18em] text-muted-foreground">SKU</label>
               <Select value={selectedSku?.id || ""} onValueChange={(value) => { setSelectedSkuId(value); setAnalysis(null); setShowAllRows(false); }}>
                 <SelectTrigger className="h-12 rounded-[15px] border-border/70 bg-muted/45 px-3 text-left text-[14px] font-bold text-foreground shadow-inner focus:ring-primary/50 [&>svg]:hidden">
-                  <SelectValue placeholder={isLoading ? "Đang tải SKU..." : "Chọn SKU"} />
+                  <SelectValue placeholder={isLoading ? s.loading_skus : s.select_sku} />
                   <ChevronDown className="ml-2 h-4 w-4 shrink-0 text-muted-foreground" />
                 </SelectTrigger>
                 <SelectContent className="max-h-80">
@@ -119,30 +129,30 @@ export default function SkuCostsAnalysis() {
 
               <div className="grid grid-cols-[minmax(0,1fr)_132px] gap-2">
                 <div className="min-w-0 overflow-hidden rounded-[15px] border border-border/70 bg-muted/45 shadow-inner">
-                  <Input type="month" value={period} onChange={(event) => { setPeriod(event.target.value); setAnalysis(null); setShowAllRows(false); }} aria-label="Chọn tháng phân tích" className="h-12 w-full min-w-0 border-0 bg-transparent px-3 text-[13px] font-bold text-foreground [color-scheme:light] focus-visible:ring-1 focus-visible:ring-primary/50" />
+                  <Input type="month" value={period} onChange={(event) => { setPeriod(event.target.value); setAnalysis(null); setShowAllRows(false); }} aria-label={s.select_analysis_month} className="h-12 w-full min-w-0 border-0 bg-transparent px-3 text-[13px] font-bold text-foreground [color-scheme:light] focus-visible:ring-1 focus-visible:ring-primary/50" />
                 </div>
                 <Button onClick={runAnalysis} disabled={!selectedSku || isLoading} className="h-12 rounded-[15px] bg-primary px-3 text-[12px] font-extrabold leading-tight text-primary-foreground shadow-card hover:bg-primary/90">
-                  Chạy phân tích SKU
+                  {s.run_sku_analysis}
                 </Button>
               </div>
             </div>
             <p className="mt-3 text-[12px] font-medium leading-snug text-muted-foreground">
-              {items.length} SKU đã tải · {analysis ? `${analysis.matchedRows}/${analysis.totalRows} NVL có giá TT` : "Bấm chạy để lấy giá PR/duyệt chi đã quy đổi."} {staleAnalysis ? "Thông số đã đổi, bấm chạy lại để cập nhật." : ""}
+              {items.length} {s.skus_loaded} {analysis ? formatText(s.matched_material_count, { matched: analysis.matchedRows, total: analysis.totalRows }) : s.run_to_retrieve_converted_payment_request_prices} {staleAnalysis ? s.parameters_changed_run_again_to_update : ""}
             </p>
           </section>
 
           {!analysis ? (
             <section className="rounded-[24px] border border-dashed border-border/70 bg-muted/35 px-4 py-8 text-center text-[13px] font-medium text-muted-foreground">
-              Chọn SKU/tháng rồi bấm “Chạy phân tích SKU” để tạo mapping giá vốn và trend theo đợt thanh toán.
+              {s.select_an_sku_and_month_then_click_run_sku_analysis_to_map_costs_and_trends_by}
             </section>
           ) : (
             <>
               <section className="grid grid-cols-2 gap-3">
                 {[
-                  { label: "Cost công thức", value: money(Math.round(analysis.formulaCost)), suffix: "đ/ổ" },
-                  { label: "Cost thực tế TB tháng", value: money(Math.round(analysis.actualCost)), suffix: "đ/ổ" },
-                  { label: "Chênh lệch", value: `${analysis.diff > 0 ? "+" : ""}${money(Math.round(analysis.diff))}`, suffix: "đ/ổ", percent: pct(analysis.diffPct), isDiff: true },
-                  { label: "Lần chạy gần nhất", value: new Date(analysis.runAt).toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" }), suffix: new Date(analysis.runAt).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }) },
+                  { label: s.formula_cost, value: money(Math.round(analysis.formulaCost)), suffix: s.vnd_loaf },
+                  { label: s.monthly_average_actual_cost, value: money(Math.round(analysis.actualCost)), suffix: s.vnd_loaf },
+                  { label: s.difference, value: `${analysis.diff > 0 ? "+" : ""}${money(Math.round(analysis.diff))}`, suffix: s.vnd_loaf, percent: pct(analysis.diffPct), isDiff: true },
+                  { label: s.last_run, value: new Date(analysis.runAt).toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" }), suffix: new Date(analysis.runAt).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }) },
                 ].map((item) => (
                   <article key={item.label} className="min-h-[104px] rounded-[22px] border border-border/70 bg-card/80 p-3.5 shadow-card">
                     <p className="text-[11px] font-bold leading-tight text-muted-foreground">{item.label}</p>
@@ -160,8 +170,8 @@ export default function SkuCostsAnalysis() {
                   <div className="flex items-start gap-2">
                     <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                     <div>
-                      <p className="text-[13px] font-black">Có {warningRows.length} NVL cần kiểm tra mapping/quy đổi</p>
-                      <p className="mt-1 text-[11px] font-semibold leading-snug text-primary/75">Giá mua lệch ≥100% so với giá công thức nên app đã giữ giá công thức cho trend, không dùng số bất thường.</p>
+                      <p className="text-[13px] font-black">{formatText(s.materials_need_review, { count: warningRows.length })}</p>
+                      <p className="mt-1 text-[11px] font-semibold leading-snug text-primary/75">{s.purchase_prices_differ_by_100_from_formula_prices_trends_retain_formula_prices}</p>
                     </div>
                   </div>
                 </section>
@@ -169,19 +179,19 @@ export default function SkuCostsAnalysis() {
 
               <section className="overflow-hidden rounded-[24px] border border-border/70 bg-card/80 shadow-card">
                 <div className="border-b border-border/70 px-4 py-4">
-                  <h2 className="text-[17px] font-black tracking-[-0.02em] text-foreground">Mapping công thức ↔ chi phí thực tế</h2>
+                  <h2 className="text-[17px] font-black tracking-[-0.02em] text-foreground">{s.formula_actual_cost_mapping}</h2>
                 </div>
                 <div className="px-4 py-3">
                   <div className="grid grid-cols-[minmax(0,1.2fr)_68px_78px_66px] gap-2 border-b border-border/50 pb-2 text-[10px] font-extrabold uppercase tracking-[0.12em] text-muted-foreground">
-                    <span>NVL</span><span className="text-right">Giá CT</span><span className="text-right">Giá TT TB</span><span className="text-right">Δ</span>
+                    <span>{s.materials}</span><span className="text-right">{s.formula_price}</span><span className="text-right">{s.avg_actual_price}</span><span className="text-right">Δ</span>
                   </div>
                   <div className="divide-y divide-border/50">
                     {displayRows.map((row) => (
                       <div key={`${row.rawName}-${row.dosage}`} className="grid grid-cols-[minmax(0,1.2fr)_68px_78px_66px] items-center gap-2 py-3">
                         <div className="min-w-0">
                           <div className="truncate text-[13px] font-extrabold leading-tight text-foreground">{row.name}</div>
-                      <div className="mt-0.5 truncate text-[10px] font-semibold text-muted-foreground">{row.materialCode ? `${row.materialCode} · ` : ""}{decimalMoney(row.dosage, 2)} {row.unit} · {row.source}</div>
-                          {row.warning ? <div className="mt-1 flex items-start gap-1 rounded-lg bg-primary/[0.08] px-2 py-1 text-[10px] font-bold leading-snug text-primary"><AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />{row.warning}</div> : null}
+                      <div className="mt-0.5 truncate text-[10px] font-semibold text-muted-foreground">{row.materialCode ? `${row.materialCode} · ` : ""}{decimalMoney(row.dosage, 2)} {row.unit} · {sourceLabel(row.source)}</div>
+                          {row.warning ? <div className="mt-1 flex items-start gap-1 rounded-lg bg-primary/[0.08] px-2 py-1 text-[10px] font-bold leading-snug text-primary"><AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />{warningLabel(row)}</div> : null}
                         </div>
                         <div className="text-right text-[13px] font-bold tabular-nums text-foreground/70">{decimalMoney(row.formulaPrice)}</div>
                         <div className="text-right text-[13px] font-bold tabular-nums text-foreground">{decimalMoney(row.actualPrice)}</div>
@@ -191,26 +201,26 @@ export default function SkuCostsAnalysis() {
                   </div>
                   {hiddenRows > 0 ? (
                     <button onClick={() => setShowAllRows(true)} className="mt-1 flex w-full items-center justify-center rounded-2xl border border-dashed border-primary/20 bg-primary/10 px-3 py-3 text-[13px] font-extrabold text-primary">
-                      Xem thêm nguyên liệu ({hiddenRows})
+                      {s.show_more_materials}{hiddenRows})
                     </button>
                   ) : analysis.rows.length > 3 ? (
-                    <button onClick={() => setShowAllRows(false)} className="mt-1 flex w-full items-center justify-center rounded-2xl border border-dashed border-primary/20 bg-primary/10 px-3 py-3 text-[13px] font-extrabold text-primary">Thu gọn nguyên liệu</button>
+                    <button onClick={() => setShowAllRows(false)} className="mt-1 flex w-full items-center justify-center rounded-2xl border border-dashed border-primary/20 bg-primary/10 px-3 py-3 text-[13px] font-extrabold text-primary">{s.show_fewer_materials}</button>
                   ) : null}
                 </div>
               </section>
 
               <section className="overflow-hidden rounded-[24px] border border-border/70 bg-card/80 p-4 shadow-card">
                 <div className="mb-3">
-                  <h2 className="text-[17px] font-black tracking-[-0.02em] text-foreground">Biến động theo đợt thanh toán trong tháng</h2>
+                  <h2 className="text-[17px] font-black tracking-[-0.02em] text-foreground">{s.changes_by_monthly_payment_batch}</h2>
                   <div className="mt-3 flex flex-wrap gap-3 text-[11px] font-bold text-muted-foreground">
-                    <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-primary" />Giá mua thật</span>
-                    <span className="inline-flex items-center gap-1.5"><span className="h-px w-5 border-t border-dashed border-muted-foreground/50" />Formula baseline</span>
+                    <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-primary" />{s.actual_purchase_price}</span>
+                    <span className="inline-flex items-center gap-1.5"><span className="h-px w-5 border-t border-dashed border-muted-foreground/50" />{s.formula_baseline}</span>
                   </div>
                 </div>
                 <div className="relative h-[238px] rounded-[18px] border border-border/60 bg-muted/30 px-1 py-3">
                   {analysis.chartRows.length === 0 ? (
                     <div className="absolute inset-0 z-10 flex items-center justify-center px-5 text-center text-[12px] font-semibold leading-relaxed text-muted-foreground">
-                      Chưa có PR/PO đã duyệt trong tháng khớp mã NVL của SKU này, nên không vẽ điểm giá mua thật.
+                      {s.no_approved_payment_requests_or_purchase_orders_this_month_match_this_sku_s_ma}
                     </div>
                   ) : null}
                   <ResponsiveContainer width="100%" height="100%">
@@ -218,13 +228,13 @@ export default function SkuCostsAnalysis() {
                       <CartesianGrid stroke="hsl(var(--border))" vertical={false} />
                       <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11, fontWeight: 700 }} dy={8} />
                       <YAxis axisLine={false} tickLine={false} tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }} tickFormatter={(value) => money(Number(value))} width={54} />
-                      <Tooltip cursor={{ stroke: "hsl(var(--primary) / 0.28)", strokeWidth: 1 }} contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 14, color: "hsl(var(--foreground))" }} formatter={(value: number | null, name: string, item: any) => [value === null ? "Chưa có giá mua thật" : `${money(Math.round(Number(value)))} đ/ổ`, name === "actual" ? `Giá mua thật (${Math.round(item?.payload?.coveragePct || 0)}% NVL)` : "Formula baseline"]} labelFormatter={(label) => `Đợt ${label}`} />
+                      <Tooltip cursor={{ stroke: "hsl(var(--primary) / 0.28)", strokeWidth: 1 }} contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 14, color: "hsl(var(--foreground))" }} formatter={(value: number | null, name: string, item: any) => [value === null ? s.no_actual_purchase_price : formatText(s.price_per_loaf, { amount: money(Math.round(Number(value))) }), name === "actual" ? formatText(s.purchase_coverage, { percent: Math.round(item?.payload?.coveragePct || 0) }) : s.formula_baseline]} labelFormatter={(label) => formatText(s.payment_batch, { date: String(label) })} />
                       <Line type="monotone" dataKey="baseline" stroke="hsl(var(--muted-foreground))" strokeWidth={2} strokeDasharray="5 6" dot={false} />
                       <Line type="monotone" dataKey="actual" stroke="hsl(var(--primary))" strokeWidth={4} connectNulls={false} dot={{ r: 4, fill: "hsl(var(--primary))", stroke: "hsl(var(--primary-foreground))", strokeWidth: 2 }} activeDot={{ r: 6, fill: "hsl(var(--primary))", stroke: "hsl(var(--primary-foreground))", strokeWidth: 2 }} />
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
-                <p className="mt-3 text-[11px] font-medium leading-snug text-muted-foreground">Chart dùng PR đã thanh toán trong tháng theo paid_at; NVL không mua trong tháng sẽ giữ giá công thức. Nếu giá mua lệch ≥100%, app cảnh báo và không dùng số bất thường để tính trend.</p>
+                <p className="mt-3 text-[11px] font-medium leading-snug text-muted-foreground">{s.the_chart_uses_payment_requests_paid_this_month_by_paid_at_materials_without_p}</p>
               </section>
             </>
           )}
@@ -233,31 +243,32 @@ export default function SkuCostsAnalysis() {
         <div className="fixed inset-x-0 bottom-0 z-30 mx-auto max-w-[430px] border-t border-border/70 bg-background/92 px-4 py-3 shadow-card backdrop-blur-xl md:max-w-[520px] lg:hidden">
           <div className="grid grid-cols-2 gap-3">
             <Button onClick={exportCurrentAnalysis} disabled={!analysis} variant="outline" className="h-12 rounded-[16px] border-border/70 bg-muted/40 text-[13px] font-extrabold text-foreground hover:bg-muted/60 hover:text-foreground disabled:opacity-45">
-              Xuất sheet review
+              {s.export_review_sheet}
             </Button>
             <Button variant="outline" disabled className="h-12 rounded-[16px] border-primary/35 bg-transparent text-[13px] font-extrabold text-primary opacity-55 disabled:opacity-55">
-              Cập nhật mapping
+              {s.update_mapping}
             </Button>
           </div>
         </div>
       </div>
 
       <div className="hidden min-h-screen bg-background px-8 py-8 lg:block">
+        {isError && <p role="alert" className="text-sm text-destructive">{s.unable_to_load_skus} {s.please_try_again}</p>}
         <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
           <header className="rounded-[32px] border border-border/70 bg-card/70 p-6 shadow-card backdrop-blur-xl">
             <div className="flex items-start justify-between gap-6">
               <div>
-                <p className="text-xs font-extrabold uppercase tracking-[0.22em] text-primary/70">SKU Costs Analysis</p>
-                <h1 className="mt-1 text-[34px] font-black leading-tight tracking-[-0.04em] text-foreground">Xu hướng giá vốn SKU</h1>
-                <p className="mt-2 max-w-3xl text-sm font-semibold text-muted-foreground">So sánh cost công thức với giá mua thực tế đã quy đổi, theo từng SKU và từng tháng.</p>
+                <p className="text-xs font-extrabold uppercase tracking-[0.22em] text-primary/70">{s.sku_costs_analysis}</p>
+                <h1 className="mt-1 text-[34px] font-black leading-tight tracking-[-0.04em] text-foreground">{s.sku_cogs_trends}</h1>
+                <p className="mt-2 max-w-3xl text-sm font-semibold text-muted-foreground">{s.compare_formula_costs_with_converted_actual_purchase_prices_by_sku_and_month}</p>
               </div>
               <div className="flex shrink-0 items-center gap-3">
-                <Button onClick={exportCurrentAnalysis} disabled={!analysis} variant="outline" className="h-11 rounded-2xl border-border/70 bg-muted/40 px-5 text-sm font-extrabold text-foreground hover:bg-muted/60 hover:text-foreground disabled:opacity-45">Xuất sheet review</Button>
-                <Button variant="outline" disabled className="h-11 rounded-2xl border-primary/35 bg-transparent px-5 text-sm font-extrabold text-primary opacity-55 disabled:opacity-55">Cập nhật mapping</Button>
+                <Button onClick={exportCurrentAnalysis} disabled={!analysis} variant="outline" className="h-11 rounded-2xl border-border/70 bg-muted/40 px-5 text-sm font-extrabold text-foreground hover:bg-muted/60 hover:text-foreground disabled:opacity-45">{s.export_review_sheet}</Button>
+                <Button variant="outline" disabled className="h-11 rounded-2xl border-primary/35 bg-transparent px-5 text-sm font-extrabold text-primary opacity-55 disabled:opacity-55">{s.update_mapping}</Button>
               </div>
             </div>
 
-            <nav className="mt-6 flex flex-wrap gap-2" aria-label="Điều hướng giá vốn desktop">
+            <nav className="mt-6 flex flex-wrap gap-2" aria-label={s.desktop_cogs_navigation}>
               {skuCostNavItems.map((item) => (
                 <NavLink
                   key={item.to}
@@ -268,7 +279,7 @@ export default function SkuCostsAnalysis() {
                       : "inline-flex items-center rounded-2xl border border-border/70 bg-muted/45 px-4 py-2.5 text-sm font-extrabold text-muted-foreground transition hover:text-foreground"
                   }
                 >
-                  {item.label}
+                  {s[item.labelKey]}
                 </NavLink>
               ))}
             </nav>
@@ -280,7 +291,7 @@ export default function SkuCostsAnalysis() {
                 <label className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-muted-foreground">SKU</label>
                 <Select value={selectedSku?.id || ""} onValueChange={(value) => { setSelectedSkuId(value); setAnalysis(null); setShowAllRows(false); }}>
                   <SelectTrigger className="h-12 rounded-2xl border-border/70 bg-muted/45 px-4 text-left text-sm font-bold text-foreground shadow-inner focus:ring-primary/50 [&>svg]:hidden">
-                    <SelectValue placeholder={isLoading ? "Đang tải SKU..." : "Chọn SKU"} />
+                    <SelectValue placeholder={isLoading ? s.loading_skus : s.select_sku} />
                     <ChevronDown className="ml-2 h-4 w-4 shrink-0 text-muted-foreground" />
                   </SelectTrigger>
                   <SelectContent className="max-h-80">
@@ -289,31 +300,31 @@ export default function SkuCostsAnalysis() {
                 </Select>
               </div>
               <div>
-                <label className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-muted-foreground">Tháng</label>
+                <label className="mb-2 block text-xs font-extrabold uppercase tracking-[0.18em] text-muted-foreground">{s.month}</label>
                 <div className="overflow-hidden rounded-2xl border border-border/70 bg-muted/45 shadow-inner">
-                  <Input type="month" value={period} onChange={(event) => { setPeriod(event.target.value); setAnalysis(null); setShowAllRows(false); }} aria-label="Chọn tháng phân tích desktop" className="h-12 w-full min-w-0 border-0 bg-transparent px-4 text-sm font-bold text-foreground [color-scheme:light] focus-visible:ring-1 focus-visible:ring-primary/50" />
+                  <Input type="month" value={period} onChange={(event) => { setPeriod(event.target.value); setAnalysis(null); setShowAllRows(false); }} aria-label={s.select_desktop_analysis_month} className="h-12 w-full min-w-0 border-0 bg-transparent px-4 text-sm font-bold text-foreground [color-scheme:light] focus-visible:ring-1 focus-visible:ring-primary/50" />
                 </div>
               </div>
-              <Button onClick={runAnalysis} disabled={!selectedSku || isLoading} className="h-12 rounded-2xl bg-primary px-5 text-sm font-extrabold text-primary-foreground shadow-card hover:bg-primary/90">Chạy phân tích SKU</Button>
+              <Button onClick={runAnalysis} disabled={!selectedSku || isLoading} className="h-12 rounded-2xl bg-primary px-5 text-sm font-extrabold text-primary-foreground shadow-card hover:bg-primary/90">{s.run_sku_analysis}</Button>
             </div>
             <p className="mt-4 text-sm font-semibold text-muted-foreground">
-              {items.length} SKU đã tải · {analysis ? `${analysis.matchedRows}/${analysis.totalRows} NVL có giá TT` : "Bấm chạy để lấy giá PR/duyệt chi đã quy đổi."} {staleAnalysis ? "Thông số đã đổi, bấm chạy lại để cập nhật." : ""}
+              {items.length} {s.skus_loaded} {analysis ? formatText(s.matched_material_count, { matched: analysis.matchedRows, total: analysis.totalRows }) : s.run_to_retrieve_converted_payment_request_prices} {staleAnalysis ? s.parameters_changed_run_again_to_update : ""}
             </p>
           </section>
 
           {!analysis ? (
             <section className="rounded-[30px] border border-dashed border-border/70 bg-muted/35 px-6 py-16 text-center shadow-card">
-              <h2 className="text-2xl font-black tracking-[-0.03em] text-foreground">Chưa có phân tích</h2>
-              <p className="mx-auto mt-3 max-w-2xl text-sm font-semibold leading-relaxed text-muted-foreground">Chọn SKU và tháng, sau đó bấm “Chạy phân tích SKU” để tạo bảng mapping giá vốn và chart biến động theo đợt thanh toán.</p>
+              <h2 className="text-2xl font-black tracking-[-0.03em] text-foreground">{s.no_analysis_yet}</h2>
+              <p className="mx-auto mt-3 max-w-2xl text-sm font-semibold leading-relaxed text-muted-foreground">{s.select_an_sku_and_month_then_click_run_sku_analysis_to_create_the_cost_mapping}</p>
             </section>
           ) : (
             <>
               <section className="grid grid-cols-4 gap-4">
                 {[
-                  { label: "Cost công thức", value: money(Math.round(analysis.formulaCost)), suffix: "đ/ổ" },
-                  { label: "Cost thực tế TB tháng", value: money(Math.round(analysis.actualCost)), suffix: "đ/ổ" },
-                  { label: "Chênh lệch", value: `${analysis.diff > 0 ? "+" : ""}${money(Math.round(analysis.diff))}`, suffix: "đ/ổ", percent: pct(analysis.diffPct), isDiff: true },
-                  { label: "Lần chạy gần nhất", value: new Date(analysis.runAt).toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" }), suffix: new Date(analysis.runAt).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }) },
+                  { label: s.formula_cost, value: money(Math.round(analysis.formulaCost)), suffix: s.vnd_loaf },
+                  { label: s.monthly_average_actual_cost, value: money(Math.round(analysis.actualCost)), suffix: s.vnd_loaf },
+                  { label: s.difference, value: `${analysis.diff > 0 ? "+" : ""}${money(Math.round(analysis.diff))}`, suffix: s.vnd_loaf, percent: pct(analysis.diffPct), isDiff: true },
+                  { label: s.last_run, value: new Date(analysis.runAt).toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" }), suffix: new Date(analysis.runAt).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" }) },
                 ].map((item) => (
                   <article key={item.label} className="rounded-[28px] border border-border/70 bg-card/80 p-5 shadow-card">
                     <p className="text-xs font-extrabold uppercase tracking-[0.13em] text-muted-foreground">{item.label}</p>
@@ -331,8 +342,8 @@ export default function SkuCostsAnalysis() {
                   <div className="flex items-start gap-3">
                     <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
                     <div>
-                      <p className="text-sm font-black">Có {warningRows.length} NVL cần kiểm tra mapping/quy đổi</p>
-                      <p className="mt-1 text-xs font-semibold leading-relaxed text-primary/75">Giá mua TB lệch ≥100% so với giá công thức. App đã tự động giữ giá công thức cho các dòng này để trend không bị méo, đồng thời hiển thị cảnh báo ở bảng chi tiết.</p>
+                      <p className="text-sm font-black">{formatText(s.materials_need_review, { count: warningRows.length })}</p>
+                      <p className="mt-1 text-xs font-semibold leading-relaxed text-primary/75">{s.average_purchase_prices_differ_by_100_from_formula_prices_these_rows_retain_fo}</p>
                     </div>
                   </div>
                 </section>
@@ -342,24 +353,24 @@ export default function SkuCostsAnalysis() {
                 <article className="overflow-hidden rounded-[32px] border border-border/70 bg-card/80 shadow-card">
                   <div className="flex items-start justify-between gap-4 border-b border-border/70 px-5 py-5">
                     <div>
-                      <h2 className="text-xl font-black tracking-[-0.03em] text-foreground">Mapping công thức ↔ chi phí thực tế</h2>
+                      <h2 className="text-xl font-black tracking-[-0.03em] text-foreground">{s.formula_actual_cost_mapping}</h2>
                       <p className="mt-1 text-sm font-semibold text-muted-foreground">{analysis.skuLabel}</p>
                     </div>
-                    <span className="rounded-full bg-primary/10 px-3 py-1.5 text-xs font-extrabold text-primary ring-1 ring-primary/20">{analysis.matchedRows}/{analysis.totalRows} NVL</span>
+                    <span className="rounded-full bg-primary/10 px-3 py-1.5 text-xs font-extrabold text-primary ring-1 ring-primary/20">{analysis.matchedRows}/{analysis.totalRows} {s.materials}</span>
                   </div>
                   <div className="overflow-x-auto">
                     <table className="w-full min-w-[900px] border-collapse text-left">
                       <thead className="bg-muted/45 text-xs font-extrabold uppercase tracking-[0.12em] text-muted-foreground">
                         <tr>
-                          <th className="px-4 py-3">Mã NVL</th>
-                          <th className="px-4 py-3">NVL chuẩn</th>
-                          <th className="px-4 py-3">NVL công thức</th>
-                          <th className="px-4 py-3 text-right">Giá CT</th>
-                          <th className="px-4 py-3 text-right">Giá TT TB</th>
-                          <th className="px-4 py-3 text-right">Định lượng</th>
-                          <th className="px-4 py-3 text-right">Δ cost</th>
-                          <th className="px-4 py-3 text-right">Δ %</th>
-                          <th className="px-4 py-3">Nguồn</th>
+                          <th className="px-4 py-3">{s.material_code}</th>
+                          <th className="px-4 py-3">{s.canonical_material}</th>
+                          <th className="px-4 py-3">{s.formula_material}</th>
+                          <th className="px-4 py-3 text-right">{s.formula_price}</th>
+                          <th className="px-4 py-3 text-right">{s.avg_actual_price}</th>
+                          <th className="px-4 py-3 text-right">{s.quantity}</th>
+                          <th className="px-4 py-3 text-right">{s.cost}</th>
+                          <th className="px-4 py-3 text-right">{s.difference_2}</th>
+                          <th className="px-4 py-3">{s.source}</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border/50">
@@ -374,8 +385,8 @@ export default function SkuCostsAnalysis() {
                             <td className={row.diffCost !== null && row.diffCost > 0 ? "px-4 py-3 text-right text-sm font-black tabular-nums text-destructive" : "px-4 py-3 text-right text-sm font-black tabular-nums text-success"}>{row.diffCost === null ? "—" : compactMoney(row.diffCost)}</td>
                             <td className="px-4 py-3"><div className="flex justify-end"><DeltaBadge value={row.diffPct} /></div></td>
                             <td className="px-4 py-3 text-xs font-bold text-muted-foreground">
-                              <div>{row.source} · {row.sampleCount}</div>
-                              {row.warning ? <div className="mt-1 flex max-w-[280px] items-start gap-1 rounded-lg bg-primary/[0.08] px-2 py-1 text-[11px] leading-snug text-primary"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />{row.warning}</div> : null}
+                              <div>{sourceLabel(row.source)} · {row.sampleCount}</div>
+                              {row.warning ? <div className="mt-1 flex max-w-[280px] items-start gap-1 rounded-lg bg-primary/[0.08] px-2 py-1 text-[11px] leading-snug text-primary"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />{warningLabel(row)}</div> : null}
                             </td>
                           </tr>
                         ))}
@@ -386,16 +397,16 @@ export default function SkuCostsAnalysis() {
 
                 <article className="overflow-hidden rounded-[32px] border border-border/70 bg-card/80 p-5 shadow-card">
                   <div className="mb-4">
-                    <h2 className="text-xl font-black tracking-[-0.03em] text-foreground">Biến động trong tháng</h2>
+                    <h2 className="text-xl font-black tracking-[-0.03em] text-foreground">{s.monthly_changes}</h2>
                     <div className="mt-3 flex flex-wrap gap-4 text-xs font-bold text-muted-foreground">
-                      <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-primary" />Giá mua thật</span>
-                      <span className="inline-flex items-center gap-1.5"><span className="h-px w-6 border-t border-dashed border-muted-foreground/50" />Formula baseline</span>
+                      <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-primary" />{s.actual_purchase_price}</span>
+                      <span className="inline-flex items-center gap-1.5"><span className="h-px w-6 border-t border-dashed border-muted-foreground/50" />{s.formula_baseline}</span>
                     </div>
                   </div>
                   <div className="relative h-[390px] rounded-[24px] border border-border/60 bg-muted/30 px-3 py-4">
                     {analysis.chartRows.length === 0 ? (
                       <div className="absolute inset-0 z-10 flex items-center justify-center px-8 text-center text-sm font-semibold leading-relaxed text-muted-foreground">
-                        Chưa có PR/PO đã duyệt trong tháng khớp mã NVL của SKU này, nên không vẽ điểm giá mua thật.
+                        {s.no_approved_payment_requests_or_purchase_orders_this_month_match_this_sku_s_ma}
                       </div>
                     ) : null}
                     <ResponsiveContainer width="100%" height="100%">
@@ -403,13 +414,13 @@ export default function SkuCostsAnalysis() {
                         <CartesianGrid stroke="hsl(var(--border))" vertical={false} />
                         <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12, fontWeight: 700 }} dy={10} />
                         <YAxis axisLine={false} tickLine={false} tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} tickFormatter={(value) => money(Number(value))} width={64} />
-                        <Tooltip cursor={{ stroke: "hsl(var(--primary) / 0.28)", strokeWidth: 1 }} contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 14, color: "hsl(var(--foreground))" }} formatter={(value: number | null, name: string, item: any) => [value === null ? "Chưa có giá mua thật" : `${money(Math.round(Number(value)))} đ/ổ`, name === "actual" ? `Giá mua thật (${Math.round(item?.payload?.coveragePct || 0)}% NVL)` : "Formula baseline"]} labelFormatter={(label) => `Đợt ${label}`} />
+                        <Tooltip cursor={{ stroke: "hsl(var(--primary) / 0.28)", strokeWidth: 1 }} contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 14, color: "hsl(var(--foreground))" }} formatter={(value: number | null, name: string, item: any) => [value === null ? s.no_actual_purchase_price : formatText(s.price_per_loaf, { amount: money(Math.round(Number(value))) }), name === "actual" ? formatText(s.purchase_coverage, { percent: Math.round(item?.payload?.coveragePct || 0) }) : s.formula_baseline]} labelFormatter={(label) => formatText(s.payment_batch, { date: String(label) })} />
                         <Line type="monotone" dataKey="baseline" stroke="hsl(var(--muted-foreground))" strokeWidth={2} strokeDasharray="5 6" dot={false} />
                         <Line type="monotone" dataKey="actual" stroke="hsl(var(--primary))" strokeWidth={4} connectNulls={false} dot={{ r: 4, fill: "hsl(var(--primary))", stroke: "hsl(var(--primary-foreground))", strokeWidth: 2 }} activeDot={{ r: 6, fill: "hsl(var(--primary))", stroke: "hsl(var(--primary-foreground))", strokeWidth: 2 }} />
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
-                  <p className="mt-4 text-xs font-semibold leading-relaxed text-muted-foreground">Chart dùng PR đã thanh toán trong tháng theo paid_at; NVL không mua trong tháng sẽ giữ giá công thức. Nếu giá mua lệch ≥100%, app cảnh báo và không dùng số bất thường để tính trend.</p>
+                  <p className="mt-4 text-xs font-semibold leading-relaxed text-muted-foreground">{s.the_chart_uses_payment_requests_paid_this_month_by_paid_at_materials_without_p}</p>
                 </article>
               </section>
             </>

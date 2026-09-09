@@ -1,3 +1,6 @@
+import { formatText } from "@/i18n/format";
+import { supplierPurchasing } from "@/i18n/supplierPurchasing";
+import { usePurchasingCopy } from "@/i18n/purchasingCopy";
 import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
@@ -24,6 +27,7 @@ interface SupplierDetailsDialogProps {
 }
 
 export function SupplierDetailsDialog({ supplier, open, onOpenChange }: SupplierDetailsDialogProps) {
+  const pc = usePurchasingCopy(supplierPurchasing);
   const [isEditing, setIsEditing] = useState(false);
   const [name, setName] = useState("");
   const [category, setCategory] = useState("");
@@ -146,7 +150,7 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
 
   const handleDelete = async () => {
     if (!isOwner) return;
-    const confirmed = window.confirm(`Xóa nhà cung cấp "${supplier.name}"? Hành động này không thể hoàn tác.`);
+    const confirmed = window.confirm(formatText(pc.message80, { v0: supplier.name }));
     if (!confirmed) return;
 
     setLoading(true);
@@ -161,7 +165,7 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
       queryClient.invalidateQueries({ queryKey: ["suppliers"] });
       onOpenChange(false);
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Không thể xóa nhà cung cấp";
+      const message = error instanceof Error ? error.message : pc.unableToDeleteSupplier;
       console.error("Error deleting supplier:", message);
       alert(message);
     } finally {
@@ -180,7 +184,7 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
               </span>
             </div>
             <div>
-              <span className="block">{isEditing ? "Sửa nhà cung cấp" : supplier.name}</span>
+              <span className="block">{isEditing ? pc.editSupplier : supplier.name}</span>
               {!isEditing && <Badge variant="secondary" className="mt-1">{supplier.category}</Badge>}
             </div>
           </DialogTitle>
@@ -191,22 +195,22 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
             <>
               {/* Name */}
               <div className="space-y-2">
-                <Label htmlFor="edit-name">Tên nhà cung cấp</Label>
+                <Label htmlFor="edit-name">{pc.supplierName}</Label>
                 <Input
                   id="edit-name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="VD: Công ty Bột mì ABC"
+                  placeholder={pc.eGABCFlourCompany}
                   required
                 />
               </div>
 
               {/* Category */}
               <div className="space-y-2">
-                <Label htmlFor="edit-category">Nhóm NCC</Label>
+                <Label htmlFor="edit-category">{pc.supplierCategory}</Label>
                 <Select value={category} onValueChange={setCategory}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Chọn nhóm" />
+                    <SelectValue placeholder={pc.selectCategory} />
                   </SelectTrigger>
                   <SelectContent>
                     {categories.map((cat) => (
@@ -218,31 +222,31 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
 
               {/* Description */}
               <div className="space-y-2">
-                <Label htmlFor="edit-description">Mô tả</Label>
+                <Label htmlFor="edit-description">{pc.description}</Label>
                 <Textarea
                   id="edit-description"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder="VD: NCC bột chính cho sản xuất bánh mì..."
+                  placeholder={pc.eGMainFlourSupplierForBreadProduction}
                   rows={3}
                 />
               </div>
 
               {/* Phone */}
               <div className="space-y-2">
-                <Label htmlFor="edit-phone">Số điện thoại</Label>
+                <Label htmlFor="edit-phone">{pc.phoneNumber}</Label>
                 <Input
                   id="edit-phone"
                   type="tel"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
-                  placeholder="VD: 0901234567"
+                  placeholder={pc.eG0901234567}
                 />
               </div>
 
               {/* Email */}
               <div className="space-y-2">
-                <Label htmlFor="edit-email">Email</Label>
+                <Label htmlFor="edit-email">{pc.fieldEmail}</Label>
                 <Input
                   id="edit-email"
                   type="email"
@@ -254,27 +258,26 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
 
               {/* Bank Account Name */}
               <div className="space-y-2">
-                <Label htmlFor="edit-bank-account-name">Tên tài khoản ngân hàng</Label>
+                <Label htmlFor="edit-bank-account-name">{pc.bankAccountName}</Label>
                 <Input
                   id="edit-bank-account-name"
                   value={bankAccountName}
                   onChange={(e) => setBankAccountName(e.target.value)}
-                  placeholder="Tên chủ tài khoản (nếu khác tên NCC)"
+                  placeholder={pc.accountHolderNameIfDifferentFromSupplier}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Dùng để khớp với UNC khi tên chuyển khoản khác tên NCC
-                </p>
+                   {pc.usedToMatchBankSlipsWhenTheTransfer} </p>
               </div>
 
               <SupplierAliasManager
                 supplierId={supplier.id}
-                title="Tên gọi khác (Alias OCR)"
+                title={pc.alternativeNamesOCRAliases}
                 compact
               />
 
               {/* Payment Method */}
               <div className="space-y-2">
-                <Label>Phương thức thanh toán mặc định</Label>
+                <Label>{pc.defaultPaymentMethod}</Label>
                 <RadioGroup
                   value={defaultPaymentMethod}
                   onValueChange={(v: "bank_transfer" | "cash") => setDefaultPaymentMethod(v)}
@@ -284,35 +287,33 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
                     <RadioGroupItem value="bank_transfer" id="edit_pm_unc" />
                     <Label htmlFor="edit_pm_unc" className="flex items-center gap-2 cursor-pointer flex-1">
                       <CreditCard className="h-4 w-4 text-blue-500" />
-                      UNC
-                    </Label>
+                       {pc.fieldUNC} </Label>
                   </div>
                   <div className="flex items-center space-x-2 p-3 border rounded-lg flex-1 cursor-pointer hover:bg-muted/50">
                     <RadioGroupItem value="cash" id="edit_pm_cash" />
                     <Label htmlFor="edit_pm_cash" className="flex items-center gap-2 cursor-pointer flex-1">
                       <Banknote className="h-4 w-4 text-orange-500" />
-                      Tiền mặt
-                    </Label>
+                       {pc.cash} </Label>
                   </div>
                 </RadioGroup>
               </div>
 
               {/* Payment Terms */}
               <div className="space-y-2">
-                <Label htmlFor="edit_payment_terms">Công nợ (ngày)</Label>
+                <Label htmlFor="edit_payment_terms">{pc.paymentTermsDays}</Label>
                 <Input
                   id="edit_payment_terms"
                   type="number"
                   min="0"
                   value={paymentTermsDays}
                   onChange={(e) => setPaymentTermsDays(parseInt(e.target.value) || 0)}
-                  placeholder="VD: 30"
+                  placeholder={pc.eG30}
                 />
               </div>
 
               {/* Contract Upload */}
               <div className="space-y-2">
-                <Label>Hợp đồng (PDF)</Label>
+                <Label>{pc.contractPDF}</Label>
                 {contractUrl && !contractFile && (
                   <div className="flex items-center gap-2 p-2 bg-muted/50 rounded-lg mb-2">
                     <FileText className="h-4 w-4 text-primary" />
@@ -322,8 +323,7 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
                       rel="noopener noreferrer"
                       className="text-sm text-primary hover:underline flex-1 truncate"
                     >
-                      Xem hợp đồng hiện tại
-                    </a>
+                       {pc.viewCurrentContract} </a>
                   </div>
                 )}
                 <div className="border-2 border-dashed rounded-lg p-4">
@@ -338,7 +338,7 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
                     <label className="cursor-pointer block text-center">
                       <FileUp className="h-6 w-6 mx-auto mb-1 text-muted-foreground" />
                       <span className="text-sm text-muted-foreground">
-                        {contractUrl ? "Upload hợp đồng mới" : "Click để upload PDF"}
+                        {contractUrl ? pc.uploadNewContract : pc.clickToUploadPDF}
                       </span>
                       <input
                         type="file"
@@ -358,7 +358,7 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
                 <div className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
                   <FileText className="h-5 w-5 text-primary mt-0.5" />
                   <div className="flex-1">
-                    <p className="text-sm text-muted-foreground">Mô tả</p>
+                    <p className="text-sm text-muted-foreground">{pc.description}</p>
                     <p className="font-medium">{supplier.description}</p>
                   </div>
                 </div>
@@ -369,7 +369,7 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
                 <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
                   <CreditCard className="h-5 w-5 text-primary" />
                   <div>
-                    <p className="text-sm text-muted-foreground">Tên tài khoản NH</p>
+                    <p className="text-sm text-muted-foreground">{pc.bankAccountName2}</p>
                     <p className="font-medium">{supplier.bank_account_name}</p>
                   </div>
                 </div>
@@ -383,9 +383,9 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
                   <CreditCard className="h-5 w-5 text-blue-500" />
                 )}
                 <div>
-                  <p className="text-sm text-muted-foreground">Thanh toán mặc định</p>
+                  <p className="text-sm text-muted-foreground">{pc.defaultPayment}</p>
                   <p className="font-medium">
-                    {supplier.default_payment_method === 'cash' ? 'Tiền mặt' : 'UNC (Chuyển khoản)'}
+                    {supplier.default_payment_method === 'cash' ? pc.cash : pc.bankTransferUNC}
                   </p>
                 </div>
               </div>
@@ -395,8 +395,8 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
                 <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
                   <Clock className="h-5 w-5 text-primary" />
                   <div>
-                    <p className="text-sm text-muted-foreground">Thời hạn công nợ</p>
-                    <p className="font-medium">{supplier.payment_terms_days} ngày</p>
+                    <p className="text-sm text-muted-foreground">{pc.paymentTerms}</p>
+                    <p className="font-medium">{supplier.payment_terms_days}  {pc.days}</p>
                   </div>
                 </div>
               )}
@@ -406,15 +406,14 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
                 <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
                   <FileText className="h-5 w-5 text-primary" />
                   <div className="flex-1">
-                    <p className="text-sm text-muted-foreground">Hợp đồng</p>
+                    <p className="text-sm text-muted-foreground">{pc.contract}</p>
                     <a 
                       href={supplier.contract_url} 
                       target="_blank" 
                       rel="noopener noreferrer"
                       className="font-medium text-primary hover:underline flex items-center gap-1"
                     >
-                      Xem hợp đồng PDF
-                      <ExternalLink className="h-3 w-3" />
+                       {pc.viewPDFContract} <ExternalLink className="h-3 w-3" />
                     </a>
                   </div>
                 </div>
@@ -425,7 +424,7 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
                 <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
                   <Phone className="h-5 w-5 text-primary" />
                   <div className="flex-1">
-                    <p className="text-sm text-muted-foreground">Số điện thoại</p>
+                    <p className="text-sm text-muted-foreground">{pc.phoneNumber}</p>
                     <a href={`tel:${supplier.phone}`} className="font-medium text-primary hover:underline">
                       {supplier.phone}
                     </a>
@@ -438,7 +437,7 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
                 <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
                   <Mail className="h-5 w-5 text-primary" />
                   <div className="flex-1">
-                    <p className="text-sm text-muted-foreground">Email</p>
+                    <p className="text-sm text-muted-foreground">{pc.fieldEmail}</p>
                     <a href={`mailto:${supplier.email}`} className="font-medium text-primary hover:underline">
                       {supplier.email}
                     </a>
@@ -450,15 +449,14 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
               <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
                 <Package className="h-5 w-5 text-primary" />
                 <div>
-                  <p className="text-sm text-muted-foreground">Đề nghị thanh toán</p>
-                  <p className="font-medium">{supplier.order_count || 0} đề nghị</p>
+                  <p className="text-sm text-muted-foreground">{pc.paymentRequests}</p>
+                  <p className="font-medium">{supplier.order_count || 0}  {pc.requests}</p>
                 </div>
               </div>
 
               {!supplier.phone && !supplier.email && !supplier.contract_url && (
                 <p className="text-sm text-muted-foreground text-center py-2">
-                  Chưa có thông tin liên hệ
-                </p>
+                   {pc.noContactInformation} </p>
               )}
             </>
           )}
@@ -469,24 +467,21 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
               <>
                 <Button onClick={handleSave} disabled={loading} className="flex-1">
                   <Save className="h-4 w-4 mr-2" />
-                  {loading ? "Đang lưu..." : "Lưu"}
+                  {loading ? pc.saving : pc.save}
                 </Button>
                 <Button variant="outline" onClick={handleCancel} disabled={loading}>
                   <X className="h-4 w-4 mr-2" />
-                  Hủy
-                </Button>
+                   {pc.cancel} </Button>
               </>
             ) : (
               <>
                 <Button variant="outline" onClick={() => setIsEditing(true)} className={isOwner ? "flex-1" : "w-full"}>
                   <Pencil className="h-4 w-4 mr-2" />
-                  Sửa NCC
-                </Button>
+                   {pc.editSupplier2} </Button>
                 {isOwner && (
                   <Button variant="destructive" onClick={handleDelete} disabled={loading}>
                     <Trash2 className="h-4 w-4 mr-2" />
-                    Xóa
-                  </Button>
+                     {pc.delete} </Button>
                 )}
               </>
             )}

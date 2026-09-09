@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { localProductionError } from "@/i18n/productionErrors";
 
 export interface CanonicalMaterial {
   id: string;
@@ -234,7 +235,7 @@ const db = supabase as unknown as MaterialMasterDb;
 
 const nonEmptyReason = (reason: string) => {
   const trimmed = reason.trim();
-  if (!trimmed) throw new Error("Vui lòng nhập lý do tiếng Việt trước khi ghi thay đổi.");
+  if (!trimmed) throw localProductionError("materialError0");
   return trimmed;
 };
 
@@ -280,12 +281,12 @@ async function readAllTable<T>(
 }
 
 function validateRpcResponse(data: unknown, allowedStatuses: string[], requiredStringKeys: string[] = []) {
-  if (typeof data !== "object" || data === null || Array.isArray(data)) throw new Error("RPC không trả object xác nhận.");
+  if (typeof data !== "object" || data === null || Array.isArray(data)) throw localProductionError("materialError1");
   const record = data as Record<string, unknown>;
   const status = typeof record.status === "string" ? record.status : null;
-  if (!status || !allowedStatuses.includes(status)) throw new Error(`RPC trả trạng thái không hợp lệ: ${status || "missing"}`);
+  if (!status || !allowedStatuses.includes(status)) throw localProductionError("materialRpcStatus", { status: status || "missing" });
   for (const key of requiredStringKeys) {
-    if (typeof record[key] !== "string" || !String(record[key]).trim()) throw new Error(`RPC thiếu ID hợp lệ: ${key}`);
+    if (typeof record[key] !== "string" || !String(record[key]).trim()) throw localProductionError("materialRpcId", { key });
   }
   return record;
 }
@@ -349,7 +350,7 @@ export function useMaterialPaymentRequestLinks(materialId: string | null) {
         p_material_id: materialId,
       });
       if (error) throw error;
-      if (!Array.isArray(data)) throw new Error("RPC Duyệt chi không trả danh sách hợp lệ.");
+      if (!Array.isArray(data)) throw localProductionError("materialError2");
       return data;
     },
   });
@@ -365,7 +366,7 @@ export function useMaterialSupplierSuggestions(materialId: string | null) {
         p_material_id: materialId,
       });
       if (error) throw error;
-      if (!Array.isArray(data)) throw new Error("RPC gợi ý Nhà cung cấp không trả danh sách hợp lệ.");
+      if (!Array.isArray(data)) throw localProductionError("materialError3");
       return data;
     },
   });
@@ -386,7 +387,7 @@ export function useConfirmMaterialSupplierProduct() {
       confirmedBaseUnit?: string | null;
       reason: string;
     }) => {
-      if (!Number.isInteger(payload.expectedVersion) || payload.expectedVersion <= 0) throw new Error("Cần tải lại phiên bản NVL trước khi xác nhận Nhà cung cấp.");
+      if (!Number.isInteger(payload.expectedVersion) || payload.expectedVersion <= 0) throw localProductionError("materialError4");
       const { data, error } = await db.rpc("confirm_material_supplier_product", {
         p_material_id: payload.materialId,
         p_expected_version: payload.expectedVersion,
@@ -401,7 +402,7 @@ export function useConfirmMaterialSupplierProduct() {
       });
       if (error) throw error;
       const result = validateRpcResponse(data, ["supplier_product_confirmed", "supplier_product_unchanged"], ["material_id", "supplier_id", "supplier_product_id"]);
-      if (result.material_id !== payload.materialId || result.supplier_id !== payload.supplierId) throw new Error("RPC trả sai sản phẩm Nhà cung cấp đã chọn.");
+      if (result.material_id !== payload.materialId || result.supplier_id !== payload.supplierId) throw localProductionError("materialError5");
       return result;
     },
     onSuccess: (_result, payload) => {
@@ -416,7 +417,7 @@ export function useSyncMaterialSupplierPaymentRequests() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (payload: { materialId: string; expectedVersion: number; supplierProductId: string; reason: string }) => {
-      if (!Number.isInteger(payload.expectedVersion) || payload.expectedVersion <= 0) throw new Error("Cần tải lại phiên bản NVL trước khi đồng bộ Duyệt chi.");
+      if (!Number.isInteger(payload.expectedVersion) || payload.expectedVersion <= 0) throw localProductionError("materialError6");
       const { data, error } = await db.rpc("sync_material_supplier_payment_requests", {
         p_material_id: payload.materialId,
         p_expected_version: payload.expectedVersion,
@@ -425,7 +426,7 @@ export function useSyncMaterialSupplierPaymentRequests() {
       });
       if (error) throw error;
       const result = validateRpcResponse(data, ["payment_requests_synced", "payment_requests_sync_unchanged"], ["material_id", "supplier_product_id"]);
-      if (result.material_id !== payload.materialId || result.supplier_product_id !== payload.supplierProductId) throw new Error("RPC trả sai phạm vi đồng bộ Duyệt chi.");
+      if (result.material_id !== payload.materialId || result.supplier_product_id !== payload.supplierProductId) throw localProductionError("materialError7");
       return result;
     },
     onSuccess: (_result, payload) => {
@@ -452,7 +453,7 @@ export function useSetMaterialMasterEnforcementMode() {
   return useMutation({
     mutationFn: async (payload: SetMaterialMasterEnforcementModePayload) => {
       const source = payload.source_type.trim();
-      if (!source) throw new Error("Thiếu source_type để đổi chế độ controller.");
+      if (!source) throw localProductionError("materialError8");
       const { data, error } = await db.rpc("set_material_master_enforcement_mode", {
         p_source_type: source,
         p_expected_mode: payload.expected_mode,
@@ -462,7 +463,7 @@ export function useSetMaterialMasterEnforcementMode() {
       });
       if (error) throw error;
       const result = validateRpcResponse(data, ["updated", "mode_changed", "ok"], ["source_type"]);
-      if (result.source_type !== source) throw new Error("RPC trả sai source_type sau khi đổi chế độ.");
+      if (result.source_type !== source) throw localProductionError("materialError9");
       return result;
     },
     onSuccess: () => {
@@ -488,7 +489,7 @@ export function useCreateCanonicalMaterial() {
       });
       if (error) throw error;
       const result = validateRpcResponse(data, ["created"], ["material_id"]);
-      if (typeof result.version !== "number" || !Number.isInteger(result.version) || result.version <= 0) throw new Error("RPC không trả version hợp lệ.");
+      if (typeof result.version !== "number" || !Number.isInteger(result.version) || result.version <= 0) throw localProductionError("materialError10");
       return result;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["material-master"] }),
@@ -499,9 +500,9 @@ export function useUpdateCanonicalMaterial() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (payload: { material_id: string; expectedVersion: number; patch: Partial<Pick<CanonicalMaterial, "canonical_name" | "default_unit" | "active" | "category" | "brand" | "specification">>; reason: string; request_id?: string | null }) => {
-      if (!Number.isInteger(payload.expectedVersion) || payload.expectedVersion <= 0) throw new Error("Cần tải lại để có version hợp lệ trước khi cập nhật.");
+      if (!Number.isInteger(payload.expectedVersion) || payload.expectedVersion <= 0) throw localProductionError("materialError11");
       const patch = Object.fromEntries(Object.entries(payload.patch).filter(([, value]) => value !== undefined));
-      if (Object.keys(patch).length === 0) throw new Error("Không có thay đổi được hỗ trợ để cập nhật.");
+      if (Object.keys(patch).length === 0) throw localProductionError("materialError12");
       const { data, error } = await db.rpc("update_canonical_material", {
         p_material_id: payload.material_id,
         p_expected_version: payload.expectedVersion,
@@ -511,7 +512,7 @@ export function useUpdateCanonicalMaterial() {
       });
       if (error) throw error;
       const result = validateRpcResponse(data, ["updated"], ["material_id"]);
-      if (typeof result.version !== "number" || !Number.isInteger(result.version) || result.version <= payload.expectedVersion) throw new Error("RPC không tăng version như yêu cầu.");
+      if (typeof result.version !== "number" || !Number.isInteger(result.version) || result.version <= payload.expectedVersion) throw localProductionError("materialError13");
       return result;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["material-master"] }),
@@ -575,13 +576,13 @@ export function useConfirmMaterialResolution() {
           ? "resolved_existing"
           : "rejected";
       const result = validateRpcResponse(data, [expectedStatus, "resolution_unchanged"], ["request_id"]);
-      if (result.request_id !== payload.request_id) throw new Error("RPC trả sai request ID.");
+      if (result.request_id !== payload.request_id) throw localProductionError("materialError14");
       if (payload.action === "reject") {
-        if (result.material_id != null) throw new Error("Request từ chối nhưng RPC trả material ID.");
+        if (result.material_id != null) throw localProductionError("materialError15");
       } else if (typeof result.material_id !== "string" || !result.material_id) {
-        throw new Error("RPC không trả material ID sau khi xác nhận.");
+        throw localProductionError("materialError16");
       }
-      if (payload.action === "resolve_existing" && result.material_id !== payload.material_id) throw new Error("RPC trả sai material đã chọn.");
+      if (payload.action === "resolve_existing" && result.material_id !== payload.material_id) throw localProductionError("materialError17");
       return result;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["material-master"] }),
@@ -592,7 +593,7 @@ export function useLinkMaterialSupplier() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (payload: { materialId: string; expectedVersion: number; supplierId: string; reason: string }) => {
-      if (!Number.isInteger(payload.expectedVersion) || payload.expectedVersion <= 0) throw new Error("Cần tải lại phiên bản NVL trước khi liên kết Nhà cung cấp.");
+      if (!Number.isInteger(payload.expectedVersion) || payload.expectedVersion <= 0) throw localProductionError("materialError18");
       const { data, error } = await db.rpc("link_material_supplier", {
         p_material_id: payload.materialId,
         p_expected_version: payload.expectedVersion,
@@ -601,7 +602,7 @@ export function useLinkMaterialSupplier() {
       });
       if (error) throw error;
       const result = validateRpcResponse(data, ["supplier_linked", "supplier_link_unchanged"], ["material_id", "supplier_id", "supplier_product_id"]);
-      if (result.material_id !== payload.materialId || result.supplier_id !== payload.supplierId) throw new Error("RPC trả sai liên kết Nhà cung cấp đã chọn.");
+      if (result.material_id !== payload.materialId || result.supplier_id !== payload.supplierId) throw localProductionError("materialError19");
       return result;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["material-master"] }),
@@ -621,9 +622,9 @@ export function useLinkMaterialToSkuCogs() {
       effectiveFrom: string;
       reason: string;
     }) => {
-      if (!Number.isInteger(payload.expectedVersion) || payload.expectedVersion <= 0) throw new Error("Cần tải lại phiên bản NVL trước khi liên kết Giá vốn.");
-      if (!Number.isFinite(payload.dosageQty) || payload.dosageQty <= 0) throw new Error("Định lượng NVL phải lớn hơn 0.");
-      if (!Number.isFinite(payload.wastagePercent) || payload.wastagePercent < 0 || payload.wastagePercent > 100) throw new Error("Hao hụt phải từ 0% đến 100%.");
+      if (!Number.isInteger(payload.expectedVersion) || payload.expectedVersion <= 0) throw localProductionError("materialError20");
+      if (!Number.isFinite(payload.dosageQty) || payload.dosageQty <= 0) throw localProductionError("materialError21");
+      if (!Number.isFinite(payload.wastagePercent) || payload.wastagePercent < 0 || payload.wastagePercent > 100) throw localProductionError("materialError22");
       const { data, error } = await db.rpc("link_material_to_sku_cogs", {
         p_material_id: payload.materialId,
         p_expected_version: payload.expectedVersion,
@@ -636,7 +637,7 @@ export function useLinkMaterialToSkuCogs() {
       });
       if (error) throw error;
       const result = validateRpcResponse(data, ["cogs_linked", "cogs_link_unchanged"], ["material_id", "sku_id", "formulation_id"]);
-      if (result.material_id !== payload.materialId || result.sku_id !== payload.skuId) throw new Error("RPC trả sai liên kết SKU Giá vốn đã chọn.");
+      if (result.material_id !== payload.materialId || result.sku_id !== payload.skuId) throw localProductionError("materialError23");
       return result;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["material-master"] }),
@@ -647,7 +648,7 @@ export function useLinkMaterialPaymentRequestItem() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (payload: { materialId: string; expectedVersion: number; paymentRequestItemId: string; reason: string }) => {
-      if (!Number.isInteger(payload.expectedVersion) || payload.expectedVersion <= 0) throw new Error("Cần tải lại phiên bản NVL trước khi liên kết Duyệt chi.");
+      if (!Number.isInteger(payload.expectedVersion) || payload.expectedVersion <= 0) throw localProductionError("materialError24");
       const { data, error } = await db.rpc("link_material_payment_request_item", {
         p_material_id: payload.materialId,
         p_expected_material_version: payload.expectedVersion,
@@ -656,7 +657,7 @@ export function useLinkMaterialPaymentRequestItem() {
       });
       if (error) throw error;
       const result = validateRpcResponse(data, ["payment_request_linked", "payment_request_link_unchanged"], ["material_id", "payment_request_item_id", "request_id"]);
-      if (result.material_id !== payload.materialId || result.payment_request_item_id !== payload.paymentRequestItemId) throw new Error("RPC trả sai dòng Duyệt chi đã chọn.");
+      if (result.material_id !== payload.materialId || result.payment_request_item_id !== payload.paymentRequestItemId) throw localProductionError("materialError25");
       return result;
     },
     onSuccess: (_result, payload) => {

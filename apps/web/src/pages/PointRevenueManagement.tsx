@@ -1,3 +1,5 @@
+import { useLanguage } from "@/contexts/LanguageContext";
+import { pointRevenue } from "@/i18n/pointRevenue";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -202,6 +204,8 @@ function ChannelEditor({
   onAmountChange: (channelCode: string, amount: number) => void;
   onNotesChange: (channelCode: string, notes: string) => void;
 }) {
+  const { language } = useLanguage();
+  const copy = pointRevenue[language];
   const isRetail = channel.channel_code.trim().toLowerCase() === "khach_le";
   const isHotline = channel.channel_code.trim().toLowerCase() === "hotline";
 
@@ -213,13 +217,13 @@ function ChannelEditor({
         </span>
         <div>
           <p className="pr-channel-name">{channel.channel_name || channel.channel_code}</p>
-          {isRetail && <p className="pr-channel-help">Tự tính {retailUnitPriceLabel}đ × số lượng</p>}
-          {isHotline && <p className="pr-channel-help">Nhập trực tiếp tại dòng Hotline; Ghi chú ca bán không được dùng để tính Hotline</p>}
+          {isRetail && <p className="pr-channel-help">{copy.autoCalculated} {retailUnitPriceLabel}{copy.priceQuantity}</p>}
+          {isHotline && <p className="pr-channel-help">{copy.hotlineHint}</p>}
         </div>
       </div>
       <div className="pr-channel-fields">
         <div className="pr-field-block">
-          <Label htmlFor={`point-quantity-${idPrefix}-${channel.channel_code}`}>Số bánh</Label>
+          <Label htmlFor={`point-quantity-${idPrefix}-${channel.channel_code}`}>{copy.breadCount}</Label>
           <Input
             id={`point-quantity-${idPrefix}-${channel.channel_code}`}
             inputMode="decimal"
@@ -232,7 +236,7 @@ function ChannelEditor({
           />
         </div>
         <div className="pr-field-block">
-          <Label htmlFor={`point-revenue-${idPrefix}-${channel.channel_code}`}>{isHotline ? "Thực thu" : "Doanh thu"}</Label>
+          <Label htmlFor={`point-revenue-${idPrefix}-${channel.channel_code}`}>{isHotline ? copy.actualReceipts : copy.revenue}</Label>
           <Input
             id={`point-revenue-${idPrefix}-${channel.channel_code}`}
             inputMode="numeric"
@@ -245,7 +249,7 @@ function ChannelEditor({
           />
         </div>
         <div className="pr-field-block pr-field-block--notes">
-          <Label htmlFor={`point-channel-note-${idPrefix}-${channel.channel_code}`}>Ghi chú</Label>
+          <Label htmlFor={`point-channel-note-${idPrefix}-${channel.channel_code}`}>{copy.notes}</Label>
           <Input
             id={`point-channel-note-${idPrefix}-${channel.channel_code}`}
             value={notes}
@@ -258,16 +262,6 @@ function ChannelEditor({
   );
 }
 
-const INVENTORY_FIELDS: Array<{ key: keyof PointReportInventoryRow; label: string }> = [
-  { key: "opening_quantity", label: "Tồn đầu" },
-  { key: "received_quantity", label: "Nhập" },
-  { key: "shortage_quantity", label: "Thiếu" },
-  { key: "transfer_quantity", label: "Chuyển" },
-  { key: "waste_quantity", label: "Hủy" },
-  { key: "returns_quantity", label: "Trả" },
-  { key: "sold_quantity", label: "Bán" },
-  { key: "consumed_quantity", label: "Tiêu thụ" },
-];
 
 function InventoryEditor({
   rows,
@@ -282,14 +276,27 @@ function InventoryEditor({
     value: number | string,
   ) => void;
 }) {
+  const { language } = useLanguage();
+  const copy = pointRevenue[language];
+  const INVENTORY_FIELDS: Array<{ key: keyof PointReportInventoryRow; label: string }> = [
+  { key: "opening_quantity", label: copy.opening },
+  { key: "received_quantity", label: copy.received },
+  { key: "shortage_quantity", label: copy.shortage },
+  { key: "transfer_quantity", label: copy.transfer },
+  { key: "waste_quantity", label: copy.waste },
+  { key: "returns_quantity", label: copy.returns },
+  { key: "sold_quantity", label: copy.sold },
+  { key: "consumed_quantity", label: copy.consumed },
+];
+
   if (rows.length === 0) return null;
 
   return (
     <section className="pr-full-report-section" data-testid="point-report-inventory-editor">
       <div className="pr-section-heading">
         <div>
-          <h3>Kho và số bánh</h3>
-          <p>Tồn cuối được tính lại khi số liệu thay đổi.</p>
+          <h3>{copy.inventoryTitle}</h3>
+          <p>{copy.inventoryHint}</p>
         </div>
       </div>
       <div className="pr-inventory-list">
@@ -297,7 +304,7 @@ function InventoryEditor({
           <article className="pr-inventory-card" key={row.product_code}>
             <header>
               <strong>{row.product_name}</strong>
-              <span>Tồn cuối {formatInventoryQuantity(row.closing_quantity)}</span>
+              <span>{copy.closing} {formatInventoryQuantity(row.closing_quantity)}</span>
             </header>
             <div className="pr-inventory-grid">
               {INVENTORY_FIELDS.map((field) => {
@@ -313,17 +320,17 @@ function InventoryEditor({
                       step="0.001"
                       value={String(row[field.key] ?? 0)}
                       disabled={disabled || derivedConsumption || derivedBreadSold}
-                      title={derivedBreadSold ? "Bánh bán tự tính từ tổng các kênh" : undefined}
+                      title={derivedBreadSold ? copy.breadDerived : undefined}
                       onChange={(event) =>
                         onChange(row.product_code, field.key, Number(event.target.value || 0))
                       }
                     />
-                    {derivedBreadSold && <small>Bánh bán tự tính từ tổng các kênh</small>}
+                    {derivedBreadSold && <small>{copy.breadDerived}</small>}
                   </Label>
                 );
               })}
               <Label className="pr-inventory-note">
-                <span>Ghi chú</span>
+                <span>{copy.notes}</span>
                 <Input
                   value={row.notes}
                   disabled={disabled}
@@ -385,6 +392,8 @@ function EditorPanel({
   onCancel?: () => void;
   onSave: () => void;
 }) {
+  const { language } = useLanguage();
+  const copy = pointRevenue[language];
   const adjustedChannels = useMemo(() => currentAmountsFor(report, amounts), [report, amounts]);
   const summary = useMemo(() => summarizePointRevenue(adjustedChannels), [adjustedChannels]);
 
@@ -392,8 +401,8 @@ function EditorPanel({
     return (
       <aside className="pr-editor pr-editor--empty" data-testid="point-revenue-editor">
         <Store className="pr-empty-icon" aria-hidden="true" />
-        <h2>Chưa có báo cáo để mở</h2>
-        <p>Chọn ngày khác khi điểm bán chưa gửi số liệu.</p>
+        <h2>{copy.noReport}</h2>
+        <p>{copy.noReportHint}</p>
       </aside>
     );
   }
@@ -402,27 +411,27 @@ function EditorPanel({
     <aside className="pr-editor" data-testid="point-revenue-editor" aria-live="polite">
       <header className="pr-editor-header">
         <div>
-          <p className="pr-editor-kicker">Báo cáo chi tiết</p>
+          <p className="pr-editor-kicker">{copy.detailTitle}</p>
           <h2>{report.location_name}</h2>
-          <p>{formatDate(report.report_date)} · {report.staff_name || "Chưa có tên nhân viên"}</p>
+          <p>{formatDate(report.report_date)} · {report.staff_name || copy.unnamedStaff}</p>
         </div>
         <span className="pr-editor-mode">
           {canEdit ? <PencilLine aria-hidden="true" /> : <Eye aria-hidden="true" />}
-          {canEdit ? "Được chỉnh sửa" : "Chỉ xem"}
+          {canEdit ? copy.editable : copy.readonly}
         </span>
       </header>
 
-      <section className="pr-editor-summary" aria-label="Tóm tắt báo cáo">
+      <section className="pr-editor-summary" aria-label={copy.summary}>
         <div>
-          <span>Tổng bánh</span>
+          <span>{copy.totalBread}</span>
           <strong>{formatNumber(summary.total_quantity)}</strong>
         </div>
         <div>
-          <span>Tổng doanh thu</span>
+          <span>{copy.totalRevenue}</span>
           <strong>{formatMoney(summary.effective_total_vnd)}</strong>
         </div>
         <div>
-          <span>Kênh bán</span>
+          <span>{copy.channels}</span>
           <strong>{formatNumber(report.channels.length)}</strong>
         </div>
       </section>
@@ -430,8 +439,7 @@ function EditorPanel({
       {detailLoading ? (
         <div className="pr-detail-loading">
           <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
-          Đang tải báo cáo…
-        </div>
+          {copy.loadingReport} </div>
       ) : (
         <>
           <div className="pr-channel-list">
@@ -459,7 +467,7 @@ function EditorPanel({
           />
 
           <div className="pr-note-field">
-            <Label htmlFor={`point-report-note-${idPrefix}`}>Ghi chú báo cáo</Label>
+            <Label htmlFor={`point-report-note-${idPrefix}`}>{copy.reportNotes}</Label>
             <Textarea
               id={`point-report-note-${idPrefix}`}
               value={reportNotes}
@@ -470,7 +478,7 @@ function EditorPanel({
 
           {canEdit && (
             <div className="pr-note-field">
-              <Label htmlFor={`point-report-edit-reason-${idPrefix}`}>Lý do chỉnh sửa</Label>
+              <Label htmlFor={`point-report-edit-reason-${idPrefix}`}>{copy.editReason}</Label>
               <Input
                 id={`point-report-edit-reason-${idPrefix}`}
                 value={reason}
@@ -479,9 +487,9 @@ function EditorPanel({
                 maxLength={500}
                 aria-required="true"
                 onChange={(event) => onReasonChange(event.target.value)}
-                placeholder="Ví dụ: cập nhật số bánh bán thực tế cuối ca"
+                placeholder={copy.reasonPlaceholder}
               />
-              <p className="pr-field-help">Lý do phải cụ thể (không dùng “Đã kiểm”) và được lưu cùng người sửa/dữ liệu trước-sau.</p>
+              <p className="pr-field-help">{copy.reasonHint}</p>
             </div>
           )}
 
@@ -495,8 +503,7 @@ function EditorPanel({
                   onClick={onCancel}
                   disabled={saving}
                 >
-                  Hủy
-                </Button>
+                  {copy.cancel} </Button>
               )}
               <Button
                 type="button"
@@ -509,7 +516,7 @@ function EditorPanel({
                 ) : (
                   <Save className="h-4 w-4" aria-hidden="true" />
                 )}
-                {saving ? "Đang lưu…" : "Lưu thay đổi"}
+                {saving ? copy.saving : copy.save}
               </Button>
             </div>
           )}
@@ -520,6 +527,8 @@ function EditorPanel({
 }
 
 export default function PointRevenueManagement() {
+  const { language } = useLanguage();
+  const copy = pointRevenue[language];
   const { canEditModule } = useAuth();
   const canEdit = canEditModule("finance_revenue");
   const queryClient = useQueryClient();
@@ -639,9 +648,9 @@ export default function PointRevenueManagement() {
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      if (!selectedReport || !detail) throw new Error("Chưa tải đủ chi tiết báo cáo điểm bán.");
+      if (!selectedReport || !detail) throw new Error(copy.incompleteReport);
       if (!isSpecificCorrectionReason(reason)) {
-        throw new Error("Vui lòng nhập lý do chỉnh sửa cụ thể hơn.");
+        throw new Error(copy.specificReason);
       }
       const channelRows = detail.channel_rows.map((channel) => {
         const quantity = Math.max(0, quantities[channel.channel_code] ?? channel.quantity);
@@ -679,13 +688,13 @@ export default function PointRevenueManagement() {
       });
       setReason("");
       setMobileEditorOpen(false);
-      toast.success("Đã lưu thay đổi báo cáo.", { icon: <Check className="h-4 w-4" /> });
+      toast.success(copy.saved, { icon: <Check className="h-4 w-4" /> });
     },
     onError: (saveError) => {
       toast.error(
         saveError instanceof Error
           ? saveError.message
-          : "Không thể lưu báo cáo điểm bán. Xem lại dữ liệu rồi thử lần nữa.",
+          : copy.saveFailed,
       );
     },
   });
@@ -776,27 +785,28 @@ export default function PointRevenueManagement() {
     <main
       className="point-revenue-page"
       data-testid="point-revenue-page"
+      data-staff-i18n="b-revenue-v1"
       data-point-revenue-version="mobile-ranking-edit-v2"
     >
       <header className="pr-page-header">
         <div className="pr-title-line">
           <Store className="h-5 w-5" aria-hidden="true" />
-          <h1>Doanh thu điểm bán</h1>
+          <h1>{copy.title}</h1>
         </div>
       </header>
 
-      <section className="pr-date-control" aria-label="Chọn ngày báo cáo">
+      <section className="pr-date-control" aria-label={copy.chooseDate}>
         <Button
           type="button"
           variant="outline"
           size="icon"
           onClick={() => setReportDate((current) => shiftIsoDate(current, -1))}
-          aria-label="Xem ngày trước"
+          aria-label={copy.previousDay}
         >
           <ArrowLeft aria-hidden="true" />
         </Button>
         <label>
-          <span>Ngày báo cáo</span>
+          <span>{copy.reportDate}</span>
           <Input
             type="date"
             value={reportDate}
@@ -810,46 +820,45 @@ export default function PointRevenueManagement() {
           size="icon"
           onClick={() => setReportDate((current) => shiftIsoDate(current, 1))}
           disabled={reportDate >= todayIso()}
-          aria-label="Xem ngày sau"
+          aria-label={copy.nextDay}
         >
           <ArrowRight aria-hidden="true" />
         </Button>
       </section>
 
-      <section className="pr-stat-led" aria-label="Tổng quan doanh thu trong ngày">
+      <section className="pr-stat-led" aria-label={copy.dailyOverview}>
         <article className="pr-lead-stat">
           <div className="pr-lead-number" aria-live="polite">
             {isLoading ? "—" : formatNumber(dailySummary.totalQuantity)}
           </div>
           <div className="pr-lead-copy">
-            <h2>bánh bán ra trong ngày</h2>
+            <h2>{copy.breadSoldToday}</h2>
             <p>
-              {formatDate(reportDate)} · {formatNumber(dailySummary.pointCount)} điểm bán đã gửi báo cáo
-            </p>
+              {formatDate(reportDate)} · {formatNumber(dailySummary.pointCount)} {copy.submittedLocations} </p>
           </div>
         </article>
 
         <div className="pr-supporting-stats">
           <article>
-            <span>Tổng doanh thu</span>
+            <span>{copy.totalRevenue}</span>
             <strong>{isLoading ? "—" : formatMoney(dailySummary.totalRevenue)}</strong>
           </article>
           <article>
-            <span>Trung bình mỗi điểm</span>
-            <strong>{isLoading ? "—" : `${formatNumber(dailySummary.averageQuantity)} bánh`}</strong>
+            <span>{copy.average}</span>
+            <strong>{isLoading ? "—" : `${formatNumber(dailySummary.averageQuantity)} ${copy.bread}`}</strong>
           </article>
           <article>
-            <span>Bán nhiều nhất</span>
+            <span>{copy.highest}</span>
             <strong>{dailySummary.highest?.report.location_name || "—"}</strong>
             <small>
-              {dailySummary.highest ? `${formatNumber(dailySummary.highest.totalQuantity)} bánh` : "Chưa có dữ liệu"}
+              {dailySummary.highest ? `${formatNumber(dailySummary.highest.totalQuantity)} ${copy.bread}` : copy.noData}
             </small>
           </article>
           <article>
-            <span>Bán ít nhất</span>
+            <span>{copy.lowest}</span>
             <strong>{dailySummary.lowest?.report.location_name || "—"}</strong>
             <small>
-              {dailySummary.lowest ? `${formatNumber(dailySummary.lowest.totalQuantity)} bánh` : "Chưa đủ dữ liệu so sánh"}
+              {dailySummary.lowest ? `${formatNumber(dailySummary.lowest.totalQuantity)} ${copy.bread}` : copy.notEnoughComparison}
             </small>
           </article>
         </div>
@@ -858,15 +867,15 @@ export default function PointRevenueManagement() {
       <section className="pr-ranking-section" aria-labelledby="point-ranking-title">
         <div className="pr-ranking-heading">
           <div>
-            <h2 id="point-ranking-title">Xếp hạng điểm bán</h2>
-            <p>Danh sách được sắp theo tổng số bánh bán ra, từ cao xuống thấp.</p>
+            <h2 id="point-ranking-title">{copy.ranking}</h2>
+            <p>{copy.rankingHint}</p>
           </div>
-          {isLoading && <Loader2 className="h-5 w-5 animate-spin" aria-label="Đang tải" />}
+          {isLoading && <Loader2 className="h-5 w-5 animate-spin" aria-label={copy.loading} />}
         </div>
 
         {isError && (
           <div className="pr-error" role="alert">
-            Không tải được báo cáo. {error instanceof Error ? error.message : "Vui lòng thử lại."}
+            {copy.loadFailed} {error instanceof Error ? error.message : copy.retry}
           </div>
         )}
 
@@ -874,8 +883,8 @@ export default function PointRevenueManagement() {
           <div className="pr-empty">
             <CalendarDays aria-hidden="true" />
             <div>
-              <strong>Chưa có báo cáo trong ngày này.</strong>
-              <span>Chọn một ngày khác để xem dữ liệu điểm bán.</span>
+              <strong>{copy.emptyDay}</strong>
+              <span>{copy.emptyDayHint}</span>
             </div>
           </div>
         )}
@@ -895,35 +904,35 @@ export default function PointRevenueManagement() {
                   type="button"
                   className="pr-ranking-main"
                   onClick={() => openReport(row.report.report_id)}
-                  aria-label={`Mở báo cáo ${row.report.location_name}`}
+                  aria-label={`${copy.viewReport}: ${row.report.location_name}`}
                 >
                   <span className={`pr-rank${isHighest ? " pr-rank--highest" : ""}`}>
-                    {isHighest ? <Star aria-label="Tốt nhất hôm nay" /> : String(row.rank).padStart(2, "0")}
+                    {isHighest ? <Star aria-label={copy.bestToday} /> : String(row.rank).padStart(2, "0")}
                   </span>
                   <span className="pr-point-copy">
                     <span className="pr-point-title-line">
                       <strong>{row.report.location_name}</strong>
-                      {isHighest && <span className="pr-rank-note">Tốt nhất hôm nay</span>}
-                      {isLowest && <span className="pr-rank-note pr-rank-note--low">Bán ít nhất</span>}
+                      {isHighest && <span className="pr-rank-note">{copy.bestToday}</span>}
+                      {isLowest && <span className="pr-rank-note pr-rank-note--low">{copy.lowest}</span>}
                     </span>
                     <span className="pr-volume-track" aria-hidden="true">
                       <span style={{ transform: `scaleX(${row.share / 100})` }} />
                     </span>
                     <span className="pr-point-meta">
-                      {row.report.staff_name || "Chưa có tên nhân viên"}
+                      {row.report.staff_name || copy.unnamedStaff}
                       {breadClosing !== null && breadClosing !== undefined && (
-                        <span className="pr-point-stock"> · Tồn cuối {formatInventoryQuantity(breadClosing)} bánh</span>
+                        <span className="pr-point-stock"> {copy.closingInline} {formatInventoryQuantity(breadClosing)} {copy.bread}</span>
                       )}
                     </span>
                     {row.report.report_notes && (
                       <span className="pr-shift-note">
-                        <strong>Ghi chú ca:</strong> {row.report.report_notes}
+                        <strong>{copy.shiftNotes}</strong> {row.report.report_notes}
                       </span>
                     )}
                   </span>
                   <span className="pr-point-quantity">
                     <strong>{formatNumber(row.totalQuantity)}</strong>
-                    <span>bánh</span>
+                    <span>{copy.bread}</span>
                   </span>
                   <span className="pr-point-revenue">{formatMoney(row.totalRevenue)}</span>
                 </button>
@@ -934,7 +943,7 @@ export default function PointRevenueManagement() {
                   onClick={() => openReport(row.report.report_id, true)}
                 >
                   {canEdit ? <PencilLine aria-hidden="true" /> : <Eye aria-hidden="true" />}
-                  {canEdit ? "Mở & sửa" : "Xem báo cáo"}
+                  {canEdit ? copy.openEdit : copy.viewReport}
                 </Button>
               </article>
             );
@@ -945,15 +954,15 @@ export default function PointRevenueManagement() {
           <section className="pr-inventory-overview" aria-labelledby="point-inventory-title">
             <header>
               <div>
-                <h3 id="point-inventory-title">Tồn bánh hiện tại</h3>
-                <p>Tồn cuối Bánh mì que theo báo cáo đã gửi.</p>
+                <h3 id="point-inventory-title">{copy.currentStock}</h3>
+                <p>{copy.currentStockHint}</p>
               </div>
               <strong>
                 {inventoryOverviewLoading
-                  ? "Đang tải…"
+                  ? copy.loadingEllipsis
                   : inventoryOverviewIncomplete
-                    ? "Chưa đủ dữ liệu"
-                    : `${formatInventoryQuantity(totalBreadClosing)} bánh`}
+                    ? copy.insufficientData
+                    : `${formatInventoryQuantity(totalBreadClosing)} ${copy.bread}`}
               </strong>
             </header>
             <div className="pr-inventory-overview-grid">
@@ -964,7 +973,7 @@ export default function PointRevenueManagement() {
                   <article key={row.report.report_id}>
                     <span>{row.report.location_name}</span>
                     <strong>{closing === null || closing === undefined ? "—" : formatInventoryQuantity(closing)}</strong>
-                    <small>{detailQuery?.isError ? "Không tải được" : "bánh tồn cuối"}</small>
+                    <small>{detailQuery?.isError ? copy.unableLoad : copy.closingBread}</small>
                   </article>
                 );
               })}
@@ -973,7 +982,7 @@ export default function PointRevenueManagement() {
         )}
       </section>
 
-      <section className="pr-desktop-editor" aria-label="Báo cáo điểm bán được chọn">
+      <section className="pr-desktop-editor" aria-label={copy.selectedReport}>
         {renderEditor("desktop")}
       </section>
 
@@ -985,11 +994,11 @@ export default function PointRevenueManagement() {
       >
         <DialogContent className="pr-mobile-dialog">
           <DialogHeader>
-            <DialogTitle>Báo cáo điểm bán</DialogTitle>
+            <DialogTitle>{copy.locationReport}</DialogTitle>
             <DialogDescription>
               {canEdit
-                ? "Xem và chỉnh sửa số liệu khi tài khoản được cấp quyền."
-                : "Tài khoản hiện chỉ có quyền xem báo cáo."}
+                ? copy.editableHint
+                : copy.readonlyHint}
             </DialogDescription>
           </DialogHeader>
           <Button
@@ -997,7 +1006,7 @@ export default function PointRevenueManagement() {
             variant="ghost"
             size="icon"
             onClick={closeMobileEditor}
-            aria-label="Đóng"
+            aria-label={copy.close}
           >
             <X className="h-4 w-4" aria-hidden="true" />
           </Button>

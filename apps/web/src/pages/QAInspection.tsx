@@ -1,3 +1,6 @@
+import { formatText } from "@/i18n/format";
+import { useProductionCopy } from "@/i18n/useProductionCopy";
+import { productionCopy, type ProductionCopy } from "@/i18n/production";
 import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -199,9 +202,9 @@ const orderMatchesDate = (order: ProductionOrder, selectedDate: string) => {
 
 const getErrorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error || ""));
 
-const API_CREDIT_ERROR_MESSAGE = "Hết API credit. Vui lòng liên hệ bộ phận quản trị.";
 
-const getLabelScanErrorMessage = (error: unknown) => {
+
+const getLabelScanErrorMessage = (error: unknown, c: ProductionCopy = productionCopy.vi) => {
   const message = getErrorMessage(error);
   const normalized = message.toLowerCase();
   if (
@@ -209,9 +212,21 @@ const getLabelScanErrorMessage = (error: unknown) => {
     normalized.includes("insufficient_quota") ||
     normalized.includes("api credit")
   ) {
-    return API_CREDIT_ERROR_MESSAGE;
+    return c.m354;
   }
   return message;
+};
+
+// Translate only local label validation copy at display time; persisted reasons stay canonical.
+const displayLabelReason = (reason: string, c: ProductionCopy) => {
+  for (const key of ["labelMissing", "labelWeight", "labelPass", "m354"] as const) {
+    if (reason === productionCopy.vi[key]) return c[key];
+  }
+  const nsx = /^NSX phải là (.+)\.$/.exec(reason);
+  if (nsx) return formatText(c.labelNsx, { date: nsx[1] });
+  const hsd = /^HSD phải là (.+)\.$/.exec(reason);
+  if (hsd) return formatText(c.labelHsd, { date: hsd[1] });
+  return reason;
 };
 
 const slugPart = (value: string) =>
@@ -241,6 +256,7 @@ const checklistFromNotes = (notes?: string | null) => ({
 });
 
 export default function QAInspection() {
+  const c = useProductionCopy();
   const { language } = useLanguage();
   const { profile, user } = useAuth();
   const isVi = language === "vi";
@@ -725,7 +741,7 @@ export default function QAInspection() {
   const selectedChecklist = checklistFromNotes(selectedInspection?.notes);
 
   return (
-    <div className="-m-4 min-h-screen bg-background p-4 text-foreground md:-m-6 md:p-6" data-stitch-qa-finished-goods="q7-current-theme-vn-date">
+    <div className="-m-4 min-h-screen bg-background p-4 text-foreground md:-m-6 md:p-6" data-production-i18n="c-production-v1" data-stitch-qa-finished-goods="q7-current-theme-vn-date">
       <div className="mx-auto max-w-7xl space-y-5">
         <header className="card-elevated rounded-[1.75rem] p-4 md:p-6">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -794,7 +810,7 @@ export default function QAInspection() {
                       <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-bold text-muted-foreground">
                         <span>{displayDateTime(inspectedAt)}</span>
                         <span>·</span>
-                        <span>{inspection.product_photos?.length || 0} ảnh</span>
+                        <span>{inspection.product_photos?.length || 0} {c.m361}</span>
                         <span>·</span>
                         <span>{inspection.inspected_by || "-"}</span>
                       </div>
@@ -851,8 +867,8 @@ export default function QAInspection() {
                             <div className="min-w-0">
                               <div className="flex flex-wrap items-center gap-2">
                                 <p className="font-mono text-sm font-black text-foreground">{order.production_number}</p>
-                                {alreadyPassed && <Badge className="bg-success/15 text-success hover:bg-success/15">QA pass</Badge>}
-                                <Badge variant="outline" className="rounded-full text-[11px] uppercase">{order.status}</Badge>
+                                {alreadyPassed && <Badge className="bg-success/15 text-success hover:bg-success/15">{c.label4}</Badge>}
+                                <Badge variant="outline" className="rounded-full text-[11px] uppercase">{({ draft: c.draft, planned: c.planned, in_progress: c.in_progress, completed: c.completed, cancelled: c.cancelled } as Record<string, string>)[order.status] || order.status}</Badge>
                               </div>
                               <p className="mt-1 line-clamp-2 text-sm font-semibold text-muted-foreground">
                                 {items.slice(0, 2).map((item) => item.product_name).join(" · ") || (isVi ? "Chưa có dòng sản phẩm" : "No item lines")}
@@ -864,7 +880,7 @@ export default function QAInspection() {
                             </div>
                           </div>
                           <div className="mt-2 flex flex-wrap gap-2 text-[11px] font-bold text-muted-foreground">
-                            <span className="rounded-full bg-muted px-2 py-1">SX {displayDateKey(order.planned_start_date || order.planned_end_date || order.created_at)}</span>
+                            <span className="rounded-full bg-muted px-2 py-1">{c.label5} {displayDateKey(order.planned_start_date || order.planned_end_date || order.created_at)}</span>
                             <span className="rounded-full bg-muted px-2 py-1">{alreadyPassed ? (isVi ? "Đã QA pass" : "Already QA passed") : (isVi ? "Bấm để QA pass" : "Click to QA pass")}</span>
                           </div>
                         </button>
@@ -937,7 +953,7 @@ export default function QAInspection() {
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <p className="text-sm font-black text-foreground">{isVi ? "Sản phẩm nhập kho từ lệnh SX" : "Finished goods from order"}</p>
-                    <Badge variant="outline">{formItems.length} dòng</Badge>
+                    <Badge variant="outline">{formItems.length} {c.m362}</Badge>
                   </div>
                   {formItems.length === 0 ? (
                     <div className="rounded-2xl bg-muted p-4 text-sm font-semibold text-muted-foreground">{isVi ? "Chọn lệnh SX để tự điền danh sách sản phẩm." : "Select an order to auto-fill items."}</div>
@@ -954,30 +970,30 @@ export default function QAInspection() {
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
                               <p className="line-clamp-2 text-sm font-black text-foreground">{item.product_name}</p>
-                              <p className="text-xs font-bold text-muted-foreground">Plan {item.planned_qty.toLocaleString("vi-VN")} {item.unit}</p>
+                              <p className="text-xs font-bold text-muted-foreground">{c.label6} {item.planned_qty.toLocaleString("vi-VN")} {item.unit}</p>
                             </div>
                             <Badge className="bg-warning text-warning-foreground hover:bg-warning">{item.unit}</Badge>
                           </div>
                           <div className="mt-3 rounded-2xl border border-dashed border-primary/30 bg-background p-3">
                             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                               <div>
-                                <p className="text-xs font-black text-foreground">Tem nhãn SKU</p>
-                                <p className="text-[11px] font-bold text-muted-foreground">Kỳ vọng NSX {formatDateKeyVi(expected.expectedNsx)} · HSD {formatDateKeyVi(expected.expectedHsd)}{spec?.net_weight_value ? ` · ${spec.net_weight_value}${spec.net_weight_unit || ""}` : ""}</p>
+                                <p className="text-xs font-black text-foreground">{c.m363}</p>
+                                <p className="text-[11px] font-bold text-muted-foreground">{c.m364} {formatDateKeyVi(expected.expectedNsx)} · {c.expiry} {formatDateKeyVi(expected.expectedHsd)}{spec?.net_weight_value ? ` · ${spec.net_weight_value}${spec.net_weight_unit || ""}` : ""}</p>
                               </div>
                               <Button type="button" variant={labelOk ? "outline" : "default"} size="sm" className="rounded-xl" disabled={scanningLabel} onClick={() => openLabelScanner(index)}>
                                 {scanningLabel && pendingLabelIndex === index ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Camera className="mr-2 h-4 w-4" />}
-                                Quét tem
+                                {c.m365}
                               </Button>
                             </div>
                             <div className="mt-2 flex flex-wrap items-center gap-2">
                               <Badge className={labelOk ? "bg-success/15 text-success hover:bg-success/15" : check?.status === "failed" ? "bg-destructive/15 text-destructive hover:bg-destructive/15" : "bg-warning text-warning-foreground hover:bg-warning"}>
-                                {labelOk ? "Tem đạt" : check?.status === "failed" ? "Tem lỗi" : "Chưa quét"}
+                                {labelOk ? c.m366 : check?.status === "failed" ? c.m367 : c.m368}
                               </Badge>
-                              <span className="text-[11px] font-bold text-muted-foreground">{check?.reason || (spec ? "Quét NSX, HSD và trọng lượng trước khi nhập kho." : "SKU chưa có cấu hình tem nhãn cho sản phẩm này.")}</span>
+                              <span className="text-[11px] font-bold text-muted-foreground">{check?.reason ? displayLabelReason(check.reason, c) : (spec ? c.m369 : c.m370)}</span>
                             </div>
                             {check?.extracted && (
                               <div className="mt-2 rounded-xl bg-background/80 px-3 py-2 text-[11px] font-bold text-muted-foreground" data-qa-label-extracted-values="true">
-                                AI đọc: NSX {formatDateKeyVi(check.extracted.manufacturing_date)} · HSD {formatDateKeyVi(check.extracted.expiry_date)}{check.extracted.net_weight_value ? ` · ${check.extracted.net_weight_value}${check.extracted.net_weight_unit || ""}` : ""}
+                                {c.m371} {formatDateKeyVi(check.extracted.manufacturing_date)} · {c.expiry} {formatDateKeyVi(check.extracted.expiry_date)}{check.extracted.net_weight_value ? ` · ${check.extracted.net_weight_value}${check.extracted.net_weight_unit || ""}` : ""}
                               </div>
                             )}
                           </div>
@@ -1028,28 +1044,28 @@ export default function QAInspection() {
             <div className="space-y-4">
               <div className="grid gap-3 rounded-3xl bg-muted/50 p-4 sm:grid-cols-2">
                 <div>
-                  <p className="text-xs font-bold text-muted-foreground">Mã QA</p>
+                  <p className="text-xs font-bold text-muted-foreground">{c.m372}</p>
                   <p className="font-mono text-sm font-black">{selectedInspection.inspection_number || selectedInspection.id.slice(0, 8)}</p>
                 </div>
                 <div>
-                  <p className="text-xs font-bold text-muted-foreground">Lệnh SX</p>
+                  <p className="text-xs font-bold text-muted-foreground">{c.m373}</p>
                   <p className="text-sm font-black">{selectedInspection.production_order?.production_number || "-"}</p>
                 </div>
                 <div>
-                  <p className="text-xs font-bold text-muted-foreground">Người QA</p>
+                  <p className="text-xs font-bold text-muted-foreground">{c.m374}</p>
                   <p className="text-sm font-black">{selectedInspection.inspected_by || "-"}</p>
                 </div>
                 <div>
-                  <p className="text-xs font-bold text-muted-foreground">Thời gian</p>
+                  <p className="text-xs font-bold text-muted-foreground">{c.m375}</p>
                   <p className="text-sm font-black">{displayDateTime(selectedInspection.inspected_at || selectedInspection.inspection_date || selectedInspection.created_at)}</p>
                 </div>
               </div>
 
               <div className="grid gap-2 sm:grid-cols-3">
                 {[
-                  ["quality", "Chất lượng", CheckCircle2],
-                  ["sensory", "Cảm quan", Sparkles],
-                  ["packaging", "Bao bì", PackageCheck],
+                  ["quality", c.m376, CheckCircle2],
+                  ["sensory", c.m377, Sparkles],
+                  ["packaging", c.m378, PackageCheck],
                 ].map(([key, label, Icon]) => {
                   const ActiveIcon = Icon as typeof CheckCircle2;
                   const passed = selectedChecklist[key as "quality" | "sensory" | "packaging"] || selectedInspection.status === "approved";
@@ -1057,24 +1073,24 @@ export default function QAInspection() {
                     <div key={String(key)} className={`rounded-2xl border p-3 ${passed ? "border-success/25 bg-success/10 text-success" : "border-destructive/25 bg-destructive/10 text-destructive"}`}>
                       <ActiveIcon className="mb-2 h-5 w-5" />
                       <p className="text-sm font-black">{String(label)}</p>
-                      <p className="text-xs font-bold">{passed ? "PASS" : "CHƯA PASS"}</p>
+                      <p className="text-xs font-bold">{passed ? "PASS" : c.m379}</p>
                     </div>
                   );
                 })}
               </div>
 
               <div>
-                <h3 className="mb-2 text-sm font-black">Sản phẩm đã QA</h3>
+                <h3 className="mb-2 text-sm font-black">{c.m380}</h3>
                 <div className="space-y-2">
                   {selectedItems.map((item) => (
                     <div key={item.id} className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 rounded-2xl border border-border bg-card/70 p-3">
                       <div className="min-w-0">
                         <p className="line-clamp-2 text-sm font-black">{item.product_name}</p>
-                        <p className="text-xs font-bold text-muted-foreground">Kiểm {numberValue(item.inspected_qty).toLocaleString("vi-VN")} · Từ chối {numberValue(item.rejected_qty).toLocaleString("vi-VN")} {item.unit}</p>
+                        <p className="text-xs font-bold text-muted-foreground">{c.m381} {numberValue(item.inspected_qty).toLocaleString("vi-VN")} {c.m382} {numberValue(item.rejected_qty).toLocaleString("vi-VN")} {item.unit}</p>
                       </div>
                       <div className="text-right">
                         <p className="text-xl font-black text-success">{numberValue(item.approved_qty).toLocaleString("vi-VN")}</p>
-                        <p className="text-xs font-bold text-muted-foreground">{item.unit} nhập kho</p>
+                        <p className="text-xs font-bold text-muted-foreground">{item.unit} {c.m383}</p>
                       </div>
                     </div>
                   ))}
@@ -1083,12 +1099,12 @@ export default function QAInspection() {
 
               {selectedInspection.product_photos && selectedInspection.product_photos.length > 0 && (
                 <div>
-                  <h3 className="mb-2 text-sm font-black">Ảnh QA</h3>
+                  <h3 className="mb-2 text-sm font-black">{c.m384}</h3>
                   <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
                     {selectedInspection.product_photos.map((photo, index) => (
                       <a key={`${photo}-${index}`} href={photo} target="_blank" rel="noreferrer" className="group relative overflow-hidden rounded-2xl border border-border bg-muted">
                         <img src={photo} alt={`QA ${index + 1}`} className="h-40 w-full object-cover transition group-hover:scale-105" />
-                        <span className="absolute bottom-2 right-2 rounded-full bg-black/60 px-2 py-1 text-xs font-bold text-white"><Eye className="mr-1 inline h-3 w-3" />Mở</span>
+                        <span className="absolute bottom-2 right-2 rounded-full bg-black/60 px-2 py-1 text-xs font-bold text-white"><Eye className="mr-1 inline h-3 w-3" />{c.m385}</span>
                       </a>
                     ))}
                   </div>
@@ -1097,7 +1113,7 @@ export default function QAInspection() {
 
               {selectedInspection.notes && (
                 <div className="rounded-2xl bg-muted/50 p-3">
-                  <p className="mb-1 text-sm font-black">Ghi chú audit</p>
+                  <p className="mb-1 text-sm font-black">{c.m386}</p>
                   <pre className="whitespace-pre-wrap text-sm font-medium text-muted-foreground">{selectedInspection.notes.replace(/\[QA_CHECKLIST\][\s\S]*?\[\/QA_CHECKLIST\]\n?/g, "").trim() || "-"}</pre>
                 </div>
               )}

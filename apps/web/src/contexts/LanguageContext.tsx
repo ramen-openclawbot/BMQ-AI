@@ -1,3 +1,5 @@
+import { skuCosts } from "@/i18n/skuCosts";
+import { staff } from "@/i18n/staff";
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 
 type Language = "en" | "vi";
@@ -607,6 +609,7 @@ interface LanguageContextType {
   language: Language;
   setLanguage: (lang: Language) => void;
   t: Translations;
+  messages: { skuCosts: typeof skuCosts.vi; staff: typeof staff.vi };
 }
 
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
@@ -628,7 +631,7 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   const t = translations[language];
 
   return (
-    <LanguageContext.Provider value={{ language, setLanguage, t }}>
+    <LanguageContext.Provider value={{ language, setLanguage, t, messages: { skuCosts: skuCosts[language], staff: staff[language] } }}>
       {children}
     </LanguageContext.Provider>
   );

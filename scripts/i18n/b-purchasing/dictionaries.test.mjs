@@ -1,0 +1,6 @@
+import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import path from 'node:path';
+import {root,ts} from './inventory.mjs';
+const modules=['supplierPurchasing','invoicePurchasing','paymentRequestPurchasing','goodsReceiptPurchasing','purchaseOrderPurchasing','drivePurchasing'];
+const read=name=>JSON.parse(fs.readFileSync(path.join(root,'apps/web/src/i18n',name+'.ts'),'utf8').split(' = ')[1].replace(/;\s*$/,''));
+for(const name of modules)test(`${name}: exact EN/VI key and interpolation parity`,()=>{const d=read(name);assert.deepEqual(Object.keys(d.vi).sort(),Object.keys(d.en).sort());for(const key of Object.keys(d.vi)){assert.ok(d.vi[key].trim()&&d.en[key].trim(),key);const params=s=>[...s.matchAll(/\{(\w+)\}/g)].map(m=>m[1]).sort();assert.deepEqual(params(d.vi[key]),params(d.en[key]),key);}});
+test('interpolation preserves literal business values and does not substitute them again',()=>{const source=fs.readFileSync(path.join(root,'apps/web/src/i18n/format.ts'),'utf8');const js=ts.transpile(source,{module:ts.ModuleKind.CommonJS});const module={exports:{}};new Function('exports',js)(module.exports);assert.equal(module.exports.formatText('{value} {value}',{value:'NCC $& {value}'}),'NCC $& {value} NCC $& {value}');});

@@ -1,3 +1,4 @@
+import { useDSkuCopy } from "@/i18n/useDSkuCopy";
 import { useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -32,6 +33,7 @@ const emptyForm: FormState = {
 };
 
 export default function SkuCostsOverhead() {
+  const s = useDSkuCopy();
   const { data, isLoading, isError, refetch } = useDjangoOverhead();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm);
@@ -95,25 +97,25 @@ export default function SkuCostsOverhead() {
   };
 
   return (
-    <div className="space-y-6">
+    <div data-i18n-version="d-sku-v1" className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>Bộ lọc</CardTitle>
+          <CardTitle>{s.filters}</CardTitle>
         </CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-            <SelectTrigger><SelectValue placeholder="Nhóm chi phí" /></SelectTrigger>
+            <SelectTrigger><SelectValue placeholder={s.costCategory} /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Tất cả nhóm</SelectItem>
+              <SelectItem value="all">{s.allGroups}</SelectItem>
               {categories.map((c) => (
                 <SelectItem key={c} value={c}>{c}</SelectItem>
               ))}
             </SelectContent>
           </Select>
           <Select value={monthFilter} onValueChange={setMonthFilter}>
-            <SelectTrigger><SelectValue placeholder="Tháng" /></SelectTrigger>
+            <SelectTrigger><SelectValue placeholder={s.month} /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Tất cả tháng</SelectItem>
+              <SelectItem value="all">{s.allMonths}</SelectItem>
               {months.map((m) => (
                 <SelectItem key={m} value={m}>{m}</SelectItem>
               ))}
@@ -124,20 +126,20 @@ export default function SkuCostsOverhead() {
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Chi phí chung</CardTitle>
-          <Button onClick={openCreate}>Thêm chi phí</Button>
+          <CardTitle>{s.overhead}</CardTitle>
+          <Button onClick={openCreate}>{s.addCost}</Button>
         </CardHeader>
         <CardContent>
-          {isError && <div className="text-sm text-red-500">Không tải được dữ liệu.</div>}
+          {isError && <div className="text-sm text-red-500">{s.loadError}</div>}
           {isLoading && <Skeleton className="h-8 w-full" />}
           {!isLoading && filtered && (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Nhóm</TableHead>
-                  <TableHead>Tháng</TableHead>
-                  <TableHead>Chi phí</TableHead>
-                  <TableHead>Hành động</TableHead>
+                  <TableHead>{s.group}</TableHead>
+                  <TableHead>{s.month}</TableHead>
+                  <TableHead>{s.cost}</TableHead>
+                  <TableHead>{s.actions}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -147,8 +149,8 @@ export default function SkuCostsOverhead() {
                     <TableCell>{o.month || "-"}</TableCell>
                     <TableCell>{new Intl.NumberFormat('vi-VN').format(o.amount)}</TableCell>
                     <TableCell className="space-x-2">
-                      <Button variant="outline" size="sm" onClick={() => openEdit(o)}>Sửa</Button>
-                      <Button variant="destructive" size="sm" onClick={() => remove(o.id)}>Xoá</Button>
+                      <Button variant="outline" size="sm" onClick={() => openEdit(o)}>{s.edit}</Button>
+                      <Button variant="destructive" size="sm" onClick={() => remove(o.id)}>{s.delete}</Button>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -161,15 +163,15 @@ export default function SkuCostsOverhead() {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{form.id ? "Cập nhật chi phí" : "Thêm chi phí"}</DialogTitle>
+            <DialogTitle>{form.id ? s.updateCost : s.addCost}</DialogTitle>
           </DialogHeader>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <Input placeholder="Category ID" value={form.category_id} onChange={(e) => setForm({ ...form, category_id: e.target.value })} />
-            <Input placeholder="Month (YYYY-MM)" value={form.month} onChange={(e) => setForm({ ...form, month: e.target.value })} />
-            <Input placeholder="Amount" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
+            <Input placeholder={s.categoryId} value={form.category_id} onChange={(e) => setForm({ ...form, category_id: e.target.value })} />
+            <Input placeholder={s.monthFormat} value={form.month} onChange={(e) => setForm({ ...form, month: e.target.value })} />
+            <Input placeholder={s.amount} value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
           </div>
           <DialogFooter>
-            <Button onClick={save}>Lưu</Button>
+            <Button onClick={save}>{s.save}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

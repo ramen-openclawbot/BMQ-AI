@@ -1,0 +1,11 @@
+{
+ "src/pages/SkuCostsProducts.tsx :: SKU": "Invariant stock-keeping-unit identifier/acronym, also the code input placeholder; identical in EN/VI.",
+ "src/components/dialogs/AddPaymentRequestDialog.tsx :: kg": "SI mass unit; do not translate unit protocol values.",
+ "src/components/dialogs/AddPaymentRequestDialog.tsx :: VAT:": "Invariant tax acronym; same label in EN/VI.",
+ "src/components/dialogs/AddPaymentRequestDialog.tsx :: `Thanh toán ${prefillData.poNumber}`": "Stored generated request title; write payload must stay Vietnamese.",
+ "src/components/dialogs/AddPaymentRequestDialog.tsx :: `Đề nghị thanh toán cho ${prefillData.supplierName || 'NCC'}`": "Stored generated request description; do not translate business content.",
+ "src/components/dialogs/AddPaymentRequestDialog.tsx :: `Tạo từ ${prefillData.poNumber}`": "Stored generated audit note; preserve bytes.",
+ "src/components/dialogs/AddPaymentRequestDialog.tsx :: `Đề nghị chi - ${extractedData.invoice_number}`": "OCR-generated stored request title; preserve bytes.",
+ "src/components/dialogs/AddPaymentRequestDialog.tsx :: Không thể đọc thông tin từ hóa đơn": "Thrown OCR error is consumed by console.error only; never rendered by this dialog.",
+ "src/components/dialogs/AddPaymentRequestDialog.tsx :: Lỗi không xác định": "Internal error fallback used only for permission-message matching; rendered errors are dictionary copy."
+}

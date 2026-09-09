@@ -1,3 +1,4 @@
+import { usePeopleCopy } from "@/hooks/usePeopleCopy";
 import { Info } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { useAppVersion } from "@/hooks/useAppVersion";
@@ -25,6 +26,7 @@ function formatBuildTime(timestamp: string): string {
 }
 
 export function AppVersionSection() {
+  const pc = usePeopleCopy();
   const { language } = useLanguage();
   const isVi = language === "vi";
   const { version, isLoading } = useAppVersion();
@@ -34,14 +36,14 @@ export function AppVersionSection() {
     <div className="card-elevated rounded-xl border border-border p-6 space-y-4">
       <div className="flex items-center gap-3">
         <Info className="h-5 w-5 text-primary" />
-        <h2 className="font-display font-semibold text-lg">{isVi ? "Thông tin ứng dụng" : "Application Info"}</h2>
+        <h2 className="font-display font-semibold text-lg">{pc("applicationInfo")}</h2>
       </div>
       <Separator />
       <div className="flex items-center justify-between">
         <div>
-          <p className="font-medium">{isVi ? "Phiên bản" : "Version"}</p>
+          <p className="font-medium">{pc("version")}</p>
           <p className="text-sm text-muted-foreground">
-            {isVi ? "Phiên bản hiện tại của ứng dụng" : "Current application version"}
+            {pc("currentApplicationVersion")}
           </p>
         </div>
         {isLoading ? (
@@ -54,9 +56,9 @@ export function AppVersionSection() {
       </div>
       <div className="flex items-center justify-between">
         <div>
-          <p className="font-medium">Build time</p>
+          <p className="font-medium">{pc("buildTime")}</p>
           <p className="text-sm text-muted-foreground">
-            {isVi ? "Thời điểm build ứng dụng" : "Application build time"}
+            {pc("applicationBuildTime")}
           </p>
         </div>
         <span className="text-sm font-mono bg-muted px-3 py-1.5 rounded-md">

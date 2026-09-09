@@ -1,0 +1,450 @@
+{
+  "baseCommit": "eac7ee887ae44494b9187865fe9766b3ccf49e16",
+  "localOnly": true,
+  "counts": {
+    "changedFiles": 42,
+    "productionSourceFiles": 22,
+    "fixtureAndTestFiles": 15,
+    "inventory": {
+      "staffRouteDeclarations": 48,
+      "pageRoutes": 44,
+      "redirects": 4,
+      "uniquePages": 42,
+      "dependencyFiles": 177,
+      "dialogFiles": 25,
+      "inlineDialogDeclarations": 79,
+      "before": {
+        "untranslated": 117,
+        "partial": 35,
+        "complete": 25
+      },
+      "after": {
+        "partial": 34,
+        "complete": 39,
+        "untranslated": 104
+      },
+      "runtimeVerifiedFiles": 15
+    },
+    "translationKeys": {
+      "staff": 150,
+      "skuCosts": 229
+    },
+    "browserCases": 22,
+    "screenshots": 108,
+    "exactLiteralExceptionEntries": 145,
+    "regressionTests": 11,
+    "pairedModuleKeys": 379
+  },
+  "changedFiles": [
+    "apps/web/scripts/i18n/browser.mjs",
+    "apps/web/scripts/i18n/check-literals.mjs",
+    "apps/web/scripts/i18n/contracts.test.mjs",
+    "apps/web/scripts/i18n/fixture/auth.ts",
+    "apps/web/scripts/i18n/fixture/fixture-image.svg",
+    "apps/web/scripts/i18n/fixture/hooks.ts",
+    "apps/web/scripts/i18n/fixture/index.html",
+    "apps/web/scripts/i18n/fixture/main.tsx",
+    "apps/web/scripts/i18n/fixture/mock-client.ts",
+    "apps/web/scripts/i18n/fixture/outside-scope.tsx",
+    "apps/web/scripts/i18n/fixture/vite.config.mjs",
+    "apps/web/scripts/i18n/inventory.mjs",
+    "apps/web/scripts/i18n/literal-exceptions.json",
+    "apps/web/scripts/i18n/typecheck.mjs",
+    "apps/web/scripts/i18n/write-results.mjs",
+    "apps/web/src/components/AppRoutes.tsx",
+    "apps/web/src/components/ErrorBoundary.tsx",
+    "apps/web/src/components/OwnerRoute.tsx",
+    "apps/web/src/components/SessionRecoveryOverlay.tsx",
+    "apps/web/src/components/agent/GlobalAgentChatWidget.tsx",
+    "apps/web/src/components/layout/AppLayout.tsx",
+    "apps/web/src/components/layout/Header.tsx",
+    "apps/web/src/components/layout/Sidebar.tsx",
+    "apps/web/src/components/sku-costs/SkuCostMenuBar.tsx",
+    "apps/web/src/components/ui/dialog.tsx",
+    "apps/web/src/components/ui/pagination.tsx",
+    "apps/web/src/components/ui/sheet.tsx",
+    "apps/web/src/contexts/LanguageContext.tsx",
+    "apps/web/src/contexts/StaffUiContext.tsx",
+    "apps/web/src/hooks/useSkuCostBridge.ts",
+    "apps/web/src/i18n/chatCopyKeys.ts",
+    "apps/web/src/i18n/format.ts",
+    "apps/web/src/i18n/skuCosts.ts",
+    "apps/web/src/i18n/staff.ts",
+    "apps/web/src/pages/SkuCostsAnalysis.tsx",
+    "apps/web/src/pages/SkuCostsDjango.tsx",
+    "apps/web/src/pages/SkuCostsManagement.tsx",
+    "docs/i18n/README.md",
+    "docs/i18n/production-base.json",
+    "docs/i18n/staff-inventory.json",
+    "docs/i18n/staff-inventory.md",
+    "docs/i18n/verification.json"
+  ],
+  "checks": [
+    {
+      "name": "Regression contracts",
+      "command": "node --test scripts/i18n/contracts.test.mjs",
+      "exitCode": 0,
+      "output": "TAP version 13\n# Subtest: EN/VI keys, nonempty text and interpolation parameter parity in every module\nok 1 - EN/VI keys, nonempty text and interpolation parameter parity in every module\n  ---\n  duration_ms: 1.385003\n  type: 'test'\n  ...\n# Subtest: interpolation does not reinterpret business values or replacement metacharacters\nok 2 - interpolation does not reinterpret business values or replacement metacharacters\n  ---\n  duration_ms: 0.081247\n  type: 'test'\n  ...\n# Subtest: approved header switch and exact Sales labels preserved\nok 3 - approved header switch and exact Sales labels preserved\n  ---\n  duration_ms: 2.447766\n  type: 'test'\n  ...\n# Subtest: every approved layout class expression survives unchanged in Batch A components\nok 4 - every approved layout class expression survives unchanged in Batch A components\n  ---\n  duration_ms: 171.469494\n  type: 'test'\n  ...\n# Subtest: VND, VN dates, material normalization, cost and controller payloads stay canonical\nok 5 - VND, VN dates, material normalization, cost and controller payloads stay canonical\n  ---\n  duration_ms: 308.871633\n  type: 'test'\n  ...\n# Subtest: export data, headers, byte construction and filenames stay canonical\nok 6 - export data, headers, byte construction and filenames stay canonical\n  ---\n  duration_ms: 11.488601\n  type: 'test'\n  ...\n# Subtest: analysis calculates suspicious purchase fallback, canonical names, paid-only matching and VN formats\nok 7 - analysis calculates suspicious purchase fallback, canonical names, paid-only matching and VN formats\n  ---\n  duration_ms: 34.779085\n  type: 'test'\n  ...\n# Subtest: literal guard catches JSX, accessible copy, nested Vietnamese and template regressions\nok 8 - literal guard catches JSX, accessible copy, nested Vietnamese and template regressions\n  ---\n  duration_ms: 0.554193\n  type: 'test'\n  ...\n# Subtest: dealer/kiosk pages and stored protocol prompts are untouched\nok 9 - dealer/kiosk pages and stored protocol prompts are untouched\n  ---\n  duration_ms: 40.2906\n  type: 'test'\n  ...\n# Subtest: management row data references cannot be replaced by translation keys\nok 10 - management row data references cannot be replaced by translation keys\n  ---\n  duration_ms: 67.302066\n  type: 'test'\n  ...\n# Subtest: derived analysis values are translated only at render boundaries\nok 11 - derived analysis values are translated only at render boundaries\n  ---\n  duration_ms: 2.070818\n  type: 'test'\n  ...\n1..11\n# tests 11\n# suites 0\n# pass 11\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 882.593566\n"
+    },
+    {
+      "name": "Exact literal guard",
+      "command": "node scripts/i18n/check-literals.mjs",
+      "exitCode": 0,
+      "output": "PASS untranslated-literal guard: 14 files; 164 exact exception occurrences (145 documented entries); no unreviewed candidates.\n"
+    },
+    {
+      "name": "Theme contract",
+      "command": "python3 scripts/test_sku_cost_light_theme.py",
+      "exitCode": 0,
+      "output": "sku cost light theme guards passed\n"
+    },
+    {
+      "name": "Existing header regression",
+      "command": "node scripts/test_header_language.mjs",
+      "exitCode": 0,
+      "output": "[\n  {\n    \"width\": 320,\n    \"status\": \"PASS\",\n    \"blockedExternal\": [\n      \"https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap\"\n    ]\n  },\n  {\n    \"width\": 390,\n    \"status\": \"PASS\",\n    \"blockedExternal\": [\n      \"https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap\"\n    ]\n  },\n  {\n    \"width\": 1440,\n    \"status\": \"PASS\",\n    \"blockedExternal\": [\n      \"https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap\"\n    ]\n  }\n]\n"
+    },
+    {
+      "name": "Actual-component browser fixture",
+      "command": "node scripts/i18n/browser.mjs",
+      "exitCode": 0,
+      "output": "PASS 390-navigation-switch-reload\nPASS 390-overview-image-validation-export\nPASS 390-analysis-chart-tooltip-export\nPASS 390-management-detail-create-edit-validation\nPASS 390-dashboard-empty-error\nPASS 390-analysis-empty-error\nPASS 390-management-empty-error\nPASS 390-management-save-payload-and-guards\nPASS 390-shared-recovery-permissions-chat\nPASS 390-loading-and-image-failure\nPASS 390-root-error-boundary\nPASS 1440-navigation-switch-reload\nPASS 1440-overview-image-validation-export\nPASS 1440-analysis-chart-tooltip-export\nPASS 1440-management-detail-create-edit-validation\nPASS 1440-dashboard-empty-error\nPASS 1440-analysis-empty-error\nPASS 1440-management-empty-error\nPASS 1440-management-save-payload-and-guards\nPASS 1440-shared-recovery-permissions-chat\nPASS 1440-loading-and-image-failure\nPASS 1440-root-error-boundary\nPASS 22 browser cases; 108 screenshots; zero external requests.\n"
+    },
+    {
+      "name": "Scoped ESLint",
+      "command": "node node_modules/eslint/bin/eslint.js <changed TS/TSX sources and fixture files>",
+      "exitCode": 0,
+      "output": "(no diagnostics)"
+    },
+    {
+      "name": "git diff --check",
+      "command": "git diff --check",
+      "exitCode": 0,
+      "output": "(no whitespace errors)"
+    }
+  ],
+  "typecheck": {
+    "baseErrors": 55,
+    "currentErrors": 55,
+    "exactDiagnosticsMatch": true,
+    "newDiagnostics": 0
+  },
+  "browser": {
+    "cases": [
+      {
+        "id": "390-navigation-switch-reload",
+        "files": [
+          "src/components/layout/Header.tsx",
+          "src/components/layout/Sidebar.tsx",
+          "src/components/layout/AppLayout.tsx",
+          "src/components/AppRoutes.tsx"
+        ],
+        "passed": true
+      },
+      {
+        "id": "390-overview-image-validation-export",
+        "files": [
+          "src/pages/SkuCostsDjango.tsx",
+          "src/components/ui/dialog.tsx"
+        ],
+        "passed": true
+      },
+      {
+        "id": "390-analysis-chart-tooltip-export",
+        "files": [
+          "src/pages/SkuCostsAnalysis.tsx",
+          "src/hooks/useSkuCostBridge.ts"
+        ],
+        "passed": true
+      },
+      {
+        "id": "390-management-detail-create-edit-validation",
+        "files": [
+          "src/pages/SkuCostsManagement.tsx",
+          "src/components/sku-costs/SkuCostMenuBar.tsx",
+          "src/components/ui/dialog.tsx"
+        ],
+        "passed": true
+      },
+      {
+        "id": "390-dashboard-empty-error",
+        "files": [
+          "src/pages/SkuCostsDjango.tsx"
+        ],
+        "passed": true
+      },
+      {
+        "id": "390-analysis-empty-error",
+        "files": [
+          "src/pages/SkuCostsAnalysis.tsx"
+        ],
+        "passed": true
+      },
+      {
+        "id": "390-management-empty-error",
+        "files": [
+          "src/pages/SkuCostsManagement.tsx"
+        ],
+        "passed": true
+      },
+      {
+        "id": "390-management-save-payload-and-guards",
+        "files": [
+          "src/pages/SkuCostsManagement.tsx"
+        ],
+        "passed": true
+      },
+      {
+        "id": "390-shared-recovery-permissions-chat",
+        "files": [
+          "src/components/SessionRecoveryOverlay.tsx",
+          "src/components/AppRoutes.tsx",
+          "src/components/OwnerRoute.tsx",
+          "src/components/agent/GlobalAgentChatWidget.tsx",
+          "src/components/ui/sheet.tsx",
+          "src/components/ui/pagination.tsx"
+        ],
+        "passed": true
+      },
+      {
+        "id": "390-loading-and-image-failure",
+        "files": [
+          "src/pages/SkuCostsDjango.tsx",
+          "src/pages/SkuCostsAnalysis.tsx",
+          "src/pages/SkuCostsManagement.tsx"
+        ],
+        "passed": true
+      },
+      {
+        "id": "390-root-error-boundary",
+        "files": [
+          "src/components/ErrorBoundary.tsx"
+        ],
+        "passed": true
+      },
+      {
+        "id": "1440-navigation-switch-reload",
+        "files": [
+          "src/components/layout/Header.tsx",
+          "src/components/layout/Sidebar.tsx",
+          "src/components/layout/AppLayout.tsx",
+          "src/components/AppRoutes.tsx"
+        ],
+        "passed": true
+      },
+      {
+        "id": "1440-overview-image-validation-export",
+        "files": [
+          "src/pages/SkuCostsDjango.tsx",
+          "src/components/ui/dialog.tsx"
+        ],
+        "passed": true
+      },
+      {
+        "id": "1440-analysis-chart-tooltip-export",
+        "files": [
+          "src/pages/SkuCostsAnalysis.tsx",
+          "src/hooks/useSkuCostBridge.ts"
+        ],
+        "passed": true
+      },
+      {
+        "id": "1440-management-detail-create-edit-validation",
+        "files": [
+          "src/pages/SkuCostsManagement.tsx",
+          "src/components/sku-costs/SkuCostMenuBar.tsx",
+          "src/components/ui/dialog.tsx"
+        ],
+        "passed": true
+      },
+      {
+        "id": "1440-dashboard-empty-error",
+        "files": [
+          "src/pages/SkuCostsDjango.tsx"
+        ],
+        "passed": true
+      },
+      {
+        "id": "1440-analysis-empty-error",
+        "files": [
+          "src/pages/SkuCostsAnalysis.tsx"
+        ],
+        "passed": true
+      },
+      {
+        "id": "1440-management-empty-error",
+        "files": [
+          "src/pages/SkuCostsManagement.tsx"
+        ],
+        "passed": true
+      },
+      {
+        "id": "1440-management-save-payload-and-guards",
+        "files": [
+          "src/pages/SkuCostsManagement.tsx"
+        ],
+        "passed": true
+      },
+      {
+        "id": "1440-shared-recovery-permissions-chat",
+        "files": [
+          "src/components/SessionRecoveryOverlay.tsx",
+          "src/components/AppRoutes.tsx",
+          "src/components/OwnerRoute.tsx",
+          "src/components/agent/GlobalAgentChatWidget.tsx",
+          "src/components/ui/sheet.tsx",
+          "src/components/ui/pagination.tsx"
+        ],
+        "passed": true
+      },
+      {
+        "id": "1440-loading-and-image-failure",
+        "files": [
+          "src/pages/SkuCostsDjango.tsx",
+          "src/pages/SkuCostsAnalysis.tsx",
+          "src/pages/SkuCostsManagement.tsx"
+        ],
+        "passed": true
+      },
+      {
+        "id": "1440-root-error-boundary",
+        "files": [
+          "src/components/ErrorBoundary.tsx"
+        ],
+        "passed": true
+      }
+    ],
+    "screenshots": [
+      "/tmp/bmq-i18n-a-qa/screenshots/390-vi-navigation.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-en-navigation.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-vi-overview.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-vi-image-dialog.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-en-overview.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-en-image-dialog.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-vi-analysis.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-vi-chart-tooltip.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-en-analysis.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-en-chart-tooltip.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-vi-management.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-vi-sku-detail.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-vi-sku-edit.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-vi-sku-edit-footer.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-vi-create-validation.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-vi-material-dialog.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-en-management.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-en-sku-detail.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-en-sku-edit.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-en-sku-edit-footer.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-en-create-validation.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-en-material-dialog.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-vi-dashboard-empty.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-en-dashboard-empty.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-vi-dashboard-error.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-en-dashboard-error.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-vi-analysis-empty.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-en-analysis-empty.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-vi-analysis-error.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-en-analysis-error.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-vi-management-empty.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-en-management-empty.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-vi-management-error.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-en-management-error.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-vi-unresolved.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-vi-zero-cost.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-vi-save-error.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-en-unresolved.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-en-zero-cost.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-en-save-error.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-vi-permission.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-vi-recovery.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-vi-auth-timeout.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-vi-chat.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-en-permission.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-en-recovery.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-en-auth-timeout.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-en-chat.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-en-dashboard-loading.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-en-analysis-loading.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-en-management-loading.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-en-upload-failure.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-vi-root-error.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/390-en-root-error.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-vi-navigation.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-en-navigation.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-vi-overview.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-vi-image-dialog.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-en-overview.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-en-image-dialog.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-vi-analysis.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-vi-chart-tooltip.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-en-analysis.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-en-chart-tooltip.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-vi-management.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-vi-sku-detail.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-vi-sku-edit.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-vi-sku-edit-footer.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-vi-create-validation.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-vi-material-dialog.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-en-management.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-en-sku-detail.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-en-sku-edit.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-en-sku-edit-footer.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-en-create-validation.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-en-material-dialog.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-vi-dashboard-empty.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-en-dashboard-empty.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-vi-dashboard-error.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-en-dashboard-error.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-vi-analysis-empty.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-en-analysis-empty.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-vi-analysis-error.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-en-analysis-error.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-vi-management-empty.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-en-management-empty.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-vi-management-error.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-en-management-error.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-vi-unresolved.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-vi-zero-cost.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-vi-save-error.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-en-unresolved.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-en-zero-cost.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-en-save-error.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-vi-permission.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-vi-recovery.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-vi-auth-timeout.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-vi-chat.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-en-permission.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-en-recovery.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-en-auth-timeout.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-en-chat.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-en-dashboard-loading.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-en-analysis-loading.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-en-management-loading.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-en-upload-failure.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-vi-root-error.png",
+      "/tmp/bmq-i18n-a-qa/screenshots/1440-en-root-error.png"
+    ],
+    "unexpectedPageErrors": [],
+    "unhandledExternalRequests": []
+  },
+  "limitations": [
+    "No build, commit, push, deploy, live DB write, live auth write, or credential use. Worktree is intentionally local and uncommitted.",
+    "Runtime evidence uses actual components with synthetic staff/SKU/material data and mocked clients. Live auth/RLS/storage policies and deployment behavior were not exercised.",
+    "Production evidence verifies public header/label and SKU theme markers; it is not a credential-backed deployment-source/SHA attestation.",
+    "Chromium at 390×844 and 1440×1000; the existing header suite additionally covers width 320. No Safari/WebKit QA. Fonts CSS is fulfilled locally with system-font fallback; screenshots are not pixel-identical typography proofs.",
+    "Native date/month input presentation is browser-controlled. Existing VND calculations, vi-VN formatting and YYYY-MM-DD payload rules are unchanged.",
+    "Other business pages, the shared PO Drive import workflow, and the chat revenue daily card are inventory-only/deferred. Global chat remains partial at file level despite its tested common shell.",
+    "Legacy SKU scan/widget handlers have no active rendered entry point; they are not claimed as browser-tested. ActualLaborCostPanel and the four legacy SKU subroutes are outside this implementation slice.",
+    "Full no-emit typecheck has 55 existing diagnostics. The base/current diagnostic arrays match exactly; none are in changed production files.",
+    "The fixture adds a renderer for the existing management toast store. Production Sonner/toast wiring is unchanged; live notification delivery is not claimed verified.",
+    "Static literal checks are heuristic guards with explicit count-bound exceptions, supplemented by runtime text assertions. They do not prove every possible dynamic backend/user string is translated."
+  ],
+  "review": {
+    "fixture": "http://127.0.0.1:4196/sku-costs/dashboard?role=staff",
+    "guide": "/home/ubuntu/projects/BMQ-AI-i18n-a/docs/i18n/README.md",
+    "inventory": "/home/ubuntu/projects/BMQ-AI-i18n-a/docs/i18n/staff-inventory.md",
+    "inventoryJSON": "/home/ubuntu/projects/BMQ-AI-i18n-a/docs/i18n/staff-inventory.json",
+    "rawOutputs": "/tmp/bmq-i18n-a-qa",
+    "report": "/tmp/bmq-i18n-a-result.md"
+  }
+}

@@ -1,3 +1,4 @@
+import { StaffUiProvider } from "@/contexts/StaffUiContext";
 import { useState, useCallback } from "react";
 import { Outlet } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
@@ -29,7 +30,7 @@ export function AppLayout() {
   useVisibilityRecovery({ onSessionLost: handleSessionLost });
 
   return (
-    <>
+    <StaffUiProvider>
       {showRecoveryOverlay && (
         <SessionRecoveryOverlay onRetry={handleRetry} />
       )}
@@ -43,6 +44,6 @@ export function AppLayout() {
         </div>
         <GlobalAgentChatWidget />
       </div>
-    </>
+    </StaffUiProvider>
   );
 }

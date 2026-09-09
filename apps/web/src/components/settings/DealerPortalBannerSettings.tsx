@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { usePeopleCopy } from "@/hooks/usePeopleCopy";
+import { useEffect, useState, useRef } from "react";
 import { ImageIcon, Loader2, Save, UploadCloud } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -85,6 +86,9 @@ const normalizeBanners = (raw: unknown, fallbackUrl = "", fallbackPath = "") => 
 };
 
 export function DealerPortalBannerSettings() {
+  const pc = usePeopleCopy();
+  const latestCopy = useRef(pc);
+  latestCopy.current = pc;
   const [banners, setBanners] = useState<DealerLandingBanner[]>(() => normalizeBanners(null));
   const [bannerFiles, setBannerFiles] = useState<Record<number, File | null>>({});
   const [previewUrls, setPreviewUrls] = useState<Record<number, string>>({});
@@ -107,13 +111,14 @@ export function DealerPortalBannerSettings() {
         setBanners(normalizeBanners(bannersSetting?.value, String(urlSetting?.value || ""), String(pathSetting?.value || "")));
       } catch (error) {
         console.error("Failed to fetch dealer portal banner settings", error);
-        toast.error("Không tải được banner đặt hàng đại lý");
+        toast.error(latestCopy.current("unableToLoadDealerOrderBanners"));
       } finally {
         setLoading(false);
       }
     };
 
     void fetchBannerSettings();
+    // Fetch once on mount; language changes must not overwrite unsaved banner edits.
   }, []);
 
   useEffect(() => {
@@ -139,12 +144,12 @@ export function DealerPortalBannerSettings() {
     }
 
     if (!ALLOWED_BANNER_TYPES.includes(file.type)) {
-      toast.error("Banner chỉ nhận JPG, PNG hoặc WebP.");
+      toast.error(pc("bannersMustBeJpgPngOrWebp"));
       return;
     }
 
     if (file.size > MAX_BANNER_SIZE) {
-      toast.error("Banner tối đa 5MB.");
+      toast.error(pc("bannersMustBeAtMost5mb"));
       return;
     }
 
@@ -173,7 +178,7 @@ export function DealerPortalBannerSettings() {
     const currentBanner = banners[slot];
 
     if (!currentBanner?.url && !bannerFile) {
-      toast.info("Anh chọn ảnh banner trước khi lưu slot này.");
+      toast.info(pc("chooseABannerImageBeforeSavingThis"));
       return;
     }
 
@@ -195,7 +200,7 @@ export function DealerPortalBannerSettings() {
         if (uploadError) throw uploadError;
 
         const publicUrl = supabase.storage.from(DEALER_ASSET_BUCKET).getPublicUrl(filePath).data?.publicUrl;
-        if (!publicUrl) throw new Error("Không tạo được public URL cho banner.");
+        if (!publicUrl) throw new Error(pc("unableToCreateAPublicUrlFor"));
 
         nextBanner = { ...nextBanner, url: publicUrl, path: filePath, enabled: true };
       }
@@ -204,10 +209,10 @@ export function DealerPortalBannerSettings() {
       await persistBanners(nextBanners);
       setBanners(nextBanners);
       setBannerFiles((current) => ({ ...current, [slot]: null }));
-      toast.success(`Đã cập nhật banner ${slot + 1}.`);
+      toast.success(pc("bannerUpdated", { p0: slot + 1 }));
     } catch (error) {
       console.error("Failed to save dealer portal banner", error);
-      toast.error("Không lưu được banner đặt hàng đại lý", {
+      toast.error(pc("unableToSaveTheDealerOrderBanner"), {
         description: error instanceof Error ? error.message : undefined,
       });
     } finally {
@@ -219,10 +224,10 @@ export function DealerPortalBannerSettings() {
     setSavingSlot(-1);
     try {
       await persistBanners(banners);
-      toast.success("Đã lưu danh sách banner sự kiện.");
+      toast.success(pc("eventBannerListSaved"));
     } catch (error) {
       console.error("Failed to save dealer portal banner list", error);
-      toast.error("Không lưu được danh sách banner", {
+      toast.error(pc("unableToSaveTheBannerList"), {
         description: error instanceof Error ? error.message : undefined,
       });
     } finally {
@@ -234,19 +239,13 @@ export function DealerPortalBannerSettings() {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <ImageIcon className="h-5 w-5 text-primary" />
-          Banner landing đặt hàng đại lý
-        </CardTitle>
-        <CardDescription>
-          Quản lý tối đa 3 banner promotion/event hiển thị luân phiên ở landing page public của dathang.banhmique.vn trước khi đại lý đăng nhập.
-        </CardDescription>
+          <ImageIcon className="h-5 w-5 text-primary" /> {pc("dealerOrderLandingBanners")} </CardTitle>
+        <CardDescription> {pc("manageUpToThreePromotionEventBanners")} </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {loading ? (
           <div className="flex items-center gap-2 rounded-md border bg-muted/40 p-4 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Đang tải cấu hình banner...
-          </div>
+            <Loader2 className="h-4 w-4 animate-spin" /> {pc("loadingBannerSettings")} </div>
         ) : (
           <>
             <div className="grid gap-4 lg:grid-cols-3">
@@ -258,125 +257,123 @@ export function DealerPortalBannerSettings() {
                   <div key={banner.id} className="space-y-3 rounded-lg border bg-card p-3">
                     <div className="overflow-hidden rounded-lg border bg-muted/40">
                       {previewUrl ? (
-                        <img src={previewUrl} alt={`Banner landing đặt hàng đại lý ${index + 1}`} className="aspect-[16/10] w-full object-cover" />
+                        <img src={previewUrl} alt={pc("dealerOrderLandingBanner", { p0: index + 1 })} className="aspect-[16/10] w-full object-cover" />
                       ) : (
                         <div className="flex aspect-[16/10] flex-col items-center justify-center gap-2 text-muted-foreground">
                           <ImageIcon className="h-8 w-8" />
-                          <span className="text-sm">Chưa có banner</span>
+                          <span className="text-sm">{pc("noBannerYet")}</span>
                         </div>
                       )}
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor={`dealer-banner-label-${index}`}>Tên event/banner {index + 1}</Label>
+                      <Label htmlFor={`dealer-banner-label-${index}`}>{pc("eventBannerName")} {index + 1}</Label>
                       <Input
                         id={`dealer-banner-label-${index}`}
                         value={banner.eventLabel}
                         maxLength={60}
                         onChange={(event) => updateBanner(index, { eventLabel: event.target.value })}
-                        placeholder={`Sự kiện ${index + 1}`}
+                        placeholder={pc("event", { p0: index + 1 })}
                       />
                     </div>
 
                     <div className="grid gap-2 md:grid-cols-2">
                       <div className="flex items-center justify-between rounded-md border bg-muted/30 p-3 text-sm">
-                        <span className="text-muted-foreground">Hiển thị banner này</span>
+                        <span className="text-muted-foreground">{pc("showThisBanner")}</span>
                         <input
                           type="checkbox"
                           checked={banner.enabled}
                           disabled={!banner.url && !bannerFiles[index]}
                           onChange={(event) => updateBanner(index, { enabled: event.target.checked })}
                           className="h-4 w-4 accent-primary"
-                          aria-label={`Bật banner ${index + 1}`}
+                          aria-label={pc("enableBanner", { p0: index + 1 })}
                         />
                       </div>
                       <div className="flex items-center justify-between rounded-md border bg-muted/30 p-3 text-sm">
-                        <span className="text-muted-foreground">Post nội dung</span>
+                        <span className="text-muted-foreground">{pc("publishContent")}</span>
                         <input
                           type="checkbox"
                           checked={banner.published}
                           onChange={(event) => updateBanner(index, { published: event.target.checked })}
                           className="h-4 w-4 accent-primary"
-                          aria-label={`Post nội dung banner ${index + 1}`}
+                          aria-label={pc("publishContentForBanner", { p0: index + 1 })}
                         />
                       </div>
                     </div>
 
                     <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
                       <div className="space-y-2">
-                        <Label htmlFor={`dealer-banner-content-title-${index}`}>Tiêu đề trang nội dung</Label>
+                        <Label htmlFor={`dealer-banner-content-title-${index}`}>{pc("contentPageTitle")}</Label>
                         <Input
                           id={`dealer-banner-content-title-${index}`}
                           value={banner.contentTitle}
                           maxLength={90}
                           onChange={(event) => updateBanner(index, { contentTitle: event.target.value })}
-                          placeholder="VD: Ưu đãi khai trương dành cho đại lý"
+                          placeholder={pc("eGOpeningOfferForDealers")}
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor={`dealer-banner-content-intro-${index}`}>Mô tả ngắn</Label>
+                        <Label htmlFor={`dealer-banner-content-intro-${index}`}>{pc("shortDescription")}</Label>
                         <textarea
                           id={`dealer-banner-content-intro-${index}`}
                           value={banner.contentIntro}
                           maxLength={260}
                           onChange={(event) => updateBanner(index, { contentIntro: event.target.value })}
-                          placeholder="Tóm tắt chương trình trong 1-2 câu."
+                          placeholder={pc("summarizeTheProgramInOneOrTwo")}
                           className="min-h-[76px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor={`dealer-banner-highlights-${index}`}>Điểm nổi bật (mỗi dòng một ý)</Label>
+                        <Label htmlFor={`dealer-banner-highlights-${index}`}>{pc("highlightsOnePerLine")}</Label>
                         <textarea
                           id={`dealer-banner-highlights-${index}`}
                           value={banner.contentHighlights.join("\n")}
                           onChange={(event) => updateBanner(index, { contentHighlights: event.target.value.split("\n").map((line) => line.trim()).filter(Boolean).slice(0, 6) })}
-                          placeholder={'Giá sỉ theo hồ sơ đại lý\nChương trình áp dụng trong tháng\nHỗ trợ vận hành xác nhận đơn'}
+                          placeholder={pc("wholesalePricingByDealerProfileProgramApplies")}
                           className="min-h-[104px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor={`dealer-banner-terms-${index}`}>Điều kiện áp dụng</Label>
+                        <Label htmlFor={`dealer-banner-terms-${index}`}>{pc("termsAndConditions")}</Label>
                         <textarea
                           id={`dealer-banner-terms-${index}`}
                           value={banner.contentTerms}
                           maxLength={360}
                           onChange={(event) => updateBanner(index, { contentTerms: event.target.value })}
-                          placeholder="Áp dụng theo khu vực, hồ sơ đại lý và chính sách BMQ tại thời điểm đặt hàng."
+                          placeholder={pc("subjectToRegionDealerProfileAndBmq")}
                           className="min-h-[76px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor={`dealer-banner-note-${index}`}>Ghi chú</Label>
+                        <Label htmlFor={`dealer-banner-note-${index}`}>{pc("notes")}</Label>
                         <Input
                           id={`dealer-banner-note-${index}`}
                           value={banner.contentNote}
                           maxLength={160}
                           onChange={(event) => updateBanner(index, { contentNote: event.target.value })}
-                          placeholder="VD: Cần hỗ trợ vui lòng liên hệ CSKH / Zalo OA BMQ."
+                          placeholder={pc("eGContactCustomerServiceBmqZalo")}
                         />
                       </div>
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor={`dealer-landing-banner-${index}`}>Ảnh banner</Label>
+                      <Label htmlFor={`dealer-landing-banner-${index}`}>{pc("bannerImage")}</Label>
                       <Input
                         id={`dealer-landing-banner-${index}`}
                         type="file"
                         accept="image/png,image/jpeg,image/webp"
                         onChange={(event) => handlePickFile(index, event.target.files?.[0] || null)}
                       />
-                      <p className="text-xs leading-5 text-muted-foreground">Khuyến nghị 1600×1000 hoặc 16:10, JPG/PNG/WebP, tối đa 5MB.</p>
+                      <p className="text-xs leading-5 text-muted-foreground">{pc("recommended16001000Or1610Jpg")}</p>
                     </div>
 
                     {banner.path ? (
-                      <div className="break-all rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
-                        Path: <span className="font-mono">{banner.path}</span>
+                      <div className="break-all rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground"> {pc("path")} <span className="font-mono">{banner.path}</span>
                       </div>
                     ) : null}
 
                     <Button className="w-full" onClick={() => saveBannerSlot(index)} disabled={savingSlot !== null || (!bannerFiles[index] && !banner.url)}>
-                      {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : bannerFiles[index] ? <Save className="h-4 w-4" /> : <UploadCloud className="h-4 w-4" />}
-                      Lưu banner {index + 1}
+                      {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : bannerFiles[index] ? <Save className="h-4 w-4" /> : <UploadCloud className="h-4 w-4" />} {pc("saveBanner")} {index + 1}
                     </Button>
                   </div>
                 );
@@ -384,9 +381,7 @@ export function DealerPortalBannerSettings() {
             </div>
 
             <Button variant="outline" className="w-full md:w-auto" onClick={saveBannerList} disabled={savingSlot !== null}>
-              {savingSlot === -1 ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-              Lưu thứ tự / trạng thái 3 banner
-            </Button>
+              {savingSlot === -1 ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} {pc("saveOrderStatusOfAllThreeBanners")} </Button>
           </>
         )}
       </CardContent>

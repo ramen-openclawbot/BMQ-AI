@@ -10,10 +10,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 export function Header() {
+  const { messages: { staff: s } } = useLanguage();
   const { user, profile, signOut } = useAuth();
   const { t, language, setLanguage } = useLanguage();
 
-  const displayName = profile?.full_name || user?.user_metadata?.full_name || user?.email?.split("@")[0] || "User";
+  const displayName = profile?.full_name || user?.user_metadata?.full_name || user?.email?.split("@")[0] || s.user;
   const initials = displayName.charAt(0).toUpperCase();
 
   return (
@@ -23,7 +24,7 @@ export function Header() {
         size="icon"
         className="md:hidden"
         onClick={() => window.dispatchEvent(new Event("bmq:open-sidebar"))}
-        aria-label="Mở menu"
+        aria-label={s.open_menu}
       >
         <Menu className="h-5 w-5 text-muted-foreground" />
       </Button>
@@ -56,14 +57,14 @@ export function Header() {
             VN
           </Button>
         </div>
-        <Button variant="ghost" size="icon" className="relative">
+        <Button variant="ghost" size="icon" aria-label={s.notifications} className="relative">
           <Bell className="h-5 w-5 text-muted-foreground" />
         </Button>
         
         <div className="flex items-center gap-3 border-l border-border pl-2 sm:pl-4">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="flex items-center gap-3 hover:opacity-80 transition-opacity">
+              <button aria-label={s.account_menu} className="flex items-center gap-3 hover:opacity-80 transition-opacity">
                 <div className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-primary bg-transparent sm:h-9 sm:w-9">
                   <span className="text-sm font-semibold text-primary">
                     {initials}
@@ -71,7 +72,7 @@ export function Header() {
                 </div>
                 <div className="hidden sm:block text-left">
                   <p className="text-sm font-medium">{displayName}</p>
-                  <p className="text-xs text-muted-foreground">Người dùng</p>
+                  <p className="text-xs text-muted-foreground">{s.user}</p>
                 </div>
               </button>
             </DropdownMenuTrigger>

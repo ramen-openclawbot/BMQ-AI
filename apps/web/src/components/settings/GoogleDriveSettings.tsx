@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { usePeopleCopy } from "@/hooks/usePeopleCopy";
+import { useState, useEffect, useRef } from "react";
 import { FolderOpen, Save, Check, X, Loader2, TestTube, Link2, Unlink, RefreshCw, Clock, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +14,9 @@ import { vi } from "date-fns/locale";
 import { DriveSyncSection } from "./DriveSyncSection";
 
 export function GoogleDriveSettings() {
+  const pc = usePeopleCopy();
+  const latestCopy = useRef(pc);
+  latestCopy.current = pc;
   const [poFolderUrl, setPoFolderUrl] = useState("");
   const [receiptsFolderUrl, setReceiptsFolderUrl] = useState("");
   const [connectedEmail, setConnectedEmail] = useState<string | null>(null);
@@ -98,8 +102,8 @@ export function GoogleDriveSettings() {
     const debtGmailEmail = urlParams.get('debt_gmail_email');
 
     if (driveSuccess === 'true') {
-      toast.success("Kết nối Google Drive thành công!", {
-        description: driveEmail ? `Đã kết nối với ${driveEmail}` : undefined
+      toast.success(latestCopy.current("googleDriveConnectedSuccessfully"), {
+        description: driveEmail ? latestCopy.current("connectedTo", { p0: driveEmail }) : undefined
       });
       if (driveEmail) {
         setConnectedEmail(driveEmail);
@@ -107,34 +111,35 @@ export function GoogleDriveSettings() {
       // Clean up URL
       window.history.replaceState({}, document.title, window.location.pathname);
     } else if (driveError) {
-      toast.error("Kết nối Google Drive thất bại", {
+      toast.error(latestCopy.current("unableToConnectGoogleDrive"), {
         description: driveError
       });
       // Clean up URL
       window.history.replaceState({}, document.title, window.location.pathname);
     } else if (gmailSuccess === 'true') {
-      toast.success("Kết nối Gmail PO thành công!", {
-        description: gmailEmail ? `Đã kết nối với ${gmailEmail}` : undefined
+      toast.success(latestCopy.current("poGmailConnectedSuccessfully"), {
+        description: gmailEmail ? latestCopy.current("connectedTo", { p0: gmailEmail }) : undefined
       });
       if (gmailEmail) setGmailConnectedEmail(gmailEmail);
       window.history.replaceState({}, document.title, window.location.pathname);
     } else if (gmailError) {
-      toast.error("Kết nối Gmail PO thất bại", {
+      toast.error(latestCopy.current("unableToConnectPoGmail"), {
         description: gmailError
       });
       window.history.replaceState({}, document.title, window.location.pathname);
     } else if (debtGmailSuccess === 'true') {
-      toast.success("Kết nối Gmail gửi công nợ thành công!", {
-        description: debtGmailEmail ? `Đã kết nối với ${debtGmailEmail}` : undefined
+      toast.success(latestCopy.current("debtEmailGmailConnectedSuccessfully"), {
+        description: debtGmailEmail ? latestCopy.current("connectedTo", { p0: debtGmailEmail }) : undefined
       });
       if (debtGmailEmail) setDebtGmailConnectedEmail(debtGmailEmail);
       window.history.replaceState({}, document.title, window.location.pathname);
     } else if (debtGmailError) {
-      toast.error("Kết nối Gmail gửi công nợ thất bại", {
+      toast.error(latestCopy.current("unableToConnectDebtEmailGmail"), {
         description: debtGmailError
       });
       window.history.replaceState({}, document.title, window.location.pathname);
     }
+    // OAuth callback and initial settings run once; switching language preserves unsaved inputs.
   }, []);
 
   const validateGoogleDriveUrl = (url: string): boolean => {
@@ -143,7 +148,7 @@ export function GoogleDriveSettings() {
     return url.includes("drive.google.com") && url.includes("/folders/");
   };
 
-  const getErrorMessage = (error: unknown, fallback = "Vui lòng thử lại") =>
+  const getErrorMessage = (error: unknown, fallback = pc("pleaseTryAgain")) =>
     error instanceof Error ? error.message : fallback;
 
   const getErrorCode = (error: unknown) =>
@@ -172,15 +177,15 @@ export function GoogleDriveSettings() {
         // Redirect to Google OAuth
         window.location.href = result.authUrl;
       } else if (result.error) {
-        toast.error("Không thể kết nối", {
+        toast.error(pc("unableToConnect"), {
           description: result.error
         });
         setConnecting(false);
       }
     } catch (error) {
       console.error("Connect error:", error);
-      toast.error("Lỗi kết nối", {
-        description: getErrorMessage(error, "Không thể bắt đầu quá trình kết nối")
+      toast.error(pc("connectionError"), {
+        description: getErrorMessage(error, pc("unableToStartTheConnectionProcess"))
       });
       setConnecting(false);
     }
@@ -189,7 +194,7 @@ export function GoogleDriveSettings() {
   const handleDisconnect = async () => {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) {
-      toast.error("Phiên đăng nhập đã hết hạn");
+      toast.error(pc("yourSessionHasExpired"));
       return;
     }
 
@@ -209,10 +214,10 @@ export function GoogleDriveSettings() {
         .eq("key", "google_drive_connected_email");
 
       setConnectedEmail(null);
-      toast.success("Đã ngắt kết nối Google Drive");
+      toast.success(pc("googleDriveDisconnected"));
     } catch (error) {
       console.error("Disconnect error:", error);
-      toast.error("Không thể ngắt kết nối", {
+      toast.error(pc("unableToDisconnect"), {
         description: getErrorMessage(error)
       });
     } finally {
@@ -235,10 +240,10 @@ export function GoogleDriveSettings() {
       if (result.authUrl) {
         window.location.href = result.authUrl;
       } else if (result.error) {
-        toast.error("Không thể kết nối Gmail", { description: result.error });
+        toast.error(pc("unableToConnectGmail"), { description: result.error });
       }
     } catch (error) {
-      toast.error("Lỗi kết nối Gmail", { description: getErrorMessage(error, "Không thể bắt đầu quá trình kết nối") });
+      toast.error(pc("gmailConnectionError"), { description: getErrorMessage(error, pc("unableToStartTheConnectionProcess")) });
     } finally {
       setGmailConnecting(false);
     }
@@ -250,9 +255,9 @@ export function GoogleDriveSettings() {
       await supabase.from("app_settings").delete().eq("key", "google_gmail_refresh_token");
       await supabase.from("app_settings").delete().eq("key", "google_gmail_connected_email");
       setGmailConnectedEmail(null);
-      toast.success("Đã ngắt kết nối Gmail PO");
+      toast.success(pc("poGmailDisconnected"));
     } catch (error) {
-      toast.error("Không thể ngắt Gmail", { description: getErrorMessage(error) });
+      toast.error(pc("unableToDisconnectGmail"), { description: getErrorMessage(error) });
     } finally {
       setGmailDisconnecting(false);
     }
@@ -273,10 +278,10 @@ export function GoogleDriveSettings() {
       if (result.authUrl) {
         window.location.href = result.authUrl;
       } else if (result.error) {
-        toast.error("Không thể kết nối Gmail gửi công nợ", { description: result.error });
+        toast.error(pc("unableToConnectDebtEmailGmail2"), { description: result.error });
       }
     } catch (error) {
-      toast.error("Lỗi kết nối Gmail gửi công nợ", { description: getErrorMessage(error, "Không thể bắt đầu quá trình kết nối") });
+      toast.error(pc("debtEmailGmailConnectionError"), { description: getErrorMessage(error, pc("unableToStartTheConnectionProcess")) });
     } finally {
       setDebtGmailConnecting(false);
     }
@@ -288,9 +293,9 @@ export function GoogleDriveSettings() {
       await supabase.from("app_settings").delete().eq("key", "debt_gmail_refresh_token");
       await supabase.from("app_settings").delete().eq("key", "debt_gmail_connected_email");
       setDebtGmailConnectedEmail(null);
-      toast.success("Đã ngắt Gmail gửi công nợ");
+      toast.success(pc("debtEmailGmailDisconnected"));
     } catch (error) {
-      toast.error("Không thể ngắt Gmail gửi công nợ", { description: getErrorMessage(error) });
+      toast.error(pc("unableToDisconnectDebtEmailGmail"), { description: getErrorMessage(error) });
     } finally {
       setDebtGmailDisconnecting(false);
     }
@@ -304,20 +309,20 @@ export function GoogleDriveSettings() {
     const label = type === 'po' ? 'PO' : 'Bank Receipts';
 
     if (!url) {
-      toast.error(`Vui lòng nhập URL folder ${label}`);
+      toast.error(pc("pleaseEnterTheFolderUrl", { p0: label }));
       return;
     }
 
     if (!validateGoogleDriveUrl(url)) {
-      toast.error("URL không hợp lệ", {
-        description: "Vui lòng sử dụng link Google Drive folder"
+      toast.error(pc("invalidUrl"), {
+        description: pc("pleaseUseAGoogleDriveFolderLink")
       });
       return;
     }
 
     if (!connectedEmail) {
-      toast.error("Chưa kết nối Google Drive", {
-        description: "Vui lòng kết nối Google account trước"
+      toast.error(pc("googleDriveIsNotConnected"), {
+        description: pc("pleaseConnectAGoogleAccountFirst")
       });
       return;
     }
@@ -343,7 +348,7 @@ export function GoogleDriveSettings() {
         const errBody = await response.json().catch(() => ({}));
         throw new Error(
           response.status === 401
-            ? "Phiên đăng nhập hết hạn — vui lòng đăng nhập lại"
+            ? pc("yourSessionHasExpiredPleaseSignIn")
             : errBody?.error || `HTTP ${response.status}`
         );
       }
@@ -362,24 +367,24 @@ export function GoogleDriveSettings() {
 
         if (saveError) {
           console.error("Failed to auto-save folder URL:", saveError);
-          toast.success(`Kết nối thành công!`, {
-            description: `Folder "${result.folderName}" - ${result.itemCount} items (Lưu thất bại)`
+          toast.success(pc("connectedSuccessfully"), {
+            description: pc("folderItemsSaveFailed", { p0: result.folderName, p1: result.itemCount })
           });
         } else {
           setSaved(true);
-          toast.success(`Kết nối thành công và đã lưu!`, {
-            description: `Folder "${result.folderName}" - ${result.itemCount} items`
+          toast.success(pc("connectedAndSavedSuccessfully"), {
+            description: pc("folderItems", { p0: result.folderName, p1: result.itemCount })
           });
         }
       } else {
-        toast.error("Kết nối thất bại", {
-          description: result.error || "Không thể truy cập folder"
+        toast.error(pc("connectionFailed"), {
+          description: result.error || pc("unableToAccessTheFolder")
         });
       }
     } catch (error) {
       console.error("Test connection error:", error);
-      toast.error("Lỗi kết nối", {
-        description: getErrorMessage(error, "Không thể kiểm tra kết nối")
+      toast.error(pc("connectionError"), {
+        description: getErrorMessage(error, pc("unableToTestTheConnection"))
       });
     } finally {
       setTesting(false);
@@ -389,22 +394,22 @@ export function GoogleDriveSettings() {
   const handleSave = async () => {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) {
-      toast.error("Phiên đăng nhập đã hết hạn", {
-        description: "Vui lòng đăng nhập lại"
+      toast.error(pc("yourSessionHasExpired"), {
+        description: pc("pleaseSignInAgain")
       });
       return;
     }
 
     if (!validateGoogleDriveUrl(poFolderUrl)) {
-      toast.error("URL folder PO không hợp lệ", {
-        description: "Vui lòng sử dụng link Google Drive folder"
+      toast.error(pc("invalidPoFolderUrl"), {
+        description: pc("pleaseUseAGoogleDriveFolderLink")
       });
       return;
     }
 
     if (!validateGoogleDriveUrl(receiptsFolderUrl)) {
-      toast.error("URL folder Bank Receipts không hợp lệ", {
-        description: "Vui lòng sử dụng link Google Drive folder"
+      toast.error(pc("invalidBankReceiptsFolderUrl"), {
+        description: pc("pleaseUseAGoogleDriveFolderLink")
       });
       return;
     }
@@ -454,16 +459,16 @@ export function GoogleDriveSettings() {
       setPoFolderSaved(true);
       setReceiptsFolderSaved(true);
       
-      toast.success("Đã lưu cấu hình Google Drive");
+      toast.success(pc("googleDriveSettingsSaved"));
     } catch (error) {
       console.error("Failed to save Google Drive settings:", error);
       
       let errorMessage = getErrorMessage(error);
       if (getErrorCode(error) === "42501") {
-        errorMessage = "Bạn không có quyền thực hiện thao tác này. Vui lòng đăng nhập với tài khoản Owner.";
+        errorMessage = pc("youDoNotHavePermissionForThis");
       }
       
-      toast.error("Không thể lưu cấu hình", {
+      toast.error(pc("unableToSaveSettings"), {
         description: errorMessage
       });
     } finally {
@@ -475,24 +480,18 @@ export function GoogleDriveSettings() {
     if (!url) {
       return (
         <span className="flex items-center gap-1 text-sm text-muted-foreground">
-          <X className="h-4 w-4 text-destructive" />
-          Chưa cấu hình
-        </span>
+          <X className="h-4 w-4 text-destructive" /> {pc("notConfigured")} </span>
       );
     }
     if (saved) {
       return (
         <span className="flex items-center gap-1 text-sm text-primary">
-          <Check className="h-4 w-4" />
-          Đã lưu
-        </span>
+          <Check className="h-4 w-4" /> {pc("saved")} </span>
       );
     }
     return (
       <span className="flex items-center gap-1 text-sm text-muted-foreground">
-        <Check className="h-4 w-4 text-warning" />
-        Chưa lưu
-      </span>
+        <Check className="h-4 w-4 text-warning" /> {pc("notSaved")} </span>
     );
   };
 
@@ -510,43 +509,39 @@ export function GoogleDriveSettings() {
     <div className="card-elevated rounded-xl border border-border p-6 space-y-4">
       <div className="flex items-center gap-3">
         <FolderOpen className="h-5 w-5 text-primary" />
-        <h2 className="font-display font-semibold text-lg">Google Drive Integration</h2>
+        <h2 className="font-display font-semibold text-lg">{pc("googleDriveIntegration2")}</h2>
       </div>
       <Separator />
 
       <div className="bg-muted/50 rounded-lg p-4 text-sm text-muted-foreground mb-4">
-        <p className="font-medium text-foreground mb-2">Hướng dẫn:</p>
+        <p className="font-medium text-foreground mb-2">{pc("instructions")}</p>
         <ol className="list-decimal ml-4 space-y-1">
-          <li>Kết nối Google account cho Drive (bấm nút bên dưới)</li>
-          <li>Kết nối Gmail PO account riêng (nếu mailbox PO dùng tài khoản khác)</li>
-          <li>Kết nối Gmail gửi công nợ bằng no-reply@bmq.vn trong block Email gửi công nợ</li>
-          <li>Tạo 2 folder trên Google Drive: 1 cho PO, 1 cho Bank Receipts</li>
-          <li>Copy link folder và dán vào ô bên dưới</li>
-          <li>Trong mỗi folder, tạo subfolder theo ngày (YYMMDD, VD: 260124)</li>
+          <li>{pc("connectAGoogleAccountForDriveUsing")}</li>
+          <li>{pc("connectASeparatePoGmailAccountIf")}</li>
+          <li>{pc("connectNoReplyBmqVnInThe")}</li>
+          <li>{pc("createTwoGoogleDriveFoldersOneFor")}</li>
+          <li>{pc("copyTheFolderLinkAndPasteIt")}</li>
+          <li>{pc("createDatedSubfoldersInEachFolderYymmdd")}</li>
         </ol>
         <p className="mt-2 text-xs text-muted-foreground">
-          <strong>Lưu ý:</strong> Folder không cần share public. Hệ thống sử dụng OAuth để truy cập private folder.
-        </p>
+          <strong>{pc("note")}</strong> {pc("foldersDoNotNeedPublicSharingThe")} </p>
       </div>
 
       <div className="space-y-4">
         {/* Google Account Connection */}
         <div className="p-4 border border-border rounded-lg bg-card">
           <Label className="flex items-center gap-2 mb-3">
-            <Link2 className="h-4 w-4" />
-            Kết nối Google Account
-          </Label>
+            <Link2 className="h-4 w-4" /> {pc("connectGoogleAccount")} </Label>
           
           {connectedEmail ? (
             <div className="flex items-center justify-between">
               <div className="flex flex-col gap-1">
                 <div className="flex items-center gap-2">
                   <Check className="h-5 w-5 text-primary" />
-                  <span className="text-sm">
-                    Đã kết nối: <strong>{connectedEmail}</strong>
+                  <span className="text-sm"> {pc("connected")} <strong>{connectedEmail}</strong>
                   </span>
                 </div>
-                <span className="text-xs text-muted-foreground">Kết nối này chỉ dùng cho Drive (PO folder/UNC folder).</span>
+                <span className="text-xs text-muted-foreground">{pc("thisConnectionIsOnlyForDrivePo")}</span>
               </div>
               <Button
                 variant="outline"
@@ -559,16 +554,12 @@ export function GoogleDriveSettings() {
                   <Loader2 className="h-4 w-4 animate-spin mr-1" />
                 ) : (
                   <Unlink className="h-4 w-4 mr-1" />
-                )}
-                Ngắt kết nối
-              </Button>
+                )} {pc("disconnect")} </Button>
             </div>
           ) : (
             <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground flex items-center gap-2">
-                <X className="h-4 w-4 text-destructive" />
-                Chưa kết nối
-              </span>
+                <X className="h-4 w-4 text-destructive" /> {pc("notConnected")} </span>
               <Button
                 onClick={handleConnect}
                 disabled={connecting}
@@ -578,9 +569,7 @@ export function GoogleDriveSettings() {
                   <Loader2 className="h-4 w-4 animate-spin mr-1" />
                 ) : (
                   <Link2 className="h-4 w-4 mr-1" />
-                )}
-                Kết nối Google Drive
-              </Button>
+                )} {pc("connectGoogleDrive")} </Button>
             </div>
           )}
         </div>
@@ -588,20 +577,17 @@ export function GoogleDriveSettings() {
         {/* Gmail PO Account Connection */}
         <div className="p-4 border border-border rounded-lg bg-card">
           <Label className="flex items-center gap-2 mb-3">
-            <Link2 className="h-4 w-4" />
-            Kết nối Gmail PO Account
-          </Label>
+            <Link2 className="h-4 w-4" /> {pc("connectPoGmailAccount")} </Label>
 
           {gmailConnectedEmail ? (
             <div className="flex items-center justify-between">
               <div className="flex flex-col gap-1">
                 <div className="flex items-center gap-2">
                   <Check className="h-5 w-5 text-primary" />
-                  <span className="text-sm">
-                    Đã kết nối Gmail: <strong>{gmailConnectedEmail}</strong>
+                  <span className="text-sm"> {pc("gmailConnected")} <strong>{gmailConnectedEmail}</strong>
                   </span>
                 </div>
-                <span className="text-xs text-muted-foreground">Tài khoản này dùng để đọc mailbox PO (có thể khác tài khoản Drive và email gửi công nợ).</span>
+                <span className="text-xs text-muted-foreground">{pc("thisAccountReadsThePoMailboxAnd")}</span>
               </div>
               <Button
                 variant="outline"
@@ -614,16 +600,12 @@ export function GoogleDriveSettings() {
                   <Loader2 className="h-4 w-4 animate-spin mr-1" />
                 ) : (
                   <Unlink className="h-4 w-4 mr-1" />
-                )}
-                Ngắt Gmail
-              </Button>
+                )} {pc("disconnectGmail")} </Button>
             </div>
           ) : (
             <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground flex items-center gap-2">
-                <X className="h-4 w-4 text-destructive" />
-                Chưa kết nối Gmail
-              </span>
+                <X className="h-4 w-4 text-destructive" /> {pc("gmailIsNotConnected")} </span>
               <Button
                 onClick={handleConnectGmail}
                 disabled={gmailConnecting}
@@ -633,9 +615,7 @@ export function GoogleDriveSettings() {
                   <Loader2 className="h-4 w-4 animate-spin mr-1" />
                 ) : (
                   <Link2 className="h-4 w-4 mr-1" />
-                )}
-                Kết nối Gmail
-              </Button>
+                )} {pc("connectGmail")} </Button>
             </div>
           )}
         </div>
@@ -643,22 +623,17 @@ export function GoogleDriveSettings() {
         {/* Debt Email Sender */}
         <div className="p-4 border border-border rounded-lg bg-card space-y-3">
           <Label className="flex items-center gap-2">
-            <Mail className="h-4 w-4" />
-            Email gửi công nợ
-          </Label>
-          <p className="text-xs text-muted-foreground">
-            Cấu hình này chỉ dùng khi gửi file Excel công nợ. Không dùng tài khoản này để quét Drive UNC/QTM hoặc đọc PO.
-          </p>
+            <Mail className="h-4 w-4" /> {pc("debtEmail")} </Label>
+          <p className="text-xs text-muted-foreground"> {pc("theseSettingsAreOnlyForSendingDebt")} </p>
           {debtGmailConnectedEmail ? (
             <div className="flex items-center justify-between rounded-md border border-primary/20 bg-primary/5 p-3">
               <div className="flex flex-col gap-1">
                 <div className="flex items-center gap-2">
                   <Check className="h-5 w-5 text-primary" />
-                  <span className="text-sm">
-                    Đã kết nối Gmail gửi công nợ: <strong>{debtGmailConnectedEmail}</strong>
+                  <span className="text-sm"> {pc("debtEmailGmailConnected")} <strong>{debtGmailConnectedEmail}</strong>
                   </span>
                 </div>
-                <span className="text-xs text-muted-foreground">Email gửi nên trùng với tài khoản OAuth này hoặc là alias được Gmail cho phép gửi.</span>
+                <span className="text-xs text-muted-foreground">{pc("theSenderShouldMatchThisOauthAccount")}</span>
               </div>
               <Button
                 variant="outline"
@@ -671,29 +646,23 @@ export function GoogleDriveSettings() {
                   <Loader2 className="h-4 w-4 animate-spin mr-1" />
                 ) : (
                   <Unlink className="h-4 w-4 mr-1" />
-                )}
-                Ngắt Gmail công nợ
-              </Button>
+                )} {pc("disconnectDebtGmail")} </Button>
             </div>
           ) : (
             <div className="flex items-center justify-between rounded-md border border-destructive/20 bg-destructive/5 p-3">
               <span className="text-sm text-muted-foreground flex items-center gap-2">
-                <X className="h-4 w-4 text-destructive" />
-                Chưa kết nối Gmail gửi công nợ
-              </span>
+                <X className="h-4 w-4 text-destructive" /> {pc("debtEmailGmailIsNotConnected")} </span>
               <Button onClick={handleConnectDebtGmail} disabled={debtGmailConnecting} size="sm">
                 {debtGmailConnecting ? (
                   <Loader2 className="h-4 w-4 animate-spin mr-1" />
                 ) : (
                   <Link2 className="h-4 w-4 mr-1" />
-                )}
-                Kết nối Gmail công nợ
-              </Button>
+                )} {pc("connectDebtGmail")} </Button>
             </div>
           )}
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="debt-email-sender">Email gửi</Label>
+              <Label htmlFor="debt-email-sender">{pc("senderEmail")}</Label>
               <Input
                 id="debt-email-sender"
                 type="email"
@@ -701,10 +670,10 @@ export function GoogleDriveSettings() {
                 onChange={(e) => setDebtEmailSender(e.target.value)}
                 placeholder="no-reply@bmq.vn"
               />
-              <p className="text-xs text-muted-foreground">Khuyến nghị: <code>no-reply@bmq.vn</code></p>
+              <p className="text-xs text-muted-foreground">{pc("recommended")} <code>no-reply@bmq.vn</code></p>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="debt-email-cc">CC mặc định</Label>
+              <Label htmlFor="debt-email-cc">{pc("defaultCc")}</Label>
               <Input
                 id="debt-email-cc"
                 type="text"
@@ -712,20 +681,16 @@ export function GoogleDriveSettings() {
                 onChange={(e) => setDebtEmailCc(e.target.value)}
                 placeholder="ketoantruong@bmq.vn"
               />
-              <p className="text-xs text-muted-foreground">Có thể nhập nhiều email, phân tách bằng dấu phẩy.</p>
+              <p className="text-xs text-muted-foreground">{pc("separateMultipleEmailAddressesWithCommas")}</p>
             </div>
           </div>
-          <p className="text-xs text-muted-foreground">
-            Nếu gửi bằng <code>no-reply@bmq.vn</code>, hãy kết nối OAuth bằng chính <code>no-reply@bmq.vn</code> ở block này.
-          </p>
+          <p className="text-xs text-muted-foreground"> {pc("whenSendingAs")} <code>no-reply@bmq.vn</code>{pc("connectOauthAs")} <code>no-reply@bmq.vn</code> {pc("inThisSection")} </p>
         </div>
 
         {/* PO Folder */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <Label htmlFor="po-folder">
-              Folder PO (Purchase Orders)
-            </Label>
+            <Label htmlFor="po-folder"> {pc("poFolderPurchaseOrders")} </Label>
             {getUrlStatusIndicator(poFolderUrl, poFolderSaved)}
           </div>
           <div className="flex gap-2">
@@ -751,7 +716,7 @@ export function GoogleDriveSettings() {
               ) : (
                 <TestTube className="h-4 w-4" />
               )}
-              <span className="ml-1 hidden sm:inline">Test</span>
+              <span className="ml-1 hidden sm:inline">{pc("test")}</span>
             </Button>
           </div>
         </div>
@@ -759,9 +724,7 @@ export function GoogleDriveSettings() {
         {/* Receipts Folder */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <Label htmlFor="receipts-folder">
-              Folder Bank Receipts (Ủy nhiệm chi)
-            </Label>
+            <Label htmlFor="receipts-folder"> {pc("bankReceiptsFolderPaymentOrders")} </Label>
             {getUrlStatusIndicator(receiptsFolderUrl, receiptsFolderSaved)}
           </div>
           <div className="flex gap-2">
@@ -787,7 +750,7 @@ export function GoogleDriveSettings() {
               ) : (
                 <TestTube className="h-4 w-4" />
               )}
-              <span className="ml-1 hidden sm:inline">Test</span>
+              <span className="ml-1 hidden sm:inline">{pc("test")}</span>
             </Button>
           </div>
         </div>
@@ -796,7 +759,7 @@ export function GoogleDriveSettings() {
         {/* Bank Receipts Patterns */}
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
-            <Label htmlFor="receipts-unc-pattern">UNC path template</Label>
+            <Label htmlFor="receipts-unc-pattern">{pc("uncPathTemplate")}</Label>
             <Input
               id="receipts-unc-pattern"
               type="text"
@@ -804,10 +767,10 @@ export function GoogleDriveSettings() {
               onChange={(e) => setReceiptsUncPattern(e.target.value)}
               placeholder="yyyy/MM/dd/UNC"
             />
-            <p className="text-xs text-muted-foreground">Ví dụ: <code>yyyy/MM/dd/UNC</code></p>
+            <p className="text-xs text-muted-foreground">{pc("example")} <code>yyyy/MM/dd/UNC</code></p>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="receipts-qtm-pattern">QTM path template</Label>
+            <Label htmlFor="receipts-qtm-pattern">{pc("qtmPathTemplate")}</Label>
             <Input
               id="receipts-qtm-pattern"
               type="text"
@@ -815,7 +778,7 @@ export function GoogleDriveSettings() {
               onChange={(e) => setReceiptsQtmPattern(e.target.value)}
               placeholder="yyyy/MM/dd/QTM"
             />
-            <p className="text-xs text-muted-foreground">Ví dụ: <code>yyyy/MM/dd/QTM</code></p>
+            <p className="text-xs text-muted-foreground">{pc("example")} <code>yyyy/MM/dd/QTM</code></p>
           </div>
         </div>
 
@@ -834,9 +797,7 @@ export function GoogleDriveSettings() {
             <Loader2 className="h-4 w-4 animate-spin mr-2" />
           ) : (
             <Save className="h-4 w-4 mr-2" />
-          )}
-          Lưu cấu hình
-        </Button>
+          )} {pc("saveSettings")} </Button>
       </div>
     </div>
   );

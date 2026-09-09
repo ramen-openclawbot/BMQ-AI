@@ -1,3 +1,4 @@
+import { useProductionCopy } from "@/i18n/useProductionCopy";
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -26,6 +27,7 @@ interface Props {
 }
 
 export function ShiftWorkersPanel({ shiftId, shiftDate, disabled }: Props) {
+  const c = useProductionCopy();
   const { language } = useLanguage();
   const { canEditModule } = useAuth();
   const isVi = language === "vi";
@@ -205,7 +207,7 @@ export function ShiftWorkersPanel({ shiftId, shiftDate, disabled }: Props) {
       <div className="border rounded text-sm">
         {isLoading ? (
           <div className="p-3 flex items-center gap-2 text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+            <Loader2 className="h-4 w-4 animate-spin" />  {c.label23}
           </div>
         ) : workers.length === 0 ? (
           <div className="p-3 text-muted-foreground">{copy.empty}</div>

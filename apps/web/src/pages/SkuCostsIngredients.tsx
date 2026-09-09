@@ -1,3 +1,4 @@
+import { useDSkuCopy } from "@/i18n/useDSkuCopy";
 import { useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -36,6 +37,7 @@ const emptyForm: FormState = {
 };
 
 export default function SkuCostsIngredients() {
+  const s = useDSkuCopy();
   const { data, isLoading, isError, refetch } = useDjangoIngredients();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm);
@@ -107,26 +109,26 @@ export default function SkuCostsIngredients() {
   };
 
   return (
-    <div className="space-y-6">
+    <div data-i18n-version="d-sku-v1" className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>Bộ lọc</CardTitle>
+          <CardTitle>{s.filters}</CardTitle>
         </CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <Input placeholder="Tìm kiếm" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <Input placeholder={s.search} value={search} onChange={(e) => setSearch(e.target.value)} />
           <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-            <SelectTrigger><SelectValue placeholder="Danh mục" /></SelectTrigger>
+            <SelectTrigger><SelectValue placeholder={s.category} /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Tất cả danh mục</SelectItem>
+              <SelectItem value="all">{s.allCategories}</SelectItem>
               {categories.map((c) => (
                 <SelectItem key={c} value={c}>{c}</SelectItem>
               ))}
             </SelectContent>
           </Select>
           <Select value={unitFilter} onValueChange={setUnitFilter}>
-            <SelectTrigger><SelectValue placeholder="Đơn vị" /></SelectTrigger>
+            <SelectTrigger><SelectValue placeholder={s.unit} /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Tất cả đơn vị</SelectItem>
+              <SelectItem value="all">{s.allUnits}</SelectItem>
               {units.map((u) => (
                 <SelectItem key={u} value={u}>{u}</SelectItem>
               ))}
@@ -137,23 +139,23 @@ export default function SkuCostsIngredients() {
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Nguyên liệu</CardTitle>
-          <Button onClick={openCreate}>Thêm nguyên liệu</Button>
+          <CardTitle>{s.ingredients}</CardTitle>
+          <Button onClick={openCreate}>{s.addIngredient}</Button>
         </CardHeader>
         <CardContent>
-          {isError && <div className="text-sm text-red-500">Không tải được dữ liệu.</div>}
+          {isError && <div className="text-sm text-red-500">{s.loadError}</div>}
           {isLoading && <Skeleton className="h-8 w-full" />}
           {!isLoading && filtered && (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Tên</TableHead>
-                  <TableHead>Danh mục</TableHead>
-                  <TableHead>Đơn vị</TableHead>
-                  <TableHead>Tồn kho</TableHead>
-                  <TableHead>Tối thiểu</TableHead>
-                  <TableHead>Giá/đv</TableHead>
-                  <TableHead>Hành động</TableHead>
+                  <TableHead>{s.name}</TableHead>
+                  <TableHead>{s.category}</TableHead>
+                  <TableHead>{s.unit}</TableHead>
+                  <TableHead>{s.stock}</TableHead>
+                  <TableHead>{s.minimum}</TableHead>
+                  <TableHead>{s.unitCost}</TableHead>
+                  <TableHead>{s.actions}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -166,8 +168,8 @@ export default function SkuCostsIngredients() {
                     <TableCell>{i.minimum_stock}</TableCell>
                     <TableCell>{new Intl.NumberFormat('vi-VN').format(i.current_cost_per_unit)}</TableCell>
                     <TableCell className="space-x-2">
-                      <Button variant="outline" size="sm" onClick={() => openEdit(i)}>Sửa</Button>
-                      <Button variant="destructive" size="sm" onClick={() => remove(i.id)}>Xoá</Button>
+                      <Button variant="outline" size="sm" onClick={() => openEdit(i)}>{s.edit}</Button>
+                      <Button variant="destructive" size="sm" onClick={() => remove(i.id)}>{s.delete}</Button>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -180,18 +182,18 @@ export default function SkuCostsIngredients() {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{form.id ? "Cập nhật nguyên liệu" : "Thêm nguyên liệu"}</DialogTitle>
+            <DialogTitle>{form.id ? s.updateIngredient : s.addIngredient}</DialogTitle>
           </DialogHeader>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <Input placeholder="Tên" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-            <Input placeholder="Danh mục" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} />
-            <Input placeholder="Đơn vị" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} />
-            <Input placeholder="Tồn kho" value={form.current_stock} onChange={(e) => setForm({ ...form, current_stock: e.target.value })} />
-            <Input placeholder="Tối thiểu" value={form.minimum_stock} onChange={(e) => setForm({ ...form, minimum_stock: e.target.value })} />
-            <Input placeholder="Giá/đv" value={form.current_cost_per_unit} onChange={(e) => setForm({ ...form, current_cost_per_unit: e.target.value })} />
+            <Input placeholder={s.name} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+            <Input placeholder={s.category} value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} />
+            <Input placeholder={s.unit} value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} />
+            <Input placeholder={s.stock} value={form.current_stock} onChange={(e) => setForm({ ...form, current_stock: e.target.value })} />
+            <Input placeholder={s.minimum} value={form.minimum_stock} onChange={(e) => setForm({ ...form, minimum_stock: e.target.value })} />
+            <Input placeholder={s.unitCost} value={form.current_cost_per_unit} onChange={(e) => setForm({ ...form, current_cost_per_unit: e.target.value })} />
           </div>
           <DialogFooter>
-            <Button onClick={save}>Lưu</Button>
+            <Button onClick={save}>{s.save}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

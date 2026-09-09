@@ -1,3 +1,6 @@
+import { type FinanceMessage, financeMessage, readFinanceMessage, FinanceUiError, localizedFinanceError, financeErrorMessage, retainFinanceError, scanFailureDetail, ocrFileFailure, combinedOcrFailure } from "@/lib/finance-ui-error";
+import { formatText } from "@/i18n/format";
+import { financeControl } from "@/i18n/financeControl";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { format, startOfMonth, endOfMonth, subDays } from "date-fns";
@@ -156,7 +159,7 @@ const getReviewStatusLabel = (status: string, isVi: boolean) => {
 
 const formatReviewStatusCounts = (counts: Record<string, number>, isVi: boolean) => {
   const entries = Object.entries(counts).filter(([, count]) => count > 0);
-  if (!entries.length) return isVi ? "Không có note" : "No notes";
+  if (!entries.length) return financeControl[isVi ? "vi" : "en"].noNotes;
   return entries
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([status, count]) => `${count} ${getReviewStatusLabel(status, isVi)}`)
@@ -173,17 +176,17 @@ const buildClassificationNote = (
   const suggested = Number(counts.suggested || counts.needs_review || 0);
   const statusText = suggested > 0
     ? (isVi ? `${suggested} dòng gợi ý cần rà soát` : `${suggested} suggested lines to review`)
-    : (isVi ? "Nhóm đã sẵn sàng để đối soát" : "Ready for review");
+    : (financeControl[isVi ? "vi" : "en"].readyForReview);
   const shareText = isVi
     ? `${percentage.toFixed(1)}% tổng chi phí tháng`
     : `${percentage.toFixed(1)}% of monthly cost`;
   return isTopGroup
-    ? `${isVi ? "Nhóm chiếm tỷ trọng cao nhất" : "Largest cost group"} · ${shareText} · ${statusText}`
+    ? `${financeControl[isVi ? "vi" : "en"].largestCostGroup} · ${shareText} · ${statusText}`
     : `${shareText} · ${statusText}`;
 };
 
 const getClassificationShareLabel = (percentage: number, isVi: boolean) => {
-  if (!Number.isFinite(percentage) || percentage <= 0) return isVi ? "0% tỷ trọng" : "0% share";
+  if (!Number.isFinite(percentage) || percentage <= 0) return financeControl[isVi ? "vi" : "en"].label0Share;
   return isVi ? `${percentage.toFixed(1)}% tỷ trọng` : `${percentage.toFixed(1)}% share`;
 };
 
@@ -216,6 +219,11 @@ const getLineDateLabel = (value: string | null | undefined) => {
   return y && m && d ? `${d}/${m}/${y}` : "-";
 };
 
+// Translate only the generated fallback at display boundaries; business category names stay verbatim.
+const getCostCategoryDisplayLabel = (label: string | undefined, isVi: boolean) => label === "Chưa phân loại / cần review"
+  ? financeControl[isVi ? "vi" : "en"].unclassifiedReview
+  : label;
+
 const getCostCategorySelectLabel = (code: string, label?: string) => label ? `${code} — ${label}` : code;
 const normalizeCostAliasKey = (value: string) => value
   .trim()
@@ -246,15 +254,13 @@ const hasStandardCostDraftChanged = (row: CostClassificationReviewRow, draft: St
 );
 
 const getOcrErrorMessage = (errorLike: unknown, fallbackMessage: string) => {
-  if (typeof errorLike?.error === "string" && errorLike.error.trim()) return errorLike.error.trim();
-  if (typeof errorLike?.detail === "string" && errorLike.detail.trim()) return errorLike.detail.trim();
-  if (typeof errorLike?.message === "string" && errorLike.message.trim()) return errorLike.message.trim();
+  if (typeof errorLike?.error === "string" && errorLike.error.trim()) return errorLike.error;
+  if (typeof errorLike?.detail === "string" && errorLike.detail.trim()) return errorLike.detail;
+  if (typeof errorLike?.message === "string" && errorLike.message.trim()) return errorLike.message;
   return fallbackMessage;
 };
 const getOcrTimeoutMessage = (isVi: boolean) => (
-  isVi
-    ? "Quá thời gian chờ khi scan slip. Vui lòng thử lại."
-    : "Slip scanning timed out. Please try again."
+  financeControl[isVi ? "vi" : "en"].slipScanningTimedOutPleaseTryAgain
 );
 
 const getQtmClosingFromMismatch = (result: MismatchResult) => {
@@ -269,10 +275,10 @@ const getMismatchCauseLabel = (result: MismatchResult, isVi: boolean) => {
   const qtmClosing = getQtmClosingFromMismatch(result);
   const uncMismatch = uncVariance !== 0;
   const qtmNegative = qtmClosing < 0;
-  if (uncMismatch && qtmNegative) return isVi ? "UNC chênh lệch và QTM âm quỹ" : "UNC variance and negative QTM balance";
-  if (uncMismatch) return isVi ? "UNC chênh lệch" : "UNC variance";
-  if (qtmNegative) return isVi ? "UNC khớp, QTM âm quỹ" : "UNC matches, QTM balance is negative";
-  return isVi ? "Cần kiểm tra đối soát" : "Reconciliation needs review";
+  if (uncMismatch && qtmNegative) return financeControl[isVi ? "vi" : "en"].uncVarianceAndNegativeQTMBalance;
+  if (uncMismatch) return financeControl[isVi ? "vi" : "en"].uncVariance;
+  if (qtmNegative) return financeControl[isVi ? "vi" : "en"].uncMatchesQTMBalanceIsNegative;
+  return financeControl[isVi ? "vi" : "en"].reconciliationNeedsReview;
 };
 
 const toDateInputValue = (d: Date) => format(d, "yyyy-MM-dd");
@@ -317,12 +323,16 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
   const [reconciling, setReconciling] = useState(false);
   const [extracting, setExtracting] = useState(false);
   const [activeSlipScan, setActiveSlipScan] = useState<{ type: "unc" | "qtm"; fileCount: number } | null>(null);
-  const [declarationSaveMessage, setDeclarationSaveMessage] = useState<string | null>(null);
-  const [ocrDebugMessage, setOcrDebugMessage] = useState<string | null>(null);
-  const [slipUploadStatus, setSlipUploadStatus] = useState<{ unc: string | null; qtm: string | null }>({ unc: null, qtm: null });
+  const [declarationMessage, setDeclarationSaveMessage] = useState<FinanceMessage | null>(null);
+  const declarationSaveMessage = readFinanceMessage(declarationMessage, isVi);
+  const [ocrDebugText, setOcrDebugMessage] = useState<FinanceMessage | null>(null);
+  const ocrDebugMessage = readFinanceMessage(ocrDebugText, isVi);
+  const [slipUploadMessages, setSlipUploadStatus] = useState<{ unc: FinanceMessage | null; qtm: FinanceMessage | null }>({ unc: null, qtm: null });
+  const slipUploadStatus = { unc: readFinanceMessage(slipUploadMessages.unc, isVi), qtm: readFinanceMessage(slipUploadMessages.qtm, isVi) };
   const [slipPreviewOpen, setSlipPreviewOpen] = useState(false);
   const [slipPreviewSrc, setSlipPreviewSrc] = useState<string | null>(null);
-  const [slipPreviewTitle, setSlipPreviewTitle] = useState<string>("");
+  const [slipPreviewMessage, setSlipPreviewTitle] = useState<FinanceMessage | null>(null);
+  const slipPreviewTitle = readFinanceMessage(slipPreviewMessage, isVi) || "";
   const [selectedCostSummaryRow, setSelectedCostSummaryRow] = useState<CostClassificationMonthlySummary | null>(null);
   const [classificationEdits, setClassificationEdits] = useState<ClassificationEdits>({});
   const [standardCostEdits, setStandardCostEdits] = useState<StandardCostEdits>({});
@@ -333,8 +343,10 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
   const [uncScanImagesOnly, setUncScanImagesOnly] = useState(true);
   const [uncLowConfidenceThreshold, setUncLowConfidenceThreshold] = useState(0.75);
   const [reconcilingFolderScan, setReconcilingFolderScan] = useState(false);
-  const [reconcileProgress, setReconcileProgress] = useState({ done: 0, total: 0, currentFile: "" });
-  const [reconcileError, setReconcileError] = useState<string | null>(null);
+  const [reconcileProgressMessage, setReconcileProgress] = useState<{ done: number; total: number; currentFile: FinanceMessage | string }>({ done: 0, total: 0, currentFile: "" });
+  const reconcileProgress = { ...reconcileProgressMessage, currentFile: readFinanceMessage(reconcileProgressMessage.currentFile, isVi) };
+  const [reconcileErrorMessage, setReconcileError] = useState<FinanceMessage | null>(null);
+  const reconcileError = readFinanceMessage(reconcileErrorMessage, isVi);
   const [qtmOpeningBalance, setQtmOpeningBalance] = useState<number>(0);
   const [qtmSpentFromFolder, setQtmSpentFromFolder] = useState<number>(0);
   const [qtmReconciling, setQtmReconciling] = useState(false);
@@ -773,12 +785,12 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
         queryClient.invalidateQueries({ queryKey: ["cost-categories"] }),
       ]);
       toast({
-        title: isVi ? "Đã lưu phân loại" : "Classification saved",
-        description: isVi ? "Hệ thống đã lưu mã chuẩn và ghi nhớ alias cho PR/invoice sau." : "The standard code and alias were saved for future PRs/invoices.",
+        title: financeControl[isVi ? "vi" : "en"].classificationSaved,
+        description: financeControl[isVi ? "vi" : "en"].theStandardCodeAndAliasWereSaved,
       });
     } catch (error: unknown) {
       toast({
-        title: isVi ? "Không lưu được phân loại" : "Could not save classification",
+        title: financeControl[isVi ? "vi" : "en"].couldNotSaveClassification,
         description: error?.message || String(error),
         variant: "destructive",
       });
@@ -802,16 +814,16 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
   // Surface query errors to user via toast (fire once per error)
   useEffect(() => {
     const errors = [
-      declarationError && `Khai báo CEO: ${(declarationError as Error).message}`,
-      uncDetailError && `UNC chi tiết: ${(uncDetailError as Error).message}`,
-      dailyReconError && `Đối soát ngày: ${(dailyReconError as Error).message}`,
-      monthlyError && `Chốt tháng: ${(monthlyError as Error).message}`,
-      qtmBalanceError && `Số dư QTM: ${(qtmBalanceError as Error).message}`,
+      declarationError && formatText(financeControl[isVi ? "vi" : "en"].declarationError, { message: (declarationError as Error).message }),
+      uncDetailError && formatText(financeControl[isVi ? "vi" : "en"].uncDetailError, { message: (uncDetailError as Error).message }),
+      dailyReconError && formatText(financeControl[isVi ? "vi" : "en"].dailyError, { message: (dailyReconError as Error).message }),
+      monthlyError && formatText(financeControl[isVi ? "vi" : "en"].monthlyError, { message: (monthlyError as Error).message }),
+      qtmBalanceError && formatText(financeControl[isVi ? "vi" : "en"].balanceError, { message: (qtmBalanceError as Error).message }),
     ].filter(Boolean) as string[];
 
     if (errors.length > 0) {
       toast({
-        title: isVi ? "Lỗi tải dữ liệu" : "Data loading error",
+        title: financeControl[isVi ? "vi" : "en"].dataLoadingError,
         description: errors.join(" • "),
         variant: "destructive",
       });
@@ -1071,7 +1083,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
 
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
-        const error = new Error(getOcrErrorMessage(payload, isVi ? "Không thể scan slip. Vui lòng thử lại." : "Failed to scan slip."));
+        const error = new FinanceUiError(financeMessage((isVi) => getOcrErrorMessage(payload, financeControl[isVi ? "vi" : "en"].failedToScanSlip)), isVi);
         Object.assign(error, { code: payload?.code, detail: payload?.detail, rawMessage: payload?.error });
         throw error;
       }
@@ -1094,7 +1106,8 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
         const retryMsg = retryError instanceof Error ? retryError.message : String(retryError || "");
         const stillTimeout = retryMsg.includes("AbortError") || retryMsg.toLowerCase().includes("aborted") || retryMsg.toLowerCase().includes("timeout");
         if (stillTimeout) {
-          throw new Error(getOcrTimeoutMessage(isVi));
+          if (retryError instanceof FinanceUiError) throw retryError;
+          throw new FinanceUiError(financeMessage((isVi) => getOcrTimeoutMessage(isVi)), isVi);
         }
         throw retryError;
       }
@@ -1112,7 +1125,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       .single();
 
     if (error || !data?.value) {
-      throw new Error("Chưa cấu hình thư mục UNC gốc trong app_settings");
+      throw new FinanceUiError(financeMessage((isVi) => financeControl[isVi ? "vi" : "en"].missingRoot), isVi);
     }
 
     return String(data.value);
@@ -1140,7 +1153,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
     setReconcilingFolderScan(true);
     setQtmReconciling(true);
     setReconcileError(null);
-    setReconcileProgress({ done: 0, total: 0, currentFile: isVi ? "Đang quét danh sách file UNC/QTM..." : "Scanning UNC/QTM file lists..." });
+    setReconcileProgress({ done: 0, total: 0, currentFile: financeMessage((isVi) => financeControl[isVi ? "vi" : "en"].scanningUNCQTMFileLists) });
 
     try {
       const session = await getFreshSession();
@@ -1166,18 +1179,17 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
           }, 45000);
           if (!resp.ok) {
             const err = await resp.json().catch(() => ({}));
-            const detail = resp.status === 401
-              ? "Phiên đăng nhập hết hạn — vui lòng đăng nhập lại"
-              : err?.details || err?.error || `HTTP ${resp.status}`;
-            throw new Error(`Scan "${subfolderDate}" thất bại: ${detail}`);
+            const detail = scanFailureDetail(resp.status, err);
+            throw new FinanceUiError(financeMessage((isVi) => formatText(financeControl[isVi ? "vi" : "en"].scanFailed, { folder: subfolderDate, message: readFinanceMessage(detail, isVi) ?? "" })), isVi);
           }
           const data = await resp.json();
           console.log(`[scan] ${subfolderDate}: ${data?.files?.length ?? 0} files, total: ${data?.totalFilesFound ?? '?'}, skipped: ${data?.skippedProcessedCount ?? 0}`);
           return data;
         } catch (error) {
+          if (error instanceof FinanceUiError) throw error;
           const msg = error instanceof Error ? error.message : String(error || "");
           if (msg.includes("AbortError") || msg.toLowerCase().includes("aborted") || msg.toLowerCase().includes("timeout")) {
-            throw new Error(`Scan "${subfolderDate}" quá thời gian chờ (45s)`);
+            throw new FinanceUiError(financeMessage((isVi) => formatText(financeControl[isVi ? "vi" : "en"].scanTimeout, { folder: subfolderDate })), isVi);
           }
           throw error;
         }
@@ -1214,7 +1226,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
 
         if (!resp.ok) {
           const err = await resp.json().catch(() => ({}));
-          throw new Error(err?.error || `Không thể tải file ${String(f?.name || f?.id || "")}`);
+          throw new FinanceUiError(financeMessage((isVi) => err?.error || formatText(financeControl[isVi ? "vi" : "en"].downloadFailed, { file: String(f?.name || f?.id || "") })), isVi);
         }
 
         const data = await resp.json();
@@ -1225,9 +1237,9 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       const qtmPath = qtmPathForDate;
 
       // Scan sequentially to avoid double pressure on Drive + Edge runtime.
-      setReconcileProgress({ done: 0, total: 0, currentFile: isVi ? "Đang quét UNC..." : "Scanning UNC..." });
+      setReconcileProgress({ done: 0, total: 0, currentFile: financeMessage((isVi) => financeControl[isVi ? "vi" : "en"].scanningUNC) });
       const uncScanData = await scanWithRetry(uncPath);
-      setReconcileProgress({ done: 0, total: 0, currentFile: isVi ? "Đang quét QTM..." : "Scanning QTM..." });
+      setReconcileProgress({ done: 0, total: 0, currentFile: financeMessage((isVi) => financeControl[isVi ? "vi" : "en"].scanningQTM) });
       const qtmScanData = await scanWithRetry(qtmPath);
 
       const uncRawFiles = Array.isArray(uncScanData?.files) ? uncScanData.files : [];
@@ -1251,15 +1263,13 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
         const qtmMsg = qtmScanData?.message || "";
         const pathInfo = `UNC: ${uncPath}, QTM: ${qtmPath}`;
         const folderNotFound = uncMsg.includes("No subfolder") || qtmMsg.includes("No subfolder");
-        throw new Error(
-          isVi
+        throw new FinanceUiError(financeMessage((isVi) => isVi
             ? folderNotFound
               ? `Không tìm thấy thư mục trên Drive. Kiểm tra cấu trúc: ${pathInfo}. ${uncMsg}`
               : `Không có file ảnh trong thư mục (UNC: ${uncTotalScannedCount} found, QTM: ${qtmTotalScannedCount} found). Path: ${pathInfo}`
             : folderNotFound
               ? `Folder not found on Drive. Check structure: ${pathInfo}. ${uncMsg}`
-              : `No image files in folders (UNC: ${uncTotalScannedCount}, QTM: ${qtmTotalScannedCount}). Path: ${pathInfo}`
-        );
+              : `No image files in folders (UNC: ${uncTotalScannedCount}, QTM: ${qtmTotalScannedCount}). Path: ${pathInfo}`), isVi);
       }
 
       // ── OCR cache lookup: reuse previously extracted amounts from drive_file_index ──
@@ -1293,10 +1303,10 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       console.log(`[reconcile] OCR cache hit: ${cachedCount} files, need OCR: UNC ${uncachedUncFiles.length}, QTM ${uncachedQtmFiles.length}`);
 
       const totalTargets = uncachedUncFiles.length + uncachedQtmFiles.length;
-      setReconcileProgress({ done: 0, total: totalTargets, currentFile: totalTargets === 0 ? (isVi ? "Tất cả file đã có cache OCR" : "All files have cached OCR") : "" });
+      setReconcileProgress({ done: 0, total: totalTargets, currentFile: financeMessage((isVi) => totalTargets === 0 ? (financeControl[isVi ? "vi" : "en"].allFilesHaveCachedOCR) : "") });
 
       const uncItems: Array<{ fileId: string; fileName: string; amount: number; confidence: number; status: "matched" | "mismatch" | "needs_review" }> = [];
-      const ocrErrors: string[] = [];
+      const ocrErrors: FinanceMessage[] = [];
       let progressDone = 0;
 
       // ── Parallel batch processing (3 files at a time to reduce concurrent load) ──
@@ -1309,16 +1319,16 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
         const results: Array<{ amount: number; confidence: number; fileId: string; fileName: string } | null> = [];
         for (let i = 0; i < files.length; i += BATCH_SIZE) {
           const batch = files.slice(i, i + BATCH_SIZE);
-          setReconcileProgress({ done: progressDone, total: totalTargets, currentFile: `[${slipType.toUpperCase()}] Batch ${Math.ceil((i + 1) / BATCH_SIZE)}/${Math.ceil(files.length / BATCH_SIZE)}` });
+          setReconcileProgress({ done: progressDone, total: totalTargets, currentFile: financeMessage((isVi) => formatText(financeControl[isVi ? "vi" : "en"].ocrBatch, { type: slipType.toUpperCase(), batch: Math.ceil((i + 1) / BATCH_SIZE), total: Math.ceil(files.length / BATCH_SIZE) })) });
           const batchResults = await Promise.allSettled(
             batch.map(async (file) => {
               const downloaded = await downloadBase64File(file);
-              if (!downloaded?.base64) throw new Error(`Không tải được file ${String(file?.name || file?.id || "")}`);
+              if (!downloaded?.base64) throw new FinanceUiError(financeMessage((isVi) => formatText(financeControl[isVi ? "vi" : "en"].loadFailed, { file: String(file?.name || file?.id || "") })), isVi);
               const result = await extractSlipAmountFromBase64(downloaded.base64, downloaded.mimeType || file.mimeType || "image/jpeg", slipType);
               const amount = Number(result?.extracted?.amount || 0);
               const confidence = Number(result?.extracted?.confidence || 0);
               if (!(amount > 0)) {
-                throw new Error(`OCR trả về số tiền = 0 cho file ${String(file?.name || file?.id || "")}`);
+                throw new FinanceUiError(financeMessage((isVi) => formatText(financeControl[isVi ? "vi" : "en"].zeroOcr, { file: String(file?.name || file?.id || "") })), isVi);
               }
               return {
                 fileId: file.id,
@@ -1333,8 +1343,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
               results.push(r.value);
             } else {
               const file = batch[idx];
-              const reason = r.reason instanceof Error ? r.reason.message : String(r.reason || "OCR failed");
-              ocrErrors.push(`${slipType.toUpperCase()}: ${String(file?.name || file?.id || "unknown")}: ${reason}`);
+              ocrErrors.push(ocrFileFailure(slipType, String(file?.name || file?.id || ""), r.reason));
               results.push(null);
             }
             progressDone += 1;
@@ -1394,23 +1403,16 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       const qtmOcrFailedHard = targetQtmFiles.length > 0 && qtmSuccessfulCount === 0;
       const uncOcrPartialFailedHard = targetUncFiles.length > 0 && uncItems.length > 0 && uncItems.length < targetUncFiles.length;
       const qtmOcrPartialFailedHard = targetQtmFiles.length > 0 && qtmSuccessfulCount > 0 && qtmSuccessfulCount < targetQtmFiles.length;
-      let ocrFailureMessage: string | null = null;
+      let ocrFailureMessage: FinanceMessage | null = null;
       if (uncOcrFailedHard || qtmOcrFailedHard || uncOcrPartialFailedHard || qtmOcrPartialFailedHard) {
-        const preview = ocrErrors.slice(0, 8).join(" | ");
-        const scopes: string[] = [];
+        const scopes: Array<{ type: "UNC" | "QTM"; successful: number; total: number }> = [];
         if (uncOcrFailedHard || uncOcrPartialFailedHard) {
-          scopes.push(isVi
-            ? `UNC: OCR đọc được ${uncItems.length}/${targetUncFiles.length} file, còn ${Math.max(targetUncFiles.length - uncItems.length, 0)} file chưa đọc được`
-            : `UNC: OCR extracted ${uncItems.length}/${targetUncFiles.length} files, ${Math.max(targetUncFiles.length - uncItems.length, 0)} files still failed`);
+          scopes.push({ type: "UNC", successful: uncItems.length, total: targetUncFiles.length });
         }
         if (qtmOcrFailedHard || qtmOcrPartialFailedHard) {
-          scopes.push(isVi
-            ? `QTM: OCR đọc được ${qtmSuccessfulCount}/${targetQtmFiles.length} file, còn ${Math.max(targetQtmFiles.length - qtmSuccessfulCount, 0)} file chưa đọc được`
-            : `QTM: OCR extracted ${qtmSuccessfulCount}/${targetQtmFiles.length} files, ${Math.max(targetQtmFiles.length - qtmSuccessfulCount, 0)} files still failed`);
+          scopes.push({ type: "QTM", successful: qtmSuccessfulCount, total: targetQtmFiles.length });
         }
-        ocrFailureMessage = isVi
-          ? `${scopes.join("; ")}. ${preview || "Vui lòng kiểm tra format bank slip hoặc edge function finance-extract-slip-amount."}`
-          : `${scopes.join("; ")}. ${preview || "Please verify bank slip format or finance-extract-slip-amount."}`;
+        ocrFailureMessage = combinedOcrFailure(scopes, ocrErrors);
       }
       const ceoTotal = Number(uncTotalDeclared || 0);
       const delta = folderTotal - ceoTotal;
@@ -1465,15 +1467,15 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
         if (processedUpsertError) {
           console.error("[FinanceControl] Failed to persist processed markers:", processedUpsertError);
           if (ocrFailureMessage) {
-            throw new Error(isVi
-              ? `Không thể lưu trạng thái OCR lỗi để retry: ${processedUpsertError.message || "drive_file_index upsert failed"}`
-              : `Could not save failed OCR retry state: ${processedUpsertError.message || "drive_file_index upsert failed"}`);
+            throw new FinanceUiError(financeMessage((isVi) => isVi
+              ? `Không thể lưu trạng thái OCR lỗi để retry: ${processedUpsertError.message || financeControl[isVi ? "vi" : "en"].ocrRetryStateSaveFailed}`
+              : `Could not save failed OCR retry state: ${processedUpsertError.message || financeControl[isVi ? "vi" : "en"].ocrRetryStateSaveFailed}`), isVi);
           }
         }
       }
 
       if (ocrFailureMessage) {
-        throw new Error(ocrFailureMessage);
+        throw new FinanceUiError(ocrFailureMessage, isVi);
       }
 
       setReconcileProgress({ done: totalTargets, total: totalTargets, currentFile: "" });
@@ -1518,7 +1520,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       if (ceoTotal === 0) {
         setUncTotalDeclared(folderTotal);
         toast({
-          title: isVi ? "Đã tự điền UNC khai báo" : "UNC declared total auto-filled",
+          title: financeControl[isVi ? "vi" : "en"].uncDeclaredTotalAutoFilled,
           description: isVi
             ? `Đã cập nhật UNC khai báo = ${vnd(folderTotal)} từ folder ${uncPath}`
             : `CEO UNC declared total updated to ${vnd(folderTotal)} from folder ${uncPath}`,
@@ -1526,7 +1528,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       }
 
       toast({
-        title: isVi ? "Đã đối soát trong ngày" : "Daily reconciliation completed",
+        title: financeControl[isVi ? "vi" : "en"].dailyReconciliationCompleted,
         description: isVi
           ? `Đã quét UNC (${uncTotalScannedCount} file) + QTM (${qtmTotalScannedCount} file) theo ngày ${format(selectedDate, "dd/MM/yyyy")}${ocrErrors.length ? `. OCR lỗi: ${ocrErrors.length} file` : ""}`
           : `Scanned UNC (${uncTotalScannedCount} files) + QTM (${qtmTotalScannedCount} files) for ${format(selectedDate, "dd/MM/yyyy")}${ocrErrors.length ? `. OCR failed on ${ocrErrors.length} file(s)` : ""}`,
@@ -1543,11 +1545,11 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       };
 
     } catch (e: unknown) {
-      const msg = e?.message || (isVi ? "Không thể đối soát UNC/QTM theo ngày" : "Failed reconciling UNC/QTM by date");
-      setReconcileError(msg);
+      const error = retainFinanceError(e, financeMessage((isVi) => financeControl[isVi ? "vi" : "en"].failedReconcilingUNCQTMByDate), isVi);
+      setReconcileError(error.uiMessage);
       setReconcileProgress((prev) => ({ ...prev, currentFile: "" }));
-      toast({ title: isVi ? "Lỗi đối soát trong ngày" : "Daily reconciliation error", description: msg, variant: "destructive" });
-      throw e; // Re-throw so executeClose stops
+      toast({ title: financeControl[isVi ? "vi" : "en"].dailyReconciliationError, description: readFinanceMessage(error.uiMessage, isVi) ?? "", variant: "destructive" });
+      throw error; // Re-throw the structured error so executeClose stops
     } finally {
       setReconcilingFolderScan(false);
       setQtmReconciling(false);
@@ -1573,7 +1575,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
 
       if (!scanResponse.ok) {
         const err = await scanResponse.json().catch(() => ({}));
-        throw new Error(err?.error || "Không thể scan thư mục QTM");
+        throw new FinanceUiError(financeMessage((isVi) => err?.error || financeControl[isVi ? "vi" : "en"].qtmScanFailed), isVi);
       }
 
       const scanData = await scanResponse.json();
@@ -1583,7 +1585,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       if (!files.length) {
         setQtmSpentFromFolder(0);
         setQtmLowConfidenceCount(0);
-        toast({ title: isVi ? "Không có chứng từ QTM" : "No QTM receipts", description: qtmPath });
+        toast({ title: financeControl[isVi ? "vi" : "en"].noQTMReceipts, description: qtmPath });
         return;
       }
 
@@ -1600,11 +1602,11 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       setQtmSpentFromFolder(total);
       setQtmLowConfidenceCount(lowConfidence);
       toast({
-        title: isVi ? "Đã quét chi QTM" : "QTM scanned",
-        description: `${isVi ? "Tổng chi" : "Spent"}: ${vnd(total)} • ${isVi ? "thiếu chứng từ/độ tin cậy thấp" : "low confidence"}: ${lowConfidence}`,
+        title: financeControl[isVi ? "vi" : "en"].qtmScanned,
+        description: `${financeControl[isVi ? "vi" : "en"].spent}: ${vnd(total)} • ${financeControl[isVi ? "vi" : "en"].lowConfidence}: ${lowConfidence}`,
       });
     } catch (e: unknown) {
-      toast({ title: isVi ? "Lỗi quét QTM" : "QTM scan error", description: e?.message || "Failed scanning QTM", variant: "destructive" });
+      toast({ title: financeControl[isVi ? "vi" : "en"].qtmScanError, description: e?.message || financeControl[isVi ? "vi" : "en"].qtmScanFailed, variant: "destructive" });
     } finally {
       setQtmReconciling(false);
     }
@@ -1626,7 +1628,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
 
     const result = await response.json().catch(() => ({}));
     if (!response.ok) {
-      const error = new Error(getOcrErrorMessage(result, isVi ? "Không thể scan slip. Vui lòng thử lại." : "Failed to scan slip."));
+      const error = new FinanceUiError(financeMessage((isVi) => getOcrErrorMessage(result, financeControl[isVi ? "vi" : "en"].failedToScanSlip)), isVi);
       Object.assign(error, { code: result?.code, detail: result?.detail, rawMessage: result?.error });
       throw error;
     }
@@ -1664,18 +1666,16 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
 
       const zeroAmountFiles = batchResults.filter((r) => Number(r.extracted?.amount || 0) <= 0);
       if (zeroAmountFiles.length > 0) {
-        const debugText = `${slipType.toUpperCase()} OpenAI Vision zero amount: ${zeroAmountFiles.map((r) => `${r.file.name} (confidence ${Number(r.extracted?.confidence || 0).toFixed(2)})`).join(", ")}`;
+        const debugText = financeMessage((isVi) => formatText(financeControl[isVi ? "vi" : "en"].zeroAmountDebug, { type: slipType.toUpperCase(), files: zeroAmountFiles.map((r) => formatText(financeControl[isVi ? "vi" : "en"].fileConfidence, { name: r.file.name, confidence: Number(r.extracted?.confidence || 0).toFixed(2) })).join(", ") }));
         setOcrDebugMessage(debugText);
-        const statusText = isVi
+        const statusText = financeMessage((isVi) => isVi
           ? `Ảnh mới chưa được áp dụng cho ${slipType.toUpperCase()}. OpenAI Vision không đọc ra số tiền từ file vừa chọn, nên số/preview đang hiển thị bên dưới vẫn là dữ liệu đã lưu trước đó.`
-          : `The new ${slipType.toUpperCase()} image was not applied. OpenAI Vision could not read an amount from the selected file, so the amount/preview shown below still reflects previously saved data.`;
+          : `The new ${slipType.toUpperCase()} image was not applied. OpenAI Vision could not read an amount from the selected file, so the amount/preview shown below still reflects previously saved data.`);
         setSlipUploadStatus((prev) => ({ ...prev, [slipType]: statusText }));
-        setDeclarationSaveMessage(isVi
-          ? "OpenAI Vision chưa đọc ra số tiền từ ảnh vừa tải lên. Hệ thống không lưu ảnh và không cập nhật giao diện."
-          : "OpenAI Vision could not extract an amount from the uploaded image. The system did not keep the image or update the UI.");
+        setDeclarationSaveMessage(financeMessage((isVi) => financeControl[isVi ? "vi" : "en"].openaiVisionCouldNotExtractAnAmount));
         toast({
-          title: isVi ? "OpenAI Vision chưa đọc ra số tiền" : "OpenAI Vision did not extract amount",
-          description: debugText,
+          title: financeControl[isVi ? "vi" : "en"].openaiVisionDidNotExtractAmount,
+          description: debugText[isVi ? "vi" : "en"],
           variant: "destructive",
         });
         return;
@@ -1713,9 +1713,9 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
 
       setSlipUploadStatus((prev) => ({
         ...prev,
-        [slipType]: isVi
+        [slipType]: financeMessage((isVi) => isVi
           ? `Scan xong ${slipType.toUpperCase()}: +${vnd(batchSum)} (${batchResults.length} ảnh). Đang tự lưu khai báo CEO...`
-          : `${slipType.toUpperCase()} scanned: +${vnd(batchSum)} (${batchResults.length} image(s)). Auto-saving CEO declaration...`,
+          : `${slipType.toUpperCase()} scanned: +${vnd(batchSum)} (${batchResults.length} image(s)). Auto-saving CEO declaration...`),
       }));
 
       // Auto-save declaration after OCR using the freshly computed values,
@@ -1730,34 +1730,34 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       });
 
       if (autoSaved) {
-        const savedMessage = isVi
+        const savedMessage = financeMessage((isVi) => isVi
           ? `Đã scan và tự lưu khai báo CEO: ${slipType.toUpperCase()} +${vnd(batchSum)} (${batchResults.length} ảnh). Không cần bấm Lưu khai báo.`
-          : `Scanned and auto-saved CEO declaration: ${slipType.toUpperCase()} +${vnd(batchSum)} (${batchResults.length} image(s)). No need to press Save declaration.`;
+          : `Scanned and auto-saved CEO declaration: ${slipType.toUpperCase()} +${vnd(batchSum)} (${batchResults.length} image(s)). No need to press Save declaration.`);
         // Keep auto-save confirmation in the slip section only.
         // Do not also set declarationSaveMessage here: mobile users see both areas at once,
         // which duplicates the same success notification.
         setSlipUploadStatus((prev) => ({ ...prev, [slipType]: savedMessage }));
         toast({
-          title: isVi ? "Đã tự lưu khai báo CEO" : "CEO declaration auto-saved",
-          description: `${slipType === "qtm" ? "QTM" : "UNC"}: +${vnd(batchSum)} (${batchResults.length} ảnh)`,
+          title: financeControl[isVi ? "vi" : "en"].ceoDeclarationAutoSaved,
+          description: formatText(financeControl[isVi ? "vi" : "en"].imagesAdded, { type: slipType === "qtm" ? "QTM" : "UNC", amount: vnd(batchSum), count: batchResults.length }),
         });
       } else {
         setSlipUploadStatus((prev) => ({
           ...prev,
-          [slipType]: isVi
+          [slipType]: financeMessage((isVi) => isVi
             ? `Scan xong ${slipType.toUpperCase()} nhưng tự lưu thất bại. Vui lòng kiểm tra thông báo lỗi bên dưới rồi bấm Lưu khai báo.`
-            : `${slipType.toUpperCase()} scanned, but auto-save failed. Check the error below, then press Save declaration.`,
+            : `${slipType.toUpperCase()} scanned, but auto-save failed. Check the error below, then press Save declaration.`),
         }));
       }
     } catch (e: unknown) {
-      const statusText = e?.message
-        ? `${isVi ? "Ảnh mới chưa được áp dụng:" : "New image not applied:"} ${e.message}`
+      const statusText = financeMessage((isVi) => localizedFinanceError(e, isVi, e?.message
+        ? `${financeControl[isVi ? "vi" : "en"].newImageNotApplied} ${e.message}`
         : (isVi
           ? `Ảnh mới chưa được áp dụng cho ${slipType.toUpperCase()}. Hệ thống vẫn đang giữ số/preview đã lưu trước đó.`
-          : `The new ${slipType.toUpperCase()} image was not applied. The UI is still showing previously saved amount/preview.`);
+          : `The new ${slipType.toUpperCase()} image was not applied. The UI is still showing previously saved amount/preview.`)));
       setSlipUploadStatus((prev) => ({ ...prev, [slipType]: statusText }));
-      setDeclarationSaveMessage(e?.message || (isVi ? "Ảnh đã tải lên nhưng OpenAI Vision chưa đọc được số tiền. Anh có thể chỉnh tay số tiền rồi bấm Lưu khai báo." : "Image uploaded but OpenAI Vision could not extract amount. You can adjust the number manually and press Save declaration."));
-      toast({ title: "Lỗi OpenAI Vision slip", description: e?.message || "Không thể trích xuất số tiền từ ảnh upload. Nếu ảnh chụp từ iPhone, vui lòng thử lại sau khi chụp rõ hơn hoặc dùng ảnh/JPEG ít nén hơn.", variant: "destructive" });
+      setDeclarationSaveMessage(financeMessage((isVi) => localizedFinanceError(e, isVi, e?.message || (financeControl[isVi ? "vi" : "en"].imageUploadedButOpenAIVisionCouldNot))));
+      toast({ title: financeControl[isVi ? "vi" : "en"].visionError, description: e?.message || financeControl[isVi ? "vi" : "en"].visionHelp, variant: "destructive" });
     } finally {
       setExtracting(false);
       setActiveSlipScan(null);
@@ -1826,7 +1826,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
     setQtmSpentFromFolder(snapshot.qtmDrive);
   };
 
-  const openSlipPreview = (src: string, title: string) => {
+  const openSlipPreview = (src: string, title: FinanceMessage) => {
     setSlipPreviewSrc(src);
     setSlipPreviewTitle(title);
     setSlipPreviewOpen(true);
@@ -1835,8 +1835,8 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
   const deleteDeclaredSlip = async (slipType: "qtm" | "unc", index: number) => {
     if (!isOwner) {
       toast({
-        title: isVi ? "Không có quyền xoá slip" : "No permission to delete slip",
-        description: isVi ? "Chỉ owner mới được xoá slip đã khai báo." : "Only owners can delete declared slips.",
+        title: financeControl[isVi ? "vi" : "en"].noPermissionToDeleteSlip,
+        description: financeControl[isVi ? "vi" : "en"].onlyOwnersCanDeleteDeclaredSlips,
         variant: "destructive",
       });
       return;
@@ -1851,7 +1851,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
         .eq("closing_date", dateKey)
         .maybeSingle();
       if (latestError) throw latestError;
-      if (!latestDecl) throw new Error(isVi ? "Không tìm thấy khai báo CEO để xoá slip." : "CEO declaration not found.");
+      if (!latestDecl) throw new FinanceUiError(financeMessage((isVi) => financeControl[isVi ? "vi" : "en"].ceoDeclarationNotFound), isVi);
 
       const meta = latestDecl.extraction_meta || {};
       const currentQtmImages = Array.isArray(meta.qtm_images)
@@ -1904,17 +1904,17 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       setPendingUncExtractedList([]);
       setCashFundTopupAmount(nextQtmAmount);
       setUncTotalDeclared(nextUncAmount);
-      setDeclarationSaveMessage(isVi ? "Đã xoá slip và lưu lại khai báo CEO" : "Slip deleted and CEO declaration updated");
+      setDeclarationSaveMessage(financeMessage((isVi) => financeControl[isVi ? "vi" : "en"].slipDeletedAndCEODeclarationUpdated));
       await refetchDeclaration();
       await refetchDeclarationImages();
       toast({
-        title: isVi ? "Đã xoá slip" : "Slip deleted",
-        description: isVi ? "Khai báo CEO đã được cập nhật theo danh sách slip còn lại." : "CEO declaration has been recalculated from the remaining slips.",
+        title: financeControl[isVi ? "vi" : "en"].slipDeleted,
+        description: financeControl[isVi ? "vi" : "en"].ceoDeclarationHasBeenRecalculatedFromThe,
       });
     } catch (e: unknown) {
       toast({
-        title: isVi ? "Xoá slip thất bại" : "Failed to delete slip",
-        description: e?.message || (isVi ? "Không thể xoá slip" : "Unable to delete slip"),
+        title: financeControl[isVi ? "vi" : "en"].failedToDeleteSlip,
+        description: e?.message || (financeControl[isVi ? "vi" : "en"].unableToDeleteSlip),
         variant: "destructive",
       });
     } finally {
@@ -2000,8 +2000,8 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
 
       if (error) throw error;
       if (!silent) {
-        setDeclarationSaveMessage(isVi ? "Đã lưu khai báo CEO" : "CEO declaration saved");
-        toast({ title: "Saved", description: "CEO daily declaration has been updated." });
+        setDeclarationSaveMessage(financeMessage((isVi) => financeControl[isVi ? "vi" : "en"].ceoDeclarationSaved));
+        toast({ title: financeControl[isVi ? "vi" : "en"].saved, description: financeControl[isVi ? "vi" : "en"].declarationUpdated });
       }
       setPendingQtmImagesBase64([]);
       setPendingUncImagesBase64([]);
@@ -2010,9 +2010,9 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       await refetchDeclaration();
       return true;
     } catch (e: unknown) {
-      setDeclarationSaveMessage(e?.message || (isVi ? "Không thể lưu khai báo" : "Failed to save declaration"));
+      setDeclarationSaveMessage(financeMessage((isVi) => localizedFinanceError(e, isVi, e?.message || (financeControl[isVi ? "vi" : "en"].failedToSaveDeclaration))));
       if (!silent) {
-        toast({ title: "Error", description: e?.message || "Failed to save declaration", variant: "destructive" });
+        toast({ title: financeControl[isVi ? "vi" : "en"].error, description: e?.message || financeControl[isVi ? "vi" : "en"].failedToSaveDeclaration, variant: "destructive" });
       }
       return false;
     } finally {
@@ -2062,16 +2062,16 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       if (error) throw error;
 
       const summaryParts: string[] = [];
-      if (uncStatus === "mismatch") summaryParts.push(`UNC ${isVi ? "chênh lệch" : "variance"}: ${vnd(uncVariance)}`);
-      if (qtmStatus === "mismatch") summaryParts.push(`QTM ${isVi ? "âm quỹ" : "negative closing balance"}: ${vnd(Math.abs(qtmClosingBalanceFresh))}`);
+      if (uncStatus === "mismatch") summaryParts.push(`UNC ${financeControl[isVi ? "vi" : "en"].variance}: ${vnd(uncVariance)}`);
+      if (qtmStatus === "mismatch") summaryParts.push(`QTM ${financeControl[isVi ? "vi" : "en"].negativeClosingBalance}: ${vnd(Math.abs(qtmClosingBalanceFresh))}`);
 
       toast({
         title: status === "match"
-          ? (isVi ? "Đối soát: KHỚP" : "Reconciled: MATCH")
-          : (isVi ? "Đối soát: LỆCH" : "Reconciled: MISMATCH"),
+          ? (financeControl[isVi ? "vi" : "en"].reconciledMATCH)
+          : (financeControl[isVi ? "vi" : "en"].reconciledMISMATCH),
         description: summaryParts.length > 0
           ? summaryParts.join(" | ")
-          : (isVi ? "UNC và QTM đều khớp" : "UNC and QTM both match"),
+          : (financeControl[isVi ? "vi" : "en"].uncAndQTMBothMatch),
         variant: status === "match" ? "default" : "destructive",
       });
 
@@ -2088,7 +2088,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
         qtmClosingBalance: qtmClosingBalanceFresh,
       };
     } catch (e: unknown) {
-      toast({ title: "Error", description: e?.message || "Reconciliation failed", variant: "destructive" });
+      toast({ title: financeControl[isVi ? "vi" : "en"].error, description: e?.message || financeControl[isVi ? "vi" : "en"].reconciliationFailed, variant: "destructive" });
       return null;
     } finally {
       setReconciling(false);
@@ -2099,8 +2099,8 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
   const openCloseDialog = async () => {
     if (closeApprovalLocked) {
       toast({
-        title: isVi ? "Đã khoá" : "Already locked",
-        description: isVi ? "Ngày này đã chốt. Mở khoá trước để chỉnh sửa." : "This day is already closed. Unlock first to edit.",
+        title: financeControl[isVi ? "vi" : "en"].alreadyLocked,
+        description: financeControl[isVi ? "vi" : "en"].thisDayIsAlreadyClosedUnlockFirst,
       });
       return;
     }
@@ -2130,10 +2130,8 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
         }, 20000);
         if (!resp.ok) {
           const err = await resp.json().catch(() => ({}));
-          const detail = resp.status === 401
-            ? "Phiên đăng nhập hết hạn — vui lòng đăng nhập lại"
-            : err?.details || err?.error || `HTTP ${resp.status}`;
-          return { files: [], error: detail };
+          const detail = scanFailureDetail(resp.status, err);
+          return { files: [], error: new FinanceUiError(detail, isVi) };
         }
         return await resp.json();
       };
@@ -2143,7 +2141,10 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       setPreviewQtmFiles(qtmData?.totalFilesFound ?? qtmData?.files?.length ?? 0);
 
       if (uncData?.error || qtmData?.error) {
-        const errors = [uncData?.error && `UNC: ${uncData.error}`, qtmData?.error && `QTM: ${qtmData.error}`].filter(Boolean).join(" | ");
+        const errors = financeMessage((isVi) => [
+          uncData?.error && `UNC: ${readFinanceMessage(financeErrorMessage(uncData.error, financeMessage((isVi) => financeControl[isVi ? "vi" : "en"].cannotConnectToDrive)), isVi)}`,
+          qtmData?.error && `QTM: ${readFinanceMessage(financeErrorMessage(qtmData.error, financeMessage((isVi) => financeControl[isVi ? "vi" : "en"].cannotConnectToDrive)), isVi)}`,
+        ].filter(Boolean).join(" | "));
         if (canCloseWithoutBankSlips) {
           setReconcileError(null);
         } else {
@@ -2151,7 +2152,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
         }
       }
     } catch (e: unknown) {
-      setReconcileError(e?.message || (isVi ? "Không thể kết nối Drive" : "Cannot connect to Drive"));
+      setReconcileError(financeErrorMessage(e, financeMessage((isVi) => financeControl[isVi ? "vi" : "en"].cannotConnectToDrive)));
     } finally {
       setPreviewLoading(false);
     }
@@ -2164,14 +2165,14 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
     setReconcileError(null);
     try {
       // Step 1: Save CEO declaration
-      setReconcileProgress({ done: 0, total: 0, currentFile: isVi ? "Bước 1/4: Lưu khai báo CEO..." : "Step 1/4: Saving CEO declaration..." });
+      setReconcileProgress({ done: 0, total: 0, currentFile: financeMessage((isVi) => financeControl[isVi ? "vi" : "en"].step14SavingCEODeclaration) });
       const declarationSaved = await saveDeclaration(true);
       if (!declarationSaved) {
-        throw new Error(isVi ? "Không thể lưu khai báo CEO" : "Failed to save CEO declaration");
+        throw new FinanceUiError(financeMessage((isVi) => financeControl[isVi ? "vi" : "en"].failedToSaveCEODeclaration), isVi);
       }
 
       // Step 2: Scan Drive folders (UNC + QTM)
-      setReconcileProgress({ done: 0, total: 0, currentFile: isVi ? "Bước 2/4: Quét & OCR bank slip..." : "Step 2/4: Scanning & OCR bank slips..." });
+      setReconcileProgress({ done: 0, total: 0, currentFile: financeMessage((isVi) => financeControl[isVi ? "vi" : "en"].step24ScanningOCRBankSlips) });
       const folderScanResult = shouldRunFolderReconciliation
         ? await runFolderReconciliation()
         : {
@@ -2183,25 +2184,23 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
             qtmFolderTotal: 0,
           };
       if (!folderScanResult) {
-        throw new Error(isVi ? "Không nhận được kết quả quét thư mục Drive" : "Missing Drive scan result");
+        throw new FinanceUiError(financeMessage((isVi) => financeControl[isVi ? "vi" : "en"].missingDriveScanResult), isVi);
       }
 
       if (hasDeclaredUnc && folderScanResult.uncTotalScannedCount === 0) {
-        throw new Error(isVi
+        throw new FinanceUiError(financeMessage((isVi) => isVi
           ? `Không thể chốt ngày: UNC đã khai báo ${vnd(Number(uncTotalDeclared || 0))} nhưng thư mục Drive UNC không quét được file nào (${folderScanResult.uncPath}).`
-          : `Cannot close day: UNC was declared but Drive UNC scan returned 0 files (${folderScanResult.uncPath}).`);
+          : `Cannot close day: UNC was declared but Drive UNC scan returned 0 files (${folderScanResult.uncPath}).`), isVi);
       }
       // QTM declared by CEO is cash added to the QTM fund. It may be spent from the
       // Drive QTM folder on a later day, so zero QTM files/spend today must carry
       // forward into qtmClosingBalance instead of blocking close-day approval.
       if (hasDeclaredUnc && Number(folderScanResult.uncFolderTotal || 0) === 0) {
-        throw new Error(isVi
-          ? "Không thể chốt ngày: UNC đã khai báo nhưng tổng tiền quét từ Drive vẫn bằng 0. Vui lòng kiểm tra lại thư mục đang lưu hoặc kết quả OCR."
-          : "Cannot close day: UNC was declared but Drive scanned total is still 0. Please verify the saved folder or OCR results.");
+        throw new FinanceUiError(financeMessage((isVi) => financeControl[isVi ? "vi" : "en"].cannotCloseDayUNCWasDeclaredBut), isVi);
       }
 
       // Step 3: Run reconciliation
-      setReconcileProgress({ done: 0, total: 0, currentFile: isVi ? "Bước 3/4: Đối soát UNC & QTM..." : "Step 3/4: Reconciling UNC & QTM..." });
+      setReconcileProgress({ done: 0, total: 0, currentFile: financeMessage((isVi) => financeControl[isVi ? "vi" : "en"].step34ReconcilingUNCQTM) });
       await refetchUncDetail();
       // Pass fresh totals directly to avoid stale React state (folderScanResult state updates are async)
       const result = await runReconcile({
@@ -2211,7 +2210,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
         qtmDeclared: Number(cashFundTopupAmount || 0),
       });
       if (!result) {
-        throw new Error(isVi ? "Không thể hoàn tất đối soát UNC/QTM" : "Failed to complete reconciliation");
+        throw new FinanceUiError(financeMessage((isVi) => financeControl[isVi ? "vi" : "en"].failedToCompleteReconciliation), isVi);
       }
       if (result.status !== "match" || Number(result.uncVariance || 0) !== 0) {
         // Show mismatch warning — let CEO decide whether to override
@@ -2228,7 +2227,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       }
 
       // Step 4: Lock & close
-      setReconcileProgress({ done: 0, total: 0, currentFile: isVi ? "Bước 4/4: Khoá & chốt ngày..." : "Step 4/4: Locking & closing..." });
+      setReconcileProgress({ done: 0, total: 0, currentFile: financeMessage((isVi) => financeControl[isVi ? "vi" : "en"].step44LockingClosing) });
       setCloseDecision("approve");
       await saveReconciliationWorkflowMeta("approve", true, undefined, {
         uncDrive: Number(folderScanResult.uncFolderTotal || 0),
@@ -2252,15 +2251,15 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       });
       setCloseDialogStep("done");
       toast({
-        title: isVi ? "Đã duyệt & chốt ngày thành công" : "Day approved & closed successfully",
+        title: financeControl[isVi ? "vi" : "en"].dayApprovedClosedSuccessfully,
         description: result?.status === "match"
-          ? (isVi ? "UNC và QTM đều khớp" : "UNC and QTM both match")
-          : (isVi ? "Có chênh lệch — vui lòng kiểm tra" : "Variance detected — please review"),
+          ? (financeControl[isVi ? "vi" : "en"].uncAndQTMBothMatch)
+          : (financeControl[isVi ? "vi" : "en"].varianceDetectedPleaseReview),
         variant: result?.status === "match" ? "default" : "destructive",
       });
       await refetchDeclaration();
     } catch (e: unknown) {
-      setReconcileError(e?.message || (isVi ? "Lỗi khi chốt ngày" : "Failed closing day"));
+      setReconcileError(financeErrorMessage(e, financeMessage((isVi) => financeControl[isVi ? "vi" : "en"].failedClosingDay)));
       setCloseDialogStep("preview"); // Go back to preview so user can retry or change settings
     } finally {
       setCloseActing(false);
@@ -2271,7 +2270,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
     setCloseActing(true);
     setCloseDialogStep("running");
     try {
-      setReconcileProgress({ done: 0, total: 0, currentFile: isVi ? "Bước 4/4: Khoá & chốt ngày..." : "Step 4/4: Locking & closing..." });
+      setReconcileProgress({ done: 0, total: 0, currentFile: financeMessage((isVi) => financeControl[isVi ? "vi" : "en"].step44LockingClosing) });
       setCloseDecision("approve");
       await saveReconciliationWorkflowMeta("approve", true, undefined, {
         uncDrive: Number((closeResultSnapshot?.uncDrive ?? resolvedUncDetail) || 0),
@@ -2294,13 +2293,13 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       });
       setCloseDialogStep("done");
       toast({
-        title: isVi ? "Đã chốt ngày (có chênh lệch)" : "Day closed (with variance)",
-        description: isVi ? "CEO đã xác nhận chốt dù có chênh lệch UNC/QTM. Vui lòng kiểm tra lại sau." : "CEO confirmed close despite UNC/QTM variance. Please review later.",
+        title: financeControl[isVi ? "vi" : "en"].dayClosedWithVariance,
+        description: financeControl[isVi ? "vi" : "en"].ceoConfirmedCloseDespiteUNCQTMVariance,
         variant: "destructive",
       });
       await refetchDeclaration();
     } catch (e: unknown) {
-      setReconcileError(e?.message || (isVi ? "Lỗi khi chốt ngày" : "Failed closing day"));
+      setReconcileError(financeErrorMessage(e, financeMessage((isVi) => financeControl[isVi ? "vi" : "en"].failedClosingDay)));
       setCloseDialogStep("mismatch");
     } finally {
       setCloseActing(false);
@@ -2311,27 +2310,27 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
     setCloseActing(true);
     try {
       const declarationSaved = await saveDeclaration(true);
-      if (!declarationSaved) throw new Error(isVi ? "Không thể lưu dữ liệu trước khi mở khoá" : "Failed to save before unlock");
+      if (!declarationSaved) throw new FinanceUiError(financeMessage((isVi) => financeControl[isVi ? "vi" : "en"].failedToSaveBeforeUnlock), isVi);
       await saveReconciliationWorkflowMeta("approve", false, "unlock_approval");
       toast({
-        title: isVi ? "Đã mở khoá phê duyệt" : "Approval unlocked",
-        description: isVi ? "Anh có thể chỉnh và phê duyệt lại." : "You can edit and approve again.",
+        title: financeControl[isVi ? "vi" : "en"].approvalUnlocked,
+        description: financeControl[isVi ? "vi" : "en"].youCanEditAndApproveAgain,
       });
       await refetchDeclaration();
     } catch (e: unknown) {
-      toast({ title: isVi ? "Lỗi" : "Error", description: e?.message || (isVi ? "Không thể mở khoá" : "Failed to unlock"), variant: "destructive" });
+      toast({ title: financeControl[isVi ? "vi" : "en"].error, description: e?.message || (financeControl[isVi ? "vi" : "en"].failedToUnlock), variant: "destructive" });
     } finally {
       setCloseActing(false);
     }
   };
 
   return (
-    <div className="space-y-6">
+    <div data-staff-i18n="finance-control-v1" className="space-y-6">
       {/* Header + Date picker */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-display font-bold">{mode === "classification" ? (isVi ? "Phân loại chi phí" : "Cost Classification") : (isVi ? "CEO khai báo" : "CEO Declaration")}</h1>
-          <p className="text-muted-foreground text-sm">{mode === "classification" ? (isVi ? "Rà soát và chỉnh nhóm chi phí nội bộ" : "Review and adjust internal cost categories") : (isVi ? "Khai báo, đối soát, chốt ngày và chốt tháng" : "Declare, reconcile, close daily and monthly")}</p>
+          <h1 className="text-3xl font-display font-bold">{mode === "classification" ? (financeControl[isVi ? "vi" : "en"].costClassification) : (financeControl[isVi ? "vi" : "en"].ceoDeclaration)}</h1>
+          <p className="text-muted-foreground text-sm">{mode === "classification" ? (financeControl[isVi ? "vi" : "en"].reviewAndAdjustInternalCostCategories) : (financeControl[isVi ? "vi" : "en"].declareReconcileCloseDailyAndMonthly)}</p>
         </div>
         {mode === "ceo" && (
           <div className="flex items-center gap-2">
@@ -2346,25 +2345,25 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       {mode === "ceo" && (
         <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
           <Card><CardContent className="p-4">
-            <div className="text-xs text-muted-foreground">{isVi ? "UNC khai báo" : "UNC declared"}</div>
+            <div className="text-xs text-muted-foreground">{financeControl[isVi ? "vi" : "en"].uncDeclared}</div>
             <div className="text-xl font-semibold">{vnd(Number(uncTotalDeclared || 0))}</div>
           </CardContent></Card>
           <Card><CardContent className="p-4">
-            <div className="text-xs text-muted-foreground">{isVi ? "QTM khai báo" : "QTM declared"}</div>
+            <div className="text-xs text-muted-foreground">{financeControl[isVi ? "vi" : "en"].qtmDeclared}</div>
             <div className="text-xl font-semibold">{vnd(Number(resolvedQtmDeclared || 0))}</div>
           </CardContent></Card>
           <Card><CardContent className="p-4">
-            <div className="text-xs text-muted-foreground">{isVi ? "Tồn quỹ đầu ngày" : "Opening cash balance"}</div>
+            <div className="text-xs text-muted-foreground">{financeControl[isVi ? "vi" : "en"].openingCashBalance}</div>
             <div className="text-xl font-semibold">{vnd(Number(resolvedQtmOpening || 0))}</div>
           </CardContent></Card>
           <Card><CardContent className="p-4">
-            <div className="text-xs text-muted-foreground">{isVi ? "Trạng thái" : "Status"}</div>
+            <div className="text-xs text-muted-foreground">{financeControl[isVi ? "vi" : "en"].status}</div>
             <div className="text-xl font-semibold">
               {closeApprovalLocked
-                ? <Badge className="bg-green-600">{isVi ? "Đã chốt" : "Closed"}</Badge>
-                : resolvedStatus === "match" ? <Badge className="bg-green-600">{isVi ? "Khớp" : "Match"}</Badge>
-                : resolvedStatus === "mismatch" ? <Badge variant="destructive">{isVi ? "Lệch" : "Mismatch"}</Badge>
-                : <Badge variant="secondary">{isVi ? "Chờ" : "Pending"}</Badge>}
+                ? <Badge className="bg-green-600">{financeControl[isVi ? "vi" : "en"].closed}</Badge>
+                : resolvedStatus === "match" ? <Badge className="bg-green-600">{financeControl[isVi ? "vi" : "en"].match}</Badge>
+                : resolvedStatus === "mismatch" ? <Badge variant="destructive">{financeControl[isVi ? "vi" : "en"].mismatch}</Badge>
+                : <Badge variant="secondary">{financeControl[isVi ? "vi" : "en"].pending}</Badge>}
             </div>
           </CardContent></Card>
         </div>
@@ -2379,8 +2378,8 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       }} className="space-y-4">
         {mode === "ceo" && (
           <TabsList>
-            <TabsTrigger value="daily">{isVi ? "Chốt ngày" : "Daily Close"}</TabsTrigger>
-            <TabsTrigger value="monthly">{isVi ? "Chốt tháng" : "Monthly Close"}</TabsTrigger>
+            <TabsTrigger value="daily">{financeControl[isVi ? "vi" : "en"].dailyClose}</TabsTrigger>
+            <TabsTrigger value="monthly">{financeControl[isVi ? "vi" : "en"].monthlyClose}</TabsTrigger>
           </TabsList>
         )}
 
@@ -2388,7 +2387,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
           {/* CEO Declaration */}
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-lg">{isVi ? "CEO Khai báo" : "CEO Declaration"}</CardTitle>
+              <CardTitle className="text-lg">{financeControl[isVi ? "vi" : "en"].ceoDeclaration2}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4" onMouseEnter={() => { if (!imagesRequested) setImagesRequested(true); }}>
               {activeSlipScanLabel && (
@@ -2402,7 +2401,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
               )}
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label className="text-sm font-medium">{isVi ? "Slip ngân hàng (UNC)" : "Bank slips (UNC)"}</Label>
+                  <Label className="text-sm font-medium">{financeControl[isVi ? "vi" : "en"].bankSlipsUNC}</Label>
                   <Input type="file" accept="image/*" multiple disabled={extracting || ceoDeclarationLocked || closeApprovalLocked} onChange={async (e) => {
                     const files = Array.from(e.target.files || []);
                     if (files.length) await processSlipUpload("unc", files);
@@ -2418,7 +2417,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                       void refetchDeclarationImages();
                     }}
                   >
-                    {isVi ? "Hiện / tải lại slip đã lưu" : "Show / reload saved slips"}
+                    {financeControl[isVi ? "vi" : "en"].showReloadSavedSlips}
                   </Button>
                   {slipUploadStatus.unc && (
                     <div className={`text-xs rounded border px-2 py-1 ${slipStatusClass(slipUploadStatus.unc)}`}>
@@ -2432,9 +2431,9 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                           <button
                             type="button"
                             className="overflow-hidden rounded border bg-background"
-                            onClick={() => openSlipPreview(src, `UNC slip ${idx + 1}`)}
+                            onClick={() => openSlipPreview(src, financeMessage((isVi) => formatText(financeControl[isVi ? "vi" : "en"].slipImage, { type: "UNC", index: idx + 1 })))}
                           >
-                            <img src={src} alt={`UNC slip ${idx + 1}`} className="h-20 rounded object-contain transition-transform group-hover:scale-[1.02]" />
+                            <img src={src} alt={formatText(financeControl[isVi ? "vi" : "en"].slipImage, { type: "UNC", index: idx + 1 })} className="h-20 rounded object-contain transition-transform group-hover:scale-[1.02]" />
                           </button>
                           {isOwner && (
                             <button
@@ -2458,7 +2457,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                   <div className="text-lg font-semibold">{vnd(Number(uncTotalDeclared || 0))}</div>
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-sm font-medium">{isVi ? "Slip tiền mặt (QTM)" : "Cash slips (QTM)"}</Label>
+                  <Label className="text-sm font-medium">{financeControl[isVi ? "vi" : "en"].cashSlipsQTM}</Label>
                   <Input type="file" accept="image/*" multiple disabled={extracting || ceoDeclarationLocked || closeApprovalLocked} onChange={async (e) => {
                     const files = Array.from(e.target.files || []);
                     if (files.length) await processSlipUpload("qtm", files);
@@ -2474,7 +2473,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                       void refetchDeclarationImages();
                     }}
                   >
-                    {isVi ? "Hiện / tải lại slip đã lưu" : "Show / reload saved slips"}
+                    {financeControl[isVi ? "vi" : "en"].showReloadSavedSlips}
                   </Button>
                   {slipUploadStatus.qtm && (
                     <div className={`text-xs rounded border px-2 py-1 ${slipStatusClass(slipUploadStatus.qtm)}`}>
@@ -2493,9 +2492,9 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                           <button
                             type="button"
                             className="overflow-hidden rounded border bg-background"
-                            onClick={() => openSlipPreview(src, `QTM slip ${idx + 1}`)}
+                            onClick={() => openSlipPreview(src, financeMessage((isVi) => formatText(financeControl[isVi ? "vi" : "en"].slipImage, { type: "QTM", index: idx + 1 })))}
                           >
-                            <img src={src} alt={`QTM slip ${idx + 1}`} className="h-20 rounded object-contain transition-transform group-hover:scale-[1.02]" />
+                            <img src={src} alt={formatText(financeControl[isVi ? "vi" : "en"].slipImage, { type: "QTM", index: idx + 1 })} className="h-20 rounded object-contain transition-transform group-hover:scale-[1.02]" />
                           </button>
                           {isOwner && (
                             <button
@@ -2520,7 +2519,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                 </div>
               </div>
 
-              {extracting && <div className="text-sm text-muted-foreground animate-pulse">{isVi ? "Đang scan slip..." : "Scanning slips..."}</div>}
+              {extracting && <div className="text-sm text-muted-foreground animate-pulse">{financeControl[isVi ? "vi" : "en"].scanningSlips}</div>}
               {declarationSaveMessage && (
                 <div className={`rounded-lg border px-3 py-2 text-sm font-medium ${isSuccessMessage(declarationSaveMessage) ? "border-green-500/30 bg-green-500/5 text-green-700 dark:text-green-300" : "border-amber-500/30 bg-amber-500/5 text-amber-700 dark:text-amber-300"}`}>
                   {declarationSaveMessage}
@@ -2528,7 +2527,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
               )}
               <div className="flex justify-end">
                 <Button type="button" variant="outline" disabled={extracting || saving || ceoDeclarationLocked || closeApprovalLocked} onClick={() => saveDeclaration(false)}>
-                  {saving ? (isVi ? "Đang lưu..." : "Saving...") : (isVi ? "Lưu khai báo" : "Save declaration")}
+                  {saving ? (financeControl[isVi ? "vi" : "en"].saving) : (financeControl[isVi ? "vi" : "en"].saveDeclaration)}
                 </Button>
               </div>
             </CardContent>
@@ -2543,11 +2542,11 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                   <>
                     <div className="flex items-center gap-2 text-green-700 dark:text-green-400">
                       <Lock className="h-5 w-5" />
-                      <span className="text-lg font-semibold">{isVi ? "Đã duyệt & chốt ngày" : "Approved & closed"}</span>
+                      <span className="text-lg font-semibold">{financeControl[isVi ? "vi" : "en"].approvedClosed}</span>
                     </div>
                     <Button type="button" variant="outline" size="sm" onClick={handleUnlockApproval} disabled={closeActing}>
                       <Unlock className="h-4 w-4 mr-2" />
-                      {isVi ? "Mở khoá" : "Unlock"}
+                      {financeControl[isVi ? "vi" : "en"].unlock}
                     </Button>
                   </>
                 ) : (
@@ -2559,7 +2558,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                     onClick={openCloseDialog}
                   >
                     <Lock className="h-5 w-5 mr-2" />
-                    {isVi ? "Duyệt & Chốt ngày" : "Approve & Close Day"}
+                    {financeControl[isVi ? "vi" : "en"].approveCloseDay}
                   </Button>
                 )}
               </div>
@@ -2577,8 +2576,8 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
               {/* Ghi chú + Audit log */}
               <div className="flex gap-3 items-end">
                 <div className="flex-1 space-y-1">
-                  <Label className="text-xs">{isVi ? "Ghi chú" : "Notes"}</Label>
-                  <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder={isVi ? "Tuỳ chọn" : "Optional"} disabled={closeApprovalLocked} className="text-sm" />
+                  <Label className="text-xs">{financeControl[isVi ? "vi" : "en"].notes}</Label>
+                  <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder={financeControl[isVi ? "vi" : "en"].optional} disabled={closeApprovalLocked} className="text-sm" />
                 </div>
                 {reconciliationAuditLogs.length > 0 && (
                   <details className="text-xs shrink-0">
@@ -2601,7 +2600,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
           <Card>
             <CardHeader>
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <CardTitle className="text-xl sm:text-2xl">{isVi ? "Chốt tháng" : "Monthly Closing"}</CardTitle>
+                <CardTitle className="text-xl sm:text-2xl">{financeControl[isVi ? "vi" : "en"].monthlyClosing}</CardTitle>
                 <Input
                   type="month"
                   className="w-full sm:w-40"
@@ -2612,34 +2611,34 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
             </CardHeader>
             <CardContent className="space-y-4 overflow-hidden">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Tổng UNC thực" : "Total UNC actual"}</div><div className="break-words text-lg font-semibold sm:text-xl">{vnd(Number(monthlySummary?.totalUncDetail || 0))}</div></CardContent></Card>
-                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Tổng UNC khai báo" : "Total UNC declared"}</div><div className="break-words text-lg font-semibold sm:text-xl">{vnd(Number(monthlySummary?.totalUncDeclared || 0))}</div></CardContent></Card>
-                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Chênh lệch UNC" : "UNC variance"}</div><div className="break-words text-lg font-semibold sm:text-xl">{vnd(Number(monthlySummary?.netVariance || 0))}</div></CardContent></Card>
-                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Tỷ lệ khớp" : "Match rate"}</div><div className="break-words text-lg font-semibold sm:text-xl">{monthlySummary?.totalDays ? `${monthlySummary.matchDays}/${monthlySummary.totalDays}` : "—"}</div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{financeControl[isVi ? "vi" : "en"].totalUNCActual}</div><div className="break-words text-lg font-semibold sm:text-xl">{vnd(Number(monthlySummary?.totalUncDetail || 0))}</div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{financeControl[isVi ? "vi" : "en"].totalUNCDeclared}</div><div className="break-words text-lg font-semibold sm:text-xl">{vnd(Number(monthlySummary?.totalUncDeclared || 0))}</div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{financeControl[isVi ? "vi" : "en"].uncVariance2}</div><div className="break-words text-lg font-semibold sm:text-xl">{vnd(Number(monthlySummary?.netVariance || 0))}</div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{financeControl[isVi ? "vi" : "en"].matchRate}</div><div className="break-words text-lg font-semibold sm:text-xl">{monthlySummary?.totalDays ? `${monthlySummary.matchDays}/${monthlySummary.totalDays}` : "—"}</div></CardContent></Card>
               </div>
 
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Số dư đầu tháng" : "Opening QTM balance"}</div><div className="break-words text-lg font-semibold sm:text-xl">{vnd(Number(monthlySummary?.monthOpeningQtm || 0))}</div></CardContent></Card>
-                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Tổng nộp QTM" : "Total QTM declared"}</div><div className="break-words text-lg font-semibold sm:text-xl">{vnd(Number(monthlySummary?.totalQtmDeclared || 0))}</div></CardContent></Card>
-                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Tổng chi QTM" : "Total QTM spent"}</div><div className="break-words text-lg font-semibold sm:text-xl">{vnd(Number(monthlySummary?.totalQtmSpent || 0))}</div></CardContent></Card>
-                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{isVi ? "Số dư cuối tháng" : "Closing QTM balance"}</div><div className="break-words text-lg font-semibold sm:text-xl">{vnd(Number(monthlySummary?.monthClosingQtm || 0))}</div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{financeControl[isVi ? "vi" : "en"].openingQTMBalance}</div><div className="break-words text-lg font-semibold sm:text-xl">{vnd(Number(monthlySummary?.monthOpeningQtm || 0))}</div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{financeControl[isVi ? "vi" : "en"].totalQTMDeclared}</div><div className="break-words text-lg font-semibold sm:text-xl">{vnd(Number(monthlySummary?.totalQtmDeclared || 0))}</div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{financeControl[isVi ? "vi" : "en"].totalQTMSpent}</div><div className="break-words text-lg font-semibold sm:text-xl">{vnd(Number(monthlySummary?.totalQtmSpent || 0))}</div></CardContent></Card>
+                <Card><CardContent className="p-4"><div className="text-xs text-muted-foreground">{financeControl[isVi ? "vi" : "en"].closingQTMBalance}</div><div className="break-words text-lg font-semibold sm:text-xl">{vnd(Number(monthlySummary?.monthClosingQtm || 0))}</div></CardContent></Card>
               </div>
 
               <div className="overflow-x-auto rounded-md border">
                 <Table className="min-w-[1180px]">
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="whitespace-nowrap">{isVi ? "Ngày" : "Date"}</TableHead>
-                      <TableHead className="whitespace-nowrap text-right">{isVi ? "UNC thực" : "UNC actual"}</TableHead>
-                      <TableHead className="whitespace-nowrap text-right">{isVi ? "UNC khai báo" : "UNC declared"}</TableHead>
-                      <TableHead className="whitespace-nowrap text-right">{isVi ? "Chênh lệch" : "Variance"}</TableHead>
-                      <TableHead className="whitespace-nowrap text-right">{isVi ? "QTM đầu ngày" : "QTM opening"}</TableHead>
-                      <TableHead className="whitespace-nowrap text-right">{isVi ? "QTM nộp" : "QTM declared"}</TableHead>
-                      <TableHead className="whitespace-nowrap text-right">{isVi ? "QTM chi" : "QTM spent"}</TableHead>
-                      <TableHead className="whitespace-nowrap text-right">{isVi ? "QTM cuối ngày" : "QTM closing"}</TableHead>
-                      <TableHead className="whitespace-nowrap">{isVi ? "UNC" : "UNC"}</TableHead>
-                      <TableHead className="whitespace-nowrap">{isVi ? "QTM" : "QTM"}</TableHead>
-                      <TableHead className="whitespace-nowrap">{isVi ? "Tổng" : "Overall"}</TableHead>
+                      <TableHead className="whitespace-nowrap">{financeControl[isVi ? "vi" : "en"].date}</TableHead>
+                      <TableHead className="whitespace-nowrap text-right">{financeControl[isVi ? "vi" : "en"].uncActual}</TableHead>
+                      <TableHead className="whitespace-nowrap text-right">{financeControl[isVi ? "vi" : "en"].uncDeclared}</TableHead>
+                      <TableHead className="whitespace-nowrap text-right">{financeControl[isVi ? "vi" : "en"].variance2}</TableHead>
+                      <TableHead className="whitespace-nowrap text-right">{financeControl[isVi ? "vi" : "en"].qtmOpening}</TableHead>
+                      <TableHead className="whitespace-nowrap text-right">{financeControl[isVi ? "vi" : "en"].qtmDeclared2}</TableHead>
+                      <TableHead className="whitespace-nowrap text-right">{financeControl[isVi ? "vi" : "en"].qtmSpent}</TableHead>
+                      <TableHead className="whitespace-nowrap text-right">{financeControl[isVi ? "vi" : "en"].qtmClosing}</TableHead>
+                      <TableHead className="whitespace-nowrap">{financeControl[isVi ? "vi" : "en"].unc}</TableHead>
+                      <TableHead className="whitespace-nowrap">{financeControl[isVi ? "vi" : "en"].qtm}</TableHead>
+                      <TableHead className="whitespace-nowrap">{financeControl[isVi ? "vi" : "en"].overall}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -2653,9 +2652,9 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                         <TableCell className="whitespace-nowrap text-right">{vnd(Number(r.qtm_declared_amount || 0))}</TableCell>
                         <TableCell className="whitespace-nowrap text-right">{vnd(Number(r.qtm_spent_from_folder || 0))}</TableCell>
                         <TableCell className="whitespace-nowrap text-right">{vnd(Number(r.qtm_closing_balance || 0))}</TableCell>
-                        <TableCell className="whitespace-nowrap">{r.unc_status === "match" ? <Badge className="bg-green-600">MATCH</Badge> : r.unc_status === "mismatch" ? <Badge variant="destructive">MISMATCH</Badge> : <Badge variant="secondary">—</Badge>}</TableCell>
-                        <TableCell className="whitespace-nowrap">{r.qtm_status === "match" ? <Badge className="bg-green-600">MATCH</Badge> : r.qtm_status === "mismatch" ? <Badge variant="destructive">MISMATCH</Badge> : <Badge variant="secondary">—</Badge>}</TableCell>
-                        <TableCell className="whitespace-nowrap">{r.status === "match" ? <Badge className="bg-green-600">MATCH</Badge> : r.status === "mismatch" ? <Badge variant="destructive">MISMATCH</Badge> : <Badge variant="secondary">—</Badge>}</TableCell>
+                        <TableCell className="whitespace-nowrap">{r.unc_status === "match" ? <Badge className="bg-green-600">{financeControl[isVi ? "vi" : "en"].matchBadge}</Badge> : r.unc_status === "mismatch" ? <Badge variant="destructive">{financeControl[isVi ? "vi" : "en"].mismatchBadge}</Badge> : <Badge variant="secondary">—</Badge>}</TableCell>
+                        <TableCell className="whitespace-nowrap">{r.qtm_status === "match" ? <Badge className="bg-green-600">{financeControl[isVi ? "vi" : "en"].matchBadge}</Badge> : r.qtm_status === "mismatch" ? <Badge variant="destructive">{financeControl[isVi ? "vi" : "en"].mismatchBadge}</Badge> : <Badge variant="secondary">—</Badge>}</TableCell>
+                        <TableCell className="whitespace-nowrap">{r.status === "match" ? <Badge className="bg-green-600">{financeControl[isVi ? "vi" : "en"].matchBadge}</Badge> : r.status === "mismatch" ? <Badge variant="destructive">{financeControl[isVi ? "vi" : "en"].mismatchBadge}</Badge> : <Badge variant="secondary">—</Badge>}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -2663,7 +2662,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
               </div>
 
               {!monthlySummary?.rows?.length && (
-                <div className="text-sm text-muted-foreground text-center py-4">{isVi ? "Chưa có dữ liệu" : "No data yet"}</div>
+                <div className="text-sm text-muted-foreground text-center py-4">{financeControl[isVi ? "vi" : "en"].noDataYet}</div>
               )}
             </CardContent>
           </Card>
@@ -2674,11 +2673,9 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
             <CardHeader>
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <CardTitle className="text-xl sm:text-2xl">{isVi ? "Phân loại chi phí nội bộ" : "Internal Cost Classification"}</CardTitle>
+                  <CardTitle className="text-xl sm:text-2xl">{financeControl[isVi ? "vi" : "en"].internalCostClassification}</CardTitle>
                   <CardDescription>
-                    {isVi
-                      ? "Phân loại theo line-item, bấm từng nhóm để xem chi tiết và chỉnh nhóm khi cần."
-                      : "Line-item classification. Tap a category to review details and adjust when needed."}
+                    {financeControl[isVi ? "vi" : "en"].lineItemClassificationTapACategoryTo}
                   </CardDescription>
                 </div>
                 <Input
@@ -2692,17 +2689,17 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
             <CardContent className="space-y-5 overflow-hidden">
               {costClassification.error && (
                 <div className="rounded border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">
-                  {isVi ? "Chưa đọc được dữ liệu phân loại. Hãy kiểm tra migration/backfill Phase 1." : "Classification data is not available yet. Check the Phase 1 migration/backfill."}
+                  {financeControl[isVi ? "vi" : "en"].classificationDataIsNotAvailableYetCheck}
                 </div>
               )}
 
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 <Card className={classificationPendingReviewStats.count > 0 ? "border-amber-300 bg-amber-500/5" : ""}>
                   <CardContent className="p-4">
-                    <div className="text-xs text-muted-foreground">{isVi ? "Đang chờ review" : "Pending review"}</div>
+                    <div className="text-xs text-muted-foreground">{financeControl[isVi ? "vi" : "en"].pendingReview}</div>
                     <div className="break-words text-lg font-semibold sm:text-xl">{vnd(Number(classificationPendingReviewStats.amount || 0))}</div>
                     <div className="text-xs text-muted-foreground">
-                      {classificationPendingReviewStats.count} {isVi ? "dòng cần kiểm tra, vẫn tách riêng khỏi phần đã duyệt" : "lines kept separate from approved cost"}
+                      {classificationPendingReviewStats.count} {financeControl[isVi ? "vi" : "en"].linesKeptSeparateFromApprovedCost}
                     </div>
                   </CardContent>
                 </Card>
@@ -2711,9 +2708,9 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                   return (
                     <Card key={code}>
                       <CardContent className="p-4">
-                        <div className="text-xs text-muted-foreground">{row?.label || code}</div>
+                        <div className="text-xs text-muted-foreground">{getCostCategoryDisplayLabel(row?.label || code, isVi)}</div>
                         <div className="break-words text-lg font-semibold sm:text-xl">{vnd(Number(row?.amount || 0))}</div>
-                        <div className="text-xs text-muted-foreground">{Number(row?.count || 0)} {isVi ? "dòng" : "lines"}</div>
+                        <div className="text-xs text-muted-foreground">{Number(row?.count || 0)} {financeControl[isVi ? "vi" : "en"].lines}</div>
                       </CardContent>
                     </Card>
                   );
@@ -2724,16 +2721,16 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                 <CardHeader className="pb-3">
                   <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
                     <div>
-                      <CardTitle className="text-lg">{isVi ? "Tổng theo nhóm" : "Totals by Category"}</CardTitle>
+                      <CardTitle className="text-lg">{financeControl[isVi ? "vi" : "en"].totalsByCategory}</CardTitle>
                       <CardDescription>
-                        {format(selectedMonth, "MM/yyyy")} · {classificationMonthlyDisplayRows.length} {isVi ? "nhóm" : "categories"} · {vnd(classificationTotalAmount)}
+                        {format(selectedMonth, "MM/yyyy")} · {classificationMonthlyDisplayRows.length} {financeControl[isVi ? "vi" : "en"].categories} · {vnd(classificationTotalAmount)}
                         {classificationPendingReviewStats.count > 0
-                          ? ` · ${isVi ? "Cần review" : "Pending review"} ${vnd(classificationPendingReviewStats.amount)}`
+                          ? ` · ${financeControl[isVi ? "vi" : "en"].pendingReview2} ${vnd(classificationPendingReviewStats.amount)}`
                           : ""}
                       </CardDescription>
                     </div>
                     <div className="text-xs text-muted-foreground">
-                      {isVi ? "Bấm vào từng nhóm để xem chi tiết" : "Tap a category to view details"}
+                      {financeControl[isVi ? "vi" : "en"].tapACategoryToViewDetails}
                     </div>
                   </div>
                 </CardHeader>
@@ -2743,7 +2740,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                       <div className="rounded-2xl border bg-muted/20 p-3 sm:p-4">
                         <div className="mb-2 flex items-center justify-between gap-2">
                           <div>
-                            <div className="text-sm font-medium">{isVi ? "Tỷ trọng chi phí" : "Cost share"}</div>
+                            <div className="text-sm font-medium">{financeControl[isVi ? "vi" : "en"].costShare}</div>
                             <div className="text-xs text-muted-foreground">{format(selectedMonth, "MM/yyyy")}</div>
                           </div>
                           <Badge variant="secondary">{vnd(classificationTotalAmount)}</Badge>
@@ -2768,7 +2765,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                               <Tooltip
                                 formatter={(value: number, _name, item: { payload?: ClassificationChartRow }) => [
                                   `${vnd(Number(value || 0))} · ${Number(item?.payload?.percentage || 0).toFixed(1)}%`,
-                                  item?.payload?.category_label || item?.payload?.category_code,
+                                  getCostCategoryDisplayLabel(item?.payload?.category_label || item?.payload?.category_code, isVi),
                                 ]}
                               />
                             </PieChart>
@@ -2784,7 +2781,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                             >
                               <span className="flex min-w-0 items-center gap-2">
                                 <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: row.fill }} />
-                                <span className="truncate">{row.category_label || row.category_code}</span>
+                                <span className="truncate">{getCostCategoryDisplayLabel(row.category_label || row.category_code, isVi)}</span>
                               </span>
                               <span className="shrink-0 text-muted-foreground">{row.percentage.toFixed(1)}%</span>
                             </button>
@@ -2808,7 +2805,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                                   <div className="min-w-0">
                                     <div className="flex items-center gap-2">
                                       <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: row.fill }} />
-                                      <div className="line-clamp-2 text-sm font-semibold leading-snug">{row.category_label || row.category_code}</div>
+                                      <div className="line-clamp-2 text-sm font-semibold leading-snug">{getCostCategoryDisplayLabel(row.category_label || row.category_code, isVi)}</div>
                                     </div>
                                     <div className="mt-1 truncate text-[11px] text-muted-foreground">{row.category_code}</div>
                                   </div>
@@ -2819,9 +2816,9 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                                 <div className="mt-3 flex items-end justify-between gap-3">
                                   <div>
                                     <div className="text-base font-bold leading-tight">{vnd(row.amount)}</div>
-                                    <div className="text-xs text-muted-foreground">{Number(row.line_count || 0)} {isVi ? "dòng" : "lines"}</div>
+                                    <div className="text-xs text-muted-foreground">{Number(row.line_count || 0)} {financeControl[isVi ? "vi" : "en"].lines}</div>
                                   </div>
-                                  <div className="text-xs font-medium text-primary">{isVi ? "Xem" : "View"}</div>
+                                  <div className="text-xs font-medium text-primary">{financeControl[isVi ? "vi" : "en"].view}</div>
                                 </div>
                                 <div className="mt-2 rounded-lg bg-muted/50 px-2 py-1.5 text-xs text-muted-foreground">
                                   {row.note}
@@ -2835,11 +2832,11 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                           <Table>
                             <TableHeader>
                               <TableRow>
-                                <TableHead>{isVi ? "Nhóm chính" : "Main Category"}</TableHead>
-                                <TableHead>{isVi ? "Note" : "Note"}</TableHead>
-                                <TableHead className="text-right">{isVi ? "Số dòng" : "Lines"}</TableHead>
-                                <TableHead className="text-right">{isVi ? "Tỷ trọng" : "Share"}</TableHead>
-                                <TableHead className="text-right">{isVi ? "Tổng tiền" : "Amount"}</TableHead>
+                                <TableHead>{financeControl[isVi ? "vi" : "en"].mainCategory}</TableHead>
+                                <TableHead>{financeControl[isVi ? "vi" : "en"].note}</TableHead>
+                                <TableHead className="text-right">{financeControl[isVi ? "vi" : "en"].lines2}</TableHead>
+                                <TableHead className="text-right">{financeControl[isVi ? "vi" : "en"].share}</TableHead>
+                                <TableHead className="text-right">{financeControl[isVi ? "vi" : "en"].amount}</TableHead>
                               </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -2856,7 +2853,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                                       <div className="flex items-center gap-2">
                                         <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: row.fill }} />
                                         <div className="min-w-0">
-                                          <div className="font-medium">{row.category_label || row.category_code}</div>
+                                          <div className="font-medium">{getCostCategoryDisplayLabel(row.category_label || row.category_code, isVi)}</div>
                                           <div className="text-xs text-muted-foreground">{row.category_code}</div>
                                         </div>
                                       </div>
@@ -2875,7 +2872,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                     </div>
                   ) : (
                     <div className="py-4 text-center text-sm text-muted-foreground">
-                      {costClassification.isLoading || costClassification.isFetching ? (isVi ? "Đang tải..." : "Loading...") : (isVi ? "Chưa có dữ liệu backfill cho tháng này" : "No backfilled data for this month yet")}
+                      {costClassification.isLoading || costClassification.isFetching ? (financeControl[isVi ? "vi" : "en"].loading) : (financeControl[isVi ? "vi" : "en"].noBackfilledDataForThisMonthYet)}
                     </div>
                   )}
                 </CardContent>
@@ -2887,15 +2884,15 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                       <div>
                         <CardTitle className="text-lg">
-                          {isVi ? "Chi tiết nhóm" : "Category Details"}: {selectedCostSummaryRow.category_label || selectedCostSummaryRow.category_code}
+                          {financeControl[isVi ? "vi" : "en"].categoryDetails}: {getCostCategoryDisplayLabel(selectedCostSummaryRow.category_label || selectedCostSummaryRow.category_code, isVi)}
                         </CardTitle>
                         <CardDescription>
-                          {formatMonthValue(selectedCostSummaryRow.month)} • {formatReviewStatusCounts((selectedCostSummaryRow as ClassificationMonthlyDisplayRow).review_status_counts || {}, isVi)} • {Number(selectedCostSummaryRow.line_count || 0)} {isVi ? "dòng" : "lines"}
+                          {formatMonthValue(selectedCostSummaryRow.month)} • {formatReviewStatusCounts((selectedCostSummaryRow as ClassificationMonthlyDisplayRow).review_status_counts || {}, isVi)} • {Number(selectedCostSummaryRow.line_count || 0)} {financeControl[isVi ? "vi" : "en"].lines}
                           {selectedCostChartRow ? ` • ${selectedCostChartRow.percentage.toFixed(1)}%` : ""}
                         </CardDescription>
                       </div>
                       <Button variant="outline" size="sm" onClick={() => setSelectedCostSummaryRow(null)}>
-                        {isVi ? "Đóng chi tiết" : "Close details"}
+                        {financeControl[isVi ? "vi" : "en"].closeDetails}
                       </Button>
                     </div>
                     {selectedCostChartRow?.note && (
@@ -2922,7 +2919,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                                 <div className="mt-1 truncate text-xs text-muted-foreground">{row.supplier_name || "-"}</div>
                                 {(row.confirmed_standard_cost_code || row.suggested_standard_cost_code || row.standard_cost_code_type) && (
                                   <div className="mt-1 text-xs text-emerald-700">
-                                    Mã chuẩn: {row.confirmed_standard_cost_code || row.suggested_standard_cost_code || "-"}{row.standard_cost_code_type ? ` · ${row.standard_cost_code_type}` : ""}
+                                    {financeControl[isVi ? "vi" : "en"].standardCodeLabel} {row.confirmed_standard_cost_code || row.suggested_standard_cost_code || "-"}{row.standard_cost_code_type ? ` · ${row.standard_cost_code_type}` : ""}
                                   </div>
                                 )}
                               </div>
@@ -2939,11 +2936,11 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                                   variant="ghost"
                                   size="sm"
                                   className="h-8 px-2"
-                                  aria-label={isVi ? "Sửa nhóm" : "Edit category"}
+                                  aria-label={financeControl[isVi ? "vi" : "en"].editCategory}
                                   onClick={() => setEditingClassificationLineId(isEditingClassificationLine ? null : row.classification_id)}
                                 >
                                   {isEditingClassificationLine ? <X className="mr-1 h-3.5 w-3.5" /> : <Pencil className="mr-1 h-3.5 w-3.5" />}
-                                  {isVi ? "Sửa" : "Edit"}
+                                  {financeControl[isVi ? "vi" : "en"].edit}
                                 </Button>
                               ) : (
                                 <Badge variant={row.category_code === "UNMAPPED_REVIEW" ? "destructive" : "secondary"}>{row.category_code}</Badge>
@@ -2952,19 +2949,19 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                             {isEditingClassificationLine && (
                               <div className="mt-3 space-y-2 rounded-xl bg-muted/40 p-2">
                                 <div className="text-xs font-medium text-muted-foreground">
-                                  {isVi ? "Chọn nhóm mới cho dòng này" : "Select a new category for this line"}
+                                  {financeControl[isVi ? "vi" : "en"].selectANewCategoryForThisLine}
                                 </div>
                                 <Select
                                   value={selectedCode}
                                   onValueChange={(value) => updateClassificationEdit(row.classification_id, row.category_code, value)}
                                 >
                                   <SelectTrigger className={`${isChanged ? "border-amber-500" : ""}`}>
-                                    <SelectValue placeholder={isVi ? "Chọn nhóm" : "Select category"} />
+                                    <SelectValue placeholder={financeControl[isVi ? "vi" : "en"].selectCategory} />
                                   </SelectTrigger>
                                   <SelectContent>
                                     {costCategoryOptions.map((category) => (
                                       <SelectItem key={category.code} value={category.code}>
-                                        {getCostCategorySelectLabel(category.code, category.label)}
+                                        {getCostCategorySelectLabel(category.code, getCostCategoryDisplayLabel(category.label, isVi))}
                                       </SelectItem>
                                     ))}
                                   </SelectContent>
@@ -2973,7 +2970,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                                   {selectedCategory?.cost_group || row.cost_group} • {selectedCategory?.product_line || row.product_line}
                                 </div>
                                 <div className="grid gap-2">
-                                  <Label className="text-xs">{isVi ? "Loại mã chuẩn" : "Standard code type"}</Label>
+                                  <Label className="text-xs">{financeControl[isVi ? "vi" : "en"].standardCodeType}</Label>
                                   <Select
                                     value={standardDraft.standard_cost_code_type || "NVL"}
                                     onValueChange={(value) => updateStandardCostEdit(row, "standard_cost_code_type", value)}
@@ -2984,20 +2981,20 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                                     <SelectContent>
                                       <SelectItem value="NVL">NVL</SelectItem>
                                       <SelectItem value="OPEX">OPEX</SelectItem>
-                                      <SelectItem value="OTHER">OTHER</SelectItem>
+                                      <SelectItem value="OTHER">{financeControl[isVi ? "vi" : "en"].otherCode}</SelectItem>
                                     </SelectContent>
                                   </Select>
                                 </div>
                                 <div className="grid gap-2">
-                                  <Label className="text-xs">{isVi ? "Mã chuẩn" : "Standard code"}</Label>
+                                  <Label className="text-xs">{financeControl[isVi ? "vi" : "en"].standardCode}</Label>
                                   <Input
                                     value={standardDraft.standard_cost_code}
                                     onChange={(event) => updateStandardCostEdit(row, "standard_cost_code", event.target.value)}
-                                    placeholder={isVi ? "VD: BOT_MI_13" : "Example: BOT_MI_13"}
+                                    placeholder={financeControl[isVi ? "vi" : "en"].exampleBOTMI13}
                                   />
                                 </div>
                                 <div className="grid gap-2">
-                                  <Label className="text-xs">{isVi ? "Tên chuẩn" : "Canonical name"}</Label>
+                                  <Label className="text-xs">{financeControl[isVi ? "vi" : "en"].canonicalName}</Label>
                                   <Input
                                     value={standardDraft.canonical_cost_item_name}
                                     onChange={(event) => updateStandardCostEdit(row, "canonical_cost_item_name", event.target.value)}
@@ -3005,11 +3002,11 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                                   />
                                 </div>
                                 <div className="grid gap-2">
-                                  <Label className="text-xs">{isVi ? "Ghi chú quy đổi" : "Conversion note"}</Label>
+                                  <Label className="text-xs">{financeControl[isVi ? "vi" : "en"].conversionNote}</Label>
                                   <Input
                                     value={standardDraft.unit_conversion_note}
                                     onChange={(event) => updateStandardCostEdit(row, "unit_conversion_note", event.target.value)}
-                                    placeholder={isVi ? "Tuỳ chọn" : "Optional"}
+                                    placeholder={financeControl[isVi ? "vi" : "en"].optional}
                                   />
                                 </div>
                               </div>
@@ -3023,13 +3020,13 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                       <Table className="min-w-[980px]">
                         <TableHeader>
                           <TableRow>
-                            <TableHead>{isVi ? "Ngày" : "Date"}</TableHead>
-                            <TableHead>{isVi ? "Nhà cung cấp" : "Supplier"}</TableHead>
-                            <TableHead>{isVi ? "Mặt hàng" : "Item"}</TableHead>
-                            <TableHead>{isVi ? "Nguồn" : "Source"}</TableHead>
-                            <TableHead>{isVi ? "Confidence" : "Confidence"}</TableHead>
-                            <TableHead className="text-right">{isVi ? "Số tiền" : "Amount"}</TableHead>
-                            <TableHead className="text-right">{isVi ? "Sửa" : "Edit"}</TableHead>
+                            <TableHead>{financeControl[isVi ? "vi" : "en"].date}</TableHead>
+                            <TableHead>{financeControl[isVi ? "vi" : "en"].supplier}</TableHead>
+                            <TableHead>{financeControl[isVi ? "vi" : "en"].item}</TableHead>
+                            <TableHead>{financeControl[isVi ? "vi" : "en"].source}</TableHead>
+                            <TableHead>{financeControl[isVi ? "vi" : "en"].confidence}</TableHead>
+                            <TableHead className="text-right">{financeControl[isVi ? "vi" : "en"].amount2}</TableHead>
+                            <TableHead className="text-right">{financeControl[isVi ? "vi" : "en"].edit}</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -3050,7 +3047,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                                     <div className="text-xs text-muted-foreground">{row.product_code || row.unit || ""}</div>
                                     {(row.confirmed_standard_cost_code || row.suggested_standard_cost_code || row.standard_cost_code_type) && (
                                       <div className="text-xs text-emerald-700">
-                                        Mã chuẩn: {row.confirmed_standard_cost_code || row.suggested_standard_cost_code || "-"}{row.standard_cost_code_type ? ` · ${row.standard_cost_code_type}` : ""}
+                                        {financeControl[isVi ? "vi" : "en"].standardCodeLabel} {row.confirmed_standard_cost_code || row.suggested_standard_cost_code || "-"}{row.standard_cost_code_type ? ` · ${row.standard_cost_code_type}` : ""}
                                       </div>
                                     )}
                                   </TableCell>
@@ -3066,7 +3063,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                                         type="button"
                                         variant="ghost"
                                         size="icon"
-                                        aria-label={isVi ? "Sửa nhóm" : "Edit category"}
+                                        aria-label={financeControl[isVi ? "vi" : "en"].editCategory}
                                         onClick={() => setEditingClassificationLineId(isEditingClassificationLine ? null : row.classification_id)}
                                       >
                                         {isEditingClassificationLine ? <X className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
@@ -3081,29 +3078,29 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                                     <TableCell colSpan={7}>
                                       <div className="space-y-2 py-2">
                                         <div className="text-xs font-medium text-muted-foreground">
-                                          {isVi ? "Chọn nhóm và mã chuẩn cho dòng này" : "Select a category and standard code for this line"}
+                                          {financeControl[isVi ? "vi" : "en"].selectACategoryAndStandardCodeFor}
                                         </div>
                                         <div className="grid gap-3 lg:grid-cols-[minmax(220px,1.2fr)_140px_minmax(160px,0.8fr)_minmax(200px,1fr)]">
                                           <div className="space-y-1">
-                                            <Label className="text-xs">{isVi ? "Nhóm chi phí" : "Cost category"}</Label>
+                                            <Label className="text-xs">{financeControl[isVi ? "vi" : "en"].costCategory}</Label>
                                             <Select
                                               value={selectedCode}
                                               onValueChange={(value) => updateClassificationEdit(row.classification_id, row.category_code, value)}
                                             >
                                               <SelectTrigger className={isChanged ? "border-amber-500" : ""}>
-                                                <SelectValue placeholder={isVi ? "Chọn nhóm" : "Select category"} />
+                                                <SelectValue placeholder={financeControl[isVi ? "vi" : "en"].selectCategory} />
                                               </SelectTrigger>
                                               <SelectContent>
                                                 {costCategoryOptions.map((category) => (
                                                   <SelectItem key={category.code} value={category.code}>
-                                                    {getCostCategorySelectLabel(category.code, category.label)}
+                                                    {getCostCategorySelectLabel(category.code, getCostCategoryDisplayLabel(category.label, isVi))}
                                                   </SelectItem>
                                                 ))}
                                               </SelectContent>
                                             </Select>
                                           </div>
                                           <div className="space-y-1">
-                                            <Label className="text-xs">{isVi ? "Loại mã" : "Code type"}</Label>
+                                            <Label className="text-xs">{financeControl[isVi ? "vi" : "en"].codeType}</Label>
                                             <Select
                                               value={standardDraft.standard_cost_code_type || "NVL"}
                                               onValueChange={(value) => updateStandardCostEdit(row, "standard_cost_code_type", value)}
@@ -3114,20 +3111,20 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                                               <SelectContent>
                                                 <SelectItem value="NVL">NVL</SelectItem>
                                                 <SelectItem value="OPEX">OPEX</SelectItem>
-                                                <SelectItem value="OTHER">OTHER</SelectItem>
+                                                <SelectItem value="OTHER">{financeControl[isVi ? "vi" : "en"].otherCode}</SelectItem>
                                               </SelectContent>
                                             </Select>
                                           </div>
                                           <div className="space-y-1">
-                                            <Label className="text-xs">{isVi ? "Mã chuẩn" : "Standard code"}</Label>
+                                            <Label className="text-xs">{financeControl[isVi ? "vi" : "en"].standardCode}</Label>
                                             <Input
                                               value={standardDraft.standard_cost_code}
                                               onChange={(event) => updateStandardCostEdit(row, "standard_cost_code", event.target.value)}
-                                              placeholder={isVi ? "VD: BOT_MI_13" : "Example: BOT_MI_13"}
+                                              placeholder={financeControl[isVi ? "vi" : "en"].exampleBOTMI13}
                                             />
                                           </div>
                                           <div className="space-y-1">
-                                            <Label className="text-xs">{isVi ? "Tên chuẩn" : "Canonical name"}</Label>
+                                            <Label className="text-xs">{financeControl[isVi ? "vi" : "en"].canonicalName}</Label>
                                             <Input
                                               value={standardDraft.canonical_cost_item_name}
                                               onChange={(event) => updateStandardCostEdit(row, "canonical_cost_item_name", event.target.value)}
@@ -3136,11 +3133,11 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                                           </div>
                                         </div>
                                         <div className="max-w-xl space-y-1">
-                                          <Label className="text-xs">{isVi ? "Ghi chú quy đổi" : "Conversion note"}</Label>
+                                          <Label className="text-xs">{financeControl[isVi ? "vi" : "en"].conversionNote}</Label>
                                           <Input
                                             value={standardDraft.unit_conversion_note}
                                             onChange={(event) => updateStandardCostEdit(row, "unit_conversion_note", event.target.value)}
-                                            placeholder={isVi ? "Tuỳ chọn" : "Optional"}
+                                            placeholder={financeControl[isVi ? "vi" : "en"].optional}
                                           />
                                         </div>
                                         <div className="text-xs text-muted-foreground">
@@ -3158,7 +3155,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                     </div>
                     {!selectedCostDetailRows.length && (
                       <div className="py-4 text-center text-sm text-muted-foreground">
-                        {selectedCostDetail.isLoading || selectedCostDetail.isFetching ? (isVi ? "Đang tải chi tiết..." : "Loading details...") : (isVi ? "Không có dòng chi tiết cho nhóm này" : "No detail lines for this group")}
+                        {selectedCostDetail.isLoading || selectedCostDetail.isFetching ? (financeControl[isVi ? "vi" : "en"].loadingDetails) : (financeControl[isVi ? "vi" : "en"].noDetailLinesForThisGroup)}
                       </div>
                     )}
                   </CardContent>
@@ -3177,15 +3174,15 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                 {isVi ? `Đã thay đổi ${changedClassificationRows.length} dòng phân loại` : `${changedClassificationRows.length} classification changes`}
               </div>
               <div className="text-xs text-muted-foreground">
-                {isVi ? "Save để lưu nhóm, mã chuẩn và alias tự áp dụng cho PR/invoice sau này." : "Save to persist the category, standard code, and alias for future PRs/invoices."}
+                {financeControl[isVi ? "vi" : "en"].saveToPersistTheCategoryStandardCode}
               </div>
             </div>
             <div className="flex gap-2 sm:justify-end">
               <Button variant="outline" onClick={cancelClassificationEdits} disabled={savingClassificationEdits}>
-                {isVi ? "Cancel" : "Cancel"}
+                {financeControl[isVi ? "vi" : "en"].cancel}
               </Button>
               <Button onClick={saveClassificationEdits} disabled={savingClassificationEdits || !canEditCostClassification}>
-                {savingClassificationEdits ? (isVi ? "Đang lưu..." : "Saving...") : (isVi ? "Save" : "Save")}
+                {savingClassificationEdits ? (financeControl[isVi ? "vi" : "en"].saving) : (financeControl[isVi ? "vi" : "en"].save)}
               </Button>
             </div>
           </div>
@@ -3195,14 +3192,14 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       <Dialog open={slipPreviewOpen} onOpenChange={setSlipPreviewOpen}>
         <DialogContent className="max-w-4xl">
           <DialogHeader>
-            <DialogTitle>{slipPreviewTitle || (isVi ? "Xem slip" : "Slip preview")}</DialogTitle>
+            <DialogTitle>{slipPreviewTitle || (financeControl[isVi ? "vi" : "en"].slipPreview)}</DialogTitle>
             <DialogDescription>
-              {isVi ? "Xem phóng to slip đã khai báo." : "Zoomed preview of the declared slip."}
+              {financeControl[isVi ? "vi" : "en"].zoomedPreviewOfTheDeclaredSlip}
             </DialogDescription>
           </DialogHeader>
           {slipPreviewSrc && (
             <div className="max-h-[75vh] overflow-auto rounded-lg border bg-muted/20 p-2">
-              <img src={slipPreviewSrc} alt={slipPreviewTitle || "Slip preview"} className="mx-auto h-auto max-w-full rounded" />
+              <img src={slipPreviewSrc} alt={slipPreviewTitle || financeControl[isVi ? "vi" : "en"].slipPreview} className="mx-auto h-auto max-w-full rounded" />
             </div>
           )}
         </DialogContent>
@@ -3212,9 +3209,9 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       <Dialog open={closeDialogOpen} onOpenChange={(open) => { if (!closeActing) setCloseDialogOpen(open); }}>
         <DialogContent className="max-w-xl">
           <DialogHeader>
-            <DialogTitle>{isVi ? "Duyệt & Chốt ngày" : "Approve & Close Day"}</DialogTitle>
+            <DialogTitle>{financeControl[isVi ? "vi" : "en"].approveCloseDay}</DialogTitle>
             <DialogDescription>
-              {format(selectedDate, "dd/MM/yyyy")} — {isVi ? "Kiểm tra thông tin trước khi thực hiện" : "Review before executing"}
+              {format(selectedDate, "dd/MM/yyyy")} — {financeControl[isVi ? "vi" : "en"].reviewBeforeExecuting}
             </DialogDescription>
           </DialogHeader>
 
@@ -3222,7 +3219,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
             <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
               {/* Planned scan paths */}
               <div className="rounded border p-3 space-y-2">
-                <div className="text-sm font-medium">{isVi ? "Đường dẫn sẽ quét" : "Planned scan paths"}</div>
+                <div className="text-sm font-medium">{financeControl[isVi ? "vi" : "en"].plannedScanPaths}</div>
                 <div className="grid gap-2 text-sm">
                   <div className="rounded bg-muted/50 p-2">
                     <div className="text-xs text-muted-foreground">UNC</div>
@@ -3242,18 +3239,18 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
 
               {/* Preview results */}
               <div className="rounded border p-3 space-y-2">
-                <div className="text-sm font-medium">{isVi ? "Kết quả quét nhanh" : "Quick scan result"}</div>
+                <div className="text-sm font-medium">{financeControl[isVi ? "vi" : "en"].quickScanResult}</div>
                 {previewLoading ? (
-                  <div className="text-sm text-muted-foreground animate-pulse">{isVi ? "Đang quét danh sách file..." : "Scanning file list..."}</div>
+                  <div className="text-sm text-muted-foreground animate-pulse">{financeControl[isVi ? "vi" : "en"].scanningFileList}</div>
                 ) : (
                   <div className="grid grid-cols-2 gap-3">
                     <div className="rounded bg-muted/50 p-2 text-center">
                       <div className="text-2xl font-bold">{previewUncFiles}</div>
-                      <div className="text-xs text-muted-foreground">{isVi ? "file UNC" : "UNC files"}</div>
+                      <div className="text-xs text-muted-foreground">{financeControl[isVi ? "vi" : "en"].uncFiles}</div>
                     </div>
                     <div className="rounded bg-muted/50 p-2 text-center">
                       <div className="text-2xl font-bold">{previewQtmFiles}</div>
-                      <div className="text-xs text-muted-foreground">{isVi ? "file QTM" : "QTM files"}</div>
+                      <div className="text-xs text-muted-foreground">{financeControl[isVi ? "vi" : "en"].qtmFiles}</div>
                     </div>
                   </div>
                 )}
@@ -3261,23 +3258,19 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
 
               {missingRequiredPreview && !previewLoading && !reconcileError && (
                 <div className="rounded border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
-                  {isVi
-                    ? "Có khai báo UNC nhưng quét nhanh chưa thấy file UNC tương ứng. Anh vẫn có thể bấm Thực hiện để hệ thống kiểm tra/OCR và trả lỗi chi tiết."
-                    : "UNC was declared but quick scan did not find matching UNC files. You can still execute so the system can validate/OCR and return the exact error."}
+                  {financeControl[isVi ? "vi" : "en"].uncWasDeclaredButQuickScanDid}
                 </div>
               )}
 
               {qtmCarryForwardPreview && !previewLoading && !reconcileError && (
                 <div className="rounded border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm text-emerald-700 dark:text-emerald-300">
-                  {isVi
-                    ? "QTM đã khai báo nhưng hôm nay chưa có file QTM trên Drive. Số tiền này sẽ cộng vào quỹ QTM và được chuyển sang ngày sau nếu chưa chi."
-                    : "QTM was declared but no same-day QTM Drive file was found. This amount will be added to the QTM fund and carried forward if not spent today."}
+                  {financeControl[isVi ? "vi" : "en"].qtmWasDeclaredButNoSameDay}
                 </div>
               )}
 
               {/* CEO declared summary */}
               <div className="rounded border p-3 space-y-1 text-sm">
-                <div className="font-medium">{isVi ? "CEO đã khai báo" : "CEO declared"}</div>
+                <div className="font-medium">{financeControl[isVi ? "vi" : "en"].ceoDeclared}</div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">UNC:</span>
                   <span className="font-semibold">{vnd(Number(uncTotalDeclared || 0))}</span>
@@ -3301,7 +3294,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
             <div className="space-y-4 py-4">
               <div className="flex items-center gap-2 text-sm font-medium">
                 <span className="animate-spin text-lg">⏳</span>
-                {reconcileProgress.currentFile || (isVi ? "Đang xử lý..." : "Processing...")}
+                {reconcileProgress.currentFile || (financeControl[isVi ? "vi" : "en"].processing)}
               </div>
               {reconcileProgress.total > 0 && (
                 <div className="space-y-1">
@@ -3321,7 +3314,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
             <div className="space-y-4 py-4">
               <div className="flex items-center gap-2 text-green-700">
                 <Lock className="h-5 w-5" />
-                <span className="text-lg font-semibold">{isVi ? "Đã chốt ngày thành công" : "Day closed successfully"}</span>
+                <span className="text-lg font-semibold">{financeControl[isVi ? "vi" : "en"].dayClosedSuccessfully}</span>
               </div>
               {closeResultSnapshot && (
                 <div className="grid gap-2 grid-cols-2 text-sm">
@@ -3341,9 +3334,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                 <div>
                   <div className="text-base font-semibold">{getMismatchCauseLabel(mismatchResult, isVi)}</div>
                   <div className="text-xs text-muted-foreground">
-                    {isVi
-                      ? "Trạng thái tổng đang là mismatch vì một phần đối soát chưa đạt; xem chi tiết UNC/QTM bên dưới."
-                      : "Overall status is mismatch because one reconciliation check failed; see UNC/QTM details below."}
+                    {financeControl[isVi ? "vi" : "en"].overallStatusIsMismatchBecauseOneReconciliation}
                   </div>
                 </div>
               </div>
@@ -3352,16 +3343,16 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                   <div className="flex justify-between gap-3">
                     <span className="font-medium">UNC</span>
                     <span className={Number(mismatchResult?.uncVariance || 0) === 0 ? "font-semibold text-green-700" : "font-semibold text-amber-700"}>
-                      {Number(mismatchResult?.uncVariance || 0) === 0 ? (isVi ? "Khớp" : "Match") : (isVi ? "Chênh lệch" : "Variance")}
+                      {Number(mismatchResult?.uncVariance || 0) === 0 ? (financeControl[isVi ? "vi" : "en"].match) : (financeControl[isVi ? "vi" : "en"].variance2)}
                     </span>
                   </div>
                   <div className="flex justify-between gap-3 text-xs text-muted-foreground">
-                    <span>{isVi ? "Drive/OCR" : "Drive/OCR"}: {vnd(Number(mismatchResult?.uncDetail || 0))}</span>
-                    <span>{isVi ? "CEO khai báo" : "CEO declared"}: {vnd(Number(mismatchResult?.uncDeclared || 0))}</span>
+                    <span>{financeControl[isVi ? "vi" : "en"].driveOCR}: {vnd(Number(mismatchResult?.uncDetail || 0))}</span>
+                    <span>{financeControl[isVi ? "vi" : "en"].ceoDeclared2}: {vnd(Number(mismatchResult?.uncDeclared || 0))}</span>
                   </div>
                   {Number(mismatchResult?.uncVariance || 0) !== 0 && (
                     <div className="flex justify-between">
-                      <span className="text-muted-foreground">{isVi ? "UNC chênh lệch:" : "UNC variance:"}</span>
+                      <span className="text-muted-foreground">{financeControl[isVi ? "vi" : "en"].uncVariance3}</span>
                       <span className="font-semibold text-amber-700">{vnd(Math.abs(Number(mismatchResult?.uncVariance || 0)))}</span>
                     </div>
                   )}
@@ -3370,14 +3361,14 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                   <div className="flex justify-between gap-3">
                     <span className="font-medium">QTM</span>
                     <span className={getQtmClosingFromMismatch(mismatchResult) >= 0 ? "font-semibold text-green-700" : "font-semibold text-amber-700"}>
-                      {getQtmClosingFromMismatch(mismatchResult) >= 0 ? (isVi ? "Khớp" : "Match") : (isVi ? "Âm quỹ" : "Negative balance")}
+                      {getQtmClosingFromMismatch(mismatchResult) >= 0 ? (financeControl[isVi ? "vi" : "en"].match) : (financeControl[isVi ? "vi" : "en"].negativeBalance)}
                     </span>
                   </div>
                   <div className="grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
-                    <span>{isVi ? "Số dư mở" : "Opening"}: {vnd(Number(mismatchResult?.qtmOpening || 0))}</span>
-                    <span>{isVi ? "CEO nạp QTM" : "CEO QTM top-up"}: {vnd(Number(mismatchResult?.qtmDeclared || 0))}</span>
-                    <span>{isVi ? "Chi từ folder" : "Folder spend"}: {vnd(Number(mismatchResult?.qtmSpent || 0))}</span>
-                    <span>{isVi ? "Số dư đóng" : "Closing"}: {vnd(getQtmClosingFromMismatch(mismatchResult))}</span>
+                    <span>{financeControl[isVi ? "vi" : "en"].opening}: {vnd(Number(mismatchResult?.qtmOpening || 0))}</span>
+                    <span>{financeControl[isVi ? "vi" : "en"].ceoQTMTopUp}: {vnd(Number(mismatchResult?.qtmDeclared || 0))}</span>
+                    <span>{financeControl[isVi ? "vi" : "en"].folderSpend}: {vnd(Number(mismatchResult?.qtmSpent || 0))}</span>
+                    <span>{financeControl[isVi ? "vi" : "en"].closing}: {vnd(getQtmClosingFromMismatch(mismatchResult))}</span>
                   </div>
                   {getQtmClosingFromMismatch(mismatchResult) < 0 && (
                     <div className="rounded border border-amber-200 bg-amber-100/70 p-2 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
@@ -3389,9 +3380,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                 </div>
               </div>
               <p className="text-sm text-muted-foreground">
-                {isVi
-                  ? "Anh có thể chốt ngày dù có chênh lệch. Trạng thái sẽ được ghi là 'mismatch' để xem lại sau."
-                  : "You can close the day despite the variance. Status will be recorded as 'mismatch' for later review."}
+                {financeControl[isVi ? "vi" : "en"].youCanCloseTheDayDespiteThe}
               </p>
               {reconcileError && (
                 <div className="rounded border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
@@ -3404,9 +3393,9 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
           <DialogFooter>
             {closeDialogStep === "preview" && (
               <div className="flex gap-2 w-full justify-end">
-                <Button variant="outline" onClick={() => setCloseDialogOpen(false)}>{isVi ? "Huỷ" : "Cancel"}</Button>
+                <Button variant="outline" onClick={() => setCloseDialogOpen(false)}>{financeControl[isVi ? "vi" : "en"].cancel2}</Button>
                 <Button variant="outline" size="sm" onClick={openCloseDialog} disabled={previewLoading}>
-                  {isVi ? "Quét lại" : "Re-scan"}
+                  {financeControl[isVi ? "vi" : "en"].reScan}
                 </Button>
                 <Button
                   className="bg-green-600 hover:bg-green-700 text-white"
@@ -3414,17 +3403,17 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                   onClick={executeClose}
                 >
                   <Lock className="h-4 w-4 mr-2" />
-                  {isVi ? "Thực hiện" : "Execute"}
+                  {financeControl[isVi ? "vi" : "en"].execute}
                 </Button>
               </div>
             )}
             {closeDialogStep === "running" && (
-              <div className="text-xs text-muted-foreground">{isVi ? "Vui lòng không đóng cửa sổ..." : "Please don't close this window..."}</div>
+              <div className="text-xs text-muted-foreground">{financeControl[isVi ? "vi" : "en"].pleaseDonTCloseThisWindow}</div>
             )}
             {closeDialogStep === "mismatch" && (
               <div className="flex gap-2 w-full justify-end">
                 <Button variant="outline" onClick={() => { setCloseDialogStep("preview"); setMismatchResult(null); setReconcileError(null); }}>
-                  {isVi ? "Quay lại" : "Back"}
+                  {financeControl[isVi ? "vi" : "en"].back}
                 </Button>
                 <Button
                   className="bg-amber-600 hover:bg-amber-700 text-white"
@@ -3432,12 +3421,12 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                   onClick={handleConfirmMismatchClose}
                 >
                   <Lock className="h-4 w-4 mr-2" />
-                  {isVi ? "Chốt ngày dù có chênh lệch" : "Close day with variance"}
+                  {financeControl[isVi ? "vi" : "en"].closeDayWithVariance}
                 </Button>
               </div>
             )}
             {closeDialogStep === "done" && (
-              <Button onClick={() => setCloseDialogOpen(false)}>{isVi ? "Đóng" : "Close"}</Button>
+              <Button onClick={() => setCloseDialogOpen(false)}>{financeControl[isVi ? "vi" : "en"].close}</Button>
             )}
           </DialogFooter>
         </DialogContent>

@@ -1,3 +1,5 @@
+import { purchaseOrderPurchasing } from "@/i18n/purchaseOrderPurchasing";
+import { usePurchasingCopy } from "@/i18n/purchasingCopy";
 import { useState, useEffect } from "react";
 import { format } from "date-fns";
 import { vi, enUS } from "date-fns/locale";
@@ -75,6 +77,7 @@ export function PurchaseOrderDetailsDialog({
   open,
   onOpenChange,
 }: PurchaseOrderDetailsDialogProps) {
+  const pc = usePurchasingCopy(purchaseOrderPurchasing);
   const [showSendConfirm, setShowSendConfirm] = useState(false);
   const [showReceiveDialog, setShowReceiveDialog] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
@@ -141,15 +144,15 @@ export function PurchaseOrderDetailsDialog({
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "draft":
-        return <Badge variant="secondary">Nháp</Badge>;
+        return <Badge variant="secondary">{pc.draft}</Badge>;
       case "sent":
-        return <Badge className="bg-blue-500 hover:bg-blue-600">Đã gửi</Badge>;
+        return <Badge className="bg-blue-500 hover:bg-blue-600">{pc.sent}</Badge>;
       case "in_transit":
-        return <Badge className="bg-orange-500 hover:bg-orange-600">Đang vận chuyển</Badge>;
+        return <Badge className="bg-orange-500 hover:bg-orange-600">{pc.inTransit}</Badge>;
       case "completed":
-        return <Badge className="bg-green-500 hover:bg-green-600">Hoàn thành</Badge>;
+        return <Badge className="bg-green-500 hover:bg-green-600">{pc.completed}</Badge>;
       case "cancelled":
-        return <Badge variant="destructive">Đã hủy</Badge>;
+        return <Badge variant="destructive">{pc.cancelled}</Badge>;
       default:
         return <Badge variant="outline">{status}</Badge>;
     }
@@ -159,10 +162,10 @@ export function PurchaseOrderDetailsDialog({
     if (!orderId) return;
     try {
       await sendPO.mutateAsync(orderId);
-      toast.success("Đã gửi đơn đặt hàng cho nhà cung cấp");
+      toast.success(pc.purchaseOrderSentToSupplier);
       setShowSendConfirm(false);
     } catch (error) {
-      toast.error("Lỗi khi gửi đơn đặt hàng");
+      toast.error(pc.errorSendingPurchaseOrder);
     }
   };
 
@@ -173,11 +176,11 @@ export function PurchaseOrderDetailsDialog({
         id: orderId,
         goodsReceiptId: selectedGoodsReceiptId || undefined,
       });
-      toast.success("Đã đánh dấu đơn hàng hoàn thành");
+      toast.success(pc.orderMarkedCompleted);
       setShowReceiveDialog(false);
       setSelectedGoodsReceiptId("");
     } catch (error) {
-      toast.error("Lỗi khi cập nhật trạng thái");
+      toast.error(pc.errorUpdatingStatus);
     }
   };
 
@@ -185,10 +188,10 @@ export function PurchaseOrderDetailsDialog({
     if (!orderId) return;
     try {
       await cancelPO.mutateAsync(orderId);
-      toast.success("Đã hủy đơn đặt hàng và xóa đề nghị chi liên quan");
+      toast.success(pc.purchaseOrderCancelledAndRelatedPaymentRequestDeleted);
       setShowCancelConfirm(false);
     } catch (error) {
-      toast.error("Lỗi khi hủy đơn đặt hàng");
+      toast.error(pc.errorCancellingPurchaseOrder);
     }
   };
 
@@ -201,8 +204,7 @@ export function PurchaseOrderDetailsDialog({
           <DialogHeader className="px-4 pt-4 md:px-0 md:pt-0 max-md:hidden">
             <DialogTitle className="flex items-center gap-2">
               <FileText className="h-5 w-5" />
-              Chi tiết Đơn Đặt Hàng
-            </DialogTitle>
+               {pc.purchaseOrderDetails} </DialogTitle>
             <DialogDescription>
               {order?.po_number} - {order?.suppliers?.name || "N/A"}
             </DialogDescription>
@@ -210,10 +212,9 @@ export function PurchaseOrderDetailsDialog({
 
           {hasError ? (
             <div className="flex flex-col items-center justify-center py-8 gap-4">
-              <p className="text-destructive">Không thể tải dữ liệu. Vui lòng thử lại.</p>
+              <p className="text-destructive">{pc.unableToLoadDataPleaseTryAgain}</p>
               <Button onClick={handleRetry} variant="outline">
-                Thử lại
-              </Button>
+                 {pc.retry} </Button>
             </div>
           ) : isLoading ? (
             <div className="flex items-center justify-center py-8">
@@ -223,12 +224,12 @@ export function PurchaseOrderDetailsDialog({
             <div className="space-y-6">
               <div className="space-y-4 bg-gradient-to-b from-amber-50 via-white to-slate-50 pb-6 md:hidden" data-stitch-mobile-po-approve-detail data-bmq-po-detail-light-theme>
                 <header className="sticky top-0 z-40 flex min-h-16 items-center border-b border-amber-100 bg-white/95 px-4 shadow-sm backdrop-blur">
-                  <button type="button" className="-ml-2 rounded-full p-2 text-amber-700 hover:bg-amber-50" onClick={() => onOpenChange(false)} aria-label="Quay lại">
+                  <button type="button" className="-ml-2 rounded-full p-2 text-amber-700 hover:bg-amber-50" onClick={() => onOpenChange(false)} aria-label={pc.back}>
                     <ArrowLeft className="h-5 w-5" />
                   </button>
                   <div className="ml-2 flex-1 min-w-0">
-                    <div className="mb-0.5 text-xs font-medium text-amber-700">PO (Mua hàng)</div>
-                    <h1 className="text-lg font-bold leading-tight text-slate-950">Chi tiết PO</h1>
+                    <div className="mb-0.5 text-xs font-medium text-amber-700">{pc.pOPurchasing}</div>
+                    <h1 className="text-lg font-bold leading-tight text-slate-950">{pc.pODetails}</h1>
                     <p className="mt-0.5 truncate text-xs text-slate-500">{order.po_number} • {order.suppliers?.name || "N/A"}</p>
                   </div>
                   <div className="ml-2 shrink-0">{getStatusBadge(order.status)}</div>
@@ -238,7 +239,7 @@ export function PurchaseOrderDetailsDialog({
                   <section className="rounded-2xl border border-amber-100 bg-white p-4 shadow-sm">
                     <div className="mb-4 flex items-start justify-between gap-3">
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Tổng giá trị PO</p>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">{pc.totalPOValue}</p>
                         <h2 className="mt-1 text-2xl font-bold text-slate-950">{formatCurrency(order.total_amount || 0)}</h2>
                         <p className="mt-1 text-sm text-slate-600">{order.suppliers?.name || "N/A"}</p>
                       </div>
@@ -248,23 +249,23 @@ export function PurchaseOrderDetailsDialog({
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
-                        <p className="mb-1 text-xs text-slate-500">Ngày đặt</p>
+                        <p className="mb-1 text-xs text-slate-500">{pc.orderDate}</p>
                         <p className="text-sm font-semibold text-slate-900">{formatSafeDate(order.order_date)}</p>
                       </div>
                       <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
-                        <p className="mb-1 text-xs text-slate-500">Giao dự kiến</p>
-                        <p className="text-sm font-semibold text-slate-900">{formatSafeDate(order.expected_date, "Chưa xác định")}</p>
+                        <p className="mb-1 text-xs text-slate-500">{pc.expectedDelivery}</p>
+                        <p className="text-sm font-semibold text-slate-900">{formatSafeDate(order.expected_date, pc.notSpecified)}</p>
                       </div>
                     </div>
                     <div className="mt-3 flex items-center justify-between rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-sm">
-                      <span className="text-amber-800">Mã PO</span>
+                      <span className="text-amber-800">{pc.pONumber2}</span>
                       <span className="font-semibold text-slate-950">{order.po_number}</span>
                     </div>
                   </section>
 
                   <section className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
                     <div className="border-b border-slate-100 bg-slate-50 px-4 py-3">
-                      <h3 className="text-sm font-semibold text-slate-950">Chi tiết sản phẩm ({items?.length || 0})</h3>
+                      <h3 className="text-sm font-semibold text-slate-950">{pc.productDetails}{items?.length || 0})</h3>
                     </div>
                     <div className="divide-y divide-slate-100">
                       {items && items.length > 0 ? items.map((item) => (
@@ -276,23 +277,23 @@ export function PurchaseOrderDetailsDialog({
                           <p className="text-sm text-slate-500">{item.quantity} {item.unit} × {formatCurrency(item.unit_price || 0)}</p>
                         </div>
                       )) : (
-                        <p className="py-4 text-center text-sm text-slate-500">Không có sản phẩm</p>
+                        <p className="py-4 text-center text-sm text-slate-500">{pc.noProducts}</p>
                       )}
                     </div>
                   </section>
 
                   <section className="space-y-4 rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
                     <div className="flex items-center justify-between text-sm">
-                      <span className="flex items-center gap-2 text-slate-500"><Clock className="h-4 w-4 text-amber-700" />Giao dự kiến</span>
-                      <span className="font-semibold text-slate-950">{formatSafeDate(order.expected_date, "Chưa xác định")}</span>
+                      <span className="flex items-center gap-2 text-slate-500"><Clock className="h-4 w-4 text-amber-700" />{pc.expectedDelivery}</span>
+                      <span className="font-semibold text-slate-950">{formatSafeDate(order.expected_date, pc.notSpecified)}</span>
                     </div>
                     <div className="flex items-center justify-between border-t border-slate-100 pt-4 text-sm">
-                      <span className="flex items-center gap-2 text-slate-500"><Package className="h-4 w-4 text-amber-700" />Trạng thái</span>
+                      <span className="flex items-center gap-2 text-slate-500"><Package className="h-4 w-4 text-amber-700" />{pc.status}</span>
                       <span className="font-medium text-slate-950">{getStatusBadge(order.status)}</span>
                     </div>
                     {order.notes && (
                       <div className="border-t border-slate-100 pt-4">
-                        <span className="mb-2 block text-sm text-slate-500">Ghi chú PO</span>
+                        <span className="mb-2 block text-sm text-slate-500">{pc.pONotes}</span>
                         <p className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-sm text-slate-700">{order.notes}</p>
                       </div>
                     )}
@@ -300,10 +301,10 @@ export function PurchaseOrderDetailsDialog({
 
                   {order.status === "draft" && (
                     <section className="rounded-2xl border border-amber-100 bg-white p-4 shadow-sm">
-                      <h3 className="mb-4 text-sm font-semibold text-slate-950">Checklist duyệt</h3>
+                      <h3 className="mb-4 text-sm font-semibold text-slate-950">{pc.approvalChecklist}</h3>
                       <div className="space-y-3">
-                        {["Đã kiểm tra NCC", "Đã kiểm tra giá", "Đã kiểm tra số lượng"].map((label) => (
-                          <label key={label} className="flex items-center gap-3 text-sm font-medium text-slate-800">
+                        {[{ key: "Đã kiểm tra NCC", label: pc.supplierChecked }, { key: "Đã kiểm tra giá", label: pc.pricesChecked }, { key: "Đã kiểm tra số lượng", label: pc.quantitiesChecked }].map(({ key, label }) => (
+                          <label key={key} className="flex items-center gap-3 text-sm font-medium text-slate-800">
                             <input type="checkbox" className="h-5 w-5 rounded border-amber-200 text-amber-600 focus:ring-amber-500/40" />
                             {label}
                           </label>
@@ -313,30 +314,25 @@ export function PurchaseOrderDetailsDialog({
                   )}
 
                   <section className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
-                    <h3 className="mb-3 text-sm font-semibold text-slate-950">Thao tác</h3>
+                    <h3 className="mb-3 text-sm font-semibold text-slate-950">{pc.actions}</h3>
                     <div className="flex gap-3">
                       {order.status === "draft" ? (
                         <>
                           <Button type="button" variant="outline" className="h-12 flex-1 border-red-200 text-red-600 hover:bg-red-50" onClick={() => setShowCancelConfirm(true)}>
-                            <XCircle className="mr-2 h-4 w-4" />Từ chối
-                          </Button>
+                            <XCircle className="mr-2 h-4 w-4" />{pc.reject} </Button>
                           <Button type="button" className="h-12 flex-1 bg-[#D97706] font-semibold text-white hover:bg-[#b45309]" onClick={() => setShowSendConfirm(true)}>
-                            <CheckCircle className="mr-2 h-4 w-4" />Duyệt PO
-                          </Button>
+                            <CheckCircle className="mr-2 h-4 w-4" />{pc.approvePO} </Button>
                         </>
                       ) : order.status === "sent" ? (
                         <>
                           <Button type="button" variant="outline" className="h-12 flex-1 border-red-200 text-red-600 hover:bg-red-50" onClick={() => setShowCancelConfirm(true)}>
-                            <XCircle className="mr-2 h-4 w-4" />Hủy
-                          </Button>
+                            <XCircle className="mr-2 h-4 w-4" />{pc.cancel} </Button>
                           <Button type="button" className="h-12 flex-1 bg-[#D97706] font-semibold text-white hover:bg-[#b45309]" onClick={() => setShowReceiveDialog(true)}>
-                            <CheckCircle className="mr-2 h-4 w-4" />Đã nhận
-                          </Button>
+                            <CheckCircle className="mr-2 h-4 w-4" />{pc.received} </Button>
                         </>
                       ) : (
                         <Button type="button" className="h-12 flex-1 bg-[#D97706] font-semibold text-white hover:bg-[#b45309]" onClick={() => setShowCreatePaymentRequest(true)}>
-                          <CreditCard className="mr-2 h-4 w-4" />Tạo đề nghị thanh toán
-                        </Button>
+                          <CreditCard className="mr-2 h-4 w-4" />{pc.createPaymentRequest} </Button>
                       )}
                     </div>
                   </section>
@@ -347,23 +343,23 @@ export function PurchaseOrderDetailsDialog({
               {/* Order Info */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-muted/50 rounded-lg">
                 <div>
-                  <p className="text-sm text-muted-foreground">Số PO</p>
+                  <p className="text-sm text-muted-foreground">{pc.pONumber3}</p>
                   <p className="font-medium">{order.po_number}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Trạng thái</p>
+                  <p className="text-sm text-muted-foreground">{pc.status}</p>
                   <div className="mt-1">{getStatusBadge(order.status)}</div>
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Ngày đặt</p>
+                  <p className="text-sm text-muted-foreground">{pc.orderDate}</p>
                   <p className="font-medium">
                     {formatSafeDate(order.order_date)}
                   </p>
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Ngày giao dự kiến</p>
+                  <p className="text-sm text-muted-foreground">{pc.expectedDeliveryDate}</p>
                   <p className="font-medium">
-                    {formatSafeDate(order.expected_date, "Chưa xác định")}
+                    {formatSafeDate(order.expected_date, pc.notSpecified)}
                   </p>
                 </div>
               </div>
@@ -372,16 +368,16 @@ export function PurchaseOrderDetailsDialog({
               <div>
                 <h4 className="font-medium mb-3 flex items-center gap-2">
                   <Package className="h-4 w-4" />
-                  Danh sách sản phẩm ({items?.length || 0})
+                   {pc.productList}{items?.length || 0})
                 </h4>
                 {items && items.length > 0 ? (
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Sản phẩm</TableHead>
-                        <TableHead className="text-right">SL</TableHead>
-                        <TableHead className="text-right">Đơn giá</TableHead>
-                        <TableHead className="text-right">Thành tiền</TableHead>
+                        <TableHead>{pc.product}</TableHead>
+                        <TableHead className="text-right">{pc.qty}</TableHead>
+                        <TableHead className="text-right">{pc.unitPrice}</TableHead>
+                        <TableHead className="text-right">{pc.lineTotal}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -392,7 +388,7 @@ export function PurchaseOrderDetailsDialog({
                               <p className="font-medium">{item.product_name}</p>
                               {item.productSkus?.sku_code && (
                                 <p className="text-xs text-muted-foreground">
-                                  SKU: {item.productSkus.sku_code}
+                                   {pc.fieldSKU} {item.productSkus.sku_code}
                                 </p>
                               )}
                             </div>
@@ -412,8 +408,7 @@ export function PurchaseOrderDetailsDialog({
                   </Table>
                 ) : (
                   <p className="text-muted-foreground text-center py-4">
-                    Không có sản phẩm
-                  </p>
+                     {pc.noProducts} </p>
                 )}
               </div>
 
@@ -426,21 +421,21 @@ export function PurchaseOrderDetailsDialog({
                   <div className="flex justify-end border-t pt-4">
                     <div className="space-y-1 text-right">
                       <div>
-                        <span className="text-muted-foreground mr-4">Tạm tính:</span>
+                        <span className="text-muted-foreground mr-4">{pc.subtotal}</span>
                         <span className="font-medium">
                           {formatCurrency(subtotal)}
                         </span>
                       </div>
                       <div>
-                        <span className="text-muted-foreground mr-4">VAT:</span>
+                        <span className="text-muted-foreground mr-4">{pc.fieldVAT}</span>
                         <span className="font-medium">
                           {vatAmount > 0 
                             ? formatCurrency(vatAmount)
-                            : "0 ₫ (chưa có)"}
+                            : pc["0NoneYet"]}
                         </span>
                       </div>
                       <div>
-                        <span className="text-muted-foreground mr-4">Tổng cộng:</span>
+                        <span className="text-muted-foreground mr-4">{pc.total}</span>
                         <span className="text-xl font-bold">
                           {formatCurrency(total)}
                         </span>
@@ -454,26 +449,24 @@ export function PurchaseOrderDetailsDialog({
               {resolvedImageUrl && (
                 <div className="border rounded-lg p-4 space-y-2">
                   <p className="text-sm font-medium flex items-center gap-2">
-                    📷 Ảnh đơn hàng gốc từ NCC
-                  </p>
+                     {pc.originalSupplierOrderImage} </p>
                   <div className="border rounded-lg overflow-hidden">
                     <img 
                       src={resolvedImageUrl} 
-                      alt="Đơn hàng gốc" 
+                      alt={pc.originalOrder}
                       className="w-full max-h-64 object-contain bg-muted cursor-pointer hover:opacity-90 transition-opacity"
                       onClick={() => setShowImagePreview(true)}
                     />
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Nhấn vào ảnh để xem kích thước đầy đủ
-                  </p>
+                     {pc.clickTheImageToViewFullSize} </p>
                 </div>
               )}
 
               {/* Notes */}
               {order.notes && (
                 <div className="p-3 bg-muted/30 rounded-lg">
-                  <p className="text-sm text-muted-foreground">Ghi chú:</p>
+                  <p className="text-sm text-muted-foreground">{pc.notes2}</p>
                   <p>{order.notes}</p>
                 </div>
               )}
@@ -486,19 +479,16 @@ export function PurchaseOrderDetailsDialog({
                       onClick={() => setShowEditDialog(true)}
                     >
                       <Pencil className="h-4 w-4 mr-2" />
-                      Chỉnh sửa
-                    </Button>
+                       {pc.edit} </Button>
                     <Button
                       variant="outline"
                       onClick={() => setShowCancelConfirm(true)}
                     >
                       <XCircle className="h-4 w-4 mr-2" />
-                      Hủy đơn
-                    </Button>
+                       {pc.cancelOrder} </Button>
                     <Button onClick={() => setShowSendConfirm(true)}>
                       <Send className="h-4 w-4 mr-2" />
-                      Gửi đơn hàng
-                    </Button>
+                       {pc.sendOrder} </Button>
                   </>
                 )}
                 {order.status === "sent" && (
@@ -508,19 +498,16 @@ export function PurchaseOrderDetailsDialog({
                       onClick={() => setShowCancelConfirm(true)}
                     >
                       <XCircle className="h-4 w-4 mr-2" />
-                      Hủy đơn
-                    </Button>
+                       {pc.cancelOrder} </Button>
                     <Button
                       variant="outline"
                       onClick={() => setShowCreatePaymentRequest(true)}
                     >
                       <CreditCard className="h-4 w-4 mr-2" />
-                      Tạo đề nghị thanh toán
-                    </Button>
+                       {pc.createPaymentRequest} </Button>
                     <Button onClick={() => setShowReceiveDialog(true)}>
                       <Truck className="h-4 w-4 mr-2" />
-                      Đánh dấu đã nhận
-                    </Button>
+                       {pc.markReceived} </Button>
                   </>
                 )}
                 {order.status === "completed" && (
@@ -529,16 +516,14 @@ export function PurchaseOrderDetailsDialog({
                     onClick={() => setShowCreatePaymentRequest(true)}
                   >
                     <CreditCard className="h-4 w-4 mr-2" />
-                    Tạo đề nghị thanh toán
-                  </Button>
+                     {pc.createPaymentRequest} </Button>
                 )}
               </div>
               </div>
             </div>
           ) : (
             <p className="text-center text-muted-foreground py-8">
-              Không tìm thấy đơn đặt hàng
-            </p>
+               {pc.purchaseOrderNotFound} </p>
           )}
         </DialogContent>
       </Dialog>
@@ -547,22 +532,20 @@ export function PurchaseOrderDetailsDialog({
       <AlertDialog open={showSendConfirm} onOpenChange={setShowSendConfirm}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Xác nhận gửi đơn hàng</AlertDialogTitle>
+            <AlertDialogTitle>{pc.confirmSendingOrder}</AlertDialogTitle>
             <AlertDialogDescription>
-              Bạn có chắc muốn gửi đơn đặt hàng {order?.po_number} cho nhà cung
-              cấp {order?.suppliers?.name}?
+               {pc.areYouSureYouWantToSendPurchase} {order?.po_number}  {pc.toTheSupplier} {order?.suppliers?.name}?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Hủy</AlertDialogCancel>
+            <AlertDialogCancel>{pc.cancel}</AlertDialogCancel>
             <AlertDialogAction onClick={handleSend} disabled={sendPO.isPending}>
               {sendPO.isPending ? (
                 <Loader2 className="h-4 w-4 animate-spin mr-2" />
               ) : (
                 <Send className="h-4 w-4 mr-2" />
               )}
-              Gửi đơn
-            </AlertDialogAction>
+               {pc.sendOrder2} </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -571,17 +554,14 @@ export function PurchaseOrderDetailsDialog({
       <AlertDialog open={showReceiveDialog} onOpenChange={setShowReceiveDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Đánh dấu đã nhận hàng</AlertDialogTitle>
+            <AlertDialogTitle>{pc.markGoodsReceived}</AlertDialogTitle>
             <AlertDialogDescription>
-              Xác nhận đã nhận hàng cho đơn {order?.po_number}. Bạn có thể liên
-              kết với Phiếu Nhập Kho đã có.
-            </AlertDialogDescription>
+               {pc.confirmReceiptForOrder} {order?.po_number}{pc.youCanLinkAnExistingGoodsReceipt} </AlertDialogDescription>
           </AlertDialogHeader>
 
           <div className="py-4">
             <label className="text-sm font-medium">
-              Liên kết Phiếu Nhập Kho (tùy chọn)
-            </label>
+               {pc.linkGoodsReceiptOptional} </label>
             <Select
               value={selectedGoodsReceiptId || "_none"}
               onValueChange={(value) =>
@@ -589,10 +569,10 @@ export function PurchaseOrderDetailsDialog({
               }
             >
               <SelectTrigger className="mt-2">
-                <SelectValue placeholder="Chọn phiếu nhập kho" />
+                <SelectValue placeholder={pc.selectGoodsReceipt} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="_none">Không liên kết</SelectItem>
+                <SelectItem value="_none">{pc.noLink}</SelectItem>
                 {availableReceipts?.map((gr) => (
                   <SelectItem key={gr.id} value={gr.id}>
                     {gr.receipt_number} - {formatSafeDate(gr.receipt_date)}
@@ -604,8 +584,7 @@ export function PurchaseOrderDetailsDialog({
 
           <AlertDialogFooter>
             <AlertDialogCancel onClick={() => setSelectedGoodsReceiptId("")}>
-              Hủy
-            </AlertDialogCancel>
+               {pc.cancel} </AlertDialogCancel>
             <AlertDialogAction
               onClick={handleReceive}
               disabled={markCompleted.isPending}
@@ -615,8 +594,7 @@ export function PurchaseOrderDetailsDialog({
               ) : (
                 <CheckCircle className="h-4 w-4 mr-2" />
               )}
-              Xác nhận hoàn thành
-            </AlertDialogAction>
+               {pc.confirmCompletion} </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -625,14 +603,12 @@ export function PurchaseOrderDetailsDialog({
       <AlertDialog open={showCancelConfirm} onOpenChange={setShowCancelConfirm}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Xác nhận hủy đơn hàng</AlertDialogTitle>
+            <AlertDialogTitle>{pc.confirmOrderCancellation}</AlertDialogTitle>
             <AlertDialogDescription>
-              Hành động này sẽ hủy đơn đặt hàng {order?.po_number} và xóa đề nghị chi liên quan (nếu có).
-              Bạn không thể hoàn tác thao tác này.
-            </AlertDialogDescription>
+               {pc.thisWillCancelPurchaseOrder} {order?.po_number}  {pc.andDeleteTheRelatedPaymentRequestIfAny} </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Không</AlertDialogCancel>
+            <AlertDialogCancel>{pc.no}</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleCancel}
               disabled={cancelPO.isPending}
@@ -643,8 +619,7 @@ export function PurchaseOrderDetailsDialog({
               ) : (
                 <XCircle className="h-4 w-4 mr-2" />
               )}
-              Hủy đơn
-            </AlertDialogAction>
+               {pc.cancelOrder} </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -674,7 +649,7 @@ export function PurchaseOrderDetailsDialog({
         imageUrl={resolvedImageUrl}
         open={showImagePreview}
         onOpenChange={setShowImagePreview}
-        title="Ảnh đơn hàng gốc từ NCC"
+        title={pc.originalSupplierOrderImage2}
       />
     </>
   );

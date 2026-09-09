@@ -1,3 +1,6 @@
+import { formatText } from "@/i18n/format";
+import { goodsReceiptPurchasing } from "@/i18n/goodsReceiptPurchasing";
+import { usePurchasingCopy, PurchasingLocalError, purchasingErrorMessage, renderPurchasingMessage, type PurchasingUiMessage } from "@/i18n/purchasingCopy";
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useForm, useFieldArray, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -22,9 +25,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { isRawMaterialSku } from "@/lib/skuType";
 import { getDocument, GlobalWorkerOptions } from "pdfjs-dist/legacy/build/pdf.mjs";
 
-const itemSchema = z.object({
-  product_name: z.string().min(1, "Tên sản phẩm là bắt buộc"),
-  quantity: z.coerce.number().min(0.01, "Số lượng phải > 0"),
+const itemSchema = (pc: typeof goodsReceiptPurchasing.vi) => z.object({
+  product_name: z.string().min(1, pc.validation176),
+  quantity: z.coerce.number().min(0.01, pc.validation177),
   unit: z.string().optional(),
   manufacture_date: z.string().optional(),
   expiry_date: z.string().optional(),
@@ -33,14 +36,14 @@ const itemSchema = z.object({
   sku_status: z.enum(["found", "not_found", "new"]).optional(),
 });
 
-const formSchema = z.object({
+const formSchema = (pc: typeof goodsReceiptPurchasing.vi) => z.object({
   supplier_id: z.string().optional(),
   receipt_date: z.string(),
   notes: z.string().optional(),
-  items: z.array(itemSchema).min(1, "Cần ít nhất 1 sản phẩm"),
+  items: z.array(itemSchema(pc)).min(1, pc.validation178),
 });
 
-type FormData = z.infer<typeof formSchema>;
+type FormData = z.infer<ReturnType<typeof formSchema>>;
 
 interface ExtractedItem {
   product_code?: string;
@@ -65,7 +68,7 @@ type BatchScanFile = {
   id: string;
   file: File;
   status: BatchScanStatus;
-  error?: string;
+  error?: PurchasingUiMessage<keyof typeof goodsReceiptPurchasing.vi>;
   matchedItems?: MatchedFormItem[];
   supplierId?: string;
   supplierInfo?: { detected?: string; matched?: string; source?: string; score?: number };
@@ -78,6 +81,8 @@ const MAX_PDF_PAGES = 10;
 GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.mjs", import.meta.url).toString();
 
 export function AddGoodsReceiptDialog() {
+  const pc = usePurchasingCopy(goodsReceiptPurchasing);
+  const batchStatusLabels: Record<BatchScanStatus, string> = { queued: pc.batchQueued, running: pc.batchRunning, success: pc.batchSuccess, error: pc.batchError, skipped: pc.batchSkipped };
   const { t } = useLanguage();
   const { user } = useAuth();
   const [open, setOpen] = useState(false);
@@ -85,7 +90,7 @@ export function AddGoodsReceiptDialog() {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [scanCompleted, setScanCompleted] = useState(false);
-  const [scanError, setScanError] = useState<string | null>(null);
+  const [scanError, setScanError] = useState<PurchasingUiMessage<keyof typeof goodsReceiptPurchasing.vi> | null>(null);
   const [newSkuItems, setNewSkuItems] = useState<number[]>([]);
   const [scanSupplierInfo, setScanSupplierInfo] = useState<{ detected?: string; matched?: string; source?: string; score?: number } | null>(null);
   const [batchFiles, setBatchFiles] = useState<BatchScanFile[]>([]);
@@ -105,7 +110,7 @@ export function AddGoodsReceiptDialog() {
   const deleteReceipt = useDeleteGoodsReceipt();
 
   const form = useForm<FormData>({
-    resolver: zodResolver(formSchema),
+    resolver: zodResolver(formSchema(pc)),
     defaultValues: {
       supplier_id: "",
       receipt_date: new Date().toISOString().split("T")[0],
@@ -113,6 +118,10 @@ export function AddGoodsReceiptDialog() {
       items: [{ product_name: "", quantity: 0, unit: "kg", expiry_date: "" }],
     },
   });
+
+  useEffect(() => {
+    if (Object.keys(form.formState.errors).length) void form.trigger();
+  }, [pc, form]);
 
   const { fields, append, remove, replace } = useFieldArray({
     control: form.control,
@@ -142,12 +151,13 @@ export function AddGoodsReceiptDialog() {
   }, [watchedItems]);
 
   const getErrorMessage = (error: unknown): string => {
+    if (error instanceof PurchasingLocalError) return renderPurchasingMessage(pc, error.uiMessage);
     if (error instanceof Error) return error.message;
     if (error && typeof error === "object") {
       const e = error as Record<string, any>;
       return e.message || e.details || e.hint || JSON.stringify(error);
     }
-    return "Lỗi không xác định";
+    return pc.unknownError;
   };
 
   const normalizeText = (v: string) =>
@@ -214,7 +224,7 @@ export function AddGoodsReceiptDialog() {
 
   const ensureRawMaterialSku = useCallback(async (productName: string, unit?: string): Promise<{ id: string; sku_code: string }> => {
     const normalizedName = String(productName || "").trim();
-    if (!normalizedName) throw new Error("Thiếu tên nguyên vật liệu để tạo SKU");
+    if (!normalizedName) throw new PurchasingLocalError({ copyKey: "aMaterialNameIsRequiredToCreateA" });
 
     const matched = await findSKUByCodeOrName(undefined, normalizedName);
     if (matched?.id) {
@@ -237,7 +247,7 @@ export function AddGoodsReceiptDialog() {
       .select("id, sku_code")
       .single();
 
-    if (error || !created?.id) throw error || new Error("Không thể tạo SKU NVL tự động");
+    if (error || !created?.id) throw error || new PurchasingLocalError({ copyKey: "unableToCreateMaterialSKUAutomatically" });
     return { id: created.id, sku_code: (created as any).sku_code || skuCode };
   }, [slugifySku]);
 
@@ -376,13 +386,13 @@ export function AddGoodsReceiptDialog() {
     });
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ error: "Unknown error" }));
-      throw new Error(errorData.error || `Lỗi server: ${response.status}`);
+      const errorData = await response.json().catch(() => ({ error: undefined }));
+      throw errorData.error ? new Error(errorData.error) : new PurchasingLocalError({ copyKey: "message153", values: { v0: response.status } });
     }
 
     const data = await response.json();
     const payload = data?.data || {};
-    if (!data?.success) throw new Error("Không nhận được dữ liệu scan hợp lệ");
+    if (!data?.success) throw new PurchasingLocalError({ copyKey: "noValidScanDataReceived" });
 
     const extractedItems: ExtractedItem[] = payload.items || [];
     const { matchedItems, autoCreatedSkuCount } = await mapExtractedItemsToForm(extractedItems);
@@ -429,7 +439,7 @@ export function AddGoodsReceiptDialog() {
     const pdf = await loadingTask.promise;
 
     if (pdf.numPages > MAX_PDF_PAGES) {
-      throw new Error(`PDF ${pdfFile.name} có ${pdf.numPages} trang, tối đa hỗ trợ ${MAX_PDF_PAGES} trang/file`);
+      throw new PurchasingLocalError({ copyKey: "message154", values: { v0: pdfFile.name, v1: pdf.numPages, v2: MAX_PDF_PAGES } });
     }
 
     const imageFiles: File[] = [];
@@ -456,14 +466,14 @@ export function AddGoodsReceiptDialog() {
     if (!selectedFiles.length) return;
 
     if (selectedFiles.length > MAX_UPLOAD_FILES) {
-      toast.error(`Chỉ cho phép tối đa ${MAX_UPLOAD_FILES} file mỗi lần upload`);
+      toast.error(formatText(pc.message155, { v0: MAX_UPLOAD_FILES }));
       e.currentTarget.value = "";
       return;
     }
 
     const oversized = selectedFiles.filter((f) => f.size > MAX_FILE_SIZE_MB * 1024 * 1024);
     if (oversized.length > 0) {
-      toast.error(`Có file vượt quá ${MAX_FILE_SIZE_MB}MB: ${oversized[0].name}`);
+      toast.error(formatText(pc.message156, { v0: MAX_FILE_SIZE_MB, v1: oversized[0].name }));
       e.currentTarget.value = "";
       return;
     }
@@ -471,7 +481,7 @@ export function AddGoodsReceiptDialog() {
     const allowedMime = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
     const invalidType = selectedFiles.find((f) => !allowedMime.includes(f.type));
     if (invalidType) {
-      toast.error("Định dạng không hỗ trợ. Chỉ nhận JPG/PNG/WebP/PDF");
+      toast.error(pc.unsupportedFormatOnlyJPGPNGWebPPDFAre);
       e.currentTarget.value = "";
       return;
     }
@@ -487,19 +497,19 @@ export function AddGoodsReceiptDialog() {
         }
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Không thể xử lý PDF");
+      toast.error(renderPurchasingMessage(pc, purchasingErrorMessage(err, "unableToProcessPDF")));
       e.currentTarget.value = "";
       return;
     }
 
     if (!files.length) {
-      toast.error("Không có trang nào hợp lệ để scan");
+      toast.error(pc.noValidPagesToScan);
       e.currentTarget.value = "";
       return;
     }
 
     if (files.length > MAX_UPLOAD_FILES) {
-      toast.error(`Sau khi tách PDF, tổng số ảnh là ${files.length}. Tối đa cho phép ${MAX_UPLOAD_FILES} ảnh/lần.`);
+      toast.error(formatText(pc.message157, { v0: files.length, v1: MAX_UPLOAD_FILES }));
       e.currentTarget.value = "";
       return;
     }
@@ -532,19 +542,19 @@ export function AddGoodsReceiptDialog() {
     // Mỗi lần upload nhiều file sẽ tạo một batch mới, tránh bị kẹt vì trạng thái batch cũ
     setBatchFiles(incoming);
     setShowBatchPanel(true);
-    toast.success(`Đã nhận ${files.length} ảnh để scan.`);
+    toast.success(formatText(pc.message158, { v0: files.length }));
     e.currentTarget.value = "";
   };
 
   const runBatchScan = async () => {
     if (!batchFiles.length) {
-      toast.error("Chưa có file để scan");
+      toast.error(pc.noFilesToScan);
       return;
     }
 
     const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
     if (sessionError || !sessionData.session) {
-      toast.error("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
+      toast.error(pc.yourSessionExpiredPleaseSignInAgain);
       return;
     }
 
@@ -572,7 +582,7 @@ export function AddGoodsReceiptDialog() {
             : item));
         } catch (err) {
           setBatchFiles((prev) => prev.map((item) => item.id === entry.id
-            ? { ...item, status: "error", error: err instanceof Error ? err.message : "Không thể scan file" }
+            ? { ...item, status: "error", error: purchasingErrorMessage(err, "unableToScanFile") }
             : item));
         } finally {
           setBatchProgress((prev) => ({ ...prev, done: prev.done + 1 }));
@@ -586,7 +596,7 @@ export function AddGoodsReceiptDialog() {
   const applyBatchResults = () => {
     const successful = batchFiles.filter((file) => file.status === "success" && file.matchedItems?.length);
     if (!successful.length) {
-      toast.error("Chưa có kết quả batch hợp lệ để áp dụng");
+      toast.error(pc.noValidBatchResultsToApply);
       return;
     }
 
@@ -597,7 +607,7 @@ export function AddGoodsReceiptDialog() {
     if (supplierFromBatch) form.setValue("supplier_id", supplierFromBatch);
     setScanSupplierInfo(successful.find((file) => file.supplierInfo)?.supplierInfo || null);
     setScanCompleted(true);
-    toast.success(`Đã áp dụng ${successful.length}/${batchFiles.length} file scan thành công`);
+    toast.success(formatText(pc.message159, { v0: successful.length, v1: batchFiles.length }));
   };
 
   // Auto-scan when image is uploaded
@@ -614,14 +624,14 @@ export function AddGoodsReceiptDialog() {
   // Scan delivery note with AI
   const handleScanDeliveryNote = async () => {
     if (!imageFile) {
-      toast.error("Vui lòng upload ảnh phiếu giao hàng trước");
+      toast.error(pc.pleaseUploadADeliveryNoteImageFirst);
       return;
     }
 
     const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
     if (sessionError || !sessionData.session) {
-      setScanError("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
-      toast.error("Phiên đăng nhập đã hết hạn");
+      setScanError({ copyKey: "yourSessionExpiredPleaseSignInAgain" });
+      toast.error(pc.yourSessionExpired);
       return;
     }
 
@@ -637,15 +647,15 @@ export function AddGoodsReceiptDialog() {
 
       setScanCompleted(true);
       if (result.autoCreatedSkuCount > 0) {
-        toast.success(`Đã quét phiếu giao hàng và tự tạo ${result.autoCreatedSkuCount} SKU nguyên vật liệu mới`);
+        toast.success(formatText(pc.message160, { v0: result.autoCreatedSkuCount }));
       } else {
-        toast.success("Đã trích xuất thông tin từ phiếu giao hàng");
+        toast.success(pc.informationExtractedFromDeliveryNote);
       }
     } catch (error) {
       console.error("Scan error:", error);
-      const errorMsg = error instanceof Error ? error.message : "Lỗi không xác định";
+      const errorMsg = purchasingErrorMessage(error, "unknownError");
       setScanError(errorMsg);
-      toast.error("Không thể quét phiếu giao hàng. Vui lòng thử lại.");
+      toast.error(pc.unableToScanDeliveryNotePleaseTryAgain);
     } finally {
       setIsScanning(false);
     }
@@ -713,7 +723,7 @@ export function AddGoodsReceiptDialog() {
         }
       }
 
-      toast.success("Đã tự tạo SKU nguyên vật liệu cho các dòng chưa có mã");
+      toast.success(pc.materialSKUsCreatedAutomaticallyForLinesWithoutCodes);
     }
 
     const computedTotalQuantity = (data.items || []).reduce(
@@ -773,7 +783,7 @@ export function AddGoodsReceiptDialog() {
       // Chuyển trạng thái sau khi đã có item để tránh lỗi trigger/check trên DB production
       await updateReceipt.mutateAsync({ id: receipt.id, status: "confirmed", total_quantity: computedTotalQuantity });
 
-      toast.success("Đã tạo phiếu nhập kho thành công");
+      toast.success(pc.goodsReceiptCreatedSuccessfully);
       setOpen(false);
       form.reset();
       setImageFile(null);
@@ -796,9 +806,9 @@ export function AddGoodsReceiptDialog() {
       }
 
       if (errorMessage.toLowerCase().includes("row-level security") || errorMessage.toLowerCase().includes("permission")) {
-        toast.error("Bạn không có quyền tạo phiếu nhập kho");
+        toast.error(pc.youDoNotHavePermissionToCreateGoods);
       } else {
-        toast.error(`Không thể tạo phiếu nhập kho: ${errorMessage}`);
+        toast.error(formatText(pc.message161, { v0: errorMessage }));
       }
     }
   };
@@ -829,12 +839,11 @@ export function AddGoodsReceiptDialog() {
       <DialogTrigger asChild>
         <Button>
           <Plus className="h-4 w-4 mr-2" />
-          Tạo Phiếu Nhập
-        </Button>
+           {pc.createReceipt} </Button>
       </DialogTrigger>
       <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Tạo Phiếu Nhập Kho</DialogTitle>
+          <DialogTitle>{pc.createGoodsReceipt}</DialogTitle>
         </DialogHeader>
 
         <Form {...form}>
@@ -846,7 +855,7 @@ export function AddGoodsReceiptDialog() {
                   <Label htmlFor="delivery-note-image" className="cursor-pointer">
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Upload className="h-4 w-4" />
-                      {imageFile ? imageFile.name : batchFiles.length > 0 ? `Đã chọn ${batchFiles.length} file` : "Upload ảnh phiếu giao hàng"}
+                      {imageFile ? imageFile.name : batchFiles.length > 0 ? formatText(pc.message162, { v0: batchFiles.length }) : pc.uploadDeliveryNoteImage}
                     </div>
                   </Label>
                   <Input
@@ -858,8 +867,7 @@ export function AddGoodsReceiptDialog() {
                     onChange={handleInvoiceUpload}
                   />
                   <p className="mt-2 text-xs text-muted-foreground">
-                    Quy định upload: JPG/PNG/WebP/PDF. PDF sẽ tự tách trang để scan. Tối đa {MAX_UPLOAD_FILES} ảnh/lần (sau khi tách PDF), mỗi file tối đa {MAX_FILE_SIZE_MB}MB, tối đa {MAX_PDF_PAGES} trang/PDF.
-                  </p>
+                     {pc.uploadRulesJPGPNGWebPPDFPDFsAre} {MAX_UPLOAD_FILES}  {pc.imagesPerBatchAfterSplittingPDFsMaximumFile} {MAX_FILE_SIZE_MB}{pc.mBMaximum} {MAX_PDF_PAGES}  {pc.pagesPDF} </p>
 
                 </div>
                 
@@ -867,15 +875,13 @@ export function AddGoodsReceiptDialog() {
                 {isScanning && (
                   <Badge variant="secondary" className="flex items-center gap-2">
                     <Loader2 className="h-3 w-3 animate-spin" />
-                    Đang quét...
-                  </Badge>
+                     {pc.scanning} </Badge>
                 )}
                 
                 {scanCompleted && !isScanning && (
                   <Badge variant="secondary" className="flex items-center gap-1 bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
                     <CheckCircle className="h-3 w-3" />
-                    Đã quét
-                  </Badge>
+                     {pc.scanned} </Badge>
                 )}
                 
                 {/* Rescan button - only show after first scan or on error */}
@@ -888,8 +894,7 @@ export function AddGoodsReceiptDialog() {
                     disabled={!imageFile || isScanning}
                   >
                     <Scan className="h-4 w-4 mr-1" />
-                    Quét lại
-                  </Button>
+                     {pc.rescan} </Button>
                 )}
               </div>
               
@@ -897,7 +902,7 @@ export function AddGoodsReceiptDialog() {
               {scanError && (
                 <div className="mt-2 flex items-center gap-2 text-sm text-destructive">
                   <AlertCircle className="h-4 w-4" />
-                  {scanError}
+                  {renderPurchasingMessage(pc, scanError)}
                 </div>
               )}
               
@@ -905,7 +910,7 @@ export function AddGoodsReceiptDialog() {
                 <div className="mt-2">
                   <img
                     src={imagePreview}
-                    alt="Preview"
+                    alt={pc.preview}
                     className="h-20 w-auto rounded border object-contain"
                   />
                 </div>
@@ -915,25 +920,25 @@ export function AddGoodsReceiptDialog() {
             {showBatchPanel && (
               <div className="border rounded-lg p-3 space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="text-sm font-medium">Scan nhiều invoice</div>
+                  <div className="text-sm font-medium">{pc.scanMultipleInvoices}</div>
                   <div className="flex items-center gap-2">
-                    <Button type="button" size="sm" variant="outline" onClick={() => setBatchFiles([])} disabled={isBatchScanning}>Xoá danh sách</Button>
+                    <Button type="button" size="sm" variant="outline" onClick={() => setBatchFiles([])} disabled={isBatchScanning}>{pc.clearList}</Button>
                     <Button type="button" size="sm" variant="outline" onClick={runBatchScan} disabled={isBatchScanning || batchFiles.length===0}>
-                      {isBatchScanning ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" /> Đang quét...</> : <>Bắt đầu scan</>}
+                      {isBatchScanning ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" />  {pc.scanning}</> : <>{pc.startScan}</>}
                     </Button>
-                    <Button type="button" size="sm" onClick={applyBatchResults} disabled={isBatchScanning || !batchFiles.some(f => f.status === "success")}>Áp dụng kết quả batch</Button>
+                    <Button type="button" size="sm" onClick={applyBatchResults} disabled={isBatchScanning || !batchFiles.some(f => f.status === "success")}>{pc.applyBatchResults}</Button>
                   </div>
                 </div>
 
-                <div className="text-xs text-muted-foreground">Tiến độ: {batchProgress.done}/{batchProgress.total || batchFiles.length}</div>
+                <div className="text-xs text-muted-foreground">{pc.progress} {batchProgress.done}/{batchProgress.total || batchFiles.length}</div>
 
                 <div className="max-h-48 overflow-auto border rounded-md">
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>File</TableHead>
-                        <TableHead>Trạng thái</TableHead>
-                        <TableHead>KQ</TableHead>
+                        <TableHead>{pc.file}</TableHead>
+                        <TableHead>{pc.status}</TableHead>
+                        <TableHead>{pc.result}</TableHead>
                         <TableHead className="w-[140px]"></TableHead>
                       </TableRow>
                     </TableHeader>
@@ -942,14 +947,14 @@ export function AddGoodsReceiptDialog() {
                         <TableRow key={f.id}>
                           <TableCell className="text-xs">{f.file.name}</TableCell>
                           <TableCell>
-                            <Badge variant={f.status === "success" ? "secondary" : f.status === "error" ? "destructive" : "outline"}>{f.status}</Badge>
+                            <Badge variant={f.status === "success" ? "secondary" : f.status === "error" ? "destructive" : "outline"}>{batchStatusLabels[f.status]}</Badge>
                           </TableCell>
                           <TableCell className="text-xs">
-                            {f.status === "success" ? `${f.matchedItems?.length || 0} dòng` : (f.error || "-")}
+                            {f.status === "success" ? formatText(pc.message163, { v0: f.matchedItems?.length || 0 }) : (renderPurchasingMessage(pc, f.error) || "-")}
                           </TableCell>
                           <TableCell className="space-x-1">
-                            <Button type="button" size="sm" variant="outline" onClick={() => setBatchFiles((prev) => prev.map((x) => x.id===f.id ? ({...x,status:'queued',error:undefined}) : x))} disabled={isBatchScanning}>Quét lại</Button>
-                            <Button type="button" size="sm" variant="ghost" onClick={() => setBatchFiles((prev) => prev.filter((x) => x.id!==f.id))} disabled={isBatchScanning}>Bỏ</Button>
+                            <Button type="button" size="sm" variant="outline" onClick={() => setBatchFiles((prev) => prev.map((x) => x.id===f.id ? ({...x,status:'queued',error:undefined}) : x))} disabled={isBatchScanning}>{pc.rescan}</Button>
+                            <Button type="button" size="sm" variant="ghost" onClick={() => setBatchFiles((prev) => prev.filter((x) => x.id!==f.id))} disabled={isBatchScanning}>{pc.skip}</Button>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -958,10 +963,10 @@ export function AddGoodsReceiptDialog() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                  <div className="text-xs text-muted-foreground">Nếu batch có nhiều NCC, chọn NCC mục tiêu trước khi áp dụng:</div>
+                  <div className="text-xs text-muted-foreground">{pc.ifTheBatchHasMultipleSuppliersSelectThe}</div>
                   <Select value={batchSupplierId} onValueChange={setBatchSupplierId}>
                     <SelectTrigger>
-                      <SelectValue placeholder="(Tuỳ chọn) Chọn NCC cho batch" />
+                      <SelectValue placeholder={pc.optionalSelectBatchSupplier} />
                     </SelectTrigger>
                     <SelectContent>
                       {suppliers?.map((supplier) => (
@@ -980,11 +985,11 @@ export function AddGoodsReceiptDialog() {
                 name="supplier_id"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Nhà cung cấp</FormLabel>
+                    <FormLabel>{pc.suppliers}</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder="Chọn nhà cung cấp" />
+                          <SelectValue placeholder={pc.selectSupplier} />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
@@ -1005,7 +1010,7 @@ export function AddGoodsReceiptDialog() {
                 name="receipt_date"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Ngày nhận hàng</FormLabel>
+                    <FormLabel>{pc.receiptDate2}</FormLabel>
                     <FormControl>
                       <Input type="date" {...field} />
                     </FormControl>
@@ -1017,17 +1022,17 @@ export function AddGoodsReceiptDialog() {
 
             {scanSupplierInfo?.detected && (
               <div className="rounded-md border border-muted bg-muted/30 p-2 text-xs text-muted-foreground">
-                <span className="font-medium text-foreground">NCC quét được:</span> {scanSupplierInfo.detected}
+                <span className="font-medium text-foreground">{pc.scannedSupplier}</span> {scanSupplierInfo.detected}
                 {scanSupplierInfo.matched ? (
                   <>
                     <span className="mx-2">→</span>
-                    <span className="font-medium text-foreground">Đã chọn:</span> {scanSupplierInfo.matched}
+                    <span className="font-medium text-foreground">{pc.selected}</span> {scanSupplierInfo.matched}
                     {scanSupplierInfo.source ? (
-                      <Badge variant="secondary" className="ml-2">match: {scanSupplierInfo.source}</Badge>
+                      <Badge variant="secondary" className="ml-2">{pc.match} {scanSupplierInfo.source}</Badge>
                     ) : null}
                   </>
                 ) : (
-                  <Badge variant="outline" className="ml-2">chưa match NCC</Badge>
+                  <Badge variant="outline" className="ml-2">{pc.supplierNotMatched}</Badge>
                 )}
               </div>
             )}
@@ -1035,7 +1040,7 @@ export function AddGoodsReceiptDialog() {
             {/* Items Table */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label>Danh sách sản phẩm</Label>
+                <Label>{pc.productList}</Label>
                 <Button
                   type="button"
                   variant="outline"
@@ -1045,20 +1050,19 @@ export function AddGoodsReceiptDialog() {
                   }
                 >
                   <Plus className="h-4 w-4 mr-1" />
-                  Thêm
-                </Button>
+                   {pc.add} </Button>
               </div>
 
               <div className="border rounded-lg overflow-x-auto">
                 <Table className="min-w-[1100px]">
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-[32%]">Sản phẩm</TableHead>
-                      <TableHead className="w-[16%]">SKU</TableHead>
-                      <TableHead className="w-[10%]">Số lượng</TableHead>
-                      <TableHead className="w-[10%]">Đơn vị</TableHead>
-                      <TableHead className="w-[13%]">NSX</TableHead>
-                      <TableHead className="w-[13%]">HSD</TableHead>
+                      <TableHead className="w-[32%]">{pc.product}</TableHead>
+                      <TableHead className="w-[16%]">{pc.fieldSKU}</TableHead>
+                      <TableHead className="w-[10%]">{pc.quantity}</TableHead>
+                      <TableHead className="w-[10%]">{pc.unit}</TableHead>
+                      <TableHead className="w-[13%]">{pc.manufactured}</TableHead>
+                      <TableHead className="w-[13%]">{pc.expiry}</TableHead>
                       <TableHead className="w-[5%]"></TableHead>
                     </TableRow>
                   </TableHeader>
@@ -1072,7 +1076,7 @@ export function AddGoodsReceiptDialog() {
                           <TableCell>
                             <Input
                               {...form.register(`items.${index}.product_name`)}
-                              placeholder="Tên sản phẩm"
+                              placeholder={pc.productName}
                             />
                           </TableCell>
                           <TableCell>
@@ -1084,8 +1088,7 @@ export function AddGoodsReceiptDialog() {
                             ) : hasNoSku ? (
                               <Badge variant="destructive" className="flex items-center gap-1">
                                 <AlertCircle className="h-3 w-3" />
-                                Chưa có SKU
-                              </Badge>
+                                 {pc.noSKU} </Badge>
                             ) : (
                               <span className="text-muted-foreground text-sm">-</span>
                             )}
@@ -1151,11 +1154,9 @@ export function AddGoodsReceiptDialog() {
                     <AlertCircle className="h-5 w-5 text-yellow-600 mt-0.5" />
                     <div className="text-sm">
                       <p className="font-medium text-yellow-800 dark:text-yellow-200">
-                        Có {newSkuItems.length} sản phẩm chưa có SKU
-                      </p>
+                         {pc.thereAre} {newSkuItems.length}  {pc.productsWithoutSKUs} </p>
                       <p className="text-yellow-700 dark:text-yellow-300">
-                        Phiếu nhập kho chỉ nhận SKU nguyên vật liệu. Vui lòng vào trang SKU để tạo mã SKU NVL trước.
-                      </p>
+                         {pc.goodsReceiptsAcceptOnlyMaterialSKUsCreateMaterial} </p>
                     </div>
                   </div>
                 </div>
@@ -1165,7 +1166,7 @@ export function AddGoodsReceiptDialog() {
             {/* Summary */}
             <div className="bg-muted/50 rounded-lg p-4">
               <div className="flex justify-between items-center">
-                <span className="font-medium">Tổng số lượng:</span>
+                <span className="font-medium">{pc.totalQuantity}</span>
                 <span className="text-lg font-bold">{totalQuantity.toLocaleString("vi-VN")}</span>
               </div>
             </div>
@@ -1176,9 +1177,9 @@ export function AddGoodsReceiptDialog() {
               name="notes"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Ghi chú</FormLabel>
+                  <FormLabel>{pc.notes}</FormLabel>
                   <FormControl>
-                    <Textarea {...field} placeholder="Ghi chú thêm..." />
+                    <Textarea {...field} placeholder={pc.additionalNotes} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -1197,8 +1198,7 @@ export function AddGoodsReceiptDialog() {
                 {createReceipt.isPending || createItem.isPending ? (
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                 ) : null}
-                Tạo Phiếu Nhập
-              </Button>
+                 {pc.createReceipt} </Button>
             </div>
           </form>
         </Form>

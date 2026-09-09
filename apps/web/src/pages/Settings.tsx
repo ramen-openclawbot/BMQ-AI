@@ -1,3 +1,4 @@
+import { usePeopleCopy } from "@/hooks/usePeopleCopy";
 import { useState, useEffect } from "react";
 import { User, Bell, Shield, Palette, Globe, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -17,6 +18,7 @@ import {
 } from "@/components/ui/select";
 
 const Settings = () => {
+  const pc = usePeopleCopy();
   const { user, profile, signOut, refreshProfile } = useAuth();
   const { language, setLanguage, t } = useLanguage();
   const [displayName, setDisplayName] = useState("");
@@ -46,7 +48,7 @@ const Settings = () => {
   };
 
   return (
-    <div className="space-y-6 max-w-2xl">
+    <div data-i18n-version="d-people-v1" className="space-y-6 max-w-2xl">
       <div>
          <h1 className="text-3xl font-display font-bold text-foreground">
            {t.settingsTitle}
@@ -58,10 +60,10 @@ const Settings = () => {
 
       <div className="sticky top-2 z-10 rounded-lg border border-border bg-background/95 backdrop-blur p-2">
         <div className="flex gap-2 overflow-x-auto whitespace-nowrap">
-          <a href="#profile" className="text-xs px-3 py-1.5 rounded-md hover:bg-accent">Hồ sơ</a>
-          <a href="#language" className="text-xs px-3 py-1.5 rounded-md hover:bg-accent">Ngôn ngữ</a>
-          <a href="#appearance" className="text-xs px-3 py-1.5 rounded-md hover:bg-accent">Giao diện</a>
-          <a href="#security" className="text-xs px-3 py-1.5 rounded-md hover:bg-accent">Bảo mật</a>
+          <a href="#profile" className="text-xs px-3 py-1.5 rounded-md hover:bg-accent">{pc("profile")}</a>
+          <a href="#language" className="text-xs px-3 py-1.5 rounded-md hover:bg-accent">{pc("language")}</a>
+          <a href="#appearance" className="text-xs px-3 py-1.5 rounded-md hover:bg-accent">{pc("appearance")}</a>
+          <a href="#security" className="text-xs px-3 py-1.5 rounded-md hover:bg-accent">{pc("security")}</a>
         </div>
       </div>
 
@@ -151,13 +153,9 @@ const Settings = () => {
           <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-muted/30 p-4">
             <div>
               <p className="font-medium">{t.darkMode}</p>
-              <p className="text-sm text-muted-foreground">
-                Tạm thời tắt để tập trung phát triển light mode và đồng bộ theme chung.
-              </p>
+              <p className="text-sm text-muted-foreground"> {pc("temporarilyDisabledWhileLightModeAndThe")} </p>
             </div>
-            <span className="rounded-full border border-border bg-background px-3 py-1 text-xs font-semibold text-muted-foreground">
-              Light mode
-            </span>
+            <span className="rounded-full border border-border bg-background px-3 py-1 text-xs font-semibold text-muted-foreground"> {pc("lightMode")} </span>
           </div>
       </div>
 
@@ -187,18 +185,14 @@ const Settings = () => {
         <Separator />
         <div className="flex items-center justify-between">
           <div>
-            <p className="font-medium">Reload Page</p>
-            <p className="text-sm text-muted-foreground">
-              If you're experiencing display issues, try reloading the page.
-            </p>
+            <p className="font-medium">{pc("reloadPage")}</p>
+            <p className="text-sm text-muted-foreground"> {pc("ifYouReExperiencingDisplayIssuesTry")} </p>
           </div>
           <Button 
             variant="outline" 
             onClick={() => window.location.reload()}
           >
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Reload
-          </Button>
+            <RefreshCw className="h-4 w-4 mr-2" /> {pc("reload")} </Button>
         </div>
       </div>
 

@@ -1,3 +1,5 @@
+import { usePeopleLabels } from "@/hooks/usePeopleLabels";
+import { showPeopleToast, PeopleLocalError, peopleErrorDescription, peopleToast, usePeopleCopy } from "@/hooks/usePeopleCopy";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
@@ -10,7 +12,6 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useToast } from "@/hooks/use-toast";
 import { CalendarClock, QrCode, Loader2, Users, PencilLine, Lock, LockOpen, CircleCheckBig, CalendarRange, Radar } from "lucide-react";
 import ShiftPlannerGrid from "@/components/attendance/ShiftPlannerGrid";
 
@@ -142,9 +143,10 @@ const PROVENANCE_ATTENDANCE_RECORD_SELECT = `${LEGACY_ATTENDANCE_RECORD_SELECT},
 
 
 export default function AttendanceManagement() {
+  const pc = usePeopleCopy();
+  const labels = usePeopleLabels();
   const { language } = useLanguage();
   const { canEditModule } = useAuth();
-  const { toast } = useToast();
   const queryClient = useQueryClient();
   const isVi = language === "vi";
   const canEdit = canEditModule("attendance");
@@ -167,58 +169,56 @@ export default function AttendanceManagement() {
   const [pilotOffset, setPilotOffset] = useState(0);
 
   const copy = useMemo(() => ({
-    title: isVi ? "Chấm công" : "Attendance",
-    description: isVi
-      ? "Ghi nhận chấm công và console vận hành cho HR"
-      : "Attendance capture and HR operations console",
-    capture: isVi ? "Ghi nhận check-in/out" : "Capture check-in/out",
-    records: isVi ? "Bảng công theo ngày" : "Daily attendance records",
-    events: isVi ? "Nhật ký sự kiện" : "Attendance events",
-    planner: isVi ? "Xếp ca" : "Shift planner",
-    employeeCode: isVi ? "Mã nhân viên" : "Employee code",
-    employeeName: isVi ? "Tên nhân viên" : "Employee name",
-    workDate: isVi ? "Ngày làm việc" : "Work date",
-    checkIn: isVi ? "Check-in" : "Check-in",
-    checkOut: isVi ? "Check-out" : "Check-out",
-    submit: isVi ? "Ghi nhận" : "Capture event",
-    noData: isVi ? "Chưa có dữ liệu" : "No data yet",
-    missing: isVi ? "Thiếu" : "Missing",
-    locked: isVi ? "Đã chốt" : "Locked",
-    periodOps: isVi ? "Kỳ công" : "Attendance period",
-    periodOpsDesc: isVi ? "Tạo kỳ mới và khóa/chốt theo phạm vi ngày" : "Create period and control lock/close by date range",
-    currentPeriod: isVi ? "Kỳ hiện tại" : "Current period",
-    noPeriod: isVi ? "Chưa có kỳ cho ngày đang chọn" : "No period for selected date",
-    periodName: isVi ? "Tên kỳ" : "Period name",
-    dateFrom: isVi ? "Từ ngày" : "Date from",
-    dateTo: isVi ? "Đến ngày" : "Date to",
-    periodNotes: isVi ? "Ghi chú kỳ" : "Period notes",
-    openPeriod: isVi ? "Mở kỳ" : "Open period",
-    lockPeriod: isVi ? "Khóa kỳ" : "Lock period",
-    closePeriod: isVi ? "Chốt kỳ" : "Close period",
-    reopenPeriod: isVi ? "Mở lại kỳ" : "Reopen period",
-    open: isVi ? "Đang mở" : "Open",
-    close: isVi ? "Đã chốt" : "Closed",
-    periodBlockedCapture: isVi ? "Ngày này thuộc kỳ đã khóa/chốt, không thể ghi nhận sự kiện." : "Selected date is in a locked/closed period, event capture is disabled.",
-    periodBlockedAdjust: isVi ? "Ngày này thuộc kỳ đã khóa/chốt, không thể chỉnh công." : "Selected date is in a locked/closed period, attendance adjustment is disabled.",
-    periodRequired: isVi ? "Cần tạo kỳ công trước khi thao tác." : "Create a period first before operations.",
-    pilotDashboard: isVi ? "Pilot GPS" : "GPS pilot",
-    pilotDashboardDesc: isVi ? "Theo dõi chất lượng chấm công GPS, đối soát ngoại lệ và không hiển thị tọa độ thô." : "Monitor GPS attendance quality, reconcile exceptions, and avoid raw coordinate exposure.",
-    dateRange: isVi ? "Khoảng ngày" : "Date range",
-    actorType: isVi ? "Loại nhân sự" : "Actor type",
-    geofence: isVi ? "Địa điểm/geofence" : "Location/geofence",
-    decision: isVi ? "Kết quả" : "Decision",
-    allActors: isVi ? "Tất cả nhân sự" : "All actors",
-    allDecisions: isVi ? "Tất cả kết quả" : "All decisions",
-    reportStaff: isVi ? "Nhân viên điểm bán" : "Kiosk staff",
-    deliveryStaff: isVi ? "Nhân viên giao hàng" : "Delivery staff",
-    accepted: isVi ? "Đạt" : "Accepted",
-    rejected: isVi ? "Từ chối" : "Rejected",
-    successRate: isVi ? "Tỷ lệ đạt" : "Success rate",
-    lowAccuracy: isVi ? "GPS yếu" : "Low accuracy",
-    outsideRadius: isVi ? "Ngoài bán kính" : "Outside radius",
-    overrides: isVi ? "Override" : "Overrides",
-    duplicate: isVi ? "Đã chấm công" : "Already checked in",
-  }), [isVi]);
+    title: pc("attendance"),
+    description: pc("attendanceCaptureAndHrOperationsConsole"),
+    capture: pc("captureCheckInOut"),
+    records: pc("dailyAttendanceRecords"),
+    events: pc("attendanceEvents"),
+    planner: pc("shiftPlanner"),
+    employeeCode: pc("employeeCode"),
+    employeeName: pc("employeeName"),
+    workDate: pc("workDate"),
+    checkIn: pc("checkIn"),
+    checkOut: pc("checkOut"),
+    submit: pc("captureEvent"),
+    noData: pc("noDataYet"),
+    missing: pc("missingAttendanceFlag"),
+    locked: pc("locked"),
+    periodOps: pc("attendancePeriod"),
+    periodOpsDesc: pc("createPeriodAndControlLockCloseBy"),
+    currentPeriod: pc("currentPeriod"),
+    noPeriod: pc("noPeriodForSelectedDate"),
+    periodName: pc("periodName"),
+    dateFrom: pc("dateFrom"),
+    dateTo: pc("dateTo"),
+    periodNotes: pc("periodNotes"),
+    openPeriod: pc("openPeriod"),
+    lockPeriod: pc("lockPeriod"),
+    closePeriod: pc("closePeriod"),
+    reopenPeriod: pc("reopenPeriod"),
+    open: pc("open"),
+    close: pc("closed"),
+    periodBlockedCapture: pc("selectedDateIsInALockedClosed"),
+    periodBlockedAdjust: pc("selectedDateIsInALockedClosed2"),
+    periodRequired: pc("createAPeriodFirstBeforeOperations"),
+    pilotDashboard: pc("gpsPilot"),
+    pilotDashboardDesc: pc("monitorGpsAttendanceQualityReconcileExceptionsAnd"),
+    dateRange: pc("dateRange"),
+    actorType: pc("actorType"),
+    geofence: pc("locationGeofence"),
+    decision: pc("decision"),
+    allActors: pc("allActors"),
+    allDecisions: pc("allDecisions"),
+    reportStaff: pc("kioskStaff"),
+    deliveryStaff: pc("deliveryStaff"),
+    accepted: pc("accepted"),
+    rejected: pc("rejected"),
+    successRate: pc("successRate"),
+    lowAccuracy: pc("lowAccuracy"),
+    outsideRadius: pc("outsideRadius"),
+    overrides: pc("overrides"),
+    duplicate: pc("alreadyCheckedIn"),
+  }), [pc]);
 
   useEffect(() => {
     setPeriodFrom((prev) => prev || workDate);
@@ -368,7 +368,7 @@ export default function AttendanceManagement() {
     if (reasonCode === "already_checked_in" || reasonCode === "duplicate_accepted") return copy.duplicate;
     if (reasonCode === "low_accuracy") return copy.lowAccuracy;
     if (reasonCode === "outside_radius") return copy.outsideRadius;
-    return reasonCode.replace(/_/g, " ");
+    return labels.reason(reasonCode);
   };
 
   const recomputeRecordForEmployee = async (employeeCodeValue: string) => {
@@ -436,8 +436,8 @@ export default function AttendanceManagement() {
 
   const captureMutation = useMutation({
     mutationFn: async () => {
-      if (!employeeCode.trim()) throw new Error(isVi ? "Thiếu mã nhân viên" : "Employee code is required");
-      if (currentPeriodLocked) throw new Error(copy.periodBlockedCapture);
+      if (!employeeCode.trim()) throw new PeopleLocalError({ key: "employeeCodeIsRequired" });
+      if (currentPeriodLocked) throw new PeopleLocalError({ key: "selectedDateIsInALockedClosed" });
       const now = new Date().toISOString();
       const payload = {
         employee_code: employeeCode.trim(),
@@ -453,7 +453,7 @@ export default function AttendanceManagement() {
       return payload.employee_code;
     },
     onSuccess: async (employeeCodeValue) => {
-      toast({ title: isVi ? "Đã ghi nhận" : "Captured" });
+      showPeopleToast("success", peopleToast("captured"));
       setEmployeeCode("");
       setEmployeeName("");
       await queryClient.invalidateQueries({ queryKey: ["attendance-events", workDate] });
@@ -461,19 +461,17 @@ export default function AttendanceManagement() {
       queryClient.invalidateQueries({ queryKey: ["attendance-records", workDate] });
     },
     onError: (error: any) => {
-      toast({
-        title: isVi ? "Không thể ghi nhận" : "Unable to capture event",
-        description: error?.message || undefined,
-        variant: "destructive",
+      showPeopleToast("error", peopleToast("unableToCaptureEvent"), {
+        description: peopleErrorDescription(error, "pleaseTryAgain"),
       });
     },
   });
 
   const adjustMutation = useMutation({
     mutationFn: async (record: AttendanceRecordRow) => {
-      if (!canEdit) throw new Error(isVi ? "Không có quyền chỉnh công" : "No permission to adjust attendance");
-      if (currentPeriodLocked) throw new Error(copy.periodBlockedAdjust);
-      if (!adjustReason.trim()) throw new Error(isVi ? "Thiếu lý do chỉnh công" : "Adjustment reason is required");
+      if (!canEdit) throw new PeopleLocalError({ key: "noPermissionToAdjustAttendance" });
+      if (currentPeriodLocked) throw new PeopleLocalError({ key: "selectedDateIsInALockedClosed2" });
+      if (!adjustReason.trim()) throw new PeopleLocalError({ key: "adjustmentReasonIsRequired" });
 
       const oldValue = {
         actual_check_in: record.actual_check_in,
@@ -513,23 +511,21 @@ export default function AttendanceManagement() {
     },
     onSuccess: () => {
       setAdjustReason("");
-      toast({ title: isVi ? "Đã chỉnh công" : "Attendance adjusted" });
+      showPeopleToast("success", peopleToast("attendanceAdjusted"));
       queryClient.invalidateQueries({ queryKey: ["attendance-records", workDate] });
     },
     onError: (error: any) => {
-      toast({
-        title: isVi ? "Không thể chỉnh công" : "Unable to adjust attendance",
-        description: error?.message || undefined,
-        variant: "destructive",
+      showPeopleToast("error", peopleToast("unableToAdjustAttendance"), {
+        description: peopleErrorDescription(error, "pleaseTryAgain"),
       });
     },
   });
 
   const createPeriodMutation = useMutation({
     mutationFn: async () => {
-      if (!canEdit) throw new Error(isVi ? "Không có quyền thao tác kỳ công" : "No permission to manage attendance periods");
-      if (!periodFrom || !periodTo) throw new Error(isVi ? "Thiếu ngày bắt đầu/kết thúc" : "Date range is required");
-      if (periodFrom > periodTo) throw new Error(isVi ? "Ngày bắt đầu phải trước ngày kết thúc" : "Date from must be before date to");
+      if (!canEdit) throw new PeopleLocalError({ key: "noPermissionToManageAttendancePeriods" });
+      if (!periodFrom || !periodTo) throw new PeopleLocalError({ key: "dateRangeIsRequired" });
+      if (periodFrom > periodTo) throw new PeopleLocalError({ key: "dateFromMustBeBeforeDateTo" });
 
       const fromCode = periodFrom.replace(/-/g, "");
       const toCode = periodTo.replace(/-/g, "");
@@ -551,23 +547,21 @@ export default function AttendanceManagement() {
     onSuccess: async () => {
       setPeriodName("");
       setPeriodNotes("");
-      toast({ title: isVi ? "Đã mở kỳ công" : "Attendance period opened" });
+      showPeopleToast("success", peopleToast("attendancePeriodOpened"));
       await queryClient.invalidateQueries({ queryKey: ["attendance-periods"] });
       await queryClient.invalidateQueries({ queryKey: ["attendance-current-period", workDate] });
     },
     onError: (error: any) => {
-      toast({
-        title: isVi ? "Không thể mở kỳ công" : "Unable to open attendance period",
-        description: error?.message || undefined,
-        variant: "destructive",
+      showPeopleToast("error", peopleToast("unableToOpenAttendancePeriod"), {
+        description: peopleErrorDescription(error, "pleaseTryAgain"),
       });
     },
   });
 
   const updatePeriodStatusMutation = useMutation({
     mutationFn: async (nextStatus: AttendancePeriodRow["status"]) => {
-      if (!canEdit) throw new Error(isVi ? "Không có quyền thao tác kỳ công" : "No permission to manage attendance periods");
-      if (!currentPeriod) throw new Error(copy.periodRequired);
+      if (!canEdit) throw new PeopleLocalError({ key: "noPermissionToManageAttendancePeriods" });
+      if (!currentPeriod) throw new PeopleLocalError({ key: "createAPeriodFirstBeforeOperations" });
       if (currentPeriod.status === nextStatus) return;
 
       const nowIso = new Date().toISOString();
@@ -621,22 +615,20 @@ export default function AttendanceManagement() {
       }
     },
     onSuccess: async () => {
-      toast({ title: isVi ? "Đã cập nhật kỳ công" : "Attendance period updated" });
+      showPeopleToast("success", peopleToast("attendancePeriodUpdated"));
       await queryClient.invalidateQueries({ queryKey: ["attendance-periods"] });
       await queryClient.invalidateQueries({ queryKey: ["attendance-current-period", workDate] });
       await queryClient.invalidateQueries({ queryKey: ["attendance-records"] });
     },
     onError: (error: any) => {
-      toast({
-        title: isVi ? "Không thể cập nhật kỳ công" : "Unable to update attendance period",
-        description: error?.message || undefined,
-        variant: "destructive",
+      showPeopleToast("error", peopleToast("unableToUpdateAttendancePeriod"), {
+        description: peopleErrorDescription(error, "pleaseTryAgain"),
       });
     },
   });
 
   return (
-    <div className="space-y-6">
+    <div data-i18n-version="d-people-v1" className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">{copy.title}</h1>
         <p className="text-muted-foreground">{copy.description}</p>
@@ -745,25 +737,25 @@ export default function AttendanceManagement() {
       <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">{isVi ? "Tổng bản ghi" : "Total records"}</CardTitle>
+            <CardTitle className="text-sm font-medium">{pc("totalRecords")}</CardTitle>
           </CardHeader>
           <CardContent><div className="text-2xl font-bold">{records.length}</div></CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">{isVi ? "Thiếu check-in/out" : "Missing check-in/out"}</CardTitle>
+            <CardTitle className="text-sm font-medium">{pc("missingCheckInOut")}</CardTitle>
           </CardHeader>
           <CardContent><div className="text-2xl font-bold">{records.filter(r => r.missing_check_in || r.missing_check_out).length}</div></CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">{isVi ? "Đi trễ / về sớm" : "Late / early leave"}</CardTitle>
+            <CardTitle className="text-sm font-medium">{pc("lateEarlyLeave")}</CardTitle>
           </CardHeader>
           <CardContent><div className="text-2xl font-bold">{records.filter(r => r.minutes_late > 0 || r.minutes_early_leave > 0).length}</div></CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">{isVi ? "Sự kiện hôm nay" : "Events today"}</CardTitle>
+            <CardTitle className="text-sm font-medium">{pc("eventsToday")}</CardTitle>
           </CardHeader>
           <CardContent><div className="text-2xl font-bold">{events.length}</div></CardContent>
         </Card>
@@ -774,8 +766,8 @@ export default function AttendanceManagement() {
           <CardTitle className="flex items-center gap-2"><QrCode className="h-5 w-5" /> {copy.capture}</CardTitle>
           <CardDescription>
             {canEdit
-              ? (isVi ? "Shell cho Phase 1, dùng để capture check-in/out trước khi nối QR public flow" : "Phase 1 shell, used to capture check-in/out before connecting public QR flow")
-              : (isVi ? "Bạn chỉ có quyền xem, chưa có quyền chỉnh công" : "You have view-only access, not attendance edit access")}
+              ? (pc("phase1ShellUsedToCaptureCheck"))
+              : (pc("youHaveViewOnlyAccessNotAttendance"))}
           </CardDescription>
           {currentPeriodLocked ? (
             <CardDescription className="text-amber-600 dark:text-amber-400">{copy.periodBlockedCapture}</CardDescription>
@@ -798,15 +790,15 @@ export default function AttendanceManagement() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2"><PencilLine className="h-4 w-4" /> {isVi ? "Chỉnh công nhanh" : "Quick attendance adjustment"}</CardTitle>
-          <CardDescription>{isVi ? "Tạm thời dùng cho quên check-in/out trong Phase 1" : "Temporary Phase 1 flow for missed check-in/out"}</CardDescription>
+          <CardTitle className="text-base flex items-center gap-2"><PencilLine className="h-4 w-4" /> {pc("quickAttendanceAdjustment")}</CardTitle>
+          <CardDescription>{pc("temporaryPhase1FlowForMissedCheck")}</CardDescription>
           {currentPeriodLocked ? (
             <CardDescription className="text-amber-600 dark:text-amber-400">{copy.periodBlockedAdjust}</CardDescription>
           ) : null}
         </CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-[1fr_auto]">
-          <Input placeholder={isVi ? "Lý do chỉnh công" : "Adjustment reason"} value={adjustReason} onChange={(e) => setAdjustReason(e.target.value)} disabled={!canOperateForDate} />
-          <Badge variant="outline">{isVi ? "Apply từ bảng công bên dưới" : "Apply from table below"}</Badge>
+          <Input placeholder={pc("adjustmentReason")} value={adjustReason} onChange={(e) => setAdjustReason(e.target.value)} disabled={!canOperateForDate} />
+          <Badge variant="outline">{pc("applyFromTableBelow")}</Badge>
         </CardContent>
       </Card>
 
@@ -828,11 +820,11 @@ export default function AttendanceManagement() {
                       <TableHead>{copy.employeeCode}</TableHead>
                       <TableHead>{copy.employeeName}</TableHead>
                       <TableHead>{copy.workDate}</TableHead>
-                      <TableHead>Status</TableHead>
+                      <TableHead>{pc("status")}</TableHead>
                       <TableHead>{copy.checkIn}</TableHead>
                       <TableHead>{copy.checkOut}</TableHead>
-                      <TableHead>Source</TableHead>
-                      <TableHead>{isVi ? "Cảnh báo" : "Flags"}</TableHead>
+                      <TableHead>{pc("source")}</TableHead>
+                      <TableHead>{pc("flags")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -843,13 +835,13 @@ export default function AttendanceManagement() {
                         <TableCell className="font-medium">{row.employee_code}</TableCell>
                         <TableCell>{row.employee_name || "-"}</TableCell>
                         <TableCell>{row.work_date}</TableCell>
-                        <TableCell><Badge variant="outline">{row.status}</Badge></TableCell>
+                        <TableCell><Badge variant="outline">{labels.status(row.status)}</Badge></TableCell>
                         <TableCell>{row.actual_check_in ? format(new Date(row.actual_check_in), "HH:mm") : "-"}</TableCell>
                         <TableCell>{row.actual_check_out ? format(new Date(row.actual_check_out), "HH:mm") : "-"}</TableCell>
                         <TableCell>
                           {row.source_type === "mobile_gps" ? (
                             <div className="flex flex-col gap-1 text-xs">
-                              <Badge variant="outline">GPS · {row.source_actor_type || "mobile"}</Badge>
+                              <Badge variant="outline">GPS · {labels.source(row.source_actor_type || "mobile")}</Badge>
                               <span className="text-muted-foreground">
                                 {row.source_distance_m !== null ? `${Math.round(Number(row.source_distance_m))}m` : "-"}
                                 {" / "}
@@ -857,7 +849,7 @@ export default function AttendanceManagement() {
                               </span>
                             </div>
                           ) : row.source_type ? (
-                            <Badge variant="outline">{row.source_type}</Badge>
+                            <Badge variant="outline">{labels.source(row.source_type)}</Badge>
                           ) : "-"}
                         </TableCell>
                         <TableCell>
@@ -867,7 +859,7 @@ export default function AttendanceManagement() {
                             {(row.minutes_late > 0 || row.minutes_early_leave > 0) && <Badge variant="outline">{row.minutes_late}/{row.minutes_early_leave}m</Badge>}
                             {canEdit && (row.missing_check_in || row.missing_check_out) && (
                               <Button size="sm" variant="outline" onClick={() => adjustMutation.mutate(row)} disabled={adjustMutation.isPending || !adjustReason.trim() || !canOperateForDate}>
-                                {isVi ? "Chỉnh" : "Adjust"}
+                                {pc("adjust")}
                               </Button>
                             )}
                           </div>
@@ -890,9 +882,9 @@ export default function AttendanceManagement() {
                     <TableRow>
                       <TableHead>{copy.employeeCode}</TableHead>
                       <TableHead>{copy.employeeName}</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Source</TableHead>
-                      <TableHead>Time</TableHead>
+                      <TableHead>{pc("type")}</TableHead>
+                      <TableHead>{pc("source")}</TableHead>
+                      <TableHead>{pc("time")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -902,8 +894,8 @@ export default function AttendanceManagement() {
                       <TableRow key={row.id}>
                         <TableCell className="font-medium">{row.employee_code}</TableCell>
                         <TableCell>{row.employee_name || "-"}</TableCell>
-                        <TableCell><Badge variant={row.event_type === "check_in" ? "default" : "secondary"}>{row.event_type}</Badge></TableCell>
-                        <TableCell>{row.source}</TableCell>
+                        <TableCell><Badge variant={row.event_type === "check_in" ? "default" : "secondary"}>{labels.source(row.event_type)}</Badge></TableCell>
+                        <TableCell>{labels.source(row.source)}</TableCell>
                         <TableCell>{format(new Date(row.event_time), "yyyy-MM-dd HH:mm:ss")}</TableCell>
                       </TableRow>
                     ))}
@@ -957,7 +949,7 @@ export default function AttendanceManagement() {
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">{isVi ? "Tổng sự kiện GPS" : "GPS events"}</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold">{pilotMetrics.event_count}</div></CardContent></Card>
+                <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">{pc("gpsEvents")}</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold">{pilotMetrics.event_count}</div></CardContent></Card>
                 <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">{copy.accepted} / {copy.rejected}</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold">{pilotMetrics.accepted_count} / {pilotMetrics.rejected_count}</div><div className="text-xs text-muted-foreground">{copy.successRate}: {pilotMetrics.success_rate}%</div></CardContent></Card>
                 <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">{copy.lowAccuracy} / {copy.outsideRadius}</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold">{pilotMetrics.low_accuracy_count} / {pilotMetrics.outside_radius_count}</div></CardContent></Card>
                 <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">{copy.duplicate} / {copy.overrides}</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold">{pilotMetrics.duplicate_count} / {pilotMetrics.override_count}</div></CardContent></Card>
@@ -965,11 +957,11 @@ export default function AttendanceManagement() {
 
               {pilotCapabilityUnavailable ? (
                 <div role="status" className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
-                  {isVi ? "GPS pilot đang chờ backend migration; các tab bảng công/sự kiện/xếp ca vẫn hoạt động." : "GPS pilot is awaiting backend migration; records, events, and planner tabs remain available."}
+                  {pc("gpsPilotIsAwaitingBackendMigrationRecords")}
                 </div>
               ) : pilotAttendanceIsError ? (
                 <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-                  {isVi ? "Không tải được dashboard GPS pilot" : "Unable to load GPS pilot dashboard"}: {pilotAttendanceError instanceof Error ? pilotAttendanceError.message : "unknown_error"}
+                  {pc("unableToLoadGpsPilotDashboard")}: {pilotAttendanceError instanceof Error ? pilotAttendanceError.message : "unknown_error"}
                 </div>
               ) : pilotAttendanceLoading ? (
                 <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin" /></div>
@@ -983,9 +975,9 @@ export default function AttendanceManagement() {
                         <TableHead>{copy.actorType}</TableHead>
                         <TableHead>{copy.geofence}</TableHead>
                         <TableHead>{copy.decision}</TableHead>
-                        <TableHead>{isVi ? "Lý do" : "Reason"}</TableHead>
-                        <TableHead>{isVi ? "Khoảng cách / độ chính xác" : "Distance / accuracy"}</TableHead>
-                        <TableHead>{isVi ? "Dấu hiệu" : "Indicators"}</TableHead>
+                        <TableHead>{pc("reason")}</TableHead>
+                        <TableHead>{pc("distanceAccuracy")}</TableHead>
+                        <TableHead>{pc("indicators")}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -996,11 +988,11 @@ export default function AttendanceManagement() {
                           <TableCell className="whitespace-nowrap">{row.work_date}</TableCell>
                           <TableCell><div className="font-medium">{row.employee_name || "-"}</div><div className="text-xs text-muted-foreground">{row.employee_code}</div></TableCell>
                           <TableCell><Badge variant="outline">{row.actor_type === "report_staff" ? copy.reportStaff : copy.deliveryStaff}</Badge></TableCell>
-                          <TableCell><div>{row.geofence_name || row.geofence_code || "-"}</div><div className="text-xs text-muted-foreground">{row.geofence_location_type || "-"}{row.geofence_radius_m !== null ? ` · ${Math.round(Number(row.geofence_radius_m))}m` : ""}</div></TableCell>
+                          <TableCell><div>{row.geofence_name || row.geofence_code || "-"}</div><div className="text-xs text-muted-foreground">{labels.location(row.geofence_location_type || "-")}{row.geofence_radius_m !== null ? ` · ${Math.round(Number(row.geofence_radius_m))}m` : ""}</div></TableCell>
                           <TableCell><Badge variant={row.decision === "accepted" ? "default" : "destructive"}>{row.decision === "accepted" ? copy.accepted : copy.rejected}</Badge></TableCell>
                           <TableCell>{formatPilotReason(row.reason_code)}</TableCell>
                           <TableCell>{row.distance_m_rounded !== null ? `${Math.round(Number(row.distance_m_rounded))}m` : "-"} / {row.accuracy_m_rounded !== null ? `±${Math.round(Number(row.accuracy_m_rounded))}m` : "±-"}</TableCell>
-                          <TableCell><div className="flex flex-wrap gap-1">{formatPilotReason("already_checked_in") === formatPilotReason(row.reason_code) && <Badge variant="secondary">{copy.duplicate}</Badge>}{row.has_override && <Badge variant="outline">{copy.overrides}</Badge>}</div></TableCell>
+                          <TableCell><div className="flex flex-wrap gap-1">{(row.reason_code === "already_checked_in" || row.reason_code === "duplicate_accepted") && <Badge variant="secondary">{copy.duplicate}</Badge>}{row.has_override && <Badge variant="outline">{copy.overrides}</Badge>}</div></TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -1010,14 +1002,14 @@ export default function AttendanceManagement() {
 
               <div className="flex flex-col gap-2 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  {isVi ? "Hiển thị" : "Showing"} {pilotPagination?.returned_count || 0} / {pilotPagination?.total_count || 0}
+                  {pc("showing")} {pilotPagination?.returned_count || 0} / {pilotPagination?.total_count || 0}
                 </div>
                 <div className="flex gap-2">
                   <Button type="button" variant="outline" size="sm" onClick={() => setPilotOffset(Math.max(0, pilotOffset - (pilotPagination?.limit || 50)))} disabled={pilotOffset === 0 || pilotAttendanceLoading}>
-                    {isVi ? "Trước" : "Previous"}
+                    {pc("previous")}
                   </Button>
                   <Button type="button" variant="outline" size="sm" onClick={() => setPilotOffset(pilotOffset + (pilotPagination?.limit || 50))} disabled={!pilotPagination?.has_next_page || pilotAttendanceLoading}>
-                    {isVi ? "Sau" : "Next"}
+                    {pc("next")}
                   </Button>
                 </div>
               </div>
