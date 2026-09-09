@@ -21,7 +21,7 @@ export function customerAnswer(r:any, kind:string, language:string) {
   let text='';
   if(r.status==='choose_customer') {
     if(!Array.isArray(r.candidates)||!r.candidates.length||r.candidates.length>5)throw new AnalyticsError('invalid_result');
-    text=(en?'Please specify the exact customer code:':'Vui lòng chọn mã khách hàng chính xác:')+'\n'+r.candidates.map(customer).join('\n');
+    text=(en?'Please confirm a customer name or code:':'Vui lòng xác nhận tên hoặc mã khách hàng:')+'\n'+r.candidates.map(customer).join('\n');
   } else if(r.status==='not_found') text=en?'No matching customer found. Please provide the customer code.':'Không tìm thấy khách phù hợp. Vui lòng cung cấp mã khách hàng.';
   else if(r.status==='inactive_customer') text=(en?'Inactive customer: ':'Khách hàng ngừng hoạt động: ')+customer(r.customer);
   else if(r.status==='product_not_unique') text=en?'Product could not be uniquely identified. Please provide the exact SKU code.':'Chưa xác định duy nhất sản phẩm. Vui lòng cung cấp mã SKU chính xác.';
@@ -54,4 +54,35 @@ export function customerAnswer(r:any, kind:string, language:string) {
   }
   if(r.truncated)text+='\n'+(en?'Partial list; not all matching records.':'Danh sách rút gọn, chưa phải toàn bộ bản ghi phù hợp.');
   return text+`\n${en?'Source':'Nguồn'}: ${clean(r.source,300)}\n${en?'Synced':'Đồng bộ lúc'}: ${clean(r.source_observed_at)}`;
+}
+
+// Continuation is a bounded query hint, NEVER identity/permission authority.
+// The authenticated warehouse resolves the selected code/id again against live data.
+export function customerSelection(result:any, request:any) {
+  if(result.status!=='choose_customer') return undefined;
+  customerRequest(request);
+  const candidates=result.candidates.map((c:any)=>({name:c.customer_name,code:c.customer_code || c.id}));
+  const time_range=request.kind==='prices'?'today':`${result.period?.start}/${result.period?.end}`;
+  customerRequest({...request,time_range});
+  return {request:{...request,time_range},candidates};
+}
+export function customerContinuation(question:string, history:{role:string;text:string;customerSelection?:unknown}[]) {
+  // Only the immediately preceding assistant response may offer a selection.
+  const last=history.at(-1);
+  if(last?.role!=='assistant'||!last.customerSelection) return null;
+  try {
+    const state:any=last.customerSelection;
+    if(Object.keys(state).sort().join()!=='candidates,request'||!Array.isArray(state.candidates)||!state.candidates.length||state.candidates.length>5) return null;
+    customerRequest(state.request);
+    if(state.request.kind!=='prices'&&!/^\d{4}-\d{2}-\d{2}\/\d{4}-\d{2}-\d{2}$/.test(state.request.time_range))return null;
+    const normalize=(s:string)=>s.normalize('NFC').toLocaleLowerCase().replace(/[‐‑‒–—]/g,'-').replace(/\s+/g,' ').trim();
+    const text=normalize(question).replace(/[.!]+$/,'');
+    const terms=[text,text.replace(/^(?:đúng là|đúng|chọn|vâng|yes|select|choose)\s*[, :]*\s+/,'')];
+    if(state.candidates.some((c:any)=>!c||Object.keys(c).sort().join()!=='code,name'||[c.name,c.code].some(v=>typeof v!=='string'||!v.trim()||v.length>120||/[\x00-\x1f]/.test(v)))) return null;
+    const matches=state.candidates.filter((c:any)=>terms.some(t=>t===normalize(c.name)||t===normalize(c.code)||t===normalize(`${c.name} (${c.code})`)));
+    if(matches.length!==1)return null;
+    const request={...state.request,customer:matches[0].code};
+    customerRequest(request);
+    return request;
+  } catch { return null; }
 }

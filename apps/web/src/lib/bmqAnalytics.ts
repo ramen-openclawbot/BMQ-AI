@@ -1,12 +1,12 @@
 import { z } from "zod";
 export type AnalyticsCitation = { id: string; title: string; source: string; updated_at: string };
-export type AnalyticsMessage = { id: string; role: "user" | "assistant"; text: string; citations?: AnalyticsCitation[] };
+export type AnalyticsMessage = { id: string; role: "user" | "assistant"; text: string; citations?: AnalyticsCitation[]; customerSelection?: unknown };
 const analyticsResponse = z.object({
   answer: z.string().trim().min(1), requestId: z.string().min(1),
-  provenance: z.object({ lane: z.string(), model: z.string().nullable(), queries: z.array(z.unknown()), citations: z.array(z.object({ id: z.string(), title: z.string(), source: z.string(), updated_at: z.string() })).optional(), elapsedMs: z.number().finite().nonnegative() }),
+  provenance: z.object({ customerSelection: z.unknown().optional(), lane: z.string(), model: z.string().nullable(), queries: z.array(z.unknown()), citations: z.array(z.object({ id: z.string(), title: z.string(), source: z.string(), updated_at: z.string() })).optional(), elapsedMs: z.number().finite().nonnegative() }),
 });
 export function buildAnalyticsRequest(question: string, route: string, label: string, history: AnalyticsMessage[], filters: Record<string, string> = {}, language: "en" | "vi" = "vi") {
-  return { language, question: question.trim(), page: { route, label, filters }, history: history.slice(-6).map(({ role, text }) => ({ role, text: text.slice(0, 2000) })) };
+  return { language, question: question.trim(), page: { route, label, filters }, history: history.slice(-6).map(({ role, text, customerSelection }) => ({ role, text: text.slice(0, 2000), ...(role === "assistant" && customerSelection !== undefined ? {customerSelection} : {}) })) };
 }
 export function parseAnalyticsResponse(data: unknown, language: "en" | "vi" = "vi") {
   const result = analyticsResponse.safeParse(data);

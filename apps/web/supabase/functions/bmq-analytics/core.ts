@@ -5,7 +5,7 @@ export const MODEL = "gpt-5.6-luna";
 export const SEMANTIC_VERSION = "bmq-analytics-v1";
 export const MAX_QUERIES = 4;
 export type Query = { metric: string; dimension: string | null; start: string; end: string; limit: number; sort?: "asc" | "desc" };
-export type Input = { language: "en" | "vi"; question: string; page: { route: string; label: string; filters: Record<string, string> }; history: { role: "user" | "assistant"; text: string }[] };
+export type Input = { language: "en" | "vi"; question: string; page: { route: string; label: string; filters: Record<string, string> }; history: { role: "user" | "assistant"; text: string; customerSelection?: unknown }[] };
 export type Result = { rows: { dimension: string; value: number }[]; source: string; asOf: string; note: string; noteEn?: string };
 export class AnalyticsError extends Error {
   code: string;
@@ -35,9 +35,10 @@ export function parseInput(value: unknown): Input {
   const history = input.history ?? [];
   if (!Array.isArray(history) || history.length > 6) throw new AnalyticsError("history_limit");
   return { language, question: str(input.question, 2000), page: { route, label: str(page.label, 100), filters: filters as Record<string, string> }, history: history.map((item) => {
-    const h = object(item); keys(h, ["role", "text"]);
+    const h = object(item); keys(h, ["role", "text", "customerSelection"]);
+    if (h.customerSelection !== undefined && (h.role !== "assistant" || JSON.stringify(h.customerSelection).length > 5000)) throw new AnalyticsError("invalid_query");
     if (h.role !== "user" && h.role !== "assistant") throw new AnalyticsError("invalid_role");
-    return { role: h.role, text: str(h.text, 2000) };
+    return { role: h.role, text: str(h.text, 2000), ...(h.customerSelection === undefined ? {} : {customerSelection:h.customerSelection}) };
   }) };
 }
 export function vnToday(now = new Date()) { return new Date(now.getTime() + 7 * 3600000).toISOString().slice(0, 10); }

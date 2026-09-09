@@ -643,7 +643,7 @@ export function GlobalAgentChatWidget() {
         if (!active()) return;
         if (error) throw new Error(await readAnalyticsError(error, language));
         const result = parseAnalyticsResponse(data, language);
-        setAnalyticsMessages((current) => [...current, { id: result.requestId, role: "assistant", text: result.answer, citations: result.provenance.citations }]);
+        setAnalyticsMessages((current) => [...current, { id: result.requestId, role: "assistant", text: result.answer, citations: result.provenance.citations, customerSelection: result.provenance.customerSelection }]);
       } catch (error) {
         if (!active()) return;
         setAnalyticsMessages((current) => current.filter((item) => item.id !== id));

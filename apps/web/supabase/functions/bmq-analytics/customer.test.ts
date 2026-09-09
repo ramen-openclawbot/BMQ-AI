@@ -11,7 +11,7 @@ test('closed scope and no historical prices',()=>{
 test('literal factual bilingual answers do not infer checkout or default prices',()=>{
  const vi=customerAnswer(base,'prices','vi');assert.match(vi,/6500.25/);assert.match(vi,/không phải báo giá/);
  const en=customerAnswer({...base,rows:[]},'prices','en');assert.match(en,/no default price substituted/);
- assert.match(customerAnswer({...base,status:'choose_customer',rows:[],candidates:[base.customer]},'prices','en'),/exact customer code/);
+ assert.match(customerAnswer({...base,status:'choose_customer',rows:[],candidates:[base.customer]},'prices','en'),/confirm a customer name or code/);
  assert.throws(()=>customerAnswer({...base,rows:[{...base.rows[0],price:'NaN'}]},'prices','en'));
 });
 test('router preserves customer and performs only typed customer call, no model explanation',async()=>{
@@ -39,4 +39,40 @@ test('NPP period amount is labelled separately from collected outstanding balanc
 test('customers without a code use stable identity, not a null-code rendering failure',()=>{
  const r={...base,customer:{id:'npp-id',customer_name:'Distributor',customer_code:null}};
  assert.match(customerAnswer(r,'prices','en'),/npp-id/);
+});
+
+import {customerContinuation,customerSelection} from './customer.ts';
+const nppRequest={kind:'npp_receivable',customer:'Anh Thanh',product:'',time_range:'2026-09-01/2026-09-07',limit:20};
+const choice={...base,kind:'npp_receivable',status:'choose_customer',rows:[],period:{start:'2026-09-01',end:'2026-09-07'},candidates:[{id:'npp-thanh',customer_name:'Đại lý cấp 1 - Anh Thanh',customer_code:null}]};
+test('two-turn NPP confirmation retains Sep 1-7 and re-queries selected identity without planner',async()=>{
+ const input={question:'Công nợ Anh Thanh 1–7/9',language:'vi',page:{route:'/',label:'Home'},history:[]};
+ const first=await runWarehouse(input,async path=>path==='/v1/semantic'?{metrics:{revenue:{}},customer_lookup:true}:choice,async()=>({value:{lane:'customer',queries:[],search:'',clarification:'',customer_lookup:nppRequest},usage:{input:1,output:1,cached:0}}),new AbortController().signal);
+ assert.match(first.answer,/Đại lý cấp 1 - Anh Thanh/);
+ const history=[{role:'user',text:input.question},{role:'assistant',text:first.answer,customerSelection:first.provenance.customerSelection}];
+ const calls:any[]=[];
+ const second=await runWarehouse({...input,question:'Đúng là Đại lý cấp 1 – Anh Thanh',history},async(path,body)=>{
+  if(path==='/v1/semantic')return {metrics:{revenue:{}},customer_lookup:true};
+  calls.push(body);return {...choice,status:'not_npp'};
+ },async()=>{throw Error('Confirmation must not be reinterpreted by LLM');},new AbortController().signal);
+ assert.deepEqual(calls,[{...nppRequest,customer:'npp-thanh',time_range:{start:'2026-09-01',end:'2026-09-07'}}]);
+ assert.equal(second.provenance.modelCalls,0);
+ assert.match(second.answer,/không phải NPP/); // live data is authoritative, not history
+ assert.equal(second.provenance.customerSelection,undefined);
+});
+test('ambiguous, expired, altered scope and malformed hints do not auto-select',()=>{
+ const state=customerSelection(choice,nppRequest);
+ const history=[{role:'assistant',text:'choose',customerSelection:state}];
+ assert.equal(customerContinuation('Anh Thanh',history),null);
+ assert.equal(customerContinuation('Đại lý cấp 1 - Anh Thanh tháng 8',history),null);
+ assert.equal(customerContinuation('yes',history),null);
+ assert.equal(customerContinuation('Đại lý cấp 1 - Anh Thanh',[...history,{role:'assistant',text:'new topic'}]),null);
+ assert.equal(customerContinuation('Đại lý cấp 1 - Anh Thanh',[{...history[0],customerSelection:{...state,candidates:[...state.candidates,...state.candidates]}}]),null);
+ assert.equal(customerContinuation('Đại lý cấp 1 - Anh Thanh',[{...history[0],customerSelection:{...state,request:{...state.request,tenant:'other'}}}]),null);
+ assert.equal(customerContinuation('Đại lý cấp 1 - Anh Thanh',[{...history[0],role:'user'}]),null);
+});
+test('relative request stores concrete source period, price context keeps product and limit',()=>{
+ const state=customerSelection(choice,{...nppRequest,time_range:'this_week'});
+ assert.equal(state.request.time_range,'2026-09-01/2026-09-07');
+ const prices=customerSelection({...choice,kind:'prices'},{...q,product:'BMQ-001',limit:3});
+ assert.deepEqual(customerContinuation('npp-thanh',[{role:'assistant',text:'choose',customerSelection:prices}]),{...q,customer:'npp-thanh',product:'BMQ-001',limit:3});
 });

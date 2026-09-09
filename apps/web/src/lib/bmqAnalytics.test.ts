@@ -57,3 +57,14 @@ test("UI error copy follows language switches in both directions",()=>{
   const en=chatText(vi,"en"); assert.match(en,/sign in again/);assert.equal(chatText(en,"vi"),vi);
   assert.equal(chatText("constructor","en"),"constructor");
 });
+
+test('customer choice survives response parsing and next request without changing visible history',()=>{
+  const customerSelection={request:{kind:'npp_receivable',customer:'Thanh',product:'',time_range:'2026-09-01/2026-09-07',limit:20},candidates:[{name:'Đại lý cấp 1 - Anh Thanh',code:'npp-thanh'}]};
+  const response=parseAnalyticsResponse({answer:'Chọn khách',requestId:'r1',provenance:{lane:'customer',model:null,queries:[],elapsedMs:2,customerSelection}});
+  const message:AnalyticsMessage={id:response.requestId,role:'assistant',text:response.answer,customerSelection:response.provenance.customerSelection};
+  const request=buildAnalyticsRequest('Đại lý cấp 1 - Anh Thanh','/','Home',[message],{},'vi');
+  assert.deepEqual(request.history[0].customerSelection,customerSelection);
+  assert.equal(request.history[0].text,'Chọn khách');
+  assert.equal(buildAnalyticsRequest('x','/','Home',[{...message,role:'user'}]).history[0].customerSelection,undefined);
+  assert.equal(parseAnalyticsResponse({answer:'Done',requestId:'r2',provenance:{lane:'customer',model:null,queries:[],elapsedMs:2}}).provenance.customerSelection,undefined);
+});
