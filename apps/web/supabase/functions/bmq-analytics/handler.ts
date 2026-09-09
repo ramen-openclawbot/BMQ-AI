@@ -1,4 +1,4 @@
-import { AnalyticsError, ResultCache } from "./core.ts";
+import { AnalyticsError, ResultCache, parseInput } from "./core.ts";
 import { runAnalytics, type Dependencies } from "./service.ts";
 import { runWarehouse } from "./warehouse.ts";
 import { warehouseClient, WarehouseError, warehouseMessage } from "../_shared/warehouse.ts";
@@ -74,8 +74,17 @@ export function createHandler(config: Config) {
       rate.set(key, quota); active.add(key); ownerKey = key;
       const raw = await readBody(req, signal);
       if (raw?.language === "en" || raw?.language === "vi") english = raw.language === "en";
+      // Read-only owner activation check works before switching the normal chat lane.
+      // Never manufacture an owner token or use service-role access for this check.
+      if (config.warehouse && /^(kiểm tra kết nối kho|check warehouse connection)$/i.test(String(raw?.question ?? '').trim())) {
+        const input = parseInput(raw);
+        if(Object.keys(input.page.filters).length) throw new AnalyticsError("invalid_filters");
+        const result = await runWarehouse({...input,question:"dealer order count today",history:[]}, warehouseClient(config.warehouse.url(),req.headers.get("authorization")!,signal),config.model,signal,identity.query);
+        config.audit({event:"bmq_warehouse_owner_check",userId:identity.scope.user,requestId:result.requestId,success:true});
+        return json({...result,answer:(english?"Warehouse connection verified for your owner session.\n\n":"Đã xác minh kết nối kho bằng phiên owner của anh.\n\n")+result.answer});
+      }
       const result = config.warehouse?.enabled()
-        ? await runWarehouse(raw, warehouseClient(config.warehouse.url(), req.headers.get("authorization")!, signal), config.model, signal)
+        ? await runWarehouse(raw, warehouseClient(config.warehouse.url(), req.headers.get("authorization")!, signal), config.model, signal, identity.query)
         : await runAnalytics(raw, { ...identity, model: config.model, cache }, signal);
       signal.throwIfAborted();
       const { lane, model, elapsedMs, modelCalls, usage } = result.provenance;

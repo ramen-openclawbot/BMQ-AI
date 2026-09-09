@@ -163,6 +163,10 @@ def create_app(warehouse: Warehouse | None = None, authenticator=None):
 
     @app.get('/v1/semantic')
     def semantic(principal: Principal = Depends(authenticator)):
+        from .bmq_semantic import catalog
+        from .supabase_sync import TENANT
+        if principal.tenant == TENANT:
+            return catalog()
         return yaml.safe_load((CONFIG_DIR / 'semantic.yaml').read_text())
 
     @app.post('/v1/ingest')

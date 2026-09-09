@@ -71,3 +71,35 @@ test('unknown aggregate from missing cost is unavailable, never zero or invalid 
   assert.match(result.answer,language==='en'?/Not available/:/Chưa có dữ liệu/);assert.doesNotMatch(result.answer,/0 VND/);
  }
 });
+
+test('existing revenue fast path retains live contract even when warehouse offline',async()=>{
+ let reads=0;
+ const result=await runWarehouse({...input,question:'revenue today'},async()=>{throw Error('offline')},async()=>{throw Error('no model')},signal,async(q)=>{reads++;assert.equal(q.metric,'controlled_revenue');return {rows:[{dimension:'Total',value:123}],source:'live-controlled',asOf:'now',note:'controlled',noteEn:'not net revenue'};});
+ assert.equal(reads,1);assert.match(result.answer,/not net revenue/);assert.equal(result.provenance.modelCalls,0);
+});
+test('operational count uses warehouse and visible watermark, not currency unit',async()=>{
+ const c={version:'bmq-operational-v1',metrics:{dealer_order_count:{label:'Dealer orders',label_vi:'Số đơn đại lý',unit:'count'}},dimensions:{date:'date'}};
+ const result=await runWarehouse({...input,question:'dealer order count today'},async(path)=>path==='/v1/semantic'?c:{rows:[{dealer_order_count:8,currency:'VND'}],source:'Supabase.dealer_orders',source_observed_at:'2026-09-09T05:42:00Z',snapshot_id:'s1',definition:'not revenue'},async()=>{throw Error('no model')},signal);
+ assert.match(result.answer,/8 records/);assert.match(result.answer,/05:42/);assert.match(result.answer,/not revenue/);assert.equal(result.provenance.evidence.length,1);
+});
+test('legacy semantic query keeps validation including snapshot historical rejection',async()=>{
+ const plan={lane:'semantic',queries:[{metric:'supplier_debt',time_range:'yesterday',dimensions:[],limit:20}],search:'',clarification:''};
+ await assert.rejects(()=>runWarehouse(input,async()=>structuredClone(catalog),async()=>({value:plan,usage}),signal,async()=>{throw Error('should not read')}),/snapshot_only/);
+});
+test('mixed analysis preserves separate data sources within two model calls',async()=>{
+ let round=0, live=0;
+ const result=await runWarehouse(input,async(path)=>path==='/v1/semantic'?{metrics:{dealer_order_count:{label:'Dealer count',unit:'count'}},dimensions:{date:'date'}}:{rows:[{dealer_order_count:2,currency:'VND'}],source:'Supabase.dealer_orders',source_observed_at:'2026-09-09T05:42:00Z',snapshot_id:'s1',definition:'not revenue'},async()=>({value:++round===1?{lane:'agentic',queries:[{metric:'dealer_order_count',time_range:'today',dimensions:[],limit:20},{metric:'purchase_order_count',time_range:'today',dimensions:[],limit:20}],search:'',clarification:''}:{answer:'Two separate measures [1] [2].'},usage}),signal,async()=>{live++;return {rows:[{dimension:'Total',value:1}],source:'purchase_orders',asOf:'now',note:'PO',noteEn:'purchase orders, not sales'};});
+ assert.equal(round,2);assert.equal(live,1);assert.equal(result.provenance.evidence.length,2);assert.match(result.answer,/purchase orders, not sales/);
+});
+
+test('owner readiness probe works with normal warehouse lane disabled and never calls model',async(t)=>{
+ const {createHandler}=await import('./handler.ts');
+ let reads=0;
+ t.mock.method(globalThis,'fetch',async(url:any,options:any)=>{
+  reads++;assert.equal(options.headers.Authorization,'Bearer fixture-owner');
+  return new Response(JSON.stringify(String(url).endsWith('/v1/semantic')?{metrics:{dealer_order_count:{label:'Dealer count',unit:'count'}},dimensions:{date:'date'}}:{rows:[{dealer_order_count:1,currency:'VND'}],source:'Supabase.dealer_orders',source_observed_at:'2026-09-09T05:42:00Z',definition:'not revenue',snapshot_id:'test'}));
+ });
+ const h=createHandler({enabled:()=>true,warehouse:{enabled:()=>false,url:()=> 'https://warehouse.test'},authenticate:async()=>({scope:{tenant:'bmq',user:'u1',permission:'owner'},query:async()=>{throw Error('not live')}}),model:async()=>{throw Error('no model')},audit:()=>{}});
+ const r=await h(new Request('https://test',{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer fixture-owner'},body:JSON.stringify({...input,question:'Check warehouse connection'})}));
+ assert.equal(r.status,200);assert.match((await r.json()).answer,/verified for your owner session/);assert.equal(reads,2);
+});

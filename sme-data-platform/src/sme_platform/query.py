@@ -40,6 +40,9 @@ class QueryEngine:
     def execute(self,dsl,tenant_id,permission_scope='owner'):
         safe_name(tenant_id)
         if not isinstance(permission_scope,str) or (permission_scope!='owner' and not permission_scope.startswith('owner:')):raise PermissionError('Owner analytics only')
+        from . import bmq_semantic
+        if isinstance(dsl,dict) and isinstance(dsl.get('metric'),str) and dsl['metric'] in bmq_semantic.METRICS:
+            return bmq_semantic.execute(self,dsl,tenant_id,permission_scope)
         if not isinstance(dsl,dict) or set(dsl)-{'metric','dimensions','filters','time_range','comparison','sort','limit'}:raise ValueError('Unknown DSL field')
         metric=dsl.get('metric')
         if not isinstance(metric,str) or metric not in self.semantic['metrics']:raise ValueError('Unknown metric')
