@@ -7,7 +7,7 @@ import unicodedata
 
 from .supabase_sync import TENANT
 
-VERSION = 'bmq-customer-v1'
+VERSION = 'bmq-customer-v2'
 
 
 def normalized(value):
@@ -20,12 +20,12 @@ def execute(engine, body, tenant, permission):
     if not isinstance(body, dict) or set(body) != {'kind', 'customer', 'product', 'time_range', 'limit'}:
         raise ValueError('Invalid customer lookup')
     kind = body['kind']
-    if kind not in {'prices', 'orders'}:
+    if kind not in {'prices', 'orders', 'npp_receivable'}:
         raise ValueError('Invalid lookup kind')
     for field in ('customer', 'product'):
         if not isinstance(body[field], str) or len(body[field]) > 120 or any(ord(c) < 32 for c in body[field]):
             raise ValueError('Invalid entity')
-    if not normalized(body['customer']) or (kind == 'orders' and body['product'].strip()):
+    if not normalized(body['customer']) or (kind != 'prices' and body['product'].strip()):
         raise ValueError('Customer required; product-scoped orders unsupported')
     limit = body['limit']
     if type(limit) != int or not 1 <= limit <= 20:
@@ -34,6 +34,8 @@ def execute(engine, body, tenant, permission):
     if kind == 'prices' and (start, end) != engine._period('today'):
         raise ValueError('Price history unavailable')
     needed = {'mini_crm_customers', 'mini_crm_customer_price_list', 'product_skus'} if kind == 'prices' else {'mini_crm_customers', 'dealer_orders'}
+    if kind == 'npp_receivable':
+        needed = {'mini_crm_customers', 'revenue_ledger_lines'}
     w = engine.warehouse
     with w.lock(write=False), w.connect(read_only=True) as con:
         con.execute('SET enable_external_access=false')
@@ -52,7 +54,7 @@ def execute(engine, body, tenant, permission):
             if not all(t in tables and tables[t].get('reconciled') is True for t in needed):
                 raise RuntimeError('Required source unavailable')
             def source(table):
-                return [json.loads(row[0]) for row in con.execute('SELECT payload FROM bronze.supabase_current WHERE tenant_id=? AND source_table=? ORDER BY source_id', [tenant, table]).fetchall()]
+                return [json.loads(row[0], parse_float=Decimal) for row in con.execute('SELECT payload FROM bronze.supabase_current WHERE tenant_id=? AND source_table=? ORDER BY source_id', [tenant, table]).fetchall()]
             customers = source('mini_crm_customers')
             term = normalized(body['customer'])
             matches = [c for c in customers if term in {normalized(str(c.get(k) or '')) for k in ('id', 'customer_code', 'customer_name')}]
@@ -67,6 +69,9 @@ def execute(engine, body, tenant, permission):
             result['customer'] = public(customer)
             if customer.get('is_active') is not True:
                 return {**result, 'status': 'inactive_customer'}
+            if kind == 'npp_receivable':
+                from .bmq_receivable import calculate
+                return calculate(result, customer, customers, source('revenue_ledger_lines'), start, end, limit)
             if kind == 'prices':
                 products = {p['id']: p for p in source('product_skus')}
                 prices = [p for p in source('mini_crm_customer_price_list') if p.get('customer_id') == customer['id'] and p.get('is_active') is True]

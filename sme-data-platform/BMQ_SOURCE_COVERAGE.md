@@ -5,7 +5,7 @@ This is an inventory, not a claim that all BMQ data is connected. Public schema:
 ## Remaining business work
 
 - Customer-specific current explicit prices and dealer order header lists: owner-only exact customer lookup added; ambiguous matches require customer code. No checkout price fallback, past prices, downstream route scope, tax/contract terms or order totals. Product/order line details remain pending.
-- Distributor receivables and reconciliation: adjustments/collections/dispatch-confirmation dependencies not covered by supplier-payables formula.
+- NPP period payable: owner-scoped npp_receivable matches the existing NppDebtManagement screen (approved gross minus current active child management fees, once per agency even without sales). Explicitly NOT a balance after collections, overdue analysis, opening balances, or historical fee reconstruction. Direct-customer adjustments/collections and settlement reconciliation remain pending.
 - Specialized Tan Tao/Q7/kitchen ledgers, inventory reservations and unit conversions: not equivalent to inventory_items.
 - Manufacturing materials, actual production quantities, COGS, QA: count of production orders does not cover these.
 - Attendance/payroll: define authorized fields and wage/time semantics, do not expose GPS or personal wage profiles through generic analytics.

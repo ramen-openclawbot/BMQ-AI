@@ -23,7 +23,7 @@ from .warehouse import Warehouse, atomic_json
 
 PROJECT = 'cxntbdvfsikwmitapony'
 TENANT = PROJECT + '.supabase.co'
-VERSION = 'bmq-supabase-raw-v2'
+VERSION = 'bmq-supabase-raw-v3'
 MAX_ROWS = 50000
 MAX_BYTES = 128 * 1024 * 1024
 # Explicit field projections: no auth/OTP/session tokens, contact snapshots,
@@ -52,7 +52,7 @@ FIELDS = {
     'purchase_orders': 'id po_number supplier_id order_date expected_date status total_amount created_at updated_at vat_amount',
     'purchase_order_items': 'id purchase_order_id sku_id product_name quantity unit unit_price line_total created_at canonical_material_id material_resolution_status',
     'inventory_items': 'id name category quantity unit min_stock supplier_id created_at updated_at',
-    'revenue_ledger_lines': 'id source_document_id source_row_number period revenue_date channel source_tab branch invoice_no customer_id parent_customer_id customer_code customer_name product_code product_name quantity unit_price gross_revenue order_gross order_discount customer_payable source_type approval_status audit_status confidence_status review_status reconciliation_status created_at updated_at',
+    'revenue_ledger_lines': 'id source_document_id source_row_number period revenue_date channel source_tab branch invoice_no customer_id parent_customer_id customer_code customer_name product_code product_name quantity unit_price gross_revenue order_gross order_discount customer_payable source_type approval_status audit_status confidence_status review_status reconciliation_status created_at updated_at route_customer_id route_customer_name',
 }
 TOTALS = {
     'payment_requests': 'total_amount', 'payment_allocations': 'amount',
@@ -63,10 +63,18 @@ TOTALS = {
 KEYS = {name: ('code' if name in {'kiosk_report_products', 'kiosk_report_channels'} else 'id') for name in FIELDS}
 
 
+# Only routing scalars needed by the existing NPP debt contract are extracted.
+# Never replicate arbitrary raw_payload instructions, contacts or signed URLs.
+ROUTE_EXPRESSIONS = {
+    'route_customer_id': "coalesce(nullif(raw_payload->>'route_customer_id',''),nullif(raw_payload->>'routeCustomerId',''),raw_payload->>'agency_customer_id','')",
+    'route_customer_name': "coalesce(nullif(raw_payload->>'route_customer_name',''),nullif(raw_payload->>'routeCustomerName',''),nullif(raw_payload->>'agency_customer_name',''),raw_payload->>'route','')",
+}
+
+
 def query_sql():
     parts = []
     for table, fields in FIELDS.items():
-        projection = ','.join('"' + field + '"' for field in fields.split())
+        projection = ','.join((ROUTE_EXPRESSIONS[field] + ' AS "' + field + '"') if table == 'revenue_ledger_lines' and field in ROUTE_EXPRESSIONS else '"' + field + '"' for field in fields.split())
         key = KEYS[table]
         amount = TOTALS.get(table)
         total = f"(SELECT coalesce(sum({amount}),0)::text FROM public.{table})" if amount else 'NULL::text'

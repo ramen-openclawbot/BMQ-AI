@@ -43,7 +43,7 @@ METRICS.update(bmq_business.METRICS)
 
 def catalog():
     return {'version': VERSION, 'metrics': copy.deepcopy(METRICS),
-            'customer_lookup': 'prices: explicit current active customer-specific prices only (not effective checkout prices, tax terms or historical quotes); orders: submitted non-test order headers for exact customer owning the order, not downstream delivery points. Resolve exact customer code/name; ambiguous names require clarification. No product filter for orders, no order totals/counts in this lookup.',
+            'customer_lookup': 'prices: explicit current active customer-specific prices only (not effective checkout prices, tax terms or historical quotes); orders: submitted non-test order headers for exact customer owning the order, not downstream delivery points. Resolve exact customer code/name; ambiguous names require clarification. npp_receivable: named NPP period gross approved ledger minus current active child management fees, matching NppDebtManagement; no opening/collections/overdue/settlement or historical fee reconstruction. No product filter except prices, no order totals/counts in this lookup.',
             'dimensions': {d:d for spec in METRICS.values() for d in spec['dimensions']},
             'policy': 'Only defined business metrics; never add distinct ledgers together. No customer/staff PII. Contract file metadata does not provide terms.'}
 

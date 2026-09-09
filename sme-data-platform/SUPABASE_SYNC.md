@@ -79,3 +79,6 @@ revenue, infer Hotline revenue from notes, combine controlled revenue and orders
 or treat current inventory as historical stock. Silver/Gold metric contracts and
 owner chat integration remain separate work. No records are sent to Luna or
 included in a training dataset by the sync.
+
+## NPP routing projection v3
+Revenue ledger replication additionally extracts only route_customer_id and route_customer_name scalars using the same raw_payload alias precedence as NppDebtManagement. The complete raw_payload is not copied. Deploy the new sync runtime before enabling npp_receivable; old snapshots lacking routing must fail closed. Existing table count and exact-money reconciliation remain unchanged.

@@ -25,3 +25,18 @@ test('router preserves customer and performs only typed customer call, no model 
 test('bad customer plan never reaches source',async()=>{
  await assert.rejects(()=>runWarehouse({question:'Price list',language:'vi',page:{route:'/'},history:[]},async(path)=>{assert.equal(path,'/v1/semantic');return {metrics:{revenue:{}},dimensions:{},customer_lookup:'prices'};},async()=>({value:{lane:'customer',queries:[],search:'',clarification:'',customer_lookup:{...q,tenant:'fake'}},usage:{input:1,output:1,cached:0}}),new AbortController().signal));
 });
+test('NPP period amount is labelled separately from collected outstanding balance',()=>{
+ const r={...base,kind:'npp_receivable',definition:'npp_debt_screen_period_v1',period:{start:'2026-08-01',end:'2026-08-31'},rows:[],totals:{gross:'1200.50',management_fee:'150.25',period_payable:'1050.25',currency:'VND'}};
+ assert.equal(customerRequest({...q,kind:'npp_receivable',time_range:'previous_month'}).kind,'npp_receivable');
+ assert.throws(()=>customerRequest({...q,kind:'npp_receivable',product:'SKU'}));
+ assert.match(customerAnswer(r,'npp_receivable','en'),/1050.25/);
+ assert.match(customerAnswer(r,'npp_receivable','en'),/NOT a settled outstanding balance/);
+ assert.match(customerAnswer(r,'npp_receivable','vi'),/Chưa cộng số dư đầu kỳ/);
+ assert.throws(()=>customerAnswer({...r,totals:{...r.totals,period_payable:'NaN'}},'npp_receivable','en'));
+ assert.match(customerAnswer({...r,status:'not_npp'},'npp_receivable','en'),/not a distributor/);
+});
+
+test('customers without a code use stable identity, not a null-code rendering failure',()=>{
+ const r={...base,customer:{id:'npp-id',customer_name:'Distributor',customer_code:null}};
+ assert.match(customerAnswer(r,'prices','en'),/npp-id/);
+});
