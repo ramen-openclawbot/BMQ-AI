@@ -302,7 +302,9 @@ export function GlobalAgentChatWidget() {
   const { language } = useLanguage();
   const text = useCallback((value: string) => chatText(value, language), [language]);
   const location = useLocation();
-  const { authzLoaded, isOwner, session, user } = useAuth();
+  const { authzLoaded, isOwner, session, user, profile } = useAuth();
+  const greetingName = user && profile?.user_id === user.id ? profile.full_name?.trim() : "";
+  const greeting = `${language === "en" ? "Hello" : "Xin chào"}${greetingName ? `, ${greetingName}` : ""}.`;
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [analyticsMessages, setAnalyticsMessages] = useState<AnalyticsMessage[]>([]);
@@ -751,7 +753,7 @@ export function GlobalAgentChatWidget() {
             ) : visibleTimeline.length === 0 && !streamedText && (
               <div className="flex items-start gap-2.5">
                 <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-[#ebe7ff] text-[#6847e8]"><Sparkles className="h-4 w-4" /></span>
-                <div className="max-w-[88%] rounded-2xl rounded-tl-md border border-[#e4e5eb] bg-white px-4 py-3 text-[#252932] shadow-[0_1px_2px_rgba(16,24,40,0.04)]">{language === "en" ? "You are viewing " : "Dạ thưa anh Tâm, VNAgent đã nhận diện màn hình hiện tại là "}<b>{routeContext.label}</b>{language === "en" ? ". How can VNAgent help?" : ". Anh cần VNAgent hỗ trợ việc gì ạ?"}</div>
+                <div data-chat-greeting="profile-v1" className="max-w-[88%] rounded-2xl rounded-tl-md border border-[#e4e5eb] bg-white px-4 py-3 text-[#252932] shadow-[0_1px_2px_rgba(16,24,40,0.04)]">{greeting} {language === "en" ? "You are viewing " : "VNAgent đã nhận diện màn hình hiện tại là "}<b>{routeContext.label}</b>{language === "en" ? ". How can VNAgent help?" : ". Bạn cần VNAgent hỗ trợ việc gì?"}</div>
               </div>
             )}
             {!ANALYTICS_ENABLED && isRevenueMobileContext ? <RevenueDailyChatCard setOpen={setOpen} /> : null}
