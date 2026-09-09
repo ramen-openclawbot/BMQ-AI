@@ -1,3 +1,4 @@
+import { legacyPresentation } from './presentation.ts';
 import { AnalyticsError, canonicalKey, fastQuery, MODEL, parseInput, PLAN_SCHEMA, renderResults, ResultCache, SEMANTIC_VERSION, validatePlan, vnToday, type Input, type Query, type Result } from "./core.ts";
 import { METRICS } from "./data.ts";
 
@@ -65,7 +66,7 @@ export async function runAnalytics(raw: unknown, deps: Dependencies, signal: Abo
     if (!explanation || typeof explanation.summary !== "string" || explanation.summary.length > 2000 || !Array.isArray(explanation.evidence) || !explanation.evidence.length || explanation.evidence.some(i => !Number.isInteger(i) || i < 0 || i >= results.length)) throw new AnalyticsError("invalid_explanation");
     answer += input.language === "en" ? `\n\nAdvisory interpretation: ${explanation.summary}\nObservational analysis; causation has not been established.` : `\n\nNhận xét tham khảo: ${explanation.summary}\nPhân tích quan sát, chưa chứng minh nguyên nhân.`;
   }
-  return { answer, requestId, provenance: { lane: plan.lane, model: modelCalls ? MODEL : null, queries, semanticVersion: SEMANTIC_VERSION, elapsedMs: Date.now() - started, cacheHits, maxCacheAgeSeconds: 15, modelCalls, usage } };
+  return { answer, requestId, presentation: queries.map((q,i)=>legacyPresentation(q, results[i])), provenance: { lane: plan.lane, model: modelCalls ? MODEL : null, queries, semanticVersion: SEMANTIC_VERSION, elapsedMs: Date.now() - started, cacheHits, maxCacheAgeSeconds: 15, modelCalls, usage } };
 }
 
 export function openAIModel(apiKey: string, fetcher: typeof fetch = fetch): ModelCall {

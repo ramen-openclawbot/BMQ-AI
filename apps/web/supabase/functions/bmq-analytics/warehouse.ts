@@ -1,3 +1,4 @@
+import { legacyPresentation, type Presentation } from './presentation.ts';
 import { customerAnswer, customerRequest, customerContinuation, customerSelection } from "./customer.ts";
 import { AnalyticsError, MODEL, parseInput, vnToday, fastQuery, validateQuery, renderResults } from "./core.ts";
 import { METRICS } from "./data.ts";
@@ -10,9 +11,10 @@ export async function runWarehouse(raw: unknown, call: WarehouseCall, model: Mod
   const language = input.language === "en" ? "English" : "Vietnamese";
   let modelCalls = 0; const usage = {input:0,output:0,cached:0};
   const invoke: ModelCall = async (...args) => { if (++modelCalls > 2) throw new AnalyticsError("model_budget"); const result = await model(...args); for(const key of ["input","output","cached"] as const) usage[key] += result.usage[key]; return result; };
+  const presentation: Presentation[] = [];
   let pendingSelection: unknown;
   const evidence: unknown[] = [];
-  const response = (answer: string, lane: string, queries: unknown[] = [], citations: unknown[] = []) => ({ answer, requestId, provenance: {lane,model:modelCalls?MODEL:null,queries,citations,evidence,elapsedMs:Date.now()-started,modelCalls,usage,semanticVersion:"warehouse-bmq-v3", customerSelection:pendingSelection} });
+  const response = (answer: string, lane: string, queries: unknown[] = [], citations: unknown[] = []) => ({ answer, requestId, presentation, provenance: {lane,model:modelCalls?MODEL:null,queries,citations,evidence,elapsedMs:Date.now()-started,modelCalls,usage,semanticVersion:"warehouse-bmq-v3", customerSelection:pendingSelection} });
   // An active application scope must never silently become warehouse-wide totals.
   if (Object.keys(input.page.filters).length) return response(input.language === "en" ? "Clear the page filters and specify your scope. Warehouse chat does not yet map application filters." : "Anh bỏ bộ lọc trang và nêu rõ phạm vi. Chat kho dữ liệu chưa ánh xạ bộ lọc của ứng dụng.","abstain");
   // Prefer the reviewed warehouse contract. Exact legacy fast queries remain
@@ -24,6 +26,7 @@ export async function runWarehouse(raw: unknown, call: WarehouseCall, model: Mod
     if (!existingFast || !liveQuery) throw error;
     const result = await liveQuery(existingFast, signal);
     evidence.push({source:result.source,read_at:result.asOf,mode:"live_supabase"});
+    presentation.push(legacyPresentation(existingFast, result));
     return response(renderResults([existingFast],[result],input.language),"fast",[existingFast]);
   }
   if (!catalog?.metrics || typeof catalog.metrics !== "object" || Array.isArray(catalog.metrics)) throw new AnalyticsError("invalid_catalog");
@@ -51,6 +54,7 @@ export async function runWarehouse(raw: unknown, call: WarehouseCall, model: Mod
     const request = customerRequest(plan.customer_lookup);
     const result = await call("/v1/customer", request);
     const answer = customerAnswer(result, request.kind, input.language);
+    presentation.push({kind:"customer", result, lookup:request.kind});
     pendingSelection = customerSelection(result, plan.customer_lookup);
     evidence.push({source:result.source,source_observed_at:result.source_observed_at,snapshot_id:result.snapshot_id,semantic_version:result.semantic_version,mode:"warehouse"});
     return response(answer, "customer", [request]);
@@ -81,12 +85,14 @@ export async function runWarehouse(raw: unknown, call: WarehouseCall, model: Mod
       const legacy = validateQuery({metric:q.metric,dimension:q.dimensions[0]??null,start:period.start,end:period.end,limit:q.limit});
       const r = await liveQuery(legacy,signal);
       if(r.rows.length>20 || r.rows.some(row=>!Number.isFinite(row.value)) || JSON.stringify(r).length>16000) throw new AnalyticsError("invalid_result");
+      presentation.push(legacyPresentation(legacy, r));
       results.push({legacyText:renderResults([legacy],[r],input.language),...r});
       evidence.push({source:r.source,read_at:r.asOf,mode:"live_supabase"});
       continue;
     }
     const result = await call("/v1/query",request);
     if (!result || !Array.isArray(result.rows) || result.rows.length>20 || JSON.stringify(result).length>16000) throw new AnalyticsError("invalid_result");
+    presentation.push({kind:"metric", query:q, result, descriptor:catalog.metrics[q.metric]});
     results.push(result);
     evidence.push({source:result.source,source_observed_at:result.source_observed_at,snapshot_id:result.snapshot_id,semantic_version:result.semantic_version,mode:"warehouse"});
   }

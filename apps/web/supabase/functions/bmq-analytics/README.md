@@ -130,3 +130,13 @@ No new cloud endpoint, secret, live data upload, deployment, or production flag 
 - Existing controlled revenue, PO count, low stock and supplier debt keep their original RLS queries. Generic uploaded `revenue` is not relabelled as BMQ revenue. No ledger/channel double counting.
 - Owner activation check: while normal warehouse routing remains OFF, ask `Kiểm tra kết nối kho` / `Check warehouse connection` with page filters cleared. Same authenticated owner JWT passes Edge and warehouse auth, executes today's dealer count, returns watermark. No model or source write; successful checks log event `bmq_warehouse_owner_check` without question/data/token.
 - Enable normal `BMQ_WAREHOUSE_ENABLED` only after the actual owner check succeeds. Prior deployment authorization persists. No backup/training/model change. Missing/stale snapshot is not zero and no stale fallback is used.
+
+## U1 business answer presentation (local, release pending)
+
+The authenticated handler now formats structured warehouse/customer/live-query facts through `presentation.ts`. Main answers contain the business label, period/customer and formatted values. Original definitions, raw amounts, sources, snapshot time and model interpretation remain in expandable `provenance.details`; selection hints and permissions are unchanged. The explicit owner connectivity diagnostic remains a diagnostic.
+
+Vietnamese uses VND with dot grouping and no fractional dong (`51.225.132 ₫`). English converts VND amounts to an indicative USD value using the current public ExchangeRate-API USD feed; this is display-only, not a historical/accounting rate. Original VND values remain available in details. Other source currencies are not relabelled. Counts and percentages never trigger FX. Knowledge answers do not undergo numeric text replacement.
+
+`money.ts` requests only `https://open.er-api.com/v6/latest/USD`, with no auth, BMQ data, user text or dynamic URL. The feed updates daily; isolate-local cache refreshes hourly, caps source age at 48h and uses a 2.5s timeout/64KB response limit. Invalid/stale/unavailable rates fall back explicitly to VND, never a guessed USD value. Provider attribution, timestamp and exact rate are exposed in details. No extra secret or scheduler required. Reference: https://www.exchangerate-api.com/docs/free (attribution required, caching allowed).
+
+Local verification: `node --experimental-strip-types --test apps/web/supabase/functions/bmq-analytics/*.test.ts` from repo root. Release still requires the owner's next-turn confirmation, backend before UI, plus live owner verification. No build/commit/push/deploy was performed for U1.

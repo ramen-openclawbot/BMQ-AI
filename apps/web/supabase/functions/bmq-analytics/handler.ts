@@ -1,3 +1,4 @@
+import { presentResponse } from './presentation.ts';
 import { AnalyticsError, ResultCache, parseInput } from "./core.ts";
 import { runAnalytics, type Dependencies } from "./service.ts";
 import { runWarehouse } from "./warehouse.ts";
@@ -81,15 +82,20 @@ export function createHandler(config: Config) {
         if(Object.keys(input.page.filters).length) throw new AnalyticsError("invalid_filters");
         const result = await runWarehouse({...input,question:"dealer order count today",history:[]}, warehouseClient(config.warehouse.url(),req.headers.get("authorization")!,signal),config.model,signal,identity.query);
         config.audit({event:"bmq_warehouse_owner_check",userId:identity.scope.user,requestId:result.requestId,success:true});
-        return json({...result,answer:(english?"Warehouse connection verified for your owner session.\n\n":"Đã xác minh kết nối kho bằng phiên owner của anh.\n\n")+result.answer});
+        const { presentation: _presentation, ...diagnostic } = result;
+        return json({...diagnostic,answer:(english?"Warehouse connection verified for your owner session.\n\n":"Đã xác minh kết nối kho bằng phiên owner của anh.\n\n")+result.answer});
       }
       const result = config.warehouse?.enabled()
         ? await runWarehouse(raw, warehouseClient(config.warehouse.url(), req.headers.get("authorization")!, signal), config.model, signal, identity.query)
         : await runAnalytics(raw, { ...identity, model: config.model, cache }, signal);
       signal.throwIfAborted();
-      const { lane, model, elapsedMs, modelCalls, usage } = result.provenance;
+      const presentationStarted = Date.now();
+      const presented = await presentResponse(result, english ? "en" : "vi", signal);
+      signal.throwIfAborted();
+      presented.provenance.elapsedMs += Date.now() - presentationStarted;
+      const { lane, model, elapsedMs, modelCalls, usage } = presented.provenance;
       config.audit({ event: "bmq_analytics", requestId: result.requestId, userId: identity.scope.user, lane, model, elapsedMs, modelCalls, usage });
-      return json(result);
+      return json(presented);
     } catch (error) {
       const code = signal.aborted ? "timeout" : (error instanceof AnalyticsError || error instanceof WarehouseError) ? error.code : "data_unavailable";
       const status = signal.aborted ? 504 : (error instanceof AnalyticsError || error instanceof WarehouseError) ? error.status : 503;
