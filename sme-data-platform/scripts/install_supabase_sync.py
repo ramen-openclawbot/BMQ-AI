@@ -41,7 +41,7 @@ config = {
     'ProgramArguments': [str(python), '-m', 'sme_platform.supabase_sync', '--workdir', str(project)],
     'WorkingDirectory': str(release),
     'EnvironmentVariables': {'PYTHONPATH': str(package / 'src'),
-                             'PATH': '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin',
+                             'PATH': '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin',
                              'PYTHONUNBUFFERED': '1'},
     'RunAtLoad': True, 'StartInterval': 900, 'ThrottleInterval': 60,
     'StandardOutPath': str(logs / 'status.log'),
