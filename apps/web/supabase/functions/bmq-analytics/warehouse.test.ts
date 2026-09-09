@@ -103,3 +103,24 @@ test('owner readiness probe works with normal warehouse lane disabled and never 
  const r=await h(new Request('https://test',{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer fixture-owner'},body:JSON.stringify({...input,question:'Check warehouse connection'})}));
  assert.equal(r.status,200);assert.match((await r.json()).answer,/verified for your owner session/);assert.equal(reads,2);
 });
+
+test('reviewed warehouse finance contract wins over live and fast revenue uses no model',async()=>{
+ let queries=0;
+ const c={metrics:{controlled_revenue:{label:'Controlled revenue',label_vi:'Doanh thu đã kiểm soát',unit:'VND'}},dimensions:{channel:'channel',date:'date'}};
+ const result=await runWarehouse({...input,question:'revenue today'},async(path,body)=>{
+  if(path==='/v1/semantic')return c;
+  queries++;assert.equal((body as any).metric,'controlled_revenue');
+  return {rows:[{controlled_revenue:'80.05',currency:'VND'}],source:'Supabase.revenue_ledger_lines + revenue_source_documents',source_observed_at:'2026-09-09T06:00:00Z',snapshot_id:'new',definition:'Not net or audited revenue'};
+ },async()=>{throw Error('no model')},signal,async()=>{throw Error('must not read live')});
+ assert.equal(queries,1);assert.equal(result.provenance.modelCalls,0);
+ assert.equal((result.provenance.evidence[0] as any).mode,'warehouse');
+ assert.match(result.answer,/80.05 VND/);assert.match(result.answer,/Not net/);
+});
+test('new source dimensions remain visible and do not silently fall back on stale query',async()=>{
+ const c={metrics:{supplier_debt:{label:'Payables',unit:'VND'}},dimensions:{payment_method:'Payment method'}};
+ const plan={lane:'semantic',queries:[{metric:'supplier_debt',time_range:'today',dimensions:['payment_method'],limit:20}],search:'',clarification:''};
+ const planner=async()=>({value:plan,usage});
+ const result=await runWarehouse(input,async(path)=>path==='/v1/semantic'?c:{rows:[{payment_method:'bank',supplier_debt:15,currency:'VND'}],source:'payments',source_observed_at:'now',definition:'snapshot'},planner,signal,async()=>{throw Error('must not read live')});
+ assert.match(result.answer,/bank: 15 VND/);
+ await assert.rejects(runWarehouse(input,async(path)=>{if(path==='/v1/semantic')return c;throw Error('stale snapshot')},planner,signal,async()=>{throw Error('wrong fallback')}),/stale snapshot/);
+});

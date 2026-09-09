@@ -1,3 +1,7 @@
+## Expansion 2026-09-09
+
+Version bmq-supabase-raw-v2 adds revenue source-document status, payment requests/allocations, production orders/items, goods receipts, dispatch records and contract file metadata. Total 24 explicit table projections. No contract file URLs, contents, auth secrets or source mutations. Existing 900-second schedule must use the same committed release as the semantic API; old manifests missing required tables fail closed. See BMQ_SOURCE_COVERAGE.md for the complete source inventory.
+
 # Supabase raw sync — BMQ v1
 
 Owner approved Supabase ingestion on 2026-09-09. Backup remains deferred.

@@ -9,7 +9,8 @@ import threading
 
 from .supabase_sync import TENANT
 
-VERSION = 'bmq-operational-v1'
+VERSION = 'bmq-operational-v2'
+from . import bmq_business
 METRICS = {
     'dealer_order_count': {
         'label': 'Dealer order count', 'label_vi': 'Số đơn đại lý', 'unit': 'count',
@@ -38,13 +39,17 @@ METRICS = {
 }
 
 
+METRICS.update(bmq_business.METRICS)
+
 def catalog():
     return {'version': VERSION, 'metrics': copy.deepcopy(METRICS),
-            'dimensions': {'date': 'Vietnam business date', 'location': 'Kiosk location ID'},
-            'policy': 'Only defined operational metrics. Revenue/payables remain separate. No customer/staff PII.'}
+            'dimensions': {d:d for spec in METRICS.values() for d in spec['dimensions']},
+            'policy': 'Only defined business metrics; never add distinct ledgers together. No customer/staff PII. Contract file metadata does not provide terms.'}
 
 
 def execute(engine, dsl, tenant, permission):
+    if dsl.get('metric') in bmq_business.METRICS:
+        return bmq_business.execute(engine,dsl,tenant,permission)
     if tenant != TENANT or not (permission == 'owner' or permission.startswith('owner:')):
         raise PermissionError('Owner required')
     if set(dsl) - {'metric', 'time_range', 'dimensions', 'limit'}:

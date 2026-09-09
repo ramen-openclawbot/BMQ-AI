@@ -1,13 +1,13 @@
 # BMQ SME Data Platform V1
 
-Local-first Python 3.12+, DuckDB, Parquet and a governed semantic API. This is a new **default-off** integration alongside the existing four-metric BMQ chat pilot. No shared VNAgent adapter or model setting changes.
+Local-first Python 3.12+, DuckDB, Parquet and a governed semantic API. Owner warehouse chat is enabled. See `BMQ_SOURCE_COVERAGE.md` for actual connected and pending sources; not all BMQ data is exposed. No shared VNAgent adapter or model setting changes.
 
 ## Storage and installation
 
 Production data root: `/Volumes/Samsung SSD 9100 PRO 1TB Media/BMQ/sme-data-platform`.
 Every production operation checks mounted volume UUID `98C046C3-3918-40D8-9F2F-A5F8382BBAA7`; no workspace fallback. Writes stop below 20% free. The root folder must be writable by the service account. Do not change ownership of the entire disk.
 
-At implementation verification the SSD was found correctly, but creating `/BMQ` returned **Permission denied** (volume root belongs to root:wheel). Owner was asked to create that folder and give `c.o.t.e` read/write access. No real BMQ data has been imported onto the SSD. Explicit temporary directories in automated tests contain synthetic fixtures only.
+SSD folder and macOS removable-volume permissions were granted and real BMQ source snapshots are now synchronized. This release expands to 24 allowlisted projections and 14 governed metrics. Tests use explicit synthetic temporary directories. Backup is deferred by owner instruction; no new backup is scheduled.
 
 From this directory:
 

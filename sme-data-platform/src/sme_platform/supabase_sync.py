@@ -23,12 +23,20 @@ from .warehouse import Warehouse, atomic_json
 
 PROJECT = 'cxntbdvfsikwmitapony'
 TENANT = PROJECT + '.supabase.co'
-VERSION = 'bmq-supabase-raw-v1'
+VERSION = 'bmq-supabase-raw-v2'
 MAX_ROWS = 50000
 MAX_BYTES = 128 * 1024 * 1024
 # Explicit field projections: no auth/OTP/session tokens, contact snapshots,
 # arbitrary JSON, signed document URLs, bank data or staff phone/salary.
 FIELDS = {
+    'revenue_source_documents': 'id source_type period status created_at updated_at',
+    'payment_requests': 'id request_number supplier_id total_amount status delivery_status payment_status created_at updated_at payment_method invoice_id vat_amount goods_receipt_id payment_type purchase_order_id paid_at',
+    'payment_allocations': 'id payment_id payment_request_id amount created_at updated_at',
+    'production_orders': 'id production_number customer_id status planned_start_date planned_end_date completed_at created_at updated_at location_code',
+    'production_order_items': 'id production_order_id sku_id product_name ordered_qty planned_qty actual_qty unit delivery_date created_at',
+    'goods_receipts': 'id receipt_number supplier_id receipt_date status total_quantity purchase_order_id created_at updated_at payment_request_id payable_status finalized_at',
+    'warehouse_dispatches': 'id dispatch_number customer_id production_order_id status dispatch_date delivered_date created_at updated_at',
+    'mini_crm_customer_contracts': 'id customer_id file_name file_size mime_type is_active created_at',
     'mini_crm_customers': 'id customer_code customer_name customer_group is_active created_at updated_at product_group is_npp supplied_by_npp_customer_id is_tier1 npp_management_fee_vnd',
     'product_skus': 'id sku_code product_name unit unit_price supplier_id category created_at updated_at base_unit sku_type hide_from_dealer_portal canonical_material_id',
     'mini_crm_customer_price_list': 'id customer_id sku_id price_vnd_per_unit currency is_active created_at updated_at',
@@ -47,6 +55,7 @@ FIELDS = {
     'revenue_ledger_lines': 'id source_document_id source_row_number period revenue_date channel source_tab branch invoice_no customer_id parent_customer_id customer_code customer_name product_code product_name quantity unit_price gross_revenue order_gross order_discount customer_payable source_type approval_status audit_status confidence_status review_status reconciliation_status created_at updated_at',
 }
 TOTALS = {
+    'payment_requests': 'total_amount', 'payment_allocations': 'amount',
     'dealer_orders': 'total_amount_vnd', 'dealer_order_items': 'line_total_vnd',
     'kiosk_daily_report_channel_rows': 'amount_vnd', 'purchase_orders': 'total_amount',
     'purchase_order_items': 'line_total', 'revenue_ledger_lines': 'customer_payable',
