@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from sme_platform.config import Settings
 from sme_platform.warehouse import Warehouse
-from sme_platform.supabase_sync import FIELDS, KEYS, TOTALS, TENANT, extract, publish, query_sql, validate
+from sme_platform.supabase_sync import FIELDS, KEYS, TOTALS, TENANT, extract, publish, query_sql, validate, parse_source_response
 
 
 def snapshot(offset=0):
@@ -98,6 +98,23 @@ def test_decimal_lexeme_preserved(warehouse):
 
 def test_linked_project_guard(tmp_path):
     with pytest.raises(RuntimeError): extract('/bin/false', tmp_path, tmp_path)
+
+
+@pytest.mark.parametrize('wrapped', [False, True])
+def test_cli_response_forms(wrapped):
+    value = snapshot()
+    envelope = {'rows': [value]} if wrapped else [value]
+    assert parse_source_response(envelope) == value
+    # Neither CLI form bypasses source completeness/reconciliation checks.
+    value['tables'][0]['count'] += 1
+    with pytest.raises(ValueError): parse_source_response(envelope)
+
+
+@pytest.mark.parametrize('envelope', [None, 'text', {}, [], [None],
+                                      [{'type': 'text', 'text': 'not a snapshot'}],
+                                      {'rows': [{}, {}]}, {'rows': 'invalid'}])
+def test_bad_cli_response_rejected(envelope):
+    with pytest.raises(ValueError): parse_source_response(envelope)
 
 
 def test_storage_missing_never_falls_back(tmp_path):

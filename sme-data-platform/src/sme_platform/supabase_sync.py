@@ -96,11 +96,20 @@ def extract(cli: str, workdir: Path, temp_root: Path):
                 if proc.poll() is None:
                     proc.kill()
                 proc.wait()
-        envelope = json.loads(output.read_text())
-        rows = envelope.get('rows')
-        if not isinstance(rows, list) or len(rows) != 1:
-            raise ValueError('Unexpected source response')
-        return rows[0]
+        return parse_source_response(json.loads(output.read_text()))
+
+
+def parse_source_response(envelope):
+    # Host CLI can return a direct row array in launchd and a rows envelope
+    # interactively. Both must contain exactly one snapshot, never tool text.
+    rows = envelope.get('rows') if isinstance(envelope, dict) else envelope
+    if not isinstance(rows, list) or len(rows) != 1:
+        raise ValueError('Unexpected source response')
+    snapshot = rows[0]
+    if not isinstance(snapshot, dict) or set(snapshot) != {'database', 'observed_at', 'tables'}:
+        raise ValueError('Unexpected source snapshot')
+    validate(snapshot)
+    return snapshot
 
 
 def validate(snapshot):
