@@ -200,6 +200,12 @@ def create_app(warehouse: Warehouse | None = None, authenticator=None):
         result = engine.execute(body, tenant_id=principal.tenant, permission_scope=principal.permission + ':' + principal.user)
         return json.loads(json.dumps(result, default=json_default))
 
+    @app.post('/v1/customer')
+    def customer(body: dict, principal: Principal = Depends(authenticator)):
+        from .bmq_customer import execute
+        result = execute(engine, body, principal.tenant, principal.permission + ':' + principal.user)
+        return json.loads(json.dumps(result, default=json_default))
+
     return app
 
 

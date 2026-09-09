@@ -4,13 +4,13 @@ This is an inventory, not a claim that all BMQ data is connected. Public schema:
 
 ## Remaining business work
 
-- Customer-specific price lists and product/order details: raw present, need bounded entity resolution/filter contracts (never ignore customer qualifiers).
+- Customer-specific current explicit prices and dealer order header lists: owner-only exact customer lookup added; ambiguous matches require customer code. No checkout price fallback, past prices, downstream route scope, tax/contract terms or order totals. Product/order line details remain pending.
 - Distributor receivables and reconciliation: adjustments/collections/dispatch-confirmation dependencies not covered by supplier-payables formula.
 - Specialized Tan Tao/Q7/kitchen ledgers, inventory reservations and unit conversions: not equivalent to inventory_items.
 - Manufacturing materials, actual production quantities, COGS, QA: count of production orders does not cover these.
 - Attendance/payroll: define authorized fields and wage/time semantics, do not expose GPS or personal wage profiles through generic analytics.
 - Contracts/policies: current contract table has zero active file records; no terms read. Customer knowledge profiles/versions need effective-version and disclosure review before retrieval.
-- App page filters and per-customer queries remain unsupported; fail closed, not global totals.
+- App page filters remain unsupported; fail closed, not global totals. Customer price/order-list scope now uses a dedicated lookup; customer financial metrics and downstream routes remain unsupported.
 - No new backups/training/GBrain integration in this release.
 
 ## Complete source inventory
@@ -121,7 +121,7 @@ This is an inventory, not a claim that all BMQ data is connected. Public schema:
 | mini_crm_agent_ui_audit_logs | BASE TABLE | Operational/audit source; not a business metric by default |
 | mini_crm_customer_contracts | BASE TABLE | Raw + governed measure |
 | mini_crm_customer_emails | BASE TABLE | Pending source projection + business contract + reconciliation |
-| mini_crm_customer_price_list | BASE TABLE | Raw only; detail query not yet exposed |
+| mini_crm_customer_price_list | BASE TABLE | Raw + owner-scoped current explicit price lookup |
 | mini_crm_customers | BASE TABLE | Raw + governed measure |
 | mini_crm_knowledge_change_requests | BASE TABLE | Pending source projection + business contract + reconciliation |
 | mini_crm_knowledge_profile_versions | BASE TABLE | Pending source projection + business contract + reconciliation |

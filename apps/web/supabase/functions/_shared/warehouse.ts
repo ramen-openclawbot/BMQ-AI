@@ -11,7 +11,7 @@ export function warehouseClient(base: string, authorization: string, signal: Abo
     if (origin.protocol !== "https:" || origin.username || origin.password || origin.search || origin.hash || origin.pathname !== "/") throw new Error();
   } catch { throw new WarehouseError("warehouse_unconfigured"); }
   return async (path, body) => {
-    if (!new Set(["/v1/status", "/v1/sources", "/v1/ingest", "/v1/documents", "/v1/semantic", "/v1/query", "/v1/knowledge/search"]).has(path)) throw new WarehouseError("invalid_operation", 400);
+    if (!new Set(["/v1/status", "/v1/sources", "/v1/ingest", "/v1/documents", "/v1/semantic", "/v1/query", "/v1/knowledge/search", "/v1/customer"]).has(path)) throw new WarehouseError("invalid_operation", 400);
     let response: Response;
     try { response = await fetcher(new URL(path, origin), { method: body === undefined ? "GET" : "POST", redirect: "error", signal,
       headers: { Authorization: authorization, "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) }); }
