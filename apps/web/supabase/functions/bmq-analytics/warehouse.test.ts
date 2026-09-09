@@ -124,3 +124,16 @@ test('new source dimensions remain visible and do not silently fall back on stal
  assert.match(result.answer,/bank: 15 VND/);
  await assert.rejects(runWarehouse(input,async(path)=>{if(path==='/v1/semantic')return c;throw Error('stale snapshot')},planner,signal,async()=>{throw Error('wrong fallback')}),/stale snapshot/);
 });
+
+test('legacy fast date ranges survive routing to warehouse without becoming today',async()=>{
+ const {fastQuery}=await import('./core.ts');
+ for(const question of ['revenue yesterday','revenue this month','doanh thu hôm qua','doanh thu tháng này']) {
+  const expected=fastQuery(question)!;let queried=false;
+  await runWarehouse({...input,question},async(path,body)=>{
+   if(path==='/v1/semantic')return {metrics:{controlled_revenue:{label:'Revenue',unit:'VND'}},dimensions:{date:'date'}};
+   queried=true;assert.deepEqual((body as any).time_range,{start:expected.start,end:expected.end});
+   return {rows:[{controlled_revenue:1,currency:'VND'}]};
+  },async()=>{throw Error('no model')},signal,async()=>{throw Error('no live')});
+  assert.ok(queried);
+ }
+});
