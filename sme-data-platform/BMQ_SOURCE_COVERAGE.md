@@ -1,6 +1,6 @@
 # BMQ source coverage — 2026-09-10
 
-This is an inventory, not a claim that all BMQ data is connected. Public schema: 180 base tables, 17 views. This release synchronizes 96 explicit projections and exposes 14 measures. Names/counts of contract file records do not imply contents were ingested or legal validity established. Raw-only rows are not automatically exposed to the LLM.
+This is an inventory, not a claim that all BMQ data is connected. Public schema: 180 base tables, 17 views. This release synchronizes 105 explicit projections and exposes 14 measures. Names/counts of contract file records do not imply contents were ingested or legal validity established. Raw-only rows are not automatically exposed to the LLM.
 
 ## R3 connection boundary
 
@@ -34,7 +34,7 @@ Nine minimal finance evidence projections are synchronized by raw-v6. Customer o
 | attendance_shift_assignments | BASE TABLE | Pending source projection + business contract + reconciliation |
 | attendance_shifts | BASE TABLE | Pending source projection + business contract + reconciliation |
 | audit_logs | BASE TABLE | Operational/audit source; not a business metric by default |
-| cash_fund_topups | BASE TABLE | Pending source projection + business contract + reconciliation |
+| cash_fund_topups | BASE TABLE | R10 raw v13 scalar business evidence; no ledger/dispatch certification |
 | ceo_daily_closing_declarations | BASE TABLE | R3 raw evidence projection; no settled balance/bank reconciliation/chat metric implied |
 | cost_categories | BASE TABLE | R9 raw v12 scalar business evidence; no ledger/COGS closure |
 | cost_classification_audit_logs | BASE TABLE | Operational/audit source; not a business metric by default |
@@ -55,11 +55,11 @@ Nine minimal finance evidence projections are synchronized by raw-v6. Customer o
 | dealer_notification_worker_config | BASE TABLE | Excluded from analytics by default; security/config or sensitive profile review |
 | dealer_order_cancellation_events | BASE TABLE | R2 raw v5 minimal audit projection; no approval/payment inference |
 | dealer_order_items | BASE TABLE | Raw only; detail query not yet exposed |
-| dealer_order_notifications | BASE TABLE | Pending source projection + business contract + reconciliation |
+| dealer_order_notifications | BASE TABLE | R10 raw v13 scalar business evidence; no ledger/dispatch certification |
 | dealer_orders | BASE TABLE | Raw + governed measure |
 | dealer_otp_challenges | BASE TABLE | Excluded from analytics by default; security/config or sensitive profile review |
 | dealer_sessions | BASE TABLE | Excluded from analytics by default; security/config or sensitive profile review |
-| dealer_test_order_confirmations | BASE TABLE | Pending source projection + business contract + reconciliation |
+| dealer_test_order_confirmations | BASE TABLE | R10 raw v13 scalar business evidence; no ledger/dispatch certification |
 | delivery_staff | BASE TABLE | Pending source projection + business contract + reconciliation |
 | delivery_staff_audit_logs | BASE TABLE | Operational/audit source; not a business metric by default |
 | drive_file_index | BASE TABLE | Pending source projection + business contract + reconciliation |
@@ -120,7 +120,7 @@ Nine minimal finance evidence projections are synchronized by raw-v6. Customer o
 | material_resolution_requests | BASE TABLE | R9 raw v12 scalar business evidence; no ledger/COGS closure |
 | material_scoped_aliases | BASE TABLE | R6 raw v9 scalar projection; source evidence only, no COGS/stock certification |
 | material_supplier_products | BASE TABLE | R6 raw v9 scalar projection; source evidence only, no COGS/stock certification |
-| material_supplier_unit_scan_evidence | BASE TABLE | Pending source projection + business contract + reconciliation |
+| material_supplier_unit_scan_evidence | BASE TABLE | R10 raw v13 scalar business evidence; no ledger/dispatch certification |
 | material_unit_conversions | BASE TABLE | R6 raw v9 scalar projection; source evidence only, no COGS/stock certification |
 | mini_crm_agent_ui_audit_logs | BASE TABLE | Operational/audit source; not a business metric by default |
 | mini_crm_customer_contracts | BASE TABLE | Raw + governed measure |
@@ -142,8 +142,8 @@ Nine minimal finance evidence projections are synchronized by raw-v6. Customer o
 | mobile_gps_attendance_retention_policy_config | BASE TABLE | Excluded from analytics by default; security/config or sensitive profile review |
 | mobile_gps_attendance_retention_policy_status | VIEW | Derived view; reconcile underlying sources first |
 | mobile_gps_attendance_sync_results | BASE TABLE | Pending source projection + business contract + reconciliation |
-| order_items | BASE TABLE | Pending source projection + business contract + reconciliation |
-| orders | BASE TABLE | Pending source projection + business contract + reconciliation |
+| order_items | BASE TABLE | R10 raw v13 scalar business evidence; no ledger/dispatch certification |
+| orders | BASE TABLE | R10 raw v13 scalar business evidence; no ledger/dispatch certification |
 | payment_allocations | BASE TABLE | Raw + governed measure |
 | payment_request_items | BASE TABLE | R3 raw evidence projection; no settled balance/bank reconciliation/chat metric implied |
 | payment_requests | BASE TABLE | Raw + governed measure |
@@ -155,12 +155,12 @@ Nine minimal finance evidence projections are synchronized by raw-v6. Customer o
 | po_dispatch_revenue_audit_logs | BASE TABLE | Operational/audit source; not a business metric by default |
 | po_dispatch_revenue_confirmation_lines | BASE TABLE | R7 raw v10 scalar evidence; no new revenue/stock certification |
 | po_dispatch_revenue_confirmations | BASE TABLE | R7 raw v10 scalar evidence; no new revenue/stock certification |
-| po_parse_runs | BASE TABLE | Pending source projection + business contract + reconciliation |
+| po_parse_runs | BASE TABLE | R10 raw v13 scalar business evidence; no ledger/dispatch certification |
 | po_revenue_post_audit | BASE TABLE | Operational/audit source; not a business metric by default |
-| po_sync_jobs | BASE TABLE | Operational/audit source; not a business metric by default |
+| po_sync_jobs | BASE TABLE | R10 raw v13 scalar business evidence; no ledger/dispatch certification |
 | po_sync_runtime_locks | BASE TABLE | Excluded from analytics by default; security/config or sensitive profile review |
 | po_sync_schedules | BASE TABLE | Operational/audit source; not a business metric by default |
-| po_sync_snapshots | BASE TABLE | Operational/audit source; not a business metric by default |
+| po_sync_snapshots | BASE TABLE | R10 raw v13 scalar business evidence; no ledger/dispatch certification |
 | product_label_specs | BASE TABLE | R9 raw v12 scalar business evidence; no ledger/COGS closure |
 | product_skus | BASE TABLE | Raw + governed measure |
 | production_location_sku_settings | BASE TABLE | R7 raw v10 scalar evidence; no new revenue/stock certification |
@@ -287,3 +287,20 @@ stock receipt. Actor/staff identifiers, free-text notes/reasons, OCR text,
 JSON/array payloads, image and document URLs are excluded. No source mutation,
 HR, backup, training, model or Gateway change. R3 accounting review remains
 deferred.
+
+## R10 remaining business evidence (raw v13)
+
+R9 allowlist: 96 tables. Nine new scalar-only tables bring the allowlist to 105:
+the customer PO ingestion pipeline (po_sync_snapshots, po_parse_runs,
+po_sync_jobs), supplier unit/package scan evidence on goods receipt
+(material_supplier_unit_scan_evidence), cash fund top-ups (cash_fund_topups),
+the legacy purchase order pair (orders, order_items) and dealer order
+notification delivery status (dealer_order_notifications,
+dealer_test_order_confirmations). A PO draft snapshot is not a posted revenue
+ledger entry, a notification status is not proof a dealer received goods, and a
+supplier scan is not a warehouse receipt. Notification bodies, provider
+responses, free-text errors, actor IDs and PII are excluded. The remaining
+source tables stay out of scope: audit logs, HR/attendance/GPS/payroll,
+accounts/sessions/OTP/rate limits, mini-CRM and Drive content, configuration,
+and all 17 views. No source mutation, HR, backup, training, model or Gateway
+change. R3 accounting review remains deferred.

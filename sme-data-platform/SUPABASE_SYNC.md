@@ -161,3 +161,20 @@ stock receipt. Actor/staff identifiers, free-text notes/reasons, OCR text,
 JSON/array payloads, image and document URLs are excluded. No source mutation,
 HR, backup, training, model or Gateway change. R3 accounting review remains
 deferred.
+
+## R10 remaining business evidence (raw v13)
+
+R9 allowlist: 96 tables. Nine new scalar-only tables bring the allowlist to 105:
+the customer PO ingestion pipeline (po_sync_snapshots, po_parse_runs,
+po_sync_jobs), supplier unit/package scan evidence on goods receipt
+(material_supplier_unit_scan_evidence), cash fund top-ups (cash_fund_topups),
+the legacy purchase order pair (orders, order_items) and dealer order
+notification delivery status (dealer_order_notifications,
+dealer_test_order_confirmations). A PO draft snapshot is not a posted revenue
+ledger entry, a notification status is not proof a dealer received goods, and a
+supplier scan is not a warehouse receipt. Notification bodies, provider
+responses, free-text errors, actor IDs and PII are excluded. The remaining
+source tables stay out of scope: audit logs, HR/attendance/GPS/payroll,
+accounts/sessions/OTP/rate limits, mini-CRM and Drive content, configuration,
+and all 17 views. No source mutation, HR, backup, training, model or Gateway
+change. R3 accounting review remains deferred.

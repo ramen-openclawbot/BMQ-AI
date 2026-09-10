@@ -23,12 +23,26 @@ from .warehouse import Warehouse, atomic_json
 
 PROJECT = 'cxntbdvfsikwmitapony'
 TENANT = PROJECT + '.supabase.co'
-VERSION = 'bmq-supabase-raw-v12'
+VERSION = 'bmq-supabase-raw-v13'
 MAX_ROWS = 50000
 MAX_BYTES = 128 * 1024 * 1024
 # Explicit field projections: no auth/OTP/session tokens, contact snapshots,
 # arbitrary JSON, signed document URLs, bank data or staff phone/salary.
 FIELDS = {
+    # R10 remaining business evidence: customer PO ingestion, supplier unit scan,
+    # cash top-ups, legacy purchase orders and dealer notification delivery are
+    # transport evidence, not a ledger posting or a confirmed delivery.
+    'cash_fund_topups': 'id topup_date amount created_at updated_at',
+    'dealer_order_notifications': 'id order_id channel status attempt_count max_attempts sent_at created_at updated_at notification_type digest_date',
+    'dealer_test_order_confirmations': 'id order_id channel status attempt_count max_attempts sent_at created_at updated_at',
+    'material_supplier_unit_scan_evidence': 'id goods_receipt_id goods_receipt_item_id supplier_id package_quantity package_unit created_at',
+    'order_items': 'id order_id inventory_item_id quantity unit_price created_at',
+    'orders': 'id supplier_id status total_amount order_date created_at updated_at',
+    'po_parse_runs': 'id sync_job_id inbox_row_id customer_id status outcome kb_profile_id kb_version_id parse_source parsed_item_count created_at',
+    'po_sync_jobs': 'id customer_id date_from date_to status inbox_rows_found inbox_rows_processed created_at completed_at',
+    'po_sync_snapshots': 'id sync_job_id customer_id snapshot_kind snapshot_date total_drafts_count pending_drafts_count approved_drafts_count rejected_drafts_count exception_drafts_count cumulative_total_amount cumulative_pending_amount cumulative_approved_amount created_at updated_at',
+
+
     # R9 business evidence: posted revenue, cost classification and label/material
     # resolution stay source-side evidence; nothing here mints a ledger entry.
     'revenue_monthly_parse_runs': 'id period revenue_date_from revenue_date_to po_received_from po_received_to status overwrite_requested approved_source_document_id created_at approved_at updated_at expires_at',
