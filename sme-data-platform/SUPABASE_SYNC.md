@@ -93,9 +93,25 @@ Revenue ledger replication additionally extracts only route_customer_id and rout
 
 ## R5 Q7 / kitchen projection v8
 
-Current allowlist: 52 tables. Adds kitchen_inventory_items/movements/monthly_closings,
+R5 allowlist: 52 tables. Adds kitchen_inventory_items/movements/monthly_closings,
 q7_inventory_openings/movements, q7_material_issue_material_mappings, and
 kfm_daily_material_issues/items/sources. See BMQ_SOURCE_COVERAGE.md for semantic limits. These are scalar
 evidence projections only; no source repairs, stock formula or new chat metric.
 Null opening/counts, unit spelling, precision, status and source relationships
 remain unchanged. Repeating a snapshot creates no duplicate current rows.
+
+## R6 Material Master / COGS / actual issue projection v9
+
+Current allowlist: 65 tables. Adds sku_cogs_materials/aliases, material_scoped_aliases,
+material_supplier_products, material_price_history, material_unit_conversions,
+sku_formulations, sku_cogs_versions/version_formulations, production_material_issues,
+production_material_issue_items/checks/check_actuals. Full read-only snapshots
+retain revisions, effective dates, precision, nulls, approval and posting states.
+No name-based joining, conversion or cost/stock recomputation is performed.
+
+Checks and actual quantities are linked evidence, not a new certification engine:
+no signed files, actor identities or arbitrary JSON are ingested. Check status
+alone does not prove matching signatures/file completeness; posted_at and actual
+Q7 movements remain distinct. Full historical product/material JSON snapshots
+are excluded; no claim to reconstruct total historical COGS. R3 review remains
+deferred, and raw-only tables do not widen LLM/owner query exposure.

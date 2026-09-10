@@ -116,12 +116,12 @@ Nine minimal finance evidence projections are synchronized by raw-v6. Customer o
 | material_master_audit_logs | BASE TABLE | Operational/audit source; not a business metric by default |
 | material_master_enforcement_config | BASE TABLE | Operational/audit source; not a business metric by default |
 | material_master_shadow_rollout_dashboard | VIEW | Derived view; reconcile underlying sources first |
-| material_price_history | BASE TABLE | Pending source projection + business contract + reconciliation |
+| material_price_history | BASE TABLE | R6 raw v9 scalar projection; source evidence only, no COGS/stock certification |
 | material_resolution_requests | BASE TABLE | Pending source projection + business contract + reconciliation |
-| material_scoped_aliases | BASE TABLE | Pending source projection + business contract + reconciliation |
-| material_supplier_products | BASE TABLE | Pending source projection + business contract + reconciliation |
+| material_scoped_aliases | BASE TABLE | R6 raw v9 scalar projection; source evidence only, no COGS/stock certification |
+| material_supplier_products | BASE TABLE | R6 raw v9 scalar projection; source evidence only, no COGS/stock certification |
 | material_supplier_unit_scan_evidence | BASE TABLE | Pending source projection + business contract + reconciliation |
-| material_unit_conversions | BASE TABLE | Pending source projection + business contract + reconciliation |
+| material_unit_conversions | BASE TABLE | R6 raw v9 scalar projection; source evidence only, no COGS/stock certification |
 | mini_crm_agent_ui_audit_logs | BASE TABLE | Operational/audit source; not a business metric by default |
 | mini_crm_customer_contracts | BASE TABLE | Raw + governed measure |
 | mini_crm_customer_emails | BASE TABLE | Pending source projection + business contract + reconciliation |
@@ -164,11 +164,11 @@ Nine minimal finance evidence projections are synchronized by raw-v6. Customer o
 | product_label_specs | BASE TABLE | Pending source projection + business contract + reconciliation |
 | product_skus | BASE TABLE | Raw + governed measure |
 | production_location_sku_settings | BASE TABLE | Pending source projection + business contract + reconciliation |
-| production_material_issue_check_actuals | BASE TABLE | Pending source projection + business contract + reconciliation |
-| production_material_issue_checks | BASE TABLE | Pending source projection + business contract + reconciliation |
+| production_material_issue_check_actuals | BASE TABLE | R6 raw v9 scalar projection; source evidence only, no COGS/stock certification |
+| production_material_issue_checks | BASE TABLE | R6 raw v9 scalar projection; source evidence only, no COGS/stock certification |
 | production_material_issue_events | BASE TABLE | Pending source projection + business contract + reconciliation |
-| production_material_issue_items | BASE TABLE | Pending source projection + business contract + reconciliation |
-| production_material_issues | BASE TABLE | Pending source projection + business contract + reconciliation |
+| production_material_issue_items | BASE TABLE | R6 raw v9 scalar projection; source evidence only, no COGS/stock certification |
+| production_material_issues | BASE TABLE | R6 raw v9 scalar projection; source evidence only, no COGS/stock certification |
 | production_order_items | BASE TABLE | Raw only; detail query not yet exposed |
 | production_orders | BASE TABLE | Raw + governed measure |
 | production_shift_items | BASE TABLE | Pending source projection + business contract + reconciliation |
@@ -193,11 +193,11 @@ Nine minimal finance evidence projections are synchronized by raw-v6. Customer o
 | revenue_monthly_parse_runs | BASE TABLE | Pending source projection + business contract + reconciliation |
 | revenue_source_documents | BASE TABLE | Raw + governed measure |
 | sales_po_documents | BASE TABLE | R2-I reviewed; pending-review empty items are not ledger sales; no ingestion claimed |
-| sku_cogs_material_aliases | BASE TABLE | Pending source projection + business contract + reconciliation |
-| sku_cogs_materials | BASE TABLE | Pending source projection + business contract + reconciliation |
-| sku_cogs_version_formulations | BASE TABLE | Pending source projection + business contract + reconciliation |
-| sku_cogs_versions | BASE TABLE | Pending source projection + business contract + reconciliation |
-| sku_formulations | BASE TABLE | Pending source projection + business contract + reconciliation |
+| sku_cogs_material_aliases | BASE TABLE | R6 raw v9 scalar projection; source evidence only, no COGS/stock certification |
+| sku_cogs_materials | BASE TABLE | R6 raw v9 scalar projection; source evidence only, no COGS/stock certification |
+| sku_cogs_version_formulations | BASE TABLE | R6 raw v9 scalar projection; source evidence only, no COGS/stock certification |
+| sku_cogs_versions | BASE TABLE | R6 raw v9 scalar projection; source evidence only, no COGS/stock certification |
+| sku_formulations | BASE TABLE | R6 raw v9 scalar projection; source evidence only, no COGS/stock certification |
 | supplier_aliases | BASE TABLE | Pending source projection + business contract + reconciliation |
 | supplier_product_aliases | BASE TABLE | Pending source projection + business contract + reconciliation |
 | supplier_scan_templates | BASE TABLE | Pending source projection + business contract + reconciliation |
@@ -232,3 +232,16 @@ Q7 source_issue_id/item_id target production_material_issues/items, NOT KFM;
 those source documents and canonical material master are a later slice.
 No free text, actor UUIDs, arbitrary JSON, source hashes or import/audit tables
 are copied. Raw-only additions do not expand owner chat SQL or model exposure.
+
+## R6 Material Master / COGS / actual issue evidence (raw v9)
+
+13 additional tables (65 total), explicit scalar projections; preserve inactive
+materials, global vs supplier-scoped aliases, approval/effective periods and all
+COGS/issue revisions. Current supplier/unit mappings must not rewrite history.
+Planned quantities, checked actuals and posted Q7 movements are separate facts.
+Missing prices/mappings/actuals remain null or absent, never zero/default.
+File paths/hashes, actors, OCR/result JSON, change reasons and full product/material
+snapshots are excluded. A passed status alone does not certify signatures,
+completeness, matching file or actual posting. Historical formulation rows retain
+unit price/dosage/wastage, but do not reconstruct full historic overhead/product
+snapshot. No new chat query, source mutation or accounting certification.

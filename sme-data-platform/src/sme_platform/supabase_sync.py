@@ -23,12 +23,28 @@ from .warehouse import Warehouse, atomic_json
 
 PROJECT = 'cxntbdvfsikwmitapony'
 TENANT = PROJECT + '.supabase.co'
-VERSION = 'bmq-supabase-raw-v8'
+VERSION = 'bmq-supabase-raw-v9'
 MAX_ROWS = 50000
 MAX_BYTES = 128 * 1024 * 1024
 # Explicit field projections: no auth/OTP/session tokens, contact snapshots,
 # arbitrary JSON, signed document URLs, bank data or staff phone/salary.
 FIELDS = {
+    # R6 transport only: effective-dated costs and checked actual quantities
+    # are not certified COGS or posted stock. Retain every revision/status.
+    'sku_cogs_materials': 'id material_code canonical_name normalized_name default_unit ingredient_sku_id active created_at updated_at category brand specification version',
+    'sku_cogs_material_aliases': 'id material_id alias_name normalized_alias source active created_at',
+    'material_scoped_aliases': 'id material_id supplier_id source_type alias_name normalized_alias approved approved_at active created_at',
+    'material_supplier_products': 'id material_id supplier_id product_sku_id supplier_product_code supplier_product_name normalized_supplier_product_name purchase_unit package_quantity package_unit base_quantity base_unit approved approved_at active created_at updated_at',
+    'material_price_history': 'id material_id supplier_product_id price_type price price_unit normalized_base_unit_price effective_from effective_to source_type source_id approved approved_at created_at',
+    'material_unit_conversions': 'id material_id from_unit to_unit factor effective_from effective_to source_type source_id approved approved_at active created_at updated_at',
+    'sku_formulations': 'id sku_id ingredient_name unit unit_price dosage_qty wastage_percent sort_order created_at updated_at ingredient_sku_id material_code canonical_material_id effective_from material_resolution_status material_resolution_request_id canonical_default_unit standard_unit_price standard_price_id',
+    'sku_cogs_versions': 'id sku_id version_no effective_from effective_to created_at',
+    'sku_cogs_version_formulations': 'id version_id source_formulation_id canonical_material_id ingredient_sku_id ingredient_name material_code unit unit_price dosage_qty wastage_percent sort_order created_at',
+    'production_material_issues': 'id issue_number production_order_id source_po_inbox_id revenue_draft_id sales_po_doc_id issue_date status total_amount created_at updated_at location_code revision signed_uploaded_at check_status checked_at confirmed_at posted_at is_current superseded_by_issue_id',
+    'production_material_issue_items': 'id material_issue_id production_order_item_id finished_sku_id ingredient_sku_id kitchen_inventory_item_id ingredient_name planned_finished_qty dosage_qty wastage_percent required_qty unit unit_cost amount created_at updated_at material_code canonical_material_id q7_mapping_id source_unit source_required_qty conversion_factor',
+    'production_material_issue_checks': 'id issue_id attempt_no status checked_at created_at',
+    'production_material_issue_check_actuals': 'id check_id issue_item_id planned_qty actual_qty difference_qty unit evidence_kind confidence created_at',
+
     # R5 transport only: Q7 usage is a positive quantity, not a signed delta.
     # Opening/count/close and planned KFM issue are distinct evidence.
     'kitchen_inventory_items': 'id item_code item_type name unit standard_unit_cost active inventory_item_id product_sku_id created_at updated_at canonical_material_id material_resolution_status',
