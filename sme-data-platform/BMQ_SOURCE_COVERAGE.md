@@ -1,6 +1,6 @@
 # BMQ source coverage — 2026-09-10
 
-This is an inventory, not a claim that all BMQ data is connected. Public schema: 180 base tables, 17 views. This release synchronizes 35 explicit projections and exposes 14 measures. Names/counts of contract file records do not imply contents were ingested or legal validity established. Raw-only rows are not automatically exposed to the LLM.
+This is an inventory, not a claim that all BMQ data is connected. Public schema: 180 base tables, 17 views. This release synchronizes 74 explicit projections and exposes 14 measures. Names/counts of contract file records do not imply contents were ingested or legal validity established. Raw-only rows are not automatically exposed to the LLM.
 
 ## R3 connection boundary
 
@@ -47,7 +47,7 @@ Nine minimal finance evidence projections are synchronized by raw-v6. Customer o
 | cost_line_classifications | BASE TABLE | Pending source projection + business contract + reconciliation |
 | customer_debt_period_adjustment_audit_logs | BASE TABLE | Operational/audit source; not a business metric by default |
 | customer_debt_period_adjustments | BASE TABLE | R3 raw evidence projection; no settled balance/bank reconciliation/chat metric implied |
-| customer_po_inbox | BASE TABLE | R2-I reviewed; heterogeneous parser evidence excluded from sales facts pending separate contract |
+| customer_po_inbox | BASE TABLE | R7 raw v10 scalar evidence; no new revenue/stock certification |
 | daily_reconciliations | BASE TABLE | R3 raw evidence projection; no settled balance/bank reconciliation/chat metric implied |
 | dealer_announcements | BASE TABLE | Pending source projection + business contract + reconciliation |
 | dealer_customer_contacts | BASE TABLE | Pending source projection + business contract + reconciliation |
@@ -153,8 +153,8 @@ Nine minimal finance evidence projections are synchronized by raw-v6. Customer o
 | payroll_runs | BASE TABLE | Pending source projection + business contract + reconciliation |
 | pending_kiosk_bread_recompute | BASE TABLE | Operational/audit source; not a business metric by default |
 | po_dispatch_revenue_audit_logs | BASE TABLE | Operational/audit source; not a business metric by default |
-| po_dispatch_revenue_confirmation_lines | BASE TABLE | Pending source projection + business contract + reconciliation |
-| po_dispatch_revenue_confirmations | BASE TABLE | Pending source projection + business contract + reconciliation |
+| po_dispatch_revenue_confirmation_lines | BASE TABLE | R7 raw v10 scalar evidence; no new revenue/stock certification |
+| po_dispatch_revenue_confirmations | BASE TABLE | R7 raw v10 scalar evidence; no new revenue/stock certification |
 | po_parse_runs | BASE TABLE | Pending source projection + business contract + reconciliation |
 | po_revenue_post_audit | BASE TABLE | Operational/audit source; not a business metric by default |
 | po_sync_jobs | BASE TABLE | Operational/audit source; not a business metric by default |
@@ -163,7 +163,7 @@ Nine minimal finance evidence projections are synchronized by raw-v6. Customer o
 | po_sync_snapshots | BASE TABLE | Operational/audit source; not a business metric by default |
 | product_label_specs | BASE TABLE | Pending source projection + business contract + reconciliation |
 | product_skus | BASE TABLE | Raw + governed measure |
-| production_location_sku_settings | BASE TABLE | Pending source projection + business contract + reconciliation |
+| production_location_sku_settings | BASE TABLE | R7 raw v10 scalar evidence; no new revenue/stock certification |
 | production_material_issue_check_actuals | BASE TABLE | R6 raw v9 scalar projection; source evidence only, no COGS/stock certification |
 | production_material_issue_checks | BASE TABLE | R6 raw v9 scalar projection; source evidence only, no COGS/stock certification |
 | production_material_issue_events | BASE TABLE | Pending source projection + business contract + reconciliation |
@@ -171,9 +171,9 @@ Nine minimal finance evidence projections are synchronized by raw-v6. Customer o
 | production_material_issues | BASE TABLE | R6 raw v9 scalar projection; source evidence only, no COGS/stock certification |
 | production_order_items | BASE TABLE | Raw only; detail query not yet exposed |
 | production_orders | BASE TABLE | Raw + governed measure |
-| production_shift_items | BASE TABLE | Pending source projection + business contract + reconciliation |
+| production_shift_items | BASE TABLE | R7 raw v10 scalar evidence; no new revenue/stock certification |
 | production_shift_workers | BASE TABLE | Pending source projection + business contract + reconciliation |
-| production_shifts | BASE TABLE | Pending source projection + business contract + reconciliation |
+| production_shifts | BASE TABLE | R7 raw v10 scalar evidence; no new revenue/stock certification |
 | profiles | BASE TABLE | Excluded from analytics by default; security/config or sensitive profile review |
 | purchase_order_items | BASE TABLE | Raw only; detail query not yet exposed |
 | purchase_orders | BASE TABLE | Raw + governed measure |
@@ -186,13 +186,13 @@ Nine minimal finance evidence projections are synchronized by raw-v6. Customer o
 | qa_label_checks | BASE TABLE | Pending source projection + business contract + reconciliation |
 | revenue_auto_daily_parse_logs | BASE TABLE | Operational/audit source; not a business metric by default |
 | revenue_draft_daily_review_audit_logs | BASE TABLE | Operational/audit source; not a business metric by default |
-| revenue_drafts | BASE TABLE | Pending source projection + business contract + reconciliation |
+| revenue_drafts | BASE TABLE | R7 raw v10 scalar evidence; no new revenue/stock certification |
 | revenue_ledger_line_audit_logs | BASE TABLE | Operational/audit source; not a business metric by default |
 | revenue_ledger_lines | BASE TABLE | Raw + governed measure |
 | revenue_monthly_parse_lines | BASE TABLE | Pending source projection + business contract + reconciliation |
 | revenue_monthly_parse_runs | BASE TABLE | Pending source projection + business contract + reconciliation |
 | revenue_source_documents | BASE TABLE | Raw + governed measure |
-| sales_po_documents | BASE TABLE | R2-I reviewed; pending-review empty items are not ledger sales; no ingestion claimed |
+| sales_po_documents | BASE TABLE | R7 raw v10 scalar evidence; no new revenue/stock certification |
 | sku_cogs_material_aliases | BASE TABLE | R6 raw v9 scalar projection; source evidence only, no COGS/stock certification |
 | sku_cogs_materials | BASE TABLE | R6 raw v9 scalar projection; source evidence only, no COGS/stock certification |
 | sku_cogs_version_formulations | BASE TABLE | R6 raw v9 scalar projection; source evidence only, no COGS/stock certification |
@@ -216,7 +216,7 @@ Nine minimal finance evidence projections are synchronized by raw-v6. Customer o
 | v_sku_labor_cost_actual | VIEW | Derived view; reconcile underlying sources first |
 | v_sku_labor_cost_monthly | VIEW | Derived view; reconcile underlying sources first |
 | v_sku_labor_cost_monthly_enriched | VIEW | Derived view; reconcile underlying sources first |
-| warehouse_dispatch_items | BASE TABLE | Pending source projection + business contract + reconciliation |
+| warehouse_dispatch_items | BASE TABLE | R7 raw v10 scalar evidence; no new revenue/stock certification |
 | warehouse_dispatches | BASE TABLE | Raw + governed measure |
 
 
@@ -245,3 +245,19 @@ snapshots are excluded. A passed status alone does not certify signatures,
 completeness, matching file or actual posting. Historical formulation rows retain
 unit price/dosage/wastage, but do not reconstruct full historic overhead/product
 snapshot. No new chat query, source mutation or accounting certification.
+
+## R7 PO / production shifts / dispatch evidence (raw v10)
+
+Current allowlist: 74 tables. Nine new scalar-only tables: customer_po_inbox,
+sales_po_documents, revenue_drafts, production_shifts, production_shift_items,
+production_location_sku_settings, warehouse_dispatch_items,
+po_dispatch_revenue_confirmations and po_dispatch_revenue_confirmation_lines.
+PO approval/posted flags, draft approval, production actuals, dispatch state and
+temporary/confirmed VAT-inclusive amounts remain distinct source evidence.
+No additional revenue ledger rows or new chat metrics are generated.
+Missing links/prices and source precision/statuses are retained, not defaulted.
+SKU text in confirmation lines is not a SKU UUID. Source line keys retain lineage.
+Email identifiers/body/contacts, assigned staff/actors, notes and arbitrary JSON
+(including items/production_items/raw_payload) are excluded. Header-only PO
+transport is not complete PO line replication. No source mutation, HR,
+stock/revenue certification or automatic historical repair. R3 review deferred.

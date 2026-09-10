@@ -1,3 +1,7 @@
+# Current release — R7 raw-v10
+
+74 scalar projections; see the R7 section below. Earlier release notes retain historical counts and versions. No change to existing chat metrics.
+
 # R3 finance connection — raw-v6
 
 35 explicit projections: adds payments, invoices, invoice_items, payment_request_items, customer_debt_period_adjustments, ceo_daily_closing_declarations, daily_reconciliations, finance_daily_close_runs and finance_payment_auto_approval_matches. Only the reviewed scalar allowlist is copied. Four additional same-snapshot amount checksums validate transport, not accounting correctness. Missing opening/collections remain missing, legacy discrepancies remain exact, close attempts are not payments. No change to chat metrics, source financial facts, backup or training. Detailed accounting reconciliation and balance queries are deferred by the owner until the full connection is complete. Preserve user/501 Background900sec runtime.
@@ -102,7 +106,7 @@ remain unchanged. Repeating a snapshot creates no duplicate current rows.
 
 ## R6 Material Master / COGS / actual issue projection v9
 
-Current allowlist: 65 tables. Adds sku_cogs_materials/aliases, material_scoped_aliases,
+R6 allowlist: 65 tables. Adds sku_cogs_materials/aliases, material_scoped_aliases,
 material_supplier_products, material_price_history, material_unit_conversions,
 sku_formulations, sku_cogs_versions/version_formulations, production_material_issues,
 production_material_issue_items/checks/check_actuals. Full read-only snapshots
@@ -115,3 +119,19 @@ alone does not prove matching signatures/file completeness; posted_at and actual
 Q7 movements remain distinct. Full historical product/material JSON snapshots
 are excluded; no claim to reconstruct total historical COGS. R3 review remains
 deferred, and raw-only tables do not widen LLM/owner query exposure.
+
+## R7 PO / production shifts / dispatch evidence (raw v10)
+
+Current allowlist: 74 tables. Nine new scalar-only tables: customer_po_inbox,
+sales_po_documents, revenue_drafts, production_shifts, production_shift_items,
+production_location_sku_settings, warehouse_dispatch_items,
+po_dispatch_revenue_confirmations and po_dispatch_revenue_confirmation_lines.
+PO approval/posted flags, draft approval, production actuals, dispatch state and
+temporary/confirmed VAT-inclusive amounts remain distinct source evidence.
+No additional revenue ledger rows or new chat metrics are generated.
+Missing links/prices and source precision/statuses are retained, not defaulted.
+SKU text in confirmation lines is not a SKU UUID. Source line keys retain lineage.
+Email identifiers/body/contacts, assigned staff/actors, notes and arbitrary JSON
+(including items/production_items/raw_payload) are excluded. Header-only PO
+transport is not complete PO line replication. No source mutation, HR,
+stock/revenue certification or automatic historical repair. R3 review deferred.

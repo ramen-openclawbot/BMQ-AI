@@ -23,12 +23,25 @@ from .warehouse import Warehouse, atomic_json
 
 PROJECT = 'cxntbdvfsikwmitapony'
 TENANT = PROJECT + '.supabase.co'
-VERSION = 'bmq-supabase-raw-v9'
+VERSION = 'bmq-supabase-raw-v10'
 MAX_ROWS = 50000
 MAX_BYTES = 128 * 1024 * 1024
 # Explicit field projections: no auth/OTP/session tokens, contact snapshots,
 # arbitrary JSON, signed document URLs, bank data or staff phone/salary.
 FIELDS = {
+    # R7 transport only: PO/drafts, shift actuals and dispatch confirmations
+    # remain separate evidence, never additional posted revenue.
+    'customer_po_inbox': 'id received_at matched_customer_id match_status parsed_po_number parsed_total_amount revenue_channel reviewed_at created_at updated_at po_number delivery_date subtotal_amount vat_amount total_amount posted_to_revenue posted_to_revenue_at',
+    'po_dispatch_revenue_confirmation_lines': 'id confirmation_id source_line_key sku product_name ordered_qty produced_qty defect_qty dispatched_qty billable_qty unit_price_vat_included source_line_amount_vat_included temporary_revenue_amount_vat_included confirmed_revenue_amount_vat_included shortage_reason_code created_at',
+    'po_dispatch_revenue_confirmations': 'id customer_po_inbox_id warehouse_dispatch_id production_order_id customer_id po_number revenue_date dispatch_date status ordered_qty_total produced_qty_total defect_qty_total dispatched_qty_total billable_qty_total po_total_vat_included temporary_revenue_amount_vat_included confirmed_revenue_amount_vat_included amount_status amount_basis confirmed_at created_at updated_at',
+    'production_location_sku_settings': 'id location_code sku_id is_enabled created_at updated_at',
+    'production_shift_items': 'id production_shift_id production_order_item_id sku_id planned_qty actual_qty unit created_at',
+    'production_shifts': 'id shift_code production_order_id shift_date shift_type status started_at completed_at created_at updated_at',
+    'revenue_drafts': 'id sales_po_doc_id customer_id po_number po_order_date delivery_date subtotal_amount vat_amount total_amount revenue_channel product_group status approved_at rejected_at created_at updated_at production_order_id source',
+    'sales_po_documents': 'id inbox_row_id customer_id po_number po_order_date delivery_date subtotal_amount vat_amount total_amount revenue_channel parse_source status created_at updated_at',
+    'warehouse_dispatch_items': 'id dispatch_id sku_id product_name quantity unit batch_id created_at',
+
+
     # R6 transport only: effective-dated costs and checked actual quantities
     # are not certified COGS or posted stock. Retain every revision/status.
     'sku_cogs_materials': 'id material_code canonical_name normalized_name default_unit ingredient_sku_id active created_at updated_at category brand specification version',
