@@ -89,9 +89,9 @@ Nine minimal finance evidence projections are synchronized by raw-v6. Customer o
 | inventory_movements | BASE TABLE | Pending source projection + business contract + reconciliation |
 | invoice_items | BASE TABLE | R3 raw evidence projection; no settled balance/bank reconciliation/chat metric implied |
 | invoices | BASE TABLE | R3 raw evidence projection; no settled balance/bank reconciliation/chat metric implied |
-| kfm_daily_material_issue_items | BASE TABLE | Pending source projection + business contract + reconciliation |
-| kfm_daily_material_issue_sources | BASE TABLE | Pending source projection + business contract + reconciliation |
-| kfm_daily_material_issues | BASE TABLE | Pending source projection + business contract + reconciliation |
+| kfm_daily_material_issue_items | BASE TABLE | R5 raw v8 scalar projection; source evidence only, no stock certification/chat metric |
+| kfm_daily_material_issue_sources | BASE TABLE | R5 raw v8 scalar projection; source evidence only, no stock certification/chat metric |
+| kfm_daily_material_issues | BASE TABLE | R5 raw v8 scalar projection; source evidence only, no stock certification/chat metric |
 | kiosk_daily_report_channel_rows | BASE TABLE | Raw + governed measure |
 | kiosk_daily_report_inventory_rows | BASE TABLE | Raw only; detail query not yet exposed |
 | kiosk_daily_reports | BASE TABLE | Raw + governed measure |
@@ -108,10 +108,10 @@ Nine minimal finance evidence projections are synchronized by raw-v6. Customer o
 | kitchen_inventory_import_batches | BASE TABLE | Pending source projection + business contract + reconciliation |
 | kitchen_inventory_import_rows | BASE TABLE | Pending source projection + business contract + reconciliation |
 | kitchen_inventory_item_audit_logs | BASE TABLE | Operational/audit source; not a business metric by default |
-| kitchen_inventory_items | BASE TABLE | Pending source projection + business contract + reconciliation |
-| kitchen_inventory_monthly_closings | BASE TABLE | Pending source projection + business contract + reconciliation |
+| kitchen_inventory_items | BASE TABLE | R5 raw v8 scalar projection; source evidence only, no stock certification/chat metric |
+| kitchen_inventory_monthly_closings | BASE TABLE | R5 raw v8 scalar projection; source evidence only, no stock certification/chat metric |
 | kitchen_inventory_movement_audit_logs | BASE TABLE | Operational/audit source; not a business metric by default |
-| kitchen_inventory_movements | BASE TABLE | Pending source projection + business contract + reconciliation |
+| kitchen_inventory_movements | BASE TABLE | R5 raw v8 scalar projection; source evidence only, no stock certification/chat metric |
 | kitchen_other_costs | BASE TABLE | Pending source projection + business contract + reconciliation |
 | material_master_audit_logs | BASE TABLE | Operational/audit source; not a business metric by default |
 | material_master_enforcement_config | BASE TABLE | Operational/audit source; not a business metric by default |
@@ -177,10 +177,10 @@ Nine minimal finance evidence projections are synchronized by raw-v6. Customer o
 | profiles | BASE TABLE | Excluded from analytics by default; security/config or sensitive profile review |
 | purchase_order_items | BASE TABLE | Raw only; detail query not yet exposed |
 | purchase_orders | BASE TABLE | Raw + governed measure |
-| q7_inventory_movements | BASE TABLE | Pending source projection + business contract + reconciliation |
+| q7_inventory_movements | BASE TABLE | R5 raw v8 scalar projection; source evidence only, no stock certification/chat metric |
 | q7_inventory_opening_audit_logs | BASE TABLE | Operational/audit source; not a business metric by default |
-| q7_inventory_openings | BASE TABLE | Pending source projection + business contract + reconciliation |
-| q7_material_issue_material_mappings | BASE TABLE | Pending source projection + business contract + reconciliation |
+| q7_inventory_openings | BASE TABLE | R5 raw v8 scalar projection; source evidence only, no stock certification/chat metric |
+| q7_material_issue_material_mappings | BASE TABLE | R5 raw v8 scalar projection; source evidence only, no stock certification/chat metric |
 | qa_inspection_items | BASE TABLE | Pending source projection + business contract + reconciliation |
 | qa_inspections | BASE TABLE | Pending source projection + business contract + reconciliation |
 | qa_label_checks | BASE TABLE | Pending source projection + business contract + reconciliation |
@@ -219,3 +219,16 @@ Nine minimal finance evidence projections are synchronized by raw-v6. Customer o
 | warehouse_dispatch_items | BASE TABLE | Pending source projection + business contract + reconciliation |
 | warehouse_dispatches | BASE TABLE | Raw + governed measure |
 
+
+## R5 Q7 / kitchen transport (raw v8)
+
+Nine additional projections (52 total). Preserve Q7 receipt/production_usage
+positive magnitudes and signed adjustments; do not treat all as signed deltas.
+Q7 is a separate ledger from kitchen movements; never merge them automatically.
+Missing opening/count remains null. Monthly system/count/variance are separate
+facts; current approved conversion does not establish historical conversion.
+KFM required quantities/revisions/printed status are plans, not actual dispatches.
+Q7 source_issue_id/item_id target production_material_issues/items, NOT KFM;
+those source documents and canonical material master are a later slice.
+No free text, actor UUIDs, arbitrary JSON, source hashes or import/audit tables
+are copied. Raw-only additions do not expand owner chat SQL or model exposure.

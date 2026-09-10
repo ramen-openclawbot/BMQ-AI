@@ -23,12 +23,23 @@ from .warehouse import Warehouse, atomic_json
 
 PROJECT = 'cxntbdvfsikwmitapony'
 TENANT = PROJECT + '.supabase.co'
-VERSION = 'bmq-supabase-raw-v7'
+VERSION = 'bmq-supabase-raw-v8'
 MAX_ROWS = 50000
 MAX_BYTES = 128 * 1024 * 1024
 # Explicit field projections: no auth/OTP/session tokens, contact snapshots,
 # arbitrary JSON, signed document URLs, bank data or staff phone/salary.
 FIELDS = {
+    # R5 transport only: Q7 usage is a positive quantity, not a signed delta.
+    # Opening/count/close and planned KFM issue are distinct evidence.
+    'kitchen_inventory_items': 'id item_code item_type name unit standard_unit_cost active inventory_item_id product_sku_id created_at updated_at canonical_material_id material_resolution_status',
+    'kitchen_inventory_movements': 'id movement_date period_month item_id movement_type quantity unit unit_cost amount source source_ref_id created_at updated_at location_code',
+    'kitchen_inventory_monthly_closings': 'id period_month item_id opening_qty purchase_qty usage_qty adjustment_qty system_ending_qty counted_ending_qty variance_qty unit_cost usage_amount status closed_at created_at updated_at',
+    'q7_inventory_openings': 'id kitchen_inventory_item_id effective_date opening_qty unit physical_count_qty physical_count_date created_at updated_at q7_mapping_id canonical_material_id',
+    'q7_inventory_movements': 'id kitchen_inventory_item_id movement_date movement_type quantity unit source source_ref_id source_issue_id source_issue_item_id created_at q7_mapping_id canonical_material_id',
+    'q7_material_issue_material_mappings': 'id canonical_material_id source_unit kitchen_inventory_item_id kitchen_unit conversion_factor approval_status approved_at created_at updated_at',
+    'kfm_daily_material_issues': 'id issue_number issue_date revision status total_amount printed_at created_at updated_at',
+    'kfm_daily_material_issue_items': 'id issue_id canonical_material_id material_code ingredient_name required_qty unit unit_cost amount sort_order created_at',
+    'kfm_daily_material_issue_sources': 'id issue_id production_order_id source_po_inbox_id production_number po_number created_at',
     # R4 transport only: signed movements, balances and reservations remain
     # separate facts; never sum different units or infer customer delivery.
     'goods_receipt_items': 'id goods_receipt_id sku_id product_name quantity unit inventory_item_id created_at expiry_date purchase_order_item_id ordered_quantity actual_quantity unit_price line_status canonical_material_id material_resolution_status',

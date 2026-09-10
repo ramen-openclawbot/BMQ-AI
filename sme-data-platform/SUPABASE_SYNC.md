@@ -90,3 +90,12 @@ included in a training dataset by the sync.
 
 ## NPP routing projection v3
 Revenue ledger replication additionally extracts only route_customer_id and route_customer_name scalars using the same raw_payload alias precedence as NppDebtManagement. The complete raw_payload is not copied. Deploy the new sync runtime before enabling npp_receivable; old snapshots lacking routing must fail closed. Existing table count and exact-money reconciliation remain unchanged.
+
+## R5 Q7 / kitchen projection v8
+
+Current allowlist: 52 tables. Adds kitchen_inventory_items/movements/monthly_closings,
+q7_inventory_openings/movements, q7_material_issue_material_mappings, and
+kfm_daily_material_issues/items/sources. See BMQ_SOURCE_COVERAGE.md for semantic limits. These are scalar
+evidence projections only; no source repairs, stock formula or new chat metric.
+Null opening/counts, unit spelling, precision, status and source relationships
+remain unchanged. Repeating a snapshot creates no duplicate current rows.
