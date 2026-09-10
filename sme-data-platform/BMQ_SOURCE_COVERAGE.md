@@ -1,6 +1,10 @@
 # BMQ source coverage — 2026-09-10
 
-This is an inventory, not a claim that all BMQ data is connected. Public schema: 180 base tables, 17 views. This release synchronizes 26 explicit projections and exposes 14 measures. Names/counts of contract file records do not imply contents were ingested or legal validity established. Raw-only rows are not automatically exposed to the LLM.
+This is an inventory, not a claim that all BMQ data is connected. Public schema: 180 base tables, 17 views. This release synchronizes 35 explicit projections and exposes 14 measures. Names/counts of contract file records do not imply contents were ingested or legal validity established. Raw-only rows are not automatically exposed to the LLM.
+
+## R3 connection boundary
+
+Nine minimal finance evidence projections are synchronized by raw-v6. Customer opening/collections remain missing when no exact-period adjustment exists, never zero. Payments are outgoing supplier source records, including unresolved legacy allocation collisions and future dates. Invoice/PR line exceptions remain unchanged. Close runs/matches are attempts and evidence, not executed payments. No bank references, notes, document URLs, full extraction JSON or new LLM exposure. New settled-balance/approved-payable queries remain deferred with the accounting review until the broader BMQ connection is complete, per owner instruction. Existing metric contracts remain unchanged.
 
 ## Remaining business work
 
@@ -31,7 +35,7 @@ This is an inventory, not a claim that all BMQ data is connected. Public schema:
 | attendance_shifts | BASE TABLE | Pending source projection + business contract + reconciliation |
 | audit_logs | BASE TABLE | Operational/audit source; not a business metric by default |
 | cash_fund_topups | BASE TABLE | Pending source projection + business contract + reconciliation |
-| ceo_daily_closing_declarations | BASE TABLE | Pending source projection + business contract + reconciliation |
+| ceo_daily_closing_declarations | BASE TABLE | R3 raw evidence projection; no settled balance/bank reconciliation/chat metric implied |
 | cost_categories | BASE TABLE | Pending source projection + business contract + reconciliation |
 | cost_classification_audit_logs | BASE TABLE | Operational/audit source; not a business metric by default |
 | cost_classification_category_summary | VIEW | Derived view; reconcile underlying sources first |
@@ -42,9 +46,9 @@ This is an inventory, not a claim that all BMQ data is connected. Public schema:
 | cost_item_alias_mappings | BASE TABLE | Pending source projection + business contract + reconciliation |
 | cost_line_classifications | BASE TABLE | Pending source projection + business contract + reconciliation |
 | customer_debt_period_adjustment_audit_logs | BASE TABLE | Operational/audit source; not a business metric by default |
-| customer_debt_period_adjustments | BASE TABLE | Pending source projection + business contract + reconciliation |
+| customer_debt_period_adjustments | BASE TABLE | R3 raw evidence projection; no settled balance/bank reconciliation/chat metric implied |
 | customer_po_inbox | BASE TABLE | R2-I reviewed; heterogeneous parser evidence excluded from sales facts pending separate contract |
-| daily_reconciliations | BASE TABLE | Pending source projection + business contract + reconciliation |
+| daily_reconciliations | BASE TABLE | R3 raw evidence projection; no settled balance/bank reconciliation/chat metric implied |
 | dealer_announcements | BASE TABLE | Pending source projection + business contract + reconciliation |
 | dealer_customer_contacts | BASE TABLE | Pending source projection + business contract + reconciliation |
 | dealer_customer_order_confirmations | BASE TABLE | R2 raw v5 minimal audit projection; no approval/payment inference |
@@ -74,8 +78,8 @@ This is an inventory, not a claim that all BMQ data is connected. Public schema:
 | facebook_page_oauth_candidates | BASE TABLE | Excluded from analytics by default; security/config or sensitive profile review |
 | facebook_page_oauth_states | BASE TABLE | Excluded from analytics by default; security/config or sensitive profile review |
 | facebook_platform_identities | BASE TABLE | Pending source projection + business contract + reconciliation |
-| finance_daily_close_runs | BASE TABLE | Pending source projection + business contract + reconciliation |
-| finance_payment_auto_approval_matches | BASE TABLE | Pending source projection + business contract + reconciliation |
+| finance_daily_close_runs | BASE TABLE | R3 raw evidence projection; no settled balance/bank reconciliation/chat metric implied |
+| finance_payment_auto_approval_matches | BASE TABLE | R3 raw evidence projection; no settled balance/bank reconciliation/chat metric implied |
 | goods_receipt_auto_issue_items | BASE TABLE | Pending source projection + business contract + reconciliation |
 | goods_receipt_auto_issues | BASE TABLE | Pending source projection + business contract + reconciliation |
 | goods_receipt_items | BASE TABLE | Pending source projection + business contract + reconciliation |
@@ -83,8 +87,8 @@ This is an inventory, not a claim that all BMQ data is connected. Public schema:
 | inventory_batches | BASE TABLE | Pending source projection + business contract + reconciliation |
 | inventory_items | BASE TABLE | Raw + governed measure |
 | inventory_movements | BASE TABLE | Pending source projection + business contract + reconciliation |
-| invoice_items | BASE TABLE | Pending source projection + business contract + reconciliation |
-| invoices | BASE TABLE | Pending source projection + business contract + reconciliation |
+| invoice_items | BASE TABLE | R3 raw evidence projection; no settled balance/bank reconciliation/chat metric implied |
+| invoices | BASE TABLE | R3 raw evidence projection; no settled balance/bank reconciliation/chat metric implied |
 | kfm_daily_material_issue_items | BASE TABLE | Pending source projection + business contract + reconciliation |
 | kfm_daily_material_issue_sources | BASE TABLE | Pending source projection + business contract + reconciliation |
 | kfm_daily_material_issues | BASE TABLE | Pending source projection + business contract + reconciliation |
@@ -141,9 +145,9 @@ This is an inventory, not a claim that all BMQ data is connected. Public schema:
 | order_items | BASE TABLE | Pending source projection + business contract + reconciliation |
 | orders | BASE TABLE | Pending source projection + business contract + reconciliation |
 | payment_allocations | BASE TABLE | Raw + governed measure |
-| payment_request_items | BASE TABLE | Pending source projection + business contract + reconciliation |
+| payment_request_items | BASE TABLE | R3 raw evidence projection; no settled balance/bank reconciliation/chat metric implied |
 | payment_requests | BASE TABLE | Raw + governed measure |
-| payments | BASE TABLE | Pending source projection + business contract + reconciliation |
+| payments | BASE TABLE | R3 raw evidence projection; no settled balance/bank reconciliation/chat metric implied |
 | payroll_adjustments | BASE TABLE | Pending source projection + business contract + reconciliation |
 | payroll_lines | BASE TABLE | Pending source projection + business contract + reconciliation |
 | payroll_runs | BASE TABLE | Pending source projection + business contract + reconciliation |

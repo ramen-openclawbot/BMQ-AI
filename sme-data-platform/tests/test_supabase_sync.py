@@ -204,7 +204,7 @@ def test_r2a_precision_replay_and_route_history(warehouse):
 
 def test_r2a_projection_contract():
     from sme_platform.supabase_sync import VERSION
-    assert VERSION == 'bmq-supabase-raw-v5'
+    assert VERSION == 'bmq-supabase-raw-v6'
     sql = query_sql()
     assert "cost_values->'selling_price' AS selling_price" in sql
     assert '"cost_values"' not in sql and 'route_note' not in sql

@@ -23,12 +23,23 @@ from .warehouse import Warehouse, atomic_json
 
 PROJECT = 'cxntbdvfsikwmitapony'
 TENANT = PROJECT + '.supabase.co'
-VERSION = 'bmq-supabase-raw-v5'
+VERSION = 'bmq-supabase-raw-v6'
 MAX_ROWS = 50000
 MAX_BYTES = 128 * 1024 * 1024
 # Explicit field projections: no auth/OTP/session tokens, contact snapshots,
 # arbitrary JSON, signed document URLs, bank data or staff phone/salary.
 FIELDS = {
+    # R3 raw evidence only: supplier payments are not customer receipts;
+    # empty adjustments are not zero balances; close attempts are not payments.
+    'ceo_daily_closing_declarations': 'id closing_date unc_total_declared cash_fund_topup_amount qtm_extracted_amount unc_extracted_amount created_at updated_at',
+    'customer_debt_period_adjustments': 'id customer_id period_from period_to opening_balance_vnd amount_collected_vnd payment_due_date created_at updated_at',
+    'daily_reconciliations': 'id closing_date unc_detail_amount unc_declared_amount cash_fund_topup_amount variance_amount status tolerance_amount qtm_spent_from_folder qtm_variance_amount unc_status qtm_status matched_at created_at updated_at',
+    'finance_daily_close_runs': 'id closing_date mode status decision blocker_count match_count approved_count started_at finished_at created_at updated_at',
+    'finance_payment_auto_approval_matches': 'id run_id payment_request_id evidence_source evidence_amount evidence_confidence supplier_id match_strategy match_status created_at updated_at',
+    'invoice_items': 'id invoice_id product_code product_name unit quantity unit_price line_total inventory_item_id canonical_material_id created_at',
+    'invoices': 'id invoice_number invoice_date supplier_id subtotal vat_amount total_amount payment_request_id purchase_order_id goods_receipt_id created_at updated_at',
+    'payment_request_items': 'id payment_request_id product_code product_name quantity unit unit_price line_total inventory_item_id sku_id purchase_order_item_id canonical_material_id created_at',
+    'payments': 'id payment_number supplier_id payment_date amount payment_method created_at updated_at',
     'revenue_source_documents': 'id source_type period status created_at updated_at',
     'payment_requests': 'id request_number supplier_id total_amount status delivery_status payment_status created_at updated_at payment_method invoice_id vat_amount goods_receipt_id payment_type purchase_order_id paid_at',
     'payment_allocations': 'id payment_id payment_request_id amount created_at updated_at',
@@ -59,6 +70,8 @@ FIELDS = {
     'revenue_ledger_lines': 'id source_document_id source_row_number period revenue_date channel source_tab branch invoice_no customer_id parent_customer_id customer_code customer_name product_code product_name quantity unit_price gross_revenue order_gross order_discount customer_payable source_type approval_status audit_status confidence_status review_status reconciliation_status created_at updated_at route_customer_id route_customer_name',
 }
 TOTALS = {
+    'payments': 'amount', 'invoices': 'total_amount',
+    'invoice_items': 'line_total', 'payment_request_items': 'line_total',
     'payment_requests': 'total_amount', 'payment_allocations': 'amount',
     'dealer_orders': 'total_amount_vnd', 'dealer_order_items': 'line_total_vnd',
     'kiosk_daily_report_channel_rows': 'amount_vnd', 'purchase_orders': 'total_amount',

@@ -1,3 +1,7 @@
+# R3 finance connection — raw-v6
+
+35 explicit projections: adds payments, invoices, invoice_items, payment_request_items, customer_debt_period_adjustments, ceo_daily_closing_declarations, daily_reconciliations, finance_daily_close_runs and finance_payment_auto_approval_matches. Only the reviewed scalar allowlist is copied. Four additional same-snapshot amount checksums validate transport, not accounting correctness. Missing opening/collections remain missing, legacy discrepancies remain exact, close attempts are not payments. No change to chat metrics, source financial facts, backup or training. Detailed accounting reconciliation and balance queries are deferred by the owner until the full connection is complete. Preserve user/501 Background900sec runtime.
+
 ## R2 update — 2026-09-10
 
 Current projection is v5, 26 allowlisted tables. v4 selling_price scalar and historical route_customer_name retained. v5 adds cancellation events (6 fields) and customer confirmation status (7 fields), excluding contacts/session/payload/errors. Missing cancellation event never overrides dealer_orders.status; notification sent never means approved/paid. Host scheduler remains user/501 Background every900seconds; preserve this host configuration when upgrading. The original v1 implementation notes below describe the initial16-table rollout, not current coverage.
