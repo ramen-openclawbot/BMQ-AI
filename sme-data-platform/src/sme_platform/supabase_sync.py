@@ -23,12 +23,18 @@ from .warehouse import Warehouse, atomic_json
 
 PROJECT = 'cxntbdvfsikwmitapony'
 TENANT = PROJECT + '.supabase.co'
-VERSION = 'bmq-supabase-raw-v10'
+VERSION = 'bmq-supabase-raw-v11'
 MAX_ROWS = 50000
 MAX_BYTES = 128 * 1024 * 1024
 # Explicit field projections: no auth/OTP/session tokens, contact snapshots,
 # arbitrary JSON, signed document URLs, bank data or staff phone/salary.
 FIELDS = {
+    # R8 quality evidence: inspection header + line quantities stay separate
+    # evidence; an approved QA line is not an automatic warehouse receipt.
+    'qa_inspection_items': 'id qa_inspection_id sku_id product_name inspected_qty approved_qty rejected_qty unit created_at',
+    'qa_inspections': 'id inspection_number production_order_id production_shift_id status inspected_at created_at updated_at',
+
+
     # R7 transport only: PO/drafts, shift actuals and dispatch confirmations
     # remain separate evidence, never additional posted revenue.
     'customer_po_inbox': 'id received_at matched_customer_id match_status parsed_po_number parsed_total_amount revenue_channel reviewed_at created_at updated_at po_number delivery_date subtotal_amount vat_amount total_amount posted_to_revenue posted_to_revenue_at',

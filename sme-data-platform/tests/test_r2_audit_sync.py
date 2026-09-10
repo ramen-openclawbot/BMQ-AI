@@ -36,7 +36,7 @@ def warehouse(tmp_path):
 
 
 def test_audit_exact_projection_and_v4_fields_preserved():
-    assert VERSION == 'bmq-supabase-raw-v10'
+    assert VERSION == 'bmq-supabase-raw-v11'
     assert FIELDS[CANCEL].split() == ['id', 'order_id', 'customer_id', 'source', 'previous_status', 'created_at']
     assert FIELDS[CONFIRM].split() == ['id', 'order_id', 'channel', 'status', 'sent_at', 'created_at', 'updated_at']
     sql = query_sql()

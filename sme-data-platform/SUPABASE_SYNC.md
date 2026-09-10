@@ -122,7 +122,7 @@ deferred, and raw-only tables do not widen LLM/owner query exposure.
 
 ## R7 PO / production shifts / dispatch evidence (raw v10)
 
-Current allowlist: 74 tables. Nine new scalar-only tables: customer_po_inbox,
+R7 allowlist: 74 tables. Nine new scalar-only tables: customer_po_inbox,
 sales_po_documents, revenue_drafts, production_shifts, production_shift_items,
 production_location_sku_settings, warehouse_dispatch_items,
 po_dispatch_revenue_confirmations and po_dispatch_revenue_confirmation_lines.
@@ -135,3 +135,15 @@ Email identifiers/body/contacts, assigned staff/actors, notes and arbitrary JSON
 (including items/production_items/raw_payload) are excluded. Header-only PO
 transport is not complete PO line replication. No source mutation, HR,
 stock/revenue certification or automatic historical repair. R3 review deferred.
+
+## R8 QA inspection evidence (raw v11)
+
+Current allowlist: 76 tables. Two new scalar-only tables: qa_inspections and
+qa_inspection_items. Inspection status, case number, production order/shift
+links, SKU, inspected/approved/rejected quantities and unit are replicated as
+transport evidence only. An approved or rejected QA quantity is never converted
+into a warehouse receipt, stock movement or posted revenue; QA approval does not
+imply goods were received. Inspector names, product photo arrays and free-text
+notes/rejection reasons are excluded. Header-only inspection transport is not
+line-level replication of every inspection. No source mutation, HR, stock or
+revenue certification, and no new chat metrics. R3 review remains deferred.
