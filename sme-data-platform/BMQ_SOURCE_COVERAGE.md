@@ -1,6 +1,6 @@
 # BMQ source coverage — 2026-09-10
 
-This is an inventory, not a claim that all BMQ data is connected. Public schema: 180 base tables, 17 views. This release synchronizes 74 explicit projections and exposes 14 measures. Names/counts of contract file records do not imply contents were ingested or legal validity established. Raw-only rows are not automatically exposed to the LLM.
+This is an inventory, not a claim that all BMQ data is connected. Public schema: 180 base tables, 17 views. This release synchronizes 96 explicit projections and exposes 14 measures. Names/counts of contract file records do not imply contents were ingested or legal validity established. Raw-only rows are not automatically exposed to the LLM.
 
 ## R3 connection boundary
 
@@ -36,15 +36,15 @@ Nine minimal finance evidence projections are synchronized by raw-v6. Customer o
 | audit_logs | BASE TABLE | Operational/audit source; not a business metric by default |
 | cash_fund_topups | BASE TABLE | Pending source projection + business contract + reconciliation |
 | ceo_daily_closing_declarations | BASE TABLE | R3 raw evidence projection; no settled balance/bank reconciliation/chat metric implied |
-| cost_categories | BASE TABLE | Pending source projection + business contract + reconciliation |
+| cost_categories | BASE TABLE | R9 raw v12 scalar business evidence; no ledger/COGS closure |
 | cost_classification_audit_logs | BASE TABLE | Operational/audit source; not a business metric by default |
 | cost_classification_category_summary | VIEW | Derived view; reconcile underlying sources first |
 | cost_classification_line_details | VIEW | Derived view; reconcile underlying sources first |
 | cost_classification_monthly_summary | VIEW | Derived view; reconcile underlying sources first |
 | cost_classification_ocr_backfill_preview | VIEW | Derived view; reconcile underlying sources first |
-| cost_classification_rules | BASE TABLE | Pending source projection + business contract + reconciliation |
-| cost_item_alias_mappings | BASE TABLE | Pending source projection + business contract + reconciliation |
-| cost_line_classifications | BASE TABLE | Pending source projection + business contract + reconciliation |
+| cost_classification_rules | BASE TABLE | R9 raw v12 scalar business evidence; no ledger/COGS closure |
+| cost_item_alias_mappings | BASE TABLE | R9 raw v12 scalar business evidence; no ledger/COGS closure |
+| cost_line_classifications | BASE TABLE | R9 raw v12 scalar business evidence; no ledger/COGS closure |
 | customer_debt_period_adjustment_audit_logs | BASE TABLE | Operational/audit source; not a business metric by default |
 | customer_debt_period_adjustments | BASE TABLE | R3 raw evidence projection; no settled balance/bank reconciliation/chat metric implied |
 | customer_po_inbox | BASE TABLE | R7 raw v10 scalar evidence; no new revenue/stock certification |
@@ -95,9 +95,9 @@ Nine minimal finance evidence projections are synchronized by raw-v6. Customer o
 | kiosk_daily_report_channel_rows | BASE TABLE | Raw + governed measure |
 | kiosk_daily_report_inventory_rows | BASE TABLE | Raw only; detail query not yet exposed |
 | kiosk_daily_reports | BASE TABLE | Raw + governed measure |
-| kiosk_point_revenue_adjustments | BASE TABLE | Pending source projection + business contract + reconciliation |
+| kiosk_point_revenue_adjustments | BASE TABLE | R9 raw v12 scalar business evidence; no ledger/COGS closure |
 | kiosk_point_revenue_audit_logs | BASE TABLE | Operational/audit source; not a business metric by default |
-| kiosk_point_revenue_reviews | BASE TABLE | Pending source projection + business contract + reconciliation |
+| kiosk_point_revenue_reviews | BASE TABLE | R9 raw v12 scalar business evidence; no ledger/COGS closure |
 | kiosk_report_auth_rate_limits | BASE TABLE | Excluded from analytics by default; security/config or sensitive profile review |
 | kiosk_report_channels | BASE TABLE | Raw only; detail query not yet exposed |
 | kiosk_report_locations | BASE TABLE | Raw only; detail query not yet exposed |
@@ -105,19 +105,19 @@ Nine minimal finance evidence projections are synchronized by raw-v6. Customer o
 | kiosk_report_products | BASE TABLE | Raw only; detail query not yet exposed |
 | kiosk_report_sessions | BASE TABLE | Excluded from analytics by default; security/config or sensitive profile review |
 | kiosk_report_staff | BASE TABLE | Pending source projection + business contract + reconciliation |
-| kitchen_inventory_import_batches | BASE TABLE | Pending source projection + business contract + reconciliation |
-| kitchen_inventory_import_rows | BASE TABLE | Pending source projection + business contract + reconciliation |
+| kitchen_inventory_import_batches | BASE TABLE | R9 raw v12 scalar business evidence; no ledger/COGS closure |
+| kitchen_inventory_import_rows | BASE TABLE | R9 raw v12 scalar business evidence; no ledger/COGS closure |
 | kitchen_inventory_item_audit_logs | BASE TABLE | Operational/audit source; not a business metric by default |
 | kitchen_inventory_items | BASE TABLE | R5 raw v8 scalar projection; source evidence only, no stock certification/chat metric |
 | kitchen_inventory_monthly_closings | BASE TABLE | R5 raw v8 scalar projection; source evidence only, no stock certification/chat metric |
 | kitchen_inventory_movement_audit_logs | BASE TABLE | Operational/audit source; not a business metric by default |
 | kitchen_inventory_movements | BASE TABLE | R5 raw v8 scalar projection; source evidence only, no stock certification/chat metric |
-| kitchen_other_costs | BASE TABLE | Pending source projection + business contract + reconciliation |
+| kitchen_other_costs | BASE TABLE | R9 raw v12 scalar business evidence; no ledger/COGS closure |
 | material_master_audit_logs | BASE TABLE | Operational/audit source; not a business metric by default |
 | material_master_enforcement_config | BASE TABLE | Operational/audit source; not a business metric by default |
 | material_master_shadow_rollout_dashboard | VIEW | Derived view; reconcile underlying sources first |
 | material_price_history | BASE TABLE | R6 raw v9 scalar projection; source evidence only, no COGS/stock certification |
-| material_resolution_requests | BASE TABLE | Pending source projection + business contract + reconciliation |
+| material_resolution_requests | BASE TABLE | R9 raw v12 scalar business evidence; no ledger/COGS closure |
 | material_scoped_aliases | BASE TABLE | R6 raw v9 scalar projection; source evidence only, no COGS/stock certification |
 | material_supplier_products | BASE TABLE | R6 raw v9 scalar projection; source evidence only, no COGS/stock certification |
 | material_supplier_unit_scan_evidence | BASE TABLE | Pending source projection + business contract + reconciliation |
@@ -151,7 +151,7 @@ Nine minimal finance evidence projections are synchronized by raw-v6. Customer o
 | payroll_adjustments | BASE TABLE | Pending source projection + business contract + reconciliation |
 | payroll_lines | BASE TABLE | Pending source projection + business contract + reconciliation |
 | payroll_runs | BASE TABLE | Pending source projection + business contract + reconciliation |
-| pending_kiosk_bread_recompute | BASE TABLE | Operational/audit source; not a business metric by default |
+| pending_kiosk_bread_recompute | BASE TABLE | R9 raw v12 scalar business evidence; no ledger/COGS closure |
 | po_dispatch_revenue_audit_logs | BASE TABLE | Operational/audit source; not a business metric by default |
 | po_dispatch_revenue_confirmation_lines | BASE TABLE | R7 raw v10 scalar evidence; no new revenue/stock certification |
 | po_dispatch_revenue_confirmations | BASE TABLE | R7 raw v10 scalar evidence; no new revenue/stock certification |
@@ -161,12 +161,12 @@ Nine minimal finance evidence projections are synchronized by raw-v6. Customer o
 | po_sync_runtime_locks | BASE TABLE | Excluded from analytics by default; security/config or sensitive profile review |
 | po_sync_schedules | BASE TABLE | Operational/audit source; not a business metric by default |
 | po_sync_snapshots | BASE TABLE | Operational/audit source; not a business metric by default |
-| product_label_specs | BASE TABLE | Pending source projection + business contract + reconciliation |
+| product_label_specs | BASE TABLE | R9 raw v12 scalar business evidence; no ledger/COGS closure |
 | product_skus | BASE TABLE | Raw + governed measure |
 | production_location_sku_settings | BASE TABLE | R7 raw v10 scalar evidence; no new revenue/stock certification |
 | production_material_issue_check_actuals | BASE TABLE | R6 raw v9 scalar projection; source evidence only, no COGS/stock certification |
 | production_material_issue_checks | BASE TABLE | R6 raw v9 scalar projection; source evidence only, no COGS/stock certification |
-| production_material_issue_events | BASE TABLE | Pending source projection + business contract + reconciliation |
+| production_material_issue_events | BASE TABLE | R9 raw v12 scalar business evidence; no ledger/COGS closure |
 | production_material_issue_items | BASE TABLE | R6 raw v9 scalar projection; source evidence only, no COGS/stock certification |
 | production_material_issues | BASE TABLE | R6 raw v9 scalar projection; source evidence only, no COGS/stock certification |
 | production_order_items | BASE TABLE | Raw only; detail query not yet exposed |
@@ -183,14 +183,14 @@ Nine minimal finance evidence projections are synchronized by raw-v6. Customer o
 | q7_material_issue_material_mappings | BASE TABLE | R5 raw v8 scalar projection; source evidence only, no stock certification/chat metric |
 | qa_inspection_items | BASE TABLE | R8 raw v11 scalar QA evidence; no stock/revenue certification |
 | qa_inspections | BASE TABLE | R8 raw v11 scalar QA evidence; no stock/revenue certification |
-| qa_label_checks | BASE TABLE | Pending source projection + business contract + reconciliation |
-| revenue_auto_daily_parse_logs | BASE TABLE | Operational/audit source; not a business metric by default |
+| qa_label_checks | BASE TABLE | R9 raw v12 scalar business evidence; no ledger/COGS closure |
+| revenue_auto_daily_parse_logs | BASE TABLE | R9 raw v12 scalar business evidence; no ledger/COGS closure |
 | revenue_draft_daily_review_audit_logs | BASE TABLE | Operational/audit source; not a business metric by default |
 | revenue_drafts | BASE TABLE | R7 raw v10 scalar evidence; no new revenue/stock certification |
 | revenue_ledger_line_audit_logs | BASE TABLE | Operational/audit source; not a business metric by default |
 | revenue_ledger_lines | BASE TABLE | Raw + governed measure |
-| revenue_monthly_parse_lines | BASE TABLE | Pending source projection + business contract + reconciliation |
-| revenue_monthly_parse_runs | BASE TABLE | Pending source projection + business contract + reconciliation |
+| revenue_monthly_parse_lines | BASE TABLE | R9 raw v12 scalar business evidence; no ledger/COGS closure |
+| revenue_monthly_parse_runs | BASE TABLE | R9 raw v12 scalar business evidence; no ledger/COGS closure |
 | revenue_source_documents | BASE TABLE | Raw + governed measure |
 | sales_po_documents | BASE TABLE | R7 raw v10 scalar evidence; no new revenue/stock certification |
 | sku_cogs_material_aliases | BASE TABLE | R6 raw v9 scalar projection; source evidence only, no COGS/stock certification |
@@ -198,9 +198,9 @@ Nine minimal finance evidence projections are synchronized by raw-v6. Customer o
 | sku_cogs_version_formulations | BASE TABLE | R6 raw v9 scalar projection; source evidence only, no COGS/stock certification |
 | sku_cogs_versions | BASE TABLE | R6 raw v9 scalar projection; source evidence only, no COGS/stock certification |
 | sku_formulations | BASE TABLE | R6 raw v9 scalar projection; source evidence only, no COGS/stock certification |
-| supplier_aliases | BASE TABLE | Pending source projection + business contract + reconciliation |
-| supplier_product_aliases | BASE TABLE | Pending source projection + business contract + reconciliation |
-| supplier_scan_templates | BASE TABLE | Pending source projection + business contract + reconciliation |
+| supplier_aliases | BASE TABLE | R9 raw v12 scalar business evidence; no ledger/COGS closure |
+| supplier_product_aliases | BASE TABLE | R9 raw v12 scalar business evidence; no ledger/COGS closure |
+| supplier_scan_templates | BASE TABLE | R9 raw v12 scalar business evidence; no ledger/COGS closure |
 | suppliers | BASE TABLE | Raw only; detail query not yet exposed |
 | tan_tao_warehouse_documents | BASE TABLE | Pending source projection + business contract + reconciliation |
 | tan_tao_warehouse_movements | BASE TABLE | Pending source projection + business contract + reconciliation |
@@ -273,3 +273,17 @@ imply goods were received. Inspector names, product photo arrays and free-text
 notes/rejection reasons are excluded. Header-only inspection transport is not
 line-level replication of every inspection. No source mutation, HR, stock or
 revenue certification, and no new chat metrics. R3 review remains deferred.
+## R9 posted revenue, cost and label/material evidence (raw v12)
+
+R8 allowlist: 76 tables. Twenty new scalar-only tables bring the allowlist to 96:
+monthly revenue parse runs/lines and daily parse logs (A), cost categories, alias
+mappings, classification rules and line classifications plus other kitchen costs
+(B), and QA label checks, material issue events, material resolution requests,
+supplier aliases/scan templates, kitchen import batches/rows and product label
+specs (C). These are transport evidence: a parsed revenue line is not an
+independently certified ledger posting, a classified cost line is not a settled
+payable or final COGS, and a label check or material resolution request is not a
+stock receipt. Actor/staff identifiers, free-text notes/reasons, OCR text,
+JSON/array payloads, image and document URLs are excluded. No source mutation,
+HR, backup, training, model or Gateway change. R3 accounting review remains
+deferred.

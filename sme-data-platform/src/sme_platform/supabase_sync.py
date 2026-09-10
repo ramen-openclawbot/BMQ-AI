@@ -23,12 +23,36 @@ from .warehouse import Warehouse, atomic_json
 
 PROJECT = 'cxntbdvfsikwmitapony'
 TENANT = PROJECT + '.supabase.co'
-VERSION = 'bmq-supabase-raw-v11'
+VERSION = 'bmq-supabase-raw-v12'
 MAX_ROWS = 50000
 MAX_BYTES = 128 * 1024 * 1024
 # Explicit field projections: no auth/OTP/session tokens, contact snapshots,
 # arbitrary JSON, signed document URLs, bank data or staff phone/salary.
 FIELDS = {
+    # R9 business evidence: posted revenue, cost classification and label/material
+    # resolution stay source-side evidence; nothing here mints a ledger entry.
+    'revenue_monthly_parse_runs': 'id period revenue_date_from revenue_date_to po_received_from po_received_to status overwrite_requested approved_source_document_id created_at approved_at updated_at expires_at',
+    'revenue_monthly_parse_lines': 'id run_id source_row_number revenue_date po_received_date period channel source_tab branch invoice_no customer_id parent_customer_id customer_code customer_name product_code product_name quantity unit_price gross_revenue source_type source_ref confidence_status reconciliation_status review_status created_at',
+    'revenue_auto_daily_parse_logs': 'id revenue_date period scheduled_for_vn status started_at finished_at run_id source_document_id po_received_from po_received_to row_count gross_total review_flagged_line_count created_at updated_at',
+    'kiosk_point_revenue_reviews': 'report_id review_status reviewed_at created_at updated_at',
+    'kiosk_point_revenue_adjustments': 'report_id channel_code source_channel_row_id source_amount_vnd_snapshot corrected_amount_vnd created_at updated_at',
+    'pending_kiosk_bread_recompute': 'id report_id report_updated_at correction_audit_id original_supplier_notification_id original_warehouse_notification_id idempotency_key status created_at',
+    'cost_categories': 'id code label parent_code cost_group product_line is_revenue_related is_active sort_order created_at updated_at',
+    'cost_item_alias_mappings': 'id source_name source_name_key supplier_id standard_cost_code_type standard_cost_code canonical_cost_item_name category_code product_line allocation_rule mapping_status active effective_from effective_to created_at updated_at',
+    'cost_classification_rules': 'id priority rule_name supplier_id inventory_item_id sku_id match_scope category_code product_line revenue_channel allocation_rule confidence active effective_from effective_to created_at updated_at',
+    'cost_line_classifications': 'id source_type source_line_id payment_request_id invoice_id supplier_id category_code product_line revenue_channel allocation_rule confidence classification_source rule_id review_status reviewed_at created_at updated_at',
+    'kitchen_other_costs': 'id cost_date period_month cost_type description amount source_batch_id created_at',
+    'qa_label_checks': 'id qa_inspection_id production_order_id production_order_item_id sku_id product_label_spec_id expected_manufacturing_date expected_expiry_date extracted_manufacturing_date extracted_expiry_date extracted_product_code extracted_product_name extracted_net_weight_value extracted_net_weight_unit status checked_at created_at expected_barcode expected_partner_product_code extracted_barcode extracted_partner_product_code',
+    'production_material_issue_events': 'id issue_id event_type from_status to_status created_at',
+    'material_resolution_requests': 'id request_key source_type source_table source_id source_line_id supplier_id normalized_name status candidate_status resolved_material_id resolved_scoped_alias_id resolved_global_alias_id resolved_supplier_product_id reviewed_at created_at updated_at',
+    'supplier_aliases': 'id supplier_id alias_text alias_key active created_at updated_at',
+    'supplier_product_aliases': 'id supplier_id alias_name normalized_alias canonical_product_name sku_id is_active created_at updated_at',
+    'supplier_scan_templates': 'id supplier_id supplier_name_key hit_count last_used_at active created_at updated_at',
+    'kitchen_inventory_import_batches': 'id source_file_name source_sheet_name source_period_start source_period_end status rows_total rows_approved rows_review rows_rejected applied_at created_at',
+    'kitchen_inventory_import_rows': 'id batch_id source_row_number source_month source_item_name source_item_type source_unit source_standard_unit_cost source_opening_qty source_purchase_qty source_usage_qty source_ending_qty source_amount approval_decision import_status source_item_code source_normalized_key source_hash canonical_item_id created_at',
+    'product_label_specs': 'id sku_id sku_code product_name shelf_life_days net_weight_value net_weight_unit is_label_scan_required created_at updated_at barcode_value partner_product_code barcode_crop_confidence',
+
+
     # R8 quality evidence: inspection header + line quantities stay separate
     # evidence; an approved QA line is not an automatic warehouse receipt.
     'qa_inspection_items': 'id qa_inspection_id sku_id product_name inspected_qty approved_qty rejected_qty unit created_at',
@@ -133,7 +157,13 @@ TOTALS = {
     'kiosk_daily_report_channel_rows': 'amount_vnd', 'purchase_orders': 'total_amount',
     'purchase_order_items': 'line_total', 'revenue_ledger_lines': 'customer_payable',
 }
-KEYS = {name: ('code' if name in {'kiosk_report_products', 'kiosk_report_channels'} else 'id') for name in FIELDS}
+# Row identity per table when it is not the usual id column. The kiosk revenue
+# review/adjustment tables are keyed by report, and an adjustment row is unique
+# by its source channel row, not by report alone.
+KEY_COLUMNS = {'kiosk_report_products': 'code', 'kiosk_report_channels': 'code',
+               'kiosk_point_revenue_reviews': 'report_id',
+               'kiosk_point_revenue_adjustments': 'source_channel_row_id'}
+KEYS = {name: KEY_COLUMNS.get(name, 'id') for name in FIELDS}
 
 
 # Only routing scalars needed by the existing NPP debt contract are extracted.

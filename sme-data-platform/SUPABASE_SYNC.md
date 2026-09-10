@@ -138,7 +138,7 @@ stock/revenue certification or automatic historical repair. R3 review deferred.
 
 ## R8 QA inspection evidence (raw v11)
 
-Current allowlist: 76 tables. Two new scalar-only tables: qa_inspections and
+R8 allowlist: 76 tables. Two new scalar-only tables: qa_inspections and
 qa_inspection_items. Inspection status, case number, production order/shift
 links, SKU, inspected/approved/rejected quantities and unit are replicated as
 transport evidence only. An approved or rejected QA quantity is never converted
@@ -147,3 +147,17 @@ imply goods were received. Inspector names, product photo arrays and free-text
 notes/rejection reasons are excluded. Header-only inspection transport is not
 line-level replication of every inspection. No source mutation, HR, stock or
 revenue certification, and no new chat metrics. R3 review remains deferred.
+## R9 posted revenue, cost and label/material evidence (raw v12)
+
+R8 allowlist: 76 tables. Twenty new scalar-only tables bring the allowlist to 96:
+monthly revenue parse runs/lines and daily parse logs (A), cost categories, alias
+mappings, classification rules and line classifications plus other kitchen costs
+(B), and QA label checks, material issue events, material resolution requests,
+supplier aliases/scan templates, kitchen import batches/rows and product label
+specs (C). These are transport evidence: a parsed revenue line is not an
+independently certified ledger posting, a classified cost line is not a settled
+payable or final COGS, and a label check or material resolution request is not a
+stock receipt. Actor/staff identifiers, free-text notes/reasons, OCR text,
+JSON/array payloads, image and document URLs are excluded. No source mutation,
+HR, backup, training, model or Gateway change. R3 accounting review remains
+deferred.
