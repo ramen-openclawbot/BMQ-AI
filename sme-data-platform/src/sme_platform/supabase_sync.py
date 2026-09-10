@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 import hashlib
 import json
 import os
@@ -23,7 +23,7 @@ from .warehouse import Warehouse, atomic_json
 
 PROJECT = 'cxntbdvfsikwmitapony'
 TENANT = PROJECT + '.supabase.co'
-VERSION = 'bmq-supabase-raw-v3'
+VERSION = 'bmq-supabase-raw-v4'
 MAX_ROWS = 50000
 MAX_BYTES = 128 * 1024 * 1024
 # Explicit field projections: no auth/OTP/session tokens, contact snapshots,
@@ -38,10 +38,10 @@ FIELDS = {
     'warehouse_dispatches': 'id dispatch_number customer_id production_order_id status dispatch_date delivered_date created_at updated_at',
     'mini_crm_customer_contracts': 'id customer_id file_name file_size mime_type is_active created_at',
     'mini_crm_customers': 'id customer_code customer_name customer_group is_active created_at updated_at product_group is_npp supplied_by_npp_customer_id is_tier1 npp_management_fee_vnd',
-    'product_skus': 'id sku_code product_name unit unit_price supplier_id category created_at updated_at base_unit sku_type hide_from_dealer_portal canonical_material_id',
+    'product_skus': 'id sku_code product_name unit unit_price supplier_id category created_at updated_at base_unit sku_type hide_from_dealer_portal canonical_material_id selling_price',
     'mini_crm_customer_price_list': 'id customer_id sku_id price_vnd_per_unit currency is_active created_at updated_at',
     'dealer_orders': 'id order_number customer_id status currency subtotal_amount_vnd total_amount_vnd requested_delivery_date submitted_at created_at updated_at is_test',
-    'dealer_order_items': 'id order_id sku_id sku_code product_name unit quantity unit_price_vnd line_total_vnd price_source created_at route_customer_id ordered_quantity exchange_quantity makeup_quantity physical_quantity',
+    'dealer_order_items': 'id order_id sku_id sku_code product_name unit quantity unit_price_vnd line_total_vnd price_source created_at route_customer_id ordered_quantity exchange_quantity makeup_quantity physical_quantity route_customer_name',
     'kiosk_report_locations': 'id location_code location_name active created_at updated_at',
     'kiosk_report_products': 'code product_name unit display_order active created_at updated_at sale_allowed breadstick_consumption_ratio',
     'kiosk_report_channels': 'code channel_name display_order active created_at updated_at',
@@ -74,7 +74,16 @@ ROUTE_EXPRESSIONS = {
 def query_sql():
     parts = []
     for table, fields in FIELDS.items():
-        projection = ','.join((ROUTE_EXPRESSIONS[field] + ' AS "' + field + '"') if table == 'revenue_ledger_lines' and field in ROUTE_EXPRESSIONS else '"' + field + '"' for field in fields.split())
+        columns = []
+        for field in fields.split():
+            if table == 'revenue_ledger_lines' and field in ROUTE_EXPRESSIONS:
+                columns.append(ROUTE_EXPRESSIONS[field] + ' AS "' + field + '"')
+            elif table == 'product_skus' and field == 'selling_price':
+                # Preserve only this JSON scalar, not the whole costing object.
+                columns.append("cost_values->'selling_price' AS selling_price")
+            else:
+                columns.append('"' + field + '"')
+        projection = ','.join(columns)
         key = KEYS[table]
         amount = TOTALS.get(table)
         total = f"(SELECT coalesce(sum({amount}),0)::text FROM public.{table})" if amount else 'NULL::text'
@@ -150,6 +159,20 @@ def validate(snapshot):
             row = json.loads(payload, parse_float=Decimal)
             if set(row) != set(FIELDS[name].split()):
                 raise ValueError('Source schema drift')
+            # Keep the original scalar (including decimal lexemes); never
+            # substitute unit_price or turn missing/invalid values into zero.
+            if name == 'product_skus' and row['selling_price'] is not None:
+                price = row['selling_price']
+                if isinstance(price, bool) or not isinstance(price, (str, int, Decimal)):
+                    raise ValueError('Invalid selling price scalar')
+                try:
+                    if not Decimal(str(price)).is_finite():
+                        raise ValueError('Invalid selling price scalar')
+                except InvalidOperation:
+                    raise ValueError('Invalid selling price scalar') from None
+            if name == 'dealer_order_items' and row['route_customer_name'] is not None:
+                if not isinstance(row['route_customer_name'], str):
+                    raise ValueError('Invalid route name scalar')
             key = row[KEYS[name]]
             if not isinstance(key, str) or not key or key in ids:
                 raise ValueError('Invalid or duplicate source key')

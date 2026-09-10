@@ -148,3 +148,64 @@ def test_realistic_ledger_volume_with_512mb_limit(warehouse):
     table['count'] = 10000; table['total'] = '120000'
     result = publish(warehouse, value)
     assert result['tables']['revenue_ledger_lines']['records'] == 10000
+
+
+def set_row(value, name, **fields):
+    table = next(t for t in value['tables'] if t['name'] == name)
+    row = json.loads(table['records'][0]); row.update(fields)
+    table['records'][0] = json.dumps(row, ensure_ascii=False)
+
+
+@pytest.mark.parametrize('price', [None, 6500, '6500.12500', 0, -1])
+def test_r2a_price_no_fallback(warehouse, price):
+    value = snapshot(); set_row(value, 'product_skus', selling_price=price, unit_price=999)
+    result = publish(warehouse, value)
+    raw = (warehouse.root / result['tables']['product_skus']['raw_path']).read_text()
+    assert json.loads(raw)['selling_price'] == price
+
+
+@pytest.mark.parametrize('price', ['', 'invalid', 'NaN', 'Infinity', True, {}, []])
+def test_r2a_invalid_price_retains_publication(warehouse, price):
+    result = publish(warehouse, snapshot())
+    bad = snapshot(1); set_row(bad, 'product_skus', selling_price=price)
+    with pytest.raises(ValueError, match='selling price'): publish(warehouse, bad)
+    assert json.loads((warehouse.root / 'logs/supabase-sync-latest.json').read_text())['run_id'] == result['run_id']
+
+
+@pytest.mark.parametrize('name', [None, '', 'Đại lý A'])
+def test_r2a_route_scalar(name):
+    value = snapshot(); set_row(value, 'dealer_order_items', route_customer_name=name)
+    validate(value)
+
+
+@pytest.mark.parametrize('name', [False, 12, [], {}])
+def test_r2a_invalid_route(name):
+    value = snapshot(); set_row(value, 'dealer_order_items', route_customer_name=name)
+    with pytest.raises(ValueError, match='route name'): validate(value)
+
+
+def test_r2a_precision_replay_and_route_history(warehouse):
+    value = snapshot()
+    table = next(t for t in value['tables'] if t['name'] == 'product_skus')
+    table['records'][0] = table['records'][0].replace('"selling_price": null', '"selling_price": 1234567890123456.12345')
+    set_row(value, 'dealer_order_items', route_customer_name='Đại lý A', route_customer_id='route-a')
+    first = publish(warehouse, value)
+    assert '1234567890123456.12345' in (warehouse.root / first['tables']['product_skus']['raw_path']).read_text()
+    repeated = copy.deepcopy(value); repeated['observed_at'] = snapshot(1)['observed_at']
+    again = publish(warehouse, repeated)
+    assert sum(t['updated'] + t['inserted'] + t['absent'] for t in again['tables'].values()) == 0
+    changed = copy.deepcopy(value); changed['observed_at'] = snapshot(2)['observed_at']
+    set_row(changed, 'dealer_order_items', route_customer_name='Tên snapshot sửa')
+    last = publish(warehouse, changed)
+    assert last['tables']['dealer_order_items']['updated'] == 1
+    assert last['tables']['product_skus']['updated'] == 0
+    assert 'Đại lý A' in (warehouse.root / first['tables']['dealer_order_items']['raw_path']).read_text()
+
+
+def test_r2a_projection_contract():
+    from sme_platform.supabase_sync import VERSION
+    assert VERSION == 'bmq-supabase-raw-v4'
+    sql = query_sql()
+    assert "cost_values->'selling_price' AS selling_price" in sql
+    assert '"cost_values"' not in sql and 'route_note' not in sql
+    assert '"route_customer_name"' in sql and 'customer_snapshot' not in sql
