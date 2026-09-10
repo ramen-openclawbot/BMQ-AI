@@ -76,3 +76,34 @@ test('relative request stores concrete source period, price context keeps produc
  const prices=customerSelection({...choice,kind:'prices'},{...q,product:'BMQ-001',limit:3});
  assert.deepEqual(customerContinuation('npp-thanh',[{role:'assistant',text:'choose',customerSelection:prices}]),{...q,customer:'npp-thanh',product:'BMQ-001',limit:3});
 });
+
+test('effective prices preserve precedence provenance and reject false zero',()=>{
+ const request={...q,kind:'effective_prices',product:'BMQ-001'};
+ assert.equal(customerRequest(request).kind,'effective_prices');
+ const r={...base,kind:'effective_prices',price_basis:'current_not_checkout_quote',rows:[{...base.rows[0],price_source:'cost_values_selling_price',price_status:'available'}]};
+ assert.match(customerAnswer(r,'effective_prices','vi'),/giá mặc định/);
+ assert.match(customerAnswer({...r,rows:[{...r.rows[0],price:null,price_status:'unavailable'}]},'effective_prices','vi'),/Chưa có giá/);
+ for(const row of [{...r.rows[0],price:null},{...r.rows[0],price:'0'},{...r.rows[0],price_status:'unavailable'}, {...r.rows[0],price_source:'other_customer'}])assert.throws(()=>customerAnswer({...r,rows:[row]},'effective_prices','vi'));
+ const choice=customerSelection({...r,status:'choose_customer',rows:[],candidates:[{customer_name:'Mai',customer_code:'KH1'}]},request);
+ assert.equal(customerContinuation('Mai',[{role:'assistant',text:'choose',customerSelection:choice}])?.time_range,'today');
+ assert.throws(()=>customerRequest({...request,time_range:'yesterday'}));
+});
+
+test('order details retain structured filters and historical line amounts',async()=>{
+ const lookup={...q,kind:'order_details',product:'SKU1',time_range:'2026-09-01/2026-09-07',detail_filters:{date_basis:'delivery',status:'all',route:'R1'}};
+ const row={order_number:'DH1',status:'submitted',sku_code:'SKU1',product_name:'Bread',quantity:'10',unit:'piece',unit_price_vnd:'6500',amount_vnd:'65000',currency:'VND',ordered_quantity:'10',physical_quantity:'12',exchange_quantity:'2',makeup_quantity:'0',route_customer_name:'Route old'};
+ const r={...base,kind:'order_details',rows:[row],amount_basis:'matching_historical_lines_not_order_total',period:{start:'2026-09-01',end:'2026-09-07'},filters:lookup.detail_filters,totals:{matched_line_count:1,matched_order_count:1,amount_vnd:'65000',quantities_by_unit:[]}};
+ assert.deepEqual(customerRequest(lookup).detail_filters,lookup.detail_filters);
+ assert.match(customerAnswer(r,'order_details','vi'),/65000/);
+ assert.throws(()=>customerRequest({...lookup,detail_filters:{...lookup.detail_filters,sql:'bad'}}));
+ assert.throws(()=>customerRequest({...q,detail_filters:lookup.detail_filters}));
+ assert.throws(()=>customerAnswer({...r,rows:[{...row,amount_vnd:null}]},'order_details','vi'));
+ const state=customerSelection({...r,status:'choose_customer',rows:[],candidates:[{customer_name:'Mai',customer_code:'KH1'}]},lookup);
+ assert.deepEqual(customerContinuation('Mai',[{role:'assistant',text:'choose',customerSelection:state}])?.detail_filters,lookup.detail_filters);
+ let calls=0;
+ const out=await runWarehouse({question:'Chi tiết đơn',language:'vi',page:{route:'/',label:'Home'},history:[]},async(path,body)=>{
+   if(path==='/v1/semantic')return {metrics:{revenue:{}},dimensions:{},customer_lookup:'order_details'};
+   calls++;assert.deepEqual(body,customerRequest(lookup));return r;
+ },async()=>({value:{lane:'customer',queries:[],search:'',clarification:'',customer_lookup:lookup},usage:{input:1,output:1,cached:0}}),new AbortController().signal);
+ assert.equal(calls,1);assert.equal(out.provenance.lane,'customer');
+});

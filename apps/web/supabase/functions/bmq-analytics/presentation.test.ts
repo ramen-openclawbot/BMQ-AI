@@ -70,3 +70,19 @@ test('authenticated HTTP response exposes concise money and details but no inter
  const res=await handler(new Request('https://test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({language:'vi',question:'doanh thu hôm nay',history:[],page:{route:'/',label:'Home',filters:{}}})}));
  assert.equal(res.status,200);const out=await res.json();assert.match(out.answer,/51.225.132 ₫/);assert.doesNotMatch(out.answer,/private_table/);assert.match(out.provenance.details,/private_table/);assert.equal('presentation' in out,false);
 });
+
+test('effective price conversion and unavailable remain distinct',async()=>{
+ const result={status:'ok',customer:{customer_name:'Mai'},rows:[{sku_code:'A',product_name:'Bread',price:'25000',currency:'VND',unit:'pack'},{sku_code:'B',product_name:'Missing',price:null,currency:'VND',unit:'pack'}]};
+ const en=await presentResponse(response([{kind:'customer',lookup:'effective_prices',result}]),'en',signal,loader);
+ assert.match(en.answer,/\$1.00/);assert.match(en.answer,/Price unavailable/);assert.doesNotMatch(en.answer,/\$0.00/);
+ const vi=await presentResponse(response([{kind:'customer',lookup:'effective_prices',result}]),'vi',signal,loader);
+ assert.match(vi.answer,/25.000 ₫/);assert.match(vi.answer,/Chưa có giá/);
+});
+
+test('historical details show matching scope, cancelled state and converted values',async()=>{
+ const result={status:'ok',customer:{customer_name:'Mai'},period:{start:'2026-09-01',end:'2026-09-07'},filters:{date_basis:'delivery'},totals:{matched_line_count:1,matched_order_count:1,amount_vnd:'25000'},rows:[{order_number:'DH1',status:'cancelled',sku_code:'A',product_name:'Bread',quantity:'5',unit_price_vnd:'5000',amount_vnd:'25000',unit:'piece',route_customer_name:'Route1'}]};
+ const en=await presentResponse(response([{kind:'customer',lookup:'order_details',result}]),'en',signal,loader);
+ assert.match(en.answer,/Cancelled/);assert.match(en.answer,/\$1.00/);assert.match(en.answer,/By delivery date/);
+ const vi=await presentResponse(response([{kind:'customer',lookup:'order_details',result}]),'vi',signal,loader);
+ assert.match(vi.answer,/Đã hủy/);assert.match(vi.answer,/25.000 ₫/);assert.match(vi.answer,/01\/09\/2026 – 07\/09\/2026/);
+});

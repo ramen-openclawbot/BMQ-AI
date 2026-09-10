@@ -1,41 +1,94 @@
-"""Owner-only customer lookup. Exact identity, explicit price lists, no guessed prices."""
+"""Owner-only lookup: explicit prices or current portal precedence, never guessed prices."""
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 import json
 import threading
 import unicodedata
 
 from .supabase_sync import TENANT
 
-VERSION = 'bmq-customer-v2'
+VERSION = 'bmq-customer-v4'
 
 
 def normalized(value):
     return ' '.join(unicodedata.normalize('NFC', value).casefold().split())
 
 
+def effective_prices(products, prices, product_term):
+    """Current portal price precedence only; never reprice historical order lines."""
+    selected = list(products.values())
+    if product_term:
+        selected = [p for p in selected if product_term in {
+            normalized(str(p.get(k) or '')) for k in ('id', 'sku_code', 'product_name')}]
+        if len(selected) != 1:
+            return [], 'product_not_unique'
+    overrides = {p['sku_id']: p for p in prices}
+    rows = []
+    for sku in selected:
+        category = ''.join(c for c in unicodedata.normalize('NFD', str(sku.get('category') or '').lower())
+                           if unicodedata.category(c) != 'Mn')
+        finished = sku['sku_type'] == 'finished_good' if sku.get('sku_type') else ('thanh pham' in category or 'finished' in category)
+        if sku.get('hide_from_dealer_portal') or not finished:
+            if product_term:
+                return [], 'product_unavailable'
+            continue
+        if not sku.get('unit') or not sku.get('sku_code') or not sku.get('product_name'):
+            raise RuntimeError('Incomplete price data')
+        override = overrides.get(sku['id'])
+        if override is not None:
+            if override.get('currency') != 'VND':
+                raise RuntimeError('Invalid price currency')
+            value = override.get('price_vnd_per_unit')
+            price_source = 'customer_override'
+        else:
+            if 'selling_price' not in sku:
+                raise RuntimeError('Required selling_price projection unavailable')
+            value = sku['selling_price']
+            price_source = 'cost_values_selling_price'
+        amount = None
+        if value is not None:
+            try:
+                amount = Decimal(str(value))
+            except InvalidOperation as exc:
+                raise RuntimeError('Invalid price') from exc
+            if not amount.is_finite():
+                raise RuntimeError('Invalid price')
+        # An invalid override blocks the sale; it must not fall through to default.
+        available = amount is not None and amount > 0
+        rows.append({'sku_code': sku['sku_code'], 'product_name': sku['product_name'],
+                     'unit': sku['unit'], 'price': amount if available else None, 'currency': 'VND',
+                     'price_source': price_source, 'price_status': 'available' if available else 'unavailable'})
+    return sorted(rows, key=lambda p: p['sku_code']), 'ok'
+
+
 def execute(engine, body, tenant, permission):
     if tenant != TENANT or not (permission == 'owner' or permission.startswith('owner:')):
         raise PermissionError('Owner required')
-    if not isinstance(body, dict) or set(body) != {'kind', 'customer', 'product', 'time_range', 'limit'}:
+    base_keys = {'kind', 'customer', 'product', 'time_range', 'limit'}
+    if not isinstance(body, dict) or not (set(body) == base_keys or (body.get('kind') == 'order_details' and set(body) == base_keys | {'detail_filters'})):
         raise ValueError('Invalid customer lookup')
     kind = body['kind']
-    if kind not in {'prices', 'orders', 'npp_receivable'}:
+    if kind not in {'prices', 'effective_prices', 'orders', 'npp_receivable', 'order_details'}:
         raise ValueError('Invalid lookup kind')
     for field in ('customer', 'product'):
         if not isinstance(body[field], str) or len(body[field]) > 120 or any(ord(c) < 32 for c in body[field]):
             raise ValueError('Invalid entity')
-    if not normalized(body['customer']) or (kind != 'prices' and body['product'].strip()):
+    price_kind = kind in {'prices', 'effective_prices'}
+    if not normalized(body['customer']) or (not price_kind and kind != 'order_details' and body['product'].strip()):
         raise ValueError('Customer required; product-scoped orders unsupported')
     limit = body['limit']
     if type(limit) != int or not 1 <= limit <= 20:
         raise ValueError('Invalid limit')
     start, end = engine._period(body['time_range'])
-    if kind == 'prices' and (start, end) != engine._period('today'):
+    if price_kind and (start, end) != engine._period('today'):
         raise ValueError('Price history unavailable')
-    needed = {'mini_crm_customers', 'mini_crm_customer_price_list', 'product_skus'} if kind == 'prices' else {'mini_crm_customers', 'dealer_orders'}
+    needed = {'mini_crm_customers', 'mini_crm_customer_price_list', 'product_skus'} if price_kind else {'mini_crm_customers', 'dealer_orders'}
     if kind == 'npp_receivable':
         needed = {'mini_crm_customers', 'revenue_ledger_lines'}
+    if kind == 'order_details':
+        from .bmq_order_details import validate_filters
+        detail_filters = validate_filters(body.get('detail_filters', {}))
+        needed = {'mini_crm_customers', 'dealer_orders', 'dealer_order_items', 'product_skus'}
     w = engine.warehouse
     with w.lock(write=False), w.connect(read_only=True) as con:
         con.execute('SET enable_external_access=false')
@@ -69,15 +122,23 @@ def execute(engine, body, tenant, permission):
             result['customer'] = public(customer)
             if customer.get('is_active') is not True:
                 return {**result, 'status': 'inactive_customer'}
+            if kind == 'order_details':
+                from .bmq_order_details import calculate
+                return calculate(result, customer, customers, source('product_skus'), source('dealer_orders'),
+                                 source('dealer_order_items'), body['product'], detail_filters, start, end, limit)
             if kind == 'npp_receivable':
                 from .bmq_receivable import calculate
                 return calculate(result, customer, customers, source('revenue_ledger_lines'), start, end, limit)
-            if kind == 'prices':
+            if price_kind:
                 products = {p['id']: p for p in source('product_skus')}
                 prices = [p for p in source('mini_crm_customer_price_list') if p.get('customer_id') == customer['id'] and p.get('is_active') is True]
                 if len({p.get('sku_id') for p in prices}) != len(prices):
                     raise RuntimeError('Ambiguous active price rows')
                 product_term = normalized(body['product'])
+                if kind == 'effective_prices':
+                    rows, status = effective_prices(products, prices, product_term)
+                    return {**result, 'rows': rows[:limit], 'status': status,
+                            'truncated': len(rows) > limit, 'price_basis': 'current_not_checkout_quote'}
                 if product_term:
                     selected = [p for p in products.values() if product_term in {normalized(str(p.get(k) or '')) for k in ('id', 'sku_code', 'product_name')}]
                     if len(selected) != 1:

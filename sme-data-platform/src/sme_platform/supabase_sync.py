@@ -23,7 +23,7 @@ from .warehouse import Warehouse, atomic_json
 
 PROJECT = 'cxntbdvfsikwmitapony'
 TENANT = PROJECT + '.supabase.co'
-VERSION = 'bmq-supabase-raw-v4'
+VERSION = 'bmq-supabase-raw-v5'
 MAX_ROWS = 50000
 MAX_BYTES = 128 * 1024 * 1024
 # Explicit field projections: no auth/OTP/session tokens, contact snapshots,
@@ -42,6 +42,10 @@ FIELDS = {
     'mini_crm_customer_price_list': 'id customer_id sku_id price_vnd_per_unit currency is_active created_at updated_at',
     'dealer_orders': 'id order_number customer_id status currency subtotal_amount_vnd total_amount_vnd requested_delivery_date submitted_at created_at updated_at is_test',
     'dealer_order_items': 'id order_id sku_id sku_code product_name unit quantity unit_price_vnd line_total_vnd price_source created_at route_customer_id ordered_quantity exchange_quantity makeup_quantity physical_quantity route_customer_name',
+    # Audit coverage only: missing cancellation events do not imply an active
+    # order; confirmation "sent" is delivery state, not approval/payment.
+    'dealer_order_cancellation_events': 'id order_id customer_id source previous_status created_at',
+    'dealer_customer_order_confirmations': 'id order_id channel status sent_at created_at updated_at',
     'kiosk_report_locations': 'id location_code location_name active created_at updated_at',
     'kiosk_report_products': 'code product_name unit display_order active created_at updated_at sale_allowed breadstick_consumption_ratio',
     'kiosk_report_channels': 'code channel_name display_order active created_at updated_at',

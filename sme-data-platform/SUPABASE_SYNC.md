@@ -1,3 +1,7 @@
+## R2 update — 2026-09-10
+
+Current projection is v5, 26 allowlisted tables. v4 selling_price scalar and historical route_customer_name retained. v5 adds cancellation events (6 fields) and customer confirmation status (7 fields), excluding contacts/session/payload/errors. Missing cancellation event never overrides dealer_orders.status; notification sent never means approved/paid. Host scheduler remains user/501 Background every900seconds; preserve this host configuration when upgrading. The original v1 implementation notes below describe the initial16-table rollout, not current coverage.
+
 ## Expansion 2026-09-09
 
 Version bmq-supabase-raw-v2 adds revenue source-document status, payment requests/allocations, production orders/items, goods receipts, dispatch records and contract file metadata. Total 24 explicit table projections. No contract file URLs, contents, auth secrets or source mutations. Existing 900-second schedule must use the same committed release as the semantic API; old manifests missing required tables fail closed. See BMQ_SOURCE_COVERAGE.md for the complete source inventory.

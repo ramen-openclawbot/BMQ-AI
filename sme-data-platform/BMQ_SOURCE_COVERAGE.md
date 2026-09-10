@@ -1,16 +1,16 @@
-# BMQ source coverage — 2026-09-09
+# BMQ source coverage — 2026-09-10
 
-This is an inventory, not a claim that all BMQ data is connected. Public schema: 180 base tables, 17 views. This release synchronizes 24 explicit projections and exposes 14 measures. Names/counts of contract file records do not imply contents were ingested or legal validity established. Raw-only rows are not automatically exposed to the LLM.
+This is an inventory, not a claim that all BMQ data is connected. Public schema: 180 base tables, 17 views. This release synchronizes 26 explicit projections and exposes 14 measures. Names/counts of contract file records do not imply contents were ingested or legal validity established. Raw-only rows are not automatically exposed to the LLM.
 
 ## Remaining business work
 
-- Customer-specific current explicit prices and dealer order header lists: owner-only exact customer lookup added; ambiguous matches require customer code. No checkout price fallback, past prices, downstream route scope, tax/contract terms or order totals. Product/order line details remain pending.
+- R2: owner-only explicit prices, current effective prices (own active override → default selling_price), historical order lines by exact SKU/route, submitted/delivery dates and submitted/cancelled/all status. Amount totals cover matching lines only; quantities grouped by unit. Snapshot prices and route names are preserved, no repricing. Test orders excluded. Missing/ambiguous names or prices fail closed. No contract/tax interpretation or historical price-list reconstruction.
 - NPP period payable: owner-scoped npp_receivable matches the existing NppDebtManagement screen (approved gross minus current active child management fees, once per agency even without sales). Explicitly NOT a balance after collections, overdue analysis, opening balances, or historical fee reconstruction. Direct-customer adjustments/collections and settlement reconciliation remain pending.
 - Specialized Tan Tao/Q7/kitchen ledgers, inventory reservations and unit conversions: not equivalent to inventory_items.
 - Manufacturing materials, actual production quantities, COGS, QA: count of production orders does not cover these.
 - Attendance/payroll: define authorized fields and wage/time semantics, do not expose GPS or personal wage profiles through generic analytics.
 - Contracts/policies: current contract table has zero active file records; no terms read. Customer knowledge profiles/versions need effective-version and disclosure review before retrieval.
-- App page filters remain unsupported; fail closed, not global totals. Customer price/order-list scope now uses a dedicated lookup; customer financial metrics and downstream routes remain unsupported.
+- App page filters remain unsupported; fail closed, not global totals. Customer price/order scope uses dedicated lookup; explicit historical route filters are supported within the ordering customer. App page filters remain separate and unsupported.
 - No new backups/training/GBrain integration in this release.
 
 ## Complete source inventory
@@ -43,13 +43,13 @@ This is an inventory, not a claim that all BMQ data is connected. Public schema:
 | cost_line_classifications | BASE TABLE | Pending source projection + business contract + reconciliation |
 | customer_debt_period_adjustment_audit_logs | BASE TABLE | Operational/audit source; not a business metric by default |
 | customer_debt_period_adjustments | BASE TABLE | Pending source projection + business contract + reconciliation |
-| customer_po_inbox | BASE TABLE | Pending source projection + business contract + reconciliation |
+| customer_po_inbox | BASE TABLE | R2-I reviewed; heterogeneous parser evidence excluded from sales facts pending separate contract |
 | daily_reconciliations | BASE TABLE | Pending source projection + business contract + reconciliation |
 | dealer_announcements | BASE TABLE | Pending source projection + business contract + reconciliation |
 | dealer_customer_contacts | BASE TABLE | Pending source projection + business contract + reconciliation |
-| dealer_customer_order_confirmations | BASE TABLE | Pending source projection + business contract + reconciliation |
+| dealer_customer_order_confirmations | BASE TABLE | R2 raw v5 minimal audit projection; no approval/payment inference |
 | dealer_notification_worker_config | BASE TABLE | Excluded from analytics by default; security/config or sensitive profile review |
-| dealer_order_cancellation_events | BASE TABLE | Pending source projection + business contract + reconciliation |
+| dealer_order_cancellation_events | BASE TABLE | R2 raw v5 minimal audit projection; no approval/payment inference |
 | dealer_order_items | BASE TABLE | Raw only; detail query not yet exposed |
 | dealer_order_notifications | BASE TABLE | Pending source projection + business contract + reconciliation |
 | dealer_orders | BASE TABLE | Raw + governed measure |
@@ -188,7 +188,7 @@ This is an inventory, not a claim that all BMQ data is connected. Public schema:
 | revenue_monthly_parse_lines | BASE TABLE | Pending source projection + business contract + reconciliation |
 | revenue_monthly_parse_runs | BASE TABLE | Pending source projection + business contract + reconciliation |
 | revenue_source_documents | BASE TABLE | Raw + governed measure |
-| sales_po_documents | BASE TABLE | Pending source projection + business contract + reconciliation |
+| sales_po_documents | BASE TABLE | R2-I reviewed; pending-review empty items are not ledger sales; no ingestion claimed |
 | sku_cogs_material_aliases | BASE TABLE | Pending source projection + business contract + reconciliation |
 | sku_cogs_materials | BASE TABLE | Pending source projection + business contract + reconciliation |
 | sku_cogs_version_formulations | BASE TABLE | Pending source projection + business contract + reconciliation |

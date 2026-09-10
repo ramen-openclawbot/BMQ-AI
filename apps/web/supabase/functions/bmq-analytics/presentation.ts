@@ -33,19 +33,32 @@ export async function presentResponse<T extends { answer: string; provenance: an
       // Existing validated selection/abstention text stays intact, without audit clutter.
       if (r.status !== 'ok') { blocks.push(response.answer.split(/\n(?:Source|Nguồn):/)[0]); continue; }
       const name = text(r.customer?.customer_name);
-      const when = block.lookup === 'prices' ? (en ? 'Current price list' : 'Bảng giá hiện tại') : period(r.period?.start, r.period?.end);
+      const when = ['prices','effective_prices'].includes(block.lookup) ? (en ? 'Current price list' : 'Bảng giá hiện tại') : period(r.period?.start, r.period?.end);
       const lines = [`${name} · ${when}`];
       if (block.lookup === 'npp_receivable') {
         lines.push(`${en ? 'Period receivable' : 'Phải thu trong kỳ'}: ${await money(r.totals.period_payable)}`);
         lines.push(en ? 'Opening balance and collections not included.' : 'Chưa cộng số dư đầu kỳ hoặc trừ tiền đã thu.');
         if (r.unmapped_line_count) lines.push(en ? 'Some amounts are not assigned to an agency.' : 'Một số khoản chưa được phân bổ vào đại lý.');
+      } else if(block.lookup === 'order_details') {
+        lines.push(`${en?'Matching lines':'Dòng hàng phù hợp'}: ${r.totals.matched_line_count} · ${en?'Orders':'Đơn'}: ${r.totals.matched_order_count}`);
+        lines.push(`${en?'Matching-line value':'Giá trị dòng phù hợp'}: ${await money(r.totals.amount_vnd)}`);
+        lines.push(r.filters.date_basis==='delivery'?(en?'By delivery date':'Theo ngày giao'):(en?'By order date':'Theo ngày đặt'));
+        const qty=(v:unknown)=>new Intl.NumberFormat(en?'en-US':'vi-VN',{maximumFractionDigits:3}).format(numeric(v));
+        for(const row of r.rows){
+          lines.push(`${text(row.order_number)} · ${text(row.product_name)} (${text(row.sku_code)})${row.status==='cancelled'?(en?' · Cancelled':' · Đã hủy'):''}`);
+          lines.push(`${qty(row.quantity)} ${text(row.unit)} × ${await money(row.unit_price_vnd)} = ${await money(row.amount_vnd)}`);
+          if(row.route_customer_name)lines.push(`${en?'Route':'Tuyến'}: ${text(row.route_customer_name)}`);
+        }
+        if(!r.rows.length)lines.push(en?'No matching order lines.':'Không có dòng hàng phù hợp.');
+        lines.push(en?'Historical order values, not revenue or paid balances.':'Giá trị đơn đã lưu, không phải doanh thu hay số dư đã thanh toán.');
       } else {
         for (const row of r.rows) {
-          lines.push(block.lookup === 'prices'
-            ? `${text(row.product_name)} (${text(row.sku_code)}): ${await money(row.price, row.currency)} / ${text(row.unit)}`
+          lines.push(['prices','effective_prices'].includes(block.lookup)
+            ? `${text(row.product_name)} (${text(row.sku_code)}): ${row.price == null ? (en ? 'Price unavailable' : 'Chưa có giá') : `${await money(row.price, row.currency)} / ${text(row.unit)}`}`
             : `${text(row.order_number)} · ${date(row.submitted_at)}: ${await money(row.amount, row.currency)}`);
         }
         if (!r.rows.length) lines.push(en ? 'No matching data.' : 'Chưa có dữ liệu phù hợp.');
+        if (block.lookup === 'effective_prices') lines.push(en ? 'Current applicable prices, not a final quotation.' : 'Giá áp dụng hiện tại, chưa phải giá chốt đơn.');
         if (block.lookup === 'prices') lines.push(en ? 'Listed prices, not a final quotation.' : 'Giá niêm yết riêng, chưa phải giá chốt đơn.');
       }
       if (r.truncated) lines.push(en ? 'Showing a partial list.' : 'Chỉ hiển thị một phần danh sách.');
