@@ -23,12 +23,22 @@ from .warehouse import Warehouse, atomic_json
 
 PROJECT = 'cxntbdvfsikwmitapony'
 TENANT = PROJECT + '.supabase.co'
-VERSION = 'bmq-supabase-raw-v6'
+VERSION = 'bmq-supabase-raw-v7'
 MAX_ROWS = 50000
 MAX_BYTES = 128 * 1024 * 1024
 # Explicit field projections: no auth/OTP/session tokens, contact snapshots,
 # arbitrary JSON, signed document URLs, bank data or staff phone/salary.
 FIELDS = {
+    # R4 transport only: signed movements, balances and reservations remain
+    # separate facts; never sum different units or infer customer delivery.
+    'goods_receipt_items': 'id goods_receipt_id sku_id product_name quantity unit inventory_item_id created_at expiry_date purchase_order_item_id ordered_quantity actual_quantity unit_price line_status canonical_material_id material_resolution_status',
+    'inventory_batches': 'id inventory_item_id sku_id goods_receipt_id batch_number quantity unit received_date manufacture_date expiry_date created_at updated_at goods_receipt_item_id expiry_edit_count expiry_last_edited_at',
+    'inventory_movements': 'id movement_type sku_id inventory_item_id batch_id quantity unit reference_type reference_id movement_date created_at',
+    'goods_receipt_auto_issues': 'id issue_number goods_receipt_id issue_date status source total_quantity created_at',
+    'goods_receipt_auto_issue_items': 'id auto_issue_id goods_receipt_item_id inventory_item_id sku_id batch_id product_name quantity unit unit_cost amount created_at',
+    'tan_tao_warehouse_documents': 'id document_number location_code sku_id sku_code_snapshot document_type status quantity ordered_quantity exchange_quantity makeup_quantity physical_quantity source_authority source_document_id reference_type reference_id created_at supplier_billable_quantity supplier_credit_quantity supplier_exchange_quantity supplier_makeup_quantity',
+    'tan_tao_warehouse_movements': 'id document_id location_code sku_id sku_code_snapshot movement_type quantity created_at',
+    'tan_tao_warehouse_reservations': 'id document_id location_code sku_id sku_code_snapshot quantity status source_type source_id released_at dispatched_at created_at',
     # R3 raw evidence only: supplier payments are not customer receipts;
     # empty adjustments are not zero balances; close attempts are not payments.
     'ceo_daily_closing_declarations': 'id closing_date unc_total_declared cash_fund_topup_amount qtm_extracted_amount unc_extracted_amount created_at updated_at',

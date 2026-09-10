@@ -94,3 +94,22 @@ Use an actual provisioned secondary destination, not the literal example path. B
 Run `.venv/bin/python -m pytest -q`. The suite covers API→Python→DuckDB→Edge contracts using synthetic data and a fixture identity, not production user credentials. Frontend mobile/desktop fixtures validate owner upload, locale switching, size rejection and layout. A real Safari device, live owner login, real-data reconciliation and load-scale p95 latency are separate release checks.
 
 This change does not auto-import operational BMQ data, apply DB migrations remotely, expose a warehouse port, enable the feature, modify Gateway or train a model. Complete storage permissions and secondary-backup provisioning before claiming a production-ready data service.
+
+### R4 raw warehouse coverage
+
+Raw v7 adds eight allowlisted tables: `goods_receipt_items`, `inventory_batches`,
+`inventory_movements`, `goods_receipt_auto_issues`, `goods_receipt_auto_issue_items`,
+`tan_tao_warehouse_documents`, `tan_tao_warehouse_movements`, and
+`tan_tao_warehouse_reservations`. Original IDs, source/document links, SKU,
+unit (where present), location (where present), signed quantity, lifecycle status
+and timestamps remain source facts. Excludes notes, metadata, actor IDs and labels.
+
+This is transport coverage, not a certified inventory balance or a new chat metric.
+Do not sum receipt lines, batch balances and movements together. General inventory
+has no location field: never infer Tân Tạo from it. Keep units and SKU grain separate.
+Tân Tạo movements/reservations have no historical unit field; current SKU unit is
+only reference metadata, not proof of historical conversion. Active reservations
+are commitments, not physical dispatches; supplier expected orders are not receipts.
+Auto-issued NVL uses its own paired movements and must not become customer dispatch.
+Null actual quantity/expiry is not zero or a guessed date. Source anomalies are
+retained for later warehouse/accounting review; R3 reconciliation remains deferred.
