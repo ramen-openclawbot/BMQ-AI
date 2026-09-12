@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { ArrowUp, Loader2, MessageCircle, Sparkles, X } from "lucide-react";
+import { ArrowUp, Loader2, Sparkles, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -284,9 +284,9 @@ function RevenueDailyChatCard({ setOpen }: { setOpen: (open: boolean) => void })
   );
 }
 
-function VnagentMark() {
+function VnagentMark({ className = "h-9 w-11 shrink-0" }: { className?: string } = {}) {
   return (
-    <svg className="h-9 w-11 shrink-0" viewBox="0 0 104 84" role="img" aria-label="Logo VNAgent">
+    <svg className={className} viewBox="0 0 104 84" role="img" aria-label="Logo VNAgent">
       <defs>
         <linearGradient id="bmq-vnagent-violet-a" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#aa6fff" /><stop offset="1" stopColor="#6845ee" /></linearGradient>
         <linearGradient id="bmq-vnagent-violet-b" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#9e5dff" /><stop offset="1" stopColor="#5b3adc" /></linearGradient>
@@ -685,8 +685,9 @@ export function GlobalAgentChatWidget() {
       <Button
         type="button"
         size="icon"
+        data-vnagent-launcher="logo-motion-v1"
         className={cn(
-          "fixed z-50 rounded-full shadow-lg bg-primary text-primary-foreground hover:bg-primary/90",
+          "fixed z-50 rounded-full border border-[#e6e3f7] bg-white shadow-lg ring-1 ring-black/5 hover:bg-[#faf9ff]",
           shouldLiftMobileChatButton
             ? "bottom-[calc(5rem+env(safe-area-inset-bottom))] right-3 h-11 w-11 sm:bottom-[calc(1.5rem+env(safe-area-inset-bottom))] sm:right-6 sm:h-14 sm:w-14"
             : "right-6 bottom-[calc(1.5rem+env(safe-area-inset-bottom))] h-14 w-14",
@@ -695,7 +696,14 @@ export function GlobalAgentChatWidget() {
         onClick={() => setOpen(true)}
         aria-label={text("Mở VNAgent")}
       >
-        <MessageCircle className="h-6 w-6" />
+        <span
+          className={cn(
+            "grid place-items-center",
+            !open && "animate-vnagent-throb motion-reduce:animate-none",
+          )}
+        >
+          <VnagentMark className="h-6 w-7 shrink-0 sm:h-8 sm:w-9" />
+        </span>
       </Button>
 
       <Sheet open={open} onOpenChange={setOpen}>
