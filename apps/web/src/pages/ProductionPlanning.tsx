@@ -49,6 +49,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import KfmPortalDialog from "@/components/production/KfmPortalDialog";
 import { isFinishedSku } from "@/lib/skuType";
 
 interface ProductionItem {
@@ -1282,6 +1283,7 @@ export default function ProductionPlanning() {
                   {checkPoMutation.isPending ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <MailCheck className="mr-2 h-5 w-5" />}
                   {isVi ? "Kiểm tra PO" : "Check POs"}
                 </Button>
+                <KfmPortalDialog isVi={isVi} />
                 <Button variant="outline" size="lg" className="h-12 rounded-2xl border-border bg-card/80 text-base text-foreground hover:bg-muted" onClick={handleOpenTvMode}>
                   <Monitor className="mr-2 h-5 w-5" />
                   {isVi ? "Màn hình TV" : "TV View"}
