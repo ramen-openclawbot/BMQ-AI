@@ -77,12 +77,18 @@ def test_vnagent_brand_and_address_contract() -> None:
 
 
 def test_chat_launcher_uses_the_vnagent_mark_with_motion() -> None:
-    require(WIDGET, 'data-vnagent-launcher="logo-motion-v1"', "the launcher must carry a stable marker for the VNAgent logo treatment")
+    require(WIDGET, 'data-vnagent-launcher="logo-motion-v2"', "the launcher must carry a stable marker for the VNAgent logo treatment")
     require(WIDGET, 'function VnagentMark({ className = "h-9 w-11 shrink-0" }', "the shared VNAgent mark must keep its default size for the chat header")
     require(WIDGET, 'aria-label="Logo VNAgent"', "the VNAgent mark must keep its accessible label")
-    require(WIDGET, '!open && "animate-vnagent-throb motion-reduce:animate-none"', "the launcher mark must animate only while the sheet is closed and honour reduced motion")
-    require(TAILWIND, '"vnagent-throb": "vnagent-throb 3s ease-in-out infinite"', "the throb animation must be declared in the shared Tailwind config")
+    require(WIDGET, '[&_svg]:!h-full [&_svg]:!w-full', "the launcher must beat the Button svg default so the mark can fill the circle")
+    require(WIDGET, 'h-[82%] w-[82%]', "the launcher mark must fill most of the circular button")
+    require(WIDGET, '!open && "animate-vnagent-throb motion-reduce:animate-none"', "the mark must breathe, and only while the sheet is closed")
+    require(WIDGET, '!open && "animate-vnagent-halo motion-reduce:animate-none"', "the launcher must emit a halo ripple, and only while the sheet is closed")
+    require(WIDGET, 'pointer-events-none absolute inset-0 -z-10 rounded-full ring-2', "the halo must sit behind the mark and never intercept clicks outside the button")
     require(TAILWIND, '"vnagent-throb": {', "the throb keyframes must live in the shared Tailwind config")
+    require(TAILWIND, '"vnagent-halo": {', "the halo keyframes must live in the shared Tailwind config")
+    require(TAILWIND, '"vnagent-throb 3.6s', "the shared throb animation must keep its published timing")
+    require(TAILWIND, '"vnagent-halo 3.6s', "the shared halo animation must keep its published timing")
     forbid(WIDGET, "MessageCircle", "the launcher must use the VNAgent mark instead of the generic chat icon")
 
 

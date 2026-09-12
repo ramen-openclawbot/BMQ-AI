@@ -685,9 +685,9 @@ export function GlobalAgentChatWidget() {
       <Button
         type="button"
         size="icon"
-        data-vnagent-launcher="logo-motion-v1"
+        data-vnagent-launcher="logo-motion-v2"
         className={cn(
-          "fixed z-50 rounded-full border border-[#e6e3f7] bg-white shadow-lg ring-1 ring-black/5 hover:bg-[#faf9ff]",
+          "fixed z-50 rounded-full border border-[#e6e3f7] bg-white shadow-lg ring-1 ring-black/5 hover:bg-[#faf9ff] [&_svg]:!h-full [&_svg]:!w-full",
           shouldLiftMobileChatButton
             ? "bottom-[calc(5rem+env(safe-area-inset-bottom))] right-3 h-11 w-11 sm:bottom-[calc(1.5rem+env(safe-area-inset-bottom))] sm:right-6 sm:h-14 sm:w-14"
             : "right-6 bottom-[calc(1.5rem+env(safe-area-inset-bottom))] h-14 w-14",
@@ -697,12 +697,19 @@ export function GlobalAgentChatWidget() {
         aria-label={text("Mở VNAgent")}
       >
         <span
+          aria-hidden="true"
           className={cn(
-            "grid place-items-center",
+            "pointer-events-none absolute inset-0 -z-10 rounded-full ring-2 ring-[#6d4aff]/40",
+            !open && "animate-vnagent-halo motion-reduce:animate-none",
+          )}
+        />
+        <span
+          className={cn(
+            "grid h-[82%] w-[82%] place-items-center",
             !open && "animate-vnagent-throb motion-reduce:animate-none",
           )}
         >
-          <VnagentMark className="h-6 w-7 shrink-0 sm:h-8 sm:w-9" />
+          <VnagentMark className="h-full w-full" />
         </span>
       </Button>
 
