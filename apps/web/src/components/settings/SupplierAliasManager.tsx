@@ -1,3 +1,5 @@
+import { supplierPurchasing } from "@/i18n/supplierPurchasing";
+import { usePurchasingCopy } from "@/i18n/purchasingCopy";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Building2, Plus, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -36,9 +38,10 @@ const normalizeText = (v: string) =>
 
 export function SupplierAliasManager({
   supplierId,
-  title = "NCC Alias Manager",
+  title,
   compact = false,
 }: SupplierAliasManagerProps = {}) {
+  const pc = usePurchasingCopy(supplierPurchasing);
   const { data: suppliers } = useSuppliers();
   const [aliases, setAliases] = useState<SupplierAlias[]>([]);
   const [loading, setLoading] = useState(false);
@@ -67,11 +70,11 @@ export function SupplierAliasManager({
       if (error) throw error;
       setAliases((data || []) as SupplierAlias[]);
     } catch (error: any) {
-      toast.error(error?.message || "Không tải được danh sách alias NCC");
+      toast.error(error?.message || pc.unableToLoadSupplierAliases);
     } finally {
       setLoading(false);
     }
-  }, [lockedSupplierId]);
+  }, [lockedSupplierId, pc]);
 
   useEffect(() => {
     fetchAliases();
@@ -80,14 +83,14 @@ export function SupplierAliasManager({
   const handleCreate = async () => {
     const targetSupplierId = lockedSupplierId || newSupplierId;
     if (!targetSupplierId || !newAliasText.trim()) {
-      toast.error("Vui lòng chọn NCC và nhập alias");
+      toast.error(pc.selectASupplierAndEnterAnAlias);
       return;
     }
 
     const aliasKey = normalizeText(newAliasText);
     const duplicated = aliases.find((a) => a.alias_key === aliasKey);
     if (duplicated) {
-      toast.error("Alias này đã tồn tại");
+      toast.error(pc.thisAliasAlreadyExists);
       return;
     }
 
@@ -103,10 +106,10 @@ export function SupplierAliasManager({
         });
       if (error) throw error;
       setNewAliasText("");
-      toast.success("Đã thêm alias NCC");
+      toast.success(pc.supplierAliasAdded);
       await fetchAliases();
     } catch (error: any) {
-      toast.error(error?.message || "Không thể thêm alias NCC");
+      toast.error(error?.message || pc.unableToAddSupplierAlias);
     } finally {
       setCreating(false);
     }
@@ -121,7 +124,7 @@ export function SupplierAliasManager({
       if (error) throw error;
       setAliases((prev) => prev.map((x) => (x.id === alias.id ? { ...x, active } : x)));
     } catch (error: any) {
-      toast.error(error?.message || "Không cập nhật được trạng thái alias");
+      toast.error(error?.message || pc.unableToUpdateAliasStatus);
     }
   };
 
@@ -133,9 +136,9 @@ export function SupplierAliasManager({
         .eq("id", id);
       if (error) throw error;
       setAliases((prev) => prev.filter((x) => x.id !== id));
-      toast.success("Đã xoá alias");
+      toast.success(pc.aliasDeleted);
     } catch (error: any) {
-      toast.error(error?.message || "Không xoá được alias");
+      toast.error(error?.message || pc.unableToDeleteAlias);
     }
   };
 
@@ -143,17 +146,17 @@ export function SupplierAliasManager({
     <div className={compact ? "space-y-3 rounded-lg border p-3" : "card-elevated rounded-xl border border-border p-6 space-y-4"}>
       <div className="flex items-center gap-3">
         <Building2 className="h-5 w-5 text-primary" />
-        <h2 className={compact ? "font-semibold" : "font-display font-semibold text-lg"}>{title}</h2>
+        <h2 className={compact ? "font-semibold" : "font-display font-semibold text-lg"}>{title ?? pc.aliasManager}</h2>
       </div>
       <Separator />
 
       <div className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-2">
         {!lockedSupplierId && (
           <div>
-            <Label>Nhà cung cấp chuẩn</Label>
+            <Label>{pc.canonicalSupplier}</Label>
             <Select value={newSupplierId} onValueChange={setNewSupplierId}>
               <SelectTrigger>
-                <SelectValue placeholder="Chọn NCC" />
+                <SelectValue placeholder={pc.selectSupplier} />
               </SelectTrigger>
               <SelectContent>
                 {(suppliers || []).map((s) => (
@@ -164,13 +167,12 @@ export function SupplierAliasManager({
           </div>
         )}
         <div className={!lockedSupplierId ? "" : "md:col-span-2"}>
-          <Label>Tên alias trên phiếu (OCR)</Label>
-          <Input value={newAliasText} onChange={(e) => setNewAliasText(e.target.value)} placeholder="Ví dụ: STC, Cty TNHH TP STC" />
+          <Label>{pc.aliasOnDocumentOCR}</Label>
+          <Input value={newAliasText} onChange={(e) => setNewAliasText(e.target.value)} placeholder={pc.eGSTCSTCFoodCoLtd} />
         </div>
         <div className="flex items-end">
           <Button onClick={handleCreate} disabled={creating}>
-            <Plus className="h-4 w-4 mr-1" /> Thêm alias
-          </Button>
+            <Plus className="h-4 w-4 mr-1" />  {pc.addAlias} </Button>
         </div>
       </div>
 
@@ -182,12 +184,12 @@ export function SupplierAliasManager({
               {!lockedSupplierId && (
                 <div className="text-xs text-muted-foreground break-words">{supplierMap.get(a.supplier_id) || a.supplier_id}</div>
               )}
-              <div className="text-xs text-muted-foreground break-words">key: {a.alias_key}</div>
+              <div className="text-xs text-muted-foreground break-words">{pc.key} {a.alias_key}</div>
             </div>
             <div className="flex items-center gap-2">
-              <Badge variant={a.active ? "secondary" : "outline"}>{a.active ? "active" : "inactive"}</Badge>
+              <Badge variant={a.active ? "secondary" : "outline"}>{a.active ? pc.aliasActive : pc.aliasInactive}</Badge>
               <Button size="sm" variant="outline" onClick={() => handleToggleActive(a, !a.active)}>
-                {a.active ? "Tắt" : "Bật"}
+                {a.active ? pc.disable : pc.enable}
               </Button>
               <Button size="icon" variant="ghost" onClick={() => handleDelete(a.id)}>
                 <Trash2 className="h-4 w-4 text-destructive" />
@@ -197,7 +199,7 @@ export function SupplierAliasManager({
         ))}
 
         {!loading && aliases.length === 0 && (
-          <div className="text-sm text-muted-foreground">Chưa có alias nào.</div>
+          <div className="text-sm text-muted-foreground">{pc.noAliasesYet}</div>
         )}
       </div>
     </div>

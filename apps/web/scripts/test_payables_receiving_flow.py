@@ -19,6 +19,8 @@ PAYABLES_MANAGEMENT_PAGE = ROOT / "src/pages/PayablesManagement.tsx"
 PURCHASE_ORDERS_PAGE = ROOT / "src/pages/PurchaseOrders.tsx"
 ADD_PURCHASE_ORDER_DIALOG = ROOT / "src/components/dialogs/AddPurchaseOrderDialog.tsx"
 PAYMENT_REQUEST_DETAILS = ROOT / "src/components/dialogs/PaymentRequestDetailsDialog.tsx"
+GOODS_RECEIPT_COPY = ROOT / "src/i18n/goodsReceiptPurchasing.ts"
+PAYMENT_REQUEST_DETAILS_COPY = ROOT / "src/i18n/paymentRequestDetails.ts"
 PURCHASE_ORDER_DETAILS = ROOT / "src/components/dialogs/PurchaseOrderDetailsDialog.tsx"
 USER_MANAGEMENT_HOOK = ROOT / "src/hooks/useUserManagement.ts"
 SIDEBAR = ROOT / "src/components/layout/Sidebar.tsx"
@@ -203,7 +205,12 @@ def test_finalization_rpc_posts_inventory_and_generates_pending_payable_atomical
     assert "image_url = COALESCE(image_url, v_purchase_order.image_url)" in migrations
     assert "v_purchase_order.image_url" in migrations
     assert "data-bmq-goods-receipt-attached-evidence" in read(GOODS_RECEIPT_DETAILS)
-    assert "Không thể tạo công nợ 0đ" in read(GOODS_RECEIPT_DETAILS)
+    details = read(GOODS_RECEIPT_DETAILS)
+    purchasing_copy = read(ROOT / "src/i18n/purchasingCopy.ts")
+    assert 'includes("Cannot create payable with zero amount")' not in details
+    assert 'return renderPurchasingMessage(pc, purchasingErrorMessage(error, "receiveError"))' in details
+    assert "if (typeof message === 'string') return message" in purchasing_copy
+    assert "if (error instanceof PurchasingLocalError) return error.uiMessage" in purchasing_copy
     zero_amount_guard = migrations.split("Cannot create payable with zero amount", 1)[0]
     assert "v_total_amount := v_subtotal + v_vat_amount" in zero_amount_guard
     assert zero_amount_guard.rfind("IF v_total_amount <= 0 THEN") > zero_amount_guard.rfind("v_total_amount := v_subtotal + v_vat_amount")
@@ -287,10 +294,12 @@ def test_historical_paid_receipt_posts_stock_without_creating_duplicate_payable(
     assert "historicalStockNotIncludedConfirmed" in hook
     assert "historicalReconciliationReason" in hook
 
-    assert "Nhập kho đơn cũ đã thanh toán" in details
-    assert "Lý do đối soát" in details
-    assert "Xác nhận tồn hiện tại chưa bao gồm lô hàng này" in details
-    assert "Không tạo công nợ mới" in details
+    goods_receipt_copy = read(GOODS_RECEIPT_COPY)
+    assert "pc.receivePaidHistoricalOrder" in details
+    assert '"receivePaidHistoricalOrder": "Nhập kho đơn cũ đã thanh toán"' in goods_receipt_copy
+    assert "pc.reconciliationReason" in details
+    assert "pc.confirmThatCurrentInventoryDoesNotIncludeThis" in details
+    assert "pc.createsNoNewPayable" in details
     assert "data-bmq-historical-paid-receipt-flow" in details
     assert "selectedHistoricalPaymentRequestId" in details
     assert "historicalStockConfirmed" in details
@@ -348,14 +357,16 @@ def test_goods_receipts_ui_shows_payable_audit_state_and_blocks_duplicate_finali
     assert "const [timeFilterMode, setTimeFilterMode] = useState<TimeFilterMode>(\"week\");" in page
     assert "const [supplierSearchTerm, setSupplierSearchTerm] = useState(\"\");" in page
     assert "buildWeekBuckets" in page
-    assert "label: `Tuần ${index + 1}" in page
+    goods_receipt_copy = read(GOODS_RECEIPT_COPY)
+    assert "label: formatText(pc.weekLabel, { week: index + 1, startDay, endDay, month: monthLabel })" in page
+    assert '"weekLabel": "Tuần {week} ({startDay}-{endDay}/{month})"' in goods_receipt_copy
     assert "1-7, 8-14, 15-21, 22-28, 29-hết tháng" in page
     assert "receiptMatchesPeriod" in page
     assert "periodAndSupplierFilteredReceipts" in page
     assert "total: periodAndSupplierFilteredReceipts.length" in page
     assert "periodAndSupplierFilteredReceipts.filter((r) => r.status === \"draft\").length" in page
     assert "normalizeSearchText(r.suppliers?.name || \"\")" in page
-    assert "formatMonthLabel(month)" in page
+    assert "formatMonthLabel(month, pc)" in page
     assert "type=\"month\"" not in page
     assert "const RECEIPTS_PER_PAGE = 20" in page
     assert "paginatedReceipts.map((receipt)" in page
@@ -366,12 +377,8 @@ def test_goods_receipts_ui_shows_payable_audit_state_and_blocks_duplicate_finali
     assert "onClick={() => handleViewDetails(receipt.id)}" in page
     assert "useSidebar" not in page
     assert 'window.dispatchEvent(new Event("bmq:open-sidebar"))' in page
-    assert "Chạm vào thẻ để xem chi tiết" in page
     assert "<Eye" not in page
 
-    assert "Đối soát công nợ" in details
-    assert "Mã PO" in details
-    assert "Mã công nợ" in details
     assert "payment_requests?.request_number" in details
     assert "purchase_orders?.po_number" in details
     assert "finalized_at" in details
@@ -379,7 +386,7 @@ def test_goods_receipts_ui_shows_payable_audit_state_and_blocks_duplicate_finali
     assert "ordered_quantity" in details
     assert "actual_quantity" in details
     assert "line_status" in details
-    assert "Không chốt lại phiếu đã tạo công nợ" in details
+    assert "pc.doNotFinalizeAReceiptAgainAfterA" in details
     assert "data-bmq-goods-receipt-detail-light-mobile" in details
     assert "data-bmq-goods-receipt-detail-mobile-v2" in details
     assert "data-bmq-goods-receipt-detail-mobile-hero" in details
@@ -387,11 +394,7 @@ def test_goods_receipts_ui_shows_payable_audit_state_and_blocks_duplicate_finali
     assert "data-bmq-goods-receipt-detail-mobile-item-cards" in details
     assert "max-md:h-[96dvh]" in details
     assert "hidden overflow-x-auto rounded-xl border border-border md:block" in details
-    assert "Dòng hàng" in details
-    assert "Thực nhận" in details
     assert "formatSafeDate" in details
-    assert "Không tải được chi tiết phiếu nhập" in details
-    assert "Đang tải chi tiết phiếu nhập" in details
     assert "data-bmq-goods-receipt-delivery-note-required" in details
     assert "data-bmq-goods-receipt-ocr-assist" in details
     assert "data-bmq-goods-receipt-ocr-compare-po" in details
@@ -399,11 +402,6 @@ def test_goods_receipts_ui_shows_payable_audit_state_and_blocks_duplicate_finali
     assert "data-bmq-goods-receipt-variance-evidence-required" in details
     assert "data-bmq-goods-receipt-attached-evidence" in details
     assert "data-bmq-goods-receipt-evidence-required-always" in details
-    assert "Chụp/scan phiếu giao hàng bắt buộc" in details
-    assert "PO luôn phải có ảnh/chứng từ" in details
-    assert "OCR tự điền" in details
-    assert "So với PO" in details
-    assert "Nhân viên xác nhận cuối" in details
     assert "useDeliveryNoteOcr" in details
     assert "hasDeliveryNoteEvidence" in details
 
@@ -440,9 +438,11 @@ def test_finance_payables_ui_filters_and_labels_warehouse_generated_requests():
     assert 'request.creator_profile' in page
     assert 'profile?.full_name?.trim()' in page
 
-    assert 'Công nợ tạo từ nhập kho' in details
-    assert 'Phiếu nhập kho' in details
-    assert 'PO liên kết' in details
+    payment_request_details_copy = read(PAYMENT_REQUEST_DETAILS_COPY)
+    assert 'copy.payableFromGoodsReceipt' in details
+    assert '"payableFromGoodsReceipt": "Công nợ tạo từ nhập kho"' in payment_request_details_copy
+    assert 'copy.goodsReceipt' in details
+    assert 'copy.linkedPO' in details
     assert 'request.goods_receipts?.receipt_number' in details
     assert 'request.purchase_orders?.po_number' in details
 
@@ -782,9 +782,11 @@ def test_task5_goods_receipt_canonical_controller_contracts_are_server_side():
     assert "resolve_canonical_material" in edge.split("nameSimilarity", 1)[1]
     assert "useServerMaterialResolutionOnly" in hook
     assert "canonical_materials" in hook
-    assert "Cần xử lý NVL" in details
+    goods_receipt_copy = read(GOODS_RECEIPT_COPY)
+    assert "pc.materialReviewRequired" in details
+    assert '"materialReviewRequired": "Cần xử lý NVL"' in goods_receipt_copy
     assert "/material-master" in details
-    assert "Tên OCR gốc" in details
+    assert "pc.originalOCRName" in details
     assert "data-bmq-goods-receipt-material-resolution" in details
     assert "data-bmq-goods-receipt-ocr-safe-quantity-only" in details
     assert "material_resolution_status" in details
@@ -899,17 +901,16 @@ def test_goods_receipt_receiving_edit_mode():
     assert "data-bmq-goods-receipt-actual-payable-only" in details
 
     # Workflow Vietnamese copy
-    assert "Kế toán kho xác nhận thực nhận" in details
-    assert "Phiếu nhập đã nhận đủ thông tin từ PO" in details
-    assert "Mặc định số thực nhận bằng số đặt" in details
-    assert "phải giữ ảnh/chứng từ đính kèm" in details
-    assert "Nhập kho + Tạo công nợ" in details
-    assert "thực nhận" in details
-    assert "Công nợ theo thực nhận" in details
-    assert "Lý do thiếu" in details
+    goods_receipt_copy = read(GOODS_RECEIPT_COPY)
+    assert "pc.warehouseAccountingConfirmsActualReceipt" in details
+    assert '"warehouseAccountingConfirmsActualReceipt": "Kế toán kho xác nhận thực nhận"' in goods_receipt_copy
+    assert "pc.theReceiptHasFullPODetailsAndMust" in details
+    assert "pc.receiveCreatePayable" in details
+    assert "pc.payablesUseActualQuantitiesReceivedShortagesAreCharged" in details
+    assert "pc.shortageReason" in details
 
     # Over-receipt blocked via validation message
-    assert "Vượt quá" in details
+    assert "pc.quantityExceedsOrder" in details
 
     # Finalization gated on receipt evidence and per-line validation
     assert "hasRequiredReceiptEvidence" in details

@@ -1,3 +1,6 @@
+import { formatText } from "@/i18n/format";
+import { invoicePurchasing } from "@/i18n/invoicePurchasing";
+import { usePurchasingCopy } from "@/i18n/purchasingCopy";
 import { useState, useEffect, useMemo } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -72,12 +75,12 @@ type InvoiceItemCostClassification = {
   ocr_classification_json?: Record<string, unknown> | null;
 };
 
-const invoiceItemSchema = z.object({
+const invoiceItemSchema = (pc: typeof invoicePurchasing.vi) => z.object({
   product_code: z.string().optional(),
-  product_name: z.string().min(1, "Product name is required"),
+  product_name: z.string().min(1, pc.validation101),
   unit: z.string().default("kg"),
-  quantity: z.coerce.number().min(0, "Quantity must be positive"),
-  unit_price: z.coerce.number().min(0, "Price must be positive"),
+  quantity: z.coerce.number().min(0, pc.validation102),
+  unit_price: z.coerce.number().min(0, pc.validation103),
   raw_product_name: z.string().nullable().optional(),
   suggested_standard_cost_code: z.string().nullable().optional(),
   confirmed_standard_cost_code: z.string().nullable().optional(),
@@ -93,19 +96,20 @@ const invoiceItemSchema = z.object({
   ocr_classification_json: z.record(z.unknown()).nullable().optional(),
 });
 
-const invoiceSchema = z.object({
-  invoice_number: z.string().min(1, "Invoice number is required"),
-  invoice_date: z.string().min(1, "Invoice date is required"),
+const invoiceSchema = (pc: typeof invoicePurchasing.vi) => z.object({
+  invoice_number: z.string().min(1, pc.validation104),
+  invoice_date: z.string().min(1, pc.validation105),
   supplier_id: z.string().optional(),
   payment_request_id: z.string().optional(),
   vat_amount: z.coerce.number().default(0),
   notes: z.string().optional(),
-  items: z.array(invoiceItemSchema).min(1, "At least one item is required"),
+  items: z.array(invoiceItemSchema(pc)).min(1, pc.validation106),
 });
 
-type InvoiceFormData = z.infer<typeof invoiceSchema>;
+type InvoiceFormData = z.infer<ReturnType<typeof invoiceSchema>>;
 
 export function AddInvoiceDialog() {
+  const pc = usePurchasingCopy(invoicePurchasing);
   const [open, setOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -127,7 +131,7 @@ export function AddInvoiceDialog() {
   ) || [], [paymentRequests]);
 
   const form = useForm<InvoiceFormData>({
-    resolver: zodResolver(invoiceSchema),
+    resolver: zodResolver(invoiceSchema(pc)),
     defaultValues: {
       invoice_number: "",
       invoice_date: new Date().toISOString().split("T")[0],
@@ -146,6 +150,10 @@ export function AddInvoiceDialog() {
       ],
     },
   });
+
+  useEffect(() => {
+    if (Object.keys(form.formState.errors).length) void form.trigger();
+  }, [pc, form]);
 
   const { fields, append, remove, replace } = useFieldArray({
     control: form.control,
@@ -221,7 +229,8 @@ export function AddInvoiceDialog() {
     (sum, item) => sum + (item.quantity || 0) * (item.unit_price || 0),
     0
   );
-  const vatAmount = form.watch("vat_amount") || 0;
+  const watchedVatAmount = Number(form.watch("vat_amount"));
+  const vatAmount = Number.isFinite(watchedVatAmount) ? watchedVatAmount : 0;
   const totalAmount = subtotal + vatAmount;
   const selectedRequest = useMemo(
     () => availableRequests.find((request) => request.id === selectedRequestId) || null,
@@ -288,19 +297,19 @@ export function AddInvoiceDialog() {
         const errorData = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
 
         if (response.status === 401) {
-          toast.error("Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại để scan.");
+          toast.error(pc.yourSessionExpiredPleaseSignInAgainTo);
           return;
         }
         if (response.status === 402) {
-          toast.error("Hết credits AI để scan hóa đơn.");
+          toast.error(pc.noAICreditsLeftForInvoiceScanning);
           return;
         }
         if (response.status === 429) {
-          toast.error("Hệ thống đang bận, vui lòng thử lại sau ít phút.");
+          toast.error(pc.theSystemIsBusyPleaseTryAgainIn);
           return;
         }
 
-        throw new Error(errorData.error || "Failed to scan invoice");
+        throw new Error(errorData.error || pc.scanFailed);
       }
 
       const result = await response.json();
@@ -343,10 +352,10 @@ export function AddInvoiceDialog() {
         form.setValue("items", newItems);
       }
 
-      toast.success("Scan hóa đơn thành công");
+      toast.success(pc.invoiceScannedSuccessfully);
     } catch (error) {
       console.error("Error scanning invoice:", error);
-      toast.error(error instanceof Error ? error.message : "Không thể scan hóa đơn");
+      toast.error(error instanceof Error ? error.message : pc.unableToScanInvoice);
     } finally {
       setScanning(false);
     }
@@ -356,6 +365,13 @@ export function AddInvoiceDialog() {
     // PROTOTYPE MODE: No login required
     try {
       setUploading(true);
+
+      const submittedSubtotal = data.items.reduce(
+        (sum, item) => sum + item.quantity * item.unit_price,
+        0,
+      );
+      const submittedVatAmount = data.vat_amount;
+      const submittedTotalAmount = submittedSubtotal + submittedVatAmount;
 
       // Upload invoice image if exists (store storage path, not signed URL)
       let uploadedImageUrl: string | null = null;
@@ -368,7 +384,7 @@ export function AddInvoiceDialog() {
           .upload(fileName, imageFile);
 
         if (uploadError) {
-          throw new Error(`Failed to upload image: ${uploadError.message}`);
+          throw new Error(formatText(pc.message90, { v0: uploadError.message }));
         }
 
         uploadedImageUrl = fileName;
@@ -385,7 +401,7 @@ export function AddInvoiceDialog() {
           .upload(fileName, paymentSlipFile);
 
         if (uploadError) {
-          throw new Error(`Failed to upload payment slip: ${uploadError.message}`);
+          throw new Error(formatText(pc.message91, { v0: uploadError.message }));
         }
 
         uploadedPaymentSlipUrl = fileName;
@@ -396,7 +412,7 @@ export function AddInvoiceDialog() {
             paymentRequestId: data.payment_request_id,
             invoiceNumber: data.invoice_number,
             invoiceDate: data.invoice_date,
-            vatAmount,
+            vatAmount: submittedVatAmount,
             notes: data.notes || null,
             paymentSlipUrl: uploadedPaymentSlipUrl,
             actorId: await getCurrentActorId(),
@@ -406,9 +422,9 @@ export function AddInvoiceDialog() {
               invoice_number: data.invoice_number,
               invoice_date: data.invoice_date,
               supplier_id: data.supplier_id || null,
-              subtotal,
-              vat_amount: vatAmount,
-              total_amount: totalAmount,
+              subtotal: submittedSubtotal,
+              vat_amount: submittedVatAmount,
+              total_amount: submittedTotalAmount,
               image_url: uploadedImageUrl,
               payment_slip_url: uploadedPaymentSlipUrl,
               notes: data.notes || null,
@@ -439,7 +455,7 @@ export function AddInvoiceDialog() {
       queryClient.invalidateQueries({ queryKey: ["payment-requests"] });
       queryClient.invalidateQueries({ queryKey: ["pending-invoice-count"] });
 
-      toast.success(`Đã tạo hóa đơn thành công (${invoiceResult.items_count} dòng)`);
+      toast.success(formatText(pc.message92, { v0: invoiceResult.items_count }));
       form.reset();
       setImageUrl(null);
       setImageFile(null);
@@ -449,11 +465,11 @@ export function AddInvoiceDialog() {
       setOpen(false);
     } catch (error) {
       console.error("Error creating invoice:", error);
-      const errorMessage = error instanceof Error ? error.message : "Lỗi không xác định";
+      const errorMessage = error instanceof Error ? error.message : pc.unknownError;
       if (errorMessage.includes("row-level security") || errorMessage.includes("permission")) {
-        toast.error("Bạn không có quyền tạo hóa đơn");
+        toast.error(pc.youDoNotHavePermissionToCreateInvoices);
       } else {
-        toast.error("Không thể tạo hóa đơn. Vui lòng thử lại.");
+        toast.error(pc.unableToCreateInvoicePleaseTryAgain);
       }
     } finally {
       setUploading(false);
@@ -469,12 +485,11 @@ export function AddInvoiceDialog() {
       <DialogTrigger asChild>
         <Button>
           <Plus className="h-4 w-4 mr-2" />
-          Add Invoice
-        </Button>
+           {pc.addInvoice} </Button>
       </DialogTrigger>
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Add New Invoice</DialogTitle>
+          <DialogTitle>{pc.addNewInvoice}</DialogTitle>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
@@ -483,12 +498,12 @@ export function AddInvoiceDialog() {
               {/* Invoice Image */}
               <div className="border-2 border-dashed border-border rounded-lg p-4">
                 <div className="flex flex-col items-center gap-3">
-                  <p className="text-sm font-medium">📄 Ảnh hóa đơn</p>
+                  <p className="text-sm font-medium">{pc.invoiceImage}</p>
                   {imageUrl ? (
                     <div className="relative">
                       <img
                         src={imageUrl}
-                        alt="Invoice preview"
+                        alt={pc.invoicePreview}
                         className="max-h-32 rounded-lg object-contain"
                       />
                       <Button
@@ -508,8 +523,7 @@ export function AddInvoiceDialog() {
                     <div className="text-center py-4">
                       <Upload className="mx-auto h-8 w-8 text-muted-foreground" />
                       <p className="mt-1 text-xs text-muted-foreground">
-                        Upload hóa đơn để scan hoặc lưu trữ
-                      </p>
+                         {pc.uploadAnInvoiceToScanOrStore} </p>
                     </div>
                   )}
                   <div className="flex flex-col items-center gap-2 w-full">
@@ -533,7 +547,7 @@ export function AddInvoiceDialog() {
                         ) : (
                           <Scan className="h-4 w-4 mr-2" />
                         )}
-                        {scanning ? "Đang scan..." : "Scan hóa đơn"}
+                        {scanning ? pc.scanning : pc.scanInvoice}
                       </Button>
                     )}
                   </div>
@@ -545,13 +559,12 @@ export function AddInvoiceDialog() {
                 <div className="flex flex-col items-center gap-3">
                   <p className="text-sm font-medium flex items-center gap-1">
                     <CreditCard className="h-4 w-4" />
-                    Ảnh UNC / Chứng từ TT
-                  </p>
+                     {pc.bankSlipPaymentDocumentImage} </p>
                   {paymentSlipPreview ? (
                     <div className="relative">
                       <img
                         src={paymentSlipPreview}
-                        alt="Payment slip preview"
+                        alt={pc.paymentSlipPreview}
                         className="max-h-32 rounded-lg object-contain"
                       />
                       <Button
@@ -571,8 +584,7 @@ export function AddInvoiceDialog() {
                     <div className="text-center py-4">
                       <CreditCard className="mx-auto h-8 w-8 text-muted-foreground" />
                       <p className="mt-1 text-xs text-muted-foreground">
-                        Tùy chọn: Upload ảnh UNC để lưu trữ
-                      </p>
+                         {pc.optionalUploadABankSlipImageForStorage} </p>
                     </div>
                   )}
                   <Input
@@ -597,17 +609,17 @@ export function AddInvoiceDialog() {
               <div className="p-4 bg-muted/30 rounded-lg border border-border">
                 <div className="flex items-center gap-2 mb-3">
                   <Link className="h-4 w-4 text-primary" />
-                  <span className="font-medium text-sm">Link đề nghị chi (tùy chọn)</span>
+                  <span className="font-medium text-sm">{pc.linkPaymentRequestOptional}</span>
                 </div>
                 <Select 
                   onValueChange={handlePaymentRequestChange} 
                   value={selectedRequestId || "none"}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Chọn đề nghị chi để link" />
+                    <SelectValue placeholder={pc.selectPaymentRequestToLink} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">Không link</SelectItem>
+                    <SelectItem value="none">{pc.noLink}</SelectItem>
                     {availableRequests.map((pr) => (
                       <SelectItem key={pr.id} value={pr.id}>
                         {pr.request_number} - {pr.title} ({formatCurrency(pr.total_amount || 0)} VND)
@@ -617,8 +629,7 @@ export function AddInvoiceDialog() {
                 </Select>
                 {selectedRequestId && (
                   <p className="text-xs text-muted-foreground mt-2">
-                    Sẽ tự động điền thông tin từ đề nghị chi đã chọn
-                  </p>
+                     {pc.detailsWillBeFilledFromTheSelectedPayment} </p>
                 )}
               </div>
             )}
@@ -630,9 +641,9 @@ export function AddInvoiceDialog() {
                 name="invoice_number"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Invoice Number *</FormLabel>
+                    <FormLabel>{pc.invoiceNumber2}</FormLabel>
                     <FormControl>
-                      <Input placeholder="e.g., INV-001" {...field} />
+                      <Input placeholder={pc.eGINV001} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -644,7 +655,7 @@ export function AddInvoiceDialog() {
                 name="invoice_date"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Invoice Date *</FormLabel>
+                    <FormLabel>{pc.invoiceDate2}</FormLabel>
                     <FormControl>
                       <Input type="date" {...field} />
                     </FormControl>
@@ -658,11 +669,11 @@ export function AddInvoiceDialog() {
                 name="supplier_id"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Supplier</FormLabel>
+                    <FormLabel>{pc.supplier}</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select supplier" />
+                          <SelectValue placeholder={pc.selectSupplier} />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
@@ -683,7 +694,7 @@ export function AddInvoiceDialog() {
                 name="vat_amount"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>VAT Amount (VND)</FormLabel>
+                    <FormLabel>{pc.vATAmountVND}</FormLabel>
                     <FormControl>
                       <Input type="number" {...field} />
                     </FormControl>
@@ -696,7 +707,7 @@ export function AddInvoiceDialog() {
             {/* Invoice Items */}
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <h3 className="font-semibold">Invoice Items</h3>
+                <h3 className="font-semibold">{pc.invoiceItems}</h3>
                 <Button
                   type="button"
                   variant="outline"
@@ -712,8 +723,7 @@ export function AddInvoiceDialog() {
                   }
                 >
                   <Plus className="h-4 w-4 mr-1" />
-                  Add Item
-                </Button>
+                   {pc.addItem} </Button>
               </div>
 
               <div className="space-y-3">
@@ -729,9 +739,9 @@ export function AddInvoiceDialog() {
                       name={`items.${index}.product_code`}
                       render={({ field }) => (
                         <FormItem className="col-span-2">
-                          <FormLabel className="text-xs">Code</FormLabel>
+                          <FormLabel className="text-xs">{pc.code}</FormLabel>
                           <FormControl>
-                            <Input placeholder="Code" {...field} />
+                            <Input placeholder={pc.code} {...field} />
                           </FormControl>
                         </FormItem>
                       )}
@@ -742,13 +752,13 @@ export function AddInvoiceDialog() {
                       name={`items.${index}.product_name`}
                       render={({ field }) => (
                         <FormItem className="col-span-3">
-                          <FormLabel className="text-xs">Product Name *</FormLabel>
+                          <FormLabel className="text-xs">{pc.productName2}</FormLabel>
                           <FormControl>
-                            <Input placeholder="Product name" {...field} />
+                            <Input placeholder={pc.productName3} {...field} />
                           </FormControl>
                           {item?.suggested_standard_cost_code && item?.canonical_cost_item_name && (
                             <div className="text-xs text-muted-foreground">
-                              <span className="font-medium text-foreground">Mã chuẩn</span>{" "}
+                              <span className="font-medium text-foreground">{pc.standardCode}</span>{" "}
                               {item.standard_cost_code_type ? `${item.standard_cost_code_type} · ` : ""}
                               {item.suggested_standard_cost_code} — {item.canonical_cost_item_name}
                               {item.cost_category_code ? ` · ${item.cost_category_code}` : ""}
@@ -763,7 +773,7 @@ export function AddInvoiceDialog() {
                       name={`items.${index}.unit`}
                       render={({ field }) => (
                         <FormItem className="col-span-1">
-                          <FormLabel className="text-xs">Unit</FormLabel>
+                          <FormLabel className="text-xs">{pc.unit2}</FormLabel>
                           <FormControl>
                             <Input placeholder="kg" {...field} />
                           </FormControl>
@@ -776,7 +786,7 @@ export function AddInvoiceDialog() {
                       name={`items.${index}.quantity`}
                       render={({ field }) => (
                         <FormItem className="col-span-2">
-                          <FormLabel className="text-xs">Quantity</FormLabel>
+                          <FormLabel className="text-xs">{pc.quantity}</FormLabel>
                           <FormControl>
                             <Input type="number" step="0.001" {...field} />
                           </FormControl>
@@ -789,7 +799,7 @@ export function AddInvoiceDialog() {
                       name={`items.${index}.unit_price`}
                       render={({ field }) => (
                         <FormItem className="col-span-2">
-                          <FormLabel className="text-xs">Unit Price</FormLabel>
+                          <FormLabel className="text-xs">{pc.unitPrice2}</FormLabel>
                           <FormControl>
                             <Input type="number" {...field} />
                           </FormControl>
@@ -827,15 +837,15 @@ export function AddInvoiceDialog() {
             <div className="flex justify-end">
               <div className="w-64 space-y-2 text-sm">
                 <div className="flex justify-between">
-                  <span>Subtotal:</span>
+                  <span>{pc.subtotal2}</span>
                   <span className="font-medium">{formatCurrency(subtotal)} VND</span>
                 </div>
                 <div className="flex justify-between">
-                  <span>VAT:</span>
+                  <span>{pc.fieldVATLabel}</span>
                   <span className="font-medium">{formatCurrency(vatAmount)} VND</span>
                 </div>
                 <div className="flex justify-between text-lg font-bold border-t pt-2">
-                  <span>Total:</span>
+                  <span>{pc.total2}</span>
                   <span>{formatCurrency(totalAmount)} VND</span>
                 </div>
               </div>
@@ -847,9 +857,9 @@ export function AddInvoiceDialog() {
               name="notes"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Notes</FormLabel>
+                  <FormLabel>{pc.notes2}</FormLabel>
                   <FormControl>
-                    <Textarea placeholder="Additional notes..." {...field} />
+                    <Textarea placeholder={pc.additionalNotes2} {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -862,14 +872,12 @@ export function AddInvoiceDialog() {
                 variant="outline"
                 onClick={() => setOpen(false)}
               >
-                Cancel
-              </Button>
+                 {pc.cancel2} </Button>
               <Button type="submit" disabled={uploading || createInvoiceWithItems.isPending}>
                 {(uploading || createInvoiceWithItems.isPending) && (
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                 )}
-                Create Invoice
-              </Button>
+                 {pc.createInvoice2} </Button>
             </div>
           </form>
         </Form>

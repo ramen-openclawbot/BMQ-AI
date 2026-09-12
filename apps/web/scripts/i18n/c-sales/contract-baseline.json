@@ -1,0 +1,30 @@
+{
+  "provenance": "Captured from pre-edit originals and /tmp/bmq-i18n-lanes/baseline. SHA-256 of exact source bytes or JSON-serialized AST selections; no normalized business values.",
+  "attributes": {
+    "pages/MiniCrm.tsx": "833ffd6897848bbd2c31baf242f3b7b75de0402e1cff034256f1c3e23620d546",
+    "pages/FacebookMessengerInbox.tsx": "2a56df842a8d3e787fc5b78e84e51e85d5ddb646d0a822a74095f4819304517d",
+    "components/facebook-messenger/FacebookMessengerPanels.tsx": "857663b7c6869b7845b3ad71668647d855d43ca2d0477d6405720c1d92ff068d",
+    "components/mini-crm/SalesPoQuickViewEditor.tsx": "60ef0493b3d43a22845878133beeabeb81c445b06407420f9cefdec22610b982",
+    "components/mini-crm/KnowledgeBaseProfileEditor.tsx": "6ade170ff306ff3258f28e1dd3da1ed6c19d57ed0b76f98ee4eb0304135258ed",
+    "components/mini-crm/ParseTestWorkbench.tsx": "2c24b0b8f97a84ec6a3ac4ea7460b32c77a75c2b88cc9a914d2d3c740fc4ea35",
+    "components/mini-crm/KioskReportAdminPanel.tsx": "9ddab5f92c911e714a072cc6ca86b2a69d5e859351584f7eca3304f23a207782",
+    "components/mini-crm/DeliveryStaffAdminPanel.tsx": "e265b06f8a7f59454df7a8813e7208ad6542d2746dbaea4e0fbf7a733ab48538",
+    "components/mini-crm/AttendanceGeofenceAdminPanel.tsx": "c384dfec710a6197efa4e94c426de4b18230fca42a58b3456ad12d0d9fdd0c01"
+  },
+  "writes": {
+    "pages/MiniCrm.tsx": "0e9fae41c1b7041721934a9adea95fecdbb43b9a84cc2951761491b768b4d91e",
+    "components/mini-crm/ParseTestWorkbench.tsx": "20baa28e013453607db065c8cd6c8039d4175c5b882500aba83e852dfb4313bd",
+    "components/mini-crm/KioskReportAdminPanel.tsx": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "components/mini-crm/DeliveryStaffAdminPanel.tsx": "5397401e60b43ae827b3cd25d3c7ea86ec6ec7047aff3508a52f350e8a25bc6c",
+    "components/mini-crm/AttendanceGeofenceAdminPanel.tsx": "5896d66870b0e1de07f2c2ee186276b71b50bc0ce500b805b90ab4b128181efa"
+  },
+  "files": {
+    "components/mini-crm/poDraftUtils.ts": "45b21a856023023e9d3da3b84e241c97196a7085bb57dd69fd5e4ea4d884afa2",
+    "components/mini-crm/emailBodyParseUtils.ts": "33a807fa71ee842dae232adf49826093ce58658c3920cc96c6fb4f0e8ee6fc90",
+    "components/mini-crm/kbAiUtils.ts": "390dfcfe8ea0f90f892982d52033a9d0b2e9ee1546ab4170d87602d70e0c001c",
+    "components/mini-crm/parseContractTypes.ts": "3d9c89917f49a09a00bbb466af9c391d0c75e55ca836bc353e0db45e1e0bef3b",
+    "hooks/useFacebookMessenger.ts": "e77386f5d1334e1659cb817c4b5bc8840ae22ed090ae21e5f1be03513834c464",
+    "hooks/useFacebookPageConnection.ts": "0dabf2740dc4e333f00e140947707e989d0c99156f49759fb007e38d4a6c5941"
+  },
+  "csv": "eaacef91bf7715837e50af3fa94b9ff3f79b160ac22febdea2db5ce25dc33457"
+}

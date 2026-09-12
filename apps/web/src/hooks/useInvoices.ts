@@ -1,3 +1,5 @@
+import { invoicePurchasing } from "@/i18n/invoicePurchasing";
+import { usePurchasingCopy } from "@/i18n/purchasingCopy";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { db } from "@/lib/supabase-helpers";
 import { supabase } from "@/integrations/supabase/client";
@@ -336,11 +338,12 @@ export function useUpdateInvoiceItem() {
 }
 
 export function useDeleteInvoiceItem() {
+  const pc = usePurchasingCopy(invoicePurchasing);
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async ({ invoice_id }: { id: string; invoice_id: string }) => {
-      throw new Error("Không thể xoá dòng hóa đơn lịch sử. Vui lòng hủy hóa đơn và tạo chứng từ mới nếu cần đổi danh tính hàng hóa.");
+      throw new Error(pc.historicalLineLocked);
       return { invoice_id };
     },
     onSuccess: (data) => {

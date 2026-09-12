@@ -1,3 +1,6 @@
+import { formatText } from "@/i18n/format";
+import { invoicePurchasing } from "@/i18n/invoicePurchasing";
+import { usePurchasingCopy } from "@/i18n/purchasingCopy";
 import { useEffect, useState } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -41,27 +44,27 @@ import { Plus, Trash2, Loader2, Image, CreditCard } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { resolveImageUrl } from "@/lib/storage-url";
 
-const invoiceItemSchema = z.object({
+const invoiceItemSchema = (pc: typeof invoicePurchasing.vi) => z.object({
   id: z.string().optional(),
   product_code: z.string().optional(),
-  product_name: z.string().min(1, "Product name is required"),
+  product_name: z.string().min(1, pc.validation107),
   unit: z.string().default("kg"),
-  quantity: z.coerce.number().min(0, "Quantity must be positive"),
-  unit_price: z.coerce.number().min(0, "Price must be positive"),
+  quantity: z.coerce.number().min(0, pc.validation108),
+  unit_price: z.coerce.number().min(0, pc.validation109),
   isNew: z.boolean().optional(),
   isDeleted: z.boolean().optional(),
 });
 
-const invoiceSchema = z.object({
-  invoice_number: z.string().min(1, "Invoice number is required"),
-  invoice_date: z.string().min(1, "Invoice date is required"),
+const invoiceSchema = (pc: typeof invoicePurchasing.vi) => z.object({
+  invoice_number: z.string().min(1, pc.validation110),
+  invoice_date: z.string().min(1, pc.validation111),
   supplier_id: z.string().optional(),
   vat_amount: z.coerce.number().default(0),
   notes: z.string().optional(),
-  items: z.array(invoiceItemSchema),
+  items: z.array(invoiceItemSchema(pc)),
 });
 
-type InvoiceFormData = z.infer<typeof invoiceSchema>;
+type InvoiceFormData = z.infer<ReturnType<typeof invoiceSchema>>;
 
 interface EditInvoiceDialogProps {
   invoiceId: string | null;
@@ -74,6 +77,7 @@ export function EditInvoiceDialog({
   open,
   onOpenChange,
 }: EditInvoiceDialogProps) {
+  const pc = usePurchasingCopy(invoicePurchasing);
   const [uploading, setUploading] = useState(false);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
@@ -92,7 +96,7 @@ export function EditInvoiceDialog({
   const deleteInvoiceItem = useDeleteInvoiceItem();
 
   const form = useForm<InvoiceFormData>({
-    resolver: zodResolver(invoiceSchema),
+    resolver: zodResolver(invoiceSchema(pc)),
     defaultValues: {
       invoice_number: "",
       invoice_date: "",
@@ -102,6 +106,10 @@ export function EditInvoiceDialog({
       items: [],
     },
   });
+
+  useEffect(() => {
+    if (Object.keys(form.formState.errors).length) void form.trigger();
+  }, [pc, form]);
 
   const { fields, append, remove } = useFieldArray({
     control: form.control,
@@ -207,7 +215,7 @@ export function EditInvoiceDialog({
           .upload(fileName, newImageFile);
 
         if (uploadError) {
-          throw new Error(`Failed to upload image: ${uploadError.message}`);
+          throw new Error(formatText(pc.message93, { v0: uploadError.message }));
         }
 
         uploadedImageUrl = fileName;
@@ -224,7 +232,7 @@ export function EditInvoiceDialog({
           .upload(fileName, newPaymentSlipFile);
 
         if (uploadError) {
-          throw new Error(`Failed to upload payment slip: ${uploadError.message}`);
+          throw new Error(formatText(pc.message94, { v0: uploadError.message }));
         }
 
         uploadedPaymentSlipUrl = fileName;
@@ -276,15 +284,15 @@ export function EditInvoiceDialog({
         }
       }
 
-      toast.success("Đã cập nhật hóa đơn thành công");
+      toast.success(pc.invoiceUpdatedSuccessfully);
       onOpenChange(false);
     } catch (error) {
       console.error("Error updating invoice:", error);
-      const errorMessage = error instanceof Error ? error.message : "Lỗi không xác định";
+      const errorMessage = error instanceof Error ? error.message : pc.unknownError;
       if (errorMessage.includes("row-level security") || errorMessage.includes("permission")) {
-        toast.error("Bạn không có quyền cập nhật hóa đơn");
+        toast.error(pc.youDoNotHavePermissionToUpdateInvoices);
       } else {
-        toast.error("Không thể cập nhật hóa đơn. Vui lòng thử lại.");
+        toast.error(pc.unableToUpdateInvoicePleaseTryAgain);
       }
     } finally {
       setUploading(false);
@@ -301,7 +309,7 @@ export function EditInvoiceDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Edit Invoice</DialogTitle>
+          <DialogTitle>{pc.editInvoice}</DialogTitle>
         </DialogHeader>
         
         {isLoading ? (
@@ -320,12 +328,12 @@ export function EditInvoiceDialog({
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="border-2 border-dashed border-border rounded-lg p-6">
                   <div className="flex flex-col items-center gap-4">
-                    <p className="text-sm font-medium">PO / Invoice image</p>
+                    <p className="text-sm font-medium">{pc.pOInvoiceImage}</p>
                     {imagePreviewUrl ? (
                       <div className="relative">
                         <img
                           src={imagePreviewUrl}
-                          alt="Invoice preview"
+                          alt={pc.invoicePreview}
                           className="max-h-48 rounded-lg object-contain"
                         />
                         <Button
@@ -345,7 +353,7 @@ export function EditInvoiceDialog({
                     ) : (
                       <div className="text-center">
                         <Image className="mx-auto h-12 w-12 text-muted-foreground" />
-                        <p className="mt-2 text-sm text-muted-foreground">No image attached</p>
+                        <p className="mt-2 text-sm text-muted-foreground">{pc.noImageAttached}</p>
                       </div>
                     )}
                     <Input
@@ -359,12 +367,12 @@ export function EditInvoiceDialog({
 
                 <div className="border-2 border-dashed border-border rounded-lg p-6">
                   <div className="flex flex-col items-center gap-4">
-                    <p className="text-sm font-medium">Bank slip (UNC)</p>
+                    <p className="text-sm font-medium">{pc.bankSlipUNC}</p>
                     {paymentSlipPreviewUrl ? (
                       <div className="relative">
                         <img
                           src={paymentSlipPreviewUrl}
-                          alt="Payment slip preview"
+                          alt={pc.paymentSlipPreview}
                           className="max-h-48 rounded-lg object-contain"
                         />
                         <Button
@@ -384,7 +392,7 @@ export function EditInvoiceDialog({
                     ) : (
                       <div className="text-center">
                         <CreditCard className="mx-auto h-12 w-12 text-muted-foreground" />
-                        <p className="mt-2 text-sm text-muted-foreground">No payment slip attached</p>
+                        <p className="mt-2 text-sm text-muted-foreground">{pc.noPaymentSlipAttached}</p>
                       </div>
                     )}
                     <Input
@@ -404,7 +412,7 @@ export function EditInvoiceDialog({
                   name="invoice_number"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Invoice Number *</FormLabel>
+                      <FormLabel>{pc.invoiceNumber2}</FormLabel>
                       <FormControl>
                         <Input {...field} />
                       </FormControl>
@@ -418,7 +426,7 @@ export function EditInvoiceDialog({
                   name="invoice_date"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Invoice Date *</FormLabel>
+                      <FormLabel>{pc.invoiceDate2}</FormLabel>
                       <FormControl>
                         <Input type="date" {...field} />
                       </FormControl>
@@ -432,11 +440,11 @@ export function EditInvoiceDialog({
                   name="supplier_id"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Supplier</FormLabel>
+                      <FormLabel>{pc.supplier}</FormLabel>
                       <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger>
-                            <SelectValue placeholder="Select supplier" />
+                            <SelectValue placeholder={pc.selectSupplier} />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
@@ -457,7 +465,7 @@ export function EditInvoiceDialog({
                   name="vat_amount"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>VAT Amount (VND)</FormLabel>
+                      <FormLabel>{pc.vATAmountVND}</FormLabel>
                       <FormControl>
                         <Input type="number" {...field} />
                       </FormControl>
@@ -470,7 +478,7 @@ export function EditInvoiceDialog({
               {/* Invoice Items */}
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <h3 className="font-semibold">Invoice Items</h3>
+                  <h3 className="font-semibold">{pc.invoiceItems}</h3>
                   <Button
                     type="button"
                     variant="outline"
@@ -488,8 +496,7 @@ export function EditInvoiceDialog({
                     }
                   >
                     <Plus className="h-4 w-4 mr-1" />
-                    Add Item
-                  </Button>
+                     {pc.addItem} </Button>
                 </div>
 
                 <div className="space-y-3">
@@ -507,9 +514,9 @@ export function EditInvoiceDialog({
                           name={`items.${index}.product_code`}
                           render={({ field }) => (
                             <FormItem className="col-span-2">
-                              <FormLabel className="text-xs">Code</FormLabel>
+                              <FormLabel className="text-xs">{pc.code}</FormLabel>
                               <FormControl>
-                                <Input placeholder="Code" {...field} />
+                                <Input placeholder={pc.code} {...field} />
                               </FormControl>
                             </FormItem>
                           )}
@@ -520,9 +527,9 @@ export function EditInvoiceDialog({
                           name={`items.${index}.product_name`}
                           render={({ field }) => (
                             <FormItem className="col-span-3">
-                              <FormLabel className="text-xs">Product Name *</FormLabel>
+                              <FormLabel className="text-xs">{pc.productName2}</FormLabel>
                               <FormControl>
-                                <Input placeholder="Product name" {...field} />
+                                <Input placeholder={pc.productName3} {...field} />
                               </FormControl>
                             </FormItem>
                           )}
@@ -533,7 +540,7 @@ export function EditInvoiceDialog({
                           name={`items.${index}.unit`}
                           render={({ field }) => (
                             <FormItem className="col-span-1">
-                              <FormLabel className="text-xs">Unit</FormLabel>
+                              <FormLabel className="text-xs">{pc.unit2}</FormLabel>
                               <FormControl>
                                 <Input placeholder="kg" {...field} />
                               </FormControl>
@@ -546,7 +553,7 @@ export function EditInvoiceDialog({
                           name={`items.${index}.quantity`}
                           render={({ field }) => (
                             <FormItem className="col-span-2">
-                              <FormLabel className="text-xs">Quantity</FormLabel>
+                              <FormLabel className="text-xs">{pc.quantity}</FormLabel>
                               <FormControl>
                                 <Input type="number" step="0.001" {...field} />
                               </FormControl>
@@ -559,7 +566,7 @@ export function EditInvoiceDialog({
                           name={`items.${index}.unit_price`}
                           render={({ field }) => (
                             <FormItem className="col-span-2">
-                              <FormLabel className="text-xs">Unit Price</FormLabel>
+                              <FormLabel className="text-xs">{pc.unitPrice2}</FormLabel>
                               <FormControl>
                                 <Input type="number" {...field} />
                               </FormControl>
@@ -594,15 +601,15 @@ export function EditInvoiceDialog({
               <div className="flex justify-end">
                 <div className="w-64 space-y-2 text-sm">
                   <div className="flex justify-between">
-                    <span>Subtotal:</span>
+                    <span>{pc.subtotal2}</span>
                     <span className="font-medium">{formatCurrency(subtotal)} VND</span>
                   </div>
                   <div className="flex justify-between">
-                    <span>VAT:</span>
+                    <span>{pc.fieldVATLabel}</span>
                     <span className="font-medium">{formatCurrency(vatAmount)} VND</span>
                   </div>
                   <div className="flex justify-between text-lg font-bold border-t pt-2">
-                    <span>Total:</span>
+                    <span>{pc.total2}</span>
                     <span>{formatCurrency(totalAmount)} VND</span>
                   </div>
                 </div>
@@ -614,9 +621,9 @@ export function EditInvoiceDialog({
                 name="notes"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Notes</FormLabel>
+                    <FormLabel>{pc.notes2}</FormLabel>
                     <FormControl>
-                      <Textarea placeholder="Additional notes..." {...field} />
+                      <Textarea placeholder={pc.additionalNotes2} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -629,14 +636,12 @@ export function EditInvoiceDialog({
                   variant="outline"
                   onClick={() => onOpenChange(false)}
                 >
-                  Cancel
-                </Button>
+                   {pc.cancel2} </Button>
                 <Button type="submit" disabled={uploading || updateInvoice.isPending}>
                   {(uploading || updateInvoice.isPending) && (
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                   )}
-                  Save Changes
-                </Button>
+                   {pc.saveChanges} </Button>
               </div>
             </form>
           </Form>

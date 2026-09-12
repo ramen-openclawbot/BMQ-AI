@@ -10,7 +10,7 @@ const Inventory = () => {
   const { t } = useLanguage();
 
   return (
-    <div className="space-y-6">
+    <div data-bmq-warehouse-i18n="v1" className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-display font-bold text-foreground">

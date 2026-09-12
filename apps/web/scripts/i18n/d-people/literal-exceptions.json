@@ -1,0 +1,116 @@
+[
+  {
+    "file": "src/pages/AttendanceManagement.tsx",
+    "text": "`${isVi ? \"Kỳ công\" : \"Attendance period\"} ${periodFrom} → ${periodTo}`",
+    "count": 1,
+    "reason": "Existing locale-dependent generated period name is written to the DB. Preserve baseline behavior exactly."
+  },
+  {
+    "file": "src/pages/AttendanceManagement.tsx",
+    "text": "N/A",
+    "count": 1,
+    "reason": "Conventional unavailable-value marker; no business value is replaced."
+  },
+  {
+    "file": "src/pages/AttendanceManagement.tsx",
+    "text": "GPS ·",
+    "count": 1,
+    "reason": "GPS technical acronym and separator, identical in both locales."
+  },
+  {
+    "file": "src/pages/AttendanceManagement.tsx",
+    "text": "m",
+    "count": 1,
+    "reason": "Unit abbreviation used in the existing attendance layout; preserve the displayed unit."
+  },
+  {
+    "file": "src/pages/Settings.tsx",
+    "text": "English",
+    "count": 1,
+    "reason": "Language autonym in the language selector; preserve self-identification."
+  },
+  {
+    "file": "src/pages/Settings.tsx",
+    "text": "Tiếng Việt",
+    "count": 1,
+    "reason": "Language autonym in the language selector; preserve self-identification."
+  },
+  {
+    "file": "src/components/settings/GoogleDriveSettings.tsx",
+    "text": "no-reply@bmq.vn",
+    "count": 4,
+    "reason": "Canonical sender address example; not a translated UI sentence."
+  },
+  {
+    "file": "src/components/settings/GoogleDriveSettings.tsx",
+    "text": "ketoantruong@bmq.vn",
+    "count": 1,
+    "reason": "Canonical default CC address example; do not localize addresses."
+  },
+  {
+    "file": "src/components/settings/GoogleDriveSettings.tsx",
+    "text": "https://drive.google.com/drive/folders/...",
+    "count": 2,
+    "reason": "Literal Drive URL format example; protocol structure is preserved."
+  },
+  {
+    "file": "src/components/settings/GoogleDriveSettings.tsx",
+    "text": "yyyy/MM/dd/UNC",
+    "count": 2,
+    "reason": "Canonical folder-path pattern, also used in write payloads."
+  },
+  {
+    "file": "src/components/settings/GoogleDriveSettings.tsx",
+    "text": "yyyy/MM/dd/QTM",
+    "count": 2,
+    "reason": "Canonical folder-path pattern, also used in write payloads."
+  },
+  {
+    "file": "src/components/settings/DataMigrationSettings.tsx",
+    "text": "[DataMigration] Không đọc được user_roles",
+    "count": 1,
+    "reason": "Console-only diagnostic; never rendered to staff."
+  },
+  {
+    "file": "src/components/settings/DataMigrationSettings.tsx",
+    "text": "Schema chi tiết (constraints/index/RLS) nên lấy qua endpoint backend: /api/migration/export/schema",
+    "count": 1,
+    "reason": "Verbatim note serialized into the schema JSON export. Export bytes must remain unchanged."
+  },
+  {
+    "file": "src/components/settings/DataMigrationSettings.tsx",
+    "text": "owner",
+    "count": 1,
+    "reason": "Canonical role code shown in the technical export permission instruction."
+  },
+  {
+    "file": "src/components/settings/DataMigrationSettings.tsx",
+    "text": "supabase.storage",
+    "count": 1,
+    "reason": "Technical API identifier shown in code markup."
+  },
+  {
+    "file": "src/components/settings/DataMigrationSettings.tsx",
+    "text": "bucket/path",
+    "count": 1,
+    "reason": "Technical storage path structure shown in code markup."
+  },
+  {
+    "file": "src/components/settings/DataMigrationSettings.tsx",
+    "text": "1000",
+    "count": 1,
+    "reason": "Numeric maximum-file placeholder; identical in both locales."
+  },
+  {
+    "file": "src/components/settings/DealerPortalBannerSettings.tsx",
+    "text": "`Sự kiện ${index + 1}`",
+    "count": 2,
+    "reason": "Persisted default eventLabel in public banner creation/normalization; never translate stored content."
+  },
+  {
+    "file": "src/components/settings/DealerPortalBannerSettings.tsx",
+    "text": "Banner chính",
+    "count": 1,
+    "reason": "Persisted fallback banner eventLabel used in public content; must stay Vietnamese."
+  }
+]

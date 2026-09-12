@@ -1,3 +1,4 @@
+import { useDSkuCopy } from "@/i18n/useDSkuCopy";
 import { useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -40,6 +41,7 @@ const emptyForm: FormState = {
 };
 
 export default function SkuCostsEmployees() {
+  const s = useDSkuCopy();
   const { data, isLoading, isError, refetch } = useDjangoEmployees();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm);
@@ -112,31 +114,31 @@ export default function SkuCostsEmployees() {
   };
 
   return (
-    <div className="space-y-6">
+    <div data-i18n-version="d-sku-v1" className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>Bộ lọc</CardTitle>
+          <CardTitle>{s.filters}</CardTitle>
         </CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <Input placeholder="Tên hoặc mã" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <Input placeholder={s.searchNameCode} value={search} onChange={(e) => setSearch(e.target.value)} />
           <Select value={roleFilter} onValueChange={setRoleFilter}>
-            <SelectTrigger><SelectValue placeholder="Vai trò" /></SelectTrigger>
+            <SelectTrigger><SelectValue placeholder={s.role} /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Tất cả vai trò</SelectItem>
-              <SelectItem value="baker">Baker</SelectItem>
-              <SelectItem value="assistant">Assistant</SelectItem>
-              <SelectItem value="decorator">Decorator</SelectItem>
-              <SelectItem value="packer">Packer</SelectItem>
-              <SelectItem value="supervisor">Supervisor</SelectItem>
-              <SelectItem value="other">Other</SelectItem>
+              <SelectItem value="all">{s.allRoles}</SelectItem>
+              <SelectItem value="baker">{s.baker}</SelectItem>
+              <SelectItem value="assistant">{s.assistant}</SelectItem>
+              <SelectItem value="decorator">{s.decorator}</SelectItem>
+              <SelectItem value="packer">{s.packer}</SelectItem>
+              <SelectItem value="supervisor">{s.supervisor}</SelectItem>
+              <SelectItem value="other">{s.other}</SelectItem>
             </SelectContent>
           </Select>
           <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger><SelectValue placeholder="Trạng thái" /></SelectTrigger>
+            <SelectTrigger><SelectValue placeholder={s.status} /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Tất cả</SelectItem>
-              <SelectItem value="active">Active</SelectItem>
-              <SelectItem value="inactive">Inactive</SelectItem>
+              <SelectItem value="all">{s.all}</SelectItem>
+              <SelectItem value="active">{s.active}</SelectItem>
+              <SelectItem value="inactive">{s.inactive}</SelectItem>
             </SelectContent>
           </Select>
         </CardContent>
@@ -144,23 +146,23 @@ export default function SkuCostsEmployees() {
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Nhân sự</CardTitle>
-          <Button onClick={openCreate}>Thêm nhân sự</Button>
+          <CardTitle>{s.employees}</CardTitle>
+          <Button onClick={openCreate}>{s.addEmployee}</Button>
         </CardHeader>
         <CardContent>
-          {isError && <div className="text-sm text-red-500">Không tải được dữ liệu.</div>}
+          {isError && <div className="text-sm text-red-500">{s.loadError}</div>}
           {isLoading && <Skeleton className="h-8 w-full" />}
           {!isLoading && filtered && (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Mã NV</TableHead>
-                  <TableHead>Tên</TableHead>
-                  <TableHead>Vai trò</TableHead>
-                  <TableHead>Ngày vào</TableHead>
-                  <TableHead>Base rate</TableHead>
-                  <TableHead>Trạng thái</TableHead>
-                  <TableHead>Hành động</TableHead>
+                  <TableHead>{s.employeeCode}</TableHead>
+                  <TableHead>{s.name}</TableHead>
+                  <TableHead>{s.role}</TableHead>
+                  <TableHead>{s.hireDate}</TableHead>
+                  <TableHead>{s.baseRate}</TableHead>
+                  <TableHead>{s.status}</TableHead>
+                  <TableHead>{s.actions}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -173,8 +175,8 @@ export default function SkuCostsEmployees() {
                     <TableCell>{new Intl.NumberFormat('vi-VN').format(e.base_rate || 0)}</TableCell>
                     <TableCell>{e.status}</TableCell>
                     <TableCell className="space-x-2">
-                      <Button variant="outline" size="sm" onClick={() => openEdit(e)}>Sửa</Button>
-                      <Button variant="destructive" size="sm" onClick={() => remove(e.id)}>Xoá</Button>
+                      <Button variant="outline" size="sm" onClick={() => openEdit(e)}>{s.edit}</Button>
+                      <Button variant="destructive" size="sm" onClick={() => remove(e.id)}>{s.delete}</Button>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -187,36 +189,36 @@ export default function SkuCostsEmployees() {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{form.id ? "Cập nhật nhân sự" : "Thêm nhân sự"}</DialogTitle>
+            <DialogTitle>{form.id ? s.updateEmployee : s.addEmployee}</DialogTitle>
           </DialogHeader>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <Input placeholder="Mã NV" value={form.employee_id} onChange={(e) => setForm({ ...form, employee_id: e.target.value })} />
-            <Input placeholder="Tên" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+            <Input placeholder={s.employeeCode} value={form.employee_id} onChange={(e) => setForm({ ...form, employee_id: e.target.value })} />
+            <Input placeholder={s.name} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
             <Select value={form.role} onValueChange={(v) => setForm({ ...form, role: v })}>
-              <SelectTrigger><SelectValue placeholder="Vai trò" /></SelectTrigger>
+              <SelectTrigger><SelectValue placeholder={s.role} /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="baker">Baker</SelectItem>
-                <SelectItem value="assistant">Assistant</SelectItem>
-                <SelectItem value="decorator">Decorator</SelectItem>
-                <SelectItem value="packer">Packer</SelectItem>
-                <SelectItem value="supervisor">Supervisor</SelectItem>
-                <SelectItem value="other">Other</SelectItem>
+                <SelectItem value="baker">{s.baker}</SelectItem>
+                <SelectItem value="assistant">{s.assistant}</SelectItem>
+                <SelectItem value="decorator">{s.decorator}</SelectItem>
+                <SelectItem value="packer">{s.packer}</SelectItem>
+                <SelectItem value="supervisor">{s.supervisor}</SelectItem>
+                <SelectItem value="other">{s.other}</SelectItem>
               </SelectContent>
             </Select>
             <Input type="date" value={form.hire_date} onChange={(e) => setForm({ ...form, hire_date: e.target.value })} />
-            <Input placeholder="Phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
-            <Input placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+            <Input placeholder={s.phone} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+            <Input placeholder={s.email} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
             <Select value={form.wage_type} onValueChange={(v) => setForm({ ...form, wage_type: v })}>
-              <SelectTrigger><SelectValue placeholder="Loại lương" /></SelectTrigger>
+              <SelectTrigger><SelectValue placeholder={s.wageType} /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="hourly">Hourly</SelectItem>
-                <SelectItem value="monthly_salary">Monthly Salary</SelectItem>
+                <SelectItem value="hourly">{s.hourly}</SelectItem>
+                <SelectItem value="monthly_salary">{s.monthlySalary}</SelectItem>
               </SelectContent>
             </Select>
-            <Input placeholder="Base rate" value={form.base_rate} onChange={(e) => setForm({ ...form, base_rate: e.target.value })} />
+            <Input placeholder={s.baseRate} value={form.base_rate} onChange={(e) => setForm({ ...form, base_rate: e.target.value })} />
           </div>
           <DialogFooter>
-            <Button onClick={save}>Lưu</Button>
+            <Button onClick={save}>{s.save}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

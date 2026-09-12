@@ -1,3 +1,5 @@
+import { formatText } from "@/i18n/format";
+import { revenueSourceDetail } from "@/i18n/revenueSourceDetail";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -170,11 +172,11 @@ const crmDb = supabase as unknown as {
 const asRecord = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 
-const toNumber = (value: string) => {
+const toNumber = (value: string, copy: typeof revenueSourceDetail.vi) => {
   const normalized = value.replace(/,/g, "").trim();
   if (!normalized) return 0;
   const parsed = Number(normalized);
-  if (!Number.isFinite(parsed)) throw new Error("Invalid number");
+  if (!Number.isFinite(parsed)) throw new Error(copy.invalidNumber);
   return parsed;
 };
 
@@ -319,23 +321,27 @@ async function fetchManualRevenueCustomers() {
   }
 }
 
-function statusBadge(status: string) {
+function statusBadge(status: string, copy: typeof revenueSourceDetail.vi) {
   const labels: Record<string, string> = {
-    approved: "Đã kiểm soát",
-    trusted: "Đã kiểm soát",
-    tied: "Khớp đối soát",
-    matched: "Khớp",
-    matched_po: "Khớp PO",
-    adjusted: "Đã chỉnh sửa",
-    needs_review: "Cần kiểm tra",
-    needs_manual_review: "Cần kiểm tra",
-    po_delta: "Lệch PO",
-    csv_only: "Chỉ có nguồn đối soát",
+    pending: copy.pendingStatus,
+    draft: copy.draftStatus,
+    rejected: copy.rejected,
+    low_confidence: copy.lowConfidence,
+    approved: copy.controlled,
+    trusted: copy.controlled,
+    tied: copy.reconciled,
+    matched: copy.matched,
+    matched_po: copy.matchedPo,
+    adjusted: copy.adjusted,
+    needs_review: copy.needsReview,
+    needs_manual_review: copy.needsReview,
+    po_delta: copy.poDelta,
+    csv_only: copy.csvOnly,
   };
   if (["approved", "trusted", "tied", "matched", "matched_po", "adjusted"].includes(status)) return <Badge variant="secondary">{labels[status] || status}</Badge>;
   if (["needs_review", "needs_manual_review", "po_delta", "csv_only"].includes(status)) return <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-700">{labels[status] || status}</Badge>;
-  if (["rejected", "low_confidence"].includes(status)) return <Badge variant="destructive">{status}</Badge>;
-  return <Badge variant="outline">{status}</Badge>;
+  if (["rejected", "low_confidence"].includes(status)) return <Badge variant="destructive">{labels[status] || status}</Badge>;
+  return <Badge variant="outline">{labels[status] || status}</Badge>;
 }
 
 function ledgerDisplayStatus(row: RevenueLine) {
@@ -356,10 +362,10 @@ function customerMatchesManualChannel(customer: CustomerOption, channel: string)
 
 export default function RevenueSourceDetail() {
   const { language } = useLanguage();
+  const copy = revenueSourceDetail[language];
   const { canAccessModule, canEditModule } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const isVi = language === "vi";
   const canEdit = canEditModule("finance_revenue");
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
@@ -379,8 +385,8 @@ export default function RevenueSourceDetail() {
   const isQuantityFocus = focus === "quantity";
   const isCustomersFocus = focus === "customers";
   const dashboardUrl = `/finance-control/revenue?${new URLSearchParams({ period }).toString()}`;
-  const focusLabel = isQuantityFocus ? "Sản lượng" : isCustomersFocus ? "Customer/NPP" : focus;
-  const reviewLabel = review === "review_queue" ? "Cần kiểm tra" : review;
+  const focusLabel = isQuantityFocus ? copy.production : isCustomersFocus ? copy.customers : focus;
+  const reviewLabel = review === "review_queue" ? copy.needsReview : review;
   const [q, setQ] = useState("");
   const [editingLine, setEditingLine] = useState<RevenueLine | null>(null);
   const [editForm, setEditForm] = useState<RevenueEditForm | null>(null);
@@ -389,6 +395,8 @@ export default function RevenueSourceDetail() {
   const [saving, setSaving] = useState(false);
   const [exportingSheet, setExportingSheet] = useState(false);
   const [sheetExportResult, setSheetExportResult] = useState<DailyRevenueSheetExportResponse | null>(null);
+  const [sheetExportUiError, setSheetExportUiError] = useState<{ key: "exportSessionExpired" | "unreadableResponse" | "httpExportFailed" | "exportTimeout"; status?: number } | null>(null);
+  const [sheetExportError, setSheetExportError] = useState<string | null>(null);
   const [sheetExportMessage, setSheetExportMessage] = useState<string | null>(null);
   const [ledgerRowsPage, setLedgerRowsPage] = useState(1);
 
@@ -461,11 +469,11 @@ export default function RevenueSourceDetail() {
   }, [ledgerRowsPage, ledgerRowsTotalPages]);
 
   const manualNumbers = useMemo(() => {
-    const quantity = (() => { try { return toNumber(manualForm.quantity); } catch { return NaN; } })();
-    const unitPrice = (() => { try { return toNumber(manualForm.unit_price); } catch { return NaN; } })();
-    const grossRevenue = (() => { try { return toNumber(manualForm.gross_revenue); } catch { return NaN; } })();
+    const quantity = (() => { try { return toNumber(manualForm.quantity, copy); } catch { return NaN; } })();
+    const unitPrice = (() => { try { return toNumber(manualForm.unit_price, copy); } catch { return NaN; } })();
+    const grossRevenue = (() => { try { return toNumber(manualForm.gross_revenue, copy); } catch { return NaN; } })();
     return { quantity, unitPrice, grossRevenue };
-  }, [manualForm.gross_revenue, manualForm.quantity, manualForm.unit_price]);
+  }, [manualForm.gross_revenue, manualForm.quantity, manualForm.unit_price, copy]);
 
   const duplicateWarnings = useMemo(() => {
     const customer = manualForm.customer_name.trim().toLowerCase();
@@ -518,15 +526,15 @@ export default function RevenueSourceDetail() {
   };
 
   const sourceLinesDescription = isQuantityFocus
-    ? "Search product/customer/source. Ưu tiên xem chi tiết Qty, product và source lines."
+    ? copy.quantitySearchHint
     : isCustomersFocus
-      ? "Search customer/NPP/source. Đang xem ledger theo customer/NPP để lọc nhóm khách trong bảng."
-      : "Search invoice/customer/product/review flag. Staff sửa dòng sai tại đây; mỗi lần lưu sẽ ghi audit log.";
+      ? copy.customerSearchHint
+      : copy.searchHint;
   const searchPlaceholder = isQuantityFocus
-    ? "Search product/customer/source..."
+    ? copy.productSearch
     : isCustomersFocus
-      ? "Search customer/NPP/source..."
-      : "Search source lines…";
+      ? copy.customerSearch
+      : copy.sourceSearch;
 
   const openEdit = (row: RevenueLine) => {
     setEditingLine(row);
@@ -546,26 +554,32 @@ export default function RevenueSourceDetail() {
 
   const exportDailyRevenueSheet = async () => {
     if (!revenueDate) {
-      toast({ title: "Chọn một ngày doanh thu trước khi export", variant: "destructive" });
+      toast({ title: copy.chooseExportDate, variant: "destructive" });
       return;
     }
     if (!canAccessModule("finance_revenue")) {
-      toast({ title: "Không có quyền export doanh thu", description: "Tài khoản cần quyền xem hoặc sửa finance_revenue.", variant: "destructive" });
+      toast({ title: copy.noExportPermission, description: copy.exportPermissionHint, variant: "destructive" });
       return;
     }
 
     setSheetExportResult(null);
+    setSheetExportError(null);
+    setSheetExportUiError(null);
     setSheetExportMessage("Đang tạo thư mục ngày và Google Sheet trên Drive...");
     setExportingSheet(true);
-    toast({ title: "Đang export Google Sheet", description: "App đang tạo thư mục dd/mm/yyyy và file Sheet trên Drive." });
+    toast({ title: copy.exporting, description: copy.exportingHint });
 
+    let localError: typeof sheetExportUiError = null;
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 90000);
     try {
       const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
       if (sessionError) throw sessionError;
       const accessToken = sessionData.session?.access_token;
-      if (!accessToken) throw new Error("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại rồi export.");
+      if (!accessToken) {
+        localError = { key: "exportSessionExpired" };
+        throw new Error(copy.exportSessionExpired);
+      }
 
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -584,24 +598,28 @@ export default function RevenueSourceDetail() {
       try {
         result = raw ? JSON.parse(raw) : {};
       } catch {
-        throw new Error(raw || "Function trả về response không đọc được.");
+        if (!raw) localError = { key: "unreadableResponse" };
+        throw new Error(raw || copy.unreadableResponse);
       }
       if (!response.ok || !result.success || !result.webViewLink) {
-        throw new Error(result.error || `Export failed HTTP ${response.status}`);
+        if (!result.error) localError = { key: "httpExportFailed", status: response.status };
+        throw new Error(result.error || formatText(copy.httpExportFailed, { status: response.status }));
       }
       setSheetExportResult(result);
       setSheetExportMessage(`Đã tạo ${result.fileName || "Google Sheet"} trong thư mục ${result.folderName || revenueDate}.`);
       toast({
-        title: "Đã export Google Sheet doanh thu ngày",
-        description: `${result.folderName || revenueDate} · ${result.rowCount || 0} dòng · ${vnd(Number(result.grossRevenue || 0))}`,
+        title: copy.exported,
+        description: formatText(copy.sheetRows, { folder: result.folderName || revenueDate, count: result.rowCount || 0, amount: vnd(Number(result.grossRevenue || 0)) }),
       });
       window.open(result.webViewLink, "_blank", "noopener,noreferrer");
     } catch (err) {
       const message = err instanceof DOMException && err.name === "AbortError"
-        ? "Export quá 90 giây chưa phản hồi. Kiểm tra quyền Drive/Google token rồi thử lại."
+        ? copy.exportTimeout
         : err instanceof Error ? err.message : String(err);
+      setSheetExportUiError(err instanceof DOMException && err.name === "AbortError" ? { key: "exportTimeout" } : localError);
+      setSheetExportError(message);
       setSheetExportMessage(`Export Google Sheet thất bại: ${message}`);
-      toast({ title: "Export Google Sheet thất bại", description: message, variant: "destructive" });
+      toast({ title: copy.exportFailed, description: message, variant: "destructive" });
     } finally {
       window.clearTimeout(timeout);
       setExportingSheet(false);
@@ -619,8 +637,8 @@ export default function RevenueSourceDetail() {
       if (key === "channel") next.customer_name = "";
       if (key === "quantity" || key === "unit_price") {
         try {
-          const quantity = key === "quantity" ? toNumber(value) : toNumber(next.quantity);
-          const unitPrice = key === "unit_price" ? toNumber(value) : toNumber(next.unit_price);
+          const quantity = key === "quantity" ? toNumber(value, copy) : toNumber(next.quantity, copy);
+          const unitPrice = key === "unit_price" ? toNumber(value, copy) : toNumber(next.unit_price, copy);
           if (Number.isFinite(quantity) && Number.isFinite(unitPrice) && quantity > 0 && unitPrice >= 0) {
             next.gross_revenue = String(quantity * unitPrice);
           }
@@ -634,30 +652,30 @@ export default function RevenueSourceDetail() {
 
   const saveManualAdd = async () => {
     if (!canEdit) {
-      toast({ title: "Không có quyền thêm doanh thu", variant: "destructive" });
+      toast({ title: copy.noAddPermission, variant: "destructive" });
       return;
     }
     const customerName = manualForm.customer_name.trim();
     if (!manualForm.revenue_date || !manualForm.channel || !customerName) {
-      toast({ title: "Thiếu ngày, kênh hoặc khách hàng", variant: "destructive" });
+      toast({ title: copy.missingFields, variant: "destructive" });
       return;
     }
     if (!manualChannelOptions.includes(manualForm.channel)) {
-      toast({ title: "Vui lòng chọn kênh từ danh sách", variant: "destructive" });
+      toast({ title: copy.selectListedChannel, variant: "destructive" });
       return;
     }
     const selectedCustomer = filteredCustomerOptions.find((customer) => customer.customer_name === customerName);
     if (!selectedCustomer) {
-      toast({ title: "Vui lòng chọn khách hàng/đại lý đúng kênh từ CRM", variant: "destructive" });
+      toast({ title: copy.selectCrmCustomer, variant: "destructive" });
       return;
     }
 
     setSaving(true);
     try {
-      const quantity = toNumber(manualForm.quantity);
-      const unitPrice = toNumber(manualForm.unit_price);
-      const grossRevenue = toNumber(manualForm.gross_revenue);
-      if (quantity <= 0 || unitPrice < 0 || grossRevenue <= 0) throw new Error("Số lượng/doanh thu phải lớn hơn 0");
+      const quantity = toNumber(manualForm.quantity, copy);
+      const unitPrice = toNumber(manualForm.unit_price, copy);
+      const grossRevenue = toNumber(manualForm.gross_revenue, copy);
+      if (quantity <= 0 || unitPrice < 0 || grossRevenue <= 0) throw new Error(copy.positiveAmounts);
       const productName = manualForm.product_name.trim();
       const itemNote = manualForm.item_note.trim();
       const autoNote = [
@@ -687,14 +705,14 @@ export default function RevenueSourceDetail() {
         _note: autoNote,
       });
       if (addError) throw addError;
-      toast({ title: "Đã thêm dòng doanh thu thủ công và ghi audit log." });
+      toast({ title: copy.added });
       setManualDialogOpen(false);
       setManualForm(buildManualRevenueForm(period, channel, revenueDate));
       await refetch();
       await queryClient.invalidateQueries({ queryKey: ["revenue-source-detail"] });
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Không thêm được dòng doanh thu";
-      toast({ title: "Không thêm được dòng doanh thu", description: message, variant: "destructive" });
+      const message = err instanceof Error ? err.message : copy.addFailed;
+      toast({ title: copy.addFailed, description: message, variant: "destructive" });
     } finally {
       setSaving(false);
     }
@@ -707,22 +725,22 @@ export default function RevenueSourceDetail() {
   const saveEdit = async () => {
     if (!editingLine || !editForm) return;
     if (!canEdit) {
-      toast({ title: "Không có quyền sửa doanh thu", variant: "destructive" });
+      toast({ title: copy.noEditPermission, variant: "destructive" });
       return;
     }
 
     const customerName = editForm.customer_name.trim();
     const revenueDate = editForm.revenue_date.trim();
     if (!customerName || !revenueDate) {
-      toast({ title: "Thiếu ngày doanh thu hoặc tên khách", variant: "destructive" });
+      toast({ title: copy.missingEditFields, variant: "destructive" });
       return;
     }
 
     setSaving(true);
     try {
-      const quantity = toNumber(editForm.quantity);
-      const unitPrice = toNumber(editForm.unit_price);
-      const grossRevenue = toNumber(editForm.gross_revenue);
+      const quantity = toNumber(editForm.quantity, copy);
+      const unitPrice = toNumber(editForm.unit_price, copy);
+      const grossRevenue = toNumber(editForm.gross_revenue, copy);
       const note = editForm.audit_note.trim();
       const { data: authData } = await supabase.auth.getUser();
       const actorId = authData?.user?.id || null;
@@ -762,49 +780,44 @@ export default function RevenueSourceDetail() {
       });
       if (saveError) throw saveError;
 
-      toast({ title: "Đã lưu chỉnh sửa và ghi log" });
+      toast({ title: copy.saved });
       setEditingLine(null);
       setEditForm(null);
       await refetch();
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Không lưu được chỉnh sửa";
-      toast({ title: "Không lưu được chỉnh sửa", description: message, variant: "destructive" });
+      const message = err instanceof Error ? err.message : copy.saveFailed;
+      toast({ title: copy.saveFailed, description: message, variant: "destructive" });
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-staff-i18n="b-revenue-v1">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div className="space-y-2">
           <Button variant="ghost" className="-ml-2" onClick={() => navigate(dashboardUrl)}>
-            <ArrowLeft className="mr-2 h-4 w-4" />Quay lại dashboard
-          </Button>
+            <ArrowLeft className="mr-2 h-4 w-4" />{copy.back} </Button>
           <div className="flex flex-wrap gap-2">
-            <Badge variant="secondary" className="gap-1"><Database className="h-3 w-3" />Source detail</Badge>
-            {isControlledLedgerScope ? <Badge variant="outline">Controlled ledger</Badge> : null}
+            <Badge variant="secondary" className="gap-1"><Database className="h-3 w-3" />{copy.sourceDetail}</Badge>
+            {isControlledLedgerScope ? <Badge variant="outline">{copy.controlledLedger}</Badge> : null}
             {focusLabel ? <Badge variant="outline">{focusLabel}</Badge> : null}
             {reviewLabel ? <Badge variant="outline">{reviewLabel}</Badge> : null}
-            {channel ? <Badge variant="outline">{channel}</Badge> : null}
-            {sourceDocumentId ? <Badge variant="outline">Auto daily source</Badge> : null}
+            {channel ? <Badge variant="outline">{(copy.channels as Record<string, string>)[channel] || channel}</Badge> : null}
+            {sourceDocumentId ? <Badge variant="outline">{copy.autoSource}</Badge> : null}
             {dateFrom || dateTo ? <Badge variant="outline">{dateFrom || "…"} → {dateTo || "…"}</Badge> : revenueDate ? <Badge variant="outline">{revenueDate}</Badge> : null}
           </div>
-          <h1 className="text-3xl font-display font-bold">{isVi ? "Chi tiết nguồn doanh thu" : "Revenue source detail"}</h1>
+          <h1 className="text-3xl font-display font-bold">{copy.uiRevenueSourceDetail}</h1>
           <p className="max-w-3xl text-muted-foreground">
-            {isVi
-              ? "Trace từng dòng ledger về nguồn đối soát/PO/email. Dòng parse từ PO là evidence vận hành; số dashboard lấy từ ledger đã kiểm soát."
-              : "Trace each ledger line back to source evidence, PO, and email. Parsed PO rows are operational evidence; dashboard numbers come from the controlled ledger."}
+            {copy.uiTraceEachLedgerLineBackToSource}
           </p>
           {isControlledLedgerScope ? (
             <p className="max-w-3xl text-sm text-muted-foreground">
-              Controlled ledger: Số vận hành đã kiểm soát, chưa phải final audit.
-            </p>
+              {copy.controlledHint} </p>
           ) : null}
           {isCustomersFocus ? (
             <p className="max-w-3xl text-sm text-muted-foreground">
-              Đang xem toàn bộ ledger theo kỳ; dùng search/bảng để lọc customer hoặc NPP cần kiểm tra.
-            </p>
+              {copy.allLedgerHint} </p>
           ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -813,18 +826,15 @@ export default function RevenueSourceDetail() {
               variant="outline"
               onClick={exportDailyRevenueSheet}
               disabled={exportingSheet}
-              title="Export doanh thu ngày ra Google Sheet trong Drive theo thư mục dd/mm/yyyy"
+              title={copy.exportHint}
             >
               {exportingSheet ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileSpreadsheet className="mr-2 h-4 w-4" />}
-              Export Google Sheet
-            </Button>
+              {copy.exportSheet} </Button>
           ) : null}
-          <Button variant="outline" onClick={openManualAdd} disabled={!canEdit} title={canEdit ? "Thêm dòng doanh thu thiếu PO/email" : "Cần quyền finance_revenue để thêm dòng doanh thu"}>
-            <Plus className="mr-2 h-4 w-4" />+ Thêm dòng doanh thu
-          </Button>
+          <Button variant="outline" onClick={openManualAdd} disabled={!canEdit} title={canEdit ? copy.addTooltip : copy.addPermissionTooltip}>
+            <Plus className="mr-2 h-4 w-4" />{copy.addRow} </Button>
           <Button variant={review ? "default" : "outline"} onClick={() => updateParam("review", review ? "" : "review_queue")}>
-            <Filter className="mr-2 h-4 w-4" />Cần audit
-          </Button>
+            <Filter className="mr-2 h-4 w-4" />{copy.needsAudit} </Button>
         </div>
       </div>
 
@@ -834,109 +844,108 @@ export default function RevenueSourceDetail() {
             <div className="flex items-start gap-2">
               {exportingSheet ? <Loader2 className="mt-0.5 h-4 w-4 animate-spin" /> : <FileSpreadsheet className="mt-0.5 h-4 w-4" />}
               <div>
-                <div className="font-medium">Trạng thái export Google Sheet</div>
-                <div className="text-muted-foreground">{sheetExportMessage}</div>
+                <div className="font-medium">{copy.exportStatus}</div>
+                <div className="text-muted-foreground">{sheetExportResult?.webViewLink ? formatText(copy.sheetCreated, { file: sheetExportResult.fileName || "Google Sheet", folder: sheetExportResult.folderName || revenueDate }) : sheetExportError !== null ? formatText(copy.sheetFailed, { message: sheetExportUiError ? formatText(copy[sheetExportUiError.key], { status: sheetExportUiError.status ?? "" }) : sheetExportError }) : copy.creatingSheet}</div>
               </div>
             </div>
             {sheetExportResult?.webViewLink ? (
               <Button variant="outline" size="sm" onClick={() => window.open(sheetExportResult.webViewLink, "_blank", "noopener,noreferrer")}>
-                Mở Google Sheet
-              </Button>
+                {copy.openSheet} </Button>
             ) : null}
           </CardContent>
         </Card>
       ) : null}
 
       <div className="grid gap-3 md:grid-cols-4">
-        <Card><CardContent className="p-4"><div className="text-sm text-muted-foreground">Rows</div><div className="mt-1 text-2xl font-bold">{stats.rows}</div></CardContent></Card>
-        <Card><CardContent className="p-4"><div className="text-sm text-muted-foreground">{isQuantityFocus ? "Qty từ ledger" : "Qty"}</div><div className="mt-1 text-2xl font-bold">{numberFmt(stats.qty)}</div></CardContent></Card>
-        <Card><CardContent className="p-4"><div className="text-sm text-muted-foreground">Revenue</div><div className="mt-1 text-2xl font-bold">{vnd(stats.revenue)}</div></CardContent></Card>
-        <Card><CardContent className="p-4"><div className="text-sm text-muted-foreground">Need review</div><div className="mt-1 text-2xl font-bold">{stats.review}</div></CardContent></Card>
+        <Card><CardContent className="p-4"><div className="text-sm text-muted-foreground">{copy.rows}</div><div className="mt-1 text-2xl font-bold">{stats.rows}</div></CardContent></Card>
+        <Card><CardContent className="p-4"><div className="text-sm text-muted-foreground">{isQuantityFocus ? copy.ledgerQuantity : copy.qty}</div><div className="mt-1 text-2xl font-bold">{numberFmt(stats.qty)}</div></CardContent></Card>
+        <Card><CardContent className="p-4"><div className="text-sm text-muted-foreground">{copy.revenue}</div><div className="mt-1 text-2xl font-bold">{vnd(stats.revenue)}</div></CardContent></Card>
+        <Card><CardContent className="p-4"><div className="text-sm text-muted-foreground">{copy.needReview}</div><div className="mt-1 text-2xl font-bold">{stats.review}</div></CardContent></Card>
       </div>
 
-      {error ? <Card className="border-destructive/40 bg-destructive/5"><CardContent className="p-4 text-sm text-destructive">Không đọc được revenue ledger.</CardContent></Card> : null}
+      {error ? <Card className="border-destructive/40 bg-destructive/5"><CardContent className="p-4 text-sm text-destructive">{copy.ledgerError}</CardContent></Card> : null}
 
       <Card>
         <CardHeader>
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <CardTitle>Ledger source lines</CardTitle>
+              <CardTitle>{copy.sourceLines}</CardTitle>
               <CardDescription>{sourceLinesDescription}</CardDescription>
             </div>
             <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-7">
               <div className="space-y-1">
-                <Label htmlFor="ledger-period-filter" className="text-xs text-muted-foreground">Tháng</Label>
+                <Label htmlFor="ledger-period-filter" className="text-xs text-muted-foreground">{copy.month}</Label>
                 <Input
                   id="ledger-period-filter"
                   type="month"
                   value={period}
                   onChange={(e) => updateMonthFilter(e.target.value)}
-                  title="Lọc ledger theo tháng/kỳ doanh thu"
+                  title={copy.monthFilter}
                 />
               </div>
               <div className="space-y-1">
-                <Label htmlFor="ledger-date-from-filter" className="text-xs text-muted-foreground">Từ ngày</Label>
+                <Label htmlFor="ledger-date-from-filter" className="text-xs text-muted-foreground">{copy.fromDate}</Label>
                 <Input
                   id="ledger-date-from-filter"
                   type="date"
                   value={dateFromInput}
                   onChange={(e) => updateDateRangeFilter("date_from", e.target.value)}
-                  title="Lọc ledger từ ngày doanh thu"
+                  title={copy.fromDateFilter}
                 />
               </div>
               <div className="space-y-1">
-                <Label htmlFor="ledger-date-to-filter" className="text-xs text-muted-foreground">Đến ngày</Label>
+                <Label htmlFor="ledger-date-to-filter" className="text-xs text-muted-foreground">{copy.toDate}</Label>
                 <Input
                   id="ledger-date-to-filter"
                   type="date"
                   value={dateToInput}
                   onChange={(e) => updateDateRangeFilter("date_to", e.target.value)}
-                  title="Lọc ledger đến ngày doanh thu"
+                  title={copy.toDateFilter}
                 />
               </div>
               <div className="space-y-1">
-                <Label htmlFor="ledger-channel-filter" className="text-xs text-muted-foreground">Kênh bán hàng</Label>
+                <Label htmlFor="ledger-channel-filter" className="text-xs text-muted-foreground">{copy.salesChannel}</Label>
                 <select
                   id="ledger-channel-filter"
                   value={channel}
                   onChange={(e) => updateParam("channel", e.target.value)}
                   className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                  title="Lọc ledger theo kênh bán hàng"
+                  title={copy.channelFilter}
                 >
-                  <option value="">Tất cả kênh</option>
+                  <option value="">{copy.allChannels}</option>
                   {Array.from(new Set([channel, ...channelOptions].filter(Boolean))).map((option) => (
-                    <option key={option} value={option}>{option}</option>
+                    <option key={option} value={option}>{(copy.channels as Record<string, string>)[option] || option}</option>
                   ))}
                 </select>
               </div>
               <div className="space-y-1 xl:col-span-2">
-                <Label htmlFor="ledger-search-filter" className="text-xs text-muted-foreground">Tìm kiếm</Label>
+                <Label htmlFor="ledger-search-filter" className="text-xs text-muted-foreground">{copy.search}</Label>
                 <div className="relative">
                   <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
                   <Input id="ledger-search-filter" value={q} onChange={(e) => setQ(e.target.value)} placeholder={searchPlaceholder} className="pl-9" />
                 </div>
               </div>
               <div className="flex items-end">
-                <Button variant="ghost" className="w-full" onClick={clearLedgerFilters}>Xóa lọc</Button>
+                <Button variant="ghost" className="w-full" onClick={clearLedgerFilters}>{copy.clearFilters}</Button>
               </div>
             </div>
           </div>
         </CardHeader>
         <CardContent>
           {isLoading ? (
-            <div className="p-8 text-center text-muted-foreground">Đang tải…</div>
+            <div className="p-8 text-center text-muted-foreground">{copy.loading}</div>
           ) : (
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Customer / source</TableHead>
-                    <TableHead>Product</TableHead>
-                    <TableHead className="text-right">Qty</TableHead>
-                    <TableHead className="text-right">Revenue</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
+                    <TableHead>{copy.date}</TableHead>
+                    <TableHead>{copy.customerSource}</TableHead>
+                    <TableHead>{copy.product}</TableHead>
+                    <TableHead className="text-right">{copy.qty}</TableHead>
+                    <TableHead className="text-right">{copy.revenue}</TableHead>
+                    <TableHead>{copy.status}</TableHead>
+                    <TableHead className="text-right">{copy.actions}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -948,13 +957,13 @@ export default function RevenueSourceDetail() {
                         <TableCell className="min-w-[260px]">
                           <div className="font-medium">{String(raw.parent_customer_name || row.customer_name)}</div>
                           <div className="text-xs text-muted-foreground">{row.customer_name}</div>
-                          <div className="text-xs text-muted-foreground">{row.source_tab || row.source_type} · {row.invoice_no || "no invoice"}</div>
+                          <div className="text-xs text-muted-foreground">{row.source_tab || row.source_type} · {row.invoice_no || copy.noInvoice}</div>
                         </TableCell>
                         <TableCell className="min-w-[220px]">{row.product_name || "—"}<div className="text-xs text-muted-foreground">{row.item_note || row.branch || ""}</div></TableCell>
                         <TableCell className="text-right">{numberFmt(Number(row.quantity || 0))}</TableCell>
                         <TableCell className="text-right font-semibold">{vnd(Number(row.gross_revenue || 0))}</TableCell>
                         <TableCell>
-                          {statusBadge(ledgerDisplayStatus(row))}
+                          {statusBadge(ledgerDisplayStatus(row), copy)}
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
@@ -962,11 +971,10 @@ export default function RevenueSourceDetail() {
                               variant="outline"
                               size="sm"
                               disabled={!canEdit}
-                              title={canEdit ? "Sửa dòng và ghi audit log" : "Cần quyền finance_revenue để sửa dòng doanh thu"}
+                              title={canEdit ? copy.editTooltip : copy.editPermissionTooltip}
                               onClick={() => openEdit(row)}
                             >
-                              <PencilLine className="mr-2 h-3.5 w-3.5" />Edit
-                            </Button>
+                              <PencilLine className="mr-2 h-3.5 w-3.5" />{copy.edit} </Button>
                           </div>
                         </TableCell>
                       </TableRow>
@@ -975,15 +983,13 @@ export default function RevenueSourceDetail() {
                 </TableBody>
               </Table>
               <div className="mt-4 flex flex-col gap-2 text-xs text-muted-foreground md:flex-row md:items-center md:justify-between">
-                <span>Mỗi trang tối đa 20 dòng doanh thu • {filtered.length} dòng</span>
+                <span>{copy.pageLimit} {filtered.length} {copy.rowUnit}</span>
                 <div className="flex items-center justify-between gap-2 md:justify-end">
                   <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={() => setLedgerRowsPage((page) => Math.max(1, page - 1))} disabled={ledgerRowsPageSafe <= 1}>
-                    Trang trước
-                  </Button>
-                  <span className="min-w-[104px] text-center font-medium text-foreground">Trang doanh thu {ledgerRowsPageSafe}/{ledgerRowsTotalPages}</span>
+                    {copy.previousPage} </Button>
+                  <span className="min-w-[104px] text-center font-medium text-foreground">{copy.revenuePage} {ledgerRowsPageSafe}/{ledgerRowsTotalPages}</span>
                   <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={() => setLedgerRowsPage((page) => Math.min(ledgerRowsTotalPages, page + 1))} disabled={ledgerRowsPageSafe >= ledgerRowsTotalPages}>
-                    Trang sau
-                  </Button>
+                    {copy.nextPage} </Button>
                 </div>
               </div>
             </div>
@@ -994,28 +1000,28 @@ export default function RevenueSourceDetail() {
       <Dialog open={manualDialogOpen} onOpenChange={(open) => { if (!open) closeManualAdd(); else setManualDialogOpen(true); }}>
         <DialogContent className="max-h-[92vh] max-w-4xl overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Thêm dòng doanh thu thủ công</DialogTitle>
+            <DialogTitle>{copy.manualTitle}</DialogTitle>
           </DialogHeader>
           <div className="grid gap-4 py-2">
             <div className="grid gap-3 md:grid-cols-3">
               <div className="space-y-2">
-                <Label htmlFor="manual-revenue-date">Ngày doanh thu</Label>
+                <Label htmlFor="manual-revenue-date">{copy.revenueDate}</Label>
                 <Input id="manual-revenue-date" type="date" value={manualForm.revenue_date} onChange={(e) => updateManualField("revenue_date", e.target.value)} />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="manual-channel">Kênh</Label>
+                <Label htmlFor="manual-channel">{copy.channel}</Label>
                 <select
                   id="manual-channel"
                   value={manualForm.channel}
                   onChange={(e) => updateManualField("channel", e.target.value)}
                   className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 >
-                  <option value="">Chọn kênh</option>
-                  {manualChannelOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                  <option value="">{copy.chooseChannel}</option>
+                  {manualChannelOptions.map((option) => <option key={option} value={option}>{(copy.channels as Record<string, string>)[option] || option}</option>)}
                 </select>
               </div>
               <div className="space-y-2 md:col-span-2">
-                <Label htmlFor="manual-customer">Khách hàng/Đại lý</Label>
+                <Label htmlFor="manual-customer">{copy.customerDealer}</Label>
                 <select
                   id="manual-customer"
                   value={manualForm.customer_name}
@@ -1023,36 +1029,36 @@ export default function RevenueSourceDetail() {
                   disabled={!manualForm.channel}
                   className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 >
-                  <option value="">{manualForm.channel ? "Chọn khách hàng/đại lý" : "Chọn kênh trước"}</option>
+                  <option value="">{manualForm.channel ? copy.chooseCustomer : copy.chooseChannelFirst}</option>
                   {filteredCustomerOptions.map((customer) => (
                     <option key={customer.id} value={customer.customer_name || ""}>{customer.customer_name}</option>
                   ))}
                 </select>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="manual-product">Sản phẩm</Label>
-                <Input id="manual-product" value={manualForm.product_name} onChange={(e) => updateManualField("product_name", e.target.value)} placeholder="Bánh mì que" />
+                <Label htmlFor="manual-product">{copy.productLabel}</Label>
+                <Input id="manual-product" value={manualForm.product_name} onChange={(e) => updateManualField("product_name", e.target.value)} placeholder={copy.productPlaceholder} />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="manual-qty">Số lượng thực tế</Label>
+                <Label htmlFor="manual-qty">{copy.actualQuantity}</Label>
                 <Input id="manual-qty" inputMode="decimal" value={manualForm.quantity} onChange={(e) => updateManualField("quantity", e.target.value)} placeholder="0" />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="manual-price">Đơn giá</Label>
+                <Label htmlFor="manual-price">{copy.unitPrice}</Label>
                 <Input id="manual-price" inputMode="decimal" value={manualForm.unit_price} onChange={(e) => updateManualField("unit_price", e.target.value)} placeholder="6500" />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="manual-gross">Doanh thu</Label>
-                <Input id="manual-gross" inputMode="decimal" value={manualForm.gross_revenue} onChange={(e) => updateManualField("gross_revenue", e.target.value)} placeholder="Tự tính từ SL × đơn giá" />
+                <Label htmlFor="manual-gross">{copy.revenueLabel}</Label>
+                <Input id="manual-gross" inputMode="decimal" value={manualForm.gross_revenue} onChange={(e) => updateManualField("gross_revenue", e.target.value)} placeholder={copy.autoAmount} />
               </div>
               <div className="space-y-2 md:col-span-3">
-                <Label htmlFor="manual-item-note">Ghi chú mặt hàng</Label>
-                <Input id="manual-item-note" value={manualForm.item_note} onChange={(e) => updateManualField("item_note", e.target.value)} placeholder="VD: Bổ sung công nợ vì thiếu email PO" />
+                <Label htmlFor="manual-item-note">{copy.itemNote}</Label>
+                <Input id="manual-item-note" value={manualForm.item_note} onChange={(e) => updateManualField("item_note", e.target.value)} placeholder={copy.itemNotePlaceholder} />
               </div>
             </div>
             {duplicateWarnings.length ? (
               <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
-                <div className="font-medium">Có {duplicateWarnings.length} dòng tương tự trong ngày này. Vui lòng kiểm tra để tránh cộng trùng công nợ.</div>
+                <div className="font-medium">{copy.thereAre} {duplicateWarnings.length} {copy.similarRows}</div>
                 <div className="mt-2 space-y-1">
                   {duplicateWarnings.map((line) => (
                     <div key={line.id}>• {line.customer_name} · {line.product_name || "—"} · {numberFmt(Number(line.quantity || 0))} · {vnd(Number(line.gross_revenue || 0))}</div>
@@ -1062,11 +1068,10 @@ export default function RevenueSourceDetail() {
             ) : null}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={closeManualAdd} disabled={saving}>Huỷ</Button>
+            <Button variant="outline" onClick={closeManualAdd} disabled={saving}>{copy.cancel}</Button>
             <Button onClick={saveManualAdd} disabled={saving || !canEdit}>
               {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
-              Thêm vào Doanh thu đã kiểm soát
-            </Button>
+              {copy.addControlled} </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1074,62 +1079,59 @@ export default function RevenueSourceDetail() {
       <Dialog open={!!editingLine} onOpenChange={(open) => { if (!open) closeEdit(); }}>
         <DialogContent className="max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-3xl overflow-y-auto overscroll-contain pb-[calc(1.5rem+env(safe-area-inset-bottom))] [-webkit-overflow-scrolling:touch] sm:max-h-[92vh] sm:w-full">
           <DialogHeader>
-            <DialogTitle>Chỉnh dòng doanh thu</DialogTitle>
+            <DialogTitle>{copy.editTitle}</DialogTitle>
             <DialogDescription>
-              Staff sửa khi phát hiện dòng sai. Khi lưu, hệ thống cập nhật ledger và ghi audit log.
-            </DialogDescription>
+              {copy.editHint} </DialogDescription>
           </DialogHeader>
           {editForm ? (
             <div className="grid gap-4 py-2">
               <div className="grid gap-3 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="revenue-date">Ngày doanh thu</Label>
+                  <Label htmlFor="revenue-date">{copy.revenueDate}</Label>
                   <Input id="revenue-date" type="date" value={editForm.revenue_date} onChange={(e) => updateEditField("revenue_date", e.target.value)} />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="invoice-no">Invoice no</Label>
+                  <Label htmlFor="invoice-no">{copy.invoice}</Label>
                   <Input id="invoice-no" value={editForm.invoice_no} onChange={(e) => updateEditField("invoice_no", e.target.value)} />
                 </div>
                 <div className="space-y-2 md:col-span-2">
-                  <Label htmlFor="customer-name">Khách hàng</Label>
+                  <Label htmlFor="customer-name">{copy.customer}</Label>
                   <Input id="customer-name" value={editForm.customer_name} onChange={(e) => updateEditField("customer_name", e.target.value)} />
                 </div>
                 <div className="space-y-2 md:col-span-2">
-                  <Label htmlFor="product-name">Sản phẩm</Label>
+                  <Label htmlFor="product-name">{copy.productLabel}</Label>
                   <Input id="product-name" value={editForm.product_name} onChange={(e) => updateEditField("product_name", e.target.value)} />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="quantity">Số lượng</Label>
+                  <Label htmlFor="quantity">{copy.quantity}</Label>
                   <Input id="quantity" inputMode="decimal" value={editForm.quantity} onChange={(e) => updateEditField("quantity", e.target.value)} />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="unit-price">Đơn giá</Label>
+                  <Label htmlFor="unit-price">{copy.unitPrice}</Label>
                   <Input id="unit-price" inputMode="decimal" value={editForm.unit_price} onChange={(e) => updateEditField("unit_price", e.target.value)} />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="gross-revenue">Doanh thu</Label>
+                  <Label htmlFor="gross-revenue">{copy.revenueLabel}</Label>
                   <Input id="gross-revenue" inputMode="decimal" value={editForm.gross_revenue} onChange={(e) => updateEditField("gross_revenue", e.target.value)} />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="item-note">Ghi chú dòng</Label>
+                  <Label htmlFor="item-note">{copy.lineNote}</Label>
                   <Input id="item-note" value={editForm.item_note} onChange={(e) => updateEditField("item_note", e.target.value)} />
                 </div>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="audit-note">Lý do sửa / audit note</Label>
-                <Textarea id="audit-note" value={editForm.audit_note} onChange={(e) => updateEditField("audit_note", e.target.value)} placeholder="VD: Sửa số lượng theo nguồn đối soát / PO…" />
+                <Label htmlFor="audit-note">{copy.auditReason}</Label>
+                <Textarea id="audit-note" value={editForm.audit_note} onChange={(e) => updateEditField("audit_note", e.target.value)} placeholder={copy.auditPlaceholder} />
               </div>
               <div className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
-                Sau khi lưu: audit_status = adjusted, review_status = resolved, confidence_status = manual_review, reconciliation_status = manual_override. Approval status được giữ nguyên, không có bước approve riêng.
-              </div>
+                {copy.auditHint} </div>
             </div>
           ) : null}
           <DialogFooter>
-            <Button variant="outline" onClick={closeEdit} disabled={saving}>Huỷ</Button>
+            <Button variant="outline" onClick={closeEdit} disabled={saving}>{copy.cancel}</Button>
             <Button onClick={saveEdit} disabled={saving || !canEdit}>
               {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Lưu & ghi log
-            </Button>
+              {copy.saveLog} </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

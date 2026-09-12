@@ -1,3 +1,6 @@
+import { formatText } from "@/i18n/format";
+import { goodsReceiptPurchasing } from "@/i18n/goodsReceiptPurchasing";
+import { usePurchasingCopy, purchasingErrorMessage, renderPurchasingMessage } from "@/i18n/purchasingCopy";
 import { format } from "date-fns";
 import { vi } from "date-fns/locale";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -27,24 +30,25 @@ const formatSafeDate = (rawDate?: string | null, pattern = "dd/MM/yyyy") => {
   return format(date, pattern, { locale: vi });
 };
 
+export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: GoodsReceiptDetailsDialogProps) {
+  const pc = usePurchasingCopy(goodsReceiptPurchasing);
+  const approvalLabels: Record<string, string> = { pending: pc.approvalPending, approved: pc.approvalApproved, rejected: pc.approvalRejected, completed: pc.approvalCompleted };
+  const materialLabels: Record<string, string> = { pending: pc.materialPending, resolved_exact: pc.materialExact, needs_review: pc.materialReview, blocked: pc.materialBlocked };
+
 function validateLine(draft: LineEdit | undefined, orderedQty: number): string | null {
-  if (!draft) return "Chưa nhập số lượng";
+  if (!draft) return pc.quantityMissing;
   const n = parseFloat(draft.actual_quantity);
-  if (isNaN(n) || n < 0) return "Số lượng không hợp lệ";
-  if (n > orderedQty) return "Vượt quá số lượng đặt";
-  if (n < orderedQty && !draft.variance_reason.trim()) return "Cần ghi lý do thiếu hàng";
+  if (isNaN(n) || n < 0) return pc.quantityInvalid;
+  if (n > orderedQty) return pc.quantityExceedsOrder;
+  if (n < orderedQty && !draft.variance_reason.trim()) return pc.shortageReasonRequired;
   return null;
 }
 
 function getConfirmReceiptErrorMessage(error: unknown): string {
-  const message = error instanceof Error ? error.message : "Không thể nhập hàng vào kho";
-  if (message.includes("Cannot create payable with zero amount")) {
-    return "Không thể tạo công nợ 0đ. Kiểm tra đơn giá trong PO hoặc đơn giá dòng phiếu nhập trước khi nhập kho.";
-  }
-  return message;
+  return renderPurchasingMessage(pc, purchasingErrorMessage(error, "receiveError"));
 }
 
-export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: GoodsReceiptDetailsDialogProps) {
+
   const { data: receipt, isLoading: receiptLoading, error: receiptError } = useGoodsReceipt(receiptId);
   const { data: items = [], isLoading: itemsLoading } = useGoodsReceiptItems(receiptId);
   const confirmReceipt = useConfirmGoodsReceipt();
@@ -156,17 +160,17 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
       }
       return next;
     });
-    toast.success("Đã áp dụng số lượng OCR an toàn — không ghi tên fuzzy vào NVL, kiểm tra trước khi chốt.");
+    toast.success(pc.safeOCRQuantitiesAppliedFuzzyNamesWereNot);
   };
 
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "draft":
-        return <Badge variant="secondary"><Clock className="h-3 w-3 mr-1" />Nháp</Badge>;
+        return <Badge variant="secondary"><Clock className="h-3 w-3 mr-1" />{pc.draft}</Badge>;
       case "confirmed":
-        return <Badge variant="default"><FileCheck className="h-3 w-3 mr-1" />Đã xác nhận</Badge>;
+        return <Badge variant="default"><FileCheck className="h-3 w-3 mr-1" />{pc.confirmed}</Badge>;
       case "received":
-        return <Badge className="bg-green-500"><CheckCircle className="h-3 w-3 mr-1" />Đã nhập kho</Badge>;
+        return <Badge className="bg-green-500"><CheckCircle className="h-3 w-3 mr-1" />{pc.received}</Badge>;
       default:
         return <Badge variant="outline">{status}</Badge>;
     }
@@ -174,28 +178,28 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
 
   const getPayableBadge = () => {
     if (receipt?.payment_requests?.payment_status === "paid") {
-      return <Badge className="bg-blue-600"><CheckCircle className="h-3 w-3 mr-1" />Đã thanh toán trước</Badge>;
+      return <Badge className="bg-blue-600"><CheckCircle className="h-3 w-3 mr-1" />{pc.paidInAdvance}</Badge>;
     }
     if (receipt?.payable_status === "generated") {
-      return <Badge className="bg-emerald-600"><CheckCircle className="h-3 w-3 mr-1" />Đã tạo công nợ</Badge>;
+      return <Badge className="bg-emerald-600"><CheckCircle className="h-3 w-3 mr-1" />{pc.payableCreated}</Badge>;
     }
     if (receipt?.payable_status === "pending") {
-      return <Badge variant="default"><Clock className="h-3 w-3 mr-1" />Đang xử lý công nợ</Badge>;
+      return <Badge variant="default"><Clock className="h-3 w-3 mr-1" />{pc.processingPayable}</Badge>;
     }
-    return <Badge variant="outline"><AlertCircle className="h-3 w-3 mr-1" />Chưa tạo công nợ</Badge>;
+    return <Badge variant="outline"><AlertCircle className="h-3 w-3 mr-1" />{pc.noPayableCreated}</Badge>;
   };
 
   const lineStatusLabel = (status?: string | null) => {
-    if (status === "thieu") return "Thiếu";
-    if (status === "du_thua") return "Dư";
-    if (status === "du") return "Đủ";
+    if (status === "thieu") return pc.short;
+    if (status === "du_thua") return pc.excess;
+    if (status === "du") return pc.complete;
     return "-";
   };
 
   const lineStatusBadge = (status?: string | null) => {
-    if (status === "thieu") return <Badge variant="destructive">Thiếu</Badge>;
-    if (status === "du_thua") return <Badge variant="secondary">Dư</Badge>;
-    if (status === "du") return <Badge className="bg-green-500">Đủ</Badge>;
+    if (status === "thieu") return <Badge variant="destructive">{pc.short}</Badge>;
+    if (status === "du_thua") return <Badge variant="secondary">{pc.excess}</Badge>;
+    if (status === "du") return <Badge className="bg-green-500">{pc.complete}</Badge>;
     return <Badge variant="outline">-</Badge>;
   };
 
@@ -213,21 +217,21 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
     if (exact) {
       return (
         <div className="mt-1 space-y-1 text-xs" data-bmq-goods-receipt-material-resolution>
-          <p className="text-muted-foreground">Tên OCR gốc: <span className="font-medium text-foreground">{rawName}</span></p>
-          <p className="text-emerald-700">NVL chuẩn: <span className="font-semibold">{canonicalCode ? `${canonicalCode} · ` : ""}{canonicalName || item.product_name}</span></p>
+          <p className="text-muted-foreground">{pc.originalOCRName} <span className="font-medium text-foreground">{rawName}</span></p>
+          <p className="text-emerald-700">{pc.canonicalMaterial} <span className="font-semibold">{canonicalCode ? `${canonicalCode} · ` : ""}{canonicalName || item.product_name}</span></p>
         </div>
       );
     }
 
     return (
       <div className="mt-1 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900" data-bmq-goods-receipt-material-resolution>
-        <p className="font-semibold">Cần xử lý NVL</p>
-        <p>Tên OCR gốc: <span className="font-medium">{rawName}</span></p>
-        <p>Trạng thái: {status}{requestId ? ` · yêu cầu ${requestId.slice(0, 8)}` : ""}</p>
-        {blockers.length > 0 && <p>Blocker: {blockers.join(", ")}</p>}
-        {candidateNames.length > 0 && <p>Gợi ý: {candidateNames.join("; ")}</p>}
+        <p className="font-semibold">{pc.materialReviewRequired}</p>
+        <p>{pc.originalOCRName} <span className="font-medium">{rawName}</span></p>
+        <p>{pc.status2} {materialLabels[status] || status}{requestId ? formatText(pc.message164, { v0: requestId.slice(0, 8) }) : ""}</p>
+        {blockers.length > 0 && <p>{pc.blocker} {blockers.join(", ")}</p>}
+        {candidateNames.length > 0 && <p>{pc.suggestions} {candidateNames.join("; ")}</p>}
         <a href="/material-master" className="mt-1 inline-flex items-center gap-1 font-medium text-primary hover:underline">
-          Mở hàng đợi /material-master <ExternalLink className="h-3 w-3" />
+           {pc.openMaterialMasterQueue} <ExternalLink className="h-3 w-3" />
         </a>
       </div>
     );
@@ -287,7 +291,7 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
     if (!receiptId || !isReceiveMode) return;
 
     if (!hasRequiredReceiptEvidence) {
-      toast.error("Phiếu nhập kho PO phải đính kèm ảnh/chứng từ đã upload trước khi nhập kho.");
+      toast.error(pc.aPOGoodsReceiptRequiresAnUploadedImage);
       return;
     }
 
@@ -316,7 +320,7 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
       setIsSaving(true);
       await updateItems.mutateAsync({ receiptId, items: payload });
       await confirmReceipt.mutateAsync(receiptId);
-      toast.success("Đã nhập hàng vào kho và tạo công nợ chờ duyệt");
+      toast.success(pc.goodsReceivedAndPayableCreatedForApproval);
       onOpenChange(false);
     } catch (error) {
       toast.error(getConfirmReceiptErrorMessage(error));
@@ -334,7 +338,7 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
       !historicalReconciliationReason.trim()
     ) return;
     if (!hasRequiredReceiptEvidence) {
-      toast.error("Đơn cũ đã thanh toán phải có ảnh/chứng từ trước khi nhập kho.");
+      toast.error(pc.aPaidHistoricalOrderRequiresAnImageDocument);
       return;
     }
 
@@ -365,7 +369,7 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
         historicalStockNotIncludedConfirmed: historicalStockConfirmed,
         historicalReconciliationReason: historicalReconciliationReason.trim(),
       });
-      toast.success("Đã nhập kho đơn cũ và liên kết khoản đã thanh toán. Không tạo công nợ mới.");
+      toast.success(pc.historicalOrderReceivedAndLinkedToTheExisting);
       setHistoricalDialogOpen(false);
       onOpenChange(false);
     } catch (error) {
@@ -387,7 +391,7 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                 <Package className="h-5 w-5" />
               </span>
               <span className="min-w-0">
-                <span className="block truncate">Chi tiết phiếu nhập kho</span>
+                <span className="block truncate">{pc.goodsReceiptDetails}</span>
                 {receipt?.receipt_number && (
                   <span className="block font-mono text-xs font-medium text-muted-foreground">{receipt.receipt_number}</span>
                 )}
@@ -399,21 +403,20 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
             {isLoading ? (
             <div className="flex min-h-64 items-center justify-center gap-2 px-4 py-10 text-muted-foreground">
               <Loader2 className="h-6 w-6 animate-spin" />
-              Đang tải chi tiết phiếu nhập...
-            </div>
+               {pc.loadingGoodsReceiptDetails} </div>
           ) : receiptError ? (
             <div className="m-4 rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
-              <div className="mb-1 flex items-center gap-2 font-semibold"><XCircle className="h-4 w-4" />Không tải được chi tiết phiếu nhập</div>
-              <p>Vui lòng thử lại hoặc tải lại trang. Danh sách vẫn có thể hiển thị nếu liên kết phụ bị lỗi.</p>
+              <div className="mb-1 flex items-center gap-2 font-semibold"><XCircle className="h-4 w-4" />{pc.unableToLoadGoodsReceiptDetails}</div>
+              <p>{pc.pleaseRetryOrReloadThePageTheList}</p>
             </div>
           ) : receipt ? (
             <div className="space-y-4 p-4 sm:space-y-6 sm:p-6">
               <div className="rounded-2xl border border-primary/15 bg-gradient-to-br from-primary/10 via-background to-card p-4 shadow-sm" data-bmq-goods-receipt-detail-mobile-hero>
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-primary">Phiếu nhập kho</p>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-primary">{pc.goodsReceipt}</p>
                     <p className="mt-1 truncate font-mono text-xl font-bold text-foreground">{receipt.receipt_number}</p>
-                    <p className="mt-1 truncate text-sm font-medium text-muted-foreground">{receipt.suppliers?.name || "Chưa có NCC"}</p>
+                    <p className="mt-1 truncate text-sm font-medium text-muted-foreground">{receipt.suppliers?.name || pc.noSupplier}</p>
                   </div>
                   <div className="flex shrink-0 flex-col items-end gap-2">
                     {getStatusBadge(receipt.status)}
@@ -422,15 +425,15 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                 </div>
                 <div className="mt-4 grid grid-cols-3 gap-2 text-center" data-bmq-goods-receipt-detail-mobile-summary>
                   <div className="rounded-xl border border-border/70 bg-card/80 p-3">
-                    <p className="text-[11px] text-muted-foreground">Dòng hàng</p>
+                    <p className="text-[11px] text-muted-foreground">{pc.lineItems}</p>
                     <p className="text-lg font-bold text-foreground">{itemCount}</p>
                   </div>
                   <div className="rounded-xl border border-border/70 bg-card/80 p-3">
-                    <p className="text-[11px] text-muted-foreground">Thực nhận</p>
+                    <p className="text-[11px] text-muted-foreground">{pc.actualReceived}</p>
                     <p className="text-lg font-bold text-foreground">{actualTotal.toLocaleString("vi-VN")}</p>
                   </div>
                   <div className="rounded-xl border border-border/70 bg-card/80 p-3">
-                    <p className="text-[11px] text-muted-foreground">Lệch</p>
+                    <p className="text-[11px] text-muted-foreground">{pc.variance}</p>
                     <p className={varianceCount > 0 ? "text-lg font-bold text-amber-700" : "text-lg font-bold text-emerald-700"}>{varianceCount}</p>
                   </div>
                 </div>
@@ -439,19 +442,19 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
               {/* Receipt Info */}
               <div className="grid grid-cols-2 gap-3 rounded-xl border border-border bg-background/70 p-4 sm:grid-cols-2">
                 <div>
-                  <p className="text-sm text-muted-foreground">Mã phiếu</p>
+                  <p className="text-sm text-muted-foreground">{pc.documentNumber}</p>
                   <p className="font-mono font-medium">{receipt.receipt_number}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Trạng thái</p>
+                  <p className="text-sm text-muted-foreground">{pc.status}</p>
                   <div className="mt-1">{getStatusBadge(receipt.status)}</div>
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Nhà cung cấp</p>
+                  <p className="text-sm text-muted-foreground">{pc.suppliers}</p>
                   <p className="font-medium">{receipt.suppliers?.name || "-"}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Ngày nhận hàng</p>
+                  <p className="text-sm text-muted-foreground">{pc.receiptDate2}</p>
                   <p className="font-medium">
                     {formatSafeDate(receipt.receipt_date)}
                   </p>
@@ -462,26 +465,26 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
               <div className="space-y-3 rounded-xl border border-border bg-muted/30 p-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <p className="text-sm font-medium">Đối soát công nợ</p>
-                    <p className="text-xs text-muted-foreground">Liên kết PO → phiếu nhập → công nợ phải trả</p>
+                    <p className="text-sm font-medium">{pc.payableReconciliation}</p>
+                    <p className="text-xs text-muted-foreground">{pc.linkPOGoodsReceiptAccountsPayable}</p>
                   </div>
                   {getPayableBadge()}
                 </div>
                 <div className="grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
                   <div>
-                    <p className="text-muted-foreground">Mã PO</p>
+                    <p className="text-muted-foreground">{pc.pONumber}</p>
                     <p className="font-mono font-medium">{receipt.purchase_orders?.po_number || "-"}</p>
                   </div>
                   <div>
-                    <p className="text-muted-foreground">Mã công nợ</p>
+                    <p className="text-muted-foreground">{pc.payableNumber}</p>
                     <p className="font-mono font-medium">{receipt.payment_requests?.request_number || "-"}</p>
                   </div>
                   <div>
-                    <p className="text-muted-foreground">Trạng thái duyệt</p>
-                    <p className="font-medium">{receipt.payment_requests?.status || "-"}</p>
+                    <p className="text-muted-foreground">{pc.approvalStatus}</p>
+                    <p className="font-medium">{approvalLabels[receipt.payment_requests?.status || ""] || receipt.payment_requests?.status || "-"}</p>
                   </div>
                   <div>
-                    <p className="text-muted-foreground">Ngày chốt</p>
+                    <p className="text-muted-foreground">{pc.finalizedOn}</p>
                     <p className="font-medium">
                       {formatSafeDate(receipt.finalized_at, "dd/MM/yyyy HH:mm")}
                     </p>
@@ -489,14 +492,13 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                 </div>
                 {receipt.variance_summary && (
                   <p className="text-xs text-muted-foreground">
-                    Tổng hợp lệch: {JSON.stringify(receipt.variance_summary)}
+                     {pc.varianceSummary} {JSON.stringify(receipt.variance_summary)}
                   </p>
                 )}
                 {isFinalizedWithPayable && (
                   <p className="flex items-center gap-1 text-xs text-emerald-700">
                     <Link2 className="h-3 w-3" />
-                    Không chốt lại phiếu đã tạo công nợ; mọi điều chỉnh tiếp theo phải đi qua quy trình audit/điều chỉnh.
-                  </p>
+                     {pc.doNotFinalizeAReceiptAgainAfterA} </p>
                 )}
               </div>
 
@@ -504,26 +506,25 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
               <div className="rounded-xl border border-border bg-background/70 p-4" data-bmq-goods-receipt-attached-evidence>
                 <div className="mb-3 flex items-center justify-between gap-2">
                   <div>
-                    <p className="text-sm font-semibold text-foreground">Ảnh/chứng từ phiếu nhập kho</p>
-                    <p className="text-xs text-muted-foreground">Staff mở lại để đối chiếu PO, giao nhận và công nợ bất cứ lúc nào.</p>
+                    <p className="text-sm font-semibold text-foreground">{pc.goodsReceiptImageDocument}</p>
+                    <p className="text-xs text-muted-foreground">{pc.staffCanReopenThisToReconcileThePO}</p>
                   </div>
                   {hasDeliveryNoteEvidence ? (
-                    <Badge className="bg-emerald-600">Đã đính kèm</Badge>
+                    <Badge className="bg-emerald-600">{pc.attached}</Badge>
                   ) : (
-                    <Badge variant="destructive">Bắt buộc</Badge>
+                    <Badge variant="destructive">{pc.required}</Badge>
                   )}
                 </div>
                 {imageUrl ? (
                   <img
                     src={imageUrl}
-                    alt="Chứng từ phiếu nhập kho"
+                    alt={pc.goodsReceiptDocument}
                     className="max-h-48 cursor-pointer rounded-lg border object-contain transition-opacity hover:opacity-80"
                     onClick={() => setImageOpen(true)}
                   />
                 ) : (
                   <div className="rounded-lg border border-dashed border-amber-300 bg-amber-50 p-3 text-xs font-medium text-amber-800">
-                    Phiếu nhập kho từ PO chưa có ảnh/chứng từ đính kèm. Tải/chụp phiếu giao hàng hoặc chứng từ PO trước khi nhập kho.
-                  </div>
+                     {pc.thisPOGoodsReceiptHasNoAttachedImage} </div>
                 )}
               </div>
 
@@ -537,16 +538,13 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                     <div>
                       <p className="flex items-center gap-2 text-sm font-semibold text-primary">
                         <Camera className="h-4 w-4" />
-                        Chụp/scan phiếu giao hàng bắt buộc
-                      </p>
+                         {pc.deliveryNoteCaptureScanRequired} </p>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        Phiếu nhập kho PO luôn phải có ảnh/chứng từ đã upload để staff đối chiếu sau này. Nếu chứng từ NCC có lệch, dùng OCR rồi cập nhật số thực nhận trước khi chốt.
-                      </p>
+                         {pc.pOGoodsReceiptsAlwaysRequireAnUploadedImage} </p>
                     </div>
                     <label className="inline-flex cursor-pointer items-center justify-center rounded-md border border-primary/30 bg-background px-3 py-2 text-sm font-medium text-primary shadow-sm hover:bg-primary/10">
                       <Camera className="mr-2 h-4 w-4" />
-                      Tải/chụp phiếu
-                      <input
+                       {pc.uploadCaptureDocument} <input
                         type="file"
                         accept="image/*"
                         capture="environment"
@@ -562,16 +560,16 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
 
                   <div className="grid gap-2 text-xs sm:grid-cols-3" data-bmq-goods-receipt-ocr-compare-po>
                     <div className="rounded-lg border border-border bg-card/80 p-2">
-                      <p className="font-medium">1. OCR tự điền</p>
-                      <p className="text-muted-foreground">Đọc số lượng từ phiếu giao hàng NCC.</p>
+                      <p className="font-medium">{pc["1OCRAutofill"]}</p>
+                      <p className="text-muted-foreground">{pc.readQuantitiesFromTheSupplierDeliveryNote}</p>
                     </div>
                     <div className="rounded-lg border border-border bg-card/80 p-2">
-                      <p className="font-medium">2. So với PO</p>
-                      <p className="text-muted-foreground">Tự flag đủ, thiếu, dư hoặc ngoài PO.</p>
+                      <p className="font-medium">{pc["2CompareWithPO"]}</p>
+                      <p className="text-muted-foreground">{pc.flagCompleteShortExcessOrNonPOItems}</p>
                     </div>
                     <div className="rounded-lg border border-border bg-card/80 p-2">
-                      <p className="font-medium">3. Nhân viên xác nhận cuối</p>
-                      <p className="text-muted-foreground">Kho vẫn được sửa ngoại lệ trước khi chốt.</p>
+                      <p className="font-medium">{pc["3StaffConfirmation"]}</p>
+                      <p className="text-muted-foreground">{pc.warehouseStaffCanStillAdjustExceptionsBeforeFinalizing}</p>
                     </div>
                   </div>
 
@@ -585,12 +583,12 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                         ) : (
                           <AlertTriangle className="h-4 w-4 text-amber-600" />
                         )}
-                        {ocrDelivery.status === "uploading" && "Đang tải chứng từ..."}
-                        {ocrDelivery.status === "ocr" && "Đang OCR phiếu giao hàng..."}
-                        {ocrDelivery.status === "done" && `OCR tìm thấy ${ocrDelivery.suggestions.length} dòng khớp PO`}
-                        {ocrDelivery.status === "error" && "OCR chưa đọc được, nhân viên nhập/sửa thủ công"}
+                        {ocrDelivery.status === "uploading" && pc.uploadingDocument}
+                        {ocrDelivery.status === "ocr" && pc.readingDeliveryNoteWithOCR}
+                        {ocrDelivery.status === "done" && formatText(pc.message165, { v0: ocrDelivery.suggestions.length })}
+                        {ocrDelivery.status === "error" && pc.oCRCouldNotReadTheDocumentStaffCan}
                       </p>
-                      {ocrDelivery.ocrError && <p className="mt-1 text-xs text-muted-foreground">{ocrDelivery.ocrError}</p>}
+                      {ocrDelivery.ocrError && <p className="mt-1 text-xs text-muted-foreground">{renderPurchasingMessage(pc, ocrDelivery.ocrError)}</p>}
                       {ocrDelivery.suggestions.length > 0 && (
                         <Button
                           type="button"
@@ -602,8 +600,7 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                           data-bmq-goods-receipt-ocr-safe-quantity-only
                         >
                           <Sparkles className="mr-2 h-4 w-4" />
-                          Áp dụng OCR vào số thực nhận
-                        </Button>
+                           {pc.applyOCRToActualQuantities} </Button>
                       )}
                     </div>
                   )}
@@ -611,20 +608,17 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                   {!hasDeliveryNoteEvidence && (
                     <p className="flex items-center gap-1 text-xs font-medium text-amber-700" data-bmq-goods-receipt-evidence-required-always>
                       <AlertTriangle className="h-3 w-3" />
-                      Bắt buộc đính kèm ảnh/chứng từ phiếu nhập trước khi Nhập kho + Tạo công nợ.
-                    </p>
+                       {pc.attachAReceiptImageDocumentBeforeReceiveCreate} </p>
                   )}
                   {hasShortageItems && (
                     <p className="flex items-center gap-1 text-xs font-medium text-amber-700" data-bmq-goods-receipt-variance-evidence-required>
                       <AlertTriangle className="h-3 w-3" />
-                      Thiếu/lệch hàng cần lý do và ảnh chứng từ để kế toán đối soát.
-                    </p>
+                       {pc.shortagesVariancesRequireAReasonAndDocumentImage} </p>
                   )}
                   {hasMaterialResolutionBlockers && (
                     <p className="flex items-center gap-1 text-xs font-medium text-amber-700">
                       <AlertTriangle className="h-3 w-3" />
-                      Cần xử lý NVL trong /material-master trước khi Nhập kho + Tạo công nợ.
-                    </p>
+                       {pc.resolveMaterialsInMaterialMasterBeforeReceiveCreate} </p>
                   )}
                 </div>
               )}
@@ -633,7 +627,7 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
 
               {/* Items */}
               <div>
-                <h3 className="mb-3 font-medium">Danh sách sản phẩm</h3>
+                <h3 className="mb-3 font-medium">{pc.productList}</h3>
 
                 {/* Receiving workflow banner */}
                 {isReceiveMode && (
@@ -641,19 +635,17 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                     className="mb-4 rounded-xl border border-primary/30 bg-primary/5 p-3 text-sm"
                     data-bmq-goods-receipt-receive-editor
                   >
-                    <p className="font-semibold text-primary">Kế toán kho xác nhận thực nhận</p>
+                    <p className="font-semibold text-primary">{pc.warehouseAccountingConfirmsActualReceipt}</p>
                     <p className="mt-1 text-muted-foreground">
-                      Phiếu nhập đã nhận đủ thông tin từ PO và phải giữ ảnh/chứng từ đính kèm để đối chiếu. Mặc định số thực nhận bằng số đặt;
-                      chỉ sửa hoặc OCR khi phiếu giao hàng có chênh lệch, rồi nhấn{" "}
-                      <strong>Nhập kho + Tạo công nợ</strong>.
+                       {pc.theReceiptHasFullPODetailsAndMust}{" "}
+                      <strong>{pc.receiveCreatePayable}</strong>.
                     </p>
                     <p
                       className="mt-1.5 flex items-center gap-1 text-xs font-medium text-primary"
                       data-bmq-goods-receipt-actual-payable-only
                     >
                       <CheckCircle className="h-3 w-3" />
-                      Công nợ theo thực nhận — thiếu hàng chỉ tính giá trị đã nhận.
-                    </p>
+                       {pc.payablesUseActualQuantitiesReceivedShortagesAreCharged} </p>
                   </div>
                 )}
 
@@ -684,7 +676,7 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                             </div>
                           </div>
                           <div className="shrink-0 text-right">
-                            <p className="text-[11px] text-muted-foreground">Thực nhận</p>
+                            <p className="text-[11px] text-muted-foreground">{pc.actualReceived}</p>
                             {isReceiveMode ? (
                               <Input
                                 type="number"
@@ -702,15 +694,15 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                         </div>
                         <div className="mt-3 grid grid-cols-3 gap-2 text-sm">
                           <div className="rounded-lg bg-muted/60 p-2">
-                            <p className="text-[11px] text-muted-foreground">Đặt</p>
+                            <p className="text-[11px] text-muted-foreground">{pc.ordered}</p>
                             <p className="font-mono font-semibold">{orderedQty.toLocaleString("vi-VN")}</p>
                           </div>
                           <div className="rounded-lg bg-muted/60 p-2">
-                            <p className="text-[11px] text-muted-foreground">HSD</p>
+                            <p className="text-[11px] text-muted-foreground">{pc.expiry}</p>
                             <p className="font-medium">{formatSafeDate(item.expiry_date)}</p>
                           </div>
                           <div className="rounded-lg bg-muted/60 p-2">
-                            <p className="text-[11px] text-muted-foreground">Trạng thái</p>
+                            <p className="text-[11px] text-muted-foreground">{pc.status}</p>
                             <p className="font-medium">{lineStatusLabel(draftStatus)}</p>
                           </div>
                         </div>
@@ -718,7 +710,7 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                         {isReceiveMode && isShort && (
                           <div className="mt-2" data-bmq-goods-receipt-shortage-reason>
                             <Input
-                              placeholder="Lý do thiếu hàng *"
+                              placeholder={pc.shortageReason}
                               value={draft?.variance_reason ?? ""}
                               onChange={e => updateDraft(item.id, "variance_reason", e.target.value)}
                               className="text-sm"
@@ -727,7 +719,7 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                         )}
                         {isReceiveMode && estimatedAmount != null && (
                           <p className="mt-2 text-right text-xs text-muted-foreground">
-                            Thành tiền:{" "}
+                             {pc.lineTotal}{" "}
                             <span className="font-mono font-medium text-foreground">
                               {estimatedAmount.toLocaleString("vi-VN", { style: "currency", currency: "VND" })}
                             </span>
@@ -748,15 +740,15 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Sản phẩm</TableHead>
-                      <TableHead>SKU</TableHead>
-                      <TableHead className="text-right">Đặt</TableHead>
-                      <TableHead className="text-right">Thực nhận</TableHead>
-                      {isReceiveMode && <TableHead>Lý do thiếu</TableHead>}
-                      <TableHead>Trạng thái</TableHead>
-                      <TableHead>Đơn vị</TableHead>
-                      <TableHead>HSD</TableHead>
-                      {hasUnitPrices && <TableHead className="text-right">Thành tiền</TableHead>}
+                      <TableHead>{pc.product}</TableHead>
+                      <TableHead>{pc.fieldSKU}</TableHead>
+                      <TableHead className="text-right">{pc.ordered}</TableHead>
+                      <TableHead className="text-right">{pc.actualReceived}</TableHead>
+                      {isReceiveMode && <TableHead>{pc.shortageReason2}</TableHead>}
+                      <TableHead>{pc.status}</TableHead>
+                      <TableHead>{pc.unit}</TableHead>
+                      <TableHead>{pc.expiry}</TableHead>
+                      {hasUnitPrices && <TableHead className="text-right">{pc.lineTotal2}</TableHead>}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -814,7 +806,7 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                             <TableCell>
                               {isShort && (
                                 <Input
-                                  placeholder="Lý do thiếu *"
+                                  placeholder={pc.shortageReason3}
                                   value={draft?.variance_reason ?? ""}
                                   onChange={e => updateDraft(item.id, "variance_reason", e.target.value)}
                                   className="min-w-[140px] text-sm"
@@ -844,7 +836,7 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
               {/* Summary */}
               <div className="rounded-xl border border-border bg-muted/50 p-4">
                 <div className="flex items-center justify-between">
-                  <span className="font-medium">Tổng số lượng:</span>
+                  <span className="font-medium">{pc.totalQuantity}</span>
                   <span className="text-lg font-bold">
                     {receipt.total_quantity?.toLocaleString("vi-VN") || 0}
                   </span>
@@ -854,7 +846,7 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
               {/* Notes */}
               {receipt.notes && (
                 <div>
-                  <p className="text-sm text-muted-foreground">Ghi chú</p>
+                  <p className="text-sm text-muted-foreground">{pc.notes}</p>
                   <p className="mt-1">{receipt.notes}</p>
                 </div>
               )}
@@ -863,10 +855,10 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
               {receipt.status === "confirmed" && !isFinalizedWithPayable && (
                 <div className="rounded-2xl border border-primary/20 bg-primary/5 p-3 sm:flex sm:items-center sm:justify-between sm:gap-3">
                   {!hasRequiredReceiptEvidence && (
-                    <p className="mb-2 text-xs font-medium text-amber-700 sm:mb-0">PO nhập hàng bắt buộc có ảnh/chứng từ đã upload trên phiếu nhập kho trước khi nhập kho.</p>
+                    <p className="mb-2 text-xs font-medium text-amber-700 sm:mb-0">{pc.pOReceiptsRequireAnUploadedImageDocumentBefore}</p>
                   )}
                   {hasRequiredReceiptEvidence && !hasRequiredVarianceEvidence && (
-                    <p className="mb-2 text-xs font-medium text-amber-700 sm:mb-0">Có chênh lệch/thiếu hàng: cần chụp/scan phiếu giao hàng trước khi nhập kho.</p>
+                    <p className="mb-2 text-xs font-medium text-amber-700 sm:mb-0">{pc.forVariancesShortagesCaptureOrScanTheDelivery}</p>
                   )}
                   <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
                     {isHistoricalPaidEligible && (
@@ -879,8 +871,7 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                         data-bmq-historical-paid-receipt-flow
                       >
                         <History className="mr-2 h-4 w-4" />
-                        Nhập kho đơn cũ đã thanh toán
-                      </Button>
+                         {pc.receivePaidHistoricalOrder} </Button>
                     )}
                     <Button
                       className="btn-gradient w-full sm:w-auto"
@@ -892,16 +883,14 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                       ) : (
                         <CheckCircle className="h-4 w-4 mr-2" />
                       )}
-                      Nhập kho + Tạo công nợ
-                    </Button>
+                       {pc.receiveCreatePayable} </Button>
                   </div>
                 </div>
               )}
             </div>
           ) : (
             <div className="m-4 rounded-xl border border-dashed border-border p-6 text-center text-muted-foreground">
-              Chọn một phiếu nhập kho để xem chi tiết.
-            </div>
+               {pc.selectAGoodsReceiptToViewDetails} </div>
           )}
           </div>
         </DialogContent>
@@ -910,16 +899,16 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
       <Dialog open={historicalDialogOpen} onOpenChange={setHistoricalDialogOpen}>
         <DialogContent className="max-w-lg" data-bmq-historical-paid-receipt-flow>
           <DialogHeader>
-            <DialogTitle>Nhập kho đơn cũ đã thanh toán</DialogTitle>
+            <DialogTitle>{pc.receivePaidHistoricalOrder}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
-              <p className="font-semibold">Chỉ dùng khi khoản mua đã thanh toán đầy đủ.</p>
-              <p className="mt-1 text-xs">Hệ thống sẽ liên kết Duyệt chi đã trả, lấy đơn giá từ chứng từ, tạo batch kho theo ngày nhận và <strong>Không tạo công nợ mới</strong>.</p>
+              <p className="font-semibold">{pc.useOnlyWhenThePurchaseHasBeenFully}</p>
+              <p className="mt-1 text-xs">{pc.theSystemLinksThePaidPaymentRequestUses} <strong>{pc.createsNoNewPayable}</strong>.</p>
             </div>
 
             <div>
-              <label htmlFor="historical-payment-request" className="mb-1.5 block text-sm font-medium">Khoản đã thanh toán</label>
+              <label htmlFor="historical-payment-request" className="mb-1.5 block text-sm font-medium">{pc.existingPayment}</label>
               <select
                 id="historical-payment-request"
                 className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
@@ -927,7 +916,7 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                 onChange={event => setSelectedHistoricalPaymentRequestId(event.target.value)}
                 disabled={paidHistoricalRequestsLoading || isSubmitting}
               >
-                <option value="">{paidHistoricalRequestsLoading ? "Đang tải..." : "Chọn mã Duyệt chi đã thanh toán"}</option>
+                <option value="">{paidHistoricalRequestsLoading ? pc.loading : pc.selectPaidPaymentRequest}</option>
                 {paidHistoricalRequests.map(request => (
                   <option key={request.id} value={request.id}>
                     {request.request_number} · {Number(request.total_amount || 0).toLocaleString("vi-VN")}đ · {formatSafeDate(request.paid_at)}
@@ -935,28 +924,27 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                 ))}
               </select>
               {!paidHistoricalRequestsLoading && paidHistoricalRequests.length === 0 && (
-                <p className="mt-1 text-xs text-amber-700">Không tìm thấy khoản đã thanh toán chưa liên kết của nhà cung cấp này.</p>
+                <p className="mt-1 text-xs text-amber-700">{pc.noUnlinkedPaymentsFoundForThisSupplier}</p>
               )}
             </div>
 
             {selectedHistoricalPaymentRequest && (
               <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm">
                 <p className="font-mono font-semibold">{selectedHistoricalPaymentRequest.request_number}</p>
-                <p className="mt-1 text-muted-foreground">{selectedHistoricalPaymentRequest.title || "Khoản thanh toán nhà cung cấp"}</p>
+                <p className="mt-1 text-muted-foreground">{selectedHistoricalPaymentRequest.title || pc.supplierPayment}</p>
                 <p className="mt-1 font-semibold">{Number(selectedHistoricalPaymentRequest.total_amount || 0).toLocaleString("vi-VN")}đ</p>
               </div>
             )}
 
             <div>
               <label htmlFor="historical-reconciliation-reason" className="mb-1.5 block text-sm font-medium">
-                Lý do đối soát
-              </label>
+                 {pc.reconciliationReason} </label>
               <textarea
                 id="historical-reconciliation-reason"
                 className="min-h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                 value={historicalReconciliationReason}
                 onChange={event => setHistoricalReconciliationReason(event.target.value)}
-                placeholder="Ví dụ: Đơn tháng 06 đã thanh toán, chưa ghi nhận tồn kho"
+                placeholder={pc.eGJuneOrderWasPaidButNot}
                 disabled={isSubmitting}
                 maxLength={500}
               />
@@ -971,13 +959,13 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                 disabled={isSubmitting}
               />
               <span>
-                <strong>Xác nhận tồn hiện tại chưa bao gồm lô hàng này.</strong>
-                <span className="mt-1 block text-xs">Nếu hàng đã nằm trong tồn đầu kỳ hoặc từng được cộng thủ công, nhập tiếp sẽ làm tăng tồn trùng.</span>
+                <strong>{pc.confirmThatCurrentInventoryDoesNotIncludeThis}</strong>
+                <span className="mt-1 block text-xs">{pc.ifTheseGoodsAreAlreadyIncludedInOpening}</span>
               </span>
             </label>
 
             <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-              <Button type="button" variant="outline" onClick={() => setHistoricalDialogOpen(false)} disabled={isSubmitting}>Hủy</Button>
+              <Button type="button" variant="outline" onClick={() => setHistoricalDialogOpen(false)} disabled={isSubmitting}>{pc.cancel}</Button>
               <Button
                 type="button"
                 className="bg-blue-600 text-white hover:bg-blue-700"
@@ -991,8 +979,7 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                 }
               >
                 {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <History className="mr-2 h-4 w-4" />}
-                Nhập kho, không tạo công nợ
-              </Button>
+                 {pc.receiveWithoutCreatingAPayable} </Button>
             </div>
           </div>
         </DialogContent>
@@ -1002,20 +989,19 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
       <Dialog open={imageOpen} onOpenChange={setImageOpen}>
         <DialogContent className="max-w-4xl">
           <DialogHeader>
-            <DialogTitle>Ảnh/chứng từ phiếu nhập kho</DialogTitle>
+            <DialogTitle>{pc.goodsReceiptImageDocument}</DialogTitle>
           </DialogHeader>
           {imageUrl && (
             <div className="flex flex-col items-center gap-4">
               <img
                 src={imageUrl}
-                alt="Chứng từ phiếu nhập kho"
+                alt={pc.goodsReceiptDocument}
                 className="max-h-[70vh] rounded-lg object-contain"
               />
               <Button variant="outline" asChild>
                 <a href={imageUrl} target="_blank" rel="noopener noreferrer">
                   <ExternalLink className="h-4 w-4 mr-2" />
-                  Mở trong tab mới
-                </a>
+                   {pc.openInNewTab} </a>
               </Button>
             </div>
           )}

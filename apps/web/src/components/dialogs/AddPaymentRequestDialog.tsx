@@ -1,3 +1,7 @@
+import { formatDSku } from "@/i18n/dSku";
+import { useDSkuCopy } from "@/i18n/useDSkuCopy";
+import { paymentRequestPurchasing } from "@/i18n/paymentRequestPurchasing";
+import { usePurchasingCopy } from "@/i18n/purchasingCopy";
 import { useState, useEffect } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { useQueryClient } from "@tanstack/react-query";
@@ -51,6 +55,10 @@ import {
 } from "@/hooks/useProductSKUs";
 import { cn } from "@/lib/utils";
 import { generateShortCode } from "@/components/dialogs/AddSupplierDialog";
+import {
+  ReactiveDSkuToastText,
+  showSupplierErrorToast,
+} from "@/components/dialogs/ReactiveDSkuToastText";
 
 // Prefill data interface for Drive import
 export interface PRPrefillData {
@@ -121,40 +129,44 @@ interface ItemPriceInfo {
   skuCode: string | null;
 }
 
-const paymentRequestItemSchema = z.object({
-  product_code: z.string().optional(),
-  product_name: z.string().min(1, "Tên sản phẩm là bắt buộc"),
-  quantity: z.coerce.number().min(0.01, "Số lượng phải lớn hơn 0"),
-  unit: z.string().optional(),
-  unit_price: z.coerce.number(), // Cho phép số âm để nhập khoản khấu trừ (VD: gas thừa)
-  raw_product_name: z.string().nullable().optional(),
-  suggested_standard_cost_code: z.string().nullable().optional(),
-  confirmed_standard_cost_code: z.string().nullable().optional(),
-  standard_cost_code_type: z.enum(["NVL", "OPEX", "OTHER"]).nullable().optional(),
-  canonical_cost_item_name: z.string().nullable().optional(),
-  canonical_cost_item_source: z.string().nullable().optional(),
-  cost_category_code: z.string().nullable().optional(),
-  cost_product_line: z.string().nullable().optional(),
-  cost_allocation_rule: z.string().nullable().optional(),
-  cost_review_routing: z.string().nullable().optional(),
-  unit_conversion_note: z.string().nullable().optional(),
-  matched_finished_skus: z.array(z.string()).nullable().optional(),
-  ocr_classification_json: z.record(z.unknown()).nullable().optional(),
-});
+const createPaymentRequestSchema = (s: ReturnType<typeof useDSkuCopy>) => {
+  const paymentRequestItemSchema = z.object({
+    product_code: z.string().optional(),
+    product_name: z.string().min(1, s.productRequired),
+    quantity: z.coerce.number().min(0.01, s.quantityPositive),
+    unit: z.string().optional(),
+    unit_price: z.coerce.number(), // Cho phép số âm để nhập khoản khấu trừ (VD: gas thừa)
+    raw_product_name: z.string().nullable().optional(),
+    suggested_standard_cost_code: z.string().nullable().optional(),
+    confirmed_standard_cost_code: z.string().nullable().optional(),
+    standard_cost_code_type: z.enum(["NVL", "OPEX", "OTHER"]).nullable().optional(),
+    canonical_cost_item_name: z.string().nullable().optional(),
+    canonical_cost_item_source: z.string().nullable().optional(),
+    cost_category_code: z.string().nullable().optional(),
+    cost_product_line: z.string().nullable().optional(),
+    cost_allocation_rule: z.string().nullable().optional(),
+    cost_review_routing: z.string().nullable().optional(),
+    unit_conversion_note: z.string().nullable().optional(),
+    matched_finished_skus: z.array(z.string()).nullable().optional(),
+    ocr_classification_json: z.record(z.unknown()).nullable().optional(),
+  });
 
-const paymentRequestSchema = z.object({
-  title: z.string().min(1, "Tiêu đề là bắt buộc"),
-  description: z.string().optional(),
-  supplier_id: z.string().optional(),
-  goods_receipt_id: z.string().optional(),
-  payment_type: z.enum(["old_order", "new_order"]).default("old_order"),
-  payment_method: z.enum(["bank_transfer", "cash"]).default("bank_transfer"),
-  vat_amount: z.coerce.number().min(0).default(0),
-  notes: z.string().optional(),
-  items: z.array(paymentRequestItemSchema).min(1, "Cần ít nhất một sản phẩm"),
-});
+  const paymentRequestSchema = z.object({
+    title: z.string().min(1, s.titleRequired),
+    description: z.string().optional(),
+    supplier_id: z.string().optional(),
+    goods_receipt_id: z.string().optional(),
+    payment_type: z.enum(["old_order", "new_order"]).default("old_order"),
+    payment_method: z.enum(["bank_transfer", "cash"]).default("bank_transfer"),
+    vat_amount: z.coerce.number().min(0).default(0),
+    notes: z.string().optional(),
+    items: z.array(paymentRequestItemSchema).min(1, s.itemRequired),
+  });
 
-type PaymentRequestFormData = z.infer<typeof paymentRequestSchema>;
+  return paymentRequestSchema;
+};
+
+type PaymentRequestFormData = z.infer<ReturnType<typeof createPaymentRequestSchema>>;
 
 export function AddPaymentRequestDialog({
   trigger,
@@ -162,6 +174,8 @@ export function AddPaymentRequestDialog({
   onOpenChange: controlledOnOpenChange,
   prefillData,
 }: AddPaymentRequestDialogProps = {}) {
+  const s = useDSkuCopy();
+  const pc = usePurchasingCopy(paymentRequestPurchasing);
   const [internalOpen, setInternalOpen] = useState(false);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -196,7 +210,7 @@ export function AddPaymentRequestDialog({
   const availableGoodsReceipts = goodsReceipts.filter(gr => gr.status === "received");
 
   const form = useForm<PaymentRequestFormData>({
-    resolver: zodResolver(paymentRequestSchema),
+    resolver: zodResolver(createPaymentRequestSchema(s)),
     defaultValues: {
       title: "",
       description: "",
@@ -209,6 +223,11 @@ export function AddPaymentRequestDialog({
       items: [],
     },
   });
+
+  // Refresh visible validation messages when the staff language changes.
+  useEffect(() => {
+    if (Object.keys(form.formState.errors).length) void form.trigger();
+  }, [s, form]);
 
   // Prefill form when prefillData is provided
   useEffect(() => {
@@ -411,14 +430,14 @@ export function AddPaymentRequestDialog({
           console.error("AI credits exhausted");
           return;
         }
-        throw new Error(errorData.error || "Failed to scan invoice");
+        throw new Error(errorData.error || pc.scanFailed);
       }
 
       const result = await response.json();
       const extractedData = result.data as ExtractedInvoiceData;
 
       if (!extractedData?.items) {
-        throw new Error("Không thể đọc thông tin từ hóa đơn");
+        throw new Error(pc.unableToReadInvoiceInformation);
       }
 
       // Auto-fill form with extracted data
@@ -494,7 +513,7 @@ export function AddPaymentRequestDialog({
           .single();
         
         if (supplierError) {
-          toast.error(`Lỗi tạo NCC: ${supplierError.message}`);
+          showSupplierErrorToast(supplierError.message);
           setIsCreatingSupplier(false);
           return;
         }
@@ -503,7 +522,9 @@ export function AddPaymentRequestDialog({
         
         // Refresh suppliers list
         queryClient.invalidateQueries({ queryKey: ["suppliers"] });
-        toast.success(`Đã tạo NCC "${newSupplierName}"`);
+        toast.success(
+          <ReactiveDSkuToastText copyKey="supplierCreated" values={{ name: newSupplierName }} />
+        );
         setIsCreatingSupplier(false);
       }
       
@@ -572,7 +593,7 @@ export function AddPaymentRequestDialog({
       queryClient.invalidateQueries({ queryKey: ["payment-stats"] });
       queryClient.invalidateQueries({ queryKey: ["pending-invoice-count"] });
 
-      toast.success("Đã tạo đề nghị duyệt chi thành công");
+      toast.success(<ReactiveDSkuToastText copyKey="requestCreated" />);
       setOpen(false);
       form.reset();
       setImageFile(null);
@@ -580,11 +601,11 @@ export function AddPaymentRequestDialog({
       setItemPriceInfos({});
     } catch (error) {
       console.error("Error creating payment request:", error);
-      const errorMessage = error instanceof Error ? error.message : "Lỗi không xác định";
+      const errorMessage = error instanceof Error ? error.message : pc.unknownError;
       if (errorMessage.includes("row-level security") || errorMessage.includes("permission")) {
-        toast.error("Bạn không có quyền tạo đề nghị chi");
+        toast.error(<ReactiveDSkuToastText copyKey="requestDenied" />);
       } else {
-        toast.error("Không thể tạo đề nghị chi. Vui lòng thử lại.");
+        toast.error(<ReactiveDSkuToastText copyKey="requestFailed" />);
       }
     }
   };
@@ -597,7 +618,7 @@ export function AddPaymentRequestDialog({
           {trigger || (
             <Button className="gap-2">
               <Plus className="h-4 w-4" />
-              Tạo đề nghị chi
+              {s.createRequest}
             </Button>
           )}
         </DialogTrigger>
@@ -605,12 +626,12 @@ export function AddPaymentRequestDialog({
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
-            {prefillData ? `Tạo PR từ ${prefillData.poNumber}` : 'Tạo đề nghị duyệt chi'}
+            {prefillData ? formatDSku(s.requestFrom, { number: prefillData.poNumber }) : s.createRequestTitle}
           </DialogTitle>
           <DialogDescription>
             {prefillData 
-              ? 'Kiểm tra và chỉnh sửa thông tin trước khi lưu' 
-              : 'Upload hóa đơn để tự động scan thông tin hoặc nhập thủ công'}
+              ? s.reviewBeforeSave
+              : s.uploadDescription}
           </DialogDescription>
         </DialogHeader>
 
@@ -618,7 +639,7 @@ export function AddPaymentRequestDialog({
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
             {/* Image Upload */}
             <div className="space-y-4">
-              <Label>Hóa đơn mua hàng</Label>
+              <Label>{s.invoice}</Label>
               <div className="flex gap-4">
                 <div className="flex-1">
                   <div className="border-2 border-dashed rounded-lg p-4 text-center">
@@ -626,7 +647,7 @@ export function AddPaymentRequestDialog({
                       <div className="relative">
                         <img
                           src={imagePreview}
-                          alt="Invoice preview"
+                          alt={s.invoicePreview}
                           className="max-h-48 mx-auto rounded"
                         />
                         <Button
@@ -646,7 +667,7 @@ export function AddPaymentRequestDialog({
                       <label className="cursor-pointer block">
                         <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
                         <span className="text-sm text-muted-foreground">
-                          Click để upload hóa đơn
+                          {s.uploadInvoice}
                         </span>
                         <input
                           type="file"
@@ -669,12 +690,12 @@ export function AddPaymentRequestDialog({
                     {isScanning ? (
                       <>
                         <Loader2 className="h-4 w-4 animate-spin" />
-                        Đang scan...
+                        {s.scanning}
                       </>
                     ) : (
                       <>
                         <Scan className="h-4 w-4" />
-                        Scan hóa đơn
+                        {s.scanInvoice}
                       </>
                     )}
                   </Button>
@@ -689,9 +710,9 @@ export function AddPaymentRequestDialog({
                 name="title"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Tiêu đề *</FormLabel>
+                    <FormLabel>{s.title}</FormLabel>
                     <FormControl>
-                      <Input placeholder="VD: Đề nghị chi mua NVL tháng 1" {...field} />
+                      <Input placeholder={s.titleExample} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -702,7 +723,7 @@ export function AddPaymentRequestDialog({
                 name="supplier_id"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Nhà cung cấp</FormLabel>
+                    <FormLabel>{s.supplier}</FormLabel>
                     
                     {/* Toggle buttons for select/create mode */}
                     <div className="flex gap-2 mb-2">
@@ -712,7 +733,7 @@ export function AddPaymentRequestDialog({
                         size="sm"
                         onClick={() => setSupplierMode('select')}
                       >
-                        Chọn NCC có sẵn
+                        {s.existingSupplier}
                       </Button>
                       <Button 
                         type="button" 
@@ -721,7 +742,7 @@ export function AddPaymentRequestDialog({
                         onClick={() => setSupplierMode('create')}
                       >
                         <Plus className="h-3 w-3 mr-1" />
-                        Tạo NCC mới
+                        {s.newSupplier}
                       </Button>
                     </div>
                     
@@ -729,7 +750,7 @@ export function AddPaymentRequestDialog({
                       <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger>
-                            <SelectValue placeholder="Chọn nhà cung cấp" />
+                            <SelectValue placeholder={s.selectSupplier} />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
@@ -743,12 +764,12 @@ export function AddPaymentRequestDialog({
                     ) : (
                       <div className="space-y-2">
                         <Input 
-                          placeholder="Nhập tên NCC mới..." 
+                          placeholder={s.supplierName}
                           value={newSupplierName}
                           onChange={(e) => setNewSupplierName(e.target.value)}
                         />
                         <p className="text-xs text-muted-foreground">
-                          NCC sẽ được tạo tự động khi lưu PR
+                          {s.supplierAutoCreate}
                         </p>
                       </div>
                     )}
@@ -766,22 +787,22 @@ export function AddPaymentRequestDialog({
                 name="payment_type"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Loại thanh toán *</FormLabel>
+                    <FormLabel>{s.paymentType}</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder="Chọn loại" />
+                          <SelectValue placeholder={s.selectType} />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
                         <SelectItem value="old_order">
                           <span className="flex items-center gap-2">
-                            📋 Thanh toán đơn cũ (công nợ)
+                            {s.oldOrder}
                           </span>
                         </SelectItem>
                         <SelectItem value="new_order">
                           <span className="flex items-center gap-2">
-                            🆕 Thanh toán đơn mới
+                            {s.newOrder}
                           </span>
                         </SelectItem>
                       </SelectContent>
@@ -795,18 +816,18 @@ export function AddPaymentRequestDialog({
                 name="goods_receipt_id"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Liên kết Phiếu Nhập Kho</FormLabel>
+                    <FormLabel>{s.linkReceipt}</FormLabel>
                     <Select 
                       onValueChange={(value) => field.onChange(value === "_none" ? "" : value)} 
                       value={field.value || "_none"}
                     >
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder="Chọn phiếu nhập kho (nếu có)" />
+                          <SelectValue placeholder={s.selectReceipt} />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="_none">Không liên kết</SelectItem>
+                        <SelectItem value="_none">{s.noLink}</SelectItem>
                         {availableGoodsReceipts.map((gr) => (
                           <SelectItem key={gr.id} value={gr.id}>
                             {gr.receipt_number} - {gr.suppliers?.name || "N/A"} ({gr.receipt_date})
@@ -826,7 +847,7 @@ export function AddPaymentRequestDialog({
               name="payment_method"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Phương thức thanh toán *</FormLabel>
+                  <FormLabel>{s.paymentMethod}</FormLabel>
                   <FormControl>
                     <RadioGroup
                       value={field.value}
@@ -837,14 +858,14 @@ export function AddPaymentRequestDialog({
                         <RadioGroupItem value="bank_transfer" id="payment_unc" />
                         <Label htmlFor="payment_unc" className="flex items-center gap-2 cursor-pointer">
                           <CreditCard className="h-4 w-4 text-blue-500" />
-                          UNC
+                          {s.bankTransfer}
                         </Label>
                       </div>
                       <div className="flex items-center space-x-2 p-3 border rounded-lg cursor-pointer hover:bg-muted/50 transition-colors">
                         <RadioGroupItem value="cash" id="payment_cash" />
                         <Label htmlFor="payment_cash" className="flex items-center gap-2 cursor-pointer">
                           <Banknote className="h-4 w-4 text-orange-500" />
-                          Tiền mặt
+                          {s.cash}
                         </Label>
                       </div>
                     </RadioGroup>
@@ -859,9 +880,9 @@ export function AddPaymentRequestDialog({
               name="description"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Mô tả</FormLabel>
+                  <FormLabel>{s.description}</FormLabel>
                   <FormControl>
-                    <Textarea placeholder="Mô tả chi tiết về đề nghị chi..." {...field} />
+                    <Textarea placeholder={s.descriptionPlaceholder} {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -871,7 +892,7 @@ export function AddPaymentRequestDialog({
             {/* Items Table */}
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <Label>Danh sách sản phẩm</Label>
+                <Label>{s.productList}</Label>
                 <Button
                   type="button"
                   variant="outline"
@@ -887,7 +908,7 @@ export function AddPaymentRequestDialog({
                   }
                 >
                   <Plus className="h-4 w-4 mr-1" />
-                  Thêm sản phẩm
+                  {s.addProduct}
                 </Button>
               </div>
 
@@ -895,13 +916,13 @@ export function AddPaymentRequestDialog({
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-24">Mã SP</TableHead>
-                      <TableHead>Tên sản phẩm</TableHead>
-                      <TableHead className="w-24">SL</TableHead>
-                      <TableHead className="w-20">ĐVT</TableHead>
-                      <TableHead className="w-32">Đơn giá</TableHead>
-                      <TableHead className="w-32">Thành tiền</TableHead>
-                      <TableHead className="w-36">Giá cũ / Tồn kho</TableHead>
+                      <TableHead className="w-24">{s.productCode}</TableHead>
+                      <TableHead>{s.productName}</TableHead>
+                      <TableHead className="w-24">{s.quantity}</TableHead>
+                      <TableHead className="w-20">{s.unitShort}</TableHead>
+                      <TableHead className="w-32">{s.unitPrice}</TableHead>
+                      <TableHead className="w-32">{s.lineTotal}</TableHead>
+                      <TableHead className="w-36">{s.lastPriceStock}</TableHead>
                       <TableHead className="w-12"></TableHead>
                     </TableRow>
                   </TableHeader>
@@ -916,7 +937,7 @@ export function AddPaymentRequestDialog({
                           <TableCell>
                             <Input
                               {...form.register(`items.${index}.product_code`)}
-                              placeholder="Mã"
+                              placeholder={s.code}
                               className="h-8"
                             />
                           </TableCell>
@@ -924,12 +945,12 @@ export function AddPaymentRequestDialog({
                             <div className="space-y-1">
                               <Input
                                 {...form.register(`items.${index}.product_name`)}
-                                placeholder="Tên sản phẩm"
+                                placeholder={s.productName}
                                 className="h-8"
                               />
                               {item?.suggested_standard_cost_code && item?.canonical_cost_item_name && (
                                 <div className="text-xs text-muted-foreground">
-                                  <span className="font-medium text-foreground">Mã chuẩn</span>{" "}
+                                  <span className="font-medium text-foreground">{s.canonicalCode}</span>{" "}
                                   {item.standard_cost_code_type ? `${item.standard_cost_code_type} · ` : ""}
                                   {item.suggested_standard_cost_code} — {item.canonical_cost_item_name}
                                   {item.cost_category_code ? ` · ${item.cost_category_code}` : ""}
@@ -991,18 +1012,18 @@ export function AddPaymentRequestDialog({
                                     )}
                                   </div>
                                 ) : (
-                                  <span className="text-xs text-muted-foreground">Chưa có giá cũ</span>
+                                  <span className="text-xs text-muted-foreground">{s.noLastPrice}</span>
                                 )}
                                 <div className="flex items-center gap-1">
                                   {priceInfo.inventoryExists ? (
                                     <Badge variant="outline" className="text-xs px-1">
                                       <Package className="h-3 w-3 mr-0.5" />
-                                      Tồn: {priceInfo.currentQuantity}
+                                      {s.stockPrefix} {priceInfo.currentQuantity}
                                     </Badge>
                                   ) : (
                                     <Badge variant="secondary" className="text-xs px-1">
                                       <AlertTriangle className="h-3 w-3 mr-0.5" />
-                                      Mới
+                                      {s.new}
                                     </Badge>
                                   )}
                                 </div>
@@ -1033,7 +1054,7 @@ export function AddPaymentRequestDialog({
             {/* Totals */}
             <div className="space-y-2 border-t pt-4">
               <div className="flex justify-between">
-                <span>Tạm tính:</span>
+                <span>{s.subtotal}</span>
                 <span>{formatCurrency(subtotal)}</span>
               </div>
               <div className="flex items-center justify-between">
@@ -1052,7 +1073,7 @@ export function AddPaymentRequestDialog({
                 />
               </div>
               <div className="flex justify-between font-bold text-lg border-t pt-2">
-                <span>Tổng cộng:</span>
+                <span>{s.total}</span>
                 <span>{formatCurrency(total)}</span>
               </div>
             </div>
@@ -1063,9 +1084,9 @@ export function AddPaymentRequestDialog({
               name="notes"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Ghi chú</FormLabel>
+                  <FormLabel>{s.notes}</FormLabel>
                   <FormControl>
-                    <Textarea placeholder="Ghi chú thêm..." {...field} />
+                    <Textarea placeholder={s.notesPlaceholder} {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -1075,7 +1096,7 @@ export function AddPaymentRequestDialog({
             {/* Actions */}
             <div className="flex justify-end gap-3">
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>
-                Hủy
+                {s.cancel}
               </Button>
               <Button
                 type="submit"
@@ -1084,10 +1105,10 @@ export function AddPaymentRequestDialog({
                 {createPaymentRequest.isPending ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Đang tạo...
+                    {s.creating}
                   </>
                 ) : (
-                  "Tạo đề nghị"
+                  s.submitRequest
                 )}
               </Button>
             </div>

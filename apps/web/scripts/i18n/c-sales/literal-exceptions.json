@@ -1,0 +1,137 @@
+[
+  {
+    "file": "pages/MiniCrm.tsx",
+    "text": "syncing",
+    "reason": "Internal sync state comparison; payload/state value must stay canonical."
+  },
+  {
+    "file": "pages/MiniCrm.tsx",
+    "text": "preview_success",
+    "reason": "Internal preview state comparison; not rendered text."
+  },
+  {
+    "file": "pages/MiniCrm.tsx",
+    "text": "import_success",
+    "reason": "Internal import state comparison; not rendered text."
+  },
+  {
+    "file": "pages/MiniCrm.tsx",
+    "text": "error",
+    "reason": "Internal sync state discriminator; the rendered label is translated separately."
+  },
+  {
+    "file": "pages/MiniCrm.tsx",
+    "text": "vi-VN",
+    "reason": "Required Vietnam date/number formatting locale; not UI copy."
+  },
+  {
+    "file": "pages/MiniCrm.tsx",
+    "text": "unmatched",
+    "reason": "Matching resolution code, intentionally preserved as a protocol value."
+  },
+  {
+    "file": "pages/MiniCrm.tsx",
+    "text": "customers",
+    "reason": "Internal tab state used for conditional rendering."
+  },
+  {
+    "file": "pages/MiniCrm.tsx",
+    "text": "cumulative_snapshot",
+    "reason": "Canonical parse-mode comparison; no business matching strings may be translated."
+  },
+  {
+    "file": "pages/MiniCrm.tsx",
+    "text": "locations",
+    "reason": "Internal tab state used for conditional rendering."
+  },
+  {
+    "file": "pages/MiniCrm.tsx",
+    "text": "staff",
+    "reason": "Internal tab state used for conditional rendering."
+  },
+  {
+    "file": "pages/MiniCrm.tsx",
+    "text": "delivery_staff",
+    "reason": "Internal tab state used for conditional rendering."
+  },
+  {
+    "file": "pages/MiniCrm.tsx",
+    "text": "attendance_geofences",
+    "reason": "Internal tab state used for conditional rendering."
+  },
+  {
+    "file": "pages/MiniCrm.tsx",
+    "text": "posted",
+    "reason": "Canonical financial audit decision fallback code."
+  },
+  {
+    "file": "pages/MiniCrm.tsx",
+    "text": "pending",
+    "reason": "Canonical financial audit decision fallback code."
+  },
+  {
+    "file": "pages/MiniCrm.tsx",
+    "text": "YYYY-MM-DD",
+    "reason": "Canonical date input format; not a natural-language placeholder."
+  },
+  {
+    "file": "components/facebook-messenger/FacebookMessengerPanels.tsx",
+    "text": "outbound",
+    "reason": "Messenger direction enum used for layout/behavior decisions."
+  },
+  {
+    "file": "components/facebook-messenger/FacebookMessengerPanels.tsx",
+    "text": "file",
+    "reason": "Canonical attachment metadata type fallback."
+  },
+  {
+    "file": "components/facebook-messenger/FacebookMessengerPanels.tsx",
+    "text": "server",
+    "reason": "Canonical echo-source fallback; provider/source values are retained verbatim."
+  },
+  {
+    "file": "components/mini-crm/SalesPoQuickViewEditor.tsx",
+    "text": "vi-VN",
+    "reason": "Required Vietnam date/number formatting locale; not UI copy."
+  },
+  {
+    "file": "components/mini-crm/KnowledgeBaseProfileEditor.tsx",
+    "text": "locked",
+    "reason": "Canonical contract status comparison; translated badge is separate."
+  },
+  {
+    "file": "components/mini-crm/KnowledgeBaseProfileEditor.tsx",
+    "text": "draft",
+    "reason": "Canonical contract status comparison; translated badge is separate."
+  },
+  {
+    "file": "components/mini-crm/ParseTestWorkbench.tsx",
+    "text": "vi-VN",
+    "reason": "Required Vietnam date/number formatting locale; not UI copy."
+  },
+  {
+    "file": "components/mini-crm/ParseTestWorkbench.tsx",
+    "text": "email_body",
+    "reason": "Canonical parse source comparison."
+  },
+  {
+    "file": "components/mini-crm/ParseTestWorkbench.tsx",
+    "text": "attachment",
+    "reason": "Canonical parse source comparison."
+  },
+  {
+    "file": "components/mini-crm/ParseTestWorkbench.tsx",
+    "text": "File đính kèm — ",
+    "reason": "Exact persisted evidence source-label prefix used for matching/slicing; translation happens only after this comparison."
+  },
+  {
+    "file": "components/mini-crm/AttendanceGeofenceAdminPanel.tsx",
+    "text": "kiosk",
+    "reason": "Canonical location type comparison."
+  },
+  {
+    "file": "components/mini-crm/AttendanceGeofenceAdminPanel.tsx",
+    "text": "warehouse",
+    "reason": "Canonical location type comparison."
+  }
+]

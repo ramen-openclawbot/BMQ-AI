@@ -18,7 +18,7 @@ const Index = () => {
   const pendingPaymentRequests = paymentRequests?.filter((r) => r.status === "pending").length || 0;
 
   return (
-    <div className="space-y-6">
+    <div data-i18n-version="d-sku-v1" className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-display font-bold text-foreground">{t.dashboardTitle}</h1>

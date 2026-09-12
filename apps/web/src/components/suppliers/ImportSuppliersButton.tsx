@@ -1,3 +1,6 @@
+import { formatText } from "@/i18n/format";
+import { supplierPurchasing } from "@/i18n/supplierPurchasing";
+import { usePurchasingCopy } from "@/i18n/purchasingCopy";
 import { useRef, useState } from "react";
 import { Upload, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -27,6 +30,7 @@ interface ImportSuppliersButtonProps {
 }
 
 export function ImportSuppliersButton({ compactIcon: Icon = Upload }: ImportSuppliersButtonProps = {}) {
+  const pc = usePurchasingCopy(supplierPurchasing);
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -140,26 +144,24 @@ export function ImportSuppliersButton({ compactIcon: Icon = Upload }: ImportSupp
       />
       <Button variant="outline" onClick={() => fileInputRef.current?.click()} className="h-10 rounded-xl border-amber-200 bg-white px-2 text-xs text-amber-800 hover:bg-amber-50 sm:px-3 sm:text-sm">
         <Icon className="mr-1.5 h-4 w-4 sm:mr-2" />
-        Nhập Excel
-      </Button>
+         {pc.importExcel} </Button>
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
           <DialogHeader>
-            <DialogTitle>Nhập nhà cung cấp từ Excel</DialogTitle>
+            <DialogTitle>{pc.importSuppliersFromExcel}</DialogTitle>
             <DialogDescription>
-              Kiểm tra dữ liệu trước khi nhập. Sẽ thêm {previewData.length} nhà cung cấp.
-            </DialogDescription>
+               {pc.reviewTheDataBeforeImportingSuppliersToAdd} {previewData.length}  {pc.suppliers3} </DialogDescription>
           </DialogHeader>
 
           <div className="flex-1 overflow-auto border rounded-lg">
             <table className="w-full text-sm">
               <thead className="bg-muted sticky top-0">
                 <tr>
-                  <th className="text-left p-2 font-medium">Tên NCC</th>
-                  <th className="text-left p-2 font-medium">Nhóm</th>
-                  <th className="text-left p-2 font-medium">SĐT</th>
-                  <th className="text-left p-2 font-medium">Email</th>
+                  <th className="text-left p-2 font-medium">{pc.supplierName2}</th>
+                  <th className="text-left p-2 font-medium">{pc.category}</th>
+                  <th className="text-left p-2 font-medium">{pc.phone}</th>
+                  <th className="text-left p-2 font-medium">{pc.fieldEmail}</th>
                 </tr>
               </thead>
               <tbody>
@@ -177,8 +179,7 @@ export function ImportSuppliersButton({ compactIcon: Icon = Upload }: ImportSupp
                       colSpan={4}
                       className="p-2 text-center text-muted-foreground"
                     >
-                      ... và còn {previewData.length - 50} dòng khác
-                    </td>
+                       {pc.and} {previewData.length - 50}  {pc.moreRows} </td>
                   </tr>
                 )}
               </tbody>
@@ -191,10 +192,9 @@ export function ImportSuppliersButton({ compactIcon: Icon = Upload }: ImportSupp
               onClick={() => setIsDialogOpen(false)}
               disabled={isImporting}
             >
-              Hủy
-            </Button>
+               {pc.cancel} </Button>
             <Button onClick={handleImport} disabled={isImporting}>
-              {isImporting ? "Đang nhập..." : `Nhập ${previewData.length} NCC`}
+              {isImporting ? pc.importing : formatText(pc.message81, { v0: previewData.length })}
             </Button>
           </DialogFooter>
         </DialogContent>

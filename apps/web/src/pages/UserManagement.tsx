@@ -1,3 +1,5 @@
+import { usePeopleLabels } from "@/hooks/usePeopleLabels";
+import { showPeopleToast, peopleErrorDescription, peopleToast, usePeopleCopy } from "@/hooks/usePeopleCopy";
 import { useState } from "react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -30,7 +32,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Loader2, Users, Shield, Trash2, RefreshCw } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
 
 // ---------------------------------------------------------------------------
 // Role badge color mapping
@@ -48,19 +49,18 @@ type AppRole = "owner" | "staff" | "viewer" | "warehouse";
 // Main page component
 // ---------------------------------------------------------------------------
 export default function UserManagement() {
+  const pc = usePeopleCopy();
   const { language } = useLanguage();
   const isVi = language === "vi";
 
   return (
-    <div className="space-y-6">
+    <div data-i18n-version="d-people-v1" className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">
-          {isVi ? "Quản lý người dùng" : "User Management"}
+          {pc("userManagement")}
         </h1>
         <p className="text-muted-foreground">
-          {isVi
-            ? "Quản lý role, mời thành viên, phân quyền module."
-            : "Manage roles, invite members, assign module permissions."}
+          {pc("manageRolesInviteMembersAssignModulePermissions")}
         </p>
       </div>
 
@@ -68,11 +68,11 @@ export default function UserManagement() {
         <TabsList>
           <TabsTrigger value="users" className="gap-2">
             <Users className="h-4 w-4" />
-            {isVi ? "Người dùng" : "Users"}
+            {pc("users")}
           </TabsTrigger>
           <TabsTrigger value="permissions" className="gap-2">
             <Shield className="h-4 w-4" />
-            {isVi ? "Phân quyền" : "Permissions"}
+            {pc("permissions")}
           </TabsTrigger>
         </TabsList>
 
@@ -91,11 +91,12 @@ export default function UserManagement() {
 // TAB 1: Users
 // ===========================================================================
 function UsersTab({ isVi }: { isVi: boolean }) {
+  const labels = usePeopleLabels();
+  const pc = usePeopleCopy();
   const { data: users, isLoading } = useUsersList();
   const { user: currentUser } = useAuth();
   const assignRole = useAssignRole();
   const deleteUser = useDeleteUser();
-  const { toast } = useToast();
 
   // Delete confirmation state
   const [deleteTarget, setDeleteTarget] = useState<UserWithRole | null>(null);
@@ -103,12 +104,8 @@ function UsersTab({ isVi }: { isVi: boolean }) {
   const handleRoleChange = (targetUser: UserWithRole, newRole: AppRole) => {
     // Guard: cannot change your own role
     if (targetUser.user_id === currentUser?.id) {
-      toast({
-        title: isVi ? "Không thể đổi role" : "Cannot change role",
-        description: isVi
-          ? "Bạn không thể thay đổi role của chính mình."
-          : "You cannot change your own role.",
-        variant: "destructive",
+      showPeopleToast("error", peopleToast("cannotChangeRole"), {
+        description: peopleToast("youCannotChangeYourOwnRole"),
       });
       return;
     }
@@ -117,12 +114,8 @@ function UsersTab({ isVi }: { isVi: boolean }) {
     if (targetUser.role === "owner") {
       const ownerCount = (users || []).filter((u) => u.role === "owner").length;
       if (ownerCount <= 1) {
-        toast({
-          title: isVi ? "Không thể đổi role" : "Cannot change role",
-          description: isVi
-            ? "Phải có ít nhất một Owner trong hệ thống."
-            : "There must be at least one Owner.",
-          variant: "destructive",
+        showPeopleToast("error", peopleToast("cannotChangeRole"), {
+          description: peopleToast("thereMustBeAtLeastOneOwner"),
         });
         return;
       }
@@ -134,12 +127,8 @@ function UsersTab({ isVi }: { isVi: boolean }) {
   const handleDeleteClick = (targetUser: UserWithRole) => {
     // Guard: cannot delete yourself
     if (targetUser.user_id === currentUser?.id) {
-      toast({
-        title: isVi ? "Không thể xoá" : "Cannot delete",
-        description: isVi
-          ? "Bạn không thể xoá tài khoản của chính mình."
-          : "You cannot delete your own account.",
-        variant: "destructive",
+      showPeopleToast("error", peopleToast("cannotDelete"), {
+        description: peopleToast("youCannotDeleteYourOwnAccount"),
       });
       return;
     }
@@ -148,12 +137,8 @@ function UsersTab({ isVi }: { isVi: boolean }) {
     if (targetUser.role === "owner") {
       const ownerCount = (users || []).filter((u) => u.role === "owner").length;
       if (ownerCount <= 1) {
-        toast({
-          title: isVi ? "Không thể xoá" : "Cannot delete",
-          description: isVi
-            ? "Phải có ít nhất một Owner trong hệ thống."
-            : "There must be at least one Owner.",
-          variant: "destructive",
+        showPeopleToast("error", peopleToast("cannotDelete"), {
+          description: peopleToast("thereMustBeAtLeastOneOwner"),
         });
         return;
       }
@@ -183,20 +168,18 @@ function UsersTab({ isVi }: { isVi: boolean }) {
     <>
       <Card>
         <CardHeader>
-          <CardTitle>{isVi ? "Danh sách người dùng" : "User List"}</CardTitle>
+          <CardTitle>{pc("userList")}</CardTitle>
           <CardDescription>
-            {isVi
-              ? `${(users || []).length} người dùng trong hệ thống`
-              : `${(users || []).length} users in the system`}
+            {pc("usersInTheSystem", { p0: (users || []).length })}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{isVi ? "Tên" : "Name"}</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead>Role</TableHead>
+                <TableHead>{pc("name")}</TableHead>
+                <TableHead>{pc("email")}</TableHead>
+                <TableHead>{pc("role")}</TableHead>
                 <TableHead className="w-[60px]" />
               </TableRow>
             </TableHeader>
@@ -210,14 +193,14 @@ function UsersTab({ isVi }: { isVi: boolean }) {
                       {u.full_name || "—"}
                       {isCurrentUser && (
                         <Badge variant="outline" className="ml-2 text-xs">
-                          {isVi ? "Bạn" : "You"}
+                          {pc("you")}
                         </Badge>
                       )}
                     </TableCell>
                     <TableCell className="text-muted-foreground">{u.email || "—"}</TableCell>
                     <TableCell>
                       {isCurrentUser ? (
-                        <Badge variant={badge?.variant || "outline"}>{badge?.label || u.role}</Badge>
+                        <Badge variant={badge?.variant || "outline"}>{labels.role(u.role || "viewer")}</Badge>
                       ) : (
                         <Select
                           value={u.role || "viewer"}
@@ -228,10 +211,10 @@ function UsersTab({ isVi }: { isVi: boolean }) {
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="owner">Owner</SelectItem>
-                            <SelectItem value="staff">Staff</SelectItem>
-                            <SelectItem value="warehouse">Warehouse</SelectItem>
-                            <SelectItem value="viewer">Viewer</SelectItem>
+                            <SelectItem value="owner">{pc("owner")}</SelectItem>
+                            <SelectItem value="staff">{pc("staff")}</SelectItem>
+                            <SelectItem value="warehouse">{pc("warehouse")}</SelectItem>
+                            <SelectItem value="viewer">{pc("viewer")}</SelectItem>
                           </SelectContent>
                         </Select>
                       )}
@@ -242,6 +225,7 @@ function UsersTab({ isVi }: { isVi: boolean }) {
                           variant="ghost"
                           size="icon"
                           className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                          aria-label={pc("deleteAccount")}
                           onClick={() => handleDeleteClick(u)}
                           disabled={deleteUser.isPending}
                         >
@@ -262,16 +246,14 @@ function UsersTab({ isVi }: { isVi: boolean }) {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {isVi ? "Xoá người dùng?" : "Delete user?"}
+              {pc("deleteUser")}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {isVi
-                ? `Bạn sắp xoá "${deleteTarget?.full_name || deleteTarget?.email}". Hành động này sẽ xoá profile và quyền truy cập của họ. Không thể hoàn tác.`
-                : `You are about to delete "${deleteTarget?.full_name || deleteTarget?.email}". This will remove their profile and access. This cannot be undone.`}
+              {pc("youAreAboutToDeleteThisWill", { p0: deleteTarget?.full_name || deleteTarget?.email })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>{isVi ? "Huỷ" : "Cancel"}</AlertDialogCancel>
+            <AlertDialogCancel>{pc("cancel2")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={confirmDelete}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
@@ -279,11 +261,7 @@ function UsersTab({ isVi }: { isVi: boolean }) {
             >
               {deleteUser.isPending ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
-              ) : isVi ? (
-                "Xoá"
-              ) : (
-                "Delete"
-              )}
+              ) : pc("delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -296,6 +274,8 @@ function UsersTab({ isVi }: { isVi: boolean }) {
 // TAB 2: Permissions matrix
 // ===========================================================================
 function PermissionsTab({ isVi }: { isVi: boolean }) {
+  const labels = usePeopleLabels();
+  const pc = usePeopleCopy();
   const { data: users, isLoading: usersLoading } = useUsersList();
   const { data: permissions, isLoading: permsLoading } = useAllPermissions();
   const updatePermission = useUpdatePermission();
@@ -354,33 +334,27 @@ function PermissionsTab({ isVi }: { isVi: boolean }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{isVi ? "Phân quyền module" : "Module Permissions"}</CardTitle>
+        <CardTitle>{pc("modulePermissions")}</CardTitle>
         <CardDescription>
-          {isVi
-            ? "Owner luôn có full quyền. Bảng dưới đây chỉ áp dụng cho Staff, Warehouse, Viewer."
-            : "Owners always have full access. The table below applies to Staff, Warehouse, and Viewer roles."}
+          {pc("ownersAlwaysHaveFullAccessTheTable")}
         </CardDescription>
       </CardHeader>
       <CardContent className="overflow-x-auto">
         {nonOwnerUsers.length === 0 ? (
           <p className="text-sm text-muted-foreground py-4">
-            {isVi
-              ? "Không có user non-owner nào để phân quyền."
-              : "No non-owner users to manage permissions for."}
+            {pc("noNonOwnerUsersToManagePermissions")}
           </p>
         ) : (
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="sticky left-0 bg-background z-10 min-w-[160px]">
-                  Module
-                </TableHead>
+                <TableHead className="sticky left-0 bg-background z-10 min-w-[160px]"> {pc("module")} </TableHead>
                 {nonOwnerUsers.map((u) => (
                   <TableHead key={u.user_id} className="text-center min-w-[140px]">
                     <div className="space-y-1.5">
                       <div className="font-medium text-xs">{u.full_name || u.email || "—"}</div>
                       <Badge variant={ROLE_BADGE[u.role || "viewer"]?.variant || "outline"} className="text-[10px]">
-                        {ROLE_BADGE[u.role || "viewer"]?.label || u.role}
+                        {labels.role(u.role || "viewer")}
                       </Badge>
                       {/* Reset to default button */}
                       <div>
@@ -390,10 +364,10 @@ function PermissionsTab({ isVi }: { isVi: boolean }) {
                           className="h-6 text-[10px] px-1.5 text-muted-foreground hover:text-foreground gap-1"
                           onClick={() => resetToDefault.mutate({ userId: u.user_id, role: u.role || "viewer" })}
                           disabled={resetToDefault.isPending}
-                          title={isVi ? "Gán quyền mặc định theo role" : "Reset to role defaults"}
+                          title={pc("resetToRoleDefaults")}
                         >
                           <RefreshCw className="h-2.5 w-2.5" />
-                          {isVi ? "Mặc định" : "Defaults"}
+                          {pc("defaults")}
                         </Button>
                       </div>
                     </div>
@@ -420,7 +394,7 @@ function PermissionsTab({ isVi }: { isVi: boolean }) {
                                 handleToggle(u.user_id, mod.key, "can_view", perm.can_view)
                               }
                             />
-                            <span className="text-muted-foreground">{isVi ? "Xem" : "View"}</span>
+                            <span className="text-muted-foreground">{pc("view")}</span>
                           </label>
                           <label className="flex items-center gap-1 text-xs cursor-pointer">
                             <Checkbox
@@ -429,7 +403,7 @@ function PermissionsTab({ isVi }: { isVi: boolean }) {
                                 handleToggle(u.user_id, mod.key, "can_edit", perm.can_edit)
                               }
                             />
-                            <span className="text-muted-foreground">{isVi ? "Sửa" : "Edit"}</span>
+                            <span className="text-muted-foreground">{pc("edit")}</span>
                           </label>
                         </div>
                       </TableCell>

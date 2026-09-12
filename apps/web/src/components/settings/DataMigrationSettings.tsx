@@ -1,3 +1,5 @@
+import type { PeopleKey } from "@/i18n/people";
+import { PeopleLocalError, peopleErrorDescription, peopleSupabaseErrorDescription, peopleToast, showPeopleToast, usePeopleCopy } from "@/hooks/usePeopleCopy";
 import { useEffect, useState } from "react";
 import {
   Archive,
@@ -13,7 +15,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
-import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { getFreshAccessToken } from "@/lib/supabase-helpers";
 
@@ -42,14 +43,7 @@ const TABLES = [
   "drive_import_logs",
 ] as const;
 
-const IMPORT_STEPS = [
-  "Chạy migrations để tạo schema trước khi nạp dữ liệu.",
-  "Tạo đầy đủ buckets storage cần thiết ở môi trường đích.",
-  "Import storage-manifest.json để khôi phục đúng bucket/path cho từng file.",
-  "Upload file ZIP theo đúng cấu trúc bucket/path đã export.",
-  "Import SQL hoặc JSON theo đúng thứ tự phụ thuộc.",
-  "Đối soát manifest, số object và checksum để xác minh toàn vẹn.",
-];
+
 
 function downloadTextFile(fileName: string, content: string, contentType = "application/json") {
   const blob = new Blob([content], { type: contentType });
@@ -74,7 +68,10 @@ async function fetchTableRows(table: string) {
       .select("*")
       .range(from, from + pageSize - 1);
 
-    if (error) throw new Error(`${table}: ${error.message}`);
+    if (error) {
+      if (typeof error.message === "string" && error.message.trim()) throw error;
+      throw new PeopleLocalError({ key: "unableToCreateTheExportFile" });
+    }
 
     const rows = (data || []) as Record<string, any>[];
     allRows = allRows.concat(rows);
@@ -104,13 +101,22 @@ function formatBytes(bytes: number) {
 }
 
 export function DataMigrationSettings() {
-  const { toast } = useToast();
+  const pc = usePeopleCopy();
+
+  const IMPORT_STEPS = [
+  pc("runMigrationsToCreateTheSchemaBefore"),
+  pc("createAllRequiredStorageBucketsInThe"),
+  pc("importStorageManifestJsonToRestoreThe"),
+  pc("uploadTheZipUsingTheExportedBucket"),
+  pc("importSqlOrJsonInDependencyOrder"),
+  pc("reconcileTheManifestObjectCountsAndChecksums"),
+];
   const [busyFormat, setBusyFormat] = useState<ExportFormat | "manifest" | "zip" | null>(null);
   const [isOwner, setIsOwner] = useState(false);
   const [bucketFilter, setBucketFilter] = useState("");
   const [maxFiles, setMaxFiles] = useState("1000");
   const [zipProgress, setZipProgress] = useState<number | null>(null);
-  const [zipProgressText, setZipProgressText] = useState("");
+  const [zipProgressText, setZipProgressText] = useState<{ key: PeopleKey; values?: Record<string, string | number> } | null>(null);
 
   const canExport = isOwner && busyFormat === null;
 
@@ -141,10 +147,8 @@ export function DataMigrationSettings() {
 
   const exportDatabase = async (format: ExportFormat) => {
     if (!isOwner) {
-      toast({
-        title: "Không đủ quyền",
-        description: "Chỉ owner mới có thể export dữ liệu.",
-        variant: "destructive",
+      showPeopleToast("error", peopleToast("insufficientPermissions"), {
+        description: peopleToast("onlyOwnersCanExportData"),
       });
       return;
     }
@@ -201,15 +205,12 @@ export function DataMigrationSettings() {
         downloadTextFile(`bmq-data-${Date.now()}.sql`, sql, "text/sql");
       }
 
-      toast({
-        title: "Đã tạo file export",
-        description: "Export hoàn tất.",
+      showPeopleToast("success", peopleToast("exportFileCreated"), {
+        description: peopleToast("exportComplete"),
       });
     } catch (error: any) {
-      toast({
-        title: "Export thất bại",
-        description: error?.message || "Không thể tạo file export.",
-        variant: "destructive",
+      showPeopleToast("error", peopleToast("exportFailed"), {
+        description: peopleErrorDescription(error, "unableToCreateTheExportFile"),
       });
     } finally {
       setBusyFormat(null);
@@ -218,10 +219,8 @@ export function DataMigrationSettings() {
 
   const generateManifest = async () => {
     if (!isOwner) {
-      toast({
-        title: "Không đủ quyền",
-        description: "Chỉ owner mới có thể export dữ liệu.",
-        variant: "destructive",
+      showPeopleToast("error", peopleToast("insufficientPermissions"), {
+        description: peopleToast("onlyOwnersCanExportData"),
       });
       return;
     }
@@ -247,19 +246,17 @@ export function DataMigrationSettings() {
       });
 
       if (error) {
-        throw new Error(error.message || "Không thể tạo storage manifest.");
+        if (typeof error.message === "string" && error.message.trim()) throw error;
+        throw new PeopleLocalError({ key: "unableToCreateTheStorageManifest" });
       }
 
       downloadTextFile("storage-manifest.json", JSON.stringify(data, null, 2));
-      toast({
-        title: "Đã tạo manifest",
-        description: "storage-manifest.json đã sẵn sàng.",
+      showPeopleToast("success", peopleToast("manifestCreated"), {
+        description: peopleToast("storageManifestJsonIsReady"),
       });
     } catch (error: any) {
-      toast({
-        title: "Tạo manifest thất bại",
-        description: error?.message || "Không thể tạo storage manifest.",
-        variant: "destructive",
+      showPeopleToast("error", peopleToast("manifestCreationFailed"), {
+        description: peopleSupabaseErrorDescription(error, "unableToCreateTheStorageManifest"),
       });
     } finally {
       setBusyFormat(null);
@@ -268,10 +265,8 @@ export function DataMigrationSettings() {
 
   const exportFilesZip = async () => {
     if (!isOwner) {
-      toast({
-        title: "Không đủ quyền",
-        description: "Chỉ owner mới có thể export dữ liệu.",
-        variant: "destructive",
+      showPeopleToast("error", peopleToast("insufficientPermissions"), {
+        description: peopleToast("onlyOwnersCanExportData"),
       });
       return;
     }
@@ -279,7 +274,7 @@ export function DataMigrationSettings() {
     try {
       setBusyFormat("zip");
       setZipProgress(0);
-      setZipProgressText("Đang chuẩn bị tải ZIP...");
+      setZipProgressText({ key: "preparingZipDownload" });
 
       const accessToken = await getFreshAccessToken();
 
@@ -304,14 +299,16 @@ export function DataMigrationSettings() {
       });
 
       if (!resp.ok) {
-        let errMsg = `Tải ZIP thất bại (HTTP ${resp.status})`;
+        let failure: Error = new PeopleLocalError(
+          { key: "zipDownloadFailedHttp", values: { p0: resp.status } },
+        );
         try {
           const errJson = await resp.json();
-          errMsg = errJson?.error || errMsg;
+          if (typeof errJson?.error === "string" && errJson.error.trim()) failure = new Error(errJson.error);
         } catch {
           // ignore json parse errors
         }
-        throw new Error(errMsg);
+        throw failure;
       }
 
       const contentDisposition = resp.headers.get("Content-Disposition") || "";
@@ -325,7 +322,7 @@ export function DataMigrationSettings() {
       if (!reader) {
         blob = await resp.blob();
         setZipProgress(100);
-        setZipProgressText("Tải hoàn tất.");
+        setZipProgressText({ key: "downloadComplete" });
       } else {
         const chunks: Uint8Array[] = [];
         let receivedBytes = 0;
@@ -341,16 +338,16 @@ export function DataMigrationSettings() {
           if (totalBytes > 0) {
             const percent = Math.min(100, Math.round((receivedBytes / totalBytes) * 100));
             setZipProgress(percent);
-            setZipProgressText(`Đã tải ${formatBytes(receivedBytes)} / ${formatBytes(totalBytes)}`);
+            setZipProgressText({ key: "downloaded", values: { p0: formatBytes(receivedBytes), p1: formatBytes(totalBytes) } });
           } else {
             setZipProgress(null);
-            setZipProgressText(`Đã tải ${formatBytes(receivedBytes)}...`);
+            setZipProgressText({ key: "downloaded2", values: { p0: formatBytes(receivedBytes) } });
           }
         }
 
         blob = new Blob(chunks, { type: "application/zip" });
         setZipProgress(100);
-        setZipProgressText("Tải hoàn tất.");
+        setZipProgressText({ key: "downloadComplete" });
       }
 
       const url = URL.createObjectURL(blob);
@@ -362,21 +359,18 @@ export function DataMigrationSettings() {
       link.remove();
       URL.revokeObjectURL(url);
 
-      toast({
-        title: "Đã tạo ZIP storage",
-        description: "File ZIP đang được tải về máy của anh.",
+      showPeopleToast("success", peopleToast("storageZipCreated"), {
+        description: peopleToast("theZipFileIsDownloadingToYour"),
       });
     } catch (error: any) {
-      toast({
-        title: "Tạo ZIP thất bại",
-        description: error?.message || "Không thể export storage ZIP.",
-        variant: "destructive",
+      showPeopleToast("error", peopleToast("zipCreationFailed"), {
+        description: peopleSupabaseErrorDescription(error, "unableToExportTheStorageZip"),
       });
     } finally {
       setBusyFormat(null);
       setTimeout(() => {
         setZipProgress(null);
-        setZipProgressText("");
+        setZipProgressText(null);
       }, 1200);
     }
   };
@@ -386,36 +380,34 @@ export function DataMigrationSettings() {
       <div className="flex items-center gap-3">
         <Archive className="h-5 w-5 text-primary" />
         <div>
-          <h2 className="font-display font-semibold text-lg">Data Migration</h2>
-          <p className="text-sm text-muted-foreground">Xuất dữ liệu và storage theo chuẩn migration-safe để backup/chuyển môi trường.</p>
+          <h2 className="font-display font-semibold text-lg">{pc("dataMigration2")}</h2>
+          <p className="text-sm text-muted-foreground">{pc("exportDataAndStorageForBackupOr")}</p>
         </div>
       </div>
 
       <Separator />
 
       {!isOwner && (
-        <div className="rounded-lg border border-amber-300 bg-amber-50 text-amber-900 p-3 text-sm">
-          Chỉ tài khoản role <strong>owner</strong> mới có quyền export dữ liệu.
-        </div>
+        <div className="rounded-lg border border-amber-300 bg-amber-50 text-amber-900 p-3 text-sm"> {pc("onlyAccountsWithThe")} <strong>owner</strong> {pc("roleCanExportData")} </div>
       )}
 
       <div className="space-y-3">
         <div className="flex items-center gap-2">
           <Database className="h-4 w-4 text-primary" />
-          <p className="font-medium">Export Database</p>
+          <p className="font-medium">{pc("exportDatabase")}</p>
         </div>
         <div className="grid sm:grid-cols-3 gap-2">
           <Button variant="outline" onClick={() => exportDatabase("schema")} disabled={!canExport}>
             <FileText className="h-4 w-4 mr-2" />
-            {busyFormat === "schema" ? "Đang tạo..." : "Download Schema"}
+            {busyFormat === "schema" ? pc("generating") : pc("downloadSchema")}
           </Button>
           <Button variant="outline" onClick={() => exportDatabase("json")} disabled={!canExport}>
             <FileJson className="h-4 w-4 mr-2" />
-            {busyFormat === "json" ? "Đang tạo..." : "Download JSON"}
+            {busyFormat === "json" ? pc("generating") : pc("downloadJson")}
           </Button>
           <Button variant="outline" onClick={() => exportDatabase("sql")} disabled={!canExport}>
             <Download className="h-4 w-4 mr-2" />
-            {busyFormat === "sql" ? "Đang tạo..." : "Download SQL"}
+            {busyFormat === "sql" ? pc("generating") : pc("downloadSql")}
           </Button>
         </div>
       </div>
@@ -423,54 +415,54 @@ export function DataMigrationSettings() {
       <div className="space-y-3">
         <div className="flex items-center gap-2">
           <HardDrive className="h-4 w-4 text-primary" />
-          <p className="font-medium">Export Storage</p>
+          <p className="font-medium">{pc("exportStorage")}</p>
         </div>
         <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground space-y-1">
-          <p className="font-medium text-foreground">Chuẩn export hiện tại</p>
-          <p>Manifest lấy từ <code>supabase.storage</code>.</p>
-          <p>ZIP giữ nguyên cấu trúc <code>bucket/path</code> để phục vụ restore chính xác.</p>
-          <p>Mỗi file trong manifest gồm bucket, path, contentType, size, checksum và timestamps.</p>
+          <p className="font-medium text-foreground">{pc("currentExportFormat")}</p>
+          <p>{pc("theManifestComesFrom")} <code>supabase.storage</code>.</p>
+          <p>{pc("theZipPreservesThe")} <code>bucket/path</code> {pc("structureForAccurateRestoration")}</p>
+          <p>{pc("eachManifestFileIncludesBucketPathContenttype")}</p>
         </div>
         <div className="grid sm:grid-cols-2 gap-3">
           <div className="space-y-1">
-            <p className="text-sm font-medium">Bucket filter (tuỳ chọn)</p>
+            <p className="text-sm font-medium">{pc("bucketFilterOptional")}</p>
             <Input
               value={bucketFilter}
               onChange={(e) => setBucketFilter(e.target.value)}
-              placeholder="vd: invoices,purchase-orders"
+              placeholder={pc("eGInvoicesPurchaseOrders")}
             />
-            <p className="text-xs text-muted-foreground">Để trống = export tất cả buckets.</p>
+            <p className="text-xs text-muted-foreground">{pc("leaveBlankToExportAllBuckets")}</p>
           </div>
           <div className="space-y-1">
-            <p className="text-sm font-medium">Max files cho ZIP</p>
+            <p className="text-sm font-medium">{pc("maximumFilesPerZip")}</p>
             <Input
               value={maxFiles}
               onChange={(e) => setMaxFiles(e.target.value)}
               inputMode="numeric"
               placeholder="1000"
             />
-            <p className="text-xs text-muted-foreground">Giảm số này nếu archive quá lớn hoặc timeout.</p>
+            <p className="text-xs text-muted-foreground">{pc("reduceThisIfTheArchiveIsToo")}</p>
           </div>
         </div>
         <div className="grid sm:grid-cols-2 gap-2">
           <Button variant="outline" onClick={generateManifest} disabled={!canExport}>
             <ListChecks className="h-4 w-4 mr-2" />
-            {busyFormat === "manifest" ? "Đang tạo..." : "Generate Manifest"}
+            {busyFormat === "manifest" ? pc("generating") : pc("generateManifest")}
           </Button>
           <Button variant="outline" onClick={exportFilesZip} disabled={!isOwner || busyFormat !== null}>
             <FolderArchive className="h-4 w-4 mr-2" />
             {busyFormat === "zip"
               ? zipProgress !== null
-                ? `Đang tải ZIP (${zipProgress}%)`
-                : "Đang tải ZIP..."
-              : "Download Files ZIP"}
+                ? pc("downloadingZip", { p0: zipProgress })
+                : pc("downloadingZip2")
+              : pc("downloadFilesZip")}
           </Button>
         </div>
 
         {(busyFormat === "zip" || zipProgressText) && (
           <div className="rounded-md border border-primary/20 bg-primary/5 p-3 space-y-2">
             <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span>{zipProgressText || "Đang tải ZIP..."}</span>
+              <span>{zipProgressText ? pc(zipProgressText.key, zipProgressText.values) : pc("downloadingZip2")}</span>
               {zipProgress !== null && <span className="font-medium text-foreground">{zipProgress}%</span>}
             </div>
             {zipProgress !== null ? (
@@ -492,19 +484,19 @@ export function DataMigrationSettings() {
       <div className="rounded-lg border p-4 space-y-2">
         <div className="flex items-center gap-2">
           <ShieldCheck className="h-4 w-4 text-primary" />
-          <p className="font-medium">Guardrails khuyến nghị</p>
+          <p className="font-medium">{pc("recommendedSafeguards")}</p>
         </div>
         <ul className="list-disc pl-5 text-sm text-muted-foreground space-y-1">
-          <li>Chỉ cho phép role owner thao tác export.</li>
-          <li>Luôn export manifest trước khi tải ZIP để có mapping bucket/path.</li>
-          <li>Giữ nguyên cấu trúc bucket/path khi restore sang môi trường mới.</li>
-          <li>Đối soát checksum sau import để xác minh toàn vẹn file.</li>
-          <li>Với archive lớn, cân nhắc tách batch thay vì 1 ZIP duy nhất.</li>
+          <li>{pc("allowOnlyOwnersToExport")}</li>
+          <li>{pc("alwaysExportTheManifestBeforeDownloadingThe")}</li>
+          <li>{pc("preserveBucketPathStructureWhenRestoringTo")}</li>
+          <li>{pc("verifyChecksumsAfterImportToConfirmFile")}</li>
+          <li>{pc("forLargeArchivesConsiderBatchesInsteadOf")}</li>
         </ul>
       </div>
 
       <div className="rounded-lg border p-4 space-y-2">
-        <p className="font-medium">Import Guide</p>
+        <p className="font-medium">{pc("importGuide")}</p>
         <ol className="list-decimal pl-5 text-sm text-muted-foreground space-y-1">
           {IMPORT_STEPS.map((step) => (
             <li key={step}>{step}</li>

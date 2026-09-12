@@ -1,0 +1,35 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+const{chromium}=await import('/home/ubuntu/bmq-payment-preview/node_modules/playwright/index.mjs');
+const browser=await chromium.launch({executablePath:'/home/ubuntu/.cache/ms-playwright/chromium-1234/chrome-linux/chrome',args:['--no-sandbox']});
+const origin='http://127.0.0.1:4302',out='/tmp/bmq-i18n-lanes/b-revenue';
+const errors=[],unexpected=[],cases=[];
+const titles={dashboard:['Quản lý doanh thu','Revenue Management'],source:['Chi tiết nguồn doanh thu','Revenue source detail'],daily:['Kiểm tra doanh thu hằng ngày','Revenue Daily Review'],parse:['Vận hành parse tự động hằng ngày','Daily Auto-Parse Operations'],point:['Doanh thu điểm bán','Point revenue']};
+const visible=l=>l.filter({visible:true});const button=(p,name)=>visible(p.getByRole('button',{name,exact:true}));
+async function setup(page,lang,width,mode='data',readonly=false){const context=await browser.newContext({viewport:{width,height:1000}});await context.addInitScript(lang=>{if(!sessionStorage.getItem('init')){localStorage.setItem('app-language',lang);sessionStorage.setItem('init','1')}},lang);await context.route('**/*',async route=>{const url=route.request().url();if(url.startsWith(origin+'/mock/')){unexpected.push(url);return route.abort()}if(url.startsWith(origin+'/'))return route.continue();if(url.startsWith('https://fonts.googleapis.com/'))return route.fulfill({body:'',contentType:'text/css'});unexpected.push(url);return route.abort()});const p=await context.newPage();p.setDefaultTimeout(7000);p.on('pageerror',e=>errors.push(e.message));await p.goto(`${origin}/?page=${page}&fixture=${mode}&period=2026-04&scope=controlled_ledger&readonly=${readonly?1:0}`);await p.getByRole('heading',{name:titles[page][lang==='en'?1:0],exact:true}).waitFor();return{p,context};}
+for(const lang of ['vi','en'])for(const width of [390,1440])for(const page of Object.keys(titles))test(`${page} ${lang} ${width}: actual page, switch/reload and states`,async()=>{const{p,context}=await setup(page,lang,width);try{
+ await p.waitForTimeout(200);
+ if(page==='dashboard'){await p.getByRole('tab',{name:lang==='en'?'By customer':'Theo customer',exact:true}).click();await p.getByRole('cell').filter({hasText:'Khách hàng giữ nguyên 0'}).first().waitFor();assert.ok((await p.locator('body').innerText()).includes('286.000'));await p.getByRole('tab',{name:lang==='en'?'By channel':'Theo kênh',exact:true}).click();await p.getByText(lang==='en'?'Dealer':'Đại lý',{exact:true}).first().waitFor();}
+ if(page==='source'){await button(p,lang==='en'?'Edit':'Sửa').first().click();await p.getByRole('dialog').waitFor();await p.locator('#quantity').fill('3');await p.locator('#audit-note').fill('Lý do giữ nguyên $&');await button(p,lang==='en'?'Save & record log':'Lưu & ghi log').click();await p.getByRole('dialog').waitFor({state:'hidden'});const calls=await p.evaluate(()=>window.__fixtureCalls);const edit=calls.find(c=>c.rpc==='edit_revenue_ledger_line');assert.ok(edit);assert.ok(JSON.stringify(edit).includes('Lý do giữ nguyên $&'));}
+ if(page==='parse'){await visible(p.getByRole('button').filter({hasText:lang==='en'?'Details':'Chi tiết'})).first().click();await p.getByRole('dialog').waitFor();await p.getByRole('dialog').getByText('286.000',{exact:false}).waitFor();await p.keyboard.press('Escape');}
+ if(page==='point'){if(width===390)await button(p,lang==='en'?'Open & edit':'Mở & sửa').click();const panel=width===390?p.getByRole('dialog'):p.locator('.pr-desktop-editor');await panel.locator('input[id^="point-report-edit-reason"]').fill('Cập nhật thực tế giữ nguyên');await panel.locator('input[id^="point-quantity"]').first().fill('12');const editLanguage=lang==='en'?'vi':'en';await p.evaluate(l=>document.querySelector('nav').querySelectorAll('button')[l==='vi'?0:1].click(),editLanguage);assert.equal(await panel.locator('input[id^="point-quantity"]').first().inputValue(),'12');await panel.getByRole('button',{name:editLanguage==='en'?'Save changes':'Lưu thay đổi',exact:true}).click();await button(p,lang.toUpperCase()).click();const call=await p.evaluate(()=>window.__fixtureCalls.find(c=>c.rpc==='save_kiosk_point_report_correction'));assert.equal(call.args.p_review_status,'reviewed');assert.equal(call.args.p_channel_rows[0].quantity,12);assert.equal(call.args.p_channel_rows[0].amount_vnd,168000);assert.equal(call.args.p_report_notes,'Ghi chú ca giữ nguyên');assert.equal(call.args.p_reason,'Cập nhật thực tế giữ nguyên');}
+ const other=lang==='en'?'vi':'en';await button(p,other.toUpperCase()).click();await p.getByRole('heading',{name:titles[page][other==='en'?1:0],exact:true}).waitFor();await p.reload();await p.getByRole('heading',{name:titles[page][other==='en'?1:0],exact:true}).waitFor();await p.screenshot({path:`${out}/${page}-${lang}-${width}.png`,fullPage:true});cases.push({page,lang,width,state:'data/switch/reload',passed:true});
+ }finally{await context.close()}
+ for(const mode of ['empty','loading','error']){const{p,context}=await setup(page,lang,width,mode);try{
+ async function assertState(language){const body=await p.locator('body').innerText();
+ if(mode==='loading'){
+  if(page==='source')await p.getByText(language==='en'?'Loading…':'Đang tải…',{exact:true}).waitFor();
+  else if(page==='parse')await visible(p.getByText(language==='en'?'Loading logs...':'Đang tải log...',{exact:true})).waitFor();
+  else assert.ok(await p.locator('.animate-spin,.animate-pulse').count()>0);
+ }else{
+  const messages={dashboard:mode==='error'?['Không đọc được revenue ledger. Kiểm tra migration/database quyền truy cập.','Unable to read the revenue ledger. Check migrations/database access permissions.']:['Chưa có dữ liệu doanh thu cho kỳ này.','No revenue data for this period.'],daily:mode==='error'?['Không tải được revenue drafts.','Unable to load revenue drafts.']:['Không có draft cần kiểm tra cho bộ lọc này.','No drafts to review for these filters.'],parse:['Chưa có log parse tự động hằng ngày.','No daily automatic parse logs yet.'],point:mode==='error'?['Không tải được báo cáo.','Unable to load reports.']:['Chưa có báo cáo trong ngày này.','No reports for this date.']};
+  if(page==='source'){if(mode==='error')await p.getByText(language==='en'?'Unable to read the revenue ledger.':'Không đọc được revenue ledger.',{exact:true}).waitFor();assert.equal(await p.locator('tbody tr').count(),0);assert.equal(await button(p,language==='en'?'Edit':'Sửa').count(),0)}
+  else await visible(p.getByText(messages[page][language==='en'?1:0],{exact:page!=='point'})).first().waitFor();
+ }
+ }
+ await assertState(lang);const other=lang==='en'?'vi':'en';await button(p,other.toUpperCase()).click();await assertState(other);cases.push({page,lang,width,state:mode,passed:true});
+ }finally{await context.close()}}
+
+});
+test.after(async()=>{await browser.close();await fs.writeFile(`${out}/browser-results.json`,JSON.stringify({cases,errors,unexpected},null,2));assert.deepEqual(errors,[]);assert.deepEqual(unexpected,[])});

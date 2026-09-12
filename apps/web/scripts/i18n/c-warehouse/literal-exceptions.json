@@ -1,0 +1,327 @@
+[
+  {
+    "file": "pages/LowStock.tsx",
+    "value": "border-destructive/50 text-destructive bg-destructive/10",
+    "reason": "Existing critical urgency CSS tokens, not displayed text."
+  },
+  {
+    "file": "pages/LowStock.tsx",
+    "value": "border-warning/50 text-warning bg-warning/10",
+    "reason": "Existing high urgency CSS tokens, not displayed text."
+  },
+  {
+    "file": "pages/LowStock.tsx",
+    "value": "border-primary/50 text-primary bg-primary/10",
+    "reason": "Existing medium urgency CSS tokens, not displayed text."
+  },
+  {
+    "file": "pages/TanTaoWarehouse.tsx",
+    "value": "Bánh mì tươi",
+    "reason": "Canonical fresh-bread product name in the approved SKU list; retained for business identity."
+  },
+  {
+    "file": "pages/TanTaoWarehouse.tsx",
+    "value": "Bánh mì đông lạnh",
+    "reason": "Canonical frozen-bread product name in the approved SKU list; retained for business identity."
+  },
+  {
+    "file": "pages/TanTaoWarehouse.tsx",
+    "value": "hộp",
+    "reason": "Canonical box unit stored on product/item records and used in quantity display and writes."
+  },
+  {
+    "file": "pages/TanTaoWarehouse.tsx",
+    "value": "Em chưa nhận diện được nghiệp vụ. Anh có thể khai báo tồn đầu, đặt Tuyết Anh, xác nhận đã nhận, hoặc nhập đơn Đặt/Đổi/Bù.",
+    "reason": "Fixed unrecognized-command message key held in chat state; c(message.copyKey) translates at render."
+  },
+  {
+    "file": "pages/TanTaoWarehouse.tsx",
+    "value": "Chọn mặt hàng trong form Ghi nhận kiểm kê vật lý, nhập số lượng thực tế và lý do/ghi chú. Để tránh sai SKU và thiếu lý do, hệ thống không ghi kiểm kê vật lý qua khung chat.",
+    "reason": "Fixed stock-count guidance key held in chat state; c(message.copyKey) translates at render."
+  },
+  {
+    "file": "pages/TanTaoWarehouse.tsx",
+    "value": "Tồn đầu BMQ-001 350 que",
+    "reason": "Clickable example feeds the Vietnamese command parser verbatim (opening stock)."
+  },
+  {
+    "file": "pages/TanTaoWarehouse.tsx",
+    "value": "Đặt Tuyết Anh 2480",
+    "reason": "Clickable supplier-order example feeds the Vietnamese command parser verbatim."
+  },
+  {
+    "file": "pages/TanTaoWarehouse.tsx",
+    "value": "Đã nhận đủ 2480 que",
+    "reason": "Clickable receipt example feeds the Vietnamese command parser verbatim."
+  },
+  {
+    "file": "pages/TanTaoWarehouse.tsx",
+    "value": "Anh Thanh đặt 780 đổi 16 bù 101",
+    "reason": "Clickable order/exchange/makeup example feeds the Vietnamese command parser verbatim."
+  },
+  {
+    "file": "pages/TanTaoWarehouse.tsx",
+    "value": "que",
+    "reason": "Canonical bread-stick quantity unit, retained consistently with stock payloads."
+  },
+  {
+    "file": "pages/TanTaoWarehouse.tsx",
+    "value": "ATP",
+    "reason": "Stable available-to-promise business acronym used by this workflow."
+  },
+  {
+    "file": "pages/TanTaoWarehouse.tsx",
+    "value": "kg",
+    "reason": "Canonical kilogram unit used for weight conversion, not a translated UI label."
+  },
+  {
+    "file": "pages/TanTaoWarehouse.tsx",
+    "value": "BMQ Agent",
+    "reason": "Product/assistant proper name, including its image alternative text."
+  },
+  {
+    "file": "pages/TanTaoWarehouse.tsx",
+    "value": "",
+    "reason": "Decorative image has intentionally empty alternative text."
+  },
+  {
+    "file": "pages/WarehouseDispatch.tsx",
+    "value": "Xử lý giao thiếu từ ledger: xác nhận số xuất thực tế/billable theo vận hành.",
+    "reason": "Default business note persisted in dispatch and confirmation records; must remain verbatim."
+  },
+  {
+    "file": "pages/WarehouseDispatch.tsx",
+    "value": "Xác nhận số xuất thực tế từ phiếu xuất kho",
+    "reason": "Fallback audit note sent to confirm_po_dispatch_revenue; must remain verbatim."
+  },
+  {
+    "file": "pages/WarehouseDispatch.tsx",
+    "value": "Xuất kho",
+    "reason": "Template prefix of the inventory movement audit note, persisted with dispatch number."
+  },
+  {
+    "file": "pages/WarehouseDispatch.tsx",
+    "value": "dd/MM/yyyy HH:mm",
+    "reason": "Vietnam date/time formatting pattern, intentionally stable in both languages."
+  },
+  {
+    "file": "pages/StockReport.tsx",
+    "value": "MMM yyyy",
+    "reason": "Existing Vietnamese report month formatting pattern, intentionally unchanged."
+  },
+  {
+    "file": "components/dashboard/InventoryTable.tsx",
+    "value": "In Stock",
+    "reason": "Original stock classifier source label retained; renderer selects localized text from the unchanged variant."
+  },
+  {
+    "file": "components/dialogs/AddInventoryDialog.tsx",
+    "value": "Item name is required",
+    "reason": "Zod name-required validation key; InventoryFormMessage resolves it reactively at render."
+  },
+  {
+    "file": "components/dialogs/AddInventoryDialog.tsx",
+    "value": "Name is too long",
+    "reason": "Zod name-length validation key; InventoryFormMessage resolves it reactively at render."
+  },
+  {
+    "file": "components/dialogs/AddInventoryDialog.tsx",
+    "value": "Category is required",
+    "reason": "Zod category validation key; InventoryFormMessage resolves it reactively at render."
+  },
+  {
+    "file": "components/dialogs/AddInventoryDialog.tsx",
+    "value": "Stock cannot be negative",
+    "reason": "Zod stock-minimum validation key; InventoryFormMessage resolves it reactively at render."
+  },
+  {
+    "file": "components/dialogs/AddInventoryDialog.tsx",
+    "value": "Unit is required",
+    "reason": "Zod unit validation key; InventoryFormMessage resolves it reactively at render."
+  },
+  {
+    "file": "components/dialogs/AddInventoryDialog.tsx",
+    "value": "Min stock cannot be negative",
+    "reason": "Zod minimum-stock validation key; InventoryFormMessage resolves it reactively at render."
+  },
+  {
+    "file": "components/dialogs/AddInventoryDialog.tsx",
+    "value": "Error adding item:",
+    "reason": "Developer console diagnostic prefix; never rendered in the application UI."
+  },
+  {
+    "file": "components/dialogs/EditInventoryDialog.tsx",
+    "value": "Nguyên liệu",
+    "reason": "Persisted material category option value; only its rendered option label is translated."
+  },
+  {
+    "file": "components/dialogs/EditInventoryDialog.tsx",
+    "value": "Bao bì",
+    "reason": "Persisted packaging category option value; only its rendered option label is translated."
+  },
+  {
+    "file": "components/dialogs/EditInventoryDialog.tsx",
+    "value": "Phụ gia",
+    "reason": "Persisted additive category option value; only its rendered option label is translated."
+  },
+  {
+    "file": "components/dialogs/EditInventoryDialog.tsx",
+    "value": "Gia vị",
+    "reason": "Persisted seasoning category option value; only its rendered option label is translated."
+  },
+  {
+    "file": "components/dialogs/EditInventoryDialog.tsx",
+    "value": "Thực phẩm",
+    "reason": "Persisted food category option value; only its rendered option label is translated."
+  },
+  {
+    "file": "components/dialogs/EditInventoryDialog.tsx",
+    "value": "Đồ uống",
+    "reason": "Persisted beverage category option value; only its rendered option label is translated."
+  },
+  {
+    "file": "components/dialogs/EditInventoryDialog.tsx",
+    "value": "Khác",
+    "reason": "Persisted other-category option value; only its rendered option label is translated."
+  },
+  {
+    "file": "components/dialogs/EditInventoryDialog.tsx",
+    "value": "lít",
+    "reason": "Canonical litre unit value; preserved for inventory updates and stock display."
+  },
+  {
+    "file": "components/dialogs/EditInventoryDialog.tsx",
+    "value": "cái",
+    "reason": "Canonical piece unit value; preserved for inventory updates and stock display."
+  },
+  {
+    "file": "components/dialogs/EditInventoryDialog.tsx",
+    "value": "hộp",
+    "reason": "Canonical box unit stored on product/item records and used in quantity display and writes."
+  },
+  {
+    "file": "components/dialogs/EditInventoryDialog.tsx",
+    "value": "thùng",
+    "reason": "Canonical carton unit value; preserved for inventory updates and stock display."
+  },
+  {
+    "file": "components/dialogs/EditInventoryDialog.tsx",
+    "value": "gói",
+    "reason": "Canonical packet unit value; preserved for inventory updates and stock display."
+  },
+  {
+    "file": "components/dialogs/EditInventoryDialog.tsx",
+    "value": "túi",
+    "reason": "Canonical bag unit value; preserved for inventory updates and stock display."
+  },
+  {
+    "file": "components/dialogs/EditInventoryDialog.tsx",
+    "value": "Error updating item:",
+    "reason": "Developer console diagnostic prefix; never rendered in the application UI."
+  },
+  {
+    "file": "components/inventory/ExportInventoryButton.tsx",
+    "value": "Min Stock",
+    "reason": "XLSX header required to remain byte-for-byte unchanged; not application UI."
+  },
+  {
+    "file": "components/inventory/ExportInventoryButton.tsx",
+    "value": "Export error:",
+    "reason": "Developer console diagnostic prefix; never rendered in the application UI."
+  },
+  {
+    "file": "pages/kitchen-inventory/DailyLedgerTab.tsx",
+    "value": "Vui lòng chọn item từ danh mục chuẩn.",
+    "reason": "Fixed missing-item validation key held in state; c(formError) translates at render."
+  },
+  {
+    "file": "pages/kitchen-inventory/DailyLedgerTab.tsx",
+    "value": "Ngày ghi sổ phải nằm trong tháng đang xem để tránh nhập nhầm kỳ kế toán.",
+    "reason": "Fixed accounting-period validation key held in state; c(formError) translates at render."
+  },
+  {
+    "file": "pages/kitchen-inventory/DailyLedgerTab.tsx",
+    "value": "Số lượng không hợp lệ.",
+    "reason": "Fixed invalid-quantity validation key held in state; c(formError) translates at render."
+  },
+  {
+    "file": "pages/kitchen-inventory/DailyLedgerTab.tsx",
+    "value": "Kiểm kê cuối không được âm; nhập 0 nếu hết tồn.",
+    "reason": "Fixed negative-count validation key held in state; c(formError) translates at render."
+  },
+  {
+    "file": "pages/kitchen-inventory/DailyLedgerTab.tsx",
+    "value": "Điều chỉnh phải khác 0.",
+    "reason": "Fixed zero-adjustment validation key held in state; c(formError) translates at render."
+  },
+  {
+    "file": "pages/kitchen-inventory/DailyLedgerTab.tsx",
+    "value": "Số lượng phải lớn hơn 0.",
+    "reason": "Fixed positive-quantity validation key held in state; c(formError) translates at render."
+  },
+  {
+    "file": "pages/kitchen-inventory/DailyLedgerTab.tsx",
+    "value": "Điều chỉnh bắt buộc có ghi chú lý do.",
+    "reason": "Fixed adjustment-note validation key held in state; c(formError) translates at render."
+  },
+  {
+    "file": "pages/kitchen-inventory/ImportReviewTab.tsx",
+    "value": "01_IMPORT_REVIEW",
+    "reason": "Canonical accounting workbook worksheet identifier referenced by the import protocol."
+  },
+  {
+    "file": "pages/kitchen-inventory/ImportReviewTab.tsx",
+    "value": "APPROVE",
+    "reason": "Canonical accounting approval decision; user requires stored status/decision values verbatim."
+  },
+  {
+    "file": "pages/kitchen-inventory/ImportReviewTab.tsx",
+    "value": "REVIEW",
+    "reason": "Canonical accounting review decision; user requires stored status/decision values verbatim."
+  },
+  {
+    "file": "pages/kitchen-inventory/ImportReviewTab.tsx",
+    "value": "REJECT",
+    "reason": "Canonical accounting rejection decision; user requires stored status/decision values verbatim."
+  },
+  {
+    "file": "pages/LowStock.tsx",
+    "value": "critical",
+    "reason": "Canonical urgency classifier key; the badge translates only at render."
+  },
+  {
+    "file": "pages/LowStock.tsx",
+    "value": "high",
+    "reason": "Canonical high-urgency classifier key; the badge translates only at render."
+  },
+  {
+    "file": "pages/LowStock.tsx",
+    "value": "medium",
+    "reason": "Canonical medium-urgency classifier key; the badge translates only at render."
+  },
+  {
+    "file": "pages/StockReport.tsx",
+    "value": "raw_material",
+    "reason": "Canonical SKU type fallback used as a lookup key for existing colors and localized labels."
+  },
+  {
+    "file": "components/dashboard/InventoryTable.tsx",
+    "value": "Critical",
+    "reason": "Original critical stock classifier label retained; renderer selects localized text by variant."
+  },
+  {
+    "file": "components/dashboard/InventoryTable.tsx",
+    "value": "Low",
+    "reason": "Original low-stock classifier label retained; renderer selects localized text by variant."
+  },
+  {
+    "file": "components/dialogs/AddInventoryDialog.tsx",
+    "value": "0",
+    "reason": "Locale-neutral numeric input placeholder; not language copy."
+  },
+  {
+    "file": "pages/kitchen-inventory/MonthlyCloseTab.tsx",
+    "value": "DRAFT",
+    "reason": "Canonical monthly-close status value preserved as explicitly required."
+  }
+]

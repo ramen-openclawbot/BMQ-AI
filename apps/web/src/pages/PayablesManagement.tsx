@@ -35,6 +35,9 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { payables } from "@/i18n/payables";
+import { formatText } from "@/i18n/format";
 
 type PayableStatusFilter = "all" | "unpaid" | "partial" | "paid" | "overpaid";
 type ApprovalStatusFilter = "all" | "pending" | "approved" | "rejected";
@@ -55,6 +58,11 @@ const normalizeSearch = (value: string | null | undefined) =>
 const formatCurrency = (amount: number) =>
   `${new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 }).format(amount)} đ`;
 
+const errorMessage = (error: unknown) =>
+  error && typeof error === "object" && "message" in error && typeof error.message === "string"
+    ? error.message
+    : typeof error === "string" ? error : "";
+
 const getRequestCode = (paymentRequest: PaymentRequestWithSupplier) =>
   paymentRequest.request_number || paymentRequest.title || `CN-${paymentRequest.id.slice(0, 8).toUpperCase()}`;
 
@@ -69,23 +77,23 @@ const getPayableSource = (paymentRequest: PaymentRequestWithSupplier): PayableSo
   return "manual";
 };
 
-const getPaymentStatusLabel = (paymentRequest: PaymentRequestWithSupplier) => {
-  if (paymentRequest.payment_status === "paid") return "Đã thanh toán";
-  if (paymentRequest.payment_status === "partial") return "Thanh toán một phần";
-  if (paymentRequest.payment_status === "overpaid") return "Thanh toán dư";
-  return "Chưa thanh toán";
+const getPaymentStatusLabel = (copy: typeof payables.vi, paymentRequest: PaymentRequestWithSupplier) => {
+  if (paymentRequest.payment_status === "paid") return copy.paid;
+  if (paymentRequest.payment_status === "partial") return copy.partial;
+  if (paymentRequest.payment_status === "overpaid") return copy.overpaid;
+  return copy.unpaid;
 };
 
-const getApprovalStatusLabel = (status: PaymentRequestWithSupplier["status"]) => {
-  if (status === "approved") return "Đã duyệt";
-  if (status === "rejected") return "Từ chối";
-  return "Chờ duyệt";
+const getApprovalStatusLabel = (copy: typeof payables.vi, status: PaymentRequestWithSupplier["status"]) => {
+  if (status === "approved") return copy.approved;
+  if (status === "rejected") return copy.rejected;
+  return copy.pending;
 };
 
-const getPaymentMethodLabel = (paymentRequest: PaymentRequestWithSupplier) => {
+const getPaymentMethodLabel = (copy: typeof payables.vi, paymentRequest: PaymentRequestWithSupplier) => {
   if (paymentRequest.payment_method === "bank_transfer") return "UNC";
-  if (paymentRequest.payment_method === "cash") return "Tiền mặt";
-  return "Chưa chọn";
+  if (paymentRequest.payment_method === "cash") return copy.cash;
+  return copy.notSelected;
 };
 
 const getProductNames = (paymentRequest: PaymentRequestWithSupplier) => {
@@ -98,6 +106,8 @@ const getProductNames = (paymentRequest: PaymentRequestWithSupplier) => {
 };
 
 const PayablesManagement = () => {
+  const { language } = useLanguage();
+  const copy = payables[language];
   const { canEditModule } = useAuth();
   const canEditPaymentRequests = canEditModule("payment_requests");
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
@@ -200,30 +210,30 @@ const PayablesManagement = () => {
 
   const statCards = [
     {
-      label: "Tổng công nợ phải trả",
+      label: copy.totalPayables,
       value: formatCurrency(stats.totalAmount),
-      helper: `${stats.count} phiếu`,
+      helper: formatText(copy.documents, { count: stats.count }),
       icon: Wallet,
       tone: "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-200",
     },
     {
-      label: "Còn phải thanh toán",
+      label: copy.outstanding,
       value: formatCurrency(stats.outstandingAmount),
-      helper: `${stats.outstandingCount} phiếu chưa tất toán`,
+      helper: formatText(copy.unsettledDocuments, { count: stats.outstandingCount }),
       icon: Clock3,
       tone: "border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-900/50 dark:bg-rose-950/20 dark:text-rose-200",
     },
     {
-      label: "Đã thanh toán",
+      label: copy.paid,
       value: formatCurrency(stats.paidAmount),
-      helper: `${stats.paidCount} phiếu`,
+      helper: formatText(copy.documents, { count: stats.paidCount }),
       icon: CheckCircle2,
       tone: "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-200",
     },
     {
-      label: "Công nợ từ phiếu nhập kho",
+      label: copy.warehousePayables,
       value: formatCurrency(stats.warehouseAmount),
-      helper: `${stats.warehouseCount} phiếu có link nhập kho`,
+      helper: formatText(copy.warehouseDocuments, { count: stats.warehouseCount }),
       icon: PackageCheck,
       tone: "border-slate-200 bg-white text-slate-800 dark:border-slate-800 dark:bg-card dark:text-slate-100",
     },
@@ -231,22 +241,22 @@ const PayablesManagement = () => {
 
   const handleMarkPaid = async (paymentRequest: PaymentRequestWithSupplier) => {
     if (!canEditPaymentRequests) {
-      toast.error("Anh không có quyền cập nhật thanh toán công nợ phải trả");
+      toast.error(copy.noPermission);
       return;
     }
 
     if (!hasOutstandingPayment(paymentRequest)) {
-      toast.info("Phiếu này không còn số tiền cần thanh toán");
+      toast.info(copy.nothingToPay);
       return;
     }
 
     try {
       await bulkMarkPaid.mutateAsync([paymentRequest.id]);
-      toast.success("Đã ghi nhận thanh toán công nợ");
+      toast.success(copy.paymentRecorded);
     } catch (markPaidError) {
-      const message = markPaidError instanceof Error ? markPaidError.message : String(markPaidError || "");
-      toast.error("Không cập nhật được công nợ", {
-        description: message || "Vui lòng thử lại.",
+      const message = errorMessage(markPaidError);
+      toast.error(copy.updateError, {
+        description: message || copy.retry,
       });
     }
   };
@@ -257,7 +267,7 @@ const PayablesManagement = () => {
     if (source === "invoice") {
       return (
         <div className="space-y-1 text-xs">
-          <Badge className="bg-blue-600 text-white">Từ hóa đơn</Badge>
+          <Badge className="bg-blue-600 text-white">{copy.fromInvoice}</Badge>
           <div className="font-mono text-muted-foreground">
             {paymentRequest.invoices?.invoice_number || paymentRequest.invoice_id}
           </div>
@@ -271,7 +281,7 @@ const PayablesManagement = () => {
     if (source === "purchase_order") {
       return (
         <div className="space-y-1 text-xs">
-          <Badge className="bg-amber-600 text-white">Từ PO</Badge>
+          <Badge className="bg-amber-600 text-white">{copy.fromPo}</Badge>
           <div className="font-mono text-muted-foreground">
             {paymentRequest.purchase_orders?.po_number || paymentRequest.purchase_order_id}
           </div>
@@ -280,18 +290,18 @@ const PayablesManagement = () => {
     }
 
     if (source === "ocr_scan") {
-      return <Badge className="bg-violet-600 text-white">OCR/scan</Badge>;
+      return <Badge className="bg-violet-600 text-white">{copy.ocr}</Badge>;
     }
 
     if (source === "manual") {
-      return <Badge variant="outline">Thủ công</Badge>;
+      return <Badge variant="outline">{copy.manual}</Badge>;
     }
 
     return (
       <div className="space-y-1 text-xs">
         <Badge className="bg-emerald-600 text-white">
           <PackageCheck className="mr-1 h-3 w-3" />
-          Từ phiếu nhập kho
+          {copy.fromReceipt}
         </Badge>
         <div className="font-mono text-muted-foreground">
           {paymentRequest.goods_receipts?.receipt_number || paymentRequest.goods_receipt_id}
@@ -306,31 +316,31 @@ const PayablesManagement = () => {
   const renderPaymentBadge = (paymentRequest: PaymentRequestWithSupplier) => {
     const remaining = getRemainingPaymentAmount(paymentRequest);
     if (paymentRequest.payment_status === "paid" || remaining <= 0) {
-      return <Badge className="bg-emerald-600 text-white">Đã thanh toán</Badge>;
+      return <Badge className="bg-emerald-600 text-white">{copy.paid}</Badge>;
     }
     if (paymentRequest.payment_status === "partial") {
-      return <Badge className="bg-amber-500 text-white">Còn {formatCurrency(remaining)}</Badge>;
+      return <Badge className="bg-amber-500 text-white">{formatText(copy.remainingAmount, { amount: formatCurrency(remaining) })}</Badge>;
     }
-    return <Badge variant="destructive">Chưa thanh toán</Badge>;
+    return <Badge variant="destructive">{copy.unpaid}</Badge>;
   };
 
   if (isError) {
     return (
-      <div className="rounded-xl border border-destructive/40 bg-destructive/10 p-5 text-sm text-destructive">
-        Không đọc được dữ liệu công nợ phải trả: {error instanceof Error ? error.message : "Lỗi không xác định"}
+      <div className="rounded-xl border border-destructive/40 bg-destructive/10 p-5 text-sm text-destructive" data-staff-i18n="payables-v1">
+        {formatText(copy.loadError, { message: errorMessage(error) || copy.unknownError })}
       </div>
     );
   }
 
   return (
-    <div className="space-y-5 bg-slate-50/40 pb-28 dark:bg-background lg:pb-20">
+    <div className="space-y-5 bg-slate-50/40 pb-28 dark:bg-background lg:pb-20" data-staff-i18n="payables-v1">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="space-y-2">
           <h1 className="text-[28px] font-semibold leading-tight tracking-normal text-slate-950 dark:text-slate-50">
-            Quản lý công nợ phải trả
+            {copy.title}
           </h1>
           <p className="max-w-3xl text-sm text-muted-foreground">
-            Theo dõi công nợ nhà cung cấp phát sinh từ phiếu nhập kho, PO và các đề nghị chi liên quan. Trang này tách riêng khỏi Duyệt chi để kế toán xem số phải trả và trạng thái thanh toán nhanh hơn.
+            {copy.description}
           </p>
         </div>
         <Button
@@ -339,7 +349,7 @@ const PayablesManagement = () => {
           onClick={() => refetch()}
         >
           <RefreshCw className={cn("mr-2 h-4 w-4", isLoading && "animate-spin")} />
-          Làm mới
+          {copy.refresh}
         </Button>
       </div>
 
@@ -371,47 +381,47 @@ const PayablesManagement = () => {
               <Input
                 value={searchTerm}
                 onChange={(event) => handleSearchChange(event.target.value)}
-                placeholder="Tìm nhà cung cấp, mã công nợ, phiếu nhập kho, PO"
+                placeholder={copy.search}
                 className="h-11 rounded-md border-slate-200 bg-white pl-10 text-sm shadow-none dark:border-slate-800 dark:bg-background"
               />
             </div>
 
             <Select value={paymentStatusFilter} onValueChange={(value) => handlePaymentStatusFilterChange(value as PayableStatusFilter)}>
               <SelectTrigger className="h-11 rounded-md border-slate-200 bg-white shadow-none dark:border-slate-800 dark:bg-background">
-                <SelectValue placeholder="Thanh toán" />
+                <SelectValue placeholder={copy.payment} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Tất cả thanh toán</SelectItem>
-                <SelectItem value="unpaid">Chưa thanh toán</SelectItem>
-                <SelectItem value="partial">Thanh toán một phần</SelectItem>
-                <SelectItem value="paid">Đã thanh toán</SelectItem>
-                <SelectItem value="overpaid">Thanh toán dư</SelectItem>
+                <SelectItem value="all">{copy.allPayments}</SelectItem>
+                <SelectItem value="unpaid">{copy.unpaid}</SelectItem>
+                <SelectItem value="partial">{copy.partial}</SelectItem>
+                <SelectItem value="paid">{copy.paid}</SelectItem>
+                <SelectItem value="overpaid">{copy.overpaid}</SelectItem>
               </SelectContent>
             </Select>
 
             <Select value={approvalStatusFilter} onValueChange={(value) => handleApprovalStatusFilterChange(value as ApprovalStatusFilter)}>
               <SelectTrigger className="h-11 rounded-md border-slate-200 bg-white shadow-none dark:border-slate-800 dark:bg-background">
-                <SelectValue placeholder="Duyệt chi" />
+                <SelectValue placeholder={copy.approval} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Tất cả duyệt chi</SelectItem>
-                <SelectItem value="pending">Chờ duyệt</SelectItem>
-                <SelectItem value="approved">Đã duyệt</SelectItem>
-                <SelectItem value="rejected">Từ chối</SelectItem>
+                <SelectItem value="all">{copy.allApprovals}</SelectItem>
+                <SelectItem value="pending">{copy.pending}</SelectItem>
+                <SelectItem value="approved">{copy.approved}</SelectItem>
+                <SelectItem value="rejected">{copy.rejected}</SelectItem>
               </SelectContent>
             </Select>
 
             <Select value={sourceFilter} onValueChange={(value) => handleSourceFilterChange(value as SourceFilter)}>
               <SelectTrigger className="h-11 rounded-md border-slate-200 bg-white shadow-none dark:border-slate-800 dark:bg-background">
-                <SelectValue placeholder="Nguồn công nợ" />
+                <SelectValue placeholder={copy.payableSource} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Tất cả nguồn</SelectItem>
-                <SelectItem value="warehouse_receipt">Từ phiếu nhập kho</SelectItem>
-                <SelectItem value="invoice">Từ hóa đơn</SelectItem>
-                <SelectItem value="purchase_order">Từ PO</SelectItem>
-                <SelectItem value="ocr_scan">OCR/scan</SelectItem>
-                <SelectItem value="manual">Thủ công</SelectItem>
+                <SelectItem value="all">{copy.allSources}</SelectItem>
+                <SelectItem value="warehouse_receipt">{copy.fromReceipt}</SelectItem>
+                <SelectItem value="invoice">{copy.fromInvoice}</SelectItem>
+                <SelectItem value="purchase_order">{copy.fromPo}</SelectItem>
+                <SelectItem value="ocr_scan">{copy.ocr}</SelectItem>
+                <SelectItem value="manual">{copy.manual}</SelectItem>
               </SelectContent>
             </Select>
 
@@ -425,14 +435,14 @@ const PayablesManagement = () => {
             <Table>
               <TableHeader>
                 <TableRow className="bg-slate-50/80 dark:bg-slate-900/40">
-                  <TableHead className="min-w-[180px]">Mã công nợ</TableHead>
-                  <TableHead className="min-w-[220px]">Nhà cung cấp</TableHead>
-                  <TableHead className="min-w-[210px]">Nguồn</TableHead>
-                  <TableHead className="min-w-[140px] text-right">Tổng phải trả</TableHead>
-                  <TableHead className="min-w-[140px] text-right">Còn lại</TableHead>
-                  <TableHead className="min-w-[150px]">Trạng thái</TableHead>
-                  <TableHead className="min-w-[120px]">Phương thức</TableHead>
-                  <TableHead className="min-w-[160px] text-right">Thao tác</TableHead>
+                  <TableHead className="min-w-[180px]">{copy.code}</TableHead>
+                  <TableHead className="min-w-[220px]">{copy.supplier}</TableHead>
+                  <TableHead className="min-w-[210px]">{copy.source}</TableHead>
+                  <TableHead className="min-w-[140px] text-right">{copy.totalDue}</TableHead>
+                  <TableHead className="min-w-[140px] text-right">{copy.remaining}</TableHead>
+                  <TableHead className="min-w-[150px]">{copy.status}</TableHead>
+                  <TableHead className="min-w-[120px]">{copy.method}</TableHead>
+                  <TableHead className="min-w-[160px] text-right">{copy.actions}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -445,7 +455,7 @@ const PayablesManagement = () => {
                 ) : filteredPayables.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={8} className="h-32 text-center text-muted-foreground">
-                      Không có công nợ phải trả phù hợp bộ lọc hiện tại.
+                      {copy.empty}
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -469,7 +479,7 @@ const PayablesManagement = () => {
                           </div>
                         </TableCell>
                         <TableCell>
-                          <div className="font-medium text-foreground">{paymentRequest.suppliers?.name || "Chưa có nhà cung cấp"}</div>
+                          <div className="font-medium text-foreground">{paymentRequest.suppliers?.name || copy.noSupplier}</div>
                           <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">{paymentRequest.title}</div>
                           {productNames.length > 0 && (
                             <div className="mt-2 flex max-w-[260px] flex-wrap gap-1">
@@ -489,30 +499,30 @@ const PayablesManagement = () => {
                         <TableCell className="text-right tabular-nums">
                           <div className="font-semibold text-rose-600 dark:text-rose-300">{formatCurrency(remainingAmount)}</div>
                           {allocatedAmount > 0 && (
-                            <div className="text-xs text-muted-foreground">Đã trả {formatCurrency(allocatedAmount)}</div>
+                            <div className="text-xs text-muted-foreground">{formatText(copy.allocated, { amount: formatCurrency(allocatedAmount) })}</div>
                           )}
                         </TableCell>
                         <TableCell>
                           <div className="space-y-1.5">
                             {renderPaymentBadge(paymentRequest)}
                             <Badge variant="outline" className="block w-fit text-xs">
-                              {getApprovalStatusLabel(paymentRequest.status)}
+                              {getApprovalStatusLabel(copy, paymentRequest.status)}
                             </Badge>
                           </div>
                         </TableCell>
                         <TableCell>
-                          <div className="text-sm">{getPaymentMethodLabel(paymentRequest)}</div>
-                          <div className="mt-1 text-xs text-muted-foreground">{getPaymentStatusLabel(paymentRequest)}</div>
+                          <div className="text-sm">{getPaymentMethodLabel(copy, paymentRequest)}</div>
+                          <div className="mt-1 text-xs text-muted-foreground">{getPaymentStatusLabel(copy, paymentRequest)}</div>
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
                             <Button variant="outline" size="sm" onClick={() => setSelectedRequestId(paymentRequest.id)}>
                               <Eye className="mr-1 h-4 w-4" />
-                              Chi tiết
+                              {copy.details}
                             </Button>
                             {canEditPaymentRequests && hasOutstandingPayment(paymentRequest) && paymentRequest.status === "approved" && (
                               <Button size="sm" onClick={() => handleMarkPaid(paymentRequest)} disabled={bulkMarkPaid.isPending}>
-                                Đã trả
+                                {copy.markPaid}
                               </Button>
                             )}
                           </div>
@@ -527,7 +537,7 @@ const PayablesManagement = () => {
           {!isLoading && filteredPayables.length > 0 && (
             <div className="flex flex-col gap-3 border-t border-slate-200 px-4 py-3 text-sm text-muted-foreground dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                Hiển thị {pageStartIndex + 1}-{pageEndIndex} / {filteredPayables.length} phiếu · 20 dòng/trang
+                {formatText(copy.pageSummary, { start: pageStartIndex + 1, end: pageEndIndex, count: filteredPayables.length })}
               </div>
               <div className="flex items-center gap-2">
                 <Button
@@ -537,10 +547,10 @@ const PayablesManagement = () => {
                   onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
                   disabled={currentPageSafe <= 1}
                 >
-                  Trang trước
+                  {copy.previous}
                 </Button>
                 <span className="min-w-[92px] text-center text-xs font-medium text-foreground">
-                  Trang {currentPageSafe}/{totalPages}
+                  {formatText(copy.page, { page: currentPageSafe, total: totalPages })}
                 </span>
                 <Button
                   type="button"
@@ -549,7 +559,7 @@ const PayablesManagement = () => {
                   onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
                   disabled={currentPageSafe >= totalPages}
                 >
-                  Trang sau
+                  {copy.next}
                 </Button>
               </div>
             </div>

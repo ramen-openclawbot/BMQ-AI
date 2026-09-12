@@ -1,3 +1,5 @@
+import { paymentRequestPurchasing } from "@/i18n/paymentRequestPurchasing";
+import { usePurchasingCopy } from "@/i18n/purchasingCopy";
 import { useEffect, useState, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
@@ -107,6 +109,7 @@ type PaymentRequestsProps = {
 };
 
 const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) => {
+  const pc = usePurchasingCopy(paymentRequestPurchasing);
   const queryClient = useQueryClient();
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
   const [deletingRequestId, setDeletingRequestId] = useState<string | null>(null);
@@ -319,7 +322,7 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
           ))}
         </div>
         {remainingCount > 0 && (
-          <span className="text-xs text-slate-600 dark:text-slate-400">+{remainingCount} sản phẩm khác</span>
+          <span className="text-xs text-slate-600 dark:text-slate-400">+{remainingCount}  {pc.otherProducts}</span>
         )}
       </div>
     );
@@ -870,7 +873,7 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
             <CardContent className="space-y-3 p-4">
               <p className="font-semibold text-destructive">{language === "vi" ? "Không thể tải dữ liệu" : "Couldn't load data"}</p>
               <p className="break-words text-sm text-muted-foreground">
-                {error instanceof Error ? error.message : "Unknown error"}
+                {error instanceof Error ? error.message : pc.unknownError}
               </p>
               <Button variant="outline" className="h-11 w-full rounded-md" onClick={() => refetch()}>
                 {language === "vi" ? "Thử lại" : "Retry"}
@@ -1033,7 +1036,7 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
                 {language === "vi" ? "Không thể tải dữ liệu" : "Couldn't load data"}
               </p>
               <p className="text-sm text-muted-foreground break-words">
-                {error instanceof Error ? error.message : "Unknown error"}
+                {error instanceof Error ? error.message : pc.unknownError}
               </p>
               <div className="flex flex-col sm:flex-row gap-2">
                 <Button variant="outline" onClick={() => refetch()}>
@@ -1066,19 +1069,19 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
                       }}
                     />
                   </TableHead>
-                  <TableHead className="min-w-[130px] text-slate-700 dark:text-slate-300">Mã phiếu</TableHead>
+                  <TableHead className="min-w-[130px] text-slate-700 dark:text-slate-300">{pc.documentNumber}</TableHead>
                   <TableHead className="min-w-[130px] text-slate-700 dark:text-slate-300">
                     <span className="inline-flex items-center gap-1">
-                      Ngày <ArrowDown className="h-3.5 w-3.5" />
+                       {pc.date} <ArrowDown className="h-3.5 w-3.5" />
                     </span>
                   </TableHead>
                   <TableHead className="min-w-[220px] text-slate-700 dark:text-slate-300">{t.supplier}</TableHead>
                   <TableHead className="min-w-[300px] text-slate-700 dark:text-slate-300">
                     {language === "vi" ? "Tên sản phẩm duyệt chi" : "Payment request products"}
                   </TableHead>
-                  <TableHead className="min-w-[150px] text-right text-slate-700 dark:text-slate-300">Số tiền</TableHead>
+                  <TableHead className="min-w-[150px] text-right text-slate-700 dark:text-slate-300">{pc.amount}</TableHead>
                   <TableHead className="min-w-[140px] text-center text-slate-700 dark:text-slate-300">{t.status}</TableHead>
-                  <TableHead className="min-w-[160px] text-slate-700 dark:text-slate-300">Người tạo</TableHead>
+                  <TableHead className="min-w-[160px] text-slate-700 dark:text-slate-300">{pc.createdBy}</TableHead>
                   <TableHead className="w-16 text-center text-slate-700 dark:text-slate-300">{t.actions}</TableHead>
                 </TableRow>
               </TableHeader>

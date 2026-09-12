@@ -1,3 +1,5 @@
+import { usePeopleLabels } from "@/hooks/usePeopleLabels";
+import { usePeopleCopy } from "@/hooks/usePeopleCopy";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -84,43 +86,43 @@ function downloadCsv(filename: string, csv: string) {
 }
 
 export function PayrollExportPanel() {
+  const pc = usePeopleCopy();
+  const labels = usePeopleLabels();
   const { language } = useLanguage();
   const isVi = language === "vi";
 
   const copy = {
-    title: isVi ? "Kết xuất kế toán" : "Accounting export",
-    intro: isVi
-      ? "Mỗi payroll run sinh ra 3 dòng sổ cái / nhân viên: Nợ 6420, Có 3341 (net), Có 3388 (khấu trừ)."
-      : "Each payroll run produces 3 journal lines per employee: Dr 6420, Cr 3341 (net), Cr 3388 (withholdings).",
-    period: isVi ? "Kỳ lương" : "Payroll period",
-    selectPeriod: isVi ? "Chọn kỳ..." : "Select period...",
-    summaryTitle: isVi ? "Tổng hợp kỳ" : "Period summary",
-    journalTitle: isVi ? "Sổ nhật ký (draft)" : "Journal draft",
-    skuTitle: isVi ? "Nhân công / SKU trong kỳ" : "Labor / SKU in period",
-    download: isVi ? "Tải CSV" : "Download CSV",
-    employeeCount: isVi ? "Số NV" : "Employees",
-    totalGross: isVi ? "Tổng gross" : "Total gross",
-    totalNet: isVi ? "Tổng net" : "Total net",
-    totalWithholding: isVi ? "Khấu trừ" : "Withholdings",
-    totalBase: isVi ? "Cơ bản" : "Base",
-    totalLate: isVi ? "KT trễ" : "Late ded.",
-    totalAdj: isVi ? "Điều chỉnh" : "Adj.",
-    status: isVi ? "Trạng thái" : "Status",
-    range: isVi ? "Thời gian" : "Date range",
-    employeeCode: isVi ? "Mã NV" : "Emp code",
-    employeeName: isVi ? "Tên" : "Name",
-    department: isVi ? "Phòng ban" : "Department",
-    accountCode: isVi ? "Số TK" : "Account",
-    accountName: isVi ? "Tên TK" : "Account name",
-    entryType: isVi ? "Nợ/Có" : "Dr/Cr",
-    amount: isVi ? "Số tiền" : "Amount",
-    sku: isVi ? "SKU" : "SKU",
-    qty: isVi ? "SL" : "Qty",
-    cost: isVi ? "Chi phí" : "Cost",
-    perUnit: isVi ? "Đơn giá" : "Per unit",
-    reclass: isVi ? "Kết chuyển" : "Reclass",
-    noData: isVi ? "Chưa có dữ liệu cho kỳ này." : "No data for this period yet.",
-    chooseFirst: isVi ? "Chọn kỳ lương để xem dữ liệu." : "Select a payroll period to view data.",
+    title: pc("accountingExport2"),
+    intro: pc("eachPayrollRunProduces3JournalLines"),
+    period: pc("payrollPeriod"),
+    selectPeriod: pc("selectPeriod"),
+    summaryTitle: pc("periodSummary"),
+    journalTitle: pc("journalDraft"),
+    skuTitle: pc("laborSkuInPeriod"),
+    download: pc("downloadCsv"),
+    employeeCount: pc("employees"),
+    totalGross: pc("totalGross"),
+    totalNet: pc("totalNet"),
+    totalWithholding: pc("withholdings"),
+    totalBase: pc("base"),
+    totalLate: pc("lateDed"),
+    totalAdj: pc("adj"),
+    status: pc("status"),
+    range: pc("dateRange2"),
+    employeeCode: pc("empCode"),
+    employeeName: pc("name"),
+    department: pc("department2"),
+    accountCode: pc("account"),
+    accountName: pc("accountName"),
+    entryType: pc("drCr"),
+    amount: pc("amount"),
+    sku: pc("sku"),
+    qty: pc("qty"),
+    cost: pc("cost"),
+    perUnit: pc("perUnit"),
+    reclass: pc("reclass"),
+    noData: pc("noDataForThisPeriodYet"),
+    chooseFirst: pc("selectAPayrollPeriodToViewData"),
   };
 
   const [selectedPeriod, setSelectedPeriod] = useState<string>("");
@@ -260,7 +262,7 @@ export function PayrollExportPanel() {
               </Select>
             </div>
             {currentSummary && (
-              <Badge variant="outline">{currentSummary.status}</Badge>
+              <Badge variant="outline">{labels.status(currentSummary.status)}</Badge>
             )}
           </div>
         </CardContent>
@@ -309,7 +311,7 @@ export function PayrollExportPanel() {
                       {format(new Date(s.period_from), "dd/MM")} — {format(new Date(s.period_to), "dd/MM/yyyy")}
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline" className="text-xs">{s.status}</Badge>
+                      <Badge variant="outline" className="text-xs">{labels.status(s.status)}</Badge>
                     </TableCell>
                     <TableCell className="text-right">{s.employee_count}</TableCell>
                     <TableCell className="text-right">{money(s.total_base)}</TableCell>
@@ -373,7 +375,7 @@ export function PayrollExportPanel() {
                           variant={j.entry_type === "debit" ? "default" : "secondary"}
                           className="text-xs"
                         >
-                          {j.entry_type === "debit" ? (isVi ? "Nợ" : "Dr") : (isVi ? "Có" : "Cr")}
+                          {j.entry_type === "debit" ? (pc("dr")) : (pc("cr"))}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right font-semibold">{money(j.amount)}</TableCell>

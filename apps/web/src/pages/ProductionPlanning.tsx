@@ -1,3 +1,4 @@
+import { useProductionCopy } from "@/i18n/useProductionCopy";
  
 import { type MouseEvent, type ReactNode, useCallback, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -292,19 +293,22 @@ const ProductVisual = ({
   className?: string;
   gradientClassName: string;
   children?: ReactNode;
-}) => (
+}) => {
+  const c = useProductionCopy();
+  return (
   <div className={`relative overflow-hidden rounded-3xl border border-border/55 bg-card shadow-inner ${className}`}>
     {imageUrl ? (
       <img src={imageUrl} alt={productName} className="h-full w-full object-cover object-center" loading="lazy" />
     ) : (
       <div className={`flex h-full w-full flex-col items-center justify-center gap-1 bg-gradient-to-br ${gradientClassName} text-muted-foreground`}>
         <ImageIcon className="h-6 w-6" />
-        <span className="text-[10px] font-extrabold uppercase tracking-wide">Chưa có ảnh</span>
+        <span className="text-[10px] font-extrabold uppercase tracking-wide">{c.m0}</span>
       </div>
     )}
     {children}
   </div>
-);
+  );
+};
 
 const formatDateInputFromParts = (year: number, month: number, day: number) =>
   `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
@@ -386,6 +390,7 @@ const getProductionOrderDisplayStatus = (order: ProductionOrder, productionDateI
 };
 
 export default function ProductionPlanning() {
+  const c = useProductionCopy();
   const { language } = useLanguage();
   const { canEditModule, isOwner } = useAuth();
   const isVi = language === "vi";
@@ -646,7 +651,7 @@ export default function ProductionPlanning() {
       }
 
       if (!response.ok) {
-        throw new Error(result?.error || result?.message || result?.raw || rawText || "Không thể kiểm tra PO");
+        throw new Error(result?.error || result?.message || result?.raw || rawText || c.m1);
       }
 
       return { ...result, query };
@@ -1091,20 +1096,20 @@ export default function ProductionPlanning() {
     [canEditLocation]
   );
 
-  const q7PdfBlockerMessage = (result: Q7MaterialIssuePdfResult) => {
+  const q7PdfBlockerMessage = useCallback((result: Q7MaterialIssuePdfResult) => {
     const firstBlocker = result.blockers?.find((blocker) => blocker?.message || blocker?.status);
     const status = firstBlocker?.status || result.status || "";
     if (firstBlocker?.message) return firstBlocker.message;
     const messages: Record<string, string> = {
-      blocked_missing_finished_skus: "Thiếu SKU thành phẩm đã lưu trên dòng sản xuất.",
-      blocked_missing_formulations: "Thiếu BOM/công thức NVL cho SKU thành phẩm.",
-      blocked_missing_q7_mappings: "Thiếu mapping NVL đã duyệt sang Kho bếp Q7.",
-      blocked_non_q7_order: "Lệnh sản xuất không thuộc Xưởng Q7.",
-      blocked_posted_issue_changed: "Phiếu NVL đã chốt/post nhưng dữ liệu nguồn đã thay đổi.",
-      blocked_ineligible_status: "Trạng thái lệnh sản xuất chưa đủ điều kiện tạo Phiếu NVL.",
+      blocked_missing_finished_skus: c.m3,
+      blocked_missing_formulations: c.m4,
+      blocked_missing_q7_mappings: c.m5,
+      blocked_non_q7_order: c.m6,
+      blocked_posted_issue_changed: c.m7,
+      blocked_ineligible_status: c.m8,
     };
-    return messages[status] || result.error || "Không thể tạo Phiếu NVL.";
-  };
+    return messages[status] || result.error || c.m9;
+  }, [c]);
 
   const openQ7MaterialIssuePdf = useCallback(
     async (order: ProductionOrder, event?: MouseEvent<HTMLElement>) => {
@@ -1167,7 +1172,7 @@ export default function ProductionPlanning() {
         setMaterialIssuePdfOrderId(null);
       }
     },
-    [canGenerateQ7MaterialIssuePdf, isVi]
+    [canGenerateQ7MaterialIssuePdf, isVi, q7PdfBlockerMessage]
   );
 
   const handleSubmitCreate = async () => {
@@ -1230,7 +1235,7 @@ export default function ProductionPlanning() {
   const ordersEmpty = !loadingOrders && productionOrders.length === 0;
 
   return (
-    <div className="-m-4 min-h-screen space-y-5 bg-background p-4 text-foreground md:-m-6 md:p-6" data-stitch-production-planning="bmq-light-operations">
+    <div className="-m-4 min-h-screen space-y-5 bg-background p-4 text-foreground md:-m-6 md:p-6" data-production-i18n="c-production-v1" data-stitch-production-planning="bmq-light-operations">
       <div className="card-elevated rounded-[1.5rem] p-4 md:p-5" data-stitch-production-header="true">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div className="space-y-3">
@@ -1651,7 +1656,7 @@ export default function ProductionPlanning() {
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-mono text-lg font-black">{order.production_number}</span>
                         {getStatusBadge(getProductionOrderDisplayStatus(order, tvProductionDateIso))}
-                        {order.revenue_draft_id && <Badge variant="outline" className="text-blue-600">Duyệt DT</Badge>}
+                        {order.revenue_draft_id && <Badge variant="outline" className="text-blue-600">{c.m10}</Badge>}
                       </div>
                       <p className="mt-1 text-sm text-muted-foreground">
                         {order.po_number || "-"} · {order.customer_name || "-"}
@@ -1683,7 +1688,7 @@ export default function ProductionPlanning() {
                             onClick={(event) => openQ7MaterialIssuePdf(order, event)}
                           >
                             {pdfLoading ? <Loader2 className="mr-1 h-4 w-4 shrink-0 animate-spin" /> : <FileDown className="mr-1 h-4 w-4 shrink-0" />}
-                            <span className="truncate">Phiếu NVL</span>
+                            <span className="truncate">{c.m11}</span>
                           </Button>
                         )}
                       </div>

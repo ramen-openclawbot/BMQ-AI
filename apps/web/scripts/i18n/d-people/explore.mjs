@@ -1,0 +1,4 @@
+import fs from 'node:fs/promises';
+const {chromium}=await import('/home/ubuntu/bmq-payment-preview/node_modules/playwright/index.mjs');
+const b=await chromium.launch({executablePath:'/home/ubuntu/.cache/ms-playwright/chromium-1234/chrome-linux/chrome',args:['--no-sandbox']});
+for(const page of ['attendance','payroll','settings','users','system']){const c=await b.newContext();await c.addInitScript(()=>localStorage.setItem('app-language','en'));await c.route('**/*',r=>r.request().url().startsWith('http://127.0.0.1:4306/')?r.continue():r.abort());const p=await c.newPage();p.on('pageerror',e=>console.log(page,e.message));await p.goto('http://127.0.0.1:4306/'+page);await p.waitForTimeout(500);await fs.writeFile('/tmp/bmq-i18n-lanes/d-people/'+page+'-render.txt',await p.locator('body').innerText());await c.close();}await b.close();

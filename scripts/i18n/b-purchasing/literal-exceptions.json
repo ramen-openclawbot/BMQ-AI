@@ -1,0 +1,590 @@
+[
+  {
+    "file": "pages/PaymentRequests.tsx",
+    "kind": "StringLiteral",
+    "value": "đ",
+    "count": 1,
+    "reason": "Canonical currency/unit or example data token; preserve VND and stored units."
+  },
+  {
+    "file": "pages/PurchaseOrders.tsx",
+    "kind": "TemplateExpression",
+    "value": "`${Math.round(amount).toLocaleString(\"vi-VN\")} đ`",
+    "count": 1,
+    "reason": "Canonical currency/unit or example data token; preserve VND and stored units."
+  },
+  {
+    "file": "components/dialogs/EditPaymentRequestDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "kg",
+    "count": 1,
+    "reason": "Canonical currency/unit or example data token; preserve VND and stored units."
+  },
+  {
+    "file": "components/dialogs/CreateInvoiceFromRequestDialog.tsx",
+    "kind": "TemplateExpression",
+    "value": "`Tạo từ đề nghị chi ${request.request_number}`",
+    "count": 1,
+    "reason": "Generated business title, description or audit note assigned to form/data payload; preserve stored text verbatim."
+  },
+  {
+    "file": "components/dialogs/CreateInvoiceFromRequestDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "thời gian chờ",
+    "count": 1,
+    "reason": "Timeout substring used for transport fallback matching; translating changes behavior."
+  },
+  {
+    "file": "components/dialogs/EditPurchaseOrderDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "Lỗi khi cập nhật:",
+    "count": 1,
+    "reason": "Developer console diagnostic, never rendered."
+  },
+  {
+    "file": "components/dialogs/EditPurchaseOrderDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "kg",
+    "count": 1,
+    "reason": "Canonical currency/unit or example data token; preserve VND and stored units."
+  },
+  {
+    "file": "components/dialogs/AddSupplierDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "Bột",
+    "count": 1,
+    "reason": "Canonical supplier category business value stored verbatim, not translated UI copy."
+  },
+  {
+    "file": "components/dialogs/AddSupplierDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "Đường",
+    "count": 1,
+    "reason": "Canonical supplier category business value stored verbatim, not translated UI copy."
+  },
+  {
+    "file": "components/dialogs/AddSupplierDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "Sữa",
+    "count": 1,
+    "reason": "Canonical supplier category business value stored verbatim, not translated UI copy."
+  },
+  {
+    "file": "components/dialogs/AddSupplierDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "Hạt",
+    "count": 1,
+    "reason": "Canonical supplier category business value stored verbatim, not translated UI copy."
+  },
+  {
+    "file": "components/dialogs/AddSupplierDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "Trứng",
+    "count": 1,
+    "reason": "Canonical supplier category business value stored verbatim, not translated UI copy."
+  },
+  {
+    "file": "components/dialogs/AddSupplierDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "Bao bì",
+    "count": 1,
+    "reason": "Canonical supplier category business value stored verbatim, not translated UI copy."
+  },
+  {
+    "file": "components/dialogs/AddSupplierDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "Tổng hợp",
+    "count": 1,
+    "reason": "Canonical supplier category business value stored verbatim, not translated UI copy."
+  },
+  {
+    "file": "components/dialogs/AddSupplierDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "contact@supplier.com",
+    "count": 1,
+    "reason": "Canonical currency/unit or example data token; preserve VND and stored units."
+  },
+  {
+    "file": "components/dialogs/SupplierDetailsDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "Bột",
+    "count": 1,
+    "reason": "Canonical supplier category business value stored verbatim, not translated UI copy."
+  },
+  {
+    "file": "components/dialogs/SupplierDetailsDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "Đường",
+    "count": 1,
+    "reason": "Canonical supplier category business value stored verbatim, not translated UI copy."
+  },
+  {
+    "file": "components/dialogs/SupplierDetailsDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "Sữa",
+    "count": 1,
+    "reason": "Canonical supplier category business value stored verbatim, not translated UI copy."
+  },
+  {
+    "file": "components/dialogs/SupplierDetailsDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "Hạt",
+    "count": 1,
+    "reason": "Canonical supplier category business value stored verbatim, not translated UI copy."
+  },
+  {
+    "file": "components/dialogs/SupplierDetailsDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "Trứng",
+    "count": 1,
+    "reason": "Canonical supplier category business value stored verbatim, not translated UI copy."
+  },
+  {
+    "file": "components/dialogs/SupplierDetailsDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "Bao bì",
+    "count": 1,
+    "reason": "Canonical supplier category business value stored verbatim, not translated UI copy."
+  },
+  {
+    "file": "components/dialogs/SupplierDetailsDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "Tổng hợp",
+    "count": 1,
+    "reason": "Canonical supplier category business value stored verbatim, not translated UI copy."
+  },
+  {
+    "file": "components/dialogs/SupplierDetailsDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "contact@supplier.com",
+    "count": 1,
+    "reason": "Canonical currency/unit or example data token; preserve VND and stored units."
+  },
+  {
+    "file": "components/dialogs/AddInvoiceDialog.tsx",
+    "kind": "JsxText",
+    "value": "VND)",
+    "count": 1,
+    "reason": "Canonical currency/unit or example data token; preserve VND and stored units."
+  },
+  {
+    "file": "components/dialogs/AddInvoiceDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "kg",
+    "count": 1,
+    "reason": "Canonical currency/unit or example data token; preserve VND and stored units."
+  },
+  {
+    "file": "components/dialogs/AddInvoiceDialog.tsx",
+    "kind": "JsxText",
+    "value": "VND",
+    "count": 3,
+    "reason": "Canonical currency/unit or example data token; preserve VND and stored units."
+  },
+  {
+    "file": "components/dialogs/EditInvoiceDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "kg",
+    "count": 1,
+    "reason": "Canonical currency/unit or example data token; preserve VND and stored units."
+  },
+  {
+    "file": "components/dialogs/EditInvoiceDialog.tsx",
+    "kind": "JsxText",
+    "value": "VND",
+    "count": 3,
+    "reason": "Canonical currency/unit or example data token; preserve VND and stored units."
+  },
+  {
+    "file": "components/dialogs/AddPaymentRequestDialog.tsx",
+    "kind": "TemplateExpression",
+    "value": "`Thanh toán ${prefillData.poNumber}`",
+    "count": 1,
+    "reason": "Generated business title, description or audit note assigned to form/data payload; preserve stored text verbatim."
+  },
+  {
+    "file": "components/dialogs/AddPaymentRequestDialog.tsx",
+    "kind": "TemplateExpression",
+    "value": "`Đề nghị thanh toán cho ${prefillData.supplierName || 'NCC'}`",
+    "count": 1,
+    "reason": "Generated business title, description or audit note assigned to form/data payload; preserve stored text verbatim."
+  },
+  {
+    "file": "components/dialogs/AddPaymentRequestDialog.tsx",
+    "kind": "TemplateExpression",
+    "value": "`Tạo từ ${prefillData.poNumber}`",
+    "count": 1,
+    "reason": "Generated business title, description or audit note assigned to form/data payload; preserve stored text verbatim."
+  },
+  {
+    "file": "components/dialogs/AddPaymentRequestDialog.tsx",
+    "kind": "TemplateExpression",
+    "value": "`Đề nghị chi - ${extractedData.invoice_number}`",
+    "count": 1,
+    "reason": "Generated business title, description or audit note assigned to form/data payload; preserve stored text verbatim."
+  },
+  {
+    "file": "components/dialogs/AddPaymentRequestDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "kg",
+    "count": 1,
+    "reason": "Canonical currency/unit or example data token; preserve VND and stored units."
+  },
+  {
+    "file": "components/dialogs/AddGoodsReceiptDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "Nguyên vật liệu",
+    "count": 1,
+    "reason": "Canonical category written when creating a material SKU; preserve storage value."
+  },
+  {
+    "file": "components/dialogs/AddGoodsReceiptDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "kg",
+    "count": 1,
+    "reason": "Canonical currency/unit or example data token; preserve VND and stored units."
+  },
+  {
+    "file": "components/dialogs/GoodsReceiptDetailsDialog.tsx",
+    "kind": "JsxText",
+    "value": "đ ·",
+    "count": 1,
+    "reason": "Canonical currency/unit or example data token; preserve VND and stored units."
+  },
+  {
+    "file": "components/dialogs/GoodsReceiptDetailsDialog.tsx",
+    "kind": "JsxText",
+    "value": "đ",
+    "count": 1,
+    "reason": "Canonical currency/unit or example data token; preserve VND and stored units."
+  },
+  {
+    "file": "components/dialogs/AddPurchaseOrderDialog.tsx",
+    "kind": "TemplateExpression",
+    "value": "`Batch scan ${files.length} ảnh`",
+    "count": 1,
+    "reason": "Generated business title, description or audit note assigned to form/data payload; preserve stored text verbatim."
+  },
+  {
+    "file": "components/dialogs/AddPurchaseOrderDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "kg",
+    "count": 1,
+    "reason": "Canonical currency/unit or example data token; preserve VND and stored units."
+  },
+  {
+    "file": "components/dialogs/AddPurchaseOrderDialog.tsx",
+    "kind": "JsxText",
+    "value": "đ",
+    "count": 1,
+    "reason": "Canonical currency/unit or example data token; preserve VND and stored units."
+  },
+  {
+    "file": "components/dialogs/PurchaseOrderDetailsDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "Đã kiểm tra NCC",
+    "count": 1,
+    "reason": "Stable React checkbox key, not displayed label. Dictionary label changes without resetting uncontrolled checkbox state."
+  },
+  {
+    "file": "components/dialogs/PurchaseOrderDetailsDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "Đã kiểm tra giá",
+    "count": 1,
+    "reason": "Stable React checkbox key, not displayed label. Dictionary label changes without resetting uncontrolled checkbox state."
+  },
+  {
+    "file": "components/dialogs/PurchaseOrderDetailsDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "Đã kiểm tra số lượng",
+    "count": 1,
+    "reason": "Stable React checkbox key, not displayed label. Dictionary label changes without resetting uncontrolled checkbox state."
+  },
+  {
+    "file": "components/suppliers/ExportSuppliersButton.tsx",
+    "kind": "StringLiteral",
+    "value": "Nhà cung cấp",
+    "count": 1,
+    "reason": "XLSX worksheet/column label. Export-generation source and EN/VI download bytes are contract-tested unchanged."
+  },
+  {
+    "file": "components/suppliers/ExportSuppliersButton.tsx",
+    "kind": "StringLiteral",
+    "value": "Tên NCC",
+    "count": 1,
+    "reason": "XLSX worksheet/column label. Export-generation source and EN/VI download bytes are contract-tested unchanged."
+  },
+  {
+    "file": "components/suppliers/ExportSuppliersButton.tsx",
+    "kind": "StringLiteral",
+    "value": "Nhóm",
+    "count": 1,
+    "reason": "XLSX worksheet/column label. Export-generation source and EN/VI download bytes are contract-tested unchanged."
+  },
+  {
+    "file": "components/suppliers/ExportSuppliersButton.tsx",
+    "kind": "StringLiteral",
+    "value": "Mô tả",
+    "count": 1,
+    "reason": "XLSX worksheet/column label. Export-generation source and EN/VI download bytes are contract-tested unchanged."
+  },
+  {
+    "file": "components/suppliers/ExportSuppliersButton.tsx",
+    "kind": "StringLiteral",
+    "value": "SĐT",
+    "count": 1,
+    "reason": "XLSX worksheet/column label. Export-generation source and EN/VI download bytes are contract-tested unchanged."
+  },
+  {
+    "file": "components/payment-requests/ExportApprovedPDF.tsx",
+    "kind": "StringLiteral",
+    "value": "Không xác định",
+    "count": 1,
+    "reason": "Supplier-name fallback in the export item model; preserve exported data."
+  },
+  {
+    "file": "components/payment-requests/ExportApprovedPDFDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "PHIẾU DUYỆT CHI",
+    "count": 1,
+    "reason": "Generated PDF content, not staff preview. Exact export source stays Vietnamese; rendered preview uses dictionary keys."
+  },
+  {
+    "file": "components/payment-requests/ExportApprovedPDFDialog.tsx",
+    "kind": "TemplateExpression",
+    "value": "`Ngày: ${format(new Date(), \"dd/MM/yyyy\", { locale: vi })}`",
+    "count": 1,
+    "reason": "Generated PDF content, not staff preview. Exact export source stays Vietnamese; rendered preview uses dictionary keys."
+  },
+  {
+    "file": "components/payment-requests/ExportApprovedPDFDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "Tên sản phẩm",
+    "count": 1,
+    "reason": "Generated PDF content, not staff preview. Exact export source stays Vietnamese; rendered preview uses dictionary keys."
+  },
+  {
+    "file": "components/payment-requests/ExportApprovedPDFDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "Đơn giá",
+    "count": 1,
+    "reason": "Generated PDF content, not staff preview. Exact export source stays Vietnamese; rendered preview uses dictionary keys."
+  },
+  {
+    "file": "components/payment-requests/ExportApprovedPDFDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "Thành tiền",
+    "count": 1,
+    "reason": "Generated PDF content, not staff preview. Exact export source stays Vietnamese; rendered preview uses dictionary keys."
+  },
+  {
+    "file": "components/payment-requests/ExportApprovedPDFDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "I. THANH TOÁN CHUYỂN KHOẢN (UNC)",
+    "count": 1,
+    "reason": "Generated PDF content, not staff preview. Exact export source stays Vietnamese; rendered preview uses dictionary keys."
+  },
+  {
+    "file": "components/payment-requests/ExportApprovedPDFDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "Tạm tính:",
+    "count": 2,
+    "reason": "Generated PDF content, not staff preview. Exact export source stays Vietnamese; rendered preview uses dictionary keys."
+  },
+  {
+    "file": "components/payment-requests/ExportApprovedPDFDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "Tổng UNC:",
+    "count": 1,
+    "reason": "Generated PDF content, not staff preview. Exact export source stays Vietnamese; rendered preview uses dictionary keys."
+  },
+  {
+    "file": "components/payment-requests/ExportApprovedPDFDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "II. THANH TOÁN TIỀN MẶT",
+    "count": 1,
+    "reason": "Generated PDF content, not staff preview. Exact export source stays Vietnamese; rendered preview uses dictionary keys."
+  },
+  {
+    "file": "components/payment-requests/ExportApprovedPDFDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "Tổng tiền mặt:",
+    "count": 1,
+    "reason": "Generated PDF content, not staff preview. Exact export source stays Vietnamese; rendered preview uses dictionary keys."
+  },
+  {
+    "file": "components/payment-requests/ExportApprovedPDFDialog.tsx",
+    "kind": "TemplateExpression",
+    "value": "`TỔNG CỘNG ĐỢT DUYỆT CHI: ${formatCurrency(grandTotal)} VNĐ`",
+    "count": 1,
+    "reason": "Generated PDF content, not staff preview. Exact export source stays Vietnamese; rendered preview uses dictionary keys."
+  },
+  {
+    "file": "components/payment-requests/ExportApprovedPDFDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "Người lập phiếu",
+    "count": 1,
+    "reason": "Generated PDF content, not staff preview. Exact export source stays Vietnamese; rendered preview uses dictionary keys."
+  },
+  {
+    "file": "components/payment-requests/ExportApprovedPDFDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "Người duyệt",
+    "count": 1,
+    "reason": "Generated PDF content, not staff preview. Exact export source stays Vietnamese; rendered preview uses dictionary keys."
+  },
+  {
+    "file": "components/payment-requests/ExportApprovedPDFDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "(Ký, ghi rõ họ tên)",
+    "count": 2,
+    "reason": "Generated PDF content, not staff preview. Exact export source stays Vietnamese; rendered preview uses dictionary keys."
+  },
+  {
+    "file": "components/payment-requests/ExportApprovedPDFDialog.tsx",
+    "kind": "JsxText",
+    "value": "VNĐ",
+    "count": 1,
+    "reason": "Canonical currency/unit or example data token; preserve VND and stored units."
+  },
+  {
+    "file": "components/payment-requests/DriveImportProgressDialog.tsx",
+    "kind": "TemplateExpression",
+    "value": "`folder năm ${value}`",
+    "count": 1,
+    "reason": "Folder-date helper used in stored import notes. UI instead uses localized renderFolderDate."
+  },
+  {
+    "file": "components/payment-requests/DriveImportProgressDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "(Không xác định)",
+    "count": 6,
+    "reason": "Canonical supplier matching sentinel; source comparisons and business names stay verbatim."
+  },
+  {
+    "file": "components/payment-requests/DriveImportProgressDialog.tsx",
+    "kind": "TemplateExpression",
+    "value": "`Import từ Google Drive - ${originalFile.name} (${formatFolderDate(folderDate)})`",
+    "count": 1,
+    "reason": "Generated business title, description or audit note assigned to form/data payload; preserve stored text verbatim."
+  },
+  {
+    "file": "components/payment-requests/DriveImportProgressDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "Sản phẩm",
+    "count": 4,
+    "reason": "Missing product-name fallback used in procurement writes; business data must not be translated."
+  },
+  {
+    "file": "components/payment-requests/DriveImportProgressDialog.tsx",
+    "kind": "TemplateExpression",
+    "value": "`Thanh toán ${pendingPO.poNumber}`",
+    "count": 1,
+    "reason": "Generated business title, description or audit note assigned to form/data payload; preserve stored text verbatim."
+  },
+  {
+    "file": "components/payment-requests/DriveImportProgressDialog.tsx",
+    "kind": "TemplateExpression",
+    "value": "`Đề nghị thanh toán cho ${pendingPO.supplierName} - Import từ Google Drive`",
+    "count": 1,
+    "reason": "Generated business title, description or audit note assigned to form/data payload; preserve stored text verbatim."
+  },
+  {
+    "file": "components/payment-requests/DriveImportProgressDialog.tsx",
+    "kind": "TemplateExpression",
+    "value": "`Tạo tự động từ ${pendingPO.poNumber}`",
+    "count": 1,
+    "reason": "Generated business title, description or audit note assigned to form/data payload; preserve stored text verbatim."
+  },
+  {
+    "file": "components/payment-requests/DriveImportProgressDialog.tsx",
+    "kind": "TemplateExpression",
+    "value": "`Thanh toán ${current.slipData.recipient_name}`",
+    "count": 1,
+    "reason": "Generated business title, description or audit note assigned to form/data payload; preserve stored text verbatim."
+  },
+  {
+    "file": "components/payment-requests/DriveImportProgressDialog.tsx",
+    "kind": "TemplateExpression",
+    "value": "`Import từ UNC - ${current.slipData.transaction_id || ''}`",
+    "count": 1,
+    "reason": "Generated business title, description or audit note assigned to form/data payload; preserve stored text verbatim."
+  },
+  {
+    "file": "components/payment-requests/DriveImportProgressDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "Thanh toán tạo từ UNC import",
+    "count": 1,
+    "reason": "Stored financial allocation audit note; preserve payload."
+  },
+  {
+    "file": "components/payment-requests/DriveImportProgressDialog.tsx",
+    "kind": "TemplateExpression",
+    "value": "`Tạo từ UNC - ${current.slipData.transaction_id || ''}`",
+    "count": 1,
+    "reason": "Generated business title, description or audit note assigned to form/data payload; preserve stored text verbatim."
+  },
+  {
+    "file": "components/payment-requests/DriveImportProgressDialog.tsx",
+    "kind": "StringLiteral",
+    "value": "Thanh toán khớp từ UNC import",
+    "count": 1,
+    "reason": "Stored financial allocation audit note; preserve payload."
+  },
+  {
+    "file": "components/payment-requests/DriveImportProgressDialog.tsx",
+    "kind": "TemplateExpression",
+    "value": "`Tạo tự động từ UNC - ${slipData.transaction_id || ''}`",
+    "count": 1,
+    "reason": "Generated business title, description or audit note assigned to form/data payload; preserve stored text verbatim."
+  },
+  {
+    "file": "components/payment-requests/DriveImportProgressDialog.tsx",
+    "kind": "JsxText",
+    "value": "đ ✓",
+    "count": 1,
+    "reason": "Canonical currency/unit or example data token; preserve VND and stored units."
+  },
+  {
+    "file": "components/payment-requests/DriveImportProgressDialog.tsx",
+    "kind": "JsxText",
+    "value": "đ",
+    "count": 3,
+    "reason": "Canonical currency/unit or example data token; preserve VND and stored units."
+  },
+  {
+    "file": "hooks/usePaymentRequests.ts",
+    "kind": "StringLiteral",
+    "value": "Payment request ID is required",
+    "count": 1,
+    "reason": "Programmer invariant for missing IDs; page query enablement and valid mutation inputs guard this non-UI error."
+  },
+  {
+    "file": "hooks/usePaymentRequests.ts",
+    "kind": "StringLiteral",
+    "value": "Thanh toán gộp nhiều đề nghị chi",
+    "count": 1,
+    "reason": "Stored audit note in financial allocation RPC payload; preserve exact bytes."
+  },
+  {
+    "file": "hooks/useGoodsReceipts.ts",
+    "kind": "StringLiteral",
+    "value": "No ID provided",
+    "count": 1,
+    "reason": "Programmer invariant for missing IDs; page query enablement and valid mutation inputs guard this non-UI error."
+  },
+  {
+    "file": "hooks/useGoodsReceipts.ts",
+    "kind": "StringLiteral",
+    "value": "No receipt ID provided",
+    "count": 1,
+    "reason": "Programmer invariant for missing IDs; page query enablement and valid mutation inputs guard this non-UI error."
+  },
+  {
+    "file": "hooks/usePurchaseOrders.ts",
+    "kind": "StringLiteral",
+    "value": "Purchase order ID is required",
+    "count": 1,
+    "reason": "Programmer invariant for missing IDs; page query enablement and valid mutation inputs guard this non-UI error."
+  }
+]

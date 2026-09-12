@@ -1,3 +1,4 @@
+import { useLanguage } from "@/contexts/LanguageContext";
 import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { lazy, Suspense } from "react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -66,14 +67,16 @@ function isDealerOrderingHost() {
 }
 
 function AppLoadingFallback() {
+  const { t } = useLanguage();
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
+    <div role="status" aria-label={t.loading} className="min-h-screen flex items-center justify-center bg-background">
       <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
     </div>
   );
 }
 
 function AuthTimeoutFallback() {
+  const { messages: { staff: s } } = useLanguage();
   const location = useLocation();
 
   return (
@@ -81,15 +84,15 @@ function AuthTimeoutFallback() {
       <div className="text-center space-y-4 max-w-sm">
         <AlertTriangle className="h-12 w-12 text-warning mx-auto" />
         <h2 className="text-lg font-semibold text-foreground">
-          Đang gặp sự cố kết nối
+          {s.connection_problem}
         </h2>
         <p className="text-sm text-muted-foreground">
-          Không thể xác thực phiên đăng nhập. Điều này thường xảy ra trên Safari.
+          {s.unable_to_verify_your_session_this_can_happen_in_safari}
         </p>
         <div className="space-y-2">
           <Button onClick={clearSessionAndReload} className="w-full">
             <RefreshCw className="h-4 w-4 mr-2" />
-            Làm mới phiên
+            {s.refresh_session}
           </Button>
           <Button
             variant="outline"
@@ -97,11 +100,11 @@ function AuthTimeoutFallback() {
             className="w-full"
           >
             <RotateCcw className="h-4 w-4 mr-2" />
-            Thử lại
+            {s.try_again}
           </Button>
         </div>
         <p className="text-xs text-muted-foreground">
-          Đang cố truy cập: {location.pathname}
+          {s.trying_to_access} {location.pathname}
         </p>
       </div>
     </div>
@@ -129,22 +132,23 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 function ModuleRoute({ moduleKey, children }: { moduleKey: string; children: React.ReactNode }) {
+  const { messages: { staff: s } } = useLanguage();
   const { user, loading, authzLoaded, canAccessModule } = useAuth();
   const moduleLabels: Record<string, string> = {
-    suppliers: "Nhà cung cấp",
-    purchase_orders: "PO (Mua hàng)",
-    payment_requests: "Duyệt chi / Công nợ phải trả",
-    finance_cost: "Kiểm soát chi phí",
-    finance_revenue: "Doanh thu",
-    production_q7: "Kế hoạch SX - Xưởng Q7",
-    q7_material_inventory: "Xuất-nhập-tồn NVL Q7",
-    material_master: "Quản trị NVL chuẩn",
-    production_products: "Quản lý sản phẩm",
-    production_shifts: "Ca sản xuất",
-    production_qa: "QA & Nhập kho TP",
-    goods_receipts: "Phiếu nhập kho",
-    inventory: "Kho",
-    facebook_messenger: "Quản lý Facebook Page",
+    suppliers: s.suppliers,
+    purchase_orders: s.po_procurement,
+    payment_requests: s.payment_requests_payables,
+    finance_cost: s.cost_control,
+    finance_revenue: s.revenue,
+    production_q7: s.production_planning_q7_workshop,
+    q7_material_inventory: s.q7_material_inventory,
+    material_master: s.canonical_material_management,
+    production_products: s.product_management,
+    production_shifts: s.production_shifts,
+    production_qa: s.qa_finished_goods_receipt,
+    goods_receipts: s.goods_receipts,
+    inventory: s.inventory,
+    facebook_messenger: s.facebook_page_management,
   };
   const moduleLabel = moduleLabels[moduleKey] || moduleKey;
 
@@ -157,10 +161,9 @@ function ModuleRoute({ moduleKey, children }: { moduleKey: string; children: Rea
       <div className="flex min-h-[60vh] items-center justify-center p-6">
         <div className="max-w-md rounded-xl border bg-card p-6 text-center shadow-sm">
           <AlertTriangle className="mx-auto h-10 w-10 text-amber-500" />
-          <h1 className="mt-3 text-xl font-semibold">Không có quyền truy cập</h1>
+          <h1 className="mt-3 text-xl font-semibold">{s.access_denied}</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Trang này yêu cầu quyền xem module {moduleLabel} trong Quản lý người dùng.
-          </p>
+            {s.this_page_requires_access_to_the} {moduleLabel} {s.module_in_user_management} </p>
         </div>
       </div>
     );

@@ -1,4 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
+import { SessionExpiredError } from "@/lib/session-errors";
+export { SessionExpiredError } from "@/lib/session-errors";
 
 // Helper to bypass type checking for tables not yet in generated types
  
@@ -14,12 +16,12 @@ export const db = supabase as any;
  * This helper calls `refreshSession()` which contacts the auth server to
  * refresh the token if needed, then returns the valid access token string.
  *
- * @throws Error if the session cannot be refreshed (user must log in again).
+ * @throws SessionExpiredError if the session cannot be refreshed.
  */
 export async function getFreshAccessToken(): Promise<string> {
   const { data, error } = await supabase.auth.refreshSession();
   if (error || !data.session?.access_token) {
-    throw new Error("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
+    throw new SessionExpiredError();
   }
   return data.session.access_token;
 }

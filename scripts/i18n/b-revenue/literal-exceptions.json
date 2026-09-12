@@ -1,0 +1,320 @@
+[
+  {
+    "page": "RevenueManagementDashboard",
+    "kind": "VI literal",
+    "text": "\"đầu tháng\"",
+    "reason": "Unused forecast driver label for the early timing bucket; forecast.drivers is not rendered by this page."
+  },
+  {
+    "page": "RevenueManagementDashboard",
+    "kind": "VI literal",
+    "text": "\"giữa tháng\"",
+    "reason": "Unused forecast driver label for the middle timing bucket; forecast.drivers is not rendered by this page."
+  },
+  {
+    "page": "RevenueManagementDashboard",
+    "kind": "VI literal",
+    "text": "\"cuối tháng\"",
+    "reason": "Unused forecast driver label for the late timing bucket; forecast.drivers is not rendered by this page."
+  },
+  {
+    "page": "RevenueManagementDashboard",
+    "kind": "VI literal",
+    "text": "\"Bánh mì wholesale\"",
+    "reason": "Canonical channelLabel seed retained for color key order and unused forecast drivers; rendered channel labels use copy.channelLabels."
+  },
+  {
+    "page": "RevenueManagementDashboard",
+    "kind": "VI literal",
+    "text": "\"Bánh ngọt\"",
+    "reason": "Canonical channelLabel seed retained for color key order and unused forecast drivers; rendered channel labels use copy.channelLabels."
+  },
+  {
+    "page": "RevenueManagementDashboard",
+    "kind": "VI literal",
+    "text": "\"Nhượng quyền / đại lý\"",
+    "reason": "Canonical channelLabel seed retained for color key order and unused forecast drivers; rendered channel labels use copy.channelLabels."
+  },
+  {
+    "page": "RevenueManagementDashboard",
+    "kind": "VI literal",
+    "text": "\"Xe bán lẻ\"",
+    "reason": "Canonical channelLabel seed retained for color key order and unused forecast drivers; rendered channel labels use copy.channelLabels."
+  },
+  {
+    "page": "RevenueManagementDashboard",
+    "kind": "VI literal",
+    "text": "\"ĐẠI LÝ\"",
+    "reason": "Canonical ledger channel key used in grouping/filtering/payloads; option and chart labels are translated only at render boundaries."
+  },
+  {
+    "page": "RevenueManagementDashboard",
+    "kind": "VI literal",
+    "text": "\"Đại lý\"",
+    "reason": "Canonical channelLabel seed retained for color key order and unused forecast drivers; rendered channel labels use copy.channelLabels."
+  },
+  {
+    "page": "RevenueManagementDashboard",
+    "kind": "VI literal",
+    "text": "\"BÁNH NGỌT\"",
+    "reason": "Canonical ledger channel key used in grouping/filtering/payloads; option and chart labels are translated only at render boundaries."
+  },
+  {
+    "page": "RevenueManagementDashboard",
+    "kind": "VI literal",
+    "text": "\"Nguồn đối soát\"",
+    "reason": "Original sourceTypeLabel seed retained; rendered source badges use the complete copy.sourceLabels mapping."
+  },
+  {
+    "page": "RevenueManagementDashboard",
+    "kind": "VI literal",
+    "text": "\"PO/email đã duyệt\"",
+    "reason": "Original sourceTypeLabel seed retained; rendered source badges use the complete copy.sourceLabels mapping."
+  },
+  {
+    "page": "RevenueManagementDashboard",
+    "kind": "UI property",
+    "text": "\"Đã vào ledger\"",
+    "reason": "Unused original metricCards metadata; this array is not referenced in the rendered dashboard."
+  },
+  {
+    "page": "RevenueManagementDashboard",
+    "kind": "UI property",
+    "text": "\"Dòng đã kiểm soát\"",
+    "reason": "Unused original metricCards helper metadata; this array is not referenced in the rendered dashboard."
+  },
+  {
+    "page": "RevenueManagementDashboard",
+    "kind": "UI property",
+    "text": "\"Chạm để xem chi tiết\"",
+    "reason": "Unused original metricCards detail metadata; actual interactive cards use dictionary aria labels."
+  },
+  {
+    "page": "RevenueManagementDashboard",
+    "kind": "UI property",
+    "text": "\"Sản lượng\"",
+    "reason": "Unused original metricCards metadata; rendered quantity cards use copy.quantity."
+  },
+  {
+    "page": "RevenueManagementDashboard",
+    "kind": "UI property",
+    "text": "\"Quantity from ledger\"",
+    "reason": "Unused original metricCards helper metadata; rendered quantity card uses the module dictionary."
+  },
+  {
+    "page": "RevenueManagementDashboard",
+    "kind": "UI property",
+    "text": "\"Customer/NPP\"",
+    "reason": "Unused original metricCards customer metadata; rendered customer card uses the module dictionary."
+  },
+  {
+    "page": "RevenueManagementDashboard",
+    "kind": "UI property",
+    "text": "\"Roll-up groups\"",
+    "reason": "Unused original metricCards helper metadata; this array is not referenced in rendered JSX."
+  },
+  {
+    "page": "RevenueManagementDashboard",
+    "kind": "VI literal",
+    "text": "\"Trung bình\"",
+    "reason": "Canonical forecast confidence token participates in confidenceTone condition; translated only when rendering the badge."
+  },
+  {
+    "page": "RevenueManagementDashboard",
+    "kind": "VI literal",
+    "text": "\"Thấp\"",
+    "reason": "Canonical forecast confidence token participates in confidenceTone condition; translated only when rendering the badge."
+  },
+  {
+    "page": "RevenueManagementDashboard",
+    "kind": "VI literal",
+    "text": "`Mix sản phẩm/SKU: ${numberFmt(productMixCoverage * 100)}% doanh thu có mã sản phẩm/SKU để so với baseline.`",
+    "reason": "Non-rendered forecast.drivers diagnostic describing SKU coverage; retained to avoid changing calculation-adjacent metadata."
+  },
+  {
+    "page": "RevenueManagementDashboard",
+    "kind": "VI literal",
+    "text": "`Mix sản phẩm/SKU: dữ liệu product/SKU còn mỏng (${numberFmt(productMixCoverage * 100)}%), forecast fallback về historical baseline + điều chỉnh channel/source có biên.`",
+    "reason": "Non-rendered forecast.drivers diagnostic describing SKU coverage; retained to avoid changing calculation-adjacent metadata."
+  },
+  {
+    "page": "RevenueManagementDashboard",
+    "kind": "VI literal",
+    "text": "`Mix kênh: kênh lớn nhất ${channelLabel[topChannel[0]] || topChannel[0]} chiếm ${numberFmt(topChannelShare * 100)}% doanh thu đã kiểm soát.`",
+    "reason": "Non-rendered forecast.drivers diagnostic describing channel concentration; retained canonical channel-label references."
+  },
+  {
+    "page": "RevenueManagementDashboard",
+    "kind": "VI literal",
+    "text": "`Lịch ngày còn lại nghiêng về ngày cao điểm, hệ số weekday/peak khoảng ${numberFmt(remainingWeekdayFactor)}x.`",
+    "reason": "Non-rendered forecast.drivers diagnostic describing weekday factors; this array is not displayed by the page."
+  },
+  {
+    "page": "RevenueManagementDashboard",
+    "kind": "VI literal",
+    "text": "`Lịch ngày còn lại nghiêng về ngày thấp điểm/downtime, hệ số weekday khoảng ${numberFmt(remainingWeekdayFactor)}x.`",
+    "reason": "Non-rendered forecast.drivers diagnostic describing weekday factors; this array is not displayed by the page."
+  },
+  {
+    "page": "RevenueManagementDashboard",
+    "kind": "VI literal",
+    "text": "`Lịch ngày còn lại gần trung tính theo mẫu weekday/peak/downtime (${numberFmt(remainingWeekdayFactor)}x).`",
+    "reason": "Non-rendered forecast.drivers diagnostic describing weekday factors; this array is not displayed by the page."
+  },
+  {
+    "page": "RevenueManagementDashboard",
+    "kind": "VI literal",
+    "text": "`Nhịp ${timingBucketLabel[timingBucket(cutoffDay, periodDays)]}: tiến độ hiện tại đạt ${numberFmt(currentMonthShare * 100)}% so với baseline tháng, hệ số timing ${numberFmt(timingFactor)}x.`",
+    "reason": "Non-rendered forecast.drivers diagnostic describing monthly timing; this array is not displayed by the page."
+  },
+  {
+    "page": "RevenueManagementDashboard",
+    "kind": "VI literal",
+    "text": "`Run-rate gần đây: ${compactVnd(recentDailyAverage, copy)}/ngày so với MTD ${compactVnd(mtdDailyAverage, copy)}/ngày, trend ${numberFmt(trendFactor)}x.`",
+    "reason": "Non-rendered forecast.drivers diagnostic describing run rate; this array is not displayed by the page."
+  },
+  {
+    "page": "RevenueManagementDashboard",
+    "kind": "VI literal",
+    "text": "`Rủi ro tập trung: customer/kênh lớn đang cao (${numberFmt(topCustomerShare * 100)}% customer, ${numberFmt(topChannelShare * 100)}% kênh).`",
+    "reason": "Non-rendered forecast.drivers diagnostic describing concentration risk; this array is not displayed by the page."
+  },
+  {
+    "page": "RevenueManagementDashboard",
+    "kind": "VI literal",
+    "text": "`Rủi ro tập trung: customer/kênh ở mức kiểm soát (${numberFmt(topCustomerShare * 100)}% customer lớn nhất).`",
+    "reason": "Non-rendered forecast.drivers diagnostic describing concentration risk; this array is not displayed by the page."
+  },
+  {
+    "page": "RevenueManagementDashboard",
+    "kind": "VI literal",
+    "text": "\"Chưa rõ khách hàng\"",
+    "reason": "Canonical customer rollup fallback retained in data calculation; rendered fallback uses copy.unknownCustomer."
+  },
+  {
+    "page": "RevenueSourceDetail",
+    "kind": "VI literal",
+    "text": "\"ĐẠI LÝ\"",
+    "reason": "Canonical ledger channel key used in grouping/filtering/payloads; option and chart labels are translated only at render boundaries."
+  },
+  {
+    "page": "RevenueSourceDetail",
+    "kind": "VI literal",
+    "text": "\"BÁNH NGỌT\"",
+    "reason": "Canonical ledger channel key used in grouping/filtering/payloads; option and chart labels are translated only at render boundaries."
+  },
+  {
+    "page": "RevenueSourceDetail",
+    "kind": "VI literal",
+    "text": "\"Bánh mì que\"",
+    "reason": "Default product name is part of the manual revenue write payload; user explicitly requires business names unchanged."
+  },
+  {
+    "page": "RevenueSourceDetail",
+    "kind": "VI literal",
+    "text": "\"Đang tạo thư mục ngày và Google Sheet trên Drive...\"",
+    "reason": "Local export state sentinel retained for the existing conditional/layout contract; visible text uses reactive copy.creatingSheet."
+  },
+  {
+    "page": "RevenueSourceDetail",
+    "kind": "VI literal",
+    "text": "`Đã tạo ${result.fileName || \"Google Sheet\"} trong thư mục ${result.folderName || revenueDate}.`",
+    "reason": "Local export state sentinel retained; visible success text is built reactively from result metadata using copy.sheetCreated."
+  },
+  {
+    "page": "RevenueSourceDetail",
+    "kind": "VI literal",
+    "text": "`Export Google Sheet thất bại: ${message}`",
+    "reason": "Local export error sentinel preserves the exact approved className expression; rendered error uses copy.sheetFailed plus verbatim error data."
+  },
+  {
+    "page": "RevenueSourceDetail",
+    "kind": "VI literal",
+    "text": "\"Bổ sung doanh thu thủ công từ vận hành.\"",
+    "reason": "Stored autoNote evidence prefix in manual-add payload; audit bytes must remain unchanged across languages."
+  },
+  {
+    "page": "RevenueSourceDetail",
+    "kind": "VI literal",
+    "text": "`Khách: ${customerName}.`",
+    "reason": "Stored autoNote customer evidence in manual-add payload; audit bytes and business name remain unchanged."
+  },
+  {
+    "page": "RevenueSourceDetail",
+    "kind": "VI literal",
+    "text": "`Sản phẩm: ${productName}.`",
+    "reason": "Stored autoNote product evidence in manual-add payload; audit bytes and product name remain unchanged."
+  },
+  {
+    "page": "RevenueSourceDetail",
+    "kind": "VI literal",
+    "text": "`SL ${quantity}, đơn giá ${unitPrice}, doanh thu ${grossRevenue}.`",
+    "reason": "Stored autoNote financial evidence in manual-add payload; audit bytes and calculations remain unchanged."
+  },
+  {
+    "page": "RevenueSourceDetail",
+    "kind": "VI literal",
+    "text": "`Ghi chú: ${itemNote}.`",
+    "reason": "Stored autoNote user-note evidence in manual-add payload; note bytes remain unchanged."
+  },
+  {
+    "page": "RevenueSourceDetail",
+    "kind": "VI literal",
+    "text": "\"Export Google Sheet thất bại\"",
+    "reason": "Canonical export state prefix used by the exact approved className expression; displayed label comes from the dictionary."
+  },
+  {
+    "page": "RevenueSourceDetail",
+    "kind": "attribute",
+    "text": "0",
+    "reason": "Numeric quantity placeholder; no language-bearing UI copy."
+  },
+  {
+    "page": "RevenueSourceDetail",
+    "kind": "attribute",
+    "text": "6500",
+    "reason": "Numeric VND unit-price placeholder; no language-bearing UI copy."
+  },
+  {
+    "page": "FinanceRevenueControl",
+    "kind": "VI literal",
+    "text": "\"Chuẩn bị parse PO/email...\"",
+    "reason": "Local parse-progress sentinel retained; visible local progress message maps to reactive copy.preparing."
+  },
+  {
+    "page": "FinanceRevenueControl",
+    "kind": "VI literal",
+    "text": "\"Chưa xác định customer\"",
+    "reason": "Unused normalization fallback in parser data; active daily preview sets previewLines empty and does not render customer rows."
+  },
+  {
+    "page": "FinanceRevenueControl",
+    "kind": "VI literal",
+    "text": "\"Đang parse PO/email theo ngày\"",
+    "reason": "Local parse-progress sentinel retained; visible local progress message maps to reactive copy.parsingDaily."
+  },
+  {
+    "page": "RevenueDailyReview",
+    "kind": "JSX",
+    "text": "PO",
+    "reason": "Invariant purchase-order abbreviation in the existing daily-review page; identical in EN and VI."
+  },
+  {
+    "page": "PointRevenueManagement",
+    "kind": "VI literal",
+    "text": "\"đã kiểm\"",
+    "reason": "Canonical banned generic correction reason used in validation; must not be translated because it changes accepted input."
+  },
+  {
+    "page": "PointRevenueManagement",
+    "kind": "VI literal",
+    "text": "\"đã kiểm tra\"",
+    "reason": "Canonical banned generic correction reason used in validation; must not be translated because it changes accepted input."
+  },
+  {
+    "page": "PointRevenueManagement",
+    "kind": "VI literal",
+    "text": "\"chỉnh sửa\"",
+    "reason": "Canonical banned generic correction reason used in validation; must not be translated because it changes accepted input."
+  }
+]
