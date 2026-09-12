@@ -44,12 +44,33 @@ def test_portal_client_pins_the_verified_contract() -> None:
     forbid(CLIENT, "SSO_BASE}${action", "the already-prefixed form action must not be joined to SSO_BASE again")
 
 
-def test_the_bridge_never_writes_to_the_portal() -> None:
-    for source in (CLIENT, FUNCTION):
-        forbid(source, "/portal/asn", "creating or submitting an ASN is a separate, approved step")
-        forbid(source, "/confirm", "confirming an order is a separate, approved step")
-        forbid(source, "/dispatch", "dispatching a load is a separate, approved step")
+def test_the_bridge_exposes_only_the_approved_operator_actions() -> None:
+    # Approved 2026-09-13 (owner: "2A" - VNAgent builds the buttons, the operator
+    # clicks every step by hand). Confirm plus the two printouts are the whole
+    # approved surface; the rest of the portal stays outside the app.
+    require(CLIENT, "/api/v1/portal/orders/${options.orderId}/confirm?vendorId=",
+            "confirm must use the verified endpoint and pass vendorId")
+    require(CLIENT, "/api/v1/purchase-orders/${poId}/export-pdf",
+            "the PO sheet must come from the verified export endpoint")
+    require(CLIENT, "/api/v1/portal/asn/${options.asnId}/export-pdf?",
+            "the delivery note must come from the verified export endpoint")
+    for forbidden in ("/reject", "/propose-change", "/approve-change", "/cancel",
+                      "/dispatch", "/send-to-vendor", "export-pdf-batch"):
+        forbid(CLIENT, forbidden, "%s is not an approved action" % forbidden)
+    require(FUNCTION, 'ACTIONS = ["list", "detail", "confirm", "po-pdf", "asn-pdf"]',
+            "the action list must be exactly the approved surface")
     require(FUNCTION, '"POST"', "the function must accept POST for the read request")
+    require(FUNCTION, 'method !== "POST"', "only POST may reach the portal call")
+
+
+def test_the_panel_shows_no_money() -> None:
+    for marker in ("Tổng (gồm VAT)", "orderTotalWithTax", "orderTotal", "taxTotal"):
+        forbid(PANEL, marker, "the KFM panel must show products and quantities only")
+    require(PANEL, "totalQty", "quantities stay visible on the order list")
+    require(PANEL, 'data-kfm-action="confirm"', "the confirm button must be present")
+    require(PANEL, 'data-kfm-action="print-po"', "the PO print button must be present")
+    require(PANEL, 'data-kfm-action="print-asn"', "the delivery-note print button must be present")
+    require(PANEL, "window.confirm", "a write to the portal must be confirmed by the operator first")
 
 
 def test_credentials_come_from_the_environment_only() -> None:
@@ -69,7 +90,7 @@ def test_the_proxy_is_authenticated_and_cors_aware() -> None:
     require(FUNCTION, 'error: "unauthorized" }, 401', "an anonymous caller must get 401")
 
 
-def test_the_ui_entry_point_is_wired_read_only() -> None:
+def test_the_ui_entry_point_is_wired() -> None:
     require(PANEL, 'data-kfm-portal-entry="v1"', "the launcher must carry a stable marker")
     require(PANEL, "kfm-portal-sync", "the panel must call the proxy function")
     require(PANEL, "Authorization: `Bearer ${session.access_token}`", "the proxy call must carry the Supabase token")

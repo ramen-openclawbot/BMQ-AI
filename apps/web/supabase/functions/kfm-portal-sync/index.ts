@@ -1,17 +1,29 @@
 /**
- * kfm-portal-sync — read KFM/Seedcom partner-portal orders for a delivery date.
+ * kfm-portal-sync — the KFM/Seedcom partner-portal bridge for BMQ.
  *
  * Why a backend proxy: the portal API (logis.seedcom.vn) rejects browser
  * preflight from ai.banhmique.vn ("Invalid CORS request"), so the SPA cannot
  * call it directly. This function holds the session and does the HTTP work.
  *
- * Read-only by design: it never confirms an order, never submits an ASN and
- * never writes to the partner system.
+ * Reads and operator actions:
+ *   list     — read the POs of one delivery date (default)
+ *   detail   — read one order (lines + the purchase order behind it)
+ *   confirm  — confirm one PO on the portal            (operator click only)
+ *   po-pdf   — download the PO sheet                   (operator click only)
+ *   asn-pdf  — download one delivery-note sheet        (operator click only)
+ *
+ * Nothing here is scheduled, retried or triggered by a background job: every
+ * call happens because a person pressed a button in the BMQ UI.
  *
  * Request  (POST, authenticated app user):
- *   { "deliveryDate": "YYYY-MM-DD", "vendorId"?: number, "size"?: number }
+ *   { "action"?: "list"|"detail"|"confirm"|"po-pdf"|"asn-pdf",
+ *     "deliveryDate"?: "YYYY-MM-DD", "vendorId"?: number, "size"?: number,
+ *     "orderId"?: number, "poId"?: number, "asnId"?: number }
  * Response:
- *   { success, configured, deliveryDate, vendorId, vendorCode, count, orders[], session }
+ *   list   : { success, configured, deliveryDate, vendorId, vendorCode, count, orders[], session }
+ *   detail : { success, order: { portalId, code, purchaseOrderId, lines[], asns[] } }
+ *   confirm: { success, orderId }
+ *   po-pdf / asn-pdf: { success, filename, contentType, base64 }
  *
  * Secrets (Supabase Edge Function env only, never logged):
  *   KFM_PORTAL_USERNAME, KFM_PORTAL_PASSWORD, KFM_PORTAL_REFRESH_TOKEN (optional)
@@ -23,13 +35,21 @@ import { corsPreflightResponse, getCorsHeaders } from "../_shared/cors.ts";
 import {
   ISO_DATE,
   KfmPortalError,
+  confirmOrder,
+  fetchAsnPdf,
+  fetchPoPdf,
   getMe,
+  getOrderDetail,
+  listOrderAsns,
   listOrders,
   openSession,
   statusLabel,
   vnDate,
   type KfmSession,
 } from "../_shared/kfm-portal.ts";
+
+const ACTIONS = ["list", "detail", "confirm", "po-pdf", "asn-pdf"] as const;
+type KfmAction = typeof ACTIONS[number];
 
 /** Warm-instance session cache — avoids one login per request while it lasts. */
 let cached: { session: KfmSession; vendorIds: number[]; vendorCode: string | null } | null = null;
@@ -47,6 +67,16 @@ const json = (body: unknown, status: number, req: Request) =>
     status,
     headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
   });
+
+/** Edge-runtimes have btoa but no Buffer; encode in chunks so long PDFs fit. */
+function toBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunk = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunk));
+  }
+  return btoa(binary);
+}
 
 async function requireUser(req: Request): Promise<boolean> {
   const authHeader = req.headers.get("Authorization") || "";
@@ -70,12 +100,24 @@ serve(async (req) => {
     return json({ success: false, error: "unauthorized" }, 401, req);
   }
 
-  let payload: { deliveryDate?: string; vendorId?: number; size?: number } = {};
+  let payload: {
+    action?: string;
+    deliveryDate?: string;
+    vendorId?: number;
+    size?: number;
+    orderId?: number;
+    poId?: number;
+    asnId?: number;
+  } = {};
   try {
     payload = await req.json();
   } catch {
     payload = {};
   }
+
+  const action = (ACTIONS as readonly string[]).includes(String(payload.action))
+    ? (payload.action as KfmAction)
+    : "list";
 
   const deliveryDate = payload.deliveryDate && ISO_DATE.test(payload.deliveryDate)
     ? payload.deliveryDate
@@ -89,6 +131,7 @@ serve(async (req) => {
     return json({
       success: false,
       configured: false,
+      action,
       deliveryDate,
       error: "not_configured",
       message:
@@ -105,6 +148,7 @@ serve(async (req) => {
         return json({
           success: false,
           configured: true,
+          action,
           deliveryDate,
           error: "login_cooldown",
           step: lastCredentialFailure.step,
@@ -125,9 +169,60 @@ serve(async (req) => {
       : cached.vendorIds[0];
     if (!vendorId) {
       return json({
-        success: false, configured: true, deliveryDate,
+        success: false, configured: true, action, deliveryDate,
         error: "no_vendor",
         message: "Tài khoản cổng KFM không gắn nhà cung cấp nào.",
+      }, 200, req);
+    }
+
+    const session = { mode: cached.session.mode, obtainedAt: cached.session.obtainedAt };
+
+    if (action === "detail") {
+      const orderId = Number(payload.orderId);
+      if (!Number.isInteger(orderId) || orderId <= 0) {
+        return json({ success: false, action, error: "bad_order_id", message: "Thiếu orderId." }, 200, req);
+      }
+      const detail = await getOrderDetail(cached.session.token, { vendorId, orderId });
+      const asns = await listOrderAsns(cached.session.token, { vendorId, orderId });
+      return json({ success: true, configured: true, action, vendorId, vendorCode: cached.vendorCode, order: { ...detail, asns }, session }, 200, req);
+    }
+
+    if (action === "confirm") {
+      const orderId = Number(payload.orderId);
+      if (!Number.isInteger(orderId) || orderId <= 0) {
+        return json({ success: false, action, error: "bad_order_id", message: "Thiếu orderId." }, 200, req);
+      }
+      await confirmOrder(cached.session.token, { vendorId, orderId });
+      return json({ success: true, configured: true, action, orderId, session }, 200, req);
+    }
+
+    if (action === "po-pdf" || action === "asn-pdf") {
+      const isPo = action === "po-pdf";
+      const targetId = Number(isPo ? payload.poId : payload.asnId);
+      if (!Number.isInteger(targetId) || targetId <= 0) {
+        return json({
+          success: false, action, error: "bad_target_id",
+          message: isPo ? "Thiếu poId." : "Thiếu asnId.",
+        }, 200, req);
+      }
+      const poId = Number(payload.poId);
+      const bytes = isPo
+        ? await fetchPoPdf(cached.session.token, targetId)
+        : await fetchAsnPdf(cached.session.token, {
+            asnId: targetId,
+            vendorId,
+            poId: Number.isInteger(poId) && poId > 0 ? poId : null,
+            hidePrice: true,
+          });
+      return json({
+        success: true,
+        configured: true,
+        action,
+        filename: `${isPo ? "PO" : "Phieu-giao-hang"}-${targetId}.pdf`,
+        contentType: "application/pdf",
+        base64: toBase64(bytes),
+        byteLength: bytes.byteLength,
+        session,
       }, 200, req);
     }
 
@@ -143,13 +238,14 @@ serve(async (req) => {
     return json({
       success: true,
       configured: true,
+      action,
       deliveryDate,
       vendorId,
       vendorCode: cached.vendorCode,
       count: orders.length,
       totalElements,
       orders: orders.map((order) => ({ ...order, statusLabel: statusLabel(order.status, order.subStatus) })),
-      session: { mode: cached.session.mode, obtainedAt: cached.session.obtainedAt },
+      session,
       source: "kfm_portal",
     }, 200, req);
   } catch (error) {
@@ -170,6 +266,7 @@ serve(async (req) => {
     return json({
       success: false,
       configured: true,
+      action,
       deliveryDate,
       error: expired ? "session_expired" : `portal_${step}`,
       step,

@@ -108,7 +108,7 @@ async function request(
 ): Promise<Response> {
   const headers = new Headers(init.headers || {});
   headers.set("User-Agent", USER_AGENT);
-  headers.set("Accept", "application/json, text/plain, */*");
+  if (!headers.has("Accept")) headers.set("Accept", "application/json, text/plain, */*");
   if (jar) {
     const cookie = jar.header();
     if (cookie) headers.set("Cookie", cookie);
@@ -509,4 +509,145 @@ export function statusLabel(status: number | null, subStatus: number | null): st
   if (status === 5) return "da_giao";
   if (status === 6) return "huy";
   return `trang_thai_${status}`;
+}
+
+/* ------------------------------------------------------------------ *
+ * Operator actions on the partner portal (confirm + printed documents).
+ *
+ * Verified against the portal SPA bundle (2026-09-13). Every call below is
+ * made because an operator pressed a button in the BMQ UI; none of them is
+ * scheduled, retried or fired by a background job.
+ *   confirm   POST /api/v1/portal/orders/{id}/confirm?vendorId=
+ *   detail    GET  /api/v1/portal/orders/{id}?vendorId=
+ *   asns      GET  /api/v1/portal/orders/{id}/asn?vendorId=
+ *   PO print  GET  /api/v1/purchase-orders/{id}/export-pdf
+ *   ASN print GET  /api/v1/portal/asn/{id}/export-pdf?vendorId=&poId=&hidePrice=
+ * ------------------------------------------------------------------ */
+
+export type KfmOrderLine = {
+  productCode: string | null;
+  productName: string | null;
+  unit: string | null;
+  orderedQty: number | null;
+  shippedQty: number | null;
+};
+
+export type KfmOrderDetail = {
+  portalId: number;
+  code: string | null;
+  /** The purchase order behind the portal order — needed to print the PO. */
+  purchaseOrderId: number | null;
+  lines: KfmOrderLine[];
+};
+
+/** GET one portal order with its lines and the purchase order it belongs to. */
+export async function getOrderDetail(
+  token: string,
+  options: { vendorId: number; orderId: number },
+): Promise<KfmOrderDetail> {
+  const { status, body } = await authedGet(
+    token,
+    `${SCE_API}/api/v1/portal/orders/${options.orderId}?vendorId=${options.vendorId}`,
+  );
+  if (status !== 200) {
+    throw new KfmPortalError("order_detail", status, "Không đọc được chi tiết đơn từ cổng KFM");
+  }
+  const data = ((body?.data ?? body) || {}) as Record<string, unknown>;
+  const purchaseOrder = ((data.purchaseOrder ?? {}) as Record<string, unknown>);
+  const rows: Record<string, unknown>[] = Array.isArray(data.items) ? data.items : [];
+  return {
+    portalId: asNumber(data.id) ?? options.orderId,
+    code: asString(data.code),
+    purchaseOrderId:
+      asNumber(purchaseOrder.id) ?? asNumber(data.purchaseOrderId) ?? asNumber(data.poId),
+    lines: rows.map((row) => ({
+      productCode: asString(row.productCode) ?? asString(row.barcode),
+      productName: asString(row.productName),
+      unit: asString(row.unit) ?? asString(row.unitName),
+      orderedQty: asNumber(row.orderedQty) ?? asNumber(row.quantity) ?? asNumber(row.poQty),
+      shippedQty: asNumber(row.shippedQty) ?? asNumber(row.shipQty),
+    })),
+  };
+}
+
+/** Confirm (accept) a purchase order on the portal. Operator-triggered only. */
+export async function confirmOrder(
+  token: string,
+  options: { vendorId: number; orderId: number },
+): Promise<void> {
+  const response = await request(
+    null,
+    `${SCE_API}/api/v1/portal/orders/${options.orderId}/confirm?vendorId=${options.vendorId}`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: "{}",
+    },
+  );
+  if (response.status !== 200 && response.status !== 201 && response.status !== 204) {
+    throw new KfmPortalError(
+      "confirm",
+      response.status,
+      "Cổng KFM không xác nhận được đơn này",
+    );
+  }
+}
+
+/** Delivery notes (ASN) already raised for a portal order. */
+export async function listOrderAsns(
+  token: string,
+  options: { vendorId: number; orderId: number },
+): Promise<Array<{ asnId: number; asnCode: string | null }>> {
+  const { status, body } = await authedGet(
+    token,
+    `${SCE_API}/api/v1/portal/orders/${options.orderId}/asn?vendorId=${options.vendorId}`,
+  );
+  if (status !== 200) return [];
+  const data = body?.data ?? body;
+  const rows: Record<string, unknown>[] = Array.isArray(data)
+    ? data
+    : Array.isArray(data?.content)
+      ? data.content
+      : [];
+  return rows
+    .map((row) => ({ asnId: Number(row.id), asnCode: asString(row.code) }))
+    .filter((row) => Number.isFinite(row.asnId) && row.asnId > 0);
+}
+
+async function fetchDocument(token: string, url: string, step: string): Promise<Uint8Array> {
+  const response = await request(null, url, {
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/pdf,*/*" },
+  });
+  if (response.status !== 200) {
+    throw new KfmPortalError(step, response.status, "Cổng KFM không trả về file in");
+  }
+  const buffer = await response.arrayBuffer();
+  if (buffer.byteLength === 0) {
+    throw new KfmPortalError(step, response.status, "File in rỗng");
+  }
+  return new Uint8Array(buffer);
+}
+
+/** Print the PO. Prices stay off the sheet (the portal defaults to hiding them). */
+export async function fetchPoPdf(token: string, poId: number): Promise<Uint8Array> {
+  return await fetchDocument(
+    token,
+    `${SCE_API}/api/v1/purchase-orders/${poId}/export-pdf`,
+    "po_pdf",
+  );
+}
+
+/** Print one delivery note, price-free by default. */
+export async function fetchAsnPdf(
+  token: string,
+  options: { asnId: number; vendorId: number; poId?: number | null; hidePrice?: boolean },
+): Promise<Uint8Array> {
+  const query = new URLSearchParams({ vendorId: String(options.vendorId) });
+  if (options.poId) query.set("poId", String(options.poId));
+  if (options.hidePrice !== false) query.set("hidePrice", "true");
+  return await fetchDocument(
+    token,
+    `${SCE_API}/api/v1/portal/asn/${options.asnId}/export-pdf?${query.toString()}`,
+    "asn_pdf",
+  );
 }

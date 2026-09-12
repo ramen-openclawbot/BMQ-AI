@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Loader2, RefreshCw, Truck } from "lucide-react";
+import { toast } from "sonner";
+import { CheckCircle2, FileText, Loader2, Printer, RefreshCw, Truck } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,9 +18,10 @@ import { supabase } from "@/integrations/supabase/client";
  * "Cổng KFM" — reads tomorrow's POs straight from the KFM/Seedcom partner
  * portal through the `kfm-portal-sync` Edge Function.
  *
- * Read-only: nothing is confirmed and no delivery note is created here.
- * When the portal is not reachable the panel says so; the existing email PO
- * flow ("Kiểm tra PO") keeps working unchanged.
+ * Products and quantities only: money is deliberately not shown here. The
+ * panel replaces the email PO parse as the source of the day's orders, and
+ * every action on the portal (confirm, print PO, print delivery note) is a
+ * manual click — nothing runs on a schedule.
  */
 
 const VN_OFFSET_MS = 7 * 60 * 60 * 1000;
@@ -35,30 +37,38 @@ type KfmOrder = {
   locationName: string | null;
   itemCount: number | null;
   totalQty: number | null;
-  orderTotalWithTax: number | null;
   statusLabel?: string;
+};
+
+type KfmOrderDetail = {
+  portalId: number;
+  code: string | null;
+  purchaseOrderId: number | null;
+  asns: Array<{ asnId: number; asnCode: string | null }>;
 };
 
 type KfmResponse = {
   success: boolean;
   configured?: boolean;
+  action?: string;
   deliveryDate?: string;
   vendorCode?: string | null;
   vendorId?: number | null;
   count?: number;
   orders?: KfmOrder[];
+  order?: KfmOrderDetail;
+  filename?: string;
+  base64?: string;
   session?: { mode: string; obtainedAt: string };
   error?: string;
   step?: string;
   message?: string;
 };
 
-const money = (value: number | null | undefined) =>
-  typeof value === "number"
-    ? value.toLocaleString("vi-VN", { maximumFractionDigits: 0 })
-    : "—";
+const qty = (value: number | null | undefined) =>
+  typeof value === "number" ? value.toLocaleString("vi-VN", { maximumFractionDigits: 0 }) : "—";
 
-async function fetchPortalOrders(deliveryDate: string): Promise<KfmResponse> {
+async function callPortal(body: Record<string, unknown>): Promise<KfmResponse> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) throw new Error("Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.");
 
@@ -68,7 +78,7 @@ async function fetchPortalOrders(deliveryDate: string): Promise<KfmResponse> {
       "Content-Type": "application/json",
       Authorization: `Bearer ${session.access_token}`,
     },
-    body: JSON.stringify({ deliveryDate }),
+    body: JSON.stringify(body),
   });
 
   const raw = await response.text();
@@ -81,16 +91,34 @@ async function fetchPortalOrders(deliveryDate: string): Promise<KfmResponse> {
   if (!response.ok && !parsed?.error) {
     throw new Error(parsed?.message || "Không gọi được cổng KFM");
   }
+  if (parsed.success === false) {
+    throw new Error(parsed.message || "Cổng KFM báo lỗi.");
+  }
   return parsed;
+}
+
+function savePdf(base64: string, filename: string): void {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
 }
 
 export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
   const [open, setOpen] = useState(false);
   const [deliveryDate, setDeliveryDate] = useState(() => vnDateOffset(1));
+  const [busy, setBusy] = useState<string | null>(null);
 
   const query = useQuery({
     queryKey: ["kfm-portal-orders", deliveryDate],
-    queryFn: () => fetchPortalOrders(deliveryDate),
+    queryFn: () => callPortal({ action: "list", deliveryDate }),
     enabled: open,
     retry: false,
     staleTime: 30_000,
@@ -98,6 +126,54 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
 
   const data = query.data;
   const orders = data?.orders || [];
+
+  const runAction = async (key: string, work: () => Promise<string>) => {
+    setBusy(key);
+    try {
+      const message = await work();
+      toast.success(message);
+    } catch (error) {
+      toast.error((error as Error)?.message || "Cổng KFM báo lỗi.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleConfirm = (order: KfmOrder) => {
+    if (!window.confirm(isVi
+      ? `Xác nhận đơn ${order.code} với cổng KFM?`
+      : `Confirm order ${order.code} on the KFM portal?`)) return;
+    void runAction(`confirm-${order.portalId}`, async () => {
+      await callPortal({ action: "confirm", deliveryDate, orderId: order.portalId });
+      await query.refetch();
+      return isVi ? `Đã xác nhận đơn ${order.code}.` : `Order ${order.code} confirmed.`;
+    });
+  };
+
+  const handlePrintPo = (order: KfmOrder) => {
+    void runAction(`po-${order.portalId}`, async () => {
+      const detail = await callPortal({ action: "detail", deliveryDate, orderId: order.portalId });
+      const poId = detail.order?.purchaseOrderId;
+      if (!poId) throw new Error(isVi ? "Đơn này chưa có PO để in." : "This order has no PO to print.");
+      const pdf = await callPortal({ action: "po-pdf", poId });
+      savePdf(pdf.base64 || "", pdf.filename || `PO-${order.code}.pdf`);
+      return isVi ? `Đã tải PO ${order.code}.` : `PO ${order.code} downloaded.`;
+    });
+  };
+
+  const handlePrintAsn = (order: KfmOrder) => {
+    void runAction(`asn-${order.portalId}`, async () => {
+      const detail = await callPortal({ action: "detail", deliveryDate, orderId: order.portalId });
+      const asn = detail.order?.asns?.[0];
+      if (!asn) throw new Error(isVi ? "Đơn này chưa có phiếu giao hàng." : "This order has no delivery note yet.");
+      const pdf = await callPortal({ action: "asn-pdf", asnId: asn.asnId, poId: detail.order?.purchaseOrderId ?? undefined });
+      savePdf(pdf.base64 || "", pdf.filename || `Phieu-giao-hang-${asn.asnCode || asn.asnId}.pdf`);
+      return isVi ? `Đã tải phiếu giao hàng ${asn.asnCode || asn.asnId}.` : "Delivery note downloaded.";
+    });
+  };
+
+  const busyIcon = (key: string) =>
+    busy === key ? <Loader2 className="h-4 w-4 animate-spin" /> : null;
 
   return (
     <>
@@ -121,8 +197,8 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
             </DialogTitle>
             <DialogDescription>
               {isVi
-                ? "Đọc trực tiếp từ cổng đối tác — chỉ xem, không xác nhận, không tạo phiếu giao hàng."
-                : "Read directly from the partner portal — view only, nothing is confirmed."}
+                ? "Đọc trực tiếp từ cổng đối tác — chỉ sản phẩm và số lượng. Xác nhận và in là thao tác tay từng đơn."
+                : "Read directly from the partner portal — products and quantities only. Confirm and print are manual, one order at a time."}
             </DialogDescription>
           </DialogHeader>
 
@@ -217,7 +293,7 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
                       <th className="p-2">{isVi ? "Kho nhận" : "Location"}</th>
                       <th className="p-2 text-right">{isVi ? "Số dòng" : "Items"}</th>
                       <th className="p-2 text-right">{isVi ? "SL" : "Qty"}</th>
-                      <th className="p-2 text-right">{isVi ? "Tổng (gồm VAT)" : "Total"}</th>
+                      <th className="p-2 text-right">{isVi ? "Thao tác" : "Actions"}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -226,8 +302,44 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
                         <td className="p-2 font-medium">{order.code}</td>
                         <td className="p-2">{order.locationName || "—"}</td>
                         <td className="p-2 text-right">{order.itemCount ?? "—"}</td>
-                        <td className="p-2 text-right">{money(order.totalQty)}</td>
-                        <td className="p-2 text-right">{money(order.orderTotalWithTax)}</td>
+                        <td className="p-2 text-right">{qty(order.totalQty)}</td>
+                        <td className="p-2">
+                          <div className="flex items-center justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 rounded-lg"
+                              title={isVi ? "Xác nhận đơn" : "Confirm order"}
+                              data-kfm-action="confirm"
+                              disabled={busy !== null}
+                              onClick={() => handleConfirm(order)}
+                            >
+                              {busyIcon(`confirm-${order.portalId}`) || <CheckCircle2 className="h-4 w-4" />}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 rounded-lg"
+                              title={isVi ? "In PO" : "Print PO"}
+                              data-kfm-action="print-po"
+                              disabled={busy !== null}
+                              onClick={() => handlePrintPo(order)}
+                            >
+                              {busyIcon(`po-${order.portalId}`) || <Printer className="h-4 w-4" />}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 rounded-lg"
+                              title={isVi ? "In phiếu giao hàng" : "Print delivery note"}
+                              data-kfm-action="print-asn"
+                              disabled={busy !== null}
+                              onClick={() => handlePrintAsn(order)}
+                            >
+                              {busyIcon(`asn-${order.portalId}`) || <FileText className="h-4 w-4" />}
+                            </Button>
+                          </div>
+                        </td>
                       </tr>
                     ))}
                     {orders.length === 0 && (
