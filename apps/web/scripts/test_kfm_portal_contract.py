@@ -29,11 +29,19 @@ def test_portal_client_pins_the_verified_contract() -> None:
     require(CLIENT, "https://sso.seedcom.vn/uaa", "the SSO host must be the verified one")
     require(CLIENT, "https://logis.seedcom.vn/sce-api", "the portal API host must be logis, not partners")
     require(CLIENT, "sce-client-1i15ym2j", "the portal client id must match the SPA bundle")
+    require(CLIENT, "oauth2/authorize", "login must start at the OAuth2 authorize endpoint")
+    require(CLIENT, "code_challenge_method", "the authorize request must carry PKCE")
+    require(CLIENT, '"S256"', "the PKCE challenge method must be S256")
+    require(CLIENT, "codeVerifier", "the exchange must send the PKCE verifier")
+    require(CLIENT, "/sce/oauth", "the redirect uri must match the registered portal callback")
     require(CLIENT, "auth/sso/sce/exchange", "login must exchange the SSO code for a token")
     require(CLIENT, "auth/sso/sce/refresh", "a stored refresh token must be tried before the password")
+    require(CLIENT, "accessToken", "the exchange endpoint answers with accessToken, not token")
     require(CLIENT, "/api/v1/portal/orders?", "orders must come from the verified portal endpoint")
     require(CLIENT, "deliveryDateFrom", "orders must be filtered by delivery date")
     require(CLIENT, "_csrf", "the SSO form requires its CSRF token")
+    require(CLIENT, "readLoginForm(html, pageUrl)", "the form action must resolve against the landing page URL")
+    forbid(CLIENT, "SSO_BASE}${action", "the already-prefixed form action must not be joined to SSO_BASE again")
 
 
 def test_the_bridge_never_writes_to_the_portal() -> None:

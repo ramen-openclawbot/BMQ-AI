@@ -2,10 +2,16 @@
  * KFM / Seedcom partner portal client (HTTP-only, no browser).
  *
  * Verified contract (2026-09-12, read from the portal SPA bundles):
- *   SSO   : GET  https://sso.seedcom.vn/uaa/login            -> form (_csrf, username, password)
- *           POST https://sso.seedcom.vn/uaa/login            -> 302 Location .../sce/oauth?code=...
- *   Token : POST {SCE}/auth/sso/sce/exchange  { code, clientId, redirectUri } -> { success, token, refreshToken }
- *           POST {SCE}/auth/sso/sce/refresh   { refreshToken, clientId }      -> { success, token, refreshToken }
+ *   SSO   : GET  {SSO}/oauth2/authorize?response_type=code&client_id=...&redirect_uri=...
+ *             &scope=openid profile email&state=...&code_challenge=...&code_challenge_method=S256
+ *             -> 302 to {SSO}/login, which carries the _csrf form
+ *           POST {SSO}/login  (_csrf, username, password) -> 302, usually to /login?error=authorize
+ *             EVEN WHEN THE CREDENTIAL IS ACCEPTED; re-issuing the authorize request
+ *             on that same session is what returns the {redirect_uri}?code=... redirect
+ *   Token : POST {SCE}/auth/sso/sce/exchange  { code, codeVerifier, redirectUri, clientId }
+ *             -> { success, accessToken, refreshToken }
+ *           POST {SCE}/auth/sso/sce/refresh   { refreshToken, clientId }
+ *             -> { success, token, refreshToken }
  *   Read  : GET  {SCE}/api/v1/portal/me
  *           GET  {SCE}/api/v1/portal/orders?vendorId=&page=&size=&deliveryDateFrom=&deliveryDateTo=
  *
@@ -20,6 +26,9 @@ export const SSO_BASE = "https://sso.seedcom.vn/uaa";
 export const SCE_API = "https://logis.seedcom.vn/sce-api";
 export const SCE_CLIENT_ID = "sce-client-1i15ym2j";
 export const PORTAL_ORIGIN = "https://partners.seedcom.vn";
+
+/** Registered OAuth2 redirect target of the portal SPA (its `getSsoCallbackUrl`). */
+export const SSO_CALLBACK_URL = `${PORTAL_ORIGIN}/sce/oauth`;
 
 const USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
@@ -55,6 +64,8 @@ export type KfmOrder = {
 export class KfmPortalError extends Error {
   status: number;
   step: string;
+  /** Technical breadcrumb for operators: which URL we hit and where we landed. */
+  detail?: string;
   constructor(step: string, status: number, message: string) {
     super(message);
     this.name = "KfmPortalError";
@@ -113,15 +124,52 @@ function formEncode(fields: Record<string, string>): string {
     .join("&");
 }
 
-/** Step 1 — read the SSO login form and its CSRF token. */
-export async function fetchLoginForm(
-  jar: CookieJar = new CookieJar(),
-): Promise<{ jar: CookieJar; csrf: string; action: string }> {
-  const response = await request(jar, `${SSO_BASE}/login`);
-  const html = await response.text();
-  if (response.status !== 200) {
-    throw new KfmPortalError("sso_form", response.status, "Không mở được trang đăng nhập SSO");
+/** base64url, no padding — the encoding PKCE expects. */
+function base64Url(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/** PKCE pair — the verifier stays in this process, only the challenge goes to SSO. */
+async function createPkcePair(): Promise<{ verifier: string; challenge: string }> {
+  const verifier = base64Url(crypto.getRandomValues(new Uint8Array(32)));
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+  return { verifier, challenge: base64Url(new Uint8Array(digest)) };
+}
+
+function absolute(url: string, base: string): string {
+  try {
+    return new URL(url, base).toString();
+  } catch {
+    return url;
   }
+}
+
+/** Read one query parameter off an absolute redirect target. */
+function paramFromLocation(location: string, name: string): string {
+  try {
+    return new URL(location).searchParams.get(name) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Path and query KEYS only (never values) — enough to tell a wrong-path redirect
+ * apart from a rejected password without leaking anything sensitive.
+ */
+function pathOf(url: string): string {
+  try {
+    const parsed = new URL(url);
+    const keys = Array.from(parsed.searchParams.keys()).join(",");
+    return keys ? `${parsed.pathname}?${keys}` : parsed.pathname;
+  } catch {
+    return url.slice(0, 120);
+  }
+}
+
+function readLoginForm(html: string, pageUrl: string): { csrf: string; action: string } {
   const inputs = html.match(/<input[^>]*>/gi) || [];
   let csrf = "";
   for (const tag of inputs) {
@@ -132,23 +180,93 @@ export async function fetchLoginForm(
     }
   }
   const actionMatch = html.match(/<form[^>]*action=["']([^"']+)["']/i);
-  let action = actionMatch ? actionMatch[1] : "/login";
-  if (action.startsWith("/")) action = `${SSO_BASE}${action}`;
-  if (!csrf) {
-    throw new KfmPortalError("sso_form", 200, "Trang SSO không có _csrf — cấu trúc form đã đổi");
-  }
-  return { jar, csrf, action };
+  // Resolve against the page URL, the way a browser would. The action already
+  // carries the /uaa context path, so joining it to SSO_BASE posts to
+  // /uaa/uaa/login — a path that answers with a redirect to /login and therefore
+  // looks exactly like a rejected password.
+  const action = absolute(actionMatch ? actionMatch[1] : "login", pageUrl);
+  return { csrf, action };
 }
 
-type TokenPayload = { success?: boolean; token?: string; refreshToken?: string; message?: string };
+/** The PKCE authorize request that tells SSO which client we are. */
+function authorizeRequest(state: string, challenge: string): string {
+  const authorize = new URL(`${SSO_BASE}/oauth2/authorize`);
+  authorize.searchParams.set("response_type", "code");
+  authorize.searchParams.set("client_id", SCE_CLIENT_ID);
+  authorize.searchParams.set("redirect_uri", SSO_CALLBACK_URL);
+  authorize.searchParams.set("scope", "openid profile email");
+  authorize.searchParams.set("state", state);
+  authorize.searchParams.set("code_challenge", challenge);
+  authorize.searchParams.set("code_challenge_method", "S256");
+  return authorize.toString();
+}
 
-function readTokens(step: string, status: number, payload: TokenPayload): KfmSession | null {
-  if (status !== 200) return null;
-  if (!payload?.success || !payload?.token) return null;
+/**
+ * Step 1 — start the OAuth2 authorization-code flow (PKCE) and land on the login
+ * form. The authorize request is what tells SSO which client we are; posting
+ * straight to /login without it returns a redirect that carries no code.
+ */
+async function beginLogin(
+  jar: CookieJar,
+  state: string,
+  challenge: string,
+): Promise<{ csrf: string; action: string }> {
+  let pageUrl = authorizeRequest(state, challenge);
+  let response = await request(jar, pageUrl);
+  for (let hop = 0; hop < 6 && REDIRECT_STATUS.has(response.status); hop++) {
+    const location = response.headers.get("location");
+    if (!location) break;
+    pageUrl = absolute(location, pageUrl);
+    response = await request(jar, pageUrl);
+  }
+  const html = await response.text();
+  if (response.status !== 200) {
+    throw new KfmPortalError("sso_form", response.status, "Không mở được trang đăng nhập SSO");
+  }
+  const form = readLoginForm(html, pageUrl);
+  if (!form.csrf) {
+    throw new KfmPortalError("sso_form", 200, "Trang SSO không có _csrf — cấu trúc form đã đổi");
+  }
+  return form;
+}
+
+/**
+ * Re-issue the authorize request on an already-authenticated session and follow
+ * the chain until it carries `?code=`.
+ */
+async function replayAuthorize(
+  jar: CookieJar,
+  authorizeUrl: string,
+): Promise<{ location: string; response: Response }> {
+  let pageUrl = authorizeUrl;
+  let response = await request(jar, pageUrl);
+  let location = response.headers.get("location") || "";
+  for (let hop = 0; hop < 8 && location && !paramFromLocation(location, "code"); hop++) {
+    if (location.includes("/login")) break;
+    pageUrl = absolute(location, pageUrl);
+    response = await request(jar, pageUrl);
+    location = response.headers.get("location") || "";
+  }
+  return { location, response };
+}
+
+type TokenPayload = {
+  success?: boolean;
+  token?: string;
+  accessToken?: string;
+  refreshToken?: string;
+  message?: string;
+};
+
+function readTokens(step: "login" | "refresh", status: number, payload: TokenPayload): KfmSession | null {
+  if (status !== 200 || !payload?.success) return null;
+  // The exchange endpoint answers with `accessToken`; the refresh endpoint with `token`.
+  const token = step === "refresh" ? payload.token : (payload.accessToken ?? payload.token);
+  if (!token) return null;
   return {
-    token: payload.token,
+    token,
     refreshToken: payload.refreshToken || "",
-    mode: step === "refresh" ? "refresh" : "login",
+    mode: step,
     obtainedAt: new Date().toISOString(),
   };
 }
@@ -178,26 +296,53 @@ export async function loginWithPassword(
   if (!username || !password) {
     throw new KfmPortalError("login", 0, "Thiếu thông tin đăng nhập cổng KFM");
   }
-  const { jar, csrf, action } = await fetchLoginForm();
+  const jar = new CookieJar();
+  const { verifier, challenge } = await createPkcePair();
+  const state = base64Url(crypto.getRandomValues(new Uint8Array(16)));
+  const { csrf, action } = await beginLogin(jar, state, challenge);
 
-  const response = await request(jar, action, {
+  let response = await request(jar, action, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: formEncode({ username, password, _csrf: csrf }),
   });
 
-  if (!REDIRECT_STATUS.has(response.status)) {
-    throw new KfmPortalError("login", response.status, "Đăng nhập cổng KFM bị từ chối");
+  // SSO answers with a redirect chain: login -> authorize -> {redirect_uri}?code=...
+  //
+  // Measured behaviour (2026-09-13): even when the credential is ACCEPTED, SSO
+  // bounces the POST back to /login?error=authorize. That POST did authenticate
+  // the session, but the saved authorize request is not replayed, so no code
+  // comes back. Reading that bounce as "wrong password" is a false negative.
+  // The session is real, so ask the authorize endpoint again on it.
+  let location = response.headers.get("location") || "";
+  for (
+    let hop = 0;
+    hop < 6 && location && !paramFromLocation(location, "code") && !location.includes("/login");
+    hop++
+  ) {
+    response = await request(jar, absolute(location, SSO_BASE));
+    location = response.headers.get("location") || "";
   }
-  const location = response.headers.get("location") || "";
-  let code = "";
-  try {
-    code = new URL(location).searchParams.get("code") || "";
-  } catch {
-    code = "";
+
+  if (!paramFromLocation(location, "code")) {
+    const replay = await replayAuthorize(jar, authorizeRequest(state, challenge));
+    location = replay.location;
+    response = replay.response;
   }
+
+  const code = paramFromLocation(location, "code");
   if (!code) {
-    throw new KfmPortalError("login", response.status, "SSO không trả về mã uỷ quyền");
+    const failure = new KfmPortalError(
+      "login",
+      response.status,
+      "Cổng KFM từ chối tài khoản hoặc mật khẩu",
+    );
+    failure.detail = `POST ${pathOf(action)} -> ${pathOf(location || "(không chuyển hướng)")}`;
+    throw failure;
+  }
+  const returnedState = paramFromLocation(location, "state");
+  if (returnedState && returnedState !== state) {
+    throw new KfmPortalError("login", response.status, "SSO trả về state không khớp");
   }
 
   const exchange = await request(null, `${SCE_API}/auth/sso/sce/exchange`, {
@@ -205,8 +350,9 @@ export async function loginWithPassword(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       code,
+      codeVerifier: verifier,
+      redirectUri: SSO_CALLBACK_URL,
       clientId: SCE_CLIENT_ID,
-      redirectUri: `${PORTAL_ORIGIN}/sce/oauth`,
     }),
   });
   let payload: TokenPayload = {};

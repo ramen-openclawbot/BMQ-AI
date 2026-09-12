@@ -34,6 +34,14 @@ import {
 /** Warm-instance session cache — avoids one login per request while it lasts. */
 let cached: { session: KfmSession; vendorIds: number[]; vendorCode: string | null } | null = null;
 
+/**
+ * A rejected credential must not be retried on every app request: the partner
+ * portal locks accounts after repeated failures. Failed logins are memoised for
+ * a short cooldown so a mistaken secret cannot hammer the account.
+ */
+const LOGIN_COOLDOWN_MS = 5 * 60 * 1000;
+let lastCredentialFailure: { at: number; step: string; status: number; message: string } | null = null;
+
 const json = (body: unknown, status: number, req: Request) =>
   new Response(JSON.stringify(body), {
     status,
@@ -90,9 +98,25 @@ serve(async (req) => {
 
   try {
     if (!cached) {
+      const cooldownLeftMs = lastCredentialFailure
+        ? LOGIN_COOLDOWN_MS - (Date.now() - lastCredentialFailure.at)
+        : 0;
+      if (cooldownLeftMs > 0 && lastCredentialFailure) {
+        return json({
+          success: false,
+          configured: true,
+          deliveryDate,
+          error: "login_cooldown",
+          step: lastCredentialFailure.step,
+          message: lastCredentialFailure.message,
+          retryAfterSeconds: Math.ceil(cooldownLeftMs / 1000),
+          fallback: "po-gmail-sync",
+        }, 200, req);
+      }
       const session = await openSession({ username, password, refreshToken });
       const me = await getMe(session.token);
       cached = { session, vendorIds: me.vendorIds, vendorCode: me.vendorCode };
+      lastCredentialFailure = null;
     }
 
     const requestedVendor = Number(payload.vendorId);
@@ -137,7 +161,12 @@ serve(async (req) => {
     const message = isPortal
       ? (error as KfmPortalError).message
       : "Lỗi không xác định khi gọi cổng KFM";
+    const detail = isPortal ? (error as KfmPortalError).detail : undefined;
     const expired = step === "me" && status === 401;
+    // Bad credentials are remembered so the account is not hammered into a lockout.
+    if (step === "login" || step === "exchange" || step === "sso_form") {
+      lastCredentialFailure = { at: Date.now(), step, status, message };
+    }
     return json({
       success: false,
       configured: true,
@@ -145,6 +174,7 @@ serve(async (req) => {
       error: expired ? "session_expired" : `portal_${step}`,
       step,
       message,
+      detail,
       // The UI falls back to the existing Gmail PO flow when this is not success.
       fallback: "po-gmail-sync",
     }, 200, req);
