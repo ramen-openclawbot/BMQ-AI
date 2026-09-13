@@ -298,7 +298,10 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
       </Button>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-3xl">
+        <DialogContent
+          className="max-h-[90dvh] max-w-3xl overflow-y-auto"
+          data-kfm-mobile="v1"
+        >
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Truck className="h-5 w-5" />
@@ -311,7 +314,10 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="flex flex-wrap items-center gap-3">
+          {/* The native date control keeps its own intrinsic width on iOS, which
+              used to push the trailing badge off the dialog. Let the row shrink
+              and give the input a full-width line on phones only. */}
+          <div className="flex min-w-0 flex-wrap items-center gap-3">
             <label className="text-sm text-muted-foreground" htmlFor="kfm-delivery-date">
               {isVi ? "Ngày giao" : "Delivery date"}
             </label>
@@ -320,7 +326,7 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
               type="date"
               value={deliveryDate}
               onChange={(event) => setDeliveryDate(event.target.value)}
-              className="h-10 rounded-xl border border-border bg-background px-3 text-sm"
+              className="h-10 w-full min-w-0 rounded-xl border border-border bg-background px-3 text-sm sm:w-auto"
             />
             <Button
               variant="outline"
@@ -335,7 +341,7 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
               {isVi ? "Tải lại" : "Reload"}
             </Button>
             {data?.vendorCode && (
-              <Badge variant="outline" className="ml-auto">
+              <Badge variant="outline" className="sm:ml-auto">
                 {data.vendorCode}
               </Badge>
             )}
@@ -388,21 +394,23 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
                 <Badge variant="secondary">{isVi ? `${orders.length} đơn` : `${orders.length} orders`}</Badge>
                 <span>{isVi ? "Ngày giao" : "Delivery"}: {data.deliveryDate}</span>
                 {data.session?.mode && (
-                  <span className="ml-auto text-xs">
+                  <span className="text-xs sm:ml-auto">
                     {isVi ? "Phiên" : "Session"}: {data.session.mode === "refresh" ? "refresh token" : "đăng nhập mới"}
                   </span>
                 )}
               </div>
 
-              <div className="max-h-96 overflow-auto rounded-xl border border-border">
-                <table className="w-full text-sm">
+              <div className="max-h-96 min-w-0 overflow-auto rounded-xl border border-border">
+                <table className="w-full min-w-[520px] text-sm">
                   <thead className="sticky top-0 bg-muted/80 text-left">
                     <tr>
                       <th className="p-2">{isVi ? "Mã PO" : "PO"}</th>
                       <th className="p-2">{isVi ? "Kho nhận" : "Location"}</th>
                       <th className="p-2 text-right">{isVi ? "Số dòng" : "Items"}</th>
                       <th className="p-2 text-right">{isVi ? "SL" : "Qty"}</th>
-                      <th className="p-2 text-right">{isVi ? "Thao tác" : "Actions"}</th>
+                      <th className="sticky right-0 border-l border-border bg-muted p-2 text-right">
+                        {isVi ? "Thao tác" : "Actions"}
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -412,7 +420,7 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
                         <td className="p-2">{order.locationName || "—"}</td>
                         <td className="p-2 text-right">{order.itemCount ?? "—"}</td>
                         <td className="p-2 text-right">{qty(order.totalQty)}</td>
-                        <td className="p-2">
+                        <td className="sticky right-0 border-l border-border bg-background p-2">
                           <div className="flex items-center justify-end gap-1">
                             <Button
                               variant="ghost"
@@ -464,7 +472,7 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
             </>
           )}
 
-          <div className="space-y-2" data-kfm-loads-section="v1">
+          <div className="min-w-0 space-y-2" data-kfm-loads-section="v1">
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-sm font-semibold">
                 {isVi ? "Chuyến xe giao hàng" : "Delivery trips"}
@@ -518,8 +526,8 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
             )}
 
             {!loadsQuery.isLoading && !loadsQuery.isError && (
-              <div className="max-h-72 overflow-auto rounded-xl border border-border">
-                <table className="w-full text-sm">
+              <div className="max-h-72 min-w-0 overflow-auto rounded-xl border border-border">
+                <table className="w-full min-w-[600px] text-sm">
                   <thead className="sticky top-0 bg-muted/80 text-left">
                     <tr>
                       <th className="p-2">{isVi ? "Chuyến" : "Trip"}</th>
@@ -527,7 +535,9 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
                       <th className="p-2">{isVi ? "Tài xế" : "Driver"}</th>
                       <th className="p-2">{isVi ? "Xe" : "Truck"}</th>
                       <th className="p-2">{isVi ? "Trạng thái" : "Status"}</th>
-                      <th className="p-2 text-right">{isVi ? "Thao tác" : "Actions"}</th>
+                      <th className="sticky right-0 border-l border-border bg-muted p-2 text-right">
+                        {isVi ? "Thao tác" : "Actions"}
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -550,7 +560,7 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
                         <td className="p-2">
                           <Badge variant="outline">{load.status || "—"}</Badge>
                         </td>
-                        <td className="p-2 text-right">
+                        <td className="sticky right-0 border-l border-border bg-background p-2 text-right">
                           <Button
                             variant="ghost"
                             size="sm"

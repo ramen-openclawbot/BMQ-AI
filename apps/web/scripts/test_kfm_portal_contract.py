@@ -80,6 +80,18 @@ def test_delivery_trips_are_read_only_and_carry_driver_and_truck() -> None:
     require(PANEL, "Đang chuẩn bị file in", "printing must show the portal's waiting state")
 
 
+def test_the_panel_fits_a_phone_viewport() -> None:
+    # Reported 2026-09-13 on an iPhone 17 Pro Max: the action column sat outside
+    # the screen, so the print button was unreachable. The dialog caps its height,
+    # its grid children may shrink, and the action column is pinned to the edge.
+    require(PANEL, 'data-kfm-mobile="v1"', "the mobile layout fix must carry a stable marker")
+    require(PANEL, "max-h-[90dvh]", "the dialog must cap its height on a short screen")
+    require(PANEL, "overflow-y-auto", "the dialog must scroll instead of overflowing")
+    require(PANEL, "min-w-0", "the dialog's grid children must be allowed to shrink")
+    require(PANEL, "sticky right-0", "the action column must stay visible while a row scrolls")
+    require(PANEL, "sm:ml-auto", "trailing badges must wrap on phones instead of being clipped")
+
+
 def test_the_panel_shows_no_money() -> None:
     for marker in ("Tổng (gồm VAT)", "orderTotalWithTax", "orderTotal", "taxTotal"):
         forbid(PANEL, marker, "the KFM panel must show products and quantities only")
