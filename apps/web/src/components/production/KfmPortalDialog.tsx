@@ -47,6 +47,30 @@ type KfmOrderDetail = {
   asns: Array<{ asnId: number; asnCode: string | null }>;
 };
 
+/** One delivery trip ("chuyến xe giao hàng") — the only place with driver + truck. */
+type KfmDeliveryLoad = {
+  portalId: number;
+  loadCode: string | null;
+  deliveryDate: string | null;
+  status: string | null;
+  driverName: string | null;
+  driverPhone: string | null;
+  licensePlate: string | null;
+  vehicleTypeName: string | null;
+  asnCount: number | null;
+  bookingStartDatetime: string | null;
+  bookingEndDatetime: string | null;
+  places: Array<{ locationName: string | null; asnStatus: string | null }>;
+  asns: Array<{
+    asnId: number;
+    asnCode: string | null;
+    asnStatus: string | null;
+    locationName: string | null;
+    bookingTimeSlot: string | null;
+    totalShipQty: number | null;
+  }>;
+};
+
 type KfmResponse = {
   success: boolean;
   configured?: boolean;
@@ -57,6 +81,8 @@ type KfmResponse = {
   count?: number;
   orders?: KfmOrder[];
   order?: KfmOrderDetail;
+  loads?: KfmDeliveryLoad[];
+  counts?: Record<string, number>;
   filename?: string;
   base64?: string;
   session?: { mode: string; obtainedAt: string };
@@ -134,6 +160,25 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
   const data = query.data;
   const orders = data?.orders || [];
 
+  // Trips are their own read: the portal keeps them under inbound-loads, not
+  // under the order list, and they are the only rows carrying driver + truck.
+  // The date filter is optional because yesterday's trip is often the one
+  // being driven today.
+  const [filterLoadsByDate, setFilterLoadsByDate] = useState(false);
+  const [printing, setPrinting] = useState<number | null>(null);
+
+  const loadsQuery = useQuery({
+    queryKey: ["kfm-portal-loads", filterLoadsByDate ? deliveryDate : "all"],
+    queryFn: () => callPortal({
+      action: "loads",
+      ...(filterLoadsByDate ? { deliveryDate } : {}),
+    }),
+    enabled: open,
+    retry: false,
+    staleTime: 30_000,
+  });
+  const loads = loadsQuery.data?.loads || [];
+
   const runAction = async (key: string, work: () => Promise<string>) => {
     setBusy(key);
     try {
@@ -198,6 +243,46 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
 
   const busyIcon = (key: string) =>
     busy === key ? <Loader2 className="h-4 w-4 animate-spin" /> : null;
+
+  /**
+   * Print a delivery trip. The sheet is rendered server side, so the operator
+   * gets the same explicit "preparing" state the partner portal shows instead
+   * of a blank tab that looks broken. The tab is opened on the click itself:
+   * a window opened after the awaits is blocked as a popup.
+   */
+  const handlePrintLoad = (load: KfmDeliveryLoad) => {
+    const viewer = typeof window !== "undefined" ? window.open("", "_blank") : null;
+    const toastId = `kfm-print-${load.portalId}`;
+    setPrinting(load.portalId);
+    toast.loading(isVi ? "Đang chuẩn bị file in..." : "Preparing the print file...", {
+      id: toastId,
+      duration: Number.POSITIVE_INFINITY,
+    });
+    void (async () => {
+      try {
+        const pdf = await callPortal({ action: "load-pdf", loadId: load.portalId });
+        savePdf(
+          pdf.base64 || "",
+          pdf.filename || `PhieuGiaoHang-${load.loadCode || load.portalId}.pdf`,
+          viewer,
+        );
+        toast.success(
+          isVi
+            ? `Đã mở phiếu giao hàng ${load.loadCode || load.portalId}.`
+            : `Delivery note ${load.loadCode || load.portalId} opened.`,
+          { id: toastId, duration: 4000 },
+        );
+      } catch (error) {
+        viewer?.close();
+        toast.error((error as Error)?.message || "Cổng KFM báo lỗi.", {
+          id: toastId,
+          duration: 6000,
+        });
+      } finally {
+        setPrinting(null);
+      }
+    })();
+  };
 
   return (
     <>
@@ -378,6 +463,122 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
               </div>
             </>
           )}
+
+          <div className="space-y-2" data-kfm-loads-section="v1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-sm font-semibold">
+                {isVi ? "Chuyến xe giao hàng" : "Delivery trips"}
+              </h3>
+              <Badge variant="secondary">
+                {isVi ? `${loads.length} chuyến` : `${loads.length} trips`}
+              </Badge>
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-xl"
+                data-kfm-loads-filter="v1"
+                onClick={() => setFilterLoadsByDate((value) => !value)}
+              >
+                {filterLoadsByDate
+                  ? (isVi ? "Bỏ lọc theo ngày" : "All dates")
+                  : (isVi ? "Lọc theo ngày giao" : "Filter by date")}
+              </Button>
+            </div>
+
+            {/* Same waiting state the partner portal shows while it renders the
+                sheet server side — the operator sees the work, not a blank tab. */}
+            {printing !== null && (
+              <div
+                className="flex items-center gap-3 rounded-xl border border-primary/40 bg-primary/5 p-3"
+                data-kfm-printing="v1"
+                role="status"
+              >
+                <Printer className="h-4 w-4 animate-pulse text-primary" />
+                <span className="text-sm font-medium">
+                  {isVi ? "Đang chuẩn bị file in..." : "Preparing the print file..."}
+                </span>
+                <span className="ml-auto flex items-center gap-1" aria-hidden="true">
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary [animation-delay:-0.3s]" />
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary [animation-delay:-0.15s]" />
+                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary" />
+                </span>
+              </div>
+            )}
+
+            {loadsQuery.isLoading && (
+              <p className="py-4 text-center text-sm text-muted-foreground">
+                {isVi ? "Đang lấy chuyến giao…" : "Loading trips…"}
+              </p>
+            )}
+
+            {loadsQuery.isError && (
+              <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-3 text-sm">
+                {(loadsQuery.error as Error)?.message}
+              </div>
+            )}
+
+            {!loadsQuery.isLoading && !loadsQuery.isError && (
+              <div className="max-h-72 overflow-auto rounded-xl border border-border">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-muted/80 text-left">
+                    <tr>
+                      <th className="p-2">{isVi ? "Chuyến" : "Trip"}</th>
+                      <th className="p-2">{isVi ? "Ngày giao" : "Delivery"}</th>
+                      <th className="p-2">{isVi ? "Tài xế" : "Driver"}</th>
+                      <th className="p-2">{isVi ? "Xe" : "Truck"}</th>
+                      <th className="p-2">{isVi ? "Trạng thái" : "Status"}</th>
+                      <th className="p-2 text-right">{isVi ? "Thao tác" : "Actions"}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loads.map((load) => (
+                      <tr key={load.portalId} className="border-t border-border/60">
+                        <td className="p-2 font-medium">{load.loadCode || load.portalId}</td>
+                        <td className="p-2">{load.deliveryDate || "—"}</td>
+                        <td className="p-2">
+                          {load.driverName || "—"}
+                          {load.driverPhone && (
+                            <span className="block text-xs text-muted-foreground">{load.driverPhone}</span>
+                          )}
+                        </td>
+                        <td className="p-2">
+                          {load.licensePlate || "—"}
+                          {load.vehicleTypeName && (
+                            <span className="block text-xs text-muted-foreground">{load.vehicleTypeName}</span>
+                          )}
+                        </td>
+                        <td className="p-2">
+                          <Badge variant="outline">{load.status || "—"}</Badge>
+                        </td>
+                        <td className="p-2 text-right">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 rounded-lg"
+                            title={isVi ? "In phiếu giao hàng" : "Print delivery note"}
+                            data-kfm-action="print-load"
+                            disabled={printing !== null || busy !== null}
+                            onClick={() => handlePrintLoad(load)}
+                          >
+                            {printing === load.portalId
+                              ? <Loader2 className="h-4 w-4 animate-spin" />
+                              : <FileText className="h-4 w-4" />}
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                    {loads.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="p-6 text-center text-muted-foreground">
+                          {isVi ? "Không có chuyến giao nào." : "No delivery trips."}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
     </>

@@ -524,6 +524,170 @@ export function statusLabel(status: number | null, subStatus: number | null): st
  *   ASN print GET  /api/v1/portal/asn/{id}/export-pdf?vendorId=&poId=&hidePrice=
  * ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ *
+ * Delivery trips — the portal's "chuyến xe giao hàng" (inbound load IL-…).
+ *
+ * This is the only surface that carries the person who drives and the truck:
+ * the order list does not. Verified live against the portal on 2026-09-13
+ * (vendor V000217) — the field names below are the ones the API really sends.
+ *   list   GET /api/v1/portal/inbound-loads?vendorId=&page=&size=&deliveryDate=
+ *   detail GET /api/v1/portal/inbound-loads/{id}?vendorId=
+ *   print  GET /api/v1/portal/inbound-loads/{id}/export-pdf?vendorId=&hidePrice=
+ *
+ * Read-only. Dispatch ("Giao hàng"), confirm, cancel and merge stay on the
+ * portal and are never called from here.
+ * ------------------------------------------------------------------ */
+
+export type KfmDeliveryPlace = {
+  locationId: number | null;
+  locationName: string | null;
+  asnStatus: string | null;
+};
+
+export type KfmDeliveryAsn = {
+  asnId: number;
+  asnCode: string | null;
+  asnStatus: string | null;
+  locationName: string | null;
+  bookingTimeSlot: string | null;
+  totalShipQty: number | null;
+};
+
+export type KfmDeliveryLoad = {
+  portalId: number;
+  loadCode: string | null;
+  deliveryDate: string | null;
+  /** Raw portal status (`DRAFT`/`CONFIRMED`/`DISPATCHED`/`RECEIVED`/`CANCELLED`). */
+  status: string | null;
+  driverName: string | null;
+  driverPhone: string | null;
+  /** The portal sends the plate as `licensePlate` (no plate key on the order rows). */
+  licensePlate: string | null;
+  vehicleTypeName: string | null;
+  asnCount: number | null;
+  bookingStartDatetime: string | null;
+  bookingEndDatetime: string | null;
+  note: string | null;
+  places: KfmDeliveryPlace[];
+  asns: KfmDeliveryAsn[];
+};
+
+/** Map one portal inbound-load row to BMQ's stable shape. */
+export function normalizeDeliveryLoad(row: Record<string, unknown>): KfmDeliveryLoad {
+  const places: Record<string, unknown>[] = Array.isArray(row.locations) ? row.locations : [];
+  const asns: Record<string, unknown>[] = Array.isArray(row.asns) ? row.asns : [];
+  return {
+    portalId: Number(row.id),
+    loadCode: asString(row.loadCode),
+    deliveryDate: asString(row.deliveryDate),
+    status: asString(row.loadStatus),
+    driverName: asString(row.driverName),
+    driverPhone: asString(row.driverPhone),
+    licensePlate: asString(row.licensePlate),
+    vehicleTypeName: asString(row.vehicleTypeName),
+    asnCount: asNumber(row.asnCount),
+    bookingStartDatetime: asString(row.bookingStartDatetime),
+    bookingEndDatetime: asString(row.bookingEndDatetime),
+    note: asString(row.note),
+    places: places.map((place) => ({
+      locationId: asNumber(place.locationId),
+      locationName: asString(place.locationName),
+      asnStatus: asString(place.asnStatus),
+    })),
+    asns: asns
+      .map((asn) => ({
+        asnId: Number(asn.id),
+        asnCode: asString(asn.asnCode),
+        asnStatus: asString(asn.asnStatus),
+        locationName: asString(asn.locationName),
+        bookingTimeSlot: asString(asn.bookingTimeSlot),
+        totalShipQty: asNumber(asn.totalShipQty),
+      }))
+      .filter((asn) => Number.isFinite(asn.asnId) && asn.asnId > 0),
+  };
+}
+
+/** Delivery trips of one vendor, newest portal page first. */
+export async function listDeliveryLoads(
+  token: string,
+  options: { vendorId: number; deliveryDate?: string; page?: number; size?: number },
+): Promise<{ loads: KfmDeliveryLoad[]; totalElements: number; counts: Record<string, number> }> {
+  const { vendorId } = options;
+  if (!Number.isInteger(vendorId) || vendorId <= 0) {
+    throw new KfmPortalError("loads", 0, "Thiếu vendorId hợp lệ");
+  }
+  if (options.deliveryDate !== undefined && !ISO_DATE.test(options.deliveryDate)) {
+    throw new KfmPortalError("loads", 0, "Ngày giao phải theo định dạng YYYY-MM-DD");
+  }
+  const query = new URLSearchParams({
+    vendorId: String(vendorId),
+    page: String(options.page ?? 0),
+    size: String(options.size ?? 20),
+  });
+  if (options.deliveryDate) query.set("deliveryDate", options.deliveryDate);
+
+  const { status, body } = await authedGet(
+    token,
+    `${SCE_API}/api/v1/portal/inbound-loads?${query.toString()}`,
+  );
+  if (status !== 200) {
+    throw new KfmPortalError("loads", status, "Không đọc được danh sách chuyến giao từ cổng KFM");
+  }
+  const data = body?.data || {};
+  const rows: Record<string, unknown>[] = Array.isArray(data.content) ? data.content : [];
+  return {
+    loads: rows.map(normalizeDeliveryLoad),
+    totalElements: asNumber(data.totalElements) ?? rows.length,
+    counts: await loadCounts(token, vendorId),
+  };
+}
+
+/** Trip counters per portal status. Read-only, and never fatal for the list. */
+async function loadCounts(token: string, vendorId: number): Promise<Record<string, number>> {
+  const { status, body } = await authedGet(
+    token,
+    `${SCE_API}/api/v1/portal/inbound-loads/counts?vendorId=${vendorId}`,
+  );
+  const data = status === 200 ? (body?.data || {}) : {};
+  const counts: Record<string, number> = {};
+  for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
+    const n = asNumber(value);
+    if (n !== null) counts[key] = n;
+  }
+  return counts;
+}
+
+/** GET one trip with its delivery places and the delivery notes on it. */
+export async function getDeliveryLoad(
+  token: string,
+  options: { vendorId: number; loadId: number },
+): Promise<KfmDeliveryLoad> {
+  const { status, body } = await authedGet(
+    token,
+    `${SCE_API}/api/v1/portal/inbound-loads/${options.loadId}?vendorId=${options.vendorId}`,
+  );
+  if (status !== 200) {
+    throw new KfmPortalError("load_detail", status, "Không đọc được chi tiết chuyến giao");
+  }
+  const data = ((body?.data ?? body) || {}) as Record<string, unknown>;
+  return normalizeDeliveryLoad(data);
+}
+
+/** Print the delivery note of one trip, price-free by default. */
+export async function fetchLoadPdf(
+  token: string,
+  options: { loadId: number; vendorId: number; hidePrice?: boolean; layout?: string },
+): Promise<Uint8Array> {
+  const query = new URLSearchParams({ vendorId: String(options.vendorId) });
+  if (options.hidePrice !== false) query.set("hidePrice", "true");
+  if (options.layout) query.set("layout", options.layout);
+  return await fetchDocument(
+    token,
+    `${SCE_API}/api/v1/portal/inbound-loads/${options.loadId}/export-pdf?${query.toString()}`,
+    "load_pdf",
+  );
+}
+
 export type KfmOrderLine = {
   productCode: string | null;
   productName: string | null;

@@ -46,7 +46,7 @@ def test_portal_client_pins_the_verified_contract() -> None:
 
 def test_the_bridge_exposes_only_the_approved_operator_actions() -> None:
     # Approved 2026-09-13 (owner: "2A" - VNAgent builds the buttons, the operator
-    # clicks every step by hand). Confirm plus the two printouts are the whole
+    # clicks every step by hand). Confirm plus the printouts are the whole
     # approved surface; the rest of the portal stays outside the app.
     require(CLIENT, "/api/v1/portal/orders/${options.orderId}/confirm?vendorId=",
             "confirm must use the verified endpoint and pass vendorId")
@@ -57,10 +57,27 @@ def test_the_bridge_exposes_only_the_approved_operator_actions() -> None:
     for forbidden in ("/reject", "/propose-change", "/approve-change", "/cancel",
                       "/dispatch", "/send-to-vendor", "export-pdf-batch"):
         forbid(CLIENT, forbidden, "%s is not an approved action" % forbidden)
-    require(FUNCTION, 'ACTIONS = ["list", "detail", "confirm", "po-pdf", "asn-pdf"]',
-            "the action list must be exactly the approved surface")
+    for action in ("list", "detail", "confirm", "po-pdf", "asn-pdf",
+                   "loads", "load-detail", "load-pdf"):
+        require(FUNCTION, '"%s"' % action, "the %s action must be exposed" % action)
     require(FUNCTION, '"POST"', "the function must accept POST for the read request")
     require(FUNCTION, 'method !== "POST"', "only POST may reach the portal call")
+
+
+def test_delivery_trips_are_read_only_and_carry_driver_and_truck() -> None:
+    # Verified live 2026-09-13: the trip rows are where the driver and the truck
+    # live, and the field really is `licensePlate` (there is no `plateNumber`).
+    require(CLIENT, "/api/v1/portal/inbound-loads?", "trips must come from the verified endpoint")
+    require(CLIENT, "/api/v1/portal/inbound-loads/${options.loadId}?vendorId=",
+            "trip detail must use the verified endpoint")
+    require(CLIENT, "/api/v1/portal/inbound-loads/${options.loadId}/export-pdf?",
+            "the trip sheet must come from the verified export endpoint")
+    require(CLIENT, "inbound-loads/counts?vendorId=", "the trip counters must use the verified endpoint")
+    require(CLIENT, "licensePlate", "the plate field must be the one the portal really sends")
+    require(CLIENT, "driverPhone", "the trip shape must carry the driver phone")
+    forbid(CLIENT, "plateNumber", "the portal has no plateNumber field")
+    require(PANEL, 'data-kfm-action="print-load"', "the trip print button must be present")
+    require(PANEL, "Đang chuẩn bị file in", "printing must show the portal's waiting state")
 
 
 def test_the_panel_shows_no_money() -> None:

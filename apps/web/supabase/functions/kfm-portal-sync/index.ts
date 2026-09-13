@@ -11,19 +11,25 @@
  *   confirm  — confirm one PO on the portal            (operator click only)
  *   po-pdf   — download the PO sheet                   (operator click only)
  *   asn-pdf  — download one delivery-note sheet        (operator click only)
+ *   loads    — read the delivery trips with driver and vehicle
+ *   load-detail — read one trip with its delivery notes
+ *   load-pdf — download the delivery note of one trip  (operator click only)
  *
  * Nothing here is scheduled, retried or triggered by a background job: every
  * call happens because a person pressed a button in the BMQ UI.
  *
  * Request  (POST, authenticated app user):
- *   { "action"?: "list"|"detail"|"confirm"|"po-pdf"|"asn-pdf",
+ *   { "action"?: "list"|"detail"|"confirm"|"po-pdf"|"asn-pdf"|"loads"|"load-detail"|"load-pdf",
  *     "deliveryDate"?: "YYYY-MM-DD", "vendorId"?: number, "size"?: number,
- *     "orderId"?: number, "poId"?: number, "asnId"?: number }
+ *     "orderId"?: number, "poId"?: number, "asnId"?: number, "loadId"?: number }
  * Response:
  *   list   : { success, configured, deliveryDate, vendorId, vendorCode, count, orders[], session }
  *   detail : { success, order: { portalId, code, purchaseOrderId, lines[], asns[] } }
  *   confirm: { success, orderId }
  *   po-pdf / asn-pdf: { success, filename, contentType, base64 }
+ *   loads  : { success, count, totalElements, counts, loads[] }
+ *   load-detail: { success, load }
+ *   load-pdf: { success, filename, contentType, base64 }
  *
  * Secrets (Supabase Edge Function env only, never logged):
  *   KFM_PORTAL_USERNAME, KFM_PORTAL_PASSWORD, KFM_PORTAL_REFRESH_TOKEN (optional)
@@ -37,9 +43,12 @@ import {
   KfmPortalError,
   confirmOrder,
   fetchAsnPdf,
+  fetchLoadPdf,
   fetchPoPdf,
+  getDeliveryLoad,
   getMe,
   getOrderDetail,
+  listDeliveryLoads,
   listOrderAsns,
   listOrders,
   openSession,
@@ -48,7 +57,16 @@ import {
   type KfmSession,
 } from "../_shared/kfm-portal.ts";
 
-const ACTIONS = ["list", "detail", "confirm", "po-pdf", "asn-pdf"] as const;
+const ACTIONS = [
+  "list",
+  "detail",
+  "confirm",
+  "po-pdf",
+  "asn-pdf",
+  "loads",
+  "load-detail",
+  "load-pdf",
+] as const;
 type KfmAction = typeof ACTIONS[number];
 
 /** Warm-instance session cache — avoids one login per request while it lasts. */
@@ -108,6 +126,7 @@ serve(async (req) => {
     orderId?: number;
     poId?: number;
     asnId?: number;
+    loadId?: number;
   } = {};
   try {
     payload = await req.json();
@@ -219,6 +238,66 @@ serve(async (req) => {
         configured: true,
         action,
         filename: `${isPo ? "PO" : "Phieu-giao-hang"}-${targetId}.pdf`,
+        contentType: "application/pdf",
+        base64: toBase64(bytes),
+        byteLength: bytes.byteLength,
+        session,
+      }, 200, req);
+    }
+
+    if (action === "loads") {
+      const { loads, totalElements, counts } = await listDeliveryLoads(cached.session.token, {
+        vendorId,
+        deliveryDate: payload.deliveryDate && ISO_DATE.test(payload.deliveryDate)
+          ? payload.deliveryDate
+          : undefined,
+        page: 0,
+        size: Number.isInteger(Number(payload.size)) ? Math.min(Number(payload.size), 100) : 20,
+      });
+      return json({
+        success: true,
+        configured: true,
+        action,
+        deliveryDate,
+        vendorId,
+        vendorCode: cached.vendorCode,
+        count: loads.length,
+        totalElements,
+        counts,
+        loads,
+        session,
+        source: "kfm_portal",
+      }, 200, req);
+    }
+
+    if (action === "load-detail") {
+      const loadId = Number(payload.loadId);
+      if (!Number.isInteger(loadId) || loadId <= 0) {
+        return json({ success: false, action, error: "bad_load_id", message: "Thiếu loadId." }, 200, req);
+      }
+      const load = await getDeliveryLoad(cached.session.token, { vendorId, loadId });
+      return json({
+        success: true,
+        configured: true,
+        action,
+        vendorId,
+        vendorCode: cached.vendorCode,
+        load,
+        session,
+      }, 200, req);
+    }
+
+    if (action === "load-pdf") {
+      const loadId = Number(payload.loadId);
+      if (!Number.isInteger(loadId) || loadId <= 0) {
+        return json({ success: false, action, error: "bad_load_id", message: "Thiếu loadId." }, 200, req);
+      }
+      const bytes = await fetchLoadPdf(cached.session.token, { loadId, vendorId, hidePrice: true });
+      return json({
+        success: true,
+        configured: true,
+        action,
+        filename: `PhieuGiaoHang-${loadId}.pdf`,
         contentType: "application/pdf",
         base64: toBase64(bytes),
         byteLength: bytes.byteLength,
