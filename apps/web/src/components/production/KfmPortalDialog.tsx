@@ -97,11 +97,18 @@ async function callPortal(body: Record<string, unknown>): Promise<KfmResponse> {
   return parsed;
 }
 
-function savePdf(base64: string, filename: string): void {
+function savePdf(base64: string, filename: string, viewer?: Window | null): void {
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
   const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+  if (viewer) {
+    // Show the sheet in the tab opened on click; the blob must outlive that
+    // navigation, so it is revoked on a delay instead of immediately.
+    viewer.location.href = url;
+    setTimeout(() => URL.revokeObjectURL(url), 30_000);
+    return;
+  }
   const anchor = document.createElement("a");
   anchor.href = url;
   anchor.download = filename;
@@ -151,27 +158,41 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
   };
 
   const handlePrintPo = (order: KfmOrder) => {
+    // Open the tab while the click is still a user gesture: a window opened
+    // after the awaits below is treated as a popup and blocked.
+    const viewer = typeof window !== "undefined" ? window.open("", "_blank") : null;
     void runAction(`po-${order.portalId}`, async () => {
-      const detail = await callPortal({ action: "detail", deliveryDate, orderId: order.portalId });
-      // The portal prints a PO by order id: its own "print PO" action calls
-      // GET /api/v1/purchase-orders/{orderId}/export-pdf. Only fall back to a
-      // dedicated PO id when the detail payload actually carries one.
-      const poId = detail.order?.purchaseOrderId ?? order.portalId;
-      if (!poId) throw new Error(isVi ? "Đơn này chưa có PO để in." : "This order has no PO to print.");
-      const pdf = await callPortal({ action: "po-pdf", poId });
-      savePdf(pdf.base64 || "", pdf.filename || `PO-${order.code}.pdf`);
-      return isVi ? `Đã tải PO ${order.code}.` : `PO ${order.code} downloaded.`;
+      try {
+        const detail = await callPortal({ action: "detail", deliveryDate, orderId: order.portalId });
+        // The portal prints a PO by order id: its own "print PO" action calls
+        // GET /api/v1/purchase-orders/{orderId}/export-pdf. Only fall back to a
+        // dedicated PO id when the detail payload actually carries one.
+        const poId = detail.order?.purchaseOrderId ?? order.portalId;
+        if (!poId) throw new Error(isVi ? "Đơn này chưa có PO để in." : "This order has no PO to print.");
+        const pdf = await callPortal({ action: "po-pdf", poId });
+        savePdf(pdf.base64 || "", pdf.filename || `PO-${order.code}.pdf`, viewer);
+        return isVi ? `Đã mở PO ${order.code}.` : `PO ${order.code} opened.`;
+      } catch (error) {
+        viewer?.close();
+        throw error;
+      }
     });
   };
 
   const handlePrintAsn = (order: KfmOrder) => {
+    const viewer = typeof window !== "undefined" ? window.open("", "_blank") : null;
     void runAction(`asn-${order.portalId}`, async () => {
-      const detail = await callPortal({ action: "detail", deliveryDate, orderId: order.portalId });
-      const asn = detail.order?.asns?.[0];
-      if (!asn) throw new Error(isVi ? "Đơn này chưa có phiếu giao hàng." : "This order has no delivery note yet.");
-      const pdf = await callPortal({ action: "asn-pdf", asnId: asn.asnId, poId: detail.order?.purchaseOrderId ?? undefined });
-      savePdf(pdf.base64 || "", pdf.filename || `Phieu-giao-hang-${asn.asnCode || asn.asnId}.pdf`);
-      return isVi ? `Đã tải phiếu giao hàng ${asn.asnCode || asn.asnId}.` : "Delivery note downloaded.";
+      try {
+        const detail = await callPortal({ action: "detail", deliveryDate, orderId: order.portalId });
+        const asn = detail.order?.asns?.[0];
+        if (!asn) throw new Error(isVi ? "Đơn này chưa có phiếu giao hàng." : "This order has no delivery note yet.");
+        const pdf = await callPortal({ action: "asn-pdf", asnId: asn.asnId, poId: detail.order?.purchaseOrderId ?? undefined });
+        savePdf(pdf.base64 || "", pdf.filename || `Phieu-giao-hang-${asn.asnCode || asn.asnId}.pdf`, viewer);
+        return isVi ? `Đã mở phiếu giao hàng ${asn.asnCode || asn.asnId}.` : "Delivery note opened.";
+      } catch (error) {
+        viewer?.close();
+        throw error;
+      }
     });
   };
 
