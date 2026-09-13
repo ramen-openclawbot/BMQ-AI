@@ -112,6 +112,13 @@ def test_the_pending_tab_is_readable_on_a_phone() -> None:
     require(PANEL, "kfm-spin", "the pending tab needs a spinner, not just small text")
     require(PANEL, "clamp(", "the pending tab must scale with the viewport")
     require(PANEL, "${hint}", "the pending tab must name the sheet it is building")
+    # Reported 2026-09-14: two animations ran at once and the text read as a speck
+    # in a white screen. A fresh about:blank tab carries no viewport meta, so the
+    # phone laid the page out at the 980px default and shrank the whole thing, and
+    # the bouncing dots were a second animation beside the spinner.
+    require(PANEL, '"viewport"', "the pending tab must declare its own viewport")
+    require(PANEL, "width=device-width", "the pending tab must use the device width")
+    forbid(PANEL, "kfm-wait", "the pending tab must show a single animation")
 
 
 def test_trips_stay_closed_until_the_operator_asks() -> None:
@@ -125,13 +132,10 @@ def test_trips_stay_closed_until_the_operator_asks() -> None:
 
 
 def test_the_trip_row_prints_the_sheet() -> None:
-    # After the truck glyph moved to the trips toggle, the order row keeps only
-    # confirm and print PO, and the trip row prints its sheet with the printer.
+    # The order row keeps one print entry point (the menu, pinned below) and the
+    # trip row prints its own sheet with the printer glyph.
     require(PANEL, 'data-kfm-action="print-po"', "the order row must keep the PO printout")
     require(PANEL, 'data-kfm-action="print-load"', "the trip row must keep its printout")
-    forbid(PANEL, 'data-kfm-action="print-asn"',
-           "the order row must not repeat the delivery note that belongs to the trip")
-    forbid(PANEL, "handlePrintAsn", "the duplicate order-level printout must be gone")
     block = PANEL.split('data-kfm-action="print-load"', 1)[1].split("</Button>", 1)[0]
     require(block, "Printer", "the trip print button must show the printer glyph")
     forbid(block, "Truck", "the truck glyph already means the trips section")
@@ -174,6 +178,32 @@ def test_the_ui_entry_point_is_wired() -> None:
     require(PLANNING, 'from "@/components/production/KfmPortalDialog"', "the panel must be imported by the production plan")
     require(PLANNING, "<KfmPortalDialog isVi={isVi} />", "the panel must sit next to the email PO check")
     require(PLANNING, '"Kiểm tra PO"', "the existing email PO check must stay in place")
+
+
+def test_the_order_row_prints_both_sheets_from_one_menu() -> None:
+    # Reported 2026-09-14: the row's truck button had been dropped, so a single
+    # order's delivery note could no longer be printed from the list. Both sheets
+    # now hang off one printer menu, which keeps a single print entry point per
+    # row while the truck stays off the row itself.
+    require(PANEL, 'data-kfm-action="print-menu"', "the order row needs one print entry point")
+    require(PANEL, 'data-kfm-action="print-po"', "the menu must offer the PO sheet")
+    require(PANEL, 'data-kfm-action="print-asn"', "the menu must offer the delivery note")
+    require(PANEL, "handlePrintAsn", "the delivery note must stay printable from the order")
+    require(PANEL, 'action: "asn-pdf"', "the delivery note must use the verified export endpoint")
+    require(PANEL, "detail.order?.asns?.[0]", "the delivery note id must come from the order detail")
+    require(PANEL, "renderOrderActions", "the phone card and the table must share one action cluster")
+
+
+def test_a_phone_row_needs_no_sideways_drag() -> None:
+    # Reported 2026-09-14 with a screenshot: the five-column table had to be
+    # dragged sideways on an iPhone, which scrolled the "PO100…" prefix off the
+    # row and clipped the header. Phones get a stacked card instead, and the
+    # table only renders where it actually fits.
+    require(PANEL, 'data-kfm-orders-cards="v1"', "phones need their own stacked order card")
+    require(PANEL, "md:hidden", "the card list must replace the table on small screens")
+    require(PANEL, "hidden max-h-96 min-w-0 overflow-auto rounded-xl border border-border md:block",
+            "the table must only render from the md breakpoint up")
+    require(PANEL, "break-all", "the full PO code must stay readable without scrolling")
 
 
 if __name__ == "__main__":

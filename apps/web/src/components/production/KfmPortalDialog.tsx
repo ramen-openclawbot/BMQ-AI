@@ -6,6 +6,12 @@ import { CheckCircle2, Loader2, Printer, RefreshCw, Truck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -153,20 +159,25 @@ function savePdf(base64: string, filename: string, viewer?: Window | null): void
 function writePrintPlaceholder(viewer: Window, isVi: boolean, what: string): void {
   const title = isVi ? "Đang chuẩn bị file in..." : "Preparing the print file...";
   const hint = isVi ? `Đang tạo ${what}` : `Building ${what}`;
-  const body = viewer.document?.body;
-  if (!body) return;
-  viewer.document.title = title;
+  const doc = viewer.document;
+  const body = doc?.body;
+  if (!doc || !body) return;
+  doc.title = title;
+  // A fresh about:blank tab carries no viewport meta, so a phone lays the page
+  // out at the 980px default and then shrinks the whole thing: every clamp()
+  // renders at a fraction of its size and the waiting page reads as a speck in
+  // a white screen. Pin the real viewport before painting.
+  const meta: Element = doc.querySelector('meta[name="viewport"]') || doc.createElement("meta");
+  meta.setAttribute("name", "viewport");
+  meta.setAttribute("content", "width=device-width,initial-scale=1");
+  if (!meta.parentNode) (doc.head || doc.documentElement).appendChild(meta);
+  // One animation only (the spinner): the bouncing dots were a second one.
   body.innerHTML = `
-    <div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;padding:24px;background:#fff;color:#0f172a;font-family:system-ui,-apple-system,'Segoe UI',sans-serif;text-align:center">
-      <span style="display:block;width:clamp(48px,14vw,72px);height:clamp(48px,14vw,72px);border-radius:9999px;border:5px solid #dbeafe;border-top-color:#2563eb;animation:kfm-spin .9s linear infinite"></span>
-      <p style="margin:0;font-size:clamp(20px,6.5vw,32px);font-weight:700;line-height:1.25">${title}</p>
-      <span style="display:flex;gap:8px">
-        <span style="width:11px;height:11px;border-radius:9999px;background:#2563eb;animation:kfm-wait 1s infinite"></span>
-        <span style="width:11px;height:11px;border-radius:9999px;background:#2563eb;animation:kfm-wait 1s infinite .15s"></span>
-        <span style="width:11px;height:11px;border-radius:9999px;background:#2563eb;animation:kfm-wait 1s infinite .3s"></span>
-      </span>
-      <p style="margin:0;font-size:clamp(14px,4vw,19px);color:#475569">${hint}</p>
-      <style>@keyframes kfm-wait{0%,100%{opacity:.25;transform:translateY(0)}50%{opacity:1;transform:translateY(-5px)}}@keyframes kfm-spin{to{transform:rotate(360deg)}}</style>
+    <div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:clamp(20px,5vw,28px);padding:clamp(20px,6vw,40px);background:#fff;color:#0f172a;font-family:system-ui,-apple-system,'Segoe UI',sans-serif;text-align:center">
+      <span style="display:block;width:clamp(64px,20vw,96px);height:clamp(64px,20vw,96px);border-radius:9999px;border:6px solid #dbeafe;border-top-color:#2563eb;animation:kfm-spin .9s linear infinite"></span>
+      <p style="margin:0;font-size:clamp(24px,7.5vw,36px);font-weight:700;line-height:1.25">${title}</p>
+      <p style="margin:0;font-size:clamp(16px,4.5vw,21px);color:#475569">${hint}</p>
+      <style>@keyframes kfm-spin{to{transform:rotate(360deg)}}</style>
     </div>`;
 }
 
@@ -287,6 +298,44 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
   };
 
   /**
+   * Print the order's delivery note. The note belongs to the order's ASN, so
+   * its id comes from the order detail, and the sheet is the portal's own
+   * export because that is the copy the warehouse counter expects.
+   */
+  const handlePrintAsn = (order: KfmOrder) => {
+    const viewer = typeof window !== "undefined" ? window.open("", "_blank") : null;
+    const key = `asn-${order.portalId}`;
+    beginPrint(
+      key,
+      viewer,
+      isVi ? `phiếu giao hàng ${order.code}` : `delivery note ${order.code}`,
+    );
+    void (async () => {
+      try {
+        const detail = await callPortal({ action: "detail", deliveryDate, orderId: order.portalId });
+        const asn = detail.order?.asns?.[0];
+        if (!asn) {
+          throw new Error(isVi ? "Đơn này chưa có phiếu giao hàng." : "This order has no delivery note yet.");
+        }
+        const pdf = await callPortal({
+          action: "asn-pdf",
+          asnId: asn.asnId,
+          poId: detail.order?.purchaseOrderId ?? undefined,
+        });
+        savePdf(pdf.base64 || "", pdf.filename || `Phieu-giao-hang-${asn.asnCode || asn.asnId}.pdf`, viewer);
+        finishPrint(
+          key,
+          isVi
+            ? `Đã mở phiếu giao hàng ${asn.asnCode || asn.asnId}.`
+            : `Delivery note ${asn.asnCode || asn.asnId} opened.`,
+        );
+      } catch (error) {
+        failPrint(key, viewer, error);
+      }
+    })();
+  };
+
+  /**
    * Print a delivery trip. The sheet is rendered server side, so the operator
    * gets the same explicit "preparing" state the partner portal shows instead
    * of a blank tab that looks broken. The tab is opened on the click itself:
@@ -321,6 +370,55 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
       }
     })();
   };
+
+  /**
+   * One action cluster per order, shared by the phone card and the wide table.
+   * The row used to carry a second truck button for the delivery note, and the
+   * two trucks on one row were what read as a duplicate. Both sheets now come
+   * from the printer menu, which is portalled, so the scrolling table cannot
+   * clip it.
+   */
+  const renderOrderActions = (order: KfmOrder) => (
+    <div className="flex items-center justify-end gap-1">
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-8 rounded-lg"
+        title={isVi ? "Xác nhận đơn" : "Confirm order"}
+        data-kfm-action="confirm"
+        disabled={busy !== null}
+        onClick={() => handleConfirm(order)}
+      >
+        {busyIcon(`confirm-${order.portalId}`) || <CheckCircle2 className="h-4 w-4" />}
+      </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 rounded-lg"
+            title={isVi ? "In phiếu" : "Print"}
+            data-kfm-action="print-menu"
+            disabled={printing !== null || busy !== null}
+          >
+            {printing === `po-${order.portalId}` || printing === `asn-${order.portalId}`
+              ? <Loader2 className="h-4 w-4 animate-spin" />
+              : <Printer className="h-4 w-4" />}
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-56">
+          <DropdownMenuItem data-kfm-action="print-po" onSelect={() => handlePrintPo(order)}>
+            <Printer className="mr-2 h-4 w-4" />
+            {isVi ? "In PO" : "Print PO"}
+          </DropdownMenuItem>
+          <DropdownMenuItem data-kfm-action="print-asn" onSelect={() => handlePrintAsn(order)}>
+            <Truck className="mr-2 h-4 w-4" />
+            {isVi ? "In phiếu giao hàng" : "Print delivery note"}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
 
   return (
     <>
@@ -458,7 +556,41 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
                 )}
               </div>
 
-              <div className="max-h-96 min-w-0 overflow-auto rounded-xl border border-border">
+              {/* Reported 2026-09-14: the five-column table had to be dragged
+                  sideways on a phone, which scrolled the "PO100…" prefix off the
+                  screen. Small screens get one stacked card per order instead;
+                  the table only renders where it actually fits. */}
+              <ul className="space-y-2 md:hidden" data-kfm-orders-cards="v1">
+                {orders.map((order) => (
+                  <li key={order.portalId} className="rounded-xl border border-border p-3">
+                    <div className="flex min-w-0 items-start justify-between gap-2">
+                      <span className="min-w-0 break-all text-sm font-semibold">{order.code}</span>
+                      {renderOrderActions(order)}
+                    </div>
+                    <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+                      <div className="min-w-0">
+                        <dt className="text-muted-foreground">{isVi ? "Kho nhận" : "Location"}</dt>
+                        <dd className="mt-0.5 break-words">{order.locationName || "—"}</dd>
+                      </div>
+                      <div className="min-w-0">
+                        <dt className="text-muted-foreground">{isVi ? "Số dòng" : "Items"}</dt>
+                        <dd className="mt-0.5">{order.itemCount ?? "—"}</dd>
+                      </div>
+                      <div className="min-w-0">
+                        <dt className="text-muted-foreground">{isVi ? "SL" : "Qty"}</dt>
+                        <dd className="mt-0.5">{qty(order.totalQty)}</dd>
+                      </div>
+                    </dl>
+                  </li>
+                ))}
+                {orders.length === 0 && (
+                  <li className="rounded-xl border border-border p-6 text-center text-sm text-muted-foreground">
+                    {isVi ? "Không có đơn nào cho ngày này." : "No orders for this date."}
+                  </li>
+                )}
+              </ul>
+
+              <div className="hidden max-h-96 min-w-0 overflow-auto rounded-xl border border-border md:block">
                 <table className="w-full min-w-[520px] text-sm">
                   <thead className="sticky top-0 bg-muted/80 text-left">
                     <tr>
@@ -479,34 +611,7 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
                         <td className="p-2 text-right">{order.itemCount ?? "—"}</td>
                         <td className="p-2 text-right">{qty(order.totalQty)}</td>
                         <td className="sticky right-0 border-l border-border bg-background p-2">
-                          <div className="flex items-center justify-end gap-1">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-8 rounded-lg"
-                              title={isVi ? "Xác nhận đơn" : "Confirm order"}
-                              data-kfm-action="confirm"
-                              disabled={busy !== null}
-                              onClick={() => handleConfirm(order)}
-                            >
-                              {busyIcon(`confirm-${order.portalId}`) || <CheckCircle2 className="h-4 w-4" />}
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-8 rounded-lg"
-                              title={isVi ? "In PO" : "Print PO"}
-                              data-kfm-action="print-po"
-                              disabled={printing !== null || busy !== null}
-                              onClick={() => handlePrintPo(order)}
-                            >
-                              {printing === `po-${order.portalId}`
-                                ? <Loader2 className="h-4 w-4 animate-spin" />
-                                : <Printer className="h-4 w-4" />}
-                            </Button>
-                            {/* The delivery note belongs to the trip, not to the order
-                                row: printing it here only duplicated the truck icon. */}
-                          </div>
+                          {renderOrderActions(order)}
                         </td>
                       </tr>
                     ))}
