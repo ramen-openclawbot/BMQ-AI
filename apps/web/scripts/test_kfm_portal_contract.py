@@ -93,27 +93,48 @@ def test_the_panel_fits_a_phone_viewport() -> None:
 
 
 def test_every_print_action_shows_the_waiting_state() -> None:
-    # Reported 2026-09-13: the PO and delivery-note printouts opened a blank tab
-    # for several seconds because only the trip sheet had a waiting state. All
-    # three print actions now share one keyed slot, one banner and one pending tab.
+    # Reported 2026-09-13: the PO printout opened a blank tab for several seconds
+    # because only the trip sheet had a waiting state. Both print actions now
+    # share one keyed slot, one banner and one pending tab.
     require(PANEL, "useState<string | null>(null)",
             "the waiting state must be keyed so every print action can use it")
-    for key in ("`po-${order.portalId}`", "`asn-${order.portalId}`", "`load-${load.portalId}`"):
+    for key in ("`po-${order.portalId}`", "`load-${load.portalId}`"):
         require(PANEL, key, "each print action must drive the shared waiting state: %s" % key)
     require(PANEL, "writePrintPlaceholder",
             "the tab opened on click must show a placeholder, never a blank window")
     require(PANEL, 'data-kfm-printing="v1"', "the waiting banner must stay present")
 
 
-def test_the_delivery_note_uses_a_truck_icon() -> None:
-    # The operator read the document glyph as something other than the truck
-    # sheet, so the two delivery-note buttons show the delivery truck instead.
-    require(PANEL, 'data-kfm-action="print-asn"', "the delivery-note button must stay")
-    require(PANEL, 'data-kfm-action="print-load"', "the trip print button must stay")
-    for action in ("print-asn", "print-load"):
-        block = PANEL.split('data-kfm-action="%s"' % action, 1)[1].split("</Button>", 1)[0]
-        forbid(block, "FileText", "the %s button must show a truck, not a document" % action)
-        require(block, "Truck", "the %s button must show the delivery truck" % action)
+def test_the_pending_tab_is_readable_on_a_phone() -> None:
+    # Reported 2026-09-13 with a screenshot: on an iPhone 17 Pro Max the pending
+    # tab was a tiny line in a white screen. The waiting page scales with the
+    # viewport and names the sheet being built.
+    require(PANEL, "kfm-spin", "the pending tab needs a spinner, not just small text")
+    require(PANEL, "clamp(", "the pending tab must scale with the viewport")
+    require(PANEL, "${hint}", "the pending tab must name the sheet it is building")
+
+
+def test_trips_stay_closed_until_the_operator_asks() -> None:
+    # The order list is the task; the trip sheet is an exception. Opening the
+    # panel must not fetch or show trips, and the truck glyph belongs to that
+    # one entry point only.
+    require(PANEL, 'data-kfm-loads-toggle="v1"', "trips need one explicit entry point")
+    require(PANEL, "setShowLoads", "trips must stay hidden until they are asked for")
+    require(PANEL, "enabled: open && showLoads", "trips must not be fetched before they are asked for")
+    require(PANEL, "showLoads && loadsQuery.isLoading", "the trip read must stay behind the toggle")
+
+
+def test_the_trip_row_prints_the_sheet() -> None:
+    # After the truck glyph moved to the trips toggle, the order row keeps only
+    # confirm and print PO, and the trip row prints its sheet with the printer.
+    require(PANEL, 'data-kfm-action="print-po"', "the order row must keep the PO printout")
+    require(PANEL, 'data-kfm-action="print-load"', "the trip row must keep its printout")
+    forbid(PANEL, 'data-kfm-action="print-asn"',
+           "the order row must not repeat the delivery note that belongs to the trip")
+    forbid(PANEL, "handlePrintAsn", "the duplicate order-level printout must be gone")
+    block = PANEL.split('data-kfm-action="print-load"', 1)[1].split("</Button>", 1)[0]
+    require(block, "Printer", "the trip print button must show the printer glyph")
+    forbid(block, "Truck", "the truck glyph already means the trips section")
     forbid(PANEL, "FileText", "an unused document icon must not stay imported")
 
 
@@ -123,7 +144,6 @@ def test_the_panel_shows_no_money() -> None:
     require(PANEL, "totalQty", "quantities stay visible on the order list")
     require(PANEL, 'data-kfm-action="confirm"', "the confirm button must be present")
     require(PANEL, 'data-kfm-action="print-po"', "the PO print button must be present")
-    require(PANEL, 'data-kfm-action="print-asn"', "the delivery-note print button must be present")
     require(PANEL, "window.confirm", "a write to the portal must be confirmed by the operator first")
 
 

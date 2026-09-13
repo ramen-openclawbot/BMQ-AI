@@ -150,20 +150,23 @@ function savePdf(base64: string, filename: string, viewer?: Window | null): void
  * the PDF replaces it when the file is ready. Styles are inline on purpose:
  * a fresh about:blank tab has none of the application CSS.
  */
-function writePrintPlaceholder(viewer: Window, isVi: boolean): void {
-  const label = isVi ? "Đang chuẩn bị file in..." : "Preparing the print file...";
+function writePrintPlaceholder(viewer: Window, isVi: boolean, what: string): void {
+  const title = isVi ? "Đang chuẩn bị file in..." : "Preparing the print file...";
+  const hint = isVi ? `Đang tạo ${what}` : `Building ${what}`;
   const body = viewer.document?.body;
   if (!body) return;
-  viewer.document.title = label;
+  viewer.document.title = title;
   body.innerHTML = `
-    <div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:#fff;color:#111;font-family:system-ui,-apple-system,'Segoe UI',sans-serif">
-      <p style="margin:0;font-size:16px;font-weight:600">${label}</p>
-      <span style="display:flex;gap:6px">
-        <span style="width:7px;height:7px;border-radius:9999px;background:#2563eb;animation:kfm-wait 1s infinite"></span>
-        <span style="width:7px;height:7px;border-radius:9999px;background:#2563eb;animation:kfm-wait 1s infinite .15s"></span>
-        <span style="width:7px;height:7px;border-radius:9999px;background:#2563eb;animation:kfm-wait 1s infinite .3s"></span>
+    <div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;padding:24px;background:#fff;color:#0f172a;font-family:system-ui,-apple-system,'Segoe UI',sans-serif;text-align:center">
+      <span style="display:block;width:clamp(48px,14vw,72px);height:clamp(48px,14vw,72px);border-radius:9999px;border:5px solid #dbeafe;border-top-color:#2563eb;animation:kfm-spin .9s linear infinite"></span>
+      <p style="margin:0;font-size:clamp(20px,6.5vw,32px);font-weight:700;line-height:1.25">${title}</p>
+      <span style="display:flex;gap:8px">
+        <span style="width:11px;height:11px;border-radius:9999px;background:#2563eb;animation:kfm-wait 1s infinite"></span>
+        <span style="width:11px;height:11px;border-radius:9999px;background:#2563eb;animation:kfm-wait 1s infinite .15s"></span>
+        <span style="width:11px;height:11px;border-radius:9999px;background:#2563eb;animation:kfm-wait 1s infinite .3s"></span>
       </span>
-      <style>@keyframes kfm-wait{0%,100%{opacity:.25;transform:translateY(0)}50%{opacity:1;transform:translateY(-4px)}}</style>
+      <p style="margin:0;font-size:clamp(14px,4vw,19px);color:#475569">${hint}</p>
+      <style>@keyframes kfm-wait{0%,100%{opacity:.25;transform:translateY(0)}50%{opacity:1;transform:translateY(-5px)}}@keyframes kfm-spin{to{transform:rotate(360deg)}}</style>
     </div>`;
 }
 
@@ -188,18 +191,22 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
   // The date filter is optional because yesterday's trip is often the one
   // being driven today.
   const [filterLoadsByDate, setFilterLoadsByDate] = useState(false);
-  // One keyed slot for every print action in the panel (`po-*`, `asn-*`,
-  // `load-*`), so the waiting banner, the toast and the disabled state cover
-  // the two order printouts as well as the trip sheet.
+  // Trips are an exception the operator asks for, not part of the PO task.
+  const [showLoads, setShowLoads] = useState(false);
+  // One keyed slot for every print action in the panel (`po-*`, `load-*`), so
+  // the waiting banner, the toast and the disabled state stay in one place.
   const [printing, setPrinting] = useState<string | null>(null);
 
+  // Trips are a second read: the portal keeps them under inbound-loads, not
+  // under the order list. It is deferred until the operator opens the trips
+  // section, so loading a PO costs one request instead of two.
   const loadsQuery = useQuery({
     queryKey: ["kfm-portal-loads", filterLoadsByDate ? deliveryDate : "all"],
     queryFn: () => callPortal({
       action: "loads",
       ...(filterLoadsByDate ? { deliveryDate } : {}),
     }),
-    enabled: open,
+    enabled: open && showLoads,
     retry: false,
     staleTime: 30_000,
   });
@@ -236,13 +243,13 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
    * the transient toast and the disabled state, and the tab opened on the click
    * immediately shows the waiting state instead of a blank page.
    */
-  const beginPrint = (key: string, viewer: Window | null) => {
+  const beginPrint = (key: string, viewer: Window | null, what: string) => {
     setPrinting(key);
     toast.loading(isVi ? "Đang chuẩn bị file in..." : "Preparing the print file...", {
       id: key,
       duration: Number.POSITIVE_INFINITY,
     });
-    if (viewer) writePrintPlaceholder(viewer, isVi);
+    if (viewer) writePrintPlaceholder(viewer, isVi, what);
   };
 
   const finishPrint = (key: string, message: string) => {
@@ -261,7 +268,7 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
     // after the awaits below is treated as a popup and blocked.
     const viewer = typeof window !== "undefined" ? window.open("", "_blank") : null;
     const key = `po-${order.portalId}`;
-    beginPrint(key, viewer);
+    beginPrint(key, viewer, `PO ${order.code}`);
     void (async () => {
       try {
         const detail = await callPortal({ action: "detail", deliveryDate, orderId: order.portalId });
@@ -279,24 +286,6 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
     })();
   };
 
-  const handlePrintAsn = (order: KfmOrder) => {
-    const viewer = typeof window !== "undefined" ? window.open("", "_blank") : null;
-    const key = `asn-${order.portalId}`;
-    beginPrint(key, viewer);
-    void (async () => {
-      try {
-        const detail = await callPortal({ action: "detail", deliveryDate, orderId: order.portalId });
-        const asn = detail.order?.asns?.[0];
-        if (!asn) throw new Error(isVi ? "Đơn này chưa có phiếu giao hàng." : "This order has no delivery note yet.");
-        const pdf = await callPortal({ action: "asn-pdf", asnId: asn.asnId, poId: detail.order?.purchaseOrderId ?? undefined });
-        savePdf(pdf.base64 || "", pdf.filename || `Phieu-giao-hang-${asn.asnCode || asn.asnId}.pdf`, viewer);
-        finishPrint(key, isVi ? `Đã mở phiếu giao hàng ${asn.asnCode || asn.asnId}.` : "Delivery note opened.");
-      } catch (error) {
-        failPrint(key, viewer, error);
-      }
-    })();
-  };
-
   /**
    * Print a delivery trip. The sheet is rendered server side, so the operator
    * gets the same explicit "preparing" state the partner portal shows instead
@@ -306,7 +295,13 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
   const handlePrintLoad = (load: KfmDeliveryLoad) => {
     const viewer = typeof window !== "undefined" ? window.open("", "_blank") : null;
     const key = `load-${load.portalId}`;
-    beginPrint(key, viewer);
+    beginPrint(
+      key,
+      viewer,
+      isVi
+        ? `phiếu giao hàng ${load.loadCode || load.portalId}`
+        : `delivery note ${load.loadCode || load.portalId}`,
+    );
     void (async () => {
       try {
         const pdf = await callPortal({ action: "load-pdf", loadId: load.portalId });
@@ -509,19 +504,8 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
                                 ? <Loader2 className="h-4 w-4 animate-spin" />
                                 : <Printer className="h-4 w-4" />}
                             </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-8 rounded-lg"
-                              title={isVi ? "In phiếu giao hàng" : "Print delivery note"}
-                              data-kfm-action="print-asn"
-                              disabled={printing !== null || busy !== null}
-                              onClick={() => handlePrintAsn(order)}
-                            >
-                              {printing === `asn-${order.portalId}`
-                                ? <Loader2 className="h-4 w-4 animate-spin" />
-                                : <Truck className="h-4 w-4" />}
-                            </Button>
+                            {/* The delivery note belongs to the trip, not to the order
+                                row: printing it here only duplicated the truck icon. */}
                           </div>
                         </td>
                       </tr>
@@ -540,42 +524,55 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
           )}
 
           <div className="min-w-0 space-y-2" data-kfm-loads-section="v1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-sm font-semibold">
-                {isVi ? "Chuyến xe giao hàng" : "Delivery trips"}
-              </h3>
-              <Badge variant="secondary">
-                {isVi ? `${loads.length} chuyến` : `${loads.length} trips`}
-              </Badge>
-              <Button
-                variant="outline"
-                size="sm"
-                className="rounded-xl"
-                data-kfm-loads-filter="v1"
-                onClick={() => setFilterLoadsByDate((value) => !value)}
-              >
-                {filterLoadsByDate
-                  ? (isVi ? "Bỏ lọc theo ngày" : "All dates")
-                  : (isVi ? "Lọc theo ngày giao" : "Filter by date")}
-              </Button>
-            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-10 w-full justify-start rounded-xl sm:w-auto"
+              data-kfm-loads-toggle="v1"
+              aria-expanded={showLoads}
+              onClick={() => setShowLoads((value) => !value)}
+            >
+              <Truck className="mr-2 h-4 w-4" />
+              {isVi ? "Chuyến xe giao hàng" : "Delivery trips"}
+              {showLoads && loads.length > 0 && (
+                <Badge variant="secondary" className="ml-2">
+                  {isVi ? `${loads.length} chuyến` : `${loads.length} trips`}
+                </Badge>
+              )}
+            </Button>
+
+            {showLoads && (
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="rounded-xl"
+                  data-kfm-loads-filter="v1"
+                  onClick={() => setFilterLoadsByDate((value) => !value)}
+                >
+                  {filterLoadsByDate
+                    ? (isVi ? "Bỏ lọc theo ngày" : "All dates")
+                    : (isVi ? "Lọc theo ngày giao" : "Filter by date")}
+                </Button>
+              </div>
+            )}
 
             {/* Same waiting state the partner portal shows while it renders the
                 sheet server side — the operator sees the work, not a blank tab. */}
 
-            {loadsQuery.isLoading && (
+            {showLoads && loadsQuery.isLoading && (
               <p className="py-4 text-center text-sm text-muted-foreground">
                 {isVi ? "Đang lấy chuyến giao…" : "Loading trips…"}
               </p>
             )}
 
-            {loadsQuery.isError && (
+            {showLoads && loadsQuery.isError && (
               <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-3 text-sm">
                 {(loadsQuery.error as Error)?.message}
               </div>
             )}
 
-            {!loadsQuery.isLoading && !loadsQuery.isError && (
+            {showLoads && !loadsQuery.isLoading && !loadsQuery.isError && (
               <div className="max-h-72 min-w-0 overflow-auto rounded-xl border border-border">
                 <table className="w-full min-w-[600px] text-sm">
                   <thead className="sticky top-0 bg-muted/80 text-left">
@@ -622,7 +619,7 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
                           >
                             {printing === `load-${load.portalId}`
                               ? <Loader2 className="h-4 w-4 animate-spin" />
-                              : <Truck className="h-4 w-4" />}
+                              : <Printer className="h-4 w-4" />}
                           </Button>
                         </td>
                       </tr>
