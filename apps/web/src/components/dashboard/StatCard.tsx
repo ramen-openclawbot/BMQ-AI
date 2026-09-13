@@ -1,3 +1,4 @@
+import { useDSkuCopy } from "@/i18n/useDSkuCopy";
 import { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -21,6 +22,7 @@ export function StatCard({
   trend,
   variant = "default" 
 }: StatCardProps) {
+  const s = useDSkuCopy();
   return (
     <div className="stat-card animate-fade-in">
       <div className="flex items-start justify-between">
@@ -37,7 +39,7 @@ export function StatCard({
               "mt-2 text-sm font-medium",
               trend.isPositive ? "text-success" : "text-destructive"
             )}>
-              {trend.isPositive ? "↑" : "↓"} {Math.abs(trend.value)}% from last month
+              {trend.isPositive ? "↑" : "↓"} {Math.abs(trend.value)}{s.trendSuffix}
             </p>
           )}
         </div>

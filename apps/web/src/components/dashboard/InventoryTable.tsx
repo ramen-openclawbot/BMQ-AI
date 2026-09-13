@@ -1,3 +1,4 @@
+import { useWarehouseCopy } from "@/i18n/useWarehouseCopy";
 import { useMemo, useState } from "react";
 import {
   Table,
@@ -35,6 +36,7 @@ function getStockStatus(stock: number, minStock: number) {
 }
 
 export function InventoryTable() {
+  const c = useWarehouseCopy();
   const { data: inventory, isLoading, isError, error, refetch } = useInventory();
   const deleteItem = useDeleteInventoryItem();
   const [editItem, setEditItem] = useState<InventoryItem | null>(null);
@@ -65,9 +67,9 @@ export function InventoryTable() {
     if (!deleteItemId) return;
     try {
       await deleteItem.mutateAsync(deleteItemId);
-      toast.success("Đã xoá thành công");
+      toast.success(c("Đã xoá thành công"));
     } catch (error) {
-      toast.error("Không thể xoá");
+      toast.error(c("Không thể xoá"));
     } finally {
       setDeleteItemId(null);
     }
@@ -77,8 +79,8 @@ export function InventoryTable() {
     return (
       <div className="card-elevated rounded-xl border border-border overflow-hidden">
         <div className="px-6 py-4 border-b border-border">
-          <h3 className="font-display text-lg font-semibold">Tồn kho</h3>
-          <p className="text-sm text-muted-foreground">Mức tồn nguyên liệu</p>
+          <h3 className="font-display text-lg font-semibold">{c("Tồn kho")}</h3>
+          <p className="text-sm text-muted-foreground">{c("Mức tồn nguyên liệu")}</p>
         </div>
         <div className="p-6 space-y-4">
           {[1, 2, 3, 4].map((i) => (
@@ -93,17 +95,16 @@ export function InventoryTable() {
     return (
       <div className="card-elevated rounded-xl border border-border overflow-hidden">
         <div className="px-6 py-4 border-b border-border">
-          <h3 className="font-display text-lg font-semibold">Tồn kho</h3>
-          <p className="text-sm text-muted-foreground">Mức tồn nguyên liệu</p>
+          <h3 className="font-display text-lg font-semibold">{c("Tồn kho")}</h3>
+          <p className="text-sm text-muted-foreground">{c("Mức tồn nguyên liệu")}</p>
         </div>
         <div className="p-6 space-y-3">
-          <p className="font-medium text-foreground">Couldn't load inventory</p>
+          <p className="font-medium text-foreground">{c("Couldn't load inventory")}</p>
           <p className="text-sm text-muted-foreground break-words">
-            {error instanceof Error ? error.message : "Unknown error"}
+            {error instanceof Error ? error.message : c("Unknown error")}
           </p>
           <Button variant="outline" onClick={() => refetch()}>
-            Retry
-          </Button>
+            {c("Retry")} </Button>
         </div>
       </div>
     );
@@ -113,12 +114,11 @@ export function InventoryTable() {
     return (
       <div className="card-elevated rounded-xl border border-border overflow-hidden">
         <div className="px-6 py-4 border-b border-border">
-          <h3 className="font-display text-lg font-semibold">Tồn kho</h3>
-          <p className="text-sm text-muted-foreground">Mức tồn nguyên liệu</p>
+          <h3 className="font-display text-lg font-semibold">{c("Tồn kho")}</h3>
+          <p className="text-sm text-muted-foreground">{c("Mức tồn nguyên liệu")}</p>
         </div>
         <p className="text-muted-foreground text-center py-8">
-          No inventory items yet. Add your first item to get started.
-        </p>
+          {c("No inventory items yet. Add your first item to get started.")} </p>
       </div>
     );
   }
@@ -128,11 +128,11 @@ export function InventoryTable() {
       <div className="card-elevated rounded-xl border border-border overflow-hidden">
         <div className="px-6 py-4 border-b border-border space-y-3">
           <div>
-            <h3 className="font-display text-lg font-semibold">Tồn kho</h3>
-            <p className="text-sm text-muted-foreground">Mức tồn nguyên liệu</p>
+            <h3 className="font-display text-lg font-semibold">{c("Tồn kho")}</h3>
+            <p className="text-sm text-muted-foreground">{c("Mức tồn nguyên liệu")}</p>
           </div>
           <Input
-            placeholder="Tìm kiếm nguyên liệu, danh mục..."
+            placeholder={c("Tìm kiếm nguyên liệu, danh mục...")}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
@@ -140,12 +140,12 @@ export function InventoryTable() {
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead>Item Name</TableHead>
-              <TableHead>Category</TableHead>
-              <TableHead className="text-right">Stock</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Min Stock</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
+              <TableHead>{c("Item Name")}</TableHead>
+              <TableHead>{c("Category")}</TableHead>
+              <TableHead className="text-right">{c("Stock")}</TableHead>
+              <TableHead>{c("Status")}</TableHead>
+              <TableHead>{c("Min Stock")}</TableHead>
+              <TableHead className="text-right">{c("Actions")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -169,7 +169,7 @@ export function InventoryTable() {
                           status.variant === "success" && "border-success/50 text-success bg-success/10"
                         )}
                       >
-                        {status.label}
+                        {status.variant === "destructive" ? c("Critical") : status.variant === "warning" ? c("Low") : c("In Stock")}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-muted-foreground">{item.min_stock} {item.unit}</TableCell>
@@ -179,6 +179,7 @@ export function InventoryTable() {
                           variant="ghost"
                           size="icon"
                           className="h-8 w-8"
+                          aria-label={c("Chỉnh sửa nguyên vật liệu")}
                           onClick={() => setEditItem(item)}
                         >
                           <Pencil className="h-4 w-4" />
@@ -187,6 +188,7 @@ export function InventoryTable() {
                           variant="ghost"
                           size="icon"
                           className="h-8 w-8 text-destructive hover:text-destructive"
+                          aria-label={c("Xoá")}
                           onClick={() => setDeleteItemId(item.id)}
                         >
                           <Trash2 className="h-4 w-4" />
@@ -199,8 +201,7 @@ export function InventoryTable() {
             ) : (
               <TableRow>
                 <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
-                  Không tìm thấy mặt hàng phù hợp.
-                </TableCell>
+                  {c("Không tìm thấy mặt hàng phù hợp.")} </TableCell>
               </TableRow>
             )}
           </TableBody>
@@ -218,19 +219,17 @@ export function InventoryTable() {
       <AlertDialog open={!!deleteItemId} onOpenChange={(open) => !open && setDeleteItemId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Xác nhận xoá</AlertDialogTitle>
+            <AlertDialogTitle>{c("Xác nhận xoá")}</AlertDialogTitle>
             <AlertDialogDescription>
-              Bạn có chắc muốn xoá mặt hàng này khỏi kho? Hành động này không thể hoàn tác.
-            </AlertDialogDescription>
+              {c("Bạn có chắc muốn xoá mặt hàng này khỏi kho? Hành động này không thể hoàn tác.")} </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Hủy</AlertDialogCancel>
+            <AlertDialogCancel>{c("Hủy")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              Xoá
-            </AlertDialogAction>
+              {c("Xoá")} </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

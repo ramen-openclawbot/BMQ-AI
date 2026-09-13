@@ -1,3 +1,4 @@
+import { revenueDashboard } from "@/i18n/revenueDashboard";
 import { type KeyboardEvent, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -62,12 +63,12 @@ const vnd = (v: number) =>
 const numberFmt = (v: number) =>
   new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 1 }).format(v || 0);
 
-const compactVnd = (v: number) => {
+const compactVnd = (v: number, copy: typeof revenueDashboard.vi) => {
   const abs = Math.abs(v || 0);
   const sign = v < 0 ? "-" : "";
   if (abs >= 1_000_000_000)
-    return `${sign}${numberFmt(abs / 1_000_000_000)} tỷ ₫`;
-  if (abs >= 1_000_000) return `${sign}${numberFmt(abs / 1_000_000)} tr ₫`;
+    return `${sign}${numberFmt(abs / 1_000_000_000)} ${copy.billion} ₫`;
+  if (abs >= 1_000_000) return `${sign}${numberFmt(abs / 1_000_000)} ${copy.million} ₫`;
   return vnd(v);
 };
 
@@ -77,9 +78,9 @@ const formatDate = (value: string | null | undefined) => {
   return `${day}/${month}/${year}`;
 };
 
-const periodLabel = (value: string) => {
+const periodLabel = (value: string, copy: typeof revenueDashboard.vi) => {
   const [year, month] = value.split("-");
-  return `Tháng ${month}/${year}`;
+  return `${copy.monthPrefix} ${month}/${year}`;
 };
 
 const MOM_PREVIOUS_COLOR = "#D9B86C";
@@ -168,9 +169,9 @@ const recentPeriods = (period: string, count: number) => {
   return periods;
 };
 
-const shortPeriodLabel = (value: string) => {
+const shortPeriodLabel = (value: string, copy: typeof revenueDashboard.vi) => {
   const [year, month] = value.split("-");
-  return `T${Number(month)}/${year.slice(2)}`;
+  return `${copy.shortMonthPrefix}${Number(month)}/${year.slice(2)}`;
 };
 
 const daysInPeriod = (period: string) => {
@@ -398,7 +399,7 @@ const getChannelColor = (key: string, fallbackIndex: number) => {
 
 export default function RevenueManagementDashboard() {
   const { language } = useLanguage();
-  const isVi = language === "vi";
+  const copy = revenueDashboard[language];
   const navigate = useNavigate();
   const initialPeriod =
     new URLSearchParams(window.location.search).get("period") || monthNow();
@@ -505,7 +506,7 @@ export default function RevenueManagementDashboard() {
       const key = row.channel || "unknown";
       const cur = map.get(key) || {
         key,
-        label: channelLabel[key] || key,
+        label: (copy.channelLabels as Record<string, string>)[key] || channelLabel[key] || key,
         revenue: 0,
         qty: 0,
         rows: 0,
@@ -516,7 +517,7 @@ export default function RevenueManagementDashboard() {
       map.set(key, cur);
     }
     return Array.from(map.values()).sort((a, b) => b.revenue - a.revenue);
-  }, [lines]);
+  }, [lines, copy]);
 
   const mom = useMemo(() => {
     const previousTotal = sumRevenue(previousLines);
@@ -538,7 +539,7 @@ export default function RevenueManagementDashboard() {
       const isCurrentPeriod = monthPeriod === period;
       const row = {
         period: monthPeriod,
-        label: shortPeriodLabel(monthPeriod),
+        label: shortPeriodLabel(monthPeriod, copy),
         revenue,
         previousRevenue,
         delta,
@@ -548,7 +549,7 @@ export default function RevenueManagementDashboard() {
       previousRevenue = revenue;
       return row;
     });
-  }, [monthlyLinesByPeriod, monthlyPeriods, period]);
+  }, [monthlyLinesByPeriod, monthlyPeriods, period, copy]);
 
   const forecast = useMemo(() => {
     const periodDays = daysInPeriod(period);
@@ -870,7 +871,7 @@ export default function RevenueManagementDashboard() {
           ? `Lịch ngày còn lại nghiêng về ngày thấp điểm/downtime, hệ số weekday khoảng ${numberFmt(remainingWeekdayFactor)}x.`
           : `Lịch ngày còn lại gần trung tính theo mẫu weekday/peak/downtime (${numberFmt(remainingWeekdayFactor)}x).`,
       `Nhịp ${timingBucketLabel[timingBucket(cutoffDay, periodDays)]}: tiến độ hiện tại đạt ${numberFmt(currentMonthShare * 100)}% so với baseline tháng, hệ số timing ${numberFmt(timingFactor)}x.`,
-      `Run-rate gần đây: ${compactVnd(recentDailyAverage)}/ngày so với MTD ${compactVnd(mtdDailyAverage)}/ngày, trend ${numberFmt(trendFactor)}x.`,
+      `Run-rate gần đây: ${compactVnd(recentDailyAverage, copy)}/ngày so với MTD ${compactVnd(mtdDailyAverage, copy)}/ngày, trend ${numberFmt(trendFactor)}x.`,
       topCustomerShare > 0.35 || topChannelShare > 0.6
         ? `Rủi ro tập trung: customer/kênh lớn đang cao (${numberFmt(topCustomerShare * 100)}% customer, ${numberFmt(topChannelShare * 100)}% kênh).`
         : `Rủi ro tập trung: customer/kênh ở mức kiểm soát (${numberFmt(topCustomerShare * 100)}% customer lớn nhất).`,
@@ -909,6 +910,7 @@ export default function RevenueManagementDashboard() {
       ],
     };
   }, [
+    copy,
     forecastBaseLines,
     forecastBasePeriod,
     lines,
@@ -1084,31 +1086,32 @@ export default function RevenueManagementDashboard() {
 
   return (
     <div
+      data-staff-i18n="b-revenue-v1"
       data-stitch-revenue-theme="pantone-2026-glass"
       className="relative space-y-6 rounded-2xl border border-border/55 bg-card/70 p-4 shadow-card backdrop-blur-xl md:p-6"
     >
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div className="space-y-3">
           <h1 className="font-display text-3xl font-semibold tracking-tight text-foreground md:text-4xl">
-            {isVi ? "Quản lý doanh thu" : "Revenue Management"}
+            {copy.uiRevenueManagement}
           </h1>
           <div className="flex flex-wrap items-center gap-2">
             <Badge
               className="border border-primary/25 bg-primary/10 px-3 py-1 text-primary"
               variant="outline"
             >
-              {periodLabel(period)}
+              {periodLabel(period, copy)}
             </Badge>
             <Badge
               className="border border-success/25 bg-success/10 px-3 py-1 text-success"
               variant="outline"
             >
-              Tính đến {formatDate(throughDate)}
+              {copy.asOf} {formatDate(throughDate)}
             </Badge>
           </div>
         </div>
         <div
-          aria-label="Xem doanh thu theo tháng"
+          aria-label={copy.monthPicker}
           className="flex flex-col gap-2 sm:flex-row sm:items-center"
         >
           <Input
@@ -1123,8 +1126,7 @@ export default function RevenueManagementDashboard() {
             onClick={() => navigate("/finance-control/revenue/setup")}
           >
             <Settings className="mr-2 h-4 w-4" />
-            Thiết lập Parse
-          </Button>
+            {copy.parseSetup} </Button>
         </div>
       </div>
 
@@ -1132,16 +1134,14 @@ export default function RevenueManagementDashboard() {
         <Card className="border border-destructive/35 bg-card/90 ring-1 ring-destructive/10">
           <CardContent className="flex items-center gap-3 bg-destructive/10 p-4 text-sm text-destructive">
             <AlertTriangle className="h-5 w-5" />
-            Không đọc được revenue ledger. Kiểm tra migration/database quyền
-            truy cập.
-          </CardContent>
+            {copy.ledgerError} </CardContent>
         </Card>
       ) : null}
 
       <Card
         role="button"
         tabIndex={0}
-        aria-label="Đã vào ledger: Chạm để xem chi tiết"
+        aria-label={copy.ledgerDetail}
         onClick={() => openSources({ scope: "controlled_ledger" })}
         onKeyDown={(event) =>
           handleCardKeyDown(event, { scope: "controlled_ledger" })
@@ -1153,14 +1153,12 @@ export default function RevenueManagementDashboard() {
             <div className="min-w-0 space-y-2">
               <div className="flex flex-wrap items-center gap-2">
                 <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
-                  Đã vào ledger
-                </div>
+                  {copy.posted} </div>
                 <Badge
                   className="border border-success/25 bg-success/10 text-success"
                   variant="outline"
                 >
-                  Tạm từ PO
-                </Badge>
+                  {copy.provisionalPo} </Badge>
               </div>
               <div
                 className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[clamp(2rem,8.5vw,3.25rem)] font-semibold leading-none tabular-nums tracking-[-0.05em] text-primary"
@@ -1173,9 +1171,9 @@ export default function RevenueManagementDashboard() {
                 )}
               </div>
               <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                <span>{stats.rows} dòng đã kiểm soát</span>
+                <span>{stats.rows} {copy.controlledRows}</span>
                 <span className="text-border">•</span>
-                <span>Đến ngày {formatDate(throughDate)}</span>
+                <span>{copy.throughDate} {formatDate(throughDate)}</span>
               </div>
             </div>
             <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-primary/20 bg-primary/10 text-primary">
@@ -1189,7 +1187,7 @@ export default function RevenueManagementDashboard() {
         <Card
           role="button"
           tabIndex={0}
-          aria-label="Sản lượng: Chạm để xem chi tiết"
+          aria-label={copy.quantityDetail}
           onClick={() =>
             openSources({ scope: "controlled_ledger", focus: "quantity" })
           }
@@ -1204,8 +1202,7 @@ export default function RevenueManagementDashboard() {
           <CardContent className="p-4">
             <div className="flex items-center justify-between gap-2">
               <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                Sản lượng
-              </div>
+                {copy.quantity} </div>
               <CalendarDays className="h-4 w-4 text-primary/75" />
             </div>
             <div
@@ -1220,7 +1217,7 @@ export default function RevenueManagementDashboard() {
         <Card
           role="button"
           tabIndex={0}
-          aria-label="Customer/NPP: Chạm để xem chi tiết"
+          aria-label={copy.customerDetail}
           onClick={() =>
             openSources({ scope: "controlled_ledger", focus: "customers" })
           }
@@ -1235,8 +1232,7 @@ export default function RevenueManagementDashboard() {
           <CardContent className="p-4">
             <div className="flex items-center justify-between gap-2">
               <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                Customer/NPP
-              </div>
+                {copy.customers} </div>
               <Users className="h-4 w-4 text-muted-foreground" />
             </div>
             <div className="mt-3 text-2xl font-semibold tabular-nums text-foreground">
@@ -1250,24 +1246,23 @@ export default function RevenueManagementDashboard() {
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                  Forecast tháng
-                </div>
+                  {copy.monthlyForecast} </div>
                 <div
                   className="mt-2 truncate text-2xl font-semibold tabular-nums text-primary"
                   title={vnd(forecast.total)}
                 >
-                  {compactVnd(forecast.total)}
+                  {compactVnd(forecast.total, copy)}
                 </div>
                 <div className="mt-1 text-xs text-muted-foreground">
-                  {numberFmt(forecastProgress)}% kế hoạch · tin cậy{" "}
-                  {forecast.confidenceLabel}
+                  {numberFmt(forecastProgress)}{copy.planConfidence}{" "}
+                  {forecast.confidenceLabel === "Cao" ? copy.high : forecast.confidenceLabel === "Trung bình" ? copy.medium : copy.low}
                 </div>
               </div>
               <Badge
                 className={`shrink-0 border ${forecast.confidenceTone}`}
                 variant="outline"
               >
-                {forecast.confidenceLabel}
+                {forecast.confidenceLabel === "Cao" ? copy.high : forecast.confidenceLabel === "Trung bình" ? copy.medium : copy.low}
               </Badge>
             </div>
             <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
@@ -1283,25 +1278,24 @@ export default function RevenueManagementDashboard() {
       <Card className="border border-border/55 bg-card/70 shadow-card backdrop-blur-xl">
         <CardContent className="flex flex-wrap items-center gap-2 p-3 text-xs text-muted-foreground">
           <span className="font-medium text-foreground">
-            Trạng thái số xuất:
-          </span>
+            {copy.dispatchStatus} </span>
           <Badge
             variant="outline"
             className="border-warning/40 bg-warning/25 text-primary"
           >
-            Doanh thu tạm từ PO: {stats.dispatchTemporary}
+            {copy.provisionalRevenue} {stats.dispatchTemporary}
           </Badge>
           <Badge
             variant="outline"
             className="border-success/25 bg-success/10 text-success"
           >
-            Đã xác nhận: {stats.dispatchConfirmed}
+            {copy.confirmed} {stats.dispatchConfirmed}
           </Badge>
           <Badge
             variant="outline"
             className="border-destructive/25 bg-destructive/10 text-destructive"
           >
-            Cần SKU: {stats.dispatchNeedsAllocation}
+            {copy.needsSku} {stats.dispatchNeedsAllocation}
           </Badge>
         </CardContent>
       </Card>
@@ -1311,29 +1305,27 @@ export default function RevenueManagementDashboard() {
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <CardTitle className="text-foreground">
-                Doanh thu theo tháng
-              </CardTitle>
+                {copy.monthlyRevenue} </CardTitle>
               <CardDescription className="text-muted-foreground">
-                So sánh doanh thu từng tháng trong 6 tháng gần nhất, dùng ledger đã kiểm soát.
-              </CardDescription>
+                {copy.monthlyHint} </CardDescription>
             </div>
             <Badge
               className={`${mom.delta >= 0 ? "border-success/25 bg-success/10 text-success" : "border-destructive/25 bg-destructive/10 text-destructive"}`}
               variant="outline"
             >
-              Tháng trước: {mom.pct === null ? "N/A" : `${mom.pct >= 0 ? "+" : ""}${numberFmt(mom.pct)}%`}
+              {copy.previousMonth} {mom.pct === null ? "N/A" : `${mom.pct >= 0 ? "+" : ""}${numberFmt(mom.pct)}%`}
             </Badge>
           </div>
         </CardHeader>
         <CardContent className="h-[280px] p-3 md:h-[320px] md:p-4">
           <div
             className="h-full overflow-x-auto pb-2 [-webkit-overflow-scrolling:touch]"
-            aria-label="Cuộn ngang để xem doanh thu theo tháng"
+            aria-label={copy.scrollMonthly}
           >
             <div className="h-full min-w-[720px] md:min-w-0">
               <ChartContainer
                 config={{
-                  revenue: { label: "Doanh thu", color: MOM_CURRENT_COLOR },
+                  revenue: { label: copy.revenueLabel, color: MOM_CURRENT_COLOR },
                 }}
                 className="h-full"
               >
@@ -1351,7 +1343,7 @@ export default function RevenueManagementDashboard() {
                       tick={{ fill: "hsl(var(--muted-foreground))" }}
                     />
                     <YAxis
-                      tickFormatter={(v) => `${Math.round(Number(v) / 1_000_000)}tr`}
+                      tickFormatter={(v) => `${Math.round(Number(v) / 1_000_000)} ${copy.million}`}
                       tickLine={false}
                       axisLine={false}
                       width={48}
@@ -1366,17 +1358,17 @@ export default function RevenueManagementDashboard() {
                         color: "hsl(var(--foreground))",
                         boxShadow: "var(--shadow-card)",
                       }}
-                      formatter={(value) => [vnd(Number(value)), "Doanh thu"]}
+                      formatter={(value) => [vnd(Number(value)), copy.revenueLabel]}
                       labelFormatter={(_, payload) => {
                         const row = payload?.[0]?.payload as
                           | (typeof monthlyRevenueChart)[number]
                           | undefined;
-                        if (!row) return "Doanh thu theo tháng";
+                        if (!row) return copy.monthlyRevenue;
                         const change =
                           row.pct === null
-                            ? "chưa có tháng trước"
-                            : `${row.delta >= 0 ? "+" : ""}${vnd(row.delta)} (${row.pct >= 0 ? "+" : ""}${numberFmt(row.pct)}%) so với tháng trước`;
-                        return `${periodLabel(row.period)} · ${change}`;
+                            ? copy.noPreviousMonth
+                            : `${row.delta >= 0 ? "+" : ""}${vnd(row.delta)} (${row.pct >= 0 ? "+" : ""}${numberFmt(row.pct)}%) ${copy.versusPrevious}`;
+                        return `${periodLabel(row.period, copy)} · ${change}`;
                       }}
                       labelStyle={{
                         color: "hsl(var(--foreground))",
@@ -1388,7 +1380,7 @@ export default function RevenueManagementDashboard() {
                         color: "hsl(var(--muted-foreground))",
                         fontSize: 12,
                       }}
-                      formatter={() => "Doanh thu"}
+                      formatter={() => copy.revenueLabel}
                     />
                     <Bar dataKey="revenue" radius={[5, 5, 0, 0]}>
                       {monthlyRevenueChart.map((row) => (
@@ -1408,11 +1400,9 @@ export default function RevenueManagementDashboard() {
           <div className="flex items-start justify-between gap-3">
             <div>
               <CardTitle className="text-foreground">
-                Xu hướng doanh thu
-              </CardTitle>
+                {copy.trend} </CardTitle>
               <CardDescription className="text-muted-foreground">
-                Ledger thực tế và forecast đến cuối tháng.
-              </CardDescription>
+                {copy.trendHint} </CardDescription>
             </div>
             <Badge
               className="border border-success/25 bg-success/10 text-success"
@@ -1425,14 +1415,14 @@ export default function RevenueManagementDashboard() {
         <CardContent className="h-[280px] p-3 md:h-[340px] md:p-4">
           <div
             className="h-full overflow-x-auto pb-2 [-webkit-overflow-scrolling:touch]"
-            aria-label="Cuộn ngang để xem đủ xu hướng doanh thu trong tháng"
+            aria-label={copy.scrollTrend}
           >
             <div className="h-full min-w-[880px] md:min-w-0">
               <ChartContainer
                 config={{
-                  ledger: { label: "Ledger", color: MOM_CURRENT_COLOR },
+                  ledger: { label: copy.ledger, color: MOM_CURRENT_COLOR },
                   forecast: {
-                    label: "Forecast",
+                    label: copy.forecast,
                     color: FORECAST_REMAINDER_COLOR,
                   },
                 }}
@@ -1492,7 +1482,7 @@ export default function RevenueManagementDashboard() {
                     />
                     <YAxis
                       tickFormatter={(v) =>
-                        `${Math.round(Number(v) / 1_000_000)}tr`
+                        `${Math.round(Number(v) / 1_000_000)} ${copy.million}`
                       }
                       tickLine={false}
                       axisLine={false}
@@ -1513,10 +1503,10 @@ export default function RevenueManagementDashboard() {
                       }}
                       formatter={(value, name) => [
                         vnd(Number(value)),
-                        name === "ledger" ? "Ledger" : "Forecast",
+                        name === "ledger" ? copy.ledger : copy.forecast,
                       ]}
                       labelFormatter={(label) =>
-                        `Ngày ${label}/${period.slice(5)}`
+                        `${copy.day} ${label}/${period.slice(5)}`
                       }
                       labelStyle={{
                         color: "hsl(var(--foreground))",
@@ -1524,6 +1514,7 @@ export default function RevenueManagementDashboard() {
                       }}
                     />
                     <Legend
+                      formatter={(value) => value === "ledger" ? copy.ledger : value === "forecast" ? copy.forecast : value}
                       wrapperStyle={{
                         color: "hsl(var(--muted-foreground))",
                         fontSize: 12,
@@ -1585,44 +1576,38 @@ export default function RevenueManagementDashboard() {
               value="overview"
               className="rounded-none border-b-2 border-transparent bg-transparent px-1 pb-2 text-sm text-muted-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary"
             >
-              Tổng quan
-            </TabsTrigger>
+              {copy.overview} </TabsTrigger>
             <TabsTrigger
               value="customers"
               className="rounded-none border-b-2 border-transparent bg-transparent px-1 pb-2 text-sm text-muted-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary"
             >
-              Theo customer
-            </TabsTrigger>
+              {copy.byCustomer} </TabsTrigger>
             <TabsTrigger
               value="channels"
               className="rounded-none border-b-2 border-transparent bg-transparent px-1 pb-2 text-sm text-muted-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary"
             >
-              Theo kênh
-            </TabsTrigger>
+              {copy.byChannel} </TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="grid gap-4">
             <Card className="overflow-hidden border border-border/55 bg-card/70 shadow-card backdrop-blur-xl">
               <CardHeader className="border-b border-border/55 bg-muted/35">
                 <CardTitle className="text-foreground">
-                  Doanh thu theo ngày
-                </CardTitle>
+                  {copy.dailyRevenue} </CardTitle>
                 <CardDescription className="text-muted-foreground">
-                  Click bảng customer/kênh để mở chi tiết source/audit.
-                </CardDescription>
+                  {copy.dailyHint} </CardDescription>
               </CardHeader>
               <CardContent className="h-[360px] pt-6">
                 {byDay.length === 0 ? (
                   <div className="flex h-full items-center justify-center rounded-md border border-border/55 bg-muted/25 text-sm text-muted-foreground">
-                    Chưa có dữ liệu doanh thu cho kỳ này.
-                  </div>
+                    {copy.noRevenue} </div>
                 ) : (
                   <div className="h-full overflow-x-auto pb-2 [-webkit-overflow-scrolling:touch]">
                     <div className="h-full min-w-[720px]">
                       <ChartContainer
                         config={{
                           revenue: {
-                            label: "Doanh thu",
+                            label: copy.revenueLabel,
                             color: MOM_PREVIOUS_COLOR,
                           },
                         }}
@@ -1646,7 +1631,7 @@ export default function RevenueManagementDashboard() {
                             />
                             <YAxis
                               tickFormatter={(v) =>
-                                `${Math.round(Number(v) / 1_000_000)}tr`
+                                `${Math.round(Number(v) / 1_000_000)} ${copy.million}`
                               }
                               tickLine={false}
                               axisLine={false}
@@ -1666,7 +1651,7 @@ export default function RevenueManagementDashboard() {
                                 color: "hsl(var(--muted-foreground))",
                                 fontSize: 12,
                               }}
-                              formatter={() => "Doanh thu"}
+                              formatter={() => copy.revenueLabel}
                             />
                             <Bar
                               dataKey="revenue"
@@ -1687,36 +1672,26 @@ export default function RevenueManagementDashboard() {
             <Card className="overflow-hidden border border-border/55 bg-card/70 shadow-card backdrop-blur-xl">
               <CardHeader className="border-b border-border/55 bg-muted/35">
                 <CardTitle className="text-foreground">
-                  Doanh thu theo customer / NPP
-                </CardTitle>
+                  {copy.customerRevenue} </CardTitle>
                 <CardDescription className="text-muted-foreground">
-                  Click “Chi tiết” để xem source lines, PO trace và trạng thái
-                  audit. Sắp xếp theo doanh thu hiện tại từ cao xuống thấp;
-                  khách chỉ có kỳ trước sẽ nằm cuối bảng.
-                </CardDescription>
+                  {copy.customerHint} </CardDescription>
               </CardHeader>
               <CardContent className="overflow-x-auto pt-4">
                 <Table>
                   <TableHeader>
                     <TableRow className="border-b border-border/70">
                       <TableHead className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                        Customer / NPP
-                      </TableHead>
+                        {copy.customerHeader} </TableHead>
                       <TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                        Qty
-                      </TableHead>
+                        {copy.qty} </TableHead>
                       <TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                        Revenue
-                      </TableHead>
+                        {copy.revenue} </TableHead>
                       <TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                        MoM
-                      </TableHead>
+                        {copy.mom} </TableHead>
                       <TableHead className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                        Source
-                      </TableHead>
+                        {copy.source} </TableHead>
                       <TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                        Action
-                      </TableHead>
+                        {copy.action} </TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1726,10 +1701,9 @@ export default function RevenueManagementDashboard() {
                         className="border-b border-border/60 hover:bg-primary/10"
                       >
                         <TableCell className="font-medium text-foreground">
-                          {row.name}
+                          {row.name === "Chưa rõ khách hàng" ? copy.unknownCustomer : row.name}
                           <div className="text-xs text-muted-foreground/80">
-                            {row.rows} lines
-                          </div>
+                            {row.rows} {copy.lines} </div>
                         </TableCell>
                         <TableCell className="text-right tabular-nums text-foreground">
                           {numberFmt(row.qty)}
@@ -1755,7 +1729,7 @@ export default function RevenueManagementDashboard() {
                                 className="mr-1 border border-primary/25 bg-primary/10 text-primary"
                                 variant="secondary"
                               >
-                                {sourceTypeLabel[s] || s}
+                                {(copy.sourceLabels as Record<string, string>)[s] || sourceTypeLabel[s] || s}
                               </Badge>
                             ))
                           ) : (
@@ -1763,8 +1737,7 @@ export default function RevenueManagementDashboard() {
                               className="border border-border/70 bg-muted/70 text-foreground"
                               variant="secondary"
                             >
-                              Kỳ trước
-                            </Badge>
+                              {copy.previousPeriod} </Badge>
                           )}
                         </TableCell>
                         <TableCell className="text-right">
@@ -1776,8 +1749,7 @@ export default function RevenueManagementDashboard() {
                               openSources({ customer_key: row.key })
                             }
                           >
-                            Chi tiết
-                          </Button>
+                            {copy.details} </Button>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -1791,18 +1763,14 @@ export default function RevenueManagementDashboard() {
             <Card className="overflow-hidden border border-border/55 bg-card/70 shadow-card backdrop-blur-xl">
               <CardHeader className="border-b border-border/55 bg-muted/35">
                 <CardTitle className="text-foreground">
-                  Doanh thu theo kênh
-                </CardTitle>
+                  {copy.channelRevenue} </CardTitle>
                 <CardDescription className="text-muted-foreground">
-                  Circle chart theo tỷ trọng revenue của từng kênh trong ledger
-                  đã kiểm soát.
-                </CardDescription>
+                  {copy.channelHint} </CardDescription>
               </CardHeader>
               <CardContent className="pt-4">
                 {byChannel.length === 0 ? (
                   <div className="flex min-h-[260px] items-center justify-center rounded-md border border-border/55 bg-muted/25 text-sm text-muted-foreground">
-                    Chưa có dữ liệu kênh cho kỳ này.
-                  </div>
+                    {copy.noChannels} </div>
                 ) : (
                   <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
                     <div className="shrink-0 lg:w-72">
@@ -1837,7 +1805,7 @@ export default function RevenueManagementDashboard() {
                             }}
                             formatter={(value) => [
                               vnd(Number(value)),
-                              "Revenue",
+                              copy.revenue,
                             ]}
                             itemStyle={{
                               color: "hsl(var(--foreground))",
@@ -1878,8 +1846,7 @@ export default function RevenueManagementDashboard() {
                                   {row.key}
                                 </div>
                                 <div className="text-xs text-muted-foreground/80">
-                                  {row.rows} rows · {numberFmt(row.qty)} qty
-                                </div>
+                                  {row.rows} {copy.rowsInline} {numberFmt(row.qty)} {copy.qtyInline} </div>
                               </div>
                             </div>
                             <div className="flex shrink-0 items-center justify-between gap-3 sm:justify-end">
@@ -1899,8 +1866,7 @@ export default function RevenueManagementDashboard() {
                                   openSources({ channel: row.key })
                                 }
                               >
-                                Chi tiết
-                              </Button>
+                                {copy.details} </Button>
                             </div>
                           </div>
                         );

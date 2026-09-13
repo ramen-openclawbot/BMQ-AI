@@ -1,3 +1,4 @@
+import { showPeopleToast, PeopleLocalError, peopleErrorDescription, peopleToast, usePeopleCopy } from "@/hooks/usePeopleCopy";
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { addDays, startOfWeek, eachDayOfInterval, format, parseISO } from "date-fns";
@@ -10,7 +11,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Loader2, ChevronLeft, ChevronRight, Copy, AlertTriangle, CalendarRange, Users } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
 import BulkAssignDialog from "./BulkAssignDialog";
@@ -43,9 +43,9 @@ interface EmployeeRosterRow {
 const UNASSIGNED = "__unassigned__";
 
 export default function ShiftPlannerGrid() {
+  const pc = usePeopleCopy();
   const { language } = useLanguage();
   const { canEditModule } = useAuth();
-  const { toast } = useToast();
   const queryClient = useQueryClient();
   const isVi = language === "vi";
   const canEdit = canEditModule("attendance");
@@ -73,32 +73,28 @@ export default function ShiftPlannerGrid() {
 
   const copy = useMemo(
     () => ({
-      title: isVi ? "Xếp ca theo tuần" : "Weekly shift planner",
-      description: isVi
-        ? "Lập lịch ca cho từng nhân viên, copy tuần trước và phát hiện trùng ca."
-        : "Assign shifts per employee by day, copy a previous week, and detect conflicts.",
-      prevWeek: isVi ? "Tuần trước" : "Prev week",
-      nextWeek: isVi ? "Tuần sau" : "Next week",
-      thisWeek: isVi ? "Tuần này" : "This week",
-      employeeFilter: isVi ? "Lọc nhân viên" : "Filter employee",
-      departmentFilter: isVi ? "Lọc bộ phận" : "Filter department",
-      employee: isVi ? "Nhân viên" : "Employee",
-      department: isVi ? "Bộ phận" : "Department",
-      unassigned: isVi ? "Chưa xếp" : "Unassigned",
-      copyWeek: isVi ? "Sao chép tuần" : "Copy week",
-      sourceWeek: isVi ? "Tuần nguồn" : "Source week",
-      bulkUpload: isVi ? "Upload CSV" : "Upload CSV",
-      noData: isVi ? "Chưa có nhân viên trong tuần" : "No employees this week",
-      conflictTitle: isVi ? "Xung đột ca" : "Shift conflict",
-      copySuccess: isVi ? "Đã sao chép lịch" : "Roster copied",
-      copyError: isVi ? "Không thể sao chép" : "Unable to copy roster",
-      savedOk: isVi ? "Đã lưu ca" : "Shift saved",
-      savedErr: isVi ? "Không thể lưu ca" : "Unable to save shift",
-      lockedPeriod: isVi
-        ? "Ngày này nằm trong kỳ đã khóa, thao tác bị chặn."
-        : "This date is in a locked period, operations are blocked.",
+      title: pc("weeklyShiftPlanner"),
+      description: pc("assignShiftsPerEmployeeByDayCopy"),
+      prevWeek: pc("prevWeek"),
+      nextWeek: pc("nextWeek"),
+      thisWeek: pc("thisWeek"),
+      employeeFilter: pc("filterEmployee"),
+      departmentFilter: pc("filterDepartment"),
+      employee: pc("employee"),
+      department: pc("department"),
+      unassigned: pc("unassigned"),
+      copyWeek: pc("copyWeek"),
+      sourceWeek: pc("sourceWeek"),
+      bulkUpload: pc("uploadCsv"),
+      noData: pc("noEmployeesThisWeek"),
+      conflictTitle: pc("shiftConflict"),
+      copySuccess: pc("rosterCopied"),
+      copyError: pc("unableToCopyRoster"),
+      savedOk: pc("shiftSaved"),
+      savedErr: pc("unableToSaveShift"),
+      lockedPeriod: pc("thisDateIsInALockedPeriod"),
     }),
-    [isVi],
+    [pc],
   );
 
   const { data: shifts = [] } = useQuery({
@@ -183,8 +179,8 @@ export default function ShiftPlannerGrid() {
 
   const upsertAssignmentMutation = useMutation({
     mutationFn: async (payload: { employee_code: string; employee_name: string | null; work_date: string; shift_id: string | null; department: string | null }) => {
-      if (!canEdit) throw new Error(copy.savedErr);
-      if (lockedSet.has(payload.work_date)) throw new Error(copy.lockedPeriod);
+      if (!canEdit) throw new PeopleLocalError({ key: "unableToSaveShift" });
+      if (lockedSet.has(payload.work_date)) throw new PeopleLocalError({ key: "thisDateIsInALockedPeriod" });
 
       if (payload.shift_id === null) {
         const { error } = await (supabase as any)
@@ -212,18 +208,18 @@ export default function ShiftPlannerGrid() {
       if (error) throw error;
     },
     onSuccess: () => {
-      toast({ title: copy.savedOk });
+      showPeopleToast("success", peopleToast("shiftSaved"));
       queryClient.invalidateQueries({ queryKey: ["attendance-roster", weekFromIso, weekToIso] });
     },
     onError: (err: any) => {
-      toast({ title: copy.savedErr, description: err?.message, variant: "destructive" });
+      showPeopleToast("error", peopleToast("unableToSaveShift"), { description: peopleErrorDescription(err, "pleaseTryAgain") });
     },
   });
 
   const copyWeekMutation = useMutation({
     mutationFn: async () => {
-      if (!canEdit) throw new Error(copy.copyError);
-      if (!copySourceMonday) throw new Error(copy.copyError);
+      if (!canEdit) throw new PeopleLocalError({ key: "unableToCopyRoster" });
+      if (!copySourceMonday) throw new PeopleLocalError({ key: "unableToCopyRoster" });
       const { data, error } = await (supabase as any).rpc("attendance_copy_week_roster", {
         _source_from: copySourceMonday,
         _target_from: weekFromIso,
@@ -236,16 +232,13 @@ export default function ShiftPlannerGrid() {
       };
     },
     onSuccess: (result) => {
-      toast({
-        title: copy.copySuccess,
-        description: isVi
-          ? `Đã tạo ${result.inserted_count} dòng, bỏ qua ${result.skipped_count} do kỳ khóa.`
-          : `Inserted ${result.inserted_count}, skipped ${result.skipped_count} due to locked period.`,
+      showPeopleToast("success", peopleToast("rosterCopied"), {
+        description: peopleToast("insertedSkippedDueToLockedPeriod", { p0: result.inserted_count, p1: result.skipped_count }),
       });
       queryClient.invalidateQueries({ queryKey: ["attendance-roster", weekFromIso, weekToIso] });
     },
     onError: (err: any) => {
-      toast({ title: copy.copyError, description: err?.message, variant: "destructive" });
+      showPeopleToast("error", peopleToast("unableToCopyRoster"), { description: peopleErrorDescription(err, "pleaseTryAgain") });
     },
   });
 
@@ -366,7 +359,7 @@ export default function ShiftPlannerGrid() {
                           <span className="font-medium">{format(day, "dd/MM")}</span>
                           {isLocked ? (
                             <Badge variant="secondary" className="w-fit mt-1 text-[10px]">
-                              {isVi ? "Khóa" : "Locked"}
+                              {pc("locked3")}
                             </Badge>
                           ) : null}
                         </div>

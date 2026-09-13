@@ -1,0 +1,26 @@
+import assert from 'node:assert/strict';import fs from 'node:fs/promises';
+const {chromium}=await import(process.env.BMQ_PLAYWRIGHT||'/home/ubuntu/bmq-payment-preview/node_modules/playwright/index.mjs');
+const browser=await chromium.launch({executablePath:process.env.BMQ_CHROMIUM||'/home/ubuntu/.cache/ms-playwright/chromium-1234/chrome-linux/chrome',args:['--no-sandbox']});
+const origin='http://127.0.0.1:4305',out='/tmp/bmq-i18n-lanes/c-production',results=[];
+const vis=l=>l.filter({visible:true}),button=(p,name)=>['EN','VI'].includes(name)?p.locator('nav[aria-label="Fixture language"] button').filter({hasText:name}):vis(p.getByRole('button',{name,exact:true}));
+const titles={products:['Quản lý sản phẩm','Product management'],inventory:['Xuất-nhập-tồn NVL Q7','Q7 material inventory'],materials:['Danh mục nguyên vật liệu từ Giá vốn','Material catalog from COGS'],system:['Dashboard giám sát controller','Controller monitoring dashboard'],planning:['Kế hoạch sản xuất - Xưởng Q7','Q7 Workshop Production Plan'],shifts:['Tạo ca sản xuất','Create production shift'],qa:['QA & nhập kho thành phẩm Q7','Q7 QA & finished goods receiving']};
+async function run(slug,lang,width,mode,fn){const id=`${slug}-${lang}-${width}-${mode}`,ctx=await browser.newContext({viewport:{width,height:1000}});const unexpected=[],errors=[];
+ await ctx.addInitScript(lang=>{if(!sessionStorage.getItem('initialized')){localStorage.setItem('app-language',lang);sessionStorage.setItem('initialized','1');}},lang);
+ await ctx.route('**/*',r=>{if(r.request().url().startsWith(origin+'/'))return r.continue();if(r.request().url().startsWith('https://fonts.googleapis.com/'))return r.fulfill({body:'',contentType:'text/css'});unexpected.push(r.request().url());return r.abort();});
+ const p=await ctx.newPage();p.setDefaultTimeout(4000);p.on('pageerror',e=>errors.push(e.message));
+ try{await p.goto(`${origin}/${slug}?fixture=${mode}`);await vis(p.getByText(slug==='shifts'&&width===390?en(lang,'Tạo ca','New shift'):titles[slug][lang==='en'?1:0],{exact:true})).first().waitFor();await fn(p);assert.deepEqual(await p.evaluate(()=>window.__unexpected),[]);assert.deepEqual(unexpected,[]);assert.deepEqual(errors,[]);results.push({id,passed:true});console.log('PASS',id);}catch(e){results.push({id,passed:false,error:e.message});console.log('FAIL',id,e.message);await fs.writeFile(`${out}/${id}-failure.txt`,await p.locator('body').innerText());}finally{await ctx.close();await fs.writeFile(out+'/browser-qa-write.json',JSON.stringify(results,null,2));}}
+const en=(lang,vi,english)=>lang==='en'?english:vi;
+const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a0rkAAAAASUVORK5CYII=','base64');
+try{for(const lang of ['en','vi'])for(const width of [390,1440])await run('qa',lang,width,'qa-ready',async p=>{
+ await p.getByRole('button').filter({hasText:'SX-KEEP'}).filter({hasText:'Bánh giữ nguyên'}).click();const d=p.getByRole('dialog');await d.waitFor();await d.locator('input[type="file"][multiple]').setInputFiles({name:'qa.png',mimeType:'image/png',buffer:png});
+ const chooser=p.waitForEvent('filechooser');await d.getByRole('button',{name:en(lang,'Quét tem','Scan label'),exact:true}).click();await (await chooser).setFiles({name:'label.png',mimeType:'image/png',buffer:png});await d.getByText(en(lang,'Tem đạt','Label passed'),{exact:true}).waitFor();
+ const other=lang==='en'?'vi':'en';await button(p,other.toUpperCase()).evaluate(el=>el.click());await d.getByText(en(other,'Tem nhãn đạt NSX, HSD và trọng lượng.','Label manufacture date, expiry date and weight passed.'),{exact:true}).waitFor();await d.locator('textarea').fill('Ghi chú $& giữ nguyên');await d.getByRole('button',{name:en(other,'QA pass & nhập kho','QA pass & receive stock'),exact:true}).click();
+ await p.waitForFunction(()=>window.__fixtureCalls.some(c=>c.table==='inventory_movements'&&c.operations.some(o=>o.method==='insert')));
+ const calls=await p.evaluate(()=>window.__fixtureCalls);const insert=t=>calls.find(c=>c.table===t&&c.operations.some(o=>o.method==='insert')).operations.find(o=>o.method==='insert').args[0];
+ assert.equal(insert('qa_inspections').status,'approved');assert.equal(insert('qa_inspections').inspected_by,'Nhân viên giữ nguyên');assert.equal(insert('qa_inspections').notes,'[QA_CHECKLIST]\nChất lượng: PASS\nCảm quan: PASS\nBao bì: PASS\n[/QA_CHECKLIST]\n\nGhi chú $& giữ nguyên');
+ const qa=insert('qa_inspection_items')[0];assert.equal(qa.product_name,'Bánh giữ nguyên');assert.equal(qa.approved_qty,12);assert.equal(qa.rejected_qty,0);assert.equal(qa.unit,'cái');assert.equal(qa.notes,'QA pass từ lệnh sản xuất Q7');
+ const label=insert('qa_label_checks')[0];assert.equal(label.status,'passed');assert.equal(label.failure_reason,null);assert.equal(label.raw_ocr_text,'OCR giữ nguyên');
+ assert.equal(insert('inventory_movements').quantity,12);assert.equal(insert('inventory_movements').notes,'QA PASS QA-FIXTURE — nhập kho TP từ SX-KEEP');
+ assert.equal(calls.filter(c=>c.storage==='upload').length,2);assert.equal(calls.filter(c=>c.function==='scan-product-label').length,1);
+});}finally{await browser.close();}
+assert.equal(results.filter(r=>!r.passed).length,0,'QA writes preserve canonical data in both languages');

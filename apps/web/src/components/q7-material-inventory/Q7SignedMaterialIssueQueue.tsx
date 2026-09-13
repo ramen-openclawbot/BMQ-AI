@@ -1,3 +1,8 @@
+import { formatText } from "@/i18n/format";
+import { useProductionCopy } from "@/i18n/useProductionCopy";
+import { productionCopy, type ProductionCopy } from "@/i18n/production";
+import { localProductionError, ProductionLocalError, productionErrorDescriptor, productionErrorText, type ProductionErrorDescriptor } from "@/i18n/productionErrors";
+import { productionErrorToast } from "@/i18n/ProductionErrorToast";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -33,7 +38,7 @@ type Q7SignedMaterialIssue = {
   production_orders?: { production_number?: string | null } | { production_number?: string | null }[] | null;
 };
 
-type Q7SelectedSignedFile = { file: File | null; error: string | null };
+type Q7SelectedSignedFile = { file: File | null; error: ProductionErrorDescriptor | null };
 
 type Q7MaterialIssueCheck = {
   id: string;
@@ -73,14 +78,7 @@ type Q7MaterialIssueConfirmationResult = { status: string; issue_id?: string; is
 const Q7_SIGNED_MATERIAL_ISSUE_STATUSES: Q7SignedMaterialIssueStatus[] = ["pdf_ready", "signed_uploaded", "checking", "ready_to_confirm", "needs_review"];
 const MAX_Q7_SIGNED_PDF_BYTES = 20 * 1024 * 1024;
 
-const q7SignedMaterialIssueStatusLabels: Record<string, string> = {
-  pdf_ready: "Chờ tải bản ký",
-  signed_uploaded: "Đã tải · Chờ kiểm tra",
-  checking: "Đang kiểm tra",
-  // Task5 legacy source contract marker: "Sẵn sàng xác nhận".
-  ready_to_confirm: "Đã kiểm tra · Chờ xác nhận",
-  needs_review: "Cần xem lại",
-};
+
 
 const formatVietnamDateKey = (dateKey: string | null | undefined) => {
   if (!dateKey) return "—";
@@ -99,13 +97,15 @@ const formatQ7SignedFileSize = (size: number) => {
   return `${Math.max(1, Math.ceil(size / 1024))} KB`;
 };
 
-const validateQ7SignedPdfFile = (file: File): string | null => {
-  if (file.type !== "application/pdf") return "Chỉ nhận tệp PDF.";
-  if (!file.name.toLowerCase().endsWith(".pdf")) return "Tên tệp phải có đuôi .pdf.";
-  if (file.size <= 0) return "Tệp PDF đang trống.";
-  if (file.size > MAX_Q7_SIGNED_PDF_BYTES) return "Tệp PDF tối đa 20MB.";
+const validateQ7SignedPdfFile = (file: File): ProductionErrorDescriptor | null => {
+  if (file.type !== "application/pdf") return productionErrorDescriptor("m471");
+  if (!file.name.toLowerCase().endsWith(".pdf")) return productionErrorDescriptor("m472");
+  if (file.size <= 0) return productionErrorDescriptor("m473");
+  if (file.size > MAX_Q7_SIGNED_PDF_BYTES) return productionErrorDescriptor("m474");
   return null;
 };
+
+const pdfValidationMessage = (error: ProductionErrorDescriptor, c: ProductionCopy) => productionErrorText(error, c);
 
 const safeParseQ7SignedUploadJson = async (response: Response) => {
   const text = await response.text();
@@ -127,14 +127,14 @@ const sanitizeQ7CheckSummaryText = (value: string, maxLength = 96) =>
     .replace(/\b[\w.-]+\.pdf\b/gi, "[ẩn]")
     .slice(0, maxLength);
 
-const summarizeQ7Boolean = (value: unknown) => {
-  if (value === true) return "Đạt";
-  if (value === false) return "Không đạt";
+const summarizeQ7Boolean = (value: unknown, c: ProductionCopy = productionCopy.vi) => {
+  if (value === true) return c.m479;
+  if (value === false) return c.m480;
   if (typeof value === "string" && value.trim()) return sanitizeQ7CheckSummaryText(value, 48);
   return "—";
 };
 
-const summarizeQ7MaterialIssueCheckResult = (result: Record<string, unknown> | null | undefined): Q7MaterialIssueCheckSummary => {
+const summarizeQ7MaterialIssueCheckResult = (result: Record<string, unknown> | null | undefined, c: ProductionCopy = productionCopy.vi): Q7MaterialIssueCheckSummary => {
   const safeResult = result || {};
   const confidence = safeResult.confidence;
   const signatureValues = [safeResult.preparer_signed, safeResult.warehouse_keeper_signed, safeResult.receiver_signed];
@@ -147,19 +147,19 @@ const summarizeQ7MaterialIssueCheckResult = (result: Record<string, unknown> | n
       if (typeof item === "string") return item;
       if (item && typeof item === "object") {
         const record = item as Record<string, unknown>;
-        return String(record.summary || record.label || record.kind || "Cần xem lại");
+        return String(record.summary || record.label || record.kind || c.m481);
       }
-      return "Cần xem lại";
+      return c.m482;
     })
     .filter(Boolean)
     .slice(0, 3)
     .map((item) => sanitizeQ7CheckSummaryText(item, 96));
   return {
-    identity: summarizeQ7Boolean(safeResult.identity_exact ?? safeResult.identity_match ?? safeResult.identity),
-    table: summarizeQ7Boolean(safeResult.rows_exact ?? safeResult.table_match ?? safeResult.table),
-    signatures: summarizeQ7Boolean(signaturesComplete),
-    legible: summarizeQ7Boolean(safeResult.document_legible ?? safeResult.legible),
-    pages: summarizeQ7Boolean(safeResult.pages_complete),
+    identity: summarizeQ7Boolean(safeResult.identity_exact ?? safeResult.identity_match ?? safeResult.identity, c),
+    table: summarizeQ7Boolean(safeResult.rows_exact ?? safeResult.table_match ?? safeResult.table, c),
+    signatures: summarizeQ7Boolean(signaturesComplete, c),
+    legible: summarizeQ7Boolean(safeResult.document_legible ?? safeResult.legible, c),
+    pages: summarizeQ7Boolean(safeResult.pages_complete, c),
     confidence: typeof confidence === "number" ? `${Math.round(confidence * 100)}%` : typeof confidence === "string" ? confidence.slice(0, 16) : "—",
     boundedDiscrepancies,
   };
@@ -210,30 +210,32 @@ const safeParseQ7MaterialIssueConfirmationResult = (value: unknown): Q7MaterialI
   };
 };
 
-const formatQ7MaterialIssueConfirmationBlockers = (result: Q7MaterialIssueConfirmationResult) => {
-  if (!result.blockers.length) return "Phiếu chưa đủ điều kiện xác nhận.";
+const describeQ7MaterialIssueConfirmationBlockers = (result: Q7MaterialIssueConfirmationResult): ProductionErrorDescriptor => {
+  if (!result.blockers.length) return productionErrorDescriptor("m486");
   const lines = result.blockers.map((blocker) => {
-    const name = blocker.ingredient_name || "Nguyên liệu";
+    const name = blocker.ingredient_name ? String(blocker.ingredient_name) : productionErrorDescriptor("m487");
     const required = blocker.required_qty || "?";
     const available = blocker.available_qty || "?";
     const unit = blocker.unit || "";
-    return `${name}: cần ${required} ${unit}, hiện có ${available} ${unit}`.slice(0, 96);
+    return productionErrorDescriptor("blockerLine", { name, required: String(required), unit: String(unit), available: String(available) });
   });
-  return `Phiếu chưa đủ điều kiện xác nhận: ${lines.join("; ")}`;
-};
-
-const sanitizeQ7MaterialIssueConfirmationRpcError = (error: unknown) => {
-  const message = error && typeof error === "object" && "message" in error ? String((error as { message?: unknown }).message || "") : "";
-  const lower = message.toLowerCase();
-  if (lower.includes("permission") || lower.includes("permission denied") || lower.includes("not allowed") || lower.includes("unauthorized")) return "Bạn không có quyền xác nhận phiếu này.";
-  if (lower.includes("actual") || lower.includes("check") || lower.includes("passed") || lower.includes("status")) return "Phiếu chưa đủ điều kiện xác nhận.";
-  return "Không ghi sổ được phiếu này. Không xác nhận được phiếu. Vui lòng thử lại hoặc liên hệ quản trị.";
+  return productionErrorDescriptor("blockerList", { lines });
 };
 // ── End Q7 explicit material issue confirmation
 
-const actualItemName = (actual: Q7MaterialIssueCheckActual) => actual.production_material_issue_items?.kitchen_inventory_items?.name || "NVL Q7";
+const actualItemName = (actual: Q7MaterialIssueCheckActual, c: ProductionCopy) => actual.production_material_issue_items?.kitchen_inventory_items?.name || c.materialFallback;
 
 export function Q7SignedMaterialIssueQueue() {
+  const c = useProductionCopy();
+
+  const q7SignedMaterialIssueStatusLabels: Record<string, string> = {
+  pdf_ready: c.m466,
+  signed_uploaded: c.m467,
+  checking: c.m468,
+  // Task5 legacy source contract marker: "Sẵn sàng xác nhận".
+  ready_to_confirm: c.m469,
+  needs_review: c.m470,
+};
   const { toast } = useToast();
   const { canEditModule } = useAuth();
   const queryClient = useQueryClient();
@@ -330,12 +332,12 @@ export function Q7SignedMaterialIssueQueue() {
 
   const checkQ7SignedIssueMutation = useMutation({
     mutationFn: async (issue: Q7SignedMaterialIssue) => {
-      if (issue.status !== "signed_uploaded") throw new Error("Phiếu này không còn ở trạng thái chờ kiểm tra một lần.");
-      if (q7MaterialIssueChecksQuery.isLoading || q7MaterialIssueChecksQuery.isFetching || q7MaterialIssueChecksQuery.isError) throw new Error("Không kiểm tra để tránh chạy trùng khi chưa đọc được lịch sử kiểm tra.");
-      if (q7MaterialIssueCheckByIssueId.get(issue.id)) throw new Error("Phiếu này đã có kết quả kiểm tra, không chạy lại.");
-      if (checkingQ7SignedIssueIds[issue.id]) throw new Error("Phiếu này đang được kiểm tra.");
+      if (issue.status !== "signed_uploaded") throw localProductionError("m491");
+      if (q7MaterialIssueChecksQuery.isLoading || q7MaterialIssueChecksQuery.isFetching || q7MaterialIssueChecksQuery.isError) throw localProductionError("m492");
+      if (q7MaterialIssueCheckByIssueId.get(issue.id)) throw localProductionError("m493");
+      if (checkingQ7SignedIssueIds[issue.id]) throw localProductionError("m494");
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) throw new Error("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
+      if (!session?.access_token) throw localProductionError("m495");
       setCheckingQ7SignedIssueIds((prev) => ({ ...prev, [issue.id]: true }));
       const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/production-material-issue-check`, {
         method: "POST",
@@ -343,16 +345,22 @@ export function Q7SignedMaterialIssueQueue() {
         body: JSON.stringify({ issue_id: issue.id }),
       });
       const result = await safeParseQ7MaterialIssueCheckJson(response);
-      if (!response.ok) throw new Error(result?.error || result?.message || "Edge kiểm tra thất bại.");
+      if (!response.ok) {
+        const backendMessage = result?.error || result?.message;
+        if (backendMessage) throw new Error(backendMessage);
+        throw localProductionError("m496");
+      }
       return issue.id;
     },
     onSuccess: () => {
-      toast({ title: "Đã gửi kiểm tra phiếu NVL Q7", description: "Kết quả tự động chỉ chạy một lần và sẽ cập nhật vào hàng đợi." });
+      toast({ title: c.m497, description: c.m498 });
       queryClient.invalidateQueries({ queryKey: ["q7_signed_material_issue_queue"] });
       queryClient.invalidateQueries({ queryKey: ["q7_material_issue_checks"] });
       queryClient.invalidateQueries({ queryKey: ["q7_material_issue_actuals"] });
     },
-    onError: (error: Error) => { toast({ title: "Không kiểm tra được phiếu", description: error.message || "Vui lòng thử lại.", variant: "destructive" }); },
+    onError: (error: unknown) => {
+      productionErrorToast("q7-check", error);
+    },
     onSettled: (_data, _error, issue) => {
       if (!issue?.id) return;
       setCheckingQ7SignedIssueIds((prev) => { const next = { ...prev }; delete next[issue.id]; return next; });
@@ -361,14 +369,17 @@ export function Q7SignedMaterialIssueQueue() {
 
   const uploadQ7SignedIssueMutation = useMutation({
     mutationFn: async (issue: Q7SignedMaterialIssue) => {
-      if (uploadingQ7SignedIssueId) throw new Error("Đang tải phiếu khác. Vui lòng chờ hoàn tất.");
-      if (issue.status !== "pdf_ready") throw new Error("Phiếu này không còn ở trạng thái chờ tải bản ký.");
+      if (uploadingQ7SignedIssueId) throw localProductionError("m501");
+      if (issue.status !== "pdf_ready") throw localProductionError("m502");
       const selected = selectedQ7SignedFiles[issue.id];
-      if (!selected?.file) throw new Error(selected?.error || "Vui lòng chọn tệp PDF đã ký.");
+      if (!selected?.file) {
+        if (selected?.error) throw new ProductionLocalError(selected.error);
+        throw localProductionError("m503");
+      }
       const validationError = validateQ7SignedPdfFile(selected.file);
-      if (validationError) throw new Error(validationError);
+      if (validationError) throw new ProductionLocalError(validationError);
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) throw new Error("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
+      if (!session?.access_token) throw localProductionError("m504");
       const formData = new FormData();
       formData.append("issue_id", issue.id);
       formData.append("file", selected.file);
@@ -379,41 +390,47 @@ export function Q7SignedMaterialIssueQueue() {
         body: formData,
       });
       const result = await safeParseQ7SignedUploadJson(response);
-      if (!response.ok) throw new Error(result?.error || result?.message || "Edge upload thất bại.");
+      if (!response.ok) {
+        const backendMessage = result?.error || result?.message;
+        if (backendMessage) throw new Error(backendMessage);
+        throw localProductionError("m505");
+      }
       return issue.id;
     },
     onSuccess: (issueId) => {
-      toast({ title: "Đã tải phiếu NVL Q7 đã ký", description: "Hệ thống sẽ kiểm tra bản ký trước bước xác nhận." });
+      toast({ title: c.m506, description: c.m507 });
       setSelectedQ7SignedFiles((prev) => { const next = { ...prev }; delete next[issueId]; return next; });
       queryClient.invalidateQueries({ queryKey: ["q7_signed_material_issue_queue"] });
     },
-    onError: (error: Error) => { toast({ title: "Không tải được phiếu đã ký", description: error.message || "Vui lòng thử lại.", variant: "destructive" }); },
+    onError: (error: unknown) => {
+      productionErrorToast("q7-upload", error);
+    },
     onSettled: () => { setUploadingQ7SignedIssueId(null); },
   });
 
   const confirmQ7MaterialIssueMutation = useMutation({
     mutationFn: async (issue: Q7SignedMaterialIssue) => {
-      if (confirmingQ7MaterialIssueIds[issue.id]) throw new Error("Phiếu này đang được xác nhận.");
-      if (issue.status !== "ready_to_confirm") throw new Error("Phiếu chưa đủ điều kiện xác nhận.");
-      if (q7SignedMaterialIssueQueueQuery.isLoading || q7SignedMaterialIssueQueueQuery.isFetching || q7SignedMaterialIssueQueueQuery.isError) throw new Error("Phiếu chưa đủ điều kiện xác nhận.");
-      if (q7MaterialIssueChecksQuery.isLoading || q7MaterialIssueChecksQuery.isFetching || q7MaterialIssueChecksQuery.isError) throw new Error("Phiếu chưa đủ điều kiện xác nhận.");
-      if (q7MaterialIssueActualsQuery.isLoading || q7MaterialIssueActualsQuery.isFetching || q7MaterialIssueActualsQuery.isError) throw new Error("Phiếu chưa đủ điều kiện xác nhận.");
+      if (confirmingQ7MaterialIssueIds[issue.id]) throw localProductionError("m510");
+      if (issue.status !== "ready_to_confirm") throw localProductionError("m511");
+      if (q7SignedMaterialIssueQueueQuery.isLoading || q7SignedMaterialIssueQueueQuery.isFetching || q7SignedMaterialIssueQueueQuery.isError) throw localProductionError("m512");
+      if (q7MaterialIssueChecksQuery.isLoading || q7MaterialIssueChecksQuery.isFetching || q7MaterialIssueChecksQuery.isError) throw localProductionError("m513");
+      if (q7MaterialIssueActualsQuery.isLoading || q7MaterialIssueActualsQuery.isFetching || q7MaterialIssueActualsQuery.isError) throw localProductionError("m514");
       const latestCheck = q7MaterialIssueCheckByIssueId.get(issue.id);
-      if (!isQ7MaterialIssueCheckFullyPassed(latestCheck)) throw new Error("Phiếu chưa đủ điều kiện xác nhận.");
+      if (!isQ7MaterialIssueCheckFullyPassed(latestCheck)) throw localProductionError("m515");
       const actualRows = q7MaterialIssueActualsByIssueId.get(issue.id) || [];
-      if (!(actualRows.length > 0)) throw new Error("Phiếu chưa đủ điều kiện xác nhận.");
+      if (!(actualRows.length > 0)) throw localProductionError("m516");
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) throw new Error("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
+      if (!session?.access_token) throw localProductionError("m517");
       setConfirmingQ7MaterialIssueIds((prev) => ({ ...prev, [issue.id]: true }));
       const { data, error } = await (supabase as any).rpc("confirm_q7_material_issue", { p_issue_id: issue.id });
-      if (error) throw new Error(sanitizeQ7MaterialIssueConfirmationRpcError(error));
+      if (error) throw error;
       const result = safeParseQ7MaterialIssueConfirmationResult(data);
       if (result.status === "posted" || result.status === "posted_unchanged") return result;
-      if (result.blockers.length > 0) throw new Error(formatQ7MaterialIssueConfirmationBlockers(result));
-      throw new Error("Không ghi sổ được phiếu này.");
+      if (result.blockers.length > 0) throw new ProductionLocalError(describeQ7MaterialIssueConfirmationBlockers(result));
+      throw localProductionError("m518");
     },
     onSuccess: () => {
-      toast({ title: "Đã ghi sổ xuất Q7", description: "Âm tồn được phép để kế toán audit sau." });
+      toast({ title: c.m519, description: c.m520 });
       setSelectedQ7MaterialIssueForConfirmation(null);
       queryClient.invalidateQueries({ queryKey: ["q7_signed_material_issue_queue"] });
       queryClient.invalidateQueries({ queryKey: ["q7_material_issue_checks"] });
@@ -422,9 +439,8 @@ export function Q7SignedMaterialIssueQueue() {
       queryClient.invalidateQueries({ queryKey: ["q7_inventory_snapshot"] });
       queryClient.invalidateQueries({ queryKey: ["q7_inventory_movements"] });
     },
-    onError: (error: Error) => {
-      const safeDescription = sanitizeQ7MaterialIssueConfirmationText(error.message, 240);
-      toast({ title: "Không xác nhận được phiếu", description: safeDescription, variant: "destructive" });
+    onError: (error: unknown) => {
+      productionErrorToast("q7-confirm", error);
     },
     onSettled: (_data, _error, issue) => {
       if (!issue?.id) return;
@@ -439,20 +455,20 @@ export function Q7SignedMaterialIssueQueue() {
       <Card data-testid="q7-signed-material-issue-queue" className="border-border bg-card text-foreground shadow-card">
         <CardHeader className="gap-4 md:flex-row md:items-start md:justify-between">
           <div className="min-w-0">
-            <CardTitle className="flex items-center gap-2 text-xl leading-tight md:text-2xl"><FileUp className="h-6 w-6 text-primary" /> Phiếu NVL Q7 đã ký</CardTitle>
-            <p className="mt-1 text-sm text-muted-foreground">Tải bản PDF đã ký cho các phiếu NVL Q7 đang chờ kiểm tra, không hiển thị giá, vật tư hoặc đường dẫn lưu trữ.</p>
+            <CardTitle className="flex items-center gap-2 text-xl leading-tight md:text-2xl"><FileUp className="h-6 w-6 text-primary" /> {c.m522}</CardTitle>
+            <p className="mt-1 text-sm text-muted-foreground">{c.m523}</p>
           </div>
-          <Badge variant="outline" className="shrink-0 whitespace-nowrap border-primary/25 bg-primary/5 text-primary">{q7SignedMaterialIssues.length} phiếu</Badge>
+          <Badge variant="outline" className="shrink-0 whitespace-nowrap border-primary/25 bg-primary/5 text-primary">{q7SignedMaterialIssues.length} {c.m524}</Badge>
         </CardHeader>
         <CardContent className="space-y-4">
-          {!canUploadQ7SignedMaterialIssue && <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-800">Bạn chỉ có quyền xem. Cần quyền sửa sản xuất Q7, kho hoặc kho bếp để tải PDF đã ký.</div>}
-          {q7MaterialIssueChecksQuery.isError && <div data-testid="q7-material-issue-checks-error" role="alert" className="rounded-2xl border border-red-300/25 bg-red-500/10 p-4 text-sm text-red-800"><p className="font-semibold">Không tải được kết quả kiểm tra phiếu NVL Q7</p><p className="mt-1 text-red-700">Không kiểm tra để tránh chạy trùng khi chưa đọc được lịch sử kiểm tra. Vui lòng tải lại.</p></div>}
+          {!canUploadQ7SignedMaterialIssue && <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-800">{c.m525}</div>}
+          {q7MaterialIssueChecksQuery.isError && <div data-testid="q7-material-issue-checks-error" role="alert" className="rounded-2xl border border-red-300/25 bg-red-500/10 p-4 text-sm text-red-800"><p className="font-semibold">{c.m526}</p><p className="mt-1 text-red-700">{c.m527}</p></div>}
           {q7SignedMaterialIssueQueueQuery.isLoading ? (
             <div data-testid="q7-signed-material-issue-loading" className="flex min-h-[150px] items-center justify-center rounded-2xl border border-border bg-muted/40"><Loader2 className="h-7 w-7 animate-spin text-muted-foreground" /></div>
           ) : q7SignedMaterialIssueQueueQuery.isError ? (
-            <div data-testid="q7-signed-material-issue-error" role="alert" className="rounded-2xl border border-red-300/25 bg-red-500/10 px-5 py-8 text-center text-red-800"><AlertTriangle className="mx-auto mb-3 h-9 w-9 text-red-600" /><p className="font-semibold">Không tải được danh sách phiếu NVL Q7 đã ký</p><p className="mt-1 text-sm text-red-700">Không kết luận là trống khi RLS/API lỗi. Vui lòng thử tải lại.</p><Button type="button" variant="outline" className="mt-4 min-h-12 rounded-xl border-red-300 bg-background text-red-700 hover:bg-red-50 hover:text-red-800" onClick={() => void q7SignedMaterialIssueQueueQuery.refetch()}><RefreshCw className="mr-2 h-4 w-4" /> Tải lại</Button></div>
+            <div data-testid="q7-signed-material-issue-error" role="alert" className="rounded-2xl border border-red-300/25 bg-red-500/10 px-5 py-8 text-center text-red-800"><AlertTriangle className="mx-auto mb-3 h-9 w-9 text-red-600" /><p className="font-semibold">{c.m528}</p><p className="mt-1 text-sm text-red-700">{c.m529}</p><Button type="button" variant="outline" className="mt-4 min-h-12 rounded-xl border-red-300 bg-background text-red-700 hover:bg-red-50 hover:text-red-800" onClick={() => void q7SignedMaterialIssueQueueQuery.refetch()}><RefreshCw className="mr-2 h-4 w-4" /> {c.m530}</Button></div>
           ) : q7SignedMaterialIssues.length === 0 ? (
-            <div data-testid="q7-signed-material-issue-empty" className="rounded-2xl border border-dashed border-border px-5 py-8 text-center text-muted-foreground"><FileText className="mx-auto mb-3 h-10 w-10 opacity-40" /><p className="font-medium text-muted-foreground">Chưa có phiếu NVL Q7 cần tải bản ký</p><p className="mt-1 text-sm">Các phiếu trạng thái chờ tải PDF sẽ xuất hiện tại đây.</p></div>
+            <div data-testid="q7-signed-material-issue-empty" className="rounded-2xl border border-dashed border-border px-5 py-8 text-center text-muted-foreground"><FileText className="mx-auto mb-3 h-10 w-10 opacity-40" /><p className="font-medium text-muted-foreground">{c.m531}</p><p className="mt-1 text-sm">{c.m532}</p></div>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {q7SignedMaterialIssues.map((issue) => {
@@ -460,24 +476,24 @@ export function Q7SignedMaterialIssueQueue() {
                 const isUploadingSignedFile = uploadingQ7SignedIssueId === issue.id;
                 const existingCheck = q7MaterialIssueCheckByIssueId.get(issue.id);
                 const isCheckingSignedIssue = issue.status === "checking" || checkingQ7SignedIssueIds[issue.id];
-                const checkSummary = summarizeQ7MaterialIssueCheckResult(existingCheck?.result);
+                const checkSummary = summarizeQ7MaterialIssueCheckResult(existingCheck?.result, c);
                 const q7IsLatestCheckPassed = isQ7MaterialIssueCheckFullyPassed(existingCheck);
                 const actualRows = q7MaterialIssueActualsByIssueId.get(issue.id) || [];
                 const q7CanOpenConfirmation = Boolean(canConfirmQ7MaterialIssue && q7ConfirmationQueriesReady && issue.status === "ready_to_confirm" && q7IsLatestCheckPassed && actualRows.length > 0 && !confirmingQ7MaterialIssueIds[issue.id] && !confirmQ7MaterialIssueMutation.isPending);
                 return (
                   <article key={issue.id} data-testid={`q7-signed-material-issue-card-${issue.id}`} className="min-w-0 rounded-2xl border border-border bg-muted/40 p-4">
-                    <div className="flex min-w-0 flex-col items-start gap-3 sm:flex-row sm:justify-between"><div className="min-w-0"><p className="text-xs text-muted-foreground">Số phiếu</p><p className="mt-1 break-all font-mono text-base font-bold text-primary sm:break-words">{issue.issue_number}</p></div><Badge variant="outline" className="shrink-0 whitespace-nowrap border-primary/25 bg-primary/5 text-primary">{q7SignedMaterialIssueStatusLabels[issue.status] || issue.status}</Badge></div>
-                    <dl className="mt-4 grid grid-cols-2 gap-3 text-sm"><div className="min-w-0"><dt className="text-xs text-muted-foreground">Lệnh SX</dt><dd className="mt-1 break-words font-mono font-semibold">{getQ7SignedIssueProductionNumber(issue)}</dd></div><div className="min-w-0"><dt className="text-xs text-muted-foreground">Ngày phiếu</dt><dd className="mt-1 font-semibold">{formatVietnamDateKey(issue.issue_date)}</dd></div><div className="min-w-0"><dt className="text-xs text-muted-foreground">Lần sửa</dt><dd className="mt-1 font-semibold">{issue.revision ?? 1}</dd></div><div className="min-w-0"><dt className="text-xs text-muted-foreground">Trạng thái</dt><dd className="mt-1 font-semibold">{q7SignedMaterialIssueStatusLabels[issue.status] || issue.status}</dd></div></dl>
+                    <div className="flex min-w-0 flex-col items-start gap-3 sm:flex-row sm:justify-between"><div className="min-w-0"><p className="text-xs text-muted-foreground">{c.m533}</p><p className="mt-1 break-all font-mono text-base font-bold text-primary sm:break-words">{issue.issue_number}</p></div><Badge variant="outline" className="shrink-0 whitespace-nowrap border-primary/25 bg-primary/5 text-primary">{q7SignedMaterialIssueStatusLabels[issue.status] || issue.status}</Badge></div>
+                    <dl className="mt-4 grid grid-cols-2 gap-3 text-sm"><div className="min-w-0"><dt className="text-xs text-muted-foreground">{c.m534}</dt><dd className="mt-1 break-words font-mono font-semibold">{getQ7SignedIssueProductionNumber(issue)}</dd></div><div className="min-w-0"><dt className="text-xs text-muted-foreground">{c.m535}</dt><dd className="mt-1 font-semibold">{formatVietnamDateKey(issue.issue_date)}</dd></div><div className="min-w-0"><dt className="text-xs text-muted-foreground">{c.m536}</dt><dd className="mt-1 font-semibold">{issue.revision ?? 1}</dd></div><div className="min-w-0"><dt className="text-xs text-muted-foreground">{c.m537}</dt><dd className="mt-1 font-semibold">{q7SignedMaterialIssueStatusLabels[issue.status] || issue.status}</dd></div></dl>
                     {issue.status === "pdf_ready" ? (
-                      <div className="mt-4 space-y-3"><Input data-testid={`q7-signed-material-issue-file-${issue.id}`} id={`q7-signed-material-issue-file-${issue.id}`} type="file" accept="application/pdf,.pdf" aria-label={`Tải PDF đã ký cho phiếu ${issue.issue_number}`} className="w-full min-w-0 bg-background text-sm file:mr-2 file:rounded-lg file:border-0 file:bg-primary/10 file:px-2.5 file:py-2 file:text-xs file:font-semibold file:text-primary sm:file:mr-3 sm:file:px-3 sm:file:text-sm" disabled={!canUploadQ7SignedMaterialIssue || isUploadingSignedFile} onChange={(event) => handleSelectQ7SignedPdfFile(issue.id, event.target.files?.[0])} />{selectedSignedFile?.file && <p data-testid={`q7-signed-material-issue-selected-${issue.id}`} className="break-words text-xs text-muted-foreground">Đã chọn: {selectedSignedFile.file.name} · {formatQ7SignedFileSize(selectedSignedFile.file.size)}</p>}{selectedSignedFile?.error && <p role="alert" className="text-xs font-medium text-red-700">{selectedSignedFile.error}</p>}<Button data-testid={`q7-signed-material-issue-upload-${issue.id}`} type="button" className="min-h-12 w-full rounded-xl bg-primary font-semibold text-primary-foreground hover:bg-primary/90" disabled={!canUploadQ7SignedMaterialIssue || !selectedSignedFile?.file || uploadingQ7SignedIssueId === issue.id} onClick={() => uploadQ7SignedIssueMutation.mutate(issue)}>{isUploadingSignedFile ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileUp className="mr-2 h-4 w-4" />}Tải phiếu đã ký</Button></div>
+                      <div className="mt-4 space-y-3"><Input data-testid={`q7-signed-material-issue-file-${issue.id}`} id={`q7-signed-material-issue-file-${issue.id}`} type="file" accept="application/pdf,.pdf" aria-label={formatText(c.uploadIssue, { number: issue.issue_number })} className="w-full min-w-0 bg-background text-sm file:mr-2 file:rounded-lg file:border-0 file:bg-primary/10 file:px-2.5 file:py-2 file:text-xs file:font-semibold file:text-primary sm:file:mr-3 sm:file:px-3 sm:file:text-sm" disabled={!canUploadQ7SignedMaterialIssue || isUploadingSignedFile} onChange={(event) => handleSelectQ7SignedPdfFile(issue.id, event.target.files?.[0])} />{selectedSignedFile?.file && <p data-testid={`q7-signed-material-issue-selected-${issue.id}`} className="break-words text-xs text-muted-foreground">{c.m538} {selectedSignedFile.file.name} · {formatQ7SignedFileSize(selectedSignedFile.file.size)}</p>}{selectedSignedFile?.error && <p role="alert" className="text-xs font-medium text-red-700">{pdfValidationMessage(selectedSignedFile.error, c)}</p>}<Button data-testid={`q7-signed-material-issue-upload-${issue.id}`} type="button" className="min-h-12 w-full rounded-xl bg-primary font-semibold text-primary-foreground hover:bg-primary/90" disabled={!canUploadQ7SignedMaterialIssue || !selectedSignedFile?.file || uploadingQ7SignedIssueId === issue.id} onClick={() => uploadQ7SignedIssueMutation.mutate(issue)}>{isUploadingSignedFile ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileUp className="mr-2 h-4 w-4" />}{c.m539}</Button></div>
                     ) : issue.status === "signed_uploaded" ? (
-                      <div className="mt-4 space-y-3"><p className="rounded-xl border border-border bg-background p-3 text-sm text-muted-foreground">Kiểm tra tự động chỉ chạy một lần cho bản ký này. Nếu đã có kết quả, hệ thống không hiện nút chạy lại.</p>{existingCheck && <div data-testid={`q7-material-issue-check-summary-${issue.id}`} className="rounded-xl border border-border bg-background p-3 text-sm text-muted-foreground"><p className="font-semibold text-foreground">Kết quả kiểm tra đã ghi nhận</p><div className="mt-2 grid grid-cols-2 gap-2"><span>Định danh: {checkSummary.identity}</span><span>Bảng NVL: {checkSummary.table}</span><span>Chữ ký: {checkSummary.signatures}</span><span>Dễ đọc: {checkSummary.legible}</span><span>Số trang: {checkSummary.pages}</span><span>Tin cậy: {checkSummary.confidence}</span></div>{checkSummary.boundedDiscrepancies.length > 0 && <ul className="mt-2 list-disc space-y-1 pl-5">{checkSummary.boundedDiscrepancies.map((item, index) => <li key={`${issue.id}-gap-${index}`}>Chênh lệch: {item}</li>)}</ul>}</div>}{!existingCheck && <Button data-testid={`q7-material-issue-check-${issue.id}`} type="button" aria-label={`Kiểm tra một lần phiếu ${issue.issue_number}`} className="min-h-12 w-full rounded-xl bg-primary font-semibold text-primary-foreground hover:bg-primary/90" disabled={!canCheckQ7SignedMaterialIssue || Boolean(existingCheck) || q7MaterialIssueChecksQuery.isLoading || q7MaterialIssueChecksQuery.isFetching || q7MaterialIssueChecksQuery.isError || checkingQ7SignedIssueIds[issue.id]} onClick={() => checkQ7SignedIssueMutation.mutate(issue)}>{checkingQ7SignedIssueIds[issue.id] ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}{checkingQ7SignedIssueIds[issue.id] ? "Đang kiểm tra" : "Kiểm tra một lần"}</Button>}</div>
+                      <div className="mt-4 space-y-3"><p className="rounded-xl border border-border bg-background p-3 text-sm text-muted-foreground">{c.m540}</p>{existingCheck && <div data-testid={`q7-material-issue-check-summary-${issue.id}`} className="rounded-xl border border-border bg-background p-3 text-sm text-muted-foreground"><p className="font-semibold text-foreground">{c.m541}</p><div className="mt-2 grid grid-cols-2 gap-2"><span>{c.m542} {checkSummary.identity}</span><span>{c.m543} {checkSummary.table}</span><span>{c.m544} {checkSummary.signatures}</span><span>{c.m545} {checkSummary.legible}</span><span>{c.m546} {checkSummary.pages}</span><span>{c.m547} {checkSummary.confidence}</span></div>{checkSummary.boundedDiscrepancies.length > 0 && <ul className="mt-2 list-disc space-y-1 pl-5">{checkSummary.boundedDiscrepancies.map((item, index) => <li key={`${issue.id}-gap-${index}`}>{c.m548} {item}</li>)}</ul>}</div>}{!existingCheck && <Button data-testid={`q7-material-issue-check-${issue.id}`} type="button" aria-label={formatText(c.checkIssue, { number: issue.issue_number })} className="min-h-12 w-full rounded-xl bg-primary font-semibold text-primary-foreground hover:bg-primary/90" disabled={!canCheckQ7SignedMaterialIssue || Boolean(existingCheck) || q7MaterialIssueChecksQuery.isLoading || q7MaterialIssueChecksQuery.isFetching || q7MaterialIssueChecksQuery.isError || checkingQ7SignedIssueIds[issue.id]} onClick={() => checkQ7SignedIssueMutation.mutate(issue)}>{checkingQ7SignedIssueIds[issue.id] ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}{checkingQ7SignedIssueIds[issue.id] ? c.m549 : c.m550}</Button>}</div>
                     ) : issue.status === "checking" ? (
-                      <p className="mt-4 flex items-center rounded-xl border border-border bg-background p-3 text-sm font-medium text-muted-foreground"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Đang kiểm tra</p>
+                      <p className="mt-4 flex items-center rounded-xl border border-border bg-background p-3 text-sm font-medium text-muted-foreground"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> {c.m551}</p>
                     ) : issue.status === "ready_to_confirm" ? (
-                      <div className="mt-4 space-y-3"><p className="flex items-center rounded-xl border border-emerald-300/35 bg-emerald-500/10 p-3 text-sm font-semibold text-emerald-800"><CheckCircle2 className="mr-2 h-4 w-4" /> Đã kiểm tra · Chờ xác nhận</p>{q7IsLatestCheckPassed && <div className="overflow-x-auto rounded-xl border border-border bg-background"><Table className="min-w-[680px]"><TableHeader><TableRow><TableHead>NVL</TableHead><TableHead className="text-right">Kế hoạch</TableHead><TableHead className="text-right">Thực tế</TableHead><TableHead className="text-right">Chênh lệch</TableHead><TableHead>ĐVT</TableHead><TableHead>Bằng chứng</TableHead></TableRow></TableHeader><TableBody>{actualRows.map((actual) => <TableRow key={actual.id}><TableCell>{actualItemName(actual)}</TableCell><TableCell className="text-right">{Number(actual.planned_qty).toLocaleString("vi-VN")}</TableCell><TableCell className="text-right font-semibold">{Number(actual.actual_qty).toLocaleString("vi-VN")}</TableCell><TableCell className="text-right">{Number(actual.difference_qty).toLocaleString("vi-VN")}</TableCell><TableCell>{actual.unit}</TableCell><TableCell>{actual.evidence_kind === "handwritten_final" ? "Bút tay được phép chênh lệch" : "Theo phiếu in"} · {Math.round(Number(actual.confidence || 0) * 100)}%</TableCell></TableRow>)}</TableBody></Table></div>}<p className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">Âm tồn được phép để kế toán audit sau; không chặn tồn mở đầu.</p>{q7IsLatestCheckPassed && <Button data-testid={`q7-material-issue-confirm-open-${issue.id}`} type="button" aria-label={`Xác nhận ghi sổ xuất Q7 phiếu ${issue.issue_number}`} className="min-h-12 w-full rounded-xl bg-destructive font-semibold text-destructive-foreground hover:bg-destructive/90 focus-visible:ring-2 focus-visible:ring-destructive focus-visible:ring-offset-2" disabled={!q7CanOpenConfirmation} onClick={() => setSelectedQ7MaterialIssueForConfirmation(issue)}>{confirmingQ7MaterialIssueIds[issue.id] ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PackageCheck className="mr-2 h-4 w-4" />}Xác nhận ghi sổ xuất Q7</Button>}</div>
+                      <div className="mt-4 space-y-3"><p className="flex items-center rounded-xl border border-emerald-300/35 bg-emerald-500/10 p-3 text-sm font-semibold text-emerald-800"><CheckCircle2 className="mr-2 h-4 w-4" /> {c.m552}</p>{q7IsLatestCheckPassed && <div className="overflow-x-auto rounded-xl border border-border bg-background"><Table className="min-w-[680px]"><TableHeader><TableRow><TableHead>{c.label24}</TableHead><TableHead className="text-right">{c.m553}</TableHead><TableHead className="text-right">{c.m554}</TableHead><TableHead className="text-right">{c.m555}</TableHead><TableHead>{c.m556}</TableHead><TableHead>{c.m557}</TableHead></TableRow></TableHeader><TableBody>{actualRows.map((actual) => <TableRow key={actual.id}><TableCell>{actualItemName(actual, c)}</TableCell><TableCell className="text-right">{Number(actual.planned_qty).toLocaleString("vi-VN")}</TableCell><TableCell className="text-right font-semibold">{Number(actual.actual_qty).toLocaleString("vi-VN")}</TableCell><TableCell className="text-right">{Number(actual.difference_qty).toLocaleString("vi-VN")}</TableCell><TableCell>{actual.unit}</TableCell><TableCell>{actual.evidence_kind === "handwritten_final" ? c.m558 : c.m559} · {Math.round(Number(actual.confidence || 0) * 100)}%</TableCell></TableRow>)}</TableBody></Table></div>}<p className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">{c.m560}</p>{q7IsLatestCheckPassed && <Button data-testid={`q7-material-issue-confirm-open-${issue.id}`} type="button" aria-label={formatText(c.confirmIssue, { number: issue.issue_number })} className="min-h-12 w-full rounded-xl bg-destructive font-semibold text-destructive-foreground hover:bg-destructive/90 focus-visible:ring-2 focus-visible:ring-destructive focus-visible:ring-offset-2" disabled={!q7CanOpenConfirmation} onClick={() => setSelectedQ7MaterialIssueForConfirmation(issue)}>{confirmingQ7MaterialIssueIds[issue.id] ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PackageCheck className="mr-2 h-4 w-4" />}{c.m561}</Button>}</div>
                     ) : issue.status === "needs_review" ? (
-                      <div className="mt-4 space-y-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"><p className="flex items-center font-semibold"><AlertTriangle className="mr-2 h-4 w-4" /> Cần xem lại</p><div data-testid={`q7-material-issue-check-summary-${issue.id}`} className="grid grid-cols-2 gap-2 text-amber-900"><span>Định danh: {checkSummary.identity}</span><span>Bảng NVL: {checkSummary.table}</span><span>Chữ ký: {checkSummary.signatures}</span><span>Dễ đọc: {checkSummary.legible}</span><span>Số trang: {checkSummary.pages}</span><span>Tin cậy: {checkSummary.confidence}</span></div>{checkSummary.boundedDiscrepancies.length > 0 && <ul className="list-disc space-y-1 pl-5">{checkSummary.boundedDiscrepancies.map((item, index) => <li key={`${issue.id}-review-${index}`}>Chênh lệch: {item}</li>)}</ul>}</div>
+                      <div className="mt-4 space-y-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"><p className="flex items-center font-semibold"><AlertTriangle className="mr-2 h-4 w-4" /> {c.m562}</p><div data-testid={`q7-material-issue-check-summary-${issue.id}`} className="grid grid-cols-2 gap-2 text-amber-900"><span>{c.m563} {checkSummary.identity}</span><span>{c.m564} {checkSummary.table}</span><span>{c.m565} {checkSummary.signatures}</span><span>{c.m566} {checkSummary.legible}</span><span>{c.m567} {checkSummary.pages}</span><span>{c.m568} {checkSummary.confidence}</span></div>{checkSummary.boundedDiscrepancies.length > 0 && <ul className="list-disc space-y-1 pl-5">{checkSummary.boundedDiscrepancies.map((item, index) => <li key={`${issue.id}-review-${index}`}>{c.m569} {item}</li>)}</ul>}</div>
                     ) : (
                       <p className="mt-4 rounded-xl border border-border bg-background p-3 text-sm font-medium text-muted-foreground">{q7SignedMaterialIssueStatusLabels[issue.status] || issue.status}</p>
                     )}
@@ -494,10 +510,10 @@ export function Q7SignedMaterialIssueQueue() {
       <AlertDialog open={Boolean(selectedQ7MaterialIssueForConfirmation)} onOpenChange={(open) => { if (!open && !confirmQ7MaterialIssueMutation.isPending) setSelectedQ7MaterialIssueForConfirmation(null); }}>
         <AlertDialogContent data-testid="q7-material-issue-confirmation-dialog" aria-labelledby="q7-material-issue-confirm-title" aria-describedby="q7-material-issue-confirm-description" className="mx-3 max-w-lg rounded-2xl">
           <AlertDialogHeader>
-            <AlertDialogTitle id="q7-material-issue-confirm-title" className="text-left text-xl">{"Xác nhận"} phiếu NVL Q7</AlertDialogTitle>
-            <AlertDialogDescription id="q7-material-issue-confirm-description" className="space-y-3 text-left leading-6"><span className="block font-medium text-foreground">Phiếu này sẽ được ghi sổ xuất Q7 theo số thực tế đã kiểm tra.</span><span className="block">Âm tồn được phép để kế toán audit sau; không bị chặn bởi tồn mở đầu.</span><span className="block font-semibold text-destructive">Không thể tự động lặp lại hoặc đảo ngược thao tác này.</span><span className="block">Bạn có chắc chắn muốn xác nhận không?</span>{selectedQ7MaterialIssueForConfirmation && <span className="block rounded-xl border border-border bg-muted/40 p-3 font-mono text-sm text-foreground">{selectedQ7MaterialIssueForConfirmation.issue_number}</span>}</AlertDialogDescription>
+            <AlertDialogTitle id="q7-material-issue-confirm-title" className="text-left text-xl">{c.m570} {c.m571}</AlertDialogTitle>
+            <AlertDialogDescription id="q7-material-issue-confirm-description" className="space-y-3 text-left leading-6"><span className="block font-medium text-foreground">{c.m572}</span><span className="block">{c.m573}</span><span className="block font-semibold text-destructive">{c.m574}</span><span className="block">{c.m575}</span>{selectedQ7MaterialIssueForConfirmation && <span className="block rounded-xl border border-border bg-muted/40 p-3 font-mono text-sm text-foreground">{selectedQ7MaterialIssueForConfirmation.issue_number}</span>}</AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter className="gap-2 sm:gap-2"><AlertDialogCancel className="min-h-12 rounded-xl px-5 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2" disabled={confirmQ7MaterialIssueMutation.isPending}>Huỷ</AlertDialogCancel><AlertDialogAction className="min-h-12 rounded-xl bg-destructive px-5 font-semibold text-destructive-foreground hover:bg-destructive/90 focus-visible:ring-2 focus-visible:ring-destructive focus-visible:ring-offset-2" disabled={confirmQ7MaterialIssueMutation.isPending || !selectedQ7MaterialIssueForConfirmation} onClick={(event) => { event.preventDefault(); if (selectedQ7MaterialIssueForConfirmation) confirmQ7MaterialIssueMutation.mutate(selectedQ7MaterialIssueForConfirmation); }}>{confirmQ7MaterialIssueMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PackageCheck className="mr-2 h-4 w-4" />}Xác nhận ghi sổ xuất Q7</AlertDialogAction></AlertDialogFooter>
+          <AlertDialogFooter className="gap-2 sm:gap-2"><AlertDialogCancel className="min-h-12 rounded-xl px-5 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2" disabled={confirmQ7MaterialIssueMutation.isPending}>{c.m576}</AlertDialogCancel><AlertDialogAction className="min-h-12 rounded-xl bg-destructive px-5 font-semibold text-destructive-foreground hover:bg-destructive/90 focus-visible:ring-2 focus-visible:ring-destructive focus-visible:ring-offset-2" disabled={confirmQ7MaterialIssueMutation.isPending || !selectedQ7MaterialIssueForConfirmation} onClick={(event) => { event.preventDefault(); if (selectedQ7MaterialIssueForConfirmation) confirmQ7MaterialIssueMutation.mutate(selectedQ7MaterialIssueForConfirmation); }}>{confirmQ7MaterialIssueMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PackageCheck className="mr-2 h-4 w-4" />}{c.m577}</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
       {/* ── Read-only automatic issue detail */}

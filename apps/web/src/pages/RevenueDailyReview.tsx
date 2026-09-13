@@ -12,6 +12,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { revenueDailyReview } from "@/i18n/revenueDailyReview";
+import { formatText } from "@/i18n/format";
 
 const vnd = (v: number) =>
   new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(v || 0);
@@ -65,15 +68,17 @@ const db = supabase as unknown as {
 const getDraftDate = (draft: RevenueDraft) =>
   dateOnly(draft.po_order_date) || dateOnly(draft.delivery_date) || dateOnly(draft.created_at);
 
-const statusLabel = (status?: string | null) => {
-  if (status === "exception") return "Ngoại lệ";
-  if (status === "rejected") return "Đã loại";
-  if (status === "approved") return "Đã kiểm soát";
-  if (status === "draft") return "Nháp";
-  return "Cần kiểm tra";
+const statusLabel = (copy: typeof revenueDailyReview.vi, status?: string | null) => {
+  if (status === "exception") return copy.exception;
+  if (status === "rejected") return copy.rejected;
+  if (status === "approved") return copy.approved;
+  if (status === "draft") return copy.draft;
+  return copy.pending;
 };
 
 export default function RevenueDailyReview() {
+  const { language } = useLanguage();
+  const copy = revenueDailyReview[language];
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { canEditModule } = useAuth();
@@ -162,14 +167,14 @@ export default function RevenueDailyReview() {
 
   const saveDraftEdit = async (draft: RevenueDraft, asException = false) => {
     if (!canEdit) {
-      toast({ title: "Không có quyền sửa", description: "Cần quyền edit Finance Revenue để lưu chỉnh sửa.", variant: "destructive" });
+      toast({ title: copy.noPermission, description: copy.permissionHint, variant: "destructive" });
       return;
     }
 
     const edit = editFor(draft);
     const amount = Number(String(edit.amount).replace(/,/g, ""));
     if (!Number.isFinite(amount) || amount < 0) {
-      toast({ title: "Số tiền không hợp lệ", description: "Vui lòng nhập doanh thu hợp lệ.", variant: "destructive" });
+      toast({ title: copy.invalidAmount, description: copy.amountHint, variant: "destructive" });
       return;
     }
 
@@ -184,71 +189,71 @@ export default function RevenueDailyReview() {
 
     updateEdit(draft, { saving: false });
     if (updateError) {
-      toast({ title: "Không lưu được chỉnh sửa", description: updateError.message, variant: "destructive" });
+      toast({ title: copy.saveError, description: updateError.message, variant: "destructive" });
       return;
     }
 
     await queryClient.invalidateQueries({ queryKey: ["revenue-daily-review"] });
     await queryClient.invalidateQueries({ queryKey: ["revenue-drafts"] });
-    toast({ title: asException ? "Đã đánh dấu ngoại lệ" : "Đã lưu chỉnh sửa", description: "Audit metadata đã được ghi vào draft." });
+    toast({ title: asException ? copy.markedException : copy.saved, description: copy.auditSaved });
   };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5" data-staff-i18n="revenue-daily-review-v1">
       <div className="rounded-2xl border border-amber-200/15 bg-gradient-to-br from-stone-950 via-stone-900 to-amber-950/25 p-4 text-stone-100 md:p-6">
         <Button variant="ghost" className="mb-4 -ml-2 text-stone-300 hover:text-amber-100" onClick={() => navigate("/finance-control/revenue")}>
-          <ArrowLeft className="mr-2 h-4 w-4" />Dashboard
+          <ArrowLeft className="mr-2 h-4 w-4" />{copy.dashboard}
         </Button>
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="space-y-2">
-            <Badge className="border border-amber-300/35 bg-amber-400/10 text-amber-100">Staff daily review</Badge>
-            <h1 className="font-display text-2xl font-semibold tracking-tight text-amber-50 md:text-4xl">Revenue Daily Review</h1>
+            <Badge className="border border-amber-300/35 bg-amber-400/10 text-amber-100">{copy.staffReview}</Badge>
+            <h1 className="font-display text-2xl font-semibold tracking-tight text-amber-50 md:text-4xl">{copy.title}</h1>
             <p className="max-w-3xl text-sm leading-6 text-stone-300/80">
-              Kiểm tra doanh thu auto-parse theo ngày/customer. Chỉ sửa khi phát hiện sai; không có bước duyệt bắt buộc.
+              {copy.description}
             </p>
           </div>
           <Button variant="outline" className="border-amber-300/35 bg-amber-400/[0.08] text-amber-100 hover:bg-amber-400/[0.14]" onClick={() => navigate("/finance-control/revenue/sources")}>
-            <ExternalLink className="mr-2 h-4 w-4" />Open source detail
+            <ExternalLink className="mr-2 h-4 w-4" />{copy.openSource}
           </Button>
         </div>
       </div>
 
       <div className="grid gap-3 rounded-xl border bg-card p-3 sm:grid-cols-2 lg:grid-cols-5">
         <div className="space-y-1">
-          <Label htmlFor="review-date">Date</Label>
+          <Label htmlFor="review-date">{copy.date}</Label>
           <Input id="review-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
         </div>
         <div className="space-y-1">
-          <Label htmlFor="review-customer">Customer/PO</Label>
-          <Input id="review-customer" value={customer} onChange={(e) => setCustomer(e.target.value)} placeholder="Tên khách hàng hoặc PO..." />
+          <Label htmlFor="review-customer">{copy.customerPo}</Label>
+          <Input id="review-customer" value={customer} onChange={(e) => setCustomer(e.target.value)} placeholder={copy.search} />
         </div>
         <div className="space-y-1">
-          <Label htmlFor="review-source">Source</Label>
+          <Label htmlFor="review-source">{copy.source}</Label>
           <select id="review-source" className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}>
-            <option value="all">Tất cả nguồn</option>
+            <option value="all">{copy.allSources}</option>
             {sourceOptions.map((source) => <option key={source} value={source}>{source}</option>)}
           </select>
         </div>
         <div className="space-y-1">
-          <Label htmlFor="review-status">Status</Label>
+          <Label htmlFor="review-status">{copy.status}</Label>
           <select id="review-status" className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={status} onChange={(e) => setStatus(e.target.value)}>
-            <option value="pending">Cần kiểm tra</option>
-            <option value="exception">Ngoại lệ</option>
-            <option value="approved">Đã kiểm soát</option>
-            <option value="all">Tất cả</option>
+            <option value="pending">{copy.pending}</option>
+            <option value="exception">{copy.exception}</option>
+            <option value="approved">{copy.approved}</option>
+            <option value="all">{copy.all}</option>
           </select>
         </div>
         <div className="grid grid-cols-3 gap-2 text-sm">
           <div className="rounded-lg border p-2">
-            <div className="text-muted-foreground">Rows</div>
+            <div className="text-muted-foreground">{copy.rows}</div>
             <div className="font-semibold">{stats.rows}</div>
           </div>
           <div className="rounded-lg border p-2">
-            <div className="text-muted-foreground">Amount</div>
+            <div className="text-muted-foreground">{copy.amount}</div>
             <div className="truncate font-semibold" title={vnd(stats.amount)}>{vnd(stats.amount)}</div>
           </div>
           <div className="rounded-lg border p-2">
-            <div className="text-muted-foreground">Exceptions</div>
+            <div className="text-muted-foreground">{copy.exceptions}</div>
             <div className="font-semibold">{stats.exceptions}</div>
           </div>
         </div>
@@ -257,21 +262,21 @@ export default function RevenueDailyReview() {
       {error ? (
         <Card className="border-destructive/40">
           <CardContent className="flex items-center gap-3 p-4 text-sm text-destructive">
-            <TriangleAlert className="h-4 w-4" />Không tải được revenue drafts.
+            <TriangleAlert className="h-4 w-4" />{copy.loadError}
           </CardContent>
         </Card>
       ) : null}
 
       <Card>
         <CardHeader>
-          <CardTitle>Review queue</CardTitle>
-          <CardDescription>Mobile dùng card; desktop có bảng đầy đủ.</CardDescription>
+          <CardTitle>{copy.queue}</CardTitle>
+          <CardDescription>{copy.queueDescription}</CardDescription>
         </CardHeader>
         <CardContent>
           {isLoading ? (
             <div className="flex min-h-48 items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-muted-foreground" /></div>
           ) : filteredDrafts.length === 0 ? (
-            <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">Không có draft cần kiểm tra cho bộ lọc này.</div>
+            <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">{copy.empty}</div>
           ) : (
             <>
               <div className="space-y-3 lg:hidden">
@@ -281,38 +286,38 @@ export default function RevenueDailyReview() {
                     <div key={draft.id} className="rounded-xl border p-3">
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <div className="font-medium">{draft.mini_crm_customers?.customer_name || "Chưa rõ khách hàng"}</div>
-                          <div className="text-xs text-muted-foreground">{getDraftDate(draft)} • {draft.po_number || "No PO"} • {draft.source || "auto-parse"}</div>
+                          <div className="font-medium">{draft.mini_crm_customers?.customer_name || copy.unknownCustomer}</div>
+                          <div className="text-xs text-muted-foreground">{getDraftDate(draft)} • {draft.po_number || copy.noPo} • {draft.source || "auto-parse"}</div>
                         </div>
-                        <Badge variant={draft.status === "exception" ? "destructive" : "outline"}>{statusLabel(draft.status)}</Badge>
+                        <Badge variant={draft.status === "exception" ? "destructive" : "outline"}>{statusLabel(copy, draft.status)}</Badge>
                       </div>
                       <div className="mt-3 grid gap-2">
                         <Input value={edit.amount} onChange={(e) => updateEdit(draft, { amount: e.target.value })} disabled={!canEdit} inputMode="decimal" />
-                        <Textarea value={edit.note} onChange={(e) => updateEdit(draft, { note: e.target.value })} disabled={!canEdit} placeholder="Ghi chú chỉnh sửa..." />
+                        <Textarea value={edit.note} onChange={(e) => updateEdit(draft, { note: e.target.value })} disabled={!canEdit} placeholder={copy.editNote} />
                         <div className="grid grid-cols-2 gap-2">
                           <Button type="button" variant="outline" onClick={() => openDraftEvidence(draft)}>
-                            <ExternalLink className="mr-2 h-4 w-4" />Nguồn
+                            <ExternalLink className="mr-2 h-4 w-4" />{copy.source}
                           </Button>
                           <Button type="button" variant="outline" onClick={() => openPoInboxEvidence(draft)}>
-                            PO inbox
+                            {copy.poInbox}
                           </Button>
                         </div>
                         <div className="flex gap-2">
                           <Button className="flex-1" disabled={!canEdit || edit.saving} onClick={() => void saveDraftEdit(draft)}>
-                            {edit.saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}Save
+                            {edit.saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}{copy.save}
                           </Button>
-                          <Button variant="outline" disabled={!canEdit || edit.saving} onClick={() => void saveDraftEdit(draft, true)}>Exception</Button>
+                          <Button variant="outline" disabled={!canEdit || edit.saving} onClick={() => void saveDraftEdit(draft, true)}>{copy.exception}</Button>
                         </div>
                       </div>
                     </div>
                   );
                 })}
                 <div className="flex flex-col gap-2 text-xs text-muted-foreground md:flex-row md:items-center md:justify-between">
-                  <span>Mỗi trang tối đa 20 dòng doanh thu • {filteredDrafts.length} dòng</span>
+                  <span>{formatText(copy.pageSize, { count: filteredDrafts.length })}</span>
                   <div className="flex items-center justify-between gap-2 md:justify-end">
-                    <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={() => setReviewRowsPage((page) => Math.max(1, page - 1))} disabled={reviewRowsPageSafe <= 1}>Trang trước</Button>
-                    <span className="min-w-[104px] text-center font-medium text-foreground">Trang doanh thu {reviewRowsPageSafe}/{reviewRowsTotalPages}</span>
-                    <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={() => setReviewRowsPage((page) => Math.min(reviewRowsTotalPages, page + 1))} disabled={reviewRowsPageSafe >= reviewRowsTotalPages}>Trang sau</Button>
+                    <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={() => setReviewRowsPage((page) => Math.max(1, page - 1))} disabled={reviewRowsPageSafe <= 1}>{copy.previous}</Button>
+                    <span className="min-w-[104px] text-center font-medium text-foreground">{formatText(copy.page, { page: reviewRowsPageSafe, total: reviewRowsTotalPages })}</span>
+                    <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={() => setReviewRowsPage((page) => Math.min(reviewRowsTotalPages, page + 1))} disabled={reviewRowsPageSafe >= reviewRowsTotalPages}>{copy.next}</Button>
                   </div>
                 </div>
               </div>
@@ -321,13 +326,13 @@ export default function RevenueDailyReview() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Customer</TableHead>
-                      <TableHead>Date / PO</TableHead>
-                      <TableHead>Source</TableHead>
-                      <TableHead className="text-right">Parsed amount</TableHead>
-                      <TableHead>Editable amount</TableHead>
-                      <TableHead>Notes</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
+                      <TableHead>{copy.customer}</TableHead>
+                      <TableHead>{copy.datePo}</TableHead>
+                      <TableHead>{copy.source}</TableHead>
+                      <TableHead className="text-right">{copy.parsedAmount}</TableHead>
+                      <TableHead>{copy.editableAmount}</TableHead>
+                      <TableHead>{copy.notes}</TableHead>
+                      <TableHead className="text-right">{copy.actions}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -335,26 +340,26 @@ export default function RevenueDailyReview() {
                       const edit = editFor(draft);
                       return (
                         <TableRow key={draft.id}>
-                          <TableCell className="font-medium">{draft.mini_crm_customers?.customer_name || "Chưa rõ khách hàng"}</TableCell>
+                          <TableCell className="font-medium">{draft.mini_crm_customers?.customer_name || copy.unknownCustomer}</TableCell>
                           <TableCell>
                             <div>{getDraftDate(draft)}</div>
-                            <div className="text-xs text-muted-foreground">{draft.po_number || "No PO"} • {draft.source || "auto-parse"}</div>
+                            <div className="text-xs text-muted-foreground">{draft.po_number || copy.noPo} • {draft.source || "auto-parse"}</div>
                           </TableCell>
                           <TableCell>
                             <div className="text-sm">{draft.source || "auto-parse"}</div>
-                            <Badge variant={draft.status === "exception" ? "destructive" : "outline"}>{statusLabel(draft.status)}</Badge>
+                            <Badge variant={draft.status === "exception" ? "destructive" : "outline"}>{statusLabel(copy, draft.status)}</Badge>
                           </TableCell>
                           <TableCell className="text-right font-medium">{vnd(Number(draft.total_amount || 0))}</TableCell>
                           <TableCell><Input className="w-40" value={edit.amount} onChange={(e) => updateEdit(draft, { amount: e.target.value })} disabled={!canEdit} /></TableCell>
-                          <TableCell><Input className="w-64" value={edit.note} onChange={(e) => updateEdit(draft, { note: e.target.value })} disabled={!canEdit} placeholder="Audit note" /></TableCell>
+                          <TableCell><Input className="w-64" value={edit.note} onChange={(e) => updateEdit(draft, { note: e.target.value })} disabled={!canEdit} placeholder={copy.auditNote} /></TableCell>
                           <TableCell className="text-right">
                             <div className="flex justify-end gap-2">
-                              <Button size="sm" variant="outline" onClick={() => openDraftEvidence(draft)}>Nguồn</Button>
+                              <Button size="sm" variant="outline" onClick={() => openDraftEvidence(draft)}>{copy.source}</Button>
                               <Button size="sm" variant="outline" onClick={() => openPoInboxEvidence(draft)}>PO</Button>
                               <Button size="sm" disabled={!canEdit || edit.saving} onClick={() => void saveDraftEdit(draft)}>
-                                {edit.saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}Save
+                                {edit.saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}{copy.save}
                               </Button>
-                              <Button size="sm" variant="outline" disabled={!canEdit || edit.saving} onClick={() => void saveDraftEdit(draft, true)}>Exception</Button>
+                              <Button size="sm" variant="outline" disabled={!canEdit || edit.saving} onClick={() => void saveDraftEdit(draft, true)}>{copy.exception}</Button>
                             </div>
                           </TableCell>
                         </TableRow>
@@ -363,11 +368,11 @@ export default function RevenueDailyReview() {
                   </TableBody>
                 </Table>
                 <div className="mt-4 flex flex-col gap-2 text-xs text-muted-foreground md:flex-row md:items-center md:justify-between">
-                  <span>Mỗi trang tối đa 20 dòng doanh thu • {filteredDrafts.length} dòng</span>
+                  <span>{formatText(copy.pageSize, { count: filteredDrafts.length })}</span>
                   <div className="flex items-center justify-between gap-2 md:justify-end">
-                    <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={() => setReviewRowsPage((page) => Math.max(1, page - 1))} disabled={reviewRowsPageSafe <= 1}>Trang trước</Button>
-                    <span className="min-w-[104px] text-center font-medium text-foreground">Trang doanh thu {reviewRowsPageSafe}/{reviewRowsTotalPages}</span>
-                    <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={() => setReviewRowsPage((page) => Math.min(reviewRowsTotalPages, page + 1))} disabled={reviewRowsPageSafe >= reviewRowsTotalPages}>Trang sau</Button>
+                    <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={() => setReviewRowsPage((page) => Math.max(1, page - 1))} disabled={reviewRowsPageSafe <= 1}>{copy.previous}</Button>
+                    <span className="min-w-[104px] text-center font-medium text-foreground">{formatText(copy.page, { page: reviewRowsPageSafe, total: reviewRowsTotalPages })}</span>
+                    <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={() => setReviewRowsPage((page) => Math.min(reviewRowsTotalPages, page + 1))} disabled={reviewRowsPageSafe >= reviewRowsTotalPages}>{copy.next}</Button>
                   </div>
                 </div>
               </div>

@@ -1,0 +1,1 @@
+export function useAuth(){return {user:{id:'fixture-user',email:'fixture@example.invalid'},session:{access_token:'fixture-token'},isOwner:!location.search.includes('readonly=1'),loading:false,canEditModule:()=>!location.search.includes('readonly=1'),canViewModule:()=>true,hasRole:()=>!location.search.includes('readonly=1')};}

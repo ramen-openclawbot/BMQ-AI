@@ -1,0 +1,48 @@
+{
+  "checkedAt": "2026-09-08T14:38:12.215603+00:00",
+  "domain": "https://ai.banhmique.vn",
+  "baseCommit": "eac7ee887ae44494b9187865fe9766b3ccf49e16",
+  "assets": [
+    {
+      "asset": "/assets/index-Da69ssJ1.js",
+      "sha256": "25859adf40661689f027f23d0bcaa4e652ccc7e99cce12d84919c7adf2666ebd",
+      "markers": {
+        "en-vi-v1": true,
+        "Bán Hàng và Tiếp Thị": true,
+        "Sale & Marketing": true,
+        "pantone-2026-light": false
+      }
+    },
+    {
+      "asset": "/assets/index-CMDgSW75.css",
+      "sha256": "e0a57c76b1fe3c493584e8874e244447247c9b26aeb46aba2d133807f63001e9",
+      "markers": {
+        "en-vi-v1": false,
+        "Bán Hàng và Tiếp Thị": false,
+        "Sale & Marketing": false,
+        "pantone-2026-light": false
+      }
+    }
+  ],
+  "method": "Unauthenticated public HTML and JS/CSS GET only; deployment metadata not credential-accessed",
+  "skuAssets": [
+    {
+      "asset": "assets/SkuCostsDjango-ve3DrBOY.js",
+      "lightThemeMarker": true,
+      "name": "SkuCostsDjango",
+      "sha256": "ecb4cf461def6a4323f12eed4ea263cec8ea2ed170216c1951a6418c56a69fe0"
+    },
+    {
+      "asset": "assets/SkuCostsAnalysis-Cx_B66tF.js",
+      "lightThemeMarker": true,
+      "name": "SkuCostsAnalysis",
+      "sha256": "c6d14f976d3ff9c60dbbed07363e229b8a8c18cc20561d4d4130312de03f4288"
+    },
+    {
+      "asset": "assets/SkuCostsManagement-CEmAIM84.js",
+      "lightThemeMarker": false,
+      "name": "SkuCostsManagement",
+      "sha256": "14edcc7cf17c5f7dffd5506db9ba957e636c11d78fadca239d178b03d99ea103"
+    }
+  ]
+}

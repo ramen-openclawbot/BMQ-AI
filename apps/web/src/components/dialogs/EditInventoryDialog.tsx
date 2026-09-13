@@ -1,3 +1,4 @@
+import { useWarehouseCopy } from "@/i18n/useWarehouseCopy";
 import { useState, useEffect } from "react";
 import {
   Dialog,
@@ -29,7 +30,7 @@ const categories = [
   "Thực phẩm",
   "Đồ uống",
   "Khác",
-];
+] as const;
 
 const units = ["kg", "g", "lít", "ml", "cái", "hộp", "thùng", "gói", "túi", "chai", "lon"];
 
@@ -40,6 +41,7 @@ interface EditInventoryDialogProps {
 }
 
 export function EditInventoryDialog({ item, open, onOpenChange }: EditInventoryDialogProps) {
+  const c = useWarehouseCopy();
   const [formData, setFormData] = useState({
     name: "",
     category: "",
@@ -75,11 +77,11 @@ export function EditInventoryDialog({ item, open, onOpenChange }: EditInventoryD
         unit: formData.unit,
         min_stock: parseInt(formData.min_stock) || 0,
       });
-      toast.success("Đã cập nhật thành công");
+      toast.success(c("Đã cập nhật thành công"));
       onOpenChange(false);
     } catch (error) {
       console.error("Error updating item:", error);
-      toast.error("Không thể cập nhật");
+      toast.error(c("Không thể cập nhật"));
     }
   };
 
@@ -87,12 +89,12 @@ export function EditInventoryDialog({ item, open, onOpenChange }: EditInventoryD
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Chỉnh sửa nguyên vật liệu</DialogTitle>
-          <DialogDescription>Cập nhật thông tin cho mặt hàng trong kho</DialogDescription>
+          <DialogTitle>{c("Chỉnh sửa nguyên vật liệu")}</DialogTitle>
+          <DialogDescription>{c("Cập nhật thông tin cho mặt hàng trong kho")}</DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="name">Tên sản phẩm</Label>
+            <Label htmlFor="name">{c("Tên sản phẩm")}</Label>
             <Input
               id="name"
               value={formData.name}
@@ -103,18 +105,18 @@ export function EditInventoryDialog({ item, open, onOpenChange }: EditInventoryD
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="category">Danh mục</Label>
+              <Label htmlFor="category">{c("Danh mục")}</Label>
               <Select
                 value={formData.category}
                 onValueChange={(value) => setFormData({ ...formData, category: value })}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Chọn danh mục" />
+                  <SelectValue placeholder={c("Chọn danh mục")} />
                 </SelectTrigger>
                 <SelectContent>
                   {categories.map((cat) => (
                     <SelectItem key={cat} value={cat}>
-                      {cat}
+                      {c(cat)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -122,13 +124,13 @@ export function EditInventoryDialog({ item, open, onOpenChange }: EditInventoryD
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="unit">Đơn vị tính</Label>
+              <Label htmlFor="unit">{c("Đơn vị tính")}</Label>
               <Select
                 value={formData.unit}
                 onValueChange={(value) => setFormData({ ...formData, unit: value })}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Chọn ĐVT" />
+                  <SelectValue placeholder={c("Chọn ĐVT")} />
                 </SelectTrigger>
                 <SelectContent>
                   {units.map((unit) => (
@@ -143,7 +145,7 @@ export function EditInventoryDialog({ item, open, onOpenChange }: EditInventoryD
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="quantity">Số lượng hiện tại</Label>
+              <Label htmlFor="quantity">{c("Số lượng hiện tại")}</Label>
               <Input
                 id="quantity"
                 type="number"
@@ -154,7 +156,7 @@ export function EditInventoryDialog({ item, open, onOpenChange }: EditInventoryD
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="min_stock">Tồn kho tối thiểu</Label>
+              <Label htmlFor="min_stock">{c("Tồn kho tối thiểu")}</Label>
               <Input
                 id="min_stock"
                 type="number"
@@ -167,12 +169,10 @@ export function EditInventoryDialog({ item, open, onOpenChange }: EditInventoryD
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              Hủy
-            </Button>
+              {c("Hủy")} </Button>
             <Button type="submit" disabled={updateItem.isPending}>
               {updateItem.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              Lưu thay đổi
-            </Button>
+              {c("Lưu thay đổi")} </Button>
           </DialogFooter>
         </form>
       </DialogContent>

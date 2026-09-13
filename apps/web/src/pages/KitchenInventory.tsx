@@ -1,3 +1,4 @@
+import { useWarehouseCopy } from "@/i18n/useWarehouseCopy";
 import { useMemo, useState } from "react";
 import { AlertTriangle, BookOpenCheck, FileSpreadsheet, ListChecks, PackageSearch, Utensils } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -12,15 +13,15 @@ import { MonthlyCloseTab } from "@/pages/kitchen-inventory/MonthlyCloseTab";
 
 type TabKey = "overview" | "import" | "master" | "ledger" | "closing";
 
-const tabs: { key: TabKey; label: string; icon: typeof Utensils }[] = [
-  { key: "overview", label: "Tổng quan", icon: Utensils },
-  { key: "import", label: "Import T3/T4", icon: FileSpreadsheet },
-  { key: "master", label: "Danh mục chuẩn", icon: PackageSearch },
-  { key: "ledger", label: "Ledger hằng ngày", icon: BookOpenCheck },
-  { key: "closing", label: "Chốt tháng", icon: ListChecks },
-];
-
 export default function KitchenInventory() {
+  const c = useWarehouseCopy();
+  const tabs: { key: TabKey; label: string; icon: typeof Utensils }[] = [
+    { key: "overview", label: c("Tổng quan"), icon: Utensils },
+    { key: "import", label: c("Import T3/T4"), icon: FileSpreadsheet },
+    { key: "master", label: c("Danh mục chuẩn"), icon: PackageSearch },
+    { key: "ledger", label: c("Ledger hằng ngày"), icon: BookOpenCheck },
+    { key: "closing", label: c("Chốt tháng"), icon: ListChecks },
+  ];
   const { canAccessModule } = useAuth();
   const [activeTab, setActiveTab] = useState<TabKey>("overview");
   const [periodMonth, setPeriodMonth] = useState(periodMonthFromDate(new Date()));
@@ -42,30 +43,28 @@ export default function KitchenInventory() {
       <div className="flex min-h-[60vh] items-center justify-center p-6">
         <div className="max-w-md rounded-xl border bg-card p-6 text-center shadow-sm">
           <AlertTriangle className="mx-auto h-10 w-10 text-amber-500" />
-          <h1 className="mt-3 text-xl font-semibold">Không có quyền truy cập</h1>
+          <h1 className="mt-3 text-xl font-semibold">{c("Không có quyền truy cập")}</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Module Kiểm soát kho bếp yêu cầu quyền kitchen_inventory.view.
-          </p>
+            {c("Module Kiểm soát kho bếp yêu cầu quyền kitchen_inventory.view.")} </p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6 p-4 md:p-6">
+    <div data-bmq-warehouse-i18n="v1" className="space-y-6 p-4 md:p-6">
       <div className="flex flex-col gap-4 rounded-2xl border bg-card p-5 shadow-sm md:flex-row md:items-center md:justify-between">
         <div>
           <div className="flex items-center gap-2">
             <Utensils className="h-6 w-6 text-primary" />
-            <h1 className="text-2xl font-bold tracking-tight">Kiểm soát kho bếp</h1>
+            <h1 className="text-2xl font-bold tracking-tight">{c("Kiểm soát kho bếp")}</h1>
           </div>
           <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-            File kế toán là nguồn chuẩn cho danh mục và chi phí kho bếp. Kho hàng hiện tại chỉ dùng tham khảo.
-          </p>
+            {c("File kế toán là nguồn chuẩn cho danh mục và chi phí kho bếp. Kho hàng hiện tại chỉ dùng tham khảo.")} </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => setActiveTab("import")}>Import</Button>
-          <Button variant="outline" disabled>Export</Button>
+          <Button variant="outline" onClick={() => setActiveTab("import")}>{c("Import")}</Button>
+          <Button variant="outline" disabled>{c("Export")}</Button>
         </div>
       </div>
 
@@ -91,7 +90,7 @@ export default function KitchenInventory() {
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <label className="flex items-center gap-2 text-sm">
-          <span className="font-medium">Period:</span>
+          <span className="font-medium">{c("Period:")}</span>
           <input
             type="month"
             value={periodMonth.slice(0, 7)}
@@ -100,32 +99,31 @@ export default function KitchenInventory() {
           />
         </label>
         <div className="text-sm text-muted-foreground">
-          Trusted source: accounting-reviewed workbook / approved rows
-        </div>
+          {c("Trusted source: accounting-reviewed workbook / approved rows")} </div>
       </div>
 
       {activeTab === "overview" && (
         <div className="space-y-4">
           <div className="grid gap-4 md:grid-cols-4">
-            <OverviewMetric label="NVL sử dụng" value={summary.usageAmount} />
-            <OverviewMetric label="Nhập trong kỳ" value={summary.purchaseAmount} />
-            <OverviewMetric label="Sửa chữa/khác" value={summary.otherAmount} />
-            <OverviewMetric label="Tổng chi phí" value={summary.totalKitchenCost} emphasize />
+            <OverviewMetric label={c("NVL sử dụng")} value={summary.usageAmount} />
+            <OverviewMetric label={c("Nhập trong kỳ")} value={summary.purchaseAmount} />
+            <OverviewMetric label={c("Sửa chữa/khác")} value={summary.otherAmount} />
+            <OverviewMetric label={c("Tổng chi phí")} value={summary.totalKitchenCost} emphasize />
           </div>
 
           <div className="rounded-xl border bg-card p-4 shadow-sm">
-            <h2 className="font-semibold">Cảnh báo</h2>
+            <h2 className="font-semibold">{c("Cảnh báo")}</h2>
             <div className="mt-3 grid gap-2 text-sm text-muted-foreground md:grid-cols-3">
-              <StatusLine label={`${reviewCount} dòng cần review giá/đơn vị`} warning={reviewCount > 0} />
-              <StatusLine label={`${stagedApprovedCount} dòng approved chưa import`} warning={stagedApprovedCount > 0} />
-              <StatusLine label={`Chốt tháng ${periodMonth.slice(5, 7)}/${periodMonth.slice(0, 4)}: ${closedCount > 0 ? "CLOSED" : "DRAFT"}`} />
+              <StatusLine label={c("reviewRows", { count: reviewCount })} warning={reviewCount > 0} />
+              <StatusLine label={c("stagedRows", { count: stagedApprovedCount })} warning={stagedApprovedCount > 0} />
+              <StatusLine label={c("closingStatus", { month: periodMonth.slice(5, 7), year: periodMonth.slice(0, 4), status: closedCount > 0 ? "CLOSED" : "DRAFT" })} />
             </div>
           </div>
 
           <div className="grid gap-4 md:grid-cols-3">
-            <QuickCard title="Danh mục chuẩn" value={items.length} description="Item kế toán đã duyệt" onClick={() => setActiveTab("master")} />
-            <QuickCard title="Ledger tháng" value={(movements ?? []).length} description="Dòng phát sinh/import" onClick={() => setActiveTab("ledger")} />
-            <QuickCard title="Batch import" value={batches.length} description="File đã staging/apply" onClick={() => setActiveTab("import")} />
+            <QuickCard title={c("Danh mục chuẩn")} value={items.length} description={c("Item kế toán đã duyệt")} onClick={() => setActiveTab("master")} />
+            <QuickCard title={c("Ledger tháng")} value={(movements ?? []).length} description={c("Dòng phát sinh/import")} onClick={() => setActiveTab("ledger")} />
+            <QuickCard title={c("Batch import")} value={batches.length} description={c("File đã staging/apply")} onClick={() => setActiveTab("import")} />
           </div>
         </div>
       )}

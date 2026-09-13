@@ -1,3 +1,5 @@
+import { supplierPurchasing } from "@/i18n/supplierPurchasing";
+import { usePurchasingCopy } from "@/i18n/purchasingCopy";
 import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -34,32 +36,33 @@ export function generateShortCode(name: string): string {
   return words.map((w) => w[0]).join("").substring(0, 6).toUpperCase();
 }
 
-const supplierSchema = z.object({
-  name: z.string().min(1, "Vui lòng nhập tên nhà cung cấp").max(255, "Tên quá dài"),
-  short_code: z.string().max(10, "Mã ngắn tối đa 10 ký tự").optional(),
+const supplierSchema = (pc: typeof supplierPurchasing.vi) => z.object({
+  name: z.string().min(1, pc.validation87).max(255, pc.validation88),
+  short_code: z.string().max(10, pc.validation89).optional(),
   category: z.string().optional(),
-  description: z.string().max(1000, "Mô tả quá dài").optional(),
-  phone: z.string().max(20, "Số điện thoại quá dài").optional(),
-  email: z.string().email("Email không hợp lệ").optional().or(z.literal("")),
-  bank_account_name: z.string().max(255, "Tên tài khoản quá dài").optional(),
+  description: z.string().max(1000, pc.validation90).optional(),
+  phone: z.string().max(20, pc.validation91).optional(),
+  email: z.string().email(pc.validation92).optional().or(z.literal("")),
+  bank_account_name: z.string().max(255, pc.validation93).optional(),
   default_payment_method: z.enum(["bank_transfer", "cash"]),
-  payment_terms_days: z.coerce.number().min(0, "Không được âm").max(365, "Tối đa 365 ngày"),
+  payment_terms_days: z.coerce.number().min(0, pc.validation94).max(365, pc.validation95),
 });
 
-type SupplierFormData = z.infer<typeof supplierSchema>;
+type SupplierFormData = z.infer<ReturnType<typeof supplierSchema>>;
 
 interface AddSupplierDialogProps {
   compactIcon?: LucideIcon;
 }
 
 export function AddSupplierDialog({ compactIcon: Icon = Plus }: AddSupplierDialogProps = {}) {
+  const pc = usePurchasingCopy(supplierPurchasing);
   const [open, setOpen] = useState(false);
   const [contractFile, setContractFile] = useState<File | null>(null);
   const { user } = useAuth();
   const queryClient = useQueryClient();
 
   const form = useForm<SupplierFormData>({
-    resolver: zodResolver(supplierSchema),
+    resolver: zodResolver(supplierSchema(pc)),
     defaultValues: {
       name: "",
       short_code: "",
@@ -72,6 +75,10 @@ export function AddSupplierDialog({ compactIcon: Icon = Plus }: AddSupplierDialo
       payment_terms_days: 0,
     },
   });
+
+  useEffect(() => {
+    if (Object.keys(form.formState.errors).length) void form.trigger();
+  }, [pc, form]);
 
   const watchedName = form.watch("name");
   const currentShortCode = form.watch("short_code");
@@ -135,12 +142,11 @@ export function AddSupplierDialog({ compactIcon: Icon = Plus }: AddSupplierDialo
       <DialogTrigger asChild>
         <button className="btn-gradient flex h-10 items-center justify-center gap-1.5 rounded-xl px-2 text-xs font-semibold sm:gap-2 sm:px-4 sm:text-sm">
           <Icon className="h-4 w-4" />
-          Thêm NCC
-        </button>
+           {pc.addSupplier} </button>
       </DialogTrigger>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Thêm nhà cung cấp</DialogTitle>
+          <DialogTitle>{pc.addSupplier2}</DialogTitle>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
@@ -151,9 +157,9 @@ export function AddSupplierDialog({ compactIcon: Icon = Plus }: AddSupplierDialo
                   name="name"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Tên nhà cung cấp</FormLabel>
+                      <FormLabel>{pc.supplierName}</FormLabel>
                       <FormControl>
-                        <Input {...field} placeholder="VD: Công ty Bột mì ABC" />
+                        <Input {...field} placeholder={pc.eGABCFlourCompany} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -165,11 +171,11 @@ export function AddSupplierDialog({ compactIcon: Icon = Plus }: AddSupplierDialo
                 name="short_code"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Mã ngắn</FormLabel>
+                    <FormLabel>{pc.shortCode}</FormLabel>
                     <FormControl>
                       <Input 
                         {...field} 
-                        placeholder="VD: BMAC"
+                        placeholder={pc.eGBMAC}
                         maxLength={10}
                         className="font-mono uppercase"
                         onChange={(e) => field.onChange(e.target.value.toUpperCase())}
@@ -185,11 +191,11 @@ export function AddSupplierDialog({ compactIcon: Icon = Plus }: AddSupplierDialo
               name="category"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Nhóm NCC</FormLabel>
+                  <FormLabel>{pc.supplierCategory}</FormLabel>
                   <Select value={field.value} onValueChange={field.onChange}>
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder="Chọn nhóm" />
+                        <SelectValue placeholder={pc.selectCategory} />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
@@ -207,11 +213,11 @@ export function AddSupplierDialog({ compactIcon: Icon = Plus }: AddSupplierDialo
               name="description"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Mô tả</FormLabel>
+                  <FormLabel>{pc.description}</FormLabel>
                   <FormControl>
                     <Textarea
                       {...field}
-                      placeholder="VD: NCC bột chính cho sản xuất bánh mì..."
+                      placeholder={pc.eGMainFlourSupplierForBreadProduction}
                       rows={3}
                     />
                   </FormControl>
@@ -224,9 +230,9 @@ export function AddSupplierDialog({ compactIcon: Icon = Plus }: AddSupplierDialo
               name="phone"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Số điện thoại</FormLabel>
+                  <FormLabel>{pc.phoneNumber}</FormLabel>
                   <FormControl>
-                    <Input {...field} type="tel" placeholder="VD: 0901234567" />
+                    <Input {...field} type="tel" placeholder={pc.eG0901234567} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -237,7 +243,7 @@ export function AddSupplierDialog({ compactIcon: Icon = Plus }: AddSupplierDialo
               name="email"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Email</FormLabel>
+                  <FormLabel>{pc.fieldEmail}</FormLabel>
                   <FormControl>
                     <Input {...field} type="email" placeholder="contact@supplier.com" />
                   </FormControl>
@@ -252,13 +258,12 @@ export function AddSupplierDialog({ compactIcon: Icon = Plus }: AddSupplierDialo
               name="bank_account_name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Tên tài khoản ngân hàng</FormLabel>
+                  <FormLabel>{pc.bankAccountName}</FormLabel>
                   <FormControl>
-                    <Input {...field} placeholder="Tên chủ tài khoản (nếu khác tên NCC)" />
+                    <Input {...field} placeholder={pc.accountHolderNameIfDifferentFromSupplier} />
                   </FormControl>
                   <FormDescription>
-                    Dùng để khớp với UNC khi tên chuyển khoản khác tên NCC
-                  </FormDescription>
+                     {pc.usedToMatchBankSlipsWhenTheTransfer} </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
@@ -270,7 +275,7 @@ export function AddSupplierDialog({ compactIcon: Icon = Plus }: AddSupplierDialo
               name="default_payment_method"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Phương thức thanh toán mặc định</FormLabel>
+                  <FormLabel>{pc.defaultPaymentMethod}</FormLabel>
                   <FormControl>
                     <RadioGroup
                       value={field.value}
@@ -281,15 +286,13 @@ export function AddSupplierDialog({ compactIcon: Icon = Plus }: AddSupplierDialo
                         <RadioGroupItem value="bank_transfer" id="pm_unc" />
                         <Label htmlFor="pm_unc" className="flex items-center gap-2 cursor-pointer flex-1">
                           <CreditCard className="h-4 w-4 text-blue-500" />
-                          UNC (Chuyển khoản)
-                        </Label>
+                           {pc.bankTransferUNC} </Label>
                       </div>
                       <div className="flex items-center space-x-2 p-3 border rounded-lg flex-1 cursor-pointer hover:bg-muted/50">
                         <RadioGroupItem value="cash" id="pm_cash" />
                         <Label htmlFor="pm_cash" className="flex items-center gap-2 cursor-pointer flex-1">
                           <Banknote className="h-4 w-4 text-orange-500" />
-                          Tiền mặt
-                        </Label>
+                           {pc.cash} </Label>
                       </div>
                     </RadioGroup>
                   </FormControl>
@@ -304,13 +307,12 @@ export function AddSupplierDialog({ compactIcon: Icon = Plus }: AddSupplierDialo
               name="payment_terms_days"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Công nợ (ngày)</FormLabel>
+                  <FormLabel>{pc.paymentTermsDays}</FormLabel>
                   <FormControl>
-                    <Input {...field} type="number" min="0" max="365" placeholder="VD: 30" />
+                    <Input {...field} type="number" min="0" max="365" placeholder={pc.eG30} />
                   </FormControl>
                   <FormDescription>
-                    Số ngày được nợ thanh toán sau khi nhận hàng
-                  </FormDescription>
+                     {pc.numberOfDaysAllowedForPaymentAfterReceiving} </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
@@ -318,7 +320,7 @@ export function AddSupplierDialog({ compactIcon: Icon = Plus }: AddSupplierDialo
 
             {/* Contract Upload */}
             <div className="space-y-2">
-              <Label>Hợp đồng (PDF)</Label>
+              <Label>{pc.contractPDF}</Label>
               <div className="border-2 border-dashed rounded-lg p-4">
                 {contractFile ? (
                   <div className="flex items-center justify-between">
@@ -330,7 +332,7 @@ export function AddSupplierDialog({ compactIcon: Icon = Plus }: AddSupplierDialo
                 ) : (
                   <label className="cursor-pointer block text-center">
                     <FileUp className="h-6 w-6 mx-auto mb-1 text-muted-foreground" />
-                    <span className="text-sm text-muted-foreground">Click để upload PDF</span>
+                    <span className="text-sm text-muted-foreground">{pc.clickToUploadPDF}</span>
                     <input
                       type="file"
                       accept=".pdf"
@@ -343,7 +345,7 @@ export function AddSupplierDialog({ compactIcon: Icon = Plus }: AddSupplierDialo
             </div>
 
             <Button type="submit" className="w-full" disabled={form.formState.isSubmitting}>
-              {form.formState.isSubmitting ? "Đang thêm..." : "Thêm nhà cung cấp"}
+              {form.formState.isSubmitting ? pc.adding : pc.addSupplier2}
             </Button>
           </form>
         </Form>

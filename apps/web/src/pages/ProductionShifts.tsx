@@ -770,7 +770,7 @@ export default function ProductionShifts() {
   const weekEndStr = format(addDays(currentWeekStart, 6), "dd/MM");
 
   return (
-    <div className="space-y-4 p-4 md:space-y-6 md:p-6">
+    <div data-production-i18n="c-production-v1" className="space-y-4 p-4 md:space-y-6 md:p-6">
       {/* Header */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-2">

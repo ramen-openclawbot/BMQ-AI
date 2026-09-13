@@ -1,3 +1,6 @@
+import { formatText } from "@/i18n/format";
+import { paymentRequestPurchasing } from "@/i18n/paymentRequestPurchasing";
+import { usePurchasingCopy } from "@/i18n/purchasingCopy";
 import { useState } from "react";
 import { FileDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -12,6 +15,7 @@ interface ExportApprovedPDFProps {
 }
 
 export function ExportApprovedPDF({ selectedIds, requests }: ExportApprovedPDFProps) {
+  const pc = usePurchasingCopy(paymentRequestPurchasing);
   const [isLoading, setIsLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [uncItems, setUncItems] = useState<ItemWithSupplier[]>([]);
@@ -32,7 +36,7 @@ export function ExportApprovedPDF({ selectedIds, requests }: ExportApprovedPDFPr
 
   const handleClick = async () => {
     if (selectedApprovedIds.length === 0) {
-      toast.error("Không có đề nghị chi đã duyệt nào được chọn");
+      toast.error(pc.noApprovedPaymentRequestsSelected);
       return;
     }
 
@@ -102,7 +106,7 @@ export function ExportApprovedPDF({ selectedIds, requests }: ExportApprovedPDFPr
       setDialogOpen(true);
     } catch (error) {
       console.error("Error loading items:", error);
-      toast.error("Lỗi khi tải dữ liệu");
+      toast.error(pc.errorLoadingData);
     } finally {
       setIsLoading(false);
     }
@@ -121,7 +125,7 @@ export function ExportApprovedPDF({ selectedIds, requests }: ExportApprovedPDFPr
         className="gap-2"
       >
         <FileDown className="h-4 w-4" />
-        {isLoading ? "Đang tải..." : `Xuất PDF (${selectedApprovedIds.length})`}
+        {isLoading ? pc.loading : formatText(pc.message143, { v0: selectedApprovedIds.length })}
       </Button>
 
       <ExportApprovedPDFDialog

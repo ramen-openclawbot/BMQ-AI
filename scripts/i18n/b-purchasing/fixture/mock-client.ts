@@ -1,0 +1,37 @@
+import { goodsReceiptPurchasing } from "@/i18n/goodsReceiptPurchasing";
+// Closed, in-memory backend. Unknown operations fail and never fall through to a real client.
+const w=window as any;
+w.__fixtureCalls=[];w.__fixtureUnexpected=[];
+const mode=new URLSearchParams(location.search).get('fixture')||'data';
+const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Ho_Chi_Minh',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date()),created_at=`${today}T04:00:00Z`;
+const supplier={id:'11111111-1111-4111-8111-111111111111',name:'NCC giữ nguyên',category:'Bột',description:'Mô tả giữ nguyên',phone:'0900000000',email:'qa@example.invalid',bank_account_name:'Tên giữ nguyên',default_payment_method:'cash',payment_terms_days:30,contract_url:null,created_at};
+const item={id:'66666666-6666-4666-8666-666666666666',product_name:'Bột giữ nguyên',product_code:'NVL-1',unit:'kg',quantity:2,unit_price:10000,line_total:20000,total_amount:20000,canonical_material_id:'77777777-7777-4777-8777-777777777777',material_resolution_status:'resolved',created_at};
+const pr={id:'22222222-2222-4222-8222-222222222222',request_number:'QA-PR-1',title:'Nội dung giữ nguyên',description:'Mô tả giữ nguyên',notes:'Ghi chú giữ nguyên',supplier_id:'11111111-1111-4111-8111-111111111111',suppliers:supplier,total_amount:22000,vat_amount:2000,status:mode==='pending'?'pending':'approved',payment_status:'partial',payment_type:'old_order',payment_method:'cash',delivery_status:'pending',payment_allocations:[{id:'a1',amount:5000}],payment_request_items:[item],invoice_created:true,goods_receipt_id:null,purchase_order_id:null,invoice_id:null,image_url:null,created_at};
+if(mode==='uninvoiced')pr.invoice_created=false;
+const po={id:'33333333-3333-4333-8333-333333333333',po_number:'QA-PO-1',supplier_id:'11111111-1111-4111-8111-111111111111',suppliers:supplier,total_amount:22000,vat_amount:2000,status:'draft',order_date:today,expected_date:today,notes:'Ghi chú giữ nguyên',purchase_order_items:[item],created_at};
+const receipt={id:'44444444-4444-4444-8444-444444444444',receipt_number:'QA-GR-1',supplier_id:'11111111-1111-4111-8111-111111111111',suppliers:supplier,purchase_order_id:'33333333-3333-4333-8333-333333333333',purchase_orders:po,payment_request_id:null,payment_requests:null,receipt_date:today,status:'draft',payable_status:'not_generated',total_quantity:2,notes:'Ghi chú giữ nguyên',image_url:null,created_at};
+const invoice={id:'55555555-5555-4555-8555-555555555555',invoice_number:'QA-INV-1',invoice_date:today,supplier_id:'11111111-1111-4111-8111-111111111111',suppliers:supplier,total_amount:22000,vat_amount:2000,notes:'Ghi chú giữ nguyên',status:'pending',payment_status:'unpaid',purchase_order_id:null,goods_receipt_id:null,payment_request_id:null,image_url:null,payment_slip_url:null,created_at};
+if(mode==='receive'||mode==='receive-no-evidence'||mode.startsWith('review-ocr-')){receipt.status='confirmed';if(mode==='receive')receipt.image_url='evidence.png';}
+const tables:Record<string,any[]>={suppliers:[supplier],supplier_aliases:[],invoices:[invoice],invoice_items:[{...item,invoice_id:'55555555-5555-4555-8555-555555555555'}],payment_requests:[pr],payment_request_items:[{...item,payment_request_id:'22222222-2222-4222-8222-222222222222'}],payment_allocations:pr.payment_allocations,purchase_orders:[po],purchase_order_items:[{...item,purchase_order_id:'33333333-3333-4333-8333-333333333333'}],goods_receipts:[receipt],goods_receipt_items:[{...item,goods_receipt_id:'44444444-4444-4444-8444-444444444444',ordered_quantity:2,actual_quantity:2,variance_reason:'',canonical_materials:{id:'77777777-7777-4777-8777-777777777777',material_code:'NVL-1',canonical_name:'Bột giữ nguyên'}}],product_skus:[],inventory_items:[],profiles:[],system_settings:[],app_settings:[],user_roles:[],sku_cogs_materials:[]};
+if(mode.startsWith('review-drive-')) {
+ tables.app_settings=[{key:'google_drive_receipts_folder',value:'https://drive.example.invalid/folder'}];
+ tables.drive_file_index=[];
+}
+function unexpected(message:string):never{w.__fixtureUnexpected.push(message);throw new Error(message);}
+function query(table:string){if(!(table in tables))return unexpected(`Unknown table ${table}`);const operations:any[]=[];let payload:any;
+ const chain=new Proxy({}, {get(_t,method:string){
+  if(method==='then')return (resolve:any)=>{w.__fixtureCalls.push({table,operations});if(mode==='loading')return;const write=operations.some(o=>['insert','update','delete','upsert'].includes(o.method));if(mode==='error'||write&&mode==='save-error')return resolve({data:null,error:{message:'SERVER giữ nguyên $&'}});let data=mode==='empty'?[]:tables[table];for(const op of operations){if(op.method==='eq')data=data.filter(r=>r[op.args[0]]===op.args[1]);if(op.method==='in')data=data.filter(r=>op.args[1].includes(r[op.args[0]]));}if(write)data=[{id:'88888888-8888-4888-8888-888888888888',...payload}];resolve({data:operations.some(o=>['single','maybeSingle'].includes(o.method))?data[0]||null:data,error:null,count:data.length});};
+  if(!['select','order','limit','eq','in','single','maybeSingle','is','not','neq','gte','lte','insert','update','delete','upsert','ilike','or'].includes(method))return unexpected(`Unknown query method ${method}`);
+  return (...args:any[])=>{operations.push({method,args});if(['insert','update','upsert'].includes(method))payload=args[0];return chain;};
+ }});return chain;
+}
+const session={access_token:'fixture-only',user:{id:'99999999-9999-4999-8999-999999999999'}};
+export const supabase={from:query,auth:{getSession:async()=>({data:{session:['review-session','review-drive-session'].includes(mode)?null:session},error:null}),refreshSession:async()=>({data:{session},error:null}),getUser:async()=>({data:{user:session.user},error:null})},
+ rpc:async(name:string,args:any)=>{if(!['create_invoice_with_material_controller','approve_payment_request_with_material_controller','update_purchase_order_status_with_material_controller','record_payment_allocations','generate_po_number','generate_receipt_number','generate_payment_request_number','confirm_goods_receipt','finalize_historical_paid_goods_receipt','create_procurement_document_with_material_controller','update_procurement_document_with_material_controller'].includes(name))return unexpected(`Unknown RPC ${name}`);w.__fixtureCalls.push({rpc:name,args});return {data:name==='create_invoice_with_material_controller'?{status:'created',invoice_id:'88888888-8888-4888-8888-888888888888',items_count:1,material_master:{}}:name==='approve_payment_request_with_material_controller'?{status:'approved',material_master:{}}:name==='update_purchase_order_status_with_material_controller'?{status:'updated',purchase_order_status:args.p_status,material_master:{}}:name.startsWith('generate_')?'QA-CREATED':{success:true,id:'88888888-8888-4888-8888-888888888888',items_count:1},error:mode==='save-error'?{message:'SERVER giữ nguyên $&'}:null};},
+ storage:{from:(bucket:string)=>({createSignedUrl:async(path:string)=>{w.__fixtureCalls.push({storage:'signed-url',bucket,path});return {data:{signedUrl:'/fixture-document.svg'},error:null};},upload:async()=>{
+ if(mode==='review-ocr-local'){w.__fixtureCalls.push({storage:'review-ocr-local'});throw null;}
+ if(mode==='review-ocr-backend'){w.__fixtureCalls.push({storage:'review-ocr-backend'});throw new Error(goodsReceiptPurchasing.en.ocrFailed);}
+ return unexpected('Upload must be explicitly mocked by a scenario');
+}})},
+ functions:{invoke:async(name:string)=>unexpected(`Unmocked edge function ${name}`)},
+};

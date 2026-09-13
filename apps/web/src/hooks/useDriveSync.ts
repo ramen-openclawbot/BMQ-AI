@@ -1,6 +1,6 @@
+import { showPeopleToast, PeopleLocalError, peopleErrorDescription, peopleToast } from "@/hooks/usePeopleCopy";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { toast } from "sonner";
 
 export interface DriveSyncConfig {
   id: string;
@@ -102,14 +102,14 @@ export function useTriggerSync(options?: { silent?: boolean }) {
     mutationFn: async (folderType: 'po' | 'bank_slip') => {
       // Prevent concurrent syncs for the same folder
       if (syncingFoldersRef.current.has(folderType)) {
-        throw new Error("Đang đồng bộ, vui lòng đợi...");
+        throw new PeopleLocalError({ key: "syncInProgressPleaseWait" });
       }
       syncingFoldersRef.current.add(folderType);
 
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session?.access_token) {
-          throw new Error("Phiên đăng nhập đã hết hạn");
+          throw new PeopleLocalError({ key: "yourSessionHasExpired" });
         }
 
         const response = await fetch(
@@ -126,7 +126,9 @@ export function useTriggerSync(options?: { silent?: boolean }) {
 
         if (!response.ok) {
           const error = await response.json();
-          throw new Error(error.error || 'Sync failed');
+          throw error.error
+            ? new Error(error.error)
+            : new PeopleLocalError({ key: "syncFailed" });
         }
 
         return response.json();
@@ -139,13 +141,13 @@ export function useTriggerSync(options?: { silent?: boolean }) {
       queryClient.invalidateQueries({ queryKey: ["drive-file-index"] });
 
       if (!options?.silent) {
-        toast.success(`Đã đồng bộ ${data.filesSynced} files từ ${data.foldersScanned} thư mục`);
+        showPeopleToast("success", peopleToast("syncedFilesFromFolders", { p0: data.filesSynced, p1: data.foldersScanned }));
       }
     },
     onError: (error: Error) => {
       if (!options?.silent) {
-        toast.error("Đồng bộ thất bại", {
-          description: error.message,
+        showPeopleToast("error", peopleToast("syncFailed"), {
+          description: peopleErrorDescription(error, "syncFailed"),
         });
       }
     },

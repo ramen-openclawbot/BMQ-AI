@@ -1,3 +1,6 @@
+import { formatText } from "@/i18n/format";
+import { paymentRequestPurchasing } from "@/i18n/paymentRequestPurchasing";
+import { usePurchasingCopy } from "@/i18n/purchasingCopy";
 import { useState } from "react";
 import { FileDown, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -67,6 +70,7 @@ export function ExportApprovedPDFDialog({
   uncSubtotal,
   cashSubtotal,
 }: ExportApprovedPDFDialogProps) {
+  const pc = usePurchasingCopy(paymentRequestPurchasing);
   const [isExporting, setIsExporting] = useState(false);
 
   const handleDownload = async () => {
@@ -251,11 +255,11 @@ export function ExportApprovedPDFDialog({
       const fileName = `phieu-duyet-chi-${format(new Date(), "dd-MM-yyyy-HHmm")}.pdf`;
       doc.save(fileName);
 
-      toast.success(`Đã xuất ${fileName}`);
+      toast.success(formatText(pc.message144, { v0: fileName }));
       onOpenChange(false);
     } catch (error) {
       console.error("Export error:", error);
-      toast.error("Lỗi khi xuất PDF");
+      toast.error(pc.errorExportingPDF);
     } finally {
       setIsExporting(false);
     }
@@ -278,12 +282,12 @@ export function ExportApprovedPDFDialog({
         <Table>
           <TableHeader>
             <TableRow className="bg-gray-100 border border-black">
-              <TableHead className="w-12 text-center text-black font-bold border-r border-black">STT</TableHead>
-              <TableHead className="text-black font-bold border-r border-black">Tên sản phẩm</TableHead>
-              <TableHead className="text-black font-bold border-r border-black">NCC</TableHead>
-              <TableHead className="text-center text-black font-bold border-r border-black">SL</TableHead>
-              <TableHead className="text-right text-black font-bold border-r border-black">Đơn giá</TableHead>
-              <TableHead className="text-right text-black font-bold">Thành tiền</TableHead>
+              <TableHead className="w-12 text-center text-black font-bold border-r border-black">{pc.no}</TableHead>
+              <TableHead className="text-black font-bold border-r border-black">{pc.productName}</TableHead>
+              <TableHead className="text-black font-bold border-r border-black">{pc.supplier}</TableHead>
+              <TableHead className="text-center text-black font-bold border-r border-black">{pc.qty}</TableHead>
+              <TableHead className="text-right text-black font-bold border-r border-black">{pc.unitPrice}</TableHead>
+              <TableHead className="text-right text-black font-bold">{pc.lineTotal}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -308,14 +312,12 @@ export function ExportApprovedPDFDialog({
               <>
                 <TableRow className="border border-black bg-gray-50">
                   <TableCell colSpan={5} className="text-right font-medium border-r border-black">
-                    Tạm tính:
-                  </TableCell>
+                     {pc.subtotal} </TableCell>
                   <TableCell className="text-right">{formatCurrency(subtotal)}</TableCell>
                 </TableRow>
                 <TableRow className="border border-black bg-gray-50">
                   <TableCell colSpan={5} className="text-right font-medium border-r border-black">
-                    VAT:
-                  </TableCell>
+                     {pc.fieldVAT} </TableCell>
                   <TableCell className="text-right">{formatCurrency(vat)}</TableCell>
                 </TableRow>
               </>
@@ -323,7 +325,7 @@ export function ExportApprovedPDFDialog({
             {/* Total row */}
             <TableRow className="bg-gray-200 font-bold border border-black">
               <TableCell colSpan={5} className="text-right border-r border-black">
-                {isUNC ? "Tổng UNC:" : "Tổng tiền mặt:"}
+                {isUNC ? pc.bankTransferTotal : pc.cashTotal}
               </TableCell>
               <TableCell className="text-right">{formatCurrency(total)}</TableCell>
             </TableRow>
@@ -337,18 +339,18 @@ export function ExportApprovedPDFDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col">
         <DialogHeader>
-          <DialogTitle className="text-black">Xem trước Phiếu Duyệt Chi</DialogTitle>
+          <DialogTitle className="text-black">{pc.paymentApprovalPreview}</DialogTitle>
         </DialogHeader>
 
         <ScrollArea className="flex-1 h-[60vh] pr-4">
           <div className="space-y-4 p-4 bg-white rounded-lg border text-black">
             {/* Header */}
             <div className="flex items-start gap-4">
-              <img src={bmqLogo} alt="BMQ Logo" className="h-12 w-auto" />
+              <img src={bmqLogo} alt={pc.bMQLogo} className="h-12 w-auto" />
               <div className="flex-1 text-center">
-                <h2 className="text-xl font-bold text-black">PHIẾU DUYỆT CHI</h2>
+                <h2 className="text-xl font-bold text-black">{pc.pAYMENTAPPROVAL}</h2>
                 <p className="text-sm text-gray-600">
-                  Ngày: {format(new Date(), "dd/MM/yyyy", { locale: vi })}
+                   {pc.date2} {format(new Date(), "dd/MM/yyyy", { locale: vi })}
                 </p>
               </div>
             </div>
@@ -356,7 +358,7 @@ export function ExportApprovedPDFDialog({
             {/* UNC Section */}
             {renderItemsTable(
               uncItems,
-              "I. THANH TOÁN CHUYỂN KHOẢN (UNC)",
+              pc.iBANKTRANSFERUNC,
               uncSubtotal,
               uncVat,
               uncTotal
@@ -365,7 +367,7 @@ export function ExportApprovedPDFDialog({
             {/* Cash Section */}
             {renderItemsTable(
               cashItems,
-              "II. THANH TOÁN TIỀN MẶT",
+              pc.iICASHPAYMENT,
               cashSubtotal,
               cashVat,
               cashTotal
@@ -373,18 +375,18 @@ export function ExportApprovedPDFDialog({
 
             {/* Grand Total */}
             <div className="bg-gray-800 text-white p-3 rounded-md text-center font-bold border-2 border-black">
-              TỔNG CỘNG ĐỢT DUYỆT CHI: {formatCurrency(grandTotal)} VNĐ
+               {pc.tOTALPAYMENTAPPROVALBATCH} {formatCurrency(grandTotal)} VNĐ
             </div>
 
             {/* Signature Section */}
             <div className="flex justify-around pt-6 pb-4">
               <div className="text-center">
-                <p className="font-medium text-black">Người lập phiếu</p>
-                <p className="text-sm text-gray-600">(Ký, ghi rõ họ tên)</p>
+                <p className="font-medium text-black">{pc.preparedBy}</p>
+                <p className="text-sm text-gray-600">{pc.signatureAndFullName}</p>
               </div>
               <div className="text-center">
-                <p className="font-medium text-black">Người duyệt</p>
-                <p className="text-sm text-gray-600">(Ký, ghi rõ họ tên)</p>
+                <p className="font-medium text-black">{pc.approvedBy}</p>
+                <p className="text-sm text-gray-600">{pc.signatureAndFullName}</p>
               </div>
             </div>
           </div>
@@ -393,11 +395,10 @@ export function ExportApprovedPDFDialog({
         <DialogFooter className="flex gap-2 sm:gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             <X className="h-4 w-4 mr-2" />
-            Hủy
-          </Button>
+             {pc.cancel} </Button>
           <Button onClick={handleDownload} disabled={isExporting}>
             <FileDown className="h-4 w-4 mr-2" />
-            {isExporting ? "Đang xuất..." : "Tải xuống"}
+            {isExporting ? pc.exporting : pc.download}
           </Button>
         </DialogFooter>
       </DialogContent>

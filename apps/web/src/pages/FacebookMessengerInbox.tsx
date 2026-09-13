@@ -1,3 +1,4 @@
+import { useFacebookMessages, type FacebookMessageKey, type FacebookNotice } from "@/i18n/facebookMessenger";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, Link2, Loader2, RefreshCw, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -26,7 +27,7 @@ function mapMessengerErrorMessage(error: unknown) {
 }
 
 const RECONCILIATION_BLOCKING_STATUSES = new Set(["send_committed", "manual_reconciliation_required"]);
-const FACEBOOK_CONNECT_ERRORS: Record<string, string> = {
+const FACEBOOK_CONNECT_ERRORS: Record<string, FacebookMessageKey> = {
   session_expired: "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.",
   unauthorized: "Phiên đăng nhập không còn hợp lệ. Vui lòng đăng nhập lại.",
   request_failed: "Không thể gọi dịch vụ kết nối Facebook Page. Vui lòng kiểm tra lại.",
@@ -59,12 +60,13 @@ function getReconciliationStatus(conversation: FacebookMessengerConversation | n
 export default function FacebookMessengerInbox() {
   const { canEditModule } = useAuth();
   const { t } = useLanguage();
+  const f = useFacebookMessages();
   const canEdit = canEditModule("facebook_messenger");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const [messageText, setMessageText] = useState("");
-  const [connectNotice, setConnectNotice] = useState<{ type: "success" | "error"; message: string } | null>(null);
-  const [safeError, setSafeError] = useState<string | null>(null);
+  const [connectNotice, setConnectNotice] = useState<{ type: "success" | "error"; message: FacebookNotice } | null>(null);
+  const [safeError, setSafeError] = useState<FacebookMessageKey | null>(null);
   const connectLockRef = useRef(false);
   const finalizeLockRef = useRef(false);
   const submitLockRef = useRef(false);
@@ -95,17 +97,17 @@ export default function FacebookMessengerInbox() {
 
   const composerDisabled = featureDisabled || !canEdit || !selectedConversation || selectedConversation.replyWindowExpired || reconciliationBlocked || isSending;
   const disabledReason = !selectedConversation
-    ? "Chọn hội thoại trước khi trả lời."
+    ? f("Chọn hội thoại trước khi trả lời.")
     : featureDisabled
-      ? "Tính năng Facebook Messenger chưa được bật. Vui lòng hoàn tất thiết lập server trước khi trả lời khách."
+      ? f("Tính năng Facebook Messenger chưa được bật. Vui lòng hoàn tất thiết lập server trước khi trả lời khách.")
       : !canEdit
-        ? "Bạn chỉ có quyền xem module Facebook Page."
+        ? f("Bạn chỉ có quyền xem module Facebook Page.")
         : selectedConversation.replyWindowExpired
-          ? "Cửa sổ trả lời Messenger đã hết hạn."
+          ? f("Cửa sổ trả lời Messenger đã hết hạn.")
           : reconciliationBlocked
-            ? "Trạng thái đối soát chưa an toàn để gửi trả lời. Vui lòng chờ server xác nhận hoặc xử lý đối soát thủ công."
+            ? f("Trạng thái đối soát chưa an toàn để gửi trả lời. Vui lòng chờ server xác nhận hoặc xử lý đối soát thủ công.")
             : isSending
-              ? "Đang gửi tin nhắn, vui lòng chờ."
+              ? f("Đang gửi tin nhắn, vui lòng chờ.")
               : "";
 
   useEffect(() => {
@@ -114,13 +116,13 @@ export default function FacebookMessengerInbox() {
     const error = params.get("facebook_connect_error");
     if (success === "success") {
       const pageName = params.get("facebook_page") || "Facebook Page";
-      setConnectNotice({ type: "success", message: `Đã kết nối ${pageName}. Không lưu token trong trình duyệt.` });
+      setConnectNotice({ type: "success", message: { key: "Đã kết nối {pageName}. Không lưu token trong trình duyệt.", values: { pageName } } });
       window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.hash}`);
     } else if (success === "select_page") {
-      setConnectNotice({ type: "success", message: "Chọn Facebook Page cần kết nối từ danh sách bên dưới. Không lưu token trong trình duyệt." });
+      setConnectNotice({ type: "success", message: { key: "Chọn Facebook Page cần kết nối từ danh sách bên dưới. Không lưu token trong trình duyệt." } });
       window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.hash}`);
     } else if (error) {
-      setConnectNotice({ type: "error", message: mapFacebookConnectErrorMessage(error) });
+      setConnectNotice({ type: "error", message: { key: mapFacebookConnectErrorMessage(error) } });
       window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.hash}`);
     }
   }, []);
@@ -169,7 +171,7 @@ export default function FacebookMessengerInbox() {
       const data = await connectPage.mutateAsync();
       if (data.authUrl) window.location.href = data.authUrl;
     } catch (error) {
-      setConnectNotice({ type: "error", message: mapFacebookConnectErrorMessage(error) });
+      setConnectNotice({ type: "error", message: { key: mapFacebookConnectErrorMessage(error) } });
     } finally {
       connectLockRef.current = false;
     }
@@ -181,9 +183,9 @@ export default function FacebookMessengerInbox() {
     setConnectNotice(null);
     try {
       const data = await finalizeCandidate.mutateAsync({ candidateId });
-      setConnectNotice({ type: "success", message: `Đã kết nối ${data.pageName || "Facebook Page"}. Không lưu token trong trình duyệt.` });
+      setConnectNotice({ type: "success", message: { key: "Đã kết nối {pageName}. Không lưu token trong trình duyệt.", values: { pageName: data.pageName || "Facebook Page" } } });
     } catch (error) {
-      setConnectNotice({ type: "error", message: mapFacebookConnectErrorMessage(error) });
+      setConnectNotice({ type: "error", message: { key: mapFacebookConnectErrorMessage(error) } });
     } finally {
       finalizeLockRef.current = false;
     }
@@ -191,21 +193,20 @@ export default function FacebookMessengerInbox() {
 
   if (pendingCandidates.length > 0) {
     return (
-      <main data-facebook-messenger-responsive="320-390-1440" data-facebook-page-connection-fix="cors-retry-fix-v1" className="min-h-[calc(100vh-4rem)] overflow-x-hidden bg-background p-3 sm:p-4 lg:p-6">
+      <main data-i18n-facebook-messenger="c-sales-v1" data-facebook-messenger-responsive="320-390-1440" data-facebook-page-connection-fix="cors-retry-fix-v1" className="min-h-[calc(100vh-4rem)] overflow-x-hidden bg-background p-3 sm:p-4 lg:p-6">
         <div className="mx-auto flex w-full max-w-3xl min-w-0 flex-col gap-4">
-          <section data-facebook-connect-panel="true" className="min-w-0 rounded-xl border bg-card p-4 shadow-sm sm:p-5" aria-label="facebook-connect-panel">
+          <section data-facebook-connect-panel="true" className="min-w-0 rounded-xl border bg-card p-4 shadow-sm sm:p-5" aria-label={f("facebook-connect-panel")}>
             <div className="min-w-0 space-y-4">
               <div className="min-w-0 space-y-2">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <h1 className="min-w-0 break-words text-xl font-semibold text-foreground">Chọn Facebook Page</h1>
-                  <Badge variant="outline">Đã ủy quyền</Badge>
+                  <h1 className="min-w-0 break-words text-xl font-semibold text-foreground">{f("Chọn Facebook Page")}</h1>
+                  <Badge variant="outline">{f("Đã ủy quyền")}</Badge>
                 </div>
                 <p className="break-words text-sm text-muted-foreground">
-                  Chọn Page cần liên kết. Page đang kết nối chỉ được thay thế sau khi lựa chọn này hoàn tất thành công.
-                </p>
+                   {f("Chọn Page cần liên kết. Page đang kết nối chỉ được thay thế sau khi lựa chọn này hoàn tất thành công.")} </p>
                 {connectNotice && (
                   <p className={cn("break-words text-sm", connectNotice.type === "success" ? "text-emerald-700" : "text-destructive")}>
-                    {connectNotice.message}
+                    {f(connectNotice.message.key, connectNotice.message.values)}
                   </p>
                 )}
               </div>
@@ -232,33 +233,32 @@ export default function FacebookMessengerInbox() {
 
   if (!connectionReady) {
     return (
-      <main data-facebook-messenger-responsive="320-390-1440" data-facebook-page-connection-fix="cors-retry-fix-v1" className="min-h-[calc(100vh-4rem)] overflow-x-hidden bg-background p-3 sm:p-4 lg:p-6">
+      <main data-i18n-facebook-messenger="c-sales-v1" data-facebook-messenger-responsive="320-390-1440" data-facebook-page-connection-fix="cors-retry-fix-v1" className="min-h-[calc(100vh-4rem)] overflow-x-hidden bg-background p-3 sm:p-4 lg:p-6">
         <div className="mx-auto flex w-full max-w-3xl min-w-0 flex-col gap-4">
-          <section data-facebook-connect-panel="true" className="min-w-0 rounded-xl border bg-card p-4 shadow-sm sm:p-5" aria-label="facebook-connect-panel">
+          <section data-facebook-connect-panel="true" className="min-w-0 rounded-xl border bg-card p-4 shadow-sm sm:p-5" aria-label={f("facebook-connect-panel")}>
             <div className="flex min-w-0 flex-col gap-4">
               <div className="min-w-0 space-y-2">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
                   <h1 className="min-w-0 break-words text-xl font-semibold text-foreground">
                     {connectionChecking
-                      ? "Đang kiểm tra kết nối Facebook Page"
+                      ? f("Đang kiểm tra kết nối Facebook Page")
                       : pageConnection.isError
-                        ? "Không thể kiểm tra kết nối Facebook Page"
-                        : "Chưa kết nối Facebook Page"}
+                        ? f("Không thể kiểm tra kết nối Facebook Page")
+                        : f("Chưa kết nối Facebook Page")}
                   </h1>
                   <Badge variant="outline">
-                    {connectionChecking ? "Đang kiểm tra" : pageConnection.isError ? "Lỗi kiểm tra" : "Chưa kết nối"}
+                    {connectionChecking ? f("Đang kiểm tra") : pageConnection.isError ? f("Lỗi kiểm tra") : f("Chưa kết nối")}
                   </Badge>
                 </div>
                 <p className="break-words text-sm text-muted-foreground">
-                  Kết nối bằng Facebook Login for Business để server nhận Page credentials. Gửi Messenger, forward email và AI vẫn mặc định tắt sau khi kết nối.
-                </p>
+                   {f("Kết nối bằng Facebook Login for Business để server nhận Page credentials. Gửi Messenger, forward email và AI vẫn mặc định tắt sau khi kết nối.")} </p>
                 {connectNotice && (
                   <p className={cn("break-words text-sm", connectNotice.type === "success" ? "text-emerald-700" : "text-destructive")}>
-                    {connectNotice.message}
+                    {f(connectNotice.message.key, connectNotice.message.values)}
                   </p>
                 )}
                 {pageConnection.isError && (
-                  <p className="break-words text-sm text-destructive">{mapFacebookConnectErrorMessage(pageConnection.error)}</p>
+                  <p className="break-words text-sm text-destructive">{f(mapFacebookConnectErrorMessage(pageConnection.error))}</p>
                 )}
               </div>
 
@@ -266,15 +266,14 @@ export default function FacebookMessengerInbox() {
                 {pageConnection.isError ? (
                   <Button type="button" variant="outline" onClick={() => pageConnection.refetch()} disabled={connectionChecking} className="min-h-11 shrink-0">
                     <RefreshCw className={cn("mr-2 h-4 w-4", connectionChecking && "animate-spin")} />
-                    Kiểm tra lại
-                  </Button>
+                     {f("Kiểm tra lại")} </Button>
                 ) : (
                   <Button type="button" onClick={handleConnectPage} disabled={!canEdit || connectionChecking || connectPage.isPending} className="min-h-11 shrink-0">
                     {connectionChecking || connectPage.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Link2 className="mr-2 h-4 w-4" />}
-                    {connectionChecking ? "Đang kiểm tra" : "Kết nối Facebook Page"}
+                    {connectionChecking ? f("Đang kiểm tra") : f("Kết nối Facebook Page")}
                   </Button>
                 )}
-                {!canEdit && <p className="break-words text-sm text-muted-foreground">Bạn cần quyền chỉnh sửa module Facebook Page để kết nối.</p>}
+                {!canEdit && <p className="break-words text-sm text-muted-foreground">{f("Bạn cần quyền chỉnh sửa module Facebook Page để kết nối.")}</p>}
               </div>
             </div>
           </section>
@@ -284,34 +283,33 @@ export default function FacebookMessengerInbox() {
   }
 
   return (
-    <main data-facebook-messenger-responsive="320-390-1440" data-facebook-page-connection-fix="cors-retry-fix-v1" className="min-h-[calc(100vh-4rem)] overflow-x-hidden bg-background p-3 sm:p-4 lg:p-6">
+    <main data-i18n-facebook-messenger="c-sales-v1" data-facebook-messenger-responsive="320-390-1440" data-facebook-page-connection-fix="cors-retry-fix-v1" className="min-h-[calc(100vh-4rem)] overflow-x-hidden bg-background p-3 sm:p-4 lg:p-6">
       <div className="mx-auto flex w-full max-w-7xl min-w-0 flex-col gap-4">
         <header className="min-w-0 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="min-w-0 break-words text-2xl font-bold tracking-tight text-foreground sm:text-3xl">{t.facebookPageManagement}</h1>
             <Badge variant={featureDisabled ? "destructive" : "secondary"}>
-              {featureDisabled ? "Chưa bật gửi" : "Messenger inbox"}
+              {featureDisabled ? f("Chưa bật gửi") : f("Messenger inbox")}
             </Badge>
           </div>
           <p className="max-w-3xl break-words text-sm text-muted-foreground">
-            Xem hội thoại Messenger, trạng thái phân công, cửa sổ chính sách và gửi trả lời qua Edge Function đã xác thực. UI không nhận Page/PSID/provider status từ người dùng. Không tải URL đính kèm từ Facebook.
-          </p>
+             {f("Xem hội thoại Messenger, trạng thái phân công, cửa sổ chính sách và gửi trả lời qua Edge Function đã xác thực. UI không nhận Page/PSID/provider status từ người dùng. Không tải URL đính kèm từ Facebook.")} </p>
         </header>
 
         {(inbox.isLoading || inbox.isFetching) && (
           <Alert>
             <Loader2 className="h-4 w-4 animate-spin" />
-            <AlertTitle>Đang tải hộp thư</AlertTitle>
-            <AlertDescription>Đang gọi server function facebook-messenger-inbox bằng phiên đăng nhập hiện tại.</AlertDescription>
+            <AlertTitle>{f("Đang tải hộp thư")}</AlertTitle>
+            <AlertDescription>{f("Đang gọi server function facebook-messenger-inbox bằng phiên đăng nhập hiện tại.")}</AlertDescription>
           </Alert>
         )}
 
         {(inbox.isError || safeError) && (
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
-            <AlertTitle>Không thể đồng bộ hộp thư</AlertTitle>
+            <AlertTitle>{f("Không thể đồng bộ hộp thư")}</AlertTitle>
             <AlertDescription className="break-words">
-              {safeError || mapMessengerErrorMessage(inbox.error)}
+              {f(safeError || mapMessengerErrorMessage(inbox.error))}
             </AlertDescription>
           </Alert>
         )}
@@ -319,44 +317,43 @@ export default function FacebookMessengerInbox() {
         {featureDisabled && (
           <Alert>
             <AlertCircle className="h-4 w-4" />
-            <AlertTitle>Tính năng gửi Facebook Messenger đang tắt</AlertTitle>
-            <AlertDescription>Kết nối Page đã hoàn tất, nhưng gửi/forward/AI vẫn mặc định tắt cho tới khi operator bật riêng trên server.</AlertDescription>
+            <AlertTitle>{f("Tính năng gửi Facebook Messenger đang tắt")}</AlertTitle>
+            <AlertDescription>{f("Kết nối Page đã hoàn tất, nhưng gửi/forward/AI vẫn mặc định tắt cho tới khi operator bật riêng trên server.")}</AlertDescription>
           </Alert>
         )}
 
-        <section data-facebook-connect-panel="true" className="min-w-0 rounded-xl border bg-card p-3 shadow-sm sm:p-4" aria-label="facebook-connect-panel">
+        <section data-facebook-connect-panel="true" className="min-w-0 rounded-xl border bg-card p-3 shadow-sm sm:p-4" aria-label={f("facebook-connect-panel")}>
           <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="min-w-0 space-y-1">
               <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <h2 className="text-base font-semibold">Kết nối Facebook Page</h2>
-                <Badge variant="secondary">Đã kết nối</Badge>
+                <h2 className="text-base font-semibold">{f("Kết nối Facebook Page")}</h2>
+                <Badge variant="secondary">{f("Đã kết nối")}</Badge>
               </div>
               <p className="break-words text-sm text-muted-foreground">
-                Page: {pageConnection.data?.pageName || "Facebook Page"}{pageConnection.data?.pageIdSuffix ? ` •••${pageConnection.data.pageIdSuffix}` : ""}
+                {f("Page:")} {pageConnection.data?.pageName || f("Facebook Page")}{pageConnection.data?.pageIdSuffix ? ` •••${pageConnection.data.pageIdSuffix}` : ""}
               </p>
               {connectNotice && (
                 <p className={cn("break-words text-sm", connectNotice.type === "success" ? "text-emerald-700" : "text-destructive")}>
-                  {connectNotice.message}
+                  {f(connectNotice.message.key, connectNotice.message.values)}
                 </p>
               )}
             </div>
 
             <Button type="button" onClick={handleConnectPage} disabled={!canEdit || connectPage.isPending} variant="outline" className="min-h-11 shrink-0">
               {connectPage.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Link2 className="mr-2 h-4 w-4" />}
-              Kết nối Facebook Page
-            </Button>
+               {f("Kết nối Facebook Page")} </Button>
           </div>
         </section>
 
-        <section className="grid min-w-0 gap-4 lg:min-h-[680px] lg:grid-cols-[minmax(320px,420px)_minmax(0,1fr)]" aria-label="Facebook Messenger inbox">
+        <section className="grid min-w-0 gap-4 lg:min-h-[680px] lg:grid-cols-[minmax(320px,420px)_minmax(0,1fr)]" aria-label={f("Facebook Messenger inbox")}>
           <aside className={cn("min-w-0 space-y-3", mobileDetailOpen && "hidden md:block")}>
-            <p className="md:hidden rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">Chọn một hội thoại để mở chi tiết trên màn hình nhỏ.</p>
+            <p className="md:hidden rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">{f("Chọn một hội thoại để mở chi tiết trên màn hình nhỏ.")}</p>
             <div className="flex min-w-0 items-center justify-between gap-2">
               <div className="min-w-0">
-                <h2 className="text-base font-semibold">Hội thoại</h2>
-                <p className="text-xs text-muted-foreground">{inboxListSettling ? "Đang tải luồng hội thoại" : `${conversations.length} luồng đang hiển thị`}</p>
+                <h2 className="text-base font-semibold">{f("Hội thoại")}</h2>
+                <p className="text-xs text-muted-foreground">{inboxListSettling ? f("Đang tải luồng hội thoại") : f("{count} luồng đang hiển thị", { count: conversations.length })}</p>
               </div>
-              <Button type="button" variant="outline" size="sm" className="min-h-10 shrink-0" onClick={() => inbox.refetch()} disabled={inbox.isFetching} aria-label="Tải lại hội thoại Facebook">
+              <Button type="button" variant="outline" size="sm" className="min-h-10 shrink-0" onClick={() => inbox.refetch()} disabled={inbox.isFetching} aria-label={f("Tải lại hội thoại Facebook")}>
                 <RefreshCw className={cn("h-4 w-4", inbox.isFetching && "animate-spin")} />
               </Button>
             </div>
@@ -365,8 +362,8 @@ export default function FacebookMessengerInbox() {
 
           <div className={cn("min-w-0 flex-col gap-3 md:flex", !mobileDetailOpen && "hidden md:flex")}>
             <MessageThread conversation={selectedConversation} onBack={() => setMobileDetailOpen(false)} />
-            <form onSubmit={handleSubmit} className="min-w-0 rounded-xl border bg-card p-3 shadow-sm sm:p-4" aria-label="Soạn trả lời Messenger">
-              <label htmlFor="facebook-messenger-composer" className="text-sm font-medium">Nội dung trả lời</label>
+            <form onSubmit={handleSubmit} className="min-w-0 rounded-xl border bg-card p-3 shadow-sm sm:p-4" aria-label={f("Soạn trả lời Messenger")}>
+              <label htmlFor="facebook-messenger-composer" className="text-sm font-medium">{f("Nội dung trả lời")}</label>
               <Textarea
                 id="facebook-messenger-composer"
                 value={messageText}
@@ -375,18 +372,18 @@ export default function FacebookMessengerInbox() {
                   setMessageText(event.target.value.slice(0, 2000));
                 }}
                 disabled={composerDisabled}
-                placeholder={disabledReason || "Nhập phản hồi Messenger..."}
+                placeholder={disabledReason || f("Nhập phản hồi Messenger...")}
                 className="mt-2 min-h-24 resize-y break-words"
                 aria-describedby="facebook-messenger-composer-help"
               />
               <div id="facebook-messenger-composer-help" className="mt-2 flex min-w-0 flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-                <span className="min-w-0 break-words">{disabledReason || "Tối đa 2.000 ký tự. Gửi qua server, không hiển thị optimistic state."}</span>
+                <span className="min-w-0 break-words">{disabledReason || f("Tối đa 2.000 ký tự. Gửi qua server, không hiển thị optimistic state.")}</span>
                 <span>{messageText.trim().length}/2000</span>
               </div>
               <div className="mt-3 flex justify-end">
                 <Button type="submit" disabled={composerDisabled} className="min-h-11 min-w-28">
                   {isSending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
-                  {isSending ? "Đang gửi" : "Gửi"}
+                  {isSending ? f("Đang gửi") : f("Gửi")}
                 </Button>
               </div>
             </form>

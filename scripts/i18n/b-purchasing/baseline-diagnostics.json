@@ -1,0 +1,337 @@
+{
+  "mode": "current",
+  "noEmit": true,
+  "errors": 55,
+  "diagnostics": [
+    {
+      "file": "src/components/dialogs/AddPaymentRequestDialog.tsx",
+      "line": 566,
+      "code": 2322,
+      "message": "Type 'Record<string, unknown>' is not assignable to type 'Json'.\n  Type 'Record<string, unknown>' is missing the following properties from type 'Json[]': length, pop, push, concat, and 29 more."
+    },
+    {
+      "file": "src/hooks/useInvoices.ts",
+      "line": 283,
+      "code": 2352,
+      "message": "Conversion of type 'CreateInvoiceData' to type 'Record<string, unknown>' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.\n  Index signature for type 'string' is missing in type 'CreateInvoiceData'."
+    },
+    {
+      "file": "src/hooks/usePaymentRequests.ts",
+      "line": 318,
+      "code": 2345,
+      "message": "Argument of type '\"ensure_payment_request_receipt_queue\"' is not assignable to parameter of type '\"ensure_purchase_order_receipt_queue\" | \"generate_po_number\" | \"generate_receipt_number\" | \"generate_sku_code\" | \"record_payment_allocations\" | \"has_role\"'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 249,
+      "code": 2339,
+      "message": "Property 'error' does not exist on type 'unknown'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 249,
+      "code": 2339,
+      "message": "Property 'error' does not exist on type 'unknown'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 249,
+      "code": 2339,
+      "message": "Property 'error' does not exist on type 'unknown'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 250,
+      "code": 2339,
+      "message": "Property 'detail' does not exist on type 'unknown'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 250,
+      "code": 2339,
+      "message": "Property 'detail' does not exist on type 'unknown'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 250,
+      "code": 2339,
+      "message": "Property 'detail' does not exist on type 'unknown'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 251,
+      "code": 2339,
+      "message": "Property 'message' does not exist on type 'unknown'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 251,
+      "code": 2339,
+      "message": "Property 'message' does not exist on type 'unknown'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 251,
+      "code": 2339,
+      "message": "Property 'message' does not exist on type 'unknown'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 782,
+      "code": 2339,
+      "message": "Property 'message' does not exist on type 'unknown'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 1276,
+      "code": 2339,
+      "message": "Property 'not' does not exist on type 'LooseQueryBuilder<JsonRecord[]>'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 1546,
+      "code": 2339,
+      "message": "Property 'message' does not exist on type 'unknown'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 1607,
+      "code": 2339,
+      "message": "Property 'message' does not exist on type 'unknown'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 1753,
+      "code": 2339,
+      "message": "Property 'message' does not exist on type 'unknown'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 1754,
+      "code": 2339,
+      "message": "Property 'message' does not exist on type 'unknown'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 1759,
+      "code": 2339,
+      "message": "Property 'message' does not exist on type 'unknown'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 1760,
+      "code": 2339,
+      "message": "Property 'message' does not exist on type 'unknown'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 1857,
+      "code": 2339,
+      "message": "Property 'qtm_images' does not exist on type 'unknown'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 1858,
+      "code": 2339,
+      "message": "Property 'qtm_images' does not exist on type 'unknown'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 1860,
+      "code": 2339,
+      "message": "Property 'unc_images' does not exist on type 'unknown'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 1861,
+      "code": 2339,
+      "message": "Property 'unc_images' does not exist on type 'unknown'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 1863,
+      "code": 2339,
+      "message": "Property 'qtm_items' does not exist on type 'unknown'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 1863,
+      "code": 2339,
+      "message": "Property 'qtm_items' does not exist on type 'unknown'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 1864,
+      "code": 2339,
+      "message": "Property 'unc_items' does not exist on type 'unknown'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 1864,
+      "code": 2339,
+      "message": "Property 'unc_items' does not exist on type 'unknown'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 1875,
+      "code": 2698,
+      "message": "Spread types may only be created from object types."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 1917,
+      "code": 2339,
+      "message": "Property 'message' does not exist on type 'unknown'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 2013,
+      "code": 2339,
+      "message": "Property 'message' does not exist on type 'unknown'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 2015,
+      "code": 2339,
+      "message": "Property 'message' does not exist on type 'unknown'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 2091,
+      "code": 2339,
+      "message": "Property 'message' does not exist on type 'unknown'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 2154,
+      "code": 2339,
+      "message": "Property 'message' does not exist on type 'unknown'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 2263,
+      "code": 2339,
+      "message": "Property 'message' does not exist on type 'unknown'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 2303,
+      "code": 2339,
+      "message": "Property 'message' does not exist on type 'unknown'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 2322,
+      "code": 2339,
+      "message": "Property 'message' does not exist on type 'unknown'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 2647,
+      "code": 2339,
+      "message": "Property 'id' does not exist on type 'CostClassificationMonthlySummary'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 2648,
+      "code": 2339,
+      "message": "Property 'closing_date' does not exist on type 'CostClassificationMonthlySummary'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 2649,
+      "code": 2339,
+      "message": "Property 'unc_detail_amount' does not exist on type 'CostClassificationMonthlySummary'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 2650,
+      "code": 2339,
+      "message": "Property 'unc_declared_amount' does not exist on type 'CostClassificationMonthlySummary'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 2651,
+      "code": 2339,
+      "message": "Property 'variance_amount' does not exist on type 'CostClassificationMonthlySummary'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 2652,
+      "code": 2339,
+      "message": "Property 'qtm_opening_balance' does not exist on type 'CostClassificationMonthlySummary'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 2653,
+      "code": 2339,
+      "message": "Property 'qtm_declared_amount' does not exist on type 'CostClassificationMonthlySummary'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 2654,
+      "code": 2339,
+      "message": "Property 'qtm_spent_from_folder' does not exist on type 'CostClassificationMonthlySummary'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 2655,
+      "code": 2339,
+      "message": "Property 'qtm_closing_balance' does not exist on type 'CostClassificationMonthlySummary'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 2656,
+      "code": 2339,
+      "message": "Property 'unc_status' does not exist on type 'CostClassificationMonthlySummary'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 2656,
+      "code": 2339,
+      "message": "Property 'unc_status' does not exist on type 'CostClassificationMonthlySummary'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 2657,
+      "code": 2339,
+      "message": "Property 'qtm_status' does not exist on type 'CostClassificationMonthlySummary'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 2657,
+      "code": 2339,
+      "message": "Property 'qtm_status' does not exist on type 'CostClassificationMonthlySummary'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 2658,
+      "code": 2339,
+      "message": "Property 'status' does not exist on type 'CostClassificationMonthlySummary'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 2658,
+      "code": 2339,
+      "message": "Property 'status' does not exist on type 'CostClassificationMonthlySummary'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 3359,
+      "code": 2339,
+      "message": "Property 'uncDetail' does not exist on type '{ uncVariance?: number; qtmClosingBalance?: number; qtmClosing?: number; qtmOpening?: number; qtmDeclared?: number; qtmSpent?: number; status?: \"match\" | \"mismatch\"; }'."
+    },
+    {
+      "file": "src/pages/FinanceControl.tsx",
+      "line": 3360,
+      "code": 2339,
+      "message": "Property 'uncDeclared' does not exist on type '{ uncVariance?: number; qtmClosingBalance?: number; qtmClosing?: number; qtmOpening?: number; qtmDeclared?: number; qtmSpent?: number; status?: \"match\" | \"mismatch\"; }'."
+    },
+    {
+      "file": "src/warehouse/pages/WarehouseHome.tsx",
+      "line": 145,
+      "code": 2322,
+      "message": "Type '({ id: string; product_name: string; quantity: number; unit: string; expiry_date: string; unit_price: number; status: \"match\" | \"mismatch\" | \"extra\" | \"missing\"; originalName: string; originalQty: number; originalUnit: string; ordered_quantity: number; actual_quantity: number; line_status: string; } | { ...; })[]' is not assignable to type 'EditableItem[]'.\n  Type '{ id: string; product_name: string; quantity: number; unit: string; expiry_date: string; unit_price: number; status: \"match\" | \"mismatch\" | \"extra\" | \"missing\"; originalName: string; originalQty: number; originalUnit: string; ordered_quantity: number; actual_quantity: number; line_status: string; } | { ...; }' is not assignable to type 'EditableItem'.\n    Type '{ id: string; product_name: string; quantity: number; unit: string; expiry_date: string; unit_price: number; status: \"match\" | \"mismatch\" | \"extra\" | \"missing\"; originalName: string; originalQty: number; originalUnit: string; ordered_quantity: number; actual_quantity: number; line_status: string; }' is not assignable to type 'EditableItem'.\n      Types of property 'line_status' are incompatible.\n        Type 'string' is not assignable to type '\"du\" | \"thieu\" | \"du_thua\"'."
+    }
+  ]
+}

@@ -1,3 +1,4 @@
+import { useWarehouseCopy } from "@/i18n/useWarehouseCopy";
 import { AlertCircle, CheckCircle2, FileSpreadsheet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { KitchenImportBatch, KitchenImportRow } from "@/hooks/useKitchenInventory";
@@ -16,6 +17,7 @@ const decisionClass: Record<KitchenImportRow["approval_decision"], string> = {
 };
 
 export function ImportReviewTab({ batches, rows, loading }: ImportReviewTabProps) {
+  const c = useWarehouseCopy();
   const latestBatch = batches[0];
   const reviewRows = rows.filter((row) => row.approval_decision === "REVIEW");
 
@@ -26,20 +28,17 @@ export function ImportReviewTab({ batches, rows, loading }: ImportReviewTabProps
           <div>
             <div className="flex items-center gap-2 text-lg font-semibold">
               <FileSpreadsheet className="h-5 w-5 text-primary" />
-              Import dữ liệu kế toán T3/T4
-            </div>
+              {c("Import dữ liệu kế toán T3/T4")} </div>
             <p className="text-sm text-muted-foreground">
-              Sheet chuẩn: <span className="font-medium">01_IMPORT_REVIEW</span>. APPROVE ghi đè danh mục chuẩn; REVIEW/REJECT chỉ lưu audit.
-            </p>
+              {c("Sheet chuẩn:")} <span className="font-medium">01_IMPORT_REVIEW</span>{c(". APPROVE ghi đè danh mục chuẩn; REVIEW/REJECT chỉ lưu audit.")} </p>
           </div>
-          <Button variant="outline" disabled title="First launch uses the approved admin import script">
-            Upload XLSX
-          </Button>
+          <Button variant="outline" disabled title={c("First launch uses the approved admin import script")}>
+            {c("Upload XLSX")} </Button>
         </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-4">
-        <Metric label="Tổng dòng" value={latestBatch?.rows_total ?? 0} />
+        <Metric label={c("Tổng dòng")} value={latestBatch?.rows_total ?? 0} />
         <Metric label="APPROVE" value={latestBatch?.rows_approved ?? 0} tone="success" />
         <Metric label="REVIEW" value={latestBatch?.rows_review ?? 0} tone="warning" />
         <Metric label="REJECT" value={latestBatch?.rows_rejected ?? 0} tone="danger" />
@@ -48,42 +47,39 @@ export function ImportReviewTab({ batches, rows, loading }: ImportReviewTabProps
       {reviewRows.length > 0 && (
         <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-200">
           <AlertCircle className="mt-0.5 h-4 w-4" />
-          <span>{reviewRows.length} dòng đang cần kế toán review trước khi đưa vào danh mục chuẩn.</span>
+          <span>{reviewRows.length} {c("dòng đang cần kế toán review trước khi đưa vào danh mục chuẩn.")}</span>
         </div>
       )}
 
       <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
         <div className="border-b px-4 py-3">
-          <h3 className="font-semibold">Preview dòng import gần nhất</h3>
+          <h3 className="font-semibold">{c("Preview dòng import gần nhất")}</h3>
           <p className="text-sm text-muted-foreground">
-            Trạng thái từng dòng phản ánh kết quả staging/apply từ script import.
-          </p>
+            {c("Trạng thái từng dòng phản ánh kết quả staging/apply từ script import.")} </p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[780px] text-sm">
             <thead className="bg-muted/60 text-left text-xs uppercase tracking-wide text-muted-foreground">
               <tr>
-                <th className="px-4 py-3">Row</th>
-                <th className="px-4 py-3">Decision</th>
-                <th className="px-4 py-3">Tên chuẩn kế toán</th>
-                <th className="px-4 py-3">ĐVT</th>
-                <th className="px-4 py-3 text-right">Đơn giá</th>
-                <th className="px-4 py-3">Kết quả</th>
+                <th className="px-4 py-3">{c("Row")}</th>
+                <th className="px-4 py-3">{c("Decision")}</th>
+                <th className="px-4 py-3">{c("Tên chuẩn kế toán")}</th>
+                <th className="px-4 py-3">{c("ĐVT")}</th>
+                <th className="px-4 py-3 text-right">{c("Đơn giá")}</th>
+                <th className="px-4 py-3">{c("Kết quả")}</th>
               </tr>
             </thead>
             <tbody className="divide-y">
               {loading && (
                 <tr>
                   <td className="px-4 py-8 text-center text-muted-foreground" colSpan={6}>
-                    Đang tải dữ liệu import...
-                  </td>
+                    {c("Đang tải dữ liệu import...")} </td>
                 </tr>
               )}
               {!loading && rows.length === 0 && (
                 <tr>
                   <td className="px-4 py-8 text-center text-muted-foreground" colSpan={6}>
-                    Chưa có batch import. Chạy script admin để staging/apply workbook đã review.
-                  </td>
+                    {c("Chưa có batch import. Chạy script admin để staging/apply workbook đã review.")} </td>
                 </tr>
               )}
               {!loading && rows.map((row) => (

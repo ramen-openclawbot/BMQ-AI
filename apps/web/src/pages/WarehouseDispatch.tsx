@@ -1,3 +1,4 @@
+import { useWarehouseCopy } from "@/i18n/useWarehouseCopy";
  
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
@@ -114,13 +115,6 @@ type GoodsReceiptAutoIssue = {
   line_count: number;
 };
 
-const statusConfig: Record<DispatchStatus, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
-  pending:    { label: "Chờ xuất kho",   variant: "secondary" },
-  picked:     { label: "Đang lấy hàng",  variant: "default" },
-  dispatched: { label: "Đã xuất kho",    variant: "default" },
-  delivered:  { label: "Đã giao",        variant: "default" },
-};
-
 const statusColors: Record<DispatchStatus, string> = {
   pending:    "bg-slate-100 text-slate-700",
   picked:     "bg-blue-100 text-blue-700",
@@ -128,12 +122,6 @@ const statusColors: Record<DispatchStatus, string> = {
   delivered:  "bg-green-100 text-green-700",
 };
 
-const shortageReasons = [
-  { value: "production_defect", label: "Lỗi sản xuất" },
-  { value: "warehouse_shortage", label: "Thiếu kho" },
-  { value: "customer_change", label: "Khách đổi số lượng" },
-  { value: "other", label: "Khác" },
-];
 
 const formatVietnamDateKey = (dateKey: string | null | undefined) => {
   if (!dateKey) return "—";
@@ -146,14 +134,27 @@ const moneyNumber = (value: string) => {
   return Number.isFinite(numeric) ? numeric : 0;
 };
 
-const amountStatusLabel: Record<string, string> = {
-  temporary_po_amount: "Doanh thu tạm từ PO",
-  confirmed_dispatch_amount: "Đã xác nhận số xuất",
-  needs_sku_allocation: "Cần chọn SKU thiếu",
-  month_end_audit_adjusted: "Đã chỉnh audit cuối tháng",
-};
 
 export default function WarehouseDispatch() {
+  const c = useWarehouseCopy();
+  const amountStatusLabel: Record<string, string> = {
+    temporary_po_amount: c("Doanh thu tạm từ PO"),
+    confirmed_dispatch_amount: c("Đã xác nhận số xuất"),
+    needs_sku_allocation: c("Cần chọn SKU thiếu"),
+    month_end_audit_adjusted: c("Đã chỉnh audit cuối tháng"),
+  };
+  const shortageReasons = [
+    { value: "production_defect", label: c("Lỗi sản xuất") },
+    { value: "warehouse_shortage", label: c("Thiếu kho") },
+    { value: "customer_change", label: c("Khách đổi số lượng") },
+    { value: "other", label: c("Khác") },
+  ];
+  const statusConfig: Record<DispatchStatus, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
+    pending:    { label: c("Chờ xuất kho"),   variant: "secondary" },
+    picked:     { label: c("Đang lấy hàng"),  variant: "default" },
+    dispatched: { label: c("Đã xuất kho"),    variant: "default" },
+    delivered:  { label: c("Đã giao"),        variant: "default" },
+  };
   const { toast } = useToast();
   const { canEditModule } = useAuth();
   const queryClient = useQueryClient();
@@ -440,8 +441,8 @@ export default function WarehouseDispatch() {
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      if (!selectedPoId) throw new Error("Vui lòng chọn đơn hàng bán");
-      if (!formItems.length) throw new Error("Không có sản phẩm nào để xuất");
+      if (!selectedPoId) throw new Error(c("Vui lòng chọn đơn hàng bán"));
+      if (!formItems.length) throw new Error(c("Không có sản phẩm nào để xuất"));
 
       const { data: existingConfirmation, error: existingConfirmationErr } = await (supabase as any)
         .from("po_dispatch_revenue_confirmations")
@@ -451,15 +452,15 @@ export default function WarehouseDispatch() {
         .maybeSingle();
       if (existingConfirmationErr) throw existingConfirmationErr;
       if (existingConfirmation?.id) {
-        throw new Error("PO này đã có xác nhận số xuất/doanh thu. Vui lòng mở bản xác nhận hiện có hoặc revise thay vì tạo phiếu mới để tránh cộng trùng công nợ.");
+        throw new Error(c("PO này đã có xác nhận số xuất/doanh thu. Vui lòng mở bản xác nhận hiện có hoặc revise thay vì tạo phiếu mới để tránh cộng trùng công nợ."));
       }
 
       const itemsToDispatch = formItems.filter((i) => i.dispatch_qty > 0);
-      if (!itemsToDispatch.length) throw new Error("Số lượng xuất phải lớn hơn 0");
+      if (!itemsToDispatch.length) throw new Error(c("Số lượng xuất phải lớn hơn 0"));
 
       // Check over-dispatch
       const over = itemsToDispatch.find((i) => i.dispatch_qty > i.available_qty);
-      if (over) throw new Error(`Tồn kho không đủ: ${over.product_name} chỉ còn ${over.available_qty} ${over.unit}`);
+      if (over) throw new Error(c("insufficientStock", { name: over.product_name, count: over.available_qty, unit: over.unit }));
 
       // Generate XK number
       const dateStr = format(new Date(), "yyyyMMdd");
@@ -580,14 +581,14 @@ export default function WarehouseDispatch() {
       queryClient.invalidateQueries({ queryKey: ["warehouse_dispatches"] });
       queryClient.invalidateQueries({ queryKey: ["warehouse_dispatch_items"] });
       toast({
-        title: "Tạo phiếu xuất kho thành công",
-        description: amountStatusLabel[confirmation?.amount_status] || "Doanh thu tạm từ PO",
+        title: c("Tạo phiếu xuất kho thành công"),
+        description: amountStatusLabel[confirmation?.amount_status] || c("Doanh thu tạm từ PO"),
       });
       setCreateOpen(false);
       resetForm();
     },
     onError: (e: any) => {
-      toast({ title: "Lỗi tạo phiếu", description: e?.message, variant: "destructive" });
+      toast({ title: c("Lỗi tạo phiếu"), description: e?.message, variant: "destructive" });
     },
   });
 
@@ -641,15 +642,15 @@ export default function WarehouseDispatch() {
       queryClient.invalidateQueries({ queryKey: ["warehouse_dispatches"] });
       queryClient.invalidateQueries({ queryKey: ["inventory_finished_goods"] });
       const msgs: Record<string, string> = {
-        picked: "Bắt đầu lấy hàng",
-        dispatched: "Đã xuất kho — tồn kho thành phẩm đã được trừ",
-        delivered: "Xác nhận giao hàng thành công",
+        picked: c("Bắt đầu lấy hàng"),
+        dispatched: c("Đã xuất kho — tồn kho thành phẩm đã được trừ"),
+        delivered: c("Xác nhận giao hàng thành công"),
       };
-      toast({ title: msgs[newStatus] || "Cập nhật thành công" });
+      toast({ title: msgs[newStatus] || c("Cập nhật thành công") });
       setDetailOpen(false);
     },
     onError: (e: any) => {
-      toast({ title: "Lỗi cập nhật", description: e?.message, variant: "destructive" });
+      toast({ title: c("Lỗi cập nhật"), description: e?.message, variant: "destructive" });
     },
   });
 
@@ -685,6 +686,7 @@ export default function WarehouseDispatch() {
     <div
       className="min-h-[calc(100vh-4rem)] space-y-4 bg-background pb-8 text-foreground md:space-y-6"
       data-bmq-warehouse-dispatch-theme="app-light"
+      data-bmq-warehouse-i18n="v1"
     >
       {/* Header */}
       <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-card">
@@ -692,13 +694,11 @@ export default function WarehouseDispatch() {
           <div className="space-y-5">
             <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-1.5 text-xs font-semibold text-primary">
               <Truck className="h-3.5 w-3.5" />
-              Quản lý kho · Thành phẩm và PXK tự động
-            </div>
+              {c("Quản lý kho · Thành phẩm và PXK tự động")} </div>
             <div className="space-y-2">
-              <h1 className="font-display text-3xl font-bold tracking-tight md:text-4xl">Xuất kho</h1>
+              <h1 className="font-display text-3xl font-bold tracking-tight md:text-4xl">{c("Xuất kho")}</h1>
               <p className="max-w-3xl text-sm leading-6 text-muted-foreground md:text-base">
-                Tách rõ phiếu xuất thành phẩm để tính công nợ và PXK tự động 1:1 từ phiếu nhập để kiểm tra audit.
-              </p>
+                {c("Tách rõ phiếu xuất thành phẩm để tính công nợ và PXK tự động 1:1 từ phiếu nhập để kiểm tra audit.")} </p>
             </div>
             <div className="flex flex-wrap gap-3">
               <Button
@@ -708,8 +708,7 @@ export default function WarehouseDispatch() {
                   ? "rounded-xl bg-primary px-4 py-5 font-semibold text-primary-foreground shadow-warm hover:bg-primary/90"
                   : "rounded-xl border border-border bg-background px-4 py-5 font-semibold text-foreground hover:bg-muted"}
               >
-                <PackageCheck className="mr-2 h-5 w-5" /> Thành phẩm
-              </Button>
+                <PackageCheck className="mr-2 h-5 w-5" /> {c("Thành phẩm")} </Button>
               <Button
                 type="button"
                 onClick={() => setActiveWorkflow("auto")}
@@ -717,26 +716,25 @@ export default function WarehouseDispatch() {
                   ? "rounded-xl bg-primary px-4 py-5 font-semibold text-primary-foreground shadow-warm hover:bg-primary/90"
                   : "rounded-xl border border-border bg-background px-4 py-5 font-semibold text-foreground hover:bg-muted"}
               >
-                <Bot className="mr-2 h-5 w-5" /> PXK tự động
-              </Button>
+                <Bot className="mr-2 h-5 w-5" /> {c("PXK tự động")} </Button>
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-2xl border border-border bg-muted/40 p-4">
-              <p className="text-xs text-muted-foreground">Phiếu TP</p>
+              <p className="text-xs text-muted-foreground">{c("Phiếu TP")}</p>
               <p className="mt-2 text-3xl font-bold">{dispatches.length}</p>
             </div>
             <div className="rounded-2xl border border-border bg-muted/40 p-4">
-              <p className="text-xs text-muted-foreground">Chờ xuất</p>
+              <p className="text-xs text-muted-foreground">{c("Chờ xuất")}</p>
               <p className="mt-2 text-3xl font-bold text-warning-foreground">{stats.pending}</p>
             </div>
             <div className="rounded-2xl border border-border bg-muted/40 p-4">
-              <p className="text-xs text-muted-foreground">Đã xuất</p>
+              <p className="text-xs text-muted-foreground">{c("Đã xuất")}</p>
               <p className="mt-2 text-3xl font-bold text-emerald-700">{stats.dispatched}</p>
             </div>
             <div className="rounded-2xl border border-border bg-muted/40 p-4">
-              <p className="text-xs text-muted-foreground">PXK tự động</p>
+              <p className="text-xs text-muted-foreground">{c("PXK tự động")}</p>
               <p className="mt-2 text-3xl font-bold text-primary">{autoIssues.length}</p>
             </div>
           </div>
@@ -750,13 +748,11 @@ export default function WarehouseDispatch() {
               <CardHeader className="gap-4 pb-3 md:flex-row md:items-center md:justify-between">
                 <div>
                   <CardTitle className="flex items-center gap-2 text-2xl">
-                    <PackageCheck className="h-6 w-6 text-primary" /> Phiếu xuất thành phẩm
-                  </CardTitle>
-                  <p className="mt-1 text-sm text-muted-foreground">PO bán hàng → số xuất thực tế → số tính công nợ.</p>
+                    <PackageCheck className="h-6 w-6 text-primary" /> {c("Phiếu xuất thành phẩm")} </CardTitle>
+                  <p className="mt-1 text-sm text-muted-foreground">{c("PO bán hàng → số xuất thực tế → số tính công nợ.")}</p>
                 </div>
                 <Button onClick={() => setCreateOpen(true)} className="rounded-xl bg-primary font-semibold text-primary-foreground hover:bg-primary/90">
-                  <Plus className="mr-2 h-4 w-4" /> Tạo phiếu thành phẩm
-                </Button>
+                  <Plus className="mr-2 h-4 w-4" /> {c("Tạo phiếu thành phẩm")} </Button>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -775,18 +771,18 @@ export default function WarehouseDispatch() {
 
                 <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)}>
                   <TabsList className="flex h-auto flex-wrap justify-start gap-2 bg-muted/40 p-1">
-                    <TabsTrigger value="all">Tất cả ({dispatches.length})</TabsTrigger>
-                    <TabsTrigger value="pending">Chờ xuất ({stats.pending})</TabsTrigger>
-                    <TabsTrigger value="picked">Đang lấy ({stats.picked})</TabsTrigger>
-                    <TabsTrigger value="dispatched">Đã xuất ({stats.dispatched})</TabsTrigger>
-                    <TabsTrigger value="delivered">Đã giao ({stats.delivered})</TabsTrigger>
+                    <TabsTrigger value="all">{c("Tất cả (")}{dispatches.length})</TabsTrigger>
+                    <TabsTrigger value="pending">{c("Chờ xuất (")}{stats.pending})</TabsTrigger>
+                    <TabsTrigger value="picked">{c("Đang lấy (")}{stats.picked})</TabsTrigger>
+                    <TabsTrigger value="dispatched">{c("Đã xuất (")}{stats.dispatched})</TabsTrigger>
+                    <TabsTrigger value="delivered">{c("Đã giao (")}{stats.delivered})</TabsTrigger>
                   </TabsList>
                 </Tabs>
 
                 {filtered.length === 0 ? (
                   <div className="rounded-2xl border border-dashed border-border py-12 text-center text-muted-foreground">
                     <Truck className="mx-auto mb-3 h-10 w-10 opacity-40" />
-                    <p>Không có phiếu xuất thành phẩm nào</p>
+                    <p>{c("Không có phiếu xuất thành phẩm nào")}</p>
                   </div>
                 ) : (
                   <div className="space-y-3 md:hidden">
@@ -795,15 +791,15 @@ export default function WarehouseDispatch() {
                         <div className="flex items-start justify-between gap-3">
                           <div>
                             <p className="font-mono text-sm font-bold text-primary">{d.dispatch_number}</p>
-                            <p className="mt-1 text-sm text-muted-foreground">{d.customer_name ?? d.customer_id ?? "Chưa có khách hàng"}</p>
+                            <p className="mt-1 text-sm text-muted-foreground">{d.customer_name ?? d.customer_id ?? c("Chưa có khách hàng")}</p>
                           </div>
                           <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${statusColors[d.status as DispatchStatus]}`}>
                             {statusConfig[d.status as DispatchStatus]?.label ?? d.status}
                           </span>
                         </div>
                         <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-                          <span>Ngày xuất: {d.dispatch_date ? format(new Date(d.dispatch_date), "dd/MM/yyyy") : "—"}</span>
-                          <span>Ngày giao: {d.delivered_date ? format(new Date(d.delivered_date), "dd/MM/yyyy") : "—"}</span>
+                          <span>{c("Ngày xuất:")} {d.dispatch_date ? format(new Date(d.dispatch_date), "dd/MM/yyyy") : "—"}</span>
+                          <span>{c("Ngày giao:")} {d.delivered_date ? format(new Date(d.delivered_date), "dd/MM/yyyy") : "—"}</span>
                         </div>
                       </button>
                     ))}
@@ -815,13 +811,13 @@ export default function WarehouseDispatch() {
                     <Table>
                       <TableHeader>
                         <TableRow className="border-border bg-muted/40 hover:bg-muted/40">
-                          <TableHead className="text-muted-foreground">Mã phiếu XK</TableHead>
-                          <TableHead className="text-muted-foreground">Khách hàng</TableHead>
-                          <TableHead className="text-muted-foreground">Ngày xuất</TableHead>
-                          <TableHead className="text-muted-foreground">Ngày giao</TableHead>
-                          <TableHead className="text-muted-foreground">Trạng thái</TableHead>
-                          <TableHead className="text-muted-foreground">Ghi chú</TableHead>
-                          <TableHead className="text-right text-muted-foreground">Thao tác</TableHead>
+                          <TableHead className="text-muted-foreground">{c("Mã phiếu XK")}</TableHead>
+                          <TableHead className="text-muted-foreground">{c("Khách hàng")}</TableHead>
+                          <TableHead className="text-muted-foreground">{c("Ngày xuất")}</TableHead>
+                          <TableHead className="text-muted-foreground">{c("Ngày giao")}</TableHead>
+                          <TableHead className="text-muted-foreground">{c("Trạng thái")}</TableHead>
+                          <TableHead className="text-muted-foreground">{c("Ghi chú")}</TableHead>
+                          <TableHead className="text-right text-muted-foreground">{c("Thao tác")}</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -838,7 +834,7 @@ export default function WarehouseDispatch() {
                             </TableCell>
                             <TableCell className="max-w-[200px] truncate text-sm text-muted-foreground">{d.notes ?? "—"}</TableCell>
                             <TableCell className="text-right">
-                              <Button variant="ghost" size="sm" className="text-foreground hover:bg-muted hover:text-foreground" onClick={(e) => { e.stopPropagation(); openDetail(d); }}>Chi tiết</Button>
+                              <Button variant="ghost" size="sm" className="text-foreground hover:bg-muted hover:text-foreground" onClick={(e) => { e.stopPropagation(); openDetail(d); }}>{c("Chi tiết")}</Button>
                             </TableCell>
                           </TableRow>
                         ))}
@@ -853,21 +849,21 @@ export default function WarehouseDispatch() {
           <div className="space-y-5">
             <Card className="border-border bg-card text-foreground shadow-card">
               <CardHeader>
-                <CardTitle className="text-xl">Nguyên tắc công nợ</CardTitle>
+                <CardTitle className="text-xl">{c("Nguyên tắc công nợ")}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3 text-sm text-muted-foreground">
-                <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-4 text-emerald-800">Công nợ lấy theo <b>số tính tiền đã xác nhận</b>, không lấy mù theo PO nếu có thiếu/lỗi.</div>
-                <div className="rounded-2xl border border-border bg-muted/40 p-4">PO → Phiếu xuất thành phẩm → Xác nhận doanh thu/công nợ → Đối chiếu cuối tháng.</div>
-                <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 p-4 text-amber-800">Nếu thiếu hàng, bắt buộc chọn SKU thiếu và lý do để tránh cộng trùng công nợ.</div>
+                <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-4 text-emerald-800">{c("Công nợ lấy theo")} <b>{c("số tính tiền đã xác nhận")}</b>{c(", không lấy mù theo PO nếu có thiếu/lỗi.")}</div>
+                <div className="rounded-2xl border border-border bg-muted/40 p-4">{c("PO → Phiếu xuất thành phẩm → Xác nhận doanh thu/công nợ → Đối chiếu cuối tháng.")}</div>
+                <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 p-4 text-amber-800">{c("Nếu thiếu hàng, bắt buộc chọn SKU thiếu và lý do để tránh cộng trùng công nợ.")}</div>
               </CardContent>
             </Card>
             <Card className="border-border bg-card text-foreground shadow-card">
               <CardHeader>
-                <CardTitle className="text-xl">Phiếu đang nhập</CardTitle>
+                <CardTitle className="text-xl">{c("Phiếu đang nhập")}</CardTitle>
               </CardHeader>
               <CardContent className="grid grid-cols-2 gap-3 text-sm">
-                <div className="rounded-2xl border border-border bg-muted/40 p-4"><p className="text-muted-foreground">Tổng xuất</p><b className="text-2xl">{totalDispatchQty.toLocaleString("vi-VN")}</b></div>
-                <div className="rounded-2xl border border-border bg-muted/40 p-4"><p className="text-muted-foreground">Tính công nợ</p><b className="text-2xl">{totalBillableQty.toLocaleString("vi-VN")}</b></div>
+                <div className="rounded-2xl border border-border bg-muted/40 p-4"><p className="text-muted-foreground">{c("Tổng xuất")}</p><b className="text-2xl">{totalDispatchQty.toLocaleString("vi-VN")}</b></div>
+                <div className="rounded-2xl border border-border bg-muted/40 p-4"><p className="text-muted-foreground">{c("Tính công nợ")}</p><b className="text-2xl">{totalBillableQty.toLocaleString("vi-VN")}</b></div>
               </CardContent>
             </Card>
           </div>
@@ -877,15 +873,12 @@ export default function WarehouseDispatch() {
           <CardHeader className="gap-4 md:flex-row md:items-start md:justify-between">
             <div>
               <CardTitle className="flex items-center gap-2 text-xl md:text-2xl">
-                <Bot className="h-6 w-6 text-primary" /> PXK tự động từ phiếu nhập
-              </CardTitle>
+                <Bot className="h-6 w-6 text-primary" /> {c("PXK tự động từ phiếu nhập")} </CardTitle>
               <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                Chứng từ 1:1 do hệ thống tạo ngay khi hoàn tất nhập kho. Đây là dữ liệu audit chỉ đọc, không ảnh hưởng luồng xuất thành phẩm giao khách.
-              </p>
+                {c("Chứng từ 1:1 do hệ thống tạo ngay khi hoàn tất nhập kho. Đây là dữ liệu audit chỉ đọc, không ảnh hưởng luồng xuất thành phẩm giao khách.")} </p>
             </div>
             <Badge variant="outline" className="shrink-0 whitespace-nowrap border-primary/25 bg-primary/5 text-primary">
-              <Bot className="mr-1 h-3.5 w-3.5" /> Hệ thống tự động
-            </Badge>
+              <Bot className="mr-1 h-3.5 w-3.5" /> {c("Hệ thống tự động")} </Badge>
           </CardHeader>
           <CardContent className="space-y-4">
             {loadingAutoIssues ? (
@@ -895,17 +888,16 @@ export default function WarehouseDispatch() {
             ) : autoIssuesError ? (
               <div className="rounded-2xl border border-red-300/25 bg-red-500/10 px-5 py-10 text-center text-red-800">
                 <AlertTriangle className="mx-auto mb-3 h-9 w-9 text-red-600" />
-                <p className="font-semibold">Không tải được PXK tự động</p>
-                <p className="mt-1 text-sm text-red-700">Dữ liệu chưa được kết luận là trống. Vui lòng thử tải lại.</p>
+                <p className="font-semibold">{c("Không tải được PXK tự động")}</p>
+                <p className="mt-1 text-sm text-red-700">{c("Dữ liệu chưa được kết luận là trống. Vui lòng thử tải lại.")}</p>
                 <Button type="button" variant="outline" className="mt-4 border-red-300 bg-background text-red-700 hover:bg-red-50 hover:text-red-800" onClick={() => void refetchAutoIssues()}>
-                  <RefreshCw className="mr-2 h-4 w-4" /> Tải lại
-                </Button>
+                  <RefreshCw className="mr-2 h-4 w-4" /> {c("Tải lại")} </Button>
               </div>
             ) : autoIssues.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-border px-5 py-12 text-center text-muted-foreground">
                 <Bot className="mx-auto mb-3 h-10 w-10 opacity-40" />
-                <p className="font-medium text-muted-foreground">Chưa có PXK tự động</p>
-                <p className="mt-1 text-sm">Phiếu đầu tiên sẽ xuất hiện khi một phiếu nhập mới được hoàn tất sau thời điểm triển khai.</p>
+                <p className="font-medium text-muted-foreground">{c("Chưa có PXK tự động")}</p>
+                <p className="mt-1 text-sm">{c("Phiếu đầu tiên sẽ xuất hiện khi một phiếu nhập mới được hoàn tất sau thời điểm triển khai.")}</p>
               </div>
             ) : (
               <>
@@ -920,14 +912,14 @@ export default function WarehouseDispatch() {
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <p className="truncate font-mono text-sm font-bold text-primary">{issue.issue_number}</p>
-                          <p className="mt-1 truncate text-sm text-muted-foreground">PNK: {issue.receipt_number}</p>
+                          <p className="mt-1 truncate text-sm text-muted-foreground">{c("PNK:")} {issue.receipt_number}</p>
                         </div>
-                        <Badge variant="outline" className="shrink-0 border-emerald-300/30 bg-emerald-500/10 text-emerald-700">Đã ghi sổ</Badge>
+                        <Badge variant="outline" className="shrink-0 border-emerald-300/30 bg-emerald-500/10 text-emerald-700">{c("Đã ghi sổ")}</Badge>
                       </div>
                       <p className="mt-3 truncate text-sm text-muted-foreground">{issue.supplier_name}</p>
                       <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-                        <span>Ngày giờ tạo: {format(new Date(issue.created_at), "dd/MM/yyyy HH:mm")}</span>
-                        <span className="text-right">{issue.line_count} dòng · {issue.total_quantity.toLocaleString("vi-VN", { maximumFractionDigits: 3 })}</span>
+                        <span>{c("Ngày giờ tạo:")} {format(new Date(issue.created_at), "dd/MM/yyyy HH:mm")}</span>
+                        <span className="text-right">{issue.line_count} {c("dòng ·")} {issue.total_quantity.toLocaleString("vi-VN", { maximumFractionDigits: 3 })}</span>
                       </div>
                     </button>
                   ))}
@@ -937,14 +929,14 @@ export default function WarehouseDispatch() {
                   <Table className="min-w-[1080px]">
                     <TableHeader>
                       <TableRow className="border-border bg-muted/40 hover:bg-muted/40">
-                        <TableHead className="text-muted-foreground">Mã PXK</TableHead>
-                        <TableHead className="text-muted-foreground">Phiếu nhập nguồn</TableHead>
-                        <TableHead className="text-muted-foreground">Nhà cung cấp</TableHead>
-                        <TableHead className="text-muted-foreground">Ngày giờ tạo</TableHead>
-                        <TableHead className="text-right text-muted-foreground">Số dòng</TableHead>
-                        <TableHead className="text-right text-muted-foreground">Tổng số lượng</TableHead>
-                        <TableHead className="text-muted-foreground">Trạng thái</TableHead>
-                        <TableHead className="text-right text-muted-foreground">Thao tác</TableHead>
+                        <TableHead className="text-muted-foreground">{c("Mã PXK")}</TableHead>
+                        <TableHead className="text-muted-foreground">{c("Phiếu nhập nguồn")}</TableHead>
+                        <TableHead className="text-muted-foreground">{c("Nhà cung cấp")}</TableHead>
+                        <TableHead className="text-muted-foreground">{c("Ngày giờ tạo")}</TableHead>
+                        <TableHead className="text-right text-muted-foreground">{c("Số dòng")}</TableHead>
+                        <TableHead className="text-right text-muted-foreground">{c("Tổng số lượng")}</TableHead>
+                        <TableHead className="text-muted-foreground">{c("Trạng thái")}</TableHead>
+                        <TableHead className="text-right text-muted-foreground">{c("Thao tác")}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -957,12 +949,11 @@ export default function WarehouseDispatch() {
                           <TableCell className="text-right">{issue.line_count}</TableCell>
                           <TableCell className="text-right font-semibold">{issue.total_quantity.toLocaleString("vi-VN", { maximumFractionDigits: 3 })}</TableCell>
                           <TableCell>
-                            <Badge variant="outline" className="whitespace-nowrap border-emerald-300/30 bg-emerald-500/10 text-emerald-700">Hệ thống tự động</Badge>
+                            <Badge variant="outline" className="whitespace-nowrap border-emerald-300/30 bg-emerald-500/10 text-emerald-700">{c("Hệ thống tự động")}</Badge>
                           </TableCell>
                           <TableCell className="text-right">
                             <Button variant="ghost" size="sm" className="text-foreground hover:bg-muted hover:text-foreground" onClick={(event) => { event.stopPropagation(); setSelectedAutoIssue(issue); }}>
-                              <Eye className="mr-1 h-4 w-4" /> Chi tiết
-                            </Button>
+                              <Eye className="mr-1 h-4 w-4" /> {c("Chi tiết")} </Button>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -980,32 +971,31 @@ export default function WarehouseDispatch() {
         <DialogContent className="max-h-[85vh] max-w-3xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Bot className="h-5 w-5 text-sky-600" /> Chi tiết PXK tự động
-            </DialogTitle>
+              <Bot className="h-5 w-5 text-sky-600" /> {c("Chi tiết PXK tự động")} </DialogTitle>
           </DialogHeader>
           {selectedAutoIssue && (
             <div className="space-y-5">
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-sky-200 bg-sky-50 p-4 text-sky-950">
                 <div>
                   <p className="font-mono text-lg font-bold">{selectedAutoIssue.issue_number}</p>
-                  <p className="mt-1 text-sm text-sky-800">Nguồn: {selectedAutoIssue.receipt_number} · {selectedAutoIssue.supplier_name}</p>
+                  <p className="mt-1 text-sm text-sky-800">{c("Nguồn:")} {selectedAutoIssue.receipt_number} · {selectedAutoIssue.supplier_name}</p>
                 </div>
-                <Badge variant="outline" className="border-sky-300 bg-white text-sky-800">Chứng từ chỉ đọc</Badge>
+                <Badge variant="outline" className="border-sky-300 bg-white text-sky-800">{c("Chứng từ chỉ đọc")}</Badge>
               </div>
 
               <div className="grid gap-3 text-sm sm:grid-cols-3">
-                <div className="rounded-xl border p-3"><p className="text-xs text-muted-foreground">Ngày giờ tạo</p><p className="mt-1 font-medium">{format(new Date(selectedAutoIssue.created_at), "dd/MM/yyyy HH:mm")}</p></div>
-                <div className="rounded-xl border p-3"><p className="text-xs text-muted-foreground">Số dòng</p><p className="mt-1 font-medium">{selectedAutoIssue.line_count}</p></div>
-                <div className="rounded-xl border p-3"><p className="text-xs text-muted-foreground">Tổng số lượng</p><p className="mt-1 font-medium">{selectedAutoIssue.total_quantity.toLocaleString("vi-VN", { maximumFractionDigits: 3 })}</p></div>
+                <div className="rounded-xl border p-3"><p className="text-xs text-muted-foreground">{c("Ngày giờ tạo")}</p><p className="mt-1 font-medium">{format(new Date(selectedAutoIssue.created_at), "dd/MM/yyyy HH:mm")}</p></div>
+                <div className="rounded-xl border p-3"><p className="text-xs text-muted-foreground">{c("Số dòng")}</p><p className="mt-1 font-medium">{selectedAutoIssue.line_count}</p></div>
+                <div className="rounded-xl border p-3"><p className="text-xs text-muted-foreground">{c("Tổng số lượng")}</p><p className="mt-1 font-medium">{selectedAutoIssue.total_quantity.toLocaleString("vi-VN", { maximumFractionDigits: 3 })}</p></div>
               </div>
 
               <div className="overflow-x-auto rounded-xl border">
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-muted/40">
-                      <TableHead>Sản phẩm</TableHead>
-                      <TableHead className="text-right">Số lượng</TableHead>
-                      <TableHead>ĐVT</TableHead>
+                      <TableHead>{c("Sản phẩm")}</TableHead>
+                      <TableHead className="text-right">{c("Số lượng")}</TableHead>
+                      <TableHead>{c("ĐVT")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1018,13 +1008,13 @@ export default function WarehouseDispatch() {
                     ))}
                     {!selectedAutoIssueItems.length && (
                       <TableRow>
-                        <TableCell colSpan={3} className="py-4 text-center text-muted-foreground">Không có sản phẩm</TableCell>
+                        <TableCell colSpan={3} className="py-4 text-center text-muted-foreground">{c("Không có sản phẩm")}</TableCell>
                       </TableRow>
                     )}
                   </TableBody>
                 </Table>
               </div>
-              <div className="flex justify-end"><Button variant="outline" onClick={() => setSelectedAutoIssue(null)}>Đóng</Button></div>
+              <div className="flex justify-end"><Button variant="outline" onClick={() => setSelectedAutoIssue(null)}>{c("Đóng")}</Button></div>
             </div>
           )}
         </DialogContent>
@@ -1035,7 +1025,7 @@ export default function WarehouseDispatch() {
         <DialogContent className="max-w-6xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Truck className="h-5 w-5" /> {dispatchReason === "short_delivery" ? "Xử lý giao thiếu từ ledger" : "Tạo phiếu xuất kho"}
+              <Truck className="h-5 w-5" /> {dispatchReason === "short_delivery" ? c("Xử lý giao thiếu từ ledger") : c("Tạo phiếu xuất kho")}
             </DialogTitle>
           </DialogHeader>
 
@@ -1043,24 +1033,24 @@ export default function WarehouseDispatch() {
             {/* Select Sales PO */}
             <div className="space-y-1.5">
               <label className="text-sm font-medium">
-                Đơn hàng bán (Sales PO) <span className="text-destructive">*</span>
+                {c("Đơn hàng bán (Sales PO)")} <span className="text-destructive">*</span>
               </label>
               <p className="text-xs text-muted-foreground">
                 {dispatchPoId
-                  ? "Mở từ ledger cho case PO đặt nhưng thực tế giao không đủ. Nhập số xuất/số đạt/số tính tiền; nếu thiếu phải chọn SKU thiếu để tránh cộng trùng công nợ."
-                  : "Hiển thị PO có ngày giao trong 3 ngày trước ngày xuất kho"}
+                  ? c("Mở từ ledger cho case PO đặt nhưng thực tế giao không đủ. Nhập số xuất/số đạt/số tính tiền; nếu thiếu phải chọn SKU thiếu để tránh cộng trùng công nợ.")
+                  : c("Hiển thị PO có ngày giao trong 3 ngày trước ngày xuất kho")}
                 {!dispatchPoId && dispatchDate && (
                   <> ({format(subDays(new Date(dispatchDate), 3), "dd/MM")} — {format(subDays(new Date(dispatchDate), 1), "dd/MM")})</>
                 )}
               </p>
               <Select value={selectedPoId} onValueChange={handleSelectPO}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Chọn đơn hàng cần xuất kho..." />
+                  <SelectValue placeholder={c("Chọn đơn hàng cần xuất kho...")} />
                 </SelectTrigger>
                 <SelectContent>
                   {salesPOs.length === 0 && (
                     <div className="px-3 py-2 text-sm text-muted-foreground">
-                      Không có đơn hàng nào trong khoảng{" "}
+                      {c("Không có đơn hàng nào trong khoảng")}{" "}
                       {dispatchDate && `${format(subDays(new Date(dispatchDate), 3), "dd/MM")} – ${format(subDays(new Date(dispatchDate), 1), "dd/MM")}`}
                     </div>
                   )}
@@ -1069,7 +1059,7 @@ export default function WarehouseDispatch() {
                       <span className="font-medium">{po.po_number ?? po.id.slice(0, 8)}</span>
                       <span className="ml-2 text-muted-foreground text-xs">— {po.from_name}</span>
                       {po.delivery_date && (
-                        <span className="ml-2 text-muted-foreground text-xs">| Giao: {format(new Date(po.delivery_date), "dd/MM")}</span>
+                        <span className="ml-2 text-muted-foreground text-xs">{c("| Giao:")} {format(new Date(po.delivery_date), "dd/MM")}</span>
                       )}
                     </SelectItem>
                   ))}
@@ -1077,8 +1067,8 @@ export default function WarehouseDispatch() {
               </Select>
               {selectedPO && (
                 <p className="text-xs text-muted-foreground">
-                  Khách: <strong>{selectedPO.from_name}</strong>
-                  {selectedPO.delivery_date && ` · Ngày giao: ${format(new Date(selectedPO.delivery_date), "dd/MM/yyyy")}`}
+                  {c("Khách:")} <strong>{selectedPO.from_name}</strong>
+                  {selectedPO.delivery_date && c("deliveryDateSuffix", { date: format(new Date(selectedPO.delivery_date), "dd/MM/yyyy") })}
                 </p>
               )}
             </div>
@@ -1087,17 +1077,17 @@ export default function WarehouseDispatch() {
             {formItems.length > 0 && (
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <label className="text-sm font-medium">Sản phẩm xuất kho</label>
+                  <label className="text-sm font-medium">{c("Sản phẩm xuất kho")}</label>
                   <div className="flex flex-wrap gap-2">
-                    <Badge variant="outline">Doanh thu tạm từ PO</Badge>
+                    <Badge variant="outline">{c("Doanh thu tạm từ PO")}</Badge>
                     {formItems.some((i) => i.ordered_qty > i.billable_qty || i.ordered_qty > i.produced_qty || i.defect_qty > 0) ? (
                       <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-700">
                         {formItems.some((i) => (i.ordered_qty > i.billable_qty || i.ordered_qty > i.produced_qty || i.defect_qty > 0) && !i.shortage_sku)
-                          ? "Cần chọn SKU thiếu"
-                          : "Đã xác nhận số xuất"}
+                          ? c("Cần chọn SKU thiếu")
+                          : c("Đã xác nhận số xuất")}
                       </Badge>
                     ) : (
-                      <Badge variant="secondary">Đã xác nhận số xuất</Badge>
+                      <Badge variant="secondary">{c("Đã xác nhận số xuất")}</Badge>
                     )}
                   </div>
                 </div>
@@ -1105,18 +1095,18 @@ export default function WarehouseDispatch() {
                   <Table>
                     <TableHeader>
                       <TableRow className="bg-muted/40">
-                        <TableHead>Sản phẩm</TableHead>
-                        <TableHead className="text-right">Đặt (PO)</TableHead>
-                        <TableHead className="text-right">Tồn kho</TableHead>
-                        <TableHead className="text-right w-28">Số lượng XK</TableHead>
-                        <TableHead className="text-right w-28">Số bánh đạt</TableHead>
-                        <TableHead className="text-right w-28">Số lỗi/thiếu</TableHead>
-                        <TableHead className="text-right w-28">Số tính tiền</TableHead>
-                        <TableHead className="w-32">SKU thiếu</TableHead>
-                        <TableHead className="w-36">Lý do</TableHead>
-                        <TableHead className="w-40">Ghi chú</TableHead>
-                        <TableHead className="w-36">Thành tiền thực tế</TableHead>
-                        <TableHead>ĐVT</TableHead>
+                        <TableHead>{c("Sản phẩm")}</TableHead>
+                        <TableHead className="text-right">{c("Đặt (PO)")}</TableHead>
+                        <TableHead className="text-right">{c("Tồn kho")}</TableHead>
+                        <TableHead className="text-right w-28">{c("Số lượng XK")}</TableHead>
+                        <TableHead className="text-right w-28">{c("Số bánh đạt")}</TableHead>
+                        <TableHead className="text-right w-28">{c("Số lỗi/thiếu")}</TableHead>
+                        <TableHead className="text-right w-28">{c("Số tính tiền")}</TableHead>
+                        <TableHead className="w-32">{c("SKU thiếu")}</TableHead>
+                        <TableHead className="w-36">{c("Lý do")}</TableHead>
+                        <TableHead className="w-40">{c("Ghi chú")}</TableHead>
+                        <TableHead className="w-36">{c("Thành tiền thực tế")}</TableHead>
+                        <TableHead>{c("ĐVT")}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1141,7 +1131,7 @@ export default function WarehouseDispatch() {
                                 onChange={(e) => handleDispatchQtyChange(idx, e.target.value)}
                                 className={`w-24 text-right h-8 ${overStock ? "border-destructive" : ""}`}
                               />
-                              {overStock && <p className="text-[10px] text-destructive mt-0.5">Vượt tồn kho</p>}
+                              {overStock && <p className="text-[10px] text-destructive mt-0.5">{c("Vượt tồn kho")}</p>}
                             </TableCell>
                             <TableCell className="text-right">
                               <Input
@@ -1183,7 +1173,7 @@ export default function WarehouseDispatch() {
                                 <Input
                                   value={item.shortage_sku}
                                   onChange={(e) => updateFormItem(idx, { shortage_sku: e.target.value })}
-                                  placeholder="SKU thiếu"
+                                  placeholder={c("SKU thiếu")}
                                   className="h-8"
                                 />
                               ) : (
@@ -1211,7 +1201,7 @@ export default function WarehouseDispatch() {
                                 <Input
                                   value={item.shortage_note}
                                   onChange={(e) => updateFormItem(idx, { shortage_note: e.target.value })}
-                                  placeholder="Ghi chú"
+                                  placeholder={c("Ghi chú")}
                                   className="h-8"
                                 />
                               ) : (
@@ -1223,7 +1213,7 @@ export default function WarehouseDispatch() {
                                 inputMode="decimal"
                                 value={item.actual_revenue_amount}
                                 onChange={(e) => updateFormItem(idx, { actual_revenue_amount: e.target.value })}
-                                placeholder="Tùy chọn"
+                                placeholder={c("Tùy chọn")}
                                 className="h-8"
                               />
                             </TableCell>
@@ -1237,26 +1227,23 @@ export default function WarehouseDispatch() {
                 {formItems.some((i) => i.available_qty === 0) && (
                   <div className="flex items-center gap-2 text-amber-700 text-xs bg-amber-50 rounded px-3 py-2">
                     <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" />
-                    Một số sản phẩm chưa có trong kho — cần QA duyệt nhập kho thành phẩm trước.
-                  </div>
+                    {c("Một số sản phẩm chưa có trong kho — cần QA duyệt nhập kho thành phẩm trước.")} </div>
                 )}
                 <p className="text-xs text-muted-foreground text-right">
-                  Tổng xuất: <strong>{totalDispatchQty.toLocaleString("vi-VN")}</strong> đơn vị
-                </p>
+                  {c("Tổng xuất:")} <strong>{totalDispatchQty.toLocaleString("vi-VN")}</strong> {c("đơn vị")} </p>
               </div>
             )}
 
             {selectedPoId && formItems.length === 0 && (
               <div className="text-center py-4 text-muted-foreground text-sm">
                 <RefreshCw className="h-4 w-4 mx-auto mb-2 animate-pulse" />
-                Đang tải sản phẩm từ đơn hàng...
-              </div>
+                {c("Đang tải sản phẩm từ đơn hàng...")} </div>
             )}
 
             {/* Dates */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <label className="text-sm font-medium">Ngày xuất kho</label>
+                <label className="text-sm font-medium">{c("Ngày xuất kho")}</label>
                 <Input type="date" value={dispatchDate} onChange={(e) => setDispatchDate(e.target.value)} />
               </div>
             </div>
@@ -1264,31 +1251,30 @@ export default function WarehouseDispatch() {
             {/* Address + Notes */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
-                <label className="text-sm font-medium">Địa chỉ giao hàng</label>
+                <label className="text-sm font-medium">{c("Địa chỉ giao hàng")}</label>
                 {deliveryAddress && selectedPoId && (
-                  <span className="text-xs text-muted-foreground">Tự động điền từ hồ sơ khách hàng</span>
+                  <span className="text-xs text-muted-foreground">{c("Tự động điền từ hồ sơ khách hàng")}</span>
                 )}
               </div>
               <Input
                 value={deliveryAddress}
                 onChange={(e) => setDeliveryAddress(e.target.value)}
-                placeholder="Địa chỉ giao (tự động điền nếu CRM có địa chỉ)..."
+                placeholder={c("Địa chỉ giao (tự động điền nếu CRM có địa chỉ)...")}
               />
             </div>
             <div className="space-y-1.5">
-              <label className="text-sm font-medium">Ghi chú</label>
-              <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Ghi chú thêm..." rows={2} />
+              <label className="text-sm font-medium">{c("Ghi chú")}</label>
+              <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder={c("Ghi chú thêm...")} rows={2} />
             </div>
 
             <div className="flex gap-3 justify-end pt-2">
-              <Button variant="outline" onClick={() => setCreateOpen(false)}>Hủy</Button>
+              <Button variant="outline" onClick={() => setCreateOpen(false)}>{c("Hủy")}</Button>
               <Button
                 onClick={() => createMutation.mutate()}
                 disabled={createMutation.isPending || !selectedPoId || formItems.every((i) => i.dispatch_qty === 0)}
               >
                 {createMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Truck className="h-4 w-4 mr-2" />}
-                Tạo phiếu xuất kho
-              </Button>
+                {c("Tạo phiếu xuất kho")} </Button>
             </div>
           </div>
         </DialogContent>
@@ -1309,30 +1295,30 @@ export default function WarehouseDispatch() {
               {/* Info grid */}
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div className="rounded-lg border px-3 py-2">
-                  <p className="text-xs text-muted-foreground">Trạng thái</p>
+                  <p className="text-xs text-muted-foreground">{c("Trạng thái")}</p>
                   <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium mt-1 ${statusColors[selected.status]}`}>
                     {statusConfig[selected.status]?.label}
                   </span>
                 </div>
                 <div className="rounded-lg border px-3 py-2">
-                  <p className="text-xs text-muted-foreground">Ngày xuất kho</p>
+                  <p className="text-xs text-muted-foreground">{c("Ngày xuất kho")}</p>
                   <p className="font-medium">{selected.dispatch_date ? format(new Date(selected.dispatch_date), "dd/MM/yyyy") : "—"}</p>
                 </div>
                 {selected.delivered_date && (
                   <div className="rounded-lg border px-3 py-2">
-                    <p className="text-xs text-muted-foreground">Ngày giao</p>
+                    <p className="text-xs text-muted-foreground">{c("Ngày giao")}</p>
                     <p className="font-medium">{format(new Date(selected.delivered_date), "dd/MM/yyyy")}</p>
                   </div>
                 )}
                 {selected.delivery_address && (
                   <div className="rounded-lg border px-3 py-2 col-span-2">
-                    <p className="text-xs text-muted-foreground">Địa chỉ giao</p>
+                    <p className="text-xs text-muted-foreground">{c("Địa chỉ giao")}</p>
                     <p className="font-medium">{selected.delivery_address}</p>
                   </div>
                 )}
                 {selected.notes && (
                   <div className="rounded-lg border px-3 py-2 col-span-2">
-                    <p className="text-xs text-muted-foreground">Ghi chú</p>
+                    <p className="text-xs text-muted-foreground">{c("Ghi chú")}</p>
                     <p>{selected.notes}</p>
                   </div>
                 )}
@@ -1340,14 +1326,14 @@ export default function WarehouseDispatch() {
 
               {/* Items */}
               <div>
-                <p className="text-sm font-medium mb-2">Danh sách sản phẩm</p>
+                <p className="text-sm font-medium mb-2">{c("Danh sách sản phẩm")}</p>
                 <div className="rounded-lg border overflow-hidden">
                   <Table>
                     <TableHeader>
                       <TableRow className="bg-muted/40">
-                        <TableHead>Sản phẩm</TableHead>
-                        <TableHead className="text-right">Số lượng</TableHead>
-                        <TableHead>ĐVT</TableHead>
+                        <TableHead>{c("Sản phẩm")}</TableHead>
+                        <TableHead className="text-right">{c("Số lượng")}</TableHead>
+                        <TableHead>{c("ĐVT")}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1360,7 +1346,7 @@ export default function WarehouseDispatch() {
                       ))}
                       {!selected.items?.length && (
                         <TableRow>
-                          <TableCell colSpan={3} className="text-center text-muted-foreground py-4">Không có sản phẩm</TableCell>
+                          <TableCell colSpan={3} className="text-center text-muted-foreground py-4">{c("Không có sản phẩm")}</TableCell>
                         </TableRow>
                       )}
                     </TableBody>
@@ -1370,13 +1356,12 @@ export default function WarehouseDispatch() {
 
               {/* Action buttons based on status */}
               <div className="flex gap-3 justify-end pt-2 border-t">
-                <Button variant="outline" onClick={() => setDetailOpen(false)}>Đóng</Button>
+                <Button variant="outline" onClick={() => setDetailOpen(false)}>{c("Đóng")}</Button>
                 {selected.status === "pending" && (
                   <Button onClick={() => updateStatusMutation.mutate({ dispatchId: selected.id, newStatus: "picked" })}
                     disabled={updateStatusMutation.isPending}>
                     {updateStatusMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                    Bắt đầu lấy hàng
-                  </Button>
+                    {c("Bắt đầu lấy hàng")} </Button>
                 )}
                 {selected.status === "picked" && (
                   <Button
@@ -1385,16 +1370,14 @@ export default function WarehouseDispatch() {
                     className="bg-amber-600 hover:bg-amber-700"
                   >
                     {updateStatusMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <PackageCheck className="h-4 w-4 mr-2" />}
-                    Xuất kho (trừ tồn kho)
-                  </Button>
+                    {c("Xuất kho (trừ tồn kho)")} </Button>
                 )}
                 {selected.status === "dispatched" && (
                   <Button onClick={() => updateStatusMutation.mutate({ dispatchId: selected.id, newStatus: "delivered" })}
                     disabled={updateStatusMutation.isPending}
                     className="bg-green-600 hover:bg-green-700">
                     {updateStatusMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                    Xác nhận đã giao
-                  </Button>
+                    {c("Xác nhận đã giao")} </Button>
                 )}
               </div>
             </div>

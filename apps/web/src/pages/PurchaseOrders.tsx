@@ -1,3 +1,6 @@
+import { formatText } from "@/i18n/format";
+import { purchaseOrderPurchasing } from "@/i18n/purchaseOrderPurchasing";
+import { usePurchasingCopy } from "@/i18n/purchasingCopy";
 import { useEffect, useState, useMemo, useCallback, type KeyboardEvent } from "react";
 import { format } from "date-fns";
 import { vi, enUS } from "date-fns/locale";
@@ -90,9 +93,9 @@ const getPeriodRange = (mode: TimeFilterMode, value: string) => {
   };
 };
 
-const formatCompactCurrency = (amount: number) => {
-  if (amount >= 1_000_000_000) return `${(amount / 1_000_000_000).toLocaleString("vi-VN", { maximumFractionDigits: 2 })} tỷ`;
-  if (amount >= 1_000_000) return `${(amount / 1_000_000).toLocaleString("vi-VN", { maximumFractionDigits: 1 })} triệu`;
+const formatCompactCurrency = (amount: number, copy: typeof purchaseOrderPurchasing.vi) => {
+  if (amount >= 1_000_000_000) return `${(amount / 1_000_000_000).toLocaleString("vi-VN", { maximumFractionDigits: 2 })} ${copy.billion}`;
+  if (amount >= 1_000_000) return `${(amount / 1_000_000).toLocaleString("vi-VN", { maximumFractionDigits: 1 })} ${copy.million}`;
   return `${Math.round(amount).toLocaleString("vi-VN")} đ`;
 };
 
@@ -115,6 +118,7 @@ const capitalizeProductName = (value: string | null | undefined) => {
 };
 
 export default function PurchaseOrders() {
+  const pc = usePurchasingCopy(purchaseOrderPurchasing);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [currentPage, setCurrentPage] = useState(1);
@@ -323,17 +327,17 @@ export default function PurchaseOrders() {
         <header className="sticky top-0 z-20 flex items-center justify-between border-b border-border bg-card/95 px-4 py-3 shadow-card backdrop-blur-xl">
           <button
             type="button"
-            aria-label="Menu"
+            aria-label={pc.menuLabel}
             className="-ml-2 rounded-full p-2 text-primary transition hover:bg-primary/10"
             onClick={() => window.dispatchEvent(new Event("bmq:open-sidebar"))}
           >
             <FileText className="h-5 w-5" />
           </button>
           <div className="text-center">
-            <h1 className="text-xl font-bold text-foreground">PO (Mua hàng)</h1>
-            <p className="text-[10px] text-muted-foreground">Quản lý vận hành nhập hàng & công nợ NCC</p>
+            <h1 className="text-xl font-bold text-foreground">{pc.pOPurchasing}</h1>
+            <p className="text-[10px] text-muted-foreground">{pc.managePurchasingOperationsAndSupplierPayables}</p>
           </div>
-          <button type="button" aria-label="Notifications" className="relative -mr-2 rounded-full p-2 text-primary transition hover:bg-primary/10">
+          <button type="button" aria-label={pc.notificationsLabel} className="relative -mr-2 rounded-full p-2 text-primary transition hover:bg-primary/10">
             <Bell className="h-5 w-5" />
             {stats.draft > 0 && <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-red-500" />}
           </button>
@@ -350,7 +354,7 @@ export default function PurchaseOrders() {
             />
 
           </div>
-          <p className="mb-3 px-1 text-right text-[10px] italic text-muted-foreground">Hỗ trợ tìm không dấu</p>
+          <p className="mb-3 px-1 text-right text-[10px] italic text-muted-foreground">{pc.accentInsensitiveSearchSupported}</p>
           <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {([
               ["all", isVi ? "Tất cả" : "All"],
@@ -371,7 +375,7 @@ export default function PurchaseOrders() {
           </div>
           <div className="mt-3 space-y-2 rounded-xl border border-border bg-muted/30 p-2">
             <div className="flex items-center justify-between text-xs">
-              <span className="font-medium text-foreground">Kỳ xem</span>
+              <span className="font-medium text-foreground">{pc.period}</span>
               <span className="text-muted-foreground">{periodLabel}</span>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -430,8 +434,8 @@ export default function PurchaseOrders() {
           </div>
 
           <div className="mb-3 flex items-end justify-between">
-            <h2 className="text-sm font-semibold text-foreground">Danh sách PO</h2>
-            <span className="flex items-center gap-1 text-xs font-medium text-primary"><SlidersHorizontal className="h-3.5 w-3.5" />Lọc thêm</span>
+            <h2 className="text-sm font-semibold text-foreground">{pc.pOList}</h2>
+            <span className="flex items-center gap-1 text-xs font-medium text-primary"><SlidersHorizontal className="h-3.5 w-3.5" />{pc.moreFilters}</span>
           </div>
 
           {isLoading ? (
@@ -486,8 +490,7 @@ export default function PurchaseOrders() {
         <div className="fixed bottom-4 right-4 z-40" data-bmq-mobile-po-create-fab>
           <AddPurchaseOrderDialog>
             <Button className="btn-gradient rounded-2xl px-4 py-6 text-sm font-semibold text-primary-foreground shadow-lg">
-              <Plus className="mr-2 h-4 w-4" />Tạo PO
-            </Button>
+              <Plus className="mr-2 h-4 w-4" />{pc.createPO} </Button>
           </AddPurchaseOrderDialog>
         </div>
       </section>
@@ -542,7 +545,7 @@ export default function PurchaseOrders() {
                   />
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="sr-only">Ngày / Tháng / Năm</span>
+                  <span className="sr-only">{pc.dayMonthYear}</span>
                   <div className="inline-flex h-9 rounded-lg border border-slate-200 bg-slate-50 p-1 dark:border-[#443b30] dark:bg-[#1d1813]">
                     {([
                       ["day", isVi ? "Ngày" : "Day"],
@@ -583,10 +586,9 @@ export default function PurchaseOrders() {
               </div>
               {selectedSupplierId && (
                 <div className="flex flex-col gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-[#3a2612]/80 dark:text-[#ffd08a] sm:flex-row sm:items-center sm:justify-between">
-                  <span className="font-medium">Đang xem: {selectedSupplierName} · {selectedSupplierSummary?.poCount || 0} PO · {formatCurrency(selectedSupplierSummary?.totalValue || 0)}</span>
+                  <span className="font-medium">{pc.viewing} {selectedSupplierName} · {selectedSupplierSummary?.poCount || 0}  {pc.fieldPO} {formatCurrency(selectedSupplierSummary?.totalValue || 0)}</span>
                   <Button type="button" variant="ghost" size="sm" className="h-8 justify-start text-amber-800 hover:bg-amber-100 dark:text-[#ffd08a] dark:hover:bg-[#4a321a]" onClick={() => setSelectedSupplierId(null)}>
-                    Xóa lọc NCC
-                  </Button>
+                     {pc.clearSupplierFilter} </Button>
                 </div>
               )}
             </CardContent>
@@ -597,14 +599,13 @@ export default function PurchaseOrders() {
               <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <CardTitle className="text-base font-semibold text-slate-950 dark:text-[#f3ece4]">
-                    {selectedSupplierId ? `PO của ${selectedSupplierName}` : isVi ? "Danh sách PO" : "Purchase order list"}
+                    {selectedSupplierId ? formatText(pc.message131, { v0: selectedSupplierName }) : isVi ? "Danh sách PO" : "Purchase order list"}
                   </CardTitle>
-                  <p className="text-xs text-slate-500 dark:text-[#a99b8c]">{periodLabel} · {filteredOrders.length} PO</p>
+                  <p className="text-xs text-slate-500 dark:text-[#a99b8c]">{periodLabel} · {filteredOrders.length}  {pc.fieldPOLabel}</p>
                 </div>
                 {selectedSupplierId && (
                   <Button type="button" variant="outline" size="sm" className="h-8 border-slate-200 bg-white text-xs dark:border-[#443b30] dark:bg-[#1d1813]" onClick={() => setSelectedSupplierId(null)}>
-                    Xóa lọc NCC
-                  </Button>
+                     {pc.clearSupplierFilter} </Button>
                 )}
               </div>
             </CardHeader>
@@ -651,8 +652,7 @@ export default function PurchaseOrders() {
                                 className="inline-flex w-fit items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800 hover:bg-amber-100 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200"
                               >
                                 <SlidersHorizontal className="h-3 w-3" />
-                                {getMaterialBlockerCount(order)} dòng chờ NVL
-                              </a>
+                                {getMaterialBlockerCount(order)}  {pc.linesAwaitingMaterials} </a>
                             )}
                           </div>
                         </TableCell>
@@ -708,24 +708,23 @@ export default function PurchaseOrders() {
         <Card className="h-fit border-slate-200 bg-white dark:border-[#443b30] dark:bg-[#241f18]/90" data-stitch-desktop-supplier-ranking>
           <CardHeader className="space-y-3 px-4 py-3">
             <div>
-              <CardTitle className="text-sm font-semibold text-slate-950 dark:text-[#f3ece4]">Xếp hạng NCC theo giá trị PO</CardTitle>
+              <CardTitle className="text-sm font-semibold text-slate-950 dark:text-[#f3ece4]">{pc.suppliersRankedByPOValue}</CardTitle>
               <p className="mt-1 text-xs text-slate-500 dark:text-[#a99b8c]">{periodLabel}</p>
             </div>
           </CardHeader>
           <CardContent className="space-y-3 px-4 pb-4 pt-0">
             {selectedSupplierId && (
               <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 dark:border-amber-500/40 dark:bg-[#3a2612]/80">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-700 dark:text-[#ffd08a]">Đang xem:</p>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-700 dark:text-[#ffd08a]">{pc.viewing}</p>
                 <p className="mt-1 text-sm font-semibold text-slate-950 dark:text-[#f3ece4]">{selectedSupplierName}</p>
-                <p className="mt-1 text-xs text-slate-600 dark:text-[#d6c8b8]">{selectedSupplierSummary?.poCount || 0} PO · {formatCurrency(selectedSupplierSummary?.totalValue || 0)}</p>
+                <p className="mt-1 text-xs text-slate-600 dark:text-[#d6c8b8]">{selectedSupplierSummary?.poCount || 0}  {pc.fieldPO} {formatCurrency(selectedSupplierSummary?.totalValue || 0)}</p>
                 <Button type="button" variant="ghost" size="sm" className="mt-2 h-8 px-0 text-xs text-amber-800 hover:bg-transparent hover:text-amber-900 dark:text-[#ffd08a]" onClick={() => setSelectedSupplierId(null)}>
-                  Xóa lọc NCC
-                </Button>
+                   {pc.clearSupplierFilter} </Button>
               </div>
             )}
 
             {supplierRanking.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-slate-200 p-4 text-center text-sm text-slate-500 dark:border-[#443b30] dark:text-[#a99b8c]">Không có PO trong kỳ đã chọn</div>
+              <div className="rounded-lg border border-dashed border-slate-200 p-4 text-center text-sm text-slate-500 dark:border-[#443b30] dark:text-[#a99b8c]">{pc.noPOsInTheSelectedPeriod}</div>
             ) : (
               <div className="space-y-2">
                 {supplierRanking.slice(0, 8).map((supplier, index) => {
@@ -743,13 +742,13 @@ export default function PurchaseOrders() {
                         <div className="min-w-0 flex-1">
                           <div className="truncate text-sm font-semibold text-slate-950 dark:text-[#f3ece4]">{supplier.name}</div>
                           <div className="mt-1 flex items-center justify-between gap-2 text-xs text-slate-500 dark:text-[#a99b8c]">
-                            <span>{supplier.poCount} PO</span>
-                            <span className="font-semibold text-slate-700 dark:text-[#e8ded2]">{formatCompactCurrency(supplier.totalValue)}</span>
+                            <span>{supplier.poCount}  {pc.fieldPOLabel}</span>
+                            <span className="font-semibold text-slate-700 dark:text-[#e8ded2]">{formatCompactCurrency(supplier.totalValue, pc)}</span>
                           </div>
                           <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200 dark:bg-[#443b30]">
                             <div className="h-full rounded-full bg-[#D97706]" style={{ width: `${Math.min(100, share)}%` }} />
                           </div>
-                          <div className="mt-1 text-right text-[11px] font-medium text-slate-500 dark:text-[#a99b8c]">{share}% tỷ trọng</div>
+                          <div className="mt-1 text-right text-[11px] font-medium text-slate-500 dark:text-[#a99b8c]">{share}{pc.share}</div>
                         </div>
                       </div>
                     </button>

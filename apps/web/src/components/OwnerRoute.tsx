@@ -1,3 +1,4 @@
+import { useLanguage } from "@/contexts/LanguageContext";
 import { Navigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Loader2 } from "lucide-react";
@@ -7,11 +8,12 @@ import { Loader2 } from "lucide-react";
  * Redirects all other authenticated users to the home page.
  */
 export function OwnerRoute({ children }: { children: React.ReactNode }) {
+  const { t } = useLanguage();
   const { loading, isOwner, user } = useAuth();
 
   if (loading) {
     return (
-      <div className="min-h-[50vh] flex items-center justify-center">
+      <div role="status" aria-label={t.loading} className="min-h-[50vh] flex items-center justify-center">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
       </div>
     );

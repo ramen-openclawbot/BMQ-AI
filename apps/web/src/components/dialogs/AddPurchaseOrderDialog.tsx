@@ -1,4 +1,7 @@
-import { useState, useRef } from "react";
+import { formatText } from "@/i18n/format";
+import { purchaseOrderPurchasing } from "@/i18n/purchaseOrderPurchasing";
+import { usePurchasingCopy } from "@/i18n/purchasingCopy";
+import { useState, useRef, useEffect } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { useQueryClient } from "@tanstack/react-query";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -56,25 +59,25 @@ import { ensureReceiptForPurchaseOrder } from "@/hooks/usePurchaseReceiptQueue";
 
 import { callEdgeFunction } from "@/lib/fetch-with-timeout";
 
-const poItemSchema = z.object({
+const poItemSchema = (pc: typeof purchaseOrderPurchasing.vi) => z.object({
   sku_id: z.string().optional(),
-  product_name: z.string().min(1, "Tên sản phẩm là bắt buộc"),
-  quantity: z.coerce.number().min(0.01, "Số lượng phải lớn hơn 0"),
+  product_name: z.string().min(1, pc.validation140),
+  quantity: z.coerce.number().min(0.01, pc.validation141),
   unit: z.string().optional(),
-  unit_price: z.coerce.number().min(0, "Đơn giá phải >= 0"),
+  unit_price: z.coerce.number().min(0, pc.validation142),
   notes: z.string().optional(),
 });
 
-const purchaseOrderSchema = z.object({
-  supplier_id: z.string().min(1, "Vui lòng chọn nhà cung cấp"),
+const purchaseOrderSchema = (pc: typeof purchaseOrderPurchasing.vi) => z.object({
+  supplier_id: z.string().min(1, pc.validation143),
   order_date: z.date(),
   expected_date: z.date().optional(),
   vat_amount: z.coerce.number().min(0).optional(),
   notes: z.string().optional(),
-  items: z.array(poItemSchema).min(1, "Cần ít nhất một sản phẩm"),
+  items: z.array(poItemSchema(pc)).min(1, pc.validation144),
 });
 
-type PurchaseOrderFormData = z.infer<typeof purchaseOrderSchema>;
+type PurchaseOrderFormData = z.infer<ReturnType<typeof purchaseOrderSchema>>;
 
 interface ScannedPOData {
   po_number?: string;
@@ -103,6 +106,7 @@ const MAX_PO_BATCH_FILES = 10;
 const MAX_PO_FILE_SIZE_MB = 10;
 
 export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps) {
+  const pc = usePurchasingCopy(purchaseOrderPurchasing);
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
@@ -120,7 +124,7 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
   const createPurchaseOrderItem = useCreatePurchaseOrderItem();
 
   const form = useForm<PurchaseOrderFormData>({
-    resolver: zodResolver(purchaseOrderSchema),
+    resolver: zodResolver(purchaseOrderSchema(pc)),
     defaultValues: {
       supplier_id: "",
       order_date: new Date(),
@@ -130,6 +134,10 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
       items: [],
     },
   });
+
+  useEffect(() => {
+    if (Object.keys(form.formState.errors).length) void form.trigger();
+  }, [pc, form]);
 
   const { fields, append, remove, replace } = useFieldArray({
     control: form.control,
@@ -169,7 +177,7 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
     }
   };
 
-  const TOKEN_ERROR_MESSAGE = "Lỗi Token. Liên hệ với bộ phận quản trị hệ thống!";
+  const TOKEN_ERROR_MESSAGE = pc.tokenErrorContactYourSystemAdministrator;
 
   const getScanErrorMessage = (error: unknown) => {
     const message = error instanceof Error ? error.message : String(error || "");
@@ -183,7 +191,7 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
       normalized.includes("429") ||
       normalized.includes("too many requests");
 
-    return isTokenOrQuotaError ? TOKEN_ERROR_MESSAGE : (message || "Lỗi khi scan ảnh");
+    return isTokenOrQuotaError ? TOKEN_ERROR_MESSAGE : (message || pc.errorScanningImage);
   };
 
   const scanSinglePOFile = async (file: File, token: string): Promise<ScannedPOData> => {
@@ -201,7 +209,7 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
     );
 
     if (error) throw new Error(error);
-    if (!data?.success || !data?.data) throw new Error("Không nhận được dữ liệu scan hợp lệ");
+    if (!data?.success || !data?.data) throw new Error(pc.noValidScanDataReceived);
     return data.data;
   };
 
@@ -236,21 +244,21 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
     if (!files.length) return;
 
     if (files.length > MAX_PO_BATCH_FILES) {
-      toast.error(`PO scan chỉ cho phép tối đa ${MAX_PO_BATCH_FILES} ảnh mỗi lần`);
+      toast.error(formatText(pc.message132, { v0: MAX_PO_BATCH_FILES }));
       event.currentTarget.value = "";
       return;
     }
 
     const invalid = files.find((f) => !f.type.startsWith("image/"));
     if (invalid) {
-      toast.error("PO scan hiện chỉ hỗ trợ file ảnh");
+      toast.error(pc.pOScanningCurrentlySupportsImageFilesOnly);
       event.currentTarget.value = "";
       return;
     }
 
     const oversized = files.find((f) => f.size > MAX_PO_FILE_SIZE_MB * 1024 * 1024);
     if (oversized) {
-      toast.error(`File quá lớn: ${oversized.name} (tối đa ${MAX_PO_FILE_SIZE_MB}MB)`);
+      toast.error(formatText(pc.message133, { v0: oversized.name, v1: MAX_PO_FILE_SIZE_MB }));
       event.currentTarget.value = "";
       return;
     }
@@ -260,7 +268,7 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData?.session?.access_token;
       if (!token) {
-        toast.error("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
+        toast.error(pc.yourSessionExpiredPleaseSignInAgain);
         return;
       }
 
@@ -289,7 +297,7 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
         if (scanned.vat_amount) form.setValue("vat_amount", scanned.vat_amount);
         if (scanned.items?.length) replace(scanned.items.map((item) => ({ sku_id: "", product_name: item.product_name || "", quantity: item.quantity || 1, unit: item.unit || "kg", unit_price: item.unit_price || 0, notes: item.notes || "" })));
 
-        toast.success("Đã scan thành công đơn đặt hàng");
+        toast.success(pc.purchaseOrderScannedSuccessfully);
       } else {
         setScannedImage(null);
         setSelectedImagePreviews([]);
@@ -309,7 +317,7 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
 
         if (!scans.length) {
           const tokenOrQuotaError = scanErrors.find((scanError) => getScanErrorMessage(scanError) === TOKEN_ERROR_MESSAGE);
-          throw tokenOrQuotaError ? new Error(TOKEN_ERROR_MESSAGE) : new Error("Không scan được file nào trong batch");
+          throw tokenOrQuotaError ? new Error(TOKEN_ERROR_MESSAGE) : new Error(pc.noFilesInTheBatchCouldBeScanned);
         }
 
         setScannedData({ items: mergeScannedPOItems(scans), supplier_name: scans[0]?.supplier_name, vat_amount: scans.reduce((x, y) => x + Number(y.vat_amount || 0), 0), total_amount: scans.reduce((x, y) => x + Number(y.total_amount || 0), 0), notes: `Batch scan ${files.length} ảnh` });
@@ -324,7 +332,7 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
           if (matchedSupplier) form.setValue("supplier_id", matchedSupplier.id);
         }
 
-        toast.success(`Đã scan ${scans.length}/${files.length} ảnh PO`);
+        toast.success(formatText(pc.message134, { v0: scans.length, v1: files.length }));
       }
     } catch (error) {
       console.error("[po-scan] error:", error);
@@ -418,7 +426,7 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
       queryClient.invalidateQueries({ queryKey: ["payment-requests"] });
       queryClient.invalidateQueries({ queryKey: ["payment-stats"] });
       
-      toast.success(`Đã tạo PO ${poNumber}, phiếu duyệt chi và phiếu nhập kho`);
+      toast.success(formatText(pc.message135, { v0: poNumber }));
       form.reset();
       setScannedImage(null);
       setSelectedImagePreviews([]);
@@ -426,7 +434,7 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
       setOpen(false);
     } catch (error) {
       console.error("Error creating PO:", error);
-      toast.error("Lỗi khi tạo đơn đặt hàng");
+      toast.error(pc.errorCreatingPurchaseOrder);
     } finally {
       setIsSubmitting(false);
     }
@@ -450,14 +458,13 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
-        {children || <Button><Plus className="h-4 w-4 mr-2" />Tạo PO (Mua hàng)</Button>}
+        {children || <Button><Plus className="h-4 w-4 mr-2" />{pc.createPOPurchasing}</Button>}
       </DialogTrigger>
       <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Tạo Đơn Đặt Hàng Mới</DialogTitle>
+          <DialogTitle>{pc.createPurchaseOrder}</DialogTitle>
           <DialogDescription>
-            Tạo đơn đặt hàng (Purchase Order) gửi cho nhà cung cấp. Bạn có thể upload ảnh đơn hàng từ NCC để tự động điền thông tin.
-          </DialogDescription>
+             {pc.createAPurchaseOrderForASupplierUpload} </DialogDescription>
         </DialogHeader>
 
         {/* Image Upload Section */}
@@ -476,8 +483,7 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
             <div className="flex flex-col items-center justify-center py-6">
               <ImageIcon className="h-12 w-12 text-muted-foreground mb-3" />
               <p className="text-sm text-muted-foreground mb-3">
-                Upload ảnh đơn đặt hàng từ NCC để tự động điền thông tin (hỗ trợ batch tối đa 10 ảnh/lần, 10MB/file)
-              </p>
+                 {pc.uploadSupplierOrderImagesToAutofillInformationUp} </p>
               <Button
                 type="button"
                 variant="outline"
@@ -487,13 +493,11 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
                 {isScanning ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Đang scan...
-                  </>
+                     {pc.scanning} </>
                 ) : (
                   <>
                     <Upload className="h-4 w-4 mr-2" />
-                    Chọn ảnh để scan (1-10 ảnh)
-                  </>
+                     {pc.selectImagesToScan110Images} </>
                 )}
               </Button>
             </div>
@@ -502,7 +506,7 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
               <div className="relative w-48 h-32 flex-shrink-0">
                 <img
                   src={scannedImage || selectedImagePreviews[0]}
-                  alt="Scanned PO"
+                  alt={pc.scannedPO}
                   className="w-full h-full object-cover rounded-lg"
                 />
                 <Button
@@ -519,32 +523,32 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
                 {isScanning ? (
                   <div className="flex items-center gap-2 text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    <span>Đang phân tích ảnh...</span>
+                    <span>{pc.analyzingImage}</span>
                   </div>
                 ) : scannedData ? (
                   <div className="space-y-2">
                     <div className="flex items-center gap-2">
                       <Scan className="h-4 w-4 text-green-500" />
-                      <span className="text-sm font-medium text-green-600">Đã scan thành công</span>
+                      <span className="text-sm font-medium text-green-600">{pc.scannedSuccessfully}</span>
                     </div>
                     {scannedData.supplier_name && (
                       <p className="text-sm">
-                        <span className="text-muted-foreground">NCC:</span>{" "}
+                        <span className="text-muted-foreground">{pc.supplier2}</span>{" "}
                         <Badge variant="outline">{scannedData.supplier_name}</Badge>
                       </p>
                     )}
                     {scannedData.po_number && (
                       <p className="text-sm">
-                        <span className="text-muted-foreground">Số PO:</span> {scannedData.po_number}
+                        <span className="text-muted-foreground">{pc.pONumber}</span> {scannedData.po_number}
                       </p>
                     )}
                     <p className="text-sm">
-                      <span className="text-muted-foreground">Sản phẩm:</span>{" "}
-                      <Badge>{scannedData.items?.length || 0} items</Badge>
+                      <span className="text-muted-foreground">{pc.products}</span>{" "}
+                      <Badge>{scannedData.items?.length || 0}  {pc.items}</Badge>
                     </p>
                     {selectedImagePreviews.length > 1 && (
                       <div className="flex items-center gap-2">
-                        <Badge variant="secondary">Batch: {selectedImagePreviews.length} ảnh</Badge>
+                        <Badge variant="secondary">{pc.fieldBatch} {selectedImagePreviews.length}  {pc.images}</Badge>
                         <div className="flex gap-1">
                           {selectedImagePreviews.slice(0, 3).map((src, idx) => (
                             <img key={idx} src={src} alt={`preview-${idx}`} className="h-8 w-8 rounded object-cover border" />
@@ -554,13 +558,13 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
                     )}
                     {scannedData.total_amount && (
                       <p className="text-sm">
-                        <span className="text-muted-foreground">Tổng:</span>{" "}
+                        <span className="text-muted-foreground">{pc.total2}</span>{" "}
                         {formatCurrency(scannedData.total_amount)}
                       </p>
                     )}
                     {scannedData.vat_amount !== undefined && scannedData.vat_amount > 0 && (
                       <p className="text-sm">
-                        <span className="text-muted-foreground">VAT:</span>{" "}
+                        <span className="text-muted-foreground">{pc.fieldVAT}</span>{" "}
                         {formatCurrency(scannedData.vat_amount)}
                       </p>
                     )}
@@ -580,11 +584,11 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
                 name="supplier_id"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Nhà cung cấp *</FormLabel>
+                    <FormLabel>{pc.supplier}</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder="Chọn nhà cung cấp" />
+                          <SelectValue placeholder={pc.selectSupplier} />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
@@ -605,7 +609,7 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
                 name="order_date"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Ngày đặt hàng</FormLabel>
+                    <FormLabel>{pc.orderDate2}</FormLabel>
                     <Popover>
                       <PopoverTrigger asChild>
                         <FormControl>
@@ -616,7 +620,7 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
                               !field.value && "text-muted-foreground"
                             )}
                           >
-                            {field.value ? format(field.value, "dd/MM/yyyy") : "Chọn ngày"}
+                            {field.value ? format(field.value, "dd/MM/yyyy") : pc.selectDate}
                             <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
                           </Button>
                         </FormControl>
@@ -640,7 +644,7 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
                 name="expected_date"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Ngày giao dự kiến</FormLabel>
+                    <FormLabel>{pc.expectedDeliveryDate}</FormLabel>
                     <Popover>
                       <PopoverTrigger asChild>
                         <FormControl>
@@ -651,7 +655,7 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
                               !field.value && "text-muted-foreground"
                             )}
                           >
-                            {field.value ? format(field.value, "dd/MM/yyyy") : "Chọn ngày"}
+                            {field.value ? format(field.value, "dd/MM/yyyy") : pc.selectDate}
                             <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
                           </Button>
                         </FormControl>
@@ -674,7 +678,7 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
             {/* Items Table */}
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <Label>Danh sách sản phẩm</Label>
+                <Label>{pc.productList2}</Label>
                 <Button
                   type="button"
                   variant="outline"
@@ -691,20 +695,19 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
                   }
                 >
                   <Plus className="h-4 w-4 mr-1" />
-                  Thêm sản phẩm
-                </Button>
+                   {pc.addProduct} </Button>
               </div>
 
               {fields.length > 0 && (
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-48">Chọn SKU</TableHead>
-                      <TableHead>Tên sản phẩm</TableHead>
-                      <TableHead className="w-24">SL</TableHead>
-                      <TableHead className="w-20">ĐVT</TableHead>
-                      <TableHead className="w-32">Đơn giá</TableHead>
-                      <TableHead className="w-32">Thành tiền</TableHead>
+                      <TableHead className="w-48">{pc.selectSKU}</TableHead>
+                      <TableHead>{pc.productName}</TableHead>
+                      <TableHead className="w-24">{pc.qty}</TableHead>
+                      <TableHead className="w-20">{pc.unit}</TableHead>
+                      <TableHead className="w-32">{pc.unitPrice}</TableHead>
+                      <TableHead className="w-32">{pc.lineTotal}</TableHead>
                       <TableHead className="w-12"></TableHead>
                     </TableRow>
                   </TableHeader>
@@ -725,10 +728,10 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
                               }}
                             >
                               <SelectTrigger className="h-8">
-                                <SelectValue placeholder="Chọn SKU" />
+                                <SelectValue placeholder={pc.selectSKU} />
                               </SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="_none">Nhập thủ công</SelectItem>
+                                <SelectItem value="_none">{pc.enterManually}</SelectItem>
                                 {supplierSKUs?.map((sku) => (
                                   <SelectItem key={sku.id} value={sku.id}>
                                     {sku.sku_code} - {sku.product_name}
@@ -740,7 +743,7 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
                           <TableCell>
                             <Input
                               {...form.register(`items.${index}.product_name`)}
-                              placeholder="Tên sản phẩm"
+                              placeholder={pc.productName}
                               className="h-8"
                             />
                           </TableCell>
@@ -798,11 +801,11 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
             <div className="flex justify-end border-t pt-4">
               <div className="space-y-2 text-right">
                 <div>
-                  <span className="text-muted-foreground mr-4">Tạm tính:</span>
+                  <span className="text-muted-foreground mr-4">{pc.subtotal}</span>
                   <span className="font-medium">{formatCurrency(subtotal)}</span>
                 </div>
                 <div className="flex items-center justify-end gap-2">
-                  <span className="text-muted-foreground">VAT:</span>
+                  <span className="text-muted-foreground">{pc.fieldVAT}</span>
                   <Input
                     type="number"
                     {...form.register("vat_amount", { valueAsNumber: true })}
@@ -812,7 +815,7 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
                   <span className="text-muted-foreground">đ</span>
                 </div>
                 <div>
-                  <span className="text-muted-foreground mr-4">Tổng cộng:</span>
+                  <span className="text-muted-foreground mr-4">{pc.total}</span>
                   <span className="text-xl font-bold">{formatCurrency(total)}</span>
                 </div>
               </div>
@@ -824,9 +827,9 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
               name="notes"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Ghi chú</FormLabel>
+                  <FormLabel>{pc.notes}</FormLabel>
                   <FormControl>
-                    <Textarea placeholder="Ghi chú thêm..." {...field} />
+                    <Textarea placeholder={pc.additionalNotes} {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -842,10 +845,9 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
                 {isSubmitting ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Đang tạo...
-                  </>
+                     {pc.creating} </>
                 ) : (
-                  "Tạo đơn đặt hàng"
+                  pc.createPurchaseOrder2
                 )}
               </Button>
             </div>

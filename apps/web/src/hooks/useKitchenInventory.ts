@@ -1,3 +1,4 @@
+import { useWarehouseCopy } from "@/i18n/useWarehouseCopy";
 import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -130,6 +131,7 @@ function monthStart(date: string) {
 }
 
 export function useKitchenInventory(periodMonth: string) {
+  const c = useWarehouseCopy();
   const { user, canEditModule } = useAuth();
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -274,21 +276,21 @@ export function useKitchenInventory(periodMonth: string) {
 
   const closeMonth = useMutation({
     mutationFn: async () => {
-      if (!canEdit) throw new Error("Bạn không có quyền chốt tháng kho bếp.");
-      if (!user?.id) throw new Error("Vui lòng đăng nhập lại trước khi chốt tháng.");
-      if (!periodMonth) throw new Error("Vui lòng chọn tháng cần chốt.");
-      if (draftClosings.length === 0) throw new Error("Chưa có item để chốt tháng.");
+      if (!canEdit) throw new Error(c("Bạn không có quyền chốt tháng kho bếp."));
+      if (!user?.id) throw new Error(c("Vui lòng đăng nhập lại trước khi chốt tháng."));
+      if (!periodMonth) throw new Error(c("Vui lòng chọn tháng cần chốt."));
+      if (draftClosings.length === 0) throw new Error(c("Chưa có item để chốt tháng."));
       const { error } = await kitchenRpc.rpc("close_kitchen_inventory_month", { p_period_month: periodMonth });
       if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["kitchen-inventory", "closings"] });
-      toast({ title: "Đã chốt tháng kho bếp" });
+      toast({ title: c("Đã chốt tháng kho bếp") });
     },
     onError: (error: Error) => {
       toast({
-        title: "Không thể chốt tháng",
-        description: error.message || "Vui lòng thử lại",
+        title: c("Không thể chốt tháng"),
+        description: error.message || c("Vui lòng thử lại"),
         variant: "destructive",
       });
     },
@@ -296,10 +298,10 @@ export function useKitchenInventory(periodMonth: string) {
 
   const addMovement = useMutation({
     mutationFn: async (input: AddKitchenMovementInput) => {
-      if (!canEdit) throw new Error("Bạn không có quyền ghi sổ kho bếp.");
-      if (!user?.id) throw new Error("Vui lòng đăng nhập lại trước khi ghi sổ kho bếp.");
+      if (!canEdit) throw new Error(c("Bạn không có quyền ghi sổ kho bếp."));
+      if (!user?.id) throw new Error(c("Vui lòng đăng nhập lại trước khi ghi sổ kho bếp."));
       const item = itemById.get(input.item_id);
-      if (!item) throw new Error("Vui lòng chọn item từ danh mục chuẩn.");
+      if (!item) throw new Error(c("Vui lòng chọn item từ danh mục chuẩn."));
 
       const unitCost = numberValue(input.unit_cost ?? item.standard_unit_cost);
       const amount = calculateMovementAmount(input.quantity, unitCost);
@@ -320,12 +322,12 @@ export function useKitchenInventory(periodMonth: string) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["kitchen-inventory", "movements"] });
-      toast({ title: "Đã ghi sổ kho bếp" });
+      toast({ title: c("Đã ghi sổ kho bếp") });
     },
     onError: (error: Error) => {
       toast({
-        title: "Không thể ghi sổ",
-        description: error.message || "Vui lòng thử lại",
+        title: c("Không thể ghi sổ"),
+        description: error.message || c("Vui lòng thử lại"),
         variant: "destructive",
       });
     },

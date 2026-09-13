@@ -1,8 +1,8 @@
+import { PeopleLocalError, showPeopleToast, peopleErrorDescription, peopleSupabaseErrorDescription, peopleToast } from "@/hooks/usePeopleCopy";
  
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { getFreshAccessToken } from "@/lib/supabase-helpers";
-import { useToast } from "@/hooks/use-toast";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -124,7 +124,6 @@ export function useAllPermissions() {
 // ---------------------------------------------------------------------------
 export function useAssignRole() {
   const qc = useQueryClient();
-  const { toast } = useToast();
 
   return useMutation({
     mutationFn: async ({ userId, role }: { userId: string; role: AppRole }) => {
@@ -167,13 +166,11 @@ export function useAssignRole() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["user-management-users"] });
       qc.invalidateQueries({ queryKey: ["user-management-permissions"] });
-      toast({ title: "Đã cập nhật role và gán quyền mặc định" });
+      showPeopleToast("success", peopleToast("roleUpdatedAndDefaultPermissionsAssigned"));
     },
     onError: (err: any) => {
-      toast({
-        title: "Lỗi cập nhật role",
-        description: err?.message || "Vui lòng thử lại",
-        variant: "destructive",
+      showPeopleToast("error", peopleToast("unableToUpdateRole"), {
+        description: peopleErrorDescription(err, "pleaseTryAgain"),
       });
     },
   });
@@ -184,7 +181,6 @@ export function useAssignRole() {
 // ---------------------------------------------------------------------------
 export function useUpdatePermission() {
   const qc = useQueryClient();
-  const { toast } = useToast();
 
   return useMutation({
     mutationFn: async ({
@@ -216,10 +212,8 @@ export function useUpdatePermission() {
       qc.invalidateQueries({ queryKey: ["user-management-permissions"] });
     },
     onError: (err: any) => {
-      toast({
-        title: "Lỗi cập nhật quyền",
-        description: err?.message || "Vui lòng thử lại",
-        variant: "destructive",
+      showPeopleToast("error", peopleToast("unableToUpdatePermissions"), {
+        description: peopleErrorDescription(err, "pleaseTryAgain"),
       });
     },
   });
@@ -250,7 +244,6 @@ export function useInvitations() {
 // ---------------------------------------------------------------------------
 export function useInviteUser() {
   const qc = useQueryClient();
-  const { toast } = useToast();
 
   return useMutation({
     mutationFn: async ({ email, role }: { email: string; role: AppRole }) => {
@@ -264,7 +257,11 @@ export function useInviteUser() {
       });
 
       if (error) throw error;
-      if ((data as any)?.error) throw new Error((data as any).error);
+      if ((data as any)?.error) {
+        const backendMessage = (data as any).error;
+        if (typeof backendMessage === "string" && backendMessage.trim()) throw new Error(backendMessage);
+        throw new PeopleLocalError({ key: "invitationSendFailed" });
+      }
       return data as { success: boolean; email_sent?: boolean; note?: string };
     },
     onSuccess: (data) => {
@@ -272,19 +269,18 @@ export function useInviteUser() {
       qc.invalidateQueries({ queryKey: ["user-management-users"] });
 
       if (data?.email_sent) {
-        toast({ title: "Đã gửi email mời" });
+        showPeopleToast("success", peopleToast("invitationEmailSent"));
       } else {
-        toast({
-          title: "Đã tạo lời mời",
-          description: data?.note || "User đã tồn tại, vui lòng kiểm tra trạng thái tài khoản.",
+        showPeopleToast("success", peopleToast("invitationCreated"), {
+          description: typeof data?.note === "string" && data.note.trim()
+            ? data.note
+            : peopleToast("existingUserCheckAccountStatus"),
         });
       }
     },
     onError: (err: any) => {
-      toast({
-        title: "Lỗi gửi lời mời",
-        description: err?.message || "Vui lòng thử lại",
-        variant: "destructive",
+      showPeopleToast("error", peopleToast("invitationSendFailed"), {
+        description: peopleSupabaseErrorDescription(err, "pleaseTryAgain"),
       });
     },
   });
@@ -315,7 +311,6 @@ const ALL_MODULE_KEYS = [
 // ---------------------------------------------------------------------------
 export function useResetPermissionsToDefault() {
   const qc = useQueryClient();
-  const { toast } = useToast();
 
   return useMutation({
     mutationFn: async ({ userId, role }: { userId: string; role: string }) => {
@@ -337,13 +332,11 @@ export function useResetPermissionsToDefault() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["user-management-permissions"] });
-      toast({ title: "Đã gán quyền mặc định theo role" });
+      showPeopleToast("success", peopleToast("defaultRolePermissionsAssigned"));
     },
     onError: (err: any) => {
-      toast({
-        title: "Lỗi gán quyền",
-        description: err?.message || "Vui lòng thử lại",
-        variant: "destructive",
+      showPeopleToast("error", peopleToast("unableToAssignPermissions"), {
+        description: peopleErrorDescription(err, "pleaseTryAgain"),
       });
     },
   });
@@ -356,7 +349,6 @@ export function useResetPermissionsToDefault() {
 // ---------------------------------------------------------------------------
 export function useDeleteUser() {
   const qc = useQueryClient();
-  const { toast } = useToast();
 
   return useMutation({
     mutationFn: async (userId: string) => {
@@ -376,13 +368,11 @@ export function useDeleteUser() {
       qc.invalidateQueries({ queryKey: ["user-management-users"] });
       qc.invalidateQueries({ queryKey: ["user-management-permissions"] });
       qc.invalidateQueries({ queryKey: ["user-management-invitations"] });
-      toast({ title: "Đã xoá người dùng" });
+      showPeopleToast("success", peopleToast("userDeleted"));
     },
     onError: (err: any) => {
-      toast({
-        title: "Lỗi xoá người dùng",
-        description: err?.message || "Vui lòng thử lại",
-        variant: "destructive",
+      showPeopleToast("error", peopleToast("unableToDeleteUser"), {
+        description: peopleSupabaseErrorDescription(err, "pleaseTryAgain"),
       });
     },
   });
@@ -393,7 +383,6 @@ export function useDeleteUser() {
 // ---------------------------------------------------------------------------
 export function useCancelInvitation() {
   const qc = useQueryClient();
-  const { toast } = useToast();
 
   return useMutation({
     mutationFn: async (invitationId: string) => {
@@ -406,13 +395,11 @@ export function useCancelInvitation() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["user-management-invitations"] });
-      toast({ title: "Đã huỷ lời mời" });
+      showPeopleToast("success", peopleToast("invitationCancelled"));
     },
     onError: (err: any) => {
-      toast({
-        title: "Lỗi huỷ lời mời",
-        description: err?.message || "Vui lòng thử lại",
-        variant: "destructive",
+      showPeopleToast("error", peopleToast("invitationCancellationFailed"), {
+        description: peopleErrorDescription(err, "pleaseTryAgain"),
       });
     },
   });

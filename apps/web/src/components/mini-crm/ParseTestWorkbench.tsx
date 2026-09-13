@@ -1,3 +1,4 @@
+import { useSalesCrmMessages, SalesCrmUiError, crmErrorNotice, crmNotice, useSalesCrmFeedback } from "@/i18n/salesCrm";
 import { useEffect, useState } from "react";
 import { FlaskConical, PlayCircle, Paperclip, FileText, AlertCircle, CheckCircle2, XCircle, History } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -36,13 +37,14 @@ function deriveParseModeFromStrategy(strategy?: string | null): ParseMode {
 }
 
 export function ParseTestWorkbench({ customerPos, kbAiSuggestion, parseContract, onParseContractChange, currentUserLabel }: Props) {
+  const f = useSalesCrmMessages();
   const [selectedPoId, setSelectedPoId] = useState<string | null>(null);
   const [parseMode, setParseMode] = useState<ParseMode>(
     deriveParseModeFromStrategy(kbAiSuggestion?.parse_strategy),
   );
   const [isRunning, setIsRunning] = useState(false);
   const [result, setResult] = useState<WorkbenchResult | null>(null);
-  const [attachError, setAttachError] = useState<string | null>(null);
+  const [attachError, setAttachError, attachErrorText] = useSalesCrmFeedback();
   const [evidencePass, setEvidencePass] = useState<boolean>(true);
   const [evidenceNote, setEvidenceNote] = useState<string>("");
   const [evidenceSaved, setEvidenceSaved] = useState<boolean>(false);
@@ -51,9 +53,9 @@ export function ParseTestWorkbench({ customerPos, kbAiSuggestion, parseContract,
   useEffect(() => {
     setParseMode(deriveParseModeFromStrategy(kbAiSuggestion?.parse_strategy));
     setResult(null);
-    setAttachError(null);
+    setAttachError("");
     setEvidenceSaved(false);
-  }, [kbAiSuggestion?.parse_strategy]);
+  }, [kbAiSuggestion?.parse_strategy, setAttachError]);
 
   const selectedPo = customerPos.find((p) => p.id === selectedPoId) ?? null;
 
@@ -78,7 +80,7 @@ export function ParseTestWorkbench({ customerPos, kbAiSuggestion, parseContract,
       confidence: conf,
       deliveryDate: parsed.deliveryDate,
     });
-    setAttachError(null);
+    setAttachError("");
     setEvidencePass(conf >= 0.8);
     setEvidenceNote("");
     setEvidenceSaved(false);
@@ -87,11 +89,11 @@ export function ParseTestWorkbench({ customerPos, kbAiSuggestion, parseContract,
   const runAttachmentParse = async () => {
     if (!selectedPo) return;
     setIsRunning(true);
-    setAttachError(null);
+    setAttachError("");
     try {
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData?.session?.access_token;
-      if (!token) throw new Error("Phiên đăng nhập hết hạn — vui lòng đăng nhập lại");
+      if (!token) throw new SalesCrmUiError("Phiên đăng nhập hết hạn — vui lòng đăng nhập lại");
 
       const response = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/po-parse-inbox-order`,
@@ -106,7 +108,7 @@ export function ParseTestWorkbench({ customerPos, kbAiSuggestion, parseContract,
       );
       const json = await response.json();
       if (!response.ok) {
-        throw new Error(json?.error || `Lỗi server (${response.status})`);
+        throw (json?.error ? new Error(json.error) : new SalesCrmUiError("Lỗi server ({status})", { status: response.status }));
       }
 
       const parsedItems: any[] = Array.isArray(json?.parsed?.items) ? json.parsed.items : [];
@@ -135,7 +137,7 @@ export function ParseTestWorkbench({ customerPos, kbAiSuggestion, parseContract,
       setEvidenceNote("");
       setEvidenceSaved(false);
     } catch (err: any) {
-      setAttachError(err?.message || "Không parse được file đính kèm");
+      setAttachError(crmErrorNotice(err, "Không parse được file đính kèm"));
       setResult(null);
     } finally {
       setIsRunning(false);
@@ -184,21 +186,19 @@ export function ParseTestWorkbench({ customerPos, kbAiSuggestion, parseContract,
     result == null
       ? null
       : confidence >= 0.8
-        ? { text: "Parse tốt — đủ tin tưởng để lưu & áp dụng KB.", cls: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" }
+        ? { text: f("Parse tốt — đủ tin tưởng để lưu & áp dụng KB."), cls: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" }
         : confidence >= 0.5
-          ? { text: "Parse được một phần — nên xem lại rule split và pattern trước khi lưu.", cls: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300" }
-          : { text: "Parse yếu — cần điều chỉnh KB (split rule, pattern) rồi thử lại.", cls: "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300" };
+          ? { text: f("Parse được một phần — nên xem lại rule split và pattern trước khi lưu."), cls: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300" }
+          : { text: f("Parse yếu — cần điều chỉnh KB (split rule, pattern) rồi thử lại."), cls: "border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300" };
 
   if (customerPos.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-border/70 bg-background/60 px-4 py-5 text-sm">
         <div className="flex items-center gap-2 font-semibold text-foreground mb-1.5">
           <FlaskConical className="h-4 w-4 text-primary" />
-          Workbench test parse
-        </div>
+           {f("Workbench test parse")} </div>
         <p className="text-muted-foreground">
-          Chưa có PO nào của khách hàng này trong hệ thống. Sau khi nhận PO thực tế, anh/chị có thể chọn và test parse tại đây.
-        </p>
+           {f("Chưa có PO nào của khách hàng này trong hệ thống. Sau khi nhận PO thực tế, anh/chị có thể chọn và test parse tại đây.")} </p>
       </div>
     );
   }
@@ -207,18 +207,16 @@ export function ParseTestWorkbench({ customerPos, kbAiSuggestion, parseContract,
     <div className="rounded-xl border border-border/70 bg-background/80 p-4 shadow-sm space-y-4">
       <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
         <FlaskConical className="h-4 w-4 text-primary" />
-        Workbench test parse
-      </div>
+         {f("Workbench test parse")} </div>
       <p className="text-xs text-muted-foreground -mt-2">
-        Chọn một PO đã sync bên dưới để chạy parse thử với KB/AI config đang draft. Kết quả không ảnh hưởng dữ liệu.
-      </p>
+         {f("Chọn một PO đã sync bên dưới để chạy parse thử với KB/AI config đang draft. Kết quả không ảnh hưởng dữ liệu.")} </p>
 
       {/* Mode toggle */}
       {showModeToggle && (
         <div className="flex gap-1.5">
           <button
             type="button"
-            onClick={() => { setParseMode("email_body"); setResult(null); setAttachError(null); }}
+            onClick={() => { setParseMode("email_body"); setResult(null); setAttachError(""); }}
             className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
               parseMode === "email_body"
                 ? "border-primary/60 bg-primary/5 text-primary"
@@ -226,11 +224,10 @@ export function ParseTestWorkbench({ customerPos, kbAiSuggestion, parseContract,
             }`}
           >
             <FileText className="h-3.5 w-3.5" />
-            Nội dung email
-          </button>
+             {f("Nội dung email")} </button>
           <button
             type="button"
-            onClick={() => { setParseMode("attachment"); setResult(null); setAttachError(null); }}
+            onClick={() => { setParseMode("attachment"); setResult(null); setAttachError(""); }}
             className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
               parseMode === "attachment"
                 ? "border-primary/60 bg-primary/5 text-primary"
@@ -238,16 +235,14 @@ export function ParseTestWorkbench({ customerPos, kbAiSuggestion, parseContract,
             }`}
           >
             <Paperclip className="h-3.5 w-3.5" />
-            File đính kèm
-          </button>
+             {f("File đính kèm")} </button>
         </div>
       )}
 
       {/* PO selector */}
       <div className="space-y-1.5">
         <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Chọn PO để test ({customerPos.length} PO đã sync)
-        </div>
+           {f("Chọn PO để test (")}{customerPos.length}  {f("PO đã sync)")} </div>
         <div className="space-y-1.5 max-h-56 overflow-y-auto pr-0.5">
           {customerPos.map((po) => {
             const isSelected = po.id === selectedPoId;
@@ -258,7 +253,7 @@ export function ParseTestWorkbench({ customerPos, kbAiSuggestion, parseContract,
                 onClick={() => {
                   setSelectedPoId(po.id);
                   setResult(null);
-                  setAttachError(null);
+                  setAttachError("");
                 }}
                 className={`w-full text-left rounded-lg border px-3 py-2 text-sm transition-colors ${
                   isSelected
@@ -266,7 +261,7 @@ export function ParseTestWorkbench({ customerPos, kbAiSuggestion, parseContract,
                     : "border-border/60 bg-muted/20 text-muted-foreground hover:bg-muted/40 hover:text-foreground"
                 }`}
               >
-                <div className="font-medium truncate">{po.email_subject || "(không có tiêu đề)"}</div>
+                <div className="font-medium truncate">{po.email_subject || f("(không có tiêu đề)")}</div>
                 <div className="text-xs mt-0.5 flex flex-wrap gap-3">
                   {po.from_email && <span>{po.from_email}</span>}
                   {po.received_at && (
@@ -283,17 +278,16 @@ export function ParseTestWorkbench({ customerPos, kbAiSuggestion, parseContract,
       {selectedPo && (
         <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-3 space-y-2">
           <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Tóm tắt PO đã chọn
-          </div>
+             {f("Tóm tắt PO đã chọn")} </div>
           <div className="text-sm font-medium text-foreground leading-5">
-            {selectedPo.email_subject || "(không có tiêu đề)"}
+            {selectedPo.email_subject || f("(không có tiêu đề)")}
           </div>
           {selectedPo.from_email && (
-            <div className="text-xs text-muted-foreground">Từ: {selectedPo.from_email}</div>
+            <div className="text-xs text-muted-foreground">{f("Từ:")} {selectedPo.from_email}</div>
           )}
           {selectedPo.received_at && (
             <div className="text-xs text-muted-foreground">
-              Nhận: {new Date(selectedPo.received_at).toLocaleString("vi-VN")}
+               {f("Nhận:")} {new Date(selectedPo.received_at).toLocaleString("vi-VN")}
             </div>
           )}
           {parseMode === "email_body" && (selectedPo.body_preview || selectedPo.raw_payload?.snippet) && (
@@ -304,8 +298,7 @@ export function ParseTestWorkbench({ customerPos, kbAiSuggestion, parseContract,
           {parseMode === "attachment" && (
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <Paperclip className="h-3 w-3" />
-              Sẽ gọi edge function parse file đính kèm của PO này
-            </div>
+               {f("Sẽ gọi edge function parse file đính kèm của PO này")} </div>
           )}
           <div className="flex justify-end pt-1">
             <Button
@@ -316,7 +309,7 @@ export function ParseTestWorkbench({ customerPos, kbAiSuggestion, parseContract,
               disabled={isRunning}
             >
               <PlayCircle className="mr-1.5 h-4 w-4" />
-              {isRunning ? "Đang parse..." : "Chạy test parse trên PO này"}
+              {isRunning ? f("Đang parse...") : f("Chạy test parse trên PO này")}
             </Button>
           </div>
         </div>
@@ -327,8 +320,8 @@ export function ParseTestWorkbench({ customerPos, kbAiSuggestion, parseContract,
         <div className="flex items-start gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:text-red-300">
           <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
           <div>
-            <div className="font-medium">Parse file đính kèm thất bại</div>
-            <div className="text-xs mt-0.5 opacity-80">{attachError}</div>
+            <div className="font-medium">{f("Parse file đính kèm thất bại")}</div>
+            <div className="text-xs mt-0.5 opacity-80">{attachErrorText}</div>
           </div>
         </div>
       )}
@@ -343,19 +336,18 @@ export function ParseTestWorkbench({ customerPos, kbAiSuggestion, parseContract,
             ) : (
               <FileText className="h-3.5 w-3.5" />
             )}
-            <span>Nguồn: <span className="font-medium text-foreground">{result.sourceLabel}</span></span>
+            <span>{f("Nguồn:")} <span className="font-medium text-foreground">{result.source === "email_body" ? f("Nội dung email") : result.sourceLabel.startsWith("File đính kèm — ") ? f("File đính kèm — {file}", { file: result.sourceLabel.slice("File đính kèm — ".length) }) : f("File đính kèm")}</span></span>
           </div>
 
           {passGuidance && (
             <div className={`rounded-xl border px-4 py-3 text-sm font-medium ${passGuidance.cls}`}>
-              Confidence: {Math.round(confidence * 100)}% — {passGuidance.text}
+               {f("Confidence:")} {Math.round(confidence * 100)}% — {passGuidance.text}
             </div>
           )}
 
           <div className="space-y-2">
             <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Dòng hàng parse được ({result.items.length} dòng)
-            </div>
+               {f("Dòng hàng parse được (")}{result.items.length}  {f("dòng)")} </div>
             {result.items.length > 0 ? (
               result.items.map((item, idx) => (
                 <div
@@ -366,15 +358,15 @@ export function ParseTestWorkbench({ customerPos, kbAiSuggestion, parseContract,
                   <div className="text-xs text-muted-foreground mt-0.5">
                     {result.source === "email_body" ? (
                       <>
-                        Cơ bản: {item.qty_base ?? 0}
-                        {Number(item.qty_exchange) > 0 && <> · Đổi: {item.qty_exchange}</>}
-                        {" · "}Tổng:{" "}
+                         {f("Cơ bản:")} {item.qty_base ?? 0}
+                        {Number(item.qty_exchange) > 0 && <>  {f("· Đổi:")} {item.qty_exchange}</>}
+                        {" · "}{f("Tổng:")}{" "}
                         <span className="font-medium text-foreground">{item.qty_total ?? 0}</span>
                         {item.note ? <> · {item.note}</> : null}
                       </>
                     ) : (
                       <>
-                        Số lượng:{" "}
+                         {f("Số lượng:")}{" "}
                         <span className="font-medium text-foreground">{item.qty_total ?? 0}</span>
                         {item.note ? <> · {item.note}</> : null}
                       </>
@@ -385,15 +377,15 @@ export function ParseTestWorkbench({ customerPos, kbAiSuggestion, parseContract,
             ) : (
               <div className="rounded-lg border border-dashed border-border/70 bg-background/70 px-3 py-3 text-sm text-muted-foreground">
                 {result.source === "attachment"
-                  ? "Không parse ra dòng nào từ file đính kèm — file có thể chưa có hoặc không đúng định dạng."
-                  : "Không parse ra dòng nào — kiểm tra lại split rule và location/quantity pattern trong KB."}
+                  ? f("Không parse ra dòng nào từ file đính kèm — file có thể chưa có hoặc không đúng định dạng.")
+                  : f("Không parse ra dòng nào — kiểm tra lại split rule và location/quantity pattern trong KB.")}
               </div>
             )}
           </div>
 
           {result.deliveryDate && (
             <div className="text-xs text-muted-foreground">
-              Ngày giao hàng trích từ subject:{" "}
+               {f("Ngày giao hàng trích từ subject:")}{" "}
               <span className="font-medium text-foreground">{result.deliveryDate}</span>
             </div>
           )}
@@ -401,7 +393,7 @@ export function ParseTestWorkbench({ customerPos, kbAiSuggestion, parseContract,
           {/* Evidence save form — only shown when parseContract is available */}
           {parseContract && onParseContractChange && !evidenceSaved && (
             <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-3 space-y-2">
-              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Lưu làm evidence cho contract</div>
+              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{f("Lưu làm evidence cho contract")}</div>
               <div className="flex gap-2">
                 <button
                   type="button"
@@ -412,8 +404,7 @@ export function ParseTestWorkbench({ customerPos, kbAiSuggestion, parseContract,
                       : "border-border/60 bg-muted/20 text-muted-foreground hover:bg-muted/40"
                   }`}
                 >
-                  <CheckCircle2 className="h-3.5 w-3.5" /> Pass
-                </button>
+                  <CheckCircle2 className="h-3.5 w-3.5" />  {f("Pass")} </button>
                 <button
                   type="button"
                   onClick={() => setEvidencePass(false)}
@@ -423,20 +414,18 @@ export function ParseTestWorkbench({ customerPos, kbAiSuggestion, parseContract,
                       : "border-border/60 bg-muted/20 text-muted-foreground hover:bg-muted/40"
                   }`}
                 >
-                  <XCircle className="h-3.5 w-3.5" /> Fail
-                </button>
+                  <XCircle className="h-3.5 w-3.5" />  {f("Fail")} </button>
               </div>
               <input
                 type="text"
                 value={evidenceNote}
                 onChange={(e) => setEvidenceNote(e.target.value)}
-                placeholder="Ghi chú review (tuỳ chọn)"
+                placeholder={f("Ghi chú review (tuỳ chọn)")}
                 className="w-full rounded-lg border border-input bg-background px-3 py-1.5 text-sm"
               />
               <div className="flex justify-end">
                 <Button type="button" variant="outline" size="sm" onClick={handleSaveEvidence}>
-                  Lưu evidence
-                </Button>
+                   {f("Lưu evidence")} </Button>
               </div>
             </div>
           )}
@@ -444,8 +433,7 @@ export function ParseTestWorkbench({ customerPos, kbAiSuggestion, parseContract,
           {parseContract && onParseContractChange && evidenceSaved && (
             <div className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300">
               <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
-              Evidence đã lưu vào contract (chưa persist — bấm Lưu &amp; áp dụng KB để lưu hẳn).
-            </div>
+               {f("Evidence đã lưu vào contract (chưa persist — bấm Lưu &amp; áp dụng KB để lưu hẳn).")} </div>
           )}
         </div>
       )}
@@ -455,7 +443,7 @@ export function ParseTestWorkbench({ customerPos, kbAiSuggestion, parseContract,
         <div className="rounded-xl border border-border/70 bg-background/80 p-4 space-y-3">
           <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
             <History className="h-4 w-4 text-primary" />
-            Evidence đã lưu ({parseContract.test_evidence.length})
+             {f("Evidence đã lưu (")}{parseContract.test_evidence.length})
           </div>
           <div className="space-y-2 max-h-56 overflow-y-auto pr-0.5">
             {parseContract.test_evidence.slice().reverse().map((ev, idx) => (
@@ -464,14 +452,14 @@ export function ParseTestWorkbench({ customerPos, kbAiSuggestion, parseContract,
                   <span className="font-medium text-foreground truncate max-w-[70%]">{ev.label || ev.po_id}</span>
                   <span className={`flex items-center gap-1 font-medium ${ev.pass ? "text-emerald-700 dark:text-emerald-300" : "text-red-600 dark:text-red-400"}`}>
                     {ev.pass ? <CheckCircle2 className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
-                    {ev.pass ? "Pass" : "Fail"}
+                    {ev.pass ? f("Pass") : f("Fail")}
                   </span>
                 </div>
                 <div className="text-muted-foreground mt-0.5 flex flex-wrap gap-3">
                   <span>{ev.source_label}</span>
-                  <span>Confidence: {Math.round(ev.confidence * 100)}%</span>
-                  <span>{ev.item_count} dòng</span>
-                  {ev.review_note && <span>Note: {ev.review_note}</span>}
+                  <span>{f("Confidence:")} {Math.round(ev.confidence * 100)}%</span>
+                  <span>{ev.item_count}  {f("dòng")}</span>
+                  {ev.review_note && <span>{f("Note:")} {ev.review_note}</span>}
                 </div>
                 <div className="text-muted-foreground/70 mt-0.5">{new Date(ev.tested_at).toLocaleString("vi-VN")}</div>
               </div>

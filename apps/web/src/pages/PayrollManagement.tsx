@@ -1,3 +1,5 @@
+import { usePeopleLabels } from "@/hooks/usePeopleLabels";
+import { showPeopleToast, PeopleLocalError, peopleErrorDescription, peopleToast, usePeopleCopy } from "@/hooks/usePeopleCopy";
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
@@ -12,7 +14,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { useToast } from "@/hooks/use-toast";
 import {
   Calculator,
   CalendarRange,
@@ -149,9 +150,10 @@ function isPostgrestMissingRpc(error: any) {
 }
 
 export default function PayrollManagement() {
+  const pc = usePeopleCopy();
+  const labels = usePeopleLabels();
   const { language } = useLanguage();
   const { canEditModule } = useAuth();
-  const { toast } = useToast();
   const queryClient = useQueryClient();
   const isVi = language === "vi";
   const canEdit = canEditModule("payroll");
@@ -168,68 +170,64 @@ export default function PayrollManagement() {
 
   const copy = useMemo(
     () => ({
-      title: isVi ? "Bảng lương" : "Payroll",
-      description: isVi
-        ? "Tính lương theo chấm công: lương tháng / giờ / ca. Phase 2."
-        : "Compute payroll from attendance: monthly / hourly / per-shift. Phase 2.",
-      tabRuns: isVi ? "Kỳ lương" : "Payroll runs",
-      tabProfiles: isVi ? "Hợp đồng lương" : "Wage profiles",
-      tabExport: isVi ? "Xuất kế toán" : "Accounting export",
-      createRun: isVi ? "Tạo kỳ lương" : "Create run",
-      runCode: isVi ? "Mã kỳ" : "Period code",
-      runName: isVi ? "Tên kỳ" : "Period name",
-      from: isVi ? "Từ ngày" : "From",
-      to: isVi ? "Đến ngày" : "To",
-      recalculate: isVi ? "Tính lại" : "Recalculate",
-      approve: isVi ? "Duyệt" : "Approve",
-      lock: isVi ? "Khóa" : "Lock",
-      unlock: isVi ? "Mở lại" : "Reopen",
-      runsEmpty: isVi ? "Chưa có kỳ lương nào" : "No payroll runs yet",
-      linesEmpty: isVi ? "Chưa có dòng lương — bấm Tính lại" : "No payroll lines — click Recalculate",
-      selectRun: isVi ? "Chọn một kỳ để xem chi tiết" : "Select a run to view details",
-      addProfile: isVi ? "Thêm hợp đồng" : "Add profile",
-      employeeCode: isVi ? "Mã NV" : "Employee code",
-      employeeName: isVi ? "Tên NV" : "Employee name",
-      department: isVi ? "Bộ phận" : "Department",
-      wageType: isVi ? "Hình thức" : "Wage type",
-      baseSalary: isVi ? "Lương tháng" : "Monthly base",
-      hourlyRate: isVi ? "Giá giờ" : "Hourly rate",
-      perShift: isVi ? "Giá ca" : "Per-shift",
-      stdDays: isVi ? "Ngày chuẩn/tháng" : "Std days/month",
-      stdHours: isVi ? "Giờ chuẩn/ngày" : "Std hours/day",
-      partialFloor: isVi ? "Hệ số ca thiếu" : "Partial shift floor",
-      effectiveFrom: isVi ? "Hiệu lực từ" : "Effective from",
-      effectiveTo: isVi ? "Hiệu lực đến" : "Effective to",
-      saveProfile: isVi ? "Lưu hợp đồng" : "Save profile",
-      cancel: isVi ? "Hủy" : "Cancel",
-      status: isVi ? "Trạng thái" : "Status",
-      days: isVi ? "Ngày công" : "Days",
-      hours: isVi ? "Giờ" : "Hours",
-      lateMin: isVi ? "Trễ (phút)" : "Late (min)",
-      base: isVi ? "Cơ bản" : "Base",
-      deduction: isVi ? "Khấu trừ" : "Deduction",
-      adj: isVi ? "Điều chỉnh" : "Adjustment",
-      net: isVi ? "Thực nhận" : "Net",
-      readOnly: isVi ? "Chỉ đọc — anh không có quyền edit payroll" : "Read-only — no payroll edit permission",
-      totals: isVi ? "Tổng kỳ" : "Period totals",
-      totalsFmt: isVi ? "Gross / Trừ / Net" : "Gross / Deductions / Net",
-      locked: isVi ? "Đã khóa" : "Locked",
-      approved: isVi ? "Đã duyệt" : "Approved",
-      calculated: isVi ? "Đã tính" : "Calculated",
-      draft: isVi ? "Nháp" : "Draft",
-      gpsPreviewTitle: isVi ? "Xem trước GPS — chưa tính/chốt lương" : "GPS payroll preview — no payroll action",
-      gpsPreviewDescription: isVi
-        ? "So sánh ngày công GPS với attendance_records và dòng lương đã lưu. Chỉ xem trước, không tính lại, không chốt, không đổi net pay."
-        : "Compare GPS days with attendance_records and persisted payroll lines. Preview only: no recalculation, no close, no net pay change.",
-      gpsPreviewEmpty: isVi ? "Chưa có dữ liệu GPS/KIOSK/DELIVERY cho kỳ này." : "No GPS/KIOSK/DELIVERY preview rows for this run.",
-      gpsValidDays: isVi ? "Ngày GPS hợp lệ" : "Valid GPS days",
-      attendanceDays: isVi ? "Ngày attendance_records" : "attendance_records days",
-      payrollDays: isVi ? "Ngày payroll đã lưu" : "Persisted payroll days",
-      discrepancy: isVi ? "Chênh lệch" : "Discrepancy",
-      context: isVi ? "Ngữ cảnh" : "Context",
-      notCalculated: isVi ? "not_calculated — chưa có dòng lương đã lưu" : "not_calculated — no persisted payroll line",
+      title: pc("payroll"),
+      description: pc("computePayrollFromAttendanceMonthlyHourlyPer"),
+      tabRuns: pc("payrollRuns"),
+      tabProfiles: pc("wageProfiles"),
+      tabExport: pc("accountingExport"),
+      createRun: pc("createRun"),
+      runCode: pc("periodCode"),
+      runName: pc("periodName"),
+      from: pc("from"),
+      to: pc("to"),
+      recalculate: pc("recalculate"),
+      approve: pc("approve"),
+      lock: pc("lock"),
+      unlock: pc("reopen"),
+      runsEmpty: pc("noPayrollRunsYet"),
+      linesEmpty: pc("noPayrollLinesClickRecalculate"),
+      selectRun: pc("selectARunToViewDetails"),
+      addProfile: pc("addProfile"),
+      employeeCode: pc("employeeCode2"),
+      employeeName: pc("employeeName2"),
+      department: pc("department"),
+      wageType: pc("wageType"),
+      baseSalary: pc("monthlyBase"),
+      hourlyRate: pc("hourlyRate"),
+      perShift: pc("perShift"),
+      stdDays: pc("stdDaysMonth"),
+      stdHours: pc("stdHoursDay"),
+      partialFloor: pc("partialShiftFloor"),
+      effectiveFrom: pc("effectiveFrom"),
+      effectiveTo: pc("effectiveTo"),
+      saveProfile: pc("saveProfile"),
+      cancel: pc("cancel"),
+      status: pc("status"),
+      days: pc("days"),
+      hours: pc("hours"),
+      lateMin: pc("lateMin"),
+      base: pc("base"),
+      deduction: pc("deduction"),
+      adj: pc("adjustment"),
+      net: pc("net"),
+      readOnly: pc("readOnlyNoPayrollEditPermission"),
+      totals: pc("periodTotals"),
+      totalsFmt: pc("grossDeductionsNet"),
+      locked: pc("locked2"),
+      approved: pc("approved"),
+      calculated: pc("calculated"),
+      draft: pc("draft"),
+      gpsPreviewTitle: pc("gpsPayrollPreviewNoPayrollAction"),
+      gpsPreviewDescription: pc("compareGpsDaysWithAttendanceRecordsAnd"),
+      gpsPreviewEmpty: pc("noGpsKioskDeliveryPreviewRowsFor"),
+      gpsValidDays: pc("validGpsDays"),
+      attendanceDays: pc("attendanceRecordsDays"),
+      payrollDays: pc("persistedPayrollDays"),
+      discrepancy: pc("discrepancy"),
+      context: pc("context"),
+      notCalculated: pc("notCalculatedNoPersistedPayrollLine"),
     }),
-    [isVi],
+    [pc],
   );
 
   const { data: runs = [], isLoading: runsLoading } = useQuery({
@@ -296,12 +294,12 @@ export default function PayrollManagement() {
 
   const createRunMutation = useMutation({
     mutationFn: async () => {
-      if (!canEdit) throw new Error(copy.readOnly);
+      if (!canEdit) throw new PeopleLocalError({ key: "readOnlyNoPayrollEditPermission" });
       if (!newRunCode.trim() || !newRunFrom || !newRunTo) {
-        throw new Error(isVi ? "Thiếu mã / ngày" : "Missing code / dates");
+        throw new PeopleLocalError({ key: "missingCodeDates" });
       }
       if (newRunFrom > newRunTo) {
-        throw new Error(isVi ? "Ngày bắt đầu phải trước ngày kết thúc" : "Start date must be before end date");
+        throw new PeopleLocalError({ key: "startDateMustBeBeforeEndDate" });
       }
       const { error } = await (supabase as any)
         .from("payroll_runs")
@@ -318,16 +316,16 @@ export default function PayrollManagement() {
       setNewRunCode("");
       setNewRunName("");
       queryClient.invalidateQueries({ queryKey: ["payroll-runs"] });
-      toast({ title: isVi ? "Đã tạo kỳ lương" : "Payroll run created" });
+      showPeopleToast("success", peopleToast("payrollRunCreated"));
     },
     onError: (err: any) => {
-      toast({ title: isVi ? "Không thể tạo" : "Unable to create", description: err?.message, variant: "destructive" });
+      showPeopleToast("error", peopleToast("unableToCreate"), { description: peopleErrorDescription(err, "pleaseTryAgain") });
     },
   });
 
   const recalculateMutation = useMutation({
     mutationFn: async (runId: string) => {
-      if (!canEdit) throw new Error(copy.readOnly);
+      if (!canEdit) throw new PeopleLocalError({ key: "readOnlyNoPayrollEditPermission" });
       const { data, error } = await (supabase as any).rpc("payroll_calculate_run", { _run_id: runId });
       if (error) throw error;
       return (data?.[0] || { processed_employees: 0, lines_written: 0 }) as {
@@ -338,21 +336,18 @@ export default function PayrollManagement() {
     onSuccess: (r, runId) => {
       queryClient.invalidateQueries({ queryKey: ["payroll-runs"] });
       queryClient.invalidateQueries({ queryKey: ["payroll-lines", runId] });
-      toast({
-        title: isVi ? "Đã tính lại" : "Run recalculated",
-        description: isVi
-          ? `Xử lý ${r.processed_employees} NV, ghi ${r.lines_written} dòng.`
-          : `Processed ${r.processed_employees} employees, wrote ${r.lines_written} lines.`,
+      showPeopleToast("success", peopleToast("runRecalculated"), {
+        description: peopleToast("processedEmployeesWroteLines", { p0: r.processed_employees, p1: r.lines_written }),
       });
     },
     onError: (err: any) => {
-      toast({ title: isVi ? "Tính lại thất bại" : "Recalculate failed", description: err?.message, variant: "destructive" });
+      showPeopleToast("error", peopleToast("recalculateFailed"), { description: peopleErrorDescription(err, "pleaseTryAgain") });
     },
   });
 
   const updateRunStatusMutation = useMutation({
     mutationFn: async ({ runId, status }: { runId: string; status: RunStatus }) => {
-      if (!canEdit) throw new Error(copy.readOnly);
+      if (!canEdit) throw new PeopleLocalError({ key: "readOnlyNoPayrollEditPermission" });
       const { data: authData } = await supabase.auth.getUser();
       const uid = authData?.user?.id || null;
       const nowIso = new Date().toISOString();
@@ -374,18 +369,18 @@ export default function PayrollManagement() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["payroll-runs"] });
-      toast({ title: isVi ? "Đã cập nhật trạng thái" : "Status updated" });
+      showPeopleToast("success", peopleToast("statusUpdated"));
     },
     onError: (err: any) => {
-      toast({ title: isVi ? "Cập nhật thất bại" : "Update failed", description: err?.message, variant: "destructive" });
+      showPeopleToast("error", peopleToast("updateFailed"), { description: peopleErrorDescription(err, "pleaseTryAgain") });
     },
   });
 
   const saveProfileMutation = useMutation({
     mutationFn: async () => {
-      if (!canEdit) throw new Error(copy.readOnly);
-      if (!profileForm.employee_code?.trim()) throw new Error(isVi ? "Thiếu mã NV" : "Missing employee code");
-      if (!profileForm.effective_from) throw new Error(isVi ? "Thiếu hiệu lực từ" : "Missing effective_from");
+      if (!canEdit) throw new PeopleLocalError({ key: "readOnlyNoPayrollEditPermission" });
+      if (!profileForm.employee_code?.trim()) throw new PeopleLocalError({ key: "missingEmployeeCode" });
+      if (!profileForm.effective_from) throw new PeopleLocalError({ key: "missingEffectiveFrom" });
 
       const payload = {
         employee_code: profileForm.employee_code!.trim(),
@@ -419,10 +414,10 @@ export default function PayrollManagement() {
       setProfileDialogOpen(false);
       setProfileForm(emptyProfile);
       queryClient.invalidateQueries({ queryKey: ["employee-wage-profiles"] });
-      toast({ title: isVi ? "Đã lưu hợp đồng" : "Profile saved" });
+      showPeopleToast("success", peopleToast("profileSaved"));
     },
     onError: (err: any) => {
-      toast({ title: isVi ? "Lưu thất bại" : "Save failed", description: err?.message, variant: "destructive" });
+      showPeopleToast("error", peopleToast("saveFailed"), { description: peopleErrorDescription(err, "pleaseTryAgain") });
     },
   });
 
@@ -439,7 +434,7 @@ export default function PayrollManagement() {
   };
 
   return (
-    <div className="space-y-6">
+    <div data-i18n-version="d-people-v1" className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">{copy.title}</h1>
         <p className="text-muted-foreground">{copy.description}</p>
@@ -478,9 +473,7 @@ export default function PayrollManagement() {
                 {copy.createRun}
               </CardTitle>
               <CardDescription>
-                {isVi
-                  ? "Tạo kỳ, sau đó bấm Tính lại để engine đọc attendance_records"
-                  : "Create a run then click Recalculate to pull from attendance_records"}
+                {pc("createARunThenClickRecalculateTo")}
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-3 md:grid-cols-5">
@@ -630,7 +623,7 @@ export default function PayrollManagement() {
                         </div>
                       ) : gpsPreviewCapabilityUnavailable ? (
                         <div role="status" className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
-                          {isVi ? "Xem trước GPS đang chờ backend migration; các thao tác lương hiện có vẫn hoạt động." : "GPS preview is awaiting backend migration; existing payroll actions remain available."}
+                          {pc("gpsPreviewIsAwaitingBackendMigrationExisting")}
                         </div>
                       ) : gpsPreviewError ? (
                         <div className="text-sm text-destructive">{(gpsPreviewError as Error).message}</div>
@@ -655,7 +648,7 @@ export default function PayrollManagement() {
                               <div className="rounded border bg-background p-2">
                                 <div className="text-muted-foreground">{copy.context}</div>
                                 <div className="font-semibold">
-                                  {isVi ? "Khóa" : "Locked"}: {gpsPreviewMetrics.attendance_locked_days} · {isVi ? "Manual" : "Manual"}: {gpsPreviewMetrics.attendance_manual_days} · {isVi ? "Override" : "Override"}: {gpsPreviewMetrics.override_days}
+                                  {pc("locked3")}: {gpsPreviewMetrics.attendance_locked_days} · {pc("manual")}: {gpsPreviewMetrics.attendance_manual_days} · {pc("override")}: {gpsPreviewMetrics.override_days}
                                 </div>
                               </div>
                             </div>
@@ -686,13 +679,13 @@ export default function PayrollManagement() {
                                       {row.gps_vs_attendance_days_delta} / {row.gps_vs_payroll_days_delta ?? "-"}
                                     </TableCell>
                                     <TableCell className="text-xs text-muted-foreground">
-                                      {isVi ? "Khóa" : "Locked"}: {row.attendance_locked_days} · {isVi ? "Manual" : "Manual"}: {row.attendance_manual_days} · {isVi ? "Override" : "Override"}: {row.override_days}
+                                      {pc("locked3")}: {row.attendance_locked_days} · {pc("manual")}: {row.attendance_manual_days} · {pc("override")}: {row.override_days}
                                     </TableCell>
                                     <TableCell>
                                       {row.payroll_status === "not_calculated" ? (
                                         <Badge variant="outline">{copy.notCalculated}</Badge>
                                       ) : (
-                                        <Badge variant="secondary">{row.payroll_status}</Badge>
+                                        <Badge variant="secondary">{labels.status(row.payroll_status)}</Badge>
                                       )}
                                     </TableCell>
                                   </TableRow>
@@ -736,12 +729,12 @@ export default function PayrollManagement() {
                             <TableCell className="font-medium">{line.employee_code}</TableCell>
                             <TableCell>{line.employee_name || "-"}</TableCell>
                             <TableCell>
-                              <Badge variant="outline">{line.wage_type_snapshot}</Badge>
+                              <Badge variant="outline">{labels.wage(line.wage_type_snapshot)}</Badge>
                             </TableCell>
                             <TableCell className="text-right">
                               {line.total_days_present}
                               {line.total_shifts_partial > 0 ? (
-                                <span className="text-muted-foreground text-xs"> (+{line.total_shifts_partial}p)</span>
+                                <span className="text-muted-foreground text-xs"> (+{line.total_shifts_partial}{pc("partialShiftsSuffix")}</span>
                               ) : null}
                             </TableCell>
                             <TableCell className="text-right">{Number(line.total_hours_worked).toFixed(1)}</TableCell>
@@ -778,9 +771,7 @@ export default function PayrollManagement() {
                   {copy.tabProfiles}
                 </CardTitle>
                 <CardDescription>
-                  {isVi
-                    ? "Mỗi NV có 1+ hợp đồng theo giai đoạn; engine chọn bản ghi có effective_from/to bao phủ kỳ."
-                    : "Each employee has one or more contracts; the engine picks the one whose effective range covers the run."}
+                  {pc("eachEmployeeHasOneOrMoreContracts")}
                 </CardDescription>
               </div>
               <Button onClick={() => openProfileDialog()} disabled={!canEdit}>
@@ -795,7 +786,7 @@ export default function PayrollManagement() {
                 </div>
               ) : profiles.length === 0 ? (
                 <div className="text-sm text-muted-foreground">
-                  {isVi ? "Chưa có hợp đồng lương nào." : "No wage profiles yet."}
+                  {pc("noWageProfilesYet")}
                 </div>
               ) : (
                 <div className="overflow-x-auto">
@@ -822,7 +813,7 @@ export default function PayrollManagement() {
                           <TableCell>{p.employee_name || "-"}</TableCell>
                           <TableCell>{p.department || "-"}</TableCell>
                           <TableCell>
-                            <Badge variant="outline">{p.wage_type}</Badge>
+                            <Badge variant="outline">{labels.wage(p.wage_type)}</Badge>
                           </TableCell>
                           <TableCell className="text-right">{formatCurrency(p.base_monthly_salary, currencyLocale)}</TableCell>
                           <TableCell className="text-right">{formatCurrency(p.hourly_rate, currencyLocale)}</TableCell>
@@ -831,14 +822,14 @@ export default function PayrollManagement() {
                           <TableCell>{p.effective_to || "-"}</TableCell>
                           <TableCell>
                             {p.is_active ? (
-                              <Badge>{isVi ? "Hoạt động" : "Active"}</Badge>
+                              <Badge>{pc("active")}</Badge>
                             ) : (
-                              <Badge variant="secondary">{isVi ? "Tắt" : "Inactive"}</Badge>
+                              <Badge variant="secondary">{pc("inactive")}</Badge>
                             )}
                           </TableCell>
                           <TableCell>
                             <Button size="sm" variant="outline" onClick={() => openProfileDialog(p)} disabled={!canEdit}>
-                              {isVi ? "Sửa" : "Edit"}
+                              {pc("edit")}
                             </Button>
                           </TableCell>
                         </TableRow>
@@ -859,11 +850,9 @@ export default function PayrollManagement() {
       <Dialog open={profileDialogOpen} onOpenChange={setProfileDialogOpen}>
         <DialogContent className="max-w-3xl">
           <DialogHeader>
-            <DialogTitle>{profileForm.id ? (isVi ? "Sửa hợp đồng" : "Edit profile") : copy.addProfile}</DialogTitle>
+            <DialogTitle>{profileForm.id ? (pc("editProfile")) : copy.addProfile}</DialogTitle>
             <DialogDescription>
-              {isVi
-                ? "Thông tin này được engine dùng khi tính lương. Dùng effective_from/to để tách giai đoạn."
-                : "These fields are consumed by the payroll engine. Use effective_from/to for versioning."}
+              {pc("theseFieldsAreConsumedByThePayroll")}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-3 md:grid-cols-2">
@@ -898,9 +887,9 @@ export default function PayrollManagement() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="monthly">monthly</SelectItem>
-                  <SelectItem value="hourly">hourly</SelectItem>
-                  <SelectItem value="per_shift">per_shift</SelectItem>
+                  <SelectItem value="monthly">{pc("monthly")}</SelectItem>
+                  <SelectItem value="hourly">{pc("hourly")}</SelectItem>
+                  <SelectItem value="per_shift">{pc("perShift2")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>

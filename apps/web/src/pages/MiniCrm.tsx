@@ -1,3 +1,4 @@
+import { useSalesCrmMessages, useSalesCrmFeedback, crmNotice, crmErrorNotice, renderCrmNotice, SalesCrmUiError, type SalesCrmNotice } from "@/i18n/salesCrm";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, RefreshCw, Pencil, Save, X, Trash2, Search } from "lucide-react";
 import { useLocation } from "react-router-dom";
@@ -12,7 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { getFreshAccessToken } from "@/lib/supabase-helpers";
+import { getFreshAccessToken as getSharedFreshAccessToken } from "@/lib/supabase-helpers";
 import { useLanguage } from "@/contexts/LanguageContext";
 import ExcelJS from "exceljs";
 import { getDocument, GlobalWorkerOptions } from "pdfjs-dist/legacy/build/pdf.mjs";
@@ -52,6 +53,12 @@ import {
   type KbAiParseSuggestion,
 } from "@/components/mini-crm/kbAiUtils";
 import type { CustomerParseContract, ParseContractSource } from "@/components/mini-crm/parseContractTypes";
+
+// The shared helper emits one canonical session error. Localize it only in this staff lane.
+const getFreshAccessToken = async () => {
+  try { return await getSharedFreshAccessToken(); }
+  catch { throw new SalesCrmUiError("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại."); }
+};
 
 const GROUP_OPTIONS = [
   { value: "banhmi_point", label: "Bán lẻ" },
@@ -115,14 +122,14 @@ const normalizeDealerContactPhone = (raw: string) => {
   return digits;
 };
 
-const formatDealerContactPhones = (contacts: any[] = []) =>
+const formatDealerContactPhones = (contacts: any[] = [], primaryLabel = " (chính)") =>
   Array.isArray(contacts) && contacts.length
     ? contacts
         .filter((contact: any) => contact?.is_active !== false)
         .map((contact: any) => {
           const phone = contact?.phone_raw || contact?.phone_normalized || "";
           const name = contact?.contact_name ? `${contact.contact_name}: ` : "";
-          const primary = contact?.is_primary ? " (chính)" : "";
+          const primary = contact?.is_primary ? primaryLabel : "";
           return `${name}${phone}${primary}`;
         })
         .filter(Boolean)
@@ -251,7 +258,8 @@ const buildSkuPriceMap = (rows: any[], customerId?: string | null, skuRows: any[
   return map;
 };
 const getReadableError = (e: any) => {
-  if (!e) return "Không rõ nguyên nhân";
+  if (e instanceof SalesCrmUiError) return e.notice;
+  if (!e) return crmNotice("Không rõ nguyên nhân");
   const parts = [e?.message, e?.details, e?.hint].filter(Boolean);
   if (parts.length) return parts.join(" | ");
   try {
@@ -431,9 +439,11 @@ const parseEmailBodyToProductionItems = (subject?: string, body?: string, aiConf
 
 export default function MiniCrm() {
   const queryClient = useQueryClient();
-  const { toast } = useToast();
+  const { toast: baseToast } = useToast();
   const { language } = useLanguage();
   const isVi = language === "vi";
+  const f = useSalesCrmMessages();
+  const toast = (options: Omit<Parameters<typeof baseToast>[0], "title" | "description"> & { title?: string | SalesCrmNotice; description?: string | SalesCrmNotice }) => baseToast({ ...options, title: options.title === undefined ? undefined : renderCrmNotice(language, options.title), description: options.description === undefined ? undefined : renderCrmNotice(language, options.description) });
   const location = useLocation();
   const { isOwner, roles, canAccessModule, canEditModule, user } = useAuth();
   const isSalesPoPage = location.pathname === "/sales-po-inbox";
@@ -442,7 +452,7 @@ export default function MiniCrm() {
   const canApproveKb = isOwner || roles.includes("staff") || canEditModule("crm") || canEditModule("sales_po_inbox");
   const approveKbDisabledReason = canApproveKb
     ? ""
-    : "Bạn không có quyền duyệt & áp dụng KB. Cần role Owner/Staff hoặc quyền edit module CRM / PO (Bán hàng).";
+    : f("Bạn không có quyền duyệt & áp dụng KB. Cần role Owner/Staff hoặc quyền edit module CRM / PO (Bán hàng).");
   const ui = {
     pageTitle: isSalesPoPage ? (isVi ? "PO (Bán hàng)" : "Sales PO") : "CRM",
     pageDesc: isSalesPoPage
@@ -477,7 +487,7 @@ export default function MiniCrm() {
   const [editDebtEmailsInput, setEditDebtEmailsInput] = useState("");
   const [editOriginalEmailsInput, setEditOriginalEmailsInput] = useState("");
   const [editDealerContacts, setEditDealerContacts] = useState<DealerContactDraft[]>([createEmptyDealerContactDraft()]);
-  const [editFeedback, setEditFeedback] = useState<string>("");
+  const [editFeedback, setEditFeedback, editFeedbackText] = useSalesCrmFeedback();
   const [templateFileName, setTemplateFileName] = useState<string>("");
   const [templatePreview, setTemplatePreview] = useState<any | null>(null);
   const [pendingTemplateFileName, setPendingTemplateFileName] = useState<string>("");
@@ -492,8 +502,8 @@ export default function MiniCrm() {
   const [poDraftHydrationNonce, setPoDraftHydrationNonce] = useState(0);
   const [pendingParseAction, setPendingParseAction] = useState<null | "attachment" | "email_body">(null);
   const poDraftHydrationKeyRef = useRef<string>("");
-  const [savePoStatus, setSavePoStatus] = useState<string>("");
-  const [postRevenueStatus, setPostRevenueStatus] = useState<string>("");
+  const [savePoStatus, setSavePoStatus, savePoStatusText] = useSalesCrmFeedback();
+  const [postRevenueStatus, setPostRevenueStatus, postRevenueStatusText] = useSalesCrmFeedback();
   const [poParseDebug, setPoParseDebug] = useState<any | null>(null);
   const [poDateFrom, setPoDateFrom] = useState<string>("");
   const [poDateTo, setPoDateTo] = useState<string>("");
@@ -512,7 +522,7 @@ export default function MiniCrm() {
   const [syncDebug, setSyncDebug] = useState<any | null>(null);
   const [syncModalOpen, setSyncModalOpen] = useState(false);
   const [syncStatus, setSyncStatus] = useState<string>("idle");
-  const [syncError, setSyncError] = useState<string>("");
+  const [syncError, setSyncError, syncErrorText] = useSalesCrmFeedback();
   const [previewItems, setPreviewItems] = useState<any[]>([]);
   const [selectedPreviewId, setSelectedPreviewId] = useState<string | null>(null);
   const [selectedPreviewIds, setSelectedPreviewIds] = useState<string[]>([]);
@@ -540,7 +550,7 @@ export default function MiniCrm() {
   const [editKbBusinessDescription, setEditKbBusinessDescription] = useState("");
   const [kbAiSuggestion, setKbAiSuggestion] = useState<KbAiParseSuggestion | null>(null);
   const [parseContract, setParseContract] = useState<CustomerParseContract | null>(null);
-  const [kbAiStatus, setKbAiStatus] = useState("");
+  const [kbAiStatus, setKbAiStatus, kbAiStatusText] = useSalesCrmFeedback();
   const [editIsNpp, setEditIsNpp] = useState(false);
   const [editUsesNpp, setEditUsesNpp] = useState(false);
   const [editSuppliedByNppCustomerId, setEditSuppliedByNppCustomerId] = useState("");
@@ -603,7 +613,13 @@ export default function MiniCrm() {
     ];
   }, [finishedSkus]);
 
-  const renderBusinessProductLabel = (value: unknown) => getBusinessProductLabel(value, finishedSkus as BusinessSkuOption[]);
+  const renderCustomerGroup = (value: string) => value === "banhmi_point" ? f("Bán lẻ") : value === "banhmi_agency" ? f("Đại lý") : GROUP_LABEL_MAP[value] || value;
+  const renderProductGroup = (value: string) => value === "banhmi" ? f("Bánh mì") : value === "banhngot" ? f("Bánh ngọt") : value;
+  const renderBusinessProductLabel = (value: unknown) => {
+    const key = String(value || "").trim();
+    const label = getBusinessProductLabel(value, finishedSkus as BusinessSkuOption[]);
+    return label === PRODUCT_GROUP_LABEL_MAP[key] ? renderProductGroup(key) : label;
+  };
 
   const { data: customerContracts = [] } = useQuery({
     queryKey: ["mini-crm-customer-contracts"],
@@ -973,7 +989,7 @@ export default function MiniCrm() {
         if (missing.length) {
           setAgentPendingSlot(missing[0]);
           const ask = `Em cần bổ sung ${missing[0]}.`;
-          setAgentStatus(`⚠️ ${ask}`);
+          setAgentStatus(f("⚠️ {message}", { message: ask }));
           setAgentChatLog((prev) => [...prev, { role: "agent", text: ask }]);
         } else {
           setAgentPendingSlot(null);
@@ -993,7 +1009,7 @@ export default function MiniCrm() {
       if (missing.length) {
         setAgentPendingSlot(missing[0]);
         const ask = `Em cần bổ sung ${missing[0]}.`;
-        setAgentStatus(`⚠️ ${ask}`);
+        setAgentStatus(f("⚠️ {message}", { message: ask }));
         setAgentChatLog((prev) => [...prev, { role: "agent", text: ask }]);
       } else {
         setAgentPendingSlot(null);
@@ -1024,7 +1040,7 @@ export default function MiniCrm() {
   const addCustomerMutation = useMutation({
     mutationFn: async () => {
       const trimmedName = customerName.trim();
-      if (!trimmedName) throw new Error("Vui lòng nhập tên khách hàng");
+      if (!trimmedName) throw new SalesCrmUiError("Vui lòng nhập tên khách hàng");
 
       const recognitionEmails = normalizeEmailList(emailsInput);
       const debtEmails = normalizeEmailList(debtEmailsInput || emailsInput);
@@ -1057,24 +1073,24 @@ export default function MiniCrm() {
       setEmailsInput("");
       setDebtEmailsInput("");
       await queryClient.invalidateQueries({ queryKey: ["mini-crm-customers"] });
-      toast({ title: "Thêm khách hàng thành công", description: "Mini-CRM đã cập nhật." });
+      toast({ title: f("Thêm khách hàng thành công"), description: f("Mini-CRM đã cập nhật.") });
     },
     onError: (e: any) => {
-      const msg = e?.message || "Không thể thêm khách hàng";
-      toast({ title: "Thêm khách hàng thất bại", description: msg, variant: "destructive" });
+      const msg = crmErrorNotice(e, "Không thể thêm khách hàng");
+      toast({ title: f("Thêm khách hàng thất bại"), description: msg, variant: "destructive" });
     },
   });
 
   const setupCustomerMutation = useMutation({
     mutationFn: async () => {
       const trimmedName = customerName.trim();
-      if (!trimmedName) throw new Error("Vui lòng nhập tên khách hàng");
-      if (!setupIsNpp && setupUsesNpp && !setupSuppliedByNppCustomerId) throw new Error("Vui lòng chọn nhà phân phối cung cấp hàng");
+      if (!trimmedName) throw new SalesCrmUiError("Vui lòng nhập tên khách hàng");
+      if (!setupIsNpp && setupUsesNpp && !setupSuppliedByNppCustomerId) throw new SalesCrmUiError("Vui lòng chọn nhà phân phối cung cấp hàng");
 
       const rawSetupDealerPhone = setupDealerPhone.trim();
       const normalizedSetupDealerPhone = normalizeDealerContactPhone(rawSetupDealerPhone);
       if (rawSetupDealerPhone && !/^84(3|5|7|8|9)\d{8}$/.test(normalizedSetupDealerPhone)) {
-        throw new Error(`SĐT nhận OTP không hợp lệ: ${rawSetupDealerPhone}`);
+        throw new SalesCrmUiError("SĐT nhận OTP không hợp lệ: {phone}", { phone: rawSetupDealerPhone });
       }
 
       const debtEmails = normalizeEmailList(debtEmailsInput || emailsInput);
@@ -1090,8 +1106,8 @@ export default function MiniCrm() {
           p_phone_raw: rawSetupDealerPhone || null,
           p_phone_normalized: normalizedSetupDealerPhone || null,
         });
-      if (createError) throw new Error(createError.message || "Không thể tạo khách hàng");
-      if (!customerId) throw new Error("Không thể tạo khách hàng");
+      if (createError) throw (createError.message ? new Error(createError.message) : new SalesCrmUiError("Không thể tạo khách hàng"));
+      if (!customerId) throw new SalesCrmUiError("Không thể tạo khách hàng");
 
       const emails = normalizeEmailList(emailsInput);
       if (emails.length) {
@@ -1200,10 +1216,10 @@ export default function MiniCrm() {
         queryClient.invalidateQueries({ queryKey: ["mini-crm-knowledge-profiles"] }),
         queryClient.invalidateQueries({ queryKey: ["mini-crm-knowledge-profile-versions"] }),
       ]);
-      toast({ title: "Thiết lập khách hàng thành công" });
+      toast({ title: f("Thiết lập khách hàng thành công") });
     },
     onError: (e: any) => {
-      toast({ title: "Thiết lập khách hàng thất bại", description: e?.message || "Không thể lưu thiết lập", variant: "destructive" });
+      toast({ title: f("Thiết lập khách hàng thất bại"), description: crmErrorNotice(e, "Không thể lưu thiết lập"), variant: "destructive" });
     },
   });
 
@@ -1348,7 +1364,7 @@ export default function MiniCrm() {
     onError: (e: any) => {
       setAgentStatus(`❌ Agent tạo khách hàng thất bại: ${e?.message || "Không rõ lỗi"}`);
       setAgentChatLog((prev) => [...prev, { role: "agent", text: `Tạo khách hàng thất bại, đã rollback dữ liệu tạm. Lỗi: ${e?.message || "Không rõ"}` }]);
-      toast({ title: "Agent UI lỗi", description: e?.message || "Không thể tạo khách hàng", variant: "destructive" });
+      toast({ title: "Agent UI lỗi", description: crmErrorNotice(e, "Không thể tạo khách hàng"), variant: "destructive" });
     },
   });
 
@@ -1381,11 +1397,11 @@ export default function MiniCrm() {
         }
         throw new Error(detail || (error as any)?.message || "Edge Function returned a non-2xx status code");
       }
-      if (!data?.suggestion) throw new Error("AI không trả về rule hợp lệ");
+      if (!data?.suggestion) throw new SalesCrmUiError("AI không trả về rule hợp lệ");
       return data.suggestion as KbAiParseSuggestion;
     },
     onMutate: () => {
-      setKbAiStatus("AI đang phân tích mô tả business + template để đề xuất rule...");
+      setKbAiStatus(crmNotice("AI đang phân tích mô tả business + template để đề xuất rule..."));
     },
     onSuccess: (suggestion) => {
       const normalizedSuggestion = {
@@ -1408,22 +1424,22 @@ export default function MiniCrm() {
             }
           : next;
       });
-      setKbAiStatus(`Đã tạo đề xuất AI • confidence ${Math.round(Number(normalizedSuggestion?.confidence || 0) * 100)}%`);
-      toast({ title: "AI đã đề xuất rule KB", description: normalizedSuggestion?.human_summary || "" });
+      setKbAiStatus(crmNotice("Đã tạo đề xuất AI • confidence {count}%", { count: Math.round(Number(normalizedSuggestion?.confidence || 0) * 100) }));
+      toast({ title: f("AI đã đề xuất rule KB"), description: normalizedSuggestion?.human_summary || "" });
     },
     onError: (e: any) => {
-      const message = e?.message || "Không thể tạo rule KB";
-      setKbAiStatus(`AI tính toán thất bại: ${message}`);
-      toast({ title: "AI tính toán thất bại", description: message, variant: "destructive" });
+      const message = crmErrorNotice(e, "Không thể tạo rule KB");
+      setKbAiStatus(crmNotice("AI tính toán thất bại: {error}", { error: message }));
+      toast({ title: f("AI tính toán thất bại"), description: message, variant: "destructive" });
     },
   });
 
   const updateCustomerMutation = useMutation({
     mutationFn: async () => {
-      if (!editingCustomerId) throw new Error("Chưa chọn khách hàng để sửa");
+      if (!editingCustomerId) throw new SalesCrmUiError("Chưa chọn khách hàng để sửa");
       const trimmedName = editCustomerName.trim();
-      if (!trimmedName) throw new Error("Vui lòng nhập tên khách hàng");
-      if (!editIsNpp && editUsesNpp && !editSuppliedByNppCustomerId) throw new Error("Vui lòng chọn nhà phân phối cung cấp hàng");
+      if (!trimmedName) throw new SalesCrmUiError("Vui lòng nhập tên khách hàng");
+      if (!editIsNpp && editUsesNpp && !editSuppliedByNppCustomerId) throw new SalesCrmUiError("Vui lòng chọn nhà phân phối cung cấp hàng");
 
       const customerUpdatePayload = {
         customer_name: trimmedName,
@@ -1445,16 +1461,16 @@ export default function MiniCrm() {
         .maybeSingle();
 
       if (updateError) {
-        throw new Error(`Lỗi cập nhật thông tin khách hàng: ${updateError.message}`);
+        throw new SalesCrmUiError("Lỗi cập nhật thông tin khách hàng: {error}", { error: updateError.message });
       }
       if (!updatedCustomer?.id) {
-        throw new Error("Không cập nhật được khách hàng (có thể do quyền RLS hoặc bản ghi không tồn tại)");
+        throw new SalesCrmUiError("Không cập nhật được khách hàng (có thể do quyền RLS hoặc bản ghi không tồn tại)");
       }
 
       const emails = normalizeEmailList(editEmailsInput);
       const oldEmails = normalizeEmailList(editOriginalEmailsInput);
       const emailChanged = JSON.stringify(emails) !== JSON.stringify(oldEmails);
-      const warnings: string[] = [];
+      const warnings: Array<string | SalesCrmNotice> = [];
 
       try {
         if (emailChanged) {
@@ -1464,7 +1480,7 @@ export default function MiniCrm() {
             .eq("customer_id", editingCustomerId);
 
           if (deleteEmailsError) {
-            throw new Error(`Lỗi cập nhật danh sách email (bước xoá email cũ): ${deleteEmailsError.message}`);
+            throw new SalesCrmUiError("Lỗi cập nhật danh sách email (bước xoá email cũ): {error}", { error: deleteEmailsError.message });
           }
 
           if (emails.length) {
@@ -1472,7 +1488,7 @@ export default function MiniCrm() {
               .from("mini_crm_customer_emails")
               .insert(emails.map((email, idx) => ({ customer_id: editingCustomerId, email, is_primary: idx === 0 })));
             if (insertEmailsError) {
-              throw new Error(`Lỗi cập nhật danh sách email (bước thêm email mới): ${insertEmailsError.message}`);
+              throw new SalesCrmUiError("Lỗi cập nhật danh sách email (bước thêm email mới): {error}", { error: insertEmailsError.message });
             }
           }
         }
@@ -1491,17 +1507,17 @@ export default function MiniCrm() {
         const uniqueDealerPhones = new Set<string>();
         for (const contact of validDealerContacts) {
           if (!/^84(3|5|7|8|9)\d{8}$/.test(contact.phone_normalized)) {
-            throw new Error(`SĐT dealer portal không hợp lệ: ${contact.phone_raw}`);
+            throw new SalesCrmUiError("SĐT dealer portal không hợp lệ: {phone}", { phone: contact.phone_raw });
           }
           if (uniqueDealerPhones.has(contact.phone_normalized)) {
-            throw new Error(`SĐT dealer portal bị trùng: ${contact.phone_raw}`);
+            throw new SalesCrmUiError("SĐT dealer portal bị trùng: {phone}", { phone: contact.phone_raw });
           }
           uniqueDealerPhones.add(contact.phone_normalized);
         }
         const activeDealerContacts = validDealerContacts.filter((contact) => contact.is_active);
         const primaryActiveCount = activeDealerContacts.filter((contact) => contact.is_primary).length;
         if (activeDealerContacts.length && primaryActiveCount !== 1) {
-          throw new Error("Vui lòng chọn đúng 1 SĐT chính đang hoạt động cho dealer portal");
+          throw new SalesCrmUiError("Vui lòng chọn đúng 1 SĐT chính đang hoạt động cho dealer portal");
         }
 
         const activeDealerPhones = activeDealerContacts.map((contact) => contact.phone_normalized);
@@ -1513,14 +1529,14 @@ export default function MiniCrm() {
             .eq("is_active", true)
             .neq("customer_id", editingCustomerId);
           if (conflictLookupError) {
-            throw new Error(`Lỗi kiểm tra SĐT dealer portal: ${conflictLookupError.message}`);
+            throw new SalesCrmUiError("Lỗi kiểm tra SĐT dealer portal: {error}", { error: conflictLookupError.message });
           }
           if (Array.isArray(conflictingDealerContacts) && conflictingDealerContacts.length) {
             const conflict = conflictingDealerContacts[0];
             const customerName = Array.isArray(conflict.mini_crm_customers)
               ? conflict.mini_crm_customers[0]?.customer_name
               : conflict.mini_crm_customers?.customer_name;
-            throw new Error(`SĐT ${conflict.phone_raw || conflict.phone_normalized} đang được dùng cho khách hàng ${customerName || conflict.customer_id}. Vui lòng xoá/ngưng hoạt động số đó ở khách hàng cũ trước khi lưu.`);
+            throw new SalesCrmUiError("SĐT {phone} đang được dùng cho khách hàng {name}. Vui lòng xoá/ngưng hoạt động số đó ở khách hàng cũ trước khi lưu.", { phone: conflict.phone_raw || conflict.phone_normalized, name: customerName || conflict.customer_id });
           }
         }
 
@@ -1530,7 +1546,7 @@ export default function MiniCrm() {
           .eq("customer_id", editingCustomerId)
           .eq("is_test", false);
         if (deleteDealerContactsError) {
-          throw new Error(`Lỗi cập nhật SĐT dealer portal (bước xoá số cũ): ${deleteDealerContactsError.message}`);
+          throw new SalesCrmUiError("Lỗi cập nhật SĐT dealer portal (bước xoá số cũ): {error}", { error: deleteDealerContactsError.message });
         }
 
         const mutableDealerContacts = validDealerContacts.filter((contact) => contact.is_test !== true);
@@ -1546,7 +1562,7 @@ export default function MiniCrm() {
               is_active: contact.is_active,
             })));
           if (insertDealerContactsError) {
-            throw new Error(`Lỗi cập nhật SĐT dealer portal (bước thêm số mới): ${insertDealerContactsError.message}`);
+            throw new SalesCrmUiError("Lỗi cập nhật SĐT dealer portal (bước thêm số mới): {error}", { error: insertDealerContactsError.message });
           }
         }
 
@@ -1619,7 +1635,7 @@ export default function MiniCrm() {
           .upsert(kbPayload, { onConflict: "customer_id" })
           .select("id,customer_id,profile_name,po_mode,profile_status,calculation_notes,operational_notes,parse_contract")
           .single();
-        if (kbError) throw new Error(`Lỗi lưu Knowledge Base profile: ${kbError.message}`);
+        if (kbError) throw new SalesCrmUiError("Lỗi lưu Knowledge Base profile: {error}", { error: kbError.message });
 
         const kbVersionNo = await getNextKnowledgeProfileVersion(editingCustomerId);
         const { error: kbVersionError } = await (supabase as any)
@@ -1639,13 +1655,14 @@ export default function MiniCrm() {
             is_active: true,
             effective_from: new Date().toISOString(),
           });
-        if (kbVersionError) throw new Error(`Lỗi lưu KB version: ${kbVersionError.message}`);
+        if (kbVersionError) throw new SalesCrmUiError("Lỗi lưu KB version: {error}", { error: kbVersionError.message });
       } catch (detailError: any) {
-        const detailMessage = detailError?.message || "Một phần dữ liệu mở rộng chưa lưu được";
+        const detailMessage = crmErrorNotice(detailError, "Một phần dữ liệu mở rộng chưa lưu được");
+        const detailMessageText = renderCrmNotice("vi", detailMessage);
         if (
-          detailMessage.includes("SĐT dealer portal") ||
-          detailMessage.includes("dealer_customer_contacts") ||
-          detailMessage.includes("SĐT chính đang hoạt động")
+          detailMessageText.includes("SĐT dealer portal") ||
+          detailMessageText.includes("dealer_customer_contacts") ||
+          detailMessageText.includes("SĐT chính đang hoạt động")
         ) {
           throw detailError;
         }
@@ -1656,8 +1673,8 @@ export default function MiniCrm() {
     },
     onSuccess: async (result: any) => {
       cancelEditCustomer();
-      const warningText = Array.isArray(result?.warnings) && result.warnings.length ? ` Tuy nhiên có phần mở rộng chưa lưu được: ${result.warnings.join("; ")}.` : "";
-      const msg = `Đã lưu thay đổi cho ${editCustomerName.trim() || "khách hàng"}${result?.emailChanged ? ` (${result?.emailCount || 0} email)` : ""}.${warningText}`;
+      const warningText = Array.isArray(result?.warnings) && result.warnings.length ? crmNotice(" Tuy nhiên có phần mở rộng chưa lưu được: {warnings}.", { warnings: result.warnings }) : "";
+      const msg = crmNotice("Đã lưu thay đổi cho {name}{emails}.{warning}", { name: editCustomerName.trim() || crmNotice("Khách hàng"), emails: result?.emailChanged ? ` (${result?.emailCount || 0} email)` : "", warning: warningText });
       setEditFeedback(msg);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["mini-crm-customers"] }),
@@ -1667,20 +1684,20 @@ export default function MiniCrm() {
         queryClient.invalidateQueries({ queryKey: ["mini-crm-knowledge-profiles"] }),
         queryClient.invalidateQueries({ queryKey: ["mini-crm-knowledge-profile-versions"] }),
       ]);
-      toast({ title: Array.isArray(result?.warnings) && result.warnings.length ? "Lưu thành công một phần" : "Lưu thành công", description: msg });
+      toast({ title: Array.isArray(result?.warnings) && result.warnings.length ? f("Lưu thành công một phần") : f("Lưu thành công"), description: msg });
     },
     onError: (e: any) => {
-      const msg = e?.message || "Không thể cập nhật khách hàng";
-      setEditFeedback(`Lưu thất bại: ${msg}`);
-      toast({ title: "Lỗi lưu CRM", description: msg, variant: "destructive" });
+      const msg = crmErrorNotice(e, "Không thể cập nhật khách hàng");
+      setEditFeedback(crmNotice("Lưu thất bại: {error}", { error: msg }));
+      toast({ title: f("Lỗi lưu CRM"), description: msg, variant: "destructive" });
     },
   });
 
   const submitKbChangeRequestMutation = useMutation({
     mutationFn: async () => {
-      if (!editingCustomerId) throw new Error("Chưa chọn khách hàng");
-      if (!canApproveKb) throw new Error("Bạn không có quyền tạo version KB.");
-      setKbAiStatus("Đang tạo version KB mới...");
+      if (!editingCustomerId) throw new SalesCrmUiError("Chưa chọn khách hàng");
+      if (!canApproveKb) throw new SalesCrmUiError("Bạn không có quyền tạo version KB.");
+      setKbAiStatus(crmNotice("Đang tạo version KB mới..."));
 
       const parseContractToSave = buildParseContractForSave();
       const kbPayload = {
@@ -1738,16 +1755,16 @@ export default function MiniCrm() {
         queryClient.invalidateQueries({ queryKey: ["mini-crm-knowledge-profiles"] }),
         queryClient.invalidateQueries({ queryKey: ["mini-crm-knowledge-profile-versions"] }),
       ]);
-      setKbAiStatus(`Tạo version KB thành công (KB v${result?.versionNo || "mới"}).`);
-      toast({ title: "Tạo version KB thành công", description: `KB v${result?.versionNo || "mới"} đã được tạo và đang active cho khách hàng này.` });
+      setKbAiStatus(crmNotice("Tạo version KB thành công (KB v{version}).", { version: result?.versionNo || crmNotice("mới") }));
+      toast({ title: f("Tạo version KB thành công"), description: f("KB v{version} đã được tạo và đang active cho khách hàng này.", { version: result?.versionNo || f("mới") }) });
       setKbChangeNote("");
     },
     onError: (e: any) => {
       const message = e?.code === "42501"
-        ? "Bạn không có quyền tạo version KB. Cần role Owner/Staff hoặc quyền edit module CRM / PO (Bán hàng)."
-        : (e?.message || "Không thể tạo version KB");
-      setKbAiStatus(`Tạo version KB thất bại: ${message}`);
-      toast({ title: "Tạo version KB thất bại", description: message, variant: "destructive" });
+        ? crmNotice("Bạn không có quyền tạo version KB. Cần role Owner/Staff hoặc quyền edit module CRM / PO (Bán hàng).")
+        : crmErrorNotice(e, "Không thể tạo version KB");
+      setKbAiStatus(crmNotice("Tạo version KB thất bại: {error}", { error: message }));
+      toast({ title: f("Tạo version KB thất bại"), description: message, variant: "destructive" });
     },
   });
 
@@ -1769,10 +1786,10 @@ export default function MiniCrm() {
     },
     onSuccess: async (_data, vars) => {
       await queryClient.invalidateQueries({ queryKey: ["mini-crm-customers"] });
-      toast({ title: "Xoá khách hàng thành công", description: vars?.customerName ? `Đã xoá ${vars.customerName}.` : undefined });
+      toast({ title: f("Xoá khách hàng thành công"), description: vars?.customerName ? f("Đã xoá {name}.", { name: vars.customerName }) : undefined });
     },
     onError: (e: any) => {
-      toast({ title: "Xoá khách hàng thất bại", description: e?.message || "Không thể xoá khách hàng", variant: "destructive" });
+      toast({ title: f("Xoá khách hàng thất bại"), description: crmErrorNotice(e, "Không thể xoá khách hàng"), variant: "destructive" });
     },
   });
 
@@ -1796,10 +1813,10 @@ export default function MiniCrm() {
       reader.onload = () => {
         const result = String(reader.result || "");
         const payload = result.split(",")[1];
-        if (!payload) reject(new Error("Không đọc được ảnh mẫu"));
+        if (!payload) reject(new SalesCrmUiError("Không đọc được ảnh mẫu"));
         else resolve(payload);
       };
-      reader.onerror = () => reject(reader.error || new Error("Không thể đọc file ảnh"));
+      reader.onerror = () => reject(reader.error || new SalesCrmUiError("Không thể đọc file ảnh"));
       reader.readAsDataURL(file);
     });
     // Ensure fresh JWT — getSession() returns stale cached token → 401
@@ -1823,7 +1840,7 @@ export default function MiniCrm() {
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(arrayBuffer);
     const worksheet = workbook.getWorksheet("NEW") || workbook.worksheets[0];
-    if (!worksheet) throw new Error("Không đọc được sheet trong file mẫu");
+    if (!worksheet) throw new SalesCrmUiError("Không đọc được sheet trong file mẫu");
 
     const row1 = worksheet.getRow(1).values as any[];
     const row2 = worksheet.getRow(2).values as any[];
@@ -1982,8 +1999,8 @@ export default function MiniCrm() {
 
   const saveTemplateMutation = useMutation({
     mutationFn: async (customerId: string) => {
-      if (!customerId) throw new Error("Vui lòng chọn khách hàng");
-      if (!templatePreview?.parserConfig) throw new Error("Vui lòng upload và phân tích file mẫu trước");
+      if (!customerId) throw new SalesCrmUiError("Vui lòng chọn khách hàng");
+      if (!templatePreview?.parserConfig) throw new SalesCrmUiError("Vui lòng upload và phân tích file mẫu trước");
 
       const { error: disableError } = await (supabase as any)
         .from("mini_crm_po_templates")
@@ -2013,10 +2030,10 @@ export default function MiniCrm() {
       setTemplateFileName("");
       setTemplatePreview(null);
       setTemplateAiContext("");
-      toast({ title: "Lưu mẫu PO thành công", description: "Đã lưu format để scan cho lần sau." });
+      toast({ title: f("Lưu mẫu PO thành công"), description: f("Đã lưu format để scan cho lần sau.") });
     },
     onError: (e: any) => {
-      toast({ title: "Lưu mẫu PO thất bại", description: e?.message || "Không thể lưu mẫu PO", variant: "destructive" });
+      toast({ title: f("Lưu mẫu PO thất bại"), description: crmErrorNotice(e, "Không thể lưu mẫu PO"), variant: "destructive" });
     },
   });
 
@@ -2042,12 +2059,12 @@ export default function MiniCrm() {
   const callPoGmailSync = async (payload: any, stepLabel: string) => {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.access_token) {
-      throw new Error(`[${stepLabel}] Phiên đăng nhập hết hạn (không có access token). Vui lòng đăng xuất và đăng nhập lại.`);
+      throw new SalesCrmUiError("[{step}] Phiên đăng nhập hết hạn (không có access token). Vui lòng đăng xuất và đăng nhập lại.", { step: stepLabel });
     }
 
     const { error: userError } = await supabase.auth.getUser();
     if (userError) {
-      throw new Error(`[${stepLabel}] Phiên đăng nhập không hợp lệ (${userError.message}). Vui lòng đăng xuất và đăng nhập lại.`);
+      throw new SalesCrmUiError("[{step}] Phiên đăng nhập không hợp lệ ({error}). Vui lòng đăng xuất và đăng nhập lại.", { step: stepLabel, error: userError.message });
     }
 
     const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/po-gmail-sync`, {
@@ -2070,7 +2087,7 @@ export default function MiniCrm() {
     if (!response.ok) {
       const msg = result?.error || result?.message || result?.raw || rawText || "Unknown error";
       if (response.status === 401 && /invalid jwt/i.test(String(msg))) {
-        throw new Error(`[${stepLabel}] HTTP 401 - Phiên đăng nhập đã hết hạn/không hợp lệ (Invalid JWT). Vui lòng đăng xuất và đăng nhập lại.`);
+        throw new SalesCrmUiError("[{step}] HTTP 401 - Phiên đăng nhập đã hết hạn/không hợp lệ (Invalid JWT). Vui lòng đăng xuất và đăng nhập lại.", { step: stepLabel });
       }
       throw new Error(`[${stepLabel}] HTTP ${response.status} - ${msg}`);
     }
@@ -2099,7 +2116,7 @@ export default function MiniCrm() {
     },
     onError: (e: any) => {
       setSyncStatus("error");
-      setSyncError(e?.message || "Không thể đồng bộ Gmail");
+      setSyncError(crmErrorNotice(e, "Không thể đồng bộ Gmail"));
     },
   });
 
@@ -2109,7 +2126,7 @@ export default function MiniCrm() {
       const allIds = previewItems.map((x: any) => x.messageId).filter(Boolean);
       const messageIds = scope === "selected" ? selectedPreviewIds : allIds;
       if (scope === "selected" && messageIds.length === 0) {
-        throw new Error("Vui lòng chọn ít nhất 1 PO để nhập.");
+        throw new SalesCrmUiError("Vui lòng chọn ít nhất 1 PO để nhập.");
       }
 
       const targetItems = scope === "selected"
@@ -2117,7 +2134,7 @@ export default function MiniCrm() {
         : previewItems;
       const hasTemplateMatched = targetItems.some((x: any) => Boolean(x?.template?.id));
       if (hasTemplateMatched && !confirmTemplateRead) {
-        throw new Error("Vui lòng xác nhận đã kiểm tra PO theo mẫu trước khi nhập.");
+        throw new SalesCrmUiError("Vui lòng xác nhận đã kiểm tra PO theo mẫu trước khi nhập.");
       }
 
       return await callPoGmailSync({ mode: "import", maxResults: 100, query, messageIds, includeOnlyCrm: true }, "import");
@@ -2129,12 +2146,12 @@ export default function MiniCrm() {
       await queryClient.refetchQueries({ queryKey: ["customer-po-inbox"], type: "active" });
       await mergeImportedPoRows();
       await queryClient.invalidateQueries({ queryKey: ["customer-po-inbox"] });
-      toast({ title: "Đã nhập PO vào hệ thống", description: `Đã nhập ${result?.synced || 0} PO và chạy merge cùng ngày.` });
+      toast({ title: f("Đã nhập PO vào hệ thống"), description: f("Đã nhập {count} PO và chạy merge cùng ngày.", { count: result?.synced || 0 }) });
       setSyncModalOpen(false);
     },
     onError: (e: any) => {
       setSyncStatus("error");
-      setSyncError(e?.message || "Import PO thất bại");
+      setSyncError(crmErrorNotice(e, "Import PO thất bại"));
     },
   });
 
@@ -2145,7 +2162,7 @@ export default function MiniCrm() {
         .select("id,matched_customer_id,raw_payload")
         .eq("id", id)
         .single();
-      if (rowErr || !row) throw rowErr || new Error("Không tìm thấy PO");
+      if (rowErr || !row) throw rowErr || new SalesCrmUiError("Không tìm thấy PO");
 
       const revenuePost = { ...(row.raw_payload?.revenue_post || {}) };
       const nextRevenuePost = {
@@ -2192,10 +2209,10 @@ export default function MiniCrm() {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["customer-po-inbox"] });
       await queryClient.invalidateQueries({ queryKey: ["po-revenue-post-audit"] });
-      toast({ title: "Đã duyệt điều chỉnh", description: "Đã xử lý PO cumulative cần review." });
+      toast({ title: f("Đã duyệt điều chỉnh"), description: f("Đã xử lý PO cumulative cần review.") });
     },
     onError: (e: any) => {
-      toast({ title: "Lỗi duyệt điều chỉnh", description: e?.message || "Không thể xử lý", variant: "destructive" });
+      toast({ title: f("Lỗi duyệt điều chỉnh"), description: crmErrorNotice(e, "Không thể xử lý"), variant: "destructive" });
     },
   });
 
@@ -2314,15 +2331,15 @@ export default function MiniCrm() {
 
   // Manual edits become the source of truth after save, so draft hydration is guarded
   // and only happens on explicit editor transitions (open/saved reset), not every refetch.
-  const resetPoDraftFromRow = (po: any, fallbackCustomerId?: string | null) => {
+  const resetPoDraftFromRow = useCallback((po: any, fallbackCustomerId?: string | null) => {
     if (!po) return;
     const nextDraft = createDraftFromPoRow(po, fallbackCustomerId);
     setPoSummaryDraft(nextDraft);
     setPoDraftBaseSignature(buildPoDraftSignature(nextDraft));
     setPendingParseAction(null);
     setPostRevenueStatus("");
-    setSavePoStatus(buildManualSummaryMessage(po));
-  };
+    setSavePoStatus(hasManualPoDraft(po) ? crmNotice("Đang dùng dữ liệu đã chỉnh tay{time}", { time: po?.raw_payload?.manual_summary?.edited_at ? crmNotice(" • lưu lúc {time}", { time: new Date(po.raw_payload.manual_summary.edited_at).toLocaleString("vi-VN") }) : "" }) : "");
+  }, [setPostRevenueStatus, setSavePoStatus]);
 
   const updatePoDraft = (updater: (draft: any) => any) => {
     setPoSummaryDraft((current: any) => updater(current || {}));
@@ -2435,7 +2452,7 @@ export default function MiniCrm() {
     poDraftHydrationKeyRef.current = hydrationKey;
 
     resetPoDraftFromRow(selectedPo, selectedPoResolvedCustomerId);
-  }, [selectedPo, selectedPoResolvedCustomerId, poDraftHydrationNonce]);
+  }, [selectedPo, selectedPoResolvedCustomerId, poDraftHydrationNonce, resetPoDraftFromRow]);
 
   useEffect(() => {
     if (!selectedPo || !selectedPoKnowledgeProfile) return;
@@ -2461,7 +2478,7 @@ export default function MiniCrm() {
 
   const fetchAttachmentParseResult = async (inboxId: string, accessToken?: string) => {
     const token = accessToken || (await supabase.auth.getSession()).data.session?.access_token;
-    if (!token) throw new Error("Phiên đăng nhập hết hạn");
+    if (!token) throw new SalesCrmUiError("Phiên đăng nhập hết hạn");
     const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/po-parse-inbox-order`, {
       method: "POST",
       headers: {
@@ -2471,7 +2488,7 @@ export default function MiniCrm() {
       body: JSON.stringify({ inboxId }),
     });
     const result = await response.json();
-    if (!response.ok) throw new Error(result?.error || "Parse attachment thất bại");
+    if (!response.ok) throw (result?.error ? new Error(result.error) : new SalesCrmUiError("Parse attachment thất bại"));
     return result;
   };
 
@@ -2494,34 +2511,34 @@ export default function MiniCrm() {
           total_amount: total,
         });
       }
-      setSavePoStatus("Đã cập nhật draft từ file đính kèm. Nhớ lưu trước khi đẩy doanh thu.");
-      toast({ title: "Đã parse file đính kèm", description: `${result?.parsed?.itemCount || 0} dòng sản phẩm` });
+      setSavePoStatus(crmNotice("Đã cập nhật draft từ file đính kèm. Nhớ lưu trước khi đẩy doanh thu."));
+      toast({ title: f("Đã parse file đính kèm"), description: f("{count} dòng sản phẩm", { count: result?.parsed?.itemCount || 0 }) });
     },
     onError: (e: any) => {
-      toast({ title: "Lỗi parse file", description: e?.message || "Không parse được", variant: "destructive" });
+      toast({ title: f("Lỗi parse file"), description: crmErrorNotice(e, "Không parse được"), variant: "destructive" });
     },
   });
 
   const savePoSummaryMutation = useMutation({
     onMutate: () => {
-      setSavePoStatus("Đang lưu tóm tắt PO...");
+      setSavePoStatus(crmNotice("Đang lưu tóm tắt PO..."));
     },
     mutationFn: async () => {
-      if (!selectedPoId) throw new Error("Chưa chọn PO");
+      if (!selectedPoId) throw new SalesCrmUiError("Chưa chọn PO");
       const normalizedItems = parseDraftItemsForSave(poSummaryDraft.production_items || []);
 
-      if (normalizedItems.length === 0) throw new Error("Cần ít nhất 1 dòng sản phẩm hoặc dịch vụ trước khi lưu");
+      if (normalizedItems.length === 0) throw new SalesCrmUiError("Cần ít nhất 1 dòng sản phẩm hoặc dịch vụ trước khi lưu");
       const hasMissingIdentity = normalizedItems.some((item: any) => !String(item.product_name || "").trim() && !String(item.sku || "").trim());
-      if (hasMissingIdentity) throw new Error("Mỗi dòng cần có tên sản phẩm hoặc SKU");
+      if (hasMissingIdentity) throw new SalesCrmUiError("Mỗi dòng cần có tên sản phẩm hoặc SKU");
       const hasInvalidQty = normalizedItems.some((item: any) => Number(item.qty || 0) <= 0);
-      if (hasInvalidQty) throw new Error("Mỗi dòng cần có số lượng lớn hơn 0");
+      if (hasInvalidQty) throw new SalesCrmUiError("Mỗi dòng cần có số lượng lớn hơn 0");
 
       const { data: latestRow, error: latestRowError } = await (supabase as any)
         .from("customer_po_inbox")
         .select("id, matched_customer_id, email_subject, raw_payload, updated_at")
         .eq("id", selectedPoId)
         .single();
-      if (latestRowError || !latestRow) throw latestRowError || new Error("Không tải được dữ liệu PO mới nhất trước khi lưu");
+      if (latestRowError || !latestRow) throw latestRowError || new SalesCrmUiError("Không tải được dữ liệu PO mới nhất trước khi lưu");
 
       const safeTotal = calcSafeTotal(poSummaryDraft.subtotal_amount, poSummaryDraft.vat_amount, poSummaryDraft.total_amount);
       const poNumber = poSummaryDraft.po_number || extractPoNumberFromSubject(latestRow?.email_subject || selectedPo?.email_subject) || null;
@@ -2563,7 +2580,7 @@ export default function MiniCrm() {
         .select("id,po_number,matched_customer_id,raw_payload,updated_at")
         .single();
       if (error) throw error;
-      if (!data) throw new Error("Lưu thất bại vì dữ liệu PO vừa thay đổi ở nơi khác. Vui lòng tải lại và thử lại.");
+      if (!data) throw new SalesCrmUiError("Lưu thất bại vì dữ liệu PO vừa thay đổi ở nơi khác. Vui lòng tải lại và thử lại.");
       return data;
     },
     onSuccess: async (saved: any) => {
@@ -2572,13 +2589,13 @@ export default function MiniCrm() {
       setPoDraftBaseSignature(buildPoDraftSignature(nextDraft));
       setPoDraftHydrationNonce((n) => n + 1);
       await queryClient.invalidateQueries({ queryKey: ["customer-po-inbox"] });
-      setSavePoStatus(`✅ Lưu thành công: ${poCode}`);
-      toast({ title: "✅ Đã lưu tóm tắt PO", description: String(poCode || "") });
+      setSavePoStatus(crmNotice("✅ Lưu thành công: {code}", { code: poCode }));
+      toast({ title: f("✅ Đã lưu tóm tắt PO"), description: String(poCode || "") });
     },
     onError: (e: any) => {
       const errMsg = getReadableError(e);
-      setSavePoStatus(`❌ Lưu thất bại: ${errMsg}`);
-      toast({ title: "Lỗi lưu PO", description: errMsg, variant: "destructive" });
+      setSavePoStatus(crmNotice("❌ Lưu thất bại: {error}", { error: errMsg }));
+      toast({ title: f("Lỗi lưu PO"), description: errMsg, variant: "destructive" });
     },
   });
 
@@ -2627,22 +2644,22 @@ export default function MiniCrm() {
       notes: [String(poSummaryDraft?.notes || "").trim(), `Auto parse mode: ${mode}`].filter(Boolean).join("\n"),
     });
     setSavePoStatus(parsed.aiApplied
-      ? `Đã cập nhật draft từ nội dung email theo AI rule đã duyệt (${mode}). Nhớ lưu trước khi đẩy doanh thu.`
-      : `Đã cập nhật draft từ nội dung email (${mode}). Nhớ lưu trước khi đẩy doanh thu.`);
+      ? crmNotice("Đã cập nhật draft từ nội dung email theo AI rule đã duyệt ({mode}). Nhớ lưu trước khi đẩy doanh thu.", { mode: mode })
+      : crmNotice("Đã cập nhật draft từ nội dung email ({mode}). Nhớ lưu trước khi đẩy doanh thu.", { mode: mode }));
     if (!incomingItems.length) {
-      toast({ title: "Không parse được từ nội dung email", description: "Email có thể bị cắt ngắn. Vui lòng mở mail gốc hoặc bổ sung thủ công.", variant: "destructive" });
+      toast({ title: f("Không parse được từ nội dung email"), description: f("Email có thể bị cắt ngắn. Vui lòng mở mail gốc hoặc bổ sung thủ công."), variant: "destructive" });
       return;
     }
-    toast({ title: "Đã parse từ nội dung email", description: `${incomingItems.length} dòng mới • mode ${mode}` });
+    toast({ title: f("Đã parse từ nội dung email"), description: f("{count} dòng mới • mode {mode}", { count: incomingItems.length, mode: mode }) });
   };
 
   // Revenue posting must always use persisted DB data; unsaved draft state is intentionally blocked.
   const handlePostRevenue = () => {
     if (!selectedPo?.id) return;
     if (isPoDraftDirty) {
-      const message = "Draft PO đang có thay đổi chưa lưu. Vui lòng lưu tóm tắt PO trước khi đẩy sang kiểm soát doanh thu.";
-      setPostRevenueStatus(`⚠️ ${message}`);
-      toast({ title: "Cần lưu trước khi đẩy doanh thu", description: message, variant: "destructive" });
+      const message = crmNotice("Draft PO đang có thay đổi chưa lưu. Vui lòng lưu tóm tắt PO trước khi đẩy sang kiểm soát doanh thu.");
+      setPostRevenueStatus(crmNotice("⚠️ {message}", { message: message }));
+      toast({ title: f("Cần lưu trước khi đẩy doanh thu"), description: message, variant: "destructive" });
       return;
     }
     postRevenueMutation.mutate(selectedPo.id);
@@ -2650,8 +2667,8 @@ export default function MiniCrm() {
 
   const postRevenueMutation = useMutation({
     onMutate: () => {
-      setPostRevenueStatus("Đang đẩy dữ liệu sang Kiểm soát doanh thu...");
-      toast({ title: "Đang đẩy sang kiểm soát doanh thu..." });
+      setPostRevenueStatus(crmNotice("Đang đẩy dữ liệu sang Kiểm soát doanh thu..."));
+      toast({ title: f("Đang đẩy sang kiểm soát doanh thu...") });
     },
     mutationFn: async (id: string) => {
       const nowIso = new Date().toISOString();
@@ -2660,9 +2677,9 @@ export default function MiniCrm() {
         .select("id,matched_customer_id,po_number,delivery_date,email_subject,total_amount,subtotal_amount,vat_amount,revenue_channel,production_items,raw_payload")
         .eq("id", id)
         .single();
-      if (rowErr || !row) throw rowErr || new Error("Không tìm thấy PO để đẩy doanh thu");
+      if (rowErr || !row) throw rowErr || new SalesCrmUiError("Không tìm thấy PO để đẩy doanh thu");
       if (row?.raw_payload?.revenue_post?.posted) {
-        throw new Error("PO này đã được đẩy doanh thu trước đó. Hệ thống đã chặn double-post.");
+        throw new SalesCrmUiError("PO này đã được đẩy doanh thu trước đó. Hệ thống đã chặn double-post.");
       }
 
       const resolvedCustomerId = row?.matched_customer_id || null;
@@ -2770,9 +2787,9 @@ export default function MiniCrm() {
       });
 
       if (requiresReview) {
-        throw new Error(reviewReason || "PO cumulative cần duyệt điều chỉnh trước khi ghi nhận doanh thu");
+        throw (reviewReason ? new Error(reviewReason) : new SalesCrmUiError("PO cumulative cần duyệt điều chỉnh trước khi ghi nhận doanh thu"));
       }
-      if (!data?.raw_payload?.revenue_post?.posted) throw new Error("Đẩy doanh thu chưa được ghi nhận trong raw_payload.revenue_post");
+      if (!data?.raw_payload?.revenue_post?.posted) throw new SalesCrmUiError("Đẩy doanh thu chưa được ghi nhận trong raw_payload.revenue_post");
       return {
         ...data,
         posted_to_revenue_at: data?.raw_payload?.revenue_post?.posted_at || nowIso,
@@ -2780,21 +2797,21 @@ export default function MiniCrm() {
     },
     onSuccess: async (row: any) => {
       const poCode = extractPoNumberFromSubject(row?.email_subject) || row?.id;
-      setPostRevenueStatus(`✅ Đã đẩy thành công PO ${poCode} lúc ${new Date(row?.posted_to_revenue_at || Date.now()).toLocaleString("vi-VN")}`);
+      setPostRevenueStatus(crmNotice("✅ Đã đẩy thành công PO {code} lúc {time}", { code: poCode, time: new Date(row?.posted_to_revenue_at || Date.now()).toLocaleString("vi-VN") }));
       await queryClient.invalidateQueries({ queryKey: ["customer-po-inbox"] });
       await queryClient.invalidateQueries({ queryKey: ["finance-posted-po"] });
       await queryClient.invalidateQueries({ queryKey: ["po-revenue-post-audit"] });
       const postedDisplay = Number(row?.raw_payload?.revenue_post?.total || row?.raw_payload?.revenue_post?.amount || row?.total_amount || 0);
       toast({
-        title: "✅ Đã đẩy sang kiểm soát doanh thu",
-        description: `${extractPoNumberFromSubject(row?.email_subject) || row?.id} • ${postedDisplay.toLocaleString("vi-VN")} ₫ • ${row?.revenue_channel || "(chưa có kênh)"}`,
+        title: f("✅ Đã đẩy sang kiểm soát doanh thu"),
+        description: `${extractPoNumberFromSubject(row?.email_subject) || row?.id} • ${postedDisplay.toLocaleString("vi-VN")} ₫ • ${row?.revenue_channel || f("(chưa có kênh)")}`,
       });
     },
     onError: (e: any) => {
       const errMsg = getReadableError(e);
-      setPostRevenueStatus(`❌ Đẩy thất bại: ${errMsg}`);
+      setPostRevenueStatus(crmNotice("❌ Đẩy thất bại: {error}", { error: errMsg }));
       toast({
-        title: "❌ Đẩy sang kiểm soát doanh thu thất bại",
+        title: f("❌ Đẩy sang kiểm soát doanh thu thất bại"),
         description: errMsg,
         variant: "destructive",
       });
@@ -2803,14 +2820,14 @@ export default function MiniCrm() {
 
   const bulkRunLockedContractMutation = useMutation({
     mutationFn: async () => {
-      if (!editingCustomerId) throw new Error("Chưa chọn khách hàng");
+      if (!editingCustomerId) throw new SalesCrmUiError("Chưa chọn khách hàng");
       const contract = buildParseContractForSave();
       if (!contract || contract.status !== "locked") {
-        throw new Error("Contract phải ở trạng thái locked trước khi bulk-run.");
+        throw new SalesCrmUiError("Contract phải ở trạng thái locked trước khi bulk-run.");
       }
       const { data: session } = await supabase.auth.getSession();
       const accessToken = session?.session?.access_token;
-      if (!accessToken) throw new Error("Phiên đăng nhập hết hạn");
+      if (!accessToken) throw new SalesCrmUiError("Phiên đăng nhập hết hạn");
 
       const { data: rows, error } = await (supabase as any)
         .from("customer_po_inbox")
@@ -2887,12 +2904,12 @@ export default function MiniCrm() {
       await queryClient.invalidateQueries({ queryKey: ["customer-po-inbox"] });
       await queryClient.invalidateQueries({ queryKey: ["po-revenue-post-audit"] });
       toast({
-        title: "Bulk-run contract hoàn tất",
-        description: `Success ${result?.success || 0} • Failed ${result?.failed || 0} • Skipped ${result?.skipped || 0}`,
+        title: f("Bulk-run contract hoàn tất"),
+        description: f("Success {success} • Failed {failed} • Skipped {skipped}", { success: result?.success || 0, failed: result?.failed || 0, skipped: result?.skipped || 0 }),
       });
     },
     onError: (e: any) => {
-      toast({ title: "Bulk-run contract thất bại", description: e?.message || "Không thể chạy bulk-run", variant: "destructive" });
+      toast({ title: f("Bulk-run contract thất bại"), description: crmErrorNotice(e, "Không thể chạy bulk-run"), variant: "destructive" });
     },
   });
 
@@ -2963,10 +2980,10 @@ export default function MiniCrm() {
     onSuccess: async (res: any) => {
       await queryClient.invalidateQueries({ queryKey: ["customer-po-inbox"] });
       await queryClient.invalidateQueries({ queryKey: ["po-revenue-post-audit"] });
-      toast({ title: "Auto-post safe hoàn tất", description: `Đã post ${res?.posted || 0}/${res?.totalCandidates || 0} PO an toàn.` });
+      toast({ title: f("Auto-post safe hoàn tất"), description: f("Đã post {count}/{total} PO an toàn.", { count: res?.posted || 0, total: res?.totalCandidates || 0 }) });
     },
     onError: (e: any) => {
-      toast({ title: "Auto-post safe lỗi", description: e?.message || "Không thể chạy auto-post", variant: "destructive" });
+      toast({ title: f("Auto-post safe lỗi"), description: crmErrorNotice(e, "Không thể chạy auto-post"), variant: "destructive" });
     },
   });
 
@@ -2999,7 +3016,7 @@ export default function MiniCrm() {
       });
 
     if (!rows.length) {
-      toast({ title: "Không có dữ liệu delta", description: "Chưa có bản ghi cumulative để xuất báo cáo." });
+      toast({ title: f("Không có dữ liệu delta"), description: f("Chưa có bản ghi cumulative để xuất báo cáo.") });
       return;
     }
 
@@ -3017,11 +3034,11 @@ export default function MiniCrm() {
     a.download = `po-delta-reconciliation-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
-    toast({ title: "Đã xuất CSV đối soát delta", description: `${rows.length} dòng` });
+    toast({ title: f("Đã xuất CSV đối soát delta"), description: f("{count} dòng", { count: rows.length }) });
   };
 
   return (
-    <div className="space-y-6">
+    <div data-i18n-mini-crm="c-sales-v1" className="space-y-6">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h1 className="text-3xl font-display font-bold">{ui.pageTitle}</h1>
@@ -3037,8 +3054,7 @@ export default function MiniCrm() {
               <Input type="date" value={syncDate} onChange={(e) => setSyncDate(e.target.value)} className="w-[150px] h-9" />
               <Button onClick={() => { setSyncModalOpen(true); syncGmailMutation.mutate(); }} disabled={syncGmailMutation.isPending || !gmailConnectedEmail}>
                 {syncGmailMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
-                Sync PO
-              </Button>
+                {f("Sync PO")}</Button>
             </div>
           </div>
         )}
@@ -3054,15 +3070,15 @@ export default function MiniCrm() {
             </DialogHeader>
 
             <div className="text-xs rounded-md border bg-muted/30 p-3 space-y-1">
-              <div><b>Trạng thái:</b> {syncStatus === "syncing" ? "Đang sync..." : syncStatus === "preview_success" ? "Đã lấy preview" : syncStatus === "import_success" ? "Đã nhập thành công" : syncStatus === "error" ? "Lỗi" : "Sẵn sàng"}</div>
-              <div>Mailbox: {syncDebug?.mailbox || "-"}</div>
-              <div>Query: <span className="font-mono">{syncDebug?.query || "-"}</span></div>
-              <div>Matched (Gmail): {syncDebug?.resultSizeEstimate || 0} • Fetched: {syncDebug?.fetched || 0} • Synced: {syncDebug?.synced || 0}</div>
-              <div>Loại do ngoài CRM: {syncDebug?.debug?.skippedNotInCrm || 0}</div>
+              <div><b>{f("Trạng thái:")}</b> {syncStatus === "syncing" ? f("Đang sync...") : syncStatus === "preview_success" ? f("Đã lấy preview") : syncStatus === "import_success" ? f("Đã nhập thành công") : syncStatus === "error" ? f("Lỗi") : f("Sẵn sàng")}</div>
+              <div>{f("Mailbox:")} {syncDebug?.mailbox || "-"}</div>
+              <div>{f("Query:")} <span className="font-mono">{syncDebug?.query || "-"}</span></div>
+              <div>{f("Matched (Gmail):")} {syncDebug?.resultSizeEstimate || 0}  {f("• Fetched:")} {syncDebug?.fetched || 0}  {f("• Synced:")} {syncDebug?.synced || 0}</div>
+              <div>{f("Loại do ngoài CRM:")} {syncDebug?.debug?.skippedNotInCrm || 0}</div>
               {!!(syncDebug?.debug?.skippedNotInCrmSamples?.length) && (
-                <div className="text-muted-foreground">Mẫu email bị loại: {syncDebug.debug.skippedNotInCrmSamples.join(", ")}</div>
+                <div className="text-muted-foreground">{f("Mẫu email bị loại:")} {syncDebug.debug.skippedNotInCrmSamples.join(", ")}</div>
               )}
-              {syncError && <div className="text-destructive">Lỗi: {syncError}</div>}
+              {syncError && <div className="text-destructive">{f("Lỗi:")} {syncErrorText}</div>}
             </div>
 
             <div className="grid md:grid-cols-2 gap-3">
@@ -3099,28 +3115,28 @@ export default function MiniCrm() {
                     </button>
                   );
                 })}
-                {previewItems.length === 0 && <div className="p-3 text-sm text-muted-foreground">Không lấy được nội dung PO.</div>}
+                {previewItems.length === 0 && <div className="p-3 text-sm text-muted-foreground">{f("Không lấy được nội dung PO.")}</div>}
               </div>
 
               <div className="border rounded-md p-3 text-sm space-y-2">
                 {selectedPreview ? (
                   <>
-                    <div><b>From:</b> {selectedPreview.fromEmail}</div>
-                    <div><b>Subject:</b> {selectedPreview.subject}</div>
-                    <div><b>Snippet:</b> {selectedPreview.snippet || "(trống)"}</div>
-                    <div><b>Attachments:</b> {(selectedPreview.attachmentNames || []).join(", ") || "Không có"}</div>
+                    <div><b>{f("From:")}</b> {selectedPreview.fromEmail}</div>
+                    <div><b>{f("Subject:")}</b> {selectedPreview.subject}</div>
+                    <div><b>{f("Snippet:")}</b> {selectedPreview.snippet || f("(trống)")}</div>
+                    <div><b>{f("Attachments:")}</b> {(selectedPreview.attachmentNames || []).join(", ") || f("Không có")}</div>
                     <div className="pt-2 border-t mt-2 space-y-1">
-                      <div><b>Match:</b> {selectedPreview.matchedCustomerId || "Chưa match"}</div>
-                      <div><b>Resolution:</b> {selectedPreview.matchResolution || "unmatched"}</div>
+                      <div><b>{f("Match:")}</b> {selectedPreview.matchedCustomerId || f("Chưa match")}</div>
+                      <div><b>{f("Resolution:")}</b> {selectedPreview.matchResolution || "unmatched"}</div>
                       {Array.isArray(selectedPreview.matchCandidates) && selectedPreview.matchCandidates.length > 0 && (
                         <div>
-                          <b>Candidates:</b>
+                          <b>{f("Candidates:")}</b>
                           <ul className="mt-1 list-disc pl-5 text-xs text-muted-foreground space-y-1">
                             {selectedPreview.matchCandidates.map((candidate: any) => (
                               <li key={candidate.customerId}>
                                 {candidate.customerName || candidate.customerId}
-                                {candidate.isNpp ? " · NPP" : " · Đại lý"}
-                                {candidate.suppliedByNppCustomerId ? ` · lấy qua NPP ${candidate.suppliedByNppCustomerId}` : ""}
+                                {candidate.isNpp ? f(" · NPP") : f(" · Đại lý")}
+                                {candidate.suppliedByNppCustomerId ? f(" · lấy qua NPP {name}", { name: candidate.suppliedByNppCustomerId }) : ""}
                               </li>
                             ))}
                           </ul>
@@ -3128,20 +3144,20 @@ export default function MiniCrm() {
                       )}
                     </div>
                     <div className="pt-2 border-t mt-2 space-y-1">
-                      <div><b>Mẫu PO:</b> {selectedPreview?.template?.name || "Chưa có mẫu riêng"}</div>
-                      {selectedPreview?.template?.fileName && <div><b>File mẫu:</b> {selectedPreview.template.fileName}</div>}
-                      {selectedPreview?.template?.updatedAt && <div><b>Cập nhật:</b> {new Date(selectedPreview.template.updatedAt).toLocaleString("vi-VN")}</div>}
+                      <div><b>{f("Mẫu PO:")}</b> {selectedPreview?.template?.name || f("Chưa có mẫu riêng")}</div>
+                      {selectedPreview?.template?.fileName && <div><b>{f("File mẫu:")}</b> {selectedPreview.template.fileName}</div>}
+                      {selectedPreview?.template?.updatedAt && <div><b>{f("Cập nhật:")}</b> {new Date(selectedPreview.template.updatedAt).toLocaleString("vi-VN")}</div>}
                     </div>
                   </>
                 ) : (
-                  <div className="text-muted-foreground">Chọn một PO để xem chi tiết.</div>
+                  <div className="text-muted-foreground">{f("Chọn một PO để xem chi tiết.")}</div>
                 )}
               </div>
             </div>
 
             <div className="flex justify-between gap-2 flex-wrap">
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                Đã chọn: <b>{selectedPreviewIds.length}</b> / {previewItems.length}
+                 {f("Đã chọn:")} <b>{selectedPreviewIds.length}</b> / {previewItems.length}
                 <Button
                   type="button"
                   size="sm"
@@ -3149,8 +3165,7 @@ export default function MiniCrm() {
                   onClick={() => setSelectedPreviewIds(previewItems.map((x: any) => x.messageId).filter(Boolean))}
                   disabled={previewItems.length === 0}
                 >
-                  Chọn tất cả
-                </Button>
+                   {f("Chọn tất cả")} </Button>
                 <Button
                   type="button"
                   size="sm"
@@ -3158,28 +3173,24 @@ export default function MiniCrm() {
                   onClick={() => setSelectedPreviewIds([])}
                   disabled={selectedPreviewIds.length === 0}
                 >
-                  Bỏ chọn
-                </Button>
+                   {f("Bỏ chọn")} </Button>
               </div>
 
               <div className="flex justify-end gap-2 items-center flex-wrap">
                 <label className="inline-flex items-center gap-2 text-xs text-muted-foreground mr-2">
                   <input type="checkbox" checked={confirmTemplateRead} onChange={(e) => setConfirmTemplateRead(e.target.checked)} />
-                  Đã kiểm tra PO theo mẫu và xác nhận đúng
-                </label>
-                <Button variant="outline" onClick={() => setSyncModalOpen(false)}>Huỷ</Button>
+                   {f("Đã kiểm tra PO theo mẫu và xác nhận đúng")} </label>
+                <Button variant="outline" onClick={() => setSyncModalOpen(false)}>{f("Huỷ")}</Button>
                 <Button
                   variant="secondary"
                   onClick={() => importPoMutation.mutate("selected")}
                   disabled={importPoMutation.isPending || selectedPreviewIds.length === 0 || syncStatus === "syncing"}
                 >
                   {importPoMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-                  Nhập PO đã chọn
-                </Button>
+                   {f("Nhập PO đã chọn")} </Button>
                 <Button onClick={() => importPoMutation.mutate("all")} disabled={importPoMutation.isPending || previewItems.length === 0 || syncStatus === "syncing"}>
                   {importPoMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-                  Nhập tất cả PO
-                </Button>
+                   {f("Nhập tất cả PO")} </Button>
               </div>
             </div>
           </DialogContent>
@@ -3188,13 +3199,13 @@ export default function MiniCrm() {
         <Dialog open={Boolean(pendingParseAction)} onOpenChange={(open) => { if (!open) setPendingParseAction(null); }}>
           <DialogContent className="max-w-md">
             <DialogHeader>
-              <DialogTitle>Ghi đè thay đổi chưa lưu?</DialogTitle>
-              <DialogDescription>Draft hiện tại có thay đổi chưa lưu. Nếu parse lại bây giờ, các chỉnh sửa tay trên màn hình có thể bị thay thế.</DialogDescription>
+              <DialogTitle>{f("Ghi đè thay đổi chưa lưu?")}</DialogTitle>
+              <DialogDescription>{f("Draft hiện tại có thay đổi chưa lưu. Nếu parse lại bây giờ, các chỉnh sửa tay trên màn hình có thể bị thay thế.")}</DialogDescription>
             </DialogHeader>
-            <div className="text-sm text-muted-foreground">Hãy lưu trước nếu muốn giữ lại chỉnh sửa hiện tại.</div>
+            <div className="text-sm text-muted-foreground">{f("Hãy lưu trước nếu muốn giữ lại chỉnh sửa hiện tại.")}</div>
             <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setPendingParseAction(null)}>Huỷ</Button>
-              <Button variant="destructive" onClick={confirmOverwriteDraftAndParse}>Vẫn parse và ghi đè</Button>
+              <Button variant="outline" onClick={() => setPendingParseAction(null)}>{f("Huỷ")}</Button>
+              <Button variant="destructive" onClick={confirmOverwriteDraftAndParse}>{f("Vẫn parse và ghi đè")}</Button>
             </div>
           </DialogContent>
         </Dialog>
@@ -3211,11 +3222,11 @@ export default function MiniCrm() {
         data-kiosk-report-admin-function="kiosk-report-admin"
       >
         <TabsList className="grid h-auto w-full grid-cols-2 gap-1 md:w-auto md:grid-cols-5">
-          <TabsTrigger value="customers">Khách hàng</TabsTrigger>
-          <TabsTrigger value="locations">Điểm bán</TabsTrigger>
-          <TabsTrigger value="staff">Nhân viên bán hàng</TabsTrigger>
-          <TabsTrigger value="delivery_staff">Nhân viên giao hàng</TabsTrigger>
-          <TabsTrigger value="attendance_geofences">GPS chấm công</TabsTrigger>
+          <TabsTrigger value="customers">{f("Khách hàng")}</TabsTrigger>
+          <TabsTrigger value="locations">{f("Điểm bán")}</TabsTrigger>
+          <TabsTrigger value="staff">{f("Nhân viên bán hàng")}</TabsTrigger>
+          <TabsTrigger value="delivery_staff">{f("Nhân viên giao hàng")}</TabsTrigger>
+          <TabsTrigger value="attendance_geofences">{f("GPS chấm công")}</TabsTrigger>
         </TabsList>
       </Tabs>
 
@@ -3226,49 +3237,49 @@ export default function MiniCrm() {
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{ui.customersSetup}</DialogTitle>
-            <DialogDescription>Tạo mới khách hàng, upload hợp đồng, thiết lập giá bán SKU và mẫu PO.</DialogDescription>
+            <DialogDescription>{f("Tạo mới khách hàng, upload hợp đồng, thiết lập giá bán SKU và mẫu PO.")}</DialogDescription>
           </DialogHeader>
 
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
-              <Label>Tên khách hàng</Label>
-              <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Ví dụ: Đại lý Hòa Bình" />
+              <Label>{f("Tên khách hàng")}</Label>
+              <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder={f("Ví dụ: Đại lý Hòa Bình")} />
             </div>
             <div className="space-y-2">
-              <Label>Số điện thoại nhận OTP đặt hàng</Label>
+              <Label>{f("Số điện thoại nhận OTP đặt hàng")}</Label>
               <Input
                 inputMode="tel"
                 autoComplete="tel"
                 value={setupDealerPhone}
                 onChange={(e) => setSetupDealerPhone(e.target.value)}
-                placeholder="Ví dụ: 0901234567"
+                placeholder={f("Ví dụ: 0901234567")}
               />
-              <p className="text-xs text-muted-foreground">Dùng để đăng nhập và nhận OTP tại dathang.banhmique.vn. Có thể để trống nếu khách không đặt hàng online.</p>
+              <p className="text-xs text-muted-foreground">{f("Dùng để đăng nhập và nhận OTP tại dathang.banhmique.vn. Có thể để trống nếu khách không đặt hàng online.")}</p>
             </div>
             <div className="space-y-2">
-              <Label>Nhóm khách hàng</Label>
+              <Label>{f("Nhóm khách hàng")}</Label>
               <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={customerGroup} onChange={(e) => setCustomerGroup(e.target.value)}>
-                {GROUP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                {GROUP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{renderCustomerGroup(o.value)}</option>)}
               </select>
             </div>
             <div className="space-y-2">
-              <Label>Sản phẩm kinh doanh</Label>
+              <Label>{f("Sản phẩm kinh doanh")}</Label>
               <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={productGroup} onChange={(e) => setProductGroup(e.target.value)}>
-                {businessProductOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                {businessProductOptions.map((o) => <option key={o.value} value={o.value}>{PRODUCT_GROUP_LABEL_MAP[o.value] ? f("{label} (nhóm cũ)", { label: renderProductGroup(o.value) }) : o.label}</option>)}
                 {productGroup && !businessProductOptions.some((o) => o.value === productGroup) ? <option value={productGroup}>{renderBusinessProductLabel(productGroup)}</option> : null}
               </select>
             </div>
             <div className="space-y-2 md:col-span-2">
-              <Label>Email nhận diện (phân tách dấu phẩy)</Label>
-              <Input value={emailsInput} onChange={(e) => setEmailsInput(e.target.value)} placeholder="buyer@agency.com, order@agency.com" />
+              <Label>{f("Email nhận diện (phân tách dấu phẩy)")}</Label>
+              <Input value={emailsInput} onChange={(e) => setEmailsInput(e.target.value)} placeholder={f("buyer@agency.com, order@agency.com")} />
             </div>
             <div className="space-y-2 md:col-span-2">
-              <Label>Email nhận công nợ</Label>
-              <Input value={debtEmailsInput} onChange={(e) => setDebtEmailsInput(e.target.value)} placeholder="Để trống sẽ tự copy Email nhận diện" />
-              <p className="text-xs text-muted-foreground">Dùng mặc định khi gửi mail công nợ. Có thể nhập email khác nếu khách muốn nhận công nợ riêng.</p>
+              <Label>{f("Email nhận công nợ")}</Label>
+              <Input value={debtEmailsInput} onChange={(e) => setDebtEmailsInput(e.target.value)} placeholder={f("Để trống sẽ tự copy Email nhận diện")} />
+              <p className="text-xs text-muted-foreground">{f("Dùng mặc định khi gửi mail công nợ. Có thể nhập email khác nếu khách muốn nhận công nợ riêng.")}</p>
             </div>
             <div className="space-y-2">
-              <Label>NPP (yes/no)</Label>
+              <Label>{f("NPP (yes/no)")}</Label>
               <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={setupIsNpp ? "yes" : "no"} onChange={(e) => {
                 const next = e.target.value === "yes";
                 setSetupIsNpp(next);
@@ -3277,12 +3288,12 @@ export default function MiniCrm() {
                   setSetupSuppliedByNppCustomerId("");
                 }
               }}>
-                <option value="no">No</option>
-                <option value="yes">Yes</option>
+                <option value="no">{f("No")}</option>
+                <option value="yes">{f("Yes")}</option>
               </select>
             </div>
             <div className="space-y-2">
-              <Label>Lấy hàng qua NPP</Label>
+              <Label>{f("Lấy hàng qua NPP")}</Label>
               <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={setupUsesNpp ? "yes" : "no"} onChange={(e) => {
                 const next = e.target.value === "yes";
                 setSetupUsesNpp(next);
@@ -3292,77 +3303,77 @@ export default function MiniCrm() {
                   setSetupSuppliedByNppCustomerId(String(setupAvailableNppCustomers[0].id));
                 }
               }} disabled={setupIsNpp}>
-                <option value="no">Không</option>
-                <option value="yes">Có</option>
+                <option value="no">{f("Không")}</option>
+                <option value="yes">{f("Có")}</option>
               </select>
             </div>
             {setupUsesNpp && !setupIsNpp && (
               <div className="space-y-2 md:col-span-2">
-                <Label>Chọn nhà phân phối</Label>
+                <Label>{f("Chọn nhà phân phối")}</Label>
                 <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={setupSuppliedByNppCustomerId} onChange={(e) => setSetupSuppliedByNppCustomerId(e.target.value)}>
-                  <option value="">-- Chọn nhà phân phối --</option>
+                  <option value="">{f("-- Chọn nhà phân phối --")}</option>
                   {setupAvailableNppCustomers.map((npp: any) => <option key={npp.id} value={npp.id}>{npp.customer_name}</option>)}
                 </select>
-                {setupAvailableNppCustomers.length === 0 && <div className="text-xs text-muted-foreground">Chưa có khách hàng nào được đánh dấu là NPP để chọn.</div>}
+                {setupAvailableNppCustomers.length === 0 && <div className="text-xs text-muted-foreground">{f("Chưa có khách hàng nào được đánh dấu là NPP để chọn.")}</div>}
               </div>
             )}
 
             <div className="space-y-2 md:col-span-2">
-              <Label>Phí quản lí / hỗ trợ cố định (VND)</Label>
-              <Input value={setupNppManagementFee} onChange={(e) => setSetupNppManagementFee(e.target.value)} placeholder="VD: 300000" />
-              <p className="text-xs text-muted-foreground">Dùng để trừ khi tính công nợ NPP cho đại lý này.</p>
+              <Label>{f("Phí quản lí / hỗ trợ cố định (VND)")}</Label>
+              <Input value={setupNppManagementFee} onChange={(e) => setSetupNppManagementFee(e.target.value)} placeholder={f("VD: 300000")} />
+              <p className="text-xs text-muted-foreground">{f("Dùng để trừ khi tính công nợ NPP cho đại lý này.")}</p>
             </div>
 
             <div className="space-y-2 md:col-span-2 rounded-md border p-3">
-              <Label>Upload hợp đồng (PDF)</Label>
+              <Label>{f("Upload hợp đồng (PDF)")}</Label>
               <Input type="file" accept="application/pdf,.pdf" onChange={(e) => setSetupContractFile(e.target.files?.[0] || null)} />
               {setupContractFile && <div className="text-xs text-muted-foreground">{setupContractFile.name}</div>}
             </div>
 
             <div className="space-y-2 md:col-span-2 rounded-md border p-3">
-              <Label>Giá bán theo SKU thành phẩm</Label>
+              <Label>{f("Giá bán theo SKU thành phẩm")}</Label>
               <div className="space-y-2">
                 {setupPriceRows.map((row, idx) => (
                   <div key={idx} className="grid grid-cols-12 gap-2">
                     <select className="col-span-7 h-10 rounded-md border border-input bg-background px-3 text-sm" value={row.skuId} onChange={(e) => setSetupPriceRows((prev) => prev.map((r, i) => i === idx ? { ...r, skuId: e.target.value } : r))}>
-                      <option value="">-- Chọn SKU thành phẩm --</option>
+                      <option value="">{f("-- Chọn SKU thành phẩm --")}</option>
                       {finishedSkus.map((s: any) => <option key={s.id} value={s.id}>{s.sku_code} - {s.product_name}</option>)}
                     </select>
-                    <Input className="col-span-4" value={row.price} onChange={(e) => setSetupPriceRows((prev) => prev.map((r, i) => i === idx ? { ...r, price: e.target.value } : r))} placeholder="VND/cái" />
+                    <Input className="col-span-4" value={row.price} onChange={(e) => setSetupPriceRows((prev) => prev.map((r, i) => i === idx ? { ...r, price: e.target.value } : r))} placeholder={f("VND/cái")} />
                     <Button type="button" variant="outline" className="col-span-1" onClick={() => setSetupPriceRows((prev) => prev.filter((_, i) => i !== idx))} disabled={setupPriceRows.length === 1}>-</Button>
                   </div>
                 ))}
               </div>
-              <Button type="button" variant="outline" onClick={() => setSetupPriceRows((prev) => [...prev, { skuId: "", price: "" }])}>+ Thêm sản phẩm</Button>
+              <Button type="button" variant="outline" onClick={() => setSetupPriceRows((prev) => [...prev, { skuId: "", price: "" }])}>{f("+ Thêm sản phẩm")}</Button>
             </div>
 
             <div className="space-y-2 md:col-span-2 rounded-md border p-3">
-              <Label>Upload form mẫu PO (.xlsx)</Label>
+              <Label>{f("Upload form mẫu PO (.xlsx)")}</Label>
               <Input
                 type="file"
                 accept=".xlsx"
                 onChange={async (e) => {
-                  const f = e.target.files?.[0];
-                  if (!f) return;
+                  const file = e.target.files?.[0];
+                  if (!file) return;
                   try {
-                    await handleAnalyzeTemplateFile(f);
+                    await handleAnalyzeTemplateFile(file);
                   } catch (err: any) {
-                    toast({ title: "Đọc file mẫu thất bại", description: err?.message || "Không thể đọc file", variant: "destructive" });
+                    toast({ title: f("Đọc file mẫu thất bại"), description: crmErrorNotice(err, "Không thể đọc file"), variant: "destructive" });
                   }
                 }}
               />
-              {templateFileName && <div className="text-xs text-muted-foreground">Đã xác nhận: {templateFileName}</div>}
+              {templateFileName && <div className="text-xs text-muted-foreground">{f("Đã xác nhận:")} {templateFileName}</div>}
             </div>
 
             <div className="space-y-2 md:col-span-2 rounded-md border p-3">
-              <Label>Mẫu nội dung PO từ email (copy/paste)</Label>
+              <Label>{f("Mẫu nội dung PO từ email (copy/paste)")}</Label>
               <textarea
                 className="min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                 value={setupEmailBodyTemplate}
                 onChange={(e) => setSetupEmailBodyTemplate(e.target.value)}
-                placeholder="Dán 1 mẫu email PO thực tế để lưu vào Knowledge Base (không bắt buộc)."
+                placeholder={f("Dán 1 mẫu email PO thực tế để lưu vào Knowledge Base (không bắt buộc).")}
               />
-              <div className="text-xs text-muted-foreground">Dùng khi khách hàng gửi PO trong nội dung email thay vì file đính kèm.</div>
+              <div className="text-xs text-muted-foreground">{f("Dùng khi khách hàng gửi PO trong nội dung email thay vì file đính kèm.")}</div>
             </div>
           </div>
 
@@ -3370,11 +3381,10 @@ export default function MiniCrm() {
             <Button variant="outline" onClick={() => {
               setSetupModalOpen(false);
               setSetupDealerPhone("");
-            }}>Huỷ</Button>
+            }}>{f("Huỷ")}</Button>
             <Button onClick={() => setupCustomerMutation.mutate()} disabled={setupCustomerMutation.isPending}>
               {setupCustomerMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
-              Lưu thiết lập khách hàng
-            </Button>
+               {f("Lưu thiết lập khách hàng")} </Button>
           </div>
         </DialogContent>
       </Dialog>
@@ -3386,12 +3396,10 @@ export default function MiniCrm() {
             <div className="space-y-1">
               <CardTitle className="text-2xl">{ui.customersList}</CardTitle>
               <CardDescription>
-                {filteredCustomers.length} / {customers.length} khách hàng sau lọc
-              </CardDescription>
+                {filteredCustomers.length} / {customers.length}  {f("khách hàng sau lọc")} </CardDescription>
             </div>
             <Button onClick={() => setSetupModalOpen(true)}>
-              Thiết lập khách hàng
-            </Button>
+               {f("Thiết lập khách hàng")} </Button>
           </div>
           <div className="flex flex-col gap-2 rounded-xl border bg-background/80 p-3 md:flex-row md:items-center">
             <div className="relative flex-1">
@@ -3419,7 +3427,7 @@ export default function MiniCrm() {
                     : "border-border bg-muted/40 text-muted-foreground"
               }`}
             >
-              {editFeedback}
+              {editFeedbackText}
             </div>
           )}
 
@@ -3443,41 +3451,41 @@ export default function MiniCrm() {
                       setViewCustomer(c);
                     }
                   }}
-                  aria-label={`Xem thông tin khách hàng ${c.customer_name}`}
+                  aria-label={f("Xem thông tin khách hàng {name}", { name: c.customer_name })}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 space-y-1">
                       <div className="truncate text-base font-semibold">{c.customer_name}</div>
                       <div className="flex flex-wrap gap-1.5">
-                        <Badge variant="outline">{GROUP_LABEL_MAP[c.customer_group] || c.customer_group}</Badge>
+                        <Badge variant="outline">{renderCustomerGroup(c.customer_group)}</Badge>
                         <Badge variant="secondary">{renderBusinessProductLabel(c.product_group)}</Badge>
-                        {c.is_npp ? <Badge>NPP</Badge> : null}
+                        {c.is_npp ? <Badge>{f("NPP")}</Badge> : null}
                       </div>
                     </div>
-                    {c.is_active ? <Badge>Active</Badge> : <Badge variant="secondary">Tạm ngưng</Badge>}
+                    {c.is_active ? <Badge>{f("Active")}</Badge> : <Badge variant="secondary">{f("Tạm ngưng")}</Badge>}
                   </div>
                   <div className="mt-3 grid gap-2 text-sm text-muted-foreground">
                     <div>
-                      <span className="font-medium text-foreground">Email nhận diện: </span>
+                      <span className="font-medium text-foreground">{f("Email nhận diện:")} </span>
                       <span className="break-words">{recognitionEmails}</span>
                     </div>
                     <div>
-                      <span className="font-medium text-foreground">Email công nợ: </span>
+                      <span className="font-medium text-foreground">{f("Email công nợ:")} </span>
                       <span className="break-words">{debtEmails}</span>
                     </div>
                     <div>
-                      <span className="font-medium text-foreground">Lấy qua NPP: </span>
+                      <span className="font-medium text-foreground">{f("Lấy qua NPP:")} </span>
                       {npp?.customer_name || "-"}
                     </div>
                     <div className="flex flex-wrap gap-1.5">
-                      <Badge variant="outline">Phí QL {formatVnd(Number(c.npp_management_fee_vnd || 0))}</Badge>
+                      <Badge variant="outline">{f("Phí QL")} {formatVnd(Number(c.npp_management_fee_vnd || 0))}</Badge>
                       {kb ? (
                         <Badge variant="outline">
-                          {String(kb.po_mode || "") === "cumulative_snapshot" ? "KB cộng dồn" : "KB PO ngày"}
+                          {String(kb.po_mode || "") === "cumulative_snapshot" ? f("KB cộng dồn") : f("KB PO ngày")}
                           {latestVer?.version_no ? ` · v${latestVer.version_no}` : ""}
                         </Badge>
                       ) : (
-                        <Badge variant="secondary">Chưa cấu hình KB</Badge>
+                        <Badge variant="secondary">{f("Chưa cấu hình KB")}</Badge>
                       )}
                     </div>
                   </div>
@@ -3491,11 +3499,11 @@ export default function MiniCrm() {
 
           <div className="hidden overflow-x-auto rounded-xl border bg-background/80 xl:block">
             <div className="grid min-w-[980px] grid-cols-[minmax(220px,1.25fr)_minmax(170px,0.8fr)_minmax(260px,1.3fr)_minmax(200px,0.95fr)_minmax(120px,0.55fr)] items-center gap-4 border-b bg-muted/40 px-4 py-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              <div>Khách hàng</div>
-              <div>Phân loại</div>
-              <div>Email</div>
-              <div>NPP / Công nợ</div>
-              <div>Trạng thái</div>
+              <div>{f("Khách hàng")}</div>
+              <div>{f("Phân loại")}</div>
+              <div>{f("Email")}</div>
+              <div>{f("NPP / Công nợ")}</div>
+              <div>{f("Trạng thái")}</div>
             </div>
             <div className="divide-y">
               {filteredCustomers.map((c) => {
@@ -3517,35 +3525,35 @@ export default function MiniCrm() {
                         setViewCustomer(c);
                       }
                     }}
-                    aria-label={`Xem thông tin khách hàng ${c.customer_name}`}
+                    aria-label={f("Xem thông tin khách hàng {name}", { name: c.customer_name })}
                   >
                     <div className="min-w-0 space-y-1">
                       <div className="break-words font-medium leading-tight">{c.customer_name}</div>
                       <div className="flex flex-wrap gap-1">
-                        {c.is_npp ? <Badge>NPP</Badge> : <Badge variant="secondary">Khách hàng</Badge>}
+                        {c.is_npp ? <Badge>{f("NPP")}</Badge> : <Badge variant="secondary">{f("Khách hàng")}</Badge>}
                         {kb ? (
                           <Badge variant="outline" className="text-[10px]">
-                            {String(kb.po_mode || "") === "cumulative_snapshot" ? "KB cộng dồn" : "KB PO ngày"}
+                            {String(kb.po_mode || "") === "cumulative_snapshot" ? f("KB cộng dồn") : f("KB PO ngày")}
                             {latestVer?.version_no ? ` · v${latestVer.version_no}` : ""}
                           </Badge>
                         ) : (
-                          <Badge variant="secondary" className="text-[10px]">Chưa KB</Badge>
+                          <Badge variant="secondary" className="text-[10px]">{f("Chưa KB")}</Badge>
                         )}
                       </div>
                     </div>
                     <div className="min-w-0 space-y-1 text-sm">
-                      <div>{GROUP_LABEL_MAP[c.customer_group] || c.customer_group}</div>
+                      <div>{renderCustomerGroup(c.customer_group)}</div>
                       <div className="text-xs text-muted-foreground">{renderBusinessProductLabel(c.product_group)}</div>
                     </div>
                     <div className="min-w-0 space-y-1 text-sm">
-                      <div className="break-words"><span className="text-xs text-muted-foreground">Nhận diện: </span>{recognitionEmails}</div>
-                      <div className="break-words"><span className="text-xs text-muted-foreground">Công nợ: </span>{debtEmails}</div>
+                      <div className="break-words"><span className="text-xs text-muted-foreground">{f("Nhận diện:")} </span>{recognitionEmails}</div>
+                      <div className="break-words"><span className="text-xs text-muted-foreground">{f("Công nợ:")} </span>{debtEmails}</div>
                     </div>
                     <div className="min-w-0 space-y-1 text-sm leading-snug">
                       <div className="break-words">{npp?.customer_name || "-"}</div>
-                      <div className="text-xs text-muted-foreground">Phí QL: {formatVnd(Number(c.npp_management_fee_vnd || 0))}</div>
+                      <div className="text-xs text-muted-foreground">{f("Phí QL:")} {formatVnd(Number(c.npp_management_fee_vnd || 0))}</div>
                     </div>
-                    <div className="min-w-0">{c.is_active ? <Badge>Active</Badge> : <Badge variant="secondary">Tạm ngưng</Badge>}</div>
+                    <div className="min-w-0">{c.is_active ? <Badge>{f("Active")}</Badge> : <Badge variant="secondary">{f("Tạm ngưng")}</Badge>}</div>
                   </div>
                 );
               })}
@@ -3588,20 +3596,20 @@ export default function MiniCrm() {
             </div>
             <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
               <div className="rounded-lg border bg-background/80 px-3 py-2">
-                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Đang hiển thị</div>
+                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{f("Đang hiển thị")}</div>
                 <div className="text-xl font-semibold leading-tight">{paginatedPoInbox.length}</div>
-                <div className="text-[11px] text-muted-foreground">/ {filteredPoInbox.length} PO sau lọc</div>
+                <div className="text-[11px] text-muted-foreground">/ {filteredPoInbox.length}  {f("PO sau lọc")}</div>
               </div>
               <div className="rounded-lg border bg-background/80 px-3 py-2">
-                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Đã auto parse</div>
+                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{f("Đã auto parse")}</div>
                 <div className="text-xl font-semibold leading-tight">{filteredPoInbox.filter((x: any) => x?.raw_payload?.auto_merge || x?.raw_payload?.parsed_items_preview?.length).length}</div>
               </div>
               <div className="rounded-lg border bg-background/80 px-3 py-2">
-                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Cần xử lý</div>
+                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{f("Cần xử lý")}</div>
                 <div className="text-xl font-semibold leading-tight text-amber-600">{pendingDeltaReviewCount}</div>
               </div>
               <div className="rounded-lg border bg-background/80 px-3 py-2">
-                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Exception</div>
+                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{f("Exception")}</div>
                 <div className="text-xl font-semibold leading-tight">{exceptionQueue.length}</div>
               </div>
             </div>
@@ -3611,28 +3619,28 @@ export default function MiniCrm() {
           <div className="rounded-xl border bg-background/70 p-4">
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
               <div className="space-y-1">
-                <Label>Từ ngày</Label>
+                <Label>{f("Từ ngày")}</Label>
                 <Input type="date" value={poDateFrom} onChange={(e) => setPoDateFrom(e.target.value)} />
               </div>
               <div className="space-y-1">
-                <Label>Đến ngày</Label>
+                <Label>{f("Đến ngày")}</Label>
                 <Input type="date" value={poDateTo} onChange={(e) => setPoDateTo(e.target.value)} />
               </div>
               <div className="space-y-1">
-                <Label>Khách hàng</Label>
+                <Label>{f("Khách hàng")}</Label>
                 <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={poCustomerFilter} onChange={(e) => setPoCustomerFilter(e.target.value)}>
-                  <option value="all">Tất cả khách hàng</option>
+                  <option value="all">{f("Tất cả khách hàng")}</option>
                   {customers.map((c: any) => (
                     <option key={c.id} value={c.id}>{c.customer_name}</option>
                   ))}
                 </select>
               </div>
               <div className="space-y-1">
-                <Label>PO mode</Label>
+                <Label>{f("PO mode")}</Label>
                 <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={poModeFilter} onChange={(e) => setPoModeFilter(e.target.value)}>
-                  <option value="all">Tất cả mode</option>
-                  <option value="daily_new_po">PO mới theo ngày</option>
-                  <option value="cumulative_snapshot">PO cộng dồn (delta)</option>
+                  <option value="all">{f("Tất cả mode")}</option>
+                  <option value="daily_new_po">{f("PO mới theo ngày")}</option>
+                  <option value="cumulative_snapshot">{f("PO cộng dồn (delta)")}</option>
                 </select>
               </div>
               <div className="flex items-end">
@@ -3642,8 +3650,7 @@ export default function MiniCrm() {
                     checked={poNeedsAttentionOnly}
                     onChange={(e) => setPoNeedsAttentionOnly(e.target.checked)}
                   />
-                  Chỉ hiện mục cần xử lý
-                </label>
+                   {f("Chỉ hiện mục cần xử lý")} </label>
               </div>
             </div>
 
@@ -3660,33 +3667,31 @@ export default function MiniCrm() {
                   setPoPage(1);
                 }}
               >
-                Reset bộ lọc
-              </Button>
+                 {f("Reset bộ lọc")} </Button>
               <Button type="button" variant="secondary" onClick={exportDeltaReconciliationCsv}>
-                Xuất CSV đối soát
-              </Button>
+                 {f("Xuất CSV đối soát")} </Button>
               <Button
                 type="button"
                 variant="secondary"
                 onClick={() => autoPostSafeMutation.mutate()}
                 disabled={autoPostSafeMutation.isPending}
               >
-                {autoPostSafeMutation.isPending ? "Đang auto-post..." : "Chạy auto-post cuối ngày"}
+                {autoPostSafeMutation.isPending ? f("Đang auto-post...") : f("Chạy auto-post cuối ngày")}
               </Button>
             </div>
           </div>
 
-          <div className="text-xs text-muted-foreground">Màn hình nhỏ có thể vuốt ngang để xem đủ cột.</div>
+          <div className="text-xs text-muted-foreground">{f("Màn hình nhỏ có thể vuốt ngang để xem đủ cột.")}</div>
           <div className="rounded-xl border bg-background/70 overflow-x-auto">
             <Table className="min-w-[900px]">
               <TableHeader>
                 <TableRow>
-                  <TableHead className="whitespace-nowrap">Received</TableHead>
-                  <TableHead className="whitespace-nowrap hidden lg:table-cell">From</TableHead>
-                  <TableHead className="min-w-[220px]">Subject</TableHead>
-                  <TableHead className="whitespace-nowrap">Matched Customer</TableHead>
-                  <TableHead className="whitespace-nowrap">Trạng thái</TableHead>
-                  <TableHead className="whitespace-nowrap sticky right-0 z-10 bg-background">Thao tác</TableHead>
+                  <TableHead className="whitespace-nowrap">{f("Received")}</TableHead>
+                  <TableHead className="whitespace-nowrap hidden lg:table-cell">{f("From")}</TableHead>
+                  <TableHead className="min-w-[220px]">{f("Subject")}</TableHead>
+                  <TableHead className="whitespace-nowrap">{f("Matched Customer")}</TableHead>
+                  <TableHead className="whitespace-nowrap">{f("Trạng thái")}</TableHead>
+                  <TableHead className="whitespace-nowrap sticky right-0 z-10 bg-background">{f("Thao tác")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -3695,23 +3700,23 @@ export default function MiniCrm() {
                     <TableCell className="whitespace-nowrap">{new Date(row.received_at).toLocaleString("vi-VN")}</TableCell>
                     <TableCell className="min-w-[200px] break-all hidden lg:table-cell">{row.from_email}</TableCell>
                     <TableCell className="min-w-[280px]">
-                      <div className="font-medium">{row.email_subject || "(no subject)"}</div>
+                      <div className="font-medium">{row.email_subject || f("(no subject)")}</div>
                       <div className="text-xs text-muted-foreground mt-1 lg:hidden break-all">{row.from_email}</div>
                     </TableCell>
-                    <TableCell className="whitespace-nowrap">{row.mini_crm_customers?.customer_name || "Chưa match"}</TableCell>
+                    <TableCell className="whitespace-nowrap">{row.mini_crm_customers?.customer_name || f("Chưa match")}</TableCell>
                     <TableCell>
                       <div className="flex flex-col gap-1">
                         {row?.raw_payload?.manual_summary?.edited_at ? (
-                          <Badge variant="default" className="w-fit">Đã chỉnh tay</Badge>
+                          <Badge variant="default" className="w-fit">{f("Đã chỉnh tay")}</Badge>
                         ) : row?.raw_payload?.auto_merge ? (
-                          <Badge variant="secondary" className="w-fit">Đã auto merge</Badge>
+                          <Badge variant="secondary" className="w-fit">{f("Đã auto merge")}</Badge>
                         ) : row?.raw_payload?.parsed_items_preview?.length ? (
-                          <Badge variant="secondary" className="w-fit">Đã auto parse</Badge>
+                          <Badge variant="secondary" className="w-fit">{f("Đã auto parse")}</Badge>
                         ) : (
-                          <Badge variant="outline" className="w-fit">Mới nhập</Badge>
+                          <Badge variant="outline" className="w-fit">{f("Mới nhập")}</Badge>
                         )}
                         {row?.raw_payload?.revenue_post?.requires_review && (
-                          <Badge variant="destructive" className="w-fit">Cần xử lý</Badge>
+                          <Badge variant="destructive" className="w-fit">{f("Cần xử lý")}</Badge>
                         )}
                       </div>
                     </TableCell>
@@ -3734,10 +3739,9 @@ export default function MiniCrm() {
                             });
                           }}
                         >
-                          Xem nhanh
-                        </Button>
+                           {f("Xem nhanh")} </Button>
                         {row?.raw_payload?.revenue_post?.requires_review && (
-                          <Button size="sm" variant="outline" onClick={() => setSelectedPoId(row.id)}>Mở xử lý</Button>
+                          <Button size="sm" variant="outline" onClick={() => setSelectedPoId(row.id)}>{f("Mở xử lý")}</Button>
                         )}
                       </div>
                     </TableCell>
@@ -3745,7 +3749,7 @@ export default function MiniCrm() {
                 ))}
                 {filteredPoInbox.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6} className="py-10 text-center text-muted-foreground">Không có PO phù hợp bộ lọc hiện tại.</TableCell>
+                    <TableCell colSpan={6} className="py-10 text-center text-muted-foreground">{f("Không có PO phù hợp bộ lọc hiện tại.")}</TableCell>
                   </TableRow>
                 )}
               </TableBody>
@@ -3753,19 +3757,16 @@ export default function MiniCrm() {
           </div>
           <div className="flex flex-col gap-2 pt-3 text-sm md:flex-row md:items-center md:justify-between">
             <div className="text-muted-foreground">
-              Hiển thị {filteredPoInbox.length === 0 ? 0 : (currentPoPage - 1) * PO_PAGE_SIZE + 1}
-              -{Math.min(currentPoPage * PO_PAGE_SIZE, filteredPoInbox.length)} trên tổng {filteredPoInbox.length} PO
-            </div>
+               {f("Hiển thị")} {filteredPoInbox.length === 0 ? 0 : (currentPoPage - 1) * PO_PAGE_SIZE + 1}
+              -{Math.min(currentPoPage * PO_PAGE_SIZE, filteredPoInbox.length)}  {f("trên tổng")} {filteredPoInbox.length} {f("PO")}</div>
             <div className="flex items-center gap-2">
               <Button type="button" variant="outline" size="sm" onClick={() => setPoPage((p) => Math.max(1, p - 1))} disabled={currentPoPage <= 1}>
-                Trang trước
-              </Button>
+                 {f("Trang trước")} </Button>
               <div className="min-w-[88px] text-center text-muted-foreground">
-                Trang {currentPoPage} / {totalPoPages}
+                 {f("Trang")} {currentPoPage} / {totalPoPages}
               </div>
               <Button type="button" variant="outline" size="sm" onClick={() => setPoPage((p) => Math.min(totalPoPages, p + 1))} disabled={currentPoPage >= totalPoPages}>
-                Trang sau
-              </Button>
+                 {f("Trang sau")} </Button>
             </div>
           </div>
         </CardContent>
@@ -3774,19 +3775,19 @@ export default function MiniCrm() {
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Exception Queue</CardTitle>
-            <CardDescription>Các PO cần xử lý thủ công trước khi chốt doanh thu.</CardDescription>
+            <CardTitle>{f("Exception Queue")}</CardTitle>
+            <CardDescription>{f("Các PO cần xử lý thủ công trước khi chốt doanh thu.")}</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="text-xs text-muted-foreground mb-2">Tổng exception: <b>{exceptionQueue.length}</b></div>
+            <div className="text-xs text-muted-foreground mb-2">{f("Tổng exception:")} <b>{exceptionQueue.length}</b></div>
             <div className="max-h-72 overflow-auto border rounded-md">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Received</TableHead>
-                    <TableHead>Khách hàng</TableHead>
-                    <TableHead>PO</TableHead>
-                    <TableHead>Lý do</TableHead>
+                    <TableHead>{f("Received")}</TableHead>
+                    <TableHead>{f("Khách hàng")}</TableHead>
+                    <TableHead>{f("PO")}</TableHead>
+                    <TableHead>{f("Lý do")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -3799,7 +3800,7 @@ export default function MiniCrm() {
                     </TableRow>
                   ))}
                   {exceptionQueue.length === 0 && (
-                    <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground">Không có exception</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground">{f("Không có exception")}</TableCell></TableRow>
                   )}
                 </TableBody>
               </Table>
@@ -3809,19 +3810,19 @@ export default function MiniCrm() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Revenue Audit (latest)</CardTitle>
-            <CardDescription>Nhật ký post/review doanh thu mới nhất.</CardDescription>
+            <CardTitle>{f("Revenue Audit (latest)")}</CardTitle>
+            <CardDescription>{f("Nhật ký post/review doanh thu mới nhất.")}</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="max-h-72 overflow-auto border rounded-md">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Thời gian</TableHead>
-                    <TableHead>Khách hàng</TableHead>
-                    <TableHead>Action</TableHead>
-                    <TableHead>Decision</TableHead>
-                    <TableHead>Amount</TableHead>
+                    <TableHead>{f("Thời gian")}</TableHead>
+                    <TableHead>{f("Khách hàng")}</TableHead>
+                    <TableHead>{f("Action")}</TableHead>
+                    <TableHead>{f("Decision")}</TableHead>
+                    <TableHead>{f("Amount")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -3835,7 +3836,7 @@ export default function MiniCrm() {
                     </TableRow>
                   ))}
                   {recentRevenueAudit.length === 0 && (
-                    <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">Chưa có audit log</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">{f("Chưa có audit log")}</TableCell></TableRow>
                   )}
                 </TableBody>
               </Table>
@@ -3855,39 +3856,38 @@ export default function MiniCrm() {
             {selectedPo && (
               <>
                 <DialogHeader>
-                  <DialogTitle>PO Quick View: {poSummaryDraft.po_number || selectedPo.po_number || selectedPo.email_subject}</DialogTitle>
-                  <DialogDescription>Giao diện xem nhanh cho Kế toán và Quản lí sản xuất (không cần mở email).</DialogDescription>
+                  <DialogTitle>{f("PO Quick View:")} {poSummaryDraft.po_number || selectedPo.po_number || selectedPo.email_subject}</DialogTitle>
+                  <DialogDescription>{f("Giao diện xem nhanh cho Kế toán và Quản lí sản xuất (không cần mở email).")}</DialogDescription>
                 </DialogHeader>
 
                 <div className="space-y-4">
                   <div className="text-sm text-muted-foreground">
-                    <div><b>From:</b> {selectedPo.from_email}</div>
-                    <div><b>Subject:</b> {selectedPo.email_subject}</div>
-                    <div><b>Nội dung nhanh:</b> {selectedPo.body_preview || "(trống)"}</div>
-                    <div><b>Attachments:</b> {(selectedPo.attachment_names || []).join(", ") || "Không có"}</div>
+                    <div><b>{f("From:")}</b> {selectedPo.from_email}</div>
+                    <div><b>{f("Subject:")}</b> {selectedPo.email_subject}</div>
+                    <div><b>{f("Nội dung nhanh:")}</b> {selectedPo.body_preview || f("(trống)")}</div>
+                    <div><b>{f("Attachments:")}</b> {(selectedPo.attachment_names || []).join(", ") || f("Không có")}</div>
                     <div>
-                      <b>Knowledge mode:</b> {selectedPoKnowledgeProfile ? (KB_PO_MODE_LABEL[String(selectedPoKnowledgeProfile.po_mode || "")] || String(selectedPoKnowledgeProfile.po_mode || "-")) : "Mặc định (PO mới theo ngày)"}
+                      <b>{f("Knowledge mode:")}</b> {selectedPoKnowledgeProfile ? (({ daily_new_po: f("PO mới theo ngày"), cumulative_snapshot: f("PO cộng dồn (delta)") } as Record<string, string>)[String(selectedPoKnowledgeProfile.po_mode || "")] || String(selectedPoKnowledgeProfile.po_mode || "-")) : f("Mặc định (PO mới theo ngày)")}
                     </div>
                     <div>
-                      <b>PO source:</b> {KB_PO_SOURCE_LABEL[getKbPoSource(selectedPoKnowledgeProfile)] || "Ưu tiên parse file đính kèm"}
+                      <b>{f("PO source:")}</b> {({ attachment_first: f("Ưu tiên parse file đính kèm"), email_body_only: f("Chỉ parse nội dung email") } as Record<string, string>)[getKbPoSource(selectedPoKnowledgeProfile)] || f("Ưu tiên parse file đính kèm")}
                     </div>
                     {!selectedPoKnowledgeProfile && (
                       <div className="text-amber-600">
-                        Chưa áp dụng KB theo khách hàng cho email này. Vui lòng kiểm tra mapping email khách hàng trong CRM.
-                      </div>
+                         {f("Chưa áp dụng KB theo khách hàng cho email này. Vui lòng kiểm tra mapping email khách hàng trong CRM.")} </div>
                     )}
                     {selectedPoKnowledgeProfile?.operational_notes && (
-                      <div><b>Ops note:</b> {stripKbSystemMarkers(String(selectedPoKnowledgeProfile.operational_notes))}</div>
+                      <div><b>{f("Ops note:")}</b> {stripKbSystemMarkers(String(selectedPoKnowledgeProfile.operational_notes))}</div>
                     )}
                     {selectedPo?.raw_payload?.revenue_post && (
                       <div className="rounded-md border p-2 bg-muted/30 mt-2">
-                        <div className="font-medium text-foreground mb-1">Audit revenue post</div>
-                        <div>Decision: {String(selectedPo.raw_payload.revenue_post.review_decision || (selectedPo.raw_payload.revenue_post.posted ? "posted" : "pending"))}</div>
-                        <div>Delta: {Number(selectedPo.raw_payload.revenue_post.delta_amount || 0).toLocaleString("vi-VN")} ₫</div>
-                        <div>Base: {Number(selectedPo.raw_payload.revenue_post.base_amount || 0).toLocaleString("vi-VN")} ₫</div>
-                        <div>Posted: {Number(selectedPo.raw_payload.revenue_post.total || selectedPo.raw_payload.revenue_post.amount || 0).toLocaleString("vi-VN")} ₫</div>
-                        <div>Reviewed at: {selectedPo.raw_payload.revenue_post.reviewed_at ? new Date(selectedPo.raw_payload.revenue_post.reviewed_at).toLocaleString("vi-VN") : "-"}</div>
-                        <div>Posted at: {selectedPo.raw_payload.revenue_post.posted_at ? new Date(selectedPo.raw_payload.revenue_post.posted_at).toLocaleString("vi-VN") : "-"}</div>
+                        <div className="font-medium text-foreground mb-1">{f("Audit revenue post")}</div>
+                        <div>{f("Decision:")} {String(selectedPo.raw_payload.revenue_post.review_decision || (selectedPo.raw_payload.revenue_post.posted ? "posted" : "pending"))}</div>
+                        <div>{f("Delta:")} {Number(selectedPo.raw_payload.revenue_post.delta_amount || 0).toLocaleString("vi-VN")} ₫</div>
+                        <div>{f("Base:")} {Number(selectedPo.raw_payload.revenue_post.base_amount || 0).toLocaleString("vi-VN")} ₫</div>
+                        <div>{f("Posted:")} {Number(selectedPo.raw_payload.revenue_post.total || selectedPo.raw_payload.revenue_post.amount || 0).toLocaleString("vi-VN")} ₫</div>
+                        <div>{f("Reviewed at:")} {selectedPo.raw_payload.revenue_post.reviewed_at ? new Date(selectedPo.raw_payload.revenue_post.reviewed_at).toLocaleString("vi-VN") : "-"}</div>
+                        <div>{f("Posted at:")} {selectedPo.raw_payload.revenue_post.posted_at ? new Date(selectedPo.raw_payload.revenue_post.posted_at).toLocaleString("vi-VN") : "-"}</div>
                       </div>
                     )}
                   </div>
@@ -3903,8 +3903,8 @@ export default function MiniCrm() {
                     poDraftVatAmount={poDraftVatAmount}
                     poDraftSubtotalMismatch={poDraftSubtotalMismatch}
                     isPoDraftDirty={isPoDraftDirty}
-                    savePoStatus={savePoStatus}
-                    postRevenueStatus={postRevenueStatus}
+                    savePoStatus={savePoStatusText}
+                    postRevenueStatus={postRevenueStatusText}
                     parseAttachmentPending={parseAttachmentMutation.isPending}
                     savePending={savePoSummaryMutation.isPending}
                     postRevenuePending={postRevenueMutation.isPending}
@@ -3932,22 +3932,21 @@ export default function MiniCrm() {
           {viewCustomer && (
             <>
               <DialogHeader>
-                <DialogTitle>Xem thông tin khách hàng: {viewCustomer.customer_name}</DialogTitle>
+                <DialogTitle>{f("Xem thông tin khách hàng:")} {viewCustomer.customer_name}</DialogTitle>
               </DialogHeader>
               <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
                 <Button
                   size="sm"
                   variant="destructive"
                   onClick={() => {
-                    if (confirm(`Xoá khách hàng ${viewCustomer.customer_name}?`)) {
+                    if (confirm(f("Xoá khách hàng {name}?", { name: viewCustomer.customer_name }))) {
                       deleteCustomerMutation.mutate({ customerId: viewCustomer.id, customerName: viewCustomer.customer_name });
                       setViewCustomer(null);
                     }
                   }}
                   disabled={deleteCustomerMutation.isPending}
                 >
-                  <Trash2 className="h-4 w-4 mr-1" />Xoá khách hàng
-                </Button>
+                  <Trash2 className="h-4 w-4 mr-1" />{f("Xoá khách hàng")} </Button>
                 <Button
                   size="sm"
                   onClick={() => {
@@ -3955,37 +3954,36 @@ export default function MiniCrm() {
                     setViewCustomer(null);
                   }}
                 >
-                  <Pencil className="h-4 w-4 mr-1" />Sửa khách hàng
-                </Button>
+                  <Pencil className="h-4 w-4 mr-1" />{f("Sửa khách hàng")} </Button>
               </div>
               <div className="space-y-3 text-sm">
-                <div><b>Nhóm:</b> {GROUP_LABEL_MAP[viewCustomer.customer_group] || viewCustomer.customer_group}</div>
-                <div><b>Sản phẩm kinh doanh:</b> {renderBusinessProductLabel(viewCustomer.product_group)}</div>
-                <div><b>Trạng thái:</b> {viewCustomer.is_active ? "Active" : "Tạm ngưng"}</div>
-                <div><b>Email nhận diện:</b> {(viewCustomer.mini_crm_customer_emails || []).map((e: any) => e.email).join(", ") || "-"}</div>
-                <div><b>Email nhận công nợ:</b> {formatEmailList(viewCustomer.debt_emails) || "-"}</div>
-                <div><b>SĐT dealer portal:</b> {formatDealerContactPhones(viewCustomer.dealer_customer_contacts || []) || "Chưa có"}</div>
-                <div><b>Hợp đồng:</b> {(customerContracts.find((x: any) => x.customer_id === viewCustomer.id)?.file_name) || "Chưa có"}</div>
+                <div><b>{f("Nhóm:")}</b> {renderCustomerGroup(viewCustomer.customer_group)}</div>
+                <div><b>{f("Sản phẩm kinh doanh:")}</b> {renderBusinessProductLabel(viewCustomer.product_group)}</div>
+                <div><b>{f("Trạng thái:")}</b> {viewCustomer.is_active ? f("Active") : f("Tạm ngưng")}</div>
+                <div><b>{f("Email nhận diện:")}</b> {(viewCustomer.mini_crm_customer_emails || []).map((e: any) => e.email).join(", ") || "-"}</div>
+                <div><b>{f("Email nhận công nợ:")}</b> {formatEmailList(viewCustomer.debt_emails) || "-"}</div>
+                <div><b>{f("SĐT dealer portal:")}</b> {formatDealerContactPhones(viewCustomer.dealer_customer_contacts || [], f(" (chính)")) || f("Chưa có")}</div>
+                <div><b>{f("Hợp đồng:")}</b> {(customerContracts.find((x: any) => x.customer_id === viewCustomer.id)?.file_name) || f("Chưa có")}</div>
                 <div>
-                  <b>Bảng giá:</b>
+                  <b>{f("Bảng giá:")}</b>
                   <ul className="list-disc pl-5">
-                    {customerPriceList.filter((x: any) => x.customer_id === viewCustomer.id).length === 0 && <li>Chưa có</li>}
+                    {customerPriceList.filter((x: any) => x.customer_id === viewCustomer.id).length === 0 && <li>{f("Chưa có")}</li>}
                     {customerPriceList.filter((x: any) => x.customer_id === viewCustomer.id).map((p: any) => {
                       const sku = finishedSkus.find((s: any) => s.id === p.sku_id);
-                      return <li key={p.id}>{sku?.product_name || p.sku_id}: {Number(p.price_vnd_per_unit || 0).toLocaleString("vi-VN")} đ/cái</li>;
+                      return <li key={p.id}>{sku?.product_name || p.sku_id}: {Number(p.price_vnd_per_unit || 0).toLocaleString("vi-VN")}  {f("đ/cái")}</li>;
                     })}
                   </ul>
                 </div>
-                <div><b>Mẫu PO active:</b> {(() => { const t = poTemplates.find((x: any) => x.customer_id === viewCustomer.id); return t ? `${t.file_name || t.template_name} (v${t.version_no || 1})` : "Chưa có"; })()}</div>
+                <div><b>{f("Mẫu PO active:")}</b> {(() => { const t = poTemplates.find((x: any) => x.customer_id === viewCustomer.id); return t ? `${t.file_name || t.template_name} (v${t.version_no || 1})` : f("Chưa có"); })()}</div>
                 <div>
-                  <b>Knowledge Base:</b> {(() => {
+                  <b>{f("Knowledge Base:")}</b> {(() => {
                     const kb = customerKnowledgeProfiles.find((x: any) => x.customer_id === viewCustomer.id);
-                    if (!kb) return "Chưa cấu hình";
+                    if (!kb) return f("Chưa cấu hình");
                     const modeMap: Record<string, string> = {
-                      daily_new_po: "PO mới theo ngày",
-                      cumulative_snapshot: "PO cộng dồn (delta)",
+                      daily_new_po: f("PO mới theo ngày"),
+                      cumulative_snapshot: f("PO cộng dồn (delta)"),
                     };
-                    return `${kb.profile_name || "Default"} • ${modeMap[String(kb.po_mode || "")] || kb.po_mode || "-"}`;
+                    return `${kb.profile_name || f("Default")} • ${modeMap[String(kb.po_mode || "")] || kb.po_mode || "-"}`;
                   })()}
                 </div>
               </div>
@@ -4002,29 +4000,29 @@ export default function MiniCrm() {
           onEscapeKeyDown={cancelEditCustomer}
         >
           <DialogHeader>
-            <DialogTitle>Sửa khách hàng</DialogTitle>
+            <DialogTitle>{f("Sửa khách hàng")}</DialogTitle>
           </DialogHeader>
 
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
-              <Label>Tên khách hàng</Label>
+              <Label>{f("Tên khách hàng")}</Label>
               <Input value={editCustomerName} onChange={(e) => setEditCustomerName(e.target.value)} />
             </div>
             <div className="space-y-2">
-              <Label>Nhóm khách hàng</Label>
+              <Label>{f("Nhóm khách hàng")}</Label>
               <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={editCustomerGroup} onChange={(e) => setEditCustomerGroup(e.target.value)}>
-                {GROUP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                {GROUP_OPTIONS.map((o) => <option key={o.value} value={o.value}>{renderCustomerGroup(o.value)}</option>)}
               </select>
             </div>
             <div className="space-y-2">
-              <Label>Sản phẩm kinh doanh</Label>
+              <Label>{f("Sản phẩm kinh doanh")}</Label>
               <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={editProductGroup} onChange={(e) => setEditProductGroup(e.target.value)}>
-                {businessProductOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                {businessProductOptions.map((o) => <option key={o.value} value={o.value}>{PRODUCT_GROUP_LABEL_MAP[o.value] ? f("{label} (nhóm cũ)", { label: renderProductGroup(o.value) }) : o.label}</option>)}
                 {editProductGroup && !businessProductOptions.some((o) => o.value === editProductGroup) ? <option value={editProductGroup}>{renderBusinessProductLabel(editProductGroup)}</option> : null}
               </select>
             </div>
             <div className="space-y-2">
-              <Label>NPP (yes/no)</Label>
+              <Label>{f("NPP (yes/no)")}</Label>
               <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={editIsNpp ? "yes" : "no"} onChange={(e) => {
                 const next = e.target.value === "yes";
                 setEditIsNpp(next);
@@ -4033,12 +4031,12 @@ export default function MiniCrm() {
                   setEditSuppliedByNppCustomerId("");
                 }
               }}>
-                <option value="no">No</option>
-                <option value="yes">Yes</option>
+                <option value="no">{f("No")}</option>
+                <option value="yes">{f("Yes")}</option>
               </select>
             </div>
             <div className="space-y-2">
-              <Label>Lấy hàng qua NPP</Label>
+              <Label>{f("Lấy hàng qua NPP")}</Label>
               <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={editUsesNpp ? "yes" : "no"} onChange={(e) => {
                 const next = e.target.value === "yes";
                 setEditUsesNpp(next);
@@ -4048,76 +4046,75 @@ export default function MiniCrm() {
                   setEditSuppliedByNppCustomerId(String(editAvailableNppCustomers[0].id));
                 }
               }} disabled={editIsNpp}>
-                <option value="no">Không</option>
-                <option value="yes">Có</option>
+                <option value="no">{f("Không")}</option>
+                <option value="yes">{f("Có")}</option>
               </select>
             </div>
             {editUsesNpp && !editIsNpp && (
               <div className="space-y-2 md:col-span-2">
-                <Label>Chọn nhà phân phối</Label>
+                <Label>{f("Chọn nhà phân phối")}</Label>
                 <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={editSuppliedByNppCustomerId} onChange={(e) => setEditSuppliedByNppCustomerId(e.target.value)}>
-                  <option value="">-- Chọn nhà phân phối --</option>
+                  <option value="">{f("-- Chọn nhà phân phối --")}</option>
                   {editAvailableNppCustomers.map((npp: any) => <option key={npp.id} value={npp.id}>{npp.customer_name}</option>)}
                 </select>
-                {editAvailableNppCustomers.length === 0 && <div className="text-xs text-muted-foreground">Chưa có nhà phân phối nào khả dụng để chọn.</div>}
+                {editAvailableNppCustomers.length === 0 && <div className="text-xs text-muted-foreground">{f("Chưa có nhà phân phối nào khả dụng để chọn.")}</div>}
               </div>
             )}
             <div className="space-y-2 md:col-span-2">
-              <Label>Email nhận diện</Label>
+              <Label>{f("Email nhận diện")}</Label>
               <Input value={editEmailsInput} onChange={(e) => setEditEmailsInput(e.target.value)} />
             </div>
             <div className="space-y-2 md:col-span-2">
-              <Label>Email nhận công nợ</Label>
-              <Input value={editDebtEmailsInput} onChange={(e) => setEditDebtEmailsInput(e.target.value)} placeholder="Để trống sẽ tự copy Email nhận diện" />
-              <p className="text-xs text-muted-foreground">Hệ thống gửi mail công nợ theo danh sách này, không phụ thuộc email nhận diện PO.</p>
+              <Label>{f("Email nhận công nợ")}</Label>
+              <Input value={editDebtEmailsInput} onChange={(e) => setEditDebtEmailsInput(e.target.value)} placeholder={f("Để trống sẽ tự copy Email nhận diện")} />
+              <p className="text-xs text-muted-foreground">{f("Hệ thống gửi mail công nợ theo danh sách này, không phụ thuộc email nhận diện PO.")}</p>
             </div>
             <div className="space-y-3 md:col-span-2 rounded-md border p-3">
               <div>
-                <Label>Liên hệ đại lý / SĐT đăng nhập OTP</Label>
-                <p className="mt-1 text-xs text-muted-foreground">Nhập SĐT tại đây, sau đó bấm “Lưu thay đổi” ở cuối cửa sổ chính.</p>
+                <Label>{f("Liên hệ đại lý / SĐT đăng nhập OTP")}</Label>
+                <p className="mt-1 text-xs text-muted-foreground">{f("Nhập SĐT tại đây, sau đó bấm “Lưu thay đổi” ở cuối cửa sổ chính.")}</p>
               </div>
               <div className="space-y-2">
                 {editDealerContacts.map((contact, idx) => (
                   <div key={contact.id || idx} className="grid gap-2 rounded-md bg-muted/40 p-2 md:grid-cols-12">
                     {contact.is_test ? (
                       <div className="md:col-span-12 text-xs font-semibold text-amber-700">
-                        Tài khoản thử nghiệm do hệ thống quản lý
-                      </div>
+                         {f("Tài khoản thử nghiệm do hệ thống quản lý")} </div>
                     ) : null}
                     <div className="space-y-1 md:col-span-3">
-                      <Label className="text-xs">Tên liên hệ</Label>
+                      <Label className="text-xs">{f("Tên liên hệ")}</Label>
                       <Input
                         value={contact.contact_name}
                         disabled={contact.is_test}
                         onChange={(e) => setEditDealerContacts((prev) => prev.map((row, rowIdx) => rowIdx === idx ? { ...row, contact_name: e.target.value } : row))}
-                        placeholder="VD: Anh Tâm"
+                        placeholder={f("VD: Anh Tâm")}
                       />
                     </div>
                     <div className="space-y-1 md:col-span-4">
-                      <Label className="text-xs">SĐT đăng nhập OTP</Label>
+                      <Label className="text-xs">{f("SĐT đăng nhập OTP")}</Label>
                       <Input
                         inputMode="tel"
                         value={contact.phone_raw}
                         disabled={contact.is_test}
                         onChange={(e) => setEditDealerContacts((prev) => prev.map((row, rowIdx) => rowIdx === idx ? { ...row, phone_raw: e.target.value } : row))}
-                        placeholder="VD: 0966998999"
+                        placeholder={f("VD: 0966998999")}
                       />
-                      {contact.phone_raw ? <p className="text-[11px] text-muted-foreground">Chuẩn hoá: {normalizeDealerContactPhone(contact.phone_raw) || "-"}</p> : null}
+                      {contact.phone_raw ? <p className="text-[11px] text-muted-foreground">{f("Chuẩn hoá:")} {normalizeDealerContactPhone(contact.phone_raw) || "-"}</p> : null}
                     </div>
                     <div className="space-y-1 md:col-span-2">
-                      <Label className="text-xs">Số chính</Label>
+                      <Label className="text-xs">{f("Số chính")}</Label>
                       <select
                         className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                         value={contact.is_primary ? "yes" : "no"}
                         onChange={(e) => setEditDealerContacts((prev) => prev.map((row, rowIdx) => ({ ...row, is_primary: rowIdx === idx ? e.target.value === "yes" : false })))}
                         disabled={!contact.is_active || contact.is_test}
                       >
-                        <option value="no">Không</option>
-                        <option value="yes">Có</option>
+                        <option value="no">{f("Không")}</option>
+                        <option value="yes">{f("Có")}</option>
                       </select>
                     </div>
                     <div className="space-y-1 md:col-span-2">
-                      <Label className="text-xs">Đang hoạt động</Label>
+                      <Label className="text-xs">{f("Đang hoạt động")}</Label>
                       <select
                         className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                         value={contact.is_active ? "yes" : "no"}
@@ -4128,8 +4125,8 @@ export default function MiniCrm() {
                           return { ...row, is_active: isActive, is_primary: isActive ? row.is_primary : false };
                         }))}
                       >
-                        <option value="yes">Có</option>
-                        <option value="no">Không</option>
+                        <option value="yes">{f("Có")}</option>
+                        <option value="no">{f("Không")}</option>
                       </select>
                     </div>
                     <div className="flex items-end md:col-span-1">
@@ -4148,42 +4145,42 @@ export default function MiniCrm() {
               </div>
             </div>
             <div className="space-y-2 md:col-span-2">
-              <Label>Địa chỉ giao hàng</Label>
+              <Label>{f("Địa chỉ giao hàng")}</Label>
               <Input
                 value={editAddress}
                 onChange={(e) => setEditAddress(e.target.value)}
-                placeholder="VD: 123 Nguyễn Huệ, Q.1, TP.HCM"
+                placeholder={f("VD: 123 Nguyễn Huệ, Q.1, TP.HCM")}
               />
-              <p className="text-xs text-muted-foreground">Tự động điền vào phiếu xuất kho khi chọn đơn hàng của khách này.</p>
+              <p className="text-xs text-muted-foreground">{f("Tự động điền vào phiếu xuất kho khi chọn đơn hàng của khách này.")}</p>
             </div>
             <div className="space-y-2 md:col-span-2">
-              <Label>Phí quản lí / hỗ trợ cố định (VND)</Label>
-              <Input value={editNppManagementFee} onChange={(e) => setEditNppManagementFee(e.target.value)} placeholder="VD: 300000" />
-              <p className="text-xs text-muted-foreground">Dùng để trừ khi tính công nợ NPP cho đại lý này.</p>
+              <Label>{f("Phí quản lí / hỗ trợ cố định (VND)")}</Label>
+              <Input value={editNppManagementFee} onChange={(e) => setEditNppManagementFee(e.target.value)} placeholder={f("VD: 300000")} />
+              <p className="text-xs text-muted-foreground">{f("Dùng để trừ khi tính công nợ NPP cho đại lý này.")}</p>
             </div>
             <div className="space-y-2 md:col-span-2">
-              <Label>Trạng thái</Label>
+              <Label>{f("Trạng thái")}</Label>
               <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={editIsActive ? "active" : "paused"} onChange={(e) => setEditIsActive(e.target.value === "active")}>
-                <option value="active">Active</option>
-                <option value="paused">Tạm ngưng</option>
+                <option value="active">{f("Active")}</option>
+                <option value="paused">{f("Tạm ngưng")}</option>
               </select>
             </div>
 
             <div className="space-y-2 md:col-span-2 rounded-md border p-3">
-              <Label>Hợp đồng (PDF)</Label>
-              <div className="text-xs">Active: {(customerContracts.find((x: any) => x.customer_id === editingCustomerId)?.file_name) || "Chưa có"}</div>
+              <Label>{f("Hợp đồng (PDF)")}</Label>
+              <div className="text-xs">{f("Active:")} {(customerContracts.find((x: any) => x.customer_id === editingCustomerId)?.file_name) || f("Chưa có")}</div>
               <div className="flex gap-2">
                 <Input type="file" accept="application/pdf,.pdf" onChange={(e) => setEditContractFile(e.target.files?.[0] || null)} />
                 <Button type="button" variant="outline" onClick={async () => {
                   await (supabase as any).from("mini_crm_customer_contracts").update({ is_active: false }).eq("customer_id", editingCustomerId).eq("is_active", true);
                   await queryClient.invalidateQueries({ queryKey: ["mini-crm-customer-contracts"] });
-                  toast({ title: "Đã xoá hợp đồng active" });
-                }}>Xoá HĐ</Button>
+                  toast({ title: f("Đã xoá hợp đồng active") });
+                }}>{f("Xoá HĐ")}</Button>
               </div>
             </div>
 
             <div className="space-y-2 md:col-span-2 rounded-md border p-3">
-              <Label>Giá bán SKU</Label>
+              <Label>{f("Giá bán SKU")}</Label>
               {editPriceRows.map((row, idx) => (
                 <div key={idx} className="grid grid-cols-12 gap-2 mb-2">
                   <select className="col-span-7 h-10 rounded-md border border-input bg-background px-3 text-sm" value={row.skuId} onChange={(e) => {
@@ -4191,14 +4188,14 @@ export default function MiniCrm() {
                     const existingPrice = editSkuPriceMap.get(nextSkuId) || "";
                     setEditPriceRows((prev) => prev.map((r, i) => i === idx ? { ...r, skuId: nextSkuId, price: existingPrice } : r));
                   }}>
-                    <option value="">-- Chọn SKU --</option>
+                    <option value="">{f("-- Chọn SKU --")}</option>
                     {finishedSkus.map((s: any) => <option key={s.id} value={s.id}>{s.sku_code} - {s.product_name}</option>)}
                   </select>
-                  <Input className="col-span-4" value={row.price} onChange={(e) => setEditPriceRows((prev) => prev.map((r, i) => i === idx ? { ...r, price: e.target.value } : r))} placeholder={row.skuId && !editSkuPriceMap.get(row.skuId) ? "SKU này chưa có giá active" : "VND/cái"} />
+                  <Input className="col-span-4" value={row.price} onChange={(e) => setEditPriceRows((prev) => prev.map((r, i) => i === idx ? { ...r, price: e.target.value } : r))} placeholder={row.skuId && !editSkuPriceMap.get(row.skuId) ? f("SKU này chưa có giá active") : f("VND/cái")} />
                   <Button type="button" variant="outline" className="col-span-1" onClick={() => setEditPriceRows((prev) => prev.filter((_, i) => i !== idx))} disabled={editPriceRows.length === 1}>-</Button>
                 </div>
               ))}
-              <Button type="button" variant="outline" onClick={() => setEditPriceRows((prev) => [...prev, { skuId: "", price: "" }])}>+ Thêm SKU</Button>
+              <Button type="button" variant="outline" onClick={() => setEditPriceRows((prev) => [...prev, { skuId: "", price: "" }])}>{f("+ Thêm SKU")}</Button>
             </div>
 
             <KnowledgeBaseProfileEditor
@@ -4210,6 +4207,7 @@ export default function MiniCrm() {
               editKbBusinessDescription={editKbBusinessDescription}
               kbAiSuggestion={kbAiSuggestion}
               kbAiStatus={kbAiStatus}
+              kbAiStatusText={kbAiStatusText}
               kbChangeNote={kbChangeNote}
               templateFileName={templateFileName}
               templateAiContext={templateAiContext}
@@ -4228,28 +4226,28 @@ export default function MiniCrm() {
               onKbPoModeChange={setEditKbPoMode}
               onKbBusinessDescriptionChange={setEditKbBusinessDescription}
               onKbChangeNoteChange={setKbChangeNote}
-              onTemplateFileChange={async (f) => {
-                if (!f) return;
+              onTemplateFileChange={async (file) => {
+                if (!file) return;
                 try {
-                  if (/\.xlsx$/i.test(f.name)) {
-                    await handleAnalyzeTemplateFile(f);
-                  } else if (/\.pdf$/i.test(f.name)) {
-                    const context = await extractPdfTemplateContext(f);
-                    setTemplateFileName(f.name);
+                  if (/\.xlsx$/i.test(file.name)) {
+                    await handleAnalyzeTemplateFile(file);
+                  } else if (/\.pdf$/i.test(file.name)) {
+                    const context = await extractPdfTemplateContext(file);
+                    setTemplateFileName(file.name);
                     setTemplateAiContext(context);
-                    toast({ title: "Đã đọc mẫu PDF", description: context ? "Đã trích xuất text ngữ cảnh để dùng cho AI Tính Toán." : "PDF không trích được text rõ ràng, anh/chị vẫn có thể bổ sung mô tả tay." });
-                  } else if ((f.type || "").startsWith("image/")) {
-                    const context = await extractImageTemplateContext(f);
-                    setTemplateFileName(f.name);
+                    toast({ title: f("Đã đọc mẫu PDF"), description: context ? f("Đã trích xuất text ngữ cảnh để dùng cho AI Tính Toán.") : f("PDF không trích được text rõ ràng, anh/chị vẫn có thể bổ sung mô tả tay.") });
+                  } else if ((file.type || "").startsWith("image/")) {
+                    const context = await extractImageTemplateContext(file);
+                    setTemplateFileName(file.name);
                     setTemplateAiContext(context);
-                    toast({ title: "Đã đọc mẫu ảnh", description: context ? "Đã trích xuất ngữ cảnh từ ảnh để dùng cho AI Tính Toán." : "Ảnh chưa trích được đủ dữ liệu, anh/chị vẫn có thể bổ sung mô tả tay." });
+                    toast({ title: f("Đã đọc mẫu ảnh"), description: context ? f("Đã trích xuất ngữ cảnh từ ảnh để dùng cho AI Tính Toán.") : f("Ảnh chưa trích được đủ dữ liệu, anh/chị vẫn có thể bổ sung mô tả tay.") });
                   } else {
-                    setTemplateFileName(f.name);
+                    setTemplateFileName(file.name);
                     setTemplateAiContext("");
-                    toast({ title: "Đã nhận mẫu KB", description: "Định dạng file này chưa có parser riêng. Anh/chị vẫn có thể dùng mô tả business + mẫu email để AI tạo rule." });
+                    toast({ title: f("Đã nhận mẫu KB"), description: f("Định dạng file này chưa có parser riêng. Anh/chị vẫn có thể dùng mô tả business + mẫu email để AI tạo rule.") });
                   }
                 } catch (err: any) {
-                  toast({ title: "Đọc file mẫu thất bại", description: err?.message || "Không thể đọc file", variant: "destructive" });
+                  toast({ title: f("Đọc file mẫu thất bại"), description: crmErrorNotice(err, "Không thể đọc file"), variant: "destructive" });
                 }
               }}
               onClearTemplate={async () => {
@@ -4258,7 +4256,7 @@ export default function MiniCrm() {
                 setTemplatePreview(null);
                 setTemplateAiContext("");
                 await queryClient.invalidateQueries({ queryKey: ["mini-crm-po-templates"] });
-                toast({ title: "Đã xoá mẫu PO active" });
+                toast({ title: f("Đã xoá mẫu PO active") });
               }}
               onAiSuggest={() => kbAiSuggestMutation.mutate()}
               onSubmitApproval={() => submitKbChangeRequestMutation.mutate()}
@@ -4279,14 +4277,13 @@ export default function MiniCrm() {
                     : "border-border bg-muted/50 text-foreground"
                 }`}
               >
-                {editFeedback}
+                {editFeedbackText}
               </div>
             )}
             <div className="flex shrink-0 justify-end gap-2">
-              <Button variant="outline" onClick={cancelEditCustomer}>Huỷ</Button>
-              <Button onClick={async () => { setEditFeedback("Đang lưu..."); try { await updateCustomerMutation.mutateAsync(); } catch { return; } }} disabled={updateCustomerMutation.isPending}>
-                {updateCustomerMutation.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}Lưu thay đổi
-              </Button>
+              <Button variant="outline" onClick={cancelEditCustomer}>{f("Huỷ")}</Button>
+              <Button onClick={async () => { setEditFeedback(crmNotice("Đang lưu...")); try { await updateCustomerMutation.mutateAsync(); } catch { return; } }} disabled={updateCustomerMutation.isPending}>
+                {updateCustomerMutation.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}{f("Lưu thay đổi")} </Button>
             </div>
           </div>
         </DialogContent>
@@ -4295,46 +4292,45 @@ export default function MiniCrm() {
       <Dialog open={templateConfirmOpen} onOpenChange={setTemplateConfirmOpen}>
         <DialogContent className="max-w-3xl">
           <DialogHeader>
-            <DialogTitle>Xác nhận mẫu PO trước khi lưu</DialogTitle>
+            <DialogTitle>{f("Xác nhận mẫu PO trước khi lưu")}</DialogTitle>
             <DialogDescription>
-              Hệ thống đã đọc file mẫu. Anh kiểm tra nội dung parse trước khi xác nhận lưu format.
-            </DialogDescription>
+               {f("Hệ thống đã đọc file mẫu. Anh kiểm tra nội dung parse trước khi xác nhận lưu format.")} </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-3 text-sm">
-            <div><b>File:</b> {pendingTemplateFileName || "-"}</div>
-            <div><b>Sheet:</b> {pendingTemplatePreview?.parserConfig?.sheetName || "-"}</div>
-            <div><b>Header row:</b> {pendingTemplatePreview?.parserConfig?.headerRow || "-"}</div>
+            <div><b>{f("File:")}</b> {pendingTemplateFileName || "-"}</div>
+            <div><b>{f("Sheet:")}</b> {pendingTemplatePreview?.parserConfig?.sheetName || "-"}</div>
+            <div><b>{f("Header row:")}</b> {pendingTemplatePreview?.parserConfig?.headerRow || "-"}</div>
             <div className={`text-xs rounded px-2 py-1 ${Number(pendingTemplatePreview?.confidenceScore || 0) >= 0.9 ? "bg-emerald-500/10 text-emerald-700" : "bg-amber-500/10 text-amber-700"}`}>
-              Độ tin cậy parse: {Math.round(Number(pendingTemplatePreview?.confidenceScore || 0) * 100)}%
-              {Number(pendingTemplatePreview?.confidenceScore || 0) < 0.9 ? " — Parse thấp, cần chỉnh tay trước khi xác nhận." : ""}
+               {f("Độ tin cậy parse:")} {Math.round(Number(pendingTemplatePreview?.confidenceScore || 0) * 100)}%
+              {Number(pendingTemplatePreview?.confidenceScore || 0) < 0.9 ? f(" — Parse thấp, cần chỉnh tay trước khi xác nhận.") : ""}
             </div>
 
             <Tabs defaultValue="parsed" className="w-full">
               <TabsList>
-                <TabsTrigger value="parsed">Dữ liệu parse</TabsTrigger>
-                <TabsTrigger value="totals">Tổng tiền</TabsTrigger>
+                <TabsTrigger value="parsed">{f("Dữ liệu parse")}</TabsTrigger>
+                <TabsTrigger value="totals">{f("Tổng tiền")}</TabsTrigger>
               </TabsList>
 
               <TabsContent value="parsed" className="space-y-2">
                 <div>
-                  <Label>Ngày đặt hàng</Label>
+                  <Label>{f("Ngày đặt hàng")}</Label>
                   <Input
                     value={templateReviewDraft?.orderDate || ""}
                     onChange={(e) => { setTemplateReviewTouched(true); setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), orderDate: e.target.value })); }}
-                    placeholder="YYYY-MM-DD hoặc theo mẫu PO"
+                    placeholder={f("YYYY-MM-DD hoặc theo mẫu PO")}
                   />
                 </div>
                 <div className="rounded border max-h-64 overflow-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Ngày</TableHead>
-                        <TableHead>Sản phẩm</TableHead>
-                        <TableHead>Số lượng</TableHead>
-                        <TableHead>Đơn giá</TableHead>
-                        <TableHead>Thành tiền</TableHead>
-                        <TableHead className="w-[70px]">Xoá</TableHead>
+                        <TableHead>{f("Ngày")}</TableHead>
+                        <TableHead>{f("Sản phẩm")}</TableHead>
+                        <TableHead>{f("Số lượng")}</TableHead>
+                        <TableHead>{f("Đơn giá")}</TableHead>
+                        <TableHead>{f("Thành tiền")}</TableHead>
+                        <TableHead className="w-[70px]">{f("Xoá")}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -4343,8 +4339,8 @@ export default function MiniCrm() {
                           <TableCell><Input value={it.date || ""} onChange={(e) => { setTemplateReviewTouched(true); setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), items: (prev?.items || []).map((x: any, i: number) => i === idx ? { ...x, date: e.target.value } : x) })); }} placeholder="YYYY-MM-DD" /></TableCell>
                           <TableCell><Input value={it.product || ""} onChange={(e) => { setTemplateReviewTouched(true); setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), items: (prev?.items || []).map((x: any, i: number) => i === idx ? { ...x, product: e.target.value } : x) })); }} /></TableCell>
                           <TableCell><Input value={it.qty ?? ""} onChange={(e) => { setTemplateReviewTouched(true); setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), items: (prev?.items || []).map((x: any, i: number) => i === idx ? { ...x, qty: e.target.value } : x) })); }} /></TableCell>
-                          <TableCell><Input value={it.unitPrice ?? ""} onChange={(e) => { setTemplateReviewTouched(true); setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), items: (prev?.items || []).map((x: any, i: number) => i === idx ? { ...x, unitPrice: e.target.value } : x) })); }} placeholder="tuỳ chọn" /></TableCell>
-                          <TableCell><Input value={it.lineTotal ?? ""} onChange={(e) => { setTemplateReviewTouched(true); setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), items: (prev?.items || []).map((x: any, i: number) => i === idx ? { ...x, lineTotal: e.target.value } : x) })); }} placeholder="tuỳ chọn" /></TableCell>
+                          <TableCell><Input value={it.unitPrice ?? ""} onChange={(e) => { setTemplateReviewTouched(true); setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), items: (prev?.items || []).map((x: any, i: number) => i === idx ? { ...x, unitPrice: e.target.value } : x) })); }} placeholder={f("tuỳ chọn")} /></TableCell>
+                          <TableCell><Input value={it.lineTotal ?? ""} onChange={(e) => { setTemplateReviewTouched(true); setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), items: (prev?.items || []).map((x: any, i: number) => i === idx ? { ...x, lineTotal: e.target.value } : x) })); }} placeholder={f("tuỳ chọn")} /></TableCell>
                           <TableCell>
                             <Button
                               type="button"
@@ -4367,32 +4363,31 @@ export default function MiniCrm() {
 
               <TabsContent value="totals" className="space-y-2">
                 <div className="grid md:grid-cols-3 gap-2">
-                  <div><Label>Tạm tính</Label><Input value={templateReviewDraft?.subtotal ?? ""} onChange={(e) => { setTemplateReviewTouched(true); setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), subtotal: e.target.value })); }} /></div>
-                  <div><Label>VAT</Label><Input value={templateReviewDraft?.vat ?? ""} onChange={(e) => { setTemplateReviewTouched(true); setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), vat: e.target.value })); }} /></div>
-                  <div><Label>Thành tiền</Label><Input value={templateReviewDraft?.total ?? ""} onChange={(e) => { setTemplateReviewTouched(true); setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), total: e.target.value })); }} /></div>
+                  <div><Label>{f("Tạm tính")}</Label><Input value={templateReviewDraft?.subtotal ?? ""} onChange={(e) => { setTemplateReviewTouched(true); setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), subtotal: e.target.value })); }} /></div>
+                  <div><Label>{f("VAT")}</Label><Input value={templateReviewDraft?.vat ?? ""} onChange={(e) => { setTemplateReviewTouched(true); setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), vat: e.target.value })); }} /></div>
+                  <div><Label>{f("Thành tiền")}</Label><Input value={templateReviewDraft?.total ?? ""} onChange={(e) => { setTemplateReviewTouched(true); setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), total: e.target.value })); }} /></div>
                 </div>
                 <label className="inline-flex items-center gap-2 text-xs">
                   <input type="checkbox" checked={Boolean(templateReviewDraft?.hasNoMoneyInPo)} onChange={(e) => { setTemplateReviewTouched(true); setTemplateReviewDraft((prev: any) => ({ ...(prev || {}), hasNoMoneyInPo: e.target.checked })); }} />
-                  PO này chỉ có số lượng, chưa có thông tin tiền
-                </label>
+                   {f("PO này chỉ có số lượng, chưa có thông tin tiền")} </label>
               </TabsContent>
             </Tabs>
           </div>
 
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setTemplateConfirmOpen(false)}>Huỷ</Button>
+            <Button variant="outline" onClick={() => setTemplateConfirmOpen(false)}>{f("Huỷ")}</Button>
             <Button
               onClick={async () => {
                 const hasOrderDate = Boolean(String(templateReviewDraft?.orderDate || "").trim());
                 const validItems = (templateReviewDraft?.items || []).filter((it: any) => String(it?.date || "").trim() && String(it?.product || "").trim() && Number(String(it?.qty || 0).replace(/[^0-9.-]/g, "")) > 0);
                 if (!hasOrderDate || validItems.length === 0) {
-                  toast({ title: "Thiếu dữ liệu bắt buộc", description: "Cần xác nhận dải ngày và ít nhất 1 dòng hợp lệ (ngày + sản phẩm + số lượng > 0)", variant: "destructive" });
+                  toast({ title: f("Thiếu dữ liệu bắt buộc"), description: f("Cần xác nhận dải ngày và ít nhất 1 dòng hợp lệ (ngày + sản phẩm + số lượng > 0)"), variant: "destructive" });
                   return;
                 }
 
                 const confidence = Number(pendingTemplatePreview?.confidenceScore || 0);
                 if (confidence < 0.9 && !templateReviewTouched) {
-                  toast({ title: "Parse độ tin cậy thấp", description: "Vui lòng chỉnh tay ít nhất 1 trường trước khi xác nhận lưu mẫu", variant: "destructive" });
+                  toast({ title: f("Parse độ tin cậy thấp"), description: f("Vui lòng chỉnh tay ít nhất 1 trường trước khi xác nhận lưu mẫu"), variant: "destructive" });
                   return;
                 }
 
@@ -4441,11 +4436,10 @@ export default function MiniCrm() {
                 setTemplateFileName(pendingTemplateFileName);
                 setTemplatePreview(mergedPreview);
                 setTemplateConfirmOpen(false);
-                toast({ title: "Đã xác nhận mẫu PO", description: hasChanged ? "Đã lưu correction để cải thiện parse lần sau." : "Anh có thể bấm Lưu mẫu PO để lưu format." });
+                toast({ title: f("Đã xác nhận mẫu PO"), description: hasChanged ? f("Đã lưu correction để cải thiện parse lần sau.") : f("Anh có thể bấm Lưu mẫu PO để lưu format.") });
               }}
             >
-              Xác nhận nội dung parse
-            </Button>
+               {f("Xác nhận nội dung parse")} </Button>
           </div>
         </DialogContent>
       </Dialog>

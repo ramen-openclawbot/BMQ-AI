@@ -1,3 +1,6 @@
+import { formatText } from "@/i18n/format";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { createInvoiceFromRequest } from "@/i18n/createInvoiceFromRequest";
 import { useState, useEffect } from "react";
 import { Loader2, FileText, CreditCard, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -45,6 +48,8 @@ export function CreateInvoiceFromRequestDialog({
   onOpenChange,
   onInvoiceCreated,
 }: CreateInvoiceFromRequestDialogProps) {
+  const { language } = useLanguage();
+  const copy = createInvoiceFromRequest[language];
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [invoiceDate, setInvoiceDate] = useState(format(new Date(), "yyyy-MM-dd"));
   const [vatAmount, setVatAmount] = useState(0);
@@ -105,7 +110,7 @@ export function CreateInvoiceFromRequestDialog({
 
   const handleSubmit = async () => {
     if (!request || !items || items.length === 0) {
-      toast.error("Không có sản phẩm để tạo hóa đơn");
+      toast.error(copy.noProductsToCreateAnInvoice);
       return;
     }
 
@@ -117,7 +122,7 @@ export function CreateInvoiceFromRequestDialog({
         const accessToken = await getFreshAccessToken();
         session = { access_token: accessToken };
       } catch {
-        toast.error("Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.");
+        toast.error(copy.yourSessionHasExpiredPleaseSignIn);
         return;
       }
 
@@ -132,7 +137,7 @@ export function CreateInvoiceFromRequestDialog({
           .upload(fileName, paymentSlipFile);
 
         if (uploadError) {
-          throw new Error(`Không thể upload chứng từ: ${uploadError.message}`);
+          throw new Error(formatText(copy.uploadFailed, { message: uploadError.message }));
         }
 
         uploadedPaymentSlipUrl = fileName;
@@ -194,7 +199,7 @@ export function CreateInvoiceFromRequestDialog({
 
       if (result.error || !result.data?.success) {
         const edgeErr = String(result.error || "").trim();
-        toast.error(`Không thể tạo hóa đơn qua RPC chuẩn NVL. ${edgeErr || "Vui lòng thử lại."}`);
+        toast.error(formatText(copy.rpcFailed, { message: edgeErr || copy.pleaseTryAgain }));
         return;
       }
 
@@ -212,12 +217,12 @@ export function CreateInvoiceFromRequestDialog({
         onInvoiceCreated(result.data.invoice_id);
       }
       
-      toast.success(`Đã tạo hóa đơn với ${result.data.items_count} sản phẩm`);
+      toast.success(formatText(copy.createdItems, { count: result.data.items_count }));
       onOpenChange(false);
     } catch (error) {
       console.error("Error creating invoice:", error);
-      const errorMessage = error instanceof Error ? error.message : "Lỗi không xác định";
-      toast.error(`Không thể tạo hóa đơn: ${errorMessage}`);
+      const errorMessage = error instanceof Error ? error.message : copy.unknownError;
+      toast.error(formatText(copy.createFailed, { message: errorMessage }));
     } finally {
       setIsSubmitting(false);
     }
@@ -231,10 +236,12 @@ export function CreateInvoiceFromRequestDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileText className="h-5 w-5" />
-            Tạo hóa đơn
+
+            {copy.createInvoice}
           </DialogTitle>
           <DialogDescription>
-            Tạo hóa đơn từ đề nghị chi {request?.request_number}
+
+            {copy.createInvoiceFromPaymentRequest} {request?.request_number}
           </DialogDescription>
         </DialogHeader>
 
@@ -247,15 +254,15 @@ export function CreateInvoiceFromRequestDialog({
             {/* Invoice Info */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Số hóa đơn</Label>
+                <Label>{copy.invoiceNumber}</Label>
                 <Input
                   value={invoiceNumber}
                   onChange={(e) => setInvoiceNumber(e.target.value)}
-                  placeholder="Nhập số hóa đơn"
+                  placeholder={copy.enterInvoiceNumber}
                 />
               </div>
               <div className="space-y-2">
-                <Label>Ngày hóa đơn</Label>
+                <Label>{copy.invoiceDate}</Label>
                 <Input
                   type="date"
                   value={invoiceDate}
@@ -263,9 +270,9 @@ export function CreateInvoiceFromRequestDialog({
                 />
               </div>
               <div className="space-y-2">
-                <Label>Nhà cung cấp</Label>
+                <Label>{copy.supplier}</Label>
                 <Input
-                  value={request?.suppliers?.name || "Không xác định"}
+                  value={request?.suppliers?.name || copy.unknown}
                   disabled
                   className="bg-muted"
                 />
@@ -283,17 +290,17 @@ export function CreateInvoiceFromRequestDialog({
 
             {/* Items Table */}
             <div>
-              <Label className="mb-2 block">Danh sách sản phẩm</Label>
+              <Label className="mb-2 block">{copy.productList}</Label>
               <div className="border rounded-lg">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Mã SP</TableHead>
-                      <TableHead>Tên sản phẩm</TableHead>
-                      <TableHead className="text-right">SL</TableHead>
-                      <TableHead>ĐVT</TableHead>
-                      <TableHead className="text-right">Đơn giá</TableHead>
-                      <TableHead className="text-right">Thành tiền</TableHead>
+                      <TableHead>{copy.productCode}</TableHead>
+                      <TableHead>{copy.productName}</TableHead>
+                      <TableHead className="text-right">{copy.qty}</TableHead>
+                      <TableHead>{copy.unit}</TableHead>
+                      <TableHead className="text-right">{copy.unitPrice}</TableHead>
+                      <TableHead className="text-right">{copy.amount}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -316,7 +323,7 @@ export function CreateInvoiceFromRequestDialog({
             <div className="flex justify-end">
               <div className="w-64 space-y-2">
                 <div className="flex justify-between text-sm">
-                  <span>Tạm tính:</span>
+                  <span>{copy.subtotal}</span>
                   <span>{formatCurrency(subtotal)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
@@ -324,7 +331,7 @@ export function CreateInvoiceFromRequestDialog({
                   <span>{formatCurrency(vatAmount)}</span>
                 </div>
                 <div className="flex justify-between font-bold border-t pt-2">
-                  <span>Tổng cộng:</span>
+                  <span>{copy.total}</span>
                   <span>{formatCurrency(totalAmount)}</span>
                 </div>
               </div>
@@ -335,13 +342,14 @@ export function CreateInvoiceFromRequestDialog({
               <div className="flex flex-col items-center gap-3">
                 <p className="text-sm font-medium flex items-center gap-1">
                   <CreditCard className="h-4 w-4" />
-                  Ảnh UNC / Chứng từ TT (tùy chọn)
+
+                  {copy.bankTransferPaymentReceiptImageOptional}
                 </p>
                 {paymentSlipPreview ? (
                   <div className="relative">
                     <img
                       src={paymentSlipPreview}
-                      alt="Payment slip preview"
+                      alt={copy.paymentSlipPreview}
                       className="max-h-32 rounded-lg object-contain"
                     />
                     <Button
@@ -361,7 +369,8 @@ export function CreateInvoiceFromRequestDialog({
                   <div className="text-center py-2">
                     <Upload className="mx-auto h-6 w-6 text-muted-foreground" />
                     <p className="mt-1 text-xs text-muted-foreground">
-                      Upload ảnh UNC để lưu trữ
+
+                      {copy.uploadABankTransferReceiptToStore}
                     </p>
                   </div>
                 )}
@@ -383,11 +392,11 @@ export function CreateInvoiceFromRequestDialog({
 
             {/* Notes */}
             <div className="space-y-2">
-              <Label>Ghi chú</Label>
+              <Label>{copy.notes}</Label>
               <Textarea
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                placeholder="Ghi chú thêm..."
+                placeholder={copy.additionalNotes}
                 rows={2}
               />
             </div>
@@ -396,16 +405,18 @@ export function CreateInvoiceFromRequestDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Hủy
+
+            {copy.cancel}
           </Button>
           <Button onClick={handleSubmit} disabled={isSubmitting || isLoading || !items?.length}>
             {isSubmitting ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                Đang tạo...
+
+                {copy.creating}
               </>
             ) : (
-              "Tạo hóa đơn"
+              copy.createInvoice
             )}
           </Button>
         </DialogFooter>

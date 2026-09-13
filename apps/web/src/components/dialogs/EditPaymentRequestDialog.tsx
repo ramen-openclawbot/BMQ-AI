@@ -1,3 +1,4 @@
+import { editPaymentRequest } from "@/i18n/editPaymentRequest";
 import { useState, useEffect } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -63,17 +64,17 @@ interface ItemPriceInfo {
   skuCode: string | null;
 }
 
-const paymentRequestItemSchema = z.object({
+const paymentRequestItemSchema = (copy: typeof editPaymentRequest.vi) => z.object({
   id: z.string().optional(),
   product_code: z.string().optional(),
-  product_name: z.string().min(1, "Tên sản phẩm là bắt buộc"),
-  quantity: z.coerce.number().min(0.01, "Số lượng phải lớn hơn 0"),
+  product_name: z.string().min(1, copy.productNameIsRequired),
+  quantity: z.coerce.number().min(0.01, copy.quantityMustBeGreaterThan0),
   unit: z.string().optional(),
   unit_price: z.coerce.number(), // Cho phép số âm để nhập khoản khấu trừ (VD: gas thừa)
 });
 
-const editPaymentRequestSchema = z.object({
-  title: z.string().min(1, "Tiêu đề là bắt buộc"),
+const editPaymentRequestSchema = (copy: typeof editPaymentRequest.vi) => z.object({
+  title: z.string().min(1, copy.titleIsRequired),
   description: z.string().optional(),
   supplier_id: z.string().optional(),
   goods_receipt_id: z.string().optional(),
@@ -81,10 +82,10 @@ const editPaymentRequestSchema = z.object({
   payment_method: z.enum(["bank_transfer", "cash"]).default("bank_transfer"),
   vat_amount: z.coerce.number().min(0).default(0),
   notes: z.string().optional(),
-  items: z.array(paymentRequestItemSchema).min(1, "Cần ít nhất một sản phẩm"),
+  items: z.array(paymentRequestItemSchema(copy)).min(1, copy.atLeastOneProductIsRequired),
 });
 
-type EditPaymentRequestFormData = z.infer<typeof editPaymentRequestSchema>;
+type EditPaymentRequestFormData = z.infer<ReturnType<typeof editPaymentRequestSchema>>;
 
 export function EditPaymentRequestDialog({
   requestId,
@@ -95,7 +96,8 @@ export function EditPaymentRequestDialog({
   const [isLoadingPrices, setIsLoadingPrices] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
+  const copy = editPaymentRequest[language];
   const queryClient = useQueryClient();
   const { data: suppliers } = useSuppliers();
   const { data: goodsReceipts = [] } = useGoodsReceipts();
@@ -106,7 +108,7 @@ export function EditPaymentRequestDialog({
   const availableGoodsReceipts = goodsReceipts.filter(gr => gr.status === "received");
 
   const form = useForm<EditPaymentRequestFormData>({
-    resolver: zodResolver(editPaymentRequestSchema),
+    resolver: zodResolver(editPaymentRequestSchema(copy)),
     defaultValues: {
       title: "",
       description: "",
@@ -119,6 +121,10 @@ export function EditPaymentRequestDialog({
       items: [],
     },
   });
+
+  useEffect(() => {
+    if (Object.keys(form.formState.errors).length > 0) void form.trigger();
+  }, [language, form]);
 
   const { fields, append, remove } = useFieldArray({
     control: form.control,
@@ -282,17 +288,17 @@ export function EditPaymentRequestDialog({
       queryClient.invalidateQueries({ queryKey: ["payment-request-items", requestId] });
       queryClient.invalidateQueries({ queryKey: ["payment-stats"] });
       
-      toast.success("Đã cập nhật đề nghị chi thành công");
+      toast.success(copy.paymentRequestUpdatedSuccessfully);
       onOpenChange(false);
     } catch (error) {
       console.error("Error updating payment request:", error);
-      const errorMessage = error instanceof Error ? error.message : "Lỗi không xác định";
+      const errorMessage = error instanceof Error ? error.message : copy.unknownError;
       if (errorMessage.includes("identity") || errorMessage.includes("supplier") || errorMessage.includes("material evidence") || errorMessage.includes("23514")) {
-        toast.error("Danh tính NVL/sản phẩm đã được chốt theo lịch sử mua hàng. Vui lòng hủy dòng/chứng từ và tạo dòng mới thay vì đổi tên, mã, ĐVT, SKU hoặc NCC.");
+        toast.error(copy.materialProductIdentityIsLockedByPurchase);
       } else if (errorMessage.includes("row-level security") || errorMessage.includes("permission")) {
-        toast.error("Bạn không có quyền cập nhật đề nghị chi");
+        toast.error(copy.youDoNotHavePermissionToUpdate);
       } else {
-        toast.error("Không thể cập nhật đề nghị chi. Vui lòng thử lại.");
+        toast.error(copy.unableToUpdateThePaymentRequestPlease);
       }
     } finally {
       setIsSaving(false);
@@ -307,9 +313,10 @@ export function EditPaymentRequestDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{t.edit} đề nghị duyệt chi</DialogTitle>
+          <DialogTitle>{t.edit}  {copy.paymentRequest}</DialogTitle>
           <DialogDescription>
-            Chỉnh sửa thông tin đề nghị duyệt chi
+
+            {copy.editPaymentRequestInformation}
           </DialogDescription>
         </DialogHeader>
 
@@ -327,9 +334,9 @@ export function EditPaymentRequestDialog({
                   name="title"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Tiêu đề *</FormLabel>
+                      <FormLabel>{copy.title}</FormLabel>
                       <FormControl>
-                        <Input placeholder="VD: Đề nghị chi mua NVL tháng 1" {...field} />
+                        <Input placeholder={copy.exampleJanuaryMaterialPurchasePaymentRequest} {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -340,11 +347,11 @@ export function EditPaymentRequestDialog({
                   name="supplier_id"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Nhà cung cấp</FormLabel>
+                      <FormLabel>{copy.supplier}</FormLabel>
                       <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger>
-                            <SelectValue placeholder="Chọn nhà cung cấp" />
+                            <SelectValue placeholder={copy.selectSupplier} />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
@@ -368,22 +375,24 @@ export function EditPaymentRequestDialog({
                   name="payment_type"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Loại thanh toán *</FormLabel>
+                      <FormLabel>{copy.paymentType}</FormLabel>
                       <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger>
-                            <SelectValue placeholder="Chọn loại" />
+                            <SelectValue placeholder={copy.selectType} />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
                           <SelectItem value="old_order">
                             <span className="flex items-center gap-2">
-                              📋 Thanh toán đơn cũ (công nợ)
+
+                              {copy.existingOrderPaymentDebt}
                             </span>
                           </SelectItem>
                           <SelectItem value="new_order">
                             <span className="flex items-center gap-2">
-                              🆕 Thanh toán đơn mới
+
+                              {copy.newOrderPayment}
                             </span>
                           </SelectItem>
                         </SelectContent>
@@ -398,18 +407,18 @@ export function EditPaymentRequestDialog({
                   name="goods_receipt_id"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Liên kết Phiếu Nhập Kho</FormLabel>
+                      <FormLabel>{copy.linkGoodsReceipt}</FormLabel>
                       <Select 
                         onValueChange={(value) => field.onChange(value === "_none" ? "" : value)} 
                         value={field.value || "_none"}
                       >
                         <FormControl>
                           <SelectTrigger>
-                            <SelectValue placeholder="Chọn phiếu nhập kho (nếu có)" />
+                            <SelectValue placeholder={copy.selectGoodsReceiptIfAny} />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          <SelectItem value="_none">Không liên kết</SelectItem>
+                          <SelectItem value="_none">{copy.noLink}</SelectItem>
                           {availableGoodsReceipts.map((gr) => (
                             <SelectItem key={gr.id} value={gr.id}>
                               {gr.receipt_number} - {gr.suppliers?.name || "N/A"} ({gr.receipt_date})
@@ -429,7 +438,7 @@ export function EditPaymentRequestDialog({
                 name="payment_method"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Phương thức thanh toán *</FormLabel>
+                    <FormLabel>{copy.paymentMethod}</FormLabel>
                     <FormControl>
                       <RadioGroup
                         value={field.value}
@@ -447,7 +456,8 @@ export function EditPaymentRequestDialog({
                           <RadioGroupItem value="cash" id="edit_payment_cash" />
                           <Label htmlFor="edit_payment_cash" className="flex items-center gap-2 cursor-pointer">
                             <Banknote className="h-4 w-4 text-orange-500" />
-                            Tiền mặt
+
+                            {copy.cash}
                           </Label>
                         </div>
                       </RadioGroup>
@@ -462,9 +472,9 @@ export function EditPaymentRequestDialog({
                 name="description"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Mô tả</FormLabel>
+                    <FormLabel>{copy.description}</FormLabel>
                     <FormControl>
-                      <Textarea placeholder="Mô tả chi tiết về đề nghị chi..." {...field} />
+                      <Textarea placeholder={copy.detailedPaymentRequestDescription} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -474,7 +484,7 @@ export function EditPaymentRequestDialog({
               {/* Items Table */}
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <Label>Danh sách sản phẩm</Label>
+                  <Label>{copy.productList}</Label>
                   <Button
                     type="button"
                     variant="outline"
@@ -490,7 +500,8 @@ export function EditPaymentRequestDialog({
                     }
                   >
                     <Plus className="h-4 w-4 mr-1" />
-                    Thêm sản phẩm
+
+                    {copy.addProduct}
                   </Button>
                 </div>
 
@@ -498,13 +509,13 @@ export function EditPaymentRequestDialog({
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead className="w-24">Mã SP</TableHead>
-                        <TableHead>Tên sản phẩm</TableHead>
-                        <TableHead className="w-24">SL</TableHead>
-                        <TableHead className="w-20">ĐVT</TableHead>
-                        <TableHead className="w-32">Đơn giá</TableHead>
-                        <TableHead className="w-32">Thành tiền</TableHead>
-                        <TableHead className="w-36">Giá cũ / Tồn kho</TableHead>
+                        <TableHead className="w-24">{copy.productCode}</TableHead>
+                        <TableHead>{copy.productName}</TableHead>
+                        <TableHead className="w-24">{copy.qty}</TableHead>
+                        <TableHead className="w-20">{copy.unit}</TableHead>
+                        <TableHead className="w-32">{copy.unitPrice}</TableHead>
+                        <TableHead className="w-32">{copy.amount}</TableHead>
+                        <TableHead className="w-36">{copy.previousPriceStock}</TableHead>
                         <TableHead className="w-12"></TableHead>
                       </TableRow>
                     </TableHeader>
@@ -519,14 +530,14 @@ export function EditPaymentRequestDialog({
                             <TableCell>
                               <Input
                                 {...form.register(`items.${index}.product_code`)}
-                                placeholder="Mã"
+                                placeholder={copy.code}
                                 className="h-8"
                               />
                             </TableCell>
                             <TableCell>
                               <Input
                                 {...form.register(`items.${index}.product_name`)}
-                                placeholder="Tên sản phẩm"
+                                placeholder={copy.productName}
                                 className="h-8"
                               />
                             </TableCell>
@@ -584,18 +595,20 @@ export function EditPaymentRequestDialog({
                                       )}
                                     </div>
                                   ) : (
-                                    <span className="text-xs text-muted-foreground">Chưa có giá cũ</span>
+                                    <span className="text-xs text-muted-foreground">{copy.noPreviousPrice}</span>
                                   )}
                                   <div className="flex items-center gap-1">
                                     {priceInfo.inventoryExists ? (
                                       <Badge variant="outline" className="text-xs px-1">
                                         <Package className="h-3 w-3 mr-0.5" />
-                                        Tồn: {priceInfo.currentQuantity}
+
+                                        {copy.stock} {priceInfo.currentQuantity}
                                       </Badge>
                                     ) : (
                                       <Badge variant="secondary" className="text-xs px-1">
                                         <AlertTriangle className="h-3 w-3 mr-0.5" />
-                                        Mới
+
+                                        {copy.new}
                                       </Badge>
                                     )}
                                   </div>
@@ -626,7 +639,7 @@ export function EditPaymentRequestDialog({
               {/* Totals */}
               <div className="space-y-2 border-t pt-4">
                 <div className="flex justify-between">
-                  <span>Tạm tính:</span>
+                  <span>{copy.subtotal}</span>
                   <span>{formatCurrency(subtotal)}</span>
                 </div>
                 <div className="flex items-center justify-between">
@@ -645,7 +658,7 @@ export function EditPaymentRequestDialog({
                   />
                 </div>
                 <div className="flex justify-between font-bold text-lg border-t pt-2">
-                  <span>Tổng cộng:</span>
+                  <span>{copy.total}</span>
                   <span>{formatCurrency(total)}</span>
                 </div>
               </div>
@@ -656,9 +669,9 @@ export function EditPaymentRequestDialog({
                 name="notes"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Ghi chú</FormLabel>
+                    <FormLabel>{copy.notes}</FormLabel>
                     <FormControl>
-                      <Textarea placeholder="Ghi chú thêm..." {...field} />
+                      <Textarea placeholder={copy.additionalNotes} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -674,7 +687,8 @@ export function EditPaymentRequestDialog({
                   {isSaving ? (
                     <>
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Đang lưu...
+
+                      {copy.saving}
                     </>
                   ) : (
                     t.save

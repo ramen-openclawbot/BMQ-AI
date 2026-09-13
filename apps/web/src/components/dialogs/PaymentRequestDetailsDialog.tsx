@@ -1,3 +1,4 @@
+import { paymentRequestDetails } from "@/i18n/paymentRequestDetails";
 /* Hallmark · component: detail-dialog · genre: modern-minimal · tone: technical
  * structure: mobile information workbench · states: default · hover · focus · active · disabled · loading · error · success
  * pre-emit critique: P5 H5 E4 S5 R5 V4 · contrast: pass (40–41) · mobile: pass (34, 49, 50–57)
@@ -106,7 +107,8 @@ export function PaymentRequestDetailsDialog({
   
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
+  const copy = paymentRequestDetails[language];
   const queryClient = useQueryClient();
   const { data: request, isLoading: requestLoading } = usePaymentRequest(requestId);
   const { data: items, isLoading: itemsLoading } = usePaymentRequestItems(requestId);
@@ -148,11 +150,11 @@ export function PaymentRequestDetailsDialog({
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "pending":
-        return <Badge variant="secondary">Chờ duyệt</Badge>;
+        return <Badge variant="secondary">{copy.pendingApproval}</Badge>;
       case "approved":
-        return <Badge className="bg-green-500">Đã duyệt</Badge>;
+        return <Badge className="bg-green-500">{copy.approved}</Badge>;
       case "rejected":
-        return <Badge variant="destructive">Từ chối</Badge>;
+        return <Badge variant="destructive">{copy.rejected}</Badge>;
       default:
         return <Badge variant="outline">{status}</Badge>;
     }
@@ -161,9 +163,9 @@ export function PaymentRequestDetailsDialog({
   const getDeliveryStatusBadge = (status: string) => {
     switch (status) {
       case "pending":
-        return <Badge variant="outline">Chưa giao</Badge>;
+        return <Badge variant="outline">{copy.notDelivered}</Badge>;
       case "delivered":
-        return <Badge className="bg-green-500">Đã giao</Badge>;
+        return <Badge className="bg-green-500">{copy.delivered}</Badge>;
       default:
         return <Badge variant="outline">{status}</Badge>;
     }
@@ -172,13 +174,13 @@ export function PaymentRequestDetailsDialog({
   const getPaymentStatusBadge = (status: string) => {
     switch (status) {
       case "unpaid":
-        return <Badge variant="destructive">Chưa thanh toán</Badge>;
+        return <Badge variant="destructive">{copy.unpaid}</Badge>;
       case "partial":
-        return <Badge className="bg-amber-500">Thanh toán một phần</Badge>;
+        return <Badge className="bg-amber-500">{copy.partiallyPaid}</Badge>;
       case "paid":
-        return <Badge className="bg-green-500">Đã thanh toán</Badge>;
+        return <Badge className="bg-green-500">{copy.paid}</Badge>;
       case "overpaid":
-        return <Badge className="bg-purple-500">Thanh toán dư</Badge>;
+        return <Badge className="bg-purple-500">{copy.overpaid}</Badge>;
       default:
         return <Badge variant="outline">{status}</Badge>;
     }
@@ -197,7 +199,8 @@ export function PaymentRequestDetailsDialog({
         return (
           <Badge variant="secondary" className="gap-1">
             <Banknote className="h-3 w-3" />
-            Tiền mặt
+
+            {copy.cash}
           </Badge>
         );
       default:
@@ -238,11 +241,11 @@ export function PaymentRequestDetailsDialog({
     if (!requestId) return;
     const amount = Number(paymentAmount);
     if (!Number.isFinite(amount) || amount <= 0) {
-      toast.error("Số tiền thanh toán không hợp lệ");
+      toast.error(copy.invalidPaymentAmount);
       return;
     }
     if (amount > remainingAmount) {
-      toast.error("Số tiền thanh toán lớn hơn số còn lại");
+      toast.error(copy.paymentAmountExceedsTheRemainingBalance);
       return;
     }
     await markPaid.mutateAsync({ id: requestId, amount });
@@ -268,7 +271,7 @@ export function PaymentRequestDetailsDialog({
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="!inset-0 !left-0 !top-0 h-screen h-[100dvh] max-h-screen max-h-[100dvh] w-full max-w-none !translate-x-0 !translate-y-0 touch-pan-y gap-0 overflow-x-hidden overflow-y-auto overscroll-contain border-0 p-0 [-webkit-overflow-scrolling:touch] [&>button]:top-[max(1rem,env(safe-area-inset-top))] [&>button]:right-[max(1rem,env(safe-area-inset-right))] [&>button]:flex [&>button]:h-11 [&>button]:w-11 [&>button]:items-center [&>button]:justify-center sm:!left-1/2 sm:!top-1/2 sm:h-auto sm:max-h-[90dvh] sm:max-w-4xl sm:!-translate-x-1/2 sm:!-translate-y-1/2 sm:gap-4 sm:rounded-lg sm:border sm:p-6">
           <DialogHeader className="sticky top-0 z-20 border-b border-border bg-background pb-4 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(3.75rem,calc(2.75rem+env(safe-area-inset-right)))] pt-[max(1rem,env(safe-area-inset-top))] text-left sm:static sm:border-0 sm:p-0">
-            <DialogTitle className="min-w-0 [overflow-wrap:anywhere] text-xl leading-tight">Chi tiết đề nghị duyệt chi</DialogTitle>
+            <DialogTitle className="min-w-0 [overflow-wrap:anywhere] text-xl leading-tight">{copy.paymentRequestDetails}</DialogTitle>
             <DialogDescription className="break-words">
               {request?.request_number} - {request?.title}
             </DialogDescription>
@@ -299,7 +302,8 @@ export function PaymentRequestDetailsDialog({
                 {request.goods_receipt_id && (
                   <Badge className="col-span-2 gap-1 bg-emerald-600 sm:col-span-1">
                     <Package className="h-3 w-3" />
-                    Công nợ tạo từ nhập kho
+
+                    {copy.payableFromGoodsReceipt}
                   </Badge>
                 )}
               </div>
@@ -309,12 +313,14 @@ export function PaymentRequestDetailsDialog({
                   <Package className="h-4 w-4" />
                   <AlertDescription className="min-w-0">
                     <div className="space-y-1">
-                      <p className="font-medium">Công nợ tạo từ nhập kho</p>
+                      <p className="font-medium">{copy.payableFromGoodsReceipt}</p>
                       <p className="min-w-0 break-words text-sm text-muted-foreground">
-                        Phiếu nhập kho: <span className="break-all font-mono text-xs text-foreground">{request.goods_receipts?.receipt_number || request.goods_receipt_id}</span>
+
+                        {copy.goodsReceipt} <span className="break-all font-mono text-xs text-foreground">{request.goods_receipts?.receipt_number || request.goods_receipt_id}</span>
                       </p>
                       <p className="min-w-0 break-words text-sm text-muted-foreground">
-                        PO liên kết: <span className="break-all font-mono text-xs text-foreground">{request.purchase_orders?.po_number || request.purchase_order_id || "-"}</span>
+
+                        {copy.linkedPO} <span className="break-all font-mono text-xs text-foreground">{request.purchase_orders?.po_number || request.purchase_order_id || "-"}</span>
                       </p>
                     </div>
                   </AlertDescription>
@@ -324,26 +330,27 @@ export function PaymentRequestDetailsDialog({
               {/* Request Info */}
               <div className="grid min-w-0 grid-cols-1 gap-4 rounded-lg bg-muted/50 p-4 sm:grid-cols-2">
                 <div className="min-w-0">
-                  <Label className="text-muted-foreground">Mã đề nghị</Label>
+                  <Label className="text-muted-foreground">{copy.requestCode}</Label>
                   <p className="break-all font-mono text-sm font-medium">{request.request_number}</p>
                 </div>
                 <div className="min-w-0">
-                  <Label className="text-muted-foreground">Ngày tạo</Label>
+                  <Label className="text-muted-foreground">{copy.createdDate}</Label>
                   <p className="font-medium tabular-nums">
                     {format(new Date(request.created_at), "dd/MM/yyyy HH:mm", { locale: vi })}
                   </p>
                 </div>
                 <div className="min-w-0">
-                  <Label className="text-muted-foreground">Nhà cung cấp</Label>
-                  <p className="break-words font-medium">{request.suppliers?.name || "Không xác định"}</p>
+                  <Label className="text-muted-foreground">{copy.supplier}</Label>
+                  <p className="break-words font-medium">{request.suppliers?.name || copy.unknown}</p>
                 </div>
                 <div className="min-w-0 border-t border-border pt-4 sm:border-0 sm:pt-0">
-                  <Label className="text-muted-foreground">Tổng tiền</Label>
+                  <Label className="text-muted-foreground">{copy.totalAmount}</Label>
                   <div className="space-y-1">
                     {request.vat_amount > 0 && (
                       <>
                         <p className="text-sm text-muted-foreground">
-                          Tạm tính: {formatCurrency((request.total_amount || 0) - (request.vat_amount || 0))}
+
+                          {copy.subtotal} {formatCurrency((request.total_amount || 0) - (request.vat_amount || 0))}
                         </p>
                         <p className="text-sm text-muted-foreground">
                           VAT: {formatCurrency(request.vat_amount || 0)}
@@ -354,10 +361,12 @@ export function PaymentRequestDetailsDialog({
                     {allocatedAmount > 0 && (
                       <>
                         <p className="text-sm text-muted-foreground">
-                          Đã thanh toán: {formatCurrency(allocatedAmount)}
+
+                          {copy.paid2} {formatCurrency(allocatedAmount)}
                         </p>
                         <p className="text-sm text-muted-foreground">
-                          Còn lại: {formatCurrency(remainingAmount)}
+
+                          {copy.remaining} {formatCurrency(remainingAmount)}
                         </p>
                       </>
                     )}
@@ -365,13 +374,13 @@ export function PaymentRequestDetailsDialog({
                 </div>
                 {request.description && (
                   <div className="min-w-0 sm:col-span-2">
-                    <Label className="text-muted-foreground">Mô tả</Label>
+                    <Label className="text-muted-foreground">{copy.description}</Label>
                     <p className="break-words">{request.description}</p>
                   </div>
                 )}
                 {request.rejection_reason && (
                   <div className="min-w-0 sm:col-span-2">
-                    <Label className="text-destructive">Lý do từ chối</Label>
+                    <Label className="text-destructive">{copy.rejectionReason}</Label>
                     <p className="text-destructive">{request.rejection_reason}</p>
                   </div>
                 )}
@@ -396,12 +405,12 @@ export function PaymentRequestDetailsDialog({
                 
                 {/* Payment Type */}
                 <div>
-                  <Label className="text-muted-foreground">Loại thanh toán</Label>
+                  <Label className="text-muted-foreground">{copy.paymentType}</Label>
                   <div className="mt-1">
                     {request.payment_type === "new_order" ? (
-                      <Badge variant="default">Đơn mới</Badge>
+                      <Badge variant="default">{copy.newOrder}</Badge>
                     ) : (
-                      <Badge variant="secondary">Đơn cũ (công nợ)</Badge>
+                      <Badge variant="secondary">{copy.existingOrderDebt}</Badge>
                     )}
                   </div>
                 </div>
@@ -409,7 +418,7 @@ export function PaymentRequestDetailsDialog({
                 {/* Linked Goods Receipt */}
                 {linkedGoodsReceipt && (
                   <div className="min-w-0 sm:col-span-2">
-                    <Label className="text-muted-foreground">Phiếu Nhập Kho liên kết</Label>
+                    <Label className="text-muted-foreground">{copy.linkedGoodsReceipt}</Label>
                     <div className="mt-1 rounded border border-blue-200 bg-blue-50 p-3 dark:border-blue-800 dark:bg-blue-900/20">
                       <div className="flex min-w-0 items-start gap-2">
                         <Package className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" />
@@ -427,7 +436,7 @@ export function PaymentRequestDetailsDialog({
                 {/* Linked Purchase Order */}
                 {linkedPurchaseOrder && (
                   <div className="min-w-0 sm:col-span-2">
-                    <Label className="text-muted-foreground">Đơn đặt hàng liên kết</Label>
+                    <Label className="text-muted-foreground">{copy.linkedPurchaseOrder}</Label>
                     <div className="mt-1 rounded border border-purple-200 bg-purple-50 p-3 dark:border-purple-800 dark:bg-purple-900/20">
                       <div className="flex min-w-0 items-start gap-2">
                         <FileText className="mt-0.5 h-4 w-4 shrink-0 text-purple-600" />
@@ -446,26 +455,27 @@ export function PaymentRequestDetailsDialog({
               {/* Invoice Image */}
               {imageUrl && (
                 <div className="min-w-0">
-                  <Label className="text-muted-foreground">Hóa đơn đính kèm</Label>
+                  <Label className="text-muted-foreground">{copy.attachedInvoice}</Label>
                   <Button
                     variant="outline"
                     className="mt-2 min-h-11 w-full gap-2 whitespace-nowrap sm:min-h-10 sm:w-auto"
                     onClick={() => setShowImageDialog(true)}
                   >
                     <Image className="h-4 w-4" />
-                    Xem hóa đơn
+
+                    {copy.viewInvoice}
                   </Button>
                 </div>
               )}
 
               {/* Items Table */}
               <div className="min-w-0">
-                <Label className="text-muted-foreground mb-2 block">Danh sách sản phẩm</Label>
+                <Label className="text-muted-foreground mb-2 block">{copy.productList}</Label>
                 <div className="space-y-3 lg:hidden">
                   {items?.map((item) => (
                     <article key={item.id} className="min-w-0 border-t border-border py-3 first:border-t-0 first:pt-0">
                       <p className="break-all font-mono text-xs text-muted-foreground">
-                        {item.product_code || "Chưa có mã"}
+                        {item.product_code || copy.noCode}
                       </p>
                       <p className="mt-1 break-words font-semibold leading-snug">{item.product_name}</p>
                       <p className="mt-3 text-xl font-bold tabular-nums text-primary">
@@ -473,11 +483,11 @@ export function PaymentRequestDetailsDialog({
                       </p>
 
                       <dl className="mt-3 grid min-w-0 grid-cols-2 gap-x-4 gap-y-2 border-t border-border pt-3 text-sm">
-                        <dt className="text-muted-foreground">Số lượng</dt>
+                        <dt className="text-muted-foreground">{copy.quantity}</dt>
                         <dd className="min-w-0 break-words text-right font-medium tabular-nums">
                           {item.quantity} {item.unit}
                         </dd>
-                        <dt className="text-muted-foreground">Đơn giá</dt>
+                        <dt className="text-muted-foreground">{copy.unitPrice}</dt>
                         <dd className="min-w-0 break-words text-right font-medium tabular-nums">
                           {formatCurrency(item.unit_price)}
                         </dd>
@@ -487,7 +497,8 @@ export function PaymentRequestDetailsDialog({
                         {item.last_price ? (
                           <>
                             <span className="text-xs tabular-nums text-muted-foreground">
-                              Giá gần nhất: {formatCurrency(item.last_price)}
+
+                              {copy.latestPrice} {formatCurrency(item.last_price)}
                             </span>
                             {item.price_change_percent !== null && (
                               <Badge
@@ -507,18 +518,20 @@ export function PaymentRequestDetailsDialog({
                             )}
                           </>
                         ) : (
-                          <span className="text-xs text-muted-foreground">Chưa có giá gần nhất</span>
+                          <span className="text-xs text-muted-foreground">{copy.noRecentPrice}</span>
                         )}
 
                         {item.inventory_items ? (
                           <Badge variant="outline" className="gap-1 text-xs tabular-nums">
                             <Package className="h-3 w-3" />
-                            Tồn: {item.inventory_items.quantity}
+
+                            {copy.stock} {item.inventory_items.quantity}
                           </Badge>
                         ) : (
                           <Badge variant="secondary" className="gap-1 text-xs">
                             <AlertTriangle className="h-3 w-3" />
-                            Sản phẩm mới
+
+                            {copy.newProduct}
                           </Badge>
                         )}
                       </div>
@@ -530,14 +543,14 @@ export function PaymentRequestDetailsDialog({
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Mã SP</TableHead>
-                        <TableHead>Tên sản phẩm</TableHead>
-                        <TableHead className="text-right">SL</TableHead>
-                        <TableHead>ĐVT</TableHead>
-                        <TableHead className="text-right">Đơn giá</TableHead>
-                        <TableHead className="text-right">Thành tiền</TableHead>
-                        <TableHead>So sánh giá</TableHead>
-                        <TableHead>Tồn kho</TableHead>
+                        <TableHead>{copy.productCode}</TableHead>
+                        <TableHead>{copy.productName}</TableHead>
+                        <TableHead className="text-right">{copy.qty}</TableHead>
+                        <TableHead>{copy.unit}</TableHead>
+                        <TableHead className="text-right">{copy.unitPrice}</TableHead>
+                        <TableHead className="text-right">{copy.amount}</TableHead>
+                        <TableHead>{copy.priceComparison}</TableHead>
+                        <TableHead>{copy.stock2}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -573,19 +586,21 @@ export function PaymentRequestDetailsDialog({
                                 )}
                               </div>
                             ) : (
-                              <span className="text-xs text-muted-foreground">Chưa có</span>
+                              <span className="text-xs text-muted-foreground">{copy.none}</span>
                             )}
                           </TableCell>
                           <TableCell>
                             {item.inventory_items ? (
                               <Badge variant="outline" className="text-xs">
                                 <Package className="h-3 w-3 mr-0.5" />
-                                Tồn: {item.inventory_items.quantity}
+
+                                {copy.stock} {item.inventory_items.quantity}
                               </Badge>
                             ) : (
                               <Badge variant="secondary" className="text-xs">
                                 <AlertTriangle className="h-3 w-3 mr-0.5" />
-                                Mới
+
+                                {copy.new}
                               </Badge>
                             )}
                           </TableCell>
@@ -599,7 +614,7 @@ export function PaymentRequestDetailsDialog({
               {/* Notes */}
               {request.notes && (
                 <div className="min-w-0">
-                  <Label className="text-muted-foreground">Ghi chú</Label>
+                  <Label className="text-muted-foreground">{copy.notes}</Label>
                   <p className="mt-1 break-words rounded bg-muted/50 p-3">{request.notes}</p>
                 </div>
               )}
@@ -631,7 +646,8 @@ export function PaymentRequestDetailsDialog({
                       ) : (
                         <Check className="h-4 w-4" />
                       )}
-                      Duyệt
+
+                      {copy.approve}
                     </Button>
                     <Button
                       variant="destructive"
@@ -639,7 +655,8 @@ export function PaymentRequestDetailsDialog({
                       className="w-full gap-2 whitespace-nowrap sm:w-auto"
                     >
                       <X className="h-4 w-4" />
-                      Từ chối
+
+                      {copy.reject}
                     </Button>
                   </>
                 )}
@@ -657,8 +674,8 @@ export function PaymentRequestDetailsDialog({
                     ) : (
                       <Truck className="h-4 w-4" />
                     )}
-                    <span className="sm:hidden">Đã giao</span>
-                    <span className="hidden sm:inline">Đánh dấu đã giao</span>
+                    <span className="sm:hidden">{copy.delivered}</span>
+                    <span className="hidden sm:inline">{copy.markDelivered}</span>
                   </Button>
                 )}
 
@@ -671,13 +688,13 @@ export function PaymentRequestDetailsDialog({
                       className="w-full gap-2 whitespace-nowrap sm:w-auto"
                     >
                       <FolderSearch className="h-4 w-4" />
-                      <span className="sm:hidden">Tạo từ Drive</span>
-                      <span className="hidden sm:inline">Tạo hoá đơn từ GG Drive</span>
+                      <span className="sm:hidden">{copy.createFromDrive}</span>
+                      <span className="hidden sm:inline">{copy.createInvoiceFromGoogleDrive}</span>
                     </Button>
                     <Button className="w-full whitespace-nowrap sm:w-auto" onClick={() => setShowCreateInvoiceDialog(true)}>
                       <Plus className="h-4 w-4 mr-2" />
-                      <span className="sm:hidden">Tạo thủ công</span>
-                      <span className="hidden sm:inline">Tạo hoá đơn thủ công</span>
+                      <span className="sm:hidden">{copy.createManually}</span>
+                      <span className="hidden sm:inline">{copy.createInvoiceManually}</span>
                     </Button>
                   </>
                 )}
@@ -695,8 +712,8 @@ export function PaymentRequestDetailsDialog({
                     ) : (
                       <CreditCard className="h-4 w-4" />
                     )}
-                    <span className="sm:hidden">Thanh toán</span>
-                    <span className="hidden sm:inline">Ghi nhận thanh toán</span>
+                    <span className="sm:hidden">{copy.pay}</span>
+                    <span className="hidden sm:inline">{copy.recordPayment}</span>
                   </Button>
                 )}
 
@@ -712,17 +729,19 @@ export function PaymentRequestDetailsDialog({
                     ) : (
                       <CreditCard className="h-4 w-4" />
                     )}
-                    Đổi PTTT
+
+                    {copy.changeMethod}
                   </Button>
                 )}
 
                 <Button className="w-full whitespace-nowrap sm:w-auto" variant="outline" onClick={() => onOpenChange(false)}>
-                  Đóng
+
+                  {copy.close}
                 </Button>
               </div>
             </div>
           ) : (
-            <p className="text-center py-8 text-muted-foreground">Không tìm thấy đề nghị</p>
+            <p className="text-center py-8 text-muted-foreground">{copy.requestNotFound}</p>
           )}
         </DialogContent>
       </Dialog>
@@ -744,7 +763,7 @@ export function PaymentRequestDetailsDialog({
                   <CreditCard className="h-5 w-5 text-blue-600" />
                   <div>
                     <p className="font-medium">{t.bankTransfer}</p>
-                    <p className="text-sm text-muted-foreground">Chuyển khoản ngân hàng</p>
+                    <p className="text-sm text-muted-foreground">{copy.bankTransfer}</p>
                   </div>
                 </Label>
               </div>
@@ -754,7 +773,7 @@ export function PaymentRequestDetailsDialog({
                   <Banknote className="h-5 w-5 text-orange-600" />
                   <div>
                     <p className="font-medium">{t.cash}</p>
-                    <p className="text-sm text-muted-foreground">Thanh toán bằng tiền mặt</p>
+                    <p className="text-sm text-muted-foreground">{copy.cashPayment}</p>
                   </div>
                 </Label>
               </div>
@@ -782,21 +801,22 @@ export function PaymentRequestDetailsDialog({
       <AlertDialog open={showRejectDialog} onOpenChange={setShowRejectDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Từ chối đề nghị chi</AlertDialogTitle>
+            <AlertDialogTitle>{copy.rejectPaymentRequest}</AlertDialogTitle>
             <AlertDialogDescription>
-              Vui lòng nhập lý do từ chối đề nghị này.
+
+              {copy.enterAReasonForRejectingThisRequest}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="py-4">
             <Textarea
               value={rejectionReason}
               onChange={(e) => setRejectionReason(e.target.value)}
-              placeholder="Lý do từ chối..."
+              placeholder={copy.rejectionReason2}
               rows={3}
             />
           </div>
           <AlertDialogFooter>
-            <AlertDialogCancel>Hủy</AlertDialogCancel>
+            <AlertDialogCancel>{copy.cancel}</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleReject}
               disabled={!rejectionReason.trim() || rejectRequest.isPending}
@@ -805,7 +825,8 @@ export function PaymentRequestDetailsDialog({
               {rejectRequest.isPending ? (
                 <Loader2 className="h-4 w-4 animate-spin mr-2" />
               ) : null}
-              Từ chối
+
+              {copy.reject}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -817,13 +838,13 @@ export function PaymentRequestDetailsDialog({
           <AlertDialogHeader>
             <AlertDialogTitle className={cn("flex items-center gap-2", !request?.invoice_created && "text-destructive")}>
               {!request?.invoice_created ? <AlertTriangle className="h-5 w-5" /> : <CreditCard className="h-5 w-5" />}
-              {!request?.invoice_created ? t.invoiceWarning : "Ghi nhận thanh toán"}
+              {!request?.invoice_created ? t.invoiceWarning : copy.recordPayment}
             </AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-3">
                 {!request?.invoice_created && <p>{t.invoiceWarningDesc}</p>}
                 <div className="grid gap-2">
-                  <Label htmlFor="payment-amount">Số tiền thanh toán lần này</Label>
+                  <Label htmlFor="payment-amount">{copy.paymentAmountThisTime}</Label>
                   <Input
                     id="payment-amount"
                     type="number"
@@ -833,7 +854,8 @@ export function PaymentRequestDetailsDialog({
                     onChange={(event) => setPaymentAmount(event.target.value)}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Còn lại: {formatCurrency(remainingAmount)}
+
+                    {copy.remaining} {formatCurrency(remainingAmount)}
                   </p>
                 </div>
               </div>
@@ -858,7 +880,7 @@ export function PaymentRequestDetailsDialog({
               disabled={markPaid.isPending}
               className={cn(!request?.invoice_created && "bg-destructive hover:bg-destructive/90")}
             >
-              {markPaid.isPending ? "Đang lưu..." : t.stillMarkPaid}
+              {markPaid.isPending ? copy.saving : t.stillMarkPaid}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -868,13 +890,13 @@ export function PaymentRequestDetailsDialog({
       <AlertDialog open={showImageDialog} onOpenChange={setShowImageDialog}>
         <AlertDialogContent className="max-w-3xl">
           <AlertDialogHeader>
-            <AlertDialogTitle>Hóa đơn đính kèm</AlertDialogTitle>
+            <AlertDialogTitle>{copy.attachedInvoice}</AlertDialogTitle>
           </AlertDialogHeader>
           <div className="max-h-[70vh] overflow-auto">
-            {imageUrl && <img src={imageUrl} alt="Invoice" className="w-full rounded" />}
+            {imageUrl && <img src={imageUrl} alt={copy.invoiceAlt} className="w-full rounded" />}
           </div>
           <AlertDialogFooter>
-            <AlertDialogCancel>Đóng</AlertDialogCancel>
+            <AlertDialogCancel>{copy.close}</AlertDialogCancel>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -887,10 +909,10 @@ export function PaymentRequestDetailsDialog({
         onInvoiceCreated={(invoiceId) => {
           setShowCreateInvoiceDialog(false);
           onOpenChange(false); // Close all dialogs, return to list
-          toast.success("Đã tạo hóa đơn thành công!", {
-            description: "Hóa đơn đã được tạo và liên kết với đề nghị chi.",
+          toast.success(copy.invoiceCreatedSuccessfully, {
+            description: copy.theInvoiceWasCreatedAndLinkedTo,
             action: {
-              label: "Xem hóa đơn",
+              label: copy.viewInvoice,
               onClick: () => navigate(`/invoices?view=${invoiceId}`),
             },
           });
@@ -908,9 +930,10 @@ export function PaymentRequestDetailsDialog({
       <AlertDialog open={showChangePaymentMethodDialog} onOpenChange={setShowChangePaymentMethodDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Đổi phương thức thanh toán</AlertDialogTitle>
+            <AlertDialogTitle>{copy.changePaymentMethod}</AlertDialogTitle>
             <AlertDialogDescription>
-              Chọn phương thức thanh toán mới cho đề nghị chi này.
+
+              {copy.selectANewPaymentMethodForThis}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="py-4">
@@ -921,7 +944,7 @@ export function PaymentRequestDetailsDialog({
                   <CreditCard className="h-5 w-5 text-blue-600" />
                   <div>
                     <p className="font-medium">{t.bankTransfer}</p>
-                    <p className="text-sm text-muted-foreground">Chuyển khoản ngân hàng</p>
+                    <p className="text-sm text-muted-foreground">{copy.bankTransfer}</p>
                   </div>
                 </Label>
               </div>
@@ -931,7 +954,7 @@ export function PaymentRequestDetailsDialog({
                   <Banknote className="h-5 w-5 text-orange-600" />
                   <div>
                     <p className="font-medium">{t.cash}</p>
-                    <p className="text-sm text-muted-foreground">Thanh toán bằng tiền mặt</p>
+                    <p className="text-sm text-muted-foreground">{copy.cashPayment}</p>
                   </div>
                 </Label>
               </div>
@@ -948,7 +971,8 @@ export function PaymentRequestDetailsDialog({
               ) : (
                 <Check className="h-4 w-4 mr-2" />
               )}
-              Lưu thay đổi
+
+              {copy.saveChanges}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

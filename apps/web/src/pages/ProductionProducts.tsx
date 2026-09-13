@@ -1,3 +1,4 @@
+import { useProductionCopy } from "@/i18n/useProductionCopy";
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -48,6 +49,7 @@ const isFinishedSku = (sku: ProductSku) => {
 };
 
 export default function ProductionProducts() {
+  const c = useProductionCopy();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [selectedSkuId, setSelectedSkuId] = useState("");
@@ -101,7 +103,7 @@ export default function ProductionProducts() {
   const saveMutation = useMutation({
     mutationFn: async () => {
       const sku = skus.find((item) => item.id === selectedSkuId);
-      if (!sku) throw new Error("Chọn SKU thành phẩm trước.");
+      if (!sku) throw new Error(c.m323);
       const { error } = await db.from("product_label_specs").upsert(
         {
           sku_id: sku.id,
@@ -120,31 +122,31 @@ export default function ProductionProducts() {
     },
     onSuccess: () => {
       setSaveSuccessAt(new Date());
-      toast({ title: "Đã lưu cấu hình tem", description: "QA sẽ dùng thông số này để đối chiếu tem nhãn." });
+      toast({ title: c.m324, description: c.m325 });
       queryClient.invalidateQueries({ queryKey: ["production-product-label-specs"] });
     },
-    onError: (error) => toast({ title: "Không thể lưu", description: error instanceof Error ? error.message : String(error), variant: "destructive" }),
+    onError: (error) => toast({ title: c.m326, description: error instanceof Error ? error.message : String(error), variant: "destructive" }),
   });
 
   const selectedSku = skus.find((sku) => sku.id === selectedSkuId) || null;
   const demoDates = expectedLabelDates("2026-06-06", Number(draft.shelf_life_days || 1));
 
   return (
-    <div className="-m-4 min-h-screen bg-background p-4 text-foreground md:-m-6 md:p-6" data-production-products-label-specs="mvp">
+    <div className="-m-4 min-h-screen bg-background p-4 text-foreground md:-m-6 md:p-6" data-production-i18n="c-production-v1" data-production-products-label-specs="mvp">
       <div className="mx-auto max-w-7xl space-y-5">
         <header className="card-elevated rounded-[1.75rem] p-4 md:p-6">
-          <Badge className="mb-3 rounded-full bg-primary/10 text-primary hover:bg-primary/10">Quản lý sản phẩm · tem nhãn QA</Badge>
-          <h1 className="text-2xl font-black tracking-tight md:text-4xl">Quản lý sản phẩm</h1>
+          <Badge className="mb-3 rounded-full bg-primary/10 text-primary hover:bg-primary/10">{c.m327}</Badge>
+          <h1 className="text-2xl font-black tracking-tight md:text-4xl">{c.m328}</h1>
           <p className="mt-2 max-w-3xl text-sm font-semibold text-muted-foreground md:text-base">
-            Cấu hình HSD, khối lượng và link sheet truy xuất theo SKU thành phẩm. QA phải quét/đối chiếu NSX, HSD và trọng lượng đạt trước khi nhập kho TP.
+            {c.m329}
           </p>
         </header>
 
         <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_420px]">
           <Card className="card-elevated rounded-[1.5rem]">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-xl font-black"><PackageSearch className="h-5 w-5 text-primary" /> SKU thành phẩm</CardTitle>
-              <CardDescription>Chọn SKU để khai báo thông số tem nhãn chuẩn.</CardDescription>
+              <CardTitle className="flex items-center gap-2 text-xl font-black"><PackageSearch className="h-5 w-5 text-primary" /> {c.m330}</CardTitle>
+              <CardDescription>{c.m331}</CardDescription>
             </CardHeader>
             <CardContent>
               {skusLoading || specsLoading ? (
@@ -152,23 +154,23 @@ export default function ProductionProducts() {
               ) : (
                 <div className="space-y-4" data-production-products-sku-dropdown="compact-select">
                   <div className="space-y-2">
-                    <Label>Chọn SKU thành phẩm</Label>
+                    <Label>{c.m332}</Label>
                     <Select value={selectedSkuId} onValueChange={handleSelectSkuId}>
                       <SelectTrigger className="h-12 rounded-2xl bg-background text-left font-bold">
-                        <SelectValue placeholder="Chọn SKU để cấu hình tem nhãn..." />
+                        <SelectValue placeholder={c.m333} />
                       </SelectTrigger>
                       <SelectContent className="max-h-80 rounded-2xl">
                         {skus.map((sku) => {
                           const spec = specBySku.get(sku.id);
                           return (
                             <SelectItem key={sku.id} value={sku.id} className="rounded-xl py-2">
-                              {(sku.product_name || sku.sku_code || "SKU chưa đặt tên") + (sku.sku_code ? ` · ${sku.sku_code}` : "") + (spec ? " · Đã cấu hình" : " · Thiếu tem")}
+                              {(sku.product_name || sku.sku_code || c.m334) + (sku.sku_code ? ` · ${sku.sku_code}` : "") + (spec ? c.m335 : c.m336)}
                             </SelectItem>
                           );
                         })}
                       </SelectContent>
                     </Select>
-                    <p className="text-xs font-semibold text-muted-foreground">Danh sách SKU được thu gọn vào dropdown để tránh kéo dài màn hình.</p>
+                    <p className="text-xs font-semibold text-muted-foreground">{c.m337}</p>
                   </div>
 
                   {selectedSku ? (
@@ -176,9 +178,9 @@ export default function ProductionProducts() {
                       <div className="grid gap-3 sm:grid-cols-[96px_minmax(0,1fr)]">
                         <div className="h-24 w-full overflow-hidden rounded-2xl border border-border bg-muted shadow-inner sm:w-24" data-production-products-sku-image="selected-sku">
                           {selectedSku.image_url ? (
-                            <img src={selectedSku.image_url} alt={selectedSku.product_name || selectedSku.sku_code || "Ảnh sản phẩm"} className="h-full w-full object-cover object-center" loading="lazy" />
+                            <img src={selectedSku.image_url} alt={selectedSku.product_name || selectedSku.sku_code || c.m338} className="h-full w-full object-cover object-center" loading="lazy" />
                           ) : (
-                            <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-primary/15 to-warning/20 px-2 text-center text-[11px] font-black text-muted-foreground">Chưa có ảnh</div>
+                            <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-primary/15 to-warning/20 px-2 text-center text-[11px] font-black text-muted-foreground">{c.m339}</div>
                           )}
                         </div>
                         <div className="min-w-0">
@@ -189,18 +191,18 @@ export default function ProductionProducts() {
                             </div>
                             {(() => {
                               const spec = specBySku.get(selectedSku.id);
-                              return <Badge className={spec ? "bg-success/15 text-success hover:bg-success/15" : "bg-warning text-warning-foreground hover:bg-warning"}>{spec ? "Đã cấu hình" : "Thiếu tem"}</Badge>;
+                              return <Badge className={spec ? "bg-success/15 text-success hover:bg-success/15" : "bg-warning text-warning-foreground hover:bg-warning"}>{spec ? c.m340 : c.m341}</Badge>;
                             })()}
                           </div>
                           {(() => {
                             const spec = specBySku.get(selectedSku.id);
-                            return spec ? <p className="mt-3 text-sm font-bold text-muted-foreground">HSD {spec.shelf_life_days} ngày · {spec.net_weight_value || "-"}{spec.net_weight_unit || ""}</p> : <p className="mt-3 text-sm font-bold text-muted-foreground">SKU này chưa có thông số tem, nhập bên phải rồi lưu.</p>;
+                            return spec ? <p className="mt-3 text-sm font-bold text-muted-foreground">{c.shelfLife} {spec.shelf_life_days} {c.m342} {spec.net_weight_value || "-"}{spec.net_weight_unit || ""}</p> : <p className="mt-3 text-sm font-bold text-muted-foreground">{c.m343}</p>;
                           })()}
                         </div>
                       </div>
                     </div>
                   ) : (
-                    <div className="rounded-3xl border border-dashed border-border bg-muted/40 p-4 text-sm font-bold text-muted-foreground">Chưa chọn SKU.</div>
+                    <div className="rounded-3xl border border-dashed border-border bg-muted/40 p-4 text-sm font-bold text-muted-foreground">{c.m344}</div>
                   )}
                 </div>
               )}
@@ -209,39 +211,39 @@ export default function ProductionProducts() {
 
           <Card className="card-elevated rounded-[1.5rem]">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-xl font-black"><ShieldCheck className="h-5 w-5 text-success" /> Thông số tem</CardTitle>
-              <CardDescription>{selectedSku ? selectedSku.product_name : "Chọn SKU bên trái để sửa."}</CardDescription>
+              <CardTitle className="flex items-center gap-2 text-xl font-black"><ShieldCheck className="h-5 w-5 text-success" /> {c.m345}</CardTitle>
+              <CardDescription>{selectedSku ? selectedSku.product_name : c.m346}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label>HSD (ngày)</Label>
+                  <Label>{c.m347}</Label>
                   <Input type="number" className="mt-1 rounded-2xl" value={draft.shelf_life_days} onChange={(event) => setDraft((cur) => ({ ...cur, shelf_life_days: Number(event.target.value) }))} />
                 </div>
                 <div>
-                  <Label>Khối lượng</Label>
+                  <Label>{c.m348}</Label>
                   <Input type="number" className="mt-1 rounded-2xl" value={draft.net_weight_value ?? ""} onChange={(event) => setDraft((cur) => ({ ...cur, net_weight_value: event.target.value === "" ? null : Number(event.target.value) }))} />
                 </div>
               </div>
               <div>
-                <Label>Đơn vị khối lượng</Label>
+                <Label>{c.m349}</Label>
                 <Input className="mt-1 rounded-2xl" value={draft.net_weight_unit || ""} onChange={(event) => setDraft((cur) => ({ ...cur, net_weight_unit: event.target.value }))} />
               </div>
               <div>
-                <Label>Link Google Sheet truy xuất</Label>
+                <Label>{c.m350}</Label>
                 <Input className="mt-1 rounded-2xl" placeholder="https://docs.google.com/spreadsheets/..." value={draft.traceability_sheet_url || ""} onChange={(event) => setDraft((cur) => ({ ...cur, traceability_sheet_url: event.target.value }))} />
               </div>
               <div className="rounded-2xl bg-muted/60 p-3 text-sm font-semibold text-muted-foreground">
-                Ví dụ ngày SX 06/06/2026: tem phải in NSX {formatDateKeyVi(demoDates.expectedNsx)} · HSD {formatDateKeyVi(demoDates.expectedHsd)}.
+                {c.m351} {formatDateKeyVi(demoDates.expectedNsx)} · {c.expiry} {formatDateKeyVi(demoDates.expectedHsd)}.
               </div>
               <Button type="button" className="h-12 w-full rounded-2xl font-black" data-product-label-save-button="primary" disabled={!selectedSkuId || saveMutation.isPending} onClick={() => saveMutation.mutate()}>
                 {saveMutation.isPending ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Save className="mr-2 h-5 w-5" />}
-                Lưu thông số tem
+                {c.m352}
               </Button>
               {saveSuccessAt ? (
                 <div className="flex items-center gap-2 rounded-2xl border border-success/30 bg-success/10 p-3 text-sm font-black text-success" data-product-label-save-success="inline">
                   <CheckCircle2 className="h-5 w-5 shrink-0" />
-                  <span>Đã lưu thành công · QA sẽ dùng thông số tem mới.</span>
+                  <span>{c.m353}</span>
                 </div>
               ) : null}
             </CardContent>

@@ -1,0 +1,5 @@
+import fs from 'node:fs/promises';
+const {chromium}=await import('/home/ubuntu/bmq-payment-preview/node_modules/playwright/index.mjs');
+const browser=await chromium.launch({executablePath:'/home/ubuntu/.cache/ms-playwright/chromium-1234/chrome-linux/chrome',args:['--no-sandbox']});
+for(const slug of ['products','inventory','materials','system','planning','shifts','qa']){const ctx=await browser.newContext({viewport:{width:1440,height:1000}});await ctx.addInitScript(()=>localStorage.setItem('app-language','en'));await ctx.route('**/*',r=>r.request().url().startsWith('http://127.0.0.1:4305/')?r.continue():r.abort());const p=await ctx.newPage();p.on('pageerror',e=>console.log(slug,'ERROR',e.message));await p.goto('http://127.0.0.1:4305/'+slug);await p.waitForTimeout(700);await fs.writeFile('/tmp/bmq-i18n-lanes/c-production/'+slug+'-body.txt',await p.locator('body').innerText());console.log(slug,(await p.locator('body').innerText()).slice(0,200),await p.evaluate(()=>window.__unexpected));await ctx.close();}
+await browser.close();

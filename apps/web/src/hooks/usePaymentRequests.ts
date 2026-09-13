@@ -1,3 +1,5 @@
+import { paymentRequestPurchasing } from "@/i18n/paymentRequestPurchasing";
+import { usePurchasingCopy } from "@/i18n/purchasingCopy";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { resolveImageUrl } from "@/lib/storage-url";
@@ -189,6 +191,7 @@ export function useUpdatePaymentRequest() {
 }
 
 export function useDeletePaymentRequest() {
+  const pc = usePurchasingCopy(paymentRequestPurchasing);
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -198,7 +201,7 @@ export function useDeletePaymentRequest() {
       } = await supabase.auth.getSession();
 
       if (!session?.access_token) {
-        throw new Error("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
+        throw new Error(pc.sessionExpired);
       }
 
       const result = await callEdgeFunction<{ success: boolean; id: string; unlinked_invoice_count: number }>(
@@ -209,7 +212,7 @@ export function useDeletePaymentRequest() {
       );
 
       if (result.error || !result.data?.success) {
-        throw new Error(result.error || "Không xoá được duyệt chi");
+        throw new Error(result.error || pc.deleteFailed);
       }
 
       return result.data;
@@ -339,6 +342,7 @@ export function useMarkDelivered() {
 }
 
 export function useMarkPaid() {
+  const pc = usePurchasingCopy(paymentRequestPurchasing);
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -358,7 +362,7 @@ export function useMarkPaid() {
       }
 
       if (!amount || amount <= 0) {
-        throw new Error("Số tiền thanh toán phải lớn hơn 0.");
+        throw new Error(pc.paymentPositive);
       }
 
       const { error } = await supabase.rpc("record_payment_allocations", {
@@ -388,6 +392,7 @@ export function useMarkPaid() {
 
 // Bulk mark multiple requests as paid
 export function useBulkMarkPaid() {
+  const pc = usePurchasingCopy(paymentRequestPurchasing);
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -407,7 +412,7 @@ export function useBulkMarkPaid() {
         .filter((allocation) => allocation.amount > 0);
 
       if (allocations.length === 0) {
-        throw new Error("Không còn số tiền cần thanh toán.");
+        throw new Error(pc.noRemainingPayment);
       }
 
       const paymentMethods = new Set((requests || []).map((request) => request.payment_method).filter(Boolean));

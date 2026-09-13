@@ -1,9 +1,11 @@
+import { useWarehouseCopy } from "@/i18n/useWarehouseCopy";
 import { Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useInventory } from "@/hooks/useInventory";
 import ExcelJS from "exceljs";
 
 export function ExportInventoryButton() {
+  const c = useWarehouseCopy();
   const { data: inventory } = useInventory();
 
   const handleExport = async () => {
@@ -62,7 +64,6 @@ export function ExportInventoryButton() {
   return (
     <Button variant="outline" onClick={handleExport} className="gap-2">
       <Download className="h-4 w-4" />
-      Export
-    </Button>
+      {c("Export")} </Button>
   );
 }

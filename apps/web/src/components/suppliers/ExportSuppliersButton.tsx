@@ -1,3 +1,5 @@
+import { supplierPurchasing } from "@/i18n/supplierPurchasing";
+import { usePurchasingCopy } from "@/i18n/purchasingCopy";
 import { Download, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useSuppliers } from "@/hooks/useSuppliers";
@@ -8,6 +10,7 @@ interface ExportSuppliersButtonProps {
 }
 
 export function ExportSuppliersButton({ compactIcon: Icon = Download }: ExportSuppliersButtonProps = {}) {
+  const pc = usePurchasingCopy(supplierPurchasing);
   const { data: suppliers } = useSuppliers();
 
   const handleExport = async () => {
@@ -66,7 +69,6 @@ export function ExportSuppliersButton({ compactIcon: Icon = Download }: ExportSu
   return (
     <Button variant="outline" onClick={handleExport} className="h-10 rounded-xl border-amber-200 bg-white px-2 text-xs text-amber-800 hover:bg-amber-50 sm:px-3 sm:text-sm">
       <Icon className="mr-1.5 h-4 w-4 sm:mr-2" />
-      Xuất Excel
-    </Button>
+       {pc.exportExcel} </Button>
   );
 }

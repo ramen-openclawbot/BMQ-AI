@@ -1,3 +1,4 @@
+import { useSalesCrmMessages, type SalesCrmKey } from "@/i18n/salesCrm";
 import { useState } from "react";
 import { AlertTriangle, Loader2, Pencil, Save, Truck } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -57,14 +58,15 @@ const deliveryStaffFriendlyErrors = new Set([
   "Số điện thoại này đã thuộc một nhân viên giao hàng đang hoạt động.",
 ]);
 
-const formatDeliveryStaffError = (error: unknown) => {
+const formatDeliveryStaffError = (error: unknown, f: ReturnType<typeof useSalesCrmMessages>) => {
   const message = error instanceof Error ? error.message : typeof error === "object" && error && "message" in error ? String((error as { message?: unknown }).message || "") : "";
   return deliveryStaffFriendlyErrors.has(message)
-    ? message
-    : "Không thể lưu nhân viên giao hàng. Vui lòng thử lại hoặc báo quản trị viên.";
+    ? f(message as SalesCrmKey)
+    : f("Không thể lưu nhân viên giao hàng. Vui lòng thử lại hoặc báo quản trị viên.");
 };
 
 export function DeliveryStaffAdminPanel({ canView, canEdit }: { canView: boolean; canEdit: boolean }) {
+  const f = useSalesCrmMessages();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [draft, setDraft] = useState<DeliveryStaffDraft>(emptyDraft);
@@ -115,10 +117,10 @@ export function DeliveryStaffAdminPanel({ canView, canEdit }: { canView: boolean
     onSuccess: async () => {
       setDraft(emptyDraft);
       await queryClient.invalidateQueries({ queryKey: ["delivery-staff"] });
-      toast({ title: "Đã lưu nhân viên giao hàng" });
+      toast({ title: f("Đã lưu nhân viên giao hàng") });
     },
     onError: (saveError: any) => {
-      toast({ title: "Lưu nhân viên giao hàng thất bại", description: formatDeliveryStaffError(saveError), variant: "destructive" });
+      toast({ title: f("Lưu nhân viên giao hàng thất bại"), description: formatDeliveryStaffError(saveError, f), variant: "destructive" });
     },
   });
 
@@ -127,18 +129,17 @@ export function DeliveryStaffAdminPanel({ canView, canEdit }: { canView: boolean
       <Card>
         <CardContent className="flex items-start gap-3 p-4 text-sm text-amber-800">
           <AlertTriangle className="mt-0.5 h-4 w-4" />
-          Bạn không có quyền xem nhân viên giao hàng.
-        </CardContent>
+           {f("Bạn không có quyền xem nhân viên giao hàng.")} </CardContent>
       </Card>
     );
   }
 
   if (isLoading) {
-    return <Card><CardContent className="flex min-h-40 items-center justify-center text-muted-foreground"><Loader2 className="mr-2 h-5 w-5 animate-spin" />Đang tải nhân viên giao hàng...</CardContent></Card>;
+    return <Card><CardContent className="flex min-h-40 items-center justify-center text-muted-foreground"><Loader2 className="mr-2 h-5 w-5 animate-spin" />{f("Đang tải nhân viên giao hàng...")}</CardContent></Card>;
   }
 
   if (error) {
-    return <Card><CardContent className="flex items-start gap-3 p-4 text-sm text-destructive"><AlertTriangle className="mt-0.5 h-4 w-4" />Không thể tải danh sách nhân viên giao hàng. Vui lòng thử lại.</CardContent></Card>;
+    return <Card><CardContent className="flex items-start gap-3 p-4 text-sm text-destructive"><AlertTriangle className="mt-0.5 h-4 w-4" />{f("Không thể tải danh sách nhân viên giao hàng. Vui lòng thử lại.")}</CardContent></Card>;
   }
 
   return (
@@ -146,35 +147,34 @@ export function DeliveryStaffAdminPanel({ canView, canEdit }: { canView: boolean
       {canEdit && (
         <Card className="border-border/70 bg-gradient-to-b from-background to-muted/20 shadow-sm">
           <CardHeader>
-            <CardTitle>{draft.id ? "Sửa nhân viên giao hàng" : "Tạo nhân viên giao hàng"}</CardTitle>
-            <CardDescription>Hồ sơ nhân sự nội bộ, không cấp quyền đăng nhập.</CardDescription>
+            <CardTitle>{draft.id ? f("Sửa nhân viên giao hàng") : f("Tạo nhân viên giao hàng")}</CardTitle>
+            <CardDescription>{f("Hồ sơ nhân sự nội bộ, không cấp quyền đăng nhập.")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="space-y-2">
-              <Label>Họ và tên</Label>
-              <Input value={draft.full_name} onChange={(event) => setDraft((current) => ({ ...current, full_name: event.target.value }))} placeholder="VD: Nguyễn Văn A" />
+              <Label>{f("Họ và tên")}</Label>
+              <Input value={draft.full_name} onChange={(event) => setDraft((current) => ({ ...current, full_name: event.target.value }))} placeholder={f("VD: Nguyễn Văn A")} />
             </div>
             <div className="space-y-2">
-              <Label>Số điện thoại</Label>
-              <Input inputMode="tel" value={draft.phone_raw} onChange={(event) => setDraft((current) => ({ ...current, phone_raw: event.target.value }))} placeholder="VD: 0966998999" />
+              <Label>{f("Số điện thoại")}</Label>
+              <Input inputMode="tel" value={draft.phone_raw} onChange={(event) => setDraft((current) => ({ ...current, phone_raw: event.target.value }))} placeholder={f("VD: 0966998999")} />
             </div>
             <div className="space-y-2">
-              <Label>Lương tháng</Label>
-              <Input inputMode="numeric" value={draft.monthly_salary_vnd} onChange={(event) => setDraft((current) => ({ ...current, monthly_salary_vnd: event.target.value }))} placeholder="VD: 9000000" />
+              <Label>{f("Lương tháng")}</Label>
+              <Input inputMode="numeric" value={draft.monthly_salary_vnd} onChange={(event) => setDraft((current) => ({ ...current, monthly_salary_vnd: event.target.value }))} placeholder={f("VD: 9000000")} />
             </div>
             <div className="space-y-2">
-              <Label>Trạng thái</Label>
+              <Label>{f("Trạng thái")}</Label>
               <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={draft.active ? "active" : "inactive"} onChange={(event) => setDraft((current) => ({ ...current, active: event.target.value === "active" }))}>
-                <option value="active">Đang hoạt động</option>
-                <option value="inactive">Tạm ngưng</option>
+                <option value="active">{f("Đang hoạt động")}</option>
+                <option value="inactive">{f("Tạm ngưng")}</option>
               </select>
             </div>
             <div className="flex justify-end gap-2 pt-1">
-              {draft.id ? <Button variant="outline" onClick={() => setDraft(emptyDraft)}>Huỷ sửa</Button> : null}
+              {draft.id ? <Button variant="outline" onClick={() => setDraft(emptyDraft)}>{f("Huỷ sửa")}</Button> : null}
               <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
                 {saveMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                Lưu nhân viên
-              </Button>
+                 {f("Lưu nhân viên")} </Button>
             </div>
           </CardContent>
         </Card>
@@ -182,8 +182,8 @@ export function DeliveryStaffAdminPanel({ canView, canEdit }: { canView: boolean
 
       <Card className="border-border/70 bg-gradient-to-b from-background to-muted/20 shadow-sm">
         <CardHeader>
-          <CardTitle>Danh sách nhân viên giao hàng</CardTitle>
-          <CardDescription>{staffRows.length} hồ sơ</CardDescription>
+          <CardTitle>{f("Danh sách nhân viên giao hàng")}</CardTitle>
+          <CardDescription>{staffRows.length}  {f("hồ sơ")}</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-2">
           {staffRows.map((staff) => (
@@ -191,10 +191,10 @@ export function DeliveryStaffAdminPanel({ canView, canEdit }: { canView: boolean
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2"><Truck className="h-4 w-4 text-muted-foreground" /><div className="truncate font-semibold">{staff.full_name}</div></div>
-                  <div className="mt-1">{staff.active ? <Badge>Đang hoạt động</Badge> : <Badge variant="secondary">Tạm ngưng</Badge>}</div>
+                  <div className="mt-1">{staff.active ? <Badge>{f("Đang hoạt động")}</Badge> : <Badge variant="secondary">{f("Tạm ngưng")}</Badge>}</div>
                   <div className="mt-2 text-sm text-muted-foreground">{staff.phone_raw || staff.phone_normalized}</div>
-                  <div className="text-sm font-medium">Lương tháng: {formatVnd(staff.monthly_salary_vnd)}</div>
-                  <div className="mt-2 text-xs text-muted-foreground">Không cấp quyền đăng nhập</div>
+                  <div className="text-sm font-medium">{f("Lương tháng:")} {formatVnd(staff.monthly_salary_vnd)}</div>
+                  <div className="mt-2 text-xs text-muted-foreground">{f("Không cấp quyền đăng nhập")}</div>
                 </div>
               </div>
               {canEdit && (
@@ -205,12 +205,11 @@ export function DeliveryStaffAdminPanel({ canView, canEdit }: { canView: boolean
                   monthly_salary_vnd: String(Number(staff.monthly_salary_vnd || 0) || ""),
                   active: staff.active !== false,
                 })}>
-                  <Pencil className="mr-2 h-4 w-4" />Sửa
-                </Button>
+                  <Pencil className="mr-2 h-4 w-4" />{f("Sửa")} </Button>
               )}
             </div>
           ))}
-          {staffRows.length === 0 && <div className="rounded-lg border bg-background/80 p-6 text-center text-sm text-muted-foreground md:col-span-2">Chưa có nhân viên giao hàng.</div>}
+          {staffRows.length === 0 && <div className="rounded-lg border bg-background/80 p-6 text-center text-sm text-muted-foreground md:col-span-2">{f("Chưa có nhân viên giao hàng.")}</div>}
         </CardContent>
       </Card>
     </div>

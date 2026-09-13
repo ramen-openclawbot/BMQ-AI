@@ -1,0 +1,8 @@
+// Run from apps/web. Each invocation creates exactly one compiler; no emit/build.
+import ts from 'typescript';import fs from 'node:fs';import path from 'node:path';
+const web=process.cwd();if(!fs.existsSync(path.join(web,'tsconfig.app.json')))throw Error('Run from apps/web');
+const baseline=process.argv.includes('--baseline'),base='/tmp/bmq-i18n-lanes/baseline/apps/web';
+const cfg=ts.readConfigFile('tsconfig.app.json',ts.sys.readFile);const config=ts.parseJsonConfigFileContent(cfg.config,ts.sys,web,{noEmit:true});const host=ts.createCompilerHost(config.options);
+if(baseline){const original=host.getSourceFile.bind(host);host.getSourceFile=(file,language,error,createNew)=>{const relative=path.relative(web,file),baselineFile=path.join(base,relative);return relative.startsWith('src/')&&fs.existsSync(baselineFile)?ts.createSourceFile(file,fs.readFileSync(baselineFile,'utf8'),language,true):original(file,language,error,createNew);};config.fileNames=config.fileNames.filter(file=>!path.relative(web,file).startsWith('src/')||fs.existsSync(path.join(base,path.relative(web,file))));}
+const program=ts.createProgram(config.fileNames,config.options,host);const diagnostics=ts.getPreEmitDiagnostics(program).map(d=>({file:d.file?path.relative(web,d.file.fileName):null,line:d.file&&d.start!==undefined?d.file.getLineAndCharacterOfPosition(d.start).line+1:null,code:d.code,message:ts.flattenDiagnosticMessageText(d.messageText,'\n')}));
+console.log(JSON.stringify({mode:baseline?'baseline':'current',noEmit:true,errors:diagnostics.length,diagnostics},null,2));process.exitCode=diagnostics.length?1:0;

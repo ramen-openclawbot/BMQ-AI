@@ -1,3 +1,6 @@
+import { formatText } from "@/i18n/format";
+import { drivePurchasing } from "@/i18n/drivePurchasing";
+import { usePurchasingCopy, PurchasingLocalError, purchasingErrorMessage, renderPurchasingMessage, type PurchasingUiMessage } from "@/i18n/purchasingCopy";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { 
   Dialog, 
@@ -60,7 +63,7 @@ interface FileStatus {
   id: string;
   name: string;
   status: 'pending' | 'processing' | 'success' | 'failed' | 'skipped';
-  message?: string;
+  message?: PurchasingUiMessage<keyof typeof drivePurchasing.vi>;
   resultId?: string;
   base64?: string;
   mimeType?: string;
@@ -251,7 +254,7 @@ const findBestMatchingSupplier = (
 };
 
 // Upload PO image to storage and return path only (not signed URL)
-async function uploadPOImage(base64: string, mimeType: string, fileName: string): Promise<string> {
+async function uploadPOImage(base64: string, mimeType: string, fileName: string, errorKey: keyof typeof drivePurchasing.vi): Promise<string> {
   try {
     const imageBlob = await fetch(`data:${mimeType};base64,${base64}`).then(r => r.blob());
     const imageFile = new File([imageBlob], fileName, { type: mimeType });
@@ -270,7 +273,8 @@ async function uploadPOImage(base64: string, mimeType: string, fileName: string)
     return path; // Return path only, not signed URL
   } catch (err) {
     console.error('Failed to upload PO image:', err);
-    throw new Error('Không thể upload ảnh PO lên storage');
+    const message = purchasingErrorMessage(err, errorKey);
+    throw typeof message === "string" ? new Error(message) : new PurchasingLocalError(message);
   }
 }
 
@@ -280,10 +284,13 @@ export function DriveImportProgressDialog({
   importType,
   forceFolderPicker = false,
 }: DriveImportProgressDialogProps) {
+  const pc = usePurchasingCopy(drivePurchasing);
+  const renderFolderDate = (value: string) => /^20\d{2}$/.test(value)
+    ? formatText(pc.yearFolder, { year: value }) : formatFolderDate(value);
   const [phase, setPhase] = useState<ImportPhase>('idle');
   const [files, setFiles] = useState<FileStatus[]>([]);
   const [currentDate, setCurrentDate] = useState<string>('');
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<PurchasingUiMessage<keyof typeof drivePurchasing.vi> | null>(null);
   const [stats, setStats] = useState({ created: 0, matched: 0, failed: 0, skipped: 0 });
   
   // Multi-date selection state (for bank_slip)
@@ -423,7 +430,7 @@ export function DriveImportProgressDialog({
   useEffect(() => {
     if (phase !== 'browse_folders' || !folderUrl || !authToken) return;
     loadBrowseFolders(browsePath).catch((e: any) => {
-      setError(e?.message || 'Không thể duyệt thư mục');
+      setError(purchasingErrorMessage(e, "unableToBrowseFolder"));
       setPhase('complete');
     });
     // loadBrowseFolders intentionally reads current dialog state; adding it here would retrigger folder browsing on every local state update.
@@ -463,7 +470,7 @@ export function DriveImportProgressDialog({
 
     if (!listResponse.ok) {
       const e = await listResponse.json().catch(() => ({}));
-      throw new Error(e?.error || 'Không thể duyệt thư mục');
+      throw (e?.error ? new Error(e.error) : new PurchasingLocalError({ copyKey: "unableToBrowseFolder" }));
     }
 
     const data = await listResponse.json();
@@ -491,13 +498,13 @@ export function DriveImportProgressDialog({
 
     if (!scanResponse.ok) {
       const e = await scanResponse.json().catch(() => ({}));
-      throw new Error(e?.error || 'Không thể quét thư mục đã chọn');
+      throw (e?.error ? new Error(e.error) : new PurchasingLocalError({ copyKey: "unableToScanSelectedFolder" }));
     }
 
     const scanData = await scanResponse.json();
     const allFiles = scanData.files || [];
     if (!allFiles.length) {
-      setError(`Không có file ảnh trong thư mục: ${pathToScan || '/'} `);
+      setError({ copyKey: "message144", values: { v0: pathToScan || '/' } });
       setPhase('browse_folders');
       return;
     }
@@ -514,7 +521,7 @@ export function DriveImportProgressDialog({
     const newFiles = allFiles.filter((f: any) => !processedSet.has(f.id));
 
     if (!newFiles.length) {
-      setError(`Tất cả file trong thư mục ${pathToScan || '/'} đã được import trước đó.`);
+      setError({ copyKey: "message145", values: { v0: pathToScan || '/' } });
       setPhase('browse_folders');
       return;
     }
@@ -552,13 +559,13 @@ export function DriveImportProgressDialog({
 
     if (!scanResponse.ok) {
       const e = await scanResponse.json().catch(() => ({}));
-      throw new Error(e?.error || 'Không thể quét thư mục đã chọn');
+      throw (e?.error ? new Error(e.error) : new PurchasingLocalError({ copyKey: "unableToScanSelectedFolder" }));
     }
 
     const scanData = await scanResponse.json();
     const allFiles = scanData.files || [];
     if (!allFiles.length) {
-      setError(`Không có file ảnh UNC trong thư mục: ${pathToScan || '/'} `);
+      setError({ copyKey: "message146", values: { v0: pathToScan || '/' } });
       setPhase('browse_folders');
       return;
     }
@@ -575,7 +582,7 @@ export function DriveImportProgressDialog({
     const newFiles = allFiles.filter((f: any) => !processedSet.has(f.id));
 
     if (!newFiles.length) {
-      setError(`Tất cả file trong thư mục ${pathToScan || '/'} đã được import trước đó.`);
+      setError({ copyKey: "message147", values: { v0: pathToScan || '/' } });
       setPhase('browse_folders');
       return;
     }
@@ -606,7 +613,7 @@ export function DriveImportProgressDialog({
     // Watchdog timer to prevent infinite loading (Safari deadlock protection)
     const timeoutId = setTimeout(() => {
       console.warn('[DriveImport] Import initialization timed out after', IMPORT_INIT_TIMEOUT, 'ms');
-      setError('Đã quá thời gian chờ. Vui lòng đóng và thử lại.');
+      setError({ copyKey: "theRequestTimedOutPleaseCloseAndTry" });
       setPhase('complete');
     }, IMPORT_INIT_TIMEOUT);
 
@@ -631,8 +638,8 @@ export function DriveImportProgressDialog({
         clearTimeout(timeoutId);
         setError(
           importType === 'po'
-            ? 'Chưa cấu hình folder PO. Vui lòng cấu hình trong Cài đặt → Google Drive Integration'
-            : 'Chưa cấu hình folder Bank Receipts. Vui lòng cấu hình trong Cài đặt → Google Drive Integration'
+            ? { copyKey: "pOFolderIsNotConfiguredConfigureItIn" }
+            : { copyKey: "bankReceiptsFolderIsNotConfiguredConfigureIt" }
         );
         setPhase('complete');
         return;
@@ -647,7 +654,7 @@ export function DriveImportProgressDialog({
 
       if (!token) {
         clearTimeout(timeoutId);
-        setError('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
+        setError({ copyKey: "yourSessionExpiredPleaseSignInAgain" });
         setPhase('complete');
         return;
       }
@@ -673,7 +680,7 @@ export function DriveImportProgressDialog({
     } catch (err: any) {
       clearTimeout(timeoutId);
       console.error('Import error:', err);
-      setError(err.message || 'Đã xảy ra lỗi');
+      setError(purchasingErrorMessage(err, "anErrorOccurred"));
       setPhase('complete');
     }
   }, [importType, forceFolderPicker, allSuppliers.length]);
@@ -752,7 +759,7 @@ export function DriveImportProgressDialog({
 
     } catch (err: any) {
       console.error('Error in PO import flow:', err);
-      setError(err.message || 'Đã xảy ra lỗi');
+      setError(purchasingErrorMessage(err, "anErrorOccurred"));
       setPhase('complete');
     }
   };
@@ -780,7 +787,7 @@ export function DriveImportProgressDialog({
       );
 
       if (!listResponse.ok) {
-        setError('Không thể quét folder Google Drive');
+        setError({ copyKey: "unableToScanGoogleDriveFolder" });
         setPhase('complete');
         return;
       }
@@ -789,7 +796,7 @@ export function DriveImportProgressDialog({
       const dates: DateInfo[] = listData.dates || [];
 
       if (dates.length === 0) {
-        setError('Không tìm thấy folder ngày nào trong thư mục PO');
+        setError({ copyKey: "noDateFoldersFoundInThePOFolder" });
         setPhase('complete');
         return;
       }
@@ -855,7 +862,7 @@ export function DriveImportProgressDialog({
         .filter(d => d.fileCount > 0);
 
       if (datesWithNewFiles.length === 0) {
-        setError('Không có PO mới để import');
+        setError({ copyKey: "noNewPOsToImport" });
         setPhase('complete');
         return;
       }
@@ -867,7 +874,7 @@ export function DriveImportProgressDialog({
 
     } catch (err: any) {
       console.error('Error loading dates for PO:', err);
-      setError(err.message || 'Đã xảy ra lỗi');
+      setError(purchasingErrorMessage(err, "anErrorOccurred"));
       setPhase('complete');
     }
   };
@@ -879,11 +886,11 @@ export function DriveImportProgressDialog({
       : files.filter(f => selectedPOFiles.includes(f.id));
     const filesToProcess = selectedFiles.slice(0, MAX_BATCH_SCAN_FILES);
     if (selectedFiles.length > MAX_BATCH_SCAN_FILES) {
-      toast.warning(`Chỉ xử lý tối đa ${MAX_BATCH_SCAN_FILES} file mỗi lần. Vui lòng chạy tiếp cho các file còn lại.`);
+      toast.warning(formatText(pc.message148, { v0: MAX_BATCH_SCAN_FILES }));
     }
 
     if (filesToProcess.length === 0) {
-      toast.error('Vui lòng chọn ít nhất 1 file');
+      toast.error(pc.selectAtLeastOneFile);
       return;
     }
 
@@ -913,7 +920,7 @@ export function DriveImportProgressDialog({
           } catch (err: any) {
             console.error(`Error processing file ${file.name}:`, err);
             setFiles(prev => prev.map(f => 
-              f.id === file.id ? { ...f, status: 'failed', message: err.message } : f
+              f.id === file.id ? { ...f, status: 'failed', message: purchasingErrorMessage(err, "anErrorOccurredWhileProcessing") } : f
             ));
             setStats(prev => ({ ...prev, failed: prev.failed + 1 }));
             setProcessedCount(prev => prev + 1);
@@ -956,11 +963,11 @@ export function DriveImportProgressDialog({
     const filesToProcess = selectedFiles.slice(0, MAX_BATCH_SCAN_FILES);
 
     if (selectedFiles.length > MAX_BATCH_SCAN_FILES) {
-      toast.warning(`Chỉ xử lý tối đa ${MAX_BATCH_SCAN_FILES} file mỗi lần. Vui lòng chạy tiếp cho các file còn lại.`);
+      toast.warning(formatText(pc.message149, { v0: MAX_BATCH_SCAN_FILES }));
     }
 
     if (filesToProcess.length === 0) {
-      toast.error('Vui lòng chọn ít nhất 1 file');
+      toast.error(pc.selectAtLeastOneFile);
       return;
     }
 
@@ -1061,7 +1068,7 @@ export function DriveImportProgressDialog({
           id: file.id,
           name: file.name,
           status: processedIds.has(file.id) ? 'skipped' : 'pending',
-          message: processedIds.has(file.id) ? 'Đã import trước đó' : undefined,
+          message: processedIds.has(file.id) ? { copyKey: "previouslyImported" } : undefined,
           base64: file.base64,
           mimeType: file.mimeType,
         }));
@@ -1077,14 +1084,14 @@ export function DriveImportProgressDialog({
       }
 
       if (allFilesToProcess.length === 0) {
-        toast.info('Không có file mới để xử lý');
+        toast.info(pc.noNewFilesToProcess);
         setPhase('complete');
         return;
       }
 
       const processPOBatch = allFilesToProcess.slice(0, MAX_BATCH_SCAN_FILES);
       if (allFilesToProcess.length > MAX_BATCH_SCAN_FILES) {
-        toast.warning(`Chỉ xử lý tối đa ${MAX_BATCH_SCAN_FILES} file mỗi lần. Vui lòng chạy tiếp cho các file còn lại.`);
+        toast.warning(formatText(pc.message150, { v0: MAX_BATCH_SCAN_FILES }));
       }
 
       // Set total count for progress tracking
@@ -1115,7 +1122,7 @@ export function DriveImportProgressDialog({
             } catch (err: any) {
               console.error(`Error processing file ${file.name}:`, err);
               setFiles(prev => prev.map(f => 
-                f.id === file.id ? { ...f, status: 'failed', message: err.message } : f
+                f.id === file.id ? { ...f, status: 'failed', message: purchasingErrorMessage(err, "anErrorOccurredWhileProcessing") } : f
               ));
               setStats(prev => ({ ...prev, failed: prev.failed + 1 }));
               setProcessedCount(prev => prev + 1);
@@ -1152,7 +1159,7 @@ export function DriveImportProgressDialog({
 
     } catch (err: any) {
       console.error('Error processing selected dates for PO:', err);
-      setError(err.message || 'Đã xảy ra lỗi khi xử lý');
+      setError(purchasingErrorMessage(err, "anErrorOccurredWhileProcessing"));
       setPhase('complete');
     }
   };
@@ -1182,7 +1189,7 @@ export function DriveImportProgressDialog({
         
         // Validate: don't create supplier with "(Không xác định)" name
         if (!supplierNameToUse || supplierNameToUse === '(Không xác định)') {
-          toast.error('Vui lòng nhập tên NCC hợp lệ');
+          toast.error(pc.enterAValidSupplierName);
           setIsConfirming(false);
           return;
         }
@@ -1209,7 +1216,7 @@ export function DriveImportProgressDialog({
       } else {
         // Use selected supplier
         if (!selectedPOSupplierId) {
-          toast.error('Vui lòng chọn nhà cung cấp');
+          toast.error(pc.pleaseSelectASupplier);
           setIsConfirming(false);
           return;
         }
@@ -1262,7 +1269,7 @@ export function DriveImportProgressDialog({
           f.id === current.file.id ? { 
             ...f, 
             status: 'success', 
-            message: linkedPR ? `Đã cập nhật NCC cho PO` : `Đã cập nhật NCC, cần tạo PR`
+            message: linkedPR ? { copyKey: "pOSupplierUpdated" } : { copyKey: "supplierUpdatedPRCreationRequired" }
           } : f
         ));
 
@@ -1357,7 +1364,7 @@ export function DriveImportProgressDialog({
       }
     } catch (err: any) {
       console.error('Error confirming PO supplier:', err);
-      toast.error('Lỗi: ' + err.message);
+      toast.error(pc.error + renderPurchasingMessage(pc, purchasingErrorMessage(err, "anErrorOccurred")));
     } finally {
       setIsConfirming(false);
     }
@@ -1371,7 +1378,7 @@ export function DriveImportProgressDialog({
     
     // Mark file as skipped
     setFiles(prev => prev.map(f => 
-      f.id === current.file.id ? { ...f, status: 'skipped', message: 'Bỏ qua (chưa có NCC)' } : f
+      f.id === current.file.id ? { ...f, status: 'skipped', message: { copyKey: "skippedNoSupplier" } } : f
     ));
     setStats(prev => ({ ...prev, skipped: prev.skipped + 1 }));
     
@@ -1420,7 +1427,7 @@ export function DriveImportProgressDialog({
     );
 
     if (!scanResponse.ok) {
-      throw new Error('Không thể đọc thông tin PO');
+      throw new PurchasingLocalError({ copyKey: "unableToReadPOInformation" });
     }
 
     const scanData = await scanResponse.json();
@@ -1484,7 +1491,7 @@ export function DriveImportProgressDialog({
             f.id === originalFile.id ? { 
               ...f, 
               status: 'pending', 
-              message: 'Cần xác nhận NCC' 
+              message: { copyKey: "supplierConfirmationRequired" }
             } : f
           ));
           return false; // Don't create PO yet
@@ -1506,7 +1513,7 @@ export function DriveImportProgressDialog({
         f.id === originalFile.id ? { 
           ...f, 
           status: 'pending', 
-          message: 'Không tìm thấy tên NCC - cần chọn thủ công' 
+          message: { copyKey: "supplierNameNotFoundSelectManually" }
         } : f
       ));
       return false; // Don't create PO yet - need supplier confirmation
@@ -1529,7 +1536,8 @@ export function DriveImportProgressDialog({
     const imagePath = await uploadPOImage(
       originalFile.base64, 
       originalFile.mimeType, 
-      originalFile.name
+      originalFile.name,
+      "uploadPOFailed"
     );
 
     // 2. Generate PO number
@@ -1601,7 +1609,7 @@ export function DriveImportProgressDialog({
       f.id === originalFile.id ? { 
         ...f, 
         status: 'success', 
-        message: `Tạo ${poNumber} - Chờ tạo PR`,
+        message: { copyKey: "message151", values: { v0: poNumber } },
         resultId: createdPO.id 
       } : f
     ));
@@ -1677,7 +1685,7 @@ export function DriveImportProgressDialog({
     setFiles(prev => prev.map(f => 
       f.id === pendingPO.originalFileId ? { 
         ...f, 
-        message: `Tạo ${pendingPO.poNumber} + ${prNumber}` 
+        message: { copyKey: "message152", values: { v0: pendingPO.poNumber, v1: prNumber } }
       } : f
     ));
 
@@ -1720,7 +1728,7 @@ export function DriveImportProgressDialog({
       if (prCreationMode === 'auto') {
         // Create PR automatically
         await createPRFromPO(pendingPOForPR);
-        toast.success(`Đã tạo ${pendingPOForPR.poNumber} + PR thành công!`);
+        toast.success(formatText(pc.message153, { v0: pendingPOForPR.poNumber }));
         
         // Move to next file or complete
         moveToNextPOFileOrComplete();
@@ -1738,14 +1746,14 @@ export function DriveImportProgressDialog({
         });
         setShowManualPRDialog(true);
         
-        toast.success(`Đã tạo ${pendingPOForPR.poNumber}. Vui lòng hoàn tất tạo PR thủ công.`);
+        toast.success(formatText(pc.message154, { v0: pendingPOForPR.poNumber }));
         
         // Move to next file or complete (PR will be created in separate dialog)
         moveToNextPOFileOrComplete();
       }
     } catch (err: any) {
       console.error('Error handling PR mode confirm:', err);
-      toast.error('Lỗi: ' + err.message);
+      toast.error(pc.error + renderPurchasingMessage(pc, purchasingErrorMessage(err, "anErrorOccurred")));
     } finally {
       setIsConfirming(false);
     }
@@ -1782,7 +1790,7 @@ export function DriveImportProgressDialog({
                 // Reset selection and go back to file selection
                 setSelectedPOFiles([]);
                 setPOSelectionMode('all');
-                toast.info(`Còn ${remainingPendingFiles.length} file chưa xử lý. Bạn có thể tiếp tục chọn file để scan.`);
+                toast.info(formatText(pc.message155, { v0: remainingPendingFiles.length }));
                 setPhase('select_po_files');
               } else {
                 setPhase('complete');
@@ -1832,7 +1840,7 @@ export function DriveImportProgressDialog({
 
       if (!listResponse.ok) {
         const errorData = await listResponse.json();
-        setError(errorData.error || 'Không thể quét folder Google Drive');
+        setError(errorData.error || { copyKey: "unableToScanGoogleDriveFolder" });
         setPhase('complete');
         return;
       }
@@ -1841,7 +1849,7 @@ export function DriveImportProgressDialog({
       const dates: DateInfo[] = listData.dates || [];
 
       if (dates.length === 0) {
-        setError('Chưa có UNC để cập nhật');
+        setError({ copyKey: "noBankSlipsToUpdate" });
         setPhase('complete');
         return;
       }
@@ -1909,7 +1917,7 @@ export function DriveImportProgressDialog({
         .filter(d => d.fileCount > 0);
 
       if (datesWithNewFiles.length === 0) {
-        setError('Chưa có UNC để cập nhật');
+        setError({ copyKey: "noBankSlipsToUpdate" });
         setPhase('complete');
         return;
       }
@@ -1921,7 +1929,7 @@ export function DriveImportProgressDialog({
 
     } catch (err: any) {
       console.error('Error loading dates:', err);
-      setError(err.message || 'Đã xảy ra lỗi khi tải danh sách ngày');
+      setError(purchasingErrorMessage(err, "errorLoadingDateList"));
       setPhase('complete');
     }
   };
@@ -1958,7 +1966,7 @@ export function DriveImportProgressDialog({
 
       if (!listResponse.ok) {
         const errorData = await listResponse.json();
-        setError(errorData.error || 'Không thể quét folder Google Drive');
+        setError(errorData.error || { copyKey: "unableToScanGoogleDriveFolder" });
         setPhase('complete');
         return;
       }
@@ -1967,7 +1975,7 @@ export function DriveImportProgressDialog({
       const dates: DateInfo[] = listData.dates || [];
 
       if (dates.length === 0) {
-        setError('Không tìm thấy folder ngày nào trong thư mục UNC');
+        setError({ copyKey: "noDateFoldersFoundInTheBankSlip" });
         setPhase('complete');
         return;
       }
@@ -2019,7 +2027,7 @@ export function DriveImportProgressDialog({
       }
 
       if (datesWithNewFiles.length === 0) {
-        setError('Tất cả file trong các folder ngày đã được import');
+        setError({ copyKey: "allFilesInTheDateFoldersWerePreviously" });
         setPhase('complete');
         return;
       }
@@ -2031,7 +2039,7 @@ export function DriveImportProgressDialog({
 
     } catch (err: any) {
       console.error('Error loading dates:', err);
-      setError(err.message || 'Đã xảy ra lỗi khi tải danh sách ngày');
+      setError(purchasingErrorMessage(err, "errorLoadingDateList"));
       setPhase('complete');
     }
   };
@@ -2046,7 +2054,7 @@ export function DriveImportProgressDialog({
     const pendingFiles = fileStatuses.filter(f => f.status === 'pending');
     const filesToProcess = pendingFiles.slice(0, MAX_BATCH_SCAN_FILES);
     if (pendingFiles.length > MAX_BATCH_SCAN_FILES) {
-      toast.warning(`Chỉ xử lý tối đa ${MAX_BATCH_SCAN_FILES} file mỗi lần. Vui lòng chạy tiếp cho các file còn lại.`);
+      toast.warning(formatText(pc.message156, { v0: MAX_BATCH_SCAN_FILES }));
     }
     const newPendingMatches: PendingMatch[] = [];
     const newUnmatchedSlips: UnmatchedSlip[] = [];
@@ -2095,18 +2103,18 @@ export function DriveImportProgressDialog({
                   originalFile
                 );
                 
-                toast.success(`Tự động xác nhận NCC "${pr.suppliers?.name}" (${Math.round(suggestedSupplier.matchScore * 100)}% match)`);
+                toast.success(formatText(pc.message157, { v0: pr.suppliers?.name, v1: Math.round(suggestedSupplier.matchScore * 100) }));
               } else {
                 // Manual confirmation required
                 setFiles(prev => prev.map(f => 
-                  f.id === file.id ? { ...f, status: 'pending', message: 'Chờ xác nhận NCC' } : f
+                  f.id === file.id ? { ...f, status: 'pending', message: { copyKey: "awaitingSupplierConfirmation" } } : f
                 ));
                 newPendingMatches.push(result.pendingMatch);
               }
             } else if (result.unmatched) {
               // Mark as unmatched - need to create PR
               setFiles(prev => prev.map(f => 
-                f.id === file.id ? { ...f, status: 'pending', message: 'Không tìm thấy PR khớp' } : f
+                f.id === file.id ? { ...f, status: 'pending', message: { copyKey: "noMatchingPRFound" } } : f
               ));
               newUnmatchedSlips.push(result.unmatched);
             }
@@ -2115,7 +2123,7 @@ export function DriveImportProgressDialog({
           } catch (err: any) {
             console.error(`Error processing file ${file.name}:`, err);
             setFiles(prev => prev.map(f => 
-              f.id === file.id ? { ...f, status: 'failed', message: err.message } : f
+              f.id === file.id ? { ...f, status: 'failed', message: purchasingErrorMessage(err, "anErrorOccurredWhileProcessing") } : f
             ));
             setStats(prev => ({ ...prev, failed: prev.failed + 1 }));
             setProcessedCount(prev => prev + 1);
@@ -2193,7 +2201,7 @@ export function DriveImportProgressDialog({
           id: file.id,
           name: file.name,
           status: processedIds.has(file.id) ? 'skipped' : 'pending',
-          message: processedIds.has(file.id) ? 'Đã import trước đó' : undefined,
+          message: processedIds.has(file.id) ? { copyKey: "previouslyImported" } : undefined,
           base64: file.base64,
           mimeType: file.mimeType,
         }));
@@ -2211,7 +2219,7 @@ export function DriveImportProgressDialog({
 
       const processSlipBatch = allFilesToProcess.slice(0, MAX_BATCH_SCAN_FILES);
       if (allFilesToProcess.length > MAX_BATCH_SCAN_FILES) {
-        toast.warning(`Chỉ xử lý tối đa ${MAX_BATCH_SCAN_FILES} file mỗi lần. Vui lòng chạy tiếp cho các file còn lại.`);
+        toast.warning(formatText(pc.message158, { v0: MAX_BATCH_SCAN_FILES }));
       }
 
       // Set total count for progress tracking
@@ -2256,16 +2264,16 @@ export function DriveImportProgressDialog({
                   }
                   
                   await processMatchedPR(file, pr, result.pendingMatch.slipData, folderDate, originalFile);
-                  toast.success(`Tự động xác nhận "${pr.suppliers?.name}"`);
+                  toast.success(formatText(pc.message159, { v0: pr.suppliers?.name }));
                 } else {
                   setFiles(prev => prev.map(f => 
-                    f.id === file.id ? { ...f, status: 'pending', message: 'Chờ xác nhận NCC' } : f
+                    f.id === file.id ? { ...f, status: 'pending', message: { copyKey: "awaitingSupplierConfirmation" } } : f
                   ));
                   allPendingMatches.push(result.pendingMatch);
                 }
               } else if (result.unmatched) {
                 setFiles(prev => prev.map(f => 
-                  f.id === file.id ? { ...f, status: 'pending', message: 'Không tìm thấy PR khớp' } : f
+                  f.id === file.id ? { ...f, status: 'pending', message: { copyKey: "noMatchingPRFound" } } : f
                 ));
                 allUnmatchedSlips.push(result.unmatched);
               }
@@ -2274,7 +2282,7 @@ export function DriveImportProgressDialog({
             } catch (err: any) {
               console.error(`Error processing file ${file.name}:`, err);
               setFiles(prev => prev.map(f => 
-                f.id === file.id ? { ...f, status: 'failed', message: err.message } : f
+                f.id === file.id ? { ...f, status: 'failed', message: purchasingErrorMessage(err, "anErrorOccurredWhileProcessing") } : f
               ));
               setStats(prev => ({ ...prev, failed: prev.failed + 1 }));
               setProcessedCount(prev => prev + 1);
@@ -2302,7 +2310,7 @@ export function DriveImportProgressDialog({
 
     } catch (err: any) {
       console.error('Error processing selected dates:', err);
-      setError(err.message || 'Đã xảy ra lỗi khi xử lý');
+      setError(purchasingErrorMessage(err, "anErrorOccurredWhileProcessing"));
       setPhase('complete');
     }
   };
@@ -2328,13 +2336,13 @@ export function DriveImportProgressDialog({
       // 2. Process the match (mark paid, create invoice with UNC image)
       await processMatchedPR(current.file, pr, current.slipData, current.folderDate, current.originalFile);
       
-      toast.success(`Đã cập nhật NCC "${pr.suppliers?.name}" với tên thanh toán "${current.slipData.recipient_name}"`);
+      toast.success(formatText(pc.message160, { v0: pr.suppliers?.name, v1: current.slipData.recipient_name }));
       
       // 3. Move to next or complete
       moveToNextPending();
     } catch (err: any) {
       console.error('Error confirming supplier match:', err);
-      toast.error(err.message || 'Có lỗi xảy ra khi xác nhận');
+      toast.error(renderPurchasingMessage(pc, purchasingErrorMessage(err, "anErrorOccurredDuringConfirmation")));
     } finally {
       setIsConfirming(false);
     }
@@ -2348,7 +2356,7 @@ export function DriveImportProgressDialog({
     // Mark file as skipped
     setFiles(prev => prev.map(f => 
       f.id === current.file.id 
-        ? { ...f, status: 'skipped', message: 'Bỏ qua - không xác nhận NCC' } 
+        ? { ...f, status: 'skipped', message: { copyKey: "skippedSupplierNotConfirmed" } }
         : f
     ));
     setStats(prev => ({ ...prev, skipped: prev.skipped + 1 }));
@@ -2397,10 +2405,10 @@ export function DriveImportProgressDialog({
 
         setFiles(prev => prev.map(f => 
           f.id === current.file.id 
-            ? { ...f, status: 'success', message: `Đã tồn tại ${existingPR?.request_number || 'PR'} (bỏ tạo trùng)` }
+            ? { ...f, status: 'success', message: { copyKey: "message161", values: { v0: existingPR?.request_number || 'PR' } } }
             : f
         ));
-        toast.info('UNC này đã được xử lý trước đó, hệ thống bỏ qua tạo trùng.');
+        toast.info(pc.thisBankSlipWasAlreadyProcessedDuplicateCreation);
         moveToNextUnmatched();
         return;
       }
@@ -2425,10 +2433,10 @@ export function DriveImportProgressDialog({
           });
           setFiles(prev => prev.map(f => 
             f.id === current.file.id 
-              ? { ...f, status: 'success', message: `Đã tồn tại ${existedPRByTxn.request_number} (bỏ tạo trùng)` }
+              ? { ...f, status: 'success', message: { copyKey: "message162", values: { v0: existedPRByTxn.request_number } } }
               : f
           ));
-          toast.info('UNC này đã có PR theo mã giao dịch, hệ thống bỏ qua tạo trùng.');
+          toast.info(pc.aPRAlreadyExistsForThisBankSlip);
           moveToNextUnmatched();
           return;
         }
@@ -2527,7 +2535,7 @@ export function DriveImportProgressDialog({
         });
         invoiceId = invoiceData.invoice_id;
       } else {
-        toast.warning('UNC chưa có dòng hàng chuẩn; đã tạo đề nghị chi nhưng chưa tạo hóa đơn.');
+        toast.warning(pc.theBankSlipHasNoCanonicalItemLines);
       }
 
       // 7. Update drive_file_index to mark as processed (idempotent)
@@ -2543,17 +2551,17 @@ export function DriveImportProgressDialog({
       // Update file status
       setFiles(prev => prev.map(f => 
         f.id === current.file.id 
-          ? { ...f, status: 'success', message: `Tạo ${requestNumber}`, resultId: prData.id } 
+          ? { ...f, status: 'success', message: { copyKey: "message163", values: { v0: requestNumber } }, resultId: prData.id }
           : f
       ));
 
-      toast.success(invoiceId ? `Đã tạo ${requestNumber} và hoá đơn từ UNC` : `Đã tạo ${requestNumber}; hóa đơn chờ bổ sung dòng hàng chuẩn`);
+      toast.success(invoiceId ? formatText(pc.message164, { v0: requestNumber }) : formatText(pc.message165, { v0: requestNumber }));
       setStats(prev => ({ ...prev, created: prev.created + 1 }));
       moveToNextUnmatched();
       
     } catch (err: any) {
       console.error('Error creating PR from UNC:', err);
-      toast.error(err.message || 'Có lỗi khi tạo đề nghị thanh toán');
+      toast.error(renderPurchasingMessage(pc, purchasingErrorMessage(err, "errorCreatingPaymentRequest")));
     } finally {
       setIsConfirming(false);
     }
@@ -2567,7 +2575,7 @@ export function DriveImportProgressDialog({
     // Mark file as skipped
     setFiles(prev => prev.map(f => 
       f.id === current.file.id 
-        ? { ...f, status: 'skipped', message: 'Bỏ qua - không tạo PR' } 
+        ? { ...f, status: 'skipped', message: { copyKey: "skippedNoPRCreated" } }
         : f
     ));
     setStats(prev => ({ ...prev, skipped: prev.skipped + 1 }));
@@ -2687,7 +2695,7 @@ export function DriveImportProgressDialog({
       f.id === file.id ? { 
         ...f, 
         status: 'success', 
-        message: `Khớp ${matchedPR.request_number}`,
+        message: { copyKey: "message166", values: { v0: matchedPR.request_number } },
         resultId: matchedPR.id 
       } : f
     ));
@@ -2717,14 +2725,14 @@ export function DriveImportProgressDialog({
     );
 
     if (!scanResponse.ok) {
-      throw new Error('Không thể đọc thông tin UNC');
+      throw new PurchasingLocalError({ copyKey: "unableToReadBankSlipInformation" });
     }
 
     const scanData = await scanResponse.json();
     const slipData = scanData.data;
 
     if (!slipData.amount) {
-      throw new Error('Không tìm thấy số tiền trong UNC');
+      throw new PurchasingLocalError({ copyKey: "noAmountFoundOnTheBankSlip" });
     }
 
     // Find matching payment request
@@ -2775,7 +2783,7 @@ export function DriveImportProgressDialog({
     }
 
     if (exactMatches.length > 1) {
-      throw new Error(`Tìm thấy ${exactMatches.length} PR khớp, cần xử lý thủ công`);
+      throw new PurchasingLocalError({ copyKey: "message167", values: { v0: exactMatches.length } });
     }
 
     // No exact match - find amount-only matches for confirmation
@@ -2799,7 +2807,7 @@ export function DriveImportProgressDialog({
     }
 
     if (amountOnlyMatches.length > 1) {
-      throw new Error(`Tìm thấy ${amountOnlyMatches.length} PR có cùng số tiền, cần xử lý thủ công`);
+      throw new PurchasingLocalError({ copyKey: "message168", values: { v0: amountOnlyMatches.length } });
     }
 
     // No match at all - return as unmatched to allow creating new PR
@@ -2846,37 +2854,37 @@ export function DriveImportProgressDialog({
   const getPhaseMessage = () => {
     switch (phase) {
       case 'checking_config':
-        return 'Đang kiểm tra cấu hình...';
+        return pc.checkingConfiguration;
       case 'auto_scanning':
-        return 'Đang quét tất cả folder PO...';
+        return pc.scanningAllPOFolders;
       case 'checking_today':
         return importType === 'po' 
-          ? `Đang quét thư mục PO: /${currentDate || ''}...`
-          : `Đang kiểm tra folder ngày ${currentDate}...`;
+          ? formatText(pc.message169, { v0: currentDate || '' })
+          : formatText(pc.message170, { v0: currentDate });
       case 'browse_folders':
-        return importType === 'po' ? 'Duyệt thư mục PO để chọn nơi cần quét' : 'Duyệt thư mục UNC để chọn nơi cần quét';
+        return importType === 'po' ? pc.browsePOFoldersToSelectALocationTo : pc.browseBankSlipFoldersToSelectALocation;
       case 'no_new_files_prompt':
-        return importType === 'po' ? 'Không có PO mới hôm nay' : 'Không có file mới hôm nay';
+        return importType === 'po' ? pc.noNewPOsToday : pc.noNewFilesToday;
       case 'loading_dates':
-        return 'Đang tải danh sách ngày...';
+        return pc.loadingDateList;
       case 'select_dates':
-        return 'Chọn ngày để cập nhật';
+        return pc.selectDatesToUpdate;
       case 'select_po_files':
-        return importType === 'po' ? `Phát hiện PO mới trong thư mục /${currentDate || ''}` : `Phát hiện file mới ngày ${formatFolderDate(currentDate)}`;
+        return importType === 'po' ? formatText(pc.message171, { v0: currentDate || '' }) : formatText(pc.message172, { v0: renderFolderDate(currentDate) });
       case 'scanning_folder':
-        return `Đang quét folder ngày ${currentDate}...`;
+        return formatText(pc.message173, { v0: currentDate });
       case 'processing_files':
         return totalFilesToProcess > 0 
-          ? `Đang xử lý ${processedCount}/${totalFilesToProcess} files...`
-          : 'Đang xử lý files...';
+          ? formatText(pc.message174, { v0: processedCount, v1: totalFilesToProcess })
+          : pc.processingFiles;
       case 'confirm_supplier_name':
-        return `Xác nhận NCC (${currentPendingIndex + 1}/${pendingMatches.length})`;
+        return formatText(pc.message175, { v0: currentPendingIndex + 1, v1: pendingMatches.length });
       case 'create_pr_from_unc':
-        return `Tạo PR từ UNC (${currentUnmatchedIndex + 1}/${unmatchedSlips.length})`;
+        return formatText(pc.message176, { v0: currentUnmatchedIndex + 1, v1: unmatchedSlips.length });
       case 'confirm_po_supplier':
-        return `Xác nhận NCC cho PO (${currentUnmatchedPOIndex + 1}/${unmatchedPOFiles.length})`;
+        return formatText(pc.message177, { v0: currentUnmatchedPOIndex + 1, v1: unmatchedPOFiles.length });
       case 'complete':
-        return error ? 'Có lỗi xảy ra' : 'Hoàn tất';
+        return error ? pc.anErrorOccurred2 : pc.complete;
       default:
         return '';
     }
@@ -2916,13 +2924,13 @@ export function DriveImportProgressDialog({
         <div className="space-y-4">
           <div className="text-sm text-muted-foreground">
             {importType === 'po'
-              ? <>Duyệt thư mục trong folder gốc PO. Chọn thư mục cần quét rồi bấm <b>Scan thư mục</b>.</>
-              : <>Duyệt thư mục trong folder gốc UNC. Chọn thư mục cần quét rồi bấm <b>Scan thư mục</b>.</>
+              ? <>{pc.browseWithinThePORootFolderSelectA} <b>{pc.scanFolder}</b>.</>
+              : <>{pc.browseWithinTheBankSlipRootFolderSelect} <b>{pc.scanFolder}</b>.</>
             }
           </div>
           <div className="rounded border p-2 text-xs">
-            <div><b>Đường dẫn hiện tại:</b> /{browsePath || ''}</div>
-            {selectedScanPath && <div className="text-primary"><b>Đã chọn:</b> /{selectedScanPath}</div>}
+            <div><b>{pc.currentPath}</b> /{browsePath || ''}</div>
+            {selectedScanPath && <div className="text-primary"><b>{pc.selected}</b> /{selectedScanPath}</div>}
           </div>
           <ScrollArea className="h-[260px] border rounded-lg p-2">
             <div className="space-y-1">
@@ -2938,7 +2946,7 @@ export function DriveImportProgressDialog({
                   >
                     <div className="flex items-center justify-between gap-2">
                       <div className="truncate">📁 {f.name}</div>
-                      <div className="text-[11px] text-muted-foreground">{f.imageCount} ảnh · {f.childFolderCount} thư mục con</div>
+                      <div className="text-[11px] text-muted-foreground">{f.imageCount}  {pc.images} {f.childFolderCount}  {pc.subfolders}</div>
                     </div>
                     {f.hasChildren && (
                       <div className="mt-1">
@@ -2953,14 +2961,13 @@ export function DriveImportProgressDialog({
                             setSelectedScanPath(fullPath);
                           }}
                         >
-                          Mở thư mục con
-                        </Button>
+                           {pc.openSubfolder} </Button>
                       </div>
                     )}
                   </button>
                 );
               })}
-              {browseFolders.length === 0 && <div className="text-sm text-muted-foreground p-2">Không có thư mục con.</div>}
+              {browseFolders.length === 0 && <div className="text-sm text-muted-foreground p-2">{pc.noSubfolders}</div>}
             </div>
           </ScrollArea>
         </div>
@@ -2975,14 +2982,14 @@ export function DriveImportProgressDialog({
           <div className="space-y-2">
             <p className="text-sm">
               {importType === 'po' 
-                ? `Không có PO mới trong folder ngày hôm nay (${formatFolderDate(currentDate)}).`
-                : `Không có UNC mới trong folder ngày hôm nay (${formatFolderDate(currentDate)}).`
+                ? formatText(pc.message178, { v0: renderFolderDate(currentDate) })
+                : formatText(pc.message179, { v0: renderFolderDate(currentDate) })
               }
             </p>
             <p className="text-sm font-medium">
               {importType === 'po'
-                ? 'Bạn có muốn kiểm tra các ngày khác không?'
-                : 'Bạn có muốn kiểm tra các đề nghị thanh toán chưa được cập nhật và quét UNC các ngày trước không?'
+                ? pc.wouldYouLikeToCheckOtherDates
+                : pc.wouldYouLikeToCheckPaymentRequestsAwaiting
               }
             </p>
           </div>
@@ -3001,12 +3008,12 @@ export function DriveImportProgressDialog({
             <div className="flex items-center gap-2">
               <CheckCircle2 className="h-5 w-5 text-primary" />
               <p className="font-medium">
-                Phát hiện {newFilesCount} {itemLabel} mới trong thư mục /{currentDate || ''}
+                 {pc.found} {newFilesCount} {itemLabel}  {pc.newInFolder}{currentDate || ''}
               </p>
             </div>
           </div>
 
-          <p className="text-sm font-medium">Bạn muốn xử lý những file nào?</p>
+          <p className="text-sm font-medium">{pc.whichFilesWouldYouLikeToProcess}</p>
           
           <RadioGroup 
             value={poSelectionMode} 
@@ -3015,11 +3022,11 @@ export function DriveImportProgressDialog({
           >
             <div className="flex items-center space-x-2">
               <RadioGroupItem value="all" id="po-all" />
-              <Label htmlFor="po-all" className="cursor-pointer">Xử lý tất cả ({newFilesCount} file)</Label>
+              <Label htmlFor="po-all" className="cursor-pointer">{pc.processAll}{newFilesCount}  {pc.files}</Label>
             </div>
             <div className="flex items-center space-x-2">
               <RadioGroupItem value="select" id="po-select" />
-              <Label htmlFor="po-select" className="cursor-pointer">Chọn từng file:</Label>
+              <Label htmlFor="po-select" className="cursor-pointer">{pc.selectIndividualFiles}</Label>
             </div>
           </RadioGroup>
           
@@ -3053,18 +3060,18 @@ export function DriveImportProgressDialog({
         <div className="space-y-4">
           {/* Summary of available files */}
           <div className="space-y-2">
-            <p className="text-sm font-medium">Hiện có:</p>
+            <p className="text-sm font-medium">{pc.available}</p>
             <ul className="text-sm space-y-1 ml-2">
               {availableDates.map(d => (
                 <li key={d.date} className="flex items-center gap-2">
                   <FileImage className="h-3 w-3 text-muted-foreground" />
-                  <span><strong>{d.fileCount}</strong> {itemLabel} ngày {formatFolderDate(d.date)}</span>
+                  <span><strong>{d.fileCount}</strong> {itemLabel}  {pc.days} {renderFolderDate(d.date)}</span>
                 </li>
               ))}
             </ul>
           </div>
 
-          <p className="text-sm font-medium pt-2">Bạn muốn {importType === 'po' ? 'quét' : 'cập nhật'} ngày nào?</p>
+          <p className="text-sm font-medium pt-2">{pc.wouldYouLikeTo} {importType === 'po' ? pc.scan : pc.update}  {pc.whichDates}</p>
           
           <div className="space-y-3">
             <RadioGroup 
@@ -3075,14 +3082,12 @@ export function DriveImportProgressDialog({
               <div className="flex items-center space-x-2">
                 <RadioGroupItem value="all" id="mode-all" />
                 <Label htmlFor="mode-all" className="cursor-pointer">
-                  {importType === 'po' ? 'Quét' : 'Cập nhật'} tất cả ({availableDates.reduce((sum, d) => sum + d.fileCount, 0)} file)
-                </Label>
+                  {importType === 'po' ? pc.scan2 : pc.update2}  {pc.all}{availableDates.reduce((sum, d) => sum + d.fileCount, 0)}  {pc.files} </Label>
               </div>
               <div className="flex items-center space-x-2">
                 <RadioGroupItem value="select" id="mode-select" />
                 <Label htmlFor="mode-select" className="cursor-pointer">
-                  Chọn từng ngày:
-                </Label>
+                   {pc.selectIndividualDates} </Label>
               </div>
             </RadioGroup>
             
@@ -3101,8 +3106,7 @@ export function DriveImportProgressDialog({
                         className="text-sm cursor-pointer flex items-center gap-2"
                       >
                         <FileImage className="h-3 w-3 text-muted-foreground" />
-                        Ngày {formatFolderDate(item.date)} ({item.fileCount} file)
-                      </Label>
+                         {pc.date} {renderFolderDate(item.date)} ({item.fileCount}  {pc.files} </Label>
                     </div>
                   ))}
                 </div>
@@ -3124,23 +3128,22 @@ export function DriveImportProgressDialog({
             <div className="flex items-start gap-3">
               <AlertCircle className="h-5 w-5 text-amber-600 mt-0.5 flex-shrink-0" />
               <div className="space-y-2 flex-1">
-                <p className="font-medium">UNC khớp số tiền nhưng khác tên NCC</p>
+                <p className="font-medium">{pc.bankSlipAmountMatchesButSupplierNameDiffers}</p>
                 <div className="text-sm space-y-1">
-                  <p><strong>Số tiền:</strong> {current.slipData.amount?.toLocaleString()}đ ✓</p>
-                  <p><strong>Tên trên UNC:</strong> {current.slipData.recipient_name}</p>
-                  <p><strong>Tên NCC trong hệ thống:</strong> {pr.suppliers?.name}</p>
-                  <p><strong>Mã PR:</strong> {pr.request_number}</p>
+                  <p><strong>{pc.amount}</strong> {current.slipData.amount?.toLocaleString()}đ ✓</p>
+                  <p><strong>{pc.nameOnBankSlip}</strong> {current.slipData.recipient_name}</p>
+                  <p><strong>{pc.supplierNameInSystem}</strong> {pr.suppliers?.name}</p>
+                  <p><strong>{pc.pRNumber}</strong> {pr.request_number}</p>
                 </div>
               </div>
             </div>
           </div>
           
           <p className="text-sm text-center">
-            Xác nhận đây là thanh toán của <strong>{pr.suppliers?.name}</strong>?
+             {pc.confirmThisIsAPaymentFrom} <strong>{pr.suppliers?.name}</strong>?
           </p>
           <p className="text-xs text-muted-foreground text-center">
-            Nếu đồng ý, tên "<strong>{current.slipData.recipient_name}</strong>" sẽ được lưu vào NCC để tự động khớp lần sau.
-          </p>
+             {pc.ifConfirmedTheName}<strong>{current.slipData.recipient_name}</strong>{pc.willBeSavedToTheSupplierForFuture} </p>
         </div>
       );
     }
@@ -3155,24 +3158,23 @@ export function DriveImportProgressDialog({
             <div className="flex items-start gap-3">
               <AlertCircle className="h-5 w-5 text-amber-600 mt-0.5 flex-shrink-0" />
               <div className="space-y-2 flex-1">
-                <p className="font-medium">PO có tên thanh toán nhưng không tìm thấy NCC</p>
+                <p className="font-medium">{pc.pOHasAPaymentNameButNoSupplier}</p>
                 <div className="text-sm space-y-1">
-                  <p><strong>File:</strong> {current.file.name}</p>
-                  <p><strong>Tên trên PO:</strong> {current.supplierName}</p>
+                  <p><strong>{pc.fieldFile}</strong> {current.file.name}</p>
+                  <p><strong>{pc.nameOnPO}</strong> {current.supplierName}</p>
                   {current.poData?.total_amount && (
-                    <p><strong>Số tiền:</strong> {current.poData.total_amount.toLocaleString()}đ</p>
+                    <p><strong>{pc.amount}</strong> {current.poData.total_amount.toLocaleString()}đ</p>
                   )}
                   {current.suggestedSupplier && (
                     <p className="text-amber-700 dark:text-amber-400">
-                      <strong>Gợi ý:</strong> {current.suggestedSupplier.name} ({Math.round(current.suggestedSupplier.matchScore * 100)}% khớp)
-                    </p>
+                      <strong>{pc.suggestions}</strong> {current.suggestedSupplier.name} ({Math.round(current.suggestedSupplier.matchScore * 100)}{pc.match} </p>
                   )}
                 </div>
               </div>
             </div>
           </div>
           
-          <p className="text-sm font-medium">Bạn muốn làm gì?</p>
+          <p className="text-sm font-medium">{pc.whatWouldYouLikeToDo}</p>
           
           <RadioGroup 
             value={poSupplierAction} 
@@ -3191,8 +3193,7 @@ export function DriveImportProgressDialog({
               <div className="flex items-center space-x-2">
                 <RadioGroupItem value="select" id="po-select-supplier" />
                 <Label htmlFor="po-select-supplier" className="cursor-pointer font-medium">
-                  Chọn NCC có sẵn
-                </Label>
+                   {pc.selectExistingSupplier} </Label>
               </div>
               
               {/* Nested dropdown - only show when "select" is chosen */}
@@ -3203,14 +3204,13 @@ export function DriveImportProgressDialog({
                     onValueChange={(v) => setSelectedPOSupplierId(v === '_none' ? null : v)}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Chọn NCC..." />
+                      <SelectValue placeholder={pc.selectSupplier} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="_none">-- Chọn NCC --</SelectItem>
+                      <SelectItem value="_none">{pc.selectSupplier2}</SelectItem>
                       {current.suggestedSupplier && (
                         <SelectItem value={current.suggestedSupplier.id}>
-                          ★ {current.suggestedSupplier.name} (gợi ý)
-                        </SelectItem>
+                          ★ {current.suggestedSupplier.name}  {pc.suggested} </SelectItem>
                       )}
                       {allSuppliers
                         .filter(s => s.id !== current.suggestedSupplier?.id)
@@ -3229,10 +3229,8 @@ export function DriveImportProgressDialog({
                         onCheckedChange={(checked) => setSavePOBankName(checked === true)}
                       />
                       <Label htmlFor="save-po-bank-name" className="text-sm cursor-pointer leading-tight">
-                        Lưu "<strong>{current.supplierName}</strong>" làm tên thanh toán
-                        <span className="block text-xs text-muted-foreground mt-0.5">
-                          (Để tự động khớp lần sau)
-                        </span>
+                         {pc.save}<strong>{current.supplierName}</strong>{pc.asThePaymentName} <span className="block text-xs text-muted-foreground mt-0.5">
+                           {pc.forFutureAutomaticMatching} </span>
                       </Label>
                     </div>
                   )}
@@ -3245,35 +3243,34 @@ export function DriveImportProgressDialog({
               <div className="flex items-center space-x-2">
                 <RadioGroupItem value="create" id="po-create-supplier" />
                 <Label htmlFor="po-create-supplier" className="cursor-pointer font-medium">
-                  Tạo NCC mới
-                </Label>
+                   {pc.createSupplier} </Label>
               </div>
               
               {/* Nested form - only show when "create" is chosen */}
               {poSupplierAction === 'create' && (
                 <div className="space-y-3 ml-6 p-3 border rounded-lg bg-muted/30">
                   <div className="space-y-1.5">
-                    <Label htmlFor="new-supplier-name" className="text-sm">Tên NCC <span className="text-destructive">*</span></Label>
+                    <Label htmlFor="new-supplier-name" className="text-sm">{pc.supplierName} <span className="text-destructive">*</span></Label>
                     <Input
                       id="new-supplier-name"
                       value={newSupplierName}
                       onChange={(e) => setNewSupplierName(e.target.value)}
-                      placeholder="Nhập tên nhà cung cấp..."
+                      placeholder={pc.enterSupplierName}
                     />
                   </div>
                   
                   <div className="space-y-1.5">
-                    <Label htmlFor="new-supplier-phone" className="text-sm">Số điện thoại</Label>
+                    <Label htmlFor="new-supplier-phone" className="text-sm">{pc.phoneNumber}</Label>
                     <Input
                       id="new-supplier-phone"
                       value={newSupplierPhone}
                       onChange={(e) => setNewSupplierPhone(e.target.value)}
-                      placeholder="(Tùy chọn)"
+                      placeholder={pc.optional}
                     />
                   </div>
                   
                   <div className="space-y-1.5">
-                    <Label className="text-sm">Phương thức thanh toán</Label>
+                    <Label className="text-sm">{pc.paymentMethod}</Label>
                     <RadioGroup
                       value={newSupplierPaymentMethod}
                       onValueChange={(v: 'bank_transfer' | 'cash') => setNewSupplierPaymentMethod(v)}
@@ -3281,11 +3278,11 @@ export function DriveImportProgressDialog({
                     >
                       <div className="flex items-center space-x-2">
                         <RadioGroupItem value="bank_transfer" id="payment-unc" />
-                        <Label htmlFor="payment-unc" className="cursor-pointer text-sm">Chuyển khoản</Label>
+                        <Label htmlFor="payment-unc" className="cursor-pointer text-sm">{pc.bankTransfer}</Label>
                       </div>
                       <div className="flex items-center space-x-2">
                         <RadioGroupItem value="cash" id="payment-cash" />
-                        <Label htmlFor="payment-cash" className="cursor-pointer text-sm">Tiền mặt</Label>
+                        <Label htmlFor="payment-cash" className="cursor-pointer text-sm">{pc.cash}</Label>
                       </div>
                     </RadioGroup>
                   </div>
@@ -3303,17 +3300,15 @@ export function DriveImportProgressDialog({
                 onCheckedChange={(checked) => setVatIncludedChoice(checked === true ? true : null)}
               />
               <Label htmlFor="vat-included" className="text-sm cursor-pointer leading-tight">
-                NCC này có giá đã bao gồm VAT (không có dòng VAT riêng)
-                <span className="block text-xs text-muted-foreground mt-0.5">
-                  Lưu để các lần scan sau tự động bỏ qua VAT
-                </span>
+                 {pc.thisSupplierUsesVATInclusivePricesNoSeparate} <span className="block text-xs text-muted-foreground mt-0.5">
+                   {pc.saveToAutomaticallySkipVATOnFutureScans} </span>
               </Label>
             </div>
           </div>
 
           {unmatchedPOFiles.length > 1 && (
             <p className="text-xs text-muted-foreground text-center">
-              File {currentUnmatchedPOIndex + 1}/{unmatchedPOFiles.length}
+               {pc.file} {currentUnmatchedPOIndex + 1}/{unmatchedPOFiles.length}
             </p>
           )}
         </div>
@@ -3328,18 +3323,18 @@ export function DriveImportProgressDialog({
             <div className="flex items-start gap-3">
               <CheckCircle2 className="h-5 w-5 text-green-600 mt-0.5 flex-shrink-0" />
               <div className="space-y-1">
-                <p className="font-medium">Đã tạo {pendingPOForPR.poNumber} thành công!</p>
+                <p className="font-medium">{pc.created} {pendingPOForPR.poNumber}  {pc.successfully}</p>
                 <div className="text-sm text-muted-foreground space-y-0.5">
-                  <p>NCC: {pendingPOForPR.supplierName || 'Chưa xác định'}</p>
+                  <p>{pc.supplier2} {pendingPOForPR.supplierName || pc.notSpecified}</p>
                   {pendingPOForPR.poData?.total_amount && (
-                    <p>Số tiền: {pendingPOForPR.poData.total_amount.toLocaleString()}đ</p>
+                    <p>{pc.amount} {pendingPOForPR.poData.total_amount.toLocaleString()}đ</p>
                   )}
                 </div>
               </div>
             </div>
           </div>
           
-          <p className="text-sm font-medium">Bạn muốn tạo đề nghị thanh toán (PR) như thế nào?</p>
+          <p className="text-sm font-medium">{pc.howWouldYouLikeToCreateThePayment}</p>
           
           <RadioGroup 
             value={prCreationMode} 
@@ -3349,19 +3344,17 @@ export function DriveImportProgressDialog({
             <div className="flex items-start space-x-2 p-3 border rounded-lg hover:bg-muted/50 transition-colors">
               <RadioGroupItem value="auto" id="pr-auto" className="mt-0.5" />
               <Label htmlFor="pr-auto" className="cursor-pointer flex-1">
-                <span className="font-medium">Tạo tự động</span>
+                <span className="font-medium">{pc.createAutomatically}</span>
                 <span className="block text-xs text-muted-foreground mt-0.5">
-                  Hệ thống tự tạo PR với thông tin từ PO
-                </span>
+                   {pc.createThePRAutomaticallyUsingPOInformation} </span>
               </Label>
             </div>
             <div className="flex items-start space-x-2 p-3 border rounded-lg hover:bg-muted/50 transition-colors">
               <RadioGroupItem value="manual" id="pr-manual" className="mt-0.5" />
               <Label htmlFor="pr-manual" className="cursor-pointer flex-1">
-                <span className="font-medium">Nhập thủ công</span>
+                <span className="font-medium">{pc.enterManually}</span>
                 <span className="block text-xs text-muted-foreground mt-0.5">
-                  Mở form tạo PR để bạn chỉnh sửa trước khi lưu
-                </span>
+                   {pc.openThePRFormToEditBeforeSaving} </span>
               </Label>
             </div>
           </RadioGroup>
@@ -3369,8 +3362,7 @@ export function DriveImportProgressDialog({
           {/* Show queue progress indicator */}
           {pendingPOQueue.length > 1 && (
             <p className="text-xs text-muted-foreground text-center">
-              PO {pendingPOQueue.length - pendingPOQueue.indexOf(pendingPOForPR)}/{pendingPOQueue.length + stats.created} đã xử lý
-            </p>
+               {pc.fieldPO} {pendingPOQueue.length - pendingPOQueue.indexOf(pendingPOForPR)}/{pendingPOQueue.length + stats.created}  {pc.processed} </p>
           )}
         </div>
       );
@@ -3381,7 +3373,7 @@ export function DriveImportProgressDialog({
       return (
         <div className="flex items-center justify-center py-8">
           <Loader2 className="h-6 w-6 animate-spin mr-2" />
-          <span>Đang chuẩn bị...</span>
+          <span>{pc.preparing}</span>
         </div>
       );
     }
@@ -3396,24 +3388,23 @@ export function DriveImportProgressDialog({
             <div className="flex items-start gap-3">
               <Plus className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
               <div className="space-y-2 flex-1">
-                <p className="font-medium">UNC không tìm thấy PR khớp</p>
+                <p className="font-medium">{pc.noMatchingPRForThisBankSlip}</p>
                 <div className="text-sm space-y-1">
-                  <p><strong>Số tiền:</strong> {current.slipData.amount?.toLocaleString()}đ</p>
-                  <p><strong>Tên người nhận:</strong> {current.slipData.recipient_name}</p>
+                  <p><strong>{pc.amount}</strong> {current.slipData.amount?.toLocaleString()}đ</p>
+                  <p><strong>{pc.recipientName}</strong> {current.slipData.recipient_name}</p>
                   {current.slipData.transaction_date && (
-                    <p><strong>Ngày GD:</strong> {current.slipData.transaction_date}</p>
+                    <p><strong>{pc.transactionDate}</strong> {current.slipData.transaction_date}</p>
                   )}
                   {current.suggestedSupplier && (
                     <p className="text-blue-600">
-                      <strong>Gợi ý NCC:</strong> {current.suggestedSupplier.name} ({Math.round(current.suggestedSupplier.matchScore * 100)}% khớp)
-                    </p>
+                      <strong>{pc.suggestedSupplier}</strong> {current.suggestedSupplier.name} ({Math.round(current.suggestedSupplier.matchScore * 100)}{pc.match} </p>
                   )}
                 </div>
               </div>
             </div>
           </div>
           
-          <p className="text-sm font-medium">Bạn muốn làm gì với UNC này?</p>
+          <p className="text-sm font-medium">{pc.whatWouldYouLikeToDoWithThis}</p>
           
           <RadioGroup 
             value={actionMode} 
@@ -3423,34 +3414,31 @@ export function DriveImportProgressDialog({
             <div className="flex items-center space-x-2">
               <RadioGroupItem value="create_pr" id="create-pr" />
               <Label htmlFor="create-pr" className="cursor-pointer">
-                Tạo đề nghị thanh toán mới (đã duyệt + đã thanh toán)
-              </Label>
+                 {pc.createPaymentRequestApprovedPaid} </Label>
             </div>
             <div className="flex items-center space-x-2">
               <RadioGroupItem value="skip" id="skip-unc" />
               <Label htmlFor="skip-unc" className="cursor-pointer">
-                Bỏ qua UNC này
-              </Label>
+                 {pc.skipThisBankSlip} </Label>
             </div>
           </RadioGroup>
 
           {actionMode === 'create_pr' && (
             <div className="space-y-3 ml-6 p-3 border rounded-lg bg-muted/30">
-              <p className="text-sm font-medium">Chọn nhà cung cấp:</p>
+              <p className="text-sm font-medium">{pc.selectSupplier3}</p>
               
               <Select 
                 value={selectedSupplierId || '_none'} 
                 onValueChange={(v) => setSelectedSupplierId(v === '_none' ? null : v)}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Chọn NCC..." />
+                  <SelectValue placeholder={pc.selectSupplier} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="_none">-- Chọn NCC --</SelectItem>
+                  <SelectItem value="_none">{pc.selectSupplier2}</SelectItem>
                   {current.suggestedSupplier && (
                     <SelectItem value={current.suggestedSupplier.id}>
-                      ★ {current.suggestedSupplier.name} (gợi ý)
-                    </SelectItem>
+                      ★ {current.suggestedSupplier.name}  {pc.suggested} </SelectItem>
                   )}
                   {allSuppliers
                     .filter(s => s.id !== current.suggestedSupplier?.id)
@@ -3469,10 +3457,8 @@ export function DriveImportProgressDialog({
                     onCheckedChange={(checked) => setUpdateBankName(checked === true)}
                   />
                   <Label htmlFor="update-bank-name" className="text-sm cursor-pointer leading-tight">
-                    Lưu "<strong>{current.slipData.recipient_name}</strong>" làm tên thanh toán của NCC này
-                    <span className="block text-xs text-muted-foreground mt-0.5">
-                      (Để tự động khớp lần sau)
-                    </span>
+                     {pc.save}<strong>{current.slipData.recipient_name}</strong>{pc.asThisSupplierSPaymentName} <span className="block text-xs text-muted-foreground mt-0.5">
+                       {pc.forFutureAutomaticMatching} </span>
                   </Label>
                 </div>
               )}
@@ -3499,7 +3485,7 @@ export function DriveImportProgressDialog({
           {/* Progress bar */}
           <div className="space-y-2">
             <div className="flex justify-between text-sm">
-              <span>Đang xử lý...</span>
+              <span>{pc.processing}</span>
               <span>{processedCount}/{totalFilesToProcess} ({progressPercent}%)</span>
             </div>
             <Progress value={progressPercent} className="h-2" />
@@ -3519,7 +3505,7 @@ export function DriveImportProgressDialog({
                     {file.message && (
                       <p className="text-xs text-muted-foreground flex items-center gap-1">
                         <ArrowRight className="h-3 w-3" />
-                        {file.message}
+                        {renderPurchasingMessage(pc, file.message)}
                       </p>
                     )}
                   </div>
@@ -3536,16 +3522,16 @@ export function DriveImportProgressDialog({
     return (
       <>
         {error && phase === 'complete' && (
-          error === 'Chưa có UNC để cập nhật' || error === 'Không có file PO mới để import' ? (
+          typeof error !== "string" && (error?.copyKey === "noBankSlipsToUpdate" || error?.copyKey === "noNewPOFilesToImport") ? (
             <div className="text-center space-y-4 py-4">
               <AlertCircle className="h-12 w-12 mx-auto text-muted-foreground" />
               <p className="text-sm text-muted-foreground">
-                {error}
+                {renderPurchasingMessage(pc, error)}
               </p>
             </div>
           ) : (
             <div className="bg-destructive/10 text-destructive rounded-lg p-4 text-sm">
-              {error}
+              {renderPurchasingMessage(pc, error)}
             </div>
           )
         )}
@@ -3564,7 +3550,7 @@ export function DriveImportProgressDialog({
                     {file.message && (
                       <p className="text-xs text-muted-foreground flex items-center gap-1">
                         <ArrowRight className="h-3 w-3" />
-                        {file.message}
+                        {renderPurchasingMessage(pc, file.message)}
                       </p>
                     )}
                   </div>
@@ -3580,31 +3566,31 @@ export function DriveImportProgressDialog({
             <CheckCircle2 className="h-12 w-12 mx-auto text-primary" />
             <p className="text-lg font-medium">
               {importType === 'po' 
-                ? `Đã tạo ${stats.created} đơn đặt hàng + đề nghị thanh toán!`
+                ? formatText(pc.message180, { v0: stats.created })
                 : stats.created > 0 
-                  ? `Đã cập nhật ${stats.matched} và tạo mới ${stats.created} đề nghị thanh toán!`
-                  : `Đã cập nhật ${stats.matched} đề nghị thanh toán thành công!`
+                  ? formatText(pc.message181, { v0: stats.matched, v1: stats.created })
+                  : formatText(pc.message182, { v0: stats.matched })
               }
             </p>
             <div className="flex flex-wrap justify-center gap-2">
               {importType === 'po' ? (
                 <>
-                  <Badge variant="secondary">PO: {stats.created}</Badge>
-                  <Badge variant="default">PR: {stats.created}</Badge>
+                  <Badge variant="secondary">{pc.fieldPOLabel} {stats.created}</Badge>
+                  <Badge variant="default">{pc.fieldPR} {stats.created}</Badge>
                 </>
               ) : (
                 <>
-                  <Badge variant="secondary">Khớp thanh toán: {stats.matched}</Badge>
+                  <Badge variant="secondary">{pc.matchedPayments} {stats.matched}</Badge>
                   {stats.created > 0 && (
-                    <Badge variant="default">Tạo mới: {stats.created}</Badge>
+                    <Badge variant="default">{pc.created2} {stats.created}</Badge>
                   )}
                 </>
               )}
               {stats.skipped > 0 && (
-                <Badge variant="outline">Bỏ qua: {stats.skipped}</Badge>
+                <Badge variant="outline">{pc.skipped} {stats.skipped}</Badge>
               )}
               {stats.failed > 0 && (
-                <Badge variant="destructive">Lỗi: {stats.failed}</Badge>
+                <Badge variant="destructive">{pc.error} {stats.failed}</Badge>
               )}
             </div>
           </div>
@@ -3625,7 +3611,7 @@ export function DriveImportProgressDialog({
     if (phase === 'browse_folders') {
       return (
         <DialogFooter className="gap-2">
-          <Button variant="outline" onClick={() => onClose()}>Hủy</Button>
+          <Button variant="outline" onClick={() => onClose()}>{pc.cancel}</Button>
           <Button
             variant="outline"
             onClick={() => {
@@ -3636,14 +3622,12 @@ export function DriveImportProgressDialog({
             }}
             disabled={browseHistory.length === 0}
           >
-            <ArrowLeft className="h-4 w-4 mr-2" />Back
-          </Button>
+            <ArrowLeft className="h-4 w-4 mr-2" />{pc.back} </Button>
           <Button
             onClick={() => importType === 'po' ? scanPOPath(selectedScanPath || browsePath) : scanBankSlipPath(selectedScanPath || browsePath)}
             disabled={!selectedScanPath && !browsePath}
           >
-            Scan thư mục
-          </Button>
+             {pc.scanFolder} </Button>
         </DialogFooter>
       );
     }
@@ -3652,11 +3636,10 @@ export function DriveImportProgressDialog({
       return (
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={() => onClose()}>
-            Hủy
-          </Button>
+             {pc.cancel} </Button>
           <Button onClick={importType === 'po' || forceFolderPicker ? () => setPhase('browse_folders') : loadAllDates}>
             <Search className="h-4 w-4 mr-2" />
-            {importType === 'po' ? 'Duyệt thư mục khác' : 'Kiểm tra các ngày khác'}
+            {importType === 'po' ? pc.browseAnotherFolder : pc.checkOtherDates}
           </Button>
         </DialogFooter>
       );
@@ -3670,13 +3653,12 @@ export function DriveImportProgressDialog({
       return (
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={() => onClose()}>
-            Hủy
-          </Button>
+             {pc.cancel} </Button>
           <Button 
             onClick={importType === 'po' ? startProcessingSelectedPO : startProcessingSelectedBankSlipFiles}
             disabled={selectedCount === 0}
           >
-            {importType === 'po' ? `Quét + tạo PO + upload ${selectedCount} file` : `Quét + cập nhật UNC ${selectedCount} file`}
+            {importType === 'po' ? formatText(pc.message183, { v0: selectedCount }) : formatText(pc.message184, { v0: selectedCount })}
           </Button>
         </DialogFooter>
       );
@@ -3686,17 +3668,16 @@ export function DriveImportProgressDialog({
       return (
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={() => onClose()}>
-            Hủy
-          </Button>
+             {pc.cancel} </Button>
           <Button 
             onClick={importType === 'po' ? startProcessingSelectedDatesPO : startProcessingSelected}
             disabled={selectionMode === 'select' && selectedDates.length === 0}
           >
             {selectionMode === 'select' && selectedDates.length === 0
-              ? 'Chọn ít nhất 1 ngày'
+              ? pc.selectAtLeastOneDate
               : (
                 <>
-                  {importType === 'po' ? 'Quét' : 'Cập nhật'} {selectionMode === 'all' ? 'tất cả' : `${selectedDates.length} ngày`}
+                  {importType === 'po' ? pc.scan2 : pc.update2} {selectionMode === 'all' ? pc.all2 : formatText(pc.message185, { v0: selectedDates.length })}
                   {totalSelectedFiles > 0 && ` (${totalSelectedFiles} file)`}
                 </>
               )}
@@ -3709,16 +3690,14 @@ export function DriveImportProgressDialog({
       return (
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={handleSkipSupplierMatch} disabled={isConfirming}>
-            Bỏ qua
-          </Button>
+             {pc.skip} </Button>
           <Button onClick={handleConfirmSupplierMatch} disabled={isConfirming}>
             {isConfirming ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Đang xử lý...
-              </>
+                 {pc.processing} </>
             ) : (
-              'Xác nhận đúng'
+              pc.confirmMatch
             )}
           </Button>
         </DialogFooter>
@@ -3730,21 +3709,18 @@ export function DriveImportProgressDialog({
       return (
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={handleSkipPOFile} disabled={isConfirming}>
-            Bỏ qua
-          </Button>
+             {pc.skip} </Button>
           <Button onClick={handleConfirmPOSupplier} disabled={!canConfirm || isConfirming}>
             {isConfirming ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Đang xử lý...
-              </>
+                 {pc.processing} </>
             ) : poSupplierAction === 'create' ? (
               <>
                 <Plus className="h-4 w-4 mr-2" />
-                Tạo NCC & PO
-              </>
+                 {pc.createSupplierPO} </>
             ) : (
-              'Xác nhận'
+              pc.confirm
             )}
           </Button>
         </DialogFooter>
@@ -3758,18 +3734,15 @@ export function DriveImportProgressDialog({
             {isConfirming ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Đang xử lý...
-              </>
+                 {pc.processing} </>
             ) : prCreationMode === 'auto' ? (
               <>
                 <CheckCircle2 className="h-4 w-4 mr-2" />
-                Tạo PR tự động
-              </>
+                 {pc.createPRAutomatically} </>
             ) : (
               <>
                 <ArrowRight className="h-4 w-4 mr-2" />
-                Mở form tạo PR
-              </>
+                 {pc.openPRForm} </>
             )}
           </Button>
         </DialogFooter>
@@ -3780,8 +3753,7 @@ export function DriveImportProgressDialog({
       return (
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={handleSkipUnmatched} disabled={isConfirming}>
-            Bỏ qua
-          </Button>
+             {pc.skip} </Button>
           <Button 
             onClick={actionMode === 'create_pr' ? handleCreatePRFromUNC : handleSkipUnmatched} 
             disabled={isConfirming || (actionMode === 'create_pr' && !selectedSupplierId)}
@@ -3789,15 +3761,13 @@ export function DriveImportProgressDialog({
             {isConfirming ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Đang xử lý...
-              </>
+                 {pc.processing} </>
             ) : actionMode === 'create_pr' ? (
               <>
                 <Plus className="h-4 w-4 mr-2" />
-                Tạo PR & Hoá đơn
-              </>
+                 {pc.createPRInvoice} </>
             ) : (
-              'Tiếp tục'
+              pc.continue
             )}
           </Button>
         </DialogFooter>
@@ -3812,12 +3782,10 @@ export function DriveImportProgressDialog({
             variant="outline" 
             onClick={() => onClose(false)}
           >
-            Hủy
-          </Button>
+             {pc.cancel} </Button>
           <Button disabled>
             <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            Đang xử lý...
-          </Button>
+             {pc.processing} </Button>
         </DialogFooter>
       );
     }
@@ -3825,7 +3793,7 @@ export function DriveImportProgressDialog({
     return (
       <DialogFooter>
         <Button onClick={() => onClose(hasResults)}>
-          {phase === 'complete' ? 'Đóng' : 'Đang xử lý...'}
+          {phase === 'complete' ? pc.close : pc.processing}
         </Button>
       </DialogFooter>
     );
@@ -3838,7 +3806,7 @@ export function DriveImportProgressDialog({
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <FolderOpen className="h-5 w-5" />
-              {importType === 'po' ? 'Tạo PO từ Google Drive' : 'Kiểm tra Bank slip mới'}
+              {importType === 'po' ? pc.createPOFromGoogleDrive : pc.checkNewBankSlips}
             </DialogTitle>
             <DialogDescription>
               {getPhaseMessage()}

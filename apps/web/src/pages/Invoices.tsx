@@ -1,3 +1,5 @@
+import { invoicePurchasing } from "@/i18n/invoicePurchasing";
+import { usePurchasingCopy } from "@/i18n/purchasingCopy";
 import { useMemo, useState, useEffect, type KeyboardEvent } from "react";
 import { useSearchParams } from "react-router-dom";
 import { addDays, differenceInCalendarDays, format, isThisMonth } from "date-fns";
@@ -75,9 +77,9 @@ const normalizeSearchText = (value: string) =>
 
 const toNumber = (value: number | null | undefined) => Number(value || 0);
 
-const formatCurrency = (amount: number) => {
-  if (Math.abs(amount) >= 1_000_000_000) return `${(amount / 1_000_000_000).toLocaleString("vi-VN", { maximumFractionDigits: 2 })} tỷ`;
-  if (Math.abs(amount) >= 1_000_000) return `${(amount / 1_000_000).toLocaleString("vi-VN", { maximumFractionDigits: 1 })} triệu`;
+const formatCurrency = (amount: number, copy: typeof invoicePurchasing.vi) => {
+  if (Math.abs(amount) >= 1_000_000_000) return `${(amount / 1_000_000_000).toLocaleString("vi-VN", { maximumFractionDigits: 2 })} ${copy.billion}`;
+  if (Math.abs(amount) >= 1_000_000) return `${(amount / 1_000_000).toLocaleString("vi-VN", { maximumFractionDigits: 1 })} ${copy.million}`;
   return new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(amount);
 };
 
@@ -137,6 +139,7 @@ const getStatusClassName = (status: InvoicePaymentStatus) => {
 };
 
 const Invoices = () => {
+  const pc = usePurchasingCopy(invoicePurchasing);
   const { user } = useAuth();
   const { language } = useLanguage();
   const isVi = language === "vi";
@@ -319,7 +322,7 @@ const Invoices = () => {
           <CardContent className="flex items-center justify-between p-4">
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{isVi ? "Tổng hóa đơn" : "Total invoices"}</p>
-              <p className="mt-1 text-2xl font-bold text-foreground">{formatCurrency(stats.totalAmount)}</p>
+              <p className="mt-1 text-2xl font-bold text-foreground">{formatCurrency(stats.totalAmount, pc)}</p>
               <p className="text-xs text-muted-foreground">{invoiceRows.length} {isVi ? "hóa đơn" : "invoices"}</p>
             </div>
             <div className="rounded-xl bg-primary/10 p-3 text-primary"><CircleDollarSign className="h-5 w-5" /></div>
@@ -329,7 +332,7 @@ const Invoices = () => {
           <CardContent className="flex items-center justify-between p-4">
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{isVi ? "Chờ thanh toán" : "Pending payment"}</p>
-              <p className="mt-1 text-2xl font-bold text-foreground">{formatCurrency(stats.waitingAmount)}</p>
+              <p className="mt-1 text-2xl font-bold text-foreground">{formatCurrency(stats.waitingAmount, pc)}</p>
               <p className="text-xs text-muted-foreground">{isVi ? "Còn lại phải trả" : "Remaining balance"}</p>
             </div>
             <div className="rounded-xl bg-primary/10 p-3 text-primary"><Clock3 className="h-5 w-5" /></div>
@@ -339,7 +342,7 @@ const Invoices = () => {
           <CardContent className="flex items-center justify-between p-4">
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-destructive">{isVi ? "Quá hạn" : "Overdue"}</p>
-              <p className="mt-1 text-2xl font-bold text-destructive">{formatCurrency(stats.overdueAmount)}</p>
+              <p className="mt-1 text-2xl font-bold text-destructive">{formatCurrency(stats.overdueAmount, pc)}</p>
               <p className="text-xs text-muted-foreground">{isVi ? "Cần xử lý trước" : "Needs attention"}</p>
             </div>
             <div className="rounded-xl bg-destructive/10 p-3 text-destructive"><AlertTriangle className="h-5 w-5" /></div>
@@ -385,7 +388,7 @@ const Invoices = () => {
                   <SelectItem value="all">{isVi ? "Tất cả nguồn" : "All sources"}</SelectItem>
                   <SelectItem value="warehouse_receipt">{isVi ? "Từ phiếu nhập kho" : "From receipt"}</SelectItem>
                   <SelectItem value="purchase_order">{isVi ? "Từ PO" : "From PO"}</SelectItem>
-                  <SelectItem value="ocr_scan">OCR/scan</SelectItem>
+                  <SelectItem value="ocr_scan">{pc.fieldOCRscan}</SelectItem>
                   <SelectItem value="manual">{isVi ? "Thủ công" : "Manual"}</SelectItem>
                 </SelectContent>
               </Select>
@@ -532,7 +535,7 @@ const Invoices = () => {
             <CardContent className="space-y-3">
               <button className="flex w-full items-center justify-between rounded-xl border border-destructive/20 bg-destructive/10 p-3 text-left text-sm hover:bg-destructive/15" onClick={() => { setQuickOverdueOnly(true); setStatusFilter("all"); }}>
                 <span className="flex items-center gap-2 text-destructive"><XCircle className="h-4 w-4" />{isVi ? "Hóa đơn quá hạn" : "Overdue invoices"}</span>
-                <span className="font-bold text-destructive">{formatCurrency(stats.overdueAmount)}</span>
+                <span className="font-bold text-destructive">{formatCurrency(stats.overdueAmount, pc)}</span>
               </button>
               <button className="flex w-full items-center justify-between rounded-xl border border-primary/20 bg-primary/10 p-3 text-left text-sm hover:bg-primary/15" onClick={() => setQuickUnlinkedOnly(true)}>
                 <span className="flex items-center gap-2 text-primary"><Link2 className="h-4 w-4" />{isVi ? "Thiếu PO/PNK" : "Missing PO/receipt"}</span>
@@ -540,7 +543,7 @@ const Invoices = () => {
               </button>
               <div className="flex items-center justify-between rounded-xl border border-success/20 bg-success/10 p-3 text-sm ">
                 <span className="flex items-center gap-2 text-success"><CheckCircle2 className="h-4 w-4" />{isVi ? "Đã đối soát" : "Reconciled"}</span>
-                <span className="font-bold text-success">{formatCurrency(stats.paidAmount)}</span>
+                <span className="font-bold text-success">{formatCurrency(stats.paidAmount, pc)}</span>
               </div>
             </CardContent>
           </Card>
@@ -564,7 +567,7 @@ const Invoices = () => {
                       <div className="truncate text-sm font-semibold text-foreground">{index + 1}. {supplier.name}</div>
                       <div className="text-xs text-muted-foreground">{supplier.count} {isVi ? "hóa đơn còn nợ" : "open invoices"}</div>
                     </div>
-                    <div className="whitespace-nowrap text-sm font-bold text-primary">{formatCurrency(supplier.amount)}</div>
+                    <div className="whitespace-nowrap text-sm font-bold text-primary">{formatCurrency(supplier.amount, pc)}</div>
                   </div>
                 </button>
               )) : (

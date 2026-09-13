@@ -1,3 +1,6 @@
+import { useLanguage } from "@/contexts/LanguageContext";
+import { nppDebt } from "@/i18n/nppDebt";
+import { formatText } from "@/i18n/format";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Download, Loader2, Mail, PencilLine, RefreshCw, Search } from "lucide-react";
@@ -161,7 +164,7 @@ type DebtExportResponse = {
 };
 type DebtExportOptions = { overwrite?: boolean };
 type PendingOverwrite = { spreadsheetName: string; existingWebViewLink?: string | null };
-type DebtExportError = Error & { code?: string; spreadsheetName?: string; existingWebViewLink?: string | null };
+type DebtExportError = Error & { uiKey?: keyof typeof nppDebt.vi; code?: string; spreadsheetName?: string; existingWebViewLink?: string | null };
 type RpcQuery = PromiseLike<{ data: LedgerLine | null; error: QueryError }>;
 type DebtAdjustmentQuery = PromiseLike<{ data: DebtAdjustment | null; error: QueryError }> & {
   select: (columns: string) => DebtAdjustmentQuery;
@@ -169,10 +172,11 @@ type DebtAdjustmentQuery = PromiseLike<{ data: DebtAdjustment | null; error: Que
   maybeSingle: () => PromiseLike<{ data: DebtAdjustment | null; error: QueryError }>;
 };
 type DebtAdjustmentRpcQuery = PromiseLike<{ data: DebtAdjustment | null; error: QueryError }>;
+type LocalizedStatus = (copy: typeof nppDebt.vi) => string;
 type ExportStatus = {
   kind: "idle" | "pending" | "success" | "error";
-  title: string;
-  message?: string;
+  title: LocalizedStatus;
+  message?: LocalizedStatus;
   webViewLink?: string;
 };
 
@@ -199,11 +203,11 @@ const adjustmentDb = supabase as unknown as {
 const asRecord = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 
-const toNumber = (value: string) => {
+const toNumber = (value: string, invalidMessage = "Invalid number") => {
   const normalized = value.replace(/,/g, "").trim();
   if (!normalized) return 0;
   const parsed = Number(normalized);
-  if (!Number.isFinite(parsed)) throw new Error("Invalid number");
+  if (!Number.isFinite(parsed)) throw new Error(invalidMessage);
   return parsed;
 };
 
@@ -285,6 +289,8 @@ const lineBelongsToCustomer = (line: LedgerLine, customer: Customer | null) => {
 };
 
 export default function NppDebtManagement() {
+  const { language } = useLanguage();
+  const copy = nppDebt[language];
   const { toast } = useToast();
   const { canEditModule } = useAuth();
   const canEditRevenue = canEditModule("finance_revenue");
@@ -294,7 +300,7 @@ export default function NppDebtManagement() {
   const [selectedCustomerId, setSelectedCustomerId] = useState("");
   const [viewCustomerId, setViewCustomerId] = useState("");
   const [expandedAgencyId, setExpandedAgencyId] = useState<string | null>(null);
-  const [exportStatus, setExportStatus] = useState<ExportStatus>({ kind: "idle", title: "" });
+  const [exportStatus, setExportStatus] = useState<ExportStatus>({ kind: "idle", title: () => "" });
   const [pendingOverwrite, setPendingOverwrite] = useState<PendingOverwrite | null>(null);
   const [editingLine, setEditingLine] = useState<LedgerLine | null>(null);
   const [directRevenuePage, setDirectRevenuePage] = useState(1);
@@ -542,14 +548,14 @@ export default function NppDebtManagement() {
   const saveDebtAdjustment = async () => {
     if (!effectiveCustomerId || isSelectedNpp) return;
     if (!canEditRevenue) {
-      toast({ title: "Không có quyền sửa công nợ", variant: "destructive" });
+      toast({ title: copy.youDoNotHavePermissionToEdit, variant: "destructive" });
       return;
     }
     setSavingDebtAdjustment(true);
     try {
-      const nextOpeningBalance = toNumber(debtAdjustmentForm.opening_balance_vnd);
-      const nextAmountCollected = toNumber(debtAdjustmentForm.amount_collected_vnd);
-      if (nextAmountCollected < 0) throw new Error("Số tiền đã thu không được âm.");
+      const nextOpeningBalance = toNumber(debtAdjustmentForm.opening_balance_vnd, copy.invalidNumber);
+      const nextAmountCollected = toNumber(debtAdjustmentForm.amount_collected_vnd, copy.invalidNumber);
+      if (nextAmountCollected < 0) throw new Error(copy.theAmountCollectedCannotBeNegative);
       const { error } = await adjustmentDb.rpc("upsert_customer_debt_period_adjustment", {
         _customer_id: effectiveCustomerId,
         _period_from: dateFrom,
@@ -561,11 +567,11 @@ export default function NppDebtManagement() {
       });
       if (error) throw error;
       await refetchDebtAdjustment();
-      toast({ title: "Đã lưu thông tin công nợ" });
+      toast({ title: copy.debtInformationSaved });
     } catch (error) {
       toast({
-        title: "Không lưu được thông tin công nợ",
-        description: error instanceof Error ? error.message : "Vui lòng thử lại.",
+        title: copy.unableToSaveDebtInformation,
+        description: error instanceof Error ? error.message : copy.pleaseTryAgain,
         variant: "destructive",
       });
     } finally {
@@ -577,7 +583,7 @@ export default function NppDebtManagement() {
     mutationFn: async (options?: DebtExportOptions) => {
       const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
       const accessToken = sessionData.session?.access_token;
-      if (sessionError || !accessToken) throw new Error("Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại.");
+      if (sessionError || !accessToken) throw Object.assign(new Error(copy.yourSessionHasExpiredPleaseSignIn), { uiKey: "yourSessionHasExpiredPleaseSignIn" });
 
       const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/export-npp-debt-sheet`, {
         method: "POST",
@@ -589,7 +595,8 @@ export default function NppDebtManagement() {
       });
       const data = await response.json().catch(() => null) as DebtExportResponse | null;
       if (!response.ok || !data?.success) {
-        const error = new Error(data?.error || (sendEmail ? "Gửi công nợ thất bại" : "Export Google Sheet thất bại")) as DebtExportError;
+        const error = new Error(data?.error || (sendEmail ? copy.unableToSendDebtStatement : copy.unableToExportGoogleSheet)) as DebtExportError;
+        if (!data?.error) error.uiKey = sendEmail ? "unableToSendDebtStatement" : "unableToExportGoogleSheet";
         error.code = data?.code;
         error.spreadsheetName = data?.spreadsheetName;
         error.existingWebViewLink = data?.existingWebViewLink;
@@ -598,42 +605,42 @@ export default function NppDebtManagement() {
       return data;
     },
     onMutate: (options?: DebtExportOptions) => {
-      const title = sendEmail ? "Đang gửi công nợ" : (options?.overwrite ? "Đang ghi đè Google Sheet" : "Đang xuất Google Sheet");
+      const title: LocalizedStatus = (copy) => sendEmail ? copy.sendingDebtStatement : (options?.overwrite ? copy.overwritingGoogleSheet : copy.exportingGoogleSheet);
       setPendingOverwrite(null);
       setExportStatus({
         kind: "pending",
         title,
-        message: `${selectedCustomer?.customer_name || "Khách hàng"} • ${dateFrom} → ${dateTo}`,
+        message: (copy) => `${selectedCustomer?.customer_name || copy.customer} • ${dateFrom} → ${dateTo}`,
       });
-      toast({ title, description: sendEmail ? "Hệ thống đang tạo file Excel đính kèm, vui lòng chờ trong giây lát." : "Hệ thống đang tạo file, vui lòng chờ trong giây lát." });
+      toast({ title: title(copy), description: sendEmail ? copy.creatingTheExcelAttachmentPleaseWaitA : copy.creatingTheFilePleaseWaitAMoment });
     },
     onSuccess: (data: DebtExportResponse) => {
       const emails = data?.recipientEmails || [];
-      const title = sendEmail ? "Đã gửi công nợ" : "Đã xuất Google Sheet";
+      const title: LocalizedStatus = (copy) => sendEmail ? copy.debtStatementSent : copy.googleSheetExported;
       const baseName = data?.spreadsheetName || "Công nợ khách hàng";
-      const message = sendEmail
-        ? `${data?.attachmentName || `${baseName}.xlsx`} • file Excel đính kèm • Email nhận công nợ: ${emails.join(", ")}`
+      const message: LocalizedStatus = (copy) => sendEmail
+        ? formatText(copy.excelRecipients, { name: data?.attachmentName || `${baseName}.xlsx`, emails: emails.join(", ") })
         : emails.length
-          ? `${baseName} • Email nhận công nợ: ${emails.join(", ")}`
-          : `${baseName} • Chưa có email nhận công nợ`;
+          ? formatText(copy.recipients, { name: baseName, emails: emails.join(", ") })
+          : formatText(copy.noRecipients, { name: baseName });
       setExportStatus({ kind: "success", title, message, webViewLink: sendEmail ? undefined : data?.webViewLink || undefined });
-      toast({ title, description: message });
+      toast({ title: title(copy), description: message(copy) });
       if (!sendEmail && data?.webViewLink) window.open(data.webViewLink, "_blank", "noopener,noreferrer");
     },
     onError: (error: DebtExportError) => {
       if (!sendEmail && error.code === "debt_sheet_exists") {
-        const spreadsheetName = error.spreadsheetName || "File công nợ";
+        const spreadsheetName = error.spreadsheetName || "";
         setPendingOverwrite({ spreadsheetName, existingWebViewLink: error.existingWebViewLink });
         setExportStatus({
           kind: "idle",
-          title: "",
+          title: () => "",
         });
         return;
       }
-      const title = sendEmail ? "Gửi email thất bại" : "Export thất bại";
-      const message = error?.message || (sendEmail ? "Không thể gửi file Excel công nợ" : "Không thể tạo Google Sheet");
+      const title: LocalizedStatus = (copy) => sendEmail ? copy.unableToSendEmail : copy.exportFailed;
+      const message: LocalizedStatus = (copy) => (error.uiKey ? copy[error.uiKey] : error?.message) || (sendEmail ? copy.unableToSendTheDebtExcelFile : copy.unableToCreateGoogleSheet);
       setExportStatus({ kind: "error", title, message });
-      toast({ title, description: message, variant: "destructive" });
+      toast({ title: title(copy), description: message(copy), variant: "destructive" });
     },
   });
 
@@ -666,22 +673,22 @@ export default function NppDebtManagement() {
   const saveEdit = async () => {
     if (!editingLine || !editForm) return;
     if (!canEditRevenue) {
-      toast({ title: "Không có quyền sửa doanh thu", variant: "destructive" });
+      toast({ title: copy.youDoNotHavePermissionToEdit2, variant: "destructive" });
       return;
     }
 
     const customerName = editForm.customer_name.trim();
     const revenueDate = editForm.revenue_date.trim();
     if (!customerName || !revenueDate) {
-      toast({ title: "Thiếu ngày doanh thu hoặc tên khách", variant: "destructive" });
+      toast({ title: copy.revenueDateOrCustomerNameIsMissing, variant: "destructive" });
       return;
     }
 
     setSavingEdit(true);
     try {
-      const quantity = toNumber(editForm.quantity);
-      const unitPrice = toNumber(editForm.unit_price);
-      const grossRevenue = toNumber(editForm.gross_revenue);
+      const quantity = toNumber(editForm.quantity, copy.invalidNumber);
+      const unitPrice = toNumber(editForm.unit_price, copy.invalidNumber);
+      const grossRevenue = toNumber(editForm.gross_revenue, copy.invalidNumber);
       const note = editForm.audit_note.trim();
       const { data: authData } = await supabase.auth.getUser();
       const previousRaw = asRecord(editingLine.raw_payload);
@@ -720,13 +727,13 @@ export default function NppDebtManagement() {
       });
       if (error) throw error;
 
-      toast({ title: "Đã lưu chỉnh sửa doanh thu" });
+      toast({ title: copy.revenueChangesSaved });
       setEditingLine(null);
       setEditForm(null);
       await refetch();
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Không lưu được chỉnh sửa";
-      toast({ title: "Không lưu được chỉnh sửa", description: message, variant: "destructive" });
+      const message = err instanceof Error ? err.message : copy.unableToSaveChanges;
+      toast({ title: copy.unableToSaveChanges, description: message, variant: "destructive" });
     } finally {
       setSavingEdit(false);
     }
@@ -746,21 +753,24 @@ export default function NppDebtManagement() {
         }}
       >
         <PencilLine className="h-3.5 w-3.5" />
-        Sửa
+
+        {copy.edit}
       </Button>
     );
   };
 
   const renderRevenuePagination = (totalRows: number, currentPage: number, totalPages: number, setPage: (updater: (page: number) => number) => void) => (
     <div className="mt-4 flex flex-col gap-2 text-xs text-muted-foreground md:flex-row md:items-center md:justify-between">
-      <span>Mỗi trang tối đa 20 dòng doanh thu • {totalRows} dòng</span>
+      <span>{formatText(copy.pagination, { count: totalRows })}</span>
       <div className="flex items-center justify-between gap-2 md:justify-end">
         <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={() => setPage((page) => Math.max(1, page - 1))} disabled={currentPage <= 1}>
-          Trang trước
+
+          {copy.previousPage}
         </Button>
-        <span className="min-w-[104px] text-center font-medium text-foreground">Trang doanh thu {currentPage}/{totalPages}</span>
+        <span className="min-w-[104px] text-center font-medium text-foreground">{formatText(copy.revenuePage, { page: currentPage, total: totalPages })}</span>
         <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={() => setPage((page) => Math.min(totalPages, page + 1))} disabled={currentPage >= totalPages}>
-          Trang sau
+
+          {copy.nextPage}
         </Button>
       </div>
     </div>
@@ -772,25 +782,25 @@ export default function NppDebtManagement() {
     if (!canViewDebt) return;
     setViewCustomerId(selectedCustomerId);
     setExpandedAgencyId(null);
-    setExportStatus({ kind: "idle", title: "" });
+    setExportStatus({ kind: "idle", title: () => "" });
     setPendingOverwrite(null);
   };
 
   return (
-    <div data-stitch-npp-debt-theme="pantone-2026-light" className="space-y-4 bg-background text-foreground md:space-y-6">
+    <div data-staff-i18n="npp-debt-v1" data-stitch-npp-debt-theme="pantone-2026-light" className="space-y-4 bg-background text-foreground md:space-y-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div className="space-y-2">
-          <h1 className="font-display text-2xl font-bold leading-tight md:text-3xl">Quản lý công nợ khách hàng</h1>
-          <p className="hidden text-muted-foreground md:block">Theo dõi công nợ theo từng khách hàng: NPP, đại lý trực tiếp, B2B/Vietjet và các kênh doanh thu đã kiểm soát.</p>
+          <h1 className="font-display text-2xl font-bold leading-tight md:text-3xl">{copy.customerDebtManagement}</h1>
+          <p className="hidden text-muted-foreground md:block">{copy.trackDebtByCustomerDistributorsDirectDealers}</p>
           <div className="flex flex-wrap gap-2 text-xs text-muted-foreground md:hidden">
             <Badge variant="outline" className="border-primary/20 bg-primary/10 text-primary">
-              {isSelectedNpp ? "NPP" : "Khách hàng"}
+              {isSelectedNpp ? "NPP" : copy.customer}
             </Badge>
             <Badge variant="outline" className="border-border/70 bg-card/70">
               {dateFrom} → {dateTo}
             </Badge>
             <Badge variant="outline" className="border-border/70 bg-card/70">
-              {isSelectedNpp ? `${childAgencies.length} đại lý` : `${totals.lines} dòng`}
+              {isSelectedNpp ? formatText(copy.dealers, { count: childAgencies.length }) : formatText(copy.rows, { count: totals.lines })}
             </Badge>
           </div>
         </div>
@@ -798,16 +808,18 @@ export default function NppDebtManagement() {
           <div className="grid grid-cols-2 gap-2 md:flex md:flex-wrap md:justify-end">
             <Button className="h-10 px-3 text-xs sm:text-sm md:w-auto" variant="outline" onClick={() => { void refetch(); if (!isSelectedNpp) void refetchDebtAdjustment(); }} disabled={isLoading}>
               {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-              Làm mới
+
+              {copy.refresh}
             </Button>
             <Button className="h-10 px-3 text-xs sm:text-sm md:w-auto" onClick={() => exportMutation.mutate({})} disabled={!effectiveCustomerId || exportMutation.isPending || sendDebtMutation.isPending}>
               {exportMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
-              <span className="md:hidden">Xuất Sheet</span>
-              <span className="hidden md:inline">Xuất Google Sheet</span>
+              <span className="md:hidden">{copy.exportSheet}</span>
+              <span className="hidden md:inline">{copy.exportGoogleSheet}</span>
             </Button>
             <Button className="col-span-2 h-10 px-3 text-xs sm:text-sm md:col-span-1 md:w-auto" onClick={() => sendDebtMutation.mutate({})} disabled={!effectiveCustomerId || exportMutation.isPending || sendDebtMutation.isPending}>
               {sendDebtMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Mail className="mr-2 h-4 w-4" />}
-              Gửi công nợ
+
+              {copy.sendDebtStatement}
             </Button>
           </div>
         )}
@@ -816,24 +828,25 @@ export default function NppDebtManagement() {
       <Dialog open={Boolean(pendingOverwrite)} onOpenChange={(open) => { if (!open) setPendingOverwrite(null); }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>File công nợ này đã tồn tại</DialogTitle>
+            <DialogTitle>{copy.thisDebtStatementFileAlreadyExists}</DialogTitle>
             <DialogDescription>
-              {pendingOverwrite?.spreadsheetName || "File công nợ"} đã có trên Google Drive. Anh muốn ghi đè file cũ hay huỷ thao tác xuất?
+              {formatText(copy.overwritePrompt, { name: pendingOverwrite?.spreadsheetName || copy.debtStatementFile })}
             </DialogDescription>
           </DialogHeader>
           <div className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-warning-foreground">
-            Ghi đè sẽ xoá dữ liệu cũ trong file Google Sheet này và ghi lại số liệu công nợ mới cho {selectedCustomer?.customer_name || "khách hàng"} • {dateFrom} → {dateTo}.
+            {formatText(copy.overwriteWarning, { name: selectedCustomer?.customer_name || copy.customer2, from: dateFrom, to: dateTo })}
           </div>
           <DialogFooter className="gap-2 sm:gap-0">
-            <Button variant="outline" onClick={() => setPendingOverwrite(null)} disabled={exportMutation.isPending}>Huỷ</Button>
+            <Button variant="outline" onClick={() => setPendingOverwrite(null)} disabled={exportMutation.isPending}>{copy.cancel}</Button>
             {pendingOverwrite?.existingWebViewLink ? (
               <Button asChild variant="secondary" disabled={exportMutation.isPending}>
-                <a href={pendingOverwrite.existingWebViewLink} target="_blank" rel="noreferrer">Mở file cũ</a>
+                <a href={pendingOverwrite.existingWebViewLink} target="_blank" rel="noreferrer">{copy.openExistingFile}</a>
               </Button>
             ) : null}
             <Button onClick={() => exportMutation.mutate({ overwrite: true })} disabled={exportMutation.isPending}>
               {exportMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Ghi đè
+
+              {copy.overwrite}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -844,14 +857,14 @@ export default function NppDebtManagement() {
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
               {exportStatus.kind === "pending" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              {exportStatus.title}
+              {exportStatus.title(copy)}
             </CardTitle>
-            {exportStatus.message ? <CardDescription>{exportStatus.message}</CardDescription> : null}
+            {exportStatus.message ? <CardDescription>{exportStatus.message(copy)}</CardDescription> : null}
           </CardHeader>
           {exportStatus.webViewLink ? (
             <CardContent className="pt-0">
               <Button asChild variant="outline" size="sm">
-                <a href={exportStatus.webViewLink} target="_blank" rel="noreferrer">Mở Google Sheet</a>
+                <a href={exportStatus.webViewLink} target="_blank" rel="noreferrer">{copy.openGoogleSheet}</a>
               </Button>
             </CardContent>
           ) : null}
@@ -860,19 +873,19 @@ export default function NppDebtManagement() {
 
       <Card className="bg-card/80 shadow-card">
         <CardHeader className="space-y-1 px-4 py-4 md:px-6 md:py-6">
-          <CardTitle className="text-lg md:text-2xl">Bước 1: Chọn khách hàng</CardTitle>
-          <CardDescription className="text-xs md:text-sm">Box mặc định xếp khách hàng theo doanh số từ cao xuống thấp; đại lý đã thuộc NPP sẽ nằm trong chi tiết NPP. Có thể tìm không dấu như “bach dang” để tìm “Bạch Đằng”.</CardDescription>
+          <CardTitle className="text-lg md:text-2xl">{copy.step1SelectACustomer}</CardTitle>
+          <CardDescription className="text-xs md:text-sm">{copy.customersAreSortedBySalesFromHighest}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4 px-4 pb-4 md:px-6 md:pb-6">
           <div className="space-y-2">
-            <Label className="text-xs md:text-sm">Tìm khách hàng</Label>
+            <Label className="text-xs md:text-sm">{copy.findCustomer}</Label>
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 className="h-11 pl-9 text-sm"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Nhập tên khách hàng: bach dang, anh thanh..."
+                placeholder={copy.enterCustomerNameBachDangAnhThanh}
               />
             </div>
           </div>
@@ -898,8 +911,8 @@ export default function NppDebtManagement() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="truncate text-sm font-semibold">{customer.customer_name}</div>
-                      <div className="mt-1 text-xs text-muted-foreground">{customer.customer_group || "Khách hàng"}{customer.product_group ? ` • ${customer.product_group}` : ""}</div>
-                      <div className="mt-2 text-xs font-medium text-primary">Doanh số: {formatVnd(revenue)}</div>
+                      <div className="mt-1 text-xs text-muted-foreground">{customer.customer_group || copy.customer}{customer.product_group ? ` • ${customer.product_group}` : ""}</div>
+                      <div className="mt-2 text-xs font-medium text-primary">{copy.sales} {formatVnd(revenue)}</div>
                     </div>
                     {customer.is_npp ? <Badge className="shrink-0">NPP</Badge> : null}
                   </div>
@@ -908,30 +921,32 @@ export default function NppDebtManagement() {
             })}
             {filteredCustomers.length === 0 && (
               <div className="rounded-xl border border-dashed border-border p-4 text-center text-sm text-muted-foreground md:col-span-2">
-                Không tìm thấy khách hàng phù hợp.
+
+                {copy.noMatchingCustomersFound}
               </div>
             )}
           </div>
 
           <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 md:grid-cols-4">
             <div className="min-w-0 space-y-2 md:col-span-1">
-              <Label className="text-xs md:text-sm">Từ ngày</Label>
+              <Label className="text-xs md:text-sm">{copy.fromDate}</Label>
               <Input className="h-11 w-full min-w-0 text-sm [color-scheme:light] md:h-10" type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setViewCustomerId(""); }} />
             </div>
             <div className="min-w-0 space-y-2 md:col-span-1">
-              <Label className="text-xs md:text-sm">Đến ngày</Label>
+              <Label className="text-xs md:text-sm">{copy.toDate}</Label>
               <Input className="h-11 w-full min-w-0 text-sm [color-scheme:light] md:h-10" type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setViewCustomerId(""); }} />
             </div>
             <div className="min-w-0 md:col-span-2 md:flex md:items-end">
               <Button className="h-11 w-full" onClick={handleViewDebt} disabled={!canViewDebt || customersLoading}>
                 {customersLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                Xem công nợ
+
+                {copy.viewDebt}
               </Button>
             </div>
           </div>
           {selectedDraftCustomer && !hasViewedDebt && (
             <div className="rounded-lg border border-primary/20 bg-primary/10 px-3 py-2 text-xs text-primary">
-              Đã chọn: {selectedDraftCustomer.customer_name}. Bấm “Xem công nợ” để tải dữ liệu và mở chức năng xuất/gửi mail.
+              {formatText(copy.selected, { name: selectedDraftCustomer.customer_name })}
             </div>
           )}
         </CardContent>
@@ -940,23 +955,24 @@ export default function NppDebtManagement() {
       {hasViewedDebt && (
         <>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">
-        <Card><CardHeader className="p-4 pb-3 md:p-6 md:pb-2"><CardDescription className="text-xs md:text-sm">{isSelectedNpp ? "Số đại lý" : "Số dòng"}</CardDescription><CardTitle className="text-xl md:text-2xl">{isSelectedNpp ? childAgencies.length : totals.lines}</CardTitle></CardHeader></Card>
-        <Card><CardHeader className="p-4 pb-3 md:p-6 md:pb-2"><CardDescription className="text-xs md:text-sm">Số lượng</CardDescription><CardTitle className="text-xl md:text-2xl">{formatQty(totals.quantity)}</CardTitle></CardHeader></Card>
-        <Card><CardHeader className="p-4 pb-3 md:p-6 md:pb-2"><CardDescription className="text-xs md:text-sm">Doanh thu kiểm soát</CardDescription><CardTitle className="break-words text-base leading-tight md:text-2xl">{formatVnd(totals.gross)}</CardTitle></CardHeader></Card>
-        <Card><CardHeader className="p-4 pb-3 md:p-6 md:pb-2"><CardDescription className="text-xs md:text-sm">{isSelectedNpp ? "Công nợ sau phí" : "Công nợ còn lại"}</CardDescription><CardTitle className="break-words text-base leading-tight md:text-2xl">{formatVnd(remainingDebt)}</CardTitle></CardHeader></Card>
+        <Card><CardHeader className="p-4 pb-3 md:p-6 md:pb-2"><CardDescription className="text-xs md:text-sm">{isSelectedNpp ? copy.dealers2 : copy.rows2}</CardDescription><CardTitle className="text-xl md:text-2xl">{isSelectedNpp ? childAgencies.length : totals.lines}</CardTitle></CardHeader></Card>
+        <Card><CardHeader className="p-4 pb-3 md:p-6 md:pb-2"><CardDescription className="text-xs md:text-sm">{copy.quantity}</CardDescription><CardTitle className="text-xl md:text-2xl">{formatQty(totals.quantity)}</CardTitle></CardHeader></Card>
+        <Card><CardHeader className="p-4 pb-3 md:p-6 md:pb-2"><CardDescription className="text-xs md:text-sm">{copy.reviewedRevenue}</CardDescription><CardTitle className="break-words text-base leading-tight md:text-2xl">{formatVnd(totals.gross)}</CardTitle></CardHeader></Card>
+        <Card><CardHeader className="p-4 pb-3 md:p-6 md:pb-2"><CardDescription className="text-xs md:text-sm">{isSelectedNpp ? copy.debtAfterFees : copy.remainingDebt}</CardDescription><CardTitle className="break-words text-base leading-tight md:text-2xl">{formatVnd(remainingDebt)}</CardTitle></CardHeader></Card>
       </div>
 
       {!isSelectedNpp && (
         <Card data-customer-debt-period-adjustment className="border-primary/20 bg-card/80 shadow-card">
           <CardHeader className="space-y-1 px-4 py-4 md:px-6 md:py-5">
-            <CardTitle className="text-lg">Thông tin đối soát công nợ</CardTitle>
+            <CardTitle className="text-lg">{copy.debtReconciliationInformation}</CardTitle>
             <CardDescription>
-              Doanh thu lấy từ đơn đã duyệt. Dư đầu kỳ và Đã thu mặc định 0; kế toán kiểm tra rồi bổ sung cho kỳ này.
+
+              {copy.revenueComesFromApprovedOrdersOpeningBalance}
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4 px-4 pb-4 md:grid-cols-4 md:px-6 md:pb-6">
             <div className="space-y-2">
-              <Label>Dư đầu kỳ</Label>
+              <Label>{copy.openingBalance}</Label>
               <Input
                 inputMode="decimal"
                 value={debtAdjustmentForm.opening_balance_vnd}
@@ -965,7 +981,7 @@ export default function NppDebtManagement() {
               />
             </div>
             <div className="space-y-2">
-              <Label>Đã thu</Label>
+              <Label>{copy.collected}</Label>
               <Input
                 inputMode="decimal"
                 value={debtAdjustmentForm.amount_collected_vnd}
@@ -974,7 +990,7 @@ export default function NppDebtManagement() {
               />
             </div>
             <div className="space-y-2">
-              <Label>Hạn thanh toán</Label>
+              <Label>{copy.paymentDueDate}</Label>
               <Input
                 type="date"
                 value={debtAdjustmentForm.payment_due_date}
@@ -983,23 +999,24 @@ export default function NppDebtManagement() {
               />
             </div>
             <div className="rounded-xl bg-primary/10 p-4">
-              <div className="text-xs text-primary/80">Công nợ còn lại</div>
+              <div className="text-xs text-primary/80">{copy.remainingDebt}</div>
               <div className="mt-1 break-words text-lg font-semibold text-primary">{formatVnd(remainingDebt)}</div>
-              <div className="mt-1 text-xs text-muted-foreground">Dư đầu kỳ + doanh thu − đã thu</div>
+              <div className="mt-1 text-xs text-muted-foreground">{copy.openingBalanceRevenueCollected}</div>
             </div>
             <div className="space-y-2 md:col-span-3">
-              <Label>Ghi chú kế toán</Label>
+              <Label>{copy.accountingNotes}</Label>
               <Input
                 value={debtAdjustmentForm.note}
                 onChange={(event) => setDebtAdjustmentForm((current) => ({ ...current, note: event.target.value }))}
-                placeholder="Không bắt buộc"
+                placeholder={copy.optional}
                 disabled={!canEditRevenue || savingDebtAdjustment}
               />
             </div>
             <div className="flex items-end">
               <Button className="w-full" type="button" onClick={saveDebtAdjustment} disabled={!canEditRevenue || savingDebtAdjustment}>
                 {savingDebtAdjustment ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                Lưu công nợ
+
+                {copy.saveDebt}
               </Button>
             </div>
           </CardContent>
@@ -1008,9 +1025,9 @@ export default function NppDebtManagement() {
 
       <Card className="bg-card/80 shadow-card">
         <CardHeader className="space-y-1 px-4 py-4 md:px-6 md:py-6">
-          <CardTitle className="text-lg md:text-2xl">{isSelectedNpp ? "Tổng công nợ NPP" : "Công nợ khách hàng"}</CardTitle>
+          <CardTitle className="text-lg md:text-2xl">{isSelectedNpp ? copy.totalDistributorDebt : copy.customerDebt}</CardTitle>
           <CardDescription className="text-xs md:text-sm">
-            {selectedCustomer?.customer_name || "Chưa chọn khách hàng"} • {isSelectedNpp ? "NPP" : "Khách hàng trực tiếp"} • {dateFrom} → {dateTo} • {totals.lines} dòng doanh thu đã kiểm soát
+            {selectedCustomer?.customer_name || copy.noCustomerSelected} • {isSelectedNpp ? "NPP" : copy.directCustomer} • {dateFrom} → {dateTo} • {formatText(copy.reviewedRows, { count: totals.lines })}
           </CardDescription>
         </CardHeader>
         <CardContent className="px-4 pb-4 md:px-6 md:pb-6">
@@ -1021,22 +1038,22 @@ export default function NppDebtManagement() {
                   <div key={row.id} className="rounded-xl border border-border/70 bg-card/70 p-4 shadow-sm" onClick={() => setExpandedAgencyId(expandedAgencyId === row.id ? null : row.id)}>
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <div className="truncate font-semibold">{row.name}</div>
-                        <div className="mt-1 text-xs text-muted-foreground">{row.lines.length} dòng • SL {formatQty(row.quantity)}</div>
+                        <div className="truncate font-semibold">{row.id === "unmapped" ? copy.unmappedDealer : row.name}</div>
+                        <div className="mt-1 text-xs text-muted-foreground">{formatText(copy.rowQuantity, { count: row.lines.length, quantity: formatQty(row.quantity) })}</div>
                       </div>
-                      {row.id === "unmapped" ? <Badge variant="destructive" className="shrink-0">Cần map</Badge> : <Badge className="shrink-0">OK</Badge>}
+                      {row.id === "unmapped" ? <Badge variant="destructive" className="shrink-0">{copy.mappingRequired}</Badge> : <Badge className="shrink-0">OK</Badge>}
                     </div>
                     <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
                       <div>
-                        <div className="text-xs text-muted-foreground">Tổng tiền bánh</div>
+                        <div className="text-xs text-muted-foreground">{copy.totalBreadAmount}</div>
                         <div className="font-medium">{formatVnd(row.gross)}</div>
                       </div>
                       <div>
-                        <div className="text-xs text-muted-foreground">Phí quản lí</div>
+                        <div className="text-xs text-muted-foreground">{copy.managementFee}</div>
                         <div className="font-medium">{formatVnd(row.managementFee)}</div>
                       </div>
                       <div className="col-span-2 rounded-lg bg-primary/10 p-3">
-                        <div className="text-xs text-primary/80">Công nợ</div>
+                        <div className="text-xs text-primary/80">{copy.debt}</div>
                         <div className="text-lg font-semibold text-primary">{formatVnd(row.payable)}</div>
                       </div>
                     </div>
@@ -1046,7 +1063,7 @@ export default function NppDebtManagement() {
                           <div key={line.id} className="rounded-lg bg-muted/30 p-3 text-sm">
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
-                                <div className="font-medium">{line.product_name || line.customer_name || "Bánh mì"}</div>
+                                <div className="font-medium">{line.product_name || line.customer_name || copy.bread}</div>
                                 <div className="mt-1 text-xs text-muted-foreground">{line.revenue_date} • {line.item_note || getRouteCustomerName(line) || "-"}</div>
                               </div>
                               <div className="flex shrink-0 flex-col items-end gap-2 text-right">
@@ -1054,42 +1071,42 @@ export default function NppDebtManagement() {
                                 {renderEditButton(line)}
                               </div>
                             </div>
-                            <div className="mt-2 text-xs text-muted-foreground">SL {formatQty(Number(line.quantity || 0))} • Đơn giá {formatVnd(Number(line.unit_price || 0))}</div>
+                            <div className="mt-2 text-xs text-muted-foreground">{formatText(copy.quantityPrice, { quantity: formatQty(Number(line.quantity || 0)), price: formatVnd(Number(line.unit_price || 0)) })}</div>
                           </div>
                         ))}
-                        {row.lines.length === 0 && <div className="py-3 text-center text-sm text-muted-foreground">Chưa có dòng trong kỳ này.</div>}
+                        {row.lines.length === 0 && <div className="py-3 text-center text-sm text-muted-foreground">{copy.noRowsInThisPeriod}</div>}
                         {row.lines.length > 0 && renderRevenuePagination(row.lines.length, expandedAgencyRevenuePageSafe, expandedAgencyRevenueTotalPages, setExpandedAgencyRevenuePage)}
                       </div>
                     )}
                   </div>
                 ))}
-                {summaries.length === 0 && <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">Chưa có dữ liệu công nợ cho NPP này.</div>}
+                {summaries.length === 0 && <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">{copy.noDebtDataForThisDistributor}</div>}
               </div>
 
               <div className="hidden overflow-x-auto md:block">
                 <Table className="min-w-[900px]">
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Đại lý</TableHead>
-                      <TableHead className="text-right">Số dòng</TableHead>
-                      <TableHead className="text-right">Số lượng</TableHead>
-                      <TableHead className="text-right">Tổng tiền bánh</TableHead>
-                      <TableHead className="text-right">Phí quản lí</TableHead>
-                      <TableHead className="text-right">Công nợ</TableHead>
-                      <TableHead>Trạng thái</TableHead>
+                      <TableHead>{copy.dealer}</TableHead>
+                      <TableHead className="text-right">{copy.rows2}</TableHead>
+                      <TableHead className="text-right">{copy.quantity}</TableHead>
+                      <TableHead className="text-right">{copy.totalBreadAmount}</TableHead>
+                      <TableHead className="text-right">{copy.managementFee}</TableHead>
+                      <TableHead className="text-right">{copy.debt}</TableHead>
+                      <TableHead>{copy.status}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {summaries.map((row) => (
                       <Fragment key={row.id}>
                         <TableRow key={row.id} className="cursor-pointer" onClick={() => setExpandedAgencyId(expandedAgencyId === row.id ? null : row.id)}>
-                          <TableCell className="font-medium">{row.name}</TableCell>
+                          <TableCell className="font-medium">{row.id === "unmapped" ? copy.unmappedDealer : row.name}</TableCell>
                           <TableCell className="text-right">{row.lines.length}</TableCell>
                           <TableCell className="text-right">{formatQty(row.quantity)}</TableCell>
                           <TableCell className="text-right">{formatVnd(row.gross)}</TableCell>
                           <TableCell className="text-right">{formatVnd(row.managementFee)}</TableCell>
                           <TableCell className="text-right font-semibold">{formatVnd(row.payable)}</TableCell>
-                          <TableCell>{row.id === "unmapped" ? <Badge variant="destructive">Cần map</Badge> : <Badge>OK</Badge>}</TableCell>
+                          <TableCell>{row.id === "unmapped" ? <Badge variant="destructive">{copy.mappingRequired}</Badge> : <Badge>OK</Badge>}</TableCell>
                         </TableRow>
                         {expandedAgencyId === row.id && (
                           <TableRow key={`${row.id}-detail`}>
@@ -1098,20 +1115,20 @@ export default function NppDebtManagement() {
                                 <Table>
                                   <TableHeader>
                                     <TableRow>
-                                      <TableHead>Ngày</TableHead>
-                                      <TableHead>Diễn giải</TableHead>
-                                      <TableHead>Ghi chú</TableHead>
-                                      <TableHead className="text-right">SL</TableHead>
-                                      <TableHead className="text-right">Đơn giá</TableHead>
-                                      <TableHead className="text-right">Thành tiền</TableHead>
-                                      <TableHead className="text-right">Thao tác</TableHead>
+                                      <TableHead>{copy.date}</TableHead>
+                                      <TableHead>{copy.description}</TableHead>
+                                      <TableHead>{copy.notes}</TableHead>
+                                      <TableHead className="text-right">{copy.qty}</TableHead>
+                                      <TableHead className="text-right">{copy.unitPrice}</TableHead>
+                                      <TableHead className="text-right">{copy.amount}</TableHead>
+                                      <TableHead className="text-right">{copy.actions}</TableHead>
                                     </TableRow>
                                   </TableHeader>
                                   <TableBody>
                                     {paginatedExpandedAgencyLines.map((line) => (
                                       <TableRow key={line.id}>
                                         <TableCell>{line.revenue_date}</TableCell>
-                                        <TableCell>{line.product_name || line.customer_name || "Bánh mì"}</TableCell>
+                                        <TableCell>{line.product_name || line.customer_name || copy.bread}</TableCell>
                                         <TableCell>{line.item_note || getRouteCustomerName(line) || "-"}</TableCell>
                                         <TableCell className="text-right">{formatQty(Number(line.quantity || 0))}</TableCell>
                                         <TableCell className="text-right">{formatVnd(Number(line.unit_price || 0))}</TableCell>
@@ -1119,7 +1136,7 @@ export default function NppDebtManagement() {
                                         <TableCell className="text-right">{renderEditButton(line, "ml-auto")}</TableCell>
                                       </TableRow>
                                     ))}
-                                    {row.lines.length === 0 && <TableRow><TableCell colSpan={7} className="py-4 text-center text-muted-foreground">Chưa có dòng trong kỳ này.</TableCell></TableRow>}
+                                    {row.lines.length === 0 && <TableRow><TableCell colSpan={7} className="py-4 text-center text-muted-foreground">{copy.noRowsInThisPeriod}</TableCell></TableRow>}
                                   </TableBody>
                                 </Table>
                                 {row.lines.length > 0 && renderRevenuePagination(row.lines.length, expandedAgencyRevenuePageSafe, expandedAgencyRevenueTotalPages, setExpandedAgencyRevenuePage)}
@@ -1130,7 +1147,7 @@ export default function NppDebtManagement() {
                       </Fragment>
                     ))}
                     {summaries.length === 0 && (
-                      <TableRow><TableCell colSpan={7} className="py-8 text-center text-muted-foreground">Chưa có dữ liệu công nợ cho NPP này.</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={7} className="py-8 text-center text-muted-foreground">{copy.noDebtDataForThisDistributor}</TableCell></TableRow>
                     )}
                   </TableBody>
                 </Table>
@@ -1143,7 +1160,7 @@ export default function NppDebtManagement() {
                   <div key={line.id} className="rounded-xl border border-border/70 bg-card/70 p-4 shadow-sm">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <div className="font-medium">{line.product_name || line.customer_name || "Doanh thu"}</div>
+                        <div className="font-medium">{line.product_name || line.customer_name || copy.revenue}</div>
                         <div className="mt-1 text-xs text-muted-foreground">{line.revenue_date} • {line.channel || "-"}</div>
                       </div>
                       <div className="flex shrink-0 flex-col items-end gap-2 text-right">
@@ -1152,10 +1169,10 @@ export default function NppDebtManagement() {
                       </div>
                     </div>
                     <div className="mt-2 text-xs text-muted-foreground">{line.item_note || line.revenue_source_documents?.source_name || "-"}</div>
-                    <div className="mt-3 text-xs text-muted-foreground">SL {formatQty(Number(line.quantity || 0))} • Đơn giá {formatVnd(Number(line.unit_price || 0))}</div>
+                    <div className="mt-3 text-xs text-muted-foreground">{formatText(copy.quantityPrice, { quantity: formatQty(Number(line.quantity || 0)), price: formatVnd(Number(line.unit_price || 0)) })}</div>
                   </div>
                 ))}
-                {directLines.length === 0 && <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">Chưa có dữ liệu công nợ cho khách hàng này.</div>}
+                {directLines.length === 0 && <div className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">{copy.noDebtDataForThisCustomer}</div>}
                 {directLines.length > 0 && renderRevenuePagination(directLines.length, directRevenuePageSafe, directRevenueTotalPages, setDirectRevenuePage)}
               </div>
 
@@ -1163,14 +1180,14 @@ export default function NppDebtManagement() {
                 <Table className="min-w-[860px]">
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Ngày</TableHead>
-                      <TableHead>Kênh</TableHead>
-                      <TableHead>Diễn giải</TableHead>
-                      <TableHead>Ghi chú</TableHead>
-                      <TableHead className="text-right">Số lượng</TableHead>
-                      <TableHead className="text-right">Đơn giá</TableHead>
-                      <TableHead className="text-right">Công nợ</TableHead>
-                      <TableHead className="text-right">Thao tác</TableHead>
+                      <TableHead>{copy.date}</TableHead>
+                      <TableHead>{copy.channel}</TableHead>
+                      <TableHead>{copy.description}</TableHead>
+                      <TableHead>{copy.notes}</TableHead>
+                      <TableHead className="text-right">{copy.quantity}</TableHead>
+                      <TableHead className="text-right">{copy.unitPrice}</TableHead>
+                      <TableHead className="text-right">{copy.debt}</TableHead>
+                      <TableHead className="text-right">{copy.actions}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1178,7 +1195,7 @@ export default function NppDebtManagement() {
                       <TableRow key={line.id}>
                         <TableCell>{line.revenue_date}</TableCell>
                         <TableCell>{line.channel || "-"}</TableCell>
-                        <TableCell className="font-medium">{line.product_name || line.customer_name || "Doanh thu"}</TableCell>
+                        <TableCell className="font-medium">{line.product_name || line.customer_name || copy.revenue}</TableCell>
                         <TableCell>{line.item_note || line.revenue_source_documents?.source_name || "-"}</TableCell>
                         <TableCell className="text-right">{formatQty(Number(line.quantity || 0))}</TableCell>
                         <TableCell className="text-right">{formatVnd(Number(line.unit_price || 0))}</TableCell>
@@ -1187,7 +1204,7 @@ export default function NppDebtManagement() {
                       </TableRow>
                     ))}
                     {directLines.length === 0 && (
-                      <TableRow><TableCell colSpan={8} className="py-8 text-center text-muted-foreground">Chưa có dữ liệu công nợ cho khách hàng này.</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={8} className="py-8 text-center text-muted-foreground">{copy.noDebtDataForThisCustomer}</TableCell></TableRow>
                     )}
                   </TableBody>
                 </Table>
@@ -1203,39 +1220,40 @@ export default function NppDebtManagement() {
       <Dialog open={Boolean(editingLine && editForm)} onOpenChange={(open) => { if (!open) closeEdit(); }}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Chỉnh sửa doanh thu công nợ</DialogTitle>
+            <DialogTitle>{copy.editDebtRevenue}</DialogTitle>
             <DialogDescription>
-              Staff được phép sửa khi doanh thu chưa đúng. Ghi chú không bắt buộc; hệ thống vẫn ghi audit log khi lưu.
+
+              {copy.staffCanCorrectInaccurateRevenueNotesAre}
             </DialogDescription>
           </DialogHeader>
           {editForm ? (
             <div className="grid gap-4 py-2 md:grid-cols-2">
               <div className="space-y-2">
-                <Label>Ngày doanh thu</Label>
+                <Label>{copy.revenueDate}</Label>
                 <Input type="date" value={editForm.revenue_date} onChange={(event) => updateEditField("revenue_date", event.target.value)} />
               </div>
               <div className="space-y-2">
-                <Label>Mã hóa đơn / PO</Label>
-                <Input value={editForm.invoice_no} onChange={(event) => updateEditField("invoice_no", event.target.value)} placeholder="Không bắt buộc" />
+                <Label>{copy.invoicePONumber}</Label>
+                <Input value={editForm.invoice_no} onChange={(event) => updateEditField("invoice_no", event.target.value)} placeholder={copy.optional} />
               </div>
               <div className="space-y-2 md:col-span-2">
-                <Label>Khách hàng / đại lý</Label>
+                <Label>{copy.customerDealer}</Label>
                 <Input value={editForm.customer_name} onChange={(event) => updateEditField("customer_name", event.target.value)} />
               </div>
               <div className="space-y-2 md:col-span-2">
-                <Label>Sản phẩm / diễn giải</Label>
+                <Label>{copy.productDescription}</Label>
                 <Input value={editForm.product_name} onChange={(event) => updateEditField("product_name", event.target.value)} />
               </div>
               <div className="space-y-2">
-                <Label>Số lượng</Label>
+                <Label>{copy.quantity}</Label>
                 <Input inputMode="decimal" value={editForm.quantity} onChange={(event) => updateEditField("quantity", event.target.value)} />
               </div>
               <div className="space-y-2">
-                <Label>Đơn giá</Label>
+                <Label>{copy.unitPrice}</Label>
                 <Input inputMode="decimal" value={editForm.unit_price} onChange={(event) => updateEditField("unit_price", event.target.value)} />
               </div>
               <div className="space-y-2 md:col-span-2">
-                <Label>Thành tiền / doanh thu</Label>
+                <Label>{copy.amountRevenue}</Label>
                 <Input
                   inputMode="decimal"
                   value={editForm.gross_revenue}
@@ -1243,19 +1261,20 @@ export default function NppDebtManagement() {
                   aria-readonly="true"
                   className="bg-muted/40"
                 />
-                <p className="text-xs text-muted-foreground">Tự tính = Số lượng × Đơn giá để tránh lệch công nợ.</p>
+                <p className="text-xs text-muted-foreground">{copy.calculatedAsQuantityUnitPriceToPrevent}</p>
               </div>
               <div className="space-y-2 md:col-span-2">
-                <Label>Ghi chú nội bộ (không bắt buộc)</Label>
-                <Textarea value={editForm.audit_note} onChange={(event) => updateEditField("audit_note", event.target.value)} placeholder="Ví dụ: sửa theo số giao thực tế" />
+                <Label>{copy.internalNotesOptional}</Label>
+                <Textarea value={editForm.audit_note} onChange={(event) => updateEditField("audit_note", event.target.value)} placeholder={copy.exampleAdjustToActualDeliveredQuantity} />
               </div>
             </div>
           ) : null}
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={closeEdit} disabled={savingEdit}>Hủy</Button>
+            <Button type="button" variant="outline" onClick={closeEdit} disabled={savingEdit}>{copy.cancel2}</Button>
             <Button type="button" onClick={saveEdit} disabled={savingEdit || !editForm}>
               {savingEdit ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Lưu chỉnh sửa
+
+              {copy.saveChanges}
             </Button>
           </DialogFooter>
         </DialogContent>

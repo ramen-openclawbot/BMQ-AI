@@ -1,3 +1,6 @@
+import { formatText } from "@/i18n/format";
+import { goodsReceiptPurchasing } from "@/i18n/goodsReceiptPurchasing";
+import { usePurchasingCopy, purchasingErrorMessage, renderPurchasingMessage } from "@/i18n/purchasingCopy";
 import { useEffect, useState, useMemo } from "react";
 import { format } from "date-fns";
 import { vi, enUS } from "date-fns/locale";
@@ -29,9 +32,9 @@ const normalizeSearchText = (value: string) =>
 const toMonthValue = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 const toYearValue = (date: Date) => String(date.getFullYear());
 
-const formatMonthLabel = (monthValue: string) => {
+const formatMonthLabel = (monthValue: string, pc: typeof goodsReceiptPurchasing.vi) => {
   const [year, month] = monthValue.split("-");
-  return `Tháng ${month}/${year}`;
+  return formatText(pc.monthLabel, { month, year });
 };
 
 const parseReceiptDate = (rawDate: string | null) => {
@@ -40,7 +43,7 @@ const parseReceiptDate = (rawDate: string | null) => {
   return Number.isNaN(date.getTime()) ? null : date;
 };
 
-const buildWeekBuckets = (monthValue: string) => {
+const buildWeekBuckets = (monthValue: string, pc: typeof goodsReceiptPurchasing.vi) => {
   const [yearRaw, monthRaw] = monthValue.split("-");
   const year = Number(yearRaw);
   const monthIndex = Number(monthRaw) - 1;
@@ -53,7 +56,7 @@ const buildWeekBuckets = (monthValue: string) => {
     const endDay = Math.min(startDay + 6, lastDay);
     return {
       value: `${monthValue}-w${index + 1}`,
-      label: `Tuần ${index + 1} (${startDay}-${endDay}/${monthLabel})`,
+      label: formatText(pc.weekLabel, { week: index + 1, startDay, endDay, month: monthLabel }),
       startDay,
       endDay,
     };
@@ -75,6 +78,7 @@ const receiptMatchesPeriod = (rawDate: string | null, mode: TimeFilterMode, mont
 };
 
 export default function GoodsReceipts() {
+  const pc = usePurchasingCopy(goodsReceiptPurchasing);
   const { language } = useLanguage();
   const locale = language === "vi" ? vi : enUS;
   const isVi = language === "vi";
@@ -94,7 +98,7 @@ export default function GoodsReceipts() {
   const deleteReceipt = useDeleteGoodsReceipt();
   const confirmReceipt = useConfirmGoodsReceipt();
 
-  const weekOptions = useMemo(() => buildWeekBuckets(selectedMonthValue), [selectedMonthValue]);
+  const weekOptions = useMemo(() => buildWeekBuckets(selectedMonthValue, pc), [selectedMonthValue, pc]);
 
   const monthOptions = useMemo(() => {
     const values = new Set<string>([toMonthValue(new Date())]);
@@ -190,7 +194,7 @@ export default function GoodsReceipts() {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "draft":
-        return <Badge variant="secondary"><Clock className="h-3 w-3 mr-1" />Nháp</Badge>;
+        return <Badge variant="secondary"><Clock className="h-3 w-3 mr-1" />{pc.draft}</Badge>;
       case "confirmed":
         return <Badge variant="default"><FileCheck className="h-3 w-3 mr-1" />{isVi ? "Đã xác nhận" : "Confirmed"}</Badge>;
       case "received":
@@ -227,10 +231,10 @@ export default function GoodsReceipts() {
     if (!deleteId) return;
     try {
       await deleteReceipt.mutateAsync(deleteId);
-      toast.success("Đã xóa phiếu nhập kho");
+      toast.success(pc.goodsReceiptDeleted);
       setDeleteId(null);
     } catch (error) {
-      toast.error("Không thể xóa phiếu nhập kho");
+      toast.error(pc.unableToDeleteGoodsReceipt);
     }
   };
 
@@ -244,9 +248,9 @@ export default function GoodsReceipts() {
       setTimeFilterMode("month");
       setSelectedMonthValue(toMonthValue(finalizedDate));
       setSelectedYearValue(toYearValue(finalizedDate));
-      toast.success("Đã nhập hàng vào kho thành công");
+      toast.success(pc.goodsReceivedSuccessfully);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Không thể nhập hàng vào kho";
+      const message = renderPurchasingMessage(pc, purchasingErrorMessage(error, "unableToReceiveGoods"));
       toast.error(message);
     }
   };
@@ -299,7 +303,7 @@ export default function GoodsReceipts() {
 
   const statusCards = [
     { key: "all", label: isVi ? "Tổng phiếu" : "Total", value: stats.total, tone: "text-primary" },
-    { key: "draft", label: "Nháp", value: stats.draft, tone: "text-muted-foreground" },
+    { key: "draft", label: pc.draft, value: stats.draft, tone: "text-muted-foreground" },
     { key: "confirmed", label: isVi ? "Đã xác nhận" : "Confirmed", value: stats.confirmed, tone: "text-primary" },
     { key: "received", label: isVi ? "Đã nhập" : "Received", value: stats.received, tone: "text-emerald-600" },
   ];
@@ -311,10 +315,10 @@ export default function GoodsReceipts() {
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="mb-2 flex items-center gap-2 md:hidden">
-                <Button type="button" variant="ghost" size="icon" className="-ml-2 h-8 w-8" onClick={() => window.dispatchEvent(new Event("bmq:open-sidebar"))} aria-label="Mở menu">
+                <Button type="button" variant="ghost" size="icon" className="-ml-2 h-8 w-8" onClick={() => window.dispatchEvent(new Event("bmq:open-sidebar"))} aria-label={pc.openMenu}>
                   <Menu className="h-5 w-5" />
                 </Button>
-                <span className="text-xs font-semibold uppercase tracking-wide text-primary">Kho hàng</span>
+                <span className="text-xs font-semibold uppercase tracking-wide text-primary">{pc.warehouse}</span>
               </div>
               <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight text-foreground">
                 <Package className="h-6 w-6 text-primary" />
@@ -397,7 +401,7 @@ export default function GoodsReceipts() {
                   </SelectTrigger>
                   <SelectContent>
                     {monthOptions.map((month) => (
-                      <SelectItem key={month} value={month}>{formatMonthLabel(month)}</SelectItem>
+                      <SelectItem key={month} value={month}>{formatMonthLabel(month, pc)}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -466,27 +470,27 @@ export default function GoodsReceipts() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="font-mono text-sm font-semibold text-primary">{receipt.receipt_number}</p>
-                      <p className="mt-1 truncate text-sm font-medium text-foreground">{receipt.suppliers?.name || "Chưa có NCC"}</p>
-                      <p className="text-xs text-muted-foreground">Chạm vào thẻ để xem chi tiết</p>
+                      <p className="mt-1 truncate text-sm font-medium text-foreground">{receipt.suppliers?.name || pc.noSupplier}</p>
+                      <p className="text-xs text-muted-foreground">{pc.tapACardToViewDetails}</p>
                     </div>
                     <div className="shrink-0">{getStatusBadge(receipt.status)}</div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-2 rounded-xl border border-border bg-background/70 p-3 text-xs">
                     <div>
-                      <p className="text-muted-foreground">Ngày nhận</p>
+                      <p className="text-muted-foreground">{pc.receiptDate}</p>
                       <p className="font-semibold">{formatReceiptDate(receipt.receipt_date)}</p>
                     </div>
                     <div>
-                      <p className="text-muted-foreground">Số lượng</p>
+                      <p className="text-muted-foreground">{pc.quantity}</p>
                       <p className="font-semibold">{receipt.total_quantity?.toLocaleString("vi-VN") || 0}</p>
                     </div>
                     <div>
-                      <p className="text-muted-foreground">PO</p>
+                      <p className="text-muted-foreground">{pc.fieldPO}</p>
                       <p className="truncate font-mono font-semibold">{receipt.purchase_orders?.po_number || "-"}</p>
                     </div>
                     <div>
-                      <p className="text-muted-foreground">Công nợ</p>
+                      <p className="text-muted-foreground">{pc.payable}</p>
                       <p className="truncate font-mono font-semibold">{receipt.payment_requests?.request_number || "-"}</p>
                     </div>
                   </div>
@@ -610,7 +614,7 @@ export default function GoodsReceipts() {
                           <div className="space-y-1 text-xs">
                             <div className="flex items-center gap-1 text-muted-foreground">
                               <Link2 className="h-3 w-3" />
-                              <span>PO: {receipt.purchase_orders?.po_number || "-"}</span>
+                              <span>{pc.fieldPOLabel} {receipt.purchase_orders?.po_number || "-"}</span>
                             </div>
                             <div className="flex items-center gap-1">
                               {getPayableBadge(receipt)}

@@ -1,3 +1,5 @@
+import { purchaseOrderPurchasing } from "@/i18n/purchaseOrderPurchasing";
+import { usePurchasingCopy } from "@/i18n/purchasingCopy";
 import { useState, useEffect } from "react";
 import { format } from "date-fns";
 import { vi } from "date-fns/locale";
@@ -61,6 +63,7 @@ export function EditPurchaseOrderDialog({
   onOpenChange,
   onSuccess,
 }: EditPurchaseOrderDialogProps) {
+  const pc = usePurchasingCopy(purchaseOrderPurchasing);
   const queryClient = useQueryClient();
   
   const { data: order, isLoading: orderLoading } = usePurchaseOrder(orderId);
@@ -147,12 +150,12 @@ export function EditPurchaseOrderDialog({
 
   const handleSubmit = async () => {
     if (itemRows.length === 0) {
-      toast.error("Vui lòng thêm ít nhất 1 sản phẩm");
+      toast.error(pc.pleaseAddAtLeastOneProduct);
       return;
     }
 
     if (itemRows.some((item) => !item.product_name.trim())) {
-      toast.error("Vui lòng nhập tên cho tất cả sản phẩm");
+      toast.error(pc.pleaseEnterANameForEveryProduct);
       return;
     }
 
@@ -188,14 +191,14 @@ export function EditPurchaseOrderDialog({
       queryClient.invalidateQueries({ queryKey: ["purchase-order", orderId] });
       queryClient.invalidateQueries({ queryKey: ["purchase-order-items", orderId] });
 
-      toast.success("Đã cập nhật đơn đặt hàng");
+      toast.success(pc.purchaseOrderUpdated);
       onOpenChange(false);
       onSuccess?.();
     } catch (error: unknown) {
       console.error("Error updating PO:", error);
-      const message = error instanceof Error ? error.message : "Lỗi không xác định";
+      const message = error instanceof Error ? error.message : pc.unknownError;
       if (message.includes("identity") || message.includes("supplier") || message.includes("material evidence") || message.includes("23514")) {
-        toast.error("Danh tính NVL/sản phẩm đã được chốt theo lịch sử mua hàng. Vui lòng hủy dòng/chứng từ và tạo dòng mới thay vì đổi tên, mã, ĐVT, SKU hoặc NCC.");
+        toast.error(pc.materialProductIdentityIsLockedByPurchaseHistory);
       } else {
         toast.error("Lỗi khi cập nhật: " + message);
       }
@@ -210,11 +213,9 @@ export function EditPurchaseOrderDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Package className="h-5 w-5" />
-            Chỉnh sửa Đơn Đặt Hàng
-          </DialogTitle>
+             {pc.editPurchaseOrder} </DialogTitle>
           <DialogDescription>
-            {order?.po_number} - Trạng thái: Nháp
-          </DialogDescription>
+            {order?.po_number}  {pc.statusDraft} </DialogDescription>
         </DialogHeader>
 
         {isLoading ? (
@@ -226,16 +227,16 @@ export function EditPurchaseOrderDialog({
             {/* Basic Info */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="col-span-2">
-                <Label>Nhà cung cấp</Label>
+                <Label>{pc.suppliers}</Label>
                 <Select
                   value={supplierId || "_none"}
                   onValueChange={(v) => setSupplierId(v === "_none" ? "" : v)}
                 >
                   <SelectTrigger className="mt-1">
-                    <SelectValue placeholder="Chọn NCC..." />
+                    <SelectValue placeholder={pc.selectSupplier2} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="_none">-- Chưa chọn --</SelectItem>
+                    <SelectItem value="_none">{pc.notSelected}</SelectItem>
                     {suppliers?.map((s) => (
                       <SelectItem key={s.id} value={s.id}>
                         {s.name}
@@ -246,7 +247,7 @@ export function EditPurchaseOrderDialog({
               </div>
 
               <div>
-                <Label>Ngày đặt</Label>
+                <Label>{pc.orderDate}</Label>
                 <Input
                   type="date"
                   value={orderDate}
@@ -256,7 +257,7 @@ export function EditPurchaseOrderDialog({
               </div>
 
               <div>
-                <Label>Ngày giao dự kiến</Label>
+                <Label>{pc.expectedDeliveryDate}</Label>
                 <Input
                   type="date"
                   value={expectedDate}
@@ -270,23 +271,22 @@ export function EditPurchaseOrderDialog({
             <div>
               <div className="flex items-center justify-between mb-3">
                 <Label className="text-base font-medium">
-                  Danh sách sản phẩm ({itemRows.length})
+                   {pc.productList}{itemRows.length})
                 </Label>
                 <Button type="button" variant="outline" size="sm" onClick={addItemRow}>
                   <Plus className="h-4 w-4 mr-1" />
-                  Thêm dòng
-                </Button>
+                   {pc.addLine} </Button>
               </div>
 
               <div className="border rounded-lg overflow-hidden">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-[35%]">Sản phẩm</TableHead>
-                      <TableHead className="w-[12%]">SL</TableHead>
-                      <TableHead className="w-[10%]">ĐVT</TableHead>
-                      <TableHead className="w-[18%]">Đơn giá</TableHead>
-                      <TableHead className="w-[18%]">Thành tiền</TableHead>
+                      <TableHead className="w-[35%]">{pc.product}</TableHead>
+                      <TableHead className="w-[12%]">{pc.qty}</TableHead>
+                      <TableHead className="w-[10%]">{pc.unit}</TableHead>
+                      <TableHead className="w-[18%]">{pc.unitPrice}</TableHead>
+                      <TableHead className="w-[18%]">{pc.lineTotal}</TableHead>
                       <TableHead className="w-[7%]"></TableHead>
                     </TableRow>
                   </TableHeader>
@@ -294,8 +294,7 @@ export function EditPurchaseOrderDialog({
                     {itemRows.length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
-                          Chưa có sản phẩm. Nhấn "Thêm dòng" để bắt đầu.
-                        </TableCell>
+                           {pc.noProductsYetClickAddLineToBegin} </TableCell>
                       </TableRow>
                     ) : (
                       itemRows.map((item, index) => (
@@ -306,7 +305,7 @@ export function EditPurchaseOrderDialog({
                               onChange={(e) =>
                                 updateItemRow(index, "product_name", e.target.value)
                               }
-                              placeholder="Tên sản phẩm"
+                              placeholder={pc.productName}
                             />
                           </TableCell>
                           <TableCell>
@@ -363,11 +362,11 @@ export function EditPurchaseOrderDialog({
             <div className="flex justify-end border-t pt-4">
               <div className="space-y-2 text-right w-64">
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Tạm tính:</span>
+                  <span className="text-muted-foreground">{pc.subtotal}</span>
                   <span className="font-medium">{formatCurrency(subtotal)}</span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-muted-foreground">VAT:</span>
+                  <span className="text-muted-foreground">{pc.fieldVAT}</span>
                   <Input
                     type="number"
                     min="0"
@@ -377,7 +376,7 @@ export function EditPurchaseOrderDialog({
                   />
                 </div>
                 <div className="flex justify-between pt-2 border-t">
-                  <span className="font-medium">Tổng cộng:</span>
+                  <span className="font-medium">{pc.total}</span>
                   <span className="text-xl font-bold">{formatCurrency(total)}</span>
                 </div>
               </div>
@@ -385,11 +384,11 @@ export function EditPurchaseOrderDialog({
 
             {/* Notes */}
             <div>
-              <Label>Ghi chú</Label>
+              <Label>{pc.notes}</Label>
               <Textarea
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                placeholder="Ghi chú thêm..."
+                placeholder={pc.additionalNotes}
                 rows={2}
                 className="mt-1"
               />
@@ -399,19 +398,16 @@ export function EditPurchaseOrderDialog({
 
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
-            Hủy
-          </Button>
+             {pc.cancel} </Button>
           <Button onClick={handleSubmit} disabled={isSubmitting || isLoading}>
             {isSubmitting ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Đang lưu...
-              </>
+                 {pc.saving} </>
             ) : (
               <>
                 <Save className="h-4 w-4 mr-2" />
-                Lưu thay đổi
-              </>
+                 {pc.saveChanges} </>
             )}
           </Button>
         </DialogFooter>

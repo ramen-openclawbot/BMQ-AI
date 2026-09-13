@@ -1,3 +1,5 @@
+import { invoicePurchasing } from "@/i18n/invoicePurchasing";
+import { usePurchasingCopy } from "@/i18n/purchasingCopy";
 import { useState } from "react";
 import {
   Dialog,
@@ -39,6 +41,7 @@ export function InvoiceDetailsDialog({
   onEdit,
   onDelete,
 }: InvoiceDetailsDialogProps) {
+  const pc = usePurchasingCopy(invoicePurchasing);
   const [showInvoiceImagePreview, setShowInvoiceImagePreview] = useState(false);
   const [showPaymentSlipPreview, setShowPaymentSlipPreview] = useState(false);
 
@@ -76,21 +79,18 @@ export function InvoiceDetailsDialog({
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <DialogTitle className="flex items-center gap-2">
               <FileText className="h-5 w-5 text-primary" />
-              Chi tiết hóa đơn
-            </DialogTitle>
+               {pc.invoiceDetails} </DialogTitle>
             {invoice && !isLoading && (
               <div className="flex items-center gap-2">
                 {onEdit && (
                   <Button size="sm" variant="outline" onClick={() => onEdit(invoice.id)}>
                     <Pencil className="mr-2 h-4 w-4" />
-                    Chỉnh sửa
-                  </Button>
+                     {pc.edit} </Button>
                 )}
                 {onDelete && (
                   <Button size="sm" variant="outline" className="border-destructive/30 text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={() => onDelete(invoice.id)}>
                     <Trash2 className="mr-2 h-4 w-4" />
-                    Xóa
-                  </Button>
+                     {pc.delete} </Button>
                 )}
               </div>
             )}
@@ -108,47 +108,46 @@ export function InvoiceDetailsDialog({
             {/* Header Info */}
             <div className="grid grid-cols-2 gap-4 p-4 bg-muted/50 rounded-lg">
               <div>
-                <p className="text-sm text-muted-foreground">Số hóa đơn</p>
+                <p className="text-sm text-muted-foreground">{pc.invoiceNumber}</p>
                 <p className="font-semibold">{invoice.invoice_number}</p>
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Ngày</p>
+                <p className="text-sm text-muted-foreground">{pc.date}</p>
                 <p className="font-semibold">
                   {format(new Date(invoice.invoice_date), "dd/MM/yyyy")}
                 </p>
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Nhà cung cấp</p>
+                <p className="text-sm text-muted-foreground">{pc.suppliers}</p>
                 <p className="font-semibold">
                   {invoice.suppliers?.name || (
-                    <span className="text-muted-foreground">Không xác định</span>
+                    <span className="text-muted-foreground">{pc.unknown}</span>
                   )}
                 </p>
               </div>
               {invoice.payment_request_id && (
                 <div>
-                  <p className="text-sm text-muted-foreground">Từ đề nghị chi</p>
+                  <p className="text-sm text-muted-foreground">{pc.fromPaymentRequest}</p>
                   <Badge variant="outline" className="mt-1">
                     <ExternalLink className="h-3 w-3 mr-1" />
-                    Liên kết PR
-                  </Badge>
+                     {pc.linkedPR} </Badge>
                 </div>
               )}
             </div>
 
             {/* Items Table */}
             <div>
-              <h3 className="font-semibold mb-2">Danh sách sản phẩm</h3>
+              <h3 className="font-semibold mb-2">{pc.productList}</h3>
               <div className="border rounded-lg overflow-hidden">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-24">Mã SP</TableHead>
-                      <TableHead>Tên sản phẩm</TableHead>
-                      <TableHead className="text-right w-20">SL</TableHead>
-                      <TableHead className="w-20">ĐVT</TableHead>
-                      <TableHead className="text-right w-28">Đơn giá</TableHead>
-                      <TableHead className="text-right w-32">Thành tiền</TableHead>
+                      <TableHead className="w-24">{pc.productCode}</TableHead>
+                      <TableHead>{pc.productName}</TableHead>
+                      <TableHead className="text-right w-20">{pc.qty}</TableHead>
+                      <TableHead className="w-20">{pc.unit}</TableHead>
+                      <TableHead className="text-right w-28">{pc.unitPrice}</TableHead>
+                      <TableHead className="text-right w-32">{pc.lineTotal}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -176,8 +175,7 @@ export function InvoiceDetailsDialog({
                     ) : (
                       <TableRow>
                         <TableCell colSpan={6} className="text-center py-4 text-muted-foreground">
-                          Không có sản phẩm
-                        </TableCell>
+                           {pc.noProducts} </TableCell>
                       </TableRow>
                     )}
                   </TableBody>
@@ -189,15 +187,15 @@ export function InvoiceDetailsDialog({
             <div className="flex justify-end">
               <div className="w-64 space-y-2 p-4 bg-muted/50 rounded-lg">
                 <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Tạm tính:</span>
+                  <span className="text-muted-foreground">{pc.subtotal}</span>
                   <span>{formatCurrency(invoice.subtotal || 0)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">VAT:</span>
+                  <span className="text-muted-foreground">{pc.fieldVATLabel}</span>
                   <span>{formatCurrency(invoice.vat_amount || 0)}</span>
                 </div>
                 <div className="flex justify-between font-semibold border-t pt-2">
-                  <span>Tổng cộng:</span>
+                  <span>{pc.total}</span>
                   <span className="text-primary">
                     {formatCurrency(invoice.total_amount || 0)}
                   </span>
@@ -208,17 +206,17 @@ export function InvoiceDetailsDialog({
             {/* Attachments */}
             {(resolvedImageUrl || resolvedPaymentSlipUrl) && (
               <div>
-                <h3 className="font-semibold mb-2">Chứng từ đính kèm</h3>
+                <h3 className="font-semibold mb-2">{pc.attachedDocuments}</h3>
                 <div className="grid grid-cols-2 gap-4">
                   {resolvedImageUrl && (
                     <div className="border rounded-lg p-3">
                       <div className="flex items-center gap-2 mb-2">
                         <FileText className="h-4 w-4 text-muted-foreground" />
-                        <span className="text-sm font-medium">Hóa đơn</span>
+                        <span className="text-sm font-medium">{pc.invoice}</span>
                       </div>
                       <img
                         src={resolvedImageUrl}
-                        alt="Invoice"
+                        alt={pc.invoice2}
                         className="w-full h-32 object-contain rounded cursor-pointer hover:opacity-90 transition-opacity bg-muted/30"
                         onClick={() => setShowInvoiceImagePreview(true)}
                       />
@@ -228,11 +226,11 @@ export function InvoiceDetailsDialog({
                     <div className="border rounded-lg p-3">
                       <div className="flex items-center gap-2 mb-2">
                         <CreditCard className="h-4 w-4 text-muted-foreground" />
-                        <span className="text-sm font-medium">UNC / Chứng từ TT</span>
+                        <span className="text-sm font-medium">{pc.bankSlipPaymentDocument}</span>
                       </div>
                       <img
                         src={resolvedPaymentSlipUrl}
-                        alt="Payment Slip"
+                        alt={pc.paymentSlip}
                         className="w-full h-32 object-contain rounded cursor-pointer hover:opacity-90 transition-opacity bg-muted/30"
                         onClick={() => setShowPaymentSlipPreview(true)}
                       />
@@ -245,7 +243,7 @@ export function InvoiceDetailsDialog({
             {/* Notes */}
             {invoice.notes && (
               <div>
-                <h3 className="font-semibold mb-2">Ghi chú</h3>
+                <h3 className="font-semibold mb-2">{pc.notes}</h3>
                 <p className="text-sm text-muted-foreground bg-muted/50 p-3 rounded-lg">
                   {invoice.notes}
                 </p>
@@ -254,14 +252,12 @@ export function InvoiceDetailsDialog({
           </div>
         ) : (
           <div className="text-center py-8 text-muted-foreground">
-            Không tìm thấy hóa đơn
-          </div>
+             {pc.invoiceNotFound} </div>
         )}
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Đóng
-          </Button>
+             {pc.close} </Button>
         </DialogFooter>
       </DialogContent>
 
@@ -270,13 +266,13 @@ export function InvoiceDetailsDialog({
         imageUrl={resolvedImageUrl || null}
         open={showInvoiceImagePreview}
         onOpenChange={setShowInvoiceImagePreview}
-        title="Hóa đơn"
+        title={pc.invoice}
       />
       <ImagePreviewDialog
         imageUrl={resolvedPaymentSlipUrl || null}
         open={showPaymentSlipPreview}
         onOpenChange={setShowPaymentSlipPreview}
-        title="UNC / Chứng từ thanh toán"
+        title={pc.bankSlipPaymentDocument2}
       />
     </Dialog>
   );

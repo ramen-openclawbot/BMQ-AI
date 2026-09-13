@@ -1,3 +1,4 @@
+import { usePeopleCopy } from "@/hooks/usePeopleCopy";
 import { RefreshCw, Clock, FileText, CreditCard, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -25,12 +26,13 @@ function SyncFolderCard({
   isSyncing, 
   onSync, 
 }: SyncFolderCardProps) {
+  const pc = usePeopleCopy();
   const formatLastSync = (timestamp: string | null) => {
-    if (!timestamp) return "Chưa đồng bộ";
+    if (!timestamp) return pc("neverSynced");
     try {
       return format(new Date(timestamp), "dd/MM/yyyy HH:mm", { locale: vi });
     } catch {
-      return "Không xác định";
+      return pc("unknown");
     }
   };
 
@@ -44,12 +46,10 @@ function SyncFolderCard({
         {summary && (
           <div className="flex items-center gap-2">
             <Badge variant="outline" className="text-xs">
-              {summary.total} files
-            </Badge>
+              {summary.total} {pc("files")} </Badge>
             {summary.unprocessed > 0 && (
               <Badge variant="secondary" className="text-xs bg-primary/10 text-primary">
-                {summary.unprocessed} mới
-              </Badge>
+                {summary.unprocessed} {pc("new")} </Badge>
             )}
           </div>
         )}
@@ -58,16 +58,12 @@ function SyncFolderCard({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Clock className="h-4 w-4" />
-          <span>Lần sync gần nhất: {formatLastSync(config?.last_synced_at || null)}</span>
+          <span>{pc("lastSync")} {formatLastSync(config?.last_synced_at || null)}</span>
           {config?.last_sync_status === 'success' && (
-            <Badge variant="outline" className="text-xs text-primary border-primary/30">
-              Thành công
-            </Badge>
+            <Badge variant="outline" className="text-xs text-primary border-primary/30"> {pc("success")} </Badge>
           )}
           {config?.last_sync_status === 'partial' && (
-            <Badge variant="outline" className="text-xs text-warning border-warning/30">
-              Một phần
-            </Badge>
+            <Badge variant="outline" className="text-xs text-warning border-warning/30"> {pc("partial")} </Badge>
           )}
         </div>
         <Button 
@@ -80,15 +76,14 @@ function SyncFolderCard({
             <Loader2 className="h-4 w-4 animate-spin mr-1" />
           ) : (
             <RefreshCw className="h-4 w-4 mr-1" />
-          )}
-          Sync ngay
-        </Button>
+          )} {pc("syncNow")} </Button>
       </div>
     </div>
   );
 }
 
 export function DriveSyncSection() {
+  const pc = usePeopleCopy();
   const { data: syncConfigs, isLoading: configsLoading } = useDriveSyncConfigs();
   const { data: fileSummary, isLoading: summaryLoading } = useDriveFileSummary();
   const { mutate: triggerSync, isPending: isSyncing, variables: syncingType } = useTriggerSync();
@@ -114,15 +109,13 @@ export function DriveSyncSection() {
     <div className="space-y-4">
       <div className="flex items-center gap-3">
         <RefreshCw className="h-5 w-5 text-primary" />
-        <h3 className="font-display font-semibold">Đồng bộ danh sách file</h3>
+        <h3 className="font-display font-semibold">{pc("syncFileList")}</h3>
       </div>
       
-      <p className="text-sm text-muted-foreground">
-        Bấm "Sync ngay" để đồng bộ thủ công danh sách file từ Google Drive.
-      </p>
+      <p className="text-sm text-muted-foreground"> {pc("clickSyncNowToManuallySyncThe")} </p>
 
       <SyncFolderCard
-        label="Folder PO"
+        label={pc("poFolder")}
         icon={<FileText className="h-4 w-4 text-primary" />}
         config={poConfig}
         summary={fileSummary?.po}
@@ -131,7 +124,7 @@ export function DriveSyncSection() {
       />
 
       <SyncFolderCard
-        label="Folder Bank Receipts"
+        label={pc("bankReceiptsFolder")}
         icon={<CreditCard className="h-4 w-4 text-primary" />}
         config={bankSlipConfig}
         summary={fileSummary?.bank_slip}

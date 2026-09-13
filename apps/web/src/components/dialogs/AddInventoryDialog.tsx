@@ -1,3 +1,5 @@
+import { InventoryFormMessage } from "@/components/inventory/InventoryFormMessage";
+import { useWarehouseCopy } from "@/i18n/useWarehouseCopy";
 import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -11,9 +13,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Form, FormControl, FormField, FormItem, FormLabel } from "@/components/ui/form";
 
-const categories = ["Flour", "Sugar", "Dairy", "Chocolate", "Nuts", "Yeast", "Eggs", "Other"];
+const categories = ["Flour", "Sugar", "Dairy", "Chocolate", "Nuts", "Yeast", "Eggs", "Other"] as const;
 const units = ["kg", "L", "pcs", "g", "ml"];
 
 const inventorySchema = z.object({
@@ -27,6 +29,7 @@ const inventorySchema = z.object({
 type InventoryFormData = z.infer<typeof inventorySchema>;
 
 export function AddInventoryDialog() {
+  const c = useWarehouseCopy();
   const [open, setOpen] = useState(false);
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -67,12 +70,11 @@ export function AddInventoryDialog() {
       <DialogTrigger asChild>
         <button className="btn-gradient px-4 py-2 rounded-lg font-medium flex items-center gap-2">
           <Plus className="h-4 w-4" />
-          Add Item
-        </button>
+          {c("Add Item")} </button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Add Inventory Item</DialogTitle>
+          <DialogTitle>{c("Add Inventory Item")}</DialogTitle>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
@@ -81,11 +83,11 @@ export function AddInventoryDialog() {
               name="name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Item Name</FormLabel>
+                  <FormLabel>{c("Item Name")}</FormLabel>
                   <FormControl>
-                    <Input {...field} placeholder="e.g., All-Purpose Flour" />
+                    <Input {...field} placeholder={c("e.g., All-Purpose Flour")} />
                   </FormControl>
-                  <FormMessage />
+                  <InventoryFormMessage />
                 </FormItem>
               )}
             />
@@ -94,20 +96,20 @@ export function AddInventoryDialog() {
               name="category"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Category</FormLabel>
+                  <FormLabel>{c("Category")}</FormLabel>
                   <Select value={field.value} onValueChange={field.onChange}>
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder="Select category" />
+                        <SelectValue placeholder={c("Select category")} />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
                       {categories.map((cat) => (
-                        <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                        <SelectItem key={cat} value={cat}>{c(cat)}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
-                  <FormMessage />
+                  <InventoryFormMessage />
                 </FormItem>
               )}
             />
@@ -117,11 +119,11 @@ export function AddInventoryDialog() {
                 name="stock"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Current Stock</FormLabel>
+                    <FormLabel>{c("Current Stock")}</FormLabel>
                     <FormControl>
                       <Input {...field} type="number" min="0" step="0.01" placeholder="0" />
                     </FormControl>
-                    <FormMessage />
+                    <InventoryFormMessage />
                   </FormItem>
                 )}
               />
@@ -130,7 +132,7 @@ export function AddInventoryDialog() {
                 name="unit"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Unit</FormLabel>
+                    <FormLabel>{c("Unit")}</FormLabel>
                     <Select value={field.value} onValueChange={field.onChange}>
                       <FormControl>
                         <SelectTrigger>
@@ -143,7 +145,7 @@ export function AddInventoryDialog() {
                         ))}
                       </SelectContent>
                     </Select>
-                    <FormMessage />
+                    <InventoryFormMessage />
                   </FormItem>
                 )}
               />
@@ -153,16 +155,16 @@ export function AddInventoryDialog() {
               name="min_stock"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Minimum Stock Level</FormLabel>
+                  <FormLabel>{c("Minimum Stock Level")}</FormLabel>
                   <FormControl>
                     <Input {...field} type="number" min="0" step="0.01" placeholder="0" />
                   </FormControl>
-                  <FormMessage />
+                  <InventoryFormMessage />
                 </FormItem>
               )}
             />
             <Button type="submit" className="w-full" disabled={form.formState.isSubmitting}>
-              {form.formState.isSubmitting ? "Adding..." : "Add Item"}
+              {form.formState.isSubmitting ? c("Adding...") : c("Add Item")}
             </Button>
           </form>
         </Form>

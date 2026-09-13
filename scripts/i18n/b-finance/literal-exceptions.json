@@ -1,0 +1,188 @@
+[
+  {
+    "file": "pages/FinanceControl.tsx",
+    "text": "Approved from Chi phí Cần Review",
+    "count": 1,
+    "reason": "Persisted classification review_note audit text; must remain byte-identical."
+  },
+  {
+    "file": "pages/FinanceControl.tsx",
+    "text": "Đã lưu khai báo CEO",
+    "count": 1,
+    "reason": "Existing success-message matching sentinel; preserve the exact matching behavior."
+  },
+  {
+    "file": "pages/FinanceControl.tsx",
+    "text": "Đã scan và tự lưu khai báo CEO",
+    "count": 1,
+    "reason": "Existing auto-save success-message matching sentinel; preserve exact matching behavior."
+  },
+  {
+    "file": "pages/FinanceControl.tsx",
+    "text": "quá thời gian chờ",
+    "count": 1,
+    "reason": "Timeout detection substring for protocol retry behavior, not rendered UI copy."
+  },
+  {
+    "file": "pages/PayablesManagement.tsx",
+    "text": "`${new Intl.NumberFormat(\"vi-VN\", { maximumFractionDigits: 0 }).format(amount)} đ`",
+    "count": 1,
+    "reason": "Required unchanged Vietnamese currency notation and formatting."
+  },
+  {
+    "file": "pages/NppDebtManagement.tsx",
+    "text": "Đại lý cấp 1 - Anh Thanh",
+    "count": 1,
+    "reason": "Canonical customer name used for matching and priority sorting."
+  },
+  {
+    "file": "pages/NppDebtManagement.tsx",
+    "text": "Chưa map đại lý",
+    "count": 1,
+    "reason": "Canonical fallback group name used for grouping/sorting; translated only at render boundaries by unmapped id."
+  },
+  {
+    "file": "pages/NppDebtManagement.tsx",
+    "text": "Công nợ khách hàng",
+    "count": 1,
+    "reason": "Original export basename fallback feeds attachment filenames; export bytes/names remain unchanged."
+  },
+  {
+    "file": "components/dialogs/CreateInvoiceFromRequestDialog.tsx",
+    "text": "`Tạo từ đề nghị chi ${request.request_number}`",
+    "count": 1,
+    "reason": "Prefilled invoice notes that are stored on submission; user requires notes verbatim."
+  },
+  {
+    "file": "components/dialogs/CreateInvoiceFromRequestDialog.tsx",
+    "text": "thời gian chờ",
+    "count": 1,
+    "reason": "Edge-function retry detection substring, not rendered UI copy."
+  },
+  {
+    "file": "components/dialogs/AddPaymentRequestDialog.tsx",
+    "text": "`Thanh toán ${prefillData.poNumber}`",
+    "count": 1,
+    "reason": "Canonical prefilled PR title stored on submission."
+  },
+  {
+    "file": "components/dialogs/AddPaymentRequestDialog.tsx",
+    "text": "`Đề nghị thanh toán cho ${prefillData.supplierName || 'NCC'}`",
+    "count": 1,
+    "reason": "Canonical prefilled PR description stored on submission."
+  },
+  {
+    "file": "components/dialogs/AddPaymentRequestDialog.tsx",
+    "text": "`Tạo từ ${prefillData.poNumber}`",
+    "count": 1,
+    "reason": "Canonical prefilled PR notes stored on submission."
+  },
+  {
+    "file": "components/dialogs/AddPaymentRequestDialog.tsx",
+    "text": "`Đề nghị chi - ${extractedData.invoice_number}`",
+    "count": 1,
+    "reason": "Canonical OCR-derived PR title stored on submission."
+  },
+  {
+    "file": "components/payment-requests/DriveImportProgressDialog.tsx",
+    "text": "`folder năm ${value}`",
+    "count": 1,
+    "reason": "Original folder-date formatter contributes to stored import notes. UI uses a separate displayFolderDate wrapper."
+  },
+  {
+    "file": "components/payment-requests/DriveImportProgressDialog.tsx",
+    "text": "(Không xác định)",
+    "count": 6,
+    "reason": "Canonical missing-supplier sentinel used for matching, validation, and prefilled supplier identity."
+  },
+  {
+    "file": "components/payment-requests/DriveImportProgressDialog.tsx",
+    "text": "`Import từ Google Drive - ${originalFile.name} (${formatFolderDate(folderDate)})`",
+    "count": 1,
+    "reason": "Persisted PO import notes with canonical source file/date."
+  },
+  {
+    "file": "components/payment-requests/DriveImportProgressDialog.tsx",
+    "text": "Sản phẩm",
+    "count": 4,
+    "reason": "Canonical fallback product/raw-product name written into procurement items."
+  },
+  {
+    "file": "components/payment-requests/DriveImportProgressDialog.tsx",
+    "text": "`Thanh toán ${pendingPO.poNumber}`",
+    "count": 1,
+    "reason": "Persisted PR title created from PO."
+  },
+  {
+    "file": "components/payment-requests/DriveImportProgressDialog.tsx",
+    "text": "`Đề nghị thanh toán cho ${pendingPO.supplierName} - Import từ Google Drive`",
+    "count": 1,
+    "reason": "Persisted PR description with supplier identity."
+  },
+  {
+    "file": "components/payment-requests/DriveImportProgressDialog.tsx",
+    "text": "`Tạo tự động từ ${pendingPO.poNumber}`",
+    "count": 1,
+    "reason": "Persisted PR origin notes."
+  },
+  {
+    "file": "components/payment-requests/DriveImportProgressDialog.tsx",
+    "text": "`Thanh toán ${current.slipData.recipient_name}`",
+    "count": 1,
+    "reason": "Persisted PR title containing receipt recipient identity."
+  },
+  {
+    "file": "components/payment-requests/DriveImportProgressDialog.tsx",
+    "text": "`Import từ UNC - ${current.slipData.transaction_id || ''}`",
+    "count": 1,
+    "reason": "Persisted PR description containing transaction identifier."
+  },
+  {
+    "file": "components/payment-requests/DriveImportProgressDialog.tsx",
+    "text": "Thanh toán tạo từ UNC import",
+    "count": 1,
+    "reason": "Canonical payment-allocation RPC p_notes audit text."
+  },
+  {
+    "file": "components/payment-requests/DriveImportProgressDialog.tsx",
+    "text": "`Tạo từ UNC - ${current.slipData.transaction_id || ''}`",
+    "count": 1,
+    "reason": "Canonical invoice notes containing transaction identifier."
+  },
+  {
+    "file": "components/payment-requests/DriveImportProgressDialog.tsx",
+    "text": "Thanh toán khớp từ UNC import",
+    "count": 1,
+    "reason": "Canonical matched-payment allocation p_notes audit text."
+  },
+  {
+    "file": "components/payment-requests/DriveImportProgressDialog.tsx",
+    "text": "`Tạo tự động từ UNC - ${slipData.transaction_id || ''}`",
+    "count": 1,
+    "reason": "Canonical invoice origin notes containing transaction identifier."
+  },
+  {
+    "file": "components/payment-requests/DriveImportProgressDialog.tsx",
+    "text": "đ ✓",
+    "count": 1,
+    "reason": "Required unchanged VND currency notation with match indicator."
+  },
+  {
+    "file": "components/payment-requests/DriveImportProgressDialog.tsx",
+    "text": "đ",
+    "count": 3,
+    "reason": "Required unchanged VND currency notation."
+  },
+  {
+    "file": "pages/FinanceControl.tsx",
+    "text": "Chưa phân loại / cần review",
+    "count": 1,
+    "reason": "Exact canonical fallback sentinel recognized only by the render-boundary label formatter; not replaced in source data."
+  },
+  {
+    "file": "hooks/useCostClassifications.ts",
+    "text": "Chưa phân loại / cần review",
+    "count": 4,
+    "reason": "Canonical model fallback labels used in grouping. FinanceControl translates this sentinel only when rendering; hook data remain unchanged."
+  }
+]
