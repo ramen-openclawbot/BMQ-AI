@@ -153,7 +153,10 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
   const handlePrintPo = (order: KfmOrder) => {
     void runAction(`po-${order.portalId}`, async () => {
       const detail = await callPortal({ action: "detail", deliveryDate, orderId: order.portalId });
-      const poId = detail.order?.purchaseOrderId;
+      // The portal prints a PO by order id: its own "print PO" action calls
+      // GET /api/v1/purchase-orders/{orderId}/export-pdf. Only fall back to a
+      // dedicated PO id when the detail payload actually carries one.
+      const poId = detail.order?.purchaseOrderId ?? order.portalId;
       if (!poId) throw new Error(isVi ? "Đơn này chưa có PO để in." : "This order has no PO to print.");
       const pdf = await callPortal({ action: "po-pdf", poId });
       savePdf(pdf.base64 || "", pdf.filename || `PO-${order.code}.pdf`);
