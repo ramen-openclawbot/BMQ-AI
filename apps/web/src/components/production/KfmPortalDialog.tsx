@@ -148,10 +148,10 @@ function writePrintPlaceholder(viewer: Window, isVi: boolean, what: string): voi
   if (!meta.parentNode) (doc.head || doc.documentElement).appendChild(meta);
   // One animation only (the spinner): the bouncing dots were a second one.
   body.innerHTML = `
-    <div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:clamp(20px,5vw,28px);padding:clamp(20px,6vw,40px);background:#fff;color:#0f172a;font-family:system-ui,-apple-system,'Segoe UI',sans-serif;text-align:center">
-      <span style="display:block;width:clamp(64px,20vw,96px);height:clamp(64px,20vw,96px);border-radius:9999px;border:6px solid #dbeafe;border-top-color:#2563eb;animation:kfm-spin .9s linear infinite"></span>
-      <p style="margin:0;font-size:clamp(24px,7.5vw,36px);font-weight:700;line-height:1.25">${title}</p>
-      <p style="margin:0;font-size:clamp(16px,4.5vw,21px);color:#475569">${hint}</p>
+    <div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:clamp(12px,3vw,18px);padding:clamp(20px,6vw,40px);background:#fff;color:#0f172a;font-family:system-ui,-apple-system,'Segoe UI',sans-serif;text-align:center">
+      <span style="display:block;width:clamp(40px,11vw,52px);height:clamp(40px,11vw,52px);border-radius:9999px;border:4px solid #dbeafe;border-top-color:#2563eb;animation:kfm-spin .9s linear infinite"></span>
+      <p style="margin:0;font-size:clamp(15px,3.6vw,17px);font-weight:600;line-height:1.35">${title}</p>
+      <p style="margin:0;font-size:clamp(12px,2.9vw,14px);color:#475569">${hint}</p>
       <style>@keyframes kfm-spin{to{transform:rotate(360deg)}}</style>
     </div>`;
 }
