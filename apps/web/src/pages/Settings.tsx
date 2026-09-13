@@ -106,11 +106,13 @@ const Settings = () => {
           </div>
           <Select value={language} onValueChange={(value: "en" | "vi") => setLanguage(value)}>
             <SelectTrigger className="w-40">
-              <SelectValue />
+              <SelectValue>
+                <span>{language === "en" ? "English" : "Tiếng Việt"}</span>
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="en">English</SelectItem>
-              <SelectItem value="vi">Tiếng Việt</SelectItem>
+              <SelectItem value="en"><span>English</span></SelectItem>
+              <SelectItem value="vi"><span>Tiếng Việt</span></SelectItem>
             </SelectContent>
           </Select>
         </div>
