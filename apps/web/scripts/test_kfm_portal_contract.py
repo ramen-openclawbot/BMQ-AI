@@ -92,6 +92,31 @@ def test_the_panel_fits_a_phone_viewport() -> None:
     require(PANEL, "sm:ml-auto", "trailing badges must wrap on phones instead of being clipped")
 
 
+def test_every_print_action_shows_the_waiting_state() -> None:
+    # Reported 2026-09-13: the PO and delivery-note printouts opened a blank tab
+    # for several seconds because only the trip sheet had a waiting state. All
+    # three print actions now share one keyed slot, one banner and one pending tab.
+    require(PANEL, "useState<string | null>(null)",
+            "the waiting state must be keyed so every print action can use it")
+    for key in ("`po-${order.portalId}`", "`asn-${order.portalId}`", "`load-${load.portalId}`"):
+        require(PANEL, key, "each print action must drive the shared waiting state: %s" % key)
+    require(PANEL, "writePrintPlaceholder",
+            "the tab opened on click must show a placeholder, never a blank window")
+    require(PANEL, 'data-kfm-printing="v1"', "the waiting banner must stay present")
+
+
+def test_the_delivery_note_uses_a_truck_icon() -> None:
+    # The operator read the document glyph as something other than the truck
+    # sheet, so the two delivery-note buttons show the delivery truck instead.
+    require(PANEL, 'data-kfm-action="print-asn"', "the delivery-note button must stay")
+    require(PANEL, 'data-kfm-action="print-load"', "the trip print button must stay")
+    for action in ("print-asn", "print-load"):
+        block = PANEL.split('data-kfm-action="%s"' % action, 1)[1].split("</Button>", 1)[0]
+        forbid(block, "FileText", "the %s button must show a truck, not a document" % action)
+        require(block, "Truck", "the %s button must show the delivery truck" % action)
+    forbid(PANEL, "FileText", "an unused document icon must not stay imported")
+
+
 def test_the_panel_shows_no_money() -> None:
     for marker in ("Tổng (gồm VAT)", "orderTotalWithTax", "orderTotal", "taxTotal"):
         forbid(PANEL, marker, "the KFM panel must show products and quantities only")
