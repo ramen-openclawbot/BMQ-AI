@@ -64,20 +64,24 @@ def test_the_bridge_exposes_only_the_approved_operator_actions() -> None:
     require(FUNCTION, 'method !== "POST"', "only POST may reach the portal call")
 
 
-def test_delivery_trips_are_read_only_and_carry_driver_and_truck() -> None:
-    # Verified live 2026-09-13: the trip rows are where the driver and the truck
-    # live, and the field really is `licensePlate` (there is no `plateNumber`).
-    require(CLIENT, "/api/v1/portal/inbound-loads?", "trips must come from the verified endpoint")
-    require(CLIENT, "/api/v1/portal/inbound-loads/${options.loadId}?vendorId=",
-            "trip detail must use the verified endpoint")
+def test_the_panel_offers_no_trip_surface() -> None:
+    # Owner 2026-09-14: every trip carries exactly one order today, so the trip
+    # sheet repeated the order's own delivery note and the whole section went.
+    # The read-only trip endpoints stay verified in the client and the bridge for
+    # the day a trip really carries several orders; only the panel surface is
+    # gone, so re-adding it is a UI change and not a new integration.
+    require(CLIENT, "/api/v1/portal/inbound-loads?", "the trip read must stay available in the client")
     require(CLIENT, "/api/v1/portal/inbound-loads/${options.loadId}/export-pdf?",
-            "the trip sheet must come from the verified export endpoint")
-    require(CLIENT, "inbound-loads/counts?vendorId=", "the trip counters must use the verified endpoint")
-    require(CLIENT, "licensePlate", "the plate field must be the one the portal really sends")
-    require(CLIENT, "driverPhone", "the trip shape must carry the driver phone")
+            "the trip sheet must stay available in the client")
+    require(CLIENT, "licensePlate", "the plate field must stay the one the portal really sends")
+    require(CLIENT, "driverPhone", "the trip shape must keep the driver phone")
     forbid(CLIENT, "plateNumber", "the portal has no plateNumber field")
-    require(PANEL, 'data-kfm-action="print-load"', "the trip print button must be present")
+    require(FUNCTION, '"load-pdf"', "the trip sheet must stay available in the bridge")
     require(PANEL, "Đang chuẩn bị file in", "printing must show the portal's waiting state")
+    for marker in ('data-kfm-loads-section', 'data-kfm-loads-toggle', 'data-kfm-loads-filter',
+                   'data-kfm-action="print-load"', "handlePrintLoad", "showLoads",
+                   "filterLoadsByDate", "loadsQuery", 'action: "loads"', 'action: "load-pdf"'):
+        forbid(PANEL, marker, "the panel must carry no trip surface: %s" % marker)
 
 
 def test_the_panel_fits_a_phone_viewport() -> None:
@@ -98,7 +102,7 @@ def test_every_print_action_shows_the_waiting_state() -> None:
     # share one keyed slot, one banner and one pending tab.
     require(PANEL, "useState<string | null>(null)",
             "the waiting state must be keyed so every print action can use it")
-    for key in ("`po-${order.portalId}`", "`load-${load.portalId}`"):
+    for key in ("`po-${order.portalId}`", "`asn-${order.portalId}`"):
         require(PANEL, key, "each print action must drive the shared waiting state: %s" % key)
     require(PANEL, "writePrintPlaceholder",
             "the tab opened on click must show a placeholder, never a blank window")
@@ -119,27 +123,6 @@ def test_the_pending_tab_is_readable_on_a_phone() -> None:
     require(PANEL, '"viewport"', "the pending tab must declare its own viewport")
     require(PANEL, "width=device-width", "the pending tab must use the device width")
     forbid(PANEL, "kfm-wait", "the pending tab must show a single animation")
-
-
-def test_trips_stay_closed_until_the_operator_asks() -> None:
-    # The order list is the task; the trip sheet is an exception. Opening the
-    # panel must not fetch or show trips, and the truck glyph belongs to that
-    # one entry point only.
-    require(PANEL, 'data-kfm-loads-toggle="v1"', "trips need one explicit entry point")
-    require(PANEL, "setShowLoads", "trips must stay hidden until they are asked for")
-    require(PANEL, "enabled: open && showLoads", "trips must not be fetched before they are asked for")
-    require(PANEL, "showLoads && loadsQuery.isLoading", "the trip read must stay behind the toggle")
-
-
-def test_the_trip_row_prints_the_sheet() -> None:
-    # The order row keeps one print entry point (the menu, pinned below) and the
-    # trip row prints its own sheet with the printer glyph.
-    require(PANEL, 'data-kfm-action="print-po"', "the order row must keep the PO printout")
-    require(PANEL, 'data-kfm-action="print-load"', "the trip row must keep its printout")
-    block = PANEL.split('data-kfm-action="print-load"', 1)[1].split("</Button>", 1)[0]
-    require(block, "Printer", "the trip print button must show the printer glyph")
-    forbid(block, "Truck", "the truck glyph already means the trips section")
-    forbid(PANEL, "FileText", "an unused document icon must not stay imported")
 
 
 def test_the_panel_shows_no_money() -> None:
@@ -192,6 +175,8 @@ def test_the_order_row_prints_both_sheets_from_one_menu() -> None:
     require(PANEL, 'action: "asn-pdf"', "the delivery note must use the verified export endpoint")
     require(PANEL, "detail.order?.asns?.[0]", "the delivery note id must come from the order detail")
     require(PANEL, "renderOrderActions", "the phone card and the table must share one action cluster")
+    require(PANEL, "Printer", "the row's single print entry point must show the printer glyph")
+    forbid(PANEL, "FileText", "an unused document icon must not stay imported")
 
 
 def test_a_phone_row_needs_no_sideways_drag() -> None:
