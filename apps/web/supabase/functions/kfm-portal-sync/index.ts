@@ -14,14 +14,17 @@
  *   loads    — read the delivery trips with driver and vehicle
  *   load-detail — read one trip with its delivery notes
  *   load-pdf — download the delivery note of one trip  (operator click only)
+ *   trip-draft  — build the trip body for one order WITHOUT sending it
+ *                 (read-only; the operator reviews it before any write)
  *
  * Nothing here is scheduled, retried or triggered by a background job: every
  * call happens because a person pressed a button in the BMQ UI.
  *
  * Request  (POST, authenticated app user):
- *   { "action"?: "list"|"detail"|"confirm"|"po-pdf"|"asn-pdf"|"loads"|"load-detail"|"load-pdf",
+ *   { "action"?: "list"|"detail"|"confirm"|"po-pdf"|"asn-pdf"|"loads"|"load-detail"|"load-pdf"|"trip-draft",
  *     "deliveryDate"?: "YYYY-MM-DD", "vendorId"?: number, "size"?: number,
- *     "orderId"?: number, "poId"?: number, "asnId"?: number, "loadId"?: number }
+ *     "orderId"?: number, "poId"?: number, "asnId"?: number, "loadId"?: number,
+ *     "vehicleTypeId"?: number }
  * Response:
  *   list   : { success, configured, deliveryDate, vendorId, vendorCode, count, orders[], session }
  *   detail : { success, order: { portalId, code, purchaseOrderId, lines[], asns[] } }
@@ -30,6 +33,7 @@
  *   loads  : { success, count, totalElements, counts, loads[] }
  *   load-detail: { success, load }
  *   load-pdf: { success, filename, contentType, base64 }
+ *   trip-draft: { success, draft, source, rawRows }  — nothing is written
  *
  * Secrets (Supabase Edge Function env only, never logged):
  *   KFM_PORTAL_USERNAME, KFM_PORTAL_PASSWORD, KFM_PORTAL_REFRESH_TOKEN (optional)
@@ -41,6 +45,7 @@ import { corsPreflightResponse, getCorsHeaders } from "../_shared/cors.ts";
 import {
   ISO_DATE,
   KfmPortalError,
+  buildTripDraft,
   confirmOrder,
   fetchAsnPdf,
   fetchLoadPdf,
@@ -48,6 +53,7 @@ import {
   getDeliveryLoad,
   getMe,
   getOrderDetail,
+  getPurchaseOrderItems,
   listDeliveryLoads,
   listOrderAsns,
   listOrders,
@@ -66,6 +72,7 @@ const ACTIONS = [
   "loads",
   "load-detail",
   "load-pdf",
+  "trip-draft",
 ] as const;
 type KfmAction = typeof ACTIONS[number];
 
@@ -127,6 +134,7 @@ serve(async (req) => {
     poId?: number;
     asnId?: number;
     loadId?: number;
+    vehicleTypeId?: number;
   } = {};
   try {
     payload = await req.json();
@@ -241,6 +249,41 @@ serve(async (req) => {
         contentType: "application/pdf",
         base64: toBase64(bytes),
         byteLength: bytes.byteLength,
+        session,
+      }, 200, req);
+    }
+
+    if (action === "trip-draft") {
+      // Read-only: assemble the body the portal's trip form would post, so the
+      // operator can check the mapping before anything reaches the partner.
+      const orderId = Number(payload.orderId);
+      if (!Number.isInteger(orderId) || orderId <= 0) {
+        return json({ success: false, action, error: "bad_order_id", message: "Thiếu orderId." }, 200, req);
+      }
+      const detail = await getOrderDetail(cached.session.token, { vendorId, orderId });
+      const poId = detail.purchaseOrderId ?? orderId;
+      const rawRows = await getPurchaseOrderItems(cached.session.token, poId);
+      const vehicleTypeId = Number(payload.vehicleTypeId);
+      const draft = buildTripDraft({
+        deliveryDate,
+        locationId: detail.locationId,
+        vehicleTypeId: Number.isInteger(vehicleTypeId) && vehicleTypeId > 0 ? vehicleTypeId : null,
+        purchaseOrderId: poId,
+        poCode: detail.code || `PO-${poId}`,
+        rows: rawRows,
+      });
+      return json({
+        success: true,
+        configured: true,
+        action,
+        deliveryDate,
+        vendorId,
+        vendorCode: cached.vendorCode,
+        draft,
+        source: { orderId, poId, locationId: detail.locationId, rawRowCount: rawRows.length },
+        // The first rows verbatim, so the mapped body can be checked against the
+        // portal's own screen and a changed field name is caught immediately.
+        rawRows: rawRows.slice(0, 2),
         session,
       }, 200, req);
     }

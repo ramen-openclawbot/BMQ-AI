@@ -84,6 +84,28 @@ def test_the_panel_offers_no_trip_surface() -> None:
         forbid(PANEL, marker, "the panel must carry no trip surface: %s" % marker)
 
 
+def test_the_trip_draft_is_read_only_and_built_from_the_po_items() -> None:
+    # Approved 2026-09-14 (owner: option "A" - the delivery note is raised the
+    # way the portal raises it, through a delivery trip). Stage 1 only: the body
+    # is assembled and shown for review, and no create call exists yet. The item
+    # rows come from the portal's own PO-items read, which is the only place that
+    # carries poItemId/variantId/cartons.
+    require(CLIENT, "/api/v1/purchase-orders/${poId}/items",
+            "the trip body must be built from the portal's PO items, not from a guess")
+    require(CLIENT, "buildTripDraft", "the draft builder must be a named, reviewable unit")
+    require(CLIENT, "poItemId", "the mapped item must carry poItemId")
+    require(CLIENT, "cartons", "the mapped item must carry cartons")
+    require(CLIENT, "uomName", "the portal sends the unit as uomName")
+    require(CLIENT, "totalPallets", "the stop must carry the portal's totals fields")
+    # Stage 1 writes nothing: the create endpoints stay out of the client.
+    forbid(CLIENT, "&submit=", "stage 1 must not post a trip")
+    forbid(CLIENT, "inbound-loads/${options.loadId}/cancel", "cancelling a trip is not approved")
+    require(FUNCTION, '"trip-draft"', "the bridge must expose the read-only draft action")
+    require(PANEL, 'data-kfm-action="preview-load"', "the row menu must offer the preview")
+    require(PANEL, 'data-kfm-load-preview="v1"', "the preview panel must carry a stable marker")
+    forbid(PANEL, 'action: "create-load"', "no create action may reach the portal yet")
+
+
 def test_the_panel_fits_a_phone_viewport() -> None:
     # Reported 2026-09-13 on an iPhone 17 Pro Max: the action column sat outside
     # the screen, so the print button was unreachable. The dialog caps its height,

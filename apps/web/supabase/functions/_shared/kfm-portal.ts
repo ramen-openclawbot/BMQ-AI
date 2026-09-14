@@ -701,6 +701,8 @@ export type KfmOrderDetail = {
   code: string | null;
   /** The purchase order behind the portal order — needed to print the PO. */
   purchaseOrderId: number | null;
+  /** Warehouse the order is delivered to — the trip body's `stops[].locationId`. */
+  locationId: number | null;
   lines: KfmOrderLine[];
 };
 
@@ -724,6 +726,8 @@ export async function getOrderDetail(
     code: asString(data.code),
     purchaseOrderId:
       asNumber(purchaseOrder.id) ?? asNumber(data.purchaseOrderId) ?? asNumber(data.poId),
+    locationId: asNumber(data.locationId),
+
     lines: rows.map((row) => ({
       productCode: asString(row.productCode) ?? asString(row.barcode),
       productName: asString(row.productName),
@@ -731,6 +735,117 @@ export async function getOrderDetail(
       orderedQty: asNumber(row.orderedQty) ?? asNumber(row.quantity) ?? asNumber(row.poQty),
       shippedQty: asNumber(row.shippedQty) ?? asNumber(row.shipQty),
     })),
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * Delivery-trip draft (read-only).
+ *
+ * The portal raises a delivery note through its trip form, and that form
+ * builds `stops[].items[]` out of the purchase order's own item rows
+ * (`GET /api/v1/purchase-orders/{id}/items` — the only place that carries
+ * `poItemId`/`variantId`/`cartons`). This block reads that shape and maps it
+ * to the body the portal's `createLoad` mutation sends, so an operator can
+ * see the exact body before anything is written.
+ *
+ * Nothing here posts: the draft is built in memory and returned for review.
+ * ------------------------------------------------------------------ */
+
+export type KfmTripItem = {
+  poId: number;
+  poCode: string;
+  poItemId: number;
+  variantId: number | null;
+  productCode: string;
+  barcode: string;
+  productName: string;
+  unitName: string;
+  shipQty: number;
+  cartons: number;
+};
+
+export type KfmTripStop = {
+  locationId: number | null;
+  totalCartons: number;
+  totalPallets: number;
+  items: KfmTripItem[];
+};
+
+export type KfmTripDraft = {
+  deliveryDate: string;
+  vehicleTypeId: number | null;
+  stops: KfmTripStop[];
+};
+
+/** The purchase order's own item rows — the trip form's item source. */
+export async function getPurchaseOrderItems(
+  token: string,
+  poId: number,
+): Promise<Record<string, unknown>[]> {
+  const { status, body } = await authedGet(
+    token,
+    `${SCE_API}/api/v1/purchase-orders/${poId}/items`,
+  );
+  if (status !== 200) {
+    throw new KfmPortalError("po_items", status, "Không đọc được dòng hàng của PO");
+  }
+  const data = body?.data ?? body;
+  if (Array.isArray(data)) return data as Record<string, unknown>[];
+  if (Array.isArray((data as Record<string, unknown>)?.content)) {
+    return (data as { content: Record<string, unknown>[] }).content;
+  }
+  return [];
+}
+
+/**
+ * Map one PO item row to the shape the portal's trip body carries. Field names
+ * are the ones the portal's own form reads off these rows.
+ */
+export function normalizeTripItem(
+  row: Record<string, unknown>,
+  poId: number,
+  poCode: string,
+): KfmTripItem {
+  return {
+    poId,
+    poCode,
+    poItemId: asNumber(row.id) ?? 0,
+    variantId: asNumber(row.variantId),
+    productCode: asString(row.productCode) ?? asString(row.internalCode) ?? "",
+    barcode: asString(row.barcode) ?? "",
+    productName: asString(row.productName) ?? "",
+    unitName: asString(row.uomName) ?? asString(row.unitName) ?? "",
+    shipQty: asNumber(row.shipQty) ?? asNumber(row.orderedQty) ?? 0,
+    cartons: asNumber(row.cartons) ?? 0,
+  };
+}
+
+/**
+ * Build the trip body for ONE order without sending it. Returns the exact
+ * object `createLoad` would post, plus the raw rows it was built from so the
+ * operator can compare the mapping against the portal's own screen.
+ */
+export function buildTripDraft(options: {
+  deliveryDate: string;
+  locationId: number | null;
+  vehicleTypeId?: number | null;
+  purchaseOrderId: number;
+  poCode: string;
+  rows: Record<string, unknown>[];
+}): KfmTripDraft {
+  return {
+    deliveryDate: options.deliveryDate,
+    vehicleTypeId: options.vehicleTypeId ?? null,
+    stops: [
+      {
+        locationId: options.locationId,
+        totalCartons: 0,
+        totalPallets: 0,
+        items: options.rows.map((row) =>
+          normalizeTripItem(row, options.purchaseOrderId, options.poCode),
+        ),
+      },
+    ],
   };
 }
 

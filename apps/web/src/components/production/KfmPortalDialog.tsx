@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { CheckCircle2, Loader2, Printer, RefreshCw, Truck } from "lucide-react";
+import { CheckCircle2, Eye, Loader2, Printer, RefreshCw, Truck } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -64,6 +64,9 @@ type KfmResponse = {
   count?: number;
   orders?: KfmOrder[];
   order?: KfmOrderDetail;
+  draft?: unknown;
+  source?: unknown;
+  rawRows?: unknown;
   filename?: string;
   base64?: string;
   session?: { mode: string; obtainedAt: string };
@@ -175,6 +178,11 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
   // One keyed slot for every print action in the panel (`po-*`, `asn-*`), so
   // the waiting banner, the toast and the disabled state stay in one place.
   const [printing, setPrinting] = useState<string | null>(null);
+
+  // Stage 1 of the create-delivery-note work: the body the portal's trip form
+  // would post is assembled read-only and shown for review. Nothing is written
+  // and no create button exists yet.
+  const [draft, setDraft] = useState<{ code: string; text: string } | null>(null);
 
   const runAction = async (key: string, work: () => Promise<string>) => {
     setBusy(key);
@@ -289,6 +297,33 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
   };
 
   /**
+   * Read-only draft of the trip body behind one order's delivery note. The
+   * portal raises the note through its trip form, so this shows the exact
+   * payload before any create action is switched on — the operator compares it
+   * with the portal's own screen. It never posts.
+   */
+  const handlePreviewLoad = (order: KfmOrder) => {
+    void runAction(`preview-${order.portalId}`, async () => {
+      const result = await callPortal({
+        action: "trip-draft",
+        deliveryDate,
+        orderId: order.portalId,
+      });
+      setDraft({
+        code: order.code,
+        text: JSON.stringify(
+          { draft: result.draft, source: result.source, rawRows: result.rawRows },
+          null,
+          2,
+        ),
+      });
+      return isVi
+        ? `Đã ráp thử phiếu giao hàng ${order.code}.`
+        : `Delivery note draft for ${order.code} is ready.`;
+    });
+  };
+
+  /**
    * One action cluster per order, shared by the phone card and the wide table.
    * The row used to carry a second truck button for the delivery note, and the
    * two trucks on one row were what read as a duplicate. Both sheets now come
@@ -331,6 +366,10 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
           <DropdownMenuItem data-kfm-action="print-asn" onSelect={() => handlePrintAsn(order)}>
             <Truck className="mr-2 h-4 w-4" />
             {isVi ? "In phiếu giao hàng" : "Print delivery note"}
+          </DropdownMenuItem>
+          <DropdownMenuItem data-kfm-action="preview-load" onSelect={() => handlePreviewLoad(order)}>
+            <Eye className="mr-2 h-4 w-4" />
+            {isVi ? "Xem trước phiếu giao hàng" : "Preview delivery note"}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -417,6 +456,34 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
                   <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary [animation-delay:-0.15s]" />
                   <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary" />
                 </span>
+              </div>
+            )}
+
+            {/* Stage 1 of the create-delivery-note work: the assembled body, for
+                review only. Nothing here reaches the partner portal. */}
+            {draft && (
+              <div className="rounded-xl border border-border p-3" data-kfm-load-preview="v1">
+                <div className="flex min-w-0 items-center justify-between gap-2">
+                  <span className="min-w-0 break-all text-sm font-medium">
+                    {isVi ? `Xem trước phiếu giao hàng ${draft.code}` : `Delivery note draft ${draft.code}`}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 rounded-lg"
+                    onClick={() => setDraft(null)}
+                  >
+                    {isVi ? "Đóng" : "Close"}
+                  </Button>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {isVi
+                    ? "Chỉ để đối chiếu — chưa gửi gì lên cổng KFM."
+                    : "Review only — nothing has been sent to the KFM portal."}
+                </p>
+                <pre className="mt-2 max-h-64 overflow-auto rounded-lg bg-muted p-3 text-xs">
+                  {draft.text}
+                </pre>
               </div>
             )}
 
