@@ -199,7 +199,7 @@ def test_the_panel_shows_no_money() -> None:
         forbid(PANEL, marker, "the KFM panel must show products and quantities only")
     require(PANEL, "totalQty", "quantities stay visible on the order list")
     forbid(PANEL, 'data-kfm-action="confirm"', "PO confirmation belongs to explicit trip creation")
-    forbid(PANEL, 'data-kfm-action="print-po"', "unified menu has no separate PO print")
+    require(PANEL, 'data-kfm-action="print-po"', "PO export remains separate from delivery creation")
     require(PANEL, "unifiedPrint: true", "explicit print click authorizes the combined flow")
 
 
@@ -232,12 +232,18 @@ def test_the_ui_entry_point_is_wired() -> None:
     require(PLANNING, '"Kiểm tra PO"', "the existing email PO check must stay in place")
 
 
-def test_the_order_row_has_only_one_print_action() -> None:
+def test_the_order_row_keeps_po_and_delivery_printing() -> None:
     require(PANEL, 'data-kfm-unified-print="v1"', "version unified behavior")
     require(PANEL, 'data-kfm-action="print-menu"', "one entry point")
     require(PANEL, 'data-kfm-action="print-asn"', "delivery note action")
-    assert PANEL.count('<DropdownMenuItem ') == 1, "exactly one menu item"
-    for marker in ('print-po', 'preview-load', 'print-asn-no-price', 'data-kfm-action="create-load"', '(có giá)', '(không giá)'):
+    require(PANEL, 'data-kfm-po-print="v1"', "restored PO print marker")
+    assert PANEL.count('<DropdownMenuItem ') == 2, "only PO and delivery-note printing"
+    po_handler = PANEL.split('const handlePrintPo =', 1)[1].split('const renderOrderActions', 1)[0]
+    require(po_handler, 'action: "po-pdf"', "PO click exports the existing PO")
+    require(po_handler, 'createLock.current', "PO printing shares the synchronous print lock")
+    for action in ('create-load', 'confirm', 'trip-options', 'openCreate', 'sendAndPrint'):
+        forbid(po_handler, action, "PO export must not create or confirm anything")
+    for marker in ('preview-load', 'print-asn-no-price', 'data-kfm-action="create-load"', '(có giá)', '(không giá)'):
         forbid(PANEL, marker, "obsolete menu option: " + marker)
     require(PANEL, 'existingNotes', "reprint existing notes without create")
     require(PANEL, 'sendAndPrint', "missing note continues to create and print")

@@ -97,6 +97,7 @@ type KfmResponse = {
   vendorId?: number | null;
   count?: number;
   orders?: KfmOrder[];
+  order?: { purchaseOrderId: number | null };
   existingNotes?: ExistingNote[];
   fleet?: SavedFleet;
   draft?: unknown;
@@ -374,6 +375,26 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
     toast.error((error as Error)?.message || "Cổng KFM báo lỗi.", { id: key, duration: 6000 });
   };
 
+  const handlePrintPo = async (order: KfmOrder) => {
+    if (createLock.current) return;
+    createLock.current = true;
+    const key = `po-${order.portalId}`;
+    const viewer = window.open("", "_blank");
+    beginPrint(key, viewer, `PO ${order.code}`);
+    try {
+      const detail = await callPortal({ action: "detail", deliveryDate, orderId: order.portalId });
+      const poId = detail.order?.purchaseOrderId ?? order.portalId;
+      const pdf = await callPortal({ action: "po-pdf", poId, code: order.code });
+      if (!pdf.base64) throw new Error(isVi ? "Cổng KFM chưa trả file in PO." : "The KFM portal has not returned the PO PDF.");
+      savePdf(pdf.base64, pdf.filename || `PO-${order.code}.pdf`, viewer);
+      finishPrint(key, isVi ? `Đã mở PO ${order.code}.` : `PO ${order.code} opened.`);
+    } catch (error) {
+      failPrint(key, viewer, error);
+    } finally {
+      createLock.current = false;
+    }
+  };
+
   const renderOrderActions = (order: KfmOrder) => (
     <div className="flex items-center justify-end gap-1">
       <DropdownMenu>
@@ -386,12 +407,16 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
             data-kfm-action="print-menu"
             disabled={printing !== null || busy !== null}
           >
-            {printing !== null && printing.startsWith(`asn-${order.portalId}`)
+            {printing === `po-${order.portalId}` || (printing !== null && printing.startsWith(`asn-${order.portalId}`))
               ? <Loader2 className="h-4 w-4 animate-spin" />
               : <Printer className="h-4 w-4" />}
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
+          <DropdownMenuItem data-kfm-action="print-po" onSelect={() => void handlePrintPo(order)}>
+            <Printer className="mr-2 h-4 w-4" />
+            {isVi ? "In PO" : "Print PO"}
+          </DropdownMenuItem>
           <DropdownMenuItem data-kfm-action="print-asn" onSelect={() => void openCreate(order)}>
             <Truck className="mr-2 h-4 w-4" />
             {isVi ? "In phiếu giao hàng" : "Print delivery note"}
@@ -419,6 +444,7 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
           className="max-h-[90dvh] max-w-3xl overflow-y-auto"
           data-kfm-mobile="v1"
           data-kfm-unified-print="v1"
+          data-kfm-po-print="v1"
         >
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
