@@ -154,15 +154,12 @@ def test_unified_print_is_price_free_and_fail_closed() -> None:
 
 
 def test_the_panel_fits_a_phone_viewport() -> None:
-    # Reported 2026-09-13 on an iPhone 17 Pro Max: the action column sat outside
-    # the screen, so the print button was unreachable. The dialog caps its height,
-    # its grid children may shrink, and the action column is pinned to the edge.
-    require(PANEL, 'data-kfm-mobile="v1"', "the mobile layout fix must carry a stable marker")
-    require(PANEL, "max-h-[90dvh]", "the dialog must cap its height on a short screen")
-    require(PANEL, "overflow-y-auto", "the dialog must scroll instead of overflowing")
-    require(PANEL, "min-w-0", "the dialog's grid children must be allowed to shrink")
-    require(PANEL, "sticky right-0", "the action column must stay visible while a row scrolls")
-    require(PANEL, "sm:ml-auto", "trailing badges must wrap on phones instead of being clipped")
+    require(PANEL, 'data-kfm-mobile="v2"', "version the full-page mobile layout")
+    require(PANEL, 'min-w-0', "content must shrink within app shell")
+    require(PANEL, 'grid-cols-1', "actions stack on small screens")
+    require(PANEL, 'h-11', "print targets must remain at least 44px high")
+    forbid(PANEL, '<Dialog', "printing workspace must not be a modal")
+    forbid(PANEL, '<table', "PO actions must not require horizontal table scrolling")
 
 
 def test_every_print_action_shows_the_waiting_state() -> None:
@@ -175,7 +172,7 @@ def test_every_print_action_shows_the_waiting_state() -> None:
         require(PANEL, key, "each print action must drive the shared waiting state: %s" % key)
     require(PANEL, "writePrintPlaceholder",
             "the tab opened on click must show a placeholder, never a blank window")
-    require(PANEL, 'data-kfm-printing="v1"', "the waiting banner must stay present")
+    require(PANEL, 'data-kfm-printing=', "the waiting banner must stay present")
 
 
 def test_the_pending_tab_is_readable_on_a_phone() -> None:
@@ -221,23 +218,25 @@ def test_the_proxy_is_authenticated_and_cors_aware() -> None:
 
 
 def test_the_ui_entry_point_is_wired() -> None:
-    require(PANEL, 'data-kfm-portal-entry="v1"', "the launcher must carry a stable marker")
-    require(PANEL, "kfm-portal-sync", "the panel must call the proxy function")
-    require(PANEL, "Authorization: `Bearer ${session.access_token}`", "the proxy call must carry the Supabase token")
-    require(PANEL, "configured === false", "an unconfigured portal must be explained, not hidden")
-    require(PANEL, "Kiểm tra PO", "the panel must point at the existing email PO check")
-    require(FUNCTION, 'fallback: "po-gmail-sync"', "the proxy must name the email PO flow as the fallback")
-    require(PLANNING, 'from "@/components/production/KfmPortalDialog"', "the panel must be imported by the production plan")
-    require(PLANNING, "<KfmPortalDialog isVi={isVi} />", "the panel must sit next to the email PO check")
-    require(PLANNING, '"Kiểm tra PO"', "the existing email PO check must stay in place")
+    routes = (ROOT / "src/components/AppRoutes.tsx").read_text()
+    page = (ROOT / "src/pages/KfmPrintToday.tsx").read_text()
+    require(PLANNING, 'data-kfm-portal-entry="v2"', "launcher links directly to today's workspace")
+    require(PLANNING, 'to="/production/planning/q7/kfm"', "Q7 must open the dedicated route")
+    require(routes, 'path="/production/planning/q7/kfm" element={<ModuleRoute moduleKey="production_q7">', "new route must retain Q7 permission")
+    require(page, '<KfmPrintWorkspace', "page must reuse verified print workflow")
+    require(PANEL, 'kfm-portal-sync', "keep existing authenticated proxy")
+    require(PANEL, 'Authorization: `Bearer ${session.access_token}`', "retain user authentication")
+    require(PANEL, 'configured === false', "unconfigured is not an empty queue")
+    require(PLANNING, '"Kiểm tra PO"', "Q7 email workflow remains outside this slice")
 
 
 def test_the_order_row_keeps_po_and_delivery_printing() -> None:
     require(PANEL, 'data-kfm-unified-print="v1"', "version unified behavior")
-    require(PANEL, 'data-kfm-action="print-menu"', "one entry point")
+    forbid(PANEL, "DropdownMenu", "both actions must be directly visible")
     require(PANEL, 'data-kfm-action="print-asn"', "delivery note action")
     require(PANEL, 'data-kfm-po-print="v1"', "restored PO print marker")
-    assert PANEL.count('<DropdownMenuItem ') == 2, "only PO and delivery-note printing"
+    actions = PANEL.split('const renderOrderActions =', 1)[1].split('const renderCreate', 1)[0]
+    assert actions.count('<Button') == 2, "exactly two direct actions per order"
     po_handler = PANEL.split('const handlePrintPo =', 1)[1].split('const renderOrderActions', 1)[0]
     require(po_handler, 'action: "po-pdf"', "PO click exports the existing PO")
     require(po_handler, 'createLock.current', "PO printing shares the synchronous print lock")
@@ -252,15 +251,16 @@ def test_the_order_row_keeps_po_and_delivery_printing() -> None:
 
 
 def test_a_phone_row_needs_no_sideways_drag() -> None:
-    # Reported 2026-09-14 with a screenshot: the five-column table had to be
-    # dragged sideways on an iPhone, which scrolled the "PO100…" prefix off the
-    # row and clipped the header. Phones get a stacked card instead, and the
-    # table only renders where it actually fits.
-    require(PANEL, 'data-kfm-orders-cards="v1"', "phones need their own stacked order card")
-    require(PANEL, "md:hidden", "the card list must replace the table on small screens")
-    require(PANEL, "hidden max-h-96 min-w-0 overflow-auto rounded-xl border border-border md:block",
-            "the table must only render from the md breakpoint up")
-    require(PANEL, "break-all", "the full PO code must stay readable without scrolling")
+    require(PANEL, 'data-kfm-orders-cards="v2"', "one responsive list must serve all viewports")
+    require(PANEL, 'break-all', "long PO codes stay readable")
+    require(PANEL, 'creating?.order.portalId === order.portalId && renderCreate()', "missing fields expand inside their PO")
+    forbid(PANEL, 'type="date"', "no date picker in today's workflow")
+    require(PANEL, 'vnDateOffset(0)', "load today's Vietnam delivery date")
+    forbid(PANEL, 'vnDateOffset(1)', "never default to tomorrow")
+    require(PANEL, 'visibilitychange', "refresh the date when a suspended tab returns")
+    require(PANEL, 'requireToday(snapshot.date)', "never submit a stale form after midnight")
+    require(PANEL, 'requireToday(deliveryDate)', "stale PO actions require a fresh queue")
+    require(PANEL, 'data-kfm-today="v1"', "version the new page")
 
 
 def test_auto_confirmation_and_desktop_layout_contracts() -> None:

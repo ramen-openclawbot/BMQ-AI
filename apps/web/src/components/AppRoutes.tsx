@@ -45,6 +45,7 @@ const PointRevenueManagement = lazy(() => import("@/pages/PointRevenueManagement
 const SkuCostsManagement = lazy(() => import("@/pages/SkuCostsManagement"));
 const SkuCostsAnalysis = lazy(() => import("@/pages/SkuCostsAnalysis"));
 const SkuCostsDjango = lazy(() => import("@/pages/SkuCostsDjango"));
+const KfmPrintToday = lazy(() => import("@/pages/KfmPrintToday"));
 const ProductionPlanning = lazy(() => import("@/pages/ProductionPlanning"));
 const Q7MaterialInventory = lazy(() => import("@/pages/Q7MaterialInventory"));
 const MaterialMasterAdmin = lazy(() => import("@/pages/material-master/MaterialMasterAdmin"));
@@ -248,6 +249,7 @@ export function AppRoutes() {
         <Route path="/marketing-sales/facebook-page" element={<ModuleRoute moduleKey="facebook_messenger"><Suspense fallback={<AppLoadingFallback />}><FacebookMessengerInbox /></Suspense></ModuleRoute>} />
         {/* Production routes */}
         <Route path="/production/planning" element={<Navigate to="/production/planning/q7" replace />} />
+        <Route path="/production/planning/q7/kfm" element={<ModuleRoute moduleKey="production_q7"><Suspense fallback={<AppLoadingFallback />}><KfmPrintToday /></Suspense></ModuleRoute>} />
         <Route path="/production/planning/q7" element={<ModuleRoute moduleKey="production_q7"><Suspense fallback={<AppLoadingFallback />}><ProductionPlanning /></Suspense></ModuleRoute>} />
         <Route path="/production/q7/inventory" element={<ModuleRoute moduleKey="q7_material_inventory"><Suspense fallback={<AppLoadingFallback />}><Q7MaterialInventory /></Suspense></ModuleRoute>} />
         <Route path="/material-master" element={<ModuleRoute moduleKey="material_master"><Suspense fallback={<AppLoadingFallback />}><MaterialMasterAdmin /></Suspense></ModuleRoute>} />

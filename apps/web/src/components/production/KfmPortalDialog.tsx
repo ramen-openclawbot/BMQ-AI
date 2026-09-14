@@ -1,33 +1,15 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Loader2, Printer, RefreshCw, Truck } from "lucide-react";
+import { ArrowLeft, Loader2, Printer, RefreshCw, Truck } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
+import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 
-/**
- * "Cổng KFM" — reads tomorrow's POs straight from the KFM/Seedcom partner
- * portal through the `kfm-portal-sync` Edge Function.
- *
- * Products and quantities only: money is deliberately not shown here. The
- * panel replaces the email PO parse as the source of the day's orders, and
- * every action on the portal (create delivery note, print PO, print delivery note) is a
- * manual click — nothing runs on a schedule.
+/** Today's two-action print workspace. Portal writes only follow an operator click.
+ * Hallmark: functional workbench; existing BMQ tokens, typography and primary color.
+ * The filename stays stable for existing integration contracts; no modal is used.
  */
 
 const AUTO_CONFIRM_NOTICE = "Tạo phiếu giao hàng sẽ tự động xác nhận đơn hàng. Sau bước này sẽ không thể yêu cầu chỉnh sửa nữa.";
@@ -200,15 +182,13 @@ function writePrintPlaceholder(viewer: Window, isVi: boolean, what: string): voi
     </div>`;
 }
 
-export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
-  const [open, setOpen] = useState(false);
-  const [deliveryDate, setDeliveryDate] = useState(() => vnDateOffset(1));
+export default function KfmPrintWorkspace({ isVi = true }: { isVi?: boolean }) {
+  const [deliveryDate, setDeliveryDate] = useState(() => vnDateOffset(0));
   const [busy, setBusy] = useState<string | null>(null);
 
   const query = useQuery({
     queryKey: ["kfm-portal-orders", deliveryDate],
     queryFn: () => callPortal({ action: "list", deliveryDate }),
-    enabled: open,
     retry: false,
     staleTime: 30_000,
   });
@@ -223,6 +203,38 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
   const [creating, setCreating] = useState<TripCreate | null>(null);
   const createLock = useRef(false);
   const [createBusy, setCreateBusy] = useState(false);
+  const [dayNotice, setDayNotice] = useState(false);
+  const [feedback, setFeedback] = useState<Record<string, { error: boolean; message: string }>>({});
+
+  // A tab can remain open overnight or be suspended on a phone. Refresh the
+  // queue on return, but never retarget an operation already in flight.
+  useEffect(() => {
+    const syncDay = () => {
+      const today = vnDateOffset(0);
+      if (today !== deliveryDate && !createLock.current) {
+        setDeliveryDate(today);
+        // Keep an uncertain submitted request (or a verified PDF retry) readable.
+        // Only unsent prepared forms expire; recovery never creates a new trip.
+        setCreating(current => current?.result && current.result.state !== "not_sent" ? current : null);
+        setFeedback({});
+        setDayNotice(true);
+      }
+    };
+    const onVisible = () => { if (document.visibilityState === "visible") syncDay(); };
+    const timer = window.setInterval(syncDay, 1000);
+    window.addEventListener("focus", syncDay);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", syncDay);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [deliveryDate]);
+
+  const requireToday = (date: string) => {
+    if (date !== vnDateOffset(0)) throw new Error("Đã sang ngày mới. Danh sách hôm nay đang được cập nhật; vui lòng chọn lại PO.");
+  };
+
 
   const pdfFor = async (result: TripResult | ExistingNote, viewer: Window | null, key: string) => {
     const request = "asnId" in result
@@ -232,6 +244,7 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
     if (!pdf.base64) throw new Error("Cổng KFM chưa trả file in.");
     savePdf(pdf.base64, pdf.filename || "PhieuGiaoHang.pdf", viewer);
     finishPrint(key, "Đã mở phiếu giao hàng.");
+    setCreating(null);
   };
 
   // Only fill unambiguous saved selections; portal does NOT choose the first vehicle.
@@ -258,19 +271,20 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
   ];
 
   const sendAndPrint = async (snapshot: TripCreate, viewer: Window | null, key: string) => {
+    requireToday(snapshot.date);
     // Persist uncertainty in the UI before sending; recovery is GET-only server-side.
     setCreating({ ...snapshot, result: { state: "unknown", message: "Đang chuẩn bị phiếu. Không gửi lại yêu cầu." } });
     try {
       const response = await callPortal({ action: "create-load", unifiedPrint: true, orderId: snapshot.order.portalId, deliveryDate: snapshot.date, revision: snapshot.revision, form: snapshot.form, confirmed: true, requestId: crypto.randomUUID() });
       if (response.existingNotes?.length) {
         if (response.existingNotes.length === 1) { await pdfFor(response.existingNotes[0], viewer, key); setCreating(null); }
-        else { setCreating({ ...snapshot, existingNotes: response.existingNotes }); viewer?.close(); setPrinting(null); toast.dismiss(key); }
+        else { setCreating({ ...snapshot, existingNotes: response.existingNotes }); viewer?.close(); setPrinting(null); setFeedback(current => { const next = { ...current }; delete next[key.split("-").pop()!]; return next; }); toast.dismiss(key); }
         return;
       }
       if (!response.result) throw new Error("Chưa nhận được kết quả tạo phiếu.");
       setCreating({ ...snapshot, result: response.result });
       if (response.result.state === "verified") await pdfFor(response.result, viewer, key);
-      else { viewer?.close(); setPrinting(null); toast.dismiss(key); }
+      else { viewer?.close(); setPrinting(null); setFeedback(current => { const next = { ...current }; delete next[key.split("-").pop()!]; return next; }); toast.dismiss(key); }
       void query.refetch();
     } catch (error) {
       setCreating(current => ({ ...snapshot, result: current?.result?.state === "verified" ? current.result : { state: "unknown", message: `${(error as Error).message} Chọn ‘Kiểm tra kết quả’; không gửi lại.` } }));
@@ -289,16 +303,17 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
     const initial: TripCreate = { order, date, revision: "", options: emptyOptions, fleet: emptyFleet, needed: [], form: fillSaved(emptyFleet, emptyOptions, previous), items: [], pendingChangeCategories: [], warehouse: order.locationName || "" };
     setCreating(null);
     try {
+      requireToday(date);
       const response = await callPortal({ action: "trip-options", unifiedPrint: true, orderId: order.portalId, deliveryDate: date, form: previous });
       if (response.result) {
         setCreating({ ...initial, result: response.result });
         if (response.result.state === "verified" && autoStart) await pdfFor(response.result, viewer, key);
-        else { viewer?.close(); setPrinting(null); toast.dismiss(key); }
+        else { viewer?.close(); setPrinting(null); setFeedback(current => { const next = { ...current }; delete next[key.split("-").pop()!]; return next; }); toast.dismiss(key); }
         return;
       }
       if (response.existingNotes?.length) {
         if (response.existingNotes.length === 1 && autoStart) await pdfFor(response.existingNotes[0], viewer, key);
-        else { setCreating({ ...initial, existingNotes: response.existingNotes }); viewer?.close(); setPrinting(null); toast.dismiss(key); }
+        else { setCreating({ ...initial, existingNotes: response.existingNotes }); viewer?.close(); setPrinting(null); setFeedback(current => { const next = { ...current }; delete next[key.split("-").pop()!]; return next; }); toast.dismiss(key); }
         return;
       }
       if (!response.options || !response.revision || !response.fleet) throw new Error("Chưa đọc được đầy đủ cấu hình xe/tài xế trên portal. Chưa tạo phiếu.");
@@ -308,7 +323,7 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
         items: (response.draft as { stops?: Array<{ items: KfmTripItem[] }> })?.stops?.[0]?.items || [] };
       if (!snapshot.items.length) throw new Error("Không còn sản phẩm đủ điều kiện. Chưa tạo thêm phiếu.");
       if (autoStart && !snapshot.needed.length && !snapshot.pendingChangeCategories.length) await sendAndPrint(snapshot, viewer, key);
-      else { setCreating(snapshot); viewer?.close(); setPrinting(null); toast.dismiss(key); }
+      else { setCreating(snapshot); viewer?.close(); setPrinting(null); setFeedback(current => { const next = { ...current }; delete next[key.split("-").pop()!]; return next; }); toast.dismiss(key); }
     } catch (error) { setCreating(current => current?.result ? current : { ...initial, error: (error as Error).message }); failPrint(key, viewer, error); }
     finally { createLock.current = false; setCreateBusy(false); setBusy(null); }
   };
@@ -320,6 +335,7 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
     const viewer = window.open("", "_blank");
     beginPrint(key, viewer, `phiếu giao hàng ${creating.order.code}`);
     try { await sendAndPrint(creating, viewer, key); }
+    catch (error) { failPrint(key, viewer, error); }
     finally { createLock.current = false; setCreateBusy(false); setBusy(null); }
   };
 
@@ -334,7 +350,7 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
       if (!response.result) throw new Error("Chưa đọc được kết quả.");
       setCreating({ ...creating, result: response.result });
       if (response.result.state === "verified") await pdfFor(response.result, viewer, key);
-      else { viewer?.close(); setPrinting(null); toast.dismiss(key); }
+      else { viewer?.close(); setPrinting(null); setFeedback(current => { const next = { ...current }; delete next[key.split("-").pop()!]; return next; }); toast.dismiss(key); }
     } catch (error) { failPrint(key, viewer, error); }
     finally { createLock.current = false; setCreateBusy(false); }
   };
@@ -342,7 +358,7 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
   const printExisting = async (note: ExistingNote | TripResult) => {
     if (createLock.current) return;
     createLock.current = true;
-    const key = "existing-note";
+    const key = `asn-${creating?.order.portalId}`;
     const viewer = window.open("", "_blank");
     beginPrint(key, viewer, "phiếu giao hàng");
     try { await pdfFor(note, viewer, key); }
@@ -357,6 +373,7 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
    */
   const beginPrint = (key: string, viewer: Window | null, what: string) => {
     setPrinting(key);
+    setFeedback(current => ({ ...current, [key.split("-").pop()!]: { error: false, message: isVi ? "Đang chuẩn bị file in…" : "Preparing PDF…" } }));
     toast.loading(isVi ? "Đang chuẩn bị file in..." : "Preparing the print file...", {
       id: key,
       duration: Number.POSITIVE_INFINITY,
@@ -366,13 +383,15 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
 
   const finishPrint = (key: string, message: string) => {
     setPrinting(null);
-    toast.success(message, { id: key, duration: 4000 });
+    setFeedback(current => ({ ...current, [key.split("-").pop()!]: { error: false, message } }));
+    toast.dismiss(key);
   };
 
   const failPrint = (key: string, viewer: Window | null, error: unknown) => {
     setPrinting(null);
     viewer?.close();
-    toast.error((error as Error)?.message || "Cổng KFM báo lỗi.", { id: key, duration: 6000 });
+    setFeedback(current => ({ ...current, [key.split("-").pop()!]: { error: true, message: (error as Error)?.message || "Cổng KFM báo lỗi." } }));
+    toast.dismiss(key);
   };
 
   const handlePrintPo = async (order: KfmOrder) => {
@@ -382,6 +401,7 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
     const viewer = window.open("", "_blank");
     beginPrint(key, viewer, `PO ${order.code}`);
     try {
+      requireToday(deliveryDate);
       const detail = await callPortal({ action: "detail", deliveryDate, orderId: order.portalId });
       const poId = detail.order?.purchaseOrderId ?? order.portalId;
       const pdf = await callPortal({ action: "po-pdf", poId, code: order.code });
@@ -396,138 +416,41 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
   };
 
   const renderOrderActions = (order: KfmOrder) => (
-    <div className="flex items-center justify-end gap-1">
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 rounded-lg"
-            title={isVi ? "In phiếu" : "Print"}
-            data-kfm-action="print-menu"
-            disabled={printing !== null || busy !== null}
-          >
-            {printing === `po-${order.portalId}` || (printing !== null && printing.startsWith(`asn-${order.portalId}`))
-              ? <Loader2 className="h-4 w-4 animate-spin" />
-              : <Printer className="h-4 w-4" />}
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-56">
-          <DropdownMenuItem data-kfm-action="print-po" onSelect={() => void handlePrintPo(order)}>
-            <Printer className="mr-2 h-4 w-4" />
-            {isVi ? "In PO" : "Print PO"}
-          </DropdownMenuItem>
-          <DropdownMenuItem data-kfm-action="print-asn" onSelect={() => void openCreate(order)}>
-            <Truck className="mr-2 h-4 w-4" />
-            {isVi ? "In phiếu giao hàng" : "Print delivery note"}
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+    <div className="grid w-full grid-cols-1 gap-2 sm:w-auto sm:grid-cols-2" data-kfm-actions="direct-v1">
+      <Button variant="outline" className="h-11 gap-2 whitespace-nowrap rounded-xl px-5"
+        data-kfm-action="print-po" disabled={printing !== null || busy !== null || query.isFetching || query.isError}
+        onClick={() => void handlePrintPo(order)}>
+        {printing === `po-${order.portalId}` ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" /> : <Printer className="h-4 w-4" />}
+        {isVi ? "In PO" : "Print PO"}
+      </Button>
+      <Button className="h-11 gap-2 whitespace-nowrap rounded-xl px-5"
+        data-kfm-action="print-asn" disabled={printing !== null || busy !== null || query.isFetching || query.isError}
+        aria-expanded={creating?.order.portalId === order.portalId}
+        aria-controls={creating?.order.portalId === order.portalId ? `kfm-form-${order.portalId}` : undefined}
+        onClick={() => void openCreate(order)}>
+        {printing === `asn-${order.portalId}` ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" /> : <Truck className="h-4 w-4" />}
+        {isVi ? "In phiếu giao hàng" : "Print delivery note"}
+      </Button>
     </div>
   );
 
-  return (
-    <>
-      <Button
-        variant="outline"
-        size="lg"
-        className="h-12 rounded-2xl border-border bg-card/80 text-base text-foreground hover:bg-muted"
-        onClick={() => setOpen(true)}
-        data-kfm-portal-entry="v1"
-      >
-        <Truck className="mr-2 h-5 w-5" />
-        {isVi ? "Cổng KFM" : "KFM portal"}
-      </Button>
-
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent
-          className="max-h-[90dvh] max-w-3xl overflow-y-auto"
-          data-kfm-mobile="v1"
-          data-kfm-unified-print="v1"
-          data-kfm-po-print="v1"
-        >
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Truck className="h-5 w-5" />
-              {isVi ? "Đơn hàng từ cổng KFM" : "Orders from the KFM portal"}
-            </DialogTitle>
-            <DialogDescription>
-              {isVi
-                ? "In phiếu đã có; nếu chưa có, thao tác in sẽ tạo phiếu và tự xác nhận PO bằng thông tin xe/tài xế đã lưu trên portal."
-                : "Print an existing note, or create it and confirm the PO using saved portal vehicle/driver details."}
-            </DialogDescription>
-          </DialogHeader>
-
-          {/* The native date control keeps its own intrinsic width on iOS, which
-              used to push the trailing badge off the dialog. Let the row shrink
-              and give the input a full-width line on phones only. */}
-          <div className="flex min-w-0 flex-wrap items-center gap-3">
-            <label className="text-sm text-muted-foreground" htmlFor="kfm-delivery-date">
-              {isVi ? "Ngày giao" : "Delivery date"}
-            </label>
-            <input
-              id="kfm-delivery-date"
-              type="date"
-              value={deliveryDate}
-              onChange={(event) => setDeliveryDate(event.target.value)}
-              className="h-10 w-full min-w-0 rounded-xl border border-border bg-background px-3 text-sm sm:w-auto"
-            />
-            <Button
-              variant="outline"
-              size="sm"
-              className="rounded-xl"
-              onClick={() => query.refetch()}
-              disabled={query.isFetching}
-            >
-              {query.isFetching
-                ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                : <RefreshCw className="mr-2 h-4 w-4" />}
-              {isVi ? "Tải lại" : "Reload"}
-            </Button>
-            {data?.vendorCode && (
-              <Badge variant="outline" className="sm:ml-auto">
-                {data.vendorCode}
-              </Badge>
-            )}
-          </div>
-
-            {/* Every print action — the PO sheet and the delivery note — reports
-                its work here: the operator sees the wait instead of a blank tab. */}
-            {printing !== null && (
-              <div
-                className="flex min-w-0 items-center gap-3 rounded-xl border border-primary/40 bg-primary/5 p-3"
-                data-kfm-printing="v1"
-                role="status"
-              >
-                <Printer className="h-4 w-4 animate-pulse text-primary" />
-                <span className="text-sm font-medium">
-                  {isVi ? "Đang chuẩn bị file in..." : "Preparing the print file..."}
-                </span>
-                <span className="ml-auto flex items-center gap-1" aria-hidden="true">
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary [animation-delay:-0.3s]" />
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary [animation-delay:-0.15s]" />
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary" />
-                </span>
-              </div>
-            )}
-
-            {creating && (
-              <section className="min-w-0 space-y-3 rounded-xl border p-3" data-kfm-create="v2">
-                <div className="flex items-center justify-between gap-2">
+  const renderCreate = () => creating && (
+<section className="mt-4 min-w-0 space-y-4 rounded-xl border border-border bg-muted/40 p-4" data-kfm-create="v2" id={`kfm-form-${creating.order.portalId}`}>
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <h3 className="min-w-0 break-all text-sm font-semibold">In phiếu giao hàng · {creating.order.code}</h3>
-                  <Button size="sm" variant="ghost" disabled={createBusy || printing !== null} onClick={() => setCreating(null)}>Đóng</Button>
+                  <Button className="min-h-11" size="sm" variant="ghost" disabled={createBusy || printing !== null} onClick={() => setCreating(null)}>Đóng</Button>
                 </div>
                 {creating.error && <p role="alert" className="text-sm text-destructive">{creating.error}</p>}
                 {creating.existingNotes ? <div className="flex flex-wrap gap-2">
                   <p className="w-full text-sm">Chọn phiếu đã có để in:</p>
-                  {creating.existingNotes.map(note => <Button key={note.asnId} disabled={printing !== null} onClick={() => void printExisting(note)}>{note.asnCode || note.asnId}</Button>)}
+                  {creating.existingNotes.map(note => <Button className="min-h-11" key={note.asnId} disabled={printing !== null} onClick={() => void printExisting(note)}>{note.asnCode || note.asnId}</Button>)}
                 </div> : creating.result ? (
                   <div className="space-y-2 text-sm" data-kfm-create-result={creating.result.state} role="status">
                     <p>{creating.result.message}</p>
                     {creating.result.poConfirmation && <p data-kfm-po-readback="v1">PO: {creating.result.poConfirmation.label}</p>}
-                    {creating.result.state === "verified" ? <Button disabled={printing !== null || createBusy} onClick={() => void printExisting(creating.result!)}>In phiếu giao hàng</Button>
-                      : creating.result.state === "not_sent" ? <Button disabled={createBusy} onClick={() => void openCreate(creating.order, creating.date, creating.form, false)}>Kiểm tra lại thông tin</Button>
-                      : <Button data-kfm-action="check-create" disabled={createBusy} onClick={() => void checkCreate()}>Kiểm tra kết quả</Button>}
+                    {creating.result.state === "verified" ? <Button className="min-h-11" disabled={printing !== null || createBusy} onClick={() => void printExisting(creating.result!)}>In phiếu giao hàng</Button>
+                      : creating.result.state === "not_sent" ? <Button className="min-h-11" disabled={createBusy} onClick={() => void openCreate(creating.order, creating.date, creating.form, false)}>Kiểm tra lại thông tin</Button>
+                      : <Button className="min-h-11" data-kfm-action="check-create" disabled={createBusy} onClick={() => void checkCreate()}>Kiểm tra kết quả</Button>}
                   </div>
                 ) : creating.revision && <>
                   <p className="text-sm" data-kfm-auto-confirm="v1">{AUTO_CONFIRM_NOTICE}</p>
@@ -535,159 +458,92 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
                   <p className="text-xs text-muted-foreground">{creating.warehouse} · {creating.date}<br />{[creating.form.licensePlate, creating.form.driverName, creating.form.driverPhone].filter(Boolean).join(" · ")}</p>
                   <fieldset disabled={createBusy} className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
                     {creating.needed.includes("vehicleTypeId") && <label className="text-xs">Loại xe
-                      <select data-kfm-field="vehicle" className="mt-1 block w-full min-w-0 rounded-md border bg-background p-2" value={creating.form.vehicleTypeId || ""} onChange={e => void openCreate(creating.order, creating.date, { ...creating.form, vehicleTypeId: Number(e.target.value) || null }, false)}>
+                      <select data-kfm-field="vehicle" className="mt-1 block min-h-11 w-full min-w-0 rounded-lg border bg-background p-2 text-base sm:text-sm" value={creating.form.vehicleTypeId || ""} onChange={e => void openCreate(creating.order, creating.date, { ...creating.form, vehicleTypeId: Number(e.target.value) || null }, false)}>
                         <option value="">Chọn loại xe</option>{creating.options.vehicleTypes.map(row => <option key={row.id} value={row.id}>{row.name}</option>)}
                       </select>
                     </label>}
                     {creating.needed.includes("licensePlate") && <label className="text-xs">Xe đã lưu
-                      {creating.fleet.vehicles.length ? <select data-kfm-field="saved-vehicle" className="mt-1 block w-full min-w-0 rounded-md border bg-background p-2" value={creating.form.savedVehicleId || ""} onChange={e => {
+                      {creating.fleet.vehicles.length ? <select data-kfm-field="saved-vehicle" className="mt-1 block min-h-11 w-full min-w-0 rounded-lg border bg-background p-2 text-base sm:text-sm" value={creating.form.savedVehicleId || ""} onChange={e => {
                         const form = fillSaved(creating.fleet, creating.options, { ...creating.form, savedVehicleId: Number(e.target.value) || null, savedDriverId: null, driverName: "", driverPhone: "" });
                         setCreating({ ...creating, form });
                       }}><option value="">Chọn xe</option>{creating.fleet.vehicles.map(row => <option key={row.id} value={row.id}>{row.plateNumber}</option>)}</select>
-                      : <input data-kfm-field="plate" maxLength={40} className="mt-1 block w-full min-w-0 rounded-md border bg-background p-2" value={creating.form.licensePlate} onChange={e => setCreating({ ...creating, form: { ...creating.form, licensePlate: e.target.value } })} />}
+                      : <input data-kfm-field="plate" maxLength={40} className="mt-1 block min-h-11 w-full min-w-0 rounded-lg border bg-background p-2 text-base sm:text-sm" value={creating.form.licensePlate} onChange={e => setCreating({ ...creating, form: { ...creating.form, licensePlate: e.target.value } })} />}
                     </label>}
                     {creating.needed.includes("driver") && <label className="text-xs">Tài xế
-                      {creating.fleet.drivers.length ? <select data-kfm-field="saved-driver" className="mt-1 block w-full min-w-0 rounded-md border bg-background p-2" value={creating.form.savedDriverId || ""} onChange={e => {
+                      {creating.fleet.drivers.length ? <select data-kfm-field="saved-driver" className="mt-1 block min-h-11 w-full min-w-0 rounded-lg border bg-background p-2 text-base sm:text-sm" value={creating.form.savedDriverId || ""} onChange={e => {
                         const driver = creating.fleet.drivers.find(row => row.id === Number(e.target.value));
                         setCreating({ ...creating, form: { ...creating.form, savedDriverId: driver?.id, driverName: driver?.name || "", driverPhone: driver?.phone || "" } });
                       }}><option value="">Chọn tài xế</option>{creating.fleet.drivers.map(row => <option key={row.id} value={row.id}>{row.name} · {row.phone}</option>)}</select>
-                      : <div className="space-y-2">{([['driverName','Tên tài xế'],['driverPhone','Số điện thoại']] as const).map(([key,label]) => <input key={key} aria-label={label} placeholder={label} maxLength={key === 'driverName' ? 120 : 30} className="mt-1 block w-full min-w-0 rounded-md border bg-background p-2" value={creating.form[key]} onChange={e => setCreating({ ...creating, form: { ...creating.form, [key]: e.target.value } })} />)}</div>}
+                      : <div className="space-y-2">{([['driverName','Tên tài xế'],['driverPhone','Số điện thoại']] as const).map(([key,label]) => <input key={key} aria-label={label} placeholder={label} maxLength={key === 'driverName' ? 120 : 30} className="mt-1 block min-h-11 w-full min-w-0 rounded-lg border bg-background p-2 text-base sm:text-sm" value={creating.form[key]} onChange={e => setCreating({ ...creating, form: { ...creating.form, [key]: e.target.value } })} />)}</div>}
                     </label>}
-                    {creating.needed.includes("driver") && creating.form.savedDriverId && ([['driverName','Tên tài xế','name'],['driverPhone','Số điện thoại','phone']] as const).map(([key,label,sourceKey]) => !creating.fleet.drivers.find(row => row.id === creating.form.savedDriverId)?.[sourceKey] && <label key={key} className="text-xs">{label}<input aria-label={label} maxLength={key === 'driverName' ? 120 : 30} className="mt-1 block w-full min-w-0 rounded-md border bg-background p-2" value={creating.form[key]} onChange={e => setCreating({ ...creating, form: { ...creating.form, [key]: e.target.value } })} /></label>)}
+                    {creating.needed.includes("driver") && creating.form.savedDriverId && ([['driverName','Tên tài xế','name'],['driverPhone','Số điện thoại','phone']] as const).map(([key,label,sourceKey]) => !creating.fleet.drivers.find(row => row.id === creating.form.savedDriverId)?.[sourceKey] && <label key={key} className="text-xs">{label}<input aria-label={label} maxLength={key === 'driverName' ? 120 : 30} className="mt-1 block min-h-11 w-full min-w-0 rounded-lg border bg-background p-2 text-base sm:text-sm" value={creating.form[key]} onChange={e => setCreating({ ...creating, form: { ...creating.form, [key]: e.target.value } })} /></label>)}
                     {creating.needed.includes("bookingTimeSlot") && <label className="text-xs">Khung giờ giao
-                      <select data-kfm-field="slot" className="mt-1 block w-full min-w-0 rounded-md border bg-background p-2" value={creating.form.bookingTimeSlot} onChange={e => setCreating({ ...creating, form: { ...creating.form, bookingTimeSlot: e.target.value } })}>
+                      <select data-kfm-field="slot" className="mt-1 block min-h-11 w-full min-w-0 rounded-lg border bg-background p-2 text-base sm:text-sm" value={creating.form.bookingTimeSlot} onChange={e => setCreating({ ...creating, form: { ...creating.form, bookingTimeSlot: e.target.value } })}>
                         <option value="">Chọn khung giờ</option>{creating.options.slots.map((slot,i) => <option key={i} value={slot.value} disabled={!slot.available}>{slot.value}</option>)}
                       </select>
                     </label>}
-                    {creating.needed.includes("time") && ([['expectedTimeFrom','Giờ giao từ'],['expectedTimeTo','Giờ giao đến']] as const).map(([key,label]) => <label key={key} className="text-xs">{label}<input type="time" className="mt-1 block w-full min-w-0 rounded-md border bg-background p-2" value={creating.form[key]} onChange={e => setCreating({ ...creating, form: { ...creating.form, [key]: e.target.value } })} /></label>)}
+                    {creating.needed.includes("time") && ([['expectedTimeFrom','Giờ giao từ'],['expectedTimeTo','Giờ giao đến']] as const).map(([key,label]) => <label key={key} className="text-xs">{label}<input type="time" className="mt-1 block min-h-11 w-full min-w-0 rounded-lg border bg-background p-2 text-base sm:text-sm" value={creating.form[key]} onChange={e => setCreating({ ...creating, form: { ...creating.form, [key]: e.target.value } })} /></label>)}
                   </fieldset>
-                  <Button data-kfm-action="submit-create" disabled={createBusy || missingFields(creating.form, creating.options).length > 0} onClick={() => void submitCreate()}>In phiếu giao hàng</Button>
+                  <Button className="min-h-11" data-kfm-action="submit-create" disabled={createBusy || missingFields(creating.form, creating.options).length > 0} onClick={() => void submitCreate()}>In phiếu giao hàng</Button>
                 </>}
               </section>
+  );
+
+  return (
+    <section className="mx-auto w-full min-w-0 max-w-6xl space-y-6 pb-8" data-kfm-today="v1" data-kfm-mobile="v2" data-kfm-unified-print="v1" data-kfm-po-print="v1">
+      <header className="flex min-w-0 flex-wrap items-start justify-between gap-4 border-b border-border pb-5">
+        <div className="flex min-w-0 items-start gap-3">
+          <Button asChild variant="outline" className="h-11 w-11 shrink-0 rounded-xl p-0" aria-label={isVi ? "Quay lại xưởng Q7" : "Back to Q7"}>
+            <Link to="/production/planning/q7"><ArrowLeft className="h-5 w-5" /></Link>
+          </Button>
+          <div className="min-w-0">
+            <h1 className="break-words text-2xl font-bold tracking-tight">{isVi ? "Cổng KFM" : "KFM portal"}</h1>
+            <p className="mt-1 text-sm text-muted-foreground" data-kfm-today-date={deliveryDate}>
+              {isVi ? "Hôm nay" : "Today"} · {deliveryDate.split("-").reverse().join("/")}
+            </p>
+          </div>
+        </div>
+        <Button variant="outline" className="h-11 gap-2 rounded-xl" onClick={() => void query.refetch()} disabled={query.isFetching || printing !== null || busy !== null}>
+          {query.isFetching ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" /> : <RefreshCw className="h-4 w-4" />}
+          {isVi ? "Làm mới" : "Refresh"}
+        </Button>
+      </header>
+
+      <p className="max-w-3xl text-sm leading-relaxed text-muted-foreground">
+        {isVi ? "In PO để xem đơn hàng. In phiếu giao hàng: nếu chưa có phiếu, hệ thống tự xác nhận PO và tạo phiếu trước khi in." : "Print PO to view the order. Printing a delivery note confirms the PO and creates the note only if it does not exist."}
+      </p>
+      {dayNotice && <p role="status" className="rounded-xl bg-muted p-3 text-sm">{isVi ? "Đã sang ngày mới. Danh sách đã chuyển sang hôm nay." : "A new day has started. The list now shows today's orders."}</p>}
+      {query.isError && <div role="alert" className="rounded-xl border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive">{(query.error as Error)?.message}</div>}
+      {data && data.configured === false && <p role="alert" className="rounded-xl border p-4 text-sm">{isVi ? "Chưa kết nối được Cổng KFM. Vui lòng liên hệ quản trị viên." : "KFM is not connected. Please contact your administrator."}</p>}
+      {query.isFetching && <div role="status" className="flex items-center gap-3 py-6 text-sm text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin motion-reduce:animate-none" />{isVi ? "Đang tải đơn hôm nay…" : "Loading today's orders…"}</div>}
+      {data?.success && data.configured !== false && <ul className="space-y-4" data-kfm-orders-cards="v2" aria-label={isVi ? "Đơn giao hôm nay" : "Today's delivery orders"}>
+        {orders.map(order => (
+          <li key={order.portalId} className="min-w-0 rounded-2xl border border-border bg-card p-4 sm:p-5" data-kfm-order={order.portalId}>
+            <div className="flex min-w-0 flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
+              <div className="min-w-0 space-y-2">
+                <h2 className="break-all text-lg font-semibold tracking-tight">{order.code}</h2>
+                <p className="break-words text-sm text-muted-foreground">{order.locationName || "—"}</p>
+                <p className="text-xs text-muted-foreground">{order.itemCount ?? "—"} {isVi ? "dòng sản phẩm" : "product lines"} · {isVi ? "SL" : "Qty"} {qty(order.totalQty)}</p>
+              </div>
+              <div className="shrink-0">{renderOrderActions(order)}</div>
+            </div>
+            {feedback[order.portalId] && !(creating?.order.portalId === order.portalId && creating.error) && (
+              <p className={`mt-4 flex items-center gap-2 text-sm ${feedback[order.portalId].error ? "text-destructive" : "text-muted-foreground"}`}
+                role={feedback[order.portalId].error ? "alert" : "status"} data-kfm-printing={printing?.endsWith(`-${order.portalId}`) ? "v1" : undefined}>
+                {printing?.endsWith(`-${order.portalId}`) && <Loader2 className="h-4 w-4 shrink-0 animate-spin motion-reduce:animate-none" />}
+                {feedback[order.portalId].message}
+              </p>
             )}
-            {query.isFetching && <p className="text-sm text-muted-foreground">Đang tải đơn hàng…</p>}
-
-          {query.isError && (
-            <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-4 text-sm">
-              {(query.error as Error)?.message}
-            </div>
-          )}
-
-          {data && data.configured === false && (
-            <div className="rounded-xl border border-amber-300/60 bg-amber-50 p-4 text-sm text-amber-900">
-              <p className="font-semibold">
-                {isVi ? "Cổng KFM chưa được cấu hình" : "KFM portal is not configured yet"}
-              </p>
-              <p className="mt-1">
-                {isVi
-                  ? "Cần đặt tài khoản cổng (KFM_PORTAL_USERNAME / KFM_PORTAL_PASSWORD) trong Supabase secrets. Trong lúc chờ, nút “Kiểm tra PO” theo email vẫn chạy bình thường."
-                  : "Portal credentials must be added to Supabase secrets. The email PO check keeps working meanwhile."}
-              </p>
-            </div>
-          )}
-
-          {data && data.success === false && data.configured !== false && (
-            <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-4 text-sm">
-              <p className="font-semibold">
-                {data.error === "session_expired"
-                  ? (isVi ? "Phiên cổng KFM đã hết hạn" : "KFM portal session expired")
-                  : (isVi ? "Cổng KFM đang lỗi" : "KFM portal error")}
-              </p>
-              <p className="mt-1">{data.message}</p>
-              <p className="mt-2 text-xs text-muted-foreground">
-                {isVi
-                  ? `Bước: ${data.step || "—"} · Luồng email PO vẫn dùng được.`
-                  : `Step: ${data.step || "—"} · The email PO flow still works.`}
-              </p>
-            </div>
-          )}
-
-          {data?.success && (
-            <>
-              <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                <Badge variant="secondary">{isVi ? `${orders.length} đơn` : `${orders.length} orders`}</Badge>
-                <span>{isVi ? "Ngày giao" : "Delivery"}: {data.deliveryDate}</span>
-                {data.session?.mode && (
-                  <span className="text-xs sm:ml-auto">
-                    {isVi ? "Phiên" : "Session"}: {data.session.mode === "refresh" ? "refresh token" : "đăng nhập mới"}
-                  </span>
-                )}
-              </div>
-
-              {/* Reported 2026-09-14: the five-column table had to be dragged
-                  sideways on a phone, which scrolled the "PO100…" prefix off the
-                  screen. Small screens get one stacked card per order instead;
-                  the table only renders where it actually fits. */}
-              <ul className="space-y-2 md:hidden" data-kfm-orders-cards="v1">
-                {orders.map((order) => (
-                  <li key={order.portalId} className="rounded-xl border border-border p-3">
-                    <div className="flex min-w-0 items-start justify-between gap-2">
-                      <span className="min-w-0 break-all text-sm font-semibold">{order.code}</span>
-                      {renderOrderActions(order)}
-                    </div>
-                    <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
-                      <div className="min-w-0">
-                        <dt className="text-muted-foreground">{isVi ? "Kho nhận" : "Location"}</dt>
-                        <dd className="mt-0.5 break-words">{order.locationName || "—"}</dd>
-                      </div>
-                      <div className="min-w-0">
-                        <dt className="text-muted-foreground">{isVi ? "Số dòng" : "Items"}</dt>
-                        <dd className="mt-0.5">{order.itemCount ?? "—"}</dd>
-                      </div>
-                      <div className="min-w-0">
-                        <dt className="text-muted-foreground">{isVi ? "SL" : "Qty"}</dt>
-                        <dd className="mt-0.5">{qty(order.totalQty)}</dd>
-                      </div>
-                    </dl>
-                  </li>
-                ))}
-                {orders.length === 0 && (
-                  <li className="rounded-xl border border-border p-6 text-center text-sm text-muted-foreground">
-                    {isVi ? "Không có đơn nào cho ngày này." : "No orders for this date."}
-                  </li>
-                )}
-              </ul>
-
-              <div className="hidden max-h-96 min-w-0 overflow-auto rounded-xl border border-border md:block">
-                <table className="w-full min-w-[520px] text-sm">
-                  <thead className="sticky top-0 bg-muted/80 text-left">
-                    <tr>
-                      <th className="p-2">{isVi ? "Mã PO" : "PO"}</th>
-                      <th className="p-2">{isVi ? "Kho nhận" : "Location"}</th>
-                      <th className="p-2 text-right">{isVi ? "Số dòng" : "Items"}</th>
-                      <th className="p-2 text-right">{isVi ? "SL" : "Qty"}</th>
-                      <th className="sticky right-0 border-l border-border bg-muted p-2 text-right">
-                        {isVi ? "Thao tác" : "Actions"}
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {orders.map((order) => (
-                      <tr key={order.portalId} className="border-t border-border/60">
-                        <td className="p-2 font-medium">{order.code}</td>
-                        <td className="p-2">{order.locationName || "—"}</td>
-                        <td className="p-2 text-right">{order.itemCount ?? "—"}</td>
-                        <td className="p-2 text-right">{qty(order.totalQty)}</td>
-                        <td className="sticky right-0 border-l border-border bg-background p-2">
-                          {renderOrderActions(order)}
-                        </td>
-                      </tr>
-                    ))}
-                    {orders.length === 0 && (
-                      <tr>
-                        <td colSpan={5} className="p-6 text-center text-muted-foreground">
-                          {isVi ? "Không có đơn nào cho ngày này." : "No orders for this date."}
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
-
-        </DialogContent>
-      </Dialog>
-    </>
+            {creating?.order.portalId === order.portalId && renderCreate()}
+          </li>
+        ))}
+        {!orders.length && !query.isFetching && !query.isError && <li className="rounded-2xl border border-dashed border-border px-5 py-14 text-center">
+          <Printer className="mx-auto mb-4 h-7 w-7 text-muted-foreground" />
+          <h2 className="font-semibold">{isVi ? "Hôm nay chưa có đơn giao" : "No delivery orders today"}</h2>
+          <p className="mt-2 text-sm text-muted-foreground">{isVi ? "Khi có PO trên cổng, bấm Làm mới để tải danh sách." : "Refresh when new POs are available on the portal."}</p>
+        </li>}
+      </ul>}
+      {creating && !orders.some(order => order.portalId === creating.order.portalId) && renderCreate()}
+    </section>
   );
 }
