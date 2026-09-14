@@ -95,6 +95,7 @@ type KfmResponse = {
   draft?: unknown;
   source?: unknown;
   rawRows?: unknown;
+  shippedMap?: unknown;
   filename?: string;
   base64?: string;
   session?: { mode: string; obtainedAt: string };
@@ -354,8 +355,13 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
         locationName: (result.source as { locationName?: string | null } | undefined)?.locationName ?? null,
         totalShipQty: items.reduce((sum, item) => sum + (item.shipQty || 0), 0),
         skippedCount: Number((result.source as { skippedCount?: number } | undefined)?.skippedCount ?? 0),
-        text: JSON.stringify({ draft: result.draft, source: result.source, rawRows: result.rawRows }, null, 2),
+        text: JSON.stringify({ draft: result.draft, source: result.source, rawRows: result.rawRows, shippedMap: result.shippedMap }, null, 2),
       });
+      if (items.length === 0) {
+        return isVi
+          ? "Không có dòng đủ điều kiện tạo chuyến mới."
+          : "No eligible lines for a new trip.";
+      }
       return isVi
         ? `Đã ráp thử phiếu giao hàng ${order.code}.`
         : `Delivery note draft for ${order.code} is ready.`;
@@ -505,7 +511,7 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
             {/* Stage 1 of the create-delivery-note work: the assembled body, for
                 review only. Nothing here reaches the partner portal. */}
             {draft && (
-              <div className="rounded-xl border border-border p-3" data-kfm-load-preview="v1">
+              <div className="min-w-0 rounded-xl border border-border p-3" data-kfm-load-preview="v1">
                 <div className="flex min-w-0 items-center justify-between gap-2">
                   <span className="min-w-0 break-all text-sm font-medium">
                     {isVi ? `Xem trước phiếu giao hàng ${draft.code}` : `Delivery note draft ${draft.code}`}
@@ -521,8 +527,8 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">
                   {isVi
-                    ? "Chỉ để đối chiếu — chưa gửi gì lên cổng KFM."
-                    : "Review only — nothing has been sent to the KFM portal."}
+                    ? "Chỉ xem các dòng đủ điều kiện tạo chuyến mới, không phải phiếu đã tạo. Chưa gửi gì lên cổng KFM."
+                    : "Eligible lines for a new trip only, not an existing delivery note. Nothing has been sent to KFM."}
                 </p>
                 <div className="mt-2 flex flex-wrap gap-2 text-xs">
                   <span className="rounded-md bg-muted px-2 py-1">
@@ -536,6 +542,13 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
                     {draft.totalShipQty.toLocaleString("vi-VN")}
                   </span>
                 </div>
+                {draft.items.length === 0 ? (
+                  <p className="mt-2 text-sm" data-kfm-load-empty="v1">
+                    {isVi
+                      ? "Không có dòng đủ điều kiện tạo chuyến mới. Để xem phiếu đã tạo, chọn ‘In phiếu giao hàng’ trong menu in của đơn."
+                      : "No eligible lines for a new trip. To view an existing note, choose ‘Print delivery note’ in the order’s print menu."}
+                  </p>
+                ) : (
                 <div className="mt-2 max-h-72 overflow-auto rounded-lg border border-border">
                   <table className="w-full text-left text-xs" data-kfm-load-items="v1">
                     <thead className="sticky top-0 bg-muted">
@@ -562,16 +575,17 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
                     </tbody>
                   </table>
                 </div>
+                )}
                 {draft.skippedCount > 0 && (
                   <p className="mt-1 text-xs text-muted-foreground">
                     {isVi
-                      ? `${draft.skippedCount} dòng đã giao đủ nên không lên chuyến.`
-                      : `${draft.skippedCount} line(s) already delivered in full were left out.`}
+                      ? `${draft.skippedCount} dòng không còn đủ điều kiện thêm mới theo số lượng đã giao hoặc đã lên chuyến trên cổng KFM.`
+                      : `${draft.skippedCount} line(s) excluded based on quantities already delivered or assigned to a trip in KFM.`}
                   </p>
                 )}
                 <details className="mt-2">
                   <summary className="cursor-pointer text-xs text-muted-foreground">
-                    {isVi ? "Dữ liệu thô gửi cổng" : "Raw body sent to the portal"}
+                    {isVi ? "Dữ liệu đối chiếu (chưa gửi)" : "Reconciliation data (not sent)"}
                   </summary>
                   <pre className="mt-2 max-h-64 overflow-auto rounded-lg bg-muted p-3 text-xs">
                     {draft.text}

@@ -125,6 +125,17 @@ def test_the_trip_draft_is_read_only_and_built_from_the_po_items() -> None:
     forbid(PANEL, 'action: "create-load"', "no create action may reach the portal yet")
 
 
+def test_empty_trip_preview_does_not_claim_physical_delivery() -> None:
+    require(PANEL, 'data-kfm-load-empty="v1"', "empty drafts must explain new-trip eligibility")
+    forbid(PANEL, "dòng đã giao đủ", "assignment to a trip does not prove physical delivery")
+    require(PANEL, "không phải phiếu đã tạo", "new-trip preview must be distinguished from an existing note")
+    require(PANEL, "shippedMap: result.shippedMap", "the operator must see actual filter quantities")
+    require(FUNCTION, "rawRows: source.items,", "all excluded rows must remain available for comparison")
+    require(FUNCTION, "shippedMap: source.shippedMap,", "filter keys without values are insufficient evidence")
+    require(FUNCTION, "const sourcePoId = Number(source.po.id)", "PO identity must come from the source")
+    forbid(FUNCTION, "draft.stops[0]?.items[0]?.poId", "empty drafts must not lose their PO identity")
+
+
 def test_the_delivery_note_prints_with_prices_like_the_portal() -> None:
     # Corrected 2026-09-14 from the portal's own bundle: its print menu offers two
     # layouts and `FULL` (prices shown) is the default it calls by itself

@@ -289,6 +289,7 @@ serve(async (req) => {
       }
       const detail = await getOrderDetail(cached.session.token, { vendorId, orderId });
       const source = await getTripSource(cached.session.token, { vendorId, orderId });
+      const sourcePoId = Number(source.po.id);
       const vehicleTypeId = Number(payload.vehicleTypeId);
       const { draft, skipped } = buildTripDraft({
         deliveryDate,
@@ -307,7 +308,9 @@ serve(async (req) => {
         draft,
         source: {
           orderId,
-          poId: detail.purchaseOrderId ?? draft.stops[0]?.items[0]?.poId ?? null,
+          poId: Number.isInteger(sourcePoId) && sourcePoId > 0
+            ? sourcePoId
+            : detail.purchaseOrderId ?? null,
           poCode: String(source.po.code ?? detail.code ?? "") || null,
           locationId: draft.stops[0]?.locationId ?? null,
           locationName: source.po.locationName ?? null,
@@ -316,10 +319,10 @@ serve(async (req) => {
           skippedCount: skipped,
           readFrom: `GET /api/v1/portal/orders/${orderId}?vendorId=${vendorId}`,
         },
-        // A couple of the portal's own rows, so a changed field name on the
-        // partner side is visible in the panel instead of silently mapping to 0.
-        rawRows: source.items.slice(0, 2),
-        shippedMapKeys: Object.keys(source.shippedMap).slice(0, 5),
+        // Keep every source row and the actual filter values for reconciliation,
+        // including when all lines are already covered by an existing trip.
+        rawRows: source.items,
+        shippedMap: source.shippedMap,
         session,
       }, 200, req);
     }
