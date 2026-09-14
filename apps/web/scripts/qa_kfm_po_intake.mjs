@@ -25,19 +25,24 @@ const browser = await chromium.launch({ headless: true, channel: process.env.KFM
 const results = [];
 const sample = (id = 11) => ({ orderId: id, code: `PO${id}`, deliveryDate: "2026-09-19", locationName: "KHO QUÁ CẢNH BÁNH TƯƠI — ĐỊA CHỈ KHO RẤT DÀI CẦN XUỐNG HÀNG TRÊN ĐIỆN THOẠI", revision: "r1", subStatus: 3, state: "pending", items: [{ productCode: "1001001026356", productName: "BMQ - BÁNH CROISSANT 50G", unitName: "CÁI", qty: 110 }, { productCode: "1001001026798", productName: "BMQ - BÁNH MÌ CHÀ BÔNG 70G", unitName: "CÁI", qty: 150 }] });
 try {
-  for (const width of [320, 390, 1366, 1920]) for (const scenario of ["confirm", "reject", "defer", "timeout", "changed", "import-error", "recover", "readonly", "paused", "empty", "confirmed", "denied", "poll"]) {
+  for (const width of (process.env.KFM_QA_WIDTHS || "320,390,1366,1920").split(",").map(Number)) for (const scenario of ["confirm", "reject", "defer", "timeout", "changed", "import-error", "recover", "readonly", "paused", "empty", "confirmed", "denied", "poll", "checking", "scan-error", "close-scan", "slow-write", "many"]) {
+    if (process.env.KFM_QA_CASES && !process.env.KFM_QA_CASES.split(",").includes(scenario)) continue;
     const context = await browser.newContext({ viewport: { width, height: 900 } });
     const page = await context.newPage(); page.setDefaultTimeout(12000);
-    await page.addInitScript(() => { const original = window.setInterval.bind(window); window.setInterval = (fn, ms, ...args) => { if (ms === 60000) window.intakePoll = fn; return original(fn, ms, ...args); }; });
+    await page.addInitScript(() => { const timeout = AbortSignal.timeout; AbortSignal.timeout = ms => timeout(ms === 45000 ? 1800 : ms); const original = window.setInterval.bind(window); window.setInterval = (fn, ms, ...args) => { if (ms === 60000) window.intakePoll = fn; return original(fn, ms, ...args); }; });
     const errors = [], actions = []; let decisions = 0, scans = 0;
     page.on("pageerror", (error) => errors.push(error.message));
     await page.route("**/functions/v1/**", async (route) => {
       assert(route.request().url().endsWith("/kfm-portal-sync"));
       const body = route.request().postDataJSON(); actions.push(body.action); let value;
-      if (body.action === "intake-list") { scans++; value = { success: true, vendorId: 1865, orders: scenario === "empty" ? [] : [scenario === "recover" ? { ...sample(), state: "unknown", decision: "confirm" } : scenario === "confirmed" ? { ...sample(), subStatus: 6 } : sample(), sample(12)] }; }
+      if (body.action === "intake-list") { scans++;
+        if (["checking", "close-scan"].includes(scenario)) await new Promise(resolve=>setTimeout(resolve,1200));
+        if (scenario === "scan-error" && scans === 1) { await route.fulfill({status:502,json:{success:false,message:"KFM tạm thời không phản hồi"}}); return; }
+        value = { success: true, vendorId: 1865, orders: scenario === "empty" ? [] : scenario === "many" ? Array.from({length:12},(_,i)=>({...sample(i+11),items:Array.from({length:20},()=>sample().items[0])})) : [scenario === "recover" ? { ...sample(), state: "unknown", decision: "confirm" } : scenario === "confirmed" ? { ...sample(), subStatus: 6 } : sample(), sample(12)] }; }
       else if (body.action === "intake-decide") {
         decisions++; assert.equal(body.revision, "r1"); assert.equal(body.vendorId, 1865); assert.match(body.requestId, /^[a-f\d-]{36}$/i);
         await new Promise((resolve) => setTimeout(resolve, 120));
+        if (scenario === "slow-write") await new Promise(resolve=>setTimeout(resolve,2400));
         if (scenario === "timeout") { await route.abort("failed"); return; }
         if (scenario === "denied") { await route.fulfill({ status: 403, json: { success: false, message: "Không có quyền duyệt PO." } }); return; }
         if (scenario === "reject") { assert.equal(body.decision, "reject"); assert.equal(body.reason, "Không đủ năng lực sản xuất"); value = { result: { state: "rejected" } }; }
@@ -47,22 +52,50 @@ try {
       else throw Error("Unexpected mutation " + body.action);
       await route.fulfill({ json: value });
     });
+    if (scenario === "poll") await page.clock.install();
     await page.goto(`${baseUrl}__qa${["readonly", "paused"].includes(scenario) ? "?" + scenario : ""}`);
-    if (["readonly", "paused", "empty"].includes(scenario)) {
-      await page.locator("[data-kfm-po-intake]").waitFor();
-      if (scenario === "empty") await page.getByRole("status").waitFor();
-      if (scenario === "paused") { await page.waitForFunction(() => !!window.unpause); await page.evaluate(() => window.unpause()); await page.getByRole("dialog").waitFor(); }
-      else { assert.equal(await page.getByRole("dialog").count(), 0); if (scenario === "readonly") assert.equal(scans, 0); }
+    await page.locator("[data-kfm-po-intake]").waitFor();
+    await page.evaluate(() => { window.dispatchEvent(new Event("focus")); document.dispatchEvent(new Event("visibilitychange")); window.intakePoll?.(); });
+    await page.waitForTimeout(120);
+    if(scenario==="poll") { await page.clock.fastForward(61000); assert.equal(await page.evaluate(()=>!!window.intakePoll),false); }
+    assert.equal(scans,0,"No discovery on mount/focus/visibility/61s idle");
+    assert.equal(await page.getByRole("dialog").count(),0);
+    if (["readonly", "paused"].includes(scenario)) {
+      assert(await page.getByRole("button",{name:"Kiểm tra PO"}).isDisabled());
+      if(scenario==="paused") { await page.evaluate(()=>window.unpause()); await page.waitForTimeout(100); assert.equal(scans,0); }
     } else {
+      await page.getByRole("button",{name:"Kiểm tra PO",exact:true}).evaluate(el=>{el.click();el.click();});
       const dialog = page.getByRole("dialog"); await dialog.waitFor();
-      assert.equal(await page.getByRole("dialog").count(), 1); assert.equal(decisions, 0);
-      if (scenario === "poll") {
-        await page.waitForFunction(() => !!window.intakePoll);
-        const before = scans;
-        await page.evaluate(() => { Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' }); window.intakePoll(); });
-        await page.waitForTimeout(100); assert.equal(scans, before);
-        await page.evaluate(() => { Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' }); window.intakePoll(); });
-        await page.waitForTimeout(150); assert.equal(scans, before + 1); assert.equal(await dialog.count(), 1); assert.equal(decisions, 0);
+      if (["checking","close-scan"].includes(scenario)) {
+        await dialog.getByText("Đang kiểm tra PO…",{exact:true}).waitFor();
+        assert.equal(await dialog.locator("[data-kfm-intake-order]").count(),0);
+        await page.screenshot({path:path.join(out,`${width}-checking.png`)});
+        if(scenario==="close-scan") {
+          await dialog.getByRole("button",{name:"Đóng",exact:true}).click();
+          await dialog.waitFor({state:"hidden"}); await page.waitForTimeout(1300);
+          assert.equal(await dialog.count(),0,"Late scan must not reopen dialog");
+          assert(await page.getByRole("button",{name:"Kiểm tra PO"}).evaluate(el=>el===document.activeElement));
+        } else await dialog.locator('[data-kfm-intake-order="11"]').waitFor();
+      } else if(scenario==="scan-error") {
+        await dialog.getByText("Chưa có kết quả kiểm tra").waitFor();
+        assert.equal(await dialog.getByText("Không có PO mới cần duyệt").count(),0);
+        await page.screenshot({path:path.join(out,`${width}-error.png`)});
+        await dialog.getByRole("button",{name:"Thử lại"}).click();
+        await dialog.locator('[data-kfm-intake-order="11"]').waitFor(); assert.equal(scans,2);
+      } else if(scenario==="empty") {
+        await dialog.getByText("Không có PO mới cần duyệt").waitFor();
+        assert.equal(await dialog.getByRole("button",{name:"Xác nhận",exact:true}).count(),0);
+      } else {
+      await dialog.locator('[data-kfm-intake-order="11"]').waitFor();
+      assert.equal(await dialog.count(), 1); assert.equal(decisions, 0); assert.equal(scans,1);
+      if(scenario==="many") {
+        await page.waitForTimeout(250); // Measure settled geometry, not the dialog entry scale.
+        const bounds=await dialog.getByRole("button",{name:"Xác nhận",exact:true}).boundingBox(); assert(bounds.y+bounds.height<=900 && bounds.height>=44, JSON.stringify(bounds));
+        await page.emulateMedia({reducedMotion:"reduce"});
+      }
+      if (scenario === "poll" || scenario === "many") {
+        await page.evaluate(() => { window.dispatchEvent(new Event("focus")); document.dispatchEvent(new Event("visibilitychange")); window.intakePoll?.(); });
+        await page.waitForTimeout(100); assert.equal(scans,1); assert.equal(decisions,0);
       } else if (scenario === "defer") {
         await page.keyboard.press("Escape"); await dialog.waitFor({ state: "hidden" }); assert.equal(await dialog.count(), 0);
         await page.evaluate(() => window.dispatchEvent(new Event("focus"))); await page.waitForTimeout(150);
@@ -73,7 +106,10 @@ try {
         assert(await dialog.getByRole("button", { name: "Gửi từ chối đến KFM" }).isDisabled());
         await dialog.getByLabel("Lý do từ chối (gửi đến KFM)").fill("Không đủ năng lực sản xuất");
         await dialog.getByRole("button", { name: "Gửi từ chối đến KFM" }).evaluate((button) => { button.click(); button.click(); });
-        await page.locator('[data-kfm-intake-order="12"]').waitFor(); assert.equal(decisions, 1);
+        await dialog.getByText(/KFM đã ghi nhận từ chối/).waitFor(); assert.equal(decisions, 1);
+        await page.screenshot({path:path.join(out,`${width}-rejected.png`)});
+        await dialog.getByRole("button",{name:"PO tiếp theo"}).click();
+        await page.locator('[data-kfm-intake-order="12"]').waitFor();
       } else if (scenario === "recover") {
         assert.equal(await dialog.getByRole("button", { name: "Xác nhận", exact: true }).count(), 0);
         await dialog.getByRole("button", { name: "Tra cứu kết quả" }).click(); await page.locator("[data-production-setup]").waitFor(); assert.equal(decisions, 0);
@@ -81,7 +117,12 @@ try {
         if (scenario === "import-error") await page.evaluate(() => { window.failImport = true; });
         if (scenario === "confirmed") assert.equal(await dialog.getByRole("button", { name: "Từ chối", exact: true }).count(), 0);
         await dialog.getByRole("button", { name: scenario === "confirmed" ? "Tiếp tục nhập PO" : "Xác nhận", exact: true }).evaluate((button) => { button.click(); button.click(); });
-        if (scenario === "timeout") { await dialog.getByRole("button", { name: "Tra cứu kết quả" }).waitFor(); await dialog.getByRole("button", { name: "Tra cứu kết quả" }).click(); }
+        if(scenario==="slow-write") {
+          await dialog.locator("[data-kfm-intake-progress]").waitFor();
+          await page.keyboard.press("Escape"); assert.equal(await dialog.count(),1);
+          await page.screenshot({path:path.join(out,`${width}-write-progress.png`)});
+        }
+        if (["timeout","slow-write"].includes(scenario)) { await dialog.getByRole("button", { name: "Tra cứu kết quả" }).waitFor(); await dialog.getByRole("button", { name: "Tra cứu kết quả" }).click(); }
         if (scenario === "denied") { await dialog.getByRole("button", { name: "Tra cứu kết quả" }).click(); await dialog.getByRole("button", { name: "Xác nhận", exact: true }).waitFor(); assert.equal((await page.evaluate(() => window.imported || [])).length, 0); }
         else if (scenario === "changed") { await dialog.getByRole("alert").waitFor(); assert((await dialog.innerText()).includes("99")); assert.equal((await page.evaluate(() => window.imported || [])).length, 0); }
         else if (scenario === "import-error") {
@@ -89,9 +130,13 @@ try {
           await page.evaluate(() => { window.failImport = false; }); await dialog.getByRole("button", { name: "Tiếp tục thiết lập SX" }).click(); await page.locator("[data-production-setup]").waitFor();
         } else await page.locator("[data-production-setup]").waitFor();
         assert.equal(decisions, 1);
-        if (!["changed", "denied"].includes(scenario)) { await dialog.waitFor({ state: "hidden" }); assert.equal(await dialog.count(), 0); await page.getByRole("button", { name: "Đóng thiết lập SX" }).click(); await page.locator('[data-kfm-intake-order="12"]').waitFor(); }
+        if (!["changed", "denied"].includes(scenario)) { await dialog.waitFor({ state: "hidden" }); assert.equal(await dialog.count(), 0); await page.getByRole("button", { name: "Đóng thiết lập SX" }).click();
+          await page.waitForTimeout(250); assert.equal(await dialog.count(),0,"Setup close must not reopen review");
+          await page.getByRole("button",{name:"Kiểm tra PO"}).click(); await page.locator('[data-kfm-intake-order="12"]').waitFor(); }
       }
     }
+    }
+    assert.equal(await page.locator("[data-kfm-po-intake] > p").count(),0,"No inline status below button");
     await page.waitForTimeout(250); assert((await page.locator('[role="dialog"]:visible').count()) <= 1);
     const geometry = await page.evaluate(() => { const box = document.querySelector('[role="dialog"]'); const r = box?.getBoundingClientRect(); return { scroll: document.documentElement.scrollWidth, client: innerWidth, left: r?.left, right: r?.right, dialogScroll: box?.scrollWidth, dialogClient: box?.clientWidth }; });
     assert(geometry.scroll <= width + 1, JSON.stringify(geometry));

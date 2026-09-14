@@ -25,6 +25,17 @@ def forbid(source: str, marker: str, message: str) -> None:
     assert marker not in source, message
 
 
+def test_intake_is_manual_and_modal_only() -> None:
+    intake = (ROOT / "src/components/production/KfmPoIntake.tsx").read_text()
+    require(intake, 'data-kfm-po-intake="manual-popup-v2"', "pin approved manual popup")
+    for marker in ('setInterval(', 'addEventListener("focus"', 'addEventListener("visibilitychange"'):
+        forbid(intake, marker, "PO discovery must not run automatically")
+    for marker in ('Đang kiểm tra PO…', 'Không có PO mới cần duyệt', 'Chưa có kết quả kiểm tra', 'PO tiếp theo', 'Tra cứu kết quả', 'onCloseAutoFocus', 'scanGeneration', 'AbortSignal.timeout'):
+        require(intake, marker, "preserve modal outcome, cancellation and recovery states")
+    before_dialog = intake.split('{!paused && <Dialog')[0]
+    forbid(before_dialog, '{notice && <p', "do not put results under the toolbar")
+
+
 def test_portal_client_pins_the_verified_contract() -> None:
     require(CLIENT, "https://sso.seedcom.vn/uaa", "the SSO host must be the verified one")
     require(CLIENT, "https://logis.seedcom.vn/sce-api", "the portal API host must be logis, not partners")

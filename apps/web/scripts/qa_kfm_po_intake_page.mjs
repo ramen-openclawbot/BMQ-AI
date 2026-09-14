@@ -58,8 +58,11 @@ try {
       await route.fulfill({ json: value });
     });
     await page.goto(`${baseUrl}__qa?sidebar=${sidebar}${scenario === "readonly" ? "&readonly" : ""}`);
+    await page.locator("[data-kfm-po-intake]").waitFor();
+    await page.waitForTimeout(150); assert.equal(actions.length,0,"Q7 entry must not scan KFM");
     if (scenario === "accept") {
-      await page.getByRole("dialog").waitFor();
+      await page.getByRole("button",{name:"Kiểm tra PO",exact:true}).click();
+      await page.getByRole("dialog").getByRole("button",{name:"Xác nhận",exact:true}).waitFor();
       await page.waitForTimeout(250);
       assert.equal(await page.locator('[role="dialog"]:visible').count(), 1);
       assert.equal(await page.getByRole("dialog").evaluate((el) => getComputedStyle(el).opacity), "1");
@@ -80,6 +83,7 @@ try {
       const setup = page.getByRole("dialog"); assert.equal(await setup.locator("#start-date").inputValue(), "2026-09-19");
       assert((await setup.innerText()).includes("Đã xác nhận trên KFM"));
       await page.waitForTimeout(250); assert.equal(await page.locator('[role="dialog"]:visible').count(), 1);
+      assert(await setup.evaluate(el=>el.contains(document.activeElement)), "Keyboard focus must stay in production setup");
       await page.screenshot({ path: path.join(out, `${width}-${sidebar}-page-${scenario}-setup.png`) });
       await setup.getByRole("button", { name: "Xác nhận tạo lệnh SX" }).click(); await setup.waitFor({ state: "hidden" });
       const calls = await page.evaluate(() => window.rpcCalls); assert.equal(calls.length, 1); assert.equal(calls[0].name, "create_q7_production_from_po"); assert.equal(calls[0].args.p_items[0].original_qty, 110); assert.equal(calls[0].args.p_start_date, "2026-09-19");
