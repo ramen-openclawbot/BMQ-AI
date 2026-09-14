@@ -15,6 +15,7 @@ function moduleAt(file, env = {}) {
 }
 let requests = [], transport;
 const client = moduleAt('supabase/functions/_shared/kfm-portal.ts', { fetch: (...args) => { requests.push(args); return transport(...args); } });
+const fleet = {vehicles:[{id:1,plateNumber:'TEST',defaultDriverId:2}],drivers:[{id:2,name:'Driver',phone:'0123456789'}]};
 const date = client.vnDate(1);
 const source = { po: { id: 239751, code: 'PO1002646817', vendorId: 1865, vendorCode: 'V000217', companyId: 10, locationId: 1445, status: 2, subStatus: 6 }, items: [110,150].map((qty,i) => ({ id: i+1, productCode: 'P'+i, productName: 'Bread '+i, qty, unitName: 'CÁI', variantId: i+1 })), shippedMap: {} };
 const options = { deliveryType: null, vehicleTypes: [{ id: 1, name: 'Xe tải' }], vehicleTypeId: 1, slots: [], companyId: 10 };
@@ -25,7 +26,7 @@ let passed = 0;
 async function test(name, fn) { requests=[]; await fn(); passed++; console.log('ok', name); }
 const json = data => new Response(JSON.stringify({ data }), { status: 200 });
 
-function bridge({ permission = true, vendorIds = [1865], changed = false, outcome = 'success', inScope = true, childVendor = false, poStatus = 6, pendingChanged = false, poReadFails = false } = {}) {
+function bridge({ permission = true, vendorIds = [1865], changed = false, outcome = 'success', inScope = true, childVendor = false, poStatus = 6, pendingChanged = false, poReadFails = false, existingNotes = [], asnFailure = false, savedChanged = false } = {}) {
   const records = new Map(); let handler, postCount = 0, sourceReads=0;
   const admin = { auth: { getUser: async () => ({ data: { user: { id: 'fixture-user' } } }) }, from(table) {
     let operation='select', value, filters={};
@@ -48,12 +49,12 @@ function bridge({ permission = true, vendorIds = [1865], changed = false, outcom
       if(outcome==='missing')throw Error('simulated network failure');
       return json({loadId:44});
     }
-    if(url.includes('/orders/239751/asn'))return json([]);
+    if(url.includes('/orders/239751/asn'))return asnFailure ? new Response('{}',{status:503}) : json(existingNotes);
     if(url.includes('/inbound-loads/44'))return json(outcome==='mismatch'?{...load,asns:[]}:load);
     if(url.includes('/inbound-loads?'))return json({content:outcome==='missing'?[]:[{id:44}],totalElements:outcome==='missing'?0:1});
     throw Error('Unexpected transport '+url);
   };
-  const shared = { ...client, openSession: async()=>({token:'fixture-only',mode:'test'}),getMe:async()=>({vendorIds,vendorCode:'FIXTURE'}),getTripOptions:async()=>options,tripOrderInScope:async()=>inScope,getTripPendingChanges:async()=>pendingChanged?[{requestCategory:'QUALITY',itemStatus:'NEW'}]:[],
+  const shared = { ...client, openSession: async()=>({token:'fixture-only',mode:'test'}),getMe:async()=>({vendorIds,vendorCode:'FIXTURE'}),getTripOptions:async()=>options,getSavedTripFleet:async()=>savedChanged?{...fleet,drivers:[{...fleet.drivers[0],phone:'changed'}]}:fleet,tripOrderInScope:async()=>inScope,getTripPendingChanges:async()=>pendingChanged?[{requestCategory:'QUALITY',itemStatus:'NEW'}]:[],
     getTripSource:async()=>{sourceReads++;if(postCount && poReadFails)throw Error('PO read failed');if(postCount)return {...source,po:{...source.po,subStatus:poStatus}};return changed?{...source,shippedMap:{P0:5}}:childVendor?{...source,po:{...source.po,vendorId:2797,vendorCode:'V000217.1'}}:source;},
   };
   moduleAt('supabase/functions/kfm-portal-sync/index.ts', {
@@ -103,5 +104,39 @@ function bridge({ permission = true, vendorIds = [1865], changed = false, outcom
   await test('PO still pending never reports fully verified and never repeats write',async()=>{const b=bridge({poStatus:3});const r=await b.call(payload);assert.equal(r.result.state,'unknown');assert.equal(r.result.poConfirmation.confirmed,false);await b.call({...payload,action:'trip-result'});assert.equal(b.postCount,1);});
   await test('missing PO readback stays locked',async()=>{const b=bridge({poReadFails:true});assert.equal((await b.call(payload)).result.state,'unknown');await b.call(payload);assert.equal(b.postCount,1);});
   await test('PO confirmation uses portal subStatus not load or PO status',()=>{for(const subStatus of [5,6,9])assert(client.tripPoConfirmation({subStatus}).confirmed);for(const subStatus of [null,3,11,999])assert(!client.tripPoConfirmation({status:3,subStatus}).confirmed);});
+  await test('saved fleet GETs match portal and never write',async()=>{
+    transport=async(url,init)=>{assert.equal(init.method,'GET');return json(url.endsWith('/vehicles')?fleet.vehicles:fleet.drivers);};
+    const value=await client.getSavedTripFleet('fixture-only');assert.equal(value.vehicles[0].defaultDriverId,2);assert.equal(value.drivers[0].name,'Driver');assert.equal(requests.length,2);
+  });
+  await test('unknown fleet response fails closed',async()=>{
+    transport=async()=>json({unexpected:[]});await assert.rejects(()=>client.getSavedTripFleet('fixture-only'));
+  });
+  const savedForm={...form,savedVehicleId:1,savedDriverId:2,driverName:'Driver',driverPhone:'0123456789'};
+  const unified={...payload,unifiedPrint:true,revision:await client.tripRevision(source,date,fleet),form:savedForm};
+  await test('saved selection must match current portal, missing phone can be supplied',()=>{
+    client.validateSavedTripForm(fleet,savedForm);
+    for(const delta of [{savedVehicleId:99},{savedDriverId:99},{driverPhone:'forged'},{licensePlate:'forged'}])assert.throws(()=>client.validateSavedTripForm(fleet,{...savedForm,...delta}));
+    client.validateSavedTripForm({...fleet,drivers:[{...fleet.drivers[0],phone:''}]},savedForm);
+  });
+  await test('default driver changes invalidate the snapshot',async()=>assert.notEqual(await client.tripRevision(source,date,fleet),await client.tripRevision(source,date,{...fleet,vehicles:[{...fleet.vehicles[0],defaultDriverId:3}]})));
+  await test('unified print existing note returns before fleet or creation',async()=>{
+    const b=bridge({existingNotes:[{id:55,code:'ASN-TEST'}]});const r=await b.call({...unified,action:'trip-options'});assert.equal(r.existingNotes[0].asnId,55);assert.equal(b.postCount,0);assert.equal(b.sourceReads,0);
+  });
+  await test('read-only user can print existing but cannot create missing note',async()=>{
+    const b=bridge({permission:false,existingNotes:[{id:55,code:'ASN-TEST'}]});assert.equal((await b.call({...unified,action:'trip-options'})).existingNotes.length,1);assert.equal(b.postCount,0);
+    const c=bridge({permission:false});assert.equal((await c.call({...unified,action:'trip-options'})).status,403);assert.equal(c.postCount,0);
+  });
+  await test('ASN read failure cannot create duplicate',async()=>{
+    const b=bridge({asnFailure:true});assert.equal((await b.call(unified)).success,false);assert.equal(b.postCount,0);assert.equal(b.records.size,0);
+  });
+  await test('fleet changed after review cannot POST',async()=>{
+    const b=bridge({savedChanged:true});assert.equal((await b.call(unified)).success,false);assert.equal(b.postCount,0);
+  });
+  await test('concurrent unified printing creates once',async()=>{
+    const b=bridge();const r=await Promise.all([b.call(unified),b.call(unified)]);assert.equal(b.postCount,1);assert(r.some(v=>v.result?.state==='verified'));await b.call({...unified,action:'trip-options'});assert.equal(b.postCount,1);
+  });
+  await test('new portal note discovered at submit is reprinted not recreated',async()=>{
+    const b=bridge({existingNotes:[{id:55,code:'ASN-TEST'}]});const r=await b.call(unified);assert.equal(r.existingNotes.length,1);assert.equal(b.postCount,0);
+  });
   console.log(`PASS ${passed} behavioral tests; no real KFM request`);
 })().catch(e=>{console.error(e);process.exitCode=1;});

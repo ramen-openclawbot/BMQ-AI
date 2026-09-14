@@ -54,6 +54,8 @@ import {
   createDeliveryTrip,
   findCreatedTrip,
   getTripOptions,
+  getSavedTripFleet,
+  validateSavedTripForm,
   tripAsnIds,
   tripRevision,
   tripOrderInScope,
@@ -121,11 +123,11 @@ function toBase64(bytes: Uint8Array): string {
 }
 
 /**
- * The portal's print menu has exactly two layouts and `FULL` (prices shown) is
- * its default; anything unrecognised falls back to that default.
+ * The portal has two layouts; the BMQ print action defaults to hidden prices.
+ * Anything unrecognised falls back to hidden prices.
  */
 function printLayout(value: unknown): "FULL" | "NO_PRICE" {
-  return String(value) === "NO_PRICE" ? "NO_PRICE" : "FULL";
+  return String(value) === "FULL" ? "FULL" : "NO_PRICE";
 }
 
 /** The portal names the printed sheet after the note's code, not its row id. */
@@ -204,6 +206,7 @@ serve(async (req) => {
     revision?: string;
     requestId?: string;
     confirmed?: boolean;
+    unifiedPrint?: boolean;
     form?: import("../_shared/kfm-portal.ts").KfmTripForm;
   } = {};
   try {
@@ -232,7 +235,8 @@ serve(async (req) => {
     : vnDate(1); // KFM orders tomorrow's delivery today.
 
   const tripAction = ["trip-options", "create-load", "trip-result"].includes(action);
-  if (tripAction && !(await canCreateTrip(userId))) return json({ success: false, error: "forbidden", message: "Anh/chị chưa có quyền chỉnh sửa kế hoạch sản xuất để tạo phiếu." }, 403, req);
+  const mayCreate = tripAction ? await canCreateTrip(userId) : false;
+  if (tripAction && !mayCreate && !(action === "trip-options" && payload.unifiedPrint === true)) return json({ success: false, error: "forbidden", message: "Anh/chị chưa có quyền chỉnh sửa kế hoạch sản xuất để tạo phiếu." }, 403, req);
   if (tripAction && (!payload.deliveryDate || !ISO_DATE.test(payload.deliveryDate))) return json({ success: false, error: "bad_date", message: "Cần chọn ngày giao rõ ràng." }, 200, req);
 
   const username = Deno.env.get("KFM_PORTAL_USERNAME") || "";
@@ -301,23 +305,33 @@ serve(async (req) => {
         return json({ success: true, action, vendorId, result }, 200, req);
       }
       if (action === "trip-result") return json({ success: true, result: { state: "not_sent", message: "Chưa ghi nhận yêu cầu tạo trên máy chủ. Tải lại form để kiểm tra trước khi tạo." } }, 200, req);
+      // Printing an existing note is read-only, even if the PO has no eligible rows.
+      if (payload.unifiedPrint === true) {
+        if (!(await tripOrderInScope(cached.session.token, vendorId, orderId))) throw new KfmPortalError("trip", 0, "PO không thuộc nhà cung cấp đã chọn.");
+        const existingNotes = await listOrderAsns(cached.session.token, { vendorId, orderId, strict: true });
+        if (existingNotes.length) return json({ success: true, existingNotes }, 200, req);
+      }
+      if (!mayCreate) return json({ success: false, error: "forbidden", message: "Chưa có phiếu để in; anh/chị chưa có quyền tạo phiếu." }, 403, req);
       const source = await getTripSource(cached.session.token, { vendorId, orderId });
       if (Number(source.po.id) !== orderId || !(await tripOrderInScope(cached.session.token, vendorId, orderId))) throw new KfmPortalError("trip", 0, "PO không thuộc danh sách của nhà cung cấp đã chọn.");
       if (Number(source.po.status) === 6) throw new KfmPortalError("trip", 0, "PO đã hủy, không được tạo phiếu.");
       source.pendingChanges = await getTripPendingChanges(cached.session.token, orderId);
-      const revision = await tripRevision(source, deliveryDate);
       const { draft } = buildTripDraft({ deliveryDate, po: source.po, rows: source.items, shippedMap: source.shippedMap });
       if (!draft.stops[0].items.length) throw new KfmPortalError("trip", 0, "Tất cả sản phẩm đã được giao hoặc đã lên chuyến. Không tạo thêm.");
       const form = payload.form || {};
       const options = await getTripOptions(cached.session.token, vendorId, source, deliveryDate, Number(form.vehicleTypeId || payload.vehicleTypeId) || null);
-      if (action === "trip-options") return json({ success: true, action, vendorId, revision, options, draft, pendingChangeCategories: [...new Set(source.pendingChanges.map(row => String(row.requestCategory || "OTHER")))], source: { locationName: source.po.locationName, poCode: source.po.code } }, 200, req);
+      const fleet = payload.unifiedPrint === true ? await getSavedTripFleet(cached.session.token) : undefined;
+      const revision = await tripRevision(source, deliveryDate, fleet);
+      if (action === "trip-options") return json({ success: true, action, vendorId, revision, options, fleet, draft, pendingChangeCategories: [...new Set(source.pendingChanges.map(row => String(row.requestCategory || "OTHER")))], source: { locationName: source.po.locationName, poCode: source.po.code } }, 200, req);
       if (payload.confirmed !== true || !/^[0-9a-f-]{36}$/i.test(payload.requestId || "")) throw new KfmPortalError("trip", 0, "Cần xác nhận tạo phiếu từ form.");
       if (payload.revision !== revision) throw new KfmPortalError("trip_changed", 0, "PO hoặc số lượng đã phân bổ thay đổi. Tải lại form và kiểm tra trước khi tạo.");
+      if (fleet) validateSavedTripForm(fleet, form);
       let body = buildTripSubmission(source, deliveryDate, options, form);
       const baseline = await tripAsnIds(cached.session.token, vendorId, orderId);
       const fresh = await getTripSource(cached.session.token, { vendorId, orderId });
       fresh.pendingChanges = await getTripPendingChanges(cached.session.token, orderId);
-      if (await tripRevision(fresh, deliveryDate) !== revision) throw new KfmPortalError("trip_changed", 0, "PO thay đổi ngay trước lúc gửi. Tải lại form để kiểm tra.");
+      const freshFleet = fleet ? await getSavedTripFleet(cached.session.token) : undefined;
+      if (await tripRevision(fresh, deliveryDate, freshFleet) !== revision) throw new KfmPortalError("trip_changed", 0, "PO hoặc xe/tài xế thay đổi ngay trước lúc gửi. Tải lại để kiểm tra.");
       // Atomic DB unique key excludes concurrent browsers/users/Edge instances.
       // The claim is retained on every uncertain result, including booking errors.
       const row = { vendor_id: vendorId, order_id: orderId, actor_id: userId, request_id: payload.requestId, body, baseline_asn_ids: baseline };

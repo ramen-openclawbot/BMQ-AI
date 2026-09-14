@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Eye, Loader2, Printer, RefreshCw, Truck } from "lucide-react";
+import { Loader2, Printer, RefreshCw, Truck } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -49,16 +49,6 @@ type KfmOrder = {
   statusLabel?: string;
 };
 
-type KfmOrderDetail = {
-  portalId: number;
-  code: string | null;
-  purchaseOrderId: number | null;
-  asns: Array<{ asnId: number; asnCode: string | null }>;
-};
-
-/** The portal's print menu: `FULL` shows prices and is its own default. */
-type KfmPrintLayout = "FULL" | "NO_PRICE";
-
 type KfmTripItem = {
   poId: number;
   poCode: string;
@@ -72,19 +62,9 @@ type KfmTripItem = {
   cartons: number;
 };
 
-/** The read-only delivery-note body plus the numbers behind it. */
-type KfmTripDraft = {
-  code: string;
-  deliveryDate: string;
-  items: KfmTripItem[];
-  locationId: number | null;
-  locationName: string | null;
-  totalShipQty: number;
-  skippedCount: number;
-  text: string;
-};
-
 type TripForm = {
+  savedVehicleId?: number | null;
+  savedDriverId?: number | null;
   vehicleTypeId: number | null;
   bookingTimeSlot: string;
   expectedTimeFrom: string;
@@ -103,7 +83,9 @@ type TripOptions = {
   slots: Array<{ value: string; available: boolean }>;
 };
 type TripResult = { poConfirmation?: { confirmed: boolean; label: string; subStatus: number | null }; state: "verified" | "unknown" | "not_sent"; message: string; loadId?: number; loadCode?: string; asns?: Array<{ asnId: number; asnCode: string }> };
-type TripCreate = { order: KfmOrder; date: string; revision: string; options: TripOptions; form: TripForm; items: KfmTripItem[]; warehouse: string; pendingChangeCategories: string[]; result?: TripResult; error?: string };
+type SavedFleet = { vehicles: Array<{ id: number; plateNumber: string; defaultDriverId: number | null }>; drivers: Array<{ id: number; name: string; phone: string }> };
+type ExistingNote = { asnId: number; asnCode: string | null };
+type TripCreate = { fleet: SavedFleet; needed: string[]; existingNotes?: ExistingNote[]; order: KfmOrder; date: string; revision: string; options: TripOptions; form: TripForm; items: KfmTripItem[]; warehouse: string; pendingChangeCategories: string[]; result?: TripResult; error?: string };
 
 
 type KfmResponse = {
@@ -115,7 +97,8 @@ type KfmResponse = {
   vendorId?: number | null;
   count?: number;
   orders?: KfmOrder[];
-  order?: KfmOrderDetail;
+  existingNotes?: ExistingNote[];
+  fleet?: SavedFleet;
   draft?: unknown;
   source?: unknown;
   rawRows?: unknown;
@@ -236,83 +219,134 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
   // the waiting banner, the toast and the disabled state stay in one place.
   const [printing, setPrinting] = useState<string | null>(null);
 
-  // The original read-only preview stays separate from the operator create form.
-  const [draft, setDraft] = useState<KfmTripDraft | null>(null);
   const [creating, setCreating] = useState<TripCreate | null>(null);
   const createLock = useRef(false);
   const [createBusy, setCreateBusy] = useState(false);
 
-  const openCreate = async (order: KfmOrder, date = deliveryDate, form?: TripForm) => {
+  const pdfFor = async (result: TripResult | ExistingNote, viewer: Window | null, key: string) => {
+    const request = "asnId" in result
+      ? { action: "asn-pdf", asnId: result.asnId, code: result.asnCode }
+      : { action: "load-pdf", loadId: result.loadId, code: result.loadCode };
+    const pdf = await callPortal({ ...request, layout: "NO_PRICE" });
+    if (!pdf.base64) throw new Error("Cổng KFM chưa trả file in.");
+    savePdf(pdf.base64, pdf.filename || "PhieuGiaoHang.pdf", viewer);
+    finishPrint(key, "Đã mở phiếu giao hàng.");
+  };
+
+  // Only fill unambiguous saved selections; portal does NOT choose the first vehicle.
+  const fillSaved = (fleet: SavedFleet, options: TripOptions, previous?: TripForm): TripForm => {
+    const vehicle = fleet.vehicles.find(row => row.id === previous?.savedVehicleId)
+      || (fleet.vehicles.length === 1 ? fleet.vehicles[0] : undefined);
+    const driver = fleet.drivers.find(row => row.id === previous?.savedDriverId)
+      || fleet.drivers.find(row => row.id === vehicle?.defaultDriverId)
+      || (fleet.drivers.length === 1 ? fleet.drivers[0] : undefined);
+    const slots = options.slots.filter(row => row.available);
+    return { note: "", totalCartons: 0, totalPallets: 0, expectedTimeFrom: "", expectedTimeTo: "", ...previous,
+      vehicleTypeId: options.vehicleTypeId,
+      bookingTimeSlot: slots.some(row => row.value === previous?.bookingTimeSlot) ? previous!.bookingTimeSlot : slots.length === 1 ? slots[0].value : "",
+      savedVehicleId: vehicle?.id, savedDriverId: driver?.id,
+      licensePlate: vehicle?.plateNumber || (fleet.vehicles.length ? "" : previous?.licensePlate || ""),
+      driverName: driver?.name || (fleet.drivers.length && !driver ? "" : previous?.driverName || ""), driverPhone: driver?.phone || (fleet.drivers.length && !driver ? "" : previous?.driverPhone || "") };
+  };
+  const missingFields = (form: TripForm, options: TripOptions) => [
+    ...(options.vehicleTypes.length && !form.vehicleTypeId ? ["vehicleTypeId"] : []),
+    ...(!form.licensePlate.trim() ? ["licensePlate"] : []),
+    ...(!form.driverName.trim() || !form.driverPhone.trim() ? ["driver"] : []),
+    ...(options.deliveryType ? (!form.bookingTimeSlot ? ["bookingTimeSlot"] : [])
+      : (!form.expectedTimeFrom || !form.expectedTimeTo || form.expectedTimeFrom >= form.expectedTimeTo ? ["time"] : [])),
+  ];
+
+  const sendAndPrint = async (snapshot: TripCreate, viewer: Window | null, key: string) => {
+    // Persist uncertainty in the UI before sending; recovery is GET-only server-side.
+    setCreating({ ...snapshot, result: { state: "unknown", message: "Đang chuẩn bị phiếu. Không gửi lại yêu cầu." } });
+    try {
+      const response = await callPortal({ action: "create-load", unifiedPrint: true, orderId: snapshot.order.portalId, deliveryDate: snapshot.date, revision: snapshot.revision, form: snapshot.form, confirmed: true, requestId: crypto.randomUUID() });
+      if (response.existingNotes?.length) {
+        if (response.existingNotes.length === 1) { await pdfFor(response.existingNotes[0], viewer, key); setCreating(null); }
+        else { setCreating({ ...snapshot, existingNotes: response.existingNotes }); viewer?.close(); setPrinting(null); toast.dismiss(key); }
+        return;
+      }
+      if (!response.result) throw new Error("Chưa nhận được kết quả tạo phiếu.");
+      setCreating({ ...snapshot, result: response.result });
+      if (response.result.state === "verified") await pdfFor(response.result, viewer, key);
+      else { viewer?.close(); setPrinting(null); toast.dismiss(key); }
+      void query.refetch();
+    } catch (error) {
+      setCreating(current => ({ ...snapshot, result: current?.result?.state === "verified" ? current.result : { state: "unknown", message: `${(error as Error).message} Chọn ‘Kiểm tra kết quả’; không gửi lại.` } }));
+      failPrint(key, viewer, error);
+    }
+  };
+
+  const openCreate = async (order: KfmOrder, date = deliveryDate, previous?: TripForm, autoStart = true) => {
     if (createLock.current) return;
     createLock.current = true; setCreateBusy(true); setBusy(`create-${order.portalId}`);
-    const blank: TripForm = { vehicleTypeId: null, bookingTimeSlot: "", expectedTimeFrom: "", expectedTimeTo: "", licensePlate: "", driverName: "", driverPhone: "", note: "", totalCartons: 0, totalPallets: 0 };
-    const initial: TripCreate = { order, date, revision: "", options: { deliveryType: null, vehicleTypes: [], vehicleTypeId: null, slots: [] }, form: form || blank, items: [], pendingChangeCategories: [], warehouse: order.locationName || "" };
-    setDraft(null); setCreating(initial);
+    const key = `asn-${order.portalId}`;
+    const viewer = autoStart ? window.open("", "_blank") : null;
+    beginPrint(key, viewer, `phiếu giao hàng ${order.code}`);
+    const emptyOptions: TripOptions = { deliveryType: null, vehicleTypes: [], vehicleTypeId: null, slots: [] };
+    const emptyFleet: SavedFleet = { vehicles: [], drivers: [] };
+    const initial: TripCreate = { order, date, revision: "", options: emptyOptions, fleet: emptyFleet, needed: [], form: fillSaved(emptyFleet, emptyOptions, previous), items: [], pendingChangeCategories: [], warehouse: order.locationName || "" };
+    setCreating(null);
     try {
-      const result = await callPortal({ action: "trip-options", orderId: order.portalId, deliveryDate: date, form: form || blank });
-      if (result.result) { setCreating({ ...initial, result: result.result }); return; }
-      if (!result.options || !result.revision) throw new Error("Máy chủ chưa trả đủ thông tin tạo phiếu.");
-      const items = (result.draft as { stops?: Array<{ items: KfmTripItem[] }> })?.stops?.[0]?.items || [];
-      setCreating({ ...initial, revision: result.revision, options: result.options, items, pendingChangeCategories: result.pendingChangeCategories || [],
-        warehouse: String((result.source as { locationName?: string })?.locationName || initial.warehouse),
-        form: { ...(form || blank), vehicleTypeId: result.options.vehicleTypeId, bookingTimeSlot: "" } });
-    } catch (error) { setCreating({ ...initial, error: (error as Error).message }); }
+      const response = await callPortal({ action: "trip-options", unifiedPrint: true, orderId: order.portalId, deliveryDate: date, form: previous });
+      if (response.result) {
+        setCreating({ ...initial, result: response.result });
+        if (response.result.state === "verified" && autoStart) await pdfFor(response.result, viewer, key);
+        else { viewer?.close(); setPrinting(null); toast.dismiss(key); }
+        return;
+      }
+      if (response.existingNotes?.length) {
+        if (response.existingNotes.length === 1 && autoStart) await pdfFor(response.existingNotes[0], viewer, key);
+        else { setCreating({ ...initial, existingNotes: response.existingNotes }); viewer?.close(); setPrinting(null); toast.dismiss(key); }
+        return;
+      }
+      if (!response.options || !response.revision || !response.fleet) throw new Error("Chưa đọc được đầy đủ cấu hình xe/tài xế trên portal. Chưa tạo phiếu.");
+      const form = fillSaved(response.fleet, response.options, previous);
+      const snapshot: TripCreate = { ...initial, form, fleet: response.fleet, options: response.options, revision: response.revision,
+        needed: missingFields(form, response.options), pendingChangeCategories: response.pendingChangeCategories || [],
+        items: (response.draft as { stops?: Array<{ items: KfmTripItem[] }> })?.stops?.[0]?.items || [] };
+      if (!snapshot.items.length) throw new Error("Không còn sản phẩm đủ điều kiện. Chưa tạo thêm phiếu.");
+      if (autoStart && !snapshot.needed.length && !snapshot.pendingChangeCategories.length) await sendAndPrint(snapshot, viewer, key);
+      else { setCreating(snapshot); viewer?.close(); setPrinting(null); toast.dismiss(key); }
+    } catch (error) { setCreating(current => current?.result ? current : { ...initial, error: (error as Error).message }); failPrint(key, viewer, error); }
     finally { createLock.current = false; setCreateBusy(false); setBusy(null); }
   };
 
   const submitCreate = async () => {
-    if (!creating || createLock.current || !creating.revision || creating.result || !creating.items.length) return;
-    if (!window.confirm(`Tạo phiếu giao hàng thật cho ${creating.order.code}, ngày ${creating.date}, ${creating.items.length} dòng tại ${creating.warehouse}?\n\n${AUTO_CONFIRM_NOTICE}${creating.pendingChangeCategories.length ? `\nYêu cầu chỉnh sửa sẽ tự động hủy: ${creating.pendingChangeCategories.map(changeLabel).join(", ")}.` : ""}`)) return;
+    if (!creating || createLock.current || creating.result || !creating.revision || missingFields(creating.form, creating.options).length) return;
     createLock.current = true; setCreateBusy(true); setBusy(`create-${creating.order.portalId}`);
-    const snapshot = creating;
-    // Once a POST is attempted the form cannot send it again, even on HTTP failure.
-    setCreating({ ...snapshot, result: { state: "unknown", message: "Đang gửi và đọc lại chuyến/ASN. Không gửi lại yêu cầu." } });
-    try {
-      const response = await callPortal({ action: "create-load", orderId: snapshot.order.portalId, deliveryDate: snapshot.date, revision: snapshot.revision, form: snapshot.form, confirmed: true, requestId: crypto.randomUUID() });
-      if (!response.result) throw new Error("Chưa nhận được kết quả tạo phiếu.");
-      setCreating({ ...snapshot, result: response.result });
-      void query.refetch();
-    } catch (error) { setCreating({ ...snapshot, result: { state: "unknown", message: `${(error as Error).message} Chọn ‘Kiểm tra kết quả’ trước khi làm tiếp.` } }); }
+    const key = `asn-${creating.order.portalId}`;
+    const viewer = window.open("", "_blank");
+    beginPrint(key, viewer, `phiếu giao hàng ${creating.order.code}`);
+    try { await sendAndPrint(creating, viewer, key); }
     finally { createLock.current = false; setCreateBusy(false); setBusy(null); }
   };
 
   const checkCreate = async () => {
     if (!creating || createLock.current) return;
-    createLock.current = true; setCreateBusy(true); setBusy(`create-${creating.order.portalId}`);
-    try {
-      const result = await callPortal({ action: "trip-result", orderId: creating.order.portalId, deliveryDate: creating.date });
-      setCreating({ ...creating, result: result.result });
-    } catch (error) { setCreating({ ...creating, result: { state: "unknown", message: (error as Error).message } }); }
-    finally { createLock.current = false; setCreateBusy(false); setBusy(null); }
-  };
-
-  const printCreated = (layout: KfmPrintLayout) => {
-    const result = creating?.result;
-    if (!result?.loadId || result.state !== "verified" || printing) return;
+    createLock.current = true; setCreateBusy(true);
+    const key = `asn-${creating.order.portalId}`;
     const viewer = window.open("", "_blank");
-    const key = `load-${result.loadId}`;
-    const what = `phiếu giao hàng ${result.loadCode || result.loadId}`;
-    beginPrint(key, viewer, what);
-    void (async () => {
-      try {
-        const pdf = await callPortal({ action: "load-pdf", loadId: result.loadId, code: result.loadCode, layout });
-        if (!pdf.base64) throw new Error("Cổng KFM chưa trả file in.");
-        savePdf(pdf.base64, pdf.filename || `PhieuGiaoHang_${result.loadCode || result.loadId}.pdf`, viewer);
-        finishPrint(key, "Đã mở phiếu giao hàng từ cổng KFM.");
-      } catch (error) { failPrint(key, viewer, error); }
-    })();
+    beginPrint(key, viewer, `phiếu giao hàng ${creating.order.code}`);
+    try {
+      const response = await callPortal({ action: "trip-result", orderId: creating.order.portalId, deliveryDate: creating.date });
+      if (!response.result) throw new Error("Chưa đọc được kết quả.");
+      setCreating({ ...creating, result: response.result });
+      if (response.result.state === "verified") await pdfFor(response.result, viewer, key);
+      else { viewer?.close(); setPrinting(null); toast.dismiss(key); }
+    } catch (error) { failPrint(key, viewer, error); }
+    finally { createLock.current = false; setCreateBusy(false); }
   };
 
-  const runAction = async (key: string, work: () => Promise<string>) => {
-    setBusy(key);
-    try {
-      const message = await work();
-      toast.success(message);
-    } catch (error) {
-      toast.error((error as Error)?.message || "Cổng KFM báo lỗi.");
-    } finally {
-      setBusy(null);
-    }
+  const printExisting = async (note: ExistingNote | TripResult) => {
+    if (createLock.current) return;
+    createLock.current = true;
+    const key = "existing-note";
+    const viewer = window.open("", "_blank");
+    beginPrint(key, viewer, "phiếu giao hàng");
+    try { await pdfFor(note, viewer, key); }
+    catch (error) { failPrint(key, viewer, error); }
+    finally { createLock.current = false; }
   };
 
   /**
@@ -340,117 +374,6 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
     toast.error((error as Error)?.message || "Cổng KFM báo lỗi.", { id: key, duration: 6000 });
   };
 
-  const handlePrintPo = (order: KfmOrder) => {
-    // Open the tab while the click is still a user gesture: a window opened
-    // after the awaits below is treated as a popup and blocked.
-    const viewer = typeof window !== "undefined" ? window.open("", "_blank") : null;
-    const key = `po-${order.portalId}`;
-    beginPrint(key, viewer, `PO ${order.code}`);
-    void (async () => {
-      try {
-        const detail = await callPortal({ action: "detail", deliveryDate, orderId: order.portalId });
-        // The portal prints a PO by order id: its own "print PO" action calls
-        // GET /api/v1/purchase-orders/{orderId}/export-pdf. Only fall back to a
-        // dedicated PO id when the detail payload actually carries one.
-        const poId = detail.order?.purchaseOrderId ?? order.portalId;
-        if (!poId) throw new Error(isVi ? "Đơn này chưa có PO để in." : "This order has no PO to print.");
-        const pdf = await callPortal({ action: "po-pdf", poId });
-        savePdf(pdf.base64 || "", pdf.filename || `PO-${order.code}.pdf`, viewer);
-        finishPrint(key, isVi ? `Đã mở PO ${order.code}.` : `PO ${order.code} opened.`);
-      } catch (error) {
-        failPrint(key, viewer, error);
-      }
-    })();
-  };
-
-  /**
-   * Print the order's delivery note. The note belongs to the order's ASN, so
-   * its id comes from the order detail, and the sheet is the portal's own
-   * export because that is the copy the warehouse counter expects.
-   */
-  const handlePrintAsn = (order: KfmOrder, layout: KfmPrintLayout) => {
-    const viewer = typeof window !== "undefined" ? window.open("", "_blank") : null;
-    const key = `asn-${order.portalId}-${layout}`;
-    beginPrint(
-      key,
-      viewer,
-      isVi ? `phiếu giao hàng ${order.code}` : `delivery note ${order.code}`,
-    );
-    void (async () => {
-      try {
-        const detail = await callPortal({ action: "detail", deliveryDate, orderId: order.portalId });
-        const asn = detail.order?.asns?.[0];
-        if (!asn) {
-          throw new Error(isVi ? "Đơn này chưa có phiếu giao hàng." : "This order has no delivery note yet.");
-        }
-        const pdf = await callPortal({
-          action: "asn-pdf",
-          asnId: asn.asnId,
-          poId: detail.order?.purchaseOrderId ?? undefined,
-          code: asn.asnCode ?? undefined,
-          layout,
-        });
-        savePdf(
-          pdf.base64 || "",
-          pdf.filename || `PhieuGiaoHang_${asn.asnCode || asn.asnId}.pdf`,
-          viewer,
-        );
-        finishPrint(
-          key,
-          isVi
-            ? `Đã mở phiếu giao hàng ${asn.asnCode || asn.asnId}.`
-            : `Delivery note ${asn.asnCode || asn.asnId} opened.`,
-        );
-      } catch (error) {
-        failPrint(key, viewer, error);
-      }
-    })();
-  };
-
-  /**
-   * Read-only draft of the trip body behind one order's delivery note. The
-   * portal raises the note through its trip form, so this shows the exact
-   * payload before any create action is switched on — the operator compares it
-   * with the portal's own screen. It never posts.
-   */
-  const handlePreviewLoad = (order: KfmOrder) => {
-    void runAction(`preview-${order.portalId}`, async () => {
-      const result = await callPortal({
-        action: "trip-draft",
-        deliveryDate,
-        orderId: order.portalId,
-      });
-      const stop = (result.draft as { stops?: Array<{ items?: KfmTripItem[]; locationId?: number | null }> })
-        ?.stops?.[0];
-      const items = stop?.items ?? [];
-      setDraft({
-        code: order.code,
-        deliveryDate: String(result.deliveryDate ?? deliveryDate),
-        items,
-        locationId: stop?.locationId ?? null,
-        locationName: (result.source as { locationName?: string | null } | undefined)?.locationName ?? null,
-        totalShipQty: items.reduce((sum, item) => sum + (item.shipQty || 0), 0),
-        skippedCount: Number((result.source as { skippedCount?: number } | undefined)?.skippedCount ?? 0),
-        text: JSON.stringify({ draft: result.draft, source: result.source, rawRows: result.rawRows, shippedMap: result.shippedMap }, null, 2),
-      });
-      if (items.length === 0) {
-        return isVi
-          ? "Không có dòng đủ điều kiện tạo chuyến mới."
-          : "No eligible lines for a new trip.";
-      }
-      return isVi
-        ? `Đã ráp thử phiếu giao hàng ${order.code}.`
-        : `Delivery note draft for ${order.code} is ready.`;
-    });
-  };
-
-  /**
-   * One action cluster per order, shared by the phone card and the wide table.
-   * The row used to carry a second truck button for the delivery note, and the
-   * two trucks on one row were what read as a duplicate. Both sheets now come
-   * from the printer menu, which is portalled, so the scrolling table cannot
-   * clip it.
-   */
   const renderOrderActions = (order: KfmOrder) => (
     <div className="flex items-center justify-end gap-1">
       <DropdownMenu>
@@ -469,25 +392,9 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
-          <DropdownMenuItem data-kfm-action="print-po" onSelect={() => handlePrintPo(order)}>
-            <Printer className="mr-2 h-4 w-4" />
-            {isVi ? "In PO" : "Print PO"}
-          </DropdownMenuItem>
-          <DropdownMenuItem data-kfm-action="print-asn" onSelect={() => handlePrintAsn(order, "FULL")}>
+          <DropdownMenuItem data-kfm-action="print-asn" onSelect={() => void openCreate(order)}>
             <Truck className="mr-2 h-4 w-4" />
-            {isVi ? "In phiếu giao hàng (có giá)" : "Print delivery note (with prices)"}
-          </DropdownMenuItem>
-          <DropdownMenuItem data-kfm-action="print-asn-no-price" onSelect={() => handlePrintAsn(order, "NO_PRICE")}>
-            <Truck className="mr-2 h-4 w-4" />
-            {isVi ? "In phiếu giao hàng (không giá)" : "Print delivery note (price-free)"}
-          </DropdownMenuItem>
-          <DropdownMenuItem data-kfm-action="preview-load" onSelect={() => handlePreviewLoad(order)}>
-            <Eye className="mr-2 h-4 w-4" />
-            {isVi ? "Xem trước phiếu giao hàng" : "Preview delivery note"}
-          </DropdownMenuItem>
-          <DropdownMenuItem data-kfm-action="create-load" onSelect={() => void openCreate(order)}>
-            <Truck className="mr-2 h-4 w-4" />
-            {isVi ? "Tạo phiếu giao hàng" : "Create delivery note"}
+            {isVi ? "In phiếu giao hàng" : "Print delivery note"}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -511,6 +418,7 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
         <DialogContent
           className="max-h-[90dvh] max-w-3xl overflow-y-auto"
           data-kfm-mobile="v1"
+          data-kfm-unified-print="v1"
         >
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -519,8 +427,8 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
             </DialogTitle>
             <DialogDescription>
               {isVi
-                ? "Đọc trực tiếp từ cổng đối tác — chỉ sản phẩm và số lượng. Xác nhận và in là thao tác tay từng đơn."
-                : "Read directly from the partner portal — products and quantities only. Confirm and print are manual, one order at a time."}
+                ? "In phiếu đã có; nếu chưa có, thao tác in sẽ tạo phiếu và tự xác nhận PO bằng thông tin xe/tài xế đã lưu trên portal."
+                : "Print an existing note, or create it and confirm the PO using saved portal vehicle/driver details."}
             </DialogDescription>
           </DialogHeader>
 
@@ -578,167 +486,60 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
             )}
 
             {creating && (
-              <section className="min-w-0 rounded-xl border border-border p-3 space-y-3" data-kfm-create="v1">
-                <div className="flex items-start justify-between gap-2">
-                  <h3 className="min-w-0 break-all text-sm font-semibold">Tạo phiếu giao hàng · {creating.order.code}</h3>
-                  <Button variant="ghost" size="sm" disabled={createBusy} onClick={() => setCreating(null)}>Đóng</Button>
+              <section className="min-w-0 space-y-3 rounded-xl border p-3" data-kfm-create="v2">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="min-w-0 break-all text-sm font-semibold">In phiếu giao hàng · {creating.order.code}</h3>
+                  <Button size="sm" variant="ghost" disabled={createBusy || printing !== null} onClick={() => setCreating(null)}>Đóng</Button>
                 </div>
-                <p className="text-xs text-muted-foreground">Một PO / một chuyến · {creating.warehouse} · {creating.date}</p>
-                {createBusy && <p className="flex gap-2 text-sm" role="status"><Loader2 className="h-4 w-4 animate-spin" />Đang kiểm tra cổng KFM…</p>}
                 {creating.error && <p role="alert" className="text-sm text-destructive">{creating.error}</p>}
-                {creating.result ? (
+                {creating.existingNotes ? <div className="flex flex-wrap gap-2">
+                  <p className="w-full text-sm">Chọn phiếu đã có để in:</p>
+                  {creating.existingNotes.map(note => <Button key={note.asnId} disabled={printing !== null} onClick={() => void printExisting(note)}>{note.asnCode || note.asnId}</Button>)}
+                </div> : creating.result ? (
                   <div className="space-y-2 text-sm" data-kfm-create-result={creating.result.state} role="status">
                     <p>{creating.result.message}</p>
                     {creating.result.poConfirmation && <p data-kfm-po-readback="v1">PO: {creating.result.poConfirmation.label}</p>}
-                    {creating.result.state === "verified" ? <>
-                      <p className="break-all font-medium">{creating.result.loadCode} · {creating.result.asns?.map(asn => asn.asnCode).join(", ")}</p>
-                      <div className="flex flex-wrap gap-2">
-                        <Button size="sm" disabled={printing !== null} onClick={() => printCreated("FULL")}>In phiếu (có giá)</Button>
-                        <Button size="sm" variant="outline" disabled={printing !== null} onClick={() => printCreated("NO_PRICE")}>In phiếu (không giá)</Button>
-                      </div>
-                    </> : creating.result.state === "not_sent" ? (
-                      <Button size="sm" variant="outline" disabled={createBusy} onClick={() => void openCreate(creating.order, creating.date, creating.form)}>Tải lại và xem trước</Button>
-                    ) : (
-                      <Button size="sm" variant="outline" data-kfm-action="check-create" disabled={createBusy} onClick={() => void checkCreate()}>Kiểm tra kết quả</Button>
-                    )}
+                    {creating.result.state === "verified" ? <Button disabled={printing !== null || createBusy} onClick={() => void printExisting(creating.result!)}>In phiếu giao hàng</Button>
+                      : creating.result.state === "not_sent" ? <Button disabled={createBusy} onClick={() => void openCreate(creating.order, creating.date, creating.form, false)}>Kiểm tra lại thông tin</Button>
+                      : <Button data-kfm-action="check-create" disabled={createBusy} onClick={() => void checkCreate()}>Kiểm tra kết quả</Button>}
                   </div>
-                ) : creating.revision && (
-                  <>
-                    <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-950" data-kfm-auto-confirm="v1">
-                      <p>{AUTO_CONFIRM_NOTICE}</p>
-                      {creating.pendingChangeCategories.length > 0 && <p className="mt-2 font-medium" data-kfm-pending-changes="v1">Các yêu cầu chỉnh sửa đang chờ sẽ tự động hủy: {creating.pendingChangeCategories.map(changeLabel).join(", ")}.</p>}
-                    </div>
-                    <fieldset disabled={createBusy} className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
-                      <label className="min-w-0 text-xs">Ngày giao
-                        <input className="mt-1 block w-full min-w-0 rounded-md border bg-background p-2 text-sm" type="date" value={creating.date} onChange={e => void openCreate(creating.order, e.target.value, creating.form)} />
-                      </label>
-                      <label className="min-w-0 text-xs">Loại xe{creating.options.vehicleTypes.length ? " *" : ""}
-                        <select className="mt-1 block w-full min-w-0 rounded-md border bg-background p-2 text-sm" data-kfm-field="vehicle" value={creating.form.vehicleTypeId || ""} onChange={e => void openCreate(creating.order, creating.date, { ...creating.form, vehicleTypeId: Number(e.target.value) || null })}>
-                          <option value="">Chọn loại xe</option>
-                          {creating.options.vehicleTypes.map(row => <option key={row.id} value={row.id}>{row.name}</option>)}
-                        </select>
-                      </label>
-                      {creating.options.deliveryType ? (
-                        <label className="min-w-0 text-xs sm:col-span-2">Khung giờ giao * · {creating.options.deliveryType === "BOOKING" ? "Đặt lịch kho" : creating.options.deliveryType === "HUB" ? "Giao qua HUB" : "Theo lịch cố định"}
-                          <select className="mt-1 block w-full min-w-0 rounded-md border bg-background p-2 text-sm" value={creating.form.bookingTimeSlot} onChange={e => setCreating({ ...creating, form: { ...creating.form, bookingTimeSlot: e.target.value } })}>
-                            <option value="">Chọn khung giờ</option>
-                            {creating.options.slots.map((slot, index) => <option key={`${slot.value}-${index}`} value={slot.value} disabled={!slot.available}>{slot.value}{slot.available ? "" : " · Hết chỗ/đã qua"}</option>)}
-                          </select>
-                        </label>
-                      ) : ([['expectedTimeFrom', 'Giờ giao từ *'], ['expectedTimeTo', 'Giờ giao đến *']] as const).map(([key, label]) => (
-                        <label key={key} className="min-w-0 text-xs">{label}<input type="time" className="mt-1 block w-full min-w-0 rounded-md border bg-background p-2 text-sm" value={creating.form[key]} onChange={e => setCreating({ ...creating, form: { ...creating.form, [key]: e.target.value } })} /></label>
-                      ))}
-                      {([['licensePlate', 'Biển số xe', 40], ['driverName', 'Tên tài xế', 120], ['driverPhone', 'Số điện thoại tài xế', 30], ['note', 'Ghi chú', 1000]] as const).map(([key, label, max]) => (
-                        <label key={key} className="min-w-0 text-xs">{label}<input maxLength={max} className="mt-1 block w-full min-w-0 rounded-md border bg-background p-2 text-sm" value={creating.form[key]} onChange={e => setCreating({ ...creating, form: { ...creating.form, [key]: e.target.value } })} /></label>
-                      ))}
-                      {([['totalCartons', 'Tổng số thùng'], ['totalPallets', 'Tổng số pallet']] as const).map(([key, label]) => (
-                        <label key={key} className="min-w-0 text-xs">{label}<input type="number" min="0" step="1" className="mt-1 block w-full min-w-0 rounded-md border bg-background p-2 text-sm" value={creating.form[key]} onChange={e => setCreating({ ...creating, form: { ...creating.form, [key]: Number(e.target.value) } })} /></label>
-                      ))}
-                    </fieldset>
-                    <div className="max-h-64 overflow-auto rounded-lg border">
-                      <table className="w-full text-left text-xs" data-kfm-create-items="v1">
-                        <thead className="sticky top-0 bg-muted"><tr><th className="p-2">Sản phẩm</th><th className="p-2">ĐVT</th><th className="p-2 text-right">SL giao</th></tr></thead>
-                        <tbody>{creating.items.map(item => <tr key={item.poItemId} className="border-t"><td className="p-2">{item.productName}<span className="block text-muted-foreground">{item.productCode}</span></td><td className="p-2">{item.unitName}</td><td className="p-2 text-right">{qty(item.shipQty)}</td></tr>)}</tbody>
-                      </table>
-                    </div>
-                    <p className="text-xs text-muted-foreground">Kiểm tra thông tin trước khi xác nhận. Máy chủ sẽ đọc lại PO và số lượng đã phân bổ. Thao tác này tạo chuyến và phiếu thật trên KFM.</p>
-                    <Button data-kfm-action="submit-create" disabled={createBusy || !creating.items.length || Boolean(creating.options.vehicleTypes.length && !creating.form.vehicleTypeId) || (creating.options.deliveryType ? !creating.form.bookingTimeSlot : !creating.form.expectedTimeFrom || !creating.form.expectedTimeTo)} onClick={() => void submitCreate()}>Xác nhận & Tạo phiếu</Button>
-                  </>
-                )}
+                ) : creating.revision && <>
+                  <p className="text-sm" data-kfm-auto-confirm="v1">{AUTO_CONFIRM_NOTICE}</p>
+                  {creating.pendingChangeCategories.length > 0 && <p className="text-sm" data-kfm-pending-changes="v1">Yêu cầu chỉnh sửa sẽ tự động hủy: {creating.pendingChangeCategories.map(changeLabel).join(", ")}.</p>}
+                  <p className="text-xs text-muted-foreground">{creating.warehouse} · {creating.date}<br />{[creating.form.licensePlate, creating.form.driverName, creating.form.driverPhone].filter(Boolean).join(" · ")}</p>
+                  <fieldset disabled={createBusy} className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
+                    {creating.needed.includes("vehicleTypeId") && <label className="text-xs">Loại xe
+                      <select data-kfm-field="vehicle" className="mt-1 block w-full min-w-0 rounded-md border bg-background p-2" value={creating.form.vehicleTypeId || ""} onChange={e => void openCreate(creating.order, creating.date, { ...creating.form, vehicleTypeId: Number(e.target.value) || null }, false)}>
+                        <option value="">Chọn loại xe</option>{creating.options.vehicleTypes.map(row => <option key={row.id} value={row.id}>{row.name}</option>)}
+                      </select>
+                    </label>}
+                    {creating.needed.includes("licensePlate") && <label className="text-xs">Xe đã lưu
+                      {creating.fleet.vehicles.length ? <select data-kfm-field="saved-vehicle" className="mt-1 block w-full min-w-0 rounded-md border bg-background p-2" value={creating.form.savedVehicleId || ""} onChange={e => {
+                        const form = fillSaved(creating.fleet, creating.options, { ...creating.form, savedVehicleId: Number(e.target.value) || null, savedDriverId: null, driverName: "", driverPhone: "" });
+                        setCreating({ ...creating, form });
+                      }}><option value="">Chọn xe</option>{creating.fleet.vehicles.map(row => <option key={row.id} value={row.id}>{row.plateNumber}</option>)}</select>
+                      : <input data-kfm-field="plate" maxLength={40} className="mt-1 block w-full min-w-0 rounded-md border bg-background p-2" value={creating.form.licensePlate} onChange={e => setCreating({ ...creating, form: { ...creating.form, licensePlate: e.target.value } })} />}
+                    </label>}
+                    {creating.needed.includes("driver") && <label className="text-xs">Tài xế
+                      {creating.fleet.drivers.length ? <select data-kfm-field="saved-driver" className="mt-1 block w-full min-w-0 rounded-md border bg-background p-2" value={creating.form.savedDriverId || ""} onChange={e => {
+                        const driver = creating.fleet.drivers.find(row => row.id === Number(e.target.value));
+                        setCreating({ ...creating, form: { ...creating.form, savedDriverId: driver?.id, driverName: driver?.name || "", driverPhone: driver?.phone || "" } });
+                      }}><option value="">Chọn tài xế</option>{creating.fleet.drivers.map(row => <option key={row.id} value={row.id}>{row.name} · {row.phone}</option>)}</select>
+                      : <div className="space-y-2">{([['driverName','Tên tài xế'],['driverPhone','Số điện thoại']] as const).map(([key,label]) => <input key={key} aria-label={label} placeholder={label} maxLength={key === 'driverName' ? 120 : 30} className="mt-1 block w-full min-w-0 rounded-md border bg-background p-2" value={creating.form[key]} onChange={e => setCreating({ ...creating, form: { ...creating.form, [key]: e.target.value } })} />)}</div>}
+                    </label>}
+                    {creating.needed.includes("driver") && creating.form.savedDriverId && ([['driverName','Tên tài xế','name'],['driverPhone','Số điện thoại','phone']] as const).map(([key,label,sourceKey]) => !creating.fleet.drivers.find(row => row.id === creating.form.savedDriverId)?.[sourceKey] && <label key={key} className="text-xs">{label}<input aria-label={label} maxLength={key === 'driverName' ? 120 : 30} className="mt-1 block w-full min-w-0 rounded-md border bg-background p-2" value={creating.form[key]} onChange={e => setCreating({ ...creating, form: { ...creating.form, [key]: e.target.value } })} /></label>)}
+                    {creating.needed.includes("bookingTimeSlot") && <label className="text-xs">Khung giờ giao
+                      <select data-kfm-field="slot" className="mt-1 block w-full min-w-0 rounded-md border bg-background p-2" value={creating.form.bookingTimeSlot} onChange={e => setCreating({ ...creating, form: { ...creating.form, bookingTimeSlot: e.target.value } })}>
+                        <option value="">Chọn khung giờ</option>{creating.options.slots.map((slot,i) => <option key={i} value={slot.value} disabled={!slot.available}>{slot.value}</option>)}
+                      </select>
+                    </label>}
+                    {creating.needed.includes("time") && ([['expectedTimeFrom','Giờ giao từ'],['expectedTimeTo','Giờ giao đến']] as const).map(([key,label]) => <label key={key} className="text-xs">{label}<input type="time" className="mt-1 block w-full min-w-0 rounded-md border bg-background p-2" value={creating.form[key]} onChange={e => setCreating({ ...creating, form: { ...creating.form, [key]: e.target.value } })} /></label>)}
+                  </fieldset>
+                  <Button data-kfm-action="submit-create" disabled={createBusy || missingFields(creating.form, creating.options).length > 0} onClick={() => void submitCreate()}>In phiếu giao hàng</Button>
+                </>}
               </section>
             )}
-
-            {/* Stage 1 of the create-delivery-note work: the assembled body, for
-                review only. Nothing here reaches the partner portal. */}
-            {draft && (
-              <div className="min-w-0 rounded-xl border border-border p-3" data-kfm-load-preview="v1">
-                <div className="flex min-w-0 items-center justify-between gap-2">
-                  <span className="min-w-0 break-all text-sm font-medium">
-                    {isVi ? `Xem trước phiếu giao hàng ${draft.code}` : `Delivery note draft ${draft.code}`}
-                  </span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 rounded-lg"
-                    onClick={() => setDraft(null)}
-                  >
-                    {isVi ? "Đóng" : "Close"}
-                  </Button>
-                </div>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {isVi
-                    ? "Chỉ xem các dòng đủ điều kiện tạo chuyến mới, không phải phiếu đã tạo. Chưa gửi gì lên cổng KFM."
-                    : "Eligible lines for a new trip only, not an existing delivery note. Nothing has been sent to KFM."}
-                </p>
-                <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                  <span className="rounded-md bg-muted px-2 py-1">
-                    {isVi ? "Ngày giao" : "Delivery date"}: {draft.deliveryDate}
-                  </span>
-                  <span className="rounded-md bg-muted px-2 py-1">
-                    {isVi ? "Kho nhận" : "Warehouse"}: {draft.locationName || draft.locationId || "—"}
-                  </span>
-                  <span className="rounded-md bg-muted px-2 py-1">
-                    {isVi ? "Số dòng" : "Lines"}: {draft.items.length} · {isVi ? "Tổng SL" : "Qty"}:{" "}
-                    {draft.totalShipQty.toLocaleString("vi-VN")}
-                  </span>
-                </div>
-                {draft.items.length === 0 ? (
-                  <p className="mt-2 text-sm" data-kfm-load-empty="v1">
-                    {isVi
-                      ? "Không có dòng đủ điều kiện tạo chuyến mới. Để xem phiếu đã tạo, chọn ‘In phiếu giao hàng’ trong menu in của đơn."
-                      : "No eligible lines for a new trip. To view an existing note, choose ‘Print delivery note’ in the order’s print menu."}
-                  </p>
-                ) : (
-                <div className="mt-2 max-h-72 overflow-auto rounded-lg border border-border">
-                  <table className="w-full text-left text-xs" data-kfm-load-items="v1">
-                    <thead className="sticky top-0 bg-muted">
-                      <tr>
-                        <th className="px-2 py-1.5 font-medium">#</th>
-                        <th className="px-2 py-1.5 font-medium">{isVi ? "Mã SP" : "Code"}</th>
-                        <th className="px-2 py-1.5 font-medium">{isVi ? "Tên SP" : "Product"}</th>
-                        <th className="px-2 py-1.5 font-medium">{isVi ? "ĐVT" : "Unit"}</th>
-                        <th className="px-2 py-1.5 text-right font-medium">{isVi ? "SL đặt" : "Ordered"}</th>
-                        <th className="px-2 py-1.5 text-right font-medium">{isVi ? "Thùng" : "Cartons"}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {draft.items.map((item, index) => (
-                        <tr key={`${item.poItemId}-${index}`} className="border-t border-border">
-                          <td className="px-2 py-1.5 text-muted-foreground">{index + 1}</td>
-                          <td className="px-2 py-1.5 font-mono">{item.productCode || item.barcode || "—"}</td>
-                          <td className="px-2 py-1.5">{item.productName || "—"}</td>
-                          <td className="px-2 py-1.5">{item.unitName || "—"}</td>
-                          <td className="px-2 py-1.5 text-right">{item.shipQty.toLocaleString("vi-VN")}</td>
-                          <td className="px-2 py-1.5 text-right">{item.cartons}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                )}
-                {draft.skippedCount > 0 && (
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {isVi
-                      ? `${draft.skippedCount} dòng không còn đủ điều kiện thêm mới theo số lượng đã giao hoặc đã lên chuyến trên cổng KFM.`
-                      : `${draft.skippedCount} line(s) excluded based on quantities already delivered or assigned to a trip in KFM.`}
-                  </p>
-                )}
-                <details className="mt-2">
-                  <summary className="cursor-pointer text-xs text-muted-foreground">
-                    {isVi ? "Dữ liệu đối chiếu (chưa gửi)" : "Reconciliation data (not sent)"}
-                  </summary>
-                  <pre className="mt-2 max-h-64 overflow-auto rounded-lg bg-muted p-3 text-xs">
-                    {draft.text}
-                  </pre>
-                </details>
-              </div>
-            )}
-
-          {query.isLoading && (
-            <p className="py-6 text-center text-sm text-muted-foreground">
-              {isVi ? "Đang lấy đơn từ cổng KFM…" : "Loading orders…"}
-            </p>
-          )}
+            {query.isFetching && <p className="text-sm text-muted-foreground">Đang tải đơn hàng…</p>}
 
           {query.isError && (
             <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-4 text-sm">

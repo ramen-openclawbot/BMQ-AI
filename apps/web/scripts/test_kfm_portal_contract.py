@@ -75,7 +75,7 @@ def test_the_panel_offers_no_trip_surface() -> None:
             "the trip sheet must stay available in the client")
     require(CLIENT, "licensePlate", "the plate field must stay the one the portal really sends")
     require(CLIENT, "driverPhone", "the trip shape must keep the driver phone")
-    forbid(CLIENT, "plateNumber", "the portal has no plateNumber field")
+    require(CLIENT, "plateNumber", "saved vehicle uses plateNumber; submitted trip uses licensePlate")
     require(FUNCTION, '"load-pdf"', "the trip sheet must stay available in the bridge")
     require(PANEL, "Đang chuẩn bị file in", "printing must show the portal's waiting state")
     for marker in ('data-kfm-loads-section', 'data-kfm-loads-toggle', 'data-kfm-loads-filter',
@@ -121,13 +121,12 @@ def test_the_trip_draft_is_read_only_and_built_from_the_po_items() -> None:
     require(FUNCTION, '"unknown_action"', "an action the server does not know must be refused")
     require(FUNCTION, 'action === "list" && String(payload.action) !== "list"',
             "only a missing action may default to the order list")
-    require(PANEL, 'data-kfm-action="preview-load"', "the row menu must offer the preview")
-    require(PANEL, 'data-kfm-load-preview="v1"', "the preview panel must carry a stable marker")
+    forbid(PANEL, 'data-kfm-action="preview-load"', "separate preview is removed from the unified print menu")
     require(PANEL, 'action: "create-load"', "approved GĐ3 must expose operator creation")
 
 
 def test_trip_creation_is_guarded_and_recoverable() -> None:
-    for marker in ('data-kfm-create="v1"', 'data-kfm-action="submit-create"',
+    for marker in ('data-kfm-create="v2"', 'data-kfm-action="submit-create"',
                    'data-kfm-action="check-create"', 'createLock.current',
                    'requestId: crypto.randomUUID()', 'confirmed: true'):
         require(PANEL, marker, "create flow guard missing: " + marker)
@@ -139,38 +138,19 @@ def test_trip_creation_is_guarded_and_recoverable() -> None:
     forbid(CLIENT, '`${SCE_API}/api/v1/portal/asn?vendorId=', "never create a separate ASN in parallel")
 
 
-def test_empty_trip_preview_does_not_claim_physical_delivery() -> None:
-    require(PANEL, 'data-kfm-load-empty="v1"', "empty drafts must explain new-trip eligibility")
-    forbid(PANEL, "dòng đã giao đủ", "assignment to a trip does not prove physical delivery")
-    require(PANEL, "không phải phiếu đã tạo", "new-trip preview must be distinguished from an existing note")
-    require(PANEL, "shippedMap: result.shippedMap", "the operator must see actual filter quantities")
-    require(FUNCTION, "rawRows: source.items,", "all excluded rows must remain available for comparison")
-    require(FUNCTION, "shippedMap: source.shippedMap,", "filter keys without values are insufficient evidence")
-    require(FUNCTION, "const sourcePoId = Number(source.po.id)", "PO identity must come from the source")
-    forbid(FUNCTION, "draft.stops[0]?.items[0]?.poId", "empty drafts must not lose their PO identity")
-
-
-def test_the_delivery_note_prints_with_prices_like_the_portal() -> None:
-    # Corrected 2026-09-14 from the portal's own bundle: its print menu offers two
-    # layouts and `FULL` (prices shown) is the default it calls by itself
-    # (`p("FULL")` on the print button). `NO_PRICE` is the opt-in alternative.
-    # The bridge had been hardcoding `hidePrice: true`, which is the opposite of
-    # the portal's default and the reason the copy differed.
-    require(CLIENT, 'export type KfmPrintLayout = "FULL" | "NO_PRICE"',
-            "both portal print layouts must be modelled")
-    require(CLIENT, 'const layout = options.layout ?? "FULL"',
-            "printing must default to the portal's price-carrying layout")
-    require(CLIENT, '(options.layout ?? "FULL") === "NO_PRICE"',
-            "prices must only be hidden when the price-free layout is asked for")
-    forbid(CLIENT, "hidePrice !== false", "a default must never silently hide the prices")
-    require(FUNCTION, 'return String(value) === "NO_PRICE" ? "NO_PRICE" : "FULL"',
-            "the bridge must normalise the layout and default to FULL")
-    require(FUNCTION, "printLayout", "the print handlers must resolve the layout")
-    require(PANEL, 'data-kfm-action="print-asn-no-price"',
-            "the menu must offer the portal's price-free delivery note")
-    require(PANEL, 'handlePrintAsn(order, "FULL")',
-            "the plain delivery-note entry must print with prices")
-    require(PANEL, "PhieuGiaoHang_", "the sheet must keep the portal's file name")
+def test_unified_print_is_price_free_and_fail_closed() -> None:
+    require(PANEL, 'layout: "NO_PRICE"', "all sheet exports hide prices")
+    forbid(PANEL, '"FULL"', "no price-carrying UI option")
+    require(FUNCTION, 'return String(value) === "FULL" ? "FULL" : "NO_PRICE"', "default hides prices")
+    require(FUNCTION, 'strict: true', "ASN lookup errors cannot mean missing note")
+    require(FUNCTION, 'freshFleet', "saved fleet must be rechecked before write")
+    require(CLIENT, 'validateSavedTripForm', "saved choices validated server side")
+    require(CLIENT, '/vendor-delivery/vehicles', "use portal saved vehicles")
+    require(CLIENT, '/vendor-delivery/drivers', "use portal saved drivers")
+    require(PANEL, 'defaultDriverId', "use vehicle default driver link")
+    forbid(PANEL, 'dòng đã giao đủ', "allocations are not physical delivery evidence")
+    require(FUNCTION, 'rawRows: source.items,', "read-only diagnostic API preserved")
+    require(PANEL, 'PhieuGiaoHang', "preserve filename")
 
 
 def test_the_panel_fits_a_phone_viewport() -> None:
@@ -191,7 +171,7 @@ def test_every_print_action_shows_the_waiting_state() -> None:
     # share one keyed slot, one banner and one pending tab.
     require(PANEL, "useState<string | null>(null)",
             "the waiting state must be keyed so every print action can use it")
-    for key in ("`po-${order.portalId}`", "`asn-${order.portalId}`"):
+    for key in ("`asn-${order.portalId}`",):
         require(PANEL, key, "each print action must drive the shared waiting state: %s" % key)
     require(PANEL, "writePrintPlaceholder",
             "the tab opened on click must show a placeholder, never a blank window")
@@ -219,8 +199,8 @@ def test_the_panel_shows_no_money() -> None:
         forbid(PANEL, marker, "the KFM panel must show products and quantities only")
     require(PANEL, "totalQty", "quantities stay visible on the order list")
     forbid(PANEL, 'data-kfm-action="confirm"', "PO confirmation belongs to explicit trip creation")
-    require(PANEL, 'data-kfm-action="print-po"', "the PO print button must be present")
-    require(PANEL, "window.confirm", "a write to the portal must be confirmed by the operator first")
+    forbid(PANEL, 'data-kfm-action="print-po"', "unified menu has no separate PO print")
+    require(PANEL, "unifiedPrint: true", "explicit print click authorizes the combined flow")
 
 
 def test_credentials_come_from_the_environment_only() -> None:
@@ -252,20 +232,17 @@ def test_the_ui_entry_point_is_wired() -> None:
     require(PLANNING, '"Kiểm tra PO"', "the existing email PO check must stay in place")
 
 
-def test_the_order_row_prints_both_sheets_from_one_menu() -> None:
-    # Reported 2026-09-14: the row's truck button had been dropped, so a single
-    # order's delivery note could no longer be printed from the list. Both sheets
-    # now hang off one printer menu, which keeps a single print entry point per
-    # row while the truck stays off the row itself.
-    require(PANEL, 'data-kfm-action="print-menu"', "the order row needs one print entry point")
-    require(PANEL, 'data-kfm-action="print-po"', "the menu must offer the PO sheet")
-    require(PANEL, 'data-kfm-action="print-asn"', "the menu must offer the delivery note")
-    require(PANEL, "handlePrintAsn", "the delivery note must stay printable from the order")
-    require(PANEL, 'action: "asn-pdf"', "the delivery note must use the verified export endpoint")
-    require(PANEL, "detail.order?.asns?.[0]", "the delivery note id must come from the order detail")
-    require(PANEL, "renderOrderActions", "the phone card and the table must share one action cluster")
-    require(PANEL, "Printer", "the row's single print entry point must show the printer glyph")
-    forbid(PANEL, "FileText", "an unused document icon must not stay imported")
+def test_the_order_row_has_only_one_print_action() -> None:
+    require(PANEL, 'data-kfm-unified-print="v1"', "version unified behavior")
+    require(PANEL, 'data-kfm-action="print-menu"', "one entry point")
+    require(PANEL, 'data-kfm-action="print-asn"', "delivery note action")
+    assert PANEL.count('<DropdownMenuItem ') == 1, "exactly one menu item"
+    for marker in ('print-po', 'preview-load', 'print-asn-no-price', 'data-kfm-action="create-load"', '(có giá)', '(không giá)'):
+        forbid(PANEL, marker, "obsolete menu option: " + marker)
+    require(PANEL, 'existingNotes', "reprint existing notes without create")
+    require(PANEL, 'sendAndPrint', "missing note continues to create and print")
+    require(PANEL, 'renderOrderActions', "phone and desktop share action")
+    require(PANEL, 'Printer', "printer icon retained")
 
 
 def test_a_phone_row_needs_no_sideways_drag() -> None:

@@ -997,6 +997,8 @@ async function tripApi(token: string, url: string, body?: unknown): Promise<any>
 }
 
 export type KfmTripForm = {
+  savedVehicleId?: number | null;
+  savedDriverId?: number | null;
   vehicleTypeId?: number | null;
   bookingTimeSlot?: string;
   expectedTimeFrom?: string;
@@ -1008,6 +1010,33 @@ export type KfmTripForm = {
   totalCartons?: number;
   totalPallets?: number;
 };
+
+export type KfmSavedFleet = {
+  vehicles: Array<{ id: number; plateNumber: string; defaultDriverId: number | null }>;
+  drivers: Array<{ id: number; name: string; phone: string }>;
+};
+
+/** Same session-scoped GETs and defaultDriverId mapping as vendorDeliveryApi. */
+export async function getSavedTripFleet(token: string): Promise<KfmSavedFleet> {
+  const [vehicles, drivers] = await Promise.all([
+    tripApi(token, `${SCE_API}/api/v1/portal/vendor-delivery/vehicles`),
+    tripApi(token, `${SCE_API}/api/v1/portal/vendor-delivery/drivers`),
+  ]);
+  if (!Array.isArray(vehicles) || !Array.isArray(drivers)) throw new KfmPortalError("trip", 0, "Không đọc được danh sách xe/tài xế đã lưu trên portal. Chưa tạo phiếu.");
+  return {
+    vehicles: vehicles.map(row => ({ id: Number(row.id), plateNumber: String(row.plateNumber || ""), defaultDriverId: Number(row.defaultDriverId) || null })),
+    drivers: drivers.map(row => ({ id: Number(row.id), name: String(row.name || ""), phone: String(row.phone || "") })),
+  };
+}
+
+/** Recheck saved selections before the write; never silently substitute a driver. */
+export function validateSavedTripForm(fleet: KfmSavedFleet, form: KfmTripForm): void {
+  const vehicle = fleet.vehicles.find(row => row.id === form.savedVehicleId);
+  const driver = fleet.drivers.find(row => row.id === form.savedDriverId);
+  if (fleet.vehicles.length && (!vehicle || vehicle.plateNumber !== form.licensePlate)) throw new KfmPortalError("trip_changed", 0, "Xe đã lưu thay đổi hoặc chưa được chọn. Vui lòng kiểm tra lại.");
+  if (fleet.drivers.length && (!driver || (driver.name && driver.name !== form.driverName) || (driver.phone && driver.phone !== form.driverPhone))) throw new KfmPortalError("trip_changed", 0, "Tài xế đã lưu thay đổi hoặc chưa được chọn. Vui lòng kiểm tra lại.");
+  if (![form.licensePlate, form.driverName, form.driverPhone].every(value => typeof value === "string" && value.trim())) throw new KfmPortalError("trip", 0, "Cần đủ biển số xe, tên và số điện thoại tài xế.");
+}
 
 export type KfmTripOptions = {
   deliveryType: "HUB" | "FIXED" | "BOOKING" | null;
@@ -1081,8 +1110,8 @@ export async function getTripOptions(token: string, vendorId: number, source: Kf
 }
 
 /** Fingerprint includes all quantities, allocations and PO state, not totals only. */
-export async function tripRevision(source: KfmTripSource, date: string): Promise<string> {
-  const text = JSON.stringify({ date, po: source.po, items: source.items, pendingChanges: source.pendingChanges || [], shippedMap: Object.entries(source.shippedMap).sort(([a], [b]) => a.localeCompare(b)) });
+export async function tripRevision(source: KfmTripSource, date: string, fleet?: KfmSavedFleet): Promise<string> {
+  const text = JSON.stringify({ date, po: source.po, items: source.items, pendingChanges: source.pendingChanges || [], shippedMap: Object.entries(source.shippedMap).sort(([a], [b]) => a.localeCompare(b)), fleet: fleet && { vehicles: [...fleet.vehicles].sort((a,b) => a.id-b.id), drivers: [...fleet.drivers].sort((a,b) => a.id-b.id) } });
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
   return Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, "0")).join("");
 }
@@ -1225,19 +1254,24 @@ export async function confirmOrder(
 /** Delivery notes (ASN) already raised for a portal order. */
 export async function listOrderAsns(
   token: string,
-  options: { vendorId: number; orderId: number },
+  options: { vendorId: number; orderId: number; strict?: boolean },
 ): Promise<Array<{ asnId: number; asnCode: string | null }>> {
   const { status, body } = await authedGet(
     token,
     `${SCE_API}/api/v1/portal/orders/${options.orderId}/asn?vendorId=${options.vendorId}`,
   );
-  if (status !== 200) return [];
+  if (status !== 200) {
+    if (options.strict) throw new KfmPortalError("asn", status, "Không xác minh được phiếu đã có. Chưa tạo thêm phiếu.");
+    return [];
+  }
   const data = body?.data ?? body;
+  if (options.strict && (!Array.isArray(data) && !Array.isArray(data?.content))) throw new KfmPortalError("asn", 0, "Danh sách phiếu không hợp lệ. Chưa tạo thêm phiếu.");
   const rows: Record<string, unknown>[] = Array.isArray(data)
     ? data
     : Array.isArray(data?.content)
       ? data.content
       : [];
+  if (options.strict && rows.some(row => !Number.isSafeInteger(Number(row.id)) || Number(row.id) <= 0)) throw new KfmPortalError("asn", 0, "Mã phiếu không hợp lệ. Chưa tạo thêm phiếu.");
   return rows
     .map((row) => ({ asnId: Number(row.id), asnCode: asString(row.code) }))
     .filter((row) => Number.isFinite(row.asnId) && row.asnId > 0);
