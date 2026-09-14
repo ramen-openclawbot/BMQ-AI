@@ -53,7 +53,7 @@ import {
   getDeliveryLoad,
   getMe,
   getOrderDetail,
-  getPurchaseOrderItems,
+  getTripSource,
   listDeliveryLoads,
   listOrderAsns,
   listOrders,
@@ -101,6 +101,20 @@ function toBase64(bytes: Uint8Array): string {
     binary += String.fromCharCode(...bytes.subarray(offset, offset + chunk));
   }
   return btoa(binary);
+}
+
+/**
+ * The portal's print menu has exactly two layouts and `FULL` (prices shown) is
+ * its default; anything unrecognised falls back to that default.
+ */
+function printLayout(value: unknown): "FULL" | "NO_PRICE" {
+  return String(value) === "NO_PRICE" ? "NO_PRICE" : "FULL";
+}
+
+/** The portal names the printed sheet after the note's code, not its row id. */
+function printCode(value: unknown): string {
+  const code = String(value ?? "").trim();
+  return /^[A-Za-z0-9_-]{1,40}$/.test(code) ? code : "";
 }
 
 async function requireUser(req: Request): Promise<boolean> {
@@ -244,19 +258,21 @@ serve(async (req) => {
         }, 200, req);
       }
       const poId = Number(payload.poId);
+      const layout = printLayout(payload.layout);
       const bytes = isPo
         ? await fetchPoPdf(cached.session.token, targetId)
         : await fetchAsnPdf(cached.session.token, {
             asnId: targetId,
             vendorId,
             poId: Number.isInteger(poId) && poId > 0 ? poId : null,
-            hidePrice: true,
+            layout,
           });
       return json({
         success: true,
         configured: true,
         action,
-        filename: `${isPo ? "PO" : "Phieu-giao-hang"}-${targetId}.pdf`,
+        layout,
+        filename: `${isPo ? "PO" : "PhieuGiaoHang"}-${printCode(payload.code) || targetId}.pdf`,
         contentType: "application/pdf",
         base64: toBase64(bytes),
         byteLength: bytes.byteLength,
@@ -272,16 +288,14 @@ serve(async (req) => {
         return json({ success: false, action, error: "bad_order_id", message: "Thiếu orderId." }, 200, req);
       }
       const detail = await getOrderDetail(cached.session.token, { vendorId, orderId });
-      const poId = detail.purchaseOrderId ?? orderId;
-      const rawRows = await getPurchaseOrderItems(cached.session.token, poId);
+      const source = await getTripSource(cached.session.token, { vendorId, orderId });
       const vehicleTypeId = Number(payload.vehicleTypeId);
-      const draft = buildTripDraft({
+      const { draft, skipped } = buildTripDraft({
         deliveryDate,
-        locationId: detail.locationId,
         vehicleTypeId: Number.isInteger(vehicleTypeId) && vehicleTypeId > 0 ? vehicleTypeId : null,
-        purchaseOrderId: poId,
-        poCode: detail.code || `PO-${poId}`,
-        rows: rawRows,
+        po: source.po,
+        rows: source.items,
+        shippedMap: source.shippedMap,
       });
       return json({
         success: true,
@@ -291,10 +305,21 @@ serve(async (req) => {
         vendorId,
         vendorCode: cached.vendorCode,
         draft,
-        source: { orderId, poId, locationId: detail.locationId, rawRowCount: rawRows.length },
-        // The first rows verbatim, so the mapped body can be checked against the
-        // portal's own screen and a changed field name is caught immediately.
-        rawRows: rawRows.slice(0, 2),
+        source: {
+          orderId,
+          poId: detail.purchaseOrderId ?? draft.stops[0]?.items[0]?.poId ?? null,
+          poCode: String(source.po.code ?? detail.code ?? "") || null,
+          locationId: draft.stops[0]?.locationId ?? null,
+          locationName: source.po.locationName ?? null,
+          itemCount: draft.stops[0]?.items.length ?? 0,
+          totalShipQty: (draft.stops[0]?.items ?? []).reduce((sum, item) => sum + item.shipQty, 0),
+          skippedCount: skipped,
+          readFrom: `GET /api/v1/portal/orders/${orderId}?vendorId=${vendorId}`,
+        },
+        // A couple of the portal's own rows, so a changed field name on the
+        // partner side is visible in the panel instead of silently mapping to 0.
+        rawRows: source.items.slice(0, 2),
+        shippedMapKeys: Object.keys(source.shippedMap).slice(0, 5),
         session,
       }, 200, req);
     }
@@ -346,12 +371,16 @@ serve(async (req) => {
       if (!Number.isInteger(loadId) || loadId <= 0) {
         return json({ success: false, action, error: "bad_load_id", message: "Thiếu loadId." }, 200, req);
       }
-      const bytes = await fetchLoadPdf(cached.session.token, { loadId, vendorId, hidePrice: true });
+      const bytes = await fetchLoadPdf(cached.session.token, {
+        loadId,
+        vendorId,
+        layout: printLayout(payload.layout),
+      });
       return json({
         success: true,
         configured: true,
         action,
-        filename: `PhieuGiaoHang-${loadId}.pdf`,
+        filename: `PhieuGiaoHang_${printCode(payload.code) || loadId}.pdf`,
         contentType: "application/pdf",
         base64: toBase64(bytes),
         byteLength: bytes.byteLength,

@@ -673,14 +673,21 @@ export async function getDeliveryLoad(
   return normalizeDeliveryLoad(data);
 }
 
-/** Print the delivery note of one trip, price-free by default. */
+/** The two layouts the portal's print menu offers. `FULL` carries prices. */
+export type KfmPrintLayout = "FULL" | "NO_PRICE";
+
+/**
+ * Print the delivery note of one trip. The portal's own default layout carries
+ * prices (`FULL`); `NO_PRICE` is the alternative it offers in the print menu.
+ */
 export async function fetchLoadPdf(
   token: string,
-  options: { loadId: number; vendorId: number; hidePrice?: boolean; layout?: string },
+  options: { loadId: number; vendorId: number; layout?: KfmPrintLayout },
 ): Promise<Uint8Array> {
   const query = new URLSearchParams({ vendorId: String(options.vendorId) });
-  if (options.hidePrice !== false) query.set("hidePrice", "true");
-  if (options.layout) query.set("layout", options.layout);
+  const layout = options.layout ?? "FULL";
+  if (layout === "NO_PRICE") query.set("hidePrice", "true");
+  if (layout !== "FULL") query.set("layout", layout);
   return await fetchDocument(
     token,
     `${SCE_API}/api/v1/portal/inbound-loads/${options.loadId}/export-pdf?${query.toString()}`,
@@ -742,11 +749,22 @@ export async function getOrderDetail(
  * Delivery-trip draft (read-only).
  *
  * The portal raises a delivery note through its trip form, and that form
- * builds `stops[].items[]` out of the purchase order's own item rows
- * (`GET /api/v1/purchase-orders/{id}/items` — the only place that carries
- * `poItemId`/`variantId`/`cartons`). This block reads that shape and maps it
- * to the body the portal's `createLoad` mutation sends, so an operator can
- * see the exact body before anything is written.
+ * builds `stops[].items[]` out of the purchase order's own print data
+ * (`GET /api/v1/purchase-orders/{id}/print-data` -> `{po, items, shippedMap}`).
+ * The mapping below is the portal's own, copied from its load-detail container,
+ * so what this previews is what the portal would really send:
+ *
+ *   qty     = approvalStatus === "APPROVED" && finalQuantity != null
+ *               ? finalQuantity : qty ?? orderedQty ?? quantity ?? 0
+ *   shipped = shippedMap[productCode || internalCode] || 0
+ *   the row is dropped when shipped >= qty   (nothing left to deliver)
+ *   item    = { poId, poCode, poItemId, variantId, productCode, barcode,
+ *               productName, unitName, shipQty: qty, cartons: 0 }
+ *   stop    = { locationId: po.locationId, totalCartons: 0, totalPallets: 0, items }
+ *
+ * `shipQty` is therefore the ORDERED quantity, and `cartons` is always 0 — both
+ * are what the portal itself sends. `totalCartons`/`totalPallets` are typed by
+ * hand on the portal's screen, so they start at 0 here too.
  *
  * Nothing here posts: the draft is built in memory and returned for review.
  * ------------------------------------------------------------------ */
@@ -777,75 +795,168 @@ export type KfmTripDraft = {
   stops: KfmTripStop[];
 };
 
-/** The purchase order's own item rows — the trip form's item source. */
-export async function getPurchaseOrderItems(
-  token: string,
-  poId: number,
-): Promise<Record<string, unknown>[]> {
-  const { status, body } = await authedGet(
-    token,
-    `${SCE_API}/api/v1/purchase-orders/${poId}/items`,
-  );
-  if (status !== 200) {
-    throw new KfmPortalError("po_items", status, "Không đọc được dòng hàng của PO");
-  }
-  const data = body?.data ?? body;
-  if (Array.isArray(data)) return data as Record<string, unknown>[];
-  if (Array.isArray((data as Record<string, unknown>)?.content)) {
-    return (data as { content: Record<string, unknown>[] }).content;
-  }
-  return [];
-}
+export type KfmTripSource = {
+  /** The purchase order behind the portal order — it carries `locationId`. */
+  po: Record<string, unknown>;
+  /** Order lines, with the portal's own approved-quantity mapping applied. */
+  items: Record<string, unknown>[];
+  /** Product code -> quantity already delivered against it. */
+  shippedMap: Record<string, number>;
+};
 
 /**
- * Map one PO item row to the shape the portal's trip body carries. Field names
- * are the ones the portal's own form reads off these rows.
+ * The payload the portal's trip form reads. It is the SAME read the panel's
+ * order detail uses — `GET /api/v1/portal/orders/{id}?vendorId=` — because the
+ * portal's own container feeds its trip builder from
+ * `useLazyGetPortalOrderDetailQuery({ id, vendorId })`.
+ *
+ * The portal then rewrites `items` in its `transformResponse`: a RESOLVED
+ * QUANTITY request on a product code turns into `finalQuantity` plus
+ * `approvalStatus: "APPROVED"`. That rewritten shape is what decides how much
+ * of a line goes on the trip, so it is applied here too.
  */
-export function normalizeTripItem(
-  row: Record<string, unknown>,
-  poId: number,
-  poCode: string,
-): KfmTripItem {
+export async function getTripSource(
+  token: string,
+  options: { vendorId: number; orderId: number },
+): Promise<KfmTripSource> {
+  const { status, body } = await authedGet(
+    token,
+    `${SCE_API}/api/v1/portal/orders/${options.orderId}?vendorId=${options.vendorId}`,
+  );
+  if (status !== 200) {
+    throw new KfmPortalError("trip_source", status, "Không đọc được đơn từ cổng KFM");
+  }
+  const data = ((body?.data ?? body) || {}) as Record<string, unknown>;
+  const po = ((data.po ?? data.purchaseOrder ?? data) || {}) as Record<string, unknown>;
+  const rows: Record<string, unknown>[] = Array.isArray(data.items) ? data.items : [];
+
+  const approved = approvedQuantities(data);
+  const shippedMap: Record<string, number> = {};
+  for (const [key, value] of Object.entries((data.shippedMap ?? {}) as Record<string, unknown>)) {
+    const n = asNumber(value);
+    if (n !== null) shippedMap[key] = n;
+  }
+
   return {
-    poId,
-    poCode,
-    poItemId: asNumber(row.id) ?? 0,
-    variantId: asNumber(row.variantId),
-    productCode: asString(row.productCode) ?? asString(row.internalCode) ?? "",
-    barcode: asString(row.barcode) ?? "",
-    productName: asString(row.productName) ?? "",
-    unitName: asString(row.uomName) ?? asString(row.unitName) ?? "",
-    shipQty: asNumber(row.shipQty) ?? asNumber(row.orderedQty) ?? 0,
-    cartons: asNumber(row.cartons) ?? 0,
+    po,
+    items: rows.map((row) => {
+      const productCode = asString(row.productCode) ?? asString(row.internalCode) ?? "";
+      const finalQuantity = approved.get(productCode);
+      return finalQuantity === undefined
+        ? row
+        : { ...row, finalQuantity, approvalStatus: "APPROVED" };
+    }),
+    shippedMap,
   };
 }
 
 /**
+ * The portal's own approved-quantity map: product code -> proposed quantity,
+ * taken from the RESOLVED quantity requests of the order. Requests of any other
+ * kind (or any other status) are ignored, exactly as the portal ignores them.
+ */
+function approvedQuantities(data: Record<string, unknown>): Map<string, number> {
+  const requests: Record<string, unknown>[] = Array.isArray(data.requests) ? data.requests : [];
+  const requestItems: Record<string, unknown>[] = Array.isArray(data.requestItems)
+    ? data.requestItems
+    : [];
+  const approved = new Map<string, number>();
+  if (requests.length === 0 || requestItems.length === 0) return approved;
+  for (const item of requestItems) {
+    const parent = requests.find(
+      (request) => request.id === (item.requestId ?? (item.request as Record<string, unknown>)?.id),
+    );
+    if (!parent || asString(parent.status) !== "RESOLVED") continue;
+    const category = asString(item.requestCategory);
+    if (category && category !== "QUANTITY") continue;
+    const code = asString(item.productCode);
+    const qty = asNumber(item.proposedQty) ?? asNumber(item.proposedValue);
+    if (code && qty !== null) approved.set(code, qty);
+  }
+  return approved;
+}
+
+/**
+ * The portal's own "how much of this line is going on the trip" rule.
+ * The approved request quantity wins over the ordered one; when nothing was
+ * approved the ordered quantity is used.
+ */
+export function tripShipQty(row: Record<string, unknown>): number {
+  if (asString(row.approvalStatus) === "APPROVED") {
+    const approved = asNumber(row.finalQuantity);
+    if (approved !== null) return approved;
+  }
+  return (
+    asNumber(row.qty) ?? asNumber(row.orderedQty) ?? asNumber(row.quantity) ?? 0
+  );
+}
+
+/**
+ * Map the purchase order's own rows to the portal's trip items, dropping the
+ * lines it has already delivered in full. Field names and order are the ones
+ * the portal's `createLoad` body carries.
+ */
+export function buildTripItems(
+  po: Record<string, unknown>,
+  rows: Record<string, unknown>[],
+  shippedMap: Record<string, number>,
+): { items: KfmTripItem[]; skipped: number } {
+  const poId = asNumber(po.id) ?? 0;
+  const poCode = asString(po.code) ?? "";
+  const items: KfmTripItem[] = [];
+  let skipped = 0;
+  for (const row of rows) {
+    const shipQty = tripShipQty(row);
+    const productCode =
+      asString(row.productCode) ?? asString(row.internalCode) ?? "";
+    const shipped = shippedMap[productCode] ?? 0;
+    if (shipped >= shipQty) {
+      skipped += 1;
+      continue;
+    }
+    items.push({
+      poId,
+      poCode,
+      poItemId: asNumber(row.id) ?? 0,
+      variantId: asNumber(row.variantId),
+      productCode,
+      barcode: asString(row.barcode) ?? "",
+      productName: asString(row.productName) ?? "",
+      unitName: asString(row.uomName) ?? asString(row.unitName) ?? "",
+      shipQty,
+      cartons: 0,
+    });
+  }
+  return { items, skipped };
+}
+
+/**
  * Build the trip body for ONE order without sending it. Returns the exact
- * object `createLoad` would post, plus the raw rows it was built from so the
+ * object `createLoad` would post, plus what was dropped on the way, so the
  * operator can compare the mapping against the portal's own screen.
  */
 export function buildTripDraft(options: {
   deliveryDate: string;
-  locationId: number | null;
   vehicleTypeId?: number | null;
-  purchaseOrderId: number;
-  poCode: string;
+  po: Record<string, unknown>;
   rows: Record<string, unknown>[];
-}): KfmTripDraft {
+  shippedMap: Record<string, number>;
+}): { draft: KfmTripDraft; skipped: number } {
+  const { items, skipped } = buildTripItems(options.po, options.rows, options.shippedMap);
   return {
-    deliveryDate: options.deliveryDate,
-    vehicleTypeId: options.vehicleTypeId ?? null,
-    stops: [
-      {
-        locationId: options.locationId,
-        totalCartons: 0,
-        totalPallets: 0,
-        items: options.rows.map((row) =>
-          normalizeTripItem(row, options.purchaseOrderId, options.poCode),
-        ),
-      },
-    ],
+    draft: {
+      deliveryDate: options.deliveryDate,
+      vehicleTypeId: options.vehicleTypeId ?? null,
+      stops: [
+        {
+          locationId: asNumber(options.po.locationId),
+          totalCartons: 0,
+          totalPallets: 0,
+          items,
+        },
+      ],
+    },
+    skipped,
   };
 }
 
@@ -919,11 +1030,16 @@ export async function fetchPoPdf(token: string, poId: number): Promise<Uint8Arra
 /** Print one delivery note, price-free by default. */
 export async function fetchAsnPdf(
   token: string,
-  options: { asnId: number; vendorId: number; poId?: number | null; hidePrice?: boolean },
+  options: {
+    asnId: number;
+    vendorId: number;
+    poId?: number | null;
+    layout?: KfmPrintLayout;
+  },
 ): Promise<Uint8Array> {
   const query = new URLSearchParams({ vendorId: String(options.vendorId) });
   if (options.poId) query.set("poId", String(options.poId));
-  if (options.hidePrice !== false) query.set("hidePrice", "true");
+  if ((options.layout ?? "FULL") === "NO_PRICE") query.set("hidePrice", "true");
   return await fetchDocument(
     token,
     `${SCE_API}/api/v1/portal/asn/${options.asnId}/export-pdf?${query.toString()}`,

@@ -53,6 +53,34 @@ type KfmOrderDetail = {
   asns: Array<{ asnId: number; asnCode: string | null }>;
 };
 
+/** The portal's print menu: `FULL` shows prices and is its own default. */
+type KfmPrintLayout = "FULL" | "NO_PRICE";
+
+type KfmTripItem = {
+  poId: number;
+  poCode: string;
+  poItemId: number;
+  variantId: number | null;
+  productCode: string;
+  barcode: string;
+  productName: string;
+  unitName: string;
+  shipQty: number;
+  cartons: number;
+};
+
+/** The read-only delivery-note body plus the numbers behind it. */
+type KfmTripDraft = {
+  code: string;
+  deliveryDate: string;
+  items: KfmTripItem[];
+  locationId: number | null;
+  locationName: string | null;
+  totalShipQty: number;
+  skippedCount: number;
+  text: string;
+};
+
 
 type KfmResponse = {
   success: boolean;
@@ -182,7 +210,7 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
   // Stage 1 of the create-delivery-note work: the body the portal's trip form
   // would post is assembled read-only and shown for review. Nothing is written
   // and no create button exists yet.
-  const [draft, setDraft] = useState<{ code: string; text: string } | null>(null);
+  const [draft, setDraft] = useState<KfmTripDraft | null>(null);
 
   const runAction = async (key: string, work: () => Promise<string>) => {
     setBusy(key);
@@ -263,9 +291,9 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
    * its id comes from the order detail, and the sheet is the portal's own
    * export because that is the copy the warehouse counter expects.
    */
-  const handlePrintAsn = (order: KfmOrder) => {
+  const handlePrintAsn = (order: KfmOrder, layout: KfmPrintLayout) => {
     const viewer = typeof window !== "undefined" ? window.open("", "_blank") : null;
-    const key = `asn-${order.portalId}`;
+    const key = `asn-${order.portalId}-${layout}`;
     beginPrint(
       key,
       viewer,
@@ -282,8 +310,14 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
           action: "asn-pdf",
           asnId: asn.asnId,
           poId: detail.order?.purchaseOrderId ?? undefined,
+          code: asn.asnCode ?? undefined,
+          layout,
         });
-        savePdf(pdf.base64 || "", pdf.filename || `Phieu-giao-hang-${asn.asnCode || asn.asnId}.pdf`, viewer);
+        savePdf(
+          pdf.base64 || "",
+          pdf.filename || `PhieuGiaoHang_${asn.asnCode || asn.asnId}.pdf`,
+          viewer,
+        );
         finishPrint(
           key,
           isVi
@@ -309,13 +343,18 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
         deliveryDate,
         orderId: order.portalId,
       });
+      const stop = (result.draft as { stops?: Array<{ items?: KfmTripItem[]; locationId?: number | null }> })
+        ?.stops?.[0];
+      const items = stop?.items ?? [];
       setDraft({
         code: order.code,
-        text: JSON.stringify(
-          { draft: result.draft, source: result.source, rawRows: result.rawRows },
-          null,
-          2,
-        ),
+        deliveryDate: String(result.deliveryDate ?? deliveryDate),
+        items,
+        locationId: stop?.locationId ?? null,
+        locationName: (result.source as { locationName?: string | null } | undefined)?.locationName ?? null,
+        totalShipQty: items.reduce((sum, item) => sum + (item.shipQty || 0), 0),
+        skippedCount: Number((result.source as { skippedCount?: number } | undefined)?.skippedCount ?? 0),
+        text: JSON.stringify({ draft: result.draft, source: result.source, rawRows: result.rawRows }, null, 2),
       });
       return isVi
         ? `Đã ráp thử phiếu giao hàng ${order.code}.`
@@ -353,7 +392,7 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
             data-kfm-action="print-menu"
             disabled={printing !== null || busy !== null}
           >
-            {printing === `po-${order.portalId}` || printing === `asn-${order.portalId}`
+            {printing !== null && printing.startsWith(`asn-${order.portalId}`)
               ? <Loader2 className="h-4 w-4 animate-spin" />
               : <Printer className="h-4 w-4" />}
           </Button>
@@ -363,9 +402,13 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
             <Printer className="mr-2 h-4 w-4" />
             {isVi ? "In PO" : "Print PO"}
           </DropdownMenuItem>
-          <DropdownMenuItem data-kfm-action="print-asn" onSelect={() => handlePrintAsn(order)}>
+          <DropdownMenuItem data-kfm-action="print-asn" onSelect={() => handlePrintAsn(order, "FULL")}>
             <Truck className="mr-2 h-4 w-4" />
-            {isVi ? "In phiếu giao hàng" : "Print delivery note"}
+            {isVi ? "In phiếu giao hàng (có giá)" : "Print delivery note (with prices)"}
+          </DropdownMenuItem>
+          <DropdownMenuItem data-kfm-action="print-asn-no-price" onSelect={() => handlePrintAsn(order, "NO_PRICE")}>
+            <Truck className="mr-2 h-4 w-4" />
+            {isVi ? "In phiếu giao hàng (không giá)" : "Print delivery note (price-free)"}
           </DropdownMenuItem>
           <DropdownMenuItem data-kfm-action="preview-load" onSelect={() => handlePreviewLoad(order)}>
             <Eye className="mr-2 h-4 w-4" />
@@ -481,9 +524,59 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
                     ? "Chỉ để đối chiếu — chưa gửi gì lên cổng KFM."
                     : "Review only — nothing has been sent to the KFM portal."}
                 </p>
-                <pre className="mt-2 max-h-64 overflow-auto rounded-lg bg-muted p-3 text-xs">
-                  {draft.text}
-                </pre>
+                <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                  <span className="rounded-md bg-muted px-2 py-1">
+                    {isVi ? "Ngày giao" : "Delivery date"}: {draft.deliveryDate}
+                  </span>
+                  <span className="rounded-md bg-muted px-2 py-1">
+                    {isVi ? "Kho nhận" : "Warehouse"}: {draft.locationName || draft.locationId || "—"}
+                  </span>
+                  <span className="rounded-md bg-muted px-2 py-1">
+                    {isVi ? "Số dòng" : "Lines"}: {draft.items.length} · {isVi ? "Tổng SL" : "Qty"}:{" "}
+                    {draft.totalShipQty.toLocaleString("vi-VN")}
+                  </span>
+                </div>
+                <div className="mt-2 max-h-72 overflow-auto rounded-lg border border-border">
+                  <table className="w-full text-left text-xs" data-kfm-load-items="v1">
+                    <thead className="sticky top-0 bg-muted">
+                      <tr>
+                        <th className="px-2 py-1.5 font-medium">#</th>
+                        <th className="px-2 py-1.5 font-medium">{isVi ? "Mã SP" : "Code"}</th>
+                        <th className="px-2 py-1.5 font-medium">{isVi ? "Tên SP" : "Product"}</th>
+                        <th className="px-2 py-1.5 font-medium">{isVi ? "ĐVT" : "Unit"}</th>
+                        <th className="px-2 py-1.5 text-right font-medium">{isVi ? "SL đặt" : "Ordered"}</th>
+                        <th className="px-2 py-1.5 text-right font-medium">{isVi ? "Thùng" : "Cartons"}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {draft.items.map((item, index) => (
+                        <tr key={`${item.poItemId}-${index}`} className="border-t border-border">
+                          <td className="px-2 py-1.5 text-muted-foreground">{index + 1}</td>
+                          <td className="px-2 py-1.5 font-mono">{item.productCode || item.barcode || "—"}</td>
+                          <td className="px-2 py-1.5">{item.productName || "—"}</td>
+                          <td className="px-2 py-1.5">{item.unitName || "—"}</td>
+                          <td className="px-2 py-1.5 text-right">{item.shipQty.toLocaleString("vi-VN")}</td>
+                          <td className="px-2 py-1.5 text-right">{item.cartons}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {draft.skippedCount > 0 && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {isVi
+                      ? `${draft.skippedCount} dòng đã giao đủ nên không lên chuyến.`
+                      : `${draft.skippedCount} line(s) already delivered in full were left out.`}
+                  </p>
+                )}
+                <details className="mt-2">
+                  <summary className="cursor-pointer text-xs text-muted-foreground">
+                    {isVi ? "Dữ liệu thô gửi cổng" : "Raw body sent to the portal"}
+                  </summary>
+                  <pre className="mt-2 max-h-64 overflow-auto rounded-lg bg-muted p-3 text-xs">
+                    {draft.text}
+                  </pre>
+                </details>
               </div>
             )}
 

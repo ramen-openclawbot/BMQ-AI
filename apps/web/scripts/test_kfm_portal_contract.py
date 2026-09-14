@@ -87,16 +87,29 @@ def test_the_panel_offers_no_trip_surface() -> None:
 def test_the_trip_draft_is_read_only_and_built_from_the_po_items() -> None:
     # Approved 2026-09-14 (owner: option "A" - the delivery note is raised the
     # way the portal raises it, through a delivery trip). Stage 1 only: the body
-    # is assembled and shown for review, and no create call exists yet. The item
-    # rows come from the portal's own PO-items read, which is the only place that
-    # carries poItemId/variantId/cartons.
-    require(CLIENT, "/api/v1/purchase-orders/${poId}/items",
-            "the trip body must be built from the portal's PO items, not from a guess")
+    # is assembled and shown for review, and no create call exists yet.
+    # Corrected 2026-09-14 against the portal's own bundle: the trip form reads
+    # `useLazyGetPortalOrderDetailQuery({ id, vendorId })`, i.e. the portal order
+    # detail, and rewrites the lines from its RESOLVED QUANTITY requests. The
+    # earlier PO-items endpoint was a wrong guess and mapped every quantity to 0.
+    require(CLIENT, "/api/v1/portal/orders/${options.orderId}?vendorId=${options.vendorId}",
+            "the trip body must be built from the portal order detail the portal reads")
+    require(CLIENT, "data.requests", "approved quantities come from the order's requests")
+    require(CLIENT, "data.requestItems", "approved quantities come from the order's request items")
+    require(CLIENT, 'asString(parent.status) !== "RESOLVED"',
+            "only RESOLVED requests count as approved")
+    require(CLIENT, '!== "QUANTITY"', "only quantity requests may change a line's amount")
+    require(CLIENT, "finalQuantity", "the approved amount is the line's finalQuantity")
+    require(CLIENT, "shippedMap", "the portal skips lines its shippedMap has already covered")
     require(CLIENT, "buildTripDraft", "the draft builder must be a named, reviewable unit")
     require(CLIENT, "poItemId", "the mapped item must carry poItemId")
     require(CLIENT, "cartons", "the mapped item must carry cartons")
     require(CLIENT, "uomName", "the portal sends the unit as uomName")
+    require(CLIENT, "internalCode", "the product code falls back to internalCode")
     require(CLIENT, "totalPallets", "the stop must carry the portal's totals fields")
+    # The portal sends the ORDERED quantity as `shipQty` and always sends 0 for
+    # `cartons`; both are what its own body carries, so both are pinned here.
+    require(CLIENT, "shipQty,\n      cartons: 0", "the portal sends the ordered amount and zero cartons")
     # Stage 1 writes nothing: the create endpoints stay out of the client.
     forbid(CLIENT, "&submit=", "stage 1 must not post a trip")
     forbid(CLIENT, "inbound-loads/${options.loadId}/cancel", "cancelling a trip is not approved")
@@ -110,6 +123,29 @@ def test_the_trip_draft_is_read_only_and_built_from_the_po_items() -> None:
     require(PANEL, 'data-kfm-action="preview-load"', "the row menu must offer the preview")
     require(PANEL, 'data-kfm-load-preview="v1"', "the preview panel must carry a stable marker")
     forbid(PANEL, 'action: "create-load"', "no create action may reach the portal yet")
+
+
+def test_the_delivery_note_prints_with_prices_like_the_portal() -> None:
+    # Corrected 2026-09-14 from the portal's own bundle: its print menu offers two
+    # layouts and `FULL` (prices shown) is the default it calls by itself
+    # (`p("FULL")` on the print button). `NO_PRICE` is the opt-in alternative.
+    # The bridge had been hardcoding `hidePrice: true`, which is the opposite of
+    # the portal's default and the reason the copy differed.
+    require(CLIENT, 'export type KfmPrintLayout = "FULL" | "NO_PRICE"',
+            "both portal print layouts must be modelled")
+    require(CLIENT, 'const layout = options.layout ?? "FULL"',
+            "printing must default to the portal's price-carrying layout")
+    require(CLIENT, '(options.layout ?? "FULL") === "NO_PRICE"',
+            "prices must only be hidden when the price-free layout is asked for")
+    forbid(CLIENT, "hidePrice !== false", "a default must never silently hide the prices")
+    require(FUNCTION, 'return String(value) === "NO_PRICE" ? "NO_PRICE" : "FULL"',
+            "the bridge must normalise the layout and default to FULL")
+    require(FUNCTION, "printLayout", "the print handlers must resolve the layout")
+    require(PANEL, 'data-kfm-action="print-asn-no-price"',
+            "the menu must offer the portal's price-free delivery note")
+    require(PANEL, 'handlePrintAsn(order, "FULL")',
+            "the plain delivery-note entry must print with prices")
+    require(PANEL, "PhieuGiaoHang_", "the sheet must keep the portal's file name")
 
 
 def test_the_panel_fits_a_phone_viewport() -> None:
