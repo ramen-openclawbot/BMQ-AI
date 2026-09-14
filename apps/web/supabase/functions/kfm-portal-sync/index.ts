@@ -16,6 +16,9 @@
  *   load-pdf — download the delivery note of one trip  (operator click only)
  *   trip-draft  — build the trip body for one order WITHOUT sending it
  *                 (read-only; the operator reviews it before any write)
+ *   trip-options — read eligible PO and portal vehicle/time configuration
+ *   create-load  — explicitly confirmed, permission-checked, durable single send
+ *   trip-result  — read-only recovery of a saved attempt; NEVER resubmits
  *
  * Nothing here is scheduled, retried or triggered by a background job: every
  * call happens because a person pressed a button in the BMQ UI.
@@ -46,6 +49,15 @@ import {
   ISO_DATE,
   KfmPortalError,
   buildTripDraft,
+  buildTripSubmission,
+  bookTripSlot,
+  createDeliveryTrip,
+  findCreatedTrip,
+  getTripOptions,
+  tripAsnIds,
+  tripRevision,
+  tripOrderInScope,
+  verifyTripReadback,
   confirmOrder,
   fetchAsnPdf,
   fetchLoadPdf,
@@ -73,6 +85,9 @@ const ACTIONS = [
   "load-detail",
   "load-pdf",
   "trip-draft",
+  "trip-options",
+  "create-load",
+  "trip-result",
 ] as const;
 type KfmAction = typeof ACTIONS[number];
 
@@ -117,25 +132,52 @@ function printCode(value: unknown): string {
   return /^[A-Za-z0-9_-]{1,40}$/.test(code) ? code : "";
 }
 
-async function requireUser(req: Request): Promise<boolean> {
+async function requireUser(req: Request): Promise<string | null> {
   const authHeader = req.headers.get("Authorization") || "";
-  if (!authHeader.toLowerCase().startsWith("bearer ")) return false;
+  if (!authHeader.toLowerCase().startsWith("bearer ")) return null;
   const url = Deno.env.get("SUPABASE_URL") || "";
   const anon = Deno.env.get("SUPABASE_ANON_KEY") || "";
-  if (!url || !anon) return false;
+  if (!url || !anon) return null;
   const client = createClient(url, anon, {
     global: { headers: { Authorization: authHeader } },
     auth: { persistSession: false },
   });
   const { data, error } = await client.auth.getUser();
-  return !error && Boolean(data?.user);
+  return !error ? data?.user?.id ?? null : null;
+}
+
+function tripAdmin() {
+  return createClient(Deno.env.get("SUPABASE_URL") || "", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "", { auth: { persistSession: false } });
+}
+
+async function canCreateTrip(userId: string): Promise<boolean> {
+  const admin = tripAdmin();
+  const [roles, permissions] = await Promise.all([
+    admin.from("user_roles").select("role").eq("user_id", userId),
+    admin.from("user_module_permissions").select("can_edit").eq("user_id", userId).eq("module_key", "production_q7"),
+  ]);
+  if (roles.error || permissions.error) return false;
+  return roles.data.some(row => row.role === "owner") || permissions.data.some(row => row.can_edit === true);
+}
+
+/** Only sanitized business identifiers leave the attempt journal. */
+async function tripResult(token: string, row: any) {
+  if (row.state === "verified" && row.result) return row.result;
+  let load = null;
+  try { load = await findCreatedTrip(token, row.vendor_id, row.body, row.baseline_asn_ids, row.load_id); } catch { /* uncertain, never retry */ }
+  if (!load || !verifyTripReadback(load, row.body)) return { state: "unknown", loadId: row.load_id || null, message: "Chưa xác minh được chuyến/ASN. Không bấm tạo lại; dùng ‘Kiểm tra kết quả’ hoặc kiểm tra cổng KFM." };
+  const result = { state: "verified", loadId: Number(load.id), loadCode: String(load.loadCode || ""), asns: load.asns.map((asn: any) => ({ asnId: Number(asn.id || asn.asnId), asnCode: String(asn.code || asn.asnCode) })), message: "Đã đọc lại chuyến và ASN: PO, kho và từng dòng số lượng khớp." };
+  const saved = await tripAdmin().from("kfm_trip_attempts").update({ state: "verified", load_id: result.loadId, result }).eq("vendor_id", row.vendor_id).eq("order_id", row.order_id);
+  if (saved.error) return { state: "unknown", loadId: result.loadId, message: "Chuyến đã được đọc lại nhưng chưa lưu được kết quả xác minh. Không tạo lại." };
+  return result;
 }
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return corsPreflightResponse(req);
   if (req.method !== "POST") return json({ success: false, error: "method_not_allowed" }, 405, req);
 
-  if (!(await requireUser(req))) {
+  const userId = await requireUser(req);
+  if (!userId) {
     return json({ success: false, error: "unauthorized" }, 401, req);
   }
 
@@ -149,6 +191,12 @@ serve(async (req) => {
     asnId?: number;
     loadId?: number;
     vehicleTypeId?: number;
+    layout?: string;
+    code?: string;
+    revision?: string;
+    requestId?: string;
+    confirmed?: boolean;
+    form?: import("../_shared/kfm-portal.ts").KfmTripForm;
   } = {};
   try {
     payload = await req.json();
@@ -174,6 +222,10 @@ serve(async (req) => {
   const deliveryDate = payload.deliveryDate && ISO_DATE.test(payload.deliveryDate)
     ? payload.deliveryDate
     : vnDate(1); // KFM orders tomorrow's delivery today.
+
+  const tripAction = ["trip-options", "create-load", "trip-result"].includes(action);
+  if (tripAction && !(await canCreateTrip(userId))) return json({ success: false, error: "forbidden", message: "Anh/chị chưa có quyền chỉnh sửa kế hoạch sản xuất để tạo phiếu." }, 403, req);
+  if (tripAction && (!payload.deliveryDate || !ISO_DATE.test(payload.deliveryDate))) return json({ success: false, error: "bad_date", message: "Cần chọn ngày giao rõ ràng." }, 200, req);
 
   const username = Deno.env.get("KFM_PORTAL_USERNAME") || "";
   const password = Deno.env.get("KFM_PORTAL_PASSWORD") || "";
@@ -226,8 +278,59 @@ serve(async (req) => {
         message: "Tài khoản cổng KFM không gắn nhà cung cấp nào.",
       }, 200, req);
     }
+    if (tripAction && !cached.vendorIds.includes(vendorId)) return json({ success: false, error: "forbidden_vendor", message: "Nhà cung cấp không thuộc tài khoản KFM." }, 403, req);
 
     const session = { mode: cached.session.mode, obtainedAt: cached.session.obtainedAt };
+
+    if (tripAction) {
+      const orderId = Number(payload.orderId);
+      if (!Number.isSafeInteger(orderId) || orderId <= 0) return json({ success: false, error: "bad_order_id", message: "Thiếu orderId hợp lệ." }, 200, req);
+      const admin = tripAdmin();
+      const existing = await admin.from("kfm_trip_attempts").select("*").eq("vendor_id", vendorId).eq("order_id", orderId).maybeSingle();
+      if (existing.error) throw new KfmPortalError("trip", 0, "Không đọc được khóa gửi phiếu. Chưa gửi gì lên KFM.");
+      if (existing.data) {
+        const result = await tripResult(cached.session.token, existing.data);
+        return json({ success: true, action, vendorId, result }, 200, req);
+      }
+      if (action === "trip-result") return json({ success: true, result: { state: "not_sent", message: "Chưa ghi nhận yêu cầu tạo trên máy chủ. Tải lại form để kiểm tra trước khi tạo." } }, 200, req);
+      const source = await getTripSource(cached.session.token, { vendorId, orderId });
+      if (Number(source.po.id) !== orderId || !(await tripOrderInScope(cached.session.token, vendorId, orderId))) throw new KfmPortalError("trip", 0, "PO không thuộc danh sách của nhà cung cấp đã chọn.");
+      if (Number(source.po.status) === 6) throw new KfmPortalError("trip", 0, "PO đã hủy, không được tạo phiếu.");
+      const revision = await tripRevision(source, deliveryDate);
+      const { draft } = buildTripDraft({ deliveryDate, po: source.po, rows: source.items, shippedMap: source.shippedMap });
+      if (!draft.stops[0].items.length) throw new KfmPortalError("trip", 0, "Tất cả sản phẩm đã được giao hoặc đã lên chuyến. Không tạo thêm.");
+      const form = payload.form || {};
+      const options = await getTripOptions(cached.session.token, vendorId, source, deliveryDate, Number(form.vehicleTypeId || payload.vehicleTypeId) || null);
+      if (action === "trip-options") return json({ success: true, action, vendorId, revision, options, draft, source: { locationName: source.po.locationName, poCode: source.po.code } }, 200, req);
+      if (payload.confirmed !== true || !/^[0-9a-f-]{36}$/i.test(payload.requestId || "")) throw new KfmPortalError("trip", 0, "Cần xác nhận tạo phiếu từ form.");
+      if (payload.revision !== revision) throw new KfmPortalError("trip_changed", 0, "PO hoặc số lượng đã phân bổ thay đổi. Tải lại form và kiểm tra trước khi tạo.");
+      let body = buildTripSubmission(source, deliveryDate, options, form);
+      const baseline = await tripAsnIds(cached.session.token, vendorId, orderId);
+      const fresh = await getTripSource(cached.session.token, { vendorId, orderId });
+      if (await tripRevision(fresh, deliveryDate) !== revision) throw new KfmPortalError("trip_changed", 0, "PO thay đổi ngay trước lúc gửi. Tải lại form để kiểm tra.");
+      // Atomic DB unique key excludes concurrent browsers/users/Edge instances.
+      // The claim is retained on every uncertain result, including booking errors.
+      const row = { vendor_id: vendorId, order_id: orderId, actor_id: userId, request_id: payload.requestId, body, baseline_asn_ids: baseline };
+      const claim = await admin.from("kfm_trip_attempts").insert(row);
+      if (claim.error) {
+        if (claim.error.code !== "23505") throw new KfmPortalError("trip", 0, "Không khóa được yêu cầu tạo. Chưa gửi lên KFM.");
+        return json({ success: true, result: { state: "unknown", message: "PO đang có yêu cầu tạo khác. Chỉ kiểm tra kết quả, không gửi lại." } }, 200, req);
+      }
+      let loadId: number | null = null;
+      try {
+        if (options.deliveryType === "BOOKING") {
+          const refs = await bookTripSlot(cached.session.token, source, options, body);
+          body = { ...body, ...refs, stops: body.stops.map((stop: any) => ({ ...stop, ...refs, bookingCode: refs.qrToken })) };
+          const booked = await admin.from("kfm_trip_attempts").update({ body }).eq("vendor_id", vendorId).eq("order_id", orderId);
+          if (booked.error) throw new KfmPortalError("trip", 0, "Chưa lưu được lịch kho, dừng tạo chuyến.");
+        }
+        loadId = await createDeliveryTrip(cached.session.token, vendorId, body);
+        await admin.from("kfm_trip_attempts").update({ load_id: loadId }).eq("vendor_id", vendorId).eq("order_id", orderId);
+      } catch { /* Do not retry either write; recover by GET only. */ }
+      const result = await tripResult(cached.session.token, { ...row, body, load_id: loadId });
+      if (result.state !== "verified") await admin.from("kfm_trip_attempts").update({ state: "unknown" }).eq("vendor_id", vendorId).eq("order_id", orderId);
+      return json({ success: true, action, vendorId, result }, 200, req);
+    }
 
     if (action === "detail") {
       const orderId = Number(payload.orderId);

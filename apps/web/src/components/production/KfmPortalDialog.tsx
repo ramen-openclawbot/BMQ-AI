@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { CheckCircle2, Eye, Loader2, Printer, RefreshCw, Truck } from "lucide-react";
@@ -81,6 +81,27 @@ type KfmTripDraft = {
   text: string;
 };
 
+type TripForm = {
+  vehicleTypeId: number | null;
+  bookingTimeSlot: string;
+  expectedTimeFrom: string;
+  expectedTimeTo: string;
+  licensePlate: string;
+  driverName: string;
+  driverPhone: string;
+  note: string;
+  totalCartons: number;
+  totalPallets: number;
+};
+type TripOptions = {
+  deliveryType: "HUB" | "FIXED" | "BOOKING" | null;
+  vehicleTypes: Array<{ id: number; name: string }>;
+  vehicleTypeId: number | null;
+  slots: Array<{ value: string; available: boolean }>;
+};
+type TripResult = { state: "verified" | "unknown" | "not_sent"; message: string; loadId?: number; loadCode?: string; asns?: Array<{ asnId: number; asnCode: string }> };
+type TripCreate = { order: KfmOrder; date: string; revision: string; options: TripOptions; form: TripForm; items: KfmTripItem[]; warehouse: string; result?: TripResult; error?: string };
+
 
 type KfmResponse = {
   success: boolean;
@@ -102,6 +123,9 @@ type KfmResponse = {
   error?: string;
   step?: string;
   message?: string;
+  revision?: string;
+  options?: TripOptions;
+  result?: TripResult;
 };
 
 const qty = (value: number | null | undefined) =>
@@ -208,10 +232,72 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
   // the waiting banner, the toast and the disabled state stay in one place.
   const [printing, setPrinting] = useState<string | null>(null);
 
-  // Stage 1 of the create-delivery-note work: the body the portal's trip form
-  // would post is assembled read-only and shown for review. Nothing is written
-  // and no create button exists yet.
+  // The original read-only preview stays separate from the operator create form.
   const [draft, setDraft] = useState<KfmTripDraft | null>(null);
+  const [creating, setCreating] = useState<TripCreate | null>(null);
+  const createLock = useRef(false);
+  const [createBusy, setCreateBusy] = useState(false);
+
+  const openCreate = async (order: KfmOrder, date = deliveryDate, form?: TripForm) => {
+    if (createLock.current) return;
+    createLock.current = true; setCreateBusy(true); setBusy(`create-${order.portalId}`);
+    const blank: TripForm = { vehicleTypeId: null, bookingTimeSlot: "", expectedTimeFrom: "", expectedTimeTo: "", licensePlate: "", driverName: "", driverPhone: "", note: "", totalCartons: 0, totalPallets: 0 };
+    const initial: TripCreate = { order, date, revision: "", options: { deliveryType: null, vehicleTypes: [], vehicleTypeId: null, slots: [] }, form: form || blank, items: [], warehouse: order.locationName || "" };
+    setDraft(null); setCreating(initial);
+    try {
+      const result = await callPortal({ action: "trip-options", orderId: order.portalId, deliveryDate: date, form: form || blank });
+      if (result.result) { setCreating({ ...initial, result: result.result }); return; }
+      if (!result.options || !result.revision) throw new Error("Máy chủ chưa trả đủ thông tin tạo phiếu.");
+      const items = (result.draft as { stops?: Array<{ items: KfmTripItem[] }> })?.stops?.[0]?.items || [];
+      setCreating({ ...initial, revision: result.revision, options: result.options, items,
+        warehouse: String((result.source as { locationName?: string })?.locationName || initial.warehouse),
+        form: { ...(form || blank), vehicleTypeId: result.options.vehicleTypeId, bookingTimeSlot: "" } });
+    } catch (error) { setCreating({ ...initial, error: (error as Error).message }); }
+    finally { createLock.current = false; setCreateBusy(false); setBusy(null); }
+  };
+
+  const submitCreate = async () => {
+    if (!creating || createLock.current || !creating.revision || creating.result || !creating.items.length) return;
+    if (!window.confirm(`Tạo phiếu giao hàng thật cho ${creating.order.code}, ngày ${creating.date}, ${creating.items.length} dòng tại ${creating.warehouse}?`)) return;
+    createLock.current = true; setCreateBusy(true); setBusy(`create-${creating.order.portalId}`);
+    const snapshot = creating;
+    // Once a POST is attempted the form cannot send it again, even on HTTP failure.
+    setCreating({ ...snapshot, result: { state: "unknown", message: "Đang gửi và đọc lại chuyến/ASN. Không gửi lại yêu cầu." } });
+    try {
+      const response = await callPortal({ action: "create-load", orderId: snapshot.order.portalId, deliveryDate: snapshot.date, revision: snapshot.revision, form: snapshot.form, confirmed: true, requestId: crypto.randomUUID() });
+      if (!response.result) throw new Error("Chưa nhận được kết quả tạo phiếu.");
+      setCreating({ ...snapshot, result: response.result });
+      void query.refetch();
+    } catch (error) { setCreating({ ...snapshot, result: { state: "unknown", message: `${(error as Error).message} Chọn ‘Kiểm tra kết quả’ trước khi làm tiếp.` } }); }
+    finally { createLock.current = false; setCreateBusy(false); setBusy(null); }
+  };
+
+  const checkCreate = async () => {
+    if (!creating || createLock.current) return;
+    createLock.current = true; setCreateBusy(true); setBusy(`create-${creating.order.portalId}`);
+    try {
+      const result = await callPortal({ action: "trip-result", orderId: creating.order.portalId, deliveryDate: creating.date });
+      setCreating({ ...creating, result: result.result });
+    } catch (error) { setCreating({ ...creating, result: { state: "unknown", message: (error as Error).message } }); }
+    finally { createLock.current = false; setCreateBusy(false); setBusy(null); }
+  };
+
+  const printCreated = (layout: KfmPrintLayout) => {
+    const result = creating?.result;
+    if (!result?.loadId || result.state !== "verified" || printing) return;
+    const viewer = window.open("", "_blank");
+    const key = `load-${result.loadId}`;
+    const what = `phiếu giao hàng ${result.loadCode || result.loadId}`;
+    beginPrint(key, viewer, what);
+    void (async () => {
+      try {
+        const pdf = await callPortal({ action: "load-pdf", loadId: result.loadId, code: result.loadCode, layout });
+        if (!pdf.base64) throw new Error("Cổng KFM chưa trả file in.");
+        savePdf(pdf.base64, pdf.filename || `PhieuGiaoHang_${result.loadCode || result.loadId}.pdf`, viewer);
+        finishPrint(key, "Đã mở phiếu giao hàng từ cổng KFM.");
+      } catch (error) { failPrint(key, viewer, error); }
+    })();
+  };
 
   const runAction = async (key: string, work: () => Promise<string>) => {
     setBusy(key);
@@ -420,6 +506,10 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
             <Eye className="mr-2 h-4 w-4" />
             {isVi ? "Xem trước phiếu giao hàng" : "Preview delivery note"}
           </DropdownMenuItem>
+          <DropdownMenuItem data-kfm-action="create-load" onSelect={() => void openCreate(order)}>
+            <Truck className="mr-2 h-4 w-4" />
+            {isVi ? "Tạo phiếu giao hàng" : "Create delivery note"}
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
     </div>
@@ -506,6 +596,72 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
                   <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary" />
                 </span>
               </div>
+            )}
+
+            {creating && (
+              <section className="min-w-0 rounded-xl border border-border p-3 space-y-3" data-kfm-create="v1">
+                <div className="flex items-start justify-between gap-2">
+                  <h3 className="min-w-0 break-all text-sm font-semibold">Tạo phiếu giao hàng · {creating.order.code}</h3>
+                  <Button variant="ghost" size="sm" disabled={createBusy} onClick={() => setCreating(null)}>Đóng</Button>
+                </div>
+                <p className="text-xs text-muted-foreground">Một PO / một chuyến · {creating.warehouse} · {creating.date}</p>
+                {createBusy && <p className="flex gap-2 text-sm" role="status"><Loader2 className="h-4 w-4 animate-spin" />Đang kiểm tra cổng KFM…</p>}
+                {creating.error && <p role="alert" className="text-sm text-destructive">{creating.error}</p>}
+                {creating.result ? (
+                  <div className="space-y-2 text-sm" data-kfm-create-result={creating.result.state} role="status">
+                    <p>{creating.result.message}</p>
+                    {creating.result.state === "verified" ? <>
+                      <p className="break-all font-medium">{creating.result.loadCode} · {creating.result.asns?.map(asn => asn.asnCode).join(", ")}</p>
+                      <div className="flex flex-wrap gap-2">
+                        <Button size="sm" disabled={printing !== null} onClick={() => printCreated("FULL")}>In phiếu (có giá)</Button>
+                        <Button size="sm" variant="outline" disabled={printing !== null} onClick={() => printCreated("NO_PRICE")}>In phiếu (không giá)</Button>
+                      </div>
+                    </> : creating.result.state === "not_sent" ? (
+                      <Button size="sm" variant="outline" disabled={createBusy} onClick={() => void openCreate(creating.order, creating.date, creating.form)}>Tải lại và xem trước</Button>
+                    ) : (
+                      <Button size="sm" variant="outline" data-kfm-action="check-create" disabled={createBusy} onClick={() => void checkCreate()}>Kiểm tra kết quả</Button>
+                    )}
+                  </div>
+                ) : creating.revision && (
+                  <>
+                    <fieldset disabled={createBusy} className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
+                      <label className="min-w-0 text-xs">Ngày giao
+                        <input className="mt-1 block w-full min-w-0 rounded-md border bg-background p-2 text-sm" type="date" value={creating.date} onChange={e => void openCreate(creating.order, e.target.value, creating.form)} />
+                      </label>
+                      <label className="min-w-0 text-xs">Loại xe{creating.options.vehicleTypes.length ? " *" : ""}
+                        <select className="mt-1 block w-full min-w-0 rounded-md border bg-background p-2 text-sm" data-kfm-field="vehicle" value={creating.form.vehicleTypeId || ""} onChange={e => void openCreate(creating.order, creating.date, { ...creating.form, vehicleTypeId: Number(e.target.value) || null })}>
+                          <option value="">Chọn loại xe</option>
+                          {creating.options.vehicleTypes.map(row => <option key={row.id} value={row.id}>{row.name}</option>)}
+                        </select>
+                      </label>
+                      {creating.options.deliveryType ? (
+                        <label className="min-w-0 text-xs sm:col-span-2">Khung giờ giao * · {creating.options.deliveryType === "BOOKING" ? "Đặt lịch kho" : creating.options.deliveryType === "HUB" ? "Giao qua HUB" : "Theo lịch cố định"}
+                          <select className="mt-1 block w-full min-w-0 rounded-md border bg-background p-2 text-sm" value={creating.form.bookingTimeSlot} onChange={e => setCreating({ ...creating, form: { ...creating.form, bookingTimeSlot: e.target.value } })}>
+                            <option value="">Chọn khung giờ</option>
+                            {creating.options.slots.map((slot, index) => <option key={`${slot.value}-${index}`} value={slot.value} disabled={!slot.available}>{slot.value}{slot.available ? "" : " · Hết chỗ/đã qua"}</option>)}
+                          </select>
+                        </label>
+                      ) : ([['expectedTimeFrom', 'Giờ giao từ *'], ['expectedTimeTo', 'Giờ giao đến *']] as const).map(([key, label]) => (
+                        <label key={key} className="min-w-0 text-xs">{label}<input type="time" className="mt-1 block w-full min-w-0 rounded-md border bg-background p-2 text-sm" value={creating.form[key]} onChange={e => setCreating({ ...creating, form: { ...creating.form, [key]: e.target.value } })} /></label>
+                      ))}
+                      {([['licensePlate', 'Biển số xe', 40], ['driverName', 'Tên tài xế', 120], ['driverPhone', 'Số điện thoại tài xế', 30], ['note', 'Ghi chú', 1000]] as const).map(([key, label, max]) => (
+                        <label key={key} className="min-w-0 text-xs">{label}<input maxLength={max} className="mt-1 block w-full min-w-0 rounded-md border bg-background p-2 text-sm" value={creating.form[key]} onChange={e => setCreating({ ...creating, form: { ...creating.form, [key]: e.target.value } })} /></label>
+                      ))}
+                      {([['totalCartons', 'Tổng số thùng'], ['totalPallets', 'Tổng số pallet']] as const).map(([key, label]) => (
+                        <label key={key} className="min-w-0 text-xs">{label}<input type="number" min="0" step="1" className="mt-1 block w-full min-w-0 rounded-md border bg-background p-2 text-sm" value={creating.form[key]} onChange={e => setCreating({ ...creating, form: { ...creating.form, [key]: Number(e.target.value) } })} /></label>
+                      ))}
+                    </fieldset>
+                    <div className="max-h-64 overflow-auto rounded-lg border">
+                      <table className="w-full text-left text-xs" data-kfm-create-items="v1">
+                        <thead className="sticky top-0 bg-muted"><tr><th className="p-2">Sản phẩm</th><th className="p-2">ĐVT</th><th className="p-2 text-right">SL giao</th></tr></thead>
+                        <tbody>{creating.items.map(item => <tr key={item.poItemId} className="border-t"><td className="p-2">{item.productName}<span className="block text-muted-foreground">{item.productCode}</span></td><td className="p-2">{item.unitName}</td><td className="p-2 text-right">{qty(item.shipQty)}</td></tr>)}</tbody>
+                      </table>
+                    </div>
+                    <p className="text-xs text-muted-foreground">Kiểm tra thông tin trước khi xác nhận. Máy chủ sẽ đọc lại PO và số lượng đã phân bổ. Thao tác này tạo chuyến và phiếu thật trên KFM.</p>
+                    <Button data-kfm-action="submit-create" disabled={createBusy || !creating.items.length || Boolean(creating.options.vehicleTypes.length && !creating.form.vehicleTypeId) || (creating.options.deliveryType ? !creating.form.bookingTimeSlot : !creating.form.expectedTimeFrom || !creating.form.expectedTimeTo)} onClick={() => void submitCreate()}>Xác nhận & Tạo phiếu</Button>
+                  </>
+                )}
+              </section>
             )}
 
             {/* Stage 1 of the create-delivery-note work: the assembled body, for

@@ -15,8 +15,8 @@
  *   Read  : GET  {SCE}/api/v1/portal/me
  *           GET  {SCE}/api/v1/portal/orders?vendorId=&page=&size=&deliveryDateFrom=&deliveryDateTo=
  *
- * This module is READ-ONLY against the portal. It never confirms an order,
- * never submits an ASN, and never writes to the partner system.
+ * Writes require an explicit operator action in the bridge. Trip creation uses
+ * the portal's inbound-load flow; it never creates an ASN in parallel.
  *
  * Secrets are read from the Edge Function environment only; they are never
  * logged, returned, or embedded in error messages.
@@ -828,7 +828,8 @@ export async function getTripSource(
   }
   const data = ((body?.data ?? body) || {}) as Record<string, unknown>;
   const po = ((data.po ?? data.purchaseOrder ?? data) || {}) as Record<string, unknown>;
-  const rows: Record<string, unknown>[] = Array.isArray(data.items) ? data.items : [];
+  const rows: Record<string, unknown>[] = Array.isArray(data.items)
+    ? data.items : Array.isArray(po.items) ? po.items : [];
 
   const approved = approvedQuantities(data);
   const shippedMap: Record<string, number> = {};
@@ -958,6 +959,227 @@ export function buildTripDraft(options: {
     },
     skipped,
   };
+}
+
+// GĐ3: contract traced from PortalLoadDetailContainer.DXoBGuXR.js, hi/Ha/oi.
+type PortalRow = Record<string, any>;
+const LOGISTICS_API = "https://logis.seedcom.vn/3pls/api";
+
+/** No retries, including transport errors. Slot checks are read-only POSTs. */
+async function tripApi(token: string, url: string, body?: unknown): Promise<any> {
+  const response = await request(null, url, {
+    method: body === undefined ? "GET" : "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    signal: AbortSignal.timeout(25_000),
+  });
+  if (!response.ok) throw new KfmPortalError("trip", response.status, "Cổng KFM chưa xử lý được yêu cầu. Không tự gửi lại.");
+  const result = await response.json();
+  if (result?.success === false) throw new KfmPortalError("trip", response.status, "Cổng KFM từ chối yêu cầu. Cần kiểm tra trên cổng.");
+  return result?.data ?? result;
+}
+
+export type KfmTripForm = {
+  vehicleTypeId?: number | null;
+  bookingTimeSlot?: string;
+  expectedTimeFrom?: string;
+  expectedTimeTo?: string;
+  licensePlate?: string;
+  driverName?: string;
+  driverPhone?: string;
+  note?: string;
+  totalCartons?: number;
+  totalPallets?: number;
+};
+
+export type KfmTripOptions = {
+  deliveryType: "HUB" | "FIXED" | "BOOKING" | null;
+  vehicleTypes: Array<{ id: number; name: string }>;
+  vehicleTypeId: number | null;
+  slots: Array<{ value: string; available: boolean; startDatetime?: number; endDatetime?: number }>;
+  companyId: number;
+};
+
+function timeText(value: any): string {
+  return typeof value === "string" ? value : value && Number.isInteger(value.hour) && Number.isInteger(value.minute)
+    ? `${String(value.hour).padStart(2, "0")}:${String(value.minute).padStart(2, "0")}` : "";
+}
+const CLOCK_TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/** Same config precedence as the portal: HUB, vendor warehouse, SCE fallback. */
+export async function getTripOptions(token: string, vendorId: number, source: KfmTripSource, date: string, selected?: number | null): Promise<KfmTripOptions> {
+  const po = source.po as PortalRow;
+  const locationId = Number(po.locationId);
+  if (!Number.isSafeInteger(locationId) || locationId <= 0) throw new KfmPortalError("trip", 0, "Đơn chưa có kho nhận hợp lệ.");
+  const context = po.masterWarehouseId ? { masterWarehouseId: po.masterWarehouseId }
+    : await tripApi(token, `${SCE_API}/api/v1/portal/warehouse-context?locationId=${locationId}`);
+  const warehouseId = Number(context.masterWarehouseId) || locationId;
+  const [config, lookup] = await Promise.all([
+    tripApi(token, `${SCE_API}/api/v1/portal/vendors/${Number(po.vendorId) || vendorId}/delivery-config?locationId=${locationId}&date=${date}`),
+    tripApi(token, `${LOGISTICS_API}/delivery-vendors/lookup?${new URLSearchParams({ vendorCode: String(po.vendorCode || ""), warehouseId: String(warehouseId) })}`),
+  ]);
+  const warehouse = lookup?.warehouses?.[0];
+  const vehicleMap = new Map<number, { id: number; name: string }>();
+  if (warehouse?.vehicles?.length) {
+    for (const row of warehouse.vehicles) if (row.vehicleTypeId) vehicleMap.set(Number(row.vehicleTypeId), { id: Number(row.vehicleTypeId), name: String(row.vehicleTypeName || row.vehicleTypeCode || "") });
+  } else {
+    const master = await tripApi(token, `${LOGISTICS_API}/vehicle/types?warehouseId=${warehouseId}`);
+    const rows = master?.content ?? master;
+    if (!Array.isArray(rows)) throw new KfmPortalError("trip", 0, "Không đọc được danh mục loại xe của kho.");
+    for (const row of rows) if (row.id) vehicleMap.set(Number(row.id), { id: Number(row.id), name: String(row.name || row.description || row.code || "") });
+  }
+  const vehicleTypes = [...vehicleMap.values()];
+  const vehicleTypeId = selected || (vehicleTypes.length === 1 ? vehicleTypes[0].id : null);
+  if (vehicleTypeId && !vehicleMap.has(vehicleTypeId)) throw new KfmPortalError("trip", 0, "Loại xe không thuộc cấu hình kho này.");
+  let deliveryType: KfmTripOptions["deliveryType"] = null;
+  let schedules: PortalRow[] = [];
+  if (config?.useHub) { deliveryType = "HUB"; schedules = config.schedules || []; }
+  else if (warehouse) {
+    if (warehouse.hasFixedSchedule === true) {
+      if (warehouse.found && warehouse.vehicles?.length) { deliveryType = "FIXED"; schedules = warehouse.vehicles; }
+    } else deliveryType = warehouse.found ? "BOOKING" : null;
+  } else if (config?.found || config?.deliveryType === "FIXED" || config?.hasFixedSchedule) {
+    deliveryType = "FIXED"; schedules = config.schedules || [];
+  }
+  let slots: KfmTripOptions["slots"] = [];
+  if (deliveryType === "HUB" || deliveryType === "FIXED") {
+    if (schedules.length) {
+      const requested = schedules.map(row => ({ from: row.from || row.leadtimeFrom || "00:00", to: row.to || row.leadtimeTo || "23:59", vehicleCount: row.vehicleCount || row.quantity || 1, ...(vehicleTypeId ? { vehicleTypeId } : {}) }));
+      const checked = await tripApi(token, `${SCE_API}/api/v1/portal/vendors/${vendorId}/delivery-config/check-slots`, { date, slots: requested });
+      if (!Array.isArray(checked?.slots)) throw new KfmPortalError("trip", 0, "Không xác minh được chỗ trống trong khung giờ giao.");
+      slots = checked.slots.map((row: PortalRow, i: number) => {
+        const from = row.from || requested[i]?.from, to = row.to || requested[i]?.to;
+        const expired = date === vnDate(0) && Date.parse(`${date}T${to}:00+07:00`) < Date.now();
+        return { value: `${from}-${to}`, available: row.status !== "FULL" && row.status !== "LATE" && (row.usedCount || 0) < (row.vehicleCount || requested[i]?.vehicleCount || 1) && !expired };
+      });
+    }
+    // The portal permits walk-in hours when no scheduled slot is available.
+    if (!slots.some(slot => slot.available)) deliveryType = null;
+  } else if (deliveryType === "BOOKING" && vehicleTypeId) {
+    const result = await tripApi(token, `${LOGISTICS_API}/appointments/available-slots?${new URLSearchParams({ startDate: date, endDate: date, vehicleType: String(vehicleTypeId), warehouseId: String(warehouseId) })}`);
+    if (!Array.isArray(result)) throw new KfmPortalError("trip", 0, "Không đọc được khung giờ đặt lịch.");
+    slots = result.map(row => ({ value: `${timeText(row.startTime)}-${timeText(row.endTime)}`, available: row.isAvailable === true, startDatetime: row.startDatetime, endDatetime: row.endDatetime }));
+  }
+  return { deliveryType, vehicleTypes, vehicleTypeId, slots, companyId: Number(po.companyId) };
+}
+
+/** Fingerprint includes all quantities, allocations and PO state, not totals only. */
+export async function tripRevision(source: KfmTripSource, date: string): Promise<string> {
+  const text = JSON.stringify({ date, po: source.po, items: source.items, shippedMap: Object.entries(source.shippedMap).sort(([a], [b]) => a.localeCompare(b)) });
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** Rebuilt server-side; the client never controls items/PO/location in the POST. */
+export function buildTripSubmission(source: KfmTripSource, date: string, options: KfmTripOptions, form: KfmTripForm): PortalRow {
+  const parsedDate = Date.parse(`${date}T00:00:00Z`);
+  if (!ISO_DATE.test(date) || !Number.isFinite(parsedDate) || new Date(parsedDate).toISOString().slice(0, 10) !== date || date < vnDate(0)) throw new KfmPortalError("trip", 0, "Ngày giao không hợp lệ hoặc đã qua.");
+  const { draft } = buildTripDraft({ deliveryDate: date, po: source.po, rows: source.items, shippedMap: source.shippedMap });
+  const stop = draft.stops[0];
+  if (!stop.items.length) throw new KfmPortalError("trip", 0, "Không còn dòng đủ điều kiện tạo chuyến mới.");
+  if (!stop.locationId || stop.items.some(item => !item.poId || !item.poItemId || !item.productCode || !Number.isFinite(item.shipQty) || item.shipQty <= 0)) throw new KfmPortalError("trip", 0, "Dữ liệu sản phẩm hoặc kho chưa đầy đủ.");
+  const vehicle = options.vehicleTypes.find(row => row.id === Number(form.vehicleTypeId || options.vehicleTypeId));
+  if (options.vehicleTypes.length && !vehicle) throw new KfmPortalError("trip", 0, "Chưa chọn loại xe.");
+  let bookingTimeSlot = form.bookingTimeSlot || "";
+  if (options.deliveryType) {
+    if (!options.slots.some(slot => slot.value === bookingTimeSlot && slot.available)) throw new KfmPortalError("trip", 0, "Khung giờ giao không còn chỗ hoặc chưa được chọn. Vui lòng tải lại.");
+  } else {
+    if (!CLOCK_TIME.test(form.expectedTimeFrom || "") || !CLOCK_TIME.test(form.expectedTimeTo || "") || form.expectedTimeFrom! >= form.expectedTimeTo!) throw new KfmPortalError("trip", 0, "Cần giờ giao từ/đến hợp lệ.");
+    bookingTimeSlot = `${form.expectedTimeFrom}-${form.expectedTimeTo}`;
+  }
+  const [from, to] = bookingTimeSlot.split("-");
+  if (!CLOCK_TIME.test(from) || !CLOCK_TIME.test(to)) throw new KfmPortalError("trip", 0, "Định dạng khung giờ chưa được hỗ trợ.");
+  const text = (value: unknown, max: number) => {
+    if (value !== undefined && typeof value !== "string") throw new KfmPortalError("trip", 0, "Thông tin xe không hợp lệ.");
+    const result = String(value || "").trim();
+    if (result.length > max) throw new KfmPortalError("trip", 0, "Thông tin xe vượt độ dài cho phép.");
+    return result;
+  };
+  for (const value of [form.totalCartons ?? 0, form.totalPallets ?? 0]) if (!Number.isSafeInteger(value) || value < 0) throw new KfmPortalError("trip", 0, "Số thùng/pallet phải là số nguyên không âm.");
+  const booking = { bookingGroupCode: null, bookingRef: null, qrToken: null };
+  return {
+    deliveryDate: date, vehicleTypeId: vehicle?.id ?? null, vehicleTypeName: vehicle?.name ?? "",
+    licensePlate: text(form.licensePlate, 40), driverName: text(form.driverName, 120), driverPhone: text(form.driverPhone, 30), note: text(form.note, 1000), ...booking,
+    stops: [{ ...stop, totalCartons: form.totalCartons ?? 0, totalPallets: form.totalPallets ?? 0, vehicleTypeId: vehicle?.id,
+      bookingTimeSlot, bookingStartDatetime: `${date}T${from}:00+07:00`, bookingEndDatetime: `${date}T${to}:00+07:00`, ...booking, bookingCode: null }],
+  };
+}
+
+/** Booking is part of the portal's create flow, only for BOOKING warehouses. */
+export async function bookTripSlot(token: string, source: KfmTripSource, options: KfmTripOptions, body: PortalRow): Promise<PortalRow> {
+  const slot = options.slots.find(row => row.value === body.stops[0].bookingTimeSlot && row.available);
+  if (!slot?.startDatetime || !slot?.endDatetime || !options.companyId) throw new KfmPortalError("trip", 0, "Thiếu thông tin đặt lịch kho.");
+  const result = await tripApi(token, `${LOGISTICS_API}/appointments`, {
+    poCodes: [String(source.po.code)], vendorCode: source.po.vendorCode, vendorName: source.po.vendorName,
+    driverName: body.driverName, driverPhone: body.driverPhone, companyId: options.companyId,
+    bookDate: Date.parse(`${body.deliveryDate}T00:00:00+07:00`),
+    details: [{ vehicleType: String(body.vehicleTypeId || 1), startDatetime: slot.startDatetime, endDatetime: slot.endDatetime }],
+  });
+  const booking = result?.bookings?.[0];
+  const refs = { bookingGroupCode: result?.bookingGroupCode || result?.groupBookingCode, bookingRef: booking?.id, qrToken: booking?.bookingCode || booking?.code };
+  if (!refs.bookingGroupCode || !refs.bookingRef || !refs.qrToken) throw new KfmPortalError("trip", 0, "Chưa xác nhận được lịch kho. Không gửi tạo chuyến tiếp.");
+  return refs;
+}
+
+export async function createDeliveryTrip(token: string, vendorId: number, body: PortalRow): Promise<number> {
+  const result = await tripApi(token, `${SCE_API}/api/v1/portal/inbound-loads?vendorId=${vendorId}&submit=true`, body);
+  const id = Number(result?.loadId);
+  if (!Number.isSafeInteger(id) || id <= 0) throw new KfmPortalError("trip", 0, "Chưa nhận được mã chuyến. Không gửi lại yêu cầu tạo.");
+  return id;
+}
+
+export async function readTripRaw(token: string, vendorId: number, loadId: number): Promise<PortalRow> {
+  return await tripApi(token, `${SCE_API}/api/v1/portal/inbound-loads/${loadId}?vendorId=${vendorId}`);
+}
+
+/** A load read contains the ASNs and their items (portal Oa restore mapping). */
+export function verifyTripReadback(load: PortalRow, body: PortalRow): boolean {
+  if (!Number.isSafeInteger(Number(load.id)) || Number(load.id) <= 0 || !load.loadCode) return false;
+  if (!["CONFIRMED", "DISPATCHED", "CHECKED_IN", "RECEIVED"].includes(load.loadStatus) || load.deliveryDate !== body.deliveryDate) return false;
+  if (!Array.isArray(load.asns) || load.asns.length !== 1) return false;
+  const asn = load.asns[0], stop = body.stops[0];
+  if (!(asn.id || asn.asnId) || !(asn.code || asn.asnCode) || Number(asn.locationId) !== stop.locationId || !Array.isArray(asn.items) || asn.items.length !== stop.items.length) return false;
+  const signature = (rows: PortalRow[]) => rows.map(row => `${row.poId}:${row.poItemId}:${row.productCode}:${Number(row.shipQty)}:${Number(row.cartons || 0)}`).sort().join("|");
+  return signature(asn.items) === signature(stop.items);
+}
+
+/** Parent vendor sessions can expose child-vendor POs (V000217 -> V000217.1).
+ * Do not equate PO vendorId with the session vendorId; verify the scoped list.
+ */
+export async function tripOrderInScope(token: string, vendorId: number, orderId: number): Promise<boolean> {
+  for (let page = 0; page < 20; page++) {
+    const result = await listOrders(token, { vendorId, page, size: 200 });
+    if (result.orders.some(order => order.portalId === orderId)) return true;
+    if (result.orders.length < 200 || (page + 1) * 200 >= result.totalElements) return false;
+  }
+  return false;
+}
+
+/** Strict baseline: a failed read is not an empty set before a real write. */
+export async function tripAsnIds(token: string, vendorId: number, orderId: number): Promise<number[]> {
+  const result = await tripApi(token, `${SCE_API}/api/v1/portal/orders/${orderId}/asn?vendorId=${vendorId}`);
+  const rows = Array.isArray(result) ? result : result?.content;
+  if (!Array.isArray(rows)) throw new KfmPortalError("trip", 0, "Không xác minh được phiếu đã có của PO.");
+  return rows.map(row => Number(row.id)).filter(id => Number.isSafeInteger(id) && id > 0);
+}
+
+/** Read-only reconciliation after an uncertain POST. Never posts or retries. */
+export async function findCreatedTrip(token: string, vendorId: number, body: PortalRow, baseline: number[], loadId?: number | null): Promise<PortalRow | null> {
+  if (loadId) return await readTripRaw(token, vendorId, loadId);
+  const matches: PortalRow[] = [];
+  const deadline = Date.now() + 15_000;
+  let inspected = 0;
+  for (let page = 0; page < 20; page++) {
+    const result = await tripApi(token, `${SCE_API}/api/v1/portal/inbound-loads?${new URLSearchParams({ vendorId: String(vendorId), deliveryDate: body.deliveryDate, page: String(page), size: "100" })}`);
+    if (!Array.isArray(result?.content)) throw new KfmPortalError("trip", 0, "Không đọc được danh sách đối chiếu chuyến.");
+    for (const row of result.content) {
+      if (Date.now() > deadline || inspected++ >= 100) return null;
+      const load = await readTripRaw(token, vendorId, Number(row.id));
+      if (verifyTripReadback(load, body) && load.asns.every((asn: PortalRow) => !baseline.includes(Number(asn.id || asn.asnId))) && ["licensePlate", "driverName", "driverPhone"].every(key => String(load[key] || "") === String(body[key] || ""))) matches.push(load);
+    }
+    if (result.content.length < 100 || (page + 1) * 100 >= Number(result.totalElements)) return matches.length === 1 ? matches[0] : null;
+  }
+  return null; // Incomplete/ambiguous scan never reports verified success.
 }
 
 /** Confirm (accept) a purchase order on the portal. Operator-triggered only. */

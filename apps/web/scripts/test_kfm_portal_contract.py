@@ -80,7 +80,7 @@ def test_the_panel_offers_no_trip_surface() -> None:
     require(PANEL, "Đang chuẩn bị file in", "printing must show the portal's waiting state")
     for marker in ('data-kfm-loads-section', 'data-kfm-loads-toggle', 'data-kfm-loads-filter',
                    'data-kfm-action="print-load"', "handlePrintLoad", "showLoads",
-                   "filterLoadsByDate", "loadsQuery", 'action: "loads"', 'action: "load-pdf"'):
+                   "filterLoadsByDate", "loadsQuery", 'action: "loads"'):
         forbid(PANEL, marker, "the panel must carry no trip surface: %s" % marker)
 
 
@@ -110,8 +110,9 @@ def test_the_trip_draft_is_read_only_and_built_from_the_po_items() -> None:
     # The portal sends the ORDERED quantity as `shipQty` and always sends 0 for
     # `cartons`; both are what its own body carries, so both are pinned here.
     require(CLIENT, "shipQty,\n      cartons: 0", "the portal sends the ordered amount and zero cartons")
-    # Stage 1 writes nothing: the create endpoints stay out of the client.
-    forbid(CLIENT, "&submit=", "stage 1 must not post a trip")
+    # GĐ3 approved: the separate create helper may post; draft still only reads.
+    require(CLIENT, "&submit=true", "the confirmed create flow must match the portal")
+    forbid(CLIENT, "&submit=false", "this slice must not silently create a draft")
     forbid(CLIENT, "inbound-loads/${options.loadId}/cancel", "cancelling a trip is not approved")
     require(FUNCTION, '"trip-draft"', "the bridge must expose the read-only draft action")
     # Reported 2026-09-14: the panel showed a successful response carrying only
@@ -122,7 +123,20 @@ def test_the_trip_draft_is_read_only_and_built_from_the_po_items() -> None:
             "only a missing action may default to the order list")
     require(PANEL, 'data-kfm-action="preview-load"', "the row menu must offer the preview")
     require(PANEL, 'data-kfm-load-preview="v1"', "the preview panel must carry a stable marker")
-    forbid(PANEL, 'action: "create-load"', "no create action may reach the portal yet")
+    require(PANEL, 'action: "create-load"', "approved GĐ3 must expose operator creation")
+
+
+def test_trip_creation_is_guarded_and_recoverable() -> None:
+    for marker in ('data-kfm-create="v1"', 'data-kfm-action="submit-create"',
+                   'data-kfm-action="check-create"', 'createLock.current',
+                   'requestId: crypto.randomUUID()', 'confirmed: true'):
+        require(PANEL, marker, "create flow guard missing: " + marker)
+    for marker in ('canCreateTrip(userId)', 'cached.vendorIds.includes(vendorId)',
+                   'payload.revision !== revision', 'buildTripSubmission',
+                   'from("kfm_trip_attempts").insert(row)', 'tripResult', 'baseline_asn_ids'):
+        require(FUNCTION, marker, "server create guard missing: " + marker)
+    require(CLIENT, 'verifyTripReadback', "success must follow per-line ASN readback")
+    forbid(CLIENT, '`${SCE_API}/api/v1/portal/asn?vendorId=', "never create a separate ASN in parallel")
 
 
 def test_empty_trip_preview_does_not_claim_physical_delivery() -> None:
