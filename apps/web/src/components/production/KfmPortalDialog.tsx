@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { CheckCircle2, Eye, Loader2, Printer, RefreshCw, Truck } from "lucide-react";
+import { Eye, Loader2, Printer, RefreshCw, Truck } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -26,9 +26,12 @@ import { supabase } from "@/integrations/supabase/client";
  *
  * Products and quantities only: money is deliberately not shown here. The
  * panel replaces the email PO parse as the source of the day's orders, and
- * every action on the portal (confirm, print PO, print delivery note) is a
+ * every action on the portal (create delivery note, print PO, print delivery note) is a
  * manual click — nothing runs on a schedule.
  */
+
+const AUTO_CONFIRM_NOTICE = "Tạo phiếu giao hàng sẽ tự động xác nhận đơn hàng. Sau bước này sẽ không thể yêu cầu chỉnh sửa nữa.";
+const changeLabel = (category: string) => ({ QUANTITY: "Số lượng", QUALITY: "Ngoại quan", SHELF_LIFE: "Hạn sử dụng", DELIVERY_DATE: "Ngày giao", OTHER: "Khác" }[category] || category);
 
 const VN_OFFSET_MS = 7 * 60 * 60 * 1000;
 
@@ -99,8 +102,8 @@ type TripOptions = {
   vehicleTypeId: number | null;
   slots: Array<{ value: string; available: boolean }>;
 };
-type TripResult = { state: "verified" | "unknown" | "not_sent"; message: string; loadId?: number; loadCode?: string; asns?: Array<{ asnId: number; asnCode: string }> };
-type TripCreate = { order: KfmOrder; date: string; revision: string; options: TripOptions; form: TripForm; items: KfmTripItem[]; warehouse: string; result?: TripResult; error?: string };
+type TripResult = { poConfirmation?: { confirmed: boolean; label: string; subStatus: number | null }; state: "verified" | "unknown" | "not_sent"; message: string; loadId?: number; loadCode?: string; asns?: Array<{ asnId: number; asnCode: string }> };
+type TripCreate = { order: KfmOrder; date: string; revision: string; options: TripOptions; form: TripForm; items: KfmTripItem[]; warehouse: string; pendingChangeCategories: string[]; result?: TripResult; error?: string };
 
 
 type KfmResponse = {
@@ -125,6 +128,7 @@ type KfmResponse = {
   message?: string;
   revision?: string;
   options?: TripOptions;
+  pendingChangeCategories?: string[];
   result?: TripResult;
 };
 
@@ -242,14 +246,14 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
     if (createLock.current) return;
     createLock.current = true; setCreateBusy(true); setBusy(`create-${order.portalId}`);
     const blank: TripForm = { vehicleTypeId: null, bookingTimeSlot: "", expectedTimeFrom: "", expectedTimeTo: "", licensePlate: "", driverName: "", driverPhone: "", note: "", totalCartons: 0, totalPallets: 0 };
-    const initial: TripCreate = { order, date, revision: "", options: { deliveryType: null, vehicleTypes: [], vehicleTypeId: null, slots: [] }, form: form || blank, items: [], warehouse: order.locationName || "" };
+    const initial: TripCreate = { order, date, revision: "", options: { deliveryType: null, vehicleTypes: [], vehicleTypeId: null, slots: [] }, form: form || blank, items: [], pendingChangeCategories: [], warehouse: order.locationName || "" };
     setDraft(null); setCreating(initial);
     try {
       const result = await callPortal({ action: "trip-options", orderId: order.portalId, deliveryDate: date, form: form || blank });
       if (result.result) { setCreating({ ...initial, result: result.result }); return; }
       if (!result.options || !result.revision) throw new Error("Máy chủ chưa trả đủ thông tin tạo phiếu.");
       const items = (result.draft as { stops?: Array<{ items: KfmTripItem[] }> })?.stops?.[0]?.items || [];
-      setCreating({ ...initial, revision: result.revision, options: result.options, items,
+      setCreating({ ...initial, revision: result.revision, options: result.options, items, pendingChangeCategories: result.pendingChangeCategories || [],
         warehouse: String((result.source as { locationName?: string })?.locationName || initial.warehouse),
         form: { ...(form || blank), vehicleTypeId: result.options.vehicleTypeId, bookingTimeSlot: "" } });
     } catch (error) { setCreating({ ...initial, error: (error as Error).message }); }
@@ -258,7 +262,7 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
 
   const submitCreate = async () => {
     if (!creating || createLock.current || !creating.revision || creating.result || !creating.items.length) return;
-    if (!window.confirm(`Tạo phiếu giao hàng thật cho ${creating.order.code}, ngày ${creating.date}, ${creating.items.length} dòng tại ${creating.warehouse}?`)) return;
+    if (!window.confirm(`Tạo phiếu giao hàng thật cho ${creating.order.code}, ngày ${creating.date}, ${creating.items.length} dòng tại ${creating.warehouse}?\n\n${AUTO_CONFIRM_NOTICE}${creating.pendingChangeCategories.length ? `\nYêu cầu chỉnh sửa sẽ tự động hủy: ${creating.pendingChangeCategories.map(changeLabel).join(", ")}.` : ""}`)) return;
     createLock.current = true; setCreateBusy(true); setBusy(`create-${creating.order.portalId}`);
     const snapshot = creating;
     // Once a POST is attempted the form cannot send it again, even on HTTP failure.
@@ -310,20 +314,6 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
       setBusy(null);
     }
   };
-
-  const handleConfirm = (order: KfmOrder) => {
-    if (!window.confirm(isVi
-      ? `Xác nhận đơn ${order.code} với cổng KFM?`
-      : `Confirm order ${order.code} on the KFM portal?`)) return;
-    void runAction(`confirm-${order.portalId}`, async () => {
-      await callPortal({ action: "confirm", deliveryDate, orderId: order.portalId });
-      await query.refetch();
-      return isVi ? `Đã xác nhận đơn ${order.code}.` : `Order ${order.code} confirmed.`;
-    });
-  };
-
-  const busyIcon = (key: string) =>
-    busy === key ? <Loader2 className="h-4 w-4 animate-spin" /> : null;
 
   /**
    * Every print action waits the same way: one keyed slot drives the banner,
@@ -463,17 +453,6 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
    */
   const renderOrderActions = (order: KfmOrder) => (
     <div className="flex items-center justify-end gap-1">
-      <Button
-        variant="ghost"
-        size="sm"
-        className="h-8 rounded-lg"
-        title={isVi ? "Xác nhận đơn" : "Confirm order"}
-        data-kfm-action="confirm"
-        disabled={busy !== null}
-        onClick={() => handleConfirm(order)}
-      >
-        {busyIcon(`confirm-${order.portalId}`) || <CheckCircle2 className="h-4 w-4" />}
-      </Button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
@@ -610,6 +589,7 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
                 {creating.result ? (
                   <div className="space-y-2 text-sm" data-kfm-create-result={creating.result.state} role="status">
                     <p>{creating.result.message}</p>
+                    {creating.result.poConfirmation && <p data-kfm-po-readback="v1">PO: {creating.result.poConfirmation.label}</p>}
                     {creating.result.state === "verified" ? <>
                       <p className="break-all font-medium">{creating.result.loadCode} · {creating.result.asns?.map(asn => asn.asnCode).join(", ")}</p>
                       <div className="flex flex-wrap gap-2">
@@ -624,6 +604,10 @@ export default function KfmPortalDialog({ isVi = true }: { isVi?: boolean }) {
                   </div>
                 ) : creating.revision && (
                   <>
+                    <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-950" data-kfm-auto-confirm="v1">
+                      <p>{AUTO_CONFIRM_NOTICE}</p>
+                      {creating.pendingChangeCategories.length > 0 && <p className="mt-2 font-medium" data-kfm-pending-changes="v1">Các yêu cầu chỉnh sửa đang chờ sẽ tự động hủy: {creating.pendingChangeCategories.map(changeLabel).join(", ")}.</p>}
+                    </div>
                     <fieldset disabled={createBusy} className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
                       <label className="min-w-0 text-xs">Ngày giao
                         <input className="mt-1 block w-full min-w-0 rounded-md border bg-background p-2 text-sm" type="date" value={creating.date} onChange={e => void openCreate(creating.order, e.target.value, creating.form)} />

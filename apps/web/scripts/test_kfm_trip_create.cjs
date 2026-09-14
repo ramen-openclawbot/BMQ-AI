@@ -16,7 +16,7 @@ function moduleAt(file, env = {}) {
 let requests = [], transport;
 const client = moduleAt('supabase/functions/_shared/kfm-portal.ts', { fetch: (...args) => { requests.push(args); return transport(...args); } });
 const date = client.vnDate(1);
-const source = { po: { id: 239751, code: 'PO1002646817', vendorId: 1865, vendorCode: 'V000217', companyId: 10, locationId: 1445, status: 2 }, items: [110,150].map((qty,i) => ({ id: i+1, productCode: 'P'+i, productName: 'Bread '+i, qty, unitName: 'CÁI', variantId: i+1 })), shippedMap: {} };
+const source = { po: { id: 239751, code: 'PO1002646817', vendorId: 1865, vendorCode: 'V000217', companyId: 10, locationId: 1445, status: 2, subStatus: 6 }, items: [110,150].map((qty,i) => ({ id: i+1, productCode: 'P'+i, productName: 'Bread '+i, qty, unitName: 'CÁI', variantId: i+1 })), shippedMap: {} };
 const options = { deliveryType: null, vehicleTypes: [{ id: 1, name: 'Xe tải' }], vehicleTypeId: 1, slots: [], companyId: 10 };
 const form = { vehicleTypeId: 1, expectedTimeFrom: '08:00', expectedTimeTo: '09:00', licensePlate: 'TEST', totalCartons: 2, totalPallets: 0 };
 const body = client.buildTripSubmission(source, date, options, form);
@@ -25,7 +25,7 @@ let passed = 0;
 async function test(name, fn) { requests=[]; await fn(); passed++; console.log('ok', name); }
 const json = data => new Response(JSON.stringify({ data }), { status: 200 });
 
-function bridge({ permission = true, vendorIds = [1865], changed = false, outcome = 'success', inScope = true, childVendor = false } = {}) {
+function bridge({ permission = true, vendorIds = [1865], changed = false, outcome = 'success', inScope = true, childVendor = false, poStatus = 6, pendingChanged = false, poReadFails = false } = {}) {
   const records = new Map(); let handler, postCount = 0, sourceReads=0;
   const admin = { auth: { getUser: async () => ({ data: { user: { id: 'fixture-user' } } }) }, from(table) {
     let operation='select', value, filters={};
@@ -53,8 +53,8 @@ function bridge({ permission = true, vendorIds = [1865], changed = false, outcom
     if(url.includes('/inbound-loads?'))return json({content:outcome==='missing'?[]:[{id:44}],totalElements:outcome==='missing'?0:1});
     throw Error('Unexpected transport '+url);
   };
-  const shared = { ...client, openSession: async()=>({token:'fixture-only',mode:'test'}),getMe:async()=>({vendorIds,vendorCode:'FIXTURE'}),getTripOptions:async()=>options,tripOrderInScope:async()=>inScope,
-    getTripSource:async()=>{sourceReads++;return changed?{...source,shippedMap:{P0:5}}:childVendor?{...source,po:{...source.po,vendorId:2797,vendorCode:'V000217.1'}}:source;},
+  const shared = { ...client, openSession: async()=>({token:'fixture-only',mode:'test'}),getMe:async()=>({vendorIds,vendorCode:'FIXTURE'}),getTripOptions:async()=>options,tripOrderInScope:async()=>inScope,getTripPendingChanges:async()=>pendingChanged?[{requestCategory:'QUALITY',itemStatus:'NEW'}]:[],
+    getTripSource:async()=>{sourceReads++;if(postCount && poReadFails)throw Error('PO read failed');if(postCount)return {...source,po:{...source.po,subStatus:poStatus}};return changed?{...source,shippedMap:{P0:5}}:childVendor?{...source,po:{...source.po,vendorId:2797,vendorCode:'V000217.1'}}:source;},
   };
   moduleAt('supabase/functions/kfm-portal-sync/index.ts', {
     Deno:{env:{get:()=> 'fixture-only'}},
@@ -94,5 +94,14 @@ function bridge({ permission = true, vendorIds = [1865], changed = false, outcom
     transport=async(url)=>{if(url.includes('warehouse-context'))return json({masterWarehouseId:9});if(url.includes('/delivery-config?'))return json({});if(url.includes('/delivery-vendors/lookup'))return json({warehouses:[{found:true,hasFixedSchedule:false,vehicles:[{vehicleTypeId:1,vehicleTypeName:'Truck'}]}]});if(url.includes('/available-slots?'))return json([{startTime:{hour:8,minute:0},endTime:{hour:9,minute:0},isAvailable:true,startDatetime:1,endDatetime:2}]);throw Error(url);};
     const o=await client.getTripOptions('fixture-only',1865,source,date,1);assert.equal(o.deliveryType,'BOOKING');assert.equal(o.slots[0].value,'08:00-09:00');assert(requests.every(([url,init])=>init.method==='GET'));
   });
+  await test('pending non-price changes follow portal filter and use GET',async()=>{
+    transport=async()=>json([{requestCategory:'QUANTITY',itemStatus:'NEW'},{requestCategory:'QUALITY',itemStatus:'PENDING'},{requestCategory:'PRICE',itemStatus:'NEW'},{requestCategory:'OTHER',itemStatus:'RESOLVED'}]);
+    const rows=await client.getTripPendingChanges('fixture-only',239751);assert.equal(rows.length,2);assert(requests[0][0].endsWith('/purchase-orders/239751/request-items'));assert.equal(requests[0][1].method || 'GET','GET');
+    transport=async()=>new Response('{}',{status:500});await assert.rejects(()=>client.getTripPendingChanges('fixture-only',239751));
+  });
+  await test('changed pending requests invalidate review before POST',async()=>{const b=bridge({pendingChanged:true});assert.equal((await b.call(payload)).success,false);assert.equal(b.postCount,0);});
+  await test('PO still pending never reports fully verified and never repeats write',async()=>{const b=bridge({poStatus:3});const r=await b.call(payload);assert.equal(r.result.state,'unknown');assert.equal(r.result.poConfirmation.confirmed,false);await b.call({...payload,action:'trip-result'});assert.equal(b.postCount,1);});
+  await test('missing PO readback stays locked',async()=>{const b=bridge({poReadFails:true});assert.equal((await b.call(payload)).result.state,'unknown');await b.call(payload);assert.equal(b.postCount,1);});
+  await test('PO confirmation uses portal subStatus not load or PO status',()=>{for(const subStatus of [5,6,9])assert(client.tripPoConfirmation({subStatus}).confirmed);for(const subStatus of [null,3,11,999])assert(!client.tripPoConfirmation({status:3,subStatus}).confirmed);});
   console.log(`PASS ${passed} behavioral tests; no real KFM request`);
 })().catch(e=>{console.error(e);process.exitCode=1;});

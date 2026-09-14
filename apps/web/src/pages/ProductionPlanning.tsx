@@ -1230,9 +1230,9 @@ export default function ProductionPlanning() {
   const ordersEmpty = !loadingOrders && productionOrders.length === 0;
 
   return (
-    <div className="-m-4 min-h-screen space-y-5 bg-background p-4 text-foreground md:-m-6 md:p-6" data-stitch-production-planning="bmq-light-operations">
+    <div className="-m-3 min-h-screen min-w-0 space-y-5 bg-background p-3 text-foreground sm:-m-4 sm:p-4 md:-m-6 md:p-6" data-stitch-production-planning="bmq-light-operations">
       <div className="card-elevated rounded-[1.5rem] p-4 md:p-5" data-stitch-production-header="true">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+        <div className="flex min-w-0 flex-col gap-4" data-bmq-q7-header="v2">
           <div className="space-y-3">
             <div className="flex flex-wrap items-center gap-2">
               <Badge className="w-fit rounded-full bg-primary/10 text-primary hover:bg-primary/10">
@@ -1252,7 +1252,7 @@ export default function ProductionPlanning() {
               </p>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-2 sm:flex">
+          <div className="grid min-w-0 grid-cols-2 gap-2 sm:flex sm:flex-wrap">
             {activeTab === "settings" ? (
               <Button
                 variant="outline"
@@ -1409,8 +1409,8 @@ export default function ProductionPlanning() {
         </Card>
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
-        <section className="space-y-4">
+      <div className="grid min-w-0 grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <section className="min-w-0 space-y-4">
           <div className="card-elevated overflow-hidden rounded-[1.5rem]" data-stitch-production-po-check="true">
             <div className="flex flex-col gap-3 border-b border-border/60 bg-card/50 px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
               <div>
@@ -1449,7 +1449,7 @@ export default function ProductionPlanning() {
             ) : (
               <>
                 <div className="hidden overflow-x-auto lg:block" data-stitch-production-table="true">
-                  <table className="w-full border-collapse text-left text-sm">
+                  <table className="w-full min-w-[800px] border-collapse text-left text-sm">
                     <thead className="sticky top-0 z-10 border-b border-border bg-muted/80 text-xs uppercase text-muted-foreground backdrop-blur">
                       <tr>
                         <th className="px-4 py-3 font-bold">{isVi ? "SKU / Thành phẩm" : "SKU / Product"}</th>
@@ -1528,7 +1528,7 @@ export default function ProductionPlanning() {
           </div>
         </section>
 
-        <aside className="space-y-4 xl:sticky xl:top-4 xl:self-start" data-stitch-production-insights="true">
+        <aside className="min-w-0 space-y-4 xl:sticky xl:top-4 xl:self-start" data-stitch-production-insights="true">
           <Card className="card-elevated rounded-[1.5rem]">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-xl font-black text-foreground">
@@ -1544,7 +1544,7 @@ export default function ProductionPlanning() {
                     : "No POs currently qualify for confirmation on this delivery date. POs appear here only after parsing production items, matching enabled Q7 SKUs, and before a production order is created."}
                 </div>
               ) : (
-                <div className="grid gap-2">
+                <div className="grid min-w-0 grid-cols-1 gap-2">
                   {visiblePendingPos.slice(0, 6).map((po) => {
                     const attachmentNames = getPoAttachmentNames(po);
                     return (
@@ -1553,7 +1553,7 @@ export default function ProductionPlanning() {
                         type="button"
                         disabled={!canEditLocation}
                         onClick={() => handleCreateClick(po)}
-                        className="w-full rounded-2xl border border-border/60 bg-card/70 p-3 text-left transition hover:border-primary/30 hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-55"
+                        className="w-full min-w-0 rounded-2xl border border-border/60 bg-card/70 p-3 text-left transition hover:border-primary/30 hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-55"
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">

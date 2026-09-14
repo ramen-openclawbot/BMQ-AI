@@ -218,7 +218,7 @@ def test_the_panel_shows_no_money() -> None:
     for marker in ("Tổng (gồm VAT)", "orderTotalWithTax", "orderTotal", "taxTotal"):
         forbid(PANEL, marker, "the KFM panel must show products and quantities only")
     require(PANEL, "totalQty", "quantities stay visible on the order list")
-    require(PANEL, 'data-kfm-action="confirm"', "the confirm button must be present")
+    forbid(PANEL, 'data-kfm-action="confirm"', "PO confirmation belongs to explicit trip creation")
     require(PANEL, 'data-kfm-action="print-po"', "the PO print button must be present")
     require(PANEL, "window.confirm", "a write to the portal must be confirmed by the operator first")
 
@@ -278,6 +278,20 @@ def test_a_phone_row_needs_no_sideways_drag() -> None:
     require(PANEL, "hidden max-h-96 min-w-0 overflow-auto rounded-xl border border-border md:block",
             "the table must only render from the md breakpoint up")
     require(PANEL, "break-all", "the full PO code must stay readable without scrolling")
+
+
+def test_auto_confirmation_and_desktop_layout_contracts() -> None:
+    for marker in ('data-kfm-auto-confirm="v1"', 'data-kfm-pending-changes="v1"', 'data-kfm-po-readback="v1"'):
+        require(PANEL, marker, "review and readback must be visible")
+    forbid(PANEL, 'action: "confirm"', "never send a separate PO confirmation")
+    require(FUNCTION, "fresh.pendingChanges = await getTripPendingChanges", "check pending changes again before writing")
+    require(FUNCTION, "if (!poConfirmation?.confirmed)", "do not claim success without PO readback")
+    require(PLANNING, 'data-bmq-q7-header="v2"', "version the desktop header")
+    require(PLANNING, 'sm:flex sm:flex-wrap', "wrap header actions")
+    require(PLANNING, 'xl:grid-cols-[minmax(0,1fr)_360px]', "constrain the table column")
+    payables = (ROOT / "src/pages/PaymentRequests.tsx").read_text()
+    require(payables, 'data-bmq-payables-toolbar="v2"', "version the desktop toolbar")
+    require(payables, 'data-bmq-payables-search-row="v2"', "search must have its own row")
 
 
 if __name__ == "__main__":

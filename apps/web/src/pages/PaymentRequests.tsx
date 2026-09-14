@@ -552,91 +552,95 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
       </div>
 
       <div className="space-y-4 lg:space-y-5">
-        <div className="hidden flex-col gap-3 lg:flex xl:flex-row xl:items-center">
-          <div className="flex min-h-12 items-center gap-2 rounded-md border border-slate-200 bg-white px-4 text-sm text-slate-800 shadow-none dark:border-slate-800 dark:bg-card dark:text-slate-100 xl:w-[340px]">
-            <span className="flex min-w-0 flex-1 items-center gap-3">
-              <CalendarDays className="h-4 w-4 text-slate-500" />
-              <span className="sr-only">{dateRangeLabel}</span>
+        <div className="hidden min-w-0 flex-col gap-3 lg:flex" data-bmq-payables-toolbar="v2">
+          <div className="flex min-w-0 items-center gap-3" data-bmq-payables-search-row="v2">
+            <div className="relative min-w-0 flex-1">
+              <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
               <Input
-                type="date"
-                value={dateFrom}
-                max={dateTo || undefined}
-                onChange={(event) => setDateFrom(event.target.value)}
-                aria-label={language === "vi" ? "Từ ngày" : "From date"}
-                className="h-10 min-w-0 border-0 bg-transparent p-0 text-sm font-medium shadow-none focus-visible:ring-0 dark:bg-transparent"
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+                placeholder={language === "vi" ? "Tìm theo mã phiếu, tên sản phẩm hoặc nhà cung cấp" : "Search by code, product, or supplier"}
+                className="h-12 rounded-md border-slate-200 bg-white pl-12 text-sm shadow-none placeholder:text-slate-400 dark:border-slate-800 dark:bg-card"
               />
-              <span className="text-slate-400">-</span>
-              <Input
-                type="date"
-                value={dateTo}
-                min={dateFrom || undefined}
-                onChange={(event) => setDateTo(event.target.value)}
-                aria-label={language === "vi" ? "Đến ngày" : "To date"}
-                className="h-10 min-w-0 border-0 bg-transparent p-0 text-sm font-medium shadow-none focus-visible:ring-0 dark:bg-transparent"
-              />
-            </span>
-          </div>
+            </div>
 
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="h-12 rounded-md border-slate-200 bg-white px-4 text-slate-800 shadow-none dark:border-slate-800 dark:bg-card dark:text-slate-100 xl:w-[260px]">
-              <SelectValue placeholder={t.status} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{language === "vi" ? "Tất cả trạng thái" : "All statuses"}</SelectItem>
-              <SelectItem value="pending">{t.pending}</SelectItem>
-              <SelectItem value="approved">{t.approved}</SelectItem>
-              <SelectItem value="rejected">{t.rejected}</SelectItem>
-            </SelectContent>
-          </Select>
-
-          <Select value={sourceFilter} onValueChange={setSourceFilter}>
-            <SelectTrigger className="h-12 rounded-md border-slate-200 bg-white px-4 text-slate-800 shadow-none dark:border-slate-800 dark:bg-card dark:text-slate-100 xl:w-[280px]">
-              <SelectValue placeholder={language === "vi" ? "Nguồn công nợ" : "Payable source"} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{language === "vi" ? "Tất cả nguồn" : "All sources"}</SelectItem>
-              <SelectItem value="warehouse_receipt">{language === "vi" ? "Công nợ tạo từ nhập kho" : "Generated from warehouse receipt"}</SelectItem>
-              <SelectItem value="manual">{language === "vi" ? "Tạo thủ công / nguồn khác" : "Manual / other source"}</SelectItem>
-            </SelectContent>
-          </Select>
-
-          <div className="relative min-w-0 flex-1">
-            <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
-            <Input
-              value={searchTerm}
-              onChange={(event) => setSearchTerm(event.target.value)}
-              placeholder={language === "vi" ? "Tìm theo mã phiếu, tên sản phẩm hoặc nhà cung cấp" : "Search by code, product, or supplier"}
-              className="h-12 rounded-md border-slate-200 bg-white pl-12 text-sm shadow-none placeholder:text-slate-400 dark:border-slate-800 dark:bg-card"
+            <AddPaymentRequestDialog
+              trigger={
+                <Button className="h-12 rounded-md px-6 text-sm font-medium shadow-sm">
+                  <Plus className="h-5 w-5" />
+                  {language === "vi" ? "Tạo duyệt chi" : "Create request"}
+                </Button>
+              }
             />
+
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-12 w-12 rounded-md border-slate-200 bg-white shadow-none dark:border-slate-800 dark:bg-card"
+              onClick={() => setShowDriveInvoiceDialog(true)}
+              title={language === "vi" ? "Nhập từ Google Drive" : "Import from Google Drive"}
+            >
+              <Upload className="h-5 w-5" />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-12 w-12 rounded-md border-slate-200 bg-white shadow-none dark:border-slate-800 dark:bg-card"
+              onClick={() => refetch()}
+              title={language === "vi" ? "Làm mới" : "Refresh"}
+            >
+              <RefreshCw className={cn("h-5 w-5", isLoading && "animate-spin")} />
+            </Button>
           </div>
+          <div className="grid min-w-0 grid-cols-[minmax(300px,1.2fr)_minmax(0,1fr)_minmax(0,1fr)] gap-3">
+            <div className="flex min-h-12 items-center gap-2 rounded-md border border-slate-200 bg-white px-4 text-sm text-slate-800 shadow-none dark:border-slate-800 dark:bg-card dark:text-slate-100 min-w-0">
+              <span className="flex min-w-0 flex-1 items-center gap-3">
+                <CalendarDays className="h-4 w-4 text-slate-500" />
+                <span className="sr-only">{dateRangeLabel}</span>
+                <Input
+                  type="date"
+                  value={dateFrom}
+                  max={dateTo || undefined}
+                  onChange={(event) => setDateFrom(event.target.value)}
+                  aria-label={language === "vi" ? "Từ ngày" : "From date"}
+                  className="h-10 min-w-0 border-0 bg-transparent p-0 text-sm font-medium shadow-none focus-visible:ring-0 dark:bg-transparent"
+                />
+                <span className="text-slate-400">-</span>
+                <Input
+                  type="date"
+                  value={dateTo}
+                  min={dateFrom || undefined}
+                  onChange={(event) => setDateTo(event.target.value)}
+                  aria-label={language === "vi" ? "Đến ngày" : "To date"}
+                  className="h-10 min-w-0 border-0 bg-transparent p-0 text-sm font-medium shadow-none focus-visible:ring-0 dark:bg-transparent"
+                />
+              </span>
+            </div>
 
-          <AddPaymentRequestDialog
-            trigger={
-              <Button className="h-12 rounded-md px-6 text-sm font-medium shadow-sm">
-                <Plus className="h-5 w-5" />
-                {language === "vi" ? "Tạo duyệt chi" : "Create request"}
-              </Button>
-            }
-          />
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="h-12 rounded-md border-slate-200 bg-white px-4 text-slate-800 shadow-none dark:border-slate-800 dark:bg-card dark:text-slate-100 w-full min-w-0">
+                <SelectValue placeholder={t.status} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{language === "vi" ? "Tất cả trạng thái" : "All statuses"}</SelectItem>
+                <SelectItem value="pending">{t.pending}</SelectItem>
+                <SelectItem value="approved">{t.approved}</SelectItem>
+                <SelectItem value="rejected">{t.rejected}</SelectItem>
+              </SelectContent>
+            </Select>
 
-          <Button
-            variant="outline"
-            size="icon"
-            className="h-12 w-12 rounded-md border-slate-200 bg-white shadow-none dark:border-slate-800 dark:bg-card"
-            onClick={() => setShowDriveInvoiceDialog(true)}
-            title={language === "vi" ? "Nhập từ Google Drive" : "Import from Google Drive"}
-          >
-            <Upload className="h-5 w-5" />
-          </Button>
-          <Button
-            variant="outline"
-            size="icon"
-            className="h-12 w-12 rounded-md border-slate-200 bg-white shadow-none dark:border-slate-800 dark:bg-card"
-            onClick={() => refetch()}
-            title={language === "vi" ? "Làm mới" : "Refresh"}
-          >
-            <RefreshCw className={cn("h-5 w-5", isLoading && "animate-spin")} />
-          </Button>
+            <Select value={sourceFilter} onValueChange={setSourceFilter}>
+              <SelectTrigger className="h-12 rounded-md border-slate-200 bg-white px-4 text-slate-800 shadow-none dark:border-slate-800 dark:bg-card dark:text-slate-100 w-full min-w-0">
+                <SelectValue placeholder={language === "vi" ? "Nguồn công nợ" : "Payable source"} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{language === "vi" ? "Tất cả nguồn" : "All sources"}</SelectItem>
+                <SelectItem value="warehouse_receipt">{language === "vi" ? "Công nợ tạo từ nhập kho" : "Generated from warehouse receipt"}</SelectItem>
+                <SelectItem value="manual">{language === "vi" ? "Tạo thủ công / nguồn khác" : "Manual / other source"}</SelectItem>
+              </SelectContent>
+            </Select>
+
+          </div>
         </div>
 
         <div data-stitch-section="mobile-summary-filters" className="space-y-3 lg:hidden">

@@ -802,7 +802,24 @@ export type KfmTripSource = {
   items: Record<string, unknown>[];
   /** Product code -> quantity already delivered against it. */
   shippedMap: Record<string, number>;
+  /** Pending non-price changes shown in the final create review. */
+  pendingChanges?: Record<string, unknown>[];
 };
+
+/** Portal poApi.useLazyGetPurchaseOrderRequestItemsQuery; call after PO scope check. */
+export async function getTripPendingChanges(token: string, orderId: number): Promise<Record<string, unknown>[]> {
+  const { status, body } = await authedGet(token, `${SCE_API}/api/v1/purchase-orders/${orderId}/request-items`);
+  const rows = body?.data ?? body;
+  if (status !== 200 || !Array.isArray(rows)) throw new KfmPortalError("trip", status, "Chưa đọc được yêu cầu chỉnh sửa PO. Tải lại form trước khi tạo.");
+  return rows.filter(row => row.requestCategory !== "PRICE" && ["NEW", "PENDING"].includes(row.itemStatus));
+}
+
+/** Portal order tabs use subStatus, not the load's CONFIRMED status. */
+export function tripPoConfirmation(po: Record<string, unknown>) {
+  const subStatus = asNumber(po.subStatus);
+  const labels: Record<number, string> = { 3: "Chờ xác nhận", 5: "Chờ Phiếu giao hàng", 6: "Chờ giao", 9: "Đã giao", 11: "Đã hủy" };
+  return { confirmed: subStatus !== null && [5, 6, 9].includes(subStatus), subStatus, label: subStatus === null ? "Chưa rõ trạng thái PO" : labels[subStatus] || `Trạng thái PO ${subStatus}` };
+}
 
 /**
  * The payload the portal's trip form reads. It is the SAME read the panel's
@@ -1065,7 +1082,7 @@ export async function getTripOptions(token: string, vendorId: number, source: Kf
 
 /** Fingerprint includes all quantities, allocations and PO state, not totals only. */
 export async function tripRevision(source: KfmTripSource, date: string): Promise<string> {
-  const text = JSON.stringify({ date, po: source.po, items: source.items, shippedMap: Object.entries(source.shippedMap).sort(([a], [b]) => a.localeCompare(b)) });
+  const text = JSON.stringify({ date, po: source.po, items: source.items, pendingChanges: source.pendingChanges || [], shippedMap: Object.entries(source.shippedMap).sort(([a], [b]) => a.localeCompare(b)) });
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
   return Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, "0")).join("");
 }
