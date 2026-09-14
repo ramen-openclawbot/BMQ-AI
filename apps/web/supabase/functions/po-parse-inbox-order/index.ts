@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { isKfmPoIdentity, KFM_EMAIL_RETIRED } from "../_shared/kfm-po-source.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import * as XLSX from "npm:xlsx@0.18.5";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
@@ -315,10 +316,16 @@ serve(async (req) => {
 
     const { data: inbox, error: inboxErr } = await supabase
       .from("customer_po_inbox")
-      .select("id,gmail_message_id,matched_customer_id,raw_payload,received_at")
+      .select("id,gmail_message_id,matched_customer_id,raw_payload,received_at,from_email,revenue_channel,mini_crm_customers(customer_code,customer_name)")
       .eq("id", inboxId)
       .single();
     if (inboxErr || !inbox?.gmail_message_id) throw new Error("Không tìm thấy gmail_message_id");
+    if (isKfmPoIdentity({ ...inbox, mini_crm_customers: Array.isArray(inbox.mini_crm_customers) ? inbox.mini_crm_customers[0] : inbox.mini_crm_customers })) {
+      return new Response(JSON.stringify(KFM_EMAIL_RETIRED), {
+        status: 410,
+        headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
+      });
+    }
 
     const templateId = inbox?.raw_payload?.template_id || null;
     let activeTemplate: any = null;

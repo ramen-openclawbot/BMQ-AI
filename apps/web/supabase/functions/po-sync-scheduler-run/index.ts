@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { shouldSkipKfmEmailAutomation } from "../_shared/kfm-po-source.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 import { requireAuth, requireCronSecret } from "../_shared/auth.ts";
@@ -27,6 +28,8 @@ type ManualDateRange = {
 
 type InboxRow = {
   id: string;
+  from_email?: string | null;
+  match_status?: string | null;
   matched_customer_id: string | null;
   po_number?: string | null;
   email_subject: string | null;
@@ -349,7 +352,11 @@ async function fetchInboxRows(supabaseAdmin: any, receivedFrom: string, received
       if (error) throw error;
 
       const batch = (data || []) as InboxRow[];
-      for (const row of batch) rowsById.set(row.id, row);
+      // Do not promote outstanding KFM email evidence after portal cutover.
+      // Already-approved historical finance evidence continues unchanged.
+      for (const row of batch) {
+        if (!shouldSkipKfmEmailAutomation(row)) rowsById.set(row.id, row);
+      }
       if (batch.length < pageSize) break;
       offset += pageSize;
     }

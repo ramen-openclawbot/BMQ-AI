@@ -1251,6 +1251,17 @@ export async function confirmOrder(
   }
 }
 
+/** Portal rejectOrder mutation: reason is a query parameter, not a JSON body. */
+export async function rejectOrder(token: string, options: { vendorId: number; orderId: number; reason: string }): Promise<void> {
+  const reason = options.reason.trim();
+  if (!reason || reason.length > 1000) throw new KfmPortalError("reject", 0, "Nhập lý do từ chối (tối đa 1000 ký tự).");
+  const query = new URLSearchParams({ vendorId: String(options.vendorId), reason });
+  const response = await request(null, `${SCE_API}/api/v1/portal/orders/${options.orderId}/reject?${query}`, {
+    method: "POST", headers: { Authorization: `Bearer ${token}` },
+  });
+  if (![200, 201, 204].includes(response.status)) throw new KfmPortalError("reject", response.status, "Cổng KFM chưa xác nhận kết quả từ chối đơn.");
+}
+
 /** Delivery notes (ASN) already raised for a portal order. */
 export async function listOrderAsns(
   token: string,

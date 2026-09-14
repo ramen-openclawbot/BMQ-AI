@@ -63,6 +63,7 @@ function bridge({ permission = true, vendorIds = [1865], changed = false, outcom
       if(spec.includes('/http/server'))return {serve:fn=>handler=fn};
       if(spec.includes('supabase-js'))return {createClient:()=>admin};
       if(spec.includes('cors'))return {getCorsHeaders:()=>({}),corsPreflightResponse:()=>new Response(null,{status:204})};
+      if(spec.includes('kfm-intake'))return {handleKfmIntake:()=>{throw Error('Intake not expected in trip tests');}};
       if(spec.includes('kfm-portal'))return shared;
       throw Error('Unexpected import '+spec);
     },

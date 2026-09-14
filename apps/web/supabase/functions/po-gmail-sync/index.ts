@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { isKfmPoIdentity } from "../_shared/kfm-po-source.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import * as XLSX from "npm:xlsx@0.18.5";
 import pdfParse from "npm:pdf-parse@1.1.1";
@@ -15,6 +16,7 @@ type GmailMessage = {
 type EmailCandidate = {
   customerId: string;
   customerName: string | null;
+  customerCode: string | null;
   revenueChannel: string | null;
   isNpp: boolean;
   suppliedByNppCustomerId: string | null;
@@ -1069,12 +1071,14 @@ serve(async (req) => {
     const accessToken = await getGoogleAccessToken(supabaseAdmin);
 
     const profile = await gmailApi(accessToken, "profile");
-    const list = await gmailApi(accessToken, `messages?q=${encodeURIComponent(query)}&maxResults=${maxResults}`);
+    // Exclude KFM even when a stale/manual/cron caller submits a KFM Gmail query.
+    const emailOnlyQuery = `(${query}) -from:(kingfoodmart.com)`;
+    const list = await gmailApi(accessToken, `messages?q=${encodeURIComponent(emailOnlyQuery)}&maxResults=${maxResults}`);
     const messages: GmailMessage[] = Array.isArray(list?.messages) ? list.messages : [];
 
     const { data: crmEmails } = await supabaseAdmin
       .from("mini_crm_customer_emails")
-      .select("email, customer_id, mini_crm_customers(customer_name,customer_group,is_active,is_npp,supplied_by_npp_customer_id)");
+      .select("email, customer_id, mini_crm_customers(customer_code,customer_name,customer_group,is_active,is_npp,supplied_by_npp_customer_id)");
 
     const emailMap = new Map<string, EmailCandidate[]>();
     for (const row of crmEmails || []) {
@@ -1086,6 +1090,7 @@ serve(async (req) => {
       const candidate: EmailCandidate = {
         customerId: String((row as any).customer_id || ""),
         customerName: customer?.customer_name ? String(customer.customer_name) : null,
+        customerCode: customer?.customer_code ? String(customer.customer_code) : null,
         revenueChannel: revenueChannelFromCustomerGroup(customer?.customer_group || null),
         isNpp: Boolean(customer?.is_npp),
         suppliedByNppCustomerId: customer?.supplied_by_npp_customer_id ? String(customer.supplied_by_npp_customer_id) : null,
@@ -1140,6 +1145,7 @@ serve(async (req) => {
     let skippedInvalidFrom = 0;
     let upsertErrorCount = 0;
     let skippedNotInCrm = 0;
+    let skippedPortalOnly = 0;
     const skippedNotInCrmSamples: string[] = [];
     const upsertErrors: Array<{ messageId: string; error: string }> = [];
     const previews: any[] = [];
@@ -1191,6 +1197,10 @@ serve(async (req) => {
         ? findCandidateByName(candidateMatches, MAM_NON_MAY_AUTOMATION.customerName)
         : null;
       const effectiveMatch = mamNonMayCandidate || match;
+      if (isKfmPoIdentity({ from_email: fromEmail, customer_name: effectiveMatch?.customerName, customer_code: effectiveMatch?.customerCode })) {
+        skippedPortalOnly += 1;
+        continue;
+      }
       const matchedCustomerId = effectiveMatch?.customerId || null;
       if (effectiveMatch) {
         matchedCount += 1;
@@ -1895,6 +1905,7 @@ serve(async (req) => {
         nppResolvedCount,
         skippedInvalidFrom,
         skippedNotInCrm,
+        skippedPortalOnly,
         skippedNotInCrmSamples,
         upsertErrorCount,
         upsertErrors,

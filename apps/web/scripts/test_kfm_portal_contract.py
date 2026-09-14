@@ -54,7 +54,7 @@ def test_the_bridge_exposes_only_the_approved_operator_actions() -> None:
             "the PO sheet must come from the verified export endpoint")
     require(CLIENT, "/api/v1/portal/asn/${options.asnId}/export-pdf?",
             "the delivery note must come from the verified export endpoint")
-    for forbidden in ("/reject", "/propose-change", "/approve-change", "/cancel",
+    for forbidden in ("/propose-change", "/approve-change", "/cancel",
                       "/dispatch", "/send-to-vendor", "export-pdf-batch"):
         forbid(CLIENT, forbidden, "%s is not an approved action" % forbidden)
     for action in ("list", "detail", "confirm", "po-pdf", "asn-pdf",
@@ -227,7 +227,9 @@ def test_the_ui_entry_point_is_wired() -> None:
     require(PANEL, 'kfm-portal-sync', "keep existing authenticated proxy")
     require(PANEL, 'Authorization: `Bearer ${session.access_token}`', "retain user authentication")
     require(PANEL, 'configured === false', "unconfigured is not an empty queue")
-    require(PLANNING, '"Kiểm tra PO"', "Q7 email workflow remains outside this slice")
+    require(PLANNING, "KfmPoIntake", "Q7 uses approved portal intake instead of email")
+    require(FUNCTION, '"intake-decide"', "staff decision uses durable portal intake")
+    require(CLIENT, "/api/v1/portal/orders/${options.orderId}/reject?", "approved reject flow uses exact portal endpoint")
 
 
 def test_the_order_row_keeps_po_and_delivery_printing() -> None:

@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { isKfmPoIdentity } from "../_shared/kfm-po-source.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 import { requireCronSecret } from "../_shared/auth.ts";
@@ -46,6 +47,7 @@ const revenueChannelFromCustomerGroup = (group: string | null | undefined) => {
 type EmailCandidate = {
   customerId: string;
   customerName: string | null;
+  customerCode: string | null;
   revenueChannel: string | null;
   isNpp: boolean;
   suppliedByNppCustomerId: string | null;
@@ -128,7 +130,7 @@ serve(async (req) => {
 
     const { data: crmEmails, error: crmError } = await supabase
       .from("mini_crm_customer_emails")
-      .select("email, customer_id, mini_crm_customers(customer_name,customer_group,is_active,is_npp,supplied_by_npp_customer_id)")
+      .select("email, customer_id, mini_crm_customers(customer_code,customer_name,customer_group,is_active,is_npp,supplied_by_npp_customer_id)")
       .order("created_at", { ascending: true });
 
     if (crmError) throw crmError;
@@ -142,6 +144,7 @@ serve(async (req) => {
       const candidate: EmailCandidate = {
         customerId: String((row as any).customer_id || ""),
         customerName: customer?.customer_name ? String(customer.customer_name) : null,
+        customerCode: customer?.customer_code ? String(customer.customer_code) : null,
         revenueChannel: revenueChannelFromCustomerGroup(customer?.customer_group || null),
         isNpp: Boolean(customer?.is_npp),
         suppliedByNppCustomerId: customer?.supplied_by_npp_customer_id ? String(customer.supplied_by_npp_customer_id) : null,
@@ -155,6 +158,7 @@ serve(async (req) => {
     }
 
     let ingested = 0;
+    let skippedPortalOnly = 0;
     for (const item of emails) {
       const fromEmail = normalizeEmail(String(item.fromEmail || ""));
       if (!fromEmail) continue;
@@ -162,6 +166,10 @@ serve(async (req) => {
       const candidateMatches = emailMap.get(fromEmail) || [];
       const resolvedMatch = resolveEmailCandidates(candidateMatches);
       const match = resolvedMatch.match;
+      if (isKfmPoIdentity({ from_email: fromEmail, customer_name: match?.customerName, customer_code: match?.customerCode })) {
+        skippedPortalOnly += 1;
+        continue;
+      }
       const matchStatus = match ? "pending_approval" : "unmatched";
 
       const payload = {
@@ -199,7 +207,7 @@ serve(async (req) => {
       ingested += 1;
     }
 
-    return new Response(JSON.stringify({ success: true, ingested }), {
+    return new Response(JSON.stringify({ success: true, ingested, skippedPortalOnly }), {
       headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
     });
   } catch (error) {

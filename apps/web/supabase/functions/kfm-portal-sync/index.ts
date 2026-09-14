@@ -8,7 +8,10 @@
  * Reads and operator actions:
  *   list     — read the POs of one delivery date (default)
  *   detail   — read one order (lines + the purchase order behind it)
- *   confirm  — confirm one PO on the portal            (operator click only)
+ *   intake-list — poll new portal POs; never confirms or imports
+ *   intake-decide — explicit staff confirm/reject, readback, then import
+ *   intake-result — read-only partner reconciliation and resumable local import
+ *   confirm — retired; staff must use the durable intake path
  *   po-pdf   — download the PO sheet                   (operator click only)
  *   asn-pdf  — download one delivery-note sheet        (operator click only)
  *   loads    — read the delivery trips with driver and vehicle
@@ -20,8 +23,8 @@
  *   create-load  — explicitly confirmed, permission-checked, durable single send
  *   trip-result  — read-only recovery of a saved attempt; NEVER resubmits
  *
- * Nothing here is scheduled, retried or triggered by a background job: every
- * call happens because a person pressed a button in the BMQ UI.
+ * The open Q7 page polls intake-list. Every partner write still requires a
+ * staff decision or explicit delivery-print action; polling never writes KFM.
  *
  * Request  (POST, authenticated app user):
  *   { "action"?: "list"|"detail"|"confirm"|"po-pdf"|"asn-pdf"|"loads"|"load-detail"|"load-pdf"|"trip-draft",
@@ -45,6 +48,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import { corsPreflightResponse, getCorsHeaders } from "../_shared/cors.ts";
+import { handleKfmIntake } from "../_shared/kfm-intake.ts";
 import {
   ISO_DATE,
   KfmPortalError,
@@ -60,7 +64,6 @@ import {
   tripRevision,
   tripOrderInScope,
   verifyTripReadback,
-  confirmOrder,
   fetchAsnPdf,
   fetchLoadPdf,
   fetchPoPdf,
@@ -80,6 +83,9 @@ import {
 } from "../_shared/kfm-portal.ts";
 
 const ACTIONS = [
+  "intake-list",
+  "intake-decide",
+  "intake-result",
   "list",
   "detail",
   "confirm",
@@ -207,6 +213,8 @@ serve(async (req) => {
     requestId?: string;
     confirmed?: boolean;
     unifiedPrint?: boolean;
+    decision?: "confirm" | "reject";
+    reason?: string;
     form?: import("../_shared/kfm-portal.ts").KfmTripForm;
   } = {};
   try {
@@ -235,6 +243,8 @@ serve(async (req) => {
     : vnDate(1); // KFM orders tomorrow's delivery today.
 
   const tripAction = ["trip-options", "create-load", "trip-result"].includes(action);
+  const intakeAction = ["intake-list", "intake-decide", "intake-result"].includes(action);
+  if ((intakeAction || action === "confirm") && !(await canCreateTrip(userId))) return json({ success: false, error: "forbidden", message: "Anh/chị chưa có quyền duyệt PO tại Xưởng Q7." }, 403, req);
   const mayCreate = tripAction ? await canCreateTrip(userId) : false;
   if (tripAction && !mayCreate && !(action === "trip-options" && payload.unifiedPrint === true)) return json({ success: false, error: "forbidden", message: "Anh/chị chưa có quyền chỉnh sửa kế hoạch sản xuất để tạo phiếu." }, 403, req);
   if (tripAction && (!payload.deliveryDate || !ISO_DATE.test(payload.deliveryDate))) return json({ success: false, error: "bad_date", message: "Cần chọn ngày giao rõ ràng." }, 200, req);
@@ -270,7 +280,7 @@ serve(async (req) => {
           step: lastCredentialFailure.step,
           message: lastCredentialFailure.message,
           retryAfterSeconds: Math.ceil(cooldownLeftMs / 1000),
-          fallback: "po-gmail-sync",
+          fallback: "retry_portal",
         }, 200, req);
       }
       const session = await openSession({ username, password, refreshToken });
@@ -290,9 +300,11 @@ serve(async (req) => {
         message: "Tài khoản cổng KFM không gắn nhà cung cấp nào.",
       }, 200, req);
     }
-    if (tripAction && !cached.vendorIds.includes(vendorId)) return json({ success: false, error: "forbidden_vendor", message: "Nhà cung cấp không thuộc tài khoản KFM." }, 403, req);
+    if ((tripAction || intakeAction || action === "confirm") && !cached.vendorIds.includes(vendorId)) return json({ success: false, error: "forbidden_vendor", message: "Nhà cung cấp không thuộc tài khoản KFM." }, 403, req);
 
     const session = { mode: cached.session.mode, obtainedAt: cached.session.obtainedAt };
+
+    if (intakeAction) return json(await handleKfmIntake(tripAdmin(), cached.session.token, vendorId, userId, payload), 200, req);
 
     if (tripAction) {
       const orderId = Number(payload.orderId);
@@ -367,12 +379,7 @@ serve(async (req) => {
     }
 
     if (action === "confirm") {
-      const orderId = Number(payload.orderId);
-      if (!Number.isInteger(orderId) || orderId <= 0) {
-        return json({ success: false, action, error: "bad_order_id", message: "Thiếu orderId." }, 200, req);
-      }
-      await confirmOrder(cached.session.token, { vendorId, orderId });
-      return json({ success: true, configured: true, action, orderId, session }, 200, req);
+      return json({ success: false, error: "intake_required", message: "Duyệt PO từ Kiểm tra PO để xác nhận và nhập sản xuất an toàn." }, 200, req);
     }
 
     if (action === "po-pdf" || action === "asn-pdf") {
@@ -565,7 +572,7 @@ serve(async (req) => {
       message,
       detail,
       // The UI falls back to the existing Gmail PO flow when this is not success.
-      fallback: "po-gmail-sync",
+      fallback: "retry_portal",
     }, 200, req);
   }
 });

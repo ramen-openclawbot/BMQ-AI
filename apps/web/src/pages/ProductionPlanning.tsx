@@ -12,7 +12,6 @@ import {
   FilePlus2,
   Download,
   Loader2,
-  MailCheck,
   Monitor,
   Package,
   Paperclip,
@@ -52,6 +51,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { Link } from "react-router-dom";
 import { isFinishedSku } from "@/lib/skuType";
+import KfmPoIntake from "@/components/production/KfmPoIntake";
 
 interface ProductionItem {
   product_name: string;
@@ -62,6 +62,7 @@ interface ProductionItem {
   date: string;
   sku?: string | null;
   sku_code?: string | null;
+  sku_id?: string | null;
 }
 
 interface CustomerPoInbox {
@@ -78,6 +79,7 @@ interface CustomerPoInbox {
   match_status: string;
   has_attachments?: boolean | null;
   attachment_names?: string[] | null;
+  raw_payload?: { source?: string; kfm_order_id?: number; kfm_vendor_id?: number } | null;
 }
 
 interface ResolvedProductionItem extends ProductionItem {
@@ -144,6 +146,7 @@ interface CreateProductionOrderInput {
 
 type CreateProductionOrderResult = {
   order: ProductionOrder;
+  reused?: boolean;
 };
 
 type Q7MaterialIssuePdfResult = {
@@ -234,6 +237,8 @@ const isStrictProductionSkuMatch = (itemName: string, skuName: string) => {
 };
 
 const resolveSkuMatch = (item: ProductionItem, skus: ProductSkuImageRow[]) => {
+  // Portal intake already validates the exact SKU; never remap it by a looser name.
+  if (item.sku_id) return skus.find((sku) => sku.id === item.sku_id) || null;
   const itemSkuCode = normalizeSkuText(item.sku_code || item.sku);
   if (itemSkuCode) {
     const byCode = skus.find((sku) => normalizeSkuText(sku.sku_code) === itemSkuCode);
@@ -255,7 +260,10 @@ const isKingfoodPo = (po: Pick<CustomerPoInbox, "from_email" | "email_subject" |
   return marker.includes("kingfoodmart") || marker.includes("kingfood") || kfmTokenPattern.test(marker);
 };
 
+const isPortalPo = (po: CustomerPoInbox) => po.raw_payload?.source === "kfm_portal";
+
 const latestReplacementKeyForPo = (po: CustomerPoInbox) => {
+  if (isPortalPo(po)) return `kfm-portal:${po.po_number.trim().toUpperCase()}`;
   const deliveryDate = normalizeDateForDb(po.delivery_date) || "no-date";
   if (isKingfoodPo(po)) return `kingfood:${deliveryDate}`;
   return null;
@@ -411,7 +419,6 @@ export default function ProductionPlanning() {
   const productionPoDateIso = useMemo(() => vietnamProductionTargetInputValue(), []);
   const tvProductionDateIso = useMemo(() => vietnamTodayInputValue(), []);
   const planDayStartIso = useMemo(() => vietnamDayUtcStartIso(), []);
-  const nextDayStartIso = useMemo(() => vietnamDayUtcStartIso(1), []);
 
   const [formData, setFormData] = useState<{
     items: Array<{
@@ -442,7 +449,7 @@ export default function ProductionPlanning() {
           .from("customer_po_inbox")
           .select("*")
           .in("match_status", ["approved", "pending_approval"])
-          .or(`delivery_date.eq.${productionPoDateIso},and(delivery_date.is.null,created_at.gte.${planDayStartIso})`)
+          .or(`raw_payload->>source.eq.kfm_portal,delivery_date.eq.${productionPoDateIso},and(delivery_date.is.null,created_at.gte.${planDayStartIso})`)
           .order("created_at", { ascending: false });
 
         if (posError) throw posError;
@@ -454,7 +461,7 @@ export default function ProductionPlanning() {
         if (linkedError) throw linkedError;
 
         const linkedPoIds = new Set((linkedPos || []).map((p: any) => p.source_po_inbox_id));
-        return (allPos || []).filter((po: any) => !linkedPoIds.has(po.id)) as CustomerPoInbox[];
+        return (allPos || []).filter((po: CustomerPoInbox) => !linkedPoIds.has(po.id) && (!(isPortalPo(po) || isKingfoodPo(po)) || po.match_status === "approved")) as CustomerPoInbox[];
       } catch (error) {
         console.error("Error fetching pending POs:", error);
         toast.error(isVi ? "Không thể tải danh sách PO" : "Failed to load POs");
@@ -618,51 +625,6 @@ export default function ProductionPlanning() {
     setEditForm({ planned_start_date: "", planned_end_date: "", notes: "", items: [] });
   };
 
-  const checkPoMutation = useMutation({
-    mutationFn: async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) {
-        throw new Error(isVi ? "Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại." : "Session expired. Please sign in again.");
-      }
-
-      const fromEpoch = Math.floor(new Date(planDayStartIso).getTime() / 1000);
-      const toEpoch = Math.floor(new Date(nextDayStartIso).getTime() / 1000);
-      const query = `in:anywhere deliveredto:po@bmq.vn after:${fromEpoch} before:${toEpoch}`;
-
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/po-gmail-sync`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ mode: "import", maxResults: 100, query, includeOnlyCrm: true }),
-      });
-
-      const rawText = await response.text();
-      let result: any = {};
-      try {
-        result = rawText ? JSON.parse(rawText) : {};
-      } catch {
-        result = { raw: rawText };
-      }
-
-      if (!response.ok) {
-        throw new Error(result?.error || result?.message || result?.raw || rawText || "Không thể kiểm tra PO");
-      }
-
-      return { ...result, query };
-    },
-    onSuccess: async (result: any) => {
-      await queryClient.invalidateQueries({ queryKey: ["pending-pos"] });
-      await queryClient.invalidateQueries({ queryKey: ["production-orders"] });
-      toast.success(isVi ? `Đã kiểm tra PO: nhập ${result?.synced || 0} email mới.` : `PO check done: imported ${result?.synced || 0} new emails.`);
-    },
-    onError: (error: any) => {
-      console.error("Error checking PO email:", error);
-      toast.error(error?.message || (isVi ? "Không thể kiểm tra PO" : "Failed to check POs"));
-    },
-  });
-
   const enabledSkuIds = useMemo(() => {
     return new Set(locationSkuSettings.filter((row) => row.is_enabled).map((row) => row.sku_id));
   }, [locationSkuSettings]);
@@ -680,7 +642,7 @@ export default function ProductionPlanning() {
     return keepLatestReplacementPos(pendingPos)
       .map((po) => ({
         ...po,
-        production_items: (po.production_items || [])
+        production_items: (isPortalPo(po) && (po.production_items || []).some((item) => !resolveEnabledProductionItem(item)) ? [] : po.production_items || [])
           .map(resolveEnabledProductionItem)
           .filter((item): item is ResolvedProductionItem => {
             if (!item) return false;
@@ -717,68 +679,25 @@ export default function ProductionPlanning() {
 
   const createProductionOrderMutation = useMutation({
     mutationFn: async (input: CreateProductionOrderInput) => {
-      try {
-        const productionDateIso = normalizeDateForDb(input.planned_start_date) || vietnamTodayInputValue();
-        const dateStr = productionDateIso.replace(/-/g, "");
-
-        const { count, error: countError } = await (supabase as any)
-          .from("production_orders")
-          .select("id", { count: "exact", head: true })
-          .like("production_number", `SX-${dateStr}-%`);
-
-        if (countError) throw countError;
-
-        const sequence = (count || 0) + 1;
-        const productionNumber = `SX-${dateStr}-${String(sequence).padStart(3, "0")}`;
-
-        const { data: newOrder, error: orderError } = await (supabase as any)
-          .from("production_orders")
-          .insert({
-            production_number: productionNumber,
-            source_po_inbox_id: input.po_id,
-            status: "planned",
-            location_code: PRODUCTION_LOCATION_CODE,
-            planned_start_date: input.planned_start_date || null,
-            planned_end_date: input.planned_end_date || null,
-            notes: input.notes || null,
-          })
-          .select()
-          .single();
-
-        if (orderError) throw orderError;
-
-        const itemsToInsert = input.items.map((item) => ({
-          production_order_id: newOrder.id,
-          sku_id: item.sku_id,
-          product_name: item.product_name,
-          ordered_qty: item.original_qty,
-          planned_qty: item.planned_qty,
-          unit: item.unit,
-          delivery_date: normalizeDateForDb(item.date),
-          notes: item.planned_qty !== item.original_qty ? "Đã điều chỉnh số lượng trước khi xác nhận" : null,
-        }));
-
-        const { error: itemsError } = await (supabase as any)
-          .from("production_order_items")
-          .insert(itemsToInsert);
-
-        if (itemsError) {
-          await (supabase as any).from("production_orders").delete().eq("id", newOrder.id);
-          throw itemsError;
-        }
-
-        return { order: newOrder } satisfies CreateProductionOrderResult;
-      } catch (error) {
-        console.error("Error creating production order:", error);
-        throw error;
-      }
+      const { data, error } = await (supabase as any).rpc("create_q7_production_from_po", {
+        p_po_id: input.po_id,
+        p_start_date: input.planned_start_date || null,
+        p_end_date: input.planned_end_date || null,
+        p_notes: input.notes || null,
+        p_items: input.items,
+      });
+      if (error) throw error;
+      if (!data?.order?.id) throw new Error("Không nhận được lệnh sản xuất đã xác minh.");
+      return data as CreateProductionOrderResult;
     },
-    onSuccess: ({ order }) => {
+    onSuccess: ({ order, reused }) => {
       queryClient.invalidateQueries({ queryKey: ["pending-pos"] });
       queryClient.invalidateQueries({ queryKey: ["production-orders"] });
       void prepareQ7MaterialIssuePdf(order.id);
 
-      const successMessage = isVi
+      const successMessage = reused
+        ? (isVi ? `Lệnh ${order.production_number} đã tồn tại; không tạo trùng.` : `Order ${order.production_number} already exists; no duplicate created.`)
+        : isVi
         ? `Đã tạo lệnh sản xuất ${order.production_number}. Phiếu NVL đang được chuẩn bị.`
         : `Production order ${order.production_number} created. The material issue PDF is being prepared.`;
 
@@ -986,42 +905,54 @@ export default function ProductionPlanning() {
     };
   }, [aggregatedPlanItems, productionOrders, tvProductionDateIso, visiblePendingPos.length]);
 
-  const handleCreateClick = (po: CustomerPoInbox) => {
-    if (!canEditLocation) {
-      toast.error(isVi ? "Bạn cần quyền Sửa của Xưởng Q7 để xác nhận sản xuất" : "Edit permission for Q7 Workshop is required to confirm production");
-      return;
+  const handleCreateClick = (po: CustomerPoInbox, quiet = false): string | null => {
+    const fail = (message: string) => { if (!quiet) toast.error(message); return message; };
+    if (!canEditLocation) return fail(isVi ? "Bạn cần quyền Sửa của Xưởng Q7 để xác nhận sản xuất" : "Edit permission for Q7 Workshop is required");
+    if (loadingSkus || loadingLocationSettings) return fail(isVi ? "Đang tải danh mục SKU và thiết lập xưởng. Hãy thử lại sau giây lát." : "SKU and workshop settings are loading. Try again shortly.");
+    const portal = isPortalPo(po);
+    const sourceItems = po.production_items || [];
+    const resolved = sourceItems.map(resolveEnabledProductionItem);
+    if (portal) {
+      const missing = sourceItems.filter((_, index) => !resolved[index]);
+      if (missing.length) return fail((isVi ? "PO đã xác nhận trên KFM. Cần khớp / bật SKU trong Thiết lập SX trước khi lập lệnh: " : "PO confirmed on KFM. Map / enable these workshop SKUs before production: ") + missing.map((item) => item.product_name).join(", "));
+      if (!normalizeDateForDb(po.delivery_date)) return fail(isVi ? "PO thiếu ngày giao hợp lệ; chưa thể thiết lập sản xuất." : "The PO needs a valid delivery date before production setup.");
     }
-    const allowedItems = (po.production_items || [])
-      .map(resolveEnabledProductionItem)
-      .filter((item): item is ResolvedProductionItem => {
-        if (!item) return false;
-        if (po.delivery_date) return normalizeDateForDb(po.delivery_date) === productionPoDateIso;
-        const itemDate = normalizeDateForDb((item as any).service_date || item.date);
-        return itemDate === productionPoDateIso;
-      });
-    if (allowedItems.length === 0) {
-      toast.error(isVi ? "PO này không có SKU được bật cho Xưởng Q7" : "This PO has no enabled SKUs for Q7 Workshop");
-      return;
-    }
-    const items = allowedItems.map((item) => ({
-      sku_id: item.matched_sku.id,
-      product_name: item.matched_sku.product_name,
-      original_qty: item.qty,
-      planned_qty: item.qty,
-      unit: item.matched_sku.unit || item.unit,
-      unit_price: item.unit_price,
-      line_total: item.line_total,
-      date: po.delivery_date || (item as any).service_date || item.date,
-    }));
+    const allowedItems = resolved.filter((item): item is ResolvedProductionItem => {
+      if (!item) return false;
+      if (portal) return true;
+      if (po.delivery_date) return normalizeDateForDb(po.delivery_date) === productionPoDateIso;
+      return normalizeDateForDb((item as any).service_date || item.date) === productionPoDateIso;
+    });
+    if (allowedItems.length === 0) return fail(isVi ? "PO này không có SKU được bật cho Xưởng Q7" : "This PO has no enabled SKUs for Q7 Workshop");
+    const date = portal ? normalizeDateForDb(po.delivery_date)! : productionPoDateIso;
     setSelectedPoForCreation(po);
     setFormData({
-      items,
-      planned_start_date: productionPoDateIso,
-      planned_end_date: productionPoDateIso,
-      notes: "",
+      items: allowedItems.map((item) => ({
+        sku_id: item.matched_sku.id, product_name: item.matched_sku.product_name,
+        original_qty: item.qty, planned_qty: item.qty, unit: item.matched_sku.unit || item.unit,
+        unit_price: item.unit_price, line_total: item.line_total,
+        date: po.delivery_date || (item as any).service_date || item.date,
+      })),
+      planned_start_date: date, planned_end_date: date, notes: "",
     });
     setCreateDialogOpen(true);
+    return null;
   };
+
+  const handlePortalImported = async (inboxId: string) => {
+    await queryClient.invalidateQueries({ queryKey: ["pending-pos"] });
+    await queryClient.invalidateQueries({ queryKey: ["production-orders"] });
+    const { data: linked, error: linkedError } = await (supabase as any).from("production_orders").select("id").eq("source_po_inbox_id", inboxId).maybeSingle();
+    if (linkedError) throw linkedError;
+    if (linked) return; // Another employee completed production while this PO was open.
+    const { data: po, error } = await (supabase as any).from("customer_po_inbox").select("*").eq("id", inboxId).single();
+    if (error) throw error;
+    if (!isPortalPo(po) || po.match_status !== "approved") throw new Error("Chưa xác minh PO được nhập từ portal sau khi xác nhận.");
+    const issue = handleCreateClick(po, true);
+    if (issue) throw new Error(issue);
+  };
+
+  const portalPosAwaitingSetup = keepLatestReplacementPos(pendingPos.filter(isPortalPo));
 
   const downloadPoAttachment = useCallback(
     async (po: Pick<CustomerPoInbox, "id" | "po_number">, fileName: string, event?: MouseEvent<HTMLElement>) => {
@@ -1237,7 +1168,7 @@ export default function ProductionPlanning() {
           <div className="space-y-3">
             <div className="flex flex-wrap items-center gap-2">
               <Badge className="w-fit rounded-full bg-primary/10 text-primary hover:bg-primary/10">
-                {isVi ? "Tự động từ PO đã parse" : "Auto from parsed POs"}
+                {isVi ? "PO từ portal KFM" : "POs from KFM portal"}
               </Badge>
               <Badge variant="outline" className="w-fit rounded-full border-border/70 bg-card/70 text-muted-foreground">
                 <CalendarDays className="mr-1 h-3.5 w-3.5" />
@@ -1274,16 +1205,7 @@ export default function ProductionPlanning() {
                 >
                   {isVi ? "Thiết lập SX" : "Production setup"}
                 </Button>
-                <Button
-                  variant="outline"
-                  size="lg"
-                  className="h-12 rounded-2xl border-primary/30 bg-card/80 text-base font-bold text-primary hover:bg-primary/10 hover:text-primary"
-                  disabled={checkPoMutation.isPending}
-                  onClick={() => checkPoMutation.mutate()}
-                >
-                  {checkPoMutation.isPending ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <MailCheck className="mr-2 h-5 w-5" />}
-                  {isVi ? "Kiểm tra PO" : "Check POs"}
-                </Button>
+                <KfmPoIntake canDecide={canEditLocation} isVi={isVi} paused={createDialogOpen || !!editingOrder || !!deleteOrder || tvModeOpen} onImported={handlePortalImported} />
                 <Button asChild variant="outline" size="lg" className="h-12 rounded-2xl border-border bg-card/80 text-base text-foreground hover:bg-muted" data-kfm-portal-entry="v2">
                   <Link to="/production/planning/q7/kfm"><Truck className="mr-2 h-5 w-5" />{isVi ? "Cổng KFM" : "KFM portal"}</Link>
                 </Button>
@@ -1400,7 +1322,7 @@ export default function ProductionPlanning() {
         </Card>
         <Card className="stat-card p-0 before:bg-warning">
           <CardHeader className="space-y-1 p-4">
-            <CardDescription className="text-sm font-semibold text-warning-foreground">{isVi ? "PO cần xác nhận" : "POs to confirm"}</CardDescription>
+            <CardDescription className="text-sm font-semibold text-warning-foreground">{isVi ? "PO chờ lập SX" : "POs awaiting production setup"}</CardDescription>
             <CardTitle className="text-4xl font-black text-warning-foreground">{loadingPos ? "..." : stats.pendingPos}</CardTitle>
           </CardHeader>
         </Card>
@@ -1412,6 +1334,15 @@ export default function ProductionPlanning() {
         </Card>
       </div>
 
+      {portalPosAwaitingSetup.length > 0 && <section className="space-y-3 rounded-2xl border border-primary/20 bg-card p-4" data-kfm-production-resume="v1">
+        <h2 className="font-bold">{isVi ? "PO KFM đã xác nhận · Chờ thiết lập SX" : "Confirmed KFM POs · Production setup pending"}</h2>
+        <p className="text-sm text-muted-foreground">{isVi ? "Giữ lại cả đơn giao ngày tới. Tiếp tục ở đây nếu đã đóng bước thiết lập hoặc chưa khớp SKU." : "Includes future deliveries. Continue here after closing setup or resolving SKU mappings."}</p>
+        {portalPosAwaitingSetup.map((po) => <div key={po.id} className="flex min-w-0 flex-col gap-3 rounded-xl border p-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0 break-words"><p className="font-mono font-semibold">{po.po_number}</p><p className="text-sm text-muted-foreground">{formatDateOnly(po.delivery_date)} · {po.production_items?.length || 0} {isVi ? "dòng sản phẩm" : "items"}</p></div>
+          <Button variant="outline" className="min-h-11 shrink-0" disabled={!canEditLocation || loadingSkus || loadingLocationSettings} onClick={() => handleCreateClick(po)}>{isVi ? "Tiếp tục thiết lập SX" : "Continue production setup"}</Button>
+        </div>)}
+      </section>}
+
       <div className="grid min-w-0 grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
         <section className="min-w-0 space-y-4">
           <div className="card-elevated overflow-hidden rounded-[1.5rem]" data-stitch-production-po-check="true">
@@ -1422,7 +1353,7 @@ export default function ProductionPlanning() {
                   {isVi ? "Thiết lập SX & Kiểm tra PO" : "Production setup & PO check"}
                 </h2>
                 <p className="mt-1 font-semibold text-muted-foreground">
-                  {isVi ? "Buổi sáng bấm Kiểm tra PO, xác nhận để lập lệnh SX cho ngày giao kế tiếp." : "Morning PO check confirms tomorrow-delivery production orders."}
+                  {isVi ? "PO mới từ KFM được hiển thị để duyệt; xác nhận trên portal trước khi lập lệnh SX." : "Review new KFM POs; confirm on the portal before creating production orders."}
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -1431,7 +1362,7 @@ export default function ProductionPlanning() {
                 </Badge>
                 {stats.pendingPos > 0 && (
                   <Badge className="w-fit rounded-full bg-warning px-3 py-1 text-sm text-warning-foreground hover:bg-warning">
-                    {isVi ? `Còn ${stats.pendingPos} PO cần xác nhận` : `${stats.pendingPos} POs to confirm`}
+                    {isVi ? `Còn ${stats.pendingPos} PO chờ lập SX` : `${stats.pendingPos} POs awaiting setup`}
                   </Badge>
                 )}
               </div>
@@ -1446,7 +1377,7 @@ export default function ProductionPlanning() {
                 <Package className="mb-3 h-14 w-14 text-muted-foreground" />
                 <h3 className="text-xl font-bold text-foreground">{isVi ? "Chưa có PO chờ sản xuất cho ngày giao này" : "No POs awaiting production for this delivery date"}</h3>
                 <p className="mt-1 max-w-md text-muted-foreground">
-                  {isVi ? "Khi parser ghi nhận PO đã duyệt, sản phẩm sẽ hiện ở đây." : "Parsed and approved POs will appear here."}
+                  {isVi ? "PO đã xác nhận và khớp SKU sẽ hiện ở đây theo ngày giao." : "Confirmed POs with matched SKUs appear here by delivery date."}
                 </p>
               </div>
             ) : (
@@ -1536,11 +1467,11 @@ export default function ProductionPlanning() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-xl font-black text-foreground">
                 <Paperclip className="h-5 w-5 text-primary" />
-                {isVi ? "PO cần xác nhận" : "POs to verify"}
+                {isVi ? "PO khác chờ lập SX" : "Other POs awaiting setup"}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              {visiblePendingPos.length === 0 ? (
+              {visiblePendingPos.filter((po) => !isPortalPo(po)).length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-border bg-muted/35 p-4 text-sm font-semibold text-muted-foreground">
                   {isVi
                     ? "Chưa có PO nào còn đủ điều kiện xác nhận cho ngày giao này. PO chỉ hiện ở đây khi đã parse được thành phẩm, khớp SKU xưởng Q7 và chưa tạo lệnh sản xuất."
@@ -1548,7 +1479,7 @@ export default function ProductionPlanning() {
                 </div>
               ) : (
                 <div className="grid min-w-0 grid-cols-1 gap-2">
-                  {visiblePendingPos.slice(0, 6).map((po) => {
+                  {visiblePendingPos.filter((po) => !isPortalPo(po)).slice(0, 6).map((po) => {
                     const attachmentNames = getPoAttachmentNames(po);
                     return (
                       <button
@@ -1773,7 +1704,7 @@ export default function ProductionPlanning() {
                     <p className="font-semibold text-muted-foreground">{selectedPoForCreation.from_name}</p>
                   </div>
                   <Badge className="w-fit bg-primary text-primary-foreground hover:bg-primary">
-                    {isVi ? "Nguồn PO đã parse" : "Parsed PO source"}
+                    {isPortalPo(selectedPoForCreation) ? (isVi ? "Đã xác nhận trên KFM" : "Confirmed on KFM") : (isVi ? "Nguồn PO đã parse" : "Parsed PO source")}
                   </Badge>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-1.5">
