@@ -686,8 +686,9 @@ export function GlobalAgentChatWidget() {
         type="button"
         size="icon"
         data-vnagent-launcher="logo-motion-v2"
+        data-vnagent-logo-background="black-v1"
         className={cn(
-          "fixed z-50 rounded-full border border-[#e6e3f7] bg-white shadow-lg ring-1 ring-black/5 hover:bg-[#faf9ff] [&_svg]:!h-full [&_svg]:!w-full",
+          "fixed z-50 rounded-full border border-[#e6e3f7] bg-black shadow-lg ring-1 ring-black/5 hover:bg-black [&_svg]:!h-full [&_svg]:!w-full",
           shouldLiftMobileChatButton
             ? "bottom-[calc(5rem+env(safe-area-inset-bottom))] right-3 h-11 w-11 sm:bottom-[calc(1.5rem+env(safe-area-inset-bottom))] sm:right-6 sm:h-14 sm:w-14"
             : "right-6 bottom-[calc(1.5rem+env(safe-area-inset-bottom))] h-14 w-14",
@@ -726,7 +727,7 @@ export function GlobalAgentChatWidget() {
           <header className="relative flex shrink-0 items-center gap-3 border-b border-[#e8eaf0] bg-white px-4 pb-3 pt-[max(0.875rem,env(safe-area-inset-top))]">
             <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-[#6246ea] via-[#8b5cf6] to-[#b66cff]" />
             <div className="flex min-w-0 flex-1 items-center gap-2.5" aria-label={text("VNAgent — Trợ lý AI của BMQ")}>
-              <div className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-[#f0edff] shadow-[inset_0_0_0_1px_rgba(108,78,238,0.12)]"><VnagentMark /></div>
+              <div data-vnagent-logo-background="black-v1" className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-black shadow-[inset_0_0_0_1px_rgba(108,78,238,0.12)]"><VnagentMark /></div>
               <div className="min-w-0">
                 <SheetTitle className="text-[17px] font-bold leading-none tracking-[-0.02em] text-[#171a21]">VNAgent</SheetTitle>
                 <div className="mt-1.5 flex items-center gap-1.5 whitespace-nowrap text-[11px] text-[#717784]">
