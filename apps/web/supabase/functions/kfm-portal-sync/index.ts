@@ -145,6 +145,17 @@ serve(async (req) => {
   const action = (ACTIONS as readonly string[]).includes(String(payload.action))
     ? (payload.action as KfmAction)
     : "list";
+  // A stale deployment used to answer an unknown action by quietly running the
+  // order list instead, so the caller saw a successful response carrying the
+  // wrong payload. Fail loudly instead; only a missing action may default.
+  if (payload.action !== undefined && action === "list" && String(payload.action) !== "list") {
+    return json({
+      success: false,
+      configured: true,
+      error: "unknown_action",
+      message: "Hành động này chưa có trên máy chủ. Cần triển khai lại cổng KFM.",
+    }, 200, req);
+  }
 
   const deliveryDate = payload.deliveryDate && ISO_DATE.test(payload.deliveryDate)
     ? payload.deliveryDate

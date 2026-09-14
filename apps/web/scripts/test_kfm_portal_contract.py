@@ -101,6 +101,12 @@ def test_the_trip_draft_is_read_only_and_built_from_the_po_items() -> None:
     forbid(CLIENT, "&submit=", "stage 1 must not post a trip")
     forbid(CLIENT, "inbound-loads/${options.loadId}/cancel", "cancelling a trip is not approved")
     require(FUNCTION, '"trip-draft"', "the bridge must expose the read-only draft action")
+    # Reported 2026-09-14: the panel showed a successful response carrying only
+    # `source: "kfm_portal"`, because the deployed function was one version behind
+    # and an unknown action fell through to the order list. Fail loudly instead.
+    require(FUNCTION, '"unknown_action"', "an action the server does not know must be refused")
+    require(FUNCTION, 'action === "list" && String(payload.action) !== "list"',
+            "only a missing action may default to the order list")
     require(PANEL, 'data-kfm-action="preview-load"', "the row menu must offer the preview")
     require(PANEL, 'data-kfm-load-preview="v1"', "the preview panel must carry a stable marker")
     forbid(PANEL, 'action: "create-load"', "no create action may reach the portal yet")
