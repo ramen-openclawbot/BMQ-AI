@@ -1,3 +1,4 @@
+import { UncImageGallery } from './UncImageGallery';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowUp, Loader2, Sparkles, X } from "lucide-react";
@@ -643,7 +644,7 @@ export function GlobalAgentChatWidget() {
         if (!active()) return;
         if (error) throw new Error(await readAnalyticsError(error, language));
         const result = parseAnalyticsResponse(data, language);
-        setAnalyticsMessages((current) => [...current, { id: result.requestId, role: "assistant", text: result.answer, details: result.provenance.details, fx: result.provenance.fx, citations: result.provenance.citations, customerSelection: result.provenance.customerSelection }]);
+        setAnalyticsMessages((current) => [...current, { id: result.requestId, role: "assistant", text: result.answer, images: result.provenance.images, details: result.provenance.details, fx: result.provenance.fx, citations: result.provenance.citations, customerSelection: result.provenance.customerSelection }]);
       } catch (error) {
         if (!active()) return;
         setAnalyticsMessages((current) => current.filter((item) => item.id !== id));
@@ -777,6 +778,7 @@ export function GlobalAgentChatWidget() {
               <div key={item.id} className={cn("whitespace-pre-wrap break-words shadow-[0_1px_2px_rgba(16,24,40,0.04)]", item.role === "user" ? "max-w-[82%] self-end rounded-2xl rounded-br-md bg-[#6d4aff] px-4 py-3 text-white" : item.role === "system" ? "self-center rounded-full border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700" : "max-w-[92%] self-start rounded-2xl rounded-tl-md border border-[#e4e5eb] bg-white px-4 py-3 text-[#252932]")}>
                 {item.role === "system" ? <span className="sr-only">{text("Hệ thống: ")}</span> : null}
                 {item.text}
+                {ANALYTICS_ENABLED && item.role === "agent" && user?.id ? <UncImageGallery key={`${user.id}:${item.id}`} ownerId={user.id} language={language} images={analyticsMessages.find(message => message.id === item.id)?.images} /> : null}
                 {ANALYTICS_ENABLED && item.role === "agent" && analyticsMessages.find((message) => message.id === item.id)?.details ? (
                   <details className="mt-3 border-t border-[#e4e5eb] pt-2 text-xs" data-bmq-answer-details="business-money-v1">
                     <summary className="cursor-pointer font-medium">{language === "en" ? "View details" : "Xem chi tiết"}</summary>

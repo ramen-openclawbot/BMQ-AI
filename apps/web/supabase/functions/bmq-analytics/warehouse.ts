@@ -1,3 +1,4 @@
+import { isUncRequest, runUnc } from './media.ts';
 import { legacyPresentation, type Presentation } from './presentation.ts';
 import { customerAnswer, customerRequest, customerContinuation, customerSelection } from "./customer.ts";
 import { AnalyticsError, MODEL, parseInput, vnToday, fastQuery, validateQuery, renderResults } from "./core.ts";
@@ -17,6 +18,7 @@ export async function runWarehouse(raw: unknown, call: WarehouseCall, model: Mod
   const response = (answer: string, lane: string, queries: unknown[] = [], citations: unknown[] = []) => ({ answer, requestId, presentation, provenance: {lane,model:modelCalls?MODEL:null,queries,citations,evidence,elapsedMs:Date.now()-started,modelCalls,usage,semanticVersion:"warehouse-bmq-r2-v4", customerSelection:pendingSelection} });
   // An active application scope must never silently become warehouse-wide totals.
   if (Object.keys(input.page.filters).length) return response(input.language === "en" ? "Clear the page filters and specify your scope. Warehouse chat does not yet map application filters." : "Anh bỏ bộ lọc trang và nêu rõ phạm vi. Chat kho dữ liệu chưa ánh xạ bộ lọc của ứng dụng.","abstain");
+  if (isUncRequest(input.question)) return runUnc(input, call, model, signal);
   // Prefer the reviewed warehouse contract. Exact legacy fast queries remain
   // available when the catalog is unreachable, with explicit live provenance.
   const existingFast = liveQuery && !input.history.length ? fastQuery(input.question) : null;

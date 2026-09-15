@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 import httpx
 import yaml
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from .config import Settings, safe_name
@@ -116,7 +116,7 @@ def create_app(warehouse: Warehouse | None = None, authenticator=None):
                 return JSONResponse({'error': 'request_timeout'}, status_code=408)
             request._body = b''.join(parts)
         response = await call_next(request)
-        response.headers['Cache-Control'] = 'no-store'
+        response.headers.setdefault('Cache-Control', 'no-store')
         response.headers['X-Content-Type-Options'] = 'nosniff'
         return response
 
@@ -205,6 +205,22 @@ def create_app(warehouse: Warehouse | None = None, authenticator=None):
         from .bmq_customer import execute
         result = execute(engine, body, principal.tenant, principal.permission + ':' + principal.user)
         return json.loads(json.dumps(result, default=json_default))
+
+    @app.post('/v1/finance-media/search')
+    def finance_media_search(body: dict, principal: Principal = Depends(authenticator)):
+        from .finance_media_read import search
+        return search(warehouse, body, principal.tenant)
+
+    @app.get('/v1/finance-media/{sha256}')
+    def finance_media_image(sha256: str, principal: Principal = Depends(authenticator)):
+        from .finance_media_read import read_image
+        image = read_image(warehouse, sha256, principal.tenant)
+        if image is None:
+            raise HTTPException(404, 'image_not_found')
+        raw, mime = image
+        return Response(raw, media_type=mime, headers={
+            'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff',
+            'Content-Disposition': 'inline', 'Cross-Origin-Resource-Policy': 'same-origin'})
 
     return app
 

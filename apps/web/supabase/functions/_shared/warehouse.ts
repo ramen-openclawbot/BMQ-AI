@@ -11,7 +11,7 @@ export function warehouseClient(base: string, authorization: string, signal: Abo
     if (origin.protocol !== "https:" || origin.username || origin.password || origin.search || origin.hash || origin.pathname !== "/") throw new Error();
   } catch { throw new WarehouseError("warehouse_unconfigured"); }
   return async (path, body) => {
-    if (!new Set(["/v1/status", "/v1/sources", "/v1/ingest", "/v1/documents", "/v1/semantic", "/v1/query", "/v1/knowledge/search", "/v1/customer"]).has(path)) throw new WarehouseError("invalid_operation", 400);
+    if (!new Set(["/v1/status", "/v1/sources", "/v1/ingest", "/v1/documents", "/v1/semantic", "/v1/query", "/v1/knowledge/search", "/v1/customer", "/v1/finance-media/search"]).has(path)) throw new WarehouseError("invalid_operation", 400);
     let response: Response;
     try { response = await fetcher(new URL(path, origin), { method: body === undefined ? "GET" : "POST", redirect: "error", signal,
       headers: { Authorization: authorization, "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) }); }
@@ -47,4 +47,23 @@ export function warehouseMessage(code: string, en: boolean) {
     unauthorized: ["Vui lòng đăng nhập lại.", "Please sign in again."], forbidden: ["Chỉ chủ doanh nghiệp có quyền sử dụng.", "Available to business owners only."],
   };
   return (messages[code] ?? ["Không thể xử lý yêu cầu dữ liệu này. Kiểm tra định dạng và trạng thái nguồn.", "This data request could not be processed. Check its format and source status."])[en ? 1 : 0];
+}
+
+// Authenticated binary relay. IDs never choose a host or a filesystem path.
+export async function warehouseImage(base: string, authorization: string, id: unknown, signal: AbortSignal, fetcher: typeof fetch = fetch): Promise<Response> {
+  warehouseClient(base, authorization, signal, fetcher); // validate fixed server origin
+  if (typeof id !== 'string' || !/^[a-f0-9]{64}$/.test(id)) throw new WarehouseError('invalid_operation',400);
+  let response: Response;
+  try { response=await fetcher(new URL(`/v1/finance-media/${id}`,base),{headers:{Authorization:authorization},redirect:'error',signal}); }
+  catch { throw new WarehouseError('warehouse_unavailable'); }
+  if (!response.ok) throw new WarehouseError(response.status===401?'unauthorized':response.status===403?'forbidden':'warehouse_unavailable', [401,403,404].includes(response.status)?response.status:503);
+  const type=response.headers.get('content-type')?.split(';')[0];
+  if (!type || !['image/jpeg','image/png','image/webp','image/gif'].includes(type)) throw new WarehouseError('warehouse_invalid_response');
+  const reader=response.body?.getReader(); if(!reader) throw new WarehouseError('warehouse_invalid_response');
+  const chunks:Uint8Array[]=[];let size=0;
+  try { while(true){ const p=await reader.read(); if(p.done)break; size+=p.value.length;if(size>24*1024*1024){await reader.cancel();throw new WarehouseError('warehouse_result_limit');}chunks.push(p.value); } }
+  finally {reader.releaseLock();}
+  if (!size) throw new WarehouseError('warehouse_invalid_response');
+  const bytes=new Uint8Array(size);let offset=0;for(const c of chunks){bytes.set(c,offset);offset+=c.length;}
+  return new Response(bytes,{headers:{'Content-Type':type,'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'}});
 }

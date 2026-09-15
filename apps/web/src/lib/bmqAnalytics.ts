@@ -1,9 +1,11 @@
 import { z } from "zod";
 export type AnalyticsCitation = { id: string; title: string; source: string; updated_at: string };
-export type AnalyticsMessage = { id: string; role: "user" | "assistant"; text: string; citations?: AnalyticsCitation[]; details?: string; fx?: { vndPerUsd: number; updatedAt: string; source: string } | null; customerSelection?: unknown };
+export const uncImageSchema = z.object({id:z.string().regex(/^[a-f0-9]{64}$/),date:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),declarationId:z.string().max(100),paymentStatus:z.literal("submitted_unverified")});
+export type UncImage = z.infer<typeof uncImageSchema>;
+export type AnalyticsMessage = { id: string; role: "user" | "assistant"; text: string; images?: UncImage[]; citations?: AnalyticsCitation[]; details?: string; fx?: { vndPerUsd: number; updatedAt: string; source: string } | null; customerSelection?: unknown };
 const analyticsResponse = z.object({
   answer: z.string().trim().min(1), requestId: z.string().min(1),
-  provenance: z.object({ details: z.string().max(100000).optional(), fx: z.object({vndPerUsd:z.number().finite().positive(), updatedAt:z.string(), source:z.literal("https://www.exchangerate-api.com")}).nullable().optional(), customerSelection: z.unknown().optional(), lane: z.string(), model: z.string().nullable(), queries: z.array(z.unknown()), citations: z.array(z.object({ id: z.string(), title: z.string(), source: z.string(), updated_at: z.string() })).optional(), elapsedMs: z.number().finite().nonnegative() }),
+  provenance: z.object({ images:z.array(uncImageSchema).max(8).optional(), details: z.string().max(100000).optional(), fx: z.object({vndPerUsd:z.number().finite().positive(), updatedAt:z.string(), source:z.literal("https://www.exchangerate-api.com")}).nullable().optional(), customerSelection: z.unknown().optional(), lane: z.string(), model: z.string().nullable(), queries: z.array(z.unknown()), citations: z.array(z.object({ id: z.string(), title: z.string(), source: z.string(), updated_at: z.string() })).optional(), elapsedMs: z.number().finite().nonnegative() }),
 });
 export function buildAnalyticsRequest(question: string, route: string, label: string, history: AnalyticsMessage[], filters: Record<string, string> = {}, language: "en" | "vi" = "vi") {
   return { language, question: question.trim(), page: { route, label, filters }, history: history.slice(-6).map(({ role, text, customerSelection }) => ({ role, text: text.slice(0, 2000), ...(role === "assistant" && customerSelection !== undefined ? {customerSelection} : {}) })) };

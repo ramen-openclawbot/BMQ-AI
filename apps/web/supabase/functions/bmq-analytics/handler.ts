@@ -2,7 +2,7 @@ import { presentResponse } from './presentation.ts';
 import { AnalyticsError, ResultCache, parseInput } from "./core.ts";
 import { runAnalytics, type Dependencies } from "./service.ts";
 import { runWarehouse } from "./warehouse.ts";
-import { warehouseClient, WarehouseError, warehouseMessage } from "../_shared/warehouse.ts";
+import { warehouseClient, warehouseImage, WarehouseError, warehouseMessage } from "../_shared/warehouse.ts";
 
 type Identity = Pick<Dependencies, "scope" | "query">;
 type Config = { warehouse?: { enabled: () => boolean; url: () => string }; enabled: () => boolean; authenticate: (request: Request, signal: AbortSignal) => Promise<Identity>; model: Dependencies["model"]; audit: (event: Record<string, unknown>) => void };
@@ -67,14 +67,28 @@ export function createHandler(config: Config) {
       signal.throwIfAborted();
       if (!config.enabled()) throw new AnalyticsError("disabled", 503);
       const key = `${identity.scope.tenant}:${identity.scope.user}`;
+      const raw = await readBody(req, signal);
+      if (raw?.language === "en" || raw?.language === "vi") english = raw.language === "en";
+      // Images get an independent bounded quota; parallel image loads must not
+      // block a chat request or bypass the owner check above.
+      if (raw?.action === "unc_image") {
+        if (Object.keys(raw).some(k=>!["action","id","language"].includes(k))) throw new AnalyticsError("invalid_request");
+        if (!config.warehouse?.enabled()) throw new WarehouseError("warehouse_disabled");
+        const imageKey=key+":images", now=Date.now();
+        for (const [id,value] of rate) if(value.until<=now)rate.delete(id);
+        const quota=rate.get(imageKey)??{until:now+60000,count:0};
+        if(++quota.count>60 || (!rate.has(imageKey)&&rate.size>=256)) throw new AnalyticsError("rate_limited",429);
+        rate.set(imageKey,quota);
+        const image=await warehouseImage(config.warehouse.url(),req.headers.get("authorization")!,raw.id,signal);
+        const imageHeaders={...headers,"Content-Type":"application/octet-stream","Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff"};
+        return new Response(image.body,{headers:imageHeaders});
+      }
       if (active.has(key)) throw new AnalyticsError("busy", 429);
       const now = Date.now();
       for (const [id, value] of rate) if (value.until <= now) rate.delete(id);
       const quota = rate.get(key) ?? { until: now + 60000, count: 0 };
       if (++quota.count > 20 || (!rate.has(key) && rate.size >= 256)) throw new AnalyticsError("rate_limited", 429);
       rate.set(key, quota); active.add(key); ownerKey = key;
-      const raw = await readBody(req, signal);
-      if (raw?.language === "en" || raw?.language === "vi") english = raw.language === "en";
       // Read-only owner activation check works before switching the normal chat lane.
       // Never manufacture an owner token or use service-role access for this check.
       if (config.warehouse && /^(kiểm tra kết nối kho|check warehouse connection)$/i.test(String(raw?.question ?? '').trim())) {
