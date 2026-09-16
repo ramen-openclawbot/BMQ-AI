@@ -11,6 +11,9 @@
  *   intake-list — poll new portal POs; never confirms or imports
  *   intake-decide — explicit staff confirm/reject, readback, then import
  *   intake-result — read-only partner reconciliation and resumable local import
+ *   confirm-po — explicit operator continuation for a trip that already reads
+ *                 back: confirm its PO (or resume the pending import) through
+ *                 the same durable intake claim; never creates a second trip
  *   confirm — retired; staff must use the durable intake path
  *   po-pdf   — download the PO sheet                   (operator click only)
  *   asn-pdf  — download one delivery-note sheet        (operator click only)
@@ -48,7 +51,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import { corsPreflightResponse, getCorsHeaders } from "../_shared/cors.ts";
-import { handleKfmIntake } from "../_shared/kfm-intake.ts";
+import { ensureTripIntake, handleKfmIntake, intakeRevision } from "../_shared/kfm-intake.ts";
 import {
   ISO_DATE,
   KfmPortalError,
@@ -86,6 +89,7 @@ const ACTIONS = [
   "intake-list",
   "intake-decide",
   "intake-result",
+  "confirm-po",
   "list",
   "detail",
   "confirm",
@@ -176,13 +180,17 @@ async function tripResult(token: string, row: any) {
   let load = null;
   try { load = await findCreatedTrip(token, row.vendor_id, row.body, row.baseline_asn_ids, row.load_id); } catch { /* uncertain, never retry */ }
   if (!load || !verifyTripReadback(load, row.body)) return { state: "unknown", loadId: row.load_id || null, message: "Chưa xác minh được chuyến/ASN. Không bấm tạo lại; dùng ‘Kiểm tra kết quả’ hoặc kiểm tra cổng KFM." };
+  const asns = load.asns.map((asn: any) => ({ asnId: Number(asn.id || asn.asnId), asnCode: String(asn.code || asn.asnCode) }));
+  const loadId = Number(load.id);
+  const loadCode = String(load.loadCode || "");
   let poConfirmation = null;
+  let revision = "";
   try {
     const source = await getTripSource(token, { vendorId: row.vendor_id, orderId: row.order_id });
-    if (Number(source.po.id) === row.order_id) poConfirmation = tripPoConfirmation(source.po);
+    if (Number(source.po.id) === row.order_id) { poConfirmation = tripPoConfirmation(source.po); revision = await intakeRevision(source); }
   } catch { /* Keep the write locked; a result check only reads again. */ }
-  if (!poConfirmation?.confirmed) return { state: "unknown", loadId: Number(load.id), poConfirmation, message: `Chuyến và ASN đã khớp nhưng chưa xác minh PO đã xác nhận${poConfirmation ? ` (${poConfirmation.label})` : ""}. Không tạo lại; chọn ‘Kiểm tra kết quả’.` };
-  const result = { state: "verified", loadId: Number(load.id), loadCode: String(load.loadCode || ""), poConfirmation, asns: load.asns.map((asn: any) => ({ asnId: Number(asn.id || asn.asnId), asnCode: String(asn.code || asn.asnCode) })), message: "Đã đọc lại chuyến, ASN và trạng thái PO: kho và từng dòng số lượng khớp; PO đã được xác nhận." };
+  if (!poConfirmation?.confirmed) return { state: "unknown", loadId, loadCode, asns, poConfirmation, intakeRevision: revision || undefined, message: `Chuyến và ASN đã khớp nhưng chưa xác minh PO đã xác nhận${poConfirmation ? ` (${poConfirmation.label})` : ""}. Không tạo lại; xác nhận PO rồi in phiếu, hoặc chọn ‘Kiểm tra kết quả’.` };
+  const result = { state: "verified", loadId, loadCode, poConfirmation, asns, message: "Đã đọc lại chuyến, ASN và trạng thái PO: kho và từng dòng số lượng khớp; PO đã được xác nhận." };
   const saved = await tripAdmin().from("kfm_trip_attempts").update({ state: "verified", load_id: result.loadId, result }).eq("vendor_id", row.vendor_id).eq("order_id", row.order_id);
   if (saved.error) return { state: "unknown", loadId: result.loadId, message: "Chuyến đã được đọc lại nhưng chưa lưu được kết quả xác minh. Không tạo lại." };
   return result;
@@ -244,7 +252,7 @@ serve(async (req) => {
 
   const tripAction = ["trip-options", "create-load", "trip-result"].includes(action);
   const intakeAction = ["intake-list", "intake-decide", "intake-result"].includes(action);
-  if ((intakeAction || action === "confirm") && !(await canCreateTrip(userId))) return json({ success: false, error: "forbidden", message: "Anh/chị chưa có quyền duyệt PO tại Xưởng Q7." }, 403, req);
+  if ((intakeAction || action === "confirm" || action === "confirm-po") && !(await canCreateTrip(userId))) return json({ success: false, error: "forbidden", message: "Anh/chị chưa có quyền duyệt PO tại Xưởng Q7." }, 403, req);
   const mayCreate = tripAction ? await canCreateTrip(userId) : false;
   if (tripAction && !mayCreate && !(action === "trip-options" && payload.unifiedPrint === true)) return json({ success: false, error: "forbidden", message: "Anh/chị chưa có quyền chỉnh sửa kế hoạch sản xuất để tạo phiếu." }, 403, req);
   if (tripAction && (!payload.deliveryDate || !ISO_DATE.test(payload.deliveryDate))) return json({ success: false, error: "bad_date", message: "Cần chọn ngày giao rõ ràng." }, 200, req);
@@ -300,11 +308,50 @@ serve(async (req) => {
         message: "Tài khoản cổng KFM không gắn nhà cung cấp nào.",
       }, 200, req);
     }
-    if ((tripAction || intakeAction || action === "confirm") && !cached.vendorIds.includes(vendorId)) return json({ success: false, error: "forbidden_vendor", message: "Nhà cung cấp không thuộc tài khoản KFM." }, 403, req);
+    if ((tripAction || intakeAction || action === "confirm" || action === "confirm-po") && !cached.vendorIds.includes(vendorId)) return json({ success: false, error: "forbidden_vendor", message: "Nhà cung cấp không thuộc tài khoản KFM." }, 403, req);
 
     const session = { mode: cached.session.mode, obtainedAt: cached.session.obtainedAt };
 
     if (intakeAction) return json(await handleKfmIntake(tripAdmin(), cached.session.token, vendorId, userId, payload), 200, req);
+
+    // Explicit operator continuation for the print flow: confirm the portal PO,
+    // or resume its pending import, only while a matching delivery trip already
+    // reads back. Read-only checks never write; this action is the only writer.
+    if (action === "confirm-po") {
+      const orderId = Number(payload.orderId);
+      if (!Number.isSafeInteger(orderId) || orderId <= 0) return json({ success: false, error: "bad_order_id", message: "Thiếu orderId hợp lệ." }, 200, req);
+      const revision = typeof payload.revision === "string" && /^[0-9a-f]{64}$/i.test(payload.revision) ? payload.revision : "";
+      if (!revision) return json({ success: false, error: "bad_revision", message: "Thiếu bản đối chiếu PO. Bấm ‘Kiểm tra kết quả’ rồi xác nhận lại." }, 200, req);
+      const confirmDate = typeof payload.deliveryDate === "string" && ISO_DATE.test(payload.deliveryDate) ? payload.deliveryDate : "";
+      if (!confirmDate) return json({ success: false, error: "bad_date", message: "Cần ngày giao rõ ràng để xác nhận PO." }, 200, req);
+      const admin = tripAdmin();
+      // Never confirm a PO without a matching trip in the journal: this action is
+      // recovery for an existing note, not a second way to create one.
+      const existing = await admin.from("kfm_trip_attempts").select("*").eq("vendor_id", vendorId).eq("order_id", orderId).maybeSingle();
+      if (existing.error) throw new KfmPortalError("trip", 0, "Không đọc được khóa gửi phiếu. Chưa xác nhận PO.");
+      if (!existing.data) return json({ success: false, error: "no_trip", message: "Chưa có phiếu giao hàng cho PO này. Dùng ‘In phiếu giao hàng’ để tạo." }, 200, req);
+      if (String(existing.data.body?.deliveryDate || "") !== confirmDate) return json({ success: false, error: "trip_changed", message: "Phiếu giao hàng thuộc ngày khác. Tải lại trước khi xác nhận." }, 200, req);
+      const readback = await tripResult(cached.session.token, existing.data);
+      // Confirmation is only safe once the existing trip itself reads back.
+      if (readback.state === "verified" || !readback.loadId || !readback.poConfirmation) return json({ success: true, action, vendorId, result: readback }, 200, req);
+      const source = await getTripSource(cached.session.token, { vendorId, orderId });
+      if (Number(source.po.id) !== orderId || !(await tripOrderInScope(cached.session.token, vendorId, orderId))) throw new KfmPortalError("trip", 0, "PO không thuộc danh sách của nhà cung cấp đã chọn.");
+      if (Number(source.po.status) === 6 || Number(source.po.subStatus) === 11) return json({ success: true, action, vendorId, result: { state: "blocked", loadId: readback.loadId, message: "PO đã hủy. Không xác nhận; kiểm tra lại trên cổng KFM." } }, 200, req);
+      if (await intakeRevision(source) !== revision) return json({ success: true, action, vendorId, result: { state: "changed", loadId: readback.loadId, message: "PO đã thay đổi sau khi tạo phiếu. Kiểm tra lại thông tin trước khi xác nhận." } }, 200, req);
+      // Pending edit requests are not part of intakeRevision: re-read them right
+      // before the explicit write instead of confirming over an unreviewed change.
+      const pending = await getTripPendingChanges(cached.session.token, orderId);
+      if (pending.length) return json({ success: true, action, vendorId, result: { state: "blocked", loadId: readback.loadId, message: "PO có yêu cầu chỉnh sửa chưa xử lý. Xử lý trên cổng KFM rồi kiểm tra kết quả, không xác nhận đè." } }, 200, req);
+      const value = await handleKfmIntake(admin, cached.session.token, vendorId, userId, {
+        action: "intake-decide",
+        orderId,
+        vendorId,
+        decision: "confirm",
+        requestId: payload.requestId,
+        revision,
+      });
+      return json({ action, vendorId, ...value }, 200, req);
+    }
 
     if (tripAction) {
       const orderId = Number(payload.orderId);
@@ -344,6 +391,27 @@ serve(async (req) => {
       fresh.pendingChanges = await getTripPendingChanges(cached.session.token, orderId);
       const freshFleet = fleet ? await getSavedTripFleet(cached.session.token) : undefined;
       if (await tripRevision(fresh, deliveryDate, freshFleet) !== revision) throw new KfmPortalError("trip_changed", 0, "PO hoặc xe/tài xế thay đổi ngay trước lúc gửi. Tải lại để kiểm tra.");
+      // Print intent auto-confirms the PO through the SAME durable intake claim
+      // the review popup uses. The claim is written before the trip, so a
+      // confirm and a reject cannot both win, and a refetch/retry after a
+      // timeout only re-reads. A rejected, changed, unconfirmed or unimported
+      // PO never opens the gate, so no trip is created for it.
+      if (!tripPoConfirmation(fresh.po).confirmed && fresh.pendingChanges.length) throw new KfmPortalError("trip_changed", 0, "PO có yêu cầu chỉnh sửa chưa xử lý. Chưa xác nhận hoặc tạo phiếu.");
+      const gate = await ensureTripIntake(admin, cached.session.token, vendorId, userId, orderId, fresh);
+      if (!gate.ok) throw new KfmPortalError("trip", 0, gate.message || "PO chưa được xác nhận và nhập sản xuất. Chưa tạo phiếu giao hàng.");
+      // Confirmation/import can take time. A historical intake record is not
+      // evidence of the current portal state, quantities or allocations.
+      const afterConfirm = await getTripSource(cached.session.token, { vendorId, orderId });
+      afterConfirm.pendingChanges = await getTripPendingChanges(cached.session.token, orderId);
+      const allocations = (value: Record<string, number>) => JSON.stringify(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)));
+      if (Number(afterConfirm.po.id) !== orderId || Number(afterConfirm.po.status) === 6 || !tripPoConfirmation(afterConfirm.po).confirmed
+        || await intakeRevision(afterConfirm, false) !== await intakeRevision(fresh, false)
+        || allocations(afterConfirm.shippedMap) !== allocations(fresh.shippedMap)
+        || JSON.stringify(afterConfirm.pendingChanges) !== JSON.stringify(fresh.pendingChanges)) {
+        throw new KfmPortalError("trip_changed", 0, "PO chưa xác nhận hoặc thông tin/phân bổ đã thay đổi sau bước xác nhận. Chưa tạo chuyến; tải lại để đối chiếu.");
+      }
+      if (fleet) validateSavedTripForm(await getSavedTripFleet(cached.session.token), form);
+      body = buildTripSubmission(afterConfirm, deliveryDate, options, form);
       // Atomic DB unique key excludes concurrent browsers/users/Edge instances.
       // The claim is retained on every uncertain result, including booking errors.
       const row = { vendor_id: vendorId, order_id: orderId, actor_id: userId, request_id: payload.requestId, body, baseline_asn_ids: baseline };

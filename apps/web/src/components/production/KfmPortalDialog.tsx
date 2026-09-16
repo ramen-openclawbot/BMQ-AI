@@ -13,7 +13,7 @@ import { KfmTimeSelect, isCompleteKfmTime } from "./KfmTimeSelect";
  * The filename stays stable for existing integration contracts; no modal is used.
  */
 
-const AUTO_CONFIRM_NOTICE = "Tạo phiếu giao hàng sẽ tự động xác nhận đơn hàng. Sau bước này sẽ không thể yêu cầu chỉnh sửa nữa.";
+const AUTO_CONFIRM_NOTICE = "Tạo phiếu giao hàng sẽ tự động xác nhận PO trên KFM và nhập vào sản xuất. Sau bước này sẽ không thể yêu cầu chỉnh sửa nữa.";
 const changeLabel = (category: string) => ({ QUANTITY: "Số lượng", QUALITY: "Ngoại quan", SHELF_LIFE: "Hạn sử dụng", DELIVERY_DATE: "Ngày giao", OTHER: "Khác" }[category] || category);
 
 const VN_OFFSET_MS = 7 * 60 * 60 * 1000;
@@ -65,7 +65,7 @@ type TripOptions = {
   vehicleTypeId: number | null;
   slots: Array<{ value: string; available: boolean }>;
 };
-type TripResult = { poConfirmation?: { confirmed: boolean; label: string; subStatus: number | null }; state: "verified" | "unknown" | "not_sent"; message: string; loadId?: number; loadCode?: string; asns?: Array<{ asnId: number; asnCode: string }> };
+type TripResult = { poConfirmation?: { confirmed: boolean; label: string; subStatus: number | null }; state: "verified" | "unknown" | "not_sent" | "imported" | "rejected" | "blocked" | "changed"; message: string; loadId?: number; loadCode?: string; asns?: Array<{ asnId: number; asnCode: string }>; intakeRevision?: string; confirmUncertain?: boolean };
 type SavedFleet = { vehicles: Array<{ id: number; plateNumber: string; defaultDriverId: number | null }>; drivers: Array<{ id: number; name: string; phone: string }> };
 type ExistingNote = { asnId: number; asnCode: string | null };
 type TripCreate = { fleet: SavedFleet; needed: string[]; existingNotes?: ExistingNote[]; order: KfmOrder; date: string; revision: string; options: TripOptions; form: TripForm; items: KfmTripItem[]; warehouse: string; pendingChangeCategories: string[]; result?: TripResult; error?: string };
@@ -256,7 +256,13 @@ export default function KfmPrintWorkspace({ isVi = true }: { isVi?: boolean }) {
       || fleet.drivers.find(row => row.id === vehicle?.defaultDriverId)
       || (fleet.drivers.length === 1 ? fleet.drivers[0] : undefined);
     const slots = options.slots.filter(row => row.available);
-    return { note: "", totalCartons: 0, totalPallets: 0, expectedTimeFrom: "", expectedTimeTo: "", ...previous,
+    // Saved 16:30–19:30 window is a reviewable default for fresh walk-in forms.
+    // A booking/HUB/FIXED warehouse keeps its own slot and never gets a window.
+    const timeDefaults = options.deliveryType ? { expectedTimeFrom: "", expectedTimeTo: "" } : {
+      expectedTimeFrom: previous?.expectedTimeFrom ?? "16:30",
+      expectedTimeTo: previous?.expectedTimeTo ?? "19:30",
+    };
+    return { note: "", totalCartons: 0, totalPallets: 0, ...previous, ...timeDefaults,
       vehicleTypeId: options.vehicleTypeId,
       bookingTimeSlot: slots.some(row => row.value === previous?.bookingTimeSlot) ? previous!.bookingTimeSlot : slots.length === 1 ? slots[0].value : "",
       savedVehicleId: vehicle?.id, savedDriverId: driver?.id,
@@ -323,7 +329,9 @@ export default function KfmPrintWorkspace({ isVi = true }: { isVi?: boolean }) {
         needed: missingFields(form, response.options), pendingChangeCategories: response.pendingChangeCategories || [],
         items: (response.draft as { stops?: Array<{ items: KfmTripItem[] }> })?.stops?.[0]?.items || [] };
       if (!snapshot.items.length) throw new Error("Không còn sản phẩm đủ điều kiện. Chưa tạo thêm phiếu.");
-      if (autoStart && !snapshot.needed.length && !snapshot.pendingChangeCategories.length) await sendAndPrint(snapshot, viewer, key);
+      // A walk-in (time-window) form always waits for the operator: the prefilled
+      // 16:30–19:30 is a default to review, not a licence to submit itself.
+      if (autoStart && snapshot.options.deliveryType && !snapshot.needed.length && !snapshot.pendingChangeCategories.length) await sendAndPrint(snapshot, viewer, key);
       else { setCreating(snapshot); viewer?.close(); setPrinting(null); setFeedback(current => { const next = { ...current }; delete next[key.split("-").pop()!]; return next; }); toast.dismiss(key); }
     } catch (error) { setCreating(current => current?.result ? current : { ...initial, error: (error as Error).message }); failPrint(key, viewer, error); }
     finally { createLock.current = false; setCreateBusy(false); setBusy(null); }
@@ -354,6 +362,42 @@ export default function KfmPrintWorkspace({ isVi = true }: { isVi?: boolean }) {
       else { viewer?.close(); setPrinting(null); setFeedback(current => { const next = { ...current }; delete next[key.split("-").pop()!]; return next; }); toast.dismiss(key); }
     } catch (error) { failPrint(key, viewer, error); }
     finally { createLock.current = false; setCreateBusy(false); }
+  };
+
+  /**
+   * Explicit operator continuation: a trip/ASN already exists and reads back,
+   * but the PO has not been confirmed on the portal. Confirming reuses the
+   * durable intake decision (permission, scope, fresh revision, single claim,
+   * readback/import); it never recreates the trip. Recovery stays on
+   * `trip-result`, which is read-only.
+   */
+  const confirmPo = async () => {
+    const result = creating?.result;
+    if (!creating || !result?.loadId || createLock.current) return;
+    createLock.current = true; setCreateBusy(true);
+    const key = `asn-${creating.order.portalId}`;
+    const viewer = window.open("", "_blank");
+    beginPrint(key, viewer, `phiếu giao hàng ${creating.order.code}`);
+    try {
+      if (!result.intakeRevision) throw new Error("Thiếu bản đối chiếu PO. Bấm ‘Kiểm tra kết quả’ rồi xác nhận lại.");
+      const confirmation = await callPortal({ action: "confirm-po", orderId: creating.order.portalId, deliveryDate: creating.date, revision: result.intakeRevision, requestId: crypto.randomUUID() });
+      if (!confirmation.result) throw new Error("Chưa nhận được kết quả xác nhận PO.");
+      // The confirmation answer can still be import-pending; only a GET-only
+      // readback decides whether the trip is verified and printable.
+      const readback = await callPortal({ action: "trip-result", orderId: creating.order.portalId, deliveryDate: creating.date });
+      if (!readback.result) throw new Error("Chưa đọc được kết quả.");
+      if (readback.result.state === "verified") { setCreating({ ...creating, result: readback.result }); await pdfFor(readback.result, viewer, key); return; }
+      // A blocked/changed confirmation keeps the read-only recovery and its own
+      // reason on screen; the retry stays locked until a fresh result check.
+      const held = confirmation.result.state !== "imported";
+      setCreating({ ...creating, result: { ...readback.result, confirmUncertain: held, message: held && confirmation.result.message ? confirmation.result.message : readback.result.message } });
+      viewer?.close(); setPrinting(null); setFeedback(current => { const next = { ...current }; delete next[key.split("-").pop()!]; return next; }); toast.dismiss(key);
+    } catch (error) {
+      // The write may have reached KFM. Keep the durable claim, lock the retry
+      // and leave only the read-only result check on screen.
+      setCreating(current => current ? { ...current, result: { ...(current.result as TripResult), confirmUncertain: true } } : current);
+      failPrint(key, viewer, error);
+    } finally { createLock.current = false; setCreateBusy(false); }
   };
 
   const printExisting = async (note: ExistingNote | TripResult) => {
@@ -451,6 +495,13 @@ export default function KfmPrintWorkspace({ isVi = true }: { isVi?: boolean }) {
                     {creating.result.poConfirmation && <p data-kfm-po-readback="v1">PO: {creating.result.poConfirmation.label}</p>}
                     {creating.result.state === "verified" ? <Button className="min-h-11" disabled={printing !== null || createBusy} onClick={() => void printExisting(creating.result!)}>In phiếu giao hàng</Button>
                       : creating.result.state === "not_sent" ? <Button className="min-h-11" disabled={createBusy} onClick={() => void openCreate(creating.order, creating.date, creating.form, false)}>Kiểm tra lại thông tin</Button>
+                      : creating.result.loadId && creating.result.poConfirmation && !creating.result.poConfirmation.confirmed ? <div className="space-y-2">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                          {!creating.result.confirmUncertain && <Button className="min-h-11" data-kfm-action="confirm-po" disabled={createBusy || printing !== null} onClick={() => void confirmPo()}>Xác nhận PO và in phiếu</Button>}
+                          <Button variant={creating.result.confirmUncertain ? "default" : "outline"} className="min-h-11" data-kfm-action="check-create" disabled={createBusy} onClick={() => void checkCreate()}>Kiểm tra kết quả</Button>
+                        </div>
+                        {!creating.result.confirmUncertain && <p className="text-xs text-muted-foreground">Xác nhận PO sẽ khóa yêu cầu chỉnh sửa và nhập PO vào sản xuất. Không tạo lại phiếu.</p>}
+                      </div>
                       : <Button className="min-h-11" data-kfm-action="check-create" disabled={createBusy} onClick={() => void checkCreate()}>Kiểm tra kết quả</Button>}
                   </div>
                 ) : creating.revision && <>
@@ -483,7 +534,9 @@ export default function KfmPrintWorkspace({ isVi = true }: { isVi?: boolean }) {
                         <option value="">Chọn khung giờ</option>{creating.options.slots.map((slot,i) => <option key={i} value={slot.value} disabled={!slot.available}>{slot.value}</option>)}
                       </select>
                     </label>}
-                    {creating.needed.includes("time") && ([['expectedTimeFrom','Giờ giao từ'],['expectedTimeTo','Giờ giao đến']] as const).map(([key,label]) => <KfmTimeSelect key={key} label={label} value={creating.form[key]} onChange={next => setCreating({ ...creating, form: { ...creating.form, [key]: next } })} />)}
+                    {/* The walk-in window is always visible so the prefilled
+                        16:30–19:30 default can be reviewed and edited. */}
+                    {!creating.options.deliveryType && ([['expectedTimeFrom','Giờ giao từ'],['expectedTimeTo','Giờ giao đến']] as const).map(([key,label]) => <KfmTimeSelect key={key} label={label} value={creating.form[key]} onChange={next => setCreating({ ...creating, form: { ...creating.form, [key]: next } })} />)}
                   </fieldset>
                   <Button className="min-h-11" data-kfm-action="submit-create" disabled={createBusy || missingFields(creating.form, creating.options).length > 0} onClick={() => void submitCreate()}>In phiếu giao hàng</Button>
                 </>}

@@ -6,8 +6,9 @@ function load(file,env={}) { const exports={};vm.runInNewContext(ts.transpileMod
 const portal=load('supabase/functions/_shared/kfm-portal.ts',{fetch(){throw Error('Real network prohibited');}});
 const base={po:{id:11,code:'PO-TEST',deliveryDate:portal.vnDate(1),locationId:4,locationName:'Warehouse',vendorId:2797,status:2,subStatus:3},items:[{productCode:'1001',barcode:'SP001',productName:'BMQ Bread',unitName:'CÁI',qty:10,unitPrice:100,taxRate:8}],shippedMap:{}};
 const skus=[{id:'sku1',sku_code:'BREAD',product_name:'Bread',sku_type:'finished_good'}],settings=[{sku_id:'sku1',is_enabled:true}];
-function fixture({outcome='success',scope=true,changed=false,importFail=false,old=[],disabled=false,customerMissing=false}={}) {
+function fixture({outcome='success',scope=true,changed=false,importFail=false,old=[],disabled=false,customerMissing=false,tripExists=false}={}) {
  let source=structuredClone(base),posts=0,imports=0;const rows=new Map();
+ const tripRows=new Map();if(tripExists)tripRows.set(11,{vendor_id:1865,order_id:11,state:'unknown'});
  const shared={...portal,getTripSource:async()=>structuredClone(source),tripOrderInScope:async()=>scope,listOrders:async()=>({orders:[{portalId:11,code:source.po.code,subStatus:source.po.subStatus}],totalElements:1}),confirmOrder:async()=>{posts++;if(outcome!=='missing')source.po.subStatus=5;if(changed)source.items[0].qty=12;if(outcome==='timeout'||outcome==='missing')throw Error('lost');},rejectOrder:async()=>{posts++;if(outcome!=='missing')source.po.subStatus=11;if(outcome==='timeout')throw Error('lost');}};
  const intake=load('supabase/functions/_shared/kfm-intake.ts',{require:()=>shared});
  const admin={rpc:async(name,args)=>{
@@ -17,11 +18,12 @@ function fixture({outcome='success',scope=true,changed=false,importFail=false,ol
    const row=rows.get(args.p_order_id);if(row.state!=='imported')imports++;row.state='imported';row.inbox_id='inbox1';return {data:'inbox1'};
  },from(table){let op='select',value,filters={},single=false;const q={select(){return q;},eq(k,v){filters[k]=v;return q;},maybeSingle(){single=true;return q;},insert(v){op='insert';value=v;return q;},update(v){op='update';value=v;return q;},then(resolve,reject){return Promise.resolve().then(()=>{
   if(table==='product_skus')return {data:skus};if(table==='production_location_sku_settings')return {data:disabled?[]:settings};
+  if(table==='kfm_trip_attempts')return {data:single?tripRows.get(filters.order_id)||null:[...tripRows.values()]};
   assert.equal(table,'kfm_po_intake_attempts');if(op==='insert'){if(rows.has(value.order_id))return {error:{code:'23505'}};rows.set(value.order_id,structuredClone(value));return {};}
   if(op==='update'){Object.assign(rows.get(filters.order_id),value);return {};}
   return {data:single?rows.get(filters.order_id)||null:[...rows.values()]};
  }).then(resolve,reject);}};return q;}};
- return {intake,rows,get posts(){return posts;},get imports(){return imports;},set importFail(v){importFail=v;},setSource(v){source=v;},async call(payload){return intake.handleKfmIntake(admin,'fixture',1865,'actor',payload);},async decide(extra={}){return this.call({action:'intake-decide',orderId:11,decision:'confirm',revision:await intake.intakeRevision(base),requestId:'00000000-0000-4000-8000-000000000001',...extra});}};
+ return {intake,rows,get posts(){return posts;},get imports(){return imports;},set importFail(v){importFail=v;},setSource(v){source=v;},async gate(sourceArg){return intake.ensureTripIntake(admin,'fixture',1865,'actor',11,sourceArg||structuredClone(source));},async call(payload){return intake.handleKfmIntake(admin,'fixture',1865,'actor',payload);},async decide(extra={}){return this.call({action:'intake-decide',orderId:11,decision:'confirm',revision:await intake.intakeRevision(base),requestId:'00000000-0000-4000-8000-000000000001',...extra});}};
 }
 function bridge({permission=true,vendorIds=[1865]}={}) {
  let handler,intakeCalls=0,portalReads=0;
@@ -69,5 +71,10 @@ await test('six live-shape products preserve croissant pack distinctions and kno
 });
 await test('legacy imported after popup prevents stale decision POST',async()=>{const f=fixture({old:['PO-TEST']});assert.equal((await f.decide()).result.state,'blocked');assert.equal(f.posts,0);assert.equal(f.rows.size,0);});
 await test('missing customer mapping blocks before irreversible confirm',async()=>{const f=fixture({customerMissing:true});await assert.rejects(()=>f.decide());assert.equal(f.posts,0);assert.equal(f.rows.size,0);});
+await test('trip gate opens only after a verified import',async()=>{const f=fixture();const gate=await f.gate();assert.equal(gate.ok,true);assert.equal(gate.state,'imported');assert.equal(f.posts,1);assert.equal(f.imports,1);assert.equal(f.rows.get(11).decision,'confirm');});
+await test('trip gate skips the portal write for an already confirmed PO',async()=>{const f=fixture();const s=structuredClone(base);s.po.subStatus=5;const gate=await f.gate(s);assert.equal(gate.ok,true);assert.equal(gate.state,'confirmed');assert.equal(f.posts,0);assert.equal(f.imports,0);});
+await test('trip gate blocks a reject claim and never confirms',async()=>{const f=fixture();await f.decide({decision:'reject',reason:'No capacity'});const gate=await f.gate();assert.equal(gate.ok,false);assert.equal(gate.state,'rejected');assert.equal(f.posts,1);assert.equal(f.imports,0);});
+await test('trip gate blocks an unverified confirm and never re-sends',async()=>{const f=fixture({outcome:'missing'});assert.equal((await f.gate()).ok,false);assert.equal(f.posts,1);assert.equal((await f.gate()).ok,false);assert.equal(f.posts,1);assert.equal(f.imports,0);});
+await test('reject refused once a delivery trip exists',async()=>{const f=fixture({tripExists:true});assert.equal((await f.decide({decision:'reject',reason:'No capacity'})).result.state,'blocked');assert.equal(f.posts,0);assert.equal(f.rows.size,0);});
 console.log(`PASS ${passed} portal-intake behavioral tests`);
 })().catch(error=>{console.error(error);process.exit(1);});

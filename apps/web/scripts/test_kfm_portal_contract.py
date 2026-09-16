@@ -280,8 +280,14 @@ def test_auto_confirmation_and_desktop_layout_contracts() -> None:
     for marker in ('data-kfm-auto-confirm="v1"', 'data-kfm-pending-changes="v1"', 'data-kfm-po-readback="v1"'):
         require(PANEL, marker, "review and readback must be visible")
     forbid(PANEL, 'action: "confirm"', "never send a separate PO confirmation")
+    require(PANEL, 'data-kfm-action="confirm-po"', "an existing unconfirmed trip needs a labeled confirm-and-print recovery")
     require(FUNCTION, "fresh.pendingChanges = await getTripPendingChanges", "check pending changes again before writing")
     require(FUNCTION, "if (!poConfirmation?.confirmed)", "do not claim success without PO readback")
+    # Print intent reuses the durable intake claim, and the claim must precede the trip write.
+    require(FUNCTION, "ensureTripIntake", "the trip write must be gated by the shared intake gate")
+    forbid(FUNCTION, "intakeRejectBlock", "the race-prone standalone reject guard must not remain")
+    assert FUNCTION.index("await ensureTripIntake(") < FUNCTION.index('.from("kfm_trip_attempts").insert('), \
+        "the durable intake gate must run before the trip claim insert"
     require(PLANNING, 'data-bmq-q7-header="v2"', "version the desktop header")
     require(PLANNING, 'sm:flex sm:flex-wrap', "wrap header actions")
     require(PLANNING, 'xl:grid-cols-[minmax(0,1fr)_360px]', "constrain the table column")

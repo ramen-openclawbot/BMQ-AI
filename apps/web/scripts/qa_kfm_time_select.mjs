@@ -5,6 +5,8 @@
  * with a fixture session and a mocked `kfm-portal-sync` endpoint. It proves:
  *   - no native `input[type=time]` remains; each window uses two explicit 24h
  *     selects (hours 00..23, minutes 00..59) with unique accessible labels;
+ *   - a fresh walk-in form is prefilled with the saved 16:30-19:30 window, shown
+ *     editable and submittable without writing on its own;
  *   - empty and partial windows stay partial and cannot be submitted;
  *   - reverse and equal windows are rejected; a valid window is accepted;
  *   - either half can be changed first and the value is stored as "HH:mm";
@@ -250,6 +252,16 @@ try {
       }
 
       const submit = submitOf(panel);
+      // A fresh walk-in form is prefilled with the saved 16:30-19:30 window for
+      // the operator to review; it must be visible, editable and submittable.
+      assert.deepEqual(ui.map((g) => `${part(g, "hour").value}:${part(g, "minute").value}`), ["16:30", "19:30"], "fresh walk-in default window");
+      assert.equal(submit.disabled, false, "the saved default window is submittable");
+      assert.equal(state.creates, 0, "the default must not write on its own");
+      // Clear both halves to exercise the empty/partial gating below.
+      for (const g of ui) {
+        await setSelect(part(g, "hour"), "");
+        await setSelect(part(g, "minute"), "");
+      }
       assert.equal(submit.disabled, true, "empty window blocks submit");
       assert.equal(state.creates, 0);
 

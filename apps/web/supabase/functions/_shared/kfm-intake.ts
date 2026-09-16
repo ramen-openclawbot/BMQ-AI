@@ -76,6 +76,35 @@ async function mappedPayload(admin: Admin, source: KfmTripSource, vendorId: numb
 async function getAttempt(admin: Admin, vendorId: number, orderId: number) {
   return checked(await admin.from('kfm_po_intake_attempts').select('*').eq('vendor_id', vendorId).eq('order_id', orderId).maybeSingle(), 'Không đọc được nhật ký duyệt PO.');
 }
+export type TripIntakeGate = { ok: boolean; state: string; message?: string; inboxId?: string };
+/**
+ * The print flow may only write a delivery trip once the PO is confirmed on the
+ * portal and, when confirmation was still pending, durably confirmed+imported.
+ * It reuses the review popup's unique intake claim, so a confirm and a reject
+ * can never both win for one PO, and a retry after a timeout only re-reads the
+ * claimed decision (never re-sends it).
+ *
+ * An already-confirmed PO skips the portal write but an existing reject claim
+ * still closes the gate; a still-pending PO only opens it after a fresh confirm
+ * reaches a verified local import.
+ */
+export async function ensureTripIntake(admin: Admin, token: string, vendorId: number, actorId: string, orderId: number, source: KfmTripSource): Promise<TripIntakeGate> {
+  const attempt = await getAttempt(admin, vendorId, orderId);
+  if (attempt) {
+    const result: Row = await recovery(admin, token, attempt);
+    return { ok: result.state === 'imported', state: result.state, message: result.message, inboxId: result.inboxId };
+  }
+  // Already confirmed on the portal: never send a second confirmation. Reject is
+  // only possible while the PO is pending, so a confirmed PO cannot be refused
+  // later; the claim read above still catches an earlier refusal.
+  if (tripPoConfirmation(source.po).confirmed) return { ok: true, state: 'confirmed' };
+  const decision: Row = await handleKfmIntake(admin, token, vendorId, actorId, {
+    action: 'intake-decide', orderId, vendorId, decision: 'confirm',
+    requestId: crypto.randomUUID(), revision: await intakeRevision(source),
+  });
+  const result: Row = decision.result || { state: 'unknown', message: 'Chưa xác minh được quyết định duyệt PO. Chưa tạo phiếu giao hàng.' };
+  return { ok: result.state === 'imported', state: result.state, message: result.message, inboxId: result.inboxId };
+}
 async function recovery(admin: Admin, token: string, attempt: Row) {
   if (['imported', 'rejected'].includes(attempt.state)) return { state: attempt.state, inboxId: attempt.inbox_id };
   let source: KfmTripSource;
@@ -143,6 +172,13 @@ export async function handleKfmIntake(admin: Admin, token: string, vendorId: num
   if (await intakeRevision(source) !== payload.revision) return { success: true, result: { state: 'changed', message: 'PO đã thay đổi. Xem lại thông tin trước khi duyệt.' }, order: await orderView(source) };
   const subStatus = Number(source.po.subStatus);
   if (!(payload.decision === 'confirm' ? [3, 5, 6, 9] : [3]).includes(subStatus)) return { success: true, result: { state: 'blocked', message: 'Trạng thái PO không còn cho phép thao tác này. Làm mới danh sách.' } };
+  // Legacy guard: a PO that already has a delivery trip in the journal must not
+  // be refused. The unique claim written below is the race protection for new
+  // writes; this also covers trips created before print auto-confirmation existed.
+  if (payload.decision === 'reject') {
+    const trip = await checked(await admin.from('kfm_trip_attempts').select('order_id').eq('vendor_id', vendorId).eq('order_id', orderId).maybeSingle(), 'Không đọc được nhật ký chuyến giao. Chưa gửi quyết định.');
+    if (trip) return { success: true, result: { state: 'blocked', message: 'PO đã có chuyến/phiếu giao hàng trên hệ thống. Không từ chối/hủy; kiểm tra lại trên cổng KFM.' } };
+  }
   // Validate import shape before sending confirmation, not after the irreversible action.
   if (payload.decision === 'confirm') {
     checked(await admin.rpc('kfm_intake_customer_id'), 'Mapping khách hàng KFM chưa rõ ràng. Chưa xác nhận PO.');
