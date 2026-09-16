@@ -20,6 +20,17 @@ export type KfmIntakeOrder = {
   items: Array<{ productCode: string; barcode?: string; productName: string; unitName: string; qty: number }>;
 };
 
+/** A confirmed KFM portal PO that still has no linked production order. */
+export type KfmAwaitingSetupPo = {
+  id: string;
+  poNumber: string;
+  deliveryDate: string | null;
+  itemCount: number;
+};
+
+/** Outcome of the handoff: the setup dialog opened, or someone else already linked the PO. */
+export type KfmIntakeOutcome = "setup-opened" | "already-linked";
+
 type IntakeResult = {
   state: "imported" | "rejected" | "unknown" | "changed" | "blocked";
   inboxId?: string;
@@ -30,7 +41,11 @@ type Props = {
   canDecide: boolean;
   isVi: boolean;
   paused: boolean;
-  onImported: (inboxId: string) => Promise<void>;
+  onImported: (inboxId: string) => Promise<KfmIntakeOutcome | void> | KfmIntakeOutcome | void;
+  awaitingSetup?: KfmAwaitingSetupPo[];
+  awaitingSetupLoading?: boolean;
+  awaitingSetupError?: boolean;
+  onRefreshAwaitingSetup?: () => Promise<void>;
 };
 
 async function intakeRequest(body: Record<string, unknown>, signal?: AbortSignal) {
@@ -54,8 +69,9 @@ async function intakeRequest(body: Record<string, unknown>, signal?: AbortSignal
  * States: default, hover, focus, active, disabled, loading, error, success.
  * Pre-emit critique: P4 H4 E4 S5 R4 V4. Component scope, no page restructuring.
  * Manual discovery only; external decisions retain server journal/recovery.
+ * Confirmed-but-unlinked POs are surfaced here so setup is reachable from the popup.
  */
-export default function KfmPoIntake({ canDecide, isVi, paused, onImported }: Props) {
+export default function KfmPoIntake({ canDecide, isVi, paused, onImported, awaitingSetup = [], awaitingSetupLoading = false, awaitingSetupError = false, onRefreshAwaitingSetup }: Props) {
   const [orders, setOrders] = useState<KfmIntakeOrder[]>([]);
   const [vendorId, setVendorId] = useState<number | null>(null);
   const [activeId, setActiveId] = useState<number | null>(null);
@@ -70,6 +86,7 @@ export default function KfmPoIntake({ canDecide, isVi, paused, onImported }: Pro
   const [reason, setReason] = useState("");
   const [resumeInboxId, setResumeInboxId] = useState<string | null>(null);
   const [uncertainIds, setUncertainIds] = useState<Set<number>>(new Set());
+  const [setupMessage, setSetupMessage] = useState<{ tone: "info" | "error"; text: string } | null>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const scanController = useRef<AbortController | null>(null);
   const scanGeneration = useRef(0);
@@ -78,6 +95,15 @@ export default function KfmPoIntake({ canDecide, isVi, paused, onImported }: Pro
   const scanBusy = useRef(false);
   const handingOff = useRef(false);
   const active = orders.find((order) => order.orderId === activeId) || null;
+
+  const refreshAwaitingSetup = async () => {
+    if (!onRefreshAwaitingSetup) return;
+    try {
+      await onRefreshAwaitingSetup();
+    } catch {
+      // The read failure is reported through awaitingSetupError, not the scan result.
+    }
+  };
 
   const scan = async () => {
     if (!canDecide || paused || scanBusy.current || requestBusy.current) return;
@@ -90,7 +116,11 @@ export default function KfmPoIntake({ canDecide, isVi, paused, onImported }: Pro
     setChecking(true);
     setScanError("");
     setNotice("");
+    setSetupMessage(null);
     setActiveId(null);
+    // Refresh read-only pending data alongside the portal check so a PO imported
+    // from the separate print workspace shows up without a page reload.
+    const refresh = refreshAwaitingSetup();
     try {
       const value = await intakeRequest({ action: "intake-list" }, controller.signal);
       if (generation !== scanGeneration.current) return;
@@ -103,9 +133,11 @@ export default function KfmPoIntake({ canDecide, isVi, paused, onImported }: Pro
       setRejecting(false);
       setReason("");
       setResumeInboxId(null);
+      await refresh;
     } catch (error) {
       if (generation !== scanGeneration.current) return;
       setScanError(error instanceof Error && error.name !== "TimeoutError" ? error.message : (isVi ? "KFM chưa phản hồi. Hãy thử kiểm tra lại." : "KFM did not respond. Please try again."));
+      await refresh;
     } finally {
       if (generation === scanGeneration.current) {
         scanBusy.current = false;
@@ -141,6 +173,7 @@ export default function KfmPoIntake({ canDecide, isVi, paused, onImported }: Pro
     setChecking(false);
     setOpen(false);
     setActiveId(null);
+    setSetupMessage(null);
   };
 
   const finish = (orderId: number) => {
@@ -205,8 +238,96 @@ export default function KfmPoIntake({ canDecide, isVi, paused, onImported }: Pro
     }
   };
 
+  // Open the existing production setup for a confirmed PO. This is read-only:
+  // the operator still submits the setup dialog explicitly.
+  const continueSetup = async (po: KfmAwaitingSetupPo) => {
+    if (!canDecide || paused || requestBusy.current) return;
+    requestBusy.current = true;
+    setBusy(true);
+    setOperation(isVi ? "Đang mở thiết lập sản xuất…" : "Opening production setup…");
+    setSetupMessage(null);
+    try {
+      handingOff.current = true;
+      setOpen(false);
+      const outcome = await onImported(po.id);
+      if (outcome === "already-linked") {
+        handingOff.current = false;
+        setOpen(true);
+        setSetupMessage({ tone: "info", text: isVi ? `${po.poNumber} đã được lập lệnh sản xuất ở nơi khác; không tạo trùng.` : `${po.poNumber} already has a production order; nothing was duplicated.` });
+        await refreshAwaitingSetup();
+      }
+    } catch (error) {
+      handingOff.current = false;
+      setOpen(true);
+      setSetupMessage({ tone: "error", text: error instanceof Error ? error.message : (isVi ? "Chưa mở được thiết lập sản xuất." : "Could not open production setup.") });
+      await refreshAwaitingSetup();
+    } finally {
+      requestBusy.current = false;
+      setBusy(false);
+    }
+  };
+
   const recoverOnly = !!active && (uncertainIds.has(active.orderId) || active.state !== "pending" || !!resumeInboxId);
   const alreadyConfirmed = !!active && [5, 6, 9].includes(Number(active.subStatus));
+  const showRecovery = awaitingSetup.length > 0 || awaitingSetupLoading || awaitingSetupError;
+
+  const setupMessageBlock = setupMessage ? (
+    <p role={setupMessage.tone === "error" ? "alert" : "status"} className={`mt-3 break-words rounded-lg border p-3 text-sm ${setupMessage.tone === "error" ? "border-destructive/50 bg-destructive/10 text-destructive" : "border-primary/40 bg-primary/10 text-primary"}`}>
+      {setupMessage.text}
+    </p>
+  ) : null;
+
+  const awaitingSetupBlock = <>
+    <div>
+      <h3 className="flex items-center gap-2 text-base font-bold text-foreground">
+        <ClipboardCheck aria-hidden="true" className="h-4 w-4 text-primary" />
+        {isVi ? "PO KFM đã xác nhận · Chờ thiết lập SX" : "Confirmed KFM POs · Setup pending"}
+      </h3>
+      <p className="mt-1 break-words text-xs text-muted-foreground">
+        {isVi ? "Đã nhập từ KFM nhưng chưa có lệnh sản xuất. Mở đúng thiết lập; bước này chưa tạo gì." : "Imported from KFM without a production order yet. Opens the real setup; nothing is created here."}
+      </p>
+    </div>
+    {awaitingSetupLoading ? (
+      <div role="status" aria-live="polite" className="mt-4 flex items-center gap-2 text-sm text-muted-foreground" data-kfm-awaiting-setup-loading>
+        <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin motion-reduce:animate-none" />
+        {isVi ? "Đang tải danh sách PO chờ thiết lập SX…" : "Loading confirmed POs awaiting setup…"}
+      </div>
+    ) : awaitingSetupError ? (
+      <p role="alert" className="mt-4 break-words text-sm text-destructive" data-kfm-awaiting-setup-error>
+        {isVi ? "Không đọc được danh sách PO chờ thiết lập SX. Đây chưa phải là “không có PO”; hãy thử lại." : "Could not read the POs awaiting setup. This is not “no POs”; please retry."}
+      </p>
+    ) : (
+      <ul className="mt-4 space-y-2">
+        {awaitingSetup.map((po) => (
+          <li key={po.id} data-kfm-awaiting-setup-item={po.id} className="flex min-w-0 flex-col gap-3 rounded-xl border p-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0 break-words">
+              <p className="font-mono font-semibold">{po.poNumber}</p>
+              <p className="text-sm text-muted-foreground">{isVi ? "Ngày giao: " : "Delivery: "}{po.deliveryDate || "—"} · {po.itemCount} {isVi ? "dòng sản phẩm" : "items"}</p>
+            </div>
+            <Button variant="outline" className="min-h-11 shrink-0" disabled={busy || !canDecide} onClick={() => void continueSetup(po)}>
+              {isVi ? "Tiếp tục thiết lập SX" : "Continue production setup"}
+            </Button>
+          </li>
+        ))}
+      </ul>
+    )}
+  </>;
+
+  const renderAwaitingSetup = (embedded: boolean) => (
+    <section data-kfm-awaiting-setup="v1" className={embedded ? "mt-5 border-t pt-4" : "px-5 py-6"} aria-label={isVi ? "PO chờ thiết lập sản xuất" : "POs awaiting production setup"}>
+      {awaitingSetupBlock}
+      {setupMessageBlock}
+    </section>
+  );
+
+  const emptyResult = (
+    <div role="status" className="min-h-0 overflow-y-auto px-5 py-10 text-center">
+      <CheckCircle aria-hidden="true" className="mx-auto mb-5 h-10 w-10 text-primary" />
+      <h3 className="text-lg font-semibold">{isVi ? "Không có PO mới cần duyệt" : "No new POs to review"}</h3>
+      <p className="mt-3 break-words text-sm text-muted-foreground">{isVi ? "Đã kiểm tra xong. Không có đơn mới cần duyệt và không có PO KFM nào đang chờ thiết lập sản xuất." : "The check is complete. No new orders to review and no confirmed KFM POs awaiting production setup."}</p>
+    </div>
+  );
+
   return (
     <div className="min-w-0 max-w-full" data-kfm-po-intake="manual-popup-v2">
       <Button ref={trigger} variant="outline" size="lg" className="h-12 w-full rounded-2xl border-primary/30 bg-card/80 text-base font-bold text-primary hover:bg-primary/10 hover:text-primary" disabled={!canDecide || paused || checking || busy} onClick={() => void scan()}>
@@ -217,7 +338,7 @@ export default function KfmPoIntake({ canDecide, isVi, paused, onImported }: Pro
       {!paused && <Dialog open={open && canDecide} onOpenChange={(open) => { if (!open) close(); }}>
         <DialogContent className={`flex max-h-[92dvh] w-[calc(100%-1.5rem)] max-w-[720px] flex-col gap-0 overflow-hidden rounded-2xl p-0 motion-reduce:animate-none [&>button]:right-2 [&>button]:top-2 [&>button]:flex [&>button]:h-11 [&>button]:w-11 [&>button]:items-center [&>button]:justify-center ${busy ? "[&>button]:hidden" : ""}`} onCloseAutoFocus={(event) => { event.preventDefault(); if (!handingOff.current) trigger.current?.focus(); }} onInteractOutside={(event) => event.preventDefault()} onEscapeKeyDown={(event) => { if (busy) event.preventDefault(); }}>
           <DialogHeader className="shrink-0 border-b p-5 pr-12">
-            <DialogTitle className="text-xl font-bold">{checking ? (isVi ? "Kiểm tra PO" : "Check POs") : scanError ? (isVi ? "Chưa kiểm tra được PO" : "Unable to check POs") : busy ? (isVi ? "Đang xử lý PO" : "Processing PO") : active ? (isVi ? `Có ${orders.length} PO cần duyệt` : `${orders.length} POs to review`) : (isVi ? "Kết quả kiểm tra" : "Check result")}</DialogTitle>
+            <DialogTitle className="text-xl font-bold">{checking ? (isVi ? "Kiểm tra PO" : "Check POs") : scanError ? (isVi ? "Chưa kiểm tra được PO" : "Unable to check POs") : busy ? (isVi ? "Đang xử lý PO" : "Processing PO") : active ? (isVi ? `Có ${orders.length} PO cần duyệt` : `${orders.length} POs to review`) : awaitingSetup.length > 0 ? (isVi ? `${awaitingSetup.length} PO chờ thiết lập SX` : `${awaitingSetup.length} POs awaiting setup`) : (isVi ? "Kết quả kiểm tra" : "Check result")}</DialogTitle>
             <DialogDescription>{active ? active.code : "Portal KFM"}</DialogDescription>
           </DialogHeader>
           {(checking || busy) ? <>
@@ -227,19 +348,7 @@ export default function KfmPoIntake({ canDecide, isVi, paused, onImported }: Pro
               <p className="mx-auto mt-3 max-w-md text-sm text-muted-foreground">{checking ? (isVi ? "Đang lấy danh sách đơn từ KFM. Chưa xác nhận hoặc từ chối đơn nào." : "Loading orders from KFM. No orders are being confirmed or rejected.") : (isVi ? "Chờ KFM xác nhận kết quả trước khi tiếp tục. Không cần bấm lại." : "Waiting for KFM to verify the result. Do not click again.")}</p>
             </div>
             <div className="flex justify-end border-t p-4"><Button variant="outline" className="min-h-11" disabled={busy} onClick={close}>{busy ? (isVi ? "Đang xử lý…" : "Processing…") : (isVi ? "Đóng" : "Close")}</Button></div>
-          </> : scanError || notice || !active ? <>
-            <div role={scanError ? "alert" : "status"} className="min-h-0 overflow-y-auto px-5 py-10 text-center">
-              {scanError ? <AlertCircle aria-hidden="true" className="mx-auto mb-5 h-10 w-10 text-destructive" /> : <CheckCircle aria-hidden="true" className="mx-auto mb-5 h-10 w-10 text-primary" />}
-              <h3 className="text-lg font-semibold">{scanError ? (isVi ? "Chưa có kết quả kiểm tra" : "No check result yet") : notice || (isVi ? "Không có PO mới cần duyệt" : "No new POs to review")}</h3>
-              <p className="mt-3 break-words text-sm text-muted-foreground">{scanError || (notice ? (isVi ? "PO không được nhập vào sản xuất." : "The PO was not imported for production.") : (isVi ? "Đã kiểm tra xong. Không có đơn mới hoặc đơn chờ duyệt trong lần kiểm tra này." : "The check is complete. No new or pending orders were found."))}</p>
-            </div>
-            <div className="flex flex-wrap justify-end gap-2 border-t p-4">
-              <Button variant="outline" className="min-h-11" onClick={close}>{isVi ? "Đóng" : "Close"}</Button>
-              {scanError && <Button className="min-h-11" onClick={() => void scan()}>{isVi ? "Thử lại" : "Try again"}</Button>}
-              {notice && orders.length > 0 && <Button className="min-h-11" onClick={() => setNotice("")}>{isVi ? "PO tiếp theo" : "Next PO"}</Button>}
-            </div>
-          </> : <>
-
+          </> : active ? <>
             <div className="min-h-0 overflow-y-auto p-5" data-kfm-intake-order={active.orderId}>
               <div className="mb-4 space-y-1 break-words">
                 <p className="font-mono text-lg font-bold">{active.code}</p>
@@ -261,6 +370,7 @@ export default function KfmPoIntake({ canDecide, isVi, paused, onImported }: Pro
               </div>}
               {detail && <p role="alert" className="mt-4 break-words rounded-lg border border-warning/50 bg-warning/10 p-3 text-sm">{detail}</p>}
               {recoverOnly && <p className="mt-3 text-sm text-muted-foreground">{isVi ? "Đang chờ xác minh / hoàn tất nhập PO. Không gửi xác nhận hoặc từ chối lần nữa." : "Awaiting verification / import. No confirmation or rejection will be resent."}</p>}
+              {showRecovery && renderAwaitingSetup(true)}
             </div>
             <div className="flex shrink-0 flex-col gap-2 border-t bg-muted/20 p-4 sm:flex-row sm:justify-end">
               <Button variant="ghost" className="min-h-11 sm:mr-auto" onClick={close}>{isVi ? "Để sau" : "Later"}</Button>
@@ -268,6 +378,29 @@ export default function KfmPoIntake({ canDecide, isVi, paused, onImported }: Pro
                 {Number(active.subStatus) === 3 && <Button variant="outline" className="min-h-11" disabled={busy} onClick={() => { if (rejecting) { setRejecting(false); setReason(""); } else setRejecting(true); }}>{rejecting ? (isVi ? "Quay lại" : "Back") : (isVi ? "Từ chối" : "Reject")}</Button>}
                 {rejecting ? <Button variant="destructive" className="min-h-11" disabled={busy || !reason.trim()} onClick={() => void act("reject")}>{busy && <Loader2 className="mr-2 h-4 w-4 animate-spin"/>}{isVi ? "Gửi từ chối đến KFM" : "Send rejection to KFM"}</Button> : <Button className="min-h-11" disabled={busy || active.items.length === 0} onClick={() => void act("confirm")}>{busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <CheckCircle className="mr-2 h-4 w-4"/>}{alreadyConfirmed ? (isVi ? "Tiếp tục nhập PO" : "Continue importing PO") : (isVi ? "Xác nhận" : "Confirm")}</Button>}
               </>}
+            </div>
+          </> : scanError || notice ? <>
+            <div role={scanError ? "alert" : "status"} className="min-h-0 overflow-y-auto px-5 py-10 text-center">
+              {scanError ? <AlertCircle aria-hidden="true" className="mx-auto mb-5 h-10 w-10 text-destructive" /> : <CheckCircle aria-hidden="true" className="mx-auto mb-5 h-10 w-10 text-primary" />}
+              <h3 className="text-lg font-semibold">{scanError ? (isVi ? "Chưa có kết quả kiểm tra" : "No check result yet") : notice || (isVi ? "Không có PO mới cần duyệt" : "No new POs to review")}</h3>
+              <p className="mt-3 break-words text-sm text-muted-foreground">{scanError || (notice ? (isVi ? "PO không được nhập vào sản xuất." : "The PO was not imported for production.") : (isVi ? "Đã kiểm tra xong. Không có đơn mới hoặc đơn chờ duyệt trong lần kiểm tra này." : "The check is complete. No new or pending orders were found."))}</p>
+            </div>
+            {showRecovery && renderAwaitingSetup(false)}
+            <div className="flex flex-wrap justify-end gap-2 border-t p-4">
+              <Button variant="outline" className="min-h-11" onClick={close}>{isVi ? "Đóng" : "Close"}</Button>
+              {scanError && <Button className="min-h-11" onClick={() => void scan()}>{isVi ? "Thử lại" : "Try again"}</Button>}
+              {notice && orders.length > 0 && <Button className="min-h-11" onClick={() => setNotice("")}>{isVi ? "PO tiếp theo" : "Next PO"}</Button>}
+            </div>
+          </> : showRecovery ? <>
+            {renderAwaitingSetup(false)}
+            <div className="flex flex-wrap justify-end gap-2 border-t p-4">
+              <Button variant="outline" className="min-h-11" onClick={close}>{isVi ? "Đóng" : "Close"}</Button>
+            </div>
+          </> : <>
+            {emptyResult}
+            {setupMessageBlock}
+            <div className="flex flex-wrap justify-end gap-2 border-t p-4">
+              <Button variant="outline" className="min-h-11" onClick={close}>{isVi ? "Đóng" : "Close"}</Button>
             </div>
           </>}
         </DialogContent>

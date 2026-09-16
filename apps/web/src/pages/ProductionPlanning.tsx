@@ -1,5 +1,5 @@
  
-import { type MouseEvent, type ReactNode, useCallback, useMemo, useState } from "react";
+import { type MouseEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
@@ -51,7 +51,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { Link } from "react-router-dom";
 import { isFinishedSku } from "@/lib/skuType";
-import KfmPoIntake from "@/components/production/KfmPoIntake";
+import KfmPoIntake, { type KfmAwaitingSetupPo, type KfmIntakeOutcome } from "@/components/production/KfmPoIntake";
 
 interface ProductionItem {
   product_name: string;
@@ -441,34 +441,35 @@ export default function ProductionPlanning() {
     notes: "",
   });
 
-  const { data: pendingPos = [], isLoading: loadingPos } = useQuery({
+  const { data: pendingPos = [], isLoading: loadingPos, isError: pendingPosError, error: pendingPosErrorValue, refetch: refetchPendingPos } = useQuery({
     queryKey: ["pending-pos", productionPoDateIso, planDayStartIso],
     queryFn: async () => {
-      try {
-        const { data: allPos, error: posError } = await (supabase as any)
-          .from("customer_po_inbox")
-          .select("*")
-          .in("match_status", ["approved", "pending_approval"])
-          .or(`raw_payload->>source.eq.kfm_portal,delivery_date.eq.${productionPoDateIso},and(delivery_date.is.null,created_at.gte.${planDayStartIso})`)
-          .order("created_at", { ascending: false });
+      const { data: allPos, error: posError } = await (supabase as any)
+        .from("customer_po_inbox")
+        .select("*")
+        .in("match_status", ["approved", "pending_approval"])
+        .or(`raw_payload->>source.eq.kfm_portal,delivery_date.eq.${productionPoDateIso},and(delivery_date.is.null,created_at.gte.${planDayStartIso})`)
+        .order("created_at", { ascending: false });
 
-        if (posError) throw posError;
+      if (posError) throw posError;
 
-        const { data: linkedPos, error: linkedError } = await (supabase as any)
-          .from("production_orders")
-          .select("source_po_inbox_id");
+      const { data: linkedPos, error: linkedError } = await (supabase as any)
+        .from("production_orders")
+        .select("source_po_inbox_id");
 
-        if (linkedError) throw linkedError;
+      if (linkedError) throw linkedError;
 
-        const linkedPoIds = new Set((linkedPos || []).map((p: any) => p.source_po_inbox_id));
-        return (allPos || []).filter((po: CustomerPoInbox) => !linkedPoIds.has(po.id) && (!(isPortalPo(po) || isKingfoodPo(po)) || po.match_status === "approved")) as CustomerPoInbox[];
-      } catch (error) {
-        console.error("Error fetching pending POs:", error);
-        toast.error(isVi ? "Không thể tải danh sách PO" : "Failed to load POs");
-        return [];
-      }
+      const linkedPoIds = new Set((linkedPos || []).map((p: any) => p.source_po_inbox_id));
+      return (allPos || []).filter((po: CustomerPoInbox) => !linkedPoIds.has(po.id) && (!(isPortalPo(po) || isKingfoodPo(po)) || po.match_status === "approved")) as CustomerPoInbox[];
     },
   });
+
+  // A failed read must stay a failed read: never present it as an empty queue.
+  useEffect(() => {
+    if (!pendingPosError) return;
+    console.error("Error fetching pending POs:", pendingPosErrorValue);
+    toast.error(isVi ? "Không thể tải danh sách PO" : "Failed to load POs");
+  }, [pendingPosError, pendingPosErrorValue, isVi]);
 
   const { data: skuImageRows = [], isLoading: loadingSkus } = useQuery({
     queryKey: ["production-sku-images"],
@@ -939,20 +940,35 @@ export default function ProductionPlanning() {
     return null;
   };
 
-  const handlePortalImported = async (inboxId: string) => {
+  const handlePortalImported = async (inboxId: string): Promise<KfmIntakeOutcome> => {
     await queryClient.invalidateQueries({ queryKey: ["pending-pos"] });
     await queryClient.invalidateQueries({ queryKey: ["production-orders"] });
     const { data: linked, error: linkedError } = await (supabase as any).from("production_orders").select("id").eq("source_po_inbox_id", inboxId).maybeSingle();
     if (linkedError) throw linkedError;
-    if (linked) return; // Another employee completed production while this PO was open.
+    if (linked) return "already-linked"; // Another employee completed production while this PO was open.
     const { data: po, error } = await (supabase as any).from("customer_po_inbox").select("*").eq("id", inboxId).single();
     if (error) throw error;
     if (!isPortalPo(po) || po.match_status !== "approved") throw new Error("Chưa xác minh PO được nhập từ portal sau khi xác nhận.");
     const issue = handleCreateClick(po, true);
     if (issue) throw new Error(issue);
+    return "setup-opened";
   };
 
-  const portalPosAwaitingSetup = keepLatestReplacementPos(pendingPos.filter(isPortalPo));
+  const portalPosAwaitingSetup = useMemo(() => keepLatestReplacementPos(pendingPos.filter(isPortalPo)), [pendingPos]);
+
+  const awaitingSetupPos = useMemo<KfmAwaitingSetupPo[]>(
+    () => portalPosAwaitingSetup.map((po) => ({
+      id: po.id,
+      poNumber: po.po_number,
+      deliveryDate: po.delivery_date || null,
+      itemCount: (po.production_items || []).length,
+    })),
+    [portalPosAwaitingSetup]
+  );
+
+  const refreshPendingPos = useCallback(async () => {
+    await refetchPendingPos();
+  }, [refetchPendingPos]);
 
   const downloadPoAttachment = useCallback(
     async (po: Pick<CustomerPoInbox, "id" | "po_number">, fileName: string, event?: MouseEvent<HTMLElement>) => {
@@ -1205,7 +1221,7 @@ export default function ProductionPlanning() {
                 >
                   {isVi ? "Thiết lập SX" : "Production setup"}
                 </Button>
-                <KfmPoIntake canDecide={canEditLocation} isVi={isVi} paused={createDialogOpen || !!editingOrder || !!deleteOrder || tvModeOpen} onImported={handlePortalImported} />
+                <KfmPoIntake canDecide={canEditLocation} isVi={isVi} paused={createDialogOpen || !!editingOrder || !!deleteOrder || tvModeOpen} onImported={handlePortalImported} awaitingSetup={awaitingSetupPos} awaitingSetupLoading={loadingPos} awaitingSetupError={pendingPosError} onRefreshAwaitingSetup={refreshPendingPos} />
                 <Button asChild variant="outline" size="lg" className="h-12 rounded-2xl border-border bg-card/80 text-base text-foreground hover:bg-muted" data-kfm-portal-entry="v2">
                   <Link to="/production/planning/q7/kfm"><Truck className="mr-2 h-5 w-5" />{isVi ? "Cổng KFM" : "KFM portal"}</Link>
                 </Button>
@@ -1323,7 +1339,7 @@ export default function ProductionPlanning() {
         <Card className="stat-card p-0 before:bg-warning">
           <CardHeader className="space-y-1 p-4">
             <CardDescription className="text-sm font-semibold text-warning-foreground">{isVi ? "PO chờ lập SX" : "POs awaiting production setup"}</CardDescription>
-            <CardTitle className="text-4xl font-black text-warning-foreground">{loadingPos ? "..." : stats.pendingPos}</CardTitle>
+            <CardTitle className="text-4xl font-black text-warning-foreground">{loadingPos ? "..." : pendingPosError ? "—" : stats.pendingPos}</CardTitle>
           </CardHeader>
         </Card>
         <Card className="stat-card p-0 before:bg-success">
@@ -1371,6 +1387,15 @@ export default function ProductionPlanning() {
             {loadingPos ? (
               <div className="flex min-h-[320px] items-center justify-center bg-card/40">
                 <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              </div>
+            ) : pendingPosError ? (
+              <div role="alert" className="flex min-h-[320px] flex-col items-center justify-center bg-card/40 p-8 text-center" data-kfm-pending-error="v1">
+                <AlertCircle className="mb-3 h-14 w-14 text-destructive" />
+                <h3 className="text-xl font-bold text-foreground">{isVi ? "Không đọc được danh sách PO" : "Could not load POs"}</h3>
+                <p className="mt-1 max-w-md text-muted-foreground">
+                  {isVi ? "Đây chưa phải là “không có PO”. Kiểm tra kết nối rồi thử lại." : "This is not “no POs”. Check the connection and retry."}
+                </p>
+                <Button variant="outline" className="mt-4 min-h-11" onClick={() => void refetchPendingPos()}>{isVi ? "Thử lại" : "Try again"}</Button>
               </div>
             ) : pendingPosEmpty ? (
               <div className="flex min-h-[320px] flex-col items-center justify-center bg-card/40 p-8 text-center">

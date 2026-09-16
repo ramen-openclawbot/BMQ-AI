@@ -302,6 +302,25 @@ def test_auto_confirmation_and_desktop_layout_contracts() -> None:
     require(payables, 'data-bmq-payables-search-row="v2"', "search must have its own row")
 
 
+def test_check_popup_exposes_confirmed_pos_awaiting_setup() -> None:
+    # Reported 2026-09-16: a confirmed KFM PO (delivery 16/09) with production_items
+    # but no linked production order made the Check PO popup say "no new/pending
+    # orders", while the recovery card sat elsewhere. The popup must surface those
+    # confirmed-but-unlinked POs, hand off to the existing setup, refresh the pending
+    # read on manual scan, and never present a failed read as an empty queue.
+    intake = (ROOT / "src/components/production/KfmPoIntake.tsx").read_text()
+    for marker in ('data-kfm-awaiting-setup="v1"', "data-kfm-awaiting-setup-item=",
+                   "Tiếp tục thiết lập SX", "already-linked", "awaitingSetupError",
+                   "Không đọc được danh sách PO chờ thiết lập SX", "onRefreshAwaitingSetup"):
+        require(intake, marker, "check popup recovery missing: " + marker)
+    continue_setup = intake.split("const continueSetup", 1)[1].split("const recoverOnly", 1)[0]
+    require(continue_setup, "onImported(po.id)", "recovery must reuse the existing setup handoff")
+    forbid(continue_setup, "intake-decide", "recovery must never confirm the PO again")
+    for marker in ('awaitingSetup={awaitingSetupPos}', 'onRefreshAwaitingSetup={refreshPendingPos}',
+                   'data-kfm-pending-error="v1"', 'return "already-linked"', "if (posError) throw posError;"):
+        require(PLANNING, marker, "planning recovery wiring missing: " + marker)
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in sorted(globals().items()):

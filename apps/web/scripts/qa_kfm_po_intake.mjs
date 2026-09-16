@@ -9,7 +9,7 @@ const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright")
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const out = process.env.KFM_QA_OUT || path.join(root, ".qa-kfm-intake");
 fs.mkdirSync(out, { recursive: true });
-const server = await createServer({ root, configFile: false, server: { host: "127.0.0.1", port: 5196 }, resolve: { alias: { "@/integrations/supabase/client": "\0fixture-auth", "@": root + "/src" } }, plugins: [{
+const server = await createServer({ root, configFile: false, cacheDir: path.join(out, ".vite"), server: { host: "127.0.0.1", port: 5196 }, resolve: { alias: { "@/integrations/supabase/client": "\0fixture-auth", "@": root + "/src" } }, plugins: [{
   name: "kfm-intake-fixtures",
   resolveId(id) { if (id === "\0fixture-auth") return id; if (id === "/__intake.jsx") return root + id; },
   load(id) {
