@@ -51,6 +51,18 @@ async function orderView(source: KfmTripSource, attempt?: Row) {
 function checked(result: Row, message: string) { if (result.error) throw new KfmPortalError('intake', 0, message); return result.data; }
 const PAGE_SIZE = 1000;
 /**
+ * Gia Von's finished-product definition (src/lib/skuType.ts): an explicit
+ * `finished_good` type, or a legacy row whose type is absent and whose category
+ * still names a finished product. The typed raw-material rows are excluded in
+ * PostgREST so the catalog read stays small and cannot be truncated by the
+ * mostly-raw-material catalog; legacy untyped rows are still fetched because
+ * only the canonical accent/punctuation-normalized category fallback can
+ * classify them, and a server-side `ilike` would silently drop a valid legacy
+ * finished SKU. `mapIntakeSkus` re-applies the same predicate, so a raw material
+ * can never become eligible even if it slips into the candidate set.
+ */
+export const FINISHED_SKU_QUERY = 'sku_type.eq.finished_good,sku_type.is.null';
+/**
  * PostgREST returns at most one page per request (1000 rows by default), so an
  * unpaged catalog read silently dropped later SKUs and blocked an otherwise
  * valid PO. Read every page in a stable id order and fail closed on any page
@@ -96,7 +108,7 @@ export function mapIntakeSkus(payload: Row, skus: Row[], settings: Row[]) {
 }
 async function mappedPayload(admin: Admin, source: KfmTripSource, vendorId: number, actorId: string) {
   const [skus, settings] = await Promise.all([
-    readAllRows(() => admin.from('product_skus').select('id,sku_code,product_name,sku_type,category', { count: 'exact' }), 'Không đọc được mapping SKU.'),
+    readAllRows(() => admin.from('product_skus').select('id,sku_code,product_name,sku_type,category', { count: 'exact' }).or(FINISHED_SKU_QUERY), 'Không đọc được mapping SKU.'),
     readAllRows(() => admin.from('production_location_sku_settings').select('sku_id,is_enabled', { count: 'exact' }).eq('location_code', 'q7'), 'Không đọc được SKU bật tại Q7.'),
   ]);
   return mapIntakeSkus(productionPayload(source, vendorId, actorId), skus, settings);

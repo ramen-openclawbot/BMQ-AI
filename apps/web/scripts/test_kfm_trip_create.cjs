@@ -40,8 +40,9 @@ async function payloadFor(subStatus = 6, extra = {}) {
  * raw KFM HTTP and the Postgres client are faked, so the durable intake claim
  * that gates the trip write is the production code, not a stub.
  */
-function bridge({ permission = true, vendorIds = [1865], changed = false, outcome = 'success', inScope = true, childVendor = false, poStatus = 6, pendingChanged = false, poReadFails = false, existingNotes = [], asnFailure = false, savedChanged = false, intakeOutcome = 'success', importFail = false, disabled = false, legacy = [], preTrip = false, preIntake = null } = {}) {
-  const records = new Map(); let handler, tripPosts = 0, sourceReads = 0, poSubStatus = poStatus;
+function bridge({ permission = true, vendorIds = [1865], changed = false, outcome = 'success', inScope = true, childVendor = false, poStatus = 6, pendingChanged = false, poReadFails = false, existingNotes = [], asnFailure = false, savedChanged = false, intakeOutcome = 'success', importFail = false, disabled = false, legacy = [], preTrip = false, preIntake = null, rawCatalog = false } = {}) {
+  const records = new Map(); let handler, tripPosts = 0, sourceReads = 0, catalogReads = 0, poSubStatus = poStatus;
+  const catalogRowsSeen = [];
   let portalConfirms = 0, portalRejects = 0, imports = 0, importFailNow = importFail;
   const intakeRows = new Map(), events = [];
   const tripKey = '1865:239751';
@@ -52,7 +53,7 @@ function bridge({ permission = true, vendorIds = [1865], changed = false, outcom
     if (childVendor) s.po = { ...s.po, vendorId: 2797, vendorCode: 'V000217.1' };
     return s;
   };
-  const skuRows = () => currentSource().items.map((item, i) => ({ id: 'sku' + i, sku_code: 'SKU' + i, product_name: item.productName, sku_type: 'finished_good' }));
+  const skuRows = () => currentSource().items.map((item, i) => ({ id: 'sku' + i, sku_code: 'SKU' + i, product_name: item.productName, sku_type: rawCatalog ? 'raw_material' : 'finished_good' }));
   const settingRows = () => skuRows().map(row => ({ sku_id: row.id, is_enabled: true }));
   const admin = { auth: { getUser: async () => ({ data: { user: { id: 'fixture-user' } } }) }, rpc: async (name, args) => {
     if (name === 'kfm_existing_po_numbers') return { data: legacy.map(po_number => ({ po_number })), error: null };
@@ -64,12 +65,12 @@ function bridge({ permission = true, vendorIds = [1865], changed = false, outcom
     if (row.state !== 'imported') { imports++; row.state = 'imported'; row.inbox_id = 'inbox-1'; }
     return { data: 'inbox-1', error: null };
   }, from(table) {
-    let operation='select', value, filters={}, single=false;
-    const query = { select(){return query;}, eq(k,v){filters[k]=v;return query;}, order(){return query;}, range(){return query;}, maybeSingle(){single=true;return query;}, insert(v){operation='insert';value=v;return query;}, update(v){operation='update';value=v;return query;}, then(resolve,reject) {
+    let operation='select', value, filters={}, single=false, orFilter=null;
+    const query = { select(){return query;}, eq(k,v){filters[k]=v;return query;}, or(expr){orFilter=expr;return query;}, order(){return query;}, range(){return query;}, maybeSingle(){single=true;return query;}, insert(v){operation='insert';value=v;return query;}, update(v){operation='update';value=v;return query;}, then(resolve,reject) {
       return Promise.resolve().then(() => {
         if(table==='user_roles')return {data:permission?[{role:'owner'}]:[],error:null};
         if(table==='user_module_permissions')return {data:[],error:null};
-        if(table==='product_skus')return {data:skuRows(),error:null};
+        if(table==='product_skus'){const matchOr=(row,expr)=>expr.split(',').some(clause=>{const [field,compare,expected]=clause.split('.');if(compare==='eq')return row[field]===expected;if(compare==='is')return expected==='null'?row[field]==null:row[field]===expected;throw Error('Unsupported mock filter '+clause);});const rows=orFilter?skuRows().filter(row=>matchOr(row,orFilter)):skuRows();catalogReads++;catalogRowsSeen.push(...rows);return {data:rows,error:null};}
         if(table==='production_location_sku_settings')return {data:disabled?[]:settingRows(),error:null};
         if(table==='kfm_po_intake_attempts') {
           const key = value?.order_id ?? filters.order_id;
@@ -92,6 +93,7 @@ function bridge({ permission = true, vendorIds = [1865], changed = false, outcom
       if(outcome==='missing')throw Error('simulated network failure');
       return json({loadId:44});
     }
+    if(url.includes('/export-pdf'))return new Response(new Uint8Array([37,80,68,70]),{status:200});
     if(url.includes('/orders/239751/asn'))return asnFailure ? new Response('{}',{status:503}) : json(existingNotes);
     if(url.includes('/inbound-loads/44'))return json(outcome==='mismatch'?{...load,asns:[]}:load);
     if(url.includes('/inbound-loads?'))return json({content:outcome==='missing'?[]:[{id:44}],totalElements:outcome==='missing'?0:1});
@@ -119,7 +121,7 @@ function bridge({ permission = true, vendorIds = [1865], changed = false, outcom
       throw Error('Unexpected import '+spec);
     },
   });
-  return {records,intake,events,get postCount(){return tripPosts;},get tripPosts(){return tripPosts;},get sourceReads(){return sourceReads;},get portalConfirms(){return portalConfirms;},get portalRejects(){return portalRejects;},get imports(){return imports;},get intakeRows(){return intakeRows;},set poSubStatus(v){poSubStatus=v;},set importFail(v){importFailNow=v;},async call(payload){const res=await handler(new Request('https://fixture.invalid',{method:'POST',headers:{Authorization:'Bearer fixture-only','Content-Type':'application/json'},body:JSON.stringify(payload)}));return {status:res.status,...await res.json()};}};
+  return {records,intake,events,get postCount(){return tripPosts;},get tripPosts(){return tripPosts;},get sourceReads(){return sourceReads;},get catalogReads(){return catalogReads;},get catalogRowsSeen(){return catalogRowsSeen;},get portalConfirms(){return portalConfirms;},get portalRejects(){return portalRejects;},get imports(){return imports;},get intakeRows(){return intakeRows;},set poSubStatus(v){poSubStatus=v;},set importFail(v){importFailNow=v;},async call(payload){const res=await handler(new Request('https://fixture.invalid',{method:'POST',headers:{Authorization:'Bearer fixture-only','Content-Type':'application/json'},body:JSON.stringify(payload)}));return {status:res.status,...await res.json()};}};
 }
 
 (async()=>{
@@ -214,6 +216,7 @@ function bridge({ permission = true, vendorIds = [1865], changed = false, outcom
   await test('already confirmed PO creates without another portal confirmation',async()=>{
     const b=bridge({poStatus:6});const r=await b.call(payload);
     assert.equal(r.result.state,'verified');assert.equal(b.portalConfirms,0);assert.equal(b.intakeRows.size,0);assert.equal(b.tripPosts,1);
+    assert.equal(b.catalogReads,0,'an already-confirmed PO must not load the SKU catalog');
   });
   await test('an existing reject claim still blocks an already confirmed PO',async()=>{
     const b=bridge({poStatus:5,preIntake:'reject'});const r=await b.call(await payloadFor(5));
@@ -256,6 +259,7 @@ function bridge({ permission = true, vendorIds = [1865], changed = false, outcom
     const r=await b.call({action:'trip-result',orderId:239751,deliveryDate:date});
     assert.equal(r.result.state,'unknown');assert.ok(r.result.intakeRevision);
     assert.equal(b.portalConfirms,0);assert.equal(b.portalRejects,0);assert.equal(b.intakeRows.size,0);assert.equal(b.tripPosts,0);assert.equal(b.records.size,1);
+    assert.equal(b.catalogReads,0,'read-only recovery must not load the SKU catalog');
   });
   await test('confirm-po timeout does not repeat the portal confirmation',async()=>{
     const b=bridge({poStatus:3,preTrip:true,intakeOutcome:'missing'});
@@ -318,6 +322,22 @@ function bridge({ permission = true, vendorIds = [1865], changed = false, outcom
     assert.equal(b.portalConfirms,1,'the shared claim must send one portal confirmation');
     assert.equal(b.tripPosts,1);assert.equal(b.records.size,1);
     assert(responses.some(r=>r.result?.state==='verified'));
+  });
+  await test('raw-material catalog is excluded at the query and blocks the trip',async()=>{
+    const b=bridge({poStatus:3,rawCatalog:true});const r=await b.call(await payloadFor(3));
+    assert.equal(r.success,false);assert.equal(b.portalConfirms,0);assert.equal(b.tripPosts,0);assert.equal(b.records.size,0);
+    assert.equal(b.catalogRowsSeen.filter(row=>row.sku_type==='raw_material').length,0,'raw materials must never leave the database');
+  });
+  await test('PDF retrieval never reads the SKU catalog or creates a trip',async()=>{
+    const b=bridge();
+    const po=await b.call({action:'po-pdf',orderId:239751,poId:239751,code:'PO1002646817',layout:'NO_PRICE'});
+    assert.equal(po.success,true);assert.equal(po.contentType,'application/pdf');assert.ok(po.base64);
+    const asn=await b.call({action:'asn-pdf',orderId:239751,poId:239751,asnId:55,code:'ASN-TEST'});
+    assert.equal(asn.success,true);assert.equal(asn.contentType,'application/pdf');assert.ok(asn.base64);
+    const trip=await b.call({action:'load-pdf',loadId:44,code:'IL-TEST',layout:'NO_PRICE'});
+    assert.equal(trip.success,true);assert.equal(trip.contentType,'application/pdf');assert.equal(trip.base64,btoa('%PDF'));
+    assert.equal(b.portalConfirms,0);assert.equal(b.portalRejects,0);assert.equal(b.imports,0);
+    assert.equal(b.catalogReads,0);assert.equal(b.tripPosts,0);assert.equal(b.records.size,0);
   });
   console.log(`PASS ${passed} behavioral tests; no real KFM request`);
 })().catch(e=>{console.error(e);process.exitCode=1;});
