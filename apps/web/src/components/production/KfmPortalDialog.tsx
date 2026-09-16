@@ -6,6 +6,7 @@ import { ArrowLeft, Loader2, Printer, RefreshCw, Truck } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
+import { KfmTimeSelect, isCompleteKfmTime } from "./KfmTimeSelect";
 
 /** Today's two-action print workspace. Portal writes only follow an operator click.
  * Hallmark: functional workbench; existing BMQ tokens, typography and primary color.
@@ -267,7 +268,7 @@ export default function KfmPrintWorkspace({ isVi = true }: { isVi?: boolean }) {
     ...(!form.licensePlate.trim() ? ["licensePlate"] : []),
     ...(!form.driverName.trim() || !form.driverPhone.trim() ? ["driver"] : []),
     ...(options.deliveryType ? (!form.bookingTimeSlot ? ["bookingTimeSlot"] : [])
-      : (!form.expectedTimeFrom || !form.expectedTimeTo || form.expectedTimeFrom >= form.expectedTimeTo ? ["time"] : [])),
+      : (!isCompleteKfmTime(form.expectedTimeFrom) || !isCompleteKfmTime(form.expectedTimeTo) || form.expectedTimeFrom >= form.expectedTimeTo ? ["time"] : [])),
   ];
 
   const sendAndPrint = async (snapshot: TripCreate, viewer: Window | null, key: string) => {
@@ -482,7 +483,7 @@ export default function KfmPrintWorkspace({ isVi = true }: { isVi?: boolean }) {
                         <option value="">Chọn khung giờ</option>{creating.options.slots.map((slot,i) => <option key={i} value={slot.value} disabled={!slot.available}>{slot.value}</option>)}
                       </select>
                     </label>}
-                    {creating.needed.includes("time") && ([['expectedTimeFrom','Giờ giao từ'],['expectedTimeTo','Giờ giao đến']] as const).map(([key,label]) => <label key={key} className="text-xs">{label}<input type="time" className="mt-1 block min-h-11 w-full min-w-0 rounded-lg border bg-background p-2 text-base sm:text-sm" value={creating.form[key]} onChange={e => setCreating({ ...creating, form: { ...creating.form, [key]: e.target.value } })} /></label>)}
+                    {creating.needed.includes("time") && ([['expectedTimeFrom','Giờ giao từ'],['expectedTimeTo','Giờ giao đến']] as const).map(([key,label]) => <KfmTimeSelect key={key} label={label} value={creating.form[key]} onChange={next => setCreating({ ...creating, form: { ...creating.form, [key]: next } })} />)}
                   </fieldset>
                   <Button className="min-h-11" data-kfm-action="submit-create" disabled={createBusy || missingFields(creating.form, creating.options).length > 0} onClick={() => void submitCreate()}>In phiếu giao hàng</Button>
                 </>}
