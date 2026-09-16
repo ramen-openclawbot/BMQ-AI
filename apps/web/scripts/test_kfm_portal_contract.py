@@ -138,9 +138,14 @@ def test_the_trip_draft_is_read_only_and_built_from_the_po_items() -> None:
 
 def test_trip_creation_is_guarded_and_recoverable() -> None:
     for marker in ('data-kfm-create="v2"', 'data-kfm-action="submit-create"',
-                   'data-kfm-action="check-create"', 'createLock.current',
+                   'data-kfm-action="print-readback"', 'createLock.current',
                    'requestId: crypto.randomUUID()', 'confirmed: true'):
         require(PANEL, marker, "create flow guard missing: " + marker)
+    # The standalone status button was removed: the print action now performs the
+    # read-only trip-result readback itself and only opens a verified sheet.
+    for marker in ('data-kfm-action="check-create"', '>Kiểm tra kết quả<', 'checkCreate'):
+        forbid(PANEL, marker, "the removed status button must not come back")
+    require(PANEL, 'action: "trip-result"', "print recovery must use the read-only result action")
     for marker in ('canCreateTrip(userId)', 'cached.vendorIds.includes(vendorId)',
                    'payload.revision !== revision', 'buildTripSubmission',
                    'from("kfm_trip_attempts").insert(row)', 'tripResult', 'baseline_asn_ids'):
@@ -277,10 +282,11 @@ def test_a_phone_row_needs_no_sideways_drag() -> None:
 
 
 def test_auto_confirmation_and_desktop_layout_contracts() -> None:
-    for marker in ('data-kfm-auto-confirm="v1"', 'data-kfm-pending-changes="v1"', 'data-kfm-po-readback="v1"'):
-        require(PANEL, marker, "review and readback must be visible")
+    for marker in ('data-kfm-auto-confirm="v1"', 'data-kfm-pending-changes="v1"', 'data-kfm-po-readback="v1"', 'data-kfm-unavailable="v1"'):
+        require(PANEL, marker, "review, readback and not-ready reason must be visible")
     forbid(PANEL, 'action: "confirm"', "never send a separate PO confirmation")
     require(PANEL, 'data-kfm-action="confirm-po"', "an existing unconfirmed trip needs a labeled confirm-and-print recovery")
+    require(PANEL, 'data-kfm-action="print-readback"', "the print action performs the read-only status readback")
     require(FUNCTION, "fresh.pendingChanges = await getTripPendingChanges", "check pending changes again before writing")
     require(FUNCTION, "if (!poConfirmation?.confirmed)", "do not claim success without PO readback")
     # Print intent reuses the durable intake claim, and the claim must precede the trip write.

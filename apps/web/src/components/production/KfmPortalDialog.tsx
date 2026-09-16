@@ -16,6 +16,26 @@ import { KfmTimeSelect, isCompleteKfmTime } from "./KfmTimeSelect";
 const AUTO_CONFIRM_NOTICE = "Tạo phiếu giao hàng sẽ tự động xác nhận PO trên KFM và nhập vào sản xuất. Sau bước này sẽ không thể yêu cầu chỉnh sửa nữa.";
 const changeLabel = (category: string) => ({ QUANTITY: "Số lượng", QUALITY: "Ngoại quan", SHELF_LIFE: "Hạn sử dụng", DELIVERY_DATE: "Ngày giao", OTHER: "Khác" }[category] || category);
 
+// The standalone status button was folded into the print action, but older
+// server messages still name it. Keep every useful reason and only repoint the
+// instruction at the button the operator can still press.
+const STALE_CHECK_LABEL = "Kiểm tra kết quả";
+const readable = (message: string) => message
+  .split(`‘${STALE_CHECK_LABEL}’`).join("‘In phiếu giao hàng’")
+  .split(`'${STALE_CHECK_LABEL}'`).join("'In phiếu giao hàng'");
+
+/** Say plainly why the sheet is not opening yet; the backend reason stays below. */
+function unavailableReason(result: TripResult, isVi: boolean): string {
+  if (!isVi) {
+    if (result.confirmUncertain) return "The earlier PO confirmation is unverified. Only a fresh readback runs now; nothing is resent automatically.";
+    if (result.loadId && result.poConfirmation && !result.poConfirmation.confirmed) return "The note exists but the PO is not confirmed on the KFM portal, so the print file is not available yet.";
+    return "The note/ASN could not be verified on the KFM portal, so the print file is not available yet.";
+  }
+  if (result.confirmUncertain) return "Lần xác nhận PO trước chưa rõ kết quả. Hệ thống chỉ đọc lại trạng thái, không tự gửi lại.";
+  if (result.loadId && result.poConfirmation && !result.poConfirmation.confirmed) return "Phiếu đã có nhưng PO chưa được xác nhận trên cổng KFM nên chưa mở được file in.";
+  return "Chưa xác minh được phiếu/ASN trên cổng KFM nên chưa mở được file in.";
+}
+
 const VN_OFFSET_MS = 7 * 60 * 60 * 1000;
 
 export function vnDateOffset(days: number): string {
@@ -277,6 +297,16 @@ export default function KfmPrintWorkspace({ isVi = true }: { isVi?: boolean }) {
       : (!isCompleteKfmTime(form.expectedTimeFrom) || !isCompleteKfmTime(form.expectedTimeTo) || form.expectedTimeFrom >= form.expectedTimeTo ? ["time"] : [])),
   ];
 
+  // Leave the pending tab only when there is no sheet to show: close it and drop
+  // the keyed waiting banner/toast so the panel's own result message is the one
+  // persistent explanation on screen.
+  const pausePrint = (key: string, viewer: Window | null) => {
+    viewer?.close();
+    setPrinting(null);
+    setFeedback(current => { const next = { ...current }; delete next[key.split("-").pop()!]; return next; });
+    toast.dismiss(key);
+  };
+
   const sendAndPrint = async (snapshot: TripCreate, viewer: Window | null, key: string) => {
     requireToday(snapshot.date);
     // Persist uncertainty in the UI before sending; recovery is GET-only server-side.
@@ -285,16 +315,16 @@ export default function KfmPrintWorkspace({ isVi = true }: { isVi?: boolean }) {
       const response = await callPortal({ action: "create-load", unifiedPrint: true, orderId: snapshot.order.portalId, deliveryDate: snapshot.date, revision: snapshot.revision, form: snapshot.form, confirmed: true, requestId: crypto.randomUUID() });
       if (response.existingNotes?.length) {
         if (response.existingNotes.length === 1) { await pdfFor(response.existingNotes[0], viewer, key); setCreating(null); }
-        else { setCreating({ ...snapshot, existingNotes: response.existingNotes }); viewer?.close(); setPrinting(null); setFeedback(current => { const next = { ...current }; delete next[key.split("-").pop()!]; return next; }); toast.dismiss(key); }
+        else { setCreating({ ...snapshot, existingNotes: response.existingNotes }); pausePrint(key, viewer); }
         return;
       }
       if (!response.result) throw new Error("Chưa nhận được kết quả tạo phiếu.");
       setCreating({ ...snapshot, result: response.result });
       if (response.result.state === "verified") await pdfFor(response.result, viewer, key);
-      else { viewer?.close(); setPrinting(null); setFeedback(current => { const next = { ...current }; delete next[key.split("-").pop()!]; return next; }); toast.dismiss(key); }
+      else pausePrint(key, viewer);
       void query.refetch();
     } catch (error) {
-      setCreating(current => ({ ...snapshot, result: current?.result?.state === "verified" ? current.result : { state: "unknown", message: `${(error as Error).message} Chọn ‘Kiểm tra kết quả’; không gửi lại.` } }));
+      setCreating(current => ({ ...snapshot, result: current?.result?.state === "verified" ? current.result : { state: "unknown", message: `${readable((error as Error).message)} Không gửi lại; bấm ‘In phiếu giao hàng’ để đọc lại kết quả.` } }));
       failPrint(key, viewer, error);
     }
   };
@@ -315,12 +345,12 @@ export default function KfmPrintWorkspace({ isVi = true }: { isVi?: boolean }) {
       if (response.result) {
         setCreating({ ...initial, result: response.result });
         if (response.result.state === "verified" && autoStart) await pdfFor(response.result, viewer, key);
-        else { viewer?.close(); setPrinting(null); setFeedback(current => { const next = { ...current }; delete next[key.split("-").pop()!]; return next; }); toast.dismiss(key); }
+        else pausePrint(key, viewer);
         return;
       }
       if (response.existingNotes?.length) {
         if (response.existingNotes.length === 1 && autoStart) await pdfFor(response.existingNotes[0], viewer, key);
-        else { setCreating({ ...initial, existingNotes: response.existingNotes }); viewer?.close(); setPrinting(null); setFeedback(current => { const next = { ...current }; delete next[key.split("-").pop()!]; return next; }); toast.dismiss(key); }
+        else { setCreating({ ...initial, existingNotes: response.existingNotes }); pausePrint(key, viewer); }
         return;
       }
       if (!response.options || !response.revision || !response.fleet) throw new Error("Chưa đọc được đầy đủ cấu hình xe/tài xế trên portal. Chưa tạo phiếu.");
@@ -332,7 +362,7 @@ export default function KfmPrintWorkspace({ isVi = true }: { isVi?: boolean }) {
       // A walk-in (time-window) form always waits for the operator: the prefilled
       // 16:30–19:30 is a default to review, not a licence to submit itself.
       if (autoStart && snapshot.options.deliveryType && !snapshot.needed.length && !snapshot.pendingChangeCategories.length) await sendAndPrint(snapshot, viewer, key);
-      else { setCreating(snapshot); viewer?.close(); setPrinting(null); setFeedback(current => { const next = { ...current }; delete next[key.split("-").pop()!]; return next; }); toast.dismiss(key); }
+      else { setCreating(snapshot); pausePrint(key, viewer); }
     } catch (error) { setCreating(current => current?.result ? current : { ...initial, error: (error as Error).message }); failPrint(key, viewer, error); }
     finally { createLock.current = false; setCreateBusy(false); setBusy(null); }
   };
@@ -348,7 +378,13 @@ export default function KfmPrintWorkspace({ isVi = true }: { isVi?: boolean }) {
     finally { createLock.current = false; setCreateBusy(false); setBusy(null); }
   };
 
-  const checkCreate = async () => {
+  /**
+   * The print action doubles as the status readback: it asks the server for the
+   * stored result through the GET-only `trip-result` action and opens the sheet
+   * only once the trip, ASN and PO read back as verified. It never sends
+   * create-load or confirm-po again.
+   */
+  const readBackAndPrint = async () => {
     if (!creating || createLock.current) return;
     createLock.current = true; setCreateBusy(true);
     const key = `asn-${creating.order.portalId}`;
@@ -357,9 +393,9 @@ export default function KfmPrintWorkspace({ isVi = true }: { isVi?: boolean }) {
     try {
       const response = await callPortal({ action: "trip-result", orderId: creating.order.portalId, deliveryDate: creating.date });
       if (!response.result) throw new Error("Chưa đọc được kết quả.");
-      setCreating({ ...creating, result: response.result });
+      setCreating(current => current ? { ...current, result: response.result } : current);
       if (response.result.state === "verified") await pdfFor(response.result, viewer, key);
-      else { viewer?.close(); setPrinting(null); setFeedback(current => { const next = { ...current }; delete next[key.split("-").pop()!]; return next; }); toast.dismiss(key); }
+      else pausePrint(key, viewer);
     } catch (error) { failPrint(key, viewer, error); }
     finally { createLock.current = false; setCreateBusy(false); }
   };
@@ -369,7 +405,8 @@ export default function KfmPrintWorkspace({ isVi = true }: { isVi?: boolean }) {
    * but the PO has not been confirmed on the portal. Confirming reuses the
    * durable intake decision (permission, scope, fresh revision, single claim,
    * readback/import); it never recreates the trip. Recovery stays on
-   * `trip-result`, which is read-only.
+   * `trip-result`, which is read-only, and this write only runs from the
+   * operator's own click.
    */
   const confirmPo = async () => {
     const result = creating?.result;
@@ -378,9 +415,23 @@ export default function KfmPrintWorkspace({ isVi = true }: { isVi?: boolean }) {
     const key = `asn-${creating.order.portalId}`;
     const viewer = window.open("", "_blank");
     beginPrint(key, viewer, `phiếu giao hàng ${creating.order.code}`);
+    let attempted = false;
     try {
-      if (!result.intakeRevision) throw new Error("Thiếu bản đối chiếu PO. Bấm ‘Kiểm tra kết quả’ rồi xác nhận lại.");
-      const confirmation = await callPortal({ action: "confirm-po", orderId: creating.order.portalId, deliveryDate: creating.date, revision: result.intakeRevision, requestId: crypto.randomUUID() });
+      let fresh = result;
+      // The PO comparison revision can be missing when the earlier portal read
+      // timed out. Re-read the trip through the read-only result action; the
+      // confirm below still needs the operator's click and is never automatic.
+      if (!fresh.intakeRevision) {
+        const readback = await callPortal({ action: "trip-result", orderId: creating.order.portalId, deliveryDate: creating.date });
+        if (!readback.result) throw new Error("Chưa đọc được bản đối chiếu PO. Chưa xác nhận.");
+        fresh = readback.result;
+        setCreating(current => current ? { ...current, result: fresh } : current);
+        if (fresh.state === "verified") { await pdfFor(fresh, viewer, key); return; }
+      }
+      const revision = fresh.intakeRevision;
+      if (!revision) throw new Error("Chưa đọc được bản đối chiếu PO từ cổng KFM. Chưa xác nhận; bấm ‘In phiếu giao hàng’ để đọc lại.");
+      attempted = true;
+      const confirmation = await callPortal({ action: "confirm-po", orderId: creating.order.portalId, deliveryDate: creating.date, revision, requestId: crypto.randomUUID() });
       if (!confirmation.result) throw new Error("Chưa nhận được kết quả xác nhận PO.");
       // The confirmation answer can still be import-pending; only a GET-only
       // readback decides whether the trip is verified and printable.
@@ -388,14 +439,14 @@ export default function KfmPrintWorkspace({ isVi = true }: { isVi?: boolean }) {
       if (!readback.result) throw new Error("Chưa đọc được kết quả.");
       if (readback.result.state === "verified") { setCreating({ ...creating, result: readback.result }); await pdfFor(readback.result, viewer, key); return; }
       // A blocked/changed confirmation keeps the read-only recovery and its own
-      // reason on screen; the retry stays locked until a fresh result check.
+      // reason on screen; the write stays locked until a fresh readback.
       const held = confirmation.result.state !== "imported";
       setCreating({ ...creating, result: { ...readback.result, confirmUncertain: held, message: held && confirmation.result.message ? confirmation.result.message : readback.result.message } });
-      viewer?.close(); setPrinting(null); setFeedback(current => { const next = { ...current }; delete next[key.split("-").pop()!]; return next; }); toast.dismiss(key);
+      pausePrint(key, viewer);
     } catch (error) {
-      // The write may have reached KFM. Keep the durable claim, lock the retry
-      // and leave only the read-only result check on screen.
-      setCreating(current => current ? { ...current, result: { ...(current.result as TripResult), confirmUncertain: true } } : current);
+      // Only an attempted confirm may have reached KFM. A readback failure
+      // before the write keeps the explicit consent on screen.
+      if (attempted) setCreating(current => current ? { ...current, result: { ...(current.result as TripResult), confirmUncertain: true } } : current);
       failPrint(key, viewer, error);
     } finally { createLock.current = false; setCreateBusy(false); }
   };
@@ -435,7 +486,7 @@ export default function KfmPrintWorkspace({ isVi = true }: { isVi?: boolean }) {
   const failPrint = (key: string, viewer: Window | null, error: unknown) => {
     setPrinting(null);
     viewer?.close();
-    setFeedback(current => ({ ...current, [key.split("-").pop()!]: { error: true, message: (error as Error)?.message || "Cổng KFM báo lỗi." } }));
+    setFeedback(current => ({ ...current, [key.split("-").pop()!]: { error: true, message: readable((error as Error)?.message || "Cổng KFM báo lỗi.") } }));
     toast.dismiss(key);
   };
 
@@ -485,24 +536,28 @@ export default function KfmPrintWorkspace({ isVi = true }: { isVi?: boolean }) {
                   <h3 className="min-w-0 break-all text-sm font-semibold">In phiếu giao hàng · {creating.order.code}</h3>
                   <Button className="min-h-11" size="sm" variant="ghost" disabled={createBusy || printing !== null} onClick={() => setCreating(null)}>Đóng</Button>
                 </div>
-                {creating.error && <p role="alert" className="text-sm text-destructive">{creating.error}</p>}
+                {creating.error && <p role="alert" className="text-sm text-destructive">{readable(creating.error)}</p>}
                 {creating.existingNotes ? <div className="flex flex-wrap gap-2">
                   <p className="w-full text-sm">Chọn phiếu đã có để in:</p>
                   {creating.existingNotes.map(note => <Button className="min-h-11" key={note.asnId} disabled={printing !== null} onClick={() => void printExisting(note)}>{note.asnCode || note.asnId}</Button>)}
                 </div> : creating.result ? (
                   <div className="space-y-2 text-sm" data-kfm-create-result={creating.result.state} role="status">
-                    <p>{creating.result.message}</p>
+                    <p>{readable(creating.result.message)}</p>
                     {creating.result.poConfirmation && <p data-kfm-po-readback="v1">PO: {creating.result.poConfirmation.label}</p>}
-                    {creating.result.state === "verified" ? <Button className="min-h-11" disabled={printing !== null || createBusy} onClick={() => void printExisting(creating.result!)}>In phiếu giao hàng</Button>
-                      : creating.result.state === "not_sent" ? <Button className="min-h-11" disabled={createBusy} onClick={() => void openCreate(creating.order, creating.date, creating.form, false)}>Kiểm tra lại thông tin</Button>
-                      : creating.result.loadId && creating.result.poConfirmation && !creating.result.poConfirmation.confirmed ? <div className="space-y-2">
-                        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-                          {!creating.result.confirmUncertain && <Button className="min-h-11" data-kfm-action="confirm-po" disabled={createBusy || printing !== null} onClick={() => void confirmPo()}>Xác nhận PO và in phiếu</Button>}
-                          <Button variant={creating.result.confirmUncertain ? "default" : "outline"} className="min-h-11" data-kfm-action="check-create" disabled={createBusy} onClick={() => void checkCreate()}>Kiểm tra kết quả</Button>
-                        </div>
-                        {!creating.result.confirmUncertain && <p className="text-xs text-muted-foreground">Xác nhận PO sẽ khóa yêu cầu chỉnh sửa và nhập PO vào sản xuất. Không tạo lại phiếu.</p>}
-                      </div>
-                      : <Button className="min-h-11" data-kfm-action="check-create" disabled={createBusy} onClick={() => void checkCreate()}>Kiểm tra kết quả</Button>}
+                    {creating.result.state !== "verified" && <p className="text-xs text-muted-foreground" data-kfm-unavailable="v1">{unavailableReason(creating.result, isVi)}</p>}
+                    {creating.result.state === "verified"
+                      ? <Button className="min-h-11" data-kfm-action="print-verified" disabled={printing !== null || createBusy} onClick={() => void printExisting(creating.result!)}>In phiếu giao hàng</Button>
+                      : creating.result.state === "not_sent"
+                        ? <Button className="min-h-11" data-kfm-action="reload-form" disabled={createBusy || printing !== null} onClick={() => void openCreate(creating.order, creating.date, creating.form, false)}>Tải lại thông tin để tạo phiếu</Button>
+                        : <div className="space-y-2">
+                          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                            {creating.result.loadId && creating.result.poConfirmation && !creating.result.poConfirmation.confirmed && !creating.result.confirmUncertain
+                              && <Button className="min-h-11" data-kfm-action="confirm-po" disabled={createBusy || printing !== null} onClick={() => void confirmPo()}>Xác nhận PO và in phiếu</Button>}
+                            <Button variant={creating.result.confirmUncertain ? "default" : "outline"} className="min-h-11" data-kfm-action="print-readback" disabled={createBusy || printing !== null} onClick={() => void readBackAndPrint()}>In phiếu giao hàng</Button>
+                          </div>
+                          {creating.result.loadId && creating.result.poConfirmation && !creating.result.poConfirmation.confirmed && !creating.result.confirmUncertain
+                            && <p className="text-xs text-muted-foreground">Xác nhận PO sẽ khóa yêu cầu chỉnh sửa và nhập PO vào sản xuất. Không tạo lại phiếu.</p>}
+                        </div>}
                   </div>
                 ) : creating.revision && <>
                   <p className="text-sm" data-kfm-auto-confirm="v1">{AUTO_CONFIRM_NOTICE}</p>
