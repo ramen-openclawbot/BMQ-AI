@@ -32,6 +32,7 @@ interface AuthContextType {
   timedOut: boolean;
   roles: AppRole[];
   authzLoaded: boolean;
+  authzError: boolean;
   isOwner: boolean;
   canAccessModule: (moduleKey: string) => boolean;
   canEditModule: (moduleKey: string) => boolean;
@@ -51,10 +52,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [roles, setRoles] = useState<AppRole[]>([]);
   const [permissions, setPermissions] = useState<ModulePermission[]>([]);
   const [authzLoaded, setAuthzLoaded] = useState(false);
+  const [authzError, setAuthzError] = useState(false);
 
   // Track if initial load is complete to prevent listener from affecting loading state
   const initialLoadCompleteRef = useRef(false);
   const fetchingProfileForRef = useRef<string | null>(null);
+  // Identity whose roles/permissions are currently loaded. A same-user auth
+  // event re-checks rights in the background without unmounting module routes;
+  // a different identity must not inherit the previous rights.
+  const authzUserRef = useRef<string | null>(null);
+  // Latest identity observed from an auth event / bootstrap. Guards every async
+  // result so a late response from an old identity or an old refresh is dropped.
+  const currentUserIdRef = useRef<string | null>(null);
+  // Monotonic version of the authoritative auth state. Every auth event, local
+  // signOut and unmount bumps it, so a session read that started earlier can
+  // never commit a stale identity. A SIGNED_OUT null is a real changed state.
+  const authEventSeqRef = useRef(0);
+  const authzSeqRef = useRef(0);
+  const profileSeqRef = useRef(0);
+
+  // Drop the current identity's authorization and invalidate any in-flight
+  // check so a late response cannot restore it.
+  const clearIdentityAuthz = useCallback(() => {
+    authzUserRef.current = null;
+    authzSeqRef.current += 1;
+    profileSeqRef.current += 1;
+    fetchingProfileForRef.current = null;
+    setAuthzLoaded(false);
+    setAuthzError(false);
+  }, []);
 
   const isAllowedCompanyEmail = useCallback((email?: string | null) => {
     return String(email || "").trim().toLowerCase().endsWith("@bmq.vn");
@@ -62,9 +88,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // -------------------------------------------------------------------------
   // Fetch roles + permissions for a user
+  //
+  // A re-check for the identity whose rights are already loaded runs in the
+  // background: authzLoaded stays true so mounted module state (an open KFM
+  // form, an in-flight print) is not unmounted by a same-user TOKEN_REFRESHED
+  // or SIGNED_IN. Any other identity, or a retry after a failure, is loaded
+  // from scratch. A failed check always fails closed so stale rights are not
+  // retained, and results are dropped when a newer identity/request superseded
+  // them.
   // -------------------------------------------------------------------------
   const fetchRolesAndPermissions = useCallback(async (userId: string, userEmail?: string | null) => {
-    setAuthzLoaded(false);
+    const seq = ++authzSeqRef.current;
+    const silentRecheck = authzUserRef.current === userId;
+    if (!silentRecheck) {
+      setAuthzError(false);
+      setAuthzLoaded(false);
+    }
+
     try {
       let [rolesRes, permsRes] = await Promise.all([
         (supabase as any)
@@ -109,27 +149,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         ]);
       }
 
-      if (rolesRes.error) {
-        console.error("[AuthContext] Error fetching roles:", rolesRes.error);
-      } else {
-        setRoles((rolesRes.data || []).map((r: any) => r.role as AppRole));
+      // Drop responses that a newer identity/request has already replaced.
+      if (seq !== authzSeqRef.current || currentUserIdRef.current !== userId) return;
+
+      if (rolesRes.error || permsRes.error) {
+        console.error("[AuthContext] Error fetching roles/permissions:", rolesRes.error || permsRes.error);
+        // Fail closed: an unverifiable check must not keep serving old rights.
+        authzUserRef.current = null;
+        setRoles([]);
+        setPermissions([]);
+        setAuthzError(true);
+        setAuthzLoaded(false);
+        return;
       }
 
-      if (permsRes.error) {
-        console.error("[AuthContext] Error fetching permissions:", permsRes.error);
-      } else {
-        setPermissions(
-          (permsRes.data || []).map((p: any) => ({
-            module_key: p.module_key,
-            can_view: !!p.can_view,
-            can_edit: !!p.can_edit,
-          }))
-        );
-      }
+      setRoles((rolesRes.data || []).map((r: any) => r.role as AppRole));
+      setPermissions(
+        (permsRes.data || []).map((p: any) => ({
+          module_key: p.module_key,
+          can_view: !!p.can_view,
+          can_edit: !!p.can_edit,
+        }))
+      );
+      authzUserRef.current = userId;
+      setAuthzError(false);
+      setAuthzLoaded(true);
     } catch (err) {
       console.error("[AuthContext] Error fetching roles/permissions:", err);
-    } finally {
-      setAuthzLoaded(true);
+      if (seq !== authzSeqRef.current || currentUserIdRef.current !== userId) return;
+      authzUserRef.current = null;
+      setRoles([]);
+      setPermissions([]);
+      setAuthzError(true);
+      setAuthzLoaded(false);
     }
   }, []);
 
@@ -139,29 +191,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
     fetchingProfileForRef.current = userId;
+    const seq = ++profileSeqRef.current;
+    const superseded = () => seq !== profileSeqRef.current || currentUserIdRef.current !== userId;
+    let profileEmail: string | null = null;
 
     try {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("user_id", userId)
-        .maybeSingle();
+      try {
+        const { data, error } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("user_id", userId)
+          .maybeSingle();
 
-      if (error) {
-        console.error("Error fetching profile:", error);
+        if (superseded()) return;
+
+        if (error) {
+          console.error("Error fetching profile:", error);
+          setProfile(null);
+        } else {
+          // No profile row yet is acceptable for newly created users.
+          setProfile(data ?? null);
+          profileEmail = data?.email ?? null;
+        }
+      } catch (err) {
+        if (superseded()) return;
+        console.error("Error fetching profile:", err);
         setProfile(null);
-      } else {
-        // No profile row yet is acceptable for newly created users.
-        setProfile(data ?? null);
       }
 
-      // Also fetch roles and permissions
-      await fetchRolesAndPermissions(userId, userEmail ?? data?.email ?? null);
-    } catch (err) {
-      console.error("Error fetching profile:", err);
-      setProfile(null);
+      if (currentUserIdRef.current !== userId) return;
+      // Roles/permissions are independent of the profile row, so a failed profile
+      // read must still decide authorization (and fail closed if it errors too).
+      // The profile email is a fallback for the @bmq.vn auto-provision policy.
+      await fetchRolesAndPermissions(userId, userEmail ?? profileEmail);
     } finally {
-      fetchingProfileForRef.current = null;
+      // Hold the debounce slot through the rights check too, so a burst of
+      // same-user events coalesces into one identity/rights check.
+      if (fetchingProfileForRef.current === userId) {
+        fetchingProfileForRef.current = null;
+      }
     }
   }, [fetchRolesAndPermissions]);
 
@@ -210,12 +278,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const timeoutId = setTimeout(async () => {
       if (mounted && loading) {
         console.warn("[AuthContext] Auth bootstrap timed out after", AUTH_BOOTSTRAP_TIMEOUT_MS, "ms");
+        // Same monotonic guard as the bootstrap read: a recovery session read
+        // must not revive an identity that a newer auth event already replaced
+        // (e.g. SIGNED_OUT while this read is pending).
+        const watchdogSeq = authEventSeqRef.current;
         try {
           const { data: { session: retrySession } } = await supabase.auth.getSession();
+          if (!mounted) return;
+          if (authEventSeqRef.current !== watchdogSeq) return;
           if (retrySession?.user) {
             const allowed = isAllowedCompanyEmail(retrySession.user.email);
             if (!allowed) {
               await supabase.auth.signOut();
+              clearIdentityAuthz();
               setSession(null);
               setUser(null);
               setProfile(null);
@@ -232,6 +307,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
             setSession(retrySession);
             setUser(retrySession.user);
+            if (currentUserIdRef.current !== retrySession.user.id) {
+              clearIdentityAuthz();
+            }
+            currentUserIdRef.current = retrySession.user.id;
             await fetchProfile(retrySession.user.id, retrySession.user.email ?? null);
             setTimedOut(false);
             setLoading(false);
@@ -253,6 +332,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       async (event, newSession) => {
         if (!mounted) return;
 
+        // This event is now the authoritative auth state: invalidate any
+        // bootstrap/watchdog session read still in flight (null counts).
+        authEventSeqRef.current += 1;
+
+        const nextUserId = newSession?.user?.id ?? null;
+        const identityChanged = currentUserIdRef.current !== nextUserId;
+        currentUserIdRef.current = nextUserId;
+
         // Update session and user state
         setSession(newSession);
         setUser(newSession?.user ?? null);
@@ -262,6 +349,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (!allowed) {
             console.warn("[AuthContext] Block non-company email:", newSession.user.email);
             await supabase.auth.signOut();
+            clearIdentityAuthz();
             setProfile(null);
             setRoles([]);
             setPermissions([]);
@@ -273,9 +361,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             return;
           }
 
-          // Fire-and-forget profile fetch for ongoing changes
+          if (identityChanged) {
+            // Never let a new identity inherit the previous identity's rights
+            // while its own check is still in flight.
+            clearIdentityAuthz();
+            setProfile(null);
+            setRoles([]);
+            setPermissions([]);
+          }
+
+          // Fire-and-forget profile fetch for ongoing changes. For the same
+          // identity this re-checks rights without unloading module state.
           fetchProfile(newSession.user.id, newSession.user.email ?? null);
         } else {
+          clearIdentityAuthz();
           setProfile(null);
           setRoles([]);
           setPermissions([]);
@@ -294,10 +393,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // 2. Initial load - this is the primary source for setting loading = false
     const initializeAuth = async () => {
+      const bootstrapSeq = authEventSeqRef.current;
       try {
         const { data: { session: initialSession } } = await supabase.auth.getSession();
 
         if (!mounted) return;
+
+        // A newer auth event (SIGNED_IN / SIGNED_OUT / TOKEN_REFRESHED) or a
+        // local signOut/unmount happened while this read was in flight: that
+        // state is authoritative. Drop the stale read so it cannot revive an
+        // identity that already signed out (currentUserIdRef is null then, so
+        // an identity-only guard would let it through).
+        if (authEventSeqRef.current !== bootstrapSeq) return;
+
+        const initialUserId = initialSession?.user?.id ?? null;
+        if (currentUserIdRef.current !== initialUserId) {
+          clearIdentityAuthz();
+        }
+        currentUserIdRef.current = initialUserId;
 
         setSession(initialSession);
         setUser(initialSession?.user ?? null);
@@ -306,6 +419,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const allowed = isAllowedCompanyEmail(initialSession.user.email);
           if (!allowed) {
             await supabase.auth.signOut();
+            clearIdentityAuthz();
             setSession(null);
             setUser(null);
             setProfile(null);
@@ -348,6 +462,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return () => {
       mounted = false;
+      // Invalidate any bootstrap/watchdog session read still in flight so it
+      // cannot commit state after unmount.
+      authEventSeqRef.current += 1;
       clearTimeout(timeoutId);
       subscription.unsubscribe();
     };
@@ -355,6 +472,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signOut = async () => {
+    // Invalidate the identity (and any in-flight session read) before the
+    // session is dropped so a late profile/rights/bootstrap response cannot
+    // restore the signed-out user.
+    authEventSeqRef.current += 1;
+    currentUserIdRef.current = null;
+    clearIdentityAuthz();
     try {
       await supabase.auth.signOut();
     } catch (err) {
@@ -378,6 +501,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       timedOut,
       roles,
       authzLoaded,
+      authzError,
       isOwner,
       canAccessModule,
       canEditModule,

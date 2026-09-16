@@ -129,8 +129,26 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function AuthzErrorFallback({ moduleLabel, onRetry }: { moduleLabel: string; onRetry: () => void }) {
+  return (
+    <div data-authz-error="v1" className="flex min-h-[60vh] items-center justify-center p-6">
+      <div className="max-w-md rounded-xl border bg-card p-6 text-center shadow-sm">
+        <AlertTriangle className="mx-auto h-10 w-10 text-amber-500" />
+        <h1 className="mt-3 text-xl font-semibold">Không kiểm tra được quyền truy cập</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Chưa xác minh được quyền xem module {moduleLabel} do lỗi kết nối. Trang tạm khóa để bảo đảm an toàn; vui lòng thử lại.
+        </p>
+        <Button className="mt-4" onClick={onRetry}>
+          <RefreshCw className="h-4 w-4 mr-2" />
+          Thử lại
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function ModuleRoute({ moduleKey, children }: { moduleKey: string; children: React.ReactNode }) {
-  const { user, loading, authzLoaded, canAccessModule } = useAuth();
+  const { user, loading, authzLoaded, authzError, canAccessModule, refreshRoles } = useAuth();
   const moduleLabels: Record<string, string> = {
     suppliers: "Nhà cung cấp",
     purchase_orders: "PO (Mua hàng)",
@@ -149,13 +167,20 @@ function ModuleRoute({ moduleKey, children }: { moduleKey: string; children: Rea
   };
   const moduleLabel = moduleLabels[moduleKey] || moduleKey;
 
-  if (loading || (user && !authzLoaded)) {
+  if (loading) {
     return <AppLoadingFallback />;
+  }
+
+  // Same-user auth events re-check rights in the background (authzLoaded stays
+  // true), so an open form is not unmounted. Only a first-time load or an
+  // identity change blocks here; a failed check fails closed with a retry.
+  if (user && !authzLoaded) {
+    return authzError ? <AuthzErrorFallback moduleLabel={moduleLabel} onRetry={() => void refreshRoles()} /> : <AppLoadingFallback />;
   }
 
   if (!canAccessModule(moduleKey)) {
     return (
-      <div className="flex min-h-[60vh] items-center justify-center p-6">
+      <div data-authz-denied="v1" className="flex min-h-[60vh] items-center justify-center p-6">
         <div className="max-w-md rounded-xl border bg-card p-6 text-center shadow-sm">
           <AlertTriangle className="mx-auto h-10 w-10 text-amber-500" />
           <h1 className="mt-3 text-xl font-semibold">Không có quyền truy cập</h1>
