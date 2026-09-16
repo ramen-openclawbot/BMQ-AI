@@ -49,6 +49,34 @@ async function orderView(source: KfmTripSource, attempt?: Row) {
     decision: attempt?.decision, message: attempt ? 'Yêu cầu đã gửi; chỉ kiểm tra kết quả, không gửi lại.' : undefined };
 }
 function checked(result: Row, message: string) { if (result.error) throw new KfmPortalError('intake', 0, message); return result.data; }
+const PAGE_SIZE = 1000;
+/**
+ * PostgREST returns at most one page per request (1000 rows by default), so an
+ * unpaged catalog read silently dropped later SKUs and blocked an otherwise
+ * valid PO. Read every page in a stable id order and fail closed on any page
+ * error, short page or changed total, so a truncated catalog can never reach
+ * mapIntakeSkus or the portal confirmation.
+ */
+async function readAllRows(makeQuery: () => Row, message: string): Promise<Row[]> {
+  const rows: Row[] = [];
+  let total: number | undefined;
+  for (;;) {
+    const page: Row = await makeQuery().order('id', { ascending: true }).range(rows.length, rows.length + PAGE_SIZE - 1);
+    if (page.error || !Array.isArray(page.data)) throw new KfmPortalError('intake', 0, message);
+    const count = typeof page.count === 'number' && Number.isSafeInteger(page.count) && page.count >= 0 ? page.count : undefined;
+    if (count !== undefined) {
+      if (total !== undefined && count !== total) throw new KfmPortalError('intake', 0, message);
+      total = count;
+    }
+    rows.push(...page.data);
+    if (total !== undefined && rows.length > total) throw new KfmPortalError('intake', 0, message);
+    if (page.data.length < PAGE_SIZE) {
+      if (total !== undefined && rows.length < total) throw new KfmPortalError('intake', 0, message);
+      return rows;
+    }
+    if (total !== undefined && rows.length >= total) return rows;
+  }
+}
 const skuText = (value: unknown) => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[đĐ]/g, 'd').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
 const exactSkuName = (value: unknown) => skuText(value).replace(/\bbmq\b/g, ' ').replace(/\s+/g, ' ').trim();
 const skuName = (value: unknown) => skuText(value).replace(/\bbmq\b/g, ' ').replace(/\b\d+(?:[.,]\d+)?\s*(?:g|gr|gram|grams|kg|ml|l|lit|litre|hop|cai|goi|thung)\b/g, ' ').replace(/\b\d+\b/g, ' ').replace(/\s+/g, ' ').trim();
@@ -68,10 +96,10 @@ export function mapIntakeSkus(payload: Row, skus: Row[], settings: Row[]) {
 }
 async function mappedPayload(admin: Admin, source: KfmTripSource, vendorId: number, actorId: string) {
   const [skus, settings] = await Promise.all([
-    admin.from('product_skus').select('id,sku_code,product_name,sku_type,category'),
-    admin.from('production_location_sku_settings').select('sku_id,is_enabled').eq('location_code', 'q7'),
+    readAllRows(() => admin.from('product_skus').select('id,sku_code,product_name,sku_type,category', { count: 'exact' }), 'Không đọc được mapping SKU.'),
+    readAllRows(() => admin.from('production_location_sku_settings').select('sku_id,is_enabled', { count: 'exact' }).eq('location_code', 'q7'), 'Không đọc được SKU bật tại Q7.'),
   ]);
-  return mapIntakeSkus(productionPayload(source, vendorId, actorId), checked(skus, 'Không đọc được mapping SKU.'), checked(settings, 'Không đọc được SKU bật tại Q7.'));
+  return mapIntakeSkus(productionPayload(source, vendorId, actorId), skus, settings);
 }
 async function getAttempt(admin: Admin, vendorId: number, orderId: number) {
   return checked(await admin.from('kfm_po_intake_attempts').select('*').eq('vendor_id', vendorId).eq('order_id', orderId).maybeSingle(), 'Không đọc được nhật ký duyệt PO.');

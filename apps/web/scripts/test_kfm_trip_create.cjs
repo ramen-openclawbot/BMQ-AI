@@ -65,7 +65,7 @@ function bridge({ permission = true, vendorIds = [1865], changed = false, outcom
     return { data: 'inbox-1', error: null };
   }, from(table) {
     let operation='select', value, filters={}, single=false;
-    const query = { select(){return query;}, eq(k,v){filters[k]=v;return query;}, maybeSingle(){single=true;return query;}, insert(v){operation='insert';value=v;return query;}, update(v){operation='update';value=v;return query;}, then(resolve,reject) {
+    const query = { select(){return query;}, eq(k,v){filters[k]=v;return query;}, order(){return query;}, range(){return query;}, maybeSingle(){single=true;return query;}, insert(v){operation='insert';value=v;return query;}, update(v){operation='update';value=v;return query;}, then(resolve,reject) {
       return Promise.resolve().then(() => {
         if(table==='user_roles')return {data:permission?[{role:'owner'}]:[],error:null};
         if(table==='user_module_permissions')return {data:[],error:null};
