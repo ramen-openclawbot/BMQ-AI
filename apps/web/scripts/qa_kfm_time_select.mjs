@@ -197,7 +197,16 @@ const groups = (c) => [...c.querySelectorAll("[data-kfm-time-select]")];
 const part = (group, name) => group.querySelector(`[data-kfm-time-part="${name}"]`);
 const submitOf = (c) => c.querySelector('[data-kfm-action="submit-create"]');
 
+// The portal list is manual since 2026-09-17: nothing loads on mount, so every
+// scenario opens the queue with an explicit 'Làm mới' click first.
+async function loadOrders(container) {
+  const refresh = await waitFor(() => container.querySelector('[data-kfm-action="refresh-list"]'), "refresh-list button");
+  await click(refresh);
+  return waitFor(() => container.querySelector("[data-kfm-order]"), "order card after explicit refresh");
+}
+
 async function openTimeForm(container) {
+  await loadOrders(container);
   const asn = await waitFor(() => container.querySelector('[data-kfm-action="print-asn"]:not([disabled])'), "print-asn button");
   await click(asn);
   return waitFor(() => {
@@ -374,6 +383,7 @@ try {
     const state = makePortal("busy");
     const { container, root: app } = await mount();
     try {
+      await loadOrders(container);
       const asn = await waitFor(() => container.querySelector('[data-kfm-action="print-asn"]:not([disabled])'), "print-asn button");
       await act(async () => {
         asn.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));

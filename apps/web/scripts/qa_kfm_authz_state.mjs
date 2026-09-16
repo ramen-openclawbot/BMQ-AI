@@ -351,6 +351,13 @@ const noAccessNode = (c) => c.querySelector("[data-authz-denied]");
 
 async function waitWorkspace(container) {
   try {
+    // The portal list is manual since 2026-09-17. Wait for the granted module,
+    // then load today's queue with an explicit 'Làm mới' click (cached data on a
+    // remount is reused, so this is a no-op read when the QueryClient still has it).
+    await waitFor(() => container.querySelector("[data-kfm-today]"), "KFM workspace section");
+    if (!container.querySelector("[data-kfm-order]")) {
+      await click(container.querySelector('[data-kfm-action="refresh-list"]'));
+    }
     return await waitFor(() => container.querySelector('[data-kfm-action="print-asn"]:not([disabled])'), "enabled print-asn button");
   } catch (error) {
     throw new Error(error.message + " | probe=" + JSON.stringify(globalThis.__probe) + " | html=" + container.innerHTML.slice(0, 400));

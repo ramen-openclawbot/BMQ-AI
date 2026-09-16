@@ -149,6 +149,10 @@ async function mount(width) {
         React.createElement(MemoryRouter, null, React.createElement(Panel, { isVi: true }))),
     );
   });
+  // The portal list is manual since 2026-09-17: mount renders the idle panel,
+  // so each scenario loads today's queue with an explicit 'Làm mới' click.
+  await click(await waitFor(() => container.querySelector('[data-kfm-action="refresh-list"]'), "refresh-list button"));
+  await waitFor(() => container.querySelector("[data-kfm-order]"), "order card after explicit refresh");
   return { container, app };
 }
 

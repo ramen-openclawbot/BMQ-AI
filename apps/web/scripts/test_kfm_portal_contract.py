@@ -281,6 +281,35 @@ def test_a_phone_row_needs_no_sideways_drag() -> None:
     require(PANEL, 'data-kfm-today="v1"', "version the new page")
 
 
+def test_the_order_list_is_manual_refresh_only() -> None:
+    # Owner 2026-09-17: Cổng KFM must stop auto-loading on every visit; the list
+    # is read only from the operator's "Làm mới" click. Pin the behavior marker
+    # and the disabled automatic triggers, and keep the post-print list refresh
+    # removed so printing never triggers another portal list read.
+    require(PANEL, 'data-kfm-manual-refresh="v1"', "pin the manual-refresh behavior marker")
+    require(PANEL, "data-kfm-list-state={listState}", "expose the truthful list state")
+    require(PANEL, 'data-kfm-idle="v1"', "before the first fetch the panel instructs, it does not claim empty")
+    require(PANEL, 'data-kfm-action="refresh-list"', "the only list read is the explicit refresh action")
+    require(PANEL, "enabled: false", "the query must never auto-fetch on mount or key change")
+    require(PANEL, "refetchOnWindowFocus: false", "focus must not fetch the list")
+    require(PANEL, "refetchOnReconnect: false", "reconnect must not fetch the list")
+    require(PANEL, "refetchOnMount: false", "a remount must reuse cache instead of fetching")
+    forbid(PANEL, "void query.refetch()", "post-print must not auto-refresh the list")
+    # Reported by the independent review (2026-09-17): clicking Refresh in the
+    # same second the system crosses midnight, before the 1s rollover timer ran,
+    # used to send the previous deliveryDate. The handler must resolve Vietnam
+    # today synchronously, advance the panel and read the new day's query key.
+    require(PANEL, "const today = vnDateOffset(0)", "refresh must resolve Vietnam today at click time")
+    require(PANEL, "queryClient.fetchQuery", "refresh must read the synchronously resolved day's key")
+    require(PANEL, "rolloverTo(today)", "a pre-timer midnight refresh must expire unsent forms")
+    rollover = PANEL.split("const rolloverTo", 1)[1].split("const refreshingKey", 1)[0]
+    require(rollover, 'current.result.state !== "not_sent"',
+            "rollover must expire only unsent forms and preserve uncertain recovery")
+    forbid(PANEL, "Danh sách hôm nay đang được cập nhật", "requireToday must instruct Làm mới, not claim an automatic refresh")
+    for api in ("localStorage.setItem", "localStorage.getItem", "sessionStorage.setItem"):
+        forbid(PANEL, api, "no portal list may be persisted to browser storage: " + api)
+
+
 def test_auto_confirmation_and_desktop_layout_contracts() -> None:
     for marker in ('data-kfm-auto-confirm="v1"', 'data-kfm-pending-changes="v1"', 'data-kfm-po-readback="v1"', 'data-kfm-unavailable="v1"'):
         require(PANEL, marker, "review, readback and not-ready reason must be visible")

@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ArrowLeft, Loader2, Printer, RefreshCw, Truck } from "lucide-react";
 
@@ -11,6 +11,12 @@ import { KfmTimeSelect, isCompleteKfmTime } from "./KfmTimeSelect";
 /** Today's two-action print workspace. Portal writes only follow an operator click.
  * Hallmark: functional workbench; existing BMQ tokens, typography and primary color.
  * The filename stays stable for existing integration contracts; no modal is used.
+ *
+ * Manual-refresh contract (behavior marker `data-kfm-manual-refresh="v1"`): the
+ * portal order list is read only from the operator's 'Làm mới' click. It never
+ * auto-fetches on mount, remount, window focus, reconnect, cache invalidation,
+ * date rollover or after a print/create. Current-day cached data is reused on
+ * navigation; nothing is persisted to localStorage.
  */
 
 const AUTO_CONFIRM_NOTICE = "Tạo phiếu giao hàng sẽ tự động xác nhận PO trên KFM và nhập vào sản xuất. Sau bước này sẽ không thể yêu cầu chỉnh sửa nữa.";
@@ -210,12 +216,28 @@ export default function KfmPrintWorkspace({ isVi = true }: { isVi?: boolean }) {
   const query = useQuery({
     queryKey: ["kfm-portal-orders", deliveryDate],
     queryFn: () => callPortal({ action: "list", deliveryDate }),
+    // Strictly manual list. `enabled: false` stops React Query's automatic
+    // triggers (mount, remount, focus, reconnect, key change, invalidateQueries)
+    // while still reusing current-day cache on navigation. Only refreshOrders()
+    // below starts a read.
+    enabled: false,
     retry: false,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
     staleTime: 30_000,
+    gcTime: 30 * 60_000,
   });
 
   const data = query.data;
   const orders = data?.orders || [];
+  // Truthful states: before the first successful read the panel is 'idle', so
+  // the empty-orders card can never claim the portal has no POs.
+  const listState = query.isFetching ? "loading"
+    : query.isError ? "error"
+    : data === undefined ? "idle"
+    : data.configured === false ? "unconfigured"
+    : orders.length ? "ready" : "empty";
 
   // One keyed slot for every print action in the panel (`po-*`, `asn-*`), so
   // the waiting banner, the toast and the disabled state stay in one place.
@@ -226,20 +248,56 @@ export default function KfmPrintWorkspace({ isVi = true }: { isVi?: boolean }) {
   const [createBusy, setCreateBusy] = useState(false);
   const [dayNotice, setDayNotice] = useState(false);
   const [feedback, setFeedback] = useState<Record<string, { error: boolean; message: string }>>({});
+  const queryClient = useQueryClient();
 
-  // A tab can remain open overnight or be suspended on a phone. Refresh the
-  // queue on return, but never retarget an operation already in flight.
+  // Move the panel to a new Vietnam day. Keeps an uncertain submitted request
+  // (or a verified PDF retry) readable; only unsent prepared forms expire and
+  // recovery never creates a new trip. Shared by the rollover timer and the
+  // synchronous path in refreshOrders so they cannot drift.
+  const rolloverTo = useCallback((today: string) => {
+    setDeliveryDate(today);
+    setCreating(current => current?.result && current.result.state !== "not_sent" ? current : null);
+    setFeedback({});
+    setDayNotice(true);
+  }, []);
+
+  // The only path that reads the portal list. The lock is keyed by delivery date
+  // so fast repeated clicks on the same day collapse to one in-flight read,
+  // while a refresh for a new day is never blocked by a stale in-flight read.
+  const refreshingKey = useRef<string | null>(null);
+  const refreshOrders = async () => {
+    // Resolve Vietnam "today" at click time. If the system crossed midnight
+    // before the 1s rollover timer ran, advance synchronously so this read can
+    // never carry the previous day, and fetch the key the panel is moving to.
+    const today = vnDateOffset(0);
+    if (refreshingKey.current === today) return;
+    refreshingKey.current = today;
+    try {
+      if (today !== deliveryDate) {
+        // Never retarget an operation already in flight (same guard as syncDay).
+        if (createLock.current) return;
+        rolloverTo(today);
+      }
+      await queryClient.fetchQuery({
+        queryKey: ["kfm-portal-orders", today],
+        queryFn: () => callPortal({ action: "list", deliveryDate: today }),
+        retry: false,
+        staleTime: 0,
+      });
+    } catch {
+      // The query state carries the error; the panel shows it with a retry hint.
+    } finally {
+      if (refreshingKey.current === today) refreshingKey.current = null;
+    }
+  };
+
+  // A tab can remain open overnight or be suspended on a phone. Track the day
+  // rollover and expire unsent forms, but never fetch the list on its own: the
+  // operator loads the new day explicitly with 'Làm mới'.
   useEffect(() => {
     const syncDay = () => {
       const today = vnDateOffset(0);
-      if (today !== deliveryDate && !createLock.current) {
-        setDeliveryDate(today);
-        // Keep an uncertain submitted request (or a verified PDF retry) readable.
-        // Only unsent prepared forms expire; recovery never creates a new trip.
-        setCreating(current => current?.result && current.result.state !== "not_sent" ? current : null);
-        setFeedback({});
-        setDayNotice(true);
-      }
+      if (today !== deliveryDate && !createLock.current) rolloverTo(today);
     };
     const onVisible = () => { if (document.visibilityState === "visible") syncDay(); };
     const timer = window.setInterval(syncDay, 1000);
@@ -250,10 +308,10 @@ export default function KfmPrintWorkspace({ isVi = true }: { isVi?: boolean }) {
       window.removeEventListener("focus", syncDay);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [deliveryDate]);
+  }, [deliveryDate, rolloverTo]);
 
   const requireToday = (date: string) => {
-    if (date !== vnDateOffset(0)) throw new Error("Đã sang ngày mới. Danh sách hôm nay đang được cập nhật; vui lòng chọn lại PO.");
+    if (date !== vnDateOffset(0)) throw new Error("Đã sang ngày mới. Bấm Làm mới để tải danh sách hôm nay rồi chọn lại PO.");
   };
 
 
@@ -322,7 +380,6 @@ export default function KfmPrintWorkspace({ isVi = true }: { isVi?: boolean }) {
       setCreating({ ...snapshot, result: response.result });
       if (response.result.state === "verified") await pdfFor(response.result, viewer, key);
       else pausePrint(key, viewer);
-      void query.refetch();
     } catch (error) {
       setCreating(current => ({ ...snapshot, result: current?.result?.state === "verified" ? current.result : { state: "unknown", message: `${readable((error as Error).message)} Không gửi lại; bấm ‘In phiếu giao hàng’ để đọc lại kết quả.` } }));
       failPrint(key, viewer, error);
@@ -599,7 +656,7 @@ export default function KfmPrintWorkspace({ isVi = true }: { isVi?: boolean }) {
   );
 
   return (
-    <section className="mx-auto w-full min-w-0 max-w-6xl space-y-6 pb-8" data-kfm-today="v1" data-kfm-mobile="v2" data-kfm-unified-print="v1" data-kfm-po-print="v1">
+    <section className="mx-auto w-full min-w-0 max-w-6xl space-y-6 pb-8" data-kfm-today="v1" data-kfm-mobile="v2" data-kfm-unified-print="v1" data-kfm-po-print="v1" data-kfm-manual-refresh="v1" data-kfm-list-state={listState}>
       <header className="flex min-w-0 flex-wrap items-start justify-between gap-4 border-b border-border pb-5">
         <div className="flex min-w-0 items-start gap-3">
           <Button asChild variant="outline" className="h-11 w-11 shrink-0 rounded-xl p-0" aria-label={isVi ? "Quay lại xưởng Q7" : "Back to Q7"}>
@@ -612,7 +669,7 @@ export default function KfmPrintWorkspace({ isVi = true }: { isVi?: boolean }) {
             </p>
           </div>
         </div>
-        <Button variant="outline" className="h-11 gap-2 rounded-xl" onClick={() => void query.refetch()} disabled={query.isFetching || printing !== null || busy !== null}>
+        <Button variant="outline" className="h-11 gap-2 rounded-xl" data-kfm-action="refresh-list" onClick={() => void refreshOrders()} disabled={query.isFetching || printing !== null || busy !== null}>
           {query.isFetching ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" /> : <RefreshCw className="h-4 w-4" />}
           {isVi ? "Làm mới" : "Refresh"}
         </Button>
@@ -621,10 +678,18 @@ export default function KfmPrintWorkspace({ isVi = true }: { isVi?: boolean }) {
       <p className="max-w-3xl text-sm leading-relaxed text-muted-foreground">
         {isVi ? "In PO để xem đơn hàng. In phiếu giao hàng: nếu chưa có phiếu, hệ thống tự xác nhận PO và tạo phiếu trước khi in." : "Print PO to view the order. Printing a delivery note confirms the PO and creates the note only if it does not exist."}
       </p>
-      {dayNotice && <p role="status" className="rounded-xl bg-muted p-3 text-sm">{isVi ? "Đã sang ngày mới. Danh sách đã chuyển sang hôm nay." : "A new day has started. The list now shows today's orders."}</p>}
-      {query.isError && <div role="alert" className="rounded-xl border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive">{(query.error as Error)?.message}</div>}
+      {dayNotice && listState === "idle" && <p role="status" className="rounded-xl bg-muted p-3 text-sm">{isVi ? "Đã sang ngày mới. Danh sách chưa tự tải lại — bấm Làm mới để tải đơn hôm nay." : "A new day has started. The list is not loaded automatically — press Refresh to load today's orders."}</p>}
+      {query.isError && <div role="alert" className="rounded-xl border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive">
+        <p>{(query.error as Error)?.message}</p>
+        <p className="mt-1 text-xs">{isVi ? "Bấm Làm mới để thử lại." : "Press Refresh to retry."}</p>
+      </div>}
       {data && data.configured === false && <p role="alert" className="rounded-xl border p-4 text-sm">{isVi ? "Chưa kết nối được Cổng KFM. Vui lòng liên hệ quản trị viên." : "KFM is not connected. Please contact your administrator."}</p>}
       {query.isFetching && <div role="status" className="flex items-center gap-3 py-6 text-sm text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin motion-reduce:animate-none" />{isVi ? "Đang tải đơn hôm nay…" : "Loading today's orders…"}</div>}
+      {listState === "idle" && <div role="status" data-kfm-idle="v1" className="rounded-2xl border border-dashed border-border px-5 py-14 text-center">
+        <RefreshCw className="mx-auto mb-4 h-7 w-7 text-muted-foreground" />
+        <h2 className="font-semibold">{isVi ? "Chưa tải danh sách đơn" : "Orders not loaded yet"}</h2>
+        <p className="mt-2 text-sm text-muted-foreground">{isVi ? "Bấm Làm mới để tải danh sách đơn hôm nay." : "Press Refresh to load today's orders."}</p>
+      </div>}
       {data?.success && data.configured !== false && <ul className="space-y-4" data-kfm-orders-cards="v2" aria-label={isVi ? "Đơn giao hôm nay" : "Today's delivery orders"}>
         {orders.map(order => (
           <li key={order.portalId} className="min-w-0 rounded-2xl border border-border bg-card p-4 sm:p-5" data-kfm-order={order.portalId}>
@@ -646,7 +711,7 @@ export default function KfmPrintWorkspace({ isVi = true }: { isVi?: boolean }) {
             {creating?.order.portalId === order.portalId && renderCreate()}
           </li>
         ))}
-        {!orders.length && !query.isFetching && !query.isError && <li className="rounded-2xl border border-dashed border-border px-5 py-14 text-center">
+        {!orders.length && !query.isFetching && !query.isError && <li className="rounded-2xl border border-dashed border-border px-5 py-14 text-center" data-kfm-empty="v1">
           <Printer className="mx-auto mb-4 h-7 w-7 text-muted-foreground" />
           <h2 className="font-semibold">{isVi ? "Hôm nay chưa có đơn giao" : "No delivery orders today"}</h2>
           <p className="mt-2 text-sm text-muted-foreground">{isVi ? "Khi có PO trên cổng, bấm Làm mới để tải danh sách." : "Refresh when new POs are available on the portal."}</p>
