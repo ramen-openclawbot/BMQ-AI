@@ -592,33 +592,40 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
               <RefreshCw className={cn("h-5 w-5", isLoading && "animate-spin")} />
             </Button>
           </div>
-          <div className="grid min-w-0 grid-cols-[minmax(300px,1.2fr)_minmax(0,1fr)_minmax(0,1fr)] gap-3">
-            <div className="flex min-h-12 items-center gap-2 rounded-md border border-slate-200 bg-white px-4 text-sm text-slate-800 shadow-none dark:border-slate-800 dark:bg-card dark:text-slate-100 min-w-0">
-              <span className="flex min-w-0 flex-1 items-center gap-3">
-                <CalendarDays className="h-4 w-4 text-slate-500" />
-                <span className="sr-only">{dateRangeLabel}</span>
-                <Input
-                  type="date"
-                  value={dateFrom}
-                  max={dateTo || undefined}
-                  onChange={(event) => setDateFrom(event.target.value)}
-                  aria-label={language === "vi" ? "Từ ngày" : "From date"}
-                  className="h-10 min-w-0 border-0 bg-transparent p-0 text-sm font-medium shadow-none focus-visible:ring-0 dark:bg-transparent"
-                />
-                <span className="text-slate-400">-</span>
-                <Input
-                  type="date"
-                  value={dateTo}
-                  min={dateFrom || undefined}
-                  onChange={(event) => setDateTo(event.target.value)}
-                  aria-label={language === "vi" ? "Đến ngày" : "To date"}
-                  className="h-10 min-w-0 border-0 bg-transparent p-0 text-sm font-medium shadow-none focus-visible:ring-0 dark:bg-transparent"
-                />
-              </span>
+          <div
+            className="grid min-w-0 grid-cols-2 gap-3 xl:grid-cols-[minmax(330px,1.2fr)_minmax(0,1fr)_minmax(0,1fr)]"
+            data-bmq-payables-filter-row="v3"
+          >
+            <div
+              data-bmq-payables-date-range="v3"
+              className="col-span-2 flex h-12 min-w-0 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-800 shadow-none dark:border-slate-800 dark:bg-card dark:text-slate-100 xl:col-span-1"
+            >
+              <CalendarDays className="h-4 w-4 shrink-0 text-slate-500" />
+              <span className="sr-only">{dateRangeLabel}</span>
+              <Input
+                type="date"
+                value={dateFrom}
+                max={dateTo || undefined}
+                onChange={(event) => setDateFrom(event.target.value)}
+                aria-label={language === "vi" ? "Từ ngày" : "From date"}
+                className="h-10 min-w-0 flex-1 basis-0 border-0 bg-transparent p-0 text-sm font-medium shadow-none focus-visible:ring-0 dark:bg-transparent"
+              />
+              <span className="shrink-0 text-slate-400">-</span>
+              <Input
+                type="date"
+                value={dateTo}
+                min={dateFrom || undefined}
+                onChange={(event) => setDateTo(event.target.value)}
+                aria-label={language === "vi" ? "Đến ngày" : "To date"}
+                className="h-10 min-w-0 flex-1 basis-0 border-0 bg-transparent p-0 text-sm font-medium shadow-none focus-visible:ring-0 dark:bg-transparent"
+              />
             </div>
 
             <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="h-12 rounded-md border-slate-200 bg-white px-4 text-slate-800 shadow-none dark:border-slate-800 dark:bg-card dark:text-slate-100 w-full min-w-0">
+              <SelectTrigger
+                aria-label={language === "vi" ? "Trạng thái" : "Status"}
+                className="h-12 w-full min-w-0 rounded-md border-slate-200 bg-white px-4 text-slate-800 shadow-none dark:border-slate-800 dark:bg-card dark:text-slate-100"
+              >
                 <SelectValue placeholder={t.status} />
               </SelectTrigger>
               <SelectContent>
@@ -630,7 +637,10 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
             </Select>
 
             <Select value={sourceFilter} onValueChange={setSourceFilter}>
-              <SelectTrigger className="h-12 rounded-md border-slate-200 bg-white px-4 text-slate-800 shadow-none dark:border-slate-800 dark:bg-card dark:text-slate-100 w-full min-w-0">
+              <SelectTrigger
+                aria-label={language === "vi" ? "Nguồn công nợ" : "Payable source"}
+                className="h-12 w-full min-w-0 rounded-md border-slate-200 bg-white px-4 text-slate-800 shadow-none dark:border-slate-800 dark:bg-card dark:text-slate-100"
+              >
                 <SelectValue placeholder={language === "vi" ? "Nguồn công nợ" : "Payable source"} />
               </SelectTrigger>
               <SelectContent>
