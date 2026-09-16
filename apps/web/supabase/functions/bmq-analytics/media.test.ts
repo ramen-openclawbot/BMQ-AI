@@ -47,3 +47,69 @@ test('image action authenticates, keeps CORS and does not invoke model',async()=
  const r=await handler(request());assert.equal(r.status,200);assert.equal(r.headers.get('content-type'),'application/octet-stream');assert.equal(r.headers.get('access-control-allow-origin'),'https://ai.banhmique.vn');assert.equal((await r.arrayBuffer()).byteLength,2);
  }finally{globalThis.fetch=old}
 });
+
+const catalog={metrics:{revenue:{label:'Revenue'}},dimensions:{date:{}}};
+const imageRoute={lane:'unc_images',queries:[],search:'',clarification:''};
+const priorRequest=[{role:'user' as const,text:'Show me bank slip images'}, {role:'assistant' as const,text:'Sorry, images are not supported.'}];
+for(const question of ['Show bank slip images for 11 September 2026','Cho ảnh chuyển khoản ngày 11/9/2026','11 September 2026','còn ngày 12?']) {
+ test(`LLM image route supports wording/context: ${question}`,async()=>{
+  const history=question.startsWith('Show')||question.startsWith('Cho')?[]:priorRequest;
+  const date=question.includes('12')?'2026-09-12':'2026-09-11';
+  let rounds=0;const paths:string[]=[];
+  const result=await runWarehouse({...input,question,history},async(path,body)=>{
+   paths.push(path);if(path==='/v1/semantic')return catalog;
+   assert.equal(path,'/v1/finance-media/search');assert.deepEqual(body,{date,limit:8});
+   return {images:[{...img,date}],total:1,truncated:false};
+  },async(instructions,payload:any,schema:any)=>{
+   rounds++;assert.equal(payload.question,question);assert.deepEqual(payload.history,history);
+   if(rounds===1){assert.ok(schema.properties.lane.enum.includes('unc_images'));assert.match(instructions,/bank slip/);assert.match(instructions,/latest explicit topic wins/);return {value:imageRoute,usage};}
+   assert.match(instructions,/Retain all still-active constraints/);return {value:{date,month:'',clarification:''},usage};
+  },signal);
+  assert.deepEqual(paths,['/v1/semantic','/v1/finance-media/search']);assert.equal(rounds,2);
+  assert.equal(result.provenance.lane,'unc_images');assert.equal(result.provenance.modelCalls,2);
+  assert.deepEqual(result.provenance.usage,{input:2,output:2,cached:0});assert.equal(result.provenance.images[0].date,date);
+ });
+}
+test('UNC follow-up uses semantic router instead of keyword bypass',async()=>{
+ let rounds=0;
+ const result=await runWarehouse({...input,question:'UNC là gì?',history:priorRequest},async(path)=>{
+  assert.equal(path,'/v1/semantic');return catalog;
+ },async()=>{rounds++;return {value:{lane:'abstain',queries:[],search:'',clarification:'Please clarify the definition needed.'},usage}},signal);
+ assert.equal(rounds,1);assert.equal(result.provenance.lane,'abstain');
+});
+test('topic switch to revenue does not inherit old UNC intent',async()=>{
+ const result=await runWarehouse({...input,question:'Revenue for 11 September 2026',history:priorRequest},async(path)=>{
+  if(path==='/v1/semantic')return catalog;
+  assert.equal(path,'/v1/query');return {rows:[{revenue:12,currency:'VND'}]};
+ },async()=>({value:{lane:'semantic',queries:[{metric:'revenue',time_range:'2026-09-11/2026-09-11',dimensions:[],limit:20}],search:'',clarification:''},usage}),signal);
+ assert.equal(result.provenance.lane,'semantic');assert.match(result.answer,/12/);
+});
+test('bare date without established intent can clarify without media access',async()=>{
+ const result=await runWarehouse({...input,question:'11 September 2026'},async(path)=>{
+  assert.equal(path,'/v1/semantic');return catalog;
+ },async()=>({value:{lane:'abstain',queries:[],search:'',clarification:'Which report or images do you need?'},usage}),signal);
+ assert.equal(result.provenance.lane,'abstain');
+});
+test('inherited unsupported filters or missing date do not query media',async()=>{
+ for(const history of [priorRequest,[{role:'user' as const,text:'Show bank slips for recipient Alice'}, {role:'assistant' as const,text:'Which date?'}]]){
+  let rounds=0;
+  const result=await runWarehouse({...input,question:'11 September',history},async(path)=>{
+   assert.equal(path,'/v1/semantic');return catalog;
+  },async(_instructions,payload:any)=>{assert.deepEqual(payload.history,history);return {value:++rounds===1?imageRoute:{date:'',month:'',clarification:'Please specify a supported date-only request.'},usage}},signal);
+  assert.equal(result.provenance.images.length,0);assert.equal(rounds,2);
+ }
+});
+test('malformed image route and invalid date fail closed before image fetch',async()=>{
+ for(const plan of [{...imageRoute,queries:[{}]},{...imageRoute,search:'https://evil.test'},imageRoute]){
+  let rounds=0;
+  await assert.rejects(()=>runWarehouse({...input,question:'Show bank slips'},async(path)=>{
+   assert.equal(path,'/v1/semantic');return catalog;
+  },async()=>({value:++rounds===1?plan:{date:'2026-02-30',month:'',clarification:''},usage}),signal),/invalid_(plan|media_plan)/);
+ }
+});
+test('second model failure is not rendered as no images or unsupported capability',async()=>{
+ let rounds=0;
+ await assert.rejects(()=>runWarehouse({...input,question:'Show bank slips'},async(path)=>{
+  assert.equal(path,'/v1/semantic');return catalog;
+ },async()=>{if(++rounds===2)throw Error('model_unavailable');return {value:imageRoute,usage}},signal),/model_unavailable/);
+});
