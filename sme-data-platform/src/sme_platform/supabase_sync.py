@@ -23,9 +23,21 @@ from .warehouse import Warehouse, atomic_json
 
 PROJECT = 'cxntbdvfsikwmitapony'
 TENANT = PROJECT + '.supabase.co'
-VERSION = 'bmq-supabase-raw-v13'
+VERSION = 'bmq-supabase-raw-v14'
 MAX_ROWS = 50000
 MAX_BYTES = 128 * 1024 * 1024
+# Canonical cost-reporting columns required to reproduce
+# `public.cost_classification_line_details` for all four view arms. The cost
+# lane refuses a snapshot whose manifest does not declare these columns.
+COST_PROJECTION_FIELDS = {
+    'payment_request_items': ('raw_product_name', 'canonical_cost_item_name', 'confirmed_standard_cost_code',
+                              'suggested_standard_cost_code', 'canonical_cost_item_source', 'cost_category_code',
+                              'cost_product_line', 'cost_allocation_rule', 'cost_review_routing'),
+    'invoice_items': ('raw_product_name', 'canonical_cost_item_name', 'confirmed_standard_cost_code',
+                      'suggested_standard_cost_code', 'canonical_cost_item_source', 'cost_category_code',
+                      'cost_product_line', 'cost_allocation_rule', 'cost_review_routing'),
+    'payment_requests': ('invoice_created',),
+}
 # Explicit field projections: no auth/OTP/session tokens, contact snapshots,
 # arbitrary JSON, signed document URLs, bank data or staff phone/salary.
 FIELDS = {
@@ -130,12 +142,12 @@ FIELDS = {
     'daily_reconciliations': 'id closing_date unc_detail_amount unc_declared_amount cash_fund_topup_amount variance_amount status tolerance_amount qtm_spent_from_folder qtm_variance_amount unc_status qtm_status matched_at created_at updated_at',
     'finance_daily_close_runs': 'id closing_date mode status decision blocker_count match_count approved_count started_at finished_at created_at updated_at',
     'finance_payment_auto_approval_matches': 'id run_id payment_request_id evidence_source evidence_amount evidence_confidence supplier_id match_strategy match_status created_at updated_at',
-    'invoice_items': 'id invoice_id product_code product_name unit quantity unit_price line_total inventory_item_id canonical_material_id created_at',
+    'invoice_items': 'id invoice_id product_code product_name raw_product_name canonical_cost_item_name unit quantity unit_price line_total inventory_item_id canonical_material_id confirmed_standard_cost_code suggested_standard_cost_code canonical_cost_item_source cost_category_code cost_product_line cost_allocation_rule cost_review_routing created_at',
     'invoices': 'id invoice_number invoice_date supplier_id subtotal vat_amount total_amount payment_request_id purchase_order_id goods_receipt_id created_at updated_at',
-    'payment_request_items': 'id payment_request_id product_code product_name quantity unit unit_price line_total inventory_item_id sku_id purchase_order_item_id canonical_material_id created_at',
+    'payment_request_items': 'id payment_request_id product_code product_name raw_product_name canonical_cost_item_name quantity unit unit_price line_total inventory_item_id sku_id purchase_order_item_id canonical_material_id confirmed_standard_cost_code suggested_standard_cost_code canonical_cost_item_source cost_category_code cost_product_line cost_allocation_rule cost_review_routing created_at',
     'payments': 'id payment_number supplier_id payment_date amount payment_method created_at updated_at',
     'revenue_source_documents': 'id source_type period status created_at updated_at',
-    'payment_requests': 'id request_number supplier_id total_amount status delivery_status payment_status created_at updated_at payment_method invoice_id vat_amount goods_receipt_id payment_type purchase_order_id paid_at',
+    'payment_requests': 'id request_number supplier_id total_amount status delivery_status payment_status created_at updated_at payment_method invoice_id vat_amount goods_receipt_id payment_type purchase_order_id paid_at invoice_created',
     'payment_allocations': 'id payment_id payment_request_id amount created_at updated_at',
     'production_orders': 'id production_number customer_id status planned_start_date planned_end_date completed_at created_at updated_at location_code',
     'production_order_items': 'id production_order_id sku_id product_name ordered_qty planned_qty actual_qty unit delivery_date created_at',
@@ -373,7 +385,8 @@ def publish(warehouse: Warehouse, snapshot):
                 if count != table['count']:
                     raise RuntimeError('Published row count mismatch')
                 summary['tables'][name] = {'records': count, 'inserted': added, 'updated': changed, 'absent': len(removed),
-                    'source_total': table['total'], 'reconciled': True, 'raw_path': str(path.relative_to(warehouse.root)), 'sha256': digest}
+                    'source_total': table['total'], 'reconciled': True, 'fields': FIELDS[name].split(),
+                    'raw_path': str(path.relative_to(warehouse.root)), 'sha256': digest}
             summary['completed_at'] = datetime.now(timezone.utc).isoformat()
             con.execute('INSERT INTO meta_supabase_sync_runs VALUES (?,?,now(),?)', [run, observed, json.dumps(summary)])
             con.execute('COMMIT')

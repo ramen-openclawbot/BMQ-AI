@@ -140,3 +140,39 @@ Vietnamese uses VND with dot grouping and no fractional dong (`51.225.132 ₫`).
 `money.ts` requests only `https://open.er-api.com/v6/latest/USD`, with no auth, BMQ data, user text or dynamic URL. The feed updates daily; isolate-local cache refreshes hourly, caps source age at 48h and uses a 2.5s timeout/64KB response limit. Invalid/stale/unavailable rates fall back explicitly to VND, never a guessed USD value. Provider attribution, timestamp and exact rate are exposed in details. No extra secret or scheduler required. Reference: https://www.exchangerate-api.com/docs/free (attribution required, caching allowed).
 
 Local verification: `node --experimental-strip-types --test apps/web/supabase/functions/bmq-analytics/*.test.ts` from repo root. Release still requires the owner's next-turn confirmation, backend before UI, plus live owner verification. No build/commit/push/deploy was performed for U1.
+
+## Cost classification lane (local, release pending)
+
+Owner-scoped expense/cost-classification questions are routed to a bounded read-only
+cost lane instead of the generic metric DSL, which cannot express a review-status or
+line-detail filter. Supported questions: month totals by category and review status,
+pending review count/amount, largest pending lines with supplier/document, two-month
+category comparison, unmapped/low-confidence lines, why one line was classified that
+way (with the stored rule/alias link metadata, never an invented reason or a claim that
+the current rule state caused the historical result), and last sync freshness. The lane
+mirrors all four arms of the canonical `cost_classification_line_details` view
+(classified plus OCR-only payment request/invoice lines, never double counted); a cost
+answer is not restricted to classified rows and the answer disclaimer says so.
+
+Routing keeps the exact qualifiers: an explicit month (`MM/YYYY`), an exact category
+code (for example `OPEX_GENERAL`) or its canonical Vietnamese label (for example "bánh
+mì" -> `COGS_BMQ_BREAD`), an explicit review status for month totals/comparison
+(`approved`, `suggested`, `rejected`, or pending), and an exact classification/source
+line id are passed through unchanged. A missing month, missing line reference or
+unrecognised cost question clarifies, and qualifiers this lane cannot express (staff,
+department, bank, route, project, an arbitrary day, foreign currency, supplier filters,
+future months, mixed statuses) abstain with zero warehouse numeric calls. An "all
+statuses" question is not narrowed to the pending branch just because it mentions cần
+review. Cost answers are never taken from documents, no arbitrary SQL or tenant
+selection is possible, and the cost catalog must be present or the lane abstains rather
+than answering an unrelated total. The lane requires the warehouse `/v1/cost` contract;
+`warehouseClient` allowlists that path. Frontend summary pending money uses the same
+exact per-`review_status` amounts, not a row-count ratio, and a status with a count but
+no recorded amount is flagged unknown rather than shown as an exact zero.
+
+Local verification for this lane: `node --experimental-strip-types --test
+apps/web/supabase/functions/bmq-analytics/cost.test.ts` (17 tests) plus the Python
+`tests/test_bmq_cost.py` (41 tests) and the coordinator's independent
+`generated/cost-classification/coordinator/test_parity.py` (2 probes). Deno type check
+was not run in this environment (no Deno binary); behavior is covered by the
+type-stripped Node tests.

@@ -10,12 +10,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 FINANCE = ROOT / "src/pages/FinanceControl.tsx"
+REVIEW_HELPER = ROOT / "src/lib/costClassificationReview.ts"
 HOOK = ROOT / "src/hooks/useCostClassifications.ts"
 SIDEBAR = ROOT / "src/components/layout/Sidebar.tsx"
 ROUTES = ROOT / "src/components/AppRoutes.tsx"
 LANGUAGE = ROOT / "src/contexts/LanguageContext.tsx"
 
 finance = FINANCE.read_text(encoding="utf-8")
+review_helper = REVIEW_HELPER.read_text(encoding="utf-8")
 hook = HOOK.read_text(encoding="utf-8")
 sidebar = SIDEBAR.read_text(encoding="utf-8")
 routes = ROUTES.read_text(encoding="utf-8")
@@ -30,8 +32,17 @@ assert "<Navigate to=\"/finance-control/ceo-declaration\" replace />" in routes,
 assert "financeCeoDeclaration" in language and "financeCostClassification" in language, "Language labels must include split finance cost submenu labels"
 
 assert "classificationMonthlyDisplayRows" in finance, "FinanceControl must use display rows aggregated by canonical category"
-assert "review_status_counts" in finance, "Aggregated summary rows must keep review status only as note/count metadata"
+assert "review_status_counts" in finance, "Summary rows must keep review status as note/count metadata"
+assert "review_status_amounts" in review_helper, "Exact per-status amounts must be aggregated in the review helper"
+assert "review_status_counts" in review_helper, "Aggregated summary rows must keep review status as note/count metadata"
 assert "classificationMonthlyRows.map((row)" not in finance, "Raw monthly rows must not render directly because they are split by review_status"
+assert "computeClassificationReviewStats" in finance, "Pending money must use the exact per-status helper"
+for source in (finance, review_helper):
+    assert "pendingCount / lineCount" not in source, "Pending money must never use a row-count ratio"
+assert "tất cả trạng thái" in finance, "All-status category totals must be labelled honestly"
+assert "đã tính trong tổng tất cả trạng thái" in finance, "Pending amount must state it is included in the all-status total"
+assert "unknownAmount" in finance and "unknownAmount" in review_helper, "A missing per-status amount must be tracked as unknown"
+assert "không hiển thị như 0 chắc chắn" in finance, "A missing amount must not be presented as an exact zero"
 summary_table_block = finance[finance.index("Tổng theo nhóm"):finance.index("selectedCostSummaryRow &&")]
 assert "Product line" not in summary_table_block, "Summary should not expose product_line as a grouping column"
 assert "Allocation" not in summary_table_block, "Summary should not expose allocation as a grouping column"

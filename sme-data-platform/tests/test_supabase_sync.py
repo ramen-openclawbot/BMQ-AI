@@ -203,9 +203,13 @@ def test_r2a_precision_replay_and_route_history(warehouse):
 
 
 def test_r2a_projection_contract():
-    from sme_platform.supabase_sync import VERSION
-    assert VERSION == 'bmq-supabase-raw-v13'
+    from sme_platform.supabase_sync import COST_PROJECTION_FIELDS, VERSION
+    assert VERSION == 'bmq-supabase-raw-v14'
     sql = query_sql()
     assert "cost_values->'selling_price' AS selling_price" in sql
     assert '"cost_values"' not in sql and 'route_note' not in sql
     assert '"route_customer_name"' in sql and 'customer_snapshot' not in sql
+    # Canonical cost-reporting columns must be projected for every view arm.
+    for table, required in COST_PROJECTION_FIELDS.items():
+        assert set(required) <= set(FIELDS[table].split()), table
+    assert 'invoice_created' in FIELDS['payment_requests'].split()

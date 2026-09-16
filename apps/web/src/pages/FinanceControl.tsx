@@ -36,6 +36,11 @@ import {
   type CostClassificationMonthlySummary,
   type CostClassificationReviewRow,
 } from "@/hooks/useCostClassifications";
+import {
+  buildClassificationDisplayRows,
+  computeClassificationReviewStats,
+  type CostClassificationDisplayRow,
+} from "@/lib/costClassificationReview";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -121,9 +126,7 @@ type StandardCostEdit = {
   unit_conversion_note: string;
 };
 type StandardCostEdits = Record<string, Partial<StandardCostEdit>>;
-type ClassificationMonthlyDisplayRow = CostClassificationMonthlySummary & {
-  review_status_counts: Record<string, number>;
-};
+type ClassificationMonthlyDisplayRow = CostClassificationDisplayRow;
 
 type ClassificationChartRow = ClassificationMonthlyDisplayRow & {
   amount: number;
@@ -170,10 +173,13 @@ const buildClassificationNote = (
   isVi: boolean,
 ) => {
   const counts = row.review_status_counts || {};
-  const suggested = Number(counts.suggested || counts.needs_review || 0);
-  const statusText = suggested > 0
-    ? (isVi ? `${suggested} dòng gợi ý cần rà soát` : `${suggested} suggested lines to review`)
-    : (isVi ? "Nhóm đã sẵn sàng để đối soát" : "Ready for review");
+  const pending = Number(counts.needs_review || 0);
+  const suggested = Number(counts.suggested || 0);
+  const statusText = pending > 0
+    ? (isVi ? `${pending} dòng cần kiểm tra` : `${pending} lines need review`)
+    : suggested > 0
+      ? (isVi ? `${suggested} dòng gợi ý cần rà soát` : `${suggested} suggested lines to review`)
+      : (isVi ? "Nhóm đã sẵn sàng để đối soát" : "Ready for review");
   const shareText = isVi
     ? `${percentage.toFixed(1)}% tổng chi phí tháng`
     : `${percentage.toFixed(1)}% of monthly cost`;
@@ -492,65 +498,22 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
     return totals;
   }, [classificationMonthlyRows, classificationCategoryRows]);
 
-  const classificationMonthlyDisplayRows = useMemo<ClassificationMonthlyDisplayRow[]>(() => {
-    const canonicalCategoryCodes = new Set(costCategoryOptions.map((category) => category.code));
-    const grouped = new Map<string, ClassificationMonthlyDisplayRow>();
-
-    for (const row of classificationMonthlyRows) {
-      if (canonicalCategoryCodes.size > 0 && !canonicalCategoryCodes.has(row.category_code)) continue;
-      const key = `${row.month}-${row.category_code}`;
-      const category = costCategoryByCode.get(row.category_code);
-      const existing = grouped.get(key);
-      const lineCount = Number(row.line_count || 0);
-      const reviewStatus = row.review_status || "needs_review";
-
-      if (existing) {
-        existing.line_count += lineCount;
-        existing.total_amount += Number(row.total_amount || 0);
-        existing.review_status_counts[reviewStatus] = (existing.review_status_counts[reviewStatus] || 0) + lineCount;
-      } else {
-        grouped.set(key, {
-          ...row,
-          category_label: category?.label || row.category_label || row.category_code,
-          cost_group: category?.cost_group || row.cost_group,
-          product_line: category?.product_line || row.product_line,
-          allocation_rule: "category_code",
-          review_status: "note_only",
-          line_count: lineCount,
-          total_amount: Number(row.total_amount || 0),
-          review_status_counts: { [reviewStatus]: lineCount },
-        });
-      }
-    }
-
-    return Array.from(grouped.values()).sort((a, b) => {
-      const monthCompare = a.month.localeCompare(b.month);
-      if (monthCompare !== 0) return monthCompare;
-      const aOrder = costCategoryByCode.get(a.category_code)?.sort_order ?? 9999;
-      const bOrder = costCategoryByCode.get(b.category_code)?.sort_order ?? 9999;
-      if (aOrder !== bOrder) return aOrder - bOrder;
-      return (a.category_label || a.category_code).localeCompare(b.category_label || b.category_code);
-    });
-  }, [classificationMonthlyRows, costCategoryOptions, costCategoryByCode]);
+  const classificationMonthlyDisplayRows = useMemo<ClassificationMonthlyDisplayRow[]>(
+    () => buildClassificationDisplayRows(classificationMonthlyRows, costCategoryOptions),
+    [classificationMonthlyRows, costCategoryOptions],
+  );
 
   const classificationTotalAmount = useMemo(
     () => classificationMonthlyDisplayRows.reduce((sum, row) => sum + Number(row.total_amount || 0), 0),
     [classificationMonthlyDisplayRows],
   );
-  const classificationPendingReviewStats = useMemo(() => (
-    classificationMonthlyDisplayRows.reduce((totals, row) => {
-      const pendingCount = Number(row.review_status_counts?.needs_review || 0);
-      if (pendingCount <= 0) return totals;
-      const lineCount = Math.max(1, Number(row.line_count || 0));
-      const pendingAmount = row.review_status === "needs_review" || row.category_code === "UNMAPPED_REVIEW"
-        ? Number(row.total_amount || 0)
-        : Number(row.total_amount || 0) * (pendingCount / lineCount);
-      return {
-        count: totals.count + pendingCount,
-        amount: totals.amount + pendingAmount,
-      };
-    }, { count: 0, amount: 0 })
-  ), [classificationMonthlyDisplayRows]);
+  // Exact per-review_status money from the monthly summary view. Never estimate
+  // pending money from a row-count ratio; UNMAPPED_REVIEW is already counted in
+  // the needs_review status by the view.
+  const classificationPendingReviewStats = useMemo(
+    () => computeClassificationReviewStats(classificationMonthlyDisplayRows),
+    [classificationMonthlyDisplayRows],
+  );
 
   const classificationChartRows = useMemo<ClassificationChartRow[]>(() => {
     const sorted = [...classificationMonthlyDisplayRows].sort((a, b) => Number(b.total_amount || 0) - Number(a.total_amount || 0));
@@ -2702,7 +2665,13 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                     <div className="text-xs text-muted-foreground">{isVi ? "Đang chờ review" : "Pending review"}</div>
                     <div className="break-words text-lg font-semibold sm:text-xl">{vnd(Number(classificationPendingReviewStats.amount || 0))}</div>
                     <div className="text-xs text-muted-foreground">
-                      {classificationPendingReviewStats.count} {isVi ? "dòng cần kiểm tra, vẫn tách riêng khỏi phần đã duyệt" : "lines kept separate from approved cost"}
+                      {classificationPendingReviewStats.count} {isVi ? "dòng cần kiểm tra, đã tính trong tổng tất cả trạng thái" : "lines, included in the all-status total"}
+                      {classificationPendingReviewStats.suggestedCount > 0
+                        ? ` · ${classificationPendingReviewStats.suggestedCount} ${isVi ? "dòng gợi ý" : "suggested lines"} (${vnd(classificationPendingReviewStats.suggestedAmount)})`
+                        : ""}
+                      {classificationPendingReviewStats.unknownAmount
+                        ? ` · ${isVi ? "một phần số tiền chưa xác định, không hiển thị như 0 chắc chắn" : "part of the amount is unknown, not shown as an exact zero"}`
+                        : ""}
                     </div>
                   </CardContent>
                 </Card>
@@ -2726,9 +2695,12 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                     <div>
                       <CardTitle className="text-lg">{isVi ? "Tổng theo nhóm" : "Totals by Category"}</CardTitle>
                       <CardDescription>
-                        {format(selectedMonth, "MM/yyyy")} · {classificationMonthlyDisplayRows.length} {isVi ? "nhóm" : "categories"} · {vnd(classificationTotalAmount)}
+                        {format(selectedMonth, "MM/yyyy")} · {classificationMonthlyDisplayRows.length} {isVi ? "nhóm" : "categories"} · {isVi ? "tổng tất cả trạng thái" : "all-status total"} {vnd(classificationTotalAmount)}
                         {classificationPendingReviewStats.count > 0
                           ? ` · ${isVi ? "Cần review" : "Pending review"} ${vnd(classificationPendingReviewStats.amount)}`
+                          : ""}
+                        {classificationPendingReviewStats.suggestedCount > 0
+                          ? ` · ${isVi ? "Gợi ý" : "Suggested"} ${vnd(classificationPendingReviewStats.suggestedAmount)}`
                           : ""}
                       </CardDescription>
                     </div>
