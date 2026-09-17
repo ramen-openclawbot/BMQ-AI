@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { COST_KINDS, costAnswer, costDetect, costRequest, EXAMPLE_SELECTION_RULE, missingCostQualifier } from './cost.ts';
+import { COST_KINDS, costAnswer, costBlock, costDetect, costRequest, EXAMPLE_SELECTION_RULE, missingCostQualifier } from './cost.ts';
 import { runWarehouse } from './warehouse.ts';
 import { warehouseClient } from '../_shared/warehouse.ts';
 import { AnalyticsError } from './core.ts';
@@ -372,4 +372,70 @@ test('costAnswer example_line discloses its rule, a real line and only real stor
   assert.throws(() => costAnswer({ ...base, selection_rule: undefined }, 'example_line', 'vi'));
   assert.throws(() => costAnswer({ ...base, rows: [picked, picked] }, 'example_line', 'vi'));
   assert.throws(() => costAnswer({ ...base, line: { ...picked, classification_id: 'c9' } }, 'example_line', 'vi'));
+});
+
+test('costBlock projects only the verified example line with exact facts and explanation-only notes', () => {
+  const picked = { classification_id: 'c2', month: '2026-09-01', category_code: 'COGS_BMQ_BREAD', category_label: 'Chi phí bánh mì', review_status: 'needs_review', supplier_name: 'NCC Hai', source_number: 'PR-002', source_date: '2026-09-12', product_name: 'Pate gan', line_amount: '8344200', classification_source: 'fallback', rule_id: null, confidence: '0' };
+  const base = { ...monthResult, question: 'example_line', month: '2026-09', category_code: null, review_status: 'needs_review', match_count: 2, rows: [picked], limit: 1, truncated: true, selection_rule: EXAMPLE_SELECTION_RULE };
+  const block = costBlock({ ...base, line: picked, evidence: { rule: { rule_name: 'BMQ bread keywords', match_scope: 'supplier_and_item', priority: '100', confidence: '0.90', effective_from: '2026-01-01', effective_to: null }, alias_mapping: null, alias_status: null } }, 'example_line', 'vi')!;
+  assert.equal(block.v, 1);
+  assert.equal(block.kind, 'cost_line');
+  assert.equal(block.mode, 'example');
+  assert.equal(block.month, '2026-09');
+  assert.equal(block.line.classificationId, 'c2');
+  assert.equal(block.line.supplierName, 'NCC Hai');
+  assert.equal(block.line.productName, 'Pate gan');
+  assert.equal(block.line.sourceDate, '2026-09-12');
+  assert.equal(block.line.sourceNumber, 'PR-002');
+  assert.equal(block.line.amount, 8344200);
+  assert.equal(block.line.reviewStatus, 'needs_review');
+  assert.equal(block.evidence.stored, true);
+  assert.equal(block.evidence.rule?.name, 'BMQ bread keywords');
+  assert.equal(block.source.selectionRule, EXAMPLE_SELECTION_RULE);
+  assert.equal(block.source.matchCount, 2);
+  assert.equal(block.source.truncated, true);
+  assert.equal(block.followUp, 'line_explanation');
+  // The evidence notes explain; they must not restate the card facts.
+  const notes = block.notes.join(' ');
+  assert.match(notes, /BMQ bread keywords/);
+  assert.doesNotMatch(notes, /8344200|8\.344\.200/);
+  assert.doesNotMatch(notes, /Pate gan/);
+  assert.doesNotMatch(notes, /NCC Hai/);
+  // No linked rule: state the missing rationale instead of inventing one.
+  const noRule = costBlock({ ...base, line: picked, evidence: { rule: null, alias_mapping: null, alias_status: null } }, 'example_line', 'vi')!;
+  assert.match(noRule.notes.join(' '), /lý do lịch sử không có sẵn/);
+  // Selected row without stored evidence is still an honest (stored:false) block.
+  const noEvidence = costBlock(base, 'example_line', 'vi')!;
+  assert.equal(noEvidence.evidence.stored, false);
+  assert.match(noEvidence.notes.join(' '), /Chưa lấy được bằng chứng/);
+  // English projection carries English evidence wording.
+  assert.match(costBlock({ ...base, line: picked, evidence: { rule: null, alias_mapping: null, alias_status: null } }, 'example_line', 'en')!.notes.join(' '), /historical rationale is unavailable/);
+});
+
+test('costBlock is absent for aggregate, empty and detail-less results and degrades instead of throwing', () => {
+  const picked = { classification_id: 'c2', month: '2026-09-01', category_code: 'COGS_BMQ_BREAD', category_label: 'Chi phí bánh mì', review_status: 'needs_review', supplier_name: 'NCC Hai', source_number: 'PR-002', source_date: '2026-09-12', product_name: 'Pate gan', line_amount: '8344200', classification_source: 'fallback', confidence: '0' };
+  const base = { ...monthResult, question: 'example_line', month: '2026-09', match_count: 1, rows: [picked], limit: 1, truncated: false, selection_rule: EXAMPLE_SELECTION_RULE };
+  assert.equal(costBlock(monthResult, 'month_totals', 'vi'), null);
+  assert.equal(costBlock({ ...base, match_count: 0, rows: [], truncated: false }, 'example_line', 'vi'), null);
+  assert.equal(costBlock({ ...base, rows: [picked, picked] }, 'example_line', 'vi'), null);
+  assert.equal(costBlock({ ...base, line: { ...picked, line_amount: 'not-a-number' } }, 'example_line', 'vi'), null);
+  assert.equal(costBlock({ ...base, source: undefined }, 'example_line', 'vi'), null);
+  const notFound = { question: 'line_explanation', status: 'not_found', line_ref: 'x', source: 's', source_observed_at: '2026-09-16T21:37:45Z', snapshot_id: 's1', semantic_version: 'v1' };
+  assert.equal(costBlock(notFound, 'line_explanation', 'vi'), null);
+  assert.equal(costBlock(null, 'example_line', 'vi'), null);
+});
+
+test('costBlock explanation keeps the exact selected row identity and stays follow-up capable', () => {
+  const picked = { classification_id: 'c2', month: '2026-09-01', category_code: 'COGS_BMQ_BREAD', category_label: 'Chi phí bánh mì', review_status: 'needs_review', supplier_name: 'NCC Hai', source_number: 'PR-002', source_date: '2026-09-12', product_name: 'Pate gan', line_amount: '8344200', classification_source: 'fallback', confidence: '0' };
+  const explanation = { ...monthResult, question: 'line_explanation', status: 'ok', line: picked, evidence: { rule: null, alias_mapping: null, alias_status: null } };
+  const block = costBlock(explanation, 'line_explanation', 'vi')!;
+  assert.equal(block.mode, 'explanation');
+  assert.equal(block.month, '2026-09');
+  assert.equal(block.line.classificationId, 'c2');
+  assert.equal(block.line.amount, 8344200);
+  assert.equal(block.source.selectionRule, null);
+  assert.equal(block.source.matchCount, null);
+  assert.equal(block.followUp, 'line_explanation');
+  // A non-reference id cannot become a follow-up target.
+  assert.equal(costBlock({ ...explanation, line: { ...picked, classification_id: 'has spaces' } }, 'line_explanation', 'vi')!.followUp, null);
 });

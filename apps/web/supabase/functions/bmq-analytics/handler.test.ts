@@ -103,6 +103,17 @@ test('end-to-end: fixture auth -> pending -> example -> why keeps the signed con
     assert.equal(costCalls.at(-1).body.question, 'line_explanation');
     assert.equal(costCalls.at(-1).body.line_ref, 'c2');
     assert.equal(example.provenance.queries.length, 2);
+    // The aggregate answer is text only; the example publishes a validated card
+    // that survives presentResponse (the cost lane has no legacy presentation).
+    assert.equal(first.provenance.costBlock, undefined);
+    assert.equal(example.provenance.costBlock.mode, 'example');
+    assert.equal(example.provenance.costBlock.line.classificationId, 'c2');
+    assert.equal(example.provenance.costBlock.line.amount, 8000000);
+    assert.equal(example.provenance.costBlock.line.reviewStatus, 'needs_review');
+    assert.equal(example.provenance.costBlock.followUp, 'line_explanation');
+    assert.match(example.provenance.costBlock.notes.join(' '), /lý do lịch sử không có sẵn/);
+    // Legacy truthful text is still rendered for clients without the structured view.
+    assert.match(example.answer, /8\.000\.000/);
 
     const why = await (await post(handler, {
       language: 'vi', question: 'Vì sao dòng này?', conversationId: CONV, page,
@@ -110,6 +121,8 @@ test('end-to-end: fixture auth -> pending -> example -> why keeps the signed con
     })).json();
     assert.equal(why.provenance.lane, 'cost');
     assert.match(why.answer, /c2/);
+    assert.equal(why.provenance.costBlock.mode, 'explanation');
+    assert.equal(why.provenance.costBlock.line.classificationId, 'c2');
   } finally { globalThis.fetch = originalFetch; }
 });
 

@@ -45,6 +45,34 @@ const CATEGORY_LABELS: [RegExp, string][] = [
 
 export type CostRequestBody = { question: CostKind; month?: string; month_b?: string; category_code?: string; review_status?: string; line_ref?: string; limit?: number };
 
+// Validated, structure-only presentation for a single verified cost line. The UI
+// renders these exact fields (no LLM-written HTML, no client-side inference). It
+// is optional: when it is absent or fails validation the client falls back to the
+// truthful plain-text answer, so a stale/invalid block can never invent facts.
+export const COST_LINE_BLOCK_VERSION = 1;
+export type CostLineRuleEvidence = { name: string; scope: string; priority: string; confidence: string; effectiveFrom: string | null; effectiveTo: string | null };
+export type CostLineAliasEvidence = { sourceName: string; standardCode: string; canonicalName: string };
+export type CostLineBlock = {
+  v: typeof COST_LINE_BLOCK_VERSION;
+  kind: 'cost_line';
+  mode: 'example' | 'explanation';
+  month: string | null;
+  line: {
+    classificationId: string; sourceNumber: string | null; sourceDate: string | null;
+    supplierName: string | null; productName: string; amount: number;
+    categoryLabel: string | null; categoryCode: string | null; reviewStatus: string | null;
+    confidence: string | null; classificationSource: string | null;
+  };
+  evidence: { stored: boolean; rule: CostLineRuleEvidence | null; alias: CostLineAliasEvidence | null; aliasStatus: string | null };
+  // Localized evidence-based explanation; never repeats the card facts above.
+  notes: string[];
+  source: {
+    name: string; observedAt: string; snapshotId: string; semanticVersion: string;
+    selectionRule: string | null; matchCount: number | null; truncated: boolean; disclaimer: string;
+  };
+  followUp: 'line_explanation' | null;
+};
+
 export function costRequest(lookup: any): CostRequestBody {
   if (!lookup || typeof lookup !== 'object' || Array.isArray(lookup)) throw new AnalyticsError('invalid_plan');
   if (!COST_KINDS.includes(lookup.kind)) throw new AnalyticsError('invalid_plan');
@@ -313,6 +341,20 @@ function provenance(result: any, en: boolean) {
 const DISCLAIMER_VI = 'Toàn bộ dòng chi phí theo view phân loại chuẩn (dòng đã phân loại + dòng OCR-only có metadata chi phí), không phải báo cáo đã kiểm toán.';
 const DISCLAIMER_EN = 'Full canonical cost-classification view (classified + OCR-only lines), not an audited statement.';
 
+// Stored-evidence wording shared by the plain-text answer and the structured
+// block, so both surfaces state exactly the same facts (and the same "unavailable"
+// honesty) instead of drifting apart.
+function lineEvidenceNotes(evidence: any, en: boolean): string[] {
+  const notes: string[] = [];
+  if (evidence.rule) {
+    notes.push(`${en ? 'Stored rule link' : 'Rule đã lưu'}: ${clean(evidence.rule.rule_name, 200)} · ${clean(evidence.rule.match_scope, 60)} · ${en ? 'priority' : 'ưu tiên'} ${clean(String(evidence.rule.priority ?? '-'), 20)} · ${en ? 'confidence' : 'độ tin cậy'} ${clean(String(evidence.rule.confidence ?? '-'), 20)}${evidence.rule.effective_from ? ` · ${clean(String(evidence.rule.effective_from), 10)} → ${clean(String(evidence.rule.effective_to ?? ''), 10) || (en ? 'open' : 'không giới hạn')}` : ''}`);
+    notes.push(en ? 'This is the current metadata of the stored rule link; it is not proof that the current rule state caused the historical classification.' : 'Đây là metadata hiện tại của liên kết rule đã lưu; không phải bằng chứng rule hiện tại đã tạo ra kết quả phân loại lịch sử.');
+  } else notes.push(en ? 'No rule row is linked to this classification (stored source is not a matching rule); the historical rationale is unavailable, and none was invented.' : 'Không có rule nào được gắn với phân loại này (nguồn lưu không phải rule khớp); lý do lịch sử không có sẵn và hệ thống không tự suy diễn.');
+  if (evidence.alias_mapping) notes.push(`${en ? 'Alias mapping' : 'Ánh xạ alias'}: ${clean(evidence.alias_mapping.source_name, 200)} → ${clean(evidence.alias_mapping.standard_cost_code, 60)} · ${clean(evidence.alias_mapping.canonical_cost_item_name, 200)}`);
+  else if (evidence.alias_status && evidence.alias_status !== 'no_mapping_match') notes.push(`${en ? 'Alias mapping evidence' : 'Bằng chứng ánh xạ alias'}: ${clean(evidence.alias_status, 60)}`);
+  return notes;
+}
+
 // Shared by the exact line explanation and the example->evidence workflow. The
 // stored rule/alias link is current snapshot metadata, never a claim about what
 // caused the historical classification; missing evidence is stated as missing.
@@ -321,12 +363,7 @@ function renderLineEvidence(lines: string[], line: any, evidence: any, en: boole
   lines.push(`${clean(line.category_label ?? '-', 200)} (${clean(line.category_code ?? '-', 60)}) · ${clean(line.review_status ?? '-', 40)} · ${en ? 'confidence' : 'độ tin cậy'} ${clean(String(line.confidence ?? '-'), 20)}`);
   lines.push(`${en ? 'Supplier' : 'Nhà cung cấp'}: ${clean(line.supplier_name ?? '-', 200)} · ${clean(line.product_name, 200)} · ${money(line.line_amount, en)}`);
   lines.push(`${en ? 'Classification source' : 'Nguồn phân loại'}: ${clean(line.classification_source ?? '-', 60)}`);
-  if (evidence.rule) {
-    lines.push(`${en ? 'Stored rule link' : 'Rule đã lưu'}: ${clean(evidence.rule.rule_name, 200)} · ${clean(evidence.rule.match_scope, 60)} · ${en ? 'priority' : 'ưu tiên'} ${clean(String(evidence.rule.priority ?? '-'), 20)} · ${en ? 'confidence' : 'độ tin cậy'} ${clean(String(evidence.rule.confidence ?? '-'), 20)}${evidence.rule.effective_from ? ` · ${clean(String(evidence.rule.effective_from), 10)} → ${clean(String(evidence.rule.effective_to ?? ''), 10) || (en ? 'open' : 'không giới hạn')}` : ''}`);
-    lines.push(en ? 'This is the current metadata of the stored rule link; it is not proof that the current rule state caused the historical classification.' : 'Đây là metadata hiện tại của liên kết rule đã lưu; không phải bằng chứng rule hiện tại đã tạo ra kết quả phân loại lịch sử.');
-  } else lines.push(en ? 'No rule row is linked to this classification (stored source is not a matching rule); the historical rationale is unavailable, and none was invented.' : 'Không có rule nào được gắn với phân loại này (nguồn lưu không phải rule khớp); lý do lịch sử không có sẵn và hệ thống không tự suy diễn.');
-  if (evidence.alias_mapping) lines.push(`${en ? 'Alias mapping' : 'Ánh xạ alias'}: ${clean(evidence.alias_mapping.source_name, 200)} → ${clean(evidence.alias_mapping.standard_cost_code, 60)} · ${clean(evidence.alias_mapping.canonical_cost_item_name, 200)}`);
-  else if (evidence.alias_status && evidence.alias_status !== 'no_mapping_match') lines.push(`${en ? 'Alias mapping evidence' : 'Bằng chứng ánh xạ alias'}: ${clean(evidence.alias_status, 60)}`);
+  lines.push(...lineEvidenceNotes(evidence, en));
 }
 
 export function costAnswer(result: any, kind: CostKind, language: 'en' | 'vi') {
@@ -419,4 +456,113 @@ export function costAnswer(result: any, kind: CostKind, language: 'en' | 'vi') {
   } else throw new AnalyticsError('invalid_result');
   lines.push(en ? DISCLAIMER_EN : DISCLAIMER_VI);
   return lines.join('\n') + suffix;
+}
+
+// Optional structured projection of the exact same verified result that
+// costAnswer rendered. Never invented: every field is re-read from the result and
+// re-validated, and any shape it cannot validate makes the whole block absent
+// (null) instead of failing the already-truthful text answer.
+const BLOCK_MONTH = /^\d{4}-\d{2}$/;
+// Prose fields go through clean() (markup stripped); machine codes/ids must keep
+// their exact spelling (review_status, category_code, rule scope, snapshot id),
+// so they are only bounded and control-character checked instead.
+const identifier = (value: unknown, max = 64): string => {
+  if (typeof value !== 'string' || value.length > max || /\p{Cc}/u.test(value) || !value.trim()) throw new AnalyticsError('invalid_result');
+  return value.trim();
+};
+const optionalIdentifier = (value: unknown, max = 64): string | null => {
+  if (value === undefined || value === null || value === '') return null;
+  return identifier(value, max);
+};
+const optionalText = (value: unknown, max = 200): string | null => {
+  if (value === undefined || value === null || value === '') return null;
+  return clean(value, max);
+};
+function blockMonth(value: unknown, fallback: unknown): string | null {
+  for (const candidate of [value, fallback]) {
+    if (typeof candidate === 'string' && BLOCK_MONTH.test(candidate.slice(0, 7))) return candidate.slice(0, 7);
+  }
+  return null;
+}
+function buildCostBlock(result: any, kind: CostKind, language: 'en' | 'vi'): CostLineBlock | null {
+  const en = language === 'en';
+  if (!result || result.question !== kind) throw new AnalyticsError('invalid_result');
+  if (kind !== 'example_line' && kind !== 'line_explanation') return null;
+  if (typeof result.source !== 'string' || !result.source || typeof result.source_observed_at !== 'string'
+    || !Number.isFinite(Date.parse(result.source_observed_at)) || typeof result.snapshot_id !== 'string'
+    || typeof result.semantic_version !== 'string' || JSON.stringify(result).length > 40000) throw new AnalyticsError('invalid_result');
+  let mode: 'example' | 'explanation', line: any, evidence: any = {}, stored: boolean, notes: string[];
+  let selectionRule: string | null = null, matchCount: number | null = null, truncated = false, month: string | null;
+  if (kind === 'example_line') {
+    // Same example contract costAnswer enforces: a disclosed rule id, at most one
+    // row, and a bounded match count.
+    if (result.selection_rule !== EXAMPLE_SELECTION_RULE || !Array.isArray(result.rows) || result.rows.length > 1
+      || !Number.isInteger(result.match_count) || result.match_count < 0) throw new AnalyticsError('invalid_result');
+    if (!result.rows.length) return null;
+    const picked = result.rows[0];
+    if (result.line) {
+      // Evidence is only accepted for the exact line that was selected.
+      if (String(result.line.classification_id) !== String(picked.classification_id)) throw new AnalyticsError('invalid_result');
+      line = result.line; stored = true; evidence = result.evidence ?? {}; notes = lineEvidenceNotes(evidence, en);
+    } else {
+      line = picked; stored = false;
+      notes = [en ? 'Stored classification evidence is unavailable for this line right now; no reason was invented.' : 'Chưa lấy được bằng chứng phân loại đã lưu cho dòng này; hệ thống không tự suy diễn lý do.'];
+    }
+    mode = 'example'; selectionRule = EXAMPLE_SELECTION_RULE; matchCount = count(result.match_count); truncated = result.truncated === true;
+    month = blockMonth(result.month, line.month);
+  } else {
+    if (result.status !== 'ok' || !result.line) return null;
+    line = result.line; stored = true; evidence = result.evidence ?? {}; notes = lineEvidenceNotes(evidence, en);
+    mode = 'explanation'; month = blockMonth(line.month, result.month);
+  }
+  const classificationId = identifier(line.classification_id, 64);
+  return {
+    v: COST_LINE_BLOCK_VERSION, kind: 'cost_line', mode, month,
+    line: {
+      classificationId,
+      sourceNumber: optionalIdentifier(line.source_number, 120),
+      sourceDate: optionalText(line.source_date === undefined ? null : String(line.source_date), 10),
+      supplierName: optionalText(line.supplier_name, 200),
+      productName: clean(line.product_name, 200),
+      amount: amount(line.line_amount),
+      categoryLabel: optionalText(line.category_label, 200),
+      categoryCode: optionalIdentifier(line.category_code, 60),
+      reviewStatus: optionalIdentifier(line.review_status, 40),
+      confidence: optionalIdentifier(line.confidence === undefined || line.confidence === null ? null : String(line.confidence), 20),
+      classificationSource: optionalIdentifier(line.classification_source, 60),
+    },
+    evidence: {
+      stored,
+      rule: evidence.rule ? {
+        name: clean(evidence.rule.rule_name, 200), scope: identifier(evidence.rule.match_scope, 60),
+        priority: identifier(String(evidence.rule.priority ?? '-'), 20), confidence: identifier(String(evidence.rule.confidence ?? '-'), 20),
+        effectiveFrom: optionalText(evidence.rule.effective_from === undefined || evidence.rule.effective_from === null ? null : String(evidence.rule.effective_from), 10),
+        effectiveTo: optionalText(evidence.rule.effective_to === undefined || evidence.rule.effective_to === null ? null : String(evidence.rule.effective_to), 10),
+      } : null,
+      alias: evidence.alias_mapping ? {
+        sourceName: clean(evidence.alias_mapping.source_name, 200),
+        standardCode: identifier(evidence.alias_mapping.standard_cost_code, 60),
+        canonicalName: clean(evidence.alias_mapping.canonical_cost_item_name, 200),
+      } : null,
+      aliasStatus: optionalIdentifier(evidence.alias_status, 60),
+    },
+    notes,
+    source: {
+      name: clean(result.source, 300), observedAt: clean(result.source_observed_at, 40),
+      snapshotId: identifier(result.snapshot_id, 200), semanticVersion: identifier(result.semantic_version, 40),
+      selectionRule, matchCount, truncated, disclaimer: en ? DISCLAIMER_EN : DISCLAIMER_VI,
+    },
+    // The exact classification id is the only row identity a follow-up may reuse;
+    // a non-reference id cannot become a follow-up target.
+    followUp: REFERENCE.test(classificationId) ? 'line_explanation' : null,
+  };
+}
+export function costBlock(result: any, kind: CostKind, language: 'en' | 'vi'): CostLineBlock | null {
+  try {
+    return buildCostBlock(result, kind, language);
+  } catch (error) {
+    // An invalid optional presentation degrades to the existing truthful text.
+    if (error instanceof AnalyticsError) return null;
+    throw error;
+  }
 }

@@ -1,7 +1,7 @@
 import { isUncRequest, runUnc } from './media.ts';
 import { legacyPresentation, type Presentation } from './presentation.ts';
 import { customerAnswer, customerRequest, customerContinuation, customerSelection } from "./customer.ts";
-import { COST_KINDS, costAnswer, costCategoryFromQuestion, costDetect, costRequest, costUnsupportedQualifier, missingCostQualifier, type CostKind } from "./cost.ts";
+import { COST_KINDS, costAnswer, costBlock, costCategoryFromQuestion, costDetect, costRequest, costUnsupportedQualifier, missingCostQualifier, type CostKind, type CostLineBlock } from "./cost.ts";
 import { costFollowUp, createCostContext, lineBelongsToScope, routeCostScope, COST_ROUTE_FILTER_WHITELIST, scopeFromRequest, selectionFromLine, selectionMatches, type CostContext, type CostScope, type CostFollowUp } from "./context.ts";
 import { AnalyticsError, MODEL, parseInput, vnToday, fastQuery, validateQuery, renderResults } from "./core.ts";
 import { METRICS } from "./data.ts";
@@ -23,9 +23,12 @@ export async function runWarehouse(raw: unknown, call: WarehouseCall, model: Mod
   const presentation: Presentation[] = [];
   let pendingSelection: unknown;
   let pendingCostContext: CostContext | undefined;
+  // Optional structured card for a single verified cost line; absent for every
+  // other lane and for shapes the block validator refuses.
+  let pendingCostBlock: CostLineBlock | null | undefined;
   let contextAudit: Record<string, unknown> | null = null;
   const evidence: unknown[] = [];
-  const response = (answer: string, lane: string, queries: unknown[] = [], citations: unknown[] = []) => ({ answer, requestId, presentation, provenance: {lane,model:modelCalls?MODEL:null,queries,citations,evidence,elapsedMs:Date.now()-started,modelCalls,usage,semanticVersion:"warehouse-bmq-r2-v4", customerSelection:pendingSelection, costContext:pendingCostContext, contextAudit} });
+  const response = (answer: string, lane: string, queries: unknown[] = [], citations: unknown[] = []) => ({ answer, requestId, presentation, provenance: {lane,model:modelCalls?MODEL:null,queries,citations,evidence,elapsedMs:Date.now()-started,modelCalls,usage,semanticVersion:"warehouse-bmq-r2-v4", customerSelection:pendingSelection, costContext:pendingCostContext, costBlock: pendingCostBlock ?? undefined, contextAudit} });
   // Route filters are only ever mapped through the explicit allow-list for the real
   // finance cost route; every unlisted route/filter/value fails closed instead of
   // being silently dropped or widened. Explicit question > conversation > route.
@@ -208,6 +211,7 @@ export async function runWarehouse(raw: unknown, call: WarehouseCall, model: Mod
         result = { ...pick, line: explained.line, evidence: explained.evidence, snapshot_id: explained.snapshot_id, source: explained.source, source_observed_at: explained.source_observed_at, semantic_version: explained.semantic_version };
       }
       const answer = costAnswer(result, 'example_line', input.language);
+      pendingCostBlock = costBlock(result, 'example_line', input.language);
       evidence.push({source:result.source,source_observed_at:result.source_observed_at,snapshot_id:result.snapshot_id,semantic_version:result.semantic_version,mode:"warehouse"});
       const selection = Array.isArray(result.rows) && result.rows.length ? selectionFromLine(result.rows[0]) : null;
       // Keep the underlying aggregate intent (so "còn tháng trước?" stays an
@@ -237,6 +241,7 @@ export async function runWarehouse(raw: unknown, call: WarehouseCall, model: Mod
       const line = result?.status === 'ok' ? result.line : null;
       if (line && selectionMatches(inbound.selection.line_ref, line) && lineBelongsToScope(line, inbound.scope)) {
         const answer = costAnswer(result, 'line_explanation', input.language);
+        pendingCostBlock = costBlock(result, 'line_explanation', input.language);
         evidence.push({source:result.source,source_observed_at:result.source_observed_at,snapshot_id:result.snapshot_id,semantic_version:result.semantic_version,mode:"warehouse"});
         await issue(inbound.scope, inbound.selection, result.snapshot_id);
         return response(answer, "cost", [request]);
@@ -246,11 +251,13 @@ export async function runWarehouse(raw: unknown, call: WarehouseCall, model: Mod
         : "Dòng đã chọn không còn nằm trong phạm vi hoặc bản dữ liệu hiện tại. Hệ thống không ghép bằng chứng cũ; anh yêu cầu một dòng ví dụ mới nhé.", "abstain");
       // not_found / ambiguous: honest existing text, selection dropped.
       const answer = costAnswer(result, 'line_explanation', input.language);
+      pendingCostBlock = costBlock(result, 'line_explanation', input.language);
       evidence.push({source:result.source,source_observed_at:result.source_observed_at,snapshot_id:result.snapshot_id,semantic_version:result.semantic_version,mode:"warehouse"});
       return response(answer, "cost", [request]);
     }
     const result = await call("/v1/cost", request);
     const answer = costAnswer(result, request.question as CostKind, input.language);
+    pendingCostBlock = costBlock(result, request.question as CostKind, input.language);
     evidence.push({source:result.source,source_observed_at:result.source_observed_at,snapshot_id:result.snapshot_id,semantic_version:result.semantic_version,mode:"warehouse"});
     let scope = scopeFromRequest(request);
     let selection: { line_ref: string; classification_id: string } | null = null;

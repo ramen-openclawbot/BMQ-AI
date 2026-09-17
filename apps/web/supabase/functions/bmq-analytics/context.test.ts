@@ -124,6 +124,44 @@ test('original complaint: scope -> example line -> why this line -> previous mon
   assert.equal(previous.provenance.costContext.selection, undefined, 'scope change must invalidate the selected row');
 });
 
+test('cost business block is bound to the exact shown row and a follow-up reads only the immediately preceding card', async () => {
+  const call = fixture([...SEPT, ...AUGUST]);
+  const first = await turn('Tháng 9/2026 còn bao nhiêu dòng cần review, tổng tiền bao nhiêu?', [], call);
+  // Aggregate answers never carry a single-line card.
+  assert.equal(first.provenance.costBlock, undefined);
+  const ctx1 = first.provenance.costContext;
+
+  const example = await turn('Lấy một dòng làm ví dụ', [{ role: 'assistant', text: first.answer, costContext: ctx1 }], call);
+  const block = example.provenance.costBlock;
+  assert.ok(block, 'an example line must publish a validated business block');
+  assert.equal(block.mode, 'example');
+  assert.equal(block.line.classificationId, 'c2');
+  assert.equal(block.line.amount, 8000000);
+  assert.equal(block.line.supplierName, 'NCC Hai');
+  assert.equal(block.line.sourceDate, '2026-09-12');
+  assert.equal(block.line.reviewStatus, 'needs_review');
+  assert.equal(block.followUp, 'line_explanation');
+  // The card and the signed state must name the same row.
+  assert.equal(example.provenance.costContext.selection.line_ref, block.line.classificationId);
+  const notes = block.notes.join(' ');
+  assert.match(notes, /lý do lịch sử không có sẵn/);
+  assert.doesNotMatch(notes, /NCC Hai|Pate gan|8\.000\.000/);
+
+  // The resolver reads only the immediately preceding assistant turn. An older
+  // card's signed state therefore cannot be replayed: the newest selection wins,
+  // which is exactly why the widget disables every non-latest card.
+  const stale = await createCostContext({ userId: USER, secret: SECRET, conversationId: CONV, snap: 'snap-1', scope: { kind: 'pending_summary', month: '2026-09', category_code: null, review_status: 'needs_review' }, selection: { line_ref: 'c1', classification_id: 'c1' }, now: NOW });
+  const why = await turn('Vì sao dòng này?', [
+    { role: 'assistant', text: 'old card', costContext: stale },
+    { role: 'user', text: 'x' },
+    { role: 'assistant', text: example.answer, costContext: example.provenance.costContext },
+  ], call);
+  assert.equal(why.provenance.lane, 'cost');
+  assert.equal(why.provenance.costBlock.mode, 'explanation');
+  assert.equal(why.provenance.costBlock.line.classificationId, 'c2');
+  assert.equal(why.provenance.costContext.selection.line_ref, 'c2');
+});
+
 test('explicit new scope wins and drops the remembered selection', async () => {
   const first = await turn('Tháng 9/2026 còn bao nhiêu dòng cần review?', []);
   const ctx1 = first.provenance.costContext;

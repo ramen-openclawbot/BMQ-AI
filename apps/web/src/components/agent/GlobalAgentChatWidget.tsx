@@ -1,4 +1,5 @@
 import { UncImageGallery } from './UncImageGallery';
+import { CostBusinessCard } from './CostBusinessCard';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowUp, Loader2, RotateCcw, Sparkles, X } from "lucide-react";
@@ -10,7 +11,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { chatText } from "@/lib/bmqChatLocale";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
-import { buildAnalyticsRequest, parseAnalyticsResponse, readAnalyticsError, type AnalyticsMessage } from "@/lib/bmqAnalytics";
+import { buildAnalyticsRequest, isBoundCostFollowUp, parseAnalyticsResponse, readAnalyticsError, type AnalyticsMessage } from "@/lib/bmqAnalytics";
 import {
   appendUniqueFrame,
   buildCurrentPageContext,
@@ -394,6 +395,16 @@ export function GlobalAgentChatWidget() {
     };
   }, [enabled, user?.id]);
   const visibleTimeline = useMemo(() => timeline.filter((item) => item.kind !== "tool"), [timeline]);
+  // Only the newest assistant turn can resolve a "this line" follow-up server-side
+  // (the signed context is read from the immediately preceding assistant message),
+  // so an older card's follow-up is disabled instead of silently hitting a newer row.
+  const lastAssistantId = useMemo(() => {
+    for (let index = analyticsMessages.length - 1; index >= 0; index -= 1) {
+      if (analyticsMessages[index].role === "assistant") return analyticsMessages[index].id;
+    }
+    return null;
+  }, [analyticsMessages]);
+  const costFollowUpQuestion = language === "en" ? "Why is this line classified this way?" : "Vì sao dòng này?";
   const showQuickActions = !sessionChoiceRequired && !sessionId && visibleTimeline.length === 0 && !streamedText && !isResponding;
   const isRevenueMobileContext = location.pathname.startsWith("/finance-control/revenue");
   const isSkuCostsMobileContext = location.pathname.startsWith("/sku-costs");
@@ -663,7 +674,7 @@ export function GlobalAgentChatWidget() {
         if (!active()) return;
         if (error) throw new Error(await readAnalyticsError(error, language));
         const result = parseAnalyticsResponse(data, language);
-        setAnalyticsMessages((current) => [...current, { id: result.requestId, role: "assistant", text: result.answer, images: result.provenance.images, details: result.provenance.details, fx: result.provenance.fx, citations: result.provenance.citations, customerSelection: result.provenance.customerSelection, costContext: CHAT_CONTEXT_ENABLED ? result.provenance.costContext : undefined }]);
+        setAnalyticsMessages((current) => [...current, { id: result.requestId, role: "assistant", text: result.answer, images: result.provenance.images, details: result.provenance.details, fx: result.provenance.fx, citations: result.provenance.citations, customerSelection: result.provenance.customerSelection, costContext: CHAT_CONTEXT_ENABLED ? result.provenance.costContext : undefined, costBlock: result.provenance.costBlock }]);
       } catch (error) {
         if (!active()) return;
         setAnalyticsMessages((current) => current.filter((item) => item.id !== id));
@@ -802,28 +813,54 @@ export function GlobalAgentChatWidget() {
               </div>
             )}
             {!ANALYTICS_ENABLED && isRevenueMobileContext ? <RevenueDailyChatCard setOpen={setOpen} /> : null}
-            {visibleTimeline.map((item) => (
-              <div key={item.id} className={cn("whitespace-pre-wrap break-words shadow-[0_1px_2px_rgba(16,24,40,0.04)]", item.role === "user" ? "max-w-[82%] self-end rounded-2xl rounded-br-md bg-[#6d4aff] px-4 py-3 text-white" : item.role === "system" ? "self-center rounded-full border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700" : "max-w-[92%] self-start rounded-2xl rounded-tl-md border border-[#e4e5eb] bg-white px-4 py-3 text-[#252932]")}>
+            {visibleTimeline.map((item) => {
+              const analyticsMessage = ANALYTICS_ENABLED ? analyticsMessages.find((message) => message.id === item.id) : undefined;
+              const costBlock = item.role === "agent" ? analyticsMessage?.costBlock : undefined;
+              const followUpBound = Boolean(costBlock?.followUp)
+                && item.id === lastAssistantId
+                && isBoundCostFollowUp(analyticsMessage?.costContext, { userId: user?.id, conversationId: analyticsConversationRef.current, classificationId: costBlock?.line.classificationId });
+              const followUpEnabled = followUpBound && !isResponding;
+              const followUpDisabledReason = isResponding ? undefined
+                : !costBlock?.followUp ? (language === "en" ? "This line has no reusable reference." : "Dòng này không có mã tham chiếu để hỏi tiếp.")
+                : item.id !== lastAssistantId ? (language === "en" ? "Only the newest line in this conversation can be asked about." : "Chỉ dòng mới nhất trong cuộc trò chuyện mới hỏi tiếp được.")
+                : (language === "en" ? "The signed context expired or no longer matches this conversation. Ask for a new example line." : "Ngữ cảnh đã hết hạn hoặc không còn khớp cuộc trò chuyện này. Anh yêu cầu một dòng ví dụ mới nhé.");
+              return (
+              <div key={item.id} className={cn(
+                "break-words shadow-[0_1px_2px_rgba(16,24,40,0.04)]",
+                costBlock ? "w-full max-w-[92%] self-start"
+                  : item.role === "user" ? "max-w-[82%] whitespace-pre-wrap self-end rounded-2xl rounded-br-md bg-[#6d4aff] px-4 py-3 text-white"
+                  : item.role === "system" ? "whitespace-pre-wrap self-center rounded-full border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700"
+                  : "max-w-[92%] whitespace-pre-wrap self-start rounded-2xl rounded-tl-md border border-[#e4e5eb] bg-white px-4 py-3 text-[#252932]",
+              )}>
                 {item.role === "system" ? <span className="sr-only">{text("Hệ thống: ")}</span> : null}
-                {item.text}
-                {ANALYTICS_ENABLED && item.role === "agent" && user?.id ? <UncImageGallery key={`${user.id}:${item.id}`} ownerId={user.id} language={language} images={analyticsMessages.find(message => message.id === item.id)?.images} /> : null}
-                {ANALYTICS_ENABLED && item.role === "agent" && analyticsMessages.find((message) => message.id === item.id)?.details ? (
+                {costBlock ? (
+                  <CostBusinessCard
+                    block={costBlock}
+                    language={language}
+                    followUpEnabled={followUpEnabled}
+                    followUpDisabledReason={followUpDisabledReason}
+                    onFollowUp={() => { if (followUpEnabled) void sendMessage(costFollowUpQuestion); }}
+                  />
+                ) : item.text}
+                {ANALYTICS_ENABLED && item.role === "agent" && user?.id ? <UncImageGallery key={`${user.id}:${item.id}`} ownerId={user.id} language={language} images={analyticsMessage?.images} /> : null}
+                {ANALYTICS_ENABLED && item.role === "agent" && analyticsMessage?.details ? (
                   <details className="mt-3 border-t border-[#e4e5eb] pt-2 text-xs" data-bmq-answer-details="business-money-v1">
                     <summary className="cursor-pointer font-medium">{language === "en" ? "View details" : "Xem chi tiết"}</summary>
-                    <div className="mt-2 whitespace-pre-wrap break-words">{analyticsMessages.find((message) => message.id === item.id)?.details}</div>
-                    {analyticsMessages.find((message) => message.id === item.id)?.fx ? <a className="mt-2 block underline" href="https://www.exchangerate-api.com" target="_blank" rel="noopener noreferrer">Rates by ExchangeRate-API</a> : null}
+                    <div className="mt-2 whitespace-pre-wrap break-words">{analyticsMessage.details}</div>
+                    {analyticsMessage.fx ? <a className="mt-2 block underline" href="https://www.exchangerate-api.com" target="_blank" rel="noopener noreferrer">Rates by ExchangeRate-API</a> : null}
                   </details>
                 ) : null}
-                {ANALYTICS_ENABLED && item.role === "agent" && analyticsMessages.find((message) => message.id === item.id)?.citations?.length ? (
+                {ANALYTICS_ENABLED && item.role === "agent" && analyticsMessage?.citations?.length ? (
                   <details className="mt-3 border-t border-[#e4e5eb] pt-2 text-xs" data-bmq-knowledge-citations="v1">
                     <summary className="cursor-pointer font-medium">{language === "en" ? "Sources" : "Nguồn tham khảo"}</summary>
                     <ul className="mt-2 space-y-2">
-                      {analyticsMessages.find((message) => message.id === item.id)?.citations?.map((citation, index) => <li key={citation.id}><span className="font-medium">[{index + 1}] {citation.title}</span><br />{citation.source} · {language === "en" ? "Updated" : "Cập nhật"}: {new Date(citation.updated_at).toLocaleString(language === "en" ? "en-US" : "vi-VN")}</li>)}
+                      {analyticsMessage.citations.map((citation, index) => <li key={citation.id}><span className="font-medium">[{index + 1}] {citation.title}</span><br />{citation.source} · {language === "en" ? "Updated" : "Cập nhật"}: {new Date(citation.updated_at).toLocaleString(language === "en" ? "en-US" : "vi-VN")}</li>)}
                     </ul>
                   </details>
                 ) : null}
               </div>
-            ))}
+              );
+            })}
             {streamedText && (
               <div className="max-w-[92%] self-start rounded-2xl rounded-tl-md border border-[#e4e5eb] bg-white px-4 py-3 text-[#252932] shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
                 <div className="whitespace-pre-wrap break-words">{streamedText}</div>

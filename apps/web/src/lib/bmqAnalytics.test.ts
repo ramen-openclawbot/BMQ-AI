@@ -1,7 +1,7 @@
 import { chatText } from "./bmqChatLocale.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildAnalyticsRequest, parseAnalyticsResponse, readAnalyticsError, type AnalyticsMessage } from "./bmqAnalytics.ts";
+import { buildAnalyticsRequest, isBoundCostFollowUp, parseAnalyticsResponse, readAnalyticsError, type AnalyticsMessage } from "./bmqAnalytics.ts";
 
 test("request contains only current page and last six role/text messages, never IDs or credentials", () => {
   const history: AnalyticsMessage[] = Array.from({ length: 10 }, (_, index) => ({ id: `id-${index}`, role: index % 2 ? "assistant" : "user", text: `message ${index}` }));
@@ -92,4 +92,49 @@ test('the current conversation id is sent only when the bounded context is enabl
 test('the analytics reset control has an accessible label translated for English',()=>{
   assert.equal(chatText('Tạo cuộc trò chuyện mới','en'),'Start a new conversation');
   assert.equal(chatText('Start a new conversation','vi'),'Tạo cuộc trò chuyện mới');
+});
+
+const validCostBlock = {
+  v: 1, kind: 'cost_line', mode: 'example', month: '2026-09',
+  line: { classificationId: 'c2', sourceNumber: 'PR-002', sourceDate: '2026-09-12', supplierName: 'NCC Hai', productName: 'Pate gan', amount: 8344200, categoryLabel: 'Chi phí bánh mì', categoryCode: 'COGS_BMQ_BREAD', reviewStatus: 'needs_review', confidence: '0', classificationSource: 'fallback' },
+  evidence: { stored: true, rule: null, alias: null, aliasStatus: null },
+  notes: ['Không có rule nào được gắn với phân loại này; lý do lịch sử không có sẵn và hệ thống không tự suy diễn.'],
+  source: { name: 'Supabase.cost_classification_line_details', observedAt: '2026-09-16T21:37:45Z', snapshotId: 'snap-1', semanticVersion: 'bmq-cost-classification-v2', selectionRule: 'largest_line_amount_then_source_date_then_classification_id', matchCount: 2, truncated: true, disclaimer: 'Không phải báo cáo kiểm toán.' },
+  followUp: 'line_explanation',
+};
+
+test('a validated cost business block round-trips, while invalid optional presentation degrades to text', () => {
+  const parsed = parseAnalyticsResponse({ answer: 'Dòng chi phí ví dụ · 09/2026', requestId: 'r1', provenance: { lane: 'cost', model: null, queries: [], elapsedMs: 2, costBlock: validCostBlock } });
+  assert.equal(parsed.provenance.costBlock?.line.amount, 8344200);
+  assert.equal(parsed.provenance.costBlock?.line.classificationId, 'c2');
+  assert.equal(parsed.provenance.costBlock?.line.reviewStatus, 'needs_review');
+  const message: AnalyticsMessage = { id: parsed.requestId, role: 'assistant', text: parsed.answer, costBlock: parsed.provenance.costBlock };
+  assert.equal(message.costBlock?.followUp, 'line_explanation');
+  // Tampered structures are dropped, never partially trusted; the text stays visible.
+  for (const bad of [{ ...validCostBlock, line: { ...validCostBlock.line, amount: '8344200' } }, { ...validCostBlock, line: { ...validCostBlock.line, productName: '' } }, { ...validCostBlock, v: 2 }, { ...validCostBlock, followUp: 'anything' }]) {
+    const degraded = parseAnalyticsResponse({ answer: 'Dòng chi phí ví dụ · 09/2026', requestId: 'r2', provenance: { lane: 'cost', model: null, queries: [], elapsedMs: 2, costBlock: bad } });
+    assert.equal(degraded.answer, 'Dòng chi phí ví dụ · 09/2026');
+    assert.equal(degraded.provenance.costBlock, undefined);
+  }
+  assert.equal(parseAnalyticsResponse({ answer: 'x', requestId: 'r3', provenance: { lane: 'cost', model: null, queries: [], elapsedMs: 1 } }).provenance.costBlock, undefined);
+  // A legacy card is never echoed into the next request; only the signed context is.
+  const request = buildAnalyticsRequest('Vì sao dòng này?', '/finance-control/classification', 'Phân loại chi phí', [message], {}, 'vi');
+  assert.equal('costBlock' in request.history[0], false);
+});
+
+test('a cost follow-up is offered only for the current user, conversation and unexpired signed context', () => {
+  const now = 1_000_000;
+  const context = (over: Record<string, unknown> = {}) => ({ v: 1, user: 'u1', conv: 'conv-1234-5678', iat: now, exp: now + 60_000, snap: 'snap-1', scope: { kind: 'pending_summary', month: '2026-09', category_code: null, review_status: 'needs_review' }, sig: 'a'.repeat(64), ...over });
+  assert.equal(isBoundCostFollowUp(context(), { userId: 'u1', conversationId: 'conv-1234-5678', now }), true);
+  assert.equal(isBoundCostFollowUp(context(), { userId: 'u2', conversationId: 'conv-1234-5678', now }), false);
+  assert.equal(isBoundCostFollowUp(context(), { userId: 'u1', conversationId: 'conv-9999-0000', now }), false);
+  assert.equal(isBoundCostFollowUp(context({ exp: now + 1000 }), { userId: 'u1', conversationId: 'conv-1234-5678', now }), false);
+  assert.equal(isBoundCostFollowUp(context({ conv: 'short' }), { userId: 'u1', conversationId: 'short', now }), false);
+  assert.equal(isBoundCostFollowUp(null, { userId: 'u1', conversationId: 'conv-1234-5678', now }), false);
+  assert.equal(isBoundCostFollowUp(context(), { userId: null, conversationId: 'conv-1234-5678', now }), false);
+  // The signed selection must name the exact card row, or the follow-up is refused.
+  const withSelection = context({ selection: { line_ref: 'c2', classification_id: 'c2' } });
+  assert.equal(isBoundCostFollowUp(withSelection, { userId: 'u1', conversationId: 'conv-1234-5678', now, classificationId: 'c2' }), true);
+  assert.equal(isBoundCostFollowUp(withSelection, { userId: 'u1', conversationId: 'conv-1234-5678', now, classificationId: 'c9' }), false);
+  assert.equal(isBoundCostFollowUp(context(), { userId: 'u1', conversationId: 'conv-1234-5678', now, classificationId: 'c2' }), false);
 });
