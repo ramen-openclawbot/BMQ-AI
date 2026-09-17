@@ -176,3 +176,61 @@ apps/web/supabase/functions/bmq-analytics/cost.test.ts` (17 tests) plus the Pyth
 `generated/cost-classification/coordinator/test_parity.py` (2 probes). Deno type check
 was not run in this environment (no Deno binary); behavior is covered by the
 type-stripped Node tests.
+
+## Conversation context and example→evidence (local, release pending)
+
+Approved phases 1+2 add a bounded, non-authoritative conversation state for the cost
+lane and a deterministic "example line → real line ref → stored evidence" workflow.
+Everything is default-off and rollbackable:
+
+- backend `BMQ_CHAT_CONTEXT_ENABLED` (default false) — off ignores any state hint and
+  keeps the previous routing.
+- backend `BMQ_CHAT_CONTEXT_SECRET` — dedicated server-side signing secret, provisioned
+  by the coordinator (never committed/generated/logged). When it is absent or shorter
+  than 32 characters the context stays disabled (fail closed) even if the flag is true.
+  The key is never the caller bearer token or any client-known value.
+- frontend `VITE_BMQ_CHAT_CONTEXT_ENABLED` (default false) — off never stores or
+  echoes `provenance.costContext`.
+- Activate backend first, then the frontend flag; both off restores the old flow with
+  no migration and no Gateway restart.
+
+The state (`context.ts`) carries only the previous scope (month/category/review status),
+one selected line ref and the observed snapshot id. It is HMAC-signed with the server
+secret, bound to the authenticated `user` id and to the current `conversationId` carried
+in the request body, TTL-limited to 15 minutes, validates `exp > iat` and real `01..12`
+months, and is only read from the immediately preceding assistant message; a history
+mixing two conversation ids is rejected, and a token refresh keeps the same user id so a
+conversation is not lost. Every follow-up is re-resolved through the closed cost grammar
+and re-read from the current snapshot, so the state can never widen scope or serve an
+arbitrary row as truth. Scope priority is explicit new intent > validated conversation >
+page route, and a changed month/category/status drops the selected line.
+
+Route filters are read only from the explicit allow-list for the real finance cost route
+(`/finance-control/classification`). The page keeps month/category/status in component
+state rather than the URL, so no cost-route URL filter is source-verified: the allow-list
+is intentionally empty and every page filter fails closed instead of being dropped.
+
+Explicit "tất cả nhóm"/"tất cả trạng thái" clears the inherited category/status (stored
+as null, never sent as an unsupported field). `pending_summary`/`top_pending_lines`
+always mean `needs_review` and never carry a review status the question rejects.
+
+The deterministic example workflow uses the Python `example_line` question (fixed SQL,
+ordered by exact `line_amount` desc, then source date, then classification id; the rule is
+disclosed in the answer), then reads evidence for the exact chosen `classification_id`.
+The evidence read must observe the same snapshot id as the pick; a mismatch re-reads once
+and otherwise publishes the picked row without mixed evidence. `provenance.queries`
+includes both the pick and the explanation call. An explicitly named new line ref
+overrides the stored selection, and a planner-proposed ref must appear in the current
+question or match the validated selection, so old prose cannot resurrect a stale id.
+Missing rule/alias metadata is reported as unavailable, never invented. The lane issues
+no model call and no write, and totals stay exact.
+
+Local verification: `context.test.ts` (23 orchestration/state-safety tests),
+`handler.test.ts` (5 end-to-end `createHandler` fixture-auth + real warehouse-call
+contract probes), `cost.test.ts`, Python `tests/test_bmq_cost.py` (46), the golden eval
+(renamed to a deterministic fixture expectation match rate — not real LLM accuracy,
+tokens/cost unmeasured), and the WebKit fixture-auth widget QA (320/390/1440
+populated/empty/error/reset/long + 44px reset target + EN label, flags on and off).
+`tsc -p generated/tsc-edge/tsconfig.json` (strict) type-checks the changed Edge
+functions with 0 errors; no Deno binary is available, so no Deno check was run; no
+production activation, deploy or owner login was performed.

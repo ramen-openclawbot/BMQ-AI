@@ -99,6 +99,16 @@ QUESTIONS = {
         'required': ('month',), 'optional': ('category_code', 'limit'),
         'description': ('Needs_review lines ordered by exact line_amount, with supplier name, source document number and source date.'),
     },
+    'example_line': {
+        'label': 'Deterministic example cost line for a scope',
+        'label_vi': 'Một dòng chi phí ví dụ theo phạm vi',
+        'required': ('month',), 'optional': ('category_code', 'review_status', 'limit'),
+        'selection_rule': 'largest_line_amount_then_source_date_then_classification_id',
+        'description': ('One real line from the canonical view for the requested month/category/status scope, chosen '
+                        'deterministically by exact line_amount DESC NULLS LAST, then source_date DESC NULLS LAST, then '
+                        'classification_id ASC. The rule is disclosed in the answer. Evidence for the chosen line is '
+                        'fetched separately by exact classification id (line_explanation) and never invented.'),
+    },
     'category_comparison': {
         'label': 'Category comparison between two months',
         'label_vi': 'So sánh nhóm chi phí giữa hai tháng',
@@ -216,7 +226,13 @@ def validate_request(request):
             raise ValueError('Invalid review_status')
         normalized['review_status'] = request['review_status']
     if 'limit' in optional:
-        normalized['limit'] = _limit(request.get('limit'), TOP_PENDING_LIMIT if question == 'top_pending_lines' else DEFAULT_LIMIT)
+        if question == 'example_line':
+            default_limit = 1
+        elif question == 'top_pending_lines':
+            default_limit = TOP_PENDING_LIMIT
+        else:
+            default_limit = DEFAULT_LIMIT
+        normalized['limit'] = _limit(request.get('limit'), default_limit)
     return normalized
 
 
@@ -578,6 +594,31 @@ LIMIT ?"""
                 'truncated': int(summary['pending_line_count']) > limit,
                 'definition': QUESTIONS[question]['description']}
 
+    if question == 'example_line':
+        limit = request.get('limit', 1)
+        filter_sql, filter_params = _filters(request)
+        count_sql = base + """
+SELECT COUNT(*)::BIGINT AS match_count
+FROM facts f WHERE f.month = ?""" + filter_sql
+        rows_sql = base + """
+SELECT f.month, f.classification_id, f.source_type, f.source_line_id, f.category_code, f.category_label,
+       f.supplier_name, f.source_number, f.source_date, f.source_status, f.payment_status,
+       f.product_name, f.product_code, f.unit, f.quantity, f.line_amount,
+       TRY_CAST(f.confidence_raw AS DECIMAL(10,6)) AS confidence,
+       f.classification_source, f.rule_id, f.review_status
+FROM facts f
+WHERE f.month = ?""" + filter_sql + """
+ORDER BY f.line_amount DESC NULLS LAST, f.source_date DESC NULLS LAST, f.classification_id
+LIMIT ?"""
+        match = _run(con, count_sql, list(params) + [month] + filter_params, warehouse)[0]
+        rows = _run(con, rows_sql, list(params) + [month] + filter_params + [limit], warehouse)
+        return {'question': question, 'month': '%04d-%02d' % (month.year, month.month),
+                'category_code': request.get('category_code'), 'review_status': request.get('review_status'),
+                'match_count': int(match['match_count']), 'rows': rows, 'limit': limit,
+                'truncated': int(match['match_count']) > limit,
+                'selection_rule': QUESTIONS[question]['selection_rule'],
+                'definition': QUESTIONS[question]['description']}
+
     if question == 'category_comparison':
         month_b = request['month_b']
         limit = request.get('limit', DEFAULT_LIMIT)
@@ -656,7 +697,7 @@ LIMIT ?"""
 def _line_explanation(con, warehouse, request, base, params):
     line_ref = request['line_ref']
     lookup_sql = base + """
-SELECT f.classification_id, f.source_type, f.source_line_id, f.category_code, f.category_label,
+SELECT f.month, f.classification_id, f.source_type, f.source_line_id, f.category_code, f.category_label,
        f.cost_group, f.supplier_id, f.supplier_name, f.source_number, f.source_date, f.source_status,
        f.payment_status, f.product_name, f.product_code, f.unit, f.quantity, f.unit_price, f.line_amount,
        TRY_CAST(f.confidence_raw AS DECIMAL(10,6)) AS confidence, f.classification_source, f.rule_id,

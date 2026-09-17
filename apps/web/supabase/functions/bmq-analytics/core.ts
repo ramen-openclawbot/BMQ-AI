@@ -5,7 +5,7 @@ export const MODEL = "gpt-5.6-luna";
 export const SEMANTIC_VERSION = "bmq-analytics-v1";
 export const MAX_QUERIES = 4;
 export type Query = { metric: string; dimension: string | null; start: string; end: string; limit: number; sort?: "asc" | "desc" };
-export type Input = { language: "en" | "vi"; question: string; page: { route: string; label: string; filters: Record<string, string> }; history: { role: "user" | "assistant"; text: string; customerSelection?: unknown }[] };
+export type Input = { language: "en" | "vi"; question: string; conversationId?: string; page: { route: string; label: string; filters: Record<string, string> }; history: { role: "user" | "assistant"; text: string; customerSelection?: unknown; costContext?: unknown }[] };
 export type Result = { rows: { dimension: string; value: number }[]; source: string; asOf: string; note: string; noteEn?: string };
 export class AnalyticsError extends Error {
   code: string;
@@ -24,9 +24,13 @@ function str(value: unknown, max: number) {
   return value.trim();
 }
 export function parseInput(value: unknown): Input {
-  const input = object(value); keys(input, ["question", "page", "history", "language"]);
+  const input = object(value); keys(input, ["question", "page", "history", "language", "conversationId"]);
   if (input.language !== undefined && input.language !== "en" && input.language !== "vi") throw new AnalyticsError("invalid_language");
   const language = input.language === "en" ? "en" : "vi";
+  // Optional but, when present, strictly bounded: the chat client owns the current
+  // conversation id and the signed cost context must match it.
+  if (input.conversationId !== undefined && (typeof input.conversationId !== "string" || !/^[A-Za-z0-9-]{8,64}$/.test(input.conversationId))) throw new AnalyticsError("invalid_conversation_id");
+  const conversationId = input.conversationId as string | undefined;
   const page = object(input.page); keys(page, ["route", "label", "filters"]);
   const filters = object(page.filters ?? {});
   if (Object.keys(filters).length > 20 || Object.entries(filters).some(([key, value]) => !/^[a-zA-Z0-9_]{1,60}$/.test(key) || typeof value !== "string" || value.length > 120)) throw new AnalyticsError("invalid_filters");
@@ -34,11 +38,12 @@ export function parseInput(value: unknown): Input {
   if (!/^\/[a-zA-Z0-9/_-]*$/.test(route)) throw new AnalyticsError("invalid_route");
   const history = input.history ?? [];
   if (!Array.isArray(history) || history.length > 6) throw new AnalyticsError("history_limit");
-  return { language, question: str(input.question, 2000), page: { route, label: str(page.label, 100), filters: filters as Record<string, string> }, history: history.map((item) => {
-    const h = object(item); keys(h, ["role", "text", "customerSelection"]);
+  return { language, question: str(input.question, 2000), ...(conversationId ? {conversationId} : {}), page: { route, label: str(page.label, 100), filters: filters as Record<string, string> }, history: history.map((item) => {
+    const h = object(item); keys(h, ["role", "text", "customerSelection", "costContext"]);
     if (h.customerSelection !== undefined && (h.role !== "assistant" || JSON.stringify(h.customerSelection).length > 5000)) throw new AnalyticsError("invalid_query");
+    if (h.costContext !== undefined && (h.role !== "assistant" || JSON.stringify(h.costContext).length > 4000)) throw new AnalyticsError("invalid_query");
     if (h.role !== "user" && h.role !== "assistant") throw new AnalyticsError("invalid_role");
-    return { role: h.role, text: str(h.text, 2000), ...(h.customerSelection === undefined ? {} : {customerSelection:h.customerSelection}) };
+    return { role: h.role, text: str(h.text, 2000), ...(h.customerSelection === undefined ? {} : {customerSelection:h.customerSelection}), ...(h.costContext === undefined ? {} : {costContext:h.costContext}) };
   }) };
 }
 export function vnToday(now = new Date()) { return new Date(now.getTime() + 7 * 3600000).toISOString().slice(0, 10); }

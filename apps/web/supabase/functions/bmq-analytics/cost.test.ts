@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { COST_KINDS, costAnswer, costDetect, costRequest, missingCostQualifier } from './cost.ts';
+import { COST_KINDS, costAnswer, costDetect, costRequest, EXAMPLE_SELECTION_RULE, missingCostQualifier } from './cost.ts';
 import { runWarehouse } from './warehouse.ts';
 import { warehouseClient } from '../_shared/warehouse.ts';
 import { AnalyticsError } from './core.ts';
@@ -106,7 +106,7 @@ test('costRequest preserves exact qualifiers and rejects identity/extra/unsuppor
 });
 
 test('costDetect routes the reviewed questions deterministically and preserves the exact month and category', () => {
-  assert.deepEqual(costDetect('Tổng chi phí phân loại tháng 4/2026 theo nhóm và trạng thái', TODAY), { lane: 'cost', lookup: { kind: 'month_totals', month: '2026-04', category_code: undefined } });
+  assert.deepEqual(costDetect('Tổng chi phí phân loại tháng 4/2026 theo nhóm và trạng thái', TODAY), { lane: 'cost', lookup: { kind: 'month_totals', month: '2026-04', category_code: undefined, review_status: null } });
   assert.deepEqual(costDetect('Chi phí nhóm OPEX_GENERAL tháng 4/2026 cần review', TODAY)?.lookup, { kind: 'pending_summary', month: '2026-04', category_code: 'OPEX_GENERAL' });
   assert.deepEqual(costDetect('Top 10 dòng chi phí chờ review tháng 4/2026', TODAY)?.lookup, { kind: 'top_pending_lines', month: '2026-04', category_code: undefined });
   assert.deepEqual(costDetect('So sánh chi phí tháng 3/2026 và tháng 4/2026', TODAY)?.lookup, { kind: 'category_comparison', month: '2026-03', month_b: '2026-04', category_code: undefined });
@@ -116,6 +116,14 @@ test('costDetect routes the reviewed questions deterministically and preserves t
   assert.equal(why?.lookup?.kind, 'line_explanation');
   assert.equal(why?.lookup?.line_ref, '11111111-2222-3333-4444-555555555555');
   assert.equal(costDetect('Doanh thu hôm nay', TODAY), null);
+});
+
+test('costDetect records explicit all-groups/all-statuses as cleared, never inherited', () => {
+  assert.deepEqual(costDetect('Chi phí tháng 9/2026 tất cả nhóm, tất cả trạng thái', TODAY)?.lookup, { kind: 'month_totals', month: '2026-09', category_code: null, review_status: null });
+  assert.deepEqual(costDetect('Chi phí tất cả nhóm tháng 9/2026', TODAY)?.lookup, { kind: 'month_totals', month: '2026-09', category_code: null });
+  // The cleared null is dropped by the closed request grammar, so no unsupported
+  // field is ever sent to the warehouse.
+  assert.deepEqual(costRequest({ kind: 'month_totals', month: '2026-09', category_code: null, review_status: null }), { question: 'month_totals', month: '2026-09' });
 });
 
 test('costDetect preserves canonical Vietnamese category labels and an explicit status filter', () => {
@@ -170,6 +178,7 @@ test('costAnswer renders exact status money and honest all-status labels', () =>
   const empty = { ...monthResult, line_count: 0, total_amount: '0', rows: [], statuses: monthResult.statuses.map((s) => ({ ...s, line_count: 0, total_amount: '0' })) };
   assert.match(costAnswer(empty, 'month_totals', 'vi'), /không đồng nghĩa chi phí bằng 0/);
   assert.throws(() => costAnswer({ ...monthResult, total_amount: 'not-a-number' }, 'month_totals', 'vi'), (error: unknown) => error instanceof AnalyticsError);
+  assert.throws(() => costAnswer({ ...monthResult, semantic_version: undefined }, 'month_totals', 'vi'), (error: unknown) => error instanceof AnalyticsError);
 });
 
 test('costAnswer handles missing, ambiguous and stale evidence without inventing facts', () => {
@@ -335,4 +344,32 @@ test('fixed client whitelist allows the read-only cost endpoint and still reject
   });
   await call('/v1/cost', { question: 'month_totals', month: '2026-04' });
   await assert.rejects(() => call('/v1/cost-raw', {}));
+});
+
+test('example_line request grammar preserves scope and rejects unsupported qualifiers', () => {
+  assert.deepEqual(costRequest({ kind: 'example_line', month: '2026-09', category_code: 'COGS_BMQ_BREAD', review_status: 'needs_review', limit: 1 }),
+    { question: 'example_line', month: '2026-09', category_code: 'COGS_BMQ_BREAD', review_status: 'needs_review', limit: 1 });
+  assert.throws(() => costRequest({ kind: 'example_line', month: '2026-09', supplier_id: 'sup1' }));
+  assert.throws(() => costRequest({ kind: 'example_line' }));
+  assert.throws(() => costRequest({ kind: 'example_line', month: '2026-09', review_status: 'pending' }));
+});
+
+test('costAnswer example_line discloses its rule, a real line and only real stored evidence', () => {
+  const picked = { classification_id: 'c2', month: '2026-09-01', category_code: 'COGS_BMQ_BREAD', category_label: 'Chi phí bánh mì', review_status: 'needs_review', supplier_name: 'NCC Hai', source_number: 'PR-002', source_date: '2026-09-12', product_name: 'Pate gan', line_amount: '8344200', classification_source: 'fallback', confidence: '0' };
+  const base = { ...monthResult, question: 'example_line', month: '2026-09', category_code: null, review_status: 'needs_review', match_count: 2, rows: [picked], limit: 1, truncated: true, selection_rule: EXAMPLE_SELECTION_RULE };
+  const withoutEvidence = costAnswer(base, 'example_line', 'vi');
+  assert.match(withoutEvidence, /Quy tắc chọn/);
+  assert.match(withoutEvidence, /c2/);
+  assert.match(withoutEvidence, /Chưa lấy được bằng chứng phân loại đã lưu/);
+  const withRule = costAnswer({ ...base, line: picked, evidence: { rule: { rule_name: 'BMQ bread keywords', match_scope: 'supplier_and_item', priority: '100', confidence: '0.90', effective_from: '2026-01-01', effective_to: null }, alias_mapping: null, alias_status: null } }, 'example_line', 'vi');
+  assert.match(withRule, /BMQ bread keywords/);
+  assert.match(withRule, /không phải bằng chứng rule hiện tại/);
+  const withoutRule = costAnswer({ ...base, line: picked, evidence: { rule: null, alias_mapping: null, alias_status: null } }, 'example_line', 'vi');
+  assert.match(withoutRule, /lý do lịch sử không có sẵn/);
+  const empty = costAnswer({ ...base, match_count: 0, rows: [], truncated: false }, 'example_line', 'vi');
+  assert.match(empty, /Không có dòng chi phí nào khớp phạm vi này/);
+  assert.throws(() => costAnswer({ ...base, selection_rule: 'invented' }, 'example_line', 'vi'));
+  assert.throws(() => costAnswer({ ...base, selection_rule: undefined }, 'example_line', 'vi'));
+  assert.throws(() => costAnswer({ ...base, rows: [picked, picked] }, 'example_line', 'vi'));
+  assert.throws(() => costAnswer({ ...base, line: { ...picked, classification_id: 'c9' } }, 'example_line', 'vi'));
 });

@@ -68,3 +68,28 @@ test('customer choice survives response parsing and next request without changin
   assert.equal(buildAnalyticsRequest('x','/','Home',[{...message,role:'user'}]).history[0].customerSelection,undefined);
   assert.equal(parseAnalyticsResponse({answer:'Done',requestId:'r2',provenance:{lane:'customer',model:null,queries:[],elapsedMs:2}}).provenance.customerSelection,undefined);
 });
+
+test('bounded cost context round-trips through response and history and never leaves assistant turns',()=>{
+  const costContext={v:1,user:'u1',conv:'c1',iat:1,exp:2,snap:'snap-1',scope:{kind:'pending_summary',month:'2026-09',category_code:null,review_status:'needs_review'},sig:'a'.repeat(64)};
+  const response=parseAnalyticsResponse({answer:'Tổng chi phí',requestId:'r1',provenance:{lane:'cost',model:null,queries:[],elapsedMs:2,costContext}});
+  assert.deepEqual(response.provenance.costContext,costContext);
+  const message:AnalyticsMessage={id:response.requestId,role:'assistant',text:response.answer,costContext:response.provenance.costContext};
+  const request=buildAnalyticsRequest('Lấy một dòng làm ví dụ','/finance-control/classification','Phân loại chi phí',[message],{},'vi');
+  assert.deepEqual(request.history[0].costContext,costContext);
+  assert.equal(buildAnalyticsRequest('x','/','Home',[{...message,role:'user'}]).history[0].costContext,undefined);
+  assert.equal(parseAnalyticsResponse({answer:'Done',requestId:'r2',provenance:{lane:'cost',model:null,queries:[],elapsedMs:2}}).provenance.costContext,undefined);
+});
+
+test('the current conversation id is sent only when the bounded context is enabled',()=>{
+  const withId=buildAnalyticsRequest('x','/finance-control/classification','Phân loại chi phí',[],{},'vi','conv-1234-5678');
+  assert.equal(withId.conversationId,'conv-1234-5678');
+  assert.deepEqual(Object.keys(withId).sort(),['conversationId','history','language','page','question']);
+  const without=buildAnalyticsRequest('x','/finance-control/classification','Phân loại chi phí',[],{},'vi');
+  assert.equal(without.conversationId,undefined);
+  assert.ok(!('conversationId' in without));
+});
+
+test('the analytics reset control has an accessible label translated for English',()=>{
+  assert.equal(chatText('Tạo cuộc trò chuyện mới','en'),'Start a new conversation');
+  assert.equal(chatText('Start a new conversation','vi'),'Tạo cuộc trò chuyện mới');
+});

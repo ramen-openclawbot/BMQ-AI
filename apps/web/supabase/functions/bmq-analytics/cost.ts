@@ -1,11 +1,14 @@
 import { AnalyticsError, normalize } from './core.ts';
 
 // Bounded, read-only cost-classification lane. The generic DSL cannot express a
-// review_status filter, so only these seven typed questions cross the bridge.
-export const COST_KINDS = ['month_totals', 'pending_summary', 'top_pending_lines', 'category_comparison', 'unmapped_low_confidence', 'line_explanation', 'sync_freshness'] as const;
+// review_status filter, so only these typed questions cross the bridge.
+export const COST_KINDS = ['month_totals', 'pending_summary', 'top_pending_lines', 'example_line', 'category_comparison', 'unmapped_low_confidence', 'line_explanation', 'sync_freshness'] as const;
 export type CostKind = typeof COST_KINDS[number];
+// Deterministic, disclosed example-selection rule; the warehouse orders by this
+// exact key and the Edge lane rejects any other rule id rather than guessing.
+export const EXAMPLE_SELECTION_RULE = 'largest_line_amount_then_source_date_then_classification_id';
 const REQUIRED: Record<CostKind, string[]> = {
-  month_totals: ['month'], pending_summary: ['month'], top_pending_lines: ['month'],
+  month_totals: ['month'], pending_summary: ['month'], top_pending_lines: ['month'], example_line: ['month'],
   category_comparison: ['month', 'month_b'], unmapped_low_confidence: ['month'],
   line_explanation: ['line_ref'], sync_freshness: [],
 };
@@ -15,6 +18,7 @@ const OPTIONAL: Record<CostKind, string[]> = {
   month_totals: ['category_code', 'review_status', 'limit'],
   pending_summary: ['category_code'],
   top_pending_lines: ['category_code', 'limit'],
+  example_line: ['category_code', 'review_status', 'limit'],
   category_comparison: ['category_code', 'review_status', 'limit'],
   unmapped_low_confidence: ['limit'],
   line_explanation: [],
@@ -39,7 +43,9 @@ const CATEGORY_LABELS: [RegExp, string][] = [
   [/tai san|may moc|thi cong|capex/, 'CAPEX_ASSET_PROJECT'],
 ];
 
-export function costRequest(lookup: any) {
+export type CostRequestBody = { question: CostKind; month?: string; month_b?: string; category_code?: string; review_status?: string; line_ref?: string; limit?: number };
+
+export function costRequest(lookup: any): CostRequestBody {
   if (!lookup || typeof lookup !== 'object' || Array.isArray(lookup)) throw new AnalyticsError('invalid_plan');
   if (!COST_KINDS.includes(lookup.kind)) throw new AnalyticsError('invalid_plan');
   const kind = lookup.kind as CostKind;
@@ -76,7 +82,7 @@ export function costRequest(lookup: any) {
     if (!Number.isInteger(provided.limit) || (provided.limit as number) < 1 || (provided.limit as number) > 50) throw new AnalyticsError('invalid_plan');
     body.limit = provided.limit;
   }
-  return body;
+  return body as CostRequestBody;
 }
 
 export function missingCostQualifier(lookup: any, language: 'en' | 'vi') {
@@ -143,6 +149,40 @@ function monthsIn(text: string): { months: string[]; invalid: boolean } {
   return { months: [...new Set(months)], invalid };
 }
 
+// "All categories" / "all statuses" are explicit scope-clearing qualifiers: they
+// must clear an inherited category/status instead of silently keeping the old one.
+// Shared by the deterministic matcher and the conversation resolver.
+export function allCategoriesRequested(question: string): boolean {
+  const text = normalize(question).replace(/đ/g, 'd');
+  return /(tat ca nhom|toan bo nhom|moi nhom|khong gioi han nhom|all categor|every categor|any categor)/.test(text);
+}
+
+export function allStatusesRequested(question: string): boolean {
+  const text = normalize(question).replace(/đ/g, 'd');
+  return /(tat ca trang thai|all statuses|moi trang thai|toan bo trang thai|khong gioi han trang thai|gom ca|bao gom ca|including all|nhom va trang thai|by category and (review )?status)/.test(text)
+    || (/tach/.test(text) && /da duyet/.test(text) && /goi y/.test(text) && /can review/.test(text));
+}
+
+/** Individual review-status qualifiers named in the question (empty when "all statuses"). */
+export function statusesRequested(question: string): (typeof STATUSES)[number][] {
+  if (allStatusesRequested(question)) return [];
+  const text = normalize(question).replace(/đ/g, 'd');
+  const statuses = new Set<(typeof STATUSES)[number]>();
+  if (/(da duyet|approved)/.test(text)) statuses.add('approved');
+  if (/(goi y|suggested)/.test(text)) statuses.add('suggested');
+  if (/(tu choi|rejected)/.test(text)) statuses.add('rejected');
+  if (/(can review|cho review|can kiem tra|pending|cho xu ly|needs review)/.test(text)) statuses.add('needs_review');
+  return [...statuses];
+}
+
+// Month named by the question (line ids stripped first so a UUID is never read as
+// a month). Used to detect an explicit scope change before a stored line is reused.
+export function monthFromQuestion(question: string): { month: string | null; invalid: boolean } {
+  const text = normalize(question).replace(/đ/g, 'd');
+  const { months, invalid } = monthsIn(text.replace(UUID_ALL, ' '));
+  return { month: months[0] ?? null, invalid };
+}
+
 function categoryIn(text: string, question: string): string | undefined {
   const code = /\b([A-Z][A-Z0-9]*_[A-Z0-9_]+)\b/.exec(question);
   if (code) return code[1];
@@ -179,24 +219,17 @@ export function costDetect(question: string, today: string): { lane: 'cost' | 'c
     return { lane: 'abstain', message: 'Tháng yêu cầu nằm trong tương lai nên chưa có dữ liệu phân loại.' };
   }
   const category = categoryIn(text, question);
+  // Explicit "all categories"/"all statuses" clear an inherited qualifier; the
+  // nulls are preserved in the lookup so the conversation resolver can tell
+  // "cleared" apart from "not mentioned".
+  const allCategories = allCategoriesRequested(question);
+  const allStatuses = allStatusesRequested(question);
+  const statusList = statusesRequested(question);
   const base = (kind: CostKind, extra: Record<string, unknown> = {}) => {
-    const lookup: Record<string, unknown> = { kind, month, category_code: category };
+    const lookup: Record<string, unknown> = { kind, month, category_code: allCategories ? null : category };
     for (const [key, value] of Object.entries(extra)) if (value !== undefined) lookup[key] = value;
     return { lane: 'cost' as const, lookup };
   };
-
-  // "All statuses" phrasing must never be narrowed to the pending branch merely
-  // because it also mentions "cần review".
-  const allStatuses = /(tat ca trang thai|all statuses|moi trang thai|toan bo trang thai|gom ca|bao gom ca|including all|nhom va trang thai|by category and (review )?status)/.test(text)
-    || (/tach/.test(text) && /da duyet/.test(text) && /goi y/.test(text) && /can review/.test(text));
-  const statuses = new Set<(typeof STATUSES)[number]>();
-  if (!allStatuses) {
-    if (/(da duyet|approved)/.test(text)) statuses.add('approved');
-    if (/(goi y|suggested)/.test(text)) statuses.add('suggested');
-    if (/(tu choi|rejected)/.test(text)) statuses.add('rejected');
-    if (/(can review|cho review|can kiem tra|pending|cho xu ly|needs review)/.test(text)) statuses.add('needs_review');
-  }
-  const statusList = [...statuses];
   if (statusList.length > 1) return { lane: 'abstain', message: 'Câu hỏi gộp nhiều trạng thái duyệt chưa được hỗ trợ. Anh hỏi từng trạng thái hoặc tổng tất cả trạng thái nhé.' };
 
   if (/(dong bo|sync)/.test(text) && /(chi phi|phan loai|cost)/.test(text)) {
@@ -212,18 +245,18 @@ export function costDetect(question: string, today: string): { lane: 'cost' | 'c
     if (months.some((value) => value > today.slice(0, 7))) return { lane: 'abstain', message: 'Tháng yêu cầu nằm trong tương lai nên chưa có dữ liệu phân loại.' };
     // "September compared with August" means September minus August.
     const [first, second] = /so voi/.test(text) ? [months[1], months[0]] : months;
-    return base('category_comparison', { month: first, month_b: second, review_status: statusList[0] });
+    return base('category_comparison', { month: first, month_b: second, review_status: allStatuses ? null : statusList[0] });
   }
   if (months.length > 1) return { lane: 'clarify', message: 'Anh muốn so sánh hai tháng hay tra riêng từng tháng? Hệ thống chưa cộng nhiều tháng thành một tổng.' };
   if (/unmapped|chua phan loai|do tin cay thap|confidence thap|tin cay thap/.test(text)) {
-    if (statusList.length || allStatuses || category) return { lane: 'abstain', message: 'Câu hỏi chưa phân loại không nhận thêm bộ lọc nhóm hoặc trạng thái duyệt khác. Anh hỏi riêng từng câu nhé.' };
+    if (allCategories || statusList.length || allStatuses || category) return { lane: 'abstain', message: 'Câu hỏi chưa phân loại không nhận thêm bộ lọc nhóm hoặc trạng thái duyệt khác. Anh hỏi riêng từng câu nhé.' };
     if (!month) return { lane: 'clarify', message: 'Anh nêu rõ tháng cần tra theo dạng MM/YYYY nhé.' };
     return base('unmapped_low_confidence');
   }
   if (/(top\s*10|top\s*muoi|10 dong|muoi dong|lon nhat|largest|biggest)/.test(text)) {
     if (!month) return { lane: 'clarify', message: 'Anh nêu rõ tháng cần tra theo dạng MM/YYYY nhé.' };
     if (statusList.length && statusList[0] !== 'needs_review') return { lane: 'abstain', message: 'Danh sách lớn nhất chỉ hỗ trợ dòng chờ review. Anh dùng tổng theo nhóm và trạng thái cho trạng thái khác nhé.' };
-    if (allStatuses || !statuses.has('needs_review')) {
+    if (allStatuses || !statusList.includes('needs_review')) {
       return { lane: 'clarify', message: 'Anh muốn top 10 dòng chờ review hay top 10 của toàn bộ trạng thái? Hệ thống chỉ xếp hạng dòng chờ review.' };
     }
     return base('top_pending_lines');
@@ -235,11 +268,11 @@ export function costDetect(question: string, today: string): { lane: 'cost' | 'c
   }
   if (allStatuses && /chi phi|cost|expense/.test(text)) {
     if (!month) return { lane: 'clarify', message: 'Anh nêu rõ tháng cần tra theo dạng MM/YYYY nhé.' };
-    return base('month_totals');
+    return base('month_totals', { review_status: null });
   }
   if (/chi phi|cost|expense/.test(text) && /(tong|theo nhom|trang thai|category|status)/.test(text)) {
     if (!month) return { lane: 'clarify', message: 'Anh nêu rõ tháng cần tra theo dạng MM/YYYY nhé.' };
-    return base('month_totals');
+    return base('month_totals', allStatuses ? { review_status: null } : {});
   }
   if (month) return base('month_totals');
   return { lane: 'clarify', message: 'Anh nêu rõ câu hỏi phân loại chi phí theo tháng, nhóm, trạng thái duyệt hoặc mã dòng cụ thể nhé.' };
@@ -272,11 +305,29 @@ function provenance(result: any, en: boolean) {
   if (typeof result.source !== 'string' || !result.source || typeof result.source_observed_at !== 'string'
     || !Number.isFinite(Date.parse(result.source_observed_at)) || typeof result.snapshot_id !== 'string'
     || typeof result.semantic_version !== 'string' || JSON.stringify(result).length > 40000) throw new AnalyticsError('invalid_result');
+  // Source + snapshot + observation time + semantic version are the audit
+  // invariants: a response missing any of them is invalid_result.
   return `\n${en ? 'Source' : 'Nguồn'}: ${clean(result.source, 300)}\n${en ? 'Synced snapshot' : 'Dữ liệu đồng bộ lúc'}: ${clean(result.source_observed_at, 40)} · ${clean(result.semantic_version, 40)}`;
 }
 
 const DISCLAIMER_VI = 'Toàn bộ dòng chi phí theo view phân loại chuẩn (dòng đã phân loại + dòng OCR-only có metadata chi phí), không phải báo cáo đã kiểm toán.';
 const DISCLAIMER_EN = 'Full canonical cost-classification view (classified + OCR-only lines), not an audited statement.';
+
+// Shared by the exact line explanation and the example->evidence workflow. The
+// stored rule/alias link is current snapshot metadata, never a claim about what
+// caused the historical classification; missing evidence is stated as missing.
+function renderLineEvidence(lines: string[], line: any, evidence: any, en: boolean) {
+  lines.push(`${en ? 'Line' : 'Dòng'} ${clean(line.classification_id, 64)} · ${clean(line.source_number ?? '-', 120)} · ${clean(String(line.source_date ?? '-'), 10)}`);
+  lines.push(`${clean(line.category_label ?? '-', 200)} (${clean(line.category_code ?? '-', 60)}) · ${clean(line.review_status ?? '-', 40)} · ${en ? 'confidence' : 'độ tin cậy'} ${clean(String(line.confidence ?? '-'), 20)}`);
+  lines.push(`${en ? 'Supplier' : 'Nhà cung cấp'}: ${clean(line.supplier_name ?? '-', 200)} · ${clean(line.product_name, 200)} · ${money(line.line_amount, en)}`);
+  lines.push(`${en ? 'Classification source' : 'Nguồn phân loại'}: ${clean(line.classification_source ?? '-', 60)}`);
+  if (evidence.rule) {
+    lines.push(`${en ? 'Stored rule link' : 'Rule đã lưu'}: ${clean(evidence.rule.rule_name, 200)} · ${clean(evidence.rule.match_scope, 60)} · ${en ? 'priority' : 'ưu tiên'} ${clean(String(evidence.rule.priority ?? '-'), 20)} · ${en ? 'confidence' : 'độ tin cậy'} ${clean(String(evidence.rule.confidence ?? '-'), 20)}${evidence.rule.effective_from ? ` · ${clean(String(evidence.rule.effective_from), 10)} → ${clean(String(evidence.rule.effective_to ?? ''), 10) || (en ? 'open' : 'không giới hạn')}` : ''}`);
+    lines.push(en ? 'This is the current metadata of the stored rule link; it is not proof that the current rule state caused the historical classification.' : 'Đây là metadata hiện tại của liên kết rule đã lưu; không phải bằng chứng rule hiện tại đã tạo ra kết quả phân loại lịch sử.');
+  } else lines.push(en ? 'No rule row is linked to this classification (stored source is not a matching rule); the historical rationale is unavailable, and none was invented.' : 'Không có rule nào được gắn với phân loại này (nguồn lưu không phải rule khớp); lý do lịch sử không có sẵn và hệ thống không tự suy diễn.');
+  if (evidence.alias_mapping) lines.push(`${en ? 'Alias mapping' : 'Ánh xạ alias'}: ${clean(evidence.alias_mapping.source_name, 200)} → ${clean(evidence.alias_mapping.standard_cost_code, 60)} · ${clean(evidence.alias_mapping.canonical_cost_item_name, 200)}`);
+  else if (evidence.alias_status && evidence.alias_status !== 'no_mapping_match') lines.push(`${en ? 'Alias mapping evidence' : 'Bằng chứng ánh xạ alias'}: ${clean(evidence.alias_status, 60)}`);
+}
 
 export function costAnswer(result: any, kind: CostKind, language: 'en' | 'vi') {
   const en = language === 'en';
@@ -321,23 +372,42 @@ export function costAnswer(result: any, kind: CostKind, language: 'en' | 'vi') {
     if (!Array.isArray(result.rows) || result.rows.length > 50) throw new AnalyticsError('invalid_result');
     for (const row of result.rows) lines.push(`- ${clean(row.source_date, 10)} · ${clean(row.source_number ?? '-', 120)} · ${clean(row.product_name, 200)}: ${money(row.line_amount, en)} · ${row.unmapped ? (en ? 'unmapped' : 'chưa phân loại') : (en ? 'low confidence' : 'độ tin cậy thấp')}`);
     if (result.truncated) lines.push(en ? 'Showing only the largest lines; counts cover all matching lines.' : 'Chỉ hiển thị các dòng lớn nhất; số đếm gồm toàn bộ dòng phù hợp.');
+  } else if (kind === 'example_line') {
+    const month = monthLabel(result.month);
+    // The warehouse selection rule is part of the disclosed answer contract: the
+    // exact rule id is mandatory, so a missing or different rule rejects rather
+    // than rendering an example with an unverified ordering. Rows/match_count are
+    // strictly checked as before.
+    if (result.selection_rule !== EXAMPLE_SELECTION_RULE
+      || !Array.isArray(result.rows) || result.rows.length > 1
+      || !Number.isInteger(result.match_count) || result.match_count < 0) throw new AnalyticsError('invalid_result');
+    const scope: string[] = [];
+    if (result.category_code) scope.push(`${en ? 'category' : 'nhóm'} ${clean(result.category_code, 50)}`);
+    if (result.review_status) scope.push(`${en ? 'status' : 'trạng thái'} ${clean(result.review_status, 40)}`);
+    lines.push(`${en ? 'Example cost line' : 'Dòng chi phí ví dụ'} · ${month}${scope.length ? ` · ${scope.join(' · ')}` : ''} · ${count(result.match_count)} ${en ? 'lines in scope' : 'dòng trong phạm vi'}`);
+    lines.push(en
+      ? 'Selection rule (disclosed): largest exact line_amount first, then source date, then classification id. This is a deterministic example, not a ranking of importance.'
+      : 'Quy tắc chọn (công khai): số tiền lớn nhất trước, rồi ngày nguồn, rồi mã phân loại. Đây là ví dụ xác định, không phải xếp hạng mức độ quan trọng.');
+    if (!result.rows.length) {
+      lines.push(en ? 'No cost line matches this scope; nothing was invented.' : 'Không có dòng chi phí nào khớp phạm vi này; hệ thống không tạo dòng thay thế.');
+    } else if (result.line) {
+      // Evidence is only accepted for the exact line that was selected.
+      if (String(result.line.classification_id) !== String(result.rows[0].classification_id)) throw new AnalyticsError('invalid_result');
+      renderLineEvidence(lines, result.line, result.evidence ?? {}, en);
+    } else {
+      const picked = result.rows[0];
+      lines.push(`${en ? 'Line' : 'Dòng'} ${clean(picked.classification_id, 64)} · ${clean(picked.source_number ?? '-', 120)} · ${clean(String(picked.source_date ?? '-'), 10)}`);
+      lines.push(`${clean(picked.category_label, 200)} (${clean(picked.category_code, 60)}) · ${clean(picked.review_status, 40)} · ${money(picked.line_amount, en)}`);
+      lines.push(en ? 'Stored classification evidence is unavailable for this line right now; no reason was invented.' : 'Chưa lấy được bằng chứng phân loại đã lưu cho dòng này; hệ thống không tự suy diễn lý do.');
+    }
+    if (result.truncated) lines.push(en ? `Only the top example of ${count(result.match_count)} matching lines is shown.` : `Chỉ hiển thị một ví dụ trong ${count(result.match_count)} dòng phù hợp.`);
   } else if (kind === 'line_explanation') {
     if (result.status === 'not_found') lines.push(en ? 'No classification row matches that line reference.' : 'Không tìm thấy dòng phân loại ứng với mã đã gửi.');
     else if (result.status === 'ambiguous') {
       lines.push(en ? `The reference matches ${count(result.match_count)} lines. Please resend the exact classification id.` : `Mã này khớp ${count(result.match_count)} dòng. Anh gửi đúng mã phân loại (classification id) nhé.`);
       for (const candidate of result.candidates ?? []) lines.push(`- ${clean(candidate.classification_id, 64)} · ${clean(candidate.source_number ?? '-', 120)} · ${clean(String(candidate.source_date ?? '-'), 10)} · ${money(candidate.line_amount, en)}`);
     } else if (result.status === 'ok') {
-      const line = result.line, evidence = result.evidence ?? {};
-      lines.push(`${en ? 'Line' : 'Dòng'} ${clean(line.classification_id, 64)} · ${clean(line.source_number ?? '-', 120)} · ${clean(String(line.source_date ?? '-'), 10)}`);
-      lines.push(`${clean(line.category_label, 200)} (${clean(line.category_code, 60)}) · ${clean(line.review_status, 40)} · ${en ? 'confidence' : 'độ tin cậy'} ${clean(String(line.confidence ?? '-'), 20)}`);
-      lines.push(`${en ? 'Supplier' : 'Nhà cung cấp'}: ${clean(line.supplier_name ?? '-', 200)} · ${clean(line.product_name, 200)} · ${money(line.line_amount, en)}`);
-      lines.push(`${en ? 'Classification source' : 'Nguồn phân loại'}: ${clean(line.classification_source, 60)}`);
-      if (evidence.rule) {
-        lines.push(`${en ? 'Stored rule link' : 'Rule đã lưu'}: ${clean(evidence.rule.rule_name, 200)} · ${clean(evidence.rule.match_scope, 60)} · ${en ? 'priority' : 'ưu tiên'} ${clean(String(evidence.rule.priority ?? '-'), 20)} · ${en ? 'confidence' : 'độ tin cậy'} ${clean(String(evidence.rule.confidence ?? '-'), 20)}${evidence.rule.effective_from ? ` · ${clean(String(evidence.rule.effective_from), 10)} → ${clean(String(evidence.rule.effective_to ?? ''), 10) || (en ? 'open' : 'không giới hạn')}` : ''}`);
-        lines.push(en ? 'This is the current metadata of the stored rule link; it is not proof that the current rule state caused the historical classification.' : 'Đây là metadata hiện tại của liên kết rule đã lưu; không phải bằng chứng rule hiện tại đã tạo ra kết quả phân loại lịch sử.');
-      } else lines.push(en ? 'No rule row is linked to this classification (stored source is not a matching rule).' : 'Không có rule nào được gắn với phân loại này (nguồn lưu không phải rule khớp).');
-      if (evidence.alias_mapping) lines.push(`${en ? 'Alias mapping' : 'Ánh xạ alias'}: ${clean(evidence.alias_mapping.source_name, 200)} → ${clean(evidence.alias_mapping.standard_cost_code, 60)} · ${clean(evidence.alias_mapping.canonical_cost_item_name, 200)}`);
-      else if (evidence.alias_status && evidence.alias_status !== 'no_mapping_match') lines.push(`${en ? 'Alias mapping evidence' : 'Bằng chứng ánh xạ alias'}: ${clean(evidence.alias_status, 60)}`);
+      renderLineEvidence(lines, result.line, result.evidence ?? {}, en);
     } else throw new AnalyticsError('invalid_result');
   } else if (kind === 'sync_freshness') {
     lines.push(`${en ? 'Cost classification sync' : 'Đồng bộ phân loại chi phí'} · ${en ? 'watermark' : 'mốc dữ liệu'} ${clean(result.source_observed_at, 40)}`);

@@ -1,7 +1,7 @@
 import { UncImageGallery } from './UncImageGallery';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { ArrowUp, Loader2, Sparkles, X } from "lucide-react";
+import { ArrowUp, Loader2, RotateCcw, Sparkles, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -25,6 +25,7 @@ import {
 } from "@/lib/vnagentProtocol";
 
 const ANALYTICS_ENABLED = import.meta.env.VITE_BMQ_ANALYTICS_ENABLED === "true";
+const CHAT_CONTEXT_ENABLED = import.meta.env.VITE_BMQ_CHAT_CONTEXT_ENABLED === "true";
 
 const API_URL = resolveVnagentApiUrl(import.meta.env.VITE_VNAGENT_API_URL);
 const AGENT_ID = resolveVnagentAgentId(import.meta.env.VITE_VNAGENT_AGENT_ID);
@@ -311,6 +312,9 @@ export function GlobalAgentChatWidget() {
   const [analyticsMessages, setAnalyticsMessages] = useState<AnalyticsMessage[]>([]);
   const analyticsRequestRef = useRef<AbortController | null>(null);
   const analyticsIdentityRef = useRef<string | null>(null);
+  // The current analytics conversation id: the server binds the signed cost
+  // context to it, so a new/reset/account-switch conversation cannot replay state.
+  const analyticsConversationRef = useRef<string>("");
   const [frames, setFrames] = useState<UniversalFrame[]>([]);
   const [streamedText, setStreamedText] = useState("");
   const [vnagentToken, setVnagentToken] = useState<string | null>(null);
@@ -376,6 +380,7 @@ export function GlobalAgentChatWidget() {
   useLayoutEffect(() => {
     if (!ANALYTICS_ENABLED) return;
     analyticsIdentityRef.current = enabled ? user?.id ?? null : null;
+    if (enabled) analyticsConversationRef.current = crypto.randomUUID();
     analyticsRequestRef.current?.abort();
     analyticsRequestRef.current = null;
     setAnalyticsMessages([]);
@@ -508,6 +513,20 @@ export function GlobalAgentChatWidget() {
     setSessionChoiceRequired(false);
   }, [user?.id]);
 
+  // Analytics conversations are temporary; this drops the timeline and the
+  // bounded cost context with it, and aborts any in-flight reply.
+  const resetAnalyticsConversation = useCallback(() => {
+    analyticsRequestRef.current?.abort();
+    analyticsRequestRef.current = null;
+    // A new conversation id guarantees the discarded signed state can never be
+    // replayed into the fresh conversation.
+    analyticsConversationRef.current = crypto.randomUUID();
+    setAnalyticsMessages([]);
+    setDraft("");
+    setErrorMessage(null);
+    setIsResponding(false);
+  }, []);
+
   useEffect(() => {
     if (ANALYTICS_ENABLED || !vnagentToken || !enabled) return;
     let stopped = false;
@@ -624,7 +643,7 @@ export function GlobalAgentChatWidget() {
       const active = () => !controller.signal.aborted && analyticsRequestRef.current === controller && analyticsIdentityRef.current === requestUser;
       const id = crypto.randomUUID();
       const currentPage = buildCurrentPageContext(location.pathname, location.search, routeContext);
-      const body = buildAnalyticsRequest(content, location.pathname, routeContext.label, analyticsMessages, currentPage.searchParams, language);
+      const body = buildAnalyticsRequest(content, location.pathname, routeContext.label, analyticsMessages, currentPage.searchParams, language, CHAT_CONTEXT_ENABLED ? analyticsConversationRef.current : undefined);
       setAnalyticsMessages((current) => [...current, { id, role: "user", text: content }]);
       setDraft("");
       setErrorMessage(null);
@@ -644,7 +663,7 @@ export function GlobalAgentChatWidget() {
         if (!active()) return;
         if (error) throw new Error(await readAnalyticsError(error, language));
         const result = parseAnalyticsResponse(data, language);
-        setAnalyticsMessages((current) => [...current, { id: result.requestId, role: "assistant", text: result.answer, images: result.provenance.images, details: result.provenance.details, fx: result.provenance.fx, citations: result.provenance.citations, customerSelection: result.provenance.customerSelection }]);
+        setAnalyticsMessages((current) => [...current, { id: result.requestId, role: "assistant", text: result.answer, images: result.provenance.images, details: result.provenance.details, fx: result.provenance.fx, citations: result.provenance.citations, customerSelection: result.provenance.customerSelection, costContext: CHAT_CONTEXT_ENABLED ? result.provenance.costContext : undefined }]);
       } catch (error) {
         if (!active()) return;
         setAnalyticsMessages((current) => current.filter((item) => item.id !== id));
@@ -737,6 +756,15 @@ export function GlobalAgentChatWidget() {
                 </div>
               </div>
             </div>
+            {ANALYTICS_ENABLED ? (
+              <button
+                type="button"
+                data-bmq-conversation-reset="analytics-v1"
+                className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-[#687080] transition hover:bg-[#f1f2f5] hover:text-[#171a21]"
+                onClick={resetAnalyticsConversation}
+                aria-label={text("Tạo cuộc trò chuyện mới")}
+              ><RotateCcw className="h-[18px] w-[18px]" /></button>
+            ) : null}
             <button type="button" className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-[#687080] transition hover:bg-[#f1f2f5] hover:text-[#171a21]" onClick={() => setOpen(false)} aria-label={text("Đóng VNAgent")}><X className="h-5 w-5" /></button>
           </header>
 

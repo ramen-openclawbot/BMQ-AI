@@ -4,8 +4,8 @@ import { runAnalytics, type Dependencies } from "./service.ts";
 import { runWarehouse } from "./warehouse.ts";
 import { warehouseClient, warehouseImage, WarehouseError, warehouseMessage } from "../_shared/warehouse.ts";
 
-type Identity = Pick<Dependencies, "scope" | "query">;
-type Config = { warehouse?: { enabled: () => boolean; url: () => string }; enabled: () => boolean; authenticate: (request: Request, signal: AbortSignal) => Promise<Identity>; model: Dependencies["model"]; audit: (event: Record<string, unknown>) => void };
+type Identity = Pick<Dependencies, "scope" | "query"> & { signingSecret?: string };
+type Config = { warehouse?: { enabled: () => boolean; url: () => string }; context?: { enabled: () => boolean }; enabled: () => boolean; authenticate: (request: Request, signal: AbortSignal) => Promise<Identity>; model: Dependencies["model"]; audit: (event: Record<string, unknown>) => void };
 const origins = new Set(["https://ai.banhmique.vn", "http://localhost:5173", "http://localhost:8080", "http://localhost:3000"]);
 const errors: Record<string, string> = {
   disabled: "Phân tích dữ liệu chưa được bật cho BMQ AI.", unauthorized: "Phiên đăng nhập đã hết hạn. Anh đăng nhập lại nhé.",
@@ -100,7 +100,7 @@ export function createHandler(config: Config) {
         return json({...diagnostic,answer:(english?"Warehouse connection verified for your owner session.\n\n":"Đã xác minh kết nối kho bằng phiên owner của anh.\n\n")+result.answer});
       }
       const result = config.warehouse?.enabled()
-        ? await runWarehouse(raw, warehouseClient(config.warehouse.url(), req.headers.get("authorization")!, signal), config.model, signal, identity.query)
+        ? await runWarehouse(raw, warehouseClient(config.warehouse.url(), req.headers.get("authorization")!, signal), config.model, signal, identity.query, { contextEnabled: config.context?.enabled() === true, signingSecret: identity.signingSecret, userId: identity.scope.user })
         : await runAnalytics(raw, { ...identity, model: config.model, cache }, signal);
       signal.throwIfAborted();
       const presentationStarted = Date.now();
@@ -108,7 +108,11 @@ export function createHandler(config: Config) {
       signal.throwIfAborted();
       presented.provenance.elapsedMs += Date.now() - presentationStarted;
       const { lane, model, elapsedMs, modelCalls, usage } = presented.provenance;
-      config.audit({ event: "bmq_analytics", requestId: result.requestId, userId: identity.scope.user, lane, model, elapsedMs, modelCalls, usage });
+      // Only the reviewed warehouse lane populates the bounded context audit; the
+      // legacy analytics and UNC-image lanes never do. `in` narrows the provenance
+      // union to the branch that declares the property, so read it without a cast.
+      const contextAudit = 'contextAudit' in presented.provenance ? presented.provenance.contextAudit : null;
+      config.audit({ event: "bmq_analytics", requestId: result.requestId, userId: identity.scope.user, lane, model, elapsedMs, modelCalls, usage, context: contextAudit });
       return json(presented);
     } catch (error) {
       const code = signal.aborted ? "timeout" : (error instanceof AnalyticsError || error instanceof WarehouseError) ? error.code : "data_unavailable";

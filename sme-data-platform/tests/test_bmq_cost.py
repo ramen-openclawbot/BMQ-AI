@@ -6,7 +6,7 @@ Fixtures reproduce all four arms of the reviewed canonical view
 invoice lines, source-line overrides, source dates, amount fallback,
 UNMAPPED status, linked-invoice exclusion and the cost projection gate.
 """
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 import json
 
@@ -196,6 +196,57 @@ def test_top_pending_lines_have_supplier_document_and_are_bounded(state):
     assert result['rows'][0]['source_date'].isoformat() == '2026-04-02'
     small = cost(state, question='top_pending_lines', month='2026-04', limit=1)
     assert small['truncated'] is True and len(small['rows']) == 1
+
+
+def test_example_line_is_deterministic_and_discloses_its_rule(state):
+    result = cost(state, question='example_line', month='2026-04')
+    assert result['question'] == 'example_line'
+    assert result['selection_rule'] == 'largest_line_amount_then_source_date_then_classification_id'
+    assert result['limit'] == 1 and len(result['rows']) == 1
+    assert result['match_count'] == 7 and result['truncated'] is True
+    chosen = result['rows'][0]
+    assert chosen['classification_id'] == 'c1'
+    assert Decimal(str(chosen['line_amount'])) == Decimal('10000000')
+    assert chosen['month'].isoformat() == '2026-04-01'
+    assert chosen['category_code'] == 'COGS_BMQ_BREAD'
+    assert chosen['supplier_name'] == 'Nhà cung cấp Một'
+    assert chosen['source_number'] == 'PR-001'
+    # Stable across repeated reads: the same scope and snapshot select the same line.
+    assert cost(state, question='example_line', month='2026-04')['rows'][0]['classification_id'] == 'c1'
+
+
+def test_example_line_respects_category_and_status_scope(state):
+    scoped = cost(state, question='example_line', month='2026-04', review_status='needs_review')
+    assert scoped['match_count'] == 2 and scoped['rows'][0]['classification_id'] == 'c2'
+    assert Decimal(str(scoped['rows'][0]['line_amount'])) == Decimal('8344200')
+    category = cost(state, question='example_line', month='2026-04', category_code='OPEX_GENERAL')
+    assert category['match_count'] == 2
+    assert all(row['category_code'] == 'OPEX_GENERAL' for row in category['rows'])
+    empty = cost(state, question='example_line', month='2026-04', review_status='rejected')
+    assert empty['match_count'] == 0 and empty['rows'] == []
+
+
+def test_example_line_flows_into_line_explanation_evidence(state):
+    chosen = cost(state, question='example_line', month='2026-04')['rows'][0]
+    explained = cost(state, question='line_explanation', line_ref=chosen['classification_id'])
+    assert explained['status'] == 'ok'
+    assert explained['line']['classification_id'] == chosen['classification_id']
+    assert explained['line']['month'] == chosen['month']
+    assert explained['evidence']['rule']['rule_name'] == 'BMQ bread keywords'
+    # A line with no stored rule link is reported as missing evidence, never invented.
+    fallback = cost(state, question='example_line', month='2026-04', review_status='needs_review')['rows'][0]
+    fallback_evidence = cost(state, question='line_explanation', line_ref=fallback['classification_id'])
+    assert fallback_evidence['status'] == 'ok'
+    assert fallback_evidence['evidence']['rule'] is None
+    assert fallback_evidence['evidence']['alias_mapping'] is None
+
+
+def test_example_line_request_grammar_rejects_unknown_qualifiers(state):
+    with pytest.raises(ValueError):
+        validate_request({'question': 'example_line', 'month': '2026-04', 'supplier_id': 'sup1'})
+    with pytest.raises(ValueError):
+        validate_request({'question': 'example_line'})
+    assert validate_request({'question': 'example_line', 'month': '2026-04'}) == {'question': 'example_line', 'month': date(2026, 4, 1), 'limit': 1}
 
 
 def test_category_comparison_returns_exact_two_month_difference(state):
@@ -557,4 +608,22 @@ def test_api_cost_endpoint_is_owner_scoped_and_returns_provenance(state):
     catalog = client.get('/v1/semantic').json()
     assert catalog['cost_lookup']['version'] == VERSION
     assert {item['id'] for item in catalog['cost_lookup']['questions']} == set(QUESTIONS)
+
+
+
+def test_api_example_line_endpoint_returns_the_deterministic_line_and_evidence(state):
+    warehouse, _ = state
+    client = TestClient(create_app(warehouse, authenticator=lambda: Principal(TENANT, 'fixture-owner')))
+    response = client.post('/v1/cost', json={'question': 'example_line', 'month': '2026-04', 'review_status': 'needs_review'})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body['question'] == 'example_line' and body['match_count'] == 2
+    assert body['selection_rule'] == 'largest_line_amount_then_source_date_then_classification_id'
+    chosen = body['rows'][0]
+    assert chosen['classification_id'] == 'c2'
+    evidence = client.post('/v1/cost', json={'question': 'line_explanation', 'line_ref': chosen['classification_id']}).json()
+    assert evidence['status'] == 'ok'
+    assert evidence['line']['month'] == chosen['month']
+    assert evidence['evidence']['rule'] is None
+    assert 'payload' not in response.text and 'source_name_key' not in response.text
 
