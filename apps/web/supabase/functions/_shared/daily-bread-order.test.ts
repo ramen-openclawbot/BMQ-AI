@@ -6,6 +6,7 @@ import {
   buildDailyBreadOrderMessage,
   buildWarehouseKioskBreadDispatchCorrectionMessage,
   buildWarehouseKioskBreadDispatchMessage,
+  extractKioskBreadOrderNoteProposal,
   forecastVehicleBread,
   isVehicleLocationClosed,
   nextVietnamDateKey,
@@ -140,6 +141,117 @@ test("rounds down from 120 to 100 when existing stock already protects peak sale
   assert.equal(result.locations[0].upperBatchQuantity, 120);
   assert.equal(result.locations[0].recommendedQuantity, 100);
   assert.equal(result.locations[0].roundingDecision, "round_down_existing_stock_buffer");
+});
+
+test("uses the fixed BHN inbound policy from the 2026-09-19 service date without subtracting closing stock", () => {
+  const result = forecastVehicleBread([{
+    locationId: "8b353493-c3cb-436e-80f7-a9a1d1a57cd3",
+    locationCode: "HCM004-BHN",
+    reports: [
+      { reportDate: "2026-09-18", soldQuantity: 91, closingQuantity: 89 },
+      { reportDate: "2026-09-17", soldQuantity: 183, closingQuantity: 19 },
+    ],
+  }], "2026-09-19");
+
+  assert.equal(result.totalQuantity, 160);
+  assert.equal(result.locations[0].latestClosingQuantity, 89);
+  assert.equal(result.locations[0].netDemandQuantity, 160);
+  assert.equal(result.locations[0].recommendedQuantity, 160);
+  assert.equal(result.locations[0].roundingDecision, "fixed_daily_inbound_policy");
+  assert.deepEqual(result.locations[0].fixedInboundPolicy, {
+    policyCode: "fixed-daily-inbound-bhn-bmq-001-v1",
+    skuCode: "BMQ-001",
+    quantity: 160,
+    effectiveFromServiceDate: "2026-09-19",
+    effectiveFromCutoffDate: "2026-09-18",
+  });
+});
+
+test("keeps the generic formula for BHN before the fixed policy cutoff and for other kiosks after it", () => {
+  const bhnBeforeCutoff = forecastVehicleBread([{
+    locationId: "8b353493-c3cb-436e-80f7-a9a1d1a57cd3",
+    locationCode: "HCM004-BHN",
+    reports: [{ reportDate: "2026-09-17", soldQuantity: 183, closingQuantity: 89 }],
+  }], "2026-09-18");
+  const otherKiosk = forecastVehicleBread([{
+    locationId: "other-location",
+    locationCode: "HCM999-OTHER",
+    reports: [{ reportDate: "2026-09-18", soldQuantity: 183, closingQuantity: 89 }],
+  }], "2026-09-19");
+
+  assert.equal(bhnBeforeCutoff.locations[0].recommendedQuantity, 100);
+  assert.equal(bhnBeforeCutoff.locations[0].roundingDecision, "round_down_existing_stock_buffer");
+  assert.equal(otherKiosk.locations[0].recommendedQuantity, 100);
+  assert.equal(otherKiosk.locations[0].roundingDecision, "round_down_existing_stock_buffer");
+});
+
+test("keeps closure gates ahead of fixed inbound policies", () => {
+  const result = forecastVehicleBread([{
+    locationId: "policy-location",
+    locationCode: "HCM001-BV",
+    reports: [{ reportDate: "2026-08-11", soldQuantity: 200, closingQuantity: 0 }],
+  }], "2026-08-12", [{
+    policyCode: "test-fixed-policy",
+    locationId: "policy-location",
+    locationCode: "HCM001-BV",
+    skuCode: "BMQ-001",
+    quantity: 160,
+    effectiveFromServiceDate: "2026-08-01",
+    effectiveFromCutoffDate: "2026-07-31",
+  }]);
+
+  assert.equal(result.totalQuantity, 0);
+  assert.equal(result.locations[0].roundingDecision, "lunar_day_30_monthly_off");
+  assert.equal(result.locations[0].fixedInboundPolicy, undefined);
+});
+
+test("uses fixed inbound for an active location with no report history while closure still wins", () => {
+  const policy = [{
+    policyCode: "test-fixed-policy",
+    locationId: "policy-location",
+    locationCode: "HCM001-BV",
+    skuCode: "BMQ-001",
+    quantity: 160,
+    effectiveFromServiceDate: "2026-08-01",
+    effectiveFromCutoffDate: "2026-07-31",
+  }];
+  const open = forecastVehicleBread([{
+    locationId: "policy-location",
+    locationCode: "HCM001-BV",
+    reports: [],
+  }], "2026-08-13", policy);
+  const closed = forecastVehicleBread([{
+    locationId: "policy-location",
+    locationCode: "HCM001-BV",
+    reports: [],
+  }], "2026-08-12", policy);
+
+  assert.equal(open.locations[0].recommendedQuantity, 160);
+  assert.equal(open.locations[0].roundingDecision, "fixed_daily_inbound_policy");
+  assert.equal(closed.locations[0].recommendedQuantity, 0);
+  assert.equal(closed.locations[0].roundingDecision, "lunar_day_30_monthly_off");
+});
+
+test("extracts only explicit auditable kiosk bread-order requests from free-text notes", () => {
+  assert.deepEqual(extractKioskBreadOrderNoteProposal("Đặt bánh 180 que dùm em"), {
+    quantity: 180,
+    rawText: "Đặt bánh 180 que dùm em",
+    evidenceText: "Đặt bánh 180 que",
+    parserRule: "explicit-dat-banh-quantity-v1",
+    confidence: "explicit",
+    requiresConfirmation: true,
+  });
+  assert.deepEqual(extractKioskBreadOrderNoteProposal("dat banh mi 160"), {
+    quantity: 160,
+    rawText: "dat banh mi 160",
+    evidenceText: "dat banh mi 160",
+    parserRule: "explicit-dat-banh-quantity-v1",
+    confidence: "explicit",
+    requiresConfirmation: true,
+  });
+  assert.equal(extractKioskBreadOrderNoteProposal("Hotline 0909123456, doanh thu 1400000"), null);
+  assert.equal(extractKioskBreadOrderNoteProposal("Hôm nay bán 160 bánh"), null);
+  assert.equal(extractKioskBreadOrderNoteProposal("Đặt bánh 160 và 180"), null);
 });
 
 test("does not create vehicle demand for an active location without submitted bread reports", () => {

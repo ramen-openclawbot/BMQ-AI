@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { corsPreflightResponse } from "../_shared/cors.ts";
+import { extractKioskBreadOrderNoteProposal } from "../_shared/daily-bread-order.ts";
 import {
   ReportChannelValidationError,
   sumValidatedChannelQuantities,
@@ -57,6 +58,24 @@ const channelAmountVnd = (channelCode: string, quantity: number, submittedAmount
   channelCode === "khach_le"
     ? Math.round(quantity * khachLeUnitPriceVnd(reportDate))
     : Math.round(nonnegative(submittedAmount));
+
+const notesForBreadOrderProposal = (
+  reportNotes: string | null,
+  inventoryRows: Array<{ product_code: string; notes: string | null }>,
+  channelRows: Array<{ channel_code: string; notes: string | null }>,
+) => {
+  const notes: Array<{ source: string; text: string }> = [];
+  if (reportNotes) notes.push({ source: "report_notes", text: reportNotes });
+  inventoryRows.forEach((row) => {
+    if (row.product_code === "banh_mi_que" && row.notes) {
+      notes.push({ source: "inventory_banh_mi_que_notes", text: row.notes });
+    }
+  });
+  channelRows.forEach((row) => {
+    if (row.notes) notes.push({ source: `channel_notes:${row.channel_code}`, text: row.notes });
+  });
+  return notes;
+};
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -166,8 +185,33 @@ serve(async (req) => {
         };
       });
 
+    const noteCandidates = notesForBreadOrderProposal(notes, inventoryRows, channelRows)
+      .map((entry) => ({ ...entry, proposal: extractKioskBreadOrderNoteProposal(entry.text) }))
+      .filter((entry): entry is {
+        source: string;
+        text: string;
+        proposal: NonNullable<ReturnType<typeof extractKioskBreadOrderNoteProposal>>;
+      } => entry.proposal !== null);
+    const proposalQuantities = new Set(noteCandidates.map((entry) => entry.proposal.quantity));
+    const breadNoteProposal = noteCandidates.length > 0 && proposalQuantities.size === 1
+      ? {
+        quantity: noteCandidates[0].proposal.quantity,
+        parser_rule: noteCandidates[0].proposal.parserRule,
+        evidence: {
+          status: "pending_operator_confirmation",
+          proposal_status: "pending_operator_confirmation",
+          requires_confirmation: true,
+          note_sources: noteCandidates.map((entry) => ({
+            source: entry.source,
+            raw_text: entry.text,
+            evidence_text: entry.proposal.evidenceText,
+          })),
+        },
+      }
+      : null;
+
     const { data: finalReport, error: saveError } = await supabase.rpc(
-      "save_kiosk_daily_report_atomic",
+      "save_kiosk_daily_report_with_bread_proposal_atomic",
       {
         p_location_id: currentLocationId,
         p_staff_id: reportSession.session.staff_id,
@@ -181,6 +225,7 @@ serve(async (req) => {
         p_location_address_snapshot: profile.location.address || null,
         p_inventory_rows: inventoryRows,
         p_channel_rows: channelRows,
+        p_bread_note_proposal: breadNoteProposal,
       },
     );
 

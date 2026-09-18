@@ -29,6 +29,7 @@ export type VehicleBreadForecastLocation = {
   roundingDecision:
     | "no_submitted_report"
     | "lunar_day_30_monthly_off"
+    | "fixed_daily_inbound_policy"
     | "no_new_order_needed"
     | "exact_20_stick_batch"
     | "round_up_to_prevent_peak_stockout"
@@ -36,6 +37,26 @@ export type VehicleBreadForecastLocation = {
     | "round_down_existing_stock_buffer";
   latestReportSource: { reportId: string | null; reportUpdatedAt: string | null } | null;
   closureReason: "lunar_day_30_monthly_off" | null;
+  fixedInboundPolicy?: Omit<FixedVehicleBreadInboundPolicy, "locationId" | "locationCode">;
+};
+
+export type FixedVehicleBreadInboundPolicy = {
+  policyCode: string;
+  locationId: string;
+  locationCode: string;
+  skuCode: "BMQ-001" | string;
+  quantity: number;
+  effectiveFromServiceDate: string;
+  effectiveFromCutoffDate: string;
+};
+
+export type KioskBreadOrderNoteProposal = {
+  quantity: number;
+  rawText: string;
+  evidenceText: string;
+  parserRule: "explicit-dat-banh-quantity-v1";
+  confidence: "explicit";
+  requiresConfirmation: true;
 };
 
 export type VietjetInboxEvidence = {
@@ -84,6 +105,15 @@ const VIETNAM_OFFSET_MS = 7 * 60 * 60 * 1000;
 const VEHICLE_BREAD_SAFETY_FACTOR = 1.1;
 const PATE_BATCH_SIZE = 20;
 const LUNAR_DAY_30_OFF_CODES = new Set(["HCM001-BV", "HCM002-PVC"]);
+export const DEFAULT_FIXED_VEHICLE_BREAD_INBOUND_POLICIES: FixedVehicleBreadInboundPolicy[] = [{
+  policyCode: "fixed-daily-inbound-bhn-bmq-001-v1",
+  locationId: "8b353493-c3cb-436e-80f7-a9a1d1a57cd3",
+  locationCode: "HCM004-BHN",
+  skuCode: "BMQ-001",
+  quantity: 160,
+  effectiveFromServiceDate: "2026-09-19",
+  effectiveFromCutoffDate: "2026-09-18",
+}];
 
 const lunarDayForVietnamDate = (dateKey: string): number | null => {
   const match = dateKey.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -138,6 +168,51 @@ const normalizeMatchText = (value: string): string => String(value || "")
 
 export const isMamNonMayEmailSubject = (value: string): boolean =>
   /^mam non canada\s*\(\s*cty may\s*\)$/.test(normalizeMatchText(value));
+
+const validDateKey = (value: string): boolean => /^\d{4}-\d{2}-\d{2}$/.test(value);
+
+export const resolveFixedVehicleBreadInboundPolicy = (
+  location: Pick<VehicleBreadLocation, "locationId" | "locationCode">,
+  deliveryDate: string | undefined,
+  fixedInboundPolicies: FixedVehicleBreadInboundPolicy[] = DEFAULT_FIXED_VEHICLE_BREAD_INBOUND_POLICIES,
+): FixedVehicleBreadInboundPolicy | null => {
+  if (!deliveryDate || !validDateKey(deliveryDate)) return null;
+  const locationCode = location.locationCode.trim().toUpperCase();
+  const policy = fixedInboundPolicies.find((candidate) =>
+    candidate.skuCode === "BMQ-001"
+    && quantity(candidate.quantity) > 0
+    && validDateKey(candidate.effectiveFromServiceDate)
+    && deliveryDate >= candidate.effectiveFromServiceDate
+    && (
+      candidate.locationId === location.locationId
+      || candidate.locationCode.trim().toUpperCase() === locationCode
+    )
+  );
+  return policy || null;
+};
+
+export function extractKioskBreadOrderNoteProposal(note: string): KioskBreadOrderNoteProposal | null {
+  const rawText = String(note || "").trim();
+  if (!rawText) return null;
+  const normalized = normalizeMatchText(rawText);
+  if (/(hotline|doanh thu|revenue|tong tien|tien mat|chuyen khoan|bank|zalo|sdt|so dien thoai)/.test(normalized)) {
+    return null;
+  }
+  const matches = [...normalized.matchAll(/\b(?:dat|order)\s+banh(?:\s+mi)?(?:\s+(?:que|pate|bmq))?\s*:?\s*(\d{1,4}(?:[.,]\d+)?)\s*(?:que|cay|banh)?\b/g)];
+  if (matches.length !== 1) return null;
+  const quantityValue = Number(matches[0][1].replace(",", "."));
+  if (!Number.isInteger(quantityValue) || quantityValue <= 0 || quantityValue > 1000) return null;
+  const arbitraryNumbers = normalized.match(/\b\d{2,}\b/g) || [];
+  if (arbitraryNumbers.length !== 1) return null;
+  return {
+    quantity: quantityValue,
+    rawText,
+    evidenceText: rawText.slice(matches[0].index || 0, (matches[0].index || 0) + matches[0][0].length),
+    parserRule: "explicit-dat-banh-quantity-v1",
+    confidence: "explicit",
+    requiresConfirmation: true,
+  };
+}
 
 const nextVietnamDateFromTimestamp = (value: string): string | null => {
   const timestamp = Date.parse(value);
@@ -243,7 +318,11 @@ const selectSmartPateBatchQuantity = (peakSoldQuantity: number, latestClosingQua
   };
 };
 
-export function forecastVehicleBread(locations: VehicleBreadLocation[], deliveryDate?: string): {
+export function forecastVehicleBread(
+  locations: VehicleBreadLocation[],
+  deliveryDate?: string,
+  fixedInboundPolicies: FixedVehicleBreadInboundPolicy[] = DEFAULT_FIXED_VEHICLE_BREAD_INBOUND_POLICIES,
+): {
   totalQuantity: number;
   formulaVersion: string;
   locations: VehicleBreadForecastLocation[];
@@ -258,6 +337,59 @@ export function forecastVehicleBread(locations: VehicleBreadLocation[], delivery
     const closureReason = deliveryDate && isVehicleLocationClosed(location.locationCode, deliveryDate)
       ? "lunar_day_30_monthly_off" as const
       : null;
+    const peakSoldQuantity = reports.length > 0
+      ? Math.max(...reports.map((report) => quantity(report.soldQuantity)))
+      : 0;
+    const latestClosingQuantity = reports.length > 0 ? signedQuantity(reports[0].closingQuantity) : 0;
+    const latestReportSource = reports.length > 0
+      ? { reportId: reports[0].reportId ?? null, reportUpdatedAt: reports[0].reportUpdatedAt ?? null }
+      : null;
+
+    if (closureReason) {
+      return {
+        locationId: location.locationId,
+        locationCode: location.locationCode,
+        reportCount: reports.length,
+        latestReportDate: reports[0]?.reportDate ?? null,
+        peakSoldQuantity,
+        latestClosingQuantity,
+        protectedDemandQuantity: 0,
+        netDemandQuantity: 0,
+        lowerBatchQuantity: 0,
+        upperBatchQuantity: 0,
+        recommendedQuantity: 0,
+        roundingDecision: "lunar_day_30_monthly_off" as const,
+        latestReportSource,
+        closureReason,
+      };
+    }
+
+    const fixedPolicy = resolveFixedVehicleBreadInboundPolicy(location, deliveryDate, fixedInboundPolicies);
+    if (fixedPolicy) {
+      return {
+        locationId: location.locationId,
+        locationCode: location.locationCode,
+        reportCount: reports.length,
+        latestReportDate: reports[0]?.reportDate ?? null,
+        peakSoldQuantity,
+        latestClosingQuantity,
+        protectedDemandQuantity: quantity(fixedPolicy.quantity),
+        netDemandQuantity: quantity(fixedPolicy.quantity),
+        lowerBatchQuantity: quantity(fixedPolicy.quantity),
+        upperBatchQuantity: quantity(fixedPolicy.quantity),
+        recommendedQuantity: quantity(fixedPolicy.quantity),
+        roundingDecision: "fixed_daily_inbound_policy" as const,
+        latestReportSource,
+        closureReason,
+        fixedInboundPolicy: {
+          policyCode: fixedPolicy.policyCode,
+          skuCode: fixedPolicy.skuCode,
+          quantity: quantity(fixedPolicy.quantity),
+          effectiveFromServiceDate: fixedPolicy.effectiveFromServiceDate,
+          effectiveFromCutoffDate: fixedPolicy.effectiveFromCutoffDate,
+        },
+      };
+    }
 
     if (reports.length === 0) {
       warnings.push(`${location.locationCode}:no_submitted_bread_report`);
@@ -278,9 +410,6 @@ export function forecastVehicleBread(locations: VehicleBreadLocation[], delivery
         closureReason,
       };
     }
-
-    const peakSoldQuantity = Math.max(...reports.map((report) => quantity(report.soldQuantity)));
-    const latestClosingQuantity = signedQuantity(reports[0].closingQuantity);
     const batchSelection = selectSmartPateBatchQuantity(peakSoldQuantity, latestClosingQuantity);
 
     return {

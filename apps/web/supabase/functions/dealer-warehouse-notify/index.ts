@@ -10,6 +10,7 @@ import {
 import {
   buildDailyBreadOrderMessage,
   buildWarehouseKioskBreadDispatchMessage,
+  type FixedVehicleBreadInboundPolicy,
   forecastVehicleBread,
   isMamNonMayEmailSubject,
   nextVietnamDateKey,
@@ -207,6 +208,15 @@ type DailyBreadVietjetQuantityRow = {
   inbox_id: string;
   received_at: string;
 };
+type FixedInboundPolicyRow = {
+  policy_code: string;
+  location_id: string;
+  location_code: string;
+  sku_code: string;
+  quantity: number | string;
+  effective_from_service_date: string;
+  effective_from_cutoff_date: string;
+};
 type DailyBreadMamNonRow = {
   id: string;
   gmail_message_id: string;
@@ -262,6 +272,25 @@ const syncMamNonMayMailbox = async (now: Date): Promise<{ fetched: number; synce
   const debug = (payload.debug && typeof payload.debug === "object" ? payload.debug : {}) as Record<string, unknown>;
   if (Number(debug.upsertErrorCount || 0) > 0) throw new Error("Mầm non mailbox sync reported import errors");
   return { fetched: Number(payload.fetched || 0), synced: Number(payload.synced || 0) };
+};
+
+const readFixedInboundPolicies = async (
+  supabase: ReturnType<typeof createServiceClient>,
+  orderDate: string,
+): Promise<FixedVehicleBreadInboundPolicy[]> => {
+  const { data, error } = await supabase.rpc("get_active_kiosk_bread_fixed_inbound_policies", {
+    p_service_date: orderDate,
+  });
+  if (error) throw new Error(`Unable to read fixed kiosk bread inbound policies: ${error.message}`);
+  return ((data || []) as FixedInboundPolicyRow[]).map((row) => ({
+    policyCode: row.policy_code,
+    locationId: row.location_id,
+    locationCode: row.location_code,
+    skuCode: row.sku_code,
+    quantity: quantity(row.quantity),
+    effectiveFromServiceDate: row.effective_from_service_date,
+    effectiveFromCutoffDate: row.effective_from_cutoff_date,
+  }));
 };
 
 const mamNonQuantityFromRows = (rows: DailyBreadMamNonRow[], orderDate: string) => {
@@ -321,6 +350,7 @@ const mamNonQuantityFromRows = (rows: DailyBreadMamNonRow[], orderDate: string) 
 const enqueueDailyBreadOrder = async (
   supabase: ReturnType<typeof createServiceClient>,
   now: Date,
+  fixedInboundPolicies: FixedVehicleBreadInboundPolicy[],
 ): Promise<{ id: string; messageBody: string }> => {
   const dayRange = warehouseVietnamDayRange(now);
   const orderDate = nextVietnamDateKey(now);
@@ -395,7 +425,7 @@ const enqueueDailyBreadOrder = async (
     }
     vehicleLocations.set(row.location_id, location);
   });
-  const vehicleForecast = forecastVehicleBread([...vehicleLocations.values()], orderDate);
+  const vehicleForecast = forecastVehicleBread([...vehicleLocations.values()], orderDate, fixedInboundPolicies);
 
   const currentVehicleReportIds = vehicleForecast.locations
     .filter((location) => location.latestReportDate === dayRange.dateKey)
@@ -505,11 +535,17 @@ const enqueueDailyBreadOrder = async (
     vehicle: {
       source: "baocao.banhmique.vn",
       formula_version: vehicleForecast.formulaVersion,
+      fixed_policy_count: fixedInboundPolicies.length,
       total_quantity: vehicleForecast.totalQuantity,
       exchange_quantity: vehicleExchangeQuantity,
       makeup_quantity: vehicleMakeupQuantity,
       extra_quantity: vehicleExtraQuantity,
-      locations: vehicleForecast.locations,
+      locations: vehicleForecast.locations.map((forecast) => ({
+        ...forecast,
+        quantitySemantics: forecast.fixedInboundPolicy
+          ? "fixed_daily_inbound_not_stock_subtracted"
+          : "smart_batch_after_peak_demand_safety_and_latest_closing_stock",
+      })),
       report_sources: vehicleForecast.locations.map((forecast) => ({
         location_id: forecast.locationId,
         location_code: forecast.locationCode,
@@ -564,6 +600,7 @@ const enqueueDailyBreadOrder = async (
 const enqueueWarehouseKioskBreadDispatch = async (
   supabase: ReturnType<typeof createServiceClient>,
   now: Date,
+  fixedInboundPolicies: FixedVehicleBreadInboundPolicy[],
 ): Promise<{ id: string; messageBody: string }> => {
   const dayRange = warehouseVietnamDayRange(now);
   const orderDate = nextVietnamDateKey(now);
@@ -599,7 +636,7 @@ const enqueueWarehouseKioskBreadDispatch = async (
     }
     vehicleLocations.set(row.location_id, location);
   });
-  const vehicleForecast = forecastVehicleBread([...vehicleLocations.values()], orderDate);
+  const vehicleForecast = forecastVehicleBread([...vehicleLocations.values()], orderDate, fixedInboundPolicies);
   const locationIds = vehicleForecast.locations.map((location) => location.locationId);
 
   const { data: locationData, error: locationError } = await supabase
@@ -659,6 +696,10 @@ const enqueueWarehouseKioskBreadDispatch = async (
       roundingDecision: forecast.roundingDecision,
       latestReportSource: forecast.latestReportSource,
       closureReason: forecast.closureReason,
+      fixedInboundPolicy: forecast.fixedInboundPolicy,
+      quantitySemantics: forecast.fixedInboundPolicy
+        ? "fixed_daily_inbound_not_stock_subtracted"
+        : "smart_batch_after_peak_demand_safety_and_latest_closing_stock",
     };
   });
   const messageBody = buildWarehouseKioskBreadDispatchMessage({ orderDate, locations: dispatchLocations });
@@ -671,10 +712,13 @@ const enqueueWarehouseKioskBreadDispatch = async (
     sku_code: "BMQ-001",
     report_product_code: "banh_mi_que",
     formula_version: vehicleForecast.formulaVersion,
+    fixed_policy_count: fixedInboundPolicies.length,
     locations: dispatchLocations,
     warnings,
     quantity_semantics: {
-      order: "smart_20_stick_pate_batch_after_peak_demand_safety_and_latest_closing_stock",
+      order: "per_location_policy_snapshot",
+      fixed_policy: "fixed_daily_inbound_not_stock_subtracted",
+      formula: "smart_20_stick_pate_batch_after_peak_demand_safety_and_latest_closing_stock",
       makeup: "kiosk_shortage_quantity",
       exchange: "kiosk_returns_quantity_plus_waste_quantity",
     },
@@ -820,18 +864,28 @@ serve(async (req) => {
       console.error(`[dealer-warehouse-notify] Daily digest queue failed: ${digestError}`);
     }
     try {
-      await enqueueDailyBreadOrder(supabase, now);
-      breadOrderQueued = true;
+      const orderDate = nextVietnamDateKey(now);
+      if (!orderDate) throw new Error("Unable to resolve Vietnam bread-order date");
+      const fixedInboundPolicies = await readFixedInboundPolicies(supabase, orderDate);
+      try {
+        await enqueueDailyBreadOrder(supabase, now, fixedInboundPolicies);
+        breadOrderQueued = true;
+      } catch (error) {
+        breadOrderError = String(error instanceof Error ? error.message : error).slice(0, 500);
+        console.error(`[dealer-warehouse-notify] Daily bread-order queue failed: ${breadOrderError}`);
+      }
+      try {
+        await enqueueWarehouseKioskBreadDispatch(supabase, now, fixedInboundPolicies);
+        kioskBreadDispatchQueued = true;
+      } catch (error) {
+        kioskBreadDispatchError = String(error instanceof Error ? error.message : error).slice(0, 500);
+        console.error(`[dealer-warehouse-notify] Warehouse kiosk bread dispatch queue failed: ${kioskBreadDispatchError}`);
+      }
     } catch (error) {
-      breadOrderError = String(error instanceof Error ? error.message : error).slice(0, 500);
-      console.error(`[dealer-warehouse-notify] Daily bread-order queue failed: ${breadOrderError}`);
-    }
-    try {
-      await enqueueWarehouseKioskBreadDispatch(supabase, now);
-      kioskBreadDispatchQueued = true;
-    } catch (error) {
-      kioskBreadDispatchError = String(error instanceof Error ? error.message : error).slice(0, 500);
-      console.error(`[dealer-warehouse-notify] Warehouse kiosk bread dispatch queue failed: ${kioskBreadDispatchError}`);
+      const policyError = String(error instanceof Error ? error.message : error).slice(0, 500);
+      breadOrderError = policyError;
+      kioskBreadDispatchError = policyError;
+      console.error(`[dealer-warehouse-notify] Fixed inbound policy snapshot failed: ${policyError}`);
     }
   }
 
