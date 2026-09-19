@@ -3,8 +3,8 @@
 // budget, scoring, pairing and sanitization logic is exercised deterministically.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { JEV_DATASET, JEV_DATASET_VERSION, casesForSplit, type JevDatasetCase } from './jev-dataset.ts';
-import { matchExactBounded } from './jev.ts';
+import { JEV_DATASET, JEV_DATASET_VERSION, JEV_FRESH_HOLDOUT_IDS, casesForIds, casesForSplit, type JevDatasetCase } from './jev-dataset.ts';
+import { matchExactBounded, screenBoundedQuestion } from './jev.ts';
 import {
   BENCHMARK_CATALOG, BENCHMARK_DEFAULT_MAX_REQUESTS, BENCHMARK_HARD_MAX_REQUESTS, BenchmarkBudgetExhausted,
   benchmarkConfigFromEnv, deterministicBounded, laneBRunner, main, runJevBenchmark,
@@ -29,6 +29,37 @@ test('dataset is synthetic, versioned, balanced and split into tune and holdout'
   assert.ok(JEV_DATASET.some((entry) => entry.expected.kind === 'bounded'));
   assert.ok(JEV_DATASET.some((entry) => entry.expected.kind === 'fallback'));
   assert.ok(JEV_DATASET.every((entry) => entry.question.length > 0 && (entry.split === 'tune' || entry.split === 'holdout')));
+});
+
+test('every dataset case carries the screen reason its expectation allows', () => {
+  // A bounded case must reach Jev (screen ok); a fallback case either pins the exact
+  // deterministic rejection or explicitly allows the model to decide (`screen: null`).
+  for (const entry of JEV_DATASET) {
+    const screen = screenBoundedQuestion(entry.question).reason;
+    if (entry.expected.kind === 'bounded') {
+      assert.equal(screen, 'ok', `${entry.id} must be eligible, got ${screen}`);
+    } else if (entry.expected.screen !== null) {
+      assert.equal(screen, entry.expected.screen, `${entry.id} screen mismatch`);
+    }
+  }
+});
+
+test('fresh frozen holdout is separate, synthetic and mixes clean paraphrases with tricky unsupported questions', () => {
+  const fresh = casesForIds(JEV_FRESH_HOLDOUT_IDS);
+  assert.equal(fresh.length, JEV_FRESH_HOLDOUT_IDS.length);
+  assert.equal(new Set(JEV_FRESH_HOLDOUT_IDS).size, JEV_FRESH_HOLDOUT_IDS.length, 'frozen ids must be unique');
+  // Fresh: no id was part of the earlier tune/diagnosis set.
+  const earlier = new Set(['t02', 't03', 't05', 't07', 'h05', 'h07', 'h08', 'h09']);
+  for (const entry of fresh) assert.equal(earlier.has(entry.id), false, `${entry.id} must be a fresh case`);
+  for (const entry of fresh) assert.equal(entry.split, 'holdout');
+  const clean = fresh.filter((entry) => entry.expected.kind === 'bounded');
+  const tricky = fresh.filter((entry) => entry.expected.kind === 'fallback');
+  assert.ok(clean.length >= 4, 'fresh holdout needs clean bounded paraphrases');
+  assert.ok(tricky.length >= 6, 'fresh holdout needs tricky unsupported questions');
+  // Every clean case must pass the conservative screen; every tricky case must be
+  // rejected either by the screen or by the model's own support answer.
+  for (const entry of clean) assert.equal(screenBoundedQuestion(entry.question).eligible, true, entry.id);
+  assert.ok(tricky.some((entry) => entry.expected.kind === 'fallback' && entry.expected.screen === null), 'at least one tricky case must be decided by the model');
 });
 
 test('lane B reuses the actual enabled deterministic matcher and misses paraphrases', () => {

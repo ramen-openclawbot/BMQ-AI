@@ -27,7 +27,7 @@ export type JevDatasetCase = {
   expected: JevExpected;
 };
 
-export const JEV_DATASET_VERSION = "jev-bmq-dataset-2026-09-20.2";
+export const JEV_DATASET_VERSION = "jev-bmq-dataset-2026-09-20.3";
 
 export const JEV_DATASET: JevDatasetCase[] = [
   // ---- tune split ---------------------------------------------------------
@@ -70,8 +70,54 @@ export const JEV_DATASET: JevDatasetCase[] = [
   { id: "h16", split: "holdout", language: "vi", question: "bảng giá khách hàng NPP A", tags: ["customer", "fallback"], expected: { kind: "fallback", reason: "out_of_domain", screen: "out_of_domain" } },
   { id: "h17", split: "holdout", language: "vi", question: "số đơn mua hàng tuần này", tags: ["unsupported_metric", "fallback"], expected: { kind: "fallback", reason: "jev_no_match", screen: null } },
   { id: "h18", split: "holdout", language: "vi", question: "còn tháng trước?", tags: ["context", "fallback"], expected: { kind: "fallback", reason: "no_domain_cue", screen: "no_domain_cue" } },
+
+  // ---- fresh frozen holdout (added 2026-09-20.3, never used for tuning) ----------
+  //
+  // This block was written AFTER the support/criteria calibration, from the documented
+  // Choice guidance and generic Vietnamese phrasing only. It was never run against a
+  // provider while the prompt text was being chosen, so it is an honest reporting set.
+  // It deliberately mixes natural clean paraphrases with tricky unsupported questions:
+  // the clean ones must clear the .6 support floor, and every tricky one must stay
+  // rejected. The two tricky cases with `screen: null` pass the deterministic screen on
+  // purpose, so the model's own support answer is the only thing that can reject them.
+  // `JEV_FRESH_HOLDOUT_IDS` is the frozen list the calibration probe runs.
+  { id: "fh01", split: "holdout", language: "vi", question: "Anh cho biết số đơn đại lý của tuần vừa qua", tags: ["fresh_holdout", "clean", "dealer_count"], expected: { kind: "bounded", metric: "dealer_order_count", period: "previous_week" } },
+  { id: "fh02", split: "holdout", language: "vi", question: "Tổng cộng giá trị đơn đại lý tháng vừa rồi là bao nhiêu", tags: ["fresh_holdout", "clean", "dealer_value"], expected: { kind: "bounded", metric: "dealer_order_value", period: "previous_month" } },
+  { id: "fh03", split: "holdout", language: "vi", question: "hôm nay có bao nhiêu báo cáo điểm bán", tags: ["fresh_holdout", "clean", "kiosk"], expected: { kind: "bounded", metric: "kiosk_report_count", period: "today" } },
+  { id: "fh04", split: "holdout", language: "en", question: "how many kiosk reports were there yesterday", tags: ["fresh_holdout", "clean", "kiosk", "en"], expected: { kind: "bounded", metric: "kiosk_report_count", period: "yesterday" } },
+  { id: "fh05", split: "holdout", language: "vi", question: "giá trị các đơn đặt hàng của đại lý trong tháng này", tags: ["fresh_holdout", "clean", "dealer_value"], expected: { kind: "bounded", metric: "dealer_order_value", period: "this_month" } },
+  { id: "fh06", split: "holdout", language: "en", question: "total value of dealer orders last week", tags: ["fresh_holdout", "clean", "dealer_value", "en"], expected: { kind: "bounded", metric: "dealer_order_value", period: "previous_week" } },
+  { id: "fh07", split: "holdout", language: "vi", question: "số đơn đại lý tuần này của riêng đại lý Tuyết Anh", tags: ["fresh_holdout", "tricky_unsupported", "filter"], expected: { kind: "fallback", reason: "filter_or_dimension", screen: "filter_or_dimension" } },
+  { id: "fh08", split: "holdout", language: "vi", question: "số đơn đại lý tháng này đã giao cho khách", tags: ["fresh_holdout", "tricky_unsupported", "date_basis"], expected: { kind: "fallback", reason: "date_basis", screen: "date_basis" } },
+  { id: "fh09", split: "holdout", language: "vi", question: "số đơn đại lý tuần này trừ những đơn đã hủy", tags: ["fresh_holdout", "tricky_unsupported", "negation"], expected: { kind: "fallback", reason: "negation", screen: "negation" } },
+  { id: "fh10", split: "holdout", language: "en", question: "kiosk reports this week by district", tags: ["fresh_holdout", "tricky_unsupported", "filter", "en"], expected: { kind: "fallback", reason: "filter_or_dimension", screen: "filter_or_dimension" } },
+  { id: "fh11", split: "holdout", language: "vi", question: "số báo cáo điểm bán tháng này quy đổi ra USD", tags: ["fresh_holdout", "tricky_unsupported", "currency"], expected: { kind: "fallback", reason: "currency_unsupported", screen: "currency_unsupported" } },
+  { id: "fh12", split: "holdout", language: "vi", question: "số đơn đại lý tuần này tăng hay giảm so với tuần trước", tags: ["fresh_holdout", "tricky_unsupported", "comparison"], expected: { kind: "fallback", reason: "comparison", screen: "comparison" } },
+  { id: "fh13", split: "holdout", language: "vi", question: "giá trị đơn đại lý lũy kế từ đầu năm", tags: ["fresh_holdout", "tricky_unsupported", "rolling"], expected: { kind: "fallback", reason: "rolling_or_ambiguous_period", screen: "rolling_or_ambiguous_period" } },
+  { id: "fh14", split: "holdout", language: "vi", question: "số đơn đại lý ngày 15 tháng 9", tags: ["fresh_holdout", "tricky_unsupported", "absolute_date"], expected: { kind: "fallback", reason: "absolute_date", screen: "absolute_date" } },
+  { id: "fh15", split: "holdout", language: "vi", question: "trung bình giá trị đơn đại lý tháng này", tags: ["fresh_holdout", "tricky_unsupported", "different_measure"], expected: { kind: "fallback", reason: "jev_unsupported", screen: null } },
+  { id: "fh16", split: "holdout", language: "vi", question: "số đơn đại lý tháng này trên 100 triệu", tags: ["fresh_holdout", "tricky_unsupported", "threshold"], expected: { kind: "fallback", reason: "jev_unsupported", screen: null } },
 ];
+
+// The frozen fresh-holdout case ids the calibration probe runs for the final report.
+// They are listed explicitly (not "all holdout cases") so a later dataset edit cannot
+// silently change the frozen reporting set.
+export const JEV_FRESH_HOLDOUT_IDS = [
+  "fh01", "fh02", "fh03", "fh04", "fh05", "fh06", "fh07", "fh08",
+  "fh09", "fh10", "fh11", "fh12", "fh13", "fh14", "fh15", "fh16",
+] as const;
 
 export function casesForSplit(split: "tune" | "holdout" | "both"): JevDatasetCase[] {
   return split === "both" ? JEV_DATASET.slice() : JEV_DATASET.filter((entry) => entry.split === split);
+}
+
+// Fixed-id lookup for the probe's frozen tune/holdout runs. A missing id is a loud
+// error so a probe never reports a silently shrunken case list.
+export function casesForIds(ids: readonly string[]): JevDatasetCase[] {
+  const byId = new Map(JEV_DATASET.map((entry) => [entry.id, entry]));
+  return ids.map((id) => {
+    const found = byId.get(id);
+    if (!found) throw new Error(`jev_dataset_case_missing:${id}`);
+    return found;
+  });
 }

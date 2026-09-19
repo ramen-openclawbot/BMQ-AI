@@ -135,7 +135,7 @@ export type BenchmarkReport = {
   notes: string[];
 };
 
-export const JEV_BENCHMARK_VERSION = "jev-bmq-benchmark-2026-09-20.2";
+export const JEV_BENCHMARK_VERSION = "jev-bmq-benchmark-2026-09-20.3";
 
 // Lane B is exactly the runtime's enabled deterministic matcher; there is no second,
 // disconnected comparator that could drift from the shipped rule.
