@@ -179,6 +179,14 @@ export const JEV_OPTION_SETS: Record<string, Record<string, string>> = {
   support: JEV_SUPPORT_CRITERIA,
 };
 export const JEV_QUESTION_IDS = ["metric", "period", "support"] as const;
+// A documented choice answer is exactly {choice, probabilities, type}. TypeSafe's own
+// primitive documents an additional optional `confidence` field on a choice answer
+// (https://docs.typesafe.ai/primitives/choice.md), and the live Gateway response was
+// observed to carry exactly one extra answer field. That one known optional field is
+// accepted below ONLY as a finite number in [0, 1]; every other unknown answer field is
+// still rejected, and confidence is NEVER consumed as the winning probability.
+export const JEV_ANSWER_REQUIRED_FIELDS = "choice,probabilities,type";
+export const JEV_ANSWER_OPTIONAL_FIELD = "confidence";
 // Each question is self-contained: an independent question cannot see the others'
 // answers, so the bounded metrics and the six periods are restated in every prompt.
 export const JEV_INSTRUCTIONS: Record<string, string> = {
@@ -311,9 +319,11 @@ function gatewayCost(metadata: unknown): number | null {
 // Full schema validation of the documented Gateway response. Unknown model, wrong
 // answer type, missing/extra question, unknown/extra choice, missing or extra
 // probability keys, non-finite or out-of-range probabilities, a tied/non-top choice,
-// a non-normalised distribution and malformed usage are all refused. The finite
-// exhaustive distribution check runs for every question, and only the uniquely top
-// probability of each USED answer is consumed.
+// a non-normalised distribution and malformed usage are all refused. The one known
+// optional answer field `confidence` is accepted only as a finite [0,1] number and is
+// otherwise ignored; any other unknown answer key is refused. The finite exhaustive
+// distribution check runs for every question, and only the uniquely top probability of
+// each USED answer is consumed — never `confidence`.
 export function validateJevResponse(body: unknown): JevDecision {
   const root = object(body, "jev_invalid_response");
   if (root.model !== JEV_MODEL) throw new AnalyticsError("jev_invalid_response");
@@ -325,7 +335,10 @@ export function validateJevResponse(body: unknown): JevDecision {
     const expected = Object.keys(JEV_OPTION_SETS[id]);
     const answer = object(answers[id], "jev_invalid_response");
     if (answer.type !== "choice") throw new AnalyticsError("jev_invalid_response");
-    if (Object.keys(answer).sort().join(",") !== "choice,probabilities,type") throw new AnalyticsError("jev_invalid_response");
+    // Required keys must be exactly present; the known optional `confidence` is
+    // removed before the exact-key check so any OTHER unknown key still refuses.
+    if (Object.keys(answer).filter((key) => key !== JEV_ANSWER_OPTIONAL_FIELD).sort().join(",") !== JEV_ANSWER_REQUIRED_FIELDS) throw new AnalyticsError("jev_invalid_response");
+    if (Object.hasOwn(answer, JEV_ANSWER_OPTIONAL_FIELD) && !finiteUnit(answer.confidence)) throw new AnalyticsError("jev_invalid_response");
     const choice = answer.choice;
     if (typeof choice !== "string" || !Object.hasOwn(JEV_OPTION_SETS[id], choice)) throw new AnalyticsError("jev_invalid_response");
     const probabilities = object(answer.probabilities, "jev_invalid_response");

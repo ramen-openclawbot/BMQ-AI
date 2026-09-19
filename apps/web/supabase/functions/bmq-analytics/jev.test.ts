@@ -39,6 +39,14 @@ const probabilityMap = (id: string, choice: string, top: number) => {
   return Object.fromEntries(keys.map((key) => [key, key === choice ? top : (1 - top) / (keys.length - 1)]));
 };
 const choiceAnswer = (id: string, choice: string, top: number) => ({ type: 'choice', choice, probabilities: probabilityMap(id, choice, top) });
+// The TypeSafe choice primitive documents an optional `confidence` number on an
+// answer, and the live Gateway response carried exactly one extra answer field. It is
+// accepted only as a finite [0,1] number and never replaces the winning probability.
+const withConfidence = (value: unknown) => {
+  const root: any = jevResponse('dealer_order_count', 'previous_week', 'supported_unqualified');
+  for (const id of ['metric', 'period', 'support']) root.answers[id] = { ...root.answers[id], confidence: value };
+  return root;
+};
 const jevResponse = (metric: string, period: string, support: string, top = 0.99, overrides: Record<string, unknown> = {}) => ({
   model: JEV_MODEL,
   answers: { metric: choiceAnswer('metric', metric, top), period: choiceAnswer('period', period, top), support: choiceAnswer('support', support, top) },
@@ -232,6 +240,39 @@ test('response schema is validated exhaustively per question and only the top pr
   for (const [label, body] of cases) assert.throws(() => validateJevResponse(body), AnalyticsError, label);
 });
 
+test('the documented optional confidence field is accepted only as a finite [0,1] number and never replaces the winning probability', () => {
+  // Absence is still the documented required shape and must keep working.
+  assert.equal(validateJevResponse(jevResponse('dealer_order_count', 'previous_week', 'supported_unqualified')).metricProbability, 0.99);
+  for (const confidence of [0, 1, 0.5]) {
+    const parsed = validateJevResponse(withConfidence(confidence));
+    assert.equal(parsed.metric, 'dealer_order_count', String(confidence));
+    assert.equal(parsed.metricProbability, 0.99, `confidence ${confidence} must not replace the metric probability`);
+    assert.equal(parsed.period, 'previous_week', String(confidence));
+    assert.equal(parsed.periodProbability, 0.99, `confidence ${confidence} must not replace the period probability`);
+    assert.equal(parsed.supportProbability, 0.99, `confidence ${confidence} must not replace the support probability`);
+  }
+  const rejected: [string, unknown][] = [
+    ['null', null], ['string', '1'], ['NaN', Number.NaN], ['Infinity', Infinity],
+    ['negative', -0.01], ['above one', 1.01],
+  ];
+  for (const [label, confidence] of rejected) {
+    assert.throws(() => validateJevResponse(withConfidence(confidence)), AnalyticsError, `confidence ${label}`);
+  }
+  // The one known optional field never excuses any other unknown answer key.
+  const extra = withConfidence(1) as any;
+  extra.answers.metric.note = 'x';
+  assert.throws(() => validateJevResponse(extra), AnalyticsError, 'unknown key beside confidence');
+});
+
+test('confidence 1 with a .58 support probability still rejects with jev_low_confidence', () => {
+  const body: any = jevResponse('dealer_order_count', 'previous_week', 'supported_unqualified');
+  body.answers.support = { ...choiceAnswer('support', 'supported_unqualified', 0.58), confidence: 1 };
+  const parsed = validateJevResponse(body);
+  assert.equal(parsed.support, 'supported_unqualified');
+  assert.equal(parsed.supportProbability, 0.58, 'the winning probability, not confidence, is used');
+  assert.deepEqual(applyJevDecision(parsed, ['dealer_order_count']), { rejected: 'jev_low_confidence' });
+});
+
 // ---- Client contract -----------------------------------------------------------
 test('fixed HTTPS contract sends exactly one batched request with the server key and the bounded utterance only', async () => {
   const seen: { url: string; init: any }[] = [];
@@ -358,6 +399,21 @@ test('every unsafe provider outcome falls back with the exact reason and a singl
     assert.equal(telemetry.fallback, reason, label);
     assert.equal(calls, 1, `${label}: exactly one provider call, no retries`);
   }
+});
+
+test('confidence 1 on a .58 support answer still falls back to the planner with jev_low_confidence', async () => {
+  const body: any = jevResponse('dealer_order_count', 'previous_week', 'supported_unqualified');
+  body.answers.support = { ...choiceAnswer('support', 'supported_unqualified', 0.58), confidence: 1 };
+  const telemetry = jevTelemetry(true)!;
+  const plan = await planWithJev({
+    question: 'tuần rồi có bao nhiêu đơn đại lý', metricIds: ['dealer_order_count'], telemetry, signal: new AbortController().signal,
+    options: jevOptions(async () => json(body)),
+  });
+  assert.equal(plan, null);
+  assert.equal(telemetry.attempted, true);
+  assert.equal(telemetry.decided, false);
+  assert.equal(telemetry.supportProbability, 0.58, 'the winning probability, not confidence, drives the floor');
+  assert.equal(telemetry.fallback, 'jev_low_confidence');
 });
 
 test('a metric absent from the live catalog is rejected even when the model answers confidently', async () => {
