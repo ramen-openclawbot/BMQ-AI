@@ -234,3 +234,158 @@ populated/empty/error/reset/long + 44px reset target + EN label, flags on and of
 `tsc -p generated/tsc-edge/tsconfig.json` (strict) type-checks the changed Edge
 functions with 0 errors; no Deno binary is available, so no Deno check was run; no
 production activation, deploy or owner login was performed.
+
+## Selective Jev semantic planner (local trial, default off)
+
+Owner approved a **LOCAL-ONLY** trial of Jev as a selective semantic planner on
+2026-09-20 (coordinator review notes folded in on the same date). No build, commit,
+push, deploy, paid provider request or BMQ data transfer was performed. Contract
+reference (verified 2026-09-20, AI Gateway shape):
+https://vercel.com/docs/ai-gateway/modalities/evaluation
+
+`BMQ_JEV_ENABLED` (default false) enables one fixed, direct HTTPS call to
+`https://ai-gateway.vercel.sh/v1/evaluate` with model `typesafe-ai/jev`, no SDK,
+`redirect: "error"`, `providerOptions.gateway.zeroDataRetention: true` and
+`only: ["typesafe-ai"]`. The server-only `AI_GATEWAY_API_KEY` is the only credential;
+the caller bearer token is never read or forwarded. When the flag is on but the key is
+absent, Jev is skipped (fail closed) and the planner is unchanged.
+`BMQ_JEV_KILL_SWITCH=true` is an independent immediate kill switch that forces Jev off
+even while the rollout flag is on.
+
+### Exact rules first, then one bounded semantic request
+
+The fast lane, cost lane, customer lane, validated conversation continuation, example
+workflow and UNC/image lane all run first. The Jev branch is reached only for a first
+turn with no page filters and an empty `history`. The signed-context **capability**
+being enabled (`contextEnabled`: production always supplies the server secret, the user
+id and a conversation id) is not an active inbound context, so it does not disable Jev;
+`core.Input` stores any signed/structured context only inside `history`, and a non-empty
+history skips Jev. Inside the branch an anchored deterministic bounded rule is applied
+before any provider call. The old trial computed a metric+period with a regex and asked
+Jev to confirm a known answer; that oracle is gone.
+
+1. **Deterministic exact bounded rules.** `matchExactBounded` recognises the anchored
+   3-metric x 6-period utterances (for example `số đơn đại lý tuần trước`,
+   `dealer ordered value last month`, `kiosk report count this month`) and answers them
+   with no Jev call. It is active only when the trial flag is on, so the flag-off
+   pipeline keeps its previous planner behavior. The same function is benchmark lane B.
+2. **Conservative eligibility screen** (`screenBoundedQuestion`) is a rejection gate
+   only — it never returns a metric or a period. It refuses comparison/trend/causal
+   wording, filters and dimensions (branch/store/customer/status/channel/category/
+   district/`riêng`/`only`/`unique`), a unit/quantity or product reading
+   (`số lượng`, `quantity`, `units`, `bánh`, `product`, `mặt hàng`, … — the operational
+   measures count submitted orders/reports, not product quantities), negation or
+   exception, a different date basis (delivered/received/created/invoice), a rolling or
+   accumulated range (`tính đến`, `so far`, `since`, `kỳ trước`, `ngày mai`), more than
+   one relative period, an absolute date/month/quarter/year, a currency conversion,
+   revenue/sales/profit/debt/cost/payment vocabulary, the documentation/customer/image
+   lanes, prompt injection, an over-long utterance and any utterance with no
+   bounded-domain cue.
+3. **One batched request** with three independent `choice` questions over the same
+   bounded utterance — never history, catalog rows, financial values, SQL, generated
+   dates or the caller JWT. Each question is self-contained (an independent question
+   cannot see the others):
+   - `metric`: `dealer_order_count`, `dealer_order_value`, `kiosk_report_count`,
+     `none`, `unsupported`;
+   - `period`: `today`, `yesterday`, `this_week`, `previous_week`, `this_month`,
+     `previous_month`, `not_stated`;
+   - `support`: `supported_unqualified`, `unsupported`, `not_stated` — the model must
+     reject any extra condition rather than let code silently discard it.
+4. **Code composes** the three answers. A plan is used only when support is
+   `supported_unqualified`, the metric is one of the three bounded metrics present in
+   the live catalog, the period is one of the six, and every used answer is the unique
+   top of a finite, normalised distribution above the provisional floor
+   (`JEV_PROBABILITY_THRESHOLD = 0.6`, explicitly uncalibrated). `none`, `not_stated`,
+   `unsupported`, an unknown value, an absent catalog metric, a low probability, a
+   malformed body, an HTTP error, a 429, a timeout, an expired deadline and an open
+   circuit all return null, and the caller runs the unchanged Luna planner with the
+   exact original input. Parent cancellation is propagated and never becomes a fallback.
+
+Business definitions are stated in the registry and prompts: dealer count/value are
+**non-test submitted** dealer orders counted by submitted date in Vietnam time, not
+delivered orders, not units, not revenue or collections; kiosk report count is counted
+by **report date**, not a created/submitted timestamp. A different date basis or a
+currency-converted amount is unsupported.
+
+### Bounds, reliability and telemetry
+
+The provider deadline is bound to the remaining server budget (`deadlineAt`, derived
+from the existing 20s request abort) and hard-capped independently; one call, one
+deadline, no retries and no extra serialized provider calls. A short per-isolate
+circuit breaker opens after three consecutive provider failures and skips Jev for a 30s
+cooldown, then probes once. The 2500 ms body deadline covers a stalled stream and
+cleanup never awaits a provider `cancel()` promise. The response is validated
+exhaustively (exact `model`, exactly the three answer keys, `choice` type, exact
+probability key sets, finite 0..1 values, a uniquely top choice per question, a
+normalised distribution, numeric usage). `JEV_PROMPT_VERSION` and
+`JEV_REGISTRY_VERSION` are reported in `provenance.jev` and the audit event, together
+with the chosen metric/period/support, per-answer top probabilities, threshold, screen
+reason, circuit state, Gateway-reported cost, separate Jev tokens and per-stage
+wall-clock timings. The audit never logs the question, provider body, key or business
+rows, and the `jev` field remains absent when the flag is off.
+
+### Benchmark harness (opt-in, hard-capped, sanitized)
+
+`jev-dataset.ts` is a synthetic, versioned `tune`/`holdout` labelled set (37 cases; no
+real BMQ data). `jev-benchmark.ts` compares three lanes case-by-case, interleaved so a
+budget stop cannot favour a lane:
+
+- **A** the existing warehouse pipeline (deterministic routes then the Luna planner)
+  with Jev disabled;
+- **B** the actual enabled deterministic matcher `matchExactBounded`, not a second
+  comparator that could drift;
+- **C** the Jev-gated path, scored separately by path (`jev` vs `planner` vs
+  `exact_rule`) so an LLM fallback is never credited as a Jev plan.
+
+The synthetic warehouse stub uses the real BMQ operational descriptors and units
+(`sme-data-platform/src/sme_platform/bmq_semantic.py`): dealer order count and kiosk
+report count are `count`, dealer ordered value is `VND` (non-test submitted orders by
+submitted date / submitted reports by report_date), plus the `controlled_revenue` ledger
+in `VND`; it is not an all-count catalog. This remains a synthetic-warehouse/subset
+figure, not browser or production end-to-end performance.
+
+`BMQ_JEV_BENCH_ENABLED=true` is required before lanes A and C make any real provider
+call. The request budget is a shared object reserved **before every provider dispatch**
+inside the gated fetch used by both the Jev client and the planner model; a failing,
+timed-out or erroring attempt still consumes its reservation, so the cap defaults to
+and is hard-limited at 60 and cannot be disabled by a NaN. Every attempt, including a
+failed or timed-out provider call, contributes its real wall-clock latency (never 0),
+so failures remain visible in p50/p95. The report includes the explicit paired subset
+where every requested lane produced a non-skipped, non-error result. Cost is split:
+`cost.jev` is the summed Gateway-reported Jev cost (null when unknown or unused) and
+`cost.planner` is null because the planner does not report per-request cost, so
+`cost.total` is null (unknown) when only the Jev part is known — a partial Jev figure is
+never labelled the total pipeline cost. Run it with `jev-benchmark-cli.ts`; the free
+dry-run artifact at `generated/jev-semantic/benchmark-dry-run.json` shows lane B =
+29/37 = 0.784 on the synthetic set.
+
+Local verification: 196 analytics tests pass (`node --experimental-strip-types --test
+apps/web/supabase/functions/bmq-analytics/*.test.ts`): `jev.test.ts` 30,
+`jev-benchmark.test.ts` 14, `handler.test.ts` 11, plus the untouched existing suite. All
+provider calls are mocked through an injected fetcher. The coordinator independently
+verified **217/217** tests (196 analytics + 21 reviewer tests) after the repair.
+Final `deno check --cached-only` with the existing Deno 2.9.6 binary passes for the
+Edge entrypoint and Jev/benchmark modules (including transitive dependencies).
+The worker's Deno 1.30.3 limitation report does not describe the coordinator runtime;
+see `generated/jev-semantic/coordinator/final-deno.log`. A free
+screen-only probe of the coordinator's `holdout.json`
+(`generated/jev-semantic/screen-holdout-probe.json`) deterministically rejects **all 26**
+negative cases via the screen (including `reviewer-20`,
+`Số lượng bánh mà đại lý đặt tháng trước`, now refused as `units_or_quantity`); the 6
+positive paraphrases all pass the screen and none is exact-matched, so they genuinely
+require the semantic model. A permanent regression (`jev.test.ts`, plus the
+production-shaped handler test) proves that a real first turn with the context capability
+enabled — secret, user and conversation id present, `history: []` — still uses
+model-selected Jev and the exact rules, while a genuine follow-up history still skips
+Jev. No live provider request, measured Jev accuracy, latency gain or cost figure is
+claimed. Evidence: `generated/jev-semantic/`.
+
+## Honest limitation (read before any paid trial)
+
+The screen, the anchored exact rules and the bounded registry keep Jev inside a closed
+3x6 answer space, and the validator/composition reject detected unsupported conditions. This does not
+guarantee that the model detects every qualifier. It is still unmeasured: the
+probability floor is provisional and not calibrated on BMQ data, the labelled set is
+synthetic, and no real comparison of lanes A/B/C exists yet. The flag stays off until
+the coordinator runs the opt-in benchmark on an approved dataset, compares accuracy,
+p50/p95, token cost and failure modes, and confirms no qualifier or permission is lost.

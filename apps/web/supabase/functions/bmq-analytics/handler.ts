@@ -2,10 +2,11 @@ import { presentResponse } from './presentation.ts';
 import { AnalyticsError, ResultCache, parseInput } from "./core.ts";
 import { runAnalytics, type Dependencies } from "./service.ts";
 import { runWarehouse } from "./warehouse.ts";
+import type { JevOptions } from "./jev.ts";
 import { warehouseClient, warehouseImage, WarehouseError, warehouseMessage } from "../_shared/warehouse.ts";
 
 type Identity = Pick<Dependencies, "scope" | "query"> & { signingSecret?: string };
-type Config = { warehouse?: { enabled: () => boolean; url: () => string }; context?: { enabled: () => boolean }; enabled: () => boolean; authenticate: (request: Request, signal: AbortSignal) => Promise<Identity>; model: Dependencies["model"]; audit: (event: Record<string, unknown>) => void };
+type Config = { warehouse?: { enabled: () => boolean; url: () => string }; context?: { enabled: () => boolean }; jev?: JevOptions; enabled: () => boolean; authenticate: (request: Request, signal: AbortSignal) => Promise<Identity>; model: Dependencies["model"]; audit: (event: Record<string, unknown>) => void };
 const origins = new Set(["https://ai.banhmique.vn", "http://localhost:5173", "http://localhost:8080", "http://localhost:3000"]);
 const errors: Record<string, string> = {
   disabled: "Phân tích dữ liệu chưa được bật cho BMQ AI.", unauthorized: "Phiên đăng nhập đã hết hạn. Anh đăng nhập lại nhé.",
@@ -60,6 +61,10 @@ export function createHandler(config: Config) {
     if (origin && !origins.has(origin)) return json({ error: english ? "Origin not allowed." : "Origin không được phép." }, 403);
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers });
     if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
+    // One absolute deadline for the whole request. The selective Jev provider call is
+    // bounded by the remaining budget from this same deadline, so it can never extend
+    // the existing 20s server abort.
+    const deadlineAt = Date.now() + 20000;
     const signal = AbortSignal.any([req.signal, AbortSignal.timeout(20000)]);
     let ownerKey: string | null = null;
     try {
@@ -100,7 +105,7 @@ export function createHandler(config: Config) {
         return json({...diagnostic,answer:(english?"Warehouse connection verified for your owner session.\n\n":"Đã xác minh kết nối kho bằng phiên owner của anh.\n\n")+result.answer});
       }
       const result = config.warehouse?.enabled()
-        ? await runWarehouse(raw, warehouseClient(config.warehouse.url(), req.headers.get("authorization")!, signal), config.model, signal, identity.query, { contextEnabled: config.context?.enabled() === true, signingSecret: identity.signingSecret, userId: identity.scope.user })
+        ? await runWarehouse(raw, warehouseClient(config.warehouse.url(), req.headers.get("authorization")!, signal), config.model, signal, identity.query, { contextEnabled: config.context?.enabled() === true, signingSecret: identity.signingSecret, userId: identity.scope.user, jev: config.jev, deadlineAt })
         : await runAnalytics(raw, { ...identity, model: config.model, cache }, signal);
       signal.throwIfAborted();
       const presentationStarted = Date.now();
@@ -112,7 +117,13 @@ export function createHandler(config: Config) {
       // legacy analytics and UNC-image lanes never do. `in` narrows the provenance
       // union to the branch that declares the property, so read it without a cast.
       const contextAudit = 'contextAudit' in presented.provenance ? presented.provenance.contextAudit : null;
-      config.audit({ event: "bmq_analytics", requestId: result.requestId, userId: identity.scope.user, lane, model, elapsedMs, modelCalls, usage, context: contextAudit });
+      // Same `in`-operator narrowing as the context audit: only the reviewed warehouse
+      // lane declares `jev`, and the key is absent when the default-off flag is off, so
+      // the disabled audit shape stays unchanged (no `jev: null`).
+      const jevAudit = 'jev' in presented.provenance ? presented.provenance.jev ?? null : null;
+      // Separate Jev telemetry (option ids, probabilities, stage timings, token counts)
+      // never carries the question, prompt, provider body or server key.
+      config.audit({ event: "bmq_analytics", requestId: result.requestId, userId: identity.scope.user, lane, model, elapsedMs, modelCalls, usage, context: contextAudit, ...(jevAudit ? { jev: jevAudit } : {}) });
       return json(presented);
     } catch (error) {
       const code = signal.aborted ? "timeout" : (error instanceof AnalyticsError || error instanceof WarehouseError) ? error.code : "data_unavailable";

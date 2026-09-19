@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { createHandler } from './handler.ts';
 import { AnalyticsError } from './core.ts';
 import { COST_KINDS } from './cost.ts';
+import { JEV_MODEL, JEV_OPTION_SETS, JEV_PROBABILITY_THRESHOLD } from './jev.ts';
 
 const SECRET = 'handler-fixture-signing-secret-0123456789abcdef';
 const USER = 'owner-fixture';
@@ -57,13 +58,39 @@ function warehouseFetch(requests: any[]) {
 }
 const json = (value: unknown) => new Response(JSON.stringify(value), { status: 200, headers: { 'Content-Type': 'application/json' } });
 
-function makeHandler(overrides: { contextEnabled?: boolean; authenticate?: any; model?: any; requests?: any[]; audit?: any[] } = {}) {
+// Warehouse stub with the operational routing metric plus the two distinct revenue
+// measures, and a mocked Jev contract for the handler tests; the Jev provider is
+// always injected through config.jev.fetcher, never globalThis.fetch.
+const JEV_CATALOG = { metrics: { revenue: { label: 'Revenue', unit: 'VND' }, controlled_revenue: { label: 'Controlled revenue', unit: 'VND' }, dealer_order_count: { label: 'Dealer count', unit: 'count' } }, dimensions: { date: 'date' }, version: 'x' };
+function jevWarehouseFetch(requests: any[]) {
+  return async (input: any, init: any = {}) => {
+    const url = new URL(String(input));
+    if (url.pathname === '/v1/semantic') return json(JEV_CATALOG);
+    const body = init.body ? JSON.parse(String(init.body)) : undefined;
+    requests.push({ path: url.pathname, body, authorization: init.headers?.Authorization });
+    if (url.pathname === '/v1/query') return json({ rows: [{ dealer_order_count: '123', currency: 'VND' }], source: 'Supabase', source_observed_at: '2026-09-16T00:00:00Z', snapshot_id: 's1', definition: 'not audited' });
+    return json({});
+  };
+}
+const jevProbabilities = (id: string, choice: string, top = 0.99) => {
+  const keys = Object.keys(JEV_OPTION_SETS[id]);
+  return Object.fromEntries(keys.map((key) => [key, key === choice ? top : (1 - top) / (keys.length - 1)]));
+};
+const jevChoice = (id: string, choice: string, top: number) => ({ type: 'choice', choice, probabilities: jevProbabilities(id, choice, top) });
+const jevBody = (metric: string, period: string, support: string, top = 0.99) => ({
+  model: JEV_MODEL,
+  answers: { metric: jevChoice('metric', metric, top), period: jevChoice('period', period, top), support: jevChoice('support', support, top) },
+  usage: { inputTokens: 275, outputTokens: 20 },
+});
+
+function makeHandler(overrides: { contextEnabled?: boolean; authenticate?: any; model?: any; requests?: any[]; audit?: any[]; jev?: any } = {}) {
   const requests = overrides.requests ?? [];
   const audit = overrides.audit ?? [];
   const handler = createHandler({
     enabled: () => true,
     warehouse: { enabled: () => true, url: () => 'https://warehouse.example/' },
     context: { enabled: () => overrides.contextEnabled !== false },
+    jev: overrides.jev,
     model: overrides.model ?? (async () => { throw new Error('model must not be called on the deterministic cost path'); }),
     authenticate: overrides.authenticate ?? (async (request: Request) => {
       if (request.headers.get('authorization') !== 'Bearer fixture-owner') throw new AnalyticsError('unauthorized', 401);
@@ -258,5 +285,107 @@ test('round 4: a fully explicit first-turn example reaches the warehouse as exam
     assert.equal(off.provenance.queries[0].question, 'month_totals');
     assert.equal(requestsOff.some((r) => r.body?.question === 'example_line'), false, 'the flag-off path must never resolve an example');
     assert.deepEqual(requestsOff.filter((r) => r.path === '/v1/cost').map((r) => r.body.question), ['month_totals']);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('Jev flag off keeps the planner path, omits the audit field and makes no provider request', async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: any[] = [];
+  const audit: any[] = [];
+  globalThis.fetch = jevWarehouseFetch(requests) as any;
+  try {
+    const { handler } = makeHandler({ requests, audit, model: async () => ({ value: { lane: 'abstain', queries: [], search: '', clarification: 'Anh nêu rõ chỉ số nhé.' }, usage }) });
+    const body = await (await post(handler, { language: 'vi', question: 'số đơn đại lý tuần này', conversationId: CONV, page, history: [] })).json();
+    assert.equal('jev' in body.provenance, false, 'flag off must not add any Jev field');
+    assert.equal(body.provenance.jev, undefined);
+    assert.equal(body.provenance.modelCalls, 1);
+    assert.equal(body.provenance.lane, 'abstain');
+    assert.equal(requests.some((r) => r.path.includes('evaluate')), false);
+    const event = audit.find((entry) => entry.event === 'bmq_analytics');
+    assert.ok(event);
+    assert.equal('jev' in event, false, 'disabled audit shape must stay unchanged');
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('Jev flag on routes an eligible question without a Luna call and audits separate telemetry', async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: any[] = [];
+  const audit: any[] = [];
+  const provider: any[] = [];
+  globalThis.fetch = jevWarehouseFetch(requests) as any;
+  try {
+    // Production always supplies the signed-context capability (secret + user +
+    // conversationId). That capability must not disable Jev on a first turn; only an
+    // actual non-empty signed history does. Keep the default (context enabled) here as
+    // the permanent regression for that production shape.
+    const { handler } = makeHandler({
+      requests, audit, model: async () => { throw new Error('planner must not run'); },
+      jev: { enabled: () => true, apiKey: () => 'server-key-fixture', fetcher: async (url: any, init: any) => { provider.push({ url: String(url), init }); return json(jevBody('dealer_order_count', 'previous_week', 'supported_unqualified')); } },
+    });
+    const body = await (await post(handler, { language: 'vi', question: 'tuần rồi có bao nhiêu đơn đại lý', conversationId: CONV, page, history: [] })).json();
+    assert.equal(provider.length, 1);
+    assert.equal(provider[0].url, 'https://ai-gateway.vercel.sh/v1/evaluate');
+    assert.equal(provider[0].init.headers.Authorization, 'Bearer server-key-fixture');
+    assert.equal(JSON.parse(provider[0].init.body).state, 'tuần rồi có bao nhiêu đơn đại lý');
+    assert.ok(!provider[0].init.body.includes('history'));
+    assert.equal(body.provenance.modelCalls, 0);
+    assert.equal(body.provenance.model, null);
+    assert.equal(body.provenance.jev.decided, true);
+    assert.equal(body.provenance.jev.metric, 'dealer_order_count');
+    assert.equal(body.provenance.jev.period, 'previous_week');
+    assert.equal(body.provenance.jev.support, 'supported_unqualified');
+    assert.equal(body.provenance.jev.threshold, JEV_PROBABILITY_THRESHOLD);
+    assert.deepEqual(body.provenance.jev.usage, { input: 275, output: 20 });
+    assert.deepEqual(body.provenance.usage, { input: 0, output: 0, cached: 0 });
+    assert.equal(requests.find((r) => r.path === '/v1/query').body.time_range, 'previous_week');
+    for (const key of ['catalogMs', 'warehouseMs', 'plannerMs', 'narrationMs', 'evaluateMs', 'totalMs']) assert.equal(typeof body.provenance.jev.timings[key], 'number', key);
+    for (const key of ['warehouseReads', 'plannerCalls', 'narrationCalls']) assert.equal(typeof body.provenance.jev.counts[key], 'number', key);
+    const event = audit.find((entry) => entry.event === 'bmq_analytics' && entry.jev);
+    assert.ok(event);
+    assert.equal(event.modelCalls, 0);
+    assert.equal(event.jev.decided, true);
+    assert.equal(event.jev.usage.input, 275);
+    assert.equal(event.model, null);
+    assert.equal(typeof event.jev.timings.totalMs, 'number');
+    const logged = JSON.stringify(audit);
+    assert.ok(!logged.includes('tuần rồi có bao nhiêu đơn đại lý'), 'audit must never log the question');
+    assert.ok(!logged.includes('server-key-fixture'), 'audit must never log the server key');
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('unauthorized requests never reach the Jev provider', async () => {
+  const originalFetch = globalThis.fetch;
+  const provider: any[] = [];
+  globalThis.fetch = (async () => { throw new Error('no warehouse call expected'); }) as any;
+  try {
+    const { handler } = makeHandler({ jev: { enabled: () => true, apiKey: () => 'server-key-fixture', fetcher: async (url: any) => { provider.push(String(url)); return json({}); } } });
+    const res = await post(handler, { language: 'vi', question: 'số đơn đại lý tuần trước', conversationId: CONV, page, history: [] }, 'Bearer wrong');
+    assert.equal(res.status, 401);
+    assert.equal(provider.length, 0);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('a low-confidence Jev answer falls back to the planner and audits only the reason', async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: any[] = [];
+  const audit: any[] = [];
+  globalThis.fetch = jevWarehouseFetch(requests) as any;
+  try {
+    const { handler } = makeHandler({
+      requests, audit, contextEnabled: false, model: async () => ({ value: { lane: 'abstain', queries: [], search: '', clarification: 'Anh nêu rõ chỉ số nhé.' }, usage }),
+      jev: { enabled: () => true, apiKey: () => 'k', fetcher: async () => json(jevBody('dealer_order_count', 'this_week', 'supported_unqualified', 0.55)) },
+    });
+    const body = await (await post(handler, { language: 'vi', question: 'tuần này có bao nhiêu đơn đại lý', conversationId: CONV, page, history: [] })).json();
+    assert.equal(body.provenance.modelCalls, 1);
+    assert.equal(body.provenance.jev.decided, false);
+    assert.equal(body.provenance.jev.fallback, 'jev_low_confidence');
+    const event = audit.find((entry) => entry.event === 'bmq_analytics');
+    assert.equal(event.jev.fallback, 'jev_low_confidence');
+    assert.equal(event.modelCalls, 1);
+    assert.equal(typeof event.jev.timings.plannerMs, 'number');
+    assert.equal(event.jev.counts.plannerCalls, 1);
+    const logged = JSON.stringify(audit);
+    assert.ok(!logged.includes('tuần này có bao nhiêu đơn đại lý'));
+    assert.ok(!logged.includes('provider detail'));
   } finally { globalThis.fetch = originalFetch; }
 });

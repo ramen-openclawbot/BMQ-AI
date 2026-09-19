@@ -19,6 +19,15 @@ Deno.serve(createHandler({
   // Rollbackable: default off keeps the legacy chat flow; enabling also requires
   // the coordinator-provisioned BMQ_CHAT_CONTEXT_SECRET.
   context: { enabled: () => Deno.env.get("BMQ_CHAT_CONTEXT_ENABLED") === "true" && contextSecretReady },
+  // Selective Jev routing stays default off. `BMQ_JEV_KILL_SWITCH=true` is an
+  // independent immediate kill switch that forces Jev off even when the rollout flag
+  // is on. When the flag is on but the server-only gateway key is absent, Jev is
+  // skipped (fail closed) and the planner is unchanged. The key is never the caller
+  // bearer token and is never logged or echoed.
+  jev: {
+    enabled: () => Deno.env.get("BMQ_JEV_ENABLED") === "true" && Deno.env.get("BMQ_JEV_KILL_SWITCH") !== "true",
+    apiKey: () => Deno.env.get("AI_GATEWAY_API_KEY") ?? "",
+  },
   model: openAIModel(Deno.env.get("OPENAI_API_KEY") ?? ""),
   authenticate: async (request, signal) => {
     const authorization = request.headers.get("authorization");
