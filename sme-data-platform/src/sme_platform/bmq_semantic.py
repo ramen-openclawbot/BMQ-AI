@@ -9,8 +9,9 @@ import threading
 
 from .supabase_sync import TENANT
 
-VERSION = 'bmq-operational-v2'
+VERSION = 'bmq-operational-v3'
 from . import bmq_business
+from . import bmq_kiosk_pricing
 METRICS = {
     'dealer_order_count': {
         'label': 'Dealer order count', 'label_vi': 'Số đơn đại lý', 'unit': 'count',
@@ -32,14 +33,103 @@ METRICS = {
     },
     'kiosk_reported_amount': {
         'label': 'Kiosk reported channel amount', 'label_vi': 'Số tiền theo kênh báo cáo điểm bán', 'unit': 'VND',
-        'description': 'SUM channel_rows.amount_vnd joined once to submitted reports by report_date; reported amount, not controlled revenue or cash collected. Never add to the revenue ledger.',
-        'description_vi': 'Tổng amount_vnd theo kênh của báo cáo đã gửi theo report_date; không phải doanh thu kiểm soát hay tiền mặt thực thu. Không cộng thêm vào sổ doanh thu.',
+        'description': 'SUM channel_rows.amount_vnd joined once to submitted reports by report_date; reported amount, not controlled revenue or cash collected. Never add to the revenue ledger. This is NOT doanh thu điểm bán: for kiosk revenue including Grab/ShopeeFood/beFood delivery use kiosk_sales_revenue.',
+        'description_vi': 'Tổng amount_vnd theo kênh của báo cáo đã gửi theo report_date; không phải doanh thu kiểm soát hay tiền mặt thực thu. Không cộng thêm vào sổ doanh thu. Đây KHÔNG phải doanh thu điểm bán: hỏi doanh thu điểm bán gồm cả kênh giao hàng Grab/ShopeeFood/beFood thì dùng kiosk_sales_revenue.',
         'source': 'Supabase.kiosk_daily_reports + kiosk_daily_report_channel_rows', 'dimensions': ['date', 'location'],
+    },
+    'kiosk_sales_revenue': {
+        'label': 'Kiosk derived sales revenue', 'label_vi': 'Doanh thu bán hàng điểm bán (suy ra theo giá kênh)', 'unit': 'VND',
+        'description': 'Derived kiosk sales revenue: SUM(channel quantity x trusted channel unit price) for submitted reports, September 2026 only. Includes GrabFood, ShopeeFood and beFood delivery sales, not just walk-in cash. September prices are the latest evidenced August price per location_code and channel; never a month average and never asserted for another month. Not amount_vnd, cash collected or controlled revenue, and never added to the revenue ledger.',
+        'description_vi': 'Doanh thu bán hàng điểm bán suy ra: tổng (số lượng theo kênh x đơn giá kênh tin cậy) của báo cáo đã gửi, chỉ tháng 9/2026. Gồm doanh số giao hàng GrabFood, ShopeeFood, beFood, không chỉ khách lẻ. Đơn giá tháng 9 lấy từ giá tháng 8 gần nhất theo location_code và kênh; không phải giá bình quân tháng và không áp cho tháng khác. Không phải amount_vnd, tiền mặt thực thu hay doanh thu kiểm soát; không cộng vào sổ doanh thu.',
+        'source': 'Supabase.kiosk_daily_reports + kiosk_daily_report_channel_rows + kiosk_report_locations',
+        'dimensions': ['date', 'location', 'channel'],
     },
 }
 
 
 METRICS.update(bmq_business.METRICS)
+
+# Derived kiosk sales facts. The only price relation is the frozen September evidence
+# table; a nonzero quantity without a match is rejected before this runs. amount_vnd is
+# never summed as revenue; it is only read to fail closed when a nonzero reported amount
+# has no evidenced price to convert it (an unknown monetary source).
+#
+# Period scoping is deliberate: only submitted reports at real (non-TEST) locations whose
+# report_date falls inside the requested interval take part in per-period checks and in
+# the final aggregate. An old August hotline/unknown row, a narrowed September subrange
+# or a malformed draft/TEST row therefore cannot contaminate a valid September answer.
+# Unresolvable references (null report date/location, orphan channel rows) stay global
+# and always fail closed because they cannot be attributed to any period.
+_KIOSK_CHANNELS = ','.join("'" + code + "'" for code in bmq_kiosk_pricing.CHANNELS)
+_KIOSK_TEST = "'" + bmq_kiosk_pricing.TEST_LOCATION_CODE + "'"
+KIOSK_CTES = bmq_kiosk_pricing.PRICES_CTE + f""",
+period_reports AS (SELECT r.source_id AS report_id,TRY_CAST(r.p->>'report_date' AS DATE) AS report_date,
+    l.p->>'location_code' AS location_code
+    FROM src r JOIN src l ON l.source_table='kiosk_report_locations' AND l.source_id=(r.p->>'location_id')
+    WHERE r.source_table='kiosk_daily_reports' AND (r.p->>'status')='submitted'
+      AND TRY_CAST(r.p->>'report_date' AS DATE) IS NOT NULL
+      AND TRY_CAST(r.p->>'report_date' AS DATE) BETWEEN ? AND ?
+      AND coalesce(l.p->>'location_code','')<>{_KIOSK_TEST}),
+scoped AS (SELECT c.source_id AS channel_row_id,c.p->>'report_id' AS report_id,c.p->>'channel_code' AS channel_code,
+    TRY_CAST(c.p->>'quantity' AS DECIMAL(28,5)) AS quantity,
+    TRY_CAST(c.p->>'amount_vnd' AS DECIMAL(28,5)) AS amount_vnd,
+    pr.report_date AS report_date,pr.location_code AS location_code
+    FROM src c JOIN period_reports pr ON pr.report_id=(c.p->>'report_id')
+    WHERE c.source_table='kiosk_daily_report_channel_rows'),
+facts AS (SELECT s.report_date AS date,s.location_code AS location,s.channel_code AS channel,s.quantity AS quantity,
+    pr.unit_price_vnd AS unit_price_vnd,s.quantity*pr.unit_price_vnd AS revenue,'VND' AS currency
+    FROM scoped s LEFT JOIN prices pr ON pr.location_code=s.location_code AND pr.channel_code=s.channel_code)"""
+# One fixed validation query. Every count must be zero before any number is produced.
+# Scoped checks use the requested period + submitted non-TEST reports; the first three
+# global checks keep unknown dates/orphans fail-closed regardless of period.
+KIOSK_CHECKS = f"""
+SELECT
+ (SELECT count(*) FROM src r WHERE r.source_table='kiosk_daily_reports' AND (r.p->>'status')='submitted'
+   AND (TRY_CAST(r.p->>'report_date' AS DATE) IS NULL OR (r.p->>'location_id') IS NULL)
+   AND NOT EXISTS (SELECT 1 FROM src l WHERE l.source_table='kiosk_report_locations' AND l.source_id=(r.p->>'location_id') AND (l.p->>'location_code')={_KIOSK_TEST})) AS bad_report_keys,
+ (SELECT count(*) FROM src r WHERE r.source_table='kiosk_daily_reports' AND (r.p->>'status')='submitted'
+   AND NOT EXISTS (SELECT 1 FROM src l WHERE l.source_table='kiosk_report_locations' AND l.source_id=(r.p->>'location_id'))) AS missing_report_locations,
+ (SELECT count(*) FROM src c WHERE c.source_table='kiosk_daily_report_channel_rows'
+   AND NOT EXISTS (SELECT 1 FROM src r WHERE r.source_table='kiosk_daily_reports' AND r.source_id=(c.p->>'report_id'))) AS missing_report_refs,
+ (SELECT count(*) FROM scoped WHERE quantity IS NULL OR quantity<0) AS bad_quantities,
+ (SELECT count(*) FROM (SELECT report_date,location_code FROM period_reports GROUP BY 1,2 HAVING count(*)>1)) AS duplicate_report_days,
+ (SELECT count(*) FROM (SELECT report_id,channel_code FROM scoped GROUP BY 1,2 HAVING count(*)>1)) AS duplicate_report_channels,
+ (SELECT count(*) FROM scoped WHERE coalesce(channel_code,'')='') AS blank_channel_codes,
+ (SELECT count(*) FROM scoped WHERE coalesce(channel_code,'') NOT IN ({_KIOSK_CHANNELS}) AND quantity>0) AS unknown_channels,
+ (SELECT count(*) FROM scoped s LEFT JOIN prices pr ON pr.location_code=s.location_code AND pr.channel_code=s.channel_code
+   WHERE s.quantity>0 AND pr.unit_price_vnd IS NULL) AS unpriced_quantities,
+ (SELECT count(*) FROM scoped s LEFT JOIN prices pr ON pr.location_code=s.location_code AND pr.channel_code=s.channel_code
+   WHERE s.amount_vnd IS NOT NULL AND s.amount_vnd<>0 AND pr.unit_price_vnd IS NULL) AS unpriced_amounts,
+ (SELECT count(*) FROM period_reports rpt WHERE NOT EXISTS
+   (SELECT 1 FROM src c WHERE c.source_table='kiosk_daily_report_channel_rows' AND (c.p->>'report_id')=rpt.report_id)) AS missing_channel_rows"""
+_KIOSK_CHECK_LABELS = ('bad report keys', 'missing report locations', 'missing report references', 'invalid quantities',
+                       'duplicate location+date reports', 'duplicate report+channel rows', 'blank channel codes',
+                       'nonzero unpriced or unknown channels', 'nonzero quantity without evidenced price',
+                       'zero-quantity unpriced reported amount', 'submitted reports without channel rows')
+
+
+def _kiosk_sales_revenue(con, common, dims, start, end, limit, tenant):
+    """Fixed parameterized SQL; returns (groups, exact total, exact quantity).
+
+    The exact total is a separate aggregate over every validated fact in the requested
+    period, so it never depends on the display limit or on the returned group rows.
+    """
+    params = [tenant] + bmq_kiosk_pricing.PRICE_PARAMS + [start, end]
+    checks = con.execute(common + ',' + KIOSK_CTES + KIOSK_CHECKS, params).fetchone()
+    failed = next((label for count, label in zip(checks, _KIOSK_CHECK_LABELS) if count), None)
+    if failed:
+        raise RuntimeError('Kiosk sales source failed validation: ' + failed)
+    total, total_quantity = con.execute(
+        common + ',' + KIOSK_CTES + " SELECT coalesce(SUM(revenue),0),coalesce(SUM(quantity),0) FROM facts", params).fetchone()
+    fields = ','.join(dims + ['currency'])
+    sql = (common + ',' + KIOSK_CTES +
+           f" SELECT {fields},coalesce(SUM(revenue),0) AS kiosk_sales_revenue,SUM(quantity) AS quantity,"
+           "CASE WHEN min(unit_price_vnd)=max(unit_price_vnd) THEN min(unit_price_vnd) END AS unit_price_vnd"
+           f" FROM facts GROUP BY ALL ORDER BY kiosk_sales_revenue DESC NULLS LAST,{fields} LIMIT ?")
+    cur = con.execute(sql, params + [limit + 1])
+    names = [c[0] for c in cur.description]
+    rows = [dict(zip(names, row)) for row in cur.fetchall()]
+    return rows, total, total_quantity
 
 def catalog():
     from . import bmq_cost
@@ -83,6 +173,26 @@ def execute(engine, dsl, tenant, permission):
             raise RuntimeError('Supabase snapshot is stale')
         params = [tenant, start, end, limit + 1]
         common = "WITH src AS (SELECT source_table, source_id, payload::JSON AS p FROM bronze.supabase_current WHERE tenant_id=?)"
+        if metric == 'kiosk_sales_revenue':
+            # The evidenced price window is September 2026 only; never extrapolate.
+            if not bmq_kiosk_pricing.in_priced_window(start, end):
+                raise ValueError('Kiosk sales revenue is only evidenced for September 2026')
+            con.execute('SET enable_external_access=false')
+            timer = threading.Timer(w.settings.query_timeout, con.interrupt)
+            timer.start()
+            try:
+                rows, total, total_quantity = _kiosk_sales_revenue(con, common, dims, start, end, limit, tenant)
+            finally:
+                timer.cancel()
+            if any(row['currency'] != 'VND' for row in rows):
+                raise RuntimeError('Incomplete monetary data')
+            return {'metric': metric, 'rows': rows[:limit], 'truncated': len(rows) > limit,
+                    'total': total, 'total_quantity': total_quantity, 'total_currency': 'VND',
+                    'period': {'start': str(start), 'end': str(end)}, 'source': descriptor['source'],
+                    'definition': descriptor['description'], 'definition_vi': descriptor['description_vi'],
+                    'unit': descriptor['unit'], 'semantic_version': VERSION, 'cache_hit': False,
+                    'source_observed_at': latest[1].isoformat(), 'snapshot_id': latest[0], 'read_at': now.isoformat(),
+                    'pricing': bmq_kiosk_pricing.catalog(), 'price_basis': bmq_kiosk_pricing.POLICY}
         if metric.startswith('dealer_'):
             rows = """, facts AS (SELECT
                 CAST(CAST(p->>'submitted_at' AS TIMESTAMPTZ) AT TIME ZONE 'Asia/Ho_Chi_Minh' AS DATE) AS date,

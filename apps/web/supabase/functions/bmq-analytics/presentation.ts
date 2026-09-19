@@ -10,6 +10,20 @@ const date = (value: unknown) => {
   return raw.replace(/^(\d{4})-(\d{2})-(\d{2})$/, '$3/$2/$1');
 };
 const legacyEnglish: Record<string, string> = { controlled_revenue: 'Controlled revenue', supplier_debt: 'Current supplier payables', purchase_order_count: 'Purchase orders', low_stock_count: 'Current low-stock items' };
+// Human-facing channel labels. Stored channel codes stay internal; unknown codes are
+// only ever rendered verbatim (the backend rejects unknown nonzero channels anyway).
+const KIOSK_CHANNEL_LABELS: Record<string, [string, string]> = {
+  khach_le: ['Walk-in retail', 'Khách lẻ'],
+  grabfood: ['GrabFood', 'GrabFood'],
+  shopeefood: ['ShopeeFood', 'ShopeeFood'],
+  befood: ['beFood', 'beFood'],
+  hotline: ['Hotline', 'Hotline'],
+};
+export function kioskChannelLabel(code: unknown, en: boolean) {
+  const key = text(code).trim().toLowerCase();
+  const known = KIOSK_CHANNEL_LABELS[key];
+  return known ? known[en ? 0 : 1] : text(code);
+}
 export function legacyPresentation(query: any, result: any): Presentation {
   return { kind: 'metric', query, result, descriptor: METRICS[query.metric as keyof typeof METRICS], legacy: true };
 }
@@ -68,6 +82,38 @@ export async function presentResponse<T extends { answer: string; provenance: an
     const q = block.query, d = block.descriptor;
     const title = block.legacy ? (en ? legacyEnglish[q.metric] : d.label) : (en ? d.label : d.label_vi ?? d.label);
     const when = period(r.period?.start ?? q.start, r.period?.end ?? q.end) || text(q.time_range);
+    // Kiosk derived revenue gets an explicit period total plus human channel labels and
+    // a quantity x unit-price trail. The total comes from the backend aggregate over all
+    // validated facts, never from summing this (possibly truncated) display list; a
+    // channel group with more than one real price shows no fabricated single price.
+    if (!block.legacy && q.metric === 'kiosk_sales_revenue') {
+      const dims: string[] = q.dimensions ?? [];
+      // Preserve every requested dimension; render the channel dimension with its
+      // friendly label and leave date/location values intact.
+      const groupLabel = (row: any) => dims.map((key: string) => key === 'channel' ? kioskChannelLabel(row.channel, en) : text(row[key])).filter(Boolean).join(' · ');
+      const lines = [`${text(title || q.metric)}${when ? ` · ${when}` : ''}`];
+      // An empty result is "no data", never a confirmed zero total.
+      if (r.rows.length) {
+        lines.push(`${en ? 'Total' : 'Tổng'}: ${r.total == null ? (en ? 'Not available' : 'Chưa có dữ liệu') : await money(r.total, r.total_currency ?? 'VND')}`);
+      }
+      for (const row of r.rows) {
+        const name = groupLabel(row);
+        const prefix = name ? `${name}: ` : '';
+        const value = row[q.metric];
+        if (value == null) { lines.push(prefix + (en ? 'Not available' : 'Chưa có dữ liệu')); continue; }
+        lines.push(`${prefix}${await money(value, row.currency ?? 'VND')}`);
+        const quantity = row.quantity == null ? null : numeric(row.quantity);
+        if (quantity != null && quantity > 0) {
+          const unit = row.unit_price_vnd == null ? (en ? 'multiple prices' : 'nhiều mức giá') : await money(row.unit_price_vnd, 'VND');
+          lines.push(`  ${new Intl.NumberFormat(en ? 'en-US' : 'vi-VN', { maximumFractionDigits: 3 }).format(quantity)} × ${unit}`);
+        }
+      }
+      if (!r.rows.length) lines.push(en ? 'No kiosk revenue in this period; this does not mean zero.' : 'Chưa có doanh thu điểm bán trong kỳ này; không đồng nghĩa bằng 0.');
+      lines.push(en ? 'Derived from channel quantity × trusted September channel price, not the reported amount.' : 'Suy ra từ số lượng kênh × đơn giá kênh tháng 9 đã kiểm chứng, không phải số tiền đã báo cáo.');
+      if (r.truncated) lines.push(en ? 'The group list is partial; the total above still covers the whole period.' : 'Danh sách nhóm chỉ hiển thị một phần; tổng trên vẫn là toàn kỳ.');
+      blocks.push(lines.join('\n'));
+      continue;
+    }
     const lines = [`${text(title || q.metric)}${when ? ` · ${when}` : ''}`];
     const count = block.legacy ? d.unit !== 'VND' : d.unit === 'count' || ['order_count', 'customer_count'].includes(q.metric);
     for (const row of r.rows) {
