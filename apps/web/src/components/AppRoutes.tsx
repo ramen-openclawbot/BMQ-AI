@@ -227,9 +227,11 @@ export function AppRoutes() {
     );
   }
 
-  // Owner-only data-assets admin: on admin.banhmique.vn (primary) or the
-  // admin.vnagent.ai alias it is the whole site; on existing BMQ hosts it is
-  // reachable at /data-admin. Existing BMQ routes below are unchanged.
+  // Owner-only data-assets admin: host-only, on admin.banhmique.vn (primary) or
+  // the admin.vnagent.ai alias it is the whole site. The legacy /data-admin
+  // route on other BMQ hosts was removed (2026-09-21): that path must never be
+  // an alternate admin entry, so it falls through to the normal route table and
+  // renders NotFound for anonymous visitors and signed-in owners alike.
   //
   // Deliberately NOT wrapped in the shared OwnerRoute here: that guard redirects
   // a denied user to "/", and on the admin host "/" matches this same "*" branch
@@ -237,8 +239,7 @@ export function AppRoutes() {
   // gate lives in VNAgentDataAdmin (it renders the English denied panel) and it
   // waits for authzLoaded before deciding, so this route only enforces sign-in.
   // The shared OwnerRoute behavior for BMQ routes below is untouched.
-  const dataAdminPath = location.pathname === "/data-admin" || location.pathname.startsWith("/data-admin/");
-  if (isVnagentAdminHostname(window.location.hostname) || dataAdminPath) {
+  if (isVnagentAdminHostname(window.location.hostname)) {
     return (
       <Routes>
         <Route path="/auth" element={<Auth />} />

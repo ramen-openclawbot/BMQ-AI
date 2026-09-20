@@ -6,6 +6,7 @@ import { AlertCircle, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { adminHostCopy } from "@/lib/adminHostLanguage";
+import { withAuthTimeout } from "@/lib/authTimeout";
 import bmqLogo from "@/assets/bmq-logo.png";
 
 // Google Icon component
@@ -75,7 +76,7 @@ export default function Auth() {
         }
 
         if (code) {
-          const { error } = await supabase.auth.exchangeCodeForSession(code);
+          const { error } = await withAuthTimeout(supabase.auth.exchangeCodeForSession(code));
           if (error) {
             console.warn("[Auth] OAuth code exchange failed:", error.message);
             window.history.replaceState(null, "", "/auth");
@@ -114,7 +115,7 @@ export default function Auth() {
             setProcessingCallback(false);
             return;
           }
-          const { error } = await supabase.auth.setSession({ access_token, refresh_token });
+          const { error } = await withAuthTimeout(supabase.auth.setSession({ access_token, refresh_token }));
           if (error) {
             console.warn("[Auth] OAuth session setup failed:", error.message);
             setError(copy.auth.loginFailed);
@@ -130,6 +131,11 @@ export default function Auth() {
         setProcessingCallback(false);
       } catch (e) {
         console.warn("[Auth] OAuth callback threw unexpected error", e);
+        // A timed-out callback must not stay in the URL: a reload would replay
+        // the same stuck exchange and trap the user on the spinner.
+        if (window.location.pathname === "/auth") {
+          window.history.replaceState(null, "", "/auth");
+        }
         setError(copy.auth.loginFailed);
         setProcessingCallback(false);
       }
@@ -183,7 +189,7 @@ export default function Auth() {
         <div>
           <img src={bmqLogo} alt="BMQ Logo" className="h-16 mx-auto mb-4" />
           <h1 className="text-2xl font-display font-bold text-foreground">
-            BMQ Procurement
+            {copy.auth.title}
           </h1>
           <p className="text-muted-foreground mt-2">
             {copy.auth.signInSubtitle}

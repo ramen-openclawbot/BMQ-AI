@@ -1,10 +1,11 @@
 /**
  * Language surface for the VNAgent data admin.
  *
- * The owner-only dataset admin is exposed on `admin.banhmique.vn` (primary,
+ * The owner-only dataset admin is exposed only on `admin.banhmique.vn` (primary,
  * approved 2026-09-20) and, kept as a supported alias for existing links and
- * bookmarks, on `admin.vnagent.ai`. For local/staging checks it is also reachable
- * on the `/data-admin` route of any host. On that surface the shared auth,
+ * bookmarks, on `admin.vnagent.ai`. The legacy `/data-admin` route on other BMQ
+ * hosts was removed (2026-09-21): admin is host-only, and that path is now an
+ * ordinary not-found on non-admin hosts. On the admin surface the shared auth,
  * auth-timeout and session-recovery chrome must read as natural English. Every
  * other BMQ host keeps the exact existing Vietnamese copy.
  *
@@ -16,7 +17,6 @@
 export const ADMIN_PRIMARY_HOST = "admin.banhmique.vn";
 /** Supported alias for the owner-only admin host (pre-existing links/bookmarks). */
 export const VNAGENT_ADMIN_HOST = "admin.vnagent.ai";
-export const DATA_ADMIN_PATH = "/data-admin";
 
 /** Exact allow-list. Never a suffix/prefix match, so lookalike hosts stay out. */
 export const ADMIN_HOSTS: readonly string[] = [ADMIN_PRIMARY_HOST, VNAGENT_ADMIN_HOST];
@@ -27,23 +27,19 @@ export function isVnagentAdminHostname(hostname: string): boolean {
   return ADMIN_HOSTS.includes(hostname);
 }
 
-export function isDataAdminPathname(pathname: string): boolean {
-  return pathname === DATA_ADMIN_PATH || pathname.startsWith(`${DATA_ADMIN_PATH}/`);
-}
-
 /**
- * True when the current surface must render English host chrome.
- * Hostname wins (the whole site is the admin); the `/data-admin` path covers the
- * local/staging route where the same admin is mounted on a generic host.
+ * True when the current surface must render English host chrome. Admin is
+ * host-only: the removed `/data-admin` path no longer selects English chrome.
  */
-export function isEnglishAdminSurface(hostname?: string, pathname?: string): boolean {
+export function isEnglishAdminSurface(hostname?: string): boolean {
   const host = hostname ?? (typeof window !== "undefined" ? window.location.hostname : "");
-  const path = pathname ?? (typeof window !== "undefined" ? window.location.pathname : "");
-  return isVnagentAdminHostname(host) || isDataAdminPathname(path);
+  return isVnagentAdminHostname(host);
 }
 
 export interface AdminHostCopy {
   auth: {
+    /** Login page heading: admin surface reads "BMQ Administration". */
+    title: string;
     oauthNotAuthorized: string;
     oauthExpired: string;
     loginFailed: string;
@@ -76,6 +72,7 @@ export interface AdminHostCopy {
  */
 const VIETNAMESE_COPY: AdminHostCopy = {
   auth: {
+    title: "BMQ Procurement",
     oauthNotAuthorized:
       "Tài khoản Google chưa được cấp quyền truy cập hệ thống. Vui lòng liên hệ quản trị để được cấp quyền.",
     oauthExpired:
@@ -107,6 +104,7 @@ const VIETNAMESE_COPY: AdminHostCopy = {
 
 const ENGLISH_COPY: AdminHostCopy = {
   auth: {
+    title: "BMQ Administration",
     oauthNotAuthorized:
       "This Google account has not been granted access. Please contact an administrator to request access.",
     oauthExpired:

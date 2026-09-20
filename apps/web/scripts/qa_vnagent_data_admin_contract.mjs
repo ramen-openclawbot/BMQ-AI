@@ -41,6 +41,9 @@ const clientDataAssets = read("src/lib/dataAssets.ts");
 const handler = read("supabase/functions/vnagent-data-admin/handler.ts");
 const store = read("supabase/functions/vnagent-data-admin/store.ts");
 const hostLanguage = read("src/lib/adminHostLanguage.ts");
+const authPage = read("src/pages/Auth.tsx");
+const authTimeout = read("src/lib/authTimeout.ts");
+const authContext = read("src/contexts/AuthContext.tsx");
 
 check("admin host is handled in App.tsx via the shared exact predicate", app.includes("isVnagentAdminHostname") && !app.includes('"admin.vnagent.ai"'));
 check("admin host sets a document title", app.includes("VNAGENT_ADMIN_TITLE"));
@@ -49,13 +52,49 @@ check("admin host route tree enforces sign-in", routes.includes("isVnagentAdminH
 // The admin branch must NOT use the shared OwnerRoute: it redirects to "/", and
 // on the admin host "/" re-enters the same "*" branch, so a denied non-owner
 // would loop on a blank screen instead of seeing the page's English denial.
-const adminBranchStart = routes.indexOf("isVnagentAdminHostname(window.location.hostname) || dataAdminPath");
+const adminBranchStart = routes.indexOf("isVnagentAdminHostname(window.location.hostname))");
 const adminBranchEnd = routes.indexOf("if (loading) {", adminBranchStart);
 const adminBranch = adminBranchStart >= 0 && adminBranchEnd > adminBranchStart ? routes.slice(adminBranchStart, adminBranchEnd) : "";
 check("admin route branch does not use the redirecting shared OwnerRoute", adminBranch.length > 0 && !adminBranch.includes("OwnerRoute"));
 check("BMQ owner routes still use the shared OwnerRoute unchanged", ["<OwnerRoute><UserManagement /></OwnerRoute>", "<OwnerRoute><BmqDataSources /></OwnerRoute>"].every((marker) => routes.includes(marker)));
 check("admin page waits for authzLoaded and handles authzError", page.includes("authzLoaded") && page.includes("authzError") && page.includes("refreshRoles"));
-check("local /data-admin route exists", routes.includes('location.pathname === "/data-admin"'));
+// The legacy /data-admin entry on non-admin hosts was removed entirely
+// (2026-09-21): admin is host-only, so that path must not appear anywhere in the
+// routing or language surface (it falls through to the normal NotFound route).
+check(
+  "legacy /data-admin admin entry removed from routing and language",
+  !routes.includes("dataAdminPath") &&
+    !routes.includes("DATA_ADMIN_PATH") &&
+    !hostLanguage.includes("DATA_ADMIN_PATH") &&
+    !hostLanguage.includes("isDataAdminPathname"),
+);
+check(
+  "admin route branch is host-only, never path-based",
+  adminBranch.includes("isVnagentAdminHostname(window.location.hostname)") && !adminBranch.includes("dataAdminPath"),
+);
+check(
+  "English admin surface is host-only",
+  hostLanguage.includes("return isVnagentAdminHostname(host)") && !hostLanguage.includes("isDataAdminPathname"),
+);
+// Login heading is host-scoped: admin reads BMQ Administration, every other BMQ
+// host keeps BMQ Procurement byte-for-byte.
+check(
+  "admin login heading is host-scoped copy",
+  hostLanguage.includes('title: "BMQ Administration"') &&
+    hostLanguage.includes('title: "BMQ Procurement"') &&
+    authPage.includes("{copy.auth.title}") &&
+    !authPage.includes("BMQ Procurement"),
+);
+// Bounded auth awaits: a stuck SDK call must not leave a permanent spinner.
+check(
+  "callback awaits are bounded against SDK hangs",
+  authPage.includes("withAuthTimeout(supabase.auth.exchangeCodeForSession") &&
+    authPage.includes("withAuthTimeout(supabase.auth.setSession"),
+);
+check(
+  "auth bootstrap watchdog recovery read is bounded",
+  authContext.includes("withAuthTimeout(") && authTimeout.includes("AUTH_CALL_TIMEOUT_MS"),
+);
 check("existing BMQ routes preserved", ["/suppliers", "/payment-requests", "/material-master", "/finance-control/revenue"].every((path) => routes.includes(`"${path}`)));
 check("stable admin marker present", shell.includes('data-vnagent-data-admin="v2"'));
 check("header title has an English default label", shell.includes('"Data assets"'));

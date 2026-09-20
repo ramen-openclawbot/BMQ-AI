@@ -12,6 +12,8 @@
 //   6. /recover on the new host  -> English session recovery
 //   7. admin title + English lang on the new host, normal BMQ title elsewhere
 //   8. admin.vnagent.ai alias    -> still reaches the admin shell
+//   9. legacy /data-admin on a non-admin host -> plain NotFound (admin is
+//      host-only; that path is no longer an alternate admin entry)
 //
 // Playwright-core is not a repo dependency; point PLAYWRIGHT_CORE at it:
 //   PLAYWRIGHT_CORE=/path/to/playwright-core/index.mjs \
@@ -112,9 +114,9 @@ const scenarios = [
   scenario("owner", owner),
   scenario("authz-loading", { ...nonOwner, authzLoaded: false, authzError: false }),
   scenario("authz-error", { ...nonOwner, authzLoaded: false, authzError: true }),
-  // Same admin branch reached from a normal BMQ host; the non-owner must stay on
-  // the admin surface (English denial) instead of escaping to the BMQ home page.
-  scenario("data-admin-path-non-owner", nonOwner, "/data-admin", targetBase),
+  // The legacy /data-admin path on a non-admin host must be an ordinary 404 now
+  // that admin is host-only, not an alternate English admin entry.
+  scenario("legacy-data-admin-removed", nonOwner, "/data-admin", targetBase),
   // New primary host must expose English login and recovery, not the BMQ chrome.
   scenario("auth-english", { user: null, loading: false, timedOut: false, authzLoaded: false, authzError: false, isOwner: false }, "/auth"),
   scenario("recovery-english", nonOwner, "/recover"),
@@ -176,7 +178,7 @@ try {
       if (!root || root.childElementCount === 0) return false;
       if (root.querySelector('[data-da-denied="owner-only"],[data-vnagent-data-admin],[data-da-authz="checking"],[data-da-authz="error"]')) return true;
       const text = root.textContent || "";
-      return /Sign in with Google/.test(text) || /Recover your session/.test(text);
+      return /Sign in with Google/.test(text) || /Recover your session/.test(text) || /Oops! Page not found/.test(text);
     }, undefined, { timeout: 45_000 }).catch(() => {});
     await page.waitForTimeout(200);
 
@@ -197,6 +199,7 @@ try {
       signInEmailNote: await textIfPresent(page.getByText("@bmq.vn email accounts only")),
       recoveryHeading: await page.getByRole("heading", { name: "Recover your session" }).count(),
       recoveryButton: await page.getByRole("button", { name: "Clear session & reload" }).count(),
+      pageNotFound: await page.getByText("Oops! Page not found").count(),
       refreshCalls: 0,
       errors,
     };
@@ -218,15 +221,24 @@ for (const r of results) {
   if (r.errors.length) failures.push(`${r.name}: page errors ${JSON.stringify(r.errors)}`);
   if (r.url !== r.expectUrl) failures.push(`${r.name}: navigated away to ${r.url}`);
   if (r.navigations > 2) failures.push(`${r.name}: ${r.navigations} main-frame navigations (redirect loop)`);
-  // Both admin hosts must show the admin title and English lang; the same admin
-  // branch on a normal BMQ host keeps the normal BMQ title but still English.
+  // Both admin hosts must show the admin title and English lang; a non-admin BMQ
+  // host keeps its normal BMQ title and Vietnamese lang.
   if (isAdminHost(r.expectUrl) && r.title !== ADMIN_TITLE) failures.push(`${r.name}: admin title missing (${JSON.stringify(r.title)})`);
   if (!isAdminHost(r.expectUrl) && r.title !== BMQ_TITLE) failures.push(`${r.name}: normal BMQ title lost (${JSON.stringify(r.title)})`);
-  if (r.lang !== "en") failures.push(`${r.name}: admin surface lang is not en (${JSON.stringify(r.lang)})`);
-  if (r.name === "non-owner" || r.name === "data-admin-path-non-owner") {
+  if (isAdminHost(r.expectUrl) && r.lang !== "en") failures.push(`${r.name}: admin surface lang is not en (${JSON.stringify(r.lang)})`);
+  // The fixture HTML has no lang attribute, so a non-admin host must simply not
+  // be forced to English by the admin surface predicate.
+  if (!isAdminHost(r.expectUrl) && r.lang === "en") failures.push(`${r.name}: non-admin surface forced to English (${JSON.stringify(r.lang)})`);
+  if (r.name === "non-owner") {
     if (r.denied !== 1) failures.push(`${r.name}: owner-only denial not shown (count ${r.denied})`);
     if (!/business owners only/i.test(r.deniedText)) failures.push(`${r.name}: denial is not the English copy (${JSON.stringify(r.deniedText)})`);
     if (r.shell !== 0) failures.push(`${r.name}: admin shell rendered for a non-owner`);
+  }
+  if (r.name === "legacy-data-admin-removed") {
+    if (r.pageNotFound !== 1) failures.push(`${r.name}: legacy /data-admin is not a plain NotFound (count ${r.pageNotFound})`);
+    if (r.shell !== 0) failures.push(`${r.name}: legacy /data-admin still rendered the admin shell`);
+    if (r.denied !== 0) failures.push(`${r.name}: legacy /data-admin still selected the admin branch`);
+    if (r.signInButton !== 0) failures.push(`${r.name}: legacy /data-admin redirected to login instead of NotFound`);
   }
   if (r.name === "owner" || r.name === "alias-owner") {
     if (r.shell < 1) failures.push(`${r.name}: admin shell missing`);

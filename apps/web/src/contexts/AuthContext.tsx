@@ -2,9 +2,15 @@
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback, useRef } from "react";
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
+import { withAuthTimeout } from "@/lib/authTimeout";
 
 // Safety timeout: if auth bootstrap takes longer than this, allow fallback UI
 const AUTH_BOOTSTRAP_TIMEOUT_MS = 6000;
+// Bound the watchdog's own recovery read. A stuck SDK call (stuck network /
+// Safari navigator.locks deadlock) also holds Supabase's in-process lock, so an
+// unbounded getSession() here would leave loading=true forever and defeat the
+// timeout above.
+const AUTH_BOOTSTRAP_RECOVERY_TIMEOUT_MS = 4000;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -283,7 +289,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // (e.g. SIGNED_OUT while this read is pending).
         const watchdogSeq = authEventSeqRef.current;
         try {
-          const { data: { session: retrySession } } = await supabase.auth.getSession();
+          const { data: { session: retrySession } } = await withAuthTimeout(
+            supabase.auth.getSession(),
+            AUTH_BOOTSTRAP_RECOVERY_TIMEOUT_MS,
+          );
           if (!mounted) return;
           if (authEventSeqRef.current !== watchdogSeq) return;
           if (retrySession?.user) {

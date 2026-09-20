@@ -4,10 +4,8 @@ import assert from "node:assert/strict";
 import {
   ADMIN_HOSTS,
   ADMIN_PRIMARY_HOST,
-  DATA_ADMIN_PATH,
   VNAGENT_ADMIN_HOST,
   adminHostCopyFor,
-  isDataAdminPathname,
   isEnglishAdminSurface,
   isVnagentAdminHostname,
 } from "./adminHostLanguage.ts";
@@ -15,7 +13,6 @@ import {
 test("admin hostname detection is exact", () => {
   assert.equal(ADMIN_PRIMARY_HOST, "admin.banhmique.vn");
   assert.equal(VNAGENT_ADMIN_HOST, "admin.vnagent.ai");
-  assert.equal(DATA_ADMIN_PATH, "/data-admin");
   assert.deepEqual(ADMIN_HOSTS, ["admin.banhmique.vn", "admin.vnagent.ai"]);
   assert.equal(isVnagentAdminHostname("admin.banhmique.vn"), true);
   assert.equal(isVnagentAdminHostname("admin.vnagent.ai"), true);
@@ -38,34 +35,26 @@ test("admin hostname detection rejects suffix and lookalike hosts", () => {
   }
 });
 
-test("data-admin path detection is bounded", () => {
-  assert.equal(isDataAdminPathname("/data-admin"), true);
-  assert.equal(isDataAdminPathname("/data-admin/"), true);
-  assert.equal(isDataAdminPathname("/data-admin/review"), true);
-  assert.equal(isDataAdminPathname("/data-admins"), false);
-  assert.equal(isDataAdminPathname("/auth"), false);
-  assert.equal(isDataAdminPathname("/"), false);
-});
-
-test("English surface is admin host OR data-admin route only", () => {
-  assert.equal(isEnglishAdminSurface("admin.banhmique.vn", "/"), true);
-  assert.equal(isEnglishAdminSurface("admin.banhmique.vn", "/auth"), true);
-  assert.equal(isEnglishAdminSurface("admin.banhmique.vn", "/recover"), true);
-  assert.equal(isEnglishAdminSurface("admin.vnagent.ai", "/"), true);
-  assert.equal(isEnglishAdminSurface("admin.vnagent.ai", "/auth"), true);
-  assert.equal(isEnglishAdminSurface("admin.vnagent.ai", "/recover"), true);
-  assert.equal(isEnglishAdminSurface("ai.banhmique.vn", "/data-admin"), true);
-  assert.equal(isEnglishAdminSurface("localhost", "/data-admin/review"), true);
-  assert.equal(isEnglishAdminSurface("admin.banhmique.vn.evil.test", "/"), false);
-  assert.equal(isEnglishAdminSurface("ai.banhmique.vn", "/"), false);
-  assert.equal(isEnglishAdminSurface("dathang.banhmique.vn", "/dealer"), false);
-  assert.equal(isEnglishAdminSurface("baocao.banhmique.vn", "/"), false);
+test("the removed /data-admin route no longer selects the English admin surface", () => {
+  // Admin is host-only (2026-09-21). The legacy /data-admin path on a non-admin
+  // host must not pick English admin chrome; it is now an ordinary not-found.
+  assert.equal(isEnglishAdminSurface("admin.banhmique.vn"), true);
+  assert.equal(isEnglishAdminSurface("admin.vnagent.ai"), true);
+  assert.equal(isEnglishAdminSurface("ai.banhmique.vn"), false);
+  assert.equal(isEnglishAdminSurface("localhost"), false);
+  assert.equal(isEnglishAdminSurface("admin.banhmique.vn.evil.test"), false);
+  assert.equal(isEnglishAdminSurface("dathang.banhmique.vn"), false);
+  assert.equal(isEnglishAdminSurface("baocao.banhmique.vn"), false);
   // No window in node: falls back to Vietnamese.
   assert.equal(isEnglishAdminSurface(), false);
+  // The surface no longer takes a path: a stale /data-admin link on a lookalike
+  // host can never select admin chrome.
+  assert.equal(isEnglishAdminSurface("ai.banhmique.vn"), false);
 });
 
 test("Vietnamese copy keeps the exact existing strings", () => {
   const vi = adminHostCopyFor(false);
+  assert.equal(vi.auth.title, "BMQ Procurement");
   assert.equal(
     vi.auth.oauthNotAuthorized,
     "Tài khoản Google chưa được cấp quyền truy cập hệ thống. Vui lòng liên hệ quản trị để được cấp quyền.",
@@ -101,6 +90,7 @@ test("Vietnamese copy keeps the exact existing strings", () => {
 
 test("English copy is natural English with no Vietnamese diacritics", () => {
   const en = adminHostCopyFor(true);
+  assert.equal(en.auth.title, "BMQ Administration");
   assert.equal(en.auth.loginFailed, "Sign-in failed. Please try again.");
   assert.equal(en.auth.signInButton, "Sign in with Google");
   assert.equal(en.authTimeout.title, "Connection problem");
