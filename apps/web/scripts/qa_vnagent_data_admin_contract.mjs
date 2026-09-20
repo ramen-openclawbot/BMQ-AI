@@ -43,7 +43,16 @@ const store = read("supabase/functions/vnagent-data-admin/store.ts");
 
 check("admin host is handled in App.tsx", app.includes('VNAGENT_ADMIN_HOST = "admin.vnagent.ai"'));
 check("admin host sets a document title", app.includes("VNAGENT_ADMIN_TITLE"));
-check("admin host route tree is owner-protected", routes.includes("VNAGENT_ADMIN_HOST") && routes.includes("OwnerRoute") && routes.includes("ProtectedRoute"));
+check("admin host route tree enforces sign-in", routes.includes("VNAGENT_ADMIN_HOST") && routes.includes("ProtectedRoute"));
+// The admin branch must NOT use the shared OwnerRoute: it redirects to "/", and
+// on the admin host "/" re-enters the same "*" branch, so a denied non-owner
+// would loop on a blank screen instead of seeing the page's English denial.
+const adminBranchStart = routes.indexOf("isVnagentAdminHost() || dataAdminPath");
+const adminBranchEnd = routes.indexOf("if (loading) {", adminBranchStart);
+const adminBranch = adminBranchStart >= 0 && adminBranchEnd > adminBranchStart ? routes.slice(adminBranchStart, adminBranchEnd) : "";
+check("admin route branch does not use the redirecting shared OwnerRoute", adminBranch.length > 0 && !adminBranch.includes("OwnerRoute"));
+check("BMQ owner routes still use the shared OwnerRoute unchanged", ["<OwnerRoute><UserManagement /></OwnerRoute>", "<OwnerRoute><BmqDataSources /></OwnerRoute>"].every((marker) => routes.includes(marker)));
+check("admin page waits for authzLoaded and handles authzError", page.includes("authzLoaded") && page.includes("authzError") && page.includes("refreshRoles"));
 check("local /data-admin route exists", routes.includes('location.pathname === "/data-admin"'));
 check("existing BMQ routes preserved", ["/suppliers", "/payment-requests", "/material-master", "/finance-control/revenue"].every((path) => routes.includes(`"${path}`)));
 check("stable admin marker present", shell.includes('data-vnagent-data-admin="v2"'));

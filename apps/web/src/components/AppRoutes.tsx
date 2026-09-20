@@ -236,6 +236,13 @@ export function AppRoutes() {
   // Owner-only data-assets admin: on the future admin.vnagent.ai host it is the
   // whole site; on existing BMQ hosts it is reachable at /data-admin. Existing
   // BMQ routes below are unchanged.
+  //
+  // Deliberately NOT wrapped in the shared OwnerRoute here: that guard redirects
+  // a denied user to "/", and on the admin host "/" matches this same "*" branch
+  // again, so a non-owner would bounce forever with a blank screen. The owner
+  // gate lives in VNAgentDataAdmin (it renders the English denied panel) and it
+  // waits for authzLoaded before deciding, so this route only enforces sign-in.
+  // The shared OwnerRoute behavior for BMQ routes below is untouched.
   const dataAdminPath = location.pathname === "/data-admin" || location.pathname.startsWith("/data-admin/");
   if (isVnagentAdminHost() || dataAdminPath) {
     return (
@@ -245,11 +252,9 @@ export function AppRoutes() {
           path="*"
           element={
             <ProtectedRoute>
-              <OwnerRoute>
-                <Suspense fallback={<AppLoadingFallback />}>
-                  <VNAgentDataAdmin />
-                </Suspense>
-              </OwnerRoute>
+              <Suspense fallback={<AppLoadingFallback />}>
+                <VNAgentDataAdmin />
+              </Suspense>
             </ProtectedRoute>
           }
         />

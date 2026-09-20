@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { ClipboardCheck, Database, FileDown, LayoutDashboard, MessageSquarePlus, Activity } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { DataAdminShell, type DataAdminSection } from "@/components/data-admin/DataAdminShell";
+import { ErrorBlock, LoadingBlock } from "@/components/data-admin/shared";
 import { OverviewPanel } from "@/components/data-admin/OverviewPanel";
 import { RepositoryPanel } from "@/components/data-admin/RepositoryPanel";
 import { ReviewQueuePanel } from "@/components/data-admin/ReviewQueuePanel";
@@ -15,7 +16,7 @@ import "@/styles/data-admin.css";
 type SectionKey = "overview" | "repository" | "review" | "contributions" | "jev" | "export";
 
 export default function VNAgentDataAdmin() {
-  const { isOwner, user } = useAuth();
+  const { isOwner, user, authzLoaded, authzError, refreshRoles } = useAuth();
   // English is the admin default and comes from its own constant, NOT from
   // LanguageContext or the shared `app-language` localStorage key. A BMQ user
   // with a Vietnamese app preference still gets an English admin.
@@ -30,6 +31,31 @@ export default function VNAgentDataAdmin() {
     { key: "jev", label: language === "en" ? "Jev logs" : "Nhật ký Jev", icon: <Activity size={16} /> },
     { key: "export", label: language === "en" ? "Markdown export" : "Xuất Markdown", icon: <FileDown size={16} /> },
   ], [language]);
+
+  // This page is the single owner gate for the admin surface (the route tree no
+  // longer redirects non-owners). Roles/permissions load asynchronously after
+  // the session resolves, so never decide "denied" from the initial empty role
+  // list: wait for authzLoaded, and fail closed with an English retry if that
+  // check errored. Without this wait an owner sees a false denial on first paint.
+  if (user && !authzLoaded) {
+    return (
+      <div className="da-root">
+        <div className="da-layout" style={{ gridTemplateColumns: "minmax(0, 1fr)" }}>
+          <main className="da-main" data-da-authz={authzError ? "error" : "checking"}>
+            {authzError ? (
+              <ErrorBlock
+                message="We couldn't verify your access rights, so this admin stays locked. Please try again."
+                onRetry={() => void refreshRoles()}
+                retryLabel="Try again"
+              />
+            ) : (
+              <LoadingBlock label="Checking access…" />
+            )}
+          </main>
+        </div>
+      </div>
+    );
+  }
 
   if (!isOwner || !user) {
     return (
