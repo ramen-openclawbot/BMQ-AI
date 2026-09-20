@@ -1,6 +1,6 @@
 // Owner-only VNAgent data-assets admin (route /data-admin and future admin.vnagent.ai).
 import { useMemo, useState } from "react";
-import { ClipboardCheck, Database, FileDown, LayoutDashboard, MessageSquarePlus, Activity } from "lucide-react";
+import { ClipboardCheck, Database, FileDown, LayoutDashboard, MessageSquarePlus, Activity, Wand2 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { DataAdminShell, type DataAdminSection } from "@/components/data-admin/DataAdminShell";
 import { ErrorBlock, LoadingBlock } from "@/components/data-admin/shared";
@@ -8,12 +8,13 @@ import { OverviewPanel } from "@/components/data-admin/OverviewPanel";
 import { RepositoryPanel } from "@/components/data-admin/RepositoryPanel";
 import { ReviewQueuePanel } from "@/components/data-admin/ReviewQueuePanel";
 import { ContributionsPanel } from "@/components/data-admin/ContributionsPanel";
+import { GeneratePanel } from "@/components/data-admin/GeneratePanel";
 import { JevLogsPanel } from "@/components/data-admin/JevLogsPanel";
 import { ExportPanel } from "@/components/data-admin/ExportPanel";
 import { ADMIN_LANGUAGE } from "@/lib/dataAssets";
 import "@/styles/data-admin.css";
 
-type SectionKey = "overview" | "repository" | "review" | "contributions" | "jev" | "export";
+type SectionKey = "overview" | "repository" | "review" | "contributions" | "generate" | "jev" | "export";
 
 export default function VNAgentDataAdmin() {
   const { isOwner, user, authzLoaded, authzError, refreshRoles } = useAuth();
@@ -28,6 +29,7 @@ export default function VNAgentDataAdmin() {
     { key: "repository", label: language === "en" ? "Repository" : "Kho dữ liệu", icon: <Database size={16} /> },
     { key: "review", label: language === "en" ? "Review queue" : "Hàng chờ duyệt", icon: <ClipboardCheck size={16} /> },
     { key: "contributions", label: language === "en" ? "Contributions" : "Đóng góp câu hỏi", icon: <MessageSquarePlus size={16} /> },
+    { key: "generate", label: language === "en" ? "Generate data" : "Tạo câu hỏi tổng hợp", icon: <Wand2 size={16} /> },
     { key: "jev", label: language === "en" ? "Jev logs" : "Nhật ký Jev", icon: <Activity size={16} /> },
     { key: "export", label: language === "en" ? "Markdown export" : "Xuất Markdown", icon: <FileDown size={16} /> },
   ], [language]);
@@ -89,6 +91,7 @@ export default function VNAgentDataAdmin() {
       {active === "repository" && <RepositoryPanel language={language} />}
       {active === "review" && <ReviewQueuePanel language={language} />}
       {active === "contributions" && <ContributionsPanel language={language} />}
+      {active === "generate" && <GeneratePanel language={language} ownerId={user.id} />}
       {active === "jev" && <JevLogsPanel language={language} />}
       {active === "export" && <ExportPanel language={language} />}
     </DataAdminShell>

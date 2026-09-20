@@ -314,6 +314,21 @@
 
 .da-textarea { min-height: 96px; resize: vertical; }
 
+/* WebKit does not honour min-height on a native <select>, so the Generate data
+   selects reset the native control and draw their own chevron. This keeps a real
+   touch target on phones instead of the ~24px native control. */
+[data-da-panel="generate"] .da-select {
+  -webkit-appearance: none;
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--da-ink-soft) 50%),
+    linear-gradient(135deg, var(--da-ink-soft) 50%, transparent 50%);
+  background-position: calc(100% - 18px) 50%, calc(100% - 13px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 34px;
+}
+
 .da-input:focus-visible,
 .da-select:focus-visible,
 .da-textarea:focus-visible { outline: 2px solid var(--da-teal); outline-offset: 1px; }
@@ -509,4 +524,7 @@
   .da-export-cta { width: 100%; }
   .da-toggle { flex: 1 1 auto; }
   .da-toggle-btn { flex: 1 1 auto; }
+  /* Touch targets: native selects need a real 44px hit area on phones. */
+  .da-select { min-height: 44px; }
+  [data-da-panel="generate"] .da-select { min-height: 44px; height: 44px; }
 }

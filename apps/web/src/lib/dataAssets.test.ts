@@ -29,6 +29,13 @@ import {
   stageLabel,
   timeseriesResponseSchema,
   unknownTotal,
+  defaultGenerationStyleMix,
+  generationRecoveryDecision,
+  generationResponseSchema,
+  generationStatusLabel,
+  isDefinitiveGenerationDenial,
+  parsePendingGeneration,
+  serializePendingGeneration,
   type DataAdminOverview,
   type DataAdminTimeseries,
 } from "./dataAssets.ts";
@@ -194,4 +201,67 @@ test("the admin language defaults to English and formats numbers in en-US", () =
   assert.equal(formatNumber(1234567, ADMIN_LANGUAGE), "1,234,567");
   assert.equal(formatNumber(1234567, "vi"), "1.234.567");
   assert.match(formatDateTime("2026-09-20T05:00:00.000Z", ADMIN_LANGUAGE), /\d{1,2}\/\d{1,2}\/\d{2}/);
+});
+
+test("the generation style mix matches the server default and the response schema is strict", () => {
+  for (const count of [20, 33, 50]) {
+    const mix = defaultGenerationStyleMix(count);
+    assert.equal(mix.variant + mix.typo + mix.ambiguous + mix.out_of_scope, count);
+    assert.ok(mix.variant > 0 && mix.typo > 0 && mix.ambiguous > 0 && mix.out_of_scope > 0);
+  }
+  // Server default for count 20 (see generation.ts defaultStyleMix): variant 12, typo 3, ambiguous 3, out_of_scope 2.
+  assert.deepEqual(defaultGenerationStyleMix(20), { variant: 12, typo: 3, ambiguous: 3, out_of_scope: 2 });
+  assert.equal(generationStatusLabel("budget_exceeded", "en"), "Budget exceeded");
+  assert.equal(generationStatusLabel("running", "vi"), "Đang chạy");
+  const parsed = generationResponseSchema.safeParse({
+    status: "ok",
+    resumed: false,
+    job: { id: "j1", status: "completed", version: 2, budget_usd: "1", worst_case_cost_usd: "0.02", actual_cost_usd: null, result_summary: { created: 20, duplicate: 0 } },
+    results: { created: 20, duplicate: 0 },
+  });
+  assert.equal(parsed.success, true);
+  // Unknown provider usage stays null; terminal statuses are part of the contract.
+  assert.equal(generationResponseSchema.safeParse({
+    status: "failed",
+    resumed: true,
+    job: { id: "j1", status: "failed", version: 2 },
+    results: { created: 0, duplicate: 0 },
+    usage: { input: null, output: null },
+  }).success, true);
+  assert.equal(generationResponseSchema.safeParse({ status: "ok", resumed: false, job: { id: "j1", status: "unknown", version: 1 }, results: { created: 0, duplicate: 0 } }).success, false);
+});
+
+test("pending generation record round-trips the exact request and rejects junk", () => {
+  const pending = { key: "batch-0001", request: { topic: "mixed", count: 33, target_language: "vi" as const, budget_usd: 0.5 } };
+  assert.deepEqual(parsePendingGeneration(serializePendingGeneration(pending)), pending);
+  // A legacy bare key is accepted read-only (no request to replay).
+  assert.deepEqual(parsePendingGeneration("legacy-key-0001"), { key: "legacy-key-0001", request: null });
+  // A key with a malformed request keeps the key but drops the unsafe replay payload.
+  assert.deepEqual(parsePendingGeneration(JSON.stringify({ key: "batch-0002", request: { topic: "mixed", count: "nope" } })), { key: "batch-0002", request: null });
+  for (const bad of [null, "", "short", "bad key!", "{not json", JSON.stringify({ key: "x" })]) {
+    assert.equal(parsePendingGeneration(bad as string | null), null, JSON.stringify(bad));
+  }
+});
+
+test("recovery keeps the lock for running/absent and releases only verified terminal states", () => {
+  assert.equal(generationRecoveryDecision({ jobStatus: "running", absent: false }), "keep");
+  assert.equal(generationRecoveryDecision({ absent: true }), "keep");
+  assert.equal(generationRecoveryDecision({ jobStatus: "completed" }), "clear");
+  assert.equal(generationRecoveryDecision({ jobStatus: "failed" }), "clear");
+  assert.equal(generationRecoveryDecision({ jobStatus: "budget_exceeded" }), "clear");
+  // A server-evaluated expired lease is an explicit terminal release.
+  assert.equal(generationRecoveryDecision({ jobStatus: "running", abandoned: true }), "clear");
+  assert.equal(generationRecoveryDecision({}), "keep");
+});
+
+test("only definitive pre-dispatch denials release the pending lock", () => {
+  assert.equal(isDefinitiveGenerationDenial("generation_budget_exceeded", false), true);
+  assert.equal(isDefinitiveGenerationDenial("generation_busy", false), true);
+  assert.equal(isDefinitiveGenerationDenial("generation_idempotency_conflict", false), true);
+  assert.equal(isDefinitiveGenerationDenial("generation_invalid_request", false), true);
+  // A possibly post-dispatch store failure must keep the durable pending record.
+  assert.equal(isDefinitiveGenerationDenial("store_unavailable", false), false);
+  assert.equal(isDefinitiveGenerationDenial("generation_version_conflict", false), false);
+  assert.equal(isDefinitiveGenerationDenial("generation_unavailable", true), false);
+  assert.equal(isDefinitiveGenerationDenial(undefined, false), false);
 });

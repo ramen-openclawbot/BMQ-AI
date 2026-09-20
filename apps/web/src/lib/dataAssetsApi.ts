@@ -40,14 +40,16 @@ function statusOf(error: unknown): number {
 }
 
 /** Invoke the data admin and validate the response shape before trusting it. */
-export async function invokeDataAdmin<T>(body: Record<string, unknown>, schema: ZodType<T>, language: Language): Promise<T> {
+export async function invokeDataAdmin<T>(body: Record<string, unknown>, schema: ZodType<T>, language: Language, signal?: AbortSignal): Promise<T> {
   let response: { data: unknown; error: unknown };
   try {
     response = await supabase.functions.invoke(DATA_ADMIN_FUNCTION, {
       body: { ...body, language },
       headers: { "Accept-Language": language },
+      ...(signal ? { signal } : {}),
     });
   } catch (caught) {
+    if (signal?.aborted) throw caught;
     // The request never produced an HTTP status: the mutation outcome is unknown.
     throw new DataAdminRequestError(caught instanceof Error ? caught.message : "network", "network", 0);
   }

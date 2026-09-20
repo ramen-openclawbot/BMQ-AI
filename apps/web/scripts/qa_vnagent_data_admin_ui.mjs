@@ -39,7 +39,8 @@ const asset=(over)=>({id:'11111111-1111-1111-1111-111111111111',tenant:'bmq',dat
 const gold=asset({id:'22222222-2222-2222-2222-222222222222',dataset_stage:'curated',evaluation_status:'pending_review',dedupe_key:'k2',version:2});
 const rows=[asset(),gold];
 const jev=[{id:'j1',request_id:'req-1',model:'jev-1',prompt_version:'p3',registry_version:'r7',attempted:true,decided:true,screen:'pass',circuit:'closed',metric:'dealer_order_count',metric_probability:0.99,period:'this_week',period_probability:0.98,support:'supported_unqualified',support_probability:0.97,threshold:0.8,fallback:null,cost:null,token_counts:{input:500,output:20},stage_timings:{totalMs:200},counts:{warehouseReads:2},decision:'dealer_order_count',created_at:'2026-09-20T03:00:00.000Z'}];
-const store={metrics:async()=>metrics,timeseries:async()=>timeseries,listAssets:async()=>({rows,total:rows.length}),listExportAssets:async(f)=>({rows:rows.filter(r=>!f.assetIds||f.assetIds.includes(r.id)),total:rows.length}),getAsset:async(id)=>rows.find(r=>r.id===id)??null,createAsset:async()=>({status:'duplicate',asset:rows[0]}),transitionAsset:async()=>({...gold,dataset_stage:'gold',evaluation_status:'verified',reviewer_id:'fixture-owner'}),listJev:async()=>jev};
+const genJob={id:'44444444-4444-4444-4444-444444444444',tenant:'bmq',status:'completed',version:2,idempotency_key:'fixture-batch-0001',request:{topic:'mixed',count:20},model:'openai/gpt-test',prompt_version:'vnagent-generate-fixture',seed_ids:[],budget_usd:'1',worst_case_cost_usd:'0.020800',actual_cost_usd:'0.015000',result_summary:{created:20,duplicate:0,rejected:0,total:20},error_code:null,created_at:'2026-09-20T03:00:00.000Z',finished_at:'2026-09-20T03:01:00.000Z'};
+const store={metrics:async()=>metrics,timeseries:async()=>timeseries,listAssets:async()=>({rows,total:rows.length}),listExportAssets:async(f)=>({rows:rows.filter(r=>!f.assetIds||f.assetIds.includes(r.id)),total:rows.length}),getAsset:async(id)=>rows.find(r=>r.id===id)??null,createAsset:async()=>({status:'duplicate',asset:rows[0]}),transitionAsset:async()=>({...gold,dataset_stage:'gold',evaluation_status:'verified',reviewer_id:'fixture-owner'}),listJev:async()=>jev,generationStart:async()=>({job:genJob,resumed:false,abandoned:false}),generationFinish:async()=>genJob,generationGet:async(id,key)=>({job:key?(key===genJob.idempotency_key?genJob:null):(id?genJob:null),jobs:id||key?[]:[genJob]})};
 const handle=createDataAdminHandler({enabled:()=>true,authenticate:async()=>({userId:'fixture-owner',role:'owner',store}),now:()=>new Date('2026-09-20T10:00:00Z'),captureEnabled:()=>true,audit:()=>{}});
 export const supabase={functions:{invoke:async(name,{body})=>{window.calls.push(body);const r=await handle(new Request('https://fixture.test',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}));const data=await r.json();return r.ok?{data,error:null}:{data:null,error:new Error(data.error)}}}};window.calls=[];
 `;
@@ -110,11 +111,29 @@ try {
     const contributions = await page.locator("[data-da-contribution]").count();
 
     const sections = [];
-    for (const label of ["Repository", "Review queue", "Contributions", "Jev logs", "Markdown export"]) {
+    for (const label of ["Repository", "Review queue", "Contributions", "Generate data", "Jev logs", "Markdown export"]) {
       await page.getByRole("button", { name: label, exact: true }).click();
       await page.waitForTimeout(200);
       sections.push({ label, alerts: await page.getByRole("alert").allTextContents(), overflow: await page.evaluate(() => document.documentElement.scrollWidth > innerWidth) });
     }
+    // Owner-only Generate Data: the real panel renders its bounded form, the
+    // default style split, and the durable recent-run row, with no overflow.
+    await page.getByRole("button", { name: "Generate data", exact: true }).click();
+    await page.waitForTimeout(250);
+    const generatePanel = await page.locator('[data-da-panel="generate"]').isVisible();
+    const generateForm = await page.locator("[data-da-generation-form]").isVisible();
+    const generateInputs = await Promise.all(["[data-da-generation-topic]", "[data-da-generation-count]", "[data-da-generation-language]", "[data-da-generation-budget]", "[data-da-generation-run]"].map((selector) => page.locator(selector).isVisible()));
+    const generateMix = (await page.locator("[data-da-generation-mix]").first().textContent()) ?? "";
+    const generateRuns = await page.locator('[data-da-panel="generate"] tbody tr').count();
+    const generateOverflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);
+    // Touch targets and English option labels: mobile selects must be >= 44px, and
+    // the English admin must not leak a Vietnamese-only option label.
+    const topicBox = await page.locator("[data-da-generation-topic]").boundingBox();
+    const languageBox = await page.locator("[data-da-generation-language]").boundingBox();
+    const selectHeights = [topicBox?.height ?? 0, languageBox?.height ?? 0];
+    const languageOptions = await page.locator("[data-da-generation-language] option").allTextContents();
+    const generateText = (await page.locator('[data-da-panel="generate"]').innerText()).toLowerCase();
+    await page.screenshot({ path: join(out, `${width}-generate.png`), fullPage: true });
     // The captured question is Vietnamese fixture data: the English chrome must
     // never translate or rewrite it.
     await page.getByRole("button", { name: "Repository", exact: true }).click();
@@ -126,7 +145,33 @@ try {
     const exportPanel = await page.locator('[data-da-panel="export"]').isVisible();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);
     await page.screenshot({ path: join(out, `${width}-data-admin.png`), fullPage: true });
-    results.push({ width, title, langAttr, chromeVietnamese: chrome.includes("Tài sản dữ liệu"), rawQuestion, exportCta, chartVisible, daysAttr, modeAttr, contributions, exportPanel, overflow, errors, sections });
+    // 390 only: reload with a durable pending record to prove the owner-scoped
+    // recovery flow — a completed run releases the lock, an absent run keeps it.
+    let pendingCompletedReleases = null;
+    let pendingAbsentKeepsLock = null;
+    if (width === 390) {
+      await page.evaluate(() => window.localStorage.setItem("vnagent-generate-pending:fixture-owner", JSON.stringify({ key: "fixture-batch-0001", request: { topic: "mixed", count: 20, target_language: "vi", budget_usd: 1 } })));
+      await page.reload();
+      await page.locator("[data-vnagent-data-admin]").waitFor();
+      await page.getByRole("button", { name: "Generate data", exact: true }).click();
+      await page.waitForTimeout(400);
+      pendingCompletedReleases = await page.locator("[data-da-generation-run]").isEnabled() && (await page.locator("[data-da-generation-reconcile]").count()) === 0;
+      await page.screenshot({ path: join(out, "390-generate-recovered.png"), fullPage: true });
+
+      await page.evaluate(() => window.localStorage.setItem("vnagent-generate-pending:fixture-owner", JSON.stringify({ key: "absent-pending-0001", request: { topic: "supplier_payments", count: 25, target_language: "vi", budget_usd: 0.5 } })));
+      await page.reload();
+      await page.locator("[data-vnagent-data-admin]").waitFor();
+      await page.getByRole("button", { name: "Generate data", exact: true }).click();
+      await page.waitForTimeout(400);
+      const absentTopic = await page.locator("[data-da-generation-topic]").inputValue();
+      const absentCount = await page.locator("[data-da-generation-count]").inputValue();
+      pendingAbsentKeepsLock = (await page.locator("[data-da-generation-run]").isDisabled())
+        && (await page.locator("[data-da-generation-reconcile]").count()) === 1
+        && absentTopic === "supplier_payments" && absentCount === "25";
+      await page.screenshot({ path: join(out, "390-generate-pending.png"), fullPage: true });
+      await page.evaluate(() => window.localStorage.removeItem("vnagent-generate-pending:fixture-owner"));
+    }
+    results.push({ width, title, langAttr, chromeVietnamese: chrome.includes("Tài sản dữ liệu"), rawQuestion, exportCta, chartVisible, daysAttr, modeAttr, contributions, exportPanel, overflow, errors, sections, generatePanel, generateForm, generateInputs, generateMix, generateRuns, generateOverflow, selectHeights, languageOptions, generateText, pendingCompletedReleases, pendingAbsentKeepsLock });
     await context.close();
   }
 } finally {
@@ -146,6 +191,17 @@ for (const result of results) {
   if (result.contributions < 4) failures.push(`width ${result.width}: source contribution chips missing`);
   if (!result.exportPanel) failures.push(`width ${result.width}: export CTA did not open the export panel`);
   if (result.overflow) failures.push(`width ${result.width}: horizontal page overflow`);
+  if (!result.generatePanel || !result.generateForm) failures.push(`width ${result.width}: generate panel/form not visible`);
+  if (!result.generateInputs.every(Boolean)) failures.push(`width ${result.width}: generate inputs missing (${JSON.stringify(result.generateInputs)})`);
+  if (!/variant 12/.test(result.generateMix)) failures.push(`width ${result.width}: default style split missing (${JSON.stringify(result.generateMix.slice(0, 120))})`);
+  if (result.generateRuns < 1) failures.push(`width ${result.width}: recent generation run missing`);
+  if (result.generateOverflow) failures.push(`width ${result.width}: generate panel horizontal overflow`);
+  if (result.width <= 640 && !result.selectHeights.every((height) => height >= 44)) failures.push(`width ${result.width}: mobile select touch target < 44px (${JSON.stringify(result.selectHeights)})`);
+  if (!result.languageOptions.includes("Vietnamese")) failures.push(`width ${result.width}: English admin question-language option is missing the English "Vietnamese" label (${JSON.stringify(result.languageOptions)})`);
+  if (result.languageOptions.includes("Tiếng Việt")) failures.push(`width ${result.width}: Vietnamese-only option label leaked into the English admin (${JSON.stringify(result.languageOptions)})`);
+  if (/idempotency|khóa chống trùng/.test(result.generateText)) failures.push(`width ${result.width}: low-level idempotency wording leaked into the owner flow`);
+  if (result.width === 390 && result.pendingCompletedReleases !== true) failures.push(`width 390: a completed pending run did not release the lock`);
+  if (result.width === 390 && result.pendingAbsentKeepsLock !== true) failures.push(`width 390: an absent pending run did not keep the lock/restore its exact request`);
   if (result.errors.length) failures.push(`width ${result.width}: page errors ${JSON.stringify(result.errors)}`);
   for (const section of result.sections) {
     if (section.alerts.length) failures.push(`width ${result.width} "${section.label}": unexpected alerts ${JSON.stringify(section.alerts)}`);

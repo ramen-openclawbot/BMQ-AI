@@ -5,6 +5,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createDataAdminHandler, vnToday, type DataAdminConfig, type DataAdminIdentity, type DataAdminStore } from "./handler.ts";
 import { DataAdminError, type AssetFilterInput, type DataAsset, type ExportQuery } from "./data-assets.ts";
+import { SUPPORTED_TOPICS, validateGenerationOutput, type GenerationRequest } from "./generation.ts";
 
 const ORIGIN = "https://ai.banhmique.vn";
 const ASSET_ID = "11111111-1111-1111-1111-111111111111";
@@ -43,12 +44,14 @@ interface Harness {
   calls: string[];
   assets: Map<string, DataAsset>;
   exportQueries: ExportQuery[];
+  jobs: Map<string, Record<string, unknown>>;
 }
 
 function harness(seed: DataAsset[] = []): Harness {
   const assets = new Map(seed.map((item) => [item.id, { ...item }]));
   const calls: string[] = [];
   const exportQueries: ExportQuery[] = [];
+  const jobs = new Map<string, Record<string, unknown>>();
   const store: DataAdminStore = {
     async metrics() {
       calls.push("metrics");
@@ -136,8 +139,52 @@ function harness(seed: DataAsset[] = []): Harness {
       calls.push("jev");
       return [];
     },
+    async generationStart(input) {
+      calls.push(`generationStart:${input.idempotencyKey}`);
+      const existing = [...jobs.values()].find((job) => job.idempotency_key === input.idempotencyKey);
+      if (existing) {
+        // Same key with a different contract is a conflict, never a silent reuse.
+        if (existing.request_fingerprint !== input.requestFingerprint) throw new DataAdminError("generation_idempotency_conflict", 409);
+        return { job: existing, resumed: true, abandoned: false };
+      }
+      const running = [...jobs.values()].find((job) => job.status === "running");
+      if (running) throw new DataAdminError("generation_busy", 409);
+      const job: Record<string, unknown> = {
+        id: `33333333-3333-3333-3333-${String(jobs.size).padStart(12, "0")}`,
+        status: "running",
+        version: 1,
+        idempotency_key: input.idempotencyKey,
+        request_fingerprint: input.requestFingerprint,
+        request: input.request,
+        model: input.model,
+        prompt_version: input.promptVersion,
+        seed_ids: input.seedIds,
+        budget_usd: input.budgetUsd,
+        worst_case_cost_usd: input.worstCaseCostUsd,
+        actual_cost_usd: null,
+        result_summary: {},
+        error_code: null,
+      };
+      jobs.set(String(job.id), job);
+      return { job, resumed: false, abandoned: false };
+    },
+    async generationFinish(input) {
+      calls.push(`generationFinish:${input.status}`);
+      const job = jobs.get(input.jobId);
+      if (!job) throw new DataAdminError("generation_job_not_found", 404);
+      if (job.version !== input.expectedVersion) throw new DataAdminError("generation_version_conflict", 409);
+      const updated = { ...job, status: input.status, version: Number(job.version) + 1, result_summary: input.summary, actual_cost_usd: input.actualCostUsd, error_code: input.errorCode };
+      jobs.set(input.jobId, updated);
+      return updated;
+    },
+    async generationGet(jobId, idempotencyKey) {
+      calls.push(`generationGet:${jobId ?? idempotencyKey ?? "recent"}`);
+      if (idempotencyKey) return { job: [...jobs.values()].find((job) => job.idempotency_key === idempotencyKey) ?? null, jobs: [], abandoned: false };
+      if (jobId) return { job: jobs.get(jobId) ?? null, jobs: [], abandoned: false };
+      return { job: null, jobs: [...jobs.values()], abandoned: false };
+    },
   };
-  return { store, calls, assets, exportQueries };
+  return { store, calls, assets, exportQueries, jobs };
 }
 
 function configFor(identity: Partial<DataAdminIdentity>, store: DataAdminStore, overrides: Partial<DataAdminConfig> = {}): DataAdminConfig {
@@ -414,4 +461,194 @@ test("error messages default to English and only switch to Vietnamese when reque
   // An explicit Vietnamese signal still selects the Vietnamese messages.
   const viBody = await (await handler(post({ action: "not_an_action" }, { "accept-language": "vi-VN" }))).json() as { error: string };
   assert.equal(viBody.error, "Thao tác không được hỗ trợ.");
+});
+
+// ── Owner-only Generate Data (durable job, hard budget, strict provenance) ─────
+
+function generationItems(request: GenerationRequest) {
+  const styles = ["variant", "typo", "ambiguous", "out_of_scope"] as const;
+  const response: Record<string, string> = { variant: "answer", typo: "answer", ambiguous: "clarify", out_of_scope: "abstain" };
+  const value = {
+    questions: Array.from({ length: request.count }, (_, index) => {
+      const style = styles[index % styles.length];
+      const topicId = request.topicId === "mixed" ? SUPPORTED_TOPICS[index % SUPPORTED_TOPICS.length].id : request.topicId;
+      return { question: `Câu hỏi tổng hợp số ${index} về ${topicId}?`, style, topic_id: topicId, expected_response: response[style], expected_filters: {} };
+    }),
+  };
+  return validateGenerationOutput(value, request);
+}
+
+const GENERATION_PRICES = { inputPer1kUsd: 0.0002, outputPer1kUsd: 0.0012, provenance: { source: "test-catalog", modelId: "openai/gpt-test" } };
+const generationBody = { action: "generate", topic: "controlled_revenue", count: 20, target_language: "vi", budget_usd: 1, idempotency_key: "batch-0001" };
+
+test("generation is disabled without a server generator and never makes a call", async () => {
+  const { store, calls } = harness();
+  const handler = createDataAdminHandler(configFor({}, store, { generationPricing: () => GENERATION_PRICES }));
+  const response = await handler(post(generationBody));
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).code, "generation_disabled");
+  assert.deepEqual(calls.filter((call) => call.startsWith("generation")), []);
+});
+
+test("an unbounded or insufficient budget fails closed before any model call", async () => {
+  const { store, calls } = harness();
+  let callsToModel = 0;
+  const generate = async () => { callsToModel += 1; throw new Error("must not be called"); };
+  const unbounded = createDataAdminHandler(configFor({}, store, { generate, generationPricing: () => null }));
+  const unboundedResponse = await unbounded(post(generationBody));
+  assert.equal(unboundedResponse.status, 503);
+  assert.equal((await unboundedResponse.json()).code, "generation_cost_unbounded");
+
+  // A valid budget that is below the measured worst case is refused before any call.
+  const expensive = { inputPer1kUsd: 0.01, outputPer1kUsd: 0.05, provenance: { source: "test-catalog" } };
+  const tooSmall = createDataAdminHandler(configFor({}, store, { generate, generationPricing: () => expensive }));
+  const tooSmallResponse = await tooSmall(post({ ...generationBody, budget_usd: 0.05 }));
+  assert.equal(tooSmallResponse.status, 400);
+  assert.equal((await tooSmallResponse.json()).code, "generation_budget_exceeded");
+  assert.equal(callsToModel, 0);
+  assert.deepEqual(calls.filter((call) => call.startsWith("generationStart")), []);
+});
+
+test("a successful batch stores Raw synthetic/llm_generated assets with run provenance", async () => {
+  const { store, calls, assets, jobs } = harness();
+  let seen: GenerationRequest | null = null;
+  const generate = async (request: GenerationRequest) => {
+    seen = request;
+    return { items: generationItems(request), usage: { input: 900, output: 600 }, cost: 0.02, model: "openai/gpt-test" };
+  };
+  const handler = createDataAdminHandler(configFor({}, store, { generate, generationPricing: () => GENERATION_PRICES, generationModel: () => "openai/gpt-test" }));
+  const response = await handler(post(generationBody));
+  const body = await response.json();
+  assert.equal(response.status, 201);
+  assert.equal(body.status, "ok");
+  assert.equal(body.results.created, 20);
+  assert.equal(body.results.duplicate, 0);
+  assert.equal(body.actualCostUsd, 0.02);
+  assert.equal(seen!.count, 20);
+  assert.equal(seen!.idempotencyKey, "batch-0001");
+  const stored = [...assets.values()];
+  assert.equal(stored.length, 20);
+  for (const asset of stored) {
+    assert.equal(asset.dataset_stage, "raw");
+    assert.equal(asset.source_kind, "synthetic");
+    assert.equal(asset.source_designation, "llm_generated");
+    assert.equal(asset.evaluation_status, "not_evaluated");
+    assert.equal(asset.provenance.model, "openai/gpt-test");
+    assert.equal(asset.provenance.source, "synthetic_builtin_example");
+    assert.equal(asset.provenance.pricing.source, "test-catalog");
+    assert.ok(typeof asset.provenance.inputTokenBound === "number" && asset.provenance.inputTokenBound > 0);
+    assert.ok(typeof asset.provenance.runId === "string");
+    assert.ok(!("dataset_stage" in asset.provenance));
+  }
+  assert.equal(body.usage.input, 900);
+  assert.equal(body.usage.output, 600);
+  assert.equal([...jobs.values()][0].status, "completed");
+  assert.ok(calls.some((call) => call === "generationFinish:completed"));
+});
+
+test("unknown provider usage is returned as null, never a fabricated zero", async () => {
+  const { store } = harness();
+  const generate = async (request: GenerationRequest) => ({ items: generationItems(request), usage: { input: null, output: null }, cost: null, model: "m" });
+  const handler = createDataAdminHandler(configFor({}, store, { generate, generationPricing: () => GENERATION_PRICES }));
+  const response = await handler(post(generationBody));
+  const body = await response.json();
+  assert.equal(response.status, 201);
+  assert.deepEqual(body.usage, { input: null, output: null });
+  assert.equal(body.actualCostUsd, null);
+});
+
+test("the same key with a different payload is a 409 conflict, not a silent reuse", async () => {
+  const { store } = harness();
+  let modelCalls = 0;
+  const generate = async (request: GenerationRequest) => { modelCalls += 1; return { items: generationItems(request), usage: { input: 1, output: 1 }, cost: 0.02, model: "m" }; };
+  const handler = createDataAdminHandler(configFor({}, store, { generate, generationPricing: () => GENERATION_PRICES }));
+  assert.equal((await handler(post(generationBody))).status, 201);
+  const conflict = await handler(post({ ...generationBody, count: 30 }));
+  assert.equal(conflict.status, 409);
+  assert.equal((await conflict.json()).code, "generation_idempotency_conflict");
+  assert.equal(modelCalls, 1);
+});
+
+test("a repeated idempotency key reads the durable job back and never spends again", async () => {
+  const { store } = harness();
+  let modelCalls = 0;
+  const generate = async (request: GenerationRequest) => {
+    modelCalls += 1;
+    return { items: generationItems(request), usage: { input: 1, output: 1 }, cost: 0.02, model: "m" };
+  };
+  const handler = createDataAdminHandler(configFor({}, store, { generate, generationPricing: () => GENERATION_PRICES }));
+  const first = await handler(post(generationBody));
+  assert.equal(first.status, 201);
+  const second = await handler(post(generationBody));
+  const body = await second.json();
+  assert.equal(second.status, 200);
+  assert.equal(body.resumed, true);
+  assert.equal(body.status, "ok");
+  assert.equal(body.results.created, 20);
+  assert.equal(modelCalls, 1);
+});
+
+test("a reported cost above the owner budget stores nothing and fails the job", async () => {
+  const { store, assets, jobs } = harness();
+  const generate = async (request: GenerationRequest) => ({ items: generationItems(request), usage: { input: 1, output: 1 }, cost: 2, model: "m" });
+  const handler = createDataAdminHandler(configFor({}, store, { generate, generationPricing: () => GENERATION_PRICES }));
+  const response = await handler(post(generationBody));
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).code, "generation_budget_exceeded");
+  assert.equal(assets.size, 0);
+  assert.equal([...jobs.values()][0].status, "budget_exceeded");
+});
+
+test("generate_status supports exact-key recovery and validates ids/keys", async () => {
+  const { store } = harness();
+  const generate = async (request: GenerationRequest) => ({ items: generationItems(request), usage: { input: 1, output: 1 }, cost: 0.02, model: "m" });
+  const handler = createDataAdminHandler(configFor({}, store, { generate, generationPricing: () => GENERATION_PRICES }));
+  await handler(post(generationBody));
+  const list = await handler(post({ action: "generate_status" }));
+  const listBody = await list.json();
+  assert.equal(listBody.status, "ok");
+  assert.equal(listBody.jobs.length, 1);
+  const jobId = listBody.jobs[0].id;
+  const single = await handler(post({ action: "generate_status", job_id: jobId }));
+  assert.equal((await single.json()).job.status, "completed");
+  // Exact-key recovery finds the job even though it is outside a bounded list.
+  const byKey = await handler(post({ action: "generate_status", idempotency_key: "batch-0001" }));
+  assert.equal((await byKey.json()).job.id, jobId);
+  // An absent key is authoritative and must not enable a new paid batch.
+  const absent = await handler(post({ action: "generate_status", idempotency_key: "batch-absent-0009" }));
+  assert.equal((await absent.json()).job, null);
+  const invalid = await handler(post({ action: "generate_status", job_id: "not-a-uuid" }));
+  assert.equal(invalid.status, 400);
+  const invalidKey = await handler(post({ action: "generate_status", idempotency_key: "bad key!" }));
+  assert.equal(invalidKey.status, 400);
+});
+
+test("a resumed failed job keeps its terminal failure status, not a success", async () => {
+  const { store } = harness();
+  let modelCalls = 0;
+  const generate = async () => { modelCalls += 1; throw new DataAdminError("generation_unavailable", 503); };
+  const handler = createDataAdminHandler(configFor({}, store, { generate, generationPricing: () => GENERATION_PRICES }));
+  const first = await handler(post(generationBody));
+  assert.equal(first.status, 503);
+  const second = await handler(post(generationBody));
+  const body = await second.json();
+  assert.equal(second.status, 200);
+  assert.equal(body.resumed, true);
+  assert.equal(body.status, "failed");
+  assert.equal(body.job.status, "failed");
+  assert.equal(modelCalls, 1);
+});
+
+test("generate_status surfaces a server-evaluated expired lease as abandoned", async () => {
+  const { store } = harness();
+  const expiredStore = {
+    ...store,
+    generationGet: async () => ({ job: { id: "j1", status: "running", version: 1 }, jobs: [], abandoned: true }),
+  };
+  const handler = createDataAdminHandler(configFor({}, expiredStore, {}));
+  const response = await handler(post({ action: "generate_status", idempotency_key: "batch-0001" }));
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.abandoned, true);
+  assert.equal(body.job.status, "running");
 });

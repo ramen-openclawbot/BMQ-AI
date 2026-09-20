@@ -1,4 +1,5 @@
 import { AnalyticsError, normalize } from './core.ts';
+import { purchaseCuePresent } from './payment.ts';
 
 // Bounded, read-only cost-classification lane. The generic DSL cannot express a
 // review_status filter, so only these typed questions cross the bridge.
@@ -228,6 +229,13 @@ export function costCategoryFromQuestion(question: string): string | undefined {
 /** Deterministic routing for the exact reviewed cost questions; null defers to the planner. */
 export function costDetect(question: string, today: string): { lane: 'cost' | 'clarify' | 'abstain'; lookup?: any; message?: string } | null {
   const text = normalize(question).replace(/đ/g, 'd');
+  // A purchase-cost question about a named item ("chi phí mua bơ trong tháng 9",
+  // "chi phí T9 để mua bơ") is a supplier/item/month spend question, not a
+  // cost-classification question. The payment lane owns it (it can keep the exact
+  // month/item and reports actual payments distinctly); claiming it here produced
+  // a generic classification clarification. Pure classification wording has no
+  // buying verb, so it is never deferred.
+  if (purchaseCuePresent(question)) return null;
   const lineRef = UUID.exec(question);
   const costRelated = /(chi phi|cost|expense)/.test(text)
     || (/(dong|khoan)/.test(text) && /review/.test(text) && /thang/.test(text))

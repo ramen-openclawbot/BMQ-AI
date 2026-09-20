@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PAYMENT_QUESTIONS, paymentAnswer, paymentDetect, paymentRequest, paymentUnsupportedQualifier } from './payment.ts';
+import { PAYMENT_QUESTIONS, paymentAnswer, paymentDetect, paymentRequest, paymentUnsupportedQualifier, purchaseCuePresent } from './payment.ts';
+import { costDetect } from './cost.ts';
 import { runWarehouse } from './warehouse.ts';
 import { warehouseClient } from '../_shared/warehouse.ts';
 import { AnalyticsError } from './core.ts';
@@ -29,7 +30,7 @@ const paymentResult = {
 
 test('literal T9 butter TV Food routes to the exact month, supplier and item', () => {
   const route = paymentDetect('T9 đã thanh toán bao nhiêu tiền bơ cho TV food', TODAY);
-  assert.deepEqual(route, { lane: 'payment', lookup: { kind: 'supplier_payments', month: '2026-09', supplier: 'tv food', item: 'bo' } });
+  assert.deepEqual(route, { lane: 'payment', measure: 'payment', lookup: { kind: 'supplier_payments', month: '2026-09', supplier: 'tv food', item: 'bo' } });
   paymentRequest(route?.lookup);
 });
 
@@ -224,6 +225,91 @@ test('paymentAnswer clarifies an ambiguous or unknown supplier without a substit
   const notFound = { ...paymentResult, supplier_status: 'not_found', supplier: null, supplier_candidates: [] };
   assert.match(paymentAnswer(notFound, 'vi'), /Không tìm thấy nhà cung cấp/);
   assert.doesNotMatch(paymentAnswer(notFound, 'vi'), /Tổng đã thanh toán/);
+});
+
+// ── Purchase-cost / spend regression (production screenshot 4462) ──────────────
+// "Chi phí T9 để mua bơ?" and "Chi phí mua bơ trong tháng 9" must NOT fall into the
+// cost-classification generic clarification. No read-only purchase-cost contract
+// exists, so they must NOT return an actual-payment total either (even with a
+// disclaimer): they clarify with the interpreted item and month retained. Explicit
+// payment wording keeps the existing payment flow.
+const PURCHASE_PROMPTS = ['Chi phí T9 để mua bơ?', 'Chi phí mua bơ trong tháng 9'];
+
+test('purchase-cost butter prompts clarify with item+month instead of substituting a payment total', () => {
+  for (const question of PURCHASE_PROMPTS) {
+    assert.equal(costDetect(question, TODAY), null, question);
+    assert.equal(purchaseCuePresent(question), true, question);
+    const route = paymentDetect(question, TODAY);
+    assert.equal(route?.lane, 'clarify', question);
+    assert.match(String((route as any).message), /chi phí mua hàng/, question);
+    assert.match(String((route as any).message), /bo/i, question);
+    assert.match(String((route as any).message), /2026-09/, question);
+    assert.notEqual(route?.lane, 'payment', question);
+  }
+  // The generic cost classification clarification must never be produced for them.
+  const generic = 'Anh nêu rõ câu hỏi phân loại chi phí theo tháng, nhóm, trạng thái duyệt hoặc mã dòng cụ thể nhé.';
+  for (const question of PURCHASE_PROMPTS) assert.notEqual((costDetect(question, TODAY) as any)?.message, generic);
+});
+
+test('purchase-cost detection keeps an explicit item and never drops a month', () => {
+  for (const question of ['Chi phí mua bơ cho TV Food trong tháng 9', 'Chi phí mua bơ tháng 9 cho TV Food', 'Chi phí T9 để mua bơ?']) {
+    const route = paymentDetect(question, TODAY);
+    assert.equal(route?.lane, 'clarify', question);
+    assert.match(String((route as any).message), /bo/i, question);
+    assert.match(String((route as any).message), /2026-09/, question);
+  }
+  // A purchase-cost question with no month still asks for one.
+  const noMonth = paymentDetect('Chi phí mua bơ', TODAY);
+  assert.equal(noMonth?.lane, 'clarify');
+  assert.match(String((noMonth as any).message), /tháng/);
+  // Generic "mua hàng" with no item clarifies for the item instead of returning a total.
+  const genericGoods = paymentDetect('chi phí mua hàng tháng 9/2026', TODAY);
+  assert.equal(genericGoods?.lane, 'clarify');
+  assert.match(String((genericGoods as any).message), /mặt hàng/);
+});
+
+test('purchase-cost questions never mix in cost-classification semantics', () => {
+  // A pure classification question is still claimed by the cost lane.
+  assert.deepEqual(costDetect('Chi phí phân loại tháng 9/2026', TODAY),
+    { lane: 'cost', lookup: { kind: 'month_totals', month: '2026-09', category_code: undefined } });
+  assert.equal(paymentDetect('Chi phí phân loại tháng 9/2026', TODAY), null);
+  // A question that mixes both meanings abstains rather than silently picking one.
+  const mixed = paymentDetect('Chi phí mua bơ theo nhóm tháng 9', TODAY);
+  assert.equal(mixed?.lane, 'abstain');
+  assert.match(String((mixed as any).message), /phân loại chi phí/);
+  // A supplier-debt question still cannot open the payment lane.
+  assert.equal(paymentDetect('Công nợ nhà cung cấp TV Food tháng 9/2026', TODAY), null);
+});
+
+test('purchase-cost prompts make zero warehouse reads and are not answered as payments', async () => {
+  for (const question of PURCHASE_PROMPTS) {
+    const calls: any[] = [];
+    const result = await runWarehouse({ ...input, question }, async (path, body) => {
+      if (path === '/v1/semantic') return catalog;
+      calls.push({ path, body });
+      return paymentResult;
+    }, async () => { throw new Error('no model'); }, signal);
+    assert.deepEqual(calls, [], question);
+    assert.equal(result.provenance.lane, 'abstain', question);
+    assert.equal(result.provenance.modelCalls, 0, question);
+    // Retains the interpreted item and month; never states a payment total.
+    assert.match(result.answer, /bo/i, question);
+    assert.match(result.answer, /2026-09/, question);
+    assert.doesNotMatch(result.answer, /Tổng đã thanh toán/, question);
+    assert.doesNotMatch(result.answer, /Tổng chi phí/, question);
+  }
+});
+
+test('purchase-cost prompt without an item makes zero warehouse payment reads', async () => {
+  const paths: string[] = [];
+  const result = await runWarehouse({ ...input, question: 'chi phí mua hàng tháng 9/2026' }, async (path) => {
+    if (path === '/v1/semantic') return catalog;
+    paths.push(path);
+    return paymentResult;
+  }, async () => { throw new Error('no model'); }, signal);
+  assert.deepEqual(paths, []);
+  assert.equal(result.provenance.lane, 'abstain');
+  assert.match(result.answer, /mặt hàng/);
 });
 
 test('fixed client whitelist allows the read-only payment endpoint and still rejects arbitrary paths', async () => {

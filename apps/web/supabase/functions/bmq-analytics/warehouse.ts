@@ -345,6 +345,10 @@ export async function runWarehouse(raw: unknown, call: WarehouseCall, model: Mod
     if (widen) return response(widen, "abstain");
     const explicit = paymentFast;
     if (explicit && explicit.lane !== "payment") return response(explicit.message, "abstain");
+    // Purchase-cost wording ("chi phí mua bơ trong tháng 9") is never answered from
+    // this lane: paymentDetect clarifies it with the item/month retained, so a
+    // planner-proposed payment plan for such a question abstains rather than
+    // substituting a payment total.
     const missing = missingPaymentQualifier(plan.payment_lookup, input.language);
     if (missing) return response(missing, "payment");
     const request = paymentRequest(plan.payment_lookup);

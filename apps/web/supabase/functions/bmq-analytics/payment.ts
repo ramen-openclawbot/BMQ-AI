@@ -23,7 +23,9 @@ export type PaymentRequestBody = { question: PaymentKind; month: string; supplie
 
 // A generic word is not an item qualifier ("tiền hàng" means the money for goods).
 const ITEM_STOPWORDS = new Set(['hang', 'hang hoa', 'tien', 'tien hang', 'don', 'phieu', 'chi phi', 'cong no',
-  'tat ca', 'all', 'nha cung cap', 'ncc', 'supplier', 'thanh toan', 'payment']);
+  'tat ca', 'all', 'nha cung cap', 'ncc', 'supplier', 'thanh toan', 'payment',
+  // Month/preposition fragments must never become an item or supplier name.
+  'thang', 'thang nay', 'thang truoc', 'trong', 'vao', 'de', 'nam', 'theo', 'cho', 'cua', 'tai']);
 // Filler vocabulary used only to decide whether a leading phrase is a real supplier
 // name; it is never used to strip words out of a resolved entity name.
 const LEADING_FILLER = new Set(['da', 'dang', 'vua', 'moi', 'se', 'tong', 'tat', 'ca', 'bao', 'nhieu', 'the',
@@ -35,6 +37,28 @@ export function paymentCuePresent(question: string): boolean {
   const text = normalize(question);
   return /\b(thanh toan|da thanh toan|da tra|tra tien|tra cho|paid|payment|settle)/.test(text);
 }
+
+// Purchase-cost / spend wording ("chi phí mua bơ", "tiền mua bơ", "spend on butter").
+// It is deliberately NOT a payment cue: it names a buying cost, so the answer must
+// keep saying it reports actual recorded payments, never purchase cost or invoice
+// value. It requires a buying verb together with a money/cost word, so a pure
+// cost-classification question ("chi phí phân loại theo nhóm") is never captured.
+const PURCHASE_COST = /\b(chi phi|cost|expense|spend|tien)\b/;
+const PURCHASE_VERB = /\b(mua|nhap|purchase|buy|mua hang)\b/;
+export function purchaseCuePresent(question: string): boolean {
+  const text = normalize(question);
+  return PURCHASE_COST.test(text) && PURCHASE_VERB.test(text);
+}
+
+// A classification scope (category/review status/classification) makes a
+// purchase-cost question genuinely ambiguous: it must not be answered as either a
+// cost-classification total or a supplier payment total.
+const CLASSIFICATION_QUALIFIER =
+  /\b(phan loai|classification|nhom chi phi|danh muc chi phi|theo nhom|trang thai duyet|review status|review_status|da duyet|goi y|tu choi|can review|chua phan loai|do tin cay)\b/;
+
+// Only the actual-payment measure is routed now: purchase-cost wording clarifies
+// instead of substituting a payment total, so there is no second measure here.
+export type PaymentMeasure = 'payment';
 
 function supplierCuePresent(question: string): boolean {
   const text = normalize(question);
@@ -84,8 +108,13 @@ function monthFrom(text: string, today: string): { month: string | null; invalid
 
 function stripMonths(text: string): string {
   return text
-    .replace(/(\d{1,2})\s*\/\s*(\d{4})/g, ' ')
+    // Remove the whole period phrase (including the leading preposition) first, so
+    // "chi phí mua bơ cho TV Food trong tháng 9" leaves no stray "trong" and
+    // "chi phí mua hàng tháng 9/2026" leaves no stray "thang"/year token.
+    .replace(/\b(?:trong|vao)\s+thang\s*\d{1,2}(?:\s*(?:nam\s+|[/-]\s*)?\d{4})?/g, ' ')
     .replace(/thang\s*\d{1,2}(?:\s*(?:nam\s+|[/-]\s*)?\d{4})?/g, ' ')
+    .replace(/(\d{1,2})\s*\/\s*(\d{4})/g, ' ')
+    .replace(/\b(?:trong|vao)\s+t\d{1,2}(?:\s*(?:nam\s+|[/-]\s*)?\d{4})?\b/g, ' ')
     .replace(/\bt\d{1,2}(?:\s*(?:nam\s+|[/-]\s*)?\d{4})?\b/g, ' ')
     .replace(/\b(thang nay|thang truoc|thang roi|this month|last month|previous month)\b/g, ' ');
 }
@@ -95,7 +124,11 @@ function itemFrom(stripped: string): string | undefined {
     .exec(stripped)
     ?? /\b(?:bao nhieu|how much)\s+([a-z0-9][a-z0-9 ]*?)\s+(?:cho|cua|tai)\b/.exec(stripped)
     // "thanh toán bơ cho TV Food": the item sits between the payment verb and "cho".
-    ?? /\b(?:thanh toan|da tra|tra tien|tra)\s+(?:bao nhieu\s+)?([a-z0-9][a-z0-9 ]*?)\s+(?:cho|cua|tai)\b/.exec(stripped);
+    ?? /\b(?:thanh toan|da tra|tra tien|tra)\s+(?:bao nhieu\s+)?([a-z0-9][a-z0-9 ]*?)\s+(?:cho|cua|tai)\b/.exec(stripped)
+    // Purchase-cost wording: "chi phí mua bơ [trong tháng 9]" / "chi phí T9 để mua bơ".
+    // "mua hàng" alone is generic, so the optional "hang" is consumed and the item
+    // must still be a real following term.
+    ?? /\b(?:mua|nhap|purchase|buy)\s+(?:hang\s+)?([a-z0-9][a-z0-9 ]*?)(?=\s+(?:cho|cua|tai|trong|theo|va|and)\b|$)/.exec(stripped);
   return match ? cleanTerm(match[1].trim()) : undefined;
 }
 
@@ -165,23 +198,64 @@ export function paymentUnsupportedQualifier(question: string): string | null {
   }
   return null;
 }
-/** Deterministic routing for the reviewed payment sentences; null defers to the planner. */
-export function paymentDetect(question: string, today: string): { lane: 'payment'; lookup: any } | { lane: 'clarify' | 'abstain'; message: string } | null {
-  if (!paymentCuePresent(question)) return null;
+/**
+ * Deterministic routing for the reviewed payment sentences; null defers to the planner.
+ *
+ * A purchase-cost/spend question ("chi phí mua bơ trong tháng 9") is NOT answered
+ * from the payment lane: no read-only purchase-cost contract exists, so returning
+ * an actual-payment total (even with a disclaimer) would substitute a different
+ * measure. It clarifies instead, keeping the interpreted item and month. Explicit
+ * payment wording ("đã thanh toán ... cho ...") keeps the existing payment flow.
+ */
+export function paymentDetect(question: string, today: string): { lane: 'payment'; measure: PaymentMeasure; lookup: any } | { lane: 'clarify' | 'abstain'; message: string } | null {
+  const paymentCue = paymentCuePresent(question);
+  const purchaseCue = purchaseCuePresent(question);
+  if (!paymentCue && !purchaseCue) return null;
   const text = normalize(question);
+  // A purchase-cost question that names a classification scope is genuinely
+  // ambiguous; it is not silently answered as a cost total or a payment total.
+  if (purchaseCue && !paymentCue && CLASSIFICATION_QUALIFIER.test(text)) {
+    return {
+      lane: 'abstain',
+      message: 'Câu hỏi vừa hỏi chi phí mua hàng vừa hỏi phân loại chi phí. Anh hỏi riêng từng loại nhé; hệ thống không trộn hai nghĩa và không trả số thay thế.',
+    };
+  }
   const unsupported = paymentUnsupportedQualifier(question);
   if (unsupported) return { lane: 'abstain', message: unsupported };
   const period = monthFrom(text, today);
   if (period.invalid) return { lane: 'abstain', message: 'Tháng không hợp lệ hoặc có nhiều tháng. Anh dùng một tháng dạng MM/YYYY hoặc T9 nhé.' };
-  if (!period.month) return { lane: 'clarify', message: 'Anh nêu rõ tháng cần tra (ví dụ T9, tháng 9/2026) nhé.' };
+  if (!period.month) {
+    return { lane: 'clarify', message: purchaseCue && !paymentCue
+      ? 'Anh nêu rõ tháng cần tra chi phí mua hàng (ví dụ T9, tháng 9/2026) nhé.'
+      : 'Anh nêu rõ tháng cần tra (ví dụ T9, tháng 9/2026) nhé.' };
+  }
   if (period.month > today.slice(0, 7)) return { lane: 'abstain', message: 'Tháng yêu cầu nằm trong tương lai nên chưa có thanh toán.' };
   const stripped = stripMonths(text);
   const item = itemFrom(stripped);
   const supplier = supplierFrom(stripped) ?? leadingSupplier(stripped);
+  // Purchase-cost wording is clarified with the interpreted item/month retained;
+  // a payment total is never substituted, with or without a disclaimer.
+  if (purchaseCue && !paymentCue) {
+    const scope = [item ? `mặt hàng "${item}"` : null, `tháng ${period.month}`].filter(Boolean).join(', ');
+    if (!item) {
+      return {
+        lane: 'clarify',
+        message: `Anh nêu rõ mặt hàng cần tra chi phí mua (ví dụ: bơ) và tháng nhé. Hệ thống chỉ có luồng đọc thanh toán thực tế theo tháng/nhà cung cấp/mặt hàng, nên không trả tổng thanh toán thay cho chi phí mua hàng.`,
+      };
+    }
+    return {
+      lane: 'clarify',
+      message: `Câu hỏi là chi phí mua hàng (${scope}). Hệ thống chỉ có luồng đọc thanh toán thực tế theo tháng/nhà cung cấp/mặt hàng, nên không trả số thanh toán thay cho chi phí mua hàng. Anh muốn xem thanh toán thực tế thì hỏi rõ "đã thanh toán ... cho ... trong tháng ..." nhé.`,
+    };
+  }
   if (!supplier && supplierCuePresent(question)) {
     return { lane: 'clarify', message: 'Anh nêu rõ tên nhà cung cấp sau "cho"/"của"/"ncc" nhé; hệ thống không trả tổng tất cả nhà cung cấp thay thế.' };
   }
-  return { lane: 'payment', lookup: { kind: 'supplier_payments', month: period.month, ...(supplier ? { supplier } : {}), ...(item ? { item } : {}) } };
+  return {
+    lane: 'payment',
+    measure: 'payment',
+    lookup: { kind: 'supplier_payments', month: period.month, ...(supplier ? { supplier } : {}), ...(item ? { item } : {}) },
+  };
 }
 
 /** Closed request grammar; unknown fields and identity are rejected. */

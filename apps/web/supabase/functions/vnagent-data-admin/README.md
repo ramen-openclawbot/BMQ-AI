@@ -28,10 +28,58 @@ alias).
 | `transition` | `asset_id, expected_version, to_stage, reason?, verified?` | `{ status, asset }`; Gold requires `verified { intent, conditions, evidence[] }`; `409 version_conflict` on stale version |
 | `jev` | `limit 1..200` | `{ status, events }` bounded route telemetry |
 | `export` | `stage?, source_kind?, from?, to?, limit 1..200` | `{ status, markdown, count, truncated, filters }` escaped, permission-checked |
+| `generate` | `topic (supported id\|mixed), count 20..50, target_language (vi\|en), budget_usd, style_mix?, seed_ids?, idempotency_key?` | `{ status: ok\|in_progress\|abandoned, resumed, job, results, assets? }` one bounded paid batch |
+| `generate_status` | `job_id?` | `{ status, job }` or `{ status, jobs }` owner's durable runs |
+
+Note: the transport `language` field selects admin UI copy; the generated question
+language is the independent `target_language` field, so changing the admin copy can
+never change a batch.
 
 Errors: `{ error, code }` with stable codes
 (`forbidden`, `version_conflict`, `gold_intent_required`, `gold_conditions_required`,
-`gold_evidence_required`, `invalid_transition`, `store_unavailable`, `rate_limited`, …).
+`gold_evidence_required`, `invalid_transition`, `store_unavailable`, `rate_limited`,
+`generation_disabled`, `generation_cost_unbounded`, `generation_budget_exceeded`,
+`generation_busy`, `generation_invalid_output`, `generation_duplicate_output`, …).
+
+## Generate Data (owner-only, default off)
+
+`generate` runs ONE bounded batch of 20–50 synthetic evaluation questions from the
+supported BMQ business definitions in `generation.ts` and the curated **built-in
+example** questions shipped in reviewed source. Those examples are explicitly
+labelled as NOT owner-approved: real owner approval exists only on Curated/Gold
+dataset assets. It never invents a business definition.
+
+- Flag: `VNAGENT_GENERATE_ENABLED === "true"` **and** `AI_GATEWAY_API_KEY` present;
+  otherwise the action is `generation_disabled` (fail closed). The caller bearer
+  token is never the model credential.
+- Provider: `https://ai-gateway.vercel.sh/v1/chat/completions` with
+  `providerOptions.gateway.zeroDataRetention = true` (ZDR preserved), `stream: false`,
+  strict `response_format.json_schema` (no `minItems`/`maxItems`: unsupported by
+  strict mode — the exact count is enforced in code), and `max_tokens` set to the
+  same output token bound used for the cost estimate.
+- Hard budget: pricing comes from the reviewed public Gateway catalog entry in
+  `generation-pricing.ts` (`openai/gpt-5.6-luna`, default tier), with an honest
+  `pricing` provenance recorded on every asset. A complete explicit
+  `VNAGENT_GENERATE_INPUT_USD_PER_1K` / `VNAGENT_GENERATE_OUTPUT_USD_PER_1K`
+  override is honoured but labelled `env_override`; if neither exists the action is
+  `generation_cost_unbounded` and no call is made. The worst case is measured from
+  the ACTUAL serialized request body (UTF-8 bytes bound the input tokens) and the
+  output bound; `budget_usd < worst_case` is refused. Unknown provider usage stays
+  `null`, never a fabricated 0.
+- Durable job: `vnagent_generation_jobs` (owner-only RLS, no direct writes) is
+  created before the call and finished after it. Uniqueness on
+  `(tenant, created_by, idempotency_key)` makes a retry read the existing job; a
+  same-key retry with a different contract is `idempotency_conflict` (409), never a
+  silent reuse. An owner-scoped advisory lock plus a partial unique index on the
+  live `running` row makes a concurrent double dispatch impossible; an expired lease
+  is reaped to `failed` and surfaced as `abandoned`. No scheduled/background worker.
+- Output contract: the model schema has no stage/evaluation/truth field; every
+  item is validated (style↔expected routing, no fabricated money, no duplicates,
+  exact count) or the whole batch is refused. Accepted items are inserted as `raw`
+  `synthetic` / `llm_generated` only, with provenance `model`, `promptVersion`,
+  `runId`, `seedIds`, `topic`, `style`, `pricing` and `inputTokenBound`.
+  Curated/Gold review is unchanged.
+- Not used to train a model; no auto-Gold and no fine-tune path.
 
 ## Server-side invariants
 
@@ -42,11 +90,16 @@ Errors: `{ error, code }` with stable codes
 - Concurrency uses `expected_version` (`409 version_conflict` on mismatch).
 - Duplicate contributions return the existing asset instead of creating another.
 - Export rows are escaped (`|`, newlines, backticks, `<`/`>`), scoped and bounded.
+- Generation is owner-gated, cost-bounded and idempotent; it writes only `raw`
+  `synthetic` / `llm_generated` assets with run provenance.
 
 ## Local checks
 
 ```bash
 node --test apps/web/supabase/functions/vnagent-data-admin/data-assets.test.ts
 node --test apps/web/supabase/functions/vnagent-data-admin/handler.test.ts
+node --test apps/web/supabase/functions/vnagent-data-admin/generation.test.ts
+node --test apps/web/supabase/functions/vnagent-data-admin/generation-client.test.ts
 node apps/web/scripts/qa_vnagent_data_admin_contract.mjs
+PLAYWRIGHT_CORE=/path/to/playwright-core/index.mjs node apps/web/scripts/qa_vnagent_data_admin_ui.mjs
 ```

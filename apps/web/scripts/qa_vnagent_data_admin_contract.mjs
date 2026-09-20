@@ -32,6 +32,7 @@ const exportPanel = read("src/components/data-admin/ExportPanel.tsx");
 const repository = read("src/components/data-admin/RepositoryPanel.tsx");
 const reviewQueue = read("src/components/data-admin/ReviewQueuePanel.tsx");
 const contributions = read("src/components/data-admin/ContributionsPanel.tsx");
+const generatePanel = read("src/components/data-admin/GeneratePanel.tsx");
 const capture = read("supabase/functions/bmq-analytics/handler.ts");
 const captureIndex = read("supabase/functions/bmq-analytics/index.ts");
 const interactionLog = read("supabase/functions/bmq-analytics/interaction-log.ts");
@@ -44,6 +45,10 @@ const hostLanguage = read("src/lib/adminHostLanguage.ts");
 const authPage = read("src/pages/Auth.tsx");
 const authTimeout = read("src/lib/authTimeout.ts");
 const authContext = read("src/contexts/AuthContext.tsx");
+const generation = read("supabase/functions/vnagent-data-admin/generation.ts");
+const generationClient = read("supabase/functions/vnagent-data-admin/generation-client.ts");
+const generationPricing = read("supabase/functions/vnagent-data-admin/generation-pricing.ts");
+const generationMigration = read("supabase/migrations/20260921100000_vnagent_generation_jobs.sql");
 
 check("admin host is handled in App.tsx via the shared exact predicate", app.includes("isVnagentAdminHostname") && !app.includes('"admin.vnagent.ai"'));
 check("admin host sets a document title", app.includes("VNAGENT_ADMIN_TITLE"));
@@ -100,8 +105,8 @@ check("stable admin marker present", shell.includes('data-vnagent-data-admin="v2
 check("header title has an English default label", shell.includes('"Data assets"'));
 check("header has a prominent .md export CTA", shell.includes("data-da-export-cta") && page.includes('onExport={() => setActive("export")}'));
 check("non-owner denial marker present", page.includes('data-da-denied="owner-only"'));
-check("all six panels are wired", ["overview", "repository", "review", "contributions", "jev", "export"].every((key) => page.includes(`"${key}"`)));
-for (const panel of ["OverviewPanel", "RepositoryPanel", "ReviewQueuePanel", "ContributionsPanel", "JevLogsPanel", "ExportPanel"]) {
+check("all seven panels are wired", ["overview", "repository", "review", "contributions", "generate", "jev", "export"].every((key) => page.includes(`"${key}"`)));
+for (const panel of ["OverviewPanel", "RepositoryPanel", "ReviewQueuePanel", "ContributionsPanel", "GeneratePanel", "JevLogsPanel", "ExportPanel"]) {
   check(`${panel} component exists`, existsSync(join(web, `src/components/data-admin/${panel}.tsx`)));
 }
 check("growth chart component exists with stock/new toggle and 7/30/90 range", existsSync(join(web, "src/components/data-admin/GrowthChart.tsx")) && chart.includes("TIMESERIES_DAYS") && chart.includes('"stock"') && chart.includes('"new"'));
@@ -130,6 +135,33 @@ check("review queue shows the captured question and answer verbatim", reviewQueu
 check("the transport sends the pinned admin language", read("src/lib/dataAssetsApi.ts").includes("language") && read("src/lib/dataAssetsApi.ts").includes('"Accept-Language": language'));
 check("handler error defaults are English-first", handler.includes("!/^vi(?:[-,;]|$)/i.test"));
 check("generated Markdown headings are English", dataAssets.includes('lines.push("# VNAgent dataset export")') && dataAssets.includes('lines.push("## Full cases")'));
+
+// ── Owner-only Generate Data ─────────────────────────────────────────────────
+check("generate panel is owner-gated and reachable from the admin shell", page.includes("GeneratePanel") && page.includes('active === "generate"'));
+check("generate form exposes topic/count/language/budget", ["data-da-generation-topic", "data-da-generation-count", "data-da-generation-language", "data-da-generation-budget", "data-da-generation-run"].every((marker) => generatePanel.includes(marker)));
+check("generate panel reconciles an uncertain outcome by reading the durable job", generatePanel.includes("data-da-generation-reconcile") && generatePanel.includes("reconcileKey") && generatePanel.includes('action: "generate_status"'));
+check("generate panel recovers the EXACT key, persists the exact request and cancels stale reads", generatePanel.includes("idempotency_key: run.key") && generatePanel.includes("vnagent-generate-pending:") && generatePanel.includes("serializePendingGeneration") && generatePanel.includes("data-da-generation-safe-retry") && generatePanel.includes("controller.abort()"));
+check("generate panel keeps uncertainty on running/absent and releases only verified terminal states", generatePanel.includes("generationRecoveryDecision") && clientDataAssets.includes("abandoned: z.boolean().optional()") && generatePanel.includes("result.abandoned === true") && generatePanel.includes("isDefinitiveGenerationDenial"));
+check("generate panel preserves terminal failure copy instead of a success banner", generatePanel.includes('result.status === "failed"') && generatePanel.includes("nothing was stored") && generatePanel.includes("không có câu nào được lưu"));
+check("generate panel reports progress and results", generatePanel.includes("data-da-generation-results") && generatePanel.includes("Recent runs"));
+check("supported definitions and curated built-in examples are source constants", generation.includes("SUPPORTED_TOPICS") && generation.includes("BUILT_IN_EXAMPLE_SEEDS") && generation.includes("seed-payment-supplier") && generation.includes("SEED_SOURCE_LABEL") && /not owner-approved/i.test(generation));
+check("generation output has no stage/evaluation/truth label field", !/dataset_stage|evaluation_status|reviewer_id|verified_intent/.test(generation) && generation.includes("STYLE_RESPONSE"));
+check("generation rejects fabricated money claims in questions", generation.includes("MONEY_CLAIM") && generation.includes("generation_duplicate_output"));
+check("generation is Raw synthetic/llm_generated only", handler.includes('sourceKind: "synthetic"') && handler.includes('sourceDesignation: "llm_generated"'));
+check("gateway generation preserves zero data retention", generationClient.includes("zeroDataRetention: true") && generationClient.includes("ai-gateway.vercel.sh/v1/chat/completions") && generationClient.includes('redirect: "error"'));
+check("gateway call is bounded by max_tokens and a deadline", generationClient.includes("GENERATION_BODY_LIMIT") && generation.includes("max_tokens") && generationClient.includes("AbortSignal.timeout"));
+check("generation fails closed when the cost cannot be bounded", handler.includes("generation_cost_unbounded") && handler.includes("estimateWorstCaseCostUsd") && generationPricing.includes("inputPer1kUsd"));
+check("the input bound is measured from the ACTUAL serialized request", generation.includes("serializeGenerationRequest") && generation.includes("generationInputTokenBound") && generation.includes("GENERATION_MAX_INPUT_TOKENS") && generation.includes("TextEncoder"));
+check("verified gateway pricing carries provenance and keeps ZDR", generationPricing.includes("openai/gpt-5.6-luna") && generationPricing.includes("gateway-models.json") && generationPricing.includes("pricingTier") && generation.includes("zeroDataRetention"));
+check("hard budget is checked before the model call and after the reported cost", handler.includes("worstCaseCostUsd > request.budgetUsd") && handler.includes("outcome.cost > request.budgetUsd"));
+check("generation job is durable and idempotent on one real key", handler.includes("generationStart") && handler.includes("idempotencyKey") && handler.includes("requestFingerprint") && generationMigration.includes("idempotency_key") && generationMigration.includes("unique (tenant, created_by, idempotency_key)"));
+check("same key with a different payload is a conflict, not a silent reuse", generationMigration.includes("idempotency_conflict") && generationMigration.includes("request_fingerprint is distinct from") && store.includes("generation_idempotency_conflict"));
+check("one running generation job per owner (advisory lock + unique index) prevents double spend", generationMigration.includes("pg_advisory_xact_lock") && generationMigration.includes("vnagent_generation_jobs_one_running_idx") && generationMigration.includes("generation_busy"));
+check("generation jobs are owner-only and direct writes are revoked", generationMigration.includes("vnagent_generation_jobs_owner_select") && generationMigration.includes("revoke all on public.vnagent_generation_jobs from anon, authenticated") && generationMigration.includes("security definer"));
+check("generation RPCs re-derive the owner from auth.uid()", generationMigration.includes("auth.uid()") && generationMigration.includes("has_role(v_actor, 'owner')"));
+check("generate_status supports exact-key recovery", generationMigration.includes("p_idempotency_key") && store.includes("p_idempotency_key"));
+check("expired lease is surfaced as a server-evaluated abandoned outcome", generationMigration.includes("'abandoned'") && generationMigration.includes("lease_expires_at <= now()") && handler.includes("abandoned?: boolean"));
+check("no scheduler, autoGold or fine-tune path added", !/cron|scheduler|autoGold|auto_gold|fine[_-]?tune/i.test(generation + generationClient + generatePanel + generationMigration));
 
 // ── Capture correctness ──────────────────────────────────────────────────────
 check("known/unknown usage separated in capture", interactionLog.includes("unknown_usage") && interactionLog.includes("known_usage"));
@@ -165,7 +197,7 @@ check("contribution dedupe includes the expected scope", dataAssets.includes("ca
 check("uncertain mutation failures lock retry until reconciliation", read("src/lib/dataAssetsApi.ts").includes("isUncertainMutationStatus") && read("src/components/data-admin/ContributionsPanel.tsx").includes("data-da-reconcile") && read("src/components/data-admin/ContributionsPanel.tsx").includes("disabled={busy || uncertain !== null}"));
 check("CORS allow-list pins the exact admin hosts and exact-matches the origin", handler.includes('"https://admin.banhmique.vn"') && handler.includes('"https://admin.vnagent.ai"') && handler.includes("origins.has(origin)"));
 check("manual form cannot submit operational_chat", dataAssets.includes('enumValue(raw.source_kind, ["contributor", "synthetic"]'));
-check("no model-training promise in admin copy", !/train(ing)? (the )?model/i.test(page + shell + read("src/components/data-admin/ContributionsPanel.tsx") + read("src/components/data-admin/ExportPanel.tsx")));
+check("no model-training promise in admin copy", !/train(ing)? (the )?model/i.test(page + shell + read("src/components/data-admin/ContributionsPanel.tsx") + generatePanel + read("src/components/data-admin/ExportPanel.tsx")));
 
 console.log(`VNAgent data admin contract: ${checks.length - failures.length}/${checks.length} checks passed`);
 for (const failure of failures) console.error(`FAIL: ${failure}`);

@@ -161,6 +161,171 @@ export const exportResponseSchema = z.object({
 export type DataAdminExport = z.infer<typeof exportResponseSchema>;
 export const errorResponseSchema = z.object({ error: z.string(), code: z.string() });
 
+// ── Owner-only Generate Data (server-side synthetic question batches) ──
+export const GENERATION_TOPICS = [
+  { id: "mixed", label: "Mixed (all supported definitions)" },
+  { id: "controlled_revenue", label: "Controlled revenue" },
+  { id: "purchase_order_count", label: "Purchase order count" },
+  { id: "low_stock_count", label: "Low stock" },
+  { id: "supplier_debt", label: "Supplier payables" },
+  { id: "dealer_order", label: "Dealer orders" },
+  { id: "kiosk_report", label: "Kiosk reports" },
+  { id: "supplier_payments", label: "Actual supplier payments" },
+  { id: "cost_classification", label: "Cost classification" },
+] as const;
+export const GENERATION_COUNT_MIN = 20;
+export const GENERATION_COUNT_MAX = 50;
+export const GENERATION_BUDGET_MIN = 0.01;
+export const GENERATION_BUDGET_MAX = 5;
+export const GENERATION_LANGUAGES = ["vi", "en"] as const;
+export type GenerationLanguage = (typeof GENERATION_LANGUAGES)[number];
+
+const numericWire = z.union([z.number(), z.string()]);
+export const generationJobSchema = z.object({
+  id: z.string(),
+  tenant: z.string().optional(),
+  status: z.enum(["running", "completed", "failed", "budget_exceeded"]),
+  version: z.number(),
+  idempotency_key: z.string().optional(),
+  request: z.record(z.unknown()).optional(),
+  model: z.string().nullable().optional(),
+  prompt_version: z.string().nullable().optional(),
+  seed_ids: z.array(z.string()).optional(),
+  budget_usd: numericWire.nullable().optional(),
+  worst_case_cost_usd: numericWire.nullable().optional(),
+  actual_cost_usd: numericWire.nullable().optional(),
+  result_summary: z.record(z.unknown()).optional(),
+  error_code: z.string().nullable().optional(),
+  created_at: z.string().optional(),
+  updated_at: z.string().optional(),
+  finished_at: z.string().nullable().optional(),
+});
+export type GenerationJob = z.infer<typeof generationJobSchema>;
+
+export const generationResultsSchema = z.object({
+  created: z.number(),
+  duplicate: z.number(),
+  rejected: z.number().optional(),
+  total: z.number().optional(),
+});
+
+export const generationResponseSchema = z.object({
+  status: z.enum(["ok", "in_progress", "abandoned", "failed", "budget_exceeded"]),
+  resumed: z.boolean(),
+  job: generationJobSchema,
+  results: generationResultsSchema,
+  assets: z.array(assetSchema).optional(),
+  model: z.string().optional(),
+  promptVersion: z.string().optional(),
+  inputTokenBound: z.number().nullable().optional(),
+  outputTokenBound: z.number().nullable().optional(),
+  worstCaseCostUsd: z.number().nullable().optional(),
+  actualCostUsd: z.number().nullable().optional(),
+  // The provider may omit usage; unknown is null, never a fabricated 0.
+  usage: z.object({ input: z.number().nullable(), output: z.number().nullable() }).optional(),
+});
+export type GenerationResponse = z.infer<typeof generationResponseSchema>;
+
+export const generationHistoryResponseSchema = z.object({
+  status: z.literal("ok"),
+  job: generationJobSchema.nullable().optional(),
+  jobs: z.array(generationJobSchema).optional(),
+  // Server-evaluated expired-lease outcome (never the browser clock).
+  abandoned: z.boolean().optional(),
+});
+export type GenerationHistory = z.infer<typeof generationHistoryResponseSchema>;
+
+// ── Owner-only Generate Data recovery state (pure, unit-testable) ──
+export interface PendingGenerationRequest {
+  topic: string;
+  count: number;
+  target_language: GenerationLanguage;
+  budget_usd: number;
+}
+export interface PendingGeneration {
+  key: string;
+  /** The EXACT validated request of the pending run, restored so a safe retry is the same run. */
+  request: PendingGenerationRequest | null;
+}
+
+const PENDING_KEY_PATTERN = /^[A-Za-z0-9-]{8,64}$/;
+
+/** Parse the owner-scoped pending record; legacy bare keys are accepted read-only. */
+export function parsePendingGeneration(raw: string | null): PendingGeneration | null {
+  if (!raw) return null;
+  const legacy = PENDING_KEY_PATTERN.test(raw) ? raw : null;
+  try {
+    const parsed = JSON.parse(raw) as { key?: unknown; request?: unknown } | null;
+    if (!parsed || typeof parsed !== "object" || typeof parsed.key !== "string" || !PENDING_KEY_PATTERN.test(parsed.key)) return legacy ? { key: legacy, request: null } : null;
+    const request = parsed.request as Record<string, unknown> | null | undefined;
+    const valid = request
+      && typeof request === "object"
+      && typeof request.topic === "string"
+      && Number.isInteger(request.count)
+      && (request.target_language === "vi" || request.target_language === "en")
+      && typeof request.budget_usd === "number" && Number.isFinite(request.budget_usd);
+    return {
+      key: parsed.key,
+      request: valid
+        ? { topic: request.topic as string, count: request.count as number, target_language: request.target_language as GenerationLanguage, budget_usd: request.budget_usd as number }
+        : null,
+    };
+  } catch {
+    return legacy ? { key: legacy, request: null } : null;
+  }
+}
+
+export function serializePendingGeneration(pending: PendingGeneration): string {
+  return JSON.stringify(pending);
+}
+
+/**
+ * Whether a read-back releases the pending lock. An expired lease is an explicit
+ * server-verified terminal outcome, so it releases. A still-running or absent job
+ * keeps the lock (the owner must recover, not blindly start a new paid batch).
+ */
+export function generationRecoveryDecision(input: { jobStatus?: string | null; abandoned?: boolean; absent?: boolean }): "keep" | "clear" {
+  if (input.absent) return "keep";
+  if (input.abandoned) return "clear";
+  if (input.jobStatus === "running") return "keep";
+  return input.jobStatus ? "clear" : "keep";
+}
+
+/** Definitive pre-dispatch denials may clear the pending lock; everything else keeps it. */
+export function isDefinitiveGenerationDenial(code: string | undefined, uncertain: boolean): boolean {
+  if (uncertain || !code) return false;
+  return new Set([
+    "disabled", "unauthorized", "forbidden", "rate_limited", "invalid_action",
+    "invalid_json", "invalid_content_type", "body_limit",
+    "generation_disabled", "generation_cost_unbounded", "generation_budget_exceeded",
+    "generation_busy", "generation_idempotency_conflict", "generation_input_too_large",
+    "generation_invalid_request", "generation_invalid_topic", "generation_invalid_count",
+    "generation_invalid_language", "generation_invalid_budget", "generation_invalid_style_mix",
+    "generation_invalid_seeds", "generation_invalid_idempotency_key",
+  ]).has(code);
+}
+
+/** Deterministic default style split shown in the UI (must match the server). */
+export function defaultGenerationStyleMix(count: number): { variant: number; typo: number; ambiguous: number; out_of_scope: number } {
+  const typo = Math.max(2, Math.round(count * 0.15));
+  const ambiguous = Math.max(2, Math.round(count * 0.15));
+  const outOfScope = Math.max(1, Math.round(count * 0.1));
+  return { variant: count - typo - ambiguous - outOfScope, typo, ambiguous, out_of_scope: outOfScope };
+}
+
+export function generationStatusLabel(status: string, language: Language): string {
+  return {
+    running: pick(language, "Đang chạy", "Running"),
+    completed: pick(language, "Hoàn tất", "Completed"),
+    failed: pick(language, "Thất bại", "Failed"),
+    budget_exceeded: pick(language, "Vượt ngân sách", "Budget exceeded"),
+  }[status] ?? status;
+}
+
+export function generationTopicLabel(id: string): string {
+  return GENERATION_TOPICS.find((topic) => topic.id === id)?.label ?? id;
+}
+
 export type AssetFilters = {
   stage: AssetStage | "";
   sourceKind: SourceKind | "";

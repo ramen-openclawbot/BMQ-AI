@@ -119,12 +119,59 @@ route tree). To go live:
 - Jev panel shows real metric/period/support probabilities, versions, cost, usage
   and timings without any question text; unknown cost/tokens render as "—", not 0.
 
-## 5. Remaining blockers / not verified locally
+## 5. Generate Data (owner-only synthetic batches)
 
-- The SQL migration was **not applied to production** and no Supabase CLI was used.
-  It was executed against an isolated local PG engine for this repair; the
-  coordinator's PostgreSQL QA remains the deployment gate.
+Migration: `apps/web/supabase/migrations/20260921100000_vnagent_generation_jobs.sql`
+(one table, three SECURITY DEFINER routines, owner-only SELECT, no direct writes).
+Apply it with the same reviewed, transaction-wrapped method as the base migration:
+
+```bash
+psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f apps/web/supabase/migrations/20260921100000_vnagent_generation_jobs.sql
+```
+
+Edge env (all default OFF / fail closed):
+
+- `VNAGENT_GENERATE_ENABLED=true` — switch the action on.
+- `AI_GATEWAY_API_KEY` — server-only Vercel AI Gateway key (never a client value).
+- `VNAGENT_GENERATE_MODEL` — optional; defaults to `openai/gpt-5.6-luna`.
+- Pricing is the reviewed public-catalog price in `generation-pricing.ts`
+  (`openai/gpt-5.6-luna`, default tier); no env is required for a ready feature.
+  `VNAGENT_GENERATE_INPUT_USD_PER_1K` / `VNAGENT_GENERATE_OUTPUT_USD_PER_1K` are an
+  OPTIONAL explicit override, recorded as `env_override`; if the model is unknown
+  and no override is set the action returns `generation_cost_unbounded` and makes
+  no paid call.
+
+Reviewer checklist after apply/deploy:
+
+- A non-owner is denied (403) and never reaches `generate`.
+- A direct authenticated `insert`/`update` on `vnagent_generation_jobs` is denied;
+  the job row appears only through the RPCs with `created_by = auth.uid()`.
+- Pricing comes from the reviewed catalog entry for the model; only an unknown model
+  with no explicit override fails closed. With a budget below the worst case it
+  returns `generation_budget_exceeded` before any call.
+- A 20-question batch creates exactly its accepted rows as `raw` `synthetic` /
+  `llm_generated` with `provenance.model`, `promptVersion`, `runId`, `seedIds`,
+  `topic`, `style`, `pricing`; the same key does not create a second batch or a
+  second paid call, and the same key with a different payload returns
+  `generation_idempotency_conflict` (409).
+- Two concurrent owner batches: the second returns `generation_busy` (409); the
+  partial unique index guarantees at most one live `running` job per owner.
+- The Generate panel shows the job status/created counts and Recent runs; an
+  uncertain outcome is reconciled with a read of the exact key; an expired lease is
+  reported as abandoned on the server clock so the owner can start a new batch. A
+  reload restores the exact pending request before any retry.
+
+## 6. Remaining blockers / not verified locally
+
+- The new generation migration was **not applied to production** and no Supabase CLI
+  was used. It was reviewed and exercised in an isolated PostgreSQL 18 container
+  (fresh apply and re-apply over the interim state); a real PostgreSQL apply remains
+  the deployment gate.
 - No production deploy, DB apply, commit, push or restart was performed.
-- The real `admin.vnagent.ai` host still needs DNS/Vercel/Auth redirect entries.
-- The `VNAGENT_CAPTURE_ENABLED` flag must be set for both functions (shared project
-  secret) before any automatic capture occurs.
+- No real paid Gateway call was made; `generate` is verified with a mocked Gateway
+  client only.
+- Capture is **not** a blocker: production is proven working (3 interactions /
+  3 Raw assets, 2 screenshot-verbatim questions, RPC and service-role grants
+  present, capture flag SHA256 matches true). No capture change was made. Earlier
+  drafts wrongly claimed a missing capture flag, missing key or unapplied base
+  migration; those claims were removed.

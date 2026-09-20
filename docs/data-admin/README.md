@@ -90,7 +90,8 @@ confused with a running pipeline.
 
 ## Panels
 
-Overview · Repository · Review queue · Contributions · Jev logs · Markdown export.
+Overview · Repository · Review queue · Contributions · Generate data · Jev logs ·
+Markdown export.
 
 Overview shows current inventory, source contribution counts and a **real daily
 chart** (7/30/90-day selector, stock vs new) reconstructed from asset creation and
@@ -121,3 +122,31 @@ Contribution submission is paste/manual and never requires a paid LLM call; when
 LLM was used the source must be marked as such. If a submit outcome is uncertain
 (network/5xx) the retry is locked until the durable state has been read back; the
 scope-aware dedupe key then prevents a duplicate.
+
+## Generate Data (owner-only, default off)
+
+**Generate data** runs ONE bounded batch of 20–50 synthetic questions from the
+supported BMQ business definitions and the curated **built-in example** questions
+shipped in reviewed source (`generation.ts`). Those examples are not owner
+approvals — real approval lives on Curated/Gold assets only. The owner picks topic,
+count, question language and a hard USD budget; the default split covers variants,
+typos, ambiguous and out-of-scope questions.
+
+Everything lands in **Raw** as `synthetic` / `llm_generated`; Curated/Gold review is
+unchanged, there is no auto-Gold and no fine-tune, and the dataset is still not used
+to train a model. The model only proposes questions — it never states a value and
+the output schema has no stage, evaluation or truth label; a question containing a
+fabricated money claim, a duplicate, a wrong count or a style/routing contradiction
+rejects the whole batch.
+
+The batch is durable and bounded: a `vnagent_generation_jobs` row is written before
+the single paid Gateway call and finished after it. Uniqueness on
+`(tenant, created_by, idempotency_key)` plus a real contract fingerprint makes a
+retry read the job back instead of spending again (a same-key different-payload
+retry is a 409 conflict). An owner-scoped advisory lock and a partial unique index
+allow exactly one live running job per owner; an expired lease is surfaced as
+abandoned on the server clock. The worst-case cost is measured from the actual
+serialized request and checked against the owner's budget before any call. An
+unknown model with no explicit price fails closed (`generation_cost_unbounded`); the
+price otherwise comes from the reviewed public catalog entry for the model. The
+Gateway call preserves ZDR (`providerOptions.gateway.zeroDataRetention = true`).

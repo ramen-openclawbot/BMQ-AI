@@ -144,6 +144,15 @@ function makeStore(): DataAdminStore {
         created_at: "2026-09-20T03:00:00.000Z",
       }];
     },
+    async generationStart() {
+      return { job: { id: "job-1", status: "running", version: 1 }, resumed: false, abandoned: false };
+    },
+    async generationFinish(input) {
+      return { id: input.jobId, status: input.status, version: input.expectedVersion + 1, result_summary: input.summary };
+    },
+    async generationGet() {
+      return { job: null, jobs: [] };
+    },
   };
 }
 
@@ -229,6 +238,9 @@ test("review queue stage filter + pagination reaches older pending assets beyond
     async createAsset() { throw new Error("unused"); },
     async transitionAsset() { throw new Error("unused"); },
     async listJev() { throw new Error("unused"); },
+    async generationStart() { throw new Error("unused"); },
+    async generationFinish() { throw new Error("unused"); },
+    async generationGet() { return { job: null, jobs: [] }; },
   };
   const scoped = createDataAdminHandler({ ...config, authenticate: async () => ({ userId: "owner-1", role: "owner", store: scopedStore }) });
 

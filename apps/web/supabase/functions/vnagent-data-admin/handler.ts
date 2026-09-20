@@ -13,6 +13,7 @@ import {
   dedupeKey,
   exportFiltersWire,
   exportQuery,
+  isRecord,
   renderAssetsMarkdown,
   summarizeOverview,
   summarizeTimeseries,
@@ -26,6 +27,21 @@ import {
   type ExportFilterInput,
   type ExportQuery,
 } from "./data-assets.ts";
+import {
+  SUPPORTED_TOPICS,
+  DEFAULT_GENERATION_MODEL,
+  GENERATION_IDEMPOTENCY,
+  GENERATION_PROMPT_VERSION,
+  estimateWorstCaseCostUsd,
+  generationFingerprint,
+  generationInputTokenBound,
+  generationItemProvenance,
+  generationOutputTokenBound,
+  validateGenerationRequest,
+  type GenerationRequest,
+} from "./generation.ts";
+import type { GenerationPricing } from "./generation-pricing.ts";
+import type { GenerationClient, GenerationOutcome } from "./generation-client.ts";
 
 export interface DataAdminIdentity {
   userId: string;
@@ -44,6 +60,28 @@ export interface InsertResult {
   asset: DataAsset;
 }
 
+export type GenerationJob = Record<string, unknown>;
+
+export interface GenerationStartInput {
+  request: Record<string, unknown>;
+  idempotencyKey: string;
+  requestFingerprint: string;
+  model: string;
+  promptVersion: string;
+  seedIds: string[];
+  budgetUsd: number;
+  worstCaseCostUsd: number;
+}
+
+export interface GenerationFinishInput {
+  jobId: string;
+  expectedVersion: number;
+  status: "completed" | "failed" | "budget_exceeded";
+  summary: Record<string, unknown>;
+  actualCostUsd: number | null;
+  errorCode: string | null;
+}
+
 export interface DataAdminStore {
   metrics(today: string, signal: AbortSignal): Promise<unknown>;
   timeseries(days: number, signal: AbortSignal): Promise<unknown>;
@@ -53,6 +91,9 @@ export interface DataAdminStore {
   createAsset(input: ContributionInput, key: string, signal: AbortSignal): Promise<InsertResult>;
   transitionAsset(input: ReturnType<typeof validateTransition>, signal: AbortSignal): Promise<DataAsset>;
   listJev(limit: number, signal: AbortSignal): Promise<unknown[]>;
+  generationStart(input: GenerationStartInput, signal: AbortSignal): Promise<{ job: GenerationJob; resumed: boolean; abandoned: boolean }>;
+  generationFinish(input: GenerationFinishInput, signal: AbortSignal): Promise<GenerationJob>;
+  generationGet(jobId: string | null, idempotencyKey: string | null, signal: AbortSignal): Promise<{ job: GenerationJob | null; jobs: GenerationJob[]; abandoned?: boolean }>;
 }
 
 export interface DataAdminConfig {
@@ -62,6 +103,14 @@ export interface DataAdminConfig {
   audit: (event: Record<string, unknown>) => void;
   /** Whether the analytics capture pipeline is switched on (honest status). */
   captureEnabled?: () => boolean;
+  /** Server-side generator; absent means generation is disabled (fail closed). */
+  generate?: GenerationClient;
+  /**
+   * Verified per-1k prices plus their provenance for the fixed token bound.
+   * Returning null means the cost cannot be bounded, so no paid call may be made.
+   */
+  generationPricing?: () => GenerationPricing | null;
+  generationModel?: () => string;
 }
 
 const origins = new Set([
@@ -75,8 +124,12 @@ const origins = new Set([
 
 const REQUEST_BODY_LIMIT = 120_000;
 const REQUEST_BUDGET_MS = 20_000;
+// Generation performs one bounded paid model call plus up to 50 idempotent asset
+// inserts, so it gets its own longer (still bounded) budget. Every other action
+// keeps the tight 20s budget.
+const GENERATE_BUDGET_MS = 90_000;
 const RATE_LIMIT_PER_MINUTE = 60;
-const ACTIONS = ["overview", "timeseries", "assets", "asset", "contribute", "transition", "jev", "export"] as const;
+const ACTIONS = ["overview", "timeseries", "assets", "asset", "contribute", "transition", "jev", "export", "generate", "generate_status"] as const;
 type Action = (typeof ACTIONS)[number];
 
 const messagesVi: Record<string, string> = {
@@ -122,6 +175,31 @@ const messagesVi: Record<string, string> = {
   metrics_unavailable: "Chưa đọc được số liệu bộ dữ liệu.",
   store_unavailable: "Chưa truy cập được bộ dữ liệu. Anh thử lại nhé.",
   data_unavailable: "Chưa đọc được dữ liệu. Anh thử lại nhé.",
+  generation_disabled: "Tính năng tạo câu hỏi tổng hợp chưa được bật.",
+  generation_cost_unbounded: "Chưa cấu hình được giá model nên không thể chặn chi phí; hệ thống không gọi model trả phí.",
+  generation_budget_exceeded: "Ngân sách không đủ cho lô này theo mức chi phí tối đa. Anh tăng ngân sách hoặc giảm số câu.",
+  generation_busy: "Đang có một lô tạo câu hỏi chạy. Anh đợi lô đó xong rồi chạy tiếp.",
+  generation_invalid_request: "Yêu cầu tạo câu hỏi không hợp lệ.",
+  generation_invalid_topic: "Chủ đề không nằm trong định nghĩa nghiệp vụ được hỗ trợ.",
+  generation_invalid_count: "Số câu phải từ 20 đến 50.",
+  generation_invalid_language: "Ngôn ngữ câu hỏi không hợp lệ.",
+  generation_invalid_budget: "Ngân sách không hợp lệ.",
+  generation_invalid_style_mix: "Tỷ lệ kiểu câu hỏi không hợp lệ (tổng phải bằng số câu).",
+  generation_invalid_seeds: "Câu hỏi mẫu không hợp lệ hoặc không thuộc chủ đề đã chọn.",
+  generation_invalid_idempotency_key: "Khóa chống trùng không hợp lệ.",
+  generation_idempotency_conflict: "Khóa chống trùng này đã gắn với một lô khác nội dung. Anh chạy lô mới với khóa mới nhé.",
+  generation_input_too_large: "Yêu cầu tạo câu hỏi vượt giới hạn đầu vào an toàn nên hệ thống không gọi model.",
+  generation_invalid_output: "Model trả về bộ câu hỏi không đúng hợp đồng nên cả lô bị từ chối; không có câu nào được lưu.",
+  generation_duplicate_output: "Model trả về câu hỏi trùng nhau nên cả lô bị từ chối; không có câu nào được lưu.",
+  generation_timeout: "Lượt tạo câu hỏi vượt thời gian cho phép. Anh đọc lại trạng thái job trước khi chạy lại.",
+  generation_unavailable: "Chưa gọi được model tạo câu hỏi. Anh đọc lại trạng thái job trước khi chạy lại.",
+  generation_unconfigured: "Tầng tạo câu hỏi chưa được cấu hình khóa model.",
+  generation_http_error: "Model tạo câu hỏi trả lỗi. Anh đọc lại trạng thái job trước khi chạy lại.",
+  generation_rate_limited: "Model tạo câu hỏi đang giới hạn lượt gọi. Anh thử lại sau.",
+  generation_invalid_response: "Phản hồi model không hợp lệ nên cả lô bị từ chối.",
+  generation_job_not_found: "Không tìm thấy job tạo câu hỏi này.",
+  generation_job_finished: "Job này đã kết thúc; không ghi đè kết quả.",
+  generation_version_conflict: "Job đã thay đổi ở nơi khác. Anh đọc lại trạng thái.",
 };
 
 const messagesEn: Record<string, string> = {
@@ -167,6 +245,31 @@ const messagesEn: Record<string, string> = {
   metrics_unavailable: "Dataset metrics are unavailable.",
   store_unavailable: "The dataset store is unavailable. Please retry.",
   data_unavailable: "Data is unavailable. Please retry.",
+  generation_disabled: "Synthetic question generation is not enabled.",
+  generation_cost_unbounded: "The model price is not configured, so the cost cannot be bounded; no paid model call was made.",
+  generation_budget_exceeded: "The budget does not cover this batch at the worst-case cost. Raise the budget or lower the count.",
+  generation_busy: "A generation batch is already running. Wait for it to finish, then start another.",
+  generation_invalid_request: "Invalid generation request.",
+  generation_invalid_topic: "The topic is not one of the supported business definitions.",
+  generation_invalid_count: "The question count must be between 20 and 50.",
+  generation_invalid_language: "Invalid question language.",
+  generation_invalid_budget: "Invalid budget.",
+  generation_invalid_style_mix: "Invalid style mix (the counts must add up to the question count).",
+  generation_invalid_seeds: "The selected seeds are invalid or do not belong to the chosen topic.",
+  generation_invalid_idempotency_key: "Invalid idempotency key.",
+  generation_idempotency_conflict: "This retry key is already bound to a different batch contract. Start a new run with a new key.",
+  generation_input_too_large: "The generation request exceeds the safe input bound, so no model call was made.",
+  generation_invalid_output: "The model returned a batch that violates the contract, so the whole batch was rejected; nothing was stored.",
+  generation_duplicate_output: "The model returned duplicate questions, so the whole batch was rejected; nothing was stored.",
+  generation_timeout: "The generation call timed out. Read the job status before running it again.",
+  generation_unavailable: "The generation model could not be reached. Read the job status before running it again.",
+  generation_unconfigured: "The generation model key is not configured.",
+  generation_http_error: "The generation model returned an error. Read the job status before running it again.",
+  generation_rate_limited: "The generation model is rate limited. Please retry later.",
+  generation_invalid_response: "The model response was invalid, so the whole batch was rejected.",
+  generation_job_not_found: "This generation job was not found.",
+  generation_job_finished: "This generation job already finished; its result was not overwritten.",
+  generation_version_conflict: "The job changed elsewhere. Read the current status.",
 };
 
 /** Vietnam-local calendar date (Asia/Ho_Chi_Minh), independent of the caller clock. */
@@ -236,6 +339,144 @@ function exportFiltersFromPayload(raw: Record<string, unknown>): ExportFilterInp
   return validateExportFilters(withoutEnvelope(raw));
 }
 
+/**
+ * Run one bounded generation batch through the durable job record.
+ *
+ * Order guarantees:
+ *   * the cost is bounded and checked BEFORE any paid call (fail closed);
+ *   * the job row is created before the call and finished after it, so an
+ *     uncertain outcome is recovered by reading the job, never by resubmitting;
+ *   * a resumed/abandoned job never spends again;
+ *   * every accepted item is inserted as Raw synthetic/llm_generated, and the
+ *     job row is only marked completed after all inserts succeed.
+ */
+async function runGenerationBatch(args: {
+  config: DataAdminConfig;
+  store: DataAdminStore;
+  request: GenerationRequest;
+  model: string;
+  pricing: GenerationPricing | null;
+  signal: AbortSignal;
+}): Promise<{ body: Record<string, unknown>; status: number }> {
+  const { config, store, request, model, pricing, signal } = args;
+  if (!config.generate) throw new DataAdminError("generation_disabled", 503);
+  // The ACTUAL serialized request body is measured first: its UTF-8 byte length is
+  // a guaranteed upper bound on the input tokens, and a body above the hard
+  // ceiling is refused before the price is even computed.
+  const inputTokenBound = generationInputTokenBound(request, model);
+  const outputTokenBound = generationOutputTokenBound(request.count);
+  const worstCaseCostUsd = estimateWorstCaseCostUsd({ inputTokens: inputTokenBound, outputTokens: outputTokenBound }, pricing);
+  if (worstCaseCostUsd === null) throw new DataAdminError("generation_cost_unbounded", 503);
+  if (worstCaseCostUsd > request.budgetUsd) throw new DataAdminError("generation_budget_exceeded", 400);
+
+  const requestFingerprint = generationFingerprint(request, model);
+  const started = await store.generationStart({
+    request: {
+      topic: request.topicId,
+      count: request.count,
+      target_language: request.language,
+      style_mix: request.styleMix,
+      seed_ids: request.seedIds,
+    },
+    idempotencyKey: request.idempotencyKey,
+    requestFingerprint,
+    model,
+    promptVersion: GENERATION_PROMPT_VERSION,
+    seedIds: request.seedIds,
+    budgetUsd: request.budgetUsd,
+    worstCaseCostUsd,
+  }, signal);
+  const job = started.job;
+  const jobId = typeof job.id === "string" ? job.id : "";
+  const version = typeof job.version === "number" ? job.version : Number(job.version);
+  const status = typeof job.status === "string" ? job.status : "running";
+  const summary = isRecord(job.result_summary) ? job.result_summary : {};
+  // A repeated request (same idempotency key) never spends again. An abandoned
+  // running job (expired lease) is surfaced for the owner to start a new batch.
+  if (started.abandoned) return { body: { status: "abandoned", resumed: true, job, results: summary }, status: 200 };
+  if (started.resumed) {
+    const resumedStatus = status === "running" ? "in_progress" : status === "failed" ? "failed" : status === "budget_exceeded" ? "budget_exceeded" : "ok";
+    return { body: { status: resumedStatus, resumed: true, job, results: summary }, status: 200 };
+  }
+  if (!jobId || !Number.isInteger(version)) {
+    throw new DataAdminError("generation_job_not_found", 503);
+  }
+
+  let outcome: GenerationOutcome;
+  try {
+    outcome = await config.generate(request, signal);
+  } catch (error) {
+    await store.generationFinish({ jobId, expectedVersion: version, status: "failed", summary: { created: 0, duplicate: 0, rejected: 0 }, actualCostUsd: null, errorCode: error instanceof DataAdminError ? error.code : "generation_unavailable" }, signal);
+    throw error;
+  }
+  // Hard budget enforcement on the reported actual cost. If a provider reports a
+  // cost above the owner's cap, nothing is stored and the job fails closed.
+  if (outcome.cost !== null && outcome.cost > request.budgetUsd) {
+    await store.generationFinish({ jobId, expectedVersion: version, status: "budget_exceeded", summary: { created: 0, duplicate: 0, rejected: 0 }, actualCostUsd: outcome.cost, errorCode: "budget_exceeded" }, signal);
+    throw new DataAdminError("generation_budget_exceeded", 400);
+  }
+
+  const generatedAt = config.now().toISOString();
+  let created = 0;
+  let duplicate = 0;
+  const assets: DataAsset[] = [];
+  try {
+    for (const item of outcome.items) {
+      const topic = SUPPORTED_TOPICS.find((entry) => entry.id === item.topicId);
+      if (!topic) throw new DataAdminError("generation_invalid_output", 502);
+      const provenance = generationItemProvenance({
+        request, item, model, runId: jobId, generatedAt,
+        budgetUsd: request.budgetUsd, worstCaseCostUsd, inputTokenBound,
+        topic, pricing: pricing?.provenance ?? null,
+      });
+      const expectedIntent = {
+        topic: item.topicId,
+        intent: topic.intent,
+        definition: topic.definition,
+        expectedResponse: item.expectedResponse,
+      };
+      const key = await dedupeKey(item.question, "synthetic", expectedIntent, item.expectedFilters);
+      const result = await store.createAsset({
+        question: item.question,
+        sourceKind: "synthetic",
+        sourceDesignation: "llm_generated",
+        expectedIntent,
+        expectedFilters: item.expectedFilters,
+        provenance,
+        snapshotAt: null,
+      }, key, signal);
+      if (result.status === "created") created += 1;
+      else duplicate += 1;
+      assets.push(result.asset);
+    }
+  } catch (error) {
+    // Partial inserts are durable (idempotent dedupe). The job is finished as
+    // failed so a retry with the same key reads back instead of spending again.
+    await store.generationFinish({ jobId, expectedVersion: version, status: "failed", summary: { created, duplicate, rejected: 0 }, actualCostUsd: outcome.cost, errorCode: error instanceof DataAdminError ? error.code : "store_unavailable" }, signal);
+    throw error;
+  }
+
+  const results = { created, duplicate, rejected: 0, total: outcome.items.length };
+  const finished = await store.generationFinish({ jobId, expectedVersion: version, status: "completed", summary: results, actualCostUsd: outcome.cost, errorCode: null }, signal);
+  return {
+    body: {
+      status: "ok",
+      resumed: false,
+      job: finished,
+      results,
+      assets,
+      model,
+      promptVersion: GENERATION_PROMPT_VERSION,
+      inputTokenBound,
+      outputTokenBound,
+      worstCaseCostUsd,
+      actualCostUsd: outcome.cost,
+      usage: outcome.usage,
+    },
+    status: 201,
+  };
+}
+
 export function createDataAdminHandler(config: DataAdminConfig) {
   const active = new Set<string>();
   const rate = new Map<string, { until: number; count: number }>();
@@ -261,20 +502,24 @@ export function createDataAdminHandler(config: DataAdminConfig) {
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers });
     if (req.method !== "POST") return json({ error: "Method not allowed", code: "method_not_allowed" }, 405);
 
-    const signal = AbortSignal.any([req.signal, AbortSignal.timeout(REQUEST_BUDGET_MS)]);
+    const setupSignal = AbortSignal.any([req.signal, AbortSignal.timeout(REQUEST_BUDGET_MS)]);
+    // Reassigned to a longer, still-bounded budget for the generation action only,
+    // after the action is known. Auth/body always use the tight setup budget.
+    let signal = setupSignal;
     let ownerKey: string | null = null;
     try {
-      const identity = await config.authenticate(req, signal);
-      signal.throwIfAborted();
+      const identity = await config.authenticate(req, setupSignal);
+      setupSignal.throwIfAborted();
       // Role is re-checked here even though the authenticator already verified it,
       // so a misconfigured authenticator still fails closed.
       if (identity.role !== "owner") throw new DataAdminError("forbidden", 403);
       if (!config.enabled()) throw new DataAdminError("disabled", 503);
 
       const key = identity.userId;
-      const raw = await readBody(req, signal);
+      const raw = await readBody(req, setupSignal);
       if (raw.language === "en" || raw.language === "vi") english = raw.language === "en";
       const action = actionOf(raw);
+      if (action === "generate") signal = AbortSignal.any([req.signal, AbortSignal.timeout(GENERATE_BUDGET_MS)]);
 
       if (active.has(key)) throw new DataAdminError("busy", 429);
       const now = Date.now();
@@ -341,6 +586,39 @@ export function createDataAdminHandler(config: DataAdminConfig) {
         if (typeof rawLimit !== "number" || !Number.isInteger(rawLimit) || rawLimit < 1 || rawLimit > 200) throw new DataAdminError("invalid_limit", 400);
         const events = await identity.store.listJev(rawLimit, signal);
         return json({ status: "ok", events });
+      }
+
+      if (action === "generate") {
+        const request = validateGenerationRequest(withoutEnvelope(raw));
+        const model = config.generationModel?.() ?? DEFAULT_GENERATION_MODEL;
+        const pricing = config.generationPricing?.() ?? null;
+        const result = await runGenerationBatch({ config, store: identity.store, request, model, pricing, signal });
+        config.audit({
+          event: "vnagent_data_admin_generate",
+          userId: identity.userId,
+          idempotencyKey: request.idempotencyKey,
+          requestFingerprint: generationFingerprint(request, model),
+          outcome: result.body.status,
+          worstCaseCostUsd: result.body.worstCaseCostUsd ?? null,
+        });
+        return json(result.body, result.status);
+      }
+
+      if (action === "generate_status") {
+        const { action: _action, job_id: jobId, idempotency_key: idempotencyKey } = raw;
+        if (jobId !== undefined && jobId !== null && jobId !== "" && (typeof jobId !== "string" || !/^[0-9a-f-]{36}$/i.test(jobId))) {
+          throw new DataAdminError("invalid_asset_id", 400);
+        }
+        if (idempotencyKey !== undefined && idempotencyKey !== null && idempotencyKey !== ""
+          && (typeof idempotencyKey !== "string" || !GENERATION_IDEMPOTENCY.test(idempotencyKey))) {
+          throw new DataAdminError("generation_invalid_idempotency_key", 400);
+        }
+        const result = await identity.store.generationGet(
+          typeof jobId === "string" && jobId ? jobId : null,
+          typeof idempotencyKey === "string" && idempotencyKey ? idempotencyKey : null,
+          signal,
+        );
+        return json({ status: "ok", ...result });
       }
 
       // export
