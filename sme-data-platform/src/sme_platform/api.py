@@ -212,6 +212,12 @@ def create_app(warehouse: Warehouse | None = None, authenticator=None):
         result = execute(engine, body, principal.tenant, principal.permission + ':' + principal.user)
         return json.loads(json.dumps(result, default=json_default))
 
+    @app.post('/v1/payment')
+    def payment(body: dict, principal: Principal = Depends(authenticator)):
+        from .bmq_payment import execute
+        result = execute(engine, body, principal.tenant, principal.permission + ':' + principal.user)
+        return json.loads(json.dumps(result, default=json_default))
+
     @app.post('/v1/finance-media/search')
     def finance_media_search(body: dict, principal: Principal = Depends(authenticator)):
         from .finance_media_read import search

@@ -38,6 +38,21 @@ COST_PROJECTION_FIELDS = {
                       'cost_product_line', 'cost_allocation_rule', 'cost_review_routing'),
     'payment_requests': ('invoice_created',),
 }
+# Canonical supplier-settlement columns required by the read-only supplier payment
+# lane (actual payments by `payments.payment_date`, allocations to payment requests,
+# and the per-item canonical material link used to decide whether an item-level
+# amount is provable). A snapshot that does not declare these columns — for example
+# one taken before `payment_request_items.canonical_material_id` existed — must fail
+# closed instead of silently reporting a supplier-level total as an item amount.
+PAYMENT_PROJECTION_FIELDS = {
+    'payments': ('payment_number', 'supplier_id', 'payment_date', 'amount', 'payment_method'),
+    'payment_allocations': ('payment_id', 'payment_request_id', 'amount'),
+    'payment_requests': ('request_number', 'supplier_id', 'total_amount'),
+    'payment_request_items': ('payment_request_id', 'product_name', 'raw_product_name',
+                              'canonical_material_id', 'line_total', 'quantity', 'unit_price'),
+    'suppliers': ('name', 'short_code'),
+    'sku_cogs_materials': ('material_code', 'canonical_name', 'normalized_name', 'active'),
+}
 # Explicit field projections: no auth/OTP/session tokens, contact snapshots,
 # arbitrary JSON, signed document URLs, bank data or staff phone/salary.
 FIELDS = {
