@@ -50,6 +50,28 @@ export const GENERATION_TIMEOUT_MS = 60_000;
 export const GENERATION_MAX_TIMEOUT_MS = 90_000;
 export const GENERATION_BODY_LIMIT = 512_000;
 
+/**
+ * Failures that are definitive: the paid call reached a final answer (an HTTP
+ * error, a rate-limit rejection, a malformed/invalid/duplicate model batch), so
+ * the durable job outcome is already known and needs no read-back before the
+ * owner is told. Timeouts and transport errors are deliberately NOT here: those
+ * may have billed a call whose result was lost, so the UI must reconcile the
+ * exact key instead of being told a clean outcome.
+ */
+export const GENERATION_DETERMINISTIC_FAILURES = [
+  "generation_http_error",
+  "generation_rate_limited",
+  // A reviewed provider 403 mapped to a fixed non-sensitive code (paid credits).
+  "generation_paid_credits_required",
+  "generation_invalid_response",
+  "generation_invalid_output",
+  "generation_duplicate_output",
+] as const;
+
+export function isDeterministicGenerationFailure(code: string): boolean {
+  return (GENERATION_DETERMINISTIC_FAILURES as readonly string[]).includes(code);
+}
+
 export const GENERATION_STYLES = ["variant", "typo", "ambiguous", "out_of_scope"] as const;
 export type GenerationStyle = (typeof GENERATION_STYLES)[number];
 export const GENERATION_RESPONSES = ["answer", "clarify", "abstain"] as const;

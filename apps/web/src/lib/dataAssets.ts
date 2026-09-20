@@ -209,12 +209,25 @@ export const generationResultsSchema = z.object({
   total: z.number().optional(),
 });
 
+/**
+ * Allowlisted provider diagnostic carried by the server: only the upstream HTTP
+ * status, provider code and offending parameter name. The raw provider message is
+ * never sent, so it can never be shown or stored here.
+ */
+export const generationDiagnosticSchema = z.object({
+  status: z.number(),
+  code: z.string().nullable(),
+  param: z.string().nullable(),
+});
+export type GenerationDiagnostic = z.infer<typeof generationDiagnosticSchema>;
+
 export const generationResponseSchema = z.object({
   status: z.enum(["ok", "in_progress", "abandoned", "failed", "budget_exceeded"]),
   resumed: z.boolean(),
   job: generationJobSchema,
   results: generationResultsSchema,
   assets: z.array(assetSchema).optional(),
+  diagnostic: generationDiagnosticSchema.optional(),
   model: z.string().optional(),
   promptVersion: z.string().optional(),
   inputTokenBound: z.number().nullable().optional(),
@@ -320,6 +333,72 @@ export function generationStatusLabel(status: string, language: Language): strin
     failed: pick(language, "Thất bại", "Failed"),
     budget_exceeded: pick(language, "Vượt ngân sách", "Budget exceeded"),
   }[status] ?? status;
+}
+
+/** Read the durable allowlisted diagnostic back from a job's result summary. */
+export function generationJobDiagnostic(job: Pick<GenerationJob, "result_summary">): GenerationDiagnostic | null {
+  const summary = (job.result_summary ?? {}) as Record<string, unknown>;
+  const parsed = generationDiagnosticSchema.safeParse(summary.diagnostic);
+  return parsed.success ? parsed.data : null;
+}
+
+/**
+ * Operator-facing copy for known durable generation failure codes. These are
+ * fixed strings keyed by a safe code, never a passthrough of provider text. The
+ * code/HTTP/parameter diagnostics stay on the saved job for support only.
+ */
+const KNOWN_GENERATION_FAILURE_LABELS: Record<string, { vi: string; en: string }> = {
+  generation_paid_credits_required: {
+    vi: "Model tạo câu hỏi cần credit trả phí trên Gateway cho tài khoản này; anh nạp credit rồi chạy lại.",
+    en: "The generation model needs paid Gateway credits on this account; top up the credits, then run again.",
+  },
+  generation_rate_limited: {
+    vi: "Model tạo câu hỏi đang giới hạn lượt gọi; anh thử lại sau.",
+    en: "The generation model is rate limited; please try again later.",
+  },
+  generation_http_error: {
+    vi: "Lượt gọi model trả lỗi và không có câu nào được lưu; anh đọc lại trạng thái job trước khi chạy lại.",
+    en: "The model call returned an error and nothing was stored; read the job state before running again.",
+  },
+  generation_invalid_response: {
+    vi: "Phản hồi model không hợp lệ nên cả lô bị từ chối; không có câu nào được lưu.",
+    en: "The model response was invalid, so the whole batch was rejected; nothing was stored.",
+  },
+  generation_invalid_output: {
+    vi: "Model trả về bộ câu hỏi không đúng hợp đồng nên cả lô bị từ chối; không có câu nào được lưu.",
+    en: "The model returned a batch that violates the contract, so the whole batch was rejected; nothing was stored.",
+  },
+  generation_duplicate_output: {
+    vi: "Model trả về câu hỏi trùng nhau nên cả lô bị từ chối; không có câu nào được lưu.",
+    en: "The model returned duplicate questions, so the whole batch was rejected; nothing was stored.",
+  },
+  generation_timeout: {
+    vi: "Lượt tạo câu hỏi vượt thời gian cho phép; anh đọc lại trạng thái job trước khi chạy lại.",
+    en: "The generation call timed out; read the job state before running it again.",
+  },
+  generation_unavailable: {
+    vi: "Chưa gọi được model tạo câu hỏi; anh đọc lại trạng thái job trước khi chạy lại.",
+    en: "The generation model could not be reached; read the job state before running it again.",
+  },
+  budget_exceeded: {
+    vi: "Chi phí thực tế vượt ngân sách nên không có câu nào được lưu.",
+    en: "The reported cost exceeded the budget, so nothing was stored.",
+  },
+};
+
+/**
+ * Human-safe failure reason: fixed friendly copy for a known durable failure
+ * code, else null. No provider message, no HTTP/parameter internals and no
+ * "safe code" jargon in the primary flow; those stay on the saved job for
+ * support.
+ */
+export function generationFailureReason(
+  job: Pick<GenerationJob, "status" | "error_code" | "result_summary">,
+  language: Language,
+): string | null {
+  if (job.status === "completed" || !job.error_code) return null;
+  const known = KNOWN_GENERATION_FAILURE_LABELS[job.error_code];
+  return known ? pick(language, known.vi, known.en) : null;
 }
 
 export function generationTopicLabel(id: string): string {

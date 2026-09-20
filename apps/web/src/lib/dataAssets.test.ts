@@ -30,6 +30,9 @@ import {
   timeseriesResponseSchema,
   unknownTotal,
   defaultGenerationStyleMix,
+  generationDiagnosticSchema,
+  generationFailureReason,
+  generationJobDiagnostic,
   generationRecoveryDecision,
   generationResponseSchema,
   generationStatusLabel,
@@ -229,6 +232,54 @@ test("the generation style mix matches the server default and the response schem
     usage: { input: null, output: null },
   }).success, true);
   assert.equal(generationResponseSchema.safeParse({ status: "ok", resumed: false, job: { id: "j1", status: "unknown", version: 1 }, results: { created: 0, duplicate: 0 } }).success, false);
+  // A deterministic provider failure is a durable envelope with a safe diagnostic.
+  assert.equal(generationResponseSchema.safeParse({
+    status: "failed",
+    resumed: false,
+    job: { id: "j1", status: "failed", version: 2, error_code: "generation_http_error", result_summary: { created: 0, duplicate: 0, diagnostic: { status: 400, code: "invalid_request_error", param: "max_tokens" } } },
+    results: { created: 0, duplicate: 0, rejected: 0, total: 0 },
+    diagnostic: { status: 400, code: "invalid_request_error", param: "max_tokens" },
+  }).success, true);
+});
+
+test("the durable generation diagnostic is allowlisted and never carries a raw provider message", () => {
+  // Defensive parse strips unknown keys (for example a leaked provider `message`).
+  const parsed = generationDiagnosticSchema.safeParse({ status: 400, code: "invalid_request_error", param: "max_tokens", message: "Unsupported parameter: sk-secret" });
+  assert.deepEqual(parsed.success ? parsed.data : null, { status: 400, code: "invalid_request_error", param: "max_tokens" });
+  assert.equal(generationDiagnosticSchema.safeParse({ status: "400", code: "x", param: null }).success, false);
+  assert.equal(generationDiagnosticSchema.safeParse({ status: 400, code: 7, param: null }).success, false);
+
+  const job = {
+    status: "failed" as const,
+    error_code: "generation_http_error",
+    result_summary: { created: 0, duplicate: 0, rejected: 0, diagnostic: { status: 400, code: "invalid_request_error", param: "max_tokens", message: "Unsupported parameter: 'max_tokens'; sk-live-secret" } },
+  };
+  assert.deepEqual(generationJobDiagnostic(job), { status: 400, code: "invalid_request_error", param: "max_tokens" });
+  const reason = generationFailureReason(job, "en");
+  assert.ok(reason);
+  // Primary copy is friendly and contains no code/HTTP/param internals.
+  assert.match(reason, /model call returned an error/i);
+  assert.match(reason, /nothing was stored/i);
+  assert.ok(!reason.includes("generation_http_error"));
+  assert.ok(!reason.includes("safe codes"));
+  assert.ok(!reason.includes("HTTP"));
+  assert.ok(!reason.includes("invalid_request_error"));
+  assert.ok(!reason.includes("Unsupported parameter"));
+  assert.ok(!reason.includes("sk-live-secret"));
+  // A completed run never shows a failure reason, and junk diagnostics degrade to null.
+  assert.equal(generationFailureReason({ status: "completed", error_code: null, result_summary: { diagnostic: { status: 500, code: "x", param: null } } }, "vi"), null);
+  assert.equal(generationJobDiagnostic({ result_summary: { diagnostic: "not an object" } }), null);
+  // Unknown codes keep support diagnostics on the saved job, not in the primary copy.
+  assert.equal(generationFailureReason({ status: "failed", error_code: "generation_some_new_code" }, "en"), null);
+
+  // The known paid-credits classification gets fixed friendly operator copy.
+  const creditsReason = generationFailureReason({ status: "failed", error_code: "generation_paid_credits_required", result_summary: { diagnostic: { status: 403, code: "invalid_request_error", param: null, message: "Free tier users... vercel.com" } } }, "en");
+  assert.ok(creditsReason);
+  assert.match(creditsReason, /paid Gateway credits/i);
+  assert.ok(!creditsReason.includes("generation_paid_credits_required"));
+  assert.ok(!creditsReason.includes("safe codes"));
+  assert.ok(!creditsReason.includes("Free tier"));
+  assert.ok(!creditsReason.includes("vercel.com"));
 });
 
 test("pending generation record round-trips the exact request and rejects junk", () => {

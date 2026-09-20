@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { createDataAdminHandler, vnToday, type DataAdminConfig, type DataAdminIdentity, type DataAdminStore } from "./handler.ts";
 import { DataAdminError, type AssetFilterInput, type DataAsset, type ExportQuery } from "./data-assets.ts";
 import { SUPPORTED_TOPICS, validateGenerationOutput, type GenerationRequest } from "./generation.ts";
+import { GenerationProviderError } from "./generation-client.ts";
 
 const ORIGIN = "https://ai.banhmique.vn";
 const ASSET_ID = "11111111-1111-1111-1111-111111111111";
@@ -630,6 +631,83 @@ test("a resumed failed job keeps its terminal failure status, not a success", as
   const handler = createDataAdminHandler(configFor({}, store, { generate, generationPricing: () => GENERATION_PRICES }));
   const first = await handler(post(generationBody));
   assert.equal(first.status, 503);
+  const second = await handler(post(generationBody));
+  const body = await second.json();
+  assert.equal(second.status, 200);
+  assert.equal(body.resumed, true);
+  assert.equal(body.status, "failed");
+  assert.equal(body.job.status, "failed");
+  assert.equal(modelCalls, 1);
+});
+
+test("a deterministic provider failure returns the durable failed job envelope with a safe reason", async () => {
+  const { store, jobs, calls } = harness();
+  const auditEvents: Record<string, unknown>[] = [];
+  // A real HTTP-error-shaped provider failure carrying a secret-bearing message.
+  const generate = async () => {
+    throw new GenerationProviderError("generation_http_error", 502, { status: 400, code: "invalid_request_error", param: "max_tokens" });
+  };
+  const handler = createDataAdminHandler(configFor({}, store, {
+    generate,
+    generationPricing: () => GENERATION_PRICES,
+    audit: (event) => auditEvents.push(event),
+  }));
+
+  const response = await handler(post(generationBody));
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.status, "failed");
+  assert.equal(body.resumed, false);
+  assert.equal(body.job.status, "failed");
+  assert.equal(body.job.error_code, "generation_http_error");
+  assert.equal(body.results.created, 0);
+  // Support diagnostics stay on the saved job only; they are not in the primary envelope.
+  assert.equal("diagnostic" in body, false);
+  assert.deepEqual(body.job.result_summary.diagnostic, { status: 400, code: "invalid_request_error", param: "max_tokens" });
+  assert.equal([...jobs.values()][0].status, "failed");
+  assert.ok(calls.includes("generationFinish:failed"));
+
+  // Exact-key read-back resolves to the same durable failure (UI recovery path).
+  const readBack = await (await handler(post({ action: "generate_status", idempotency_key: "batch-0001" }))).json();
+  assert.equal(readBack.job.status, "failed");
+  assert.equal(readBack.job.error_code, "generation_http_error");
+  assert.deepEqual(readBack.job.result_summary.diagnostic, { status: 400, code: "invalid_request_error", param: "max_tokens" });
+
+  // The audit record carries safe codes only, never a raw provider message.
+  const audit = auditEvents.find((event) => event.event === "vnagent_data_admin_generate");
+  assert.equal(audit?.outcome, "failed");
+  assert.equal(audit?.errorCode, "generation_http_error");
+  assert.deepEqual(audit?.diagnostic, { status: 400, code: "invalid_request_error", param: "max_tokens" });
+  assert.ok(!JSON.stringify(audit).includes("message"));
+});
+
+test("the definitive paid-credits 403 is a durable, fixed-code failure (no raw message)", async () => {
+  const { store, jobs } = harness();
+  // The live provider classified this 403 as paid_credits_required; the client maps
+  // it to a fixed code and the handler must persist exactly that code.
+  const generate = async () => {
+    throw new GenerationProviderError("generation_paid_credits_required", 502, { status: 403, code: "invalid_request_error", param: null });
+  };
+  const handler = createDataAdminHandler(configFor({}, store, { generate, generationPricing: () => GENERATION_PRICES }));
+  const response = await handler(post(generationBody));
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.status, "failed");
+  assert.equal(body.job.status, "failed");
+  assert.equal(body.job.error_code, "generation_paid_credits_required");
+  assert.deepEqual(body.job.result_summary.diagnostic, { status: 403, code: "invalid_request_error", param: null });
+  assert.equal([...jobs.values()][0].status, "failed");
+  // The durable record never contains the provider message or its billing URL.
+  assert.ok(!JSON.stringify(body).includes("Free tier"));
+  assert.ok(!JSON.stringify(body).includes("vercel.com"));
+});
+
+test("a resumed deterministic failure stays failed and never spends again", async () => {
+  const { store } = harness();
+  let modelCalls = 0;
+  const generate = async () => { modelCalls += 1; throw new GenerationProviderError("generation_http_error", 502, { status: 400, code: "invalid_request_error", param: "max_tokens" }); };
+  const handler = createDataAdminHandler(configFor({}, store, { generate, generationPricing: () => GENERATION_PRICES }));
+  assert.equal((await handler(post(generationBody))).status, 200);
   const second = await handler(post(generationBody));
   const body = await second.json();
   assert.equal(second.status, 200);

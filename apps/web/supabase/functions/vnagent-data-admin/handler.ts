@@ -37,11 +37,12 @@ import {
   generationInputTokenBound,
   generationItemProvenance,
   generationOutputTokenBound,
+  isDeterministicGenerationFailure,
   validateGenerationRequest,
   type GenerationRequest,
 } from "./generation.ts";
 import type { GenerationPricing } from "./generation-pricing.ts";
-import type { GenerationClient, GenerationOutcome } from "./generation-client.ts";
+import { providerDiagnosticOf, type GenerationClient, type GenerationOutcome } from "./generation-client.ts";
 
 export interface DataAdminIdentity {
   userId: string;
@@ -196,6 +197,7 @@ const messagesVi: Record<string, string> = {
   generation_unconfigured: "Tầng tạo câu hỏi chưa được cấu hình khóa model.",
   generation_http_error: "Model tạo câu hỏi trả lỗi. Anh đọc lại trạng thái job trước khi chạy lại.",
   generation_rate_limited: "Model tạo câu hỏi đang giới hạn lượt gọi. Anh thử lại sau.",
+  generation_paid_credits_required: "Model tạo câu hỏi cần credit trả phí trên Gateway cho tài khoản này. Anh nạp credit rồi chạy lại.",
   generation_invalid_response: "Phản hồi model không hợp lệ nên cả lô bị từ chối.",
   generation_job_not_found: "Không tìm thấy job tạo câu hỏi này.",
   generation_job_finished: "Job này đã kết thúc; không ghi đè kết quả.",
@@ -266,6 +268,7 @@ const messagesEn: Record<string, string> = {
   generation_unconfigured: "The generation model key is not configured.",
   generation_http_error: "The generation model returned an error. Read the job status before running it again.",
   generation_rate_limited: "The generation model is rate limited. Please retry later.",
+  generation_paid_credits_required: "The generation model needs paid Gateway credits on this account. Top up the credits, then run again.",
   generation_invalid_response: "The model response was invalid, so the whole batch was rejected.",
   generation_job_not_found: "This generation job was not found.",
   generation_job_finished: "This generation job already finished; its result was not overwritten.",
@@ -406,7 +409,34 @@ async function runGenerationBatch(args: {
   try {
     outcome = await config.generate(request, signal);
   } catch (error) {
-    await store.generationFinish({ jobId, expectedVersion: version, status: "failed", summary: { created: 0, duplicate: 0, rejected: 0 }, actualCostUsd: null, errorCode: error instanceof DataAdminError ? error.code : "generation_unavailable" }, signal);
+    const errorCode = error instanceof DataAdminError ? error.code : "generation_unavailable";
+    // Only the allowlisted provider status/code/parameter is durable here; the raw
+    // provider message (prompt/token/key risk) is dropped by the client.
+    const diagnostic = providerDiagnosticOf(error);
+    const finished = await store.generationFinish({
+      jobId,
+      expectedVersion: version,
+      status: "failed",
+      summary: { created: 0, duplicate: 0, rejected: 0, ...(diagnostic ? { diagnostic } : {}) },
+      actualCostUsd: null,
+      errorCode,
+    }, signal);
+    // A definitive provider/payload failure is a durable result, not an uncertain
+    // one: return the failed job envelope. The allowlisted diagnostic stays on the
+    // saved job (result_summary) and the audit event for support; it is not part of
+    // the primary flow. Timeouts and transport errors still throw so the UI
+    // reconciles by reading the exact key.
+    if (isDeterministicGenerationFailure(errorCode)) {
+      return {
+        body: {
+          status: "failed",
+          resumed: false,
+          job: finished,
+          results: { created: 0, duplicate: 0, rejected: 0, total: 0 },
+        },
+        status: 200,
+      };
+    }
     throw error;
   }
   // Hard budget enforcement on the reported actual cost. If a provider reports a
@@ -593,12 +623,18 @@ export function createDataAdminHandler(config: DataAdminConfig) {
         const model = config.generationModel?.() ?? DEFAULT_GENERATION_MODEL;
         const pricing = config.generationPricing?.() ?? null;
         const result = await runGenerationBatch({ config, store: identity.store, request, model, pricing, signal });
+        const finishedJob = isRecord(result.body.job) ? result.body.job : {};
+        const finishedSummary = isRecord(finishedJob.result_summary) ? finishedJob.result_summary : {};
         config.audit({
           event: "vnagent_data_admin_generate",
           userId: identity.userId,
           idempotencyKey: request.idempotencyKey,
           requestFingerprint: generationFingerprint(request, model),
           outcome: result.body.status,
+          errorCode: typeof finishedJob.error_code === "string" ? finishedJob.error_code : null,
+          // Allowlisted provider status/code/parameter only, read from the saved job;
+          // never the raw message.
+          diagnostic: isRecord(finishedSummary.diagnostic) ? finishedSummary.diagnostic : null,
           worstCaseCostUsd: result.body.worstCaseCostUsd ?? null,
         });
         return json(result.body, result.status);
@@ -639,7 +675,8 @@ export function createDataAdminHandler(config: DataAdminConfig) {
     } catch (error) {
       const code = signal.aborted ? "timeout" : error instanceof DataAdminError ? error.code : "store_unavailable";
       const status = signal.aborted ? 504 : error instanceof DataAdminError ? error.status : 503;
-      config.audit({ event: "vnagent_data_admin_error", code, status });
+      const diagnostic = providerDiagnosticOf(error);
+      config.audit({ event: "vnagent_data_admin_error", code, status, ...(diagnostic ? { diagnostic } : {}) });
       return json({ error: message(code), code }, status);
     } finally {
       if (ownerKey) active.delete(ownerKey);

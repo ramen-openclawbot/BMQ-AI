@@ -19,6 +19,7 @@ import {
   generationItemProvenance,
   generationOutputSchema,
   generationOutputTokenBound,
+  isDeterministicGenerationFailure,
   serializeGenerationRequest,
   validateGenerationOutput,
   validateGenerationRequest,
@@ -202,4 +203,15 @@ test('generated provenance records model/prompt/source/run/pricing and no truth 
   assert.match(String(provenance.seedSource), /not owner-approved/i);
   assert.ok(!('dataset_stage' in provenance) && !('evaluation_status' in provenance));
   assert.doesNotMatch(JSON.stringify(provenance), /verified|gold/i);
+});
+
+test('only final provider/payload failures are deterministic; timeouts and transport errors are not', () => {
+  // A final answer from the provider: the durable outcome needs no read-back.
+  for (const code of ['generation_http_error', 'generation_rate_limited', 'generation_paid_credits_required', 'generation_invalid_response', 'generation_invalid_output', 'generation_duplicate_output']) {
+    assert.equal(isDeterministicGenerationFailure(code), true, code);
+  }
+  // The paid call may have happened but the result was lost: the UI must reconcile.
+  for (const code of ['generation_timeout', 'generation_unavailable', 'store_unavailable', 'generation_version_conflict', 'generation_budget_exceeded']) {
+    assert.equal(isDeterministicGenerationFailure(code), false, code);
+  }
 });

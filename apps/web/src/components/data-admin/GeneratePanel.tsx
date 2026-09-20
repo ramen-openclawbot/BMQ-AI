@@ -23,6 +23,7 @@ import {
   generationHistoryResponseSchema,
   generationRecoveryDecision,
   generationResponseSchema,
+  generationFailureReason,
   generationStatusLabel,
   isDefinitiveGenerationDenial,
   parsePendingGeneration,
@@ -56,6 +57,8 @@ function ResultsList({ job, language }: { job: GenerationJob; language: Language
   const summary = (job.result_summary ?? {}) as Record<string, unknown>;
   const created = Number(summary.created ?? 0);
   const duplicate = Number(summary.duplicate ?? 0);
+  // The failure reason is shown once, in the persistent inline status near the
+  // action; the job card stays a compact counters row (no duplicate alert).
   return (
     <div className="da-form-row" data-da-generation-results={job.status}>
       <div className="da-field"><span className="da-meta">{t(language, "Trạng thái job", "Job status")}</span><strong>{generationStatusLabel(job.status, language)}</strong></div>
@@ -189,13 +192,14 @@ export function GeneratePanel({ language, ownerId }: { language: Language; owner
         setJob(found);
         setRecovery("terminal");
         clearPending();
+        const reason = generationFailureReason(found, language);
         setStatus({
           tone: found.status === "completed" ? "ok" : "error",
           text: t(
             language,
-            `Đã đọc lại: lô kết thúc ở trạng thái ${generationStatusLabel(found.status, language)}${found.error_code ? ` (${found.error_code})` : ""}.`,
-            `Reconciled: the batch finished as ${generationStatusLabel(found.status, language)}${found.error_code ? ` (${found.error_code})` : ""}.`,
-          ),
+            `Đã đọc lại: lô kết thúc ở trạng thái ${generationStatusLabel(found.status, language)}.`,
+            `Reconciled: the batch finished as ${generationStatusLabel(found.status, language)}.`,
+          ) + (reason ? ` ${reason}` : ""),
         });
       }
       void loadHistory();
@@ -277,7 +281,10 @@ export function GeneratePanel({ language, ownerId }: { language: Language; owner
       if (result.status === "ok") {
         setStatus({ tone: "ok", text: t(language, `Đã tạo ${formatNumber(result.results.created, language)} câu vào Raw (synthetic / LLM-generated) để chờ duyệt.`, `Created ${formatNumber(result.results.created, language)} Raw synthetic / LLM-generated questions for review.`) });
       } else if (result.status === "failed" || result.status === "budget_exceeded") {
-        setStatus({ tone: "error", text: t(language, `Lô kết thúc ở trạng thái ${generationStatusLabel(result.job.status, language)}; không có câu nào được lưu.`, `The batch finished as ${generationStatusLabel(result.job.status, language)}; nothing was stored.`) });
+        // Durable failure envelope: one persistent inline reason (friendly copy for
+        // a known code); support diagnostics stay on the saved job.
+        const reason = generationFailureReason(result.job, language);
+        setStatus({ tone: "error", text: t(language, `Lô kết thúc ở trạng thái ${generationStatusLabel(result.job.status, language)}; không có câu nào được lưu.`, `The batch finished as ${generationStatusLabel(result.job.status, language)}; nothing was stored.`) + (reason ? ` ${reason}` : "") });
       } else {
         setStatus({ tone: "error", text: t(language, "Lô đang chạy hoặc đã được đọc lại từ job bền vững.", "The batch is running or was read back from the durable job.") });
       }
@@ -289,8 +296,11 @@ export function GeneratePanel({ language, ownerId }: { language: Language; owner
         // Definitive pre-dispatch denial: no durable batch exists for this key.
         clearPending();
         setStatus({ tone: "error", text: caught.message });
+        void loadHistory();
       } else {
-        // Uncertain OR possibly post-dispatch store failure: keep the durable pending record.
+        // Uncertain OR possibly post-dispatch store failure: keep the durable pending
+        // record, then READ THE EXACT KEY back once (never resubmit) so a durable
+        // failed job is surfaced and the run history refreshes automatically.
         setPending(run);
         writePending(run);
         setRecovery("unknown");
@@ -298,10 +308,11 @@ export function GeneratePanel({ language, ownerId }: { language: Language; owner
           tone: "error",
           text: t(
             language,
-            "Chưa rõ kết quả lô (mạng/máy chủ). Cần đọc lại trạng thái lô trước khi chạy lại để tránh gọi model trả phí lần hai.",
-            "The batch outcome is unknown (network/server). Read the batch state before retrying so the paid model is not called twice.",
+            "Chưa rõ kết quả lô (mạng/máy chủ). Đang tự đọc lại trạng thái lô trước khi cho chạy lại để tránh gọi model trả phí lần hai.",
+            "The batch outcome is unknown (network/server). Automatically reading the batch state back before any retry so the paid model is not called twice.",
           ),
         });
+        await reconcileKey(run);
       }
     } finally {
       release(controller);
