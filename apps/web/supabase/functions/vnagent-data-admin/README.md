@@ -49,23 +49,36 @@ example** questions shipped in reviewed source. Those examples are explicitly
 labelled as NOT owner-approved: real owner approval exists only on Curated/Gold
 dataset assets. It never invents a business definition.
 
-- Flag: `VNAGENT_GENERATE_ENABLED === "true"` **and** `AI_GATEWAY_API_KEY` present;
+- Flag: `VNAGENT_GENERATE_ENABLED === "true"` **and** `DEEPSEEK_API_KEY` present;
   otherwise the action is `generation_disabled` (fail closed). The caller bearer
-  token is never the model credential.
-- Provider: `https://ai-gateway.vercel.sh/v1/chat/completions` with
-  `providerOptions.gateway.zeroDataRetention = true` (ZDR preserved), `stream: false`,
-  strict `response_format.json_schema` (no `minItems`/`maxItems`: unsupported by
-  strict mode — the exact count is enforced in code), and `max_tokens` set to the
-  same output token bound used for the cost estimate.
-- Hard budget: pricing comes from the reviewed public Gateway catalog entry in
-  `generation-pricing.ts` (`openai/gpt-5.6-luna`, default tier), with an honest
-  `pricing` provenance recorded on every asset. A complete explicit
+  token is never the model credential, and the Jev/Vercel Gateway key
+  (`AI_GATEWAY_API_KEY`) is **not** a fallback: a missing DeepSeek key must not
+  silently spend through another provider.
+- Provider: DeepSeek's official OpenAI-compatible API,
+  `https://api.deepseek.com/chat/completions`, with `stream: false`,
+  `response_format: { type: "json_object" }` (DeepSeek JSON Output guarantees valid
+  JSON but **not** a schema; the exact contract is enforced in code),
+  `thinking: { type: "disabled" }` (DeepSeek enables thinking by default and its
+  reasoning tokens would eat the bounded `max_tokens`) and `max_tokens` set to the
+  same output token bound used for the cost estimate. Default model:
+  `deepseek-flash` (DeepSeek-V4.1-Flash); `deepseek-v4-pro` is also priced and can
+  be selected with `VNAGENT_GENERATE_MODEL`.
+- Hard budget: pricing comes from the reviewed **official DeepSeek price list**
+  (`generation-pricing.ts`), using the conservative **peak** cache-miss input and
+  peak output rates, with an honest `pricing` provenance recorded on every asset
+  (URLs + captured snapshot). A complete explicit
   `VNAGENT_GENERATE_INPUT_USD_PER_1K` / `VNAGENT_GENERATE_OUTPUT_USD_PER_1K`
   override is honoured but labelled `env_override`; if neither exists the action is
   `generation_cost_unbounded` and no call is made. The worst case is measured from
   the ACTUAL serialized request body (UTF-8 bytes bound the input tokens) and the
-  output bound; `budget_usd < worst_case` is refused. Unknown provider usage stays
-  `null`, never a fabricated 0.
+  output bound; `budget_usd < worst_case` is refused. DeepSeek reports no dollar
+  cost, so the actual cost is computed from the usage tokens it DOES report
+  (cache-miss input + cache-hit input + output) at the same reviewed prices.
+  Unknown usage stays `null`, never a fabricated 0.
+- Retention: no DeepSeek retention guarantee is asserted. The reviewed official
+  docs do not state one, so none is claimed and no ZDR parameter is sent (the
+  Gateway-only `providerOptions.gateway.zeroDataRetention` payload was removed for
+  this lane).
 - Durable job: `vnagent_generation_jobs` (owner-only RLS, no direct writes) is
   created before the call and finished after it. Uniqueness on
   `(tenant, created_by, idempotency_key)` makes a retry read the existing job; a

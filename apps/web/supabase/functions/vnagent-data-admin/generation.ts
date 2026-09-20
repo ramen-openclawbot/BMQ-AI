@@ -19,9 +19,10 @@
 import { DataAdminError, normalizeQuestion } from "./data-assets.ts";
 
 export const GENERATION_VERSION = 1;
-export const GENERATION_PROMPT_VERSION = "vnagent-generate-2026-09-21.1";
-// Owner-set model id (Vercel AI Gateway naming). Never a client value.
-export const DEFAULT_GENERATION_MODEL = "openai/gpt-5.6-luna";
+export const GENERATION_PROMPT_VERSION = "vnagent-generate-2026-09-21.2-deepseek";
+// Owner-set model id (DeepSeek official OpenAI-compatible naming). Never a client
+// value. Verified against the official DeepSeek docs on 2026-09-21.
+export const DEFAULT_GENERATION_MODEL = "deepseek-flash";
 
 export const GENERATION_COUNT_MIN = 20;
 export const GENERATION_COUNT_MAX = 50;
@@ -61,7 +62,11 @@ export const GENERATION_BODY_LIMIT = 512_000;
 export const GENERATION_DETERMINISTIC_FAILURES = [
   "generation_http_error",
   "generation_rate_limited",
-  // A reviewed provider 403 mapped to a fixed non-sensitive code (paid credits).
+  // The DeepSeek "Insufficient Balance" (HTTP 402) rejection: the call was
+  // refused before billing, so the durable outcome needs no read-back.
+  "generation_insufficient_balance",
+  // Historical Vercel AI Gateway code. The generation lane no longer runs on the
+  // Gateway, but old job rows still carry this code and must stay explainable.
   "generation_paid_credits_required",
   "generation_invalid_response",
   "generation_invalid_output",
@@ -201,8 +206,26 @@ export interface GenerationRequest {
 }
 
 export interface GenerationPrices {
+  /** Conservative cache-MISS input price per 1k tokens (used for the budget bound). */
   inputPer1kUsd: number;
+  /** Output price per 1k tokens. */
   outputPer1kUsd: number;
+  /**
+   * Cache-HIT input price per 1k tokens. Used only to price REPORTED usage more
+   * accurately; when absent the conservative cache-miss price is used instead.
+   */
+  cachedInputPer1kUsd?: number;
+}
+
+/**
+ * Server-only generation credential.
+ *
+ * Only the dedicated DeepSeek key is ever read. The Jev/Vercel Gateway key is
+ * deliberately NOT a fallback: a missing DeepSeek key must disable generation
+ * rather than silently spend through a different provider and account.
+ */
+export function generationApiKey(env: { get: (key: string) => string | undefined }): string {
+  return env.get("DEEPSEEK_API_KEY") ?? "";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -310,24 +333,29 @@ export function generationOutputTokenBound(count: number): number {
 }
 
 /**
- * The exact request body sent to the Gateway. Kept here (not in the client) so the
- * cost bound and the provider payload are guaranteed to be the same bytes.
+ * The exact request body sent to the DeepSeek chat-completions API. Kept here
+ * (not in the client) so the cost bound and the provider payload are guaranteed to
+ * be the same bytes.
  */
 export function generationRequestBody(request: GenerationRequest, model: string): Record<string, unknown> {
   return {
     model,
     stream: false,
     max_tokens: generationOutputTokenBound(request.count),
+    // DeepSeek enables thinking mode by default; its reasoning tokens would
+    // consume this bounded `max_tokens` and can truncate the JSON. This task is a
+    // deterministic JSON paraphrase, so thinking is explicitly disabled. This is
+    // a documented DeepSeek switch, not an OpenAI or Gateway parameter.
+    thinking: { type: "disabled" },
     messages: [
-      { role: "system", content: "You generate synthetic evaluation questions only. Never answer, never state a value, never label truth." },
+      { role: "system", content: "You generate synthetic evaluation questions only. Never answer, never state a value, never label truth. Reply with one json object only." },
       { role: "user", content: buildGenerationPrompt(request) },
     ],
-    response_format: {
-      type: "json_schema",
-      json_schema: { name: "vnagent_generated_questions", strict: true, schema: generationOutputSchema() },
-    },
-    // Preserve zero data retention on the Gateway route.
-    providerOptions: { gateway: { zeroDataRetention: true } },
+    // DeepSeek JSON Output (`response_format.json_object`) guarantees the content
+    // is valid JSON, but it does NOT enforce a schema. The exact contract (count,
+    // style/routing, no fabricated money, no duplicates) is enforced by
+    // validateGenerationOutput, which rejects the whole batch on any mismatch.
+    response_format: { type: "json_object" },
   };
 }
 
@@ -365,6 +393,40 @@ export function estimateWorstCaseCostUsd(bounds: { inputTokens: number; outputTo
   return Number.isFinite(total) && total > 0 ? Math.ceil(total * 1_000_000) / 1_000_000 : null;
 }
 
+/**
+ * Conservative peak-rate UPPER BOUND on the cost of REPORTED provider usage.
+ *
+ * This is explicitly NOT the billed cost and NOT an "actual cost": DeepSeek does
+ * not return any dollar amount, and the true rate depends on the peak/off-peak
+ * window, so an exact actual cost cannot be established. The value is kept
+ * separate from `actual_cost_usd` (which stays null) so the owner never sees an
+ * invented number. It uses the peak cache-miss input rate for the prompt and the
+ * peak output rate, and prices cache-hit input at the peak cache-hit rate when the
+ * breakdown is present. Missing usage or missing prices yields null.
+ */
+export function usageCostUpperBoundUsd(
+  usage: { inputTokens: number | null; cachedInputTokens: number | null; outputTokens: number | null },
+  prices: GenerationPrices | null,
+): number | null {
+  if (!prices) return null;
+  const { inputPer1kUsd, outputPer1kUsd } = prices;
+  if (!Number.isFinite(inputPer1kUsd) || inputPer1kUsd <= 0) return null;
+  if (!Number.isFinite(outputPer1kUsd) || outputPer1kUsd <= 0) return null;
+  const { inputTokens, cachedInputTokens, outputTokens } = usage;
+  if (inputTokens === null || outputTokens === null) return null;
+  if (!Number.isFinite(inputTokens) || inputTokens < 0) return null;
+  if (!Number.isFinite(outputTokens) || outputTokens < 0) return null;
+  const cached = cachedInputTokens !== null && Number.isFinite(cachedInputTokens) && cachedInputTokens > 0
+    ? Math.min(cachedInputTokens, inputTokens)
+    : 0;
+  const cachedPrice = Number.isFinite(prices.cachedInputPer1kUsd) && (prices.cachedInputPer1kUsd as number) > 0
+    ? (prices.cachedInputPer1kUsd as number)
+    : inputPer1kUsd;
+  const miss = Math.max(inputTokens - cached, 0);
+  const total = (miss / 1000) * inputPer1kUsd + (cached / 1000) * cachedPrice + (outputTokens / 1000) * outputPer1kUsd;
+  return Number.isFinite(total) && total >= 0 ? Math.ceil(total * 1_000_000) / 1_000_000 : null;
+}
+
 function topicsFor(request: GenerationRequest): GenerationTopic[] {
   return request.topicId === "mixed" ? SUPPORTED_TOPICS : SUPPORTED_TOPICS.filter((topic) => topic.id === request.topicId);
 }
@@ -389,7 +451,13 @@ export function buildGenerationPrompt(request: GenerationRequest): string {
     `Styles and counts: ${mix}. A "variant" is a natural paraphrase of a supported question. A "typo" is a realistic misspelling/typo of a supported question. An "ambiguous" question is underspecified and should need a clarification. An "out_of_scope" question asks for something outside the supplied definitions and must be declined.`,
     "expected_response must be answer for variant/typo, clarify for ambiguous, and abstain for out_of_scope.",
     "expected_filters may only use the allowed keys; use an empty string when the question does not state that scope.",
-    `Write every question in ${language}. Return only the strict JSON object.`,
+    `Write every question in ${language}.`,
+    // DeepSeek JSON Output requires the word "json" in the prompt plus an example
+    // of the desired shape; it guarantees valid JSON but no schema, so the exact
+    // shape and count are restated here and enforced again in code.
+    "Return one json object only, with no markdown and no prose around it, in exactly this shape:",
+    '{"questions":[{"question":"...","style":"variant","topic_id":"controlled_revenue","expected_response":"answer","expected_filters":{"period":"","dimension":"","month":"","supplier":"","item":""}}]}',
+    `The questions array must contain exactly ${request.count} items.`,
     "",
     "Supported business definitions:",
     topics,
@@ -400,13 +468,15 @@ export function buildGenerationPrompt(request: GenerationRequest): string {
 }
 
 /**
- * Strict JSON schema the provider must satisfy. No stage/truth fields exist.
+ * The declared JSON contract for one generated batch. No stage/truth fields exist.
  *
- * OpenAI strict structured outputs do NOT support `minItems`/`maxItems` (and
- * other type-specific keywords), so the exact count is NOT expressed here; it is
- * enforced by validateGenerationOutput, which rejects the whole batch on a count
- * mismatch. Every object sets `additionalProperties: false` and lists every
- * declared property in `required`, which strict mode does require.
+ * This is NOT sent as a provider `json_schema`: DeepSeek JSON Output only supports
+ * `{"type": "json_object"}` and does not enforce a schema. This shape is the
+ * reviewed contract restated in the prompt and enforced by
+ * validateGenerationOutput, which rejects the whole batch on a count mismatch. No
+ * `minItems`/`maxItems` are expressed here because the exact count is enforced in
+ * code; every object sets `additionalProperties: false` and lists every declared
+ * property in `required`.
  */
 export function generationOutputSchema() {
   return {

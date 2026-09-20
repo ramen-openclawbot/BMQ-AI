@@ -9,7 +9,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import { createDataAdminHandler, type DataAdminIdentity } from "./handler.ts";
 import { DataAdminError } from "./data-assets.ts";
-import { DEFAULT_GENERATION_MODEL } from "./generation.ts";
+import { DEFAULT_GENERATION_MODEL, generationApiKey } from "./generation.ts";
 import { verifiedGenerationPricing, type GenerationPricing } from "./generation-pricing.ts";
 import { createGenerationClient } from "./generation-client.ts";
 import { createDataAdminStore } from "./store.ts";
@@ -17,17 +17,18 @@ import { createDataAdminStore } from "./store.ts";
 const url = Deno.env.get("SUPABASE_URL")!;
 const anon = Deno.env.get("SUPABASE_ANON_KEY")!;
 
-// Generation is default OFF and needs its own server-only Gateway key. Pricing is
-// the VERIFIED public-catalog price for the configured model (no invented env
-// placeholder): when the model is not in the reviewed catalog AND no explicit
-// override is configured, the action fails closed before any paid call. The
-// caller bearer token is never used as the model credential.
+// Generation is default OFF and uses ONLY the dedicated server-only DeepSeek key.
+// Pricing comes from the VERIFIED official DeepSeek price list entry for the
+// configured model (no invented env placeholder): when the model is not in the
+// reviewed price list AND no explicit override is configured, the action fails
+// closed before any paid call. The caller bearer token is never used as the model
+// credential, and the Jev/Vercel Gateway key is never a fallback.
 const generateEnabled = Deno.env.get("VNAGENT_GENERATE_ENABLED") === "true";
-const gatewayKey = Deno.env.get("AI_GATEWAY_API_KEY") ?? "";
+const deepseekKey = generationApiKey(Deno.env);
 const generationModel = Deno.env.get("VNAGENT_GENERATE_MODEL") ?? DEFAULT_GENERATION_MODEL;
 function generationPricing(): GenerationPricing | null {
   // An explicit, complete server-side override is honoured but recorded as an
-  // override; otherwise the reviewed catalog price is used.
+  // override; otherwise the reviewed official DeepSeek price is used.
   const inputRaw = Deno.env.get("VNAGENT_GENERATE_INPUT_USD_PER_1K");
   const outputRaw = Deno.env.get("VNAGENT_GENERATE_OUTPUT_USD_PER_1K");
   if (inputRaw !== undefined && outputRaw !== undefined) {
@@ -37,6 +38,7 @@ function generationPricing(): GenerationPricing | null {
       return {
         inputPer1kUsd: input,
         outputPer1kUsd: output,
+        cachedInputPer1kUsd: input,
         provenance: { source: "env_override", env: ["VNAGENT_GENERATE_INPUT_USD_PER_1K", "VNAGENT_GENERATE_OUTPUT_USD_PER_1K"] },
       };
     }
@@ -65,7 +67,9 @@ Deno.serve(createDataAdminHandler({
   // Honest capture status for the overview: the analytics capture flag can be on
   // while the dataset is still empty, and off while old rows exist.
   captureEnabled: () => Deno.env.get("VNAGENT_CAPTURE_ENABLED") === "true",
-  generate: generateEnabled && gatewayKey ? createGenerationClient({ apiKey: gatewayKey, model: generationModel }) : undefined,
+  generate: generateEnabled && deepseekKey
+    ? createGenerationClient({ apiKey: deepseekKey, model: generationModel, prices: generationPricing() })
+    : undefined,
   generationModel: () => generationModel,
   generationPricing,
   audit: (event) => console.info(JSON.stringify(event)),

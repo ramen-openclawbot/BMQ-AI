@@ -140,7 +140,7 @@ fabricated money claim, a duplicate, a wrong count or a style/routing contradict
 rejects the whole batch.
 
 The batch is durable and bounded: a `vnagent_generation_jobs` row is written before
-the single paid Gateway call and finished after it. Uniqueness on
+the single paid model call and finished after it. Uniqueness on
 `(tenant, created_by, idempotency_key)` plus a real contract fingerprint makes a
 retry read the job back instead of spending again (a same-key different-payload
 retry is a 409 conflict). An owner-scoped advisory lock and a partial unique index
@@ -148,5 +148,15 @@ allow exactly one live running job per owner; an expired lease is surfaced as
 abandoned on the server clock. The worst-case cost is measured from the actual
 serialized request and checked against the owner's budget before any call. An
 unknown model with no explicit price fails closed (`generation_cost_unbounded`); the
-price otherwise comes from the reviewed public catalog entry for the model. The
-Gateway call preserves ZDR (`providerOptions.gateway.zeroDataRetention = true`).
+price otherwise comes from the reviewed **official DeepSeek price list** for the
+model, at the conservative peak cache-miss input and peak output rates.
+
+The Generate Data lane calls DeepSeek's official OpenAI-compatible API directly
+(`https://api.deepseek.com/chat/completions`, default model `deepseek-flash`) with
+the server-only `DEEPSEEK_API_KEY`. The Jev/Vercel AI Gateway key is not a fallback
+for generation. The request uses `response_format: { type: "json_object" }` and
+`thinking: { type: "disabled" }`; DeepSeek does not enforce a schema, so the exact
+contract is enforced in code. DeepSeek reports no dollar cost, so the recorded cost
+is computed from the usage tokens it does report, and unknown usage stays `null`.
+No DeepSeek retention guarantee is claimed: the reviewed official docs state none,
+so no zero-data-retention parameter is sent for this lane.

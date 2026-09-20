@@ -14,6 +14,7 @@ import {
   buildGenerationPrompt,
   defaultStyleMix,
   estimateWorstCaseCostUsd,
+  generationApiKey,
   generationFingerprint,
   generationInputTokenBound,
   generationItemProvenance,
@@ -21,10 +22,12 @@ import {
   generationOutputTokenBound,
   isDeterministicGenerationFailure,
   serializeGenerationRequest,
+  usageCostUpperBoundUsd,
   validateGenerationOutput,
   validateGenerationRequest,
   type GenerationRequest,
 } from './generation.ts';
+import { verifiedGenerationPricing } from './generation-pricing.ts';
 import { DataAdminError } from './data-assets.ts';
 
 const base = { topic: 'controlled_revenue', count: 20, target_language: 'vi', budget_usd: 1 };
@@ -109,13 +112,28 @@ test('idempotency key is preserved or generated; the fingerprint covers the cont
 
 test('the enforced input bound comes from the ACTUAL serialized request body', () => {
   const req = request({ topic: 'mixed', count: 50 });
-  const bytes = new TextEncoder().encode(serializeGenerationRequest(req, 'm')).length;
-  assert.equal(generationInputTokenBound(req, 'm'), Math.max(bytes, 1));
+  const bytes = new TextEncoder().encode(serializeGenerationRequest(req, 'deepseek-flash')).length;
+  assert.equal(generationInputTokenBound(req, 'deepseek-flash'), Math.max(bytes, 1));
   assert.ok(bytes > 0 && bytes <= GENERATION_MAX_INPUT_TOKENS);
-  // The body really carries the strict schema and the exact output bound.
-  const body = JSON.parse(serializeGenerationRequest(req, 'm'));
+  // The body really carries the DeepSeek JSON-output request and the exact output bound.
+  const body = JSON.parse(serializeGenerationRequest(req, 'deepseek-flash'));
   assert.equal(body.max_tokens, generationOutputTokenBound(50));
-  assert.equal(body.response_format.json_schema.strict, true);
+  assert.deepEqual(body.response_format, { type: 'json_object' });
+  assert.deepEqual(body.thinking, { type: 'disabled' });
+  assert.equal('providerOptions' in body, false);
+});
+
+test('the DeepSeek request carries no Gateway ZDR payload and the prompt asks for json', () => {
+  const req = request({ topic: 'mixed', count: 50 });
+  const serialized = serializeGenerationRequest(req, 'deepseek-flash');
+  assert.ok(!serialized.includes('providerOptions'));
+  assert.ok(!serialized.includes('zeroDataRetention'));
+  assert.ok(!/retention/i.test(serialized), 'no retention guarantee is claimed');
+  const body = JSON.parse(serialized);
+  assert.equal(body.model, 'deepseek-flash');
+  assert.equal(body.stream, false);
+  assert.match(body.messages[0].content, /\bjson\b/);
+  assert.match(body.messages[1].content, /\bjson\b/);
 });
 
 test('worst-case cost is bounded from the measured input/output bounds and fails closed without prices', () => {
@@ -131,6 +149,50 @@ test('worst-case cost is bounded from the measured input/output bounds and fails
   assert.ok(large < 1);
   assert.equal(generationOutputTokenBound(20), 400 + 20 * 140);
   assert.ok(generationOutputTokenBound(500) <= 12000);
+});
+
+test('the reviewed DeepSeek price list is conservative and traceable', () => {
+  const flash = verifiedGenerationPricing('deepseek-flash')!;
+  // Peak cache-miss input $0.30/1M and peak output $1.20/1M, the conservative tiers.
+  assert.equal(flash.inputPer1kUsd, 0.0003);
+  assert.equal(flash.outputPer1kUsd, 0.0012);
+  assert.equal(flash.cachedInputPer1kUsd, 0.000006);
+  assert.equal(flash.provenance.source, 'deepseek-official-pricing');
+  assert.equal(flash.provenance.modelId, 'deepseek-flash');
+  assert.equal(flash.provenance.pricingUrl, 'https://api-docs.deepseek.com/quick_start/pricing');
+  assert.equal(flash.provenance.pricingSnapshot, 'generated/deepseek/coordinator/pricing.txt');
+  assert.equal(flash.provenance.chatApiUrl, 'https://api-docs.deepseek.com/api/create-chat-completion');
+  assert.equal(flash.provenance.pricingTier, 'peak');
+  assert.match(String(flash.provenance.budgetBasis), /peak-cache-miss-input/);
+  assert.match(String(flash.provenance.retention), /not asserted/i);
+  const pro = verifiedGenerationPricing('deepseek-v4-pro')!;
+  assert.equal(pro.inputPer1kUsd, 0.00132);
+  assert.equal(pro.outputPer1kUsd, 0.00396);
+  // An unknown / retired model id must fail closed (null), never be guessed.
+  assert.equal(verifiedGenerationPricing('deepseek-chat'), null);
+  assert.equal(verifiedGenerationPricing('openai/gpt-5.6-luna'), null);
+
+  // A worst-case 50-question batch is a small, finite, honest bound.
+  const req = request({ topic: 'mixed', count: 50 });
+  const bound = estimateWorstCaseCostUsd(
+    { inputTokens: generationInputTokenBound(req, 'deepseek-flash'), outputTokens: generationOutputTokenBound(50) },
+    flash,
+  )!;
+  assert.ok(bound > 0 && bound < 0.05, `unexpected worst case ${bound}`);
+});
+
+test('the peak-rate usage UPPER BOUND is computed from reported tokens and stays null when unknown', () => {
+  const prices = { inputPer1kUsd: 0.0003, cachedInputPer1kUsd: 0.000006, outputPer1kUsd: 0.0012 };
+  assert.equal(usageCostUpperBoundUsd({ inputTokens: 900, cachedInputTokens: 400, outputTokens: 640 }, prices), 0.000921);
+  // No cache-hit breakdown: the whole prompt is conservatively cache miss.
+  assert.equal(usageCostUpperBoundUsd({ inputTokens: 1000, cachedInputTokens: null, outputTokens: 1000 }, prices), 0.0015);
+  // A cache-hit count above the prompt cannot lower the cost below the real prompt.
+  assert.equal(usageCostUpperBoundUsd({ inputTokens: 100, cachedInputTokens: 900, outputTokens: 0 }, prices), 0.000001);
+  // Unknown usage or unknown prices are null, never a fabricated 0.
+  assert.equal(usageCostUpperBoundUsd({ inputTokens: null, cachedInputTokens: null, outputTokens: null }, prices), null);
+  assert.equal(usageCostUpperBoundUsd({ inputTokens: 100, cachedInputTokens: null, outputTokens: null }, prices), null);
+  assert.equal(usageCostUpperBoundUsd({ inputTokens: 100, cachedInputTokens: null, outputTokens: 100 }, null), null);
+  assert.equal(usageCostUpperBoundUsd({ inputTokens: 100, cachedInputTokens: null, outputTokens: 100 }, { inputPer1kUsd: 0, outputPer1kUsd: 1 }), null);
 });
 
 test('the prompt uses only supported definitions and built-in example questions', () => {
@@ -149,8 +211,9 @@ test('the output schema uses only strict-supported keywords and no truth label f
   const schema = generationOutputSchema();
   const serialized = JSON.stringify(schema);
   assert.doesNotMatch(serialized, /dataset_stage|evaluation_status|gold|verified|reviewer/i);
-  // minItems/maxItems are NOT supported by OpenAI strict structured outputs, so
-  // the exact count is enforced in code instead.
+  // The exact count is enforced in code (and restated in the prompt); it is not
+  // expressed as minItems/maxItems because DeepSeek JSON Output takes only
+  // {"type": "json_object"} and enforces no schema.
   assert.doesNotMatch(serialized, /minItems|maxItems/);
   const items = (schema as any).properties.questions;
   assert.equal(items.type, 'array');
@@ -189,17 +252,17 @@ test('generated provenance records model/prompt/source/run/pricing and no truth 
   const items = validateGenerationOutput(outputFor(req), req);
   const topic = SUPPORTED_TOPICS.find((entry) => entry.id === items[0].topicId)!;
   const provenance = generationItemProvenance({
-    request: req, item: items[0], model: 'openai/gpt-test', runId: 'job-1',
+    request: req, item: items[0], model: 'deepseek-flash', runId: 'job-1',
     generatedAt: `${TODAY}T00:00:00.000Z`, budgetUsd: 1, worstCaseCostUsd: 0.1, inputTokenBound: 3000,
-    topic, pricing: { source: 'vercel-ai-gateway-public-model-catalog', modelId: 'openai/gpt-test' },
+    topic, pricing: { source: 'deepseek-official-pricing', modelId: 'deepseek-flash' },
   });
-  assert.equal(provenance.model, 'openai/gpt-test');
+  assert.equal(provenance.model, 'deepseek-flash');
   assert.equal(provenance.runId, 'job-1');
   assert.equal(provenance.source, 'synthetic_builtin_example');
   assert.equal(provenance.generator, 'vnagent-generate');
   assert.equal(provenance.style, items[0].style);
   assert.equal(provenance.inputTokenBound, 3000);
-  assert.deepEqual(provenance.pricing, { source: 'vercel-ai-gateway-public-model-catalog', modelId: 'openai/gpt-test' });
+  assert.deepEqual(provenance.pricing, { source: 'deepseek-official-pricing', modelId: 'deepseek-flash' });
   assert.match(String(provenance.seedSource), /not owner-approved/i);
   assert.ok(!('dataset_stage' in provenance) && !('evaluation_status' in provenance));
   assert.doesNotMatch(JSON.stringify(provenance), /verified|gold/i);
@@ -207,11 +270,18 @@ test('generated provenance records model/prompt/source/run/pricing and no truth 
 
 test('only final provider/payload failures are deterministic; timeouts and transport errors are not', () => {
   // A final answer from the provider: the durable outcome needs no read-back.
-  for (const code of ['generation_http_error', 'generation_rate_limited', 'generation_paid_credits_required', 'generation_invalid_response', 'generation_invalid_output', 'generation_duplicate_output']) {
+  for (const code of ['generation_http_error', 'generation_rate_limited', 'generation_insufficient_balance', 'generation_paid_credits_required', 'generation_invalid_response', 'generation_invalid_output', 'generation_duplicate_output']) {
     assert.equal(isDeterministicGenerationFailure(code), true, code);
   }
   // The paid call may have happened but the result was lost: the UI must reconcile.
   for (const code of ['generation_timeout', 'generation_unavailable', 'store_unavailable', 'generation_version_conflict', 'generation_budget_exceeded']) {
     assert.equal(isDeterministicGenerationFailure(code), false, code);
   }
+});
+
+test('the server-only credential helper ignores non-DeepSeek provider keys', () => {
+  const env: Record<string, string> = { AI_GATEWAY_API_KEY: 'gw', OPENAI_API_KEY: 'sk', VERCEL_AI_GATEWAY_KEY: 'x' };
+  assert.equal(generationApiKey({ get: (key) => env[key] }), '');
+  env.DEEPSEEK_API_KEY = 'ds';
+  assert.equal(generationApiKey({ get: (key) => env[key] }), 'ds');
 });

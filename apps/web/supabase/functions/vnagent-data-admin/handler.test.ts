@@ -479,7 +479,7 @@ function generationItems(request: GenerationRequest) {
   return validateGenerationOutput(value, request);
 }
 
-const GENERATION_PRICES = { inputPer1kUsd: 0.0002, outputPer1kUsd: 0.0012, provenance: { source: "test-catalog", modelId: "openai/gpt-test" } };
+const GENERATION_PRICES = { inputPer1kUsd: 0.0003, outputPer1kUsd: 0.0012, cachedInputPer1kUsd: 0.000006, provenance: { source: "deepseek-official-pricing", modelId: "deepseek-flash" } };
 const generationBody = { action: "generate", topic: "controlled_revenue", count: 20, target_language: "vi", budget_usd: 1, idempotency_key: "batch-0001" };
 
 test("generation is disabled without a server generator and never makes a call", async () => {
@@ -515,9 +515,9 @@ test("a successful batch stores Raw synthetic/llm_generated assets with run prov
   let seen: GenerationRequest | null = null;
   const generate = async (request: GenerationRequest) => {
     seen = request;
-    return { items: generationItems(request), usage: { input: 900, output: 600 }, cost: 0.02, model: "openai/gpt-test" };
+    return { items: generationItems(request), usage: { input: 900, output: 600 }, cost: 0.02, model: "deepseek-flash" };
   };
-  const handler = createDataAdminHandler(configFor({}, store, { generate, generationPricing: () => GENERATION_PRICES, generationModel: () => "openai/gpt-test" }));
+  const handler = createDataAdminHandler(configFor({}, store, { generate, generationPricing: () => GENERATION_PRICES, generationModel: () => "deepseek-flash" }));
   const response = await handler(post(generationBody));
   const body = await response.json();
   assert.equal(response.status, 201);
@@ -534,9 +534,9 @@ test("a successful batch stores Raw synthetic/llm_generated assets with run prov
     assert.equal(asset.source_kind, "synthetic");
     assert.equal(asset.source_designation, "llm_generated");
     assert.equal(asset.evaluation_status, "not_evaluated");
-    assert.equal(asset.provenance.model, "openai/gpt-test");
+    assert.equal(asset.provenance.model, "deepseek-flash");
     assert.equal(asset.provenance.source, "synthetic_builtin_example");
-    assert.equal(asset.provenance.pricing.source, "test-catalog");
+    assert.equal(asset.provenance.pricing.source, "deepseek-official-pricing");
     assert.ok(typeof asset.provenance.inputTokenBound === "number" && asset.provenance.inputTokenBound > 0);
     assert.ok(typeof asset.provenance.runId === "string");
     assert.ok(!("dataset_stage" in asset.provenance));
@@ -556,6 +556,32 @@ test("unknown provider usage is returned as null, never a fabricated zero", asyn
   assert.equal(response.status, 201);
   assert.deepEqual(body.usage, { input: null, output: null });
   assert.equal(body.actualCostUsd, null);
+});
+
+test("a DeepSeek outcome keeps the billed cost unknown and stores the usage bound separately", async () => {
+  const { store, jobs } = harness();
+  // Exactly what the DeepSeek client returns: no provider dollar cost, plus a
+  // conservative peak-rate usage upper bound.
+  const generate = async (request: GenerationRequest) => ({
+    items: generationItems(request),
+    usage: { input: 900, output: 640 },
+    cost: null,
+    usageCostUpperBoundUsd: 0.000921,
+    model: "deepseek-flash",
+  });
+  const handler = createDataAdminHandler(configFor({}, store, { generate, generationPricing: () => GENERATION_PRICES, generationModel: () => "deepseek-flash" }));
+  const response = await handler(post(generationBody));
+  const body = await response.json();
+  assert.equal(response.status, 201);
+  // The billed cost is genuinely unknown, never replaced by the peak-rate bound.
+  assert.equal(body.actualCostUsd, null);
+  assert.equal(body.usageCostUpperBoundUsd, 0.000921);
+  assert.equal(body.results.created, 20);
+  const job = [...jobs.values()][0];
+  assert.equal(job.status, "completed");
+  assert.equal(job.actual_cost_usd, null);
+  // The bound is durable and clearly separate from the actual cost column.
+  assert.equal((job.result_summary as Record<string, unknown>).usageCostUpperBoundUsd, 0.000921);
 });
 
 test("the same key with a different payload is a 409 conflict, not a silent reuse", async () => {
@@ -681,10 +707,29 @@ test("a deterministic provider failure returns the durable failed job envelope w
   assert.ok(!JSON.stringify(audit).includes("message"));
 });
 
-test("the definitive paid-credits 403 is a durable, fixed-code failure (no raw message)", async () => {
+test("the DeepSeek 402 insufficient-balance rejection is a durable, fixed-code failure", async () => {
   const { store, jobs } = harness();
-  // The live provider classified this 403 as paid_credits_required; the client maps
-  // it to a fixed code and the handler must persist exactly that code.
+  // The DeepSeek client maps its documented 402 rejection to this fixed code; the
+  // handler must persist exactly that code and never a raw provider message.
+  const generate = async () => {
+    throw new GenerationProviderError("generation_insufficient_balance", 502, { status: 402, code: "insufficient_balance_error", param: null });
+  };
+  const handler = createDataAdminHandler(configFor({}, store, { generate, generationPricing: () => GENERATION_PRICES }));
+  const response = await handler(post(generationBody));
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.status, "failed");
+  assert.equal(body.job.status, "failed");
+  assert.equal(body.job.error_code, "generation_insufficient_balance");
+  assert.deepEqual(body.job.result_summary.diagnostic, { status: 402, code: "insufficient_balance_error", param: null });
+  assert.equal([...jobs.values()][0].status, "failed");
+  assert.ok(!JSON.stringify(body).includes("Insufficient Balance"));
+});
+
+test("a historical Gateway paid-credits job stays a durable, fixed-code failure (no raw message)", async () => {
+  const { store, jobs } = harness();
+  // Old job rows created while generation ran on the Vercel AI Gateway still carry
+  // this code; the new DeepSeek lane never emits it, but it must stay explainable.
   const generate = async () => {
     throw new GenerationProviderError("generation_paid_credits_required", 502, { status: 403, code: "invalid_request_error", param: null });
   };

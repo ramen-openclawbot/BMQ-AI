@@ -1,10 +1,15 @@
-// Server-side synthetic-question generator over the Vercel AI Gateway.
+// Server-side synthetic-question generator over the DeepSeek official
+// OpenAI-compatible chat-completions API.
 //
-// It follows the reviewed Gateway conventions already used by the Jev client:
-// direct HTTPS, no SDK, `redirect: "error"`, a fixed endpoint/model, per-request
-// `providerOptions.gateway.zeroDataRetention: true` (preserve ZDR), a bounded body
-// and a bounded deadline. Only the dedicated server-side `AI_GATEWAY_API_KEY` is
-// used; the caller bearer token is never read or forwarded.
+// It follows the reviewed direct-provider conventions already used by the other
+// server clients: direct HTTPS to the documented host, no SDK, `redirect: "error"`,
+// a fixed endpoint/model, a bounded body and a bounded deadline. Only the
+// dedicated server-side `DEEPSEEK_API_KEY` is used; the caller bearer token and
+// the Jev/Vercel Gateway key are never read, forwarded or used as a fallback.
+//
+// DeepSeek returns no dollar cost, so the call cost is computed from the usage
+// tokens it reports (cache-miss input + cache-hit input + output) at the reviewed
+// prices. Unknown usage stays null, never a fabricated 0.
 //
 // The model output is strictly validated against the request before it is
 // returned, so a malformed, short, duplicated or fabricated batch is refused
@@ -16,12 +21,16 @@ import {
   GENERATION_MAX_TIMEOUT_MS,
   GENERATION_TIMEOUT_MS,
   serializeGenerationRequest,
+  usageCostUpperBoundUsd,
   validateGenerationOutput,
   type GeneratedQuestion,
+  type GenerationPrices,
   type GenerationRequest,
 } from "./generation.ts";
 
-export const GENERATION_ENDPOINT = "https://ai-gateway.vercel.sh/v1/chat/completions";
+// Official DeepSeek base URL is https://api.deepseek.com (OpenAI format); the
+// chat-completions path is documented as POST /chat/completions.
+export const GENERATION_ENDPOINT = "https://api.deepseek.com/chat/completions";
 
 // A provider error body is read at most this far. Only status/code/param survive;
 // the raw provider message (which can echo prompt content) is never surfaced,
@@ -29,15 +38,17 @@ export const GENERATION_ENDPOINT = "https://ai-gateway.vercel.sh/v1/chat/complet
 export const GENERATION_ERROR_BODY_LIMIT = 16_384;
 // A syntax pattern is not a value allowlist: unknown strings could contain secrets.
 const PROVIDER_CODES = new Set([
-  "invalid_request_error", "authentication_error", "invalid_api_key",
-  "permission_denied", "insufficient_quota", "rate_limit_error", "rate_limit_exceeded",
-  "unsupported_parameter", "unsupported_value", "invalid_json_schema", "model_not_found",
-  "server_error", "internal_server_error", "service_unavailable", "context_length_exceeded",
+  "invalid_request_error", "authentication_error", "authentication_fails",
+  "invalid_api_key", "permission_denied", "insufficient_quota",
+  "insufficient_balance_error", "rate_limit_error", "rate_limit_exceeded",
+  "unsupported_parameter", "unsupported_value", "invalid_parameter_error",
+  "invalid_json_schema", "model_not_found", "server_error", "internal_server_error",
+  "service_unavailable", "context_length_exceeded",
 ]);
 const PROVIDER_PARAMS = new Set([
   "model", "messages", "max_tokens", "max_completion_tokens", "temperature",
-  "response_format", "response_format.json_schema", "response_format.json_schema.schema",
-  "stream", "providerOptions", "providerOptions.gateway.zeroDataRetention",
+  "response_format", "response_format.type", "thinking", "thinking.type",
+  "reasoning_effort", "stream", "stream_options",
 ]);
 
 /** Sanitized, allowlisted provider diagnostic: never the raw error message. */
@@ -82,30 +93,19 @@ export function sanitizeProviderDiagnostic(status: number, body: unknown): Gener
   return { status: Number.isInteger(status) ? status : 0, code, param };
 }
 
-/**
- * Fixed, reviewed provider sentences mapped to non-sensitive codes. Matching is
- * an EXACT normalized sentence, deliberately NOT a loose token/regex scan: a
- * regex over message words could admit a secret-like or attacker-controlled value
- * as a "classification". The raw message itself is never returned or stored.
- */
-const PROVIDER_PAID_CREDITS_SENTENCE = "free tier users do not have access to this model.";
-export const PROVIDER_FAILURE_CLASSIFICATIONS = ["paid_credits_required"] as const;
+export const PROVIDER_FAILURE_CLASSIFICATIONS = ["insufficient_balance"] as const;
 export type ProviderFailureClassification = (typeof PROVIDER_FAILURE_CLASSIFICATIONS)[number];
 
-function normalizedProviderMessage(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const text = value.replace(/\s+/g, " ").trim().toLowerCase();
-  return text.length > 0 && text.length <= 512 ? text : null;
-}
-
-/** Map a known provider failure to a fixed code; unknown failures return null (generic). */
-export function classifyProviderFailure(status: number, body: unknown): ProviderFailureClassification | null {
-  if (status !== 403) return null;
-  const root = isRecord(body) ? body : {};
-  const error = isRecord(root.error) ? root.error : root;
-  const message = normalizedProviderMessage(error.message);
-  if (message && message.includes(PROVIDER_PAID_CREDITS_SENTENCE)) return "paid_credits_required";
-  return null;
+/**
+ * Map a documented DeepSeek failure to a fixed code. Classification is by HTTP
+ * STATUS only (DeepSeek's documented "402 – Insufficient Balance" rejection), never
+ * by scanning the provider message tokens: a message scan could admit an
+ * attacker-controlled or secret-like value as a "classification", and the raw
+ * message is never returned, stored or logged anyway.
+ */
+export function classifyProviderFailure(status: number, _body?: unknown): ProviderFailureClassification | null {
+  if (status !== 402) return null;
+  return "insufficient_balance";
 }
 
 /** Read an error body without ever throwing; a missing/huge/non-JSON/aborted body yields null. */
@@ -149,8 +149,16 @@ export interface GenerationOutcome {
   items: GeneratedQuestion[];
   /** Provider token usage; null means the provider did not report it (never 0). */
   usage: { input: number | null; output: number | null };
-  /** Gateway-reported cost in USD when supplied, else null (never fabricated 0). */
+  /**
+   * DeepSeek reports no dollar cost, so the ACTUAL billed cost is always unknown
+   * here and stays null. It is never derived/fabricated from tokens.
+   */
   cost: number | null;
+  /**
+   * Conservative peak-rate UPPER BOUND on the reported usage (not the billed cost).
+   * Kept separate from `cost`; null when usage or prices are unknown.
+   */
+  usageCostUpperBoundUsd: number | null;
   model: string;
 }
 
@@ -159,6 +167,8 @@ export type GenerationClient = (request: GenerationRequest, signal: AbortSignal)
 export interface GenerationClientConfig {
   apiKey: string;
   model: string;
+  /** Reviewed prices used to price reported usage; null keeps the cost honestly unknown. */
+  prices?: GenerationPrices | null;
   fetcher?: typeof fetch;
   timeoutMs?: number;
 }
@@ -170,17 +180,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function finiteNonNegative(value: unknown): number | null {
   const parsed = typeof value === "string" ? Number(value) : typeof value === "number" ? value : Number.NaN;
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
-}
-
-/** Gateway-reported cost (providerMetadata.gateway.cost or usage.cost). */
-export function generationGatewayCost(body: unknown): number | null {
-  if (!isRecord(body)) return null;
-  const metadata = isRecord(body.providerMetadata) ? body.providerMetadata : null;
-  const gateway = metadata && isRecord(metadata.gateway) ? metadata.gateway : null;
-  const fromGateway = gateway ? finiteNonNegative(gateway.cost) : null;
-  if (fromGateway !== null) return fromGateway;
-  const usage = isRecord(body.usage) ? body.usage : null;
-  return usage ? finiteNonNegative(usage.cost) : null;
 }
 
 async function readBoundedBody(response: Response, combined: AbortSignal, parent: AbortSignal, deadline: AbortSignal): Promise<unknown> {
@@ -221,12 +220,13 @@ async function readBoundedBody(response: Response, combined: AbortSignal, parent
   try { return JSON.parse(new TextDecoder().decode(bytes)); } catch { throw new DataAdminError("generation_invalid_response", 502); }
 }
 
-/** One bounded Gateway call; the caller decides the budget before invoking it. */
+/** One bounded DeepSeek call; the caller decides the budget before invoking it. */
 export function createGenerationClient(config: GenerationClientConfig): GenerationClient {
   const apiKey = config.apiKey ?? "";
   if (!apiKey) throw new DataAdminError("generation_unconfigured", 503);
   if (!config.model) throw new DataAdminError("generation_unconfigured", 503);
   const fetcher = config.fetcher ?? fetch;
+  const prices = config.prices ?? null;
   const timeoutMs = Math.max(1, Math.min(config.timeoutMs ?? GENERATION_TIMEOUT_MS, GENERATION_MAX_TIMEOUT_MS));
 
   return async (request, signal) => {
@@ -252,31 +252,40 @@ export function createGenerationClient(config: GenerationClientConfig): Generati
     }
     if (!response.ok) {
       // Read the bounded error body (respecting the combined deadline/abort signal)
-      // and keep ONLY the allowlisted diagnostic plus a fixed classification. The raw
-      // provider message is discarded so no prompt/token/key can leak into the durable
-      // job record, the audit log or the HTTP response.
+      // and keep ONLY the allowlisted diagnostic plus a fixed status-based
+      // classification. The raw provider message is discarded so no prompt/token/key
+      // can leak into the durable job record, the audit log or the HTTP response.
       const providerStatus = response.status;
       const errorBody = await readBoundedErrorJson(response, GENERATION_ERROR_BODY_LIMIT, combined);
       const diagnostic = sanitizeProviderDiagnostic(providerStatus, errorBody);
       const classification = classifyProviderFailure(providerStatus, errorBody);
-      const errorCode = classification === "paid_credits_required"
-        ? "generation_paid_credits_required"
+      const errorCode = classification === "insufficient_balance"
+        ? "generation_insufficient_balance"
         : providerStatus === 429 ? "generation_rate_limited" : "generation_http_error";
       throw new GenerationProviderError(errorCode, providerStatus === 429 ? 503 : 502, diagnostic);
     }
     const parsed = await readBoundedBody(response, combined, signal, deadline);
     if (!isRecord(parsed)) throw new DataAdminError("generation_invalid_response", 502);
     const choices = parsed.choices;
-    const content = Array.isArray(choices) && isRecord(choices[0]) && isRecord(choices[0].message) ? choices[0].message.content : null;
+    const choice = Array.isArray(choices) && isRecord(choices[0]) ? choices[0] : null;
+    const content = choice && isRecord(choice.message) ? choice.message.content : null;
     if (typeof content !== "string" || content.length > GENERATION_BODY_LIMIT) throw new DataAdminError("generation_invalid_response", 502);
+    // A truncated JSON body ("length") can never satisfy the exact batch contract,
+    // so it fails closed here instead of producing a confusing parse error.
+    if (choice?.finish_reason === "length") throw new DataAdminError("generation_invalid_response", 502);
     let decoded: unknown;
     try { decoded = JSON.parse(content); } catch { throw new DataAdminError("generation_invalid_response", 502); }
     const items = validateGenerationOutput(decoded, request);
     const usage = isRecord(parsed.usage) ? parsed.usage : {};
+    const input = finiteNonNegative(usage.prompt_tokens);
+    const output = finiteNonNegative(usage.completion_tokens);
+    const cachedInput = finiteNonNegative(usage.prompt_cache_hit_tokens);
     return {
       items,
-      usage: { input: finiteNonNegative(usage.prompt_tokens), output: finiteNonNegative(usage.completion_tokens) },
-      cost: generationGatewayCost(parsed),
+      usage: { input, output },
+      // DeepSeek returns no dollar cost: the billed cost stays genuinely unknown.
+      cost: null,
+      usageCostUpperBoundUsd: usageCostUpperBoundUsd({ inputTokens: input, cachedInputTokens: cachedInput, outputTokens: output }, prices),
       model: config.model,
     };
   };

@@ -66,6 +66,7 @@ function ResultsList({ job, language }: { job: GenerationJob; language: Language
       <div className="da-field"><span className="da-meta">{t(language, "Trùng (bỏ qua)", "Duplicates skipped")}</span><strong>{formatNumber(duplicate, language)}</strong></div>
       <div className="da-field"><span className="da-meta">{t(language, "Chi phí tối đa", "Worst-case cost")}</span><strong>{money(job.worst_case_cost_usd)}</strong></div>
       <div className="da-field"><span className="da-meta">{t(language, "Chi phí thực tế", "Actual cost")}</span><strong>{money(job.actual_cost_usd)}</strong></div>
+      <div className="da-field"><span className="da-meta">{t(language, "Trần chi phí theo usage", "Usage cost upper bound")}</span><strong>{money(summary.usageCostUpperBoundUsd)}</strong></div>
     </div>
   );
 }

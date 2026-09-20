@@ -197,7 +197,11 @@ const messagesVi: Record<string, string> = {
   generation_unconfigured: "Tầng tạo câu hỏi chưa được cấu hình khóa model.",
   generation_http_error: "Model tạo câu hỏi trả lỗi. Anh đọc lại trạng thái job trước khi chạy lại.",
   generation_rate_limited: "Model tạo câu hỏi đang giới hạn lượt gọi. Anh thử lại sau.",
-  generation_paid_credits_required: "Model tạo câu hỏi cần credit trả phí trên Gateway cho tài khoản này. Anh nạp credit rồi chạy lại.",
+  generation_insufficient_balance: "Tài khoản DeepSeek đã hết số dư nên model chưa được gọi; anh nạp thêm số dư rồi chạy lại.",
+  // Historical Vercel AI Gateway failure from earlier runs. It must stay
+  // explainable WITHOUT telling the owner to top up Gateway now: new Generate
+  // Data runs go to DeepSeek and need no Gateway credit.
+  generation_paid_credits_required: "Lô này thất bại trên nhà cung cấp Vercel AI Gateway trước đây. Các lần chạy Generate Data mới dùng DeepSeek nên không cần credit Gateway.",
   generation_invalid_response: "Phản hồi model không hợp lệ nên cả lô bị từ chối.",
   generation_job_not_found: "Không tìm thấy job tạo câu hỏi này.",
   generation_job_finished: "Job này đã kết thúc; không ghi đè kết quả.",
@@ -268,7 +272,11 @@ const messagesEn: Record<string, string> = {
   generation_unconfigured: "The generation model key is not configured.",
   generation_http_error: "The generation model returned an error. Read the job status before running it again.",
   generation_rate_limited: "The generation model is rate limited. Please retry later.",
-  generation_paid_credits_required: "The generation model needs paid Gateway credits on this account. Top up the credits, then run again.",
+  generation_insufficient_balance: "The DeepSeek account balance is insufficient, so the model was not called. Top up the balance, then run again.",
+  // Historical Vercel AI Gateway failure from earlier runs. It must stay
+  // explainable WITHOUT telling the owner to top up Gateway now: new Generate
+  // Data runs go to DeepSeek and need no Gateway credit.
+  generation_paid_credits_required: "This run failed on the previous Vercel AI Gateway provider. New Generate Data runs use DeepSeek and do not need Gateway credits.",
   generation_invalid_response: "The model response was invalid, so the whole batch was rejected.",
   generation_job_not_found: "This generation job was not found.",
   generation_job_finished: "This generation job already finished; its result was not overwritten.",
@@ -487,7 +495,13 @@ async function runGenerationBatch(args: {
   }
 
   const results = { created, duplicate, rejected: 0, total: outcome.items.length };
-  const finished = await store.generationFinish({ jobId, expectedVersion: version, status: "completed", summary: results, actualCostUsd: outcome.cost, errorCode: null }, signal);
+  // The billed cost is unknown (DeepSeek reports none) and stays null. The
+  // conservative peak-rate usage UPPER BOUND is recorded separately so the owner
+  // never sees it mislabelled as an actual cost.
+  const completionSummary = outcome.usageCostUpperBoundUsd === null
+    ? results
+    : { ...results, usageCostUpperBoundUsd: outcome.usageCostUpperBoundUsd };
+  const finished = await store.generationFinish({ jobId, expectedVersion: version, status: "completed", summary: completionSummary, actualCostUsd: outcome.cost, errorCode: null }, signal);
   return {
     body: {
       status: "ok",
@@ -501,6 +515,7 @@ async function runGenerationBatch(args: {
       outputTokenBound,
       worstCaseCostUsd,
       actualCostUsd: outcome.cost,
+      usageCostUpperBoundUsd: outcome.usageCostUpperBoundUsd,
       usage: outcome.usage,
     },
     status: 201,

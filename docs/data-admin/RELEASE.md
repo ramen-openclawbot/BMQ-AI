@@ -132,10 +132,13 @@ psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f apps/web/supabase/migrations/20260
 Edge env (all default OFF / fail closed):
 
 - `VNAGENT_GENERATE_ENABLED=true` — switch the action on.
-- `AI_GATEWAY_API_KEY` — server-only Vercel AI Gateway key (never a client value).
-- `VNAGENT_GENERATE_MODEL` — optional; defaults to `openai/gpt-5.6-luna`.
-- Pricing is the reviewed public-catalog price in `generation-pricing.ts`
-  (`openai/gpt-5.6-luna`, default tier); no env is required for a ready feature.
+- `DEEPSEEK_API_KEY` — server-only DeepSeek key (never a client value). The
+  Jev/Vercel `AI_GATEWAY_API_KEY` is NOT a fallback for generation.
+- `VNAGENT_GENERATE_MODEL` — optional; defaults to `deepseek-flash`
+  (DeepSeek-V4.1-Flash). `deepseek-v4-pro` is also priced.
+- Pricing is the reviewed **official DeepSeek price list** in `generation-pricing.ts`
+  (`deepseek-flash`, conservative peak cache-miss input + peak output); no env is
+  required for a ready feature.
   `VNAGENT_GENERATE_INPUT_USD_PER_1K` / `VNAGENT_GENERATE_OUTPUT_USD_PER_1K` are an
   OPTIONAL explicit override, recorded as `env_override`; if the model is unknown
   and no override is set the action returns `generation_cost_unbounded` and makes
@@ -146,9 +149,14 @@ Reviewer checklist after apply/deploy:
 - A non-owner is denied (403) and never reaches `generate`.
 - A direct authenticated `insert`/`update` on `vnagent_generation_jobs` is denied;
   the job row appears only through the RPCs with `created_by = auth.uid()`.
-- Pricing comes from the reviewed catalog entry for the model; only an unknown model
-  with no explicit override fails closed. With a budget below the worst case it
-  returns `generation_budget_exceeded` before any call.
+- Pricing comes from the reviewed official DeepSeek price entry for the model; only
+  an unknown model with no explicit override fails closed. With a budget below the
+  worst case it returns `generation_budget_exceeded` before any call.
+- The request goes to `https://api.deepseek.com/chat/completions` with the server
+  `DEEPSEEK_API_KEY`, `response_format: { type: "json_object" }`,
+  `thinking: { type: "disabled" }` and a bounded `max_tokens`; no
+  `providerOptions.gateway.zeroDataRetention` payload is sent and no DeepSeek
+  retention guarantee is claimed.
 - A 20-question batch creates exactly its accepted rows as `raw` `synthetic` /
   `llm_generated` with `provenance.model`, `promptVersion`, `runId`, `seedIds`,
   `topic`, `style`, `pricing`; the same key does not create a second batch or a
@@ -168,8 +176,10 @@ Reviewer checklist after apply/deploy:
   (fresh apply and re-apply over the interim state); a real PostgreSQL apply remains
   the deployment gate.
 - No production deploy, DB apply, commit, push or restart was performed.
-- No real paid Gateway call was made; `generate` is verified with a mocked Gateway
-  client only.
+- No real paid DeepSeek call was made; `generate` is verified with a mocked DeepSeek
+  client only. The earlier Vercel AI Gateway generation attempt was abandoned (its
+  live 403 paid-credits probe is preserved as history); this lane does not use the
+  Gateway.
 - Capture is **not** a blocker: production is proven working (3 interactions /
   3 Raw assets, 2 screenshot-verbatim questions, RPC and service-role grants
   present, capture flag SHA256 matches true). No capture change was made. Earlier

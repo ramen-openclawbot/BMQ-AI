@@ -272,14 +272,34 @@ test("the durable generation diagnostic is allowlisted and never carries a raw p
   // Unknown codes keep support diagnostics on the saved job, not in the primary copy.
   assert.equal(generationFailureReason({ status: "failed", error_code: "generation_some_new_code" }, "en"), null);
 
-  // The known paid-credits classification gets fixed friendly operator copy.
+  // The historical Gateway paid-credits classification stays explainable for old
+  // job rows and explicitly tells the owner new runs use DeepSeek (no Gateway top-up).
   const creditsReason = generationFailureReason({ status: "failed", error_code: "generation_paid_credits_required", result_summary: { diagnostic: { status: 403, code: "invalid_request_error", param: null, message: "Free tier users... vercel.com" } } }, "en");
   assert.ok(creditsReason);
-  assert.match(creditsReason, /paid Gateway credits/i);
+  assert.match(creditsReason, /previous Vercel AI Gateway provider/i);
+  assert.match(creditsReason, /new runs use DeepSeek/i);
+  assert.doesNotMatch(creditsReason, /top up/i);
   assert.ok(!creditsReason.includes("generation_paid_credits_required"));
   assert.ok(!creditsReason.includes("safe codes"));
   assert.ok(!creditsReason.includes("Free tier"));
   assert.ok(!creditsReason.includes("vercel.com"));
+  const creditsVi = generationFailureReason({ status: "failed", error_code: "generation_paid_credits_required", result_summary: {} }, "vi");
+  assert.ok(creditsVi);
+  assert.match(creditsVi, /Gateway trước đây/);
+  assert.match(creditsVi, /DeepSeek/);
+  assert.doesNotMatch(creditsVi, /nạp credit/i);
+
+  // The current DeepSeek lane reports insufficient balance with no Gateway,
+  // ZDR or retention claim.
+  const balanceReason = generationFailureReason({ status: "failed", error_code: "generation_insufficient_balance", result_summary: {} }, "en");
+  assert.ok(balanceReason);
+  assert.match(balanceReason, /DeepSeek account balance is insufficient/i);
+  assert.ok(!/gateway/i.test(balanceReason));
+  assert.ok(!/retention|zero data/i.test(balanceReason));
+  const balanceVi = generationFailureReason({ status: "failed", error_code: "generation_insufficient_balance", result_summary: {} }, "vi");
+  assert.ok(balanceVi);
+  assert.match(balanceVi, /DeepSeek/);
+  assert.ok(!/retention|zero data/i.test(balanceVi));
 });
 
 test("pending generation record round-trips the exact request and rejects junk", () => {

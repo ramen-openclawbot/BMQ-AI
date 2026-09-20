@@ -234,6 +234,9 @@ export const generationResponseSchema = z.object({
   outputTokenBound: z.number().nullable().optional(),
   worstCaseCostUsd: z.number().nullable().optional(),
   actualCostUsd: z.number().nullable().optional(),
+  // Conservative peak-rate usage UPPER BOUND from reported tokens; NOT the billed
+  // cost (DeepSeek reports no dollar amount, so actualCostUsd stays null).
+  usageCostUpperBoundUsd: z.number().nullable().optional(),
   // The provider may omit usage; unknown is null, never a fabricated 0.
   usage: z.object({ input: z.number().nullable(), output: z.number().nullable() }).optional(),
 });
@@ -348,9 +351,16 @@ export function generationJobDiagnostic(job: Pick<GenerationJob, "result_summary
  * code/HTTP/parameter diagnostics stay on the saved job for support only.
  */
 const KNOWN_GENERATION_FAILURE_LABELS: Record<string, { vi: string; en: string }> = {
+  generation_insufficient_balance: {
+    vi: "Tài khoản DeepSeek đã hết số dư nên model chưa được gọi; anh nạp thêm số dư rồi chạy lại.",
+    en: "The DeepSeek account balance is insufficient, so the model was not called; top up the balance, then run again.",
+  },
+  // Historical Vercel AI Gateway failure from earlier runs. Old job rows still
+  // carry it, so it stays explainable without telling the owner to top up Gateway
+  // now (new runs go to DeepSeek and need no Gateway credit).
   generation_paid_credits_required: {
-    vi: "Model tạo câu hỏi cần credit trả phí trên Gateway cho tài khoản này; anh nạp credit rồi chạy lại.",
-    en: "The generation model needs paid Gateway credits on this account; top up the credits, then run again.",
+    vi: "Lô này thất bại trên nhà cung cấp Vercel AI Gateway trước đây; các lần chạy mới dùng DeepSeek nên không cần credit Gateway.",
+    en: "This run failed on the previous Vercel AI Gateway provider; new runs use DeepSeek and do not need Gateway credits.",
   },
   generation_rate_limited: {
     vi: "Model tạo câu hỏi đang giới hạn lượt gọi; anh thử lại sau.",
