@@ -5,6 +5,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { adminHostCopy } from "@/lib/adminHostLanguage";
 import bmqLogo from "@/assets/bmq-logo.png";
 
 // Google Icon component
@@ -34,18 +35,21 @@ export default function Auth() {
   const [error, setError] = useState<string | null>(null);
   const [processingCallback, setProcessingCallback] = useState(true);
 
+  // English on the owner-only admin surface, exact Vietnamese elsewhere.
+  const copy = adminHostCopy();
+
   const mapOAuthErrorMessage = (rawMessage: string) => {
     const normalized = rawMessage.toLowerCase();
 
     if (normalized.includes("not authorized") || normalized.includes("not allowed")) {
-      return "Tài khoản Google chưa được cấp quyền truy cập hệ thống. Vui lòng liên hệ quản trị để được cấp quyền.";
+      return copy.auth.oauthNotAuthorized;
     }
 
     if (normalized.includes("unable to exchange external code") || normalized.includes("invalid grant")) {
-      return "Phiên đăng nhập Google đã hết hạn hoặc bị xử lý trùng. Vui lòng bấm Đăng nhập bằng Google và thử lại.";
+      return copy.auth.oauthExpired;
     }
 
-    return "Đăng nhập thất bại. Vui lòng thử lại.";
+    return copy.auth.loginFailed;
   };
   const navigate = useNavigate();
   const { user, loading: authLoading } = useAuth();
@@ -75,7 +79,7 @@ export default function Auth() {
           if (error) {
             console.warn("[Auth] OAuth code exchange failed:", error.message);
             window.history.replaceState(null, "", "/auth");
-            setError(mapOAuthErrorMessage(error.message || "Đăng nhập thất bại"));
+            setError(mapOAuthErrorMessage(error.message || copy.auth.loginFailed));
             setProcessingCallback(false);
             return;
           }
@@ -93,7 +97,7 @@ export default function Auth() {
           const hashErrorDescription = params.get("error_description");
           const rawMessage = hashErrorDescription
             ? decodeURIComponent(hashErrorDescription.replace(/\+/g, " "))
-            : hashError || "Đăng nhập thất bại";
+            : hashError || copy.auth.loginFailed;
 
           console.warn("[Auth] OAuth hash returned error params");
           setError(mapOAuthErrorMessage(rawMessage));
@@ -106,14 +110,14 @@ export default function Auth() {
           const access_token = params.get("access_token");
           const refresh_token = params.get("refresh_token");
           if (!access_token || !refresh_token) {
-            setError("Đăng nhập thất bại. Vui lòng thử lại.");
+            setError(copy.auth.loginFailed);
             setProcessingCallback(false);
             return;
           }
           const { error } = await supabase.auth.setSession({ access_token, refresh_token });
           if (error) {
             console.warn("[Auth] OAuth session setup failed:", error.message);
-            setError("Đăng nhập thất bại. Vui lòng thử lại.");
+            setError(copy.auth.loginFailed);
             setProcessingCallback(false);
             return;
           }
@@ -126,7 +130,7 @@ export default function Auth() {
         setProcessingCallback(false);
       } catch (e) {
         console.warn("[Auth] OAuth callback threw unexpected error", e);
-        setError("Đăng nhập thất bại. Vui lòng thử lại.");
+        setError(copy.auth.loginFailed);
         setProcessingCallback(false);
       }
     }
@@ -158,7 +162,7 @@ export default function Auth() {
     
     if (error) {
       console.warn("[Auth] Google OAuth sign-in failed:", error.message);
-      setError("Đã xảy ra lỗi. Vui lòng thử lại.");
+      setError(copy.auth.signInError);
       setLoading(false);
     }
     // Nếu thành công, browser sẽ redirect sang Google
@@ -182,7 +186,7 @@ export default function Auth() {
             BMQ Procurement
           </h1>
           <p className="text-muted-foreground mt-2">
-            Đăng nhập bằng tài khoản Google @bmq.vn
+            {copy.auth.signInSubtitle}
           </p>
         </div>
         
@@ -205,11 +209,11 @@ export default function Auth() {
           ) : (
             <GoogleIcon className="mr-2 h-5 w-5" />
           )}
-          Đăng nhập bằng Google
+          {copy.auth.signInButton}
         </Button>
         
         <p className="text-xs text-muted-foreground">
-          Chỉ hỗ trợ email @bmq.vn
+          {copy.auth.emailNote}
         </p>
       </div>
     </div>

@@ -4,9 +4,10 @@ import { runAnalytics, type Dependencies } from "./service.ts";
 import { runWarehouse } from "./warehouse.ts";
 import type { JevOptions } from "./jev.ts";
 import { warehouseClient, warehouseImage, WarehouseError, warehouseMessage } from "../_shared/warehouse.ts";
+import type { CaptureEvent } from "./interaction-log.ts";
 
 type Identity = Pick<Dependencies, "scope" | "query"> & { signingSecret?: string };
-type Config = { warehouse?: { enabled: () => boolean; url: () => string }; context?: { enabled: () => boolean }; jev?: JevOptions; enabled: () => boolean; authenticate: (request: Request, signal: AbortSignal) => Promise<Identity>; model: Dependencies["model"]; audit: (event: Record<string, unknown>) => void };
+type Config = { warehouse?: { enabled: () => boolean; url: () => string }; context?: { enabled: () => boolean }; jev?: JevOptions; enabled: () => boolean; authenticate: (request: Request, signal: AbortSignal) => Promise<Identity>; model: Dependencies["model"]; audit: (event: Record<string, unknown>) => void; capture?: (event: CaptureEvent) => Promise<void> };
 const origins = new Set(["https://ai.banhmique.vn", "http://localhost:5173", "http://localhost:8080", "http://localhost:3000"]);
 const errors: Record<string, string> = {
   disabled: "Phân tích dữ liệu chưa được bật cho BMQ AI.", unauthorized: "Phiên đăng nhập đã hết hạn. Anh đăng nhập lại nhé.",
@@ -67,12 +68,18 @@ export function createHandler(config: Config) {
     const deadlineAt = Date.now() + 20000;
     const signal = AbortSignal.any([req.signal, AbortSignal.timeout(20000)]);
     let ownerKey: string | null = null;
+    // Capture context is kept only so a failed reply can still be recorded in the
+    // separate interaction dataset without touching the business response.
+    let captureIdentity: Identity | null = null;
+    let captureBody: unknown = null;
     try {
       const identity = await config.authenticate(req, signal);
+      captureIdentity = identity;
       signal.throwIfAborted();
       if (!config.enabled()) throw new AnalyticsError("disabled", 503);
       const key = `${identity.scope.tenant}:${identity.scope.user}`;
       const raw = await readBody(req, signal);
+      captureBody = raw;
       if (raw?.language === "en" || raw?.language === "vi") english = raw.language === "en";
       // Images get an independent bounded quota; parallel image loads must not
       // block a chat request or bypass the owner check above.
@@ -121,13 +128,40 @@ export function createHandler(config: Config) {
       // lane declares `jev`, and the key is absent when the default-off flag is off, so
       // the disabled audit shape stays unchanged (no `jev: null`).
       const jevAudit = 'jev' in presented.provenance ? presented.provenance.jev ?? null : null;
-      // Separate Jev telemetry (option ids, probabilities, stage timings, token counts)
-      // never carries the question, prompt, provider body or server key.
+      // Separate Jev telemetry (metric/period/support probabilities, versions,
+      // usage, timings, counts) never carries the question, prompt, provider body
+      // or server key. Its real field names live in jev.ts JevTelemetry.
       config.audit({ event: "bmq_analytics", requestId: result.requestId, userId: identity.scope.user, lane, model, elapsedMs, modelCalls, usage, context: contextAudit, ...(jevAudit ? { jev: jevAudit } : {}) });
+      // Automatic, best-effort interaction capture into the separate dataset. It
+      // runs after the reply is fully built and can never change it: a capture
+      // failure is audited as a failure instead of being silently ignored.
+      if (config.capture) {
+        try {
+          await config.capture({
+            requestId: result.requestId,
+            identity: { userId: identity.scope.user },
+            body: captureBody,
+            presented,
+            status: lane === "abstain" ? "abstained" : "success",
+          });
+        } catch {
+          config.audit({ event: "bmq_interaction_capture_failed", requestId: result.requestId, userId: identity.scope.user });
+        }
+      }
       return json(presented);
     } catch (error) {
       const code = signal.aborted ? "timeout" : (error instanceof AnalyticsError || error instanceof WarehouseError) ? error.code : "data_unavailable";
       const status = signal.aborted ? 504 : (error instanceof AnalyticsError || error instanceof WarehouseError) ? error.status : 503;
+      if (config.capture && captureIdentity) {
+        try {
+          // Every failed request is its own real event: a fresh per-request
+          // identity is used instead of hashing status/code/question, so repeated
+          // genuine errors are never collapsed into a single row.
+          await config.capture({ requestId: `err-${crypto.randomUUID()}`, identity: { userId: captureIdentity.scope.user }, body: captureBody, presented: null, status: "error", responseCode: code });
+        } catch {
+          config.audit({ event: "bmq_interaction_capture_failed", code });
+        }
+      }
       // Never log bearer, provider response bodies, question text or raw financial records.
       config.audit({ event: "bmq_analytics_error", code, status });
       return json({ error: error instanceof WarehouseError ? warehouseMessage(code, english) : english ? errorsEn[code] ?? "A reliable result is not available. Please specify the metric and period." : errors[code] ?? "Chưa thể trả kết quả đáng tin cậy cho yêu cầu này. Anh thử hỏi rõ chỉ số và kỳ dữ liệu nhé.", code }, status);

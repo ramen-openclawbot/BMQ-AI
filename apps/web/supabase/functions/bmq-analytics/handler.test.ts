@@ -83,7 +83,7 @@ const jevBody = (metric: string, period: string, support: string, top = 0.99) =>
   usage: { inputTokens: 275, outputTokens: 20 },
 });
 
-function makeHandler(overrides: { contextEnabled?: boolean; authenticate?: any; model?: any; requests?: any[]; audit?: any[]; jev?: any } = {}) {
+function makeHandler(overrides: { contextEnabled?: boolean; authenticate?: any; model?: any; requests?: any[]; audit?: any[]; jev?: any; capture?: any } = {}) {
   const requests = overrides.requests ?? [];
   const audit = overrides.audit ?? [];
   const handler = createHandler({
@@ -91,6 +91,7 @@ function makeHandler(overrides: { contextEnabled?: boolean; authenticate?: any; 
     warehouse: { enabled: () => true, url: () => 'https://warehouse.example/' },
     context: { enabled: () => overrides.contextEnabled !== false },
     jev: overrides.jev,
+    ...(overrides.capture ? { capture: overrides.capture } : {}),
     model: overrides.model ?? (async () => { throw new Error('model must not be called on the deterministic cost path'); }),
     authenticate: overrides.authenticate ?? (async (request: Request) => {
       if (request.headers.get('authorization') !== 'Bearer fixture-owner') throw new AnalyticsError('unauthorized', 401);
@@ -388,4 +389,60 @@ test('a low-confidence Jev answer falls back to the planner and audits only the 
     assert.ok(!logged.includes('tuần này có bao nhiêu đơn đại lý'));
     assert.ok(!logged.includes('provider detail'));
   } finally { globalThis.fetch = originalFetch; }
+});
+
+test('interaction capture receives the reply requestId, status and original body', async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: any[] = [];
+  globalThis.fetch = warehouseFetch(requests) as any;
+  const captures: any[] = [];
+  try {
+    const { handler } = makeHandler({ requests, capture: async (event: any) => { captures.push(event); } });
+    const response = await post(handler, { language: 'vi', question: 'Tháng 9/2026 còn bao nhiêu dòng cần review, tổng tiền bao nhiêu?', conversationId: CONV, page, history: [] });
+    const body = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(captures.length, 1);
+    assert.equal(captures[0].requestId, body.requestId);
+    assert.equal(captures[0].identity.userId, USER);
+    assert.equal(captures[0].status, 'success');
+    assert.equal(captures[0].body.question, 'Tháng 9/2026 còn bao nhiêu dòng cần review, tổng tiền bao nhiêu?');
+    assert.equal(captures[0].presented.provenance.lane, body.provenance.lane);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('a capture failure is audited and never changes the business reply', async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: any[] = [];
+  globalThis.fetch = warehouseFetch(requests) as any;
+  const audit: any[] = [];
+  try {
+    const { handler } = makeHandler({ requests, audit, capture: async () => { throw new Error('capture store down'); } });
+    const response = await post(handler, { language: 'vi', question: 'Tháng 9/2026 còn bao nhiêu dòng cần review, tổng tiền bao nhiêu?', conversationId: CONV, page, history: [] });
+    const body = await response.json();
+    assert.equal(response.status, 200);
+    assert.ok(body.requestId, 'the reply keeps its requestId even when capture fails');
+    assert.ok(typeof body.answer === 'string' && body.answer.length > 0);
+    assert.equal(body.provenance.lane, 'cost');
+    assert.ok(audit.some((entry) => entry.event === 'bmq_interaction_capture_failed'));
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('failed requests are captured with a unique per-event identity, never a collapsed hash', async () => {
+  const captures: any[] = [];
+  const { handler } = makeHandler({ capture: async (event: any) => { captures.push(event); } });
+  const badPost = () => handler(new Request('https://ai.banhmique.vn/functions/v1/bmq-analytics', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer fixture-owner' }, body: '{not-json',
+  }));
+  const first = await badPost();
+  const second = await badPost();
+  assert.equal(first.status >= 400, true);
+  assert.equal(second.status >= 400, true);
+  assert.equal(captures.length, 2);
+  for (const capture of captures) {
+    assert.equal(capture.status, 'error');
+    assert.match(capture.requestId, /^err-[0-9a-f-]{36}$/);
+    assert.equal(capture.presented, null);
+  }
+  // The same question/status/code twice must NOT collapse into one identity.
+  assert.notEqual(captures[0].requestId, captures[1].requestId);
 });

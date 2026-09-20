@@ -1,0 +1,123 @@
+# VNAgent data assets admin
+
+Owner-only admin for the VNAgent evaluation dataset, reachable at `/data-admin`
+on existing BMQ hosts and at the future `admin.vnagent.ai`.
+
+## Language
+
+The admin is **English by default and independent from the BMQ app language**.
+It does not read `LanguageContext` or the shared `app-language` localStorage key,
+and it never calls `setLanguage`, so switching the BMQ app to Vietnamese does not
+change the admin and the admin cannot change the BMQ app. The page, the panel
+copy, form validation, error/empty/loading states, accessibility labels, number
+and date formatting, the edge-function error defaults and the generated Markdown
+headings are all English.
+
+Localization only applies to UI chrome. **Raw captured questions, answers,
+provenance and evidence are shown verbatim in their original language** and are
+never translated.
+
+## What it is
+
+BMQ analytics chat interactions are automatically captured into a **separate
+interaction dataset** (`vnagent_interactions`). This dataset is not a business or
+financial ledger, and it never changes a BMQ business reply.
+
+The evaluation inventory (`vnagent_data_assets`) moves through three stages, all
+of which are **the same asset**:
+
+| Stage | Meaning | Badge |
+| --- | --- | --- |
+| `raw` | Just collected or submitted, not yet edited | neutral |
+| `curated` | Edited and internally consistent, waiting for verification | restrained indigo |
+| `gold` | Verified intent + conditions + evidence by a real owner reviewer | amber |
+
+The dashboard never counts `raw + curated + gold` as independent assets. Growth is
+shown separately for newly collected interactions and for audited promotions.
+
+## Data model
+
+- `vnagent_interactions` — raw capture. Original BMQ `requestId` is the durable
+  idempotency key (`unique (tenant, request_id)`). Stores a redacted question, a
+  bounded original answer (reviewer reference only), minimized actor/page
+  context, understood intent, the page filters vs the executed filters, provenance,
+  response status, **separate** known vs unknown usage (unknown numbers stay null),
+  model route, retention expiry. Owner-readable; written only through the trusted
+  `vnagent_capture_chat()` RPC.
+- `vnagent_data_assets` — evaluation inventory. `source_kind` distinguishes
+  `operational_chat`, `contributor` and `synthetic`; `source_designation`
+  distinguishes `manual` from `llm_generated`. Direct INSERT/UPDATE/DELETE is
+  revoked for every caller; assets are created and moved only by the reviewed
+  SECURITY DEFINER RPCs, which derive `created_by`/`reviewer_id` from `auth.uid()`.
+- `vnagent_data_asset_events` — append-only audited transitions with from/to stage
+  and version. Not writable by any caller directly.
+- `vnagent_jev_events` — bounded Jev telemetry using the real `JevTelemetry`
+  fields: model, prompt/registry version, attempted/decided, metric/period/support
+  with probabilities, threshold, fallback, cost, real `JevUsage`
+  (`{input, output}`), real `JevTimings` and `JevCounts`. No question, prompt,
+  option-id list or key.
+
+`tenant` is pinned to `'bmq'` by a check constraint. This is intentionally not a
+cross-tenant selector; adding tenants requires a reviewed migration.
+
+## Capture
+
+BMQ analytics chat capture is **default off** (`VNAGENT_CAPTURE_ENABLED=true`) and
+runs through one atomic RPC that writes the interaction, its initial `raw` dataset
+asset (question, original answer, executed filters, provenance) and the Jev row in
+a single transaction. It is idempotent on both the request id and the derived asset
+dedupe key, so a retry after a partial failure recovers the missing raw asset. The
+overview shows whether capture is currently enabled, so an empty dataset is never
+confused with a running pipeline.
+
+## Privacy and honesty rules
+
+- Secrets (bearer tokens, API keys, JWTs, `password=`/`token=`-style values) are
+  redacted before storage. Conversation history text and provider bodies are not
+  stored; only bounded counts/keys.
+- Retention defaults to 180 days per captured interaction, recorded on the row. A
+  purge job is **not** part of this migration; the field is metadata until an
+  owner-approved purge is deployed.
+- Raw capture is owner-only. There is no authenticated INSERT policy, and direct
+  INSERT/UPDATE/DELETE is revoked on every `vnagent_*` table.
+- A capture failure is audited (`bmq_interaction_capture_failed`) and never
+  silently reported as success; the business reply is untouched. Capture runs
+  under its own bounded deadline.
+- Every failed request keeps its own event identity (a fresh per-event id, never a
+  hash of status/code/question), so repeated genuine errors are not collapsed.
+- Financial answers are evaluation material, not timeless truth. The dataset is
+  **not** used to train a model, and the UI does not promise training.
+
+## Panels
+
+Overview · Repository · Review queue · Contributions · Jev logs · Markdown export.
+
+Overview shows current inventory, source contribution counts and a **real daily
+chart** (7/30/90-day selector, stock vs new) reconstructed from asset creation and
+audited transitions. The chart resolves the latest per-asset stage by event
+`created_at` and then `to_version`, so several transitions captured in one
+transaction (shared `now()`) still show the real current stage.
+
+Export is bounded (≤200 rows), applies every filter — including dates — in SQL
+before the row limit, and includes the original question/answer, executed filters,
+provenance, Gold reviewed semantics and evidence. The compact table may shorten a
+long cell (explicitly marked); a per-case **Full cases** section then carries every
+stored bounded field verbatim inside a fenced JSON block with a dynamically sized
+fence, so untrusted text cannot inject markup and no value is silently lost. If the
+complete document would exceed the response size cap the export fails with an
+explicit error instead of dropping content. A single selected case can be exported
+from the repository.
+
+The review queue pages over one reviewable stage at a time using the **server**
+stage filter and the honest server total, so older Raw/Curated pending assets stay
+reachable once the queue exceeds one page of Gold.
+
+Automatic capture nests the sanitized original interaction provenance under the raw
+asset provenance as `sourceProvenance` (semantic version, citations, snapshot,
+evidence), so reviewers can verify the source; credential-looking keys are stripped
+and the payload is bounded.
+
+Contribution submission is paste/manual and never requires a paid LLM call; when an
+LLM was used the source must be marked as such. If a submit outcome is uncertain
+(network/5xx) the retry is locked until the durable state has been read back; the
+scope-aware dedupe key then prevents a duplicate.

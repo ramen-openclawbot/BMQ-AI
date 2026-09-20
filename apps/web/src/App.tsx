@@ -1,11 +1,16 @@
 import { RecoveryScreen } from "@/components/RecoveryScreen";
 import KioskReportPortal from "@/pages/KioskReportPortal";
+import { isEnglishAdminSurface } from "@/lib/adminHostLanguage";
 import AppInner from "./AppInner";
 
 const DEALER_ORDERING_HOST = "dathang.banhmique.vn";
 const KIOSK_REPORT_HOST = "baocao.banhmique.vn";
+// Future owner-only data-assets admin host. The host renders the same SPA; the
+// route tree in AppRoutes forces the owner-only data admin for this hostname.
+const VNAGENT_ADMIN_HOST = "admin.vnagent.ai";
 const ADMIN_APP_TITLE = "BMQ AI Quản Trị";
 const DEALER_APP_TITLE = "BMQ Đặt Hàng";
+const VNAGENT_ADMIN_TITLE = "VNAgent · Data Admin";
 
 function applyHostDocumentTitle(): void {
   if (window.location.hostname === DEALER_ORDERING_HOST) {
@@ -18,7 +23,20 @@ function applyHostDocumentTitle(): void {
     return;
   }
 
+  if (window.location.hostname === VNAGENT_ADMIN_HOST) {
+    document.title = VNAGENT_ADMIN_TITLE;
+    return;
+  }
+
   document.title = ADMIN_APP_TITLE;
+}
+
+// The owner-only admin surface (admin.vnagent.ai host or /data-admin route) is
+// English; every other BMQ host keeps the document's default Vietnamese lang.
+function applyHostDocumentLanguage(): void {
+  if (isEnglishAdminSurface()) {
+    document.documentElement.lang = "en";
+  }
 }
 
 /**
@@ -41,6 +59,7 @@ function isKioskReportHost(): boolean {
 
 function App() {
   applyHostDocumentTitle();
+  applyHostDocumentLanguage();
 
   // CRITICAL: Check recovery route FIRST before any other logic
   if (isRecoveryRoute()) {

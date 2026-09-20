@@ -1,0 +1,197 @@
+// Offline tests for the data-assets client helpers and response schemas.
+import test from "node:test";
+import assert from "node:assert/strict";
+import {
+  ADMIN_LANGUAGE,
+  EMPTY_ASSET_FILTERS,
+  EMPTY_EXPORT_FILTERS,
+  REVIEW_PAGE_SIZE,
+  REVIEWABLE_STAGES,
+  assetSchema,
+  chartPoints,
+  contributionRows,
+  designationLabel,
+  evaluationLabel,
+  exportFileName,
+  exportResponseSchema,
+  formatDateTime,
+  formatNumber,
+  isUncertainMutationStatus,
+  jevEventSchema,
+  overviewSchema,
+  parseConditions,
+  parseEvidenceLines,
+  parseFilterRows,
+  reviewPageRange,
+  reviewQueueQuery,
+  reviewedRate,
+  sourceKindLabel,
+  stageLabel,
+  timeseriesResponseSchema,
+  unknownTotal,
+  type DataAdminOverview,
+  type DataAdminTimeseries,
+} from "./dataAssets.ts";
+
+function overview(overrides: Partial<DataAdminOverview> = {}): DataAdminOverview {
+  return {
+    asOf: "2026-09-20",
+    assets: { raw: 5, curated: 2, gold: 1, total: 8 },
+    createdToday: 2,
+    promotionsToday: { rawToCurated: 1, curatedToGold: 0, demotions: 0 },
+    promotions7d: { rawToCurated: 4, curatedToGold: 1 },
+    collected: { today: 9, last7d: 40, total: 120 },
+    reviewed: { verified: 1, pending: 2, rejected: 0, notEvaluated: 5, denominator: 8 },
+    unknown: { abstainedToday: 2, abstainedTotal: 6, errorsToday: 1, errorsTotal: 3 },
+    sourceContributions: { operational_chat: 5, contributor: 2, synthetic: 1, total: 8 },
+    scopeNote: "stages",
+    ...overrides,
+  };
+}
+
+function timeseries(): DataAdminTimeseries {
+  return {
+    from: "2026-08-22",
+    to: "2026-09-20",
+    timezone: "Asia/Ho_Chi_Minh",
+    days: [
+      { date: "2026-09-19", stock: { raw: 4, curated: 2, gold: 1, total: 7 }, inflow: { raw: 2, curated: 1, gold: 0 } },
+      { date: "2026-09-20", stock: { raw: 5, curated: 2, gold: 1, total: 8 }, inflow: { raw: 1, curated: 0, gold: 1 } },
+    ],
+    sourceContributions: { operational_chat: 5, contributor: 2, synthetic: 1, total: 8 },
+  };
+}
+
+test("stage and source labels are bilingual and stable", () => {
+  assert.equal(stageLabel("curated", "vi"), "Curated · đã biên tập");
+  assert.equal(stageLabel("gold", "en"), "Gold · verified");
+  assert.equal(sourceKindLabel("operational_chat", "en"), "Operational chat");
+  assert.equal(designationLabel("llm_generated", "vi"), "Do LLM tạo");
+  assert.equal(designationLabel(null, "vi"), "Không áp dụng");
+  assert.equal(evaluationLabel("pending_review", "vi"), "Chờ duyệt");
+});
+
+test("reviewed rate, unknown total and contribution rows are derived honestly", () => {
+  assert.equal(reviewedRate(overview()), 13);
+  assert.equal(reviewedRate(overview({ reviewed: { verified: 0, pending: 0, rejected: 0, notEvaluated: 0, denominator: 0 } })), null);
+  assert.equal(unknownTotal(overview()), 9);
+  assert.deepEqual(contributionRows(overview().sourceContributions, "vi").map((row) => row.key), ["operational_chat", "contributor", "synthetic", "total"]);
+  assert.equal(contributionRows(overview().sourceContributions, "vi")[0].count, 5);
+});
+
+test("chartPoints switches between reconstructed stock and daily inflow", () => {
+  assert.deepEqual(chartPoints(timeseries(), "stock")[0], { date: "2026-09-19", raw: 4, curated: 2, gold: 1 });
+  assert.deepEqual(chartPoints(timeseries(), "new")[1], { date: "2026-09-20", raw: 1, curated: 0, gold: 1 });
+});
+
+test("overview schema accepts the server shape and rejects a missing group", () => {
+  assert.equal(overviewSchema.safeParse(overview()).success, true);
+  assert.equal(overviewSchema.safeParse({ asOf: "x" }).success, false);
+});
+
+test("timeseries schema accepts the daily stock/inflow shape", () => {
+  assert.equal(timeseriesResponseSchema.safeParse({ status: "ok", timeseries: timeseries() }).success, true);
+  assert.equal(timeseriesResponseSchema.safeParse({ status: "ok", timeseries: { days: [] } }).success, false);
+});
+
+test("asset schema requires a known stage, source answer and effective date", () => {
+  const valid = {
+    id: "11111111-1111-1111-1111-111111111111", tenant: "bmq", dataset_stage: "raw", source_kind: "contributor",
+    source_designation: "manual", interaction_id: null, question: "Hỏi?", source_answer: null,
+    expected_intent: {}, expected_filters: {}, provenance: {}, snapshot_at: null, effective_at: "2026-09-20T00:00:00.000Z",
+    evaluation_status: "not_evaluated", verified_intent: null, verified_conditions: null,
+    evidence: [], reviewer_id: null, version: 1, dedupe_key: "k", created_by: null,
+    created_at: "2026-09-20T00:00:00.000Z", updated_at: "2026-09-20T00:00:00.000Z",
+  };
+  assert.equal(assetSchema.safeParse(valid).success, true);
+  assert.equal(assetSchema.safeParse({ ...valid, dataset_stage: "silver" }).success, false);
+  assert.equal(assetSchema.safeParse({ ...valid, effective_at: undefined }).success, false);
+});
+
+test("export response schema uses the snake_case server echo and reports the total", () => {
+  const parsed = exportResponseSchema.safeParse({
+    status: "ok", markdown: "# x", count: 1, truncated: false, total: 3,
+    filters: { stage: "gold", source_kind: "contributor", evaluation_status: "verified", from: null, to: null, asset_ids: ["11111111-1111-1111-1111-111111111111"], limit: 50 },
+  });
+  assert.equal(parsed.success, true);
+});
+
+test("jev schema accepts PostgREST numeric-as-string probabilities and null cost", () => {
+  const parsed = jevEventSchema.safeParse({
+    id: "j", request_id: "r", model: "m", prompt_version: null, registry_version: null, attempted: true, decided: false,
+    screen: null, circuit: null, metric: "m", metric_probability: "0.99", period: null, period_probability: "0.5",
+    support: null, support_probability: null, threshold: "0.8", fallback: null, cost: null,
+    token_counts: { input: 5, output: null }, stage_timings: {}, counts: {}, decision: "m", created_at: "2026-09-20T00:00:00.000Z",
+  });
+  assert.equal(parsed.success, true);
+});
+
+test("filter defaults are empty and bounded", () => {
+  assert.deepEqual(EMPTY_ASSET_FILTERS, { stage: "", sourceKind: "", evaluationStatus: "", search: "", limit: 25, offset: 0 });
+  assert.deepEqual(EMPTY_EXPORT_FILTERS, { stage: "", sourceKind: "", evaluationStatus: "", from: "", to: "", assetIds: null, limit: 50 });
+});
+
+test("review queue asks the server for one stage and paginates honestly", () => {
+  assert.deepEqual(REVIEWABLE_STAGES, ["raw", "curated"]);
+  assert.deepEqual(reviewQueueQuery("curated", 50), {
+    action: "assets", stage: "curated", source_kind: null, evaluation_status: null, search: null, limit: REVIEW_PAGE_SIZE, offset: 50,
+  });
+  assert.deepEqual(reviewQueueQuery("raw", 0).stage, "raw");
+  // The server filters the stage (never "all stages then hide Gold on the client").
+  assert.equal(reviewQueueQuery("curated", 0).stage, "curated");
+  assert.equal(reviewPageRange(0, 25, 60), "1–25 / 60");
+  assert.equal(reviewPageRange(50, 10, 60), "51–60 / 60");
+  assert.equal(reviewPageRange(0, 5, null), "1–5");
+  assert.equal(reviewPageRange(0, 0, 0), "0 / 0");
+  assert.equal(reviewPageRange(25, 0, null), "0");
+});
+
+test("parseFilterRows trims, drops blanks and rejects half-filled or oversized rows", () => {
+  assert.deepEqual(parseFilterRows([{ key: " period ", value: " today " }, { key: "", value: "" }]), { period: "today" });
+  assert.throws(() => parseFilterRows([{ key: "period", value: "" }]), /invalid/);
+  const many = Array.from({ length: 13 }, (_, index) => ({ key: `k${index}`, value: "v" }));
+  assert.throws(() => parseFilterRows(many), /invalid/);
+});
+
+test("Gold draft helpers parse evidence lines and JSON conditions", () => {
+  assert.deepEqual(parseEvidenceLines(" a \n\n b \n"), ["a", "b"]);
+  assert.equal(parseConditions("  "), null);
+  assert.deepEqual(parseConditions('{"a":1}'), { a: 1 });
+  assert.equal(parseConditions("{not json"), undefined);
+});
+
+test("export file name is date-stamped and markdown-safe", () => {
+  assert.equal(exportFileName(new Date("2026-09-20T05:00:00.000Z")), "vnagent-dataset-2026-09-20.md");
+});
+
+test("uncertain mutation statuses require reconciliation before retry", () => {
+  // Network failure and 5xx may already have applied.
+  assert.equal(isUncertainMutationStatus(0), true);
+  assert.equal(isUncertainMutationStatus(500), true);
+  assert.equal(isUncertainMutationStatus(503), true);
+  assert.equal(isUncertainMutationStatus(504), true);
+  // Definitive client answers (validation, conflict, forbidden, rate limit) are not.
+  assert.equal(isUncertainMutationStatus(400), false);
+  assert.equal(isUncertainMutationStatus(409), false);
+  assert.equal(isUncertainMutationStatus(403), false);
+  assert.equal(isUncertainMutationStatus(429), false);
+});
+
+test("formatDateTime degrades honestly on bad input", () => {
+  assert.equal(formatDateTime("not-a-date", "vi"), "—");
+  assert.equal(formatDateTime(null, "en"), "—");
+  assert.notEqual(formatDateTime("2026-09-20T05:00:00.000Z", "vi"), "—");
+});
+
+test("the admin language defaults to English and formats numbers in en-US", () => {
+  // The admin constant is independent from the BMQ app language.
+  assert.equal(ADMIN_LANGUAGE, "en");
+  assert.equal(stageLabel("gold", ADMIN_LANGUAGE), "Gold · verified");
+  assert.equal(evaluationLabel("pending_review", ADMIN_LANGUAGE), "Pending review");
+  assert.equal(sourceKindLabel("operational_chat", ADMIN_LANGUAGE), "Operational chat");
+  // Grouping: English uses commas, Vietnamese uses dots. The admin default is English.
+  assert.equal(formatNumber(1234567), "1,234,567");
+  assert.equal(formatNumber(1234567, ADMIN_LANGUAGE), "1,234,567");
+  assert.equal(formatNumber(1234567, "vi"), "1.234.567");
+  assert.match(formatDateTime("2026-09-20T05:00:00.000Z", ADMIN_LANGUAGE), /\d{1,2}\/\d{1,2}\/\d{2}/);
+});

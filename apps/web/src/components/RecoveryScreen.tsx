@@ -10,24 +10,28 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { RefreshCw, Trash2, AlertTriangle } from "lucide-react";
 import { clearSessionAndRedirect, clearSessionAndReload } from "@/lib/session-utils";
+// Dependency-free (no Supabase): safe to import before AppInner loads.
+import { adminHostCopy } from "@/lib/adminHostLanguage";
 
 export function RecoveryScreen() {
+  const copy = adminHostCopy();
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <div className="max-w-md w-full space-y-6">
         <div className="text-center">
           <AlertTriangle className="h-16 w-16 text-destructive mx-auto mb-4" />
           <h1 className="text-2xl font-bold text-foreground mb-2">
-            Khôi phục phiên đăng nhập
+            {copy.recovery.title}
           </h1>
           <p className="text-muted-foreground">
-            Sử dụng trang này khi app bị kẹt không vào được
+            {copy.recovery.subtitle}
           </p>
         </div>
 
         <Alert className="border-warning/50 bg-warning/10">
           <AlertDescription className="text-foreground">
-            Nếu bạn đang thấy spinner quay mãi, hãy bấm "Xóa phiên & tải lại" để reset trạng thái đăng nhập.
+            {copy.recovery.alert}
           </AlertDescription>
         </Alert>
 
@@ -38,7 +42,7 @@ export function RecoveryScreen() {
             variant="destructive"
           >
             <Trash2 className="h-4 w-4 mr-2" />
-            Xóa phiên đăng nhập & tải lại
+            {copy.recovery.clearAndReload}
           </Button>
           
           <Button 
@@ -47,14 +51,14 @@ export function RecoveryScreen() {
             variant="outline"
           >
             <RefreshCw className="h-4 w-4 mr-2" />
-            Thử tải lại bình thường
+            {copy.recovery.plainReload}
           </Button>
         </div>
 
         <p className="text-xs text-center text-muted-foreground">
-          Sau khi xóa phiên, bạn sẽ cần đăng nhập lại.
+          {copy.recovery.footerLine1}
           <br />
-          Cài đặt ngôn ngữ và giao diện sẽ được giữ lại.
+          {copy.recovery.footerLine2}
         </p>
       </div>
     </div>

@@ -6,6 +6,7 @@ import { OwnerRoute } from "@/components/OwnerRoute";
 import { Loader2, AlertTriangle, RefreshCw, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { clearSessionAndReload } from "@/lib/session-utils";
+import { adminHostCopy } from "@/lib/adminHostLanguage";
 
 // Eager load: pages nhẹ, core navigation
 import Index from "@/pages/Index";
@@ -59,11 +60,18 @@ const TanTaoWarehouse = lazy(() => import("@/pages/TanTaoWarehouse"));
 const AttendanceManagement = lazy(() => import("@/pages/AttendanceManagement"));
 const PayrollManagement = lazy(() => import("@/pages/PayrollManagement"));
 const FacebookMessengerInbox = lazy(() => import("@/pages/FacebookMessengerInbox"));
+const VNAgentDataAdmin = lazy(() => import("@/pages/VNAgentDataAdmin"));
 
 const DEALER_ORDERING_HOST = "dathang.banhmique.vn";
+const VNAGENT_ADMIN_HOST = "admin.vnagent.ai";
 
 function isDealerOrderingHost() {
   return window.location.hostname === DEALER_ORDERING_HOST;
+}
+
+/** Future owner-only admin host. Existing BMQ hosts are untouched. */
+function isVnagentAdminHost() {
+  return window.location.hostname === VNAGENT_ADMIN_HOST;
 }
 
 function AppLoadingFallback() {
@@ -76,21 +84,23 @@ function AppLoadingFallback() {
 
 function AuthTimeoutFallback() {
   const location = useLocation();
+  // English on the owner-only admin surface, exact Vietnamese elsewhere.
+  const copy = adminHostCopy();
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <div className="text-center space-y-4 max-w-sm">
         <AlertTriangle className="h-12 w-12 text-warning mx-auto" />
         <h2 className="text-lg font-semibold text-foreground">
-          Đang gặp sự cố kết nối
+          {copy.authTimeout.title}
         </h2>
         <p className="text-sm text-muted-foreground">
-          Không thể xác thực phiên đăng nhập. Điều này thường xảy ra trên Safari.
+          {copy.authTimeout.body}
         </p>
         <div className="space-y-2">
           <Button onClick={clearSessionAndReload} className="w-full">
             <RefreshCw className="h-4 w-4 mr-2" />
-            Làm mới phiên
+            {copy.authTimeout.refreshSession}
           </Button>
           <Button
             variant="outline"
@@ -98,11 +108,11 @@ function AuthTimeoutFallback() {
             className="w-full"
           >
             <RotateCcw className="h-4 w-4 mr-2" />
-            Thử lại
+            {copy.authTimeout.retry}
           </Button>
         </div>
         <p className="text-xs text-muted-foreground">
-          Đang cố truy cập: {location.pathname}
+          {copy.authTimeout.accessing(location.pathname)}
         </p>
       </div>
     </div>
@@ -219,6 +229,30 @@ export function AppRoutes() {
         <Route path="/dealer/promotion/:bannerId" element={<DealerPromotionDetail />} />
         <Route path="/dealer/*" element={<DealerPortal />} />
         <Route path="*" element={<NotFound />} />
+      </Routes>
+    );
+  }
+
+  // Owner-only data-assets admin: on the future admin.vnagent.ai host it is the
+  // whole site; on existing BMQ hosts it is reachable at /data-admin. Existing
+  // BMQ routes below are unchanged.
+  const dataAdminPath = location.pathname === "/data-admin" || location.pathname.startsWith("/data-admin/");
+  if (isVnagentAdminHost() || dataAdminPath) {
+    return (
+      <Routes>
+        <Route path="/auth" element={<Auth />} />
+        <Route
+          path="*"
+          element={
+            <ProtectedRoute>
+              <OwnerRoute>
+                <Suspense fallback={<AppLoadingFallback />}>
+                  <VNAgentDataAdmin />
+                </Suspense>
+              </OwnerRoute>
+            </ProtectedRoute>
+          }
+        />
       </Routes>
     );
   }

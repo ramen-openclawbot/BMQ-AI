@@ -285,3 +285,13 @@ verify_jwt = false
 # caller-scoped (no service-role client) and the feature is default-off with an
 # independent kill switch.
 verify_jwt = false
+
+[functions.vnagent-data-admin]
+# verify_jwt disabled: proxy/gateway JWT verification can reject valid ES256 user
+# tokens before the function runs. Auth is enforced inside index.ts: the Bearer
+# token is validated server-side with auth.getUser(token) (ES256 user JWT), then
+# the caller must have the "owner" role in user_roles or the handler returns
+# 401/403. Every dataset read/write uses the caller-scoped client (RLS is the
+# final authority, no service-role client) and the feature is default-off behind
+# VNAGENT_DATA_ADMIN_ENABLED.
+verify_jwt = false
