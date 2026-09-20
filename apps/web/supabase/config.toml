@@ -276,3 +276,12 @@ verify_jwt = false
 [functions.bmq-data-sources]
 # ES256 owner tokens are verified via auth.getUser and user_roles in code.
 verify_jwt = false
+
+[functions.material-learning-suggest]
+# verify_jwt disabled: the proxy may reject valid ES256 user tokens before the
+# function runs. Auth is enforced inside index.ts: the Bearer token is validated
+# server-side with auth.getUser(token) (ES256 user JWT), then the caller must have
+# the "owner" role in user_roles or the handler returns 401/403. Reads stay
+# caller-scoped (no service-role client) and the feature is default-off with an
+# independent kill switch.
+verify_jwt = false

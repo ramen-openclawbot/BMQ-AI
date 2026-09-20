@@ -399,7 +399,7 @@ def test_missing_or_non_finite_request_total_fails_closed(monkeypatch, bad_total
     # reconciliation gate that real snapshots already enforce.
     table_rows = rows()
     table_rows['payment_requests'] = [dict(PAYMENT_REQUESTS[0], total_amount=bad_total), PAYMENT_REQUESTS[1]]
-    monkeypatch.setattr(bmq_payment, '_source', lambda con, tenant, table: table_rows[table])
+    monkeypatch.setattr(bmq_payment, '_source', lambda con, tenant, table: table_rows.get(table, []))
     request = validate_request({'question': 'supplier_payments', 'month': '2026-09', 'supplier': 'TV Food'})
     with pytest.raises(RuntimeError, match='request total'):
         bmq_payment._answer(None, request, None, datetime.now(timezone.utc))
@@ -553,3 +553,283 @@ def test_api_payment_endpoint_is_owner_scoped_and_catalog_present(state):
     assert {item['id'] for item in catalog['payment_lookup']['questions']} == set(QUESTIONS)
     forbidden = TestClient(create_app(warehouse, authenticator=lambda: Principal(TENANT, 'viewer', 'viewer:rls:v1')))
     assert forbidden.post('/v1/payment', json={'question': 'supplier_payments', 'month': '2026-09'}).status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Approved supplier-scoped mapping resolution (read-only; no ledger backfill).
+#
+# The reviewed business rule: a raw item line may resolve through an approved,
+# active, supplier-scoped alias or supplier product only when that mapping is
+# exact and unique. A group term such as "bơ" must never collapse onto one SKU,
+# "BỘ PEERLESS" is never equated to "bơ", and an unapproved/inactive/wrong-supplier
+# or legacy global alias is never treated as approved.
+# ---------------------------------------------------------------------------
+
+def _alias(identifier, material_id, supplier_id, alias_name, approved=True, active=True):
+    from sme_platform.bmq_payment import _material_norm
+    return {'id': identifier, 'material_id': material_id, 'supplier_id': supplier_id,
+            'source_type': 'payment_request', 'alias_name': alias_name,
+            'normalized_alias': _material_norm(alias_name), 'approved': approved, 'active': active}
+
+
+def _supplier_product(identifier, material_id, supplier_id, name, approved=True, active=True, unit='kg'):
+    from sme_platform.bmq_payment import _material_norm
+    return {'id': identifier, 'material_id': material_id, 'supplier_id': supplier_id,
+            'supplier_product_code': None, 'supplier_product_name': name,
+            'normalized_supplier_product_name': _material_norm(name),
+            'purchase_unit': unit, 'package_quantity': None, 'package_unit': None,
+            'base_quantity': '1', 'base_unit': unit, 'approved': approved, 'active': active}
+
+
+def test_approved_supplier_alias_resolves_a_raw_item_read_only(tmp_path):
+    table_rows = rows()
+    table_rows['material_scoped_aliases'] = [
+        _alias('sa1', 'mat_peanut', 'sup_tv', 'Đậu phộng rang')]
+    table_rows['payment_request_items'] = [dict(PR_ITEMS[0], product_name='Đậu phộng rang',
+                                                raw_product_name='Đậu phộng rang')] + PR_ITEMS[1:]
+    warehouse, engine = _warehouse(tmp_path, table_rows)
+    result = execute(engine, {'question': 'supplier_payments', 'month': '2026-09', 'supplier': 'TV Food',
+                              'item': 'Đậu phộng rang'}, TENANT, 'owner:fixture')
+    # The source line still has no canonical id; the approved alias resolves it
+    # read-only, and the item amount is the allocation actually paid.
+    assert result['item']['mode'] == 'material'
+    assert result['item']['source'] == 'approved_supplier_alias'
+    assert result['item']['material']['material_code'] == 'NVL-DAU'
+    assert result['item_status'] == 'exact'
+    assert result['item_amount'] == Decimal('13500000')
+    assert result['unresolved_item_count'] == 0
+
+
+def test_approved_supplier_product_resolves_a_raw_item_but_legacy_global_alias_does_not(tmp_path):
+    table_rows = rows()
+    table_rows['material_supplier_products'] = [
+        _supplier_product('sp1', 'mat_bo', 'sup_tv', 'BỘ PEERLESS', unit='thùng')]
+    # A legacy global alias with no approval flag must never be treated as approved.
+    table_rows['sku_cogs_material_aliases'] = [
+        {'id': 'ga1', 'material_id': 'mat_peanut', 'alias_name': 'BỘ PEERLESS',
+         'normalized_alias': 'bo peerless', 'source': 'existing_cogs', 'active': True}]
+    warehouse, engine = _warehouse(tmp_path, table_rows)
+    result = execute(engine, {'question': 'supplier_payments', 'month': '2026-09', 'supplier': 'TV Food',
+                              'item': 'BỘ PEERLESS'}, TENANT, 'owner:fixture')
+    assert result['item']['source'] == 'approved_supplier_product'
+    assert result['item']['material']['material_code'] == 'NVL-BO'
+    assert result['item_status'] == 'exact'
+    assert result['item_amount'] == Decimal('13500000')
+
+
+def test_legacy_global_alias_alone_never_creates_a_canonical_identity(tmp_path):
+    table_rows = rows()
+    table_rows['sku_cogs_material_aliases'] = [
+        {'id': 'ga1', 'material_id': 'mat_bo', 'alias_name': 'BỘ PEERLESS',
+         'normalized_alias': 'bo peerless', 'source': 'existing_cogs', 'active': True}]
+    warehouse, engine = _warehouse(tmp_path, table_rows)
+    result = execute(engine, {'question': 'supplier_payments', 'month': '2026-09', 'supplier': 'TV Food',
+                              'item': 'BỘ PEERLESS'}, TENANT, 'owner:fixture')
+    # Only the exact request product name matched; the unapproved legacy alias was
+    # not promoted to a canonical material identity.
+    assert result['item']['mode'] == 'product'
+    assert result['item']['source'] == 'request_product_name'
+    assert result['item']['material'] is None
+
+
+@pytest.mark.parametrize('approved,active', [(False, True), (True, False)])
+def test_unapproved_or_inactive_supplier_mapping_is_ignored(tmp_path, approved, active):
+    table_rows = rows()
+    table_rows['material_scoped_aliases'] = [
+        _alias('sa1', 'mat_peanut', 'sup_tv', 'ten rieng cua ncc', approved=approved, active=active)]
+    warehouse, engine = _warehouse(tmp_path, table_rows)
+    result = execute(engine, {'question': 'supplier_payments', 'month': '2026-09', 'supplier': 'TV Food',
+                              'item': 'ten rieng cua ncc'}, TENANT, 'owner:fixture')
+    assert result['item_status'] == 'not_found'
+    assert result['item_amount'] is None
+    # The supplier total is still exact and never relabelled as the item amount.
+    assert result['total_amount'] == Decimal('13500000')
+
+
+def test_wrong_supplier_mapping_is_ignored(tmp_path):
+    table_rows = rows()
+    table_rows['material_scoped_aliases'] = [
+        _alias('sa1', 'mat_peanut', 'sup_other', 'ten rieng cua ncc')]
+    warehouse, engine = _warehouse(tmp_path, table_rows)
+    result = execute(engine, {'question': 'supplier_payments', 'month': '2026-09', 'supplier': 'TV Food',
+                              'item': 'ten rieng cua ncc'}, TENANT, 'owner:fixture')
+    assert result['item_status'] == 'not_found'
+    assert result['item_amount'] is None
+
+
+def test_conflicting_approved_mappings_are_ambiguous_not_guessed(tmp_path):
+    table_rows = rows()
+    table_rows['material_scoped_aliases'] = [
+        _alias('sa1', 'mat_bo', 'sup_tv', 'ten rieng cua ncc'),
+        _alias('sa2', 'mat_peanut', 'sup_tv', 'ten rieng cua ncc')]
+    warehouse, engine = _warehouse(tmp_path, table_rows)
+    result = execute(engine, {'question': 'supplier_payments', 'month': '2026-09', 'supplier': 'TV Food',
+                              'item': 'ten rieng cua ncc'}, TENANT, 'owner:fixture')
+    assert result['item_status'] == 'ambiguous'
+    assert result['item_amount'] is None
+    assert result['item']['source'] == 'approved_supplier_mapping_conflict'
+
+
+def test_group_category_term_never_collapses_to_one_sku(tmp_path):
+    table_rows = rows()
+    table_rows['sku_cogs_materials'] = [
+        {'id': 'mat_bo_lat', 'material_code': 'NVL-BO-LAT', 'canonical_name': 'Bơ lạt',
+         'normalized_name': 'bo lat', 'category': 'bơ', 'active': True},
+        {'id': 'mat_bo_tv', 'material_code': 'NVL-BO-TV', 'canonical_name': 'Bơ thực vật',
+         'normalized_name': 'bo thuc vat', 'category': 'bơ', 'active': True},
+    ]
+    # An approved alias sending the whole group word "bơ" at one SKU must not win
+    # over the evidenced two-member category.
+    table_rows['material_scoped_aliases'] = [_alias('sa1', 'mat_bo_lat', 'sup_tv', 'bơ')]
+    table_rows['payment_request_items'] = [dict(PR_ITEMS[0], product_name='bơ')] + PR_ITEMS[1:]
+    warehouse, engine = _warehouse(tmp_path, table_rows)
+    result = execute(engine, {'question': 'supplier_payments', 'month': '2026-09', 'supplier': 'TV Food',
+                              'item': 'bơ'}, TENANT, 'owner:fixture')
+    assert result['item_status'] == 'ambiguous'
+    assert result['item']['source'] == 'canonical_category_group'
+    assert result['item_amount'] is None
+    assert set(result['item_candidates']) == {'Bơ lạt', 'Bơ thực vật'}
+
+
+def test_bo_peerless_is_never_equated_to_bo(tmp_path):
+    from sme_platform.bmq_payment import _material_norm, _norm
+    # Diacritic folding keeps "BỘ PEERLESS" and "bơ" distinct tokens even though a
+    # single-character fold would collide them.
+    assert _norm('BỘ PEERLESS') == 'bo peerless'
+    assert _norm('bơ') == 'bo'
+    assert _material_norm('BỘ PEERLESS') != _material_norm('bơ')
+
+    table_rows = rows()
+    table_rows['sku_cogs_materials'] = [
+        {'id': 'mat_bo_lat', 'material_code': 'NVL-BO-LAT', 'canonical_name': 'Bơ lạt',
+         'normalized_name': 'bo lat', 'category': 'bơ', 'active': True},
+        {'id': 'mat_bo_tv', 'material_code': 'NVL-BO-TV', 'canonical_name': 'Bơ thực vật',
+         'normalized_name': 'bo thuc vat', 'category': 'bơ', 'active': True},
+    ]
+    table_rows['material_scoped_aliases'] = [
+        _alias('sa1', 'mat_bo_lat', 'sup_tv', 'BỘ PEERLESS')]
+    table_rows['payment_request_items'] = [dict(PR_ITEMS[0], product_name='BỘ PEERLESS')] + PR_ITEMS[1:]
+    warehouse, engine = _warehouse(tmp_path, table_rows)
+    result = execute(engine, {'question': 'supplier_payments', 'month': '2026-09', 'supplier': 'TV Food',
+                              'item': 'bơ'}, TENANT, 'owner:fixture')
+    # "bơ" is a two-member group and "BỘ PEERLESS" is a separate supplier alias;
+    # neither may be used to infer the other.
+    assert result['item_status'] == 'ambiguous'
+    assert result['item']['source'] == 'canonical_category_group'
+
+
+def test_punctuation_and_parentheses_match_the_stored_normalization(tmp_path):
+    table_rows = rows()
+    table_rows['material_scoped_aliases'] = [
+        _alias('sa1', 'mat_peanut', 'sup_tv', 'Đậu phộng rang (500g)')]
+    table_rows['payment_request_items'] = [dict(PR_ITEMS[0], product_name='Đậu phộng rang (500g)')] + PR_ITEMS[1:]
+    warehouse, engine = _warehouse(tmp_path, table_rows)
+    assert _alias('x', 'a', 'b', 'Đậu phộng rang (500g)')['normalized_alias'] == 'dau phong rang 500g'
+    result = execute(engine, {'question': 'supplier_payments', 'month': '2026-09', 'supplier': 'TV Food',
+                              'item': 'Đậu phộng rang (500g)'}, TENANT, 'owner:fixture')
+    assert result['item']['source'] == 'approved_supplier_alias'
+    assert result['item_amount'] == Decimal('13500000')
+
+
+def test_canonical_name_and_scoped_alias_disagreement_is_ambiguous(tmp_path):
+    table_rows = rows()
+    # "Bơ" is an exact canonical name (mat_bo) while an approved supplier alias
+    # sends the same term to a different canonical material.
+    table_rows['material_scoped_aliases'] = [_alias('sa1', 'mat_peanut', 'sup_tv', 'Bơ')]
+    warehouse, engine = _warehouse(tmp_path, table_rows)
+    result = execute(engine, {'question': 'supplier_payments', 'month': '2026-09', 'supplier': 'TV Food',
+                              'item': 'Bơ'}, TENANT, 'owner:fixture')
+    assert result['item_status'] == 'ambiguous'
+    assert result['item']['source'] == 'canonical_scoped_conflict'
+    assert result['item_amount'] is None
+
+
+def test_projection_gate_requires_approved_mapping_columns(state):
+    warehouse, engine = state
+    with warehouse.lock(), warehouse.connect() as con:
+        manifest = json.loads(con.execute('select manifest from meta_supabase_sync_runs').fetchone()[0])
+        manifest['tables']['material_scoped_aliases'].pop('fields')
+        manifest['tables']['material_supplier_products'].pop('fields')
+        con.execute('update meta_supabase_sync_runs set manifest=?', [json.dumps(manifest)])
+    with pytest.raises(RuntimeError, match='projection is incomplete'):
+        execute(engine, {'question': 'supplier_payments', 'month': '2026-09', 'supplier': 'TV Food'}, TENANT, 'owner:fixture')
+
+
+def test_missing_approved_mapping_table_fails_closed(state):
+    warehouse, engine = state
+    with warehouse.lock(), warehouse.connect() as con:
+        manifest = json.loads(con.execute('select manifest from meta_supabase_sync_runs').fetchone()[0])
+        del manifest['tables']['material_supplier_products']
+        con.execute('update meta_supabase_sync_runs set manifest=?', [json.dumps(manifest)])
+    with pytest.raises(RuntimeError, match='not synchronized'):
+        execute(engine, {'question': 'supplier_payments', 'month': '2026-09', 'supplier': 'TV Food'}, TENANT, 'owner:fixture')
+
+
+# ---------------------------------------------------------------------------
+# Fail-closed identity: inactive targets, orphan stored ids and conflicting
+# targets (including a target that no longer exists) must never resolve.
+# ---------------------------------------------------------------------------
+
+def test_inactive_canonical_target_is_not_promoted_through_alias(tmp_path):
+    table_rows = rows()
+    table_rows['sku_cogs_materials'] = [dict(MATERIALS[0], active=False), MATERIALS[1]]
+    table_rows['material_scoped_aliases'] = [_alias('sa1', 'mat_bo', 'sup_tv', 'ten rieng cua ncc')]
+    table_rows['payment_request_items'] = [dict(PR_ITEMS[0], product_name='Tên khác')] + PR_ITEMS[1:]
+    warehouse, engine = _warehouse(tmp_path, table_rows)
+    result = execute(engine, {'question': 'supplier_payments', 'month': '2026-09', 'supplier': 'TV Food',
+                              'item': 'ten rieng cua ncc'}, TENANT, 'owner:fixture')
+    assert result['item_status'] == 'not_found'
+    assert result['item']['mode'] != 'material'
+    assert result['item_amount'] is None
+
+
+def test_orphan_source_canonical_id_is_never_replaced_by_alias(tmp_path):
+    table_rows = rows()
+    table_rows['material_scoped_aliases'] = [_alias('sa1', 'mat_peanut', 'sup_tv', 'Đậu phộng rang')]
+    table_rows['payment_request_items'] = [dict(PR_ITEMS[0], product_name='Đậu phộng rang',
+                                                canonical_material_id='missing-material')] + PR_ITEMS[1:]
+    warehouse, engine = _warehouse(tmp_path, table_rows)
+    result = execute(engine, {'question': 'supplier_payments', 'month': '2026-09', 'supplier': 'TV Food',
+                              'item': 'Đậu phộng rang'}, TENANT, 'owner:fixture')
+    # The stored canonical id is orphaned, so the line must stay unresolved rather
+    # than being silently re-pointed through the approved alias.
+    assert result['unresolved_item_count'] >= 1
+    assert result['item_status'] == 'unavailable'
+    assert result['item_amount'] is None
+
+
+def test_conflicting_alias_including_orphan_target_is_ambiguous(tmp_path):
+    table_rows = rows()
+    table_rows['material_scoped_aliases'] = [
+        _alias('sa1', 'mat_bo', 'sup_tv', 'ten rieng cua ncc'),
+        _alias('sa2', 'missing-material', 'sup_tv', 'ten rieng cua ncc')]
+    table_rows['payment_request_items'] = [dict(PR_ITEMS[0], product_name='Tên khác')] + PR_ITEMS[1:]
+    warehouse, engine = _warehouse(tmp_path, table_rows)
+    result = execute(engine, {'question': 'supplier_payments', 'month': '2026-09', 'supplier': 'TV Food',
+                              'item': 'ten rieng cua ncc'}, TENANT, 'owner:fixture')
+    # The orphan target must not be filtered away so the surviving target wins.
+    assert result['item_status'] == 'ambiguous'
+    assert result['item']['source'] == 'approved_supplier_mapping_conflict'
+    assert result['item_amount'] is None
+
+
+def test_accent_fold_alone_never_claims_exact_canonical_identity():
+    from sme_platform.bmq_payment import _resolve_item
+    materials = [{'id': 'm1', 'material_code': 'NVL-01', 'canonical_name': 'Bơ Peerless',
+                  'normalized_name': 'bo peerless', 'active': True}]
+    result = _resolve_item(materials, [], 'BỘ PEERLESS')
+    assert result['status'] != 'resolved', result
+
+
+def test_single_member_category_is_not_promoted_to_that_sku(tmp_path):
+    table_rows = rows()
+    table_rows['sku_cogs_materials'] = [
+        {'id': 'mat_bo_lat', 'material_code': 'NVL-BO-LAT', 'canonical_name': 'Bơ lạt',
+         'normalized_name': 'bo lat', 'category': 'bơ', 'active': True}]
+    table_rows['payment_request_items'] = [dict(PR_ITEMS[0], product_name='Tên khác')] + PR_ITEMS[1:]
+    warehouse, engine = _warehouse(tmp_path, table_rows)
+    result = execute(engine, {'question': 'supplier_payments', 'month': '2026-09', 'supplier': 'TV Food',
+                              'item': 'bơ'}, TENANT, 'owner:fixture')
+    assert result['item_status'] == 'ambiguous'
+    assert result['item']['source'] == 'canonical_category_group'
+    assert result['item']['material'] is None

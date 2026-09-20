@@ -1,5 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { shapeMaterialName } from "@/lib/material-name";
+import { parseMaterialLearningSuggestion } from "@/lib/material-learning-contract";
+export type { MaterialLearningCandidate, MaterialLearningSuggestion } from "@/lib/material-learning-contract";
 
 export interface CanonicalMaterial {
   id: string;
@@ -175,6 +178,44 @@ export interface MaterialSupplierSuggestion {
   suggested_base_unit: string | null;
 }
 
+export interface MaterialUnresolvedSourceName {
+  normalized_name: string;
+  display_name: string;
+  variants: string[];
+  source_labels: string[];
+  supplier_labels: string[];
+  occurrence_count: number;
+  total_value: number;
+  latest_at: string | null;
+}
+
+export interface MaterialCoverageSection {
+  key: string;
+  loaded: number;
+  complete: boolean;
+}
+
+export interface MaterialCoverage {
+  sections: MaterialCoverageSection[];
+  complete: boolean;
+  truncated: boolean;
+  /** Active canonical materials actually used as a finished-good formulation root. */
+  materials_total: number;
+  /** Every canonical material row loaded from the catalog, rooted or not. */
+  materials_catalog_total: number;
+  formulations_total: number;
+  /** Formulation rows whose canonical id is null or no longer exists in the catalog. */
+  formulations_missing_canonical: number;
+  /** Formulation rows with no canonical id at all. */
+  formulations_null_root: number;
+  /** Formulation rows pointing at a canonical id absent from the loaded catalog. */
+  formulations_orphan_root: number;
+  approved_scoped_aliases: number;
+  approved_supplier_products: number;
+  unresolved_total: number;
+  unresolved: MaterialUnresolvedSourceName[];
+}
+
 export interface MaterialMasterData {
   materials: CanonicalMaterial[];
   aliases: MaterialAlias[];
@@ -189,6 +230,7 @@ export interface MaterialMasterData {
   finishedSkus: FinishedSkuLite[];
   cogsLinks: CogsMaterialLink[];
   sectionErrors: Record<string, string>;
+  coverage: MaterialCoverage;
 }
 
 export interface MaterialMasterRolloutDashboardRow {
@@ -223,6 +265,7 @@ type QueryBuilder<T> = {
   limit: (count: number) => QueryBuilder<T>;
   range: (from: number, to: number) => QueryBuilder<T>;
   eq: (column: string, value: string) => QueryBuilder<T>;
+  is: (column: string, value: null) => QueryBuilder<T>;
   then: Promise<QueryResult<T>>["then"];
 };
 type MaterialMasterDb = {
@@ -230,7 +273,49 @@ type MaterialMasterDb = {
   rpc: <T>(fn: string, args: Record<string, unknown>) => RpcResult<T>;
 };
 
+type FunctionInvokeResult<T> = { data: T | null; error: Error | null };
+type MaterialLearningFunctionsClient = {
+  functions: {
+    invoke: <T>(name: string, options: { body: unknown; signal?: AbortSignal }) => Promise<FunctionInvokeResult<T>>;
+  };
+};
+
+interface UnresolvedSourceItem {
+  id: string;
+  payment_request_id?: string | null;
+  invoice_id?: string | null;
+  product_name: string | null;
+  raw_product_name: string | null;
+  unit: string | null;
+  line_total: number | string | null;
+  created_at: string | null;
+}
+
+interface SupplierOwnerLite {
+  id: string;
+  supplier_id: string | null;
+}
+
 const db = supabase as unknown as MaterialMasterDb;
+const functionsDb = supabase as unknown as MaterialLearningFunctionsClient;
+
+const PAGE_SIZE = 500;
+const MAX_PAGES = 40;
+const COVERAGE_SECTION_KEYS = [
+  "materials",
+  "aliases",
+  "scopedAliases",
+  "supplierProducts",
+  "prices",
+  "conversions",
+  "resolutionRequests",
+  "auditLogs",
+  "suppliers",
+  "kitchenMappings",
+  "finishedSkus",
+  "cogsLinks",
+] as const;
+const UNRESOLVED_SHOWN = 50;
 
 const nonEmptyReason = (reason: string) => {
   const trimmed = reason.trim();
@@ -252,31 +337,162 @@ const conversionSelect = "id, material_id, from_unit, to_unit, factor, effective
 const requestSelect = "id, source_type, source_table, source_id, supplier_id, raw_name, raw_code, raw_unit, status, candidate_status, resolved_material_id, reviewer_reason, safe_payload, created_at";
 const auditSelect = "id, material_id, action, reason, actor_id, old_values, new_values, safe_payload, created_at";
 const supplierSelect = "id, name";
-
-async function readTable<T>(table: string, columns: string, order = "created_at", limit = 500): Promise<QueryResult<T>> {
-  const { data, error } = await db.from<T>(table).select(columns).order(order, { ascending: false }).limit(limit);
-  if (error) throw error;
-  return { data, error };
-}
+const unresolvedPaymentItemSelect = "id, payment_request_id, product_name, raw_product_name, unit, line_total, created_at";
+const unresolvedInvoiceItemSelect = "id, invoice_id, product_name, raw_product_name, unit, line_total, created_at";
+const paymentRequestSupplierSelect = "id, supplier_id";
+const invoiceSupplierSelect = "id, supplier_id";
 
 async function readAllTable<T>(
   table: string,
   columns: string,
   order: string,
   filters: Array<{ column: string; value: string }>,
-  pageSize = 500,
+  pageSize = PAGE_SIZE,
+  nullColumns: string[] = [],
 ): Promise<QueryResult<T>> {
   const rows: T[] = [];
-  for (let from = 0; ; from += pageSize) {
-    let query = db.from<T>(table).select(columns).order(order, { ascending: true }).order("id", { ascending: true }).range(from, from + pageSize - 1);
+  const seen = new Set<string>();
+  let offset = 0;
+  for (let page = 0; page < MAX_PAGES; page += 1) {
+    let query = db.from<T>(table).select(columns).order(order, { ascending: true }).order("id", { ascending: true }).range(offset, offset + pageSize - 1);
     for (const filter of filters) query = query.eq(filter.column, filter.value);
+    for (const column of nullColumns) query = query.is(column, null);
     const { data, error } = await query;
     if (error) throw error;
-    const page = (data || []) as T[];
-    rows.push(...page);
-    if (page.length < pageSize) break;
+    const pageRows = (data || []) as T[];
+    // A short page is not proof of completeness when the server enforces a lower
+    // row cap than `pageSize`, so keep paging until an explicit empty page and
+    // advance by the rows actually returned instead of the requested page size.
+    if (pageRows.length === 0) return { data: rows, error: null };
+    for (const row of pageRows) {
+      const id = (row as { id?: unknown } | null)?.id;
+      if (typeof id === "string" && id) {
+        if (seen.has(id)) throw new Error(`DUPLICATE: bảng "${table}" trả lại dòng đã đọc (${id}); chưa thể xác nhận độ phủ đầy đủ.`);
+        seen.add(id);
+      }
+      rows.push(row);
+    }
+    offset += pageRows.length;
   }
-  return { data: rows, error: null };
+  // Never silently drop the tail: an incomplete section is reported as an explicit
+  // coverage error instead of a short list that looks complete.
+  throw new Error(`TRUNCATED: bảng "${table}" vượt quá ${MAX_PAGES} trang an toàn.`);
+}
+
+function toValue(value: number | string | null): number {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function buildUnresolvedSourceNames(
+  paymentItems: UnresolvedSourceItem[],
+  invoiceItems: UnresolvedSourceItem[],
+  requestSupplier: Map<string, string | null>,
+  invoiceSupplier: Map<string, string | null>,
+  supplierNames: Map<string, string>,
+): MaterialUnresolvedSourceName[] {
+  type Group = MaterialUnresolvedSourceName & { sourceSet: Set<string>; supplierSet: Set<string>; variantSet: Set<string> };
+  const groups = new Map<string, Group>();
+  const supplierLabel = (supplierId: string | null) => supplierId
+    ? (supplierNames.get(supplierId) || `NCC ${supplierId.slice(0, 8)}…`)
+    : "Chưa rõ Nhà cung cấp";
+  const add = (rows: UnresolvedSourceItem[], label: string, parentId: (row: UnresolvedSourceItem) => string | null, supplierOf: (row: UnresolvedSourceItem) => string | null) => {
+    for (const row of rows) {
+      const display = (row.raw_product_name || row.product_name || "").trim();
+      if (!display) continue;
+      // Shape key + source + supplier keeps BỘ/BƠ and different suppliers/sources
+      // apart instead of folding every spelling into one review row.
+      const shape = shapeMaterialName(display);
+      if (!shape) continue;
+      const supplierId = supplierOf(row) ?? null;
+      const keyId = parentId(row) || "";
+      const key = `${shape}|${label}|${supplierId ?? ""}|${keyId}`;
+      const current = groups.get(key) || {
+        normalized_name: shape,
+        display_name: display,
+        variants: [],
+        source_labels: [],
+        supplier_labels: [],
+        occurrence_count: 0,
+        total_value: 0,
+        latest_at: null,
+        sourceSet: new Set<string>(),
+        supplierSet: new Set<string>(),
+        variantSet: new Set<string>(),
+      };
+      current.occurrence_count += 1;
+      current.total_value += toValue(row.line_total);
+      current.sourceSet.add(label);
+      current.supplierSet.add(supplierLabel(supplierId));
+      current.variantSet.add(display);
+      if (row.created_at && (!current.latest_at || row.created_at > current.latest_at)) current.latest_at = row.created_at;
+      groups.set(key, current);
+    }
+  };
+  add(paymentItems, "Duyệt chi", (row) => row.payment_request_id ?? null, (row) => requestSupplier.get(row.payment_request_id || "") ?? null);
+  add(invoiceItems, "Hoá đơn", (row) => row.invoice_id ?? null, (row) => invoiceSupplier.get(row.invoice_id || "") ?? null);
+  return Array.from(groups.values())
+    .map((group) => ({
+      normalized_name: group.normalized_name,
+      display_name: group.display_name,
+      variants: Array.from(group.variantSet).sort(),
+      source_labels: Array.from(group.sourceSet).sort(),
+      supplier_labels: Array.from(group.supplierSet).sort(),
+      occurrence_count: group.occurrence_count,
+      total_value: group.total_value,
+      latest_at: group.latest_at,
+    }))
+    .sort((left, right) => right.total_value - left.total_value
+      || right.occurrence_count - left.occurrence_count
+      || left.display_name.localeCompare(right.display_name));
+}
+
+function buildCoverage(
+  reads: PromiseSettledResult<QueryResult<unknown>>[],
+  materials: CanonicalMaterial[],
+  formulations: CogsMaterialLink[],
+  scopedAliases: MaterialAlias[],
+  supplierProducts: SupplierProduct[],
+  unresolved: MaterialUnresolvedSourceName[],
+): MaterialCoverage {
+  const sections: MaterialCoverageSection[] = COVERAGE_SECTION_KEYS.map((key, index) => {
+    const result = reads[index];
+    return {
+      key,
+      loaded: result.status === "fulfilled" ? ((result.value.data as unknown[] | null) || []).length : 0,
+      complete: result.status === "fulfilled",
+    };
+  });
+  // Completeness is derived from every settled read, not from whichever `valueAt`
+  // calls happened to run before this point, so a failed alias/audit/request read
+  // can never be reported as complete coverage.
+  const failed = reads.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+  const catalogIds = new Set(materials.map((row) => row.id));
+  const rootedIds = new Set(
+    formulations
+      .filter((row) => row.product_skus?.sku_type === "finished_good")
+      .map((row) => row.canonical_material_id)
+      .filter((id): id is string => Boolean(id)),
+  );
+  const nullRoot = formulations.filter((row) => !row.canonical_material_id).length;
+  const orphanRoot = formulations.filter((row) => Boolean(row.canonical_material_id) && !catalogIds.has(row.canonical_material_id as string)).length;
+  return {
+    sections,
+    complete: failed.length === 0,
+    truncated: failed.some((result) => result.reason instanceof Error && result.reason.message.startsWith("TRUNCATED:")),
+    // Only active materials that are actually used by a finished-good formulation
+    // count as COGS roots; the full catalog size is reported separately.
+    materials_total: materials.filter((row) => row.active === true && rootedIds.has(row.id)).length,
+    materials_catalog_total: materials.length,
+    formulations_total: formulations.length,
+    formulations_missing_canonical: nullRoot + orphanRoot,
+    formulations_null_root: nullRoot,
+    formulations_orphan_root: orphanRoot,
+    approved_scoped_aliases: scopedAliases.filter((row) => row.approved === true && row.active === true).length,
+    approved_supplier_products: supplierProducts.length,
+    unresolved_total: unresolved.length,
+    unresolved: unresolved.slice(0, UNRESOLVED_SHOWN),
+  };
 }
 
 function validateRpcResponse(data: unknown, allowedStatuses: string[], requiredStringKeys: string[] = []) {
@@ -296,20 +512,28 @@ export function useMaterialMaster() {
     queryFn: async (): Promise<MaterialMasterData> => {
       const reads = await Promise.allSettled([
         readAllTable<CanonicalMaterial>("sku_cogs_materials", materialSelect, "canonical_name", []),
-        readTable<MaterialAlias>("sku_cogs_material_aliases", aliasSelect, "created_at"),
-        readTable<MaterialAlias>("material_scoped_aliases", scopedAliasSelect, "created_at"),
+        readAllTable<MaterialAlias>("sku_cogs_material_aliases", aliasSelect, "created_at", []),
+        readAllTable<MaterialAlias>("material_scoped_aliases", scopedAliasSelect, "created_at", []),
         readAllTable<SupplierProduct>("material_supplier_products", supplierProductSelect, "created_at", [{ column: "active", value: "true" }, { column: "approved", value: "true" }]),
         readAllTable<MaterialPriceHistory>("material_price_history", priceSelect, "effective_from", []),
-        readTable<MaterialUnitConversion>("material_unit_conversions", conversionSelect, "created_at"),
-        readTable<ResolutionRequest>("material_resolution_requests", requestSelect, "created_at"),
-        readTable<MaterialAuditLog>("material_master_audit_logs", auditSelect, "created_at"),
+        readAllTable<MaterialUnitConversion>("material_unit_conversions", conversionSelect, "created_at", []),
+        readAllTable<ResolutionRequest>("material_resolution_requests", requestSelect, "created_at", []),
+        readAllTable<MaterialAuditLog>("material_master_audit_logs", auditSelect, "created_at", []),
         readAllTable<SupplierLite>("suppliers", supplierSelect, "name", []),
-        readTable<Q7Mapping>("kitchen_inventory_items", "id, item_code, name, unit, canonical_material_id", "name"),
+        readAllTable<Q7Mapping>("kitchen_inventory_items", "id, item_code, name, unit, canonical_material_id", "name", []),
         readAllTable<FinishedSkuLite>("product_skus", "id, sku_code, product_name, unit, sku_type", "product_name", [{ column: "sku_type", value: "finished_good" }]),
         readAllTable<CogsMaterialLink>("sku_formulations", "id, sku_id, canonical_material_id, dosage_qty, unit, product_skus!sku_formulations_sku_id_fkey(sku_code, product_name, sku_type)", "created_at", [{ column: "product_skus.sku_type", value: "finished_good" }]),
+        readAllTable<UnresolvedSourceItem>("payment_request_items", unresolvedPaymentItemSelect, "created_at", [], PAGE_SIZE, ["canonical_material_id"]),
+        readAllTable<UnresolvedSourceItem>("invoice_items", unresolvedInvoiceItemSelect, "created_at", [], PAGE_SIZE, ["canonical_material_id"]),
+        // Coverage must not inherit the finished-good filter: every formulation row is
+        // loaded so a formulation pointing at a non-finished SKU is still counted.
+        readAllTable<CogsMaterialLink>("sku_formulations", "id, sku_id, canonical_material_id, dosage_qty, unit, product_skus!sku_formulations_sku_id_fkey(sku_code, product_name, sku_type)", "created_at", []),
+        // Supplier context for the unresolved source names (owning request/invoice).
+        readAllTable<SupplierOwnerLite>("payment_requests", paymentRequestSupplierSelect, "id", []),
+        readAllTable<SupplierOwnerLite>("invoices", invoiceSupplierSelect, "id", []),
       ]);
 
-      const names = ["materials", "aliases", "scopedAliases", "supplierProducts", "prices", "conversions", "resolutionRequests", "auditLogs", "suppliers", "kitchenMappings", "finishedSkus", "cogsLinks"] as const;
+      const names = [...COVERAGE_SECTION_KEYS, "unresolvedPaymentItems", "unresolvedInvoiceItems", "allFormulations", "paymentRequestSuppliers", "invoiceSuppliers"] as const;
       const sectionErrors: Record<string, string> = {};
       const valueAt = <T,>(index: number): T[] => {
         const result = reads[index];
@@ -320,20 +544,45 @@ export function useMaterialMaster() {
 
       if (reads[0].status === "rejected") throw reads[0].reason;
 
+      // Collect every section/context read before evaluating coverage so a failure in
+      // any of them is reflected in `coverage.complete` instead of being hidden by the
+      // order in which `valueAt` happens to run.
+      const materials = valueAt<CanonicalMaterial>(0);
+      const aliases = valueAt<MaterialAlias>(1);
+      const scopedAliases = valueAt<MaterialAlias>(2);
+      const supplierProducts = valueAt<SupplierProduct>(3);
+      const prices = valueAt<MaterialPriceHistory>(4);
+      const conversions = valueAt<MaterialUnitConversion>(5);
+      const resolutionRequests = valueAt<ResolutionRequest>(6);
+      const auditLogs = valueAt<MaterialAuditLog>(7);
+      const suppliers = valueAt<SupplierLite>(8);
+      const kitchenMappings = valueAt<Q7Mapping>(9);
+      const finishedSkus = valueAt<FinishedSkuLite>(10).filter((sku) => sku.sku_type === "finished_good");
+      const cogsLinks = valueAt<CogsMaterialLink>(11).filter((link) => link.product_skus?.sku_type === "finished_good");
+      const unresolvedPaymentItems = valueAt<UnresolvedSourceItem>(12);
+      const unresolvedInvoiceItems = valueAt<UnresolvedSourceItem>(13);
+      const allFormulations = valueAt<CogsMaterialLink>(14);
+      const requestSupplier = new Map(valueAt<SupplierOwnerLite>(15).map((row) => [row.id, row.supplier_id]));
+      const invoiceSupplier = new Map(valueAt<SupplierOwnerLite>(16).map((row) => [row.id, row.supplier_id]));
+      const supplierNames = new Map(suppliers.map((supplier) => [supplier.id, supplier.name || "NCC chưa tên"]));
+      const unresolved = buildUnresolvedSourceNames(unresolvedPaymentItems, unresolvedInvoiceItems, requestSupplier, invoiceSupplier, supplierNames);
+      const coverage = buildCoverage(reads, materials, allFormulations, scopedAliases, supplierProducts, unresolved);
+
       return {
-        materials: valueAt<CanonicalMaterial>(0),
-        aliases: valueAt<MaterialAlias>(1),
-        scopedAliases: valueAt<MaterialAlias>(2),
-        supplierProducts: valueAt<SupplierProduct>(3),
-        prices: valueAt<MaterialPriceHistory>(4),
-        conversions: valueAt<MaterialUnitConversion>(5),
-        resolutionRequests: valueAt<ResolutionRequest>(6),
-        auditLogs: valueAt<MaterialAuditLog>(7),
-        suppliers: valueAt<SupplierLite>(8),
-        kitchenMappings: valueAt<Q7Mapping>(9),
-        finishedSkus: valueAt<FinishedSkuLite>(10).filter((sku) => sku.sku_type === "finished_good"),
-        cogsLinks: valueAt<CogsMaterialLink>(11).filter((link) => link.product_skus?.sku_type === "finished_good"),
+        materials,
+        aliases,
+        scopedAliases,
+        supplierProducts,
+        prices,
+        conversions,
+        resolutionRequests,
+        auditLogs,
+        suppliers,
+        kitchenMappings,
+        finishedSkus,
+        cogsLinks,
         sectionErrors,
+        coverage,
       };
     },
   });
@@ -367,6 +616,36 @@ export function useMaterialSupplierSuggestions(materialId: string | null) {
       if (error) throw error;
       if (!Array.isArray(data)) throw new Error("RPC gợi ý Nhà cung cấp không trả danh sách hợp lệ.");
       return data;
+    },
+  });
+}
+
+export function useMaterialResolutionRequest(requestId: string | null) {
+  return useQuery({
+    queryKey: ["material-master", "resolution-request", requestId],
+    enabled: Boolean(requestId),
+    queryFn: async (): Promise<ResolutionRequest | null> => {
+      if (!requestId) return null;
+      const { data, error } = await db.from<ResolutionRequest>("material_resolution_requests").select(requestSelect).eq("id", requestId).limit(1);
+      if (error) throw error;
+      return ((data || [])[0] as ResolutionRequest | undefined) || null;
+    },
+  });
+}
+
+// Request-bound, read-only suggestion. The endpoint never writes and never
+// auto-selects; the shared contract parser validates the candidate ids/fields and
+// the returned candidate list is offered only for explicit human review.
+export function useMaterialLearningSuggestion() {
+  return useMutation({
+    mutationFn: async (payload: { requestId: string }) => {
+      const requestId = payload.requestId?.trim();
+      if (!requestId) throw new Error("Cần chọn một dòng cần xác nhận trước khi xin gợi ý.");
+      const { data, error } = await functionsDb.functions.invoke<unknown>("material-learning-suggest", {
+        body: { request_id: requestId },
+      });
+      if (error) throw new Error(error.message || "Không gọi được gợi ý NVL.");
+      return parseMaterialLearningSuggestion(data, requestId);
     },
   });
 }
@@ -523,6 +802,46 @@ export type ConfirmResolutionPayload =
   | { request_id: string; action: "resolve_existing"; material_id: string; raw_alias?: string | null; reason: string }
   | { request_id: string; action: "create_new"; raw_alias?: string | null; create_payload: { material_code?: string; canonical_name: string; default_unit: string; category?: string; brand?: string; specification?: string }; reason: string };
 
+async function readDurableResolution(requestId: string): Promise<ResolutionRequest> {
+  const { data, error } = await db.from<ResolutionRequest>("material_resolution_requests").select(requestSelect).eq("id", requestId).limit(1);
+  if (error) throw error;
+  const row = (data || [])[0] as ResolutionRequest | undefined;
+  if (!row) throw new Error("Không tìm thấy dòng xác nhận đã lưu.");
+  return row;
+}
+
+interface CreatedCanonicalMaterial {
+  id: string;
+  material_code: string | null;
+  canonical_name: string | null;
+  default_unit: string | null;
+}
+
+const sameCanonicalField = (left: string | null | undefined, right: string | null | undefined) => (left ?? "").trim() === (right ?? "").trim();
+
+// For an unchanged `create_new` the RPC only guarantees a terminal id. Reading the
+// actual canonical row lets us confirm it really matches the payload that was
+// submitted instead of reporting another reviewer's different material as success.
+async function readCreatedCanonicalMaterial(materialId: string): Promise<CreatedCanonicalMaterial | null> {
+  const { data, error } = await db.from<CreatedCanonicalMaterial>("sku_cogs_materials")
+    .select("id, material_code, canonical_name, default_unit")
+    .eq("id", materialId)
+    .limit(1);
+  if (error) throw error;
+  return ((data || [])[0] as CreatedCanonicalMaterial | undefined) || null;
+}
+
+function createdPayloadMatches(
+  material: CreatedCanonicalMaterial,
+  payload: { material_code?: string; canonical_name: string; default_unit: string },
+): boolean {
+  if (!sameCanonicalField(material.canonical_name, payload.canonical_name)) return false;
+  if (!sameCanonicalField(material.default_unit, payload.default_unit)) return false;
+  const code = trimOrNull(payload.material_code);
+  if (code && !sameCanonicalField(material.material_code, code)) return false;
+  return true;
+}
+
 export function useConfirmMaterialResolution() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -576,6 +895,43 @@ export function useConfirmMaterialResolution() {
           : "rejected";
       const result = validateRpcResponse(data, [expectedStatus, "resolution_unchanged"], ["request_id"]);
       if (result.request_id !== payload.request_id) throw new Error("RPC trả sai request ID.");
+      if (result.status === "resolution_unchanged") {
+        // The RPC already had a terminal row. Compare the durable outcome against the
+        // exact intended action/material instead of trusting a generic "unchanged".
+        let durable: ResolutionRequest;
+        try {
+          durable = await readDurableResolution(payload.request_id);
+        } catch (readError) {
+          throw new Error(`Chưa đọc lại được kết quả đã lưu (${readError instanceof Error ? readError.message : "lỗi đọc"}). Hệ thống không lặp lại thao tác cho tới khi đọc đúng dòng yêu cầu.`);
+        }
+        const expectedDurableStatus = payload.action === "reject" ? "rejected" : payload.action === "resolve_existing" ? "resolved_existing" : "created_new";
+        if (durable.status !== expectedDurableStatus) {
+          throw new Error(`Kết quả đã lưu xung đột với thao tác dự kiến (đang là ${durable.status || "không rõ"}). Hệ thống không ghi đè.`);
+        }
+        if (payload.action === "reject") {
+          if (durable.resolved_material_id != null) throw new Error("Kết quả đã lưu là từ chối nhưng vẫn có material ID.");
+        } else if (typeof durable.resolved_material_id !== "string" || !durable.resolved_material_id) {
+          throw new Error("Kết quả đã lưu thiếu material ID.");
+        }
+        if (payload.action === "resolve_existing" && durable.resolved_material_id !== payload.material_id) {
+          throw new Error("Kết quả đã lưu trỏ về material khác với lựa chọn.");
+        }
+        if (payload.action === "create_new" && durable.resolved_material_id) {
+          // A terminal created_new id alone is not proof of the same intent: another
+          // reviewer may have created a different name/unit. Require the actual
+          // canonical fields to match the submitted payload before reporting success.
+          let existing: CreatedCanonicalMaterial | null;
+          try {
+            existing = await readCreatedCanonicalMaterial(durable.resolved_material_id);
+          } catch (readError) {
+            throw new Error(`Chưa đọc lại được NVL đã tạo (${readError instanceof Error ? readError.message : "lỗi đọc"}). Kết quả đã lưu cần rà soát; hệ thống không ghi đè.`);
+          }
+          if (!existing || !createdPayloadMatches(existing, payload.create_payload)) {
+            throw new Error("Kết quả đã lưu là một NVL tạo trước đó nhưng không khớp tên/đơn vị vừa gửi. Kết quả đã lưu cần rà soát; hệ thống không ghi đè.");
+          }
+        }
+        return { ...result, status: durable.status, material_id: durable.resolved_material_id };
+      }
       if (payload.action === "reject") {
         if (result.material_id != null) throw new Error("Request từ chối nhưng RPC trả material ID.");
       } else if (typeof result.material_id !== "string" || !result.material_id) {

@@ -1,10 +1,14 @@
-import { useMemo, useState } from "react";
-import { Check, Edit3, Loader2, ShieldCheck, XCircle } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
+import { AlertTriangle, Check, Edit3, Loader2, ShieldCheck, Sparkles, XCircle } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { classifyRecovery, createGenerationFence, createSubmitGate } from "@/lib/material-learning-fence";
 import {
   CanonicalMaterial,
   CogsMaterialLink,
+  MaterialCoverage,
+  MaterialLearningCandidate,
+  MaterialLearningSuggestion,
   MaterialPaymentRequestLink,
   MaterialSupplierSuggestion,
   Q7Mapping,
@@ -14,8 +18,10 @@ import {
   useConfirmMaterialResolution,
   useConfirmMaterialSupplierProduct,
   useCreateCanonicalMaterial,
+  useMaterialLearningSuggestion,
   useMaterialMaster,
   useMaterialPaymentRequestLinks,
+  useMaterialResolutionRequest,
   useMaterialSupplierSuggestions,
   useSyncMaterialSupplierPaymentRequests,
   useUpdateCanonicalMaterial,
@@ -443,21 +449,63 @@ function ReadOnlyTable<T>({ title, description, rows, render }: { title: string;
   return <Card><CardHeader><CardTitle>{title}</CardTitle><CardDescription>{description}</CardDescription></CardHeader><CardContent className="space-y-3">{rows.length === 0 ? <div className="rounded-xl border border-dashed p-6 text-center text-sm text-slate-500">Không có dữ liệu phù hợp.</div> : rows.map(render)}</CardContent></Card>;
 }
 
+const QUEUE_PAGE_SIZE = 80;
+
+function suggestionOutcomeLabel(suggestion: MaterialLearningSuggestion) {
+  if (suggestion.outcome === "exact") return "Khớp chính xác với dữ liệu đã duyệt";
+  if (suggestion.outcome === "ambiguous") return "Nhiều NVL cùng khớp — cần anh chọn";
+  if (suggestion.outcome === "suggested") return "AI đề xuất — cần anh kiểm tra";
+  if (suggestion.outcome === "no_match") return "Không tìm thấy NVL đang dùng phù hợp";
+  if (suggestion.outcome === "shortlist_only") return "Chưa có đề xuất AI — chỉ hiện danh sách ứng viên";
+  return "Chưa lấy được gợi ý";
+}
+
+function suggestionCandidateLabel(candidate: MaterialLearningCandidate) {
+  return [candidate.material_code, candidate.canonical_name, candidate.default_unit, candidate.brand, candidate.specification].filter(Boolean).join(" · ") || candidate.material_id;
+}
+
 function QueueActions({ requests, materials, canMutate }: { requests: ResolutionRequest[]; materials: CanonicalMaterial[]; canMutate: boolean }) {
   const confirm = useConfirmMaterialResolution();
+  const suggestionMutation = useMaterialLearningSuggestion();
   const { toast } = useToast();
   const [requestId, setRequestId] = useState("");
   const [materialId, setMaterialId] = useState("");
   const [action, setAction] = useState<"resolve_existing" | "create_new" | "reject">("resolve_existing");
   const [reason, setReason] = useState("");
   const [createFields, setCreateFields] = useState(emptyCreateFields);
+  const [visibleCount, setVisibleCount] = useState(QUEUE_PAGE_SIZE);
+  const [suggestion, setSuggestion] = useState<MaterialLearningSuggestion | null>(null);
+  const [recoveryBlocked, setRecoveryBlocked] = useState(false);
+  const [recovering, setRecovering] = useState(false);
+  // Tracks the request the form currently belongs to, so a late result from an old
+  // save never clears a selection the user has since made for a different request.
+  const activeRequestId = useRef(requestId);
+  // Synchronous double-click guard: react-query's isPending update is async, so a
+  // rapid second click must be rejected before any write is attempted.
+  const submitGate = useRef<ReturnType<typeof createSubmitGate> | null>(null);
+  if (!submitGate.current) submitGate.current = createSubmitGate();
+  // Request generation fence: selecting A→B→A must not let the stale first A
+  // response land as if it belonged to the current selection. The auth boundary is
+  // fenced by remounting this card on the signed-in user id (see the parent `key`).
+  const suggestionFence = useRef<ReturnType<typeof createGenerationFence> | null>(null);
+  if (!suggestionFence.current) suggestionFence.current = createGenerationFence();
+  const requestStatus = useMaterialResolutionRequest(requestId || null);
   const selectedRequest = requests.find((request) => request.id === requestId);
+  const visibleRequests = requests.slice(0, visibleCount);
+  const suggestionMatchesSelection = Boolean(suggestion && suggestion.request_id === requestId);
   const createReady = createFields.canonical_name.trim() && createFields.default_unit.trim();
-  const valid = Boolean(canMutate && requestId && reason.trim() && (action === "reject" || (action === "resolve_existing" && materialId) || (action === "create_new" && createReady)));
+  // The form is frozen for the whole uncertain read/recovery, not only while
+  // react-query reports pending, so the selection and payload cannot drift.
+  const frozen = confirm.isPending || recoveryBlocked || recovering;
+  const valid = Boolean(canMutate && requestId && reason.trim() && !recoveryBlocked && !recovering && (action === "reject" || (action === "resolve_existing" && materialId) || (action === "create_new" && createReady)));
 
   const resetForRequest = (value: string) => {
+    suggestionFence.current?.next();
+    activeRequestId.current = value;
     setRequestId(value);
     setMaterialId("");
+    setSuggestion(null);
+    setRecoveryBlocked(false);
     const next = requests.find((request) => request.id === value);
     setCreateFields({ ...emptyCreateFields, canonical_name: next?.raw_name || "", default_unit: next?.raw_unit || "", material_code: next?.raw_code || "" });
   };
@@ -466,22 +514,172 @@ function QueueActions({ requests, materials, canMutate }: { requests: Resolution
     setMaterialId("");
     setCreateFields({ ...emptyCreateFields, canonical_name: selectedRequest?.raw_name || "", default_unit: selectedRequest?.raw_unit || "", material_code: selectedRequest?.raw_code || "" });
   };
-
-  const run = async () => {
-    if (!valid || !selectedRequest) return;
+  // A suggestion is never authoritative: it only fills the existing selection after
+  // the human clicks one candidate. Saving still goes through confirm_material_resolution.
+  const chooseSuggestionCandidate = (candidate: MaterialLearningCandidate) => {
+    if (!suggestionMatchesSelection) return;
+    setAction("resolve_existing");
+    setMaterialId(candidate.material_id);
+  };
+  const requestSuggestion = async () => {
+    if (!requestId || !canMutate) return;
+    const generation = suggestionFence.current?.current() ?? 0;
     try {
-      if (action === "reject") await confirm.mutateAsync({ request_id: requestId, action: "reject", reason });
-      if (action === "resolve_existing") await confirm.mutateAsync({ request_id: requestId, action: "resolve_existing", material_id: materialId, raw_alias: selectedRequest.raw_name, reason });
-      if (action === "create_new") await confirm.mutateAsync({ request_id: requestId, action: "create_new", raw_alias: selectedRequest.raw_name, create_payload: createFields, reason });
-      toast({ title: "Đã lưu xác nhận", description: "Tên và đơn vị chuẩn sẽ được dùng lại khi chứng từ được xử lý." });
-      setReason("");
-      setMaterialId("");
+      const result = await suggestionMutation.mutateAsync({ requestId });
+      if (!suggestionFence.current?.isCurrent(generation)) return;
+      setSuggestion(result);
     } catch (error) {
-      toast({ title: "Không thể lưu xác nhận", description: error instanceof Error ? error.message : "Hệ thống đã từ chối thao tác không hợp lệ.", variant: "destructive" });
+      if (!suggestionFence.current?.isCurrent(generation)) return;
+      setSuggestion(null);
+      toast({ title: "Không lấy được gợi ý NVL", description: error instanceof Error ? error.message : "Tính năng gợi ý chưa khả dụng; anh vẫn chọn NVL thủ công bên dưới.", variant: "destructive" });
     }
   };
 
-  return <Card><CardHeader><CardTitle>Xác nhận tên và đơn vị</CardTitle><CardDescription>Hệ thống có thể gợi ý nhưng không tự chọn. Anh kiểm tra rồi xác nhận NVL chuẩn cần liên kết.</CardDescription></CardHeader><CardContent className="grid gap-3 md:grid-cols-4"><Select value={requestId} onValueChange={resetForRequest} disabled={!canMutate}><SelectTrigger><SelectValue placeholder="Chọn dòng cần xác nhận" /></SelectTrigger><SelectContent>{requests.slice(0, 80).map((request) => <SelectItem key={request.id} value={request.id}>{request.raw_name || request.raw_code || truncateId(request.id)} · {request.status}</SelectItem>)}</SelectContent></Select><Select value={materialId} onValueChange={setMaterialId} disabled={!canMutate || action !== "resolve_existing"}><SelectTrigger><SelectValue placeholder="Chọn NVL chuẩn" /></SelectTrigger><SelectContent>{materials.map((material) => <SelectItem key={material.id} value={material.id}>{displayMaterial(material)}</SelectItem>)}</SelectContent></Select><Select value={action} onValueChange={(value) => changeAction(value as "resolve_existing" | "create_new" | "reject")} disabled={!canMutate}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="resolve_existing">Liên kết với NVL có sẵn</SelectItem><SelectItem value="create_new">Tạo NVL chuẩn mới</SelectItem><SelectItem value="reject">Không liên kết</SelectItem></SelectContent></Select><Textarea value={reason} onChange={(event) => setReason(event.target.value)} disabled={!canMutate} placeholder="Lý do xác nhận" className="md:col-span-3" />{action === "create_new" && <div className="grid gap-2 md:col-span-4 md:grid-cols-3"><Input value={createFields.material_code} onChange={(event) => setCreateFields((current) => ({ ...current, material_code: event.target.value }))} placeholder="Mã NVL mới (không bắt buộc)" disabled={!canMutate} /><Input value={createFields.canonical_name} onChange={(event) => setCreateFields((current) => ({ ...current, canonical_name: event.target.value }))} placeholder="Tên NVL chuẩn mới" disabled={!canMutate} /><Input value={createFields.default_unit} onChange={(event) => setCreateFields((current) => ({ ...current, default_unit: event.target.value }))} placeholder="Đơn vị chuẩn mới" disabled={!canMutate} /><Input value={createFields.category} onChange={(event) => setCreateFields((current) => ({ ...current, category: event.target.value }))} placeholder="Nhóm (không bắt buộc)" disabled={!canMutate} /><Input value={createFields.brand} onChange={(event) => setCreateFields((current) => ({ ...current, brand: event.target.value }))} placeholder="Thương hiệu (không bắt buộc)" disabled={!canMutate} /><Input value={createFields.specification} onChange={(event) => setCreateFields((current) => ({ ...current, specification: event.target.value }))} placeholder="Quy cách (không bắt buộc)" disabled={!canMutate} /></div>}<Button onClick={run} disabled={!valid || confirm.isPending}>{confirm.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Lưu xác nhận</Button></CardContent></Card>;
+  const run = async () => {
+    if (!valid || !selectedRequest || recoveryBlocked || !submitGate.current?.tryEnter()) return;
+    // Freeze the exact intended payload so an uncertain outcome is compared against
+    // what was actually submitted, not whatever is selected when the error returns.
+    const intended = { requestId, action, materialId, createFields: { ...createFields }, rawName: selectedRequest.raw_name, reason };
+    try {
+      if (intended.action === "reject") await confirm.mutateAsync({ request_id: intended.requestId, action: "reject", reason: intended.reason });
+      if (intended.action === "resolve_existing") await confirm.mutateAsync({ request_id: intended.requestId, action: "resolve_existing", material_id: intended.materialId, raw_alias: intended.rawName, reason: intended.reason });
+      if (intended.action === "create_new") await confirm.mutateAsync({ request_id: intended.requestId, action: "create_new", raw_alias: intended.rawName, create_payload: intended.createFields, reason: intended.reason });
+      toast({ title: "Đã lưu xác nhận", description: "Tên và đơn vị chuẩn sẽ được dùng lại khi chứng từ được xử lý." });
+      // Only clear the form when it still belongs to the request that was just
+      // saved; a newer selection must not be reset by an older save.
+      if (activeRequestId.current === intended.requestId) {
+        setReason("");
+        setMaterialId("");
+        setSuggestion(null);
+      }
+    } catch (error) {
+      // Uncertain outcome: read the durable request row. A failed read must block a
+      // blind repeat until the exact request has actually been re-read. The form
+      // stays frozen for the whole read so the selection/payload cannot drift.
+      setRecovering(true);
+      let row: ResolutionRequest | null = null;
+      let readFailed = false;
+      try {
+        const recovered = await requestStatus.refetch();
+        if (recovered.error) throw recovered.error;
+        row = recovered.data ?? null;
+      } catch {
+        readFailed = true;
+      } finally {
+        setRecovering(false);
+      }
+      const decision = classifyRecovery(row, intended, readFailed);
+      if (decision === "blocked") {
+        setRecoveryBlocked(true);
+        toast({ title: "Chưa đọc lại được kết quả đã lưu", description: "Hệ thống không lặp lại thao tác. Bấm “Đọc lại trạng thái dòng” khi kết nối ổn định.", variant: "destructive" });
+      } else if (decision === "already-done") {
+        toast({ title: "Dòng này đã có đúng kết quả đã lưu", description: "Hệ thống đọc lại trạng thái đã lưu và không ghi lặp." });
+        if (activeRequestId.current === intended.requestId) {
+          setReason("");
+          setMaterialId("");
+        }
+      } else if (decision === "needs-review") {
+        toast({ title: "Kết quả đã lưu cần rà soát", description: `Dòng đã có một NVL tạo trước đó (${row?.resolved_material_id ? "đã có ID" : "chưa rõ"}) nhưng chưa xác nhận đúng tên/đơn vị vừa gửi. Hệ thống không ghi đè; anh kiểm tra kết quả đã lưu.`, variant: "destructive" });
+      } else if (decision === "conflict") {
+        toast({ title: "Kết quả đã lưu xung đột với thao tác vừa gửi", description: `Dòng đang ở trạng thái ${row?.status || "không rõ"}; hệ thống không ghi đè. Anh kiểm tra lại trước khi thao tác.`, variant: "destructive" });
+      } else {
+        toast({ title: "Không thể lưu xác nhận", description: error instanceof Error ? error.message : "Hệ thống đã từ chối thao tác không hợp lệ.", variant: "destructive" });
+      }
+    } finally {
+      submitGate.current?.exit();
+    }
+  };
+
+  const rereadDurable = async () => {
+    setRecovering(true);
+    try {
+      const recovered = await requestStatus.refetch();
+      if (recovered.error || !recovered.data) throw recovered.error || new Error("Không có dữ liệu.");
+      setRecoveryBlocked(false);
+      toast({ title: "Đã đọc lại trạng thái dòng", description: recovered.data.status && recovered.data.status !== "pending" ? "Dòng đã có kết quả đã lưu." : "Dòng vẫn đang chờ xác nhận." });
+    } catch {
+      toast({ title: "Vẫn chưa đọc lại được trạng thái", description: "Tiếp tục chặn ghi lặp để tránh trùng kết quả.", variant: "destructive" });
+    } finally {
+      setRecovering(false);
+    }
+  };
+
+  return <Card data-bmq-material-learning-suggest>
+    <CardHeader><CardTitle>Chọn NVL để xác nhận NCC</CardTitle><CardDescription>Hệ thống có thể gợi ý nhưng không tự chọn. Anh kiểm tra rồi xác nhận NVL chuẩn cần liên kết.</CardDescription></CardHeader>
+    <CardContent className="grid gap-3 md:grid-cols-4">
+      <div className="grid gap-2 md:col-span-2">
+        <Select value={requestId} onValueChange={resetForRequest} disabled={!canMutate || frozen}><SelectTrigger><SelectValue placeholder="Chọn dòng cần xác nhận" /></SelectTrigger><SelectContent>{visibleRequests.map((request) => <SelectItem key={request.id} value={request.id}>{request.raw_name || request.raw_code || truncateId(request.id)} · {request.status}</SelectItem>)}</SelectContent></Select>
+        <p className="text-xs text-slate-600">Đang hiển thị {visibleRequests.length}/{requests.length} dòng chưa xác nhận.</p>
+        {recoveryBlocked && <div className="grid gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3" data-bmq-material-learning-recovery><p className="text-sm text-amber-800">Chưa đọc lại được kết quả đã lưu nên hệ thống đang chặn ghi lặp. Đọc lại đúng dòng này trước khi thao tác tiếp.</p><Button type="button" variant="outline" className="min-h-11 w-full sm:w-auto" onClick={rereadDurable}>Đọc lại trạng thái dòng</Button></div>}
+        {requests.length > visibleCount && <Button type="button" variant="outline" className="min-h-11 w-full sm:w-auto" onClick={() => setVisibleCount((current) => current + QUEUE_PAGE_SIZE)}>Tải thêm dòng chưa xác nhận</Button>}
+      </div>
+      <Select value={materialId} onValueChange={setMaterialId} disabled={!canMutate || frozen || action !== "resolve_existing"}><SelectTrigger><SelectValue placeholder="Chọn NVL chuẩn" /></SelectTrigger><SelectContent>{materials.map((material) => <SelectItem key={material.id} value={material.id}>{displayMaterial(material)}</SelectItem>)}</SelectContent></Select>
+      <Select value={action} onValueChange={(value) => changeAction(value as "resolve_existing" | "create_new" | "reject")} disabled={!canMutate || frozen}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="resolve_existing">Liên kết với NVL có sẵn</SelectItem><SelectItem value="create_new">Tạo NVL chuẩn mới</SelectItem><SelectItem value="reject">Không liên kết</SelectItem></SelectContent></Select>
+      <Textarea value={reason} onChange={(event) => setReason(event.target.value)} disabled={!canMutate || frozen} placeholder="Lý do xác nhận" className="md:col-span-4" />
+      {action === "create_new" && <div className="grid gap-2 md:col-span-4 md:grid-cols-3"><Input value={createFields.material_code} onChange={(event) => setCreateFields((current) => ({ ...current, material_code: event.target.value }))} placeholder="Mã NVL mới (không bắt buộc)" disabled={!canMutate || frozen} /><Input value={createFields.canonical_name} onChange={(event) => setCreateFields((current) => ({ ...current, canonical_name: event.target.value }))} placeholder="Tên NVL chuẩn" disabled={!canMutate || frozen} /><Input value={createFields.default_unit} onChange={(event) => setCreateFields((current) => ({ ...current, default_unit: event.target.value }))} placeholder="Đơn vị chuẩn" disabled={!canMutate || frozen} /></div>}
+      {canMutate && requestId && <div className="grid gap-2 md:col-span-4">
+        <Button type="button" variant="outline" className="min-h-11 w-full sm:w-auto" onClick={requestSuggestion} disabled={!canMutate || suggestionMutation.isPending || frozen}>{suggestionMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}Gợi ý NVL bằng AI</Button>
+        <p className="text-xs text-slate-600">Gợi ý chỉ để tham khảo, không tự lưu. Anh phải tự chọn NVL rồi bấm lưu xác nhận.</p>
+      </div>}
+      {suggestionMatchesSelection && suggestion && <div className="space-y-3 rounded-2xl border bg-slate-50 p-4 md:col-span-4" data-bmq-material-learning-suggestion-result>
+        <div className="flex flex-wrap items-center justify-between gap-2"><p className="break-words font-semibold">{suggestionOutcomeLabel(suggestion)}</p><Badge variant="outline" className="border-sky-200 bg-sky-50 text-sky-700">Cần anh xác nhận</Badge></div>
+        {suggestion.reason && <p className="break-words text-sm text-amber-700">Lý do: {suggestion.reason}</p>}
+        <p className="text-sm text-slate-600">Đã xét {suggestion.candidate_count}/{suggestion.total_candidate_count} NVL đang dùng{suggestion.shortlist_truncated ? " · danh sách ứng viên đã được giới hạn có báo rõ" : ""}.</p>
+        {suggestion.used_jev && <p className="text-sm text-slate-600">AI: {suggestion.jev?.attempted ? `đã gọi ${suggestion.jev?.model || "Jev"}` : "chưa gọi"}{suggestion.jev?.probability != null ? ` · độ tin cậy ${Math.round(suggestion.jev.probability * 100)}%` : ""}{suggestion.jev?.fallback ? ` · dự phòng: ${suggestion.jev.fallback}` : ""}. Độ tin cậy không phải sự thật và không tự duyệt.</p>}
+        {suggestion.candidates.length === 0 && <p className="text-sm text-slate-600">Không có ứng viên NVL đang dùng nào để chọn. Anh có thể tạo NVL chuẩn mới.</p>}
+        {suggestion.candidates.length > 0 && <div className="grid gap-2">
+          <Label>Ứng viên NVL đang dùng (kèm mã, thương hiệu, quy cách, đơn vị)</Label>
+          {suggestion.candidates.map((candidate) => {
+            const aiPick = suggestion.suggested_material_id === candidate.material_id;
+            const chosen = materialId === candidate.material_id;
+            return <div key={candidate.material_id} className={`flex min-w-0 flex-col gap-2 rounded-xl border bg-white p-3 sm:flex-row sm:items-center sm:justify-between ${chosen ? "border-emerald-300" : ""}`}>
+              <div className="min-w-0">
+                <p className="break-words font-medium">{candidate.canonical_name || candidate.material_code || candidate.material_id}</p>
+                <p className="break-words text-sm text-slate-600">{suggestionCandidateLabel(candidate)}</p>
+                <p className="break-words text-xs text-slate-500">Đơn vị chuẩn: {candidate.default_unit || "—"} · Thương hiệu: {candidate.brand || "—"} · Quy cách: {candidate.specification || "—"}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                {aiPick && <Badge className="bg-sky-100 text-sky-800 hover:bg-sky-100">AI đề xuất</Badge>}
+                <Button type="button" size="sm" variant={chosen ? "default" : "outline"} className="min-h-11" data-bmq-material-learning-choose-candidate onClick={() => chooseSuggestionCandidate(candidate)} disabled={!canMutate}>{chosen ? "Đã chọn" : "Chọn NVL này"}</Button>
+              </div>
+            </div>;
+          })}
+        </div>}
+        {(suggestion.evidence ?? []).length > 0 && <div className="space-y-1 rounded-xl border border-amber-200 bg-amber-50 p-3"><p className="text-sm font-medium text-amber-900">Tên gọi cũ/nguồn đã nhận diện — chỉ là bằng chứng, không tự duyệt</p>{(suggestion.evidence ?? []).map((entry) => <p key={`${entry.kind}-${entry.material_id}-${entry.source || ""}`} className="break-words text-xs text-amber-800">{entry.kind === "legacy_global_alias" ? "Tên gọi toàn cục cũ" : "Tên gọi theo nguồn"} · nguồn: {entry.source || "không rõ"} · NVL {truncateId(entry.material_id)} · {entry.approved === true ? "đã duyệt" : "chưa có cờ duyệt (không tự động xác nhận)"}</p>)}</div>}
+        <p className="text-xs text-slate-500">Bằng chứng chỉ gồm mã, tên, đơn vị, thương hiệu, quy cách NVL và tên nhà cung cấp; không gửi số tiền, liên hệ hay chứng từ cho AI.</p>
+      </div>}
+      <div className="md:col-span-4"><Button className="min-h-11 w-full sm:w-auto" onClick={run} disabled={!valid || confirm.isPending}>{confirm.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}Lưu xác nhận</Button></div>
+    </CardContent>
+  </Card>;
+}
+
+function MaterialCoveragePanel({ coverage }: { coverage: MaterialCoverage }) {
+  const missing = coverage.sections.filter((section) => !section.complete);
+  const summary = [
+    { label: "NVL chuẩn từ Giá vốn", value: coverage.materials_total },
+    { label: "Tổng danh mục NVL", value: coverage.materials_catalog_total },
+    { label: "Dòng công thức", value: coverage.formulations_total },
+    { label: "Công thức thiếu NVL chuẩn", value: coverage.formulations_missing_canonical },
+    { label: "Tên NCC đã duyệt", value: coverage.approved_scoped_aliases },
+    { label: "Sản phẩm NCC đã duyệt", value: coverage.approved_supplier_products },
+  ];
+  return <Card data-bmq-material-learning-coverage>
+    <CardHeader><CardTitle>Độ phủ danh mục NVL và tên nguồn chưa liên kết</CardTitle><CardDescription>Toàn bộ NVL, công thức, tên NCC và sản phẩm NCC được tải phân trang đầy đủ. Phần nào chưa tải đủ sẽ hiện rõ, không cắt im lặng.</CardDescription></CardHeader>
+    <CardContent className="space-y-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{summary.map((item) => <div key={item.label} className="min-w-0 rounded-2xl border bg-white p-4"><p className="break-words text-xs font-semibold uppercase text-slate-500">{item.label}</p><p className="mt-1 text-2xl font-bold">{item.value}</p></div>)}</div>
+      {(coverage.formulations_null_root > 0 || coverage.formulations_orphan_root > 0) && <p className="text-xs text-slate-600">Trong đó {coverage.formulations_missing_canonical} dòng thiếu NVL chuẩn: {coverage.formulations_null_root} dòng chưa có NVL chuẩn, {coverage.formulations_orphan_root} dòng trỏ tới NVL chuẩn không còn tồn tại.</p>}
+      {!coverage.complete && <Alert variant="destructive"><AlertTriangle className="h-4 w-4" /><AlertTitle>Độ phủ chưa đầy đủ</AlertTitle><AlertDescription>{coverage.truncated ? "Có phần vượt giới hạn trang an toàn nên chưa thể xác nhận đầy đủ. " : ""}{missing.length > 0 ? `${missing.map((section) => sectionErrorLabels[section.key] || "Thông tin liên kết").join(", ")}: Không tải được dữ liệu` : "Một số phần chưa tải đủ."}</AlertDescription></Alert>}
+      <div>
+        <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-semibold">Tên nguồn chưa liên kết NVL ({coverage.unresolved_total})</h3><p className="text-xs text-slate-500">Ưu tiên rà soát theo tổng giá trị dòng Duyệt chi + Hoá đơn (có thể trùng nhau) — không phải chi phí thực tế.</p></div>
+        {coverage.unresolved.length === 0
+          ? (coverage.complete
+            ? <p className="mt-2 text-sm text-slate-500">Không có tên hàng chưa liên kết NVL.</p>
+            : <p className="mt-2 text-sm text-amber-700">Chưa thể kết luận không còn tên chưa liên kết vì một phần nguồn chưa tải đủ.</p>)
+          : <div className="mt-2 space-y-2">{coverage.unresolved.map((row, index) => <div key={`${row.variants[0] || row.display_name}-${index}`} className="flex min-w-0 flex-col gap-1 rounded-xl bg-slate-50 p-3 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><p className="break-words font-medium">{row.display_name}</p>{row.variants.length > 1 && <p className="break-words text-xs text-slate-600">Biến thể giữ nguyên: {row.variants.join(" · ")}</p>}<p className="break-words text-xs text-slate-500">{row.source_labels.join(" · ")} · {row.supplier_labels.join(" · ")}{row.latest_at ? ` · mới nhất ${row.latest_at}` : ""}</p></div><p className="text-sm text-slate-700">{row.occurrence_count} dòng · {formatVnd(row.total_value)}đ</p></div>)}</div>}
+        {coverage.unresolved_total > coverage.unresolved.length && <p className="mt-2 text-sm text-amber-700">Đang hiển thị {coverage.unresolved.length}/{coverage.unresolved_total} tên; phần còn lại chưa hiển thị nhưng đã được đếm đầy đủ.</p>}
+      </div>
+    </CardContent>
+  </Card>;
 }
 
 const jsonSummary = (value: Record<string, unknown> | null | undefined) => {
@@ -490,7 +688,7 @@ const jsonSummary = (value: Record<string, unknown> | null | undefined) => {
 };
 
 export default function MaterialMasterAdmin() {
-  const { canAccessModule, canEditModule } = useAuth();
+  const { canAccessModule, canEditModule, user } = useAuth();
   const canView = canAccessModule("material_master");
   const canEdit = canEditModule("material_master");
   const canMutate = canEdit;
@@ -562,7 +760,6 @@ export default function MaterialMasterAdmin() {
 
         {!canEdit && <Alert><ShieldCheck className="h-4 w-4" /><AlertTitle>Chế độ chỉ xem</AlertTitle><AlertDescription>Anh có thể xem các liên kết nhưng cần quyền chỉnh sửa để đổi tên, đơn vị hoặc xác nhận liên kết.</AlertDescription></Alert>}
         {error && <Alert variant="destructive"><XCircle className="h-4 w-4" /><AlertTitle>Không tải được danh mục NVL</AlertTitle><AlertDescription>Vui lòng tải lại trang. Nếu vẫn lỗi, báo quản trị hệ thống.</AlertDescription></Alert>}
-        {data?.sectionErrors && Object.keys(data.sectionErrors).length > 0 && <Alert variant="destructive"><XCircle className="h-4 w-4" /><AlertTitle>Một số thông tin liên kết chưa tải được</AlertTitle><AlertDescription>{Object.keys(data.sectionErrors).map((section) => `${sectionErrorLabels[section] || "Thông tin liên kết"}: Không tải được dữ liệu`).join(" | ")}</AlertDescription></Alert>}
         {isLoading && <LoadingState />}
 
         {!isLoading && !error && <>
@@ -578,6 +775,8 @@ export default function MaterialMasterAdmin() {
               {selected && <p className="mt-2 break-words text-sm text-slate-600">Đang chọn: <span className="font-medium text-slate-900">{displayMaterial(selected)}</span></p>}
             </CardContent>
           </Card>
+
+          <MaterialCoveragePanel coverage={data.coverage} />
 
           <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
             <TabsList className="grid h-auto w-full grid-cols-2 gap-1 rounded-2xl bg-white p-1 shadow-sm md:grid-cols-5" data-bmq-material-master-business-tabs>
@@ -632,7 +831,7 @@ export default function MaterialMasterAdmin() {
 
             <TabsContent value="queue" className="space-y-4" data-bmq-material-master-resolution-queue>
               <Card><CardContent className="pt-6"><div className="grid gap-2 sm:grid-cols-[220px_1fr] sm:items-center"><Label>Lọc theo nơi sử dụng</Label><Select value={sourceFilter} onValueChange={setSourceFilter}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Tất cả</SelectItem><SelectItem value="product_skus">Giá vốn</SelectItem><SelectItem value="payment_request">Duyệt chi</SelectItem><SelectItem value="kitchen_inventory">Kho NVL Q7</SelectItem></SelectContent></Select></div></CardContent></Card>
-              <QueueActions requests={queueRequests} materials={materials} canMutate={canMutate} />
+              <QueueActions key={user?.id ?? "anonymous"} requests={queueRequests} materials={materials} canMutate={canMutate} />
               <ReconciliationQueue canMutate={canMutate} sourceFilter={sourceFilter} />
             </TabsContent>
           </Tabs>

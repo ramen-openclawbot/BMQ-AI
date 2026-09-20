@@ -32,6 +32,14 @@ Hard rules (matching the approved acceptance criteria):
 - Unknown/orphan/mismatched rows fail closed (``RuntimeError``) instead of being
   silently dropped. Owner only, fixed parameterized reads, no writes, no SQL text
   from the caller, no PII.
+- Item identity may also be resolved read-only through an **approved, active,
+  supplier-scoped alias** or **approved, active supplier product** whose exact
+  canonical target is unique. Unapproved or inactive rows, a wrong-supplier row,
+  and any term that maps to more than one canonical material stay unresolved, so a
+  group term (for example ``bơ``) never collapses onto one SKU and ``BỘ PEERLESS``
+  is never equated to ``bơ``. Legacy unapproved global aliases are never treated
+  as approved. This is a read-only projection: the raw source line and its
+  ambiguity are preserved and no ledger row is backfilled.
 """
 from __future__ import annotations
 
@@ -45,7 +53,7 @@ import unicodedata
 
 from .supabase_sync import PAYMENT_PROJECTION_FIELDS, TENANT, VERSION as SYNC_VERSION
 
-VERSION = 'bmq-supplier-payment-v1'
+VERSION = 'bmq-supplier-payment-v2'
 STALE_SECONDS = 1800
 MAX_LIMIT = 50
 DEFAULT_LIMIT = 20
@@ -55,9 +63,11 @@ MAX_UNRESOLVED_ITEMS = 10
 REQUIRED_TABLES = (
     'payments', 'payment_allocations', 'payment_requests',
     'payment_request_items', 'suppliers', 'sku_cogs_materials',
+    'material_scoped_aliases', 'material_supplier_products',
 )
 SOURCE = ('Supabase.payments + payment_allocations + payment_requests '
-          '+ payment_request_items + suppliers + sku_cogs_materials')
+          '+ payment_request_items + suppliers + sku_cogs_materials '
+          '+ material_scoped_aliases + material_supplier_products')
 
 QUESTIONS = {
     'supplier_payments': {
@@ -70,7 +80,9 @@ QUESTIONS = {
             'Vietnam calendar month, optionally narrowed to one exactly-resolved supplier and one item. '
             'The supplier total counts each payment once (a multi-supplier payment only through its '
             'allocation to this supplier). Any item amount is published only when every allocation in '
-            'scope belongs to a request whose items all resolve to that item; mixed, partial or '
+            'scope belongs to a request whose items all resolve to that item; items without a canonical '
+            'id may resolve read-only through an approved active supplier-scoped alias or supplier '
+            'product only when that mapping is exact and unique. Mixed, partial, ambiguous or '
             'unresolved-canonical allocations make the item amount explicitly unavailable rather than a '
             'proportional or full-payment guess. Not an audited statement, not supplier debt, and not '
             'a customer receipt.'),
@@ -102,6 +114,82 @@ def _norm(value):
     text = unicodedata.normalize('NFD', text)
     text = ''.join(ch for ch in text if not unicodedata.combining(ch))
     return ' '.join(text.casefold().split())
+
+
+def _material_norm(value):
+    """Mirror of public.material_master_normalize for stored columns.
+
+    The controller stores ``normalized_alias``/``normalized_supplier_product_name``
+    using ``normalize_ocr_cost_key`` (translate, lower, replace non ``[a-z0-9\\s]``
+    with a space, collapse, trim). Comparing a raw term against those columns needs
+    the same punctuation handling, not just diacritic/case folding.
+    """
+    folded = re.sub(r'[^a-z0-9\s]', ' ', _norm(value))
+    return ' '.join(folded.split())
+
+
+# Shape marks keep the vowel identity (circumflex ``ô``, breve ``ă``, horn ``ơ``)
+# while tone marks (grave, acute, tilde, hook, dot-below) are dropped. Folding all
+# diacritics makes ``BỘ`` and ``BƠ`` both ``bo``; the shape key keeps them distinct
+# so accent folding alone can never claim an exact canonical match.
+_SHAPE_MARKS = frozenset('\u0302\u0306\u031b')
+
+
+def _shape(value):
+    text = str(value if value is not None else '').replace('đ', 'd').replace('Đ', 'D')
+    text = unicodedata.normalize('NFD', text)
+    text = ''.join(ch for ch in text
+                   if not unicodedata.combining(ch) or ch in _SHAPE_MARKS)
+    return ' '.join(text.casefold().split())
+
+
+def _canonical_name_matches(name, key, shape):
+    """Exact canonical-name equality: folded key AND shape-preserving key.
+
+    A raw ASCII term may still match a stored ``normalized_name`` only when its own
+    shape is also plain ASCII; an accented raw term must keep the same shape as the
+    canonical name it claims, so ``BỘ PEERLESS`` never becomes ``BƠ PEERLESS``.
+    """
+    return bool(name) and _norm(name) == key and _shape(name) == shape
+
+
+class _ApprovedMappings:
+    """Approved+active supplier-scoped aliases and supplier products only.
+
+    A row is usable only when it is explicitly ``approved`` and ``active`` and has a
+    supplier. Legacy ``sku_cogs_material_aliases`` rows carry no approval flag and are
+    never consulted here, so an unapproved legacy alias is never treated as approved.
+    """
+
+    def __init__(self, aliases, products):
+        self.aliases = {}
+        self.products = {}
+        for row in aliases:
+            if row.get('approved') is not True or row.get('active') is not True:
+                continue
+            supplier_id = row.get('supplier_id')
+            material_id = row.get('material_id')
+            key = row.get('normalized_alias') or _material_norm(row.get('alias_name'))
+            if not supplier_id or not material_id or not key:
+                continue
+            self.aliases.setdefault((supplier_id, key), set()).add(material_id)
+        for row in products:
+            if row.get('approved') is not True or row.get('active') is not True:
+                continue
+            supplier_id = row.get('supplier_id')
+            material_id = row.get('material_id')
+            key = (row.get('normalized_supplier_product_name')
+                   or _material_norm(row.get('supplier_product_name')))
+            if not supplier_id or not material_id or not key:
+                continue
+            self.products.setdefault((supplier_id, key), set()).add(material_id)
+
+    def match(self, supplier_id, normalized_name):
+        """Return the distinct canonical targets for one supplier-scoped term."""
+        if not supplier_id or not normalized_name:
+            return set(), set()
+        return (set(self.aliases.get((supplier_id, normalized_name), ())),
+                set(self.products.get((supplier_id, normalized_name), ())))
 
 
 def _month(value, field='month'):
@@ -213,16 +301,75 @@ def _resolve_supplier(suppliers, term):
     return None, 'not_found', []
 
 
-def _resolve_item(materials, items, term):
-    """Resolve to one canonical material, else one exact request product name."""
+def _resolve_item(materials, items, term, approved=None, supplier_id=None):
+    """Resolve to one canonical material, else one exact request product name.
+
+    Precedence is deterministic: exact canonical code/name, then an evidenced
+    single-member canonical category, then an approved active supplier-scoped alias
+    or supplier product, then an exact request product name. A term that evidences a
+    multi-member canonical category (a group term such as ``bơ``) or that approved
+    mappings send to different canonical materials is ambiguous, never guessed.
+    """
     key = _norm(term)
-    matches = [m for m in materials
-               if key in {_norm(m.get('material_code')), _norm(m.get('canonical_name')), _norm(m.get('normalized_name'))}]
-    if len(matches) == 1 and key:
-        return {'mode': 'material', 'material': matches[0], 'product_name': None, 'status': 'resolved', 'candidates': []}
-    if len(matches) > 1:
+    mat_key = _material_norm(term)
+    shape = _shape(term)
+    # Canonical identity is an exact code or an exact canonical/normalized name
+    # whose shape is preserved. A code and a name that point at different canonical
+    # ids are a disagreement, never a silent code-wins pick.
+    code_matches = [m for m in materials if key and _norm(m.get('material_code')) == key]
+    name_matches = [m for m in materials
+                    if _canonical_name_matches(m.get('canonical_name'), key, shape)
+                    or _canonical_name_matches(m.get('normalized_name'), key, shape)]
+    combined = {m.get('id') for m in code_matches} | {m.get('id') for m in name_matches}
+    if len(combined) > 1:
+        source = 'canonical_code_name_conflict' if (code_matches and name_matches) else 'canonical_name_conflict'
         return {'mode': None, 'material': None, 'product_name': None, 'status': 'ambiguous',
-                'candidates': [m.get('canonical_name') or m.get('material_code') for m in matches[:MAX_CANDIDATES]]}
+                'source': source,
+                'candidates': [m.get('canonical_name') or m.get('material_code')
+                               for m in (code_matches + name_matches)[:MAX_CANDIDATES]]}
+    canonical = (code_matches or name_matches or [None])[0]
+    primary_source = 'material_code' if code_matches else ('canonical_name' if name_matches else None)
+
+    category_matches = [m for m in materials if key and m.get('category') and _norm(m.get('category')) == key]
+    if canonical is None and category_matches:
+        # A group term must never collapse onto one SKU, neither through a
+        # single-member category nor through an alias that happens to spell the
+        # group word. Even one category member is a group, so it stays ambiguous.
+        return {'mode': None, 'material': None, 'product_name': None, 'status': 'ambiguous',
+                'source': 'canonical_category_group',
+                'candidates': [m.get('canonical_name') or m.get('material_code') for m in category_matches[:MAX_CANDIDATES]]}
+
+    scoped = scoped_source = None
+    if approved is not None and supplier_id and mat_key:
+        alias_ids, product_ids = approved.match(supplier_id, mat_key)
+        union = alias_ids | product_ids
+        if len(union) > 1:
+            # The conflict is checked before any orphan/inactive filtering: a target
+            # that no longer exists must not be silently erased so the other wins.
+            return {'mode': None, 'material': None, 'product_name': None, 'status': 'ambiguous',
+                    'source': 'approved_supplier_mapping_conflict',
+                    'candidates': sorted(m.get('canonical_name') or m.get('material_code')
+                                         for m in materials if m.get('id') in union)[:MAX_CANDIDATES]}
+        if len(union) == 1:
+            target = next((m for m in materials if m.get('id') == next(iter(union))), None)
+            # An inactive or orphan canonical target cannot newly resolve through an
+            # alias; the raw line stays unresolved rather than being promoted.
+            if target is not None and target.get('active') is True:
+                scoped = target
+                scoped_source = 'approved_supplier_alias' if alias_ids else 'approved_supplier_product'
+
+    if canonical is not None and scoped is not None and scoped.get('id') != canonical.get('id'):
+        return {'mode': None, 'material': None, 'product_name': None, 'status': 'ambiguous',
+                'source': 'canonical_scoped_conflict',
+                'candidates': sorted({canonical.get('canonical_name') or canonical.get('material_code'),
+                                      scoped.get('canonical_name') or scoped.get('material_code')})}
+    if canonical is not None:
+        return {'mode': 'material', 'material': canonical, 'product_name': None,
+                'status': 'resolved', 'source': primary_source, 'candidates': []}
+    if scoped is not None:
+        return {'mode': 'material', 'material': scoped, 'product_name': None,
+                'status': 'resolved', 'source': scoped_source, 'candidates': []}
+
     products = []
     for item in items:
         for name in (item.get('product_name'), item.get('raw_product_name')):
@@ -230,16 +377,50 @@ def _resolve_item(materials, items, term):
                 products.append(name)
     products = sorted(set(products))
     if len(products) == 1:
-        return {'mode': 'product', 'material': None, 'product_name': products[0], 'status': 'resolved', 'candidates': []}
+        return {'mode': 'product', 'material': None, 'product_name': products[0],
+                'status': 'resolved', 'source': 'request_product_name', 'candidates': []}
     if len(products) > 1:
         return {'mode': None, 'material': None, 'product_name': None, 'status': 'ambiguous',
-                'candidates': products[:MAX_CANDIDATES]}
-    return {'mode': None, 'material': None, 'product_name': None, 'status': 'not_found', 'candidates': []}
+                'source': 'request_product_name_conflict', 'candidates': products[:MAX_CANDIDATES]}
+    return {'mode': None, 'material': None, 'product_name': None, 'status': 'not_found',
+            'source': None, 'candidates': []}
 
 
-def _item_material_id(item, material_ids):
-    value = item.get('canonical_material_id')
-    return value if value and value in material_ids else None
+def _effective_item_material(item, supplier_id, material_ids, approved, active_ids=None):
+    """Canonical id for one raw source line, preserving raw proof and ambiguity.
+
+    The stored ``canonical_material_id`` wins when it still exists. A non-null but
+    orphan stored id is never replaced through an alias: the line stays unresolved
+    and fails closed. Otherwise a unique approved active supplier-scoped alias or
+    supplier product may resolve the line read-only. A name that maps to more than
+    one canonical target stays unresolved (a conflict is reported, never guessed)
+    and no ledger row is written. Inactive or orphan alias targets never resolve.
+    """
+    raw_stored = item.get('canonical_material_id')
+    if raw_stored:
+        if raw_stored in material_ids:
+            return raw_stored, 'canonical_material_id'
+        # Orphan historical identity: explicit, so never silently replaced by alias.
+        return None, None
+    if not supplier_id:
+        return None, None
+    names = {_material_norm(item.get('product_name')), _material_norm(item.get('raw_product_name'))}
+    names.discard('')
+    union, alias_hit = set(), False
+    for name in names:
+        alias_ids, product_ids = approved.match(supplier_id, name)
+        union |= (alias_ids | product_ids)
+        alias_hit = alias_hit or bool(alias_ids)
+    if len(union) > 1:
+        return None, 'approved_supplier_mapping_conflict'
+    if len(union) == 1:
+        target = next(iter(union))
+        if target not in material_ids:
+            return None, None
+        if active_ids is not None and target not in active_ids:
+            return None, None
+        return target, 'approved_supplier_alias' if alias_hit else 'approved_supplier_product'
+    return None, None
 
 
 def _item_product_key(item):
@@ -254,10 +435,20 @@ def _answer(con, request, latest, now):
     suppliers = _index(_source(con, TENANT, 'suppliers'), 'supplier')
     materials = _index(_source(con, TENANT, 'sku_cogs_materials'), 'canonical material')
     material_ids = set(materials)
+    active_material_ids = {mid for mid, material in materials.items() if material.get('active') is True}
     requests = _index(_source(con, TENANT, 'payment_requests'), 'payment request')
     items = _index(_source(con, TENANT, 'payment_request_items'), 'payment request item')
     payments = _index(_source(con, TENANT, 'payments'), 'payment')
     allocations = _index(_source(con, TENANT, 'payment_allocations'), 'payment allocation')
+    approved = _ApprovedMappings(
+        _source(con, TENANT, 'material_scoped_aliases'),
+        _source(con, TENANT, 'material_supplier_products'),
+    )
+
+    def effective_item_material(item):
+        linked_request = requests.get(item.get('payment_request_id'))
+        supplier_id = linked_request.get('supplier_id') if linked_request else None
+        return _effective_item_material(item, supplier_id, material_ids, approved, active_material_ids)
 
     items_by_request = {}
     for item in items.values():
@@ -411,7 +602,7 @@ def _answer(con, request, latest, now):
                 scope_request_ids.add(request_id)
     scope_items = [item for request_id in scope_request_ids for item in items_by_request.get(request_id, [])]
 
-    unresolved = [item for item in scope_items if _item_material_id(item, material_ids) is None]
+    unresolved = [item for item in scope_items if effective_item_material(item)[0] is None]
     result['unresolved_item_count'] = len(unresolved)
     result['candidate_items'] = sorted({item.get('product_name') or item.get('raw_product_name') or ''
                                         for item in unresolved})[:MAX_UNRESOLVED_ITEMS]
@@ -424,8 +615,10 @@ def _answer(con, request, latest, now):
         result['unresolved_allocation_count'] = 0
         return result
 
-    resolved = _resolve_item(materials.values(), items.values(), request['item'])
+    resolved = _resolve_item(materials.values(), items.values(), request['item'], approved,
+                             supplier['id'] if supplier else None)
     result['item'] = {'term': request['item'], 'mode': resolved['mode'],
+                      'source': resolved['source'],
                       'product_name': resolved['product_name'],
                       'material': ({'id': resolved['material'].get('id'),
                                     'material_code': resolved['material'].get('material_code'),
@@ -453,7 +646,7 @@ def _answer(con, request, latest, now):
             matched = exclusive = False
             others_resolved = unresolved_here = False
             for item in request_items:
-                item_material = _item_material_id(item, material_ids)
+                item_material, _item_source = effective_item_material(item)
                 item_product = _item_product_key(item)
                 if mode == 'material':
                     if item_material == material_id:

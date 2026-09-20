@@ -77,7 +77,10 @@ def test_browser_hook_reads_real_supplier_and_cogs_links_and_uses_only_rpcs_for_
     assert "product_skus!sku_formulations_sku_id_fkey(sku_code, product_name, sku_type)" in hook
     assert '{ column: "sku_type", value: "finished_good" }' in hook
     assert '{ column: "product_skus.sku_type", value: "finished_good" }' in hook
-    assert ".range(from, from + pageSize - 1)" in hook
+    # Full pagination advances by the rows actually returned (server caps) instead
+    # of trusting the requested page size, and never silently drops a short tail.
+    assert ".range(offset, offset + pageSize - 1)" in hook
+    assert "offset += pageRows.length" in hook
     assert 'db.rpc("link_material_supplier"' in hook
     assert 'db.rpc("link_material_to_sku_cogs"' in hook
     assert '.from("material_supplier_products").insert' not in hook

@@ -52,6 +52,15 @@ PAYMENT_PROJECTION_FIELDS = {
                               'canonical_material_id', 'line_total', 'quantity', 'unit_price'),
     'suppliers': ('name', 'short_code'),
     'sku_cogs_materials': ('material_code', 'canonical_name', 'normalized_name', 'active'),
+    # Only approved+active supplier-scoped aliases and approved+active supplier
+    # products may resolve a raw item line read-only. A snapshot without these
+    # columns must fail closed instead of falling back to an unapproved legacy
+    # global alias (which carries no approval flag at all).
+    'material_scoped_aliases': ('material_id', 'supplier_id', 'source_type', 'alias_name',
+                                'normalized_alias', 'approved', 'active'),
+    'material_supplier_products': ('material_id', 'supplier_id', 'supplier_product_name',
+                                   'normalized_supplier_product_name', 'purchase_unit',
+                                   'base_quantity', 'base_unit', 'approved', 'active'),
 }
 # Explicit field projections: no auth/OTP/session tokens, contact snapshots,
 # arbitrary JSON, signed document URLs, bank data or staff phone/salary.
