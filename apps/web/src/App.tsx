@@ -1,13 +1,10 @@
 import { RecoveryScreen } from "@/components/RecoveryScreen";
 import KioskReportPortal from "@/pages/KioskReportPortal";
-import { isEnglishAdminSurface } from "@/lib/adminHostLanguage";
+import { isEnglishAdminSurface, isVnagentAdminHostname } from "@/lib/adminHostLanguage";
 import AppInner from "./AppInner";
 
 const DEALER_ORDERING_HOST = "dathang.banhmique.vn";
 const KIOSK_REPORT_HOST = "baocao.banhmique.vn";
-// Future owner-only data-assets admin host. The host renders the same SPA; the
-// route tree in AppRoutes forces the owner-only data admin for this hostname.
-const VNAGENT_ADMIN_HOST = "admin.vnagent.ai";
 const ADMIN_APP_TITLE = "BMQ AI Quản Trị";
 const DEALER_APP_TITLE = "BMQ Đặt Hàng";
 const VNAGENT_ADMIN_TITLE = "VNAgent · Data Admin";
@@ -23,7 +20,10 @@ function applyHostDocumentTitle(): void {
     return;
   }
 
-  if (window.location.hostname === VNAGENT_ADMIN_HOST) {
+  // Owner-only data-assets admin host (admin.banhmique.vn, alias
+  // admin.vnagent.ai). The host renders the same SPA; the route tree in
+  // AppRoutes forces the owner-only data admin for this hostname.
+  if (isVnagentAdminHostname(window.location.hostname)) {
     document.title = VNAGENT_ADMIN_TITLE;
     return;
   }
@@ -31,8 +31,9 @@ function applyHostDocumentTitle(): void {
   document.title = ADMIN_APP_TITLE;
 }
 
-// The owner-only admin surface (admin.vnagent.ai host or /data-admin route) is
-// English; every other BMQ host keeps the document's default Vietnamese lang.
+// The owner-only admin surface (admin.banhmique.vn / alias admin.vnagent.ai, or
+// the /data-admin route) is English; every other BMQ host keeps the document's
+// default Vietnamese lang.
 function applyHostDocumentLanguage(): void {
   if (isEnglishAdminSurface()) {
     document.documentElement.lang = "en";

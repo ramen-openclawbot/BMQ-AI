@@ -1,22 +1,30 @@
 /**
  * Language surface for the VNAgent data admin.
  *
- * The owner-only dataset admin is exposed on the `admin.vnagent.ai` hostname and,
- * for local/staging checks, on the `/data-admin` route of any host. On that
- * surface the shared auth, auth-timeout and session-recovery chrome must read as
- * natural English. Every other BMQ host keeps the exact existing Vietnamese copy.
+ * The owner-only dataset admin is exposed on `admin.banhmique.vn` (primary,
+ * approved 2026-09-20) and, kept as a supported alias for existing links and
+ * bookmarks, on `admin.vnagent.ai`. For local/staging checks it is also reachable
+ * on the `/data-admin` route of any host. On that surface the shared auth,
+ * auth-timeout and session-recovery chrome must read as natural English. Every
+ * other BMQ host keeps the exact existing Vietnamese copy.
  *
  * This module is intentionally dependency-free (no React, no Supabase) so it can
  * run before React mounts and stay trivially unit-testable.
  */
 
+/** Primary owner-only admin host. */
+export const ADMIN_PRIMARY_HOST = "admin.banhmique.vn";
+/** Supported alias for the owner-only admin host (pre-existing links/bookmarks). */
 export const VNAGENT_ADMIN_HOST = "admin.vnagent.ai";
 export const DATA_ADMIN_PATH = "/data-admin";
+
+/** Exact allow-list. Never a suffix/prefix match, so lookalike hosts stay out. */
+export const ADMIN_HOSTS: readonly string[] = [ADMIN_PRIMARY_HOST, VNAGENT_ADMIN_HOST];
 
 export type AdminSurfaceLanguage = "en" | "vi";
 
 export function isVnagentAdminHostname(hostname: string): boolean {
-  return hostname === VNAGENT_ADMIN_HOST;
+  return ADMIN_HOSTS.includes(hostname);
 }
 
 export function isDataAdminPathname(pathname: string): boolean {

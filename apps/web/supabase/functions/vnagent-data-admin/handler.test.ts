@@ -212,6 +212,33 @@ test("disabled feature and disallowed origin fail closed", async () => {
   assert.equal((await badOrigin.json()).code, "origin_forbidden");
 });
 
+test("CORS allows the exact admin hosts and rejects suffix/lookalike and foreign origins", async () => {
+  const { store } = harness();
+  const handler = createDataAdminHandler(configFor({}, store));
+
+  for (const origin of ["https://admin.banhmique.vn", "https://admin.vnagent.ai", "https://ai.banhmique.vn"]) {
+    const response = await handler(post({ action: "overview" }, { origin }));
+    assert.equal(response.status, 200, `allowed origin rejected: ${origin}`);
+    assert.equal(response.headers.get("access-control-allow-origin"), origin);
+  }
+
+  for (const origin of [
+    "https://admin.banhmique.vn.evil.test",
+    "https://admin.banhmique.vn:443",
+    "https://sub.admin.banhmique.vn",
+    "https://evil-admin.banhmique.vn",
+    "https://admin.banhmique.com",
+    "http://admin.banhmique.vn",
+    "https://admin.vnagent.ai.evil.test",
+    "https://evil.example",
+  ]) {
+    const response = await handler(post({ action: "overview" }, { origin }));
+    assert.equal(response.status, 403, `origin should be forbidden: ${origin}`);
+    assert.equal((await response.json()).code, "origin_forbidden");
+    assert.equal(response.headers.get("access-control-allow-origin"), null, `no CORS echo for: ${origin}`);
+  }
+});
+
 test("stale optimistic version returns a conflict instead of overwriting", async () => {
   const { store } = harness([makeAsset({ version: 2 })]);
   const handler = createDataAdminHandler(configFor({}, store));

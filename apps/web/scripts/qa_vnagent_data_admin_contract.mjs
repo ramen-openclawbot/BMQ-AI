@@ -40,14 +40,16 @@ const dataAssets = read("supabase/functions/vnagent-data-admin/data-assets.ts");
 const clientDataAssets = read("src/lib/dataAssets.ts");
 const handler = read("supabase/functions/vnagent-data-admin/handler.ts");
 const store = read("supabase/functions/vnagent-data-admin/store.ts");
+const hostLanguage = read("src/lib/adminHostLanguage.ts");
 
-check("admin host is handled in App.tsx", app.includes('VNAGENT_ADMIN_HOST = "admin.vnagent.ai"'));
+check("admin host is handled in App.tsx via the shared exact predicate", app.includes("isVnagentAdminHostname") && !app.includes('"admin.vnagent.ai"'));
 check("admin host sets a document title", app.includes("VNAGENT_ADMIN_TITLE"));
-check("admin host route tree enforces sign-in", routes.includes("VNAGENT_ADMIN_HOST") && routes.includes("ProtectedRoute"));
+check("shared predicate pins the primary host and keeps the alias", hostLanguage.includes('ADMIN_PRIMARY_HOST = "admin.banhmique.vn"') && hostLanguage.includes('VNAGENT_ADMIN_HOST = "admin.vnagent.ai"') && hostLanguage.includes("ADMIN_HOSTS.includes(hostname)"));
+check("admin host route tree enforces sign-in", routes.includes("isVnagentAdminHostname") && routes.includes("ProtectedRoute"));
 // The admin branch must NOT use the shared OwnerRoute: it redirects to "/", and
 // on the admin host "/" re-enters the same "*" branch, so a denied non-owner
 // would loop on a blank screen instead of seeing the page's English denial.
-const adminBranchStart = routes.indexOf("isVnagentAdminHost() || dataAdminPath");
+const adminBranchStart = routes.indexOf("isVnagentAdminHostname(window.location.hostname) || dataAdminPath");
 const adminBranchEnd = routes.indexOf("if (loading) {", adminBranchStart);
 const adminBranch = adminBranchStart >= 0 && adminBranchEnd > adminBranchStart ? routes.slice(adminBranchStart, adminBranchEnd) : "";
 check("admin route branch does not use the redirecting shared OwnerRoute", adminBranch.length > 0 && !adminBranch.includes("OwnerRoute"));
@@ -122,6 +124,7 @@ check("export applies date predicates in SQL before the limit", store.includes("
 check("export truncation uses the filtered total", dataAssets.includes("total > filters.limit"));
 check("contribution dedupe includes the expected scope", dataAssets.includes("canonicalJson") && /dedupeKey\([\s\S]*expectedIntent/.test(dataAssets));
 check("uncertain mutation failures lock retry until reconciliation", read("src/lib/dataAssetsApi.ts").includes("isUncertainMutationStatus") && read("src/components/data-admin/ContributionsPanel.tsx").includes("data-da-reconcile") && read("src/components/data-admin/ContributionsPanel.tsx").includes("disabled={busy || uncertain !== null}"));
+check("CORS allow-list pins the exact admin hosts and exact-matches the origin", handler.includes('"https://admin.banhmique.vn"') && handler.includes('"https://admin.vnagent.ai"') && handler.includes("origins.has(origin)"));
 check("manual form cannot submit operational_chat", dataAssets.includes('enumValue(raw.source_kind, ["contributor", "synthetic"]'));
 check("no model-training promise in admin copy", !/train(ing)? (the )?model/i.test(page + shell + read("src/components/data-admin/ContributionsPanel.tsx") + read("src/components/data-admin/ExportPanel.tsx")));
 

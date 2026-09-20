@@ -1,4 +1,5 @@
-// Owner-only HTTP shell for the VNAgent data-assets admin (future admin.vnagent.ai).
+// Owner-only HTTP shell for the VNAgent data-assets admin (admin.banhmique.vn;
+// alias admin.vnagent.ai).
 //
 // It authenticates the caller, verifies the owner role server-side, enforces a
 // body/time budget and a small per-user rate limit, then delegates to a store
@@ -64,6 +65,7 @@ export interface DataAdminConfig {
 }
 
 const origins = new Set([
+  "https://admin.banhmique.vn",
   "https://ai.banhmique.vn",
   "https://admin.vnagent.ai",
   "http://localhost:5173",

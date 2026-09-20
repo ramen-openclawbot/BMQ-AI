@@ -1,14 +1,16 @@
 # vnagent-data-admin
 
 Owner-only HTTP endpoint behind the VNAgent data-assets admin page
-(`/data-admin` on BMQ hosts, future `admin.vnagent.ai`).
+(`/data-admin` on BMQ hosts; `admin.banhmique.vn` primary, `admin.vnagent.ai`
+alias).
 
 - Feature flag: `VNAGENT_DATA_ADMIN_ENABLED === "true"` (default off, fails closed).
 - Auth: caller bearer token is verified, then `user_roles` is read under the
   caller's own RLS; the `owner` role is required. The handler re-checks the role.
 - No service-role client: dataset reads/writes use the caller-scoped Supabase
   client, so RLS (owner-only) is the final authority.
-- CORS allow-list: `ai.banhmique.vn`, `admin.vnagent.ai`, local dev origins.
+- CORS allow-list (exact match, no suffix/prefix): `admin.banhmique.vn`,
+  `admin.vnagent.ai`, `ai.banhmique.vn`, local dev origins.
 - Language: **English by default**. With no `language` body field and no
   Vietnamese `Accept-Language`, error messages are English. A caller can still
   opt into Vietnamese with `language: "vi"` or `Accept-Language: vi`. The

@@ -6,7 +6,7 @@ import { OwnerRoute } from "@/components/OwnerRoute";
 import { Loader2, AlertTriangle, RefreshCw, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { clearSessionAndReload } from "@/lib/session-utils";
-import { adminHostCopy } from "@/lib/adminHostLanguage";
+import { adminHostCopy, isVnagentAdminHostname } from "@/lib/adminHostLanguage";
 
 // Eager load: pages nhẹ, core navigation
 import Index from "@/pages/Index";
@@ -63,15 +63,9 @@ const FacebookMessengerInbox = lazy(() => import("@/pages/FacebookMessengerInbox
 const VNAgentDataAdmin = lazy(() => import("@/pages/VNAgentDataAdmin"));
 
 const DEALER_ORDERING_HOST = "dathang.banhmique.vn";
-const VNAGENT_ADMIN_HOST = "admin.vnagent.ai";
 
 function isDealerOrderingHost() {
   return window.location.hostname === DEALER_ORDERING_HOST;
-}
-
-/** Future owner-only admin host. Existing BMQ hosts are untouched. */
-function isVnagentAdminHost() {
-  return window.location.hostname === VNAGENT_ADMIN_HOST;
 }
 
 function AppLoadingFallback() {
@@ -233,9 +227,9 @@ export function AppRoutes() {
     );
   }
 
-  // Owner-only data-assets admin: on the future admin.vnagent.ai host it is the
-  // whole site; on existing BMQ hosts it is reachable at /data-admin. Existing
-  // BMQ routes below are unchanged.
+  // Owner-only data-assets admin: on admin.banhmique.vn (primary) or the
+  // admin.vnagent.ai alias it is the whole site; on existing BMQ hosts it is
+  // reachable at /data-admin. Existing BMQ routes below are unchanged.
   //
   // Deliberately NOT wrapped in the shared OwnerRoute here: that guard redirects
   // a denied user to "/", and on the admin host "/" matches this same "*" branch
@@ -244,7 +238,7 @@ export function AppRoutes() {
   // waits for authzLoaded before deciding, so this route only enforces sign-in.
   // The shared OwnerRoute behavior for BMQ routes below is untouched.
   const dataAdminPath = location.pathname === "/data-admin" || location.pathname.startsWith("/data-admin/");
-  if (isVnagentAdminHost() || dataAdminPath) {
+  if (isVnagentAdminHostname(window.location.hostname) || dataAdminPath) {
     return (
       <Routes>
         <Route path="/auth" element={<Auth />} />

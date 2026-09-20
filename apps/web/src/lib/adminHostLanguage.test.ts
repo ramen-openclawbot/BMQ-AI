@@ -2,6 +2,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  ADMIN_HOSTS,
+  ADMIN_PRIMARY_HOST,
   DATA_ADMIN_PATH,
   VNAGENT_ADMIN_HOST,
   adminHostCopyFor,
@@ -11,12 +13,29 @@ import {
 } from "./adminHostLanguage.ts";
 
 test("admin hostname detection is exact", () => {
+  assert.equal(ADMIN_PRIMARY_HOST, "admin.banhmique.vn");
   assert.equal(VNAGENT_ADMIN_HOST, "admin.vnagent.ai");
   assert.equal(DATA_ADMIN_PATH, "/data-admin");
+  assert.deepEqual(ADMIN_HOSTS, ["admin.banhmique.vn", "admin.vnagent.ai"]);
+  assert.equal(isVnagentAdminHostname("admin.banhmique.vn"), true);
   assert.equal(isVnagentAdminHostname("admin.vnagent.ai"), true);
   assert.equal(isVnagentAdminHostname("ai.banhmique.vn"), false);
   assert.equal(isVnagentAdminHostname("admin.vnagent.ai.evil.test"), false);
   assert.equal(isVnagentAdminHostname("admin.vnagent.ai:443"), false);
+});
+
+test("admin hostname detection rejects suffix and lookalike hosts", () => {
+  for (const host of [
+    "admin.banhmique.vn.evil.test",
+    "admin.banhmique.vn:443",
+    "sub.admin.banhmique.vn",
+    "evil-admin.banhmique.vn",
+    "admin.banhmique.com",
+    "admin-banhmique.vn",
+    "banhmique.vn",
+  ]) {
+    assert.equal(isVnagentAdminHostname(host), false, `lookalike allowed: ${host}`);
+  }
 });
 
 test("data-admin path detection is bounded", () => {
@@ -29,11 +48,15 @@ test("data-admin path detection is bounded", () => {
 });
 
 test("English surface is admin host OR data-admin route only", () => {
+  assert.equal(isEnglishAdminSurface("admin.banhmique.vn", "/"), true);
+  assert.equal(isEnglishAdminSurface("admin.banhmique.vn", "/auth"), true);
+  assert.equal(isEnglishAdminSurface("admin.banhmique.vn", "/recover"), true);
   assert.equal(isEnglishAdminSurface("admin.vnagent.ai", "/"), true);
   assert.equal(isEnglishAdminSurface("admin.vnagent.ai", "/auth"), true);
   assert.equal(isEnglishAdminSurface("admin.vnagent.ai", "/recover"), true);
   assert.equal(isEnglishAdminSurface("ai.banhmique.vn", "/data-admin"), true);
   assert.equal(isEnglishAdminSurface("localhost", "/data-admin/review"), true);
+  assert.equal(isEnglishAdminSurface("admin.banhmique.vn.evil.test", "/"), false);
   assert.equal(isEnglishAdminSurface("ai.banhmique.vn", "/"), false);
   assert.equal(isEnglishAdminSurface("dathang.banhmique.vn", "/dealer"), false);
   assert.equal(isEnglishAdminSurface("baocao.banhmique.vn", "/"), false);
