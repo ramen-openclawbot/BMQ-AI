@@ -437,13 +437,19 @@ function progressSignal(): AbortSignal {
 /**
  * Run one bounded generation batch through the durable job record.
  *
+ * The batch is generated in a deterministic ordered chunk plan: each chunk is a
+ * separate smaller paid call, retried a bounded number of times on a transient
+ * failure, and its accepted items are inserted before the next chunk runs.
+ *
  * Order guarantees:
- *   * the cost is bounded and checked BEFORE any paid call (fail closed);
- *   * the job row is created before the call and finished after it, so an
- *     uncertain outcome is recovered by reading the job, never by resubmitting;
+ *   * the cost is bounded (summed over every planned chunk) and checked BEFORE any
+ *     paid call (fail closed);
+ *   * the job row is created before the first call and finished after processing,
+ *     so an uncertain outcome is recovered by reading the job, never by resubmitting;
  *   * a resumed/abandoned job never spends again;
- *   * every accepted item is inserted as Raw synthetic/llm_generated, and the
- *     job row is only marked completed after all inserts succeed.
+ *   * every accepted item is inserted as Raw synthetic/llm_generated, the job is only
+ *     completed when EVERY chunk succeeded, and a chunk failure settles `failed`
+ *     with the counts already stored.
  */
 async function runGenerationBatch(args: {
   config: DataAdminConfig;
@@ -454,14 +460,34 @@ async function runGenerationBatch(args: {
   signal: AbortSignal;
 }): Promise<{ body: Record<string, unknown>; status: number }> {
   const { config, store, request, model, pricing, signal } = args;
-  if (!config.generate) throw new DataAdminError("generation_disabled", 503);
-  // The ACTUAL serialized request body is measured first: its UTF-8 byte length is
-  // a guaranteed upper bound on the input tokens, and a body above the hard
-  // ceiling is refused before the price is even computed.
-  const inputTokenBound = generationInputTokenBound(request, model);
-  const outputTokenBound = generationOutputTokenBound(request.count);
-  const worstCaseCostUsd = estimateWorstCaseCostUsd({ inputTokens: inputTokenBound, outputTokens: outputTokenBound }, pricing);
-  if (worstCaseCostUsd === null) throw new DataAdminError("generation_cost_unbounded", 503);
+  const generate = config.generate;
+  if (!generate) throw new DataAdminError("generation_disabled", 503);
+
+  // The batch is generated as a deterministic ordered chunk plan. Every chunk is an
+  // ordinary, SMALLER paid call, so the whole-batch worst case is the SUM of each
+  // planned chunk's own measured bound; the batch is refused before any paid call
+  // when that sum cannot be priced or exceeds the owner's budget.
+  const chunkSizes = generationChunkPlan(request.count);
+  const chunkMixes = splitGenerationStyleMix(request.styleMix, chunkSizes);
+  const chunks = chunkSizes.map((size, index) => {
+    const chunkRequest = buildGenerationChunkRequest(request, {
+      count: size,
+      styleMix: chunkMixes[index],
+      chunkIndex: index,
+      chunkTotal: chunkSizes.length,
+    });
+    // The ACTUAL serialized chunk body is measured first: its UTF-8 byte length is a
+    // guaranteed upper bound on that call's input tokens, and a body above the hard
+    // ceiling is refused before the price is even computed.
+    const chunkInputBound = generationInputTokenBound(chunkRequest, model);
+    const chunkOutputBound = generationOutputTokenBound(size);
+    const chunkWorstCaseCostUsd = estimateWorstCaseCostUsd({ inputTokens: chunkInputBound, outputTokens: chunkOutputBound }, pricing);
+    if (chunkWorstCaseCostUsd === null) throw new DataAdminError("generation_cost_unbounded", 503);
+    return { request: chunkRequest, inputTokenBound: chunkInputBound, outputTokenBound: chunkOutputBound, worstCaseCostUsd: chunkWorstCaseCostUsd };
+  });
+  const inputTokenBound = chunks.reduce((sum, chunk) => sum + chunk.inputTokenBound, 0);
+  const outputTokenBound = chunks.reduce((sum, chunk) => sum + chunk.outputTokenBound, 0);
+  const worstCaseCostUsd = Math.ceil(chunks.reduce((sum, chunk) => sum + chunk.worstCaseCostUsd, 0) * 1_000_000) / 1_000_000;
   if (worstCaseCostUsd > request.budgetUsd) throw new DataAdminError("generation_budget_exceeded", 400);
 
   const requestFingerprint = generationFingerprint(request, model);
@@ -517,100 +543,163 @@ async function runGenerationBatch(args: {
     }
   };
 
-  let outcome: GenerationOutcome;
-  try {
-    outcome = await config.generate(request, signal);
-  } catch (error) {
-    // A caller abort (or the generate budget elapsing) can surface as any error
-    // shape, so the aborted request signal is authoritative: record the fixed
-    // abort code instead of mislabelling it as a provider failure.
-    const aborted = signal.aborted;
-    const errorCode = aborted ? "generation_request_aborted" : error instanceof DataAdminError ? error.code : "generation_unavailable";
-    // Only the allowlisted provider status/code/parameter is durable here; the raw
-    // provider message (prompt/token/key risk) is dropped by the client.
-    const diagnostic = providerDiagnosticOf(error);
-    const finished = await store.generationFinish({
-      jobId,
-      expectedVersion: version,
-      status: "failed",
-      summary: { created: 0, duplicate: 0, rejected: 0, ...(diagnostic ? { diagnostic } : {}) },
-      actualCostUsd: null,
-      errorCode,
-    }, settleSignal());
-    // A definitive provider/payload failure is a durable result, not an uncertain
-    // one: return the failed job envelope. The allowlisted diagnostic stays on the
-    // saved job (result_summary) and the audit event for support; it is not part of
-    // the primary flow. Timeouts and transport errors still throw so the UI
-    // reconciles by reading the exact key.
-    if (isDeterministicGenerationFailure(errorCode)) {
-      return {
-        body: {
-          status: "failed",
-          resumed: false,
-          job: finished,
-          results: { created: 0, duplicate: 0, rejected: 0, total: 0 },
-        },
-        status: 200,
-      };
-    }
-    throw error;
-  }
-  // Hard budget enforcement on the reported actual cost. If a provider reports a
-  // cost above the owner's cap, nothing is stored and the job fails closed.
-  if (outcome.cost !== null && outcome.cost > request.budgetUsd) {
-    await store.generationFinish({ jobId, expectedVersion: version, status: "budget_exceeded", summary: { created: 0, duplicate: 0, rejected: 0 }, actualCostUsd: outcome.cost, errorCode: "budget_exceeded" }, settleSignal());
-    throw new DataAdminError("generation_budget_exceeded", 400);
-  }
-
-  const generatedAt = config.now().toISOString();
+  // Aggregate across the ordered chunks. `items` collects every accepted question
+  // and `usage`/`cost` are the sums of whatever each chunk reported; a value is
+  // reported as null whenever ANY chunk did not report it, so a partial sum is
+  // never presented as a total.
+  const outcome: GenerationOutcome = {
+    items: [],
+    usage: { input: 0, output: 0 },
+    cost: 0,
+    usageCostUpperBoundUsd: 0,
+    model,
+  };
+  let usageInputUnknown = false;
+  let usageOutputUnknown = false;
+  let usageBoundUnknown = false;
+  let costUnknown = false;
+  const reportedCost = (): number | null => (costUnknown ? null : outcome.cost);
   let created = 0;
   let duplicate = 0;
   const assets: DataAsset[] = [];
-  try {
-    for (const item of outcome.items) {
-      // Never keep inserting after the caller (or the bounded budget) aborted: the
-      // catch below settles the job instead of leaving a live batch `running`.
+
+  // Retry the SAME chunk a bounded number of times on a transient failure. A caller
+  // abort and any non-retryable refusal rethrow immediately.
+  const generateChunk = async (chunkRequest: GenerationRequest): Promise<GenerationOutcome> => {
+    for (let attempt = 0; ; attempt += 1) {
       signal.throwIfAborted();
-      const topic = SUPPORTED_TOPICS.find((entry) => entry.id === item.topicId);
-      if (!topic) throw new DataAdminError("generation_invalid_output", 502);
-      const provenance = generationItemProvenance({
-        request, item, model, runId: jobId, generatedAt,
-        budgetUsd: request.budgetUsd, worstCaseCostUsd, inputTokenBound,
-        topic, pricing: pricing?.provenance ?? null,
-      });
-      const expectedIntent = {
-        topic: item.topicId,
-        intent: topic.intent,
-        definition: topic.definition,
-        expectedResponse: item.expectedResponse,
-      };
-      const key = await dedupeKey(item.question, "synthetic", expectedIntent, item.expectedFilters);
-      const result = await store.createAsset({
-        question: item.question,
-        sourceKind: "synthetic",
-        sourceDesignation: "llm_generated",
-        expectedIntent,
-        expectedFilters: item.expectedFilters,
-        provenance,
-        snapshotAt: null,
-      }, key, signal);
-      if (result.status === "created") created += 1;
-      else duplicate += 1;
-      assets.push(result.asset);
-      // created + duplicate changed on every accepted item, so heartbeat here.
-      await persistProgress();
+      try {
+        return await generate(chunkRequest, signal);
+      } catch (error) {
+        if (signal.aborted) throw error;
+        if (attempt >= GENERATION_CHUNK_RETRIES || !isRetryableGenerationError(error)) throw error;
+      }
     }
-  } catch (error) {
-    // Partial inserts are durable (idempotent dedupe). The job is finished as
-    // failed so a retry with the same key reads back instead of spending again.
-    // A caller/budget abort stores the fixed abort code plus the counts already
-    // written, so the partial batch is still recoverable.
-    const aborted = signal.aborted;
-    const errorCode = aborted ? "generation_request_aborted" : error instanceof DataAdminError ? error.code : "store_unavailable";
-    await store.generationFinish({ jobId, expectedVersion: version, status: "failed", summary: { created, duplicate, rejected: 0 }, actualCostUsd: outcome.cost, errorCode }, settleSignal());
-    throw error;
+  };
+
+  const generatedAt = config.now().toISOString();
+
+  for (const chunk of chunks) {
+    let chunkOutcome: GenerationOutcome;
+    try {
+      chunkOutcome = await generateChunk(chunk.request);
+    } catch (error) {
+      // A chunk that exhausted its retries (or hit a definitive refusal) fails the
+      // WHOLE batch, but everything already stored from earlier chunks is kept. The
+      // terminal write runs under its own detached signal, so a caller abort can
+      // never leave a live invocation `running`.
+      const aborted = signal.aborted;
+      const errorCode = aborted ? "generation_request_aborted" : error instanceof DataAdminError ? error.code : "generation_unavailable";
+      // Only the allowlisted provider status/code/parameter is durable here; the raw
+      // provider message (prompt/token/key risk) is dropped by the client.
+      const diagnostic = providerDiagnosticOf(error);
+      const finished = await store.generationFinish({
+        jobId,
+        expectedVersion: version,
+        status: "failed",
+        summary: { created, duplicate, rejected: 0, ...(diagnostic ? { diagnostic } : {}) },
+        actualCostUsd: reportedCost(),
+        errorCode,
+      }, settleSignal());
+      // A definitive provider/payload failure is a durable result, not an uncertain
+      // one: return the failed job envelope. Timeouts and transport errors still
+      // throw so the UI reconciles by reading the exact key.
+      if (!aborted && isDeterministicGenerationFailure(errorCode)) {
+        return {
+          body: {
+            status: "failed",
+            resumed: false,
+            job: finished,
+            results: { created, duplicate, rejected: 0, total: created + duplicate },
+          },
+          status: 200,
+        };
+      }
+      throw error;
+    }
+
+    outcome.items.push(...chunkOutcome.items);
+    // A missing/non-finite reported value is treated as UNKNOWN, never as a zero.
+    if (chunkOutcome.usage.input === null || !Number.isFinite(chunkOutcome.usage.input) || usageInputUnknown) {
+      usageInputUnknown = true;
+      outcome.usage.input = null;
+    } else {
+      outcome.usage.input += chunkOutcome.usage.input;
+    }
+    if (chunkOutcome.usage.output === null || !Number.isFinite(chunkOutcome.usage.output) || usageOutputUnknown) {
+      usageOutputUnknown = true;
+      outcome.usage.output = null;
+    } else {
+      outcome.usage.output += chunkOutcome.usage.output;
+    }
+    if (chunkOutcome.usageCostUpperBoundUsd === null || !Number.isFinite(chunkOutcome.usageCostUpperBoundUsd) || usageBoundUnknown) {
+      usageBoundUnknown = true;
+      outcome.usageCostUpperBoundUsd = null;
+    } else {
+      outcome.usageCostUpperBoundUsd += chunkOutcome.usageCostUpperBoundUsd;
+    }
+    if (chunkOutcome.cost === null || !Number.isFinite(chunkOutcome.cost)) costUnknown = true;
+    else outcome.cost += chunkOutcome.cost;
+
+    // Hard budget enforcement on the accumulated reported cost. `outcome.cost` is
+    // the running sum of every numeric chunk cost, so a provider that reports a
+    // cost above the owner's cap fails the batch closed before this chunk is
+    // stored. (A known lower bound above the cap is a valid failure even if a later
+    // chunk would have reported none.)
+    if (outcome.cost !== null && outcome.cost > request.budgetUsd) {
+      await store.generationFinish({ jobId, expectedVersion: version, status: "budget_exceeded", summary: { created, duplicate, rejected: 0 }, actualCostUsd: reportedCost(), errorCode: "budget_exceeded" }, settleSignal());
+      throw new DataAdminError("generation_budget_exceeded", 400);
+    }
+
+    try {
+      for (const item of chunkOutcome.items) {
+        // Never keep inserting after the caller (or the bounded budget) aborted: the
+        // catch below settles the job instead of leaving a live batch `running`.
+        signal.throwIfAborted();
+        const topic = SUPPORTED_TOPICS.find((entry) => entry.id === item.topicId);
+        if (!topic) throw new DataAdminError("generation_invalid_output", 502);
+        const provenance = generationItemProvenance({
+          request, item, model, runId: jobId, generatedAt,
+          budgetUsd: request.budgetUsd, worstCaseCostUsd: chunk.worstCaseCostUsd, inputTokenBound: chunk.inputTokenBound,
+          topic, pricing: pricing?.provenance ?? null,
+        });
+        const expectedIntent = {
+          topic: item.topicId,
+          intent: topic.intent,
+          definition: topic.definition,
+          expectedResponse: item.expectedResponse,
+        };
+        const key = await dedupeKey(item.question, "synthetic", expectedIntent, item.expectedFilters);
+        const result = await store.createAsset({
+          question: item.question,
+          sourceKind: "synthetic",
+          sourceDesignation: "llm_generated",
+          expectedIntent,
+          expectedFilters: item.expectedFilters,
+          provenance,
+          snapshotAt: null,
+        }, key, signal);
+        if (result.status === "created") created += 1;
+        else duplicate += 1;
+        assets.push(result.asset);
+        // created + duplicate changed on every accepted item, so heartbeat here.
+        await persistProgress();
+      }
+    } catch (error) {
+      // Partial inserts are durable (idempotent dedupe). The job is finished as
+      // failed so a retry with the same key reads back instead of spending again.
+      // A caller/budget abort stores the fixed abort code plus the counts already
+      // written, so the partial batch is still recoverable.
+      const aborted = signal.aborted;
+      const errorCode = aborted ? "generation_request_aborted" : error instanceof DataAdminError ? error.code : "store_unavailable";
+      await store.generationFinish({ jobId, expectedVersion: version, status: "failed", summary: { created, duplicate, rejected: 0 }, actualCostUsd: reportedCost(), errorCode }, settleSignal());
+      throw error;
+    }
   }
 
+  // Finalize the reported cost: a chunk without a dollar amount makes the batch
+  // total genuinely unknown, so it stays null, never a partial sum.
+  if (costUnknown) outcome.cost = null;
   const results = { created, duplicate, rejected: 0, total: outcome.items.length };
   // The billed cost is unknown (DeepSeek reports none) and stays null. The
   // conservative peak-rate usage UPPER BOUND is recorded separately so the owner

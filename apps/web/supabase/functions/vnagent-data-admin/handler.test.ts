@@ -5,7 +5,18 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createDataAdminHandler, vnToday, type DataAdminConfig, type DataAdminIdentity, type DataAdminStore } from "./handler.ts";
 import { DataAdminError, type AssetFilterInput, type DataAsset, type ExportQuery } from "./data-assets.ts";
-import { SUPPORTED_TOPICS, validateGenerationOutput, type GenerationRequest } from "./generation.ts";
+import {
+  SUPPORTED_TOPICS,
+  buildGenerationChunkRequest,
+  estimateWorstCaseCostUsd,
+  generationChunkPlan,
+  generationInputTokenBound,
+  generationOutputTokenBound,
+  splitGenerationStyleMix,
+  validateGenerationOutput,
+  validateGenerationRequest,
+  type GenerationRequest,
+} from "./generation.ts";
 import { GenerationProviderError } from "./generation-client.ts";
 
 const ORIGIN = "https://ai.banhmique.vn";
@@ -511,11 +522,15 @@ test("error messages default to English and only switch to Vietnamese when reque
 function generationItems(request: GenerationRequest) {
   const styles = ["variant", "typo", "ambiguous", "out_of_scope"] as const;
   const response: Record<string, string> = { variant: "answer", typo: "answer", ambiguous: "clarify", out_of_scope: "abstain" };
+  // The question text includes the chunk position so a multi-chunk batch produces
+  // DISTINCT questions per chunk, like a real model would (otherwise the DB dedupe
+  // key would legitimately count the later chunks as duplicates).
+  const chunk = request.chunkIndex ?? 0;
   const value = {
     questions: Array.from({ length: request.count }, (_, index) => {
       const style = styles[index % styles.length];
       const topicId = request.topicId === "mixed" ? SUPPORTED_TOPICS[index % SUPPORTED_TOPICS.length].id : request.topicId;
-      return { question: `Câu hỏi tổng hợp số ${index} về ${topicId}?`, style, topic_id: topicId, expected_response: response[style], expected_filters: {} };
+      return { question: `Câu hỏi tổng hợp phần ${chunk} số ${index} về ${topicId}?`, style, topic_id: topicId, expected_response: response[style], expected_filters: {} };
     }),
   };
   return validateGenerationOutput(value, request);
@@ -554,9 +569,9 @@ test("an unbounded or insufficient budget fails closed before any model call", a
 
 test("a successful batch stores Raw synthetic/llm_generated assets with run provenance", async () => {
   const { store, calls, assets, jobs } = harness();
-  let seen: GenerationRequest | null = null;
+  const seen: GenerationRequest[] = [];
   const generate = async (request: GenerationRequest) => {
-    seen = request;
+    seen.push(request);
     return { items: generationItems(request), usage: { input: 900, output: 600 }, cost: 0.02, model: "deepseek-flash" };
   };
   const handler = createDataAdminHandler(configFor({}, store, { generate, generationPricing: () => GENERATION_PRICES, generationModel: () => "deepseek-flash" }));
@@ -566,9 +581,12 @@ test("a successful batch stores Raw synthetic/llm_generated assets with run prov
   assert.equal(body.status, "ok");
   assert.equal(body.results.created, 20);
   assert.equal(body.results.duplicate, 0);
-  assert.equal(body.actualCostUsd, 0.02);
-  assert.equal(seen!.count, 20);
-  assert.equal(seen!.idempotencyKey, "batch-0001");
+  // A 20-question batch is generated as two 10-question chunks; the reported cost
+  // and usage are the sums across both calls.
+  assert.deepEqual(seen.map((entry) => entry.count), [10, 10]);
+  assert.deepEqual(seen.map((entry) => entry.chunkIndex), [0, 1]);
+  assert.ok(seen.every((entry) => entry.chunkTotal === 2 && entry.idempotencyKey === "batch-0001"));
+  assert.equal(body.actualCostUsd, 0.04);
   const stored = [...assets.values()];
   assert.equal(stored.length, 20);
   for (const asset of stored) {
@@ -583,8 +601,8 @@ test("a successful batch stores Raw synthetic/llm_generated assets with run prov
     assert.ok(typeof asset.provenance.runId === "string");
     assert.ok(!("dataset_stage" in asset.provenance));
   }
-  assert.equal(body.usage.input, 900);
-  assert.equal(body.usage.output, 600);
+  assert.equal(body.usage.input, 1800);
+  assert.equal(body.usage.output, 1200);
   assert.equal([...jobs.values()][0].status, "completed");
   assert.ok(calls.some((call) => call === "generationFinish:completed"));
 });
@@ -697,13 +715,14 @@ test("a DeepSeek outcome keeps the billed cost unknown and stores the usage boun
   assert.equal(response.status, 201);
   // The billed cost is genuinely unknown, never replaced by the peak-rate bound.
   assert.equal(body.actualCostUsd, null);
-  assert.equal(body.usageCostUpperBoundUsd, 0.000921);
+  // The usage upper bound is the SUM across the two 10-question chunks.
+  assert.equal(body.usageCostUpperBoundUsd, 0.001842);
   assert.equal(body.results.created, 20);
   const job = [...jobs.values()][0];
   assert.equal(job.status, "completed");
   assert.equal(job.actual_cost_usd, null);
   // The bound is durable and clearly separate from the actual cost column.
-  assert.equal((job.result_summary as Record<string, unknown>).usageCostUpperBoundUsd, 0.000921);
+  assert.equal((job.result_summary as Record<string, unknown>).usageCostUpperBoundUsd, 0.001842);
 });
 
 test("the same key with a different payload is a 409 conflict, not a silent reuse", async () => {
@@ -715,7 +734,8 @@ test("the same key with a different payload is a 409 conflict, not a silent reus
   const conflict = await handler(post({ ...generationBody, count: 30 }));
   assert.equal(conflict.status, 409);
   assert.equal((await conflict.json()).code, "generation_idempotency_conflict");
-  assert.equal(modelCalls, 1);
+  // The first (20-question) batch made two chunk calls; the conflicting retry spent nothing.
+  assert.equal(modelCalls, 2);
 });
 
 test("a repeated idempotency key reads the durable job back and never spends again", async () => {
@@ -734,7 +754,8 @@ test("a repeated idempotency key reads the durable job back and never spends aga
   assert.equal(body.resumed, true);
   assert.equal(body.status, "ok");
   assert.equal(body.results.created, 20);
-  assert.equal(modelCalls, 1);
+  // Two chunks on the first run; the resumed read-back calls the model zero times.
+  assert.equal(modelCalls, 2);
 });
 
 test("a reported cost above the owner budget stores nothing and fails the job", async () => {
@@ -993,4 +1014,186 @@ test("the terminal write uses a detached bounded signal, never the aborted calle
   assert.equal(settle.aborted, false);
   assert.notEqual(settle, controller.signal);
   assert.equal([...harnessed.jobs.values()][0].status, "failed");
+});
+
+// ── Chunked generation: one small call per chunk, per-chunk retry ─────────────
+
+test("a 50-question batch calls the generator once per chunk with that chunk's count and mix", async () => {
+  const { store, assets, jobs } = harness();
+  const seen: GenerationRequest[] = [];
+  const generate = async (request: GenerationRequest) => {
+    seen.push(request);
+    return { items: generationItems(request), usage: { input: 500, output: 300 }, cost: 0.01, model: "m" };
+  };
+  const handler = createDataAdminHandler(configFor({}, store, { generate, generationPricing: () => GENERATION_PRICES }));
+  const response = await handler(post({ ...generationBody, count: 50, idempotency_key: "batch-50" }));
+  const body = await response.json();
+
+  assert.equal(response.status, 201);
+  assert.equal(body.results.created, 50);
+  // Five 10-question chunks, in order, each documented with its position.
+  assert.equal(seen.length, 5);
+  assert.deepEqual(seen.map((entry) => entry.count), [10, 10, 10, 10, 10]);
+  assert.deepEqual(seen.map((entry) => entry.chunkIndex), [0, 1, 2, 3, 4]);
+  assert.ok(seen.every((entry) => entry.chunkTotal === 5));
+  for (const entry of seen) {
+    assert.equal(Object.values(entry.styleMix).reduce((sum, value) => sum + value, 0), entry.count);
+  }
+  assert.equal(assets.size, 50);
+  assert.equal([...jobs.values()][0].status, "completed");
+});
+
+test("a chunk that fails once then succeeds is retried and the batch completes with all items", async () => {
+  const { store, assets, jobs } = harness();
+  let calls = 0;
+  const generate = async (request: GenerationRequest) => {
+    calls += 1;
+    // The FIRST attempt at chunk 0 fails with a retryable invalid-output error.
+    if (calls === 1) throw new DataAdminError("generation_invalid_output", 502);
+    return { items: generationItems(request), usage: { input: 1, output: 1 }, cost: 0.01, model: "m" };
+  };
+  const handler = createDataAdminHandler(configFor({}, store, { generate, generationPricing: () => GENERATION_PRICES }));
+  const response = await handler(post(generationBody));
+  const body = await response.json();
+
+  assert.equal(response.status, 201);
+  assert.equal(body.status, "ok");
+  assert.equal(body.results.created, 20);
+  // chunk 0: failed once then succeeded (2 calls); chunk 1: succeeded (1 call).
+  assert.equal(calls, 3);
+  assert.equal(assets.size, 20);
+  assert.equal([...jobs.values()][0].status, "completed");
+});
+
+test("a chunk that always fails settles failed with the partial counts from earlier chunks", async () => {
+  const { store, assets, jobs } = harness();
+  const callsPerChunk: number[] = [];
+  const generate = async (request: GenerationRequest) => {
+    const index = request.chunkIndex ?? 0;
+    callsPerChunk[index] = (callsPerChunk[index] ?? 0) + 1;
+    if (index === 1) throw new DataAdminError("generation_invalid_output", 502);
+    return { items: generationItems(request), usage: { input: 1, output: 1 }, cost: 0.01, model: "m" };
+  };
+  const handler = createDataAdminHandler(configFor({}, store, { generate, generationPricing: () => GENERATION_PRICES }));
+  const response = await handler(post(generationBody));
+  const body = await response.json();
+
+  // A definitive failure is a durable job envelope; the first chunk's 10 items stay.
+  assert.equal(response.status, 200);
+  assert.equal(body.status, "failed");
+  assert.equal(body.results.created, 10);
+  assert.equal(callsPerChunk[0], 1);
+  assert.equal(callsPerChunk[1], 3);
+  assert.equal(assets.size, 10);
+  const job = [...jobs.values()][0];
+  assert.equal(job.status, "failed");
+  assert.equal(job.error_code, "generation_invalid_output");
+  assert.deepEqual(job.result_summary, { created: 10, duplicate: 0, rejected: 0 });
+});
+
+test("the pre-call budget check uses the SUMMED worst case across every planned chunk", async () => {
+  const { store, calls } = harness();
+  let modelCalls = 0;
+  const generate = async (request: GenerationRequest) => {
+    modelCalls += 1;
+    return { items: generationItems(request), usage: { input: 1, output: 1 }, cost: 0, model: "m" };
+  };
+  // Expensive prices keep both the single-call and summed bounds inside the form's
+  // allowed budget range, so the midpoint budget is a valid request.
+  const expensive = { inputPer1kUsd: 0.01, outputPer1kUsd: 0.05 };
+  const full = validateGenerationRequest({ topic: "controlled_revenue", count: 20, target_language: "vi", budget_usd: 1, idempotency_key: "batch-0001" });
+  const plan = generationChunkPlan(full.count);
+  const mixes = splitGenerationStyleMix(full.styleMix, plan);
+  const chunks = plan.map((size, index) => buildGenerationChunkRequest(full, { count: size, styleMix: mixes[index], chunkIndex: index, chunkTotal: plan.length }));
+  const single = estimateWorstCaseCostUsd({ inputTokens: generationInputTokenBound(full, "deepseek-flash"), outputTokens: generationOutputTokenBound(full.count) }, expensive)!;
+  const summed = chunks.reduce((sum, chunk) => sum + estimateWorstCaseCostUsd(
+    { inputTokens: generationInputTokenBound(chunk, "deepseek-flash"), outputTokens: generationOutputTokenBound(chunk.count) },
+    expensive,
+  )!, 0);
+  assert.ok(summed > single, `summed ${summed} should exceed single ${single}`);
+  const budget = Math.round(((single + summed) / 2) * 1000) / 1000;
+  assert.ok(budget >= 0.01 && budget <= 5);
+
+  const handler = createDataAdminHandler(configFor({}, store, { generate, generationPricing: () => expensive, generationModel: () => "deepseek-flash" }));
+  const response = await handler(post({ ...generationBody, budget_usd: budget }));
+
+  // The budget passes the old single-call bound but not the summed chunk bound, so
+  // it must be refused BEFORE any paid call and before the job is even started.
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).code, "generation_budget_exceeded");
+  assert.equal(modelCalls, 0);
+  assert.deepEqual(calls.filter((call) => call.startsWith("generationStart")), []);
+});
+
+test("a non-retryable chunk error stops the batch immediately without a retry", async () => {
+  const { store, assets, jobs } = harness();
+  const calls: number[] = [];
+  const generate = async (request: GenerationRequest) => {
+    calls.push(request.chunkIndex ?? 0);
+    if ((request.chunkIndex ?? 0) === 1) {
+      throw new GenerationProviderError("generation_insufficient_balance", 502, { status: 402, code: "insufficient_balance_error", param: null });
+    }
+    return { items: generationItems(request), usage: { input: 1, output: 1 }, cost: 0, model: "m" };
+  };
+  const handler = createDataAdminHandler(configFor({}, store, { generate, generationPricing: () => GENERATION_PRICES }));
+  const response = await handler(post(generationBody));
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.status, "failed");
+  assert.equal(body.results.created, 10);
+  // Chunk 1 was attempted exactly once: an insufficient balance is definitive.
+  assert.deepEqual(calls, [0, 1]);
+  assert.equal(assets.size, 10);
+  const job = [...jobs.values()][0];
+  assert.equal(job.status, "failed");
+  assert.equal(job.error_code, "generation_insufficient_balance");
+  const summary = job.result_summary as Record<string, unknown>;
+  assert.equal(summary.created, 10);
+  assert.deepEqual(summary.diagnostic, { status: 402, code: "insufficient_balance_error", param: null });
+});
+
+test("a provider 5xx chunk is retried, but a provider 4xx stops immediately", async () => {
+  const { store, assets, jobs } = harness();
+  const calls: number[] = [];
+  const generate = async (request: GenerationRequest) => {
+    const index = request.chunkIndex ?? 0;
+    calls.push(index);
+    // Chunk 0: first attempt is a transient 503, then it succeeds.
+    if (index === 0 && calls.filter((entry) => entry === 0).length === 1) {
+      throw new GenerationProviderError("generation_http_error", 502, { status: 503, code: "service_unavailable", param: null });
+    }
+    // Chunk 1: a 400 bad-request is definitive and must not be retried.
+    if (index === 1) {
+      throw new GenerationProviderError("generation_http_error", 502, { status: 400, code: "invalid_request_error", param: "max_tokens" });
+    }
+    return { items: generationItems(request), usage: { input: 1, output: 1 }, cost: 0, model: "m" };
+  };
+  const handler = createDataAdminHandler(configFor({}, store, { generate, generationPricing: () => GENERATION_PRICES }));
+  const response = await handler(post(generationBody));
+  await response.json();
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(calls, [0, 0, 1]);
+  assert.equal(assets.size, 10);
+  const job = [...jobs.values()][0];
+  assert.equal(job.status, "failed");
+  assert.equal(job.error_code, "generation_http_error");
+  const summary = job.result_summary as Record<string, unknown>;
+  assert.equal((summary.diagnostic as Record<string, unknown>).status, 400);
+});
+
+test("progress heartbeats carry the running totals across chunk boundaries", async () => {
+  const harnessed = harness();
+  const generate = async (request: GenerationRequest) => ({ items: generationItems(request), usage: { input: 1, output: 1 }, cost: 0.01, model: "m" });
+  const handler = createDataAdminHandler(configFor({}, harnessed.store, { generate, generationPricing: () => GENERATION_PRICES }));
+  const response = await handler(post({ ...generationBody, count: 50, idempotency_key: "batch-progress-50" }));
+  assert.equal(response.status, 201);
+
+  // One heartbeat per stored question, climbing continuously across each chunk.
+  assert.equal(harnessed.progressInputs.length, 50);
+  assert.deepEqual(harnessed.progressInputs[0], { created: 1, duplicate: 0 });
+  assert.deepEqual(harnessed.progressInputs[9], { created: 10, duplicate: 0 });
+  assert.deepEqual(harnessed.progressInputs[10], { created: 11, duplicate: 0 });
+  assert.deepEqual(harnessed.progressInputs[49], { created: 50, duplicate: 0 });
 });

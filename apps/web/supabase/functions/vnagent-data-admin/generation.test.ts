@@ -4,17 +4,21 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  GENERATION_CHUNK_MAX,
   GENERATION_COUNT_MAX,
   GENERATION_COUNT_MIN,
   GENERATION_FILTER_KEYS,
   GENERATION_MAX_INPUT_TOKENS,
+  GENERATION_STYLES,
   SUPPORTED_TOPICS,
   BUILT_IN_EXAMPLE_SEEDS,
   SEED_SOURCE_LABEL,
+  buildGenerationChunkRequest,
   buildGenerationPrompt,
   defaultStyleMix,
   estimateWorstCaseCostUsd,
   generationApiKey,
+  generationChunkPlan,
   generationFingerprint,
   generationInputTokenBound,
   generationItemProvenance,
@@ -22,6 +26,7 @@ import {
   generationOutputTokenBound,
   isDeterministicGenerationFailure,
   serializeGenerationRequest,
+  splitGenerationStyleMix,
   usageCostUpperBoundUsd,
   validateGenerationOutput,
   validateGenerationRequest,
@@ -81,6 +86,79 @@ test('style mix defaults sum to the count and explicit mixes are exact', () => {
   assert.equal(explicit.styleMix.typo, 4);
   assert.throws(() => request({ count: 20, style_mix: { variant: 10, typo: 4, ambiguous: 4, out_of_scope: 1 } }), (error: unknown) => error instanceof DataAdminError);
   assert.throws(() => request({ count: 20, style_mix: { variant: 11, typo: 4, ambiguous: 4, out_of_scope: 1, other: 0 } }), (error: unknown) => error instanceof DataAdminError);
+});
+
+test('the chunk plan is deterministic, sums to the count and respects the chunk max', () => {
+  assert.equal(GENERATION_CHUNK_MAX, 10);
+  // Largest-chunk-first with the remainder LAST.
+  assert.deepEqual(generationChunkPlan(50), [10, 10, 10, 10, 10]);
+  assert.deepEqual(generationChunkPlan(25), [10, 10, 5]);
+  assert.deepEqual(generationChunkPlan(21), [10, 10, 1]);
+  assert.deepEqual(generationChunkPlan(10), [10]);
+  assert.deepEqual(generationChunkPlan(11), [10, 1]);
+  assert.deepEqual(generationChunkPlan(0), []);
+  for (let count = GENERATION_COUNT_MIN; count <= GENERATION_COUNT_MAX; count += 1) {
+    const plan = generationChunkPlan(count);
+    assert.equal(plan.reduce((sum, size) => sum + size, 0), count, `plan must sum to ${count}`);
+    assert.ok(plan.every((size) => Number.isInteger(size) && size >= 1 && size <= GENERATION_CHUNK_MAX), `each size must be 1..${GENERATION_CHUNK_MAX}`);
+    // Deterministic for a given count, ordered largest-first with the remainder last.
+    assert.deepEqual(generationChunkPlan(count), plan, `plan must be deterministic for ${count}`);
+    assert.deepEqual(plan, [...plan].sort((a, b) => b - a));
+    assert.ok(plan.slice(0, -1).every((size) => size === GENERATION_CHUNK_MAX));
+  }
+});
+
+test('the style mix splits across the plan exactly, deterministically and non-negatively', () => {
+  for (const count of [20, 21, 25, 33, 47, 50]) {
+    const plan = generationChunkPlan(count);
+    const total = defaultStyleMix(count);
+    const chunks = splitGenerationStyleMix(total, plan);
+    assert.equal(chunks.length, plan.length);
+    for (let index = 0; index < chunks.length; index += 1) {
+      const mix = chunks[index];
+      // Same four styles, all non-negative integers, summing EXACTLY to the chunk size.
+      assert.deepEqual(Object.keys(mix).sort(), [...GENERATION_STYLES].sort());
+      assert.ok(GENERATION_STYLES.every((style) => Number.isInteger(mix[style]) && mix[style] >= 0), `non-negative ${count}#${index}`);
+      assert.equal(GENERATION_STYLES.reduce((sum, style) => sum + mix[style], 0), plan[index], `chunk mix must sum to chunk size ${count}#${index}`);
+    }
+    // Each style total across the chunks sums EXACTLY to the whole-batch mix.
+    for (const style of GENERATION_STYLES) {
+      assert.equal(chunks.reduce((sum, mix) => sum + mix[style], 0), total[style], `style ${style} must sum to ${total[style]} for ${count}`);
+    }
+    assert.deepEqual(splitGenerationStyleMix(total, plan), chunks, `split must be deterministic for ${count}`);
+  }
+  // A mix with zero styles still splits exactly without inventing any of them.
+  const sizes = [10, 10, 5];
+  const zeros = { variant: 25, typo: 0, ambiguous: 0, out_of_scope: 0 };
+  const split = splitGenerationStyleMix(zeros, sizes);
+  assert.equal(split.reduce((sum, chunk) => sum + chunk.variant, 0), 25);
+  assert.ok(split.every((chunk) => chunk.typo === 0 && chunk.ambiguous === 0 && chunk.out_of_scope === 0));
+  // A plan that disagrees with the mix total fails closed instead of guessing.
+  assert.throws(() => splitGenerationStyleMix(zeros, [10, 10]), (error: unknown) => error instanceof DataAdminError);
+});
+
+test('the per-chunk request keeps the batch basis and documents its position', () => {
+  const request = validateGenerationRequest({ topic: 'mixed', count: 50, target_language: 'vi', budget_usd: 0.5, idempotency_key: 'batch-chunk-1' });
+  const plan = generationChunkPlan(request.count);
+  const mixes = splitGenerationStyleMix(request.styleMix, plan);
+  plan.forEach((size, index) => {
+    const chunk = buildGenerationChunkRequest(request, { count: size, styleMix: mixes[index], chunkIndex: index, chunkTotal: plan.length });
+    assert.equal(chunk.topicId, request.topicId);
+    assert.equal(chunk.language, request.language);
+    assert.deepEqual(chunk.seedIds, request.seedIds);
+    assert.equal(chunk.idempotencyKey, request.idempotencyKey);
+    assert.equal(chunk.budgetUsd, request.budgetUsd);
+    assert.equal(chunk.count, size);
+    assert.deepEqual(chunk.styleMix, mixes[index]);
+    assert.equal(chunk.chunkIndex, index);
+    assert.equal(chunk.chunkTotal, plan.length);
+    // Serialization stays the ordinary smaller request; progress fields never reach
+    // the provider body.
+    const serialized = serializeGenerationRequest(chunk, 'deepseek-flash');
+    const body = JSON.parse(serialized);
+    assert.equal(body.max_tokens, generationOutputTokenBound(size));
+    assert.ok(!serialized.includes('chunkIndex') && !serialized.includes('chunkTotal'));
+  });
 });
 
 test('seeds are curated built-in examples, topic-scoped and never invented', () => {

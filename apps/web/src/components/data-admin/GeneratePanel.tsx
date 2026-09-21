@@ -496,8 +496,8 @@ export function GeneratePanel({ language, ownerId }: { language: Language; owner
         title={t(language, "Tạo câu hỏi tổng hợp", "Generate data")}
         hint={t(
           language,
-          "Chạy một lô 20–50 câu hỏi tổng hợp từ định nghĩa nghiệp vụ BMQ được hỗ trợ và câu hỏi ví dụ có sẵn trong nguồn đã duyệt. Mọi câu vào Raw với nguồn synthetic / do LLM tạo; chủ doanh nghiệp vẫn duyệt Curated/Gold như cũ. Không dùng để huấn luyện model và không tự tạo nhãn đúng.",
-          "Run a 20–50 question synthetic batch from supported BMQ business definitions and built-in example questions shipped in reviewed source. Every question lands in Raw as synthetic / LLM-generated; the owner still reviews Curated/Gold as before. This is not used to train a model and never self-labels truth.",
+          "Chạy một lô 20–50 câu hỏi tổng hợp từ định nghĩa nghiệp vụ BMQ được hỗ trợ và câu hỏi ví dụ có sẵn trong nguồn đã duyệt. Lô lớn được tạo theo từng phần nhỏ; phần nào lỗi sẽ được thử lại tự động (tối đa 2 lần) trước khi cả lô kết thúc thất bại. Mọi câu vào Raw với nguồn synthetic / do LLM tạo; chủ doanh nghiệp vẫn duyệt Curated/Gold như cũ. Không dùng để huấn luyện model và không tự tạo nhãn đúng.",
+          "Run a 20–50 question synthetic batch from supported BMQ business definitions and built-in example questions shipped in reviewed source. Large batches are generated in smaller parts; a failing part is retried automatically (up to 2 times) before the whole batch ends as failed. Every question lands in Raw as synthetic / LLM-generated; the owner still reviews Curated/Gold as before. This is not used to train a model and never self-labels truth.",
         )}
       >
         <form className="da-form" onSubmit={(event) => void submit(event)} data-da-generation-form="owner">
