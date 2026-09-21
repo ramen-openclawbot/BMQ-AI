@@ -1,6 +1,6 @@
 // Thin client for the owner-only vnagent-data-admin edge function.
 
-import type { ZodIssue, ZodType } from "zod";
+import type { ZodType } from "zod";
 import { supabase } from "@/integrations/supabase/client";
 import { readAnalyticsError } from "@/lib/bmqAnalytics";
 import { errorResponseSchema, isUncertainMutationStatus, type Language } from "@/lib/dataAssets";
@@ -27,28 +27,6 @@ function invalidResponse(language: Language): string {
   return language === "en"
     ? "The data admin returned an invalid response. Please retry."
     : "Phản hồi từ trang quản trị dữ liệu chưa hợp lệ. Vui lòng thử lại.";
-}
-
-// TEMPORARY DIAGNOSTIC — delete once the phone-only invalid-response root cause is found.
-// Flip to false to restore the plain copy; no tokens, headers or credentials are included,
-// only the parsed response value and the Zod issues.
-export const DATA_ADMIN_DEBUG_INVALID_RESPONSE = true;
-
-function debugInvalidResponse(data: unknown, issues: ZodIssue[]): string {
-  let preview: string;
-  try {
-    preview = (JSON.stringify(data) ?? String(data)).slice(0, 240);
-  } catch {
-    preview = "<unprintable>";
-  }
-  const issueSummary = issues
-    .slice(0, 3)
-    .map((issue) => {
-      const detail = "expected" in issue ? issue.expected : issue.message;
-      return `${issue.path.join(".") || "(root)"} / ${issue.code} / ${String(detail)}`;
-    })
-    .join("; ");
-  return `[debug] typeof=${typeof data} json=${preview} issues=${issueSummary || "(none)"}`;
 }
 
 function statusOf(error: unknown): number {
@@ -86,10 +64,5 @@ export async function invokeDataAdmin<T>(body: Record<string, unknown>, schema: 
   if (parsed.success) return parsed.data;
   const failure = errorResponseSchema.safeParse(data);
   if (failure.success) throw new DataAdminRequestError(failure.data.error, failure.data.code, 400);
-  const copy = invalidResponse(language);
-  throw new DataAdminRequestError(
-    DATA_ADMIN_DEBUG_INVALID_RESPONSE ? `${copy} ${debugInvalidResponse(data, parsed.error.issues)}` : copy,
-    "invalid_response",
-    502,
-  );
+  throw new DataAdminRequestError(invalidResponse(language), "invalid_response", 502);
 }
