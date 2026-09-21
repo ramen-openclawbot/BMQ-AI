@@ -129,6 +129,11 @@ const REQUEST_BUDGET_MS = 20_000;
 // inserts, so it gets its own longer (still bounded) budget. Every other action
 // keeps the tight 20s budget.
 const GENERATE_BUDGET_MS = 90_000;
+// Terminal job writes get their OWN detached, short, bounded budget. Both the
+// request signal and GENERATE_BUDGET_MS abort on caller disconnect/timeout, so a
+// terminal write bound to them can be cut off and leave a live batch stuck
+// `running` forever. This budget covers one terminal RPC, never a model call.
+const GENERATION_SETTLE_BUDGET_MS = 5_000;
 const RATE_LIMIT_PER_MINUTE = 60;
 const ACTIONS = ["overview", "timeseries", "assets", "asset", "contribute", "transition", "jev", "export", "generate", "generate_status"] as const;
 type Action = (typeof ACTIONS)[number];
@@ -198,6 +203,7 @@ const messagesVi: Record<string, string> = {
   generation_http_error: "Model tạo câu hỏi trả lỗi. Anh đọc lại trạng thái job trước khi chạy lại.",
   generation_rate_limited: "Model tạo câu hỏi đang giới hạn lượt gọi. Anh thử lại sau.",
   generation_insufficient_balance: "Tài khoản DeepSeek đã hết số dư nên model chưa được gọi; anh nạp thêm số dư rồi chạy lại.",
+  generation_request_aborted: "Yêu cầu tạo câu hỏi đã bị hủy trước khi lô chạy xong; job được ghi nhận thất bại và phần kết quả đã lưu vẫn được giữ.",
   // Historical Vercel AI Gateway failure from earlier runs. It must stay
   // explainable WITHOUT telling the owner to top up Gateway now: new Generate
   // Data runs go to DeepSeek and need no Gateway credit.
@@ -273,6 +279,7 @@ const messagesEn: Record<string, string> = {
   generation_http_error: "The generation model returned an error. Read the job status before running it again.",
   generation_rate_limited: "The generation model is rate limited. Please retry later.",
   generation_insufficient_balance: "The DeepSeek account balance is insufficient, so the model was not called. Top up the balance, then run again.",
+  generation_request_aborted: "The generation request was aborted before the batch finished; the job was settled as failed and the questions already stored were kept.",
   // Historical Vercel AI Gateway failure from earlier runs. It must stay
   // explainable WITHOUT telling the owner to top up Gateway now: new Generate
   // Data runs go to DeepSeek and need no Gateway credit.
@@ -351,6 +358,19 @@ function exportFiltersFromPayload(raw: Record<string, unknown>): ExportFilterInp
 }
 
 /**
+ * Detached signal for terminal job writes.
+ *
+ * It is deliberately NOT derived from the caller's request signal: a client abort
+ * (or the generate budget elapsing) must never abort the write that stores the
+ * durable `failed`/`completed`/`budget_exceeded` state. It is still bounded, so a
+ * hung database cannot pin the worker. The lease/`abandoned` path remains the
+ * fallback for a hard worker death where no write can run at all.
+ */
+function settleSignal(): AbortSignal {
+  return AbortSignal.timeout(GENERATION_SETTLE_BUDGET_MS);
+}
+
+/**
  * Run one bounded generation batch through the durable job record.
  *
  * Order guarantees:
@@ -417,7 +437,11 @@ async function runGenerationBatch(args: {
   try {
     outcome = await config.generate(request, signal);
   } catch (error) {
-    const errorCode = error instanceof DataAdminError ? error.code : "generation_unavailable";
+    // A caller abort (or the generate budget elapsing) can surface as any error
+    // shape, so the aborted request signal is authoritative: record the fixed
+    // abort code instead of mislabelling it as a provider failure.
+    const aborted = signal.aborted;
+    const errorCode = aborted ? "generation_request_aborted" : error instanceof DataAdminError ? error.code : "generation_unavailable";
     // Only the allowlisted provider status/code/parameter is durable here; the raw
     // provider message (prompt/token/key risk) is dropped by the client.
     const diagnostic = providerDiagnosticOf(error);
@@ -428,7 +452,7 @@ async function runGenerationBatch(args: {
       summary: { created: 0, duplicate: 0, rejected: 0, ...(diagnostic ? { diagnostic } : {}) },
       actualCostUsd: null,
       errorCode,
-    }, signal);
+    }, settleSignal());
     // A definitive provider/payload failure is a durable result, not an uncertain
     // one: return the failed job envelope. The allowlisted diagnostic stays on the
     // saved job (result_summary) and the audit event for support; it is not part of
@@ -450,7 +474,7 @@ async function runGenerationBatch(args: {
   // Hard budget enforcement on the reported actual cost. If a provider reports a
   // cost above the owner's cap, nothing is stored and the job fails closed.
   if (outcome.cost !== null && outcome.cost > request.budgetUsd) {
-    await store.generationFinish({ jobId, expectedVersion: version, status: "budget_exceeded", summary: { created: 0, duplicate: 0, rejected: 0 }, actualCostUsd: outcome.cost, errorCode: "budget_exceeded" }, signal);
+    await store.generationFinish({ jobId, expectedVersion: version, status: "budget_exceeded", summary: { created: 0, duplicate: 0, rejected: 0 }, actualCostUsd: outcome.cost, errorCode: "budget_exceeded" }, settleSignal());
     throw new DataAdminError("generation_budget_exceeded", 400);
   }
 
@@ -460,6 +484,9 @@ async function runGenerationBatch(args: {
   const assets: DataAsset[] = [];
   try {
     for (const item of outcome.items) {
+      // Never keep inserting after the caller (or the bounded budget) aborted: the
+      // catch below settles the job instead of leaving a live batch `running`.
+      signal.throwIfAborted();
       const topic = SUPPORTED_TOPICS.find((entry) => entry.id === item.topicId);
       if (!topic) throw new DataAdminError("generation_invalid_output", 502);
       const provenance = generationItemProvenance({
@@ -490,7 +517,11 @@ async function runGenerationBatch(args: {
   } catch (error) {
     // Partial inserts are durable (idempotent dedupe). The job is finished as
     // failed so a retry with the same key reads back instead of spending again.
-    await store.generationFinish({ jobId, expectedVersion: version, status: "failed", summary: { created, duplicate, rejected: 0 }, actualCostUsd: outcome.cost, errorCode: error instanceof DataAdminError ? error.code : "store_unavailable" }, signal);
+    // A caller/budget abort stores the fixed abort code plus the counts already
+    // written, so the partial batch is still recoverable.
+    const aborted = signal.aborted;
+    const errorCode = aborted ? "generation_request_aborted" : error instanceof DataAdminError ? error.code : "store_unavailable";
+    await store.generationFinish({ jobId, expectedVersion: version, status: "failed", summary: { created, duplicate, rejected: 0 }, actualCostUsd: outcome.cost, errorCode }, settleSignal());
     throw error;
   }
 
@@ -501,7 +532,7 @@ async function runGenerationBatch(args: {
   const completionSummary = outcome.usageCostUpperBoundUsd === null
     ? results
     : { ...results, usageCostUpperBoundUsd: outcome.usageCostUpperBoundUsd };
-  const finished = await store.generationFinish({ jobId, expectedVersion: version, status: "completed", summary: completionSummary, actualCostUsd: outcome.cost, errorCode: null }, signal);
+  const finished = await store.generationFinish({ jobId, expectedVersion: version, status: "completed", summary: completionSummary, actualCostUsd: outcome.cost, errorCode: null }, settleSignal());
   return {
     body: {
       status: "ok",

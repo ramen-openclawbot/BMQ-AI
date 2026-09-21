@@ -188,6 +188,30 @@ function harness(seed: DataAsset[] = []): Harness {
   return { store, calls, assets, exportQueries, jobs };
 }
 
+/**
+ * A harness whose generation writes honor the passed abort signal, like the real
+ * Supabase client (`.abortSignal(signal)`). Without this, a terminal write could
+ * silently "succeed" in an offline test even while bound to an aborted caller
+ * signal, which is exactly the production bug these regressions pin down.
+ */
+function abortAwareHarness() {
+  const base = harness();
+  const finishSignals: AbortSignal[] = [];
+  const store: DataAdminStore = {
+    ...base.store,
+    async createAsset(input, key, signal) {
+      signal.throwIfAborted();
+      return base.store.createAsset(input, key, signal);
+    },
+    async generationFinish(input, signal) {
+      finishSignals.push(signal);
+      signal.throwIfAborted();
+      return base.store.generationFinish(input, signal);
+    },
+  };
+  return { ...base, store, finishSignals };
+}
+
 function configFor(identity: Partial<DataAdminIdentity>, store: DataAdminStore, overrides: Partial<DataAdminConfig> = {}): DataAdminConfig {
   return {
     enabled: () => true,
@@ -199,11 +223,12 @@ function configFor(identity: Partial<DataAdminIdentity>, store: DataAdminStore, 
   };
 }
 
-function post(body: unknown, headers: Record<string, string> = {}): Request {
+function post(body: unknown, headers: Record<string, string> = {}, signal?: AbortSignal): Request {
   return new Request("https://example.test/vnagent-data-admin", {
     method: "POST",
     headers: { "content-type": "application/json", origin: ORIGIN, ...headers },
     body: JSON.stringify(body),
+    ...(signal ? { signal } : {}),
   });
 }
 
@@ -774,4 +799,101 @@ test("generate_status surfaces a server-evaluated expired lease as abandoned", a
   assert.equal(response.status, 200);
   assert.equal(body.abandoned, true);
   assert.equal(body.job.status, "running");
+});
+
+// ── Caller abort: a live batch must always settle, never stay `running` ────────
+
+test("a caller abort during the model call settles the job failed with the abort code", async () => {
+  const harnessed = abortAwareHarness();
+  const controller = new AbortController();
+  const generate = async (_request: GenerationRequest, signal: AbortSignal) => {
+    // The owner's panel aborted in flight; the client surfaces an AbortError.
+    controller.abort();
+    signal.throwIfAborted();
+    throw new Error("unreachable");
+  };
+  const handler = createDataAdminHandler(configFor({}, harnessed.store, { generate, generationPricing: () => GENERATION_PRICES }));
+
+  await handler(post(generationBody, {}, controller.signal));
+
+  const job = [...harnessed.jobs.values()][0];
+  assert.equal(job.status, "failed");
+  assert.equal(job.error_code, "generation_request_aborted");
+  assert.deepEqual(job.result_summary, { created: 0, duplicate: 0, rejected: 0 });
+});
+
+test("a caller abort part-way through asset inserts still settles the job failed with partial counts", async () => {
+  const harnessed = abortAwareHarness();
+  const controller = new AbortController();
+  let inserts = 0;
+  const store: DataAdminStore = {
+    ...harnessed.store,
+    async createAsset(input, key, signal) {
+      const result = await harnessed.store.createAsset(input, key, signal);
+      inserts += 1;
+      if (inserts === 5) controller.abort();
+      return result;
+    },
+  };
+  const generate = async (request: GenerationRequest) => ({ items: generationItems(request), usage: { input: 1, output: 1 }, cost: 0.02, model: "m" });
+  const handler = createDataAdminHandler(configFor({}, store, { generate, generationPricing: () => GENERATION_PRICES }));
+
+  const response = await handler(post(generationBody, {}, controller.signal));
+
+  // The caller is gone, but the durable job is terminal and keeps the partial work.
+  assert.equal(controller.signal.aborted, true);
+  assert.ok(response.status >= 400);
+  const job = [...harnessed.jobs.values()][0];
+  assert.equal(job.status, "failed");
+  assert.equal(job.error_code, "generation_request_aborted");
+  assert.deepEqual(job.result_summary, { created: 5, duplicate: 0, rejected: 0 });
+  assert.equal(harnessed.assets.size, 5);
+});
+
+test("an already-aborted caller signal never leaves the job running", async () => {
+  const harnessed = abortAwareHarness();
+  const controller = new AbortController();
+  const generate = async (request: GenerationRequest) => {
+    // The model call had already returned when the abort raced in; the batch must
+    // still be settled instead of hanging `running`.
+    controller.abort();
+    return { items: generationItems(request), usage: { input: 1, output: 1 }, cost: 0.02, model: "m" };
+  };
+  const handler = createDataAdminHandler(configFor({}, harnessed.store, { generate, generationPricing: () => GENERATION_PRICES }));
+
+  await handler(post(generationBody, {}, controller.signal));
+
+  const job = [...harnessed.jobs.values()][0];
+  assert.equal(job.status, "failed");
+  assert.equal(job.error_code, "generation_request_aborted");
+  assert.deepEqual(job.result_summary, { created: 0, duplicate: 0, rejected: 0 });
+  assert.equal(harnessed.assets.size, 0);
+});
+
+test("the terminal write uses a detached bounded signal, never the aborted caller signal", async () => {
+  const harnessed = abortAwareHarness();
+  const controller = new AbortController();
+  let inserts = 0;
+  const store: DataAdminStore = {
+    ...harnessed.store,
+    async createAsset(input, key, signal) {
+      const result = await harnessed.store.createAsset(input, key, signal);
+      inserts += 1;
+      if (inserts === 5) controller.abort();
+      return result;
+    },
+  };
+  const generate = async (request: GenerationRequest) => ({ items: generationItems(request), usage: { input: 1, output: 1 }, cost: 0.02, model: "m" });
+  const handler = createDataAdminHandler(configFor({}, store, { generate, generationPricing: () => GENERATION_PRICES }));
+
+  await handler(post(generationBody, {}, controller.signal));
+
+  assert.equal(controller.signal.aborted, true);
+  assert.equal(harnessed.finishSignals.length, 1);
+  const settle = harnessed.finishSignals[0];
+  // This is the regression: the terminal write must NOT run under the caller's
+  // aborted signal, and must still be backed by a bounded budget of its own.
+  assert.equal(settle.aborted, false);
+  assert.notEqual(settle, controller.signal);
+  assert.equal([...harnessed.jobs.values()][0].status, "failed");
 });

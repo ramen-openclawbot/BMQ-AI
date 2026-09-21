@@ -300,6 +300,19 @@ test("the durable generation diagnostic is allowlisted and never carries a raw p
   assert.ok(balanceVi);
   assert.match(balanceVi, /DeepSeek/);
   assert.ok(!/retention|zero data/i.test(balanceVi));
+
+  // An aborted request is settled as failed but explicitly keeps the questions
+  // already stored, so partial-success runs stay explainable.
+  const abortedReason = generationFailureReason({ status: "failed", error_code: "generation_request_aborted", result_summary: { created: 12 } }, "en");
+  assert.ok(abortedReason);
+  assert.match(abortedReason, /aborted before the batch finished/i);
+  assert.match(abortedReason, /questions already stored were kept/i);
+  assert.ok(!abortedReason.includes("generation_request_aborted"));
+  const abortedVi = generationFailureReason({ status: "failed", error_code: "generation_request_aborted", result_summary: { created: 12 } }, "vi");
+  assert.ok(abortedVi);
+  assert.match(abortedVi, /bị hủy trước khi lô chạy xong/);
+  assert.match(abortedVi, /phần kết quả đã lưu vẫn được giữ/);
+  assert.ok(!abortedVi.includes("generation_request_aborted"));
 });
 
 test("pending generation record round-trips the exact request and rejects junk", () => {

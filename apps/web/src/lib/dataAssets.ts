@@ -390,6 +390,10 @@ const KNOWN_GENERATION_FAILURE_LABELS: Record<string, { vi: string; en: string }
     vi: "Chưa gọi được model tạo câu hỏi; anh đọc lại trạng thái job trước khi chạy lại.",
     en: "The generation model could not be reached; read the job state before running it again.",
   },
+  generation_request_aborted: {
+    vi: "Yêu cầu tạo câu hỏi đã bị hủy trước khi lô chạy xong; job được ghi nhận thất bại và phần kết quả đã lưu vẫn được giữ.",
+    en: "The generation request was aborted before the batch finished; the job was settled as failed and the questions already stored were kept.",
+  },
   budget_exceeded: {
     vi: "Chi phí thực tế vượt ngân sách nên không có câu nào được lưu.",
     en: "The reported cost exceeded the budget, so nothing was stored.",
