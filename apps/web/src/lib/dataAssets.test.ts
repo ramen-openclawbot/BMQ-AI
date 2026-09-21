@@ -30,14 +30,17 @@ import {
   timeseriesResponseSchema,
   unknownTotal,
   defaultGenerationStyleMix,
+  GENERATION_ABSENT_GRACE_MS,
   generationDiagnosticSchema,
   generationFailureReason,
   generationJobDiagnostic,
+  generationProgress,
   generationRecoveryDecision,
   generationResponseSchema,
   generationStatusLabel,
   isDefinitiveGenerationDenial,
   parsePendingGeneration,
+  pendingGenerationAgeMs,
   serializePendingGeneration,
   type DataAdminOverview,
   type DataAdminTimeseries,
@@ -337,6 +340,15 @@ test("the durable generation diagnostic is allowlisted and never carries a raw p
 test("pending generation record round-trips the exact request and rejects junk", () => {
   const pending = { key: "batch-0001", request: { topic: "mixed", count: 33, target_language: "vi" as const, budget_usd: 0.5 } };
   assert.deepEqual(parsePendingGeneration(serializePendingGeneration(pending)), pending);
+  // A dispatch timestamp round-trips too, and is used for the absent grace.
+  const stamped = { ...pending, startedAt: "2026-09-21T06:05:33.000Z" };
+  assert.deepEqual(parsePendingGeneration(serializePendingGeneration(stamped)), stamped);
+  assert.equal(pendingGenerationAgeMs(stamped, Date.parse("2026-09-21T06:06:33.000Z")), 60_000);
+  // A legacy record without a timestamp has an honestly unknown age, never 0.
+  assert.equal(pendingGenerationAgeMs(pending, Date.parse("2026-09-21T06:06:33.000Z")), null);
+  assert.equal(pendingGenerationAgeMs(null), null);
+  // A future/skewed timestamp clamps to 0 (still inside the grace), never negative.
+  assert.equal(pendingGenerationAgeMs({ ...pending, startedAt: "2026-09-21T07:00:00.000Z" }, Date.parse("2026-09-21T06:06:33.000Z")), 0);
   // A legacy bare key is accepted read-only (no request to replay).
   assert.deepEqual(parsePendingGeneration("legacy-key-0001"), { key: "legacy-key-0001", request: null });
   // A key with a malformed request keeps the key but drops the unsafe replay payload.
@@ -348,13 +360,78 @@ test("pending generation record round-trips the exact request and rejects junk",
 
 test("recovery keeps the lock for running/absent and releases only verified terminal states", () => {
   assert.equal(generationRecoveryDecision({ jobStatus: "running", absent: false }), "keep");
+  // An absent read without a known/old-enough age keeps the lock (backward compatible).
   assert.equal(generationRecoveryDecision({ absent: true }), "keep");
+  assert.equal(generationRecoveryDecision({ absent: true, pendingAgeMs: null }), "keep");
   assert.equal(generationRecoveryDecision({ jobStatus: "completed" }), "clear");
   assert.equal(generationRecoveryDecision({ jobStatus: "failed" }), "clear");
   assert.equal(generationRecoveryDecision({ jobStatus: "budget_exceeded" }), "clear");
   // A server-evaluated expired lease is an explicit terminal release.
   assert.equal(generationRecoveryDecision({ jobStatus: "running", abandoned: true }), "clear");
   assert.equal(generationRecoveryDecision({}), "keep");
+});
+
+test("an absent lock is released only past the fixed grace", () => {
+  const grace = GENERATION_ABSENT_GRACE_MS;
+  assert.equal(grace, 5 * 60 * 1000);
+  // One millisecond short of the grace still keeps the lock.
+  assert.equal(generationRecoveryDecision({ absent: true, pendingAgeMs: grace - 1 }), "keep");
+  assert.equal(generationRecoveryDecision({ absent: true, pendingAgeMs: grace }), "clear");
+  assert.equal(generationRecoveryDecision({ absent: true, pendingAgeMs: grace + 1 }), "clear");
+  // Unknown, non-finite or negative ages are uncertain, so they keep.
+  assert.equal(generationRecoveryDecision({ absent: true, pendingAgeMs: null }), "keep");
+  assert.equal(generationRecoveryDecision({ absent: true, pendingAgeMs: Number.NaN }), "keep");
+  assert.equal(generationRecoveryDecision({ absent: true, pendingAgeMs: Number.POSITIVE_INFINITY }), "keep");
+  assert.equal(generationRecoveryDecision({ absent: true, pendingAgeMs: -1 }), "keep");
+  // A present (running) or abandoned job still wins over the absent branch.
+  assert.equal(generationRecoveryDecision({ absent: false, jobStatus: "running", pendingAgeMs: grace * 2 }), "keep");
+  assert.equal(generationRecoveryDecision({ absent: false, abandoned: true, pendingAgeMs: grace * 2 }), "clear");
+});
+
+test("generation progress reports honest phases, percentage and unknown values", () => {
+  const job = (overrides: Partial<{ status: string; result_summary: Record<string, unknown>; request: Record<string, unknown> }>) => ({
+    status: "running",
+    result_summary: {},
+    ...overrides,
+  });
+
+  // No job row read back yet: queued, with the requested total but unknown accepted.
+  assert.deepEqual(generationProgress(null, 50), { phase: "queued", accepted: null, total: 50, percentage: null });
+  // The single model call is in flight: nothing is written, so no fabricated 0.
+  assert.deepEqual(generationProgress(job({}), 20), { phase: "model", accepted: null, total: 20, percentage: null });
+  // A heartbeat reported running counts.
+  assert.deepEqual(
+    generationProgress(job({ result_summary: { created: 18, duplicate: 0 } }), 50),
+    { phase: "writing", accepted: 18, total: 50, percentage: 36 },
+  );
+  assert.deepEqual(
+    generationProgress(job({ result_summary: { created: 15, duplicate: 5 } }), 50),
+    { phase: "writing", accepted: 20, total: 50, percentage: 40 },
+  );
+  // Terminal states.
+  assert.deepEqual(
+    generationProgress(job({ status: "completed", result_summary: { created: 20, duplicate: 0, rejected: 0 } }), 20),
+    { phase: "done", accepted: 20, total: 20, percentage: 100 },
+  );
+  // A server-evaluated expired lease is reported as abandoned, not done/running.
+  assert.equal(generationProgress(job({ result_summary: { created: 12, duplicate: 0 } }), 50, true).phase, "abandoned");
+  assert.equal(generationProgress(job({ status: "failed", result_summary: { created: 3, duplicate: 0 } }), 50).phase, "failed");
+  assert.equal(generationProgress(job({ status: "budget_exceeded", result_summary: { created: 0, duplicate: 0 } }), 50).phase, "failed");
+
+  // Unknown values stay null, never a fabricated 0.
+  assert.deepEqual(generationProgress(job({ result_summary: { created: 5 } }), 20), { phase: "model", accepted: null, total: 20, percentage: null });
+  assert.deepEqual(generationProgress(job({ result_summary: { created: "x", duplicate: 0 } }), 20), { phase: "model", accepted: null, total: 20, percentage: null });
+  // Total unknown: percentage is null even when accepted is known.
+  assert.deepEqual(generationProgress(job({ result_summary: { created: 5, duplicate: 0 } }), null), { phase: "writing", accepted: 5, total: null, percentage: null });
+  // The requested count may fall back to the durable job request.
+  assert.deepEqual(
+    generationProgress(job({ result_summary: { created: 5, duplicate: 0 }, request: { count: 20 } }), null),
+    { phase: "writing", accepted: 5, total: 20, percentage: 25 },
+  );
+  // A count above the total clamps at 100 instead of overflowing.
+  assert.equal(generationProgress(job({ result_summary: { created: 30, duplicate: 0 } }), 20).percentage, 100);
+  // A zero/negative total is honestly unknown, not a divide-by-zero.
+  assert.deepEqual(generationProgress(job({ result_summary: { created: 5, duplicate: 0 } }), 0), { phase: "writing", accepted: 5, total: null, percentage: null });
 });
 
 test("only definitive pre-dispatch denials release the pending lock", () => {

@@ -83,6 +83,15 @@ export interface GenerationFinishInput {
   errorCode: string | null;
 }
 
+export interface GenerationProgressInput {
+  jobId: string;
+  expectedVersion: number;
+  /** Running total of newly created assets. */
+  created: number;
+  /** Running total of deduplicated (already-present) assets. */
+  duplicate: number;
+}
+
 export interface DataAdminStore {
   metrics(today: string, signal: AbortSignal): Promise<unknown>;
   timeseries(days: number, signal: AbortSignal): Promise<unknown>;
@@ -94,6 +103,7 @@ export interface DataAdminStore {
   listJev(limit: number, signal: AbortSignal): Promise<unknown[]>;
   generationStart(input: GenerationStartInput, signal: AbortSignal): Promise<{ job: GenerationJob; resumed: boolean; abandoned: boolean }>;
   generationFinish(input: GenerationFinishInput, signal: AbortSignal): Promise<GenerationJob>;
+  generationProgress(input: GenerationProgressInput, signal: AbortSignal): Promise<GenerationJob>;
   generationGet(jobId: string | null, idempotencyKey: string | null, signal: AbortSignal): Promise<{ job: GenerationJob | null; jobs: GenerationJob[]; abandoned?: boolean }>;
 }
 
@@ -134,6 +144,10 @@ const GENERATE_BUDGET_MS = 90_000;
 // terminal write bound to them can be cut off and leave a live batch stuck
 // `running` forever. This budget covers one terminal RPC, never a model call.
 const GENERATION_SETTLE_BUDGET_MS = 5_000;
+// Live-progress heartbeats are best effort and must never slow the batch or share
+// the caller's fate: each one gets its OWN short bounded budget and a failure is
+// swallowed. The lease itself is refreshed by the RPC (see the progress migration).
+const GENERATION_PROGRESS_BUDGET_MS = 3_000;
 const RATE_LIMIT_PER_MINUTE = 60;
 const ACTIONS = ["overview", "timeseries", "assets", "asset", "contribute", "transition", "jev", "export", "generate", "generate_status"] as const;
 type Action = (typeof ACTIONS)[number];
@@ -371,6 +385,17 @@ function settleSignal(): AbortSignal {
 }
 
 /**
+ * Detached signal for best-effort progress heartbeats.
+ *
+ * Like the terminal write it is NOT derived from the caller's request signal (a
+ * client abort must not cancel the heartbeat that refreshes the lease), but it is
+ * much shorter and its failure is swallowed by the caller.
+ */
+function progressSignal(): AbortSignal {
+  return AbortSignal.timeout(GENERATION_PROGRESS_BUDGET_MS);
+}
+
+/**
  * Run one bounded generation batch through the durable job record.
  *
  * Order guarantees:
@@ -432,6 +457,26 @@ async function runGenerationBatch(args: {
   if (!jobId || !Number.isInteger(version)) {
     throw new DataAdminError("generation_job_not_found", 503);
   }
+
+  // Best-effort live heartbeat: persist the RUNNING created/duplicate totals after
+  // each stored question so the owner sees real counts and the lease keeps moving.
+  // It uses its own short bounded signal (never the caller's, which may already be
+  // aborted) and NEVER throws: a failed or slow heartbeat must not abort the batch
+  // or change the returned result. The terminal write below still owns the final
+  // state and summary.
+  let progressWarned = false;
+  const persistProgress = async (): Promise<void> => {
+    try {
+      await store.generationProgress({ jobId, expectedVersion: version, created, duplicate }, progressSignal());
+    } catch {
+      // Progress is advisory; the durable job row is settled by the terminal write.
+      // Log once per batch, not once per failed heartbeat.
+      if (!progressWarned) {
+        progressWarned = true;
+        console.warn("vnagent_data_admin_generation_progress_failed");
+      }
+    }
+  };
 
   let outcome: GenerationOutcome;
   try {
@@ -513,6 +558,8 @@ async function runGenerationBatch(args: {
       if (result.status === "created") created += 1;
       else duplicate += 1;
       assets.push(result.asset);
+      // created + duplicate changed on every accepted item, so heartbeat here.
+      await persistProgress();
     }
   } catch (error) {
     // Partial inserts are durable (idempotent dedupe). The job is finished as

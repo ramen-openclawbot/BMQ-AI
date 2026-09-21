@@ -50,6 +50,7 @@ const generationClient = read("supabase/functions/vnagent-data-admin/generation-
 const generationPricing = read("supabase/functions/vnagent-data-admin/generation-pricing.ts");
 const generationIndex = read("supabase/functions/vnagent-data-admin/index.ts");
 const generationMigration = read("supabase/migrations/20260921100000_vnagent_generation_jobs.sql");
+const generationProgressMigration = read("supabase/migrations/20260921193000_vnagent_generation_progress.sql");
 
 check("admin host is handled in App.tsx via the shared exact predicate", app.includes("isVnagentAdminHostname") && !app.includes('"admin.vnagent.ai"'));
 check("admin host sets a document title", app.includes("VNAGENT_ADMIN_TITLE"));
@@ -145,6 +146,37 @@ check("generate panel recovers the EXACT key, persists the exact request and can
 check("generate panel keeps uncertainty on running/absent and releases only verified terminal states", generatePanel.includes("generationRecoveryDecision") && clientDataAssets.includes("abandoned: z.boolean().optional()") && generatePanel.includes("result.abandoned === true") && generatePanel.includes("isDefinitiveGenerationDenial"));
 check("generate panel preserves terminal failure copy instead of a success banner", generatePanel.includes('result.status === "failed"') && generatePanel.includes("nothing was stored") && generatePanel.includes("không có câu nào được lưu"));
 check("generate panel reports progress and results", generatePanel.includes("data-da-generation-results") && generatePanel.includes("Recent runs"));
+check(
+  "generate panel shows honest live progress and refreshes it on a bounded interval",
+  generatePanel.includes("generationProgress") &&
+    generatePanel.includes("data-da-generation-progress") &&
+    generatePanel.includes("data-da-generation-progress-count") &&
+    generatePanel.includes("Đã lưu") &&
+    generatePanel.includes("Saved ") &&
+    generatePanel.includes("GENERATION_POLL_MS") &&
+    generatePanel.includes("setInterval") &&
+    generatePanel.includes("clearInterval"),
+);
+check(
+  "absent pending lock releases only past the fixed grace, with bilingual copy",
+  clientDataAssets.includes("GENERATION_ABSENT_GRACE_MS") &&
+    clientDataAssets.includes("pendingAgeMs") &&
+    generatePanel.includes("pendingGenerationAgeMs") &&
+    generatePanel.includes("never reached the server") &&
+    generatePanel.includes("chưa từng tới máy chủ"),
+);
+check(
+  "generation progress heartbeat is durable, owner-only and non-terminal",
+  generationProgressMigration.includes("vnagent_generation_job_progress") &&
+    generationProgressMigration.includes("security definer") &&
+    generationProgressMigration.includes("has_role(v_actor, 'owner')") &&
+    generationProgressMigration.includes("status <> 'running'") &&
+    generationProgressMigration.includes("lease_expires_at = now()") &&
+    generationProgressMigration.includes("result_summary || jsonb_build_object('created'") &&
+    generationProgressMigration.includes("grant execute on function public.vnagent_generation_job_progress") &&
+    store.includes("vnagent_generation_job_progress") &&
+    handler.includes("generationProgress"),
+);
 check("supported definitions and curated built-in examples are source constants", generation.includes("SUPPORTED_TOPICS") && generation.includes("BUILT_IN_EXAMPLE_SEEDS") && generation.includes("seed-payment-supplier") && generation.includes("SEED_SOURCE_LABEL") && /not owner-approved/i.test(generation));
 check("generation output has no stage/evaluation/truth label field", !/dataset_stage|evaluation_status|reviewer_id|verified_intent/.test(generation) && generation.includes("STYLE_RESPONSE"));
 check("generation rejects fabricated money claims in questions", generation.includes("MONEY_CLAIM") && generation.includes("generation_duplicate_output"));

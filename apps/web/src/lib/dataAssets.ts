@@ -265,6 +265,8 @@ export interface PendingGeneration {
   key: string;
   /** The EXACT validated request of the pending run, restored so a safe retry is the same run. */
   request: PendingGenerationRequest | null;
+  /** When the run was first dispatched; absent on legacy records (age unknown). */
+  startedAt?: string | null;
 }
 
 const PENDING_KEY_PATTERN = /^[A-Za-z0-9-]{8,64}$/;
@@ -274,7 +276,7 @@ export function parsePendingGeneration(raw: string | null): PendingGeneration | 
   if (!raw) return null;
   const legacy = PENDING_KEY_PATTERN.test(raw) ? raw : null;
   try {
-    const parsed = JSON.parse(raw) as { key?: unknown; request?: unknown } | null;
+    const parsed = JSON.parse(raw) as { key?: unknown; request?: unknown; startedAt?: unknown } | null;
     if (!parsed || typeof parsed !== "object" || typeof parsed.key !== "string" || !PENDING_KEY_PATTERN.test(parsed.key)) return legacy ? { key: legacy, request: null } : null;
     const request = parsed.request as Record<string, unknown> | null | undefined;
     const valid = request
@@ -283,28 +285,61 @@ export function parsePendingGeneration(raw: string | null): PendingGeneration | 
       && Number.isInteger(request.count)
       && (request.target_language === "vi" || request.target_language === "en")
       && typeof request.budget_usd === "number" && Number.isFinite(request.budget_usd);
-    return {
+    const result: PendingGeneration = {
       key: parsed.key,
       request: valid
         ? { topic: request.topic as string, count: request.count as number, target_language: request.target_language as GenerationLanguage, budget_usd: request.budget_usd as number }
         : null,
     };
+    // Only carry a parseable timestamp, and only when present, so legacy records
+    // keep their exact old shape for existing callers/tests.
+    if (typeof parsed.startedAt === "string" && !Number.isNaN(Date.parse(parsed.startedAt))) result.startedAt = parsed.startedAt;
+    return result;
   } catch {
     return legacy ? { key: legacy, request: null } : null;
   }
+}
+
+/**
+ * How long ago the pending run was first dispatched, or null when the record has
+ * no usable timestamp (legacy) / is ahead of the clock. Null means "age unknown",
+ * which always keeps the lock.
+ */
+export function pendingGenerationAgeMs(pending: PendingGeneration | null, now: number = Date.now()): number | null {
+  if (!pending || typeof pending.startedAt !== "string") return null;
+  const started = Date.parse(pending.startedAt);
+  if (Number.isNaN(started)) return null;
+  return Math.max(0, now - started);
 }
 
 export function serializePendingGeneration(pending: PendingGeneration): string {
   return JSON.stringify(pending);
 }
 
+/** Fixed grace before an exact-key `absent` read may release the pending lock. */
+export const GENERATION_ABSENT_GRACE_MS = 5 * 60 * 1000;
+
 /**
- * Whether a read-back releases the pending lock. An expired lease is an explicit
- * server-verified terminal outcome, so it releases. A still-running or absent job
- * keeps the lock (the owner must recover, not blindly start a new paid batch).
+ * Whether a read-back releases the pending lock.
+ *   * a server-verified expired lease (`abandoned`) releases;
+ *   * an exact-key `absent` read releases ONLY once the pending record is older
+ *     than the fixed grace (the earlier request never reached the server, so there
+ *     is no paid work to reconcile). An unknown age keeps the lock;
+ *   * a still-running or uncertain job keeps the lock.
  */
-export function generationRecoveryDecision(input: { jobStatus?: string | null; abandoned?: boolean; absent?: boolean }): "keep" | "clear" {
-  if (input.absent) return "keep";
+export function generationRecoveryDecision(input: {
+  jobStatus?: string | null;
+  abandoned?: boolean;
+  absent?: boolean;
+  /** Age of the pending record in ms; null/absent means unknown, so keep. */
+  pendingAgeMs?: number | null;
+  absentGraceMs?: number;
+}): "keep" | "clear" {
+  if (input.absent) {
+    const graceMs = input.absentGraceMs ?? GENERATION_ABSENT_GRACE_MS;
+    const age = input.pendingAgeMs;
+    return typeof age === "number" && Number.isFinite(age) && age >= graceMs ? "clear" : "keep";
+  }
   if (input.abandoned) return "clear";
   if (input.jobStatus === "running") return "keep";
   return input.jobStatus ? "clear" : "keep";
@@ -346,6 +381,73 @@ export function generationJobDiagnostic(job: Pick<GenerationJob, "result_summary
   const summary = (job.result_summary ?? {}) as Record<string, unknown>;
   const parsed = generationDiagnosticSchema.safeParse(summary.diagnostic);
   return parsed.success ? parsed.data : null;
+}
+
+// ── Owner-only Generate Data live progress (pure, unit-testable) ──
+
+export type GenerationProgressPhase = "queued" | "model" | "writing" | "done" | "abandoned" | "failed";
+
+export interface GenerationProgress {
+  phase: GenerationProgressPhase;
+  /** Running created + duplicate reported by the durable job, or null when unknown. */
+  accepted: number | null;
+  /** Requested question count, or null when neither the caller nor the job knows it. */
+  total: number | null;
+  /** 0–100 only when accepted is known and total is known and > 0; else null. */
+  percentage: number | null;
+}
+
+function knownCount(value: unknown): number | null {
+  const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function knownPositiveInt(value: unknown): number | null {
+  const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+/**
+ * Derive the honest visible progress of one batch from its durable job row plus
+ * the requested count. Unknown values stay null so the UI shows "—", never a
+ * fabricated 0:
+ *   * queued    — no job row has been read back yet (the request is dispatching);
+ *   * model     — the single model call is in flight; nothing is written, so there
+ *                 is genuinely no per-question progress during this phase;
+ *   * writing   — questions are being stored; counts come from the heartbeat;
+ *   * done      — terminal completed;
+ *   * abandoned — a server-evaluated expired lease (the row is still `running`);
+ *   * failed    — terminal failed/budget_exceeded.
+ */
+export function generationProgress(
+  job: Pick<GenerationJob, "status" | "result_summary" | "request"> | null,
+  requestedCount: number | null | undefined,
+  abandoned = false,
+): GenerationProgress {
+  const total = knownPositiveInt(requestedCount) ?? knownPositiveInt(job?.request?.count) ?? null;
+  if (!job) return { phase: "queued", accepted: null, total, percentage: null };
+
+  const summary = (job.result_summary ?? {}) as Record<string, unknown>;
+  const created = knownCount(summary.created);
+  const duplicate = knownCount(summary.duplicate);
+  // Only an explicit created AND duplicate pair is a real total; a missing half is
+  // unknown, never an assumed 0.
+  const accepted = created !== null && duplicate !== null ? created + duplicate : null;
+  const percentage = accepted !== null && total !== null && total > 0
+    ? Math.min(100, Math.max(0, Math.round((accepted / total) * 100)))
+    : null;
+
+  const phase: GenerationProgressPhase = abandoned
+    ? "abandoned"
+    : job.status === "completed"
+      ? "done"
+      : job.status === "failed" || job.status === "budget_exceeded"
+        ? "failed"
+        : accepted !== null && accepted > 0
+          ? "writing"
+          : "model";
+
+  return { phase, accepted, total, percentage };
 }
 
 /**

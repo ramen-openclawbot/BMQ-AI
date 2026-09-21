@@ -14,7 +14,7 @@ import {
   type ExportQuery,
   type TransitionInput,
 } from "./data-assets.ts";
-import type { AssetListResult, DataAdminStore, GenerationFinishInput, GenerationJob, GenerationStartInput, InsertResult } from "./handler.ts";
+import type { AssetListResult, DataAdminStore, GenerationFinishInput, GenerationJob, GenerationProgressInput, GenerationStartInput, InsertResult } from "./handler.ts";
 
 const ASSET_COLUMNS =
   "id,tenant,dataset_stage,source_kind,source_designation,interaction_id,question,source_answer,expected_intent,expected_filters,provenance,snapshot_at,effective_at,evaluation_status,verified_intent,verified_conditions,evidence,reviewer_id,version,dedupe_key,created_by,created_at,updated_at";
@@ -73,6 +73,16 @@ function mapGenerationFinishError(message: string | undefined): never {
   if (text.includes("job_finished")) fail("generation_job_finished", 409);
   if (text.includes("version_conflict")) fail("generation_version_conflict", 409);
   if (text.includes("invalid_status") || text.includes("invalid_summary") || text.includes("invalid_cost")) fail("generation_invalid_request", 400);
+  fail("store_unavailable", 503);
+}
+
+function mapGenerationProgressError(message: string | undefined): never {
+  const text = (message ?? "").toLowerCase();
+  if (text.includes("forbidden")) fail("forbidden", 403);
+  if (text.includes("job_not_found")) fail("generation_job_not_found", 404);
+  if (text.includes("job_finished")) fail("generation_job_finished", 409);
+  if (text.includes("version_conflict")) fail("generation_version_conflict", 409);
+  if (text.includes("invalid_version") || text.includes("invalid_counts")) fail("generation_invalid_request", 400);
   fail("store_unavailable", 503);
 }
 
@@ -224,6 +234,25 @@ export function createDataAdminStore(db: SupabaseClient): DataAdminStore {
         })
         .abortSignal(signal);
       if (error) mapGenerationFinishError(error.message);
+      const job = (data as { job?: GenerationJob } | null)?.job;
+      if (!job) fail("store_unavailable", 503);
+      return job;
+    },
+
+    async generationProgress(input: GenerationProgressInput, signal): Promise<GenerationJob> {
+      // Heartbeat only: the RPC merges the partial created/duplicate counts into
+      // result_summary and refreshes the lease of a job the caller still owns and
+      // that is still `running`. It never finishes the job and never bumps its
+      // version, so the terminal write that captured the start version still wins.
+      const { data, error } = await db
+        .rpc("vnagent_generation_job_progress", {
+          p_job_id: input.jobId,
+          p_expected_version: input.expectedVersion,
+          p_created: input.created,
+          p_duplicate: input.duplicate,
+        })
+        .abortSignal(signal);
+      if (error) mapGenerationProgressError(error.message);
       const job = (data as { job?: GenerationJob } | null)?.job;
       if (!job) fail("store_unavailable", 503);
       return job;

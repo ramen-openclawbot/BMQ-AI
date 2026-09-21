@@ -46,6 +46,8 @@ interface Harness {
   assets: Map<string, DataAsset>;
   exportQueries: ExportQuery[];
   jobs: Map<string, Record<string, unknown>>;
+  progressSignals: AbortSignal[];
+  progressInputs: { created: number; duplicate: number }[];
 }
 
 function harness(seed: DataAsset[] = []): Harness {
@@ -53,6 +55,8 @@ function harness(seed: DataAsset[] = []): Harness {
   const calls: string[] = [];
   const exportQueries: ExportQuery[] = [];
   const jobs = new Map<string, Record<string, unknown>>();
+  const progressSignals: AbortSignal[] = [];
+  const progressInputs: { created: number; duplicate: number }[] = [];
   const store: DataAdminStore = {
     async metrics() {
       calls.push("metrics");
@@ -178,6 +182,19 @@ function harness(seed: DataAsset[] = []): Harness {
       jobs.set(input.jobId, updated);
       return updated;
     },
+    async generationProgress(input, signal) {
+      calls.push(`generationProgress:${input.created}/${input.duplicate}`);
+      progressSignals.push(signal);
+      progressInputs.push({ created: input.created, duplicate: input.duplicate });
+      // Mirrors the RPC: merge partial counts, keep the job running and DO NOT bump
+      // the version (the terminal write still uses the start version).
+      const job = jobs.get(input.jobId);
+      if (!job) throw new DataAdminError("generation_job_not_found", 404);
+      if (job.version !== input.expectedVersion) throw new DataAdminError("generation_version_conflict", 409);
+      const updated = { ...job, result_summary: { ...(job.result_summary as Record<string, unknown>), created: input.created, duplicate: input.duplicate } };
+      jobs.set(input.jobId, updated);
+      return updated;
+    },
     async generationGet(jobId, idempotencyKey) {
       calls.push(`generationGet:${jobId ?? idempotencyKey ?? "recent"}`);
       if (idempotencyKey) return { job: [...jobs.values()].find((job) => job.idempotency_key === idempotencyKey) ?? null, jobs: [], abandoned: false };
@@ -185,7 +202,7 @@ function harness(seed: DataAsset[] = []): Harness {
       return { job: null, jobs: [...jobs.values()], abandoned: false };
     },
   };
-  return { store, calls, assets, exportQueries, jobs };
+  return { store, calls, assets, exportQueries, jobs, progressSignals, progressInputs };
 }
 
 /**
@@ -570,6 +587,86 @@ test("a successful batch stores Raw synthetic/llm_generated assets with run prov
   assert.equal(body.usage.output, 600);
   assert.equal([...jobs.values()][0].status, "completed");
   assert.ok(calls.some((call) => call === "generationFinish:completed"));
+});
+
+test("live progress heartbeats run during the loop with running counts and a detached signal", async () => {
+  const harnessed = harness();
+  const caller = new AbortController();
+  const generate = async (request: GenerationRequest) => ({ items: generationItems(request), usage: { input: 1, output: 1 }, cost: 0.02, model: "m" });
+  const handler = createDataAdminHandler(configFor({}, harnessed.store, { generate, generationPricing: () => GENERATION_PRICES }));
+  const response = await handler(post(generationBody, {}, caller.signal));
+  assert.equal(response.status, 201);
+
+  // One heartbeat per stored question, carrying the RUNNING created/duplicate totals.
+  assert.equal(harnessed.progressInputs.length, 20);
+  assert.deepEqual(harnessed.progressInputs[0], { created: 1, duplicate: 0 });
+  assert.deepEqual(harnessed.progressInputs[19], { created: 20, duplicate: 0 });
+  // Every heartbeat runs under its OWN bounded signal, never the caller's.
+  assert.equal(harnessed.progressSignals.length, 20);
+  for (const signal of harnessed.progressSignals) {
+    assert.notEqual(signal, caller.signal);
+    assert.equal(signal.aborted, false);
+  }
+  // The terminal write still stores the full summary, not the last heartbeat.
+  const job = [...harnessed.jobs.values()][0];
+  assert.equal(job.status, "completed");
+  const summary = job.result_summary as Record<string, unknown>;
+  assert.equal(summary.created, 20);
+  assert.equal(summary.duplicate, 0);
+  assert.equal(summary.total, 20);
+});
+
+test("a failing progress write never fails the batch and still returns the accepted results", async () => {
+  const harnessed = harness();
+  let progressCalls = 0;
+  const store: DataAdminStore = {
+    ...harnessed.store,
+    async generationProgress() {
+      progressCalls += 1;
+      throw new Error("progress unavailable");
+    },
+  };
+  const generate = async (request: GenerationRequest) => ({ items: generationItems(request), usage: { input: 1, output: 1 }, cost: 0.02, model: "m" });
+  const handler = createDataAdminHandler(configFor({}, store, { generate, generationPricing: () => GENERATION_PRICES }));
+  const response = await handler(post(generationBody));
+  const body = await response.json();
+
+  assert.equal(response.status, 201);
+  assert.equal(body.status, "ok");
+  assert.equal(body.results.created, 20);
+  assert.equal(body.results.duplicate, 0);
+  assert.equal(body.assets.length, 20);
+  // The heartbeat was attempted for every item and every failure was swallowed.
+  assert.equal(progressCalls, 20);
+  assert.equal([...harnessed.jobs.values()][0].status, "completed");
+});
+
+test("progress heartbeats never change the terminal failed settle or its partial counts", async () => {
+  const harnessed = abortAwareHarness();
+  const controller = new AbortController();
+  let inserts = 0;
+  const store: DataAdminStore = {
+    ...harnessed.store,
+    async createAsset(input, key, signal) {
+      const result = await harnessed.store.createAsset(input, key, signal);
+      inserts += 1;
+      if (inserts === 5) controller.abort();
+      return result;
+    },
+  };
+  const generate = async (request: GenerationRequest) => ({ items: generationItems(request), usage: { input: 1, output: 1 }, cost: 0.02, model: "m" });
+  const handler = createDataAdminHandler(configFor({}, store, { generate, generationPricing: () => GENERATION_PRICES }));
+
+  await handler(post(generationBody, {}, controller.signal));
+
+  const job = [...harnessed.jobs.values()][0];
+  assert.equal(job.status, "failed");
+  assert.equal(job.error_code, "generation_request_aborted");
+  // The terminal write still owns the final summary with the partial counts.
+  assert.deepEqual(job.result_summary, { created: 5, duplicate: 0, rejected: 0 });
+  assert.deepEqual(harnessed.progressInputs.at(-1), { created: 5, duplicate: 0 });
+  assert.equal(harnessed.finishSignals.length, 1);
+  assert.equal(harnessed.finishSignals[0].aborted, false);
 });
 
 test("unknown provider usage is returned as null, never a fabricated zero", async () => {

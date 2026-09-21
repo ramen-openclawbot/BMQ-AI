@@ -21,19 +21,27 @@ import {
   formatDateTime,
   formatNumber,
   generationHistoryResponseSchema,
+  generationProgress,
   generationRecoveryDecision,
   generationResponseSchema,
   generationFailureReason,
   generationStatusLabel,
   isDefinitiveGenerationDenial,
   parsePendingGeneration,
+  pendingGenerationAgeMs,
   serializePendingGeneration,
   type GenerationJob,
+  type GenerationProgress,
+  type GenerationProgressPhase,
   type Language,
   type PendingGeneration,
   type PendingGenerationRequest,
 } from "@/lib/dataAssets";
 import { SectionCard } from "./shared";
+
+// Bounded live-progress refresh while a batch is running. The effect stops on any
+// terminal/abandoned read, so it can never poll forever.
+const GENERATION_POLL_MS = 3_000;
 
 function t(language: Language, vi: string, en: string): string {
   return language === "en" ? en : vi;
@@ -72,6 +80,51 @@ function ResultsList({ job, language }: { job: GenerationJob; language: Language
 }
 
 type RecoveryState = "unknown" | "running" | "absent" | "terminal" | "abandoned";
+
+function phaseLabel(phase: GenerationProgressPhase, language: Language): string {
+  return {
+    queued: t(language, "Đang chờ máy chủ tạo job", "Waiting for the server to create the job"),
+    model: t(language, "Model đang tạo bộ câu hỏi (chưa ghi câu nào)", "The model is generating the batch (nothing written yet)"),
+    writing: t(language, "Đang ghi câu hỏi vào Raw", "Writing questions into Raw"),
+    done: t(language, "Đã lưu xong toàn bộ lô", "The whole batch is saved"),
+    abandoned: t(language, "Bỏ dở — hết hạn thuê", "Abandoned — lease expired"),
+    failed: t(language, "Thất bại", "Failed"),
+  }[phase];
+}
+
+/**
+ * Honest progress meter: the counts come from the durable job row (heartbeat) and
+ * unknown values show "—", never a fabricated 0.
+ */
+function ProgressMeter({ progress, language }: { progress: GenerationProgress; language: Language }) {
+  const accepted = progress.accepted === null ? "—" : formatNumber(progress.accepted, language);
+  const total = progress.total === null ? "—" : formatNumber(progress.total, language);
+  const percent = progress.percentage === null ? "—" : `${progress.percentage}%`;
+  return (
+    <div style={{ marginTop: 12 }} data-da-generation-progress={progress.phase}>
+      <div className="da-form-row">
+        <div className="da-field">
+          <span className="da-meta">{t(language, "Tiến độ đã lưu", "Saved progress")}</span>
+          <strong data-da-generation-progress-count>{t(language, `Đã lưu ${accepted}/${total} câu (${percent})`, `Saved ${accepted}/${total} questions (${percent})`)}</strong>
+        </div>
+        <div className="da-field">
+          <span className="da-meta">{t(language, "Giai đoạn", "Phase")}</span>
+          <strong data-da-generation-progress-phase>{phaseLabel(progress.phase, language)}</strong>
+        </div>
+      </div>
+      <div
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        {...(progress.percentage === null ? {} : { "aria-valuenow": progress.percentage })}
+        aria-label={t(language, "Tiến độ lô tạo câu hỏi", "Generation batch progress")}
+        style={{ height: 8, borderRadius: 999, background: "var(--da-line, #e5e7eb)", overflow: "hidden" }}
+      >
+        <div style={{ width: `${progress.percentage ?? 0}%`, height: "100%", background: "var(--da-teal, #0f766e)", transition: "width 300ms ease" }} />
+      </div>
+    </div>
+  );
+}
 
 export function GeneratePanel({ language, ownerId }: { language: Language; ownerId: string }) {
   const [topic, setTopic] = useState<string>("mixed");
@@ -149,8 +202,9 @@ export function GeneratePanel({ language, ownerId }: { language: Language; owner
     }
   }
 
-  // Read the EXACT batch key back. The lock is only released by a terminal state or
-  // a server-verified expired lease; a running or absent job keeps it.
+  // Read the EXACT batch key back. The lock is released by a terminal state, a
+  // server-verified expired lease, or an exact-key absent read older than the fixed
+  // grace; a running or uncertain job keeps it.
   async function reconcileKey(run: PendingGeneration) {
     const controller = track();
     setBusy(true);
@@ -158,17 +212,36 @@ export function GeneratePanel({ language, ownerId }: { language: Language; owner
       const result = await invokeDataAdmin({ action: "generate_status", idempotency_key: run.key }, generationHistoryResponseSchema, language, controller.signal);
       if (!mountedRef.current) return;
       const found = result.job ?? null;
-      const decision = generationRecoveryDecision({ jobStatus: found?.status, abandoned: result.abandoned === true, absent: !found });
+      const decision = generationRecoveryDecision({
+        jobStatus: found?.status,
+        abandoned: result.abandoned === true,
+        absent: !found,
+        pendingAgeMs: pendingGenerationAgeMs(run),
+      });
       if (!found) {
-        setRecovery("absent");
-        setStatus({
-          tone: "error",
-          text: t(
-            language,
-            "Chưa tìm thấy lô nào cho đúng lượt chạy này. Chưa chạy lô mới; anh đọc lại, hoặc chạy lại an toàn đúng lượt cũ nếu đã có đủ thông tin.",
-            "No batch was found for this exact run yet. No new batch was started; read again, or safely retry the same run if it is available.",
-          ),
-        });
+        if (decision === "clear") {
+          // The request never reached the server for this exact key and the pending
+          // record is older than the grace, so there is no paid work to reconcile.
+          clearPending();
+          setStatus({
+            tone: "error",
+            text: t(
+              language,
+              "Lượt chạy trước chưa từng tới máy chủ: không có job nào cho đúng khóa này và yêu cầu đã quá thời gian chờ, nên khóa đã được mở. Anh có thể chạy lô mới.",
+              "The earlier request never reached the server: no job exists for this exact key and the request is past the grace period, so the lock was released. You can start a new batch.",
+            ),
+          });
+        } else {
+          setRecovery("absent");
+          setStatus({
+            tone: "error",
+            text: t(
+              language,
+              "Chưa tìm thấy lô nào cho đúng lượt chạy này. Chưa chạy lô mới; anh đọc lại, hoặc chạy lại an toàn đúng lượt cũ nếu đã có đủ thông tin.",
+              "No batch was found for this exact run yet. No new batch was started; read again, or safely retry the same run if it is available.",
+            ),
+          });
+        }
       } else if (result.abandoned === true) {
         setJob(found);
         setRecovery("abandoned");
@@ -215,6 +288,60 @@ export function GeneratePanel({ language, ownerId }: { language: Language; owner
     }
   }
 
+  // Bounded background refresh while a running batch is mounted: read the exact key
+  // back so the counts advance as the server heartbeats. It never resubmits, keeps
+  // the pending lock on a transient failure, and the polling effect below stops as
+  // soon as this sets a terminal/abandoned/absent recovery state.
+  async function refreshBatch(run: PendingGeneration) {
+    const controller = track();
+    try {
+      const result = await invokeDataAdmin({ action: "generate_status", idempotency_key: run.key }, generationHistoryResponseSchema, language, controller.signal);
+      if (!mountedRef.current) return;
+      const found = result.job ?? null;
+      if (!found) {
+        if (generationRecoveryDecision({ absent: true, pendingAgeMs: pendingGenerationAgeMs(run) }) === "clear") {
+          clearPending();
+          setStatus({
+            tone: "error",
+            text: t(
+              language,
+              "Lượt chạy trước chưa từng tới máy chủ: không có job nào cho đúng khóa này và yêu cầu đã quá thời gian chờ, nên khóa đã được mở. Anh có thể chạy lô mới.",
+              "The earlier request never reached the server: no job exists for this exact key and the request is past the grace period, so the lock was released. You can start a new batch.",
+            ),
+          });
+        } else {
+          setRecovery("absent");
+        }
+        return;
+      }
+      setJob(found);
+      if (result.abandoned === true) {
+        setRecovery("abandoned");
+        clearPending();
+        setStatus({
+          tone: "error",
+          text: t(
+            language,
+            "Lượt chạy trước đã hết hạn thuê và được hệ thống xác nhận là bỏ dở; không có lần gọi model trả phí nào được lặp lại. Anh có thể chạy lô mới.",
+            "The previous run's lease expired and the server confirms it is abandoned; no paid call was repeated. You can start a new batch.",
+          ),
+        });
+        return;
+      }
+      if (found.status === "running") {
+        setRecovery("running");
+        return;
+      }
+      setRecovery("terminal");
+      clearPending();
+      void loadHistory();
+    } catch {
+      // A transient read failure keeps the lock and lets the next tick retry.
+    } finally {
+      release(controller);
+    }
+  }
+
   useEffect(() => {
     mountedRef.current = true;
     const stored = readPending();
@@ -238,6 +365,17 @@ export function GeneratePanel({ language, ownerId }: { language: Language; owner
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ownerId]);
 
+  // Live progress: while the durable job is running and the panel is mounted, poll
+  // the exact key about every 3s. The interval is cleared on unmount/account switch
+  // and the refresh flips `recovery` on any terminal/abandoned/absent read, so this
+  // is bounded and never an infinite poll.
+  useEffect(() => {
+    if (recovery !== "running" || !pending) return;
+    const timer = window.setInterval(() => { void refreshBatch(pending); }, GENERATION_POLL_MS);
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recovery, pending]);
+
   async function submit(event: React.FormEvent | null, exact?: PendingGeneration) {
     if (event) event.preventDefault();
     if (busy) return;
@@ -246,6 +384,9 @@ export function GeneratePanel({ language, ownerId }: { language: Language; owner
     const run: PendingGeneration = exact ?? {
       key: newIdempotencyKey(),
       request: { topic, count, target_language: targetLanguage, budget_usd: budgetNumber },
+      // Dispatch time of THIS pending record; the absent-release rule measures the
+      // fixed 5-minute grace from it.
+      startedAt: new Date().toISOString(),
     };
     const request = run.request;
     if (!request) return;
@@ -322,6 +463,10 @@ export function GeneratePanel({ language, ownerId }: { language: Language; owner
   }
 
   const locked = busy || pending !== null;
+  // Visible progress is derived from the durable job row (or the pending record
+  // before the first read-back); unknown values stay null and render as "—".
+  const requestedCount = pending?.request?.count ?? (Number.isInteger(count) && count > 0 ? count : null);
+  const progress = generationProgress(job, requestedCount, recovery === "abandoned");
 
   return (
     <div data-da-panel="generate">
@@ -384,6 +529,12 @@ export function GeneratePanel({ language, ownerId }: { language: Language; owner
             <span className="da-notice">{t(language, "Lần chạy trùng được nhận diện tự động nên model không bị gọi hai lần.", "Repeated runs are recognised automatically, so the model is never called twice.")}</span>
           </div>
         </form>
+
+        {(job || pending) && (
+          <div className="da-card" style={{ marginTop: 12 }}>
+            <ProgressMeter progress={progress} language={language} />
+          </div>
+        )}
 
         {job && (
           <div className="da-card" style={{ marginTop: 12 }}>
