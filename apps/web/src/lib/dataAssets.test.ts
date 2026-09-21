@@ -118,6 +118,25 @@ test("asset schema requires a known stage, source answer and effective date", ()
   assert.equal(assetSchema.safeParse({ ...valid, effective_at: undefined }).success, false);
 });
 
+test("asset schema accepts captured non-string filter values but rejects a non-object", () => {
+  const captured = {
+    id: "22222222-2222-2222-2222-222222222222", tenant: "bmq", dataset_stage: "raw", source_kind: "operational_chat",
+    source_designation: null, interaction_id: null, question: "Doanh thu hôm nay?", source_answer: "1.000.000đ",
+    expected_intent: {}, expected_filters: { metrics: [], periods: [], dimensions: [], queryCount: 0 },
+    provenance: {}, snapshot_at: null, effective_at: "2026-09-20T00:00:00.000Z",
+    evaluation_status: "not_evaluated", verified_intent: null, verified_conditions: null,
+    evidence: [], reviewer_id: null, version: 1, dedupe_key: "k2", created_by: null,
+    created_at: "2026-09-20T00:00:00.000Z", updated_at: "2026-09-20T00:00:00.000Z",
+  };
+  assert.equal(assetSchema.safeParse(captured).success, true);
+  // The empty synthetic shape still parses.
+  assert.equal(assetSchema.safeParse({ ...captured, source_kind: "synthetic", expected_filters: {} }).success, true);
+  // A non-object expected_filters is still rejected.
+  for (const bad of [[], ["metrics"], "metrics", 0, null]) {
+    assert.equal(assetSchema.safeParse({ ...captured, expected_filters: bad }).success, false, JSON.stringify(bad));
+  }
+});
+
 test("export response schema uses the snake_case server echo and reports the total", () => {
   const parsed = exportResponseSchema.safeParse({
     status: "ok", markdown: "# x", count: 1, truncated: false, total: 3,

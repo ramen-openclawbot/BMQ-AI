@@ -34,7 +34,10 @@ export const assetSchema = z.object({
   question: z.string(),
   source_answer: z.string().nullable(),
   expected_intent: z.record(z.unknown()),
-  expected_filters: z.record(z.string()),
+  // Captured `operational_chat` rows store structured JSON (arrays/numbers), while
+  // the manual/contribute path only ever writes string values. Any JSON value is
+  // valid here; only the outer value must be an object.
+  expected_filters: z.record(z.unknown()),
   provenance: z.record(z.unknown()),
   snapshot_at: z.string().nullable(),
   effective_at: z.string(),
