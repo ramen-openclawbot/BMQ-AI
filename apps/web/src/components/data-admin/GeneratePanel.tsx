@@ -40,8 +40,10 @@ import {
 import { SectionCard } from "./shared";
 
 // Bounded live-progress refresh while a batch is running. The effect stops on any
-// terminal/abandoned read, so it can never poll forever.
+// terminal/abandoned read, and a run of failed reads also stops the interval, so it
+// can never poll forever.
 const GENERATION_POLL_MS = 3_000;
+const GENERATION_POLL_MAX_FAILURES = 5;
 
 function t(language: Language, vi: string, en: string): string {
   return language === "en" ? en : vi;
@@ -143,6 +145,9 @@ export function GeneratePanel({ language, ownerId }: { language: Language; owner
 
   const mountedRef = useRef(true);
   const controllersRef = useRef<Set<AbortController>>(new Set());
+  // Consecutive failed live-progress reads, so a broken link stops the poll instead
+  // of retrying forever.
+  const pollFailuresRef = useRef(0);
   // Owner-scoped, so switching accounts can never inherit another owner's pending batch.
   const storageKey = `vnagent-generate-pending:${ownerId}`;
 
@@ -297,6 +302,7 @@ export function GeneratePanel({ language, ownerId }: { language: Language; owner
     try {
       const result = await invokeDataAdmin({ action: "generate_status", idempotency_key: run.key }, generationHistoryResponseSchema, language, controller.signal);
       if (!mountedRef.current) return;
+      pollFailuresRef.current = 0;
       const found = result.job ?? null;
       if (!found) {
         if (generationRecoveryDecision({ absent: true, pendingAgeMs: pendingGenerationAgeMs(run) }) === "clear") {
@@ -336,7 +342,21 @@ export function GeneratePanel({ language, ownerId }: { language: Language; owner
       clearPending();
       void loadHistory();
     } catch {
-      // A transient read failure keeps the lock and lets the next tick retry.
+      // A transient read failure keeps the lock and lets the next tick retry, but a
+      // sustained failure stops the interval so the poll is always bounded.
+      pollFailuresRef.current += 1;
+      if (pollFailuresRef.current >= GENERATION_POLL_MAX_FAILURES) {
+        pollFailuresRef.current = 0;
+        setRecovery("unknown");
+        setStatus({
+          tone: "error",
+          text: t(
+            language,
+            "Chưa đọc lại được tiến độ lô sau nhiều lần thử. Anh bấm “Đọc lại trạng thái lô” để thử lại.",
+            "Could not read the batch progress after several tries. Use “Read batch state” to retry.",
+          ),
+        });
+      }
     } finally {
       release(controller);
     }
@@ -464,8 +484,10 @@ export function GeneratePanel({ language, ownerId }: { language: Language; owner
 
   const locked = busy || pending !== null;
   // Visible progress is derived from the durable job row (or the pending record
-  // before the first read-back); unknown values stay null and render as "—".
-  const requestedCount = pending?.request?.count ?? (Number.isInteger(count) && count > 0 ? count : null);
+  // before the first read-back); the helper falls back to the saved job request for
+  // the total, so an edited form field never rewrites a past run's denominator.
+  // Unknown values stay null and render as "—".
+  const requestedCount = pending?.request?.count ?? null;
   const progress = generationProgress(job, requestedCount, recovery === "abandoned");
 
   return (

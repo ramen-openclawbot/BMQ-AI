@@ -26,6 +26,9 @@ export const DEFAULT_GENERATION_MODEL = "deepseek-flash";
 
 export const GENERATION_COUNT_MIN = 20;
 export const GENERATION_COUNT_MAX = 50;
+// A 20-50 item batch is generated as several smaller, independently validated
+// paid calls of at most this many questions each (see generationChunkPlan).
+export const GENERATION_CHUNK_MAX = 10;
 export const GENERATION_QUESTION_MIN = 3;
 export const GENERATION_QUESTION_MAX = 300;
 export const GENERATION_BUDGET_MIN = 0.01;
@@ -203,6 +206,10 @@ export interface GenerationRequest {
   styleMix: Record<GenerationStyle, number>;
   seedIds: string[];
   idempotencyKey: string;
+  /** 0-based position of this request in the ordered chunk plan (chunked batches only). */
+  chunkIndex?: number;
+  /** Total number of chunks the batch was split into (chunked batches only). */
+  chunkTotal?: number;
 }
 
 export interface GenerationPrices {
@@ -243,6 +250,106 @@ export function defaultStyleMix(count: number): Record<GenerationStyle, number> 
   const outOfScope = Math.max(1, Math.round(count * 0.1));
   const variant = count - typo - ambiguous - outOfScope;
   return { variant, typo, ambiguous, out_of_scope: outOfScope };
+}
+
+/**
+ * Deterministic chunk plan for a batch of `count` questions.
+ *
+ * Sizes are largest-first with the remainder LAST: every chunk is
+ * `GENERATION_CHUNK_MAX` except the final one when `count` is not a multiple of
+ * it, e.g. 50 -> [10,10,10,10,10], 25 -> [10,10,5], 21 -> [10,10,1]. Each size is
+ * 1..GENERATION_CHUNK_MAX and the sizes sum EXACTLY to `count`. Pure and stable:
+ * the same count always yields the same plan.
+ */
+export function generationChunkPlan(count: number): number[] {
+  if (!Number.isInteger(count) || count <= 0) return [];
+  const plan: number[] = [];
+  for (let remaining = count; remaining > 0; remaining -= GENERATION_CHUNK_MAX) {
+    plan.push(Math.min(GENERATION_CHUNK_MAX, remaining));
+  }
+  return plan;
+}
+
+/**
+ * Split a whole-batch style mix across an ordered chunk plan.
+ *
+ * This is a largest-remainder apportionment, applied chunk by chunk against the
+ * REMAINING style totals: each style first gets its proportional share of the
+ * remaining total rounded down, then the leftover questions go one-by-one to the
+ * styles with the largest fractional remainder (ties broken by GENERATION_STYLES
+ * order). It is pure and deterministic, and it guarantees:
+ *   * every chunk mix is non-negative and uses the same four styles;
+ *   * every chunk mix sums EXACTLY to that chunk's size; and
+ *   * each style total across all chunks sums EXACTLY to the input mix.
+ *
+ * The chunk plan must describe the same total as the mix; only a caller bug can
+ * break that (generationChunkPlan(count) and defaultStyleMix(count) always agree),
+ * so a mismatch fails closed with the existing style-mix error code.
+ */
+export function splitGenerationStyleMix(
+  mix: Record<GenerationStyle, number>,
+  chunkSizes: readonly number[],
+): Record<GenerationStyle, number>[] {
+  const total = GENERATION_STYLES.reduce((sum, style) => sum + mix[style], 0);
+  const planned = chunkSizes.reduce((sum, size) => sum + size, 0);
+  if (total !== planned) throw new DataAdminError("invalid_generation_style_mix", 400);
+  const remaining: Record<GenerationStyle, number> = { ...mix };
+  let remainingTotal = total;
+  const result: Record<GenerationStyle, number>[] = [];
+  for (const size of chunkSizes) {
+    const chunk = {} as Record<GenerationStyle, number>;
+    const fractions: { style: GenerationStyle; index: number; fraction: number }[] = [];
+    let allocated = 0;
+    GENERATION_STYLES.forEach((style, index) => {
+      const quota = remainingTotal > 0 ? (remaining[style] * size) / remainingTotal : 0;
+      const floor = Math.min(Math.floor(quota), remaining[style], size);
+      chunk[style] = floor;
+      allocated += floor;
+      fractions.push({ style, index, fraction: quota - floor });
+    });
+    // The quotas sum to exactly `size`, so there are at most (styles - 1) leftover
+    // questions and a single pass over the sorted fractions is sufficient.
+    fractions.sort((a, b) => b.fraction - a.fraction || a.index - b.index);
+    let leftover = size - allocated;
+    for (const entry of fractions) {
+      if (leftover === 0) break;
+      if (chunk[entry.style] >= remaining[entry.style] || chunk[entry.style] >= size) continue;
+      chunk[entry.style] += 1;
+      leftover -= 1;
+    }
+    for (const style of GENERATION_STYLES) remaining[style] -= chunk[style];
+    remainingTotal -= size;
+    result.push(chunk);
+  }
+  return result;
+}
+
+/**
+ * Build the GenerationRequest for ONE chunk of a chunked batch.
+ *
+ * The chunk keeps the batch's topic, language, seeds and idempotency key (the full
+ * request stays the durable job contract and the dedupe basis); only `count`,
+ * `styleMix` and the documented `chunkIndex`/`chunkTotal` progress fields differ.
+ * `budgetUsd` stays the whole-batch budget, because the budget is enforced across
+ * all chunks, never per chunk. Serialization is unchanged: a chunk is an ordinary
+ * (smaller) request through serializeGenerationRequest, and chunkIndex/chunkTotal
+ * never reach the provider body.
+ */
+export function buildGenerationChunkRequest(
+  request: GenerationRequest,
+  chunk: { count: number; styleMix: Record<GenerationStyle, number>; chunkIndex: number; chunkTotal: number },
+): GenerationRequest {
+  return {
+    topicId: request.topicId,
+    count: chunk.count,
+    language: request.language,
+    budgetUsd: request.budgetUsd,
+    styleMix: chunk.styleMix,
+    seedIds: request.seedIds,
+    idempotencyKey: request.idempotencyKey,
+    chunkIndex: chunk.chunkIndex,
+    chunkTotal: chunk.chunkTotal,
+  };
 }
 
 function validStyleMix(raw: unknown, count: number): Record<GenerationStyle, number> {

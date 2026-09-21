@@ -32,12 +32,15 @@ import {
   DEFAULT_GENERATION_MODEL,
   GENERATION_IDEMPOTENCY,
   GENERATION_PROMPT_VERSION,
+  buildGenerationChunkRequest,
   estimateWorstCaseCostUsd,
+  generationChunkPlan,
   generationFingerprint,
   generationInputTokenBound,
   generationItemProvenance,
   generationOutputTokenBound,
   isDeterministicGenerationFailure,
+  splitGenerationStyleMix,
   validateGenerationRequest,
   type GenerationRequest,
 } from "./generation.ts";
@@ -135,10 +138,16 @@ const origins = new Set([
 
 const REQUEST_BODY_LIMIT = 120_000;
 const REQUEST_BUDGET_MS = 20_000;
-// Generation performs one bounded paid model call plus up to 50 idempotent asset
-// inserts, so it gets its own longer (still bounded) budget. Every other action
-// keeps the tight 20s budget.
-const GENERATE_BUDGET_MS = 90_000;
+// Generation runs a small ordered chunk plan (at most GENERATION_CHUNK_MAX
+// questions per paid call), so this budget covers the WHOLE chunked batch: every
+// chunk call plus up to 50 idempotent asset inserts, still bounded at 5 minutes.
+// Each individual DeepSeek call keeps its own shorter deadline (GENERATION_TIMEOUT_MS).
+// Every other action keeps the tight 20s budget.
+const GENERATE_BUDGET_MS = 300_000;
+// A chunk that fails for a transient reason (invalid/duplicate/malformed output,
+// provider 5xx/429, or timeout) is retried this many times before the batch fails.
+// 2 retries means at most 3 attempts for the SAME chunk.
+const GENERATION_CHUNK_RETRIES = 2;
 // Terminal job writes get their OWN detached, short, bounded budget. Both the
 // request signal and GENERATE_BUDGET_MS abort on caller disconnect/timeout, so a
 // terminal write bound to them can be cut off and leave a live batch stuck
@@ -151,6 +160,36 @@ const GENERATION_PROGRESS_BUDGET_MS = 3_000;
 const RATE_LIMIT_PER_MINUTE = 60;
 const ACTIONS = ["overview", "timeseries", "assets", "asset", "contribute", "transition", "jev", "export", "generate", "generate_status"] as const;
 type Action = (typeof ACTIONS)[number];
+
+// Fixed per-chunk failure codes that describe a transient outcome worth another
+// attempt. A malformed/duplicate/invalid model batch and a timeout are retryable,
+// as is the fixed rate-limit code (provider 429).
+const GENERATION_RETRYABLE_ERROR_CODES = new Set([
+  "generation_invalid_output",
+  "generation_duplicate_output",
+  "generation_invalid_response",
+  "generation_rate_limited",
+  "generation_timeout",
+]);
+
+/**
+ * Whether a failed chunk call may be retried.
+ *
+ * Retryable: invalid/duplicate/malformed model output, provider 429, a timeout,
+ * and a provider 5xx (transient server side). Everything else stops the batch
+ * immediately: an insufficient balance, a budget/config/auth rejection, a 4xx
+ * bad-request, and an aborted request are definitive, so retrying would only spend
+ * again for the same refusal.
+ */
+function isRetryableGenerationError(error: unknown): boolean {
+  if (!(error instanceof DataAdminError)) return false;
+  if (GENERATION_RETRYABLE_ERROR_CODES.has(error.code)) return true;
+  if (error.code === "generation_http_error") {
+    const diagnostic = providerDiagnosticOf(error);
+    return diagnostic !== null && diagnostic.status >= 500;
+  }
+  return false;
+}
 
 const messagesVi: Record<string, string> = {
   disabled: "Trang quản trị dữ liệu VNAgent chưa được bật.",
