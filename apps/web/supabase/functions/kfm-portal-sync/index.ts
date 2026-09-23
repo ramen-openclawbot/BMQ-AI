@@ -625,6 +625,11 @@ serve(async (req) => {
       ? (error as KfmPortalError).message
       : "Lỗi không xác định khi gọi cổng KFM";
     const detail = isPortal ? (error as KfmPortalError).detail : undefined;
+    // The client generates this bounded trace from fixed path labels, query-key
+    // allowlist, statuses and cookie-presence booleans; no raw provider response.
+    if (step === "login" && detail?.startsWith("postStatus=")) {
+      console.info("kfm_sso_diagnostic", JSON.stringify({ status, detail }));
+    }
     const expired = step === "me" && status === 401;
     // Bad credentials are remembered so the account is not hammered into a lockout.
     if (step === "login" || step === "exchange" || step === "sso_form") {

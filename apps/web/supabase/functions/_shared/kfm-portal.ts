@@ -97,6 +97,10 @@ class CookieJar {
   header(): string {
     return Array.from(this.store.entries()).map(([k, v]) => `${k}=${v}`).join("; ");
   }
+
+  has(name: string): boolean {
+    return this.store.has(name);
+  }
 }
 
 const REDIRECT_STATUS = new Set([301, 302, 303, 307, 308]);
@@ -155,17 +159,19 @@ function paramFromLocation(location: string, name: string): string {
   }
 }
 
-/**
- * Path and query KEYS only (never values) — enough to tell a wrong-path redirect
- * apart from a rejected password without leaking anything sensitive.
- */
-function pathOf(url: string): string {
+/** Fixed, public SSO paths and query *names* only; never echo a redirect value. */
+function safeSsoLocation(location: string): string {
+  if (!location) return "none";
   try {
-    const parsed = new URL(url);
-    const keys = Array.from(parsed.searchParams.keys()).join(",");
-    return keys ? `${parsed.pathname}?${keys}` : parsed.pathname;
+    const url = new URL(location, SSO_BASE);
+    const known = url.origin === new URL(SSO_BASE).origin
+      ? ["/uaa/login", "/uaa/oauth2/authorize"]
+      : url.origin === PORTAL_ORIGIN ? ["/sce/oauth"] : [];
+    const path = known.includes(url.pathname) ? url.pathname : "other";
+    const keys = ["error", "state", "code"].filter((key) => url.searchParams.has(key));
+    return `${path}${keys.length ? `?${keys.join(",")}` : ""}`;
   } catch {
-    return url.slice(0, 120);
+    return "invalid";
   }
 }
 
@@ -306,6 +312,7 @@ export async function loginWithPassword(
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: formEncode({ username, password, _csrf: csrf }),
   });
+  const postStatus = response.status;
 
   // SSO answers with a redirect chain: login -> authorize -> {redirect_uri}?code=...
   //
@@ -315,6 +322,7 @@ export async function loginWithPassword(
   // comes back. Reading that bounce as "wrong password" is a false negative.
   // The session is real, so ask the authorize endpoint again on it.
   let location = response.headers.get("location") || "";
+  const postRedirect = location;
   for (
     let hop = 0;
     hop < 6 && location && !paramFromLocation(location, "code") && !location.includes("/login");
@@ -337,7 +345,7 @@ export async function loginWithPassword(
       response.status,
       "KFM SSO không hoàn tất đăng nhập",
     );
-    failure.detail = `POST ${pathOf(action)} -> ${pathOf(location || "(không chuyển hướng)")}`;
+    failure.detail = `postStatus=${postStatus} postRedirect=${safeSsoLocation(postRedirect)} replayStatus=${response.status} replayRedirect=${safeSsoLocation(location)} sessionCookie=${jar.has("JSESSIONID")} authorizeCookie=${jar.has("sce_sso_authorize_request")}`;
     throw failure;
   }
   const returnedState = paramFromLocation(location, "state");

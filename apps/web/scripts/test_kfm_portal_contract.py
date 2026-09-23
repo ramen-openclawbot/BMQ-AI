@@ -253,6 +253,15 @@ def test_no_code_login_failure_does_not_assert_bad_credentials() -> None:
             "missing Edge secrets must remain distinct from SSO completion failure")
 
 
+def test_only_sanitized_no_code_trace_reaches_server_logs() -> None:
+    require(FUNCTION, 'if (step === "login" && detail?.startsWith("postStatus="))',
+            "only bounded no-code SSO evidence may be logged")
+    require(FUNCTION, 'console.info("kfm_sso_diagnostic", JSON.stringify({ status, detail }))',
+            "a single sanitized diagnostic event must correlate with Edge request ID")
+    forbid(FUNCTION, 'console.log(username', "do not log a KFM username")
+    forbid(FUNCTION, 'console.log(password', "do not log a KFM password")
+
+
 def test_the_proxy_is_authenticated_and_cors_aware() -> None:
     require(FUNCTION, "corsPreflightResponse", "browser preflight must be answered")
     require(FUNCTION, 'req.method !== "POST"', "only POST may reach the portal call")
