@@ -52,6 +52,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import { corsPreflightResponse, getCorsHeaders } from "../_shared/cors.ts";
 import { ensureTripIntake, handleKfmIntake, intakeRevision } from "../_shared/kfm-intake.ts";
+import { createKfmPasswordLoginGuard } from "../_shared/kfm-login-guard.ts";
 import {
   ISO_DATE,
   KfmPortalError,
@@ -79,7 +80,7 @@ import {
   listDeliveryLoads,
   listOrderAsns,
   listOrders,
-  openSession,
+  openSessionWithLoginGuard,
   statusLabel,
   vnDate,
   type KfmSession,
@@ -107,14 +108,6 @@ type KfmAction = typeof ACTIONS[number];
 
 /** Warm-instance session cache — avoids one login per request while it lasts. */
 let cached: { session: KfmSession; vendorIds: number[]; vendorCode: string | null } | null = null;
-
-/**
- * A rejected credential must not be retried on every app request: the partner
- * portal locks accounts after repeated failures. Failed logins are memoised for
- * a short cooldown so a mistaken secret cannot hammer the account.
- */
-const LOGIN_COOLDOWN_MS = 5 * 60 * 1000;
-let lastCredentialFailure: { at: number; step: string; status: number; message: string } | null = null;
 
 const json = (body: unknown, status: number, req: Request) =>
   new Response(JSON.stringify(body), {
@@ -275,26 +268,12 @@ serve(async (req) => {
 
   try {
     if (!cached) {
-      const cooldownLeftMs = lastCredentialFailure
-        ? LOGIN_COOLDOWN_MS - (Date.now() - lastCredentialFailure.at)
-        : 0;
-      if (cooldownLeftMs > 0 && lastCredentialFailure) {
-        return json({
-          success: false,
-          configured: true,
-          action,
-          deliveryDate,
-          error: "login_cooldown",
-          step: lastCredentialFailure.step,
-          message: lastCredentialFailure.message,
-          retryAfterSeconds: Math.ceil(cooldownLeftMs / 1000),
-          fallback: "retry_portal",
-        }, 200, req);
-      }
-      const session = await openSession({ username, password, refreshToken });
+      const session = await openSessionWithLoginGuard(
+        { username, password, refreshToken },
+        createKfmPasswordLoginGuard(tripAdmin()),
+      );
       const me = await getMe(session.token);
       cached = { session, vendorIds: me.vendorIds, vendorCode: me.vendorCode };
-      lastCredentialFailure = null;
     }
 
     const requestedVendor = Number(payload.vendorId);
@@ -631,19 +610,18 @@ serve(async (req) => {
       console.info("kfm_sso_diagnostic", JSON.stringify({ status, detail }));
     }
     const expired = step === "me" && status === 401;
-    // Bad credentials are remembered so the account is not hammered into a lockout.
-    if (step === "login" || step === "exchange" || step === "sso_form") {
-      lastCredentialFailure = { at: Date.now(), step, status, message };
-    }
+    const retryAfterMatch = step === "login_guard" ? String(detail || "").match(/retryAfterSeconds=(\d+)/) : null;
+    const retryAfterSeconds = retryAfterMatch ? Number(retryAfterMatch[1]) : undefined;
     return json({
       success: false,
       configured: true,
       action,
       deliveryDate,
-      error: expired ? "session_expired" : `portal_${step}`,
+      error: expired ? "session_expired" : step === "login_guard" && status === 429 ? "login_cooldown" : `portal_${step}`,
       step,
       message,
       detail,
+      ...(retryAfterSeconds !== undefined ? { retryAfterSeconds } : {}),
       // The UI falls back to the existing Gmail PO flow when this is not success.
       fallback: "retry_portal",
     }, 200, req);

@@ -74,45 +74,198 @@ export class KfmPortalError extends Error {
   }
 }
 
-/** Minimal cookie jar: the SSO login needs JSESSIONID kept between GET and POST. */
-class CookieJar {
-  private store = new Map<string, string>();
+export type KfmPasswordLoginLease =
+  | { acquired: true; leaseToken: string; retryAfterSeconds: number; reason: string }
+  | { acquired: false; leaseToken?: string; retryAfterSeconds: number; reason: string };
 
-  absorb(response: Response): void {
-    const raw: string[] =
-      typeof (response.headers as unknown as { getSetCookie?: () => string[] }).getSetCookie === "function"
-        ? (response.headers as unknown as { getSetCookie: () => string[] }).getSetCookie()
-        : [];
-    for (const line of raw) {
-      const pair = line.split(";")[0];
+export type KfmPasswordLoginGuard = {
+  acquirePasswordLoginLease(): Promise<KfmPasswordLoginLease>;
+  releasePasswordLoginLease(leaseToken: string, outcome: string): Promise<void>;
+};
+
+type StoredCookie = {
+  name: string;
+  value: string;
+  domain: string;
+  path: string;
+  hostOnly: boolean;
+  secure: boolean;
+  expiresAt: number | null;
+  createdAt: number;
+};
+
+function splitSetCookieHeader(header: string): string[] {
+  const result: string[] = [];
+  let start = 0;
+  for (let i = 0; i < header.length; i += 1) {
+    if (header[i] !== ",") continue;
+    if (/^\s*[^=;,\s]+=/.test(header.slice(i + 1))) {
+      result.push(header.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+  result.push(header.slice(start).trim());
+  return result.filter(Boolean);
+}
+
+function setCookieLines(headers: Headers): string[] {
+  const multi = (headers as unknown as { getSetCookie?: () => string[] }).getSetCookie;
+  if (typeof multi === "function") return multi.call(headers);
+  const joined = headers.get("set-cookie");
+  return joined ? splitSetCookieHeader(joined) : [];
+}
+
+function canonicalHost(url: URL): string {
+  return url.hostname.replace(/\.$/, "").toLowerCase();
+}
+
+function looksLikeIp(host: string): boolean {
+  return /^\d+\.\d+\.\d+\.\d+$/.test(host) || host.includes(":");
+}
+
+function domainMatches(host: string, domain: string): boolean {
+  return host === domain || (!looksLikeIp(host) && host.endsWith(`.${domain}`));
+}
+
+function defaultCookiePath(pathname: string): string {
+  if (!pathname || pathname[0] !== "/") return "/";
+  const last = pathname.lastIndexOf("/");
+  return last <= 0 ? "/" : pathname.slice(0, last);
+}
+
+function pathMatches(requestPath: string, cookiePath: string): boolean {
+  if (requestPath === cookiePath) return true;
+  if (!requestPath.startsWith(cookiePath)) return false;
+  return cookiePath.endsWith("/") || requestPath[cookiePath.length] === "/";
+}
+
+function parseMaxAge(value: string): number | null {
+  if (!/^-?\d+$/.test(value.trim())) return null;
+  return Number(value.trim());
+}
+
+/** RFC-aligned cookie jar for the SSO browser flow. Values never leave it except as Cookie headers. */
+export class KfmCookieJar {
+  private store: StoredCookie[] = [];
+  private sequence = 0;
+
+  absorb(response: Response, requestUrl: string): void {
+    const url = new URL(requestUrl);
+    const host = canonicalHost(url);
+    const now = Date.now();
+    for (const line of setCookieLines(response.headers)) {
+      const parts = line.split(";");
+      const pair = parts.shift() || "";
       const eq = pair.indexOf("=");
       if (eq <= 0) continue;
       const name = pair.slice(0, eq).trim();
       const value = pair.slice(eq + 1).trim();
-      if (value === "") this.store.delete(name);
-      else this.store.set(name, value);
+      if (!name) continue;
+
+      let domain = host;
+      let hostOnly = true;
+      let path = defaultCookiePath(url.pathname);
+      let secure = false;
+      let expiresAt: number | null = null;
+      let maxAgeSeen = false;
+
+      for (const rawAttr of parts) {
+        const attr = rawAttr.trim();
+        const attrEq = attr.indexOf("=");
+        const key = (attrEq === -1 ? attr : attr.slice(0, attrEq)).trim().toLowerCase();
+        const attrValue = attrEq === -1 ? "" : attr.slice(attrEq + 1).trim();
+        if (key === "domain") {
+          const candidate = attrValue.replace(/^\./, "").replace(/\.$/, "").toLowerCase();
+          if (!candidate || !domainMatches(host, candidate)) {
+            domain = "";
+            break;
+          }
+          domain = candidate;
+          hostOnly = false;
+        } else if (key === "path") {
+          path = attrValue.startsWith("/") ? attrValue : defaultCookiePath(url.pathname);
+        } else if (key === "secure") {
+          secure = true;
+        } else if (key === "max-age") {
+          const seconds = parseMaxAge(attrValue);
+          if (seconds !== null) {
+            maxAgeSeen = true;
+            expiresAt = now + seconds * 1000;
+          }
+        } else if (key === "expires" && !maxAgeSeen) {
+          const parsed = Date.parse(attrValue);
+          expiresAt = Number.isFinite(parsed) ? parsed : null;
+        }
+      }
+      if (!domain) continue;
+      const sameCookie = (cookie: StoredCookie) =>
+        cookie.name === name && cookie.domain === domain && cookie.path === path;
+      if (expiresAt !== null && expiresAt <= now) {
+        this.store = this.store.filter((cookie) => !sameCookie(cookie));
+        continue;
+      }
+      const existing = this.store.find(sameCookie);
+      if (existing) {
+        existing.value = value;
+        existing.hostOnly = hostOnly;
+        existing.secure = secure;
+        existing.expiresAt = expiresAt;
+      } else {
+        this.store.push({ name, value, domain, path, hostOnly, secure, expiresAt, createdAt: this.sequence++ });
+      }
     }
+    this.dropExpired(now);
   }
 
-  header(): string {
-    return Array.from(this.store.entries()).map(([k, v]) => `${k}=${v}`).join("; ");
+  header(requestUrl: string): string {
+    const url = new URL(requestUrl);
+    const host = canonicalHost(url);
+    const path = url.pathname || "/";
+    const now = Date.now();
+    this.dropExpired(now);
+    return this.store
+      .filter((cookie) =>
+        (cookie.expiresAt === null || cookie.expiresAt > now) &&
+        (cookie.secure ? url.protocol === "https:" : true) &&
+        (cookie.hostOnly ? host === cookie.domain : domainMatches(host, cookie.domain)) &&
+        pathMatches(path, cookie.path)
+      )
+      .sort((a, b) => b.path.length - a.path.length || a.createdAt - b.createdAt)
+      .map((cookie) => `${cookie.name}=${cookie.value}`)
+      .join("; ");
   }
 
   has(name: string): boolean {
-    return this.store.has(name);
+    const now = Date.now();
+    this.dropExpired(now);
+    return this.store.some((cookie) => cookie.name === name);
   }
 
   /** Compare cookie values privately; only the changed boolean leaves the jar. */
   observeChange(name: string): () => boolean {
-    const before = this.store.get(name);
-    return () => this.store.get(name) !== before;
+    const before = this.snapshot(name);
+    return () => this.snapshot(name) !== before;
+  }
+
+  private snapshot(name: string): string {
+    const now = Date.now();
+    this.dropExpired(now);
+    return this.store
+      .filter((cookie) => cookie.name === name)
+      .map((cookie) => `${cookie.domain}\t${cookie.path}\t${cookie.hostOnly}\t${cookie.secure}\t${cookie.value}`)
+      .sort()
+      .join("\n");
+  }
+
+  private dropExpired(now: number): void {
+    this.store = this.store.filter((cookie) => cookie.expiresAt === null || cookie.expiresAt > now);
   }
 }
 
 const REDIRECT_STATUS = new Set([301, 302, 303, 307, 308]);
 
 async function request(
-  jar: CookieJar | null,
+  jar: KfmCookieJar | null,
   url: string,
   init: RequestInit = {},
 ): Promise<Response> {
@@ -120,11 +273,11 @@ async function request(
   headers.set("User-Agent", USER_AGENT);
   if (!headers.has("Accept")) headers.set("Accept", "application/json, text/plain, */*");
   if (jar) {
-    const cookie = jar.header();
+    const cookie = jar.header(url);
     if (cookie) headers.set("Cookie", cookie);
   }
   const response = await fetch(url, { ...init, headers, redirect: "manual" });
-  if (jar) jar.absorb(response);
+  if (jar) jar.absorb(response, url);
   return response;
 }
 
@@ -165,11 +318,43 @@ function paramFromLocation(location: string, name: string): string {
   }
 }
 
+type RedirectDecision = { kind: "follow" | "callback" | "hostile"; url: string };
+const SSO_ORIGIN = new URL(SSO_BASE).origin;
+const SSO_CALLBACK = new URL(SSO_CALLBACK_URL);
+
+function isAllowedSsoPath(pathname: string): boolean {
+  return pathname === "/login" || pathname === "/uaa" || pathname === "/uaa/" || pathname.startsWith("/uaa/");
+}
+
+function classifySsoRedirect(location: string, currentUrl: string): RedirectDecision {
+  try {
+    const url = new URL(location, currentUrl);
+    if (url.origin === SSO_CALLBACK.origin && url.pathname === SSO_CALLBACK.pathname) {
+      return { kind: "callback", url: url.toString() };
+    }
+    if (url.origin === SSO_ORIGIN && isAllowedSsoPath(url.pathname)) {
+      return { kind: "follow", url: url.toString() };
+    }
+    return { kind: "hostile", url: url.toString() };
+  } catch {
+    return { kind: "hostile", url: "" };
+  }
+}
+
+function isLoginRedirect(location: string): boolean {
+  try {
+    const url = new URL(location);
+    return url.origin === SSO_ORIGIN && (url.pathname === "/login" || url.pathname === "/uaa/login");
+  } catch {
+    return false;
+  }
+}
+
 /** Fixed, public SSO paths and query *names* only; never echo a redirect value. */
-function safeSsoLocation(location: string): string {
+function safeSsoLocation(location: string, baseUrl = SSO_BASE): string {
   if (!location) return "none";
   try {
-    const url = new URL(location, SSO_BASE);
+    const url = new URL(location, baseUrl);
     const ssoOrigin = new URL(SSO_BASE).origin;
     const path = url.origin === ssoOrigin
       ? ["/uaa/login", "/login", "/uaa", "/uaa/", "/uaa/oauth2/authorize"].includes(url.pathname)
@@ -222,7 +407,7 @@ function authorizeRequest(state: string, challenge: string): string {
  * straight to /login without it returns a redirect that carries no code.
  */
 async function beginLogin(
-  jar: CookieJar,
+  jar: KfmCookieJar,
   state: string,
   challenge: string,
 ): Promise<{ csrf: string; action: string }> {
@@ -231,7 +416,11 @@ async function beginLogin(
   for (let hop = 0; hop < 6 && REDIRECT_STATUS.has(response.status); hop++) {
     const location = response.headers.get("location");
     if (!location) break;
-    pageUrl = absolute(location, pageUrl);
+    const redirect = classifySsoRedirect(location, pageUrl);
+    if (redirect.kind !== "follow") {
+      throw new KfmPortalError("sso_form", response.status, "SSO trả redirect không hợp lệ");
+    }
+    pageUrl = redirect.url;
     response = await request(jar, pageUrl);
   }
   const html = await response.text();
@@ -250,19 +439,31 @@ async function beginLogin(
  * the chain until it carries `?code=`.
  */
 async function replayAuthorize(
-  jar: CookieJar,
+  jar: KfmCookieJar,
   authorizeUrl: string,
-): Promise<{ location: string; response: Response }> {
+): Promise<{ location: string; response: Response; rejectedRedirect: boolean }> {
   let pageUrl = authorizeUrl;
   let response = await request(jar, pageUrl);
-  let location = response.headers.get("location") || "";
-  for (let hop = 0; hop < 8 && location && !paramFromLocation(location, "code"); hop++) {
-    if (location.includes("/login")) break;
-    pageUrl = absolute(location, pageUrl);
+  let rawLocation = response.headers.get("location") || "";
+  let redirect = rawLocation ? classifySsoRedirect(rawLocation, pageUrl) : null;
+  let location = redirect?.url || "";
+  let rejectedRedirect = redirect?.kind === "hostile";
+  for (let hop = 0; hop < 8 && rawLocation && location && !rejectedRedirect && !paramFromLocation(location, "code"); hop++) {
+    const nextRedirect = classifySsoRedirect(rawLocation, pageUrl);
+    location = nextRedirect.url;
+    if (nextRedirect.kind === "hostile") {
+      rejectedRedirect = true;
+      break;
+    }
+    if (nextRedirect.kind !== "follow" || isLoginRedirect(location)) break;
+    pageUrl = location;
     response = await request(jar, pageUrl);
-    location = response.headers.get("location") || "";
+    rawLocation = response.headers.get("location") || "";
+    redirect = rawLocation ? classifySsoRedirect(rawLocation, pageUrl) : null;
+    location = redirect?.url || "";
+    rejectedRedirect = redirect?.kind === "hostile";
   }
-  return { location, response };
+  return { location, response, rejectedRedirect };
 }
 
 type TokenPayload = {
@@ -311,7 +512,7 @@ export async function loginWithPassword(
   if (!username || !password) {
     throw new KfmPortalError("login", 0, "Thiếu thông tin đăng nhập cổng KFM");
   }
-  const jar = new CookieJar();
+  const jar = new KfmCookieJar();
   const { verifier, challenge } = await createPkcePair();
   const state = base64Url(crypto.getRandomValues(new Uint8Array(16)));
   const { csrf, action } = await beginLogin(jar, state, challenge);
@@ -337,24 +538,42 @@ export async function loginWithPassword(
   // the session, but the saved authorize request is not replayed, so no code
   // comes back. Reading that bounce as "wrong password" is a false negative.
   // The session is real, so ask the authorize endpoint again on it.
-  let location = response.headers.get("location") || "";
+  let rawLocation = response.headers.get("location") || "";
+  let location = rawLocation ? classifySsoRedirect(rawLocation, action).url : "";
   const postRedirect = location;
+  let rejectedRedirect = rawLocation ? classifySsoRedirect(rawLocation, action).kind === "hostile" : false;
+  let previousUrl = action;
   for (
     let hop = 0;
-    hop < 6 && location && !paramFromLocation(location, "code") && !location.includes("/login");
+    hop < 6 && rawLocation && location && !rejectedRedirect && !paramFromLocation(location, "code") && !isLoginRedirect(location);
     hop++
   ) {
-    response = await request(jar, absolute(location, SSO_BASE));
-    location = response.headers.get("location") || "";
+    const redirect = classifySsoRedirect(rawLocation, previousUrl);
+    location = redirect.url;
+    if (redirect.kind !== "follow") {
+      rejectedRedirect = redirect.kind === "hostile";
+      break;
+    }
+    previousUrl = location;
+    response = await request(jar, previousUrl);
+    rawLocation = response.headers.get("location") || "";
+    if (rawLocation) {
+      const next = classifySsoRedirect(rawLocation, previousUrl);
+      location = next.url;
+      rejectedRedirect = next.kind === "hostile";
+    } else {
+      location = "";
+    }
   }
 
-  if (!paramFromLocation(location, "code")) {
+  if (!paramFromLocation(location, "code") && !rejectedRedirect) {
     const replay = await replayAuthorize(jar, authorizeRequest(state, challenge));
     location = replay.location;
     response = replay.response;
+    rejectedRedirect = replay.rejectedRedirect;
   }
 
-  const code = paramFromLocation(location, "code");
+  const code = rejectedRedirect ? "" : paramFromLocation(location, "code");
   if (!code) {
     const failure = new KfmPortalError(
       "login",
@@ -365,7 +584,7 @@ export async function loginWithPassword(
     throw failure;
   }
   const returnedState = paramFromLocation(location, "state");
-  if (returnedState && returnedState !== state) {
+  if (!returnedState || returnedState !== state) {
     throw new KfmPortalError("login", response.status, "SSO trả về state không khớp");
   }
 
@@ -406,6 +625,55 @@ export async function openSession(env: {
     if (renewed) return renewed;
   }
   return await loginWithPassword(env.username || "", env.password || "");
+}
+
+/**
+ * Obtain a session while coordinating password-login attempts through a durable
+ * guard. Refresh success bypasses the guard; only the password POST path is
+ * leased. Guard failures fail closed to protect the partner account.
+ */
+export async function openSessionWithLoginGuard(
+  env: {
+    username?: string;
+    password?: string;
+    refreshToken?: string;
+  },
+  guard: KfmPasswordLoginGuard,
+): Promise<KfmSession> {
+  if (env.refreshToken) {
+    const renewed = await refreshSession(env.refreshToken);
+    if (renewed) return renewed;
+  }
+
+  let lease: KfmPasswordLoginLease;
+  try {
+    lease = await guard.acquirePasswordLoginLease();
+  } catch {
+    throw new KfmPortalError("login_guard", 503, "Chưa khóa được lượt đăng nhập KFM. Không thử mật khẩu.");
+  }
+  if (!lease.acquired) {
+    const error = new KfmPortalError("login_guard", 429, "Đăng nhập KFM đang tạm khóa để bảo vệ tài khoản.");
+    error.detail = `reason=${lease.reason || "cooldown"} retryAfterSeconds=${Math.max(0, Math.ceil(lease.retryAfterSeconds || 0))}`;
+    throw error;
+  }
+
+  let outcome = "error";
+  try {
+    const session = await loginWithPassword(env.username || "", env.password || "");
+    outcome = "success";
+    return session;
+  } catch (error) {
+    if (error instanceof KfmPortalError && ["login", "exchange", "sso_form"].includes(error.step)) {
+      outcome = error.step;
+    }
+    throw error;
+  } finally {
+    try {
+      await guard.releasePasswordLoginLease(lease.leaseToken, outcome);
+    } catch {
+      // The lease expires durably; never mask the login outcome with release I/O.
+    }
+  }
 }
 
 async function authedGet(token: string, url: string): Promise<{ status: number; body: any }> {
