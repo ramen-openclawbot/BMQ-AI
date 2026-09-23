@@ -148,7 +148,7 @@ def test_trip_creation_is_guarded_and_recoverable() -> None:
     for marker in ('data-kfm-action="check-create"', '>Kiểm tra kết quả<', 'checkCreate'):
         forbid(PANEL, marker, "the removed status button must not come back")
     require(PANEL, 'action: "trip-result"', "print recovery must use the read-only result action")
-    for marker in ('canCreateTrip(userId)', 'cached.vendorIds.includes(vendorId)',
+    for marker in ('canCreateTrip(userId)', 'kfm.vendorIds.includes(vendorId)',
                    'payload.revision !== revision', 'buildTripSubmission',
                    'from("kfm_trip_attempts").insert(row)', 'tripResult', 'baseline_asn_ids'):
         require(FUNCTION, marker, "server create guard missing: " + marker)

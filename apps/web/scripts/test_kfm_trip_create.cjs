@@ -100,7 +100,7 @@ function bridge({ permission = true, vendorIds = [1865], changed = false, outcom
     if(url.includes('/purchase-orders/239751/request-items'))return json(pendingChanged?[{requestCategory:'QUALITY',itemStatus:'NEW'}]:[]);
     throw Error('Unexpected transport '+url);
   };
-  const shared = { ...client, openSession: async()=>({token:'fixture-only',mode:'test'}),getMe:async()=>({vendorIds,vendorCode:'FIXTURE'}),getTripOptions:async()=>options,getSavedTripFleet:async()=>savedChanged?{...fleet,drivers:[{...fleet.drivers[0],phone:'changed'}]}:fleet,tripOrderInScope:async()=>inScope,getTripPendingChanges:async()=>pendingChanged?[{requestCategory:'QUALITY',itemStatus:'NEW'}]:[],
+  const shared = { ...client, openSession: async()=>({token:'fixture-only',mode:'test'}),openSessionWithLoginGuard:async()=>({token:'fixture-only',mode:'test',obtainedAt:'fixture'}),getMe:async()=>({vendorIds,vendorCode:'FIXTURE'}),getTripOptions:async()=>options,getSavedTripFleet:async()=>savedChanged?{...fleet,drivers:[{...fleet.drivers[0],phone:'changed'}]}:fleet,tripOrderInScope:async()=>inScope,getTripPendingChanges:async()=>pendingChanged?[{requestCategory:'QUALITY',itemStatus:'NEW'}]:[],
     getTripSource:async()=>{sourceReads++;if(tripPosts && poReadFails)throw Error('PO read failed');return currentSource();},
     listOrders:async()=>({orders:[{portalId:239751,code:source.po.code,subStatus:poSubStatus}],totalElements:1}),
     confirmOrder:async()=>{portalConfirms++;events.push('confirm');if(intakeOutcome!=='missing')poSubStatus=5;if(intakeOutcome==='timeout'||intakeOutcome==='missing')throw Error('lost confirm response');},
@@ -117,6 +117,7 @@ function bridge({ permission = true, vendorIds = [1865], changed = false, outcom
       if(spec.includes('supabase-js'))return {createClient:()=>admin};
       if(spec.includes('cors'))return {getCorsHeaders:()=>({}),corsPreflightResponse:()=>new Response(null,{status:204})};
       if(spec.includes('kfm-intake'))return intake;
+      if(spec.includes('kfm-login-guard'))return {createKfmPasswordLoginGuard:()=>({}),createKfmSharedSessionStore:()=>({})};
       if(spec.includes('kfm-portal'))return shared;
       throw Error('Unexpected import '+spec);
     },

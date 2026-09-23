@@ -59,7 +59,8 @@ function bridge({permission=true,vendorIds=[1865]}={}) {
   if(spec.includes('supabase-js'))return {createClient:()=>admin};
   if(spec.includes('cors'))return {getCorsHeaders:()=>({}),corsPreflightResponse:()=>new Response(null,{status:204})};
   if(spec.includes('kfm-intake'))return {handleKfmIntake:async()=>{intakeCalls++;return {success:true,orders:[]};}};
-  if(spec.includes('kfm-portal'))return {...portal,openSession:async()=>{portalReads++;return {token:'fixture',mode:'test'};},getMe:async()=>({vendorIds})};
+  if(spec.includes('kfm-login-guard'))return {createKfmPasswordLoginGuard:()=>({}),createKfmSharedSessionStore:()=>({})};
+  if(spec.includes('kfm-portal'))return {...portal,openSession:async()=>{portalReads++;return {token:'fixture',mode:'test'};},openSessionWithLoginGuard:async()=>{portalReads++;return {token:'fixture',mode:'test',obtainedAt:'fixture'};},getMe:async()=>({vendorIds})};
   throw Error('Unexpected import');
  }});
  return {get intakeCalls(){return intakeCalls;},get portalReads(){return portalReads;},async call(payload){const response=await handler(new Request('https://test.invalid',{method:'POST',headers:{Authorization:'Bearer fixture','Content-Type':'application/json'},body:JSON.stringify(payload)}));return {status:response.status,...await response.json()};}};

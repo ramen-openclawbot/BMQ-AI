@@ -52,7 +52,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import { corsPreflightResponse, getCorsHeaders } from "../_shared/cors.ts";
 import { ensureTripIntake, handleKfmIntake, intakeRevision } from "../_shared/kfm-intake.ts";
-import { createKfmPasswordLoginGuard } from "../_shared/kfm-login-guard.ts";
+import { createKfmPasswordLoginGuard, createKfmSharedSessionStore } from "../_shared/kfm-login-guard.ts";
 import {
   ISO_DATE,
   KfmPortalError,
@@ -106,8 +106,11 @@ const ACTIONS = [
 ] as const;
 type KfmAction = typeof ACTIONS[number];
 
-/** Warm-instance session cache — avoids one login per request while it lasts. */
-let cached: { session: KfmSession; vendorIds: number[]; vendorCode: string | null } | null = null;
+type VerifiedKfmSession = {
+  session: KfmSession;
+  vendorIds: number[];
+  vendorCode: string | null;
+};
 
 const json = (body: unknown, status: number, req: Request) =>
   new Response(JSON.stringify(body), {
@@ -165,6 +168,39 @@ async function canCreateTrip(userId: string): Promise<boolean> {
   ]);
   if (roles.error || permissions.error) return false;
   return roles.data.some(row => row.role === "owner") || permissions.data.some(row => row.can_edit === true);
+}
+
+async function openVerifiedKfmSession(env: {
+  username: string;
+  password: string;
+  refreshToken: string;
+}): Promise<VerifiedKfmSession> {
+  const session = await openSessionWithLoginGuard(
+    env,
+    createKfmPasswordLoginGuard(tripAdmin()),
+    createKfmSharedSessionStore(tripAdmin()),
+  );
+  if (Array.isArray(session.vendorIds)) {
+    return { session, vendorIds: session.vendorIds, vendorCode: session.vendorCode ?? null };
+  }
+  try {
+    const me = await getMe(session.token);
+    return { session, vendorIds: me.vendorIds, vendorCode: me.vendorCode };
+  } catch (error) {
+    if (error instanceof KfmPortalError && [401, 403].includes(error.status)) {
+      await invalidateSharedGeneration(session.sharedGeneration);
+    }
+    throw error;
+  }
+}
+
+async function invalidateSharedGeneration(generation: string | undefined): Promise<void> {
+  if (!generation) return;
+  try {
+    await createKfmSharedSessionStore(tripAdmin()).invalidateSharedSession(generation);
+  } catch {
+    // Failing closed happens in the response path; never expose storage details.
+  }
 }
 
 /** Only sanitized business identifiers leave the attempt journal. */
@@ -266,20 +302,15 @@ serve(async (req) => {
     }, 200, req);
   }
 
+  let activeSharedGeneration: string | undefined;
   try {
-    if (!cached) {
-      const session = await openSessionWithLoginGuard(
-        { username, password, refreshToken },
-        createKfmPasswordLoginGuard(tripAdmin()),
-      );
-      const me = await getMe(session.token);
-      cached = { session, vendorIds: me.vendorIds, vendorCode: me.vendorCode };
-    }
+    const kfm = await openVerifiedKfmSession({ username, password, refreshToken });
+    activeSharedGeneration = kfm.session.sharedGeneration;
 
     const requestedVendor = Number(payload.vendorId);
     const vendorId = Number.isInteger(requestedVendor) && requestedVendor > 0
       ? requestedVendor
-      : cached.vendorIds[0];
+      : kfm.vendorIds[0];
     if (!vendorId) {
       return json({
         success: false, configured: true, action, deliveryDate,
@@ -287,11 +318,11 @@ serve(async (req) => {
         message: "Tài khoản cổng KFM không gắn nhà cung cấp nào.",
       }, 200, req);
     }
-    if ((tripAction || intakeAction || action === "confirm" || action === "confirm-po") && !cached.vendorIds.includes(vendorId)) return json({ success: false, error: "forbidden_vendor", message: "Nhà cung cấp không thuộc tài khoản KFM." }, 403, req);
+    if ((tripAction || intakeAction || action === "confirm" || action === "confirm-po") && !kfm.vendorIds.includes(vendorId)) return json({ success: false, error: "forbidden_vendor", message: "Nhà cung cấp không thuộc tài khoản KFM." }, 403, req);
 
-    const session = { mode: cached.session.mode, obtainedAt: cached.session.obtainedAt };
+    const session = { mode: kfm.session.mode, obtainedAt: kfm.session.obtainedAt };
 
-    if (intakeAction) return json(await handleKfmIntake(tripAdmin(), cached.session.token, vendorId, userId, payload), 200, req);
+    if (intakeAction) return json(await handleKfmIntake(tripAdmin(), kfm.session.token, vendorId, userId, payload), 200, req);
 
     // Explicit operator continuation for the print flow: confirm the portal PO,
     // or resume its pending import, only while a matching delivery trip already
@@ -310,18 +341,18 @@ serve(async (req) => {
       if (existing.error) throw new KfmPortalError("trip", 0, "Không đọc được khóa gửi phiếu. Chưa xác nhận PO.");
       if (!existing.data) return json({ success: false, error: "no_trip", message: "Chưa có phiếu giao hàng cho PO này. Dùng ‘In phiếu giao hàng’ để tạo." }, 200, req);
       if (String(existing.data.body?.deliveryDate || "") !== confirmDate) return json({ success: false, error: "trip_changed", message: "Phiếu giao hàng thuộc ngày khác. Tải lại trước khi xác nhận." }, 200, req);
-      const readback = await tripResult(cached.session.token, existing.data);
+      const readback = await tripResult(kfm.session.token, existing.data);
       // Confirmation is only safe once the existing trip itself reads back.
       if (readback.state === "verified" || !readback.loadId || !readback.poConfirmation) return json({ success: true, action, vendorId, result: readback }, 200, req);
-      const source = await getTripSource(cached.session.token, { vendorId, orderId });
-      if (Number(source.po.id) !== orderId || !(await tripOrderInScope(cached.session.token, vendorId, orderId))) throw new KfmPortalError("trip", 0, "PO không thuộc danh sách của nhà cung cấp đã chọn.");
+      const source = await getTripSource(kfm.session.token, { vendorId, orderId });
+      if (Number(source.po.id) !== orderId || !(await tripOrderInScope(kfm.session.token, vendorId, orderId))) throw new KfmPortalError("trip", 0, "PO không thuộc danh sách của nhà cung cấp đã chọn.");
       if (Number(source.po.status) === 6 || Number(source.po.subStatus) === 11) return json({ success: true, action, vendorId, result: { state: "blocked", loadId: readback.loadId, message: "PO đã hủy. Không xác nhận; kiểm tra lại trên cổng KFM." } }, 200, req);
       if (await intakeRevision(source) !== revision) return json({ success: true, action, vendorId, result: { state: "changed", loadId: readback.loadId, message: "PO đã thay đổi sau khi tạo phiếu. Kiểm tra lại thông tin trước khi xác nhận." } }, 200, req);
       // Pending edit requests are not part of intakeRevision: re-read them right
       // before the explicit write instead of confirming over an unreviewed change.
-      const pending = await getTripPendingChanges(cached.session.token, orderId);
+      const pending = await getTripPendingChanges(kfm.session.token, orderId);
       if (pending.length) return json({ success: true, action, vendorId, result: { state: "blocked", loadId: readback.loadId, message: "PO có yêu cầu chỉnh sửa chưa xử lý. Xử lý trên cổng KFM rồi kiểm tra kết quả, không xác nhận đè." } }, 200, req);
-      const value = await handleKfmIntake(admin, cached.session.token, vendorId, userId, {
+      const value = await handleKfmIntake(admin, kfm.session.token, vendorId, userId, {
         action: "intake-decide",
         orderId,
         vendorId,
@@ -339,36 +370,36 @@ serve(async (req) => {
       const existing = await admin.from("kfm_trip_attempts").select("*").eq("vendor_id", vendorId).eq("order_id", orderId).maybeSingle();
       if (existing.error) throw new KfmPortalError("trip", 0, "Không đọc được khóa gửi phiếu. Chưa gửi gì lên KFM.");
       if (existing.data) {
-        const result = await tripResult(cached.session.token, existing.data);
+        const result = await tripResult(kfm.session.token, existing.data);
         return json({ success: true, action, vendorId, result }, 200, req);
       }
       if (action === "trip-result") return json({ success: true, result: { state: "not_sent", message: "Chưa ghi nhận yêu cầu tạo trên máy chủ. Tải lại form để kiểm tra trước khi tạo." } }, 200, req);
       // Printing an existing note is read-only, even if the PO has no eligible rows.
       if (payload.unifiedPrint === true) {
-        if (!(await tripOrderInScope(cached.session.token, vendorId, orderId))) throw new KfmPortalError("trip", 0, "PO không thuộc nhà cung cấp đã chọn.");
-        const existingNotes = await listOrderAsns(cached.session.token, { vendorId, orderId, strict: true });
+        if (!(await tripOrderInScope(kfm.session.token, vendorId, orderId))) throw new KfmPortalError("trip", 0, "PO không thuộc nhà cung cấp đã chọn.");
+        const existingNotes = await listOrderAsns(kfm.session.token, { vendorId, orderId, strict: true });
         if (existingNotes.length) return json({ success: true, existingNotes }, 200, req);
       }
       if (!mayCreate) return json({ success: false, error: "forbidden", message: "Chưa có phiếu để in; anh/chị chưa có quyền tạo phiếu." }, 403, req);
-      const source = await getTripSource(cached.session.token, { vendorId, orderId });
-      if (Number(source.po.id) !== orderId || !(await tripOrderInScope(cached.session.token, vendorId, orderId))) throw new KfmPortalError("trip", 0, "PO không thuộc danh sách của nhà cung cấp đã chọn.");
+      const source = await getTripSource(kfm.session.token, { vendorId, orderId });
+      if (Number(source.po.id) !== orderId || !(await tripOrderInScope(kfm.session.token, vendorId, orderId))) throw new KfmPortalError("trip", 0, "PO không thuộc danh sách của nhà cung cấp đã chọn.");
       if (Number(source.po.status) === 6) throw new KfmPortalError("trip", 0, "PO đã hủy, không được tạo phiếu.");
-      source.pendingChanges = await getTripPendingChanges(cached.session.token, orderId);
+      source.pendingChanges = await getTripPendingChanges(kfm.session.token, orderId);
       const { draft } = buildTripDraft({ deliveryDate, po: source.po, rows: source.items, shippedMap: source.shippedMap });
       if (!draft.stops[0].items.length) throw new KfmPortalError("trip", 0, "Tất cả sản phẩm đã được giao hoặc đã lên chuyến. Không tạo thêm.");
       const form = payload.form || {};
-      const options = await getTripOptions(cached.session.token, vendorId, source, deliveryDate, Number(form.vehicleTypeId || payload.vehicleTypeId) || null);
-      const fleet = payload.unifiedPrint === true ? await getSavedTripFleet(cached.session.token) : undefined;
+      const options = await getTripOptions(kfm.session.token, vendorId, source, deliveryDate, Number(form.vehicleTypeId || payload.vehicleTypeId) || null);
+      const fleet = payload.unifiedPrint === true ? await getSavedTripFleet(kfm.session.token) : undefined;
       const revision = await tripRevision(source, deliveryDate, fleet);
       if (action === "trip-options") return json({ success: true, action, vendorId, revision, options, fleet, draft, pendingChangeCategories: [...new Set(source.pendingChanges.map(row => String(row.requestCategory || "OTHER")))], source: { locationName: source.po.locationName, poCode: source.po.code } }, 200, req);
       if (payload.confirmed !== true || !/^[0-9a-f-]{36}$/i.test(payload.requestId || "")) throw new KfmPortalError("trip", 0, "Cần xác nhận tạo phiếu từ form.");
       if (payload.revision !== revision) throw new KfmPortalError("trip_changed", 0, "PO hoặc số lượng đã phân bổ thay đổi. Tải lại form và kiểm tra trước khi tạo.");
       if (fleet) validateSavedTripForm(fleet, form);
       let body = buildTripSubmission(source, deliveryDate, options, form);
-      const baseline = await tripAsnIds(cached.session.token, vendorId, orderId);
-      const fresh = await getTripSource(cached.session.token, { vendorId, orderId });
-      fresh.pendingChanges = await getTripPendingChanges(cached.session.token, orderId);
-      const freshFleet = fleet ? await getSavedTripFleet(cached.session.token) : undefined;
+      const baseline = await tripAsnIds(kfm.session.token, vendorId, orderId);
+      const fresh = await getTripSource(kfm.session.token, { vendorId, orderId });
+      fresh.pendingChanges = await getTripPendingChanges(kfm.session.token, orderId);
+      const freshFleet = fleet ? await getSavedTripFleet(kfm.session.token) : undefined;
       if (await tripRevision(fresh, deliveryDate, freshFleet) !== revision) throw new KfmPortalError("trip_changed", 0, "PO hoặc xe/tài xế thay đổi ngay trước lúc gửi. Tải lại để kiểm tra.");
       // Print intent auto-confirms the PO through the SAME durable intake claim
       // the review popup uses. The claim is written before the trip, so a
@@ -376,12 +407,12 @@ serve(async (req) => {
       // timeout only re-reads. A rejected, changed, unconfirmed or unimported
       // PO never opens the gate, so no trip is created for it.
       if (!tripPoConfirmation(fresh.po).confirmed && fresh.pendingChanges.length) throw new KfmPortalError("trip_changed", 0, "PO có yêu cầu chỉnh sửa chưa xử lý. Chưa xác nhận hoặc tạo phiếu.");
-      const gate = await ensureTripIntake(admin, cached.session.token, vendorId, userId, orderId, fresh);
+      const gate = await ensureTripIntake(admin, kfm.session.token, vendorId, userId, orderId, fresh);
       if (!gate.ok) throw new KfmPortalError("trip", 0, gate.message || "PO chưa được xác nhận và nhập sản xuất. Chưa tạo phiếu giao hàng.");
       // Confirmation/import can take time. A historical intake record is not
       // evidence of the current portal state, quantities or allocations.
-      const afterConfirm = await getTripSource(cached.session.token, { vendorId, orderId });
-      afterConfirm.pendingChanges = await getTripPendingChanges(cached.session.token, orderId);
+      const afterConfirm = await getTripSource(kfm.session.token, { vendorId, orderId });
+      afterConfirm.pendingChanges = await getTripPendingChanges(kfm.session.token, orderId);
       const allocations = (value: Record<string, number>) => JSON.stringify(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)));
       if (Number(afterConfirm.po.id) !== orderId || Number(afterConfirm.po.status) === 6 || !tripPoConfirmation(afterConfirm.po).confirmed
         || await intakeRevision(afterConfirm, false) !== await intakeRevision(fresh, false)
@@ -389,7 +420,7 @@ serve(async (req) => {
         || JSON.stringify(afterConfirm.pendingChanges) !== JSON.stringify(fresh.pendingChanges)) {
         throw new KfmPortalError("trip_changed", 0, "PO chưa xác nhận hoặc thông tin/phân bổ đã thay đổi sau bước xác nhận. Chưa tạo chuyến; tải lại để đối chiếu.");
       }
-      if (fleet) validateSavedTripForm(await getSavedTripFleet(cached.session.token), form);
+      if (fleet) validateSavedTripForm(await getSavedTripFleet(kfm.session.token), form);
       body = buildTripSubmission(afterConfirm, deliveryDate, options, form);
       // Atomic DB unique key excludes concurrent browsers/users/Edge instances.
       // The claim is retained on every uncertain result, including booking errors.
@@ -402,15 +433,15 @@ serve(async (req) => {
       let loadId: number | null = null;
       try {
         if (options.deliveryType === "BOOKING") {
-          const refs = await bookTripSlot(cached.session.token, source, options, body);
+          const refs = await bookTripSlot(kfm.session.token, source, options, body);
           body = { ...body, ...refs, stops: body.stops.map((stop: any) => ({ ...stop, ...refs, bookingCode: refs.qrToken })) };
           const booked = await admin.from("kfm_trip_attempts").update({ body }).eq("vendor_id", vendorId).eq("order_id", orderId);
           if (booked.error) throw new KfmPortalError("trip", 0, "Chưa lưu được lịch kho, dừng tạo chuyến.");
         }
-        loadId = await createDeliveryTrip(cached.session.token, vendorId, body);
+        loadId = await createDeliveryTrip(kfm.session.token, vendorId, body);
         await admin.from("kfm_trip_attempts").update({ load_id: loadId }).eq("vendor_id", vendorId).eq("order_id", orderId);
       } catch { /* Do not retry either write; recover by GET only. */ }
-      const result = await tripResult(cached.session.token, { ...row, body, load_id: loadId });
+      const result = await tripResult(kfm.session.token, { ...row, body, load_id: loadId });
       if (result.state !== "verified") await admin.from("kfm_trip_attempts").update({ state: "unknown" }).eq("vendor_id", vendorId).eq("order_id", orderId);
       return json({ success: true, action, vendorId, result }, 200, req);
     }
@@ -420,9 +451,9 @@ serve(async (req) => {
       if (!Number.isInteger(orderId) || orderId <= 0) {
         return json({ success: false, action, error: "bad_order_id", message: "Thiếu orderId." }, 200, req);
       }
-      const detail = await getOrderDetail(cached.session.token, { vendorId, orderId });
-      const asns = await listOrderAsns(cached.session.token, { vendorId, orderId });
-      return json({ success: true, configured: true, action, vendorId, vendorCode: cached.vendorCode, order: { ...detail, asns }, session }, 200, req);
+      const detail = await getOrderDetail(kfm.session.token, { vendorId, orderId });
+      const asns = await listOrderAsns(kfm.session.token, { vendorId, orderId });
+      return json({ success: true, configured: true, action, vendorId, vendorCode: kfm.vendorCode, order: { ...detail, asns }, session }, 200, req);
     }
 
     if (action === "confirm") {
@@ -441,8 +472,8 @@ serve(async (req) => {
       const poId = Number(payload.poId);
       const layout = printLayout(payload.layout);
       const bytes = isPo
-        ? await fetchPoPdf(cached.session.token, targetId)
-        : await fetchAsnPdf(cached.session.token, {
+        ? await fetchPoPdf(kfm.session.token, targetId)
+        : await fetchAsnPdf(kfm.session.token, {
             asnId: targetId,
             vendorId,
             poId: Number.isInteger(poId) && poId > 0 ? poId : null,
@@ -468,8 +499,8 @@ serve(async (req) => {
       if (!Number.isInteger(orderId) || orderId <= 0) {
         return json({ success: false, action, error: "bad_order_id", message: "Thiếu orderId." }, 200, req);
       }
-      const detail = await getOrderDetail(cached.session.token, { vendorId, orderId });
-      const source = await getTripSource(cached.session.token, { vendorId, orderId });
+      const detail = await getOrderDetail(kfm.session.token, { vendorId, orderId });
+      const source = await getTripSource(kfm.session.token, { vendorId, orderId });
       const sourcePoId = Number(source.po.id);
       const vehicleTypeId = Number(payload.vehicleTypeId);
       const { draft, skipped } = buildTripDraft({
@@ -485,7 +516,7 @@ serve(async (req) => {
         action,
         deliveryDate,
         vendorId,
-        vendorCode: cached.vendorCode,
+        vendorCode: kfm.vendorCode,
         draft,
         source: {
           orderId,
@@ -509,7 +540,7 @@ serve(async (req) => {
     }
 
     if (action === "loads") {
-      const { loads, totalElements, counts } = await listDeliveryLoads(cached.session.token, {
+      const { loads, totalElements, counts } = await listDeliveryLoads(kfm.session.token, {
         vendorId,
         deliveryDate: payload.deliveryDate && ISO_DATE.test(payload.deliveryDate)
           ? payload.deliveryDate
@@ -523,7 +554,7 @@ serve(async (req) => {
         action,
         deliveryDate,
         vendorId,
-        vendorCode: cached.vendorCode,
+        vendorCode: kfm.vendorCode,
         count: loads.length,
         totalElements,
         counts,
@@ -538,13 +569,13 @@ serve(async (req) => {
       if (!Number.isInteger(loadId) || loadId <= 0) {
         return json({ success: false, action, error: "bad_load_id", message: "Thiếu loadId." }, 200, req);
       }
-      const load = await getDeliveryLoad(cached.session.token, { vendorId, loadId });
+      const load = await getDeliveryLoad(kfm.session.token, { vendorId, loadId });
       return json({
         success: true,
         configured: true,
         action,
         vendorId,
-        vendorCode: cached.vendorCode,
+        vendorCode: kfm.vendorCode,
         load,
         session,
       }, 200, req);
@@ -555,7 +586,7 @@ serve(async (req) => {
       if (!Number.isInteger(loadId) || loadId <= 0) {
         return json({ success: false, action, error: "bad_load_id", message: "Thiếu loadId." }, 200, req);
       }
-      const bytes = await fetchLoadPdf(cached.session.token, {
+      const bytes = await fetchLoadPdf(kfm.session.token, {
         loadId,
         vendorId,
         layout: printLayout(payload.layout),
@@ -573,7 +604,7 @@ serve(async (req) => {
     }
 
     const size = Number.isInteger(Number(payload.size)) ? Math.min(Number(payload.size), 200) : 100;
-    const { orders, totalElements } = await listOrders(cached.session.token, {
+    const { orders, totalElements } = await listOrders(kfm.session.token, {
       vendorId,
       deliveryDateFrom: deliveryDate,
       deliveryDateTo: deliveryDate,
@@ -587,7 +618,7 @@ serve(async (req) => {
       action,
       deliveryDate,
       vendorId,
-      vendorCode: cached.vendorCode,
+      vendorCode: kfm.vendorCode,
       count: orders.length,
       totalElements,
       orders: orders.map((order) => ({ ...order, statusLabel: statusLabel(order.status, order.subStatus) })),
@@ -595,8 +626,6 @@ serve(async (req) => {
       source: "kfm_portal",
     }, 200, req);
   } catch (error) {
-    // A rejected session must not stay cached, or every later call fails the same way.
-    cached = null;
     const isPortal = error instanceof KfmPortalError;
     const step = isPortal ? (error as KfmPortalError).step : "unknown";
     const status = isPortal ? (error as KfmPortalError).status : 0;
@@ -609,7 +638,8 @@ serve(async (req) => {
     if (step === "login" && detail?.startsWith("postStatus=")) {
       console.info("kfm_sso_diagnostic", JSON.stringify({ status, detail }));
     }
-    const expired = step === "me" && status === 401;
+    const expired = [401, 403].includes(status);
+    if (expired) await invalidateSharedGeneration(activeSharedGeneration);
     const retryAfterMatch = step === "login_guard" ? String(detail || "").match(/retryAfterSeconds=(\d+)/) : null;
     const retryAfterSeconds = retryAfterMatch ? Number(retryAfterMatch[1]) : undefined;
     return json({

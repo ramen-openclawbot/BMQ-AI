@@ -1,4 +1,4 @@
-import type { KfmPasswordLoginGuard } from "./kfm-portal.ts";
+import type { KfmSession, KfmPasswordLoginGuard, KfmSharedSessionRecord, KfmSharedSessionStore } from "./kfm-portal.ts";
 
 /**
  * A password probe must not run from every Edge isolate at once: the partner
@@ -11,6 +11,21 @@ const LOGIN_LEASE_MS = 90 * 1000;
 type SupabaseRpcClient = {
   rpc: (fn: string, args: Record<string, unknown>) => PromiseLike<{ data: unknown; error: unknown }>;
 };
+
+function parseSharedSessionRow(row: unknown): KfmSharedSessionRecord | null {
+  if (!row || typeof row !== "object") return null;
+  const token = String((row as { token?: unknown }).token || "");
+  const generation = String((row as { generation?: unknown }).generation || "");
+  const expiresAt = String((row as { expires_at?: unknown; expiresAt?: unknown }).expires_at ?? (row as { expiresAt?: unknown }).expiresAt ?? "");
+  if (!token || !generation || !expiresAt || !Number.isFinite(Date.parse(expiresAt))) {
+    throw new Error("kfm_shared_session_unavailable");
+  }
+  const obtainedAt = String((row as { obtained_at?: unknown; obtainedAt?: unknown }).obtained_at ?? (row as { obtainedAt?: unknown }).obtainedAt ?? "");
+  if (obtainedAt && !Number.isFinite(Date.parse(obtainedAt))) throw new Error("kfm_shared_session_unavailable");
+  const rawMode = String((row as { mode?: unknown }).mode || "");
+  const mode = rawMode === "refresh" || rawMode === "login" || rawMode === "shared" ? rawMode : undefined;
+  return { token, generation, expiresAt, obtainedAt: obtainedAt || undefined, mode };
+}
 
 export function createKfmPasswordLoginGuard(
   admin: SupabaseRpcClient,
@@ -50,6 +65,44 @@ export function createKfmPasswordLoginGuard(
         p_outcome: safeOutcome,
       });
       if (error || data !== true) throw new Error("kfm_login_guard_release_failed");
+    },
+  };
+}
+
+export function createKfmSharedSessionStore(
+  admin: SupabaseRpcClient,
+  options: { guardKey?: string; maxTtlMs?: number } = {},
+): KfmSharedSessionStore {
+  const guardKey = options.guardKey ?? "kfm_portal";
+  const maxTtlSeconds = Math.ceil((options.maxTtlMs ?? 15 * 60_000) / 1000);
+  return {
+    async readSharedSession() {
+      const { data, error } = await admin.rpc("kfm_shared_session_get", {
+        p_guard_key: guardKey,
+      });
+      if (error) throw new Error("kfm_shared_session_unavailable");
+      const row = Array.isArray(data) ? data[0] : data;
+      return parseSharedSessionRow(row);
+    },
+    async publishSharedSession(session: KfmSession, leaseToken: string) {
+      const { data, error } = await admin.rpc("kfm_shared_session_publish", {
+        p_guard_key: guardKey,
+        p_lease_token: leaseToken,
+        p_access_token: session.token,
+        p_obtained_at: session.obtainedAt,
+        p_max_ttl_seconds: maxTtlSeconds,
+      });
+      if (error) throw new Error("kfm_shared_session_unavailable");
+      const row = Array.isArray(data) ? data[0] : data;
+      return parseSharedSessionRow(row) ?? false;
+    },
+    async invalidateSharedSession(generation: string) {
+      const { data, error } = await admin.rpc("kfm_shared_session_invalidate", {
+        p_guard_key: guardKey,
+        p_generation: generation,
+      });
+      if (error) throw new Error("kfm_shared_session_unavailable");
+      return data === true;
     },
   };
 }

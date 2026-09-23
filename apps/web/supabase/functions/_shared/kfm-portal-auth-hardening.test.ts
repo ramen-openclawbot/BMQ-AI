@@ -447,6 +447,315 @@ Deno.test("guarded session allows exactly one password login during a shared coo
   }
 });
 
+Deno.test("guarded session reuses a shared access session across cold isolates during cooldown", async () => {
+  const originalFetch = globalThis.fetch;
+  let passwordPosts = 0;
+  let meReads = 0;
+  let state = "";
+  const guard = new FakePasswordGuard();
+  const store = new FakeSharedSessionStore();
+  try {
+    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/oauth2/authorize")) {
+        state = url.searchParams.get("state") || "";
+        return Promise.resolve(new Response(null, { status: 302, headers: { location: "/uaa/login" } }));
+      }
+      if (url.pathname.endsWith("/login") && init?.method !== "POST") {
+        return Promise.resolve(new Response('<form action="/uaa/login"><input name="_csrf" value="CSRF_PRIVATE_SHARED"></form>', { status: 200 }));
+      }
+      if (url.pathname.endsWith("/login") && init?.method === "POST") {
+        passwordPosts += 1;
+        return Promise.resolve(new Response(null, { status: 302, headers: { location: `https://partners.seedcom.vn/sce/oauth?code=CODE_PRIVATE_SHARED&state=${state}` } }));
+      }
+      if (url.pathname.endsWith("/exchange")) {
+        return Promise.resolve(Response.json({ success: true, accessToken: "ACCESS_PRIVATE_SHARED", refreshToken: "" }));
+      }
+      if (url.pathname.endsWith("/portal/me")) {
+        meReads += 1;
+        assert.equal(new Headers(init?.headers).get("authorization"), "Bearer ACCESS_PRIVATE_SHARED");
+        return Promise.resolve(Response.json({ data: { vendorIds: [217], vendorCode: "V000217" } }));
+      }
+      throw new Error(`unexpected fetch ${init?.method || "GET"} ${url}`);
+    }) as typeof fetch;
+
+    const isolateA = await openSessionWithLoginGuard(
+      { username: "USER_PRIVATE_SHARED", password: "PASSWORD_PRIVATE_SHARED" },
+      guard,
+      store,
+    );
+    const isolateB = await openSessionWithLoginGuard(
+      { username: "USER_PRIVATE_SHARED", password: "PASSWORD_PRIVATE_SHARED" },
+      guard,
+      store,
+    );
+
+    assert.equal(isolateA.token, "ACCESS_PRIVATE_SHARED");
+    assert.equal(isolateB.token, "ACCESS_PRIVATE_SHARED");
+    assert.ok(isolateA.sharedGeneration, "fresh publisher must retain the exact generation for invalidation");
+    assert.equal(isolateA.sharedGeneration, isolateB.sharedGeneration);
+    assert.equal(passwordPosts, 1);
+    assert.equal(meReads, 1);
+    assert.equal(guard.acquireCalls, 1);
+    assert.equal(store.reads, 2);
+    assert.equal(store.publishes, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("guarded session invalidates expired shared sessions and keeps the password gate", async () => {
+  const originalFetch = globalThis.fetch;
+  let passwordPosts = 0;
+  let state = "";
+  const guard = new FakePasswordGuard();
+  const store = new FakeSharedSessionStore({
+    token: "ACCESS_PRIVATE_EXPIRED",
+    expiresAt: new Date(Date.now() - 1_000).toISOString(),
+    generation: "expired-generation",
+  });
+  try {
+    globalThis.fetch = mockPasswordLoginFetch({
+      accessToken: "ACCESS_PRIVATE_AFTER_EXPIRED",
+      onAuthorize: (nextState) => state = nextState,
+      onPasswordPost: () => passwordPosts += 1,
+      state: () => state,
+    });
+
+    const session = await openSessionWithLoginGuard(
+      { username: "USER_PRIVATE_EXPIRED", password: "PASSWORD_PRIVATE_EXPIRED" },
+      guard,
+      store,
+    );
+
+    assert.equal(session.token, "ACCESS_PRIVATE_AFTER_EXPIRED");
+    assert.equal(passwordPosts, 1);
+    assert.deepEqual(store.invalidatedGenerations, ["expired-generation"]);
+    assert.equal(guard.acquireCalls, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("guarded session invalidates exact bad shared generation and fails closed without password fallback", async () => {
+  const originalFetch = globalThis.fetch;
+  let passwordPosts = 0;
+  let state = "";
+  const guard = new FakePasswordGuard();
+  const badGeneration = "bad-generation";
+  const tokenSecret = "ACCESS_PRIVATE_BAD_SHARED";
+  const store = new FakeSharedSessionStore({
+    token: tokenSecret,
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    generation: badGeneration,
+  });
+  try {
+    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/portal/me")) {
+        assert.equal(new Headers(init?.headers).get("authorization"), `Bearer ${tokenSecret}`);
+        return Promise.resolve(Response.json({ error: "TOKEN_PRIVATE_PROVIDER" }, { status: 401 }));
+      }
+      return mockPasswordLoginFetch({
+        accessToken: "ACCESS_PRIVATE_AFTER_BAD",
+        onAuthorize: (nextState) => state = nextState,
+        onPasswordPost: () => passwordPosts += 1,
+        state: () => state,
+      })(input, init);
+    }) as typeof fetch;
+
+    await assert.rejects(
+      () => openSessionWithLoginGuard(
+        { username: "USER_PRIVATE_BAD", password: "PASSWORD_PRIVATE_BAD" },
+        guard,
+        store,
+      ),
+      (error) => error instanceof KfmPortalError && error.step === "me" && error.status === 401,
+    );
+
+    assert.equal(passwordPosts, 0);
+    assert.equal(guard.acquireCalls, 0);
+    assert.deepEqual(store.invalidatedGenerations, [badGeneration]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("guarded session reuses provider-validated shared token at t+120 without repeating password", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalDateNow = Date.now;
+  let now = 1_000_000;
+  let passwordPosts = 0;
+  let meReads = 0;
+  let state = "";
+  const guard = new FakePasswordGuard(() => now);
+  const store = new FakeSharedSessionStore(null, { now: () => now, publishTtlMs: 900_000 });
+  try {
+    Date.now = () => now;
+    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/portal/me")) {
+        meReads += 1;
+        assert.equal(new Headers(init?.headers).get("authorization"), "Bearer ACCESS_PRIVATE_TTL_COVERAGE");
+        return Promise.resolve(Response.json({ data: { vendorIds: [217], vendorCode: "V000217" } }));
+      }
+      return mockPasswordLoginFetch({
+        accessToken: "ACCESS_PRIVATE_TTL_COVERAGE",
+        onAuthorize: (nextState) => state = nextState,
+        onPasswordPost: () => passwordPosts += 1,
+        state: () => state,
+      })(input, init);
+    }) as typeof fetch;
+
+    const first = await openSessionWithLoginGuard(
+      { username: "USER_PRIVATE_TTL", password: "PASSWORD_PRIVATE_TTL" },
+      guard,
+      store,
+    );
+    now += 120_000;
+    const second = await openSessionWithLoginGuard(
+      { username: "USER_PRIVATE_TTL", password: "PASSWORD_PRIVATE_TTL" },
+      guard,
+      store,
+    );
+
+    assert.equal(first.token, "ACCESS_PRIVATE_TTL_COVERAGE");
+    assert.equal(second.token, "ACCESS_PRIVATE_TTL_COVERAGE");
+    assert.equal(passwordPosts, 1);
+    assert.equal(meReads, 1);
+    assert.equal(guard.acquireCalls, 1);
+  } finally {
+    Date.now = originalDateNow;
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("guarded session rechecks shared store after losing the lease", async () => {
+  const originalFetch = globalThis.fetch;
+  const guard: KfmPasswordLoginGuard = {
+    acquirePasswordLoginLease: () => Promise.resolve({ acquired: false, retryAfterSeconds: 300, reason: "cooldown" }),
+    releasePasswordLoginLease: () => Promise.reject(new Error("must not release without lease")),
+  };
+  const store = new FakeSharedSessionStore(null, {
+    afterReads: {
+      2: {
+        token: "ACCESS_PRIVATE_AFTER_LOST_LEASE",
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        generation: "winner-generation",
+      },
+    },
+  });
+  try {
+    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/portal/me")) {
+        assert.equal(new Headers(init?.headers).get("authorization"), "Bearer ACCESS_PRIVATE_AFTER_LOST_LEASE");
+        return Promise.resolve(Response.json({ data: { vendorIds: [217] } }));
+      }
+      throw new Error(`password flow must not run after lost lease recheck: ${url}`);
+    }) as typeof fetch;
+
+    const session = await openSessionWithLoginGuard(
+      { username: "USER_PRIVATE_LOST", password: "PASSWORD_PRIVATE_LOST" },
+      guard,
+      store,
+    );
+
+    assert.equal(session.token, "ACCESS_PRIVATE_AFTER_LOST_LEASE");
+    assert.equal(store.reads, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("guarded session waits briefly for in-flight winner instead of repeating password", async () => {
+  const originalFetch = globalThis.fetch;
+  const guard: KfmPasswordLoginGuard = {
+    acquirePasswordLoginLease: () => Promise.resolve({ acquired: false, retryAfterSeconds: 1, reason: "in_flight" }),
+    releasePasswordLoginLease: () => Promise.reject(new Error("must not release without lease")),
+  };
+  const store = new FakeSharedSessionStore(null, {
+    afterReads: {
+      4: {
+        token: "ACCESS_PRIVATE_AFTER_IN_FLIGHT",
+        expiresAt: new Date(Date.now() + 900_000).toISOString(),
+        generation: "winner-generation",
+      },
+    },
+  });
+  try {
+    globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/portal/me")) {
+        assert.equal(new Headers(init?.headers).get("authorization"), "Bearer ACCESS_PRIVATE_AFTER_IN_FLIGHT");
+        return Promise.resolve(Response.json({ data: { vendorIds: [217] } }));
+      }
+      throw new Error(`password flow must not run while waiting for winner: ${url}`);
+    }) as typeof fetch;
+
+    const session = await openSessionWithLoginGuard(
+      { username: "USER_PRIVATE_IN_FLIGHT", password: "PASSWORD_PRIVATE_IN_FLIGHT" },
+      guard,
+      store,
+    );
+
+    assert.equal(session.token, "ACCESS_PRIVATE_AFTER_IN_FLIGHT");
+    assert.equal(store.reads, 4);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+Deno.test("guarded session fails closed on shared store read and publish errors without leaking secrets", async () => {
+  const originalFetch = globalThis.fetch;
+  const privateStorage = "DB_PRIVATE_SHARED_SESSION";
+  try {
+    const readFailure = new FakeSharedSessionStore(null, { readError: new Error(privateStorage) });
+    await assert.rejects(
+      () => openSessionWithLoginGuard(
+        { username: "USER_PRIVATE_READ", password: "PASSWORD_PRIVATE_READ" },
+        new FakePasswordGuard(),
+        readFailure,
+      ),
+      (error) => {
+        assert.ok(error instanceof KfmPortalError);
+        assert.equal(error.step, "login_guard");
+        assert.ok(!error.message.includes(privateStorage));
+        return true;
+      },
+    );
+
+    let state = "";
+    let passwordPosts = 0;
+    globalThis.fetch = mockPasswordLoginFetch({
+      accessToken: "ACCESS_PRIVATE_PUBLISH",
+      onAuthorize: (nextState) => state = nextState,
+      onPasswordPost: () => passwordPosts += 1,
+      state: () => state,
+    });
+    const publishFailure = new FakeSharedSessionStore(null, { publishError: new Error(privateStorage) });
+    const guard = new FakePasswordGuard();
+    await assert.rejects(
+      () => openSessionWithLoginGuard(
+        { username: "USER_PRIVATE_PUBLISH", password: "PASSWORD_PRIVATE_PUBLISH" },
+        guard,
+        publishFailure,
+      ),
+      (error) => {
+        assert.ok(error instanceof KfmPortalError);
+        assert.equal(error.step, "login_guard");
+        assert.ok(!error.message.includes(privateStorage));
+        assert.ok(!error.message.includes("ACCESS_PRIVATE_PUBLISH"));
+        return true;
+      },
+    );
+    assert.equal(passwordPosts, 1);
+    assert.equal(guard.released[0]?.outcome, "error");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 Deno.test("guarded session blocks cooldown repeats, fails closed, bypasses lease on refresh, and releases by CAS token", async () => {
   const originalFetch = globalThis.fetch;
   try {
@@ -494,6 +803,32 @@ Deno.test("guarded session blocks cooldown repeats, fails closed, bypasses lease
   }
 });
 
+function mockPasswordLoginFetch(options: {
+  accessToken: string;
+  onAuthorize: (state: string) => void;
+  onPasswordPost: () => void;
+  state: () => string;
+}): typeof fetch {
+  return ((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input));
+    if (url.pathname.endsWith("/oauth2/authorize")) {
+      options.onAuthorize(url.searchParams.get("state") || "");
+      return Promise.resolve(new Response(null, { status: 302, headers: { location: "/uaa/login" } }));
+    }
+    if (url.pathname.endsWith("/login") && init?.method !== "POST") {
+      return Promise.resolve(new Response('<form action="/uaa/login"><input name="_csrf" value="CSRF_PRIVATE_HELPER"></form>', { status: 200 }));
+    }
+    if (url.pathname.endsWith("/login") && init?.method === "POST") {
+      options.onPasswordPost();
+      return Promise.resolve(new Response(null, { status: 302, headers: { location: `https://partners.seedcom.vn/sce/oauth?code=CODE_PRIVATE_HELPER&state=${options.state()}` } }));
+    }
+    if (url.pathname.endsWith("/exchange")) {
+      return Promise.resolve(Response.json({ success: true, accessToken: options.accessToken, refreshToken: "" }));
+    }
+    throw new Error(`unexpected fetch ${init?.method || "GET"} ${url}`);
+  }) as typeof fetch;
+}
+
 class FakePasswordGuard implements KfmPasswordLoginGuard {
   acquireCalls = 0;
   released: Array<{ leaseToken: string; outcome: string }> = [];
@@ -519,5 +854,55 @@ class FakePasswordGuard implements KfmPasswordLoginGuard {
 
   isLeased(): boolean {
     return Boolean(this.leaseToken);
+  }
+}
+
+class FakeSharedSessionStore {
+  reads = 0;
+  publishes = 0;
+  invalidatedGenerations: string[] = [];
+  private session: { token: string; expiresAt: string; generation: string } | null = null;
+
+  constructor(
+    initial: { token: string; expiresAt: string; generation: string } | null = null,
+    private options: {
+      readError?: Error;
+      publishError?: Error;
+      afterReads?: Record<number, { token: string; expiresAt: string; generation: string } | null>;
+      now?: () => number;
+      publishTtlMs?: number;
+    } = {},
+  ) {
+    this.session = initial;
+  }
+
+  async readSharedSession() {
+    this.reads += 1;
+    if (this.options.readError) throw this.options.readError;
+    if (Object.prototype.hasOwnProperty.call(this.options.afterReads || {}, this.reads)) {
+      this.session = this.options.afterReads?.[this.reads] ?? null;
+    }
+    return this.session;
+  }
+
+  async publishSharedSession(session: { token: string }) {
+    this.publishes += 1;
+    if (this.options.publishError) throw this.options.publishError;
+    const now = this.options.now?.() ?? Date.now();
+    this.session = {
+      token: session.token,
+      expiresAt: new Date(now + (this.options.publishTtlMs ?? 900_000)).toISOString(),
+      generation: crypto.randomUUID(),
+    };
+    return this.session;
+  }
+
+  async invalidateSharedSession(generation: string) {
+    this.invalidatedGenerations.push(generation);
+    if (this.session?.generation === generation) {
+      this.session = null;
+      return true;
+    }
+    return false;
   }
 }

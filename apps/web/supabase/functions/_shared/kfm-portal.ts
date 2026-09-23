@@ -39,6 +39,11 @@ export type KfmSession = {
   refreshToken: string;
   mode: "refresh" | "login";
   obtainedAt: string;
+  sharedGeneration?: string;
+  vendorIds?: number[];
+  vendorCode?: string | null;
+  vendorName?: string | null;
+  username?: string | null;
 };
 
 export type KfmOrder = {
@@ -82,6 +87,23 @@ export type KfmPasswordLoginGuard = {
   acquirePasswordLoginLease(): Promise<KfmPasswordLoginLease>;
   releasePasswordLoginLease(leaseToken: string, outcome: string): Promise<void>;
 };
+
+export type KfmSharedSessionRecord = {
+  token: string;
+  generation: string;
+  expiresAt: string;
+  obtainedAt?: string;
+  mode?: "shared" | "refresh" | "login";
+};
+
+export type KfmSharedSessionStore = {
+  readSharedSession(): Promise<KfmSharedSessionRecord | null>;
+  publishSharedSession(session: KfmSession, leaseToken: string): Promise<KfmSharedSessionRecord | boolean | null>;
+  invalidateSharedSession(generation: string): Promise<boolean>;
+};
+
+const SHARED_SESSION_WAIT_MS = 2_000;
+const SHARED_SESSION_WAIT_STEP_MS = 250;
 
 type StoredCookie = {
   name: string;
@@ -639,11 +661,15 @@ export async function openSessionWithLoginGuard(
     refreshToken?: string;
   },
   guard: KfmPasswordLoginGuard,
+  sharedStore?: KfmSharedSessionStore | null,
 ): Promise<KfmSession> {
   if (env.refreshToken) {
     const renewed = await refreshSession(env.refreshToken);
     if (renewed) return renewed;
   }
+
+  const shared = sharedStore ? await openSharedSession(sharedStore) : null;
+  if (shared) return shared;
 
   let lease: KfmPasswordLoginLease;
   try {
@@ -652,6 +678,8 @@ export async function openSessionWithLoginGuard(
     throw new KfmPortalError("login_guard", 503, "Chưa khóa được lượt đăng nhập KFM. Không thử mật khẩu.");
   }
   if (!lease.acquired) {
+    const afterLostLease = sharedStore ? await waitForSharedSession(sharedStore, lease.reason) : null;
+    if (afterLostLease) return afterLostLease;
     const error = new KfmPortalError("login_guard", 429, "Đăng nhập KFM đang tạm khóa để bảo vệ tài khoản.");
     error.detail = `reason=${lease.reason || "cooldown"} retryAfterSeconds=${Math.max(0, Math.ceil(lease.retryAfterSeconds || 0))}`;
     throw error;
@@ -660,6 +688,18 @@ export async function openSessionWithLoginGuard(
   let outcome = "error";
   try {
     const session = await loginWithPassword(env.username || "", env.password || "");
+    if (sharedStore) {
+      try {
+        const published = await sharedStore.publishSharedSession(session, lease.leaseToken);
+        if (!published || typeof published !== "object" || !published.generation) {
+          throw new KfmPortalError("login_guard", 503, "Chưa lưu được phiên KFM dùng chung. Không dùng phiên cục bộ.");
+        }
+        session.sharedGeneration = published.generation;
+      } catch (error) {
+        if (error instanceof KfmPortalError) throw error;
+        throw new KfmPortalError("login_guard", 503, "Chưa lưu được phiên KFM dùng chung. Không dùng phiên cục bộ.");
+      }
+    }
     outcome = "success";
     return session;
   } catch (error) {
@@ -673,6 +713,58 @@ export async function openSessionWithLoginGuard(
     } catch {
       // The lease expires durably; never mask the login outcome with release I/O.
     }
+  }
+}
+
+async function waitForSharedSession(sharedStore: KfmSharedSessionStore, reason: string): Promise<KfmSession | null> {
+  const started = Date.now();
+  while (true) {
+    const shared = await openSharedSession(sharedStore);
+    if (shared) return shared;
+    if (!["in_flight", "lease_active"].includes(reason) || Date.now() - started >= SHARED_SESSION_WAIT_MS) return null;
+    await new Promise((resolve) => setTimeout(resolve, SHARED_SESSION_WAIT_STEP_MS));
+  }
+}
+
+async function openSharedSession(sharedStore: KfmSharedSessionStore): Promise<KfmSession | null> {
+  let record: KfmSharedSessionRecord | null = null;
+  try {
+    record = await sharedStore.readSharedSession();
+  } catch {
+    throw new KfmPortalError("login_guard", 503, "Chưa đọc được phiên KFM dùng chung. Không thử mật khẩu.");
+  }
+  if (!record?.token || !record.generation) return null;
+  if (Date.parse(record.expiresAt || "") <= Date.now()) {
+    try {
+      await sharedStore.invalidateSharedSession(record.generation);
+    } catch {
+      throw new KfmPortalError("login_guard", 503, "Chưa hủy được phiên KFM hết hạn. Không thử mật khẩu.");
+    }
+    return null;
+  }
+  try {
+    const me = await getMe(record.token);
+    return {
+      token: record.token,
+      refreshToken: "",
+      mode: "login",
+      obtainedAt: record.obtainedAt || new Date().toISOString(),
+      sharedGeneration: record.generation,
+      vendorIds: me.vendorIds,
+      vendorCode: me.vendorCode,
+      vendorName: me.vendorName,
+      username: me.username,
+    };
+  } catch (error) {
+    if (error instanceof KfmPortalError && error.step === "me" && [401, 403].includes(error.status)) {
+      try {
+        await sharedStore.invalidateSharedSession(record.generation);
+      } catch {
+        throw new KfmPortalError("login_guard", 503, "Chưa hủy được phiên KFM không hợp lệ. Không thử mật khẩu.");
+      }
+      throw error;
+    }
+    throw error;
   }
 }
 
