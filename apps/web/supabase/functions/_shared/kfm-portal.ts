@@ -101,6 +101,12 @@ class CookieJar {
   has(name: string): boolean {
     return this.store.has(name);
   }
+
+  /** Compare cookie values privately; only the changed boolean leaves the jar. */
+  observeChange(name: string): () => boolean {
+    const before = this.store.get(name);
+    return () => this.store.get(name) !== before;
+  }
 }
 
 const REDIRECT_STATUS = new Set([301, 302, 303, 307, 308]);
@@ -164,10 +170,13 @@ function safeSsoLocation(location: string): string {
   if (!location) return "none";
   try {
     const url = new URL(location, SSO_BASE);
-    const known = url.origin === new URL(SSO_BASE).origin
-      ? ["/uaa/login", "/uaa/oauth2/authorize"]
-      : url.origin === PORTAL_ORIGIN ? ["/sce/oauth"] : [];
-    const path = known.includes(url.pathname) ? url.pathname : "other";
+    const ssoOrigin = new URL(SSO_BASE).origin;
+    const path = url.origin === ssoOrigin
+      ? ["/uaa/login", "/login", "/uaa", "/uaa/", "/uaa/oauth2/authorize"].includes(url.pathname)
+        ? url.pathname : "sso_other"
+      : url.origin === PORTAL_ORIGIN
+      ? url.pathname === "/sce/oauth" ? "/sce/oauth" : "portal_other"
+      : "external";
     const keys = ["error", "state", "code"].filter((key) => url.searchParams.has(key));
     return `${path}${keys.length ? `?${keys.join(",")}` : ""}`;
   } catch {
@@ -307,12 +316,19 @@ export async function loginWithPassword(
   const state = base64Url(crypto.getRandomValues(new Uint8Array(16)));
   const { csrf, action } = await beginLogin(jar, state, challenge);
 
+  const sessionCookieChanged = jar.observeChange("JSESSIONID");
+  const authorizeCookieChanged = jar.observeChange("sce_sso_authorize_request");
+
   let response = await request(jar, action, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: formEncode({ username, password, _csrf: csrf }),
   });
   const postStatus = response.status;
+  const postSessionCookieChanged = sessionCookieChanged();
+  const postAuthorizeCookieChanged = authorizeCookieChanged();
+  const postSessionCookiePresent = jar.has("JSESSIONID");
+  const postAuthorizeCookiePresent = jar.has("sce_sso_authorize_request");
 
   // SSO answers with a redirect chain: login -> authorize -> {redirect_uri}?code=...
   //
@@ -345,7 +361,7 @@ export async function loginWithPassword(
       response.status,
       "KFM SSO không hoàn tất đăng nhập",
     );
-    failure.detail = `postStatus=${postStatus} postRedirect=${safeSsoLocation(postRedirect)} replayStatus=${response.status} replayRedirect=${safeSsoLocation(location)} sessionCookie=${jar.has("JSESSIONID")} authorizeCookie=${jar.has("sce_sso_authorize_request")}`;
+    failure.detail = `postStatus=${postStatus} postRedirect=${safeSsoLocation(postRedirect)} postSessionCookieChanged=${postSessionCookieChanged} postAuthorizeCookieChanged=${postAuthorizeCookieChanged} postSessionCookiePresent=${postSessionCookiePresent} postAuthorizeCookiePresent=${postAuthorizeCookiePresent} replayStatus=${response.status} replayRedirect=${safeSsoLocation(location)} sessionCookie=${jar.has("JSESSIONID")} authorizeCookie=${jar.has("sce_sso_authorize_request")}`;
     throw failure;
   }
   const returnedState = paramFromLocation(location, "state");
