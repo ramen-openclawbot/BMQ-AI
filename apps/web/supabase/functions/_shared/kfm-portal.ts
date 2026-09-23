@@ -335,7 +335,7 @@ export async function loginWithPassword(
     const failure = new KfmPortalError(
       "login",
       response.status,
-      "Cổng KFM từ chối tài khoản hoặc mật khẩu",
+      "KFM SSO không hoàn tất đăng nhập",
     );
     failure.detail = `POST ${pathOf(action)} -> ${pathOf(location || "(không chuyển hướng)")}`;
     throw failure;

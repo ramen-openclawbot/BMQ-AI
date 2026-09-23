@@ -132,10 +132,11 @@ async function callPortal(body: Record<string, unknown>): Promise<KfmResponse> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) throw new Error("Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.");
 
-  const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/kfm-portal-sync`, {
+  const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/kfm-portal-sync?forceFunctionRegion=ap-northeast-2`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
+      "x-region": "ap-northeast-2",
       Authorization: `Bearer ${session.access_token}`,
     },
     body: JSON.stringify(body),

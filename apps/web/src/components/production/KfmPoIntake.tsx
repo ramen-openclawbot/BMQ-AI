@@ -51,10 +51,10 @@ type Props = {
 async function intakeRequest(body: Record<string, unknown>, signal?: AbortSignal) {
   const { data } = await supabase.auth.getSession();
   if (!data.session?.access_token) throw new Error("Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.");
-  const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/kfm-portal-sync`, {
+  const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/kfm-portal-sync?forceFunctionRegion=ap-northeast-2`, {
     method: "POST",
     signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(45_000)]) : AbortSignal.timeout(45_000),
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${data.session.access_token}` },
+    headers: { "Content-Type": "application/json", "x-region": "ap-northeast-2", Authorization: `Bearer ${data.session.access_token}` },
     body: JSON.stringify(body),
   });
   const value = await response.json();

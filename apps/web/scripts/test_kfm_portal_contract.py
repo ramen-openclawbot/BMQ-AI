@@ -13,7 +13,9 @@ import re
 ROOT = Path(__file__).resolve().parents[1]
 CLIENT = (ROOT / "supabase/functions/_shared/kfm-portal.ts").read_text()
 FUNCTION = (ROOT / "supabase/functions/kfm-portal-sync/index.ts").read_text()
+CORS = (ROOT / "supabase/functions/_shared/cors.ts").read_text()
 PANEL = (ROOT / "src/components/production/KfmPortalDialog.tsx").read_text()
+INTAKE = (ROOT / "src/components/production/KfmPoIntake.tsx").read_text()
 PLANNING = (ROOT / "src/pages/ProductionPlanning.tsx").read_text()
 
 
@@ -224,6 +226,31 @@ def test_credentials_come_from_the_environment_only() -> None:
     for source in (CLIENT, FUNCTION, PANEL):
         assert not re.search(r"KFM_PORTAL_PASSWORD\s*[:=]\s*[\"']", source), \
             "the password must never be hardcoded"
+
+
+def test_every_browser_invocation_pins_the_proven_seoul_region() -> None:
+    for source, caller in ((PANEL, "print workspace"), (INTAKE, "PO intake")):
+        require(source, "forceFunctionRegion=ap-northeast-2",
+                f"{caller} must route the function invocation to Seoul")
+        require(source, '"x-region": "ap-northeast-2"',
+                f"{caller} must send Supabase's regional invocation header")
+        require(source, '"Content-Type": "application/json"',
+                f"{caller} must preserve the JSON content type")
+        require(source, "Authorization:",
+                f"{caller} must preserve the app session authorization")
+    require(CORS, "x-region",
+            "browser preflight must allow Supabase's regional invocation header")
+
+
+def test_no_code_login_failure_does_not_assert_bad_credentials() -> None:
+    require(CLIENT, "KFM SSO không hoàn tất đăng nhập",
+            "a generic missing authorization code needs accurate safe copy")
+    forbid(CLIENT, "Cổng KFM từ chối tài khoản hoặc mật khẩu",
+           "a no-code SSO result does not prove the username/password is wrong")
+    require(CLIENT, "Thiếu thông tin đăng nhập cổng KFM",
+            "locally missing credentials must remain a distinct error")
+    require(FUNCTION, 'error: "not_configured"',
+            "missing Edge secrets must remain distinct from SSO completion failure")
 
 
 def test_the_proxy_is_authenticated_and_cors_aware() -> None:

@@ -167,7 +167,13 @@ function makePortal() {
     actions: [], list: 0, listDates: [], tripOptions: 0, create: 0, confirm: 0, pdf: 0,
     orders: [ORDER], ordersByDate: {}, holdList: false, releaseList: [], listError: false,
   };
-  globalThis.fetch = async (_url, options) => {
+  globalThis.fetch = async (url, options) => {
+    const invocationUrl = new URL(url);
+    assert.equal(invocationUrl.pathname, "/functions/v1/kfm-portal-sync");
+    assert.equal(invocationUrl.searchParams.get("forceFunctionRegion"), "ap-northeast-2");
+    assert.equal(options.headers["x-region"], "ap-northeast-2");
+    assert.equal(options.headers["Content-Type"], "application/json");
+    assert.equal(options.headers.Authorization, "Bearer fixture-only");
     const body = JSON.parse(options.body);
     state.actions.push(body.action);
     if (body.action === "list") {

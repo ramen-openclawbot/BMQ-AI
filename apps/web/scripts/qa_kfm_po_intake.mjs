@@ -33,7 +33,13 @@ try {
     const errors = [], actions = []; let decisions = 0, scans = 0;
     page.on("pageerror", (error) => errors.push(error.message));
     await page.route("**/functions/v1/**", async (route) => {
-      assert(route.request().url().endsWith("/kfm-portal-sync"));
+      const request = route.request();
+      const invocationUrl = new URL(request.url());
+      assert.equal(invocationUrl.pathname, "/functions/v1/kfm-portal-sync");
+      assert.equal(invocationUrl.searchParams.get("forceFunctionRegion"), "ap-northeast-2");
+      assert.equal(request.headers()["x-region"], "ap-northeast-2");
+      assert.equal(request.headers()["content-type"], "application/json");
+      assert.equal(request.headers().authorization, "Bearer isolated-fixture");
       const body = route.request().postDataJSON(); actions.push(body.action); let value;
       if (body.action === "intake-list") { scans++;
         if (["checking", "close-scan"].includes(scenario)) await new Promise(resolve=>setTimeout(resolve,1200));
