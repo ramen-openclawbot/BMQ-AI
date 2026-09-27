@@ -10,6 +10,7 @@ import {
 import {
   buildDailyBreadOrderMessage,
   buildWarehouseKioskBreadDispatchMessage,
+  type DynamicVehicleBreadOrderPolicy,
   type FixedVehicleBreadInboundPolicy,
   forecastVehicleBread,
   isMamNonMayEmailSubject,
@@ -185,6 +186,15 @@ const signedQuantity = (value: number | string | null | undefined) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+const vehicleQuantitySemantics = (forecast: {
+  fixedInboundPolicy?: unknown;
+  dynamicInboundPolicy?: unknown;
+}): string => {
+  if (forecast.fixedInboundPolicy) return "fixed_daily_inbound_not_stock_subtracted";
+  if (forecast.dynamicInboundPolicy) return "bhn_exact_date_120pct_sold_minus_saleable_closing_round20";
+  return "smart_batch_after_peak_demand_safety_and_latest_closing_stock";
+};
+
 type DailyBreadDealerOrderRow = { id: string };
 type DailyBreadDealerItemRow = {
   id: string;
@@ -202,6 +212,7 @@ type DailyBreadVehicleHistoryRow = {
   report_updated_at: string | null;
   sold_quantity: number | string | null;
   closing_quantity: number | string | null;
+  bread_row_present?: boolean | null;
 };
 type DailyBreadVietjetQuantityRow = {
   quantity: number | string;
@@ -214,6 +225,16 @@ type FixedInboundPolicyRow = {
   location_code: string;
   sku_code: string;
   quantity: number | string;
+  effective_from_service_date: string;
+  effective_from_cutoff_date: string;
+};
+type DynamicOrderPolicyRow = {
+  policy_code: string;
+  location_id: string;
+  location_code: string;
+  sku_code: string;
+  demand_multiplier: number | string;
+  batch_size: number | string;
   effective_from_service_date: string;
   effective_from_cutoff_date: string;
 };
@@ -293,6 +314,32 @@ const readFixedInboundPolicies = async (
   }));
 };
 
+const readDynamicOrderPolicies = async (
+  supabase: ReturnType<typeof createServiceClient>,
+  orderDate: string,
+): Promise<DynamicVehicleBreadOrderPolicy[]> => {
+  const { data, error } = await supabase.rpc("get_active_kiosk_bread_dynamic_order_policies", {
+    p_service_date: orderDate,
+  });
+  if (error) throw new Error(`Unable to read dynamic kiosk bread order policies: ${error.message}`);
+  return ((data || []) as DynamicOrderPolicyRow[]).map((row) => ({
+    policyCode: row.policy_code,
+    locationId: row.location_id,
+    locationCode: row.location_code,
+    skuCode: row.sku_code,
+    demandMultiplier: quantity(row.demand_multiplier),
+    batchSize: quantity(row.batch_size),
+    effectiveFromServiceDate: row.effective_from_service_date,
+    effectiveFromCutoffDate: row.effective_from_cutoff_date,
+  }));
+};
+
+const isBhnBreadPrealertTime = (now: Date): boolean => {
+  if (!Number.isFinite(now.getTime())) return false;
+  const vietnamHour = (now.getUTCHours() + 7) % 24;
+  return vietnamHour === 23 && now.getUTCMinutes() === 30;
+};
+
 const mamNonQuantityFromRows = (rows: DailyBreadMamNonRow[], orderDate: string) => {
   let orderedQuantity = 0;
   let supplierOrderQuantity = 0;
@@ -351,6 +398,7 @@ const enqueueDailyBreadOrder = async (
   supabase: ReturnType<typeof createServiceClient>,
   now: Date,
   fixedInboundPolicies: FixedVehicleBreadInboundPolicy[],
+  dynamicOrderPolicies: DynamicVehicleBreadOrderPolicy[],
 ): Promise<{ id: string; messageBody: string }> => {
   const dayRange = warehouseVietnamDayRange(now);
   const orderDate = nextVietnamDateKey(now);
@@ -406,7 +454,7 @@ const enqueueDailyBreadOrder = async (
   const vehicleLocations = new Map<string, {
     locationId: string;
     locationCode: string;
-    reports: Array<{ reportId?: string | null; reportDate: string; reportUpdatedAt?: string | null; soldQuantity: number; closingQuantity: number }>;
+    reports: Array<{ reportId?: string | null; reportDate: string; reportUpdatedAt?: string | null; soldQuantity: number; closingQuantity: number; breadRowPresent?: boolean }>;
   }>();
   vehicleHistory.forEach((row) => {
     const location = vehicleLocations.get(row.location_id) || {
@@ -421,23 +469,24 @@ const enqueueDailyBreadOrder = async (
         reportUpdatedAt: row.report_updated_at,
         soldQuantity: quantity(row.sold_quantity),
         closingQuantity: signedQuantity(row.closing_quantity),
+        breadRowPresent: row.bread_row_present !== false,
       });
     }
     vehicleLocations.set(row.location_id, location);
   });
-  const vehicleForecast = forecastVehicleBread([...vehicleLocations.values()], orderDate, fixedInboundPolicies);
+  const vehicleForecast = forecastVehicleBread([...vehicleLocations.values()], orderDate, fixedInboundPolicies, dynamicOrderPolicies);
 
-  const currentVehicleReportIds = vehicleForecast.locations
+  const validCurrentVehicleReportIds = vehicleForecast.locations
     .filter((location) => location.latestReportDate === dayRange.dateKey)
     .map((location) => location.latestReportSource?.reportId)
     .filter((reportId): reportId is string => Boolean(reportId));
   let vehicleExchangeQuantity = 0;
   let vehicleMakeupQuantity = 0;
-  if (currentVehicleReportIds.length > 0) {
+  if (validCurrentVehicleReportIds.length > 0) {
     const { data: vehicleExtraData, error: vehicleExtraError } = await supabase
       .from("kiosk_daily_report_inventory_rows")
       .select("shortage_quantity,returns_quantity,waste_quantity")
-      .in("report_id", currentVehicleReportIds)
+      .in("report_id", validCurrentVehicleReportIds)
       .eq("product_code", "banh_mi_que");
     if (vehicleExtraError) {
       throw new Error(`Unable to read kiosk bread exchange/makeup: ${vehicleExtraError.message}`);
@@ -536,15 +585,14 @@ const enqueueDailyBreadOrder = async (
       source: "baocao.banhmique.vn",
       formula_version: vehicleForecast.formulaVersion,
       fixed_policy_count: fixedInboundPolicies.length,
+      dynamic_policy_count: dynamicOrderPolicies.length,
       total_quantity: vehicleForecast.totalQuantity,
       exchange_quantity: vehicleExchangeQuantity,
       makeup_quantity: vehicleMakeupQuantity,
       extra_quantity: vehicleExtraQuantity,
       locations: vehicleForecast.locations.map((forecast) => ({
         ...forecast,
-        quantitySemantics: forecast.fixedInboundPolicy
-          ? "fixed_daily_inbound_not_stock_subtracted"
-          : "smart_batch_after_peak_demand_safety_and_latest_closing_stock",
+        quantitySemantics: vehicleQuantitySemantics(forecast),
       })),
       report_sources: vehicleForecast.locations.map((forecast) => ({
         location_id: forecast.locationId,
@@ -601,6 +649,7 @@ const enqueueWarehouseKioskBreadDispatch = async (
   supabase: ReturnType<typeof createServiceClient>,
   now: Date,
   fixedInboundPolicies: FixedVehicleBreadInboundPolicy[],
+  dynamicOrderPolicies: DynamicVehicleBreadOrderPolicy[],
 ): Promise<{ id: string; messageBody: string }> => {
   const dayRange = warehouseVietnamDayRange(now);
   const orderDate = nextVietnamDateKey(now);
@@ -617,7 +666,7 @@ const enqueueWarehouseKioskBreadDispatch = async (
   const vehicleLocations = new Map<string, {
     locationId: string;
     locationCode: string;
-    reports: Array<{ reportId?: string | null; reportDate: string; reportUpdatedAt?: string | null; soldQuantity: number; closingQuantity: number }>;
+    reports: Array<{ reportId?: string | null; reportDate: string; reportUpdatedAt?: string | null; soldQuantity: number; closingQuantity: number; breadRowPresent?: boolean }>;
   }>();
   history.forEach((row) => {
     const location = vehicleLocations.get(row.location_id) || {
@@ -632,11 +681,12 @@ const enqueueWarehouseKioskBreadDispatch = async (
         reportUpdatedAt: row.report_updated_at,
         soldQuantity: quantity(row.sold_quantity),
         closingQuantity: signedQuantity(row.closing_quantity),
+        breadRowPresent: row.bread_row_present !== false,
       });
     }
     vehicleLocations.set(row.location_id, location);
   });
-  const vehicleForecast = forecastVehicleBread([...vehicleLocations.values()], orderDate, fixedInboundPolicies);
+  const vehicleForecast = forecastVehicleBread([...vehicleLocations.values()], orderDate, fixedInboundPolicies, dynamicOrderPolicies);
   const locationIds = vehicleForecast.locations.map((location) => location.locationId);
 
   const { data: locationData, error: locationError } = await supabase
@@ -697,12 +747,21 @@ const enqueueWarehouseKioskBreadDispatch = async (
       latestReportSource: forecast.latestReportSource,
       closureReason: forecast.closureReason,
       fixedInboundPolicy: forecast.fixedInboundPolicy,
-      quantitySemantics: forecast.fixedInboundPolicy
-        ? "fixed_daily_inbound_not_stock_subtracted"
-        : "smart_batch_after_peak_demand_safety_and_latest_closing_stock",
+      dynamicInboundPolicy: forecast.dynamicInboundPolicy,
+      quantitySemantics: vehicleQuantitySemantics(forecast),
     };
   });
-  const messageBody = buildWarehouseKioskBreadDispatchMessage({ orderDate, locations: dispatchLocations });
+  const bhnMissingWarning = warnings.find((warning) =>
+    warning.startsWith("HCM004-BHN:exact_cutoff_bread_report_missing:")
+    || warning.startsWith("HCM004-BHN:exact_cutoff_bread_inventory_row_missing:")
+  );
+  const messageBody = [
+    buildWarehouseKioskBreadDispatchMessage({ orderDate, locations: dispatchLocations }),
+    ...(bhnMissingWarning ? [
+      "",
+      `CẢNH BÁO BHN: chưa có báo cáo ngày ${dayRange.dateKey} kèm dòng bánh mì que, không tạo đặt mới BHN cho giao ${orderDate}. Các điểm khác vẫn giữ trong đơn.`,
+    ] : []),
+  ].join("\n");
   const sourceSnapshot = {
     cutoff_at: now.toISOString(),
     cutoff_timezone: "Asia/Ho_Chi_Minh",
@@ -713,11 +772,13 @@ const enqueueWarehouseKioskBreadDispatch = async (
     report_product_code: "banh_mi_que",
     formula_version: vehicleForecast.formulaVersion,
     fixed_policy_count: fixedInboundPolicies.length,
+    dynamic_policy_count: dynamicOrderPolicies.length,
     locations: dispatchLocations,
     warnings,
     quantity_semantics: {
       order: "per_location_policy_snapshot",
       fixed_policy: "fixed_daily_inbound_not_stock_subtracted",
+      dynamic_policy: "bhn_exact_date_120pct_sold_minus_saleable_closing_round20",
       formula: "smart_20_stick_pate_batch_after_peak_demand_safety_and_latest_closing_stock",
       makeup: "kiosk_shortage_quantity",
       exchange: "kiosk_returns_quantity_plus_waste_quantity",
@@ -729,6 +790,77 @@ const enqueueWarehouseKioskBreadDispatch = async (
     p_source_snapshot: sourceSnapshot,
   });
   if (queueError) throw new Error(`Unable to queue warehouse kiosk bread dispatch: ${queueError.message}`);
+  return { id: String(notificationId || ""), messageBody };
+};
+
+const enqueueBhnBreadReportPrealert = async (
+  supabase: ReturnType<typeof createServiceClient>,
+  now: Date,
+  dynamicOrderPolicies: DynamicVehicleBreadOrderPolicy[],
+): Promise<{ id: string; messageBody: string } | null> => {
+  const dayRange = warehouseVietnamDayRange(now);
+  const orderDate = nextVietnamDateKey(now);
+  if (!dayRange || !orderDate) throw new Error("Unable to resolve Vietnam BHN bread prealert date");
+  if (!dynamicOrderPolicies.some((policy) =>
+    policy.locationCode.trim().toUpperCase() === "HCM004-BHN"
+    && policy.skuCode === "BMQ-001"
+    && orderDate >= policy.effectiveFromServiceDate
+  )) return null;
+
+  const { data: historyData, error: historyError } = await supabase.rpc(
+    "get_daily_bread_vehicle_history",
+    { p_cutoff_date: dayRange.dateKey },
+  );
+  if (historyError) throw new Error(`Unable to read BHN bread prealert source: ${historyError.message}`);
+  const bhnRows = ((historyData || []) as DailyBreadVehicleHistoryRow[])
+    .filter((row) => row.location_code === "HCM004-BHN");
+  const location = {
+    locationId: bhnRows[0]?.location_id || "8b353493-c3cb-436e-80f7-a9a1d1a57cd3",
+    locationCode: "HCM004-BHN",
+    reports: bhnRows
+      .filter((row) => row.report_date)
+      .map((row) => ({
+        reportId: row.report_id,
+        reportDate: String(row.report_date),
+        reportUpdatedAt: row.report_updated_at,
+        soldQuantity: quantity(row.sold_quantity),
+        closingQuantity: signedQuantity(row.closing_quantity),
+        breadRowPresent: row.bread_row_present !== false,
+      })),
+  };
+  const forecast = forecastVehicleBread([location], orderDate, [], dynamicOrderPolicies);
+  const missingWarning = forecast.warnings.find((warning) =>
+    warning.startsWith("HCM004-BHN:exact_cutoff_bread_report_missing:")
+    || warning.startsWith("HCM004-BHN:exact_cutoff_bread_inventory_row_missing:")
+  );
+  if (!missingWarning) return null;
+
+  const messageBody = [
+    "CẢNH BÁO BÁNH BHN",
+    `Trạng thái lúc 23:30 ngày ${dayRange.dateKey}: chưa đủ nguồn báo cáo bánh mì que cho BHN.`,
+    `Ngày báo cáo: ${dayRange.dateKey}`,
+    `Ngày giao kế tiếp: ${orderDate}`,
+    "Không tạo đặt mới BHN nếu đến 23:59 vẫn thiếu báo cáo/dòng bánh mì que. Cảnh báo này chỉ gửi kho, không gửi NCC.",
+  ].join("\n");
+  const sourceSnapshot = {
+    cutoff_at: now.toISOString(),
+    cutoff_timezone: "Asia/Ho_Chi_Minh",
+    status_as_of_local_time: "23:30",
+    report_date: dayRange.dateKey,
+    order_date: orderDate,
+    source: "baocao.banhmique.vn",
+    location_code: "HCM004-BHN",
+    sku_code: "BMQ-001",
+    warning: missingWarning,
+    forecast: forecast.locations[0] || null,
+  };
+  const { data: notificationId, error: queueError } = await supabase.rpc("upsert_bhn_bread_report_prealert", {
+    p_report_date: dayRange.dateKey,
+    p_order_date: orderDate,
+    p_message_body: messageBody,
+    p_source_snapshot: sourceSnapshot,
+  });
+  if (queueError) throw new Error(`Unable to queue BHN bread prealert: ${queueError.message}`);
   return { id: String(notificationId || ""), messageBody };
 };
 
@@ -856,6 +988,25 @@ serve(async (req) => {
   let breadOrderError: string | null = null;
   let kioskBreadDispatchQueued = false;
   let kioskBreadDispatchError: string | null = null;
+  let bhnBreadPrealertQueued = false;
+  let bhnBreadPrealertError: string | null = null;
+  try {
+    const orderDate = nextVietnamDateKey(now);
+    if (!orderDate) throw new Error("Unable to resolve Vietnam bread-order date");
+    const dynamicOrderPolicies = await readDynamicOrderPolicies(supabase, orderDate);
+    if (isBhnBreadPrealertTime(now)) {
+      try {
+        const prealert = await enqueueBhnBreadReportPrealert(supabase, now, dynamicOrderPolicies);
+        bhnBreadPrealertQueued = Boolean(prealert);
+      } catch (error) {
+        bhnBreadPrealertError = String(error instanceof Error ? error.message : error).slice(0, 500);
+        console.error(`[dealer-warehouse-notify] BHN bread prealert queue failed: ${bhnBreadPrealertError}`);
+      }
+    }
+  } catch (error) {
+    bhnBreadPrealertError = String(error instanceof Error ? error.message : error).slice(0, 500);
+    console.error(`[dealer-warehouse-notify] BHN bread prealert policy snapshot failed: ${bhnBreadPrealertError}`);
+  }
   if (isWarehouseDailyDigestTime(now)) {
     try {
       digestsQueued = await enqueueWarehouseDailyDigests(supabase, now);
@@ -867,15 +1018,16 @@ serve(async (req) => {
       const orderDate = nextVietnamDateKey(now);
       if (!orderDate) throw new Error("Unable to resolve Vietnam bread-order date");
       const fixedInboundPolicies = await readFixedInboundPolicies(supabase, orderDate);
+      const dynamicOrderPolicies = await readDynamicOrderPolicies(supabase, orderDate);
       try {
-        await enqueueDailyBreadOrder(supabase, now, fixedInboundPolicies);
+        await enqueueDailyBreadOrder(supabase, now, fixedInboundPolicies, dynamicOrderPolicies);
         breadOrderQueued = true;
       } catch (error) {
         breadOrderError = String(error instanceof Error ? error.message : error).slice(0, 500);
         console.error(`[dealer-warehouse-notify] Daily bread-order queue failed: ${breadOrderError}`);
       }
       try {
-        await enqueueWarehouseKioskBreadDispatch(supabase, now, fixedInboundPolicies);
+        await enqueueWarehouseKioskBreadDispatch(supabase, now, fixedInboundPolicies, dynamicOrderPolicies);
         kioskBreadDispatchQueued = true;
       } catch (error) {
         kioskBreadDispatchError = String(error instanceof Error ? error.message : error).slice(0, 500);
@@ -1010,6 +1162,11 @@ serve(async (req) => {
       notification_type: "warehouse_kiosk_bread_dispatch",
       queued: kioskBreadDispatchQueued,
       error: kioskBreadDispatchError,
+    },
+    bhn_bread_report_prealert: {
+      notification_type: "bhn_bread_report_prealert",
+      queued: bhnBreadPrealertQueued,
+      error: bhnBreadPrealertError,
     },
   });
 });

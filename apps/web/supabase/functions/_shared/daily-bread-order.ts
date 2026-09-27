@@ -6,6 +6,7 @@ export type VehicleBreadReport = {
   reportUpdatedAt?: string | null;
   soldQuantity: number;
   closingQuantity: number;
+  breadRowPresent?: boolean;
 };
 
 export type VehicleBreadLocation = {
@@ -30,14 +31,19 @@ export type VehicleBreadForecastLocation = {
     | "no_submitted_report"
     | "lunar_day_30_monthly_off"
     | "fixed_daily_inbound_policy"
+    | "dynamic_exact_report_missing"
+    | "dynamic_exact_bread_row_missing"
+    | "dynamic_exact_no_new_order_needed"
+    | "dynamic_exact_report_round_up_to_batch"
     | "no_new_order_needed"
     | "exact_20_stick_batch"
     | "round_up_to_prevent_peak_stockout"
     | "round_up_to_preserve_low_stock_safety"
     | "round_down_existing_stock_buffer";
-  latestReportSource: { reportId: string | null; reportUpdatedAt: string | null } | null;
+  latestReportSource: { reportId: string | null; reportUpdatedAt: string | null; breadRowPresent?: boolean } | null;
   closureReason: "lunar_day_30_monthly_off" | null;
   fixedInboundPolicy?: Omit<FixedVehicleBreadInboundPolicy, "locationId" | "locationCode">;
+  dynamicInboundPolicy?: Omit<DynamicVehicleBreadOrderPolicy, "locationId" | "locationCode">;
 };
 
 export type FixedVehicleBreadInboundPolicy = {
@@ -46,6 +52,17 @@ export type FixedVehicleBreadInboundPolicy = {
   locationCode: string;
   skuCode: "BMQ-001" | string;
   quantity: number;
+  effectiveFromServiceDate: string;
+  effectiveFromCutoffDate: string;
+};
+
+export type DynamicVehicleBreadOrderPolicy = {
+  policyCode: string;
+  locationId: string;
+  locationCode: string;
+  skuCode: "BMQ-001" | string;
+  demandMultiplier: number;
+  batchSize: number;
   effectiveFromServiceDate: string;
   effectiveFromCutoffDate: string;
 };
@@ -101,6 +118,7 @@ export type WarehouseKioskBreadDispatchInput = {
 };
 
 const FORMULA_VERSION = "peak-7d-plus-10pct-minus-closing-smart-round20-lunar-off-v3";
+const DYNAMIC_BHN_FORMULA_VERSION = "bhn-exact-date-sold-120pct-minus-saleable-closing-round20-v1";
 const VIETNAM_OFFSET_MS = 7 * 60 * 60 * 1000;
 const VEHICLE_BREAD_SAFETY_FACTOR = 1.1;
 const PATE_BATCH_SIZE = 20;
@@ -113,6 +131,16 @@ export const DEFAULT_FIXED_VEHICLE_BREAD_INBOUND_POLICIES: FixedVehicleBreadInbo
   quantity: 160,
   effectiveFromServiceDate: "2026-09-19",
   effectiveFromCutoffDate: "2026-09-18",
+}];
+export const DEFAULT_DYNAMIC_VEHICLE_BREAD_ORDER_POLICIES: DynamicVehicleBreadOrderPolicy[] = [{
+  policyCode: "dynamic-daily-order-bhn-bmq-001-v1",
+  locationId: "8b353493-c3cb-436e-80f7-a9a1d1a57cd3",
+  locationCode: "HCM004-BHN",
+  skuCode: "BMQ-001",
+  demandMultiplier: 1.2,
+  batchSize: 20,
+  effectiveFromServiceDate: "2026-09-28",
+  effectiveFromCutoffDate: "2026-09-27",
 }];
 
 const lunarDayForVietnamDate = (dateKey: string): number | null => {
@@ -171,6 +199,14 @@ export const isMamNonMayEmailSubject = (value: string): boolean =>
 
 const validDateKey = (value: string): boolean => /^\d{4}-\d{2}-\d{2}$/.test(value);
 
+const previousDateKey = (dateKey: string): string | null => {
+  if (!validDateKey(dateKey)) return null;
+  const date = new Date(`${dateKey}T12:00:00+07:00`);
+  if (!Number.isFinite(date.getTime())) return null;
+  date.setUTCDate(date.getUTCDate() - 1);
+  return date.toISOString().slice(0, 10);
+};
+
 export const resolveFixedVehicleBreadInboundPolicy = (
   location: Pick<VehicleBreadLocation, "locationId" | "locationCode">,
   deliveryDate: string | undefined,
@@ -178,16 +214,50 @@ export const resolveFixedVehicleBreadInboundPolicy = (
 ): FixedVehicleBreadInboundPolicy | null => {
   if (!deliveryDate || !validDateKey(deliveryDate)) return null;
   const locationCode = location.locationCode.trim().toUpperCase();
-  const policy = fixedInboundPolicies.find((candidate) =>
-    candidate.skuCode === "BMQ-001"
-    && quantity(candidate.quantity) > 0
-    && validDateKey(candidate.effectiveFromServiceDate)
-    && deliveryDate >= candidate.effectiveFromServiceDate
-    && (
-      candidate.locationId === location.locationId
-      || candidate.locationCode.trim().toUpperCase() === locationCode
+  const policy = fixedInboundPolicies
+    .filter((candidate) =>
+      candidate.skuCode === "BMQ-001"
+      && quantity(candidate.quantity) > 0
+      && validDateKey(candidate.effectiveFromServiceDate)
+      && deliveryDate >= candidate.effectiveFromServiceDate
+      && (
+        candidate.locationId === location.locationId
+        || candidate.locationCode.trim().toUpperCase() === locationCode
+      )
     )
-  );
+    .sort((left, right) =>
+      right.effectiveFromServiceDate.localeCompare(left.effectiveFromServiceDate)
+      || right.policyCode.localeCompare(left.policyCode)
+    )[0];
+  return policy || null;
+};
+
+export const resolveDynamicVehicleBreadOrderPolicy = (
+  location: Pick<VehicleBreadLocation, "locationId" | "locationCode">,
+  deliveryDate: string | undefined,
+  dynamicOrderPolicies: DynamicVehicleBreadOrderPolicy[] = DEFAULT_DYNAMIC_VEHICLE_BREAD_ORDER_POLICIES,
+): DynamicVehicleBreadOrderPolicy | null => {
+  if (!deliveryDate || !validDateKey(deliveryDate)) return null;
+  const locationCode = location.locationCode.trim().toUpperCase();
+  const cutoffDate = previousDateKey(deliveryDate);
+  const policy = dynamicOrderPolicies
+    .filter((candidate) =>
+      candidate.skuCode === "BMQ-001"
+      && quantity(candidate.demandMultiplier) > 0
+      && quantity(candidate.batchSize) > 0
+      && validDateKey(candidate.effectiveFromServiceDate)
+      && validDateKey(candidate.effectiveFromCutoffDate)
+      && deliveryDate >= candidate.effectiveFromServiceDate
+      && Boolean(cutoffDate && cutoffDate >= candidate.effectiveFromCutoffDate)
+      && (
+        candidate.locationId === location.locationId
+        || candidate.locationCode.trim().toUpperCase() === locationCode
+      )
+    )
+    .sort((left, right) =>
+      right.effectiveFromServiceDate.localeCompare(left.effectiveFromServiceDate)
+      || right.policyCode.localeCompare(left.policyCode)
+    )[0];
   return policy || null;
 };
 
@@ -322,6 +392,7 @@ export function forecastVehicleBread(
   locations: VehicleBreadLocation[],
   deliveryDate?: string,
   fixedInboundPolicies: FixedVehicleBreadInboundPolicy[] = DEFAULT_FIXED_VEHICLE_BREAD_INBOUND_POLICIES,
+  dynamicOrderPolicies: DynamicVehicleBreadOrderPolicy[] = DEFAULT_DYNAMIC_VEHICLE_BREAD_ORDER_POLICIES,
 ): {
   totalQuantity: number;
   formulaVersion: string;
@@ -329,6 +400,7 @@ export function forecastVehicleBread(
   warnings: string[];
 } {
   const warnings: string[] = [];
+  let usedDynamicPolicy = false;
   const forecasts = locations.map((location) => {
     const reports = [...location.reports]
       .filter((report) => /^\d{4}-\d{2}-\d{2}$/.test(report.reportDate))
@@ -342,7 +414,11 @@ export function forecastVehicleBread(
       : 0;
     const latestClosingQuantity = reports.length > 0 ? signedQuantity(reports[0].closingQuantity) : 0;
     const latestReportSource = reports.length > 0
-      ? { reportId: reports[0].reportId ?? null, reportUpdatedAt: reports[0].reportUpdatedAt ?? null }
+      ? {
+        reportId: reports[0].reportId ?? null,
+        reportUpdatedAt: reports[0].reportUpdatedAt ?? null,
+        breadRowPresent: reports[0].breadRowPresent !== false,
+      }
       : null;
 
     if (closureReason) {
@@ -361,6 +437,83 @@ export function forecastVehicleBread(
         roundingDecision: "lunar_day_30_monthly_off" as const,
         latestReportSource,
         closureReason,
+      };
+    }
+
+    const dynamicPolicy = resolveDynamicVehicleBreadOrderPolicy(location, deliveryDate, dynamicOrderPolicies);
+    if (dynamicPolicy) {
+      usedDynamicPolicy = true;
+      const cutoffDate = deliveryDate ? previousDateKey(deliveryDate) : null;
+      const exactReport = cutoffDate ? reports.find((report) => report.reportDate === cutoffDate) : null;
+      const policySnapshot = {
+        policyCode: dynamicPolicy.policyCode,
+        skuCode: dynamicPolicy.skuCode,
+        demandMultiplier: quantity(dynamicPolicy.demandMultiplier),
+        batchSize: quantity(dynamicPolicy.batchSize),
+        effectiveFromServiceDate: dynamicPolicy.effectiveFromServiceDate,
+        effectiveFromCutoffDate: dynamicPolicy.effectiveFromCutoffDate,
+      };
+      const missingBase = {
+        locationId: location.locationId,
+        locationCode: location.locationCode,
+        reportCount: reports.length,
+        latestReportDate: null,
+        peakSoldQuantity: 0,
+        latestClosingQuantity: 0,
+        protectedDemandQuantity: 0,
+        netDemandQuantity: 0,
+        lowerBatchQuantity: 0,
+        upperBatchQuantity: 0,
+        recommendedQuantity: 0,
+        latestReportSource: null,
+        closureReason,
+        dynamicInboundPolicy: policySnapshot,
+      };
+      if (!exactReport) {
+        warnings.push(`${location.locationCode}:exact_cutoff_bread_report_missing:${cutoffDate || "unknown"}`);
+        return {
+          ...missingBase,
+          roundingDecision: "dynamic_exact_report_missing" as const,
+        };
+      }
+      if (exactReport.breadRowPresent === false) {
+        warnings.push(`${location.locationCode}:exact_cutoff_bread_inventory_row_missing:${cutoffDate || "unknown"}`);
+        return {
+          ...missingBase,
+          latestReportDate: exactReport.reportDate,
+          roundingDecision: "dynamic_exact_bread_row_missing" as const,
+        };
+      }
+
+      const soldQuantity = quantity(exactReport.soldQuantity);
+      const saleableClosingQuantity = signedQuantity(exactReport.closingQuantity);
+      const protectedDemandQuantity = Math.round(soldQuantity * quantity(dynamicPolicy.demandMultiplier) * 1_000) / 1_000;
+      const netDemandQuantity = Math.max(0, protectedDemandQuantity - saleableClosingQuantity);
+      const upperBatchQuantity = roundUpToBatch(netDemandQuantity, quantity(dynamicPolicy.batchSize));
+      return {
+        locationId: location.locationId,
+        locationCode: location.locationCode,
+        reportCount: reports.length,
+        latestReportDate: exactReport.reportDate,
+        peakSoldQuantity: soldQuantity,
+        latestClosingQuantity: saleableClosingQuantity,
+        protectedDemandQuantity,
+        netDemandQuantity,
+        lowerBatchQuantity: netDemandQuantity > 0
+          ? Math.floor(netDemandQuantity / quantity(dynamicPolicy.batchSize)) * quantity(dynamicPolicy.batchSize)
+          : 0,
+        upperBatchQuantity,
+        recommendedQuantity: upperBatchQuantity,
+        roundingDecision: upperBatchQuantity > 0
+          ? "dynamic_exact_report_round_up_to_batch" as const
+          : "dynamic_exact_no_new_order_needed" as const,
+        latestReportSource: {
+          reportId: exactReport.reportId ?? null,
+          reportUpdatedAt: exactReport.reportUpdatedAt ?? null,
+          breadRowPresent: true,
+        },
+        closureReason,
+        dynamicInboundPolicy: policySnapshot,
       };
     }
 
@@ -429,7 +582,7 @@ export function forecastVehicleBread(
 
   return {
     totalQuantity: forecasts.reduce((sum, row) => sum + row.recommendedQuantity, 0),
-    formulaVersion: FORMULA_VERSION,
+    formulaVersion: usedDynamicPolicy ? DYNAMIC_BHN_FORMULA_VERSION : FORMULA_VERSION,
     locations: forecasts,
     warnings,
   };

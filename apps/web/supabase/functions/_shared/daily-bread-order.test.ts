@@ -167,6 +167,65 @@ test("uses the fixed BHN inbound policy from the 2026-09-19 service date without
   });
 });
 
+test("uses the dynamic BHN policy from the 2026-09-28 service date with exact cutoff report only", () => {
+  const result = forecastVehicleBread([{
+    locationId: "8b353493-c3cb-436e-80f7-a9a1d1a57cd3",
+    locationCode: "HCM004-BHN",
+    reports: [
+      { reportId: "exact", reportDate: "2026-09-27", reportUpdatedAt: "2026-09-27T16:25:00Z", soldQuantity: 91, closingQuantity: 89, breadRowPresent: true },
+      { reportId: "stale", reportDate: "2026-09-26", soldQuantity: 183, closingQuantity: 19, breadRowPresent: true },
+    ],
+  }], "2026-09-28");
+
+  assert.equal(result.totalQuantity, 40);
+  assert.equal(result.formulaVersion, "bhn-exact-date-sold-120pct-minus-saleable-closing-round20-v1");
+  assert.equal(result.locations[0].peakSoldQuantity, 91);
+  assert.equal(result.locations[0].latestClosingQuantity, 89);
+  assert.equal(result.locations[0].protectedDemandQuantity, 109.2);
+  assert.equal(result.locations[0].netDemandQuantity, 20.200000000000003);
+  assert.equal(result.locations[0].recommendedQuantity, 40);
+  assert.equal(result.locations[0].roundingDecision, "dynamic_exact_report_round_up_to_batch");
+  assert.deepEqual(result.locations[0].dynamicInboundPolicy, {
+    policyCode: "dynamic-daily-order-bhn-bmq-001-v1",
+    skuCode: "BMQ-001",
+    demandMultiplier: 1.2,
+    batchSize: 20,
+    effectiveFromServiceDate: "2026-09-28",
+    effectiveFromCutoffDate: "2026-09-27",
+  });
+});
+
+test("zeros BHN dynamic order when the exact cutoff report is missing and never falls back stale", () => {
+  const result = forecastVehicleBread([{
+    locationId: "8b353493-c3cb-436e-80f7-a9a1d1a57cd3",
+    locationCode: "HCM004-BHN",
+    reports: [
+      { reportId: "stale", reportDate: "2026-09-26", soldQuantity: 183, closingQuantity: 19, breadRowPresent: true },
+    ],
+  }], "2026-09-28");
+
+  assert.equal(result.totalQuantity, 0);
+  assert.equal(result.locations[0].recommendedQuantity, 0);
+  assert.equal(result.locations[0].roundingDecision, "dynamic_exact_report_missing");
+  assert.deepEqual(result.warnings, ["HCM004-BHN:exact_cutoff_bread_report_missing:2026-09-27"]);
+});
+
+test("zeros BHN dynamic order when exact cutoff report has no bread inventory row", () => {
+  const result = forecastVehicleBread([{
+    locationId: "8b353493-c3cb-436e-80f7-a9a1d1a57cd3",
+    locationCode: "HCM004-BHN",
+    reports: [
+      { reportId: "exact", reportDate: "2026-09-27", soldQuantity: 0, closingQuantity: 0, breadRowPresent: false },
+    ],
+  }], "2026-09-28");
+
+  assert.equal(result.totalQuantity, 0);
+  assert.equal(result.locations[0].recommendedQuantity, 0);
+  assert.equal(result.locations[0].latestReportSource, null);
+  assert.equal(result.locations[0].roundingDecision, "dynamic_exact_bread_row_missing");
+  assert.deepEqual(result.warnings, ["HCM004-BHN:exact_cutoff_bread_inventory_row_missing:2026-09-27"]);
+});
+
 test("keeps the generic formula for BHN before the fixed policy cutoff and for other kiosks after it", () => {
   const bhnBeforeCutoff = forecastVehicleBread([{
     locationId: "8b353493-c3cb-436e-80f7-a9a1d1a57cd3",
