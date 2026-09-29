@@ -7,6 +7,41 @@ Latest pushed commit trước bản cập nhật handoff: `caceb84 feat(kiosk): 
 Production: `https://ai.banhmique.vn`  
 Vercel project: `bmq-ai`
 
+## Theo dõi: OTP Zalo ZNS relay (cập nhật 2026-09-29 23:05 +07)
+
+**Trạng thái:** đang chạy tạm trên máy ảo `ubuntu-mini` (Multipass) trên Mac mini, chờ thuê máy chủ cloud có IP tĩnh mới rồi chuyển.
+
+**Đường gửi OTP hiện tại**
+
+- Edge Functions `report-auth-start` (baocao.banhmique.vn) và `dealer-auth-start` gọi `sendDealerOtpZns` trong `apps/web/supabase/functions/_shared/dealer.ts`.
+- Khi Supabase có secrets `DEALER_OTP_RELAY_URL` và `DEALER_OTP_RELAY_SECRET`, yêu cầu đi qua relay (ký HMAC, header `X-BMQ-Relay-Timestamp` / `X-BMQ-Relay-Signature`): `https://otp-relay.vnagent.ai/send` → Cloudflare Tunnel `bmq-otp-relay` → container `bmq-otp-relay-relay-1` và `bmq-otp-relay-cloudflared-1` tại `/opt/bmq-otp-relay` trong VM `ubuntu-mini` → VietGuys `https://api-v2.vietguys.biz:4438/zalo/v4/send`.
+- Relay tồn tại vì VietGuys chỉ nhận yêu cầu từ IP whitelist. IP hiện tại là `14.161.32.215`, tức đường internet tại chỗ đặt Mac mini (VM và Mac dùng chung). Source relay: `ops/otp-relay/`.
+- VM `ubuntu-mini` còn chạy Hermes gateway, `supabase_db` (Docker) và `vnagent-obsidian-sync`. Cấu hình 2 CPU, 1,9 GB RAM; process qemu trên Mac chiếm khoảng 3,3 GB RAM; đĩa VM nằm trên ổ 1 TB.
+
+**Sự cố 2026-09-29**
+
+- 16:05–22:43: 33 OTP báo cáo và 7 OTP đại lý thất bại với lỗi `VietGuys ZBS Mobile OTP send failed: provider returned non-JSON response (<!doctype html> …)`, tức trang lỗi của Cloudflare.
+- Nguyên nhân: VM `ubuntu-mini` bị tắt sáng 29/09, nên tunnel `bmq-otp-relay` còn 0 kết nối.
+- Khắc phục 22:45: `multipass start ubuntu-mini`. Tunnel có lại 4 kết nối, `otp-relay.vnagent.ai` trả JSON. OTP báo cáo lúc 22:46:51 `verified`, OTP đại lý lúc 22:46:24 `sent`.
+- Không có cảnh báo tự động, nên lỗi kéo dài khoảng 7 giờ đến khi chủ phát hiện.
+
+**Quy tắc tạm thời**
+
+- Không tắt hoặc suspend `ubuntu-mini` khi relay chưa chuyển đi. Tắt VM là mất OTP đăng nhập cho cả trang báo cáo lẫn đại lý.
+- Kiểm tra nhanh:
+  - `cloudflared tunnel list`: tunnel `bmq-otp-relay` phải có kết nối.
+  - `curl -X POST https://otp-relay.vnagent.ai/`: phải trả JSON (`404 not_found`), không phải HTML.
+  - Bảng `kiosk_report_otp_challenges` và `dealer_otp_challenges`: xem cột `send_status` và `send_error`.
+
+**Việc tiếp theo** (anh Tâm chuẩn bị máy và IP; agent triển khai)
+
+1. Anh Tâm thuê một máy chủ cloud nhỏ (Google Cloud hoặc nhà cung cấp trong nước) kèm IP tĩnh (reserved), và nhờ VietGuys whitelist IP mới. Hỏi thêm VietGuys có cho gọi API không cần whitelist không; nếu có thì bỏ hẳn relay.
+2. Triển khai relay lên máy mới theo `ops/otp-relay/README.md` (Docker Compose, dùng Caddy hoặc Cloudflare Tunnel). File `.env` có `RELAY_SECRET` giống secret trên Supabase.
+3. Đổi Supabase secret `DEALER_OTP_RELAY_URL` sang relay mới, thử một OTP thật, rồi kiểm tra `send_status`.
+4. Giữ relay tại văn phòng làm dự phòng. Sửa `sendDealerOtpZns` để thử relay chính trước; chỉ chuyển sang relay dự phòng khi lỗi đã xác định (trả về không phải JSON, hoặc không kết nối được), để không gửi trùng OTP khi chưa rõ kết quả.
+5. Thêm cảnh báo: khi OTP lỗi liên tiếp (ví dụ từ 3 lỗi trong 15 phút) hoặc relay không trả JSON thì báo Discord cho anh Tâm.
+6. Khi relay mới đã ổn định, cân nhắc bỏ relay khỏi `ubuntu-mini` hoặc giảm RAM của VM.
+
 ## Trạng thái mới nhất (authoritative)
 
 - Production migration `20260805170000_dealer_warehouse_daily_digest.sql` đã được áp dụng; `supabase migration list --linked` ngày 2026-08-06 hiển thị local/remote cùng version `20260805170000`.
