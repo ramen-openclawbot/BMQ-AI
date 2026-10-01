@@ -179,7 +179,7 @@ FIELDS = {
     'warehouse_dispatches': 'id dispatch_number customer_id production_order_id status dispatch_date delivered_date created_at updated_at',
     'mini_crm_customer_contracts': 'id customer_id file_name file_size mime_type is_active created_at',
     'mini_crm_customers': 'id customer_code customer_name customer_group is_active created_at updated_at product_group is_npp supplied_by_npp_customer_id is_tier1 npp_management_fee_vnd',
-    'product_skus': 'id sku_code product_name unit unit_price supplier_id category created_at updated_at base_unit sku_type hide_from_dealer_portal canonical_material_id selling_price',
+    'product_skus': 'id sku_code product_name unit unit_price supplier_id category created_at updated_at base_unit sku_type hide_from_dealer_portal canonical_material_id selling_price image_url',
     'mini_crm_customer_price_list': 'id customer_id sku_id price_vnd_per_unit currency is_active created_at updated_at',
     'dealer_orders': 'id order_number customer_id status currency subtotal_amount_vnd total_amount_vnd requested_delivery_date submitted_at created_at updated_at is_test',
     'dealer_order_items': 'id order_id sku_id sku_code product_name unit quantity unit_price_vnd line_total_vnd price_source created_at route_customer_id ordered_quantity exchange_quantity makeup_quantity physical_quantity route_customer_name',
@@ -323,6 +323,10 @@ def validate(snapshot):
                         raise ValueError('Invalid selling price scalar')
                 except InvalidOperation:
                     raise ValueError('Invalid selling price scalar') from None
+            if name == 'product_skus' and row['image_url'] is not None:
+                # Product imagery is a public CDN scalar, never a nested object/URL bag.
+                if not isinstance(row['image_url'], str):
+                    raise ValueError('Invalid image url scalar')
             if name == 'dealer_order_items' and row['route_customer_name'] is not None:
                 if not isinstance(row['route_customer_name'], str):
                     raise ValueError('Invalid route name scalar')

@@ -209,7 +209,21 @@ def test_r2a_projection_contract():
     assert "cost_values->'selling_price' AS selling_price" in sql
     assert '"cost_values"' not in sql and 'route_note' not in sql
     assert '"route_customer_name"' in sql and 'customer_snapshot' not in sql
+    # The storefront MCP needs the public product image scalar.
+    assert 'image_url' in FIELDS['product_skus'].split() and '"image_url"' in sql
     # Canonical cost-reporting columns must be projected for every view arm.
     for table, required in COST_PROJECTION_FIELDS.items():
         assert set(required) <= set(FIELDS[table].split()), table
     assert 'invoice_created' in FIELDS['payment_requests'].split()
+
+
+@pytest.mark.parametrize('image', [None, '', 'https://cdn.example/bmq-001.png'])
+def test_r2a_image_url_scalar(image):
+    value = snapshot(); set_row(value, 'product_skus', image_url=image)
+    validate(value)
+
+
+@pytest.mark.parametrize('image', [12, True, {}, [], {'url': 'https://cdn.example/x.png'}])
+def test_r2a_invalid_image_url_rejected(image):
+    value = snapshot(); set_row(value, 'product_skus', image_url=image)
+    with pytest.raises(ValueError, match='image url'): validate(value)

@@ -234,6 +234,47 @@ def create_app(warehouse: Warehouse | None = None, authenticator=None):
             'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff',
             'Content-Disposition': 'inline', 'Cross-Origin-Resource-Policy': 'same-origin'})
 
+    if warehouse.settings.mcp_enabled:
+        # A deliberately separate, read-only surface: dealer keys never open /v1.
+        from .bmq_mcp import (MAX_BODY_BYTES, INVALID_REQUEST, INTERNAL_ERROR, PARSE_ERROR,
+                              CatalogUnavailable, McpUnauthorized, WarehouseCatalog,
+                              dispatch as mcp_dispatch, error_response, unauthorized_response)
+        from .mcp_keys import MCPKeyStore
+        key_store = MCPKeyStore(warehouse.settings)
+
+        def bearer_key(request: Request):
+            header = request.headers.get('authorization', '')
+            if not header.startswith('Bearer '):
+                return None
+            token = header[len('Bearer '):].strip()
+            return token or None
+
+        @app.post('/mcp')
+        async def mcp(request: Request):
+            body = await request.body()
+            if len(body) > MAX_BODY_BYTES:
+                return JSONResponse(error_response(None, INVALID_REQUEST, 'Request too large'), status_code=413)
+            try:
+                message = json.loads(body) if body else None
+            except (ValueError, UnicodeDecodeError):
+                return JSONResponse(error_response(None, PARSE_ERROR, 'Parse error'), status_code=200)
+            message_id = message.get('id') if isinstance(message, dict) else None
+            token = bearer_key(request)
+            record = key_store.authenticate(token) if token else None
+            if record is None:
+                return JSONResponse(unauthorized_response(message_id), status_code=401)
+            try:
+                catalog = WarehouseCatalog(warehouse, record['customer_code'],
+                                           ui_theme=warehouse.settings.mcp_ui_theme)
+            except McpUnauthorized:
+                return JSONResponse(unauthorized_response(message_id), status_code=401)
+            except CatalogUnavailable:
+                return JSONResponse(error_response(message_id, INTERNAL_ERROR, 'Data unavailable'), status_code=503)
+            status_code, payload = mcp_dispatch(message, catalog)
+            if payload is None:
+                return Response(status_code=status_code)
+            return JSONResponse(payload, status_code=status_code)
+
     return app
 
 

@@ -1,3 +1,8 @@
 timezone: Asia/Ho_Chi_Minh
 cache_ttl_seconds: 15
 max_batch_bytes: 33554432
+# Owner-only /v1 routes are unaffected. The public MCP surface stays off until
+# an operator deliberately enables it and creates per-dealer keys.
+mcp:
+  enabled: false
+  ui_theme: bakery

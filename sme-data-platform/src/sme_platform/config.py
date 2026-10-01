@@ -33,6 +33,8 @@ class Settings:
     query_timeout: float = 10
     min_free_fraction: float = .2
     max_batch_bytes: int = 32*1024*1024
+    mcp_enabled: bool = False
+    mcp_ui_theme: str = 'bakery'
 
     @classmethod
     def from_env(cls):
@@ -42,8 +44,13 @@ class Settings:
         warehouse=yaml.safe_load((directory/'warehouse.yaml').read_text())
         ZoneInfo(app['timezone'])
         ttl=int(app['cache_ttl_seconds']);timeout=float(warehouse['query_timeout_seconds']);reserve=float(warehouse['minimum_free_fraction']);batch=int(app['max_batch_bytes'])
+        mcp=app.get('mcp')
+        if mcp is None:mcp={}
+        if not isinstance(mcp,dict):raise ValueError('Unsafe MCP configuration')
+        mcp_enabled=mcp.get('enabled',False);mcp_theme=mcp.get('ui_theme','bakery')
         if not 0<=ttl<=300 or not 0<timeout<=10 or not .2<=reserve<1 or not 0<batch<=32*1024*1024:raise ValueError('Unsafe storage/query configuration')
-        return cls(Path(os.environ.get('SME_DATA_ROOT', str(MOUNT / 'BMQ/sme-data-platform'))),timezone=app['timezone'],cache_ttl=ttl,query_timeout=timeout,min_free_fraction=reserve,max_batch_bytes=batch)
+        if not isinstance(mcp_enabled,bool) or mcp_theme not in {'bakery','street','minimal'}:raise ValueError('Unsafe MCP configuration')
+        return cls(Path(os.environ.get('SME_DATA_ROOT', str(MOUNT / 'BMQ/sme-data-platform'))),timezone=app['timezone'],cache_ttl=ttl,query_timeout=timeout,min_free_fraction=reserve,max_batch_bytes=batch,mcp_enabled=mcp_enabled,mcp_ui_theme=mcp_theme)
 
     def validate_storage(self, write=False):
         root = Path(self.data_root).resolve()
