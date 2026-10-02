@@ -25,9 +25,14 @@ assert 'inventoryOverview: string;' in LANGUAGE
 assert 'inventoryOverview: "Inventory Overview"' in LANGUAGE
 assert 'inventoryOverview: "Tổng quan kho"' in LANGUAGE
 
-assert 'onClick={() => collapsed && setCollapsed(false)}' in SIDEBAR
-assert 'const groupActive = item.children ? item.children.some(isChildActive) : false;' in SIDEBAR
-assert 'data-sidebar-active={collapsed && groupActive ? "true" : undefined}' in SIDEBAR
+# Demo 3 shell: the group parent is a plain label in the app drawer (never a link),
+# and the top navigation's "Kho" zone lists the same pages.
+NAVIGATION = (ROOT / "src/components/layout/navigation.ts").read_text()
+assert '<div className="d3-drawer-group-label">' in SIDEBAR
+assert 'data-sidebar-active={childActive ? "true" : undefined}' in SIDEBAR
+warehouse_zone = NAVIGATION.split('id: "warehouse"', 1)[1].split("prefixes:", 1)[0]
+for route in ("/inventory", "/warehouse/tan-tao", "/kitchen-inventory", "/goods-receipts", "/warehouse/dispatch", "/warehouse/stock-report"):
+    assert f'"{route}"' in warehouse_zone, f"{route} must be in the Kho zone"
 
 for route in (
     "/inventory",

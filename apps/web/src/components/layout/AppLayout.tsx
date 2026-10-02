@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { Outlet } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { Sidebar } from "./Sidebar";
@@ -7,6 +7,12 @@ import { useAutoSync } from "@/hooks/useAutoSync";
 import { useVisibilityRecovery } from "@/hooks/useVisibilityRecovery";
 import { SessionRecoveryOverlay } from "@/components/SessionRecoveryOverlay";
 import { GlobalAgentChatWidget } from "@/components/agent/GlobalAgentChatWidget";
+import { ZoneSubnav } from "./ZoneSubnav";
+import "@/styles/bmq-shell.css";
+
+// Demo 3 theme is scoped to the internal app: dealer, kiosk report, data admin,
+// auth and public trace pages never mount AppLayout, so they keep their look.
+const SHELL_THEME_CLASS = "bmq-d3";
 
 export function AppLayout() {
   const queryClient = useQueryClient();
@@ -28,19 +34,27 @@ export function AppLayout() {
   // Safari/WebKit: auto-recover when tab becomes visible
   useVisibilityRecovery({ onSessionLost: handleSessionLost });
 
+  useEffect(() => {
+    // On <html> so Radix portals (dialogs, menus, toasts) inherit the theme too.
+    const root = document.documentElement;
+    root.classList.add(SHELL_THEME_CLASS);
+    return () => root.classList.remove(SHELL_THEME_CLASS);
+  }, []);
+
   return (
     <>
       {showRecoveryOverlay && (
         <SessionRecoveryOverlay onRetry={handleRetry} />
       )}
-      <div className="min-h-dvh bg-background/80">
-        <Sidebar />
-        <div className="flex h-dvh flex-col md:pl-[var(--sidebar-width)]">
-          <Header />
-          <main className="flex-1 overflow-auto px-3 py-3 pb-[max(6rem,env(safe-area-inset-bottom))] sm:p-6">
+      <div className="d3-app">
+        <Header />
+        <main className="d3-main">
+          <div className="d3-screen">
+            <ZoneSubnav />
             <Outlet />
-          </main>
-        </div>
+          </div>
+        </main>
+        <Sidebar />
         <GlobalAgentChatWidget />
       </div>
     </>

@@ -26,7 +26,7 @@ def test_sidebar_marketing_sales_parent_and_child_contract():
     assert_contains(sidebar, 'labelKey: "facebookPageManagement"', "Sidebar.tsx")
     assert_contains(sidebar, 'path: "/marketing-sales/facebook-page"', "Sidebar.tsx")
     assert_contains(sidebar, 'moduleKey: "facebook_messenger"', "Sidebar.tsx")
-    assert_contains(sidebar, 'const activeNavItemClass', "Sidebar.tsx")
+    assert_contains(sidebar, 'className={cn("d3-drawer-link is-child", childActive && "is-active")}', "Sidebar.tsx")
     assert_contains(sidebar, 'data-sidebar-active={childActive ? "true" : undefined}', "Sidebar.tsx")
     assert_contains(sidebar, 'setCollapsed(true)', "Sidebar.tsx")
     assert_contains(sidebar, 'SIDEBAR_SCROLL_STORAGE_KEY', "Sidebar.tsx")

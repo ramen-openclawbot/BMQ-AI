@@ -554,10 +554,16 @@ def test_light_theme_uses_stitch_mediterranean_glass_tokens():
     assert "backdrop-filter: blur(16px)" in css
     assert "display: ['Manrope', 'sans-serif']" in tailwind
     assert "monoData: ['JetBrains Mono', 'monospace']" in tailwind
-    assert "bg-sidebar/70" in sidebar
-    assert "backdrop-blur-xl" in sidebar
-    assert "bg-card/70" in header
-    assert "backdrop-blur-xl" in header
+    # The internal app shell (Demo 3) themes only html.bmq-d3; the root tokens above stay for
+    # dealer/kiosk/admin/auth surfaces.
+    layout = read(ROOT / "src/components/layout/AppLayout.tsx")
+    shell_css = read(ROOT / "src/styles/bmq-shell.css")
+    assert 'const SHELL_THEME_CLASS = "bmq-d3";' in layout
+    assert "root.classList.add(SHELL_THEME_CLASS);" in layout
+    assert "return () => root.classList.remove(SHELL_THEME_CLASS);" in layout
+    assert "html.bmq-d3 {" in shell_css
+    assert 'data-bmq-app-drawer="demo3-v1"' in sidebar
+    assert 'data-bmq-shell="demo3-v1"' in header
 
 
 def test_payables_management_is_accessible_from_cost_sidebar_with_filtered_route():
@@ -726,8 +732,12 @@ def test_purchase_orders_list_row_opens_details_and_shows_product_names_without_
     assert 'sticky top-0 z-20' in page
     assert 'sticky top-[57px] z-10' in page
     assert 'fixed bottom-4 right-4 z-40' in page
-    assert 'fixed left-0 top-0 z-50' in sidebar
-    assert 'fixed inset-0 z-40 bg-black/45' in sidebar
+    # The app drawer and its scrim sit above the page's z-40 create FAB.
+    shell_css = read(ROOT / "src/styles/bmq-shell.css")
+    for rule in (".d3-drawer {", ".d3-drawer-scrim {"):
+        block = shell_css.split(rule, 1)[1].split("}", 1)[0]
+        assert "position: fixed;" in block and "z-index: 50;" in block, rule
+    assert 'className="d3-drawer"' in sidebar and 'className="d3-drawer-scrim"' in sidebar
     assert '<Route path="/purchase-orders" element={<ModuleRoute moduleKey="purchase_orders"><PurchaseOrders /></ModuleRoute>}' in routes
     assert 'Trang này yêu cầu quyền xem module {moduleLabel}' in routes
     assert '{ key: "purchase_orders", labelEn: "PO (Purchasing)", labelVi: "PO (Mua hàng)" }' in user_management_hook

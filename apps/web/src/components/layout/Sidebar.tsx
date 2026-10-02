@@ -21,8 +21,6 @@ import {
   TrendingUp,
   UserRoundCog,
   FolderSearch,
-  ChevronLeft,
-  ChevronRight,
   Shield,
   ServerCog,
   Database,
@@ -36,17 +34,19 @@ import {
   Wallet,
   Boxes,
   MessageCircle,
+  X,
 } from "lucide-react";
+import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePaymentStats } from "@/hooks/usePaymentStats";
 import { useDraftPOCount } from "@/hooks/usePurchaseOrders";
-import { Badge } from "@/components/ui/badge";
 import { DriveImportProgressDialog } from "@/components/payment-requests/DriveImportProgressDialog";
 import bmqLogo from "@/assets/bmq-logo.png";
+import { canViewNavItem } from "./navAccess";
 
-interface NavItem {
+export interface NavItem {
   icon: LucideIcon;
   labelKey: keyof ReturnType<typeof useLanguage>["t"];
   path?: string;
@@ -62,7 +62,7 @@ interface NavItem {
   children?: NavItem[];
 }
 
-const navItems: NavItem[] = [
+export const navItems: NavItem[] = [
   { icon: Database, labelKey: "dataSources", path: "/data-sources", section: "execution", ownerOnly: true, dataPlatformOnly: true },
   { icon: Shield, labelKey: "userManagement", path: "/user-management", section: "execution", ownerOnly: true, moduleKey: "user_management" },
   { icon: ServerCog, labelKey: "systemManagement", path: "/system-management", section: "execution", ownerOnly: true },
@@ -141,11 +141,14 @@ const navItems: NavItem[] = [
 ];
 
 const SIDEBAR_SCROLL_STORAGE_KEY = "bmq-sidebar-scroll-top";
-const activeNavItemClass =
-  "bg-sidebar-accent/85 text-black md:text-black border-sidebar-border/80 shadow-sm hover:text-black before:absolute before:left-0 before:top-2 before:h-6 before:w-0.5 before:rounded-full before:bg-black md:before:hidden";
 
+/**
+ * Demo 3 shell: the former left rail is now the "all functions" drawer.
+ * It keeps every page, permission filter, badge and the Drive PO shortcut;
+ * the grid button in the header and `bmq:open-sidebar` open it.
+ */
 export function Sidebar() {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const { pathname } = useLocation();
   const { isOwner, canAccessModule } = useAuth();
   const sectionLabels: Record<NavItem["section"], string> = {
@@ -160,29 +163,16 @@ export function Sidebar() {
   const { data: draftPOCount } = useDraftPOCount();
   const navRef = useRef<HTMLElement | null>(null);
   const restoreScrollFrameRef = useRef<number | null>(null);
+  // The drawer is opened by events, not a Radix trigger, so remember who opened it.
+  const returnFocusRef = useRef<HTMLElement | null>(null);
 
   const [showDriveDialog, setShowDriveDialog] = useState(false);
-  const [isMobile, setIsMobile] = useState(() =>
-    typeof window !== "undefined" ? window.matchMedia("(max-width: 767px)").matches : false
-  );
-  const [collapsed, setCollapsed] = useState(() =>
-    typeof window !== "undefined" ? window.matchMedia("(max-width: 767px)").matches : false
-  );
-
-  useEffect(() => {
-    const media = window.matchMedia("(max-width: 767px)");
-    const syncMobileState = () => {
-      setIsMobile(media.matches);
-      setCollapsed(media.matches);
-    };
-
-    syncMobileState();
-    media.addEventListener("change", syncMobileState);
-    return () => media.removeEventListener("change", syncMobileState);
-  }, []);
+  // Closed drawer == collapsed. Every viewport starts closed; there is no rail.
+  const [collapsed, setCollapsed] = useState(true);
 
   useEffect(() => {
     const openSidebar = () => {
+      returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       setCollapsed(false);
       restoreSidebarScroll();
     };
@@ -202,15 +192,15 @@ export function Sidebar() {
   }, [collapsed, pathname]);
 
   useEffect(() => {
-    const isMobile = typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches;
-    const width = isMobile ? "0rem" : collapsed ? "4rem" : "16rem";
-    document.documentElement.style.setProperty("--sidebar-width", width);
-  }, [collapsed]);
+    // Pages laid out against the old rail read this; the top-nav shell has none.
+    document.documentElement.style.setProperty("--sidebar-width", "0rem");
+  }, []);
 
   // Badge shows pending approval count
   const badgeCount = paymentStats?.pendingCount || 0;
 
   const handleScanDrive = () => {
+    setCollapsed(true);
     setShowDriveDialog(true);
   };
 
@@ -246,12 +236,12 @@ export function Sidebar() {
     window.sessionStorage.setItem(SIDEBAR_SCROLL_STORAGE_KEY, String(nav.scrollTop));
   };
 
-  const canViewItem = (item: NavItem) => {
-    if (item.dataPlatformOnly && import.meta.env.VITE_BMQ_DATA_PLATFORM_ENABLED !== "true") return false;
-    if (item.ownerOnly && !isOwner) return false;
-    if (item.moduleKey && !item.ownerOnly) return canAccessModule(item.moduleKey);
-    return true;
-  };
+  const canViewItem = (item: NavItem) =>
+    canViewNavItem(item, {
+      isOwner,
+      canAccessModule,
+      dataPlatformEnabled: import.meta.env.VITE_BMQ_DATA_PLATFORM_ENABLED === "true",
+    });
 
   const isChildActive = (child: NavItem) => {
     if (!child.path) return false;
@@ -270,82 +260,65 @@ export function Sidebar() {
     .map((item) => item.children ? { ...item, children: item.children.filter(canViewItem) } : item)
     .filter((item) => (item.children ? item.children.length > 0 : canViewItem(item)));
 
+  const closeAfterNavigate = () => {
+    rememberSidebarScroll();
+    setCollapsed(true);
+  };
+
+  const renderBadges = (item: NavItem) => (
+    <>
+      {item.showBadge && badgeCount > 0 && (
+        <span className="d3-count is-alert" aria-label={`${badgeCount} ${language === "en" ? "pending" : "chờ duyệt"}`}>{badgeCount}</span>
+      )}
+      {item.showPOBadge && draftPOCount && draftPOCount > 0 && (
+        <span className="d3-count" aria-label={`${draftPOCount} ${language === "en" ? "draft POs" : "PO nháp"}`}>{draftPOCount}</span>
+      )}
+    </>
+  );
+
   return (
     <>
-      {isMobile && !collapsed && (
-        <button
-          type="button"
-          aria-label="Đóng sidebar"
-          className="fixed inset-0 z-40 bg-black/45 md:hidden"
-          onClick={() => setCollapsed(true)}
-        />
-      )}
-      <aside
-        data-stitch-mobile-sidebar="compact-readable"
-        className={cn(
-        "fixed left-0 top-0 z-50 h-dvh border-r border-sidebar-border/60 bg-sidebar/70 shadow-card backdrop-blur-xl transition-all duration-200",
-        collapsed ? "-translate-x-full w-16 md:translate-x-0" : "w-64"
-      )}>
-      <div className="flex h-full flex-col">
-        {/* Logo */}
-        <div className={cn("flex items-center gap-3 border-b border-sidebar-border", collapsed ? "px-3 py-4" : "px-4 py-3 md:px-6 md:py-5")}>
-          <img src={bmqLogo} alt="BMQ Logo" className={cn("h-10 w-auto", collapsed ? "mx-auto" : "h-10 md:h-12")} />
-          {!collapsed && (
-            <div className="flex-1">
-              <h1 className="font-display text-sm font-bold text-sidebar-foreground leading-tight">
-                {t.appTitle}
-              </h1>
-            </div>
-          )}
-          <button
-            onClick={() => setCollapsed(!collapsed)}
-            className={cn(
-              "ml-auto rounded-md p-1 text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent/50",
-              collapsed && "ml-0"
-            )}
-            aria-label="Toggle sidebar"
+      <DialogPrimitive.Root open={!collapsed} onOpenChange={(open) => setCollapsed(!open)}>
+        <DialogPrimitive.Portal>
+          <DialogPrimitive.Overlay className="d3-drawer-scrim" />
+          <DialogPrimitive.Content
+            className="d3-drawer"
+            data-bmq-app-drawer="demo3-v1"
+            aria-describedby={undefined}
+            onCloseAutoFocus={(event) => {
+              const opener = returnFocusRef.current;
+              returnFocusRef.current = null;
+              if (opener?.isConnected) {
+                event.preventDefault();
+                opener.focus();
+              }
+            }}
           >
-            {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
-          </button>
-        </div>
+            <div className="d3-drawer-head">
+              <img src={bmqLogo} alt="BMQ Logo" className="d3-drawer-logo" />
+              <DialogPrimitive.Title className="d3-drawer-title">
+                {language === "en" ? "All functions" : "Tất cả chức năng"}
+                <small>BMQ AI</small>
+              </DialogPrimitive.Title>
+              <DialogPrimitive.Close className="d3-icon-btn" aria-label={language === "en" ? "Close" : "Đóng"}>
+                <X className="h-4 w-4" />
+              </DialogPrimitive.Close>
+            </div>
 
-        {/* Navigation - scrollable */}
-        <nav ref={navRef} onScroll={rememberSidebarScroll} className="font-sidebar flex-1 space-y-0.5 overflow-y-auto px-3 py-3 pb-20 md:space-y-1 md:px-4 md:py-6 md:pb-24">
-          {visibleItems.map((item, idx) => {
-            const prevItem = idx > 0 ? visibleItems[idx - 1] : null;
-            const showSectionHeader = !prevItem || prevItem.section !== item.section;
-            const groupActive = item.children ? item.children.some(isChildActive) : false;
-            return (
-              <div key={item.path || item.labelKey}>
-                {!collapsed && showSectionHeader && (
-                  <div className="pt-2.5 first:pt-0 md:pt-4">
-                    {idx !== 0 && <div className="mx-3 mb-2 border-t border-sidebar-border/70 md:mx-4 md:mb-3" />}
-                    <div className="px-3 pb-1 text-[10px] font-bold uppercase tracking-[0.08em] text-white/80 drop-shadow-[0_1px_1px_rgba(0,0,0,0.45)] md:px-4 md:text-[11px] md:font-bold md:text-black/70 md:drop-shadow-none">
-                      {sectionLabels[item.section]}
-                    </div>
-                  </div>
-                )}
+            <nav ref={navRef} onScroll={rememberSidebarScroll} className="d3-drawer-nav">
+              {visibleItems.map((item, idx) => {
+                const prevItem = idx > 0 ? visibleItems[idx - 1] : null;
+                const showSectionHeader = !prevItem || prevItem.section !== item.section;
+                return (
+                  <div key={item.path || item.labelKey}>
+                    {showSectionHeader && <div className="d3-drawer-section">{sectionLabels[item.section]}</div>}
 
-                {item.children ? (
-                  <div>
-                    <button
-                      type="button"
-                      data-sidebar-active={collapsed && groupActive ? "true" : undefined}
-                      aria-expanded={!collapsed}
-                      aria-label={collapsed ? `${t[item.labelKey]}: mở submenu` : undefined}
-                      onClick={() => collapsed && setCollapsed(false)}
-                      className={cn(
-                        "group relative flex h-10 w-full items-center gap-2.5 rounded-lg border border-transparent px-3 text-left text-[13px] font-bold text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.55)] md:h-auto md:gap-3 md:py-2.5 md:text-sm md:font-bold md:text-black md:drop-shadow-none",
-                        collapsed && groupActive && activeNavItemClass
-                      )}
-                    >
-                      <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-sidebar-accent/30 transition-colors md:h-8 md:w-8">
-                        <item.icon className="h-4 w-4" />
-                      </span>
-                      {!collapsed && <span className="flex-1">{t[item.labelKey]}</span>}
-                    </button>
-                    {!collapsed && (
-                      <div className="ml-8 mt-0.5 space-y-0.5 md:ml-10 md:mt-1 md:space-y-1">
+                    {item.children ? (
+                      <div className="d3-drawer-group">
+                        <div className="d3-drawer-group-label">
+                          <item.icon className="h-4 w-4" aria-hidden="true" />
+                          <span>{t[item.labelKey]}</span>
+                        </div>
                         {item.children.map((child) => {
                           const childActive = isChildActive(child);
                           return (
@@ -353,100 +326,53 @@ export function Sidebar() {
                               key={child.path}
                               to={child.path || "#"}
                               data-sidebar-active={childActive ? "true" : undefined}
-                              onClick={() => {
-                                rememberSidebarScroll();
-                                if (window.matchMedia("(max-width: 767px)").matches) setCollapsed(true);
-                              }}
-                              className={cn(
-                                "relative flex h-9 items-center gap-2 rounded-md border border-transparent px-3 text-[13px] font-bold text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.55)] transition-colors md:h-auto md:py-1.5 md:text-sm md:font-bold md:text-black md:drop-shadow-none",
-                                childActive
-                                  ? activeNavItemClass
-                                  : "hover:bg-sidebar-accent/30 hover:text-white md:hover:text-black"
-                              )}
+                              onClick={closeAfterNavigate}
+                              className={cn("d3-drawer-link is-child", childActive && "is-active")}
                             >
-                              <child.icon className="h-3.5 w-3.5" />
+                              <child.icon className="h-4 w-4" aria-hidden="true" />
                               <span>{t[child.labelKey]}</span>
                             </NavLink>
                           );
                         })}
                       </div>
+                    ) : (
+                      <NavLink
+                        to={item.path || "#"}
+                        end={item.path === "/"}
+                        onClick={closeAfterNavigate}
+                        className={({ isActive }) => cn("d3-drawer-link", isActive && "is-active")}
+                      >
+                        <item.icon className="h-4 w-4" aria-hidden="true" />
+                        <span>{t[item.labelKey]}</span>
+                        {renderBadges(item)}
+                      </NavLink>
+                    )}
+
+                    {/* Quick Action: Tạo PO từ GG Drive - under Purchase Orders */}
+                    {item.path === "/purchase-orders" && (
+                      <button type="button" onClick={handleScanDrive} className="d3-drawer-link is-child is-action">
+                        <FolderSearch className="h-4 w-4" aria-hidden="true" />
+                        <span>{t.createPOFromDrive}</span>
+                      </button>
                     )}
                   </div>
-                ) : (
-                  <NavLink
-                    to={item.path || "#"}
-                    onClick={() => {
-                      rememberSidebarScroll();
-                      if (window.matchMedia("(max-width: 767px)").matches) setCollapsed(true);
-                    }}
-                    className={({ isActive }) =>
-                      cn(
-                        "group relative flex h-10 items-center gap-2.5 rounded-lg border border-transparent px-3 text-[13px] font-bold text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.55)] transition-all duration-200 md:h-auto md:gap-3 md:py-2.5 md:text-sm md:font-bold md:text-black md:drop-shadow-none",
-                        isActive
-                          ? activeNavItemClass
-                          : "hover:bg-sidebar-accent/40 hover:text-white md:hover:text-black"
-                      )
-                    }
-                  >
-                    <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-sidebar-accent/30 transition-colors group-hover:bg-sidebar-accent/50 md:h-8 md:w-8">
-                      <item.icon className="h-4 w-4" />
-                    </span>
-                    {!collapsed && <span className="flex-1">{t[item.labelKey]}</span>}
-                    {!collapsed && item.showBadge && badgeCount > 0 && (
-                      <Badge variant="destructive" className="h-5 min-w-5 flex items-center justify-center text-xs">
-                        {badgeCount}
-                      </Badge>
-                    )}
-                    {!collapsed && item.showPOBadge && draftPOCount && draftPOCount > 0 && (
-                      <Badge variant="secondary" className="h-5 min-w-5 flex items-center justify-center text-xs">
-                        {draftPOCount}
-                      </Badge>
-                    )}
-                  </NavLink>
-                )}
+                );
+              })}
+            </nav>
 
-                {/* Quick Action: Tạo PO từ GG Drive - under Purchase Orders */}
-                {item.path === "/purchase-orders" && !collapsed && (
-                  <div className="ml-8 mt-0.5 md:ml-10 md:mt-1">
-                    <button
-                      onClick={handleScanDrive}
-                      className="flex h-8 w-full items-center gap-1.5 rounded-md px-3 text-xs font-bold text-white/95 drop-shadow-[0_1px_1px_rgba(0,0,0,0.5)] transition-colors hover:bg-sidebar-accent/30 hover:text-white md:h-auto md:py-1.5 md:font-bold md:text-black md:drop-shadow-none md:hover:text-black"
-                    >
-                      <FolderSearch className="h-3 w-3" />
-                      <span>{t.createPOFromDrive}</span>
-                    </button>
-                  </div>
-                )}
-
-              </div>
-            );
-          })}
-        </nav>
-
-        {/* Settings */}
-        <div className="border-t border-sidebar-border/60 bg-sidebar/60 px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur-xl md:px-4 md:py-4 md:pb-[max(1rem,env(safe-area-inset-bottom))]">
-          <NavLink
-            to="/settings"
-            onClick={() => {
-              rememberSidebarScroll();
-              if (window.matchMedia("(max-width: 767px)").matches) setCollapsed(true);
-            }}
-            className={({ isActive }) =>
-              cn(
-                "relative flex h-10 items-center gap-2.5 rounded-lg border border-transparent px-3 text-[13px] font-bold text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.55)] transition-all duration-200 hover:bg-sidebar-accent/40 hover:text-white md:h-auto md:gap-3 md:py-2.5 md:text-sm md:font-bold md:text-black md:drop-shadow-none md:hover:text-black",
-                isActive && activeNavItemClass
-              )
-            }
-          >
-            <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-sidebar-accent/30 md:h-8 md:w-8">
-              <Settings className="h-4 w-4" />
-            </span>
-            {!collapsed && t.settings}
-          </NavLink>
-
-
-        </div>
-      </div>
+            <div className="d3-drawer-foot">
+              <NavLink
+                to="/settings"
+                onClick={closeAfterNavigate}
+                className={({ isActive }) => cn("d3-drawer-link", isActive && "is-active")}
+              >
+                <Settings className="h-4 w-4" aria-hidden="true" />
+                <span>{t.settings}</span>
+              </NavLink>
+            </div>
+          </DialogPrimitive.Content>
+        </DialogPrimitive.Portal>
+      </DialogPrimitive.Root>
 
       {/* Drive Import Dialog - PO only */}
       <DriveImportProgressDialog
@@ -463,7 +389,6 @@ export function Sidebar() {
         }}
         importType="po"
       />
-    </aside>
     </>
   );
 }
