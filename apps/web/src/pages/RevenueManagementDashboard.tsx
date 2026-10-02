@@ -26,6 +26,9 @@ import {
   YAxis,
 } from "recharts";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchAllRevenueLines, type RevenueLine } from "@/lib/revenue-ledger";
+import { channelGroup } from "@/lib/overview/overview-summary";
+import { CHANNEL_META } from "@/components/overview/RevenueChannelChart";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -82,9 +85,10 @@ const periodLabel = (value: string) => {
   return `Tháng ${month}/${year}`;
 };
 
-const MOM_PREVIOUS_COLOR = "#D9B86C";
-const MOM_CURRENT_COLOR = "#3C7781";
-const FORECAST_REMAINDER_COLOR = "#7A913F";
+// Demo 3 palette: previous month in soft grey, current month in ink, forecast remainder in pale blue.
+const MOM_PREVIOUS_COLOR = "#D3D3D0";
+const MOM_CURRENT_COLOR = "#272727";
+const FORECAST_REMAINDER_COLOR = "#9CC6EF";
 const TREND_GRID_COLOR = "rgba(62,119,129,0.16)";
 
 const vietnamToday = () => {
@@ -106,36 +110,6 @@ const vietnamToday = () => {
 const monthNow = () => {
   const d = vietnamToday();
   return `${d.year}-${String(d.month).padStart(2, "0")}`;
-};
-
-type RevenueLine = {
-  id: string;
-  period: string;
-  revenue_date: string;
-  channel: string;
-  source_tab: string | null;
-  customer_id: string | null;
-  parent_customer_id: string | null;
-  customer_name: string;
-  quantity: number | null;
-  gross_revenue: number | null;
-  source_type: string;
-  approval_status: string;
-  raw_payload: unknown;
-};
-
-type RevenueQuery = PromiseLike<{
-  data: RevenueLine[] | null;
-  error: { message?: string } | null;
-}> & {
-  eq: (column: string, value: string) => RevenueQuery;
-  in: (column: string, values: string[]) => RevenueQuery;
-  order: (column: string, options: { ascending: boolean }) => RevenueQuery;
-  range: (from: number, to: number) => RevenueQuery;
-};
-
-const db = supabase as unknown as {
-  from: (table: string) => { select: (columns: string) => RevenueQuery };
 };
 
 const asRecord = (value: unknown): Record<string, unknown> =>
@@ -293,33 +267,6 @@ const maxRevenueDay = (rows: RevenueLine[], fallbackPeriod: string) => {
     : daysInPeriod(fallbackPeriod);
 };
 
-async function fetchAllRevenueLines(period: string, controlledOnly: boolean) {
-  const pageSize = 1000;
-  const rows: RevenueLine[] = [];
-
-  for (let from = 0; ; from += pageSize) {
-    let q = db
-      .from("revenue_ledger_lines")
-      .select(
-        "id,period,revenue_date,channel,source_tab,customer_id,parent_customer_id,customer_name,quantity,gross_revenue,source_type,approval_status,raw_payload,source_document:revenue_source_documents!inner(status)",
-      )
-      .eq("period", period)
-      .order("revenue_date", { ascending: true })
-      .range(from, from + pageSize - 1);
-
-    if (controlledOnly)
-      q = q
-        .eq("approval_status", "approved")
-        .in("source_document.status", ["controlled", "trusted"]);
-
-    const { data, error } = await q;
-    if (error) throw error;
-    const batch = (data || []) as RevenueLine[];
-    rows.push(...batch);
-    if (batch.length < pageSize) return rows;
-  }
-}
-
 const channelLabel: Record<string, string> = {
   "Bread business wholesale channel": "Bánh mì wholesale",
   "Bakery business": "Bánh ngọt",
@@ -381,19 +328,9 @@ const metricCards = [
   },
 ] as const;
 
-const CHANNEL_COLORS = [
-  "#FCD34D",
-  "#FBBF24",
-  "#6EE7B7",
-  "#FCA5A5",
-  "#D6D3D1",
-] as const;
-
-const getChannelColor = (key: string, fallbackIndex: number) => {
-  const knownIndex = Object.keys(channelLabel).indexOf(key);
-  return CHANNEL_COLORS[
-    (knownIndex >= 0 ? knownIndex : fallbackIndex) % CHANNEL_COLORS.length
-  ];
+// Same channel colours as the Tổng quan page, grouped by the shared channel mapping.
+const getChannelColor = (key: string, _fallbackIndex: number) => {
+  return CHANNEL_META[channelGroup(key)].color;
 };
 
 export default function RevenueManagementDashboard() {
@@ -1163,7 +1100,7 @@ export default function RevenueManagementDashboard() {
                 </Badge>
               </div>
               <div
-                className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[clamp(2rem,8.5vw,3.25rem)] font-semibold leading-none tabular-nums tracking-[-0.05em] text-primary"
+                className="d3-num min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[clamp(2.4rem,8.5vw,4rem)] font-extralight leading-none tabular-nums tracking-[-0.05em] text-foreground"
                 title={vnd(stats.approved)}
               >
                 {isLoading ? (

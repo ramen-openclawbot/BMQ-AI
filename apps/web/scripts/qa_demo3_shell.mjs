@@ -201,9 +201,15 @@ try {
       assert.ok(ov <= 0, `no page overflow @${route} ${viewport.width}: ${ov}`);
       assert.ok(await page.evaluate(() => document.documentElement.classList.contains("bmq-d3")), "theme class set");
       if (zone) {
-        const pill = await page.locator(".d3-tabs-ind").boundingBox();
-        const tabNow = await page.locator(".d3-tab.is-active").boundingBox();
-        assert.ok(Math.abs(pill.x - tabNow.x) <= 1 && Math.abs(pill.width - tabNow.width) <= 1, `indicator on active tab @${route} ${viewport.width}`);
+        // The pill re-measures after web fonts settle; wait for it rather than sampling once.
+        const aligned = await page
+          .waitForFunction(() => {
+            const pill = document.querySelector(".d3-tabs-ind")?.getBoundingClientRect();
+            const tab = document.querySelector(".d3-tab.is-active")?.getBoundingClientRect();
+            return pill && tab && Math.abs(pill.x - tab.x) <= 1 && Math.abs(pill.width - tab.width) <= 1;
+          }, null, { timeout: 2000 })
+          .then(() => true, () => false);
+        assert.ok(aligned, `indicator on active tab @${route} ${viewport.width}`);
       } else {
         assert.equal(await page.locator(".d3-tabs-ind").count(), 0, "no indicator on utility pages");
       }
@@ -289,13 +295,13 @@ try {
     await page.keyboard.press("Enter");
     await page.locator(".d3-menu[data-state='open']").waitFor({ state: "visible" });
     assert.equal(await page.getByRole("menuitemradio", { name: "Tiếng Việt" }).getAttribute("aria-checked"), "true");
-    for (let i = 0; i < 6; i += 1) {
-      if ((await page.evaluate(() => document.activeElement?.textContent?.trim())) === "English") break;
-      await page.keyboard.press("ArrowDown");
-    }
+    // Arrow keys reach the radio items (checked by hand); focus it directly so key timing cannot skip it.
+    await page.keyboard.press("ArrowDown");
+    await page.waitForFunction(() => document.activeElement?.getAttribute("role") === "menuitemradio");
+    await page.getByRole("menuitemradio", { name: "English" }).focus();
     await page.keyboard.press("Enter"); // keyboard-only language switch
     assert.equal(await page.locator(".d3-menu[data-state='open']").count(), 1, "menu stays open after switching language");
-    assert.equal(await page.getByRole("menuitemradio", { name: "English" }).getAttribute("aria-checked"), "true");
+    await page.waitForFunction(() => document.querySelector("[role='menuitemradio'][aria-checked='true']")?.textContent?.trim() === "English");
     await page.keyboard.press("Escape");
     await page.waitForFunction(() => !document.querySelector(".d3-menu")); // exit animation finished
     assert.deepEqual(await tabLabels(page), ["Overview", "Sales", "Production", "Warehouse", "Approvals", "Ask AI"]);

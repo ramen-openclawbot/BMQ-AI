@@ -70,6 +70,18 @@ html.bmq-d3 .shadow-sm {
   box-shadow: var(--d3-sh);
 }
 
+/* Page titles: light weight like the mockup's headings; decision text stays bold. */
+html.bmq-d3 .d3-screen h1 {
+  font-weight: 300;
+  letter-spacing: -.02em;
+}
+
+/* Thin display numerals (Urbanist) for headline figures. */
+html.bmq-d3 .d3-num {
+  font-family: var(--d3-num);
+  font-variant-numeric: tabular-nums;
+}
+
 /* Fields read as white wells on the soft grey panels, like the mockup's inputs. */
 html.bmq-d3 :is(input, textarea, select, button[role="combobox"]).bg-background {
   background-color: var(--d3-white);
@@ -522,4 +534,46 @@ html.bmq-d3 .d3-search-dialog [cmdk-input] { height: 52px; font-size: 15px; }
   .d3-tabs-ind,
   .d3-icon-btn,
   .d3-chip { transition: none !important; }
+}
+
+/* ---------- page themes: Doanh thu điểm bán (point-revenue-management.css tokens) ---------- */
+html.bmq-d3 {
+  --pr-color-paper: var(--d3-panel);
+  --pr-color-paper-raised: var(--d3-card);
+  --pr-color-paper-muted: #e9e9e6;
+  --pr-color-paper-selected: var(--d3-white);
+  --pr-color-ink: var(--d3-ink);
+  --pr-color-ink-soft: #5c5c5a;
+  --pr-color-rule: #dcdcd8;
+  --pr-color-rule-strong: #c4c4c0;
+  --pr-color-accent: var(--d3-ink);
+  --pr-color-accent-soft: #fbe3ee;
+  --pr-color-accent-ink: #fff;
+  --pr-color-focus: var(--d3-ink);
+  --pr-color-high: #1f9a0f;
+  --pr-color-high-soft: #dcf5d6;
+  --pr-color-low: #d93a24;
+  --pr-color-low-soft: #ffe1db;
+  --pr-color-star: #d0679a;
+  --pr-color-star-soft: #fbe3ee;
+  --pr-color-danger: #d93a24;
+  --pr-color-danger-soft: #ffe1db;
+  --pr-color-disabled: #b4b4b2;
+  --pr-font-display: var(--d3-sans);
+  --pr-font-body: var(--d3-sans);
+  --pr-font-data: var(--d3-num);
+  --pr-radius-control: 0.75rem;
+  --pr-radius-panel: 1.375rem;
+  --pr-radius-large: 1.625rem;
+  --pr-shadow-panel: var(--d3-sh);
+}
+
+html.bmq-d3 .pr-page-header h1,
+html.bmq-d3 .pr-lead-copy h2 {
+  font-weight: 300;
+}
+
+html.bmq-d3 .pr-lead-number {
+  font-weight: 100;
+  letter-spacing: -0.04em;
 }
