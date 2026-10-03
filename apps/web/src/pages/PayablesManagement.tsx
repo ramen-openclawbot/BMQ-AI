@@ -35,6 +35,16 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 type PayableStatusFilter = "all" | "unpaid" | "partial" | "paid" | "overpaid";
 type ApprovalStatusFilter = "all" | "pending" | "approved" | "rejected";
@@ -228,6 +238,21 @@ const PayablesManagement = () => {
       tone: "border-slate-200 bg-white text-slate-800 dark:border-slate-800 dark:bg-card dark:text-slate-100",
     },
   ];
+
+  // Recording a payment is never one click: the row button asks for confirmation first.
+  const [pendingPaid, setPendingPaid] = useState<PaymentRequestWithSupplier | null>(null);
+
+  const requestMarkPaid = (paymentRequest: PaymentRequestWithSupplier) => {
+    if (!canEditPaymentRequests) {
+      toast.error("Anh không có quyền cập nhật thanh toán công nợ phải trả");
+      return;
+    }
+    if (!hasOutstandingPayment(paymentRequest)) {
+      toast.info("Phiếu này không còn số tiền cần thanh toán");
+      return;
+    }
+    setPendingPaid(paymentRequest);
+  };
 
   const handleMarkPaid = async (paymentRequest: PaymentRequestWithSupplier) => {
     if (!canEditPaymentRequests) {
@@ -511,7 +536,7 @@ const PayablesManagement = () => {
                               Chi tiết
                             </Button>
                             {canEditPaymentRequests && hasOutstandingPayment(paymentRequest) && paymentRequest.status === "approved" && (
-                              <Button size="sm" onClick={() => handleMarkPaid(paymentRequest)} disabled={bulkMarkPaid.isPending}>
+                              <Button size="sm" onClick={() => requestMarkPaid(paymentRequest)} disabled={bulkMarkPaid.isPending}>
                                 Đã trả
                               </Button>
                             )}
@@ -556,6 +581,33 @@ const PayablesManagement = () => {
           )}
         </CardContent>
       </Card>
+
+      <AlertDialog open={!!pendingPaid} onOpenChange={(open) => !open && setPendingPaid(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Xác nhận đã trả</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingPaid
+                ? `Ghi nhận đã thanh toán phiếu ${pendingPaid.request_number}, số tiền còn lại ${formatCurrency(getRemainingPaymentAmount(pendingPaid))}. Thao tác này ghi thanh toán thật.`
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Huỷ</AlertDialogCancel>
+            <AlertDialogAction
+              data-bmq-confirm-payable-paid
+              disabled={bulkMarkPaid.isPending}
+              onClick={() => {
+                const target = pendingPaid;
+                setPendingPaid(null);
+                if (target) void handleMarkPaid(target);
+              }}
+            >
+              Đã trả
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <PaymentRequestDetailsDialog
         requestId={selectedRequestId}

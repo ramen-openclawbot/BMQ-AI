@@ -8,6 +8,7 @@ import {
   createProcurementLineWithMaterialResolution,
   getCurrentActorId,
 } from "@/lib/material-controller-rpcs";
+import { summarizeApprovalResults } from "@/lib/write-safety/approval-results";
 
 type PaymentRequest = Database["public"]["Tables"]["payment_requests"]["Row"];
 type PaymentRequestItem = Database["public"]["Tables"]["payment_request_items"]["Row"];
@@ -286,15 +287,12 @@ export function useRejectPaymentRequest() {
 
   return useMutation({
     mutationFn: async ({ id, reason }: { id: string; reason: string }) => {
-      const { error } = await supabase
-        .from("payment_requests")
-        .update({
-          status: "rejected",
-          rejection_reason: reason,
-          approved_by: null,
-          approved_at: new Date().toISOString(),
-        })
-        .eq("id", id);
+      // Server-authority RPC: re-reads status/payment state under lock. Cast
+      // keeps the frozen generated Database types untouched.
+      const { error } = await (supabase as any).rpc("reject_payment_request", {
+        p_payment_request_id: id,
+        p_reason: reason,
+      });
 
       if (error) throw error;
     },
@@ -444,14 +442,11 @@ export function useBulkApprovePaymentRequest() {
   return useMutation({
     mutationFn: async (ids: string[]) => {
       const actorId = await getCurrentActorId();
-      const results = await Promise.all(
+      const settled = await Promise.allSettled(
         ids.map((id) => approvePaymentRequestWithMaterialController({ paymentRequestId: id, paymentMethod: "bank_transfer", actorId })),
       );
 
-      return {
-        count: ids.length,
-        approved: results.filter((result) => result.approved).length,
-      };
+      return summarizeApprovalResults(ids, settled);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["payment-requests"] });

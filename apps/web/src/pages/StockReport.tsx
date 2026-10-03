@@ -259,7 +259,7 @@ export default function StockReport() {
   const isLoading = loadingItems || loadingMovements;
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
+    <div className="min-w-0">
       <div className="mx-auto max-w-7xl">
         {/* Header */}
         <div className="mb-8 flex items-center justify-between">

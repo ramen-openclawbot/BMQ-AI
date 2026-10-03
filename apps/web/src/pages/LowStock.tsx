@@ -4,6 +4,8 @@ import { Badge } from "@/components/ui/badge";
 import { useLowStockItems } from "@/hooks/useInventory";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { useNavigate } from "react-router-dom";
 
 const getUrgency = (stock: number, minStock: number) => {
   const ratio = stock / minStock;
@@ -16,6 +18,11 @@ const LowStock = () => {
   const { language } = useLanguage();
   const isVi = language === "vi";
   const { data: lowStockItems, isLoading } = useLowStockItems();
+  const navigate = useNavigate();
+  const { canAccessModule } = useAuth();
+  // These buttons used to do nothing; they now open purchase orders (nothing is ordered automatically).
+  const canOrder = canAccessModule("purchase_orders");
+  const openPurchaseOrders = () => navigate("/purchase-orders");
 
   if (isLoading) {
     return (
@@ -50,8 +57,8 @@ const LowStock = () => {
             {isVi ? "Các mặt hàng cần đặt lại" : "Items that need to be reordered"}
           </p>
         </div>
-        {lowStockItems && lowStockItems.length > 0 && (
-          <button className="btn-gradient px-4 py-2 rounded-lg font-medium flex items-center gap-2">
+        {canOrder && lowStockItems && lowStockItems.length > 0 && (
+          <button type="button" onClick={openPurchaseOrders} className="btn-gradient px-4 py-2 rounded-lg font-medium flex items-center gap-2">
             <ShoppingCart className="h-4 w-4" />
             {isVi ? "Đặt mua tất cả" : "Order All"}
           </button>
@@ -90,9 +97,11 @@ const LowStock = () => {
                       {isVi ? (urgency.label === "critical" ? "Khẩn cấp" : urgency.label === "high" ? "Cao" : "Trung bình") : (urgency.label === "critical" ? "Critical" : urgency.label === "high" ? "High" : "Medium")}
                     </Badge>
                     <p className="text-sm text-muted-foreground">{item.category}</p>
-                    <Button size="sm" className="btn-gradient">
-                      {isVi ? "Đặt mua" : "Reorder"}
-                    </Button>
+                    {canOrder && (
+                      <Button size="sm" className="btn-gradient" onClick={openPurchaseOrders}>
+                        {isVi ? "Đặt mua" : "Reorder"}
+                      </Button>
+                    )}
                   </div>
                 </div>
               );

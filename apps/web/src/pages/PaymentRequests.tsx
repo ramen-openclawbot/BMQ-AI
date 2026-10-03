@@ -116,6 +116,19 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
   const [activeCardFilter, setActiveCardFilter] = useState<CardFilterType>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showBulkApproveConfirm, setShowBulkApproveConfirm] = useState(false);
+  const [showBulkPaidConfirm, setShowBulkPaidConfirm] = useState(false);
+  // Demo 3 master–detail: on wide screens the detail opens as a pane beside the list.
+  const [wideLayout, setWideLayout] = useState(() =>
+    typeof window !== "undefined" ? window.matchMedia("(min-width: 1280px)").matches : false,
+  );
+  useEffect(() => {
+    const media = window.matchMedia("(min-width: 1280px)");
+    const sync = () => setWideLayout(media.matches);
+    sync();
+    media.addEventListener("change", sync);
+    return () => media.removeEventListener("change", sync);
+  }, []);
+  const detailAsPanel = wideLayout && !!selectedRequestId;
   const [showDriveInvoiceDialog, setShowDriveInvoiceDialog] = useState(false);
   const [pageSize, setPageSize] = useState("10");
   const [currentPage, setCurrentPage] = useState(1);
@@ -490,6 +503,15 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
     });
   }, [selectedIds, requests]);
 
+  const selectedApprovedUnpaidTotal = useMemo(
+    () =>
+      selectedApprovedUnpaidIds.reduce((sum, id) => {
+        const request = requests?.find((r) => r.id === id);
+        return sum + (request ? getRemainingPaymentAmount(request) : 0);
+      }, 0),
+    [selectedApprovedUnpaidIds, requests],
+  );
+
   const totalResults = filteredRequests?.length || 0;
   const numericPageSize = Number(pageSize);
   const totalPages = Math.max(1, Math.ceil(totalResults / numericPageSize));
@@ -504,9 +526,18 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
 
   const handleBulkApprove = () => {
     bulkApprove.mutate(selectedPendingIds, {
-      onSuccess: () => {
-        setSelectedIds(new Set());
+      onSuccess: (result) => {
         setShowBulkApproveConfirm(false);
+        // Partial failures stay selected and are reported; approved ones leave the selection.
+        setSelectedIds(new Set(result.failed.map((failure) => failure.id)));
+        if (result.failed.length > 0) {
+          const reasons = Array.from(new Set(result.failed.map((failure) => failure.message))).slice(0, 3).join("; ");
+          toast.error(
+            language === "vi"
+              ? `Đã duyệt ${result.approved}/${result.count} phiếu. ${result.failed.length} phiếu chưa duyệt được: ${reasons}`
+              : `Approved ${result.approved}/${result.count}. ${result.failed.length} could not be approved: ${reasons}`,
+          );
+        }
       },
     });
   };
@@ -516,7 +547,11 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
     /* Hallmark · pre-emit critique: P5 H5 E4 S5 R5 V5 */
     <div
       data-stitch-payment-requests-mobile="hallmark-workbench"
-      className="min-w-0 space-y-4 overflow-x-clip bg-background pb-8 font-sans text-foreground lg:space-y-5 lg:pb-20"
+      data-bmq-payment-detail-pane={detailAsPanel ? "open" : undefined}
+      className={cn(
+        "min-w-0 space-y-4 overflow-x-clip bg-background pb-8 font-sans text-foreground lg:space-y-5 lg:pb-20",
+        detailAsPanel && "d3-pr-has-panel",
+      )}
     >
       <div className="lg:static">
         <div className="flex items-start justify-between gap-3">
@@ -849,10 +884,7 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
             {/* Mark as Paid button - only show when approved+unpaid requests are selected */}
             {selectedApprovedUnpaidIds.length > 0 && (
               <Button 
-                onClick={() => {
-                  bulkMarkPaid.mutate(selectedApprovedUnpaidIds);
-                  setSelectedIds(new Set());
-                }}
+                onClick={() => setShowBulkPaidConfirm(true)}
                 disabled={bulkMarkPaid.isPending}
                 className="gap-2"
               >
@@ -1108,8 +1140,10 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
                       key={request.id}
                       className={cn(
                         "h-[72px] cursor-pointer transition-colors hover:bg-muted/40",
-                        isSelected && "bg-muted/60"
+                        isSelected && "bg-muted/60",
+                        selectedRequestId === request.id && "d3-pr-row-active"
                       )}
+                      aria-current={selectedRequestId === request.id ? "true" : undefined}
                       tabIndex={0}
                       role="button"
                       onClick={() => setSelectedRequestId(request.id)}
@@ -1251,6 +1285,7 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
         requestId={selectedRequestId}
         open={!!selectedRequestId}
         onOpenChange={(open) => !open && setSelectedRequestId(null)}
+        presentation={wideLayout ? "panel" : "dialog"}
       />
 
       {/* Delete Confirmation Dialog */}
@@ -1293,6 +1328,44 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
               disabled={bulkApprove.isPending}
             >
               {bulkApprove.isPending ? t.approving : t.confirmApproveAction}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk "Đã chi" confirmation: records real payments, so it is never one click. */}
+      <AlertDialog open={showBulkPaidConfirm} onOpenChange={setShowBulkPaidConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{language === "vi" ? "Xác nhận đã chi" : "Confirm payment"}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {language === "vi"
+                ? `Ghi nhận đã thanh toán ${selectedApprovedUnpaidIds.length} phiếu, tổng số tiền còn lại ${formatCurrency(selectedApprovedUnpaidTotal)}. Thao tác này ghi thanh toán thật.`
+                : `Record payment for ${selectedApprovedUnpaidIds.length} requests, outstanding total ${formatCurrency(selectedApprovedUnpaidTotal)}. This records real payments.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t.cancel}</AlertDialogCancel>
+            <AlertDialogAction
+              data-bmq-confirm-bulk-paid
+              disabled={bulkMarkPaid.isPending || selectedApprovedUnpaidIds.length === 0}
+              onClick={() =>
+                bulkMarkPaid.mutate(selectedApprovedUnpaidIds, {
+                  onSuccess: () => {
+                    setSelectedIds(new Set());
+                    setShowBulkPaidConfirm(false);
+                  },
+                  onError: (error) => {
+                    toast.error(
+                      language === "vi"
+                        ? `Chưa ghi được thanh toán: ${error instanceof Error ? error.message : String(error)}`
+                        : `Payment was not recorded: ${error instanceof Error ? error.message : String(error)}`,
+                    );
+                  },
+                })
+              }
+            >
+              {bulkMarkPaid.isPending ? (language === "vi" ? "Đang ghi…" : "Recording…") : t.markAsPaid}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

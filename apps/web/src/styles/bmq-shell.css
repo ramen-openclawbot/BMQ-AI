@@ -577,3 +577,45 @@ html.bmq-d3 .pr-lead-number {
   font-weight: 100;
   letter-spacing: -0.04em;
 }
+
+/* ---------- Duyệt chi master–detail (wide desktop) ---------- */
+@media (min-width: 1280px) {
+  .d3-pr-has-panel {
+    padding-right: calc(min(620px, 44vw) + 8px);
+    transition: padding-right .45s var(--d3-ease);
+  }
+}
+
+html.bmq-d3 .d3-pr-panel {
+  position: fixed !important;
+  inset: 96px 24px 24px auto !important;
+  transform: none !important;
+  width: min(620px, 44vw) !important;
+  max-width: none !important;
+  height: auto !important;
+  max-height: none !important;
+  border: 0 !important;
+  border-radius: 26px !important;
+  background: var(--d3-card) !important;
+  box-shadow: 0 30px 80px -30px rgba(0, 0, 0, .4), inset 0 0 0 1px rgba(255, 255, 255, .6) !important;
+  animation: d3-slide .45s var(--d3-ease) both !important;
+}
+
+html.bmq-d3 .d3-pr-panel > div:first-child { background: var(--d3-card); }
+
+html.bmq-d3 .d3-pr-row-active {
+  background: var(--d3-white) !important;
+  box-shadow: inset 3px 0 0 var(--d3-ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html.bmq-d3 .d3-pr-panel { animation: none !important; }
+  .d3-pr-has-panel { transition: none; }
+}
+
+/* With the detail pane open, the list keeps the decision columns (code, supplier, amount,
+   status, actions); date, product list and creator are in the pane. */
+@media (min-width: 1280px) {
+  .d3-pr-has-panel table :is(th, td):is(:nth-child(3), :nth-child(5), :nth-child(8)) { display: none; }
+  .d3-pr-has-panel table :is(th, td) { min-width: 0 !important; }
+}

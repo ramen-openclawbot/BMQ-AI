@@ -84,13 +84,27 @@ interface PaymentRequestDetailsDialogProps {
   requestId: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** "panel": non-modal detail pane beside the list (wide desktop, Demo 3 master–detail). */
+  presentation?: "dialog" | "panel";
 }
+
+// Server-authority reject RPC errors (stage 3B) shown in plain Vietnamese.
+const rejectErrorMessage = (error: unknown) => {
+  const raw = error && typeof error === "object" && "message" in error ? String((error as { message?: unknown }).message ?? "") : String(error ?? "");
+  if (raw.includes("insufficient_privilege")) return "Anh/chị chưa có quyền từ chối phiếu chi.";
+  if (raw.includes("invalid_status")) return "Phiếu không còn ở trạng thái chờ duyệt nên không từ chối được. Hãy tải lại danh sách.";
+  if (raw.includes("has_payments")) return "Phiếu đã có thanh toán nên không từ chối được.";
+  if (raw.includes("rejection_reason_required")) return "Lý do từ chối cần ít nhất 3 ký tự.";
+  return raw ? `Không từ chối được phiếu: ${raw}` : "Không từ chối được phiếu.";
+};
 
 export function PaymentRequestDetailsDialog({
   requestId,
   open,
   onOpenChange,
+  presentation = "dialog",
 }: PaymentRequestDetailsDialogProps) {
+  const asPanel = presentation === "panel";
   const [showRejectDialog, setShowRejectDialog] = useState(false);
   const [rejectionReason, setRejectionReason] = useState("");
   const [showImageDialog, setShowImageDialog] = useState(false);
@@ -219,7 +233,12 @@ export function PaymentRequestDetailsDialog({
 
   const handleReject = async () => {
     if (!requestId) return;
-    await rejectRequest.mutateAsync({ id: requestId, reason: rejectionReason });
+    try {
+      await rejectRequest.mutateAsync({ id: requestId, reason: rejectionReason });
+    } catch (error) {
+      toast.error(rejectErrorMessage(error));
+      return;
+    }
     setShowRejectDialog(false);
     setRejectionReason("");
   };
@@ -265,8 +284,17 @@ export function PaymentRequestDetailsDialog({
 
   return (
     <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="!inset-0 !left-0 !top-0 h-screen h-[100dvh] max-h-screen max-h-[100dvh] w-full max-w-none !translate-x-0 !translate-y-0 touch-pan-y gap-0 overflow-x-hidden overflow-y-auto overscroll-contain border-0 p-0 [-webkit-overflow-scrolling:touch] [&>button]:top-[max(1rem,env(safe-area-inset-top))] [&>button]:right-[max(1rem,env(safe-area-inset-right))] [&>button]:flex [&>button]:h-11 [&>button]:w-11 [&>button]:items-center [&>button]:justify-center sm:!left-1/2 sm:!top-1/2 sm:h-auto sm:max-h-[90dvh] sm:max-w-4xl sm:!-translate-x-1/2 sm:!-translate-y-1/2 sm:gap-4 sm:rounded-lg sm:border sm:p-6">
+      <Dialog open={open} onOpenChange={onOpenChange} modal={!asPanel}>
+        <DialogContent
+          data-bmq-payment-detail={asPanel ? "panel" : "dialog"}
+          // The panel sits beside the list: clicking another row must switch, not close.
+          onInteractOutside={asPanel ? (event) => event.preventDefault() : undefined}
+          className={
+            asPanel
+              ? "d3-pr-panel gap-0 overflow-x-hidden overflow-y-auto overscroll-contain p-0 sm:p-6 [&>button]:right-4 [&>button]:top-4 [&>button]:flex [&>button]:h-10 [&>button]:w-10 [&>button]:items-center [&>button]:justify-center"
+              : "!inset-0 !left-0 !top-0 h-screen h-[100dvh] max-h-screen max-h-[100dvh] w-full max-w-none !translate-x-0 !translate-y-0 touch-pan-y gap-0 overflow-x-hidden overflow-y-auto overscroll-contain border-0 p-0 [-webkit-overflow-scrolling:touch] [&>button]:top-[max(1rem,env(safe-area-inset-top))] [&>button]:right-[max(1rem,env(safe-area-inset-right))] [&>button]:flex [&>button]:h-11 [&>button]:w-11 [&>button]:items-center [&>button]:justify-center sm:!left-1/2 sm:!top-1/2 sm:h-auto sm:max-h-[90dvh] sm:max-w-4xl sm:!-translate-x-1/2 sm:!-translate-y-1/2 sm:gap-4 sm:rounded-lg sm:border sm:p-6"
+          }
+        >
           <DialogHeader className="sticky top-0 z-20 border-b border-border bg-background pb-4 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(3.75rem,calc(2.75rem+env(safe-area-inset-right)))] pt-[max(1rem,env(safe-area-inset-top))] text-left sm:static sm:border-0 sm:p-0">
             <DialogTitle className="min-w-0 [overflow-wrap:anywhere] text-xl leading-tight">Chi tiết đề nghị duyệt chi</DialogTitle>
             <DialogDescription className="break-words">

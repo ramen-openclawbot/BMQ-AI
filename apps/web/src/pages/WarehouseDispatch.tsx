@@ -593,48 +593,12 @@ export default function WarehouseDispatch() {
 
   const updateStatusMutation = useMutation({
     mutationFn: async ({ dispatchId, newStatus }: { dispatchId: string; newStatus: DispatchStatus }) => {
-      const updateData: any = { status: newStatus };
-
-      // "Xuất kho" → deduct inventory + record movement
-      if (newStatus === "dispatched" && selected) {
-        const items = allDispatchItems.filter((i: any) => i.dispatch_id === dispatchId);
-        for (const item of items) {
-          const { data: inv } = await (supabase as any)
-            .from("inventory_items")
-            .select("id, quantity")
-            .ilike("name", `%${item.product_name}%`)
-            .maybeSingle();
-
-          if (inv) {
-            await (supabase as any)
-              .from("inventory_items")
-              .update({ quantity: Math.max(0, inv.quantity - item.quantity) })
-              .eq("id", inv.id);
-
-            await (supabase as any)
-              .from("inventory_movements")
-              .insert({
-                movement_type: "dispatch_out",
-                inventory_item_id: inv.id,
-                quantity: -item.quantity,
-                unit: item.unit,
-                reference_type: "dispatch",
-                reference_id: dispatchId,
-                movement_date: format(new Date(), "yyyy-MM-dd"),
-                notes: `Xuất kho ${selected.dispatch_number}`,
-              });
-          }
-        }
-      }
-
-      if (newStatus === "delivered") {
-        updateData.delivered_date = format(new Date(), "yyyy-MM-dd");
-      }
-
-      const { error } = await (supabase as any)
-        .from("warehouse_dispatches")
-        .update(updateData)
-        .eq("id", dispatchId);
+      // Server-authority RPC: locks the dispatch, validates the ordered
+      // transition, deducts stock and writes the movement ledger atomically.
+      const { error } = await (supabase as any).rpc("transition_warehouse_dispatch_status", {
+        p_dispatch_id: dispatchId,
+        p_new_status: newStatus,
+      });
       if (error) throw error;
     },
     onSuccess: (_, { newStatus }) => {
