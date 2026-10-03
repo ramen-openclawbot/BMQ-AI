@@ -37,12 +37,11 @@ def test_source_detail_preserves_legacy_behavior_but_supports_controlled_scope()
 def test_revenue_dashboard_uses_global_stitch_light_theme_tokens():
     src = read(DASHBOARD)
     assert 'data-stitch-revenue-theme="pantone-2026-glass"' in src
-    assert "bg-card/70" in src
-    assert "shadow-card" in src
-    assert "backdrop-blur-xl" in src
+    # Demo 3 rebuild (2026-10-03): the page uses the shared light Demo 3 layout and tokens.
+    assert 'data-bmq-revenue-layout="demo3-v1"' in src
+    assert '"@/styles/bmq-revenue.css"' in src
     assert "text-foreground" in src
     assert "text-muted-foreground" in src
-    assert "border-border/55" in src
     forbidden = [
         "bg-stone-950",
         "from-stone-900",

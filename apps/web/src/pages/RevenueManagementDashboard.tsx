@@ -16,10 +16,7 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
-  Legend,
   Line,
-  Pie,
-  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -28,32 +25,13 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { fetchAllRevenueLines, type RevenueLine } from "@/lib/revenue-ledger";
 import { channelGroup } from "@/lib/overview/overview-summary";
-import { CHANNEL_META } from "@/components/overview/RevenueChannelChart";
+import { CHANNEL_META, CHANNEL_ORDER } from "@/components/overview/RevenueChannelChart";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-} from "@/components/ui/chart";
+import { ChartContainer } from "@/components/ui/chart";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { cn } from "@/lib/utils";
+import "@/styles/bmq-revenue.css";
 
 const vnd = (v: number) =>
   new Intl.NumberFormat("vi-VN", {
@@ -340,6 +318,7 @@ export default function RevenueManagementDashboard() {
   const initialPeriod =
     new URLSearchParams(window.location.search).get("period") || monthNow();
   const [period, setPeriod] = useState(initialPeriod);
+  const [showAllCustomers, setShowAllCustomers] = useState(false);
   const prevPeriod = previousMonth(period);
   const forecastBasePeriod = previousMonth(prevPeriod);
   const monthlyPeriods = useMemo(() => recentPeriods(period, 6), [period]);
@@ -420,17 +399,6 @@ export default function RevenueManagementDashboard() {
       dispatchConfirmed,
       dispatchNeedsAllocation,
     };
-  }, [lines]);
-
-  const byDay = useMemo(() => {
-    const map = new Map<string, { date: string; revenue: number }>();
-    for (const row of lines) {
-      const key = row.revenue_date;
-      const cur = map.get(key) || { date: key.slice(5), revenue: 0 };
-      cur.revenue += Number(row.gross_revenue || 0);
-      map.set(key, cur);
-    }
-    return Array.from(map.values());
   }, [lines]);
 
   const byChannel = useMemo(() => {
@@ -957,8 +925,10 @@ export default function RevenueManagementDashboard() {
         qty: number;
         rows: number;
         sourceTypes: Set<string>;
+        daily: number[];
       }
     >();
+    const periodDays = daysInPeriod(period);
     for (const [key, prev] of previousMap) {
       map.set(key, {
         key,
@@ -968,6 +938,7 @@ export default function RevenueManagementDashboard() {
         qty: 0,
         rows: 0,
         sourceTypes: new Set<string>(),
+        daily: new Array(periodDays).fill(0),
       });
     }
 
@@ -981,9 +952,12 @@ export default function RevenueManagementDashboard() {
         qty: 0,
         rows: 0,
         sourceTypes: new Set<string>(),
+        daily: new Array(periodDays).fill(0),
       };
       cur.name = rollup.name || cur.name;
       cur.revenue += Number(row.gross_revenue || 0);
+      const day = lineDateDay(row);
+      if (day > 0 && day <= periodDays) cur.daily[day - 1] += lineRevenue(row);
       cur.qty += Number(row.quantity || 0);
       cur.rows += 1;
       cur.sourceTypes.add(row.source_type);
@@ -1003,7 +977,7 @@ export default function RevenueManagementDashboard() {
         if (b.qty !== a.qty) return b.qty - a.qty;
         return Math.abs(b.delta) - Math.abs(a.delta);
       });
-  }, [lines, previousLines]);
+  }, [lines, period, previousLines]);
 
   const openSources = (params: Readonly<Record<string, string>>) => {
     const sp = new URLSearchParams({ period, ...params });
@@ -1011,7 +985,7 @@ export default function RevenueManagementDashboard() {
   };
 
   const handleCardKeyDown = (
-    event: KeyboardEvent<HTMLDivElement>,
+    event: KeyboardEvent<HTMLElement>,
     params: Readonly<Record<string, string>>,
   ) => {
     if (event.key !== "Enter" && event.key !== " ") return;
@@ -1019,837 +993,431 @@ export default function RevenueManagementDashboard() {
     openSources(params);
   };
 
+  const figure = (value: string) => (isLoading ? "…" : error ? "—" : value);
+  const millions = (value: number) =>
+    numberFmt(value / 1_000_000);
+  const dailyRevenue = Array.from({ length: forecast.periodDays }, (_, index) => {
+    const day = index + 1;
+    return lines.reduce((sum, row) => (lineDateDay(row) === day ? sum + lineRevenue(row) : sum), 0);
+  });
+  const dailyMax = Math.max(1, ...dailyRevenue);
+  const lastDataDay = dailyRevenue.reduce((last, value, index) => (value > 0 ? index + 1 : last), 0);
+  const groupTotals = CHANNEL_ORDER.map((group) => ({
+    group,
+    revenue: lines.reduce((sum, row) => (channelGroup(row.channel) === group ? sum + lineRevenue(row) : sum), 0),
+  }))
+    .filter((row) => row.revenue > 0)
+    .sort((a, b) => b.revenue - a.revenue);
+  const remainingDays = Math.max(forecast.periodDays - forecast.cutoffDay, 0);
+  const visibleCustomers = showAllCustomers ? byCustomer : byCustomer.slice(0, 8);
+  const RING_C = (r: number) => 2 * Math.PI * r;
+
   return (
     <div
       data-stitch-revenue-theme="pantone-2026-glass"
-      className="relative space-y-6 rounded-2xl border border-border/55 bg-card/70 p-4 shadow-card backdrop-blur-xl md:p-6"
+      data-bmq-revenue-layout="demo3-v1"
+      className="d3-rv min-w-0 text-foreground"
     >
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-        <div className="space-y-3">
-          <h1 className="font-display text-3xl font-semibold tracking-tight text-foreground md:text-4xl">
-            {isVi ? "Quản lý doanh thu" : "Revenue Management"}
+      <header className="d3-rv-head">
+        <div className="min-w-0">
+          <span className="d3-rv-tag">
+            {isVi ? "Bán hàng" : "Sales"} · {periodLabel(period)} · {isVi ? "tính đến" : "through"} {figure(formatDate(throughDate))}
+          </span>
+          <h1>
+            {isVi ? "Doanh thu" : "Revenue"} <b>{isVi ? "theo kênh" : "by channel"}</b>
           </h1>
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge
-              className="border border-primary/25 bg-primary/10 px-3 py-1 text-primary"
-              variant="outline"
-            >
-              {periodLabel(period)}
-            </Badge>
-            <Badge
-              className="border border-success/25 bg-success/10 px-3 py-1 text-success"
-              variant="outline"
-            >
-              Tính đến {formatDate(throughDate)}
-            </Badge>
-          </div>
         </div>
-        <div
-          aria-label="Xem doanh thu theo tháng"
-          className="flex flex-col gap-2 sm:flex-row sm:items-center"
-        >
+        <div aria-label="Xem doanh thu theo tháng" className="d3-rv-actions">
           <Input
             type="month"
             value={period}
             onChange={(e) => setPeriod(e.target.value || monthNow())}
-            className="h-10 w-full border-border/70 bg-card/80 text-foreground hover:border-primary/40 focus-visible:ring-primary/30 sm:w-[160px]"
+            aria-label={isVi ? "Tháng" : "Month"}
+            className="d3-rv-month"
           />
-          <Button
-            className="h-10 w-full border border-primary/25 bg-card/70 text-primary hover:border-primary/45 hover:bg-primary/10 sm:w-auto"
-            variant="outline"
-            onClick={() => navigate("/finance-control/revenue/setup")}
-          >
+          <Button variant="outline" className="d3-rv-ghost" onClick={() => navigate("/finance-control/revenue/setup")}>
             <Settings className="mr-2 h-4 w-4" />
             Thiết lập Parse
           </Button>
         </div>
-      </div>
+      </header>
 
       {error ? (
-        <Card className="border border-destructive/35 bg-card/90 ring-1 ring-destructive/10">
-          <CardContent className="flex items-center gap-3 bg-destructive/10 p-4 text-sm text-destructive">
-            <AlertTriangle className="h-5 w-5" />
-            Không đọc được revenue ledger. Kiểm tra migration/database quyền
-            truy cập.
-          </CardContent>
-        </Card>
+        <div className="d3-rv-alert" role="alert">
+          <AlertTriangle className="h-5 w-5 shrink-0" />
+          Không đọc được revenue ledger. Kiểm tra migration/database quyền truy cập.
+        </div>
       ) : null}
 
-      <Card
-        role="button"
-        tabIndex={0}
-        aria-label="Đã vào ledger: Chạm để xem chi tiết"
-        onClick={() => openSources({ scope: "controlled_ledger" })}
-        onKeyDown={(event) =>
-          handleCardKeyDown(event, { scope: "controlled_ledger" })
-        }
-        className="cursor-pointer overflow-hidden rounded-[1.35rem] border border-primary/20 bg-[radial-gradient(circle_at_top_right,hsl(var(--accent)/0.32),transparent_34%),linear-gradient(135deg,hsl(var(--card)/0.92),hsl(var(--secondary)/0.28))] shadow-card backdrop-blur-xl transition duration-150 hover:border-primary/35 hover:shadow-warm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 active:scale-[0.99]"
-      >
-        <CardContent className="p-5">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0 space-y-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
-                  Đã vào ledger
-                </div>
-                <Badge
-                  className="border border-success/25 bg-success/10 text-success"
-                  variant="outline"
-                >
-                  Tạm từ PO
-                </Badge>
-              </div>
-              <div
-                className="d3-num min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[clamp(2.4rem,8.5vw,4rem)] font-extralight leading-none tabular-nums tracking-[-0.05em] text-foreground"
-                title={vnd(stats.approved)}
-              >
-                {isLoading ? (
-                  <span className="inline-block h-10 w-48 animate-pulse rounded bg-muted align-middle" />
-                ) : (
-                  vnd(stats.approved)
-                )}
-              </div>
-              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                <span>{stats.rows} dòng đã kiểm soát</span>
-                <span className="text-border">•</span>
-                <span>Đến ngày {formatDate(throughDate)}</span>
-              </div>
-            </div>
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-primary/20 bg-primary/10 text-primary">
-              <CheckCircle2 className="h-5 w-5" />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Card
+      <div className="d3-rv-g3">
+        {/* Hero: controlled ledger with the month's daily bars (demo "Doanh thu 30 ngày"). */}
+        <section
           role="button"
           tabIndex={0}
-          aria-label="Sản lượng: Chạm để xem chi tiết"
-          onClick={() =>
-            openSources({ scope: "controlled_ledger", focus: "quantity" })
-          }
-          onKeyDown={(event) =>
-            handleCardKeyDown(event, {
-              scope: "controlled_ledger",
-              focus: "quantity",
-            })
-          }
-          className="cursor-pointer rounded-2xl border border-border/55 bg-card/70 shadow-card backdrop-blur-xl transition hover:border-primary/30 active:scale-[0.99]"
+          aria-label="Đã vào ledger: Chạm để xem chi tiết"
+          onClick={() => openSources({ scope: "controlled_ledger" })}
+          onKeyDown={(event) => handleCardKeyDown(event, { scope: "controlled_ledger" })}
+          className="d3-rv-card d3-rv-hero is-click"
+          style={{ ["--i" as string]: 1 }}
+          data-bmq-revenue-hero
         >
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between gap-2">
-              <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                Sản lượng
-              </div>
-              <CalendarDays className="h-4 w-4 text-primary/75" />
+          <span className="d3-rv-glow is-green" aria-hidden="true" />
+          <div className="d3-rv-card-h">
+            <h2>Đã vào ledger</h2>
+            {!isLoading && !error ? (
+              <span className={mom.pct === null ? "d3-rv-pill" : mom.delta >= 0 ? "d3-rv-up" : "d3-rv-dn"}>
+                {mom.pct === null ? "Tháng trước: N/A" : `${mom.pct >= 0 ? "+" : ""}${numberFmt(mom.pct)}%`}
+              </span>
+            ) : null}
+          </div>
+          <div className="d3-rv-big" title={vnd(stats.approved)}>
+            {figure(millions(stats.approved))}
+            {!isLoading && !error ? <small>triệu</small> : null}
+          </div>
+          <p className="d3-rv-sub">
+            {isLoading || error ? figure("") : `${vnd(stats.approved)} · ${stats.rows} dòng đã kiểm soát · Tạm từ PO`}
+          </p>
+          <div className="d3-rv-vbars" aria-hidden="true">
+            {dailyRevenue.map((value, index) => {
+              const day = index + 1;
+              const isLast = day === lastDataDay;
+              return (
+                <i
+                  key={day}
+                  className={cn(isLast && "is-hi", day > forecast.cutoffDay && "is-future")}
+                  style={{ ["--h" as string]: error ? 0 : Math.max(0.03, value / dailyMax), ["--dl" as string]: `${300 + index * 18}ms` }}
+                >
+                  {isLast && !error ? <b>{millions(value)}</b> : null}
+                </i>
+              );
+            })}
+          </div>
+          <div className="d3-rv-axis">
+            <span>01/{period.slice(5)}</span>
+            <span>15/{period.slice(5)}</span>
+            <span>{String(forecast.periodDays).padStart(2, "0")}/{period.slice(5)}</span>
+          </div>
+        </section>
+
+        {/* Channel share as concentric 270° rings (demo "Tỷ trọng kênh"). */}
+        <section className="d3-rv-card" style={{ ["--i" as string]: 2 }} data-bmq-revenue-rings>
+          <div className="d3-rv-card-h">
+            <h2>Tỷ trọng kênh</h2>
+            <span className="d3-rv-pill">{figure(`${groupTotals.length} kênh`)}</span>
+          </div>
+          {isLoading || error || groupTotals.length === 0 ? (
+            <div className="d3-rv-empty">
+              {isLoading ? "Đang tải…" : error ? "—" : "Chưa có dữ liệu kênh cho kỳ này."}
+            </div>
+          ) : (
+            <div className="d3-rv-rings-wrap">
+              <svg className="d3-rv-rings" viewBox="0 0 220 220" aria-hidden="true">
+                {groupTotals.map((row, k) => {
+                  const r = 92 - k * 18;
+                  const c = RING_C(r);
+                  const share = stats.total > 0 ? row.revenue / stats.total : 0;
+                  return (
+                    <g key={row.group} transform="rotate(135 110 110)">
+                      <circle className="d3-rv-ring-bg" cx="110" cy="110" r={r} strokeDasharray={`${c * 0.75} ${c}`} />
+                      <circle
+                        className="d3-rv-ring"
+                        cx="110"
+                        cy="110"
+                        r={r}
+                        stroke={CHANNEL_META[row.group].color}
+                        strokeDasharray={`${Math.max(c * 0.75 * share, 0.5)} ${c}`}
+                        style={{ ["--len" as string]: c, animationDelay: `${400 + k * 160}ms` }}
+                      />
+                    </g>
+                  );
+                })}
+                <text x="110" y="122" textAnchor="middle" className="d3-rv-ring-n">{groupTotals.length}</text>
+                <text x="110" y="140" textAnchor="middle" className="d3-rv-ring-l">kênh</text>
+              </svg>
+              <ul className="d3-rv-leg">
+                {groupTotals.map((row) => (
+                  <li key={row.group} style={{ ["--c" as string]: CHANNEL_META[row.group].color }}>
+                    <span>{isVi ? CHANNEL_META[row.group].vi : CHANNEL_META[row.group].en}</span>
+                    <b>{numberFmt(stats.total > 0 ? (row.revenue / stats.total) * 100 : 0)}%</b>
+                    <small>{millions(row.revenue)}tr</small>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </section>
+
+        {/* Operational forecast + volume / customers tiles. */}
+        <section className="d3-rv-card d3-rv-fc" style={{ ["--i" as string]: 3 }} data-bmq-revenue-forecast>
+          <span className="d3-rv-glow is-blue" aria-hidden="true" />
+          <div className="d3-rv-card-h">
+            <h2>Dự báo vận hành</h2>
+            {!isLoading && !error ? <span className={cn("d3-rv-conf", `is-${forecast.confidenceLabel === "Cao" ? "high" : forecast.confidenceLabel === "Thấp" ? "low" : "mid"}`)}>Độ tin cậy {forecast.confidenceLabel}</span> : null}
+          </div>
+          <div className="d3-rv-big is-md" title={vnd(forecast.total)}>
+            {figure(millions(forecast.total))}
+            {!isLoading && !error ? <small>triệu</small> : null}
+          </div>
+          <div className="d3-rv-track" aria-hidden="true">
+            <i style={{ width: `${error ? 0 : forecastProgress}%` }} />
+          </div>
+          <p className="d3-rv-sub">
+            {isLoading || error
+              ? figure("")
+              : `${numberFmt(forecastProgress)}% đã kiểm soát · còn ${remainingDays} ngày · khoảng ${millions(forecast.low)}–${millions(forecast.high)}tr`}
+          </p>
+          <div className="d3-rv-tiles">
+            <div
+              role="button"
+              tabIndex={0}
+              aria-label="Sản lượng: Chạm để xem chi tiết"
+              onClick={() => openSources({ scope: "controlled_ledger", focus: "quantity" })}
+              onKeyDown={(event) => handleCardKeyDown(event, { scope: "controlled_ledger", focus: "quantity" })}
+              className="d3-rv-tile is-click"
+            >
+              <span><CalendarDays className="h-3.5 w-3.5" />Sản lượng</span>
+              <strong title={numberFmt(stats.qty)}>{figure(numberFmt(stats.qty))}</strong>
             </div>
             <div
-              className="mt-3 truncate text-2xl font-semibold tabular-nums text-primary"
-              title={numberFmt(stats.qty)}
+              role="button"
+              tabIndex={0}
+              aria-label="Customer/NPP: Chạm để xem chi tiết"
+              onClick={() => openSources({ scope: "controlled_ledger", focus: "customers" })}
+              onKeyDown={(event) => handleCardKeyDown(event, { scope: "controlled_ledger", focus: "customers" })}
+              className="d3-rv-tile is-click"
             >
-              {isLoading ? "—" : numberFmt(stats.qty)}
+              <span><Users className="h-3.5 w-3.5" />Customer/NPP</span>
+              <strong>{figure(String(stats.customers))}</strong>
             </div>
-          </CardContent>
-        </Card>
-
-        <Card
-          role="button"
-          tabIndex={0}
-          aria-label="Customer/NPP: Chạm để xem chi tiết"
-          onClick={() =>
-            openSources({ scope: "controlled_ledger", focus: "customers" })
-          }
-          onKeyDown={(event) =>
-            handleCardKeyDown(event, {
-              scope: "controlled_ledger",
-              focus: "customers",
-            })
-          }
-          className="cursor-pointer rounded-2xl border border-border/55 bg-card/70 shadow-card backdrop-blur-xl transition hover:border-primary/30 active:scale-[0.99]"
-        >
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between gap-2">
-              <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                Customer/NPP
-              </div>
-              <Users className="h-4 w-4 text-muted-foreground" />
-            </div>
-            <div className="mt-3 text-2xl font-semibold tabular-nums text-foreground">
-              {isLoading ? "—" : stats.customers}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="col-span-2 rounded-2xl border border-border/55 bg-card/70 shadow-card backdrop-blur-xl">
-          <CardContent className="p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                  Forecast tháng
-                </div>
-                <div
-                  className="mt-2 truncate text-2xl font-semibold tabular-nums text-primary"
-                  title={vnd(forecast.total)}
-                >
-                  {compactVnd(forecast.total)}
-                </div>
-                <div className="mt-1 text-xs text-muted-foreground">
-                  {numberFmt(forecastProgress)}% kế hoạch · tin cậy{" "}
-                  {forecast.confidenceLabel}
-                </div>
-              </div>
-              <Badge
-                className={`shrink-0 border ${forecast.confidenceTone}`}
-                variant="outline"
-              >
-                {forecast.confidenceLabel}
-              </Badge>
-            </div>
-            <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full rounded-full bg-gradient-to-r from-primary to-accent"
-                style={{ width: `${forecastProgress}%` }}
-              />
-            </div>
-          </CardContent>
-        </Card>
+          </div>
+          <p className="d3-rv-note">Dự báo vận hành, không phải trusted/final hay số audit cuối tháng.</p>
+        </section>
       </div>
 
-      <Card className="border border-border/55 bg-card/70 shadow-card backdrop-blur-xl">
-        <CardContent className="flex flex-wrap items-center gap-2 p-3 text-xs text-muted-foreground">
-          <span className="font-medium text-foreground">
-            Trạng thái số xuất:
-          </span>
-          <Badge
-            variant="outline"
-            className="border-warning/40 bg-warning/25 text-primary"
-          >
-            Doanh thu tạm từ PO: {stats.dispatchTemporary}
-          </Badge>
-          <Badge
-            variant="outline"
-            className="border-success/25 bg-success/10 text-success"
-          >
-            Đã xác nhận: {stats.dispatchConfirmed}
-          </Badge>
-          <Badge
-            variant="outline"
-            className="border-destructive/25 bg-destructive/10 text-destructive"
-          >
-            Cần SKU: {stats.dispatchNeedsAllocation}
-          </Badge>
-        </CardContent>
-      </Card>
+      <div className="d3-rv-status" data-bmq-revenue-dispatch-status>
+        <span>Trạng thái số xuất:</span>
+        <span className="d3-rv-chip is-warn">Doanh thu tạm từ PO: {figure(String(stats.dispatchTemporary))}</span>
+        <span className="d3-rv-chip is-ok">Đã xác nhận: {figure(String(stats.dispatchConfirmed))}</span>
+        <span className="d3-rv-chip is-bad">Cần SKU: {figure(String(stats.dispatchNeedsAllocation))}</span>
+      </div>
 
-      <Card className="overflow-hidden border border-border/55 bg-card/70 shadow-card backdrop-blur-xl">
-        <CardHeader className="border-b border-border/55 bg-muted/35 pb-3">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <CardTitle className="text-foreground">
-                Doanh thu theo tháng
-              </CardTitle>
-              <CardDescription className="text-muted-foreground">
-                So sánh doanh thu từng tháng trong 6 tháng gần nhất, dùng ledger đã kiểm soát.
-              </CardDescription>
-            </div>
-            <Badge
-              className={`${mom.delta >= 0 ? "border-success/25 bg-success/10 text-success" : "border-destructive/25 bg-destructive/10 text-destructive"}`}
-              variant="outline"
-            >
+      <div className="d3-rv-g2">
+        <section className="d3-rv-card" style={{ ["--i" as string]: 4 }}>
+          <div className="d3-rv-card-h">
+            <h2>Doanh thu theo tháng</h2>
+            <span className={mom.pct === null ? "d3-rv-pill" : mom.delta >= 0 ? "d3-rv-up" : "d3-rv-dn"}>
               Tháng trước: {mom.pct === null ? "N/A" : `${mom.pct >= 0 ? "+" : ""}${numberFmt(mom.pct)}%`}
-            </Badge>
+            </span>
+            <p>So sánh doanh thu từng tháng trong 6 tháng gần nhất, dùng ledger đã kiểm soát.</p>
           </div>
-        </CardHeader>
-        <CardContent className="h-[280px] p-3 md:h-[320px] md:p-4">
-          <div
-            className="h-full overflow-x-auto pb-2 [-webkit-overflow-scrolling:touch]"
-            aria-label="Cuộn ngang để xem doanh thu theo tháng"
-          >
-            <div className="h-full min-w-[720px] md:min-w-0">
-              <ChartContainer
-                config={{
-                  revenue: { label: "Doanh thu", color: MOM_CURRENT_COLOR },
-                }}
-                className="h-full"
-              >
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={monthlyRevenueChart}
-                    margin={{ top: 12, right: 18, bottom: 18, left: 8 }}
-                  >
-                    <CartesianGrid stroke={TREND_GRID_COLOR} vertical={false} />
-                    <XAxis
-                      dataKey="label"
-                      tickLine={false}
-                      axisLine={false}
-                      fontSize={12}
-                      tick={{ fill: "hsl(var(--muted-foreground))" }}
-                    />
-                    <YAxis
-                      tickFormatter={(v) => `${Math.round(Number(v) / 1_000_000)}tr`}
-                      tickLine={false}
-                      axisLine={false}
-                      width={48}
-                      tick={{ fill: "hsl(var(--muted-foreground))" }}
-                    />
-                    <Tooltip
-                      cursor={{ fill: "hsl(var(--primary) / 0.08)" }}
-                      contentStyle={{
-                        background: "hsl(var(--card))",
-                        border: "1px solid hsl(var(--border))",
-                        borderRadius: "12px",
-                        color: "hsl(var(--foreground))",
-                        boxShadow: "var(--shadow-card)",
-                      }}
-                      formatter={(value) => [vnd(Number(value)), "Doanh thu"]}
-                      labelFormatter={(_, payload) => {
-                        const row = payload?.[0]?.payload as
-                          | (typeof monthlyRevenueChart)[number]
-                          | undefined;
-                        if (!row) return "Doanh thu theo tháng";
-                        const change =
-                          row.pct === null
-                            ? "chưa có tháng trước"
-                            : `${row.delta >= 0 ? "+" : ""}${vnd(row.delta)} (${row.pct >= 0 ? "+" : ""}${numberFmt(row.pct)}%) so với tháng trước`;
-                        return `${periodLabel(row.period)} · ${change}`;
-                      }}
-                      labelStyle={{
-                        color: "hsl(var(--foreground))",
-                        fontWeight: 600,
-                      }}
-                    />
-                    <Legend
-                      wrapperStyle={{
-                        color: "hsl(var(--muted-foreground))",
-                        fontSize: 12,
-                      }}
-                      formatter={() => "Doanh thu"}
-                    />
-                    <Bar dataKey="revenue" radius={[5, 5, 0, 0]}>
-                      {monthlyRevenueChart.map((row) => (
-                        <Cell key={row.period} fill={row.fill} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </ChartContainer>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card className="overflow-hidden border border-border/55 bg-card/70 shadow-card backdrop-blur-xl">
-        <CardHeader className="border-b border-border/55 bg-muted/35 pb-3">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <CardTitle className="text-foreground">
-                Xu hướng doanh thu
-              </CardTitle>
-              <CardDescription className="text-muted-foreground">
-                Ledger thực tế và forecast đến cuối tháng.
-              </CardDescription>
-            </div>
-            <Badge
-              className="border border-success/25 bg-success/10 text-success"
-              variant="outline"
-            >
-              {formatDate(throughDate)}
-            </Badge>
-          </div>
-        </CardHeader>
-        <CardContent className="h-[280px] p-3 md:h-[340px] md:p-4">
-          <div
-            className="h-full overflow-x-auto pb-2 [-webkit-overflow-scrolling:touch]"
-            aria-label="Cuộn ngang để xem đủ xu hướng doanh thu trong tháng"
-          >
-            <div className="h-full min-w-[880px] md:min-w-0">
-              <ChartContainer
-                config={{
-                  ledger: { label: "Ledger", color: MOM_CURRENT_COLOR },
-                  forecast: {
-                    label: "Forecast",
-                    color: FORECAST_REMAINDER_COLOR,
-                  },
-                }}
-                className="h-full"
-              >
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart
-                    data={trendChart}
-                    margin={{ top: 14, right: 12, bottom: 8, left: 0 }}
-                  >
-                    <defs>
-                      <linearGradient
-                        id="ledgerTrendFill"
-                        x1="0"
-                        x2="0"
-                        y1="0"
-                        y2="1"
-                      >
-                        <stop
-                          offset="5%"
-                          stopColor={MOM_CURRENT_COLOR}
-                          stopOpacity={0.36}
-                        />
-                        <stop
-                          offset="95%"
-                          stopColor={MOM_CURRENT_COLOR}
-                          stopOpacity={0.02}
-                        />
-                      </linearGradient>
-                      <linearGradient
-                        id="forecastTrendFill"
-                        x1="0"
-                        x2="0"
-                        y1="0"
-                        y2="1"
-                      >
-                        <stop
-                          offset="5%"
-                          stopColor={FORECAST_REMAINDER_COLOR}
-                          stopOpacity={0.22}
-                        />
-                        <stop
-                          offset="95%"
-                          stopColor={FORECAST_REMAINDER_COLOR}
-                          stopOpacity={0.02}
-                        />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid stroke={TREND_GRID_COLOR} vertical={false} />
-                    <XAxis
-                      dataKey="day"
-                      tickLine={false}
-                      axisLine={false}
-                      fontSize={11}
-                      interval="preserveStartEnd"
-                      tick={{ fill: "hsl(var(--muted-foreground))" }}
-                    />
-                    <YAxis
-                      tickFormatter={(v) =>
-                        `${Math.round(Number(v) / 1_000_000)}tr`
-                      }
-                      tickLine={false}
-                      axisLine={false}
-                      width={42}
-                      tick={{ fill: "hsl(var(--muted-foreground))" }}
-                    />
-                    <Tooltip
-                      cursor={{
-                        stroke: "hsl(var(--primary) / 0.32)",
-                        strokeDasharray: "4 4",
-                      }}
-                      contentStyle={{
-                        background: "hsl(var(--card))",
-                        border: "1px solid hsl(var(--border))",
-                        borderRadius: "12px",
-                        color: "hsl(var(--foreground))",
-                        boxShadow: "var(--shadow-card)",
-                      }}
-                      formatter={(value, name) => [
-                        vnd(Number(value)),
-                        name === "ledger" ? "Ledger" : "Forecast",
-                      ]}
-                      labelFormatter={(label) =>
-                        `Ngày ${label}/${period.slice(5)}`
-                      }
-                      labelStyle={{
-                        color: "hsl(var(--foreground))",
-                        fontWeight: 600,
-                      }}
-                    />
-                    <Legend
-                      wrapperStyle={{
-                        color: "hsl(var(--muted-foreground))",
-                        fontSize: 12,
-                      }}
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="forecast"
-                      stroke={FORECAST_REMAINDER_COLOR}
-                      strokeDasharray="5 5"
-                      strokeWidth={2}
-                      fill="url(#forecastTrendFill)"
-                      dot={false}
-                      activeDot={{ r: 4 }}
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="ledger"
-                      stroke={MOM_CURRENT_COLOR}
-                      strokeWidth={3}
-                      fill="url(#ledgerTrendFill)"
-                      connectNulls={false}
-                      dot={false}
-                      activeDot={{
-                        r: 5,
-                        stroke: "hsl(var(--card))",
-                        strokeWidth: 2,
-                      }}
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="current"
-                      stroke="hsl(var(--foreground))"
-                      strokeWidth={0}
-                      dot={{
-                        r: 5,
-                        fill: "hsl(var(--foreground))",
-                        stroke: MOM_CURRENT_COLOR,
-                        strokeWidth: 3,
-                      }}
-                      legendType="none"
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </ChartContainer>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {isLoading ? (
-        <div className="flex min-h-[240px] items-center justify-center rounded-md border border-border/55 bg-card/70 shadow-card backdrop-blur-xl">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </div>
-      ) : (
-        <Tabs defaultValue="overview" className="space-y-4">
-          <TabsList className="inline-flex gap-6 border-b border-border/70 bg-transparent p-0">
-            <TabsTrigger
-              value="overview"
-              className="rounded-none border-b-2 border-transparent bg-transparent px-1 pb-2 text-sm text-muted-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary"
-            >
-              Tổng quan
-            </TabsTrigger>
-            <TabsTrigger
-              value="customers"
-              className="rounded-none border-b-2 border-transparent bg-transparent px-1 pb-2 text-sm text-muted-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary"
-            >
-              Theo customer
-            </TabsTrigger>
-            <TabsTrigger
-              value="channels"
-              className="rounded-none border-b-2 border-transparent bg-transparent px-1 pb-2 text-sm text-muted-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-primary"
-            >
-              Theo kênh
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="overview" className="grid gap-4">
-            <Card className="overflow-hidden border border-border/55 bg-card/70 shadow-card backdrop-blur-xl">
-              <CardHeader className="border-b border-border/55 bg-muted/35">
-                <CardTitle className="text-foreground">
-                  Doanh thu theo ngày
-                </CardTitle>
-                <CardDescription className="text-muted-foreground">
-                  Click bảng customer/kênh để mở chi tiết source/audit.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="h-[360px] pt-6">
-                {byDay.length === 0 ? (
-                  <div className="flex h-full items-center justify-center rounded-md border border-border/55 bg-muted/25 text-sm text-muted-foreground">
-                    Chưa có dữ liệu doanh thu cho kỳ này.
-                  </div>
-                ) : (
-                  <div className="h-full overflow-x-auto pb-2 [-webkit-overflow-scrolling:touch]">
-                    <div className="h-full min-w-[720px]">
-                      <ChartContainer
-                        config={{
-                          revenue: {
-                            label: "Doanh thu",
-                            color: MOM_PREVIOUS_COLOR,
-                          },
-                        }}
-                        className="h-full"
-                      >
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart
-                            data={byDay}
-                            margin={{ top: 8, right: 18, bottom: 18, left: 8 }}
-                          >
-                            <CartesianGrid
-                              stroke="hsl(var(--border) / 0.55)"
-                              vertical={false}
-                            />
-                            <XAxis
-                              dataKey="date"
-                              tickLine={false}
-                              axisLine={false}
-                              fontSize={12}
-                              tick={{ fill: "hsl(var(--muted-foreground))" }}
-                            />
-                            <YAxis
-                              tickFormatter={(v) =>
-                                `${Math.round(Number(v) / 1_000_000)}tr`
-                              }
-                              tickLine={false}
-                              axisLine={false}
-                              width={48}
-                              tick={{ fill: "hsl(var(--muted-foreground))" }}
-                            />
-                            <ChartTooltip
-                              content={
-                                <ChartTooltipContent
-                                  formatter={(value) => vnd(Number(value))}
-                                  className="border-primary/25 bg-card text-foreground shadow-xl"
-                                />
-                              }
-                            />
-                            <Legend
-                              wrapperStyle={{
-                                color: "hsl(var(--muted-foreground))",
-                                fontSize: 12,
-                              }}
-                              formatter={() => "Doanh thu"}
-                            />
-                            <Bar
-                              dataKey="revenue"
-                              fill="var(--color-revenue)"
-                              radius={[2, 2, 0, 0]}
-                            />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </ChartContainer>
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="customers">
-            <Card className="overflow-hidden border border-border/55 bg-card/70 shadow-card backdrop-blur-xl">
-              <CardHeader className="border-b border-border/55 bg-muted/35">
-                <CardTitle className="text-foreground">
-                  Doanh thu theo customer / NPP
-                </CardTitle>
-                <CardDescription className="text-muted-foreground">
-                  Click “Chi tiết” để xem source lines, PO trace và trạng thái
-                  audit. Sắp xếp theo doanh thu hiện tại từ cao xuống thấp;
-                  khách chỉ có kỳ trước sẽ nằm cuối bảng.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="overflow-x-auto pt-4">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="border-b border-border/70">
-                      <TableHead className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                        Customer / NPP
-                      </TableHead>
-                      <TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                        Qty
-                      </TableHead>
-                      <TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                        Revenue
-                      </TableHead>
-                      <TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                        MoM
-                      </TableHead>
-                      <TableHead className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                        Source
-                      </TableHead>
-                      <TableHead className="text-right text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                        Action
-                      </TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {byCustomer.map((row) => (
-                      <TableRow
-                        key={row.key}
-                        className="border-b border-border/60 hover:bg-primary/10"
-                      >
-                        <TableCell className="font-medium text-foreground">
-                          {row.name}
-                          <div className="text-xs text-muted-foreground/80">
-                            {row.rows} lines
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums text-foreground">
-                          {numberFmt(row.qty)}
-                        </TableCell>
-                        <TableCell className="text-right font-semibold tabular-nums text-primary">
-                          {vnd(row.revenue)}
-                        </TableCell>
-                        <TableCell
-                          className={`text-right tabular-nums ${row.delta >= 0 ? "text-success" : "text-destructive"}`}
-                        >
-                          <div className="font-medium">{vnd(row.delta)}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {row.pct === null
-                              ? "N/A"
-                              : `${row.pct >= 0 ? "+" : ""}${numberFmt(row.pct)}%`}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {row.sourceTypes.size > 0 ? (
-                            Array.from(row.sourceTypes).map((s) => (
-                              <Badge
-                                key={s}
-                                className="mr-1 border border-primary/25 bg-primary/10 text-primary"
-                                variant="secondary"
-                              >
-                                {sourceTypeLabel[s] || s}
-                              </Badge>
-                            ))
-                          ) : (
-                            <Badge
-                              className="border border-border/70 bg-muted/70 text-foreground"
-                              variant="secondary"
-                            >
-                              Kỳ trước
-                            </Badge>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Button
-                            className="border border-border/70 bg-transparent text-foreground hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
-                            size="sm"
-                            variant="outline"
-                            onClick={() =>
-                              openSources({ customer_key: row.key })
-                            }
-                          >
-                            Chi tiết
-                          </Button>
-                        </TableCell>
-                      </TableRow>
+          <div className="d3-rv-chart">
+            <ChartContainer config={{ revenue: { label: "Doanh thu", color: MOM_CURRENT_COLOR } }} className="h-full w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={monthlyRevenueChart} margin={{ top: 12, right: 8, bottom: 4, left: 0 }}>
+                  <CartesianGrid stroke={TREND_GRID_COLOR} vertical={false} />
+                  <XAxis dataKey="label" tickLine={false} axisLine={false} fontSize={11} tick={{ fill: "hsl(var(--muted-foreground))" }} />
+                  <YAxis
+                    tickFormatter={(v) => `${Math.round(Number(v) / 1_000_000)}tr`}
+                    tickLine={false}
+                    axisLine={false}
+                    width={44}
+                    fontSize={11}
+                    tick={{ fill: "hsl(var(--muted-foreground))" }}
+                  />
+                  <Tooltip
+                    cursor={{ fill: "rgba(39,39,39,0.05)" }}
+                    contentStyle={{ background: "#fdfdfc", border: 0, borderRadius: "14px", boxShadow: "0 18px 40px -20px rgba(0,0,0,.35)" }}
+                    formatter={(value) => [vnd(Number(value)), "Doanh thu"]}
+                    labelFormatter={(_, payload) => {
+                      const row = payload?.[0]?.payload as (typeof monthlyRevenueChart)[number] | undefined;
+                      if (!row) return "Doanh thu theo tháng";
+                      const change =
+                        row.pct === null
+                          ? "chưa có tháng trước"
+                          : `${row.delta >= 0 ? "+" : ""}${vnd(row.delta)} (${row.pct >= 0 ? "+" : ""}${numberFmt(row.pct)}%) so với tháng trước`;
+                      return `${periodLabel(row.period)} · ${change}`;
+                    }}
+                    labelStyle={{ color: "#272727", fontWeight: 500 }}
+                  />
+                  <Bar dataKey="revenue" radius={[6, 6, 2, 2]} maxBarSize={44}>
+                    {monthlyRevenueChart.map((row) => (
+                      <Cell key={row.period} fill={row.fill} />
                     ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          </TabsContent>
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartContainer>
+          </div>
+        </section>
 
-          <TabsContent value="channels">
-            <Card className="overflow-hidden border border-border/55 bg-card/70 shadow-card backdrop-blur-xl">
-              <CardHeader className="border-b border-border/55 bg-muted/35">
-                <CardTitle className="text-foreground">
-                  Doanh thu theo kênh
-                </CardTitle>
-                <CardDescription className="text-muted-foreground">
-                  Circle chart theo tỷ trọng revenue của từng kênh trong ledger
-                  đã kiểm soát.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="pt-4">
-                {byChannel.length === 0 ? (
-                  <div className="flex min-h-[260px] items-center justify-center rounded-md border border-border/55 bg-muted/25 text-sm text-muted-foreground">
-                    Chưa có dữ liệu kênh cho kỳ này.
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
-                    <div className="shrink-0 lg:w-72">
-                      <ResponsiveContainer width="100%" height={260}>
-                        <PieChart>
-                          <Pie
-                            data={byChannel}
-                            dataKey="revenue"
-                            nameKey="label"
-                            cx="50%"
-                            cy="50%"
-                            innerRadius={68}
-                            outerRadius={108}
-                            paddingAngle={2}
-                            strokeWidth={0}
-                          >
-                            {byChannel.map((row, index) => (
-                              <Cell
-                                key={row.key}
-                                fill={getChannelColor(row.key, index)}
-                              />
-                            ))}
-                          </Pie>
-                          <Tooltip
-                            contentStyle={{
-                              background: "hsl(var(--card))",
-                              border: "1px solid hsl(var(--border))",
-                              borderRadius: "6px",
-                              boxShadow: "var(--shadow-card)",
-                              color: "hsl(var(--foreground))",
-                              fontSize: "12px",
-                            }}
-                            formatter={(value) => [
-                              vnd(Number(value)),
-                              "Revenue",
-                            ]}
-                            itemStyle={{
-                              color: "hsl(var(--foreground))",
-                              fontWeight: 600,
-                            }}
-                            labelStyle={{
-                              color: "hsl(var(--foreground))",
-                              fontWeight: 600,
-                            }}
-                          />
-                        </PieChart>
-                      </ResponsiveContainer>
-                    </div>
+        <section className="d3-rv-card" style={{ ["--i" as string]: 5 }}>
+          <div className="d3-rv-card-h">
+            <h2>Xu hướng doanh thu</h2>
+            <span className="d3-rv-pill">{formatDate(throughDate)}</span>
+            <p>Ledger thực tế và forecast đến cuối tháng.</p>
+          </div>
+          <div className="d3-rv-chart">
+            <ChartContainer
+              config={{
+                ledger: { label: "Ledger", color: MOM_CURRENT_COLOR },
+                forecast: { label: "Forecast", color: FORECAST_REMAINDER_COLOR },
+              }}
+              className="h-full w-full"
+            >
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={trendChart} margin={{ top: 14, right: 8, bottom: 4, left: 0 }}>
+                  <defs>
+                    <linearGradient id="ledgerTrendFill" x1="0" x2="0" y1="0" y2="1">
+                      <stop offset="5%" stopColor={MOM_CURRENT_COLOR} stopOpacity={0.28} />
+                      <stop offset="95%" stopColor={MOM_CURRENT_COLOR} stopOpacity={0.02} />
+                    </linearGradient>
+                    <linearGradient id="forecastTrendFill" x1="0" x2="0" y1="0" y2="1">
+                      <stop offset="5%" stopColor={FORECAST_REMAINDER_COLOR} stopOpacity={0.22} />
+                      <stop offset="95%" stopColor={FORECAST_REMAINDER_COLOR} stopOpacity={0.02} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid stroke={TREND_GRID_COLOR} vertical={false} />
+                  <XAxis dataKey="day" tickLine={false} axisLine={false} fontSize={11} interval="preserveStartEnd" minTickGap={18} tick={{ fill: "hsl(var(--muted-foreground))" }} />
+                  <YAxis
+                    tickFormatter={(v) => `${Math.round(Number(v) / 1_000_000)}tr`}
+                    tickLine={false}
+                    axisLine={false}
+                    width={44}
+                    fontSize={11}
+                    tick={{ fill: "hsl(var(--muted-foreground))" }}
+                  />
+                  <Tooltip
+                    cursor={{ stroke: "rgba(39,39,39,0.3)", strokeDasharray: "4 4" }}
+                    contentStyle={{ background: "#fdfdfc", border: 0, borderRadius: "14px", boxShadow: "0 18px 40px -20px rgba(0,0,0,.35)" }}
+                    formatter={(value, name) => [vnd(Number(value)), name === "ledger" ? "Ledger" : "Forecast"]}
+                    labelFormatter={(label) => `Ngày ${label}/${period.slice(5)}`}
+                    labelStyle={{ color: "#272727", fontWeight: 500 }}
+                  />
+                  <Area type="monotone" dataKey="forecast" stroke={FORECAST_REMAINDER_COLOR} strokeDasharray="5 5" strokeWidth={2} fill="url(#forecastTrendFill)" dot={false} activeDot={{ r: 4 }} />
+                  <Area
+                    type="monotone"
+                    dataKey="ledger"
+                    stroke={MOM_CURRENT_COLOR}
+                    strokeWidth={2.5}
+                    fill="url(#ledgerTrendFill)"
+                    connectNulls={false}
+                    dot={false}
+                    activeDot={{ r: 5, stroke: "#fdfdfc", strokeWidth: 2 }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="current"
+                    stroke={MOM_CURRENT_COLOR}
+                    strokeWidth={0}
+                    dot={{ r: 5, fill: "#29bf12", stroke: "#fdfdfc", strokeWidth: 3 }}
+                    legendType="none"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </ChartContainer>
+          </div>
+        </section>
+      </div>
 
-                    <div className="min-w-0 flex-1 divide-y divide-border/60">
-                      {byChannel.map((row, index) => {
-                        const pct =
-                          stats.total > 0
-                            ? ((row.revenue / stats.total) * 100).toFixed(1)
-                            : "0.0";
-                        const color = getChannelColor(row.key, index);
+      <div className="d3-rv-g2 is-wide-left">
+        {/* Customers / NPP as compact rows with a month sparkline (demo "Điểm bán"). */}
+        <section className="d3-rv-card" style={{ ["--i" as string]: 6 }} data-bmq-revenue-customers>
+          <div className="d3-rv-card-h">
+            <h2>Doanh thu theo customer / NPP</h2>
+            <span className="d3-rv-pill">{figure(String(byCustomer.length))}</span>
+            <p>Sắp xếp theo doanh thu hiện tại; khách chỉ có kỳ trước nằm cuối danh sách. Chạm một dòng để xem source lines, PO trace và audit.</p>
+          </div>
+          {isLoading ? (
+            <div className="d3-rv-empty"><Loader2 className="h-6 w-6 animate-spin" /></div>
+          ) : error ? (
+            <div className="d3-rv-empty">—</div>
+          ) : byCustomer.length === 0 ? (
+            <div className="d3-rv-empty">Chưa có dữ liệu doanh thu cho kỳ này.</div>
+          ) : (
+            <>
+              <div className="d3-rv-rows">
+                {visibleCustomers.map((row, index) => {
+                  let running = 0;
+                  const cumulative = row.daily.slice(0, Math.max(forecast.cutoffDay, 1)).map((value) => (running += value));
+                  const peak = Math.max(1, ...cumulative);
+                  const points = cumulative
+                    .map((value, i) => `${cumulative.length <= 1 ? 50 : (i / (cumulative.length - 1)) * 100},${28 - (value / peak) * 24}`)
+                    .join(" ");
+                  const source = row.sourceTypes.size > 0 ? sourceTypeLabel[Array.from(row.sourceTypes)[0]] || Array.from(row.sourceTypes)[0] : "Kỳ trước";
+                  return (
+                    <button
+                      key={row.key}
+                      type="button"
+                      className="d3-rv-trow"
+                      style={{ ["--dl" as string]: `${200 + Math.min(index, 10) * 60}ms` }}
+                      onClick={() => openSources({ customer_key: row.key })}
+                      aria-label={`${row.name}: Chi tiết`}
+                    >
+                      <span className="d3-rv-trow-name">
+                        <b>{row.name}</b>
+                        <small>{row.rows} lines · {numberFmt(row.qty)} qty</small>
+                      </span>
+                      <span className="d3-rv-pill is-sm">{source}</span>
+                      <svg className="d3-rv-spark" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true">
+                        <polyline points={points} stroke={row.delta >= 0 ? "#29bf12" : "#f4442e"} />
+                      </svg>
+                      <span className="d3-rv-num" title={vnd(row.revenue)}>{millions(row.revenue)}<small>tr</small></span>
+                      <span className={row.pct === null ? "d3-rv-na" : row.delta >= 0 ? "d3-rv-up" : "d3-rv-dn"}>
+                        {row.pct === null ? "N/A" : `${row.pct >= 0 ? "+" : ""}${numberFmt(row.pct)}%`}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              {byCustomer.length > 8 ? (
+                <button type="button" className="d3-rv-more" onClick={() => setShowAllCustomers((value) => !value)}>
+                  {showAllCustomers ? "Thu gọn" : `Xem tất cả ${byCustomer.length} customer/NPP`}
+                </button>
+              ) : null}
+            </>
+          )}
+        </section>
 
-                        return (
-                          <div
-                            key={row.key}
-                            className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center"
-                          >
-                            <div className="flex min-w-0 flex-1 items-center gap-3">
-                              <span
-                                className="h-2.5 w-2.5 shrink-0 rounded-full"
-                                style={{ background: color }}
-                              />
-                              <div className="min-w-0 flex-1">
-                                <div className="truncate text-sm font-medium text-foreground">
-                                  {row.label}
-                                </div>
-                                <div className="truncate text-xs text-muted-foreground/80">
-                                  {row.key}
-                                </div>
-                                <div className="text-xs text-muted-foreground/80">
-                                  {row.rows} rows · {numberFmt(row.qty)} qty
-                                </div>
-                              </div>
-                            </div>
-                            <div className="flex shrink-0 items-center justify-between gap-3 sm:justify-end">
-                              <div className="text-right">
-                                <div className="text-sm font-semibold tabular-nums text-primary">
-                                  {vnd(row.revenue)}
-                                </div>
-                                <div className="text-xs text-muted-foreground">
-                                  {pct}%
-                                </div>
-                              </div>
-                              <Button
-                                className="border border-border/70 bg-transparent text-foreground hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
-                                size="sm"
-                                variant="outline"
-                                onClick={() =>
-                                  openSources({ channel: row.key })
-                                }
-                              >
-                                Chi tiết
-                              </Button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
-      )}
+        <section className="d3-rv-card" style={{ ["--i" as string]: 7 }} data-bmq-revenue-channels>
+          <div className="d3-rv-card-h">
+            <h2>Doanh thu theo kênh</h2>
+            <p>Tỷ trọng revenue của từng kênh trong ledger đã kiểm soát. Chạm để mở chi tiết.</p>
+          </div>
+          {isLoading ? (
+            <div className="d3-rv-empty"><Loader2 className="h-6 w-6 animate-spin" /></div>
+          ) : error ? (
+            <div className="d3-rv-empty">—</div>
+          ) : byChannel.length === 0 ? (
+            <div className="d3-rv-empty">Chưa có dữ liệu kênh cho kỳ này.</div>
+          ) : (
+            <div className="d3-rv-chlist">
+              {byChannel.map((row, index) => {
+                const pct = stats.total > 0 ? (row.revenue / stats.total) * 100 : 0;
+                return (
+                  <button
+                    key={row.key}
+                    type="button"
+                    className="d3-rv-ch"
+                    style={{ ["--c" as string]: getChannelColor(row.key, index), ["--w" as string]: `${Math.max(pct, 2)}%` }}
+                    onClick={() => openSources({ channel: row.key })}
+                    aria-label={`${row.label}: Chi tiết`}
+                  >
+                    <span className="d3-rv-ch-name">
+                      <b>{row.label}</b>
+                      <small>{row.rows} rows · {numberFmt(row.qty)} qty</small>
+                    </span>
+                    <span className="d3-rv-ch-val">
+                      <b title={vnd(row.revenue)}>{millions(row.revenue)}<small>tr</small></b>
+                      <small>{numberFmt(pct)}%</small>
+                    </span>
+                    <i aria-hidden="true" />
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      </div>
     </div>
   );
 }
