@@ -82,15 +82,20 @@ const INBOX = [0, 1].flatMap((offset) => {
   ];
 });
 const ORDERS = [
-  { id: "ord-1", production_number: "SX-Q7-0301", status: "planned", po_number: "KFM-PO-1190", customer_name: "KingFoodMart", planned_start_date: vnDay(0), planned_end_date: vnDay(0), items_count: 2, revenue_draft_id: null, location_code: "Q7", created_at: nowIso },
-  { id: "ord-2", production_number: "SX-Q7-0300", status: "completed", po_number: "NPP-BT-80", customer_name: "NPP Bình Tân", planned_start_date: vnDay(1), planned_end_date: vnDay(1), items_count: 1, revenue_draft_id: null, location_code: "Q7", created_at: nowIso },
+  { id: "ord-1", production_number: "SX-Q7-0301", status: "planned", po_number: "KFM-PO-1190", customer_name: "KingFoodMart", planned_start_date: vnDay(0), planned_end_date: vnDay(0), items_count: 2, revenue_draft_id: null, location_code: "Q7", created_at: nowIso,
+    items: [{ id: "oi-1", product_name: "Bánh mì que pate", planned_qty: 1800, ordered_qty: 1800, unit: "que", delivery_date: vnDay(0) }, { id: "oi-2", product_name: "Bánh mì que bơ sữa", planned_qty: 900, ordered_qty: 900, unit: "que", delivery_date: vnDay(0) }] },
+  { id: "ord-2", production_number: "SX-Q7-0300", status: "completed", po_number: "NPP-BT-80", customer_name: "NPP Bình Tân", planned_start_date: vnDay(1), planned_end_date: vnDay(1), items_count: 1, revenue_draft_id: null, location_code: "Q7", created_at: nowIso,
+    items: [{ id: "oi-3", product_name: "Bánh mì que xá xíu", planned_qty: 600, ordered_qty: 600, unit: "que", delivery_date: vnDay(1) }] },
+  { id: "ord-3", production_number: "SX-Q7-0302", status: "planned", po_number: "KFM-PO-1203", customer_name: "KingFoodMart", planned_start_date: vnDay(-1), planned_end_date: vnDay(-1), items_count: 1, revenue_draft_id: null, location_code: "Q7", created_at: nowIso,
+    items: [{ id: "oi-4", product_name: "Bánh mì que pate", planned_qty: 2100, ordered_qty: 2100, unit: "que", delivery_date: vnDay(-1) }] },
 ];
 function fixtureRows(st) {
   if (st.table === "payment_requests") return PRS;
   if (st.table === "product_skus") return SKUS;
   if (st.table === "production_location_sku_settings") return SKUS.map((sku) => ({ sku_id: sku.id, is_enabled: true }));
   if (st.table === "customer_po_inbox") return INBOX;
-  if (st.table === "production_orders") return ORDERS;
+  if (st.table === "production_orders") return ORDERS.map(({ items, ...order }) => order);
+  if (st.table === "production_order_items") return ORDERS.flatMap((order) => (order.items || []).map((item) => ({ ...item, production_order_id: order.id, created_at: nowIso })));
   if (st.table === "revenue_ledger_lines") {
     const rows = [];
     // The ledger lags: no figures for today and yesterday.
@@ -294,15 +299,20 @@ try {
       await page.waitForTimeout(1500);
       assert.equal(await activeTab(page), "Sản xuất");
       // Every KFM entry point is still on the page.
+      assert.equal(await page.locator("[data-bmq-production-layout='demo3-v2']").count(), 1, "demo 3 layout");
       for (const label of ["Thiết lập SX", "Kiểm tra PO", "Cổng KFM", "Màn hình TV", "Tạo kế hoạch SX"]) {
         assert.ok((await page.getByRole("button", { name: label }).count()) + (await page.getByRole("link", { name: label }).count()) > 0, `${label} present (${data} ${viewport.width})`);
       }
       if (data === "populated") {
         const products = await page.$$eval(".d3-pp-prod h3", (els) => els.map((el) => el.textContent));
         assert.ok(products.length >= 2, `products listed: ${products}`);
-        assert.ok((await page.locator(".d3-pp-kpi strong").first().textContent()).trim() !== "0", "planned qty shown");
+        assert.equal(await page.locator(".d3-pp-bead").count(), 21, "bead gauge drawn");
+        assert.ok(await page.locator(".d3-pp-bead.is-on").count() > 1, "gauge reflects ordered share");
+        assert.ok(!(await page.locator(".d3-pp-big").textContent()).startsWith("0"), "ordered share above 0 with real order items");
+        assert.equal(await page.locator(".d3-pp-step").count(), 4, "flow steps");
+        assert.equal(await page.locator(".d3-pp-grp").count(), 3, "next 3 days");
         assert.ok(await page.locator(".d3-pp-row", { hasText: "NPP-BT" }).count() > 0, "other PO row listed");
-        assert.equal(await page.locator(".d3-pp-order").count(), 2, "orders listed");
+        assert.equal(await page.locator(".d3-pp-order").count(), 3, "orders listed");
       }
       if (data === "error") assert.equal(await page.locator("[data-kfm-pending-error='v1']").count(), 1, "PO read error shown, not empty");
       if (data === "empty") assert.ok((await page.locator(".d3-pp").textContent()).includes("Chưa có PO chờ sản xuất"), "empty message");
@@ -323,7 +333,7 @@ try {
     await page.getByRole("button", { name: "Thiết lập SX", exact: true }).click();
     await page.waitForSelector("[data-stitch-production-settings]");
     await page.getByRole("button", { name: "Quay lại kế hoạch" }).click();
-    await page.waitForSelector(".d3-pp-kpis");
+    await page.waitForSelector(".d3-pp-dash");
     assert.deepEqual(await page.evaluate(() => window.__qaWrites.filter((w) => !w.startsWith("invoke:"))), []);
     assert.deepEqual(errors, []);
     record("settings round-trip, order expand, no writes");

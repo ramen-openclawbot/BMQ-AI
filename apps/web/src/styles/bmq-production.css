@@ -331,6 +331,102 @@ html.bmq-d3 .d3-pp-order-actions :is(button, a) { height: 40px; border-radius: 1
 .d3-pp-item strong { font: 200 24px/1 var(--d3-num); font-variant-numeric: tabular-nums; }
 .d3-pp-item em { display: block; font-style: normal; font-size: 11px; color: #1f9a0f; }
 
+
+/* ---------- Demo 3 dashboard (hero beads + side + row of three) ---------- */
+.d3-pp-dash { display: grid; grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); gap: 14px; }
+.d3-pp-side { display: grid; gap: 14px; align-content: start; }
+.d3-pp-row3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+
+.d3-pp-pill.is-green::before, .d3-pp-pill.is-blue::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1.5px solid var(--d3-green);
+}
+.d3-pp-pill.is-blue::before { border-color: var(--d3-blue); }
+
+.d3-pp-beads-wrap { position: relative; max-width: 560px; margin: 4px auto 0; }
+.d3-pp-beads { display: block; width: 100%; height: auto; overflow: visible; }
+.d3-pp-bead-track { fill: none; stroke: #e4e4e1; stroke-width: 34; stroke-linecap: round; }
+/* Visible by default; the entrance animation only runs when motion is allowed. */
+.d3-pp-bead { transform-box: fill-box; transform-origin: center; animation: d3-pp-bead .45s var(--d3-ease) both; animation-delay: var(--dl); }
+.d3-pp-bead circle { fill: #cfcfcc; }
+.d3-pp-bead text { font: 400 8.5px var(--d3-num); fill: #fff; }
+.d3-pp-bead.is-on circle { fill: var(--d3-green); filter: drop-shadow(0 4px 8px rgba(41, 191, 18, .45)); }
+.d3-pp-bead-label { font: 300 10px var(--d3-sans); fill: var(--d3-dim); }
+@keyframes d3-pp-bead { from { opacity: 0; transform: scale(.3); } to { opacity: 1; transform: none; } }
+
+.d3-pp-bead-center { position: absolute; left: 0; right: 0; bottom: 4%; display: flex; flex-direction: column; align-items: center; }
+.d3-pp-big { position: relative; font: 100 84px/1 var(--d3-num); letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
+.d3-pp-dot { display: inline-block; width: 9px; height: 9px; margin-left: 3px; border-radius: 50%; background: var(--d3-green); }
+.d3-pp-sub { margin-top: 4px; font-size: 11.5px; color: var(--d3-dim); text-align: center; }
+
+.d3-pp-trio { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.d3-pp-trio > div { display: flex; flex-direction: column; gap: 4px; padding: 12px; border-radius: 13px; background: var(--d3-white); }
+.d3-pp-trio strong { font: 100 38px/1 var(--d3-num); letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.d3-pp-trio small { font-size: 11px; color: var(--d3-dim); }
+.d3-pp-trio .is-warn strong { color: var(--d3-red); }
+.d3-pp-trio .is-live strong { color: #1f9a0f; }
+
+.d3-pp-tv { display: flex; align-items: center; gap: 16px; }
+.d3-pp-tv-ring {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 76px;
+  height: 76px;
+  border: 6px solid var(--d3-red);
+  border-radius: 50%;
+  background: var(--d3-white);
+  color: var(--d3-ink);
+  transition: transform .3s var(--d3-ease);
+}
+.d3-pp-tv-ring:hover { transform: scale(1.04); }
+.d3-pp-tv strong { display: block; font: 100 38px/1 var(--d3-num); }
+.d3-pp-tv small { display: block; font-size: 11px; color: var(--d3-dim); }
+
+.d3-pp-steps { display: flex; flex-direction: column; gap: 8px; }
+.d3-pp-step {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--d3-white);
+  font-size: 12.5px;
+  animation: d3-pp-rise .5s var(--d3-ease) both;
+  animation-delay: var(--dl);
+}
+.d3-pp-step i { display: grid; place-items: center; width: 22px; height: 22px; border: 1.5px solid var(--d3-line-2); border-radius: 50%; color: #fff; }
+.d3-pp-step.is-done i { background: var(--d3-green); border-color: var(--d3-green); }
+.d3-pp-step.is-now { background: linear-gradient(90deg, #c9f2bf, var(--d3-white) 70%); }
+.d3-pp-step.is-now i { border-color: var(--d3-green); animation: d3-pp-halo 1.6s infinite; }
+.d3-pp-step small { font: 400 13px var(--d3-num); color: var(--d3-ink-2); }
+@keyframes d3-pp-halo { 0% { box-shadow: 0 0 0 0 rgba(41, 191, 18, .5); } 80% { box-shadow: 0 0 0 9px rgba(41, 191, 18, 0); } }
+
+.d3-pp-grp { padding: 12px 0; border-top: 1px solid var(--d3-line); }
+.d3-pp-grp:first-of-type { border-top: 0; }
+.d3-pp-grp-label { font-size: 11.5px; font-weight: 500; }
+.d3-pp-grp p { margin: 2px 0 8px; font-size: 12px; color: var(--d3-ink-2); }
+.d3-pp-grp-track { display: flex; align-items: center; gap: 10px; }
+.d3-pp-grp-track .d3-pp-track { flex: 1; }
+.d3-pp-grp-track small { font: 300 11px var(--d3-num); color: var(--d3-dim); white-space: nowrap; }
+
+@media (max-width: 1180px) {
+  .d3-pp-dash { grid-template-columns: minmax(0, 1fr); }
+  .d3-pp-side { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .d3-pp-row3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .d3-pp-row3 > :last-child { grid-column: 1 / -1; }
+}
+
+@media (max-width: 760px) {
+  .d3-pp-side, .d3-pp-row3 { grid-template-columns: minmax(0, 1fr); }
+  .d3-pp-big { font-size: 64px; }
+  .d3-pp-trio strong, .d3-pp-tv strong { font-size: 32px; }
+}
+
 @keyframes d3-pp-rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
 @keyframes d3-pp-fill { from { transform: scaleX(0); } }
 
