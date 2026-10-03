@@ -52,6 +52,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Link } from "react-router-dom";
 import { isFinishedSku } from "@/lib/skuType";
 import KfmPoIntake, { type KfmAwaitingSetupPo, type KfmIntakeOutcome } from "@/components/production/KfmPoIntake";
+import "@/styles/bmq-production.css";
 
 interface ProductionItem {
   product_name: string;
@@ -1177,72 +1178,60 @@ export default function ProductionPlanning() {
   const pendingPosEmpty = !loadingPos && visiblePendingPos.length === 0;
   const ordersEmpty = !loadingOrders && productionOrders.length === 0;
 
+  const maxPlanQty = Math.max(1, ...aggregatedPlanItems.map((item) => item.qty));
+  const otherPendingPos = visiblePendingPos.filter((po) => !isPortalPo(po));
+  const deliveryLabel = formatDateOnly(productionPoDateIso);
+
   return (
-    <div className="-m-3 min-h-screen min-w-0 space-y-5 bg-background p-3 text-foreground sm:-m-4 sm:p-4 md:-m-6 md:p-6" data-stitch-production-planning="bmq-light-operations">
-      <div className="card-elevated rounded-[1.5rem] p-4 md:p-5" data-stitch-production-header="true">
-        <div className="flex min-w-0 flex-col gap-4" data-bmq-q7-header="v2">
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge className="w-fit rounded-full bg-primary/10 text-primary hover:bg-primary/10">
-                {isVi ? "PO từ portal KFM" : "POs from KFM portal"}
-              </Badge>
-              <Badge variant="outline" className="w-fit rounded-full border-border/70 bg-card/70 text-muted-foreground">
-                <CalendarDays className="mr-1 h-3.5 w-3.5" />
-                {isVi ? `Ngày giao ${formatDateOnly(productionPoDateIso)}` : `Delivery ${formatDateOnly(productionPoDateIso)}`}
-              </Badge>
-            </div>
-            <div>
-              <h1 className="font-display text-3xl font-extrabold tracking-tight text-foreground md:text-4xl">
-                {isVi ? "Kế hoạch sản xuất - Xưởng Q7" : "Q7 Workshop Production Plan"}
-              </h1>
-              <p className="mt-1 max-w-3xl text-sm font-medium text-muted-foreground md:text-base">
-                {isVi ? "Tổng hợp PO, SKU và số lượng cần sản xuất theo ngày giao." : "Summarize POs, SKUs, and production quantities by delivery date."}
-              </p>
-            </div>
-          </div>
-          <div className="grid min-w-0 grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+    <div className="d3-pp min-w-0" data-stitch-production-planning="bmq-light-operations">
+      <header className="d3-pp-head" data-stitch-production-header="true" data-bmq-q7-header="v2">
+        <div className="d3-pp-titles">
+          <span className="d3-pp-tag">
+            {isVi ? `Xưởng Q7 · PO từ portal KFM · Ngày giao ${deliveryLabel}` : `Q7 workshop · KFM portal POs · Delivery ${deliveryLabel}`}
+          </span>
+          <h1>
             {activeTab === "settings" ? (
-              <Button
-                variant="outline"
-                size="lg"
-                className="h-12 rounded-2xl border-primary/30 bg-card/80 text-base font-bold text-primary hover:bg-primary/10 hover:text-primary"
-                onClick={() => setActiveTab("plan")}
-              >
-                <ArrowLeft className="mr-2 h-5 w-5" />
-                {isVi ? "Quay lại kế hoạch" : "Back to plan"}
-              </Button>
+              <>{isVi ? "Thiết lập " : "Production "}<b>{isVi ? "SKU sản xuất" : "SKU setup"}</b></>
             ) : (
               <>
-                <Button
-                  variant="outline"
-                  size="lg"
-                  className="h-12 rounded-2xl border-border bg-card/80 text-base text-foreground hover:bg-muted"
-                  onClick={() => setActiveTab("settings")}
-                >
-                  {isVi ? "Thiết lập SX" : "Production setup"}
-                </Button>
-                <KfmPoIntake canDecide={canEditLocation} isVi={isVi} paused={createDialogOpen || !!editingOrder || !!deleteOrder || tvModeOpen} onImported={handlePortalImported} awaitingSetup={awaitingSetupPos} awaitingSetupLoading={loadingPos} awaitingSetupError={pendingPosError} onRefreshAwaitingSetup={refreshPendingPos} />
-                <Button asChild variant="outline" size="lg" className="h-12 rounded-2xl border-border bg-card/80 text-base text-foreground hover:bg-muted" data-kfm-portal-entry="v2">
-                  <Link to="/production/planning/q7/kfm"><Truck className="mr-2 h-5 w-5" />{isVi ? "Cổng KFM" : "KFM portal"}</Link>
-                </Button>
-                <Button variant="outline" size="lg" className="h-12 rounded-2xl border-border bg-card/80 text-base text-foreground hover:bg-muted" onClick={handleOpenTvMode}>
-                  <Monitor className="mr-2 h-5 w-5" />
-                  {isVi ? "Màn hình TV" : "TV View"}
-                </Button>
-                <Button
-                  size="lg"
-                  className="btn-gradient h-12 rounded-2xl text-base font-black"
-                  disabled={!canEditLocation || visiblePendingPos.length === 0}
-                  onClick={() => visiblePendingPos[0] && handleCreateClick(visiblePendingPos[0])}
-                >
-                  <ClipboardCheck className="mr-2 h-5 w-5" />
-                  {isVi ? "Tạo kế hoạch SX" : "Create plan"}
-                </Button>
+                {isVi ? "Cần sản xuất " : "To produce "}
+                <b>{loadingPos ? "…" : pendingPosError ? "—" : stats.plannedQty.toLocaleString("vi-VN")}</b>
+                {isVi ? ` cho ngày giao ${deliveryLabel}` : ` for ${deliveryLabel}`}
               </>
             )}
-          </div>
+          </h1>
+          <p>{isVi ? "Kế hoạch sản xuất Xưởng Q7: tổng hợp PO, SKU và số lượng theo ngày giao." : "Q7 production plan: POs, SKUs and quantities by delivery date."}</p>
         </div>
-      </div>
+        <div className="d3-pp-actions sm:flex sm:flex-wrap">
+          {activeTab === "settings" ? (
+            <Button variant="outline" onClick={() => setActiveTab("plan")}>
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              {isVi ? "Quay lại kế hoạch" : "Back to plan"}
+            </Button>
+          ) : (
+            <>
+              <Button variant="outline" onClick={() => setActiveTab("settings")}>
+                {isVi ? "Thiết lập SX" : "Production setup"}
+              </Button>
+              <KfmPoIntake canDecide={canEditLocation} isVi={isVi} paused={createDialogOpen || !!editingOrder || !!deleteOrder || tvModeOpen} onImported={handlePortalImported} awaitingSetup={awaitingSetupPos} awaitingSetupLoading={loadingPos} awaitingSetupError={pendingPosError} onRefreshAwaitingSetup={refreshPendingPos} />
+              <Button asChild variant="outline" data-kfm-portal-entry="v2">
+                <Link to="/production/planning/q7/kfm"><Truck className="mr-2 h-4 w-4" />{isVi ? "Cổng KFM" : "KFM portal"}</Link>
+              </Button>
+              <Button variant="outline" onClick={handleOpenTvMode}>
+                <Monitor className="mr-2 h-4 w-4" />
+                {isVi ? "Màn hình TV" : "TV View"}
+              </Button>
+              <Button
+                disabled={!canEditLocation || visiblePendingPos.length === 0}
+                onClick={() => visiblePendingPos[0] && handleCreateClick(visiblePendingPos[0])}
+              >
+                <ClipboardCheck className="mr-2 h-4 w-4" />
+                {isVi ? "Tạo kế hoạch SX" : "Create plan"}
+              </Button>
+            </>
+          )}
+        </div>
+      </header>
 
       {activeTab === "settings" ? (
         <Card className="card-elevated rounded-[1.5rem]" data-stitch-production-settings="true">
@@ -1321,394 +1310,263 @@ export default function ProductionPlanning() {
         </Card>
       ) : (
         <>
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4" data-stitch-production-metrics="true">
-        <Card className="stat-card p-0">
-          <CardHeader className="space-y-1 p-4">
-            <CardDescription className="flex items-center gap-1.5 text-sm font-semibold text-muted-foreground"><Package className="h-4 w-4" />{isVi ? "Tổng cần sản xuất" : "Planned quantity"}</CardDescription>
-            <CardTitle className="text-4xl font-black tracking-tight text-foreground">
-              {loadingPos ? <Loader2 className="h-7 w-7 animate-spin" /> : stats.plannedQty.toLocaleString("vi-VN")}
-            </CardTitle>
-          </CardHeader>
-        </Card>
-        <Card className="stat-card p-0">
-          <CardHeader className="space-y-1 p-4">
-            <CardDescription className="text-sm font-semibold text-muted-foreground">{isVi ? "SKU cần sản xuất" : "Production SKUs"}</CardDescription>
-            <CardTitle className="text-4xl font-black text-foreground">{stats.plannedSkuCount}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card className="stat-card p-0 before:bg-warning">
-          <CardHeader className="space-y-1 p-4">
-            <CardDescription className="text-sm font-semibold text-warning-foreground">{isVi ? "PO chờ lập SX" : "POs awaiting production setup"}</CardDescription>
-            <CardTitle className="text-4xl font-black text-warning-foreground">{loadingPos ? "..." : pendingPosError ? "—" : stats.pendingPos}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card className="stat-card p-0 before:bg-success">
-          <CardHeader className="space-y-1 p-4">
-            <CardDescription className="text-sm font-semibold text-muted-foreground">{isVi ? "Đang sản xuất" : "In progress"}</CardDescription>
-            <CardTitle className="text-4xl font-black text-success">{stats.inProgressOrders}</CardTitle>
-          </CardHeader>
-        </Card>
+      <div className="d3-pp-kpis" data-stitch-production-metrics="true">
+        <div className="d3-pp-kpi" style={{ ["--i" as string]: 0 }}>
+          <span><Package className="h-4 w-4" />{isVi ? "Tổng cần sản xuất" : "Planned quantity"}</span>
+          <strong>{loadingPos ? <Loader2 className="h-7 w-7 animate-spin" /> : pendingPosError ? "—" : stats.plannedQty.toLocaleString("vi-VN")}</strong>
+          <small>{isVi ? "theo PO đã khớp SKU" : "from matched POs"}</small>
+        </div>
+        <div className="d3-pp-kpi" style={{ ["--i" as string]: 1 }}>
+          <span>{isVi ? "SKU cần sản xuất" : "Production SKUs"}</span>
+          <strong>{loadingPos ? "…" : pendingPosError ? "—" : stats.plannedSkuCount}</strong>
+          <small>{isVi ? "mặt hàng" : "items"}</small>
+        </div>
+        <div className={`d3-pp-kpi${stats.pendingPos > 0 ? " is-warn" : ""}`} style={{ ["--i" as string]: 2 }}>
+          <span>{isVi ? "PO chờ lập SX" : "POs awaiting setup"}</span>
+          <strong>{loadingPos ? "…" : pendingPosError ? "—" : stats.pendingPos}</strong>
+          <small>{isVi ? "cần xác nhận" : "to confirm"}</small>
+        </div>
+        <div className="d3-pp-kpi is-live" style={{ ["--i" as string]: 3 }}>
+          <span>{isVi ? "Đang sản xuất" : "In progress"}</span>
+          <strong>{loadingOrders ? "…" : stats.inProgressOrders}</strong>
+          <small>{isVi ? "lệnh sản xuất" : "orders"}</small>
+        </div>
       </div>
 
-      {portalPosAwaitingSetup.length > 0 && <section className="space-y-3 rounded-2xl border border-primary/20 bg-card p-4" data-kfm-production-resume="v1">
-        <h2 className="font-bold">{isVi ? "PO KFM đã xác nhận · Chờ thiết lập SX" : "Confirmed KFM POs · Production setup pending"}</h2>
-        <p className="text-sm text-muted-foreground">{isVi ? "Giữ lại cả đơn giao ngày tới. Tiếp tục ở đây nếu đã đóng bước thiết lập hoặc chưa khớp SKU." : "Includes future deliveries. Continue here after closing setup or resolving SKU mappings."}</p>
-        {portalPosAwaitingSetup.map((po) => <div key={po.id} className="flex min-w-0 flex-col gap-3 rounded-xl border p-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0 break-words"><p className="font-mono font-semibold">{po.po_number}</p><p className="text-sm text-muted-foreground">{formatDateOnly(po.delivery_date)} · {po.production_items?.length || 0} {isVi ? "dòng sản phẩm" : "items"}</p></div>
-          <Button variant="outline" className="min-h-11 shrink-0" disabled={!canEditLocation || loadingSkus || loadingLocationSettings} onClick={() => handleCreateClick(po)}>{isVi ? "Tiếp tục thiết lập SX" : "Continue production setup"}</Button>
-        </div>)}
+      {portalPosAwaitingSetup.length > 0 && <section className="d3-pp-card" data-kfm-production-resume="v1">
+        <div className="d3-pp-card-h">
+          <h2>{isVi ? "PO KFM đã xác nhận · Chờ thiết lập SX" : "Confirmed KFM POs · Production setup pending"}</h2>
+          <p>{isVi ? "Giữ lại cả đơn giao ngày tới. Tiếp tục ở đây nếu đã đóng bước thiết lập hoặc chưa khớp SKU." : "Includes future deliveries. Continue here after closing setup or resolving SKU mappings."}</p>
+        </div>
+        <div className="d3-pp-rows">
+          {portalPosAwaitingSetup.map((po) => <div key={po.id} className="d3-pp-row">
+            <div className="min-w-0"><b className="font-mono">{po.po_number}</b><small>{formatDateOnly(po.delivery_date)} · {po.production_items?.length || 0} {isVi ? "dòng sản phẩm" : "items"}</small></div>
+            <Button variant="outline" className="min-h-11 shrink-0" disabled={!canEditLocation || loadingSkus || loadingLocationSettings} onClick={() => handleCreateClick(po)}>{isVi ? "Tiếp tục thiết lập SX" : "Continue production setup"}</Button>
+          </div>)}
+        </div>
       </section>}
 
-      <div className="grid min-w-0 grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <section className="min-w-0 space-y-4">
-          <div className="card-elevated overflow-hidden rounded-[1.5rem]" data-stitch-production-po-check="true">
-            <div className="flex flex-col gap-3 border-b border-border/60 bg-card/50 px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <h2 className="flex items-center gap-2 text-xl font-black tracking-tight text-foreground md:text-2xl">
-                  <ClipboardCheck className="h-6 w-6 text-primary" />
-                  {isVi ? "Thiết lập SX & Kiểm tra PO" : "Production setup & PO check"}
-                </h2>
-                <p className="mt-1 font-semibold text-muted-foreground">
-                  {isVi ? "PO mới từ KFM được hiển thị để duyệt; xác nhận trên portal trước khi lập lệnh SX." : "Review new KFM POs; confirm on the portal before creating production orders."}
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Badge variant="outline" className="w-fit rounded-full border-border bg-card px-3 py-1 text-sm text-muted-foreground">
-                  {isVi ? `Ngày giao ${formatDateOnly(productionPoDateIso)}` : formatDateOnly(productionPoDateIso)}
-                </Badge>
-                {stats.pendingPos > 0 && (
-                  <Badge className="w-fit rounded-full bg-warning px-3 py-1 text-sm text-warning-foreground hover:bg-warning">
-                    {isVi ? `Còn ${stats.pendingPos} PO chờ lập SX` : `${stats.pendingPos} POs awaiting setup`}
-                  </Badge>
-                )}
-              </div>
+      <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <section className="d3-pp-card" data-stitch-production-po-check="true" style={{ ["--i" as string]: 1 }}>
+          <span className="d3-pp-glow" aria-hidden="true" />
+          <div className="d3-pp-card-h">
+            <h2>{isVi ? "Theo sản phẩm" : "By product"}</h2>
+            <div className="flex flex-wrap gap-2">
+              <span className="d3-pp-pill"><CalendarDays className="h-3.5 w-3.5" />{isVi ? `Ngày giao ${deliveryLabel}` : deliveryLabel}</span>
+              {stats.pendingPos > 0 && <span className="d3-pp-pill is-warn">{isVi ? `Còn ${stats.pendingPos} PO chờ lập SX` : `${stats.pendingPos} POs awaiting setup`}</span>}
             </div>
-
-            {loadingPos ? (
-              <div className="flex min-h-[320px] items-center justify-center bg-card/40">
-                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-              </div>
-            ) : pendingPosError ? (
-              <div role="alert" className="flex min-h-[320px] flex-col items-center justify-center bg-card/40 p-8 text-center" data-kfm-pending-error="v1">
-                <AlertCircle className="mb-3 h-14 w-14 text-destructive" />
-                <h3 className="text-xl font-bold text-foreground">{isVi ? "Không đọc được danh sách PO" : "Could not load POs"}</h3>
-                <p className="mt-1 max-w-md text-muted-foreground">
-                  {isVi ? "Đây chưa phải là “không có PO”. Kiểm tra kết nối rồi thử lại." : "This is not “no POs”. Check the connection and retry."}
-                </p>
-                <Button variant="outline" className="mt-4 min-h-11" onClick={() => void refetchPendingPos()}>{isVi ? "Thử lại" : "Try again"}</Button>
-              </div>
-            ) : pendingPosEmpty ? (
-              <div className="flex min-h-[320px] flex-col items-center justify-center bg-card/40 p-8 text-center">
-                <Package className="mb-3 h-14 w-14 text-muted-foreground" />
-                <h3 className="text-xl font-bold text-foreground">{isVi ? "Chưa có PO chờ sản xuất cho ngày giao này" : "No POs awaiting production for this delivery date"}</h3>
-                <p className="mt-1 max-w-md text-muted-foreground">
-                  {isVi ? "PO đã xác nhận và khớp SKU sẽ hiện ở đây theo ngày giao." : "Confirmed POs with matched SKUs appear here by delivery date."}
-                </p>
-              </div>
-            ) : (
-              <>
-                <div className="hidden overflow-x-auto lg:block" data-stitch-production-table="true">
-                  <table className="w-full min-w-[800px] border-collapse text-left text-sm">
-                    <thead className="sticky top-0 z-10 border-b border-border bg-muted/80 text-xs uppercase text-muted-foreground backdrop-blur">
-                      <tr>
-                        <th className="px-4 py-3 font-bold">{isVi ? "SKU / Thành phẩm" : "SKU / Product"}</th>
-                        <th className="px-4 py-3 text-right font-bold">{isVi ? "SL từ PO" : "PO qty"}</th>
-                        <th className="px-4 py-3 text-right font-bold text-primary">{isVi ? "Cần sản xuất" : "To produce"}</th>
-                        <th className="px-4 py-3 font-bold">{isVi ? "Đơn vị" : "Unit"}</th>
-                        <th className="px-4 py-3 text-center font-bold">{isVi ? "PO liên quan" : "Related POs"}</th>
-                        <th className="px-4 py-3 font-bold">{isVi ? "Trạng thái" : "Status"}</th>
-                        <th className="px-4 py-3 font-bold">{isVi ? "Nguồn" : "Source"}</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border/60 bg-card/35">
-                      {aggregatedPlanItems.map((item) => (
-                        <tr key={item.key} className="h-[52px] transition hover:bg-muted/55">
-                          <td className="min-w-[260px] px-4 py-3">
-                            <div className="font-black text-foreground">{item.product_name}</div>
-                            <div className="text-xs font-semibold text-muted-foreground">{formatDate(item.earliestDate)}</div>
-                          </td>
-                          <td className="px-4 py-3 text-right font-semibold text-foreground">{item.qty.toLocaleString("vi-VN")}</td>
-                          <td className="bg-primary/5 px-4 py-3 text-right text-lg font-black text-primary">{item.qty.toLocaleString("vi-VN")}</td>
-                          <td className="px-4 py-3 font-semibold text-muted-foreground">{item.unit}</td>
-                          <td className="px-4 py-3 text-center"><Badge variant="outline" className="rounded-full border-primary/30 bg-primary/5 text-primary">{item.poCount} PO</Badge></td>
-                          <td className="px-4 py-3"><Badge className="rounded-md bg-success/12 text-success hover:bg-success/12"><CheckCircle className="mr-1 h-3.5 w-3.5" />{isVi ? "Sẵn sàng SX" : "Ready"}</Badge></td>
-                          <td className="max-w-[220px] truncate px-4 py-3 text-xs font-semibold text-muted-foreground">{item.sourceNames.slice(0, 2).join(" · ")}{item.channelCount > 2 ? ` · +${item.channelCount - 2}` : ""}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="grid gap-2.5 p-3 md:grid-cols-2 lg:hidden">
-                  {aggregatedPlanItems.map((item, index) => (
-                    <article
-                      key={item.key}
-                      className="group flex min-h-[96px] items-center gap-3 rounded-[20px] border border-border/60 bg-card/70 p-3 shadow-card transition hover:border-primary/30 hover:bg-muted/45 md:min-h-[104px]"
-                    >
-                      <ProductVisual
-                        imageUrl={item.image_url}
-                        productName={item.product_name}
-                        className="h-[72px] w-[72px] shrink-0 rounded-[18px]"
-                        gradientClassName={productGradientClassNames[index % productGradientClassNames.length]}
-                      />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <h3 className="line-clamp-2 text-[14px] font-black leading-tight text-foreground md:text-[15px]">{item.product_name}</h3>
-                            <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-extrabold text-primary ring-1 ring-primary/15">
-                                {item.poCount} PO
-                              </span>
-                              <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-bold text-muted-foreground">
-                                {formatDate(item.earliestDate)}
-                              </span>
-                            </div>
-                          </div>
-                          <div className="shrink-0 text-right">
-                            <div className="text-[30px] font-black leading-none tracking-[-0.04em] text-primary md:text-[34px]">{item.qty.toLocaleString("vi-VN")}</div>
-                            <div className="mt-1 text-[10px] font-extrabold uppercase text-muted-foreground">{item.unit}</div>
-                          </div>
-                        </div>
-                        {item.sourceNames.length > 0 && (
-                          <p className="mt-2 truncate text-[10px] font-bold text-muted-foreground">
-                            {item.sourceNames.slice(0, 2).join(" · ")}{item.channelCount > 2 ? ` · +${item.channelCount - 2}` : ""}
-                          </p>
-                        )}
-                      </div>
-                    </article>
-                  ))}
-                </div>
-                <div className="flex items-center justify-between border-t border-border/60 bg-card/45 px-5 py-3 text-xs font-semibold text-muted-foreground">
-                  <span>{isVi ? `Hiển thị ${aggregatedPlanItems.length} SKU · 20 dòng/trang` : `Showing ${aggregatedPlanItems.length} SKUs · 20 rows/page`}</span>
-                  <span>{isVi ? "Dữ liệu từ PO đã parse" : "Data from parsed POs"}</span>
-                </div>
-              </>
-            )}
+            <p>{isVi ? "Thiết lập SX & Kiểm tra PO: PO mới từ KFM được duyệt trên portal trước khi lập lệnh SX." : "Production setup & PO check: confirm new KFM POs on the portal before creating orders."}</p>
           </div>
+
+          {loadingPos ? (
+            <div className="d3-pp-state"><Loader2 className="h-8 w-8 animate-spin" /></div>
+          ) : pendingPosError ? (
+            <div role="alert" className="d3-pp-state is-error" data-kfm-pending-error="v1">
+              <AlertCircle className="h-10 w-10" />
+              <h3>{isVi ? "Không đọc được danh sách PO" : "Could not load POs"}</h3>
+              <p>{isVi ? "Đây chưa phải là “không có PO”. Kiểm tra kết nối rồi thử lại." : "This is not “no POs”. Check the connection and retry."}</p>
+              <Button variant="outline" className="mt-2 min-h-11" onClick={() => void refetchPendingPos()}>{isVi ? "Thử lại" : "Try again"}</Button>
+            </div>
+          ) : pendingPosEmpty ? (
+            <div className="d3-pp-state">
+              <Package className="h-10 w-10" />
+              <h3>{isVi ? "Chưa có PO chờ sản xuất cho ngày giao này" : "No POs awaiting production for this delivery date"}</h3>
+              <p>{isVi ? "PO đã xác nhận và khớp SKU sẽ hiện ở đây theo ngày giao." : "Confirmed POs with matched SKUs appear here by delivery date."}</p>
+            </div>
+          ) : (
+            <>
+              <div className="d3-pp-products" data-stitch-production-table="true">
+                {aggregatedPlanItems.map((item, index) => (
+                  <article key={item.key} className="d3-pp-prod">
+                    <ProductVisual
+                      imageUrl={item.image_url}
+                      productName={item.product_name}
+                      className="h-[52px] w-[52px] rounded-[14px]"
+                      gradientClassName={productGradientClassNames[index % productGradientClassNames.length]}
+                    />
+                    <div className="min-w-0">
+                      <h3>{item.product_name}</h3>
+                      <p className="d3-pp-prod-meta">
+                        {item.poCount} PO · {formatDate(item.earliestDate)}
+                        {item.sourceNames.length > 0 ? ` · ${item.sourceNames.slice(0, 2).join(" · ")}${item.channelCount > 2 ? ` · +${item.channelCount - 2}` : ""}` : ""}
+                      </p>
+                      <div className="d3-pp-track" aria-hidden="true"><i style={{ ["--p" as string]: item.qty / maxPlanQty, ["--dl" as string]: `${300 + index * 90}ms` }} /></div>
+                    </div>
+                    <div className="d3-pp-qty">
+                      <strong>{item.qty.toLocaleString("vi-VN")}</strong>
+                      <small>{item.unit} · {isVi ? "Sẵn sàng SX" : "Ready"}</small>
+                    </div>
+                  </article>
+                ))}
+              </div>
+              <div className="d3-pp-foot">
+                <span>{isVi ? `${aggregatedPlanItems.length} SKU · thanh = tỷ lệ so với SKU nhiều nhất` : `${aggregatedPlanItems.length} SKUs · bar = share of the largest SKU`}</span>
+                <span>{isVi ? "Dữ liệu từ PO đã parse" : "Data from parsed POs"}</span>
+              </div>
+            </>
+          )}
         </section>
 
-        <aside className="min-w-0 space-y-4 xl:sticky xl:top-4 xl:self-start" data-stitch-production-insights="true">
-          <Card className="card-elevated rounded-[1.5rem]">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-xl font-black text-foreground">
-                <Paperclip className="h-5 w-5 text-primary" />
-                {isVi ? "PO khác chờ lập SX" : "Other POs awaiting setup"}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {visiblePendingPos.filter((po) => !isPortalPo(po)).length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-border bg-muted/35 p-4 text-sm font-semibold text-muted-foreground">
-                  {isVi
-                    ? "Chưa có PO nào còn đủ điều kiện xác nhận cho ngày giao này. PO chỉ hiện ở đây khi đã parse được thành phẩm, khớp SKU xưởng Q7 và chưa tạo lệnh sản xuất."
-                    : "No POs currently qualify for confirmation on this delivery date. POs appear here only after parsing production items, matching enabled Q7 SKUs, and before a production order is created."}
-                </div>
-              ) : (
-                <div className="grid min-w-0 grid-cols-1 gap-2">
-                  {visiblePendingPos.filter((po) => !isPortalPo(po)).slice(0, 6).map((po) => {
-                    const attachmentNames = getPoAttachmentNames(po);
-                    return (
-                      <button
-                        key={po.id}
-                        type="button"
-                        disabled={!canEditLocation}
-                        onClick={() => handleCreateClick(po)}
-                        className="w-full min-w-0 rounded-2xl border border-border/60 bg-card/70 p-3 text-left transition hover:border-primary/30 hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-55"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="truncate font-mono text-sm font-black text-foreground">{po.po_number}</div>
-                            <div className="truncate text-sm text-muted-foreground">{po.from_name}</div>
-                            <div className="text-xs text-muted-foreground">{formatDate(po.delivery_date)}</div>
-                          </div>
-                          <div className="shrink-0 rounded-xl bg-primary px-3 py-2 text-sm font-black text-primary-foreground">
-                            {isVi ? "Xác nhận" : "Confirm"}
-                          </div>
-                        </div>
-                        <div className="mt-3 flex flex-wrap gap-1.5">
-                          {attachmentNames.length > 0 ? (
-                            attachmentNames.slice(0, 4).map((fileName) => (
-                              <span
-                                key={fileName}
-                                role="button"
-                                tabIndex={0}
-                                title={isVi ? `Mở file PO thật: ${fileName}` : `Open original PO file: ${fileName}`}
-                                onClick={(event) => downloadPoAttachment(po, fileName, event)}
-                                onKeyDown={(event) => {
-                                  if (event.key === "Enter" || event.key === " ") void downloadPoAttachment(po, fileName, event as any);
-                                }}
-                                className="inline-flex max-w-full items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-2 py-1 text-[11px] font-bold text-primary ring-offset-background transition hover:border-primary/40 hover:bg-primary/15 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                              >
-                                <Paperclip className="h-3 w-3 shrink-0" />
-                                <span className="truncate">{fileName}</span>
-                                <Download className="h-3 w-3 shrink-0" />
-                              </span>
-                            ))
-                          ) : (
-                            <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-1 text-[11px] font-bold text-muted-foreground">
-                              <Paperclip className="h-3 w-3" />
-                              {isVi ? "Không có file PO" : "No PO file"}
+        <aside className="min-w-0 space-y-4" data-stitch-production-insights="true">
+          <section className="d3-pp-card" style={{ ["--i" as string]: 2 }}>
+            <div className="d3-pp-card-h">
+              <h2>{isVi ? "PO khác chờ lập SX" : "Other POs awaiting setup"}</h2>
+            </div>
+            {otherPendingPos.length === 0 ? (
+              <div className="d3-pp-empty-note">
+                {isVi
+                  ? "Chưa có PO nào còn đủ điều kiện xác nhận cho ngày giao này. PO chỉ hiện ở đây khi đã parse được thành phẩm, khớp SKU xưởng Q7 và chưa tạo lệnh sản xuất."
+                  : "No POs currently qualify for confirmation on this delivery date. POs appear here only after parsing production items, matching enabled Q7 SKUs, and before a production order is created."}
+              </div>
+            ) : (
+              <div className="d3-pp-rows">
+                {otherPendingPos.slice(0, 6).map((po) => {
+                  const attachmentNames = getPoAttachmentNames(po);
+                  return (
+                    <button key={po.id} type="button" disabled={!canEditLocation} onClick={() => handleCreateClick(po)} className="d3-pp-row">
+                      <div className="min-w-0">
+                        <b className="font-mono">{po.po_number}</b>
+                        <small>{po.from_name}</small>
+                        <small>{formatDate(po.delivery_date)}</small>
+                      </div>
+                      <span className="d3-pp-go">{isVi ? "Xác nhận" : "Confirm"}</span>
+                      <div className="d3-pp-files">
+                        {attachmentNames.length > 0 ? (
+                          attachmentNames.slice(0, 4).map((fileName) => (
+                            <span
+                              key={fileName}
+                              role="button"
+                              tabIndex={0}
+                              title={isVi ? `Mở file PO thật: ${fileName}` : `Open original PO file: ${fileName}`}
+                              onClick={(event) => downloadPoAttachment(po, fileName, event)}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter" || event.key === " ") void downloadPoAttachment(po, fileName, event as any);
+                              }}
+                              className="d3-pp-file"
+                            >
+                              <Paperclip className="h-3 w-3 shrink-0" />
+                              <span>{fileName}</span>
+                              <Download className="h-3 w-3 shrink-0" />
                             </span>
-                          )}
-                          {attachmentNames.length > 4 && (
-                            <span className="rounded-full bg-muted px-2 py-1 text-[11px] font-bold text-muted-foreground">+{attachmentNames.length - 4}</span>
-                          )}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                          ))
+                        ) : (
+                          <span className="d3-pp-file"><Paperclip className="h-3 w-3" />{isVi ? "Không có file PO" : "No PO file"}</span>
+                        )}
+                        {attachmentNames.length > 4 && <span className="d3-pp-file">+{attachmentNames.length - 4}</span>}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </section>
 
-          <Card className="card-elevated rounded-[1.5rem]">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-xl font-black text-foreground">
-                <Monitor className="h-5 w-5 text-primary" />
-                {isVi ? "Màn hình đang sản xuất" : "Production TV"}
-              </CardTitle>
-              <CardDescription>
-                {isVi ? "Chỉ hiển thị sản phẩm và số lượng; không lộ công thức, giá vốn, tiền." : "Shows products and quantities only."}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button className="btn-gradient h-14 w-full rounded-2xl text-base font-black" onClick={handleOpenTvMode}>
-                {isVi ? "Mở chế độ TV" : "Open TV mode"}
-              </Button>
-            </CardContent>
-          </Card>
+          <section className="d3-pp-card" style={{ ["--i" as string]: 3 }}>
+            <div className="d3-pp-card-h">
+              <h2>{isVi ? "Màn hình đang sản xuất" : "Production TV"}</h2>
+              <p>{isVi ? "Chỉ hiển thị sản phẩm và số lượng; không lộ công thức, giá vốn, tiền." : "Shows products and quantities only."}</p>
+            </div>
+            <Button className="h-12 w-full rounded-[14px]" onClick={handleOpenTvMode}>
+              <Monitor className="mr-2 h-4 w-4" />
+              {isVi ? "Mở chế độ TV" : "Open TV mode"}
+            </Button>
+          </section>
         </aside>
       </div>
 
-      <Card className="card-elevated rounded-[1.5rem]" data-stitch-production-orders="true">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-2xl font-black text-foreground">
-            <Factory className="h-6 w-6 text-primary" />
-            {isVi ? "Lệnh sản xuất" : "Production Orders"}
-          </CardTitle>
-          <CardDescription>{isVi ? "Theo dõi lệnh đã tạo và trạng thái sản xuất." : "Track created orders and production status."}</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {loadingOrders ? (
-            <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
-          ) : ordersEmpty ? (
-            <div className="flex flex-col items-center justify-center rounded-3xl border border-dashed py-12 text-center">
-              <Factory className="mb-2 h-12 w-12 text-muted-foreground" />
-              <p className="font-semibold text-muted-foreground">{isVi ? "Chưa có lệnh sản xuất nào" : "No production orders yet"}</p>
-            </div>
-          ) : (
-            <div className="grid gap-3 lg:grid-cols-2">
-              {productionOrders.map((order) => {
-                const totalQty = getProductionOrderTotalQty(order);
-                const canGeneratePdf = canGenerateQ7MaterialIssuePdf(order);
-                const pdfLoading = materialIssuePdfOrderId === order.id;
-                const pdfMessage = materialIssuePdfMessages[order.id];
-                return (
-                <div key={order.id} className="rounded-3xl border border-border/60 bg-card/70 p-4 shadow-card">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-mono text-lg font-black">{order.production_number}</span>
-                        {getStatusBadge(getProductionOrderDisplayStatus(order, tvProductionDateIso))}
-                        {order.revenue_draft_id && <Badge variant="outline" className="text-blue-600">Duyệt DT</Badge>}
-                      </div>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        {order.po_number || "-"} · {order.customer_name || "-"}
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        {order.planned_start_date ? `${formatDate(order.planned_start_date)} - ${formatDate(order.planned_end_date)}` : "-"}
-                      </p>
-                    </div>
-                    <div className="flex shrink-0 flex-col gap-2 sm:items-end">
-                      <div className="rounded-2xl border border-primary/20 bg-primary/10 px-4 py-2 text-right">
-                        <div className="text-[10px] font-black uppercase tracking-[0.16em] text-primary/70">{isVi ? "Tổng số" : "Total qty"}</div>
-                        <div className="text-2xl font-black leading-none text-primary">{totalQty.toLocaleString("vi-VN")}</div>
-                      </div>
-                      <div className="grid w-full grid-cols-1 gap-2 min-[360px]:grid-cols-2">
-                        <Button
-                          variant="outline"
-                          className="h-12 min-w-0 rounded-2xl px-3"
-                          onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)}
-                        >
-                          {isVi ? "Xem hàng" : "Items"} · {order.items_count || 0}
-                        </Button>
-                        {canGeneratePdf && (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            className="h-12 min-w-0 rounded-2xl border-primary/30 bg-primary/5 px-3 font-bold text-primary hover:bg-primary/10 hover:text-primary"
-                            data-testid={`q7-material-issue-pdf-${order.id}`}
-                            disabled={pdfLoading}
-                            onClick={(event) => openQ7MaterialIssuePdf(order, event)}
-                          >
-                            {pdfLoading ? <Loader2 className="mr-1 h-4 w-4 shrink-0 animate-spin" /> : <FileDown className="mr-1 h-4 w-4 shrink-0" />}
-                            <span className="truncate">Phiếu NVL</span>
-                          </Button>
-                        )}
-                      </div>
-                      {pdfMessage && (
-                        <p className="max-w-[240px] rounded-2xl border border-warning/30 bg-warning/10 px-3 py-2 text-left text-xs font-semibold text-warning-foreground sm:text-right">
-                          {pdfMessage}
-                        </p>
-                      )}
-                      {(canEditLocation || isOwner) && (
-                        <div className={`grid w-full gap-2 ${canEditLocation && isOwner ? "grid-cols-2" : "grid-cols-1"}`}>
-                          {canEditLocation && (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              className="h-11 rounded-2xl"
-                              onClick={() => openEditOrder(order)}
-                            >
-                              <Pencil className="mr-1 h-4 w-4" />
-                              {isVi ? "Sửa" : "Edit"}
-                            </Button>
-                          )}
-                          {isOwner && (
-                            <Button
-                              type="button"
-                              variant="destructive"
-                              className="h-11 rounded-2xl"
-                              onClick={() => setDeleteOrder(order)}
-                            >
-                              <Trash2 className="mr-1 h-4 w-4" />
-                              {isVi ? "Xoá" : "Delete"}
-                            </Button>
-                          )}
-                        </div>
-                      )}
-                    </div>
+      <section className="d3-pp-card" data-stitch-production-orders="true" style={{ ["--i" as string]: 4 }}>
+        <div className="d3-pp-card-h">
+          <h2>{isVi ? "Lệnh sản xuất" : "Production Orders"}</h2>
+          <p>{isVi ? "Theo dõi lệnh đã tạo và trạng thái sản xuất." : "Track created orders and production status."}</p>
+        </div>
+        {loadingOrders ? (
+          <div className="d3-pp-state"><Loader2 className="h-6 w-6 animate-spin" /></div>
+        ) : ordersEmpty ? (
+          <div className="d3-pp-state">
+            <Factory className="h-10 w-10" />
+            <h3>{isVi ? "Chưa có lệnh sản xuất nào" : "No production orders yet"}</h3>
+          </div>
+        ) : (
+          <div className="d3-pp-orders">
+            {productionOrders.map((order) => {
+              const totalQty = getProductionOrderTotalQty(order);
+              const canGeneratePdf = canGenerateQ7MaterialIssuePdf(order);
+              const pdfLoading = materialIssuePdfOrderId === order.id;
+              const pdfMessage = materialIssuePdfMessages[order.id];
+              return (
+              <div key={order.id} className="d3-pp-order">
+                <div className="min-w-0">
+                  <div className="d3-pp-order-id">
+                    <b className="font-mono">{order.production_number}</b>
+                    {getStatusBadge(getProductionOrderDisplayStatus(order, tvProductionDateIso))}
+                    {order.revenue_draft_id && <Badge variant="outline" className="text-blue-600">Duyệt DT</Badge>}
                   </div>
-                  {expandedOrderId === order.id && (
-                    <div className="mt-4 grid gap-2 border-t pt-4">
-                      {((orderItems[expandedOrderId] as ProductionOrderItem[]) || []).length > 0 ? (
-                        ((orderItems[expandedOrderId] as ProductionOrderItem[]) || []).map((item) => (
-                          <div key={item.id} className="flex items-center justify-between gap-3 rounded-2xl border border-border/50 bg-muted/45 p-3">
-                            <div>
-                              <p className="font-bold leading-tight">{item.product_name}</p>
-                              <p className="text-sm text-muted-foreground">{formatDate(item.delivery_date)}</p>
-                            </div>
-                            <div className="text-right">
-                              <p className="text-2xl font-black">{item.planned_qty.toLocaleString("vi-VN")}</p>
-                              <p className="text-xs font-bold uppercase text-muted-foreground">{item.unit}</p>
-                              {Number(item.actual_qty || 0) > 0 && (
-                                <p className="text-xs font-semibold text-emerald-600">✓ {Number(item.actual_qty || 0).toLocaleString("vi-VN")}</p>
-                              )}
-                            </div>
-                          </div>
-                        ))
-                      ) : (
-                        <p className="py-3 text-center text-sm text-muted-foreground">{isVi ? "Không có hàng nào" : "No items"}</p>
-                      )}
-                    </div>
+                  <p>{order.po_number || "-"} · {order.customer_name || "-"}</p>
+                  <p>{order.planned_start_date ? `${formatDate(order.planned_start_date)} - ${formatDate(order.planned_end_date)}` : "-"}</p>
+                </div>
+                <div className="d3-pp-order-total">
+                  <strong>{totalQty.toLocaleString("vi-VN")}</strong>
+                  <small>{isVi ? "tổng số" : "total qty"}</small>
+                </div>
+                <div className="d3-pp-order-actions">
+                  <Button variant="outline" onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)}>
+                    {isVi ? "Xem hàng" : "Items"} · {order.items_count || 0}
+                  </Button>
+                  {canGeneratePdf && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      data-testid={`q7-material-issue-pdf-${order.id}`}
+                      disabled={pdfLoading}
+                      onClick={(event) => openQ7MaterialIssuePdf(order, event)}
+                    >
+                      {pdfLoading ? <Loader2 className="mr-1 h-4 w-4 shrink-0 animate-spin" /> : <FileDown className="mr-1 h-4 w-4 shrink-0" />}
+                      <span className="truncate">Phiếu NVL</span>
+                    </Button>
+                  )}
+                  {canEditLocation && (
+                    <Button type="button" variant="outline" onClick={() => openEditOrder(order)}>
+                      <Pencil className="mr-1 h-4 w-4" />
+                      {isVi ? "Sửa" : "Edit"}
+                    </Button>
+                  )}
+                  {isOwner && (
+                    <Button type="button" variant="destructive" onClick={() => setDeleteOrder(order)}>
+                      <Trash2 className="mr-1 h-4 w-4" />
+                      {isVi ? "Xoá" : "Delete"}
+                    </Button>
                   )}
                 </div>
-                );
-              })}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                {pdfMessage && <p className="d3-pp-order-note">{pdfMessage}</p>}
+                {expandedOrderId === order.id && (
+                  <div className="d3-pp-items">
+                    {((orderItems[expandedOrderId] as ProductionOrderItem[]) || []).length > 0 ? (
+                      ((orderItems[expandedOrderId] as ProductionOrderItem[]) || []).map((item) => (
+                        <div key={item.id} className="d3-pp-item">
+                          <div className="min-w-0">
+                            <b>{item.product_name}</b>
+                            <p>{formatDate(item.delivery_date)}</p>
+                          </div>
+                          <div className="text-right">
+                            <strong>{item.planned_qty.toLocaleString("vi-VN")}</strong>
+                            <p>{item.unit}</p>
+                            {Number(item.actual_qty || 0) > 0 && (
+                              <em>✓ {Number(item.actual_qty || 0).toLocaleString("vi-VN")}</em>
+                            )}
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="py-3 text-center">{isVi ? "Không có hàng nào" : "No items"}</p>
+                    )}
+                  </div>
+                )}
+              </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
         </>
       )}
 
