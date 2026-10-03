@@ -2,7 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import { corsPreflightResponse, getCorsHeaders } from "../_shared/cors.ts";
 
-type AutoCloseMode = "shadow" | "enforced";
+type AutoCloseMode = "shadow" | "enforced" | "evidence_only";
 
 type AutoCloseRequest = {
   dates?: string[];
@@ -899,10 +899,195 @@ async function invokeAutoCloseRpc(
   return data || {};
 }
 
+/**
+ * Collect (and cache) UNC/QTM Drive evidence for explicit dates without closing
+ * the day. It reuses buildSnapshot so OCR stays cached in drive_file_index, but
+ * never calls finance_auto_close_day and never stops at a blocked day.
+ */
+async function handleEvidenceOnly(
+  req: Request,
+  supabase: any,
+  serviceRoleKey: string,
+  cronSecret: string,
+  body: AutoCloseRequest,
+  scannedBy: string | null,
+  todayVn: string,
+): Promise<Response> {
+  if (!Array.isArray(body.dates) || body.dates.length === 0) {
+    return jsonResponse(
+      req,
+      { error: "dates must be provided in evidence_only mode" },
+      400,
+    );
+  }
+
+  const targetDates = await getTargetDates(supabase, body, todayVn);
+  const rootFolderUrl = await getDriveRootFolderUrl(supabase);
+  const results = [];
+
+  console.info(
+    `[finance-auto-close-day] collecting evidence for ${targetDates.length} date(s) in evidence_only mode`,
+  );
+
+  for (const closingDate of targetDates) {
+    try {
+      const { snapshot, blockers } = await buildSnapshot(
+        supabase,
+        serviceRoleKey,
+        cronSecret,
+        rootFolderUrl,
+        closingDate,
+      );
+      const uncEvidence = Array.isArray(snapshot.uncEvidence)
+        ? snapshot.uncEvidence
+        : [];
+      const qtmEvidence = Array.isArray(snapshot.qtmEvidence)
+        ? snapshot.qtmEvidence
+        : [];
+      const uncEvidenceTotal = uncEvidence.reduce(
+        (sum, item) => sum + Number(item.amount || 0),
+        0,
+      );
+      const qtmSpentTotal = qtmEvidence.reduce(
+        (sum, item) => sum + Number(item.amount || 0),
+        0,
+      );
+      const lowConfidenceCount = [...uncEvidence, ...qtmEvidence].filter(
+        (item) => Number(item.confidence || 0) < LOW_CONFIDENCE_THRESHOLD,
+      ).length;
+
+      const { error } = await supabase
+        .from("finance_cutover_day_evidence")
+        .upsert(
+          {
+            closing_date: closingDate,
+            unc_evidence_total: uncEvidenceTotal,
+            unc_file_count: uncEvidence.length,
+            qtm_spent_total: qtmSpentTotal,
+            qtm_file_count: qtmEvidence.length,
+            low_confidence_count: lowConfidenceCount,
+            blockers,
+            scanned_at: new Date().toISOString(),
+            scanned_by: scannedBy,
+          },
+          { onConflict: "closing_date" },
+        );
+
+      if (error) throw error;
+
+      results.push({
+        closingDate,
+        mode: "evidence_only",
+        status: blockers.length > 0 ? "blocked" : "succeeded",
+        decision: blockers.length > 0 ? "block" : "approve",
+        runId: null,
+        blockers,
+        snapshot: {
+          declaredUnc: snapshot.declaredUnc,
+          qtmTopup: snapshot.qtmTopup,
+          qtmOpening: snapshot.qtmOpening,
+          qtmSpent: snapshot.qtmSpent,
+          qtmClosing: snapshot.qtmClosing,
+          driveConnectivity: snapshot.driveConnectivity,
+          uncEvidenceCount: uncEvidence.length,
+          qtmEvidenceCount: qtmEvidence.length,
+          lowConfidenceThreshold: snapshot.lowConfidenceThreshold,
+          declarationMismatchFlags: snapshot.declarationMismatchFlags,
+          uncEvidenceTotal,
+          qtmSpentTotal,
+        },
+      });
+    } catch (error) {
+      results.push({
+        closingDate,
+        mode: "evidence_only",
+        status: "error",
+        error: sanitizeError(error),
+        blockers: [{ code: "edge_error", message: sanitizeError(error) }],
+      });
+      // Evidence collection continues past blocked/failed days so the operator
+      // gets one row per requested date.
+    }
+  }
+
+  return jsonResponse(req, {
+    success: true,
+    mode: "evidence_only",
+    stopped: false,
+    todayVn,
+    results,
+  });
+}
+
+/**
+ * evidence_only is started by the owner from the app, so besides the service
+ * role / cron secret it accepts a signed-in user whose JWT verifies and who has
+ * the owner role. Returns the verified user id (null for service/cron callers).
+ */
+async function authenticateEvidenceCaller(req: Request) {
+  try {
+    const service = await authenticate(req);
+    return { ...service, userId: null as string | null };
+  } catch (error) {
+    if (!(error instanceof Response) || error.status !== 401) throw error;
+  }
+
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+  const cronSecret = Deno.env.get("FINANCE_AUTO_CLOSE_CRON_SECRET") ||
+    Deno.env.get("FINANCE_CRON_SECRET") || "";
+  const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
+  const bearer = req.headers.get("Authorization")?.replace("Bearer ", "") || "";
+  const unauthorized = (status: number, message: string) =>
+    new Response(JSON.stringify({ error: message }), {
+      status,
+      headers: { "Content-Type": "application/json" },
+    });
+  if (!bearer || !supabaseUrl) throw unauthorized(401, "Unauthorized");
+
+  const admin = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const { data: userData, error: userError } = await admin.auth.getUser(bearer);
+  const userId = userData?.user?.id;
+  if (userError || !userId) throw unauthorized(401, "Unauthorized");
+
+  const { data: isOwner, error: roleError } = await admin.rpc("has_role", {
+    _user_id: userId,
+    _role: "owner",
+  });
+  if (roleError || isOwner !== true) throw unauthorized(403, "Forbidden: owner only");
+
+  return { serviceRoleKey, cronSecret, userId };
+}
+
+async function serveEvidenceOnly(req: Request): Promise<Response> {
+  const { serviceRoleKey, cronSecret, userId } = await authenticateEvidenceCaller(req);
+  const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
+  if (!supabaseUrl) {
+    throw new Error("Server misconfigured: missing SUPABASE_URL");
+  }
+  const supabase = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const body = await req.json().catch(() => ({})) as AutoCloseRequest;
+  return await handleEvidenceOnly(
+    req,
+    supabase,
+    serviceRoleKey,
+    cronSecret,
+    body,
+    userId,
+    vnToday(),
+  );
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return corsPreflightResponse(req);
 
   try {
+    const peekBody = await req.clone().json().catch(() => ({})) as AutoCloseRequest;
+    if (peekBody.mode === "evidence_only") return await serveEvidenceOnly(req);
+
     const { serviceRoleKey, cronSecret } = await authenticate(req);
     const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
     if (!supabaseUrl) {

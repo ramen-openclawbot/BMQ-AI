@@ -48,6 +48,8 @@ import { Lock, Pencil, Trash2, Unlock, X } from "lucide-react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 import { normalizeUploadImage, optimizeSlipImageForOcr } from "@/lib/slip-image";
+import { CeoCutoverPanel } from "@/components/finance/CeoCutoverPanel";
+import "@/styles/bmq-ceo.css";
 
 const vnd = (value: number) => new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(value || 0);
 const COST_CLASSIFICATION_CARD_CODES = [
@@ -2288,40 +2290,59 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
     }
   };
 
+  const ceoStatusLabel = closeApprovalLocked
+    ? (isVi ? "đã chốt" : "closed")
+    : resolvedStatus === "match"
+      ? (isVi ? "khớp, chờ chốt" : "matched")
+      : resolvedStatus === "mismatch"
+        ? (isVi ? "đang lệch" : "mismatch")
+        : (isVi ? "chờ chốt" : "pending");
+  const ceoStatusTone = closeApprovalLocked || resolvedStatus === "match" ? "is-ok" : resolvedStatus === "mismatch" ? "is-bad" : "is-wait";
+
   return (
-    <div className="space-y-6">
+    <div className={mode === "ceo" ? "d3-ceo space-y-6" : "space-y-6"} data-bmq-ceo-layout={mode === "ceo" ? "demo3-v1" : undefined}>
       {/* Header + Date picker */}
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-display font-bold">{mode === "classification" ? (isVi ? "Phân loại chi phí" : "Cost Classification") : (isVi ? "CEO khai báo" : "CEO Declaration")}</h1>
-          <p className="text-muted-foreground text-sm">{mode === "classification" ? (isVi ? "Rà soát và chỉnh nhóm chi phí nội bộ" : "Review and adjust internal cost categories") : (isVi ? "Khai báo, đối soát, chốt ngày và chốt tháng" : "Declare, reconcile, close daily and monthly")}</p>
-        </div>
-        {mode === "ceo" && (
-          <div className="flex items-center gap-2">
-            <Button type="button" variant="outline" size="icon" onClick={() => setSelectedDate((d) => subDays(d, 1))}>←</Button>
-            <Input type="date" className="w-40" value={toDateInputValue(selectedDate)} onChange={(e) => setSelectedDate(parseDateInputValue(e.target.value))} />
-            <Button type="button" variant="outline" size="icon" onClick={() => setSelectedDate((d) => subDays(d, -1))}>→</Button>
+      {mode === "ceo" ? (
+        <header className="d3-ceo-head">
+          <div className="min-w-0">
+            <span className="d3-ceo-tag">{isVi ? "Tài chính · CEO khai báo" : "Finance · CEO declaration"} · {format(selectedDate, "dd/MM/yyyy")}</span>
+            <h1>{isVi ? "Ngày" : "Day"} {format(selectedDate, "dd/MM")} <b className={ceoStatusTone}>{ceoStatusLabel}</b></h1>
           </div>
-        )}
-      </div>
+          <div className="d3-ceo-datenav">
+            <Button type="button" variant="ghost" size="icon" aria-label={isVi ? "Ngày trước" : "Previous day"} onClick={() => setSelectedDate((d) => subDays(d, 1))}>←</Button>
+            <Input type="date" aria-label={isVi ? "Ngày" : "Date"} value={toDateInputValue(selectedDate)} onChange={(e) => setSelectedDate(parseDateInputValue(e.target.value))} />
+            <Button type="button" variant="ghost" size="icon" aria-label={isVi ? "Ngày sau" : "Next day"} onClick={() => setSelectedDate((d) => subDays(d, -1))}>→</Button>
+          </div>
+        </header>
+      ) : (
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-display font-bold">{isVi ? "Phân loại chi phí" : "Cost Classification"}</h1>
+            <p className="text-muted-foreground text-sm">{isVi ? "Rà soát và chỉnh nhóm chi phí nội bộ" : "Review and adjust internal cost categories"}</p>
+          </div>
+        </div>
+      )}
 
       {/* Dashboard */}
       {mode === "ceo" && (
-        <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
-          <Card><CardContent className="p-4">
-            <div className="text-xs text-muted-foreground">{isVi ? "UNC khai báo" : "UNC declared"}</div>
-            <div className="text-xl font-semibold">{vnd(Number(uncTotalDeclared || 0))}</div>
-          </CardContent></Card>
-          <Card><CardContent className="p-4">
-            <div className="text-xs text-muted-foreground">{isVi ? "QTM khai báo" : "QTM declared"}</div>
-            <div className="text-xl font-semibold">{vnd(Number(resolvedQtmDeclared || 0))}</div>
-          </CardContent></Card>
-          <Card><CardContent className="p-4">
-            <div className="text-xs text-muted-foreground">{isVi ? "Tồn quỹ đầu ngày" : "Opening cash balance"}</div>
-            <div className="text-xl font-semibold">{vnd(Number(resolvedQtmOpening || 0))}</div>
-          </CardContent></Card>
-          <Card><CardContent className="p-4">
-            <div className="text-xs text-muted-foreground">{isVi ? "Trạng thái" : "Status"}</div>
+        <div className="d3-ceo-kpis">
+          <div className="d3-ceo-kpi" style={{ ["--i" as string]: 0 }}>
+            <span className="d3-ceo-lvl"><i style={{ background: "#3c91e6" }} />{isVi ? "UNC khai báo" : "UNC declared"}</span>
+            <strong title={vnd(Number(uncTotalDeclared || 0))}>{(Number(uncTotalDeclared || 0) / 1_000_000).toLocaleString("vi-VN", { maximumFractionDigits: 1 })}<small>{isVi ? "triệu" : "M"}</small></strong>
+            <small>{vnd(Number(uncTotalDeclared || 0))}</small>
+          </div>
+          <div className="d3-ceo-kpi" style={{ ["--i" as string]: 1 }}>
+            <span className="d3-ceo-lvl"><i style={{ background: "#29bf12" }} />{isVi ? "QTM khai báo" : "QTM declared"}</span>
+            <strong title={vnd(Number(resolvedQtmDeclared || 0))}>{(Number(resolvedQtmDeclared || 0) / 1_000_000).toLocaleString("vi-VN", { maximumFractionDigits: 1 })}<small>{isVi ? "triệu" : "M"}</small></strong>
+            <small>{vnd(Number(resolvedQtmDeclared || 0))}</small>
+          </div>
+          <div className="d3-ceo-kpi" style={{ ["--i" as string]: 2 }}>
+            <span className="d3-ceo-lvl"><i style={{ background: "#d0679a" }} />{isVi ? "Tồn quỹ đầu ngày" : "Opening cash balance"}</span>
+            <strong title={vnd(Number(resolvedQtmOpening || 0))}>{(Number(resolvedQtmOpening || 0) / 1_000_000).toLocaleString("vi-VN", { maximumFractionDigits: 1 })}<small>{isVi ? "triệu" : "M"}</small></strong>
+            <small>{vnd(Number(resolvedQtmOpening || 0))}</small>
+          </div>
+          <div className={`d3-ceo-kpi d3-ceo-status ${ceoStatusTone}`} style={{ ["--i" as string]: 3 }}>
+            <span className="d3-ceo-lvl"><i />{isVi ? "Trạng thái" : "Status"}</span>
             <div className="text-xl font-semibold">
               {closeApprovalLocked
                 ? <Badge className="bg-green-600">{isVi ? "Đã chốt" : "Closed"}</Badge>
@@ -2329,7 +2350,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                 : resolvedStatus === "mismatch" ? <Badge variant="destructive">{isVi ? "Lệch" : "Mismatch"}</Badge>
                 : <Badge variant="secondary">{isVi ? "Chờ" : "Pending"}</Badge>}
             </div>
-          </CardContent></Card>
+          </div>
         </div>
       )}
 
@@ -2344,12 +2365,13 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
           <TabsList>
             <TabsTrigger value="daily">{isVi ? "Chốt ngày" : "Daily Close"}</TabsTrigger>
             <TabsTrigger value="monthly">{isVi ? "Chốt tháng" : "Monthly Close"}</TabsTrigger>
+            {isOwner && <TabsTrigger value="cutover" data-bmq-ceo-cutover-tab>{isVi ? "Chốt mốc tháng" : "Month cutover"}</TabsTrigger>}
           </TabsList>
         )}
 
         {mode === "ceo" && <TabsContent value="daily" className="space-y-4">
           {/* CEO Declaration */}
-          <Card>
+          <Card className="d3-ceo-decl">
             <CardHeader className="pb-3">
               <CardTitle className="text-lg">{isVi ? "CEO Khai báo" : "CEO Declaration"}</CardTitle>
             </CardHeader>
@@ -2364,7 +2386,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                 </div>
               )}
               <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
+                <div className="d3-ceo-slip space-y-2" data-slip="unc">
                   <Label className="text-sm font-medium">{isVi ? "Slip ngân hàng (UNC)" : "Bank slips (UNC)"}</Label>
                   <Input type="file" accept="image/*" multiple disabled={extracting || ceoDeclarationLocked || closeApprovalLocked} onChange={async (e) => {
                     const files = Array.from(e.target.files || []);
@@ -2418,9 +2440,9 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                       ))}
                     </div>
                   )}
-                  <div className="text-lg font-semibold">{vnd(Number(uncTotalDeclared || 0))}</div>
+                  <div className="d3-ceo-slip-total text-lg font-semibold">{vnd(Number(uncTotalDeclared || 0))}</div>
                 </div>
-                <div className="space-y-2">
+                <div className="d3-ceo-slip space-y-2" data-slip="qtm">
                   <Label className="text-sm font-medium">{isVi ? "Slip tiền mặt (QTM)" : "Cash slips (QTM)"}</Label>
                   <Input type="file" accept="image/*" multiple disabled={extracting || ceoDeclarationLocked || closeApprovalLocked} onChange={async (e) => {
                     const files = Array.from(e.target.files || []);
@@ -2479,7 +2501,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                       ))}
                     </div>
                   )}
-                  <div className="text-lg font-semibold">{vnd(Number(cashFundTopupAmount || 0))}</div>
+                  <div className="d3-ceo-slip-total text-lg font-semibold">{vnd(Number(cashFundTopupAmount || 0))}</div>
                 </div>
               </div>
 
@@ -2498,7 +2520,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
           </Card>
 
           {/* 1-click: Duyệt & Chốt ngày */}
-          <Card>
+          <Card className="d3-ceo-closecard">
             <CardContent className="p-6 space-y-4">
               {/* Action button */}
               <div className="flex items-center gap-3">
@@ -2517,7 +2539,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                   <Button
                     type="button"
                     size="lg"
-                    className="bg-green-600 hover:bg-green-700 text-white text-base px-8"
+                    className="d3-ceo-closebtn bg-green-600 hover:bg-green-700 text-white text-base px-8"
                     disabled={closeActing || reconcilingFolderScan || reconciling || saving || extracting}
                     onClick={openCloseDialog}
                   >
@@ -2561,7 +2583,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
         </TabsContent>}
 
         {mode === "ceo" && <TabsContent value="monthly" className="space-y-4">
-          <Card>
+          <Card className="d3-ceo-monthly">
             <CardHeader>
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <CardTitle className="text-xl sm:text-2xl">{isVi ? "Chốt tháng" : "Monthly Closing"}</CardTitle>
@@ -2630,6 +2652,10 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
               )}
             </CardContent>
           </Card>
+        </TabsContent>}
+
+        {mode === "ceo" && isOwner && <TabsContent value="cutover" className="space-y-4">
+          <CeoCutoverPanel initialMonth={format(startOfMonth(selectedDate), "yyyy-MM-01")} />
         </TabsContent>}
 
         {mode === "classification" && <TabsContent value="classification" className="space-y-4">
