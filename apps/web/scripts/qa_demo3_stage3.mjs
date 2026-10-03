@@ -256,7 +256,9 @@ const insightTitles = (page) => page.$$eval(".d3-ov-insight h3", (els) => els.ma
 const insightValue = (page, title) => page.locator(".d3-ov-insight", { hasText: title }).locator(".d3-ov-insight-foot").textContent();
 
 
-const prRows = (page) => page.locator("table tbody tr[role='button']");
+// Demo 3 rebuild: requests are compact rows; the row body opens the detail.
+const prRows = (page) => page.locator("[data-bmq-pr-row] .d3-pa-open");
+const prRow = (page, code) => page.locator("[data-bmq-pr-row]", { hasText: code });
 
 try {
   // 1. Wide desktop: detail opens as a pane beside the list and switches between rows.
@@ -269,15 +271,15 @@ try {
     await page.waitForFunction(() => document.querySelector("[data-bmq-payment-detail='panel']")?.textContent?.includes("DC-QA-"));
     assert.equal(await page.locator("[data-bmq-payment-detail-pane='open']").count(), 1, "page reserves room for the pane");
     const pBox = await panel.boundingBox();
-    const table = await page.locator("table").first().boundingBox();
-    assert.ok(table.x + table.width <= pBox.x + 1, `list stays visible left of the pane @${viewport.width}: table ends ${table.x + table.width}, pane ${pBox.x}`);
+    const table = await page.locator("[data-bmq-pr-list]").first().boundingBox();
+    assert.ok(table.x + table.width <= pBox.x + 1, `list stays visible left of the pane @${viewport.width}: list ends ${table.x + table.width}, pane ${pBox.x}`);
     assert.ok(pBox.x + pBox.width <= viewport.width, "pane inside viewport");
     const firstNumber = await panel.textContent();
     await prRows(page).nth(1).click();
     await page.waitForTimeout(400);
     assert.equal(await panel.count(), 1, "clicking another row keeps the pane open");
     assert.notEqual(await panel.textContent(), firstNumber, "pane switches to the clicked request");
-    assert.equal(await page.locator("tr[aria-current='true']").count(), 1, "active row marked");
+    assert.equal(await page.locator("[data-bmq-pr-row][aria-current='true']").count(), 1, "active row marked");
     assert.equal(await page.locator("[role='dialog'][data-state='open']").count(), 1);
     assert.ok((await overflow(page)) <= 0, "no page overflow");
     await page.screenshot({ path: `${EVIDENCE}/payments-pane-${viewport.width}.png` });
@@ -289,11 +291,56 @@ try {
     await context.close();
   }
 
+  // 1b. Demo 3 layout: summary leads with the pending queue, rows carry the real figures,
+  // quick approve asks first; loading/empty/error never show fake numbers.
+  for (const [data, viewport] of [["populated", { width: 1440, height: 900 }], ["populated", { width: 1280, height: 800 }], ["populated", { width: 390, height: 844 }], ["populated", { width: 320, height: 640 }], ["empty", { width: 1440, height: 900 }], ["empty", { width: 390, height: 844 }], ["error", { width: 1440, height: 900 }], ["error", { width: 390, height: 844 }]]) {
+    const { context, page, errors } = await open({ role: "owner", data }, "/payment-requests", viewport);
+    await page.waitForSelector("[data-bmq-payables-layout='demo3-v1']");
+    await page.waitForTimeout(1200);
+    const labels = await page.$$eval(".d3-pa-sumc .d3-pa-lvl", (els) => els.map((el) => el.textContent.trim()));
+    assert.deepEqual(labels, ["Chờ duyệt", "Đã duyệt", "Từ chối", "Tổng đề nghị", "Công nợ tạo từ nhập kho"], "summary order");
+    const big = await page.$$eval(".d3-pa-sumc .d3-pa-big", (els) => els.map((el) => el.textContent.trim()));
+    const h1 = (await page.locator(".d3-pa-head h1").textContent()).trim();
+    if (data === "populated") {
+      assert.deepEqual(big, ["21,7tr", "7,7tr", "0tr", "29,4tr", "0tr"], `summary figures: ${big}`);
+      assert.ok(h1.endsWith("2 phiếu chờ"), `headline: ${h1}`);
+      assert.equal(await page.locator("[data-bmq-pr-row]").count(), 4, "rows");
+      assert.equal(await page.locator("[data-bmq-pr-row='pending'] .d3-pa-go").count(), 2, "approve on pending rows only");
+      assert.ok((await prRow(page, "DC-QA-001").textContent()).includes("13.500.000"), "exact amount on the row");
+    }
+    if (data === "empty") {
+      assert.deepEqual(big, ["0tr", "0tr", "0tr", "0tr", "0tr"]);
+      assert.ok((await page.locator("[data-bmq-pr-list]").textContent()).includes("Không có đề nghị duyệt chi nào"));
+    }
+    if (data === "error") {
+      assert.deepEqual(big, ["—", "—", "—", "—", "—"], "error never shows zero");
+      assert.ok(h1.includes("chưa tải được"), h1);
+      assert.ok((await page.locator("[data-bmq-pr-list]").textContent()).includes("Không thể tải dữ liệu"));
+    }
+    assert.ok((await overflow(page)) <= 0, `no overflow ${data} ${viewport.width}`);
+    await page.screenshot({ path: `${EVIDENCE}/payments-${data}-${viewport.width}.png` });
+    if (data === "populated") await page.locator("[data-bmq-pr-list]").screenshot({ path: `${EVIDENCE}/payments-list-${viewport.width}.png` });
+    if (data === "populated" && viewport.width === 1440) {
+      await prRow(page, "DC-QA-001").locator(".d3-pa-go").click();
+      const confirm = page.locator("[role='alertdialog']");
+      await confirm.waitFor();
+      assert.ok((await confirm.textContent()).includes("13.500.000"), "quick approve confirm names the amount");
+      await page.getByRole("button", { name: /Huỷ|Hủy|Cancel/ }).click();
+      await confirm.waitFor({ state: "detached" });
+      await page.locator(".d3-pa-sumc.is-pending").click();
+      assert.equal(await page.locator("[data-bmq-pr-row]").count(), 2, "pending card filters the list");
+      assert.deepEqual(await page.evaluate(() => window.__qaWrites), [], "nothing written");
+    }
+    assert.deepEqual(errors, [], `errors ${data} ${viewport.width}`);
+    record(`payments layout ${data} ${viewport.width}`);
+    await context.close();
+  }
+
   // 2. Mobile keeps the full-screen dialog.
   {
     const { context, page, errors } = await open({ role: "owner", data: "populated" }, "/payment-requests", { width: 390, height: 844 });
-    // The card's first button is its checkbox; open the detail through the card body.
-    await page.locator("[data-stitch-card='mobile-payment-request']").first().locator("button.block").click();
+    // The row's first button is its checkbox; open the detail through the row body.
+    await prRows(page).first().click();
     await page.locator("[data-bmq-payment-detail='dialog']").waitFor();
     await page.waitForTimeout(400);
     assert.ok((await overflow(page)) <= 0);
@@ -307,7 +354,7 @@ try {
   {
     const { context, page, errors } = await open({ role: "owner", data: "populated" }, "/payment-requests", { width: 1440, height: 900 });
     await prRows(page).first().waitFor();
-    const approvedRow = page.locator("table tbody tr", { hasText: "DC-QA-003" });
+    const approvedRow = prRow(page, "DC-QA-003");
     await approvedRow.locator("button[role='checkbox']").click();
     await page.getByRole("button", { name: /Đánh dấu đã TT|Mark as Paid/ }).first().click();
     const confirm = page.locator("[role='alertdialog']");
@@ -326,7 +373,7 @@ try {
   // 4. Reject failure from the server is explained, the dialog stays open.
   {
     const { context, page, errors } = await open({ role: "owner", data: "populated", rejectError: "invalid_status" }, "/payment-requests", { width: 1440, height: 900 });
-    await page.locator("table tbody tr", { hasText: "DC-QA-001" }).click();
+    await prRow(page, "DC-QA-001").locator(".d3-pa-open").click();
     const panel = page.locator("[data-bmq-payment-detail='panel']");
     await panel.waitFor();
     await panel.getByRole("button", { name: "Từ chối" }).click();

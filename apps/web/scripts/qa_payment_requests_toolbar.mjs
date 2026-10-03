@@ -347,7 +347,7 @@ async function checkFilterBehavior(page) {
   await chooseSelect(page, page.getByRole("combobox", { name: /nguồn/i }), "Tất cả nguồn");
 
   await page.getByLabel("Từ ngày").fill("2099-01-01");
-  await page.locator(".lg\\:block").getByText("Không có đề nghị duyệt chi nào").waitFor({ state: "visible" });
+  await page.locator("[data-bmq-pr-list]").getByText("Không có đề nghị duyệt chi nào").waitFor({ state: "visible" });
   await page.getByLabel("Từ ngày").fill(today);
   await assertText(resultText, /Hiển thị 1 - 3 trong 3 kết quả/);
 }
@@ -359,7 +359,7 @@ async function assertText(locator, pattern) {
 }
 
 async function assertVisibleText(page, text) {
-  await page.locator("table").getByText(text, { exact: false }).first().waitFor({ state: "visible" });
+  await page.locator("[data-bmq-pr-list]").getByText(text, { exact: false }).first().waitFor({ state: "visible" });
 }
 
 async function main() {

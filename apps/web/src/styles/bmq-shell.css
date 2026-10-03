@@ -615,12 +615,6 @@ html.bmq-d3 .d3-pr-row-active {
   .d3-pr-has-panel { transition: none; }
 }
 
-/* With the detail pane open, the list keeps the decision columns (code, supplier, amount,
-   status, actions); date, product list and creator are in the pane. */
-@media (min-width: 1280px) {
-  .d3-pr-has-panel table :is(th, td):is(:nth-child(3), :nth-child(5), :nth-child(8)) { display: none; }
-  .d3-pr-has-panel table :is(th, td) { min-width: 0 !important; }
-}
 
 
 /* =====================================================================

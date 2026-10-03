@@ -434,7 +434,8 @@ def test_finance_payables_ui_filters_and_labels_warehouse_generated_requests():
     assert 'stats.warehouseGenerated' in page
     assert 'filteredRequests' in page
 
-    table_section = page.split('<TableHeader className="bg-slate-50 dark:bg-slate-900/50">', 1)[1].split('</Table>', 1)[0]
+    # Demo 3 rebuild: the request list is one compact row list (data-bmq-pr-list) for every width.
+    table_section = page.split('data-bmq-pr-list="demo3"', 1)[1].split('</section>', 1)[0]
     assert '{language === "vi" ? "Nguồn" : "Source"}' not in table_section
     assert 'renderSourceBadge(request)' not in table_section
     assert 'request.creator_profile' in page

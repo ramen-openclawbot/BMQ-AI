@@ -4,13 +4,11 @@ import { format } from "date-fns";
 import { vi, enUS } from "date-fns/locale";
 import {
   AlertTriangle,
-  ArrowDown,
   CalendarDays,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Clock3,
-  Eye,
   FileText,
   Loader2,
   MessageCircle,
@@ -26,19 +24,9 @@ import {
   XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -76,6 +64,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { cn } from "@/lib/utils";
 import { getVietnamDateKey } from "@/lib/vietnam-time";
 import { toast } from "sonner";
+import "@/styles/bmq-payables.css";
 
 type CardFilterType = "pending" | "approved" | "rejected" | null;
 
@@ -299,45 +288,6 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
     },
   ];
 
-  const getStatToneClass = (tone: string) => {
-    switch (tone) {
-      case "green":
-        return "bg-muted text-foreground";
-      case "amber":
-        return "bg-muted text-muted-foreground";
-      case "red":
-        return "bg-destructive/10 text-destructive dark:bg-destructive/15";
-      default:
-        return "bg-primary/10 text-primary dark:bg-primary/15";
-    }
-  };
-
-  const renderProductNames = (request: PaymentRequestWithSupplier) => {
-    const productNames = getProductNames(request);
-
-    if (productNames.length === 0) {
-      return <span className="text-muted-foreground">-</span>;
-    }
-
-    const visibleNames = productNames.slice(0, 2);
-    const remainingCount = productNames.length - visibleNames.length;
-
-    return (
-      <div className="flex max-w-[300px] flex-col gap-1.5">
-        <div className="flex flex-wrap items-center gap-1.5">
-          {visibleNames.map((name) => (
-            <Badge key={name} variant="outline" className="max-w-[170px] justify-start truncate rounded px-2 py-0.5 text-xs font-normal text-foreground">
-              <span className="truncate">{name}</span>
-            </Badge>
-          ))}
-        </div>
-        {remainingCount > 0 && (
-          <span className="text-xs text-slate-600 dark:text-slate-400">+{remainingCount} sản phẩm khác</span>
-        )}
-      </div>
-    );
-  };
-
   const handleDelete = async () => {
     if (!deletingRequestId) return;
     if (!canEditPaymentRequests) {
@@ -362,34 +312,6 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
       toast.error(language === "vi" ? "Không xoá được duyệt chi" : "Failed to delete payment request", {
         description: message || (language === "vi" ? "Vui lòng thử lại." : "Please try again."),
       });
-    }
-  };
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case "pending":
-        return (
-          <Badge variant="secondary" className="gap-1 rounded-md px-2.5 py-1 text-xs font-medium">
-            <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground" />
-            {t.pending}
-          </Badge>
-        );
-      case "approved":
-        return (
-          <Badge variant="outline" className="gap-1 rounded-md bg-card px-2.5 py-1 text-xs font-medium text-foreground">
-            <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-            {t.approved}
-          </Badge>
-        );
-      case "rejected":
-        return (
-          <Badge variant="outline" className="gap-1 rounded-md bg-destructive/10 px-2.5 py-1 text-xs font-medium text-destructive">
-            <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
-            {t.rejected}
-          </Badge>
-        );
-      default:
-        return <Badge variant="outline">{status}</Badge>;
     }
   };
 
@@ -542,333 +464,310 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
     });
   };
 
+  const isVi = language === "vi";
+  const toMillions = (amount: number) =>
+    (amount / 1_000_000).toLocaleString(isVi ? "vi-VN" : "en-US", { maximumFractionDigits: 1 });
+  const figure = (value: string) => (isLoading ? "…" : isError ? "—" : value);
+  // Demo 3 order: the pending queue leads, then the other status buckets.
+  const summaryCards = [statCards[2], statCards[1], statCards[3], statCards[0], statCards[4]];
+  const summaryTone = ["is-pending", "is-approved", "is-rejected", "is-total", "is-warehouse"];
+  const statusLabel = (status: string) =>
+    status === "pending" ? t.pending : status === "approved" ? t.approved : status === "rejected" ? t.rejected : status;
+  const toggleSelected = (requestId: string) => {
+    const next = new Set(selectedIds);
+    if (next.has(requestId)) next.delete(requestId);
+    else next.add(requestId);
+    setSelectedIds(next);
+  };
+
   return (
-    /* Hallmark · genre: modern-minimal · tone: technical · anchor: BMQ blue · macrostructure: Workbench · mobile-first approval queue */
-    /* Hallmark · pre-emit critique: P5 H5 E4 S5 R5 V5 */
     <div
       data-stitch-payment-requests-mobile="hallmark-workbench"
+      data-bmq-payables-layout="demo3-v1"
       data-bmq-payment-detail-pane={detailAsPanel ? "open" : undefined}
-      className={cn(
-        "min-w-0 space-y-4 overflow-x-clip bg-background pb-8 font-sans text-foreground lg:space-y-5 lg:pb-20",
-        detailAsPanel && "d3-pr-has-panel",
-      )}
+      className={cn("d3-pa min-w-0 overflow-x-clip pb-8 lg:pb-20", detailAsPanel && "d3-pr-has-panel")}
     >
-      <div className="lg:static">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            <h1 className="min-w-0 [overflow-wrap:anywhere] text-2xl font-semibold leading-tight tracking-tight text-foreground lg:text-[28px]">
-              {t.paymentRequestsTitle}
-            </h1>
-            <p className="mt-1 text-sm text-muted-foreground lg:hidden">
-              {language === "vi" ? "Theo dõi và xử lý đề nghị chi" : "Review and process payment requests"}
-            </p>
-          </div>
-          <div className="flex shrink-0 items-center gap-2 lg:hidden">
-            <Button
-              variant="outline"
-              size="icon"
-              className="h-11 w-11 rounded-md border-border bg-card shadow-none"
-              onClick={() => window.dispatchEvent(new Event("bmq:open-agent-chat"))}
-              title={language === "vi" ? "Mở trợ lý AI" : "Open AI assistant"}
+      <header className="d3-pa-head">
+        <div className="min-w-0">
+          <span className="d3-pa-tag">
+            {isVi ? "Tài chính · đề nghị chi" : "Finance · payment requests"} · {mobileDateRangeLabel}
+          </span>
+          <h1>
+            {t.paymentRequestsTitle}{" "}
+            <b>
+              {isLoading
+                ? "…"
+                : isError
+                  ? isVi ? "chưa tải được" : "unavailable"
+                  : `${stats.pending.count} ${isVi ? "phiếu chờ" : "pending"}`}
+            </b>
+          </h1>
+        </div>
+        <div className="flex shrink-0 items-center gap-2 lg:hidden">
+          <Button
+            variant="outline"
+            size="icon"
+            className="d3-pa-icon"
+            onClick={() => window.dispatchEvent(new Event("bmq:open-agent-chat"))}
+            title={isVi ? "Mở trợ lý AI" : "Open AI assistant"}
+          >
+            <MessageCircle className="h-4 w-4" />
+          </Button>
+          <Button variant="outline" size="icon" className="d3-pa-icon" onClick={() => refetch()} title={isVi ? "Làm mới" : "Refresh"}>
+            <RefreshCw className={cn("h-4 w-4", isLoading && "animate-spin")} />
+          </Button>
+        </div>
+      </header>
+
+      <section className="d3-pa-sum" data-bmq-payables-summary="demo3">
+        {summaryCards.map((card, index) => {
+          const isActive = card.isActive ?? (card.key === null ? activeCardFilter === null && sourceFilter === "all" : activeCardFilter === card.key);
+          return (
+            <button
+              key={card.label}
+              type="button"
+              aria-pressed={isActive}
+              className={cn("d3-pa-sumc", summaryTone[index], index === 0 && "is-hero", isActive && "is-active")}
+              style={{ ["--i" as string]: index }}
+              onClick={() => {
+                if (card.onClick) {
+                  card.onClick();
+                  return;
+                }
+                setActiveCardFilter(card.key === activeCardFilter ? null : card.key);
+              }}
             >
-              <MessageCircle className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              className="h-11 w-11 rounded-md border-border bg-card shadow-none"
-              onClick={() => refetch()}
-              title={language === "vi" ? "Làm mới" : "Refresh"}
-            >
-              <RefreshCw className={cn("h-4 w-4", isLoading && "animate-spin")} />
-            </Button>
+              {index === 0 ? <span className="d3-pa-glow" aria-hidden="true" /> : null}
+              <span className="d3-pa-lvl"><i aria-hidden="true" />{card.label}</span>
+              <span className="d3-pa-big">
+                {figure(toMillions(card.amount))}
+                {!isLoading && !isError ? <small>{isVi ? "tr" : "M"}</small> : null}
+              </span>
+              <span className="d3-pa-sub">
+                {isError
+                  ? isVi ? "Chưa tải được" : "Unavailable"
+                  : isLoading
+                    ? "…"
+                    : `${card.count} ${isVi ? "phiếu" : "requests"} · ${compactCurrency(card.amount)}`}
+              </span>
+            </button>
+          );
+        })}
+      </section>
+
+      <div className="d3-pa-tools hidden min-w-0 flex-col gap-3 lg:flex" data-bmq-payables-toolbar="v2">
+        <div className="flex min-w-0 items-center gap-3" data-bmq-payables-search-row="v2">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+            <Input
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+              placeholder={isVi ? "Tìm theo mã phiếu, tên sản phẩm hoặc nhà cung cấp" : "Search by code, product, or supplier"}
+              className="h-12 rounded-md border-slate-200 bg-white pl-12 text-sm shadow-none placeholder:text-slate-400 dark:border-slate-800 dark:bg-card"
+            />
           </div>
+
+          <AddPaymentRequestDialog
+            trigger={
+              <Button className="d3-pa-primary h-12 rounded-md px-6 text-sm font-medium shadow-sm">
+                <Plus className="h-5 w-5" />
+                {isVi ? "Tạo duyệt chi" : "Create request"}
+              </Button>
+            }
+          />
+
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-12 w-12 rounded-md border-slate-200 bg-white shadow-none dark:border-slate-800 dark:bg-card"
+            onClick={() => setShowDriveInvoiceDialog(true)}
+            title={isVi ? "Nhập từ Google Drive" : "Import from Google Drive"}
+          >
+            <Upload className="h-5 w-5" />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-12 w-12 rounded-md border-slate-200 bg-white shadow-none dark:border-slate-800 dark:bg-card"
+            onClick={() => refetch()}
+            title={isVi ? "Làm mới" : "Refresh"}
+          >
+            <RefreshCw className={cn("h-5 w-5", isLoading && "animate-spin")} />
+          </Button>
+        </div>
+        <div
+          className="grid min-w-0 grid-cols-2 gap-3 xl:grid-cols-[minmax(330px,1.2fr)_minmax(0,1fr)_minmax(0,1fr)]"
+          data-bmq-payables-filter-row="v3"
+        >
+          <div
+            data-bmq-payables-date-range="v3"
+            className="col-span-2 flex h-12 min-w-0 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-800 shadow-none dark:border-slate-800 dark:bg-card dark:text-slate-100 xl:col-span-1"
+          >
+            <CalendarDays className="h-4 w-4 shrink-0 text-slate-500" />
+            <span className="sr-only">{dateRangeLabel}</span>
+            <Input
+              type="date"
+              value={dateFrom}
+              max={dateTo || undefined}
+              onChange={(event) => setDateFrom(event.target.value)}
+              aria-label={isVi ? "Từ ngày" : "From date"}
+              className="h-10 min-w-0 flex-1 basis-0 border-0 bg-transparent p-0 text-sm font-medium shadow-none focus-visible:ring-0 dark:bg-transparent"
+            />
+            <span className="shrink-0 text-slate-400">-</span>
+            <Input
+              type="date"
+              value={dateTo}
+              min={dateFrom || undefined}
+              onChange={(event) => setDateTo(event.target.value)}
+              aria-label={isVi ? "Đến ngày" : "To date"}
+              className="h-10 min-w-0 flex-1 basis-0 border-0 bg-transparent p-0 text-sm font-medium shadow-none focus-visible:ring-0 dark:bg-transparent"
+            />
+          </div>
+
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger
+              aria-label={isVi ? "Trạng thái" : "Status"}
+              className="h-12 w-full min-w-0 rounded-md border-slate-200 bg-white px-4 text-slate-800 shadow-none dark:border-slate-800 dark:bg-card dark:text-slate-100"
+            >
+              <SelectValue placeholder={t.status} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{isVi ? "Tất cả trạng thái" : "All statuses"}</SelectItem>
+              <SelectItem value="pending">{t.pending}</SelectItem>
+              <SelectItem value="approved">{t.approved}</SelectItem>
+              <SelectItem value="rejected">{t.rejected}</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select value={sourceFilter} onValueChange={setSourceFilter}>
+            <SelectTrigger
+              aria-label={isVi ? "Nguồn công nợ" : "Payable source"}
+              className="h-12 w-full min-w-0 rounded-md border-slate-200 bg-white px-4 text-slate-800 shadow-none dark:border-slate-800 dark:bg-card dark:text-slate-100"
+            >
+              <SelectValue placeholder={isVi ? "Nguồn công nợ" : "Payable source"} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{isVi ? "Tất cả nguồn" : "All sources"}</SelectItem>
+              <SelectItem value="warehouse_receipt">{isVi ? "Công nợ tạo từ nhập kho" : "Generated from warehouse receipt"}</SelectItem>
+              <SelectItem value="manual">{isVi ? "Tạo thủ công / nguồn khác" : "Manual / other source"}</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
-      <div className="space-y-4 lg:space-y-5">
-        <div className="hidden min-w-0 flex-col gap-3 lg:flex" data-bmq-payables-toolbar="v2">
-          <div className="flex min-w-0 items-center gap-3" data-bmq-payables-search-row="v2">
-            <div className="relative min-w-0 flex-1">
-              <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
-              <Input
-                value={searchTerm}
-                onChange={(event) => setSearchTerm(event.target.value)}
-                placeholder={language === "vi" ? "Tìm theo mã phiếu, tên sản phẩm hoặc nhà cung cấp" : "Search by code, product, or supplier"}
-                className="h-12 rounded-md border-slate-200 bg-white pl-12 text-sm shadow-none placeholder:text-slate-400 dark:border-slate-800 dark:bg-card"
-              />
-            </div>
-
-            <AddPaymentRequestDialog
-              trigger={
-                <Button className="h-12 rounded-md px-6 text-sm font-medium shadow-sm">
-                  <Plus className="h-5 w-5" />
-                  {language === "vi" ? "Tạo duyệt chi" : "Create request"}
-                </Button>
-              }
-            />
-
-            <Button
-              variant="outline"
-              size="icon"
-              className="h-12 w-12 rounded-md border-slate-200 bg-white shadow-none dark:border-slate-800 dark:bg-card"
-              onClick={() => setShowDriveInvoiceDialog(true)}
-              title={language === "vi" ? "Nhập từ Google Drive" : "Import from Google Drive"}
-            >
-              <Upload className="h-5 w-5" />
-            </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              className="h-12 w-12 rounded-md border-slate-200 bg-white shadow-none dark:border-slate-800 dark:bg-card"
-              onClick={() => refetch()}
-              title={language === "vi" ? "Làm mới" : "Refresh"}
-            >
-              <RefreshCw className={cn("h-5 w-5", isLoading && "animate-spin")} />
-            </Button>
-          </div>
-          <div
-            className="grid min-w-0 grid-cols-2 gap-3 xl:grid-cols-[minmax(330px,1.2fr)_minmax(0,1fr)_minmax(0,1fr)]"
-            data-bmq-payables-filter-row="v3"
-          >
-            <div
-              data-bmq-payables-date-range="v3"
-              className="col-span-2 flex h-12 min-w-0 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-800 shadow-none dark:border-slate-800 dark:bg-card dark:text-slate-100 xl:col-span-1"
-            >
-              <CalendarDays className="h-4 w-4 shrink-0 text-slate-500" />
-              <span className="sr-only">{dateRangeLabel}</span>
-              <Input
-                type="date"
-                value={dateFrom}
-                max={dateTo || undefined}
-                onChange={(event) => setDateFrom(event.target.value)}
-                aria-label={language === "vi" ? "Từ ngày" : "From date"}
-                className="h-10 min-w-0 flex-1 basis-0 border-0 bg-transparent p-0 text-sm font-medium shadow-none focus-visible:ring-0 dark:bg-transparent"
-              />
-              <span className="shrink-0 text-slate-400">-</span>
-              <Input
-                type="date"
-                value={dateTo}
-                min={dateFrom || undefined}
-                onChange={(event) => setDateTo(event.target.value)}
-                aria-label={language === "vi" ? "Đến ngày" : "To date"}
-                className="h-10 min-w-0 flex-1 basis-0 border-0 bg-transparent p-0 text-sm font-medium shadow-none focus-visible:ring-0 dark:bg-transparent"
-              />
-            </div>
-
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger
-                aria-label={language === "vi" ? "Trạng thái" : "Status"}
-                className="h-12 w-full min-w-0 rounded-md border-slate-200 bg-white px-4 text-slate-800 shadow-none dark:border-slate-800 dark:bg-card dark:text-slate-100"
-              >
-                <SelectValue placeholder={t.status} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{language === "vi" ? "Tất cả trạng thái" : "All statuses"}</SelectItem>
-                <SelectItem value="pending">{t.pending}</SelectItem>
-                <SelectItem value="approved">{t.approved}</SelectItem>
-                <SelectItem value="rejected">{t.rejected}</SelectItem>
-              </SelectContent>
-            </Select>
-
-            <Select value={sourceFilter} onValueChange={setSourceFilter}>
-              <SelectTrigger
-                aria-label={language === "vi" ? "Nguồn công nợ" : "Payable source"}
-                className="h-12 w-full min-w-0 rounded-md border-slate-200 bg-white px-4 text-slate-800 shadow-none dark:border-slate-800 dark:bg-card dark:text-slate-100"
-              >
-                <SelectValue placeholder={language === "vi" ? "Nguồn công nợ" : "Payable source"} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{language === "vi" ? "Tất cả nguồn" : "All sources"}</SelectItem>
-                <SelectItem value="warehouse_receipt">{language === "vi" ? "Công nợ tạo từ nhập kho" : "Generated from warehouse receipt"}</SelectItem>
-                <SelectItem value="manual">{language === "vi" ? "Tạo thủ công / nguồn khác" : "Manual / other source"}</SelectItem>
-              </SelectContent>
-            </Select>
-
-          </div>
+      <div data-stitch-section="mobile-summary-filters" className="d3-pa-mfilters lg:hidden">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+            placeholder={isVi ? "Tìm mã phiếu, NCC..." : "Search code, supplier..."}
+            className="d3-pa-msearch pl-11"
+          />
         </div>
+        <div className="d3-pa-pills" role="group" aria-label={isVi ? "Trạng thái" : "Status"}>
+          {[
+            { value: "all", label: isVi ? "Tất cả" : "All" },
+            { value: "pending", label: t.pending },
+            { value: "approved", label: t.approved },
+            { value: "rejected", label: t.rejected },
+          ].map((filter) => (
+            <button
+              key={filter.value}
+              type="button"
+              aria-pressed={statusFilter === filter.value}
+              onClick={() => setStatusFilter(filter.value)}
+              className={cn(statusFilter === filter.value && "is-on")}
+            >
+              {filter.label}
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          aria-expanded={mobileFiltersOpen}
+          onClick={() => setMobileFiltersOpen((open) => !open)}
+          className="d3-pa-mtoggle"
+        >
+          <span className="flex min-w-0 items-center gap-2">
+            <CalendarDays className="h-4 w-4 shrink-0" />
+            <span>{isVi ? "Bộ lọc ngày & nguồn" : "Date & source filters"}</span>
+          </span>
+          <span className="shrink-0 text-xs tabular-nums">{mobileDateRangeLabel}</span>
+        </button>
 
-        <div data-stitch-section="mobile-summary-filters" className="space-y-3 lg:hidden">
-          <section className="rounded-lg border border-border bg-card p-4">
-            <div className="flex items-start justify-between gap-3 border-b border-border pb-4">
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-muted-foreground">{language === "vi" ? "Đang chờ duyệt" : "Awaiting approval"}</p>
-                <p className="mt-1 text-[28px] font-bold leading-none tabular-nums text-primary">{formatCurrency(stats.pending.amount)}</p>
-              </div>
-              <span className="shrink-0 rounded-md bg-primary/10 px-2.5 py-1 text-sm font-semibold tabular-nums text-primary">
-                {stats.pending.count} {language === "vi" ? "phiếu" : "requests"}
-              </span>
-            </div>
-            <dl className="grid min-w-0 grid-cols-2 gap-4 pt-4">
-              <div className="min-w-0">
-                <dt className="text-xs font-medium text-muted-foreground">{language === "vi" ? "Đã duyệt" : "Approved"}</dt>
-                <dd className="mt-1 truncate text-sm font-semibold tabular-nums text-foreground">{formatCurrency(stats.approved.amount)}</dd>
-                <dd className="mt-0.5 text-xs text-muted-foreground">{stats.approved.count} {language === "vi" ? "phiếu" : "requests"}</dd>
-              </div>
-              <div className="min-w-0 border-l border-border pl-4">
-                <dt className="text-xs font-medium text-muted-foreground">{language === "vi" ? "Từ chối" : "Rejected"}</dt>
-                <dd className="mt-1 truncate text-sm font-semibold tabular-nums text-destructive">{formatCurrency(stats.rejected.amount)}</dd>
-                <dd className="mt-0.5 text-xs text-muted-foreground">{stats.rejected.count} {language === "vi" ? "phiếu" : "requests"}</dd>
-              </div>
-            </dl>
-          </section>
-
-          <section className="space-y-3 rounded-lg border border-border bg-card p-3">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={searchTerm}
-                onChange={(event) => setSearchTerm(event.target.value)}
-                placeholder={language === "vi" ? "Tìm mã phiếu, NCC..." : "Search code, supplier..."}
-                className="h-11 rounded-md border-border bg-background pl-11 text-sm shadow-none"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              {[
-                { value: "all", label: language === "vi" ? "Tất cả" : "All" },
-                { value: "pending", label: t.pending },
-                { value: "approved", label: t.approved },
-                { value: "rejected", label: t.rejected },
-              ].map((filter) => (
-                <button
-                  key={filter.value}
-                  type="button"
-                  onClick={() => setStatusFilter(filter.value)}
-                  className={cn(
-                    "h-11 whitespace-nowrap rounded-md border px-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                    statusFilter === filter.value
-                      ? "border-primary bg-primary text-primary-foreground"
-                      : "border-border bg-background text-muted-foreground"
-                  )}
-                >
-                  {filter.label}
-                </button>
-              ))}
+        {mobileFiltersOpen ? (
+          <div className="space-y-3">
+            <div data-bmq-payment-requests-default-vn-day="true" className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2">
+              <label className="d3-pa-mdate">
+                {isVi ? "Từ ngày" : "From"}
+                <span>
+                  {dateFrom ? format(new Date(`${dateFrom}T00:00:00`), "dd/MM/yyyy") : "--/--/----"}
+                  <input
+                    type="date"
+                    lang={language}
+                    value={dateFrom}
+                    max={dateTo || undefined}
+                    onChange={(event) => setDateFrom(event.target.value)}
+                    aria-label={isVi ? "Từ ngày" : "From date"}
+                  />
+                </span>
+              </label>
+              <label className="d3-pa-mdate">
+                {isVi ? "Đến ngày" : "To"}
+                <span>
+                  {dateTo ? format(new Date(`${dateTo}T00:00:00`), "dd/MM/yyyy") : "--/--/----"}
+                  <input
+                    type="date"
+                    lang={language}
+                    value={dateTo}
+                    min={dateFrom || undefined}
+                    onChange={(event) => setDateTo(event.target.value)}
+                    aria-label={isVi ? "Đến ngày" : "To date"}
+                  />
+                </span>
+              </label>
             </div>
             <button
               type="button"
-              aria-expanded={mobileFiltersOpen}
-              onClick={() => setMobileFiltersOpen((open) => !open)}
-              className="flex h-11 w-full items-center justify-between gap-3 whitespace-nowrap rounded-md border border-border bg-background px-3 text-sm font-semibold text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              aria-pressed={sourceFilter === "warehouse_receipt"}
+              onClick={() => setSourceFilter(sourceFilter === "warehouse_receipt" ? "all" : "warehouse_receipt")}
+              className={cn("d3-pa-mtoggle", sourceFilter === "warehouse_receipt" && "is-on")}
             >
-              <span className="flex min-w-0 items-center gap-2">
-                <CalendarDays className="h-4 w-4 shrink-0" />
-                <span>{language === "vi" ? "Bộ lọc ngày & nguồn" : "Date & source filters"}</span>
-              </span>
-              <span className="shrink-0 text-xs font-normal tabular-nums">{mobileDateRangeLabel}</span>
+              <span>{isVi ? "Chỉ phiếu từ nhập kho" : "Warehouse receipts only"}</span>
+              <PackageCheck className="h-4 w-4" />
             </button>
-
-            {mobileFiltersOpen ? (
-              <div className="space-y-3 border-t border-border pt-3">
-                <div data-bmq-payment-requests-default-vn-day="true" className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2">
-                  <label className="min-w-0 space-y-1.5 text-xs font-medium text-muted-foreground">
-                    {language === "vi" ? "Từ ngày" : "From"}
-                    <span className="relative flex h-11 min-w-0 max-w-full items-center overflow-hidden rounded-md border border-border bg-background px-3 text-sm tabular-nums text-foreground focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
-                      {dateFrom ? format(new Date(`${dateFrom}T00:00:00`), "dd/MM/yyyy") : "--/--/----"}
-                      <input
-                        type="date"
-                        lang={language}
-                        value={dateFrom}
-                        max={dateTo || undefined}
-                        onChange={(event) => setDateFrom(event.target.value)}
-                        aria-label={language === "vi" ? "Từ ngày" : "From date"}
-                        className="absolute inset-0 h-full w-full min-w-0 max-w-full cursor-pointer opacity-0"
-                      />
-                    </span>
-                  </label>
-                  <label className="min-w-0 space-y-1.5 text-xs font-medium text-muted-foreground">
-                    {language === "vi" ? "Đến ngày" : "To"}
-                    <span className="relative flex h-11 min-w-0 max-w-full items-center overflow-hidden rounded-md border border-border bg-background px-3 text-sm tabular-nums text-foreground focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
-                      {dateTo ? format(new Date(`${dateTo}T00:00:00`), "dd/MM/yyyy") : "--/--/----"}
-                      <input
-                        type="date"
-                        lang={language}
-                        value={dateTo}
-                        min={dateFrom || undefined}
-                        onChange={(event) => setDateTo(event.target.value)}
-                        aria-label={language === "vi" ? "Đến ngày" : "To date"}
-                        className="absolute inset-0 h-full w-full min-w-0 max-w-full cursor-pointer opacity-0"
-                      />
-                    </span>
-                  </label>
-                </div>
-                <button type="button" onClick={() => setSourceFilter(sourceFilter === "warehouse_receipt" ? "all" : "warehouse_receipt")} className={cn("flex h-11 w-full items-center justify-between whitespace-nowrap rounded-md border px-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2", sourceFilter === "warehouse_receipt" ? "border-primary bg-primary/10 text-primary" : "border-border bg-background text-muted-foreground")}>
-                  <span>{language === "vi" ? "Chỉ phiếu từ nhập kho" : "Warehouse receipts only"}</span>
-                  <PackageCheck className="h-4 w-4" />
-                </button>
-              </div>
-            ) : null}
-          </section>
-          <div className="grid grid-cols-[minmax(0,1fr)_44px] gap-2">
-            <AddPaymentRequestDialog trigger={<Button className="h-11 w-full whitespace-nowrap rounded-md font-semibold shadow-none"><Plus className="mr-2 h-4 w-4" />{language === "vi" ? "Tạo duyệt chi" : "Create request"}</Button>} />
-            <Button variant="outline" size="icon" className="h-11 w-11 rounded-md border-border bg-card shadow-none" onClick={() => setShowDriveInvoiceDialog(true)} title={language === "vi" ? "Nhập từ Google Drive" : "Import from Google Drive"}><Upload className="h-4 w-4" /></Button>
           </div>
-        </div>
-
-        <div className="hidden gap-5 md:grid-cols-2 lg:grid 2xl:grid-cols-4">
-          {statCards.map((card) => {
-            const Icon = card.icon;
-            const isActive = card.isActive ?? (card.key === null ? activeCardFilter === null && sourceFilter === "all" : activeCardFilter === card.key);
-
-            return (
-              <Card
-                key={card.label}
-                className={cn(
-                  "cursor-pointer rounded-md border-slate-200 bg-white shadow-none transition-colors hover:border-primary/40 dark:border-slate-800 dark:bg-card dark:hover:border-primary/40",
-                  isActive && "border-primary/60 ring-1 ring-primary/15"
-                )}
-                onClick={() => {
-                  if (card.onClick) {
-                    card.onClick();
-                    return;
-                  }
-                  setActiveCardFilter(card.key === activeCardFilter ? null : card.key);
-                }}
-              >
-                <CardContent className="flex items-center gap-5 p-6">
-                  <div className={cn("flex h-12 w-12 shrink-0 items-center justify-center rounded-md", getStatToneClass(card.tone))}>
-                    <Icon className="h-7 w-7" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-slate-800 dark:text-slate-100">{card.label}</div>
-                    <div className="mt-1 text-xl font-semibold leading-tight text-slate-950 dark:text-slate-50">
-                      {compactCurrency(card.amount)}
-                    </div>
-                    <div className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                      {card.count} {language === "vi" ? "phiếu" : "requests"}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
+        ) : null}
+        <div className="grid grid-cols-[minmax(0,1fr)_44px] gap-2">
+          <AddPaymentRequestDialog trigger={<Button className="d3-pa-primary h-11 w-full whitespace-nowrap"><Plus className="mr-2 h-4 w-4" />{isVi ? "Tạo duyệt chi" : "Create request"}</Button>} />
+          <Button variant="outline" size="icon" className="d3-pa-icon" onClick={() => setShowDriveInvoiceDialog(true)} title={isVi ? "Nhập từ Google Drive" : "Import from Google Drive"}><Upload className="h-4 w-4" /></Button>
         </div>
       </div>
 
       {/* Bulk Action Bar */}
       {selectedIds.size > 0 && (
-        <div data-stitch-section="mobile-selected-actions-inline" className="flex flex-col gap-3 rounded-lg border border-primary/30 bg-primary/5 p-3 lg:flex-row lg:items-center lg:justify-between lg:rounded-md lg:bg-muted/40 lg:p-4">
-          <div className="flex flex-wrap items-center gap-4">
-            <span className="font-medium">
-              {t.selected}: {selectedIds.size}
+        <div data-stitch-section="mobile-selected-actions-inline" className="d3-pa-bulk">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <span>
+              {t.selected}: <b>{selectedIds.size}</b>
             </span>
-            <span className="text-muted-foreground">|</span>
-            <span className="font-medium">
-              {t.total}: {formatCurrency(
+            <span>
+              {t.total}: <b>{formatCurrency(
                 Array.from(selectedIds).reduce((sum, id) => {
                   const request = requests?.find(r => r.id === id);
                   return sum + (request?.total_amount || 0);
                 }, 0)
-              )}
+              )}</b>
             </span>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {/* Quick Approve button - only show when pending requests are selected */}
             {selectedPendingIds.length > 0 && (
-              <Button 
+              <Button
                 onClick={() => setShowBulkApproveConfirm(true)}
                 disabled={bulkApprove.isPending}
-                className="gap-2"
+                className="d3-pa-go gap-2"
               >
                 <CheckCircle2 className="h-4 w-4" />
                 {t.quickApprove} ({selectedPendingIds.length})
@@ -876,14 +775,14 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
             )}
             {/* Export PDF button - show when approved requests are selected */}
             {requests && (
-              <ExportApprovedPDF 
-                selectedIds={Array.from(selectedIds)} 
-                requests={requests} 
+              <ExportApprovedPDF
+                selectedIds={Array.from(selectedIds)}
+                requests={requests}
               />
             )}
             {/* Mark as Paid button - only show when approved+unpaid requests are selected */}
             {selectedApprovedUnpaidIds.length > 0 && (
-              <Button 
+              <Button
                 onClick={() => setShowBulkPaidConfirm(true)}
                 disabled={bulkMarkPaid.isPending}
                 className="gap-2"
@@ -892,9 +791,10 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
                 {t.markAsPaid} ({selectedApprovedUnpaidIds.length})
               </Button>
             )}
-            <Button 
-              variant="ghost" 
+            <Button
+              variant="ghost"
               size="icon"
+              aria-label={isVi ? "Bỏ chọn tất cả" : "Clear selection"}
               onClick={() => setSelectedIds(new Set())}
             >
               <X className="h-4 w-4" />
@@ -903,333 +803,145 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
         </div>
       )}
 
-      {/* Requests Mobile Cards */}
-      <div data-stitch-section="mobile-approval-cards" className="space-y-3 lg:hidden">
+      {/* Requests: one compact list for every width (Demo 3 .apr rows) */}
+      <section className="d3-pa-list" data-bmq-pr-list="demo3">
+        <div className="d3-pa-list-h">
+          <h2>{isVi ? "Đề nghị chi" : "Requests"}</h2>
+          {!isLoading && !isError && selectableRequests.length > 0 ? (
+            <label className="d3-pa-all">
+              <Checkbox
+                checked={selectableRequests.every(r => selectedIds.has(r.id))}
+                onCheckedChange={(checked) => {
+                  if (checked) {
+                    setSelectedIds(new Set(selectableRequests.map(r => r.id)));
+                  } else {
+                    setSelectedIds(new Set());
+                  }
+                }}
+              />
+              {isVi ? `Chọn tất cả (${selectableRequests.length})` : `Select all (${selectableRequests.length})`}
+            </label>
+          ) : null}
+        </div>
+
         {isLoading ? (
-          <div className="space-y-3">
-            {[...Array(3)].map((_, i) => (
-              <Skeleton key={i} className="h-56 rounded-lg" />
+          <div className="d3-pa-rows">
+            {[...Array(4)].map((_, i) => (
+              <Skeleton key={i} className="h-[132px] rounded-2xl" />
             ))}
           </div>
         ) : isError ? (
-          <Card className="rounded-lg border-destructive/20 bg-destructive/5 shadow-none">
-            <CardContent className="space-y-3 p-4">
-              <p className="font-semibold text-destructive">{language === "vi" ? "Không thể tải dữ liệu" : "Couldn't load data"}</p>
-              <p className="break-words text-sm text-muted-foreground">
-                {error instanceof Error ? error.message : "Unknown error"}
-              </p>
-              <Button variant="outline" className="h-11 w-full rounded-md" onClick={() => refetch()}>
-                {language === "vi" ? "Thử lại" : "Retry"}
-              </Button>
-            </CardContent>
-          </Card>
+          <div className="d3-pa-state is-error">
+            <p className="font-medium">{isVi ? "Không thể tải dữ liệu" : "Couldn't load data"}</p>
+            <p className="break-words text-sm">{error instanceof Error ? error.message : "Unknown error"}</p>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Button variant="outline" onClick={() => refetch()}>{isVi ? "Thử lại" : "Retry"}</Button>
+              <Button variant="outline" onClick={() => window.location.reload()}>{isVi ? "Tải lại trang" : "Reload Page"}</Button>
+            </div>
+          </div>
         ) : filteredRequests?.length === 0 ? (
-          <Card className="rounded-lg border-border bg-card shadow-none">
-            <CardContent className="p-8 text-center">
-              <FileText className="mx-auto mb-3 h-10 w-10 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">{t.noPaymentRequests}</p>
-            </CardContent>
-          </Card>
+          <div className="d3-pa-state">
+            <FileText className="mx-auto mb-3 h-10 w-10" />
+            <p>{t.noPaymentRequests}</p>
+          </div>
         ) : (
           <>
-            {paginatedRequests.map((request) => {
-            const cue = getAccountingCue(request);
-            const CueIcon = cue.icon;
-            const isSelectable = request.status === "pending" || (request.status === "approved" && hasOutstandingPayment(request));
-            const isSelected = selectedIds.has(request.id);
-            const productNames = getProductNames(request);
-            const remainingAmount = getRemainingPaymentAmount(request);
-            const allocatedAmount = getAllocatedAmount(request);
+            <div className="d3-pa-rows">
+              {paginatedRequests.map((request, index) => {
+                const cue = getAccountingCue(request);
+                const CueIcon = cue.icon;
+                const isSelectable = request.status === "pending" || (request.status === "approved" && hasOutstandingPayment(request));
+                const isSelected = selectedIds.has(request.id);
+                const isActiveRow = selectedRequestId === request.id;
+                const productNames = getProductNames(request);
+                const remainingAmount = getRemainingPaymentAmount(request);
+                const allocatedAmount = getAllocatedAmount(request);
+                const products = productNames.length
+                  ? productNames.slice(0, 2).join(", ") + (productNames.length > 2 ? ` +${productNames.length - 2}` : "")
+                  : request.title || (isVi ? "Đề nghị thanh toán" : "Payment request");
 
-            return (
-              <Card
-                key={request.id}
-                data-stitch-card="mobile-payment-request"
-                className={cn(
-                  "overflow-hidden rounded-lg border-border bg-card shadow-none transition-colors",
-                  isSelected && "border-primary ring-1 ring-primary/20"
-                )}
-              >
-                <CardContent className="space-y-4 p-4">
-                  <div className="flex min-w-0 items-center justify-between gap-2">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <span className="truncate rounded-md bg-muted px-2 py-1 font-mono text-[11px] font-semibold text-foreground">{getRequestCode(request)}</span>
-                      {getStatusBadge(request.status)}
+                return (
+                  <article
+                    key={request.id}
+                    data-bmq-pr-row={request.status}
+                    aria-current={isActiveRow ? "true" : undefined}
+                    className={cn("d3-pa-row", `is-${request.status}`, isSelected && "is-selected", isActiveRow && "d3-pr-row-active")}
+                    style={{ ["--i" as string]: Math.min(index, 8) }}
+                  >
+                    <div className="d3-pa-check">
+                      {isSelectable ? (
+                        <Checkbox
+                          checked={isSelected}
+                          aria-label={isSelected ? (isVi ? "Bỏ chọn phiếu" : "Unselect request") : (isVi ? "Chọn phiếu" : "Select request")}
+                          onCheckedChange={() => toggleSelected(request.id)}
+                        />
+                      ) : null}
                     </div>
-                    {isSelectable ? (
-                      <button type="button" aria-label={isSelected ? (language === "vi" ? "Bỏ chọn phiếu" : "Unselect request") : (language === "vi" ? "Chọn phiếu" : "Select request")} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2" onClick={() => { const next = new Set(selectedIds); if (next.has(request.id)) next.delete(request.id); else next.add(request.id); setSelectedIds(next); }}>
-                        {isSelected ? <CheckCircle2 aria-hidden="true" className="h-5 w-5 text-primary" /> : <span aria-hidden="true" className="h-4 w-4 rounded border border-input bg-background" />}
-                      </button>
-                    ) : null}
-                  </div>
-
-                  <div className="min-w-0">
-                    <button type="button" className="block min-h-11 w-full min-w-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2" onClick={() => setSelectedRequestId(request.id)}>
-                      <span className="line-clamp-1 text-base font-semibold text-foreground">{request.suppliers?.name || (language === "vi" ? "Chưa có nhà cung cấp" : "No supplier")}</span>
-                      <span className="mt-1 block line-clamp-1 text-sm text-muted-foreground">{request.title || productNames[0] || (language === "vi" ? "Đề nghị thanh toán" : "Payment request")}</span>
+                    <button type="button" className="d3-pa-open" onClick={() => setSelectedRequestId(request.id)}>
+                      <span className="d3-pa-who">
+                        <b>{request.suppliers?.name || (isVi ? "Chưa có nhà cung cấp" : "No supplier")}</b>
+                        <small>{getRequestCode(request)} · {products}</small>
+                      </span>
+                      <span className="d3-pa-amt">
+                        {new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 }).format(request.total_amount || 0)}
+                        <small>đ</small>
+                      </span>
+                      <span className="d3-pa-tags">
+                        <span className={cn("d3-pa-due", `is-${request.status}`)}>{statusLabel(request.status)}</span>
+                        <span className="d3-pa-cue"><CueIcon className="h-3.5 w-3.5" />{cue.label}</span>
+                        <span className="d3-pa-meta">
+                          {format(new Date(request.created_at), "dd/MM/yyyy", { locale: dateLocale })} · {getCreatorName(request)} · {getSourceLabel(request)}
+                        </span>
+                      </span>
+                      {allocatedAmount > 0 ? (
+                        <span className="d3-pa-paid">
+                          {isVi ? "Đã TT" : "Paid"} {formatCurrency(allocatedAmount)}
+                          {remainingAmount > 0 ? ` · ${isVi ? "Còn" : "Left"} ${formatCurrency(remainingAmount)}` : ""}
+                        </span>
+                      ) : null}
                     </button>
-                    <p className="mt-3 text-2xl font-bold leading-none tabular-nums text-primary">{formatCurrency(request.total_amount || 0)}</p>
-                    {remainingAmount > 0 && allocatedAmount > 0 ? <p className="mt-1 text-xs font-medium tabular-nums text-muted-foreground">{language === "vi" ? "Còn phải chi" : "Remaining"}: {formatCurrency(remainingAmount)}</p> : null}
-                  </div>
-
-                  <dl className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2 border-y border-border py-3 text-xs">
-                    <dt className="text-muted-foreground">{language === "vi" ? "Ngày tạo" : "Created"}</dt><dd className="truncate text-right font-medium tabular-nums text-foreground">{format(new Date(request.created_at), "dd/MM/yyyy", { locale: dateLocale })}</dd>
-                    <dt className="text-muted-foreground">{language === "vi" ? "Người tạo" : "Created by"}</dt><dd className="truncate text-right font-medium text-foreground">{getCreatorName(request)}</dd>
-                    <dt className="text-muted-foreground">{language === "vi" ? "Nguồn" : "Source"}</dt><dd className="truncate text-right font-medium text-foreground">{getSourceLabel(request)}</dd>
-                  </dl>
-
-                  <div className={cn("flex min-h-11 items-center gap-2 rounded-md border px-3 py-2 text-xs font-semibold", cue.className)}>
-                    <CueIcon className="h-4 w-4 shrink-0" /><span className="min-w-0 truncate">{cue.label}</span><span className="ml-auto shrink-0 font-normal text-muted-foreground">{request.image_url ? (language === "vi" ? "Có ảnh" : "Image") : (language === "vi" ? "Kiểm tra chứng từ" : "Check documents")}</span>
-                  </div>
-
-                  {productNames.length > 0 ? <div className="flex min-w-0 flex-wrap gap-1.5">
-                    {productNames.slice(0, 2).map((name) => <Badge key={name} variant="outline" className="max-w-full truncate rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground">{name}</Badge>)}
-                    {productNames.length > 2 ? <Badge variant="secondary" className="rounded-md px-2 py-1 text-[11px] font-medium">+{productNames.length - 2}</Badge> : null}
-                  </div> : null}
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <Button
-                      variant="outline"
-                      className="h-11 whitespace-nowrap rounded-md border-border bg-card font-semibold shadow-none"
-                      onClick={() => setSelectedRequestId(request.id)}
-                    >
-                      <Eye className="mr-2 h-4 w-4" />
-                      {language === "vi" ? "Chi tiết" : "Details"}
-                    </Button>
-                    {request.status === "pending" && canEditPaymentRequests ? (
-                      <Button
-                        className="h-11 whitespace-nowrap rounded-md font-semibold shadow-none"
-                        disabled={bulkApprove.isPending}
-                        onClick={() => openQuickApproveConfirm(request.id)}
-                      >
-                        <CheckCircle2 className="mr-2 h-4 w-4" />
-                        {language === "vi" ? "Duyệt" : "Approve"}
-                      </Button>
-                    ) : (
-                      <Button
-                        variant="outline"
-                        className="h-11 whitespace-nowrap rounded-md border-border bg-card font-semibold shadow-none"
-                        onClick={() => {
-                          const next = new Set(selectedIds);
-                          if (isSelectable) {
-                            if (next.has(request.id)) next.delete(request.id);
-                            else next.add(request.id);
-                            setSelectedIds(next);
-                          }
-                        }}
-                        disabled={!isSelectable}
-                      >
-                        {isSelected ? (language === "vi" ? "Bỏ chọn" : "Unselect") : (language === "vi" ? "Chọn" : "Select")}
-                      </Button>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-
-            <div data-stitch-section="mobile-pagination" className="rounded-lg border border-border bg-card p-3">
-              <div className="mb-3 flex items-center justify-between gap-3 text-sm">
-                <span className="font-medium text-muted-foreground">
-                  {language === "vi"
-                    ? `${firstResult} - ${lastResult} / ${totalResults} phiếu`
-                    : `${firstResult} - ${lastResult} / ${totalResults} requests`}
-                </span>
-                <span className="rounded-md bg-muted px-2 py-1 text-xs font-semibold text-muted-foreground">
-                  {language === "vi" ? `Trang ${safeCurrentPage}/${totalPages}` : `Page ${safeCurrentPage}/${totalPages}`}
-                </span>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <Button
-                  variant="outline"
-                  className="h-11 whitespace-nowrap rounded-md border-border bg-background font-semibold shadow-none"
-                  disabled={safeCurrentPage <= 1}
-                  onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
-                >
-                  <ChevronLeft className="mr-2 h-4 w-4" />
-                  {language === "vi" ? "Trước" : "Previous"}
-                </Button>
-                <Button
-                  variant="outline"
-                  className="h-11 whitespace-nowrap rounded-md border-border bg-background font-semibold shadow-none"
-                  disabled={safeCurrentPage >= totalPages}
-                  onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
-                >
-                  {language === "vi" ? "Tiếp" : "Next"}
-                  <ChevronRight className="ml-2 h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* Requests Table */}
-      <Card className="hidden overflow-hidden rounded-md border-slate-200 bg-white shadow-none dark:border-slate-800 dark:bg-card lg:block">
-        <CardContent className="p-0">
-          {isLoading ? (
-            <div className="p-6 space-y-4">
-              {[...Array(5)].map((_, i) => (
-                <Skeleton key={i} className="h-12 w-full" />
-              ))}
-            </div>
-          ) : isError ? (
-            <div className="p-6 space-y-3">
-              <p className="font-medium text-foreground">
-                {language === "vi" ? "Không thể tải dữ liệu" : "Couldn't load data"}
-              </p>
-              <p className="text-sm text-muted-foreground break-words">
-                {error instanceof Error ? error.message : "Unknown error"}
-              </p>
-              <div className="flex flex-col sm:flex-row gap-2">
-                <Button variant="outline" onClick={() => refetch()}>
-                  {language === "vi" ? "Thử lại" : "Retry"}
-                </Button>
-                <Button variant="outline" onClick={() => window.location.reload()}>
-                  {language === "vi" ? "Tải lại trang" : "Reload Page"}
-                </Button>
-              </div>
-            </div>
-          ) : filteredRequests?.length === 0 ? (
-            <div className="p-12 text-center">
-              <FileText className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-              <p className="text-muted-foreground">{t.noPaymentRequests}</p>
-            </div>
-          ) : (
-            <>
-            <Table>
-              <TableHeader className="bg-slate-50 dark:bg-slate-900/50">
-                <TableRow className="hover:bg-transparent">
-                  <TableHead className="w-12 px-4">
-                    <Checkbox
-                      checked={selectableRequests.length > 0 && selectableRequests.every(r => selectedIds.has(r.id))}
-                      onCheckedChange={(checked) => {
-                        if (checked) {
-                          setSelectedIds(new Set(selectableRequests.map(r => r.id)));
-                        } else {
-                          setSelectedIds(new Set());
-                        }
-                      }}
-                    />
-                  </TableHead>
-                  <TableHead className="min-w-[130px] text-slate-700 dark:text-slate-300">Mã phiếu</TableHead>
-                  <TableHead className="min-w-[130px] text-slate-700 dark:text-slate-300">
-                    <span className="inline-flex items-center gap-1">
-                      Ngày <ArrowDown className="h-3.5 w-3.5" />
-                    </span>
-                  </TableHead>
-                  <TableHead className="min-w-[220px] text-slate-700 dark:text-slate-300">{t.supplier}</TableHead>
-                  <TableHead className="min-w-[300px] text-slate-700 dark:text-slate-300">
-                    {language === "vi" ? "Tên sản phẩm duyệt chi" : "Payment request products"}
-                  </TableHead>
-                  <TableHead className="min-w-[150px] text-right text-slate-700 dark:text-slate-300">Số tiền</TableHead>
-                  <TableHead className="min-w-[140px] text-center text-slate-700 dark:text-slate-300">{t.status}</TableHead>
-                  <TableHead className="min-w-[160px] text-slate-700 dark:text-slate-300">Người tạo</TableHead>
-                  <TableHead className="w-16 text-center text-slate-700 dark:text-slate-300">{t.actions}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {paginatedRequests.map((request) => {
-                  const allocatedAmount = getAllocatedAmount(request);
-                  const remainingAmount = getRemainingPaymentAmount(request);
-                  const isSelectable = request.status === "pending" || (request.status === "approved" && hasOutstandingPayment(request));
-                  const isSelected = selectedIds.has(request.id);
-                  
-                  return (
-                    <TableRow
-                      key={request.id}
-                      className={cn(
-                        "h-[72px] cursor-pointer transition-colors hover:bg-muted/40",
-                        isSelected && "bg-muted/60",
-                        selectedRequestId === request.id && "d3-pr-row-active"
-                      )}
-                      aria-current={selectedRequestId === request.id ? "true" : undefined}
-                      tabIndex={0}
-                      role="button"
-                      onClick={() => setSelectedRequestId(request.id)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          setSelectedRequestId(request.id);
-                        }
-                      }}
-                    >
-                      <TableCell
-                        className="px-4"
-                        onClick={(event) => event.stopPropagation()}
-                        onKeyDown={(event) => event.stopPropagation()}
-                      >
-                        {isSelectable ? (
-                          <Checkbox
-                            checked={isSelected}
-                            onCheckedChange={(checked) => {
-                              const newSet = new Set(selectedIds);
-                              if (checked) {
-                                newSet.add(request.id);
-                              } else {
-                                newSet.delete(request.id);
-                              }
-                              setSelectedIds(newSet);
-                            }}
-                          />
-                        ) : (
-                          <div className="w-4" />
-                        )}
-                      </TableCell>
-                    <TableCell className="whitespace-nowrap font-medium text-slate-800 dark:text-slate-100">
-                      {getRequestCode(request)}
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap text-slate-700 dark:text-slate-300">
-                      {format(new Date(request.created_at), "dd/MM/yyyy", { locale: dateLocale })}
-                    </TableCell>
-                    <TableCell className="font-medium text-slate-800 dark:text-slate-100">{request.suppliers?.name || "-"}</TableCell>
-                    <TableCell>{renderProductNames(request)}</TableCell>
-                    <TableCell className="text-right font-semibold text-slate-900 dark:text-slate-50">
-                      {formatCurrency(request.total_amount || 0)}
-                      {allocatedAmount > 0 && (
-                        <div className="text-xs font-normal text-muted-foreground">
-                          {language === "vi" ? "Đã TT" : "Paid"} {formatCurrency(allocatedAmount)}
-                          {remainingAmount > 0 ? ` · ${language === "vi" ? "Còn" : "Left"} ${formatCurrency(remainingAmount)}` : ""}
-                        </div>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-center">{getStatusBadge(request.status)}</TableCell>
-                    <TableCell className="whitespace-nowrap text-slate-700 dark:text-slate-300">{getCreatorName(request)}</TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
-                        {canEditPaymentRequests && (
+                    {(request.status === "pending" && canEditPaymentRequests) || canEditPaymentRequests ? (
+                      <div className="d3-pa-acts">
+                        {canEditPaymentRequests ? (
                           <Button
-                            variant="outline"
+                            variant="ghost"
                             size="icon"
-                            className="group h-8 w-8 rounded-md border-destructive/25 bg-destructive/5 text-destructive shadow-none hover:border-destructive/45 hover:bg-destructive/10 hover:text-destructive dark:border-destructive/35 dark:bg-destructive/10 dark:text-destructive dark:hover:bg-destructive/20 dark:hover:text-destructive"
+                            className="d3-pa-del hidden lg:inline-flex"
                             disabled={deleteRequest.isPending}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setDeletingRequestId(request.id);
-                            }}
-                            onKeyDown={(event) => event.stopPropagation()}
-                            title={language === "vi" ? "Xoá duyệt chi" : "Delete payment request"}
+                            onClick={() => setDeletingRequestId(request.id)}
+                            title={isVi ? "Xoá duyệt chi" : "Delete payment request"}
+                            aria-label={isVi ? "Xoá duyệt chi" : "Delete payment request"}
                           >
-                            <Trash2 className="h-4 w-4 transition-[stroke-width] group-hover:stroke-[2.75]" />
+                            <Trash2 className="h-4 w-4" />
                           </Button>
-                        )}
+                        ) : null}
+                        {request.status === "pending" && canEditPaymentRequests ? (
+                          <Button
+                            className="d3-pa-go"
+                            disabled={bulkApprove.isPending}
+                            onClick={() => openQuickApproveConfirm(request.id)}
+                          >
+                            <CheckCircle2 className="h-4 w-4" />
+                            {isVi ? "Duyệt" : "Approve"} {toMillions(request.total_amount || 0)}{isVi ? "tr" : "M"}
+                          </Button>
+                        ) : null}
                       </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-            <div className="flex flex-col gap-4 border-t border-slate-200 px-4 py-4 text-sm text-slate-700 dark:border-slate-800 dark:text-slate-300 lg:flex-row lg:items-center lg:justify-between lg:pr-28 xl:pr-32">
+                    ) : null}
+                  </article>
+                );
+              })}
+            </div>
+
+            <div className="d3-pa-foot">
               <div>
-                {language === "vi"
+                {vi
                   ? `Hiển thị ${firstResult} - ${lastResult} trong ${totalResults} kết quả`
                   : `Showing ${firstResult} - ${lastResult} of ${totalResults} results`}
               </div>
               <div className="flex flex-wrap items-center gap-3">
-                <span>{language === "vi" ? "Số dòng mỗi trang" : "Rows per page"}</span>
+                <span className="hidden sm:inline">{isVi ? "Số dòng mỗi trang" : "Rows per page"}</span>
                 <Select value={pageSize} onValueChange={setPageSize}>
-                  <SelectTrigger className="h-10 w-[104px] rounded-md border-slate-200 bg-white shadow-none dark:border-slate-800 dark:bg-card">
+                  <SelectTrigger aria-label={isVi ? "Số dòng mỗi trang" : "Rows per page"} className="d3-pa-pagesize">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -1238,11 +950,11 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
                     <SelectItem value="50">50</SelectItem>
                   </SelectContent>
                 </Select>
-                <div className="ml-0 flex items-center gap-2 lg:ml-8">
+                <div className="d3-pa-pages">
                   <Button
                     variant="outline"
                     size="icon"
-                    className="h-10 w-10 rounded-md border-slate-200 bg-white shadow-none dark:border-slate-800 dark:bg-card"
+                    aria-label={isVi ? "Trang trước" : "Previous page"}
                     disabled={safeCurrentPage <= 1}
                     onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
                   >
@@ -1251,13 +963,9 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
                   {Array.from({ length: Math.min(4, totalPages) }, (_, index) => index + 1).map((page) => (
                     <Button
                       key={page}
-                      variant={safeCurrentPage === page ? "default" : "outline"}
-                      className={cn(
-                        "h-10 w-10 rounded-md p-0 shadow-none",
-                        safeCurrentPage === page
-                          ? ""
-                          : "border-slate-200 bg-white dark:border-slate-800 dark:bg-card"
-                      )}
+                      variant="outline"
+                      className={cn(safeCurrentPage === page && "is-on")}
+                      aria-current={safeCurrentPage === page ? "page" : undefined}
                       onClick={() => setCurrentPage(page)}
                     >
                       {page}
@@ -1266,7 +974,7 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
                   <Button
                     variant="outline"
                     size="icon"
-                    className="h-10 w-10 rounded-md border-slate-200 bg-white shadow-none dark:border-slate-800 dark:bg-card"
+                    aria-label={isVi ? "Trang sau" : "Next page"}
                     disabled={safeCurrentPage >= totalPages}
                     onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
                   >
@@ -1275,10 +983,9 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
                 </div>
               </div>
             </div>
-            </>
-          )}
-        </CardContent>
-      </Card>
+          </>
+        )}
+      </section>
 
       {/* Details Dialog */}
       <PaymentRequestDetailsDialog
