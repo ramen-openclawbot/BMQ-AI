@@ -52,6 +52,7 @@ html.bmq-d3 {
   --shadow-card: var(--d3-sh);
   --gradient-card: hsl(var(--card));
   --gradient-warm: linear-gradient(90deg, var(--d3-pink), #ffb3a6);
+  --shadow-warm: 0 10px 22px -12px rgba(39, 39, 39, .55);
   color-scheme: light;
 }
 
@@ -618,4 +619,113 @@ html.bmq-d3 .d3-pr-row-active {
 @media (min-width: 1280px) {
   .d3-pr-has-panel table :is(th, td):is(:nth-child(3), :nth-child(5), :nth-child(8)) { display: none; }
   .d3-pr-has-panel table :is(th, td) { min-width: 0 !important; }
+}
+
+
+/* =====================================================================
+   Content kit — page interiors (Demo 3 pass, step 1).
+   Restyles the shared building blocks every page uses (shadcn Card/Tabs/
+   Table/Badge, legacy .stat-card/.card-elevated/.btn-gradient and large
+   bold display text) so page bodies match the mockup without touching
+   page logic. Small decision text keeps its weight.
+   ===================================================================== */
+
+/* Display typography: big titles and figures turn light, like the mockup. */
+html.bmq-d3 .d3-screen :is(.text-2xl, .text-3xl, .text-4xl, .text-5xl, .text-6xl):is(.font-semibold, .font-bold, .font-extrabold, .font-black) {
+  font-weight: 300;
+  letter-spacing: -.02em;
+}
+
+/* Figures (not page titles: h1 stays at the shared 300 title weight). */
+html.bmq-d3 .d3-screen :is(.text-3xl, .text-4xl, .text-5xl, .text-6xl):is(.font-bold, .font-extrabold, .font-black):not(h1) {
+  font-weight: 200;
+  letter-spacing: -.035em;
+  font-variant-numeric: tabular-nums;
+}
+
+html.bmq-d3 .d3-screen :is(.text-lg, .text-xl):is(.font-bold, .font-extrabold, .font-black),
+html.bmq-d3 .d3-screen :is(h2, h3):is(.font-bold, .font-extrabold, .font-black) {
+  font-weight: 500;
+}
+
+/* Cards: soft, borderless (unless a page gives the border a meaning), larger radius. */
+html.bmq-d3 .d3-screen .rounded-lg.border.bg-card {
+  border-radius: 20px;
+}
+
+html.bmq-d3 .d3-screen .rounded-lg.border.bg-card:not([class*="border-"]) {
+  border-color: transparent;
+}
+
+html.bmq-d3 .d3-screen :is(.stat-card, .card-elevated) {
+  border-color: transparent !important;
+  border-radius: 20px;
+  background: var(--d3-card);
+  box-shadow: var(--d3-sh);
+  backdrop-filter: none;
+}
+
+/* The legacy pink/blue top rule on KPI cards is not part of the new look. */
+html.bmq-d3 .d3-screen .stat-card::before {
+  display: none;
+}
+
+/* Tabs as soft pills (same language as the zone chips). */
+html.bmq-d3 .d3-screen [role="tablist"].bg-muted {
+  height: auto;
+  min-height: 44px;
+  padding: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .45);
+}
+
+html.bmq-d3 .d3-screen [role="tablist"].bg-muted > [role="tab"] {
+  min-height: 36px;
+  border-radius: 999px;
+  font-weight: 400;
+  color: var(--d3-ink-2);
+}
+
+html.bmq-d3 .d3-screen [role="tablist"].bg-muted > [role="tab"][data-state="active"] {
+  background: var(--d3-white);
+  color: var(--d3-ink);
+  font-weight: 500;
+  box-shadow: var(--d3-sh);
+}
+
+/* Tables: quiet header, white rows on hover. */
+html.bmq-d3 .d3-screen thead,
+html.bmq-d3 .d3-screen thead tr {
+  background: transparent !important;
+}
+
+html.bmq-d3 .d3-screen th {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--d3-dim) !important;
+}
+
+html.bmq-d3 .d3-screen tbody tr:hover {
+  background: rgba(253, 253, 252, .7);
+}
+
+/* Badges: medium weight instead of bold. */
+html.bmq-d3 .d3-screen .rounded-full.border.text-xs.font-semibold {
+  font-weight: 500;
+}
+
+/* Arbitrary large sizes used for KPI figures (text-[28px] … text-[48px]). */
+html.bmq-d3 .d3-screen :is([class*="text-[2"], [class*="text-[3"], [class*="text-[4"]):is(.font-bold, .font-extrabold, .font-black):not(h1) {
+  font-weight: 200;
+  letter-spacing: -.035em;
+  font-variant-numeric: tabular-nums;
+}
+
+html.bmq-d3 .point-revenue-page h2 {
+  font-weight: 300;
+}
+
+/* Button labels: medium, not bold (the mockup's controls are quiet). */
+html.bmq-d3 .d3-screen :is(button, a[role="button"]):is(.font-bold, .font-extrabold, .font-black) {
+  font-weight: 500;
 }
