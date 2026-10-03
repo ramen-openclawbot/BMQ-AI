@@ -314,6 +314,11 @@ try {
         assert.ok(await page.locator(".d3-pp-row", { hasText: "NPP-BT" }).count() > 0, "other PO row listed");
         assert.equal(await page.locator(".d3-pp-order").count(), 3, "orders listed");
       }
+      if (data === "populated" && viewport.width === 390) {
+        await page.locator(".d3-pp-order-row").first().click();
+        await page.waitForSelector(".d3-pp-order.is-open .d3-pp-order-actions");
+        await page.locator("[data-stitch-production-orders]").screenshot({ path: `${EVIDENCE}/production-orders-390.png` });
+      }
       if (data === "error") assert.equal(await page.locator("[data-kfm-pending-error='v1']").count(), 1, "PO read error shown, not empty");
       if (data === "empty") assert.ok((await page.locator(".d3-pp").textContent()).includes("Chưa có PO chờ sản xuất"), "empty message");
       const ov = await overflow(page);
@@ -328,8 +333,15 @@ try {
   {
     const { context, page, errors } = await open({ role: "owner", data: "populated" }, ROUTE, { width: 1440, height: 900 });
     await page.waitForSelector(".d3-pp-order");
-    await page.locator(".d3-pp-order").first().getByRole("button", { name: /Xem hàng/ }).click();
-    await page.waitForTimeout(400);
+    // Orders are compact rows grouped by status; tapping a row reveals items and actions.
+    assert.deepEqual(await page.$$eval(".d3-pp-ogroup-h span", (els) => els.map((el) => el.textContent)), ["Đang sản xuất", "Sắp sản xuất", "Đã hoàn thành"]);
+    assert.equal(await page.locator(".d3-pp-order-actions").count(), 0, "actions hidden until a row is opened");
+    await page.locator(".d3-pp-order-row").first().click();
+    await page.waitForSelector(".d3-pp-order.is-open .d3-pp-order-actions");
+    assert.ok(await page.locator(".d3-pp-order.is-open [data-testid^='q7-material-issue-pdf-']").count() >= 0);
+    assert.ok(await page.locator(".d3-pp-order.is-open .d3-pp-item").count() > 0, "items listed in the opened row");
+    assert.equal(await page.locator(".d3-pp-order.is-open").getByRole("button", { name: "Xoá lệnh" }).count(), 1, "owner delete inside the row");
+    await page.screenshot({ path: `${EVIDENCE}/production-order-open-1440.png` });
     await page.getByRole("button", { name: "Thiết lập SX", exact: true }).click();
     await page.waitForSelector("[data-stitch-production-settings]");
     await page.getByRole("button", { name: "Quay lại kế hoạch" }).click();

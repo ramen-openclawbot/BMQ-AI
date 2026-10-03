@@ -19,6 +19,7 @@ html.bmq-d3 {
   --d3-green: #29bf12;
   --d3-red: #f4442e;
   --d3-pink: #f4c1d9;
+  --d3-blue: #3c91e6;
   --d3-sans: "Be Vietnam Pro", system-ui, sans-serif;
   --d3-num: "Urbanist", "Be Vietnam Pro", sans-serif;
   --d3-ease: cubic-bezier(.2, .8, .2, 1);

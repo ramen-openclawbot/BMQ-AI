@@ -20,6 +20,7 @@ import {
   Trash2,
   Truck,
   Zap,
+  ChevronDown,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -407,6 +408,7 @@ export default function ProductionPlanning() {
   const [activeTab, setActiveTab] = useState<"plan" | "settings">("plan");
   const [selectedPoForCreation, setSelectedPoForCreation] = useState<CustomerPoInbox | null>(null);
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
+  const [showAllDoneOrders, setShowAllDoneOrders] = useState(false);
   const [editingOrder, setEditingOrder] = useState<ProductionOrder | null>(null);
   const [deleteOrder, setDeleteOrder] = useState<ProductionOrder | null>(null);
   const [materialIssuePdfOrderId, setMaterialIssuePdfOrderId] = useState<string | null>(null);
@@ -1497,99 +1499,131 @@ export default function ProductionPlanning() {
       </section>}
 
       <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <section className="d3-pp-card" data-stitch-production-orders="true" style={{ ["--i" as string]: 4 }}>
-        <div className="d3-pp-card-h">
-          <h2>{isVi ? "Lệnh sản xuất" : "Production Orders"}</h2>
-          <p>{isVi ? "Theo dõi lệnh đã tạo và trạng thái sản xuất." : "Track created orders and production status."}</p>
-        </div>
-        {loadingOrders ? (
-          <div className="d3-pp-state"><Loader2 className="h-6 w-6 animate-spin" /></div>
-        ) : ordersEmpty ? (
-          <div className="d3-pp-state">
-            <Factory className="h-10 w-10" />
-            <h3>{isVi ? "Chưa có lệnh sản xuất nào" : "No production orders yet"}</h3>
+        <section className="d3-pp-card" data-stitch-production-orders="true" style={{ ["--i" as string]: 7 }}>
+          <div className="d3-pp-card-h">
+            <h2>{isVi ? "Lệnh sản xuất" : "Production Orders"}</h2>
+            <span className="d3-pp-pill">{isVi ? `${liveOrders.length} lệnh` : `${liveOrders.length} orders`}</span>
           </div>
-        ) : (
-          <div className="d3-pp-orders">
-            {productionOrders.map((order) => {
-              const totalQty = getProductionOrderTotalQty(order);
-              const canGeneratePdf = canGenerateQ7MaterialIssuePdf(order);
-              const pdfLoading = materialIssuePdfOrderId === order.id;
-              const pdfMessage = materialIssuePdfMessages[order.id];
-              return (
-              <div key={order.id} className="d3-pp-order">
-                <div className="min-w-0">
-                  <div className="d3-pp-order-id">
-                    <b className="font-mono">{order.production_number}</b>
-                    {getStatusBadge(getProductionOrderDisplayStatus(order, tvProductionDateIso))}
-                    {order.revenue_draft_id && <Badge variant="outline" className="text-blue-600">Duyệt DT</Badge>}
-                  </div>
-                  <p>{order.po_number || "-"} · {order.customer_name || "-"}</p>
-                  <p>{order.planned_start_date ? `${formatDate(order.planned_start_date)} - ${formatDate(order.planned_end_date)}` : "-"}</p>
-                </div>
-                <div className="d3-pp-order-total">
-                  <strong>{totalQty.toLocaleString("vi-VN")}</strong>
-                  <small>{isVi ? "tổng số" : "total qty"}</small>
-                </div>
-                <div className="d3-pp-order-actions">
-                  <Button variant="outline" onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)}>
-                    {isVi ? "Xem hàng" : "Items"} · {order.items_count || 0}
-                  </Button>
-                  {canGeneratePdf && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      data-testid={`q7-material-issue-pdf-${order.id}`}
-                      disabled={pdfLoading}
-                      onClick={(event) => openQ7MaterialIssuePdf(order, event)}
-                    >
-                      {pdfLoading ? <Loader2 className="mr-1 h-4 w-4 shrink-0 animate-spin" /> : <FileDown className="mr-1 h-4 w-4 shrink-0" />}
-                      <span className="truncate">Phiếu NVL</span>
-                    </Button>
-                  )}
-                  {canEditLocation && (
-                    <Button type="button" variant="outline" onClick={() => openEditOrder(order)}>
-                      <Pencil className="mr-1 h-4 w-4" />
-                      {isVi ? "Sửa" : "Edit"}
-                    </Button>
-                  )}
-                  {isOwner && (
-                    <Button type="button" variant="destructive" onClick={() => setDeleteOrder(order)}>
-                      <Trash2 className="mr-1 h-4 w-4" />
-                      {isVi ? "Xoá" : "Delete"}
-                    </Button>
-                  )}
-                </div>
-                {pdfMessage && <p className="d3-pp-order-note">{pdfMessage}</p>}
-                {expandedOrderId === order.id && (
-                  <div className="d3-pp-items">
-                    {((orderItems[expandedOrderId] as ProductionOrderItem[]) || []).length > 0 ? (
-                      ((orderItems[expandedOrderId] as ProductionOrderItem[]) || []).map((item) => (
-                        <div key={item.id} className="d3-pp-item">
-                          <div className="min-w-0">
-                            <b>{item.product_name}</b>
-                            <p>{formatDate(item.delivery_date)}</p>
-                          </div>
-                          <div className="text-right">
-                            <strong>{item.planned_qty.toLocaleString("vi-VN")}</strong>
-                            <p>{item.unit}</p>
-                            {Number(item.actual_qty || 0) > 0 && (
-                              <em>✓ {Number(item.actual_qty || 0).toLocaleString("vi-VN")}</em>
-                            )}
-                          </div>
+          {loadingOrders ? (
+            <div className="d3-pp-state"><Loader2 className="h-6 w-6 animate-spin" /></div>
+          ) : ordersEmpty ? (
+            <div className="d3-pp-state">
+              <Factory className="h-10 w-10" />
+              <h3>{isVi ? "Chưa có lệnh sản xuất nào" : "No production orders yet"}</h3>
+            </div>
+          ) : (
+            <div className="d3-pp-ogroups">
+              {([
+                ["in_progress", isVi ? "Đang sản xuất" : "In production"],
+                ["upcoming", isVi ? "Sắp sản xuất" : "Upcoming"],
+                ["draft", isVi ? "Nháp" : "Draft"],
+                ["completed", isVi ? "Đã hoàn thành" : "Completed"],
+                ["cancelled", isVi ? "Đã huỷ" : "Cancelled"],
+              ] as Array<[ProductionOrderDisplayStatus, string]>).map(([groupStatus, groupLabel]) => {
+                const groupOrders = productionOrders.filter((order) => getProductionOrderDisplayStatus(order, tvProductionDateIso) === groupStatus);
+                if (groupOrders.length === 0) return null;
+                const limited = groupStatus === "completed" && !showAllDoneOrders ? groupOrders.slice(0, 5) : groupOrders;
+                return (
+                  <div key={groupStatus} className="d3-pp-ogroup" data-status={groupStatus}>
+                    <div className="d3-pp-ogroup-h"><span>{groupLabel}</span><small>{groupOrders.length}</small></div>
+                    {limited.map((order) => {
+                      const totalQty = getProductionOrderTotalQty(order);
+                      const canGeneratePdf = canGenerateQ7MaterialIssuePdf(order);
+                      const pdfLoading = materialIssuePdfOrderId === order.id;
+                      const pdfMessage = materialIssuePdfMessages[order.id];
+                      const expanded = expandedOrderId === order.id;
+                      const unit = order.items?.[0]?.unit || (isVi ? "sp" : "units");
+                      const counterpart = [order.po_number, order.customer_name].filter(Boolean).join(" · ");
+                      return (
+                        <div key={order.id} className={`d3-pp-order${expanded ? " is-open" : ""}`}>
+                          <button
+                            type="button"
+                            className="d3-pp-order-row"
+                            aria-expanded={expanded}
+                            onClick={() => setExpandedOrderId(expanded ? null : order.id)}
+                          >
+                            <i className="d3-pp-odot" aria-hidden="true" />
+                            <span className="min-w-0">
+                              <b className="font-mono">{order.production_number}</b>
+                              <small>
+                                {order.planned_start_date
+                                  ? order.planned_end_date && order.planned_end_date !== order.planned_start_date
+                                    ? `${formatDate(order.planned_start_date)} – ${formatDate(order.planned_end_date)}`
+                                    : formatDate(order.planned_start_date)
+                                  : "—"}
+                                {` · ${order.items_count || 0} ${isVi ? "mặt hàng" : "items"}`}
+                                {counterpart ? ` · ${counterpart}` : ""}
+                                {order.revenue_draft_id ? (isVi ? " · Duyệt DT" : " · Revenue draft") : ""}
+                              </small>
+                            </span>
+                            <span className="d3-pp-oqty"><strong>{totalQty.toLocaleString("vi-VN")}</strong><small>{unit}</small></span>
+                            <ChevronDown className="d3-pp-ochev h-4 w-4" aria-hidden="true" />
+                          </button>
+                          {expanded && (
+                            <div className="d3-pp-order-body">
+                              <div className="d3-pp-items">
+                                {((orderItems[order.id] as ProductionOrderItem[]) || order.items || []).length > 0 ? (
+                                  (((orderItems[order.id] as ProductionOrderItem[]) || order.items || []) as ProductionOrderItem[]).map((item) => (
+                                    <div key={item.id} className="d3-pp-item">
+                                      <div className="min-w-0">
+                                        <b>{item.product_name}</b>
+                                        <p>{formatDate(item.delivery_date)}</p>
+                                      </div>
+                                      <div className="text-right">
+                                        <strong>{item.planned_qty.toLocaleString("vi-VN")}</strong>
+                                        <p>{item.unit}</p>
+                                        {Number(item.actual_qty || 0) > 0 && <em>✓ {Number(item.actual_qty || 0).toLocaleString("vi-VN")}</em>}
+                                      </div>
+                                    </div>
+                                  ))
+                                ) : (
+                                  <p className="py-3 text-center">{isVi ? "Không có hàng nào" : "No items"}</p>
+                                )}
+                              </div>
+                              <div className="d3-pp-order-actions">
+                                {canGeneratePdf && (
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    data-testid={`q7-material-issue-pdf-${order.id}`}
+                                    disabled={pdfLoading}
+                                    onClick={(event) => openQ7MaterialIssuePdf(order, event)}
+                                  >
+                                    {pdfLoading ? <Loader2 className="mr-1 h-4 w-4 shrink-0 animate-spin" /> : <FileDown className="mr-1 h-4 w-4 shrink-0" />}
+                                    <span className="truncate">Phiếu NVL</span>
+                                  </Button>
+                                )}
+                                {canEditLocation && (
+                                  <Button type="button" variant="outline" size="sm" onClick={() => openEditOrder(order)}>
+                                    <Pencil className="mr-1 h-4 w-4" />
+                                    {isVi ? "Sửa" : "Edit"}
+                                  </Button>
+                                )}
+                                {isOwner && (
+                                  <Button type="button" variant="ghost" size="sm" className="d3-pp-odelete" onClick={() => setDeleteOrder(order)}>
+                                    <Trash2 className="mr-1 h-4 w-4" />
+                                    {isVi ? "Xoá lệnh" : "Delete"}
+                                  </Button>
+                                )}
+                              </div>
+                              {pdfMessage && <p className="d3-pp-order-note">{pdfMessage}</p>}
+                            </div>
+                          )}
                         </div>
-                      ))
-                    ) : (
-                      <p className="py-3 text-center">{isVi ? "Không có hàng nào" : "No items"}</p>
+                      );
+                    })}
+                    {groupStatus === "completed" && groupOrders.length > 5 && (
+                      <button type="button" className="d3-pp-omore" onClick={() => setShowAllDoneOrders((value) => !value)}>
+                        {showAllDoneOrders ? (isVi ? "Thu gọn" : "Show less") : (isVi ? `Xem thêm ${groupOrders.length - 5} lệnh` : `Show ${groupOrders.length - 5} more`)}
+                      </button>
                     )}
                   </div>
-                )}
-              </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
+                );
+              })}
+            </div>
+          )}
+        </section>
         <aside className="min-w-0 space-y-4" data-stitch-production-insights="true">
           <section className="d3-pp-card" style={{ ["--i" as string]: 2 }}>
             <div className="d3-pp-card-h">
