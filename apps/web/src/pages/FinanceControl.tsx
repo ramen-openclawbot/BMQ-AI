@@ -2297,6 +2297,11 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       : resolvedStatus === "mismatch"
         ? (isVi ? "đang lệch" : "mismatch")
         : (isVi ? "chờ chốt" : "pending");
+  // A failed read must never look like a real 0 đ.
+  const ceoDeclarationFailed = Boolean(declarationError);
+  const ceoOpeningFailed = Boolean(qtmBalanceError);
+  const ceoFigure = (value: number, failed: boolean) =>
+    failed ? "—" : (value / 1_000_000).toLocaleString("vi-VN", { maximumFractionDigits: 1 });
   const ceoStatusTone = closeApprovalLocked || resolvedStatus === "match" ? "is-ok" : resolvedStatus === "mismatch" ? "is-bad" : "is-wait";
 
   return (
@@ -2306,7 +2311,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
         <header className="d3-ceo-head">
           <div className="min-w-0">
             <span className="d3-ceo-tag">{isVi ? "Tài chính · CEO khai báo" : "Finance · CEO declaration"} · {format(selectedDate, "dd/MM/yyyy")}</span>
-            <h1>{isVi ? "Ngày" : "Day"} {format(selectedDate, "dd/MM")} <b className={ceoStatusTone}>{ceoStatusLabel}</b></h1>
+            <h1>{isVi ? "Ngày" : "Day"} {format(selectedDate, "dd/MM")} <b className={ceoDeclarationFailed ? "is-bad" : ceoStatusTone}>{ceoDeclarationFailed ? (isVi ? "chưa tải được" : "unavailable") : ceoStatusLabel}</b></h1>
           </div>
           <div className="d3-ceo-datenav">
             <Button type="button" variant="ghost" size="icon" aria-label={isVi ? "Ngày trước" : "Previous day"} onClick={() => setSelectedDate((d) => subDays(d, 1))}>←</Button>
@@ -2328,18 +2333,18 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
         <div className="d3-ceo-kpis">
           <div className="d3-ceo-kpi" style={{ ["--i" as string]: 0 }}>
             <span className="d3-ceo-lvl"><i style={{ background: "#3c91e6" }} />{isVi ? "UNC khai báo" : "UNC declared"}</span>
-            <strong title={vnd(Number(uncTotalDeclared || 0))}>{(Number(uncTotalDeclared || 0) / 1_000_000).toLocaleString("vi-VN", { maximumFractionDigits: 1 })}<small>{isVi ? "triệu" : "M"}</small></strong>
-            <small>{vnd(Number(uncTotalDeclared || 0))}</small>
+            <strong title={ceoDeclarationFailed ? undefined : vnd(Number(uncTotalDeclared || 0))}>{ceoFigure(Number(uncTotalDeclared || 0), ceoDeclarationFailed)}{ceoDeclarationFailed ? null : <small>{isVi ? "triệu" : "M"}</small>}</strong>
+            <small>{ceoDeclarationFailed ? (isVi ? "Không tải được dữ liệu" : "Could not load") : vnd(Number(uncTotalDeclared || 0))}</small>
           </div>
           <div className="d3-ceo-kpi" style={{ ["--i" as string]: 1 }}>
             <span className="d3-ceo-lvl"><i style={{ background: "#29bf12" }} />{isVi ? "QTM khai báo" : "QTM declared"}</span>
-            <strong title={vnd(Number(resolvedQtmDeclared || 0))}>{(Number(resolvedQtmDeclared || 0) / 1_000_000).toLocaleString("vi-VN", { maximumFractionDigits: 1 })}<small>{isVi ? "triệu" : "M"}</small></strong>
-            <small>{vnd(Number(resolvedQtmDeclared || 0))}</small>
+            <strong title={ceoDeclarationFailed ? undefined : vnd(Number(resolvedQtmDeclared || 0))}>{ceoFigure(Number(resolvedQtmDeclared || 0), ceoDeclarationFailed)}{ceoDeclarationFailed ? null : <small>{isVi ? "triệu" : "M"}</small>}</strong>
+            <small>{ceoDeclarationFailed ? (isVi ? "Không tải được dữ liệu" : "Could not load") : vnd(Number(resolvedQtmDeclared || 0))}</small>
           </div>
           <div className="d3-ceo-kpi" style={{ ["--i" as string]: 2 }}>
             <span className="d3-ceo-lvl"><i style={{ background: "#d0679a" }} />{isVi ? "Tồn quỹ đầu ngày" : "Opening cash balance"}</span>
-            <strong title={vnd(Number(resolvedQtmOpening || 0))}>{(Number(resolvedQtmOpening || 0) / 1_000_000).toLocaleString("vi-VN", { maximumFractionDigits: 1 })}<small>{isVi ? "triệu" : "M"}</small></strong>
-            <small>{vnd(Number(resolvedQtmOpening || 0))}</small>
+            <strong title={ceoOpeningFailed ? undefined : vnd(Number(resolvedQtmOpening || 0))}>{ceoFigure(Number(resolvedQtmOpening || 0), ceoOpeningFailed)}{ceoOpeningFailed ? null : <small>{isVi ? "triệu" : "M"}</small>}</strong>
+            <small>{ceoOpeningFailed ? (isVi ? "Không tải được dữ liệu" : "Could not load") : vnd(Number(resolvedQtmOpening || 0))}</small>
           </div>
           <div className={`d3-ceo-kpi d3-ceo-status ${ceoStatusTone}`} style={{ ["--i" as string]: 3 }}>
             <span className="d3-ceo-lvl"><i />{isVi ? "Trạng thái" : "Status"}</span>

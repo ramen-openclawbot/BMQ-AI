@@ -323,6 +323,21 @@ try {
     await context.close();
   }
 
+  // 5. Existing page notifications (shadcn toast API) are now visible through the sonner Toaster.
+  {
+    const { context, page, errors } = await open({ role: "owner", data: "error" }, ROUTE, { width: 1440, height: 900 });
+    await page.waitForSelector("[data-bmq-ceo-layout='demo3-v1']");
+    const toast = page.locator("[data-sonner-toast]", { hasText: "Lỗi tải dữ liệu" });
+    await toast.first().waitFor({ timeout: 6000 });
+    assert.ok((await toast.first().textContent()).includes("Khai báo CEO"), "error toast carries the failing source");
+    const figures = await page.$$eval(".d3-ceo-kpi strong", (els) => els.map((el) => el.textContent.trim()));
+    assert.deepEqual(figures, ["—", "—", "—"], `failed reads never show 0: ${figures}`);
+    assert.ok((await page.locator(".d3-ceo-head h1").textContent()).includes("chưa tải được"));
+    await page.screenshot({ path: `${EVIDENCE}/ceo-error-toast-1440.png` });
+    assert.deepEqual(errors, []);
+    record("legacy page toast visible");
+    await context.close();
+  }
   // 4. Non-owner finance users do not see the cutover tab.
   {
     const { context, page, errors } = await open({ role: "finance", data: "populated" }, ROUTE, { width: 1440, height: 900 });

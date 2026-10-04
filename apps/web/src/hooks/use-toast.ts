@@ -1,4 +1,5 @@
 import * as React from "react";
+import { toast as sonnerToast } from "sonner";
 
 import type { ToastActionElement, ToastProps } from "@/components/ui/toast";
 
@@ -134,15 +135,37 @@ function dispatch(action: Action) {
 
 type Toast = Omit<ToasterToast, "id">;
 
+/**
+ * The app mounts only the sonner <Toaster /> (see AppInner), so the shadcn toast
+ * store below is never rendered. Mirror every toast to sonner so the ~240
+ * existing `toast({ title, description, variant })` calls are actually shown.
+ */
+function showInSonner(id: string, props: Partial<ToasterToast>) {
+  const title = props.title ?? props.description ?? "";
+  const options = {
+    id: `ui-toast-${id}`,
+    description: props.title ? props.description : undefined,
+  };
+  if (props.variant === "destructive") sonnerToast.error(title, options);
+  else sonnerToast(title, options);
+}
+
 function toast({ ...props }: Toast) {
   const id = genId();
 
-  const update = (props: ToasterToast) =>
+  const update = (props: ToasterToast) => {
+    showInSonner(id, props);
     dispatch({
       type: "UPDATE_TOAST",
       toast: { ...props, id },
     });
-  const dismiss = () => dispatch({ type: "DISMISS_TOAST", toastId: id });
+  };
+  const dismiss = () => {
+    sonnerToast.dismiss(`ui-toast-${id}`);
+    dispatch({ type: "DISMISS_TOAST", toastId: id });
+  };
+
+  showInSonner(id, props);
 
   dispatch({
     type: "ADD_TOAST",
@@ -179,7 +202,10 @@ function useToast() {
   return {
     ...state,
     toast,
-    dismiss: (toastId?: string) => dispatch({ type: "DISMISS_TOAST", toastId }),
+    dismiss: (toastId?: string) => {
+      if (toastId) sonnerToast.dismiss(`ui-toast-${toastId}`);
+      dispatch({ type: "DISMISS_TOAST", toastId });
+    },
   };
 }
 
