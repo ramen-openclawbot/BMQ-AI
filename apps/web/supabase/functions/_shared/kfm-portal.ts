@@ -1686,7 +1686,7 @@ async function fetchDocument(token: string, url: string, step: string): Promise<
   return new Uint8Array(buffer);
 }
 
-/** Print the PO. Prices stay off the sheet (the portal defaults to hiding them). */
+/** Print the PO using the portal's default PO export. */
 export async function fetchPoPdf(token: string, poId: number): Promise<Uint8Array> {
   return await fetchDocument(
     token,
@@ -1695,7 +1695,7 @@ export async function fetchPoPdf(token: string, poId: number): Promise<Uint8Arra
   );
 }
 
-/** Print one delivery note, price-free by default. */
+/** Print one delivery note using the portal default layout unless NO_PRICE is requested. */
 export async function fetchAsnPdf(
   token: string,
   options: {

@@ -164,7 +164,7 @@ function makePortal(scenario) {
       return json({ success: true, existingNotes: [{ asnId: 55, asnCode: "ASN-QA" }] });
     }
     if (body.action === "asn-pdf" || body.action === "load-pdf") {
-      assert.equal(body.layout, "NO_PRICE");
+      assert.equal(body.layout, undefined);
       state.finished = true;
       return json({ success: true, base64: Buffer.from("%PDF-1.4\n%%EOF").toString("base64"), filename: "PhieuGiaoHang_QA.pdf" });
     }

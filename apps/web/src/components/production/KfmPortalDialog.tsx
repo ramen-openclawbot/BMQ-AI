@@ -320,7 +320,7 @@ export default function KfmPrintWorkspace({ isVi = true }: { isVi?: boolean }) {
     const request = "asnId" in result
       ? { action: "asn-pdf", asnId: result.asnId, code: result.asnCode }
       : { action: "load-pdf", loadId: result.loadId, code: result.loadCode };
-    const pdf = await callPortal({ ...request, layout: "NO_PRICE" });
+    const pdf = await callPortal(request);
     if (!pdf.base64) throw new Error("Cổng KFM chưa trả file in.");
     savePdf(pdf.base64, pdf.filename || "PhieuGiaoHang.pdf", viewer);
     finishPrint(key, "Đã mở phiếu giao hàng.");

@@ -129,11 +129,11 @@ function toBase64(bytes: Uint8Array): string {
 }
 
 /**
- * The portal has two layouts; the BMQ print action defaults to hidden prices.
- * Anything unrecognised falls back to hidden prices.
+ * Prints use the KFM portal default layout (with prices). NO_PRICE is only an
+ * explicit opt-in; anything unrecognised falls back to the portal default.
  */
 function printLayout(value: unknown): "FULL" | "NO_PRICE" {
-  return String(value) === "FULL" ? "FULL" : "NO_PRICE";
+  return String(value) === "NO_PRICE" ? "NO_PRICE" : "FULL";
 }
 
 /** The portal names the printed sheet after the note's code, not its row id. */

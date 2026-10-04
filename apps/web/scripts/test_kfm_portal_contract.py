@@ -156,10 +156,9 @@ def test_trip_creation_is_guarded_and_recoverable() -> None:
     forbid(CLIENT, '`${SCE_API}/api/v1/portal/asn?vendorId=', "never create a separate ASN in parallel")
 
 
-def test_unified_print_is_price_free_and_fail_closed() -> None:
-    require(PANEL, 'layout: "NO_PRICE"', "all sheet exports hide prices")
-    forbid(PANEL, '"FULL"', "no price-carrying UI option")
-    require(FUNCTION, 'return String(value) === "FULL" ? "FULL" : "NO_PRICE"', "default hides prices")
+def test_unified_print_uses_portal_default_and_fail_closed() -> None:
+    forbid(PANEL, 'NO_PRICE', 'UI must not hide prices')
+    require(FUNCTION, 'return String(value) === "NO_PRICE" ? "NO_PRICE" : "FULL"', 'default is the portal layout')
     require(FUNCTION, 'strict: true', "ASN lookup errors cannot mean missing note")
     require(FUNCTION, 'freshFleet', "saved fleet must be rechecked before write")
     require(CLIENT, 'validateSavedTripForm', "saved choices validated server side")
