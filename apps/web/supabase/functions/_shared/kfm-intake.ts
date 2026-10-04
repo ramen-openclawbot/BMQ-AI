@@ -3,6 +3,20 @@ import { KfmPortalError, confirmOrder, rejectOrder, getTripSource, listOrders, t
 type Row = Record<string, any>;
 type Admin = any;
 export const canonicalPo = (value: unknown) => String(value || '').trim().toUpperCase();
+/** Calendar validation must not normalize impossible dates or truncate portal values. */
+function isoDay(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value) || value < '0001-01-01') return false;
+  const day = new Date(`${value}T00:00:00Z`);
+  return Number.isFinite(day.getTime()) && day.toISOString().slice(0, 10) === value;
+}
+function historicalRange(payload: Row) {
+  if (!Object.hasOwn(payload, 'deliveryDateFrom') && !Object.hasOwn(payload, 'deliveryDateTo')) return null;
+  const from = payload.deliveryDateFrom, to = payload.deliveryDateTo;
+  if (!isoDay(from) || !isoDay(to) || from > to || to > vnDate() || (Date.parse(to) - Date.parse(from)) / 86_400_000 > 6) {
+    throw new KfmPortalError('intake', 0, 'Nhập đủ ngày giao từ/đến hợp lệ (YYYY-MM-DD), từ không sau đến, tối đa 7 ngày và không sau hôm nay tại Việt Nam.');
+  }
+  return { deliveryDateFrom: from, deliveryDateTo: to };
+}
 export function intakeItems(source: KfmTripSource) {
   return source.items.map(row => ({
     productCode: String(row.productCode || ''), barcode: String(row.barcode || ''),
@@ -21,7 +35,7 @@ export async function intakeRevision(source: KfmTripSource, withStatus = true) {
 }
 function validSource(source: KfmTripSource) {
   const snapshot = intakeSnapshot(source);
-  return snapshot.code && /^\d{4}-\d{2}-\d{2}$/.test(snapshot.deliveryDate) && snapshot.items.length > 0 && snapshot.items.every(row => row.productCode && row.productName && row.unitName && Number.isFinite(row.qty) && row.qty >= 0 && Number.isFinite(row.unitPrice) && row.unitPrice >= 0 && Number.isFinite(row.taxRate) && row.taxRate >= 0);
+  return snapshot.code && isoDay(source.po.deliveryDate) && snapshot.items.length > 0 && snapshot.items.every(row => row.productCode && row.productName && row.unitName && Number.isFinite(row.qty) && row.qty >= 0 && Number.isFinite(row.unitPrice) && row.unitPrice >= 0 && Number.isFinite(row.taxRate) && row.taxRate >= 0);
 }
 export function productionPayload(source: KfmTripSource, vendorId: number, actorId: string) {
   if (!validSource(source)) throw new KfmPortalError('intake', 0, 'PO thiếu ngày giao, sản phẩm hoặc số lượng hợp lệ. Chưa nhập vào sản xuất.');
@@ -45,7 +59,7 @@ export function productionPayload(source: KfmTripSource, vendorId: number, actor
 }
 async function orderView(source: KfmTripSource, attempt?: Row) {
   return { orderId: Number(source.po.id), ...intakeSnapshot(source), status: source.po.status, subStatus: source.po.subStatus,
-    revision: await intakeRevision(source), state: attempt ? (attempt.decision === 'confirm' && tripPoConfirmation(source.po).confirmed ? 'import_pending' : 'unknown') : 'pending',
+    revision: await intakeRevision(source), state: attempt ? (attempt.decision === 'confirm' && Number(source.po.status) !== 6 && tripPoConfirmation(source.po).confirmed ? 'import_pending' : 'unknown') : 'pending',
     decision: attempt?.decision, message: attempt ? 'Yêu cầu đã gửi; chỉ kiểm tra kết quả, không gửi lại.' : undefined };
 }
 function checked(result: Row, message: string) { if (result.error) throw new KfmPortalError('intake', 0, message); return result.data; }
@@ -150,6 +164,7 @@ async function recovery(admin: Admin, token: string, attempt: Row) {
   let source: KfmTripSource;
   try { source = await getTripSource(token, { vendorId: attempt.vendor_id, orderId: attempt.order_id }); }
   catch { return { state: 'unknown', message: 'Chưa đọc được kết quả từ KFM. Chỉ kiểm tra lại, không gửi lại yêu cầu.' }; }
+  if (Number(source.po.status) === 6) return { state: 'blocked', message: 'PO đã hủy trên KFM. Không nhập sản xuất và không gửi lại yêu cầu.' };
   if (attempt.decision === 'reject') {
     if (Number(source.po.subStatus) !== 11) return { state: 'unknown', message: 'KFM chưa xác nhận PO đã từ chối/hủy. Không gửi lại.' };
     checked(await admin.from('kfm_po_intake_attempts').update({ state: 'rejected', updated_at: new Date().toISOString() }).eq('vendor_id', attempt.vendor_id).eq('order_id', attempt.order_id), 'Đã đọc trạng thái từ chối nhưng chưa lưu kết quả.');
@@ -166,29 +181,42 @@ async function recovery(admin: Admin, token: string, attempt: Row) {
 }
 export async function handleKfmIntake(admin: Admin, token: string, vendorId: number, actorId: string, payload: Row) {
   if (payload.action === 'intake-list') {
+    const range = historicalRange(payload);
     const attempts: Row[] = checked(await admin.from('kfm_po_intake_attempts').select('*').eq('vendor_id', vendorId), 'Không tải được nhật ký PO.');
     const legacy: Row[] = checked(await admin.rpc('kfm_existing_po_numbers'), 'Không đối chiếu được PO đã nhập.');
     const imported = new Set(legacy.map(row => canonicalPo(row.po_number)));
     const candidates = new Map<number, Row>();
     for (let page = 0; page < 30; page++) {
-      const result = await listOrders(token, { vendorId, deliveryDateFrom: vnDate(), page, size: 100 });
+      const result = await listOrders(token, { vendorId, ...(range || { deliveryDateFrom: vnDate() }), page, size: 100 });
       for (const row of result.orders) {
         const attempt = attempts.find(a => a.order_id === row.portalId);
         if (attempt && ['imported', 'rejected'].includes(attempt.state)) continue;
-        if (!attempt && (imported.has(canonicalPo(row.code)) || ![3, 5, 6, 9].includes(Number(row.subStatus)))) continue;
+        if (!attempt && (Number(row.status) === 6 || imported.has(canonicalPo(row.code)) || ![3, 5, 6, 9].includes(Number(row.subStatus)))) continue;
         candidates.set(row.portalId, row);
       }
       if (result.orders.length < 100 || (page + 1) * 100 >= result.totalElements) break;
       if (page === 29) throw new KfmPortalError('intake', 0, 'Danh sách PO quá lớn, chưa tải đầy đủ.');
     }
     // Uncertain operations survive delivery-day rollover; reconciliation remains GET-only.
-    for (const attempt of attempts) if (!['imported', 'rejected'].includes(attempt.state)) candidates.set(attempt.order_id, {});
+    for (const attempt of attempts) if (!['imported', 'rejected'].includes(attempt.state) && !candidates.has(attempt.order_id)) candidates.set(attempt.order_id, {});
     const orders = [];
-    for (const [orderId] of candidates) {
+    for (const [orderId, listed] of candidates) {
+      const attempt = attempts.find(a => a.order_id === orderId);
+      if (range && (!Number.isSafeInteger(orderId) || orderId <= 0)) throw new KfmPortalError('intake', 0, 'Mã PO lịch sử không hợp lệ.');
+      // Journal-only entries still need vendor scope before read-only reconciliation.
+      if (range && !listed.portalId && !(await tripOrderInScope(token, vendorId, orderId))) throw new KfmPortalError('intake', 403, 'PO không thuộc nhà cung cấp được phép truy cập.');
       const source = await getTripSource(token, { vendorId, orderId });
       if (Number(source.po.id) !== orderId) throw new KfmPortalError('intake', 0, 'Chi tiết PO không khớp mã đã tải.');
-      if (!attempts.some(a => a.order_id === orderId) && ![3, 5, 6, 9].includes(Number(source.po.subStatus))) continue;
-      orders.push(await orderView(source, attempts.find(a => a.order_id === orderId)));
+      if (!attempt && Number(source.po.status) === 6) continue;
+      if (range) {
+        if (!attempt && imported.has(canonicalPo(source.po.code))) continue;
+        const date = source.po.deliveryDate;
+        if (!isoDay(date) || (listed.portalId && (!isoDay(listed.deliveryDate) || listed.deliveryDate !== date || canonicalPo(listed.code) !== canonicalPo(source.po.code) || Number(listed.subStatus) !== Number(source.po.subStatus))) || (!attempt && (date < range.deliveryDateFrom || date > range.deliveryDateTo))) {
+          throw new KfmPortalError('intake', 0, 'Ngày giao hoặc mã PO lịch sử không khớp danh sách/chi tiết trên KFM. Chưa trình PO để duyệt.');
+        }
+      }
+      if (!attempt && ![3, 5, 6, 9].includes(Number(source.po.subStatus))) continue;
+      orders.push(await orderView(source, attempt));
     }
     return { success: true, vendorId, count: orders.length, orders };
   }
@@ -206,6 +234,7 @@ export async function handleKfmIntake(admin: Admin, token: string, vendorId: num
   const reason = String(payload.reason || '').trim();
   if (payload.decision === 'reject' && (!reason || reason.length > 1000)) throw new KfmPortalError('intake', 0, 'Nhập lý do từ chối (tối đa 1000 ký tự).');
   const source = await getTripSource(token, { vendorId, orderId });
+  if (Number(source.po.status) === 6) return { success: true, result: { state: 'blocked', message: 'PO đã hủy trên KFM. Không nhập sản xuất và không gửi quyết định.' } };
   if (Number(source.po.id) !== orderId || !validSource(source)) throw new KfmPortalError('intake', 0, 'PO không hợp lệ để duyệt.');
   const alreadyImported: Row[] = checked(await admin.rpc('kfm_existing_po_numbers'), 'Chưa đối chiếu được PO đã nhập. Chưa gửi quyết định.');
   if (alreadyImported.some(row => canonicalPo(row.po_number) === canonicalPo(source.po.code))) return { success: true, result: { state: 'blocked', message: 'PO đã có trong hệ thống. Làm mới danh sách; không gửi lại quyết định lên KFM.' } };

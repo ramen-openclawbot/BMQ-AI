@@ -9,7 +9,7 @@ const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright")
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const out = process.env.KFM_QA_OUT || path.join(root, ".qa-kfm-intake");
 fs.mkdirSync(out, { recursive: true });
-const server = await createServer({ root, configFile: false, cacheDir: path.join(out, ".vite"), server: { host: "127.0.0.1", port: 5196 }, resolve: { alias: { "@/integrations/supabase/client": "\0fixture-auth", "@": root + "/src" } }, plugins: [{
+const server = await createServer({ root, configFile: false, envDir: out, define: { "import.meta.env.VITE_SUPABASE_URL": JSON.stringify("http://fixture.invalid") }, cacheDir: path.join(out, ".vite"), server: { host: "127.0.0.1", port: 5196 }, resolve: { alias: { "@/integrations/supabase/client": "\0fixture-auth", "@": root + "/src" } }, plugins: [{
   name: "kfm-intake-fixtures",
   resolveId(id) { if (id === "\0fixture-auth") return id; if (id === "/__intake.jsx") return root + id; },
   load(id) {
@@ -25,13 +25,15 @@ const browser = await chromium.launch({ headless: true, channel: process.env.KFM
 const results = [];
 const sample = (id = 11) => ({ orderId: id, code: `PO${id}`, deliveryDate: "2026-09-19", locationName: "KHO QUÁ CẢNH BÁNH TƯƠI — ĐỊA CHỈ KHO RẤT DÀI CẦN XUỐNG HÀNG TRÊN ĐIỆN THOẠI", revision: "r1", subStatus: 3, state: "pending", items: [{ productCode: "1001001026356", productName: "BMQ - BÁNH CROISSANT 50G", unitName: "CÁI", qty: 110 }, { productCode: "1001001026798", productName: "BMQ - BÁNH MÌ CHÀ BÔNG 70G", unitName: "CÁI", qty: 150 }] });
 try {
-  for (const width of (process.env.KFM_QA_WIDTHS || "320,390,1366,1920").split(",").map(Number)) for (const scenario of ["confirm", "reject", "defer", "timeout", "changed", "import-error", "recover", "readonly", "paused", "empty", "confirmed", "denied", "poll", "checking", "scan-error", "close-scan", "slow-write", "many"]) {
+  for (const width of (process.env.KFM_QA_WIDTHS || "320,390,1366,1920").split(",").map(Number)) for (const scenario of ["confirm", "reject", "defer", "timeout", "changed", "import-error", "recover", "readonly", "paused", "empty", "confirmed", "denied", "poll", "checking", "scan-error", "close-scan", "slow-write", "many", "history", "history-error"]) {
     if (process.env.KFM_QA_CASES && !process.env.KFM_QA_CASES.split(",").includes(scenario)) continue;
     const context = await browser.newContext({ viewport: { width, height: 900 } });
     const page = await context.newPage(); page.setDefaultTimeout(12000);
     await page.addInitScript(() => { const timeout = AbortSignal.timeout; AbortSignal.timeout = ms => timeout(ms === 45000 ? 1800 : ms); const original = window.setInterval.bind(window); window.setInterval = (fn, ms, ...args) => { if (ms === 60000) window.intakePoll = fn; return original(fn, ms, ...args); }; });
     const errors = [], actions = []; let decisions = 0, scans = 0;
     page.on("pageerror", (error) => errors.push(error.message));
+    // Block every non-local request; only the intercepted fixture endpoint below is allowed.
+    await page.route("**/*", route => new URL(route.request().url()).hostname === "127.0.0.1" ? route.continue() : route.abort());
     await page.route("**/functions/v1/**", async (route) => {
       const request = route.request();
       const invocationUrl = new URL(request.url());
@@ -42,6 +44,12 @@ try {
       assert.equal(request.headers().authorization, "Bearer isolated-fixture");
       const body = route.request().postDataJSON(); actions.push(body.action); let value;
       if (body.action === "intake-list") { scans++;
+        if (["history", "history-error"].includes(scenario)) {
+          assert.deepEqual(body, { action: "intake-list", deliveryDateFrom: "2026-10-01", deliveryDateTo: "2026-10-02" });
+          if (scenario === "history-error" && scans === 1) { await route.fulfill({ status: 502, json: { success: false, message: "KFM tạm thời không phản hồi" } }); return; }
+          await route.fulfill({ json: { success: true, vendorId: 1865, orders: [{ ...sample(), deliveryDate: "2026-10-01", subStatus: 5 }] } }); return;
+        }
+        assert.deepEqual(body, { action: "intake-list" });
         if (["checking", "close-scan"].includes(scenario)) await new Promise(resolve=>setTimeout(resolve,1200));
         if (scenario === "scan-error" && scans === 1) { await route.fulfill({status:502,json:{success:false,message:"KFM tạm thời không phản hồi"}}); return; }
         value = { success: true, vendorId: 1865, orders: scenario === "empty" ? [] : scenario === "many" ? Array.from({length:12},(_,i)=>({...sample(i+11),items:Array.from({length:20},()=>sample().items[0])})) : [scenario === "recover" ? { ...sample(), state: "unknown", decision: "confirm" } : scenario === "confirmed" ? { ...sample(), subStatus: 6 } : sample(), sample(12)] }; }
@@ -69,6 +77,61 @@ try {
     if (["readonly", "paused"].includes(scenario)) {
       assert(await page.getByRole("button",{name:"Kiểm tra PO"}).isDisabled());
       if(scenario==="paused") { await page.evaluate(()=>window.unpause()); await page.waitForTimeout(100); assert.equal(scans,0); }
+    } else if (["history", "history-error"].includes(scenario)) {
+      await page.getByRole("button", { name: "Tra cứu PO cũ", exact: true }).click();
+      const dialog = page.getByRole("dialog"); await dialog.waitFor();
+      assert.equal(scans, 0, "Opening history must not call KFM");
+      await dialog.getByRole("button", { name: "Tra cứu PO cũ", exact: true }).click();
+      await dialog.getByRole("alert").waitFor(); assert.equal(scans, 0);
+      await dialog.getByLabel("Ngày giao từ (KFM)").fill("2026-10-01");
+      await dialog.getByRole("button", { name: "Tra cứu PO cũ", exact: true }).click();
+      await dialog.getByRole("alert").waitFor(); assert.equal(scans, 0, "One-sided dates cannot scan");
+      await dialog.getByLabel("Ngày giao đến (KFM)").fill("2026-10-02");
+      await dialog.getByRole("button", { name: "Tra cứu PO cũ", exact: true }).evaluate(el => { el.click(); el.click(); });
+      if (scenario === "history-error") {
+        await dialog.getByRole("button", { name: "Thử lại", exact: true }).waitFor();
+        assert.equal(await dialog.locator("form").count(), 0, "Failed scan hides editing form");
+        assert.equal(await dialog.locator("[data-kfm-history-summary]").innerText(), "Ngày giao KFM: 2026-10-01 – 2026-10-02");
+        await page.screenshot({ path: path.join(out, `${width}-history-error-retry.png`) });
+        await dialog.getByRole("button", { name: "Thử lại", exact: true }).click();
+      }
+      await dialog.locator('[data-kfm-intake-order="11"]').waitFor();
+      const reviewScans = scenario === "history-error" ? 2 : 1;
+      assert.equal(scans, reviewScans); assert.equal(decisions, 0);
+      assert.deepEqual(await page.evaluate(() => window.imported || []), []);
+      assert.equal(await page.locator("[data-production-setup]").count(), 0, "Discovery does not create production or open setup");
+      assert.equal(await dialog.getByRole("button", { name: "Xác nhận", exact: true }).count(), 0);
+      assert.equal(await dialog.getByRole("button", { name: "Từ chối", exact: true }).count(), 0);
+      assert.equal(await dialog.locator("form").count(), 0, "Review hides date editing form");
+      assert.equal(await dialog.locator("[data-kfm-history-summary]").innerText(), "Ngày giao KFM: 2026-10-01 – 2026-10-02");
+      await page.waitForTimeout(250);
+      const review = dialog.locator('[data-kfm-intake-order="11"]');
+      const products = sample().items.map(item => dialog.getByText(item.productName, { exact: true }));
+      for (const product of products) {
+        await product.scrollIntoViewIfNeeded();
+        const row = await product.boundingBox(), region = await review.boundingBox();
+        assert(row && region && row.y >= region.y - 1 && row.y + row.height <= region.y + region.height + 1, JSON.stringify({ row, region }));
+      }
+      await review.evaluate(el => { el.scrollTop = 0; });
+      const button = await dialog.getByRole("button", { name: "Tiếp tục nhập PO", exact: true }).boundingBox();
+      assert(button.height >= 44 && button.y + button.height <= 900, JSON.stringify(button));
+      await page.screenshot({ path: path.join(out, `${width}-history-review.png`) });
+      const geometry = await dialog.evaluate(el => ({ scroll: el.scrollWidth, client: el.clientWidth }));
+      assert(geometry.scroll <= geometry.client + 1, JSON.stringify(geometry));
+      await dialog.getByRole("button", { name: "Để sau", exact: true }).click();
+      await dialog.waitFor({ state: "hidden" });
+      await page.getByRole("button", { name: "Tra cứu PO cũ", exact: true }).click();
+      await dialog.getByLabel("Ngày giao từ (KFM)").waitFor();
+      assert.equal(await dialog.getByLabel("Ngày giao từ (KFM)").inputValue(), "2026-10-01");
+      assert.equal(await dialog.getByLabel("Ngày giao đến (KFM)").inputValue(), "2026-10-02");
+      assert.equal(scans, reviewScans, "Reopening saved dates does not auto scan");
+      await dialog.getByRole("button", { name: "Tra cứu PO cũ", exact: true }).click();
+      await dialog.locator('[data-kfm-intake-order="11"]').waitFor();
+      assert.equal(await dialog.locator("form").count(), 0);
+      await dialog.getByRole("button", { name: "Tiếp tục nhập PO", exact: true }).click();
+      await page.locator("[data-production-setup]").waitFor();
+      assert.equal(decisions, 1); assert.deepEqual(actions, [...Array(reviewScans + 1).fill("intake-list"), "intake-decide"]);
+      assert.deepEqual(await page.evaluate(() => window.imported), ["inbox-11"]);
     } else {
       await page.getByRole("button",{name:"Kiểm tra PO",exact:true}).evaluate(el=>{el.click();el.click();});
       const dialog = page.getByRole("dialog"); await dialog.waitFor();
