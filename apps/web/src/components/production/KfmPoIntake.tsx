@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { AlertCircle, CheckCircle, ClipboardCheck, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/integrations/supabase/client";
@@ -30,6 +31,14 @@ export type KfmAwaitingSetupPo = {
 
 /** Outcome of the handoff: the setup dialog opened, or someone else already linked the PO. */
 export type KfmIntakeOutcome = "setup-opened" | "already-linked";
+
+type HistoryRange = { deliveryDateFrom: string; deliveryDateTo: string };
+const vnToday = () => new Date(Date.now() + 7 * 3_600_000).toISOString().slice(0, 10);
+const validDay = (date: string) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date < "0001-01-01") return false;
+  const value = new Date(`${date}T00:00:00Z`);
+  return Number.isFinite(value.getTime()) && value.toISOString().slice(0, 10) === date;
+};
 
 type IntakeResult = {
   state: "imported" | "rejected" | "unknown" | "changed" | "blocked";
@@ -72,6 +81,12 @@ async function intakeRequest(body: Record<string, unknown>, signal?: AbortSignal
  * Confirmed-but-unlinked POs are surfaced here so setup is reachable from the popup.
  */
 export default function KfmPoIntake({ canDecide, isVi, paused, onImported, awaitingSetup = [], awaitingSetupLoading = false, awaitingSetupError = false, onRefreshAwaitingSetup }: Props) {
+  const [historyMode, setHistoryMode] = useState(false);
+  const [historyEditing, setHistoryEditing] = useState(false);
+  const [historyFrom, setHistoryFrom] = useState("");
+  const [historyTo, setHistoryTo] = useState("");
+  const [historyError, setHistoryError] = useState("");
+  const lastRange = useRef<HistoryRange | null>(null);
   const [orders, setOrders] = useState<KfmIntakeOrder[]>([]);
   const [vendorId, setVendorId] = useState<number | null>(null);
   const [activeId, setActiveId] = useState<number | null>(null);
@@ -105,8 +120,11 @@ export default function KfmPoIntake({ canDecide, isVi, paused, onImported, await
     }
   };
 
-  const scan = async () => {
+  const scan = async (range: HistoryRange | null = null) => {
     if (!canDecide || paused || scanBusy.current || requestBusy.current) return;
+    lastRange.current = range;
+    setHistoryMode(!!range);
+    setHistoryEditing(false);
     const generation = ++scanGeneration.current;
     const controller = new AbortController();
     scanController.current = controller;
@@ -122,7 +140,7 @@ export default function KfmPoIntake({ canDecide, isVi, paused, onImported, await
     // from the separate print workspace shows up without a page reload.
     const refresh = refreshAwaitingSetup();
     try {
-      const value = await intakeRequest({ action: "intake-list" }, controller.signal);
+      const value = await intakeRequest({ action: "intake-list", ...(range || {}) }, controller.signal);
       if (generation !== scanGeneration.current) return;
       if (!Array.isArray(value.orders) || !Number.isFinite(Number(value.vendorId))) throw new Error("Dữ liệu PO từ KFM không hợp lệ.");
       setVendorId(Number(value.vendorId));
@@ -146,6 +164,26 @@ export default function KfmPoIntake({ canDecide, isVi, paused, onImported, await
     }
   };
 
+  const openHistory = () => {
+    if (!canDecide || paused || scanBusy.current || requestBusy.current) return;
+    setHistoryMode(true);
+    setHistoryEditing(true);
+    setHistoryError("");
+    setScanError("");
+    setNotice("");
+    setSetupMessage(null);
+    setActiveId(null);
+    setOpen(true);
+  };
+  const scanHistory = () => {
+    if (!validDay(historyFrom) || !validDay(historyTo) || historyFrom > historyTo || historyTo > vnToday() || (Date.parse(historyTo) - Date.parse(historyFrom)) / 86_400_000 > 6) {
+      setHistoryError(isVi ? "Nhập đủ ngày giao từ/đến hợp lệ, từ không sau đến, tối đa 7 ngày và không sau hôm nay tại Việt Nam." : "Enter both valid delivery dates in order, up to 7 inclusive days, no later than today in Vietnam.");
+      return;
+    }
+    setHistoryError("");
+    void scan({ deliveryDateFrom: historyFrom, deliveryDateTo: historyTo });
+  };
+
   // Cancel read-only discovery on unmount; never poll or scan on focus/entry.
   useEffect(() => () => {
     scanGeneration.current++;
@@ -153,7 +191,7 @@ export default function KfmPoIntake({ canDecide, isVi, paused, onImported, await
   }, []);
 
   useEffect(() => {
-    if (!open || checking || scanError || notice || paused || busy || !canDecide || activeId !== null) return;
+    if (!open || historyEditing || checking || scanError || notice || paused || busy || !canDecide || activeId !== null) return;
     const next = orders[0];
     if (next) {
       setActiveId(next.orderId);
@@ -162,7 +200,7 @@ export default function KfmPoIntake({ canDecide, isVi, paused, onImported, await
       setReason("");
       setResumeInboxId(null);
     }
-  }, [orders, open, checking, scanError, notice, paused, busy, canDecide, activeId]);
+  }, [orders, open, historyEditing, checking, scanError, notice, paused, busy, canDecide, activeId]);
 
   const close = () => {
     if (requestBusy.current) return;
@@ -329,19 +367,34 @@ export default function KfmPoIntake({ canDecide, isVi, paused, onImported, await
   );
 
   return (
-    <div className="min-w-0 max-w-full" data-kfm-po-intake="manual-popup-v2">
+    <div className="min-w-0 max-w-full" data-kfm-po-intake="manual-popup-v2" data-kfm-history="delivery-range-v1">
       <Button ref={trigger} variant="outline" size="lg" className="h-12 w-full rounded-2xl border-primary/30 bg-card/80 text-base font-bold text-primary hover:bg-primary/10 hover:text-primary" disabled={!canDecide || paused || checking || busy} onClick={() => void scan()}>
         {checking ? <Loader2 className="mr-2 h-5 w-5 animate-spin motion-reduce:animate-none" /> : <ClipboardCheck className="mr-2 h-5 w-5" />}
         {isVi ? "Kiểm tra PO" : "Check POs"}
+      </Button>
+      <Button variant="outline" className="mt-2 min-h-11 w-full" disabled={!canDecide || paused || checking || busy} onClick={openHistory}>
+        {isVi ? "Tra cứu PO cũ" : "Look up historical POs"}
       </Button>
       {/* Unmount the review portal on handoff so its exit animation cannot overlay the setup dialog. */}
       {!paused && <Dialog open={open && canDecide} onOpenChange={(open) => { if (!open) close(); }}>
         <DialogContent className={`flex max-h-[92dvh] w-[calc(100%-1.5rem)] max-w-[720px] flex-col gap-0 overflow-hidden rounded-2xl p-0 motion-reduce:animate-none [&>button]:right-2 [&>button]:top-2 [&>button]:flex [&>button]:h-11 [&>button]:w-11 [&>button]:items-center [&>button]:justify-center ${busy ? "[&>button]:hidden" : ""}`} onCloseAutoFocus={(event) => { event.preventDefault(); if (!handingOff.current) trigger.current?.focus(); }} onInteractOutside={(event) => event.preventDefault()} onEscapeKeyDown={(event) => { if (busy) event.preventDefault(); }}>
           <DialogHeader className="shrink-0 border-b p-5 pr-12">
             <DialogTitle className="text-xl font-bold">{checking ? (isVi ? "Kiểm tra PO" : "Check POs") : scanError ? (isVi ? "Chưa kiểm tra được PO" : "Unable to check POs") : busy ? (isVi ? "Đang xử lý PO" : "Processing PO") : active ? (isVi ? `Có ${orders.length} PO cần duyệt` : `${orders.length} POs to review`) : awaitingSetup.length > 0 ? (isVi ? `${awaitingSetup.length} PO chờ thiết lập SX` : `${awaitingSetup.length} POs awaiting setup`) : (isVi ? "Kết quả kiểm tra" : "Check result")}</DialogTitle>
-            <DialogDescription>{active ? active.code : "Portal KFM"}</DialogDescription>
+            <DialogDescription>{active ? active.code : "Portal KFM"}{historyMode && !historyEditing && lastRange.current && <span className="block" data-kfm-history-summary>{isVi ? "Ngày giao KFM: " : "KFM delivery: "}{lastRange.current.deliveryDateFrom} – {lastRange.current.deliveryDateTo}</span>}</DialogDescription>
           </DialogHeader>
-          {(checking || busy) ? <>
+          {historyMode && historyEditing && !checking && !busy && <form className="shrink-0 space-y-3 border-b px-5 py-3" onSubmit={(event) => { event.preventDefault(); scanHistory(); }}>
+            <p className="text-xs text-muted-foreground">{isVi ? "Tra cứu theo ngày giao trên KFM, tối đa 7 ngày. Đây không phải ngày sản xuất; mở thiết lập SX và chọn ngày dự kiến trước khi tạo lệnh." : "Search KFM delivery dates, up to 7 days. These are not production dates; open setup and choose the planned date before creating an order."}</p>
+            <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="min-w-0 space-y-1"><Label htmlFor="kfm-history-from">{isVi ? "Ngày giao từ (KFM)" : "KFM delivery date from"}</Label><Input id="kfm-history-from" type="date" max={vnToday()} value={historyFrom} onChange={(event) => { setHistoryFrom(event.target.value); setHistoryError(""); }} className="min-h-11 min-w-0 max-w-full text-base" /></div>
+              <div className="min-w-0 space-y-1"><Label htmlFor="kfm-history-to">{isVi ? "Ngày giao đến (KFM)" : "KFM delivery date to"}</Label><Input id="kfm-history-to" type="date" max={vnToday()} value={historyTo} onChange={(event) => { setHistoryTo(event.target.value); setHistoryError(""); }} className="min-h-11 min-w-0 max-w-full text-base" /></div>
+            </div>
+            {historyError && <p role="alert" className="text-sm text-destructive">{historyError}</p>}
+            <Button type="submit" className="min-h-11 w-full" disabled={!canDecide || paused}>{isVi ? "Tra cứu PO cũ" : "Look up historical POs"}</Button>
+          </form>}
+          {historyEditing && !checking && !busy ? <>
+            <p className="min-h-0 overflow-y-auto p-5 text-sm text-muted-foreground">{isVi ? "Chọn khoảng ngày giao rồi bấm Tra cứu PO cũ. Chưa gọi KFM hoặc nhập PO." : "Choose delivery dates and press Look up historical POs. No KFM request or import has been made."}</p>
+            <div className="flex justify-end border-t p-4"><Button variant="outline" className="min-h-11" onClick={close}>{isVi ? "Đóng" : "Close"}</Button></div>
+          </> : (checking || busy) ? <>
             <div role="status" aria-live="polite" className="min-h-0 overflow-y-auto px-5 py-10 text-center" data-kfm-intake-progress>
               <Loader2 aria-hidden="true" className="mx-auto mb-5 h-10 w-10 animate-spin text-primary motion-reduce:animate-none" />
               <h3 className="text-lg font-semibold">{checking ? (isVi ? "Đang kiểm tra PO…" : "Checking POs…") : operation}</h3>
@@ -388,7 +441,7 @@ export default function KfmPoIntake({ canDecide, isVi, paused, onImported, await
             {showRecovery && renderAwaitingSetup(false)}
             <div className="flex flex-wrap justify-end gap-2 border-t p-4">
               <Button variant="outline" className="min-h-11" onClick={close}>{isVi ? "Đóng" : "Close"}</Button>
-              {scanError && <Button className="min-h-11" onClick={() => void scan()}>{isVi ? "Thử lại" : "Try again"}</Button>}
+              {scanError && <Button className="min-h-11" onClick={() => void scan(lastRange.current)}>{isVi ? "Thử lại" : "Try again"}</Button>}
               {notice && orders.length > 0 && <Button className="min-h-11" onClick={() => setNotice("")}>{isVi ? "PO tiếp theo" : "Next PO"}</Button>}
             </div>
           </> : showRecovery ? <>
