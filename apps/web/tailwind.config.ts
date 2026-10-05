@@ -19,8 +19,23 @@ export default {
         body: ['Manrope', 'sans-serif'],
         monoData: ['JetBrains Mono', 'monospace'],
         sidebar: ['Manrope', 'sans-serif'],
+        // VNAgent chat widget, matching chat.vnagent.ai (origin/main DESIGN.md).
+        vnDisp: ['Archivo', '-apple-system', 'Segoe UI', 'sans-serif'],
+        vnMono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
       },
       colors: {
+        // chat.vnagent.ai tokens, used only by the VNAgent chat widget.
+        vn: {
+          ink: "#0c0c12",
+          card: "#15161f",
+          card2: "#1c1d28",
+          paper: "#ecebe4",
+          lime: "#d6f33c",
+          cobalt: "#2a2ff0",
+          "cobalt-l": "#6e73ff",
+          red: "#ff4b1f",
+          online: "#3ddc84",
+        },
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",

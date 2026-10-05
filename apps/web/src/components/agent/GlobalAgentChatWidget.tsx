@@ -287,16 +287,13 @@ function RevenueDailyChatCard({ setOpen }: { setOpen: (open: boolean) => void })
   );
 }
 
-function VnagentMark({ className = "h-9 w-11 shrink-0" }: { className?: string } = {}) {
+// chat.vnagent.ai mark (favicon-vnagent-v2): lime "V" over a red bar. It sits on an
+// ink surface supplied by its container, so it never shows square corners in a circle.
+function VnagentMark({ className = "h-full w-full" }: { className?: string } = {}) {
   return (
-    <svg className={className} viewBox="0 0 104 84" role="img" aria-label="Logo VNAgent">
-      <defs>
-        <linearGradient id="bmq-vnagent-violet-a" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#aa6fff" /><stop offset="1" stopColor="#6845ee" /></linearGradient>
-        <linearGradient id="bmq-vnagent-violet-b" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#9e5dff" /><stop offset="1" stopColor="#5b3adc" /></linearGradient>
-        <mask id="bmq-vnagent-interlock"><rect width="104" height="84" fill="white" /><path d="M51 51 61 68 66 59 57 44Z" fill="black" /></mask>
-      </defs>
-      <path d="M2 2H30L76 80H48Z" fill="url(#bmq-vnagent-violet-a)" />
-      <path d="M39 2H88L98 18 65 75 52 53 77 18H50Z" fill="url(#bmq-vnagent-violet-b)" mask="url(#bmq-vnagent-interlock)" />
+    <svg className={className} viewBox="0 0 32 32" role="img" aria-label="Logo VNAgent" data-vnagent-mark="ink-lime-v2">
+      <path d="M6.5 7.5h5.6L16 19.4l3.9-11.9h5.6L19 24h-6Z" className="fill-vn-lime" />
+      <rect x="9" y="25.5" width="14" height="2.5" className="fill-vn-red" />
     </svg>
   );
 }
@@ -717,9 +714,9 @@ export function GlobalAgentChatWidget() {
         type="button"
         size="icon"
         data-vnagent-launcher="logo-motion-v2"
-        data-vnagent-logo-background="black-v1"
+        data-vnagent-logo-background="ink-v2"
         className={cn(
-          "fixed z-50 rounded-full border border-[#e6e3f7] bg-black shadow-lg ring-1 ring-black/5 hover:bg-black [&_svg]:!h-full [&_svg]:!w-full",
+          "fixed z-50 rounded-full border border-vn-paper/[.18] bg-vn-ink shadow-[0_10px_28px_rgba(12,12,18,0.35)] transition-colors hover:border-vn-lime hover:bg-vn-ink focus-visible:ring-2 focus-visible:ring-vn-lime focus-visible:ring-offset-2 [&_svg]:!h-full [&_svg]:!w-full",
           shouldLiftMobileChatButton
             ? "bottom-[calc(5rem+env(safe-area-inset-bottom))] right-3 h-11 w-11 sm:bottom-[calc(1.5rem+env(safe-area-inset-bottom))] sm:right-6 sm:h-14 sm:w-14"
             : "right-6 bottom-[calc(1.5rem+env(safe-area-inset-bottom))] h-14 w-14",
@@ -731,13 +728,13 @@ export function GlobalAgentChatWidget() {
         <span
           aria-hidden="true"
           className={cn(
-            "pointer-events-none absolute inset-0 -z-10 rounded-full ring-2 ring-[#6d4aff]/40",
+            "pointer-events-none absolute inset-0 -z-10 rounded-full ring-2 ring-vn-lime/50",
             !open && "animate-vnagent-halo motion-reduce:animate-none",
           )}
         />
         <span
           className={cn(
-            "grid h-[82%] w-[82%] place-items-center",
+            "grid h-[72%] w-[72%] place-items-center",
             !open && "animate-vnagent-throb motion-reduce:animate-none",
           )}
         >
@@ -752,18 +749,17 @@ export function GlobalAgentChatWidget() {
           data-vnagent-locale="app-language-v1"
           lang={language}
           data-vnagent-ui="chat-v2-clean"
+          data-vnagent-theme="vn-2026-10"
           side="right"
-          className="flex w-full flex-col gap-0 overflow-hidden border-l border-[#e4e7ec] bg-[#f7f8fa] p-0 text-[#171a21] shadow-2xl [&>button]:hidden sm:w-[440px] sm:max-w-[440px]"
+          className="flex w-full flex-col gap-0 overflow-hidden border-l border-vn-paper/10 bg-vn-ink p-0 font-vnDisp text-vn-paper shadow-[0_20px_50px_rgba(0,0,0,0.5)] [&>button]:hidden sm:w-[440px] sm:max-w-[440px]"
         >
-          <header className="relative flex shrink-0 items-center gap-3 border-b border-[#e8eaf0] bg-white px-4 pb-3 pt-[max(0.875rem,env(safe-area-inset-top))]">
-            <div className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-[#6246ea] via-[#8b5cf6] to-[#b66cff]" />
+          <header className="relative flex shrink-0 items-center gap-3 border-b border-vn-paper/10 bg-vn-ink/90 px-4 pb-3 pt-[max(0.875rem,env(safe-area-inset-top))] backdrop-blur-md">
             <div className="flex min-w-0 flex-1 items-center gap-2.5" aria-label={text("VNAgent — Trợ lý AI của BMQ")}>
-              <div data-vnagent-logo-background="black-v1" className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-black shadow-[inset_0_0_0_1px_rgba(108,78,238,0.12)]"><VnagentMark /></div>
               <div className="min-w-0">
-                <SheetTitle className="text-[17px] font-bold leading-none tracking-[-0.02em] text-[#171a21]">VNAgent</SheetTitle>
-                <div className="mt-1.5 flex items-center gap-1.5 whitespace-nowrap text-[11px] text-[#717784]">
-                  <span className={cn("h-1.5 w-1.5 rounded-full", chatReady ? "bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.12)]" : connection === "error" ? "bg-red-400" : "animate-pulse bg-amber-400")} />
-                  <span>{text(chatReady ? (ANALYTICS_ENABLED ? "Sẵn sàng" : "Đã kết nối") : connection === "error" ? "Mất kết nối" : "Đang kết nối")} · {text("Trợ lý AI của BMQ")}</span>
+                <SheetTitle data-vnagent-wordmark="vn-agent-v2" className="text-[19px] font-black leading-none tracking-[-0.02em] text-vn-paper [font-stretch:125%]">VN<span className="text-vn-red">AGENT</span></SheetTitle>
+                <div data-vnagent-status-line className="mt-2 flex min-w-0 items-center gap-1.5 whitespace-nowrap font-vnMono text-[9.5px] uppercase tracking-[0.14em] text-vn-paper/50">
+                  <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", chatReady ? "bg-vn-online shadow-[0_0_0_3px_rgba(61,220,132,0.18)]" : connection === "error" ? "bg-vn-red" : "animate-pulse bg-vn-lime")} />
+                  <span className="min-w-0 truncate">{text(chatReady ? (ANALYTICS_ENABLED ? "Sẵn sàng" : "Đã kết nối") : connection === "error" ? "Mất kết nối" : "Đang kết nối")} · {text("Trợ lý AI của BMQ")}</span>
                 </div>
               </div>
             </div>
@@ -771,45 +767,45 @@ export function GlobalAgentChatWidget() {
               <button
                 type="button"
                 data-bmq-conversation-reset="analytics-v1"
-                className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-[#687080] transition hover:bg-[#f1f2f5] hover:text-[#171a21]"
+                className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-vn-paper/[.18] bg-vn-card text-vn-paper/70 transition hover:border-vn-lime hover:text-vn-paper"
                 onClick={resetAnalyticsConversation}
                 aria-label={text("Tạo cuộc trò chuyện mới")}
               ><RotateCcw className="h-[18px] w-[18px]" /></button>
             ) : null}
-            <button type="button" className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-[#687080] transition hover:bg-[#f1f2f5] hover:text-[#171a21]" onClick={() => setOpen(false)} aria-label={text("Đóng VNAgent")}><X className="h-5 w-5" /></button>
+            <button type="button" className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-vn-paper/[.18] bg-vn-card text-vn-paper/70 transition hover:border-vn-lime hover:text-vn-paper" onClick={() => setOpen(false)} aria-label={text("Đóng VNAgent")}><X className="h-5 w-5" /></button>
           </header>
 
-          <div className="flex flex-1 flex-col gap-4 overflow-auto bg-[#f7f8fa] px-4 py-5 text-[15px] leading-[1.6]">
-            {ANALYTICS_ENABLED && <p className="text-center text-xs text-[#777e8b]">{text("Trò chuyện tạm thời · Xóa khi tải lại trang hoặc đăng xuất")}</p>}
+          <div className="flex flex-1 flex-col gap-4 overflow-auto bg-vn-ink px-4 py-5 text-[15px] leading-[1.62]">
+            {ANALYTICS_ENABLED && <p className="text-center font-vnMono text-[10px] uppercase tracking-[0.1em] text-vn-paper/45">{text("Trò chuyện tạm thời · Xóa khi tải lại trang hoặc đăng xuất")}</p>}
             {sessionChoiceRequired ? (
-              <div data-vnagent-session-picker="recent-3" className="space-y-3 rounded-2xl border border-[#e4e5eb] bg-white p-4 shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
+              <div data-vnagent-session-picker="recent-3" className="space-y-3 rounded-2xl border border-vn-paper/[.18] bg-vn-card p-4">
                 <div>
-                  <div className="font-semibold text-[#252932]">{text("Tiếp tục cuộc trò chuyện")}</div>
-                  <div className="mt-1 text-xs text-[#777e8b]">{text("Chọn một trong 3 cuộc trò chuyện gần nhất hoặc bắt đầu cuộc trò chuyện mới.")}</div>
+                  <div className="font-bold text-vn-paper">{text("Tiếp tục cuộc trò chuyện")}</div>
+                  <div className="mt-1 text-xs text-vn-paper/60">{text("Chọn một trong 3 cuộc trò chuyện gần nhất hoặc bắt đầu cuộc trò chuyện mới.")}</div>
                 </div>
                 <div className="space-y-2">
                   {recentSessions.map((recentSession) => (
                     <button
                       key={recentSession.id}
                       type="button"
-                      className="flex w-full items-center justify-between gap-3 rounded-xl border border-[#e4e5eb] bg-[#f9fafb] px-3 py-3 text-left transition hover:border-[#b9adf5] hover:bg-[#f7f5ff] disabled:opacity-60"
+                      className="flex w-full items-center justify-between gap-3 rounded-xl border border-vn-paper/10 bg-vn-card2 px-3 py-3 text-left transition hover:border-vn-lime disabled:opacity-60"
                       onClick={() => void continueSession(recentSession.id)}
                       disabled={Boolean(selectingSessionId)}
                     >
                       <span className="min-w-0">
-                        <span className="block truncate text-sm font-semibold text-[#252932]">{recentSession.title || text("Cuộc trò chuyện mới")}</span>
-                        <span className="mt-0.5 block text-[11px] text-[#8a8f98]">{formatSessionTime(recentSession.createdAt, language)}</span>
+                        <span className="block truncate text-sm font-semibold text-vn-paper">{recentSession.title || text("Cuộc trò chuyện mới")}</span>
+                        <span className="mt-0.5 block font-vnMono text-[10px] tracking-[0.06em] text-vn-paper/50">{formatSessionTime(recentSession.createdAt, language)}</span>
                       </span>
-                      <span className="shrink-0 text-xs font-semibold text-[#6847e8]">{text(selectingSessionId === recentSession.id ? "Đang tải…" : "Tiếp tục")}</span>
+                      <span className="shrink-0 text-xs font-bold text-vn-lime">{text(selectingSessionId === recentSession.id ? "Đang tải…" : "Tiếp tục")}</span>
                     </button>
                   ))}
                 </div>
-                <Button type="button" variant="outline" className="w-full rounded-xl border-[#ded9fa] text-[#5e43c7]" onClick={startNewConversation} disabled={Boolean(selectingSessionId)}>{text("Tạo cuộc trò chuyện mới")}</Button>
+                <Button type="button" variant="outline" className="w-full rounded-xl border-vn-lime/35 bg-vn-lime/[.06] font-bold text-vn-lime hover:bg-vn-lime/[.12] hover:text-vn-lime" onClick={startNewConversation} disabled={Boolean(selectingSessionId)}>{text("Tạo cuộc trò chuyện mới")}</Button>
               </div>
             ) : visibleTimeline.length === 0 && !streamedText && (
               <div className="flex items-start gap-2.5">
-                <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-[#ebe7ff] text-[#6847e8]"><Sparkles className="h-4 w-4" /></span>
-                <div data-chat-greeting="profile-v1" className="max-w-[88%] rounded-2xl rounded-tl-md border border-[#e4e5eb] bg-white px-4 py-3 text-[#252932] shadow-[0_1px_2px_rgba(16,24,40,0.04)]">{greeting} {language === "en" ? "You are viewing " : "VNAgent đã nhận diện màn hình hiện tại là "}<b>{routeContext.label}</b>{language === "en" ? ". How can VNAgent help?" : ". Bạn cần VNAgent hỗ trợ việc gì?"}</div>
+                <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-[10px] border border-vn-cobalt-l/30 bg-vn-cobalt-l/10 text-vn-lime"><Sparkles className="h-4 w-4" /></span>
+                <div data-chat-greeting="profile-v1" className="max-w-[88%] rounded-2xl rounded-tl-[5px] border border-vn-paper/10 bg-vn-card px-4 py-3 text-vn-paper">{greeting} {language === "en" ? "You are viewing " : "VNAgent đã nhận diện màn hình hiện tại là "}<b>{routeContext.label}</b>{language === "en" ? ". How can VNAgent help?" : ". Bạn cần VNAgent hỗ trợ việc gì?"}</div>
               </div>
             )}
             {!ANALYTICS_ENABLED && isRevenueMobileContext ? <RevenueDailyChatCard setOpen={setOpen} /> : null}
@@ -826,11 +822,11 @@ export function GlobalAgentChatWidget() {
                 : (language === "en" ? "The signed context expired or no longer matches this conversation. Ask for a new example line." : "Ngữ cảnh đã hết hạn hoặc không còn khớp cuộc trò chuyện này. Anh yêu cầu một dòng ví dụ mới nhé.");
               return (
               <div key={item.id} className={cn(
-                "break-words shadow-[0_1px_2px_rgba(16,24,40,0.04)]",
+                "break-words",
                 costBlock ? "w-full max-w-[92%] self-start"
-                  : item.role === "user" ? "max-w-[82%] whitespace-pre-wrap self-end rounded-2xl rounded-br-md bg-[#6d4aff] px-4 py-3 text-white"
-                  : item.role === "system" ? "whitespace-pre-wrap self-center rounded-full border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700"
-                  : "max-w-[92%] whitespace-pre-wrap self-start rounded-2xl rounded-tl-md border border-[#e4e5eb] bg-white px-4 py-3 text-[#252932]",
+                  : item.role === "user" ? "max-w-[82%] whitespace-pre-wrap self-end rounded-2xl rounded-br-[5px] bg-vn-cobalt px-4 py-3 text-white shadow-[0_8px_24px_rgba(42,47,240,0.25)] motion-reduce:shadow-none"
+                  : item.role === "system" ? "whitespace-pre-wrap self-center rounded-xl border border-vn-red/40 bg-vn-red/10 px-3 py-2 text-xs text-vn-paper/90"
+                  : "max-w-[92%] whitespace-pre-wrap self-start rounded-2xl rounded-tl-[5px] border border-vn-paper/10 bg-vn-card px-4 py-3 text-vn-paper",
               )}>
                 {item.role === "system" ? <span className="sr-only">{text("Hệ thống: ")}</span> : null}
                 {costBlock ? (
@@ -844,15 +840,15 @@ export function GlobalAgentChatWidget() {
                 ) : item.text}
                 {ANALYTICS_ENABLED && item.role === "agent" && user?.id ? <UncImageGallery key={`${user.id}:${item.id}`} ownerId={user.id} language={language} images={analyticsMessage?.images} /> : null}
                 {ANALYTICS_ENABLED && item.role === "agent" && analyticsMessage?.details ? (
-                  <details className="mt-3 border-t border-[#e4e5eb] pt-2 text-xs" data-bmq-answer-details="business-money-v1">
-                    <summary className="cursor-pointer font-medium">{language === "en" ? "View details" : "Xem chi tiết"}</summary>
+                  <details className="mt-3 border-t border-vn-paper/10 pt-2 text-xs text-vn-paper/80" data-bmq-answer-details="business-money-v1">
+                    <summary className="cursor-pointer font-semibold text-vn-lime">{language === "en" ? "View details" : "Xem chi tiết"}</summary>
                     <div className="mt-2 whitespace-pre-wrap break-words">{analyticsMessage.details}</div>
                     {analyticsMessage.fx ? <a className="mt-2 block underline" href="https://www.exchangerate-api.com" target="_blank" rel="noopener noreferrer">Rates by ExchangeRate-API</a> : null}
                   </details>
                 ) : null}
                 {ANALYTICS_ENABLED && item.role === "agent" && analyticsMessage?.citations?.length ? (
-                  <details className="mt-3 border-t border-[#e4e5eb] pt-2 text-xs" data-bmq-knowledge-citations="v1">
-                    <summary className="cursor-pointer font-medium">{language === "en" ? "Sources" : "Nguồn tham khảo"}</summary>
+                  <details className="mt-3 border-t border-vn-paper/10 pt-2 text-xs text-vn-paper/80" data-bmq-knowledge-citations="v1">
+                    <summary className="cursor-pointer font-semibold text-vn-lime">{language === "en" ? "Sources" : "Nguồn tham khảo"}</summary>
                     <ul className="mt-2 space-y-2">
                       {analyticsMessage.citations.map((citation, index) => <li key={citation.id}><span className="font-medium">[{index + 1}] {citation.title}</span><br />{citation.source} · {language === "en" ? "Updated" : "Cập nhật"}: {new Date(citation.updated_at).toLocaleString(language === "en" ? "en-US" : "vi-VN")}</li>)}
                     </ul>
@@ -862,28 +858,28 @@ export function GlobalAgentChatWidget() {
               );
             })}
             {streamedText && (
-              <div className="max-w-[92%] self-start rounded-2xl rounded-tl-md border border-[#e4e5eb] bg-white px-4 py-3 text-[#252932] shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
+              <div className="max-w-[92%] self-start rounded-2xl rounded-tl-[5px] border border-vn-paper/10 bg-vn-card px-4 py-3 text-vn-paper">
                 <div className="whitespace-pre-wrap break-words">{streamedText}</div>
               </div>
             )}
             {isResponding && !streamedText && (
-              <div className="flex max-w-[88%] items-center gap-2.5 text-xs font-medium text-[#777e8b]"><span className="grid h-8 w-8 place-items-center rounded-xl bg-[#ebe7ff] text-[#6847e8]"><Loader2 className="h-4 w-4 animate-spin" /></span>{text("VNAgent đang xử lý…")}</div>
+              <div className="flex max-w-[88%] items-center gap-2.5 font-vnMono text-[10.5px] uppercase tracking-[0.12em] text-vn-paper/60"><span className="grid h-8 w-8 place-items-center rounded-[10px] border border-vn-cobalt-l/30 bg-vn-cobalt-l/10 text-vn-lime"><Loader2 className="h-4 w-4 animate-spin" /></span>{text("VNAgent đang xử lý…")}</div>
             )}
-            {errorMessage && <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-xs text-red-700">{text(errorMessage)}</div>}
+            {errorMessage && <div role="alert" className="rounded-xl border border-vn-red/40 bg-vn-red/10 p-3 text-xs leading-relaxed text-vn-paper/90">{text(errorMessage)}</div>}
             {showQuickActions && (
-              <div className="rounded-2xl border border-[#e4e5eb] bg-white p-3.5 shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
-                <div className="mb-2.5 text-xs font-medium text-[#777e8b]">{text("Gợi ý nhanh")}</div>
+              <div className="rounded-2xl border border-vn-paper/10 bg-vn-card p-3.5">
+                <div className="mb-2.5 font-vnMono text-[10px] uppercase tracking-[0.14em] text-vn-paper/45">{text("Gợi ý nhanh")}</div>
                 <div className="flex flex-wrap gap-2">
-                  {localizedSuggestions.map((suggestion) => <button key={suggestion} type="button" className="rounded-full border border-[#ded9fa] bg-[#f7f5ff] px-3 py-2 text-left text-xs font-semibold text-[#5e43c7] transition hover:border-[#8b73ed] hover:bg-[#f1edff] disabled:opacity-50" onClick={() => void sendMessage(suggestion)} disabled={!chatReady || isResponding}>{suggestion}</button>)}
+                  {localizedSuggestions.map((suggestion) => <button key={suggestion} type="button" className="min-h-[36px] rounded-[11px] border border-vn-paper/[.18] bg-vn-card2 px-3 py-2 text-left text-xs font-bold text-vn-lime transition hover:-translate-y-px hover:border-vn-lime disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:border-vn-paper/[.18]" onClick={() => void sendMessage(suggestion)} disabled={!chatReady || isResponding}>{suggestion}</button>)}
                 </div>
               </div>
             )}
             <div ref={endRef} />
           </div>
 
-          <div className="shrink-0 border-t border-[#e8eaf0] bg-white px-3.5 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3">
+          <div className="shrink-0 border-t border-vn-paper/10 bg-vn-ink px-3.5 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3">
             <div className="flex items-end gap-2">
-              <div className="relative min-w-0 flex-1 overflow-clip rounded-[22px] border border-[#dfe2e8] bg-[#f7f8fa] py-3 transition focus-within:border-[#8b73ed] focus-within:bg-white focus-within:shadow-[0_0_0_3px_rgba(109,74,255,0.10)]">
+              <div className="relative min-w-0 flex-1 overflow-clip rounded-[18px] border border-vn-paper/[.18] bg-vn-card shadow-[0_10px_30px_rgba(0,0,0,0.35)] py-3 transition focus-within:border-vn-lime">
                 <Textarea
                   ref={attachComposer}
                   data-vnagent-composer="autogrow-v1"
@@ -892,7 +888,7 @@ export function GlobalAgentChatWidget() {
                   rows={1}
                   onChange={(event) => setDraft(event.target.value)}
                   placeholder={text("Hỏi bất cứ điều gì")}
-                  className="min-h-0 resize-none rounded-none border-0 bg-transparent px-4 py-0 text-base leading-6 text-[#252932] shadow-none outline-none ring-0 placeholder:text-[#9a9fab] focus-visible:ring-0 focus-visible:ring-offset-0"
+                  className="min-h-0 resize-none rounded-none border-0 bg-transparent px-4 py-0 font-vnDisp text-base leading-6 text-vn-paper shadow-none outline-none ring-0 placeholder:text-vn-paper/40 focus-visible:ring-0 focus-visible:ring-offset-0 disabled:opacity-60"
                   onKeyDown={(event) => {
                     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                       event.preventDefault();
@@ -902,11 +898,11 @@ export function GlobalAgentChatWidget() {
                   disabled={sessionChoiceRequired || !chatReady || isResponding}
                 />
               </div>
-              <button type="button" className="grid h-11 w-11 shrink-0 place-items-center rounded-full border-0 bg-[#6d4aff] text-white shadow-[0_6px_16px_rgba(109,74,255,0.28)] transition hover:bg-[#5f3ee8] active:scale-[0.97] disabled:cursor-not-allowed disabled:bg-[#d7d9df] disabled:shadow-none" onClick={() => void sendMessage()} disabled={!draft.trim() || sessionChoiceRequired || !chatReady || isResponding} aria-label={text("Gửi tin nhắn")}>
+              <button type="button" data-vnagent-send="lime-v2" className="grid h-12 w-12 shrink-0 place-items-center rounded-xl border-0 bg-vn-lime text-vn-ink transition hover:brightness-105 active:scale-[0.97] disabled:cursor-not-allowed disabled:bg-vn-card2 disabled:text-vn-paper/30" onClick={() => void sendMessage()} disabled={!draft.trim() || sessionChoiceRequired || !chatReady || isResponding} aria-label={text("Gửi tin nhắn")}>
                 {isResponding ? <Loader2 className="h-[18px] w-[18px] animate-spin" /> : <ArrowUp className="h-[18px] w-[18px] stroke-[2.2]" />}
               </button>
             </div>
-            <div className="mt-1 pr-[52px] text-right text-[10px] text-[#a0a5af]">{draft.trim() ? draft.trim().split(/\s+/).length : 0} / 300</div>
+            <div className="mt-1.5 pr-[56px] text-right font-vnMono text-[10px] tracking-[0.06em] text-vn-paper/40">{draft.trim() ? draft.trim().split(/\s+/).length : 0} / 300</div>
           </div>
         </SheetContent>
       </Sheet>

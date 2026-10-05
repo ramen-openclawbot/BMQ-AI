@@ -69,8 +69,10 @@ def test_vnagent_brand_and_address_contract() -> None:
     require(WIDGET, 'aria-label={text("VNAgent — Trợ lý AI của BMQ")}', "the header must expose the VNAgent identity accessibly")
     require(WIDGET, "VNAgent đang xử lý…", "the thinking state must identify VNAgent")
     require(WIDGET, 'placeholder={text("Hỏi bất cứ điều gì")}', "the composer must match chat.vnagent.ai")
-    require(WIDGET, 'bg-[#6d4aff]', "owner messages and send action must use the VNAgent violet accent")
-    require(WIDGET, 'bg-[#f7f8fa] p-0 text-[#171a21]', "the chat surface must use the clean light VNAgent canvas")
+    require(WIDGET, 'rounded-br-[5px] bg-vn-cobalt', "owner messages must use the chat.vnagent.ai cobalt bubble")
+    require(WIDGET, 'bg-vn-lime text-vn-ink', "the send action must use the chat.vnagent.ai lime button")
+    require(WIDGET, 'bg-vn-ink p-0 font-vnDisp text-vn-paper', "the chat surface must use the chat.vnagent.ai ink canvas and Archivo")
+    require(WIDGET, 'VN<span className="text-vn-red">AGENT</span>', "the header must use the VN/AGENT wordmark with AGENT in red")
     forbid(WIDGET, 'item.role === "agent" ? "VNAgent"', "chat.vnagent.ai parity hides repeated assistant labels inside the transcript")
     for legacy_copy in ['>AI Agent</SheetTitle>', 'Vui lòng nhập yêu cầu để AI Agent hỗ trợ.', '>Agent</div>', ' />Agent đang xử lý…', 'cho AI Agent...']:
         forbid(WIDGET, legacy_copy, f"legacy generic agent copy must be removed: {legacy_copy}")
@@ -78,10 +80,11 @@ def test_vnagent_brand_and_address_contract() -> None:
 
 def test_chat_launcher_uses_the_vnagent_mark_with_motion() -> None:
     require(WIDGET, 'data-vnagent-launcher="logo-motion-v2"', "the launcher must carry a stable marker for the VNAgent logo treatment")
-    require(WIDGET, 'function VnagentMark({ className = "h-9 w-11 shrink-0" }', "the shared VNAgent mark must keep its default size for the chat header")
+    require(WIDGET, 'function VnagentMark({ className = "h-full w-full" }', "the VNAgent mark must fill its ink container")
+    require(WIDGET, 'data-vnagent-mark="ink-lime-v2"', "the launcher must use the chat.vnagent.ai lime V and red bar mark")
     require(WIDGET, 'aria-label="Logo VNAgent"', "the VNAgent mark must keep its accessible label")
     require(WIDGET, '[&_svg]:!h-full [&_svg]:!w-full', "the launcher must beat the Button svg default so the mark can fill the circle")
-    require(WIDGET, 'h-[82%] w-[82%]', "the launcher mark must fill most of the circular button")
+    require(WIDGET, 'h-[72%] w-[72%]', "the launcher mark must fill most of the circular button")
     require(WIDGET, '!open && "animate-vnagent-throb motion-reduce:animate-none"', "the mark must breathe, and only while the sheet is closed")
     require(WIDGET, '!open && "animate-vnagent-halo motion-reduce:animate-none"', "the launcher must emit a halo ripple, and only while the sheet is closed")
     require(WIDGET, 'pointer-events-none absolute inset-0 -z-10 rounded-full ring-2', "the halo must sit behind the mark and never intercept clicks outside the button")
@@ -90,6 +93,19 @@ def test_chat_launcher_uses_the_vnagent_mark_with_motion() -> None:
     require(TAILWIND, '"vnagent-throb 3.6s', "the shared throb animation must keep its published timing")
     require(TAILWIND, '"vnagent-halo 3.6s', "the shared halo animation must keep its published timing")
     forbid(WIDGET, "MessageCircle", "the launcher must use the VNAgent mark instead of the generic chat icon")
+
+
+def test_chat_widget_uses_no_retired_violet_theme() -> None:
+    # chat.vnagent.ai retired the violet theme on 2026-10-01 (DESIGN.md on its main).
+    sources = {
+        "widget": WIDGET,
+        "cost card": (ROOT / "src/components/agent/CostBusinessCard.tsx").read_text(),
+        "UNC gallery": (ROOT / "src/components/agent/UncImageGallery.tsx").read_text(),
+    }
+    retired = ["#6d4aff", "#7254e8", "#8c74ff", "#7457ff", "#8b5cf6", "#aa6fff", "#6845ee", "#9e5dff", "#5b3adc", "#c2b3ff", "#6246ea", "#b66cff", "#5e43c7", "#6847e8", "#ebe7ff", "#ded9fa", "#f7f5ff", "vnagent-violet"]
+    for name, source in sources.items():
+        for marker in retired:
+            assert marker.lower() not in source.lower(), f"{name} must not use the retired violet theme: {marker}"
 
 
 def test_hidden_page_context_contract() -> None:
