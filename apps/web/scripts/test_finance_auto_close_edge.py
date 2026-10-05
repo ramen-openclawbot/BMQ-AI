@@ -29,6 +29,10 @@ def compact_lower(text: str) -> str:
     return compact(text).lower()
 
 
+def squash(text: str) -> str:
+    return re.sub(r"\s+", "", text)
+
+
 def assert_ordered(haystack: str, needles: list[str]) -> None:
     cursor = -1
     for needle in needles:
@@ -201,6 +205,48 @@ def test_single_embedded_ceo_unc_slip_is_evidence_but_multiple_transfers_still_r
     assert "? { evidence: [singleDeclaredUncEvidence], blockers: [] }" in source
     assert "uncDriveRequired ? uncScan.completed : true" in source
     assert "uncDriveRequired &&" in source
+
+
+def test_evidence_only_total_excludes_low_confidence_unc_but_keeps_blockers():
+    source = read(AUTO_CLOSE_FN)
+    handler = source[
+        source.index("async function handleEvidenceOnly"):
+        source.index("async function authenticateEvidenceCaller")
+    ]
+    flat = squash(handler)
+
+    # The persisted evidence total only sums UNC slips at/above the confidence
+    # floor; low-confidence slips must be filtered out before the reduce.
+    assert (
+        "constuncEvidenceTotal=uncEvidence"
+        ".filter((item)=>Number(item.confidence||0)>=LOW_CONFIDENCE_THRESHOLD)"
+        ".reduce("
+    ) in flat, "evidence_only total must exclude low-confidence UNC evidence"
+
+    # QTM spend keeps summing every QTM evidence item: filtering is UNC-only.
+    assert "constqtmSpentTotal=qtmEvidence.reduce(" in flat, (
+        "evidence_only QTM total must remain unchanged"
+    )
+
+    # File counts and low-confidence counter keep their original meaning.
+    assert "unc_file_count:uncEvidence.length" in flat, (
+        "unc_file_count must stay the total number of UNC files"
+    )
+    assert "qtm_file_count:qtmEvidence.length" in flat
+    assert (
+        "constlowConfidenceCount=[...uncEvidence,...qtmEvidence]"
+        ".filter((item)=>Number(item.confidence||0)<LOW_CONFIDENCE_THRESHOLD,)"
+        ".length"
+    ) in flat, "low_confidence_count must still count every low-confidence slip"
+
+    # Low-confidence UNC still records a low_confidence blocker that is
+    # persisted with the evidence row.
+    assert 'code: "low_confidence"' in source
+    assert "confidence < LOW_CONFIDENCE_THRESHOLD" in source
+    assert "cachedEvidence.confidence < LOW_CONFIDENCE_THRESHOLD" in source
+    assert "blockers," in flat, (
+        "evidence_only must still persist the collected blockers"
+    )
 
 
 def test_extraction_internal_bypass_is_minimal_and_existing_user_auth_remains():

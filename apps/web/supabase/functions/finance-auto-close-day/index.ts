@@ -944,10 +944,17 @@ async function handleEvidenceOnly(
       const qtmEvidence = Array.isArray(snapshot.qtmEvidence)
         ? snapshot.qtmEvidence
         : [];
-      const uncEvidenceTotal = uncEvidence.reduce(
-        (sum, item) => sum + Number(item.amount || 0),
-        0,
-      );
+      // Low-confidence UNC slips still count as scanned files and still raise a
+      // low_confidence blocker, but their amount must not inflate the evidence
+      // total used for period reconciliation.
+      const uncEvidenceTotal = uncEvidence
+        .filter((item) =>
+          Number(item.confidence || 0) >= LOW_CONFIDENCE_THRESHOLD
+        )
+        .reduce(
+          (sum, item) => sum + Number(item.amount || 0),
+          0,
+        );
       const qtmSpentTotal = qtmEvidence.reduce(
         (sum, item) => sum + Number(item.amount || 0),
         0,
