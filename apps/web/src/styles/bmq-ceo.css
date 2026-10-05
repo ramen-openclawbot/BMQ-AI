@@ -172,3 +172,4 @@ html.bmq-d3 .d3-ceo-go:disabled { background: #cfcfcc; box-shadow: none; }
 @media (prefers-reduced-motion: reduce) {
   .d3-ceo-head, .d3-ceo-kpi, .d3-ceo-tile { animation: none !important; }
 }
+html.bmq-d3 .d3-ceo-scan[data-bmq-cutover-rescan] { margin-top: 8px; background: transparent; color: var(--d3-ink); border: 1px solid currentColor; }

@@ -180,8 +180,10 @@ export function useCollectCutoverEvidence() {
 
   return useMutation({
     mutationFn: async (
-      { month, onProgress }: {
+      { month, onProgress, force = false }: {
         month: Date | string;
+        /** Re-scan every declared day, overwriting evidence that was already stored. */
+        force?: boolean;
         onProgress?: (progress: CollectEvidenceProgress) => void;
       },
     ): Promise<CollectEvidenceResult> => {
@@ -195,7 +197,7 @@ export function useCollectCutoverEvidence() {
 
       const preview = data as CutoverPreview;
       const unscanned = (preview?.days || [])
-        .filter((day) => !day.evidence_scanned)
+        .filter((day) => force || !day.evidence_scanned)
         .map((day) => day.closing_date)
         .sort();
       const batches = batchDatesByLimit(unscanned, 10);

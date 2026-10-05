@@ -55,6 +55,7 @@ export function CeoCutoverPanel({ initialMonth }: { initialMonth: string }) {
   const [counted, setCounted] = useState("");
   const [note, setNote] = useState("");
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [rescanOpen, setRescanOpen] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
   const [revertTarget, setRevertTarget] = useState<PeriodCutover | null>(null);
   const [revertNote, setRevertNote] = useState("");
@@ -94,11 +95,12 @@ export function CeoCutoverPanel({ initialMonth }: { initialMonth: string }) {
     [history.data],
   );
 
-  const runCollect = () => {
+  const runCollect = (force = false) => {
     setProgress("Đang chuẩn bị…");
     collect.mutate(
       {
         month,
+        force,
         onProgress: ({ batchIndex, batchCount, dates }) =>
           setProgress(`Đang quét đợt ${batchIndex + 1}/${batchCount} · ${dates.map(dayLabel).join(", ")}`),
       },
@@ -234,13 +236,19 @@ export function CeoCutoverPanel({ initialMonth }: { initialMonth: string }) {
                 <i style={{ width: `${data.day_count ? (scannedDays / data.day_count) * 100 : 0}%` }} />
               </div>
               {data.days_missing_evidence.length > 0 && !closedForMonth ? (
-                <Button type="button" className="d3-ceo-scan" disabled={collect.isPending} onClick={runCollect} data-bmq-cutover-scan>
+                <Button type="button" className="d3-ceo-scan" disabled={collect.isPending} onClick={() => runCollect()} data-bmq-cutover-scan>
                   {collect.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanLine className="h-4 w-4" />}
                   Quét chứng từ còn thiếu ({data.days_missing_evidence.length} ngày)
                 </Button>
               ) : (
                 <small className="d3-ceo-muted">{data.day_count === 0 ? "Không có ngày nào chờ chốt." : "Đã quét đủ các ngày."}</small>
               )}
+              {data.day_count > 0 && !closedForMonth ? (
+                <Button type="button" variant="outline" className="d3-ceo-scan" disabled={collect.isPending} onClick={() => setRescanOpen(true)} data-bmq-cutover-rescan>
+                  <ScanLine className="h-4 w-4" />
+                  Quét lại cả tháng ({data.day_count} ngày)
+                </Button>
+              ) : null}
               {progress ? <small className="d3-ceo-muted" aria-live="polite">{progress}</small> : null}
             </section>
           </div>
@@ -333,6 +341,21 @@ export function CeoCutoverPanel({ initialMonth }: { initialMonth: string }) {
             <AlertDialogAction disabled={closeMonth.isPending} onClick={(event) => { event.preventDefault(); runClose(); }}>
               {closeMonth.isPending ? "Đang chốt…" : "Chốt tháng"}
             </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={rescanOpen} onOpenChange={setRescanOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Quét lại chứng từ tháng {monthLabel(month)}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {data ? `Quét lại ${data.day_count} ngày và ghi đè số chứng từ đã quét trước đó. Ảnh chưa từng đọc sẽ được đọc bằng OpenAI nên có phát sinh chi phí. Chưa chốt gì cho đến khi anh bấm Chốt tháng.` : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Huỷ</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { setRescanOpen(false); runCollect(true); }}>Quét lại</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

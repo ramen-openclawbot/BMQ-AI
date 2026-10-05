@@ -301,6 +301,20 @@ try {
     await page.waitForTimeout(800);
     assert.ok((await page.evaluate(() => window.__qaWrites)).includes("invoke:finance-auto-close-day:evidence_only"), "scan uses evidence_only");
     await page.screenshot({ path: `${EVIDENCE}/ceo-cutover-actions-1440.png` });
+    // Rescan of the whole month is offered even when days were scanned, confirms the cost, and uses evidence_only.
+    await page.evaluate(() => { window.__qaWrites.length = 0; });
+    await page.locator("[data-bmq-cutover-rescan]").click();
+    const rescanDialog = page.locator("[role='alertdialog']");
+    await rescanDialog.waitFor();
+    assert.ok((await rescanDialog.textContent()).includes("ghi đè") && (await rescanDialog.textContent()).includes("chi phí"), "rescan confirm warns about overwrite and cost");
+    await page.getByRole("button", { name: "Huỷ" }).click();
+    await rescanDialog.waitFor({ state: "detached" });
+    assert.deepEqual(await page.evaluate(() => window.__qaWrites.filter((w) => w.startsWith("invoke:"))), [], "cancel rescan invokes nothing");
+    await page.locator("[data-bmq-cutover-rescan]").click();
+    await rescanDialog.getByRole("button", { name: "Quét lại" }).click();
+    await page.waitForTimeout(800);
+    assert.ok((await page.evaluate(() => window.__qaWrites)).includes("invoke:finance-auto-close-day:evidence_only"), "rescan uses evidence_only");
+    await page.screenshot({ path: `${EVIDENCE}/ceo-cutover-rescan-1440.png` });
     // July shows the prior-month banner and cannot close.
     await page.getByRole("button", { name: "Tháng sau" }).click();
     await page.waitForSelector("[data-bmq-cutover-prior]");
