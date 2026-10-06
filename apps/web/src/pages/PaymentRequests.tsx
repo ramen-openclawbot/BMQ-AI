@@ -351,6 +351,14 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
       };
     }
 
+    if (request.requires_receipt === false) {
+      return {
+        label: language === "vi" ? "Không nhập kho" : "No goods receipt",
+        className: "border-border bg-muted text-muted-foreground",
+        icon: FileText,
+      };
+    }
+
     if (isWarehouseReceiptPayable(request)) {
       return {
         label: language === "vi" ? "Có phiếu nhập" : "Receipt linked",

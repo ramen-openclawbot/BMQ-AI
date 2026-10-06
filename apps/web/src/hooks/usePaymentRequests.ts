@@ -9,6 +9,10 @@ import {
   getCurrentActorId,
 } from "@/lib/material-controller-rpcs";
 import { summarizeApprovalResults } from "@/lib/write-safety/approval-results";
+import {
+  paymentRequestReceiptErrorCode,
+  type PaymentRequestReceiptErrorCode,
+} from "@/lib/payment-request-receipt";
 
 type PaymentRequest = Database["public"]["Tables"]["payment_requests"]["Row"];
 type PaymentRequestItem = Database["public"]["Tables"]["payment_request_items"]["Row"];
@@ -304,6 +308,54 @@ export function useRejectPaymentRequest() {
     },
     onError: (error) => {
       console.error("Error rejecting payment request:", error);
+    },
+  });
+}
+
+export interface SetPaymentRequestRequiresReceiptInput {
+  id: string;
+  requiresReceipt: boolean;
+  reason?: string | null;
+}
+
+export class PaymentRequestReceiptError extends Error {
+  code: PaymentRequestReceiptErrorCode;
+  detail?: string;
+
+  constructor(code: PaymentRequestReceiptErrorCode, detail?: string) {
+    super(code);
+    this.name = "PaymentRequestReceiptError";
+    this.code = code;
+    this.detail = detail;
+  }
+}
+
+export function useSetPaymentRequestRequiresReceipt() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, requiresReceipt, reason }: SetPaymentRequestRequiresReceiptInput) => {
+      // Server-authority RPC: re-reads status and receipt links under lock. The
+      // cast keeps the frozen generated Database types usable until the next
+      // types refresh.
+      const { data, error } = await (supabase as any).rpc("set_payment_request_requires_receipt", {
+        p_request_id: id,
+        p_requires_receipt: requiresReceipt,
+        p_reason: reason ?? null,
+      });
+
+      if (error) {
+        throw new PaymentRequestReceiptError(paymentRequestReceiptErrorCode(error), error.message);
+      }
+
+      return data as { id: string; requires_receipt: boolean; no_receipt_reason: string | null };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["payment-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["payment-request"] });
+    },
+    onError: (error) => {
+      console.error("Error setting payment request requires_receipt:", error);
     },
   });
 }

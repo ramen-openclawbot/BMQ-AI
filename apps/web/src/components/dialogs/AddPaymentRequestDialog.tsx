@@ -151,7 +151,13 @@ const paymentRequestSchema = z.object({
   payment_method: z.enum(["bank_transfer", "cash"]).default("bank_transfer"),
   vat_amount: z.coerce.number().min(0).default(0),
   notes: z.string().optional(),
+  // VAT, thuế, dịch vụ, phí: no goods to deliver or receive.
+  no_receipt: z.boolean().default(false),
+  no_receipt_reason: z.string().optional(),
   items: z.array(paymentRequestItemSchema).min(1, "Cần ít nhất một sản phẩm"),
+}).refine((d) => !d.no_receipt || (d.no_receipt_reason ?? "").trim().length >= 3, {
+  message: "Ghi lý do (ít nhất 3 ký tự), ví dụ: Thuế VAT HĐ317",
+  path: ["no_receipt_reason"],
 });
 
 type PaymentRequestFormData = z.infer<typeof paymentRequestSchema>;
@@ -206,6 +212,8 @@ export function AddPaymentRequestDialog({
       payment_method: "bank_transfer",
       vat_amount: 0,
       notes: "",
+      no_receipt: false,
+      no_receipt_reason: "",
       items: [],
     },
   });
@@ -222,6 +230,8 @@ export function AddPaymentRequestDialog({
         payment_method: "bank_transfer",
         vat_amount: prefillData.vat || 0,
         notes: `Tạo từ ${prefillData.poNumber}`,
+        no_receipt: false,
+        no_receipt_reason: "",
         items: prefillData.items?.map(item => ({
           product_code: "",
           product_name: item.product_name,
@@ -533,6 +543,14 @@ export function AddPaymentRequestDialog({
         image_url: imageUrl || null,
         notes: data.notes || null,
         created_by: user?.id || null,
+        ...(data.no_receipt && !prefillData?.poId && !data.goods_receipt_id
+          ? {
+              requires_receipt: false,
+              no_receipt_reason: (data.no_receipt_reason ?? "").trim(),
+              no_receipt_set_by: user?.id || null,
+              no_receipt_set_at: new Date().toISOString(),
+            }
+          : {}),
       });
 
       // Create items with price info
@@ -1058,6 +1076,47 @@ export function AddPaymentRequestDialog({
             </div>
 
             {/* Notes */}
+            {/* Chi không nhập kho: VAT, thuế, dịch vụ, phí. Not offered for PO / receipt-linked requests. */}
+            {!prefillData?.poId && !form.watch("goods_receipt_id") && (
+              <div className="space-y-2 rounded-lg border p-3" data-bmq-no-receipt-create>
+                <FormField
+                  control={form.control}
+                  name="no_receipt"
+                  render={({ field }) => (
+                    <FormItem className="flex items-start gap-3 space-y-0">
+                      <FormControl>
+                        <input
+                          type="checkbox"
+                          className="mt-1 h-4 w-4 accent-primary"
+                          checked={!!field.value}
+                          onChange={(e) => field.onChange(e.target.checked)}
+                          data-bmq-no-receipt-toggle
+                        />
+                      </FormControl>
+                      <div className="space-y-0.5">
+                        <FormLabel className="cursor-pointer">Chi không nhập kho</FormLabel>
+                        <p className="text-xs text-muted-foreground">VAT, thuế, dịch vụ, phí… Không có giao hàng hay hóa đơn nhập kho; phiếu hoàn tất khi đã trả.</p>
+                      </div>
+                    </FormItem>
+                  )}
+                />
+                {form.watch("no_receipt") && (
+                  <FormField
+                    control={form.control}
+                    name="no_receipt_reason"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormControl>
+                          <Input placeholder="Lý do, ví dụ: Thuế VAT HĐ317" {...field} data-bmq-no-receipt-reason />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
+              </div>
+            )}
+
             <FormField
               control={form.control}
               name="notes"

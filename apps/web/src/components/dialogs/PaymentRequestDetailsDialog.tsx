@@ -68,7 +68,10 @@ import {
   getAllocatedAmount,
   getRemainingPaymentAmount,
   hasOutstandingPayment,
+  useSetPaymentRequestRequiresReceipt,
+  PaymentRequestReceiptError,
 } from "@/hooks/usePaymentRequests";
+import { isReceiptRequired } from "@/lib/payment-request-receipt";
 import { CreateInvoiceFromRequestDialog } from "./CreateInvoiceFromRequestDialog";
 import { EditPaymentRequestDialog } from "./EditPaymentRequestDialog";
 import { DriveImportProgressDialog } from "@/components/payment-requests/DriveImportProgressDialog";
@@ -123,9 +126,12 @@ export function PaymentRequestDetailsDialog({
   const [showDriveImportDialog, setShowDriveImportDialog] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState("");
   const [showUncDialog, setShowUncDialog] = useState(false);
+  const [showNoReceiptDialog, setShowNoReceiptDialog] = useState(false);
+  const [noReceiptReason, setNoReceiptReason] = useState("");
 
   const navigate = useNavigate();
-  const { user, isOwner } = useAuth();
+  const { user, isOwner, canEditModule } = useAuth();
+  const setRequiresReceipt = useSetPaymentRequestRequiresReceipt();
   const { t } = useLanguage();
   const queryClient = useQueryClient();
   const { data: request, isLoading: requestLoading } = usePaymentRequest(requestId);
@@ -157,6 +163,31 @@ export function PaymentRequestDetailsDialog({
   const isLoading = requestLoading || itemsLoading;
   const allocatedAmount = request ? getAllocatedAmount(request) : 0;
   const remainingAmount = request ? getRemainingPaymentAmount(request) : 0;
+  // VAT / thuế / dịch vụ: no delivery, no invoice; complete once paid.
+  const needsReceipt = request ? isReceiptRequired(request) : true;
+  const canEditRequests = isOwner || canEditModule("payment_requests");
+  const canMarkNoReceipt = !!request && needsReceipt && canEditRequests && request.status !== "rejected"
+    && !request.goods_receipt_id && !request.purchase_order_id;
+
+  const noReceiptError = (error: unknown) => {
+    const code = error instanceof PaymentRequestReceiptError ? error.code : "unknown";
+    if (code === "receipt_linked") return "Phiếu đã gắn PO hoặc phiếu nhập nên không đổi được.";
+    if (code === "reason_required") return "Ghi lý do (ít nhất 3 ký tự).";
+    if (code === "insufficient_privilege") return "Anh/chị chưa có quyền sửa phiếu chi.";
+    if (code === "invalid_status") return "Phiếu đã bị từ chối.";
+    return "Không đổi được loại phiếu. Thử lại.";
+  };
+  const saveRequiresReceipt = async (requiresReceipt: boolean) => {
+    if (!requestId) return;
+    try {
+      await setRequiresReceipt.mutateAsync({ id: requestId, requiresReceipt, reason: requiresReceipt ? null : noReceiptReason.trim() });
+      toast.success(requiresReceipt ? "Đã chuyển lại thành phiếu mua hàng" : "Đã đánh dấu chi không nhập kho");
+      setShowNoReceiptDialog(false);
+      setNoReceiptReason("");
+    } catch (error) {
+      toast.error(noReceiptError(error));
+    }
+  };
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("vi-VN", {
@@ -315,7 +346,7 @@ export function PaymentRequestDetailsDialog({
           ) : request ? (
             <div className="min-w-0 space-y-4 pb-4 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-4 sm:space-y-6 sm:p-0">
               {/* Warning for paid without invoice */}
-              {request.payment_status === "paid" && !request.invoice_created && (
+              {needsReceipt && request.payment_status === "paid" && !request.invoice_created && (
                 <Alert variant="destructive">
                   <AlertTriangle className="h-4 w-4" />
                   <AlertDescription>
@@ -328,7 +359,12 @@ export function PaymentRequestDetailsDialog({
               <div className="grid min-w-0 grid-cols-2 gap-2 [&>*]:min-w-0 [&>*]:justify-center [&>*]:truncate sm:flex sm:flex-wrap sm:[&>*]:w-auto">
                 {getStatusBadge(request.status)}
                 {getPaymentMethodBadge(request.payment_method)}
-                {getDeliveryStatusBadge(request.delivery_status)}
+                {needsReceipt ? getDeliveryStatusBadge(request.delivery_status) : (
+                  <Badge variant="outline" className="gap-1" data-bmq-no-receipt-badge>
+                    <FileText className="h-3 w-3" />
+                    Không nhập kho
+                  </Badge>
+                )}
                 {getPaymentStatusBadge(request.payment_status)}
                 {request.goods_receipt_id && (
                   <Badge className="col-span-2 gap-1 bg-emerald-600 sm:col-span-1">
@@ -337,6 +373,12 @@ export function PaymentRequestDetailsDialog({
                   </Badge>
                 )}
               </div>
+
+              {!needsReceipt && (
+                <p className="break-words rounded-lg bg-muted/50 px-3 py-2 text-sm" data-bmq-no-receipt-note>
+                  Chi không nhập kho{request.no_receipt_reason ? `: ${request.no_receipt_reason}` : ""}. Không cần giao hàng hay hóa đơn nhập kho.
+                </p>
+              )}
 
               {request.goods_receipt_id && (
                 <Alert className="min-w-0">
@@ -418,6 +460,10 @@ export function PaymentRequestDetailsDialog({
                       <Badge className="bg-green-500 gap-1">
                         <Check className="h-3 w-3" />
                         {t.invoiceCreated}
+                      </Badge>
+                    ) : !needsReceipt ? (
+                      <Badge variant="outline" className="gap-1" data-bmq-no-receipt-invoice>
+                        Không cần hóa đơn nhập kho
                       </Badge>
                     ) : (
                       <Badge variant="destructive" className="gap-1">
@@ -698,7 +744,7 @@ export function PaymentRequestDetailsDialog({
                 )}
 
                 {/* Mark as delivered (only for approved requests) */}
-                {request.status === "approved" && request.delivery_status === "pending" && (
+                {needsReceipt && request.status === "approved" && request.delivery_status === "pending" && (
                   <Button
                     onClick={handleMarkDelivered}
                     disabled={markDelivered.isPending}
@@ -716,7 +762,7 @@ export function PaymentRequestDetailsDialog({
                 )}
 
                 {/* Create Invoice buttons (for approved requests without invoice) */}
-                {request.status === "approved" && !request.invoice_created && (
+                {needsReceipt && request.status === "approved" && !request.invoice_created && (
                   <>
                     <Button 
                       variant="outline" 
@@ -769,6 +815,32 @@ export function PaymentRequestDetailsDialog({
                   </Button>
                 )}
 
+                {canMarkNoReceipt && (
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowNoReceiptDialog(true)}
+                    className="w-full gap-2 whitespace-nowrap sm:w-auto"
+                    data-bmq-no-receipt-open
+                  >
+                    <FileText className="h-4 w-4" />
+                    <span className="sm:hidden">Không nhập kho</span>
+                    <span className="hidden sm:inline">Chi không nhập kho</span>
+                  </Button>
+                )}
+                {!needsReceipt && canEditRequests && request.status !== "rejected" && (
+                  <Button
+                    variant="outline"
+                    onClick={() => void saveRequiresReceipt(true)}
+                    disabled={setRequiresReceipt.isPending}
+                    className="w-full gap-2 whitespace-nowrap sm:w-auto"
+                    data-bmq-no-receipt-undo
+                  >
+                    <Package className="h-4 w-4" />
+                    <span className="sm:hidden">Có nhập kho</span>
+                    <span className="hidden sm:inline">Chuyển lại phiếu mua hàng</span>
+                  </Button>
+                )}
+
                 <Button className="w-full whitespace-nowrap sm:w-auto" variant="outline" onClick={() => onOpenChange(false)}>
                   Đóng
                 </Button>
@@ -800,6 +872,36 @@ export function PaymentRequestDetailsDialog({
           ]}
         />
       )}
+
+      <AlertDialog open={showNoReceiptDialog} onOpenChange={(open) => { setShowNoReceiptDialog(open); if (!open) setNoReceiptReason(""); }}>
+        <AlertDialogContent data-bmq-no-receipt-dialog>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Chi không nhập kho</AlertDialogTitle>
+            <AlertDialogDescription>
+              Dùng cho VAT, thuế, dịch vụ, phí. Phiếu sẽ không cần giao hàng hay hóa đơn nhập kho và hoàn tất khi đã trả.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <Textarea
+            value={noReceiptReason}
+            onChange={(e) => setNoReceiptReason(e.target.value)}
+            placeholder="Lý do, ví dụ: Thuế VAT HĐ317"
+            aria-label="Lý do chi không nhập kho"
+            rows={2}
+            maxLength={200}
+          />
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t.cancel}</AlertDialogCancel>
+            <Button
+              onClick={() => void saveRequiresReceipt(false)}
+              disabled={noReceiptReason.trim().length < 3 || setRequiresReceipt.isPending}
+              data-bmq-no-receipt-save
+            >
+              {setRequiresReceipt.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Xác nhận
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Approve Dialog with Payment Method Selection */}
       <AlertDialog open={showApproveDialog} onOpenChange={setShowApproveDialog}>

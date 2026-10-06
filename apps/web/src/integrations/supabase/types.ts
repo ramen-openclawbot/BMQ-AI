@@ -1372,6 +1372,10 @@ export type Database = {
           payment_status: Database["public"]["Enums"]["payment_status"]
           payment_type: Database["public"]["Enums"]["payment_type"] | null
           purchase_order_id: string | null
+          requires_receipt: boolean
+          no_receipt_reason: string | null
+          no_receipt_set_at: string | null
+          no_receipt_set_by: string | null
           rejection_reason: string | null
           request_number: string
           status: Database["public"]["Enums"]["payment_request_status"]
@@ -1401,6 +1405,10 @@ export type Database = {
           payment_status?: Database["public"]["Enums"]["payment_status"]
           payment_type?: Database["public"]["Enums"]["payment_type"] | null
           purchase_order_id?: string | null
+          requires_receipt?: boolean
+          no_receipt_reason?: string | null
+          no_receipt_set_at?: string | null
+          no_receipt_set_by?: string | null
           rejection_reason?: string | null
           request_number: string
           status?: Database["public"]["Enums"]["payment_request_status"]
@@ -1430,6 +1438,10 @@ export type Database = {
           payment_status?: Database["public"]["Enums"]["payment_status"]
           payment_type?: Database["public"]["Enums"]["payment_type"] | null
           purchase_order_id?: string | null
+          requires_receipt?: boolean
+          no_receipt_reason?: string | null
+          no_receipt_set_at?: string | null
+          no_receipt_set_by?: string | null
           rejection_reason?: string | null
           request_number?: string
           status?: Database["public"]["Enums"]["payment_request_status"]
@@ -2067,6 +2079,14 @@ export type Database = {
           p_notes?: string | null
         }
         Returns: string
+      }
+      set_payment_request_requires_receipt: {
+        Args: {
+          p_request_id: string
+          p_requires_receipt: boolean
+          p_reason: string | null
+        }
+        Returns: Json
       }
       has_role: {
         Args: {
