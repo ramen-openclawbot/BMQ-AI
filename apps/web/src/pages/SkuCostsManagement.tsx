@@ -11,6 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { DEFAULT_SKU_COST_TEMPLATE, DEFAULT_SKU_COST_VALUES, parseCostTemplate, parseCostValues, toNumber } from "@/lib/sku-cost-template";
 import { callEdgeFunction } from "@/lib/fetch-with-timeout";
 import { isFinishedSku } from "@/lib/skuType";
+import { dosageInputText, parseDosageGramInput } from "@/lib/dosage-input";
 import { SkuCostMenuBar } from "@/components/sku-costs/SkuCostMenuBar";
 
 type SKU = any;
@@ -143,24 +144,7 @@ const convertAmountByUnit = (amount: number, fromUnit: unknown, toUnit: unknown)
 
 const FORMULA_BASE_QTY = 100;
 
-const parseDosageGramInput = (value: unknown, fallback = 0) => {
-  if (typeof value === "number") return Number.isFinite(value) ? value : fallback;
-  if (value === null || value === undefined) return fallback;
-  const raw = String(value).trim();
-  if (!raw) return fallback;
-
-  // Rule nghiệp vụ: có dấu phẩy => số thập phân gram (2,234 => 2.234g)
-  if (raw.includes(",")) {
-    const normalized = raw.replace(/\./g, "").replace(/,/g, ".");
-    const n = Number(normalized);
-    return Number.isFinite(n) ? n : fallback;
-  }
-
-  // Không có phẩy => hiểu là số nguyên gram (2234 => 2234g)
-  const normalized = raw.replace(/[.,]/g, "");
-  const n = Number(normalized);
-  return Number.isFinite(n) ? n : fallback;
-};
+// parseDosageGramInput / dosageInputText live in @/lib/dosage-input (unit-tested).
 
 const normalizeScannedIngredient = (row: any) => {
   let unit = normalizeUnitName(row.unit || row.uom || "g");
@@ -1228,7 +1212,7 @@ export default function SkuCostsManagement() {
                         </TableCell>
                         {/* DVT cố định gram theo nghiệp vụ */}
                         <TableCell><Input disabled={hasChildren} value={hasChildren ? String(Math.round(displayUnitPrice * 1000) / 1000) : (r.unit_price_input ?? (toNumber(r.unit_price, 0) === 0 ? "" : String(toNumber(r.unit_price, 0))))} onChange={(e) => { const next = [...importedFormulaDraft]; const unit_price_input = e.target.value; const unit_price = unit_price_input === "" ? 0 : Number(unit_price_input); const dosage_qty = toNumber(next[idx].dosage_qty, 0); next[idx] = { ...next[idx], unit_price_input, unit_price: Number.isFinite(unit_price) ? unit_price : 0, line_cost: (Number.isFinite(unit_price) ? unit_price : 0) * dosage_qty }; setImportedFormulaDraft(next); }} /></TableCell>
-                        <TableCell><Input value={displayDosage === 0 ? "" : String(displayDosage).replace(".", ",")} onChange={(e) => { const next = [...importedFormulaDraft]; const dosage_input = e.target.value; const dosage_qty = dosage_input === "" ? 0 : parseDosageGramInput(dosage_input, 0); const unit_price = toNumber(next[idx].unit_price, 0); next[idx] = { ...next[idx], dosage_input, dosage_qty, line_cost: unit_price * dosage_qty }; setImportedFormulaDraft(next); }} /></TableCell>
+                        <TableCell><Input inputMode="decimal" value={dosageInputText(r.dosage_input, displayDosage)} onChange={(e) => { const next = [...importedFormulaDraft]; const dosage_input = e.target.value; const dosage_qty = dosage_input === "" ? 0 : parseDosageGramInput(dosage_input, 0); const unit_price = toNumber(next[idx].unit_price, 0); next[idx] = { ...next[idx], dosage_input, dosage_qty, line_cost: unit_price * dosage_qty }; setImportedFormulaDraft(next); }} /></TableCell>
                         <TableCell>{vnd(lineCost)}</TableCell>
                         <TableCell>{vnd(perUnit)}</TableCell>
                         <TableCell>
@@ -1332,7 +1316,7 @@ export default function SkuCostsManagement() {
                         </div>
                         <div className="space-y-1">
                           <Label>Định lượng</Label>
-                          <Input className="h-11" value={displayDosage === 0 ? "" : String(displayDosage).replace(".", ",")} onChange={(e) => { const next = [...importedFormulaDraft]; const dosage_input = e.target.value; const dosage_qty = dosage_input === "" ? 0 : parseDosageGramInput(dosage_input, 0); const unit_price = toNumber(next[idx].unit_price, 0); next[idx] = { ...next[idx], dosage_input, dosage_qty, line_cost: unit_price * dosage_qty }; setImportedFormulaDraft(next); }} />
+                          <Input className="h-11" inputMode="decimal" value={dosageInputText(r.dosage_input, displayDosage)} onChange={(e) => { const next = [...importedFormulaDraft]; const dosage_input = e.target.value; const dosage_qty = dosage_input === "" ? 0 : parseDosageGramInput(dosage_input, 0); const unit_price = toNumber(next[idx].unit_price, 0); next[idx] = { ...next[idx], dosage_input, dosage_qty, line_cost: unit_price * dosage_qty }; setImportedFormulaDraft(next); }} />
                         </div>
                       </div>
 
