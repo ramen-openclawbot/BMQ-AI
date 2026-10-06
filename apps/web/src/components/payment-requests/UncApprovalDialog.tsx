@@ -14,13 +14,15 @@ import {
   PaymentUncApprovalError,
   usePaymentUncApproval,
   type UncExtractResponse,
+  type UncAllocationInput,
   type UncPaymentRequestInput,
   type UncStandaloneCategory,
 } from "@/hooks/usePaymentUncApproval";
-import { evaluatePaymentUncMatch } from "@/lib/payment-unc-matching";
+import { areSameSupplier, evaluatePaymentUncMatch, evaluateUncAllocations, remainingAmount } from "@/lib/payment-unc-matching";
 import "@/styles/bmq-unc-approval.css";
 
 export type UncApprovalRequest = UncPaymentRequestInput & {
+  createdAt?: string;
   requestNumber: string;
   supplierName?: string | null;
 };
@@ -67,6 +69,8 @@ const ERROR_TEXT: Record<string, string> = {
   invalid_category: "Hãy chọn loại khoản chi.",
   request_not_found: "Không tìm thấy phiếu chi. Hãy tải lại danh sách.",
   no_requests: "Chưa chọn phiếu chi nào.",
+  invalid_allocation: "Phần gán số tiền chưa hợp lệ. Kiểm tra lại từng phiếu.",
+  allocation_exceeds_remaining: "Số gán cho một phiếu vượt quá số còn nợ của phiếu đó.",
 };
 
 const errorText = (error: unknown) => {
@@ -114,6 +118,7 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
   const [reason, setReason] = useState("");
   const [category, setCategory] = useState<UncStandaloneCategory | null>(null);
   const [note, setNote] = useState("");
+  const [allocInputs, setAllocInputs] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (open) return;
@@ -125,6 +130,7 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
     setReason("");
     setCategory(null);
     setNote("");
+    setAllocInputs({});
   }, [open]);
 
   const approve = mode === "approve";
@@ -133,28 +139,67 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
   const ocrAmount = draft?.ocr.amount ?? null;
   const typedAmount = manualAmount.trim() ? Number(manualAmount.replace(/[^\d]/g, "")) : null;
 
+  // Many requests, or any request that is already approved, are paid by explicit per-request amounts.
+  const allocMode = approve && (requests.length > 1 || requests.some((r) => r.status === "approved"));
+  const evidenceAmount = manual ? typedAmount : ocrAmount;
+  const remainingOf = (r: UncApprovalRequest) => Math.max(remainingAmount(r), 0);
+  const allocAmount = (id: string) => {
+    const raw = allocInputs[id];
+    return raw ? Number(raw.replace(/[^\d]/g, "")) || 0 : 0;
+  };
+  // Oldest request first: fill each up to its remaining amount until the UNC amount is used up.
+  const autoAllocate = (amount: number | null) => {
+    const next: Record<string, string> = {};
+    let left = Math.max(Math.round(amount ?? 0), 0);
+    for (const r of requests) {
+      const give = Math.min(left, Math.round(remainingOf(r)));
+      next[r.id] = give > 0 ? String(give) : "";
+      left -= give;
+    }
+    setAllocInputs(next);
+  };
+  const paidRequests = allocMode ? requests.filter((r) => allocAmount(r.id) > 0) : requests;
+  const allocations: UncAllocationInput[] = paidRequests.map((r) => ({ paymentRequestId: r.id, amount: allocAmount(r.id) }));
+  const allocatedTotal = allocations.reduce((sum, a) => sum + a.amount, 0);
+
   const match = useMemo(
     () =>
-      approve
+      approve && !allocMode
         ? evaluatePaymentUncMatch({
             requests,
-            evidenceAmount: manual ? typedAmount : ocrAmount,
+            evidenceAmount,
             manualOverride: manual,
             overrideReason: reason,
           })
         : null,
-    [approve, requests, manual, typedAmount, ocrAmount, reason],
+    [approve, allocMode, requests, evidenceAmount, manual, reason],
   );
-  const needTotal = match?.remainingTotal ?? 0;
-  const amountMatches = approve && ocrAmount !== null && Math.round(ocrAmount) === Math.round(needTotal);
+  const allocMatch = allocMode
+    ? evaluateUncAllocations({
+        requests: paidRequests,
+        allocations,
+        evidenceAmount,
+        manualOverride: manual,
+        overrideReason: reason,
+      })
+    : null;
+  const needTotal = allocMode ? requests.reduce((sum, r) => sum + remainingOf(r), 0) : match?.remainingTotal ?? 0;
+  const compareTotal = allocMode ? allocatedTotal : needTotal;
+  const amountMatches = approve && ocrAmount !== null && Math.round(ocrAmount) === Math.round(compareTotal);
   const lowConfidence =
     !!draft && ((draft.ocr.confidence ?? 1) < LOW_CONFIDENCE || draft.ocr.amount_corrected_from_words);
   const supplierNames = Array.from(new Set(requests.map((r) => r.supplierName).filter(Boolean)));
+  const supplierMismatch = allocMode ? !areSameSupplier(requests) : match?.code === "supplier_mismatch";
 
   const blocker = (() => {
     if (!draft) return "Chọn ảnh UNC để bắt đầu.";
     if (manual && !reason.trim()) return "Duyệt tay cần ghi lý do.";
     if (manual && !(typedAmount && typedAmount > 0)) return "Nhập số tiền thực chuyển.";
+    if (supplierMismatch) return ERROR_TEXT.supplier_mismatch;
+    if (allocMode && allocMatch && !allocMatch.ok) {
+      if (allocatedTotal === 0) return "Nhập số tiền gán cho ít nhất một phiếu.";
+      return ERROR_TEXT[allocMatch.code] || "Chưa đủ điều kiện duyệt.";
+    }
     if (approve && match && !match.ok) return ERROR_TEXT[match.code] || "Chưa đủ điều kiện duyệt.";
     if (!approve && !category) return "Chọn loại khoản chi.";
     if (!approve && !manual && !(ocrAmount && ocrAmount > 0)) return ERROR_TEXT.amount_required;
@@ -173,6 +218,7 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
       const result = await extract.mutateAsync({ image_base64: image.base64, mime_type: image.mime, slip_type: "unc" });
       setDraft(result);
       if (result.ocr.amount) setManualAmount(String(Math.round(result.ocr.amount)));
+      if (allocMode) autoAllocate(result.ocr.amount);
     } catch (e) {
       setError(errorText(e));
     }
@@ -184,14 +230,15 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
     try {
       if (approve) {
         await confirm.mutateAsync({
-          requests,
+          requests: paidRequests,
+          ...(allocMode ? { allocations } : {}),
           file_sha256: draft.file_sha256,
           amount: manual ? typedAmount : ocrAmount,
           manual_override: manual,
           override_reason: manual ? reason.trim() : null,
           idempotency_key: draft.suggested_idempotency_key,
         });
-        toast.success(requests.length > 1 ? `Đã duyệt và ghi chi ${requests.length} phiếu bằng UNC` : "Đã duyệt và ghi chi bằng UNC");
+        toast.success(paidRequests.length > 1 ? `Đã duyệt và ghi chi ${paidRequests.length} phiếu bằng UNC` : "Đã duyệt và ghi chi bằng UNC");
       } else {
         await record.mutateAsync({
           file_sha256: draft.file_sha256,
@@ -218,7 +265,7 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
           <DialogTitle className="d3-unc-title">
             {approve ? (
               <>
-                Cần chi <b data-bmq-unc-need>{vnd(needTotal)}</b>
+                {allocMode ? "Còn nợ" : "Cần chi"} <b data-bmq-unc-need>{vnd(needTotal)}</b>
               </>
             ) : (
               "Ghi nhận UNC"
@@ -226,20 +273,64 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
           </DialogTitle>
           <DialogDescription className="d3-unc-sub">
             {approve
-              ? `${requests.length} phiếu · ${supplierNames.join(", ") || "Chưa rõ nhà cung cấp"}`
+              ? `${requests.length} phiếu · ${supplierNames.join(", ") || "Chưa rõ nhà cung cấp"}${allocMode ? " · gán số tiền UNC cho từng phiếu" : ""}`
               : "Lương, thuế, thuê nhà hoặc khoản chuyển khoản khác. Số này cộng vào UNC trong ngày."}
           </DialogDescription>
         </DialogHeader>
 
-        {approve && requests.length > 1 && (
+        {approve && !allocMode && requests.length > 1 && (
           <ul className="d3-unc-reqs">
             {requests.map((r) => (
               <li key={r.id}>
                 <span>{r.requestNumber}</span>
-                <b>{vnd(Number(r.totalAmount ?? 0) - Number(r.allocatedAmount ?? 0))}</b>
+                <b>{vnd(remainingOf(r))}</b>
               </li>
             ))}
           </ul>
+        )}
+
+        {allocMode && (
+          <div className="d3-unc-alloc" data-bmq-unc-alloc>
+            <div className="d3-unc-alloc-head">
+              <span>Gán số tiền cho từng phiếu</span>
+              {draft && (
+                <button type="button" className="d3-unc-link" onClick={() => autoAllocate(evidenceAmount ?? null)} data-bmq-unc-alloc-auto>
+                  Gán theo thứ tự phiếu cũ trước
+                </button>
+              )}
+            </div>
+            <ul>
+              {requests.map((r) => {
+                const remaining = remainingOf(r);
+                const value = allocAmount(r.id);
+                const over = value > Math.round(remaining);
+                return (
+                  <li key={r.id} className={over ? "is-over" : undefined} data-bmq-unc-alloc-row={r.requestNumber}>
+                    <div className="d3-unc-alloc-info">
+                      <b>{r.requestNumber}</b>
+                      <small>
+                        {r.status === "approved" ? "Đã duyệt" : "Chờ duyệt"} · còn nợ {vnd(remaining)}
+                      </small>
+                    </div>
+                    <Input
+                      inputMode="numeric"
+                      aria-label={`Số tiền gán cho ${r.requestNumber}`}
+                      placeholder="0"
+                      disabled={!draft}
+                      value={allocInputs[r.id] ? new Intl.NumberFormat("vi-VN").format(value) : ""}
+                      onChange={(e) => setAllocInputs((prev) => ({ ...prev, [r.id]: e.target.value.replace(/[^\d]/g, "") }))}
+                    />
+                  </li>
+                );
+              })}
+            </ul>
+            {draft && (
+              <p className="d3-unc-alloc-sum" data-bmq-unc-alloc-sum>
+                Đã gán <b>{vnd(allocatedTotal)}</b> / UNC <b>{vnd(evidenceAmount ?? null)}</b>
+                {paidRequests.length < requests.length && " · phiếu để trống 0 đ không được trả lần này"}
+              </p>
+            )}
+          </div>
         )}
 
         <input
@@ -292,7 +383,7 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
           </div>
         )}
 
-        {draft && approve && match?.code === "supplier_mismatch" ? (
+        {draft && approve && supplierMismatch ? (
           <p className="d3-unc-verdict is-bad" data-bmq-unc-verdict="supplier">
             <TriangleAlert className="h-4 w-4" /> {ERROR_TEXT.supplier_mismatch} Bỏ chọn bớt rồi duyệt từng nhà cung cấp.
           </p>
@@ -300,12 +391,16 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
           <p className={amountMatches ? "d3-unc-verdict is-ok" : "d3-unc-verdict is-bad"} data-bmq-unc-verdict={amountMatches ? "match" : "mismatch"}>
             {amountMatches ? (
               <>
-                <Check className="h-4 w-4" /> Khớp số tiền cần chi
+                <Check className="h-4 w-4" /> {allocMode ? "Tổng gán khớp số tiền trên UNC" : "Khớp số tiền cần chi"}
               </>
             ) : (
               <>
                 <TriangleAlert className="h-4 w-4" />
-                {ocrAmount === null ? "Không đọc được số tiền" : `Lệch ${vnd(Math.abs((ocrAmount ?? 0) - needTotal))} so với số cần chi`}
+                {ocrAmount === null
+                  ? "Không đọc được số tiền"
+                  : allocMode
+                    ? `Tổng gán lệch ${vnd(Math.abs((ocrAmount ?? 0) - compareTotal))} so với UNC`
+                    : `Lệch ${vnd(Math.abs((ocrAmount ?? 0) - compareTotal))} so với số cần chi`}
               </>
             )}
           </p>
@@ -371,7 +466,7 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
           </p>
         )}
 
-        {draft && blocker && !error && match?.code !== "supplier_mismatch" && <p className="d3-unc-hint">{blocker}</p>}
+        {draft && blocker && !error && !supplierMismatch && <p className="d3-unc-hint">{blocker}</p>}
 
         <div className="d3-unc-actions">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>

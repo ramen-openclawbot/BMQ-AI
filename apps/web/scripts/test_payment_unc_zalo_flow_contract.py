@@ -13,6 +13,7 @@ FUNCTIONS = ROOT / "supabase" / "functions"
 LIB = ROOT / "src" / "lib"
 
 MIGRATION = MIGRATIONS / "20261006120000_payment_unc_zalo_flow.sql"
+ALLOCATIONS_MIGRATION = MIGRATIONS / "20261006140000_payment_unc_allocations.sql"
 APPROVE_RPC = FUNCTIONS / "payment-unc-approve" / "index.ts"
 ZALO_WORKER = FUNCTIONS / "finance-zalo-notify" / "index.ts"
 ZALO_SHARED = FUNCTIONS / "_shared" / "finance-zalo-notification.ts"
@@ -33,6 +34,7 @@ def assert_true(condition: bool, message: str) -> None:
 
 def main() -> None:
     migration = read(MIGRATION)
+    allocations_migration = read(ALLOCATIONS_MIGRATION)
     approve_rpc = read(APPROVE_RPC)
     worker = read(ZALO_WORKER)
     zalo_shared = read(ZALO_SHARED)
@@ -213,6 +215,100 @@ def main() -> None:
         "must not redefine record_payment_allocations",
     )
 
+    # --- Migration 20261006140000: optional per-request allocations ----------
+    # Same signature (no overload) and the legacy no-allocations behaviour kept.
+    assert_true(
+        allocations_migration.count("create or replace function public.approve_payment_requests_with_unc(") == 1,
+        "allocations migration must declare the UNC RPC exactly once (no overload)",
+    )
+    assert_true(
+        "create or replace function public.approve_payment_requests_with_unc(" in allocations_migration
+        and "p_request_ids uuid[]" in allocations_migration
+        and "p_evidence jsonb" in allocations_migration
+        and "p_idempotency_key text" in allocations_migration,
+        "allocations migration must keep the exact (uuid[], jsonb, text) signature",
+    )
+    assert_true(
+        "revoke all on function public.approve_payment_requests_with_unc(uuid[], jsonb, text) from public, anon" in allocations_migration
+        and "grant execute on function public.approve_payment_requests_with_unc(uuid[], jsonb, text) to authenticated, service_role" in allocations_migration,
+        "allocations migration must keep the revoke/grant pair",
+    )
+    assert_true(
+        "if not (v_is_service or public.has_role(v_actor, 'owner'))" in allocations_migration
+        and "'self_approval_not_allowed'" in allocations_migration
+        and "for update of pr" in allocations_migration
+        and "payment_unc_idempotency" in allocations_migration,
+        "allocations migration must keep owner-only, self-approval, FOR UPDATE and idempotency guards",
+    )
+    assert_true(
+        "from public.payment_unc_ocr_drafts d" in allocations_migration
+        and "if not v_manual_override then" in allocations_migration
+        and "v_amount := v_draft_amount;" in allocations_migration,
+        "allocations migration must keep reading OCR fields from the server draft",
+    )
+    assert_true(
+        "'file_reused'" in allocations_migration
+        and "'reference_reused'" in allocations_migration
+        and "insert into public.payment_unc_evidence" in allocations_migration,
+        "allocations migration must keep file/reference uniqueness and the evidence insert",
+    )
+
+    # Allocations branch + guards.
+    assert_true(
+        "v_evidence->'allocations'" in allocations_migration
+        and "v_has_alloc" in allocations_migration,
+        "RPC must read the optional allocations array",
+    )
+    assert_true(
+        "v_pr.status::text not in ('pending', 'approved')" in allocations_migration
+        and "v_pr.payment_status::text not in ('unpaid', 'partial')" in allocations_migration,
+        "allocations branch must allow pending or approved unpaid/partial requests",
+    )
+    assert_true(
+        "if v_pr.status::text = 'pending' then" in allocations_migration,
+        "already-approved requests must not be re-approved",
+    )
+    assert_true(
+        "'invalid_allocation'" in allocations_migration
+        and "duplicate_payment_request_id" in allocations_migration
+        and "request_ids_mismatch" in allocations_migration,
+        "RPC must raise invalid_allocation for bad/duplicate/mismatched allocations",
+    )
+    assert_true(
+        "'allocation_exceeds_remaining'" in allocations_migration,
+        "RPC must reject an allocation above the request remaining amount",
+    )
+    assert_true(
+        "'amount_mismatch'" in allocations_migration
+        and "v_amount <> v_payment_total" in allocations_migration,
+        "RPC must require the allocation sum to match the evidence amount",
+    )
+    assert_true(
+        "'allocations', v_allocations" in allocations_migration,
+        "RPC result must include the allocations array",
+    )
+    assert_true(
+        "public.approve_payment_request_with_material_controller(" in allocations_migration,
+        "allocations branch must approve pending requests through the material controller",
+    )
+
+    # Must not redefine neighbours or schedule cron.
+    assert_true(
+        "create or replace function public.record_payment_allocations" not in allocations_migration,
+        "allocations migration must not redefine record_payment_allocations",
+    )
+    assert_true(
+        "create or replace function public.approve_payment_request_with_material_controller" not in allocations_migration
+        and "create or replace function public.finalize_goods_receipt" not in allocations_migration,
+        "allocations migration must not redefine the controller/finalize functions",
+    )
+    assert_true(
+        "cron.schedule" not in allocations_migration
+        and "cron.unschedule" not in allocations_migration
+        and "pg_cron" not in allocations_migration,
+        "allocations migration must not schedule any pg_cron job",
+    )
+
     # --- Edge: fail-closed finance Zalo worker -------------------------------
     assert_true(
         "finance_zalo_notifications_enabled" in worker,
@@ -264,6 +360,18 @@ def main() -> None:
     )
     for code in ("amount_mismatch", "supplier_mismatch", "reference_reused", "file_reused", "not_owner", "not_pending"):
         assert_true(code in approve_rpc, f"approve edge must surface structured error {code}")
+    assert_true(
+        "normalizeAllocations" in approve_rpc
+        and "body.allocations" in approve_rpc
+        and "MAX_UNC_ALLOCATIONS" in approve_rpc,
+        "confirm mode must validate optional body.allocations server-side",
+    )
+    assert_true(
+        "request_ids_mismatch" in approve_rpc
+        and "invalid_allocation" in approve_rpc
+        and "allocation_exceeds_remaining" in approve_rpc,
+        "approve edge must require allocation ids == request ids and map the new error codes",
+    )
 
     # --- Shared modules + frontend helpers ----------------------------------
     for marker in (
@@ -291,6 +399,14 @@ def main() -> None:
     assert_true(
         "evaluatePaymentUncMatch" in hook and "payment-unc-approve" in hook,
         "hook must call the edge function and reuse the matching helper",
+    )
+    assert_true(
+        "evaluateUncAllocations" in matching,
+        "matching helper must expose allocation evaluation",
+    )
+    assert_true(
+        "evaluateUncAllocations" in hook and "allocations" in hook,
+        "hook must run the allocation helper and forward allocations",
     )
 
     print("PASS: UNC approval + finance Zalo OA backend contracts hold")

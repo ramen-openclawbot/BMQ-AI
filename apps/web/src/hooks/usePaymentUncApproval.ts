@@ -2,13 +2,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import {
   evaluatePaymentUncMatch,
+  evaluateUncAllocations,
   normalizeUncReference,
+  type UncAllocationInput,
   type UncMatchCode,
   type UncPaymentRequestInput,
 } from "@/lib/payment-unc-matching";
 
 export { normalizeUncReference };
-export type { UncMatchCode, UncPaymentRequestInput };
+export type { UncAllocationInput, UncMatchCode, UncPaymentRequestInput };
 
 export interface UncOcrResult {
   amount: number | null;
@@ -40,6 +42,7 @@ export interface UncConfirmResponse {
     evidence_amount: number | null;
     manual_override: boolean;
     reference_number: string | null;
+    allocations?: { payment_request_id: string; amount: number }[];
     idempotent: boolean;
   };
 }
@@ -92,6 +95,7 @@ export function usePaymentUncApproval() {
   const confirm = useMutation({
     mutationFn: async (payload: {
       requests: UncPaymentRequestInput[];
+      allocations?: UncAllocationInput[];
       file_sha256: string;
       amount?: number | null;
       manual_override?: boolean;
@@ -100,6 +104,36 @@ export function usePaymentUncApproval() {
       note?: string | null;
     }) => {
       // Fail fast on the same guards the RPC enforces; the server re-validates.
+      const shared = {
+        mode: "confirm" as const,
+        request_ids: payload.requests.map((request) => request.id),
+        file_sha256: payload.file_sha256,
+        amount: payload.amount,
+        manual_override: payload.manual_override === true,
+        override_reason: payload.override_reason ?? null,
+        idempotency_key: payload.idempotency_key,
+        note: payload.note ?? null,
+      };
+
+      if (payload.allocations && payload.allocations.length > 0) {
+        const allocationMatch = evaluateUncAllocations({
+          requests: payload.requests,
+          allocations: payload.allocations,
+          evidenceAmount: payload.amount,
+          manualOverride: payload.manual_override,
+          overrideReason: payload.override_reason,
+        });
+        if (!allocationMatch.ok) throw new PaymentUncApprovalError(allocationMatch.code);
+
+        return invokePaymentUncApproval<UncConfirmResponse>({
+          ...shared,
+          allocations: payload.allocations.map((allocation) => ({
+            payment_request_id: allocation.paymentRequestId,
+            amount: allocation.amount,
+          })),
+        });
+      }
+
       const match = evaluatePaymentUncMatch({
         requests: payload.requests,
         evidenceAmount: payload.amount,
@@ -108,16 +142,7 @@ export function usePaymentUncApproval() {
       });
       if (!match.ok) throw new PaymentUncApprovalError(match.code);
 
-      return invokePaymentUncApproval<UncConfirmResponse>({
-        mode: "confirm",
-        request_ids: payload.requests.map((request) => request.id),
-        file_sha256: payload.file_sha256,
-        amount: payload.amount,
-        manual_override: payload.manual_override === true,
-        override_reason: payload.override_reason ?? null,
-        idempotency_key: payload.idempotency_key,
-        note: payload.note ?? null,
-      });
+      return invokePaymentUncApproval<UncConfirmResponse>(shared);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["payment-requests"] });

@@ -84,6 +84,44 @@ const RPC_ERRORS: Record<string, { status: number; code: string }> = {
   invalid_category: { status: 400, code: "invalid_category" },
   evidence_not_extracted: { status: 404, code: "evidence_not_found" },
   amount_required: { status: 400, code: "amount_required" },
+  invalid_allocation: { status: 400, code: "invalid_allocation" },
+  allocation_exceeds_remaining: { status: 409, code: "allocation_exceeds_remaining" },
+};
+
+const MAX_UNC_ALLOCATIONS = 50;
+
+export interface UncAllocationInput {
+  payment_request_id: string;
+  amount: number;
+}
+
+/**
+ * Validate an optional body.allocations list for confirm mode. Returns null when
+ * the list is absent/empty (legacy full-remaining behaviour) or the sentinel
+ * "invalid" when the shape is wrong; the RPC re-validates every business rule.
+ */
+const normalizeAllocations = (
+  value: unknown,
+): UncAllocationInput[] | null | "invalid" => {
+  if (value === undefined || value === null) return null;
+  if (!Array.isArray(value)) return "invalid";
+  if (value.length === 0) return null;
+  if (value.length > MAX_UNC_ALLOCATIONS) return "invalid";
+
+  const allocations: UncAllocationInput[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (!item || typeof item !== "object") return "invalid";
+    const row = item as Record<string, unknown>;
+    const paymentRequestId = asTrimmed(row.payment_request_id ?? row.paymentRequestId);
+    if (!UUID_RE.test(paymentRequestId)) return "invalid";
+    if (seen.has(paymentRequestId)) return "invalid";
+    seen.add(paymentRequestId);
+    const amount = numericOrNull(row.amount);
+    if (amount === null || amount <= 0) return "invalid";
+    allocations.push({ payment_request_id: paymentRequestId, amount });
+  }
+  return allocations;
 };
 
 const mapRpcError = (message: string): { status: number; code: string } => {
@@ -305,6 +343,17 @@ const handleConfirm = async (
   const requestIds = normalizeRequestIds(body.request_ids || body.requestIds);
   if (requestIds.length === 0) return structuredError(req, 400, "request_ids_required");
 
+  const allocations = normalizeAllocations(body.allocations);
+  if (allocations === "invalid") return structuredError(req, 400, "invalid_allocation");
+  if (allocations) {
+    // Allocations must cover exactly the request ids; the RPC re-checks this.
+    const requestIdsKey = [...requestIds].sort().join(",");
+    const allocationIdsKey = [...new Set(allocations.map((item) => item.payment_request_id))].sort().join(",");
+    if (requestIdsKey !== allocationIdsKey) {
+      return structuredError(req, 400, "invalid_allocation", "request_ids_mismatch");
+    }
+  }
+
   const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
   const anonKey = Deno.env.get("SUPABASE_ANON_KEY") || "";
   if (!supabaseUrl || !anonKey) return structuredError(req, 500, "server_misconfigured");
@@ -355,6 +404,7 @@ const handleConfirm = async (
       override_reason: manualOverride ? overrideReason : null,
       category: "khac",
       note: asTrimmed(body.note) || null,
+      ...(allocations ? { allocations } : {}),
     },
     p_idempotency_key: idempotencyKey,
   });

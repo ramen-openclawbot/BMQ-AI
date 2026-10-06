@@ -211,3 +211,17 @@ html .d3-unc { background: var(--d3-white, #fdfdfc); }
 @media (prefers-reduced-motion: reduce) {
   .d3-unc-drop { transition: none; }
 }
+
+/* Per-request allocation editor (one UNC paying several requests / partial payments) */
+.d3-unc-alloc { display: grid; gap: 8px; padding: 12px; border-radius: 16px; background: var(--d3-card, #f7f7f5); }
+.d3-unc-alloc-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; font-size: 12px; color: var(--d3-dim, #6b6b69); }
+.d3-unc-alloc ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.d3-unc-alloc li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(112px, 40%); align-items: center; gap: 10px; }
+.d3-unc-alloc-info { display: grid; min-width: 0; gap: 2px; }
+.d3-unc-alloc-info b { font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }
+.d3-unc-alloc-info small { font-size: 12px; color: var(--d3-dim, #6b6b69); }
+.d3-unc-alloc li input { min-height: 42px; text-align: right; font-variant-numeric: tabular-nums; }
+.d3-unc-alloc li.is-over input { border-color: #d6301f; color: #a32314; }
+.d3-unc-alloc li.is-over small { color: #a32314; }
+.d3-unc-alloc-sum { margin: 0; font-size: 13px; color: var(--d3-ink-2, #4a4a4a); }
+.d3-unc-alloc-sum b { font-weight: 600; font-variant-numeric: tabular-nums; }

@@ -419,24 +419,30 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
     }, 0);
   }, [selectedPendingIds, requests]);
 
-  // One UNC can pay several pending requests of the same supplier (CEO only).
+  // One UNC can pay several requests of one supplier: pending ones and approved ones still owing money (CEO only).
   const selectedUncRequests = useMemo<UncApprovalRequest[]>(() => {
-    return selectedPendingIds.flatMap((id) => {
-      const request = requests?.find((r) => r.id === id);
-      if (!request) return [];
-      return [{
-        id: request.id,
-        requestNumber: request.request_number,
-        supplierName: request.suppliers?.name ?? null,
-        supplierId: request.supplier_id ?? null,
-        totalAmount: Number(request.total_amount || 0),
-        allocatedAmount: getAllocatedAmount(request),
-        status: request.status,
-        paymentStatus: request.payment_status,
-        createdBy: request.created_by ?? null,
-      }];
-    });
-  }, [selectedPendingIds, requests]);
+    return Array.from(selectedIds)
+      .flatMap((id) => {
+        const request = requests?.find((r) => r.id === id);
+        if (!request) return [];
+        const owing = getRemainingPaymentAmount(request) > 0
+          && (request.payment_status === "unpaid" || request.payment_status === "partial");
+        if (!(request.status === "pending" || (request.status === "approved" && owing))) return [];
+        return [{
+          id: request.id,
+          requestNumber: request.request_number,
+          supplierName: request.suppliers?.name ?? null,
+          supplierId: request.supplier_id ?? null,
+          totalAmount: Number(request.total_amount || 0),
+          allocatedAmount: getAllocatedAmount(request),
+          status: request.status,
+          paymentStatus: request.payment_status,
+          createdBy: request.created_by ?? null,
+          createdAt: request.created_at ?? "",
+        }];
+      })
+      .sort((x, y) => String(x.createdAt).localeCompare(String(y.createdAt)));
+  }, [selectedIds, requests]);
 
   // Calculate selected approved requests with remaining amount for bulk mark paid
   const selectedApprovedUnpaidIds = useMemo(() => {
@@ -783,10 +789,10 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
             </span>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {isOwner && selectedPendingIds.length > 0 && (
+            {isOwner && selectedUncRequests.length > 0 && (
               <Button onClick={() => setShowUncDialog(true)} className="gap-2" data-bmq-unc-bulk>
                 <Wallet className="h-4 w-4" />
-                {language === "vi" ? "Duyệt bằng UNC" : "Approve with UNC"} ({selectedPendingIds.length})
+                {language === "vi" ? "Trả bằng UNC" : "Pay with UNC"} ({selectedUncRequests.length})
               </Button>
             )}
             {/* Quick Approve button - only show when pending requests are selected */}

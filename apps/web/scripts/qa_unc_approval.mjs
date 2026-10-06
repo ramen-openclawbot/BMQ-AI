@@ -30,13 +30,13 @@ window.__qaBodies = window.__qaBodies || [];
 const WRITE = new Set(["insert", "update", "upsert", "delete"]);
 const READ_RPCS = new Set(["rpc:finance_unc_total_from_evidence", "rpc:finance_daily_snapshot"]);
 const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh" }).format(new Date());
-const pr = (id, number, supplierId, supplierName, amount, status = "pending") => ({
+const pr = (id, number, supplierId, supplierName, amount, status = "pending", unpaid = false, hour = "02") => ({
   id, request_number: number, title: "Thanh toán " + supplierName, total_amount: amount, vat_amount: 0,
-  status, payment_status: status === "approved" ? "paid" : "unpaid", payment_method: "bank_transfer",
-  delivery_status: "pending", created_at: today + "T02:00:00.000Z", created_by: "acc-user",
+  status, payment_status: status === "approved" && !unpaid ? "paid" : "unpaid", payment_method: "bank_transfer",
+  delivery_status: "pending", created_at: today + "T" + hour + ":00:00.000Z", created_by: "acc-user",
   supplier_id: supplierId, suppliers: { id: supplierId, name: supplierName },
   payment_request_items: [{ id: id + "-i", product_name: "Bột mì số 13", raw_product_name: null }],
-  payment_allocations: status === "approved" ? [{ id: id + "-a", amount, payment_id: "p1", created_at: today }] : [],
+  payment_allocations: status === "approved" && !unpaid ? [{ id: id + "-a", amount, payment_id: "p1", created_at: today }] : [],
   goods_receipts: null, purchase_orders: { id: "po-" + id, po_number: "PO-" + number, status: "approved" },
   invoices: null, invoice_created: false, image_url: null, notes: null, approved_by: null, approved_at: null,
   rejection_reason: null, goods_receipt_id: null, purchase_order_id: "po-" + id, invoice_id: null,
@@ -46,6 +46,10 @@ const PRS = [
   pr("22222222-2222-4222-8222-222222222222", "DC-0102", "sup-a", "Bột Mì Sài Gòn", 6250000),
   pr("33333333-3333-4333-8333-333333333333", "DC-0103", "sup-b", "Công ty TNHH Thực Phẩm Tươi Sống Miền Nam chi nhánh Bình Tân", 31750000),
   pr("44444444-4444-4444-8444-444444444444", "DC-0099", "sup-a", "Bột Mì Sài Gòn", 8000000, "approved"),
+  pr("55555555-5555-4555-8555-555555555551", "DC-0096", "sup-t", "Thiên An Sinh", 10732500, "approved", true, "00"),
+  pr("55555555-5555-4555-8555-555555555552", "DC-0097", "sup-t", "Thiên An Sinh", 10732500, "approved", true, "01"),
+  pr("55555555-5555-4555-8555-555555555553", "DC-0098", "sup-t", "Thiên An Sinh", 11131500, "approved", true, "02"),
+  pr("55555555-5555-4555-8555-555555555554", "DC-0104", "sup-t", "Thiên An Sinh", 11131500, "pending", false, "03"),
 ];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const edgeError = (status, code) => ({
@@ -328,7 +332,7 @@ try {
     await page.locator(".d3-pa-bulk").screenshot({ path: `${EVIDENCE}/bulk-bar-${viewport.width}.png` });
     await bulk.click();
     await page.waitForSelector("[data-bmq-unc-dialog='approve']");
-    assert.equal(await page.locator(".d3-unc-reqs li").count(), 2, "lists both requests");
+    assert.equal(await page.locator("[data-bmq-unc-alloc-row]").count(), 2, "lists both requests");
     assert.ok((await page.locator("[data-bmq-unc-need]").textContent()).includes("19.750.000"));
     await upload(page);
     await page.waitForSelector("[data-bmq-unc-verdict='match']");
@@ -353,6 +357,82 @@ try {
     await page.locator("[data-bmq-unc-dialog]").screenshot({ path: `${EVIDENCE}/bulk-mixed-${viewport.width}.png` });
     assert.deepEqual(errors, []);
     record(`bulk UNC approval ${viewport.width}`);
+    await context.close();
+  }
+
+  // 4b. One UNC pays several requests incl. approved-but-unpaid ones, with a partial last request.
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    const { context, page, errors } = await open({ role: "owner", ocrAmount: 35204220 }, "/payment-requests", viewport);
+    await page.waitForSelector("[data-bmq-pr-row]");
+    for (const code of ["DC-0096", "DC-0097", "DC-0098", "DC-0104"]) {
+      await page.locator("[data-bmq-pr-row]", { hasText: code }).getByRole("checkbox").click();
+    }
+    await page.locator("[data-bmq-unc-bulk]").click();
+    await page.waitForSelector("[data-bmq-unc-alloc]");
+    assert.equal(await page.locator("[data-bmq-unc-alloc-row]").count(), 4);
+    assert.ok((await page.locator("[data-bmq-unc-need]").textContent()).includes("43.728.000"), "total owed");
+    await upload(page);
+    await page.waitForSelector("[data-bmq-unc-alloc-sum]");
+    // Oldest first: 10.732.500 + 10.732.500 + 11.131.500 = 32.596.500, then 2.607.720 of the last one.
+    const rowValue = (code) => page.locator(`[data-bmq-unc-alloc-row="${code}"] input`).inputValue();
+    assert.equal(await rowValue("DC-0096"), "10.732.500");
+    assert.equal(await rowValue("DC-0097"), "10.732.500");
+    assert.equal(await rowValue("DC-0098"), "11.131.500");
+    assert.equal(await rowValue("DC-0104"), "2.607.720");
+    assert.equal(await page.locator("[data-bmq-unc-verdict='match']").count(), 1, "sum matches the UNC");
+    assert.ok(await page.locator("[data-bmq-unc-submit]").isEnabled());
+    assert.ok((await dialogOverflow(page)) <= 0, `alloc dialog no overflow ${viewport.width}`);
+    await page.waitForTimeout(300);
+    await page.locator("[data-bmq-unc-dialog]").screenshot({ path: `${EVIDENCE}/alloc-match-${viewport.width}.png` });
+
+    // Over-remaining on one request is flagged and blocks the submit.
+    const first = page.locator('[data-bmq-unc-alloc-row="DC-0096"] input');
+    await first.fill("99999999");
+    assert.equal(await page.locator("li.is-over").count(), 1, "row over its remaining is flagged");
+    assert.ok(await page.locator("[data-bmq-unc-submit]").isDisabled());
+    await page.locator("[data-bmq-unc-dialog]").screenshot({ path: `${EVIDENCE}/alloc-over-${viewport.width}.png` });
+
+    // A sum that differs from the UNC blocks too.
+    await first.fill("10732500");
+    await page.locator('[data-bmq-unc-alloc-row="DC-0104"] input').fill("1000000");
+    assert.equal(await page.locator("[data-bmq-unc-verdict='mismatch']").count(), 1);
+    assert.ok(await page.locator("[data-bmq-unc-submit]").isDisabled());
+
+    // Auto-allocate restores the oldest-first split, then submit sends the allocations.
+    await page.locator("[data-bmq-unc-alloc-auto]").click();
+    assert.equal(await rowValue("DC-0104"), "2.607.720");
+    await page.locator("[data-bmq-unc-submit]").click();
+    await page.locator("[data-bmq-unc-dialog]").waitFor({ state: "detached" });
+    const confirm = (await bodies(page)).filter((b) => b.mode === "confirm").pop();
+    assert.equal(confirm.request_ids.length, 4);
+    assert.deepEqual(
+      confirm.allocations.map((a) => a.amount),
+      [10732500, 10732500, 11131500, 2607720],
+    );
+    assert.equal(confirm.allocations.reduce((sum, a) => sum + a.amount, 0), 35204220);
+    assert.equal(confirm.manual_override, false);
+    assert.deepEqual(errors, [], `page errors ${viewport.width}`);
+    record(`UNC allocations across approved + pending ${viewport.width}`);
+    await context.close();
+  }
+
+  // 4c. Rows left at 0 are not paid and not sent.
+  {
+    const { context, page, errors } = await open({ role: "owner", ocrAmount: 10732500 }, "/payment-requests", { width: 1440, height: 900 });
+    await page.waitForSelector("[data-bmq-pr-row]");
+    for (const code of ["DC-0096", "DC-0097"]) await page.locator("[data-bmq-pr-row]", { hasText: code }).getByRole("checkbox").click();
+    await page.locator("[data-bmq-unc-bulk]").click();
+    await upload(page);
+    await page.waitForSelector("[data-bmq-unc-alloc-sum]");
+    assert.equal(await page.locator('[data-bmq-unc-alloc-row="DC-0097"] input').inputValue(), "");
+    assert.ok((await page.locator("[data-bmq-unc-alloc-sum]").textContent()).includes("không được trả lần này"));
+    await page.locator("[data-bmq-unc-submit]").click();
+    await page.locator("[data-bmq-unc-dialog]").waitFor({ state: "detached" });
+    const confirm = (await bodies(page)).filter((b) => b.mode === "confirm").pop();
+    assert.deepEqual(confirm.request_ids, ["55555555-5555-4555-8555-555555555551"]);
+    assert.equal(confirm.allocations.length, 1);
+    assert.deepEqual(errors, []);
+    record("unallocated rows are skipped");
     await context.close();
   }
 
