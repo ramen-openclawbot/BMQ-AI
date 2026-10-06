@@ -2037,6 +2037,10 @@ export type Database = {
         Args: { p_category: string; p_evidence: Json; p_note: string }
         Returns: Json
       }
+      get_payment_request_unc_evidence: {
+        Args: { p_request_id: string }
+        Returns: Json
+      }
       ensure_purchase_order_receipt_queue: {
         Args: { p_purchase_order_id: string }
         Returns: string

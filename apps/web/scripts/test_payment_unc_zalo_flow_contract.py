@@ -21,6 +21,9 @@ OCR_SHARED = FUNCTIONS / "_shared" / "bank-slip-ocr.ts"
 EXTRACT_FN = FUNCTIONS / "finance-extract-slip-amount" / "index.ts"
 MATCHING = LIB / "payment-unc-matching.ts"
 HOOK = ROOT / "src" / "hooks" / "usePaymentUncApproval.ts"
+EVIDENCE_MIGRATION = MIGRATIONS / "20261006150000_payment_request_unc_evidence_read.sql"
+EVIDENCE_LIB = LIB / "payment-unc-evidence.ts"
+EVIDENCE_HOOK = ROOT / "src" / "hooks" / "usePaymentRequestUncEvidence.ts"
 
 
 def read(path: Path) -> str:
@@ -42,6 +45,9 @@ def main() -> None:
     extract_fn = read(EXTRACT_FN)
     matching = read(MATCHING)
     hook = read(HOOK)
+    evidence_migration = read(EVIDENCE_MIGRATION)
+    evidence_lib = read(EVIDENCE_LIB)
+    evidence_hook = read(EVIDENCE_HOOK)
 
     # --- Migration: additive evidence table + owner-only RLS -----------------
     for table in (
@@ -407,6 +413,90 @@ def main() -> None:
     assert_true(
         "evaluateUncAllocations" in hook and "allocations" in hook,
         "hook must run the allocation helper and forward allocations",
+    )
+
+    # --- Migration 20261006150000: read-only UNC evidence + signed URLs ------
+    assert_true(
+        "create or replace function public.get_payment_request_unc_evidence(p_request_id uuid)" in evidence_migration,
+        "UNC evidence migration must declare the uuid read-only RPC",
+    )
+    assert_true(
+        "language plpgsql" in evidence_migration
+        and "security definer" in evidence_migration
+        and "stable" in evidence_migration
+        and "set search_path = public, pg_temp" in evidence_migration,
+        "UNC evidence RPC must be stable, security definer and pin search_path",
+    )
+    assert_true(
+        "public.has_role(v_uid, 'owner')" in evidence_migration
+        and "public.has_module_permission(v_uid, 'payment_requests', 'view')" in evidence_migration
+        and "v_uid is not null" in evidence_migration,
+        "UNC evidence RPC must allow owner or payment_requests view",
+    )
+    assert_true(
+        "public.material_master_jwt_role() = 'service_role'" in evidence_migration,
+        "UNC evidence RPC must allow trusted service_role automation",
+    )
+    assert_true(
+        "'insufficient_privilege'" in evidence_migration and "errcode = '42501'" in evidence_migration,
+        "UNC evidence RPC must fail closed with insufficient_privilege",
+    )
+    assert_true(
+        "revoke all on function public.get_payment_request_unc_evidence(uuid) from public, anon" in evidence_migration
+        and "grant execute on function public.get_payment_request_unc_evidence(uuid) to authenticated, service_role" in evidence_migration,
+        "UNC evidence RPC must revoke public/anon and grant authenticated/service_role",
+    )
+    assert_true(
+        "from public.payment_unc_evidence e2" in evidence_migration
+        and "order by e2.created_at" in evidence_migration
+        and "limit 1" in evidence_migration,
+        "UNC evidence RPC must take one evidence row per payment by created_at",
+    )
+    assert_true(
+        "pa2.payment_request_id <> p_request_id" in evidence_migration
+        and "'request_number', pr2.request_number" in evidence_migration,
+        "UNC evidence RPC must list the sibling requests of the same payment",
+    )
+    assert_true(
+        "on storage.objects" in evidence_migration
+        and "for select" in evidence_migration
+        and "bucket_id = 'payment-unc'" in evidence_migration
+        and "payment_unc_evidence_select_by_module_permission" in evidence_migration,
+        "payment-unc storage policy must grant SELECT to owner/view users",
+    )
+    assert_true(
+        "for insert" not in evidence_migration
+        and "for update" not in evidence_migration
+        and "for delete" not in evidence_migration,
+        "payment-unc storage must stay read-only for clients",
+    )
+    assert_true(
+        "insert into " not in evidence_migration.lower()
+        and "update public." not in evidence_migration.lower()
+        and "delete from " not in evidence_migration.lower(),
+        "UNC evidence migration must not write any public table",
+    )
+    assert_true(
+        "cron.schedule" not in evidence_migration
+        and "cron.unschedule" not in evidence_migration
+        and "pg_cron" not in evidence_migration,
+        "UNC evidence migration must not schedule any pg_cron job",
+    )
+    assert_true(
+        "create or replace function public.approve_payment_requests_with_unc" not in evidence_migration
+        and "create or replace function public.record_payment_allocations" not in evidence_migration,
+        "UNC evidence migration must not redefine the existing write RPCs",
+    )
+    assert_true(
+        "normalizeUncStoragePath" in evidence_lib and "summarizeUncPayments" in evidence_lib,
+        "payment-unc-evidence lib must expose path normalization and summarisation",
+    )
+    assert_true(
+        "get_payment_request_unc_evidence" in evidence_hook
+        and "getUncEvidenceSignedUrl" in evidence_hook
+        and "createSignedUrl" in evidence_hook
+        and "payment-unc" in evidence_hook,
+        "evidence hook must call the read RPC and sign payment-unc URLs",
     )
 
     print("PASS: UNC approval + finance Zalo OA backend contracts hold")

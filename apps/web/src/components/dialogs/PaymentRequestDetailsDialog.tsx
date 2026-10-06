@@ -73,6 +73,7 @@ import { CreateInvoiceFromRequestDialog } from "./CreateInvoiceFromRequestDialog
 import { EditPaymentRequestDialog } from "./EditPaymentRequestDialog";
 import { DriveImportProgressDialog } from "@/components/payment-requests/DriveImportProgressDialog";
 import { UncApprovalDialog } from "@/components/payment-requests/UncApprovalDialog";
+import { PaymentUncEvidenceSection } from "@/components/payment-requests/PaymentUncEvidenceSection";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -87,6 +88,8 @@ interface PaymentRequestDetailsDialogProps {
   onOpenChange: (open: boolean) => void;
   /** "panel": non-modal detail pane beside the list (wide desktop, Demo 3 master–detail). */
   presentation?: "dialog" | "panel";
+  /** Open another request (used by the "UNC này còn trả cho" list). */
+  onSelectRequest?: (requestId: string) => void;
 }
 
 // Server-authority reject RPC errors (stage 3B) shown in plain Vietnamese.
@@ -104,6 +107,7 @@ export function PaymentRequestDetailsDialog({
   open,
   onOpenChange,
   presentation = "dialog",
+  onSelectRequest,
 }: PaymentRequestDetailsDialogProps) {
   const asPanel = presentation === "panel";
   const [showRejectDialog, setShowRejectDialog] = useState(false);
@@ -633,6 +637,13 @@ export function PaymentRequestDetailsDialog({
                   <p className="mt-1 break-words rounded bg-muted/50 p-3">{request.notes}</p>
                 </div>
               )}
+
+              {/* Payment evidence: UNC image + the other requests paid by the same UNC */}
+              <PaymentUncEvidenceSection
+                requestId={requestId}
+                enabled={allocatedAmount > 0}
+                onSelectRequest={onSelectRequest}
+              />
 
               {/* Actions */}
               <div className="sticky bottom-0 z-20 -ml-[max(1rem,env(safe-area-inset-left))] -mr-[max(1rem,env(safe-area-inset-right))] grid grid-cols-2 gap-2 border-t border-border bg-background pb-[max(1rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-4 [transform:translateZ(0)] [&>button]:min-h-11 sm:static sm:mx-0 sm:flex sm:flex-wrap sm:p-0 sm:pt-4 sm:[&>button]:min-h-10">

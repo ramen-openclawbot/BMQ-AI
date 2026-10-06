@@ -226,3 +226,28 @@ html .d3-unc { background: var(--d3-white, #fdfdfc); }
 .d3-unc-alloc-sum { margin: 0; font-size: 13px; color: var(--d3-ink-2, #4a4a4a); }
 .d3-unc-alloc-tools { display: inline-flex; flex-wrap: wrap; gap: 4px 14px; }
 .d3-unc-alloc-sum b { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* Chứng từ thanh toán (read-only, in the request detail) */
+.d3-unc-ev { display: grid; gap: 8px; min-width: 0; }
+.d3-unc-ev h3 { margin: 0; font-size: 13px; font-weight: 500; color: var(--d3-dim, #6b6b69); }
+.d3-unc-ev > ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.d3-unc-ev > ul > li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; padding: 12px; border-radius: 16px; background: var(--d3-card, #f7f7f5); }
+.d3-unc-ev-body { display: grid; min-width: 0; gap: 4px; }
+.d3-unc-ev-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; font-size: 13px; }
+.d3-unc-ev-head span { color: var(--d3-dim, #6b6b69); font-size: 12px; }
+.d3-unc-ev-amount { margin: 0; font-size: 14px; overflow-wrap: anywhere; }
+.d3-unc-ev-amount b { font-weight: 600; font-variant-numeric: tabular-nums; }
+.d3-unc-ev-ref { margin: 0; font-size: 12px; color: var(--d3-ink-2, #4a4a4a); overflow-wrap: anywhere; }
+.d3-unc-ev-flag { margin: 0; font-size: 12px; color: #8a5a00; overflow-wrap: anywhere; }
+.d3-unc-ev-note { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 12px; color: var(--d3-dim, #6b6b69); }
+.d3-unc-ev-note.is-bad { color: #a32314; }
+.d3-unc-ev-thumb { display: inline-flex; width: 72px; height: 96px; align-items: center; justify-content: center; overflow: hidden; border: 0; border-radius: 12px; background: var(--d3-panel, #ececea); padding: 0; cursor: pointer; }
+.d3-unc-ev-thumb.is-empty { cursor: default; color: var(--d3-faint, #a3a3a0); }
+.d3-unc-ev-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.d3-unc-ev-sib { display: grid; gap: 4px; margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--d3-line, #e2e2df); font-size: 12px; color: var(--d3-dim, #6b6b69); }
+.d3-unc-ev-sib ul { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.d3-unc-ev-sib li { display: flex; justify-content: space-between; gap: 10px; color: var(--d3-ink, #272727); }
+.d3-unc-ev-sib li button { padding: 0; border: 0; background: none; color: var(--d3-blue, #3c91e6); font-size: 12px; text-align: left; text-decoration: underline; cursor: pointer; min-height: 28px; }
+.d3-unc-ev-sib li b { font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.d3-unc-ev-zoom { width: calc(100vw - 24px); max-width: 560px; max-height: calc(100dvh - 24px); overflow-y: auto; }
+.d3-unc-ev-zoom img { width: 100%; height: auto; border-radius: 12px; }

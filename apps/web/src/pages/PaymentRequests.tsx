@@ -1034,6 +1034,7 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
         open={!!selectedRequestId}
         onOpenChange={(open) => !open && setSelectedRequestId(null)}
         presentation={wideLayout ? "panel" : "dialog"}
+        onSelectRequest={setSelectedRequestId}
       />
 
       {/* Delete Confirmation Dialog */}
