@@ -6,7 +6,7 @@ WORKER = ROOT / "supabase/functions/dealer-warehouse-notify/index.ts"
 REPORT_SAVE = ROOT / "supabase/functions/report-daily-save/index.ts"
 MIGRATION = ROOT / "supabase/migrations/20260918093000_bhn_fixed_bread_inbound_policy.sql"
 DYNAMIC_MIGRATION = ROOT / "supabase/migrations/20260927103000_bhn_dynamic_bread_order_policy.sql"
-DAT_NOTE_MIGRATION = ROOT / "supabase/migrations/20261006160000_kiosk_dat_note_auto_order.sql"
+DAT_NOTE_MIGRATION = ROOT / "supabase/migrations/20261006170000_kiosk_dat_note_auto_order.sql"
 
 
 def read(path: Path) -> str:
