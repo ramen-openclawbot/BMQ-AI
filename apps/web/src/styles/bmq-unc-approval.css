@@ -224,4 +224,5 @@ html .d3-unc { background: var(--d3-white, #fdfdfc); }
 .d3-unc-alloc li.is-over input { border-color: #d6301f; color: #a32314; }
 .d3-unc-alloc li.is-over small { color: #a32314; }
 .d3-unc-alloc-sum { margin: 0; font-size: 13px; color: var(--d3-ink-2, #4a4a4a); }
+.d3-unc-alloc-tools { display: inline-flex; flex-wrap: wrap; gap: 4px 14px; }
 .d3-unc-alloc-sum b { font-weight: 600; font-variant-numeric: tabular-nums; }

@@ -120,6 +120,19 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
   const [note, setNote] = useState("");
   const [allocInputs, setAllocInputs] = useState<Record<string, string>>({});
 
+  // Default: every selected request is paid in full. The CEO edits a row only when the transfer differs.
+  const requestKey = requests.map((r) => `${r.id}:${Math.round(remainingAmount(r))}`).join("|");
+  useEffect(() => {
+    if (!open) return;
+    const next: Record<string, string> = {};
+    for (const r of requests) {
+      const remaining = Math.round(Math.max(remainingAmount(r), 0));
+      next[r.id] = remaining > 0 ? String(remaining) : "";
+    }
+    setAllocInputs(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, requestKey]);
+
   useEffect(() => {
     if (open) return;
     setPreview(null);
@@ -218,7 +231,6 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
       const result = await extract.mutateAsync({ image_base64: image.base64, mime_type: image.mime, slip_type: "unc" });
       setDraft(result);
       if (result.ocr.amount) setManualAmount(String(Math.round(result.ocr.amount)));
-      if (allocMode) autoAllocate(result.ocr.amount);
     } catch (e) {
       setError(errorText(e));
     }
@@ -294,9 +306,14 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
             <div className="d3-unc-alloc-head">
               <span>Gán số tiền cho từng phiếu</span>
               {draft && (
-                <button type="button" className="d3-unc-link" onClick={() => autoAllocate(evidenceAmount ?? null)} data-bmq-unc-alloc-auto>
-                  Gán theo thứ tự phiếu cũ trước
-                </button>
+                <span className="d3-unc-alloc-tools">
+                  <button type="button" className="d3-unc-link" onClick={() => autoAllocate(Number.MAX_SAFE_INTEGER)} data-bmq-unc-alloc-full>
+                    Trả đủ số còn nợ
+                  </button>
+                  <button type="button" className="d3-unc-link" onClick={() => autoAllocate(evidenceAmount ?? null)} data-bmq-unc-alloc-auto>
+                    Chia theo số UNC, phiếu cũ trước
+                  </button>
+                </span>
               )}
             </div>
             <ul>
@@ -316,17 +333,16 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
                       inputMode="numeric"
                       aria-label={`Số tiền gán cho ${r.requestNumber}`}
                       placeholder="0"
-                      disabled={!draft}
-                      value={allocInputs[r.id] ? new Intl.NumberFormat("vi-VN").format(value) : ""}
+                                      value={allocInputs[r.id] ? new Intl.NumberFormat("vi-VN").format(value) : ""}
                       onChange={(e) => setAllocInputs((prev) => ({ ...prev, [r.id]: e.target.value.replace(/[^\d]/g, "") }))}
                     />
                   </li>
                 );
               })}
             </ul>
-            {draft && (
+            {(
               <p className="d3-unc-alloc-sum" data-bmq-unc-alloc-sum>
-                Đã gán <b>{vnd(allocatedTotal)}</b> / UNC <b>{vnd(evidenceAmount ?? null)}</b>
+                Đã gán <b>{vnd(allocatedTotal)}</b>{draft ? <> / UNC <b>{vnd(evidenceAmount ?? null)}</b></> : " · mặc định trả đủ số còn nợ, sửa nếu thực chuyển khác"}
                 {paidRequests.length < requests.length && " · phiếu để trống 0 đ không được trả lần này"}
               </p>
             )}
