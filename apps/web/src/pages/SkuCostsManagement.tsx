@@ -5,13 +5,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { DEFAULT_SKU_COST_TEMPLATE, DEFAULT_SKU_COST_VALUES, parseCostTemplate, parseCostValues, toNumber } from "@/lib/sku-cost-template";
 import { callEdgeFunction } from "@/lib/fetch-with-timeout";
 import { isFinishedSku } from "@/lib/skuType";
 import { dosageInputText, parseDosageGramInput } from "@/lib/dosage-input";
+import { MaterialPicker } from "@/components/sku-costs/MaterialPicker";
 import { SkuCostMenuBar } from "@/components/sku-costs/SkuCostMenuBar";
 
 type SKU = any;
@@ -1153,8 +1153,10 @@ export default function SkuCostsManagement() {
                         <TableCell>{isLevel1Row ? "NVL cấp 1" : <span className="pl-5">↳ NVL cấp 2 ({r.level1_name || "-"})</span>}</TableCell>
                         <TableCell className="font-mono text-xs">{r.material_code || buildMaterialCode(isLevel1Row ? (r.level1_name || r.ingredient_name) : (r.level2_name || ""))}</TableCell>
                         <TableCell>
-                          <Select
+                          <MaterialPicker
                             value={r.canonical_material_id || undefined}
+                            materials={canonicalMaterials}
+                            className={isLevel1Row ? "" : "ml-5 w-[calc(100%-1.25rem)]"}
                             onValueChange={(materialId) => {
                               const picked = canonicalMaterials.find((material) => material.id === materialId);
                               if (!picked) return;
@@ -1197,18 +1199,7 @@ export default function SkuCostsManagement() {
 
                               setImportedFormulaDraft(next);
                             }}
-                          >
-                            <SelectTrigger className={isLevel1Row ? "" : "ml-5"}>
-                              <SelectValue placeholder="Chọn NVL đã khai báo" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {canonicalMaterials.map((material) => (
-                                <SelectItem key={material.id} value={material.id}>
-                                  {material.material_code} - {material.canonical_name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                          />
                         </TableCell>
                         {/* DVT cố định gram theo nghiệp vụ */}
                         <TableCell><Input disabled={hasChildren} value={hasChildren ? String(Math.round(displayUnitPrice * 1000) / 1000) : (r.unit_price_input ?? (toNumber(r.unit_price, 0) === 0 ? "" : String(toNumber(r.unit_price, 0))))} onChange={(e) => { const next = [...importedFormulaDraft]; const unit_price_input = e.target.value; const unit_price = unit_price_input === "" ? 0 : Number(unit_price_input); const dosage_qty = toNumber(next[idx].dosage_qty, 0); next[idx] = { ...next[idx], unit_price_input, unit_price: Number.isFinite(unit_price) ? unit_price : 0, line_cost: (Number.isFinite(unit_price) ? unit_price : 0) * dosage_qty }; setImportedFormulaDraft(next); }} /></TableCell>
@@ -1251,8 +1242,10 @@ export default function SkuCostsManagement() {
 
                       <div className="space-y-1">
                         <Label>Tên NVL</Label>
-                        <Select
+                        <MaterialPicker
                           value={r.canonical_material_id || undefined}
+                          materials={canonicalMaterials}
+                          className="h-11"
                           onValueChange={(materialId) => {
                             const picked = canonicalMaterials.find((material) => material.id === materialId);
                             if (!picked) return;
@@ -1295,18 +1288,7 @@ export default function SkuCostsManagement() {
 
                             setImportedFormulaDraft(next);
                           }}
-                        >
-                          <SelectTrigger className="h-11">
-                            <SelectValue placeholder="Chọn NVL đã khai báo" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {canonicalMaterials.map((material) => (
-                              <SelectItem key={material.id} value={material.id}>
-                                {material.material_code} - {material.canonical_name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        />
                       </div>
 
                       <div className="mt-3 grid grid-cols-2 gap-3">

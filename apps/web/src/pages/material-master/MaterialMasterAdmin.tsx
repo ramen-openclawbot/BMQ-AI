@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import { AlertTriangle, Check, Edit3, Loader2, ShieldCheck, Sparkles, XCircle } from "lucide-react";
+import { AlertTriangle, Check, Edit3, Loader2, Plus, ShieldCheck, Sparkles, XCircle } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { classifyRecovery, createGenerationFence, createSubmitGate } from "@/lib/material-learning-fence";
@@ -695,7 +695,7 @@ export default function MaterialMasterAdmin() {
   const { data, isLoading, error } = useMaterialMaster();
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [dialog, setDialog] = useState<"edit" | null>(null);
+  const [dialog, setDialog] = useState<"edit" | "create" | null>(null);
   const [sourceFilter, setSourceFilter] = useState("all");
   const [activeTab, setActiveTab] = useState("materials");
 
@@ -788,9 +788,20 @@ export default function MaterialMasterAdmin() {
             </TabsList>
 
             <TabsContent value="materials" className="space-y-4">
+              {canEdit && (
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between" data-bmq-material-create-bar>
+                  <p className="text-sm text-slate-600">NVL chưa có trong danh sách? Tạo NVL chuẩn mới để chọn được ở màn Tạo SKU.</p>
+                  <Button type="button" className="min-h-11 w-full gap-2 sm:w-auto" onClick={() => setDialog("create")} data-bmq-material-create-open>
+                    <Plus className="h-4 w-4" /> Tạo NVL mới
+                  </Button>
+                </div>
+              )}
               <ResponsiveMaterialList materials={filteredMaterials} selected={selected} supplierProductCountByMaterialId={supplierProductCountByMaterialId} onSelect={chooseMaterial} onEdit={openMaterialEditor} editable={canEdit} />
               <Dialog open={dialog === "edit"} onOpenChange={(open) => setDialog(open ? "edit" : null)}>
                 <DialogContent className="max-h-[90dvh] w-[calc(100vw-1.5rem)] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>Điều chỉnh NVL</DialogTitle><DialogDescription>Chỉ điều chỉnh thông tin chuẩn của NVL từ Giá vốn; liên kết NCC và Duyệt chi được xác nhận tại tab nghiệp vụ riêng.</DialogDescription></DialogHeader>{selected && <MaterialMutationForm key={`edit-${selected.id}-${selected.version}`} canMutate={canMutate} selected={selected} onClose={() => setDialog(null)} />}</DialogContent>
+              </Dialog>
+              <Dialog open={dialog === "create"} onOpenChange={(open) => setDialog(open ? "create" : null)}>
+                <DialogContent className="max-h-[90dvh] w-[calc(100vw-1.5rem)] overflow-y-auto sm:max-w-2xl" data-bmq-material-create-dialog><DialogHeader><DialogTitle>Tạo NVL chuẩn mới</DialogTitle><DialogDescription>Mã NVL có thể để trống để hệ thống tự đặt. Nhập tên chuẩn, đơn vị chuẩn và lý do. NVL mới sẽ có trong danh sách chọn ở màn Tạo SKU.</DialogDescription></DialogHeader>{dialog === "create" && <MaterialMutationForm key="create" canMutate={canMutate} selected={null} onClose={() => setDialog(null)} />}</DialogContent>
               </Dialog>
               {selected && !(selected.version && selected.version > 0) && <p className="text-sm text-rose-700">Phiên bản NVL chưa sẵn sàng để điều chỉnh.</p>}
 
