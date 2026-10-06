@@ -2,7 +2,7 @@
  * structure: mobile information workbench · states: default · hover · focus · active · disabled · loading · error · success
  * pre-emit critique: P5 H5 E4 S5 R5 V4 · contrast: pass (40–41) · mobile: pass (34, 49, 50–57)
  */
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
 import { vi } from "date-fns/locale";
@@ -72,6 +72,7 @@ import {
   PaymentRequestReceiptError,
 } from "@/hooks/usePaymentRequests";
 import { isReceiptRequired } from "@/lib/payment-request-receipt";
+import "@/styles/bmq-payment-detail.css";
 import { CreateInvoiceFromRequestDialog } from "./CreateInvoiceFromRequestDialog";
 import { EditPaymentRequestDialog } from "./EditPaymentRequestDialog";
 import { DriveImportProgressDialog } from "@/components/payment-requests/DriveImportProgressDialog";
@@ -196,61 +197,59 @@ export function PaymentRequestDetailsDialog({
     }).format(amount);
   };
 
+  // Demo 3 chips: soft pill + coloured dot.
+  const chip = (label: string, tone: "green" | "amber" | "red" | "blue" | "neutral" = "neutral", icon?: ReactNode) => (
+    <span className={cn("d3-prd-chip", tone !== "neutral" && `is-${tone}`)}>
+      {icon}
+      {label}
+    </span>
+  );
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "pending":
-        return <Badge variant="secondary">Chờ duyệt</Badge>;
+        return chip("Chờ duyệt", "amber");
       case "approved":
-        return <Badge className="bg-green-500">Đã duyệt</Badge>;
+        return chip("Đã duyệt", "green");
       case "rejected":
-        return <Badge variant="destructive">Từ chối</Badge>;
+        return chip("Từ chối", "red");
       default:
-        return <Badge variant="outline">{status}</Badge>;
+        return chip(status);
     }
   };
 
   const getDeliveryStatusBadge = (status: string) => {
     switch (status) {
       case "pending":
-        return <Badge variant="outline">Chưa giao</Badge>;
+        return chip("Chưa giao", "neutral", <Truck className="h-3 w-3" />);
       case "delivered":
-        return <Badge className="bg-green-500">Đã giao</Badge>;
+        return chip("Đã giao", "green", <Truck className="h-3 w-3" />);
       default:
-        return <Badge variant="outline">{status}</Badge>;
+        return chip(status);
     }
   };
 
   const getPaymentStatusBadge = (status: string) => {
     switch (status) {
       case "unpaid":
-        return <Badge variant="destructive">Chưa thanh toán</Badge>;
+        return chip("Chưa thanh toán", "red");
       case "partial":
-        return <Badge className="bg-amber-500">Thanh toán một phần</Badge>;
+        return chip("Trả một phần", "amber");
       case "paid":
-        return <Badge className="bg-green-500">Đã thanh toán</Badge>;
+        return chip("Đã thanh toán", "green");
       case "overpaid":
-        return <Badge className="bg-purple-500">Thanh toán dư</Badge>;
+        return chip("Thanh toán dư", "blue");
       default:
-        return <Badge variant="outline">{status}</Badge>;
+        return chip(status);
     }
   };
 
   const getPaymentMethodBadge = (method: string | null) => {
     switch (method) {
       case "bank_transfer":
-        return (
-          <Badge variant="outline" className="gap-1">
-            <CreditCard className="h-3 w-3" />
-            UNC
-          </Badge>
-        );
+        return chip("UNC", "neutral", <CreditCard className="h-3 w-3" />);
       case "cash":
-        return (
-          <Badge variant="secondary" className="gap-1">
-            <Banknote className="h-3 w-3" />
-            Tiền mặt
-          </Badge>
-        );
+        return chip("Tiền mặt", "neutral", <Banknote className="h-3 w-3" />);
       default:
         return null;
     }
@@ -328,15 +327,14 @@ export function PaymentRequestDetailsDialog({
           onInteractOutside={asPanel ? (event) => event.preventDefault() : undefined}
           className={
             asPanel
-              ? "d3-pr-panel gap-0 overflow-x-hidden overflow-y-auto overscroll-contain p-0 sm:p-6 [&>button]:right-4 [&>button]:top-4 [&>button]:flex [&>button]:h-10 [&>button]:w-10 [&>button]:items-center [&>button]:justify-center"
-              : "!inset-0 !left-0 !top-0 h-screen h-[100dvh] max-h-screen max-h-[100dvh] w-full max-w-none !translate-x-0 !translate-y-0 touch-pan-y gap-0 overflow-x-hidden overflow-y-auto overscroll-contain border-0 p-0 [-webkit-overflow-scrolling:touch] [&>button]:top-[max(1rem,env(safe-area-inset-top))] [&>button]:right-[max(1rem,env(safe-area-inset-right))] [&>button]:flex [&>button]:h-11 [&>button]:w-11 [&>button]:items-center [&>button]:justify-center sm:!left-1/2 sm:!top-1/2 sm:h-auto sm:max-h-[90dvh] sm:max-w-4xl sm:!-translate-x-1/2 sm:!-translate-y-1/2 sm:gap-4 sm:rounded-lg sm:border sm:p-6"
+              ? "d3-prd d3-pr-panel grid-cols-[minmax(0,1fr)] gap-0 overflow-x-hidden overflow-y-auto overscroll-contain p-0 sm:p-6 [&>button]:right-4 [&>button]:top-4 [&>button]:flex [&>button]:h-10 [&>button]:w-10 [&>button]:items-center [&>button]:justify-center"
+              : "d3-prd grid-cols-[minmax(0,1fr)] !inset-0 !left-0 !top-0 h-screen h-[100dvh] max-h-screen max-h-[100dvh] w-full max-w-none !translate-x-0 !translate-y-0 touch-pan-y gap-0 overflow-x-hidden overflow-y-auto overscroll-contain border-0 p-0 [-webkit-overflow-scrolling:touch] [&>button]:top-[max(1rem,env(safe-area-inset-top))] [&>button]:right-[max(1rem,env(safe-area-inset-right))] [&>button]:flex [&>button]:h-11 [&>button]:w-11 [&>button]:items-center [&>button]:justify-center sm:!left-1/2 sm:!top-1/2 sm:h-auto sm:max-h-[90dvh] sm:max-w-4xl sm:!-translate-x-1/2 sm:!-translate-y-1/2 sm:gap-4 sm:rounded-lg sm:border sm:p-6"
           }
         >
-          <DialogHeader className="sticky top-0 z-20 border-b border-border bg-background pb-4 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(3.75rem,calc(2.75rem+env(safe-area-inset-right)))] pt-[max(1rem,env(safe-area-inset-top))] text-left sm:static sm:border-0 sm:p-0">
-            <DialogTitle className="min-w-0 [overflow-wrap:anywhere] text-xl leading-tight">Chi tiết đề nghị duyệt chi</DialogTitle>
-            <DialogDescription className="break-words">
-              {request?.request_number} - {request?.title}
-            </DialogDescription>
+          <DialogHeader className="d3-prd-head sticky top-0 z-20 pb-4 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(3.75rem,calc(2.75rem+env(safe-area-inset-right)))] pt-[max(1rem,env(safe-area-inset-top))] text-left sm:static sm:p-0 sm:pr-12">
+            <span className="d3-prd-tag">Duyệt chi · {request?.request_number || "…"}</span>
+            <DialogTitle className="d3-prd-title">{request?.suppliers?.name || "Chi tiết đề nghị duyệt chi"}</DialogTitle>
+            <DialogDescription className="d3-prd-sub">{request?.title || ""}</DialogDescription>
           </DialogHeader>
 
           {isLoading ? (
@@ -344,344 +342,190 @@ export function PaymentRequestDetailsDialog({
               <Loader2 className="h-8 w-8 animate-spin" />
             </div>
           ) : request ? (
-            <div className="min-w-0 space-y-4 pb-4 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-4 sm:space-y-6 sm:p-0">
-              {/* Warning for paid without invoice */}
+            <div className="d3-prd-body min-w-0 pb-4 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-3 sm:p-0 sm:pt-4">
+              {/* Paid but no goods-receipt invoice yet (goods requests only) */}
               {needsReceipt && request.payment_status === "paid" && !request.invoice_created && (
-                <Alert variant="destructive">
+                <p className="d3-prd-note is-bad" role="alert" data-bmq-invoice-warning>
                   <AlertTriangle className="h-4 w-4" />
-                  <AlertDescription>
-                    {t.invoiceWarningDesc}
-                  </AlertDescription>
-                </Alert>
-              )}
-
-              {/* Status Badges */}
-              <div className="grid min-w-0 grid-cols-2 gap-2 [&>*]:min-w-0 [&>*]:justify-center [&>*]:truncate sm:flex sm:flex-wrap sm:[&>*]:w-auto">
-                {getStatusBadge(request.status)}
-                {getPaymentMethodBadge(request.payment_method)}
-                {needsReceipt ? getDeliveryStatusBadge(request.delivery_status) : (
-                  <Badge variant="outline" className="gap-1" data-bmq-no-receipt-badge>
-                    <FileText className="h-3 w-3" />
-                    Không nhập kho
-                  </Badge>
-                )}
-                {getPaymentStatusBadge(request.payment_status)}
-                {request.goods_receipt_id && (
-                  <Badge className="col-span-2 gap-1 bg-emerald-600 sm:col-span-1">
-                    <Package className="h-3 w-3" />
-                    Công nợ tạo từ nhập kho
-                  </Badge>
-                )}
-              </div>
-
-              {!needsReceipt && (
-                <p className="break-words rounded-lg bg-muted/50 px-3 py-2 text-sm" data-bmq-no-receipt-note>
-                  Chi không nhập kho{request.no_receipt_reason ? `: ${request.no_receipt_reason}` : ""}. Không cần giao hàng hay hóa đơn nhập kho.
+                  <span>{t.invoiceWarningDesc}</span>
                 </p>
               )}
 
-              {request.goods_receipt_id && (
-                <Alert className="min-w-0">
-                  <Package className="h-4 w-4" />
-                  <AlertDescription className="min-w-0">
-                    <div className="space-y-1">
-                      <p className="font-medium">Công nợ tạo từ nhập kho</p>
-                      <p className="min-w-0 break-words text-sm text-muted-foreground">
-                        Phiếu nhập kho: <span className="break-all font-mono text-xs text-foreground">{request.goods_receipts?.receipt_number || request.goods_receipt_id}</span>
-                      </p>
-                      <p className="min-w-0 break-words text-sm text-muted-foreground">
-                        PO liên kết: <span className="break-all font-mono text-xs text-foreground">{request.purchase_orders?.po_number || request.purchase_order_id || "-"}</span>
-                      </p>
-                    </div>
-                  </AlertDescription>
-                </Alert>
-              )}
-
-              {/* Request Info */}
-              <div className="grid min-w-0 grid-cols-1 gap-4 rounded-lg bg-muted/50 p-4 sm:grid-cols-2">
-                <div className="min-w-0">
-                  <Label className="text-muted-foreground">Mã đề nghị</Label>
-                  <p className="break-all font-mono text-sm font-medium">{request.request_number}</p>
+              {/* Amount + status */}
+              <section className="d3-prd-hero">
+                <div className="d3-prd-amt" data-bmq-prd-amount>
+                  {new Intl.NumberFormat("vi-VN").format(Math.round(Number(request.total_amount || 0)))}
+                  <small>đ</small>
                 </div>
-                <div className="min-w-0">
-                  <Label className="text-muted-foreground">Ngày tạo</Label>
-                  <p className="font-medium tabular-nums">
-                    {format(new Date(request.created_at), "dd/MM/yyyy HH:mm", { locale: vi })}
+                {request.vat_amount > 0 && (
+                  <p className="d3-prd-line">
+                    Tạm tính {formatCurrency((request.total_amount || 0) - (request.vat_amount || 0))} · VAT {formatCurrency(request.vat_amount || 0)}
                   </p>
-                </div>
-                <div className="min-w-0">
-                  <Label className="text-muted-foreground">Nhà cung cấp</Label>
-                  <p className="break-words font-medium">{request.suppliers?.name || "Không xác định"}</p>
-                </div>
-                <div className="min-w-0 border-t border-border pt-4 sm:border-0 sm:pt-0">
-                  <Label className="text-muted-foreground">Tổng tiền</Label>
-                  <div className="space-y-1">
-                    {request.vat_amount > 0 && (
-                      <>
-                        <p className="text-sm text-muted-foreground">
-                          Tạm tính: {formatCurrency((request.total_amount || 0) - (request.vat_amount || 0))}
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          VAT: {formatCurrency(request.vat_amount || 0)}
-                        </p>
-                      </>
-                    )}
-                    <p className="text-2xl font-bold tabular-nums text-primary">{formatCurrency(request.total_amount || 0)}</p>
-                    {allocatedAmount > 0 && (
-                      <>
-                        <p className="text-sm text-muted-foreground">
-                          Đã thanh toán: {formatCurrency(allocatedAmount)}
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          Còn lại: {formatCurrency(remainingAmount)}
-                        </p>
-                      </>
-                    )}
-                  </div>
-                </div>
-                {request.description && (
-                  <div className="min-w-0 sm:col-span-2">
-                    <Label className="text-muted-foreground">Mô tả</Label>
-                    <p className="break-words">{request.description}</p>
-                  </div>
                 )}
-                {request.rejection_reason && (
-                  <div className="min-w-0 sm:col-span-2">
-                    <Label className="text-destructive">Lý do từ chối</Label>
-                    <p className="text-destructive">{request.rejection_reason}</p>
-                  </div>
+                {allocatedAmount > 0 && (
+                  <p className="d3-prd-line">
+                    Đã trả <b>{formatCurrency(allocatedAmount)}</b> · Còn lại <b>{formatCurrency(remainingAmount)}</b>
+                  </p>
                 )}
-                
-                {/* Invoice Status */}
-                <div>
-                  <Label className="text-muted-foreground">{t.invoiceStatus}</Label>
-                  <div className="mt-1">
-                    {request.invoice_created ? (
-                      <Badge className="bg-green-500 gap-1">
-                        <Check className="h-3 w-3" />
-                        {t.invoiceCreated}
-                      </Badge>
-                    ) : !needsReceipt ? (
-                      <Badge variant="outline" className="gap-1" data-bmq-no-receipt-invoice>
-                        Không cần hóa đơn nhập kho
-                      </Badge>
-                    ) : (
-                      <Badge variant="destructive" className="gap-1">
-                        <AlertTriangle className="h-3 w-3" />
-                        {t.invoiceNotCreated}
-                      </Badge>
-                    )}
-                  </div>
+                <div className="d3-prd-chips" data-bmq-prd-chips>
+                  {getStatusBadge(request.status)}
+                  {getPaymentStatusBadge(request.payment_status)}
+                  {getPaymentMethodBadge(request.payment_method)}
+                  {needsReceipt ? getDeliveryStatusBadge(request.delivery_status) : (
+                    <span className="d3-prd-chip" data-bmq-no-receipt-badge>
+                      <FileText className="h-3 w-3" />
+                      Không nhập kho
+                    </span>
+                  )}
+                  {request.goods_receipt_id && (
+                    <span className="d3-prd-chip is-green">
+                      <Package className="h-3 w-3" />
+                      Công nợ từ nhập kho
+                    </span>
+                  )}
                 </div>
-                
-                {/* Payment Type */}
-                <div>
-                  <Label className="text-muted-foreground">Loại thanh toán</Label>
-                  <div className="mt-1">
-                    {request.payment_type === "new_order" ? (
-                      <Badge variant="default">Đơn mới</Badge>
-                    ) : (
-                      <Badge variant="secondary">Đơn cũ (công nợ)</Badge>
-                    )}
-                  </div>
-                </div>
-                
-                {/* Linked Goods Receipt */}
-                {linkedGoodsReceipt && (
-                  <div className="min-w-0 sm:col-span-2">
-                    <Label className="text-muted-foreground">Phiếu Nhập Kho liên kết</Label>
-                    <div className="mt-1 rounded border border-blue-200 bg-blue-50 p-3 dark:border-blue-800 dark:bg-blue-900/20">
-                      <div className="flex min-w-0 items-start gap-2">
-                        <Package className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" />
-                        <div className="min-w-0">
-                          <p className="break-all font-medium text-blue-700 dark:text-blue-300">{linkedGoodsReceipt.receipt_number}</p>
-                          <p className="break-words text-sm text-muted-foreground">
-                            {linkedGoodsReceipt.suppliers?.name || "N/A"} · {format(new Date(linkedGoodsReceipt.receipt_date), "dd/MM/yyyy", { locale: vi })}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-                
-                {/* Linked Purchase Order */}
-                {linkedPurchaseOrder && (
-                  <div className="min-w-0 sm:col-span-2">
-                    <Label className="text-muted-foreground">Đơn đặt hàng liên kết</Label>
-                    <div className="mt-1 rounded border border-purple-200 bg-purple-50 p-3 dark:border-purple-800 dark:bg-purple-900/20">
-                      <div className="flex min-w-0 items-start gap-2">
-                        <FileText className="mt-0.5 h-4 w-4 shrink-0 text-purple-600" />
-                        <div className="min-w-0">
-                          <p className="break-all font-medium text-purple-700 dark:text-purple-300">{linkedPurchaseOrder.po_number}</p>
-                          <p className="break-words text-sm text-muted-foreground">
-                            {linkedPurchaseOrder.suppliers?.name || "N/A"} · {format(new Date(linkedPurchaseOrder.order_date), "dd/MM/yyyy", { locale: vi })}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
+              </section>
 
-              {/* Invoice Image */}
-              {imageUrl && (
-                <div className="min-w-0">
-                  <Label className="text-muted-foreground">Hóa đơn đính kèm</Label>
-                  <Button
-                    variant="outline"
-                    className="mt-2 min-h-11 w-full gap-2 whitespace-nowrap sm:min-h-10 sm:w-auto"
-                    onClick={() => setShowImageDialog(true)}
-                  >
-                    <Image className="h-4 w-4" />
-                    Xem hóa đơn
-                  </Button>
-                </div>
+              {!needsReceipt && (
+                <p className="d3-prd-note" data-bmq-no-receipt-note>
+                  <FileText className="h-4 w-4" />
+                  <span>Chi không nhập kho{request.no_receipt_reason ? `: ${request.no_receipt_reason}` : ""}. Không cần giao hàng hay hóa đơn nhập kho.</span>
+                </p>
               )}
 
-              {/* Items Table */}
-              <div className="min-w-0">
-                <Label className="text-muted-foreground mb-2 block">Danh sách sản phẩm</Label>
-                <div className="space-y-3 lg:hidden">
-                  {items?.map((item) => (
-                    <article key={item.id} className="min-w-0 border-t border-border py-3 first:border-t-0 first:pt-0">
-                      <p className="break-all font-mono text-xs text-muted-foreground">
-                        {item.product_code || "Chưa có mã"}
-                      </p>
-                      <p className="mt-1 break-words font-semibold leading-snug">{item.product_name}</p>
-                      <p className="mt-3 text-xl font-bold tabular-nums text-primary">
-                        {formatCurrency(item.line_total || 0)}
-                      </p>
+              {request.rejection_reason && (
+                <p className="d3-prd-note is-bad">
+                  <X className="h-4 w-4" />
+                  <span>Lý do từ chối: {request.rejection_reason}</span>
+                </p>
+              )}
 
-                      <dl className="mt-3 grid min-w-0 grid-cols-2 gap-x-4 gap-y-2 border-t border-border pt-3 text-sm">
-                        <dt className="text-muted-foreground">Số lượng</dt>
-                        <dd className="min-w-0 break-words text-right font-medium tabular-nums">
-                          {item.quantity} {item.unit}
-                        </dd>
-                        <dt className="text-muted-foreground">Đơn giá</dt>
-                        <dd className="min-w-0 break-words text-right font-medium tabular-nums">
-                          {formatCurrency(item.unit_price)}
-                        </dd>
-                      </dl>
+              {/* Facts */}
+              <section className="d3-prd-card">
+                <dl className="d3-prd-facts">
+                  <div>
+                    <dt>Mã đề nghị</dt>
+                    <dd className="is-mono">{request.request_number}</dd>
+                  </div>
+                  <div>
+                    <dt>Ngày tạo</dt>
+                    <dd>{format(new Date(request.created_at), "dd/MM/yyyy HH:mm", { locale: vi })}</dd>
+                  </div>
+                  <div>
+                    <dt>Nhà cung cấp</dt>
+                    <dd>{request.suppliers?.name || "Không xác định"}</dd>
+                  </div>
+                  <div>
+                    <dt>Loại thanh toán</dt>
+                    <dd>{request.payment_type === "new_order" ? "Đơn mới" : "Đơn cũ (công nợ)"}</dd>
+                  </div>
+                  <div>
+                    <dt>{t.invoiceStatus}</dt>
+                    <dd>
+                      {request.invoice_created ? (
+                        <span className="d3-prd-dot is-green">{t.invoiceCreated}</span>
+                      ) : !needsReceipt ? (
+                        <span className="d3-prd-dot" data-bmq-no-receipt-invoice>Không cần hóa đơn nhập kho</span>
+                      ) : (
+                        <span className="d3-prd-dot is-red">{t.invoiceNotCreated}</span>
+                      )}
+                    </dd>
+                  </div>
+                  {request.description && (
+                    <div className="is-wide">
+                      <dt>Mô tả</dt>
+                      <dd>{request.description}</dd>
+                    </div>
+                  )}
+                </dl>
+              </section>
 
-                      <div className="mt-3 flex min-w-0 flex-wrap items-center gap-2">
-                        {item.last_price ? (
-                          <>
-                            <span className="text-xs tabular-nums text-muted-foreground">
-                              Giá gần nhất: {formatCurrency(item.last_price)}
-                            </span>
-                            {item.price_change_percent !== null && (
-                              <Badge
-                                variant={item.price_change_percent > 0 ? "destructive" : "default"}
-                                className={cn(
-                                  "gap-1 px-2 text-xs tabular-nums",
-                                  item.price_change_percent <= 0 && "bg-green-500"
-                                )}
-                              >
-                                {item.price_change_percent > 0 ? (
-                                  <TrendingUp className="h-3 w-3" />
-                                ) : (
-                                  <TrendingDown className="h-3 w-3" />
-                                )}
-                                {Math.abs(item.price_change_percent).toFixed(1)}%
-                              </Badge>
-                            )}
-                          </>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">Chưa có giá gần nhất</span>
-                        )}
+              {/* Linked documents */}
+              {(request.goods_receipt_id || linkedGoodsReceipt || linkedPurchaseOrder || imageUrl) && (
+                <section className="d3-prd-card">
+                  <h3>Chứng từ liên kết</h3>
+                  <ul className="d3-prd-links">
+                    {(linkedGoodsReceipt || request.goods_receipt_id) && (
+                      <li>
+                        <Package className="h-4 w-4" />
+                        <span>
+                          <b>Phiếu nhập {linkedGoodsReceipt?.receipt_number || request.goods_receipts?.receipt_number || request.goods_receipt_id}</b>
+                          {linkedGoodsReceipt && (
+                            <small>{linkedGoodsReceipt.suppliers?.name || "N/A"} · {format(new Date(linkedGoodsReceipt.receipt_date), "dd/MM/yyyy", { locale: vi })}</small>
+                          )}
+                        </span>
+                      </li>
+                    )}
+                    {linkedPurchaseOrder && (
+                      <li>
+                        <FileText className="h-4 w-4" />
+                        <span>
+                          <b>PO {linkedPurchaseOrder.po_number}</b>
+                          <small>{linkedPurchaseOrder.suppliers?.name || "N/A"} · {format(new Date(linkedPurchaseOrder.order_date), "dd/MM/yyyy", { locale: vi })}</small>
+                        </span>
+                      </li>
+                    )}
+                    {imageUrl && (
+                      <li>
+                        <Image className="h-4 w-4" />
+                        <button type="button" className="d3-prd-linkbtn" onClick={() => setShowImageDialog(true)}>
+                          Xem hóa đơn đính kèm
+                        </button>
+                      </li>
+                    )}
+                  </ul>
+                </section>
+              )}
 
-                        {item.inventory_items ? (
-                          <Badge variant="outline" className="gap-1 text-xs tabular-nums">
-                            <Package className="h-3 w-3" />
-                            Tồn: {item.inventory_items.quantity}
-                          </Badge>
-                        ) : (
-                          <Badge variant="secondary" className="gap-1 text-xs">
-                            <AlertTriangle className="h-3 w-3" />
-                            Sản phẩm mới
-                          </Badge>
-                        )}
-                      </div>
-                    </article>
-                  ))}
-                </div>
-
-                <div className="hidden min-w-0 lg:block">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Mã SP</TableHead>
-                        <TableHead>Tên sản phẩm</TableHead>
-                        <TableHead className="text-right">SL</TableHead>
-                        <TableHead>ĐVT</TableHead>
-                        <TableHead className="text-right">Đơn giá</TableHead>
-                        <TableHead className="text-right">Thành tiền</TableHead>
-                        <TableHead>So sánh giá</TableHead>
-                        <TableHead>Tồn kho</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {items?.map((item) => (
-                        <TableRow key={item.id}>
-                          <TableCell>{item.product_code || "-"}</TableCell>
-                          <TableCell className="font-medium">{item.product_name}</TableCell>
-                          <TableCell className="text-right">{item.quantity}</TableCell>
-                          <TableCell>{item.unit}</TableCell>
-                          <TableCell className="text-right">{formatCurrency(item.unit_price)}</TableCell>
-                          <TableCell className="text-right">{formatCurrency(item.line_total || 0)}</TableCell>
-                          <TableCell>
+              {/* Items */}
+              <section className="d3-prd-card">
+                <h3>Sản phẩm{items?.length ? ` · ${items.length}` : ""}</h3>
+                {!items?.length ? (
+                  <p className="d3-prd-empty">Phiếu chưa có dòng sản phẩm.</p>
+                ) : (
+                  <ul className="d3-prd-items">
+                    {items.map((item) => (
+                      <li key={item.id}>
+                        <div className="d3-prd-item-main">
+                          <b>{item.product_name}</b>
+                          <small>
+                            {item.product_code ? `${item.product_code} · ` : ""}
+                            {item.quantity} {item.unit} × {formatCurrency(item.unit_price)}
+                          </small>
+                          <span className="d3-prd-item-tags">
                             {item.last_price ? (
-                              <div className="flex items-center gap-1">
-                                <span className="text-xs text-muted-foreground">
-                                  {formatCurrency(item.last_price)}
-                                </span>
-                                {item.price_change_percent !== null && (
-                                  <Badge
-                                    variant={item.price_change_percent > 0 ? "destructive" : "default"}
-                                    className={cn(
-                                      "text-xs px-1",
-                                      item.price_change_percent <= 0 && "bg-green-500"
-                                    )}
-                                  >
-                                    {item.price_change_percent > 0 ? (
-                                      <TrendingUp className="h-3 w-3 mr-0.5" />
-                                    ) : (
-                                      <TrendingDown className="h-3 w-3 mr-0.5" />
-                                    )}
-                                    {Math.abs(item.price_change_percent).toFixed(1)}%
-                                  </Badge>
+                              <span className={cn("d3-prd-mini", item.price_change_percent !== null && item.price_change_percent > 0 && "is-red", item.price_change_percent !== null && item.price_change_percent <= 0 && "is-green")}>
+                                {item.price_change_percent !== null ? (
+                                  <>
+                                    {item.price_change_percent > 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                                    {Math.abs(item.price_change_percent).toFixed(1)}% · lần trước {formatCurrency(item.last_price)}
+                                  </>
+                                ) : (
+                                  <>Lần trước {formatCurrency(item.last_price)}</>
                                 )}
-                              </div>
+                              </span>
                             ) : (
-                              <span className="text-xs text-muted-foreground">Chưa có</span>
+                              <span className="d3-prd-mini">Chưa có giá lần trước</span>
                             )}
-                          </TableCell>
-                          <TableCell>
                             {item.inventory_items ? (
-                              <Badge variant="outline" className="text-xs">
-                                <Package className="h-3 w-3 mr-0.5" />
-                                Tồn: {item.inventory_items.quantity}
-                              </Badge>
+                              <span className="d3-prd-mini">Tồn {item.inventory_items.quantity}</span>
                             ) : (
-                              <Badge variant="secondary" className="text-xs">
-                                <AlertTriangle className="h-3 w-3 mr-0.5" />
-                                Mới
-                              </Badge>
+                              <span className="d3-prd-mini is-amber">Sản phẩm mới</span>
                             )}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </div>
+                          </span>
+                        </div>
+                        <span className="d3-prd-item-amt">{formatCurrency(item.line_total || 0)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
 
-              {/* Notes */}
               {request.notes && (
-                <div className="min-w-0">
-                  <Label className="text-muted-foreground">Ghi chú</Label>
-                  <p className="mt-1 break-words rounded bg-muted/50 p-3">{request.notes}</p>
-                </div>
+                <section className="d3-prd-card">
+                  <h3>Ghi chú</h3>
+                  <p className="d3-prd-text">{request.notes}</p>
+                </section>
               )}
 
               {/* Payment evidence: UNC image + the other requests paid by the same UNC */}
@@ -692,12 +536,12 @@ export function PaymentRequestDetailsDialog({
               />
 
               {/* Actions */}
-              <div className="sticky bottom-0 z-20 -ml-[max(1rem,env(safe-area-inset-left))] -mr-[max(1rem,env(safe-area-inset-right))] grid grid-cols-2 gap-2 border-t border-border bg-background pb-[max(1rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-4 [transform:translateZ(0)] [&>button]:min-h-11 sm:static sm:mx-0 sm:flex sm:flex-wrap sm:p-0 sm:pt-4 sm:[&>button]:min-h-10">
+              <div className="d3-prd-actions sticky bottom-0 z-20 -ml-[max(1rem,env(safe-area-inset-left))] -mr-[max(1rem,env(safe-area-inset-right))] grid grid-cols-2 gap-2 border-t border-border bg-background pb-[max(1rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-4 [transform:translateZ(0)] [&>button]:min-h-11 sm:static sm:mx-0 sm:flex sm:flex-wrap sm:p-0 sm:pt-4 sm:[&>button]:min-h-10">
                 {/* CEO: approve and record the payment in one step with the bank UNC. */}
                 {request.status === "pending" && isOwner && request.payment_status === "unpaid" && (
                   <Button
                     onClick={() => setShowUncDialog(true)}
-                    className="col-span-2 w-full gap-2 whitespace-nowrap bg-[#272727] text-white hover:bg-black sm:w-auto"
+                    className="d3-prd-btn is-primary col-span-2 w-full gap-2 whitespace-nowrap sm:w-auto"
                     data-bmq-unc-open
                   >
                     <CreditCard className="h-4 w-4" />
@@ -723,7 +567,7 @@ export function PaymentRequestDetailsDialog({
                     <Button
                       onClick={handleOpenApproveDialog}
                       disabled={approveRequest.isPending}
-                      className="w-full gap-2 whitespace-nowrap bg-green-600 hover:bg-green-700 sm:w-auto"
+                      className="d3-prd-btn is-go w-full gap-2 whitespace-nowrap sm:w-auto"
                     >
                       {approveRequest.isPending ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
@@ -733,9 +577,9 @@ export function PaymentRequestDetailsDialog({
                       Duyệt
                     </Button>
                     <Button
-                      variant="destructive"
+                      variant="outline"
                       onClick={() => setShowRejectDialog(true)}
-                      className="w-full gap-2 whitespace-nowrap sm:w-auto"
+                      className="d3-prd-btn is-danger w-full gap-2 whitespace-nowrap sm:w-auto"
                     >
                       <X className="h-4 w-4" />
                       Từ chối
@@ -773,7 +617,7 @@ export function PaymentRequestDetailsDialog({
                       <span className="sm:hidden">Tạo từ Drive</span>
                       <span className="hidden sm:inline">Tạo hoá đơn từ GG Drive</span>
                     </Button>
-                    <Button className="w-full whitespace-nowrap sm:w-auto" onClick={() => setShowCreateInvoiceDialog(true)}>
+                    <Button variant="outline" className="w-full whitespace-nowrap sm:w-auto" onClick={() => setShowCreateInvoiceDialog(true)}>
                       <Plus className="h-4 w-4 mr-2" />
                       <span className="sm:hidden">Tạo thủ công</span>
                       <span className="hidden sm:inline">Tạo hoá đơn thủ công</span>
