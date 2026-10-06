@@ -1,0 +1,213 @@
+/* Duyệt chi bằng UNC dialog (Demo 3). Scoped to .d3-unc. */
+
+.d3-unc {
+  width: calc(100vw - 24px);
+  max-width: 520px;
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  gap: 14px;
+  padding: 20px;
+  border: 0;
+  border-radius: 22px;
+  background: var(--d3-white, #fdfdfc);
+  color: var(--d3-ink, #272727);
+  font-family: var(--d3-sans, system-ui, sans-serif);
+}
+/* Beat the dialog's bg-background utility so the sticky footer matches. */
+html .d3-unc { background: var(--d3-white, #fdfdfc); }
+
+.d3-unc-head { gap: 4px; padding-right: 36px; text-align: left; }
+
+.d3-unc-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--d3-dim, #6b6b69);
+}
+.d3-unc-tag::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1.5px solid var(--d3-blue, #3c91e6);
+}
+
+.d3-unc-title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 300;
+  line-height: 1.2;
+  letter-spacing: -.01em;
+  overflow-wrap: anywhere;
+}
+.d3-unc-title b {
+  font-family: var(--d3-num, inherit);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.d3-unc-sub { font-size: 13px; color: var(--d3-dim, #6b6b69); overflow-wrap: anywhere; }
+
+.d3-unc-reqs {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 8px 12px;
+  list-style: none;
+  border-radius: 14px;
+  background: var(--d3-card, #f7f7f5);
+  font-size: 13px;
+}
+.d3-unc-reqs li { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; }
+.d3-unc-reqs li span { min-width: 0; overflow-wrap: anywhere; color: var(--d3-ink-2, #4a4a4a); }
+.d3-unc-reqs li b { font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.d3-unc-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 168px;
+  padding: 20px;
+  border: 1.5px dashed var(--d3-line-2, #d6d6d3);
+  border-radius: 18px;
+  background: var(--d3-card, #f7f7f5);
+  color: var(--d3-ink, #272727);
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color .2s, background .2s;
+}
+.d3-unc-drop small { font-size: 12px; font-weight: 400; color: var(--d3-dim, #6b6b69); }
+.d3-unc-drop:hover { border-color: var(--d3-blue, #3c91e6); background: #f1f5fb; }
+.d3-unc-drop:focus-visible { outline: 2px solid var(--d3-blue, #3c91e6); outline-offset: 2px; }
+
+.d3-unc-slip {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  gap: 14px;
+  padding: 12px;
+  border-radius: 18px;
+  background: var(--d3-card, #f7f7f5);
+}
+.d3-unc-slip img {
+  width: 112px;
+  height: 148px;
+  object-fit: cover;
+  border-radius: 12px;
+  background: var(--d3-panel, #ececea);
+}
+
+.d3-unc-read { display: flex; min-width: 0; flex-direction: column; justify-content: space-between; gap: 8px; }
+.d3-unc-read dl { display: grid; gap: 8px; margin: 0; }
+.d3-unc-read dt { font-size: 11px; color: var(--d3-dim, #6b6b69); }
+.d3-unc-read dd { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
+.d3-unc-num {
+  font-family: var(--d3-num, inherit);
+  font-size: 20px !important;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.d3-unc-reading { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 14px; color: var(--d3-ink-2, #4a4a4a); }
+
+.d3-unc-link {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--d3-blue, #3c91e6);
+  font-size: 13px;
+  cursor: pointer;
+}
+.d3-unc-link:disabled { opacity: .5; cursor: not-allowed; }
+
+.d3-unc-verdict {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.d3-unc-verdict svg { flex: none; margin-top: 1px; }
+.d3-unc-verdict.is-ok { background: #e9f8e5; color: #1d6b10; }
+.d3-unc-verdict.is-bad { background: #fdecea; color: #a32314; }
+.d3-unc-verdict.is-warn { background: #fdf4e1; color: #8a5a00; }
+
+.d3-unc-field { display: grid; gap: 8px; }
+.d3-unc-label { font-size: 12px; color: var(--d3-dim, #6b6b69); }
+
+.d3-unc-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.d3-unc-chips button {
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid var(--d3-line-2, #d6d6d3);
+  border-radius: 999px;
+  background: var(--d3-white, #fdfdfc);
+  color: var(--d3-ink, #272727);
+  font-size: 13px;
+  cursor: pointer;
+}
+.d3-unc-chips button.is-on { border-color: var(--d3-ink, #272727); background: var(--d3-ink, #272727); color: #fff; }
+
+.d3-unc-toggle { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; color: var(--d3-ink-2, #4a4a4a); cursor: pointer; }
+.d3-unc-toggle input { width: 18px; height: 18px; flex: none; margin-top: 1px; accent-color: var(--d3-ink, #272727); }
+.d3-unc-manual { display: grid; gap: 8px; }
+
+.d3-unc-actions {
+  position: sticky;
+  bottom: -20px;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: 1fr 1.6fr;
+  gap: 8px;
+  margin: 0 -20px -20px;
+  padding: 12px 20px 20px;
+  background: var(--d3-white, #fdfdfc);
+  box-shadow: 0 -10px 18px -14px rgba(0, 0, 0, .25);
+}
+.d3-unc-actions button { min-height: 46px; border-radius: 13px; }
+.d3-unc .d3-unc-go {
+  gap: 8px;
+  background: var(--d3-ink, #272727);
+  color: #fff;
+  font-weight: 500;
+}
+.d3-unc .d3-unc-go:hover { background: #000; }
+
+.d3-unc-hint { margin: 0; font-size: 12px; text-align: right; color: var(--d3-dim, #6b6b69); }
+
+/* CEO khai báo: UNC đã ghi trong app */
+.d3-unc-app {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 14px;
+  background: #eef4fc;
+  font-size: 13px;
+}
+.d3-unc-app-row { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; }
+.d3-unc-app-row span { color: var(--d3-ink-2, #4a4a4a); }
+.d3-unc-app-row b { font-family: var(--d3-num, inherit); font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.d3-unc-app-btns { display: flex; flex-wrap: wrap; gap: 6px; }
+.d3-unc-app-btns button { min-height: 36px; }
+
+@media (max-width: 420px) {
+  .d3-unc { padding: 16px; border-radius: 18px; }
+  .d3-unc-actions { bottom: -16px; margin: 0 -16px -16px; padding: 12px 16px 16px; }
+  .d3-unc-slip { grid-template-columns: 88px minmax(0, 1fr); gap: 10px; }
+  .d3-unc-slip img { width: 88px; height: 120px; }
+  .d3-unc-title { font-size: 21px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .d3-unc-drop { transition: none; }
+}

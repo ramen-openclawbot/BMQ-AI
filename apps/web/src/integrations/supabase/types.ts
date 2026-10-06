@@ -546,6 +546,78 @@ export type Database = {
         }
         Relationships: []
       }
+      finance_zalo_notification_config: {
+        Row: {
+          created_at: string
+          finance_zalo_notifications_enabled: boolean
+          id: string
+          worker_secret: string
+        }
+        Insert: {
+          created_at?: string
+          finance_zalo_notifications_enabled?: boolean
+          id: string
+          worker_secret?: string
+        }
+        Update: {
+          created_at?: string
+          finance_zalo_notifications_enabled?: boolean
+          id?: string
+          worker_secret?: string
+        }
+        Relationships: []
+      }
+      finance_zalo_notifications: {
+        Row: {
+          attempts: number
+          created_at: string
+          entity_id: string
+          event_type: string
+          group_key: string
+          id: string
+          last_error: string | null
+          locked_at: string | null
+          message_body: string
+          next_attempt_at: string
+          provider_message_id: string | null
+          sent_at: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          created_at?: string
+          entity_id: string
+          event_type: string
+          group_key?: string
+          id?: string
+          last_error?: string | null
+          locked_at?: string | null
+          message_body: string
+          next_attempt_at?: string
+          provider_message_id?: string | null
+          sent_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          created_at?: string
+          entity_id?: string
+          event_type?: string
+          group_key?: string
+          id?: string
+          last_error?: string | null
+          locked_at?: string | null
+          message_body?: string
+          next_attempt_at?: string
+          provider_message_id?: string | null
+          sent_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       goods_receipt_items: {
         Row: {
           actual_quantity: number | null
@@ -1454,6 +1526,131 @@ export type Database = {
           },
         ]
       }
+      payment_unc_evidence: {
+        Row: {
+          category: string | null
+          created_at: string
+          created_by: string | null
+          file_sha256: string
+          id: string
+          manual_override: boolean
+          note: string | null
+          ocr_amount: number | null
+          ocr_beneficiary_account: string | null
+          ocr_confidence: number | null
+          ocr_reference: string | null
+          override_reason: string | null
+          payment_id: string | null
+          storage_path: string | null
+          transfer_date: string | null
+        }
+        Insert: {
+          category?: string | null
+          created_at?: string
+          created_by?: string | null
+          file_sha256: string
+          id?: string
+          manual_override?: boolean
+          note?: string | null
+          ocr_amount?: number | null
+          ocr_beneficiary_account?: string | null
+          ocr_confidence?: number | null
+          ocr_reference?: string | null
+          override_reason?: string | null
+          payment_id?: string | null
+          storage_path?: string | null
+          transfer_date?: string | null
+        }
+        Update: {
+          category?: string | null
+          created_at?: string
+          created_by?: string | null
+          file_sha256?: string
+          id?: string
+          manual_override?: boolean
+          note?: string | null
+          ocr_amount?: number | null
+          ocr_beneficiary_account?: string | null
+          ocr_confidence?: number | null
+          ocr_reference?: string | null
+          override_reason?: string | null
+          payment_id?: string | null
+          storage_path?: string | null
+          transfer_date?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_unc_evidence_payment_id_fkey"
+            columns: ["payment_id"]
+            isOneToOne: false
+            referencedRelation: "payments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payment_unc_idempotency: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          idempotency_key: string
+          result: Json
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          idempotency_key: string
+          result: Json
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          idempotency_key?: string
+          result?: Json
+        }
+        Relationships: []
+      }
+      payment_unc_ocr_drafts: {
+        Row: {
+          amount_in_words: string | null
+          amount_raw: string | null
+          created_at: string
+          created_by: string | null
+          file_sha256: string
+          ocr_amount: number | null
+          ocr_beneficiary_account: string | null
+          ocr_confidence: number | null
+          ocr_reference: string | null
+          storage_path: string
+          transfer_date: string | null
+        }
+        Insert: {
+          amount_in_words?: string | null
+          amount_raw?: string | null
+          created_at?: string
+          created_by?: string | null
+          file_sha256: string
+          ocr_amount?: number | null
+          ocr_beneficiary_account?: string | null
+          ocr_confidence?: number | null
+          ocr_reference?: string | null
+          storage_path: string
+          transfer_date?: string | null
+        }
+        Update: {
+          amount_in_words?: string | null
+          amount_raw?: string | null
+          created_at?: string
+          created_by?: string | null
+          file_sha256?: string
+          ocr_amount?: number | null
+          ocr_beneficiary_account?: string | null
+          ocr_confidence?: number | null
+          ocr_reference?: string | null
+          storage_path?: string
+          transfer_date?: string | null
+        }
+        Relationships: []
+      }
       product_skus: {
         Row: {
           category: string | null
@@ -1809,6 +2006,37 @@ export type Database = {
       }
     }
     Functions: {
+      approve_payment_requests_with_unc: {
+        Args: {
+          p_evidence: Json
+          p_idempotency_key: string
+          p_request_ids: string[]
+        }
+        Returns: Json
+      }
+      claim_finance_zalo_notifications: {
+        Args: { batch_size?: number }
+        Returns: {
+          attempts: number
+          entity_id: string
+          event_type: string
+          group_key: string
+          id: string
+          message_body: string
+        }[]
+      }
+      finance_unc_total_from_evidence: {
+        Args: { p_date: string }
+        Returns: Json
+      }
+      normalize_unc_reference: {
+        Args: { p_reference: string }
+        Returns: string
+      }
+      record_unc_without_request: {
+        Args: { p_category: string; p_evidence: Json; p_note: string }
+        Returns: Json
+      }
       ensure_purchase_order_receipt_queue: {
         Args: { p_purchase_order_id: string }
         Returns: string

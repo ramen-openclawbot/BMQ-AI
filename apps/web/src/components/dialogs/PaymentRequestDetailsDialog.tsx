@@ -72,6 +72,7 @@ import {
 import { CreateInvoiceFromRequestDialog } from "./CreateInvoiceFromRequestDialog";
 import { EditPaymentRequestDialog } from "./EditPaymentRequestDialog";
 import { DriveImportProgressDialog } from "@/components/payment-requests/DriveImportProgressDialog";
+import { UncApprovalDialog } from "@/components/payment-requests/UncApprovalDialog";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -117,9 +118,10 @@ export function PaymentRequestDetailsDialog({
   const [newPaymentMethod, setNewPaymentMethod] = useState<"bank_transfer" | "cash">("bank_transfer");
   const [showDriveImportDialog, setShowDriveImportDialog] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState("");
-  
+  const [showUncDialog, setShowUncDialog] = useState(false);
+
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, isOwner } = useAuth();
   const { t } = useLanguage();
   const queryClient = useQueryClient();
   const { data: request, isLoading: requestLoading } = usePaymentRequest(requestId);
@@ -634,6 +636,18 @@ export function PaymentRequestDetailsDialog({
 
               {/* Actions */}
               <div className="sticky bottom-0 z-20 -ml-[max(1rem,env(safe-area-inset-left))] -mr-[max(1rem,env(safe-area-inset-right))] grid grid-cols-2 gap-2 border-t border-border bg-background pb-[max(1rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-4 [transform:translateZ(0)] [&>button]:min-h-11 sm:static sm:mx-0 sm:flex sm:flex-wrap sm:p-0 sm:pt-4 sm:[&>button]:min-h-10">
+                {/* CEO: approve and record the payment in one step with the bank UNC. */}
+                {request.status === "pending" && isOwner && request.payment_status === "unpaid" && (
+                  <Button
+                    onClick={() => setShowUncDialog(true)}
+                    className="col-span-2 w-full gap-2 whitespace-nowrap bg-[#272727] text-white hover:bg-black sm:w-auto"
+                    data-bmq-unc-open
+                  >
+                    <CreditCard className="h-4 w-4" />
+                    Duyệt bằng UNC
+                  </Button>
+                )}
+
                 {/* Edit button for pending requests */}
                 {request.status === "pending" && (
                   <Button
@@ -754,6 +768,27 @@ export function PaymentRequestDetailsDialog({
           )}
         </DialogContent>
       </Dialog>
+
+      {request && (
+        <UncApprovalDialog
+          open={showUncDialog}
+          onOpenChange={setShowUncDialog}
+          mode="approve"
+          requests={[
+            {
+              id: request.id,
+              requestNumber: request.request_number,
+              supplierName: request.suppliers?.name ?? null,
+              supplierId: request.supplier_id ?? null,
+              totalAmount: Number(request.total_amount || 0),
+              allocatedAmount: allocatedAmount,
+              status: request.status,
+              paymentStatus: request.payment_status,
+              createdBy: request.created_by ?? null,
+            },
+          ]}
+        />
+      )}
 
       {/* Approve Dialog with Payment Method Selection */}
       <AlertDialog open={showApproveDialog} onOpenChange={setShowApproveDialog}>

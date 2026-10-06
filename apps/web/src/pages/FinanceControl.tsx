@@ -50,6 +50,7 @@ import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 import { normalizeUploadImage, optimizeSlipImageForOcr } from "@/lib/slip-image";
 import { CeoCutoverPanel } from "@/components/finance/CeoCutoverPanel";
 import "@/styles/bmq-ceo.css";
+import { UncAppEvidencePanel } from "@/components/payment-requests/UncAppEvidencePanel";
 
 const vnd = (value: number) => new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(value || 0);
 const COST_CLASSIFICATION_CARD_CODES = [
@@ -2446,6 +2447,14 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                     </div>
                   )}
                   <div className="d3-ceo-slip-total text-lg font-semibold">{vnd(Number(uncTotalDeclared || 0))}</div>
+                  {isOwner && (
+                    <UncAppEvidencePanel
+                      date={dateKey}
+                      declaredTotal={Number(uncTotalDeclared || 0)}
+                      disabled={saving || ceoDeclarationLocked || closeApprovalLocked}
+                      onUseTotal={setUncTotalDeclared}
+                    />
+                  )}
                 </div>
                 <div className="d3-ceo-slip space-y-2" data-slip="qtm">
                   <Label className="text-sm font-medium">{isVi ? "Slip tiền mặt (QTM)" : "Cash slips (QTM)"}</Label>

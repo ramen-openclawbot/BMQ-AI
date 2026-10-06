@@ -295,3 +295,12 @@ verify_jwt = false
 # final authority, no service-role client) and the feature is default-off behind
 # VNAGENT_DATA_ADMIN_ENABLED.
 verify_jwt = false
+
+[functions.payment-unc-approve]
+# verify_jwt disabled: the project issues ES256 user tokens. The handler checks
+# the caller's token itself and requires the "owner" role in user_roles.
+verify_jwt = false
+
+[functions.finance-zalo-notify]
+# Server-only worker: authorizes service-role, x-cron-secret or x-worker-secret in code.
+verify_jwt = false

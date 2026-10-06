@@ -49,6 +49,7 @@ import { PaymentRequestDetailsDialog } from "@/components/dialogs/PaymentRequest
 import { ExportApprovedPDF } from "@/components/payment-requests/ExportApprovedPDF";
 
 import { DriveImportProgressDialog } from "@/components/payment-requests/DriveImportProgressDialog";
+import { UncApprovalDialog, type UncApprovalRequest } from "@/components/payment-requests/UncApprovalDialog";
 import {
   getAllocatedAmount,
   getRemainingPaymentAmount,
@@ -125,7 +126,8 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
   const [dateTo, setDateTo] = useState(getCurrentVietnamDayInputValue);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   
-  const { canEditModule } = useAuth();
+  const { canEditModule, isOwner } = useAuth();
+  const [showUncDialog, setShowUncDialog] = useState(false);
   const { language, t } = useLanguage();
   const canEditPaymentRequests = canEditModule("payment_requests");
 
@@ -415,6 +417,25 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
       const request = requests?.find(r => r.id === id);
       return sum + (request?.total_amount || 0);
     }, 0);
+  }, [selectedPendingIds, requests]);
+
+  // One UNC can pay several pending requests of the same supplier (CEO only).
+  const selectedUncRequests = useMemo<UncApprovalRequest[]>(() => {
+    return selectedPendingIds.flatMap((id) => {
+      const request = requests?.find((r) => r.id === id);
+      if (!request) return [];
+      return [{
+        id: request.id,
+        requestNumber: request.request_number,
+        supplierName: request.suppliers?.name ?? null,
+        supplierId: request.supplier_id ?? null,
+        totalAmount: Number(request.total_amount || 0),
+        allocatedAmount: getAllocatedAmount(request),
+        status: request.status,
+        paymentStatus: request.payment_status,
+        createdBy: request.created_by ?? null,
+      }];
+    });
   }, [selectedPendingIds, requests]);
 
   // Calculate selected approved requests with remaining amount for bulk mark paid
@@ -762,6 +783,12 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
             </span>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            {isOwner && selectedPendingIds.length > 0 && (
+              <Button onClick={() => setShowUncDialog(true)} className="gap-2" data-bmq-unc-bulk>
+                <Wallet className="h-4 w-4" />
+                {language === "vi" ? "Duyệt bằng UNC" : "Approve with UNC"} ({selectedPendingIds.length})
+              </Button>
+            )}
             {/* Quick Approve button - only show when pending requests are selected */}
             {selectedPendingIds.length > 0 && (
               <Button
@@ -986,6 +1013,14 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
           </>
         )}
       </section>
+
+      <UncApprovalDialog
+        open={showUncDialog}
+        onOpenChange={setShowUncDialog}
+        mode="approve"
+        requests={selectedUncRequests}
+        onDone={() => setSelectedIds(new Set())}
+      />
 
       {/* Details Dialog */}
       <PaymentRequestDetailsDialog
