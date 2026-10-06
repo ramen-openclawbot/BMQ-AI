@@ -193,14 +193,20 @@ serve(async (req) => {
         proposal: NonNullable<ReturnType<typeof extractKioskBreadOrderNoteProposal>>;
       } => entry.proposal !== null);
     const proposalQuantities = new Set(noteCandidates.map((entry) => entry.proposal.quantity));
+    // Only a submitted report may auto-apply the DAT note to the next delivery
+    // date; a draft keeps the proposal pending until the report is submitted.
+    const breadNoteProposalStatus = status === "submitted"
+      ? "auto_applied"
+      : "pending_operator_confirmation";
+    const breadNoteProposalRequiresConfirmation = status !== "submitted";
     const breadNoteProposal = noteCandidates.length > 0 && proposalQuantities.size === 1
       ? {
         quantity: noteCandidates[0].proposal.quantity,
         parser_rule: noteCandidates[0].proposal.parserRule,
         evidence: {
-          status: "pending_operator_confirmation",
-          proposal_status: "pending_operator_confirmation",
-          requires_confirmation: true,
+          status: breadNoteProposalStatus,
+          proposal_status: breadNoteProposalStatus,
+          requires_confirmation: breadNoteProposalRequiresConfirmation,
           note_sources: noteCandidates.map((entry) => ({
             source: entry.source,
             raw_text: entry.text,

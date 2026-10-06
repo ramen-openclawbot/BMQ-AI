@@ -42,6 +42,27 @@ test("formats the warehouse kiosk bread dispatch from automatic orders plus repo
   ].join("\n"));
 });
 
+test("marks warehouse dispatch locations whose quantity comes from the staff DAT note", () => {
+  const message = buildWarehouseKioskBreadDispatchMessage({
+    orderDate: "2026-09-28",
+    locations: [
+      {
+        locationCode: "HCM004-BHN",
+        locationName: "276 Bùi Hữu Nghĩa",
+        orderQuantity: 77,
+        shortageQuantity: 0,
+        returnsQuantity: 0,
+        wasteQuantity: 0,
+        staffNoteOrderOverride: { reportId: "cutoff", quantity: 77 },
+      },
+      { locationCode: "HCM005-TN", locationName: "230 Thống Nhất", orderQuantity: 80, shortageQuantity: 0, returnsQuantity: 0, wasteQuantity: 0 },
+    ],
+  });
+
+  assert.match(message, /Bùi Hữu Nghĩa: đặt 77 que \| theo ghi chú DAT/);
+  assert.match(message, /Thống Nhất: đặt 80 que$/m);
+});
+
 test("closes BV and PVC only when the target delivery date is lunar day 30", () => {
   assert.equal(isVehicleLocationClosed("HCM001-BV", "2026-08-12"), true);
   assert.equal(isVehicleLocationClosed("HCM002-PVC", "2026-08-12"), true);
@@ -291,26 +312,115 @@ test("uses fixed inbound for an active location with no report history while clo
   assert.equal(closed.locations[0].roundingDecision, "lunar_day_30_monthly_off");
 });
 
+test("applies the cutoff-day DAT note quantity before fixed and dynamic policy", () => {
+  const result = forecastVehicleBread([{
+    locationId: "8b353493-c3cb-436e-80f7-a9a1d1a57cd3",
+    locationCode: "HCM004-BHN",
+    reports: [
+      { reportId: "cutoff", reportDate: "2026-09-27", soldQuantity: 91, closingQuantity: 89, noteOrderQuantity: 77 },
+      { reportId: "stale", reportDate: "2026-09-26", soldQuantity: 183, closingQuantity: 19 },
+    ],
+  }], "2026-09-28");
+
+  assert.equal(result.totalQuantity, 77);
+  assert.equal(result.locations[0].recommendedQuantity, 77);
+  assert.equal(result.locations[0].roundingDecision, "staff_note_order_override");
+  assert.deepEqual(result.locations[0].staffNoteOrderOverride, { reportId: "cutoff", quantity: 77 });
+  assert.equal(result.locations[0].latestReportDate, "2026-09-27");
+});
+
+test("ignores a DAT note that is not on the cutoff day", () => {
+  const result = forecastVehicleBread([{
+    locationId: "other",
+    locationCode: "HCM999-OTHER",
+    reports: [
+      { reportId: "older", reportDate: "2026-09-26", soldQuantity: 100, closingQuantity: 0, noteOrderQuantity: 77 },
+    ],
+  }], "2026-09-28");
+
+  assert.notEqual(result.locations[0].roundingDecision, "staff_note_order_override");
+  assert.equal(result.locations[0].staffNoteOrderOverride, undefined);
+});
+
+test("keeps lunar day 30 closure ahead of a cutoff-day DAT note", () => {
+  const result = forecastVehicleBread([{
+    locationId: "bv",
+    locationCode: "HCM001-BV",
+    reports: [
+      { reportId: "cutoff", reportDate: "2026-08-11", soldQuantity: 200, closingQuantity: 0, noteOrderQuantity: 77 },
+    ],
+  }], "2026-08-12");
+
+  assert.equal(result.totalQuantity, 0);
+  assert.equal(result.locations[0].recommendedQuantity, 0);
+  assert.equal(result.locations[0].roundingDecision, "lunar_day_30_monthly_off");
+  assert.equal(result.locations[0].staffNoteOrderOverride, undefined);
+});
+
 test("extracts only explicit auditable kiosk bread-order requests from free-text notes", () => {
   assert.deepEqual(extractKioskBreadOrderNoteProposal("Đặt bánh 180 que dùm em"), {
     quantity: 180,
     rawText: "Đặt bánh 180 que dùm em",
     evidenceText: "Đặt bánh 180 que",
-    parserRule: "explicit-dat-banh-quantity-v1",
+    parserRule: "explicit-dat-quantity-v2",
     confidence: "explicit",
-    requiresConfirmation: true,
+    requiresConfirmation: false,
   });
   assert.deepEqual(extractKioskBreadOrderNoteProposal("dat banh mi 160"), {
     quantity: 160,
     rawText: "dat banh mi 160",
     evidenceText: "dat banh mi 160",
-    parserRule: "explicit-dat-banh-quantity-v1",
+    parserRule: "explicit-dat-quantity-v2",
     confidence: "explicit",
-    requiresConfirmation: true,
+    requiresConfirmation: false,
   });
   assert.equal(extractKioskBreadOrderNoteProposal("Hotline 0909123456, doanh thu 1400000"), null);
   assert.equal(extractKioskBreadOrderNoteProposal("Hôm nay bán 160 bánh"), null);
   assert.equal(extractKioskBreadOrderNoteProposal("Đặt bánh 160 và 180"), null);
+});
+
+test("accepts DAT, Đặt and Order bread-note forms case and diacritic insensitively", () => {
+  const accepted: Array<[string, number]> = [
+    ["DAT 30", 30],
+    ["dat 40 que", 40],
+    ["Đặt 25", 25],
+    ["Đặt bánh mì 160", 160],
+    ["Đặt bánh (mì) 45", 45],
+    ["Order bánh 120", 120],
+    ["Order (bánh) 90", 90],
+    ["dat 30 cây", 30],
+    ["dat 1000", 1000],
+    ["Dat 30, thiếu 5", 30],
+    ["dat 30 dat 30", 30],
+  ];
+  for (const [note, expected] of accepted) {
+    const proposal = extractKioskBreadOrderNoteProposal(note);
+    assert.ok(proposal, `expected a proposal for: ${note}`);
+    assert.equal(proposal.quantity, expected, note);
+    assert.equal(proposal.parserRule, "explicit-dat-quantity-v2", note);
+    assert.equal(proposal.requiresConfirmation, false, note);
+  }
+});
+
+test("rejects non-integers, out-of-range and ambiguous DAT quantities", () => {
+  const rejected = [
+    "dat 0",
+    "dat 1001",
+    "dat 3.5",
+    "dat 30 thiếu 20",
+    "dat 5 thiếu 20",
+    "dat banh 160, dat banh 180",
+    "dat 30, doanh thu 1400000",
+    "Đặt bánh 160 và 180",
+    "Hôm nay bán 160 bánh",
+    "bán đạt 120 que",
+    "ĐẠT 120",
+    "chưa đặt 60 vì hết pate",
+    "không đặt 50",
+  ];
+  for (const note of rejected) {
+    assert.equal(extractKioskBreadOrderNoteProposal(note), null, note);
+  }
 });
 
 test("does not create vehicle demand for an active location without submitted bread reports", () => {

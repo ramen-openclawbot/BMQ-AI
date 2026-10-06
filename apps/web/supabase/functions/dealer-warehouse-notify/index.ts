@@ -189,7 +189,9 @@ const signedQuantity = (value: number | string | null | undefined) => {
 const vehicleQuantitySemantics = (forecast: {
   fixedInboundPolicy?: unknown;
   dynamicInboundPolicy?: unknown;
+  staffNoteOrderOverride?: unknown;
 }): string => {
+  if (forecast.staffNoteOrderOverride) return "explicit_dat_note_quantity_override";
   if (forecast.fixedInboundPolicy) return "fixed_daily_inbound_not_stock_subtracted";
   if (forecast.dynamicInboundPolicy) return "bhn_exact_date_120pct_sold_minus_saleable_closing_round20";
   return "smart_batch_after_peak_demand_safety_and_latest_closing_stock";
@@ -213,6 +215,7 @@ type DailyBreadVehicleHistoryRow = {
   sold_quantity: number | string | null;
   closing_quantity: number | string | null;
   bread_row_present?: boolean | null;
+  note_order_quantity?: number | string | null;
 };
 type DailyBreadVietjetQuantityRow = {
   quantity: number | string;
@@ -454,7 +457,7 @@ const enqueueDailyBreadOrder = async (
   const vehicleLocations = new Map<string, {
     locationId: string;
     locationCode: string;
-    reports: Array<{ reportId?: string | null; reportDate: string; reportUpdatedAt?: string | null; soldQuantity: number; closingQuantity: number; breadRowPresent?: boolean }>;
+    reports: Array<{ reportId?: string | null; reportDate: string; reportUpdatedAt?: string | null; soldQuantity: number; closingQuantity: number; breadRowPresent?: boolean; noteOrderQuantity?: number | null }>;
   }>();
   vehicleHistory.forEach((row) => {
     const location = vehicleLocations.get(row.location_id) || {
@@ -470,6 +473,7 @@ const enqueueDailyBreadOrder = async (
         soldQuantity: quantity(row.sold_quantity),
         closingQuantity: signedQuantity(row.closing_quantity),
         breadRowPresent: row.bread_row_present !== false,
+        noteOrderQuantity: row.note_order_quantity == null ? null : Number(row.note_order_quantity),
       });
     }
     vehicleLocations.set(row.location_id, location);
@@ -666,7 +670,7 @@ const enqueueWarehouseKioskBreadDispatch = async (
   const vehicleLocations = new Map<string, {
     locationId: string;
     locationCode: string;
-    reports: Array<{ reportId?: string | null; reportDate: string; reportUpdatedAt?: string | null; soldQuantity: number; closingQuantity: number; breadRowPresent?: boolean }>;
+    reports: Array<{ reportId?: string | null; reportDate: string; reportUpdatedAt?: string | null; soldQuantity: number; closingQuantity: number; breadRowPresent?: boolean; noteOrderQuantity?: number | null }>;
   }>();
   history.forEach((row) => {
     const location = vehicleLocations.get(row.location_id) || {
@@ -682,6 +686,7 @@ const enqueueWarehouseKioskBreadDispatch = async (
         soldQuantity: quantity(row.sold_quantity),
         closingQuantity: signedQuantity(row.closing_quantity),
         breadRowPresent: row.bread_row_present !== false,
+        noteOrderQuantity: row.note_order_quantity == null ? null : Number(row.note_order_quantity),
       });
     }
     vehicleLocations.set(row.location_id, location);
@@ -746,6 +751,7 @@ const enqueueWarehouseKioskBreadDispatch = async (
       roundingDecision: forecast.roundingDecision,
       latestReportSource: forecast.latestReportSource,
       closureReason: forecast.closureReason,
+      staffNoteOrderOverride: forecast.staffNoteOrderOverride ?? null,
       fixedInboundPolicy: forecast.fixedInboundPolicy,
       dynamicInboundPolicy: forecast.dynamicInboundPolicy,
       quantitySemantics: vehicleQuantitySemantics(forecast),
@@ -779,6 +785,7 @@ const enqueueWarehouseKioskBreadDispatch = async (
       order: "per_location_policy_snapshot",
       fixed_policy: "fixed_daily_inbound_not_stock_subtracted",
       dynamic_policy: "bhn_exact_date_120pct_sold_minus_saleable_closing_round20",
+      staff_note: "explicit_dat_note_quantity_overrides_policy_and_formula",
       formula: "smart_20_stick_pate_batch_after_peak_demand_safety_and_latest_closing_stock",
       makeup: "kiosk_shortage_quantity",
       exchange: "kiosk_returns_quantity_plus_waste_quantity",
@@ -826,6 +833,7 @@ const enqueueBhnBreadReportPrealert = async (
         soldQuantity: quantity(row.sold_quantity),
         closingQuantity: signedQuantity(row.closing_quantity),
         breadRowPresent: row.bread_row_present !== false,
+        noteOrderQuantity: row.note_order_quantity == null ? null : Number(row.note_order_quantity),
       })),
   };
   const forecast = forecastVehicleBread([location], orderDate, [], dynamicOrderPolicies);

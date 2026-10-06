@@ -7,6 +7,7 @@ export type VehicleBreadReport = {
   soldQuantity: number;
   closingQuantity: number;
   breadRowPresent?: boolean;
+  noteOrderQuantity?: number | null;
 };
 
 export type VehicleBreadLocation = {
@@ -30,6 +31,7 @@ export type VehicleBreadForecastLocation = {
   roundingDecision:
     | "no_submitted_report"
     | "lunar_day_30_monthly_off"
+    | "staff_note_order_override"
     | "fixed_daily_inbound_policy"
     | "dynamic_exact_report_missing"
     | "dynamic_exact_bread_row_missing"
@@ -42,6 +44,7 @@ export type VehicleBreadForecastLocation = {
     | "round_down_existing_stock_buffer";
   latestReportSource: { reportId: string | null; reportUpdatedAt: string | null; breadRowPresent?: boolean } | null;
   closureReason: "lunar_day_30_monthly_off" | null;
+  staffNoteOrderOverride?: { reportId: string | null; quantity: number } | null;
   fixedInboundPolicy?: Omit<FixedVehicleBreadInboundPolicy, "locationId" | "locationCode">;
   dynamicInboundPolicy?: Omit<DynamicVehicleBreadOrderPolicy, "locationId" | "locationCode">;
 };
@@ -71,9 +74,9 @@ export type KioskBreadOrderNoteProposal = {
   quantity: number;
   rawText: string;
   evidenceText: string;
-  parserRule: "explicit-dat-banh-quantity-v1";
+  parserRule: "explicit-dat-quantity-v2";
   confidence: "explicit";
-  requiresConfirmation: true;
+  requiresConfirmation: false;
 };
 
 export type VietjetInboxEvidence = {
@@ -110,6 +113,7 @@ export type WarehouseKioskBreadDispatchLocation = {
   shortageQuantity: number;
   returnsQuantity: number;
   wasteQuantity: number;
+  staffNoteOrderOverride?: { reportId: string | null; quantity: number } | null;
 };
 
 export type WarehouseKioskBreadDispatchInput = {
@@ -261,26 +265,52 @@ export const resolveDynamicVehicleBreadOrderPolicy = (
   return policy || null;
 };
 
+// Matches one explicit bread-order request such as "DAT 30", "Đặt bánh (mì) 40",
+// "Order bánh 50 que". The optional word groups are tolerant of literal
+// parentheses because staff notes often write "bánh (mì)".
+const KIOSK_DAT_ORDER_NOTE_PATTERN =
+  /\b(?:dat|order)\s*\(?\s*(?:banh(?:\s*\(?\s*mi\s*\)?)?(?:\s*\))?)?\s*:?\s*(\d{1,4}(?:[.,]\d+)?)\s*(?:\(?\s*(?:que|cay|banh)(?:\s*\))?)?\b/g;
+
 export function extractKioskBreadOrderNoteProposal(note: string): KioskBreadOrderNoteProposal | null {
   const rawText = String(note || "").trim();
   if (!rawText) return null;
-  const normalized = normalizeMatchText(rawText);
+  // "đạt" (reached, e.g. "bán đạt 120") collapses to "dat" once diacritics are
+  // stripped, so neutralize it before normalizing; "đặt"/"DAT" stay order words.
+  const normalized = normalizeMatchText(rawText.normalize("NFC").replace(/đạt/giu, "reached"));
   if (/(hotline|doanh thu|revenue|tong tien|tien mat|chuyen khoan|bank|zalo|sdt|so dien thoai)/.test(normalized)) {
     return null;
   }
-  const matches = [...normalized.matchAll(/\b(?:dat|order)\s+banh(?:\s+mi)?(?:\s+(?:que|pate|bmq))?\s*:?\s*(\d{1,4}(?:[.,]\d+)?)\s*(?:que|cay|banh)?\b/g)];
-  if (matches.length !== 1) return null;
-  const quantityValue = Number(matches[0][1].replace(",", "."));
-  if (!Number.isInteger(quantityValue) || quantityValue <= 0 || quantityValue > 1000) return null;
-  const arbitraryNumbers = normalized.match(/\b\d{2,}\b/g) || [];
-  if (arbitraryNumbers.length !== 1) return null;
+  // A negated request ("chưa đặt 60", "không đặt") is not an order.
+  if (/\b(?:chua|khong|ko|k|dung|huy)\s+(?:dat|order)\b/.test(normalized)) return null;
+  const matches = [...normalized.matchAll(KIOSK_DAT_ORDER_NOTE_PATTERN)];
+  if (matches.length === 0) return null;
+  const quantities = new Set(matches.map((match) => {
+    const value = Number(match[1].replace(",", "."));
+    return Number.isInteger(value) && value > 0 && value <= 1000 ? value : Number.NaN;
+  }));
+  // Several DAT phrases are allowed only when they all name the same quantity.
+  if (quantities.size !== 1 || quantities.has(Number.NaN)) return null;
+  const quantityValue = [...quantities][0];
+  // A "thiếu 5" style single digit must not invalidate a clear DAT match, but a
+  // different 2+ digit number could be the real order quantity and must reject.
+  const matchSpans = matches.map((match) => ({
+    start: match.index || 0,
+    end: (match.index || 0) + match[0].length,
+  }));
+  for (const token of normalized.matchAll(/\b\d{2,}\b/g)) {
+    const start = token.index || 0;
+    const end = start + token[0].length;
+    const insideDatMatch = matchSpans.some((span) => start >= span.start && end <= span.end);
+    if (!insideDatMatch) return null;
+  }
+  const firstMatch = matches[0];
   return {
     quantity: quantityValue,
     rawText,
-    evidenceText: rawText.slice(matches[0].index || 0, (matches[0].index || 0) + matches[0][0].length),
-    parserRule: "explicit-dat-banh-quantity-v1",
+    evidenceText: rawText.slice(firstMatch.index || 0, (firstMatch.index || 0) + firstMatch[0].length),
+    parserRule: "explicit-dat-quantity-v2",
     confidence: "explicit",
-    requiresConfirmation: true,
+    requiresConfirmation: false,
   };
 }
 
@@ -440,10 +470,47 @@ export function forecastVehicleBread(
       };
     }
 
+    const cutoffDate = deliveryDate ? previousDateKey(deliveryDate) : null;
+    const cutoffReport = cutoffDate ? reports.find((report) => report.reportDate === cutoffDate) : null;
+    const noteOrderQuantity = cutoffReport?.noteOrderQuantity == null
+      ? null
+      : Number(cutoffReport.noteOrderQuantity);
+    if (
+      cutoffReport
+      && noteOrderQuantity !== null
+      && Number.isFinite(noteOrderQuantity)
+      && noteOrderQuantity > 0
+    ) {
+      const staffNoteOrderOverride = {
+        reportId: cutoffReport.reportId ?? null,
+        quantity: noteOrderQuantity,
+      };
+      return {
+        locationId: location.locationId,
+        locationCode: location.locationCode,
+        reportCount: reports.length,
+        latestReportDate: cutoffReport.reportDate,
+        peakSoldQuantity,
+        latestClosingQuantity,
+        protectedDemandQuantity: noteOrderQuantity,
+        netDemandQuantity: noteOrderQuantity,
+        lowerBatchQuantity: noteOrderQuantity,
+        upperBatchQuantity: noteOrderQuantity,
+        recommendedQuantity: noteOrderQuantity,
+        roundingDecision: "staff_note_order_override" as const,
+        latestReportSource: {
+          reportId: cutoffReport.reportId ?? null,
+          reportUpdatedAt: cutoffReport.reportUpdatedAt ?? null,
+          breadRowPresent: cutoffReport.breadRowPresent !== false,
+        },
+        closureReason,
+        staffNoteOrderOverride,
+      };
+    }
+
     const dynamicPolicy = resolveDynamicVehicleBreadOrderPolicy(location, deliveryDate, dynamicOrderPolicies);
     if (dynamicPolicy) {
       usedDynamicPolicy = true;
-      const cutoffDate = deliveryDate ? previousDateKey(deliveryDate) : null;
       const exactReport = cutoffDate ? reports.find((report) => report.reportDate === cutoffDate) : null;
       const policySnapshot = {
         policyCode: dynamicPolicy.policyCode,
@@ -717,6 +784,7 @@ export function buildWarehouseKioskBreadDispatchMessage(input: WarehouseKioskBre
     const extras: string[] = [];
     if (makeup > 0) extras.push(`bù ${formatQuantity(makeup)}`);
     if (exchange > 0) extras.push(`đổi ${formatQuantity(exchange)}`);
+    if (location.staffNoteOrderOverride) extras.push("theo ghi chú DAT");
     const suffix = extras.length > 0 ? ` | ${extras.join(" | ")}` : "";
     return `${warehousePointName(location.locationName, location.locationCode)}: đặt ${formatQuantity(ordered)} que${suffix}`;
   });

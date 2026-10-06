@@ -6,6 +6,7 @@ WORKER = ROOT / "supabase/functions/dealer-warehouse-notify/index.ts"
 REPORT_SAVE = ROOT / "supabase/functions/report-daily-save/index.ts"
 MIGRATION = ROOT / "supabase/migrations/20260918093000_bhn_fixed_bread_inbound_policy.sql"
 DYNAMIC_MIGRATION = ROOT / "supabase/migrations/20260927103000_bhn_dynamic_bread_order_policy.sql"
+DAT_NOTE_MIGRATION = ROOT / "supabase/migrations/20261006160000_kiosk_dat_note_auto_order.sql"
 
 
 def read(path: Path) -> str:
@@ -255,3 +256,49 @@ def test_dynamic_vehicle_history_allows_missing_bread_row_for_bhn_only() -> None
         "bread_row_present boolean",
     ]:
         assert marker in function_sql
+
+
+def test_dat_note_auto_applies_to_next_day_without_operator_confirmation() -> None:
+    sql = read(DAT_NOTE_MIGRATION)
+    for marker in [
+        "'auto_applied'",
+        "proposal_status <> 'auto_applied' or confirmed_by is null",
+        "create or replace function public.upsert_kiosk_bread_order_note_proposal",
+        "create or replace function public.save_kiosk_daily_report_with_bread_proposal_atomic",
+        "where proposal_status in ('pending_operator_confirmation', 'confirmed', 'auto_applied')",
+        "v_target_status := case",
+        "note_order_quantity numeric",
+        "proposal.proposal_status = 'auto_applied'",
+        "grant execute on function public.upsert_kiosk_bread_order_note_proposal(uuid, uuid, date, numeric, text, jsonb) to service_role",
+        "revoke all on function public.get_daily_bread_vehicle_history(date) from public, anon, authenticated",
+        "grant execute on function public.get_daily_bread_vehicle_history(date) to service_role",
+    ]:
+        assert marker in sql, f"missing DAT note migration marker: {marker}"
+    history_sql = sql.split("create function public.get_daily_bread_vehicle_history", 1)[1]
+    assert "note_order_quantity numeric" in history_sql
+    assert "proposal.proposal_status = 'auto_applied'" in history_sql
+
+    helper = read(HELPER)
+    for marker in [
+        "noteOrderQuantity",
+        "staffNoteOrderOverride",
+        "staff_note_order_override",
+        "explicit-dat-quantity-v2",
+    ]:
+        assert marker in helper, f"missing DAT note helper marker: {marker}"
+
+    report_save = read(REPORT_SAVE)
+    for marker in [
+        'const breadNoteProposalStatus = status === "submitted"',
+        '"auto_applied"',
+        "pending_operator_confirmation",
+        "requires_confirmation: breadNoteProposalRequiresConfirmation",
+    ]:
+        assert marker in report_save, f"missing DAT note save marker: {marker}"
+
+    worker = read(WORKER)
+    for marker in [
+        "note_order_quantity",
+        "staffNoteOrderOverride",
+    ]:
+        assert marker in worker, f"missing DAT note worker marker: {marker}"
