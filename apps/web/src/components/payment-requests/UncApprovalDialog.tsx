@@ -34,6 +34,8 @@ type Props = {
   mode: "approve" | "standalone";
   requests?: UncApprovalRequest[];
   onDone?: () => void;
+  /** "cash": pay with a cash slip (phiếu chi tiền mặt) instead of a bank UNC. */
+  paymentMethod?: "bank_transfer" | "cash";
 };
 
 const LOW_CONFIDENCE = 0.85;
@@ -107,7 +109,9 @@ async function fileToJpegBase64(file: File): Promise<{ base64: string; mime: str
   }
 }
 
-export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onDone }: Props) {
+export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onDone, paymentMethod = "bank_transfer" }: Props) {
+  const isCash = paymentMethod === "cash";
+  const docName = isCash ? "chứng từ tiền mặt" : "UNC";
   const { extract, confirm, record } = usePaymentUncApproval();
   const fileRef = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<string | null>(null);
@@ -121,17 +125,21 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
   const [allocInputs, setAllocInputs] = useState<Record<string, string>>({});
 
   // Default: every selected request is paid in full. The CEO edits a row only when the transfer differs.
+  // Filled during render (not in an effect) so the first frame never shows empty amounts.
   const requestKey = requests.map((r) => `${r.id}:${Math.round(remainingAmount(r))}`).join("|");
-  useEffect(() => {
-    if (!open) return;
+  const [filledFor, setFilledFor] = useState<string | null>(null);
+  const wantFilledFor = open ? requestKey : null;
+  if (filledFor !== wantFilledFor) {
+    setFilledFor(wantFilledFor);
     const next: Record<string, string> = {};
-    for (const r of requests) {
-      const remaining = Math.round(Math.max(remainingAmount(r), 0));
-      next[r.id] = remaining > 0 ? String(remaining) : "";
+    if (open) {
+      for (const r of requests) {
+        const remaining = Math.round(Math.max(remainingAmount(r), 0));
+        next[r.id] = remaining > 0 ? String(remaining) : "";
+      }
     }
     setAllocInputs(next);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, requestKey]);
+  }
 
   useEffect(() => {
     if (open) return;
@@ -205,7 +213,7 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
   const supplierMismatch = allocMode ? !areSameSupplier(requests) : match?.code === "supplier_mismatch";
 
   const blocker = (() => {
-    if (!draft) return "Chọn ảnh UNC để bắt đầu.";
+    if (!draft) return `Chọn ảnh ${docName} để bắt đầu.`;
     if (manual && !reason.trim()) return "Duyệt tay cần ghi lý do.";
     if (manual && !(typedAmount && typedAmount > 0)) return "Nhập số tiền thực chuyển.";
     if (supplierMismatch) return ERROR_TEXT.supplier_mismatch;
@@ -228,7 +236,7 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
     try {
       const image = await fileToJpegBase64(file);
       setPreview(image.preview);
-      const result = await extract.mutateAsync({ image_base64: image.base64, mime_type: image.mime, slip_type: "unc" });
+      const result = await extract.mutateAsync({ image_base64: image.base64, mime_type: image.mime, slip_type: isCash ? "cash" : "unc" });
       setDraft(result);
       if (result.ocr.amount) setManualAmount(String(Math.round(result.ocr.amount)));
     } catch (e) {
@@ -249,8 +257,11 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
           manual_override: manual,
           override_reason: manual ? reason.trim() : null,
           idempotency_key: draft.suggested_idempotency_key,
+          payment_method: paymentMethod,
         });
-        toast.success(paidRequests.length > 1 ? `Đã duyệt và ghi chi ${paidRequests.length} phiếu bằng UNC` : "Đã duyệt và ghi chi bằng UNC");
+        toast.success(isCash
+          ? `Đã ghi chi ${paidRequests.length > 1 ? `${paidRequests.length} phiếu ` : ""}bằng tiền mặt`
+          : paidRequests.length > 1 ? `Đã duyệt và ghi chi ${paidRequests.length} phiếu bằng UNC` : "Đã duyệt và ghi chi bằng UNC");
       } else {
         await record.mutateAsync({
           file_sha256: draft.file_sha256,
@@ -271,9 +282,9 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
 
   return (
     <Dialog open={open} onOpenChange={(next) => !saving && onOpenChange(next)}>
-      <DialogContent className="d3-unc" data-bmq-unc-dialog={mode}>
+      <DialogContent className="d3-unc" data-bmq-unc-dialog={mode} data-bmq-unc-method={paymentMethod}>
         <DialogHeader className="d3-unc-head text-left sm:text-left">
-          <span className="d3-unc-tag">{approve ? "Duyệt chi bằng UNC" : "UNC không có đề nghị chi"}</span>
+          <span className="d3-unc-tag">{approve ? (isCash ? "Chi tiền mặt" : "Duyệt chi bằng UNC") : "UNC không có đề nghị chi"}</span>
           <DialogTitle className="d3-unc-title">
             {approve ? (
               <>
@@ -285,7 +296,7 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
           </DialogTitle>
           <DialogDescription className="d3-unc-sub">
             {approve
-              ? `${requests.length} phiếu · ${supplierNames.join(", ") || "Chưa rõ nhà cung cấp"}${allocMode ? " · gán số tiền UNC cho từng phiếu" : ""}`
+              ? `${requests.length} phiếu · ${supplierNames.join(", ") || "Chưa rõ nhà cung cấp"}${allocMode ? ` · gán số tiền ${docName} cho từng phiếu` : ""}`
               : "Lương, thuế, thuê nhà hoặc khoản chuyển khoản khác. Số này cộng vào UNC trong ngày."}
           </DialogDescription>
         </DialogHeader>
@@ -311,7 +322,7 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
                     Trả đủ số còn nợ
                   </button>
                   <button type="button" className="d3-unc-link" onClick={() => autoAllocate(evidenceAmount ?? null)} data-bmq-unc-alloc-auto>
-                    Chia theo số UNC, phiếu cũ trước
+                    Chia theo số {isCash ? "chứng từ" : "UNC"}, phiếu cũ trước
                   </button>
                 </span>
               )}
@@ -342,7 +353,7 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
             </ul>
             {(
               <p className="d3-unc-alloc-sum" data-bmq-unc-alloc-sum>
-                Đã gán <b>{vnd(allocatedTotal)}</b>{draft ? <> / UNC <b>{vnd(evidenceAmount ?? null)}</b></> : " · mặc định trả đủ số còn nợ, sửa nếu thực chuyển khác"}
+                Đã gán <b>{vnd(allocatedTotal)}</b>{draft ? <> / {isCash ? "chứng từ" : "UNC"} <b>{vnd(evidenceAmount ?? null)}</b></> : " · mặc định trả đủ số còn nợ, sửa nếu thực chuyển khác"}
                 {paidRequests.length < requests.length && " · phiếu để trống 0 đ không được trả lần này"}
               </p>
             )}
@@ -365,21 +376,21 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
         {!preview ? (
           <button type="button" className="d3-unc-drop" onClick={() => fileRef.current?.click()} data-bmq-unc-pick>
             <Camera className="h-6 w-6" />
-            <span>Chụp hoặc chọn ảnh UNC</span>
+            <span>{isCash ? "Chụp hoặc chọn chứng từ tiền mặt" : "Chụp hoặc chọn ảnh UNC"}</span>
             <small>Máy chủ đọc số tiền và mã giao dịch</small>
           </button>
         ) : (
           <div className="d3-unc-slip">
-            <img src={preview} alt="Ảnh UNC" />
+            <img src={preview} alt={`Ảnh ${docName}`} />
             <div className="d3-unc-read" aria-live="polite">
               {reading ? (
                 <p className="d3-unc-reading">
-                  <Loader2 className="h-4 w-4 animate-spin" /> Đang đọc UNC…
+                  <Loader2 className="h-4 w-4 animate-spin" /> Đang đọc {docName}…
                 </p>
               ) : draft ? (
                 <dl>
                   <div>
-                    <dt>Số tiền trên UNC</dt>
+                    <dt>Số tiền trên {docName}</dt>
                     <dd className="d3-unc-num" data-bmq-unc-ocr>{vnd(ocrAmount)}</dd>
                   </div>
                   <div>
@@ -407,7 +418,7 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
           <p className={amountMatches ? "d3-unc-verdict is-ok" : "d3-unc-verdict is-bad"} data-bmq-unc-verdict={amountMatches ? "match" : "mismatch"}>
             {amountMatches ? (
               <>
-                <Check className="h-4 w-4" /> {allocMode ? "Tổng gán khớp số tiền trên UNC" : "Khớp số tiền cần chi"}
+                <Check className="h-4 w-4" /> {allocMode ? `Tổng gán khớp số tiền trên ${docName}` : "Khớp số tiền cần chi"}
               </>
             ) : (
               <>
@@ -415,7 +426,7 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
                 {ocrAmount === null
                   ? "Không đọc được số tiền"
                   : allocMode
-                    ? `Tổng gán lệch ${vnd(Math.abs((ocrAmount ?? 0) - compareTotal))} so với UNC`
+                    ? `Tổng gán lệch ${vnd(Math.abs((ocrAmount ?? 0) - compareTotal))} so với ${docName}`
                     : `Lệch ${vnd(Math.abs((ocrAmount ?? 0) - compareTotal))} so với số cần chi`}
               </>
             )}
@@ -452,7 +463,7 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
           <div className="d3-unc-field">
             <label className="d3-unc-toggle">
               <input type="checkbox" checked={manual} onChange={(e) => setManual(e.target.checked)} data-bmq-unc-manual />
-              <span>Duyệt tay (số trên UNC khác, ví dụ ngân hàng trừ phí)</span>
+              <span>{isCash ? "Duyệt tay (số trên chứng từ khác số cần chi)" : "Duyệt tay (số trên UNC khác, ví dụ ngân hàng trừ phí)"}</span>
             </label>
             {manual && (
               <div className="d3-unc-manual">
@@ -490,7 +501,7 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
           </Button>
           <Button type="button" className="d3-unc-go" onClick={submit} disabled={!!blocker || reading || saving} title={blocker || undefined} data-bmq-unc-submit>
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-            {approve ? "Duyệt và ghi chi" : "Ghi nhận UNC"}
+            {approve ? (isCash ? "Ghi chi tiền mặt" : "Duyệt và ghi chi") : "Ghi nhận UNC"}
           </Button>
         </div>
       </DialogContent>

@@ -86,6 +86,7 @@ const RPC_ERRORS: Record<string, { status: number; code: string }> = {
   amount_required: { status: 400, code: "amount_required" },
   invalid_allocation: { status: 400, code: "invalid_allocation" },
   allocation_exceeds_remaining: { status: 409, code: "allocation_exceeds_remaining" },
+  invalid_payment_method: { status: 400, code: "invalid_payment_method" },
 };
 
 const MAX_UNC_ALLOCATIONS = 50;
@@ -289,8 +290,11 @@ const handleExtract = async (
     transfer_date?: unknown;
     beneficiary_account?: unknown;
   };
+  // "cash" slips are read by the existing OCR pipeline; slip_type is passed
+  // through so the model knows what it is looking at.
+  const slipType = asTrimmed(body.slip_type || body.slipType) || undefined;
   try {
-    extracted = await callOpenAiVision(imageBase64, mimeType, asTrimmed(body.slip_type || body.slipType) || undefined);
+    extracted = await callOpenAiVision(imageBase64, mimeType, slipType);
   } catch (error) {
     const message = error instanceof Error ? error.message : "ocr_failed";
     return structuredError(req, 502, "ocr_failed", message.slice(0, 300));
@@ -373,6 +377,13 @@ const handleConfirm = async (
     return structuredError(req, 400, "override_reason_required");
   }
 
+  // Optional method: bank_transfer (default) or cash. Anything else is rejected
+  // before the RPC; cash evidence may have no reference.
+  const paymentMethod = asTrimmed(body.payment_method ?? body.paymentMethod);
+  if (paymentMethod && paymentMethod !== "bank_transfer" && paymentMethod !== "cash") {
+    return structuredError(req, 400, "invalid_payment_method");
+  }
+
   const { data: draft, error: draftError } = await supabaseAdmin
     .from("payment_unc_ocr_drafts")
     .select("file_sha256,storage_path,ocr_amount,ocr_reference,ocr_beneficiary_account,ocr_confidence,transfer_date")
@@ -404,6 +415,7 @@ const handleConfirm = async (
       override_reason: manualOverride ? overrideReason : null,
       category: "khac",
       note: asTrimmed(body.note) || null,
+      ...(paymentMethod ? { payment_method: paymentMethod } : {}),
       ...(allocations ? { allocations } : {}),
     },
     p_idempotency_key: idempotencyKey,

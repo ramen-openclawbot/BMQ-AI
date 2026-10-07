@@ -207,6 +207,8 @@ async function open(cfg, route, viewport) {
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(BASE + route, { waitUntil: "domcontentloaded" });
+  // Duyệt chi now opens on "Chưa thanh toán" (Trình chi gấp); these checks cover the full list.
+  if (route === "/payment-requests") await page.locator("[data-bmq-pr-view-all]").click({ timeout: 15000 });
   await page.waitForSelector("[data-bmq-shell='demo3-v1']", { timeout: 30000 });
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(300);

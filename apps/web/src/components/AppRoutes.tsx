@@ -14,6 +14,7 @@ import Inventory from "@/pages/Inventory";
 import Suppliers from "@/pages/Suppliers";
 import Invoices from "@/pages/Invoices";
 import PaymentRequests from "@/pages/PaymentRequests";
+import PaymentSubmission from "@/pages/PaymentSubmission";
 import PayablesManagement from "@/pages/PayablesManagement";
 import LowStock from "@/pages/LowStock";
 import GoodsReceipts from "@/pages/GoodsReceipts";
@@ -281,6 +282,7 @@ export function AppRoutes() {
         <Route path="/suppliers" element={<ModuleRoute moduleKey="suppliers"><Suppliers /></ModuleRoute>} />
         <Route path="/invoices" element={<Invoices />} />
         <Route path="/payment-requests" element={<PaymentRequests />} />
+        <Route path="/payment-requests/submissions/:id" element={<PaymentSubmission />} />
         <Route path="/goods-receipts" element={<GoodsReceipts />} />
         <Route path="/purchase-orders" element={<ModuleRoute moduleKey="purchase_orders"><PurchaseOrders /></ModuleRoute>} />
         <Route path="/low-stock" element={<LowStock />} />

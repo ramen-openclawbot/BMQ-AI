@@ -1482,6 +1482,101 @@ export type Database = {
           },
         ]
       }
+      payment_submission_idempotency: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          idempotency_key: string
+          result: Json
+          submission_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          idempotency_key: string
+          result: Json
+          submission_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          idempotency_key?: string
+          result?: Json
+          submission_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_submission_idempotency_submission_id_fkey"
+            columns: ["submission_id"]
+            isOneToOne: false
+            referencedRelation: "payment_submissions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payment_submission_items: {
+        Row: {
+          payment_request_id: string
+          position: number
+          remaining_at_submit: number
+          submission_id: string
+        }
+        Insert: {
+          payment_request_id: string
+          position: number
+          remaining_at_submit: number
+          submission_id: string
+        }
+        Update: {
+          payment_request_id?: string
+          position?: number
+          remaining_at_submit?: number
+          submission_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_submission_items_payment_request_id_fkey"
+            columns: ["payment_request_id"]
+            isOneToOne: false
+            referencedRelation: "payment_requests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_submission_items_submission_id_fkey"
+            columns: ["submission_id"]
+            isOneToOne: false
+            referencedRelation: "payment_submissions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payment_submissions: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          note: string | null
+          submission_number: string
+          total_amount: number
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          note?: string | null
+          submission_number: string
+          total_amount?: number
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          note?: string | null
+          submission_number?: string
+          total_amount?: number
+        }
+        Relationships: []
+      }
       payments: {
         Row: {
           amount: number
@@ -2051,6 +2146,18 @@ export type Database = {
       }
       get_payment_request_unc_evidence: {
         Args: { p_request_id: string }
+        Returns: Json
+      }
+      create_payment_submission: {
+        Args: {
+          p_idempotency_key: string
+          p_note: string
+          p_request_ids: string[]
+        }
+        Returns: Json
+      }
+      get_payment_submission: {
+        Args: { p_id: string }
         Returns: Json
       }
       ensure_purchase_order_receipt_queue: {

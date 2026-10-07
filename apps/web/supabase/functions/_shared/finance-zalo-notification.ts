@@ -10,20 +10,26 @@ export type FinanceZaloEventType =
   | "payment_request_created"
   | "payment_request_paid"
   | "goods_receipt_received"
-  | "goods_receipt_short";
+  | "goods_receipt_short"
+  | "payment_submission_created";
 
 export const FINANCE_ZALO_EVENT_TYPES: FinanceZaloEventType[] = [
   "payment_request_created",
   "payment_request_paid",
   "goods_receipt_received",
   "goods_receipt_short",
+  "payment_submission_created",
 ];
 
 export const PAYMENT_REQUESTS_DEEP_LINK = "https://ai.banhmique.vn/payment-requests";
+export const PAYMENT_SUBMISSIONS_DEEP_LINK = "https://ai.banhmique.vn/payment-requests/submissions";
 export const GOODS_RECEIPTS_DEEP_LINK = "https://ai.banhmique.vn/goods-receipts";
 
 export const paymentRequestDeepLink = (id: string) =>
   `${PAYMENT_REQUESTS_DEEP_LINK}?id=${encodeURIComponent(id)}`;
+
+export const paymentSubmissionDeepLink = (id: string) =>
+  `${PAYMENT_SUBMISSIONS_DEEP_LINK}/${encodeURIComponent(id)}`;
 
 export const goodsReceiptDeepLink = (id: string) =>
   `${GOODS_RECEIPTS_DEEP_LINK}?id=${encodeURIComponent(id)}`;
@@ -55,6 +61,22 @@ export type GoodsReceiptNotificationInput = {
   purchaseOrderCode?: string | null;
   shortLineCount?: number | null;
 };
+
+export type PaymentSubmissionNotificationItem = {
+  supplierName?: string | null;
+  requestNumber: string;
+  remainingAmount?: number | null;
+};
+
+export type PaymentSubmissionNotificationInput = {
+  id: string;
+  submissionNumber: string;
+  note?: string | null;
+  totalAmount?: number | null;
+  items: PaymentSubmissionNotificationItem[];
+};
+
+const PAYMENT_SUBMISSION_MAX_LINES = 5;
 
 export const formatPaymentRequestCreatedMessage = (
   input: PaymentRequestNotificationInput,
@@ -119,9 +141,35 @@ export const formatGoodsReceiptShortMessage = (
   return lines.join("\n");
 };
 
+/**
+ * "Trình chi gấp" notice: header, one line per request (up to five) and the
+ * submission deep link. Mirrors public.create_payment_submission's SQL body.
+ */
+export const formatPaymentSubmissionMessage = (
+  input: PaymentSubmissionNotificationInput,
+): string => {
+  const items = Array.isArray(input.items) ? input.items : [];
+  const count = items.length;
+  const lines = [
+    `📋 TRÌNH CHI GẤP ${safeText(input.submissionNumber, "Chưa có mã")}`,
+    `${count} phiếu · Tổng ${formatVnd(input.totalAmount)}`,
+  ];
+  for (const item of items.slice(0, PAYMENT_SUBMISSION_MAX_LINES)) {
+    lines.push(
+      `• ${safeText(item.supplierName, "Chưa xác định")} – ${safeText(item.requestNumber, "Chưa có mã")}: ${formatVnd(item.remainingAmount)}`,
+    );
+  }
+  if (count > PAYMENT_SUBMISSION_MAX_LINES) {
+    lines.push(`… và ${count - PAYMENT_SUBMISSION_MAX_LINES} phiếu khác`);
+  }
+  if (input.note?.trim()) lines.push(input.note.trim());
+  lines.push("", paymentSubmissionDeepLink(input.id));
+  return lines.join("\n");
+};
+
 export const formatFinanceZaloMessage = (
   eventType: FinanceZaloEventType,
-  input: PaymentRequestNotificationInput | GoodsReceiptNotificationInput,
+  input: PaymentRequestNotificationInput | GoodsReceiptNotificationInput | PaymentSubmissionNotificationInput,
 ): string => {
   switch (eventType) {
     case "payment_request_created":
@@ -132,6 +180,8 @@ export const formatFinanceZaloMessage = (
       return formatGoodsReceiptReceivedMessage(input as GoodsReceiptNotificationInput);
     case "goods_receipt_short":
       return formatGoodsReceiptShortMessage(input as GoodsReceiptNotificationInput);
+    case "payment_submission_created":
+      return formatPaymentSubmissionMessage(input as PaymentSubmissionNotificationInput);
     default:
       throw new Error(`Unknown finance Zalo event type: ${String(eventType)}`);
   }

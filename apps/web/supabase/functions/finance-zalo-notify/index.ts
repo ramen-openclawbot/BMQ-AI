@@ -218,6 +218,12 @@ const buildJobMessage = async (
   // Prefer the canonical shared formatter rehydrating current server state; fall
   // back to the outbox snapshot so a formatting error never blocks a notice.
   try {
+    // Submission notices are self-contained snapshots stored at creation time;
+    // the outbox body is the canonical text for this event.
+    if (job.event_type === "payment_submission_created") {
+      return job.message_body;
+    }
+
     if (job.event_type === "payment_request_created" || job.event_type === "payment_request_paid") {
       const { data } = await supabase
         .from("payment_requests")

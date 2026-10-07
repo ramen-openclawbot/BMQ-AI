@@ -472,3 +472,8 @@ html.bmq-d3 .d3-pa-pages button.is-on { background: var(--d3-ink); color: #fff; 
 @media (prefers-reduced-motion: reduce) {
   .d3-pa-head, .d3-pa-sumc, .d3-pa-list, .d3-pa-row, .d3-pa-bulk { animation: none !important; transition: none !important; }
 }
+
+/* View switch: Chưa thanh toán (default) | Tất cả phiếu */
+.d3-pa-view { display: inline-flex; justify-self: start; max-width: 100%; gap: 4px; padding: 4px; border-radius: 16px; background: var(--d3-panel, #ececea); }
+.d3-pa-view button { min-height: 40px; padding: 0 14px; border: 0; border-radius: 12px; background: transparent; color: var(--d3-ink-2, #4a4a4a); font-size: 13px; font-weight: 500; white-space: nowrap; cursor: pointer; }
+.d3-pa-view button.is-on { background: var(--d3-white, #fdfdfc); color: var(--d3-ink, #272727); box-shadow: var(--d3-sh); }

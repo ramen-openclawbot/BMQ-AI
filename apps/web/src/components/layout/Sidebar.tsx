@@ -74,7 +74,7 @@ export const navItems: NavItem[] = [
     section: "finance",
     moduleKey: "finance_cost",
     children: [
-      { icon: CalendarClock, labelKey: "financeCeoDeclaration", path: "/finance-control/ceo-declaration", section: "finance", moduleKey: "finance_cost" },
+      // CEO khai báo replaced by Trình chi gấp (2026-10-07); route kept for history.
       { icon: ClipboardCheck, labelKey: "financeCostClassification", path: "/finance-control/classification", section: "finance", moduleKey: "finance_cost" },
       { icon: FileCheck, labelKey: "financePayablesManagement", path: "/finance-control/payables", section: "finance", moduleKey: "payment_requests" },
     ],

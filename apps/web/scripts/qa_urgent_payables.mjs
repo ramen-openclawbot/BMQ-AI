@@ -1,4 +1,4 @@
-// QA for the Demo 3 redesign of the Duyệt chi detail: layout at 320/390/1280/1440 (dialog and side panel), no horizontal overflow, chips, facts, items, evidence, action bar.
+// QA for Trình chi gấp: unpaid list (90 days, 10 per page, server range), ticking + submit, the CEO submission page with Chi UNC / Tiền mặt, and the removed CEO khai báo chip.
 //
 // FIXTURE AUTH + FIXTURE DATA: AuthContext and the Supabase client are replaced by in-memory
 // fixtures. The payment-unc-approve edge function is mocked (OCR results and errors are
@@ -16,10 +16,10 @@ import { createServer } from "vite";
 import react from "@vitejs/plugin-react-swc";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const EVIDENCE = process.env.EVIDENCE_DIR || "/tmp/bmq-prd-qa";
+const EVIDENCE = process.env.EVIDENCE_DIR || "/tmp/bmq-urgent-qa";
 const PW = process.env.PLAYWRIGHT_CORE || "/private/tmp/pwqa/node_modules/playwright-core";
 const CHROME = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-const PORT = Number(process.env.QA_PORT || 5202);
+const PORT = Number(process.env.QA_PORT || 5203);
 const { chromium } = createRequire(import.meta.url)(PW);
 fs.mkdirSync(EVIDENCE, { recursive: true });
 
@@ -28,7 +28,7 @@ const cfg = () => JSON.parse(localStorage.getItem("qa-shell") || "{}");
 window.__qaWrites = window.__qaWrites || [];
 window.__qaBodies = window.__qaBodies || [];
 const WRITE = new Set(["insert", "update", "upsert", "delete"]);
-const READ_RPCS = new Set(["rpc:finance_unc_total_from_evidence", "rpc:finance_daily_snapshot", "rpc:get_payment_request_unc_evidence"]);
+const READ_RPCS = new Set(["rpc:finance_unc_total_from_evidence", "rpc:finance_daily_snapshot", "rpc:get_payment_submission"]);
 const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh" }).format(new Date());
 const pr = (id, number, supplierId, supplierName, amount, status = "pending", unpaid = false, hour = "02") => ({
   id, request_number: number, title: "Thanh toán " + supplierName, total_amount: amount, vat_amount: 0,
@@ -46,40 +46,31 @@ const PRS = [
   pr("22222222-2222-4222-8222-222222222222", "DC-0102", "sup-a", "Bột Mì Sài Gòn", 6250000),
   pr("33333333-3333-4333-8333-333333333333", "DC-0103", "sup-b", "Công ty TNHH Thực Phẩm Tươi Sống Miền Nam chi nhánh Bình Tân", 31750000),
   pr("44444444-4444-4444-8444-444444444444", "DC-0099", "sup-a", "Bột Mì Sài Gòn", 8000000, "approved"),
-  pr("66666666-6666-4666-8666-666666666666", "DC-0095", "sup-t", "Thiên An Sinh", 2883280, "approved"),
-  Object.assign(pr("77777777-7777-4777-8777-777777777771", "DC-0106", "sup-t", "Thiên An Sinh", 2607720, "approved"), { purchase_orders: null, purchase_order_id: null, requires_receipt: false, no_receipt_reason: "Thuế VAT HĐ317", title: "Thuế VAT" }),
-  Object.assign(pr("77777777-7777-4777-8777-777777777772", "DC-0107", "sup-t", "Thiên An Sinh", 1000000, "approved"), { purchase_orders: null, purchase_order_id: null, requires_receipt: true, title: "Phí dịch vụ" }),
   pr("55555555-5555-4555-8555-555555555551", "DC-0096", "sup-t", "Thiên An Sinh", 10732500, "approved", true, "00"),
   pr("55555555-5555-4555-8555-555555555552", "DC-0097", "sup-t", "Thiên An Sinh", 10732500, "approved", true, "01"),
   pr("55555555-5555-4555-8555-555555555553", "DC-0098", "sup-t", "Thiên An Sinh", 11131500, "approved", true, "02"),
   pr("55555555-5555-4555-8555-555555555554", "DC-0104", "sup-t", "Thiên An Sinh", 11131500, "pending", false, "03"),
   pr("55555555-5555-4555-8555-555555555555", "DC-0105", "sup-t", "Thiên An Sinh", 2607720, "pending", false, "04"),
 ];
+const UNPAID = Array.from({ length: 23 }, (_, i) => {
+  const r = pr("88888888-8888-4888-8888-" + String(100000000000 + i).slice(1), "PR-U" + String(i + 1).padStart(3, "0"), i % 3 === 0 ? "sup-t" : "sup-a", i % 3 === 0 ? "Thiên An Sinh" : "Bột Mì Sài Gòn", 1000000 * (i + 1), i % 4 === 0 ? "approved" : "pending", true, "02");
+  r.created_at = new Date(Date.now() - i * 3 * 86400000).toISOString();
+  return r;
+});
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const edgeError = (status, code) => ({
   data: null,
   error: { message: "Edge Function returned a non-2xx status code", context: new Response(JSON.stringify({ success: false, code, error: code }), { status }) },
 });
 function settle(st) {
-  if (st.table === "rpc:set_payment_request_requires_receipt") {
-    window.__qaWrites.push("rpc:set_payment_request_requires_receipt");
-    window.__qaBodies.push({ name: "set_requires_receipt", ...(st.args || {}) });
-    return { data: { id: st.args?.p_request_id, requires_receipt: st.args?.p_requires_receipt, no_receipt_reason: st.args?.p_reason }, error: null };
+  if (st.table === "rpc:create_payment_submission") {
+    window.__qaBodies.push({ name: "create_payment_submission", ...(st.args || {}) });
+    return { data: { status: "created", submission_id: "sub-1", submission_number: "TC-261007-01", note: st.args?.p_note ?? null, total_amount: 0, item_count: (st.args?.p_request_ids || []).length, items: [], idempotent: false }, error: null };
   }
-  if (st.table === "rpc:get_payment_request_unc_evidence") {
-    const c = cfg();
-    if (c.evidence === "error") return { data: null, error: { message: "QA fixture: boom" } };
-    const id = st.args?.p_request_id;
-    if (id === "44444444-4444-4444-8444-444444444444") return { data: c.evidence === "none" ? [] : [{
-      payment_id: "pay-1", payment_number: "PAY-000150", payment_date: today, payment_total: 35204220, allocated_to_request: 8000000,
-      reference_number: "6084337381", evidence: { storage_path: "payment-unc/2026/10/aaa.jpg", transfer_date: today, ocr_amount: 35204220, manual_override: true, override_reason: "UNC gồm 2.607.720 chưa có phiếu", category: "khac" },
-      siblings: [{ request_id: "55555555-5555-4555-8555-555555555551", request_number: "DC-0096", amount: 10732500 }, { request_id: "55555555-5555-4555-8555-555555555552", request_number: "DC-0097", amount: 10732500 }, { request_id: "55555555-5555-4555-8555-555555555553", request_number: "DC-0098", amount: 5731220 }] }], error: null };
-    if (id === "77777777-7777-4777-8777-777777777771") return { data: [{
-      payment_id: "pay-182", payment_number: "PAY-000182", payment_date: today, payment_total: 35204220, allocated_to_request: 2607720, reference_number: "6279BFTVGLM1J7CF",
-      evidence: { storage_path: "payment-unc/2026/10/x.jpg", transfer_date: today, ocr_amount: 35204220, manual_override: false, override_reason: null, category: "khac" },
-      siblings: [{ request_id: "a1", request_number: "PR-5A85DB62", amount: 10732500 }, { request_id: "a2", request_number: "PR-5AD94329", amount: 11131500 }, { request_id: "a3", request_number: "PR-6CE6FCBD", amount: 10732500 }] }], error: null };
-    if (id === "66666666-6666-4666-8666-666666666666") return { data: [{ payment_id: "pay-2", payment_number: "PAY-000148", payment_date: "2026-09-14", payment_total: 2883280, allocated_to_request: 2883280, reference_number: null, evidence: null, siblings: [] }], error: null };
-    return { data: [], error: null };
+  if (st.table === "rpc:get_payment_submission") {
+    const mk = (r, i, paid) => ({ payment_request_id: r.id, position: i + 1, remaining_at_submit: r.total_amount, request_number: r.request_number, title: r.title, supplier_id: r.supplier_id, supplier_name: r.suppliers.name, total_amount: r.total_amount, allocated_amount: paid ? r.total_amount : 0, remaining_amount: paid ? 0 : r.total_amount, status: paid ? "approved" : r.status, payment_status: paid ? "paid" : "unpaid", requires_receipt: true, created_at: r.created_at });
+    const items = [mk(UNPAID[0], 0, false), mk(UNPAID[1], 1, false), mk(UNPAID[2], 2, true)];
+    return { data: { id: "sub-1", submission_number: "TC-261007-01", note: "Cần chi trước 15h để nhận hàng", total_amount: items.reduce((s, i) => s + i.remaining_at_submit, 0), created_by: "acc-user", created_at: today + "T03:00:00.000Z", items }, error: null };
   }
   if (st.table === "rpc:finance_unc_total_from_evidence") return { data: { transfer_date: st.args?.p_date, total_amount: 19750000, evidence_count: 2 }, error: null };
   if (st.table.startsWith("rpc:") && !READ_RPCS.has(st.table)) { window.__qaWrites.push(st.table); return { data: null, error: { message: "QA fixture: writes disabled" } }; }
@@ -89,11 +80,13 @@ function settle(st) {
     if (st.table === "payment_requests") return { data: PRS.find((r) => r.id === st.filters.id) || null, error: null };
     return { data: null, error: null };
   }
+  if (st.table === "payment_requests" && st.range) {
+    if (cfg().unpaid === "error") return { data: null, error: { message: "QA fixture: boom" }, count: null };
+    const list = UNPAID.filter((r) => !st.gte || r.created_at >= st.gte.slice(0, 10));
+    window.__qaRanges = (window.__qaRanges || []).concat([[st.range[0], st.range[1], st.gte || null]]);
+    return { data: list.slice(st.range[0], st.range[1] + 1), error: null, count: list.length };
+  }
   if (st.table === "payment_requests") return { data: PRS, error: null, count: PRS.length };
-  if (st.table === "payment_request_items") return { data: [
-    { id: "it1", payment_request_id: st.filters.payment_request_id, product_code: "NVL-BOT-MI-13", product_name: "Bột mì số 13 bao 25kg nhãn xanh (hàng nhập khẩu)", quantity: 20, unit: "bao", unit_price: 450000, line_total: 9000000, last_price: 430000, price_change_percent: 4.65, inventory_items: { id: "inv1", name: "Bột mì", quantity: 12 } },
-    { id: "it2", payment_request_id: st.filters.payment_request_id, product_code: null, product_name: "Phí vận chuyển", quantity: 1, unit: "chuyến", unit_price: 4500000, line_total: 4500000, last_price: null, price_change_percent: null, inventory_items: null },
-  ], error: null };
   return { data: [], error: null, count: 0 };
 }
 function builder(table, args) {
@@ -107,6 +100,8 @@ function builder(table, args) {
         if (WRITE.has(prop)) st.write = prop;
         if (prop === "select" && a[1] && a[1].head) st.head = true;
         if (prop === "eq") st.filters[a[0]] = a[1];
+        if (prop === "range") st.range = [a[0], a[1]];
+        if (prop === "gte") st.gte = a[1];
         if (prop === "single" || prop === "maybeSingle") st.single = true;
         return proxy;
       };
@@ -146,7 +141,7 @@ export const supabase = {
   rpc: (fn, args) => builder("rpc:" + fn, args),
   schema: () => ({ from: (table) => builder(table), rpc: (fn, args) => builder("rpc:" + fn, args) }),
   functions: { invoke },
-  storage: { from: () => ({ getPublicUrl: () => ({ data: { publicUrl: "" } }), createSignedUrl: async () => ({ data: { signedUrl: "data:image/svg+xml;utf8,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2772%27 height=%2796%27%3E%3Crect width=%2772%27 height=%2796%27 fill=%27%23dfe8dd%27/%3E%3Ctext x=%278%27 y=%2750%27 font-size=%2712%27%3EUNC%3C/text%3E%3C/svg%3E" }, error: null }), list: async () => ({ data: [], error: null }), upload: async () => ({ data: null, error: { message: "QA fixture: writes disabled" } }), download: async () => ({ data: null, error: null }) }) },
+  storage: { from: () => ({ getPublicUrl: () => ({ data: { publicUrl: "" } }), createSignedUrl: async () => ({ data: null, error: null }), list: async () => ({ data: [], error: null }), upload: async () => ({ data: null, error: { message: "QA fixture: writes disabled" } }), download: async () => ({ data: null, error: null }) }) },
   auth: {
     getSession: async () => ({ data: { session: { access_token: "qa-fixture-token", user } }, error: null }),
     getUser: async () => ({ data: { user }, error: null }),
@@ -198,7 +193,7 @@ const server = await createServer({
   root: ROOT,
   configFile: false,
   logLevel: "error",
-  cacheDir: process.env.QA_VITE_CACHE || "/tmp/bmq-prd-qa/vite-cache",
+  cacheDir: process.env.QA_VITE_CACHE || "/tmp/bmq-urgent-qa/vite-cache",
   server: { port: PORT, strictPort: true, host: "127.0.0.1" },
   define: { __APP_VERSION__: JSON.stringify("qa"), __APP_SEMVER__: JSON.stringify("vqa") },
   resolve: { alias: { "@": path.join(ROOT, "src") } },
@@ -222,8 +217,6 @@ async function open(cfg, route, viewport) {
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(BASE + route, { waitUntil: "domcontentloaded" });
-  // Duyệt chi now opens on "Chưa thanh toán" (Trình chi gấp); these checks cover the full list.
-  if (route === "/payment-requests") await page.locator("[data-bmq-pr-view-all]").click({ timeout: 15000 });
   await page.waitForSelector("[data-bmq-shell='demo3-v1']", { timeout: 30000 });
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(300);
@@ -252,56 +245,138 @@ async function openDetail(page, requestNumber) {
   await page.waitForSelector("[data-bmq-payment-detail]");
 }
 
-const WIDTHS = [
-  { width: 320, height: 640 },
-  { width: 390, height: 844 },
-  { width: 1280, height: 800 },
-  { width: 1440, height: 900 },
-];
-const CASES = [
-  { code: "DC-0101", name: "pending" },
-  { code: "DC-0106", name: "vat-paid" },
-  { code: "DC-0107", name: "paid-no-invoice" },
-];
-
-async function measure(page) {
-  return page.evaluate(() => {
-    const root = document.querySelector("[data-bmq-payment-detail]");
-    const vw = window.innerWidth;
-    const box = root.getBoundingClientRect();
-    const offenders = [];
-    for (const el of root.querySelectorAll("*")) {
-      const r = el.getBoundingClientRect();
-      if (r.width > 0 && r.right > Math.min(vw, box.right) + 1 && getComputedStyle(el).position !== "fixed") offenders.push(`${el.tagName.toLowerCase()}.${String(el.className).slice(0, 40)} → ${Math.round(r.right)}`);
-    }
-    return { doc: document.documentElement.scrollWidth - vw, inner: root.scrollWidth - root.clientWidth, offenders: offenders.slice(0, 5) };
-  });
-}
-
+const WIDTHS = [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 640 }];
+const overflowOk = async (page) => (await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)) <= 0;
 try {
+  // 1. Duyệt chi opens on the unpaid view, 10 rows, server range, pages, older-than-90 toggle.
   for (const viewport of WIDTHS) {
-    for (const c of CASES) {
-      const { context, page, errors } = await open({ role: "owner" }, "/payment-requests", viewport);
-      await openDetail(page, c.code);
-      await page.waitForSelector("[data-bmq-prd-amount]");
-      if (c.code === "DC-0106") await page.waitForSelector("[data-bmq-unc-ev-siblings]");
-      await page.waitForTimeout(500);
-      const m = await measure(page);
-      assert.ok(m.doc <= 0 && m.inner <= 0 && m.offenders.length === 0, `${c.name} ${viewport.width} overflow ${JSON.stringify(m)}`);
-      assert.ok((await page.locator("[data-bmq-prd-chips] .d3-prd-chip").count()) >= 3, "status chips");
-      assert.equal(await page.locator("[data-bmq-payment-detail] .bg-green-500, [data-bmq-payment-detail] .bg-green-600").count(), 0, "no legacy saturated green");
-      await page.screenshot({ path: `${EVIDENCE}/${c.name}-${viewport.width}-top.png` });
-      await page.evaluate(() => { const r = document.querySelector("[data-bmq-payment-detail]"); r.scrollTop = r.scrollHeight; });
-      await page.waitForTimeout(300);
-      await page.screenshot({ path: `${EVIDENCE}/${c.name}-${viewport.width}-bottom.png` });
-      assert.deepEqual(errors, [], `page errors ${c.name} ${viewport.width}`);
-      record(`${c.name} ${viewport.width}`);
-      await context.close();
-    }
+    const { context, page, errors } = await open({ role: "owner" }, "/payment-requests", viewport);
+    await page.waitForSelector("[data-bmq-urgent-payables]");
+    await page.waitForSelector("[data-bmq-urgent-row]");
+    assert.equal(await page.locator("[data-bmq-urgent-row]").count(), 10, "10 rows per page");
+    assert.ok((await page.locator("[data-bmq-urgent-payables] h2").textContent()).includes("23"), "exact total");
+    const ranges = await page.evaluate(() => window.__qaRanges);
+    assert.deepEqual(ranges[ranges.length - 1].slice(0, 2), [0, 9], "server range 0..9");
+    assert.ok(ranges[ranges.length - 1][2], "90-day cutoff sent");
+    assert.ok(await overflowOk(page), `no overflow ${viewport.width}`);
+    await page.screenshot({ path: `${EVIDENCE}/unpaid-${viewport.width}.png` });
+    await page.getByRole("button", { name: "Trang sau" }).click();
+    await page.waitForFunction(() => document.querySelector("[data-bmq-urgent-row]")?.getAttribute("data-bmq-urgent-row") === "PR-U011");
+    assert.deepEqual((await page.evaluate(() => window.__qaRanges)).pop().slice(0, 2), [10, 19]);
+    await page.locator("[data-bmq-urgent-all-time]").check();
+    await page.waitForTimeout(300);
+    assert.equal((await page.evaluate(() => window.__qaRanges)).pop()[2], null, "no cutoff when viewing all");
+    assert.deepEqual(errors, [], `page errors ${viewport.width}`);
+    record(`unpaid list ${viewport.width}`);
+    await context.close();
+  }
+
+  // 2. Tick across pages, submit with a note, success state + link.
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    const { context, page, errors } = await open({ role: "owner" }, "/payment-requests", viewport);
+    await page.waitForSelector("[data-bmq-urgent-row]");
+    await page.getByRole("checkbox", { name: "Trình chi gấp PR-U001" }).click();
+    await page.getByRole("checkbox", { name: "Trình chi gấp PR-U002" }).click();
+    await page.getByRole("button", { name: "Trang sau" }).click();
+    await page.waitForFunction(() => document.querySelector("[data-bmq-urgent-row]")?.getAttribute("data-bmq-urgent-row") === "PR-U011");
+    await page.getByRole("checkbox", { name: "Trình chi gấp PR-U011" }).click();
+    const bar = page.locator("[data-bmq-urgent-bar]");
+    await bar.waitFor();
+    assert.ok((await bar.textContent()).includes("3") && (await bar.textContent()).includes("14.000.000"), await bar.textContent());
+    await page.waitForTimeout(200);
+    await page.screenshot({ path: `${EVIDENCE}/selected-${viewport.width}.png` });
+    await page.locator("[data-bmq-urgent-submit-open]").click();
+    const dialog = page.locator("[data-bmq-urgent-dialog]");
+    await dialog.waitFor();
+    assert.equal(await page.locator("[data-bmq-urgent-preview] li").count(), 3);
+    await dialog.getByLabel("Ghi chú trình chi").fill("Cần chi trước 15h để nhận hàng");
+    await page.waitForTimeout(250);
+    await dialog.screenshot({ path: `${EVIDENCE}/submit-dialog-${viewport.width}.png` });
+    await page.locator("[data-bmq-urgent-submit]").click();
+    await dialog.getByText("Đã gửi TC-261007-01").waitFor();
+    const call = (await page.evaluate(() => window.__qaBodies)).filter((b) => b.name === "create_payment_submission").pop();
+    assert.equal(call.p_request_ids.length, 3);
+    assert.equal(call.p_note, "Cần chi trước 15h để nhận hàng");
+    assert.ok(String(call.p_idempotency_key).startsWith("payment_submission:"));
+    assert.equal(await page.locator("[data-bmq-urgent-bar]").count(), 0, "selection cleared");
+    await dialog.screenshot({ path: `${EVIDENCE}/submit-done-${viewport.width}.png` });
+    assert.deepEqual(errors, []);
+    record(`submit ${viewport.width}`);
+    await context.close();
+  }
+
+  // 3. CEO submission page: rows, paid row, per-row UNC / cash, multi-select.
+  for (const viewport of WIDTHS) {
+    const { context, page, errors } = await open({ role: "owner", ocrAmount: 1000000 }, "/payment-requests/submissions/sub-1", viewport);
+    await page.waitForSelector("[data-bmq-submission-row]");
+    assert.equal(await page.locator("[data-bmq-submission-row]").count(), 3);
+    assert.ok((await page.locator("[data-bmq-submission-remaining]").textContent()).includes("3.000.000"), "remaining = 1tr + 2tr");
+    assert.equal(await page.locator("[data-bmq-submission-pay-unc]").count(), 2, "paid row has no pay buttons");
+    assert.ok(await overflowOk(page), `no overflow ${viewport.width}`);
+    await page.waitForTimeout(250);
+    await page.screenshot({ path: `${EVIDENCE}/submission-${viewport.width}.png`, fullPage: true });
+    await page.locator("[data-bmq-submission-row='PR-U001'] [data-bmq-submission-pay-cash]").click();
+    const d = page.locator("[data-bmq-unc-dialog='approve']");
+    await d.waitFor();
+    assert.equal(await d.getAttribute("data-bmq-unc-method"), "cash");
+    assert.ok((await d.textContent()).includes("Chi tiền mặt"));
+    await upload(page);
+    await page.waitForSelector("[data-bmq-unc-verdict='match']");
+    await page.waitForTimeout(250);
+    await d.screenshot({ path: `${EVIDENCE}/cash-dialog-${viewport.width}.png` });
+    await page.locator("[data-bmq-unc-submit]").click();
+    await d.waitFor({ state: "detached" });
+    const ex = (await page.evaluate(() => window.__qaBodies)).filter((b) => b.mode === "extract").pop();
+    assert.equal(ex.slip_type, "cash");
+    const confirm = (await page.evaluate(() => window.__qaBodies)).filter((b) => b.mode === "confirm").pop();
+    assert.equal(confirm.payment_method, "cash");
+    assert.deepEqual(errors, []);
+    record(`submission page + cash ${viewport.width}`);
+    await context.close();
+  }
+
+  // 4. Multi-select UNC on the submission page.
+  {
+    const { context, page, errors } = await open({ role: "owner", ocrAmount: 3000000 }, "/payment-requests/submissions/sub-1", { width: 390, height: 844 });
+    await page.waitForSelector("[data-bmq-submission-row]");
+    await page.getByRole("checkbox", { name: "Chọn PR-U001" }).click();
+    await page.getByRole("checkbox", { name: "Chọn PR-U002" }).click();
+    await page.locator("[data-bmq-submission-multi-unc]").click();
+    const d = page.locator("[data-bmq-unc-dialog='approve']");
+    await d.waitFor();
+    assert.equal(await d.getAttribute("data-bmq-unc-method"), "bank_transfer");
+    assert.equal(await page.locator("[data-bmq-unc-alloc-row]").count(), 2);
+    assert.deepEqual(errors, []);
+    record("multi-select UNC");
+    await context.close();
+  }
+
+  // 5. Accountant (no owner): sees the page read-only; CEO khai báo chip removed from the Duyệt chi zone.
+  {
+    const { context, page, errors } = await open({ role: "accountant" }, "/payment-requests/submissions/sub-1", { width: 1440, height: 900 });
+    await page.waitForSelector("[data-bmq-submission-row]");
+    assert.equal(await page.locator("[data-bmq-submission-pay-unc]").count(), 0);
+    assert.ok((await page.locator("[data-bmq-payment-submission]").textContent()).includes("Chỉ CEO"));
+    await page.goto(BASE + "/payment-requests", { waitUntil: "domcontentloaded" });
+    await page.waitForSelector("[data-bmq-urgent-payables]");
+    await page.waitForTimeout(400);
+    assert.equal(await page.getByText("CEO khai báo", { exact: true }).count(), 0, "CEO khai báo chip removed");
+    assert.ok(await page.getByRole("checkbox", { name: /Trình chi gấp/ }).first().isVisible(), "accountant with edit can submit");
+    assert.deepEqual(errors, []);
+    record("accountant view + CEO khai báo chip gone");
+    await context.close();
+  }
+
+  // 6. Errors are shown, not hidden.
+  {
+    const { context, page } = await open({ role: "owner", unpaid: "error" }, "/payment-requests", { width: 390, height: 844 });
+    await page.waitForSelector("[data-bmq-urgent-error]");
+    record("unpaid list error state");
+    await context.close();
   }
 } finally {
-  fs.writeFileSync(`${EVIDENCE}/qa-prd.json`, JSON.stringify(results, null, 2));
+  fs.writeFileSync(`${EVIDENCE}/qa-urgent.json`, JSON.stringify(results, null, 2));
   await browser.close();
   await server.close();
 }
-console.log(`ALL ${results.length} DETAIL REDESIGN QA CHECKS PASSED — evidence in ${EVIDENCE}`);
+console.log(`ALL ${results.length} URGENT PAYABLES QA CHECKS PASSED — evidence in ${EVIDENCE}`);

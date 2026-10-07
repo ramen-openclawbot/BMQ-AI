@@ -8,9 +8,11 @@ import {
   formatGoodsReceiptShortMessage,
   formatPaymentRequestCreatedMessage,
   formatPaymentRequestPaidMessage,
+  formatPaymentSubmissionMessage,
   formatVnd,
   goodsReceiptDeepLink,
   paymentRequestDeepLink,
+  paymentSubmissionDeepLink,
 } from "./finance-zalo-notification.ts";
 
 const PAYMENT_REQUEST = {
@@ -28,6 +30,20 @@ const GOODS_RECEIPT = {
   supplierName: "Công ty TNHH Bột Mì Sài Gòn",
   purchaseOrderCode: "PO-20261001-0007",
   shortLineCount: 2,
+};
+
+const PAYMENT_SUBMISSION = {
+  id: "33333333-3333-3333-3333-333333333333",
+  submissionNumber: "TC-261007-01",
+  note: "Gấp trước 3h chiều",
+  totalAmount: 41_006_300,
+  items: [
+    {
+      supplierName: "Công ty TNHH Bột Mì Sài Gòn",
+      requestNumber: "PC-20261006-0001",
+      remainingAmount: 41_006_300,
+    },
+  ],
 };
 
 test("formats VND amounts with Vietnamese separators", () => {
@@ -80,6 +96,41 @@ test("formats received and short goods receipt notices", () => {
   assert.match(short, /Số dòng thiếu: 2/);
 });
 
+test("formats the Trình chi gấp submission notice", () => {
+  const message = formatPaymentSubmissionMessage(PAYMENT_SUBMISSION);
+  assert.match(message, /📋 TRÌNH CHI GẤP TC-261007-01/);
+  assert.match(message, /1 phiếu · Tổng 41\.006\.300 đ/);
+  assert.match(message, /• Công ty TNHH Bột Mì Sài Gòn – PC-20261006-0001: 41\.006\.300 đ/);
+  assert.match(message, /Gấp trước 3h chiều/);
+  assert.match(
+    message,
+    /payment-requests\/submissions\/33333333-3333-3333-3333-333333333333/,
+  );
+  assert.equal(
+    paymentSubmissionDeepLink(PAYMENT_SUBMISSION.id),
+    "https://ai.banhmique.vn/payment-requests/submissions/33333333-3333-3333-3333-333333333333",
+  );
+});
+
+test("caps the submission notice at five request lines", () => {
+  const items = Array.from({ length: 8 }, (_, index) => ({
+    supplierName: `NCC ${index + 1}`,
+    requestNumber: `PC-20261006-000${index + 1}`,
+    remainingAmount: 1_000_000 * (index + 1),
+  }));
+  const message = formatPaymentSubmissionMessage({
+    ...PAYMENT_SUBMISSION,
+    totalAmount: 36_000_000,
+    note: null,
+    items,
+  });
+  assert.match(message, /8 phiếu · Tổng 36\.000\.000 đ/);
+  assert.match(message, /• NCC 5 – PC-20261006-0005/);
+  assert.doesNotMatch(message, /• NCC 6 –/);
+  assert.match(message, /… và 3 phiếu khác/);
+  assert.doesNotMatch(message, /Gấp trước/);
+});
+
 test("never leaks a bank account number or image payload", () => {
   const withAccount = {
     ...PAYMENT_REQUEST,
@@ -91,6 +142,7 @@ test("never leaks a bank account number or image payload", () => {
     formatPaymentRequestPaidMessage(withAccount),
     formatGoodsReceiptReceivedMessage(GOODS_RECEIPT),
     formatGoodsReceiptShortMessage(GOODS_RECEIPT),
+    formatPaymentSubmissionMessage(PAYMENT_SUBMISSION),
   ];
   for (const message of messages) {
     assert.doesNotMatch(message, /1234567890123/);
@@ -99,12 +151,13 @@ test("never leaks a bank account number or image payload", () => {
   }
 });
 
-test("dispatches all four event types from one entry point", () => {
+test("dispatches all finance event types from one entry point", () => {
   assert.deepEqual(FINANCE_ZALO_EVENT_TYPES, [
     "payment_request_created",
     "payment_request_paid",
     "goods_receipt_received",
     "goods_receipt_short",
+    "payment_submission_created",
   ]);
   assert.match(
     formatFinanceZaloMessage("payment_request_created", PAYMENT_REQUEST),
@@ -121,6 +174,10 @@ test("dispatches all four event types from one entry point", () => {
   assert.match(
     formatFinanceZaloMessage("goods_receipt_short", GOODS_RECEIPT),
     /NHẬN HÀNG THIẾU/,
+  );
+  assert.match(
+    formatFinanceZaloMessage("payment_submission_created", PAYMENT_SUBMISSION),
+    /TRÌNH CHI GẤP/,
   );
   assert.throws(
     () => formatFinanceZaloMessage("unknown" as never, PAYMENT_REQUEST),

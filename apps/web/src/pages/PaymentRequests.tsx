@@ -50,6 +50,7 @@ import { ExportApprovedPDF } from "@/components/payment-requests/ExportApprovedP
 
 import { DriveImportProgressDialog } from "@/components/payment-requests/DriveImportProgressDialog";
 import { UncApprovalDialog, type UncApprovalRequest } from "@/components/payment-requests/UncApprovalDialog";
+import { UrgentPayablesPanel } from "@/components/payment-requests/UrgentPayablesPanel";
 import {
   getAllocatedAmount,
   getRemainingPaymentAmount,
@@ -128,6 +129,8 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
   
   const { canEditModule, isOwner } = useAuth();
   const [showUncDialog, setShowUncDialog] = useState(false);
+  // Default view: unpaid requests (Trình chi gấp). "all" keeps the full list below.
+  const [view, setView] = useState<"unpaid" | "all">("unpaid");
   const { language, t } = useLanguage();
   const canEditPaymentRequests = canEditModule("payment_requests");
 
@@ -554,6 +557,19 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
         </div>
       </header>
 
+      <div className="d3-pa-view" role="tablist" aria-label="Chế độ xem" data-bmq-pr-view={view}>
+        <button type="button" role="tab" aria-selected={view === "unpaid"} className={cn(view === "unpaid" && "is-on")} onClick={() => setView("unpaid")} data-bmq-pr-view-unpaid>
+          Chưa thanh toán
+        </button>
+        <button type="button" role="tab" aria-selected={view === "all"} className={cn(view === "all" && "is-on")} onClick={() => setView("all")} data-bmq-pr-view-all>
+          Tất cả
+        </button>
+      </div>
+
+      {view === "unpaid" ? (
+        <UrgentPayablesPanel canSubmit={isOwner || canEditPaymentRequests} onOpenRequest={setSelectedRequestId} />
+      ) : (
+      <>
       <section className="d3-pa-sum" data-bmq-payables-summary="demo3">
         {summaryCards.map((card, index) => {
           const isActive = card.isActive ?? (card.key === null ? activeCardFilter === null && sourceFilter === "all" : activeCardFilter === card.key);
@@ -1027,6 +1043,8 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
           </>
         )}
       </section>
+      </>
+      )}
 
       <UncApprovalDialog
         open={showUncDialog}

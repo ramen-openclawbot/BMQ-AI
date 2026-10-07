@@ -102,6 +102,7 @@ export function usePaymentUncApproval() {
       override_reason?: string | null;
       idempotency_key?: string;
       note?: string | null;
+      payment_method?: "bank_transfer" | "cash";
     }) => {
       // Fail fast on the same guards the RPC enforces; the server re-validates.
       const shared = {
@@ -113,6 +114,7 @@ export function usePaymentUncApproval() {
         override_reason: payload.override_reason ?? null,
         idempotency_key: payload.idempotency_key,
         note: payload.note ?? null,
+        payment_method: payload.payment_method,
       };
 
       if (payload.allocations && payload.allocations.length > 0) {

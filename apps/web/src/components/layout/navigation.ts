@@ -106,7 +106,7 @@ export const ZONES: Zone[] = [
     paths: [
       "/payment-requests",
       "/finance-control/payables",
-      "/finance-control/ceo-declaration",
+      // CEO khai báo is replaced by Trình chi gấp (2026-10-07); the page stays reachable by URL.
       "/finance-control/classification",
     ],
     prefixes: [
