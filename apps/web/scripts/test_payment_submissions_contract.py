@@ -8,6 +8,7 @@ wiring and that the earlier migrations are untouched.
 from __future__ import annotations
 
 import subprocess
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -431,6 +432,13 @@ def main() -> None:
         and "vietnamDateCutoff" in submission_lib_test
         and "formatPaymentSubmissionPreview" in submission_lib_test,
         "payment-submission tests must cover the pure helpers",
+    )
+
+    # payment_requests has two FKs to goods_receipts; an unqualified embed makes
+    # PostgREST reject the query (PGRST201) and the unpaid list shows an error.
+    assert_true(
+        re.search(r"(?<![!\w])goods_receipts\(", hook) is None,
+        "unpaid list select must not embed goods_receipts without an FK hint",
     )
 
     print("PASS: payment submissions (Trình chi gấp) backend contracts hold")

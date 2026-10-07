@@ -7,10 +7,11 @@ import {
   vietnamDateCutoff,
 } from "@/lib/payment-submission";
 
-// Same relation select as usePaymentRequests so the submission picker and the
-// detail page render the same rows without a second load.
+// Only what the unpaid list shows (supplier, remaining amount). Do not embed
+// goods_receipts unqualified: payment_requests has two FKs to it and PostgREST
+// rejects the whole query with PGRST201 (HTTP 300).
 const UNPAID_PAYMENT_REQUESTS_SELECT =
-  "*, suppliers(id, name), payment_request_items(id, product_name, raw_product_name), payment_allocations(id, amount, payment_id, created_at), goods_receipts(id, receipt_number, receipt_date, payable_status), purchase_orders(id, po_number, status), invoices:invoices!payment_requests_invoice_id_fkey(id, invoice_number)";
+  "*, suppliers(id, name), payment_request_items(id, product_name, raw_product_name), payment_allocations(id, amount, payment_id, created_at)";
 
 export interface UnpaidPaymentRequestsPageParams {
   page: number;
