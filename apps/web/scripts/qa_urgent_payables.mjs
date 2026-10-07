@@ -328,6 +328,9 @@ try {
     const d = page.locator("[data-bmq-unc-dialog='approve']");
     await d.waitFor();
     assert.equal(await d.getAttribute("data-bmq-unc-method"), "cash");
+    // iOS: opening must not focus an amount input (number pad), and the picker must offer the photo library.
+    assert.equal(await page.evaluate(() => document.activeElement?.tagName), "DIV", "dialog opens without focusing an input");
+    assert.equal(await page.locator("[data-bmq-unc-file]").getAttribute("capture"), null, "file input has no capture attribute");
     assert.ok((await d.textContent()).includes("Chi tiền mặt"));
     await upload(page);
     await page.waitForSelector("[data-bmq-unc-verdict='match']");

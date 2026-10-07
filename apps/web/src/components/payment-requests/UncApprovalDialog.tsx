@@ -282,7 +282,17 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
 
   return (
     <Dialog open={open} onOpenChange={(next) => !saving && onOpenChange(next)}>
-      <DialogContent className="d3-unc" data-bmq-unc-dialog={mode} data-bmq-unc-method={paymentMethod}>
+      <DialogContent
+        className="d3-unc"
+        data-bmq-unc-dialog={mode}
+        data-bmq-unc-method={paymentMethod}
+        // No capture attribute on the file input (iOS would offer the camera only), and do
+        // not auto-focus the first amount field: on phones that pops the number pad on open.
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          (event.currentTarget as HTMLElement | null)?.focus();
+        }}
+      >
         <DialogHeader className="d3-unc-head text-left sm:text-left">
           <span className="d3-unc-tag">{approve ? (isCash ? "Chi tiền mặt" : "Duyệt chi bằng UNC") : "UNC không có đề nghị chi"}</span>
           <DialogTitle className="d3-unc-title">
@@ -364,7 +374,6 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
           ref={fileRef}
           type="file"
           accept="image/*"
-          capture="environment"
           className="sr-only"
           data-bmq-unc-file
           onChange={(e) => {
