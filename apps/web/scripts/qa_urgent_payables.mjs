@@ -284,6 +284,15 @@ try {
     await bar.waitFor();
     assert.ok((await bar.textContent()).includes("3") && (await bar.textContent()).includes("14.000.000"), await bar.textContent());
     await page.waitForTimeout(200);
+    // The VNAgent chat launcher must never cover the selection bar.
+    const overlap = await page.evaluate(() => {
+      const bar = document.querySelector("[data-bmq-urgent-bar]")?.getBoundingClientRect();
+      const fab = document.querySelector("[data-vnagent-launcher]");
+      if (!bar || !fab || getComputedStyle(fab).display === "none") return false;
+      const f = fab.getBoundingClientRect();
+      return !(f.right <= bar.left || f.left >= bar.right || f.bottom <= bar.top || f.top >= bar.bottom);
+    });
+    assert.equal(overlap, false, `chat launcher overlaps the Trình chi gấp bar at ${viewport.width}`);
     await page.screenshot({ path: `${EVIDENCE}/selected-${viewport.width}.png` });
     await page.locator("[data-bmq-urgent-submit-open]").click();
     const dialog = page.locator("[data-bmq-urgent-dialog]");

@@ -83,6 +83,11 @@ html.bmq-d3 .d3-ps-cash { gap: 6px; background: var(--d3-white, #fdfdfc); color:
 @media (min-width: 768px) {
   .d3-ps-acts { display: flex; justify-content: flex-end; }
 }
+/* From lg the VNAgent chat launcher (56px, 24px from the bottom-right) is visible:
+   float the selection bar above it so it never covers the go button. */
+@media (min-width: 1024px) {
+  .d3-up-bar { bottom: calc(1.5rem + 56px + 12px + env(safe-area-inset-bottom)); }
+}
 @media (max-width: 520px) {
   .d3-ps-hero { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .d3-ps-hero > div:first-child { grid-column: 1 / -1; }
