@@ -213,7 +213,7 @@ const results = [];
 const record = (name) => { results.push({ name }); console.log("PASS", name); };
 
 async function open(cfg, route, viewport) {
-  const context = await browser.newContext({ viewport, reducedMotion: "reduce", locale: "vi-VN" });
+  const context = await browser.newContext({ viewport, reducedMotion: "reduce", locale: cfg.locale || "vi-VN", ...(cfg.tz ? { timezoneId: cfg.tz } : {}) });
   await context.addInitScript((value) => localStorage.setItem("qa-shell", JSON.stringify(value)), cfg);
   await context.route("**/*", (r) => {
     const url = r.request().url();
@@ -408,6 +408,28 @@ try {
     assert.ok(await page.getByRole("checkbox", { name: /Trình chi gấp/ }).first().isVisible(), "accountant with edit can submit");
     assert.deepEqual(errors, []);
     record("accountant view + CEO khai báo chip gone");
+    await context.close();
+  }
+
+  // 5b. An en-US Mac in a US timezone: the full list still shows Vietnam days as dd/mm/yyyy.
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    const { context, page, errors } = await open({ role: "owner", locale: "en-US", tz: "America/Los_Angeles" }, "/payment-requests", viewport);
+    await page.locator("[data-bmq-pr-view-all]").click();
+    await page.waitForSelector("[data-bmq-pr-row]");
+    const [y, m, d] = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh" }).format(new Date()).split("-");
+    const vnDay = `${d}/${m}/${y}`;
+    const meta = await page.locator("[data-bmq-pr-row]").first().textContent();
+    assert.ok(meta.includes(vnDay), `row shows the Vietnam day ${vnDay}: ${meta}`);
+    if (viewport.width >= 1024) {
+      const labels = await page.$$eval("[data-bmq-payables-date-range] .d3-pa-ddate span", (els) => els.map((e) => e.textContent.trim()));
+      assert.deepEqual(labels, [vnDay, vnDay], "date range shows dd/mm/yyyy");
+      await page.screenshot({ path: `${EVIDENCE}/en-us-dates-${viewport.width}.png` });
+    }
+    await page.locator("[data-bmq-pr-row] .d3-pa-open").first().click();
+    await page.waitForSelector("[data-bmq-payment-detail]");
+    assert.ok((await page.locator("[data-bmq-payment-detail]").textContent()).includes(`${vnDay} 09:00`), "detail shows Vietnam created time");
+    assert.deepEqual(errors, []);
+    record(`en-US browser in US timezone shows Vietnam dates ${viewport.width}`);
     await context.close();
   }
 
