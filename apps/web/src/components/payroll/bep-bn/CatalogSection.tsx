@@ -52,9 +52,9 @@ export function CatalogSection({ data, source, canEdit }: CatalogSectionProps) {
         ) : (
           <div className="max-h-[520px] overflow-auto rounded-md border">
             <table className="w-max min-w-full border-collapse text-sm">
-              <thead className="sticky top-0 z-20 bg-muted text-xs">
+              <thead className="text-xs [&_th]:sticky [&_th]:top-0 [&_th]:z-20 [&_th]:bg-card [&_th]:shadow-[inset_0_-1px_0_hsl(var(--border))] [&_th:first-child]:z-30">
                 <tr>
-                  <th className="sticky left-0 z-30 min-w-[132px] bg-muted px-3 py-2 text-left font-medium sm:min-w-[180px]">Nhân viên</th>
+                  <th className="left-0 min-w-[132px] px-3 py-2 text-left font-medium sm:min-w-[180px]">Nhân viên</th>
                   <th className="px-3 py-2 text-left font-medium">Nhóm</th>
                   <th className="px-3 py-2 text-left font-medium">Loại</th>
                   <th className="min-w-[110px] px-3 py-2 text-right font-medium">Lương chính thức</th>

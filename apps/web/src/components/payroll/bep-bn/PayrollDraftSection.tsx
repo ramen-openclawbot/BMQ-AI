@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState } from "react";
-import { Loader2, PencilLine } from "lucide-react";
+import { Download, Loader2, PencilLine } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { computePayroll } from "@/lib/payroll-bn/engine.ts";
+import { buildPayrollExportRows, buildPayrollWorkbook, payrollExportFileName } from "@/lib/payroll-bn/export.ts";
 import { addRational, rationalToNumber } from "@/lib/payroll-bn/money.ts";
 import type { AdjustmentField, PayrollEmployeeLine, PayrollGroup, PayrollLine } from "@/lib/payroll-bn/types.ts";
 import type { BepBnDataSource, BepBnPeriodData } from "./types";
@@ -57,6 +58,18 @@ export function PayrollDraftSection({ data, source, canEdit }: PayrollDraftSecti
     summary: result.groups.find((line) => line.group === group),
   })).filter((entry) => entry.employees.length > 0);
 
+  const exportExcel = () => {
+    const bytes = buildPayrollWorkbook(buildPayrollExportRows(data.period, result, notes));
+    const url = URL.createObjectURL(
+      new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
+    );
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = payrollExportFileName(data.period);
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
   const openAdjust = (employeeCode: string | null) => {
     setPresetEmployee(employeeCode);
     setDialogOpen(true);
@@ -72,12 +85,23 @@ export function PayrollDraftSection({ data, source, canEdit }: PayrollDraftSecti
               Ngày công và giờ công là các cột riêng. Thực nhận làm tròn đến 1.000 đồng ở bước cuối; dòng nhóm cộng các số đã làm tròn.
             </CardDescription>
           </div>
-          {canAdjust ? (
-            <Button variant="outline" className="gap-2 self-start" onClick={() => openAdjust(null)}>
-              <PencilLine className="h-4 w-4" />
-              Điều chỉnh
+          <div className="flex flex-wrap gap-2 self-start">
+            <Button
+              variant="outline"
+              className="gap-2"
+              onClick={exportExcel}
+              disabled={result.employees.length === 0}
+            >
+              <Download className="h-4 w-4" />
+              Xuất Excel
             </Button>
-          ) : null}
+            {canAdjust ? (
+              <Button variant="outline" className="gap-2" onClick={() => openAdjust(null)}>
+                <PencilLine className="h-4 w-4" />
+                Điều chỉnh
+              </Button>
+            ) : null}
+          </div>
         </CardHeader>
         <CardContent>
           {result.employees.length === 0 ? (
@@ -85,9 +109,9 @@ export function PayrollDraftSection({ data, source, canEdit }: PayrollDraftSecti
           ) : (
             <div className="max-h-[560px] overflow-auto rounded-md border">
               <table className="w-max min-w-full border-collapse text-sm">
-                <thead className="sticky top-0 z-20 bg-muted text-xs">
+                <thead className="text-xs [&_th]:sticky [&_th]:top-0 [&_th]:z-20 [&_th]:bg-card [&_th]:shadow-[inset_0_-1px_0_hsl(var(--border))] [&_th:first-child]:z-30">
                   <tr>
-                    <th className="sticky left-0 z-30 min-w-[132px] bg-muted px-3 py-2 text-left font-medium sm:min-w-[180px]">Nhân viên</th>
+                    <th className="left-0 min-w-[132px] px-3 py-2 text-left font-medium sm:min-w-[180px]">Nhân viên</th>
                     <HeaderCell>NC chuẩn</HeaderCell>
                     <HeaderCell>NC thực tế</HeaderCell>
                     <HeaderCell>Ngày lễ</HeaderCell>

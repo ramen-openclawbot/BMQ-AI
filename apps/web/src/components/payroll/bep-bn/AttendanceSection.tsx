@@ -251,9 +251,9 @@ function AttendanceGrid({ data, rows, anomalies }: { data: BepBnPeriodData; rows
         ) : (
           <div className="max-h-[480px] overflow-auto rounded-md border">
             <table className="w-max border-collapse text-xs">
-              <thead className="sticky top-0 z-20 bg-muted">
+              <thead className="text-xs [&_th]:sticky [&_th]:top-0 [&_th]:z-20 [&_th]:bg-card [&_th]:shadow-[inset_0_-1px_0_hsl(var(--border))] [&_th:first-child]:z-30">
                 <tr>
-                  <th className="sticky left-0 z-30 min-w-[132px] bg-muted px-2 py-2 text-left font-medium">Nhân viên</th>
+                  <th className="left-0 min-w-[132px] px-2 py-2 text-left font-medium">Nhân viên</th>
                   {dates.map((date) => (
                     <th
                       key={date}
