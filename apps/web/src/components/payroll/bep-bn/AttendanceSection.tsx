@@ -236,6 +236,12 @@ function IssueReviewCard({
   const reviews = useMemo(() => new Map(source.issueReviews.map((item) => [reviewKey(item), item])), [source.issueReviews]);
   const summary = summarizeIssues(anomalies, source.issueReviews);
   const visible = onlyPending ? reviewable.filter((item) => !reviews.has(issueKey(item))) : reviewable;
+  const employeeNames = useMemo(
+    () => new Map(data.employees.map((employee) => [employee.code, employee.name.trim()])),
+    [data.employees],
+  );
+  const employeeLabel = (item: Anomaly) =>
+    `${employeeNames.get(item.employeeCode) || item.employeeName?.trim() || "Chưa có tên"} · Mã ${item.employeeCode}`;
 
   const decide = async (item: Anomaly, decision: "accepted" | "excluded", reason?: string) => {
     await source.reviewIssue(data.id, {
@@ -374,6 +380,7 @@ function IssueReviewCard({
               return (
                 <li key={key} className="flex flex-col gap-2 px-3 py-2 text-sm sm:flex-row sm:items-center sm:justify-between">
                   <div className="min-w-0">
+                    <p className="mb-1 break-words font-medium">{employeeLabel(item)}</p>
                     <div className="flex flex-wrap items-center gap-2">
                       <Badge variant="outline" className={cn(item.severity === "error" && "border-destructive text-destructive")}>
                         {ANOMALY_LABELS[item.code]}
@@ -420,7 +427,14 @@ function IssueReviewCard({
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Không tính ngày này</DialogTitle>
-            <DialogDescription>{excluding?.detail}</DialogDescription>
+            <DialogDescription className="break-words">
+              {excluding ? (
+                <>
+                  <span className="mb-1 block font-medium text-foreground">{employeeLabel(excluding)}</span>
+                  <span>{excluding.detail}</span>
+                </>
+              ) : null}
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
             <Label htmlFor="bep-bn-exclude-note">Lý do</Label>
