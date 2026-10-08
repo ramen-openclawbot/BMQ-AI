@@ -142,6 +142,13 @@ export interface PayrollEmployeeLine extends PayrollLineBase {
   employeeName: string;
   group: PayrollGroup;
   employmentType: EmploymentType;
+  /**
+   * 2026-10-09 — attendance dates credited below one full công under the
+   * short-shift rule, with the exact credit. Only filled when NC thực tế comes
+   * from attendance; manual measures, office defaults, part-time and terminated
+   * rows keep it empty. Never affects any computed amount.
+   */
+  shortShiftDays: Array<{ date: string; credit: 0 | 0.5 }>;
 }
 
 export interface PayrollGroupLine extends PayrollLineBase {

@@ -28,6 +28,7 @@ import {
 import type { BepBnClient } from "@/lib/payroll-bn/db-client.ts";
 import { suggestCatalogSync } from "@/lib/payroll-bn/catalog-sync.ts";
 import { computePayroll } from "@/lib/payroll-bn/engine.ts";
+import { buildPayrollNotes } from "@/lib/payroll-bn/notes.ts";
 import { buildPayslips } from "@/lib/payroll-bn/payslip.ts";
 import { applyIssueReviews } from "@/lib/payroll-bn/issue-review.ts";
 import { ADJUSTMENT_LABELS } from "@/components/payroll/bep-bn/format";
@@ -146,13 +147,7 @@ export const useBepBnData: UseBepBnData = (periodId) => {
       rows: applyIssueReviews(periodData.rows, reviews),
       adjustments: periodData.adjustments,
     });
-    const notes = new Map<string, string[]>();
-    for (const item of periodData.adjustments) {
-      notes.set(item.employeeCode, [
-        ...(notes.get(item.employeeCode) ?? []),
-        `${ADJUSTMENT_LABELS[item.field]}: ${item.reason}`,
-      ]);
-    }
+    const notes = buildPayrollNotes(result.employees, periodData.adjustments, ADJUSTMENT_LABELS);
     return buildPayslips(periodData.period, periodData.employees, result, notes);
   };
 

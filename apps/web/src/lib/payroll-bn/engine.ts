@@ -69,6 +69,8 @@ export interface AttendanceAggregate {
   holidayDayCredit: Rational;
   /** Dates whose short-shift credit is below one full day (0,5 or 0). */
   shortShiftDates: string[];
+  /** 2026-10-09 — per-date short-shift credit (0,5 or 0), one entry per affected date. */
+  shortShiftDayCredits: Array<{ date: string; credit: 0 | 0.5 }>;
 }
 
 function timeToSeconds(value: string | null): number | null {
@@ -157,6 +159,7 @@ export function aggregateAttendance(
   let nonHolidayDayCredit = RATIONAL_ZERO;
   let holidayDayCredit = RATIONAL_ZERO;
   const shortShiftDates: string[] = [];
+  const shortShiftDayCredits: Array<{ date: string; credit: 0 | 0.5 }> = [];
   for (const date of dates) {
     const credit = dayCredit.get(date) ?? rational(1);
     if (holidaySet.has(date)) {
@@ -164,7 +167,10 @@ export function aggregateAttendance(
     } else {
       nonHolidayDayCredit = addRational(nonHolidayDayCredit, credit);
     }
-    if (compareRational(credit, rational(1)) < 0) shortShiftDates.push(date);
+    if (compareRational(credit, rational(1)) < 0) {
+      shortShiftDates.push(date);
+      shortShiftDayCredits.push({ date, credit: isZeroRational(credit) ? 0 : 0.5 });
+    }
   }
 
   return {
@@ -176,6 +182,7 @@ export function aggregateAttendance(
     nonHolidayDayCredit,
     holidayDayCredit,
     shortShiftDates,
+    shortShiftDayCredits,
   };
 }
 
@@ -278,6 +285,7 @@ function zeroLineFields(): Omit<PayrollEmployeeLine, "kind" | "employeeCode" | "
     netPay: RATIONAL_ZERO,
     netPayRounded: 0n,
     flags: [],
+    shortShiftDays: [],
   };
 }
 
@@ -365,6 +373,14 @@ function buildEmployeeLine(
     holidayPayDays = RATIONAL_ZERO;
     flags.push("part_time_hours");
   }
+
+  // Owner 2026-10-09 — expose the per-date short-shift credits only when NC
+  // thực tế really comes from attendance (not a manual sheet figure, an office
+  // default or a part-time row). Purely informational: no amount changes.
+  const shortShiftDays: PayrollEmployeeLine["shortShiftDays"] =
+    actualResolved.source === "attendance" && !officeDefault && !partTime
+      ? aggregate.shortShiftDayCredits
+      : [];
 
   // NC tính lương = NC thực tế + ngày lễ (unless explicitly overridden).
   let workDays = partTime ? RATIONAL_ZERO : addRational(actualWorkDays, holidayPayDays);
@@ -489,6 +505,7 @@ function buildEmployeeLine(
     netPay,
     netPayRounded: roundVndToThousand(netPay),
     flags,
+    shortShiftDays,
   };
 }
 

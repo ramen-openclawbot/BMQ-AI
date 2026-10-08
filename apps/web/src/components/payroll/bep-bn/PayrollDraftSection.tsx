@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { computePayroll } from "@/lib/payroll-bn/engine.ts";
+import { buildPayrollNotes } from "@/lib/payroll-bn/notes.ts";
 import { buildPayrollExportRows, buildPayrollWorkbook, payrollExportFileName } from "@/lib/payroll-bn/export.ts";
 import { addRational, rationalToNumber } from "@/lib/payroll-bn/money.ts";
 import type { AdjustmentField, PayrollEmployeeLine, PayrollGroup, PayrollLine } from "@/lib/payroll-bn/types.ts";
@@ -43,15 +44,10 @@ export function PayrollDraftSection({ data, source, canEdit }: PayrollDraftSecti
     [data],
   );
 
-  const notes = useMemo(() => {
-    const map = new Map<string, string[]>();
-    for (const item of data.adjustments) {
-      const list = map.get(item.employeeCode) ?? [];
-      list.push(`${ADJUSTMENT_LABELS[item.field]}: ${item.reason}`);
-      map.set(item.employeeCode, list);
-    }
-    return map;
-  }, [data.adjustments]);
+  const notes = useMemo(
+    () => buildPayrollNotes(result.employees, data.adjustments, ADJUSTMENT_LABELS),
+    [result.employees, data.adjustments],
+  );
 
   const groups = GROUP_ORDER.map((group) => ({
     group,
