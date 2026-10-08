@@ -4,6 +4,11 @@
     { "path": "/api/po-sync-cron", "schedule": "59 16 * * *" }
   ],
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+    {
+      "source": "/((?!assets/|og-share-payroll-v1\\.jpg|favicon\\.ico|robots\\.txt).*)",
+      "has": [{ "type": "host", "value": "payroll.banhmique.vn" }],
+      "destination": "/payroll.html"
+    },
+    { "source": "/(.*)", "destination": "/app.html" }
   ]
 }
