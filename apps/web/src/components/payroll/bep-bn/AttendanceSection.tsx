@@ -311,7 +311,7 @@ function IssueReviewCard({
           </Badge>
         </CardTitle>
         <CardDescription>
-          Hệ thống tự tìm các ngày thiếu giờ vào/ra, máy không có số liệu, trùng giờ với người khác, chấm công ngày lễ. Chấp nhận để tính như bình thường, hoặc không tính ngày đó (bắt buộc ghi lý do).
+          Hệ thống tự tìm các ngày thiếu giờ vào hoặc giờ ra cần xác nhận. Chấp nhận để tính như bình thường, hoặc không tính ngày đó (bắt buộc ghi lý do). Nhân viên trùng giờ với nhau không cần xác nhận; ngày lễ được tính theo quy tắc lương.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">

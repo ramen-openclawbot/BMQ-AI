@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { detectAnomalies, summarizeAnomalies } from "./anomalies.ts";
+import { summarizeIssues } from "./issue-review.ts";
 import { resolveRulesConfig } from "./rules-config.ts";
 import type { AttendanceRow, PayrollEmployee, PayrollPeriod } from "./types.ts";
 
@@ -62,12 +63,14 @@ test("a blank row on a holiday is not holiday attendance", () => {
   assert.equal(anomalies.some((item) => item.code === "holiday_attendance"), false);
 });
 
-test("flags two employees sharing the same in/out slot", () => {
-  const anomalies = detectAnomalies({ period, employees, rows });
-  const duplicates = anomalies.filter((item) => item.code === "duplicate_time");
-  assert.equal(duplicates.length, 2);
-  assert.deepEqual(duplicates[0].relatedEmployeeCodes, ["E1", "E2"]);
-  assert.equal(duplicates.every((item) => item.severity === "error"), true);
+test("two or three employees sharing in/out times do not need confirmation", () => {
+  for (const count of [2, 3]) {
+    const group = employees.slice(0, count);
+    const sharedRows = group.map((item) => row({ employeeCode: item.code, date: "2026-08-01" }));
+    const anomalies = detectAnomalies({ period, employees: group, rows: sharedRows });
+    assert.deepEqual(anomalies, []);
+    assert.equal(summarizeIssues(anomalies, []).pending, 0);
+  }
 });
 
 test("flags unknown employee codes and catalog codes without attendance", () => {
@@ -81,11 +84,14 @@ test("flags unknown employee codes and catalog codes without attendance", () => 
   assert.deepEqual(missing.map((item) => item.employeeCode), ["E4"]);
 });
 
-test("flags attendance on a period holiday", () => {
-  const anomalies = detectAnomalies({ period, employees, rows });
-  const holiday = anomalies.filter((item) => item.code === "holiday_attendance");
-  assert.equal(holiday.length, 1);
-  assert.equal(holiday[0].date, "2026-08-15");
+test("holiday work needs no confirmation, but missing check-out still does", () => {
+  const holidayRows = [row({ employeeCode: "E1", date: "2026-08-15" })];
+  assert.deepEqual(detectAnomalies({ period, employees: [employees[0]], rows: holidayRows }), []);
+  const anomalies = detectAnomalies({
+    period, employees: [employees[0]], rows: [{ ...holidayRows[0], checkOut: null }],
+  });
+  assert.deepEqual(anomalies.map((item) => item.code), ["missing_check_out"]);
+  assert.equal(summarizeIssues(anomalies, []).pending, 1);
 });
 
 test("detectAnomalies never mutates the parsed rows", () => {
@@ -96,11 +102,11 @@ test("detectAnomalies never mutates the parsed rows", () => {
 
 test("summarizes anomalies by code", () => {
   const summary = summarizeAnomalies(detectAnomalies({ period, employees, rows }));
-  assert.equal(summary.duplicate_time, 2);
+  assert.equal(summary.duplicate_time, 0);
   assert.equal(summary.missing_check_out, 1);
   assert.equal(summary.missing_check_in, 1);
   assert.equal(summary.no_machine_data, 0);
   assert.equal(summary.unknown_employee, 1);
   assert.equal(summary.missing_attendance, 1);
-  assert.equal(summary.holiday_attendance, 1);
+  assert.equal(summary.holiday_attendance, 0);
 });

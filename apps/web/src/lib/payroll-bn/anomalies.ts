@@ -66,7 +66,6 @@ export function detectAnomalies(input: AnomalyInput): Anomaly[] {
   const anomalies: Anomaly[] = [];
 
   const knownEmployees = new Map(employees.map((employee) => [employee.code, employee]));
-  const holidaySet = new Set(period.holidays);
   const attendanceKeys = new Set<string>();
 
   for (const row of rows) {
@@ -95,36 +94,11 @@ export function detectAnomalies(input: AnomalyInput): Anomaly[] {
     // ("no_machine_data" needs the machine's Công/Tổng giờ columns, which the
     // parser deliberately ignores, so it is not raised from in/out times.)
 
-    if (holidaySet.has(row.date) && (row.checkIn || row.checkOut)) {
-      anomalies.push(
-        anomaly("holiday_attendance", row, `${row.employeeCode} ${row.date}: có chấm công ngày lễ.`),
-      );
-    }
   }
 
-  // Same in/out pair on the same day for two different employees.
-  const bySlot = new Map<string, AttendanceRow[]>();
-  for (const row of rows) {
-    if (!row.checkIn || !row.checkOut) continue;
-    const key = `${row.date}|${row.checkIn}|${row.checkOut}`;
-    const list = bySlot.get(key) ?? [];
-    list.push(row);
-    bySlot.set(key, list);
-  }
-  for (const [, list] of bySlot) {
-    const codes = Array.from(new Set(list.map((row) => row.employeeCode))).sort();
-    if (codes.length < 2) continue;
-    for (const row of list) {
-      anomalies.push(
-        anomaly(
-          "duplicate_time",
-          row,
-          `${row.employeeCode} ${row.date}: trùng giờ vào/ra với ${codes.filter((code) => code !== row.employeeCode).join(", ")}.`,
-          codes,
-        ),
-      );
-    }
-  }
+  // Shared shift times across employees are normal. Holiday work is handled
+  // by payroll rules, not review flags. Same-employee/day duplicates remain
+  // protected by the parser/import validation and database constraints.
 
   // Catalog codes without any attendance row.
   for (const employee of employees) {
