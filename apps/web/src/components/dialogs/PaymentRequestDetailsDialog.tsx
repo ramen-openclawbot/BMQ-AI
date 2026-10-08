@@ -5,7 +5,6 @@
 import { useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
-import { formatVietnamDate, formatVietnamDateTime } from "@/lib/vietnam-time";
 import { vi } from "date-fns/locale";
 import { toast } from "sonner";
 import {
@@ -410,7 +409,7 @@ export function PaymentRequestDetailsDialog({
                   </div>
                   <div>
                     <dt>Ngày tạo</dt>
-                    <dd>{formatVietnamDateTime(request.created_at)}</dd>
+                    <dd>{format(new Date(request.created_at), "dd/MM/yyyy HH:mm", { locale: vi })}</dd>
                   </div>
                   <div>
                     <dt>Nhà cung cấp</dt>
@@ -452,7 +451,7 @@ export function PaymentRequestDetailsDialog({
                         <span>
                           <b>Phiếu nhập {linkedGoodsReceipt?.receipt_number || request.goods_receipts?.receipt_number || request.goods_receipt_id}</b>
                           {linkedGoodsReceipt && (
-                            <small>{linkedGoodsReceipt.suppliers?.name || "N/A"} · {formatVietnamDate(linkedGoodsReceipt.receipt_date)}</small>
+                            <small>{linkedGoodsReceipt.suppliers?.name || "N/A"} · {format(new Date(linkedGoodsReceipt.receipt_date), "dd/MM/yyyy", { locale: vi })}</small>
                           )}
                         </span>
                       </li>
@@ -462,7 +461,7 @@ export function PaymentRequestDetailsDialog({
                         <FileText className="h-4 w-4" />
                         <span>
                           <b>PO {linkedPurchaseOrder.po_number}</b>
-                          <small>{linkedPurchaseOrder.suppliers?.name || "N/A"} · {formatVietnamDate(linkedPurchaseOrder.order_date)}</small>
+                          <small>{linkedPurchaseOrder.suppliers?.name || "N/A"} · {format(new Date(linkedPurchaseOrder.order_date), "dd/MM/yyyy", { locale: vi })}</small>
                         </span>
                       </li>
                     )}

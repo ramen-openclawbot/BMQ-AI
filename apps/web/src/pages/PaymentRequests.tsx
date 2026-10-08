@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, type MouseEvent } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { vi, enUS } from "date-fns/locale";
@@ -64,20 +64,13 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { cn } from "@/lib/utils";
-import { formatDateKeyVi, formatVietnamDate, getVietnamDateKey } from "@/lib/vietnam-time";
+import { getVietnamDateKey } from "@/lib/vietnam-time";
 import { toast } from "sonner";
 import "@/styles/bmq-payables.css";
 
 type CardFilterType = "pending" | "approved" | "rejected" | null;
 
 const getCurrentVietnamDayInputValue = () => getVietnamDateKey();
-const openDatePicker = (event: MouseEvent<HTMLInputElement>) => {
-  try {
-    event.currentTarget.showPicker?.();
-  } catch {
-    // showPicker needs a user gesture and is missing on older browsers; the native tap still works.
-  }
-};
 
 const normalizeSearch = (value: string | null | undefined) =>
   String(value || "")
@@ -663,31 +656,23 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
           >
             <CalendarDays className="h-4 w-4 shrink-0 text-slate-500" />
             <span className="sr-only">{dateRangeLabel}</span>
-            {/* Native date inputs follow the browser locale (mm/dd/yyyy on an en-US Mac):
-                show dd/mm/yyyy ourselves and keep the input invisible on top for the picker. */}
-            <label className="d3-pa-ddate">
-              <span>{formatDateKeyVi(dateFrom)}</span>
-              <input
-                type="date"
-                value={dateFrom}
-                max={dateTo || undefined}
-                onChange={(event) => setDateFrom(event.target.value)}
-                onClick={openDatePicker}
-                aria-label={isVi ? "Từ ngày" : "From date"}
-              />
-            </label>
+            <Input
+              type="date"
+              value={dateFrom}
+              max={dateTo || undefined}
+              onChange={(event) => setDateFrom(event.target.value)}
+              aria-label={isVi ? "Từ ngày" : "From date"}
+              className="h-10 min-w-0 flex-1 basis-0 border-0 bg-transparent p-0 text-sm font-medium shadow-none focus-visible:ring-0 dark:bg-transparent"
+            />
             <span className="shrink-0 text-slate-400">-</span>
-            <label className="d3-pa-ddate">
-              <span>{formatDateKeyVi(dateTo)}</span>
-              <input
-                type="date"
-                value={dateTo}
-                min={dateFrom || undefined}
-                onChange={(event) => setDateTo(event.target.value)}
-                onClick={openDatePicker}
-                aria-label={isVi ? "Đến ngày" : "To date"}
-              />
-            </label>
+            <Input
+              type="date"
+              value={dateTo}
+              min={dateFrom || undefined}
+              onChange={(event) => setDateTo(event.target.value)}
+              aria-label={isVi ? "Đến ngày" : "To date"}
+              className="h-10 min-w-0 flex-1 basis-0 border-0 bg-transparent p-0 text-sm font-medium shadow-none focus-visible:ring-0 dark:bg-transparent"
+            />
           </div>
 
           <Select value={statusFilter} onValueChange={setStatusFilter}>
@@ -768,7 +753,7 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
               <label className="d3-pa-mdate">
                 {isVi ? "Từ ngày" : "From"}
                 <span>
-                  {formatDateKeyVi(dateFrom)}
+                  {dateFrom ? format(new Date(`${dateFrom}T00:00:00`), "dd/MM/yyyy") : "--/--/----"}
                   <input
                     type="date"
                     lang={language}
@@ -782,7 +767,7 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
               <label className="d3-pa-mdate">
                 {isVi ? "Đến ngày" : "To"}
                 <span>
-                  {formatDateKeyVi(dateTo)}
+                  {dateTo ? format(new Date(`${dateTo}T00:00:00`), "dd/MM/yyyy") : "--/--/----"}
                   <input
                     type="date"
                     lang={language}
@@ -962,7 +947,7 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
                         <span className={cn("d3-pa-due", `is-${request.status}`)}>{statusLabel(request.status)}</span>
                         <span className="d3-pa-cue"><CueIcon className="h-3.5 w-3.5" />{cue.label}</span>
                         <span className="d3-pa-meta">
-                          {formatVietnamDate(request.created_at)} · {getCreatorName(request)} · {getSourceLabel(request)}
+                          {format(new Date(request.created_at), "dd/MM/yyyy", { locale: dateLocale })} · {getCreatorName(request)} · {getSourceLabel(request)}
                         </span>
                       </span>
                       {allocatedAmount > 0 ? (

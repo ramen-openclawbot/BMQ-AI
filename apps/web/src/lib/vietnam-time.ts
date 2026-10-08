@@ -28,35 +28,3 @@ export function getVietnamDayUtcRange(date = new Date()): { startIso: string; en
     dateKey,
   };
 }
-
-const vietnamDisplayDate = new Intl.DateTimeFormat("vi-VN", {
-  timeZone: VIETNAM_TIME_ZONE,
-  day: "2-digit",
-  month: "2-digit",
-  year: "numeric",
-});
-const vietnamDisplayTime = new Intl.DateTimeFormat("vi-VN", {
-  timeZone: VIETNAM_TIME_ZONE,
-  hour: "2-digit",
-  minute: "2-digit",
-  hourCycle: "h23",
-});
-
-/** dd/MM/yyyy in Vietnam time, whatever the browser's own timezone or locale. */
-export function formatVietnamDate(value: string | number | Date): string {
-  // A bare "YYYY-MM-DD" (a Postgres date) is a calendar day, not an instant: never shift it.
-  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) return formatDateKeyVi(value);
-  return vietnamDisplayDate.format(new Date(value));
-}
-
-/** dd/MM/yyyy HH:mm in Vietnam time, whatever the browser's own timezone or locale. */
-export function formatVietnamDateTime(value: string | number | Date): string {
-  const date = new Date(value);
-  return `${vietnamDisplayDate.format(date)} ${vietnamDisplayTime.format(date)}`;
-}
-
-/** "2026-10-08" (a date input value) → "08/10/2026", independent of the browser locale. */
-export function formatDateKeyVi(dateKey: string | null | undefined): string {
-  const [year, month, day] = String(dateKey || "").split("-");
-  return year && month && day ? `${day}/${month}/${year}` : "--/--/----";
-}
