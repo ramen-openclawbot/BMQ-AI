@@ -15,7 +15,7 @@ import "@/styles/bmq-urgent-payables.css";
 
 const vnd = (value: number | null | undefined) => `${new Intl.NumberFormat("vi-VN").format(Math.round(Number(value ?? 0)))}\u00a0đ`;
 const dmyhm = (iso: string) =>
-  new Intl.DateTimeFormat("vi-VN", { timeZone: "Asia/Ho_Chi_Minh", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
+  new Intl.DateTimeFormat("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
 
 const isPaid = (item: PaymentSubmissionItemDetail) => Number(item.remaining_amount) <= 0 || item.payment_status === "paid";
 

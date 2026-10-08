@@ -64,13 +64,15 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { cn } from "@/lib/utils";
-import { getVietnamDateKey } from "@/lib/vietnam-time";
 import { toast } from "sonner";
 import "@/styles/bmq-payables.css";
 
 type CardFilterType = "pending" | "approved" | "rejected" | null;
 
-const getCurrentVietnamDayInputValue = () => getVietnamDateKey();
+// Owner 2026-10-08: dates follow the device timezone, so the day filter does too (it used
+// Vietnam days while rows showed device days, and a row dated 07/10 sat under the 08/10 filter).
+const getDeviceDateKey = (date: Date = new Date()) => format(date, "yyyy-MM-dd");
+const getCurrentDeviceDayInputValue = () => getDeviceDateKey();
 
 const normalizeSearch = (value: string | null | undefined) =>
   String(value || "")
@@ -123,8 +125,8 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
   const [showDriveInvoiceDialog, setShowDriveInvoiceDialog] = useState(false);
   const [pageSize, setPageSize] = useState("10");
   const [currentPage, setCurrentPage] = useState(1);
-  const [dateFrom, setDateFrom] = useState(getCurrentVietnamDayInputValue);
-  const [dateTo, setDateTo] = useState(getCurrentVietnamDayInputValue);
+  const [dateFrom, setDateFrom] = useState(getCurrentDeviceDayInputValue);
+  const [dateTo, setDateTo] = useState(getCurrentDeviceDayInputValue);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   
   const { canEditModule, isOwner } = useAuth();
@@ -179,7 +181,7 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
 
   const dateFilteredRequests = useMemo(() => {
     return (requests || []).filter((request) => {
-      const requestDate = getVietnamDateKey(new Date(request.created_at));
+      const requestDate = getDeviceDateKey(new Date(request.created_at));
       if (dateFrom && requestDate < dateFrom) return false;
       if (dateTo && requestDate > dateTo) return false;
       return true;

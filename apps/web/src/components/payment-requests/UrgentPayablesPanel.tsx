@@ -26,7 +26,7 @@ const ageDays = (iso: string) => {
 
 const dmy = (iso: string) => {
   const d = new Date(iso);
-  return new Intl.DateTimeFormat("vi-VN", { timeZone: "Asia/Ho_Chi_Minh", day: "2-digit", month: "2-digit", year: "numeric" }).format(d);
+  return new Intl.DateTimeFormat("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" }).format(d);
 };
 
 const submissionError = (error: unknown) => {

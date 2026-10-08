@@ -213,7 +213,7 @@ const results = [];
 const record = (name) => { results.push({ name }); console.log("PASS", name); };
 
 async function open(cfg, route, viewport) {
-  const context = await browser.newContext({ viewport, reducedMotion: "reduce", locale: "vi-VN" });
+  const context = await browser.newContext({ viewport, reducedMotion: "reduce", locale: cfg.locale || "vi-VN", ...(cfg.tz ? { timezoneId: cfg.tz } : {}) });
   await context.addInitScript((value) => localStorage.setItem("qa-shell", JSON.stringify(value)), cfg);
   await context.route("**/*", (r) => {
     const url = r.request().url();
@@ -408,6 +408,39 @@ try {
     assert.ok(await page.getByRole("checkbox", { name: /Trình chi gấp/ }).first().isVisible(), "accountant with edit can submit");
     assert.deepEqual(errors, []);
     record("accountant view + CEO khai báo chip gone");
+    await context.close();
+  }
+
+  // 5b. Owner 2026-10-08: dates follow the device timezone everywhere on Duyệt chi. On a phone set to a
+  //     US timezone, rows listed under the day filter must show a date inside that filter, and the
+  //     unpaid tab shows the same device date as the full list.
+  {
+    const { context, page, errors } = await open({ role: "owner", locale: "en-US", tz: "America/Los_Angeles" }, "/payment-requests", { width: 1440, height: 900 });
+    await page.waitForSelector("[data-bmq-urgent-row]");
+    // PR-U001 is created "now" in the fixture: its device date is the device's today.
+    const deviceToday = await page.evaluate(() => new Intl.DateTimeFormat("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date()));
+    assert.ok((await page.locator('[data-bmq-urgent-row="PR-U001"]').textContent()).includes(deviceToday), "unpaid tab uses the device day");
+    await page.locator("[data-bmq-pr-view-all]").click();
+    await page.waitForTimeout(800);
+    const checkRows = async () => {
+      const [fromKey, toKey] = await page.$$eval("[data-bmq-payables-date-range] input[type=date]", (els) => els.slice(0, 2).map((e) => e.value));
+      const shown = await page.$$eval("[data-bmq-pr-row]", (els) => els.map((e) => (e.textContent.match(/(\d{2})\/(\d{2})\/(\d{4})/) || []).slice(1)));
+      for (const [d, m, y] of shown) {
+        const key = `${y}-${m}-${d}`;
+        assert.ok(key >= fromKey && key <= toKey, `row dated ${key} is outside the filter ${fromKey}..${toKey}`);
+      }
+      return shown.length;
+    };
+    let shownCount = await checkRows();
+    // Widen the filter to the last 2 device days so the fixture rows are listed, then check again.
+    const twoDaysAgo = await page.evaluate(() => { const d = new Date(Date.now() - 2 * 86400000); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; });
+    await page.locator("[data-bmq-payables-date-range] input[type=date]").first().fill(twoDaysAgo);
+    await page.waitForTimeout(500);
+    shownCount = await checkRows();
+    assert.ok(shownCount > 0, "rows listed once the filter covers their device day");
+    const shown = { length: shownCount };
+    assert.deepEqual(errors, []);
+    record(`device timezone: filter and row dates agree (${shown.length} rows)`);
     await context.close();
   }
 
