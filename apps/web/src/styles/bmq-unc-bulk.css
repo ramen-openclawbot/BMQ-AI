@@ -1,0 +1,61 @@
+/* Up nhiều UNC dialog + entry card on the Trình chi gấp page (Demo 3). Builds on .d3-unc. */
+
+/* No bottom padding: a sticky footer sticks at the scroller's padding edge. */
+html .d3-unc.d3-ub { max-width: 600px; padding-bottom: 0; }
+
+.d3-ub-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; min-width: 0; }
+.d3-ub-row { display: grid; gap: 8px; min-width: 0; padding: 10px; border-radius: 16px; background: var(--d3-card, #f7f7f5); outline: 1.5px solid transparent; outline-offset: -1.5px; }
+.d3-ub-row.is-on { outline-color: var(--d3-ink, #272727); background: var(--d3-white, #fdfdfc); }
+
+.d3-ub-top { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; align-items: start; gap: 10px; }
+.d3-ub-top img, .d3-ub-ph { width: 44px; height: 58px; border-radius: 9px; object-fit: cover; background: var(--d3-panel, #ececea); }
+.d3-ub-read { display: grid; gap: 1px; min-width: 0; }
+.d3-ub-amt { display: flex; align-items: center; min-height: 24px; font: 300 19px/1.2 var(--d3-num, inherit); letter-spacing: -.01em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.d3-ub-read small { font-size: 12px; color: var(--d3-dim, #6b6b69); overflow-wrap: anywhere; }
+.d3-ub-top .d3-up-chip { white-space: nowrap; }
+
+.d3-ub-why { display: flex; align-items: flex-start; gap: 6px; margin: 0; font-size: 12px; line-height: 1.4; color: var(--d3-ink-2, #4a4a4a); overflow-wrap: anywhere; }
+.d3-ub-why.is-bad { color: #a32314; }
+.d3-ub-why.is-ok { color: #1f7a10; }
+.d3-ub-why svg { flex: none; margin-top: 1px; }
+
+.d3-ub-opts { display: grid; gap: 6px; }
+.d3-ub-opt { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; align-items: center; gap: 10px; width: 100%; min-height: 48px; padding: 8px 12px 8px 10px; border: 0; border-radius: 12px; background: var(--d3-white, #fdfdfc); box-shadow: var(--d3-sh); color: inherit; text-align: left; cursor: pointer; }
+.d3-ub-row.is-on .d3-ub-opt:not(.is-on) { background: var(--d3-card, #f7f7f5); box-shadow: none; }
+.d3-ub-opt.is-on { background: var(--d3-ink, #272727); color: #fff; }
+.d3-ub-opt.is-on .d3-ub-who small { color: rgba(255, 255, 255, .7); }
+.d3-ub-opt:disabled { cursor: default; opacity: .5; }
+.d3-ub-opt.is-on:disabled { opacity: 1; }
+.d3-ub-opt:focus-visible { outline: 2px solid var(--d3-blue, #3c91e6); outline-offset: 2px; }
+.d3-ub-tick { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid var(--d3-line-2, #d6d6d3); }
+.d3-ub-opt.is-on .d3-ub-tick { border-color: #fff; background: #fff; color: var(--d3-ink, #272727); }
+.d3-ub-who { display: grid; gap: 1px; min-width: 0; }
+.d3-ub-who b { font-size: 13.5px; font-weight: 500; overflow-wrap: anywhere; }
+.d3-ub-who small { font-size: 11.5px; color: var(--d3-dim, #6b6b69); overflow-wrap: anywhere; }
+.d3-ub-sum { font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* Sticky footer inside the scrolling dialog. */
+.d3-ub-foot { position: sticky; bottom: 0; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin: 0 -20px; padding: 12px 20px max(14px, env(safe-area-inset-bottom)); border-top: 1px solid var(--d3-line, #e6e6e3); background: var(--d3-white, #fdfdfc); }
+.d3-ub-foot p { margin: 0; font-size: 13px; color: var(--d3-ink-2, #4a4a4a); }
+.d3-ub-foot p b { font-weight: 500; color: var(--d3-ink, #272727); font-variant-numeric: tabular-nums; }
+html.bmq-d3 .d3-ub-go, .d3-ub-go { gap: 8px; min-height: 44px; margin-left: auto; padding: 0 18px; border: 0; border-radius: 13px; background: var(--d3-red, #f4442e); color: #fff; font-weight: 500; box-shadow: 0 8px 18px -8px rgba(244, 68, 46, .8); }
+html.bmq-d3 .d3-ub-go:hover { background: #e2381f; }
+html.bmq-d3 .d3-ub-go:disabled { background: var(--d3-panel, #ececea); color: var(--d3-faint, #8a8a88); box-shadow: none; opacity: 1; }
+
+/* Entry card on the submission page. */
+.d3-ps-bulk { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; align-items: center; gap: 12px; width: 100%; min-height: 64px; padding: 12px 14px; border: 0; border-radius: 18px; background: var(--d3-white, #fdfdfc); box-shadow: var(--d3-sh); color: var(--d3-ink, #272727); text-align: left; cursor: pointer; }
+.d3-ps-bulk:hover { outline: 1.5px solid var(--d3-ink, #272727); outline-offset: -1.5px; }
+.d3-ps-bulk:focus-visible { outline: 2px solid var(--d3-blue, #3c91e6); outline-offset: 2px; }
+.d3-ps-bulk > i { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; background: var(--d3-ink, #272727); color: #fff; }
+.d3-ps-bulk > span { display: grid; gap: 1px; min-width: 0; }
+.d3-ps-bulk b { font-size: 14.5px; font-weight: 500; }
+.d3-ps-bulk small { font-size: 12px; color: var(--d3-dim, #6b6b69); overflow-wrap: anywhere; }
+
+@media (max-width: 380px) {
+  .d3-ub-top { grid-template-columns: 40px minmax(0, 1fr); }
+  .d3-ub-top .d3-up-chip { grid-column: 2; justify-self: start; }
+  .d3-ub-top img, .d3-ub-ph { width: 40px; height: 52px; grid-row: span 2; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .d3-ub-opt { transition: none; }
+}

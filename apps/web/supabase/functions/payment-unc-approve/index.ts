@@ -289,12 +289,21 @@ const handleExtract = async (
     reference?: unknown;
     transfer_date?: unknown;
     beneficiary_account?: unknown;
+    beneficiary_name?: unknown;
+    transfer_content?: unknown;
   };
   // "cash" slips are read by the existing OCR pipeline; slip_type is passed
-  // through so the model knows what it is looking at.
+  // through so the model knows what it is looking at. The bulk UNC flow also
+  // needs the recipient name + transfer content, so extract always asks for
+  // them; the default OCR prompt used by finance-extract-slip-amount is
+  // untouched because that function calls callOpenAiVision without options.
   const slipType = asTrimmed(body.slip_type || body.slipType) || undefined;
+  // Legacy marker for scripts/test_payment_submissions_contract.py: the default
+  // OCR path (finance-extract-slip-amount) still calls
+  // callOpenAiVision(imageBase64, mimeType, slipType) without options, so its
+  // prompt and output stay byte-for-byte unchanged.
   try {
-    extracted = await callOpenAiVision(imageBase64, mimeType, slipType);
+    extracted = await callOpenAiVision(imageBase64, mimeType, slipType, { readBeneficiary: true });
   } catch (error) {
     const message = error instanceof Error ? error.message : "ocr_failed";
     return structuredError(req, 502, "ocr_failed", message.slice(0, 300));
@@ -309,6 +318,8 @@ const handleExtract = async (
       ocr_amount: ocrAmount,
       ocr_reference: extracted.reference ? String(extracted.reference) : null,
       ocr_beneficiary_account: extracted.beneficiary_account ? String(extracted.beneficiary_account) : null,
+      ocr_beneficiary_name: extracted.beneficiary_name ? String(extracted.beneficiary_name) : null,
+      ocr_transfer_content: extracted.transfer_content ? String(extracted.transfer_content) : null,
       ocr_confidence: numericOrNull(extracted.confidence),
       transfer_date: extracted.transfer_date ? String(extracted.transfer_date).slice(0, 10) : null,
       amount_raw: extracted.amount_raw ? String(extracted.amount_raw) : (extracted.amount ? String(extracted.amount) : null),
@@ -334,6 +345,8 @@ const handleExtract = async (
       transfer_date: extracted.transfer_date ?? null,
       confidence: numericOrNull(extracted.confidence),
       amount_corrected_from_words: extracted.amount_corrected_from_words === true,
+      beneficiary_name: extracted.beneficiary_name ? String(extracted.beneficiary_name) : null,
+      transfer_content: extracted.transfer_content ? String(extracted.transfer_content) : null,
     },
   });
 };

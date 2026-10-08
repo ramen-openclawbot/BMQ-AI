@@ -1725,8 +1725,10 @@ export type Database = {
           file_sha256: string
           ocr_amount: number | null
           ocr_beneficiary_account: string | null
+          ocr_beneficiary_name: string | null
           ocr_confidence: number | null
           ocr_reference: string | null
+          ocr_transfer_content: string | null
           storage_path: string
           transfer_date: string | null
         }
@@ -1738,8 +1740,10 @@ export type Database = {
           file_sha256: string
           ocr_amount?: number | null
           ocr_beneficiary_account?: string | null
+          ocr_beneficiary_name?: string | null
           ocr_confidence?: number | null
           ocr_reference?: string | null
+          ocr_transfer_content?: string | null
           storage_path: string
           transfer_date?: string | null
         }
@@ -1751,8 +1755,10 @@ export type Database = {
           file_sha256?: string
           ocr_amount?: number | null
           ocr_beneficiary_account?: string | null
+          ocr_beneficiary_name?: string | null
           ocr_confidence?: number | null
           ocr_reference?: string | null
+          ocr_transfer_content?: string | null
           storage_path?: string
           transfer_date?: string | null
         }

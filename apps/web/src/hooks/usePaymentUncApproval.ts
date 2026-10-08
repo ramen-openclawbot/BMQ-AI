@@ -20,6 +20,10 @@ export interface UncOcrResult {
   transfer_date: string | null;
   confidence: number | null;
   amount_corrected_from_words: boolean;
+  /** Tên người/đơn vị nhận tiền (bulk UNC flow). */
+  beneficiary_name?: string | null;
+  /** Nội dung chuyển khoản (bulk UNC flow). */
+  transfer_content?: string | null;
 }
 
 export interface UncExtractResponse {

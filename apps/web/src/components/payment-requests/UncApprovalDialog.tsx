@@ -85,7 +85,7 @@ const errorText = (error: unknown) => {
 };
 
 /** Downscale phone photos so the upload stays well under the server limit. */
-async function fileToJpegBase64(file: File): Promise<{ base64: string; mime: string; preview: string }> {
+export async function fileToJpegBase64(file: File): Promise<{ base64: string; mime: string; preview: string }> {
   const readRaw = () =>
     new Promise<string>((resolve, reject) => {
       const reader = new FileReader();

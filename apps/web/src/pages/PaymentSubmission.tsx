@@ -3,12 +3,14 @@
  */
 import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { Banknote, ChevronLeft, CreditCard, Loader2, TriangleAlert } from "lucide-react";
+import { Banknote, ChevronLeft, ChevronRight, CreditCard, Images, Loader2, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePaymentSubmission, type PaymentSubmissionItemDetail } from "@/hooks/usePaymentSubmissions";
 import { UncApprovalDialog, type UncApprovalRequest } from "@/components/payment-requests/UncApprovalDialog";
+import { UncBulkDialog } from "@/components/payment-requests/UncBulkDialog";
+import type { UncBulkPaymentRequest } from "@/lib/payment-unc-bulk-match";
 import { PaymentRequestDetailsDialog } from "@/components/dialogs/PaymentRequestDetailsDialog";
 import { cn } from "@/lib/utils";
 import "@/styles/bmq-urgent-payables.css";
@@ -38,12 +40,22 @@ export default function PaymentSubmission() {
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [payWith, setPayWith] = useState<{ method: "bank_transfer" | "cash"; ids: string[] } | null>(null);
   const [openRequest, setOpenRequest] = useState<string | null>(null);
+  const [bulkOpen, setBulkOpen] = useState(false);
 
   const items = useMemo(() => [...(data?.items ?? [])].sort((a, b) => a.position - b.position), [data]);
   const open = items.filter((i) => !isPaid(i));
   const paidCount = items.length - open.length;
   const remainingTotal = open.reduce((sum, i) => sum + Number(i.remaining_amount || 0), 0);
   const dialogRequests = payWith ? items.filter((i) => payWith.ids.includes(i.payment_request_id)).map(toDialogRequest) : [];
+
+  const bulkRequests: UncBulkPaymentRequest[] = open.map((i) => ({
+    id: i.payment_request_id,
+    requestNumber: i.request_number,
+    supplierId: i.supplier_id,
+    supplierName: i.supplier_name,
+    remaining: Number(i.remaining_amount || 0),
+    createdAt: i.created_at,
+  }));
 
   const togglePick = (requestId: string) =>
     setPicked((prev) => {
@@ -87,6 +99,17 @@ export default function PaymentSubmission() {
               <b>{vnd(data.total_amount)}</b>
             </div>
           </section>
+
+          {isOwner && open.length > 0 && (
+            <button type="button" className="d3-ps-bulk" onClick={() => setBulkOpen(true)} data-bmq-submission-bulk-unc>
+              <i><Images className="h-5 w-5" /></i>
+              <span>
+                <b>Up nhiều UNC một lần</b>
+                <small>Hệ thống đọc và ghép vào từng phiếu, anh xem lại rồi mới chi</small>
+              </span>
+              <ChevronRight className="h-5 w-5" />
+            </button>
+          )}
 
           <ul className="d3-ps-rows">
             {items.map((item) => {
@@ -162,6 +185,15 @@ export default function PaymentSubmission() {
         mode="approve"
         requests={dialogRequests}
         paymentMethod={payWith?.method ?? "bank_transfer"}
+        onDone={() => {
+          setPicked(new Set());
+          void refetch();
+        }}
+      />
+      <UncBulkDialog
+        open={bulkOpen}
+        onOpenChange={setBulkOpen}
+        requests={bulkRequests}
         onDone={() => {
           setPicked(new Set());
           void refetch();

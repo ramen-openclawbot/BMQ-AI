@@ -245,6 +245,26 @@ Trả về JSON.`;
 export const slipUserPrompt = (slipType?: string) =>
   `Slip type: ${slipType || "unknown"}. Trích xuất số tiền thực chuyển/thực chi từ ảnh UNC/QTM/bank slip này. Trả về đúng schema JSON.`;
 
+/**
+ * Optional extra reading for the CEO bulk-UNC flow. Only appended when the
+ * caller sets `readBeneficiary: true`, so the default prompt/schema/output of
+ * callOpenAiVision (and therefore finance-extract-slip-amount) stay unchanged.
+ */
+export const SLIP_BENEFICIARY_SYSTEM_PROMPT = `
+
+Đọc thêm hai trường sau nếu ảnh có hiển thị (không có thì trả null):
+7. beneficiary_name: tên người/đơn vị nhận tiền, giữ nguyên như trên ảnh; KHÔNG lấy số tài khoản, tên ngân hàng hay số điện thoại.
+8. transfer_content: nội dung chuyển khoản/ghi chú giao dịch.
+Không thay đổi cách đọc amount.`;
+
+export const slipBeneficiaryUserPrompt = (slipType?: string) =>
+  `${slipUserPrompt(slipType)} Đọc thêm tên người/đơn vị nhận tiền và nội dung chuyển khoản nếu có.`;
+
+export interface SlipOcrOptions {
+  /** Also read beneficiary_name + transfer_content (bulk UNC matching). */
+  readBeneficiary?: boolean;
+}
+
 export type ExtractedSlipData = {
   amount?: unknown;
   amount_in_words?: unknown;
@@ -310,7 +330,19 @@ export const sanitizeAiErrorMessage = (status?: number, rawError = "") => {
 export const OPENAI_VISION_ENDPOINT = "https://api.openai.com/v1/chat/completions";
 export const OPENAI_VISION_MODEL = "gpt-4o";
 
-export const callOpenAiVision = async (imageBase64: string, mimeType: string, slipType?: string) => {
+export const callOpenAiVision = async (
+  imageBase64: string,
+  mimeType: string,
+  slipType?: string,
+  options?: SlipOcrOptions,
+) => {
+  const readBeneficiary = options?.readBeneficiary === true;
+  const systemPrompt = readBeneficiary
+    ? `${SLIP_EXTRACTION_SYSTEM_PROMPT}${SLIP_BENEFICIARY_SYSTEM_PROMPT}`
+    : SLIP_EXTRACTION_SYSTEM_PROMPT;
+  const userPrompt = readBeneficiary
+    ? slipBeneficiaryUserPrompt(slipType)
+    : slipUserPrompt(slipType);
   const openaiApiKey = Deno.env.get("OPENAI_API_KEY");
   if (!openaiApiKey) {
     console.error("[bank-slip-ocr] OPENAI_API_KEY not configured");
@@ -335,7 +367,7 @@ export const callOpenAiVision = async (imageBase64: string, mimeType: string, sl
         body: JSON.stringify({
           model: OPENAI_VISION_MODEL,
           messages: [
-            { role: "system", content: SLIP_EXTRACTION_SYSTEM_PROMPT },
+            { role: "system", content: systemPrompt },
             {
               role: "user",
               content: [
@@ -346,7 +378,7 @@ export const callOpenAiVision = async (imageBase64: string, mimeType: string, sl
                     detail: "high",
                   },
                 },
-                { type: "text", text: slipUserPrompt(slipType) },
+                { type: "text", text: userPrompt },
               ],
             },
           ],
@@ -371,6 +403,18 @@ export const callOpenAiVision = async (imageBase64: string, mimeType: string, sl
                     reference: { type: ["string", "null"] },
                     confidence: { type: "number" },
                     notes: { type: ["string", "null"] },
+                    ...(readBeneficiary
+                      ? {
+                          beneficiary_name: {
+                            type: ["string", "null"],
+                            description: "Recipient name exactly as shown on the slip; null when absent",
+                          },
+                          transfer_content: {
+                            type: ["string", "null"],
+                            description: "Transfer content / narration exactly as shown on the slip; null when absent",
+                          },
+                        }
+                      : {}),
                   },
                   required: ["amount", "amount_in_words", "confidence"],
                 },
