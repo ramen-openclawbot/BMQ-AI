@@ -12,6 +12,8 @@ import test from "node:test";
 
 import { computePayroll } from "./engine.ts";
 import { buildPayrollNotes } from "./notes.ts";
+import { buildPayrollExportRows } from "./export.ts";
+import { buildPayslips } from "./payslip.ts";
 import { resolveRulesConfig } from "./rules-config.ts";
 import {
   T09_REAL_EMPLOYEES,
@@ -130,4 +132,40 @@ test("a manual actualWorkDays measure keeps shortShiftDays empty", () => {
 
   assert.deepEqual(an.shortShiftDays, []);
   assert.equal(buildPayrollNotes(lines, [], LABELS).get("00025"), undefined);
+});
+
+
+test("internal T09 reconciliation reference is hidden without changing audit or amounts", () => {
+  const adjustments: PayrollAdjustment[] = ["00025", "00011", "00024"].map((employeeCode) => ({
+    employeeCode, field: "overtime_hours", value: 3,
+    reason: "Theo bảng lương DIEU CHINH T09", actor: "owner@fixture", at: "2026-09-30T17:00:00+07:00",
+  }));
+  const before = structuredClone(adjustments);
+  const result = computePayroll({ period: REAL_PERIOD, employees: T09_REAL_EMPLOYEES, rows: T09_REAL_ROWS, adjustments });
+  const resultBefore = structuredClone(result);
+  const notes = buildPayrollNotes(result.employees, adjustments, LABELS);
+  assert.deepEqual(notes.get("00025"), ["Ca ngắn: 02/09 (0,5 công)"]);
+  assert.deepEqual(notes.get("00011"), ["Nghỉ việc trong kỳ: không tính ngày lễ, tăng ca"]);
+  assert.equal(notes.has("00024"), false);
+  const withoutNotes = buildPayrollExportRows(REAL_PERIOD, result, new Map());
+  const withNotes = buildPayrollExportRows(REAL_PERIOD, result, notes);
+  assert.deepEqual(withNotes.map((row) => row.slice(0, 14)), withoutNotes.map((row) => row.slice(0, 14)));
+  assert.equal(JSON.stringify(withNotes).includes("DIEU CHINH"), false);
+  const payslips = buildPayslips(REAL_PERIOD, T09_REAL_EMPLOYEES, result, notes);
+  assert.equal(JSON.stringify(payslips).includes("DIEU CHINH"), false);
+  assert.deepEqual(payslips.map(({ note, ...rest }) => rest), buildPayslips(REAL_PERIOD, T09_REAL_EMPLOYEES, result).map(({ note, ...rest }) => rest));
+  assert.deepEqual(adjustments, before);
+  assert.deepEqual(result, resultBefore);
+});
+
+test("meaningful overtime reasons and other adjustment fields remain visible", () => {
+  const adjustments: PayrollAdjustment[] = [
+    { employeeCode: "00025", field: "overtime_hours", value: 3, reason: "Bổ sung 30 phút tăng ca ngày 05/09", actor: "owner@fixture", at: "2026-09-30" },
+    { employeeCode: "00025", field: "net_pay", value: 1000, reason: "Theo bảng lương DIEU CHINH T09", actor: "owner@fixture", at: "2026-09-30" },
+  ];
+  assert.deepEqual(buildPayrollNotes(realLines(), adjustments, LABELS).get("00025"), [
+    "Giờ tăng ca: Bổ sung 30 phút tăng ca ngày 05/09",
+    "Thực nhận: Theo bảng lương DIEU CHINH T09",
+    "Ca ngắn: 02/09 (0,5 công)",
+  ]);
 });

@@ -2,7 +2,7 @@
 //
 // One pure function feeds the draft table, the Excel/PDF export and the
 // published payslips, so the note column stays identical everywhere:
-//   1. every adjustment as "label: reason" (exactly as the draft did before);
+//   1. adjustment reasons, excluding the internal T09 overtime reference;
 //   2. one short-shift note listing every attendance date credited below one
 //      full công, with its credit;
 //   3. the "chốt lương" reason for an employee who left during the period.
@@ -43,8 +43,10 @@ export function buildPayrollNotes(
     notes.set(employeeCode, list);
   };
 
-  // 1. Adjustments — same text and order as the draft's Ghi chú column.
+  // Hide only the internal reconciliation reference, not the adjustment itself.
+  // Meaningful reasons keep their original text/order; audit data is untouched.
   for (const item of adjustments) {
+    if (item.field === "overtime_hours" && item.reason.trim() === "Theo bảng lương DIEU CHINH T09") continue;
     push(item.employeeCode, `${adjustmentLabels[item.field]}: ${item.reason}`);
   }
 
