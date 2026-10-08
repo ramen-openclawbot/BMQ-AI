@@ -7,8 +7,9 @@ import {
   jsonResponse,
   publicCustomerProfile,
   readJsonBody,
-  resolveDealerSession,
+  resolveDealerSessionWithLock,
 } from "../_shared/dealer.ts";
+import { dealerOrderLockedResponseBody } from "../_shared/dealer-order-lock.ts";
 
 type DealerRouteCustomer = {
   id: string;
@@ -91,7 +92,12 @@ serve(async (req) => {
     const body = req.method === "POST" ? await readJsonBody<Record<string, unknown>>(req) : {};
     const supabase = createServiceClient();
     const token = extractDealerSessionToken(body, req);
-    const sessionContext = token ? await resolveDealerSession(supabase, token) : null;
+    const resolution = token ? await resolveDealerSessionWithLock(supabase, token) : null;
+    const sessionContext = resolution?.session ?? null;
+
+    if (resolution?.locked) {
+      return jsonResponse(req, dealerOrderLockedResponseBody(), 423);
+    }
 
     if (!sessionContext) {
       return errorResponse(req, "Phiên đại lý đã hết hạn. Vui lòng đăng nhập lại để xem catalog.", 401, "dealer_session_required");

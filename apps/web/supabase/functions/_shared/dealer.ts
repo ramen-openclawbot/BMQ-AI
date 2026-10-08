@@ -14,6 +14,7 @@ export type DealerCustomerProfile = {
   is_active?: boolean | null;
   is_npp?: boolean | null;
   supplied_by_npp_customer_id?: string | null;
+  order_locked?: boolean | null;
 };
 
 export type DealerSessionContext = {
@@ -148,7 +149,7 @@ export async function resolveDealerSession(supabase: DealerServiceClient, token:
   const { data, error } = await supabase
     .from("dealer_sessions")
     .select(
-      "id, customer_id, contact_id, expires_at, mini_crm_customers!inner(id, customer_name, customer_code, customer_group, address, is_active, is_npp, supplied_by_npp_customer_id), dealer_customer_contacts(id, contact_name, phone_normalized, is_active, is_test)",
+      "id, customer_id, contact_id, expires_at, mini_crm_customers!inner(id, customer_name, customer_code, customer_group, address, is_active, is_npp, supplied_by_npp_customer_id, order_locked), dealer_customer_contacts(id, contact_name, phone_normalized, is_active, is_test)",
     )
     .eq("token_hash", tokenHash)
     .is("revoked_at", null)
@@ -161,7 +162,7 @@ export async function resolveDealerSession(supabase: DealerServiceClient, token:
   const customer = data.mini_crm_customers as unknown as DealerCustomerProfile | null;
   const contact = data.dealer_customer_contacts as unknown as DealerSessionContext["contact"] & { is_active?: boolean | null };
 
-  if (!customer?.is_active || contact?.is_active === false) return null;
+  if (!customer?.is_active || customer?.order_locked === true || contact?.is_active === false) return null;
 
   await supabase
     .from("dealer_sessions")
@@ -185,6 +186,48 @@ export async function resolveDealerSession(supabase: DealerServiceClient, token:
         }
       : null,
   };
+}
+
+export type DealerSessionResolution =
+  | { locked: false; session: DealerSessionContext }
+  | { locked: true; session: null };
+
+/**
+ * Resolves a dealer session with the manual order lock discriminated.
+ *
+ * The token row is deliberately looked up without the `revoked_at` filter so a
+ * session that was revoked by the order lock can be reported as `locked` (423)
+ * instead of an ordinary invalid session (401). Unlocked tokens then go through
+ * the unchanged `resolveDealerSession` path.
+ */
+export async function resolveDealerSessionWithLock(
+  supabase: DealerServiceClient,
+  token: string,
+): Promise<DealerSessionResolution | null> {
+  const tokenHash = await hashDealerSessionToken(token);
+
+  const { data, error } = await supabase
+    .from("dealer_sessions")
+    .select("id, revoked_reason, mini_crm_customers(order_locked)")
+    .eq("token_hash", tokenHash)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) return null;
+
+  const customer = data.mini_crm_customers as unknown as { order_locked?: boolean | null } | null;
+
+  // Locked only while the customer is still locked. A session revoked by an earlier
+  // lock (revoked_reason "order_locked") is just invalid once the lock is lifted, so
+  // the dealer logs in again instead of seeing a stale lock message.
+  if (customer?.order_locked === true) {
+    return { locked: true, session: null };
+  }
+
+  const session = await resolveDealerSession(supabase, token);
+  if (!session) return null;
+
+  return { locked: false, session };
 }
 
 export function publicCustomerProfile(customer: DealerCustomerProfile, contact?: DealerSessionContext["contact"]) {

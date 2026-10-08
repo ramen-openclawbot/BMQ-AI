@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
+import { DealerOrderLockCard } from "@/components/mini-crm/DealerOrderLockCard";
 import { supabase } from "@/integrations/supabase/client";
 import { getFreshAccessToken } from "@/lib/supabase-helpers";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -3454,7 +3455,10 @@ export default function MiniCrm() {
                         {c.is_npp ? <Badge>NPP</Badge> : null}
                       </div>
                     </div>
-                    {c.is_active ? <Badge>Active</Badge> : <Badge variant="secondary">Tạm ngưng</Badge>}
+                    <div className="flex shrink-0 flex-col items-end gap-1">
+                      {c.is_active ? <Badge>Active</Badge> : <Badge variant="secondary">Tạm ngưng</Badge>}
+                      {c.order_locked ? <Badge variant="destructive" data-bmq-crm-order-locked>Khoá đặt hàng</Badge> : null}
+                    </div>
                   </div>
                   <div className="mt-3 grid gap-2 text-sm text-muted-foreground">
                     <div>
@@ -3545,7 +3549,7 @@ export default function MiniCrm() {
                       <div className="break-words">{npp?.customer_name || "-"}</div>
                       <div className="text-xs text-muted-foreground">Phí QL: {formatVnd(Number(c.npp_management_fee_vnd || 0))}</div>
                     </div>
-                    <div className="min-w-0">{c.is_active ? <Badge>Active</Badge> : <Badge variant="secondary">Tạm ngưng</Badge>}</div>
+                    <div className="flex min-w-0 flex-wrap gap-1">{c.is_active ? <Badge>Active</Badge> : <Badge variant="secondary">Tạm ngưng</Badge>}{c.order_locked ? <Badge variant="destructive" data-bmq-crm-order-locked>Khoá đặt hàng</Badge> : null}</div>
                   </div>
                 );
               })}
@@ -3961,7 +3965,7 @@ export default function MiniCrm() {
               <div className="space-y-3 text-sm">
                 <div><b>Nhóm:</b> {GROUP_LABEL_MAP[viewCustomer.customer_group] || viewCustomer.customer_group}</div>
                 <div><b>Sản phẩm kinh doanh:</b> {renderBusinessProductLabel(viewCustomer.product_group)}</div>
-                <div><b>Trạng thái:</b> {viewCustomer.is_active ? "Active" : "Tạm ngưng"}</div>
+                <div><b>Trạng thái:</b> {viewCustomer.is_active ? "Active" : "Tạm ngưng"}{viewCustomer.order_locked ? " · Khoá đặt hàng" : ""}</div>
                 <div><b>Email nhận diện:</b> {(viewCustomer.mini_crm_customer_emails || []).map((e: any) => e.email).join(", ") || "-"}</div>
                 <div><b>Email nhận công nợ:</b> {formatEmailList(viewCustomer.debt_emails) || "-"}</div>
                 <div><b>SĐT dealer portal:</b> {formatDealerContactPhones(viewCustomer.dealer_customer_contacts || []) || "Chưa có"}</div>
@@ -4168,6 +4172,18 @@ export default function MiniCrm() {
                 <option value="paused">Tạm ngưng</option>
               </select>
             </div>
+            {(() => {
+              const lockTarget = customers.find((c: any) => String(c?.id || "") === String(editingCustomerId || ""));
+              return lockTarget ? (
+                <DealerOrderLockCard
+                  customerId={String(lockTarget.id)}
+                  locked={lockTarget.order_locked === true}
+                  lockedAt={lockTarget.order_locked_at}
+                  reason={lockTarget.order_lock_reason}
+                  canEdit={isOwner || canEditModule("crm")}
+                />
+              ) : null;
+            })()}
 
             <div className="space-y-2 md:col-span-2 rounded-md border p-3">
               <Label>Hợp đồng (PDF)</Label>

@@ -7,8 +7,9 @@ import {
   jsonResponse,
   publicCustomerProfile,
   readJsonBody,
-  resolveDealerSession,
+  resolveDealerSessionWithLock,
 } from "../_shared/dealer.ts";
+import { dealerOrderLockedResponseBody } from "../_shared/dealer-order-lock.ts";
 import {
   defaultDeliveryDateTPlusOne,
   formatWarehouseOrderMessage,
@@ -118,7 +119,12 @@ serve(async (req) => {
       return errorResponse(req, "Vui lòng đăng nhập đại lý trước khi gửi đơn.", 401, "dealer_session_required");
     }
 
-    const sessionContext = await resolveDealerSession(supabase, token);
+    const sessionContextOrNull = await resolveDealerSessionWithLock(supabase, token);
+    if (sessionContextOrNull?.locked) {
+      return jsonResponse(req, dealerOrderLockedResponseBody(), 423);
+    }
+
+    const sessionContext = sessionContextOrNull?.session ?? null;
     if (!sessionContext) {
       return errorResponse(req, "Phiên đại lý đã hết hạn. Vui lòng đăng nhập lại.", 401, "dealer_session_invalid");
     }

@@ -1758,6 +1758,102 @@ export type Database = {
         }
         Relationships: []
       }
+      dealer_sessions: {
+        Row: {
+          contact_id: string
+          created_at: string
+          customer_id: string
+          expires_at: string
+          id: string
+          last_seen_at: string | null
+          request_ip: string | null
+          revoked_at: string | null
+          revoked_reason: string | null
+          token_hash: string
+          user_agent: string | null
+        }
+        Insert: {
+          contact_id: string
+          created_at?: string
+          customer_id: string
+          expires_at: string
+          id?: string
+          last_seen_at?: string | null
+          request_ip?: string | null
+          revoked_at?: string | null
+          revoked_reason?: string | null
+          token_hash: string
+          user_agent?: string | null
+        }
+        Update: {
+          contact_id?: string
+          created_at?: string
+          customer_id?: string
+          expires_at?: string
+          id?: string
+          last_seen_at?: string | null
+          request_ip?: string | null
+          revoked_at?: string | null
+          revoked_reason?: string | null
+          token_hash?: string
+          user_agent?: string | null
+        }
+        Relationships: []
+      }
+      mini_crm_customers: {
+        Row: {
+          address: string | null
+          created_at: string
+          customer_code: string | null
+          customer_group: string | null
+          customer_name: string
+          id: string
+          is_active: boolean
+          is_npp: boolean
+          order_lock_reason: string | null
+          order_locked: boolean
+          order_locked_at: string | null
+          order_locked_by: string | null
+          product_group: string | null
+          supplied_by_npp_customer_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          address?: string | null
+          created_at?: string
+          customer_code?: string | null
+          customer_group?: string | null
+          customer_name: string
+          id?: string
+          is_active?: boolean
+          is_npp?: boolean
+          order_lock_reason?: string | null
+          order_locked?: boolean
+          order_locked_at?: string | null
+          order_locked_by?: string | null
+          product_group?: string | null
+          supplied_by_npp_customer_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          address?: string | null
+          created_at?: string
+          customer_code?: string | null
+          customer_group?: string | null
+          customer_name?: string
+          id?: string
+          is_active?: boolean
+          is_npp?: boolean
+          order_lock_reason?: string | null
+          order_locked?: boolean
+          order_locked_at?: string | null
+          order_locked_by?: string | null
+          product_group?: string | null
+          supplied_by_npp_customer_id?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       product_skus: {
         Row: {
           category: string | null
@@ -2192,6 +2288,14 @@ export type Database = {
           p_request_id: string
           p_requires_receipt: boolean
           p_reason: string | null
+        }
+        Returns: Json
+      }
+      set_dealer_order_lock: {
+        Args: {
+          p_customer_id: string
+          p_locked: boolean
+          p_reason?: string | null
         }
         Returns: Json
       }

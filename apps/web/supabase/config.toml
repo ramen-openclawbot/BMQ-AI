@@ -132,6 +132,9 @@ verify_jwt = false
 [functions.dealer-catalog]
 verify_jwt = false
 
+[functions.dealer-session-status]
+verify_jwt = false
+
 [functions.dealer-public-config]
 verify_jwt = false
 

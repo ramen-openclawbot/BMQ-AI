@@ -14,6 +14,7 @@ import {
   readJsonBody,
   timingSafeEqual,
 } from "../_shared/dealer.ts";
+import { dealerOrderLockedResponseBody, isDealerOrderLocked } from "../_shared/dealer-order-lock.ts";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -82,7 +83,7 @@ serve(async (req) => {
 
     const { data: customer, error: customerError } = await supabase
       .from("mini_crm_customers")
-      .select("id, customer_name, customer_code, customer_group, address, is_active, is_npp, supplied_by_npp_customer_id")
+      .select("id, customer_name, customer_code, customer_group, address, is_active, is_npp, supplied_by_npp_customer_id, order_locked")
       .eq("id", challenge.customer_id)
       .maybeSingle();
 
@@ -90,6 +91,10 @@ serve(async (req) => {
 
     if (!customer?.is_active) {
       return errorResponse(req, "Hồ sơ đại lý đang tạm ngưng. Vui lòng liên hệ vận hành.", 403, "customer_inactive");
+    }
+
+    if (isDealerOrderLocked(customer)) {
+      return jsonResponse(req, dealerOrderLockedResponseBody(), 423);
     }
 
     const { data: contact, error: contactError } = await supabase

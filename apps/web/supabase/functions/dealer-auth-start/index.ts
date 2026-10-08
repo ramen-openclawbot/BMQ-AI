@@ -14,6 +14,11 @@ import {
   readJsonBody,
   sendDealerOtpZns,
 } from "../_shared/dealer.ts";
+import {
+  DEALER_ORDER_LOCKED_CODE,
+  DEALER_ORDER_LOCKED_MESSAGE,
+  isDealerOrderLocked,
+} from "../_shared/dealer-order-lock.ts";
 
 const GENERIC_AUTH_START_MESSAGE =
   "Nếu số điện thoại thuộc hồ sơ đại lý đang hoạt động, mã OTP sẽ được gửi qua Zalo ZNS.";
@@ -49,7 +54,7 @@ serve(async (req) => {
     const { data: contacts, error: contactError } = await supabase
       .from("dealer_customer_contacts")
       .select(
-        "id, customer_id, phone_normalized, contact_name, mini_crm_customers!inner(id, customer_name, is_active)",
+        "id, customer_id, phone_normalized, contact_name, mini_crm_customers!inner(id, customer_name, is_active, order_locked)",
       )
       .eq("phone_normalized", phoneNormalized)
       .eq("is_active", true)
@@ -74,6 +79,18 @@ serve(async (req) => {
         otp_required: false,
         reason: "dealer_phone_needs_support",
         message: CONTACT_SUPPORT_MESSAGE,
+      });
+    }
+
+    // Manual order lock: answer before the cooldown branch so a locked dealer
+    // never gets an "OTP sent" response and no challenge is created.
+    const activeCustomer = contacts[0].mini_crm_customers as { order_locked?: boolean | null } | null;
+    if (isDealerOrderLocked(activeCustomer)) {
+      return jsonResponse(req, {
+        otp_required: false,
+        reason: DEALER_ORDER_LOCKED_CODE,
+        code: DEALER_ORDER_LOCKED_CODE,
+        message: DEALER_ORDER_LOCKED_MESSAGE,
       });
     }
 

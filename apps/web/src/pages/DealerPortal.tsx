@@ -415,6 +415,34 @@ const getFunctionErrorMessage = async (error: unknown, fallback: string) => {
   return error instanceof Error ? error.message : fallback;
 };
 
+const DEALER_ORDER_LOCKED_CODE = "dealer_order_locked";
+const DEALER_ORDER_LOCKED_MESSAGE =
+  "Đặt Hàng đang tạm khoá. Quý khách hàng vui lòng thanh toán công nợ để mở lại. Trân trọng.";
+
+const isDealerOrderLockedPayload = (payload: Record<string, unknown> | null | undefined): boolean =>
+  payload?.code === DEALER_ORDER_LOCKED_CODE ||
+  payload?.reason === DEALER_ORDER_LOCKED_CODE ||
+  payload?.error === DEALER_ORDER_LOCKED_MESSAGE ||
+  payload?.message === DEALER_ORDER_LOCKED_MESSAGE;
+
+const readDealerOrderLockedMessage = (payload: Record<string, unknown> | null | undefined): string => {
+  const message = typeof payload?.message === "string" ? payload.message : payload?.error;
+  return typeof message === "string" && message ? message : DEALER_ORDER_LOCKED_MESSAGE;
+};
+
+const getFunctionErrorPayload = async (error: unknown): Promise<Record<string, unknown> | null> => {
+  const context = (error as { context?: Response })?.context;
+  if (context?.clone) {
+    try {
+      const payload = await context.clone().json();
+      if (payload && typeof payload === "object") return payload as Record<string, unknown>;
+    } catch {
+      // No JSON payload available.
+    }
+  }
+  return null;
+};
+
 const toDisplayName = (value?: string | null) =>
   (value || "")
     .trim()
@@ -491,6 +519,7 @@ export default function DealerPortal() {
   const [authLoading, setAuthLoading] = useState(false);
   const [authMessage, setAuthMessage] = useState("");
   const [authError, setAuthError] = useState("");
+  const [orderLockedMessage, setOrderLockedMessage] = useState("");
   const [orderSubmitting, setOrderSubmitting] = useState(false);
   const [orderMessage, setOrderMessage] = useState("");
   const [orderError, setOrderError] = useState("");
@@ -572,6 +601,72 @@ export default function DealerPortal() {
     updateSessionToken(token);
   }, [invalidateOrderHistory]);
 
+  const clearDealerSession = useCallback(() => {
+    localStorage.removeItem(DEALER_SESSION_STORAGE_KEY);
+    localStorage.removeItem(DEALER_PROFILE_CACHE_KEY);
+    localStorage.removeItem(DEALER_CATALOG_CACHE_KEY);
+    setDealerProfileCache({ customer: null, hasDealerRoutes: false });
+    setDealerCatalogCache({ products: [], announcements: [], dealerRoutes: [] });
+    setDealerCustomer(null);
+    setDealerRoutes([]);
+    setCatalogError("");
+    setSessionToken("");
+    setLoginStep("phone");
+    setActiveNav("messages");
+  }, [setSessionToken]);
+
+  const handleDealerOrderLocked = useCallback((message?: string | null) => {
+    clearDealerSession();
+    setOtp("");
+    setAuthError("");
+    setOrderLockedMessage(message || DEALER_ORDER_LOCKED_MESSAGE);
+  }, [clearDealerSession]);
+
+  const handlePhoneChange = useCallback((value: string) => {
+    setPhone(value);
+    setOrderLockedMessage("");
+  }, []);
+
+  useEffect(() => {
+    if (!sessionToken) return undefined;
+
+    let cancelled = false;
+    const checkDealerSessionStatus = async () => {
+      const { error, isSessionExpired } = await callEdgeFunction<{ ok?: boolean }>(
+        "dealer-session-status",
+        { dealer_token: sessionToken },
+        undefined,
+        12000,
+      );
+      if (cancelled || historySessionRef.current !== sessionToken) return;
+      if (isDealerOrderLockedPayload({ error })) {
+        handleDealerOrderLocked(error);
+        return;
+      }
+      if (isSessionExpired) clearDealerSession();
+    };
+
+    const handleWindowFocus = () => {
+      void checkDealerSessionStatus();
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") void checkDealerSessionStatus();
+    };
+
+    window.addEventListener("focus", handleWindowFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    const interval = window.setInterval(() => {
+      void checkDealerSessionStatus();
+    }, 60000);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener("focus", handleWindowFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.clearInterval(interval);
+    };
+  }, [sessionToken, handleDealerOrderLocked, clearDealerSession]);
+
   useEffect(() => {
     const shell = document.querySelector<HTMLElement>(".dealer-option-c");
     const viewport = window.visualViewport;
@@ -649,6 +744,10 @@ export default function DealerPortal() {
 
       if (historySessionRef.current !== token) return;
       if (error) {
+        if (isDealerOrderLockedPayload({ error })) {
+          handleDealerOrderLocked(error);
+          return;
+        }
         if (isSessionExpired) {
           localStorage.removeItem(DEALER_SESSION_STORAGE_KEY);
           localStorage.removeItem(DEALER_PROFILE_CACHE_KEY);
@@ -695,7 +794,7 @@ export default function DealerPortal() {
       setCatalogStatus("error");
       console.warn("Không tải được danh sách sản phẩm đại lý", message || error);
     }
-  }, [setSessionToken]);
+  }, [setSessionToken, handleDealerOrderLocked]);
 
   useEffect(() => {
     void loadCatalog(sessionToken);
@@ -726,6 +825,10 @@ export default function DealerPortal() {
     // Invalidations also retire in-flight requests, including a reused token after logout.
     if (generation !== historyGenerationRef.current || historySessionRef.current !== sessionToken) return;
     if (historyRequestsRef.current.get(key) === request) historyRequestsRef.current.delete(key);
+    if (isDealerOrderLockedPayload({ error })) {
+      handleDealerOrderLocked(error);
+      return;
+    }
     if (isSessionExpired) {
       localStorage.removeItem(DEALER_SESSION_STORAGE_KEY);
       localStorage.removeItem(DEALER_PROFILE_CACHE_KEY);
@@ -745,7 +848,7 @@ export default function DealerPortal() {
     }
     setOrderHistoryData(data);
     setOrderHistoryStatus("live");
-  }, [activeNav, deepLinkedOrderActive, historyKey, orderHistoryAnchor, orderHistoryGranularity, orderHistoryPage, pendingOrderDeepLink, sessionToken, setSessionToken]);
+  }, [activeNav, deepLinkedOrderActive, historyKey, orderHistoryAnchor, orderHistoryGranularity, orderHistoryPage, pendingOrderDeepLink, sessionToken, setSessionToken, handleDealerOrderLocked]);
 
   useEffect(() => {
     void loadOrderHistory();
@@ -767,6 +870,10 @@ export default function DealerPortal() {
       }, undefined, 12000);
       if (cancelled || generation !== historyGenerationRef.current || historySessionRef.current !== sessionToken) return;
       if (error || !data?.exact_order) {
+        if (isDealerOrderLockedPayload({ error })) {
+          handleDealerOrderLocked(error);
+          return;
+        }
         if (isSessionExpired) {
           localStorage.removeItem(DEALER_SESSION_STORAGE_KEY);
           setSessionToken("");
@@ -805,7 +912,7 @@ export default function DealerPortal() {
     return () => {
       cancelled = true;
     };
-  }, [pendingOrderDeepLink, sessionToken, setSessionToken]);
+  }, [pendingOrderDeepLink, sessionToken, setSessionToken, handleDealerOrderLocked]);
 
   const handleOrderHistoryGranularityChange = (granularity: DealerOrderHistoryGranularity) => {
     setDeepLinkedOrderActive(false);
@@ -835,6 +942,7 @@ export default function DealerPortal() {
         message?: string;
         otp_required?: boolean;
         reason?: string;
+        code?: string;
         dev_otp?: string;
       }>("dealer-auth-start", {
         body: { phone },
@@ -843,6 +951,10 @@ export default function DealerPortal() {
       if (error) throw error;
 
       if (data?.otp_required === false) {
+        if (isDealerOrderLockedPayload(data)) {
+          handleDealerOrderLocked(readDealerOrderLockedMessage(data));
+          return;
+        }
         setLoginStep("phone");
         setOtp("");
         setAuthError(
@@ -859,6 +971,11 @@ export default function DealerPortal() {
           : data?.message || "Nếu số điện thoại hợp lệ, mã OTP sẽ được gửi qua Zalo.",
       );
     } catch (error) {
+      const payload = await getFunctionErrorPayload(error);
+      if (isDealerOrderLockedPayload(payload)) {
+        handleDealerOrderLocked(readDealerOrderLockedMessage(payload));
+        return;
+      }
       setAuthError(await getFunctionErrorMessage(error, "Không gửi được mã OTP."));
     } finally {
       setAuthLoading(false);
@@ -889,10 +1006,16 @@ export default function DealerPortal() {
       setLoginStep("catalog");
       setActiveNav(pendingOrderDeepLink ? "orders" : "messages");
       setOtp("");
+      setOrderLockedMessage("");
       setAuthMessage(data.customer?.is_test === true
         ? "Đã xác thực tài khoản thử nghiệm. Đơn gửi từ tài khoản này không ghi nhận vận hành."
         : "Đã xác thực đại lý. Quý Khách Hàng có thể gửi đơn.");
     } catch (error) {
+      const payload = await getFunctionErrorPayload(error);
+      if (isDealerOrderLockedPayload(payload)) {
+        handleDealerOrderLocked(readDealerOrderLockedMessage(payload));
+        return;
+      }
       setAuthError(await getFunctionErrorMessage(error, "Không xác thực được OTP."));
     } finally {
       setAuthLoading(false);
@@ -933,6 +1056,7 @@ export default function DealerPortal() {
     setOtp("");
     setAuthMessage("");
     setAuthError("");
+    setOrderLockedMessage("");
     setOrderMessage("");
     setOrderError("");
     setDuplicateOrderPrompt(null);
@@ -1019,6 +1143,11 @@ export default function DealerPortal() {
       orderSubmissionIdRef.current = crypto.randomUUID();
       return true;
     } catch (error) {
+      const payload = await getFunctionErrorPayload(error);
+      if (isDealerOrderLockedPayload(payload)) {
+        handleDealerOrderLocked(readDealerOrderLockedMessage(payload));
+        return false;
+      }
       setOrderError(await getFunctionErrorMessage(error, "Không gửi được đơn hàng."));
       return false;
     } finally {
@@ -1589,6 +1718,12 @@ export default function DealerPortal() {
                   <span>{authError}</span>
                 </div>
               ) : null}
+              {orderLockedMessage ? (
+                <div className="mb-4 flex items-start gap-2 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700" data-bmq-dealer-order-locked="true">
+                  <LockKeyhole className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>{orderLockedMessage}</span>
+                </div>
+              ) : null}
 
               {loginStep === "phone" ? (
                 <div className="space-y-4">
@@ -1602,7 +1737,7 @@ export default function DealerPortal() {
                         autoComplete="tel"
                         placeholder="Nhập số điện thoại của Quý Khách Hàng"
                         value={phone}
-                        onChange={(event) => setPhone(event.target.value)}
+                        onChange={(event) => handlePhoneChange(event.target.value)}
                         onKeyDown={(event) => {
                           if (event.key === "Enter" && phone.trim() && !authLoading) void handleStartAuth();
                         }}
@@ -2406,6 +2541,12 @@ export default function DealerPortal() {
                   <span>{authError}</span>
                 </div>
               ) : null}
+              {orderLockedMessage ? (
+                <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive" data-bmq-dealer-order-locked="true">
+                  <LockKeyhole className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>{orderLockedMessage}</span>
+                </div>
+              ) : null}
               {loginStep === "catalog" ? (
                 <div className="flex items-center justify-between gap-3 rounded-md border bg-muted/50 p-3 text-sm">
                   <span className="truncate text-muted-foreground">Phiên đại lý đang hoạt động.</span>
@@ -2426,7 +2567,7 @@ export default function DealerPortal() {
                         inputMode="tel"
                         placeholder="09xx xxx xxx"
                         value={phone}
-                        onChange={(event) => setPhone(event.target.value)}
+                        onChange={(event) => handlePhoneChange(event.target.value)}
                         className="h-12 pl-9"
                       />
                     </div>
