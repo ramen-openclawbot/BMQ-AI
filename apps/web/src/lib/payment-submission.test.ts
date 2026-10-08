@@ -3,7 +3,9 @@ import test from "node:test";
 
 import {
   clampPaymentSubmissionPageSize,
+  foldVietnamese,
   formatPaymentSubmissionPreview,
+  matchSupplierIdsByName,
   paymentSubmissionPageToRange,
   paymentSubmissionTotalPages,
   vietnamDateCutoff,
@@ -109,4 +111,21 @@ test("never leaks a bank account number or image payload", () => {
   assert.doesNotMatch(message, /1234567890123/);
   assert.doesNotMatch(message, /9704229200000000/);
   assert.doesNotMatch(message, /data:image|base64|số tài khoản/i);
+});
+
+test("supplier search ignores Vietnamese accents and case", () => {
+  assert.equal(foldVietnamese("  Bao bì  Minh Tuấn "), "bao bi minh tuan");
+  assert.equal(foldVietnamese("Đại Phát"), "dai phat");
+  const suppliers = [
+    { id: "a", name: "Bao bì Minh Tuấn" },
+    { id: "b", name: "Tuyết Anh" },
+    { id: "c", name: "Thiên An Sinh" },
+    { id: "d", name: null },
+  ];
+  assert.deepEqual(matchSupplierIdsByName(suppliers, "minh tuan"), ["a"]);
+  assert.deepEqual(matchSupplierIdsByName(suppliers, "Minh Tuấn"), ["a"]);
+  assert.deepEqual(matchSupplierIdsByName(suppliers, "TUYET"), ["b"]);
+  assert.deepEqual(matchSupplierIdsByName(suppliers, "an"), ["a", "b", "c"]);
+  assert.deepEqual(matchSupplierIdsByName(suppliers, "PR-951F"), []);
+  assert.deepEqual(matchSupplierIdsByName(suppliers, "  "), []);
 });

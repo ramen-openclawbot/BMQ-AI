@@ -117,8 +117,8 @@ export function UrgentPayablesPanel({ canSubmit, onOpenRequest }: Props) {
             setSearch(e.target.value);
             setPage(1);
           }}
-          placeholder="Tìm mã phiếu, nội dung"
-          aria-label="Tìm phiếu chưa thanh toán"
+          placeholder="Tìm nhà cung cấp, mã phiếu"
+          aria-label="Tìm theo nhà cung cấp hoặc mã phiếu"
         />
       </div>
 

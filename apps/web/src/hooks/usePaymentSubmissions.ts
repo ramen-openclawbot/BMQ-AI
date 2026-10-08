@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { PaymentRequestWithSupplier } from "@/hooks/usePaymentRequests";
 import {
+  matchSupplierIdsByName,
   paymentSubmissionPageToRange,
   paymentSubmissionTotalPages,
   vietnamDateCutoff,
@@ -43,6 +44,7 @@ export function useUnpaidPaymentRequestsPage({
   const range = paymentSubmissionPageToRange(page, pageSize);
   const normalizedSearch = search?.trim() || "";
   const cutoff = days === null || days === undefined ? null : vietnamDateCutoff(days);
+  const queryClient = useQueryClient();
 
   return useQuery({
     queryKey: [
@@ -64,8 +66,23 @@ export function useUnpaidPaymentRequestsPage({
       if (cutoff) query = query.gte("created_at", cutoff);
 
       if (normalizedSearch) {
-        const term = normalizedSearch.replace(/[%,()]/g, " ").trim();
-        if (term) {
+        // Supplier name first, with or without accents (~100 suppliers, matched in the
+        // browser because PostgREST has no unaccent). Only when no supplier matches does
+        // the term search the request code and title.
+        const suppliers = await queryClient.fetchQuery({
+          queryKey: ["supplier-name-index"],
+          staleTime: 5 * 60 * 1000,
+          queryFn: async () => {
+            const { data, error } = await supabase.from("suppliers").select("id, name");
+            if (error) throw error;
+            return (data || []) as { id: string; name: string | null }[];
+          },
+        });
+        const supplierIds = matchSupplierIdsByName(suppliers, normalizedSearch);
+        const term = normalizedSearch.replace(/[%,()*]/g, " ").trim();
+        if (supplierIds.length > 0) {
+          query = query.in("supplier_id", supplierIds);
+        } else if (term) {
           query = query.or(`request_number.ilike.%${term}%,title.ilike.%${term}%`);
         }
       }

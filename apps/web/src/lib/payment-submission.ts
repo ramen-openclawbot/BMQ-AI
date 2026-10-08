@@ -107,3 +107,24 @@ export function formatPaymentSubmissionPreview(input: PaymentSubmissionPreviewIn
   if (input.note?.trim()) lines.push(input.note.trim());
   return lines.join("\n");
 }
+
+/** Lowercase, strip Vietnamese diacritics (đ → d) and collapse spaces, for accent-insensitive search. */
+export function foldVietnamese(value: string | null | undefined): string {
+  return String(value ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Ids of suppliers whose name contains the search term, with or without accents. */
+export function matchSupplierIdsByName(
+  suppliers: { id: string; name: string | null }[],
+  term: string | null | undefined,
+): string[] {
+  const needle = foldVietnamese(term);
+  if (!needle) return [];
+  return suppliers.filter((s) => foldVietnamese(s.name).includes(needle)).map((s) => s.id);
+}

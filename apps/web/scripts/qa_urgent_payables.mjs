@@ -82,11 +82,16 @@ function settle(st) {
   }
   if (st.table === "payment_requests" && st.range) {
     if (cfg().unpaid === "error") return { data: null, error: { message: "QA fixture: boom" }, count: null };
-    const list = UNPAID.filter((r) => !st.gte || r.created_at >= st.gte.slice(0, 10));
+    const orTerm = st.or ? (st.or.match(/request_number\.ilike\.%([^%]*)%/) || [])[1] : null;
+    const list = UNPAID.filter((r) => !st.gte || r.created_at >= st.gte.slice(0, 10))
+      .filter((r) => !st.supplierIds || st.supplierIds.includes(r.supplier_id))
+      .filter((r) => !orTerm || r.request_number.toLowerCase().includes(orTerm.toLowerCase()));
     window.__qaRanges = (window.__qaRanges || []).concat([[st.range[0], st.range[1], st.gte || null]]);
+    window.__qaSearch = { supplierIds: st.supplierIds || null, or: st.or || null };
     return { data: list.slice(st.range[0], st.range[1] + 1), error: null, count: list.length };
   }
   if (st.table === "payment_requests") return { data: PRS, error: null, count: PRS.length };
+  if (st.table === "suppliers") return { data: [{ id: "sup-t", name: "Thiên An Sinh" }, { id: "sup-a", name: "Bột Mì Sài Gòn" }, { id: "sup-x", name: "Bao bì Minh Tuấn" }], error: null, count: 3 };
   return { data: [], error: null, count: 0 };
 }
 function builder(table, args) {
@@ -101,6 +106,8 @@ function builder(table, args) {
         if (prop === "select" && a[1] && a[1].head) st.head = true;
         if (prop === "eq") st.filters[a[0]] = a[1];
         if (prop === "range") st.range = [a[0], a[1]];
+        if (prop === "in" && a[0] === "supplier_id") st.supplierIds = a[1];
+        if (prop === "or") st.or = a[0];
         if (prop === "gte") st.gte = a[1];
         if (prop === "single" || prop === "maybeSingle") st.single = true;
         return proxy;
@@ -268,6 +275,31 @@ try {
     assert.equal((await page.evaluate(() => window.__qaRanges)).pop()[2], null, "no cutoff when viewing all");
     assert.deepEqual(errors, [], `page errors ${viewport.width}`);
     record(`unpaid list ${viewport.width}`);
+    await context.close();
+  }
+
+  // 1b. Search: supplier name first, with or without accents; otherwise request code.
+  {
+    const { context, page, errors } = await open({ role: "owner" }, "/payment-requests", { width: 390, height: 844 });
+    await page.waitForSelector("[data-bmq-urgent-row]");
+    const search = page.getByLabel("Tìm theo nhà cung cấp hoặc mã phiếu");
+    const suppliersShown = async () => [...new Set(await page.$$eval("[data-bmq-urgent-row] .d3-up-who b", (els) => els.map((e) => e.textContent.trim())))];
+    for (const [term, expected] of [["thien an", ["Thiên An Sinh"]], ["Thiên An", ["Thiên An Sinh"]], ["BOT MI", ["Bột Mì Sài Gòn"]]]) {
+      await search.fill(term);
+      await page.waitForFunction((want) => [...document.querySelectorAll("[data-bmq-urgent-row] .d3-up-who b")].every((e) => e.textContent.trim() === want) && document.querySelector("[data-bmq-urgent-row]"), expected[0]);
+      assert.deepEqual(await suppliersShown(), expected, `search "${term}"`);
+      assert.deepEqual((await page.evaluate(() => window.__qaSearch)).supplierIds, [expected[0] === "Thiên An Sinh" ? "sup-t" : "sup-a"], `supplier filter for "${term}"`);
+    }
+    await search.fill("PR-U005");
+    await page.waitForFunction(() => document.querySelectorAll("[data-bmq-urgent-row]").length === 1);
+    const s5 = await page.evaluate(() => window.__qaSearch);
+    assert.equal(s5.supplierIds, null, "code search does not filter by supplier");
+    assert.ok(s5.or.includes("request_number.ilike.%PR-U005%"), s5.or);
+    await search.fill("minh tuan");
+    await page.waitForSelector("[data-bmq-urgent-empty]");
+    await page.screenshot({ path: `${EVIDENCE}/search-390.png` });
+    assert.deepEqual(errors, []);
+    record("supplier-first accent-insensitive search");
     await context.close();
   }
 
