@@ -460,6 +460,10 @@ export default function PayrollManagement() {
 
       <Tabs defaultValue="runs" className="space-y-4">
         <TabsList className="max-w-full justify-start overflow-x-auto [&>*]:shrink-0">
+          <TabsTrigger value="bep-bn" className="gap-2">
+            <ChefHat className="h-4 w-4" />
+            {copy.tabBepBn}
+          </TabsTrigger>
           <TabsTrigger value="runs" className="gap-2">
             <CalendarRange className="h-4 w-4" />
             {copy.tabRuns}
@@ -471,10 +475,6 @@ export default function PayrollManagement() {
           <TabsTrigger value="export" className="gap-2">
             <BookOpenCheck className="h-4 w-4" />
             {copy.tabExport}
-          </TabsTrigger>
-          <TabsTrigger value="bep-bn" className="gap-2">
-            <ChefHat className="h-4 w-4" />
-            {copy.tabBepBn}
           </TabsTrigger>
         </TabsList>
 
