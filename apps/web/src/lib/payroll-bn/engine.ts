@@ -63,6 +63,12 @@ export interface AttendanceAggregate {
   workedSeconds: bigint;
   /** Seconds above the standard day, used for reconciliation (Q3). */
   overtimeSeconds: bigint;
+  /** 2026-10-09 — exact công credited on non-holiday dates (short shift → 0,5/0). */
+  nonHolidayDayCredit: Rational;
+  /** 2026-10-09 — exact công credited on holiday dates (short shift → 0,5/0). */
+  holidayDayCredit: Rational;
+  /** Dates whose short-shift credit is below one full day (0,5 or 0). */
+  shortShiftDates: string[];
 }
 
 function timeToSeconds(value: string | null): number | null {
@@ -115,6 +121,26 @@ export function aggregateAttendance(
   let workedSeconds = 0;
   let overtimeSeconds = 0;
 
+  // Owner 2026-10-09 — short shift: a full-span day earns one công, a half-span
+  // day 0,5 and a very short day 0. A day with a single punch keeps the old
+  // full credit (e.g. a missing check-out). Disabled → every date counts 1.
+  const fullDaySeconds = Math.round(rules.shortShift.fullDayMinHours * 3600);
+  const halfDaySeconds = Math.round(rules.shortShift.halfDayMinHours * 3600);
+  const creditForRow = (row: AttendanceRow): Rational => {
+    if (!rules.shortShift.enabled) return rational(1);
+    if (!row.checkIn || !row.checkOut) return rational(1);
+    const seconds = daySeconds(row);
+    if (seconds >= fullDaySeconds) return rational(1);
+    if (seconds >= halfDaySeconds) return rational(1, 2);
+    return RATIONAL_ZERO;
+  };
+  const dayCredit = new Map<string, Rational>();
+  for (const row of sorted) {
+    const credit = creditForRow(row);
+    const current = dayCredit.get(row.date);
+    if (!current || compareRational(credit, current) > 0) dayCredit.set(row.date, credit);
+  }
+
   for (const row of sorted) {
     const seconds = daySeconds(row);
     let effective = seconds;
@@ -127,12 +153,29 @@ export function aggregateAttendance(
     if (extra > 0 && extra >= overtimeMinimumSeconds) overtimeSeconds += extra;
   }
 
+  const dates = [...new Set(sorted.map((row) => row.date))].sort();
+  let nonHolidayDayCredit = RATIONAL_ZERO;
+  let holidayDayCredit = RATIONAL_ZERO;
+  const shortShiftDates: string[] = [];
+  for (const date of dates) {
+    const credit = dayCredit.get(date) ?? rational(1);
+    if (holidaySet.has(date)) {
+      holidayDayCredit = addRational(holidayDayCredit, credit);
+    } else {
+      nonHolidayDayCredit = addRational(nonHolidayDayCredit, credit);
+    }
+    if (compareRational(credit, rational(1)) < 0) shortShiftDates.push(date);
+  }
+
   return {
-    dates: [...new Set(sorted.map((row) => row.date))].sort(),
+    dates,
     nonHolidayDates: uniqueDates(sorted, holidaySet, false),
     holidayDates: uniqueDates(sorted, holidaySet, true),
     workedSeconds: BigInt(workedSeconds),
     overtimeSeconds: BigInt(overtimeSeconds),
+    nonHolidayDayCredit,
+    holidayDayCredit,
+    shortShiftDates,
   };
 }
 
@@ -205,6 +248,18 @@ function isPartTime(employee: PayrollEmployee): boolean {
   return employee.employmentType === "part_time";
 }
 
+/**
+ * Owner 2026-10-09 — "chốt lương": a non-terminated employee who stopped during
+ * the period (`dateFrom <= endDate < dateTo`) gets neither holiday pay nor
+ * overtime pay. An end date on/after the period end is a full-period employee.
+ */
+function leftDuringPeriod(period: PayrollPeriod, employee: PayrollEmployee): boolean {
+  if (employee.terminated) return false;
+  const end = employee.endDate ?? null;
+  if (!end) return false;
+  return period.dateFrom <= end && end < period.dateTo;
+}
+
 function zeroLineFields(): Omit<PayrollEmployeeLine, "kind" | "employeeCode" | "employeeName" | "group" | "employmentType"> {
   return {
     standardDays: RATIONAL_ZERO,
@@ -237,6 +292,8 @@ function buildEmployeeLine(
   const base = zeroLineFields();
   const flags: string[] = [];
   const hasAttendance = aggregate.dates.length > 0;
+  // Owner 2026-10-09 — "chốt lương" only bites when the rule is enabled.
+  const leftInPeriodNoExtras = rules.leftInPeriodNoExtras && leftDuringPeriod(period, employee);
 
   if (employee.terminated) {
     flags.push("terminated");
@@ -257,8 +314,14 @@ function buildEmployeeLine(
   const actualResolved = resolveQuantity(measures?.actualWorkDays, hasAttendance, () => {
     // Owner 2026-10-08: working on a paid holiday counts double — the worked
     // day here, plus the paid holiday added by R9.
-    const worked = aggregate.nonHolidayDates.length + (rules.holidayWorkDouble ? aggregate.holidayDates.length : 0);
-    let days = rules.attendanceDays ? rational(worked) : RATIONAL_ZERO;
+    // Owner 2026-10-09: the worked day uses the short-shift credit, not the raw
+    // date count (with shortShift off the credits equal today's date counts).
+    const worked = addRational(
+      aggregate.nonHolidayDayCredit,
+      rules.holidayWorkDouble ? aggregate.holidayDayCredit : RATIONAL_ZERO,
+    );
+    if (aggregate.shortShiftDates.length > 0) flags.push("short_shift");
+    let days = rules.attendanceDays ? worked : RATIONAL_ZERO;
     if (rules.plusOneDay.enabled && compareRational(days, RATIONAL_ZERO) > 0) {
       days = addRational(days, rationalFromNumber(rules.plusOneDay.days));
       flags.push("plus_one_day");
@@ -289,6 +352,11 @@ function buildEmployeeLine(
     flags.push("holiday_excluded");
   }
   if (officeDefault) holidayPayDays = RATIONAL_ZERO;
+  // Owner 2026-10-09 — "chốt lương": left during the period → no holiday pay.
+  if (leftInPeriodNoExtras) {
+    holidayPayDays = RATIONAL_ZERO;
+    flags.push("left_in_period");
+  }
 
   // R8 — part-time is paid on the hour column; its day column stays empty.
   const partTime = isPartTime(employee);
@@ -365,7 +433,10 @@ function buildEmployeeLine(
   const overtimeFromSheet = overtimeResolved.source === "manual" && !overtimeAdjustment;
   const officialNeedsApply =
     !overtimeFromSheet && !(rules.officialOvertime.enabled && rules.officialOvertime.mode === "apply");
-  const excludeOvertime = Boolean(findAdjustment(adjustments, employee.code, "exclude_overtime"));
+  const excludeOvertimeAdjustment = Boolean(findAdjustment(adjustments, employee.code, "exclude_overtime"));
+  // Owner 2026-10-09 — left during the period → overtime is not paid, but it is
+  // still reconciled exactly like an exclude_overtime adjustment.
+  const excludeOvertime = excludeOvertimeAdjustment || leftInPeriodNoExtras;
   const applyOvertime = !excludeOvertime && !officialNeedsApply;
   const overtimeAppliedHours = applyOvertime ? overtimeHours : RATIONAL_ZERO;
   // R3 — `overtimePay` is the amount actually paid (the payslip "tiền TC"
@@ -374,7 +445,8 @@ function buildEmployeeLine(
   const overtimePay = applyOvertime ? overtimePayComputed : RATIONAL_ZERO;
   const overtimePayReconciled = subRational(overtimePayComputed, overtimePay);
   if (!applyOvertime && !isZeroRational(overtimePayComputed)) {
-    flags.push(excludeOvertime ? "overtime_excluded" : "overtime_reconcile_only");
+    if (excludeOvertimeAdjustment) flags.push("overtime_excluded");
+    else if (!leftInPeriodNoExtras) flags.push("overtime_reconcile_only");
   }
 
   // --- phụ cấp + gross/net ---------------------------------------------

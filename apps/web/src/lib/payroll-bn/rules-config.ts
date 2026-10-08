@@ -17,6 +17,14 @@ export interface DeductHourRule {
   deductHours: number;
 }
 
+export interface ShortShiftRule {
+  enabled: boolean;
+  /** A day-span reaching this many hours counts one full công. */
+  fullDayMinHours: number;
+  /** A day-span reaching this many hours (but below full) counts half a công. */
+  halfDayMinHours: number;
+}
+
 export type OfficialOvertimeMode = "reconcile" | "apply";
 
 export interface OfficialOvertimeRule {
@@ -38,23 +46,31 @@ export interface RulesConfig {
   deductHour: DeductHourRule;
   /** Q3 — overtime policy for official (full-time) employees. */
   officialOvertime: OfficialOvertimeRule;
+  /** 2026-10-09 — short shift: < full day counts half, < half day counts 0. */
+  shortShift: ShortShiftRule;
   /** R9 — pay period holidays for employees hired on/before the holiday. */
   holidayPaid: boolean;
   /** Working on a paid holiday counts that day twice: the paid holiday plus the worked day. */
   holidayWorkDouble: boolean;
+  /** 2026-10-09 — an employee who left during the period gets no holiday/overtime pay. */
+  leftInPeriodNoExtras: boolean;
   /** Hours in a standard working day, used for overtime threshold. */
   standardHoursPerDay: number;
 }
 
 // Q2/Q3 confirmed by the owner/HR on 2026-10-08: a part-time 8h shift loses the
 // 1h lunch; official overtime = daily span − 9h, counted from 15 minutes.
+// 2026-10-09: short shift (<8h half, <4h zero) and "chốt lương" (left during
+// the period → no holiday pay, no overtime pay) are on by default.
 export const DEFAULT_RULES_CONFIG: RulesConfig = {
   attendanceDays: true,
   plusOneDay: { enabled: false, days: 1 },
   deductHour: { enabled: true, thresholdHours: 8, deductHours: 1 },
   officialOvertime: { enabled: true, mode: "apply", dailyThresholdHours: 9, minimumMinutes: 15 },
+  shortShift: { enabled: true, fullDayMinHours: 8, halfDayMinHours: 4 },
   holidayPaid: true,
   holidayWorkDouble: true,
+  leftInPeriodNoExtras: true,
   standardHoursPerDay: 8,
 };
 
@@ -75,8 +91,13 @@ export function resolveRulesConfig(partial?: Partial<RulesConfig> | null): Rules
       ...DEFAULT_RULES_CONFIG.officialOvertime,
       ...(partial.officialOvertime ?? {}),
     },
+    shortShift: {
+      ...DEFAULT_RULES_CONFIG.shortShift,
+      ...(partial.shortShift ?? {}),
+    },
     holidayPaid: partial.holidayPaid ?? DEFAULT_RULES_CONFIG.holidayPaid,
     holidayWorkDouble: partial.holidayWorkDouble ?? DEFAULT_RULES_CONFIG.holidayWorkDouble,
+    leftInPeriodNoExtras: partial.leftInPeriodNoExtras ?? DEFAULT_RULES_CONFIG.leftInPeriodNoExtras,
     standardHoursPerDay: partial.standardHoursPerDay ?? DEFAULT_RULES_CONFIG.standardHoursPerDay,
   };
 }
@@ -87,8 +108,10 @@ export function cloneRulesConfig(config: RulesConfig): RulesConfig {
     plusOneDay: { ...config.plusOneDay },
     deductHour: { ...config.deductHour },
     officialOvertime: { ...config.officialOvertime },
+    shortShift: { ...config.shortShift },
     holidayPaid: config.holidayPaid,
     holidayWorkDouble: config.holidayWorkDouble,
+    leftInPeriodNoExtras: config.leftInPeriodNoExtras,
     standardHoursPerDay: config.standardHoursPerDay,
   };
 }
