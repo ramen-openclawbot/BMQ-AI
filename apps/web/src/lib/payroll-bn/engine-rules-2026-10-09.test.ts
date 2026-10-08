@@ -1,5 +1,5 @@
 // Owner rules confirmed on 2026-10-09:
-//   * ca ngắn — a day with both punches is worth 1 công from 8h, 0,5 from 4h
+//   * ca ngắn — a day with both punches is worth 1 công from 6h, 0,5 from 4h
 //     and 0 below 4h; a day with a single punch keeps the old full credit.
 //   * chốt lương — an official employee who left during the period gets no paid
 //     holiday and no paid overtime.
@@ -108,7 +108,7 @@ test("real T09 attendance: short shift + chốt lương match the owner figures"
 
 test("aggregateAttendance exposes exact short-shift credits and affected dates", () => {
   const rows: AttendanceRow[] = [
-    rowAt("2026-09-03", "08:00:00", "16:00:00"), // 8h00 → 1
+    rowAt("2026-09-03", "08:00:00", "14:00:00"), // 6h00 → 1
     rowAt("2026-09-04", "08:00:00", "12:00:00"), // 4h00 → 0,5
     rowAt("2026-09-05", "08:00:00", "11:00:00"), // 3h00 → 0
   ];
@@ -120,14 +120,15 @@ test("aggregateAttendance exposes exact short-shift credits and affected dates",
   assert.deepEqual(aggregate.nonHolidayDates, ["2026-09-03", "2026-09-04", "2026-09-05"]);
 });
 
-test("short shift: 3h59 → 0, 4h00 → 0,5, 7h59 → 0,5, 8h00 → 1, one punch → 1", () => {
+test("short shift: 3h59 → 0, 4h00 → 0,5, 5h59 → 0,5, 6h00 → 1, one punch → 1", () => {
   assert.deepEqual(dayLine("08:00:00", "11:59:00").actualWorkDays, rational(0));
   assert.deepEqual(dayLine("08:00:00", "12:00:00").actualWorkDays, rational(1, 2));
-  assert.deepEqual(dayLine("08:00:00", "15:59:00").actualWorkDays, rational(1, 2));
-  assert.deepEqual(dayLine("08:00:00", "16:00:00").actualWorkDays, rational(1));
+  assert.deepEqual(dayLine("08:00:00", "13:59:00").actualWorkDays, rational(1, 2));
+  assert.deepEqual(dayLine("08:00:00", "14:00:00").actualWorkDays, rational(1));
+  assert.deepEqual(dayLine("08:00:00", "15:59:00").actualWorkDays, rational(1));
   assert.deepEqual(dayLine("08:00:00", null).actualWorkDays, rational(1));
   assert.ok(dayLine("08:00:00", "11:59:00").flags.includes("short_shift"));
-  assert.ok(!dayLine("08:00:00", "16:00:00").flags.includes("short_shift"));
+  assert.ok(!dayLine("08:00:00", "14:00:00").flags.includes("short_shift"));
 });
 
 test("short shift on a paid holiday: 0,5 worked day plus the paid holiday", () => {
@@ -151,7 +152,7 @@ test("shortShift disabled reproduces the old date count", () => {
   assert.ok(enabled.flags.includes("short_shift"));
 
   const rules: RulesConfig = resolveRulesConfig({
-    shortShift: { enabled: false, fullDayMinHours: 8, halfDayMinHours: 4 },
+    shortShift: { enabled: false, fullDayMinHours: 6, halfDayMinHours: 4 },
   });
   const disabled = computePayroll({
     period: syntheticPeriod({ rules }),

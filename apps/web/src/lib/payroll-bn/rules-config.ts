@@ -46,7 +46,7 @@ export interface RulesConfig {
   deductHour: DeductHourRule;
   /** Q3 — overtime policy for official (full-time) employees. */
   officialOvertime: OfficialOvertimeRule;
-  /** 2026-10-09 — short shift: < full day counts half, < half day counts 0. */
+  /** 2026-10-09 — short shift: from 6h one công, 4h–<6h half, < 4h zero. */
   shortShift: ShortShiftRule;
   /** R9 — pay period holidays for employees hired on/before the holiday. */
   holidayPaid: boolean;
@@ -60,14 +60,14 @@ export interface RulesConfig {
 
 // Q2/Q3 confirmed by the owner/HR on 2026-10-08: a part-time 8h shift loses the
 // 1h lunch; official overtime = daily span − 9h, counted from 15 minutes.
-// 2026-10-09: short shift (<8h half, <4h zero) and "chốt lương" (left during
+// 2026-10-09: short shift (<6h half, <4h zero; owner set 6h the same day) and "chốt lương" (left during
 // the period → no holiday pay, no overtime pay) are on by default.
 export const DEFAULT_RULES_CONFIG: RulesConfig = {
   attendanceDays: true,
   plusOneDay: { enabled: false, days: 1 },
   deductHour: { enabled: true, thresholdHours: 8, deductHours: 1 },
   officialOvertime: { enabled: true, mode: "apply", dailyThresholdHours: 9, minimumMinutes: 15 },
-  shortShift: { enabled: true, fullDayMinHours: 8, halfDayMinHours: 4 },
+  shortShift: { enabled: true, fullDayMinHours: 6, halfDayMinHours: 4 },
   holidayPaid: true,
   holidayWorkDouble: true,
   leftInPeriodNoExtras: true,
