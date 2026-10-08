@@ -9,19 +9,28 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   addAdjustment,
   createPeriod,
+  deleteEmployeeContact,
   ensurePeriodForRows,
+  fetchEmployeeContacts,
+  fetchPublishedPayslipCount,
   importAttendance,
   listIssueReviews,
   listPeriods,
   loadPeriodData,
   loadPreviousCatalog,
   lockPeriod,
+  publishPayslips as publishPayslipsRpc,
   setAttendanceApproved,
   upsertEmployee,
+  upsertEmployeeContact,
   upsertIssueReview,
 } from "@/lib/payroll-bn/db-client.ts";
 import type { BepBnClient } from "@/lib/payroll-bn/db-client.ts";
 import { suggestCatalogSync } from "@/lib/payroll-bn/catalog-sync.ts";
+import { computePayroll } from "@/lib/payroll-bn/engine.ts";
+import { buildPayslips } from "@/lib/payroll-bn/payslip.ts";
+import { applyIssueReviews } from "@/lib/payroll-bn/issue-review.ts";
+import { ADJUSTMENT_LABELS } from "@/components/payroll/bep-bn/format";
 import type {
   BepBnAdjustmentInput,
   BepBnDataSource,
@@ -38,6 +47,9 @@ const periodQueryKey = (periodId: string) => ["payroll-bn", "period", periodId] 
 const previousEmployeesQueryKey = (periodId: string) =>
   ["payroll-bn", "previous-employees", periodId] as const;
 const issueReviewsQueryKey = (periodId: string) => ["payroll-bn", "issue-reviews", periodId] as const;
+const contactsQueryKey = ["payroll-bn", "contacts"] as const;
+const publishedCountQueryKey = (periodId: string) =>
+  ["payroll-bn", "published-count", periodId] as const;
 
 function errorMessage(error: unknown): string {
   if (error instanceof Error && error.message) return error.message;
@@ -81,6 +93,21 @@ export const useBepBnData: UseBepBnData = (periodId) => {
     retry: 1,
   });
 
+  const contactsQuery = useQuery({
+    queryKey: contactsQueryKey,
+    queryFn: () => fetchEmployeeContacts(client),
+    staleTime: 30_000,
+    retry: 1,
+  });
+
+  const publishedCountQuery = useQuery({
+    queryKey: publishedCountQueryKey(periodId ?? "none"),
+    queryFn: () => fetchPublishedPayslipCount(client, periodId as string),
+    enabled: Boolean(periodId),
+    staleTime: 15_000,
+    retry: 1,
+  });
+
   const invalidatePeriod = (id: string) => {
     void queryClient.invalidateQueries({ queryKey: ["payroll-bn", "period", id] });
   };
@@ -92,6 +119,46 @@ export const useBepBnData: UseBepBnData = (periodId) => {
   };
   const invalidatePreviousEmployees = (id: string) => {
     void queryClient.invalidateQueries({ queryKey: ["payroll-bn", "previous-employees", id] });
+  };
+  const invalidateContacts = () => {
+    void queryClient.invalidateQueries({ queryKey: ["payroll-bn", "contacts"] });
+  };
+  const invalidatePublishedCount = (id: string) => {
+    void queryClient.invalidateQueries({ queryKey: ["payroll-bn", "published-count", id] });
+  };
+
+  /**
+   * Rebuild the published payload from exactly the data the draft uses:
+   * load the period, run the same pure engine and format it with buildPayslips;
+   * notes use the same "label: reason" text as the draft's Ghi chú column.
+   */
+  const computePublishPayload = async (id: string) => {
+    const [periodData, reviews] = await Promise.all([
+      loadPeriodData(client, id),
+      listIssueReviews(client, id),
+    ]);
+    if (!periodData) throw new Error("Không tìm thấy kỳ lương.");
+    // Same input as the draft table: attendance after the reviewer's "không tính" decisions.
+    const result = computePayroll({
+      period: periodData.period,
+      employees: periodData.employees,
+      measures: periodData.measures,
+      rows: applyIssueReviews(periodData.rows, reviews),
+      adjustments: periodData.adjustments,
+    });
+    const notes = new Map<string, string[]>();
+    for (const item of periodData.adjustments) {
+      notes.set(item.employeeCode, [
+        ...(notes.get(item.employeeCode) ?? []),
+        `${ADJUSTMENT_LABELS[item.field]}: ${item.reason}`,
+      ]);
+    }
+    return buildPayslips(periodData.period, periodData.employees, result, notes);
+  };
+
+  const publishForPeriod = async (id: string): Promise<number> => {
+    const payslips = await computePublishPayload(id);
+    return publishPayslipsRpc(client, id, payslips);
   };
 
   const importMutation = useMutation({
@@ -172,9 +239,32 @@ export const useBepBnData: UseBepBnData = (periodId) => {
     onSuccess: (_result, variables) => invalidatePeriod(variables.periodId),
   });
 
+  const publishMutation = useMutation({
+    mutationFn: (id: string) => publishForPeriod(id),
+    onSuccess: (_count, id) => invalidatePublishedCount(id),
+  });
+
   const lockMutation = useMutation({
-    mutationFn: (id: string) => lockPeriod(client, id),
+    mutationFn: async (id: string) => {
+      await lockPeriod(client, id);
+      // Publishing is the second half of the lock. The lock already stands even
+      // when publishing fails, so the publish error is surfaced to the caller
+      // and the UI still refreshes into the locked state.
+      try {
+        await publishForPeriod(id);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : "Vui lòng thử lại.";
+        const publishError = new Error(`${detail} Bấm "Phát hành phiếu lương" để thử lại.`);
+        publishError.name = "PayslipPublishError";
+        throw publishError;
+      }
+    },
     onSuccess: (_result, id) => {
+      invalidatePeriod(id);
+      invalidatePeriods();
+      invalidatePublishedCount(id);
+    },
+    onError: (_error, id) => {
       invalidatePeriod(id);
       invalidatePeriods();
     },
@@ -189,6 +279,17 @@ export const useBepBnData: UseBepBnData = (periodId) => {
     mutationFn: (variables: { periodId: string; employee: PayrollEmployee }) =>
       upsertEmployee(client, variables.periodId, variables.employee),
     onSuccess: (_result, variables) => invalidatePeriod(variables.periodId),
+  });
+
+  const upsertContactMutation = useMutation({
+    mutationFn: (input: { employeeCode: string; phone: string; active: boolean }) =>
+      upsertEmployeeContact(client, input),
+    onSuccess: () => invalidateContacts(),
+  });
+
+  const deleteContactMutation = useMutation({
+    mutationFn: (employeeCode: string) => deleteEmployeeContact(client, employeeCode),
+    onSuccess: () => invalidateContacts(),
   });
 
   return {
@@ -211,6 +312,11 @@ export const useBepBnData: UseBepBnData = (periodId) => {
     createPeriod: (input) => createMutation.mutateAsync(input),
     upsertEmployee: (id, employee) =>
       employeeMutation.mutateAsync({ periodId: id, employee }),
+    contacts: contactsQuery.data ?? [],
+    upsertContact: (input) => upsertContactMutation.mutateAsync(input),
+    deleteContact: (employeeCode) => deleteContactMutation.mutateAsync(employeeCode),
+    publishPayslips: (id) => publishMutation.mutateAsync(id),
+    publishedCount: publishedCountQuery.data ?? 0,
   };
 };
 

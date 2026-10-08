@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Lock } from "lucide-react";
+import { Loader2, Lock, Send } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -59,6 +59,11 @@ export function BepBnPayrollPanel({ useData, canEdit, canLock }: BepBnPayrollPan
       toast({ title: "Đã chốt kỳ", description: "Kỳ đã khoá, không sửa và không ghi đè được nữa." });
       setConfirmLock(false);
     } catch (error) {
+      if (error instanceof Error && error.name === "PayslipPublishError") {
+        setConfirmLock(false);
+        toast({ title: "Đã chốt kỳ, chưa phát hành phiếu lương", description: error.message, variant: "destructive" });
+        return;
+      }
       toast({
         title: "Không chốt được kỳ",
         description: error instanceof Error ? error.message : "Vui lòng thử lại.",
@@ -66,6 +71,24 @@ export function BepBnPayrollPanel({ useData, canEdit, canLock }: BepBnPayrollPan
       });
     } finally {
       setLocking(false);
+    }
+  };
+
+  const [publishing, setPublishing] = useState(false);
+  const publish = async () => {
+    if (!periodId) return;
+    setPublishing(true);
+    try {
+      const count = await source.publishPayslips(periodId);
+      toast({ title: "Đã phát hành phiếu lương", description: `${count} nhân viên xem được tại payroll.banhmique.vn.` });
+    } catch (error) {
+      toast({
+        title: "Không phát hành được phiếu lương",
+        description: error instanceof Error ? error.message : "Vui lòng thử lại.",
+        variant: "destructive",
+      });
+    } finally {
+      setPublishing(false);
     }
   };
 
@@ -95,6 +118,19 @@ export function BepBnPayrollPanel({ useData, canEdit, canLock }: BepBnPayrollPan
                 </Badge>
               ) : null}
             </div>
+            {selected && selected.status === "locked" && canLock ? (
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <span className="text-sm text-muted-foreground">
+                  {source.publishedCount > 0
+                    ? `Đã phát hành ${source.publishedCount} phiếu lương`
+                    : "Chưa phát hành phiếu lương"}
+                </span>
+                <Button variant="outline" className="gap-2" onClick={() => void publish()} disabled={publishing}>
+                  {publishing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  {source.publishedCount > 0 ? "Phát hành lại" : "Phát hành phiếu lương"}
+                </Button>
+              </div>
+            ) : null}
             {selected && selected.status !== "locked" && approved && canLock ? (
               <Button variant="outline" className="gap-2" onClick={() => setConfirmLock(true)}>
                 <Lock className="h-4 w-4" />
@@ -148,7 +184,7 @@ export function BepBnPayrollPanel({ useData, canEdit, canLock }: BepBnPayrollPan
 
         <TabsContent value="employees" className="space-y-4">
           {source.data ? (
-            <CatalogSection data={source.data} source={source} canEdit={canEdit} />
+            <CatalogSection data={source.data} source={source} canEdit={canEdit} canManagePhones={canLock} />
           ) : (
             <EmptyCard text="Danh mục nhân viên được tạo tự động khi upload bảng chấm công." />
           )}

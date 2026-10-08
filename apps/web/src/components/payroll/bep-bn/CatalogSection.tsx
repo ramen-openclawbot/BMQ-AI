@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Loader2, PencilLine, UserPlus } from "lucide-react";
+import { Loader2, PencilLine, Smartphone, UserPlus } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -7,9 +7,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 import type { EmploymentType, PayrollEmployee, PayrollGroup } from "@/lib/payroll-bn/types.ts";
-import type { BepBnDataSource, BepBnPeriodData } from "./types";
+import type { BepBnDataSource, BepBnEmployeeContact, BepBnPeriodData } from "./types";
 import { formatAdjustmentValue } from "./format";
 
 const GROUPS: PayrollGroup[] = ["Văn phòng", "Bếp bánh", "Kho BN"];
@@ -18,11 +20,15 @@ interface CatalogSectionProps {
   data: BepBnPeriodData;
   source: BepBnDataSource;
   canEdit: boolean;
+  /** Owner only: register the phone each employee uses at payroll.banhmique.vn. */
+  canManagePhones?: boolean;
 }
 
-export function CatalogSection({ data, source, canEdit }: CatalogSectionProps) {
+export function CatalogSection({ data, source, canEdit, canManagePhones = false }: CatalogSectionProps) {
   const [editing, setEditing] = useState<PayrollEmployee | null>(null);
   const [open, setOpen] = useState(false);
+  const [phoneFor, setPhoneFor] = useState<PayrollEmployee | null>(null);
+  const contactByCode = new Map(source.contacts.map((contact) => [contact.employeeCode, contact]));
   const canChange = canEdit && data.period.status !== "locked";
 
   const openEditor = (employee: PayrollEmployee | null) => {
@@ -37,6 +43,7 @@ export function CatalogSection({ data, source, canEdit }: CatalogSectionProps) {
           <CardTitle className="text-base">Danh mục nhân viên kỳ {data.period.code}</CardTitle>
           <CardDescription>
             Mã chấm công, nhóm, loại, lương và đơn giá lưu riêng cho từng kỳ; sửa kỳ này không ảnh hưởng kỳ khác.
+            {canManagePhones ? " Số điện thoại dùng chung mọi kỳ để nhân viên xem phiếu lương tại payroll.banhmique.vn." : null}
           </CardDescription>
         </div>
         {canChange ? (
@@ -62,6 +69,9 @@ export function CatalogSection({ data, source, canEdit }: CatalogSectionProps) {
                   <th className="min-w-[96px] px-3 py-2 text-right font-medium">Đơn giá TC</th>
                   <th className="min-w-[96px] px-3 py-2 text-right font-medium">Phụ cấp</th>
                   <th className="min-w-[150px] px-3 py-2 text-left font-medium">Trạng thái</th>
+                  {canManagePhones ? (
+                    <th className="min-w-[170px] px-3 py-2 text-left font-medium">SĐT xem phiếu lương</th>
+                  ) : null}
                 </tr>
               </thead>
               <tbody>
@@ -95,6 +105,11 @@ export function CatalogSection({ data, source, canEdit }: CatalogSectionProps) {
                     <td className="px-3 py-2 text-xs">
                       <EmployeeStatus employee={employee} />
                     </td>
+                    {canManagePhones ? (
+                      <td className="px-3 py-2">
+                        <PhoneCell contact={contactByCode.get(employee.code)} onEdit={() => setPhoneFor(employee)} name={employee.name} />
+                      </td>
+                    ) : null}
                   </tr>
                 ))}
               </tbody>
@@ -104,6 +119,14 @@ export function CatalogSection({ data, source, canEdit }: CatalogSectionProps) {
       </CardContent>
       {canChange ? (
         <EmployeeDialog open={open} onOpenChange={setOpen} employee={editing} data={data} source={source} />
+      ) : null}
+      {canManagePhones ? (
+        <PhoneDialog
+          employee={phoneFor}
+          contact={phoneFor ? contactByCode.get(phoneFor.code) : undefined}
+          source={source}
+          onClose={() => setPhoneFor(null)}
+        />
       ) : null}
     </Card>
   );
@@ -342,6 +365,142 @@ function EmployeeDialog({
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             Lưu
           </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** 84xxxxxxxxx → 0xxx xxx xxx for display. */
+function displayPhone(phone: string): string {
+  const local = phone.startsWith("84") ? `0${phone.slice(2)}` : phone;
+  return local.replace(/^(\d{4})(\d{3})(\d+)$/, "$1 $2 $3");
+}
+
+function PhoneCell({ contact, onEdit, name }: { contact?: BepBnEmployeeContact; onEdit: () => void; name: string }) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      {contact ? (
+        <div className="min-w-0">
+          <div className={cn("whitespace-nowrap tabular-nums", !contact.active && "text-muted-foreground line-through")}>
+            {displayPhone(contact.phone)}
+          </div>
+          {!contact.active ? <div className="text-xs text-muted-foreground">Đang tắt</div> : null}
+        </div>
+      ) : (
+        <span className="text-muted-foreground">Chưa có</span>
+      )}
+      <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={onEdit} aria-label={`Số điện thoại của ${name}`}>
+        <Smartphone className="h-3.5 w-3.5" />
+      </Button>
+    </div>
+  );
+}
+
+function PhoneDialog({
+  employee,
+  contact,
+  source,
+  onClose,
+}: {
+  employee: PayrollEmployee | null;
+  contact?: BepBnEmployeeContact;
+  source: BepBnDataSource;
+  onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const [phone, setPhone] = useState("");
+  const [active, setActive] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [openedFor, setOpenedFor] = useState<string | null>(null);
+
+  // Re-hydrate the draft every time the dialog opens for an employee.
+  if (employee && openedFor !== employee.code) {
+    setOpenedFor(employee.code);
+    setPhone(contact ? displayPhone(contact.phone) : "");
+    setActive(contact?.active ?? true);
+    setError(null);
+  }
+  if (!employee && openedFor !== null) setOpenedFor(null);
+
+  const run = async (action: () => Promise<void>, done: string) => {
+    setSaving(true);
+    setError(null);
+    try {
+      await action();
+      toast({ title: done });
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Vui lòng thử lại.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={employee !== null} onOpenChange={(next) => (!next && !saving ? onClose() : undefined)}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Số điện thoại xem phiếu lương</DialogTitle>
+          <DialogDescription>
+            {employee ? `${employee.name} · ${employee.code}. ` : ""}Nhân viên dùng số này để nhận mã OTP qua Zalo tại payroll.banhmique.vn.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="payslip-contact-phone">Số điện thoại</Label>
+            <Input
+              id="payslip-contact-phone"
+              inputMode="tel"
+              value={phone}
+              onChange={(event) => setPhone(event.target.value)}
+              placeholder="09xx xxx xxx"
+            />
+          </div>
+          <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2.5">
+            <Label htmlFor="payslip-contact-active" className="font-normal">
+              Cho phép đăng nhập
+              <span className="block text-xs text-muted-foreground">Tắt để chặn ngay, kể cả khi nhân viên đang đăng nhập.</span>
+            </Label>
+            <Switch id="payslip-contact-active" checked={active} onCheckedChange={setActive} />
+          </div>
+          {error ? (
+            <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+              {error}
+            </p>
+          ) : null}
+        </div>
+        <DialogFooter className="gap-2 sm:justify-between sm:gap-0">
+          {contact && employee ? (
+            <Button
+              variant="ghost"
+              className="text-destructive hover:text-destructive"
+              disabled={saving}
+              onClick={() => void run(() => source.deleteContact(employee.code), "Đã xoá số điện thoại")}
+            >
+              Xoá số
+            </Button>
+          ) : (
+            <span />
+          )}
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onClose} disabled={saving}>
+              Huỷ
+            </Button>
+            <Button
+              className="gap-2"
+              disabled={saving || phone.trim() === "" || !employee}
+              onClick={() =>
+                employee
+                  ? void run(() => source.upsertContact({ employeeCode: employee.code, phone, active }), "Đã lưu số điện thoại")
+                  : undefined
+              }
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Lưu
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

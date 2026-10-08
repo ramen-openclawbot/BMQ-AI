@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { RecoveryScreen } from "@/components/RecoveryScreen";
 import KioskReportPortal from "@/pages/KioskReportPortal";
 import { isEnglishAdminSurface, isVnagentAdminHostname } from "@/lib/adminHostLanguage";
@@ -5,6 +6,10 @@ import AppInner from "./AppInner";
 
 const DEALER_ORDERING_HOST = "dathang.banhmique.vn";
 const KIOSK_REPORT_HOST = "baocao.banhmique.vn";
+const PAYSLIP_HOST = "payroll.banhmique.vn";
+
+// Employee payslip portal; loaded only on its own host.
+const PayslipPortalHost = lazy(() => import("@/pages/PayslipPortalHost"));
 const ADMIN_APP_TITLE = "BMQ AI Quản Trị";
 const DEALER_APP_TITLE = "BMQ Đặt Hàng";
 const VNAGENT_ADMIN_TITLE = "VNAgent · Data Admin";
@@ -17,6 +22,11 @@ function applyHostDocumentTitle(): void {
 
   if (window.location.hostname === KIOSK_REPORT_HOST) {
     document.title = "BMQ Báo Cáo Điểm Bán";
+    return;
+  }
+
+  if (window.location.hostname === PAYSLIP_HOST) {
+    document.title = "BMQ Phiếu Lương";
     return;
   }
 
@@ -45,6 +55,8 @@ function applyHostDocumentLanguage(): void {
  *
  * REPORT HOST: baocao.banhmique.vn renders the kiosk report portal without
  * mounting the internal router or internal authentication providers.
+ * PAYSLIP HOST: payroll.banhmique.vn renders the employee payslip portal the
+ * same way (phone + OTP via Edge Functions, no internal auth).
  */
 
 // Check if we're on the recovery route BEFORE any React hooks/effects
@@ -69,6 +81,14 @@ function App() {
 
   if (isKioskReportHost()) {
     return <KioskReportPortal />;
+  }
+
+  if (window.location.hostname === PAYSLIP_HOST) {
+    return (
+      <Suspense fallback={null}>
+        <PayslipPortalHost />
+      </Suspense>
+    );
   }
 
   return <AppInner />;

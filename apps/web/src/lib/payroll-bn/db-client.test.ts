@@ -5,19 +5,26 @@ import {
   addAdjustment,
   createPeriod,
   describeDbError,
+  deleteEmployeeContact,
   ensurePeriodForRows,
+  fetchEmployeeContacts,
+  fetchPublishedPayslipCount,
   importAttendance,
   listIssueReviews,
   listPeriods,
   loadPeriodData,
   loadPreviousCatalog,
   lockPeriod,
+  normalizePayslipPhone,
+  publishPayslips,
   setAttendanceApproved,
   upsertEmployee,
+  upsertEmployeeContact,
   upsertIssueReview,
 } from "./db-client.ts";
 import type { BepBnClient } from "./db-client.ts";
 import type { AttendanceRow, PayrollEmployee } from "./types.ts";
+import type { PayslipRecord } from "./payslip.ts";
 
 // ---------------------------------------------------------------------------
 // Minimal fake Supabase client
@@ -28,7 +35,12 @@ interface FakeResult {
   error: { code?: string; message?: string } | null;
 }
 
-type TableHandler = (op: string, payload: unknown, options: unknown) => FakeResult;
+type TableHandler = (
+  op: string,
+  payload: unknown,
+  options: unknown,
+  filters: [string, unknown][],
+) => FakeResult;
 type RpcHandler = (args: Record<string, unknown> | undefined) => FakeResult;
 
 interface FakeClientOptions {
@@ -44,13 +56,14 @@ function createFakeClient(options: FakeClientOptions = {}): BepBnClient {
     let op: string | null = null;
     let payload: unknown;
     let upsertOptions: unknown;
+    const filters: [string, unknown][] = [];
 
     const run = (): FakeResult => {
       const effectiveOp = op ?? "select";
       if (calls) calls.push({ table, op: effectiveOp });
       const handler = options.tables?.[table];
       return handler
-        ? handler(effectiveOp, payload, upsertOptions)
+        ? handler(effectiveOp, payload, upsertOptions, filters)
         : { data: [], error: null };
     };
 
@@ -79,7 +92,10 @@ function createFakeClient(options: FakeClientOptions = {}): BepBnClient {
         op = "delete";
         return query;
       },
-      eq: () => query,
+      eq: (column: string, value: unknown) => {
+        filters.push([column, value]);
+        return query;
+      },
       order: () => query,
       limit: () => query,
       maybeSingle: () => Promise.resolve(run()),
@@ -778,4 +794,164 @@ test("ensurePeriodForRows rejects rows spanning two months", async () => {
 test("ensurePeriodForRows rejects an empty file", async () => {
   const client = createFakeClient({});
   await assert.rejects(() => ensurePeriodForRows(client, []), /Không có ngày chấm công/);
+});
+
+// ---------------------------------------------------------------------------
+// Payslip portal: contacts + publishing
+// ---------------------------------------------------------------------------
+
+const SAMPLE_PAYSLIP: PayslipRecord = {
+  employee_code: "E01",
+  employee_name: "Nguyễn Văn A",
+  group_name: "Bếp bánh",
+  period_name: "Kỳ lương tháng 09/2026 — Bếp BN",
+  date_from: "2026-09-01",
+  date_to: "2026-09-30",
+  net_pay: 7192000,
+  note: "Chốt lương",
+  lines: [{ key: "gross_pay", label: "Tổng thu nhập", value: 7192307.69, unit: "vnd" }],
+};
+
+test("normalizePayslipPhone accepts Vietnamese mobiles and rejects the rest", () => {
+  assert.equal(normalizePayslipPhone("0901234567"), "84901234567");
+  assert.equal(normalizePayslipPhone("+84 90 123 4567"), "84901234567");
+  assert.equal(normalizePayslipPhone("84901234567"), "84901234567");
+  assert.equal(normalizePayslipPhone("0084901234567"), "84901234567");
+  assert.equal(normalizePayslipPhone("0281234567"), null); // landline prefix
+  assert.equal(normalizePayslipPhone("12345"), null);
+  assert.equal(normalizePayslipPhone(""), null);
+});
+
+test("fetchEmployeeContacts maps rows and orders by code", async () => {
+  let ordered = false;
+  const client = createFakeClient({
+    tables: {
+      payroll_bn_employee_contacts: (op) => {
+        assert.equal(op, "select");
+        ordered = true;
+        return {
+          data: [
+            { employee_code: "E01", phone_normalized: "84901234567", active: true },
+            { employee_code: "E02", phone_normalized: "84987654321", active: false },
+          ],
+          error: null,
+        };
+      },
+    },
+  });
+
+  assert.deepEqual(await fetchEmployeeContacts(client), [
+    { employeeCode: "E01", phone: "84901234567", active: true },
+    { employeeCode: "E02", phone: "84987654321", active: false },
+  ]);
+  assert.equal(ordered, true);
+});
+
+test("upsertEmployeeContact normalises the phone and upserts on employee_code", async () => {
+  let payload: Record<string, unknown> | null = null;
+  let settings: unknown = null;
+  const client = createFakeClient({
+    tables: {
+      payroll_bn_employee_contacts: (op, values, options) => {
+        assert.equal(op, "upsert");
+        payload = values as Record<string, unknown>;
+        settings = options;
+        return { data: null, error: null };
+      },
+    },
+  });
+
+  await upsertEmployeeContact(client, { employeeCode: " E01 ", phone: "090 123 4567", active: true });
+
+  assert.deepEqual(payload, {
+    employee_code: "E01",
+    phone_normalized: "84901234567",
+    active: true,
+  });
+  assert.deepEqual(settings, { onConflict: "employee_code" });
+});
+
+test("upsertEmployeeContact rejects invalid input before calling the DB", async () => {
+  const calls: { table: string; op: string }[] = [];
+  const client = createFakeClient({
+    calls,
+    tables: {
+      payroll_bn_employee_contacts: () => {
+        throw new Error("the DB must not be called");
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => upsertEmployeeContact(client, { employeeCode: "E01", phone: "abc", active: true }),
+    /Số điện thoại không hợp lệ/,
+  );
+  assert.equal(calls.length, 0);
+});
+
+test("deleteEmployeeContact deletes the contact by employee_code", async () => {
+  let filters: [string, unknown][] = [];
+  const client = createFakeClient({
+    tables: {
+      payroll_bn_employee_contacts: (op, _payload, _options, received) => {
+        assert.equal(op, "delete");
+        filters = received;
+        return { data: null, error: null };
+      },
+    },
+  });
+
+  await deleteEmployeeContact(client, "E01");
+  assert.deepEqual(filters, [["employee_code", "E01"]]);
+});
+
+test("publishPayslips sends the payload to the RPC and returns the row count", async () => {
+  let args: Record<string, unknown> | undefined;
+  const client = createFakeClient({
+    rpc: {
+      payroll_bn_publish_payslips: (input) => {
+        args = input;
+        return { data: 18, error: null };
+      },
+    },
+  });
+
+  const count = await publishPayslips(client, "period-1", [SAMPLE_PAYSLIP]);
+  assert.equal(count, 18);
+  assert.equal(args?._period_id, "period-1");
+  assert.deepEqual(args?._payslips, [SAMPLE_PAYSLIP]);
+});
+
+test("publishPayslips maps owner, not-locked and invalid-employee errors", async () => {
+  const cases: [{ code: string; message: string }, RegExp][] = [
+    [{ code: "42501", message: "payroll_bn_publish_owner_only" }, /Chỉ chủ sở hữu mới được phát hành phiếu lương\./],
+    [{ code: "55006", message: "payroll_bn_period_not_locked" }, /Chỉ phát hành được phiếu lương của kỳ đã chốt\./],
+    [
+      { code: "22023", message: "payroll_bn_payslip_employee_not_in_period" },
+      /Có nhân viên không thuộc kỳ lương/,
+    ],
+  ];
+
+  for (const [error, pattern] of cases) {
+    const client = createFakeClient({
+      rpc: { payroll_bn_publish_payslips: () => ({ data: null, error }) },
+    });
+    await assert.rejects(() => publishPayslips(client, "period-1", [SAMPLE_PAYSLIP]), pattern);
+  }
+});
+
+test("fetchPublishedPayslipCount counts the period's payslips", async () => {
+  let filters: [string, unknown][] = [];
+  const client = createFakeClient({
+    tables: {
+      payroll_bn_payslips: (op, _payload, _options, received) => {
+        assert.equal(op, "select");
+        filters = received;
+        return { data: [{ id: "a" }, { id: "b" }], error: null };
+      },
+    },
+  });
+
+  assert.equal(await fetchPublishedPayslipCount(client, "period-1"), 2);
+  assert.deepEqual(filters, [["period_id", "period-1"]]);
 });

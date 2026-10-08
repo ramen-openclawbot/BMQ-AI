@@ -23,16 +23,35 @@ const REPORT_PORTAL_FUNCTIONS = new Set([
   "report-auth-logout",
 ]);
 
+const PAYSLIP_PORTAL_ORIGIN = "https://payroll.banhmique.vn";
+const PAYSLIP_PORTAL_FUNCTIONS = new Set([
+  "payslip-auth-start",
+  "payslip-auth-verify",
+  "payslip-list",
+  "payslip-auth-logout",
+]);
+
+function pathSegments(req: Request): string[] {
+  return new URL(req.url).pathname.split("/").filter(Boolean);
+}
+
 function isReportPortalFunction(req: Request): boolean {
-  const pathSegments = new URL(req.url).pathname.split("/").filter(Boolean);
-  return pathSegments.some((segment) => REPORT_PORTAL_FUNCTIONS.has(segment));
+  return pathSegments(req).some((segment) => REPORT_PORTAL_FUNCTIONS.has(segment));
+}
+
+function isPayslipPortalFunction(req: Request): boolean {
+  return pathSegments(req).some((segment) => PAYSLIP_PORTAL_FUNCTIONS.has(segment));
 }
 
 export function getCorsHeaders(req: Request): Record<string, string> {
   const origin = req.headers.get("origin") || "";
-  const allowedOrigins = isReportPortalFunction(req)
-    ? [...ALLOWED_ORIGINS, REPORT_PORTAL_ORIGIN]
-    : ALLOWED_ORIGINS;
+  // Each public portal gets its own origin, and only its own functions.
+  let allowedOrigins = ALLOWED_ORIGINS;
+  if (isReportPortalFunction(req)) {
+    allowedOrigins = [...ALLOWED_ORIGINS, REPORT_PORTAL_ORIGIN];
+  } else if (isPayslipPortalFunction(req)) {
+    allowedOrigins = [...ALLOWED_ORIGINS, PAYSLIP_PORTAL_ORIGIN];
+  }
   const allowedOrigin = allowedOrigins.includes(origin)
     ? origin
     : ALLOWED_ORIGINS[0]; // fallback to primary domain

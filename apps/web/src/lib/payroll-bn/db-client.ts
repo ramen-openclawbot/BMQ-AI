@@ -32,6 +32,8 @@ import type {
   PayrollBnPeriodInput,
   PayrollBnPeriodRow,
 } from "./db-mapping.ts";
+import { toPublishPayload } from "./payslip.ts";
+import type { PayslipRecord } from "./payslip.ts";
 import type { AnomalyCode } from "./anomalies.ts";
 import type { IssueDecision, IssueReview } from "./issue-review.ts";
 import type {
@@ -143,6 +145,20 @@ export interface BepBnIssueReviewInput {
   decision: IssueDecision;
   /** Required (non-blank) when the decision is `excluded`. */
   note?: string | null;
+}
+
+/** An employee phone registered for the payslip portal. */
+export interface BepBnEmployeeContact {
+  employeeCode: string;
+  /** Normalised to 84xxxxxxxxx. */
+  phone: string;
+  active: boolean;
+}
+
+export interface BepBnEmployeeContactInput {
+  employeeCode: string;
+  phone: string;
+  active: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -515,4 +531,120 @@ export async function ensurePeriodForRows(
     standardDaysByGroup: { "Văn phòng": 22, "Bếp bánh": 26, "Kho BN": 26 },
     holidays: [],
   });
+}
+
+// ---------------------------------------------------------------------------
+// Payslip portal: employee contacts + publishing
+// ---------------------------------------------------------------------------
+
+/**
+ * Normalise a Vietnamese mobile number to 84xxxxxxxxx, or null when it is not a
+ * valid mobile. Same semantics as normalizeDealerPhone.
+ */
+export function normalizePayslipPhone(input: unknown): string | null {
+  const raw = String(input ?? "").trim();
+  if (!raw) return null;
+
+  let digits = raw.replace(/[^\d+]/g, "");
+  if (digits.startsWith("+84")) digits = `84${digits.slice(3)}`;
+  digits = digits.replace(/\D/g, "");
+
+  if (digits.startsWith("0084")) digits = digits.slice(2);
+  if (digits.startsWith("0")) digits = `84${digits.slice(1)}`;
+
+  return /^84(3|5|7|8|9)\d{8}$/.test(digits) ? digits : null;
+}
+
+export async function fetchEmployeeContacts(client: BepBnClient): Promise<BepBnEmployeeContact[]> {
+  const { data, error } = await client
+    .from("payroll_bn_employee_contacts")
+    .select("employee_code, phone_normalized, active")
+    .order("employee_code", { ascending: true });
+  if (error) fail(error);
+
+  return asRows<{ employee_code: string; phone_normalized: string; active?: boolean | null }>(data).map((row) => ({
+    employeeCode: row.employee_code,
+    phone: row.phone_normalized,
+    active: row.active !== false,
+  }));
+}
+
+export async function upsertEmployeeContact(
+  client: BepBnClient,
+  input: BepBnEmployeeContactInput,
+): Promise<void> {
+  const employeeCode = String(input.employeeCode ?? "").trim();
+  if (employeeCode === "") {
+    throw new Error("Thiếu mã nhân viên.");
+  }
+
+  const phone = normalizePayslipPhone(input.phone);
+  if (!phone) {
+    throw new Error("Số điện thoại không hợp lệ. Vui lòng nhập số di động Việt Nam.");
+  }
+
+  const { error } = await client
+    .from("payroll_bn_employee_contacts")
+    .upsert(
+      { employee_code: employeeCode, phone_normalized: phone, active: Boolean(input.active) },
+      { onConflict: "employee_code" },
+    );
+  if (error) fail(error);
+}
+
+export async function deleteEmployeeContact(client: BepBnClient, employeeCode: string): Promise<void> {
+  const code = String(employeeCode ?? "").trim();
+  if (code === "") {
+    throw new Error("Thiếu mã nhân viên.");
+  }
+
+  const { error } = await client
+    .from("payroll_bn_employee_contacts")
+    .delete()
+    .eq("employee_code", code);
+  if (error) fail(error);
+}
+
+/** Convert a publish RPC error into a message an operator can act on. */
+export function describePublishPayslipsError(error: unknown): string {
+  const raw = (error ?? {}) as DbErrorLike;
+  const code = typeof raw.code === "string" ? raw.code : "";
+  const message = typeof raw.message === "string" ? raw.message : "";
+
+  if (message.includes("payroll_bn_publish_owner_only") || code === "42501") {
+    return "Chỉ chủ sở hữu mới được phát hành phiếu lương.";
+  }
+  if (message.includes("payroll_bn_period_not_locked") || code === "55006") {
+    return "Chỉ phát hành được phiếu lương của kỳ đã chốt.";
+  }
+  if (message.includes("payroll_bn_payslip_employee_not_in_period") || code === "22023") {
+    return "Có nhân viên không thuộc kỳ lương, không thể phát hành phiếu lương.";
+  }
+  return describeDbError(error);
+}
+
+/** Publish (replace) the payslips of a locked period; returns the row count. */
+export async function publishPayslips(
+  client: BepBnClient,
+  periodId: string,
+  payslips: readonly PayslipRecord[],
+): Promise<number> {
+  const { data, error } = await client.rpc("payroll_bn_publish_payslips", {
+    _period_id: periodId,
+    _payslips: toPublishPayload(payslips),
+  });
+  if (error) throw new Error(describePublishPayslipsError(error));
+  return toRowCount(data);
+}
+
+export async function fetchPublishedPayslipCount(
+  client: BepBnClient,
+  periodId: string,
+): Promise<number> {
+  const { data, error } = await client
+    .from("payroll_bn_payslips")
+    .select("id")
+    .eq("period_id", periodId);
+  if (error) fail(error);
+  return asRows<{ id: string }>(data).length;
 }
