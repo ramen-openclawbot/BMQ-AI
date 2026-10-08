@@ -677,3 +677,16 @@ test("the rational from a number avoids floating point drift for half days", () 
   assert.deepEqual(rationalFromNumber(24.5), rational(49, 2));
   assert.deepEqual(rationalFromNumber(138.33), rational(13833, 100));
 });
+
+test("R7: office staff without attendance default to the standard days, without holidays", () => {
+  const line = run({
+    employee: { group: "Văn phòng", monthlySalary: 9_600_000 },
+    period: { standardDaysByGroup: { "Văn phòng": 22 }, holidays: ["2026-09-01", "2026-09-02"] },
+    rows: [],
+  });
+  assert.deepEqual(line.actualWorkDays, rational(22));
+  assert.deepEqual(line.holidayPayDays, rational(0));
+  assert.deepEqual(line.workDays, rational(22));
+  assert.deepEqual(line.dayPay, rational(9_600_000));
+  assert.ok(line.flags.includes("office_default_days"));
+});

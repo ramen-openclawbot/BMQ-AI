@@ -261,6 +261,16 @@ function buildEmployeeLine(
   });
   let actualWorkDays = actualResolved.value;
 
+  // R7 — office staff are not on the attendance machine: without a sheet
+  // figure or any attendance they default to the standard days, which already
+  // cover the whole month, so no holiday is added on top.
+  const officeDefault =
+    employee.group === "Văn phòng" && !isPartTime(employee) && !measures?.actualWorkDays && !hasAttendance;
+  if (officeDefault) {
+    actualWorkDays = standardDays;
+    flags.push("office_default_days");
+  }
+
   // --- R9 số ngày lễ được cộng -----------------------------------------
   const eligibleHolidays = countEligibleHolidays(period, employee);
   let holidayPayDays =
@@ -272,6 +282,7 @@ function buildEmployeeLine(
     holidayPayDays = RATIONAL_ZERO;
     flags.push("holiday_excluded");
   }
+  if (officeDefault) holidayPayDays = RATIONAL_ZERO;
 
   // R8 — part-time is paid on the hour column; its day column stays empty.
   const partTime = isPartTime(employee);
