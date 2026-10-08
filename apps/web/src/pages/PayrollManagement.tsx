@@ -24,8 +24,11 @@ import {
   ShieldAlert,
   UserCog,
   BookOpenCheck,
+  ChefHat,
 } from "lucide-react";
 import { PayrollExportPanel } from "@/components/payroll/PayrollExportPanel";
+import { BepBnPayrollPanel } from "@/components/payroll/bep-bn/BepBnPayrollPanel";
+import { useBepBnData } from "@/hooks/useBepBnData";
 
 type WageType = "monthly" | "hourly" | "per_shift";
 type RunStatus = "draft" | "calculated" | "approved" | "locked";
@@ -150,7 +153,7 @@ function isPostgrestMissingRpc(error: any) {
 
 export default function PayrollManagement() {
   const { language } = useLanguage();
-  const { canEditModule } = useAuth();
+  const { canEditModule, isOwner } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const isVi = language === "vi";
@@ -175,6 +178,7 @@ export default function PayrollManagement() {
       tabRuns: isVi ? "Kỳ lương" : "Payroll runs",
       tabProfiles: isVi ? "Hợp đồng lương" : "Wage profiles",
       tabExport: isVi ? "Xuất kế toán" : "Accounting export",
+      tabBepBn: isVi ? "Bếp BN" : "Bếp BN",
       createRun: isVi ? "Tạo kỳ lương" : "Create run",
       runCode: isVi ? "Mã kỳ" : "Period code",
       runName: isVi ? "Tên kỳ" : "Period name",
@@ -455,7 +459,7 @@ export default function PayrollManagement() {
       ) : null}
 
       <Tabs defaultValue="runs" className="space-y-4">
-        <TabsList>
+        <TabsList className="max-w-full justify-start overflow-x-auto [&>*]:shrink-0">
           <TabsTrigger value="runs" className="gap-2">
             <CalendarRange className="h-4 w-4" />
             {copy.tabRuns}
@@ -467,6 +471,10 @@ export default function PayrollManagement() {
           <TabsTrigger value="export" className="gap-2">
             <BookOpenCheck className="h-4 w-4" />
             {copy.tabExport}
+          </TabsTrigger>
+          <TabsTrigger value="bep-bn" className="gap-2">
+            <ChefHat className="h-4 w-4" />
+            {copy.tabBepBn}
           </TabsTrigger>
         </TabsList>
 
@@ -853,6 +861,10 @@ export default function PayrollManagement() {
 
         <TabsContent value="export" className="space-y-4">
           <PayrollExportPanel />
+        </TabsContent>
+
+        <TabsContent value="bep-bn" className="space-y-4">
+          <BepBnPayrollPanel useData={useBepBnData} canEdit={canEdit} canLock={isOwner} />
         </TabsContent>
       </Tabs>
 
