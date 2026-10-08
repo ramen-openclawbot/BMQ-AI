@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState } from "react";
-import { Download, Loader2, PencilLine } from "lucide-react";
+import { Download, FileText, Loader2, PencilLine } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,6 +25,7 @@ interface PayrollDraftSectionProps {
 }
 
 export function PayrollDraftSection({ data, source, canEdit }: PayrollDraftSectionProps) {
+  const { toast } = useToast();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [presetEmployee, setPresetEmployee] = useState<string | null>(null);
   const locked = data.period.status === "locked";
@@ -58,16 +59,40 @@ export function PayrollDraftSection({ data, source, canEdit }: PayrollDraftSecti
     summary: result.groups.find((line) => line.group === group),
   })).filter((entry) => entry.employees.length > 0);
 
-  const exportExcel = () => {
-    const bytes = buildPayrollWorkbook(buildPayrollExportRows(data.period, result, notes));
-    const url = URL.createObjectURL(
-      new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
-    );
+  const download = (blob: Blob, fileName: string) => {
+    const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = payrollExportFileName(data.period);
+    link.download = fileName;
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const exportExcel = () => {
+    const bytes = buildPayrollWorkbook(buildPayrollExportRows(data.period, result, notes));
+    download(
+      new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
+      payrollExportFileName(data.period),
+    );
+  };
+
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const exportPdf = async () => {
+    setPdfBusy(true);
+    try {
+      // jsPDF is loaded only when a PDF is requested.
+      const { buildPayrollPdf } = await import("@/lib/payroll-bn/export-pdf.ts");
+      const blob = await buildPayrollPdf(buildPayrollExportRows(data.period, result, notes));
+      download(blob, payrollExportFileName(data.period).replace(/\.xlsx$/, ".pdf"));
+    } catch (error) {
+      toast({
+        title: "Không xuất được PDF",
+        description: error instanceof Error ? error.message : "Vui lòng thử lại.",
+        variant: "destructive",
+      });
+    } finally {
+      setPdfBusy(false);
+    }
   };
 
   const openAdjust = (employeeCode: string | null) => {
@@ -94,6 +119,15 @@ export function PayrollDraftSection({ data, source, canEdit }: PayrollDraftSecti
             >
               <Download className="h-4 w-4" />
               Xuất Excel
+            </Button>
+            <Button
+              variant="outline"
+              className="gap-2"
+              onClick={() => void exportPdf()}
+              disabled={result.employees.length === 0 || pdfBusy}
+            >
+              {pdfBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+              Xuất PDF
             </Button>
             {canAdjust ? (
               <Button variant="outline" className="gap-2" onClick={() => openAdjust(null)}>

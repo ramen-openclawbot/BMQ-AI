@@ -5,9 +5,11 @@
 --
 -- It creates throwaway auth users / permissions / a SMOKE period inside one
 -- transaction and always ends with RAISE EXCEPTION 'SMOKE_RESULT passed=N/M ...',
--- which rolls everything back. Expect passed=25/25 and failures=[].
+-- which rolls everything back. Expect passed=33/33 and failures=[].
 -- Passed 25/25 on production on 2026-10-08 before the migration was applied
 -- (migration + smoke in the same rolled-back transaction).
+-- 20261008160000_payroll_bn_issue_reviews.sql appends 8 checks (issue reviews +
+-- attendance approval); total 33. It has not been applied to production yet.
 begin;
 
 -- ===================== ROLLBACK-ONLY SMOKE (Bếp BN) =====================
@@ -163,6 +165,95 @@ begin
     delete from public.payroll_bn_attendance_rows where period_id = pid;
     insert into smoke_log values ('locked: attendance delete blocked', false, 'accepted');
   exception when sqlstate '55006' or insufficient_privilege then insert into smoke_log values ('locked: attendance delete blocked', true, sqlstate||' '||sqlerrm); end;
+end $$;
+reset role;
+
+-- 6) issue reviews + attendance approval on a fresh unlocked period (editor)
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"a0000000-0000-4000-8000-000000000002","role":"authenticated"}';
+do $$
+declare
+  pid uuid;
+  r record;
+  ok boolean;
+begin
+  insert into public.payroll_bn_periods(period_code, period_name, date_from, date_to, standard_days_by_group, holidays)
+  values ('SMOKE.T09B','smoke review','2026-09-01','2026-09-30','{"Văn phòng":22,"Bếp bánh":26,"Kho BN":26}','[]') returning id into pid;
+  insert into smoke_ids values ('p2', pid);
+
+  insert into public.payroll_bn_issue_reviews(period_id, employee_code, work_date, issue_code, decision, note)
+  values (pid,'00025','2026-09-03','missing_check_out','accepted', null);
+  insert into public.payroll_bn_issue_reviews(period_id, employee_code, work_date, issue_code, decision, note)
+  values (pid,'00025','2026-09-03','missing_check_out','excluded','chốt lương')
+  on conflict (period_id, employee_code, work_date, issue_code)
+  do update set decision = excluded.decision, note = excluded.note;
+  select (decision = 'excluded' and note = 'chốt lương' and actor = 'a0000000-0000-4000-8000-000000000002') into ok
+    from public.payroll_bn_issue_reviews
+   where period_id = pid and employee_code = '00025' and work_date = '2026-09-03' and issue_code = 'missing_check_out';
+  insert into smoke_log values ('editor upserts review with actor', coalesce(ok,false), null);
+
+  begin
+    insert into public.payroll_bn_issue_reviews(period_id, employee_code, work_date, issue_code, decision, note)
+    values (pid,'00025','2026-09-04','missing_check_out','excluded','   ');
+    insert into smoke_log values ('excluded review requires note', false, 'accepted');
+  exception when check_violation then insert into smoke_log values ('excluded review requires note', true, sqlerrm); end;
+
+  perform public.payroll_bn_set_attendance_approved(pid, true);
+  select (attendance_approved_at is not null and attendance_approved_by = 'a0000000-0000-4000-8000-000000000002') into ok
+    from public.payroll_bn_periods where id = pid;
+  insert into smoke_log values ('editor approves attendance', coalesce(ok,false), null);
+
+  perform public.payroll_bn_set_attendance_approved(pid, false);
+  select (attendance_approved_at is null and attendance_approved_by is null) into ok
+    from public.payroll_bn_periods where id = pid;
+  insert into smoke_log values ('editor clears attendance approval', coalesce(ok,false), null);
+
+  perform public.payroll_bn_set_attendance_approved(pid, true);
+  select * into r from public.payroll_bn_import_attendance(pid,'review.xls',repeat('1',64),
+    '[{"employee_code":"00025","work_date":"2026-09-03","check_in":"07:00","check_out":null}]'::jsonb);
+  select (attendance_approved_at is null and attendance_approved_by is null) into ok
+    from public.payroll_bn_periods where id = pid;
+  insert into smoke_log values ('new import clears approval', (coalesce(ok,false) and not r.already_imported), r::text);
+end $$;
+reset role;
+
+-- 7) viewer cannot write a review
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"a0000000-0000-4000-8000-000000000003","role":"authenticated"}';
+do $$
+declare pid uuid := (select v from smoke_ids where k='p2');
+begin
+  begin
+    insert into public.payroll_bn_issue_reviews(period_id, employee_code, work_date, issue_code, decision, note)
+    values (pid,'00025','2026-09-05','missing_check_in','accepted', null);
+    insert into smoke_log values ('viewer cannot write review', false, 'accepted');
+  exception when insufficient_privilege then insert into smoke_log values ('viewer cannot write review', true, sqlerrm); end;
+end $$;
+reset role;
+
+-- 8) locked period blocks review writes and approval
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"a0000000-0000-4000-8000-000000000001","role":"authenticated"}';
+do $$
+declare pid uuid := (select v from smoke_ids where k='p2');
+begin
+  perform public.payroll_bn_set_period_locked(pid);
+end $$;
+reset role;
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"a0000000-0000-4000-8000-000000000002","role":"authenticated"}';
+do $$
+declare pid uuid := (select v from smoke_ids where k='p2');
+begin
+  begin
+    insert into public.payroll_bn_issue_reviews(period_id, employee_code, work_date, issue_code, decision, note)
+    values (pid,'00025','2026-09-06','missing_check_out','accepted', null);
+    insert into smoke_log values ('locked: review write blocked', false, 'accepted');
+  exception when sqlstate '55006' then insert into smoke_log values ('locked: review write blocked', true, sqlerrm); end;
+  begin
+    perform public.payroll_bn_set_attendance_approved(pid, true);
+    insert into smoke_log values ('locked: approval blocked', false, 'approved');
+  exception when sqlstate '55006' then insert into smoke_log values ('locked: approval blocked', true, sqlerrm); end;
 end $$;
 reset role;
 

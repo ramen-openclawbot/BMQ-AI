@@ -90,17 +90,12 @@ export function detectAnomalies(input: AnomalyInput): Anomaly[] {
       anomalies.push(
         anomaly("missing_check_in", row, `${row.employeeCode} ${row.date}: có giờ ra, thiếu giờ vào.`),
       );
-    } else if (!row.checkIn && !row.checkOut) {
-      anomalies.push(
-        anomaly(
-          "no_machine_data",
-          row,
-          `${row.employeeCode} ${row.date}: có dòng chấm công nhưng máy không có số liệu giờ.`,
-        ),
-      );
     }
+    // A row without any time is a day off in the machine export, not an issue.
+    // ("no_machine_data" needs the machine's Công/Tổng giờ columns, which the
+    // parser deliberately ignores, so it is not raised from in/out times.)
 
-    if (holidaySet.has(row.date)) {
+    if (holidaySet.has(row.date) && (row.checkIn || row.checkOut)) {
       anomalies.push(
         anomaly("holiday_attendance", row, `${row.employeeCode} ${row.date}: có chấm công ngày lễ.`),
       );

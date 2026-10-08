@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
-import { CalendarPlus, Loader2, Lock } from "lucide-react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useEffect, useMemo, useState } from "react";
+import { Loader2, Lock } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -16,11 +16,11 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { AttendanceSection } from "./AttendanceSection";
+import { applyIssueReviews } from "@/lib/payroll-bn/issue-review.ts";
+import { AttendanceSection, UploadCard } from "./AttendanceSection";
 import { PayrollDraftSection } from "./PayrollDraftSection";
 import { CatalogSection } from "./CatalogSection";
-import { PeriodDialog } from "./PeriodDialog";
-import type { BepBnPeriodSummary, UseBepBnData } from "./types";
+import type { BepBnPeriodData, BepBnPeriodSummary, UseBepBnData } from "./types";
 
 interface BepBnPayrollPanelProps {
   useData: UseBepBnData;
@@ -28,12 +28,14 @@ interface BepBnPayrollPanelProps {
   canLock: boolean;
 }
 
+type PanelTab = "attendance" | "payroll" | "employees";
+
 export function BepBnPayrollPanel({ useData, canEdit, canLock }: BepBnPayrollPanelProps) {
   const { toast } = useToast();
   const [periodId, setPeriodId] = useState<string | null>(null);
+  const [tab, setTab] = useState<PanelTab>("attendance");
   const [confirmLock, setConfirmLock] = useState(false);
   const [locking, setLocking] = useState(false);
-  const [creating, setCreating] = useState(false);
   const source = useData(periodId);
 
   useEffect(() => {
@@ -41,6 +43,13 @@ export function BepBnPayrollPanel({ useData, canEdit, canLock }: BepBnPayrollPan
   }, [periodId, source.periods]);
 
   const selected: BepBnPeriodSummary | undefined = source.periods.find((period) => period.id === periodId);
+  const approved = Boolean(source.attendanceApprovedAt);
+
+  // The payroll uses the attendance after the reviewer's "không tính" decisions.
+  const payrollData = useMemo<BepBnPeriodData | null>(
+    () => (source.data ? { ...source.data, rows: applyIssueReviews(source.data.rows, source.issueReviews) } : null),
+    [source.data, source.issueReviews],
+  );
 
   const lock = async () => {
     if (!periodId) return;
@@ -60,98 +69,96 @@ export function BepBnPayrollPanel({ useData, canEdit, canLock }: BepBnPayrollPan
     }
   };
 
+  const status = !selected ? null : selected.status === "locked" ? "Đã chốt" : approved ? "Đã duyệt chấm công" : "Chưa duyệt chấm công";
+
   return (
     <div className="space-y-4">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Lương Bếp BN</CardTitle>
-          <CardDescription>
-            Upload chấm công từ máy, xem trước, lập bảng lương nháp và điều chỉnh có lý do. Hệ thống không tự chốt kỳ.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <Select value={periodId ?? ""} onValueChange={setPeriodId} disabled={source.periods.length === 0}>
-              <SelectTrigger className="w-full sm:w-72" aria-label="Chọn kỳ lương">
-                <SelectValue placeholder={source.periodsLoading ? "Đang tải kỳ…" : "Chưa có kỳ lương"} />
-              </SelectTrigger>
-              <SelectContent>
-                {source.periods.map((period) => (
-                  <SelectItem key={period.id} value={period.id}>
-                    {period.code} · {period.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {selected ? (
-              <Badge variant={selected.status === "locked" ? "secondary" : "outline"} className="w-fit">
-                {selected.status === "locked" ? "Đã chốt" : "Nháp, chưa chốt"}
-              </Badge>
-            ) : null}
-          </div>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            {canEdit ? (
-              <Button variant="outline" className="gap-2" onClick={() => setCreating(true)}>
-                <CalendarPlus className="h-4 w-4" />
-                Tạo kỳ
-              </Button>
-            ) : null}
-            {selected && selected.status !== "locked" && canLock ? (
+      {source.periods.length > 0 ? (
+        <Card>
+          <CardContent className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <Select value={periodId ?? ""} onValueChange={(value) => setPeriodId(value)}>
+                <SelectTrigger className="w-full sm:w-72" aria-label="Chọn tháng">
+                  <SelectValue placeholder="Chọn tháng" />
+                </SelectTrigger>
+                <SelectContent>
+                  {source.periods.map((period) => (
+                    <SelectItem key={period.id} value={period.id}>
+                      {period.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {status ? (
+                <Badge variant={status === "Chưa duyệt chấm công" ? "outline" : "secondary"} className="w-fit">
+                  {status}
+                </Badge>
+              ) : null}
+            </div>
+            {selected && selected.status !== "locked" && approved && canLock ? (
               <Button variant="outline" className="gap-2" onClick={() => setConfirmLock(true)}>
                 <Lock className="h-4 w-4" />
                 Chốt kỳ
               </Button>
             ) : null}
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {source.periodsError ? <ErrorCard message={source.periodsError} /> : null}
-
-      {!source.periodsLoading && !source.periodsError && source.periods.length === 0 ? (
-        <Card>
-          <CardContent className="py-8 text-center text-sm text-muted-foreground">
-            Chưa có kỳ lương Bếp BN nào. {canEdit ? "Bấm “Tạo kỳ”, sau đó thêm danh mục nhân viên của kỳ trước khi upload chấm công." : "Người có quyền sửa lương cần tạo kỳ trước."}
-          </CardContent>
-        </Card>
-      ) : null}
-
-      {periodId && source.dataLoading ? (
-        <Card>
-          <CardContent className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Đang tải dữ liệu kỳ…
-          </CardContent>
-        </Card>
-      ) : null}
-
       {source.dataError ? <ErrorCard message={source.dataError} /> : null}
 
-      {source.data && !source.dataLoading ? (
-        <Tabs defaultValue="attendance" className="space-y-4">
-          <TabsList className="max-w-full justify-start overflow-x-auto [&>*]:shrink-0">
-            <TabsTrigger value="attendance">Chấm công</TabsTrigger>
-            <TabsTrigger value="payroll">Bảng lương nháp</TabsTrigger>
-            <TabsTrigger value="catalog">Nhân viên</TabsTrigger>
-          </TabsList>
-          <TabsContent value="attendance">
-            <AttendanceSection data={source.data} source={source} canEdit={canEdit} />
-          </TabsContent>
-          <TabsContent value="payroll">
-            <PayrollDraftSection data={source.data} source={source} canEdit={canEdit} />
-          </TabsContent>
-          <TabsContent value="catalog">
-            <CatalogSection data={source.data} source={source} canEdit={canEdit} />
-          </TabsContent>
-        </Tabs>
-      ) : null}
+      <Tabs value={tab} onValueChange={(value) => setTab(value as PanelTab)} className="space-y-4">
+        <TabsList className="max-w-full justify-start overflow-x-auto [&>*]:shrink-0">
+          <TabsTrigger value="attendance">Chấm công</TabsTrigger>
+          <TabsTrigger value="payroll">Bảng lương</TabsTrigger>
+          <TabsTrigger value="employees">Nhân viên</TabsTrigger>
+        </TabsList>
 
-      {canEdit ? <PeriodDialog open={creating} onOpenChange={setCreating} source={source} onCreated={setPeriodId} /> : null}
+        <TabsContent value="attendance" className="space-y-4">
+          <UploadCard source={source} canEdit={canEdit} onImported={setPeriodId} />
+          {periodId && source.dataLoading ? <LoadingCard /> : null}
+          {source.data && !source.dataLoading ? (
+            <AttendanceSection
+              data={source.data}
+              source={source}
+              canEdit={canEdit}
+              onOpenEmployees={() => setTab("employees")}
+              onApproved={() => setTab("payroll")}
+            />
+          ) : null}
+        </TabsContent>
+
+        <TabsContent value="payroll" className="space-y-4">
+          {!payrollData ? (
+            <EmptyCard text="Chưa có dữ liệu. Upload bảng chấm công ở tab Chấm công." />
+          ) : !approved && payrollData.period.status !== "locked" ? (
+            <Card>
+              <CardContent className="flex flex-col gap-3 py-6 text-sm sm:flex-row sm:items-center sm:justify-between">
+                <span>Bảng lương được tạo sau khi bảng chấm công tháng này được duyệt.</span>
+                <Button variant="outline" className="self-start" onClick={() => setTab("attendance")}>
+                  Sang tab Chấm công
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            <PayrollDraftSection data={payrollData} source={source} canEdit={canEdit} />
+          )}
+        </TabsContent>
+
+        <TabsContent value="employees" className="space-y-4">
+          {source.data ? (
+            <CatalogSection data={source.data} source={source} canEdit={canEdit} />
+          ) : (
+            <EmptyCard text="Danh mục nhân viên được tạo tự động khi upload bảng chấm công." />
+          )}
+        </TabsContent>
+      </Tabs>
 
       <AlertDialog open={confirmLock} onOpenChange={setConfirmLock}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Chốt kỳ {selected?.code}?</AlertDialogTitle>
+            <AlertDialogTitle>Chốt {selected?.name}?</AlertDialogTitle>
             <AlertDialogDescription>
               Sau khi chốt, kỳ bị khoá: không nhập thêm chấm công, không điều chỉnh, không ghi đè. Không có thao tác mở khoá.
             </AlertDialogDescription>
@@ -172,6 +179,25 @@ export function BepBnPayrollPanel({ useData, canEdit, canLock }: BepBnPayrollPan
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+function LoadingCard() {
+  return (
+    <Card>
+      <CardContent className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Đang tải dữ liệu…
+      </CardContent>
+    </Card>
+  );
+}
+
+function EmptyCard({ text }: { text: string }) {
+  return (
+    <Card>
+      <CardContent className="py-8 text-center text-sm text-muted-foreground">{text}</CardContent>
+    </Card>
   );
 }
 

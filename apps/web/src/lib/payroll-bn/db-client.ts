@@ -14,11 +14,13 @@ import {
   mapAdjustmentRow,
   mapAttendanceRow,
   mapEmployeeRow,
+  mapIssueReviewRow,
   mapPeriodRow,
   normalizePeriodStatus,
   toAdjustmentInsertRow,
   toAttendancePayloadRow,
   toEmployeeUpsertRow,
+  toIssueReviewUpsertRow,
   toPeriodInsertRow,
 } from "./db-mapping.ts";
 import type {
@@ -26,9 +28,12 @@ import type {
   PayrollBnAttendanceImportRow,
   PayrollBnAttendanceRow,
   PayrollBnEmployeeRow,
+  PayrollBnIssueReviewRow,
   PayrollBnPeriodInput,
   PayrollBnPeriodRow,
 } from "./db-mapping.ts";
+import type { AnomalyCode } from "./anomalies.ts";
+import type { IssueDecision, IssueReview } from "./issue-review.ts";
 import type {
   AdjustmentField,
   AttendanceRow,
@@ -107,6 +112,8 @@ export interface BepBnPeriodData {
   rows: AttendanceRow[];
   adjustments: PayrollAdjustment[];
   imports: BepBnImportSummary[];
+  /** When the attendance of this period was approved, or null. */
+  attendanceApprovedAt: string | null;
 }
 
 export interface BepBnImportResult {
@@ -127,6 +134,15 @@ export interface BepBnImportInput {
   fileName: string;
   sha256: string;
   rows: AttendanceRow[];
+}
+
+export interface BepBnIssueReviewInput {
+  employeeCode: string;
+  workDate: string;
+  issueCode: AnomalyCode;
+  decision: IssueDecision;
+  /** Required (non-blank) when the decision is `excluded`. */
+  note?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -281,6 +297,7 @@ export async function loadPeriodData(
       rowCount: toRowCount(row.row_count),
       importedAt: row.imported_at,
     })),
+    attendanceApprovedAt: periodRow.attendance_approved_at ?? null,
   };
 }
 
@@ -354,4 +371,148 @@ export async function upsertEmployee(
     .from("payroll_bn_period_employees")
     .upsert(toEmployeeUpsertRow(periodId, employee), { onConflict: "period_id,employee_code" });
   if (error) fail(error);
+}
+
+// ---------------------------------------------------------------------------
+// Issue reviews and attendance approval
+// ---------------------------------------------------------------------------
+
+export async function listIssueReviews(
+  client: BepBnClient,
+  periodId: string,
+): Promise<IssueReview[]> {
+  const { data, error } = await client
+    .from("payroll_bn_issue_reviews")
+    .select("*")
+    .eq("period_id", periodId)
+    .order("work_date", { ascending: true });
+  if (error) fail(error);
+
+  return asRows<PayrollBnIssueReviewRow>(data).map(mapIssueReviewRow);
+}
+
+export async function upsertIssueReview(
+  client: BepBnClient,
+  periodId: string,
+  input: BepBnIssueReviewInput,
+): Promise<void> {
+  const note = typeof input.note === "string" ? input.note.trim() : "";
+  if (input.decision === "excluded" && note === "") {
+    // Reject before touching the DB: dropping a row always needs a reason.
+    throw new Error("Bắt buộc ghi ghi chú khi loại bỏ dòng chấm công.");
+  }
+
+  const { error } = await client
+    .from("payroll_bn_issue_reviews")
+    .upsert(
+      toIssueReviewUpsertRow(periodId, { ...input, note: note === "" ? null : note }),
+      { onConflict: "period_id,employee_code,work_date,issue_code" },
+    );
+  if (error) fail(error);
+}
+
+export async function setAttendanceApproved(
+  client: BepBnClient,
+  periodId: string,
+  approved: boolean,
+): Promise<void> {
+  const { error } = await client.rpc("payroll_bn_set_attendance_approved", {
+    _period_id: periodId,
+    _approved: approved,
+  });
+  if (error) fail(error);
+}
+
+// ---------------------------------------------------------------------------
+// Period discovery
+// ---------------------------------------------------------------------------
+
+/**
+ * Catalogue of the latest period whose date_from is before this period.
+ * Returns [] when there is no earlier period.
+ */
+export async function loadPreviousCatalog(
+  client: BepBnClient,
+  periodId: string,
+): Promise<PayrollEmployee[]> {
+  const periodsResult = await client
+    .from("payroll_bn_periods")
+    .select("id, date_from")
+    .order("date_from", { ascending: false });
+  if (periodsResult.error) fail(periodsResult.error);
+
+  const periods = asRows<{ id: string; date_from: string }>(periodsResult.data);
+  const current = periods.find((period) => period.id === periodId);
+  if (!current) return [];
+  const previous = periods.find((period) => period.date_from < current.date_from);
+  if (!previous) return [];
+
+  const employeesResult = await client
+    .from("payroll_bn_period_employees")
+    .select("*")
+    .eq("period_id", previous.id)
+    .order("employee_code", { ascending: true });
+  if (employeesResult.error) fail(employeesResult.error);
+
+  return asRows<PayrollBnEmployeeRow>(employeesResult.data).map((row) =>
+    mapEmployeeRow(row, previous.date_from),
+  );
+}
+
+function pad2(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
+function lastDayOfMonth(year: number, month: number): string {
+  const day = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return `${year}-${pad2(month)}-${pad2(day)}`;
+}
+
+/**
+ * Find (or create) the payroll period that covers the month of the rows.
+ * The month comes from the earliest date; rows spanning two months are refused.
+ */
+export async function ensurePeriodForRows(
+  client: BepBnClient,
+  rows: readonly AttendanceRow[],
+): Promise<string> {
+  const dates = rows
+    .map((row) => row.date)
+    .filter((date) => typeof date === "string" && date.length >= 10)
+    .sort();
+  if (dates.length === 0) {
+    throw new Error("Không có ngày chấm công để xác định kỳ lương.");
+  }
+
+  const first = dates[0];
+  const last = dates[dates.length - 1];
+  if (first.slice(0, 7) !== last.slice(0, 7)) {
+    throw new Error("File chấm công trải qua nhiều tháng, không xác định được một kỳ lương.");
+  }
+
+  const yearText = first.slice(0, 4);
+  const monthText = first.slice(5, 7);
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const dateFrom = `${yearText}-${monthText}-01`;
+  const dateTo = lastDayOfMonth(year, month);
+
+  const existing = await client
+    .from("payroll_bn_periods")
+    .select("id")
+    .eq("date_from", dateFrom)
+    .eq("date_to", dateTo)
+    .maybeSingle();
+  if (existing.error) fail(existing.error);
+  const existingId = (existing.data as { id?: string } | null)?.id;
+  if (existingId) return existingId;
+
+  return createPeriod(client, {
+    code: `T${monthText}.${yearText}`,
+    name: `Kỳ lương tháng ${monthText}/${yearText} — Bếp BN`,
+    dateFrom,
+    dateTo,
+    standardDaysByGroup: { "Văn phòng": 22, "Bếp bánh": 26, "Kho BN": 26 },
+    holidays: [],
+  });
 }

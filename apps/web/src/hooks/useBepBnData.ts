@@ -9,16 +9,24 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   addAdjustment,
   createPeriod,
+  ensurePeriodForRows,
   importAttendance,
+  listIssueReviews,
   listPeriods,
   loadPeriodData,
+  loadPreviousCatalog,
   lockPeriod,
+  setAttendanceApproved,
   upsertEmployee,
+  upsertIssueReview,
 } from "@/lib/payroll-bn/db-client.ts";
 import type { BepBnClient } from "@/lib/payroll-bn/db-client.ts";
+import { suggestCatalogSync } from "@/lib/payroll-bn/catalog-sync.ts";
 import type {
   BepBnAdjustmentInput,
   BepBnDataSource,
+  BepBnImportFileResult,
+  BepBnIssueReviewInput,
   BepBnPeriodData,
   BepBnPeriodInput,
   UseBepBnData,
@@ -27,6 +35,9 @@ import type { AttendanceRow, PayrollEmployee } from "@/lib/payroll-bn/types.ts";
 
 const PERIODS_QUERY_KEY = ["payroll-bn", "periods"] as const;
 const periodQueryKey = (periodId: string) => ["payroll-bn", "period", periodId] as const;
+const previousEmployeesQueryKey = (periodId: string) =>
+  ["payroll-bn", "previous-employees", periodId] as const;
+const issueReviewsQueryKey = (periodId: string) => ["payroll-bn", "issue-reviews", periodId] as const;
 
 function errorMessage(error: unknown): string {
   if (error instanceof Error && error.message) return error.message;
@@ -54,11 +65,33 @@ export const useBepBnData: UseBepBnData = (periodId) => {
     retry: 1,
   });
 
+  const previousEmployeesQuery = useQuery({
+    queryKey: previousEmployeesQueryKey(periodId ?? "none"),
+    queryFn: () => loadPreviousCatalog(client, periodId as string),
+    enabled: Boolean(periodId),
+    staleTime: 30_000,
+    retry: 1,
+  });
+
+  const issueReviewsQuery = useQuery({
+    queryKey: issueReviewsQueryKey(periodId ?? "none"),
+    queryFn: () => listIssueReviews(client, periodId as string),
+    enabled: Boolean(periodId),
+    staleTime: 15_000,
+    retry: 1,
+  });
+
   const invalidatePeriod = (id: string) => {
     void queryClient.invalidateQueries({ queryKey: ["payroll-bn", "period", id] });
   };
   const invalidatePeriods = () => {
     void queryClient.invalidateQueries({ queryKey: ["payroll-bn", "periods"] });
+  };
+  const invalidateReviews = (id: string) => {
+    void queryClient.invalidateQueries({ queryKey: ["payroll-bn", "issue-reviews", id] });
+  };
+  const invalidatePreviousEmployees = (id: string) => {
+    void queryClient.invalidateQueries({ queryKey: ["payroll-bn", "previous-employees", id] });
   };
 
   const importMutation = useMutation({
@@ -71,9 +104,71 @@ export const useBepBnData: UseBepBnData = (periodId) => {
     onSuccess: (_result, input) => invalidatePeriod(input.periodId),
   });
 
+  const importFileMutation = useMutation({
+    mutationFn: async (input: {
+      fileName: string;
+      sha256: string;
+      rows: AttendanceRow[];
+    }): Promise<BepBnImportFileResult> => {
+      const resolvedPeriodId = await ensurePeriodForRows(client, input.rows);
+      const result = await importAttendance(client, {
+        periodId: resolvedPeriodId,
+        fileName: input.fileName,
+        sha256: input.sha256,
+        rows: input.rows,
+      });
+
+      const [periodData, previousEmployees] = await Promise.all([
+        loadPeriodData(client, resolvedPeriodId),
+        loadPreviousCatalog(client, resolvedPeriodId),
+      ]);
+
+      let addedEmployees = 0;
+      if (periodData) {
+        const { add } = suggestCatalogSync({
+          period: periodData.period,
+          rows: input.rows,
+          employees: periodData.employees,
+          previousEmployees,
+        });
+        for (const suggestion of add) {
+          await upsertEmployee(client, resolvedPeriodId, suggestion.employee);
+        }
+        addedEmployees = add.length;
+      }
+
+      return {
+        periodId: resolvedPeriodId,
+        alreadyImported: result.alreadyImported,
+        insertedRows: result.insertedRows,
+        addedEmployees,
+      };
+    },
+    onSuccess: (result) => {
+      invalidatePeriods();
+      invalidatePeriod(result.periodId);
+      invalidatePreviousEmployees(result.periodId);
+    },
+  });
+
   const adjustmentMutation = useMutation({
     mutationFn: (variables: { periodId: string; input: BepBnAdjustmentInput }) =>
       addAdjustment(client, variables.periodId, variables.input),
+    onSuccess: (_result, variables) => invalidatePeriod(variables.periodId),
+  });
+
+  const reviewMutation = useMutation({
+    mutationFn: (variables: { periodId: string; input: BepBnIssueReviewInput }) =>
+      upsertIssueReview(client, variables.periodId, variables.input),
+    onSuccess: (_result, variables) => {
+      invalidatePeriod(variables.periodId);
+      invalidateReviews(variables.periodId);
+    },
+  });
+
+  const approveMutation = useMutation({
+    mutationFn: (variables: { periodId: string; approved: boolean }) =>
+      setAttendanceApproved(client, variables.periodId, variables.approved),
     onSuccess: (_result, variables) => invalidatePeriod(variables.periodId),
   });
 
@@ -104,8 +199,14 @@ export const useBepBnData: UseBepBnData = (periodId) => {
     data: periodId ? ((dataQuery.data ?? null) as BepBnPeriodData | null) : null,
     dataLoading: Boolean(periodId) && dataQuery.isLoading,
     dataError: dataQuery.error ? errorMessage(dataQuery.error) : null,
+    previousEmployees: previousEmployeesQuery.data ?? [],
+    issueReviews: issueReviewsQuery.data ?? [],
+    attendanceApprovedAt: dataQuery.data?.attendanceApprovedAt ?? null,
     importAttendance: (input) => importMutation.mutateAsync(input),
+    importFile: (input) => importFileMutation.mutateAsync(input),
     addAdjustment: (id, input) => adjustmentMutation.mutateAsync({ periodId: id, input }),
+    reviewIssue: (id, input) => reviewMutation.mutateAsync({ periodId: id, input }),
+    setAttendanceApproved: (id, approved) => approveMutation.mutateAsync({ periodId: id, approved }),
     lockPeriod: (id) => lockMutation.mutateAsync(id),
     createPeriod: (input) => createMutation.mutateAsync(input),
     upsertEmployee: (id, employee) =>

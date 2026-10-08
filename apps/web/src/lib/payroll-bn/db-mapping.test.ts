@@ -5,17 +5,22 @@ import {
   mapAdjustmentRow,
   mapAttendanceRow,
   mapEmployeeRow,
+  mapIssueReviewRow,
   mapPeriodRow,
+  normalizeIssueCode,
+  normalizeIssueDecision,
   normalizePeriodStatus,
   toAdjustmentInsertRow,
   toAttendancePayloadRow,
   toEmployeeUpsertRow,
+  toIssueReviewUpsertRow,
   toPeriodInsertRow,
 } from "./db-mapping.ts";
 import type {
   PayrollBnAdjustmentRow,
   PayrollBnAttendanceRow,
   PayrollBnEmployeeRow,
+  PayrollBnIssueReviewRow,
   PayrollBnPeriodInput,
   PayrollBnPeriodRow,
 } from "./db-mapping.ts";
@@ -309,6 +314,64 @@ test("toAdjustmentInsertRow keeps the previous value for the audit log", () => {
       old_value: 25,
       new_value: 24.5,
       reason: "Điều chỉnh tay",
+    },
+  );
+});
+
+function issueReviewRow(overrides: Partial<PayrollBnIssueReviewRow> = {}): PayrollBnIssueReviewRow {
+  return {
+    id: "review-1",
+    period_id: "period-1",
+    employee_code: "E01",
+    work_date: "2026-09-03",
+    issue_code: "missing_check_out",
+    decision: "excluded",
+    note: "chốt lương",
+    actor: "12345678-90ab-cdef-1234-567890abcdef",
+    created_at: "2026-09-03T03:04:05.000Z",
+    ...overrides,
+  };
+}
+
+test("mapIssueReviewRow maps the review and defaults a missing note", () => {
+  assert.deepEqual(mapIssueReviewRow(issueReviewRow()), {
+    employeeCode: "E01",
+    workDate: "2026-09-03",
+    issueCode: "missing_check_out",
+    decision: "excluded",
+    note: "chốt lương",
+  });
+
+  const accepted = mapIssueReviewRow(issueReviewRow({ decision: "accepted", note: null }));
+  assert.equal(accepted.decision, "accepted");
+  assert.equal(accepted.note, null);
+
+  // An unknown decision is treated as an acceptance, never as an exclusion.
+  assert.equal(mapIssueReviewRow(issueReviewRow({ decision: "other" })).decision, "accepted");
+});
+
+test("normalizeIssueCode rejects an unknown code", () => {
+  assert.equal(normalizeIssueCode("holiday_attendance"), "holiday_attendance");
+  assert.equal(normalizeIssueDecision("excluded"), "excluded");
+  assert.equal(normalizeIssueDecision(null), "accepted");
+  assert.throws(() => normalizeIssueCode("made_up"), /không hợp lệ/);
+});
+
+test("toIssueReviewUpsertRow builds the upsert payload", () => {
+  assert.deepEqual(
+    toIssueReviewUpsertRow("period-1", {
+      employeeCode: "E01",
+      workDate: "2026-09-03",
+      issueCode: "missing_check_in",
+      decision: "accepted",
+    }),
+    {
+      period_id: "period-1",
+      employee_code: "E01",
+      work_date: "2026-09-03",
+      issue_code: "missing_check_in",
+      decision: "accepted",
+      note: null,
     },
   );
 });

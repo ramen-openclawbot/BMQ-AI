@@ -9,6 +9,8 @@
 
 import { resolveRulesConfig } from "./rules-config.ts";
 import type { RulesConfig } from "./rules-config.ts";
+import type { AnomalyCode } from "./anomalies.ts";
+import type { IssueDecision, IssueReview } from "./issue-review.ts";
 import type {
   AdjustmentField,
   AttendanceRow,
@@ -35,6 +37,8 @@ export interface PayrollBnPeriodRow {
   holidays?: unknown;
   rules_config?: Partial<RulesConfig> | null;
   status?: string | null;
+  attendance_approved_at?: string | null;
+  attendance_approved_by?: string | null;
 }
 
 export interface PayrollBnPeriodInsertRow {
@@ -128,6 +132,28 @@ export interface PayrollBnAdjustmentInsertRow {
   reason: string;
 }
 
+export interface PayrollBnIssueReviewRow {
+  id?: string;
+  period_id: string;
+  employee_code: string;
+  work_date: string;
+  issue_code: string;
+  decision: string;
+  note?: string | null;
+  actor?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface PayrollBnIssueReviewUpsertRow {
+  period_id: string;
+  employee_code: string;
+  work_date: string;
+  issue_code: AnomalyCode;
+  decision: IssueDecision;
+  note: string | null;
+}
+
 /** Input accepted by createPeriod (matches BepBnPeriodInput in the UI contract). */
 export interface PayrollBnPeriodInput {
   code: string;
@@ -206,6 +232,29 @@ export function normalizeAdjustmentField(value: unknown): AdjustmentField {
   throw new Error(`Trường điều chỉnh không hợp lệ: ${String(value)}`);
 }
 
+const ISSUE_CODES: readonly AnomalyCode[] = [
+  "missing_check_out",
+  "missing_check_in",
+  "no_machine_data",
+  "duplicate_time",
+  "unknown_employee",
+  "missing_attendance",
+  "holiday_attendance",
+];
+
+/** Validate an issue code coming from the DB. */
+export function normalizeIssueCode(value: unknown): AnomalyCode {
+  if (typeof value === "string" && (ISSUE_CODES as readonly string[]).includes(value)) {
+    return value as AnomalyCode;
+  }
+  throw new Error(`Mã bất thường không hợp lệ: ${String(value)}`);
+}
+
+/** Anything that is not an explicit exclusion is treated as an acceptance. */
+export function normalizeIssueDecision(value: unknown): IssueDecision {
+  return value === "excluded" ? "excluded" : "accepted";
+}
+
 /** jsonb values used by the engine are numbers or strings; everything else reads null. */
 export function toAdjustmentValue(value: unknown): number | string | null {
   if (typeof value === "number" || typeof value === "string") return value;
@@ -279,6 +328,16 @@ export function mapAdjustmentRow(row: PayrollBnAdjustmentRow): PayrollAdjustment
   };
 }
 
+export function mapIssueReviewRow(row: PayrollBnIssueReviewRow): IssueReview {
+  return {
+    employeeCode: row.employee_code,
+    workDate: row.work_date,
+    issueCode: normalizeIssueCode(row.issue_code),
+    decision: normalizeIssueDecision(row.decision),
+    note: row.note ?? null,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Domain -> DB write rows
 // ---------------------------------------------------------------------------
@@ -344,5 +403,25 @@ export function toAdjustmentInsertRow(
     ...(input.oldValue !== undefined && input.oldValue !== null ? { old_value: input.oldValue } : {}),
     new_value: input.value,
     reason: input.reason,
+  };
+}
+
+export function toIssueReviewUpsertRow(
+  periodId: string,
+  input: {
+    employeeCode: string;
+    workDate: string;
+    issueCode: AnomalyCode;
+    decision: IssueDecision;
+    note?: string | null;
+  },
+): PayrollBnIssueReviewUpsertRow {
+  return {
+    period_id: periodId,
+    employee_code: input.employeeCode,
+    work_date: input.workDate,
+    issue_code: input.issueCode,
+    decision: input.decision,
+    note: input.note ?? null,
   };
 }

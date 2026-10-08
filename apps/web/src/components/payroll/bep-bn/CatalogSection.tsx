@@ -119,6 +119,17 @@ function MoneyCell({ value }: { value: number | null | undefined }) {
 
 function EmployeeStatus({ employee }: { employee: PayrollEmployee }) {
   if (employee.terminated) return <Badge variant="secondary">Nghỉ việc</Badge>;
+  const missingPay =
+    employee.employmentType === "part_time"
+      ? employee.hourlyRate === null || employee.hourlyRate === undefined
+      : employee.monthlySalary === null || employee.monthlySalary === undefined;
+  if (missingPay) {
+    return (
+      <Badge variant="outline" className="border-amber-500 text-amber-700 dark:text-amber-400">
+        {employee.employmentType === "part_time" ? "Chưa có đơn giá giờ" : "Chưa có lương"}
+      </Badge>
+    );
+  }
   const parts: string[] = [];
   if (employee.startDate) parts.push(`Từ ${employee.startDate.split("-").reverse().join("/")}`);
   if (employee.endDate) parts.push(`đến ${employee.endDate.split("-").reverse().join("/")}`);

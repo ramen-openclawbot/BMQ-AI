@@ -5,11 +5,16 @@ import {
   addAdjustment,
   createPeriod,
   describeDbError,
+  ensurePeriodForRows,
   importAttendance,
+  listIssueReviews,
   listPeriods,
   loadPeriodData,
+  loadPreviousCatalog,
   lockPeriod,
+  setAttendanceApproved,
   upsertEmployee,
+  upsertIssueReview,
 } from "./db-client.ts";
 import type { BepBnClient } from "./db-client.ts";
 import type { AttendanceRow, PayrollEmployee } from "./types.ts";
@@ -133,6 +138,8 @@ const PERIOD_ROW = {
   holidays: [],
   rules_config: {},
   status: "draft",
+  attendance_approved_at: null,
+  attendance_approved_by: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -252,6 +259,7 @@ test("loadPeriodData maps the period, catalogue, attendance, imports and adjustm
   assert.equal(data.id, "period-1");
   assert.equal(data.period.code, "T08.2026");
   assert.deepEqual(data.measures, {});
+  assert.equal(data.attendanceApprovedAt, null);
   assert.equal(data.employees.length, 1);
   assert.equal(data.employees[0].code, "E01");
   assert.equal(data.rows.length, 1);
@@ -512,4 +520,262 @@ test("describeDbError maps lock, permission, missing period and duplicate day", 
     describeDbError({ code: "22023", message: "payroll_bn_date_out_of_period_or_missing_key" }),
     "Có dòng chấm công nằm ngoài khoảng ngày của kỳ hoặc thiếu mã nhân viên/ngày.",
   );
+});
+
+// ---------------------------------------------------------------------------
+// Issue reviews / attendance approval
+// ---------------------------------------------------------------------------
+
+test("loadPeriodData exposes the attendance approval timestamp", async () => {
+  const client = createFakeClient({
+    tables: {
+      payroll_bn_periods: () => ({
+        data: { ...PERIOD_ROW, attendance_approved_at: "2026-09-02T10:00:00.000Z" },
+        error: null,
+      }),
+      payroll_bn_period_employees: () => ({ data: [], error: null }),
+      payroll_bn_attendance_rows: () => ({ data: [], error: null }),
+      payroll_bn_attendance_imports: () => ({ data: [], error: null }),
+      payroll_bn_adjustments: () => ({ data: [], error: null }),
+    },
+  });
+
+  const data = await loadPeriodData(client, "period-1");
+  assert.equal(data?.attendanceApprovedAt, "2026-09-02T10:00:00.000Z");
+});
+
+test("listIssueReviews maps rows and orders by work date", async () => {
+  const client = createFakeClient({
+    tables: {
+      payroll_bn_issue_reviews: (op) => {
+        assert.equal(op, "select");
+        return {
+          data: [
+            {
+              id: "review-1",
+              period_id: "period-1",
+              employee_code: "E01",
+              work_date: "2026-09-03",
+              issue_code: "missing_check_out",
+              decision: "excluded",
+              note: "chốt lương",
+            },
+          ],
+          error: null,
+        };
+      },
+    },
+  });
+
+  assert.deepEqual(await listIssueReviews(client, "period-1"), [
+    {
+      employeeCode: "E01",
+      workDate: "2026-09-03",
+      issueCode: "missing_check_out",
+      decision: "excluded",
+      note: "chốt lương",
+    },
+  ]);
+});
+
+test("upsertIssueReview trims the note and upserts on the unique key", async () => {
+  let payload: Record<string, unknown> | null = null;
+  let settings: unknown = null;
+  const client = createFakeClient({
+    tables: {
+      payroll_bn_issue_reviews: (op, values, options) => {
+        assert.equal(op, "upsert");
+        payload = values as Record<string, unknown>;
+        settings = options;
+        return { data: null, error: null };
+      },
+    },
+  });
+
+  await upsertIssueReview(client, "period-1", {
+    employeeCode: "E01",
+    workDate: "2026-09-03",
+    issueCode: "missing_check_out",
+    decision: "excluded",
+    note: "  chốt lương  ",
+  });
+
+  assert.deepEqual(payload, {
+    period_id: "period-1",
+    employee_code: "E01",
+    work_date: "2026-09-03",
+    issue_code: "missing_check_out",
+    decision: "excluded",
+    note: "chốt lương",
+  });
+  assert.deepEqual(settings, {
+    onConflict: "period_id,employee_code,work_date,issue_code",
+  });
+});
+
+test("upsertIssueReview rejects an exclusion without a note before calling the DB", async () => {
+  const calls: { table: string; op: string }[] = [];
+  const client = createFakeClient({
+    calls,
+    tables: {
+      payroll_bn_issue_reviews: () => {
+        throw new Error("the DB must not be called");
+      },
+    },
+  });
+
+  await assert.rejects(
+    () =>
+      upsertIssueReview(client, "period-1", {
+        employeeCode: "E01",
+        workDate: "2026-09-03",
+        issueCode: "missing_check_out",
+        decision: "excluded",
+        note: "   ",
+      }),
+    /Bắt buộc ghi ghi chú khi loại bỏ dòng chấm công\./,
+  );
+
+  assert.equal(calls.length, 0);
+});
+
+test("setAttendanceApproved forwards the period and the flag to the RPC", async () => {
+  let args: Record<string, unknown> | undefined;
+  const client = createFakeClient({
+    rpc: {
+      payroll_bn_set_attendance_approved: (input) => {
+        args = input;
+        return { data: null, error: null };
+      },
+    },
+  });
+
+  await setAttendanceApproved(client, "period-1", true);
+  assert.deepEqual(args, { _period_id: "period-1", _approved: true });
+
+  await setAttendanceApproved(client, "period-1", false);
+  assert.deepEqual(args, { _period_id: "period-1", _approved: false });
+});
+
+// ---------------------------------------------------------------------------
+// Previous catalogue / period discovery
+// ---------------------------------------------------------------------------
+
+test("loadPreviousCatalog returns the catalogue of the latest earlier period", async () => {
+  const client = createFakeClient({
+    tables: {
+      payroll_bn_periods: () => ({
+        data: [
+          { id: "period-2", date_from: "2026-09-01" },
+          { id: "period-1", date_from: "2026-08-01" },
+        ],
+        error: null,
+      }),
+      payroll_bn_period_employees: () => ({
+        data: [
+          {
+            period_id: "period-1",
+            employee_code: "E01",
+            employee_name: "Nguyễn Văn A",
+            group_name: "Bếp bánh",
+            employment_type: "official",
+            monthly_salary: 10000000,
+            hourly_rate: null,
+            overtime_rate: 30000,
+            allowance: 500000,
+            standard_days_override: null,
+            start_date: "2025-01-01",
+            end_date: null,
+          },
+        ],
+        error: null,
+      }),
+    },
+  });
+
+  const catalog = await loadPreviousCatalog(client, "period-2");
+  assert.equal(catalog.length, 1);
+  assert.equal(catalog[0].code, "E01");
+  assert.equal(catalog[0].monthlySalary, 10000000);
+  // Mapped against the previous period's start date, so the row is still active.
+  assert.equal(catalog[0].terminated, false);
+});
+
+test("loadPreviousCatalog returns [] when there is no earlier period", async () => {
+  const client = createFakeClient({
+    tables: {
+      payroll_bn_periods: () => ({
+        data: [{ id: "period-1", date_from: "2026-08-01" }],
+        error: null,
+      }),
+    },
+  });
+
+  assert.deepEqual(await loadPreviousCatalog(client, "period-1"), []);
+});
+
+test("ensurePeriodForRows returns the existing period for the month", async () => {
+  let inserted = false;
+  const client = createFakeClient({
+    tables: {
+      payroll_bn_periods: (op) => {
+        if (op === "insert") {
+          inserted = true;
+          return { data: { id: "created" }, error: null };
+        }
+        return { data: { id: "existing-period" }, error: null };
+      },
+    },
+  });
+
+  const id = await ensurePeriodForRows(client, [DOMAIN_ROW]);
+  assert.equal(id, "existing-period");
+  assert.equal(inserted, false);
+});
+
+test("ensurePeriodForRows creates the period with the derived code and standard days", async () => {
+  let payload: Record<string, unknown> | null = null;
+  const client = createFakeClient({
+    tables: {
+      payroll_bn_periods: (op, values) => {
+        if (op === "insert") {
+          payload = values as Record<string, unknown>;
+          return { data: { id: "new-period" }, error: null };
+        }
+        return { data: null, error: null };
+      },
+    },
+  });
+
+  const id = await ensurePeriodForRows(client, [
+    { ...DOMAIN_ROW, date: "2026-09-03" },
+    { ...DOMAIN_ROW, date: "2026-09-27" },
+  ]);
+
+  assert.equal(id, "new-period");
+  assert.deepEqual(payload, {
+    period_code: "T09.2026",
+    period_name: "Kỳ lương tháng 09/2026 — Bếp BN",
+    date_from: "2026-09-01",
+    date_to: "2026-09-30",
+    standard_days_by_group: { "Văn phòng": 22, "Bếp bánh": 26, "Kho BN": 26 },
+    holidays: [],
+  });
+});
+
+test("ensurePeriodForRows rejects rows spanning two months", async () => {
+  const client = createFakeClient({});
+  await assert.rejects(
+    () =>
+      ensurePeriodForRows(client, [
+        { ...DOMAIN_ROW, date: "2026-09-30" },
+        { ...DOMAIN_ROW, date: "2026-10-01" },
+      ]),
+    /trải qua nhiều tháng/,
+  );
+});
+
+test("ensurePeriodForRows rejects an empty file", async () => {
+  const client = createFakeClient({});
+  await assert.rejects(() => ensurePeriodForRows(client, []), /Không có ngày chấm công/);
 });

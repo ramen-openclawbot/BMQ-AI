@@ -59,7 +59,8 @@ const WarehouseDispatch = lazy(() => import("@/pages/WarehouseDispatch"));
 const StockReport = lazy(() => import("@/pages/StockReport"));
 const TanTaoWarehouse = lazy(() => import("@/pages/TanTaoWarehouse"));
 const AttendanceManagement = lazy(() => import("@/pages/AttendanceManagement"));
-const PayrollManagement = lazy(() => import("@/pages/PayrollManagement"));
+// Payroll is the Bếp BN flow (owner 2026-10-08); the older PayrollManagement page is no longer routed.
+const BepBnPayroll = lazy(() => import("@/pages/BepBnPayroll"));
 const FacebookMessengerInbox = lazy(() => import("@/pages/FacebookMessengerInbox"));
 const VNAgentDataAdmin = lazy(() => import("@/pages/VNAgentDataAdmin"));
 
@@ -319,7 +320,7 @@ export function AppRoutes() {
         <Route path="/production/shifts" element={<ModuleRoute moduleKey="production_shifts"><Suspense fallback={<AppLoadingFallback />}><ProductionShifts /></Suspense></ModuleRoute>} />
         <Route path="/production/qa" element={<ModuleRoute moduleKey="production_qa"><Suspense fallback={<AppLoadingFallback />}><QAInspection /></Suspense></ModuleRoute>} />
         <Route path="/attendance" element={<Suspense fallback={<AppLoadingFallback />}><AttendanceManagement /></Suspense>} />
-        <Route path="/payroll" element={<Suspense fallback={<AppLoadingFallback />}><PayrollManagement /></Suspense>} />
+        <Route path="/payroll" element={<Suspense fallback={<AppLoadingFallback />}><BepBnPayroll /></Suspense>} />
         {/* Warehouse extension routes */}
         <Route path="/warehouse/tan-tao" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><TanTaoWarehouse /></Suspense></ModuleRoute>} />
         <Route path="/warehouse/dispatch" element={<Suspense fallback={<AppLoadingFallback />}><WarehouseDispatch /></Suspense>} />

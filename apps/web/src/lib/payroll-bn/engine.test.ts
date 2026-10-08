@@ -515,15 +515,27 @@ test("Q1 (+1 công) is off by default and can be enabled", () => {
   assert.ok(on.flags.includes("plus_one_day"));
 });
 
-test("H2 deducts hours under the adjustable threshold for part-time", () => {
+test("H2 deducts the break hour only on days at or above the threshold (part-time)", () => {
   const line = run({
     employee: { employmentType: "part_time", hourlyRate: 50_000, monthlySalary: null },
-    rows: attendance(["2026-09-01"], "08:00:00", "14:00:00"),
+    rows: [
+      ...attendance(["2026-09-01"], "08:00:00", "17:00:00"), // 9h ≥ 8h → 8h
+      ...attendance(["2026-09-02"], "08:00:00", "14:00:00"), // 6h < 8h → 6h
+    ],
     period: { rules: resolveRulesConfig({ deductHour: { enabled: true, thresholdHours: 8, deductHours: 1 } }) },
   });
-  // 6 worked hours, below the 8h threshold, lose 1 hour.
-  assert.deepEqual(line.partTimeHours, rational(5));
-  assert.deepEqual(line.partTimePay, rational(250_000));
+  assert.deepEqual(line.partTimeHours, rational(14));
+  assert.deepEqual(line.partTimePay, rational(700_000));
+});
+
+test("H1 ignores day-off rows without any time (the export has a row for every day)", () => {
+  const line = run({
+    rows: [
+      ...attendance(["2026-09-03", "2026-09-04"]),
+      ...attendance(["2026-09-05", "2026-09-06"], "", null).map((row) => ({ ...row, checkIn: null, checkOut: null })),
+    ],
+  });
+  assert.deepEqual(line.actualWorkDays, rational(2));
 });
 
 test("R3 makes overtime worth 0 without a rate; attendance overtime is reconcile-only (Q3)", () => {

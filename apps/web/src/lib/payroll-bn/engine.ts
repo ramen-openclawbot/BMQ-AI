@@ -105,14 +105,19 @@ export function aggregateAttendance(
     ? Math.round(rules.deductHour.deductHours * 3600)
     : 0;
 
-  const sorted = [...rows].sort((a, b) => a.date.localeCompare(b.date));
+  // H1 counts days with at least one check. The machine export has a row for
+  // every day of the month; a row without any time is a day off.
+  const sorted = rows
+    .filter((row) => Boolean(row.checkIn) || Boolean(row.checkOut))
+    .sort((a, b) => a.date.localeCompare(b.date));
   let workedSeconds = 0;
   let overtimeSeconds = 0;
 
   for (const row of sorted) {
     const seconds = daySeconds(row);
     let effective = seconds;
-    if (rules.deductHour.enabled && seconds < thresholdSeconds) {
+    // H2 — a day long enough to include the break loses the break hour.
+    if (rules.deductHour.enabled && seconds >= thresholdSeconds) {
       effective = Math.max(0, seconds - deductSeconds);
     }
     workedSeconds += effective;

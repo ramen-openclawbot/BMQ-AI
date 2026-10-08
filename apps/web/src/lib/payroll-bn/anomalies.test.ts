@@ -45,12 +45,21 @@ const rows: AttendanceRow[] = [
   row({ employeeCode: "E9", date: "2026-08-05" }),
 ];
 
-test("flags missing check-out, missing check-in and no machine data", () => {
+test("flags missing check-out and check-in; a row without any time is a day off", () => {
   const anomalies = detectAnomalies({ period, employees, rows });
   const codes = anomalies.map((item) => `${item.code}:${item.employeeCode}:${item.date ?? ""}`);
   assert.ok(codes.includes("missing_check_out:E1:2026-08-02"));
   assert.ok(codes.includes("missing_check_in:E3:2026-08-03"));
-  assert.ok(codes.includes("no_machine_data:E1:2026-08-04"));
+  assert.equal(codes.some((code) => code.endsWith(":E1:2026-08-04")), false);
+});
+
+test("a blank row on a holiday is not holiday attendance", () => {
+  const anomalies = detectAnomalies({
+    period,
+    employees,
+    rows: [row({ employeeCode: "E2", date: "2026-08-15", checkIn: null, checkOut: null })],
+  });
+  assert.equal(anomalies.some((item) => item.code === "holiday_attendance"), false);
 });
 
 test("flags two employees sharing the same in/out slot", () => {
@@ -90,7 +99,7 @@ test("summarizes anomalies by code", () => {
   assert.equal(summary.duplicate_time, 2);
   assert.equal(summary.missing_check_out, 1);
   assert.equal(summary.missing_check_in, 1);
-  assert.equal(summary.no_machine_data, 1);
+  assert.equal(summary.no_machine_data, 0);
   assert.equal(summary.unknown_employee, 1);
   assert.equal(summary.missing_attendance, 1);
   assert.equal(summary.holiday_attendance, 1);
