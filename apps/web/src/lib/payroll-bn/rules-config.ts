@@ -40,6 +40,8 @@ export interface RulesConfig {
   officialOvertime: OfficialOvertimeRule;
   /** R9 — pay period holidays for employees hired on/before the holiday. */
   holidayPaid: boolean;
+  /** Working on a paid holiday counts that day twice: the paid holiday plus the worked day. */
+  holidayWorkDouble: boolean;
   /** Hours in a standard working day, used for overtime threshold. */
   standardHoursPerDay: number;
 }
@@ -52,6 +54,7 @@ export const DEFAULT_RULES_CONFIG: RulesConfig = {
   deductHour: { enabled: true, thresholdHours: 8, deductHours: 1 },
   officialOvertime: { enabled: true, mode: "apply", dailyThresholdHours: 9, minimumMinutes: 15 },
   holidayPaid: true,
+  holidayWorkDouble: true,
   standardHoursPerDay: 8,
 };
 
@@ -73,6 +76,7 @@ export function resolveRulesConfig(partial?: Partial<RulesConfig> | null): Rules
       ...(partial.officialOvertime ?? {}),
     },
     holidayPaid: partial.holidayPaid ?? DEFAULT_RULES_CONFIG.holidayPaid,
+    holidayWorkDouble: partial.holidayWorkDouble ?? DEFAULT_RULES_CONFIG.holidayWorkDouble,
     standardHoursPerDay: partial.standardHoursPerDay ?? DEFAULT_RULES_CONFIG.standardHoursPerDay,
   };
 }
@@ -84,6 +88,7 @@ export function cloneRulesConfig(config: RulesConfig): RulesConfig {
     deductHour: { ...config.deductHour },
     officialOvertime: { ...config.officialOvertime },
     holidayPaid: config.holidayPaid,
+    holidayWorkDouble: config.holidayWorkDouble,
     standardHoursPerDay: config.standardHoursPerDay,
   };
 }

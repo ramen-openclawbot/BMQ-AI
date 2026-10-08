@@ -255,7 +255,10 @@ function buildEmployeeLine(
 
   // --- NC thực tế -------------------------------------------------------
   const actualResolved = resolveQuantity(measures?.actualWorkDays, hasAttendance, () => {
-    let days = rules.attendanceDays ? rational(aggregate.nonHolidayDates.length) : RATIONAL_ZERO;
+    // Owner 2026-10-08: working on a paid holiday counts double — the worked
+    // day here, plus the paid holiday added by R9.
+    const worked = aggregate.nonHolidayDates.length + (rules.holidayWorkDouble ? aggregate.holidayDates.length : 0);
+    let days = rules.attendanceDays ? rational(worked) : RATIONAL_ZERO;
     if (rules.plusOneDay.enabled && compareRational(days, RATIONAL_ZERO) > 0) {
       days = addRational(days, rationalFromNumber(rules.plusOneDay.days));
       flags.push("plus_one_day");

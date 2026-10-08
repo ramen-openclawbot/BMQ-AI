@@ -703,3 +703,19 @@ test("R7: office staff without attendance default to the standard days, without 
   assert.deepEqual(line.dayPay, rational(9_600_000));
   assert.ok(line.flags.includes("office_default_days"));
 });
+
+test("working on a paid holiday counts that day twice (worked day + paid holiday)", () => {
+  const line = run({
+    period: { holidays: ["2026-09-01", "2026-09-02"] },
+    rows: attendance(["2026-09-02", "2026-09-03", "2026-09-04"]),
+  });
+  assert.deepEqual(line.actualWorkDays, rational(3)); // 02/09 worked + 03 + 04
+  assert.deepEqual(line.holidayPayDays, rational(2)); // both paid holidays
+  assert.deepEqual(line.workDays, rational(5));
+
+  const off = run({
+    period: { holidays: ["2026-09-01", "2026-09-02"], rules: resolveRulesConfig({ holidayWorkDouble: false }) },
+    rows: attendance(["2026-09-02", "2026-09-03", "2026-09-04"]),
+  });
+  assert.deepEqual(off.actualWorkDays, rational(2));
+});
