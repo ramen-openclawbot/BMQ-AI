@@ -28,6 +28,9 @@ export type VehicleBreadForecastLocation = {
   lowerBatchQuantity: number;
   upperBatchQuantity: number;
   recommendedQuantity: number;
+  windowMean?: number;
+  windowStd?: number;
+  windowReportCount?: number;
   roundingDecision:
     | "no_submitted_report"
     | "lunar_day_30_monthly_off"
@@ -37,6 +40,7 @@ export type VehicleBreadForecastLocation = {
     | "dynamic_exact_bread_row_missing"
     | "dynamic_exact_no_new_order_needed"
     | "dynamic_exact_report_round_up_to_batch"
+    | "dynamic_window_mean_std_round_up_to_batch"
     | "no_new_order_needed"
     | "exact_20_stick_batch"
     | "round_up_to_prevent_peak_stockout"
@@ -66,6 +70,10 @@ export type DynamicVehicleBreadOrderPolicy = {
   skuCode: "BMQ-001" | string;
   demandMultiplier: number;
   batchSize: number;
+  formulaMethod?: "exact_day_multiplier" | "window_mean_plus_k_std";
+  windowSize?: number;
+  stdMultiplier?: number;
+  minReports?: number;
   effectiveFromServiceDate: string;
   effectiveFromCutoffDate: string;
 };
@@ -143,8 +151,25 @@ export const DEFAULT_DYNAMIC_VEHICLE_BREAD_ORDER_POLICIES: DynamicVehicleBreadOr
   skuCode: "BMQ-001",
   demandMultiplier: 1.2,
   batchSize: 20,
+  formulaMethod: "exact_day_multiplier",
+  windowSize: 7,
+  stdMultiplier: 0,
+  minReports: 3,
   effectiveFromServiceDate: "2026-09-28",
   effectiveFromCutoffDate: "2026-09-27",
+}, {
+  policyCode: "dynamic-daily-order-bhn-bmq-001-v2",
+  locationId: "8b353493-c3cb-436e-80f7-a9a1d1a57cd3",
+  locationCode: "HCM004-BHN",
+  skuCode: "BMQ-001",
+  demandMultiplier: 1.2,
+  batchSize: 20,
+  formulaMethod: "window_mean_plus_k_std",
+  windowSize: 7,
+  stdMultiplier: 1.5,
+  minReports: 3,
+  effectiveFromServiceDate: "2026-10-10",
+  effectiveFromCutoffDate: "2026-10-09",
 }];
 
 const lunarDayForVietnamDate = (dateKey: string): number | null => {
@@ -512,9 +537,25 @@ export function forecastVehicleBread(
     if (dynamicPolicy) {
       usedDynamicPolicy = true;
       const exactReport = cutoffDate ? reports.find((report) => report.reportDate === cutoffDate) : null;
+      const formulaMethod = dynamicPolicy.formulaMethod === "window_mean_plus_k_std"
+        ? "window_mean_plus_k_std" as const
+        : "exact_day_multiplier" as const;
+      const windowSize = Number.isFinite(Number(dynamicPolicy.windowSize)) && Number(dynamicPolicy.windowSize) > 0
+        ? Math.floor(Number(dynamicPolicy.windowSize))
+        : 7;
+      const stdMultiplier = Number.isFinite(Number(dynamicPolicy.stdMultiplier)) && Number(dynamicPolicy.stdMultiplier) >= 0
+        ? Number(dynamicPolicy.stdMultiplier)
+        : 0;
+      const minReports = Number.isFinite(Number(dynamicPolicy.minReports)) && Number(dynamicPolicy.minReports) > 0
+        ? Math.floor(Number(dynamicPolicy.minReports))
+        : 3;
       const policySnapshot = {
         policyCode: dynamicPolicy.policyCode,
         skuCode: dynamicPolicy.skuCode,
+        formulaMethod,
+        windowSize,
+        stdMultiplier,
+        minReports,
         demandMultiplier: quantity(dynamicPolicy.demandMultiplier),
         batchSize: quantity(dynamicPolicy.batchSize),
         effectiveFromServiceDate: dynamicPolicy.effectiveFromServiceDate,
@@ -554,7 +595,33 @@ export function forecastVehicleBread(
 
       const soldQuantity = quantity(exactReport.soldQuantity);
       const saleableClosingQuantity = signedQuantity(exactReport.closingQuantity);
-      const protectedDemandQuantity = Math.round(soldQuantity * quantity(dynamicPolicy.demandMultiplier) * 1_000) / 1_000;
+      let protectedDemandQuantity = Math.round(soldQuantity * quantity(dynamicPolicy.demandMultiplier) * 1_000) / 1_000;
+      let windowMean: number | undefined;
+      let windowStd: number | undefined;
+      let windowReportCount: number | undefined;
+      let usedWindowMeanStd = false;
+      if (formulaMethod === "window_mean_plus_k_std") {
+        const windowReports = reports
+          .filter((report) => report.reportDate <= exactReport.reportDate)
+          .slice(0, windowSize);
+        windowReportCount = windowReports.length;
+        const soldValues = windowReports.map((report) => quantity(report.soldQuantity));
+        const mean = soldValues.length > 0
+          ? soldValues.reduce((sum, value) => sum + value, 0) / soldValues.length
+          : 0;
+        const variance = soldValues.length > 0
+          ? soldValues.reduce((sum, value) => sum + (value - mean) ** 2, 0) / soldValues.length
+          : 0;
+        const std = Math.sqrt(variance);
+        windowMean = mean;
+        windowStd = std;
+        if (windowReportCount >= minReports) {
+          usedWindowMeanStd = true;
+          protectedDemandQuantity = Math.round((mean + stdMultiplier * std) * 1_000) / 1_000;
+        } else {
+          warnings.push(`${location.locationCode}:dynamic_window_insufficient_reports:${windowReportCount}`);
+        }
+      }
       const netDemandQuantity = Math.max(0, protectedDemandQuantity - saleableClosingQuantity);
       const upperBatchQuantity = roundUpToBatch(netDemandQuantity, quantity(dynamicPolicy.batchSize));
       return {
@@ -571,8 +638,11 @@ export function forecastVehicleBread(
           : 0,
         upperBatchQuantity,
         recommendedQuantity: upperBatchQuantity,
+        ...(formulaMethod === "window_mean_plus_k_std" ? { windowMean, windowStd, windowReportCount } : {}),
         roundingDecision: upperBatchQuantity > 0
-          ? "dynamic_exact_report_round_up_to_batch" as const
+          ? (usedWindowMeanStd
+            ? "dynamic_window_mean_std_round_up_to_batch" as const
+            : "dynamic_exact_report_round_up_to_batch" as const)
           : "dynamic_exact_no_new_order_needed" as const,
         latestReportSource: {
           reportId: exactReport.reportId ?? null,

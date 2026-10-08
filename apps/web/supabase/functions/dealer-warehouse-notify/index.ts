@@ -188,12 +188,16 @@ const signedQuantity = (value: number | string | null | undefined) => {
 
 const vehicleQuantitySemantics = (forecast: {
   fixedInboundPolicy?: unknown;
-  dynamicInboundPolicy?: unknown;
+  dynamicInboundPolicy?: { formulaMethod?: string } | null;
   staffNoteOrderOverride?: unknown;
 }): string => {
   if (forecast.staffNoteOrderOverride) return "explicit_dat_note_quantity_override";
   if (forecast.fixedInboundPolicy) return "fixed_daily_inbound_not_stock_subtracted";
-  if (forecast.dynamicInboundPolicy) return "bhn_exact_date_120pct_sold_minus_saleable_closing_round20";
+  if (forecast.dynamicInboundPolicy) {
+    return forecast.dynamicInboundPolicy.formulaMethod === "window_mean_plus_k_std"
+      ? "bhn_window7_mean_plus_1p5_std_minus_saleable_closing_round20"
+      : "bhn_exact_date_120pct_sold_minus_saleable_closing_round20";
+  }
   return "smart_batch_after_peak_demand_safety_and_latest_closing_stock";
 };
 
@@ -236,6 +240,10 @@ type DynamicOrderPolicyRow = {
   location_id: string;
   location_code: string;
   sku_code: string;
+  formula_method?: string | null;
+  window_size?: number | string | null;
+  std_multiplier?: number | string | null;
+  min_reports?: number | string | null;
   demand_multiplier: number | string;
   batch_size: number | string;
   effective_from_service_date: string;
@@ -332,6 +340,18 @@ const readDynamicOrderPolicies = async (
     skuCode: row.sku_code,
     demandMultiplier: quantity(row.demand_multiplier),
     batchSize: quantity(row.batch_size),
+    formulaMethod: row.formula_method === "window_mean_plus_k_std"
+      ? "window_mean_plus_k_std"
+      : "exact_day_multiplier",
+    windowSize: Number.isFinite(Number(row.window_size)) && Number(row.window_size) > 0
+      ? Math.floor(Number(row.window_size))
+      : 7,
+    stdMultiplier: Number.isFinite(Number(row.std_multiplier)) && Number(row.std_multiplier) >= 0
+      ? Number(row.std_multiplier)
+      : 0,
+    minReports: Number.isFinite(Number(row.min_reports)) && Number(row.min_reports) > 0
+      ? Math.floor(Number(row.min_reports))
+      : 3,
     effectiveFromServiceDate: row.effective_from_service_date,
     effectiveFromCutoffDate: row.effective_from_cutoff_date,
   }));
@@ -748,6 +768,9 @@ const enqueueWarehouseKioskBreadDispatch = async (
       netDemandQuantity: forecast.netDemandQuantity,
       lowerBatchQuantity: forecast.lowerBatchQuantity,
       upperBatchQuantity: forecast.upperBatchQuantity,
+      windowMean: forecast.windowMean,
+      windowStd: forecast.windowStd,
+      windowReportCount: forecast.windowReportCount,
       roundingDecision: forecast.roundingDecision,
       latestReportSource: forecast.latestReportSource,
       closureReason: forecast.closureReason,
@@ -785,6 +808,7 @@ const enqueueWarehouseKioskBreadDispatch = async (
       order: "per_location_policy_snapshot",
       fixed_policy: "fixed_daily_inbound_not_stock_subtracted",
       dynamic_policy: "bhn_exact_date_120pct_sold_minus_saleable_closing_round20",
+      dynamic_window_policy: "bhn_window7_mean_plus_1p5_std_minus_saleable_closing_round20",
       staff_note: "explicit_dat_note_quantity_overrides_policy_and_formula",
       formula: "smart_20_stick_pate_batch_after_peak_demand_safety_and_latest_closing_stock",
       makeup: "kiosk_shortage_quantity",

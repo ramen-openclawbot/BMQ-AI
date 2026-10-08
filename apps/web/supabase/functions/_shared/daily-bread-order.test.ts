@@ -209,6 +209,10 @@ test("uses the dynamic BHN policy from the 2026-09-28 service date with exact cu
   assert.deepEqual(result.locations[0].dynamicInboundPolicy, {
     policyCode: "dynamic-daily-order-bhn-bmq-001-v1",
     skuCode: "BMQ-001",
+    formulaMethod: "exact_day_multiplier",
+    windowSize: 7,
+    stdMultiplier: 0,
+    minReports: 3,
     demandMultiplier: 1.2,
     batchSize: 20,
     effectiveFromServiceDate: "2026-09-28",
@@ -245,6 +249,147 @@ test("zeros BHN dynamic order when exact cutoff report has no bread inventory ro
   assert.equal(result.locations[0].latestReportSource, null);
   assert.equal(result.locations[0].roundingDecision, "dynamic_exact_bread_row_missing");
   assert.deepEqual(result.warnings, ["HCM004-BHN:exact_cutoff_bread_inventory_row_missing:2026-09-27"]);
+});
+
+test("uses the BHN window mean plus 1.5 population std policy from the 2026-10-10 service date", () => {
+  const result = forecastVehicleBread([{
+    locationId: "8b353493-c3cb-436e-80f7-a9a1d1a57cd3",
+    locationCode: "HCM004-BHN",
+    reports: [
+      { reportId: "r7", reportDate: "2026-10-09", soldQuantity: 121, closingQuantity: 0, breadRowPresent: true },
+      { reportId: "r6", reportDate: "2026-10-08", soldQuantity: 90, closingQuantity: 0, breadRowPresent: true },
+      { reportId: "r5", reportDate: "2026-10-07", soldQuantity: 117, closingQuantity: 0, breadRowPresent: true },
+      { reportId: "r4", reportDate: "2026-10-06", soldQuantity: 47, closingQuantity: 0, breadRowPresent: true },
+      { reportId: "r3", reportDate: "2026-10-05", soldQuantity: 92, closingQuantity: 0, breadRowPresent: true },
+      { reportId: "r2", reportDate: "2026-10-04", soldQuantity: 75, closingQuantity: 0, breadRowPresent: true },
+      { reportId: "r1", reportDate: "2026-10-03", soldQuantity: 108, closingQuantity: 0, breadRowPresent: true },
+    ],
+  }], "2026-10-10");
+
+  assert.equal(result.locations[0].windowReportCount, 7);
+  assert.ok(Math.abs(result.locations[0].windowMean! - 92.85714285714286) < 1e-9);
+  assert.ok(Math.abs(result.locations[0].windowStd! - 24.0085) < 0.01);
+  assert.ok(Math.abs(result.locations[0].protectedDemandQuantity - 128.87) < 0.05);
+  assert.equal(result.locations[0].recommendedQuantity, 140);
+  assert.equal(result.locations[0].roundingDecision, "dynamic_window_mean_std_round_up_to_batch");
+  assert.equal(result.locations[0].dynamicInboundPolicy?.policyCode, "dynamic-daily-order-bhn-bmq-001-v2");
+  assert.equal(result.locations[0].dynamicInboundPolicy?.formulaMethod, "window_mean_plus_k_std");
+  assert.equal(result.locations[0].dynamicInboundPolicy?.windowSize, 7);
+  assert.equal(result.locations[0].dynamicInboundPolicy?.stdMultiplier, 1.5);
+  assert.equal(result.locations[0].dynamicInboundPolicy?.minReports, 3);
+});
+
+test("does not cap the BHN window order above the old 140 batch", () => {
+  const reports = [200, 210, 190, 205, 195, 200, 190].map((soldQuantity, index) => ({
+    reportId: `r${index}`,
+    reportDate: `2026-10-${String(9 - index).padStart(2, "0")}`,
+    soldQuantity,
+    closingQuantity: 0,
+    breadRowPresent: true,
+  }));
+  const result = forecastVehicleBread([{
+    locationId: "8b353493-c3cb-436e-80f7-a9a1d1a57cd3",
+    locationCode: "HCM004-BHN",
+    reports,
+  }], "2026-10-10");
+
+  assert.ok(result.locations[0].recommendedQuantity > 140);
+  assert.equal(result.locations[0].roundingDecision, "dynamic_window_mean_std_round_up_to_batch");
+});
+
+test("selects v1 exact policy for delivery 2026-10-09 and v2 window policy for 2026-10-10", () => {
+  const forecastFor = (deliveryDate: string) => forecastVehicleBread([{
+    locationId: "8b353493-c3cb-436e-80f7-a9a1d1a57cd3",
+    locationCode: "HCM004-BHN",
+    reports: [{
+      reportId: "cutoff",
+      reportDate: deliveryDate === "2026-10-09" ? "2026-10-08" : "2026-10-09",
+      soldQuantity: 100,
+      closingQuantity: 0,
+      breadRowPresent: true,
+    }],
+  }], deliveryDate);
+
+  const v1 = forecastFor("2026-10-09");
+  const v2 = forecastFor("2026-10-10");
+  assert.equal(v1.locations[0].dynamicInboundPolicy?.policyCode, "dynamic-daily-order-bhn-bmq-001-v1");
+  assert.equal(v1.locations[0].dynamicInboundPolicy?.formulaMethod, "exact_day_multiplier");
+  assert.equal(v1.locations[0].recommendedQuantity, 120);
+  assert.equal(v2.locations[0].dynamicInboundPolicy?.policyCode, "dynamic-daily-order-bhn-bmq-001-v2");
+  assert.equal(v2.locations[0].dynamicInboundPolicy?.formulaMethod, "window_mean_plus_k_std");
+});
+
+test("falls back to the v1 multiplier formula when the BHN window has fewer than 3 reports", () => {
+  const result = forecastVehicleBread([{
+    locationId: "8b353493-c3cb-436e-80f7-a9a1d1a57cd3",
+    locationCode: "HCM004-BHN",
+    reports: [
+      { reportId: "cutoff", reportDate: "2026-10-09", soldQuantity: 100, closingQuantity: 0, breadRowPresent: true },
+      { reportId: "older", reportDate: "2026-10-08", soldQuantity: 50, closingQuantity: 0, breadRowPresent: true },
+    ],
+  }], "2026-10-10");
+
+  assert.equal(result.locations[0].windowReportCount, 2);
+  assert.equal(result.locations[0].protectedDemandQuantity, 120);
+  assert.equal(result.locations[0].recommendedQuantity, 120);
+  assert.equal(result.locations[0].roundingDecision, "dynamic_exact_report_round_up_to_batch");
+  assert.deepEqual(result.warnings, ["HCM004-BHN:dynamic_window_insufficient_reports:2"]);
+});
+
+test("keeps the exact cutoff report and bread-row warnings for the BHN window policy", () => {
+  const missingReport = forecastVehicleBread([{
+    locationId: "8b353493-c3cb-436e-80f7-a9a1d1a57cd3",
+    locationCode: "HCM004-BHN",
+    reports: [{ reportId: "stale", reportDate: "2026-10-08", soldQuantity: 100, closingQuantity: 0, breadRowPresent: true }],
+  }], "2026-10-10");
+  const missingBreadRow = forecastVehicleBread([{
+    locationId: "8b353493-c3cb-436e-80f7-a9a1d1a57cd3",
+    locationCode: "HCM004-BHN",
+    reports: [{ reportId: "cutoff", reportDate: "2026-10-09", soldQuantity: 0, closingQuantity: 0, breadRowPresent: false }],
+  }], "2026-10-10");
+
+  assert.equal(missingReport.locations[0].roundingDecision, "dynamic_exact_report_missing");
+  assert.deepEqual(missingReport.warnings, ["HCM004-BHN:exact_cutoff_bread_report_missing:2026-10-09"]);
+  assert.equal(missingBreadRow.locations[0].roundingDecision, "dynamic_exact_bread_row_missing");
+  assert.deepEqual(missingBreadRow.warnings, ["HCM004-BHN:exact_cutoff_bread_inventory_row_missing:2026-10-09"]);
+});
+
+test("keeps lunar day 30 closure ahead of the window policy", () => {
+  const result = forecastVehicleBread([{
+    locationId: "bhn-window",
+    locationCode: "HCM001-BV",
+    reports: [{ reportDate: "2026-08-11", soldQuantity: 200, closingQuantity: 0, breadRowPresent: true, noteOrderQuantity: 77 }],
+  }], "2026-08-12", [], [{
+    policyCode: "test-window-policy",
+    locationId: "bhn-window",
+    locationCode: "HCM001-BV",
+    skuCode: "BMQ-001",
+    demandMultiplier: 1.2,
+    batchSize: 20,
+    formulaMethod: "window_mean_plus_k_std",
+    windowSize: 7,
+    stdMultiplier: 1.5,
+    minReports: 3,
+    effectiveFromServiceDate: "2026-08-01",
+    effectiveFromCutoffDate: "2026-07-31",
+  }]);
+
+  assert.equal(result.locations[0].recommendedQuantity, 0);
+  assert.equal(result.locations[0].roundingDecision, "lunar_day_30_monthly_off");
+});
+
+test("keeps the cutoff DAT note ahead of the window policy", () => {
+  const result = forecastVehicleBread([{
+    locationId: "8b353493-c3cb-436e-80f7-a9a1d1a57cd3",
+    locationCode: "HCM004-BHN",
+    reports: [
+      { reportId: "cutoff", reportDate: "2026-10-09", soldQuantity: 121, closingQuantity: 0, breadRowPresent: true, noteOrderQuantity: 77 },
+      { reportId: "older", reportDate: "2026-10-08", soldQuantity: 90, closingQuantity: 0, breadRowPresent: true },
+    ],
+  }], "2026-10-10");
+
+  assert.equal(result.locations[0].recommendedQuantity, 77);
+  assert.equal(result.locations[0].roundingDecision, "staff_note_order_override");
 });
 
 test("keeps the generic formula for BHN before the fixed policy cutoff and for other kiosks after it", () => {
