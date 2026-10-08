@@ -97,7 +97,9 @@ export function aggregateAttendance(
 ): AttendanceAggregate {
   const rules = resolveRulesConfig(period.rules);
   const holidaySet = new Set(period.holidays);
-  const standardSeconds = Math.round(rules.standardHoursPerDay * 3600);
+  // Q3 — official overtime per day = span − 9h, only when it reaches 15 minutes.
+  const overtimeThresholdSeconds = Math.round(rules.officialOvertime.dailyThresholdHours * 3600);
+  const overtimeMinimumSeconds = Math.round(rules.officialOvertime.minimumMinutes * 60);
   const thresholdSeconds = rules.deductHour.enabled
     ? Math.round(rules.deductHour.thresholdHours * 3600)
     : 0;
@@ -121,7 +123,8 @@ export function aggregateAttendance(
       effective = Math.max(0, seconds - deductSeconds);
     }
     workedSeconds += effective;
-    overtimeSeconds += Math.max(0, effective - standardSeconds);
+    const extra = seconds - overtimeThresholdSeconds;
+    if (extra > 0 && extra >= overtimeMinimumSeconds) overtimeSeconds += extra;
   }
 
   return {
@@ -341,6 +344,8 @@ function buildEmployeeLine(
     rational(aggregate.overtimeSeconds, 3600n),
   );
   let overtimeHours = overtimeResolved.value;
+  // R4 — part-time is paid by the hour only, never a separate overtime.
+  if (isPartTime(employee) && overtimeResolved.source === "attendance") overtimeHours = RATIONAL_ZERO;
   const overtimeAdjustment = findAdjustment(adjustments, employee.code, "overtime_hours");
   if (overtimeAdjustment) {
     overtimeHours = adjustmentToRational(overtimeAdjustment.value);

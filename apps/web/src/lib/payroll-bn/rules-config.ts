@@ -12,7 +12,7 @@ export interface PlusOneDayRule {
 
 export interface DeductHourRule {
   enabled: boolean;
-  /** Days whose worked hours are below this threshold lose `deductHours`. */
+  /** Part-time days whose check-in→check-out span reaches this many hours lose `deductHours` (lunch). */
   thresholdHours: number;
   deductHours: number;
 }
@@ -23,6 +23,10 @@ export interface OfficialOvertimeRule {
   enabled: boolean;
   /** `reconcile` reports overtime without paying it (Q3 review mode). */
   mode: OfficialOvertimeMode;
+  /** Overtime of a day = check-in→check-out span minus these hours (8h work + 1h lunch). */
+  dailyThresholdHours: number;
+  /** A day's remainder counts as overtime only from this many minutes. */
+  minimumMinutes: number;
 }
 
 export interface RulesConfig {
@@ -40,11 +44,13 @@ export interface RulesConfig {
   standardHoursPerDay: number;
 }
 
+// Q2/Q3 confirmed by the owner/HR on 2026-10-08: a part-time 8h shift loses the
+// 1h lunch; official overtime = daily span − 9h, counted from 15 minutes.
 export const DEFAULT_RULES_CONFIG: RulesConfig = {
   attendanceDays: true,
   plusOneDay: { enabled: false, days: 1 },
-  deductHour: { enabled: false, thresholdHours: 8, deductHours: 1 },
-  officialOvertime: { enabled: false, mode: "reconcile" },
+  deductHour: { enabled: true, thresholdHours: 8, deductHours: 1 },
+  officialOvertime: { enabled: true, mode: "apply", dailyThresholdHours: 9, minimumMinutes: 15 },
   holidayPaid: true,
   standardHoursPerDay: 8,
 };

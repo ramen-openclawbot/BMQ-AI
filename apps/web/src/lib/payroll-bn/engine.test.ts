@@ -492,12 +492,12 @@ test("R9 pays a holiday without any attendance on the holiday", () => {
   assert.deepEqual(line.workDays, rational(3));
 });
 
-test("all optional rules default to OFF", () => {
+test("defaults follow the HR rules confirmed on 2026-10-08 (Q2/Q3); Q1 stays off", () => {
   const rules = resolveRulesConfig();
   assert.equal(rules.attendanceDays, true);
   assert.equal(rules.plusOneDay.enabled, false);
-  assert.equal(rules.deductHour.enabled, false);
-  assert.equal(rules.officialOvertime.enabled, false);
+  assert.deepEqual(rules.deductHour, { enabled: true, thresholdHours: 8, deductHours: 1 });
+  assert.deepEqual(rules.officialOvertime, { enabled: true, mode: "apply", dailyThresholdHours: 9, minimumMinutes: 15 });
 });
 
 test("H1 can be switched off", () => {
@@ -538,15 +538,14 @@ test("H1 ignores day-off rows without any time (the export has a row for every d
   assert.deepEqual(line.actualWorkDays, rational(2));
 });
 
-test("R3 makes overtime worth 0 without a rate; attendance overtime is reconcile-only (Q3)", () => {
+test("R3 makes overtime worth 0 without a rate; reconcile mode reports without paying", () => {
+  // 08:00–18:00 is a 10h span → 1h overtime (span − 9h).
   const noRate = run({ rows: attendance(["2026-09-01"], "08:00:00", "18:00:00") });
-  assert.deepEqual(noRate.overtimeHours, rational(2));
+  assert.deepEqual(noRate.overtimeHours, rational(1));
   assert.deepEqual(noRate.overtimePay, rational(0));
-  assert.deepEqual(noRate.overtimeAppliedHours, rational(0));
-  assert.deepEqual(noRate.overtimePayReconciled, rational(0));
 
-  // Attendance overtime is not paid by default even with a rate.
   const reconcile = run({
+    period: { rules: resolveRulesConfig({ officialOvertime: { enabled: true, mode: "reconcile", dailyThresholdHours: 9, minimumMinutes: 15 } }) },
     employee: { overtimeRate: 60_000 },
     rows: attendance(["2026-09-01"], "08:00:00", "18:00:00"),
   });
@@ -555,15 +554,29 @@ test("R3 makes overtime worth 0 without a rate; attendance overtime is reconcile
   assert.ok(reconcile.flags.includes("overtime_reconcile_only"));
 });
 
-test("Q3 only pays attendance overtime when enabled in apply mode", () => {
-  const applied = run({
-    period: { rules: resolveRulesConfig({ officialOvertime: { enabled: true, mode: "apply" } }) },
+test("Q3 overtime = span − 9h per day, paid only from 15 minutes", () => {
+  const line = run({
     employee: { overtimeRate: 60_000 },
-    rows: attendance(["2026-09-01"], "08:00:00", "18:00:00"),
+    rows: [
+      ...attendance(["2026-09-01"], "08:00:00", "18:00:00"), // +1h
+      ...attendance(["2026-09-02"], "08:00:00", "17:10:00"), // +10 min → not counted
+      ...attendance(["2026-09-03"], "08:00:00", "17:15:00"), // +15 min → 0,25h
+    ],
   });
-  assert.deepEqual(applied.overtimeAppliedHours, rational(2));
-  assert.deepEqual(applied.grossPay, rational(420_000));
-  assert.deepEqual(applied.overtimePayReconciled, rational(0));
+  assert.deepEqual(line.overtimeHours, rational(5, 4));
+  assert.deepEqual(line.overtimePay, rational(75_000));
+  // 7.800.000 × 3 / 26 = 900.000 + 75.000
+  assert.deepEqual(line.grossPay, rational(975_000));
+});
+
+test("part-time days never produce a separate overtime", () => {
+  const line = run({
+    employee: { employmentType: "part_time", hourlyRate: 30_000, monthlySalary: null, overtimeRate: 30_000 },
+    rows: attendance(["2026-09-01"], "07:00:00", "18:00:00"), // 11h → 10h after lunch
+  });
+  assert.deepEqual(line.partTimeHours, rational(10));
+  assert.deepEqual(line.overtimeHours, rational(0));
+  assert.deepEqual(line.grossPay, rational(300_000));
 });
 
 test("manual overtime on the payroll sheet is paid (R3) and adjustable off", () => {

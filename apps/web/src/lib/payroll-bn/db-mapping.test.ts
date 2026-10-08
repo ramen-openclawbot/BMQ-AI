@@ -107,7 +107,7 @@ test("mapPeriodRow reads the period parameters and merges rules over defaults", 
   assert.equal(period.rules.plusOneDay.enabled, true);
   assert.equal(period.rules.plusOneDay.days, 2);
   assert.equal(period.rules.attendanceDays, true);
-  assert.equal(period.rules.deductHour.enabled, false);
+  assert.equal(period.rules.deductHour.enabled, true);
 });
 
 test("mapPeriodRow tolerates missing jsonb/numeric columns", () => {
