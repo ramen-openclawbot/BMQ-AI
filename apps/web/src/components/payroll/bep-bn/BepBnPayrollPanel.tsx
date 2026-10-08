@@ -184,7 +184,7 @@ export function BepBnPayrollPanel({ useData, canEdit, canLock }: BepBnPayrollPan
 
         <TabsContent value="employees" className="space-y-4">
           {source.data ? (
-            <CatalogSection data={source.data} source={source} canEdit={canEdit} canManagePhones={canLock} />
+            <CatalogSection data={source.data} source={source} canEdit={canEdit} canManagePhones={canEdit} />
           ) : (
             <EmptyCard text="Danh mục nhân viên được tạo tự động khi upload bảng chấm công." />
           )}

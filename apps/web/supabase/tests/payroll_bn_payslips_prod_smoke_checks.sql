@@ -4,12 +4,16 @@
 -- (before the migration is applied, put the migration between `begin;` and the checks).
 -- Always ends with RAISE EXCEPTION 'SMOKE_RESULT passed=N/M failures=[...]', which rolls back.
 -- 2026-10-09: passed 19/19 before apply (migration in the same txn) and 19/19 after apply.
+-- 20261009120000 (payroll editors manage phones) changes two checks and adds two (21 total).
 insert into auth.users (id, instance_id, aud, role, email) values
  ('b0000000-0000-4000-8000-000000000001','00000000-0000-0000-0000-000000000000','authenticated','authenticated','smoke-ps-owner@bmq.invalid'),
  ('b0000000-0000-4000-8000-000000000002','00000000-0000-0000-0000-000000000000','authenticated','authenticated','smoke-ps-editor@bmq.invalid');
 insert into public.user_roles (user_id, role) values ('b0000000-0000-4000-8000-000000000001','owner');
+insert into auth.users (id, instance_id, aud, role, email) values
+ ('b0000000-0000-4000-8000-000000000003','00000000-0000-0000-0000-000000000000','authenticated','authenticated','smoke-ps-viewer@bmq.invalid');
 insert into public.user_module_permissions (user_id, module_key, can_view, can_edit) values
- ('b0000000-0000-4000-8000-000000000002','payroll',true,true);
+ ('b0000000-0000-4000-8000-000000000002','payroll',true,true),
+ ('b0000000-0000-4000-8000-000000000003','payroll',true,false);
 create temp table smoke_log(step text, ok boolean, detail text) on commit drop;
 grant all on smoke_log to authenticated, anon;
 create temp table smoke_ids(k text primary key, v uuid) on commit drop;
@@ -26,10 +30,12 @@ begin
   insert into smoke_ids values ('p', pid);
   insert into public.payroll_bn_period_employees(period_id, employee_code, employee_name, group_name, employment_type, monthly_salary)
   values (pid,'SMK01','Smoke A','Bếp bánh','official',8000000);
-  begin
-    insert into public.payroll_bn_employee_contacts(employee_code, phone_normalized) values ('SMK01','84900000001');
-    insert into smoke_log values ('editor cannot add contact', false, 'accepted');
-  exception when insufficient_privilege then insert into smoke_log values ('editor cannot add contact', true, sqlerrm); end;
+  -- 20261009120000: payroll editors manage portal phones (publishing stays owner-only).
+  insert into public.payroll_bn_employee_contacts(employee_code, phone_normalized) values ('SMK09','84900000009');
+  update public.payroll_bn_employee_contacts set active = false where employee_code = 'SMK09';
+  select count(*) into n from public.payroll_bn_employee_contacts where employee_code = 'SMK09' and active = false;
+  insert into smoke_log values ('editor adds, edits and reads a contact', n = 1, n::text);
+  delete from public.payroll_bn_employee_contacts where employee_code = 'SMK09';
   begin
     perform public.payroll_bn_publish_payslips(pid, '[]'::jsonb);
     insert into smoke_log values ('editor cannot publish', false, 'accepted');
@@ -83,12 +89,27 @@ declare n int;
 begin
   select count(*) into n from public.payroll_bn_payslips;
   insert into smoke_log values ('editor sees no payslips', n = 0, n::text);
-  select count(*) into n from public.payroll_bn_employee_contacts;
-  insert into smoke_log values ('editor sees no contacts', n = 0, n::text);
+  select count(*) into n from public.payroll_bn_employee_contacts where employee_code = 'SMK01';
+  insert into smoke_log values ('editor sees contacts', n = 1, n::text);
   begin
     perform 1 from public.payroll_bn_payslip_sessions limit 1;
     insert into smoke_log values ('authenticated cannot read sessions', false, 'allowed');
   exception when insufficient_privilege then insert into smoke_log values ('authenticated cannot read sessions', true, sqlerrm); end;
+end $$;
+reset role;
+
+-- 3b) payroll viewer (can_view only) cannot see or add contacts
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"b0000000-0000-4000-8000-000000000003","role":"authenticated"}';
+do $$
+declare n int;
+begin
+  select count(*) into n from public.payroll_bn_employee_contacts;
+  insert into smoke_log values ('viewer sees no contacts', n = 0, n::text);
+  begin
+    insert into public.payroll_bn_employee_contacts(employee_code, phone_normalized) values ('SMK08','84900000008');
+    insert into smoke_log values ('viewer cannot add contact', false, 'accepted');
+  exception when insufficient_privilege then insert into smoke_log values ('viewer cannot add contact', true, sqlerrm); end;
 end $$;
 reset role;
 

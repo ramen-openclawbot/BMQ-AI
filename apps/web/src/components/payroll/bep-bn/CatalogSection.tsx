@@ -20,7 +20,7 @@ interface CatalogSectionProps {
   data: BepBnPeriodData;
   source: BepBnDataSource;
   canEdit: boolean;
-  /** Owner only: register the phone each employee uses at payroll.banhmique.vn. */
+  /** Payroll editors and the owner: register the phone each employee uses at payroll.banhmique.vn. */
   canManagePhones?: boolean;
 }
 
