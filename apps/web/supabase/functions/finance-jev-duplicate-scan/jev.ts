@@ -14,7 +14,7 @@
 export const JEV_ENDPOINT = "https://ai-gateway.vercel.sh/v1/evaluate";
 export const JEV_MODEL = "typesafe-ai/jev";
 // Bump whenever the state, the two questions or the criteria below change.
-export const JEV_PROMPT_VERSION = "finance-jev-duplicate-2026-10-11.1";
+export const JEV_PROMPT_VERSION = "jev-dup-2026-10-10.2-boolean";
 // One deadline per call, no retry, hard cap 4000 ms.
 export const JEV_TIMEOUT_MS = 4000;
 export const JEV_MAX_TIMEOUT_MS = 4000;
@@ -47,7 +47,7 @@ export const RELATION_CRITERIA: Record<JevRelation, string> = {
 
 export function jevQuestions() {
   return {
-    same_purchase: { type: "noul", instructions: SAME_PURCHASE_INSTRUCTIONS, criteria: SAME_PURCHASE_CRITERIA },
+    same_purchase: { type: "boolean", instructions: SAME_PURCHASE_INSTRUCTIONS, criteria: SAME_PURCHASE_CRITERIA },
     relation: { type: "choice", instructions: RELATION_INSTRUCTIONS, criteria: RELATION_CRITERIA },
   };
 }
@@ -117,13 +117,17 @@ export function validateJevResponse(body: unknown): JevEvaluation {
     throw new JevError("jev_invalid_response", 502);
   }
 
-  const noul = answers.same_purchase;
-  if (!isRecord(noul) || noul.type !== "noul") throw new JevError("jev_invalid_response", 502);
-  for (const key of Object.keys(noul)) {
-    if (key !== "type" && key !== "noul" && key !== "confidence") throw new JevError("jev_invalid_response", 502);
+  // AI Gateway /v1/evaluate shape: a yes/no question is `type: "boolean"` and its
+  // answer is `{ type: "boolean", probability }` (TypeSafe's raw `noul` shape is only
+  // served on the separate /typesafe endpoint). Verified against the Gateway docs
+  // after the first live dry run was rejected for sending `noul`.
+  const yesNo = answers.same_purchase;
+  if (!isRecord(yesNo) || yesNo.type !== "boolean") throw new JevError("jev_invalid_response", 502);
+  for (const key of Object.keys(yesNo)) {
+    if (key !== "type" && key !== "probability" && key !== "confidence") throw new JevError("jev_invalid_response", 502);
   }
-  if (Object.hasOwn(noul, "confidence") && !finiteUnit(noul.confidence)) throw new JevError("jev_invalid_response", 502);
-  if (!finiteUnit(noul.noul)) throw new JevError("jev_invalid_response", 502);
+  if (Object.hasOwn(yesNo, "confidence") && !finiteUnit(yesNo.confidence)) throw new JevError("jev_invalid_response", 502);
+  if (!finiteUnit(yesNo.probability)) throw new JevError("jev_invalid_response", 502);
 
   const choice = answers.relation;
   if (!isRecord(choice) || choice.type !== "choice") throw new JevError("jev_invalid_response", 502);
@@ -164,7 +168,7 @@ export function validateJevResponse(body: unknown): JevEvaluation {
   }
 
   return {
-    p_same: noul.noul,
+    p_same: yesNo.probability as number,
     relation,
     relation_probability: relationProbability,
     relation_confidence: Object.hasOwn(choice, "confidence") ? (choice.confidence as number) : null,

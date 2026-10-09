@@ -14,7 +14,7 @@ function validBody(overrides: Record<string, unknown> = {}): Record<string, unkn
   return {
     model: JEV_MODEL,
     answers: {
-      same_purchase: { type: "noul", noul: 0.93 },
+      same_purchase: { type: "boolean", probability: 0.93 },
       relation: {
         type: "choice",
         choice: "same_purchase",
@@ -50,7 +50,7 @@ test("refuses a wrong model, missing answer, unknown or tied choice", () => {
 
   const tied = validBody({
     answers: {
-      same_purchase: { type: "noul", noul: 0.5 },
+      same_purchase: { type: "boolean", probability: 0.5 },
       relation: {
         type: "choice",
         choice: "same_purchase",
@@ -62,7 +62,7 @@ test("refuses a wrong model, missing answer, unknown or tied choice", () => {
 
   const unknown = validBody({
     answers: {
-      same_purchase: { type: "noul", noul: 0.5 },
+      same_purchase: { type: "boolean", probability: 0.5 },
       relation: {
         type: "choice",
         choice: "maybe",
@@ -76,7 +76,7 @@ test("refuses a wrong model, missing answer, unknown or tied choice", () => {
 test("refuses out-of-range probabilities, a bad distribution and bad usage", () => {
   const outOfRange = validBody({
     answers: {
-      same_purchase: { type: "noul", noul: 1.4 },
+      same_purchase: { type: "boolean", probability: 1.4 },
       relation: {
         type: "choice",
         choice: "same_purchase",
@@ -88,7 +88,7 @@ test("refuses out-of-range probabilities, a bad distribution and bad usage", () 
 
   const badSum = validBody({
     answers: {
-      same_purchase: { type: "noul", noul: 0.5 },
+      same_purchase: { type: "boolean", probability: 0.5 },
       relation: {
         type: "choice",
         choice: "same_purchase",
@@ -102,7 +102,7 @@ test("refuses out-of-range probabilities, a bad distribution and bad usage", () 
   assert.throws(() => validateJevResponse(badUsage), JevError);
 
   const extraAnswer = validBody();
-  ((extraAnswer.answers as Record<string, unknown>).something_else = { type: "noul", noul: 0.5 });
+  ((extraAnswer.answers as Record<string, unknown>).something_else = { type: "boolean", probability: 0.5 });
   assert.throws(() => validateJevResponse(extraAnswer), JevError);
 });
 
@@ -128,7 +128,7 @@ test("sends the verified Gateway body and reads the result", async () => {
   assert.equal(seenUrl, "https://ai-gateway.vercel.sh/v1/evaluate");
   assert.equal(seenBody.model, JEV_MODEL);
   const questions = seenBody.questions as Record<string, Record<string, unknown>>;
-  assert.equal(questions.same_purchase.type, "noul");
+  assert.equal(questions.same_purchase.type, "boolean");
   assert.equal(questions.relation.type, "choice");
   const gateway = (seenBody.providerOptions as Record<string, Record<string, unknown>>).gateway;
   assert.equal(gateway.zeroDataRetention, true);

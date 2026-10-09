@@ -109,7 +109,7 @@ export function JevScanBar() {
                       <span className="d3-jev-pair"><b>{item.older_request}</b> ↔ <b>{item.newer_request}</b></span>
                       <span className="d3-jev-meta">
                         {item.error ? (
-                          <span className="d3-up-chip is-red">Lỗi Jev</span>
+                          <span className="d3-up-chip is-red" data-bmq-jev-error={item.error}>Lỗi Jev · {item.error}</span>
                         ) : (
                           <>
                             {st && <span className={cn("d3-up-chip", st.tone)}>{st.label}</span>}

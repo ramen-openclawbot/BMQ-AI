@@ -236,8 +236,8 @@ def main() -> None:
     assert_true("zeroDataRetention: true" in jev, "provider options must set zeroDataRetention: true")
     assert_true('only: ["typesafe-ai"]' in jev, "provider options must restrict the provider")
     assert_true(
-        'type: "noul"' in jev and 'type: "choice"' in jev,
-        "the two independent questions must be one noul and one choice",
+        'type: "boolean"' in jev and 'type: "choice"' in jev and 'type: "noul"' not in jev,
+        "the two independent questions must be one Gateway boolean and one choice (never TypeSafe's raw noul on /v1/evaluate)",
     )
     assert_true("JEV_MAX_TIMEOUT_MS = 4000" in jev, "each Jev call must be capped at 4000 ms")
     assert_true("createJevCircuit" in jev, "jev transport must have a circuit breaker")
