@@ -74,7 +74,15 @@ export interface PayrollEmployee {
   endDate?: string | null;
   /** R9 — a terminated employee keeps an empty row (no holiday, no pay). */
   terminated?: boolean;
+  /**
+   * Surprise mission bonus of the period, in VND. Missing/null means 0; it is
+   * added to gross pay before the final rounding (never a substitute for R1–R9).
+   */
+  missionBonus?: number | null;
 }
+
+/** The machine shift column (Ca). Only HC / V are recognised. */
+export type AttendanceShift = "HC" | "V" | null;
 
 export interface AttendanceRow {
   employeeCode: string;
@@ -85,6 +93,14 @@ export interface AttendanceRow {
   checkIn: string | null;
   checkOut: string | null;
   department: string | null;
+  /**
+   * Machine columns (Trễ / Sớm / Ca) kept for the mission module only. The
+   * payroll engine (R1–R9) ignores them. `null` when the workbook has no such
+   * column or the cell is empty.
+   */
+  shift?: AttendanceShift;
+  lateMinutes?: number | null;
+  earlyMinutes?: number | null;
 }
 
 export type AdjustmentField =
@@ -129,6 +145,8 @@ export interface PayrollLineBase {
   overtimePayReconciled: Rational;
   /** Phụ cấp. */
   allowance: Rational;
+  /** Thưởng nhiệm vụ bất ngờ (mặc định 0; cộng vào gross trước khi làm tròn). */
+  missionBonus: Rational;
   grossPay: Rational;
   netPay: Rational;
   /** R5 — final rounded amount in whole đồng. */

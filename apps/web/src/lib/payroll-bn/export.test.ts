@@ -30,8 +30,10 @@ test("export rows follow the draft table: 20 employees, 3 group lines, 1 total",
   ]);
   const total = body.at(-1)!;
   assert.equal(total[1], "Tổng cộng");
-  assert.equal(total[13], 96_681_000);
-  assert.equal(total[12], 96_680_374.62);
+  assert.equal(total[14], 96_681_000);
+  assert.equal(total[13], 96_680_374.62);
+  assert.equal(total[12], 0); // Thưởng nhiệm vụ
+  assert.equal(PAYROLL_EXPORT_HEADER[12], "Thưởng nhiệm vụ");
 });
 
 test("export keeps exact per-employee values and notes", () => {
@@ -40,9 +42,9 @@ test("export keeps exact per-employee values and notes", () => {
   assert.equal(huy[6], 11); // NC tính lương
   assert.equal(huy[9], 7_192_307.69); // lương ngày công
   assert.equal(huy[10], 0); // no overtime rate
-  assert.equal(huy[13], 7_192_000);
+  assert.equal(huy[14], 7_192_000);
   const trang = rows.find((row) => row[1] === "Nguyễn Lê Huyền Trang")!;
-  assert.match(String(trang[14]), /Chốt lương/);
+  assert.match(String(trang[15]), /Chốt lương/);
   const long = rows.find((row) => row[1] === "Lê Nguyễn Hoàng Long")!;
   assert.equal(long[3], ""); // part-time has no standard days
   assert.equal(long[9], 6_152_100);
@@ -54,6 +56,6 @@ test("workbook round-trips through xlsx with the status in the title", () => {
   const sheet = XLSX.read(bytes, { type: "array" }).Sheets["Bang luong"];
   const back = XLSX.utils.sheet_to_json<(string | number)[]>(sheet, { header: 1 });
   assert.match(String(back[1][0]), /Nháp, chưa chốt/);
-  assert.equal(back.at(-1)![13], 96_681_000);
+  assert.equal(back.at(-1)![14], 96_681_000);
   assert.equal(payrollExportFileName(T09_FIXTURE.period), "bang-luong-bep-bn-T09.2026-nhap.xlsx");
 });

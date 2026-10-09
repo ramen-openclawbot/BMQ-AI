@@ -52,7 +52,10 @@ type AttendanceColumn =
   | "date"
   | "checkIn"
   | "checkOut"
-  | "department";
+  | "department"
+  | "shift"
+  | "lateMinutes"
+  | "earlyMinutes";
 
 const REQUIRED_COLUMNS: AttendanceColumn[] = [
   "employeeCode",
@@ -69,6 +72,11 @@ const HEADER_ALIASES: Record<AttendanceColumn, string[]> = {
   checkIn: ["gio vao", "gio check in", "check in", "checkin", "vao"],
   checkOut: ["gio ra", "gio check out", "check out", "checkout", "ra"],
   department: ["phong ban", "bo phan", "khu vuc", "department"],
+  // The machine columns the payroll engine deliberately ignores but the mission
+  // module needs. Missing columns stay null; they never change R1–R9.
+  shift: ["ca", "ca lam", "ca lam viec", "shift"],
+  lateMinutes: ["tre", "di tre", "tre phut", "phut tre", "late"],
+  earlyMinutes: ["som", "ve som", "som phut", "phut som", "early"],
 };
 
 const MACHINE_COMPUTED_HEADER = /(^|\s)(cong|tong gio|tang ca|tong cong|gio cong)(\s|$)/;
@@ -97,6 +105,9 @@ interface ColumnMapping {
   checkIn: number;
   checkOut: number;
   department: number;
+  shift: number;
+  lateMinutes: number;
+  earlyMinutes: number;
 }
 
 function mapHeaders(headerRow: unknown[]): ColumnMapping {
@@ -108,6 +119,9 @@ function mapHeaders(headerRow: unknown[]): ColumnMapping {
     checkIn: -1,
     checkOut: -1,
     department: -1,
+    shift: -1,
+    lateMinutes: -1,
+    earlyMinutes: -1,
   };
   const columns: AttendanceColumn[] = [
     "employeeCode",
@@ -116,6 +130,9 @@ function mapHeaders(headerRow: unknown[]): ColumnMapping {
     "checkIn",
     "checkOut",
     "department",
+    "shift",
+    "lateMinutes",
+    "earlyMinutes",
   ];
   for (const column of columns) {
     const index = normalized.findIndex((header) => header.length > 0 && matchColumn(header, column));
@@ -142,6 +159,21 @@ function cellToText(value: unknown): string {
     return Number.isInteger(value) ? String(value) : String(value);
   }
   return String(value).trim();
+}
+
+/** Machine shift column: only HC / V are recognised, everything else is null. */
+function cellToShift(value: unknown): "HC" | "V" | null {
+  const text = cellToText(value);
+  return text === "HC" || text === "V" ? text : null;
+}
+
+/** Machine minutes column (Trễ / Sớm): a non-negative integer or null. */
+function cellToMinutes(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed =
+    typeof value === "number" ? value : Number(String(value).trim().replace(",", "."));
+  if (!Number.isFinite(parsed) || parsed < 0) return null;
+  return Math.round(parsed);
 }
 
 /** Normalise Excel serial / Date / Vietnamese text dates to YYYY-MM-DD. */
@@ -324,6 +356,9 @@ export function parseAttendanceWorkbook(
 
     const department =
       mapping.department >= 0 ? cellToText(raw[mapping.department]) : "";
+    const shift = mapping.shift >= 0 ? cellToShift(raw[mapping.shift]) : null;
+    const lateMinutes = mapping.lateMinutes >= 0 ? cellToMinutes(raw[mapping.lateMinutes]) : null;
+    const earlyMinutes = mapping.earlyMinutes >= 0 ? cellToMinutes(raw[mapping.earlyMinutes]) : null;
 
     rows.push({
       employeeCode,
@@ -332,6 +367,9 @@ export function parseAttendanceWorkbook(
       checkIn,
       checkOut,
       department: department === "" ? null : department,
+      shift,
+      lateMinutes,
+      earlyMinutes,
     });
   }
 

@@ -172,3 +172,66 @@ test("logout revokes the session and always clears the local token", async () =>
   assert.deepEqual(calls[0].body, { session_token: "psp_abc" });
   assert.equal(storage.getItem(PAYSLIP_SESSION_STORAGE_KEY), null);
 });
+
+test("listMissions maps the payload and posts only the session token", async () => {
+  const storage = createMemoryStorage();
+  storage.setItem(PAYSLIP_SESSION_STORAGE_KEY, "psp_abc");
+  const mission = {
+    id: "m1",
+    periodId: "period-oct",
+    code: "T-DUNGGIO",
+    name: "Đúng giờ",
+    description: "Đi làm đúng giờ theo chấm công ca hành chính.",
+    mode: "pay",
+    status: "published",
+    reason: "7 ngày trễ",
+    rewardVnd: 100000,
+    acceptDeadline: "2026-10-05T17:00:00+07:00",
+    acceptedAt: null,
+  };
+  const { fetchImpl, calls } = createFakeFetch([
+    { body: { success: true, employeeCode: "E01", missions: [mission] } },
+  ]);
+  const source = createPayslipApiSource({ baseUrl: BASE, fetch: fetchImpl, storage });
+
+  assert.deepEqual(await source.listMissions(), [mission]);
+  assert.equal(calls[0].url, `${BASE}/payslip-missions`);
+  assert.deepEqual(calls[0].body, { session_token: "psp_abc" });
+});
+
+test("acceptMission posts mission_id and returns the server status", async () => {
+  const storage = createMemoryStorage();
+  storage.setItem(PAYSLIP_SESSION_STORAGE_KEY, "psp_abc");
+  const { fetchImpl, calls } = createFakeFetch([
+    {
+      body: {
+        success: true,
+        mission: { id: "m1", periodId: "period-oct", status: "accepted", acceptedAt: "2026-10-04T10:00:00.000Z" },
+      },
+    },
+  ]);
+  const source = createPayslipApiSource({ baseUrl: BASE, fetch: fetchImpl, storage });
+
+  assert.deepEqual(await source.acceptMission("m1"), {
+    id: "m1",
+    periodId: "period-oct",
+    status: "accepted",
+    acceptedAt: "2026-10-04T10:00:00.000Z",
+  });
+  assert.deepEqual(calls[0].body, { session_token: "psp_abc", mission_id: "m1" });
+});
+
+test("acceptMission reads the list again before surfacing an error", async () => {
+  const storage = createMemoryStorage();
+  storage.setItem(PAYSLIP_SESSION_STORAGE_KEY, "psp_abc");
+  const { fetchImpl, calls } = createFakeFetch([
+    { status: 400, body: { error: "Không nhận được nhiệm vụ." } },
+    { body: { success: true, missions: [] } },
+  ]);
+  const source = createPayslipApiSource({ baseUrl: BASE, fetch: fetchImpl, storage });
+
+  await assert.rejects(() => source.acceptMission("m1"), /Không nhận được nhiệm vụ/);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].url, `${BASE}/payslip-missions`);
+  assert.deepEqual(calls[1].body, { session_token: "psp_abc" });
+});

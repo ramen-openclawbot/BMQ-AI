@@ -186,6 +186,12 @@ verify_jwt = false
 [functions.payslip-auth-logout]
 verify_jwt = false
 
+[functions.payslip-missions]
+verify_jwt = false
+
+[functions.payslip-mission-accept]
+verify_jwt = false
+
 [functions.attendance-check-in]
 # Public report-token endpoint; actor/session authorization is enforced inside the function.
 verify_jwt = false

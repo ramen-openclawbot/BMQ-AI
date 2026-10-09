@@ -39,7 +39,41 @@ export interface PayslipPortalSource {
   /** Returns the signed-in employee, or null when there is no valid session. */
   restoreSession(): Promise<PayslipEmployee | null>;
   listPayslips(): Promise<{ employee: PayslipEmployee; payslips: Payslip[] }>;
+  /** The missions published to the signed-in employee only. */
+  listMissions(): Promise<PayslipMission[]>;
+  /** Accept one of the signed-in employee's missions (idempotent server-side). */
+  acceptMission(missionId: string): Promise<PayslipMissionAcceptResult>;
   logout(): Promise<void>;
+}
+
+export type PayslipMissionStatus =
+  | "published"
+  | "accepted"
+  | "achieved"
+  | "not_achieved"
+  | "needs_review"
+  | "expired"
+  | "paid";
+
+export interface PayslipMission {
+  id: string;
+  periodId: string;
+  code: string;
+  name: string;
+  description: string | null;
+  mode: string;
+  status: PayslipMissionStatus;
+  reason: string | null;
+  rewardVnd: number | null;
+  acceptDeadline: string | null;
+  acceptedAt: string | null;
+}
+
+export interface PayslipMissionAcceptResult {
+  id: string;
+  periodId: string;
+  status: PayslipMissionStatus;
+  acceptedAt: string | null;
 }
 
 export class PayslipSessionExpiredError extends Error {

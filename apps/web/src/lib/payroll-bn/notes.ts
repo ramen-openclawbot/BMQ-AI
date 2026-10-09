@@ -5,7 +5,8 @@
 //   1. adjustment reasons, excluding the internal T09 overtime reference;
 //   2. one short-shift note listing every attendance date credited below one
 //      full công, with its credit;
-//   3. the "chốt lương" reason for an employee who left during the period.
+//   3. the "chốt lương" reason for an employee who left during the period;
+//   4. the mission codes behind a "Thưởng nhiệm vụ" bonus.
 //
 // It only formats: no amount is recalculated or changed. Framework-free.
 
@@ -14,6 +15,7 @@ import type {
   PayrollAdjustment,
   PayrollEmployeeLine,
 } from "./types.ts";
+import { missionBonusNote } from "../payroll-missions/bonus.ts";
 
 const LEFT_IN_PERIOD_NOTE = "Nghỉ việc trong kỳ: không tính ngày lễ, tăng ca";
 
@@ -35,6 +37,7 @@ export function buildPayrollNotes(
   lines: readonly PayrollEmployeeLine[],
   adjustments: readonly PayrollAdjustment[],
   adjustmentLabels: Record<AdjustmentField, string>,
+  missionCodesByEmployee: ReadonlyMap<string, readonly string[]> = new Map(),
 ): Map<string, string[]> {
   const notes = new Map<string, string[]>();
   const push = (employeeCode: string, note: string) => {
@@ -61,6 +64,11 @@ export function buildPayrollNotes(
     // 3. Chốt lương — the employee left during the period.
     if (line.flags.includes("left_in_period")) {
       push(line.employeeCode, LEFT_IN_PERIOD_NOTE);
+    }
+    // 4. Thưởng nhiệm vụ — list the mission codes that earned the bonus.
+    const missionCodes = missionCodesByEmployee.get(line.employeeCode);
+    if (missionCodes && missionCodes.length > 0) {
+      push(line.employeeCode, missionBonusNote(missionCodes));
     }
   }
 

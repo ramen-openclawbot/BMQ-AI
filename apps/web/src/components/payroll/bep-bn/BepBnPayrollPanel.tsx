@@ -20,6 +20,7 @@ import { applyIssueReviews } from "@/lib/payroll-bn/issue-review.ts";
 import { AttendanceSection, UploadCard } from "./AttendanceSection";
 import { PayrollDraftSection } from "./PayrollDraftSection";
 import { CatalogSection } from "./CatalogSection";
+import { MissionsSection } from "./MissionsSection";
 import type { BepBnPeriodData, BepBnPeriodSummary, UseBepBnData } from "./types";
 
 interface BepBnPayrollPanelProps {
@@ -28,7 +29,7 @@ interface BepBnPayrollPanelProps {
   canLock: boolean;
 }
 
-type PanelTab = "attendance" | "payroll" | "employees";
+type PanelTab = "attendance" | "payroll" | "missions" | "employees";
 
 export function BepBnPayrollPanel({ useData, canEdit, canLock }: BepBnPayrollPanelProps) {
   const { toast } = useToast();
@@ -148,6 +149,7 @@ export function BepBnPayrollPanel({ useData, canEdit, canLock }: BepBnPayrollPan
         <TabsList className="max-w-full justify-start overflow-x-auto [&>*]:shrink-0">
           <TabsTrigger value="attendance">Chấm công</TabsTrigger>
           <TabsTrigger value="payroll">Bảng lương</TabsTrigger>
+          <TabsTrigger value="missions">Nhiệm vụ thưởng</TabsTrigger>
           <TabsTrigger value="employees">Nhân viên</TabsTrigger>
         </TabsList>
 
@@ -179,6 +181,14 @@ export function BepBnPayrollPanel({ useData, canEdit, canLock }: BepBnPayrollPan
             </Card>
           ) : (
             <PayrollDraftSection data={payrollData} source={source} canEdit={canEdit} />
+          )}
+        </TabsContent>
+
+        <TabsContent value="missions" className="space-y-4">
+          {source.data ? (
+            <MissionsSection data={source.data} source={source} canEdit={canEdit} />
+          ) : (
+            <EmptyCard text="Chọn hoặc tạo kỳ lương ở tab Chấm công trước." />
           )}
         </TabsContent>
 

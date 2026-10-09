@@ -8,7 +8,14 @@
 //
 // Framework-free: no React, no Supabase, no logging of money.
 
-import { mulRational, rational, roundHalfUpToStep, type Rational } from "./money.ts";
+import {
+  compareRational,
+  mulRational,
+  RATIONAL_ZERO,
+  rational,
+  roundHalfUpToStep,
+  type Rational,
+} from "./money.ts";
 import type { PayrollEmployee, PayrollPeriod, PayrollResult } from "./types.ts";
 import type { PayslipLine, PayslipLineUnit } from "../payslip-portal/types.ts";
 
@@ -76,8 +83,12 @@ export function buildPayslips(
     lines.push(
       line("overtime_pay", "Lương tăng ca", cents(employeeLine.overtimePay), "vnd"),
       line("allowance", "Phụ cấp", cents(employeeLine.allowance), "vnd"),
-      line("gross_pay", "Tổng thu nhập", cents(employeeLine.grossPay), "vnd"),
     );
+    // Rule 8 — only a positive bonus gets a line; zero adds no line at all.
+    if (compareRational(employeeLine.missionBonus, RATIONAL_ZERO) > 0) {
+      lines.push(line("mission_bonus", "Thưởng nhiệm vụ", cents(employeeLine.missionBonus), "vnd"));
+    }
+    lines.push(line("gross_pay", "Tổng thu nhập", cents(employeeLine.grossPay), "vnd"));
 
     return {
       employee_code: employeeLine.employeeCode,

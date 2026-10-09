@@ -176,7 +176,17 @@ test("mapAttendanceRow keeps the normalised times and falls back to an empty nam
     checkIn: "08:00:00",
     checkOut: "17:30:00",
     department: "Bếp bánh",
+    shift: null,
+    lateMinutes: null,
+    earlyMinutes: null,
   });
+
+  const machine = mapAttendanceRow(
+    attendanceRow({ shift: "HC", late_minutes: "5", early_minutes: 0 }),
+  );
+  assert.equal(machine.shift, "HC");
+  assert.equal(machine.lateMinutes, 5);
+  assert.equal(machine.earlyMinutes, 0);
 
   const empty = mapAttendanceRow(
     attendanceRow({ employee_name: null, check_in: null, check_out: "", department: null }),
@@ -185,6 +195,9 @@ test("mapAttendanceRow keeps the normalised times and falls back to an empty nam
   assert.equal(empty.checkIn, null);
   assert.equal(empty.checkOut, null);
   assert.equal(empty.department, null);
+  assert.equal(empty.shift, null);
+  assert.equal(empty.lateMinutes, null);
+  assert.equal(empty.earlyMinutes, null);
 });
 
 test("mapAdjustmentRow shortens the actor id and maps both values", () => {
@@ -279,7 +292,25 @@ test("toAttendancePayloadRow and toAdjustmentInsertRow build write payloads", ()
     check_in: "08:00:00",
     check_out: null,
     department: null,
+    shift: null,
+    late_minutes: null,
+    early_minutes: null,
   });
+
+  assert.deepEqual(
+    toAttendancePayloadRow({ ...attendance, shift: "V", lateMinutes: 3, earlyMinutes: 12 }),
+    {
+      employee_code: "E01",
+      employee_name: null,
+      work_date: "2026-08-03",
+      check_in: "08:00:00",
+      check_out: null,
+      department: null,
+      shift: "V",
+      late_minutes: 3,
+      early_minutes: 12,
+    },
+  );
 
   assert.deepEqual(
     toAdjustmentInsertRow("period-1", {

@@ -6,11 +6,14 @@ import {
   Clock3,
   Eye,
   EyeOff,
+  Gift,
   Loader2,
   LogOut,
   Phone,
   ReceiptText,
   ShieldCheck,
+  Sparkles,
+  Trophy,
   Wallet,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -23,6 +26,7 @@ import {
   type Payslip,
   type PayslipEmployee,
   type PayslipLine,
+  type PayslipMission,
   type PayslipPortalSource,
 } from "@/lib/payslip-portal/types";
 
@@ -84,10 +88,15 @@ export default function PayslipPortal({ source, demo = false }: PayslipPortalPro
   const [listError, setListError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [hidden, setHidden] = useState(false);
+  const [missions, setMissions] = useState<PayslipMission[]>([]);
+  const [missionError, setMissionError] = useState<string | null>(null);
+  const [acceptingId, setAcceptingId] = useState<string | null>(null);
 
   const resetToLogin = useCallback((message?: string) => {
     setEmployee(null);
     setPayslips([]);
+    setMissions([]);
+    setMissionError(null);
     setSelectedId(null);
     setOtp("");
     setNotice(null);
@@ -102,6 +111,13 @@ export default function PayslipPortal({ source, demo = false }: PayslipPortalPro
       const data = await source.listPayslips();
       setEmployee(data.employee);
       setPayslips(data.payslips);
+      try {
+        setMissions(await source.listMissions());
+        setMissionError(null);
+      } catch (missionErr) {
+        if (missionErr instanceof PayslipSessionExpiredError) throw missionErr;
+        setMissionError("Không tải được nhiệm vụ. Vui lòng tải lại trang.");
+      }
       setStep((current) => (current === "detail" ? current : "list"));
     } catch (err) {
       if (err instanceof PayslipSessionExpiredError) {
@@ -164,6 +180,33 @@ export default function PayslipPortal({ source, demo = false }: PayslipPortalPro
       setError(err instanceof Error ? err.message : "Mã OTP không đúng hoặc đã hết hạn.");
       setOtp("");
       setBusy(false);
+    }
+  };
+
+  const acceptMission = async (missionId: string) => {
+    setAcceptingId(missionId);
+    setMissionError(null);
+    try {
+      const result = await source.acceptMission(missionId);
+      setMissions((current) =>
+        current.map((mission) =>
+          mission.id === result.id ? { ...mission, status: result.status, acceptedAt: result.acceptedAt } : mission,
+        ),
+      );
+    } catch (err) {
+      if (err instanceof PayslipSessionExpiredError) {
+        resetToLogin(err.message);
+        return;
+      }
+      // The source re-read the server state; show it before allowing a retry.
+      setMissionError(err instanceof Error ? err.message : "Không nhận được nhiệm vụ. Vui lòng thử lại.");
+      try {
+        setMissions(await source.listMissions());
+      } catch {
+        // Keep the error above.
+      }
+    } finally {
+      setAcceptingId(null);
     }
   };
 
@@ -342,6 +385,14 @@ export default function PayslipPortal({ source, demo = false }: PayslipPortalPro
         {step === "detail" && selected ? (
           <PayslipDetail payslip={selected} hidden={hidden} onBack={() => setStep("list")} />
         ) : (
+          <>
+          <MissionSection
+            missions={missions}
+            hidden={hidden}
+            error={missionError}
+            acceptingId={acceptingId}
+            onAccept={acceptMission}
+          />
           <PayslipList
             payslips={payslips}
             hidden={hidden}
@@ -354,6 +405,7 @@ export default function PayslipPortal({ source, demo = false }: PayslipPortalPro
               window.scrollTo({ top: 0 });
             }}
           />
+          </>
         )}
       </div>
     </Shell>
@@ -546,6 +598,133 @@ function PayslipDetail({ payslip, hidden, onBack }: { payslip: Payslip; hidden: 
       <p className="mt-6 text-center text-[13px] leading-6 text-[#85808a]">
         Thắc mắc về phiếu lương? Hãy liên hệ quản lý bếp.
       </p>
+    </section>
+  );
+}
+
+const MISSION_STATUS: Record<PayslipMission["status"], { label: string; tone: string }> = {
+  published: { label: "Nhiệm vụ mới", tone: "bg-[#fdeaf1] text-[#c23e70]" },
+  accepted: { label: "Đang làm", tone: "bg-[#fff4e5] text-[#9a5a12]" },
+  needs_review: { label: "Đang chờ xét", tone: "bg-[#f3f0f1] text-[#4d4850]" },
+  achieved: { label: "Đã đạt", tone: "bg-emerald-50 text-emerald-700" },
+  paid: { label: "Đã cộng lương", tone: "bg-emerald-50 text-emerald-700" },
+  not_achieved: { label: "Chưa đạt", tone: "bg-[#f3f0f1] text-[#4d4850]" },
+  expired: { label: "Hết hạn nhận", tone: "bg-[#f3f0f1] text-[#85808a]" },
+};
+
+const MISSION_ORDER: PayslipMission["status"][] = ["published", "accepted", "needs_review", "achieved", "paid", "not_achieved", "expired"];
+
+function MissionSection({
+  missions,
+  hidden,
+  error,
+  acceptingId,
+  onAccept,
+}: {
+  missions: PayslipMission[];
+  hidden: boolean;
+  error: string | null;
+  acceptingId: string | null;
+  onAccept: (missionId: string) => void;
+}) {
+  // A surprise: nothing is shown to an employee who has no mission.
+  if (missions.length === 0 && !error) return null;
+
+  const sorted = [...missions].sort((a, b) => MISSION_ORDER.indexOf(a.status) - MISSION_ORDER.indexOf(b.status));
+  const earned = missions
+    .filter((mission) => mission.status === "paid" && mission.rewardVnd !== null)
+    .reduce((sum, mission) => sum + (mission.rewardVnd ?? 0), 0);
+
+  return (
+    <section className="mt-6" aria-labelledby="missions-title">
+      <div className="flex items-end justify-between gap-3">
+        <div className="min-w-0">
+          <h2 id="missions-title" className="flex items-center gap-2 text-[22px] font-extrabold leading-tight tracking-[-0.02em]">
+            <Sparkles className="h-5 w-5 shrink-0 text-[#ec5b91]" /> Nhiệm vụ mới
+          </h2>
+          <p className="mt-1 text-sm text-[#666263]">Phần thưởng bất ngờ dành riêng cho bạn</p>
+        </div>
+        {earned > 0 ? (
+          <div className="shrink-0 rounded-2xl bg-white px-3 py-2 text-right ring-1 ring-[#f0dfe5]">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-[#85808a]">Đã nhận thưởng</p>
+            <p className="text-[15px] font-extrabold tabular-nums text-[#c23e70]">{hidden ? HIDDEN : formatMoney(earned)}</p>
+          </div>
+        ) : null}
+      </div>
+
+      {error ? (
+        <div role="alert" className="mt-3 rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {error}
+        </div>
+      ) : null}
+
+      <ul className="mt-3 space-y-3">
+        {sorted.map((mission) => {
+          const meta = MISSION_STATUS[mission.status];
+          const fresh = mission.status === "published";
+          const done = mission.status === "achieved" || mission.status === "paid";
+          const muted = mission.status === "not_achieved" || mission.status === "expired";
+          return (
+            <li
+              key={mission.id}
+              className={cn(
+                "rounded-[22px] border bg-white p-4",
+                fresh ? "border-[#ef8caf] shadow-[0_10px_24px_rgba(220,79,120,0.14)]" : "border-[#f0dfe5]",
+              )}
+            >
+              <div className="flex items-start gap-3">
+                <div
+                  className={cn(
+                    "flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl",
+                    done ? "bg-emerald-50 text-emerald-600" : "bg-[#fdeaf1] text-[#ec5b91]",
+                  )}
+                >
+                  {done ? <Trophy className="h-5 w-5" /> : <Gift className="h-5 w-5" />}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-[16px] font-bold leading-snug">{mission.name || "Nhiệm vụ"}</p>
+                    <span className={cn("whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-semibold", meta.tone)}>{meta.label}</span>
+                  </div>
+                  {mission.description ? <p className="mt-1 text-sm leading-6 text-[#4d4850]">{mission.description}</p> : null}
+                  <dl className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                    <div className={cn("rounded-xl px-3 py-2", muted ? "bg-[#faf7f8]" : "bg-[#fff5f8]")}>
+                      <dt className={cn("text-xs", muted ? "text-[#85808a]" : "text-[#80566a]")}>Thưởng</dt>
+                      <dd className={cn("font-bold tabular-nums", muted ? "text-[#85808a] line-through" : "text-[#c23e70]")}>
+                        {mission.rewardVnd === null ? "—" : hidden ? HIDDEN : formatMoney(mission.rewardVnd)}
+                      </dd>
+                    </div>
+                    <div className="rounded-xl bg-[#faf7f8] px-3 py-2">
+                      <dt className="text-xs text-[#85808a]">{fresh ? "Hạn nhận" : mission.acceptedAt ? "Đã nhận ngày" : "Hạn nhận"}</dt>
+                      <dd className="font-semibold">
+                        {fresh || !mission.acceptedAt ? formatDate(mission.acceptDeadline) || "Trong tháng" : formatDate(mission.acceptedAt)}
+                      </dd>
+                    </div>
+                  </dl>
+                  {fresh ? (
+                    <Button
+                      type="button"
+                      className="mt-3 h-12 w-full rounded-2xl border-0 text-[16px] font-bold text-white shadow-none hover:brightness-95"
+                      style={BRAND_GRADIENT}
+                      disabled={acceptingId !== null}
+                      onClick={() => onAccept(mission.id)}
+                    >
+                      {acceptingId === mission.id ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : null}
+                      Nhận nhiệm vụ
+                    </Button>
+                  ) : null}
+                  {mission.status === "accepted" ? (
+                    <p className="mt-3 text-xs leading-5 text-[#85808a]">Kết quả được chấm từ chấm công cuối tháng, trước khi chốt lương.</p>
+                  ) : null}
+                  {mission.status === "paid" ? (
+                    <p className="mt-3 text-xs leading-5 text-emerald-700">Tiền thưởng đã nằm trong phiếu lương của tháng này.</p>
+                  ) : null}
+                </div>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
     </section>
   );
 }

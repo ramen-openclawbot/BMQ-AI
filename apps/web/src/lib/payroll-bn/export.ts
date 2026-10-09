@@ -22,6 +22,7 @@ export const PAYROLL_EXPORT_HEADER = [
   "Lương ngày công",
   "Lương TC",
   "Phụ cấp",
+  "Thưởng nhiệm vụ",
   "Tổng thu nhập",
   "Thực nhận",
   "Ghi chú",
@@ -48,6 +49,7 @@ function lineRow(line: PayrollLine, code: string, name: string, type: string, no
     cents(addRational(line.dayPay, line.partTimePay)),
     cents(line.overtimePay),
     cents(line.allowance),
+    cents(line.missionBonus),
     cents(line.grossPay),
     Number(line.netPayRounded),
     note,
@@ -89,7 +91,7 @@ export function payrollExportFileName(period: PayrollPeriod): string {
 /** Builds the workbook bytes; the caller decides how to download them. */
 export function buildPayrollWorkbook(rows: (string | number)[][]): ArrayBuffer {
   const sheet = XLSX.utils.aoa_to_sheet(rows);
-  sheet["!cols"] = PAYROLL_EXPORT_HEADER.map((_, index) => ({ wch: index === 1 ? 26 : index === 14 ? 40 : 14 }));
+  sheet["!cols"] = PAYROLL_EXPORT_HEADER.map((_, index) => ({ wch: index === 1 ? 26 : index === 15 ? 40 : 14 }));
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, sheet, "Bang luong");
   return XLSX.write(workbook, { type: "array", bookType: "xlsx" }) as ArrayBuffer;

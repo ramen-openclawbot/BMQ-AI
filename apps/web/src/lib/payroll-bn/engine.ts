@@ -281,6 +281,7 @@ function zeroLineFields(): Omit<PayrollEmployeeLine, "kind" | "employeeCode" | "
     overtimePay: RATIONAL_ZERO,
     overtimePayReconciled: RATIONAL_ZERO,
     allowance: RATIONAL_ZERO,
+    missionBonus: RATIONAL_ZERO,
     grossPay: RATIONAL_ZERO,
     netPay: RATIONAL_ZERO,
     netPayRounded: 0n,
@@ -471,9 +472,13 @@ function buildEmployeeLine(
       ? rationalFromNumber(employee.allowance)
       : RATIONAL_ZERO;
 
+  // Nhiệm vụ thưởng bất ngờ — configurable, never part of R1–R9. A missing/null
+  // reward contributes 0; the amount is added before the final R5 rounding.
+  const missionBonus = adjustmentToRational(employee.missionBonus);
+
   const grossPay = addRational(
     addRational(addRational(dayPay, partTimePay), overtimePay),
-    allowance,
+    addRational(allowance, missionBonus),
   );
 
   let netPay = grossPay;
@@ -501,6 +506,7 @@ function buildEmployeeLine(
     overtimePay,
     overtimePayReconciled,
     allowance,
+    missionBonus,
     grossPay,
     netPay,
     netPayRounded: roundVndToThousand(netPay),
@@ -522,6 +528,7 @@ const SUMMED_FIELDS: (keyof PayrollLineBase)[] = [
   "overtimePay",
   "overtimePayReconciled",
   "allowance",
+  "missionBonus",
   "grossPay",
   "netPay",
 ];

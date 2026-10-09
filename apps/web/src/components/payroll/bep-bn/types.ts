@@ -15,9 +15,20 @@ import type {
 } from "@/lib/payroll-bn/types.ts";
 import type { AnomalyCode } from "@/lib/payroll-bn/anomalies.ts";
 import type { IssueDecision, IssueReview } from "@/lib/payroll-bn/issue-review.ts";
-import type { BepBnEmployeeContact } from "@/lib/payroll-bn/db-client.ts";
+import type { BepBnEmployeeContact, BepBnMissionTemplateInput } from "@/lib/payroll-bn/db-client.ts";
+import type { MissionsState } from "@/lib/payroll-missions/types.ts";
 
-export type { BepBnEmployeeContact };
+export type { BepBnEmployeeContact, MissionsState };
+
+export interface BepBnMissionSettingsInput {
+  maxEmployees: number;
+  budgetVnd: number | null;
+}
+
+export interface BepBnMissionConfirmResult {
+  status: string;
+  evidence: Record<string, unknown>;
+}
 
 export interface BepBnPeriodSummary {
   id: string;
@@ -129,6 +140,30 @@ export interface BepBnDataSource {
   upsertContact: (input: { employeeCode: string; phone: string; active: boolean }) => Promise<void>;
   /** Remove the portal phone of one employee. */
   deleteContact: (employeeCode: string) => Promise<void>;
+  /** Published / suggested surprise missions of the selected period. */
+  missions: MissionsState;
+  /** Upsert one per-period mission template (unique period + code). */
+  saveTemplate: (input: BepBnMissionTemplateInput) => Promise<void>;
+  /** Upsert the per-period draw settings (max employees + optional budget). */
+  saveSettings: (settings: BepBnMissionSettingsInput) => Promise<void>;
+  /** Generate suggestions from the previous period's attendance and persist them. */
+  suggestFromPrevious: () => Promise<void>;
+  /** Draw up to max_employees employees; a second draw requires a reason. */
+  draw: (reason?: string) => Promise<void>;
+  /** Publish one drawn mission (server re-checks every rule). */
+  publish: (missionId: string) => Promise<void>;
+  /** Cancel one suggested mission with a mandatory reason. */
+  discard: (missionId: string, reason: string) => Promise<void>;
+  /** Evaluate the accepted auto missions of the period. */
+  evaluateAccepted: () => Promise<void>;
+  /** Manager confirmation of one mission result (mandatory reason). */
+  managerConfirm: (
+    missionId: string,
+    result: BepBnMissionConfirmResult,
+    reason: string,
+  ) => Promise<void>;
+  /** Create the period bonuses from achieved pay missions (idempotent). */
+  createBonuses: () => Promise<void>;
   /** Publish the computed payslips of a locked period; returns the row count. */
   publishPayslips: (periodId: string) => Promise<number>;
   /** Number of published payslips of the selected period. */

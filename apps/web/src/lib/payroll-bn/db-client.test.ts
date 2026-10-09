@@ -320,6 +320,9 @@ test("importAttendance reports a duplicate file as alreadyImported", async () =>
             check_in: "08:00:00",
             check_out: "17:30:00",
             department: "Bếp bánh",
+            shift: null,
+            late_minutes: null,
+            early_minutes: null,
           },
         ]);
         return { data: [{ import_id: "import-1", inserted_rows: 0, already_imported: true }], error: null };

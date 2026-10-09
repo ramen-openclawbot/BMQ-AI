@@ -46,7 +46,7 @@ test("T09 payslips sum to the engine net total and match the export rows", () =>
   for (const payslip of payslips) {
     const row = rows.find((item) => item[0] === payslip.employee_code);
     assert.ok(row, `missing export row for ${payslip.employee_code}`);
-    assert.equal(payslip.net_pay, row![13], `net pay mismatch for ${payslip.employee_code}`);
+    assert.equal(payslip.net_pay, row![14], `net pay mismatch for ${payslip.employee_code}`);
     assert.equal(payslip.employee_name, row![1]);
   }
 });
@@ -60,7 +60,7 @@ test("T08 payslips sum to the engine net total and match the export rows", () =>
   for (const payslip of payslips) {
     const row = rows.find((item) => item[0] === payslip.employee_code);
     assert.ok(row, `missing export row for ${payslip.employee_code}`);
-    assert.equal(payslip.net_pay, row![13], `net pay mismatch for ${payslip.employee_code}`);
+    assert.equal(payslip.net_pay, row![14], `net pay mismatch for ${payslip.employee_code}`);
   }
 });
 
@@ -81,7 +81,9 @@ test("part-time lines appear only for part-time employees", () => {
     const employee = T09_FIXTURE.employees.find((item) => item.code === payslip.employee_code)!;
     const keys = payslip.lines.map((item) => item.key);
     assert.deepEqual(keys.slice(0, 4), ["standard_days", "actual_work_days", "holiday_pay_days", "work_days"]);
-    assert.deepEqual(keys.at(-3), "overtime_pay");
+    // No mission bonus in these fixtures → no mission_bonus line at all.
+    assert.deepEqual(keys.at(-1), "gross_pay");
+    assert.ok(!keys.includes("mission_bonus"));
     if (employee.employmentType === "part_time") {
       assert.ok(keys.includes("part_time_hours"));
       assert.ok(keys.includes("part_time_pay"));
@@ -110,7 +112,7 @@ test("lines carry the exact portal labels and units", () => {
     expected,
   );
   // The header index matches what the tests above rely on.
-  assert.equal(PAYROLL_EXPORT_HEADER[13], "Thực nhận");
+  assert.equal(PAYROLL_EXPORT_HEADER[14], "Thực nhận");
 });
 
 test("toPublishPayload round-trips the payslips", () => {

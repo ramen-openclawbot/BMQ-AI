@@ -11,6 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { computePayroll } from "@/lib/payroll-bn/engine.ts";
 import { buildPayrollNotes } from "@/lib/payroll-bn/notes.ts";
+import { applyMissionBonuses } from "@/lib/payroll-missions/bonus.ts";
 import { buildPayrollExportRows, buildPayrollWorkbook, payrollExportFileName } from "@/lib/payroll-bn/export.ts";
 import { addRational, rationalToNumber } from "@/lib/payroll-bn/money.ts";
 import type { AdjustmentField, PayrollEmployeeLine, PayrollGroup, PayrollLine } from "@/lib/payroll-bn/types.ts";
@@ -32,21 +33,37 @@ export function PayrollDraftSection({ data, source, canEdit }: PayrollDraftSecti
   const locked = data.period.status === "locked";
   const canAdjust = canEdit && !locked;
 
+  const missionBonuses = source.missions.bonuses;
+
+  // The draft uses exactly the bonuses the server created (missions are never
+  // entered here). With no bonus each employee is returned unchanged, so R1–R9
+  // and the T08/T09 totals stay put.
+  const { employees: employeesWithMissions, missionCodesByEmployee } = useMemo(
+    () => applyMissionBonuses(data.employees, missionBonuses),
+    [data.employees, missionBonuses],
+  );
+
   const result = useMemo(
     () =>
       computePayroll({
         period: data.period,
-        employees: data.employees,
+        employees: employeesWithMissions,
         rows: data.rows,
         measures: data.measures,
         adjustments: data.adjustments,
       }),
-    [data],
+    [data, employeesWithMissions],
   );
 
   const notes = useMemo(
-    () => buildPayrollNotes(result.employees, data.adjustments, ADJUSTMENT_LABELS),
-    [result.employees, data.adjustments],
+    () =>
+      buildPayrollNotes(
+        result.employees,
+        data.adjustments,
+        ADJUSTMENT_LABELS,
+        missionCodesByEmployee,
+      ),
+    [result.employees, data.adjustments, missionCodesByEmployee],
   );
 
   const groups = GROUP_ORDER.map((group) => ({
@@ -151,6 +168,7 @@ export function PayrollDraftSection({ data, source, canEdit }: PayrollDraftSecti
                     <HeaderCell>Lương ngày công</HeaderCell>
                     <HeaderCell>Lương TC</HeaderCell>
                     <HeaderCell>Phụ cấp</HeaderCell>
+                    <HeaderCell>Thưởng nhiệm vụ</HeaderCell>
                     <HeaderCell>Tổng thu nhập</HeaderCell>
                     <HeaderCell>Thực nhận</HeaderCell>
                     <th className="min-w-[220px] px-3 py-2 text-left font-medium">Ghi chú</th>
@@ -251,6 +269,7 @@ function LineRow({
       <NumberCell>{formatMoney(addRational(line.dayPay, line.partTimePay))}</NumberCell>
       <NumberCell>{formatMoney(line.overtimePay)}</NumberCell>
       <NumberCell>{formatMoney(line.allowance)}</NumberCell>
+      <NumberCell>{formatMoney(line.missionBonus)}</NumberCell>
       <NumberCell>{formatMoney(line.grossPay)}</NumberCell>
       <NumberCell strong>{formatVnd(line.netPayRounded)}</NumberCell>
       <td className="px-3 py-2 text-xs text-muted-foreground">{note}</td>

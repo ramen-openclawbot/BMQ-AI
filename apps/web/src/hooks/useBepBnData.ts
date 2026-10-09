@@ -17,6 +17,7 @@ import {
   listIssueReviews,
   listPeriods,
   loadPeriodData,
+  loadPeriodMissions,
   loadPreviousCatalog,
   lockPeriod,
   publishPayslips as publishPayslipsRpc,
@@ -25,18 +26,33 @@ import {
   upsertEmployeeContact,
   upsertIssueReview,
 } from "@/lib/payroll-bn/db-client.ts";
-import type { BepBnClient } from "@/lib/payroll-bn/db-client.ts";
+import type { BepBnClient, BepBnMissionTemplateInput } from "@/lib/payroll-bn/db-client.ts";
 import { suggestCatalogSync } from "@/lib/payroll-bn/catalog-sync.ts";
 import { computePayroll } from "@/lib/payroll-bn/engine.ts";
 import { buildPayrollNotes } from "@/lib/payroll-bn/notes.ts";
 import { buildPayslips } from "@/lib/payroll-bn/payslip.ts";
 import { applyIssueReviews } from "@/lib/payroll-bn/issue-review.ts";
+import { applyMissionBonuses } from "@/lib/payroll-missions/bonus.ts";
+import {
+  createBonusesAction,
+  discardAction,
+  drawAction,
+  evaluateAccepted,
+  managerConfirmAction,
+  publishAction,
+  saveSettingsAction,
+  saveTemplateAction,
+  suggestFromPrevious,
+} from "@/lib/payroll-missions/actions.ts";
+import type { MissionsSnapshot } from "@/lib/payroll-missions/types.ts";
 import { ADJUSTMENT_LABELS } from "@/components/payroll/bep-bn/format";
 import type {
   BepBnAdjustmentInput,
   BepBnDataSource,
   BepBnImportFileResult,
   BepBnIssueReviewInput,
+  BepBnMissionConfirmResult,
+  BepBnMissionSettingsInput,
   BepBnPeriodData,
   BepBnPeriodInput,
   UseBepBnData,
@@ -51,6 +67,15 @@ const issueReviewsQueryKey = (periodId: string) => ["payroll-bn", "issue-reviews
 const contactsQueryKey = ["payroll-bn", "contacts"] as const;
 const publishedCountQueryKey = (periodId: string) =>
   ["payroll-bn", "published-count", periodId] as const;
+const missionsQueryKey = (periodId: string) => ["payroll-bn", "missions", periodId] as const;
+
+const EMPTY_MISSIONS: MissionsSnapshot = {
+  templates: [],
+  settings: null,
+  missions: [],
+  bonuses: [],
+  latestDraw: null,
+};
 
 function errorMessage(error: unknown): string {
   if (error instanceof Error && error.message) return error.message;
@@ -109,6 +134,19 @@ export const useBepBnData: UseBepBnData = (periodId) => {
     retry: 1,
   });
 
+  const missionsQuery = useQuery({
+    queryKey: missionsQueryKey(periodId ?? "none"),
+    queryFn: () => loadPeriodMissions(client, periodId as string),
+    enabled: Boolean(periodId),
+    staleTime: 15_000,
+    retry: 1,
+  });
+
+  const requirePeriodId = (): string => {
+    if (!periodId) throw new Error("Chưa chọn kỳ lương.");
+    return periodId;
+  };
+
   const invalidatePeriod = (id: string) => {
     void queryClient.invalidateQueries({ queryKey: ["payroll-bn", "period", id] });
   };
@@ -127,6 +165,12 @@ export const useBepBnData: UseBepBnData = (periodId) => {
   const invalidatePublishedCount = (id: string) => {
     void queryClient.invalidateQueries({ queryKey: ["payroll-bn", "published-count", id] });
   };
+  const invalidateMissions = (id: string) => {
+    void queryClient.invalidateQueries({ queryKey: ["payroll-bn", "missions", id] });
+  };
+  const setMissionSnapshot = (id: string, snapshot: MissionsSnapshot) => {
+    queryClient.setQueryData(missionsQueryKey(id), snapshot);
+  };
 
   /**
    * Rebuild the published payload from exactly the data the draft uses:
@@ -134,21 +178,33 @@ export const useBepBnData: UseBepBnData = (periodId) => {
    * notes use the same "label: reason" text as the draft's Ghi chú column.
    */
   const computePublishPayload = async (id: string) => {
-    const [periodData, reviews] = await Promise.all([
+    const [periodData, reviews, missions] = await Promise.all([
       loadPeriodData(client, id),
       listIssueReviews(client, id),
+      loadPeriodMissions(client, id),
     ]);
     if (!periodData) throw new Error("Không tìm thấy kỳ lương.");
+    // The published payload uses the same bonuses and notes as the draft table,
+    // so the payslip never diverges from what the operator reviewed.
+    const { employees, missionCodesByEmployee } = applyMissionBonuses(
+      periodData.employees,
+      missions.bonuses,
+    );
     // Same input as the draft table: attendance after the reviewer's "không tính" decisions.
     const result = computePayroll({
       period: periodData.period,
-      employees: periodData.employees,
+      employees,
       measures: periodData.measures,
       rows: applyIssueReviews(periodData.rows, reviews),
       adjustments: periodData.adjustments,
     });
-    const notes = buildPayrollNotes(result.employees, periodData.adjustments, ADJUSTMENT_LABELS);
-    return buildPayslips(periodData.period, periodData.employees, result, notes);
+    const notes = buildPayrollNotes(
+      result.employees,
+      periodData.adjustments,
+      ADJUSTMENT_LABELS,
+      missionCodesByEmployee,
+    );
+    return buildPayslips(periodData.period, employees, result, notes);
   };
 
   const publishForPeriod = async (id: string): Promise<number> => {
@@ -287,6 +343,87 @@ export const useBepBnData: UseBepBnData = (periodId) => {
     onSuccess: () => invalidateContacts(),
   });
 
+  // Mission actions: the action already re-reads the server snapshot (success
+  // and failure), so on success we cache it directly; on failure we invalidate
+  // so the screen refetches the recovered state.
+  const missionTemplateMutation = useMutation({
+    mutationFn: (variables: { periodId: string; input: BepBnMissionTemplateInput }) =>
+      saveTemplateAction(client, variables.periodId, variables.input),
+    onSuccess: (result, variables) => setMissionSnapshot(variables.periodId, result.snapshot),
+    onError: (_error, variables) => invalidateMissions(variables.periodId),
+  });
+
+  const missionSettingsMutation = useMutation({
+    mutationFn: (variables: { periodId: string; settings: BepBnMissionSettingsInput }) =>
+      saveSettingsAction(client, variables.periodId, variables.settings),
+    onSuccess: (result, variables) => setMissionSnapshot(variables.periodId, result.snapshot),
+    onError: (_error, variables) => invalidateMissions(variables.periodId),
+  });
+
+  const suggestMissionsMutation = useMutation({
+    mutationFn: (id: string) => suggestFromPrevious(client, id),
+    onSuccess: (result, id) => setMissionSnapshot(id, result.snapshot),
+    onError: (_error, id) => invalidateMissions(id),
+  });
+
+  const drawMissionsMutation = useMutation({
+    mutationFn: (variables: { periodId: string; reason?: string }) =>
+      drawAction(client, variables.periodId, variables.reason),
+    onSuccess: (result, variables) => setMissionSnapshot(variables.periodId, result.snapshot),
+    onError: (_error, variables) => invalidateMissions(variables.periodId),
+  });
+
+  const publishMissionMutation = useMutation({
+    mutationFn: (variables: { periodId: string; missionId: string }) =>
+      publishAction(client, variables.periodId, variables.missionId),
+    onSuccess: (result, variables) => setMissionSnapshot(variables.periodId, result.snapshot),
+    onError: (_error, variables) => invalidateMissions(variables.periodId),
+  });
+
+  const discardMissionMutation = useMutation({
+    mutationFn: (variables: { periodId: string; missionId: string; reason: string }) =>
+      discardAction(client, variables.periodId, variables.missionId, variables.reason),
+    onSuccess: (result, variables) => setMissionSnapshot(variables.periodId, result.snapshot),
+    onError: (_error, variables) => invalidateMissions(variables.periodId),
+  });
+
+  const evaluateMissionsMutation = useMutation({
+    mutationFn: (id: string) => evaluateAccepted(client, id),
+    onSuccess: (result, id) => setMissionSnapshot(id, result.snapshot),
+    onError: (_error, id) => invalidateMissions(id),
+  });
+
+  const managerConfirmMissionMutation = useMutation({
+    mutationFn: (variables: {
+      periodId: string;
+      missionId: string;
+      result: BepBnMissionConfirmResult;
+      reason: string;
+    }) =>
+      managerConfirmAction(
+        client,
+        variables.periodId,
+        variables.missionId,
+        variables.result,
+        variables.reason,
+      ),
+    onSuccess: (result, variables) => setMissionSnapshot(variables.periodId, result.snapshot),
+    onError: (_error, variables) => invalidateMissions(variables.periodId),
+  });
+
+  const createBonusesMutation = useMutation({
+    mutationFn: (id: string) => createBonusesAction(client, id),
+    onSuccess: (result, id) => {
+      setMissionSnapshot(id, result.snapshot);
+      // A new bonus changes the draft table and the published payload.
+      invalidatePeriod(id);
+    },
+    onError: (_error, id) => {
+      invalidateMissions(id);
+      invalidatePeriod(id);
+    },
+  });
+
   return {
     periods: periodsQuery.data ?? [],
     periodsLoading: periodsQuery.isLoading,
@@ -310,6 +447,38 @@ export const useBepBnData: UseBepBnData = (periodId) => {
     contacts: contactsQuery.data ?? [],
     upsertContact: (input) => upsertContactMutation.mutateAsync(input),
     deleteContact: (employeeCode) => deleteContactMutation.mutateAsync(employeeCode),
+    missions: {
+      ...(missionsQuery.data ?? EMPTY_MISSIONS),
+      loading: Boolean(periodId) && missionsQuery.isLoading,
+      error: missionsQuery.error ? errorMessage(missionsQuery.error) : null,
+    },
+    saveTemplate: (input) =>
+      missionTemplateMutation
+        .mutateAsync({ periodId: requirePeriodId(), input })
+        .then(() => undefined),
+    saveSettings: (settings) =>
+      missionSettingsMutation
+        .mutateAsync({ periodId: requirePeriodId(), settings })
+        .then(() => undefined),
+    suggestFromPrevious: () => suggestMissionsMutation.mutateAsync(requirePeriodId()).then(() => undefined),
+    draw: (reason?: string) =>
+      drawMissionsMutation
+        .mutateAsync({ periodId: requirePeriodId(), reason })
+        .then(() => undefined),
+    publish: (missionId: string) =>
+      publishMissionMutation
+        .mutateAsync({ periodId: requirePeriodId(), missionId })
+        .then(() => undefined),
+    discard: (missionId: string, reason: string) =>
+      discardMissionMutation
+        .mutateAsync({ periodId: requirePeriodId(), missionId, reason })
+        .then(() => undefined),
+    evaluateAccepted: () => evaluateMissionsMutation.mutateAsync(requirePeriodId()).then(() => undefined),
+    managerConfirm: (missionId, result, reason) =>
+      managerConfirmMissionMutation
+        .mutateAsync({ periodId: requirePeriodId(), missionId, result, reason })
+        .then(() => undefined),
+    createBonuses: () => createBonusesMutation.mutateAsync(requirePeriodId()).then(() => undefined),
     publishPayslips: (id) => publishMutation.mutateAsync(id),
     publishedCount: publishedCountQuery.data ?? 0,
   };

@@ -76,7 +76,7 @@ export async function buildPayrollPdf(rows: (string | number)[][]): Promise<Blob
     columnStyles: {
       0: { cellWidth: 16 },
       1: { cellWidth: 30 },
-      14: { cellWidth: 40 },
+      15: { cellWidth: 40 },
     },
     margin: { left: 8, right: 8 },
     didParseCell: (data) => {

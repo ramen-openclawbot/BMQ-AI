@@ -7,7 +7,13 @@
 //
 // No React and no UI: this module only talks HTTP.
 
-import type { Payslip, PayslipEmployee, PayslipPortalSource } from "./types.ts";
+import type {
+  Payslip,
+  PayslipEmployee,
+  PayslipMission,
+  PayslipMissionAcceptResult,
+  PayslipPortalSource,
+} from "./types.ts";
 import { PayslipSessionExpiredError } from "./types.ts";
 
 export const PAYSLIP_SESSION_STORAGE_KEY = "bmq_payslip_session";
@@ -81,6 +87,26 @@ function errorMessage(data: Record<string, unknown> | null): string {
   return "Không thực hiện được thao tác. Vui lòng thử lại.";
 }
 
+function asMission(value: unknown): PayslipMission | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  if (typeof row.id !== "string" || row.id === "") return null;
+  const status = typeof row.status === "string" ? row.status : "published";
+  return {
+    id: row.id,
+    periodId: typeof row.periodId === "string" ? row.periodId : "",
+    code: typeof row.code === "string" ? row.code : "",
+    name: typeof row.name === "string" ? row.name : "",
+    description: typeof row.description === "string" ? row.description : null,
+    mode: typeof row.mode === "string" ? row.mode : "",
+    status: status as PayslipMission["status"],
+    reason: typeof row.reason === "string" ? row.reason : null,
+    rewardVnd: typeof row.rewardVnd === "number" ? row.rewardVnd : null,
+    acceptDeadline: typeof row.acceptDeadline === "string" ? row.acceptDeadline : null,
+    acceptedAt: typeof row.acceptedAt === "string" ? row.acceptedAt : null,
+  };
+}
+
 export function createPayslipApiSource(options: PayslipApiOptions = {}): PayslipPortalSource {
   const env = readEnv();
   const baseUrl = (options.baseUrl ?? defaultBaseUrl()).replace(/\/+$/, "");
@@ -133,6 +159,21 @@ export function createPayslipApiSource(options: PayslipApiOptions = {}): Payslip
     return { employee, payslips };
   };
 
+  const requireMissions = async (): Promise<PayslipMission[]> => {
+    const token = storage.getItem(sessionKey);
+    if (!token) throw new PayslipSessionExpiredError();
+
+    const result = await post("payslip-missions", { session_token: token });
+    if (result.status === 401) {
+      storage.removeItem(sessionKey);
+      throw new PayslipSessionExpiredError();
+    }
+    if (!result.ok) throw new Error(errorMessage(result.data));
+
+    const raw = Array.isArray(result.data?.missions) ? (result.data?.missions as unknown[]) : [];
+    return raw.map(asMission).filter((item): item is PayslipMission => item !== null);
+  };
+
   return {
     async startOtp(phone: string) {
       const result = await post("payslip-auth-start", { phone });
@@ -174,6 +215,46 @@ export function createPayslipApiSource(options: PayslipApiOptions = {}): Payslip
     },
 
     listPayslips: requireList,
+
+    listMissions: requireMissions,
+
+    async acceptMission(missionId: string) {
+      const token = storage.getItem(sessionKey);
+      if (!token) throw new PayslipSessionExpiredError();
+
+      const result = await post("payslip-mission-accept", {
+        session_token: token,
+        mission_id: missionId,
+      });
+      if (result.status === 401) {
+        storage.removeItem(sessionKey);
+        throw new PayslipSessionExpiredError();
+      }
+      if (!result.ok) {
+        // Re-read the list before the employee may retry, so the UI never keeps
+        // a stale mission on screen.
+        try {
+          await requireMissions();
+        } catch {
+          // The original error is the one worth surfacing.
+        }
+        throw new Error(errorMessage(result.data));
+      }
+
+      const mission = result.data?.mission as Record<string, unknown> | undefined;
+      if (!mission || typeof mission.id !== "string") {
+        throw new Error("Không nhận được nhiệm vụ. Vui lòng thử lại.");
+      }
+      const status = typeof mission.status === "string" ? mission.status : "accepted";
+      const acceptedAt = typeof mission.acceptedAt === "string" ? mission.acceptedAt : null;
+      const accepted: PayslipMissionAcceptResult = {
+        id: mission.id,
+        periodId: typeof mission.periodId === "string" ? mission.periodId : "",
+        status: status as PayslipMissionAcceptResult["status"],
+        acceptedAt,
+      };
+      return accepted;
+    },
 
     async logout() {
       const token = storage.getItem(sessionKey);

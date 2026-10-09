@@ -12,8 +12,19 @@ import type { RulesConfig } from "./rules-config.ts";
 import type { AnomalyCode } from "./anomalies.ts";
 import type { IssueDecision, IssueReview } from "./issue-review.ts";
 import type {
+  MissionBonusRecord,
+  MissionDrawPoolEntry,
+  MissionDrawPick,
+  MissionDrawRecord,
+  MissionRecord,
+  MissionSettingsRecord,
+  MissionStatus,
+  MissionTemplateRecord,
+} from "../payroll-missions/types.ts";
+import type {
   AdjustmentField,
   AttendanceRow,
+  AttendanceShift,
   EmploymentType,
   PayrollAdjustment,
   PayrollEmployee,
@@ -91,6 +102,9 @@ export interface PayrollBnAttendanceRow {
   check_in?: string | null;
   check_out?: string | null;
   department?: string | null;
+  shift?: string | null;
+  late_minutes?: number | string | null;
+  early_minutes?: number | string | null;
 }
 
 export interface PayrollBnAttendanceInsertRow {
@@ -100,6 +114,9 @@ export interface PayrollBnAttendanceInsertRow {
   check_in: string | null;
   check_out: string | null;
   department: string | null;
+  shift: string | null;
+  late_minutes: number | null;
+  early_minutes: number | null;
 }
 
 export interface PayrollBnAttendanceImportRow {
@@ -224,6 +241,11 @@ export function normalizeEmploymentType(value: unknown): EmploymentType {
   return value === "part_time" ? "part_time" : "official";
 }
 
+/** The machine shift is HC or V; anything else (including absent) reads null. */
+export function normalizeAttendanceShift(value: unknown): AttendanceShift {
+  return value === "HC" || value === "V" ? (value as AttendanceShift) : null;
+}
+
 /** Validate an adjustment field coming from the DB. */
 export function normalizeAdjustmentField(value: unknown): AdjustmentField {
   if (typeof value === "string" && (ADJUSTMENT_FIELDS as readonly string[]).includes(value)) {
@@ -313,6 +335,9 @@ export function mapAttendanceRow(row: PayrollBnAttendanceRow): AttendanceRow {
     checkIn: toTimeValue(row.check_in),
     checkOut: toTimeValue(row.check_out),
     department: row.department ?? null,
+    shift: normalizeAttendanceShift(row.shift),
+    lateMinutes: toOptionalNumber(row.late_minutes),
+    earlyMinutes: toOptionalNumber(row.early_minutes),
   };
 }
 
@@ -383,6 +408,9 @@ export function toAttendancePayloadRow(row: AttendanceRow): PayrollBnAttendanceI
     check_in: row.checkIn,
     check_out: row.checkOut,
     department: row.department,
+    shift: row.shift ?? null,
+    late_minutes: row.lateMinutes ?? null,
+    early_minutes: row.earlyMinutes ?? null,
   };
 }
 
@@ -423,5 +451,226 @@ export function toIssueReviewUpsertRow(
     issue_code: input.issueCode,
     decision: input.decision,
     note: input.note ?? null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Surprise missions (20261011090000) — row shapes for the bonus read and the
+// mission RPC payloads. Money is only ever read here; no arithmetic.
+// ---------------------------------------------------------------------------
+
+export interface PayrollBnMissionBonusRow {
+  mission_id: string;
+  period_id: string;
+  employee_code: string;
+  amount_vnd: number | string;
+}
+
+export interface PayrollBnMissionTemplateRow {
+  id: string;
+  period_id: string;
+  code: string;
+  name: string;
+  description?: string | null;
+  verification: string;
+  mode: string;
+  applies_to?: unknown;
+  params?: unknown;
+  reward_vnd?: number | string | null;
+  accept_deadline?: string | null;
+  prorate_allowed?: boolean | null;
+  enabled?: boolean | null;
+}
+
+export interface PayrollBnMissionRow {
+  id: string;
+  period_id: string;
+  employee_code: string;
+  template_id: string;
+  status: string;
+  reason_text?: string | null;
+  source_metrics?: unknown;
+  reward_vnd?: number | string | null;
+  accepted_at?: string | null;
+  result_evidence?: unknown;
+  payroll_bn_mission_templates?: PayrollBnMissionTemplateRow | PayrollBnMissionTemplateRow[] | null;
+}
+
+export interface PayrollBnMissionSettingsRow {
+  period_id: string;
+  max_employees?: number | string | null;
+  budget_vnd?: number | string | null;
+}
+
+export interface PayrollBnMissionDrawRow {
+  id: string;
+  period_id: string;
+  draw_no: number | string;
+  pool?: unknown;
+  picked?: unknown;
+  reason?: string | null;
+  drawn_by?: string | null;
+  drawn_at: string;
+}
+
+export interface PayrollBnMissionSuggestionInput {
+  employeeCode: string;
+  templateCode: string;
+  reasonText: string;
+  sourceMetrics: Record<string, unknown>;
+}
+
+export function mapMissionBonusRow(row: PayrollBnMissionBonusRow): {
+  missionId: string;
+  employeeCode: string;
+  amountVnd: number;
+} {
+  return {
+    missionId: row.mission_id,
+    employeeCode: row.employee_code,
+    amountVnd: toOptionalNumber(row.amount_vnd) ?? 0,
+  };
+}
+
+export function toMissionSuggestionPayload(
+  periodId: string,
+  suggestion: PayrollBnMissionSuggestionInput,
+): Record<string, unknown> {
+  return {
+    period_id: periodId,
+    employee_code: suggestion.employeeCode,
+    template_code: suggestion.templateCode,
+    reason_text: suggestion.reasonText,
+    source_metrics: suggestion.sourceMetrics,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Surprise missions — round 2 dashboard rows (templates / missions / draws)
+// ---------------------------------------------------------------------------
+
+const MISSION_STATUSES: readonly MissionStatus[] = [
+  "suggested",
+  "published",
+  "accepted",
+  "achieved",
+  "not_achieved",
+  "needs_review",
+  "expired",
+  "cancelled",
+  "paid",
+];
+
+export function normalizeMissionStatus(value: unknown): MissionStatus {
+  return typeof value === "string" && (MISSION_STATUSES as readonly string[]).includes(value)
+    ? (value as MissionStatus)
+    : "suggested";
+}
+
+function toJsonObject(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return {};
+}
+
+function toDrawPool(value: unknown): MissionDrawPoolEntry[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
+    .map((item) => ({
+      employeeCode: String(item.employee_code ?? ""),
+      missionIds: Array.isArray(item.mission_ids)
+        ? item.mission_ids.filter((id): id is string => typeof id === "string")
+        : [],
+    }));
+}
+
+function toDrawPicked(value: unknown): MissionDrawPick[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
+    .map((item) => ({
+      employeeCode: String(item.employee_code ?? ""),
+      missionId: String(item.mission_id ?? ""),
+    }));
+}
+
+export function mapMissionTemplateRow(row: PayrollBnMissionTemplateRow): MissionTemplateRecord {
+  return {
+    id: row.id,
+    periodId: row.period_id,
+    code: String(row.code ?? ""),
+    name: String(row.name ?? ""),
+    description: row.description ?? null,
+    mode: String(row.mode ?? ""),
+    verification: String(row.verification ?? ""),
+    appliesTo: toJsonObject(row.applies_to),
+    params: toJsonObject(row.params),
+    rewardVnd: toOptionalNumber(row.reward_vnd),
+    acceptDeadline: row.accept_deadline ?? null,
+    prorateAllowed: Boolean(row.prorate_allowed),
+    enabled: row.enabled !== false,
+  };
+}
+
+function templateEmbedOf(row: PayrollBnMissionRow): PayrollBnMissionTemplateRow | null {
+  const embed = row.payroll_bn_mission_templates;
+  if (Array.isArray(embed)) return embed[0] ?? null;
+  return embed ?? null;
+}
+
+export function mapMissionRecord(row: PayrollBnMissionRow): MissionRecord {
+  const template = templateEmbedOf(row);
+  return {
+    id: row.id,
+    periodId: row.period_id,
+    employeeCode: row.employee_code,
+    templateId: row.template_id,
+    templateCode: String(template?.code ?? ""),
+    templateName: String(template?.name ?? ""),
+    description: template?.description ?? null,
+    mode: String(template?.mode ?? ""),
+    verification: String(template?.verification ?? ""),
+    rewardVnd: toOptionalNumber(row.reward_vnd ?? template?.reward_vnd),
+    acceptDeadline: template?.accept_deadline ?? null,
+    status: normalizeMissionStatus(row.status),
+    reasonText: row.reason_text ?? null,
+    sourceMetrics: toJsonObject(row.source_metrics),
+    acceptedAt: row.accepted_at ?? null,
+  };
+}
+
+export function mapMissionBonusRecord(
+  row: PayrollBnMissionBonusRow,
+  missionCode: string,
+): MissionBonusRecord {
+  return {
+    missionId: row.mission_id,
+    periodId: row.period_id,
+    employeeCode: row.employee_code,
+    missionCode,
+    amountVnd: toOptionalNumber(row.amount_vnd) ?? 0,
+  };
+}
+
+export function mapMissionSettingsRow(row: PayrollBnMissionSettingsRow): MissionSettingsRecord {
+  return {
+    periodId: row.period_id,
+    maxEmployees: toOptionalNumber(row.max_employees) ?? 2,
+    budgetVnd: toOptionalNumber(row.budget_vnd),
+  };
+}
+
+export function mapMissionDrawRow(row: PayrollBnMissionDrawRow): MissionDrawRecord {
+  return {
+    id: row.id,
+    periodId: row.period_id,
+    drawNo: toOptionalNumber(row.draw_no) ?? 0,
+    pool: toDrawPool(row.pool),
+    picked: toDrawPicked(row.picked),
+    reason: row.reason ?? null,
+    drawnBy: row.drawn_by ?? null,
+    drawnAt: row.drawn_at,
   };
 }
