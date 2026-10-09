@@ -1764,6 +1764,65 @@ export type Database = {
         }
         Relationships: []
       }
+      finance_reconciliation_reviews: {
+        Row: {
+          flag_key: string
+          note: string | null
+          reviewed_at: string
+          reviewed_by: string | null
+          status: string
+        }
+        Insert: {
+          flag_key: string
+          note?: string | null
+          reviewed_at?: string
+          reviewed_by?: string | null
+          status: string
+        }
+        Update: {
+          flag_key?: string
+          note?: string | null
+          reviewed_at?: string
+          reviewed_by?: string | null
+          status?: string
+        }
+        Relationships: []
+      }
+      purchase_order_overpay_allowances: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          extra_amount: number
+          id: string
+          purchase_order_id: string
+          reason: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          extra_amount: number
+          id?: string
+          purchase_order_id: string
+          reason: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          extra_amount?: number
+          id?: string
+          purchase_order_id?: string
+          reason?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "purchase_order_overpay_allowances_purchase_order_id_fkey"
+            columns: ["purchase_order_id"]
+            isOneToOne: false
+            referencedRelation: "purchase_orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       dealer_sessions: {
         Row: {
           contact_id: string
@@ -2213,6 +2272,26 @@ export type Database = {
         }
         Relationships: []
       }
+      finance_reconciliation_flags: {
+        Row: {
+          amount: number | null
+          category: string | null
+          detected_at: string | null
+          entity_id: string | null
+          entity_ref: string | null
+          entity_type: string | null
+          evidence: Json | null
+          flag_key: string | null
+          group_key: string | null
+          label: string | null
+          priority: string | null
+          review_note: string | null
+          review_status: string | null
+          supplier_id: string | null
+          supplier_name: string | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       approve_payment_requests_with_unc: {
@@ -2245,6 +2324,35 @@ export type Database = {
       record_unc_without_request: {
         Args: { p_category: string; p_evidence: Json; p_note: string }
         Returns: Json
+      }
+      allow_purchase_order_overpay: {
+        Args: {
+          p_extra_amount: number
+          p_purchase_order_id: string
+          p_reason: string
+        }
+        Returns: {
+          created_at: string
+          created_by: string | null
+          extra_amount: number
+          id: string
+          purchase_order_id: string
+          reason: string
+        }
+      }
+      review_finance_reconciliation_flag: {
+        Args: {
+          p_flag_key: string
+          p_note: string | null
+          p_status: string
+        }
+        Returns: {
+          flag_key: string
+          note: string | null
+          reviewed_at: string
+          reviewed_by: string | null
+          status: string
+        }
       }
       get_payment_request_unc_evidence: {
         Args: { p_request_id: string }

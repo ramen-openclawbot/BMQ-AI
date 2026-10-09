@@ -87,6 +87,12 @@ const RPC_ERRORS: Record<string, { status: number; code: string }> = {
   invalid_allocation: { status: 400, code: "invalid_allocation" },
   allocation_exceeds_remaining: { status: 409, code: "allocation_exceeds_remaining" },
   invalid_payment_method: { status: 400, code: "invalid_payment_method" },
+  // PO overpay / over-request guards, and the one-open-phiếu-per-goods-receipt
+  // partial unique index (the raw index name is what Postgres reports).
+  po_overpaid: { status: 409, code: "po_overpaid" },
+  po_over_requested: { status: 409, code: "po_over_requested" },
+  goods_receipt_already_requested: { status: 409, code: "goods_receipt_already_requested" },
+  uq_payment_requests_goods_receipt_open: { status: 409, code: "goods_receipt_already_requested" },
 };
 
 const MAX_UNC_ALLOCATIONS = 50;

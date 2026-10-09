@@ -1,0 +1,57 @@
+/* Đối soát tab (Duyệt chi) + reconciliation chips on the submission page and the
+   payment request detail (Demo 3). Reuses .d3-up-* chips/states. */
+
+.d3-rc { display: grid; gap: 12px; min-width: 0; padding: 18px; border-radius: 22px; background: var(--d3-panel, #ececea); }
+.d3-rc-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 10px 16px; }
+.d3-rc-head h2 { margin: 0; font-size: 20px; font-weight: 300; }
+.d3-rc-head h2 b { font-family: var(--d3-num, inherit); font-weight: 500; }
+.d3-rc-head p { margin: 2px 0 0; font-size: 12px; color: var(--d3-dim, #6b6b69); overflow-wrap: anywhere; }
+.d3-rc-head p b.is-red { color: #b4301f; font-weight: 500; }
+.d3-rc-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.d3-rc-seg { display: inline-flex; gap: 4px; padding: 4px; border-radius: 14px; background: var(--d3-white, #fdfdfc); }
+.d3-rc-seg button { min-height: 36px; padding: 0 12px; border: 0; border-radius: 10px; background: transparent; color: var(--d3-ink-2, #4a4a4a); font-size: 12.5px; font-weight: 500; white-space: nowrap; cursor: pointer; }
+.d3-rc-seg button.is-on { background: var(--d3-ink, #272727); color: #fff; }
+
+.d3-rc-groups { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; min-width: 0; }
+.d3-rc-groups.is-fetching { opacity: .6; }
+.d3-rc-group { display: grid; gap: 8px; min-width: 0; padding: 12px; border-radius: 18px; background: var(--d3-card, #f7f7f5); box-shadow: var(--d3-sh); }
+.d3-rc-ghead span { display: grid; gap: 1px; min-width: 0; }
+.d3-rc-ghead b { font: 300 20px/1.15 var(--d3-num, inherit); letter-spacing: -.01em; overflow-wrap: anywhere; }
+.d3-rc-ghead small { font-size: 12px; color: var(--d3-dim, #6b6b69); overflow-wrap: anywhere; }
+
+.d3-rc-flags { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.d3-rc-flag { display: grid; gap: 6px; min-width: 0; padding: 10px 12px; border-radius: 14px; background: var(--d3-white, #fdfdfc); }
+.d3-rc-ftop { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.d3-rc-ftop b { font-size: 14px; font-weight: 500; }
+.d3-rc-why { margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--d3-ink-2, #4a4a4a); overflow-wrap: anywhere; }
+.d3-rc-ref { padding: 0; border: 0; background: none; font: inherit; font-weight: 500; color: var(--d3-blue, #1f5f9e); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.d3-rc-ref.is-plain { color: var(--d3-ink, #272727); text-decoration: none; cursor: default; }
+.d3-rc-reqs { display: grid; gap: 2px; max-width: 520px; margin: 0; padding: 6px 10px; border-radius: 10px; background: var(--d3-card, #f7f7f5); list-style: none; font-size: 12px; }
+.d3-rc-reqs li { display: flex; justify-content: space-between; gap: 10px; }
+.d3-rc-reqs li span { min-width: 0; overflow-wrap: anywhere; color: var(--d3-ink-2, #4a4a4a); }
+.d3-rc-reqs li b { font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.d3-rc-note { margin: 0; font-size: 12px; color: var(--d3-dim, #6b6b69); overflow-wrap: anywhere; }
+.d3-rc-acts { display: flex; flex-wrap: wrap; gap: 6px; }
+html.bmq-d3 .d3-rc-acts button { min-height: 36px; gap: 6px; border-radius: 10px; }
+html.bmq-d3 .d3-rc-more { justify-self: center; min-height: 40px; border-radius: 12px; }
+
+.d3-rc-dialog { max-width: 480px; }
+.d3-rc-choices { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.d3-rc-choice { min-height: 44px; padding: 6px 8px; border: 0; border-radius: 12px; background: var(--d3-card, #f7f7f5); color: var(--d3-ink, #272727); font-size: 13px; font-weight: 500; cursor: pointer; }
+.d3-rc-choice.is-on { background: var(--d3-ink, #272727); color: #fff; }
+.d3-rc-choice:focus-visible { outline: 2px solid var(--d3-blue, #3c91e6); outline-offset: 2px; }
+.d3-rc-field { display: grid; gap: 6px; font-size: 12.5px; color: var(--d3-dim, #6b6b69); }
+
+/* Chips on the submission rows and in the detail dialog. */
+.d3-rc-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.d3-up-chip.is-ink { background: var(--d3-ink, #272727); color: #fff; }
+
+/* PO value line in the payment request detail. */
+.d3-prd-po { display: grid; gap: 4px; margin-top: 4px; font-size: 12.5px; color: var(--d3-ink-2, #4a4a4a); }
+.d3-prd-po b { font-weight: 500; font-variant-numeric: tabular-nums; color: var(--d3-ink, #272727); }
+.d3-prd-po .is-red { color: #b4301f; }
+
+@media (max-width: 420px) {
+  .d3-rc { padding: 14px; }
+  .d3-rc-choices { grid-template-columns: minmax(0, 1fr); }
+}

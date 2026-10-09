@@ -31,6 +31,9 @@ const STATUS: Record<PaymentUncBulkItem["status"], { label: string; tone: string
 const ERROR_TEXT: Record<string, string> = {
   ocr_failed: "Chưa đọc được ảnh. Chi UNC này trên từng phiếu.",
   amount_mismatch: "Số tiền trên UNC không khớp số cần chi.",
+  po_overpaid: "Khoản chi này làm tổng đã chi vượt giá trị PO. Xem tab Đối soát, hoặc CEO mở ngoại lệ có lý do.",
+  po_over_requested: "Tổng phiếu đề nghị chi đã vượt giá trị PO. Kiểm tra phiếu tạo trùng.",
+  goods_receipt_already_requested: "Phiếu nhập này đã có một phiếu đề nghị chi khác.",
   supplier_mismatch: "Các phiếu phải cùng một nhà cung cấp.",
   duplicate_evidence: "UNC này đã được dùng trước đó.",
   duplicate_reference: "Mã giao dịch này đã được dùng trước đó.",

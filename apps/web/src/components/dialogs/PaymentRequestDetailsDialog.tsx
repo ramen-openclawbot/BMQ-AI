@@ -85,6 +85,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { useGoodsReceipt } from "@/hooks/useGoodsReceipts";
 import { usePurchaseOrder } from "@/hooks/usePurchaseOrders";
+import { useFinanceReconciliationFlags } from "@/hooks/useFinanceReconciliationFlags";
+import { financeReconciliationLabel, sortFlags } from "@/lib/finance-reconciliation-flags";
+import "@/styles/bmq-urgent-payables.css";
+import "@/styles/bmq-reconciliation.css";
 
 interface PaymentRequestDetailsDialogProps {
   requestId: string | null;
@@ -145,6 +149,28 @@ export function PaymentRequestDetailsDialog({
   // Fetch linked purchase order if exists
   const purchaseOrderId = request?.purchase_order_id;
   const { data: linkedPurchaseOrder } = usePurchaseOrder(purchaseOrderId || null);
+
+  // Everything already paid against this PO, across every phiếu (Chặn chi vượt PO).
+  const { data: poPaid } = useQuery({
+    queryKey: ["purchase-order-paid", purchaseOrderId],
+    enabled: !!purchaseOrderId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("payment_requests")
+        .select("id, request_number, status, payment_allocations(amount)")
+        .eq("purchase_order_id", purchaseOrderId as string);
+      if (error) throw error;
+      const rows = (data ?? []) as Array<{ id: string; request_number: string; status: string; payment_allocations: Array<{ amount: number }> | null }>;
+      const open = rows.filter((r) => r.status !== "rejected");
+      const paid = rows.reduce((sum, r) => sum + (r.payment_allocations ?? []).reduce((s2, a) => s2 + Number(a.amount || 0), 0), 0);
+      return { paid, openCount: open.length, others: open.filter((r) => r.id !== requestId).map((r) => r.request_number) };
+    },
+  });
+  const { data: detailFlags } = useFinanceReconciliationFlags({
+    entityIds: [requestId, purchaseOrderId].filter((v): v is string => !!v),
+    enabled: !!requestId,
+  });
+  const openDetailFlags = sortFlags((detailFlags ?? []).filter((f) => !f.review_status || f.review_status === "needs_action"));
   
   const approveRequest = useApprovePaymentRequest();
   const rejectRequest = useRejectPaymentRequest();
@@ -440,6 +466,19 @@ export function PaymentRequestDetailsDialog({
                 </dl>
               </section>
 
+              {openDetailFlags.length > 0 && (
+                <section className="d3-prd-card" data-bmq-pr-flags>
+                  <h3>Cảnh báo đối soát</h3>
+                  <div className="d3-rc-chips">
+                    {openDetailFlags.map((f) => (
+                      <span key={f.flag_key} className={cn("d3-up-chip", f.priority === "critical" ? "is-ink" : f.priority === "high" ? "is-red" : "is-amber")} data-bmq-pr-flag={f.label}>
+                        {financeReconciliationLabel(f.label)}{f.entity_type === "purchase_order" ? ` · ${f.entity_ref}` : ""}
+                      </span>
+                    ))}
+                  </div>
+                </section>
+              )}
+
               {/* Linked documents */}
               {(request.goods_receipt_id || linkedGoodsReceipt || linkedPurchaseOrder || imageUrl) && (
                 <section className="d3-prd-card">
@@ -462,6 +501,20 @@ export function PaymentRequestDetailsDialog({
                         <span>
                           <b>PO {linkedPurchaseOrder.po_number}</b>
                           <small>{linkedPurchaseOrder.suppliers?.name || "N/A"} · {format(new Date(linkedPurchaseOrder.order_date), "dd/MM/yyyy", { locale: vi })}</small>
+                          {(() => {
+                            const poTotal = Number(linkedPurchaseOrder.total_amount ?? 0);
+                            if (!poPaid) return null;
+                            const left = poTotal - poPaid.paid;
+                            return (
+                              <span className="d3-prd-po" data-bmq-pr-po-value>
+                                <span>Giá trị PO <b>{formatCurrency(poTotal)}</b> · đã chi cho PO <b className={cn(left < 0 && "is-red")}>{formatCurrency(poPaid.paid)}</b></span>
+                                <span className={cn(left < 0 && "is-red")}>
+                                  {left < 0 ? `Vượt PO ${formatCurrency(-left)}` : `Còn được chi ${formatCurrency(left)}`}
+                                  {poPaid.others.length > 0 && ` · PO còn ${poPaid.others.length === 1 ? "phiếu" : `${poPaid.others.length} phiếu`} ${poPaid.others.join(", ")}`}
+                                </span>
+                              </span>
+                            );
+                          })()}
                         </span>
                       </li>
                     )}

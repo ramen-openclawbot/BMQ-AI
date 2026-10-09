@@ -51,6 +51,7 @@ import { ExportApprovedPDF } from "@/components/payment-requests/ExportApprovedP
 import { DriveImportProgressDialog } from "@/components/payment-requests/DriveImportProgressDialog";
 import { UncApprovalDialog, type UncApprovalRequest } from "@/components/payment-requests/UncApprovalDialog";
 import { UrgentPayablesPanel } from "@/components/payment-requests/UrgentPayablesPanel";
+import { ReconciliationPanel } from "@/components/payment-requests/ReconciliationPanel";
 import {
   getAllocatedAmount,
   getRemainingPaymentAmount,
@@ -132,7 +133,7 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
   const { canEditModule, isOwner } = useAuth();
   const [showUncDialog, setShowUncDialog] = useState(false);
   // Default view: unpaid requests (Trình chi gấp). "all" keeps the full list below.
-  const [view, setView] = useState<"unpaid" | "all">("unpaid");
+  const [view, setView] = useState<"unpaid" | "all" | "recon">("unpaid");
   const { language, t } = useLanguage();
   const canEditPaymentRequests = canEditModule("payment_requests");
 
@@ -566,10 +567,15 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
         <button type="button" role="tab" aria-selected={view === "all"} className={cn(view === "all" && "is-on")} onClick={() => setView("all")} data-bmq-pr-view-all>
           Tất cả
         </button>
+        <button type="button" role="tab" aria-selected={view === "recon"} className={cn(view === "recon" && "is-on")} onClick={() => setView("recon")} data-bmq-pr-view-recon>
+          Đối soát
+        </button>
       </div>
 
       {view === "unpaid" ? (
         <UrgentPayablesPanel canSubmit={isOwner || canEditPaymentRequests} onOpenRequest={setSelectedRequestId} />
+      ) : view === "recon" ? (
+        <ReconciliationPanel onOpenRequest={setSelectedRequestId} />
       ) : (
       <>
       <section className="d3-pa-sum" data-bmq-payables-summary="demo3">

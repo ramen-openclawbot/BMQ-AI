@@ -54,6 +54,9 @@ const vnd = (value: number | null | undefined) =>
 
 const ERROR_TEXT: Record<string, string> = {
   amount_mismatch: "Số tiền trên UNC không khớp số cần chi.",
+  po_overpaid: "Khoản chi này làm tổng đã chi vượt giá trị PO. Xem tab Đối soát, hoặc CEO mở ngoại lệ có lý do.",
+  po_over_requested: "Tổng phiếu đề nghị chi đã vượt giá trị PO. Kiểm tra phiếu tạo trùng.",
+  goods_receipt_already_requested: "Phiếu nhập này đã có một phiếu đề nghị chi khác.",
   supplier_mismatch: "Các phiếu chi phải cùng một nhà cung cấp.",
   reference_reused: "Mã giao dịch này đã dùng cho một khoản chi khác.",
   file_reused: "Ảnh UNC này đã được dùng rồi.",

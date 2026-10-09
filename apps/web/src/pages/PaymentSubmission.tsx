@@ -2,6 +2,7 @@
  * state, and per-row or multi-row "Chi UNC" / "Chi tiền mặt" with the matching slip.
  */
 import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 import { Banknote, ChevronLeft, ChevronRight, CreditCard, Images, Loader2, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -13,11 +14,42 @@ import { UncBulkDialog } from "@/components/payment-requests/UncBulkDialog";
 import type { UncBulkPaymentRequest } from "@/lib/payment-unc-bulk-match";
 import { PaymentRequestDetailsDialog } from "@/components/dialogs/PaymentRequestDetailsDialog";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/integrations/supabase/client";
+import { useFinanceReconciliationFlags } from "@/hooks/useFinanceReconciliationFlags";
+import { financeReconciliationLabel, sortFlags, type FinanceReconciliationFlag } from "@/lib/finance-reconciliation-flags";
+import "@/styles/bmq-reconciliation.css";
 import "@/styles/bmq-urgent-payables.css";
 
 const vnd = (value: number | null | undefined) => `${new Intl.NumberFormat("vi-VN").format(Math.round(Number(value ?? 0)))}\u00a0đ`;
 const dmyhm = (iso: string) =>
   new Intl.DateTimeFormat("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
+
+const ddmm = (iso: string | null | undefined) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}` : "");
+
+interface ReceiptInfo {
+  id: string;
+  purchase_order_id: string | null;
+  goods_receipt_id: string | null;
+  goods_receipts: { receipt_number: string | null; receipt_date: string | null; status: string | null } | null;
+}
+
+/** Goods receipt + PO link per phiếu, for the "Đã/Chưa nhập kho" chip. */
+function useSubmissionReceipts(ids: string[]) {
+  return useQuery({
+    queryKey: ["payment-submission-receipts", [...ids].sort()],
+    enabled: ids.length > 0,
+    queryFn: async (): Promise<ReceiptInfo[]> => {
+      const { data, error } = await supabase
+        .from("payment_requests")
+        .select("id, purchase_order_id, goods_receipt_id, goods_receipts!payment_requests_goods_receipt_id_fkey(receipt_number, receipt_date, status)")
+        .in("id", ids);
+      if (error) throw error;
+      return (data ?? []) as unknown as ReceiptInfo[];
+    },
+  });
+}
+
+const isOpenFlag = (f: FinanceReconciliationFlag) => !f.review_status || f.review_status === "needs_action";
 
 const isPaid = (item: PaymentSubmissionItemDetail) => Number(item.remaining_amount) <= 0 || item.payment_status === "paid";
 
@@ -56,6 +88,19 @@ export default function PaymentSubmission() {
     remaining: Number(i.remaining_amount || 0),
     createdAt: i.created_at,
   }));
+
+  const itemIds = useMemo(() => items.map((i) => i.payment_request_id), [items]);
+  const { data: receipts } = useSubmissionReceipts(itemIds);
+  const receiptById = useMemo(() => new Map((receipts ?? []).map((r) => [r.id, r])), [receipts]);
+  const flagEntityIds = useMemo(
+    () => [...new Set([...itemIds, ...(receipts ?? []).map((r) => r.purchase_order_id).filter((v): v is string => !!v)])],
+    [itemIds, receipts],
+  );
+  const { data: flags } = useFinanceReconciliationFlags({ entityIds: flagEntityIds, enabled: flagEntityIds.length > 0 && !!receipts });
+  const flagsFor = (requestId: string) => {
+    const poId = receiptById.get(requestId)?.purchase_order_id;
+    return sortFlags((flags ?? []).filter((f) => isOpenFlag(f) && (f.entity_id === requestId || (poId && f.entity_id === poId))));
+  };
 
   const togglePick = (requestId: string) =>
     setPicked((prev) => {
@@ -142,6 +187,23 @@ export default function PaymentSubmission() {
                         <span className="d3-up-chip is-red">Chưa chi</span>
                       )}
                       {item.status === "pending" && !paid && <span className="d3-up-chip is-amber">Chờ duyệt</span>}
+                      {(() => {
+                        const rc = receiptById.get(item.payment_request_id);
+                        if (!rc) return null;
+                        const gr = rc.goods_receipts;
+                        return gr?.receipt_number ? (
+                          <span className="d3-up-chip is-green" data-bmq-submission-receipt="in">
+                            Đã nhập kho {gr.receipt_number}{gr.receipt_date ? ` · ${ddmm(gr.receipt_date)}` : ""}
+                          </span>
+                        ) : item.requires_receipt ? (
+                          <span className="d3-up-chip" data-bmq-submission-receipt="none">Chưa nhập kho</span>
+                        ) : null;
+                      })()}
+                      {flagsFor(item.payment_request_id).map((f) => (
+                        <span key={f.flag_key} className={cn("d3-up-chip", f.priority === "critical" ? "is-ink" : f.priority === "high" ? "is-red" : "is-amber")} data-bmq-submission-flag={f.label}>
+                          {financeReconciliationLabel(f.label)}
+                        </span>
+                      ))}
                     </span>
                   </button>
                   {isOwner && !paid && (
