@@ -25,6 +25,7 @@ import {
 import { cn } from "@/lib/utils";
 import "@/styles/bmq-urgent-payables.css";
 import "@/styles/bmq-reconciliation.css";
+import { JevPairReview, JevScanBar, describeJevFlag } from "@/components/payment-requests/JevDuplicateTools";
 
 const vnd = (value: unknown) => `${new Intl.NumberFormat("vi-VN").format(Math.round(Number(value ?? 0)))}\u00a0đ`;
 const num = (value: unknown) => Number(value ?? 0);
@@ -60,6 +61,8 @@ export function describeFlag(flag: FinanceReconciliationFlag): string {
       return `Đã chi, chưa có phiếu nhập kho sau ${num(e.days_open)} ngày`;
     case "receipt_confirmed_delivery_pending":
       return `Phiếu nhập ${String(e.receipt_number ?? "")} đã xác nhận, phiếu chi vẫn ghi chưa giao`;
+    case "jev_possible_duplicate":
+      return describeJevFlag(flag);
     case "invoice_zero_amount":
       return `Hóa đơn ${String(e.invoice_number ?? "")} ghi 0 đ`;
     default:
@@ -84,6 +87,7 @@ export function ReconciliationPanel({ onOpenRequest }: Props) {
   const { data, isLoading, isError, refetch, isFetching } = useFinanceReconciliationFlags({
     onlyOpen: hideReviewed,
     priorities: scope === "important" ? ["critical", "high"] : undefined,
+    alwaysLabels: ["jev_possible_duplicate"],
   });
 
   const groups = useMemo(() => {
@@ -124,6 +128,8 @@ export function ReconciliationPanel({ onOpenRequest }: Props) {
           </label>
         </div>
       </header>
+
+      {isOwner && <JevScanBar />}
 
       {isLoading ? (
         <p className="d3-up-state"><Loader2 className="h-4 w-4 animate-spin" /> Đang tính nhãn đối soát…</p>
@@ -185,7 +191,9 @@ export function ReconciliationPanel({ onOpenRequest }: Props) {
                           </ul>
                         )}
                         {flag.review_note && <p className="d3-rc-note">Ghi chú: {flag.review_note}</p>}
-                        {isOwner && (
+                        {flag.label === "jev_possible_duplicate" ? (
+                          <JevPairReview flag={flag} isOwner={isOwner} onOpenRequest={onOpenRequest} />
+                        ) : isOwner && (
                           <div className="d3-rc-acts">
                             <Button size="sm" variant="outline" onClick={() => setReviewing(flag)} data-bmq-rc-review>
                               {review ? "Sửa đánh dấu" : "Đánh dấu"}

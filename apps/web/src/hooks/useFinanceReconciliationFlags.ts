@@ -18,6 +18,8 @@ export interface UseFinanceReconciliationFlagsOptions {
   onlyOpen?: boolean;
   /** Optional priority allow-list, e.g. ["critical", "high"]. */
   priorities?: string[];
+  /** Labels shown regardless of the priority filter (e.g. the Jev review queue). */
+  alwaysLabels?: string[];
   /** Skip the query (e.g. while ids are still loading). */
   enabled?: boolean;
 }
@@ -25,7 +27,7 @@ export interface UseFinanceReconciliationFlagsOptions {
 export function useFinanceReconciliationFlags(
   options: UseFinanceReconciliationFlagsOptions = {},
 ) {
-  const { entityIds, onlyOpen, priorities, enabled = true } = options;
+  const { entityIds, onlyOpen, priorities, alwaysLabels, enabled = true } = options;
 
   return useQuery({
     queryKey: [
@@ -33,6 +35,7 @@ export function useFinanceReconciliationFlags(
       entityIds && entityIds.length > 0 ? [...entityIds].sort() : null,
       onlyOpen ?? false,
       priorities && priorities.length > 0 ? [...priorities].sort() : null,
+      alwaysLabels && alwaysLabels.length > 0 ? [...alwaysLabels].sort() : null,
     ],
     enabled,
     queryFn: async (): Promise<FinanceReconciliationFlag[]> => {
@@ -45,7 +48,9 @@ export function useFinanceReconciliationFlags(
         query = query.is("review_status", null);
       }
       if (priorities && priorities.length > 0) {
-        query = query.in("priority", priorities);
+        query = alwaysLabels && alwaysLabels.length > 0
+          ? query.or(`priority.in.(${priorities.join(",")}),label.in.(${alwaysLabels.join(",")})`)
+          : query.in("priority", priorities);
       }
       query = query.limit(2000);
 

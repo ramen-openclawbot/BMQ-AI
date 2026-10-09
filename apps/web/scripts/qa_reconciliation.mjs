@@ -35,7 +35,7 @@ const F = (key, label, priority, type, id, ref, sup, group, amount, evidence, re
   supplier_id: "s-" + sup, supplier_name: sup, group_key: group, amount, evidence, detected_at: today + "T03:00:00Z",
   review_status: review ? review[0] : null, review_note: review ? review[1] : null,
 });
-const FLAGS = [
+const FLAGS_RAW = [
   F(1, "po_overpaid", "critical", "purchase_order", PO_CHOLIMEX, "PO-000340", "Cholimex", "po:" + PO_CHOLIMEX, 1272672,
     { po_number: "PO-000340", po_total: 1272672, allowance: 0, paid_total: 2545344, overpaid: 1272672,
       requests: [{ request_number: "PR-MMVOAL7H", status: "approved", total_amount: 1272672, paid: 1272672 }, { request_number: "PR-MN3UTS15", status: "approved", total_amount: 1272672, paid: 1272672 }] }),
@@ -47,8 +47,12 @@ const FLAGS = [
     { po_number: "PO-000144", po_total: 2761350, allowance: 0, requested_total: 5522700, over_requested: 2761350 }, ["needs_action", "Chờ kế toán từ chối phiếu dư"]),
   F(5, "paid_without_bank_evidence", "medium", "payment_request", "pr-old-1", "PR-MMAAAA01", "Công ty TNHH Thực Phẩm Tươi Sống Miền Nam chi nhánh Bình Tân", "supplier:s-x", 980000, { request_number: "PR-MMAAAA01" }),
   F(6, "receipt_confirmed_delivery_pending", "low", "payment_request", "pr-bb", "PR-8CA755E0", "Bao bì Minh Tuấn", "po:po-820", 8800000, { request_number: "PR-8CA755E0", receipt_number: "GRN-000571", receipt_status: "confirmed", delivery_status: "pending" }),
+  F(8, "jev_possible_duplicate", "medium", "payment_request", "pb", "PR-BB000002", "Bao bì Minh Tuấn", "supplier:s-bb", 1800000,
+    { older_request: "PR-BB000001", newer_request: "PR-BB000002", p_same: 0.58, relation: "repeat_order", days_apart: 7, amount_older: 1800000, amount_newer: 1800000, status: "needs_review" }),
   F(7, "paid_without_receipt", "medium", "payment_request", "pr-old-2", "PR-MMAAAA02", "Hasu Food", "supplier:s-h", 5531000, { request_number: "PR-MMAAAA02", days_open: 40 }, ["checked", "Đã đối chiếu"]),
 ];
+// Real view key for Jev pairs: jev_possible_duplicate:<pair_key>.
+const FLAGS = FLAGS_RAW.map((f) => (f.label === "jev_possible_duplicate" ? { ...f, flag_key: "jev_possible_duplicate:pa:pb" } : f));
 const SUB_ITEMS = [
   { payment_request_id: "pr-bb", position: 1, remaining_at_submit: 8800000, request_number: "PR-8CA755E0", title: "Duyệt chi PO PO-000820", supplier_id: "s-bb", supplier_name: "Bao bì Minh Tuấn", total_amount: 8800000, allocated_amount: 0, remaining_amount: 8800000, status: "pending", payment_status: "unpaid", requires_receipt: true, created_at: today + "T02:00:00Z" },
   { payment_request_id: "pr-ta-2", position: 2, remaining_at_submit: 2761350, request_number: "PR-MMEK7ZD8", title: "Đề nghị chi - PO-000144", supplier_id: "s-ta", supplier_name: "Tuyết Anh", total_amount: 2761350, allocated_amount: 0, remaining_amount: 2761350, status: "pending", payment_status: "unpaid", requires_receipt: true, created_at: today + "T02:10:00Z" },
@@ -66,13 +70,17 @@ const PO_PRS = [
   { id: "pr-ta-1", request_number: "PR-MMEK7KLW", status: "pending", payment_allocations: [] },
   { id: "pr-ta-2", request_number: "PR-MMEK7ZD8", status: "pending", payment_allocations: [] },
 ];
+const PAIR_ROWS = [
+  { id: "pa", request_number: "PR-BB000001", created_at: "2026-10-01T02:00:00Z", total_amount: 1800000, title: "Bao giấy 18", goods_receipts: { receipt_number: "GRN-000560", receipt_date: "2026-10-01" }, invoices: { invoice_number: "HD611" }, payment_request_items: [{ product_name: "Bao giấy bánh mì 18cm", quantity: 2000, unit: "cái", line_total: 1800000 }] },
+  { id: "pb", request_number: "PR-BB000002", created_at: "2026-10-08T02:00:00Z", total_amount: 1800000, title: "Bao giấy 18", goods_receipts: { receipt_number: "GRN-000573", receipt_date: "2026-10-08" }, invoices: { invoice_number: "HD719" }, payment_request_items: [{ product_name: "Bao giấy bánh mì 18cm", quantity: 2000, unit: "cái", line_total: 1800000 }] },
+];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function settle(st) {
   const c = cfg();
   if (st.table === "rpc:get_payment_submission") {
     return { data: { id: "sub-1", submission_number: "TC-261009-01", note: "Dạ kho hết bao giấy", total_amount: 11561350, created_by: "acc", created_at: today + "T02:42:00Z", items: SUB_ITEMS }, error: null };
   }
-  if (st.table === "rpc:review_finance_reconciliation_flag" || st.table === "rpc:allow_purchase_order_overpay") {
+  if (st.table === "rpc:review_finance_reconciliation_flag" || st.table === "rpc:allow_purchase_order_overpay" || st.table === "rpc:review_jev_duplicate_check") {
     window.__qaBodies.push({ name: st.table, ...(st.args || {}) });
     return { data: { ok: true }, error: null };
   }
@@ -82,13 +90,19 @@ function settle(st) {
   if (st.table === "finance_reconciliation_flags") {
     if (c.flags === "error") return { data: null, error: { message: "boom" } };
     if (c.flags === "empty") return { data: [], error: null };
-    window.__qaFlagQueries = (window.__qaFlagQueries || []).concat([{ in: st.ins, is: st.iss }]);
+    window.__qaFlagQueries = (window.__qaFlagQueries || []).concat([{ in: st.ins, is: st.iss, or: st.or || null }]);
     let rows = FLAGS;
     if (st.ins.entity_id) rows = rows.filter((f) => st.ins.entity_id.includes(f.entity_id));
     if (st.ins.priority) rows = rows.filter((f) => st.ins.priority.includes(f.priority));
+    if (st.or) {
+      const listAfter = (key) => { const i = st.or.indexOf(key + ".in.("); if (i < 0) return []; const rest = st.or.slice(i + key.length + 5); return rest.slice(0, rest.indexOf(")")).split(","); };
+      const pr = listAfter("priority"), lb = listAfter("label");
+      rows = rows.filter((f) => pr.includes(f.priority) || lb.includes(f.label));
+    }
     if ("review_status" in st.iss) rows = rows.filter((f) => f.review_status === null);
     return { data: rows, error: null };
   }
+  if (st.table === "payment_requests" && st.ins.id && st.ins.id.includes("pa")) return { data: PAIR_ROWS, error: null };
   if (st.table === "payment_requests" && st.ins.id) return { data: RECEIPTS.filter((r) => st.ins.id.includes(r.id)), error: null };
   if (st.table === "payment_requests" && st.eqs.purchase_order_id) return { data: PO_PRS, error: null };
   if (st.single) {
@@ -112,6 +126,7 @@ function builder(table, args) {
         if (prop === "eq") st.eqs[a[0]] = a[1];
         if (prop === "in") st.ins[a[0]] = a[1];
         if (prop === "is") st.iss[a[0]] = a[1];
+        if (prop === "or") st.or = a[0];
         if (prop === "single" || prop === "maybeSingle") st.single = true;
         return proxy;
       };
@@ -119,7 +134,21 @@ function builder(table, args) {
   });
   return proxy;
 }
-async function invoke(name) { window.__qaWrites.push("invoke:" + name); return { data: null, error: { message: "QA fixture: functions disabled" } }; }
+async function invoke(name, options) {
+  const body = options?.body || {};
+  if (name === "finance-jev-duplicate-scan") {
+    window.__qaBodies.push({ name, ...body });
+    await sleep(300);
+    const base = { mode: body.mode, candidates: 12, checked: 3, auto_clear: 1, needs_review: 1, auto_flag: 1, failed: 0, skipped_unchanged: 2 };
+    if (body.mode === "dry_run") base.items = [
+      { pair_key: "pa:pb", pr_older: "pa", pr_newer: "pb", older_request: "PR-BB000001", newer_request: "PR-BB000002", status: "needs_review", p_same: 0.58, relation: "repeat_order", relation_probability: 0.5, relation_confidence: 0.4, error: null },
+      { pair_key: "pc:pd", pr_older: "pc", pr_newer: "pd", older_request: "PR-CC000001", newer_request: "PR-CC000002", status: "auto_flag", p_same: 0.93, relation: "same_purchase", relation_probability: 0.8, relation_confidence: 0.7, error: null },
+      { pair_key: "pe:pf", pr_older: "pe", pr_newer: "pf", older_request: "PR-EE000001", newer_request: "PR-EE000002", status: "auto_clear", p_same: 0.04, relation: "unrelated", relation_probability: 0.9, relation_confidence: 0.85, error: null },
+    ];
+    return { data: base, error: null };
+  }
+  window.__qaWrites.push("invoke:" + name); return { data: null, error: { message: "QA fixture: functions disabled" } };
+}
 const user = { id: "qa-user", email: "qa@bmq.test", user_metadata: {} };
 const channel = { on() { return channel; }, subscribe() { return channel; }, unsubscribe() {} };
 export const supabase = {
@@ -221,10 +250,11 @@ try {
     await page.waitForSelector("[data-bmq-rc-group]");
     // Default: critical+high, hide reviewed -> PO-000340 (2 flags) + Tuyết Anh twin; PO-000144 needs_action is hidden (reviewed).
     const q = (await page.evaluate(() => window.__qaFlagQueries)).pop();
-    assert.deepEqual(q.in.priority.sort(), ["critical", "high"]);
+    assert.equal(q.or, "priority.in.(critical,high),label.in.(jev_possible_duplicate)", q.or);
     assert.ok("review_status" in q.is, "hides reviewed by default");
-    assert.equal(await page.locator("[data-bmq-rc-group]").first().getAttribute("data-bmq-rc-group"), "po:po-340", "critical group first");
-    assert.equal(await page.locator("[data-bmq-rc-flag]").count(), 3);
+    const groupOrder = await page.$$eval("[data-bmq-rc-group]", (els) => els.map((e) => e.getAttribute("data-bmq-rc-group")));
+    assert.equal(groupOrder[0], "po:po-340", "critical group first: " + groupOrder.join());
+    assert.equal(await page.locator("[data-bmq-rc-flag]").count(), 4, "critical+high plus the Jev review queue");
     assert.ok((await page.locator("[data-bmq-rc-flag='po_overpaid']").textContent()).includes("vượt 1.272.672"));
     assert.ok((await page.locator("[data-bmq-rc-flag='pr_twin_created']").textContent()).includes("19 giây"));
     assert.ok(await overflowOk(page), `overflow ${w}`);
@@ -233,7 +263,7 @@ try {
     // All + show reviewed.
     await page.locator("[data-bmq-rc-scope-all]").click();
     await page.locator("[data-bmq-rc-hide-reviewed]").uncheck();
-    await page.waitForFunction(() => document.querySelectorAll("[data-bmq-rc-flag]").length === 7);
+    await page.waitForFunction(() => document.querySelectorAll("[data-bmq-rc-flag]").length === 8);
     assert.ok(await overflowOk(page), `overflow all ${w}`);
     await page.screenshot({ path: `${EVIDENCE}/recon-all-${w}.png`, fullPage: true });
     // Review dialog.
@@ -268,10 +298,46 @@ try {
     const { context, page, errors } = await open(cfgv, "/payment-requests", { width: 390, height: 844 });
     await page.locator("[data-bmq-pr-view-recon]").click();
     await page.waitForSelector(sel);
-    if (cfgv.role === "accountant") assert.equal(await page.locator("[data-bmq-rc-review], [data-bmq-rc-allow]").count(), 0);
+    if (cfgv.role === "accountant") {
+      assert.equal(await page.locator("[data-bmq-rc-review], [data-bmq-rc-allow], [data-bmq-jev-bar], [data-bmq-jev-same]").count(), 0);
+    }
     await page.screenshot({ path: `${EVIDENCE}/recon-${cfgv.role}-${cfgv.flags || "data"}-390.png` });
     assert.deepEqual(errors, []);
     console.log("PASS", `recon state ${cfgv.role} ${cfgv.flags || "data"}`);
+    await context.close();
+  }
+  // 1c. Jev duplicate scan: dry run dialog, save, compare, decision.
+  for (const viewport of WIDTHS) {
+    const w = viewport.width;
+    const { context, page, errors } = await open({ role: "owner" }, "/payment-requests", viewport);
+    await page.locator("[data-bmq-pr-view-recon]").click();
+    await page.waitForSelector("[data-bmq-jev-bar]");
+    await page.waitForSelector("[data-bmq-rc-flag='jev_possible_duplicate']");
+    assert.ok((await page.locator("[data-bmq-rc-flag='jev_possible_duplicate']").textContent()).includes("trùng 58%"));
+    await page.locator("[data-bmq-jev-dry]").click();
+    await page.waitForSelector("[data-bmq-jev-result]");
+    assert.equal(await page.locator("[data-bmq-jev-item]").count(), 3);
+    assert.equal(await page.locator("[data-bmq-jev-item]").first().getAttribute("data-bmq-jev-item"), "auto_flag", "highest probability first");
+    const dry = (await bodies(page)).filter((b) => b.name === "finance-jev-duplicate-scan").pop();
+    assert.deepEqual({ mode: dry.mode, limit: dry.limit, days: dry.days }, { mode: "dry_run", limit: 50, days: 90 });
+    await page.waitForTimeout(200);
+    await page.locator("[data-bmq-jev-result]").screenshot({ path: `${EVIDENCE}/jev-dry-${w}.png` });
+    await page.locator("[data-bmq-jev-save]").click();
+    await page.waitForSelector("[data-bmq-jev-result]", { state: "detached" });
+    await page.waitForFunction(() => window.__qaBodies.filter((b) => b.name === "finance-jev-duplicate-scan" && b.mode === "run").length === 1);
+    await page.locator("[data-bmq-jev-compare]").click();
+    await page.waitForSelector("[data-bmq-jev-side='PR-BB000002']");
+    assert.equal(await page.locator("[data-bmq-jev-side]").count(), 2);
+    assert.ok(await overflowOk(page), `overflow jev ${w}`);
+    await page.waitForTimeout(200);
+    await page.locator("[data-bmq-rc-flag='jev_possible_duplicate']").screenshot({ path: `${EVIDENCE}/jev-compare-${w}.png` });
+    await page.locator("[data-bmq-jev-diff]").click();
+    await page.waitForFunction(() => window.__qaBodies.some((b) => b.name === "rpc:review_jev_duplicate_check"));
+    const rv = (await bodies(page)).filter((b) => b.name === "rpc:review_jev_duplicate_check").pop();
+    assert.deepEqual(rv, { name: "rpc:review_jev_duplicate_check", p_pair_key: "pa:pb", p_decision: "different_purchase", p_note: null });
+    await page.screenshot({ path: `${EVIDENCE}/jev-bar-${w}.png` });
+    assert.deepEqual(errors, [], `page errors ${w}`);
+    console.log("PASS", `jev ${w}`);
     await context.close();
   }
   // 2. Submission chips + detail dialog.

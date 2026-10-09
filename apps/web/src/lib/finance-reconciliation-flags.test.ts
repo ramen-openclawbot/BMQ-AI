@@ -43,7 +43,8 @@ test("names every fixed label in short Vietnamese", () => {
     "Đã nhập kho, phiếu ghi chưa giao",
   );
   assert.equal(financeReconciliationLabel("invoice_zero_amount"), "Hóa đơn 0 đ");
-  assert.equal(Object.keys(FINANCE_RECONCILIATION_LABELS).length, 7);
+  assert.equal(financeReconciliationLabel("jev_possible_duplicate"), "Jev nghi chi trùng");
+  assert.equal(Object.keys(FINANCE_RECONCILIATION_LABELS).length, 8);
 });
 
 test("falls back to the raw label when there is no Vietnamese name", () => {
@@ -125,4 +126,13 @@ test("maps the three new blocking error codes to Vietnamese messages", () => {
 
 test("returns null for an unknown error code", () => {
   assert.equal(financeReconciliationErrorMessage("something_else"), null);
+});
+
+test("maps the Jev review RPC error codes to Vietnamese messages", () => {
+  for (const code of ["not_owner", "invalid_decision", "check_not_found"]) {
+    const message = financeReconciliationErrorMessage(code);
+    assert.ok(message, `missing message for ${code}`);
+    assert.equal(message, FINANCE_RECONCILIATION_ERROR_MESSAGES[code]);
+  }
+  assert.ok(financeReconciliationErrorMessage("check_not_found")!.includes("cặp phiếu"));
 });

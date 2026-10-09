@@ -11,7 +11,8 @@ export type FinanceReconciliationLabel =
   | "paid_without_bank_evidence"
   | "paid_without_receipt"
   | "receipt_confirmed_delivery_pending"
-  | "invoice_zero_amount";
+  | "invoice_zero_amount"
+  | "jev_possible_duplicate";
 
 export type FinanceReconciliationPriority = "critical" | "high" | "medium" | "low";
 
@@ -51,6 +52,7 @@ export const FINANCE_RECONCILIATION_LABELS: Record<string, string> = {
   paid_without_receipt: "Chi chưa nhập kho",
   receipt_confirmed_delivery_pending: "Đã nhập kho, phiếu ghi chưa giao",
   invoice_zero_amount: "Hóa đơn 0 đ",
+  jev_possible_duplicate: "Jev nghi chi trùng",
 };
 
 /** Lower rank sorts first. Unknown priorities sort last. */
@@ -69,6 +71,12 @@ export const FINANCE_RECONCILIATION_ERROR_MESSAGES: Record<string, string> = {
     "Tổng các phiếu đề nghị chi đã vượt giá trị PO đã duyệt. Cần CEO duyệt thêm ngoại lệ.",
   goods_receipt_already_requested:
     "Phiếu nhập này đã có một phiếu đề nghị chi chưa bị từ chối.",
+  not_owner:
+    "Chỉ chủ doanh nghiệp được duyệt cặp phiếu nghi trùng.",
+  invalid_decision:
+    "Quyết định duyệt cặp phiếu nghi trùng không hợp lệ.",
+  check_not_found:
+    "Không tìm thấy kết quả quét cặp phiếu nghi trùng này.",
 };
 
 export function financeReconciliationLabel(label: string): string {

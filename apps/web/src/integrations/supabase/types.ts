@@ -1764,6 +1764,100 @@ export type Database = {
         }
         Relationships: []
       }
+      finance_jev_duplicate_checks: {
+        Row: {
+          amount_newer: number | null
+          amount_older: number | null
+          checked_at: string
+          days_apart: number | null
+          id: string
+          model: string | null
+          p_same: number | null
+          pair_key: string
+          pr_newer: string
+          pr_older: string
+          prompt_version: string | null
+          relation: string | null
+          relation_confidence: number | null
+          relation_prob: number | null
+          review_decision: string | null
+          review_note: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          state_hash: string
+          status: string
+          supplier_id: string | null
+        }
+        Insert: {
+          amount_newer?: number | null
+          amount_older?: number | null
+          checked_at?: string
+          days_apart?: number | null
+          id?: string
+          model?: string | null
+          p_same?: number | null
+          pair_key: string
+          pr_newer: string
+          pr_older: string
+          prompt_version?: string | null
+          relation?: string | null
+          relation_confidence?: number | null
+          relation_prob?: number | null
+          review_decision?: string | null
+          review_note?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          state_hash: string
+          status: string
+          supplier_id?: string | null
+        }
+        Update: {
+          amount_newer?: number | null
+          amount_older?: number | null
+          checked_at?: string
+          days_apart?: number | null
+          id?: string
+          model?: string | null
+          p_same?: number | null
+          pair_key?: string
+          pr_newer?: string
+          pr_older?: string
+          prompt_version?: string | null
+          relation?: string | null
+          relation_confidence?: number | null
+          relation_prob?: number | null
+          review_decision?: string | null
+          review_note?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          state_hash?: string
+          status?: string
+          supplier_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "finance_jev_duplicate_checks_pr_newer_fkey"
+            columns: ["pr_newer"]
+            isOneToOne: false
+            referencedRelation: "payment_requests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "finance_jev_duplicate_checks_pr_older_fkey"
+            columns: ["pr_older"]
+            isOneToOne: false
+            referencedRelation: "payment_requests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "finance_jev_duplicate_checks_supplier_id_fkey"
+            columns: ["supplier_id"]
+            isOneToOne: false
+            referencedRelation: "suppliers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       finance_reconciliation_reviews: {
         Row: {
           flag_key: string
@@ -2352,6 +2446,36 @@ export type Database = {
           reviewed_at: string
           reviewed_by: string | null
           status: string
+        }
+      }
+      review_jev_duplicate_check: {
+        Args: {
+          p_decision: string
+          p_note: string | null
+          p_pair_key: string
+        }
+        Returns: {
+          amount_newer: number | null
+          amount_older: number | null
+          checked_at: string
+          days_apart: number | null
+          id: string
+          model: string | null
+          p_same: number | null
+          pair_key: string
+          pr_newer: string
+          pr_older: string
+          prompt_version: string | null
+          relation: string | null
+          relation_confidence: number | null
+          relation_prob: number | null
+          review_decision: string | null
+          review_note: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          state_hash: string
+          status: string
+          supplier_id: string | null
         }
       }
       get_payment_request_unc_evidence: {

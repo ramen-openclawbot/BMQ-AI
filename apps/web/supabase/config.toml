@@ -325,3 +325,12 @@ verify_jwt = false
 [functions.finance-zalo-notify]
 # Server-only worker: authorizes service-role, x-cron-secret or x-worker-secret in code.
 verify_jwt = false
+
+[functions.finance-jev-duplicate-scan]
+# verify_jwt disabled: the project issues ES256 user tokens and the proxy can
+# reject them before the function runs. Auth is enforced inside index.ts: the
+# Bearer token is validated server-side with auth.getUser(token), then the caller
+# must have the "owner" role in user_roles or the handler returns 401/403. Reads
+# use fixed service-role SELECTs; only `run` mode upserts the Jev result and
+# never overwrites a CEO review_decision. BMQ_JEV_KILL_SWITCH=true refuses with 503.
+verify_jwt = false
