@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { vi, enUS } from "date-fns/locale";
@@ -100,9 +101,19 @@ type PaymentRequestsProps = {
   defaultSourceFilter?: "all" | "warehouse_receipt" | "manual";
 };
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) => {
   const queryClient = useQueryClient();
-  const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
+  // Deep link from Zalo / notifications: /payment-requests?id=<uuid> opens that phiếu.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const linkedRequestId = searchParams.get("id");
+  const [selectedRequestId, setSelectedRequestId] = useState<string | null>(() =>
+    linkedRequestId && UUID_RE.test(linkedRequestId) ? linkedRequestId : null,
+  );
+  useEffect(() => {
+    if (linkedRequestId && UUID_RE.test(linkedRequestId)) setSelectedRequestId(linkedRequestId);
+  }, [linkedRequestId]);
   const [deletingRequestId, setDeletingRequestId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [sourceFilter, setSourceFilter] = useState<string>(defaultSourceFilter);
@@ -1066,7 +1077,16 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
       <PaymentRequestDetailsDialog
         requestId={selectedRequestId}
         open={!!selectedRequestId}
-        onOpenChange={(open) => !open && setSelectedRequestId(null)}
+        onOpenChange={(open) => {
+          if (open) return;
+          setSelectedRequestId(null);
+          // Drop the deep-link id so closing the phiếu does not reopen it.
+          if (searchParams.has("id")) {
+            const next = new URLSearchParams(searchParams);
+            next.delete("id");
+            setSearchParams(next, { replace: true });
+          }
+        }}
         presentation={wideLayout ? "panel" : "dialog"}
         onSelectRequest={setSelectedRequestId}
       />

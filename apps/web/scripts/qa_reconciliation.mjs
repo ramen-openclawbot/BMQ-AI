@@ -303,6 +303,36 @@ try {
     console.log("PASS", `submission + detail ${w}`);
     await context.close();
   }
+  // 3. Zalo deep link /payment-requests?id=<uuid> opens that phiếu; closing drops ?id.
+  for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 }]) {
+    const w = viewport.width;
+    const { context, page, errors } = await open({ role: "owner" }, "/payment-requests?id=1f8e2fb1-3fdb-4537-8866-ec1a746fac7c", viewport);
+    await page.waitForSelector("[data-bmq-payment-detail]");
+    assert.ok((await page.locator("[data-bmq-payment-detail]").textContent()).includes("PR-MMEK7ZD8"), "detail opened from link");
+    await page.waitForTimeout(200);
+    await page.screenshot({ path: `${EVIDENCE}/deeplink-${w}.png` });
+    if (w < 1280) {
+      await page.keyboard.press("Escape");
+    } else {
+      await page.locator("[data-bmq-payment-detail] button", { hasText: "Đóng" }).first().click();
+    }
+    await page.waitForFunction(() => !new URL(location.href).searchParams.has("id"));
+    await page.waitForTimeout(300);
+    assert.equal(await page.locator("[data-bmq-payment-detail]").count(), 0, "closed and not reopened");
+    assert.deepEqual(errors, []);
+    console.log("PASS", `deep link ${w}`);
+    await context.close();
+  }
+  // A malformed id is ignored.
+  {
+    const { context, page, errors } = await open({ role: "owner" }, "/payment-requests?id=not-a-uuid", { width: 390, height: 844 });
+    await page.waitForSelector("[data-bmq-pr-view-unpaid]");
+    await page.waitForTimeout(400);
+    assert.equal(await page.locator("[data-bmq-payment-detail]").count(), 0);
+    assert.deepEqual(errors, []);
+    console.log("PASS", "malformed id ignored");
+    await context.close();
+  }
   console.log("ALL PASS");
 } finally {
   await browser.close();
