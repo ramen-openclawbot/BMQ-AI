@@ -29,6 +29,8 @@ const PAYSLIP_PORTAL_FUNCTIONS = new Set([
   "payslip-auth-verify",
   "payslip-list",
   "payslip-auth-logout",
+  "payslip-missions",
+  "payslip-mission-accept",
 ]);
 
 function pathSegments(req: Request): string[] {
