@@ -359,7 +359,12 @@ export function AddPaymentRequestDialog({
   }, [watchItems]);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    // Many photos can be picked at once: the first is the invoice to scan, the rest
+    // become Chứng từ kèm theo.
+    const picked = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    const file = picked[0];
+    if (picked.length > 1) setDocFiles((prev) => [...prev, ...picked.slice(1)].slice(0, 20));
     if (file) {
       setImageFile(file);
       const reader = new FileReader();
@@ -672,18 +677,25 @@ export function AddPaymentRequestDialog({
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
+                        {docFiles.length > 0 && (
+                          <p className="mt-2 text-xs text-muted-foreground" data-bmq-pr-docs-hint>
+                            +{docFiles.length} ảnh khác ở mục Chứng từ kèm theo bên dưới
+                          </p>
+                        )}
                       </div>
                     ) : (
                       <label className="cursor-pointer block">
                         <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
                         <span className="text-sm text-muted-foreground">
-                          Click để upload hóa đơn
+                          Click để upload hóa đơn (chọn được nhiều ảnh)
                         </span>
                         <input
                           type="file"
                           accept="image/*"
+                          multiple
                           className="hidden"
                           onChange={handleImageUpload}
+                          data-bmq-pr-image-input
                         />
                       </label>
                     )}
