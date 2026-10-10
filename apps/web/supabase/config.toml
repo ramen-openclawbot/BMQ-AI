@@ -340,3 +340,10 @@ verify_jwt = false
 # use fixed service-role SELECTs; only `run` mode upserts the Jev result and
 # never overwrites a CEO review_decision. BMQ_JEV_KILL_SWITCH=true refuses with 503.
 verify_jwt = false
+
+[functions.salary-payout]
+# verify_jwt disabled: the project issues ES256 user tokens and the proxy can
+# reject them before the function runs. The handler validates the bearer token
+# with auth.getUser and requires owner (ceo_extract) or owner / salary_cash edit
+# (receipt_extract). Storage writes and receipt inserts use the service role.
+verify_jwt = false

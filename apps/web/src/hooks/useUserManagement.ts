@@ -50,6 +50,7 @@ export const ALL_MODULES: { key: string; labelEn: string; labelVi: string }[] = 
   { key: "production_qa", labelEn: "QA & Finished Goods Receiving", labelVi: "QA & Nhập kho TP" },
   { key: "attendance", labelEn: "Attendance", labelVi: "Chấm công" },
   { key: "payroll", labelEn: "Payroll", labelVi: "Bảng lương" },
+  { key: "salary_cash", labelEn: "Salary payout", labelVi: "Chi lương" },
   { key: "inventory", labelEn: "Inventory", labelVi: "Kho hàng" },
   { key: "kitchen_inventory", labelEn: "Kitchen Inventory", labelVi: "Kiểm soát kho bếp" },
   { key: "goods_receipts", labelEn: "Goods Receipts", labelVi: "Phiếu nhập kho" },
@@ -306,7 +307,7 @@ const DEFAULT_EDIT: Record<string, string[]> = {
 
 const ALL_MODULE_KEYS = [
   "dashboard","finance_cost","finance_revenue","crm",
-  "sales_po_inbox","facebook_messenger","purchase_orders","production_q7","q7_material_inventory","production_products","production_shifts","production_qa","attendance","payroll","inventory","kitchen_inventory","goods_receipts","sku_costs","material_master",
+  "sales_po_inbox","facebook_messenger","purchase_orders","production_q7","q7_material_inventory","production_products","production_shifts","production_qa","attendance","payroll","salary_cash","inventory","kitchen_inventory","goods_receipts","sku_costs","material_master",
   "suppliers","invoices","payment_requests","low_stock","settings",
 ];
 

@@ -98,3 +98,15 @@ html .d3-unc.d3-cpr { max-width: 600px; }
   .d3-cpr-invoices { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .d3-cpr-line-row { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Chi lương. */
+.d3-salary-ceo { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 10px; align-items: start; padding: 10px; border-radius: 14px; background: var(--d3-card, #f7f7f5); }
+.d3-salary-ceo img.d3-cs-thumb { object-fit: cover; }
+.d3-cs-r-body small.is-ok { color: #1f7a10; }
+.d3-cpr-modes { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.d3-cpr-modes button { min-height: 42px; border: 1px solid var(--d3-line-2, #d6d6d3); border-radius: 12px; background: var(--d3-white, #fdfdfc); font-size: 14px; cursor: pointer; }
+.d3-cpr-modes button.is-on { border-color: var(--d3-ink, #272727); background: var(--d3-ink, #272727); color: #fff; }
+.d3-cpr-periods { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.d3-cpr-periods button { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 10px; min-height: 52px; padding: 10px 12px; border: 1.5px solid transparent; border-radius: 14px; background: var(--d3-card, #f7f7f5); text-align: left; cursor: pointer; }
+.d3-cpr-periods button.is-on { border-color: var(--d3-ink, #272727); background: var(--d3-white, #fdfdfc); }
+.d3-cpr-periods small { color: var(--d3-dim, #6b6b69); font-size: 12px; }

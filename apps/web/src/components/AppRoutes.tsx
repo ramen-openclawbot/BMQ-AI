@@ -16,6 +16,7 @@ import Invoices from "@/pages/Invoices";
 import PaymentRequests from "@/pages/PaymentRequests";
 import PaymentSubmission from "@/pages/PaymentSubmission";
 import CashSettlement from "@/pages/CashSettlement";
+import SalaryPayout from "@/pages/SalaryPayout";
 import PayablesManagement from "@/pages/PayablesManagement";
 import LowStock from "@/pages/LowStock";
 import GoodsReceipts from "@/pages/GoodsReceipts";
@@ -286,6 +287,7 @@ export function AppRoutes() {
         <Route path="/payment-requests" element={<PaymentRequests />} />
         <Route path="/payment-requests/submissions/:id" element={<PaymentSubmission />} />
         <Route path="/payment-requests/cash-settle/:id" element={<CashSettlement />} />
+        <Route path="/salary-payouts/:id" element={<SalaryPayout />} />
         <Route path="/goods-receipts" element={<GoodsReceipts />} />
         <Route path="/purchase-orders" element={<ModuleRoute moduleKey="purchase_orders"><PurchaseOrders /></ModuleRoute>} />
         <Route path="/low-stock" element={<LowStock />} />

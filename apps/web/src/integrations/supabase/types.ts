@@ -2482,6 +2482,174 @@ export type Database = {
         }
         Relationships: []
       }
+      salary_payout_idempotency: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          idempotency_key: string
+          payout_id: string
+          result: Json
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          idempotency_key: string
+          payout_id: string
+          result: Json
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          idempotency_key?: string
+          payout_id?: string
+          result?: Json
+        }
+        Relationships: []
+      }
+      salary_payout_lines: {
+        Row: {
+          employee_code: string
+          employee_name: string
+          id: string
+          matched_at: string | null
+          matched_by: string | null
+          net_pay: number
+          payout_id: string
+          receipt_amount: number | null
+          receipt_beneficiary: string | null
+          receipt_reference: string | null
+          receipt_sha256: string | null
+          receipt_storage_path: string | null
+        }
+        Insert: {
+          employee_code: string
+          employee_name: string
+          id?: string
+          matched_at?: string | null
+          matched_by?: string | null
+          net_pay: number
+          payout_id: string
+          receipt_amount?: number | null
+          receipt_beneficiary?: string | null
+          receipt_reference?: string | null
+          receipt_sha256?: string | null
+          receipt_storage_path?: string | null
+        }
+        Update: {
+          employee_code?: string
+          employee_name?: string
+          id?: string
+          matched_at?: string | null
+          matched_by?: string | null
+          net_pay?: number
+          payout_id?: string
+          receipt_amount?: number | null
+          receipt_beneficiary?: string | null
+          receipt_reference?: string | null
+          receipt_sha256?: string | null
+          receipt_storage_path?: string | null
+        }
+        Relationships: []
+      }
+      salary_payout_receipts: {
+        Row: {
+          created_at: string
+          file_sha256: string
+          id: string
+          ocr_amount: number | null
+          ocr_beneficiary: string | null
+          ocr_error: string | null
+          ocr_reference: string | null
+          payout_id: string
+          status: string
+          storage_path: string
+          uploaded_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          file_sha256: string
+          id?: string
+          ocr_amount?: number | null
+          ocr_beneficiary?: string | null
+          ocr_error?: string | null
+          ocr_reference?: string | null
+          payout_id: string
+          status?: string
+          storage_path: string
+          uploaded_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          file_sha256?: string
+          id?: string
+          ocr_amount?: number | null
+          ocr_beneficiary?: string | null
+          ocr_error?: string | null
+          ocr_reference?: string | null
+          payout_id?: string
+          status?: string
+          storage_path?: string
+          uploaded_by?: string | null
+        }
+        Relationships: []
+      }
+      salary_payouts: {
+        Row: {
+          ceo_evidence_sha256: string | null
+          ceo_evidence_storage_path: string | null
+          ceo_paid_at: string | null
+          ceo_paid_by: string | null
+          completed_at: string | null
+          completed_by: string | null
+          created_at: string
+          created_by: string | null
+          employee_count: number
+          id: string
+          note: string | null
+          payroll_period_id: string
+          payout_number: string
+          period_name: string
+          status: string
+          total_amount: number
+        }
+        Insert: {
+          ceo_evidence_sha256?: string | null
+          ceo_evidence_storage_path?: string | null
+          ceo_paid_at?: string | null
+          ceo_paid_by?: string | null
+          completed_at?: string | null
+          completed_by?: string | null
+          created_at?: string
+          created_by?: string | null
+          employee_count: number
+          id?: string
+          note?: string | null
+          payroll_period_id: string
+          payout_number: string
+          period_name: string
+          status?: string
+          total_amount: number
+        }
+        Update: {
+          ceo_evidence_sha256?: string | null
+          ceo_evidence_storage_path?: string | null
+          ceo_paid_at?: string | null
+          ceo_paid_by?: string | null
+          completed_at?: string | null
+          completed_by?: string | null
+          created_at?: string
+          created_by?: string | null
+          employee_count?: number
+          id?: string
+          note?: string | null
+          payroll_period_id?: string
+          payout_number?: string
+          period_name?: string
+          status?: string
+          total_amount?: number
+        }
+        Relationships: []
+      }
     }
     Views: {
       cost_classification_category_summary: {
@@ -2754,6 +2922,30 @@ export type Database = {
           _user_id: string
         }
         Returns: boolean
+      }
+      cancel_salary_payout: {
+        Args: { p_id: string }
+        Returns: Json
+      }
+      create_salary_payout: {
+        Args: { p_idempotency_key: string; p_period_id: string }
+        Returns: Json
+      }
+      discard_salary_payout_receipt: {
+        Args: { p_receipt_id: string }
+        Returns: Json
+      }
+      get_salary_payout: {
+        Args: { p_id: string }
+        Returns: Json
+      }
+      record_salary_payout_ceo_payment: {
+        Args: { p_evidence: Json; p_id: string; p_idempotency_key: string }
+        Returns: Json
+      }
+      submit_salary_payout_matches: {
+        Args: { p_id: string; p_idempotency_key: string; p_matches: Json }
+        Returns: Json
       }
     }
     Enums: {

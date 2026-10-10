@@ -11,12 +11,16 @@ import {
   formatPaymentRequestCreatedMessage,
   formatPaymentRequestPaidMessage,
   formatPaymentSubmissionMessage,
+  formatSalaryPayoutAdvancedMessage,
+  formatSalaryPayoutCompletedMessage,
+  formatSalaryPayoutCreatedMessage,
   formatVnd,
   goodsReceiptDeepLink,
   paymentCashSettleDeepLink,
   paymentRequestDeepLink,
   paymentRequestDetailDeepLink,
   paymentSubmissionDeepLink,
+  salaryPayoutDeepLink,
 } from "./finance-zalo-notification.ts";
 
 const PAYMENT_REQUEST = {
@@ -55,6 +59,22 @@ const PAYMENT_CASH = {
   requestNumber: "PC-20261012-0007",
   requesterName: "Nguyễn Văn A",
   amount: 1_502_000,
+};
+
+const SALARY_PAYOUT = {
+  id: "55555555-5555-4555-8555-555555555555",
+  payoutNumber: "SAL-261012-01",
+  periodName: "Kỳ lương tháng 09/2099",
+  employeeCount: 16,
+};
+
+/** A VND-shaped digit group: 1.502.000 / 1,502,000 / 1502000đ / 1.502.000 VND. */
+const VND_DIGIT_GROUP = /\d{1,3}(?:[.,]\d{3})+(?:\s*(?:đ|₫|vnd|vnđ))?/i;
+
+const assertNoVndAmount = (message: string) => {
+  assert.doesNotMatch(message, VND_DIGIT_GROUP);
+  // Also refuse a bare "đ"/"VND" suffix on any digit run without separators.
+  assert.doesNotMatch(message, /\d+\s*(?:đ|₫|vnd|vnđ)/i);
 };
 
 test("formats VND amounts with Vietnamese separators", () => {
@@ -194,6 +214,51 @@ test("never leaks a bank account number or image payload", () => {
   }
 });
 
+test("formats the three salary payout notices without any amount", () => {
+  const created = formatSalaryPayoutCreatedMessage(SALARY_PAYOUT);
+  assert.match(created, /CHI LƯƠNG/);
+  assert.match(created, /Mã phiếu: SAL-261012-01/);
+  assert.match(created, /Kỳ lương: Kỳ lương tháng 09\/2099/);
+  assert.match(created, /Số nhân viên: 16/);
+  assert.match(
+    created,
+    /salary-payouts\/55555555-5555-4555-8555-555555555555/,
+  );
+  assert.equal(
+    salaryPayoutDeepLink(SALARY_PAYOUT.id),
+    "https://ai.banhmique.vn/salary-payouts/55555555-5555-4555-8555-555555555555",
+  );
+  assertNoVndAmount(created);
+
+  const advanced = formatSalaryPayoutAdvancedMessage(SALARY_PAYOUT);
+  assert.match(advanced, /CHI LƯƠNG — ĐÃ NHẬN TIỀN MẶT/);
+  assert.match(advanced, /SAL-261012-01/);
+  assertNoVndAmount(advanced);
+
+  const completed = formatSalaryPayoutCompletedMessage(SALARY_PAYOUT);
+  assert.match(completed, /CHI LƯƠNG — HOÀN TẤT/);
+  assert.match(completed, /SAL-261012-01/);
+  assertNoVndAmount(completed);
+});
+
+test("salary notices never print an amount even when the input carries one", () => {
+  const tainted = {
+    ...SALARY_PAYOUT,
+    totalAmount: 41_006_300,
+    netPay: 1_502_000,
+    amount: 9_999_999,
+  } as never;
+  for (const message of [
+    formatSalaryPayoutCreatedMessage(tainted),
+    formatSalaryPayoutAdvancedMessage(tainted),
+    formatSalaryPayoutCompletedMessage(tainted),
+  ]) {
+    assertNoVndAmount(message);
+    assert.doesNotMatch(message, /41\.006\.300|1\.502\.000|9\.999\.999/);
+    assert.doesNotMatch(message, /Tổng|Số tiền/);
+  }
+});
+
 test("dispatches all finance event types from one entry point", () => {
   assert.deepEqual(FINANCE_ZALO_EVENT_TYPES, [
     "payment_request_created",
@@ -203,6 +268,9 @@ test("dispatches all finance event types from one entry point", () => {
     "payment_submission_created",
     "payment_cash_advanced",
     "payment_cash_settled",
+    "salary_payout_created",
+    "salary_payout_advanced",
+    "salary_payout_completed",
   ]);
   assert.match(
     formatFinanceZaloMessage("payment_request_created", PAYMENT_REQUEST),
@@ -231,6 +299,18 @@ test("dispatches all finance event types from one entry point", () => {
   assert.match(
     formatFinanceZaloMessage("payment_cash_settled", PAYMENT_CASH),
     /HOÀN TẤT CHI TIỀN MẶT/,
+  );
+  assert.match(
+    formatFinanceZaloMessage("salary_payout_created", SALARY_PAYOUT),
+    /CHI LƯƠNG/,
+  );
+  assert.match(
+    formatFinanceZaloMessage("salary_payout_advanced", SALARY_PAYOUT),
+    /ĐÃ NHẬN TIỀN MẶT/,
+  );
+  assert.match(
+    formatFinanceZaloMessage("salary_payout_completed", SALARY_PAYOUT),
+    /HOÀN TẤT/,
   );
   assert.throws(
     () => formatFinanceZaloMessage("unknown" as never, PAYMENT_REQUEST),

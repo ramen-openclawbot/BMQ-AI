@@ -13,7 +13,10 @@ export type FinanceZaloEventType =
   | "goods_receipt_short"
   | "payment_submission_created"
   | "payment_cash_advanced"
-  | "payment_cash_settled";
+  | "payment_cash_settled"
+  | "salary_payout_created"
+  | "salary_payout_advanced"
+  | "salary_payout_completed";
 
 export const FINANCE_ZALO_EVENT_TYPES: FinanceZaloEventType[] = [
   "payment_request_created",
@@ -23,12 +26,16 @@ export const FINANCE_ZALO_EVENT_TYPES: FinanceZaloEventType[] = [
   "payment_submission_created",
   "payment_cash_advanced",
   "payment_cash_settled",
+  "salary_payout_created",
+  "salary_payout_advanced",
+  "salary_payout_completed",
 ];
 
 export const PAYMENT_REQUESTS_DEEP_LINK = "https://ai.banhmique.vn/payment-requests";
 export const PAYMENT_SUBMISSIONS_DEEP_LINK = "https://ai.banhmique.vn/payment-requests/submissions";
 export const PAYMENT_CASH_SETTLE_DEEP_LINK = "https://ai.banhmique.vn/payment-requests/cash-settle";
 export const GOODS_RECEIPTS_DEEP_LINK = "https://ai.banhmique.vn/goods-receipts";
+export const SALARY_PAYOUTS_DEEP_LINK = "https://ai.banhmique.vn/salary-payouts";
 
 export const paymentRequestDeepLink = (id: string) =>
   `${PAYMENT_REQUESTS_DEEP_LINK}?id=${encodeURIComponent(id)}`;
@@ -45,6 +52,9 @@ export const paymentCashSettleDeepLink = (id: string) =>
 
 export const goodsReceiptDeepLink = (id: string) =>
   `${GOODS_RECEIPTS_DEEP_LINK}?id=${encodeURIComponent(id)}`;
+
+export const salaryPayoutDeepLink = (id: string) =>
+  `${SALARY_PAYOUTS_DEEP_LINK}/${encodeURIComponent(id)}`;
 
 /** Format a VND amount with Vietnamese thousands separators. */
 export const formatVnd = (amount: number | null | undefined): string => {
@@ -93,6 +103,17 @@ export type PaymentCashNotificationInput = {
   requestNumber: string;
   requesterName?: string | null;
   amount?: number | null;
+};
+
+/**
+ * Cash-salary payout notice. Deliberately carries no amount: only the payout
+ * number, period name, employee count and the detail link.
+ */
+export type SalaryPayoutNotificationInput = {
+  id: string;
+  payoutNumber: string;
+  periodName?: string | null;
+  employeeCount?: number | null;
 };
 
 const PAYMENT_SUBMISSION_MAX_LINES = 5;
@@ -221,13 +242,47 @@ export const formatPaymentCashSettledMessage = (
   return lines.join("\n");
 };
 
+/**
+ * Shared cash-salary payout body. NEVER prints an amount: only the payout
+ * number, period name, employee count and the detail link.
+ */
+const formatSalaryPayoutMessage = (
+  title: string,
+  input: SalaryPayoutNotificationInput,
+): string => {
+  const employeeCount = Number(input.employeeCount);
+  const lines = [
+    title,
+    "",
+    `Mã phiếu: ${safeText(input.payoutNumber, "Chưa có mã")}`,
+    `Kỳ lương: ${safeText(input.periodName, "Chưa xác định")}`,
+    `Số nhân viên: ${Number.isFinite(employeeCount) && employeeCount > 0 ? Math.trunc(employeeCount) : "Chưa xác định"}`,
+    "",
+    `Xem chi tiết: ${salaryPayoutDeepLink(input.id)}`,
+  ];
+  return lines.join("\n");
+};
+
+export const formatSalaryPayoutCreatedMessage = (
+  input: SalaryPayoutNotificationInput,
+): string => formatSalaryPayoutMessage("💰 CHI LƯƠNG", input);
+
+export const formatSalaryPayoutAdvancedMessage = (
+  input: SalaryPayoutNotificationInput,
+): string => formatSalaryPayoutMessage("💵 CHI LƯƠNG — ĐÃ NHẬN TIỀN MẶT", input);
+
+export const formatSalaryPayoutCompletedMessage = (
+  input: SalaryPayoutNotificationInput,
+): string => formatSalaryPayoutMessage("✅ CHI LƯƠNG — HOÀN TẤT", input);
+
 export const formatFinanceZaloMessage = (
   eventType: FinanceZaloEventType,
   input:
     | PaymentRequestNotificationInput
     | GoodsReceiptNotificationInput
     | PaymentSubmissionNotificationInput
-    | PaymentCashNotificationInput,
+    | PaymentCashNotificationInput
+    | SalaryPayoutNotificationInput,
 ): string => {
   switch (eventType) {
     case "payment_request_created":
@@ -244,6 +299,12 @@ export const formatFinanceZaloMessage = (
       return formatPaymentCashAdvancedMessage(input as PaymentCashNotificationInput);
     case "payment_cash_settled":
       return formatPaymentCashSettledMessage(input as PaymentCashNotificationInput);
+    case "salary_payout_created":
+      return formatSalaryPayoutCreatedMessage(input as SalaryPayoutNotificationInput);
+    case "salary_payout_advanced":
+      return formatSalaryPayoutAdvancedMessage(input as SalaryPayoutNotificationInput);
+    case "salary_payout_completed":
+      return formatSalaryPayoutCompletedMessage(input as SalaryPayoutNotificationInput);
     default:
       throw new Error(`Unknown finance Zalo event type: ${String(eventType)}`);
   }

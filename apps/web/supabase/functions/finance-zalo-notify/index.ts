@@ -35,6 +35,19 @@ type GoodsReceiptRow = {
   purchase_order_id: string | null;
 };
 
+type SalaryPayoutRow = {
+  id: string;
+  payout_number: string;
+  period_name: string | null;
+  employee_count: number | null;
+};
+
+const SALARY_PAYOUT_EVENT_TYPES = new Set<FinanceZaloEventType>([
+  "salary_payout_created",
+  "salary_payout_advanced",
+  "salary_payout_completed",
+]);
+
 const json = (body: Record<string, unknown>, status = 200) => new Response(JSON.stringify(body), {
   status,
   headers: { "content-type": "application/json" },
@@ -281,6 +294,22 @@ const buildJobMessage = async (
         amount: Number(row.total_amount),
         purchaseOrderCode: row.purchase_order_id ? poCodes.get(row.purchase_order_id) ?? null : null,
         goodsReceiptCode: row.goods_receipt_id ? grCodes.get(row.goods_receipt_id) ?? null : null,
+      });
+    }
+
+    if (SALARY_PAYOUT_EVENT_TYPES.has(job.event_type)) {
+      const { data } = await supabase
+        .from("salary_payouts")
+        .select("id,payout_number,period_name,employee_count")
+        .eq("id", job.entity_id)
+        .maybeSingle();
+      const row = data as SalaryPayoutRow | null;
+      if (!row) return job.message_body;
+      return formatFinanceZaloMessage(job.event_type, {
+        id: row.id,
+        payoutNumber: row.payout_number,
+        periodName: row.period_name,
+        employeeCount: Number(row.employee_count),
       });
     }
 
