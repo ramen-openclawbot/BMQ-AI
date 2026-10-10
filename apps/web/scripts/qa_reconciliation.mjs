@@ -144,6 +144,7 @@ async function invoke(name, options) {
       { pair_key: "pa:pb", pr_older: "pa", pr_newer: "pb", older_request: "PR-BB000001", newer_request: "PR-BB000002", status: "needs_review", p_same: 0.58, relation: "repeat_order", relation_probability: 0.5, relation_confidence: 0.4, error: null },
       { pair_key: "pc:pd", pr_older: "pc", pr_newer: "pd", older_request: "PR-CC000001", newer_request: "PR-CC000002", status: "auto_flag", p_same: 0.93, relation: "same_purchase", relation_probability: 0.8, relation_confidence: 0.7, error: null },
       { pair_key: "pe:pf", pr_older: "pe", pr_newer: "pf", older_request: "PR-EE000001", newer_request: "PR-EE000002", status: "auto_clear", p_same: 0.04, relation: "unrelated", relation_probability: 0.9, relation_confidence: 0.85, error: null },
+      { pair_key: "pg:ph", pr_older: "pg", pr_newer: "ph", older_request: "PR-GG000001", newer_request: "PR-GG000002", status: null, p_same: null, relation: null, relation_probability: null, relation_confidence: null, error: 'jev_http_error (HTTP 403: {"error":{"message":"Free tier users do not have access to this model. Upgrade to paid credits","type":"no_providers_available"}})' },
     ];
     return { data: base, error: null };
   }
@@ -316,7 +317,9 @@ try {
     assert.ok((await page.locator("[data-bmq-rc-flag='jev_possible_duplicate']").textContent()).includes("trùng 58%"));
     await page.locator("[data-bmq-jev-dry]").click();
     await page.waitForSelector("[data-bmq-jev-result]");
-    assert.equal(await page.locator("[data-bmq-jev-item]").count(), 3);
+    assert.equal(await page.locator("[data-bmq-jev-item]").count(), 4);
+    assert.ok((await page.locator("[data-bmq-jev-hint]").textContent()).includes("gói miễn phí"), "free-tier hint shown once");
+    assert.equal((await page.locator("[data-bmq-jev-item='error'] .d3-up-chip").textContent()).trim(), "Lỗi Jev · jev_http_error · HTTP 403");
     assert.equal(await page.locator("[data-bmq-jev-item]").first().getAttribute("data-bmq-jev-item"), "auto_flag", "highest probability first");
     const dry = (await bodies(page)).filter((b) => b.name === "finance-jev-duplicate-scan").pop();
     assert.deepEqual({ mode: dry.mode, limit: dry.limit, days: dry.days }, { mode: "dry_run", limit: 50, days: 90 });

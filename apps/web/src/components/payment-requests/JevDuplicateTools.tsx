@@ -53,6 +53,24 @@ async function scanErrorText(error: unknown): Promise<string> {
   return "Chưa quét được bằng Jev, chưa ghi gì. Thử lại sau.";
 }
 
+/** Short chip text: the error code plus the HTTP status, never the whole provider body. */
+const shortError = (error: string) => {
+  const status = error.match(/HTTP (\d{3})/)?.[1];
+  return `${error.split(" ")[0]}${status ? ` · HTTP ${status}` : ""}`;
+};
+
+/** One plain explanation when every failure has the same known provider cause. */
+function providerHint(items: Array<{ error: string | null }> | undefined): string | null {
+  const errors = (items ?? []).map((i) => i.error ?? "").filter(Boolean);
+  if (errors.length === 0) return null;
+  if (errors.some((e) => /free tier/i.test(e))) {
+    return "Tài khoản Vercel AI Gateway của BMQ đang ở gói miễn phí, không được dùng Jev. Cần nạp credit (Top up) trên Vercel → AI Gateway. Lần quét này không tốn phí và không ghi gì.";
+  }
+  if (errors.some((e) => /HTTP 40[13]/.test(e))) return "Khóa AI Gateway bị từ chối (401/403). Cần kiểm tra khóa hoặc quyền dùng Jev trên Vercel.";
+  if (errors.some((e) => /HTTP 402/.test(e))) return "AI Gateway hết credit. Cần nạp thêm trên Vercel.";
+  return null;
+}
+
 /** "Quét thử" / "Quét & lưu" bar at the top of Đối soát (owner only). */
 export function JevScanBar() {
   const scan = useRunJevDuplicateScan({ mode: "dry_run", limit: 50, days: 90 });
@@ -98,6 +116,9 @@ export function JevScanBar() {
               {result?.failed ? ` · ${result.failed} lỗi` : ""}{result?.skipped_unchanged ? ` · ${result.skipped_unchanged} đã quét, không đổi` : ""}
             </DialogDescription>
           </DialogHeader>
+          {providerHint(result?.items) && (
+            <p className="d3-up-state is-bad" role="alert" data-bmq-jev-hint>{providerHint(result?.items)}</p>
+          )}
           {result?.items && result.items.length > 0 ? (
             <ul className="d3-jev-items">
               {[...result.items]
@@ -109,7 +130,7 @@ export function JevScanBar() {
                       <span className="d3-jev-pair"><b>{item.older_request}</b> ↔ <b>{item.newer_request}</b></span>
                       <span className="d3-jev-meta">
                         {item.error ? (
-                          <span className="d3-up-chip is-red" data-bmq-jev-error={item.error}>Lỗi Jev · {item.error}</span>
+                          <span className="d3-up-chip is-red" data-bmq-jev-error={item.error} title={item.error}>Lỗi Jev · {shortError(item.error)}</span>
                         ) : (
                           <>
                             {st && <span className={cn("d3-up-chip", st.tone)}>{st.label}</span>}
