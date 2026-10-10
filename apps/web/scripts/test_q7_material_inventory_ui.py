@@ -40,7 +40,7 @@ def test_route_sidebar_language_and_permission_registry() -> None:
     assert 'q7_material_inventory: "Xuất-nhập-tồn NVL Q7"' in routes
     prod = region(sidebar, 'labelKey: "productionPlanning"', '  { icon: CalendarClock')
     assert '{ icon: Factory, labelKey: "productionQ7", path: "/production/planning/q7", section: "production", moduleKey: "production_q7" }' in prod
-    assert '{ icon: PackageSearch, labelKey: "q7MaterialInventory", path: "/production/q7/inventory", section: "production", moduleKey: "q7_material_inventory" }' in prod
+    assert '{ icon: PackageSearch, labelKey: "q7MaterialInventory", path: "/production/q7/inventory", section: "production", moduleKey: "q7_material_inventory", hiddenFromMenu: true }' in prod
     assert prod.index('labelKey: "productionQ7"') < prod.index('labelKey: "q7MaterialInventory"')
     assert 'q7MaterialInventory: string;' in lang
     assert 'q7MaterialInventory: "Q7 Material Inventory"' in lang

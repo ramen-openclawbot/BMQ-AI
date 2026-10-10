@@ -58,6 +58,8 @@ export interface NavItem {
   /** If true, only owners can see this item */
   ownerOnly?: boolean;
   dataPlatformOnly?: boolean;
+  /** Kept routable but left out of the drawer and the top zones (unused pages, hidden 2026-10-10). */
+  hiddenFromMenu?: boolean;
   /** Non-clickable children displayed as submenu links. */
   children?: NavItem[];
 }
@@ -110,7 +112,7 @@ export const navItems: NavItem[] = [
     moduleKey: "production_q7",
     children: [
       { icon: Factory, labelKey: "productionQ7", path: "/production/planning/q7", section: "production", moduleKey: "production_q7" },
-      { icon: PackageSearch, labelKey: "q7MaterialInventory", path: "/production/q7/inventory", section: "production", moduleKey: "q7_material_inventory" },
+      { icon: PackageSearch, labelKey: "q7MaterialInventory", path: "/production/q7/inventory", section: "production", moduleKey: "q7_material_inventory", hiddenFromMenu: true },
       { icon: Tags, labelKey: "productionProducts", path: "/production/products", section: "production", moduleKey: "production_products" },
     ],
   },
@@ -124,12 +126,12 @@ export const navItems: NavItem[] = [
     labelKey: "inventory",
     section: "operations",
     children: [
-      { icon: Package, labelKey: "inventoryOverview", path: "/inventory", section: "operations", moduleKey: "inventory" },
+      { icon: Package, labelKey: "inventoryOverview", path: "/inventory", section: "operations", moduleKey: "inventory", hiddenFromMenu: true },
       { icon: Boxes, labelKey: "tanTaoWarehouse", path: "/warehouse/tan-tao", section: "operations", moduleKey: "inventory" },
-      { icon: CookingPot, labelKey: "kitchenInventory", path: "/kitchen-inventory", section: "operations", moduleKey: "kitchen_inventory" },
+      { icon: CookingPot, labelKey: "kitchenInventory", path: "/kitchen-inventory", section: "operations", moduleKey: "kitchen_inventory", hiddenFromMenu: true },
       { icon: PackageCheck, labelKey: "goodsReceipts", path: "/goods-receipts", section: "operations", moduleKey: "goods_receipts" },
-      { icon: Truck, labelKey: "warehouseDispatch", path: "/warehouse/dispatch", section: "operations", moduleKey: "inventory" },
-      { icon: BarChart4, labelKey: "stockReport", path: "/warehouse/stock-report", section: "operations", moduleKey: "inventory" },
+      { icon: Truck, labelKey: "warehouseDispatch", path: "/warehouse/dispatch", section: "operations", moduleKey: "inventory", hiddenFromMenu: true },
+      { icon: BarChart4, labelKey: "stockReport", path: "/warehouse/stock-report", section: "operations", moduleKey: "inventory", hiddenFromMenu: true },
     ],
   },
   { icon: Barcode, labelKey: "skuCosts", path: "/sku-costs", section: "operations", moduleKey: "sku_costs" },
@@ -137,7 +139,7 @@ export const navItems: NavItem[] = [
   { icon: Users, labelKey: "suppliers", path: "/suppliers", section: "operations", moduleKey: "suppliers" },
   { icon: FileText, labelKey: "invoices", path: "/invoices", section: "operations", moduleKey: "invoices" },
   { icon: FileCheck, labelKey: "paymentRequests", path: "/payment-requests", section: "operations", showBadge: true, moduleKey: "payment_requests" },
-  { icon: AlertTriangle, labelKey: "lowStock", path: "/low-stock", section: "operations", moduleKey: "low_stock" },
+  { icon: AlertTriangle, labelKey: "lowStock", path: "/low-stock", section: "operations", moduleKey: "low_stock", hiddenFromMenu: true },
 ];
 
 const SIDEBAR_SCROLL_STORAGE_KEY = "bmq-sidebar-scroll-top";
@@ -257,7 +259,8 @@ export function Sidebar() {
 
   // Filter nav items by permission. Parent groups remain visible when any child is visible.
   const visibleItems = navItems
-    .map((item) => item.children ? { ...item, children: item.children.filter(canViewItem) } : item)
+    .filter((item) => !item.hiddenFromMenu)
+    .map((item) => item.children ? { ...item, children: item.children.filter((child) => !child.hiddenFromMenu && canViewItem(child)) } : item)
     .filter((item) => (item.children ? item.children.length > 0 : canViewItem(item)));
 
   const closeAfterNavigate = () => {

@@ -81,7 +81,7 @@ export const ZONES: Zone[] = [
       "/production/shifts",
       "/production/qa",
       "/production/products",
-      "/production/q7/inventory",
+      // Kho NVL Q7 hidden from the menu 2026-10-10 (no entries in 30 days); the route still works.
     ],
     prefixes: ["/production"],
   },
@@ -89,13 +89,10 @@ export const ZONES: Zone[] = [
     id: "warehouse",
     label: { vi: "Kho", en: "Warehouse" },
     paths: [
-      "/inventory",
+      // Tồn kho, Kho bếp, Xuất kho, Báo cáo tồn kho and Tồn thấp hidden from the menu 2026-10-10
+      // (no entries in 30 days); their routes still work and stay under this zone's prefixes.
       "/warehouse/tan-tao",
-      "/kitchen-inventory",
       "/goods-receipts",
-      "/warehouse/dispatch",
-      "/warehouse/stock-report",
-      "/low-stock",
       "/purchase-orders",
     ],
     prefixes: ["/inventory", "/warehouse", "/kitchen-inventory", "/goods-receipts", "/low-stock", "/purchase-orders"],
