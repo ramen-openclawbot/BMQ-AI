@@ -15,6 +15,11 @@ import {
   type SupplierAliasRow,
   type SupplierLite,
 } from "../_shared/invoice-supplier-match.ts";
+import {
+  CASH_RECEIPT_SYSTEM_PROMPT,
+  CASH_RECEIPT_TOOL,
+  normalizeCashReceipt,
+} from "../_shared/cash-receipt-ocr.ts";
 
 type ScanTemplateRow = {
   id: string;
@@ -131,6 +136,78 @@ serve(async (req) => {
       return new Response(
         JSON.stringify({ code: "CONFIG_MISSING_OPENAI_API_KEY", error: "Thiếu cấu hình AI key (OPENAI_API_KEY)" }),
         { status: 503, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
+      );
+    }
+
+    // ===== Cash receipt mode =====
+    // Dedicated prompt/schema for Vietnamese cash vouchers: the operator needs
+    // the amount actually paid plus a short description, never a quantity,
+    // weight, distance or address. This branch skips supplier template
+    // learning, cost classification and supplier writes.
+    if (documentType === "cash_receipt") {
+      console.log("[scan-invoice] Calling AI gateway (cash_receipt)");
+      const cashResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${OPENAI_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages: [
+            { role: "system", content: CASH_RECEIPT_SYSTEM_PROMPT },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "image_url",
+                  image_url: {
+                    url: `data:${mimeType || "image/jpeg"};base64,${imageBase64}`,
+                  },
+                },
+                {
+                  type: "text",
+                  text: "Đọc số tiền thực trả, người nhận tiền và nội dung ngắn gọn từ chứng từ chi tiền mặt này.",
+                },
+              ],
+            },
+          ],
+          tools: [CASH_RECEIPT_TOOL],
+          tool_choice: { type: "function", function: { name: "extract_cash_receipt" } },
+        }),
+      });
+
+      if (!cashResponse.ok) {
+        if (cashResponse.status === 429) {
+          return new Response(
+            JSON.stringify({ error: "Rate limit exceeded. Please try again later." }),
+            { status: 429, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
+          );
+        }
+        if (cashResponse.status === 402) {
+          return new Response(
+            JSON.stringify({ error: "AI credits exhausted. Please add more credits." }),
+            { status: 402, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
+          );
+        }
+        const errorText = await cashResponse.text();
+        console.error("[scan-invoice] AI gateway error (cash_receipt):", cashResponse.status, errorText);
+        throw new Error(`AI gateway error: ${cashResponse.status}`);
+      }
+
+      const cashAiResponse = await cashResponse.json();
+      const cashToolCall = cashAiResponse.choices?.[0]?.message?.tool_calls?.[0];
+      if (!cashToolCall || cashToolCall.function?.name !== "extract_cash_receipt") {
+        throw new Error("Failed to extract cash receipt data from image");
+      }
+
+      const cashExtractedData = JSON.parse(cashToolCall.function.arguments || "{}");
+      const normalizedCashReceipt = normalizeCashReceipt(cashExtractedData);
+
+      console.log(`[scan-invoice] Completed cash_receipt in ${Date.now() - startTime}ms, amount=${normalizedCashReceipt.total_amount}`);
+      return new Response(
+        JSON.stringify({ success: true, data: normalizedCashReceipt }),
+        { headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
       );
     }
 

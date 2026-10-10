@@ -7,6 +7,7 @@ import {
   CASH_PR_MAX_TOTAL,
   buildCashPrIdempotencyKey,
   cashLineFromScan,
+  isPlaceholderSupplierName,
   validateCashPrForm,
   type CashPrFormInput,
 } from "./cash-pr-lines.ts";
@@ -23,16 +24,77 @@ test("water delivery note: 6 x 42.000 from supplier Nước 2H becomes one 252.0
   assert.deepEqual(line, { name: "Nước 2H", amount: 252_000 });
 });
 
-test("ride-app screenshot with total 81.000 and no items", () => {
-  const line = cashLineFromScan({ total_amount: 81_000, items: [] }, 0);
+test("ride-app screenshot with total 81.000 and a description prefers total_amount", () => {
+  const line = cashLineFromScan(
+    { total_amount: 81_000, description: "Ship #26XLO7TD", items: [{ product_name: "6 chai", quantity: 6, unit_price: 1_000 }] },
+    0,
+  );
 
-  assert.deepEqual(line, { name: "Hoá đơn 1", amount: 81_000 });
+  assert.deepEqual(line, { name: "Ship #26XLO7TD", amount: 81_000 });
+});
+
+test("payee is prefixed to the description and total_amount still wins", () => {
+  const line = cashLineFromScan(
+    { total_amount: 81_000, supplier_name: "Siêu Tốc", description: "Ship #26XLO7TD" },
+    0,
+  );
+
+  assert.deepEqual(line, { name: "Siêu Tốc — Ship #26XLO7TD", amount: 81_000 });
+});
+
+test("a payee already inside the description is not duplicated", () => {
+  const line = cashLineFromScan(
+    { total_amount: 49_000, supplier_name: "Siêu Tốc", description: "Ship Siêu Tốc #26XLO7TD" },
+    0,
+  );
+
+  assert.deepEqual(line, { name: "Ship Siêu Tốc #26XLO7TD", amount: 49_000 });
+});
+
+test("placeholder supplier names are ignored in favour of the description", () => {
+  const line = cashLineFromScan(
+    { total_amount: 81_000, supplier_name: "Không biết", description: "Ship #26XLO7TD" },
+    0,
+  );
+
+  assert.deepEqual(line, { name: "Ship #26XLO7TD", amount: 81_000 });
+});
+
+test("isPlaceholderSupplierName ignores case/accent variants and blank values", () => {
+  for (const value of ["Không biết", "khong biet", "UNKNOWN", "n/a", "-", "", "   ", null, undefined]) {
+    assert.equal(isPlaceholderSupplierName(value), true, `expected placeholder: ${JSON.stringify(value)}`);
+  }
+  assert.equal(isPlaceholderSupplierName("Siêu Tốc"), false);
+});
+
+test("a payment label as description falls back to the order number (real Siêu Tốc screenshot)", () => {
+  const line = cashLineFromScan(
+    { total_amount: 49_000, supplier_name: "Siêu Tốc", description: "Tài khoản", invoice_number: "#260WIBK4" },
+    0,
+  );
+
+  assert.deepEqual(line, { name: "Siêu Tốc — #260WIBK4", amount: 49_000 });
+});
+
+test("a payment label without an order number keeps just the payee", () => {
+  const line = cashLineFromScan({ total_amount: 49_000, supplier_name: "Siêu Tốc", description: "Tổng tiền" }, 0);
+
+  assert.deepEqual(line, { name: "Siêu Tốc", amount: 49_000 });
 });
 
 test("an unreadable result yields a null amount and the invoice fallback name", () => {
   const line = cashLineFromScan({}, 2);
 
   assert.deepEqual(line, { name: "Hoá đơn 3", amount: null });
+});
+
+test("an empty description falls back to the payee name", () => {
+  const line = cashLineFromScan(
+    { total_amount: 81_000, supplier_name: "Siêu Tốc", description: "   " },
+    0,
+  );
+
+  assert.deepEqual(line, { name: "Siêu Tốc", amount: 81_000 });
 });
 
 test("total_amount is preferred over the summed items", () => {
@@ -45,6 +107,20 @@ test("total_amount is preferred over the summed items", () => {
   );
 
   assert.equal(line.amount, 500_000);
+});
+
+test("a cash_receipt envelope with items still prefers total_amount", () => {
+  const line = cashLineFromScan(
+    {
+      total_amount: 252_000,
+      supplier_name: "Nước 2H",
+      description: "Nước Bidrico 19L x6",
+      items: [{ product_name: "Nước Bidrico 19L x6", quantity: 6, unit_price: 42_000 }],
+    },
+    0,
+  );
+
+  assert.deepEqual(line, { name: "Nước 2H — Nước Bidrico 19L x6", amount: 252_000 });
 });
 
 test("sums quantity * unit_price when total_amount is missing", () => {

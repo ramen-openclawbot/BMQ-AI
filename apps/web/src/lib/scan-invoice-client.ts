@@ -1,7 +1,11 @@
 // Calls the scan-invoice edge function for one image. Shared by the cash phiếu dialog.
 import type { CashPrScanExtracted } from "@/lib/cash-pr-lines";
 
-export async function scanInvoiceFile(file: File, accessToken: string): Promise<CashPrScanExtracted & Record<string, unknown>> {
+export async function scanInvoiceFile(
+  file: File,
+  accessToken: string,
+  documentType = "cash_receipt",
+): Promise<CashPrScanExtracted & Record<string, unknown>> {
   const imageBase64 = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
@@ -11,7 +15,7 @@ export async function scanInvoiceFile(file: File, accessToken: string): Promise<
   const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-invoice`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-    body: JSON.stringify({ imageBase64, mimeType: file.type || "image/jpeg", documentType: "payment_request" }),
+    body: JSON.stringify({ imageBase64, mimeType: file.type || "image/jpeg", documentType }),
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {

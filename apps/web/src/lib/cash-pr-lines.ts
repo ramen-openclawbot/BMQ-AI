@@ -19,6 +19,8 @@ export interface CashPrScanItem {
 export interface CashPrScanExtracted {
   total_amount?: number | null;
   supplier_name?: string | null;
+  description?: string | null;
+  invoice_number?: string | null;
   items?: CashPrScanItem[] | null;
 }
 
@@ -62,12 +64,59 @@ const toText = (value: unknown): string | null => {
 const cap = (value: string, max: number): string =>
   value.length > max ? value.slice(0, max) : value;
 
+// Accent/case-insensitive key used to compare payee vs description and to
+// detect placeholder supplier names the AI sometimes returns.
+const foldKey = (value: string): string =>
+  value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D")
+    .toLowerCase()
+    .trim();
+
+const PLACEHOLDER_SUPPLIER_KEYS = new Set([
+  "",
+  "-",
+  "--",
+  "n/a",
+  "na",
+  "unknown",
+  "khong biet",
+  "khong ro",
+  "khong co",
+  "hoa don",
+]);
+
+// Labels the reader sometimes returns as the "description" of an app screenshot.
+const GENERIC_DESCRIPTION_KEYS = new Set([
+  "tai khoan",
+  "tong",
+  "tong tien",
+  "tong cong",
+  "thanh toan",
+  "thanh tien",
+  "so tien",
+  "tien mat",
+  "nguoi nhan tra tien mat",
+  "chi tiet thanh toan",
+]);
+
+/** True when the scanned supplier name carries no information ('Không biết', '-', ...). */
+export function isPlaceholderSupplierName(value: string | null | undefined): boolean {
+  if (value === null || value === undefined) return true;
+  return PLACEHOLDER_SUPPLIER_KEYS.has(foldKey(String(value)));
+}
+
 /**
  * Turn ONE scan-invoice result into ONE khoản:
  *   amount = extracted.total_amount when > 0, else the sum of
  *            quantity * unit_price over the items, else null;
- *   name   = supplier_name, else the first item name (+ " + N khoản khác" when
- *            there are more), else "Hoá đơn <index+1>", capped at 200 chars.
+ *   name   = "payee — description" when a description is present (payee only
+ *            when it is not a placeholder and not already inside the
+ *            description), else supplier_name, else the first item name
+ *            (+ " + N khoản khác" when there are more), else "Hoá đơn
+ *            <index+1>", capped at 200 chars.
  */
 export function cashLineFromScan(
   extracted: CashPrScanExtracted | null | undefined,
@@ -86,9 +135,21 @@ export function cashLineFromScan(
   }
 
   const supplierName = toText(extracted?.supplier_name);
+  const payeeName = supplierName && !isPlaceholderSupplierName(supplierName) ? supplierName : null;
+  const rawDescription = toText(extracted?.description);
+  const invoiceNumber = toText(extracted?.invoice_number);
+  // A payment label ("Tài khoản", "Tổng tiền"...) is not a description: use the order number instead.
+  const description = rawDescription && !GENERIC_DESCRIPTION_KEYS.has(foldKey(rawDescription))
+    ? rawDescription
+    : invoiceNumber;
+
   let name: string;
-  if (supplierName) {
-    name = supplierName;
+  if (description) {
+    const descriptionKey = foldKey(description);
+    const payeeAlreadyIncluded = payeeName !== null && descriptionKey.includes(foldKey(payeeName));
+    name = payeeName && !payeeAlreadyIncluded ? `${payeeName} — ${description}` : description;
+  } else if (payeeName) {
+    name = payeeName;
   } else {
     const firstName = toText(items[0]?.product_name);
     if (firstName) {
