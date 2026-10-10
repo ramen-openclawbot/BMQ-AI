@@ -111,3 +111,18 @@ html .d3-unc.d3-cpr { max-width: 600px; }
 .d3-cpr-periods button.is-on { border-color: var(--d3-ink, #272727); background: var(--d3-white, #fdfdfc); }
 .d3-cpr-periods small { color: var(--d3-dim, #6b6b69); font-size: 12px; }
 .d3-salary-note { color: var(--d3-dim, #6b6b69); }
+
+/* Chứng từ kèm theo phiếu chi lương */
+.d3-sal-docs { display: grid; gap: 8px; min-width: 0; }
+.d3-sal-doc-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; min-width: 0; }
+.d3-sal-doc-list li { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 6px 6px 6px 8px; border: 1px solid var(--d3-line, #e6e6e3); border-radius: 12px; background: var(--d3-white, #fdfdfc); }
+.d3-sal-doc-open { display: flex; flex: 1; align-items: center; gap: 10px; min-width: 0; padding: 0; border: 0; background: transparent; text-align: left; cursor: pointer; }
+.d3-sal-doc-ico { display: grid; flex: none; place-items: center; width: 36px; height: 36px; border-radius: 10px; background: var(--d3-bg-2, #f1f1ee); color: var(--d3-ink, #272727); }
+.d3-sal-doc-ico.is-excel { background: #e6f2ea; color: #1d6b3a; }
+.d3-sal-doc-ico.is-pdf { background: #fbe9e6; color: #a8321e; }
+.d3-sal-doc-name { display: grid; min-width: 0; flex: 1; }
+.d3-sal-doc-name b { overflow: hidden; font-size: 14px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.d3-sal-doc-name small { color: var(--d3-dim, #6b6b69); font-size: 12px; }
+.d3-sal-doc-add { display: grid; grid-template-columns: auto 1fr; align-items: center; column-gap: 8px; width: 100%; min-height: 48px; padding: 8px 12px; border: 1px dashed var(--d3-line-2, #d6d6d3); border-radius: 12px; background: transparent; color: var(--d3-ink, #272727); font-size: 14px; text-align: left; cursor: pointer; }
+.d3-sal-doc-add small { grid-column: 2; color: var(--d3-dim, #6b6b69); font-size: 12px; }
+.d3-sal-doc-add:disabled { opacity: .6; cursor: default; }

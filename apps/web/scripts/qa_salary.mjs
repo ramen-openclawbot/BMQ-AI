@@ -35,6 +35,7 @@ const STATE = JSON.parse(sessionStorage.getItem("qa-salary") || "null") || {
     { id: "l-hau", payout_id: PAYOUT_ID, employee_code: "NV03", employee_name: "Lê Văn Hậu", net_pay: 7000000, receipt_storage_path: null, receipt_sha256: null, receipt_amount: null, receipt_beneficiary: null, receipt_reference: null, matched_at: null, matched_by: null },
   ],
   receipts: [],
+  attachments: [],
 };
 const save = () => sessionStorage.setItem("qa-salary", JSON.stringify(STATE));
 const OCR = [ { amount: 8000000, ben: "TRAN VAN BINH" }, { amount: 8000000, ben: "NGUYEN THI XUAN MAI" }, { amount: null, ben: null }, { amount: 5000000, ben: "KHACH LE" } ];
@@ -82,6 +83,14 @@ async function invoke(name, options) {
   window.__qaCalls.push({ fn: "invoke:" + name, mode: body.mode, payout_id: body.payout_id, size: (body.image_base64 || "").length });
   if (name !== "salary-payout") { window.__qaWrites.push("invoke:" + name); return { data: null, error: { message: "QA fixture: functions disabled" } }; }
   await sleep(150);
+  if (body.mode === "attach") {
+    window.__qaCalls.push({ fn: "attach", name: body.file_name, mime: body.mime_type });
+    const a = { id: "at-" + (STATE.attachments.length + 1) + "-" + Date.now(), payout_id: body.payout_id, storage_path: body.payout_id + "/x", file_name: body.file_name, mime_type: body.mime_type, size_bytes: 2048, file_sha256: "a".repeat(64), uploaded_by: cfg().userId || "qa-user", created_at: new Date().toISOString() };
+    STATE.attachments.push(a); save();
+    return { data: { success: true, duplicate: false, attachment: a }, error: null };
+  }
+  if (body.mode === "detach") { window.__qaCalls.push({ fn: "detach", id: body.attachment_id }); STATE.attachments = STATE.attachments.filter((a) => a.id !== body.attachment_id); save(); return { data: { success: true, id: body.attachment_id, removed: true }, error: null }; }
+  if (body.mode === "attachment_url") { window.__qaCalls.push({ fn: "url", id: body.attachment_id }); return { data: { success: true, signed_url: SVG, expires_in: 300 }, error: null }; }
   if (body.mode === "ceo_extract") return { data: { storage_path: "payment-unc/salary/2026/10/ceo.jpg", file_sha256: "c".repeat(64), ocr_amount: 23000000, ocr_reference: "FT1" }, error: null };
   const n = (window.__qaN = (window.__qaN || 0) + 1) - 1;
   const o = OCR[n];
@@ -205,6 +214,7 @@ try {
     await page.waitForSelector('[data-bmq-salary-status="pending"]');
     assert.equal((await calls(page)).filter((c) => c.fn === "create")[0].p_period_id, "per-1");
     assert.ok((await page.locator("[data-bmq-salary-total]").textContent()).includes("23.000.000"));
+    assert.equal(await page.locator("[data-bmq-salary-docs] [data-bmq-salary-docs-pick]").count(), 1, "chứng từ can be added while pending");
     assert.ok(await pageOverflow(page) <= 0, `page overflow pending ${w}`);
     await page.screenshot({ path: `${EVIDENCE}/pending-${w}.png`, fullPage: true });
 
@@ -238,6 +248,7 @@ try {
     assert.deepEqual(pairs, ["rc-1>l-binh", "rc-2>l-mai", "rc-3>l-hau:7000000"], pairs.join());
     assert.deepEqual(await states(page, "data-bmq-salary-line"), ["done", "done", "done"]);
     assert.equal(await page.locator("[data-bmq-salary-slip-pick]").count(), 0);
+    assert.equal(await page.locator("[data-bmq-salary-docs-pick]").count(), 0, "no adding chứng từ after completed");
     await page.screenshot({ path: `${EVIDENCE}/completed-${w}.png`, fullPage: true });
     const writes = await page.evaluate(() => window.__qaWrites);
     assert.deepEqual(writes, [], "no other writes: " + writes.join());
@@ -263,6 +274,12 @@ try {
     await page.locator("[data-bmq-salary-manual-name]").nth(1).fill("Võ Minh Tú");
     await page.locator("[data-bmq-salary-manual-amount]").nth(1).fill("3200000");
     assert.ok((await page.locator("[data-bmq-salary-create] .d3-ub-foot").textContent()).includes("7.700.000"));
+    await page.setInputFiles("[data-bmq-salary-docs-picker] [data-bmq-salary-docs-file]", [
+      { name: "Bang luong le T10 voi ten file rat dai de kiem tra cat chu.xlsx", mimeType: "", buffer: Buffer.from("PK fake xlsx") },
+      { name: "bang-luong.png", mimeType: "image/png", buffer: SLIPS[0].buffer },
+      { name: "hop-dong.docx", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", buffer: Buffer.from("x") },
+    ]);
+    assert.equal(await page.locator("[data-bmq-salary-doc-pending]").count(), 2, "docx rejected, xlsx (no type) + png kept");
     assert.ok(await page.$eval("[data-bmq-salary-dialog]", (el) => el.scrollWidth - el.clientWidth) <= 0, `manual dialog overflow ${w}`);
     await page.locator("[data-bmq-salary-dialog]").screenshot({ path: `${EVIDENCE}/manual-${w}.png` });
     await page.locator("[data-bmq-salary-manual-save]").click();
@@ -272,6 +289,27 @@ try {
     assert.deepEqual(cm[0].p_payload.lines.map((l) => [l.employee_name, l.amount]), [["Phạm Thị Lan", 4500000], ["Võ Minh Tú", 3200000]]);
     assert.ok(cm[0].p_idempotency_key.startsWith("salary-manual:"));
     await page.waitForFunction(() => document.querySelector(".d3-csp-head .d3-up-tag")?.textContent?.startsWith("Lương lẻ"));
+    const att = (await page.evaluate(() => window.__qaCalls)).filter((c) => c.fn === "attach");
+    assert.deepEqual(att.map((c) => c.mime), ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "image/png"]);
+    await page.waitForFunction(() => document.querySelectorAll("[data-bmq-salary-doc]").length === 2);
+    assert.deepEqual(await states(page, "data-bmq-salary-doc"), ["excel", "image"]);
+    // Image opens in the viewer; Excel asks for a signed link (download).
+    await page.locator('[data-bmq-salary-doc="image"] .d3-sal-doc-open').click();
+    await page.waitForSelector(".d3-unc-ev-zoom img");
+    await page.keyboard.press("Escape");
+    const popup = page.context().waitForEvent("page", { timeout: 5000 }).catch(() => null);
+    await page.locator('[data-bmq-salary-doc="excel"] .d3-sal-doc-open').click();
+    await popup;
+    await page.waitForFunction(() => window.__qaCalls.filter((c) => c.fn === "url").length === 2, null, { timeout: 5000 });
+    assert.ok(await pageOverflow(page) <= 0, `page overflow docs ${w}`);
+    await page.locator("[data-bmq-salary-docs]").screenshot({ path: `${EVIDENCE}/docs-${w}.png` });
+    // Uploader removes one, then adds a PDF from the page.
+    await page.locator('[data-bmq-salary-doc="image"] [data-bmq-salary-doc-remove]').click();
+    await page.waitForFunction(() => document.querySelectorAll("[data-bmq-salary-doc]").length === 1);
+    await page.setInputFiles("[data-bmq-salary-docs] [data-bmq-salary-docs-file]", [{ name: "bang-ky.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4") }]);
+    await page.waitForFunction(() => document.querySelectorAll("[data-bmq-salary-doc]").length === 2);
+    assert.deepEqual(await states(page, "data-bmq-salary-doc"), ["excel", "pdf"]);
+    await page.screenshot({ path: `${EVIDENCE}/manual-page-${w}.png`, fullPage: true });
     assert.deepEqual(errors, []);
     console.log("PASS", `manual salary ${w}`);
     await context.close();

@@ -11,6 +11,41 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
 const UNC_BUCKET = "payment-unc";
 const ALLOWED_MIME_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 
+// Salary payout supporting documents: a separate private bucket, no
+// storage.objects policy, service-role only. The client gets signed URLs.
+const SALARY_DOCUMENTS_BUCKET = "salary-documents";
+const ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
+const ATTACHMENT_MAX_COUNT = 20;
+const ATTACHMENT_SIGNED_URL_SECONDS = 300;
+const ATTACHMENT_MIME_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/heic",
+  "application/pdf",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+];
+const ATTACHMENT_MIME_EXTENSIONS: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+  "image/heic": "heic",
+  "application/pdf": "pdf",
+  "application/vnd.ms-excel": "xls",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+};
+const ATTACHMENT_EXTENSION_MIME: Record<string, string> = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+  heic: "image/heic",
+  pdf: "application/pdf",
+  xls: "application/vnd.ms-excel",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+};
+
 // callOpenAiVision returns the normalized amount envelope; the tool also reads
 // the extra slip fields below, exactly like payment-unc-approve / payment-cash-settle.
 type SlipOcrResult = Awaited<ReturnType<typeof callOpenAiVision>> & {
@@ -146,6 +181,95 @@ const readUploadInput = (
   } catch {
     return structuredError(req, 400, "invalid_image_encoding");
   }
+};
+
+/**
+ * Owner or salary_cash <permission> gate for the attachment actions.
+ * Errors use the attachment error vocabulary (insufficient_privilege).
+ */
+async function requireSalaryPermission(
+  req: Request,
+  supabaseAdmin: AdminClient,
+  permission: "edit" | "view",
+): Promise<{ id: string; isOwner: boolean } | Response> {
+  const token = bearerToken(req);
+  if (!token) return structuredError(req, 401, "insufficient_privilege", "missing_authorization");
+  const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+  if (error || !user) return structuredError(req, 401, "insufficient_privilege", "invalid_token");
+
+  const roles = await readRoles(supabaseAdmin, user.id);
+  if (!roles) return structuredError(req, 500, "role_lookup_failed");
+  if (roles.includes("owner")) return { id: user.id, isOwner: true };
+
+  const { data: allowed, error: permissionError } = await supabaseAdmin.rpc("has_module_permission", {
+    _user_id: user.id,
+    _module_key: "salary_cash",
+    _permission: permission,
+  });
+  if (permissionError) return structuredError(req, 500, "permission_lookup_failed");
+  if (allowed !== true) {
+    return structuredError(req, 403, "insufficient_privilege", `salary_cash_${permission}_required`);
+  }
+  return { id: user.id, isOwner: false };
+}
+
+const fileExtensionOf = (name: string): string => {
+  const base = name.split(/[\\/]/).pop() || "";
+  const dot = base.lastIndexOf(".");
+  return dot >= 0 ? base.slice(dot + 1).toLowerCase() : "";
+};
+
+/** Declared mime when usable, else the extension fallback. */
+const resolveAttachmentMime = (fileName: string, declaredType: string): string => {
+  const declared = declaredType.trim().toLowerCase();
+  if (declared && declared !== "application/octet-stream") return declared;
+  return ATTACHMENT_EXTENSION_MIME[fileExtensionOf(fileName)] || "";
+};
+
+const isExcelMime = (mime: string): boolean =>
+  mime === "application/vnd.ms-excel" ||
+  mime === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+const readAttachmentInput = (
+  req: Request,
+  body: Record<string, unknown>,
+): { bytes: Uint8Array; mimeType: string; fileName: string } | Response => {
+  const imageBase64 = asTrimmed(body.image_base64 || body.imageBase64);
+  const fileName = asTrimmed(body.file_name || body.fileName);
+  if (!imageBase64 || !fileName) {
+    return structuredError(req, 400, "unsupported_type", "file_required");
+  }
+  if (fileName.length > 200) {
+    return structuredError(req, 400, "unsupported_type", "invalid_file_name");
+  }
+
+  const mimeType = resolveAttachmentMime(fileName, asTrimmed(body.mime_type || body.mimeType));
+  if (!mimeType || !ATTACHMENT_MIME_TYPES.includes(mimeType)) {
+    return structuredError(req, 400, "unsupported_type", mimeType || "unknown_type");
+  }
+  if (imageBase64.length > Math.ceil((ATTACHMENT_MAX_BYTES * 4) / 3) + 32) {
+    return structuredError(req, 400, "file_too_large");
+  }
+
+  let bytes: Uint8Array;
+  try {
+    bytes = decodeBase64(imageBase64);
+  } catch {
+    return structuredError(req, 400, "unsupported_type", "invalid_encoding");
+  }
+  if (bytes.length < 1) return structuredError(req, 400, "unsupported_type", "empty_file");
+  if (bytes.length > ATTACHMENT_MAX_BYTES) return structuredError(req, 400, "file_too_large");
+  return { bytes, mimeType, fileName };
+};
+
+const findAttachmentById = async (supabaseAdmin: AdminClient, attachmentId: string) => {
+  const { data, error } = await supabaseAdmin
+    .from("salary_payout_attachments")
+    .select("*")
+    .eq("id", attachmentId)
+    .maybeSingle();
+  if (error) return { attachment: null, error };
+  return { attachment: data, error: null };
 };
 
 const handleCeoExtract = async (
@@ -316,6 +440,191 @@ const handleReceiptExtract = async (
   });
 };
 
+// ---------------------------------------------------------------------------
+// Supporting documents (salary-documents): attach / detach / attachment_url.
+// Every action is service-role only and never enqueues a Zalo notice.
+// ---------------------------------------------------------------------------
+
+const handleAttach = async (
+  req: Request,
+  supabaseAdmin: AdminClient,
+  body: Record<string, unknown>,
+  actorId: string,
+): Promise<Response> => {
+  const payoutId = asTrimmed(body.payout_id || body.payoutId);
+  if (!UUID_RE.test(payoutId)) return structuredError(req, 400, "payout_not_found");
+
+  const { data: payout, error: payoutError } = await supabaseAdmin
+    .from("salary_payouts")
+    .select("id,status")
+    .eq("id", payoutId)
+    .maybeSingle();
+  if (payoutError) return structuredError(req, 500, "payout_lookup_failed");
+  if (!payout) return structuredError(req, 404, "payout_not_found");
+  if (payout.status === "completed") return structuredError(req, 409, "payout_completed");
+
+  const upload = readAttachmentInput(req, body);
+  if (upload instanceof Response) return upload;
+
+  const fileSha256 = await sha256Hex(upload.bytes);
+
+  // Idempotent retry: same payout + same content returns the stored row.
+  const { data: existing, error: existingError } = await supabaseAdmin
+    .from("salary_payout_attachments")
+    .select("*")
+    .eq("payout_id", payoutId)
+    .eq("file_sha256", fileSha256)
+    .maybeSingle();
+  if (existingError) return structuredError(req, 500, "attachment_lookup_failed");
+  if (existing) {
+    return jsonResponse(req, 200, { success: true, duplicate: true, attachment: existing });
+  }
+
+  const { count, error: countError } = await supabaseAdmin
+    .from("salary_payout_attachments")
+    .select("id", { count: "exact", head: true })
+    .eq("payout_id", payoutId);
+  if (countError) return structuredError(req, 500, "attachment_lookup_failed");
+  if ((count ?? 0) >= ATTACHMENT_MAX_COUNT) {
+    return structuredError(req, 400, "too_many_attachments");
+  }
+
+  const extension = ATTACHMENT_MIME_EXTENSIONS[upload.mimeType] || "bin";
+  const objectPath = `${payoutId}/${fileSha256}.${extension}`;
+
+  const { error: uploadError } = await supabaseAdmin.storage
+    .from(SALARY_DOCUMENTS_BUCKET)
+    .upload(objectPath, upload.bytes, { contentType: upload.mimeType, upsert: true });
+  if (uploadError) {
+    console.error("[salary-payout] Attachment upload failed", uploadError.message);
+    return structuredError(req, 500, "upload_failed");
+  }
+
+  const row = {
+    payout_id: payoutId,
+    storage_path: objectPath,
+    file_name: upload.fileName,
+    mime_type: upload.mimeType,
+    size_bytes: upload.bytes.length,
+    file_sha256: fileSha256,
+    uploaded_by: actorId,
+  };
+
+  const { data: inserted, error: insertError } = await supabaseAdmin
+    .from("salary_payout_attachments")
+    .upsert(row, { onConflict: "payout_id,file_sha256", ignoreDuplicates: true })
+    .select()
+    .maybeSingle();
+  if (insertError) {
+    console.error("[salary-payout] Attachment insert failed", insertError.message);
+    return structuredError(req, 500, "upload_failed");
+  }
+  if (inserted) {
+    return jsonResponse(req, 200, { success: true, duplicate: false, attachment: inserted });
+  }
+
+  // Lost a race on (payout_id, file_sha256): return the row that won.
+  const { data: raced, error: raceError } = await supabaseAdmin
+    .from("salary_payout_attachments")
+    .select("*")
+    .eq("payout_id", payoutId)
+    .eq("file_sha256", fileSha256)
+    .maybeSingle();
+  if (raceError || !raced) return structuredError(req, 500, "upload_failed");
+  return jsonResponse(req, 200, { success: true, duplicate: true, attachment: raced });
+};
+
+const handleDetach = async (
+  req: Request,
+  supabaseAdmin: AdminClient,
+  body: Record<string, unknown>,
+  actor: { id: string; isOwner: boolean },
+): Promise<Response> => {
+  const attachmentId = asTrimmed(body.attachment_id || body.attachmentId);
+  if (!UUID_RE.test(attachmentId)) return structuredError(req, 400, "attachment_not_found");
+
+  const found = await findAttachmentById(supabaseAdmin, attachmentId);
+  if (found.error) return structuredError(req, 500, "attachment_lookup_failed");
+  const attachment = found.attachment as {
+    id: string;
+    payout_id: string;
+    storage_path: string;
+    uploaded_by: string | null;
+  } | null;
+  if (!attachment) return structuredError(req, 404, "attachment_not_found");
+
+  // Owner, or the uploader holding salary_cash edit (already gated above).
+  if (!actor.isOwner && attachment.uploaded_by !== actor.id) {
+    return structuredError(req, 403, "insufficient_privilege", "uploader_or_owner_required");
+  }
+
+  const { data: payout, error: payoutError } = await supabaseAdmin
+    .from("salary_payouts")
+    .select("id,status")
+    .eq("id", attachment.payout_id)
+    .maybeSingle();
+  if (payoutError) return structuredError(req, 500, "payout_lookup_failed");
+  if (!payout) return structuredError(req, 404, "payout_not_found");
+  if (payout.status === "completed") return structuredError(req, 409, "payout_completed");
+
+  const { error: deleteError } = await supabaseAdmin
+    .from("salary_payout_attachments")
+    .delete()
+    .eq("id", attachmentId);
+  if (deleteError) {
+    console.error("[salary-payout] Attachment delete failed", deleteError.message);
+    return structuredError(req, 500, "attachment_delete_failed");
+  }
+
+  // Row is gone; a leftover private object is inert and never listed.
+  const { error: removeError } = await supabaseAdmin.storage
+    .from(SALARY_DOCUMENTS_BUCKET)
+    .remove([attachment.storage_path]);
+  if (removeError) {
+    console.error("[salary-payout] Attachment object removal failed", removeError.message);
+  }
+
+  return jsonResponse(req, 200, { success: true, id: attachmentId, removed: true });
+};
+
+const handleAttachmentUrl = async (
+  req: Request,
+  supabaseAdmin: AdminClient,
+  body: Record<string, unknown>,
+): Promise<Response> => {
+  const attachmentId = asTrimmed(body.attachment_id || body.attachmentId);
+  if (!UUID_RE.test(attachmentId)) return structuredError(req, 400, "attachment_not_found");
+
+  const found = await findAttachmentById(supabaseAdmin, attachmentId);
+  if (found.error) return structuredError(req, 500, "attachment_lookup_failed");
+  const attachment = found.attachment as {
+    id: string;
+    storage_path: string;
+    file_name: string;
+    mime_type: string;
+  } | null;
+  if (!attachment) return structuredError(req, 404, "attachment_not_found");
+
+  // Excel downloads keep their file name; other kinds render inline.
+  const options = isExcelMime(String(attachment.mime_type || ""))
+    ? { download: String(attachment.file_name || "") }
+    : undefined;
+  const { data: signed, error: signedError } = await supabaseAdmin.storage
+    .from(SALARY_DOCUMENTS_BUCKET)
+    .createSignedUrl(String(attachment.storage_path), ATTACHMENT_SIGNED_URL_SECONDS, options);
+  if (signedError || !signed?.signedUrl) {
+    console.error("[salary-payout] Attachment signed url failed", signedError?.message);
+    return structuredError(req, 500, "signed_url_failed");
+  }
+
+  return jsonResponse(req, 200, {
+    success: true,
+    attachment_id: attachmentId,
+    signed_url: signed.signedUrl,
+    expires_in: ATTACHMENT_SIGNED_URL_SECONDS,
+  });
+};
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return corsPreflightResponse(req);
   if (req.method !== "POST") return structuredError(req, 405, "method_not_allowed");
@@ -345,6 +654,21 @@ serve(async (req) => {
     const actor = await requireSalaryEdit(req, supabaseAdmin);
     if (actor instanceof Response) return actor;
     return handleReceiptExtract(req, supabaseAdmin, body, actor.id);
+  }
+  if (mode === "attach") {
+    const actor = await requireSalaryPermission(req, supabaseAdmin, "edit");
+    if (actor instanceof Response) return actor;
+    return handleAttach(req, supabaseAdmin, body, actor.id);
+  }
+  if (mode === "detach") {
+    const actor = await requireSalaryPermission(req, supabaseAdmin, "edit");
+    if (actor instanceof Response) return actor;
+    return handleDetach(req, supabaseAdmin, body, actor);
+  }
+  if (mode === "attachment_url") {
+    const actor = await requireSalaryPermission(req, supabaseAdmin, "view");
+    if (actor instanceof Response) return actor;
+    return handleAttachmentUrl(req, supabaseAdmin, body);
   }
   return structuredError(req, 400, "invalid_mode");
 });

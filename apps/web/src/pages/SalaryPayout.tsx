@@ -14,6 +14,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { fileToJpegBase64 } from "@/components/payment-requests/UncApprovalDialog";
 import { getUncEvidenceSignedUrl } from "@/hooks/usePaymentRequestUncEvidence";
 import { useSalaryPayout, type SalaryPayoutCeoEvidence } from "@/hooks/useSalaryPayout";
+import { SalaryAttachmentsCard } from "@/components/payment-requests/SalaryAttachments";
 import { matchSalaryPayout } from "@/lib/salary-payout-match";
 import { cn } from "@/lib/utils";
 import "@/styles/bmq-urgent-payables.css";
@@ -343,6 +344,13 @@ export default function SalaryPayout() {
               </div>
             )}
           </section>
+
+          <SalaryAttachmentsCard
+            payoutId={payout.id}
+            attachments={data?.attachments ?? []}
+            canAdd={canEdit && payout.status !== "completed" && payout.status !== "cancelled"}
+            onOpenImage={setZoom}
+          />
         </>
       )}
 

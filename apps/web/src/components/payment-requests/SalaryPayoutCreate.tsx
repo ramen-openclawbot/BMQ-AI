@@ -9,6 +9,8 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useSalaryPayout } from "@/hooks/useSalaryPayout";
+import { useSalaryPayoutAttachments } from "@/hooks/useSalaryPayoutAttachments";
+import { SalaryAttachmentPicker, toSalaryUploadInputs } from "@/components/payment-requests/SalaryAttachments";
 import { validateManualSalaryPayout } from "@/lib/salary-manual-lines";
 import "@/styles/bmq-pr-create.css";
 
@@ -55,6 +57,8 @@ export function SalaryPayoutCreate({ kind, onKindChange: setKind, onDone }: Prop
   const [rows, setRows] = useState<Row[]>([newRow()]);
   const [errors, setErrors] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  const [docs, setDocs] = useState<File[]>([]);
+  const { uploadSalaryAttachments } = useSalaryPayoutAttachments();
   const sessionRef = useRef(`${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
   const published = periods.filter((p) => p.published_at);
 
@@ -71,7 +75,16 @@ export function SalaryPayoutCreate({ kind, onKindChange: setKind, onDone }: Prop
     setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   };
 
-  const finish = (payoutId: string, number: string) => {
+  const finish = async (payoutId: string, number: string) => {
+    // Chứng từ go up once the phiếu exists; a failed file never undoes the phiếu.
+    if (docs.length) {
+      try {
+        const result = await uploadSalaryAttachments(payoutId, await toSalaryUploadInputs(docs));
+        if (result.failed.length) toast.warning(`Chưa đính kèm được ${result.failed.length} chứng từ. Mở phiếu để thêm lại.`);
+      } catch {
+        toast.warning("Chưa đính kèm được chứng từ. Mở phiếu để thêm lại.");
+      }
+    }
     toast.success(`Đã tạo ${number}. Nhóm Zalo đã được báo (không kèm số tiền).`);
     onDone();
     navigate(`/salary-payouts/${payoutId}`);
@@ -82,7 +95,7 @@ export function SalaryPayoutCreate({ kind, onKindChange: setKind, onDone }: Prop
     setSaving(true);
     try {
       const result = await create(picked);
-      finish(result.payout_id, result.payout_number);
+      await finish(result.payout_id, result.payout_number);
     } catch (err) {
       toast.error(errorText(err, "Chưa tạo được phiếu chi lương."));
     } finally {
@@ -101,7 +114,7 @@ export function SalaryPayoutCreate({ kind, onKindChange: setKind, onDone }: Prop
     setSaving(true);
     try {
       const result = await createManual({ title: title.trim(), lines }, { sessionId: sessionRef.current });
-      finish(result.payout_id, result.payout_number);
+      await finish(result.payout_id, result.payout_number);
     } catch (err) {
       const message = errorText(err, "Chưa tạo được phiếu lương lẻ.");
       setErrors([message]);
@@ -183,6 +196,8 @@ export function SalaryPayoutCreate({ kind, onKindChange: setKind, onDone }: Prop
           )}
         </>
       )}
+
+      <SalaryAttachmentPicker files={docs} onChange={setDocs} disabled={saving} />
 
       <p className="d3-prc-hint">Tin Zalo chỉ có mã phiếu, tên kỳ lương và số nhân viên. Số tiền chỉ xem được trong app với quyền Chi lương.</p>
       <div className="d3-ub-foot">

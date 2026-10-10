@@ -18,6 +18,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { supabase } from "@/integrations/supabase/client";
 import { buildManualSalaryIdempotencyKey } from "@/lib/salary-manual-lines";
+import type { SalaryPayoutAttachment } from "@/lib/salary-attachments";
 
 /** At most two OCR calls in flight so the OpenAI Vision gateway is not flooded. */
 export const MAX_PARALLEL_SALARY_RECEIPT_EXTRACTS = 2;
@@ -127,6 +128,8 @@ export interface SalaryPayoutData {
   payout: SalaryPayoutHeader;
   lines: SalaryPayoutLine[];
   receipts: SalaryPayoutReceipt[];
+  /** Supporting documents (image/PDF/Excel); absent on older responses. */
+  attachments?: SalaryPayoutAttachment[];
 }
 
 export interface SalaryPayoutCreateResult {
