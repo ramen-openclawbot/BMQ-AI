@@ -13,6 +13,18 @@ import {
   paymentRequestReceiptErrorCode,
   type PaymentRequestReceiptErrorCode,
 } from "@/lib/payment-request-receipt";
+import { financeReconciliationErrorFromRaw } from "@/lib/finance-reconciliation-flags";
+
+/**
+ * Server guards raise blocking codes (e.g. "pr_requires_delivery_image: PN-01")
+ * inside the approve RPC; surface the matching Vietnamese message instead of the
+ * raw code. Existing errors are returned untouched.
+ */
+function translateFinanceApprovalError(error: unknown): unknown {
+  const raw = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  const translated = financeReconciliationErrorFromRaw(raw);
+  return translated ? new Error(translated) : error;
+}
 
 type PaymentRequest = Database["public"]["Tables"]["payment_requests"]["Row"];
 type PaymentRequestItem = Database["public"]["Tables"]["payment_request_items"]["Row"];
@@ -271,7 +283,11 @@ export function useApprovePaymentRequest() {
   return useMutation({
     mutationFn: async ({ id, paymentMethod }: { id: string; paymentMethod: "bank_transfer" | "cash" }) => {
       const actorId = await getCurrentActorId();
-      return approvePaymentRequestWithMaterialController({ paymentRequestId: id, paymentMethod, actorId });
+      try {
+        return await approvePaymentRequestWithMaterialController({ paymentRequestId: id, paymentMethod, actorId });
+      } catch (error) {
+        throw translateFinanceApprovalError(error);
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["payment-requests"] });
@@ -495,7 +511,13 @@ export function useBulkApprovePaymentRequest() {
     mutationFn: async (ids: string[]) => {
       const actorId = await getCurrentActorId();
       const settled = await Promise.allSettled(
-        ids.map((id) => approvePaymentRequestWithMaterialController({ paymentRequestId: id, paymentMethod: "bank_transfer", actorId })),
+        ids.map(async (id) => {
+          try {
+            return await approvePaymentRequestWithMaterialController({ paymentRequestId: id, paymentMethod: "bank_transfer", actorId });
+          } catch (error) {
+            throw translateFinanceApprovalError(error);
+          }
+        }),
       );
 
       return summarizeApprovalResults(ids, settled);

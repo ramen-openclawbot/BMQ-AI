@@ -3,6 +3,10 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { usePaymentUncApproval } from "@/hooks/usePaymentUncApproval";
 import {
+  financeReconciliationErrorCode,
+  financeReconciliationErrorFromRaw,
+} from "@/lib/finance-reconciliation-flags";
+import {
   matchUncBulk,
   type UncBulkAllocation,
   type UncBulkMatchResult,
@@ -86,7 +90,26 @@ const initialItem = (index: number): PaymentUncBulkItem => ({
   errorDetail: null,
 });
 
+const errorTextOf = (error: unknown): string => {
+  if (error && typeof error === "object") {
+    const record = error as { detail?: unknown; message?: unknown };
+    const parts: string[] = [];
+    if (typeof record.detail === "string" && record.detail.trim()) parts.push(record.detail);
+    if (typeof record.message === "string" && record.message.trim()) parts.push(record.message);
+    if (parts.length) return parts.join(" | ");
+  }
+  return error instanceof Error ? error.message : "";
+};
+
+/**
+ * Blocking guards inside approve_payment_requests_with_unc come back as
+ * PaymentUncApprovalError with the raw database message in `.detail` (the edge
+ * function collapses unknown codes to "approval_failed"). Map any known code,
+ * including pr_requires_delivery_image, so the UI shows the Vietnamese message.
+ */
 const errorCodeOf = (error: unknown): string => {
+  const parsed = financeReconciliationErrorCode(errorTextOf(error));
+  if (parsed) return parsed;
   if (error && typeof error === "object" && "code" in error) {
     const code = (error as { code?: unknown }).code;
     if (typeof code === "string" && code) return code;
@@ -94,8 +117,11 @@ const errorCodeOf = (error: unknown): string => {
   return "bulk_unc_failed";
 };
 
-const errorDetailOf = (error: unknown): string | null =>
-  error instanceof Error ? error.message : null;
+const errorDetailOf = (error: unknown): string | null => {
+  const translated = financeReconciliationErrorFromRaw(errorTextOf(error));
+  if (translated) return translated;
+  return error instanceof Error ? error.message : null;
+};
 
 /**
  * No UI: reads many UNC images (extract mode, max two in parallel), pairs them

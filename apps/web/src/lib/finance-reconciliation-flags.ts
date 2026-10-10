@@ -81,7 +81,48 @@ export const FINANCE_RECONCILIATION_ERROR_MESSAGES: Record<string, string> = {
     "Quyết định duyệt cặp phiếu nghi trùng không hợp lệ.",
   check_not_found:
     "Không tìm thấy kết quả quét cặp phiếu nghi trùng này.",
+  // Trigger public.guard_payment_request_delivery_image raises
+  // "pr_requires_delivery_image: <receipt_number>" (errcode P0001) when a phiếu
+  // chi is approved against a PO receipt without a delivery image.
+  pr_requires_delivery_image:
+    "Phiếu nhập {receipt_number} chưa có ảnh phiếu giao hàng. Mở phiếu nhập, tải ảnh giao hàng rồi duyệt lại.",
 };
+
+/** Blocking code raised by public.guard_payment_request_delivery_image. */
+export const PR_REQUIRES_DELIVERY_IMAGE_CODE = "pr_requires_delivery_image";
+
+/**
+ * Read the receipt number out of a raw `pr_requires_delivery_image: <number>`
+ * server error. PostgREST may wrap the database message in a bigger string, so
+ * the code is searched anywhere; returns null when it is absent.
+ */
+export function deliveryImageReceiptNumber(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const match = raw.match(/pr_requires_delivery_image:\s*"?([^\s;,"')]+)/);
+  return match ? match[1] : null;
+}
+
+/** First known blocking code contained in a raw server error, or null. */
+export function financeReconciliationErrorCode(raw: string | null | undefined): string | null {
+  const text = (raw ?? "").trim();
+  if (!text) return null;
+  for (const code of Object.keys(FINANCE_RECONCILIATION_ERROR_MESSAGES)) {
+    if (text === code || text.includes(code)) return code;
+  }
+  return null;
+}
+
+/**
+ * Vietnamese message for a raw server error when it carries one of the known
+ * blocking codes, including the `code: detail` form such as the delivery-image
+ * trigger error. Returns null when no known code matches.
+ */
+export function financeReconciliationErrorFromRaw(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const code = financeReconciliationErrorCode(raw);
+  if (!code) return null;
+  return financeReconciliationErrorMessage(code, raw);
+}
 
 export function financeReconciliationLabel(label: string): string {
   return FINANCE_RECONCILIATION_LABELS[label] ?? label;
@@ -125,6 +166,11 @@ export function groupFlags(
 }
 
 /** Vietnamese message for a new blocking error code, or null if unknown. */
-export function financeReconciliationErrorMessage(code: string): string | null {
-  return FINANCE_RECONCILIATION_ERROR_MESSAGES[code] ?? null;
+export function financeReconciliationErrorMessage(code: string, raw?: string | null): string | null {
+  const template = FINANCE_RECONCILIATION_ERROR_MESSAGES[code];
+  if (!template) return null;
+  if (code === PR_REQUIRES_DELIVERY_IMAGE_CODE) {
+    return template.replace("{receipt_number}", deliveryImageReceiptNumber(raw) ?? "?");
+  }
+  return template;
 }

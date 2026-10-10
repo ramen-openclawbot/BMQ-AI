@@ -5,6 +5,10 @@ import {
   FINANCE_RECONCILIATION_ERROR_MESSAGES,
   FINANCE_RECONCILIATION_LABELS,
   FINANCE_RECONCILIATION_PRIORITY_ORDER,
+  PR_REQUIRES_DELIVERY_IMAGE_CODE,
+  deliveryImageReceiptNumber,
+  financeReconciliationErrorCode,
+  financeReconciliationErrorFromRaw,
   financeReconciliationErrorMessage,
   financeReconciliationLabel,
   financeReconciliationPriority,
@@ -142,4 +146,36 @@ test("maps the Jev review RPC error codes to Vietnamese messages", () => {
     assert.equal(message, FINANCE_RECONCILIATION_ERROR_MESSAGES[code]);
   }
   assert.ok(financeReconciliationErrorMessage("check_not_found")!.includes("cặp phiếu"));
+});
+
+test("maps the delivery-image guard code and fills in the receipt number", () => {
+  const code = PR_REQUIRES_DELIVERY_IMAGE_CODE;
+  assert.equal(code, "pr_requires_delivery_image");
+  assert.ok(FINANCE_RECONCILIATION_ERROR_MESSAGES[code].includes("ảnh phiếu giao hàng"));
+
+  const message = financeReconciliationErrorMessage(code, "pr_requires_delivery_image: PN-000123");
+  assert.ok(message, "missing message for the delivery-image code");
+  assert.ok(message!.includes("PN-000123"));
+  assert.ok(message!.includes("tải ảnh giao hàng rồi duyệt lại"));
+
+  assert.equal(deliveryImageReceiptNumber("pr_requires_delivery_image: PN-000123"), "PN-000123");
+  assert.equal(financeReconciliationErrorCode("pr_requires_delivery_image: PN-000123"), code);
+  assert.equal(financeReconciliationErrorFromRaw("pr_requires_delivery_image: PN-000123"), message);
+});
+
+test("reads the delivery-image receipt number through a PostgREST prefix", () => {
+  const raw = 'PostgrestError: pr_requires_delivery_image: "PN-000456"';
+  assert.equal(deliveryImageReceiptNumber(raw), "PN-000456");
+  assert.equal(financeReconciliationErrorCode(raw), PR_REQUIRES_DELIVERY_IMAGE_CODE);
+
+  const message = financeReconciliationErrorFromRaw(raw);
+  assert.ok(message, "missing message when PostgREST prefixes the error");
+  assert.ok(message!.includes("PN-000456"));
+  assert.ok(!message!.includes("PostgrestError"));
+});
+
+test("does not translate an unrecognised raw error", () => {
+  assert.equal(financeReconciliationErrorFromRaw("some other failure"), null);
+  assert.equal(financeReconciliationErrorFromRaw(""), null);
+  assert.equal(deliveryImageReceiptNumber("some other failure"), null);
 });
