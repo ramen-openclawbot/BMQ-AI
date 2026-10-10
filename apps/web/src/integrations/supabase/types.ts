@@ -32,111 +32,6 @@ export type Database = {
         }
         Relationships: []
       }
-      ceo_cash_expense_drafts: {
-        Row: {
-          amount: number | null
-          cost_category_code: string | null
-          created_at: string
-          created_by: string | null
-          description: string | null
-          evidence_id: string | null
-          expense_date: string | null
-          file_sha256: string
-          id: string
-          idempotency_key: string | null
-          items: Json
-          matched_supplier_id: string | null
-          ocr_error: string | null
-          ocr_json: Json | null
-          payee_name: string | null
-          payment_id: string | null
-          payment_request_id: string | null
-          recorded_at: string | null
-          status: string
-          storage_path: string
-        }
-        Insert: {
-          amount?: number | null
-          cost_category_code?: string | null
-          created_at?: string
-          created_by?: string | null
-          description?: string | null
-          evidence_id?: string | null
-          expense_date?: string | null
-          file_sha256: string
-          id?: string
-          idempotency_key?: string | null
-          items?: Json
-          matched_supplier_id?: string | null
-          ocr_error?: string | null
-          ocr_json?: Json | null
-          payee_name?: string | null
-          payment_id?: string | null
-          payment_request_id?: string | null
-          recorded_at?: string | null
-          status?: string
-          storage_path: string
-        }
-        Update: {
-          amount?: number | null
-          cost_category_code?: string | null
-          created_at?: string
-          created_by?: string | null
-          description?: string | null
-          evidence_id?: string | null
-          expense_date?: string | null
-          file_sha256?: string
-          id?: string
-          idempotency_key?: string | null
-          items?: Json
-          matched_supplier_id?: string | null
-          ocr_error?: string | null
-          ocr_json?: Json | null
-          payee_name?: string | null
-          payment_id?: string | null
-          payment_request_id?: string | null
-          recorded_at?: string | null
-          status?: string
-          storage_path?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "ceo_cash_expense_drafts_cost_category_code_fkey"
-            columns: ["cost_category_code"]
-            isOneToOne: false
-            referencedRelation: "cost_categories"
-            referencedColumns: ["code"]
-          },
-          {
-            foreignKeyName: "ceo_cash_expense_drafts_evidence_id_fkey"
-            columns: ["evidence_id"]
-            isOneToOne: false
-            referencedRelation: "payment_unc_evidence"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "ceo_cash_expense_drafts_matched_supplier_id_fkey"
-            columns: ["matched_supplier_id"]
-            isOneToOne: false
-            referencedRelation: "suppliers"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "ceo_cash_expense_drafts_payment_id_fkey"
-            columns: ["payment_id"]
-            isOneToOne: false
-            referencedRelation: "payments"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "ceo_cash_expense_drafts_payment_request_id_fkey"
-            columns: ["payment_request_id"]
-            isOneToOne: false
-            referencedRelation: "payment_requests"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       cost_categories: {
         Row: {
           code: string
@@ -1337,6 +1232,148 @@ export type Database = {
           },
         ]
       }
+      payment_cash_receipts: {
+        Row: {
+          allocated_at: string | null
+          amount: number | null
+          created_at: string
+          file_sha256: string
+          id: string
+          ocr_amount: number | null
+          ocr_content: string | null
+          ocr_date: string | null
+          ocr_error: string | null
+          ocr_payee: string | null
+          ocr_reference: string | null
+          payment_request_id: string
+          payment_request_item_id: string | null
+          status: string
+          storage_path: string
+          uploaded_by: string | null
+        }
+        Insert: {
+          allocated_at?: string | null
+          amount?: number | null
+          created_at?: string
+          file_sha256: string
+          id?: string
+          ocr_amount?: number | null
+          ocr_content?: string | null
+          ocr_date?: string | null
+          ocr_error?: string | null
+          ocr_payee?: string | null
+          ocr_reference?: string | null
+          payment_request_id: string
+          payment_request_item_id?: string | null
+          status?: string
+          storage_path: string
+          uploaded_by?: string | null
+        }
+        Update: {
+          allocated_at?: string | null
+          amount?: number | null
+          created_at?: string
+          file_sha256?: string
+          id?: string
+          ocr_amount?: number | null
+          ocr_content?: string | null
+          ocr_date?: string | null
+          ocr_error?: string | null
+          ocr_payee?: string | null
+          ocr_reference?: string | null
+          payment_request_id?: string
+          payment_request_item_id?: string | null
+          status?: string
+          storage_path?: string
+          uploaded_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_cash_receipts_payment_request_id_fkey"
+            columns: ["payment_request_id"]
+            isOneToOne: false
+            referencedRelation: "payment_requests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_cash_receipts_payment_request_item_id_fkey"
+            columns: ["payment_request_item_id"]
+            isOneToOne: false
+            referencedRelation: "payment_request_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payment_cash_settlement_idempotency: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          idempotency_key: string
+          payment_request_id: string
+          result: Json
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          idempotency_key: string
+          payment_request_id: string
+          result: Json
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          idempotency_key?: string
+          payment_request_id?: string
+          result?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_cash_settlement_idempotency_payment_request_id_fkey"
+            columns: ["payment_request_id"]
+            isOneToOne: false
+            referencedRelation: "payment_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payment_request_attachments: {
+        Row: {
+          created_at: string
+          file_name: string | null
+          id: string
+          mime_type: string | null
+          payment_request_id: string
+          storage_path: string
+          uploaded_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          file_name?: string | null
+          id?: string
+          mime_type?: string | null
+          payment_request_id: string
+          storage_path: string
+          uploaded_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          file_name?: string | null
+          id?: string
+          mime_type?: string | null
+          payment_request_id?: string
+          storage_path?: string
+          uploaded_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_request_attachments_payment_request_id_fkey"
+            columns: ["payment_request_id"]
+            isOneToOne: false
+            referencedRelation: "payment_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       payment_request_items: {
         Row: {
           canonical_cost_item_name: string | null
@@ -1460,6 +1497,9 @@ export type Database = {
         Row: {
           approved_at: string | null
           approved_by: string | null
+          cash_settlement_status: string | null
+          cash_settled_at: string | null
+          cash_settled_by: string | null
           created_at: string
           created_by: string | null
           delivery_status: Database["public"]["Enums"]["delivery_status"]
@@ -1493,6 +1533,9 @@ export type Database = {
         Insert: {
           approved_at?: string | null
           approved_by?: string | null
+          cash_settlement_status?: string | null
+          cash_settled_at?: string | null
+          cash_settled_by?: string | null
           created_at?: string
           created_by?: string | null
           delivery_status?: Database["public"]["Enums"]["delivery_status"]
@@ -1526,6 +1569,9 @@ export type Database = {
         Update: {
           approved_at?: string | null
           approved_by?: string | null
+          cash_settlement_status?: string | null
+          cash_settled_at?: string | null
+          cash_settled_by?: string | null
           created_at?: string
           created_by?: string | null
           delivery_status?: Database["public"]["Enums"]["delivery_status"]
@@ -2583,6 +2629,18 @@ export type Database = {
           supplier_id: string | null
         }
       }
+      build_finance_zalo_cash_message: {
+        Args: { p_event_type: string; p_request_id: string }
+        Returns: string
+      }
+      can_edit_payment_request: {
+        Args: { p_request_id: string }
+        Returns: boolean
+      }
+      discard_cash_receipt: {
+        Args: { p_receipt_id: string }
+        Returns: Json
+      }
       get_payment_request_unc_evidence: {
         Args: { p_request_id: string }
         Returns: Json
@@ -2597,6 +2655,18 @@ export type Database = {
       }
       get_payment_submission: {
         Args: { p_id: string }
+        Returns: Json
+      }
+      get_cash_settlement: {
+        Args: { p_request_id: string }
+        Returns: Json
+      }
+      submit_cash_settlement: {
+        Args: {
+          p_allocations: Json
+          p_idempotency_key: string
+          p_request_id: string
+        }
         Returns: Json
       }
       ensure_purchase_order_receipt_queue: {
@@ -2625,18 +2695,6 @@ export type Database = {
           p_notes?: string | null
         }
         Returns: string
-      }
-      record_ceo_cash_expense: {
-        Args: {
-          p_draft_id: string
-          p_fields: Json
-          p_idempotency_key: string
-        }
-        Returns: Json
-      }
-      discard_ceo_cash_expense_draft: {
-        Args: { p_draft_id: string }
-        Returns: Json
       }
       set_payment_request_requires_receipt: {
         Args: {

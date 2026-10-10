@@ -25,6 +25,7 @@ type PaymentRequestRow = {
   total_amount: number | string | null;
   purchase_order_id: string | null;
   goods_receipt_id: string | null;
+  created_by: string | null;
 };
 
 type GoodsReceiptRow = {
@@ -181,6 +182,25 @@ const supplierNamesById = async (
   return names;
 };
 
+const profileNamesById = async (
+  supabase: ReturnType<typeof createServiceClient>,
+  userIds: string[],
+): Promise<Map<string, string>> => {
+  const names = new Map<string, string>();
+  const unique = [...new Set(userIds.filter(Boolean))];
+  if (unique.length === 0) return names;
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("user_id,full_name,email")
+    .in("user_id", unique);
+  if (error) return names;
+  for (const row of (data || []) as Array<{ user_id: string; full_name: string | null; email: string | null }>) {
+    const name = String(row.full_name || "").trim() || String(row.email || "").trim();
+    if (name) names.set(row.user_id, name);
+  }
+  return names;
+};
+
 const purchaseOrderCodesById = async (
   supabase: ReturnType<typeof createServiceClient>,
   poIds: string[],
@@ -224,14 +244,31 @@ const buildJobMessage = async (
       return job.message_body;
     }
 
-    if (job.event_type === "payment_request_created" || job.event_type === "payment_request_paid") {
+    if (
+      job.event_type === "payment_request_created"
+      || job.event_type === "payment_request_paid"
+      || job.event_type === "payment_cash_advanced"
+      || job.event_type === "payment_cash_settled"
+    ) {
       const { data } = await supabase
         .from("payment_requests")
-        .select("id,request_number,supplier_id,total_amount,purchase_order_id,goods_receipt_id")
+        .select("id,request_number,supplier_id,total_amount,purchase_order_id,goods_receipt_id,created_by")
         .eq("id", job.entity_id)
         .maybeSingle();
       const row = data as PaymentRequestRow | null;
       if (!row) return job.message_body;
+
+      // Cash notices name the requester instead of the supplier.
+      if (job.event_type === "payment_cash_advanced" || job.event_type === "payment_cash_settled") {
+        const requesterNames = await profileNamesById(supabase, row.created_by ? [row.created_by] : []);
+        return formatFinanceZaloMessage(job.event_type, {
+          id: row.id,
+          requestNumber: row.request_number,
+          requesterName: row.created_by ? requesterNames.get(row.created_by) ?? null : null,
+          amount: Number(row.total_amount),
+        });
+      }
+
       const [supplierNames, poCodes, grCodes] = await Promise.all([
         supplierNamesById(supabase, row.supplier_id ? [row.supplier_id] : []),
         purchaseOrderCodesById(supabase, row.purchase_order_id ? [row.purchase_order_id] : []),

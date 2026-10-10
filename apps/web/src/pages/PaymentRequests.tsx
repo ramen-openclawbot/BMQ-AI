@@ -5,7 +5,6 @@ import { format } from "date-fns";
 import { vi, enUS } from "date-fns/locale";
 import {
   AlertTriangle,
-  Banknote,
   CalendarDays,
   CheckCircle2,
   ChevronLeft,
@@ -53,7 +52,6 @@ import { ExportApprovedPDF } from "@/components/payment-requests/ExportApprovedP
 import { DriveImportProgressDialog } from "@/components/payment-requests/DriveImportProgressDialog";
 import { UncApprovalDialog, type UncApprovalRequest } from "@/components/payment-requests/UncApprovalDialog";
 import { UrgentPayablesPanel } from "@/components/payment-requests/UrgentPayablesPanel";
-import { CeoCashExpenseDialog } from "@/components/payment-requests/CeoCashExpenseDialog";
 import { ReconciliationPanel } from "@/components/payment-requests/ReconciliationPanel";
 import {
   getAllocatedAmount,
@@ -117,7 +115,6 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
     if (linkedRequestId && UUID_RE.test(linkedRequestId)) setSelectedRequestId(linkedRequestId);
   }, [linkedRequestId]);
   const [deletingRequestId, setDeletingRequestId] = useState<string | null>(null);
-  const [cashOpen, setCashOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [sourceFilter, setSourceFilter] = useState<string>(defaultSourceFilter);
   const [searchTerm, setSearchTerm] = useState("");
@@ -587,19 +584,7 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
       </div>
 
       {view === "unpaid" ? (
-        <>
-          {isOwner && (
-            <button type="button" className="d3-ps-bulk d3-cc-entry" onClick={() => setCashOpen(true)} data-bmq-ceo-cash-entry>
-              <i><Banknote className="h-5 w-5" /></i>
-              <span>
-                <b>Chi tiền mặt</b>
-                <small>Up ảnh hoá đơn, biên nhận. App tự tạo đề nghị chi, duyệt và ghi đã chi.</small>
-              </span>
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          )}
-          <UrgentPayablesPanel canSubmit={isOwner || canEditPaymentRequests} onOpenRequest={setSelectedRequestId} />
-        </>
+        <UrgentPayablesPanel canSubmit={isOwner || canEditPaymentRequests} onOpenRequest={setSelectedRequestId} />
       ) : view === "recon" ? (
         <ReconciliationPanel onOpenRequest={setSelectedRequestId} />
       ) : (
@@ -1080,7 +1065,6 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
       </>
       )}
 
-      {isOwner && <CeoCashExpenseDialog open={cashOpen} onOpenChange={setCashOpen} onDone={() => refetch()} />}
       <UncApprovalDialog
         open={showUncDialog}
         onOpenChange={setShowUncDialog}

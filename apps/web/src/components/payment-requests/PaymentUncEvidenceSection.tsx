@@ -51,9 +51,11 @@ type Props = {
   /** Only worth loading when the request has received a payment. */
   enabled: boolean;
   onSelectRequest?: (requestId: string) => void;
+  /** Section heading; cash phiếu call it the transfer to the staff member. */
+  title?: string;
 };
 
-export function PaymentUncEvidenceSection({ requestId, enabled, onSelectRequest }: Props) {
+export function PaymentUncEvidenceSection({ requestId, enabled, onSelectRequest, title = "Chứng từ thanh toán (UNC)" }: Props) {
   const { data, isLoading, isError } = usePaymentRequestUncEvidence(enabled ? requestId : null);
   const [zoom, setZoom] = useState<string | null>(null);
 
@@ -61,7 +63,7 @@ export function PaymentUncEvidenceSection({ requestId, enabled, onSelectRequest 
 
   return (
     <section className="d3-unc-ev" data-bmq-unc-evidence aria-label="Chứng từ thanh toán">
-      <h3>Chứng từ thanh toán (UNC)</h3>
+      <h3>{title}</h3>
       {isLoading ? (
         <p className="d3-unc-ev-note">
           <Loader2 className="h-4 w-4 animate-spin" /> Đang tải chứng từ…

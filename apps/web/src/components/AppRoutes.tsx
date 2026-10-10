@@ -15,6 +15,7 @@ import Suppliers from "@/pages/Suppliers";
 import Invoices from "@/pages/Invoices";
 import PaymentRequests from "@/pages/PaymentRequests";
 import PaymentSubmission from "@/pages/PaymentSubmission";
+import CashSettlement from "@/pages/CashSettlement";
 import PayablesManagement from "@/pages/PayablesManagement";
 import LowStock from "@/pages/LowStock";
 import GoodsReceipts from "@/pages/GoodsReceipts";
@@ -284,6 +285,7 @@ export function AppRoutes() {
         <Route path="/invoices" element={<Invoices />} />
         <Route path="/payment-requests" element={<PaymentRequests />} />
         <Route path="/payment-requests/submissions/:id" element={<PaymentSubmission />} />
+        <Route path="/payment-requests/cash-settle/:id" element={<CashSettlement />} />
         <Route path="/goods-receipts" element={<GoodsReceipts />} />
         <Route path="/purchase-orders" element={<ModuleRoute moduleKey="purchase_orders"><PurchaseOrders /></ModuleRoute>} />
         <Route path="/low-stock" element={<LowStock />} />
@@ -295,9 +297,10 @@ export function AppRoutes() {
         <Route path="/sku-costs/ingredients" element={<SkuCostsIngredients />} />
         <Route path="/sku-costs/employees" element={<SkuCostsEmployees />} />
         <Route path="/sku-costs/overhead" element={<SkuCostsOverhead />} />
-        <Route path="/finance-control" element={<Navigate to="/finance-control/ceo-declaration" replace />} />
-        <Route path="/finance-control/cost" element={<Navigate to="/finance-control/ceo-declaration" replace />} />
-        <Route path="/finance-control/ceo-declaration" element={<ModuleRoute moduleKey="finance_cost"><Suspense fallback={<AppLoadingFallback />}><FinanceControl mode="ceo" /></Suspense></ModuleRoute>} />
+        {/* CEO khai báo removed (owner decision 2026-10-10): old links land on Duyệt chi. */}
+        <Route path="/finance-control" element={<Navigate to="/payment-requests" replace />} />
+        <Route path="/finance-control/cost" element={<Navigate to="/payment-requests" replace />} />
+        <Route path="/finance-control/ceo-declaration" element={<Navigate to="/payment-requests" replace />} />
         <Route path="/finance-control/classification" element={<ModuleRoute moduleKey="finance_cost"><Suspense fallback={<AppLoadingFallback />}><FinanceControl mode="classification" /></Suspense></ModuleRoute>} />
         <Route path="/finance-control/payables" element={<ModuleRoute moduleKey="payment_requests"><PayablesManagement /></ModuleRoute>} />
         <Route path="/finance-control/revenue" element={<Suspense fallback={<AppLoadingFallback />}><RevenueManagementDashboard /></Suspense>} />

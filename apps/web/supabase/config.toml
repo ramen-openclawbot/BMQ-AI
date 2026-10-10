@@ -322,11 +322,10 @@ verify_jwt = false
 # the caller's token itself and requires the "owner" role in user_roles.
 verify_jwt = false
 
-[functions.ceo-cash-expense-scan]
+[functions.payment-cash-settle]
 # verify_jwt disabled: the project issues ES256 user tokens and the proxy can
-# reject them before the function runs. Auth is enforced inside index.ts: the
-# Bearer token is validated server-side with auth.getUser(token), then the caller
-# must have the "owner" role in user_roles or the handler returns 401/403.
+# reject them before the function runs. The handler validates the bearer token
+# with auth.getUser and requires owner, the PR creator or payment_requests edit.
 verify_jwt = false
 
 [functions.finance-zalo-notify]

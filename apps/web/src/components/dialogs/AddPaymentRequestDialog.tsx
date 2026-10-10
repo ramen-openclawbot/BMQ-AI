@@ -4,7 +4,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { toast } from "sonner";
-import { Upload, Loader2, Plus, Trash2, Scan, TrendingUp, TrendingDown, Package, AlertTriangle, CreditCard, Banknote } from "lucide-react";
+import { uploadPaymentRequestAttachments } from "@/hooks/usePaymentRequestAttachments";
+import { Upload, Loader2, Plus, Trash2, Scan, TrendingUp, TrendingDown, Package, AlertTriangle, CreditCard, Banknote, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -171,6 +172,8 @@ export function AddPaymentRequestDialog({
   const [internalOpen, setInternalOpen] = useState(false);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  // Chứng từ kèm theo (many files), uploaded after the phiếu is created.
+  const [docFiles, setDocFiles] = useState<File[]>([]);
   const [isScanning, setIsScanning] = useState(false);
   const [itemPriceInfos, setItemPriceInfos] = useState<Record<number, ItemPriceInfo>>({});
   const [isLoadingPrices, setIsLoadingPrices] = useState(false);
@@ -585,6 +588,15 @@ export function AddPaymentRequestDialog({
         });
       }
 
+      if (docFiles.length > 0) {
+        try {
+          await uploadPaymentRequestAttachments(request.id, docFiles);
+        } catch (attachError) {
+          console.error("Error uploading payment request attachments:", attachError);
+          toast.warning("Đã tạo phiếu nhưng chưa tải được chứng từ kèm theo. Mở phiếu để thử lại.");
+        }
+      }
+
       // Invalidate queries to refresh list immediately (like AddSupplierDialog)
       queryClient.invalidateQueries({ queryKey: ["payment-requests"] });
       queryClient.invalidateQueries({ queryKey: ["payment-stats"] });
@@ -595,6 +607,7 @@ export function AddPaymentRequestDialog({
       form.reset();
       setImageFile(null);
       setImagePreview(null);
+      setDocFiles([]);
       setItemPriceInfos({});
     } catch (error) {
       console.error("Error creating payment request:", error);
@@ -871,6 +884,37 @@ export function AddPaymentRequestDialog({
                 </FormItem>
               )}
             />
+
+            <div className="space-y-2" data-bmq-pr-docs>
+              <Label htmlFor="pr-docs">Chứng từ kèm theo{form.watch("payment_method") === "cash" ? "" : " (không bắt buộc)"}</Label>
+              <Input
+                id="pr-docs"
+                type="file"
+                accept="image/*,application/pdf"
+                multiple
+                onChange={(e) => {
+                  const picked = Array.from(e.target.files ?? []);
+                  if (picked.length) setDocFiles((prev) => [...prev, ...picked].slice(0, 20));
+                  e.currentTarget.value = "";
+                }}
+                data-bmq-pr-docs-input
+              />
+              {docFiles.length > 0 && (
+                <ul className="flex flex-wrap gap-2" data-bmq-pr-docs-list>
+                  {docFiles.map((f, i) => (
+                    <li key={`${f.name}-${i}`} className="flex max-w-full items-center gap-1 rounded-md border px-2 py-1 text-xs">
+                      <span className="truncate">{f.name}</span>
+                      <button type="button" aria-label={`Bỏ ${f.name}`} className="text-muted-foreground" onClick={() => setDocFiles((prev) => prev.filter((_, j) => j !== i))}>
+                        <X className="h-3 w-3" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {form.watch("payment_method") === "cash" && (
+                <p className="text-xs text-muted-foreground">Chi tiền mặt: CEO chuyển tiền cho người đề nghị, sau đó người đề nghị nộp chứng từ chi lẻ qua link Zalo.</p>
+              )}
+            </div>
 
             <FormField
               control={form.control}

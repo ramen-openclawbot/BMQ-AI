@@ -11,7 +11,9 @@ export type FinanceZaloEventType =
   | "payment_request_paid"
   | "goods_receipt_received"
   | "goods_receipt_short"
-  | "payment_submission_created";
+  | "payment_submission_created"
+  | "payment_cash_advanced"
+  | "payment_cash_settled";
 
 export const FINANCE_ZALO_EVENT_TYPES: FinanceZaloEventType[] = [
   "payment_request_created",
@@ -19,17 +21,27 @@ export const FINANCE_ZALO_EVENT_TYPES: FinanceZaloEventType[] = [
   "goods_receipt_received",
   "goods_receipt_short",
   "payment_submission_created",
+  "payment_cash_advanced",
+  "payment_cash_settled",
 ];
 
 export const PAYMENT_REQUESTS_DEEP_LINK = "https://ai.banhmique.vn/payment-requests";
 export const PAYMENT_SUBMISSIONS_DEEP_LINK = "https://ai.banhmique.vn/payment-requests/submissions";
+export const PAYMENT_CASH_SETTLE_DEEP_LINK = "https://ai.banhmique.vn/payment-requests/cash-settle";
 export const GOODS_RECEIPTS_DEEP_LINK = "https://ai.banhmique.vn/goods-receipts";
 
 export const paymentRequestDeepLink = (id: string) =>
   `${PAYMENT_REQUESTS_DEEP_LINK}?id=${encodeURIComponent(id)}`;
 
+/** Detail link used by the completed-cash notice. */
+export const paymentRequestDetailDeepLink = (id: string) =>
+  `${PAYMENT_REQUESTS_DEEP_LINK}?id=${encodeURIComponent(id)}`;
+
 export const paymentSubmissionDeepLink = (id: string) =>
   `${PAYMENT_SUBMISSIONS_DEEP_LINK}/${encodeURIComponent(id)}`;
+
+export const paymentCashSettleDeepLink = (id: string) =>
+  `${PAYMENT_CASH_SETTLE_DEEP_LINK}/${encodeURIComponent(id)}`;
 
 export const goodsReceiptDeepLink = (id: string) =>
   `${GOODS_RECEIPTS_DEEP_LINK}?id=${encodeURIComponent(id)}`;
@@ -74,6 +86,13 @@ export type PaymentSubmissionNotificationInput = {
   note?: string | null;
   totalAmount?: number | null;
   items: PaymentSubmissionNotificationItem[];
+};
+
+export type PaymentCashNotificationInput = {
+  id: string;
+  requestNumber: string;
+  requesterName?: string | null;
+  amount?: number | null;
 };
 
 const PAYMENT_SUBMISSION_MAX_LINES = 5;
@@ -167,9 +186,48 @@ export const formatPaymentSubmissionMessage = (
   return lines.join("\n");
 };
 
+/**
+ * "Tạm ứng tiền mặt" notice: the CEO paid cash to a staff member, who now has
+ * to upload the receipts (cash-settle page).
+ */
+export const formatPaymentCashAdvancedMessage = (
+  input: PaymentCashNotificationInput,
+): string => {
+  const lines = [
+    "💵 TẠM ỨNG TIỀN MẶT",
+    "",
+    `Mã duyệt chi: ${safeText(input.requestNumber, "Chưa có mã")}`,
+    `Người đề nghị: ${safeText(input.requesterName, "Chưa xác định")}`,
+    `Số tiền: ${formatVnd(input.amount)}`,
+    "",
+    `Nộp chứng từ: ${paymentCashSettleDeepLink(input.id)}`,
+  ];
+  return lines.join("\n");
+};
+
+/** "Hoàn tất chi tiền mặt" notice: every item is covered by receipts. */
+export const formatPaymentCashSettledMessage = (
+  input: PaymentCashNotificationInput,
+): string => {
+  const lines = [
+    "✅ HOÀN TẤT CHI TIỀN MẶT",
+    "",
+    `Mã duyệt chi: ${safeText(input.requestNumber, "Chưa có mã")}`,
+    `Người đề nghị: ${safeText(input.requesterName, "Chưa xác định")}`,
+    `Số tiền: ${formatVnd(input.amount)}`,
+    "",
+    `Xem chi tiết: ${paymentRequestDetailDeepLink(input.id)}`,
+  ];
+  return lines.join("\n");
+};
+
 export const formatFinanceZaloMessage = (
   eventType: FinanceZaloEventType,
-  input: PaymentRequestNotificationInput | GoodsReceiptNotificationInput | PaymentSubmissionNotificationInput,
+  input:
+    | PaymentRequestNotificationInput
+    | GoodsReceiptNotificationInput
+    | PaymentSubmissionNotificationInput
+    | PaymentCashNotificationInput,
 ): string => {
   switch (eventType) {
     case "payment_request_created":
@@ -182,6 +240,10 @@ export const formatFinanceZaloMessage = (
       return formatGoodsReceiptShortMessage(input as GoodsReceiptNotificationInput);
     case "payment_submission_created":
       return formatPaymentSubmissionMessage(input as PaymentSubmissionNotificationInput);
+    case "payment_cash_advanced":
+      return formatPaymentCashAdvancedMessage(input as PaymentCashNotificationInput);
+    case "payment_cash_settled":
+      return formatPaymentCashSettledMessage(input as PaymentCashNotificationInput);
     default:
       throw new Error(`Unknown finance Zalo event type: ${String(eventType)}`);
   }

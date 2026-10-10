@@ -78,6 +78,8 @@ import { EditPaymentRequestDialog } from "./EditPaymentRequestDialog";
 import { DriveImportProgressDialog } from "@/components/payment-requests/DriveImportProgressDialog";
 import { UncApprovalDialog } from "@/components/payment-requests/UncApprovalDialog";
 import { PaymentUncEvidenceSection } from "@/components/payment-requests/PaymentUncEvidenceSection";
+import { CashSettlementPanel } from "@/components/payment-requests/CashSettlementPanel";
+import { PaymentRequestAttachmentsStrip } from "@/components/payment-requests/PaymentRequestAttachmentsStrip";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -193,6 +195,7 @@ export function PaymentRequestDetailsDialog({
   // VAT / thuế / dịch vụ: no delivery, no invoice; complete once paid.
   const needsReceipt = request ? isReceiptRequired(request) : true;
   const canEditRequests = isOwner || canEditModule("payment_requests");
+  const cashSettlementStatus = (request as { cash_settlement_status?: string | null } | undefined)?.cash_settlement_status ?? null;
   const canMarkNoReceipt = !!request && needsReceipt && canEditRequests && request.status !== "rejected"
     && !request.goods_receipt_id && !request.purchase_order_id;
 
@@ -536,7 +539,30 @@ export function PaymentRequestDetailsDialog({
                 requestId={requestId}
                 enabled={allocatedAmount > 0}
                 onSelectRequest={onSelectRequest}
+                title={request.payment_method === "cash" ? "CEO chuyển tiền cho nhân viên" : undefined}
               />
+
+              {/* Chi tiền mặt: receipts the staff member uploaded for each khoản. */}
+              {request.payment_method === "cash" && cashSettlementStatus && (
+                <section className="d3-prd-card" data-bmq-pr-cash-settle>
+                  <CashSettlementPanel requestId={request.id} canEdit={false} />
+                  {cashSettlementStatus === "awaiting_receipts" && (canEditRequests || request.created_by === user?.id) && (
+                    <Button
+                      variant="outline"
+                      className="w-full sm:w-auto"
+                      onClick={() => {
+                        onOpenChange(false);
+                        navigate(`/payment-requests/cash-settle/${request.id}`);
+                      }}
+                      data-bmq-pr-cash-settle-open
+                    >
+                      Nộp chứng từ chi lẻ
+                    </Button>
+                  )}
+                </section>
+              )}
+
+              <PaymentRequestAttachmentsStrip requestId={request.id} />
 
               {/* Items */}
               <section className="d3-prd-card">

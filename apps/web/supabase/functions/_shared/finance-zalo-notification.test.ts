@@ -6,12 +6,16 @@ import {
   formatFinanceZaloMessage,
   formatGoodsReceiptReceivedMessage,
   formatGoodsReceiptShortMessage,
+  formatPaymentCashAdvancedMessage,
+  formatPaymentCashSettledMessage,
   formatPaymentRequestCreatedMessage,
   formatPaymentRequestPaidMessage,
   formatPaymentSubmissionMessage,
   formatVnd,
   goodsReceiptDeepLink,
+  paymentCashSettleDeepLink,
   paymentRequestDeepLink,
+  paymentRequestDetailDeepLink,
   paymentSubmissionDeepLink,
 } from "./finance-zalo-notification.ts";
 
@@ -44,6 +48,13 @@ const PAYMENT_SUBMISSION = {
       remainingAmount: 41_006_300,
     },
   ],
+};
+
+const PAYMENT_CASH = {
+  id: "44444444-4444-4444-4444-444444444444",
+  requestNumber: "PC-20261012-0007",
+  requesterName: "Nguyễn Văn A",
+  amount: 1_502_000,
 };
 
 test("formats VND amounts with Vietnamese separators", () => {
@@ -131,6 +142,36 @@ test("caps the submission notice at five request lines", () => {
   assert.doesNotMatch(message, /Gấp trước/);
 });
 
+test("formats the cash advance notice with the settle link", () => {
+  const message = formatPaymentCashAdvancedMessage(PAYMENT_CASH);
+  assert.match(message, /💵 TẠM ỨNG TIỀN MẶT/);
+  assert.match(message, /Mã duyệt chi: PC-20261012-0007/);
+  assert.match(message, /Người đề nghị: Nguyễn Văn A/);
+  assert.match(message, /Số tiền: 1\.502\.000 đ/);
+  assert.match(
+    message,
+    /payment-requests\/cash-settle\/44444444-4444-4444-4444-444444444444/,
+  );
+  assert.equal(
+    paymentCashSettleDeepLink(PAYMENT_CASH.id),
+    "https://ai.banhmique.vn/payment-requests/cash-settle/44444444-4444-4444-4444-444444444444",
+  );
+});
+
+test("formats the cash settled notice with the detail link", () => {
+  const message = formatPaymentCashSettledMessage(PAYMENT_CASH);
+  assert.match(message, /✅ HOÀN TẤT CHI TIỀN MẶT/);
+  assert.match(message, /Mã duyệt chi: PC-20261012-0007/);
+  assert.match(message, /Người đề nghị: Nguyễn Văn A/);
+  assert.match(message, /Số tiền: 1\.502\.000 đ/);
+  assert.equal(
+    paymentRequestDetailDeepLink(PAYMENT_CASH.id),
+    "https://ai.banhmique.vn/payment-requests?id=44444444-4444-4444-4444-444444444444",
+  );
+  assert.match(message, /payment-requests\?id=44444444-4444-4444-4444-444444444444/);
+  assert.doesNotMatch(message, /cash-settle/);
+});
+
 test("never leaks a bank account number or image payload", () => {
   const withAccount = {
     ...PAYMENT_REQUEST,
@@ -143,6 +184,8 @@ test("never leaks a bank account number or image payload", () => {
     formatGoodsReceiptReceivedMessage(GOODS_RECEIPT),
     formatGoodsReceiptShortMessage(GOODS_RECEIPT),
     formatPaymentSubmissionMessage(PAYMENT_SUBMISSION),
+    formatPaymentCashAdvancedMessage({ ...PAYMENT_CASH, beneficiaryAccount: "1234567890123" } as never),
+    formatPaymentCashSettledMessage(PAYMENT_CASH),
   ];
   for (const message of messages) {
     assert.doesNotMatch(message, /1234567890123/);
@@ -158,6 +201,8 @@ test("dispatches all finance event types from one entry point", () => {
     "goods_receipt_received",
     "goods_receipt_short",
     "payment_submission_created",
+    "payment_cash_advanced",
+    "payment_cash_settled",
   ]);
   assert.match(
     formatFinanceZaloMessage("payment_request_created", PAYMENT_REQUEST),
@@ -178,6 +223,14 @@ test("dispatches all finance event types from one entry point", () => {
   assert.match(
     formatFinanceZaloMessage("payment_submission_created", PAYMENT_SUBMISSION),
     /TRÌNH CHI GẤP/,
+  );
+  assert.match(
+    formatFinanceZaloMessage("payment_cash_advanced", PAYMENT_CASH),
+    /TẠM ỨNG TIỀN MẶT/,
+  );
+  assert.match(
+    formatFinanceZaloMessage("payment_cash_settled", PAYMENT_CASH),
+    /HOÀN TẤT CHI TIỀN MẶT/,
   );
   assert.throws(
     () => formatFinanceZaloMessage("unknown" as never, PAYMENT_REQUEST),
