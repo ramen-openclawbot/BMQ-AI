@@ -426,16 +426,18 @@ export function AddPaymentRequestDialog({
       // One invoice at a time so the scan endpoint is not flooded.
       const scanned: ExtractedInvoiceData[] = [];
       const failed: number[] = [];
+      let firstReason = "";
       for (let i = 0; i < files.length; i += 1) {
         try {
           scanned.push(await scanOneInvoice(files[i], session.access_token));
         } catch (scanError) {
           console.error("Scan error:", scanError);
           failed.push(i + 1);
+          if (!firstReason && scanError instanceof Error) firstReason = scanError.message;
         }
       }
       if (failed.length > 0) {
-        toast.error(`Chưa đọc được hoá đơn ${failed.join(", ")}. Nhập tay các khoản đó.`);
+        toast.error(`Chưa đọc được hoá đơn ${failed.join(", ")}${firstReason ? ` (${firstReason})` : ""}. Nhập tay các khoản đó.`);
       }
       if (scanned.length === 0) return;
 

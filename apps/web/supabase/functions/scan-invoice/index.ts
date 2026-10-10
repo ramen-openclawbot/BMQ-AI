@@ -84,7 +84,17 @@ serve(async (req) => {
       .or("can_view.eq.true,can_edit.eq.true")
       .limit(1)
       .maybeSingle();
-    if (!permission) {
+    // Owners have every module through their role, not through module rows.
+    const { data: ownerRole } = permission
+      ? { data: null }
+      : await supabaseAdmin
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", user.id)
+        .eq("role", "owner")
+        .limit(1)
+        .maybeSingle();
+    if (!permission && !ownerRole) {
       return new Response(
         JSON.stringify({ error: "Bạn không có quyền scan hóa đơn.", code: "FORBIDDEN" }),
         { status: 403, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
