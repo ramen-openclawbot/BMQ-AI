@@ -56,9 +56,13 @@ const FLAGS = FLAGS_RAW.map((f) => (f.label === "jev_possible_duplicate" ? { ...
 const SUB_ITEMS = [
   { payment_request_id: "pr-bb", position: 1, remaining_at_submit: 8800000, request_number: "PR-8CA755E0", title: "Duyệt chi PO PO-000820", supplier_id: "s-bb", supplier_name: "Bao bì Minh Tuấn", total_amount: 8800000, allocated_amount: 0, remaining_amount: 8800000, status: "pending", payment_status: "unpaid", requires_receipt: true, created_at: today + "T02:00:00Z" },
   { payment_request_id: "pr-ta-2", position: 2, remaining_at_submit: 2761350, request_number: "PR-MMEK7ZD8", title: "Đề nghị chi - PO-000144", supplier_id: "s-ta", supplier_name: "Tuyết Anh", total_amount: 2761350, allocated_amount: 0, remaining_amount: 2761350, status: "pending", payment_status: "unpaid", requires_receipt: true, created_at: today + "T02:10:00Z" },
+  { payment_request_id: "pr-img", position: 3, remaining_at_submit: 1295000, request_number: "PR-1MG00001", title: "Duyệt chi PO PO-000680", supplier_id: "s-tr", supplier_name: "Thủy Rau Củ", total_amount: 1295000, allocated_amount: 0, remaining_amount: 1295000, status: "pending", payment_status: "unpaid", requires_receipt: true, created_at: today + "T02:20:00Z" },
 ];
 const RECEIPTS = [
-  { id: "pr-bb", purchase_order_id: "po-820", goods_receipt_id: "gr-571", goods_receipts: { receipt_number: "GRN-000571", receipt_date: today, status: "confirmed" } },
+  // No image on the receipt nor its PO → "Thiếu ảnh giao hàng".
+  { id: "pr-bb", purchase_order_id: "po-820", goods_receipt_id: "gr-571", goods_receipts: { receipt_number: "GRN-000571", receipt_date: today, status: "confirmed", image_url: null, purchase_order_id: "po-820", purchase_orders: { image_url: null } } },
+  // Image only on the PO → no chip (same fallback as the DB guard).
+  { id: "pr-img", purchase_order_id: "po-680", goods_receipt_id: "gr-423", goods_receipts: { receipt_number: "GRN-000423", receipt_date: today, status: "confirmed", image_url: null, purchase_order_id: "po-680", purchase_orders: { image_url: "po-680/delivery.jpg" } } },
   { id: "pr-ta-2", purchase_order_id: PO_TA, goods_receipt_id: null, goods_receipts: null },
 ];
 const PR_DETAIL = { id: "pr-ta-2", request_number: "PR-MMEK7ZD8", title: "Đề nghị chi - PO-000144", total_amount: 2761350, vat_amount: 0, status: "pending",
@@ -352,6 +356,11 @@ try {
     assert.ok((await page.locator("[data-bmq-submission-row='PR-8CA755E0'] [data-bmq-submission-receipt='waiting']").textContent()).includes("Chờ nhập kho GRN-000571"));
     assert.equal(await page.locator("[data-bmq-submission-receipt='in']").count(), 0);
     assert.equal(await page.locator("[data-bmq-submission-row='PR-MMEK7ZD8'] [data-bmq-submission-receipt='none']").count(), 1);
+    // Delivery-image chip: GRN-000571 has no image anywhere; GRN-000423 has a PO image; PR-MMEK7ZD8 has no receipt.
+    assert.equal((await page.locator("[data-bmq-submission-row='PR-8CA755E0'] [data-bmq-submission-receipt-image='missing']").textContent()).trim(), "Thiếu ảnh giao hàng");
+    assert.equal(await page.locator("[data-bmq-submission-row='PR-1MG00001'] [data-bmq-submission-receipt-image]").count(), 0);
+    assert.equal(await page.locator("[data-bmq-submission-row='PR-1MG00001'] [data-bmq-submission-receipt='waiting']").count(), 1);
+    assert.equal(await page.locator("[data-bmq-submission-receipt-image]").count(), 1);
     await page.waitForSelector("[data-bmq-submission-row='PR-MMEK7ZD8'] [data-bmq-submission-flag='pr_twin_created']");
     // The PO-000144 over-request flag is needs_action, so it still shows on the row.
     assert.equal(await page.locator("[data-bmq-submission-row='PR-MMEK7ZD8'] [data-bmq-submission-flag='po_over_requested']").count(), 1);

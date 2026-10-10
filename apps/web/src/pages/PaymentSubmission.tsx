@@ -30,8 +30,19 @@ interface ReceiptInfo {
   id: string;
   purchase_order_id: string | null;
   goods_receipt_id: string | null;
-  goods_receipts: { receipt_number: string | null; receipt_date: string | null; status: string | null } | null;
+  goods_receipts: {
+    receipt_number: string | null;
+    receipt_date: string | null;
+    status: string | null;
+    image_url: string | null;
+    purchase_order_id: string | null;
+    purchase_orders: { image_url: string | null } | null;
+  } | null;
 }
+
+/** Same rule as trg_guard_payment_request_delivery_image: a PO receipt needs gr or PO image. */
+const missingDeliveryImage = (gr: ReceiptInfo["goods_receipts"]) =>
+  !!gr?.purchase_order_id && gr.status !== "received" && !gr.image_url?.trim() && !gr.purchase_orders?.image_url?.trim();
 
 /** Goods receipt + PO link per phiếu, for the "Đã/Chưa nhập kho" chip. */
 function useSubmissionReceipts(ids: string[]) {
@@ -41,7 +52,7 @@ function useSubmissionReceipts(ids: string[]) {
     queryFn: async (): Promise<ReceiptInfo[]> => {
       const { data, error } = await supabase
         .from("payment_requests")
-        .select("id, purchase_order_id, goods_receipt_id, goods_receipts!payment_requests_goods_receipt_id_fkey(receipt_number, receipt_date, status)")
+        .select("id, purchase_order_id, goods_receipt_id, goods_receipts!payment_requests_goods_receipt_id_fkey(receipt_number, receipt_date, status, image_url, purchase_order_id, purchase_orders!fk_goods_receipts_purchase_order(image_url))")
         .in("id", ids);
       if (error) throw error;
       return (data ?? []) as unknown as ReceiptInfo[];
@@ -204,6 +215,11 @@ export default function PaymentSubmission() {
                           <span className="d3-up-chip" data-bmq-submission-receipt="none">Chưa nhập kho</span>
                         ) : null;
                       })()}
+                      {!paid && missingDeliveryImage(receiptById.get(item.payment_request_id)?.goods_receipts ?? null) && (
+                        <span className="d3-up-chip is-red" data-bmq-submission-receipt-image="missing">
+                          Thiếu ảnh giao hàng
+                        </span>
+                      )}
                       {flagsFor(item.payment_request_id).map((f) => (
                         <span key={f.flag_key} className={cn("d3-up-chip", f.priority === "critical" ? "is-ink" : f.priority === "high" ? "is-red" : "is-amber")} data-bmq-submission-flag={f.label}>
                           {financeReconciliationLabel(f.label)}
