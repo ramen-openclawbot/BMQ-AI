@@ -185,10 +185,10 @@ export function PurchaseOrderDetailsDialog({
     if (!orderId) return;
     try {
       await cancelPO.mutateAsync(orderId);
-      toast.success("Đã hủy đơn đặt hàng và xóa đề nghị chi liên quan");
+      toast.success("Đã hủy đơn đặt hàng; đề nghị chi liên quan đã được từ chối");
       setShowCancelConfirm(false);
     } catch (error) {
-      toast.error("Lỗi khi hủy đơn đặt hàng");
+      toast.error(error instanceof Error && error.message ? error.message : "Lỗi khi hủy đơn đặt hàng");
     }
   };
 
@@ -627,7 +627,7 @@ export function PurchaseOrderDetailsDialog({
           <AlertDialogHeader>
             <AlertDialogTitle>Xác nhận hủy đơn hàng</AlertDialogTitle>
             <AlertDialogDescription>
-              Hành động này sẽ hủy đơn đặt hàng {order?.po_number} và xóa đề nghị chi liên quan (nếu có).
+              Hành động này sẽ hủy đơn đặt hàng {order?.po_number} và từ chối đề nghị chi liên quan (nếu có, chưa chi tiền). PO đã có khoản chi thì không hủy được.
               Bạn không thể hoàn tác thao tác này.
             </AlertDialogDescription>
           </AlertDialogHeader>

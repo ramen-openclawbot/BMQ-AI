@@ -303,29 +303,19 @@ export function useCancelPurchaseOrder() {
 
   return useMutation({
     mutationFn: async (id: string) => {
-      const { data: linkedPR } = await supabase
-        .from("payment_requests")
-        .select("id")
-        .eq("purchase_order_id", id)
-        .maybeSingle();
-
-      if (linkedPR) {
-        await supabase
-          .from("payment_request_items")
-          .delete()
-          .eq("payment_request_id", linkedPR.id);
-
-        await supabase
-          .from("payment_requests")
-          .delete()
-          .eq("id", linkedPR.id);
-      }
-
+      // The database rejects the PO's payment requests in the same transaction
+      // (trigger trg_reject_payment_requests_on_po_cancel) and refuses the cancel
+      // when money was already paid. Never delete the payment request here: the old
+      // delete failed silently and left a payable request behind a cancelled PO.
       const { error } = await supabase
         .from("purchase_orders")
         .update({ status: "cancelled" })
         .eq("id", id);
-      if (error) throw error;
+      if (error) {
+        const message = error.message || "";
+        const marker = "po_cancel_has_payments: ";
+        throw new Error(message.includes(marker) ? message.slice(message.indexOf(marker) + marker.length) : message);
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
