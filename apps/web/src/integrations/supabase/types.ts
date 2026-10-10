@@ -32,6 +32,111 @@ export type Database = {
         }
         Relationships: []
       }
+      ceo_cash_expense_drafts: {
+        Row: {
+          amount: number | null
+          cost_category_code: string | null
+          created_at: string
+          created_by: string | null
+          description: string | null
+          evidence_id: string | null
+          expense_date: string | null
+          file_sha256: string
+          id: string
+          idempotency_key: string | null
+          items: Json
+          matched_supplier_id: string | null
+          ocr_error: string | null
+          ocr_json: Json | null
+          payee_name: string | null
+          payment_id: string | null
+          payment_request_id: string | null
+          recorded_at: string | null
+          status: string
+          storage_path: string
+        }
+        Insert: {
+          amount?: number | null
+          cost_category_code?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          evidence_id?: string | null
+          expense_date?: string | null
+          file_sha256: string
+          id?: string
+          idempotency_key?: string | null
+          items?: Json
+          matched_supplier_id?: string | null
+          ocr_error?: string | null
+          ocr_json?: Json | null
+          payee_name?: string | null
+          payment_id?: string | null
+          payment_request_id?: string | null
+          recorded_at?: string | null
+          status?: string
+          storage_path: string
+        }
+        Update: {
+          amount?: number | null
+          cost_category_code?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          evidence_id?: string | null
+          expense_date?: string | null
+          file_sha256?: string
+          id?: string
+          idempotency_key?: string | null
+          items?: Json
+          matched_supplier_id?: string | null
+          ocr_error?: string | null
+          ocr_json?: Json | null
+          payee_name?: string | null
+          payment_id?: string | null
+          payment_request_id?: string | null
+          recorded_at?: string | null
+          status?: string
+          storage_path?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ceo_cash_expense_drafts_cost_category_code_fkey"
+            columns: ["cost_category_code"]
+            isOneToOne: false
+            referencedRelation: "cost_categories"
+            referencedColumns: ["code"]
+          },
+          {
+            foreignKeyName: "ceo_cash_expense_drafts_evidence_id_fkey"
+            columns: ["evidence_id"]
+            isOneToOne: false
+            referencedRelation: "payment_unc_evidence"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ceo_cash_expense_drafts_matched_supplier_id_fkey"
+            columns: ["matched_supplier_id"]
+            isOneToOne: false
+            referencedRelation: "suppliers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ceo_cash_expense_drafts_payment_id_fkey"
+            columns: ["payment_id"]
+            isOneToOne: false
+            referencedRelation: "payments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ceo_cash_expense_drafts_payment_request_id_fkey"
+            columns: ["payment_request_id"]
+            isOneToOne: false
+            referencedRelation: "payment_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cost_categories: {
         Row: {
           code: string
@@ -2520,6 +2625,18 @@ export type Database = {
           p_notes?: string | null
         }
         Returns: string
+      }
+      record_ceo_cash_expense: {
+        Args: {
+          p_draft_id: string
+          p_fields: Json
+          p_idempotency_key: string
+        }
+        Returns: Json
+      }
+      discard_ceo_cash_expense_draft: {
+        Args: { p_draft_id: string }
+        Returns: Json
       }
       set_payment_request_requires_receipt: {
         Args: {

@@ -9,16 +9,12 @@ import {
   type CostItemAliasMapping,
 } from "../_shared/ocr-cost-classifier.ts";
 import { resolveCanonicalMaterialForLine } from "../_shared/material-controller.ts";
-
-type SupplierLite = { id: string; name: string };
-
-type SupplierAliasRow = {
-  id: string;
-  supplier_id: string;
-  alias_text: string;
-  alias_key: string;
-  active: boolean;
-};
+import {
+  matchInvoiceSupplier,
+  normalizeSupplierText,
+  type SupplierAliasRow,
+  type SupplierLite,
+} from "../_shared/invoice-supplier-match.ts";
 
 type ScanTemplateRow = {
   id: string;
@@ -26,29 +22,6 @@ type ScanTemplateRow = {
   supplier_name_key: string;
   template_json: Record<string, unknown> | null;
   active: boolean;
-};
-
-const normalizeText = (v: string) =>
-  String(v || "")
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .replace(/[^a-z0-9\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-const acronymOf = (v: string) => {
-  const tokens = normalizeText(v)
-    .split(" ")
-    .filter((x) => x && x.length > 1);
-
-  // Important: support short supplier tokens like "STC", "VPM", ...
-  if (tokens.length === 1) {
-    const t = tokens[0];
-    if (t.length >= 2 && t.length <= 8) return t;
-  }
-
-  return tokens.map((x) => x[0]).join("");
 };
 
 const parseNumericVN = (v: unknown): number | null => {
@@ -67,26 +40,6 @@ const parseNumericVN = (v: unknown): number | null => {
 
   const n = Number(normalized);
   return Number.isFinite(n) ? n : null;
-};
-
-const scoreSupplierMatch = (scanned: string, candidate: string): number => {
-  const a = normalizeText(scanned);
-  const b = normalizeText(candidate);
-  if (!a || !b) return 0;
-
-  const acA = acronymOf(a);
-  const acB = acronymOf(b);
-  if (a === b) return 100;
-  if (acA && (b.includes(acA) || acA === acB)) return 97;
-  if (a.includes(b) || b.includes(a)) return 90;
-
-  const at = a.split(" ").filter(Boolean);
-  const bt = b.split(" ").filter(Boolean);
-  const inter = at.filter((t) => bt.includes(t)).length;
-  if (!inter) return 0;
-
-  const coverage = inter / Math.max(at.length, bt.length);
-  return Math.round(coverage * 85);
 };
 
 serve(async (req) => {
@@ -349,61 +302,28 @@ ${aliases.length ? `Known aliases (alias => canonical supplier):\n${aliases.slic
     extractedData.vat_amount = parseNumericVN(extractedData?.vat_amount) ?? extractedData?.vat_amount ?? null;
 
     // Canonicalize supplier to master list (alias first on multiple candidates, then scoring fallback)
-    let supplierMatch: { id: string; name: string; score: number; source: "alias" | "scoring" } | null = null;
     const scannedSupplierName = String(extractedData?.supplier_name || "").trim();
 
-    const candidateTexts = Array.from(new Set([
+    const resolveSupplier = async (supplierId: string): Promise<SupplierLite | null> => {
+      const fromPayload = supplierList.find((s) => s.id === supplierId);
+      if (fromPayload) return fromPayload;
+      const { data } = await supabaseAdmin
+        .from("suppliers")
+        .select("id,name")
+        .eq("id", supplierId)
+        .maybeSingle();
+      return data ? ({ id: String((data as any).id), name: String((data as any).name || "") }) : null;
+    };
+
+    const supplierMatch = await matchInvoiceSupplier({
       scannedSupplierName,
-      ...((Array.isArray((extractedData as any)?.seller_name_candidates) ? (extractedData as any).seller_name_candidates : []) as string[]),
-    ].map((x) => String(x || "").trim()).filter(Boolean)));
-
-    if (candidateTexts.length && aliases.length) {
-      const resolveSupplier = async (supplierId: string) => {
-        const fromPayload = supplierList.find((s) => s.id === supplierId);
-        if (fromPayload) return fromPayload;
-        const { data } = await supabaseAdmin
-          .from("suppliers")
-          .select("id,name")
-          .eq("id", supplierId)
-          .maybeSingle();
-        return data ? ({ id: String((data as any).id), name: String((data as any).name || "") }) : null;
-      };
-
-      for (const candidate of candidateTexts) {
-        const key = normalizeText(candidate);
-        if (!key) continue;
-
-        const directAlias = aliases.find((a) => a.alias_key === key);
-        if (directAlias) {
-          const hit = await resolveSupplier(directAlias.supplier_id);
-          if (hit) {
-            supplierMatch = { id: hit.id, name: hit.name, score: 100, source: "alias" };
-            extractedData.supplier_name = hit.name;
-            break;
-          }
-        }
-
-        const containsAlias = aliases.find((a) => key.includes(a.alias_key) || a.alias_key.includes(key));
-        if (containsAlias) {
-          const hit = await resolveSupplier(containsAlias.supplier_id);
-          if (hit) {
-            supplierMatch = { id: hit.id, name: hit.name, score: 95, source: "alias" };
-            extractedData.supplier_name = hit.name;
-            break;
-          }
-        }
-      }
-    }
-
-    if (!supplierMatch && scannedSupplierName && supplierList.length) {
-      const ranked = supplierList
-        .map((s) => ({ ...s, score: scoreSupplierMatch(scannedSupplierName, s.name) }))
-        .sort((a, b) => b.score - a.score);
-      const best = ranked[0];
-      if (best && best.score >= 90) {
-        supplierMatch = { id: best.id, name: best.name, score: best.score, source: "scoring" };
-        extractedData.supplier_name = best.name;
-      }
+      sellerNameCandidates: (extractedData as any)?.seller_name_candidates,
+      aliases,
+      suppliers: supplierList,
+      resolveSupplier,
+    });
+    if (supplierMatch) {
+      extractedData.supplier_name = supplierMatch.name;
     }
 
     if (Array.isArray(extractedData?.items)) {
@@ -456,7 +376,7 @@ ${aliases.length ? `Known aliases (alias => canonical supplier):\n${aliases.slic
     }
 
     // Learn/update template for future scans
-    const supplierKey = normalizeText(String(extractedData?.supplier_name || scannedSupplierName || ""));
+    const supplierKey = normalizeSupplierText(String(extractedData?.supplier_name || scannedSupplierName || ""));
     if (supplierKey) {
       const aliasSet = Array.from(new Set([scannedSupplierName, String(extractedData?.supplier_name || "")].filter(Boolean)));
       const templateJson = {
