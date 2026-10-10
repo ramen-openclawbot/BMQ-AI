@@ -201,9 +201,11 @@ const SHOTS = [];
 try {
   for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 }]) {
     const { context, page, errors } = await open({ role: "owner" }, "/payment-requests", viewport);
-    await page.locator("[data-bmq-pr-view-all]").click();
-    const trigger = page.getByRole("button", { name: /Tạo duyệt chi|Tạo đề nghị chi/ }).locator("visible=true").first();
+    // Default tab (Chưa thanh toán) has its own create button.
+    const trigger = page.locator("[data-bmq-pr-create-unpaid] button");
     await trigger.waitFor({ timeout: 20000 });
+    assert.ok(await overflowOk(page), `page overflow ${viewport.width}`);
+    await page.screenshot({ path: `${EVIDENCE}/unpaid-tab-${viewport.width}.png` });
     await trigger.click();
 
     const overflowers = async () => page.evaluate(() => {

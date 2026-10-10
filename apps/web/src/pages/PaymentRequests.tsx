@@ -584,7 +584,20 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
       </div>
 
       {view === "unpaid" ? (
-        <UrgentPayablesPanel canSubmit={isOwner || canEditPaymentRequests} onOpenRequest={setSelectedRequestId} />
+        <>
+          {/* Create from the default tab too (it was only under Tất cả). */}
+          <div className="mb-3 flex justify-end" data-bmq-pr-create-unpaid>
+            <AddPaymentRequestDialog
+              trigger={
+                <Button className="d3-pa-primary h-11 w-full whitespace-nowrap sm:w-auto sm:px-6">
+                  <Plus className="mr-2 h-4 w-4" />
+                  {isVi ? "Tạo duyệt chi" : "Create request"}
+                </Button>
+              }
+            />
+          </div>
+          <UrgentPayablesPanel canSubmit={isOwner || canEditPaymentRequests} onOpenRequest={setSelectedRequestId} />
+        </>
       ) : view === "recon" ? (
         <ReconciliationPanel onOpenRequest={setSelectedRequestId} />
       ) : (
