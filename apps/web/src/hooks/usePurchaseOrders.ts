@@ -312,9 +312,11 @@ export function useCancelPurchaseOrder() {
         .update({ status: "cancelled" })
         .eq("id", id);
       if (error) {
+        // Server guards raise "po_cancel_has_payments: …" / "po_cancel_has_receipt: …";
+        // show only the Vietnamese sentence after the code.
         const message = error.message || "";
-        const marker = "po_cancel_has_payments: ";
-        throw new Error(message.includes(marker) ? message.slice(message.indexOf(marker) + marker.length) : message);
+        const match = message.match(/po_cancel_has_(?:payments|receipt): (.*)$/s);
+        throw new Error(match ? match[1] : message);
       }
     },
     onSuccess: () => {

@@ -191,9 +191,14 @@ export default function PaymentSubmission() {
                         const rc = receiptById.get(item.payment_request_id);
                         if (!rc) return null;
                         const gr = rc.goods_receipts;
-                        return gr?.receipt_number ? (
+                        // Only "received" is stock in; "confirmed"/"draft" is a waiting receipt.
+                        return gr?.receipt_number && gr.status === "received" ? (
                           <span className="d3-up-chip is-green" data-bmq-submission-receipt="in">
                             Đã nhập kho {gr.receipt_number}{gr.receipt_date ? ` · ${ddmm(gr.receipt_date)}` : ""}
+                          </span>
+                        ) : gr?.receipt_number ? (
+                          <span className="d3-up-chip is-amber" data-bmq-submission-receipt="waiting">
+                            Chờ nhập kho {gr.receipt_number}
                           </span>
                         ) : item.requires_receipt ? (
                           <span className="d3-up-chip" data-bmq-submission-receipt="none">Chưa nhập kho</span>

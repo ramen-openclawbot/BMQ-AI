@@ -37,7 +37,7 @@ test("names every fixed label in short Vietnamese", () => {
   assert.equal(financeReconciliationLabel("po_over_requested"), "Đề nghị vượt PO");
   assert.equal(financeReconciliationLabel("pr_twin_created"), "Phiếu tạo trùng");
   assert.equal(financeReconciliationLabel("paid_without_bank_evidence"), "Chi không có UNC");
-  assert.equal(financeReconciliationLabel("paid_without_receipt"), "Chi chưa nhập kho");
+  assert.equal(financeReconciliationLabel("paid_without_receipt"), "Chi khi chưa nhập kho");
   assert.equal(
     financeReconciliationLabel("receipt_confirmed_delivery_pending"),
     "Đã nhập kho, phiếu ghi chưa giao",
@@ -122,6 +122,13 @@ test("maps the three new blocking error codes to Vietnamese messages", () => {
   }
   assert.ok(financeReconciliationErrorMessage("po_overpaid")!.includes("vượt"));
   assert.ok(financeReconciliationErrorMessage("goods_receipt_already_requested")!.includes("phiếu đề nghị chi"));
+});
+
+test("maps the PO cancel receipt error code to a Vietnamese message", () => {
+  const message = financeReconciliationErrorMessage("po_cancel_has_receipt");
+  assert.ok(message, "missing message for po_cancel_has_receipt");
+  assert.equal(message, FINANCE_RECONCILIATION_ERROR_MESSAGES.po_cancel_has_receipt);
+  assert.ok(message!.includes("phiếu nhập"));
 });
 
 test("returns null for an unknown error code", () => {

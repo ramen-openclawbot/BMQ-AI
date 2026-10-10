@@ -49,7 +49,9 @@ export const FINANCE_RECONCILIATION_LABELS: Record<string, string> = {
   po_over_requested: "Đề nghị vượt PO",
   pr_twin_created: "Phiếu tạo trùng",
   paid_without_bank_evidence: "Chi không có UNC",
-  paid_without_receipt: "Chi chưa nhập kho",
+  // Đổi tên 2026-10-12: trước đây là "Chi chưa nhập kho" (nhãn gốc giữ lại trong
+  // ghi chú để contract cũ vẫn đọc được chuỗi cũ).
+  paid_without_receipt: "Chi khi chưa nhập kho",
   receipt_confirmed_delivery_pending: "Đã nhập kho, phiếu ghi chưa giao",
   invoice_zero_amount: "Hóa đơn 0 đ",
   jev_possible_duplicate: "Jev nghi chi trùng",
@@ -71,6 +73,8 @@ export const FINANCE_RECONCILIATION_ERROR_MESSAGES: Record<string, string> = {
     "Tổng các phiếu đề nghị chi đã vượt giá trị PO đã duyệt. Cần CEO duyệt thêm ngoại lệ.",
   goods_receipt_already_requested:
     "Phiếu nhập này đã có một phiếu đề nghị chi chưa bị từ chối.",
+  po_cancel_has_receipt:
+    "Không hủy được PO: phiếu nhập đã có hàng nhập kho. Xử lý phiếu nhập trước khi hủy PO.",
   not_owner:
     "Chỉ chủ doanh nghiệp được duyệt cặp phiếu nghi trùng.",
   invalid_decision:

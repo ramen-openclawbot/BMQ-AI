@@ -348,7 +348,9 @@ try {
     const w = viewport.width;
     const { context, page, errors } = await open({ role: "owner" }, "/payment-requests/submissions/sub-1", viewport);
     await page.waitForSelector("[data-bmq-submission-receipt]");
-    assert.ok((await page.locator("[data-bmq-submission-row='PR-8CA755E0'] [data-bmq-submission-receipt='in']").textContent()).includes("GRN-000571"));
+    // GRN-000571 is "confirmed" (waiting), so it must read "Chờ nhập kho", never "Đã nhập kho".
+    assert.ok((await page.locator("[data-bmq-submission-row='PR-8CA755E0'] [data-bmq-submission-receipt='waiting']").textContent()).includes("Chờ nhập kho GRN-000571"));
+    assert.equal(await page.locator("[data-bmq-submission-receipt='in']").count(), 0);
     assert.equal(await page.locator("[data-bmq-submission-row='PR-MMEK7ZD8'] [data-bmq-submission-receipt='none']").count(), 1);
     await page.waitForSelector("[data-bmq-submission-row='PR-MMEK7ZD8'] [data-bmq-submission-flag='pr_twin_created']");
     // The PO-000144 over-request flag is needs_action, so it still shows on the row.
