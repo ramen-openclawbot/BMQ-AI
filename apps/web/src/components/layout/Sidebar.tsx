@@ -33,6 +33,7 @@ import {
   Store,
   Wallet,
   Boxes,
+  ClipboardList,
   MessageCircle,
   X,
 } from "lucide-react";
@@ -127,6 +128,7 @@ export const navItems: NavItem[] = [
     section: "operations",
     children: [
       { icon: Package, labelKey: "inventoryOverview", path: "/inventory", section: "operations", moduleKey: "inventory", hiddenFromMenu: true },
+      { icon: ClipboardList, labelKey: "stockLedger", path: "/warehouse/stock-ledger", section: "operations", moduleKey: "inventory" },
       { icon: Boxes, labelKey: "tanTaoWarehouse", path: "/warehouse/tan-tao", section: "operations", moduleKey: "inventory" },
       { icon: CookingPot, labelKey: "kitchenInventory", path: "/kitchen-inventory", section: "operations", moduleKey: "kitchen_inventory", hiddenFromMenu: true },
       { icon: PackageCheck, labelKey: "goodsReceipts", path: "/goods-receipts", section: "operations", moduleKey: "goods_receipts" },

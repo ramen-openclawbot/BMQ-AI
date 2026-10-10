@@ -12,6 +12,7 @@ EXPECTED_GROUP = '''  {
     section: "operations",
     children: [
       { icon: Package, labelKey: "inventoryOverview", path: "/inventory", section: "operations", moduleKey: "inventory", hiddenFromMenu: true },
+      { icon: ClipboardList, labelKey: "stockLedger", path: "/warehouse/stock-ledger", section: "operations", moduleKey: "inventory" },
       { icon: Boxes, labelKey: "tanTaoWarehouse", path: "/warehouse/tan-tao", section: "operations", moduleKey: "inventory" },
       { icon: CookingPot, labelKey: "kitchenInventory", path: "/kitchen-inventory", section: "operations", moduleKey: "kitchen_inventory", hiddenFromMenu: true },
       { icon: PackageCheck, labelKey: "goodsReceipts", path: "/goods-receipts", section: "operations", moduleKey: "goods_receipts" },
@@ -31,7 +32,7 @@ NAVIGATION = (ROOT / "src/components/layout/navigation.ts").read_text()
 assert '<div className="d3-drawer-group-label">' in SIDEBAR
 assert 'data-sidebar-active={childActive ? "true" : undefined}' in SIDEBAR
 warehouse_zone = NAVIGATION.split('id: "warehouse"', 1)[1].split("prefixes:", 1)[0]
-for route in ("/warehouse/tan-tao", "/goods-receipts", "/purchase-orders"):
+for route in ("/warehouse/stock-ledger", "/warehouse/tan-tao", "/goods-receipts", "/purchase-orders"):
     assert f'"{route}"' in warehouse_zone, f"{route} must be in the Kho zone"
 
 # 2026-10-10: pages with no entries in 30 days are hidden from the menus but stay routable.
@@ -55,4 +56,6 @@ for route in (
 
 assert '{ icon: Barcode, labelKey: "skuCosts", path: "/sku-costs"' in SIDEBAR
 assert '{ icon: Boxes, labelKey: "materialMaster", path: "/material-master"' in SIDEBAR
+assert warehouse_zone.index('"/warehouse/stock-ledger"') < warehouse_zone.index('"/warehouse/tan-tao"'), "Sổ tồn NVL leads the Kho zone"
+assert 'stockLedger: "Sổ tồn NVL"' in LANGUAGE
 print("warehouse sidebar group contract passed")

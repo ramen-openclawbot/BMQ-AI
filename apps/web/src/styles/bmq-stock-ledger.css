@@ -1,0 +1,154 @@
+/* Sổ tồn NVL. Builds on bmq-warehouse.css (.d3-wh) and the shell tokens. */
+
+.d3-sl-switch {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 99px;
+  background: var(--d3-white);
+}
+
+.d3-sl-switch button {
+  min-height: 36px;
+  padding: 0 16px;
+  border-radius: 99px;
+  font-size: 14px;
+  color: var(--d3-dim);
+  transition: background .2s var(--d3-ease), color .2s var(--d3-ease);
+}
+
+.d3-sl-switch button.is-on {
+  background: var(--d3-ink);
+  color: var(--d3-white);
+}
+
+.d3-sl-grid {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.d3-sl-side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+@media (min-width: 1100px) {
+  .d3-sl-grid { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); align-items: start; }
+}
+
+/* stock list */
+.d3-sl-items,
+.d3-sl-pending-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.d3-sl-items li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: var(--d3-white);
+}
+
+.d3-sl-items li.is-low { box-shadow: inset 3px 0 0 var(--d3-red); }
+
+.d3-sl-item-name,
+.d3-sl-pending-name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.d3-sl-item-name strong,
+.d3-sl-pending-name strong {
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.d3-sl-item-name small,
+.d3-sl-pending-name small,
+.d3-sl-item-qty > small {
+  font-size: 12px;
+  color: var(--d3-dim);
+}
+
+.d3-sl-item-qty {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  text-align: right;
+}
+
+.d3-sl-item-qty strong {
+  font-size: 18px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.d3-sl-item-qty strong small { margin-left: 4px; font-size: 12px; color: var(--d3-dim); }
+.d3-sl-item-qty b { font-weight: 500; color: var(--d3-red); }
+
+/* pending aliases */
+.d3-sl-pending {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: var(--d3-white);
+}
+
+.d3-sl-pending-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 76px auto;
+  align-items: end;
+  gap: 8px;
+}
+
+.d3-sl-pending-form .d3-wh-select { background: var(--d3-card); }
+
+.d3-sl-factor {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--d3-dim);
+}
+
+.d3-sl-factor input,
+.d3-sl-pending-form button { height: 44px; }
+
+@media (max-width: 520px) {
+  .d3-sl-pending-form { grid-template-columns: minmax(0, 1fr) 76px; }
+  .d3-sl-pending-form .d3-wh-select { grid-column: 1 / -1; }
+}
+
+/* count */
+.d3-sl-count {
+  display: grid;
+  gap: 10px;
+}
+
+.d3-sl-count > div {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.d3-sl-count input { height: 44px; }
+.d3-sl-count-submit { height: 44px; gap: 8px; }

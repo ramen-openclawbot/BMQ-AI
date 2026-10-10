@@ -751,6 +751,7 @@ export type Database = {
           purchase_order_id: string | null
           receipt_date: string
           receipt_number: string
+          receiving_location: string | null
           status: Database["public"]["Enums"]["goods_receipt_status"]
           supplier_id: string | null
           total_quantity: number | null
@@ -771,6 +772,7 @@ export type Database = {
           purchase_order_id?: string | null
           receipt_date?: string
           receipt_number: string
+          receiving_location?: string | null
           status?: Database["public"]["Enums"]["goods_receipt_status"]
           supplier_id?: string | null
           total_quantity?: number | null
@@ -791,6 +793,7 @@ export type Database = {
           purchase_order_id?: string | null
           receipt_date?: string
           receipt_number?: string
+          receiving_location?: string | null
           status?: Database["public"]["Enums"]["goods_receipt_status"]
           supplier_id?: string | null
           total_quantity?: number | null
@@ -2406,6 +2409,7 @@ export type Database = {
           default_payment_method:
             | Database["public"]["Enums"]["payment_method_type"]
             | null
+          default_receiving_location: string | null
           description: string | null
           email: string | null
           id: string
@@ -2426,6 +2430,7 @@ export type Database = {
           default_payment_method?:
             | Database["public"]["Enums"]["payment_method_type"]
             | null
+          default_receiving_location?: string | null
           description?: string | null
           email?: string | null
           id?: string
@@ -2446,6 +2451,7 @@ export type Database = {
           default_payment_method?:
             | Database["public"]["Enums"]["payment_method_type"]
             | null
+          default_receiving_location?: string | null
           description?: string | null
           email?: string | null
           id?: string
@@ -2457,6 +2463,84 @@ export type Database = {
           vat_included_in_price?: boolean | null
         }
         Relationships: []
+      }
+      stock_ledger_settings: {
+        Row: {
+          id: number
+          q7_cutover_date: string | null
+          tan_tao_cutover_date: string | null
+          updated_at: string
+        }
+        Insert: {
+          id?: number
+          q7_cutover_date?: string | null
+          tan_tao_cutover_date?: string | null
+          updated_at?: string
+        }
+        Update: {
+          id?: number
+          q7_cutover_date?: string | null
+          tan_tao_cutover_date?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      stock_material_aliases: {
+        Row: {
+          conversion_factor: number
+          created_at: string
+          created_by: string | null
+          id: string
+          kitchen_inventory_item_id: string | null
+          location: string
+          normalized_name: string
+          supplier_id: string | null
+          tan_tao_sku_id: string | null
+          unit: string
+          updated_at: string
+        }
+        Insert: {
+          conversion_factor?: number
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          kitchen_inventory_item_id?: string | null
+          location: string
+          normalized_name: string
+          supplier_id?: string | null
+          tan_tao_sku_id?: string | null
+          unit: string
+          updated_at?: string
+        }
+        Update: {
+          conversion_factor?: number
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          kitchen_inventory_item_id?: string | null
+          location?: string
+          normalized_name?: string
+          supplier_id?: string | null
+          tan_tao_sku_id?: string | null
+          unit?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stock_material_aliases_supplier_id_fkey"
+            columns: ["supplier_id"]
+            isOneToOne: false
+            referencedRelation: "suppliers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stock_material_aliases_tan_tao_sku_id_fkey"
+            columns: ["tan_tao_sku_id"]
+            isOneToOne: false
+            referencedRelation: "product_skus"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_roles: {
         Row: {
@@ -2955,6 +3039,47 @@ export type Database = {
       }
       submit_salary_payout_matches: {
         Args: { p_id: string; p_idempotency_key: string; p_matches: Json }
+        Returns: Json
+      }
+      get_stock_ledger_overview: {
+        Args: { p_location: string; p_as_of?: string | null }
+        Returns: Json
+      }
+      normalize_stock_item_name: {
+        Args: { p_name: string }
+        Returns: string
+      }
+      record_q7_stock_count: {
+        Args: {
+          p_kitchen_inventory_item_id: string
+          p_counted_qty: number
+          p_count_date: string
+          p_note: string | null
+          p_idempotency_key: string
+        }
+        Returns: Json
+      }
+      resolve_stock_alias: {
+        Args: {
+          p_goods_receipt_item_id: string
+          p_location: string
+          p_kitchen_inventory_item_id: string | null
+          p_tan_tao_sku_id: string | null
+          p_conversion_factor: number
+          p_apply_to_supplier?: boolean
+        }
+        Returns: number
+      }
+      set_goods_receipt_receiving_location: {
+        Args: {
+          p_receipt_id: string
+          p_location: string
+          p_remember_for_supplier?: boolean
+        }
+        Returns: Json
+      }
+      set_supplier_receiving_location: {
+        Args: { p_supplier_id: string; p_location: string | null }
         Returns: Json
       }
     }

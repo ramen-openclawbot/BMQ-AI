@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ReceivingLocationSelect } from "@/components/goods-receipts/ReceivingLocationSelect";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
@@ -492,6 +493,7 @@ export default function GoodsReceipts() {
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
+                    <ReceivingLocationSelect receiptId={receipt.id} value={receipt.receiving_location} />
                     {getPayableBadge(receipt)}
                     {receipt.status === "confirmed" && receipt.payable_status !== "generated" && (
                       <Button
@@ -605,7 +607,12 @@ export default function GoodsReceipts() {
                         <TableCell>{receipt.suppliers?.name || "-"}</TableCell>
                         <TableCell>{formatReceiptDate(receipt.receipt_date)}</TableCell>
                         <TableCell>{receipt.total_quantity?.toLocaleString("vi-VN") || 0}</TableCell>
-                        <TableCell>{getStatusBadge(receipt.status)}</TableCell>
+                        <TableCell>
+                          <div className="flex flex-col items-start gap-1.5">
+                            {getStatusBadge(receipt.status)}
+                            <ReceivingLocationSelect receiptId={receipt.id} value={receipt.receiving_location} />
+                          </div>
+                        </TableCell>
                         <TableCell>
                           <div className="space-y-1 text-xs">
                             <div className="flex items-center gap-1 text-muted-foreground">
