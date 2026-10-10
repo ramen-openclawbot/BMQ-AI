@@ -199,10 +199,10 @@ const SHOTS = [];
   await ctx.close();
 }
 try {
-  for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 }]) {
+  for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 640 }, { width: 1440, height: 900 }]) {
     const { context, page, errors } = await open({ role: "owner" }, "/payment-requests", viewport);
     // Default tab (Chưa thanh toán) has its own create button.
-    const trigger = page.locator("[data-bmq-pr-create-unpaid] button");
+    const trigger = page.locator("[data-bmq-pr-create-unpaid] button.d3-pa-primary");
     await trigger.waitFor({ timeout: 20000 });
     assert.ok(await overflowOk(page), `page overflow ${viewport.width}`);
     await page.screenshot({ path: `${EVIDENCE}/unpaid-tab-${viewport.width}.png` });
@@ -229,6 +229,8 @@ try {
     });
     const input = page.locator("[data-bmq-pr-image-input]");
     await input.waitFor({ state: "attached" });
+    await page.waitForTimeout(250);
+    await page.locator("[data-bmq-pr-create-dialog]").screenshot({ path: `${EVIDENCE}/dlg-empty-${viewport.width}.png` });
     assert.equal(await input.getAttribute("multiple"), "", "main picker allows many photos");
     await input.setInputFiles(SHOTS);
     await page.waitForSelector('[data-bmq-pr-invoices="3"]');
@@ -241,6 +243,17 @@ try {
     assert.deepEqual(names, ["Ship hộp", "Ship bao giấy", "Nước Bidrico 19L"], names.join());
     assert.equal(scanBodies.length, 3, "each invoice scanned");
     assert.ok(scanBodies.every((b) => b.imageBase64 && b.documentType === "payment_request"));
+    await page.locator("[data-bmq-pr-item]").first().scrollIntoViewIfNeeded();
+    await page.locator("[data-bmq-pr-create-dialog]").screenshot({ path: `${EVIDENCE}/dlg-items-${viewport.width}.png` });
+    // Payment method chips switch the form value (UNC <-> Tiền mặt) and never submit the form.
+    await page.locator("#payment_cash").click();
+    assert.equal(await page.locator("#payment_cash").getAttribute("aria-checked"), "true");
+    assert.ok((await page.locator("[data-bmq-pr-create-dialog]").textContent()).includes("CEO chuyển tiền cho người đề nghị"));
+    await page.locator("#payment_unc").click();
+    assert.equal(await page.locator("#payment_unc").getAttribute("aria-checked"), "true");
+    assert.equal(await page.locator("[data-bmq-pr-create-dialog]").count(), 1, "dialog still open");
+    await page.locator("[data-bmq-pr-submit]").scrollIntoViewIfNeeded();
+    await page.locator("[data-bmq-pr-create-dialog]").screenshot({ path: `${EVIDENCE}/dlg-foot-${viewport.width}.png` });
     { const o = await overflowers(); assert.ok(o.sw <= o.cw, `dialog overflow after scan ${viewport.width}: ${JSON.stringify(o)}`); }
     await page.screenshot({ path: `${EVIDENCE}/pr-docs-${viewport.width}.png` });
     assert.deepEqual(errors, []);

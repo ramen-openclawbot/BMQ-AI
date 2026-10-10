@@ -1,0 +1,82 @@
+/* Tạo đề nghị duyệt chi (UNC) dialog — Demo 3 theme. Builds on .d3-unc / .d3-ub / .d3-cpr. */
+
+html .d3-unc.d3-prc { max-width: 760px; }
+.d3-prc-form { display: grid; gap: 12px; min-width: 0; }
+.d3-prc-card { display: grid; gap: 10px; min-width: 0; padding: 14px; border-radius: 18px; background: var(--d3-card, #f7f7f5); }
+.d3-prc-card > h3 { margin: 0; font-size: 13px; font-weight: 500; color: var(--d3-dim, #6b6b69); }
+.d3-prc-wide { width: 100%; }
+.d3-prc-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px 14px; min-width: 0; }
+.d3-prc-span { grid-column: 1 / -1; }
+.d3-prc-field { display: grid; gap: 6px; align-content: start; min-width: 0; }
+.d3-prc-field > label, .d3-prc-label { font-size: 12px; font-weight: 400; color: var(--d3-dim, #6b6b69); }
+.d3-prc-card input:not([type="checkbox"]):not(.sr-only), .d3-prc-card textarea, .d3-prc-card button[role="combobox"] {
+  min-height: 42px; border-radius: 12px; background: var(--d3-white, #fdfdfc); font-size: 16px;
+}
+.d3-prc-card textarea { min-height: 64px; }
+.d3-prc-hint { margin: 0; font-size: 12px; line-height: 1.4; color: var(--d3-dim, #6b6b69); overflow-wrap: anywhere; }
+.d3-prc-hint b { font-weight: 500; color: var(--d3-ink, #272727); }
+.d3-prc-card .d3-unc-chips button { display: inline-flex; align-items: center; }
+
+.d3-prc-file { display: flex; align-items: center; gap: 8px; min-height: 42px; padding: 0 12px; border: 1.5px dashed var(--d3-line-2, #d6d6d3); border-radius: 12px; background: var(--d3-white, #fdfdfc); color: var(--d3-ink-2, #4a4a4a); font-size: 13.5px; cursor: pointer; }
+.d3-prc-file:focus-within { outline: 2px solid var(--d3-blue, #3c91e6); outline-offset: 2px; }
+.d3-prc-files { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.d3-prc-files li { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; min-height: 32px; padding: 0 4px 0 10px; border-radius: 999px; background: var(--d3-white, #fdfdfc); font-size: 12px; }
+.d3-prc-files li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.d3-prc-files li button { display: grid; place-items: center; width: 26px; height: 26px; border: 0; border-radius: 50%; background: transparent; color: var(--d3-dim, #6b6b69); cursor: pointer; }
+
+/* Items: one card per row on phones, a table-like grid from 720px. */
+.d3-prc-items { display: grid; gap: 8px; min-width: 0; }
+.d3-prc-item {
+  display: grid; gap: 6px 8px; min-width: 0; padding: 10px; border-radius: 14px; background: var(--d3-white, #fdfdfc);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr) 36px;
+  grid-template-areas: "name name name del" "code qty unit unit" "price price total total" "info info info info";
+}
+.d3-prc-item label, .d3-prc-c-total { display: grid; gap: 2px; min-width: 0; }
+.d3-prc-item small { font-size: 11px; color: var(--d3-dim, #6b6b69); }
+.d3-prc-item input { min-height: 40px; }
+.d3-prc-c-name { grid-area: name; }
+.d3-prc-c-code { grid-area: code; }
+.d3-prc-c-qty { grid-area: qty; }
+.d3-prc-c-unit { grid-area: unit; }
+.d3-prc-c-price { grid-area: price; }
+.d3-prc-c-total { grid-area: total; align-content: end; justify-items: end; padding-bottom: 8px; }
+.d3-prc-c-total b { font-size: 14px; font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.d3-prc-c-del { grid-area: del; align-self: start; }
+.d3-prc-c-info { grid-area: info; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; color: var(--d3-dim, #6b6b69); }
+.d3-prc-item-head { display: none; }
+
+@media (min-width: 720px) {
+  .d3-prc-items { gap: 6px; }
+  .d3-prc-item {
+    grid-template-columns: 72px minmax(0, 1fr) 62px 62px 108px 100px 36px;
+    grid-template-areas: "code name qty unit price total del" "info info info info info info info";
+    align-items: center; padding: 8px 10px;
+  }
+  .d3-prc-item small { display: none; }
+  .d3-prc-c-total { align-content: center; padding-bottom: 0; }
+  .d3-prc-c-del { align-self: center; }
+  .d3-prc-item-head { display: grid; padding: 0 10px; background: transparent; font-size: 11.5px; color: var(--d3-dim, #6b6b69); }
+  .d3-prc-item-head > span:nth-child(1) { grid-area: code; }
+  .d3-prc-item-head > span:nth-child(2) { grid-area: name; }
+  .d3-prc-item-head > span:nth-child(3) { grid-area: qty; }
+  .d3-prc-item-head > span:nth-child(4) { grid-area: unit; }
+  .d3-prc-item-head > span:nth-child(5) { grid-area: price; }
+  .d3-prc-item-head > span:nth-child(6) { grid-area: total; justify-self: end; }
+  .d3-prc-item-head > span:nth-child(7) { grid-area: del; }
+}
+
+.d3-prc-sum { display: grid; gap: 8px; margin: 0; }
+.d3-prc-sum > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 14px; }
+.d3-prc-sum dt { color: var(--d3-ink-2, #4a4a4a); }
+.d3-prc-sum dd { margin: 0; font-variant-numeric: tabular-nums; }
+.d3-prc-sum .is-total { padding-top: 8px; border-top: 1px solid var(--d3-line, #e6e6e3); font-size: 17px; font-weight: 500; }
+.d3-prc-noreceipt { display: grid; gap: 8px; padding: 12px; border-radius: 14px; background: var(--d3-white, #fdfdfc); }
+
+.d3-prc-foot { margin-top: 2px; }
+.d3-prc-acts { display: flex; gap: 8px; margin-left: auto; }
+.d3-prc-acts .d3-ub-go { margin-left: 0; }
+
+@media (max-width: 520px) {
+  .d3-prc-grid { grid-template-columns: minmax(0, 1fr); }
+  .d3-prc-card { padding: 12px; }
+}
