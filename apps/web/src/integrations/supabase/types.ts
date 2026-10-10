@@ -2398,6 +2398,241 @@ export type Database = {
           },
         ]
       }
+      q7_auto_purchase_decisions: {
+        Row: {
+          amount: number | null
+          created_at: string
+          decision: string
+          error_message: string | null
+          forecast_avg_14d: number | null
+          forecast_avg_28d: number | null
+          forecast_stddev_28d: number | null
+          id: string
+          item_id: string
+          on_hand: number | null
+          open_po_qty: number | null
+          purchase_order_id: string | null
+          reason_codes: string[]
+          reorder_date: string | null
+          run_id: string
+          suggested_qty: number | null
+          unit_price: number | null
+        }
+        Insert: {
+          amount?: number | null
+          created_at?: string
+          decision: string
+          error_message?: string | null
+          forecast_avg_14d?: number | null
+          forecast_avg_28d?: number | null
+          forecast_stddev_28d?: number | null
+          id?: string
+          item_id: string
+          on_hand?: number | null
+          open_po_qty?: number | null
+          purchase_order_id?: string | null
+          reason_codes?: string[]
+          reorder_date?: string | null
+          run_id: string
+          suggested_qty?: number | null
+          unit_price?: number | null
+        }
+        Update: {
+          amount?: number | null
+          created_at?: string
+          decision?: string
+          error_message?: string | null
+          forecast_avg_14d?: number | null
+          forecast_avg_28d?: number | null
+          forecast_stddev_28d?: number | null
+          id?: string
+          item_id?: string
+          on_hand?: number | null
+          open_po_qty?: number | null
+          purchase_order_id?: string | null
+          reason_codes?: string[]
+          reorder_date?: string | null
+          run_id?: string
+          suggested_qty?: number | null
+          unit_price?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "q7_auto_purchase_decisions_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: false
+            referencedRelation: "kitchen_inventory_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "q7_auto_purchase_decisions_purchase_order_id_fkey"
+            columns: ["purchase_order_id"]
+            isOneToOne: false
+            referencedRelation: "purchase_orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "q7_auto_purchase_decisions_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "q7_auto_purchase_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      q7_auto_purchase_runs: {
+        Row: {
+          created_by: string | null
+          finished_at: string | null
+          id: string
+          run_date: string
+          started_at: string
+          status: string
+          summary: Json
+        }
+        Insert: {
+          created_by?: string | null
+          finished_at?: string | null
+          id?: string
+          run_date: string
+          started_at?: string
+          status?: string
+          summary?: Json
+        }
+        Update: {
+          created_by?: string | null
+          finished_at?: string | null
+          id?: string
+          run_date?: string
+          started_at?: string
+          status?: string
+          summary?: Json
+        }
+        Relationships: []
+      }
+      q7_auto_purchase_settings: {
+        Row: {
+          enabled: boolean
+          id: number
+          max_backtest_error: number
+          max_daily_amount: number
+          max_po_amount: number
+          max_stock_count_age_days: number
+          run_hour_vn: number
+          system_actor_id: string | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          enabled?: boolean
+          id?: number
+          max_backtest_error?: number
+          max_daily_amount?: number
+          max_po_amount?: number
+          max_stock_count_age_days?: number
+          run_hour_vn?: number
+          system_actor_id?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          enabled?: boolean
+          id?: number
+          max_backtest_error?: number
+          max_daily_amount?: number
+          max_po_amount?: number
+          max_stock_count_age_days?: number
+          run_hour_vn?: number
+          system_actor_id?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
+      q7_purchase_item_settings: {
+        Row: {
+          created_at: string
+          id: string
+          kitchen_inventory_item_id: string
+          lead_time_days: number | null
+          learned_at: string | null
+          learned_backtest_error: number | null
+          learned_lead_time_days: number | null
+          learned_pack_label: string | null
+          learned_pack_size: number | null
+          learned_safety_days: number | null
+          learned_supplier_id: string | null
+          max_order_qty: number | null
+          mode: string
+          order_cycle_days: number
+          pack_label: string | null
+          pack_size: number | null
+          safety_days: number | null
+          supplier_id: string | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          kitchen_inventory_item_id: string
+          lead_time_days?: number | null
+          learned_at?: string | null
+          learned_backtest_error?: number | null
+          learned_lead_time_days?: number | null
+          learned_pack_label?: string | null
+          learned_pack_size?: number | null
+          learned_safety_days?: number | null
+          learned_supplier_id?: string | null
+          max_order_qty?: number | null
+          mode?: string
+          order_cycle_days?: number
+          pack_label?: string | null
+          pack_size?: number | null
+          safety_days?: number | null
+          supplier_id?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          kitchen_inventory_item_id?: string
+          lead_time_days?: number | null
+          learned_at?: string | null
+          learned_backtest_error?: number | null
+          learned_lead_time_days?: number | null
+          learned_pack_label?: string | null
+          learned_pack_size?: number | null
+          learned_safety_days?: number | null
+          learned_supplier_id?: string | null
+          max_order_qty?: number | null
+          mode?: string
+          order_cycle_days?: number
+          pack_label?: string | null
+          pack_size?: number | null
+          safety_days?: number | null
+          supplier_id?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "q7_purchase_item_settings_kitchen_inventory_item_id_fkey"
+            columns: ["kitchen_inventory_item_id"]
+            isOneToOne: true
+            referencedRelation: "kitchen_inventory_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "q7_purchase_item_settings_supplier_id_fkey"
+            columns: ["supplier_id"]
+            isOneToOne: false
+            referencedRelation: "suppliers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       suppliers: {
         Row: {
           address: string | null
@@ -3080,6 +3315,66 @@ export type Database = {
       }
       set_supplier_receiving_location: {
         Args: { p_supplier_id: string; p_location: string | null }
+        Returns: Json
+      }
+      get_q7_auto_purchase_status: {
+        Args: never
+        Returns: Json
+      }
+      get_q7_purchase_forecast: {
+        Args: { p_as_of?: string | null; p_horizon_days?: number }
+        Returns: Json
+      }
+      q7_purchase_daily_usage: {
+        Args: { p_item: string; p_as_of: string }
+        Returns: {
+          avg_14d: number
+          avg_28d: number
+          days_with_data: number
+          stddev_28d: number
+          weekday_factor: number
+        }[]
+      }
+      learn_q7_purchase_parameters: {
+        Args: never
+        Returns: Json
+      }
+      run_q7_auto_purchase: {
+        Args: { p_run_date?: string | null }
+        Returns: Json
+      }
+      run_q7_auto_purchase_now: {
+        Args: never
+        Returns: Json
+      }
+      upsert_q7_purchase_item_setting: {
+        Args: {
+          p_kitchen_inventory_item_id: string
+          p_mode: string
+          p_supplier_id?: string | null
+          p_pack_size?: number | null
+          p_pack_label?: string | null
+          p_lead_time_days?: number | null
+          p_safety_days?: number | null
+          p_order_cycle_days?: number | null
+          p_max_order_qty?: number | null
+        }
+        Returns: Json
+      }
+      update_q7_auto_purchase_settings: {
+        Args: {
+          p_enabled?: boolean | null
+          p_system_actor_id?: string | null
+          p_max_po_amount?: number | null
+          p_max_daily_amount?: number | null
+          p_max_stock_count_age_days?: number | null
+          p_max_backtest_error?: number | null
+          p_run_hour_vn?: number | null
+        }
+        Returns: Json
+      }
+      create_q7_draft_purchase_orders: {
+        Args: { p_lines: Json; p_idempotency_key: string }
         Returns: Json
       }
     }

@@ -48,6 +48,15 @@ const SALARY_PAYOUT_EVENT_TYPES = new Set<FinanceZaloEventType>([
   "salary_payout_completed",
 ]);
 
+// These notices are snapshots written at enqueue time (submission totals and the
+// auto-purchase PO/summary digests). The stored message_body is canonical, so the
+// worker must not try to rehydrate them from another source table.
+const SELF_CONTAINED_EVENT_TYPES = new Set<FinanceZaloEventType>([
+  "payment_submission_created",
+  "auto_purchase_order_sent",
+  "auto_purchase_daily_summary",
+]);
+
 const json = (body: Record<string, unknown>, status = 200) => new Response(JSON.stringify(body), {
   status,
   headers: { "content-type": "application/json" },
@@ -251,9 +260,9 @@ const buildJobMessage = async (
   // Prefer the canonical shared formatter rehydrating current server state; fall
   // back to the outbox snapshot so a formatting error never blocks a notice.
   try {
-    // Submission notices are self-contained snapshots stored at creation time;
-    // the outbox body is the canonical text for this event.
-    if (job.event_type === "payment_submission_created") {
+    // Submission and auto-purchase notices are self-contained snapshots stored at
+    // creation time; the outbox body is the canonical text for these events.
+    if (SELF_CONTAINED_EVENT_TYPES.has(job.event_type)) {
       return job.message_body;
     }
 

@@ -16,7 +16,9 @@ export type FinanceZaloEventType =
   | "payment_cash_settled"
   | "salary_payout_created"
   | "salary_payout_advanced"
-  | "salary_payout_completed";
+  | "salary_payout_completed"
+  | "auto_purchase_order_sent"
+  | "auto_purchase_daily_summary";
 
 export const FINANCE_ZALO_EVENT_TYPES: FinanceZaloEventType[] = [
   "payment_request_created",
@@ -29,6 +31,8 @@ export const FINANCE_ZALO_EVENT_TYPES: FinanceZaloEventType[] = [
   "salary_payout_created",
   "salary_payout_advanced",
   "salary_payout_completed",
+  "auto_purchase_order_sent",
+  "auto_purchase_daily_summary",
 ];
 
 export const PAYMENT_REQUESTS_DEEP_LINK = "https://ai.banhmique.vn/payment-requests";
@@ -114,6 +118,35 @@ export type SalaryPayoutNotificationInput = {
   payoutNumber: string;
   periodName?: string | null;
   employeeCount?: number | null;
+};
+
+export type AutoPurchaseOrderLine = {
+  name?: string | null;
+  quantity?: number | null;
+  unit?: string | null;
+  amount?: number | null;
+};
+
+/** Auto-created PO that was sent to the owner's Zalo group for forwarding. */
+export type AutoPurchaseOrderNotificationInput = {
+  id: string;
+  poNumber?: string | null;
+  supplierName?: string | null;
+  lines: AutoPurchaseOrderLine[];
+  totalAmount?: number | null;
+};
+
+export type AutoPurchaseDowngradedItem = {
+  name?: string | null;
+  reasons?: string[] | null;
+};
+
+/** Daily digest of the draft POs and the items downgraded from auto-send. */
+export type AutoPurchaseDailySummaryNotificationInput = {
+  id: string;
+  draftPoCount?: number | null;
+  totalAmount?: number | null;
+  downgraded: AutoPurchaseDowngradedItem[];
 };
 
 const PAYMENT_SUBMISSION_MAX_LINES = 5;
@@ -275,6 +308,82 @@ export const formatSalaryPayoutCompletedMessage = (
   input: SalaryPayoutNotificationInput,
 ): string => formatSalaryPayoutMessage("✅ CHI LƯƠNG — HOÀN TẤT", input);
 
+/** Vietnamese label for an auto-purchase reason code (falls back to the code). */
+export const AUTO_PURCHASE_REASON_LABELS: Readonly<Record<string, string>> = {
+  mode_off: "đang tắt tự động đặt",
+  mode_suggest: "chế độ chỉ đề xuất",
+  mode_auto_draft: "tạo nháp chờ duyệt",
+  over_po_limit: "vượt hạn mức một phiếu",
+  over_daily_limit: "vượt hạn mức trong ngày",
+  no_stock_count: "chưa có kiểm kê tồn kho",
+  stale_stock_count: "kiểm kê tồn kho đã cũ",
+  short_history: "chưa đủ 4 tuần dữ liệu",
+  no_supplier: "chưa gán nhà cung cấp",
+  no_pack_size: "chưa có quy cách đóng gói",
+  no_price: "chưa có giá mua gần nhất",
+  duplicate_material: "trùng mặt hàng với vật tư khác",
+  high_backtest_error: "sai số dự báo vượt ngưỡng",
+  system_error: "lỗi khi gửi phiếu",
+};
+
+export const autoPurchaseReasonLabel = (code: string): string =>
+  AUTO_PURCHASE_REASON_LABELS[code] ?? code;
+
+const formatAutoPurchaseLine = (line: AutoPurchaseOrderLine): string => {
+  const name = safeText(line.name, "Chưa xác định");
+  const quantity = Number(line.quantity);
+  const unit = String(line.unit ?? "").trim();
+  const quantityText = Number.isFinite(quantity)
+    ? `${quantity}${unit ? ` ${unit}` : ""}`
+    : "chưa có số lượng";
+  return `• ${name}: ${quantityText} – ${formatVnd(line.amount)}`;
+};
+
+/**
+ * Auto-created PO that cleared every safety gate. The owner forwards it to the
+ * supplier manually; the message never reaches the supplier directly.
+ */
+export const formatAutoPurchaseOrderSentMessage = (
+  input: AutoPurchaseOrderNotificationInput,
+): string => {
+  const lines = [
+    "🧾 ĐƠN HÀNG TỰ ĐỘNG",
+    "",
+    `Nhà cung cấp: ${safeText(input.supplierName, "Chưa xác định")}`,
+    `Số PO: ${safeText(input.poNumber, "Chưa có mã")}`,
+  ];
+  for (const line of Array.isArray(input.lines) ? input.lines : []) {
+    lines.push(formatAutoPurchaseLine(line));
+  }
+  lines.push(`Tổng tiền: ${formatVnd(input.totalAmount)}`);
+  lines.push("", "Vui lòng chuyển cho nhà cung cấp");
+  return lines.join("\n");
+};
+
+/** Daily digest of the draft POs and the items downgraded from auto-send. */
+export const formatAutoPurchaseDailySummaryMessage = (
+  input: AutoPurchaseDailySummaryNotificationInput,
+): string => {
+  const draftCount = Number(input.draftPoCount);
+  const lines = [
+    "📋 TỔNG HỢP ĐẶT HÀNG TỰ ĐỘNG",
+    "",
+    `Số PO nháp chờ duyệt: ${Number.isFinite(draftCount) && draftCount > 0 ? Math.trunc(draftCount) : 0}`,
+    `Tổng tiền: ${formatVnd(input.totalAmount)}`,
+  ];
+  const downgraded = Array.isArray(input.downgraded) ? input.downgraded : [];
+  if (downgraded.length > 0) {
+    lines.push("", "Mặt hàng bị hạ cấp:");
+    for (const item of downgraded) {
+      const reasons = (Array.isArray(item.reasons) ? item.reasons : [])
+        .map(autoPurchaseReasonLabel)
+        .join(", ");
+      lines.push(`• ${safeText(item.name, "Chưa xác định")}: ${reasons || "chưa rõ lý do"}`);
+    }
+  }
+  return lines.join("\n");
+};
+
 export const formatFinanceZaloMessage = (
   eventType: FinanceZaloEventType,
   input:
@@ -282,7 +391,9 @@ export const formatFinanceZaloMessage = (
     | GoodsReceiptNotificationInput
     | PaymentSubmissionNotificationInput
     | PaymentCashNotificationInput
-    | SalaryPayoutNotificationInput,
+    | SalaryPayoutNotificationInput
+    | AutoPurchaseOrderNotificationInput
+    | AutoPurchaseDailySummaryNotificationInput,
 ): string => {
   switch (eventType) {
     case "payment_request_created":
@@ -305,6 +416,12 @@ export const formatFinanceZaloMessage = (
       return formatSalaryPayoutAdvancedMessage(input as SalaryPayoutNotificationInput);
     case "salary_payout_completed":
       return formatSalaryPayoutCompletedMessage(input as SalaryPayoutNotificationInput);
+    case "auto_purchase_order_sent":
+      return formatAutoPurchaseOrderSentMessage(input as AutoPurchaseOrderNotificationInput);
+    case "auto_purchase_daily_summary":
+      return formatAutoPurchaseDailySummaryMessage(
+        input as AutoPurchaseDailySummaryNotificationInput,
+      );
     default:
       throw new Error(`Unknown finance Zalo event type: ${String(eventType)}`);
   }

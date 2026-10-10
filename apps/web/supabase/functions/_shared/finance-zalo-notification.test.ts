@@ -3,6 +3,8 @@ import test from "node:test";
 
 import {
   FINANCE_ZALO_EVENT_TYPES,
+  formatAutoPurchaseDailySummaryMessage,
+  formatAutoPurchaseOrderSentMessage,
   formatFinanceZaloMessage,
   formatGoodsReceiptReceivedMessage,
   formatGoodsReceiptShortMessage,
@@ -66,6 +68,27 @@ const SALARY_PAYOUT = {
   payoutNumber: "SAL-261012-01",
   periodName: "Kỳ lương tháng 09/2099",
   employeeCount: 16,
+};
+
+const AUTO_PURCHASE_ORDER = {
+  id: "66666666-6666-4666-8666-666666666666",
+  poNumber: "PO-20261014-0001",
+  supplierName: "Công ty TNHH Bột Mì Sài Gòn",
+  lines: [
+    { name: "Bột mì", quantity: 4, unit: "bao", amount: 2_000_000 },
+    { name: "Dầu ăn", quantity: 2, unit: "thùng", amount: 1_500_000 },
+  ],
+  totalAmount: 3_500_000,
+};
+
+const AUTO_PURCHASE_SUMMARY = {
+  id: "77777777-7777-4777-8777-777777777777",
+  draftPoCount: 2,
+  totalAmount: 4_200_000,
+  downgraded: [
+    { name: "Bột mì", reasons: ["stale_stock_count"] },
+    { name: "Dầu ăn", reasons: ["no_price", "over_daily_limit"] },
+  ],
 };
 
 /** A VND-shaped digit group: 1.502.000 / 1,502,000 / 1502000đ / 1.502.000 VND. */
@@ -259,6 +282,25 @@ test("salary notices never print an amount even when the input carries one", () 
   }
 });
 
+test("formats the auto purchase PO and daily summary notices", () => {
+  const sent = formatAutoPurchaseOrderSentMessage(AUTO_PURCHASE_ORDER);
+  assert.match(sent, /🧾 ĐƠN HÀNG TỰ ĐỘNG/);
+  assert.match(sent, /Nhà cung cấp: Công ty TNHH Bột Mì Sài Gòn/);
+  assert.match(sent, /Số PO: PO-20261014-0001/);
+  assert.match(sent, /• Bột mì: 4 bao – 2\.000\.000 đ/);
+  assert.match(sent, /• Dầu ăn: 2 thùng – 1\.500\.000 đ/);
+  assert.match(sent, /Tổng tiền: 3\.500\.000 đ/);
+  assert.match(sent, /Vui lòng chuyển cho nhà cung cấp/);
+
+  const summary = formatAutoPurchaseDailySummaryMessage(AUTO_PURCHASE_SUMMARY);
+  assert.match(summary, /📋 TỔNG HỢP ĐẶT HÀNG TỰ ĐỘNG/);
+  assert.match(summary, /Số PO nháp chờ duyệt: 2/);
+  assert.match(summary, /Tổng tiền: 4\.200\.000 đ/);
+  assert.match(summary, /Mặt hàng bị hạ cấp:/);
+  assert.match(summary, /• Bột mì: kiểm kê tồn kho đã cũ/);
+  assert.match(summary, /• Dầu ăn: chưa có giá mua gần nhất, vượt hạn mức trong ngày/);
+});
+
 test("dispatches all finance event types from one entry point", () => {
   assert.deepEqual(FINANCE_ZALO_EVENT_TYPES, [
     "payment_request_created",
@@ -271,6 +313,8 @@ test("dispatches all finance event types from one entry point", () => {
     "salary_payout_created",
     "salary_payout_advanced",
     "salary_payout_completed",
+    "auto_purchase_order_sent",
+    "auto_purchase_daily_summary",
   ]);
   assert.match(
     formatFinanceZaloMessage("payment_request_created", PAYMENT_REQUEST),
@@ -311,6 +355,14 @@ test("dispatches all finance event types from one entry point", () => {
   assert.match(
     formatFinanceZaloMessage("salary_payout_completed", SALARY_PAYOUT),
     /HOÀN TẤT/,
+  );
+  assert.match(
+    formatFinanceZaloMessage("auto_purchase_order_sent", AUTO_PURCHASE_ORDER),
+    /ĐƠN HÀNG TỰ ĐỘNG/,
+  );
+  assert.match(
+    formatFinanceZaloMessage("auto_purchase_daily_summary", AUTO_PURCHASE_SUMMARY),
+    /TỔNG HỢP ĐẶT HÀNG TỰ ĐỘNG/,
   );
   assert.throws(
     () => formatFinanceZaloMessage("unknown" as never, PAYMENT_REQUEST),

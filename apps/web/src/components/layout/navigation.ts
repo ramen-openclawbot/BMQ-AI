@@ -92,6 +92,7 @@ export const ZONES: Zone[] = [
       // Tồn kho, Kho bếp, Xuất kho, Báo cáo tồn kho and Tồn thấp hidden from the menu 2026-10-10
       // (no entries in 30 days); their routes still work and stay under this zone's prefixes.
       "/warehouse/stock-ledger",
+      "/warehouse/auto-purchase",
       "/warehouse/tan-tao",
       "/goods-receipts",
       "/purchase-orders",
