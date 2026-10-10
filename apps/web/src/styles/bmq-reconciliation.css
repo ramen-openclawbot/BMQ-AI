@@ -90,3 +90,4 @@ html.bmq-d3 .d3-jev-acts button { min-height: 40px; gap: 6px; border-radius: 11p
 @media (max-width: 420px) { .d3-jev-grid { grid-template-columns: minmax(0, 1fr); } }
 @media (prefers-reduced-motion: reduce) { .d3-jev-toggle svg { transition: none; } }
 .d3-jev-side .d3-rc-ref { justify-self: start; text-align: left; }
+.d3-jev-meta .d3-up-chip { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }

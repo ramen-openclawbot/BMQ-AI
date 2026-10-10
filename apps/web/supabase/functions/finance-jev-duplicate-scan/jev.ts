@@ -81,7 +81,7 @@ export interface JevCircuit {
 }
 
 export class JevError extends Error {
-  constructor(public readonly code: string, public readonly status: number) {
+  constructor(public readonly code: string, public readonly status: number, public readonly detail: string | null = null) {
     super(code);
     this.name = "JevError";
   }
@@ -281,10 +281,17 @@ export function createJevEvaluator(config: JevConfig): JevEvaluator {
       throw new JevError(deadline.aborted ? "jev_timeout" : "jev_unavailable", deadline.aborted ? 504 : 503);
     }
     if (!response.ok) {
-      void response.body?.cancel().catch(() => undefined);
       circuit.recordFailure();
-      if (response.status === 429) throw new JevError("jev_rate_limited", 429);
-      throw new JevError("jev_http_error", 502);
+      // Keep the provider status and a short, single-line error message for diagnosis.
+      // The Gateway error body never carries our key; it is bounded to 300 characters.
+      let detail: string | null = null;
+      try {
+        detail = `HTTP ${response.status}: ${(await response.text()).replace(/\s+/g, " ").slice(0, 300)}`;
+      } catch {
+        detail = `HTTP ${response.status}`;
+      }
+      if (response.status === 429) throw new JevError("jev_rate_limited", 429, detail);
+      throw new JevError("jev_http_error", 502, detail);
     }
     const parsed = await readBoundedBody(response, combined, signal, deadline);
     let evaluation: JevEvaluation;

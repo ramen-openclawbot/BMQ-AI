@@ -339,7 +339,7 @@ export function createJevScanHandler(config: JevDuplicateScanConfig) {
             relation_probability: null,
             relation_confidence: null,
             error: result.error instanceof JevError
-              ? result.error.code
+              ? (result.error.detail ? `${result.error.code} (${result.error.detail})` : result.error.code)
               : result.error instanceof JevScanError ? result.error.code : "jev_unavailable",
           });
           continue;
@@ -405,6 +405,10 @@ export function createJevScanHandler(config: JevDuplicateScanConfig) {
         skipped_unchanged: selection.skipped_unchanged,
       };
       if (input.mode === "dry_run") summary.items = items;
+      {
+        const firstFailure = items.find((item) => item.error && item.error.includes("HTTP "));
+        if (firstFailure) config.audit?.({ event: "finance_jev_provider_error", detail: firstFailure.error });
+      }
       config.audit?.({
         event: "finance_jev_duplicate_scan",
         mode: input.mode,
