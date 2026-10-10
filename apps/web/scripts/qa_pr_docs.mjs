@@ -1,5 +1,6 @@
-// QA: the "Hóa đơn mua hàng" picker in Tạo đề nghị chi accepts several photos at once;
-// the first becomes the invoice to scan, the rest go to Chứng từ kèm theo. FIXTURE AUTH +
+// QA: the "Hóa đơn mua hàng" picker in Tạo đề nghị chi accepts several invoices at once;
+// "Scan N hóa đơn" scans each one and adds every khoản to the phiếu; the dialog never
+// scrolls sideways at 390 (the item table scrolls inside itself). FIXTURE AUTH +
 // FIXTURE DATA (same in-memory Supabase/Auth fixtures as qa_cash_settle.mjs); nothing is saved.
 // Usage: PLAYWRIGHT_CORE=/path/to/playwright-core node scripts/qa_pr_docs.mjs
 import assert from "node:assert/strict";
@@ -204,14 +205,41 @@ try {
     const trigger = page.getByRole("button", { name: /Tạo duyệt chi|Tạo đề nghị chi/ }).locator("visible=true").first();
     await trigger.waitFor({ timeout: 20000 });
     await trigger.click();
+
+    const overflowers = async () => page.evaluate(() => {
+      const dlg = document.querySelector('[role="dialog"]');
+      const box = dlg.getBoundingClientRect();
+      return { sw: dlg.scrollWidth, cw: dlg.clientWidth, wide: [...dlg.querySelectorAll("*")].filter((el) => el.getBoundingClientRect().right > box.right + 1 && el.offsetParent !== null && ![...el.children].some((c) => c.getBoundingClientRect().right > box.right + 1)).filter((el) => !(el instanceof SVGElement) && !el.closest("[data-bmq-pr-invoices]") && !["H2","P"].includes(el.tagName)).slice(0, 10).map((el) => el.tagName + "." + String(el.className).slice(0, 60) + " " + Math.round(el.getBoundingClientRect().right)) };
+    });
+    { const o = await overflowers(); assert.ok(o.sw <= o.cw, `dialog overflow before ${viewport.width}: ${JSON.stringify(o)}`); }
+    // scan-invoice is called with fetch: answer each of the 3 invoices with its own khoản.
+    const SCANS = [
+      { supplier_name: "Siêu Tốc", items: [{ product_name: "Ship hộp", quantity: 1, unit: "lần", unit_price: 49000 }] },
+      { supplier_name: "Siêu Tốc", items: [{ product_name: "Ship bao giấy", quantity: 1, unit: "lần", unit_price: 81000 }] },
+      { supplier_name: "Nước 2H", invoice_number: "159680", items: [{ product_name: "Nước Bidrico 19L", quantity: 6, unit: "bình", unit_price: 42000 }] },
+    ];
+    let scanN = 0;
+    const scanBodies = [];
+    await page.route("**/functions/v1/scan-invoice", async (route) => {
+      scanBodies.push(JSON.parse(route.request().postData() || "{}"));
+      const data = SCANS[scanN++];
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data }) });
+    });
     const input = page.locator("[data-bmq-pr-image-input]");
     await input.waitFor({ state: "attached" });
     assert.equal(await input.getAttribute("multiple"), "", "main picker allows many photos");
     await input.setInputFiles(SHOTS);
-    await page.waitForSelector('img[alt="Invoice preview"]');
-    const docs = await page.$$eval("[data-bmq-pr-docs-list] li span", (els) => els.map((e) => e.textContent));
-    assert.deepEqual(docs, ["IMG_5342.png", "IMG_5343.png"], docs.join());
-    assert.ok((await page.locator("[data-bmq-pr-docs-hint]").textContent()).includes("+2 ảnh"));
+    await page.waitForSelector('[data-bmq-pr-invoices="3"]');
+    assert.equal(await page.locator("[data-bmq-pr-invoices] img").count(), 3, "three invoice thumbnails");
+    assert.equal(await page.locator("[data-bmq-pr-docs-list]").count(), 0, "invoices are not dumped into Chứng từ kèm theo");
+    const scanBtn = page.getByRole("button", { name: /Scan 3 hóa đơn/ });
+    await scanBtn.click();
+    await page.waitForFunction(() => document.querySelectorAll('input[name^="items."][name$=".product_name"]').length === 3, null, { timeout: 20000 });
+    const names = await page.$$eval('input[name^="items."][name$=".product_name"]', (els) => els.map((e) => e.value));
+    assert.deepEqual(names, ["Ship hộp", "Ship bao giấy", "Nước Bidrico 19L"], names.join());
+    assert.equal(scanBodies.length, 3, "each invoice scanned");
+    assert.ok(scanBodies.every((b) => b.imageBase64 && b.documentType === "payment_request"));
+    { const o = await overflowers(); assert.ok(o.sw <= o.cw, `dialog overflow after scan ${viewport.width}: ${JSON.stringify(o)}`); }
     await page.screenshot({ path: `${EVIDENCE}/pr-docs-${viewport.width}.png` });
     assert.deepEqual(errors, []);
     console.log("PASS", `pr docs ${viewport.width}`);

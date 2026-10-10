@@ -174,6 +174,9 @@ export function AddPaymentRequestDialog({
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   // Chứng từ kèm theo (many files), uploaded after the phiếu is created.
   const [docFiles, setDocFiles] = useState<File[]>([]);
+  // More invoices after the first one (imageFile): each is scanned and its khoản are added
+  // to the same phiếu; they are stored as Chứng từ kèm theo.
+  const [extraInvoices, setExtraInvoices] = useState<{ file: File; preview: string }[]>([]);
   const [isScanning, setIsScanning] = useState(false);
   const [itemPriceInfos, setItemPriceInfos] = useState<Record<number, ItemPriceInfo>>({});
   const [isLoadingPrices, setIsLoadingPrices] = useState(false);
@@ -359,12 +362,17 @@ export function AddPaymentRequestDialog({
   }, [watchItems]);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // Many photos can be picked at once: the first is the invoice to scan, the rest
-    // become Chứng từ kèm theo.
+    // Several invoices can be picked at once; each one is scanned.
     const picked = Array.from(e.target.files ?? []);
     e.target.value = "";
-    const file = picked[0];
-    if (picked.length > 1) setDocFiles((prev) => [...prev, ...picked.slice(1)].slice(0, 20));
+    const rest = imageFile ? picked : picked.slice(1);
+    rest.forEach((extra) => {
+      const extraReader = new FileReader();
+      extraReader.onloadend = () =>
+        setExtraInvoices((prev) => [...prev, { file: extra, preview: extraReader.result as string }].slice(0, 19));
+      extraReader.readAsDataURL(extra);
+    });
+    const file = imageFile ? undefined : picked[0];
     if (file) {
       setImageFile(file);
       const reader = new FileReader();
@@ -375,27 +383,39 @@ export function AddPaymentRequestDialog({
     }
   };
 
+  const scanOneInvoice = async (file: File, accessToken: string): Promise<ExtractedInvoiceData> => {
+    const imageBase64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(",")[1]);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+    const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-invoice`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ imageBase64, mimeType: file.type, documentType: "payment_request" }),
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      if (response.status === 429) throw new Error("Đang quét quá nhiều, thử lại sau ít phút");
+      if (response.status === 402) throw new Error("Hết lượt AI");
+      throw new Error((errorData as { error?: string }).error || "Failed to scan invoice");
+    }
+    const result = await response.json();
+    const extractedData = result.data as ExtractedInvoiceData;
+    if (!extractedData?.items) throw new Error("Không thể đọc thông tin từ hóa đơn");
+    return extractedData;
+  };
+
   const handleScanInvoice = async () => {
     if (!imageFile) {
       return;
     }
+    const files = [imageFile, ...extraInvoices.map((x) => x.file)];
 
     setIsScanning(true);
 
     try {
-      // Convert file to base64
-      const reader = new FileReader();
-      const base64Promise = new Promise<string>((resolve, reject) => {
-        reader.onload = () => {
-          const result = reader.result as string;
-          const base64 = result.split(",")[1];
-          resolve(base64);
-        };
-        reader.onerror = reject;
-      });
-      reader.readAsDataURL(imageFile);
-      const imageBase64 = await base64Promise;
-
       // Get auth session for edge function call
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) {
@@ -403,79 +423,58 @@ export function AddPaymentRequestDialog({
         return;
       }
 
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/scan-invoice`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({
-            imageBase64,
-            mimeType: imageFile.type,
-            documentType: "payment_request",
-          }),
+      // One invoice at a time so the scan endpoint is not flooded.
+      const scanned: ExtractedInvoiceData[] = [];
+      const failed: number[] = [];
+      for (let i = 0; i < files.length; i += 1) {
+        try {
+          scanned.push(await scanOneInvoice(files[i], session.access_token));
+        } catch (scanError) {
+          console.error("Scan error:", scanError);
+          failed.push(i + 1);
         }
-      );
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        if (response.status === 429) {
-          console.error("Rate limit exceeded");
-          return;
-        }
-        if (response.status === 402) {
-          console.error("AI credits exhausted");
-          return;
-        }
-        throw new Error(errorData.error || "Failed to scan invoice");
       }
-
-      const result = await response.json();
-      const extractedData = result.data as ExtractedInvoiceData;
-
-      if (!extractedData?.items) {
-        throw new Error("Không thể đọc thông tin từ hóa đơn");
+      if (failed.length > 0) {
+        toast.error(`Chưa đọc được hoá đơn ${failed.join(", ")}. Nhập tay các khoản đó.`);
       }
+      if (scanned.length === 0) return;
 
       // Auto-fill form with extracted data
-      if (extractedData.invoice_number) {
-        form.setValue("title", `Đề nghị chi - ${extractedData.invoice_number}`);
+      if (scanned.length === 1 && scanned[0].invoice_number) {
+        form.setValue("title", `Đề nghị chi - ${scanned[0].invoice_number}`);
+      } else if (files.length > 1 && !form.getValues("title")) {
+        form.setValue("title", `Đề nghị chi - ${files.length} hoá đơn`);
       }
-      if (extractedData.vat_amount) {
-        form.setValue("vat_amount", extractedData.vat_amount);
-      }
-
-      // Find supplier by name
-      if (extractedData.supplier_name && suppliers) {
-        const matchedSupplier = suppliers.find(
-          (s) =>
-            s.name.toLowerCase().includes(extractedData.supplier_name!.toLowerCase()) ||
-            extractedData.supplier_name!.toLowerCase().includes(s.name.toLowerCase())
-        );
-        if (matchedSupplier) {
-          form.setValue("supplier_id", matchedSupplier.id);
-        }
+      const vat = scanned.reduce((sum, d) => sum + (Number(d.vat_amount) || 0), 0);
+      if (vat > 0) {
+        form.setValue("vat_amount", vat);
       }
 
-      // Set items with SKU matching
-      if (extractedData.items && extractedData.items.length > 0) {
-        // Try to match SKUs for each item
-        const itemsWithSKUs = await Promise.all(
-          extractedData.items.map(async (item) => {
-            const sku = await findSKUByCodeOrName(item.product_code, item.product_name);
-            return {
-              product_code: sku?.sku_code || item.product_code || "",
-              product_name: item.product_name,
-              quantity: item.quantity,
-              unit: item.unit || sku?.unit || "kg",
-              unit_price: item.unit_price,
-              ...(item.ocr_cost_classification || {}),
-            };
-          })
-        );
-        
+      // Supplier only when every invoice names the same one.
+      const matchedIds = scanned.map((d) => {
+        if (!d.supplier_name || !suppliers) return null;
+        const name = d.supplier_name.toLowerCase();
+        return suppliers.find((s) => s.name.toLowerCase().includes(name) || name.includes(s.name.toLowerCase()))?.id ?? null;
+      });
+      if (matchedIds[0] && matchedIds.every((id) => id === matchedIds[0])) {
+        form.setValue("supplier_id", matchedIds[0]);
+      }
+
+      // Items of every invoice, in invoice order, with SKU matching
+      const itemsWithSKUs = await Promise.all(
+        scanned.flatMap((d) => d.items || []).map(async (item) => {
+          const sku = await findSKUByCodeOrName(item.product_code, item.product_name);
+          return {
+            product_code: sku?.sku_code || item.product_code || "",
+            product_name: item.product_name,
+            quantity: item.quantity,
+            unit: item.unit || sku?.unit || "kg",
+            unit_price: item.unit_price,
+            ...(item.ocr_cost_classification || {}),
+          };
+        })
+      );
+      if (itemsWithSKUs.length > 0) {
         form.setValue("items", itemsWithSKUs);
       }
     } catch (error) {
@@ -593,9 +592,10 @@ export function AddPaymentRequestDialog({
         });
       }
 
-      if (docFiles.length > 0) {
+      const attachmentFiles = [...extraInvoices.map((x) => x.file), ...docFiles];
+      if (attachmentFiles.length > 0) {
         try {
-          await uploadPaymentRequestAttachments(request.id, docFiles);
+          await uploadPaymentRequestAttachments(request.id, attachmentFiles);
         } catch (attachError) {
           console.error("Error uploading payment request attachments:", attachError);
           toast.warning("Đã tạo phiếu nhưng chưa tải được chứng từ kèm theo. Mở phiếu để thử lại.");
@@ -613,6 +613,7 @@ export function AddPaymentRequestDialog({
       setImageFile(null);
       setImagePreview(null);
       setDocFiles([]);
+      setExtraInvoices([]);
       setItemPriceInfos({});
     } catch (error) {
       console.error("Error creating payment request:", error);
@@ -651,43 +652,55 @@ export function AddPaymentRequestDialog({
         </DialogHeader>
 
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="min-w-0 space-y-6">
             {/* Image Upload */}
             <div className="space-y-4">
               <Label>Hóa đơn mua hàng</Label>
-              <div className="flex gap-4">
-                <div className="flex-1">
-                  <div className="border-2 border-dashed rounded-lg p-4 text-center">
+              <div className="flex flex-col gap-3 sm:flex-row sm:gap-4">
+                <div className="min-w-0 flex-1">
+                  <div className="min-w-0 border-2 border-dashed rounded-lg p-4 text-center">
                     {imagePreview ? (
-                      <div className="relative">
-                        <img
-                          src={imagePreview}
-                          alt="Invoice preview"
-                          className="max-h-48 mx-auto rounded"
-                        />
-                        <Button
-                          type="button"
-                          variant="destructive"
-                          size="sm"
-                          className="absolute top-2 right-2"
-                          onClick={() => {
-                            setImageFile(null);
-                            setImagePreview(null);
-                          }}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                        {docFiles.length > 0 && (
-                          <p className="mt-2 text-xs text-muted-foreground" data-bmq-pr-docs-hint>
-                            +{docFiles.length} ảnh khác ở mục Chứng từ kèm theo bên dưới
-                          </p>
-                        )}
+                      <div className="grid min-w-0 grid-cols-3 gap-2 sm:grid-cols-4" data-bmq-pr-invoices={1 + extraInvoices.length}>
+                        {[{ preview: imagePreview }, ...extraInvoices].map((inv, i) => (
+                          <div key={i} className="relative min-w-0">
+                            <img
+                              src={inv.preview}
+                              alt={i === 0 ? "Invoice preview" : `Hoá đơn ${i + 1}`}
+                              className="block h-28 w-full min-w-0 max-w-full rounded object-cover"
+                            />
+                            <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 text-[11px] text-white">{i + 1}</span>
+                            <Button
+                              type="button"
+                              variant="destructive"
+                              size="icon"
+                              className="absolute right-1 top-1 h-7 w-7"
+                              aria-label={`Bỏ hoá đơn ${i + 1}`}
+                              onClick={() => {
+                                if (i === 0) {
+                                  const next = extraInvoices[0];
+                                  setImageFile(next?.file ?? null);
+                                  setImagePreview(next?.preview ?? null);
+                                  setExtraInvoices((prev) => prev.slice(1));
+                                } else {
+                                  setExtraInvoices((prev) => prev.filter((_, j) => j !== i - 1));
+                                }
+                              }}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        ))}
+                        <label className="flex h-28 cursor-pointer flex-col items-center justify-center gap-1 rounded border border-dashed text-xs text-muted-foreground" data-bmq-pr-invoice-add>
+                          <Plus className="h-5 w-5" />
+                          Thêm hoá đơn
+                          <input type="file" accept="image/*" multiple className="hidden" onChange={handleImageUpload} />
+                        </label>
                       </div>
                     ) : (
                       <label className="cursor-pointer block">
                         <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
                         <span className="text-sm text-muted-foreground">
-                          Click để upload hóa đơn (chọn được nhiều ảnh)
+                          Click để upload hóa đơn (chọn được nhiều hoá đơn)
                         </span>
                         <input
                           type="file"
@@ -717,7 +730,7 @@ export function AddPaymentRequestDialog({
                     ) : (
                       <>
                         <Scan className="h-4 w-4" />
-                        Scan hóa đơn
+                        {extraInvoices.length > 0 ? `Scan ${1 + extraInvoices.length} hóa đơn` : "Scan hóa đơn"}
                       </>
                     )}
                   </Button>
@@ -726,7 +739,7 @@ export function AddPaymentRequestDialog({
             </div>
 
             {/* Basic Info */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <FormField
                 control={form.control}
                 name="title"
@@ -748,7 +761,7 @@ export function AddPaymentRequestDialog({
                     <FormLabel>Nhà cung cấp</FormLabel>
                     
                     {/* Toggle buttons for select/create mode */}
-                    <div className="flex gap-2 mb-2">
+                    <div className="mb-2 flex flex-wrap gap-2">
                       <Button 
                         type="button" 
                         variant={supplierMode === 'select' ? 'default' : 'outline'} 
@@ -803,7 +816,7 @@ export function AddPaymentRequestDialog({
             </div>
 
             {/* Payment Type and Goods Receipt Link */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <FormField
                 control={form.control}
                 name="payment_type"
