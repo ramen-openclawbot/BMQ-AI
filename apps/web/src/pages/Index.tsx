@@ -84,7 +84,10 @@ const Index = () => {
 
   const revenue = s.revenue14d;
   const revenueSummary = revenue.value;
-  const lastDayWithRevenue = revenueSummary ? [...revenueSummary.days].reverse().find((day) => day.total > 0)?.day : undefined;
+  const monthToDate = revenueSummary?.monthToDate;
+  const lastDayWithRevenue = monthToDate ? [...monthToDate.days].reverse().find((day) => day.total > 0)?.day : undefined;
+  const monthStart = monthToDate?.days[0]?.day;
+  const monthStartLabel = monthStart ? `${monthStart.slice(8, 10)}/${monthStart.slice(5, 7)}` : "";
 
   const insights = [
     {
@@ -138,30 +141,30 @@ const Index = () => {
             <span className="d3-ov-glow is-red" aria-hidden="true" />
             <span className="d3-ov-glow is-green" aria-hidden="true" />
             <div className="d3-ov-card-h">
-              <h2>{en ? "Revenue, 14 days" : "Doanh thu 14 ngày"}</h2>
+              <h2>{en ? "Revenue, month to date" : "Doanh thu từ đầu tháng"}</h2>
               <Link to={revenue.href} className="d3-ov-ghost">
                 {en ? "Details" : "Chi tiết"}
               </Link>
             </div>
             {revenue.status === "error" ? (
               <p className="d3-ov-state is-error">{en ? "Could not load the revenue ledger." : "Không tải được sổ doanh thu."}</p>
-            ) : !revenueSummary ? (
+            ) : !monthToDate ? (
               <span className="d3-ov-skel is-big" aria-label={en ? "Loading" : "Đang tải"} />
             ) : (
               <>
                 <div className="d3-ov-big">
-                  <span>{formatMillions(revenueSummary.total, lang)}</span>
+                  <span>{formatMillions(monthToDate.total, lang)}</span>
                   <small>{en ? "million VND" : "triệu đồng"}</small>
                 </div>
                 <p className="d3-ov-sub">
                   {en ? "Controlled ledger" : "Sổ doanh thu đã kiểm soát"}
                   {lastDayWithRevenue
-                    ? ` · ${en ? "latest day with figures" : "ngày gần nhất có số"} ${lastDayWithRevenue.slice(8, 10)}/${lastDayWithRevenue.slice(5, 7)}`
-                    : ` · ${en ? "no figures in this window" : "chưa có số trong 14 ngày"}`}
+                    ? ` · ${en ? "from" : "từ"} ${monthStartLabel} · ${en ? "latest day with figures" : "ngày gần nhất có số"} ${lastDayWithRevenue.slice(8, 10)}/${lastDayWithRevenue.slice(5, 7)}`
+                    : ` · ${en ? "no figures this month yet" : "tháng này chưa có số"}`}
                 </p>
                 <ul className="d3-ov-share">
-                  {CHANNEL_ORDER.filter((group) => revenueSummary.totals[group] > 0).map((group, k) => {
-                    const share = revenueSummary.total ? revenueSummary.totals[group] / revenueSummary.total : 0;
+                  {CHANNEL_ORDER.filter((group) => monthToDate.totals[group] > 0).map((group, k) => {
+                    const share = monthToDate.total ? monthToDate.totals[group] / monthToDate.total : 0;
                     return (
                       <li
                         key={group}
@@ -169,7 +172,7 @@ const Index = () => {
                       >
                         <span>{en ? CHANNEL_META[group].en : CHANNEL_META[group].vi}</span>
                         <em>
-                          {formatMillions(revenueSummary.totals[group], lang)} {en ? "M" : "tr"} · {Math.round(share * 100)}%
+                          {formatMillions(monthToDate.totals[group], lang)} {en ? "M" : "tr"} · {Math.round(share * 100)}%
                         </em>
                         <i aria-hidden="true">
                           <b />

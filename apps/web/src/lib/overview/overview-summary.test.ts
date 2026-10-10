@@ -158,3 +158,23 @@ test("metric: error/unavailable/null/isEmpty/ok và không bao giờ ok với nu
   // Thiếu value -> không bao giờ ok
   assert.notEqual(metric<number>({ href: "/x" }).status, "ok");
 });
+
+test("summarizeRevenueByChannel tính từ đầu tháng tới hôm nay, bỏ ngày tháng trước", () => {
+  const today = "2026-10-10";
+  const summary = summarizeRevenueByChannel(
+    [
+      { revenue_date: "2026-09-30", channel: "BÁNH NGỌT", gross_revenue: 9_000_000 },
+      { revenue_date: "2026-10-01", channel: "ĐẠI LÝ", gross_revenue: 1_000_000 },
+      { revenue_date: "2026-10-08", channel: "BÁNH NGỌT", gross_revenue: 15_043_277 },
+      { revenue_date: "2026-10-10", channel: "Retail Kiosk", gross_revenue: 500_000 },
+      { revenue_date: "2026-10-11", channel: "ĐẠI LÝ", gross_revenue: 7_000_000 },
+    ],
+    today,
+    Number(today.slice(8, 10)),
+  );
+  assert.equal(summary.days.length, 10);
+  assert.equal(summary.days[0].day, "2026-10-01");
+  assert.equal(summary.days[9].day, "2026-10-10");
+  assert.equal(summary.total, 16_543_277);
+  assert.equal(summary.totals.bakery, 15_043_277);
+});

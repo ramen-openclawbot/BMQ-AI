@@ -28,8 +28,11 @@ const HREF = {
 
 const NO_PERMISSION = "no_permission";
 
+/** 14-day series for the channel chart plus month-to-date totals for the revenue card. */
+export type RevenueOverview = RevenueChannelSummary & { monthToDate: RevenueChannelSummary };
+
 export type OverviewSummary = {
-  revenue14d: OverviewMetric<RevenueChannelSummary>;
+  revenue14d: OverviewMetric<RevenueOverview>;
   pendingApprovalsToday: OverviewMetric<number>;
   lowStock: OverviewMetric<number>;
   salesPoNewToday: OverviewMetric<number>;
@@ -70,7 +73,10 @@ export function useOverviewSummary(): OverviewSummary {
         fetchAllRevenueLines(previous, true),
       ]);
       const lines = [...currentLines, ...previousLines];
-      return { lines, summary: summarizeRevenueByChannel(lines, today, 14) };
+      // The card counts 01/MM through today; the chart keeps its 14-day window.
+      const monthToDate = summarizeRevenueByChannel(currentLines, today, Number(today.slice(8, 10)));
+      const summary: RevenueOverview = { ...summarizeRevenueByChannel(lines, today, 14), monthToDate };
+      return { lines, summary };
     },
   });
 
@@ -151,7 +157,7 @@ export function useOverviewSummary(): OverviewSummary {
     },
   });
 
-  const revenueMetric: OverviewMetric<RevenueChannelSummary> = canViewRevenue
+  const revenueMetric: OverviewMetric<RevenueOverview> = canViewRevenue
     ? metric({
         error: revenueQuery.error,
         value: revenueQuery.data?.summary ?? null,
