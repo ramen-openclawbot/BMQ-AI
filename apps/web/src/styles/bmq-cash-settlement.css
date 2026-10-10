@@ -110,3 +110,4 @@ html .d3-unc.d3-cpr { max-width: 600px; }
 .d3-cpr-periods button { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 10px; min-height: 52px; padding: 10px 12px; border: 1.5px solid transparent; border-radius: 14px; background: var(--d3-card, #f7f7f5); text-align: left; cursor: pointer; }
 .d3-cpr-periods button.is-on { border-color: var(--d3-ink, #272727); background: var(--d3-white, #fdfdfc); }
 .d3-cpr-periods small { color: var(--d3-dim, #6b6b69); font-size: 12px; }
+.d3-salary-note { color: var(--d3-dim, #6b6b69); }

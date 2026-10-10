@@ -190,7 +190,7 @@ export default function SalaryPayout() {
       ) : (
         <>
           <header className="d3-csp-head">
-            <span className="d3-up-tag">Chi lương · {payout.period_name}</span>
+            <span className="d3-up-tag">{payout.source === "manual" ? "Lương lẻ" : "Chi lương"} · {payout.period_name}</span>
             <h1>{payout.payout_number}</h1>
             <p>
               {payout.employee_count} nhân viên · <b data-bmq-salary-total>{vnd(payout.total_amount)}</b>
@@ -261,6 +261,7 @@ export default function SalaryPayout() {
                       <b>{l.employee_name}</b>
                       <span className="d3-cs-amt">{vnd(l.net_pay)}</span>
                     </div>
+                    {l.note && <small className="d3-cs-left d3-salary-note">{l.note}</small>}
                     {done && (
                       <div className="d3-cs-strip">
                         <figure>

@@ -6,16 +6,18 @@
  * used here. No JSX, no money/name logging.
  *
  * Writes go through the SECURITY DEFINER RPCs (create_salary_payout,
- * record_salary_payout_ceo_payment, submit_salary_payout_matches,
- * discard_salary_payout_receipt, cancel_salary_payout) and the salary-payout
- * edge function (OCR). Every RPC is idempotent by a stable key, and an uncertain
- * network error re-reads state before any retry instead of blindly repeating.
+ * create_manual_salary_payout, record_salary_payout_ceo_payment,
+ * submit_salary_payout_matches, discard_salary_payout_receipt,
+ * cancel_salary_payout) and the salary-payout edge function (OCR). Every RPC is
+ * idempotent by a stable key, and an uncertain network error re-reads state (or
+ * replays the same key) before any retry instead of blindly repeating.
  */
 
 import { useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { supabase } from "@/integrations/supabase/client";
+import { buildManualSalaryIdempotencyKey } from "@/lib/salary-manual-lines";
 
 /** At most two OCR calls in flight so the OpenAI Vision gateway is not flooded. */
 export const MAX_PARALLEL_SALARY_RECEIPT_EXTRACTS = 2;
@@ -63,6 +65,7 @@ export interface SalaryPayoutClient {
 
 export type SalaryPayoutStatus = "pending" | "advanced" | "completed" | "cancelled";
 export type SalaryPayoutReceiptStatus = "uploaded" | "matched" | "discarded";
+export type SalaryPayoutSource = "payroll_q7" | "manual";
 
 export interface SalaryPayoutPeriodOption {
   period_id: string;
@@ -73,7 +76,8 @@ export interface SalaryPayoutPeriodOption {
 export interface SalaryPayoutHeader {
   id: string;
   payout_number: string;
-  payroll_period_id: string;
+  payroll_period_id: string | null;
+  source: SalaryPayoutSource;
   period_name: string;
   employee_count: number;
   total_amount: number;
@@ -95,6 +99,7 @@ export interface SalaryPayoutLine {
   employee_code: string;
   employee_name: string;
   net_pay: number;
+  note: string | null;
   receipt_storage_path: string | null;
   receipt_sha256: string | null;
   receipt_amount: number | null;
@@ -131,7 +136,20 @@ export interface SalaryPayoutCreateResult {
   employee_count: number;
   total_amount: number;
   status: SalaryPayoutStatus;
+  source?: SalaryPayoutSource;
   replayed?: boolean;
+}
+
+export interface SalaryPayoutManualLineInput {
+  employee_name: string;
+  employee_code?: string | null;
+  amount: number;
+  note?: string | null;
+}
+
+export interface SalaryPayoutManualCreateInput {
+  title: string;
+  lines: SalaryPayoutManualLineInput[];
 }
 
 export interface SalaryPayoutCeoEvidence {
@@ -265,6 +283,17 @@ const KNOWN_SALARY_PAYOUT_ERRORS = [
   "evidence_reused",
   "invalid_evidence_sha256",
   "invalid_evidence_amount",
+  "invalid_payload",
+  "title_required",
+  "invalid_title",
+  "invalid_lines",
+  "lines_required",
+  "too_many_lines",
+  "employee_name_required",
+  "invalid_employee_name",
+  "invalid_amount",
+  "total_exceeds_limit",
+  "duplicate_employee_code",
 ];
 
 const errorMessageOf = (error: unknown): string => {
@@ -354,6 +383,42 @@ export function useSalaryPayout(payoutId: string | null) {
         }
         throw error;
       }
+    },
+    [invalidate],
+  );
+
+  const createManual = useCallback(
+    async (
+      input: SalaryPayoutManualCreateInput,
+      options?: { idempotencyKey?: string; sessionId?: string },
+    ): Promise<SalaryPayoutCreateResult> => {
+      // One stable key per dialog session so a lost response retries the same
+      // request instead of creating a second payout.
+      const idempotencyKey = options?.idempotencyKey?.trim()
+        || buildManualSalaryIdempotencyKey(options?.sessionId);
+      const payload = {
+        title: input?.title ?? "",
+        lines: Array.isArray(input?.lines) ? input.lines : [],
+      };
+
+      const call = () => client.rpc("create_manual_salary_payout", {
+        p_payload: payload,
+        p_idempotency_key: idempotencyKey,
+      });
+
+      let lastError: unknown = null;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          const { data, error } = await call();
+          if (error) throw error;
+          invalidate();
+          return data as unknown as SalaryPayoutCreateResult;
+        } catch (error) {
+          lastError = error;
+          if (knownSalaryPayoutErrorCode(error)) throw error;
+        }
+      }
+      throw lastError;
     },
     [invalidate],
   );
@@ -540,6 +605,7 @@ export function useSalaryPayout(payoutId: string | null) {
     error: query.error,
     refetch: query.refetch,
     create,
+    createManual,
     load: loadSalaryPayout,
     ceoExtract,
     recordCeoPayment,

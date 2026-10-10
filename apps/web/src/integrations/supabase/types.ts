@@ -2514,6 +2514,7 @@ export type Database = {
           matched_at: string | null
           matched_by: string | null
           net_pay: number
+          note: string | null
           payout_id: string
           receipt_amount: number | null
           receipt_beneficiary: string | null
@@ -2528,6 +2529,7 @@ export type Database = {
           matched_at?: string | null
           matched_by?: string | null
           net_pay: number
+          note?: string | null
           payout_id: string
           receipt_amount?: number | null
           receipt_beneficiary?: string | null
@@ -2542,6 +2544,7 @@ export type Database = {
           matched_at?: string | null
           matched_by?: string | null
           net_pay?: number
+          note?: string | null
           payout_id?: string
           receipt_amount?: number | null
           receipt_beneficiary?: string | null
@@ -2606,9 +2609,10 @@ export type Database = {
           employee_count: number
           id: string
           note: string | null
-          payroll_period_id: string
+          payroll_period_id: string | null
           payout_number: string
           period_name: string
+          source: string
           status: string
           total_amount: number
         }
@@ -2624,9 +2628,10 @@ export type Database = {
           employee_count: number
           id?: string
           note?: string | null
-          payroll_period_id: string
+          payroll_period_id: string | null
           payout_number: string
           period_name: string
+          source?: string
           status?: string
           total_amount: number
         }
@@ -2642,9 +2647,10 @@ export type Database = {
           employee_count?: number
           id?: string
           note?: string | null
-          payroll_period_id?: string
+          payroll_period_id?: string | null
           payout_number?: string
           period_name?: string
+          source?: string
           status?: string
           total_amount?: number
         }
@@ -2929,6 +2935,10 @@ export type Database = {
       }
       create_salary_payout: {
         Args: { p_idempotency_key: string; p_period_id: string }
+        Returns: Json
+      }
+      create_manual_salary_payout: {
+        Args: { p_idempotency_key: string; p_payload: Json }
         Returns: Json
       }
       discard_salary_payout_receipt: {

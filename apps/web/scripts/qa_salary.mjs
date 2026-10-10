@@ -43,6 +43,7 @@ const denied = () => cfg().role !== "owner" && !cfg().salary;
 function settle(st) {
   if (st.table === "payroll_bn_payslips") return { data: [{ period_id: "per-1", period_name: "Kỳ lương T09/2026", published_at: "2026-10-05T00:00:00Z" }, { period_id: "per-0", period_name: "Kỳ lương T08/2026", published_at: null }], error: null };
   if (st.table === "rpc:create_salary_payout") { window.__qaCalls.push({ fn: "create", ...st.args }); return { data: { payout_id: PAYOUT_ID, payout_number: STATE.payout.payout_number, period_name: STATE.payout.period_name, employee_count: 3, total_amount: 23000000, status: "pending" }, error: null }; }
+  if (st.table === "rpc:create_manual_salary_payout") { window.__qaCalls.push({ fn: "createManual", ...st.args }); STATE.payout.source = "manual"; STATE.payout.period_name = st.args.p_payload.title; save(); return { data: { payout_id: PAYOUT_ID, payout_number: STATE.payout.payout_number, period_name: st.args.p_payload.title, employee_count: st.args.p_payload.lines.length, total_amount: 0, status: "pending", source: "manual" }, error: null }; }
   if (st.table === "rpc:get_salary_payout") { if (denied()) return { data: null, error: { message: "insufficient_privilege" } }; return { data: JSON.parse(JSON.stringify(STATE)), error: null }; }
   if (st.table === "rpc:record_salary_payout_ceo_payment") { window.__qaCalls.push({ fn: "ceo", ...st.args }); STATE.payout.status = "advanced"; STATE.payout.ceo_evidence_storage_path = st.args.p_evidence.storage_path; STATE.payout.ceo_evidence_sha256 = st.args.p_evidence.file_sha256; save(); return { data: { payout_id: PAYOUT_ID, status: "advanced" }, error: null }; }
   if (st.table === "rpc:discard_salary_payout_receipt") { window.__qaCalls.push({ fn: "discard", ...st.args }); const r = STATE.receipts.find((x) => x.id === st.args.p_receipt_id); if (r) r.status = "discarded"; save(); return { data: { id: st.args.p_receipt_id, status: "discarded" }, error: null }; }
@@ -241,6 +242,35 @@ try {
     assert.deepEqual(writes, [], "no other writes: " + writes.join());
     assert.deepEqual(errors, [], `page errors ${w}`);
     console.log("PASS", `salary ${w}`);
+    await context.close();
+  }
+  for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 640 }]) {
+    const w = viewport.width;
+    const { context, page, errors } = await open({ role: "accountant", salary: true }, "/payment-requests", viewport);
+    await page.evaluate(() => sessionStorage.removeItem("qa-salary"));
+    await page.locator("[data-bmq-cash-pr-open]").first().click();
+    await page.locator('[data-bmq-cash-pr-mode="salary"]').click();
+    await page.locator('[data-bmq-salary-kind="manual"]').click();
+    assert.match(await page.locator("[data-bmq-salary-manual-title]").inputValue(), /^Lương lẻ T\d\d\/\d{4}$/);
+    await page.locator("[data-bmq-salary-manual-amount]").first().fill("4500000");
+    await page.locator("[data-bmq-salary-manual-save]").click();
+    assert.ok((await page.locator("[data-bmq-salary-create]").textContent()).includes("chưa nhập tên"), "blank name blocked");
+    assert.equal((await page.evaluate(() => window.__qaCalls)).filter((c) => c.fn === "createManual").length, 0);
+    await page.locator("[data-bmq-salary-manual-name]").first().fill("Phạm Thị Lan");
+    await page.locator("[data-bmq-salary-manual-add]").click();
+    await page.locator("[data-bmq-salary-manual-name]").nth(1).fill("Võ Minh Tú");
+    await page.locator("[data-bmq-salary-manual-amount]").nth(1).fill("3200000");
+    assert.ok((await page.locator("[data-bmq-salary-create] .d3-ub-foot").textContent()).includes("7.700.000"));
+    await page.locator("[data-bmq-cash-pr-dialog]").screenshot({ path: `${EVIDENCE}/manual-${w}.png` });
+    await page.locator("[data-bmq-salary-manual-save]").click();
+    await page.waitForSelector(PAGE);
+    const cm = (await page.evaluate(() => window.__qaCalls)).filter((c) => c.fn === "createManual");
+    assert.equal(cm.length, 1);
+    assert.deepEqual(cm[0].p_payload.lines.map((l) => [l.employee_name, l.amount]), [["Phạm Thị Lan", 4500000], ["Võ Minh Tú", 3200000]]);
+    assert.ok(cm[0].p_idempotency_key.startsWith("salary-manual:"));
+    await page.waitForFunction(() => document.querySelector(".d3-csp-head .d3-up-tag")?.textContent?.startsWith("Lương lẻ"));
+    assert.deepEqual(errors, []);
+    console.log("PASS", `manual salary ${w}`);
     await context.close();
   }
   {
