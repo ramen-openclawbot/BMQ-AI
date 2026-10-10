@@ -32,6 +32,35 @@ export type Database = {
         }
         Relationships: []
       }
+      cash_pr_idempotency: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          idempotency_key: string
+          payment_request_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          idempotency_key: string
+          payment_request_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          idempotency_key?: string
+          payment_request_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cash_pr_idempotency_payment_request_id_fkey"
+            columns: ["payment_request_id"]
+            isOneToOne: false
+            referencedRelation: "payment_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cost_categories: {
         Row: {
           code: string
@@ -2643,6 +2672,13 @@ export type Database = {
       }
       get_payment_request_unc_evidence: {
         Args: { p_request_id: string }
+        Returns: Json
+      }
+      create_cash_payment_request: {
+        Args: {
+          p_idempotency_key: string
+          p_payload: Json
+        }
         Returns: Json
       }
       create_payment_submission: {

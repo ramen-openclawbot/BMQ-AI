@@ -69,3 +69,31 @@
 @media (prefers-reduced-motion: reduce) {
   .d3-cs-bar span { transition: none; }
 }
+
+/* Tạo chi tiền mặt dialog. */
+html .d3-unc.d3-cpr { max-width: 600px; }
+.d3-cc-f { display: grid; gap: 4px; min-width: 0; }
+.d3-cc-f input { width: 100%; min-width: 0; min-height: 42px; font-size: 16px; }
+.d3-cpr-invoices { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; min-width: 0; }
+.d3-cpr-invoices figure { position: relative; min-width: 0; margin: 0; aspect-ratio: 3 / 4; overflow: hidden; border-radius: 12px; background: var(--d3-panel, #ececea); }
+.d3-cpr-invoices figure.is-done { outline: 2px solid #1f7a10; outline-offset: -2px; }
+.d3-cpr-invoices figure.is-error { outline: 2px solid #a32314; outline-offset: -2px; }
+.d3-cpr-invoices img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.d3-cpr-invoices figcaption { position: absolute; left: 6px; bottom: 6px; display: grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 6px; background: rgba(0, 0, 0, .65); color: #fff; font-size: 11px; }
+.d3-cpr-invoices figure button { position: absolute; top: 4px; right: 4px; display: grid; place-items: center; width: 30px; height: 30px; border: 0; border-radius: 9px; background: rgba(255, 255, 255, .92); color: #a32314; cursor: pointer; }
+.d3-cpr-add { display: grid; place-items: center; align-content: center; gap: 2px; aspect-ratio: 3 / 4; min-width: 0; border: 1.5px dashed var(--d3-line-2, #d6d6d3); border-radius: 12px; background: transparent; color: var(--d3-dim, #6b6b69); font-size: 12px; cursor: pointer; }
+.d3-cpr-add:focus-visible, .d3-cpr-invoices figure button:focus-visible { outline: 2px solid var(--d3-blue, #3c91e6); outline-offset: 2px; }
+
+.d3-cpr-lines { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; min-width: 0; }
+.d3-cpr-lines > li { display: grid; gap: 6px; min-width: 0; padding: 10px; border-radius: 14px; background: var(--d3-card, #f7f7f5); }
+.d3-cpr-lines input { width: 100%; min-width: 0; min-height: 42px; font-size: 16px; }
+.d3-cpr-line-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.d3-cpr-line-top .d3-cs-x { width: 36px; height: 36px; }
+.d3-cpr-tag { font-size: 11.5px; font-weight: 500; color: var(--d3-dim, #6b6b69); }
+.d3-cpr-line-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 6px; min-width: 0; }
+.d3-cpr-note { font-size: 12px; color: #8a5a00; }
+
+@media (max-width: 380px) {
+  .d3-cpr-invoices { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .d3-cpr-line-row { grid-template-columns: minmax(0, 1fr); }
+}

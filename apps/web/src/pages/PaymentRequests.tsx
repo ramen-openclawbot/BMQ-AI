@@ -5,6 +5,7 @@ import { format } from "date-fns";
 import { vi, enUS } from "date-fns/locale";
 import {
   AlertTriangle,
+  Banknote,
   CalendarDays,
   CheckCircle2,
   ChevronLeft,
@@ -52,6 +53,7 @@ import { ExportApprovedPDF } from "@/components/payment-requests/ExportApprovedP
 import { DriveImportProgressDialog } from "@/components/payment-requests/DriveImportProgressDialog";
 import { UncApprovalDialog, type UncApprovalRequest } from "@/components/payment-requests/UncApprovalDialog";
 import { UrgentPayablesPanel } from "@/components/payment-requests/UrgentPayablesPanel";
+import { CashPaymentRequestDialog } from "@/components/payment-requests/CashPaymentRequestDialog";
 import { ReconciliationPanel } from "@/components/payment-requests/ReconciliationPanel";
 import {
   getAllocatedAmount,
@@ -115,6 +117,7 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
     if (linkedRequestId && UUID_RE.test(linkedRequestId)) setSelectedRequestId(linkedRequestId);
   }, [linkedRequestId]);
   const [deletingRequestId, setDeletingRequestId] = useState<string | null>(null);
+  const [cashCreateOpen, setCashCreateOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [sourceFilter, setSourceFilter] = useState<string>(defaultSourceFilter);
   const [searchTerm, setSearchTerm] = useState("");
@@ -586,7 +589,11 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
       {view === "unpaid" ? (
         <>
           {/* Create from the default tab too (it was only under Tất cả). */}
-          <div className="mb-3 flex justify-end" data-bmq-pr-create-unpaid>
+          <div className="mb-3 grid grid-cols-2 gap-2 sm:flex sm:justify-end" data-bmq-pr-create-unpaid>
+            <Button variant="outline" className="h-11 w-full gap-2 whitespace-nowrap sm:w-auto sm:px-5" onClick={() => setCashCreateOpen(true)} data-bmq-cash-pr-open>
+              <Banknote className="h-4 w-4" />
+              {isVi ? "Chi tiền mặt" : "Cash expense"}
+            </Button>
             <AddPaymentRequestDialog
               trigger={
                 <Button className="d3-pa-primary h-11 w-full whitespace-nowrap sm:w-auto sm:px-6">
@@ -649,6 +656,11 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
               className="h-12 rounded-md border-slate-200 bg-white pl-12 text-sm shadow-none placeholder:text-slate-400 dark:border-slate-800 dark:bg-card"
             />
           </div>
+
+          <Button variant="outline" className="h-12 gap-2 rounded-md px-5 text-sm font-medium" onClick={() => setCashCreateOpen(true)}>
+            <Banknote className="h-5 w-5" />
+            {isVi ? "Chi tiền mặt" : "Cash expense"}
+          </Button>
 
           <AddPaymentRequestDialog
             trigger={
@@ -822,7 +834,8 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
             </button>
           </div>
         ) : null}
-        <div className="grid grid-cols-[minmax(0,1fr)_44px] gap-2">
+        <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_44px] gap-2">
+          <Button variant="outline" className="h-11 w-full gap-2 whitespace-nowrap" onClick={() => setCashCreateOpen(true)}><Banknote className="h-4 w-4" />{isVi ? "Chi tiền mặt" : "Cash expense"}</Button>
           <AddPaymentRequestDialog trigger={<Button className="d3-pa-primary h-11 w-full whitespace-nowrap"><Plus className="mr-2 h-4 w-4" />{isVi ? "Tạo duyệt chi" : "Create request"}</Button>} />
           <Button variant="outline" size="icon" className="d3-pa-icon" onClick={() => setShowDriveInvoiceDialog(true)} title={isVi ? "Nhập từ Google Drive" : "Import from Google Drive"}><Upload className="h-4 w-4" /></Button>
         </div>
@@ -1078,6 +1091,7 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
       </>
       )}
 
+      <CashPaymentRequestDialog open={cashCreateOpen} onOpenChange={setCashCreateOpen} />
       <UncApprovalDialog
         open={showUncDialog}
         onOpenChange={setShowUncDialog}
