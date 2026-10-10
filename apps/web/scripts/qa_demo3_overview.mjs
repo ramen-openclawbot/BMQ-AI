@@ -264,6 +264,14 @@ try {
       assert.ok(box.x >= 0 && box.x + box.width <= viewport.width, `card inside viewport @${viewport.width}`);
     }
     await page.screenshot({ path: `${EVIDENCE}/overview-owner-${viewport.width}.png`, fullPage: true });
+    for (const btn of await page.locator(".d3-ov-legend button").all()) {
+      const box = await btn.boundingBox();
+      assert.ok(box.height >= 28 && box.x >= 0 && box.x + box.width <= viewport.width, `legend tap target @${viewport.width}: ${JSON.stringify(box)}`);
+    }
+    await page.locator(".d3-ov-legend button", { hasText: "B2B & siêu thị" }).click();
+    assert.equal(await page.locator(".d3-ov-line").count(), 1, `solo channel @${viewport.width}`);
+    assert.ok((await overflow(page)) <= 0, `no overflow with a channel picked @${viewport.width}`);
+    await page.locator(".d3-ov-chart").screenshot({ path: `${EVIDENCE}/overview-chart-solo-${viewport.width}.png` });
     assert.deepEqual(errors, []);
     record(`owner populated ${viewport.width}`);
     await context.close();
@@ -278,6 +286,25 @@ try {
     const tip = await page.locator(".d3-ov-tip").textContent();
     assert.ok(tip.includes("Tổng") && tip.includes("Đại lý & NPP"), "tooltip lists channels and total");
     await page.screenshot({ path: `${EVIDENCE}/overview-chart-tooltip.png` });
+    // Legend filter: one channel alone, axis rescaled, tooltip without total; tap again restores all.
+    const topTick = async () => Math.max(...(await page.$$eval(".d3-ov-axis[text-anchor='end']", (els) => els.map((el) => Number(el.textContent.replace(/\./g, "").replace(",", "."))))));
+    const allTop = await topTick();
+    const kiosk = page.locator(".d3-ov-legend button", { hasText: "Kiosk & bán lẻ" });
+    await kiosk.click();
+    assert.equal(await page.locator(".d3-ov-line").count(), 1, "only the picked channel is drawn");
+    assert.equal(await kiosk.getAttribute("aria-pressed"), "true");
+    assert.equal(await page.locator(".d3-ov-legend button.is-off").count(), 3, "other channels dimmed");
+    assert.ok((await topTick()) < allTop, `axis rescales to the channel: ${await topTick()} < ${allTop}`);
+    await hits.nth(8).hover();
+    const soloTip = await page.locator(".d3-ov-tip").textContent();
+    assert.ok(soloTip.includes("Kiosk & bán lẻ") && !soloTip.includes("Đại lý") && !soloTip.includes("Tổng"), `solo tooltip: ${soloTip}`);
+    await page.screenshot({ path: `${EVIDENCE}/overview-chart-solo-1440.png` });
+    await page.locator(".d3-ov-legend button", { hasText: "Bánh ngọt" }).click();
+    assert.equal(await page.locator(".d3-ov-line").count(), 1, "switching channel keeps one line");
+    assert.equal(await page.locator(".d3-ov-legend button[aria-pressed='true']").textContent(), "Bánh ngọt");
+    await page.locator(".d3-ov-legend button", { hasText: "Bánh ngọt" }).click();
+    assert.equal(await page.locator(".d3-ov-line").count(), 4, "tapping the picked channel again shows all");
+    assert.equal(await page.locator(".d3-ov-legend button.is-off").count(), 0);
     await hits.nth(3).focus();
     assert.equal(await page.locator(".d3-ov-tip").count(), 1, "keyboard focus shows readout");
     await page.evaluate(() => { window.__aiOpened = 0; window.addEventListener("bmq:open-agent-chat", () => { window.__aiOpened += 1; }); });

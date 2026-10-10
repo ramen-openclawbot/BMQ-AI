@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChannelGroup, RevenueChannelSummary } from "@/lib/overview/overview-summary";
+import { cn } from "@/lib/utils";
 
 export const CHANNEL_META: Record<ChannelGroup, { vi: string; en: string; color: string }> = {
   dealer: { vi: "Đại lý & NPP", en: "Dealers & distributors", color: "#f4442e" },
@@ -19,10 +20,14 @@ const dayLabel = (day: string) => `${day.slice(8, 10)}/${day.slice(5, 7)}`;
 const H = 240;
 const PAD = { top: 16, right: 12, bottom: 28, left: 36 };
 
-/** 14-day revenue lines per channel group, with a hover/focus readout per day. */
+/** 14-day revenue lines per channel group, with a hover/focus readout per day.
+ * Tapping a legend channel shows that channel alone (axis rescaled); tapping it again shows all. */
 export function RevenueChannelChart({ summary, language }: { summary: RevenueChannelSummary; language: "vi" | "en" }) {
   const [active, setActive] = useState<number | null>(null);
   const groups = CHANNEL_ORDER.filter((group) => summary.totals[group] > 0);
+  const [picked, setPicked] = useState<ChannelGroup | null>(null);
+  const focus = picked && groups.includes(picked) ? picked : null;
+  const shown = focus ? [focus] : groups;
   const en = language === "en";
 
   // The SVG is drawn at its real pixel width so axis text stays legible on phones.
@@ -43,11 +48,11 @@ export function RevenueChannelChart({ summary, language }: { summary: RevenueCha
   const pending = summary.days.slice(days.length);
 
   const { max, ticks } = useMemo(() => {
-    const peak = Math.max(1, ...days.flatMap((day) => groups.map((group) => day.byGroup[group])));
+    const peak = Math.max(1, ...days.flatMap((day) => shown.map((group) => day.byGroup[group])));
     const step = niceStep(peak / 4);
     const top = Math.ceil(peak / step) * step;
     return { max: top, ticks: Array.from({ length: Math.round(top / step) + 1 }, (_, i) => i * step) };
-  }, [days, groups]);
+  }, [days, shown]);
 
   const innerW = W - PAD.left - PAD.right;
   const innerH = H - PAD.top - PAD.bottom;
@@ -61,10 +66,17 @@ export function RevenueChannelChart({ summary, language }: { summary: RevenueCha
 
   return (
     <div className="d3-ov-chart">
-      <ul className="d3-ov-legend" aria-label={en ? "Channels" : "Kênh"}>
+      <ul className="d3-ov-legend" aria-label={en ? "Channels — tap one to show it alone" : "Kênh — chạm để xem riêng"}>
         {groups.map((group) => (
           <li key={group} style={{ ["--c" as string]: CHANNEL_META[group].color }}>
-            {en ? CHANNEL_META[group].en : CHANNEL_META[group].vi}
+            <button
+              type="button"
+              aria-pressed={focus === group}
+              className={cn(focus === group && "is-on", focus && focus !== group && "is-off")}
+              onClick={() => setPicked((current) => (current === group ? null : group))}
+            >
+              {en ? CHANNEL_META[group].en : CHANNEL_META[group].vi}
+            </button>
           </li>
         ))}
       </ul>
@@ -86,9 +98,9 @@ export function RevenueChannelChart({ summary, language }: { summary: RevenueCha
             ) : null,
           )}
           {activeDay && <line className="d3-ov-guide" x1={x(active!)} x2={x(active!)} y1={PAD.top} y2={PAD.top + innerH} />}
-          {groups.map((group, k) => (
+          {shown.map((group, k) => (
             <path
-              key={group}
+              key={`${group}-${focus ?? "all"}`}
               className="d3-ov-line"
               d={path(group)}
               pathLength={1}
@@ -97,7 +109,7 @@ export function RevenueChannelChart({ summary, language }: { summary: RevenueCha
             />
           ))}
           {activeDay &&
-            groups.map((group) => (
+            shown.map((group) => (
               <circle key={group} className="d3-ov-dot" cx={x(active!)} cy={y(activeDay.byGroup[group])} r={4} fill={CHANNEL_META[group].color} />
             ))}
           {days.map((day, i) => (
@@ -109,7 +121,7 @@ export function RevenueChannelChart({ summary, language }: { summary: RevenueCha
               width={innerW / (days.length - 1 || 1)}
               height={innerH}
               tabIndex={0}
-              aria-label={`${dayLabel(day.day)}: ${formatMillions(day.total, language)} ${en ? "million" : "triệu"}`}
+              aria-label={`${dayLabel(day.day)}: ${formatMillions(focus ? day.byGroup[focus] : day.total, language)} ${en ? "million" : "triệu"}`}
               onMouseEnter={() => setActive(i)}
               onFocus={() => setActive(i)}
               onBlur={() => setActive(null)}
@@ -120,16 +132,21 @@ export function RevenueChannelChart({ summary, language }: { summary: RevenueCha
         {activeDay && (
           <div className="d3-ov-tip" style={{ left: `${(x(active!) / W) * 100}%` }} data-side={active! > days.length / 2 ? "left" : "right"}>
             <b>{dayLabel(activeDay.day)}</b>
-            {groups.map((group) => (
+            {shown.map((group) => (
               <span key={group} style={{ ["--c" as string]: CHANNEL_META[group].color }}>
                 {en ? CHANNEL_META[group].en : CHANNEL_META[group].vi}
-                <em>{formatMillions(activeDay.byGroup[group], language)}</em>
+                <em>
+                  {formatMillions(activeDay.byGroup[group], language)}
+                  {focus ? ` ${en ? "M" : "tr"}` : ""}
+                </em>
               </span>
             ))}
-            <span className="is-total">
-              {en ? "Total" : "Tổng"}
-              <em>{formatMillions(activeDay.total, language)} {en ? "M" : "tr"}</em>
-            </span>
+            {!focus && (
+              <span className="is-total">
+                {en ? "Total" : "Tổng"}
+                <em>{formatMillions(activeDay.total, language)} {en ? "M" : "tr"}</em>
+              </span>
+            )}
           </div>
         )}
       </div>
