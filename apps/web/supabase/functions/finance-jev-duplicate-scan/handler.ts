@@ -20,7 +20,7 @@ import {
 } from "./candidates.ts";
 import { getCorsHeaders } from "../_shared/cors.ts";
 import { JEV_MODEL, JEV_PROMPT_VERSION, JevError, type JevEvaluator, type JevEvaluation, type JevRelation } from "./jev.ts";
-import { decideJevStatus, type JevDuplicateStatus } from "./policy.ts";
+import { decideJevStatus, pairFactsFromState, type JevDuplicateStatus } from "./policy.ts";
 import { buildPairState, stateHash, type JevPairState, type RequestStateInput } from "./state.ts";
 
 export const JEV_SCAN_REQUEST_BODY_LIMIT = 16_384;
@@ -349,6 +349,7 @@ export function createJevScanHandler(config: JevDuplicateScanConfig) {
           p_same: evaluation.p_same,
           relation: evaluation.relation,
           relation_probability: evaluation.relation_probability,
+          facts: pairFactsFromState(stateByPair.get(pair.pair_key)),
         });
         checked += 1;
         if (status === "auto_clear") autoClear += 1;
