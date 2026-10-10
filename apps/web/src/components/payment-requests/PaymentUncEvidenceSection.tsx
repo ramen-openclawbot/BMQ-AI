@@ -61,7 +61,7 @@ export function PaymentUncEvidenceSection({ requestId, enabled, onSelectRequest 
 
   return (
     <section className="d3-unc-ev" data-bmq-unc-evidence aria-label="Chứng từ thanh toán">
-      <h3>Chứng từ thanh toán</h3>
+      <h3>Chứng từ thanh toán (UNC)</h3>
       {isLoading ? (
         <p className="d3-unc-ev-note">
           <Loader2 className="h-4 w-4 animate-spin" /> Đang tải chứng từ…

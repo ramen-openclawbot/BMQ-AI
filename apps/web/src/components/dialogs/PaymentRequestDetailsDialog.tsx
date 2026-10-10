@@ -530,6 +530,14 @@ export function PaymentRequestDetailsDialog({
                 </section>
               )}
 
+              {/* Payment evidence (UNC / bank slip) right under the linked documents, so it is
+                  visible without scrolling past the item list. */}
+              <PaymentUncEvidenceSection
+                requestId={requestId}
+                enabled={allocatedAmount > 0}
+                onSelectRequest={onSelectRequest}
+              />
+
               {/* Items */}
               <section className="d3-prd-card">
                 <h3>Sản phẩm{items?.length ? ` · ${items.length}` : ""}</h3>
@@ -580,13 +588,6 @@ export function PaymentRequestDetailsDialog({
                   <p className="d3-prd-text">{request.notes}</p>
                 </section>
               )}
-
-              {/* Payment evidence: UNC image + the other requests paid by the same UNC */}
-              <PaymentUncEvidenceSection
-                requestId={requestId}
-                enabled={allocatedAmount > 0}
-                onSelectRequest={onSelectRequest}
-              />
 
               {/* Actions */}
               <div className="d3-prd-actions sticky bottom-0 z-20 -ml-[max(1rem,env(safe-area-inset-left))] -mr-[max(1rem,env(safe-area-inset-right))] grid grid-cols-2 gap-2 border-t border-border bg-background pb-[max(1rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-4 [transform:translateZ(0)] [&>button]:min-h-11 sm:static sm:mx-0 sm:flex sm:flex-wrap sm:p-0 sm:pt-4 sm:[&>button]:min-h-10">
