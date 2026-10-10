@@ -246,6 +246,11 @@ try {
     const amounts = await page.$$eval("[data-bmq-cash-pr-amount]", (els) => els.map((e) => e.value));
     assert.deepEqual(amounts, ["252.000", "", "49.000"], amounts.join());
     assert.equal(await page.locator("[data-bmq-cash-pr-read]").count(), 1, "the failed invoice can be read again");
+    // Saving with the unread invoice still missing an amount: a toast + inline hint, no RPC.
+    await page.locator("[data-bmq-cash-pr-save]").click();
+    await page.waitForSelector("[data-bmq-cash-pr-missing-amount]");
+    assert.ok((await page.locator("[data-sonner-toast]").first().textContent()).includes("số tiền"), "toast explains the missing amount");
+    assert.equal((await page.evaluate(() => window.__qaCalls)).filter((c) => c.fn === "create").length, 0, "nothing created while invalid");
     // Fix the unread one by hand, add a khoản without invoice, pick a category.
     await page.locator("[data-bmq-cash-pr-name]").nth(1).fill("Ship bao giấy");
     await page.locator("[data-bmq-cash-pr-amount]").nth(1).fill("81000");

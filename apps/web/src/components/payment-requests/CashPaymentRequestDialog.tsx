@@ -84,7 +84,19 @@ export function CashPaymentRequestDialog({ open, onOpenChange }: Props) {
   const [scanning, setScanning] = useState(false);
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
+  const [tried, setTried] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const errorsRef = useRef<HTMLParagraphElement>(null);
+
+  // The error line sits at the end of a long scrolling form, under the sticky footer: also
+  // show a toast and scroll it into view so pressing the button never looks like nothing happened.
+  const showErrors = (messages: string[]) => {
+    setErrors(messages);
+    if (messages.length) {
+      toast.error(messages.length > 1 ? `${messages[0]} (+${messages.length - 1} lỗi khác)` : messages[0]);
+      requestAnimationFrame(() => errorsRef.current?.scrollIntoView({ block: "center", behavior: "smooth" }));
+    }
+  };
 
   const reset = () => {
     setTitle("");
@@ -92,6 +104,7 @@ export function CashPaymentRequestDialog({ open, onOpenChange }: Props) {
     setInvoices([]);
     setLines([newLine()]);
     setErrors([]);
+    setTried(false);
     resetSessionKey();
   };
 
@@ -176,9 +189,10 @@ export function CashPaymentRequestDialog({ open, onOpenChange }: Props) {
 
   const save = async () => {
     const effectiveTitle = title.trim() || `Chi tiền mặt ${ddmm()}`;
+    setTried(true);
     const check = validateCashPrForm({ title: effectiveTitle, description, items });
     if (!check.ok) {
-      setErrors(check.messages);
+      showErrors(check.messages);
       return;
     }
     setErrors([]);
@@ -195,8 +209,15 @@ export function CashPaymentRequestDialog({ open, onOpenChange }: Props) {
       reset();
       onOpenChange(false);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "";
-      setErrors([message.includes("insufficient_privilege") ? "Anh/chị chưa có quyền tạo phiếu chi." : message || "Chưa tạo được phiếu. Thử lại."]);
+      // Supabase errors are plain objects with a message, not Error instances.
+      const message = err instanceof Error ? err.message : String((err as { message?: unknown })?.message ?? "");
+      showErrors([
+        message.includes("insufficient_privilege")
+          ? "Anh/chị chưa có quyền tạo phiếu chi."
+          : message.includes("invalid_amount") || message.includes("amount_over_limit")
+            ? "Có khoản chưa có số tiền hợp lệ (1 đến 50.000.000 đ)."
+            : message || "Chưa tạo được phiếu. Thử lại.",
+      ]);
     } finally {
       setSaving(false);
     }
@@ -295,7 +316,11 @@ export function CashPaymentRequestDialog({ open, onOpenChange }: Props) {
                     ))}
                   </select>
                 </div>
-                {l.note && <small className="d3-cpr-note">{l.note}</small>}
+                {tried && l.name.trim() && !Number(l.amount) ? (
+                  <small className="d3-cpr-note is-bad" data-bmq-cash-pr-missing-amount>Nhập số tiền cho khoản này</small>
+                ) : l.note ? (
+                  <small className="d3-cpr-note">{l.note}</small>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -316,7 +341,7 @@ export function CashPaymentRequestDialog({ open, onOpenChange }: Props) {
         </section>
 
         {errors.length > 0 && (
-          <p className="d3-ub-why is-bad" role="alert" data-bmq-cash-pr-errors>
+          <p ref={errorsRef} className="d3-ub-why is-bad" role="alert" data-bmq-cash-pr-errors>
             <TriangleAlert className="h-3.5 w-3.5" /> {errors.join(" ")}
           </p>
         )}
