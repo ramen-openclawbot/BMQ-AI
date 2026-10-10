@@ -1,4 +1,4 @@
-/* Chi lương (inside Chi tiền mặt): either pick a payroll Q7 period with published payslips, or
+/* Chi lương (its own dialog, SalaryPayoutDialog): either pick a payroll Q7 period with published payslips, or
  * type a Lương lẻ list (BMQ staff outside bếp Q7). Both create the same private salary payout;
  * only owner / quyền Chi lương see this and the Zalo notice has no amount.
  */
@@ -39,10 +39,17 @@ interface Row {
 let seq = 0;
 const newRow = (): Row => ({ key: `r${(seq += 1)}`, name: "", amount: "", note: "" });
 
-export function SalaryPayoutCreate({ onDone }: { onDone: () => void }) {
+export type SalaryKind = "q7" | "manual";
+
+interface Props {
+  kind: SalaryKind;
+  onKindChange: (kind: SalaryKind) => void;
+  onDone: () => void;
+}
+
+export function SalaryPayoutCreate({ kind, onKindChange: setKind, onDone }: Props) {
   const navigate = useNavigate();
   const { periods, isLoadingPeriods, periodsError, create, createManual } = useSalaryPayout(null);
-  const [kind, setKind] = useState<"q7" | "manual">("q7");
   const [picked, setPicked] = useState<string | null>(null);
   const [title, setTitle] = useState(monthTitle);
   const [rows, setRows] = useState<Row[]>([newRow()]);

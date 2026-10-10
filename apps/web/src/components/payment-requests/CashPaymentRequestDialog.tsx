@@ -13,8 +13,6 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { useCreateCashPaymentRequest } from "@/hooks/useCreateCashPaymentRequest";
-import { useAuth } from "@/contexts/AuthContext";
-import { SalaryPayoutCreate } from "@/components/payment-requests/SalaryPayoutCreate";
 import { cashLineFromScan, validateCashPrForm } from "@/lib/cash-pr-lines";
 import { scanInvoiceFile } from "@/lib/scan-invoice-client";
 import "@/styles/bmq-unc-approval.css";
@@ -78,10 +76,6 @@ interface Props {
 
 export function CashPaymentRequestDialog({ open, onOpenChange }: Props) {
   const { create, resetSessionKey } = useCreateCashPaymentRequest();
-  const { isOwner, canEditModule } = useAuth();
-  // Chi lương is only offered to the owner and users with the Chi lương permission.
-  const canSalary = isOwner || canEditModule("salary_cash");
-  const [mode, setMode] = useState<"cash" | "salary">("cash");
   const { data: categories } = useCostCategoryOptions(open);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -111,7 +105,6 @@ export function CashPaymentRequestDialog({ open, onOpenChange }: Props) {
     setLines([newLine()]);
     setErrors([]);
     setTried(false);
-    setMode("cash");
     resetSessionKey();
   };
 
@@ -244,27 +237,9 @@ export function CashPaymentRequestDialog({ open, onOpenChange }: Props) {
           <span className="d3-unc-tag">Chi tiền mặt</span>
           <DialogTitle className="d3-unc-title">Tạo chi tiền mặt</DialogTitle>
           <DialogDescription className="d3-unc-sub">
-            {mode === "salary"
-              ? "Lấy lương thực nhận từ bảng lương Q7. CEO chuyển tiền cho kế toán, kế toán nộp bank slip từng nhân viên."
-              : "Mỗi hoá đơn là một khoản. Khoản không có hoá đơn thì thêm tay. Không cần nhà cung cấp, không nhập kho."}
+            Mỗi hoá đơn là một khoản. Khoản không có hoá đơn thì thêm tay. Không cần nhà cung cấp, không nhập kho.
           </DialogDescription>
         </DialogHeader>
-
-        {canSalary && (
-          <div className="d3-cpr-modes" role="tablist" aria-label="Loại chi tiền mặt">
-            <button type="button" role="tab" aria-selected={mode === "cash"} className={mode === "cash" ? "is-on" : undefined} onClick={() => setMode("cash")} disabled={saving || scanning} data-bmq-cash-pr-mode="cash">
-              Khoản chi lẻ
-            </button>
-            <button type="button" role="tab" aria-selected={mode === "salary"} className={mode === "salary" ? "is-on" : undefined} onClick={() => setMode("salary")} disabled={saving || scanning} data-bmq-cash-pr-mode="salary">
-              Chi lương
-            </button>
-          </div>
-        )}
-
-        {mode === "salary" && canSalary ? (
-          <SalaryPayoutCreate onDone={() => { reset(); onOpenChange(false); }} />
-        ) : (
-        <>
 
         <section className="d3-cs" aria-label="Hoá đơn">
           <div className="d3-cs-head"><h3>Hoá đơn{invoices.length ? ` · ${invoices.length}` : ""}</h3></div>
@@ -380,8 +355,6 @@ export function CashPaymentRequestDialog({ open, onOpenChange }: Props) {
             Tạo phiếu chi
           </Button>
         </div>
-        </>
-        )}
       </DialogContent>
     </Dialog>
   );

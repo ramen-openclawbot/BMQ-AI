@@ -6,6 +6,7 @@ import { vi, enUS } from "date-fns/locale";
 import {
   AlertTriangle,
   Banknote,
+  HandCoins,
   CalendarDays,
   CheckCircle2,
   ChevronLeft,
@@ -54,6 +55,7 @@ import { DriveImportProgressDialog } from "@/components/payment-requests/DriveIm
 import { UncApprovalDialog, type UncApprovalRequest } from "@/components/payment-requests/UncApprovalDialog";
 import { UrgentPayablesPanel } from "@/components/payment-requests/UrgentPayablesPanel";
 import { CashPaymentRequestDialog } from "@/components/payment-requests/CashPaymentRequestDialog";
+import { SalaryPayoutDialog } from "@/components/payment-requests/SalaryPayoutDialog";
 import { ReconciliationPanel } from "@/components/payment-requests/ReconciliationPanel";
 import {
   getAllocatedAmount,
@@ -118,6 +120,7 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
   }, [linkedRequestId]);
   const [deletingRequestId, setDeletingRequestId] = useState<string | null>(null);
   const [cashCreateOpen, setCashCreateOpen] = useState(false);
+  const [salaryCreateOpen, setSalaryCreateOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [sourceFilter, setSourceFilter] = useState<string>(defaultSourceFilter);
   const [searchTerm, setSearchTerm] = useState("");
@@ -150,6 +153,8 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
   const [view, setView] = useState<"unpaid" | "all" | "recon">("unpaid");
   const { language, t } = useLanguage();
   const canEditPaymentRequests = canEditModule("payment_requests");
+  // Chi lương has its own entry, only for the owner and quyền Chi lương.
+  const canSalary = isOwner || canEditModule("salary_cash");
 
   const {
     data: requests,
@@ -594,9 +599,15 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
               <Banknote className="h-4 w-4" />
               {isVi ? "Chi tiền mặt" : "Cash expense"}
             </Button>
+            {canSalary && (
+              <Button variant="outline" className="h-11 w-full gap-2 whitespace-nowrap sm:w-auto sm:px-5" onClick={() => setSalaryCreateOpen(true)} data-bmq-salary-open>
+                <HandCoins className="h-4 w-4" />
+                {isVi ? "Chi lương" : "Payroll cash"}
+              </Button>
+            )}
             <AddPaymentRequestDialog
               trigger={
-                <Button className="d3-pa-primary h-11 w-full whitespace-nowrap sm:w-auto sm:px-6">
+                <Button className={cn("d3-pa-primary h-11 w-full whitespace-nowrap sm:w-auto sm:px-6", canSalary && "col-span-2")}>
                   <Plus className="mr-2 h-4 w-4" />
                   {isVi ? "Tạo duyệt chi" : "Create request"}
                 </Button>
@@ -661,6 +672,13 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
             <Banknote className="h-5 w-5" />
             {isVi ? "Chi tiền mặt" : "Cash expense"}
           </Button>
+
+          {canSalary && (
+            <Button variant="outline" className="h-12 gap-2 rounded-md px-5 text-sm font-medium" onClick={() => setSalaryCreateOpen(true)}>
+              <HandCoins className="h-5 w-5" />
+              {isVi ? "Chi lương" : "Payroll cash"}
+            </Button>
+          )}
 
           <AddPaymentRequestDialog
             trigger={
@@ -834,8 +852,14 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
             </button>
           </div>
         ) : null}
-        <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_44px] gap-2">
-          <Button variant="outline" className="h-11 w-full gap-2 whitespace-nowrap" onClick={() => setCashCreateOpen(true)}><Banknote className="h-4 w-4" />{isVi ? "Chi tiền mặt" : "Cash expense"}</Button>
+        {canSalary && (
+          <div className="mb-2 grid grid-cols-2 gap-2">
+            <Button variant="outline" className="h-11 w-full gap-2 whitespace-nowrap" onClick={() => setCashCreateOpen(true)}><Banknote className="h-4 w-4" />{isVi ? "Chi tiền mặt" : "Cash expense"}</Button>
+            <Button variant="outline" className="h-11 w-full gap-2 whitespace-nowrap" onClick={() => setSalaryCreateOpen(true)}><HandCoins className="h-4 w-4" />{isVi ? "Chi lương" : "Payroll cash"}</Button>
+          </div>
+        )}
+        <div className={cn("grid gap-2", canSalary ? "grid-cols-[minmax(0,1fr)_44px]" : "grid-cols-[minmax(0,1fr)_minmax(0,1fr)_44px]")}>
+          {!canSalary && <Button variant="outline" className="h-11 w-full gap-2 whitespace-nowrap" onClick={() => setCashCreateOpen(true)}><Banknote className="h-4 w-4" />{isVi ? "Chi tiền mặt" : "Cash expense"}</Button>}
           <AddPaymentRequestDialog trigger={<Button className="d3-pa-primary h-11 w-full whitespace-nowrap"><Plus className="mr-2 h-4 w-4" />{isVi ? "Tạo duyệt chi" : "Create request"}</Button>} />
           <Button variant="outline" size="icon" className="d3-pa-icon" onClick={() => setShowDriveInvoiceDialog(true)} title={isVi ? "Nhập từ Google Drive" : "Import from Google Drive"}><Upload className="h-4 w-4" /></Button>
         </div>
@@ -1092,6 +1116,7 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
       )}
 
       <CashPaymentRequestDialog open={cashCreateOpen} onOpenChange={setCashCreateOpen} />
+      {canSalary && <SalaryPayoutDialog open={salaryCreateOpen} onOpenChange={setSalaryCreateOpen} />}
       <UncApprovalDialog
         open={showUncDialog}
         onOpenChange={setShowUncDialog}

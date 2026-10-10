@@ -193,12 +193,13 @@ try {
     const w = viewport.width;
     const { context, page, errors } = await open({ role: "owner" }, "/payment-requests", viewport);
     await page.evaluate(() => sessionStorage.removeItem("qa-salary"));
-    await page.locator("[data-bmq-cash-pr-open]").first().click();
-    await page.locator('[data-bmq-cash-pr-mode="salary"]').click();
+    await page.locator("[data-bmq-salary-open]").first().click();
     await page.waitForSelector("[data-bmq-salary-period]");
     assert.equal(await page.locator("[data-bmq-salary-period]").count(), 1, "only the published period is offered");
     await page.locator("[data-bmq-salary-period]").click();
-    await page.locator("[data-bmq-cash-pr-dialog]").screenshot({ path: `${EVIDENCE}/create-${w}.png` });
+    assert.ok((await page.locator("[data-bmq-salary-dialog] .d3-unc-head").textContent()).includes("Tạo phiếu lương bếp Q7"), "Q7 header");
+    assert.ok(await page.$eval("[data-bmq-salary-dialog]", (el) => el.scrollWidth - el.clientWidth) <= 0, `dialog overflow ${w}`);
+    await page.locator("[data-bmq-salary-dialog]").screenshot({ path: `${EVIDENCE}/create-${w}.png` });
     await page.locator("[data-bmq-salary-create-save]").click();
     await page.waitForSelector(PAGE);
     await page.waitForSelector('[data-bmq-salary-status="pending"]');
@@ -248,9 +249,10 @@ try {
     const w = viewport.width;
     const { context, page, errors } = await open({ role: "accountant", salary: true }, "/payment-requests", viewport);
     await page.evaluate(() => sessionStorage.removeItem("qa-salary"));
-    await page.locator("[data-bmq-cash-pr-open]").first().click();
-    await page.locator('[data-bmq-cash-pr-mode="salary"]').click();
+    await page.locator("[data-bmq-salary-open]").first().click();
     await page.locator('[data-bmq-salary-kind="manual"]').click();
+    const head = await page.locator("[data-bmq-salary-dialog] .d3-unc-head").textContent();
+    assert.ok(head.includes("Tạo phiếu lương lẻ") && head.includes("ngoài bếp Q7") && !head.includes("bảng lương Q7"), head);
     assert.match(await page.locator("[data-bmq-salary-manual-title]").inputValue(), /^Lương lẻ T\d\d\/\d{4}$/);
     await page.locator("[data-bmq-salary-manual-amount]").first().fill("4500000");
     await page.locator("[data-bmq-salary-manual-save]").click();
@@ -261,7 +263,8 @@ try {
     await page.locator("[data-bmq-salary-manual-name]").nth(1).fill("Võ Minh Tú");
     await page.locator("[data-bmq-salary-manual-amount]").nth(1).fill("3200000");
     assert.ok((await page.locator("[data-bmq-salary-create] .d3-ub-foot").textContent()).includes("7.700.000"));
-    await page.locator("[data-bmq-cash-pr-dialog]").screenshot({ path: `${EVIDENCE}/manual-${w}.png` });
+    assert.ok(await page.$eval("[data-bmq-salary-dialog]", (el) => el.scrollWidth - el.clientWidth) <= 0, `manual dialog overflow ${w}`);
+    await page.locator("[data-bmq-salary-dialog]").screenshot({ path: `${EVIDENCE}/manual-${w}.png` });
     await page.locator("[data-bmq-salary-manual-save]").click();
     await page.waitForSelector(PAGE);
     const cm = (await page.evaluate(() => window.__qaCalls)).filter((c) => c.fn === "createManual");
@@ -275,9 +278,10 @@ try {
   }
   {
     const { context, page, errors } = await open({ role: "accountant" }, "/payment-requests", { width: 390, height: 844 });
+    assert.equal(await page.locator("[data-bmq-salary-open]").count(), 0, "no Chi lương button without permission");
     await page.locator("[data-bmq-cash-pr-open]").first().click();
     await page.waitForSelector("[data-bmq-cash-pr-dialog]");
-    assert.equal(await page.locator('[data-bmq-cash-pr-mode="salary"]').count(), 0, "no Chi lương tab without permission");
+    assert.equal(await page.locator("[data-bmq-cash-pr-dialog] [role=tab]").count(), 0, "cash dialog has no salary tabs");
     await page.goto(page.url().replace(/\/payment-requests.*$/, `/salary-payouts/${PAYOUT_ID}`));
     await page.waitForSelector("[data-bmq-salary-denied]");
     assert.deepEqual(errors, []);
@@ -286,10 +290,14 @@ try {
   }
   {
     const { context, page, errors } = await open({ role: "accountant", salary: true }, "/payment-requests", { width: 390, height: 844 });
+    assert.equal(await page.locator("[data-bmq-salary-open]").count(), 1, "Chi lương button with permission");
+    await page.screenshot({ path: `${EVIDENCE}/entry-390.png` });
     await page.locator("[data-bmq-cash-pr-open]").first().click();
-    assert.equal(await page.locator('[data-bmq-cash-pr-mode="salary"]').count(), 1, "Chi lương tab with permission");
+    await page.waitForSelector("[data-bmq-cash-pr-dialog]");
+    assert.equal(await page.locator("[data-bmq-cash-pr-dialog] [role=tab]").count(), 0, "cash dialog is khoản chi only");
+    await page.locator("[data-bmq-cash-pr-dialog]").screenshot({ path: `${EVIDENCE}/cash-only-390.png` });
     assert.deepEqual(errors, []);
-    console.log("PASS", "KTT with quyền Chi lương sees the tab");
+    console.log("PASS", "KTT with quyền Chi lương sees the Chi lương button; cash dialog has no tabs");
     await context.close();
   }
   console.log("ALL PASS");
