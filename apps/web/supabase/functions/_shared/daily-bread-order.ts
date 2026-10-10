@@ -49,9 +49,16 @@ export type VehicleBreadForecastLocation = {
   latestReportSource: { reportId: string | null; reportUpdatedAt: string | null; breadRowPresent?: boolean } | null;
   closureReason: "lunar_day_30_monthly_off" | null;
   staffNoteOrderOverride?: { reportId: string | null; quantity: number } | null;
+  // Formula locations: the staff note quantity that lost to the 7-day formula, kept as evidence.
+  staffNoteOrderIgnored?: { reportId: string | null; quantity: number; formulaQuantity: number; reason: "below_formula_plus_margin" } | null;
+  formulaRecommendedQuantity?: number;
   fixedInboundPolicy?: Omit<FixedVehicleBreadInboundPolicy, "locationId" | "locationCode">;
   dynamicInboundPolicy?: Omit<DynamicVehicleBreadOrderPolicy, "locationId" | "locationCode">;
 };
+
+// Owner rule 2026-10-11: where a dynamic (7-day) formula applies, the formula wins;
+// a staff "đặt/nhập" note replaces it only when it is at least this many sticks higher.
+export const STAFF_NOTE_OVER_FORMULA_MARGIN = 20;
 
 export type FixedVehicleBreadInboundPolicy = {
   policyCode: string;
@@ -291,10 +298,11 @@ export const resolveDynamicVehicleBreadOrderPolicy = (
 };
 
 // Matches one explicit bread-order request such as "DAT 30", "Đặt bánh (mì) 40",
-// "Order bánh 50 que". The optional word groups are tolerant of literal
-// parentheses because staff notes often write "bánh (mì)".
+// "Order bánh 50 que", "Ngày mai nhập 140 que", "nhập cho cô 120 que". The optional
+// word groups are tolerant of literal parentheses because staff notes often write
+// "bánh (mì)"; up to three plain words may sit between the order word and the number.
 const KIOSK_DAT_ORDER_NOTE_PATTERN =
-  /\b(?:dat|order)\s*\(?\s*(?:banh(?:\s*\(?\s*mi\s*\)?)?(?:\s*\))?)?\s*:?\s*(\d{1,4}(?:[.,]\d+)?)\s*(?:\(?\s*(?:que|cay|banh)(?:\s*\))?)?\b/g;
+  /\b(?:dat|order|nhap)\s*\(?\s*(?:banh(?:\s*\(?\s*mi\s*\)?)?(?:\s*\))?)?(?:\s+[a-z]+){0,3}?\s*:?\s*(\d{1,4}(?:[.,]\d+)?)\s*(?:\(?\s*(?:que|cay|banh)(?:\s*\))?)?\b/g;
 
 export function extractKioskBreadOrderNoteProposal(note: string): KioskBreadOrderNoteProposal | null {
   const rawText = String(note || "").trim();
@@ -306,7 +314,7 @@ export function extractKioskBreadOrderNoteProposal(note: string): KioskBreadOrde
     return null;
   }
   // A negated request ("chưa đặt 60", "không đặt") is not an order.
-  if (/\b(?:chua|khong|ko|k|dung|huy)\s+(?:dat|order)\b/.test(normalized)) return null;
+  if (/\b(?:chua|khong|ko|k|dung|huy)\s+(?:dat|order|nhap)\b/.test(normalized)) return null;
   const matches = [...normalized.matchAll(KIOSK_DAT_ORDER_NOTE_PATTERN)];
   if (matches.length === 0) return null;
   const quantities = new Set(matches.map((match) => {
@@ -500,12 +508,14 @@ export function forecastVehicleBread(
     const noteOrderQuantity = cutoffReport?.noteOrderQuantity == null
       ? null
       : Number(cutoffReport.noteOrderQuantity);
-    if (
+    const hasNoteOrder = Boolean(
       cutoffReport
       && noteOrderQuantity !== null
       && Number.isFinite(noteOrderQuantity)
-      && noteOrderQuantity > 0
-    ) {
+      && noteOrderQuantity > 0,
+    );
+    const noteOverride = () => {
+      if (!cutoffReport || noteOrderQuantity === null) throw new Error("noteOverride without a cutoff note");
       const staffNoteOrderOverride = {
         reportId: cutoffReport.reportId ?? null,
         quantity: noteOrderQuantity,
@@ -531,7 +541,7 @@ export function forecastVehicleBread(
         closureReason,
         staffNoteOrderOverride,
       };
-    }
+    };
 
     const dynamicPolicy = resolveDynamicVehicleBreadOrderPolicy(location, deliveryDate, dynamicOrderPolicies);
     if (dynamicPolicy) {
@@ -585,6 +595,8 @@ export function forecastVehicleBread(
         };
       }
       if (exactReport.breadRowPresent === false) {
+        // No formula result is possible; an explicit cutoff note is the only order signal.
+        if (hasNoteOrder) return { ...noteOverride(), dynamicInboundPolicy: policySnapshot };
         warnings.push(`${location.locationCode}:exact_cutoff_bread_inventory_row_missing:${cutoffDate || "unknown"}`);
         return {
           ...missingBase,
@@ -624,7 +636,19 @@ export function forecastVehicleBread(
       }
       const netDemandQuantity = Math.max(0, protectedDemandQuantity - saleableClosingQuantity);
       const upperBatchQuantity = roundUpToBatch(netDemandQuantity, quantity(dynamicPolicy.batchSize));
+      if (hasNoteOrder && noteOrderQuantity! - upperBatchQuantity >= STAFF_NOTE_OVER_FORMULA_MARGIN) {
+        return { ...noteOverride(), formulaRecommendedQuantity: upperBatchQuantity, dynamicInboundPolicy: policySnapshot };
+      }
+      const staffNoteOrderIgnored = hasNoteOrder
+        ? {
+          reportId: cutoffReport?.reportId ?? null,
+          quantity: noteOrderQuantity!,
+          formulaQuantity: upperBatchQuantity,
+          reason: "below_formula_plus_margin" as const,
+        }
+        : null;
       return {
+        ...(staffNoteOrderIgnored ? { staffNoteOrderIgnored } : {}),
         locationId: location.locationId,
         locationCode: location.locationCode,
         reportCount: reports.length,
@@ -653,6 +677,9 @@ export function forecastVehicleBread(
         dynamicInboundPolicy: policySnapshot,
       };
     }
+
+    // Without a dynamic formula a cutoff-day note still comes first.
+    if (hasNoteOrder) return noteOverride();
 
     const fixedPolicy = resolveFixedVehicleBreadInboundPolicy(location, deliveryDate, fixedInboundPolicies);
     if (fixedPolicy) {

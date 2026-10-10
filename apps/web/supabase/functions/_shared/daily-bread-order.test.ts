@@ -378,7 +378,7 @@ test("keeps lunar day 30 closure ahead of the window policy", () => {
   assert.equal(result.locations[0].roundingDecision, "lunar_day_30_monthly_off");
 });
 
-test("keeps the cutoff DAT note ahead of the window policy", () => {
+test("uses the 7-day formula when the cutoff note is not 20+ above it", () => {
   const result = forecastVehicleBread([{
     locationId: "8b353493-c3cb-436e-80f7-a9a1d1a57cd3",
     locationCode: "HCM004-BHN",
@@ -388,8 +388,41 @@ test("keeps the cutoff DAT note ahead of the window policy", () => {
     ],
   }], "2026-10-10");
 
-  assert.equal(result.locations[0].recommendedQuantity, 77);
-  assert.equal(result.locations[0].roundingDecision, "staff_note_order_override");
+  assert.equal(result.locations[0].recommendedQuantity, 160);
+  assert.notEqual(result.locations[0].roundingDecision, "staff_note_order_override");
+  assert.deepEqual(result.locations[0].staffNoteOrderIgnored, {
+    reportId: "cutoff",
+    quantity: 77,
+    formulaQuantity: 160,
+    reason: "below_formula_plus_margin",
+  });
+});
+
+test("a BHN note replaces the 7-day formula only when it is at least 20 sticks higher", () => {
+  const week = (note: number | null) => forecastVehicleBread([{
+    locationId: "8b353493-c3cb-436e-80f7-a9a1d1a57cd3",
+    locationCode: "HCM004-BHN",
+    reports: ["2026-10-10", "2026-10-09", "2026-10-08", "2026-10-07", "2026-10-06", "2026-10-05", "2026-10-04"].map((reportDate, i) => ({
+      reportId: reportDate,
+      reportDate,
+      soldQuantity: 100,
+      closingQuantity: 0,
+      breadRowPresent: true,
+      noteOrderQuantity: i === 0 ? note : null,
+    })),
+  }], "2026-10-11").locations[0];
+
+  assert.equal(week(null).recommendedQuantity, 100, "formula: mean 100, std 0");
+  assert.equal(week(119).recommendedQuantity, 100, "19 above keeps the formula");
+  assert.equal(week(119).staffNoteOrderIgnored?.quantity, 119);
+  assert.equal(week(100).recommendedQuantity, 100, "equal keeps the formula");
+  assert.equal(week(60).recommendedQuantity, 100, "a lower note never cuts the formula");
+
+  const over = week(120);
+  assert.equal(over.recommendedQuantity, 120, "20 above uses the note");
+  assert.equal(over.roundingDecision, "staff_note_order_override");
+  assert.equal(over.formulaRecommendedQuantity, 100);
+  assert.equal(over.staffNoteOrderOverride?.quantity, 120);
 });
 
 test("keeps the generic formula for BHN before the fixed policy cutoff and for other kiosks after it", () => {
@@ -524,7 +557,7 @@ test("extracts only explicit auditable kiosk bread-order requests from free-text
   assert.equal(extractKioskBreadOrderNoteProposal("Đặt bánh 160 và 180"), null);
 });
 
-test("accepts DAT, Đặt and Order bread-note forms case and diacritic insensitively", () => {
+test("accepts DAT, Đặt, Order and Nhập bread-note forms case and diacritic insensitively", () => {
   const accepted: Array<[string, number]> = [
     ["DAT 30", 30],
     ["dat 40 que", 40],
@@ -537,6 +570,11 @@ test("accepts DAT, Đặt and Order bread-note forms case and diacritic insensit
     ["dat 1000", 1000],
     ["Dat 30, thiếu 5", 30],
     ["dat 30 dat 30", 30],
+    ["Ngày mai nhập 140 que", 140],
+    ["Ngày mai nhập cho cô 120 que", 120],
+    ["NHAP 60", 60],
+    ["nhap banh 90", 90],
+    ["Ngày mai nhập cho cô 80 vì sáng thứ 7 và chủ nhứt j bán được", 80],
   ];
   for (const [note, expected] of accepted) {
     const proposal = extractKioskBreadOrderNoteProposal(note);
@@ -562,6 +600,8 @@ test("rejects non-integers, out-of-range and ambiguous DAT quantities", () => {
     "ĐẠT 120",
     "chưa đặt 60 vì hết pate",
     "không đặt 50",
+    "không nhập 50",
+    "nhập 120 và đặt 140",
   ];
   for (const note of rejected) {
     assert.equal(extractKioskBreadOrderNoteProposal(note), null, note);
