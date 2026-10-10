@@ -1163,7 +1163,9 @@ const bakeryReplacementGroupKey = (row: InboxRow, window: ParseWindow) => {
   if (asArray(row.production_items).length === 0) return null;
   const serviceDate = inboxRowServiceDate(row);
   if (!serviceDate || serviceDate < window.revenueDateFrom || serviceDate > window.revenueDateTo) return null;
-  return ["kingfood_bakery_latest", row.from_email || "unknown_sender", row.matched_customer_id || row.mini_crm_customers?.customer_name || "unknown_customer", serviceDate].join("|");
+  // A later PO replaces an earlier one only when it carries the same PO number (a revision).
+  // Different PO numbers for one delivery date are separate orders and both count (08/10: PO1002668629 + PO1002668628).
+  return ["kingfood_bakery_latest", row.from_email || "unknown_sender", row.matched_customer_id || row.mini_crm_customers?.customer_name || "unknown_customer", serviceDate, inboxRowPoNumber(row) || "unknown_po"].join("|");
 };
 
 function resolveDailyLatestBakeryRows(rows: InboxRow[], window: ParseWindow): { rows: InboxRow[]; resolution: DailyLatestBakeryResolution } {
