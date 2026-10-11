@@ -20,6 +20,7 @@ import {
 import { materialAliasActionLabel, materialAliasStatusLabel } from "@/lib/material-alias";
 import { StockRoutingCards } from "@/components/stock-routing/StockRoutingCards";
 import { AliasBacklogReview } from "@/components/material-alias/AliasBacklogReview";
+import { NewItemSuggestions } from "@/components/material-alias/NewItemSuggestions";
 import {
   ITEM_CLASS_LABELS,
   itemClassLabel,
@@ -352,6 +353,7 @@ export default function StockCatalogCleanup() {
             )}
           </section>
           <AliasBacklogReview canEdit={canEdit} />
+          <NewItemSuggestions canEdit={canEdit} />
         </div>
 
         <div className="d3-sl-side">

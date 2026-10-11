@@ -112,6 +112,24 @@ test("backlog mode is Q7-editor only", async () => {
   assert.equal((await response.json()).code, "forbidden");
 });
 
+test("new_items mode is Q7-editor only", async () => {
+  const handler = createMaterialAliasHandler(makeDeps({
+    authenticate: async () => ({ userId: "staff-1", q7Editor: false }),
+  }).deps);
+  const response = await handler(request({ mode: "new_items", location: "q7" }));
+  assert.equal(response.status, 403);
+  assert.equal((await response.json()).code, "forbidden");
+});
+
+test("the new_items request grammar is validated", async () => {
+  const handler = createMaterialAliasHandler(makeDeps().deps);
+  assert.equal((await handler(request({ mode: "new_items", location: "q7", days: 0 }))).status, 400);
+  assert.equal((await handler(request({ mode: "new_items", location: "q7", days: 1.5 }))).status, 400);
+  assert.equal((await handler(request({ mode: "new_items", location: "q7", days: 366 }))).status, 400);
+  assert.equal((await handler(request({ mode: "new_items", location: "q7", lines: [] }))).status, 400);
+  assert.equal((await handler(request({ mode: "new_items", location: "q7", batch_size: 0 }))).status, 400);
+});
+
 test("the request grammar is validated", async () => {
   const handler = createMaterialAliasHandler(makeDeps().deps);
   assert.equal((await handler(request({ mode: "delete", location: "q7" }))).status, 400);

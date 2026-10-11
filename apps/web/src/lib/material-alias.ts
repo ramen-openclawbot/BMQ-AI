@@ -354,7 +354,30 @@ export interface StockAliasJevBacklogResponse {
   stopped: "daily_limit" | null;
 }
 
-export type StockAliasJevResponse = StockAliasJevLinesResponse | StockAliasJevBacklogResponse;
+export type StockAliasJevResponse =
+  | StockAliasJevLinesResponse
+  | StockAliasJevBacklogResponse
+  | StockAliasJevNewItemsResponse;
+
+export interface StockAliasJevNewItemsResponse {
+  mode: "new_items";
+  /** Confirmed receipt names without an item in the last `days` days. */
+  candidates: number;
+  names: number;
+  groups: number;
+  processed: number;
+  remaining: number;
+  batch_size: number;
+  days: number;
+  auto_merged: number;
+  same_item_asked: number;
+  class_asked: number;
+  failed: number;
+  calls: number;
+  cost: number;
+  usage: { date: string; calls: number; limit: number };
+  stopped: "daily_limit" | null;
+}
 
 export interface MaterialAliasBacklogReviewCandidate {
   item_id: string | null;
@@ -385,6 +408,53 @@ export interface MaterialAliasBacklogReviewRow {
 export interface CreateStockMaterialItemResult {
   item_id: string;
   created: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// New-item review (2026-10-21): grouped purchased names without a stock item
+// ---------------------------------------------------------------------------
+
+export type NewItemSuggestionClass = "raw_material" | "packaging_supply" | "non_stock";
+export type NewItemSuggestionStatus = "pending" | "applied" | "dismissed";
+
+export interface NewItemSuggestionMember {
+  supplier_id: string | null;
+  normalized_name: string;
+  raw_name: string;
+  raw_unit: string | null;
+  receipt_count: number;
+  last_date: string | null;
+}
+
+export interface NewItemSuggestion {
+  id: string;
+  location: "q7" | "tan_tao";
+  cluster_key: string;
+  members: NewItemSuggestionMember[];
+  suggested_name: string;
+  suggested_unit: string | null;
+  suggested_class: NewItemSuggestionClass | null;
+  class_probability: number | null;
+  receipt_count: number;
+  receipt_days: number;
+  first_date: string | null;
+  last_date: string | null;
+  is_recurring: boolean;
+  status: NewItemSuggestionStatus;
+  item_id: string | null;
+  prompt_version: string | null;
+  decided_by: string | null;
+  decided_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NewItemDecisionResult {
+  status: string;
+  suggestion_id: string | null;
+  item_id: string | null;
+  item_class: string | null;
+  members_applied: number;
 }
 
 function asRecord(value: unknown, path: string): Record<string, unknown> {
@@ -626,7 +696,97 @@ export function parseStockAliasJevResponse(raw: unknown): StockAliasJevResponse 
       stopped: parseStopped(root.stopped, "stopped"),
     };
   }
-  throw new TypeError("mode must be 'lines' or 'backlog'");
+  if (mode === "new_items") {
+    return {
+      mode: "new_items",
+      candidates: asNumber(root.candidates ?? 0, "candidates"),
+      names: asNumber(root.names ?? 0, "names"),
+      groups: asNumber(root.groups ?? 0, "groups"),
+      processed: asNumber(root.processed ?? 0, "processed"),
+      remaining: asNumber(root.remaining ?? 0, "remaining"),
+      batch_size: asNumber(root.batch_size ?? 0, "batch_size"),
+      days: asNumber(root.days ?? 60, "days"),
+      auto_merged: asNumber(root.auto_merged ?? 0, "auto_merged"),
+      same_item_asked: asNumber(root.same_item_asked ?? 0, "same_item_asked"),
+      class_asked: asNumber(root.class_asked ?? 0, "class_asked"),
+      failed: asNumber(root.failed ?? 0, "failed"),
+      calls: asNumber(root.calls, "calls"),
+      cost: asNumber(root.cost, "cost"),
+      usage: parseUsage(root.usage, "usage"),
+      stopped: parseStopped(root.stopped, "stopped"),
+    };
+  }
+  throw new TypeError("mode must be 'lines', 'backlog' or 'new_items'");
+}
+
+function parseNewItemSuggestionClass(value: unknown, path: string): NewItemSuggestionClass | null {
+  if (value === null || value === undefined) return null;
+  const itemClass = asString(value, path);
+  if (itemClass !== "raw_material" && itemClass !== "packaging_supply" && itemClass !== "non_stock") {
+    throw new TypeError(`${path} is invalid`);
+  }
+  return itemClass;
+}
+
+function parseNewItemSuggestionMember(entry: unknown, path: string): NewItemSuggestionMember {
+  const row = asRecord(entry, path);
+  return {
+    supplier_id: asNullableString(row.supplier_id, `${path}.supplier_id`),
+    normalized_name: asString(row.normalized_name, `${path}.normalized_name`),
+    raw_name: asString(row.raw_name, `${path}.raw_name`),
+    raw_unit: asNullableString(row.raw_unit, `${path}.raw_unit`),
+    receipt_count: asNumber(row.receipt_count ?? 0, `${path}.receipt_count`),
+    last_date: asNullableString(row.last_date, `${path}.last_date`),
+  };
+}
+
+/** Parse and validate the JSON returned by `get_new_item_suggestions`. */
+export function parseNewItemSuggestions(raw: unknown): NewItemSuggestion[] {
+  if (!Array.isArray(raw)) throw new TypeError("newItemSuggestions must be an array");
+  return raw.map((entry, index) => {
+    const path = `newItemSuggestions[${index}]`;
+    const row = asRecord(entry, path);
+    const status = asString(row.status ?? "pending", `${path}.status`);
+    if (status !== "pending" && status !== "applied" && status !== "dismissed") {
+      throw new TypeError(`${path}.status is invalid`);
+    }
+    if (!Array.isArray(row.members)) throw new TypeError(`${path}.members must be an array`);
+    return {
+      id: asString(row.id, `${path}.id`),
+      location: asLocation(row.location, `${path}.location`),
+      cluster_key: asString(row.cluster_key, `${path}.cluster_key`),
+      members: row.members.map((member, memberIndex) =>
+        parseNewItemSuggestionMember(member, `${path}.members[${memberIndex}]`)),
+      suggested_name: asString(row.suggested_name, `${path}.suggested_name`),
+      suggested_unit: asNullableString(row.suggested_unit, `${path}.suggested_unit`),
+      suggested_class: parseNewItemSuggestionClass(row.suggested_class, `${path}.suggested_class`),
+      class_probability: asNullableNumber(row.class_probability, `${path}.class_probability`),
+      receipt_count: asNumber(row.receipt_count ?? 0, `${path}.receipt_count`),
+      receipt_days: asNumber(row.receipt_days ?? 0, `${path}.receipt_days`),
+      first_date: asNullableString(row.first_date, `${path}.first_date`),
+      last_date: asNullableString(row.last_date, `${path}.last_date`),
+      is_recurring: asBoolean(row.is_recurring ?? false, `${path}.is_recurring`),
+      status,
+      item_id: asNullableString(row.item_id, `${path}.item_id`),
+      prompt_version: asNullableString(row.prompt_version, `${path}.prompt_version`),
+      decided_by: asNullableString(row.decided_by, `${path}.decided_by`),
+      decided_at: asNullableString(row.decided_at, `${path}.decided_at`),
+      created_at: asString(row.created_at, `${path}.created_at`),
+      updated_at: asString(row.updated_at, `${path}.updated_at`),
+    };
+  });
+}
+
+/** Parse and validate the JSON returned by apply / dismiss new-item suggestion. */
+export function parseNewItemDecisionResult(raw: unknown): NewItemDecisionResult {
+  const root = asRecord(raw, "newItemDecision");
+  return {
+    status: asString(root.status, "newItemDecision.status"),
+    suggestion_id: asNullableString(root.suggestion_id, "newItemDecision.suggestion_id"),
+    item_id: asNullableString(root.item_id, "newItemDecision.item_id"),
+    item_class: parseNewItemSuggestionClass(root.item_class, "newItemDecision.item_class"),
+    members_applied: asNumber(root.members_applied ?? 0, "newItemDecision.members_applied"),
+  };
 }
 
 /** Parse and validate the JSON returned by `get_material_alias_review`. */

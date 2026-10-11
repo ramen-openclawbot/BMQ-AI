@@ -434,3 +434,213 @@ for case in [
     assert case in SMOKE_FIX, f"smoke missing case: {case}"
 
 print("alias learning fix contract passed")
+
+# ---------------------------------------------------------------------------
+# 2026-10-21 new-item suggestions (mua 60 ngày chưa có mã kho)
+# ---------------------------------------------------------------------------
+print("== 2026-10-21 new-item suggestions migration ==")
+NEW_PATH = ROOT / "supabase/migrations/20261021100000_new_item_suggestions.sql"
+assert NEW_PATH.exists(), "missing the 2026-10-21 new-item suggestions migration"
+NEW = NEW_PATH.read_text(encoding="utf-8")
+NEW_LOWER = NEW.lower()
+
+
+def new_block(name: str) -> str:
+    match = re.search(
+        rf"create\s+or\s+replace\s+function\s+public\.{re.escape(name)}\s*\(",
+        NEW,
+        re.IGNORECASE,
+    )
+    assert match, f"new migration missing function public.{name}"
+    tail = NEW[match.start():]
+    end = tail.find("\n$$;")
+    assert end != -1, f"unterminated function public.{name}"
+    return tail[:end]
+
+
+NEW_DEFINER = [
+    "list_unmatched_purchase_names",
+    "upsert_new_item_suggestions",
+    "apply_new_item_suggestion",
+    "dismiss_new_item_suggestion",
+    "get_new_item_suggestions",
+]
+for name in NEW_DEFINER:
+    block = new_block(name).lower()
+    assert "set search_path" in block, f"{name} must pin search_path"
+    assert "security definer" in block, f"{name} must be security definer"
+
+print("== the suggestion table, key and RLS ==")
+assert "create table if not exists public.stock_new_item_suggestions" in NEW.lower()
+for column in [
+    "location text not null check (location in ('q7', 'tan_tao'))",
+    "cluster_key text not null",
+    "members jsonb not null",
+    "suggested_name text not null",
+    "suggested_unit text",
+    "suggested_class text",
+    "class_probability numeric(5, 4)",
+    "receipt_count integer not null",
+    "receipt_days integer not null",
+    "first_date date",
+    "last_date date",
+    "is_recurring boolean not null default false",
+    "status text not null default 'pending'",
+    "item_id uuid",
+    "prompt_version text",
+    "decided_by uuid",
+    "decided_at timestamptz",
+]:
+    assert column in NEW_LOWER, f"stock_new_item_suggestions missing column: {column}"
+assert "check (status in ('pending', 'applied', 'dismissed'))" in NEW_LOWER
+assert "unique index if not exists stock_new_item_suggestions_key_uidx" in NEW
+assert "on public.stock_new_item_suggestions(location, cluster_key)" in NEW
+assert re.search(
+    r"alter\s+table\s+public\.stock_new_item_suggestions\s+enable\s+row\s+level\s+security",
+    NEW,
+    re.IGNORECASE,
+), "RLS must be enabled on stock_new_item_suggestions"
+assert re.search(
+    r"create\s+policy\s+\w+\s+on\s+public\.stock_new_item_suggestions\s+for\s+select",
+    NEW,
+    re.IGNORECASE,
+), "select policy missing for stock_new_item_suggestions"
+assert "material_alias_can_admin" in NEW
+assert re.search(
+    r"revoke\s+all\s+on\s+table\s+public\.stock_new_item_suggestions\s+from\s+public,\s*anon,\s*authenticated",
+    NEW,
+    re.IGNORECASE,
+), "explicit revoke missing for stock_new_item_suggestions"
+assert re.search(
+    r"grant\s+select\s+on\s+table\s+public\.stock_new_item_suggestions\s+to\s+authenticated,\s*service_role",
+    NEW,
+    re.IGNORECASE,
+), "select grant missing for stock_new_item_suggestions"
+assert re.search(
+    r"grant\s+insert,\s*update,\s*delete\s+on\s+table\s+public\.stock_new_item_suggestions\s+to\s+service_role",
+    NEW,
+    re.IGNORECASE,
+), "service-role write grant missing for stock_new_item_suggestions"
+assert "'new_item_review'" in NEW, "item_class_source must accept new_item_review"
+
+print("== list_unmatched_purchase_names conditions ==")
+list_block = new_block("list_unmatched_purchase_names").lower()
+for needle in [
+    "goods_receipt_items",
+    "goods_receipts",
+    "stock_exempt",
+    "stock_line_auto_non_stock",
+    "stock_material_aliases",
+    "receipt_days",
+    "has_exact_candidate",
+    "material_alias_candidates",
+    "material_alias_jev_cache",
+    "cached_match_item_id",
+    "cached_match_line_type",
+    "p_days",
+]:
+    assert needle in list_block, f"list_unmatched_purchase_names missing {needle}"
+assert "service_role" in list_block
+assert re.search(
+    r"grant\s+execute\s+on\s+function\s+public\.list_unmatched_purchase_names\(text,\s*integer\)\s+to\s+service_role",
+    NEW,
+    re.IGNORECASE,
+), "list_unmatched_purchase_names must be service_role only"
+assert not re.search(
+    r"grant\s+execute\s+on\s+function\s+public\.list_unmatched_purchase_names[^;]*to\s+authenticated",
+    NEW,
+    re.IGNORECASE,
+), "list_unmatched_purchase_names must not be granted to authenticated"
+
+print("== upsert never overwrites a decided group ==")
+upsert_block = new_block("upsert_new_item_suggestions").lower()
+assert "on conflict (location, cluster_key) do update" in upsert_block
+assert "where public.stock_new_item_suggestions.status = 'pending'" in upsert_block
+assert "members = excluded.members" in upsert_block
+assert re.search(
+    r"grant\s+execute\s+on\s+function\s+public\.upsert_new_item_suggestions\(text,\s*jsonb\)\s+to\s+service_role",
+    NEW,
+    re.IGNORECASE,
+), "upsert_new_item_suggestions must be service_role only"
+
+print("== apply reuses create_stock_material_item and confirm_material_alias ==")
+apply_block = new_block("apply_new_item_suggestion").lower()
+for needle in [
+    "create_item_forbidden",
+    "member_not_in_suggestion",
+    "invalid_conversion_factor",
+    "create_stock_material_item",
+    "confirm_material_alias",
+    "item_class_source = 'new_item_review'",
+    "p_request_id",
+    "non_stock",
+    "status = 'applied'",
+    "already_applied",
+]:
+    assert needle in apply_block, f"apply_new_item_suggestion missing {needle}"
+assert "material_alias_can_admin" in apply_block
+assert re.search(
+    r"grant\s+execute\s+on\s+function\s+public\.apply_new_item_suggestion\(uuid,\s*text,\s*text,\s*text,\s*jsonb,\s*uuid\)\s+to\s+authenticated,\s*service_role",
+    NEW,
+    re.IGNORECASE,
+), "apply_new_item_suggestion grant is missing"
+
+print("== no payable / receipt / PO / ledger write ==")
+for table in FORBIDDEN_WRITE_TABLES:
+    assert not re.search(rf"\bupdate\s+(public\.)?{re.escape(table)}\b", NEW_LOWER), f"must not update {table}"
+    assert not re.search(rf"\bdelete\s+from\s+(public\.)?{re.escape(table)}\b", NEW_LOWER), f"must not delete from {table}"
+
+print("== edge new_items mode ==")
+NEW_ITEMS = (EDGE_DIR / "new-items.ts").read_text(encoding="utf-8")
+assert "jev-new-item-2026-10-21.1" in NEW_ITEMS
+assert "NEW_ITEM_SAME_THRESHOLD = 0.8" in NEW_ITEMS
+assert "NEW_ITEM_AUTO_MERGE_SCORE = 0.9" in NEW_ITEMS
+assert "NEW_ITEM_MAX_CONCURRENCY = 4" in NEW_ITEMS
+assert "raw_material" in NEW_ITEMS and "packaging_supply" in NEW_ITEMS and "non_stock" in NEW_ITEMS
+assert "unionFind" in NEW_ITEMS or "makeUnionFind" in NEW_ITEMS
+assert "runQuestionsWithQuota" in NEW_ITEMS
+assert "createNewItemJevEvaluator" in NEW_ITEMS
+assert "type: \"boolean\"" in NEW_ITEMS
+assert "type: \"choice\"" in NEW_ITEMS
+assert "same_item" in NEW_ITEMS and "item_class" in NEW_ITEMS
+assert "new_items" in EDGE_HANDLER
+assert "runNewItemScan" in EDGE_HANDLER
+assert "NEW_ITEM_PROMPT_VERSION" in EDGE_HANDLER
+assert "list_unmatched_purchase_names" in EDGE_STORE
+assert "upsert_new_item_suggestions" in EDGE_STORE
+assert "newItemEvaluator" in EDGE_INDEX
+assert "increment_stock_catalog_jev_usage" in EDGE_STORE
+
+print("== TS lib / hooks / types ==")
+assert "parseNewItemSuggestions" in TS_LIB
+assert "parseNewItemDecisionResult" in TS_LIB
+assert "NewItemSuggestion" in TS_LIB
+assert "new_items" in TS_LIB
+assert "useNewItemSuggestions" in TS_HOOK
+assert "useRunNewItemScan" in TS_HOOK
+assert "useApplyNewItemSuggestion" in TS_HOOK
+assert "useDismissNewItemSuggestion" in TS_HOOK
+assert "stock_new_item_suggestions" in TS_TYPES
+assert "list_unmatched_purchase_names" in TS_TYPES
+assert "upsert_new_item_suggestions" in TS_TYPES
+assert "apply_new_item_suggestion" in TS_TYPES
+assert "dismiss_new_item_suggestion" in TS_TYPES
+assert "get_new_item_suggestions" in TS_TYPES
+
+print("== 2026-10-21 smoke ==")
+SMOKE_NEW = (ROOT / "scripts/smoke_new_item_suggestions.sql").read_text(encoding="utf-8")
+for case in [
+    "Dairymont",
+    "DANPMONT",
+    "list_unmatched_purchase_names('q7', 60)",
+    "upsert_new_item_suggestions",
+    "apply_new_item_suggestion",
+    "member_not_in_suggestion",
+    "create_item_forbidden",
+    "new_item_review",
+    "non_stock",
+    "already_applied",
+]:
+    assert case in SMOKE_NEW, f"new smoke missing case: {case}"
+
+print("new-item suggestions contract passed")

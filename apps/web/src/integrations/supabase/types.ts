@@ -2994,6 +2994,83 @@ export type Database = {
         }
         Relationships: []
       }
+      stock_new_item_suggestions: {
+        Row: {
+          class_probability: number | null
+          cluster_key: string
+          created_at: string
+          decided_at: string | null
+          decided_by: string | null
+          first_date: string | null
+          id: string
+          is_recurring: boolean
+          item_id: string | null
+          last_date: string | null
+          location: string
+          members: Json
+          prompt_version: string | null
+          receipt_count: number
+          receipt_days: number
+          status: string
+          suggested_class: string | null
+          suggested_name: string
+          suggested_unit: string | null
+          updated_at: string
+        }
+        Insert: {
+          class_probability?: number | null
+          cluster_key: string
+          created_at?: string
+          decided_at?: string | null
+          decided_by?: string | null
+          first_date?: string | null
+          id?: string
+          is_recurring?: boolean
+          item_id?: string | null
+          last_date?: string | null
+          location: string
+          members?: Json
+          prompt_version?: string | null
+          receipt_count?: number
+          receipt_days?: number
+          status?: string
+          suggested_class?: string | null
+          suggested_name: string
+          suggested_unit?: string | null
+          updated_at?: string
+        }
+        Update: {
+          class_probability?: number | null
+          cluster_key?: string
+          created_at?: string
+          decided_at?: string | null
+          decided_by?: string | null
+          first_date?: string | null
+          id?: string
+          is_recurring?: boolean
+          item_id?: string | null
+          last_date?: string | null
+          location?: string
+          members?: Json
+          prompt_version?: string | null
+          receipt_count?: number
+          receipt_days?: number
+          status?: string
+          suggested_class?: string | null
+          suggested_name?: string
+          suggested_unit?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stock_new_item_suggestions_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: false
+            referencedRelation: "kitchen_inventory_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       stock_material_aliases: {
         Row: {
           conversion_factor: number
@@ -4165,6 +4242,66 @@ export type Database = {
       create_stock_material_item: {
         Args: { p_name: string; p_unit: string; p_location: string; p_request_id: string }
         Returns: Json
+      }
+      list_unmatched_purchase_names: {
+        Args: { p_location: string; p_days?: number }
+        Returns: {
+          supplier_id: string | null
+          normalized_name: string
+          raw_name: string
+          raw_unit: string | null
+          receipt_count: number
+          receipt_days: number
+          first_date: string | null
+          last_date: string | null
+          has_exact_candidate: boolean
+          cached_match_item_id: string | null
+          cached_match_line_type: string | null
+        }[]
+      }
+      upsert_new_item_suggestions: {
+        Args: { p_location: string; p_rows: Json }
+        Returns: number
+      }
+      apply_new_item_suggestion: {
+        Args: {
+          p_suggestion_id: string
+          p_name: string
+          p_unit: string
+          p_item_class: string
+          p_members: Json
+          p_request_id: string
+        }
+        Returns: Json
+      }
+      dismiss_new_item_suggestion: {
+        Args: { p_suggestion_id: string }
+        Returns: Json
+      }
+      get_new_item_suggestions: {
+        Args: { p_location: string }
+        Returns: {
+          id: string
+          location: string
+          cluster_key: string
+          members: Json
+          suggested_name: string
+          suggested_unit: string | null
+          suggested_class: string | null
+          class_probability: number | null
+          receipt_count: number
+          receipt_days: number
+          first_date: string | null
+          last_date: string | null
+          is_recurring: boolean
+          status: string
+          item_id: string | null
+          prompt_version: string | null
+          decided_by: string | null
+          decided_at: string | null
+          created_at: string
+          updated_at: string
+        }[]
       }
     }
     Enums: {

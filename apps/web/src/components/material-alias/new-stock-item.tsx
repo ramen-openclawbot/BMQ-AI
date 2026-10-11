@@ -73,6 +73,16 @@ export function packFactorFor(raw: string, stockUnit: string): { label: string; 
   return { label: match[0].replace(/\s+/g, ""), factor: Math.round(factor * 1000) / 1000 };
 }
 
+/** 1 `from` = ? `to` when both are weights or both are volumes ("kg" → "g" = 1000). */
+export function unitFactor(from: string | null | undefined, to: string): number | null {
+  const a = (from ?? "").trim().toLowerCase();
+  const b = to.trim().toLowerCase();
+  if (!a || !b) return null;
+  if (a === b) return 1;
+  const sameKind = (WEIGHT.has(a) && WEIGHT.has(b)) || (VOLUME.has(a) && VOLUME.has(b));
+  return sameKind ? toBase(1, a) / toBase(1, b) : null;
+}
+
 const UNIT_CHOICES = ["g", "ml", "cái", "Hộp", "Cuộn", "Chai", "Bịch", "Gói"];
 
 /** Name + stock unit inputs shown when "Tạo mặt hàng mới" is picked. */

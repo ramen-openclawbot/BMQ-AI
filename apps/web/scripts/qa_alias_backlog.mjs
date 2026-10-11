@@ -43,6 +43,8 @@ function settle(st) {
   if (st.table === "rpc:create_stock_material_item") { window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args)); return { data: { item_id: "new-item-1", created: true }, error: null }; }
   if (st.table === "rpc:confirm_material_alias") { window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args)); return { data: null, error: { message: "QA fixture: writes disabled" } }; }
   if (st.table === "rpc:get_material_alias_backlog_review" && mode === "empty") return { data: [], error: null };
+  if (st.table === "rpc:get_new_item_suggestions" && mode === "empty") return { data: [], error: null };
+  if (/^rpc:(apply_new_item_suggestion|dismiss_new_item_suggestion)$/.test(st.table)) { window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args)); return { data: { status: st.table.includes("dismiss") ? "dismissed" : "applied", suggestion_id: st.args.p_suggestion_id, item_id: "new-item-2", item_class: st.args.p_item_class ?? null, members_applied: 1 }, error: null }; }
   if (st.table === "rpc:get_stock_catalog_review" && mode === "empty") return { data: { pending_suggestions: [], recent_merges: [], item_class_counts: { unclassified: 121 }, jev_usage: { usage_date: vnDay(0), calls: 0, cost: 0, call_limit: 600 } }, error: null };
   if (st.table === "rpc:get_q7_purchase_forecast" && mode === "empty") return { data: { as_of: vnDay(0), horizon_days: 14, items: [] }, error: null };
   if (st.table === "rpc:get_q7_auto_purchase_status" && mode === "empty") return { data: { settings: AP_SETTINGS(false), latest_run: null, decisions: [] }, error: null };
@@ -113,6 +115,16 @@ function fixtureRows(st) {
     ];
     for (let i = 9; i <= 26; i += 1) rows.push(r(i, "Trứng gà 60gr lô " + i, 1, "Trại gà", cand("k-tg", "Trứng gà 60gr", "g", "name_exact"), "k-tg", 1, "exact", "Trứng gà 60gr", "g"));
     return rows;
+  }
+  if (st.table === "rpc:get_new_item_suggestions") {
+    const m = (n, raw, unit, count, sup) => ({ supplier_id: sup ?? "sup1", normalized_name: n, raw_name: raw, raw_unit: unit, receipt_count: count, last_date: vnDay(1) });
+    const g = (id, name, unit, cls, p, members, count, days, recurring) => ({ id, location: "q7", cluster_key: "k" + id, members, suggested_name: name, suggested_unit: unit, suggested_class: cls, class_probability: p, receipt_count: count, receipt_days: days, first_date: vnDay(50), last_date: vnDay(1), is_recurring: recurring, status: "pending", item_id: null, prompt_version: "jev-new-item-2026-10-21.1", decided_by: null, decided_at: null, created_at: nowIso, updated_at: nowIso });
+    return [
+      g("ni1", "Tỏi", "g", "raw_material", 0.97, [m("toi", "TỎI NGÀY 1", "kg", 40, "sup-toi")], 40, 2, true),
+      g("ni2", "Phô mai lát trắng Dairymont", "g", "raw_material", 0.92, [m("dairymont white slices cheese 1kg", "DAIRYMONT WHITE SLICES CHEESE 1KG", "PACK", 2), m("danpmont white slices cheese 1kg", "DANPMONT WHITE SLICES CHEESE 1KG", "PACK", 1), m("pho mai lat trang dairy/1kg", "Phô mai lát trắng Dairy/1kg (DAIRY/ONT WHITE SLICES CHEESE 1KG)", "CỐI (PACK)", 1)], 4, 4, true),
+      g("ni3", "Bao xốp zin trắng 30", "cái", "packaging_supply", 0.71, [m("bao xop zin trang", "BAO XỚP ZIN TRẮNG 30 (kg)", "kg", 7)], 7, 2, true),
+      g("ni4", "Thớt nhựa", "cái", "non_stock", 0.55, [m("thot nhua", "Thớt nhựa", "Cái", 1)], 1, 1, false),
+    ];
   }
   if (st.table === "kitchen_inventory_items") return [
     { id: "k-re", name: "RE AN KHÊ", unit: "g" }, { id: "k-bm", name: "Bột mì 888 Cam", unit: "g" }, { id: "k-pm", name: "Phô mai 84 lát trắng Dairymont (1kg/khối 12 khối/thùng)", unit: "g" },
@@ -434,6 +446,51 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     assert.ok(!(await page.locator("text=[object Object]").isVisible().catch(() => false)));
     assert.deepEqual(errors, [], "no page errors");
     record(`backlog ${data} ${role} ${viewport.width}`);
+    await context.close();
+  }
+}
+for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 640 }]) {
+  for (const data of ["populated", "empty"]) {
+    const { context, page, errors } = await open({ data, role: "owner" }, "/warehouse/catalog-cleanup", viewport);
+    await page.waitForSelector("[data-bmq-new-items]", { timeout: 20000 });
+    await page.waitForTimeout(300);
+    const card = page.locator("[data-bmq-new-items]");
+    if (data === "populated") {
+      assert.equal(await card.locator("[data-bmq-new-item-group]").count(), 3, "three recurring groups first");
+      const cheese = card.locator("[data-bmq-new-item-group]").nth(1);
+      assert.equal(await cheese.locator(".d3-ni-members li").count(), 3);
+      // 1kg pack → 1000 g for every way it was written.
+      assert.equal(await cheese.getByLabel(/Hệ số đổi của DAIRYMONT/).inputValue(), "1000");
+      const garlic = card.locator("[data-bmq-new-item-group]").first();
+      assert.equal(await garlic.getByLabel(/Hệ số đổi của TỎI/).inputValue(), "1000", "kg on the receipt → 1000 g");
+      const foam = card.locator("[data-bmq-new-item-group]").nth(2);
+      assert.equal(await foam.getByLabel(/Hệ số đổi của BAO/).inputValue(), "", "kg → cái cannot convert: asked");
+      assert.ok(await foam.getByRole("button", { name: "Tạo mặt hàng" }).isDisabled());
+      await shot(page, card, `${EVIDENCE}/new-items-${viewport.width}.png`, viewport);
+      await cheese.getByRole("button", { name: "Tạo mặt hàng" }).click();
+      await page.waitForTimeout(200);
+      let writes = await page.evaluate(() => window.__qaWrites);
+      const applied = writes.find((w) => w.startsWith("rpc:apply_new_item_suggestion:"));
+      assert.ok(applied && applied.includes('"p_item_class":"raw_material"') && applied.includes('"p_unit":"g"') && applied.includes('"conversion_factor":1000') && applied.includes("danpmont"), applied);
+      assert.equal(await card.locator("[data-bmq-new-item-group]").count(), 2, "applied group leaves the list");
+      await card.locator(".d3-ab-tabs button", { hasText: "Mua 1 lần" }).click();
+      const board = card.locator("[data-bmq-new-item-group]").first();
+      assert.equal(await board.locator(".d3-ni-conv").count(), 0, "non-stock asks no conversion");
+      assert.equal(await board.getByRole("button", { name: "Không nhập kho" }).count(), 1);
+      await board.getByRole("button", { name: "Bỏ qua" }).click();
+      await page.waitForTimeout(200);
+      writes = await page.evaluate(() => window.__qaWrites);
+      assert.ok(writes.some((w) => w.startsWith("rpc:dismiss_new_item_suggestion:")), "dismiss sent");
+      await card.locator("[data-bmq-new-items-scan]").click();
+      await page.waitForTimeout(300);
+      writes = await page.evaluate(() => window.__qaWrites);
+      assert.ok(writes.includes("invoke:stock-alias-jev"), "scan invokes the edge function");
+      assert.equal(await overflow(page), 0, `no overflow ${viewport.width}`);
+    } else {
+      assert.ok((await card.textContent()).includes("Chưa có nhóm nào"));
+    }
+    assert.deepEqual(errors, [], "no page errors");
+    record(`new items ${data} ${viewport.width}`);
     await context.close();
   }
 }

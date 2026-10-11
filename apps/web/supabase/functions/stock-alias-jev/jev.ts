@@ -322,22 +322,22 @@ export class JevError extends Error {
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function finiteUnit(value: unknown): value is number {
+export function finiteUnit(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
 }
 
-function gatewayCost(metadata: unknown): number | null {
+export function gatewayCost(metadata: unknown): number | null {
   if (!isRecord(metadata) || !isRecord(metadata.gateway)) return null;
   const raw = metadata.gateway.cost;
   const value = typeof raw === "string" ? Number(raw) : typeof raw === "number" ? raw : Number.NaN;
   return Number.isFinite(value) && value >= 0 ? value : null;
 }
 
-function validateUsage(body: Record<string, unknown>): JevUsage {
+export function validateUsage(body: Record<string, unknown>): JevUsage {
   if (!isRecord(body.usage)) throw new JevError("jev_invalid_response", 502);
   const input = body.usage.inputTokens;
   const output = body.usage.outputTokens;
@@ -426,7 +426,7 @@ export function validateJevResponse(allowed: readonly string[], body: unknown): 
   };
 }
 
-async function readBoundedBody(
+export async function readBoundedBody(
   response: Response,
   combined: AbortSignal,
   parent: AbortSignal,

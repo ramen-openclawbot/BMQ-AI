@@ -10,6 +10,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import { createMaterialAliasHandler, MaterialAliasError } from "./handler.ts";
 import { createJevEvaluator, JEV_TIMEOUT_MS, type JevEvaluator } from "./jev.ts";
+import { createNewItemJevEvaluator, type NewItemJevEvaluator } from "./new-items.ts";
 import { createMaterialAliasStore } from "./store.ts";
 
 const url = Deno.env.get("SUPABASE_URL")!;
@@ -26,6 +27,18 @@ function jevEvaluator(): JevEvaluator | null {
     evaluatorCache = null;
   }
   return evaluatorCache;
+}
+
+let newItemEvaluatorCache: NewItemJevEvaluator | null | undefined;
+function newItemJevEvaluator(): NewItemJevEvaluator | null {
+  if (newItemEvaluatorCache !== undefined) return newItemEvaluatorCache;
+  const key = Deno.env.get("AI_GATEWAY_API_KEY") ?? "";
+  try {
+    newItemEvaluatorCache = key ? createNewItemJevEvaluator({ apiKey: key, timeoutMs: JEV_TIMEOUT_MS }) : null;
+  } catch {
+    newItemEvaluatorCache = null;
+  }
+  return newItemEvaluatorCache;
 }
 
 function adminClient() {
@@ -68,6 +81,13 @@ Deno.serve(createMaterialAliasHandler({
   listBacklog: (location, limit) => createMaterialAliasStore(adminClient()).listBacklog(location, limit),
   candidatesFor: (name, location, limit) =>
     createMaterialAliasStore(adminClient()).candidatesFor(name, location, limit),
+  listUnmatched: (location, days) => createMaterialAliasStore(adminClient()).listUnmatched(location, days),
+  upsertNewItemSuggestions: (location, rows) =>
+    createMaterialAliasStore(adminClient()).upsertNewItemSuggestions(location, rows),
+  getRawCache: (key) => createMaterialAliasStore(adminClient()).getRawCache(key),
+  putRawCache: (key, answer, cost) =>
+    createMaterialAliasStore(adminClient()).putRawCache(key, answer, cost),
+  newItemEvaluator: newItemJevEvaluator,
   authenticate: async (request, signal) => {
     const authorization = request.headers.get("authorization");
     if (!authorization?.startsWith("Bearer ") || authorization.length > 8192) {

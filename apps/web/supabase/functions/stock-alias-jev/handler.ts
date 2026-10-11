@@ -22,6 +22,25 @@ import {
   type JevMatchEvaluation,
   type MaterialAliasCandidate,
 } from "./jev.ts";
+import {
+  clusterKey,
+  makeUnionFind,
+  NEW_ITEM_CLASS_OPTIONS,
+  NEW_ITEM_MAX_CONCURRENCY,
+  NEW_ITEM_PROMPT_VERSION,
+  NEW_ITEM_SAME_THRESHOLD,
+  planSameItemPairs,
+  runQuestionsWithQuota,
+  sameItemPairKey,
+  summarizeMembers,
+  toStoredMember,
+  type NewItemClass,
+  type NewItemJevEvaluation,
+  type NewItemJevEvaluator,
+  type NewItemMember,
+  type NewItemSuggestionRow,
+  type NewItemUnmatchedRow,
+} from "./new-items.ts";
 import { getCorsHeaders } from "../_shared/cors.ts";
 
 export const MATERIAL_ALIAS_REQUEST_BODY_LIMIT = 32_768;
@@ -31,8 +50,12 @@ export const MATERIAL_ALIAS_BACKLOG_LIMIT = 200;
 export const MATERIAL_ALIAS_MAX_CANDIDATES = 50;
 export const MATERIAL_ALIAS_BACKLOG_BATCH_DEFAULT = 10;
 export const MATERIAL_ALIAS_BACKLOG_BATCH_MAX = 15;
+export const MATERIAL_ALIAS_NEW_ITEM_DAYS_DEFAULT = 60;
+export const MATERIAL_ALIAS_NEW_ITEM_DAYS_MAX = 365;
+export const MATERIAL_ALIAS_NEW_ITEM_BATCH_DEFAULT = 10;
+export const MATERIAL_ALIAS_NEW_ITEM_BATCH_MAX = 20;
 
-export type MaterialAliasMode = "lines" | "backlog";
+export type MaterialAliasMode = "lines" | "backlog" | "new_items";
 
 export class MaterialAliasError extends Error {
   constructor(public readonly code: string, public readonly status: number) {
@@ -95,6 +118,13 @@ export interface MaterialAliasHandlerDeps {
   incrementUsage: (usageDate: string, calls: number, cost: number) => Promise<void>;
   listBacklog: (location: string, limit: number) => Promise<MaterialAliasBacklogRow[]>;
   candidatesFor: (name: string, location: string, limit: number) => Promise<MaterialAliasCandidate[]>;
+  /** new_items mode: confirmed receipt names without an item / alias. */
+  listUnmatched?: (location: string, days: number) => Promise<NewItemUnmatchedRow[]>;
+  upsertNewItemSuggestions?: (location: string, rows: NewItemSuggestionRow[]) => Promise<void>;
+  /** Raw answer cache used by the same_item / item_class questions. */
+  getRawCache?: (key: MaterialAliasCacheKey) => Promise<{ answer: Record<string, unknown>; cost: number | null } | null>;
+  putRawCache?: (key: MaterialAliasCacheKey, answer: Record<string, unknown>, cost: number | null) => Promise<void>;
+  newItemEvaluator?: () => NewItemJevEvaluator | null;
   now?: () => Date;
   audit?: (event: Record<string, unknown>) => void;
 }
@@ -112,7 +142,14 @@ interface ParsedBacklogInput {
   batchSize: number;
 }
 
-type ParsedInput = ParsedLinesInput | ParsedBacklogInput;
+interface ParsedNewItemsInput {
+  mode: "new_items";
+  location: string;
+  days: number;
+  batchSize: number;
+}
+
+type ParsedInput = ParsedLinesInput | ParsedBacklogInput | ParsedNewItemsInput;
 
 const MESSAGES: Record<string, string> = {
   disabled: "Tính năng học bí danh NVL bằng Jev đang tắt.",
@@ -232,7 +269,7 @@ function asLine(entry: unknown): MaterialAliasLineInput {
 
 function parseInput(raw: Record<string, unknown>): ParsedInput {
   for (const field of Object.keys(raw)) {
-    if (!["mode", "supplier_id", "location", "lines", "batch_size"].includes(field)) {
+    if (!["mode", "supplier_id", "location", "lines", "batch_size", "days"].includes(field)) {
       throw new MaterialAliasError("invalid_request", 400);
     }
   }
@@ -240,7 +277,7 @@ function parseInput(raw: Record<string, unknown>): ParsedInput {
   if (location !== "q7" && location !== "tan_tao") throw new MaterialAliasError("invalid_request", 400);
   const mode = raw.mode;
   if (mode === "backlog") {
-    if (raw.supplier_id !== undefined || raw.lines !== undefined) {
+    if (raw.supplier_id !== undefined || raw.lines !== undefined || raw.days !== undefined) {
       throw new MaterialAliasError("invalid_request", 400);
     }
     const rawBatch = raw.batch_size;
@@ -257,8 +294,39 @@ function parseInput(raw: Record<string, unknown>): ParsedInput {
     return { mode: "backlog", location, batchSize };
   }
 
+  if (mode === "new_items") {
+    if (raw.supplier_id !== undefined || raw.lines !== undefined) {
+      throw new MaterialAliasError("invalid_request", 400);
+    }
+    const rawDays = raw.days;
+    if (
+      rawDays !== undefined
+      && (typeof rawDays !== "number" || !Number.isInteger(rawDays) || rawDays < 1 || rawDays > MATERIAL_ALIAS_NEW_ITEM_DAYS_MAX)
+    ) {
+      throw new MaterialAliasError("invalid_request", 400);
+    }
+    const rawBatch = raw.batch_size;
+    if (
+      rawBatch !== undefined
+      && (typeof rawBatch !== "number" || !Number.isInteger(rawBatch) || rawBatch < 1)
+    ) {
+      throw new MaterialAliasError("invalid_request", 400);
+    }
+    return {
+      mode: "new_items",
+      location,
+      days: (rawDays as number | undefined) ?? MATERIAL_ALIAS_NEW_ITEM_DAYS_DEFAULT,
+      batchSize: Math.min(
+        (rawBatch as number | undefined) ?? MATERIAL_ALIAS_NEW_ITEM_BATCH_DEFAULT,
+        MATERIAL_ALIAS_NEW_ITEM_BATCH_MAX,
+      ),
+    };
+  }
+
   if (mode !== "lines") throw new MaterialAliasError("invalid_request", 400);
-  if (raw.batch_size !== undefined) throw new MaterialAliasError("invalid_request", 400);
+  if (raw.batch_size !== undefined || raw.days !== undefined) {
+    throw new MaterialAliasError("invalid_request", 400);
+  }
   const supplierId = raw.supplier_id === undefined ? null : raw.supplier_id;
   if (supplierId !== null && typeof supplierId !== "string") throw new MaterialAliasError("invalid_request", 400);
   if (!Array.isArray(raw.lines) || raw.lines.length === 0 || raw.lines.length > 200) {
@@ -334,6 +402,349 @@ function candidateIds(candidates: readonly MaterialAliasCandidate[]): string[] {
   return candidates.map((candidate) => candidate.id);
 }
 
+interface NewItemScanContext {
+  signal: AbortSignal;
+  deadlineAt: number;
+  matchEvaluator: JevEvaluator | null;
+  newItemEvaluator: NewItemJevEvaluator | null;
+  usageDate: string;
+  remainingQuota: number;
+}
+
+interface NewItemScanResult {
+  candidates: number;
+  names: number;
+  groups: number;
+  processed: number;
+  remaining: number;
+  autoMerged: number;
+  sameItemAsked: number;
+  classAsked: number;
+  failed: number;
+  calls: number;
+  cost: number;
+  stopped: "daily_limit" | null;
+}
+
+function newItemRepresentative(members: readonly NewItemMember[]): NewItemMember | null {
+  return members.length > 0 ? members[0] : null;
+}
+
+/**
+ * One new-item batch: (a) rank the names that have a candidate but no cached
+ * match answer, (b) group the remaining names with the deterministic score and
+ * the Jev same_item question, (c) ask Jev the item class for every group, then
+ * upsert the suggestion rows. Same-item and class answers are cached with the
+ * new prompt version; usage is incremented immediately after every call.
+ */
+async function runNewItemScan(
+  deps: MaterialAliasHandlerDeps,
+  input: ParsedNewItemsInput,
+  context: NewItemScanContext,
+): Promise<NewItemScanResult> {
+  const location = input.location;
+  const rows = (await deps.listUnmatched!(location, input.days))
+    .filter((row) => row.normalized_name !== "" && row.raw_name !== "");
+  const rawKey = (normalizedName: string): MaterialAliasCacheKey => ({
+    supplierId: null,
+    normalizedName,
+    location,
+    promptVersion: NEW_ITEM_PROMPT_VERSION,
+    candidatesHash: "",
+  });
+
+  let calls = 0;
+  let cost = 0;
+  let failed = 0;
+  let sameItemAsked = 0;
+  let classAsked = 0;
+  let autoMerged = 0;
+
+  const resolved = new Map<string, { itemId: string | null; lineType: string | null }>();
+  const pendingMatch = new Set<string>();
+
+  // (a) Names with a candidate but no cached answer run the existing match
+  // question. An exact name is still answered in code and never spends a call.
+  let matchCallsThisRequest = 0;
+  for (const row of rows) {
+    if (row.cached_match_item_id !== null) continue;
+    if (resolved.has(row.normalized_name) || pendingMatch.has(row.normalized_name)) continue;
+    const candidates = await deps.candidatesFor(row.raw_name, location, 5);
+    if (candidates.length === 0) {
+      resolved.set(row.normalized_name, { itemId: null, lineType: null });
+      continue;
+    }
+    const key: MaterialAliasCacheKey = {
+      supplierId: row.supplier_id,
+      normalizedName: row.normalized_name,
+      location,
+      promptVersion: JEV_PROMPT_VERSION,
+      candidatesHash: candidatesHash(candidateIds(candidates)),
+    };
+    const hit = await deps.getCache(key);
+    if (hit) {
+      resolved.set(row.normalized_name, { itemId: hit.answer.item_id, lineType: hit.answer.line_type });
+      continue;
+    }
+    const exact = exactCandidateAnswer(candidates, row.raw_name);
+    if (exact) {
+      await deps.putCache(key, exact, null);
+      resolved.set(row.normalized_name, { itemId: exact.item_id, lineType: exact.line_type });
+      continue;
+    }
+    if (
+      context.matchEvaluator
+      && calls < context.remainingQuota
+      && matchCallsThisRequest < input.batchSize
+    ) {
+      try {
+        const evaluation = await context.matchEvaluator({
+          state: { line: { name: row.raw_name, unit: row.raw_unit, supplier: row.supplier_id }, candidates },
+          signal: context.signal,
+          deadlineAt: context.deadlineAt,
+        });
+        calls += 1;
+        matchCallsThisRequest += 1;
+        const callCost = evaluationCost(evaluation);
+        cost += callCost;
+        await deps.incrementUsage(context.usageDate, 1, callCost);
+        const answer = buildAnswer(evaluation, row.raw_name, evaluation.choice);
+        await deps.putCache(key, answer, evaluation.cost ?? null);
+        resolved.set(row.normalized_name, { itemId: answer.item_id, lineType: answer.line_type });
+      } catch (error) {
+        if (error instanceof JevError) throw error;
+        failed += 1;
+        pendingMatch.add(row.normalized_name);
+      }
+    } else {
+      pendingMatch.add(row.normalized_name);
+    }
+  }
+
+  // Grouping must see every name at once, otherwise a later batch regroups the
+  // same names under another key. Finish the match answers first.
+  if (pendingMatch.size > 0) {
+    const stopped = calls >= context.remainingQuota ? "daily_limit" : null;
+    return {
+      candidates: rows.length, names: 0, groups: 0, processed: matchCallsThisRequest, remaining: pendingMatch.size,
+      autoMerged: 0, sameItemAsked: 0, classAsked: 0, failed, calls, cost, stopped,
+    };
+  }
+
+  // Only names without an item, and not a non-goods line, can be grouped. A name
+  // with an exact candidate belongs to the "chờ gán mã" list instead.
+  const membersByNorm = new Map<string, NewItemMember[]>();
+  for (const row of rows) {
+    if (pendingMatch.has(row.normalized_name)) continue;
+    if (row.has_exact_candidate) continue;
+    const fromMatch = resolved.get(row.normalized_name);
+    const itemId = fromMatch ? fromMatch.itemId : row.cached_match_item_id;
+    const lineType = fromMatch ? fromMatch.lineType : row.cached_match_line_type;
+    if (itemId !== null) continue;
+    if (lineType === LINE_TYPE_NON_GOODS) continue;
+    const list = membersByNorm.get(row.normalized_name) ?? [];
+    list.push({
+      supplier_id: row.supplier_id,
+      normalized_name: row.normalized_name,
+      raw_name: row.raw_name,
+      raw_unit: row.raw_unit,
+      receipt_count: row.receipt_count,
+      last_date: row.last_date,
+      receipt_days: row.receipt_days,
+      first_date: row.first_date,
+    });
+    membersByNorm.set(row.normalized_name, list);
+  }
+
+  const names = [...membersByNorm.keys()].sort();
+  const plan = planSameItemPairs(names);
+  const unionFind = makeUnionFind(names);
+  for (const [left, right] of plan.autoPairs) unionFind.union(left, right);
+  autoMerged = plan.autoPairs.length;
+
+  // (b) The remaining pairs ask the Jev boolean question, cache first.
+  const toAsk: Array<[string, string]> = [];
+  for (const [left, right] of plan.questionPairs) {
+    const key = rawKey(sameItemPairKey(left, right));
+    const hit = deps.getRawCache ? await deps.getRawCache(key) : null;
+    const probability = hit && typeof hit.answer.p_same === "number" ? hit.answer.p_same : null;
+    if (probability === null) {
+      toAsk.push([left, right]);
+      continue;
+    }
+    if (probability >= NEW_ITEM_SAME_THRESHOLD) unionFind.union(left, right);
+  }
+
+  let pairsAnswered = 0;
+  if (toAsk.length > 0 && context.newItemEvaluator) {
+    const sameQuota = Math.max(0, context.remainingQuota - calls);
+    const pairRun = await runQuestionsWithQuota<[string, string], NewItemJevEvaluation>({
+      items: toAsk,
+      remaining: Math.min(sameQuota, input.batchSize),
+      concurrency: NEW_ITEM_MAX_CONCURRENCY,
+      ask: async ([left, right]) => {
+        const leftMember = newItemRepresentative(membersByNorm.get(left) ?? []);
+        const rightMember = newItemRepresentative(membersByNorm.get(right) ?? []);
+        return context.newItemEvaluator!({
+          mode: "same_item",
+          state: {
+            a: { name: leftMember?.raw_name ?? left, unit: leftMember?.raw_unit ?? null, supplier: leftMember?.supplier_id ?? null },
+            b: { name: rightMember?.raw_name ?? right, unit: rightMember?.raw_unit ?? null, supplier: rightMember?.supplier_id ?? null },
+          },
+          signal: context.signal,
+          deadlineAt: context.deadlineAt,
+        });
+      },
+      onAnswered: async ([left, right], evaluation) => {
+        calls += 1;
+        sameItemAsked += 1;
+        const callCost = evaluationCost(evaluation);
+        cost += callCost;
+        await deps.incrementUsage(context.usageDate, 1, callCost);
+        await deps.putRawCache?.(
+          rawKey(sameItemPairKey(left, right)),
+          { kind: "same_item", p_same: evaluation.same_item },
+          evaluation.cost ?? null,
+        );
+        if ((evaluation.same_item ?? 0) >= NEW_ITEM_SAME_THRESHOLD) unionFind.union(left, right);
+      },
+      onError: () => { failed += 1; },
+    });
+    pairsAnswered = pairRun.asked;
+  } else if (toAsk.length > 0) {
+    failed += toAsk.length;
+  }
+
+  // Groups are final only when every same_item pair is answered; until then
+  // write nothing and ask the client for another batch.
+  const pairsLeft = context.newItemEvaluator ? toAsk.length - pairsAnswered : 0;
+  if (pairsLeft > 0) {
+    const stopped = calls >= context.remainingQuota ? "daily_limit" : null;
+    return {
+      candidates: rows.length, names: names.length, groups: 0, processed: pairsAnswered, remaining: pairsLeft,
+      autoMerged, sameItemAsked, classAsked: 0, failed, calls, cost, stopped,
+    };
+  }
+
+  // (c) One item_class question per group, cache first, at most four in flight.
+  const clusters = unionFind.groups();
+  const classByCluster = new Map<string, { itemClass: NewItemClass; probability: number }>();
+  const classToAsk: string[][] = [];
+  for (const cluster of clusters) {
+    const key = rawKey(clusterKey(cluster));
+    const hit = deps.getRawCache ? await deps.getRawCache(key) : null;
+    const value = hit?.answer.item_class;
+    const probability = hit?.answer.class_probability;
+    if (
+      typeof value === "string"
+      && NEW_ITEM_CLASS_OPTIONS.includes(value as NewItemClass)
+      && typeof probability === "number"
+    ) {
+      classByCluster.set(key.normalizedName, { itemClass: value as NewItemClass, probability });
+    } else {
+      classToAsk.push(cluster);
+    }
+  }
+
+  let classStopped = false;
+  let classAnswered = 0;
+  if (classToAsk.length > 0 && context.newItemEvaluator) {
+    const classQuota = Math.max(0, context.remainingQuota - calls);
+    const run = await runQuestionsWithQuota<string[], NewItemJevEvaluation>({
+      items: classToAsk,
+      remaining: Math.min(classQuota, input.batchSize),
+      concurrency: NEW_ITEM_MAX_CONCURRENCY,
+      ask: async (cluster) => {
+        const rawNames = cluster.map((name) => newItemRepresentative(membersByNorm.get(name) ?? [])?.raw_name ?? name);
+        const units = cluster
+          .map((name) => newItemRepresentative(membersByNorm.get(name) ?? [])?.raw_unit ?? "")
+          .filter((unit) => unit !== "");
+        const receiptCount = cluster.reduce(
+          (total, name) => total + (membersByNorm.get(name) ?? []).reduce((sum, member) => sum + member.receipt_count, 0),
+          0,
+        );
+        return context.newItemEvaluator!({
+          mode: "item_class",
+          state: { group: { names: rawNames, units, receipt_count: receiptCount } },
+          signal: context.signal,
+          deadlineAt: context.deadlineAt,
+        });
+      },
+      onAnswered: async (cluster, evaluation) => {
+        calls += 1;
+        classAsked += 1;
+        const callCost = evaluationCost(evaluation);
+        cost += callCost;
+        await deps.incrementUsage(context.usageDate, 1, callCost);
+        const key = rawKey(clusterKey(cluster));
+        await deps.putRawCache?.(key, {
+          kind: "item_class",
+          item_class: evaluation.item_class,
+          class_probability: evaluation.class_probability,
+        }, evaluation.cost ?? null);
+        if (evaluation.item_class !== null) {
+          classByCluster.set(key.normalizedName, {
+            itemClass: evaluation.item_class,
+            probability: evaluation.class_probability ?? 0,
+          });
+        }
+      },
+      onError: () => { failed += 1; },
+    });
+    classStopped = run.stopped;
+    classAnswered = run.asked;
+  } else if (classToAsk.length > 0) {
+    failed += classToAsk.length;
+  }
+
+  // Write the groups. A dismissed / applied group is never overwritten by the RPC.
+  const suggestionRows: NewItemSuggestionRow[] = [];
+  for (const cluster of clusters) {
+    const members: NewItemMember[] = [];
+    for (const name of cluster) members.push(...(membersByNorm.get(name) ?? []));
+    if (members.length === 0) continue;
+    const summary = summarizeMembers(members);
+    const key = clusterKey(cluster);
+    const cls = classByCluster.get(key);
+    suggestionRows.push({
+      cluster_key: key,
+      members: members.map((member) => toStoredMember(member)),
+      suggested_name: summary.suggested_name,
+      suggested_unit: summary.suggested_unit,
+      suggested_class: cls?.itemClass ?? null,
+      class_probability: cls?.probability ?? null,
+      receipt_count: summary.receipt_count,
+      receipt_days: summary.receipt_days,
+      first_date: summary.first_date,
+      last_date: summary.last_date,
+      is_recurring: summary.is_recurring,
+      prompt_version: NEW_ITEM_PROMPT_VERSION,
+    });
+  }
+  if (suggestionRows.length > 0) await deps.upsertNewItemSuggestions!(location, suggestionRows);
+
+  const unaskedClasses = classStopped ? Math.max(0, classToAsk.length - classAnswered) : 0;
+  const remaining = pendingMatch.size + unaskedClasses;
+  const classified = suggestionRows.filter((row) => row.suggested_class !== null).length;
+  const processed = resolved.size + classified;
+  const stopped = remaining > 0 && calls >= context.remainingQuota ? "daily_limit" : null;
+
+  return {
+    candidates: rows.length,
+    names: names.length,
+    groups: suggestionRows.length,
+    processed,
+    remaining,
+    autoMerged,
+    sameItemAsked,
+    classAsked,
+    failed,
+    calls,
+    cost,
+    stopped,
+  };
+}
+
 export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
   const now = deps.now ?? (() => new Date());
 
@@ -356,7 +767,9 @@ export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
       if (deps.killSwitch()) throw new MaterialAliasError("disabled", 503);
       const raw = await readBody(req, signal);
       const input = parseInput(raw);
-      if (input.mode === "backlog" && !q7Editor) throw new MaterialAliasError("forbidden", 403);
+      if ((input.mode === "backlog" || input.mode === "new_items") && !q7Editor) {
+        throw new MaterialAliasError("forbidden", 403);
+      }
       signal.throwIfAborted();
 
       const usageDate = vietnamDate(now().toISOString());
@@ -453,8 +866,9 @@ export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
         });
       }
 
-      // backlog: process one batch, then report how much is still pending.
-      const rows = await deps.listBacklog(input.location, MATERIAL_ALIAS_BACKLOG_LIMIT);
+      if (input.mode === "backlog") {
+        // backlog: process one batch, then report how much is still pending.
+        const rows = await deps.listBacklog(input.location, MATERIAL_ALIAS_BACKLOG_LIMIT);
       type BacklogEntry = {
         row: MaterialAliasBacklogRow;
         candidates: MaterialAliasCandidate[];
@@ -545,6 +959,56 @@ export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
         cost,
         usage: { date: usageDate, calls: usage.calls + calls, limit: callLimit },
         stopped,
+      });
+      }
+
+      // new_items: rank, group, classify and upsert the suggestion rows.
+      let newItemEvaluator: NewItemJevEvaluator | null = null;
+      try {
+        newItemEvaluator = deps.newItemEvaluator?.() ?? null;
+      } catch {
+        newItemEvaluator = null;
+      }
+      const scan = await runNewItemScan(deps, input, {
+        signal,
+        deadlineAt,
+        matchEvaluator: evaluator,
+        newItemEvaluator,
+        usageDate,
+        remainingQuota,
+      });
+      deps.audit?.({
+        event: "stock_alias_jev",
+        mode: "new_items",
+        candidates: scan.candidates,
+        groups: scan.groups,
+        processed: scan.processed,
+        remaining: scan.remaining,
+        auto_merged: scan.autoMerged,
+        same_item_asked: scan.sameItemAsked,
+        class_asked: scan.classAsked,
+        batch_size: input.batchSize,
+        calls: scan.calls,
+        cost: scan.cost,
+        failed: scan.failed,
+      });
+      return json({
+        mode: "new_items",
+        candidates: scan.candidates,
+        names: scan.names,
+        groups: scan.groups,
+        processed: scan.processed,
+        remaining: scan.remaining,
+        batch_size: input.batchSize,
+        days: input.days,
+        auto_merged: scan.autoMerged,
+        same_item_asked: scan.sameItemAsked,
+        class_asked: scan.classAsked,
+        failed: scan.failed,
+        calls: scan.calls,
+        cost: scan.cost,
+        usage: { date: usageDate, calls: usage.calls + scan.calls, limit: callLimit },
+        stopped: scan.stopped,
       });
     } catch (error) {
       const code = signal.aborted

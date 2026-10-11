@@ -14,6 +14,8 @@ import {
   parseCreateStockMaterialItem,
   parseMaterialAliasBacklogReview,
   parseMaterialAliasReview,
+  parseNewItemDecisionResult,
+  parseNewItemSuggestions,
   parseStockAliasJevResponse,
   parseSuggestMaterialAliases,
   rankMaterialAliasCandidates,
@@ -474,4 +476,111 @@ test("parseCreateStockMaterialItem accepts created and reused items", () => {
   });
   assert.throws(() => parseCreateStockMaterialItem(null));
   assert.throws(() => parseCreateStockMaterialItem({ item_id: CANDIDATE_ID, created: "yes" }));
+});
+
+const VALID_NEW_ITEM_SUGGESTION = {
+  id: "99999999-9999-4999-8999-999999999999",
+  location: "q7",
+  cluster_key: "d0726241020676b14aa6298ce6a18b21",
+  members: [
+    {
+      supplier_id: null,
+      normalized_name: "toi",
+      raw_name: "Tỏi ngày 15",
+      raw_unit: "kg",
+      receipt_count: 3,
+      last_date: "2026-10-15",
+    },
+  ],
+  suggested_name: "Tỏi",
+  suggested_unit: "g",
+  suggested_class: "raw_material",
+  class_probability: 0.91,
+  receipt_count: 3,
+  receipt_days: 2,
+  first_date: "2026-10-01",
+  last_date: "2026-10-15",
+  is_recurring: true,
+  status: "pending",
+  item_id: null,
+  prompt_version: "jev-new-item-2026-10-21.1",
+  decided_by: null,
+  decided_at: null,
+  created_at: "2026-10-21T00:00:00.000Z",
+  updated_at: "2026-10-21T00:00:00.000Z",
+};
+
+test("parseNewItemSuggestions accepts the RPC payload", () => {
+  const rows = parseNewItemSuggestions([VALID_NEW_ITEM_SUGGESTION]);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].suggested_name, "Tỏi");
+  assert.equal(rows[0].suggested_class, "raw_material");
+  assert.equal(rows[0].members[0].normalized_name, "toi");
+  assert.equal(rows[0].is_recurring, true);
+  assert.deepEqual(parseNewItemSuggestions([]), []);
+});
+
+test("parseNewItemSuggestions rejects malformed payloads", () => {
+  assert.throws(() => parseNewItemSuggestions(null));
+  assert.throws(() =>
+    parseNewItemSuggestions([{ ...VALID_NEW_ITEM_SUGGESTION, members: "nope" }]));
+  assert.throws(() =>
+    parseNewItemSuggestions([{ ...VALID_NEW_ITEM_SUGGESTION, suggested_class: "finished_goods" }]));
+  assert.throws(() =>
+    parseNewItemSuggestions([{ ...VALID_NEW_ITEM_SUGGESTION, status: "unknown" }]));
+});
+
+const VALID_NEW_ITEMS_RESPONSE = {
+  mode: "new_items",
+  candidates: 12,
+  names: 9,
+  groups: 4,
+  processed: 7,
+  remaining: 2,
+  batch_size: 10,
+  days: 60,
+  auto_merged: 3,
+  same_item_asked: 2,
+  class_asked: 4,
+  failed: 0,
+  calls: 6,
+  cost: 0.003,
+  usage: { date: "2026-10-21", calls: 6, limit: 600 },
+  stopped: null,
+};
+
+test("parseStockAliasJevResponse accepts the new_items payload", () => {
+  const parsed = parseStockAliasJevResponse(VALID_NEW_ITEMS_RESPONSE);
+  assert.equal(parsed.mode, "new_items");
+  if (parsed.mode === "new_items") {
+    assert.equal(parsed.groups, 4);
+    assert.equal(parsed.days, 60);
+    assert.equal(parsed.auto_merged, 3);
+    assert.equal(parsed.remaining, 2);
+    assert.equal(parsed.stopped, null);
+  }
+  assert.throws(() => parseStockAliasJevResponse({ ...VALID_NEW_ITEMS_RESPONSE, stopped: "later" }));
+});
+
+test("parseNewItemDecisionResult accepts apply and dismiss results", () => {
+  const applied = parseNewItemDecisionResult({
+    status: "applied",
+    suggestion_id: VALID_NEW_ITEM_SUGGESTION.id,
+    item_id: CANDIDATE_ID,
+    item_class: "packaging_supply",
+    members_applied: 2,
+  });
+  assert.equal(applied.status, "applied");
+  assert.equal(applied.item_id, CANDIDATE_ID);
+  assert.equal(applied.item_class, "packaging_supply");
+  assert.equal(applied.members_applied, 2);
+
+  const dismissed = parseNewItemDecisionResult({
+    status: "dismissed",
+    suggestion_id: VALID_NEW_ITEM_SUGGESTION.id,
+  });
+  assert.equal(dismissed.item_class, null);
+  assert.equal(dismissed.members_applied, 0);
+  assert.throws(() => parseNewItemDecisionResult(null));
+  assert.throws(() => parseNewItemDecisionResult({ status: "applied", item_class: "other" }));
 });

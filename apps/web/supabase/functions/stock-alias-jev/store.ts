@@ -15,6 +15,7 @@ import {
   type MaterialAliasUsage,
 } from "./handler.ts";
 import { NONE_OPTION, type MaterialAliasCandidate } from "./jev.ts";
+import type { NewItemSuggestionRow, NewItemUnmatchedRow } from "./new-items.ts";
 
 function fail(): never {
   throw new MaterialAliasError("scan_failed", 503);
@@ -27,6 +28,10 @@ function asNumber(value: unknown): number {
 
 function asNullableString(value: unknown): string | null {
   return typeof value === "string" && value !== "" ? value : null;
+}
+
+function asBoolean(value: unknown): boolean {
+  return value === true;
 }
 
 function mapCandidate(row: Record<string, unknown>): MaterialAliasCandidate {
@@ -89,6 +94,10 @@ export interface MaterialAliasStore {
   incrementUsage(usageDate: string, calls: number, cost: number): Promise<void>;
   listBacklog(location: string, limit: number): Promise<MaterialAliasBacklogRow[]>;
   candidatesFor(name: string, location: string, limit: number): Promise<MaterialAliasCandidate[]>;
+  listUnmatched(location: string, days: number): Promise<NewItemUnmatchedRow[]>;
+  upsertNewItemSuggestions(location: string, rows: NewItemSuggestionRow[]): Promise<void>;
+  getRawCache(key: MaterialAliasCacheKey): Promise<{ answer: Record<string, unknown>; cost: number | null } | null>;
+  putRawCache(key: MaterialAliasCacheKey, answer: Record<string, unknown>, cost: number | null): Promise<void>;
 }
 
 export function createMaterialAliasStore(admin: SupabaseClient): MaterialAliasStore {
@@ -178,6 +187,70 @@ export function createMaterialAliasStore(admin: SupabaseClient): MaterialAliasSt
       return ((data ?? []) as unknown as Record<string, unknown>[])
         .map(mapCandidate)
         .filter((candidate) => candidate.id !== "");
+    },
+
+    async listUnmatched(location, days) {
+      const { data, error } = await admin.rpc("list_unmatched_purchase_names", {
+        p_location: location,
+        p_days: days,
+      });
+      if (error) fail();
+      return ((data ?? []) as unknown as Record<string, unknown>[]).map((row) => ({
+        supplier_id: asNullableString(row.supplier_id),
+        normalized_name: String(row.normalized_name ?? ""),
+        raw_name: String(row.raw_name ?? ""),
+        raw_unit: asNullableString(row.raw_unit),
+        receipt_count: asNumber(row.receipt_count),
+        receipt_days: asNumber(row.receipt_days),
+        first_date: asNullableString(row.first_date),
+        last_date: asNullableString(row.last_date),
+        has_exact_candidate: asBoolean(row.has_exact_candidate),
+        cached_match_item_id: asNullableString(row.cached_match_item_id),
+        cached_match_line_type: asNullableString(row.cached_match_line_type),
+      })).filter((row) => row.normalized_name !== "" && row.raw_name !== "");
+    },
+
+    async upsertNewItemSuggestions(location, rows) {
+      const { error } = await admin.rpc("upsert_new_item_suggestions", {
+        p_location: location,
+        p_rows: rows,
+      });
+      if (error) fail();
+    },
+
+    async getRawCache(key) {
+      let query = admin
+        .from("material_alias_jev_cache")
+        .select("answer,cost")
+        .eq("normalized_name", key.normalizedName)
+        .eq("location", key.location)
+        .eq("prompt_version", key.promptVersion)
+        .eq("candidates_hash", key.candidatesHash)
+        .order("created_at", { ascending: false })
+        .limit(1);
+      query = key.supplierId === null ? query.is("supplier_id", null) : query.eq("supplier_id", key.supplierId);
+      const { data, error } = await query.maybeSingle();
+      if (error) fail();
+      if (!data) return null;
+      const row = data as unknown as { answer: unknown; cost: number | null };
+      if (typeof row.answer !== "object" || row.answer === null || Array.isArray(row.answer)) return null;
+      return {
+        answer: row.answer as Record<string, unknown>,
+        cost: row.cost === null || row.cost === undefined ? null : asNumber(row.cost),
+      };
+    },
+
+    async putRawCache(key, answer, cost) {
+      const { error } = await admin.from("material_alias_jev_cache").insert({
+        supplier_id: key.supplierId,
+        normalized_name: key.normalizedName,
+        location: key.location,
+        prompt_version: key.promptVersion,
+        candidates_hash: key.candidatesHash,
+        answer,
+        cost,
+      });
+      if (error && (error as { code?: string }).code !== "23505") fail();
     },
   };
 }

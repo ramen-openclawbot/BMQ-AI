@@ -6,17 +6,23 @@ import {
   parseCreateStockMaterialItem,
   parseMaterialAliasBacklogReview,
   parseMaterialAliasReview,
+  parseNewItemDecisionResult,
+  parseNewItemSuggestions,
   parseStockAliasJevResponse,
   parseSuggestMaterialAliases,
   type CreateStockMaterialItemResult,
   type MaterialAliasBacklogReviewRow,
   type MaterialAliasReview,
   type MaterialAliasSuggestion,
+  type NewItemDecisionResult,
+  type NewItemSuggestion,
+  type NewItemSuggestionClass,
   type StockAliasJevLinesResponse,
 } from "@/lib/material-alias";
 
 export const MATERIAL_ALIAS_REVIEW_QUERY_KEY = "material-alias-review";
 export const MATERIAL_ALIAS_BACKLOG_REVIEW_QUERY_KEY = "material-alias-backlog-review";
+export const MATERIAL_ALIAS_NEW_ITEM_QUERY_KEY = "material-alias-new-item-suggestions";
 
 export type MaterialAliasLocation = "q7" | "tan_tao";
 
@@ -281,6 +287,136 @@ export function useCreateStockMaterialItem() {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: [MATERIAL_ALIAS_BACKLOG_REVIEW_QUERY_KEY] });
+    },
+  });
+}
+
+/** Pending "mua 60 ngày chưa có mã kho" groups (owner / Q7 admin only). */
+export function useNewItemSuggestions(location: MaterialAliasLocation) {
+  return useQuery({
+    queryKey: [MATERIAL_ALIAS_NEW_ITEM_QUERY_KEY, location],
+    queryFn: async (): Promise<NewItemSuggestion[]> => {
+      const { data, error } = await supabase.rpc("get_new_item_suggestions", {
+        p_location: location,
+      });
+      if (error) throw error;
+      return parseNewItemSuggestions(data);
+    },
+  });
+}
+
+export interface RunNewItemScanInput {
+  location: MaterialAliasLocation;
+  /** Receipt window: default 60 days, capped at 365 by the edge function. */
+  days?: number;
+  /** Questions per edge call: default 10, capped at 20 by the edge function. */
+  batchSize?: number;
+  /** Progress: groups processed so far out of processed + remaining. */
+  onProgress?: (processed: number, total: number) => void;
+}
+
+/**
+ * Group and classify the 60-day purchased names that still have no stock item
+ * (Q7 editor only). Runs the edge function batch by batch until it reports no
+ * remaining work or the shared daily quota stops it, then refreshes both review
+ * lists.
+ */
+export function useRunNewItemScan() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: RunNewItemScanInput): Promise<Record<string, unknown>> => {
+      let processedTotal = 0;
+      let last: Record<string, unknown> = {};
+      while (true) {
+        const { data, error } = await supabase.functions.invoke("stock-alias-jev", {
+          body: {
+            mode: "new_items",
+            location: input.location,
+            days: input.days ?? 60,
+            batch_size: input.batchSize ?? 10,
+          },
+        });
+        if (error) throw error;
+        const parsed = parseStockAliasJevResponse(data);
+        if (parsed.mode !== "new_items") throw new Error("stock-alias-jev tra ve sai che do");
+        last = parsed as unknown as Record<string, unknown>;
+        processedTotal += parsed.processed;
+        input.onProgress?.(processedTotal, processedTotal + parsed.remaining);
+        if (parsed.stopped !== null) break;
+        if (parsed.remaining <= 0) break;
+        // Safety: a call that made no progress must not loop forever.
+        if (parsed.processed === 0) break;
+      }
+      return last;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [MATERIAL_ALIAS_REVIEW_QUERY_KEY] });
+      void queryClient.invalidateQueries({ queryKey: [MATERIAL_ALIAS_BACKLOG_REVIEW_QUERY_KEY] });
+      void queryClient.invalidateQueries({ queryKey: [MATERIAL_ALIAS_NEW_ITEM_QUERY_KEY] });
+    },
+  });
+}
+
+export interface ApplyNewItemSuggestionMemberInput {
+  supplier_id: string | null;
+  normalized_name: string;
+  raw_name: string;
+  entered_unit_label: string | null;
+  conversion_factor: number;
+}
+
+export interface ApplyNewItemSuggestionInput {
+  suggestionId: string;
+  name: string;
+  unit: string;
+  itemClass: NewItemSuggestionClass;
+  members: ApplyNewItemSuggestionMemberInput[];
+  requestId: string;
+}
+
+/** Accept one suggestion: create / reuse the item and confirm every member alias. */
+export function useApplyNewItemSuggestion() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: ApplyNewItemSuggestionInput): Promise<NewItemDecisionResult> => {
+      const { data, error } = await supabase.rpc("apply_new_item_suggestion", {
+        p_suggestion_id: input.suggestionId,
+        p_name: input.name,
+        p_unit: input.unit,
+        p_item_class: input.itemClass,
+        p_members: input.members as unknown as Json,
+        p_request_id: input.requestId,
+      });
+      if (error) throw error;
+      return parseNewItemDecisionResult(data);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [MATERIAL_ALIAS_REVIEW_QUERY_KEY] });
+      void queryClient.invalidateQueries({ queryKey: [MATERIAL_ALIAS_BACKLOG_REVIEW_QUERY_KEY] });
+      void queryClient.invalidateQueries({ queryKey: [MATERIAL_ALIAS_NEW_ITEM_QUERY_KEY] });
+    },
+  });
+}
+
+export interface DismissNewItemSuggestionInput {
+  suggestionId: string;
+}
+
+/** Dismiss one suggestion group. */
+export function useDismissNewItemSuggestion() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: DismissNewItemSuggestionInput): Promise<NewItemDecisionResult> => {
+      const { data, error } = await supabase.rpc("dismiss_new_item_suggestion", {
+        p_suggestion_id: input.suggestionId,
+      });
+      if (error) throw error;
+      return parseNewItemDecisionResult(data);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [MATERIAL_ALIAS_REVIEW_QUERY_KEY] });
+      void queryClient.invalidateQueries({ queryKey: [MATERIAL_ALIAS_BACKLOG_REVIEW_QUERY_KEY] });
+      void queryClient.invalidateQueries({ queryKey: [MATERIAL_ALIAS_NEW_ITEM_QUERY_KEY] });
     },
   });
 }
