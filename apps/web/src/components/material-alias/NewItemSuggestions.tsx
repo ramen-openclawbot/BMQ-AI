@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Plus, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,7 +8,11 @@ import {
   useApplyNewItemSuggestion,
   useDismissNewItemSuggestion,
   useNewItemSuggestions,
+  useLatestNewItemRun,
   useRunNewItemScan,
+  MATERIAL_ALIAS_BACKLOG_REVIEW_QUERY_KEY,
+  MATERIAL_ALIAS_NEW_ITEM_QUERY_KEY,
+  type MaterialAliasLocation,
 } from "@/hooks/useMaterialAlias";
 import type { NewItemSuggestion, NewItemSuggestionClass } from "@/lib/material-alias";
 import { packFactorFor, unitFactor } from "./new-stock-item";
@@ -186,39 +191,58 @@ function GroupRow({ group, onDone }: { group: NewItemSuggestion; onDone: () => v
  * (same goods written differently), classified, and turned into an item plus
  * auto aliases in one click.
  */
-export function NewItemSuggestions({ canEdit }: { canEdit: boolean }) {
+const RUN_LIVE = new Set(["queued", "running"]);
+
+export function NewItemSuggestions({ canEdit, location = "q7" }: { canEdit: boolean; location?: MaterialAliasLocation }) {
   const { toast } = useToast();
-  const query = useNewItemSuggestions("q7");
+  const queryClient = useQueryClient();
+  const query = useNewItemSuggestions(location);
   const scan = useRunNewItemScan();
-  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const runQuery = useLatestNewItemRun(location, { enabled: canEdit });
+  const run = runQuery.data ?? null;
+  const live = Boolean(run && RUN_LIVE.has(run.status));
   const [tab, setTab] = useState<"recurring" | "once">("recurring");
   const [hidden, setHidden] = useState<Record<string, true>>({});
+
+  // The scan runs on the server; when a run leaves "running", refresh both lists once.
+  const lastStatus = useRef<string | null>(null);
+  useEffect(() => {
+    const status = run?.status ?? null;
+    if (lastStatus.current && RUN_LIVE.has(lastStatus.current) && status && !RUN_LIVE.has(status)) {
+      void queryClient.invalidateQueries({ queryKey: [MATERIAL_ALIAS_NEW_ITEM_QUERY_KEY] });
+      void queryClient.invalidateQueries({ queryKey: [MATERIAL_ALIAS_BACKLOG_REVIEW_QUERY_KEY] });
+      if (status === "done") toast({ title: `Jev đã phân loại xong · ${run?.groups ?? 0} nhóm` });
+      if (status === "failed") toast({ title: "Lượt phân loại bị lỗi", description: run?.last_error ?? undefined, variant: "destructive" });
+    }
+    lastStatus.current = status;
+  }, [run?.status, run?.groups, run?.last_error, queryClient, toast]);
 
   const groups = useMemo(() => (query.data ?? []).filter((group) => group.status === "pending" && !hidden[group.id]), [query.data, hidden]);
   const recurring = groups.filter((group) => group.is_recurring);
   const once = groups.filter((group) => !group.is_recurring);
   const list = tab === "recurring" ? recurring : once;
 
-  const run = () => {
-    setProgress({ done: 0, total: 0 });
+  const start = () =>
     scan.mutate(
-      { location: "q7", days: 60, batchSize: 20, onProgress: (done, total) => setProgress({ done, total }) },
+      { location, days: 60, batchSize: 20 },
       {
-        onSuccess: (data) => {
-          const d = data as { groups?: number; stopped?: string | null; usage?: { calls?: number; limit?: number } };
-          toast({
-            title: d.stopped ? "Jev dừng vì hết hạn mức hôm nay" : `Đã phân loại ${d.groups ?? 0} nhóm`,
-            description: d.usage ? `Đã dùng ${d.usage.calls ?? 0}/${d.usage.limit ?? 600} lượt Jev hôm nay.` : undefined,
-          });
-          setProgress(null);
-        },
-        onError: (error) => {
-          toast({ title: "Chưa phân loại xong", description: errorText(error), variant: "destructive" });
-          setProgress(null);
-        },
+        onSuccess: () => void runQuery.refetch(),
+        onError: (error) => toast({ title: "Chưa bắt đầu được", description: errorText(error), variant: "destructive" }),
       },
     );
-  };
+
+  const total = run ? run.processed + run.remaining : 0;
+  const runNote = !run
+    ? null
+    : live
+      ? total > 0 ? `Jev đang xét · đã xong ${run.processed}, còn ${run.remaining}` : "Jev đang bắt đầu…"
+      : run.status === "paused"
+        ? `Tạm dừng · còn ${run.remaining}. Bấm lại để chạy tiếp.`
+        : run.status === "failed"
+          ? `Lượt trước bị lỗi: ${run.last_error ?? "không rõ"}`
+          : run.finished_at
+            ? `Lần chạy gần nhất xong ${shortDate(run.finished_at)} · ${run.groups} nhóm · ${run.calls} lượt Jev`
+            : null;
 
   if (!canEdit) return null;
 
@@ -228,16 +252,18 @@ export function NewItemSuggestions({ canEdit }: { canEdit: boolean }) {
         <h2>Hàng mới đề xuất</h2>
         <span className="d3-wh-pill">{query.data ? groups.length : "…"}</span>
         <p>Hàng đã nhập trong 60 ngày nhưng chưa có mã kho. Jev gom các cách ghi của cùng một món và xếp loại; bấm "Tạo mặt hàng" là lần sau tự chọn.</p>
-        <button type="button" className="d3-ap-link d3-ab-scan" disabled={scan.isPending} onClick={run} data-bmq-new-items-scan>
+        <button type="button" className="d3-ap-link d3-ab-scan" disabled={scan.isPending || live} onClick={start} data-bmq-new-items-scan>
           <Sparkles className="h-3.5 w-3.5" />
-          {scan.isPending ? "Jev đang phân loại…" : "Phân loại hàng chưa có mã"}
+          {live || scan.isPending ? "Jev đang phân loại…" : run?.status === "paused" ? "Chạy tiếp" : "Phân loại hàng chưa có mã"}
         </button>
       </div>
 
-      {progress ? (
-        <div className="d3-ab-progress" role="status" aria-live="polite">
-          <span className="d3-ab-bar"><i style={{ width: progress.total ? `${Math.round((progress.done / progress.total) * 100)}%` : "4%" }} /></span>
-          <small>{progress.total ? `Jev đã xét ${progress.done} · còn ${Math.max(0, progress.total - progress.done)}` : "Đang bắt đầu…"}</small>
+      {runNote ? (
+        <div className={`d3-ab-progress${run?.status === "failed" ? " is-error" : ""}`} role="status" aria-live="polite" data-bmq-new-items-run={run?.status}>
+          {live || run?.status === "paused" ? (
+            <span className="d3-ab-bar"><i style={{ width: total ? `${Math.round(((run?.processed ?? 0) / total) * 100)}%` : "4%" }} /></span>
+          ) : null}
+          <small>{runNote}{live ? " · đóng trang vẫn chạy" : ""}</small>
         </div>
       ) : null}
 

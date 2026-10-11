@@ -87,6 +87,21 @@ Deno.serve(createMaterialAliasHandler({
   getRawCache: (key) => createMaterialAliasStore(adminClient()).getRawCache(key),
   putRawCache: (key, answer, cost) =>
     createMaterialAliasStore(adminClient()).putRawCache(key, answer, cost),
+  getCacheMany: (keys) => createMaterialAliasStore(adminClient()).getCacheMany(keys),
+  getRawCacheMany: (keys) => createMaterialAliasStore(adminClient()).getRawCacheMany(keys),
+  getActiveNewItemRun: (location) =>
+    createMaterialAliasStore(adminClient()).getActiveNewItemRun(location),
+  createNewItemRun: (location, startedBy) =>
+    createMaterialAliasStore(adminClient()).createNewItemRun(location, startedBy),
+  updateNewItemRun: (runId, patch) =>
+    createMaterialAliasStore(adminClient()).updateNewItemRun(runId, patch),
+  waitUntil: (promise) => {
+    const runtime = (globalThis as {
+      EdgeRuntime?: { waitUntil?: (task: Promise<unknown>) => void };
+    }).EdgeRuntime;
+    if (runtime?.waitUntil) runtime.waitUntil(promise);
+    else void promise;
+  },
   newItemEvaluator: newItemJevEvaluator,
   authenticate: async (request, signal) => {
     const authorization = request.headers.get("authorization");

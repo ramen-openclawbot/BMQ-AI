@@ -6,19 +6,21 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useQ7InventoryPicker } from "@/hooks/useQ7MaterialInventory";
+import { useStockCatalogItems } from "@/components/material-alias/new-stock-item";
 import {
   useRecordStockCount,
+  useRecordTanTaoMaterialCount,
   useRecordTanTaoStockCount,
   useResolveStockAlias,
   useStockLedgerOverview,
 } from "@/hooks/useStockLedger";
-import type { StockLedgerLocation, StockLedgerOverviewItem, StockLedgerPendingAlias } from "@/lib/stock-ledger";
+import type { StockLedgerLocation, StockLedgerMaterial, StockLedgerOverviewItem, StockLedgerPendingAlias } from "@/lib/stock-ledger";
 import "@/styles/bmq-warehouse.css";
 import "@/styles/bmq-stock-ledger.css";
 
 const LOCATIONS: Array<{ id: StockLedgerLocation; label: string; hint: string }> = [
   { id: "q7", label: "Kho Q7", hint: "Nguyên vật liệu bếp" },
-  { id: "tan_tao", label: "Kho Tân Tạo", hint: "Bánh mì và Pate" },
+  { id: "tan_tao", label: "Kho Tân Tạo", hint: "Thành phẩm và NVL" },
 ];
 
 const qty = (value: number | null | undefined) =>
@@ -217,12 +219,120 @@ function CountCard({ location, items }: { location: StockLedgerLocation; items: 
   );
 }
 
+/**
+ * Tân Tạo NVL count (owner decision 2026-10-11: one NVL catalog for both
+ * warehouses). Any shared catalog item can be counted, not only those already
+ * in the Tân Tạo NVL ledger, so the first count can start the ledger.
+ */
+function MaterialCountCard({ materials }: { materials: StockLedgerMaterial[] }) {
+  const { toast } = useToast();
+  const catalogQuery = useStockCatalogItems();
+  const count = useRecordTanTaoMaterialCount();
+  const [itemId, setItemId] = useState("");
+  const [counted, setCounted] = useState("");
+  const [note, setNote] = useState("");
+  const catalog = catalogQuery.data ?? [];
+  const item = catalog.find((entry) => entry.id === itemId) ?? null;
+  const onBook = materials.find((entry) => entry.item_id === itemId)?.current_qty ?? 0;
+  const countedValue = Number(counted.replace(",", "."));
+  const canSave = Boolean(item) && counted.trim() !== "" && Number.isFinite(countedValue) && countedValue >= 0 && !count.isPending;
+
+  const save = () => {
+    if (!item) return;
+    count.mutate(
+      {
+        kitchenInventoryItemId: item.id,
+        countedQty: countedValue,
+        countDate: new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Ho_Chi_Minh" }),
+        note: note.trim() || null,
+        idempotencyKey: newKey("tan-tao-material-count-ui"),
+      },
+      {
+        onSuccess: () => {
+          toast({ title: "Đã ghi kiểm kê NVL", description: `${item.name}: đếm ${qty(countedValue)} ${item.unit}, chênh lệch ${signed(countedValue - onBook)}.` });
+          setCounted("");
+          setNote("");
+        },
+        onError: (error) => toast({ title: "Chưa ghi được kiểm kê", description: errorText(error), variant: "destructive" }),
+      },
+    );
+  };
+
+  return (
+    <section className="d3-wh-card" style={{ ["--i" as string]: 2 }} data-bmq-tantao-material-count>
+      <div className="d3-wh-card-h">
+        <h2>Kiểm kê NVL</h2>
+        <span className="d3-wh-pill">Danh mục chung</span>
+        <p>Gan, rau củ, chả… dùng chung tên và đơn vị với kho Q7.</p>
+      </div>
+      <div className="d3-sl-count">
+        <div>
+          <Label htmlFor="tantao-material-item">Nguyên vật liệu</Label>
+          <select id="tantao-material-item" className="d3-wh-select" value={itemId} onChange={(event) => setItemId(event.target.value)}>
+            <option value="">{catalogQuery.isLoading ? "Đang tải…" : "Chọn NVL…"}</option>
+            {catalog.map((entry) => (
+              <option key={entry.id} value={entry.id}>{entry.name} ({entry.unit})</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <Label htmlFor="tantao-material-qty">Số đếm thực tế{item ? ` (${item.unit})` : ""}</Label>
+          <Input id="tantao-material-qty" inputMode="decimal" value={counted} onChange={(event) => setCounted(event.target.value)} placeholder={item ? `Sổ đang ghi ${qty(onBook)}` : "0"} />
+        </div>
+        <div>
+          <Label htmlFor="tantao-material-note">Ghi chú</Label>
+          <Input id="tantao-material-note" value={note} onChange={(event) => setNote(event.target.value)} placeholder="Không bắt buộc" />
+        </div>
+        <Button type="button" className="d3-sl-count-submit" onClick={save} disabled={!canSave}>
+          <ClipboardCheck className="h-4 w-4" />
+          {count.isPending ? "Đang ghi…" : "Ghi kiểm kê"}
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+function MaterialList({ materials, loading }: { materials: StockLedgerMaterial[]; loading: boolean }) {
+  return (
+    <section className="d3-wh-card" style={{ ["--i" as string]: 2 }} data-bmq-tantao-materials>
+      <div className="d3-wh-card-h">
+        <h2>Nguyên vật liệu</h2>
+        <span className="d3-wh-pill">{materials.length} mặt hàng</span>
+      </div>
+      {loading ? (
+        <div className="d3-wh-empty">Đang tải sổ…</div>
+      ) : materials.length === 0 ? (
+        <div className="d3-wh-empty">Chưa có NVL nào trong sổ Tân Tạo. Gán mã ở Dọn danh mục kho, rồi kiểm kê lần đầu.</div>
+      ) : (
+        <ul className="d3-sl-items">
+          {materials.map((item) => (
+            <li key={item.item_id} className={item.is_low_stock ? "is-low" : undefined}>
+              <div className="d3-sl-item-name">
+                <strong>{item.item_name}</strong>
+                <small>{item.item_code} · nhập 7 ngày {qty(item.in_qty_7d)} · xuất 7 ngày {qty(item.out_qty_7d)}</small>
+              </div>
+              <div className="d3-sl-item-qty">
+                <strong>{qty(item.current_qty)}<small>{item.unit}</small></strong>
+                <small>
+                  {item.is_low_stock ? <b>Sắp hết · </b> : null}
+                  {item.last_count_date ? `Kiểm ${shortDate(item.last_count_date)} · lệch ${signed(item.last_count_difference ?? 0)}` : "Chưa kiểm kê"}
+                </small>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 export default function StockLedger() {
   const [location, setLocation] = useState<StockLedgerLocation>("q7");
   const overviewQuery = useStockLedgerOverview(location);
   const pickerQuery = useQ7InventoryPicker();
   const overview = overviewQuery.data;
   const items = useMemo(() => overview?.items ?? [], [overview]);
+  const materials = useMemo(() => overview?.materials ?? [], [overview]);
   const pendingRows = overview?.pending_aliases ?? [];
   // One assignment covers every line with the same supplier and name, so list each pair once.
   const pendingGroups = useMemo(() => {
@@ -307,9 +417,10 @@ export default function StockLedger() {
       ) : null}
 
       <div className="d3-sl-grid">
+        <div className="d3-sl-side">
         <section className="d3-wh-card" style={{ ["--i" as string]: 1 }}>
           <div className="d3-wh-card-h">
-            <h2>Tồn hiện tại</h2>
+            <h2>{location === "tan_tao" ? "Thành phẩm" : "Tồn hiện tại"}</h2>
             <span className="d3-wh-pill">{items.length} mặt hàng</span>
           </div>
           {loading ? (
@@ -340,9 +451,12 @@ export default function StockLedger() {
             </ul>
           )}
         </section>
+        {location === "tan_tao" ? <MaterialList materials={materials} loading={loading} /> : null}
+        </div>
 
         <div className="d3-sl-side">
           <CountCard key={location} location={location} items={items} />
+          {location === "tan_tao" ? <MaterialCountCard materials={materials} /> : null}
 
           <section className="d3-wh-card" style={{ ["--i" as string]: 3 }}>
             <div className="d3-wh-card-h">

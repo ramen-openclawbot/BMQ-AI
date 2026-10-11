@@ -179,3 +179,35 @@ export function useRecordTanTaoStockCount() {
     },
   });
 }
+
+export interface RecordTanTaoMaterialCountInput {
+  kitchenInventoryItemId: string;
+  countedQty: number;
+  countDate: string;
+  note?: string | null;
+  idempotencyKey: string;
+}
+
+/** Tân Tạo physical count for a shared NVL item (append-only material ledger). */
+export function useRecordTanTaoMaterialCount() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (
+      input: RecordTanTaoMaterialCountInput,
+    ): Promise<Record<string, unknown>> => {
+      const { data, error } = await supabase.rpc("record_tan_tao_material_count", {
+        p_kitchen_inventory_item_id: input.kitchenInventoryItemId,
+        p_counted_qty: input.countedQty,
+        p_count_date: input.countDate,
+        p_note: input.note ?? null,
+        p_idempotency_key: input.idempotencyKey,
+      });
+      if (error) throw error;
+      return (data ?? {}) as Record<string, unknown>;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [STOCK_LEDGER_OVERVIEW_QUERY_KEY] });
+    },
+  });
+}

@@ -395,3 +395,113 @@ test("a backlog run skips names already cached for the same candidate set", asyn
   assert.equal(calls, 1, "a cached backlog name must not call Jev again");
   assert.equal(usageRecords.length, 1);
 });
+
+function unmatchedRow(normalized: string, raw: string, exact = false) {
+  return {
+    supplier_id: null,
+    normalized_name: normalized,
+    raw_name: raw,
+    raw_unit: "kg",
+    receipt_count: 1,
+    receipt_days: 1,
+    first_date: "2026-10-01",
+    last_date: "2026-10-01",
+    has_exact_candidate: exact,
+    cached_match_item_id: null,
+    cached_match_line_type: null,
+  };
+}
+
+test("new_items background answers 202 with a run_id and finishes via waitUntil", async () => {
+  let createdLocation: string | null = null;
+  let createdBy: string | null = null;
+  const updates: Array<{ id: string; patch: Record<string, unknown> }> = [];
+  let captured: Promise<unknown> | null = null;
+  const { deps } = makeDeps({
+    listUnmatched: async () => [unmatchedRow("hang moi", "Hàng mới", true)],
+    candidatesFor: async () => [],
+    createNewItemRun: async (location, startedBy) => {
+      createdLocation = location;
+      createdBy = startedBy;
+      return {
+        id: "run-1", location, status: "running" as const,
+        processed: 0, remaining: 0, calls: 0, groups: 0, last_error: null,
+      };
+    },
+    updateNewItemRun: async (id, patch) => { updates.push({ id, patch: patch as Record<string, unknown> }); },
+    waitUntil: (promise) => { captured = promise; },
+  });
+  const handler = createMaterialAliasHandler(deps);
+  const response = await handler(request({ mode: "new_items", location: "tan_tao", background: true }));
+  assert.equal(response.status, 202);
+  const body = await response.json();
+  assert.equal(body.run_id, "run-1");
+  assert.equal(body.background, true);
+  assert.equal(createdLocation, "tan_tao");
+  assert.equal(createdBy, "owner-1");
+  assert.ok(captured, "the background task must be handed to waitUntil");
+  await captured;
+  assert.equal(updates[updates.length - 1].patch.status, "done");
+});
+
+test("a second new_items background call joins the live run for that location", async () => {
+  let created = 0;
+  let started = 0;
+  const { deps } = makeDeps({
+    getActiveNewItemRun: async () => ({
+      id: "run-live", location: "q7", status: "running" as const,
+      processed: 3, remaining: 7, calls: 2, groups: 1, last_error: null,
+    }),
+    createNewItemRun: async () => { created += 1; throw new Error("must not create a second run"); },
+    waitUntil: () => { started += 1; },
+  });
+  const handler = createMaterialAliasHandler(deps);
+  const response = await handler(request({ mode: "new_items", location: "q7", background: true }));
+  assert.equal(response.status, 202);
+  const body = await response.json();
+  assert.equal(body.run_id, "run-live");
+  assert.equal(body.remaining, 7);
+  assert.equal(created, 0);
+  assert.equal(started, 0);
+});
+
+test("new_items reads the match cache in one batch, not per row", async () => {
+  let manyCalls = 0;
+  let perRowCalls = 0;
+  const { deps } = makeDeps({
+    listUnmatched: async () => [1, 2, 3].map((n) => unmatchedRow(`hang ${n}`, `Hàng ${n}`)),
+    candidatesFor: async () => [CANDIDATE_A],
+    getCacheMany: async (keys) => { manyCalls += 1; return keys.map(() => null); },
+    getCache: async () => { perRowCalls += 1; return null; },
+    evaluator: () => async () => EVAL,
+  });
+  const handler = createMaterialAliasHandler(deps);
+  const response = await handler(request({ mode: "new_items", location: "q7" }));
+  assert.equal(response.status, 200);
+  assert.equal(manyCalls, 1, "one batched cache read for the whole match phase");
+  assert.equal(perRowCalls, 0, "no per-row cache read when the batch read is available");
+});
+
+test("new_items reads the same-item and item-class caches in batches", async () => {
+  let rawManyCalls = 0;
+  let rawPerRowCalls = 0;
+  const { deps } = makeDeps({
+    listUnmatched: async () => [
+      unmatchedRow("toi boc vo", "Tỏi bóc vỏ"),
+      unmatchedRow("toi phi", "Tỏi phi"),
+    ],
+    candidatesFor: async () => [],
+    getCacheMany: async (keys) => keys.map(() => null),
+    getRawCacheMany: async (keys) => { rawManyCalls += 1; return keys.map(() => null); },
+    getRawCache: async () => { rawPerRowCalls += 1; return null; },
+    newItemEvaluator: () => async ({ mode }) => mode === "same_item"
+      ? { mode, same_item: 0.1, item_class: null, class_probability: null, usage: { input: 1, output: 1 }, cost: 0 }
+      : { mode, same_item: null, item_class: "raw_material", class_probability: 0.9, usage: { input: 1, output: 1 }, cost: 0 },
+    upsertNewItemSuggestions: async () => {},
+  });
+  const handler = createMaterialAliasHandler(deps);
+  const response = await handler(request({ mode: "new_items", location: "q7" }));
+  assert.equal(response.status, 200);
+  assert.equal(rawManyCalls, 2, "one batch per phase (same_item, item_class)");
+  assert.equal(rawPerRowCalls, 0);
+});

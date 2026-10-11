@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { UnitSelect } from "@/components/stock-units/UnitSelect";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -541,9 +542,9 @@ export function EditPaymentRequestDialog({
                               />
                             </TableCell>
                             <TableCell>
-                              <Input
+                              <UnitSelect
                                 {...form.register(`items.${index}.unit`)}
-                                placeholder="kg"
+                                currentValue={watchItems?.[index]?.unit}
                                 className="h-8"
                               />
                             </TableCell>

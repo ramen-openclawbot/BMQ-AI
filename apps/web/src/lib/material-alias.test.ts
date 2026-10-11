@@ -9,6 +9,7 @@ import {
   MATERIAL_ALIAS_SCORE_TEST_CASES,
   MATERIAL_ALIAS_STATUS_LABELS,
   materialAliasActionLabel,
+  materialAliasCandidateKind,
   materialAliasLineClassLabel,
   materialAliasStatusLabel,
   parseCreateStockMaterialItem,
@@ -583,4 +584,19 @@ test("parseNewItemDecisionResult accepts apply and dismiss results", () => {
   assert.equal(dismissed.members_applied, 0);
   assert.throws(() => parseNewItemDecisionResult(null));
   assert.throws(() => parseNewItemDecisionResult({ status: "applied", item_class: "other" }));
+});
+
+test("a Tân Tạo candidate is an NVL item or a finished-goods SKU", () => {
+  assert.equal(
+    materialAliasCandidateKind({ sku_id: null, reason: "name_exact+shared_alias" }),
+    "nvl",
+  );
+  assert.equal(
+    materialAliasCandidateKind({ sku_id: "22222222-2222-4222-8222-222222222222", reason: "token" }),
+    "sku",
+  );
+  assert.equal(
+    materialAliasCandidateKind({ sku_id: null, reason: "name_exact+sku" }),
+    "sku",
+  );
 });

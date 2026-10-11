@@ -13,6 +13,7 @@ import {
   type MaterialAliasBacklogRow,
   type MaterialAliasCacheKey,
   type MaterialAliasUsage,
+  type NewItemRunRow,
 } from "./handler.ts";
 import { NONE_OPTION, type MaterialAliasCandidate } from "./jev.ts";
 import type { NewItemSuggestionRow, NewItemUnmatchedRow } from "./new-items.ts";
@@ -87,8 +88,48 @@ function mapCachedAnswer(raw: unknown): CachedJevAnswer | null {
   };
 }
 
+function cacheRowKey(parts: {
+  normalized_name: unknown;
+  location: unknown;
+  prompt_version: unknown;
+  candidates_hash: unknown;
+  supplier_id: unknown;
+}): string {
+  return [
+    String(parts.normalized_name ?? ""),
+    String(parts.location ?? ""),
+    String(parts.prompt_version ?? ""),
+    String(parts.candidates_hash ?? ""),
+    parts.supplier_id === null || parts.supplier_id === undefined ? "" : String(parts.supplier_id),
+  ].join("|");
+}
+
+function cacheKeyString(key: MaterialAliasCacheKey): string {
+  return [
+    key.normalizedName,
+    key.location,
+    key.promptVersion,
+    key.candidatesHash,
+    key.supplierId ?? "",
+  ].join("|");
+}
+
+function mapNewItemRun(row: Record<string, unknown>): NewItemRunRow {
+  return {
+    id: String(row.id ?? ""),
+    location: String(row.location ?? "q7"),
+    status: String(row.status ?? "queued") as NewItemRunRow["status"],
+    processed: asNumber(row.processed),
+    remaining: asNumber(row.remaining),
+    calls: asNumber(row.calls),
+    groups: asNumber(row.groups),
+    last_error: row.last_error === null || row.last_error === undefined ? null : String(row.last_error),
+  };
+}
+
 export interface MaterialAliasStore {
   getCache(key: MaterialAliasCacheKey): Promise<{ answer: CachedJevAnswer; cost: number | null } | null>;
+  getCacheMany(keys: MaterialAliasCacheKey[]): Promise<Array<{ answer: CachedJevAnswer; cost: number | null } | null>>;
   putCache(key: MaterialAliasCacheKey, answer: CachedJevAnswer, cost: number | null): Promise<void>;
   getUsage(usageDate: string): Promise<MaterialAliasUsage>;
   incrementUsage(usageDate: string, calls: number, cost: number): Promise<void>;
@@ -97,7 +138,11 @@ export interface MaterialAliasStore {
   listUnmatched(location: string, days: number): Promise<NewItemUnmatchedRow[]>;
   upsertNewItemSuggestions(location: string, rows: NewItemSuggestionRow[]): Promise<void>;
   getRawCache(key: MaterialAliasCacheKey): Promise<{ answer: Record<string, unknown>; cost: number | null } | null>;
+  getRawCacheMany(keys: MaterialAliasCacheKey[]): Promise<Array<{ answer: Record<string, unknown>; cost: number | null } | null>>;
   putRawCache(key: MaterialAliasCacheKey, answer: Record<string, unknown>, cost: number | null): Promise<void>;
+  getActiveNewItemRun(location: string): Promise<NewItemRunRow | null>;
+  createNewItemRun(location: string, startedBy: string | null): Promise<NewItemRunRow>;
+  updateNewItemRun(runId: string, patch: Partial<NewItemRunRow> & { finished_at?: string | null }): Promise<void>;
 }
 
 export function createMaterialAliasStore(admin: SupabaseClient): MaterialAliasStore {
@@ -120,6 +165,34 @@ export function createMaterialAliasStore(admin: SupabaseClient): MaterialAliasSt
       const answer = mapCachedAnswer(row.answer);
       if (!answer) return null;
       return { answer, cost: row.cost === null || row.cost === undefined ? null : asNumber(row.cost) };
+    },
+
+    async getCacheMany(keys) {
+      if (keys.length === 0) return [];
+      const hashes = [...new Set(keys.map((key) => key.candidatesHash))];
+      const locations = [...new Set(keys.map((key) => key.location))];
+      const { data, error } = await admin
+        .from("material_alias_jev_cache")
+        .select("answer,cost,normalized_name,location,prompt_version,candidates_hash,supplier_id,created_at")
+        .in("candidates_hash", hashes)
+        .in("location", locations)
+        .order("created_at", { ascending: false });
+      if (error) fail();
+      const byKey = new Map<string, Record<string, unknown>>();
+      for (const row of (data ?? []) as unknown as Record<string, unknown>[]) {
+        const key = cacheRowKey(row as never);
+        if (!byKey.has(key)) byKey.set(key, row);
+      }
+      return keys.map((key) => {
+        const row = byKey.get(cacheKeyString(key));
+        if (!row) return null;
+        const answer = mapCachedAnswer(row.answer);
+        if (!answer) return null;
+        return {
+          answer,
+          cost: row.cost === null || row.cost === undefined ? null : asNumber(row.cost),
+        };
+      });
     },
 
     async putCache(key, answer, cost) {
@@ -240,6 +313,34 @@ export function createMaterialAliasStore(admin: SupabaseClient): MaterialAliasSt
       };
     },
 
+    async getRawCacheMany(keys) {
+      if (keys.length === 0) return [];
+      const hashes = [...new Set(keys.map((key) => key.candidatesHash))];
+      const locations = [...new Set(keys.map((key) => key.location))];
+      const { data, error } = await admin
+        .from("material_alias_jev_cache")
+        .select("answer,cost,normalized_name,location,prompt_version,candidates_hash,supplier_id,created_at")
+        .in("candidates_hash", hashes)
+        .in("location", locations)
+        .order("created_at", { ascending: false });
+      if (error) fail();
+      const byKey = new Map<string, Record<string, unknown>>();
+      for (const row of (data ?? []) as unknown as Record<string, unknown>[]) {
+        const key = cacheRowKey(row as never);
+        if (!byKey.has(key)) byKey.set(key, row);
+      }
+      return keys.map((key) => {
+        const row = byKey.get(cacheKeyString(key));
+        if (!row || typeof row.answer !== "object" || row.answer === null || Array.isArray(row.answer)) {
+          return null;
+        }
+        return {
+          answer: row.answer as Record<string, unknown>,
+          cost: row.cost === null || row.cost === undefined ? null : asNumber(row.cost),
+        };
+      });
+    },
+
     async putRawCache(key, answer, cost) {
       const { error } = await admin.from("material_alias_jev_cache").insert({
         supplier_id: key.supplierId,
@@ -251,6 +352,51 @@ export function createMaterialAliasStore(admin: SupabaseClient): MaterialAliasSt
         cost,
       });
       if (error && (error as { code?: string }).code !== "23505") fail();
+    },
+
+    async getActiveNewItemRun(location) {
+      const { data, error } = await admin
+        .from("stock_new_item_runs")
+        .select("id,location,status,processed,remaining,calls,groups,last_error")
+        .eq("location", location)
+        .in("status", ["queued", "running", "paused"])
+        .order("started_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) fail();
+      return data ? mapNewItemRun(data as unknown as Record<string, unknown>) : null;
+    },
+
+    async createNewItemRun(location, startedBy) {
+      const { data, error } = await admin
+        .from("stock_new_item_runs")
+        .insert({ location, status: "running", started_by: startedBy })
+        .select("id,location,status,processed,remaining,calls,groups,last_error")
+        .maybeSingle();
+      if (error) {
+        // A concurrent caller won the per-location unique index: join that run.
+        if ((error as { code?: string }).code === "23505") {
+          const { data: existing, error: existingError } = await admin
+            .from("stock_new_item_runs")
+            .select("id,location,status,processed,remaining,calls,groups,last_error")
+            .eq("location", location)
+            .in("status", ["queued", "running", "paused"])
+            .order("started_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (!existingError && existing) return mapNewItemRun(existing as unknown as Record<string, unknown>);
+        }
+        fail();
+      }
+      return mapNewItemRun(data as unknown as Record<string, unknown>);
+    },
+
+    async updateNewItemRun(runId, patch) {
+      const { error } = await admin
+        .from("stock_new_item_runs")
+        .update({ ...patch, updated_at: new Date().toISOString() })
+        .eq("id", runId);
+      if (error) fail();
     },
   };
 }

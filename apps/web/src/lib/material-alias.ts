@@ -403,6 +403,8 @@ export interface MaterialAliasBacklogReviewRow {
   jev_probability: number | null;
   jev_line_type: MaterialAliasAutoNonStockLineType | null;
   jev_source: string | null;
+  /** Tân Tạo: the Jev pick is a finished-goods SKU, not a shared NVL item. */
+  jev_is_sku: boolean;
 }
 
 export interface CreateStockMaterialItemResult {
@@ -578,6 +580,22 @@ function parseCandidateRow(entry: unknown, path: string): MaterialAliasCandidate
     score,
     reason: asString(row.reason, `${path}.reason`),
   };
+}
+
+export type MaterialAliasCandidateKind = "nvl" | "sku";
+
+/**
+ * Tân Tạo now offers both shared NVL kitchen items and finished-goods SKUs. A
+ * candidate is a SKU when sku_id is set, or when the SQL reason carries the
+ * '+sku' suffix the shared catalog adds for finished products.
+ */
+export function materialAliasCandidateKind(
+  candidate: Pick<MaterialAliasCandidateRow, "sku_id" | "reason">,
+): MaterialAliasCandidateKind {
+  const isSku =
+    (candidate.sku_id !== null && candidate.sku_id !== undefined)
+    || (candidate.reason ?? "").split("+").includes("sku");
+  return isSku ? "sku" : "nvl";
 }
 
 function parseAlias(entry: unknown, path: string): MaterialAliasAlias {
@@ -882,6 +900,7 @@ export function parseMaterialAliasBacklogReview(raw: unknown): MaterialAliasBack
       jev_probability: asNullableNumber(row.jev_probability, `${path}.jev_probability`),
       jev_line_type: parseNullableLineType(row.jev_line_type, `${path}.jev_line_type`),
       jev_source: asNullableString(row.jev_source, `${path}.jev_source`),
+      jev_is_sku: row.jev_is_sku === true,
     };
   });
 }

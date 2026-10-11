@@ -100,6 +100,19 @@ function fixtureRows(st) {
       jev_usage: { usage_date: vnDay(0), calls: 167, cost: 0.0334, call_limit: 600 },
     };
   }
+  if (st.table === "rpc:get_latest_new_item_run") {
+    const status = cfg().runStatus;
+    if (!status) return [];
+    return [{ id: "run-1", location: st.args.p_location, status, processed: 12, remaining: 30, calls: 12, groups: 0, last_error: status === "failed" ? "jev_timeout" : null, started_by: "qa-user", started_at: nowIso, updated_at: nowIso, finished_at: status === "done" ? nowIso : null }];
+  }
+  if (st.table === "rpc:get_material_alias_backlog_review" && st.args.p_location === "tan_tao") {
+    window.__qaWrites.push("review:tan_tao");
+    const r = (n, raw, lines, sup, top, jev, p, src, jevName, jevUnit, isSku) => ({ normalized_name: "t" + n, raw_name: raw, line_count: lines, supplier_id: "tsup" + n, supplier_name: sup, last_receipt_date: vnDay(n), top_candidate: top, jev_item_id: jev, jev_item_name: jevName ?? null, jev_unit: jevUnit ?? null, jev_probability: p, jev_line_type: src ? "goods" : null, jev_source: src, jev_is_sku: Boolean(isSku) });
+    return [
+      r(1, "bánh mì que ngày 1", 91, "Tuyết Anh", { item_id: null, sku_id: "sku-bmq", name: "Bánh mì que Pate gói", unit: "gói", score: 0.9, reason: "name_contains+sku" }, "sku-bmq", 0.88, "jev", "Bánh mì que Pate gói", "gói", true),
+      r(2, "gan heo ngày 10", 22, "Mai Hoàng Bích Hà", { item_id: "k-gan", sku_id: null, name: "Gan heo", unit: "g", score: 1, reason: "name_exact" }, "k-gan", 1, "exact", "Gan heo", "g", false),
+    ];
+  }
   if (st.table === "rpc:get_material_alias_backlog_review") {
     const cand = (item_id, name, unit, reason) => ({ item_id, sku_id: null, name, unit, score: 1, reason });
     const r = (n, raw, lines, sup, top, jev, p, src, jevName, jevUnit) => ({ normalized_name: "n" + n, raw_name: raw, line_count: lines, supplier_id: "sup" + (n % 3), supplier_name: sup, last_receipt_date: vnDay(n), top_candidate: top, jev_item_id: jev, jev_item_name: jevName ?? null, jev_unit: jevUnit ?? null, jev_probability: p, jev_line_type: src ? "goods" : null, jev_source: src });
@@ -491,6 +504,37 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     }
     assert.deepEqual(errors, [], "no page errors");
     record(`new items ${data} ${viewport.width}`);
+    await context.close();
+  }
+}
+for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+  for (const runStatus of ["running", "failed"]) {
+    const { context, page, errors } = await open({ data: "populated", role: "owner", runStatus }, "/warehouse/catalog-cleanup", viewport);
+    await page.waitForSelector("[data-bmq-catalog-location]", { timeout: 20000 });
+    assert.ok((await page.locator("h1").first().textContent()).includes("Dọn danh mục kho"), "title names both warehouses");
+    await page.locator("[data-bmq-catalog-location] button", { hasText: "Kho Tân Tạo" }).click();
+    await page.waitForSelector("[data-bmq-alias-backlog-row]", { timeout: 20000 });
+    const writes = await page.evaluate(() => window.__qaWrites);
+    assert.ok(writes.includes("review:tan_tao"), "the review list follows the warehouse");
+    const bread = page.locator("[data-bmq-alias-backlog-row]", { hasText: "bánh mì que" });
+    assert.equal(await bread.locator("select").inputValue(), "sku:sku-bmq", "a Jev SKU pick is preselected as a SKU");
+    assert.ok((await bread.textContent()).includes("Thành phẩm (SKU)"));
+    await bread.getByRole("button", { name: "Xác nhận" }).click();
+    await page.waitForTimeout(200);
+    const after = await page.evaluate(() => window.__qaWrites);
+    assert.ok(after.some((w) => w.startsWith("rpc:confirm_material_alias:") && w.includes('"p_location":"tan_tao"') && w.includes('"p_tan_tao_sku_id":"sku-bmq"') && w.includes('"p_kitchen_inventory_item_id":null')), JSON.stringify(after));
+    const run = page.locator("[data-bmq-new-items-run]");
+    await run.waitFor({ timeout: 10000 });
+    if (runStatus === "running") {
+      assert.ok((await run.textContent()).includes("đóng trang vẫn chạy"));
+      assert.ok(await page.locator("[data-bmq-new-items-scan]").isDisabled(), "no second run while one is live");
+    } else {
+      assert.ok((await run.textContent()).includes("jev_timeout"), "a failed run shows its error");
+    }
+    assert.equal(await overflow(page), 0);
+    await shot(page, page.locator("[data-bmq-alias-backlog]"), `${EVIDENCE}/tantao-backlog-${runStatus}-${viewport.width}.png`, viewport);
+    assert.deepEqual(errors, []);
+    record(`tan tao ${runStatus} ${viewport.width}`);
     await context.close();
   }
 }

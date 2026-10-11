@@ -124,9 +124,30 @@ export interface MaterialAliasHandlerDeps {
   /** Raw answer cache used by the same_item / item_class questions. */
   getRawCache?: (key: MaterialAliasCacheKey) => Promise<{ answer: Record<string, unknown>; cost: number | null } | null>;
   putRawCache?: (key: MaterialAliasCacheKey, answer: Record<string, unknown>, cost: number | null) => Promise<void>;
+  /** Batched reads: one DB round-trip per phase instead of one per row. */
+  getCacheMany?: (keys: MaterialAliasCacheKey[]) => Promise<Array<{ answer: CachedJevAnswer; cost: number | null } | null>>;
+  getRawCacheMany?: (keys: MaterialAliasCacheKey[]) => Promise<Array<{ answer: Record<string, unknown>; cost: number | null } | null>>;
   newItemEvaluator?: () => NewItemJevEvaluator | null;
+  /** Background new-item run bookkeeping (stock_new_item_runs). */
+  getActiveNewItemRun?: (location: string) => Promise<NewItemRunRow | null>;
+  createNewItemRun?: (location: string, startedBy: string | null) => Promise<NewItemRunRow>;
+  updateNewItemRun?: (runId: string, patch: Partial<NewItemRunRow> & { finished_at?: string | null }) => Promise<void>;
+  /** EdgeRuntime.waitUntil; a test can await the background promise directly. */
+  waitUntil?: (promise: Promise<unknown>) => void;
   now?: () => Date;
   audit?: (event: Record<string, unknown>) => void;
+}
+
+/** One row of public.stock_new_item_runs. */
+export interface NewItemRunRow {
+  id: string;
+  location: string;
+  status: "queued" | "running" | "paused" | "done" | "failed";
+  processed: number;
+  remaining: number;
+  calls: number;
+  groups: number;
+  last_error: string | null;
 }
 
 interface ParsedLinesInput {
@@ -147,6 +168,7 @@ interface ParsedNewItemsInput {
   location: string;
   days: number;
   batchSize: number;
+  background: boolean;
 }
 
 type ParsedInput = ParsedLinesInput | ParsedBacklogInput | ParsedNewItemsInput;
@@ -269,7 +291,7 @@ function asLine(entry: unknown): MaterialAliasLineInput {
 
 function parseInput(raw: Record<string, unknown>): ParsedInput {
   for (const field of Object.keys(raw)) {
-    if (!["mode", "supplier_id", "location", "lines", "batch_size", "days"].includes(field)) {
+    if (!["mode", "supplier_id", "location", "lines", "batch_size", "days", "background"].includes(field)) {
       throw new MaterialAliasError("invalid_request", 400);
     }
   }
@@ -277,7 +299,7 @@ function parseInput(raw: Record<string, unknown>): ParsedInput {
   if (location !== "q7" && location !== "tan_tao") throw new MaterialAliasError("invalid_request", 400);
   const mode = raw.mode;
   if (mode === "backlog") {
-    if (raw.supplier_id !== undefined || raw.lines !== undefined || raw.days !== undefined) {
+    if (raw.supplier_id !== undefined || raw.lines !== undefined || raw.days !== undefined || raw.background !== undefined) {
       throw new MaterialAliasError("invalid_request", 400);
     }
     const rawBatch = raw.batch_size;
@@ -312,6 +334,9 @@ function parseInput(raw: Record<string, unknown>): ParsedInput {
     ) {
       throw new MaterialAliasError("invalid_request", 400);
     }
+    if (raw.background !== undefined && typeof raw.background !== "boolean") {
+      throw new MaterialAliasError("invalid_request", 400);
+    }
     return {
       mode: "new_items",
       location,
@@ -320,11 +345,12 @@ function parseInput(raw: Record<string, unknown>): ParsedInput {
         (rawBatch as number | undefined) ?? MATERIAL_ALIAS_NEW_ITEM_BATCH_DEFAULT,
         MATERIAL_ALIAS_NEW_ITEM_BATCH_MAX,
       ),
+      background: raw.background === true,
     };
   }
 
   if (mode !== "lines") throw new MaterialAliasError("invalid_request", 400);
-  if (raw.batch_size !== undefined || raw.days !== undefined) {
+  if (raw.batch_size !== undefined || raw.days !== undefined || raw.background !== undefined) {
     throw new MaterialAliasError("invalid_request", 400);
   }
   const supplierId = raw.supplier_id === undefined ? null : raw.supplier_id;
@@ -464,60 +490,92 @@ async function runNewItemScan(
   const pendingMatch = new Set<string>();
 
   // (a) Names with a candidate but no cached answer run the existing match
-  // question. An exact name is still answered in code and never spends a call.
+  // question. Candidates are resolved first so every cache read can go out in
+  // one batch, and the questions then run at most four in parallel.
   let matchCallsThisRequest = 0;
+  type MatchEntry = {
+    row: NewItemUnmatchedRow;
+    candidates: MaterialAliasCandidate[];
+    key: MaterialAliasCacheKey;
+  };
+  const matchEntries: MatchEntry[] = [];
+  const seenMatch = new Set<string>();
   for (const row of rows) {
     if (row.cached_match_item_id !== null) continue;
     if (resolved.has(row.normalized_name) || pendingMatch.has(row.normalized_name)) continue;
+    if (seenMatch.has(row.normalized_name)) continue;
+    seenMatch.add(row.normalized_name);
     const candidates = await deps.candidatesFor(row.raw_name, location, 5);
     if (candidates.length === 0) {
       resolved.set(row.normalized_name, { itemId: null, lineType: null });
       continue;
     }
-    const key: MaterialAliasCacheKey = {
-      supplierId: row.supplier_id,
-      normalizedName: row.normalized_name,
-      location,
-      promptVersion: JEV_PROMPT_VERSION,
-      candidatesHash: candidatesHash(candidateIds(candidates)),
-    };
-    const hit = await deps.getCache(key);
+    matchEntries.push({
+      row,
+      candidates,
+      key: {
+        supplierId: row.supplier_id,
+        normalizedName: row.normalized_name,
+        location,
+        promptVersion: JEV_PROMPT_VERSION,
+        candidatesHash: candidatesHash(candidateIds(candidates)),
+      },
+    });
+  }
+
+  const matchHits = deps.getCacheMany && matchEntries.length > 0
+    ? await deps.getCacheMany(matchEntries.map((entry) => entry.key))
+    : null;
+
+  const matchToAsk: MatchEntry[] = [];
+  for (let index = 0; index < matchEntries.length; index += 1) {
+    const entry = matchEntries[index];
+    const hit = matchHits ? matchHits[index] : await deps.getCache(entry.key);
     if (hit) {
-      resolved.set(row.normalized_name, { itemId: hit.answer.item_id, lineType: hit.answer.line_type });
+      resolved.set(entry.row.normalized_name, { itemId: hit.answer.item_id, lineType: hit.answer.line_type });
       continue;
     }
-    const exact = exactCandidateAnswer(candidates, row.raw_name);
+    const exact = exactCandidateAnswer(entry.candidates, entry.row.raw_name);
     if (exact) {
-      await deps.putCache(key, exact, null);
-      resolved.set(row.normalized_name, { itemId: exact.item_id, lineType: exact.line_type });
+      await deps.putCache(entry.key, exact, null);
+      resolved.set(entry.row.normalized_name, { itemId: exact.item_id, lineType: exact.line_type });
       continue;
     }
-    if (
-      context.matchEvaluator
-      && calls < context.remainingQuota
-      && matchCallsThisRequest < input.batchSize
-    ) {
-      try {
-        const evaluation = await context.matchEvaluator({
-          state: { line: { name: row.raw_name, unit: row.raw_unit, supplier: row.supplier_id }, candidates },
+    matchToAsk.push(entry);
+  }
+
+  if (matchToAsk.length > 0) {
+    const matchQuota = Math.max(0, context.remainingQuota - calls);
+    const matchBudget = Math.min(matchQuota, Math.max(0, input.batchSize - matchCallsThisRequest));
+    if (context.matchEvaluator && matchBudget > 0) {
+      await runQuestionsWithQuota<MatchEntry, JevMatchEvaluation>({
+        items: matchToAsk,
+        remaining: matchBudget,
+        concurrency: NEW_ITEM_MAX_CONCURRENCY,
+        ask: async (entry) => context.matchEvaluator!({
+          state: { line: { name: entry.row.raw_name, unit: entry.row.raw_unit, supplier: entry.row.supplier_id }, candidates: entry.candidates },
           signal: context.signal,
           deadlineAt: context.deadlineAt,
-        });
-        calls += 1;
-        matchCallsThisRequest += 1;
-        const callCost = evaluationCost(evaluation);
-        cost += callCost;
-        await deps.incrementUsage(context.usageDate, 1, callCost);
-        const answer = buildAnswer(evaluation, row.raw_name, evaluation.choice);
-        await deps.putCache(key, answer, evaluation.cost ?? null);
-        resolved.set(row.normalized_name, { itemId: answer.item_id, lineType: answer.line_type });
-      } catch (error) {
-        if (error instanceof JevError) throw error;
-        failed += 1;
-        pendingMatch.add(row.normalized_name);
-      }
-    } else {
-      pendingMatch.add(row.normalized_name);
+        }),
+        onAnswered: async (entry, evaluation) => {
+          calls += 1;
+          matchCallsThisRequest += 1;
+          const callCost = evaluationCost(evaluation);
+          cost += callCost;
+          await deps.incrementUsage(context.usageDate, 1, callCost);
+          const answer = buildAnswer(evaluation, entry.row.raw_name, evaluation.choice);
+          await deps.putCache(entry.key, answer, evaluation.cost ?? null);
+          resolved.set(entry.row.normalized_name, { itemId: answer.item_id, lineType: answer.line_type });
+        },
+        onError: (entry) => {
+          failed += 1;
+          pendingMatch.add(entry.row.normalized_name);
+        },
+      });
+    }
+    // Anything the quota did not answer stays pending for a later batch.
+    for (const entry of matchToAsk) {
+      if (!resolved.has(entry.row.normalized_name)) pendingMatch.add(entry.row.normalized_name);
     }
   }
 
@@ -562,17 +620,26 @@ async function runNewItemScan(
   for (const [left, right] of plan.autoPairs) unionFind.union(left, right);
   autoMerged = plan.autoPairs.length;
 
-  // (b) The remaining pairs ask the Jev boolean question, cache first.
+  // (b) The remaining pairs ask the Jev boolean question, cache first with one
+  // batched read.
+  const pairEntries = plan.questionPairs.map((pair) => ({
+    left: pair[0],
+    right: pair[1],
+    key: rawKey(sameItemPairKey(pair[0], pair[1])),
+  }));
+  const pairHits = deps.getRawCacheMany && pairEntries.length > 0
+    ? await deps.getRawCacheMany(pairEntries.map((entry) => entry.key))
+    : null;
   const toAsk: Array<[string, string]> = [];
-  for (const [left, right] of plan.questionPairs) {
-    const key = rawKey(sameItemPairKey(left, right));
-    const hit = deps.getRawCache ? await deps.getRawCache(key) : null;
+  for (let index = 0; index < pairEntries.length; index += 1) {
+    const entry = pairEntries[index];
+    const hit = pairHits ? pairHits[index] : (deps.getRawCache ? await deps.getRawCache(entry.key) : null);
     const probability = hit && typeof hit.answer.p_same === "number" ? hit.answer.p_same : null;
     if (probability === null) {
-      toAsk.push([left, right]);
+      toAsk.push([entry.left, entry.right]);
       continue;
     }
-    if (probability >= NEW_ITEM_SAME_THRESHOLD) unionFind.union(left, right);
+    if (probability >= NEW_ITEM_SAME_THRESHOLD) unionFind.union(entry.left, entry.right);
   }
 
   let pairsAnswered = 0;
@@ -626,13 +693,18 @@ async function runNewItemScan(
     };
   }
 
-  // (c) One item_class question per group, cache first, at most four in flight.
+  // (c) One item_class question per group, cache first with one batched read,
+  // at most four in flight.
   const clusters = unionFind.groups();
   const classByCluster = new Map<string, { itemClass: NewItemClass; probability: number }>();
+  const classEntries = clusters.map((cluster) => ({ cluster, key: rawKey(clusterKey(cluster)) }));
+  const classHits = deps.getRawCacheMany && classEntries.length > 0
+    ? await deps.getRawCacheMany(classEntries.map((entry) => entry.key))
+    : null;
   const classToAsk: string[][] = [];
-  for (const cluster of clusters) {
-    const key = rawKey(clusterKey(cluster));
-    const hit = deps.getRawCache ? await deps.getRawCache(key) : null;
+  for (let index = 0; index < classEntries.length; index += 1) {
+    const entry = classEntries[index];
+    const hit = classHits ? classHits[index] : (deps.getRawCache ? await deps.getRawCache(entry.key) : null);
     const value = hit?.answer.item_class;
     const probability = hit?.answer.class_probability;
     if (
@@ -640,9 +712,9 @@ async function runNewItemScan(
       && NEW_ITEM_CLASS_OPTIONS.includes(value as NewItemClass)
       && typeof probability === "number"
     ) {
-      classByCluster.set(key.normalizedName, { itemClass: value as NewItemClass, probability });
+      classByCluster.set(entry.key.normalizedName, { itemClass: value as NewItemClass, probability });
     } else {
-      classToAsk.push(cluster);
+      classToAsk.push(entry.cluster);
     }
   }
 
@@ -745,6 +817,71 @@ async function runNewItemScan(
   };
 }
 
+export const MATERIAL_ALIAS_BACKGROUND_BUDGET_MS = 100_000;
+
+/** The background loop leaves enough time for one more batch, then pauses. */
+async function runNewItemBackgroundLoop(
+  deps: MaterialAliasHandlerDeps,
+  input: ParsedNewItemsInput,
+  runId: string,
+  context: { matchEvaluator: JevEvaluator | null; newItemEvaluator: NewItemJevEvaluator | null },
+): Promise<void> {
+  const now = deps.now ?? (() => new Date());
+  const deadlineAt = Date.now() + MATERIAL_ALIAS_BACKGROUND_BUDGET_MS;
+  let processed = 0;
+  let remaining = 0;
+  let calls = 0;
+  let groups = 0;
+  try {
+    while (true) {
+      const usageDate = vietnamDate(now().toISOString());
+      const usage = await deps.getUsage(usageDate);
+      const callLimit = Number.isFinite(usage.call_limit) && usage.call_limit > 0
+        ? usage.call_limit
+        : MATERIAL_ALIAS_DAILY_CALL_LIMIT;
+      const remainingQuota = Math.max(0, callLimit - usage.calls);
+      const budget = Math.max(1000, deadlineAt - Date.now());
+      const scan = await runNewItemScan(deps, input, {
+        signal: AbortSignal.timeout(budget),
+        deadlineAt,
+        matchEvaluator: context.matchEvaluator,
+        newItemEvaluator: context.newItemEvaluator,
+        usageDate,
+        remainingQuota,
+      });
+      processed += scan.processed;
+      remaining = scan.remaining;
+      calls += scan.calls;
+      groups = Math.max(groups, scan.groups);
+
+      if (scan.remaining <= 0) {
+        await deps.updateNewItemRun?.(runId, {
+          status: "done", processed, remaining: 0, calls, groups,
+          finished_at: now().toISOString(),
+        });
+        return;
+      }
+      await deps.updateNewItemRun?.(runId, {
+        status: "running", processed, remaining, calls, groups,
+      });
+      if (scan.stopped === "daily_limit" || Date.now() >= deadlineAt) {
+        await deps.updateNewItemRun?.(runId, { status: "paused", processed, remaining, calls, groups });
+        return;
+      }
+    }
+  } catch (error) {
+    await deps.updateNewItemRun?.(runId, {
+      status: "failed",
+      processed,
+      remaining,
+      calls,
+      groups,
+      last_error: String((error as { message?: unknown })?.message ?? error).slice(0, 500),
+      finished_at: now().toISOString(),
+    });
+  }
+}
+
 export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
   const now = deps.now ?? (() => new Date());
 
@@ -762,7 +899,7 @@ export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
     const signal = AbortSignal.any([req.signal, AbortSignal.timeout(MATERIAL_ALIAS_REQUEST_BUDGET_MS)]);
     const deadlineAt = Date.now() + MATERIAL_ALIAS_REQUEST_BUDGET_MS;
     try {
-      const { q7Editor } = await deps.authenticate(req, signal);
+      const { userId, q7Editor } = await deps.authenticate(req, signal);
       signal.throwIfAborted();
       if (deps.killSwitch()) throw new MaterialAliasError("disabled", 503);
       const raw = await readBody(req, signal);
@@ -969,6 +1106,45 @@ export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
       } catch {
         newItemEvaluator = null;
       }
+
+      // background: true starts a run, answers 202 immediately and keeps going
+      // through EdgeRuntime.waitUntil. One live run per location.
+      if (input.background) {
+        const existing = (await deps.getActiveNewItemRun?.(input.location)) ?? null;
+        if (!existing && (!deps.createNewItemRun || !deps.updateNewItemRun)) {
+          throw new MaterialAliasError("unconfigured", 503);
+        }
+        const run = existing ?? await deps.createNewItemRun!(input.location, userId);
+        if (!existing) {
+          const promise = runNewItemBackgroundLoop(deps, input, run.id, {
+            matchEvaluator: evaluator,
+            newItemEvaluator,
+          });
+          if (deps.waitUntil) deps.waitUntil(promise);
+          else void promise;
+        }
+        deps.audit?.({
+          event: "stock_alias_jev",
+          mode: "new_items",
+          background: true,
+          run_id: run.id,
+          resumed: existing !== null,
+          location: input.location,
+        });
+        return json({
+          mode: "new_items",
+          background: true,
+          run_id: run.id,
+          status: run.status,
+          location: input.location,
+          days: input.days,
+          processed: run.processed,
+          remaining: run.remaining,
+          calls: run.calls,
+          groups: run.groups,
+        }, 202);
+      }
+
       const scan = await runNewItemScan(deps, input, {
         signal,
         deadlineAt,

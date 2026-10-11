@@ -77,12 +77,27 @@ export interface StockLedgerPendingAlias {
   receipt_date: string;
 }
 
+/** A shared NVL kitchen item that moved at Tân Tạo (the `materials` array). */
+export interface StockLedgerMaterial {
+  item_id: string;
+  item_code: string;
+  item_name: string;
+  unit: string;
+  current_qty: number;
+  in_qty_7d: number;
+  out_qty_7d: number;
+  last_count_date: string | null;
+  last_count_difference: number | null;
+  is_low_stock: boolean;
+}
+
 export interface StockLedgerOverview {
   location: StockLedgerLocation;
   location_name: string;
   as_of: string;
   cutover_date: string | null;
   items: StockLedgerOverviewItem[];
+  materials: StockLedgerMaterial[];
   pending_aliases: StockLedgerPendingAlias[];
 }
 
@@ -203,12 +218,48 @@ export function parseStockLedgerOverview(raw: unknown): StockLedgerOverview {
     };
   });
 
+  // Older payloads have no `materials`; treat that as an empty list.
+  const rawMaterials = root.materials;
+  const materials = rawMaterials === undefined || rawMaterials === null
+    ? []
+    : (Array.isArray(rawMaterials)
+      ? rawMaterials.map((entry, index): StockLedgerMaterial => {
+        const material = asRecord(entry, `materials[${index}]`);
+        const currentQty = asNumber(material.current_qty, `materials[${index}].current_qty`);
+        const outQty7d = asNumber(material.out_qty_7d, `materials[${index}].out_qty_7d`);
+        return {
+          item_id: asString(material.item_id, `materials[${index}].item_id`),
+          item_code: asString(material.item_code, `materials[${index}].item_code`),
+          item_name: asString(material.item_name, `materials[${index}].item_name`),
+          unit: asString(material.unit, `materials[${index}].unit`),
+          current_qty: currentQty,
+          in_qty_7d: asNumber(material.in_qty_7d, `materials[${index}].in_qty_7d`),
+          out_qty_7d: outQty7d,
+          last_count_date: asNullableString(
+            material.last_count_date,
+            `materials[${index}].last_count_date`,
+          ),
+          last_count_difference: asNullableNumber(
+            material.last_count_difference,
+            `materials[${index}].last_count_difference`,
+          ),
+          is_low_stock:
+            typeof material.is_low_stock === "boolean"
+              ? material.is_low_stock
+              : isLowStock(currentQty, outQty7d),
+        };
+      })
+      : (() => {
+        throw new TypeError("materials must be an array");
+      })());
+
   return {
     location,
     location_name: asString(root.location_name, "location_name"),
     as_of: asString(root.as_of, "as_of"),
     cutover_date: asNullableString(root.cutover_date, "cutover_date"),
     items,
+    materials,
     pending_aliases: pending,
   };
 }

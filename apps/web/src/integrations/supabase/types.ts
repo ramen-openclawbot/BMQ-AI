@@ -3071,6 +3071,209 @@ export type Database = {
           },
         ]
       }
+      stock_new_item_runs: {
+        Row: {
+          calls: number
+          finished_at: string | null
+          groups: number
+          id: string
+          last_error: string | null
+          location: string
+          processed: number
+          remaining: number
+          started_at: string
+          started_by: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          calls?: number
+          finished_at?: string | null
+          groups?: number
+          id?: string
+          last_error?: string | null
+          location: string
+          processed?: number
+          remaining?: number
+          started_at?: string
+          started_by?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          calls?: number
+          finished_at?: string | null
+          groups?: number
+          id?: string
+          last_error?: string | null
+          location?: string
+          processed?: number
+          remaining?: number
+          started_at?: string
+          started_by?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      stock_unit_aliases: {
+        Row: {
+          code: string
+          created_at: string
+          variant: string
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          variant: string
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          variant?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stock_unit_aliases_code_fkey"
+            columns: ["code"]
+            isOneToOne: false
+            referencedRelation: "stock_units"
+            referencedColumns: ["code"]
+          },
+        ]
+      }
+      stock_unit_backfill_runs: {
+        Row: {
+          blocked: number
+          created_at: string
+          days: number
+          id: string
+          updated: number
+        }
+        Insert: {
+          blocked?: number
+          created_at?: string
+          days: number
+          id?: string
+          updated?: number
+        }
+        Update: {
+          blocked?: number
+          created_at?: string
+          days?: number
+          id?: string
+          updated?: number
+        }
+        Relationships: []
+      }
+      stock_unit_conversions: {
+        Row: {
+          created_at: string
+          factor: number
+          id: string
+          merge_id: string | null
+          new_item_id: string | null
+          new_unit: string | null
+          note: string | null
+          old_item_id: string | null
+          old_unit: string | null
+        }
+        Insert: {
+          created_at?: string
+          factor: number
+          id?: string
+          merge_id?: string | null
+          new_item_id?: string | null
+          new_unit?: string | null
+          note?: string | null
+          old_item_id?: string | null
+          old_unit?: string | null
+        }
+        Update: {
+          created_at?: string
+          factor?: number
+          id?: string
+          merge_id?: string | null
+          new_item_id?: string | null
+          new_unit?: string | null
+          note?: string | null
+          old_item_id?: string | null
+          old_unit?: string | null
+        }
+        Relationships: []
+      }
+      stock_units: {
+        Row: {
+          base_code: string
+          code: string
+          created_at: string
+          kind: string
+          label: string
+          to_base: number
+        }
+        Insert: {
+          base_code: string
+          code: string
+          created_at?: string
+          kind: string
+          label: string
+          to_base: number
+        }
+        Update: {
+          base_code?: string
+          code?: string
+          created_at?: string
+          kind?: string
+          label?: string
+          to_base?: number
+        }
+        Relationships: []
+      }
+      tan_tao_material_movements: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          kitchen_inventory_item_id: string
+          movement_date: string
+          movement_type: string
+          note: string | null
+          quantity: number
+          source: string
+          source_ref_id: string | null
+          source_ref_key: string | null
+          unit: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          kitchen_inventory_item_id: string
+          movement_date: string
+          movement_type: string
+          note?: string | null
+          quantity: number
+          source: string
+          source_ref_id?: string | null
+          source_ref_key?: string | null
+          unit: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          kitchen_inventory_item_id?: string
+          movement_date?: string
+          movement_type?: string
+          note?: string | null
+          quantity?: number
+          source?: string
+          source_ref_id?: string | null
+          source_ref_key?: string | null
+          unit?: string
+        }
+        Relationships: []
+      }
       stock_material_aliases: {
         Row: {
           conversion_factor: number
@@ -4233,6 +4436,7 @@ export type Database = {
           jev_probability: number | null
           jev_line_type: string | null
           jev_source: string | null
+          jev_is_sku: boolean
         }[]
       }
       increment_stock_catalog_jev_usage: {
@@ -4301,6 +4505,46 @@ export type Database = {
           decided_at: string | null
           created_at: string
           updated_at: string
+        }[]
+      }
+      normalize_stock_unit: {
+        Args: { p_unit: string }
+        Returns: string | null
+      }
+      list_unknown_purchase_units: {
+        Args: { p_days?: number }
+        Returns: {
+          unit: string
+          line_count: number
+          example_name: string
+          source_table: string
+        }[]
+      }
+      record_tan_tao_material_count: {
+        Args: {
+          p_kitchen_inventory_item_id: string
+          p_counted_qty: number
+          p_count_date: string
+          p_note: string | null
+          p_idempotency_key: string
+        }
+        Returns: Json
+      }
+      get_latest_new_item_run: {
+        Args: { p_location: string }
+        Returns: {
+          id: string
+          location: string
+          status: string
+          processed: number
+          remaining: number
+          calls: number
+          groups: number
+          last_error: string | null
+          started_by: string | null
+          started_at: string
+          updated_at: string
+          finished_at: string | null
         }[]
       }
     }

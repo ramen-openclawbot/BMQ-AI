@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { UnitSelect } from "@/components/stock-units/UnitSelect";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -400,7 +401,7 @@ export function CreatePaymentRequestFromPODialog({
                               render={({ field }) => (
                                 <FormItem>
                                   <FormControl>
-                                    <Input {...field} className="h-8" />
+                                    <UnitSelect {...field} value={field.value ?? ""} className="h-8" />
                                   </FormControl>
                                 </FormItem>
                               )}

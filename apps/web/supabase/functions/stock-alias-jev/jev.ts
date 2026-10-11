@@ -14,7 +14,7 @@
 export const JEV_ENDPOINT = "https://ai-gateway.vercel.sh/v1/evaluate";
 export const JEV_MODEL = "typesafe-ai/jev";
 // Bump whenever the state, the question or the criteria below change.
-export const JEV_PROMPT_VERSION = "jev-material-alias-2026-10-20.1";
+export const JEV_PROMPT_VERSION = "jev-material-alias-2026-10-22.1";
 export const JEV_TIMEOUT_MS = 4000;
 export const JEV_MAX_TIMEOUT_MS = 4000;
 export const JEV_BODY_LIMIT = 32_000;
@@ -51,7 +51,7 @@ export interface MatchJevState {
 }
 
 export function matchInstructions(): string {
-  return "Dòng hóa đơn `line` (tên, đơn vị, nhà cung cấp) là mặt hàng nào trong `candidates`, hoặc không có?";
+  return "Dòng hóa đơn `line` (tên, đơn vị, nhà cung cấp) là mặt hàng nào trong `candidates`, hoặc không có? Mỗi ứng viên ghi rõ loại: `NVL` là nguyên vật liệu / bao bì của kho, `thành phẩm SKU` là thành phẩm bán. Chọn `NVL` khi dòng mua là nguyên liệu hoặc bao bì; chọn `thành phẩm SKU` khi dòng mua là thành phẩm.";
 }
 
 /** Short choice key for the candidate at `index` (0-based): c1, c2, … */
@@ -59,11 +59,16 @@ export function matchOptionKey(index: number): string {
   return `c${index + 1}`;
 }
 
+/** 'NVL' for a shared kitchen item, 'thành phẩm SKU' for a finished product. */
+export function candidateKindLabel(candidate: MaterialAliasCandidate): string {
+  return (candidate.reason ?? "").split("+").includes("sku") ? "thành phẩm SKU" : "NVL";
+}
+
 /** One description per candidate, keyed c1..cN, plus the explicit "none" option. */
 export function matchCriteria(candidates: readonly MaterialAliasCandidate[]): Record<string, string> {
   const criteria: Record<string, string> = {};
   candidates.forEach((candidate, index) => {
-    criteria[matchOptionKey(index)] = `${candidate.name} (${candidate.unit})`;
+    criteria[matchOptionKey(index)] = `[${candidateKindLabel(candidate)}] ${candidate.name} (${candidate.unit})`;
   });
   criteria[NONE_OPTION] = "Không có mặt hàng nào trong danh sách phù hợp với dòng hóa đơn.";
   return criteria;

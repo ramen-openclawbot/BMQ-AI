@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { UnitSelect } from "@/components/stock-units/UnitSelect";
 import { useForm, useFieldArray } from "react-hook-form";
 import { blockSaveForMaterialAlias, MaterialAliasPanel, OPEN_MATERIAL_ALIAS_GATE, type MaterialAliasGate } from "@/components/material-alias/MaterialAliasPanel";
 import { useQueryClient } from "@tanstack/react-query";
@@ -926,7 +927,7 @@ export function AddPaymentRequestDialog({
                         </label>
                         <label className="d3-prc-c-unit">
                           <small>ĐVT</small>
-                          <Input {...form.register(`items.${index}.unit`)} placeholder="kg" />
+                          <UnitSelect {...form.register(`items.${index}.unit`)} currentValue={watchItems?.[index]?.unit} />
                         </label>
                         <label className="d3-prc-c-price">
                           <small>Đơn giá</small>

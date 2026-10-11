@@ -12,6 +12,7 @@ import {
   useRunAliasBacklog,
 } from "@/hooks/useMaterialAlias";
 import type { MaterialAliasBacklogReviewRow } from "@/lib/material-alias";
+import type { MaterialAliasLocation } from "@/hooks/useMaterialAlias";
 import {
   cleanNewItemName,
   defaultNewItemUnit,
@@ -43,10 +44,17 @@ const errorText = (error: unknown) => {
 
 type Filter = "suggested" | "missing" | "all";
 
+/** Select value: a shared NVL item id, or "sku:<id>" for a Tân Tạo finished-goods SKU. */
+const SKU_PREFIX = "sku:";
+const jevChoice = (row: MaterialAliasBacklogReviewRow) =>
+  row.jev_item_id ? (row.jev_is_sku ? SKU_PREFIX + row.jev_item_id : row.jev_item_id) : null;
+const topChoice = (row: MaterialAliasBacklogReviewRow) =>
+  row.top_candidate?.item_id ?? (row.top_candidate?.sku_id ? SKU_PREFIX + row.top_candidate.sku_id : null);
+
 /** Jev / exact-name pick the reviewer can accept as is. */
 function suggestedItem(row: MaterialAliasBacklogReviewRow): string | null {
-  if (row.jev_item_id && (row.jev_source === "exact" || (row.jev_probability ?? 0) >= 0.5)) return row.jev_item_id;
-  if (!row.jev_source && row.top_candidate?.reason.startsWith("name_exact")) return row.top_candidate.item_id;
+  if (row.jev_item_id && (row.jev_source === "exact" || (row.jev_probability ?? 0) >= 0.5)) return jevChoice(row);
+  if (!row.jev_source && row.top_candidate?.reason.startsWith("name_exact")) return topChoice(row);
   return null;
 }
 
@@ -65,10 +73,12 @@ function suggestionPill(row: MaterialAliasBacklogReviewRow) {
 function BacklogRow({
   row,
   catalog,
+  location,
   onDone,
 }: {
   row: MaterialAliasBacklogReviewRow;
   catalog: StockCatalogItem[];
+  location: MaterialAliasLocation;
   onDone: (label: string) => void;
 }) {
   const { toast } = useToast();
@@ -84,9 +94,10 @@ function BacklogRow({
   const [packEdit, setPackEdit] = useState<{ label: string; factor: string } | null>(null);
 
   const isNew = choice === NEW_ITEM_OPTION;
+  const isSku = choice.startsWith(SKU_PREFIX);
   const item = catalog.find((entry) => entry.id === choice)
-    ?? (choice && choice === row.jev_item_id ? { id: choice, name: row.jev_item_name ?? "", unit: row.jev_unit ?? "" } : null)
-    ?? (choice && choice === row.top_candidate?.item_id ? { id: choice, name: row.top_candidate.name, unit: row.top_candidate.unit } : null);
+    ?? (choice && choice === jevChoice(row) ? { id: choice, name: row.jev_item_name ?? "", unit: row.jev_unit ?? "" } : null)
+    ?? (choice && choice === topChoice(row) && row.top_candidate ? { id: choice, name: row.top_candidate.name, unit: row.top_candidate.unit } : null);
   const stockUnit = isNew ? newUnit.trim() : item?.unit ?? "";
   // Until the reviewer edits it, the pack follows the chosen item's unit.
   const pack = packFactorFor(row.raw_name, stockUnit);
@@ -104,15 +115,15 @@ function BacklogRow({
   };
   const fail = (title: string) => (error: unknown) => toast({ title, description: errorText(error), variant: "destructive" });
 
-  const confirmWith = (itemId: string | null, itemName: string, lineClass: "stock" | "non_stock") =>
+  const confirmWith = (target: string | null, itemName: string, lineClass: "stock" | "non_stock") =>
     confirm.mutate(
       {
         supplierId: row.supplier_id,
-        location: "q7",
+        location,
         rawName: row.raw_name,
         rawUnit: null,
-        kitchenInventoryItemId: itemId,
-        tanTaoSkuId: null,
+        kitchenInventoryItemId: target && !target.startsWith(SKU_PREFIX) ? target : null,
+        tanTaoSkuId: target && target.startsWith(SKU_PREFIX) ? target.slice(SKU_PREFIX.length) : null,
         enteredUnitLabel: lineClass === "stock" ? label.trim() || null : null,
         conversionFactor: lineClass === "stock" ? factor : 1,
         jevItemId: row.jev_item_id,
@@ -137,7 +148,7 @@ function BacklogRow({
       return;
     }
     create.mutate(
-      { name: newName.trim(), unit: stockUnit, location: "q7", requestId },
+      { name: newName.trim(), unit: stockUnit, location, requestId },
       {
         onSuccess: (result) => {
           void queryClient.invalidateQueries({ queryKey: ["stock-catalog-items"] });
@@ -149,10 +160,13 @@ function BacklogRow({
     );
   };
 
+  const jevId = jevChoice(row);
+  const topId = topChoice(row);
+  const skuTag = (id: string | null) => (id?.startsWith(SKU_PREFIX) ? " · thành phẩm" : "");
   const suggestions = [
-    row.jev_item_id ? { id: row.jev_item_id, name: row.jev_item_name ?? "—", unit: row.jev_unit ?? "", tag: row.jev_source === "exact" ? " · trùng tên" : ` · Jev ${pct(row.jev_probability ?? 0)}` } : null,
-    row.top_candidate?.item_id && row.top_candidate.item_id !== row.jev_item_id
-      ? { id: row.top_candidate.item_id, name: row.top_candidate.name, unit: row.top_candidate.unit, tag: " · gần nhất" }
+    jevId ? { id: jevId, name: row.jev_item_name ?? "—", unit: row.jev_unit ?? "", tag: (row.jev_source === "exact" ? " · trùng tên" : ` · Jev ${pct(row.jev_probability ?? 0)}`) + skuTag(jevId) } : null,
+    topId && topId !== jevId && row.top_candidate
+      ? { id: topId, name: row.top_candidate.name, unit: row.top_candidate.unit, tag: " · gần nhất" + skuTag(topId) }
       : null,
   ].filter((entry): entry is { id: string; name: string; unit: string; tag: string } => entry !== null);
   const suggestionIds = new Set(suggestions.map((entry) => entry.id));
@@ -171,7 +185,7 @@ function BacklogRow({
       </div>
       <div className="d3-ab-form">
         <label className="d3-ma-field d3-ma-item">
-          <span>Mặt hàng trong kho</span>
+          <span>{isSku ? "Thành phẩm (SKU)" : "Mặt hàng trong kho"}</span>
           <select
             className="d3-wh-select"
             value={choice}
@@ -226,9 +240,9 @@ function BacklogRow({
  * Receipt names that still have no stock item, with the exact-name / Jev pick.
  * One confirmation by an owner or Q7 editor makes the alias automatic.
  */
-export function AliasBacklogReview({ canEdit }: { canEdit: boolean }) {
+export function AliasBacklogReview({ canEdit, location = "q7" }: { canEdit: boolean; location?: MaterialAliasLocation }) {
   const { toast } = useToast();
-  const reviewQuery = useMaterialAliasBacklogReview("q7", 200);
+  const reviewQuery = useMaterialAliasBacklogReview(location, 200);
   const catalogQuery = useStockCatalogItems(canEdit);
   const backlog = useRunAliasBacklog();
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
@@ -237,7 +251,7 @@ export function AliasBacklogReview({ canEdit }: { canEdit: boolean }) {
   const [hidden, setHidden] = useState<Record<string, true>>({});
 
   const rows = useMemo(
-    () => (reviewQuery.data ?? []).filter((row) => !hidden[`${row.supplier_id}|${row.normalized_name}`]),
+    () => (reviewQuery.data ?? []).filter((row) => !hidden[`${location}|${row.supplier_id}|${row.normalized_name}`]),
     [reviewQuery.data, hidden],
   );
   const suggestedRows = rows.filter((row) => suggestedItem(row) !== null);
@@ -248,7 +262,7 @@ export function AliasBacklogReview({ canEdit }: { canEdit: boolean }) {
   const scan = () => {
     setProgress({ done: 0, total: 0 });
     backlog.mutate(
-      { location: "q7", onProgress: (done, total) => setProgress({ done, total }) },
+      { location, onProgress: (done, total) => setProgress({ done, total }) },
       {
         onSuccess: (data) => {
           const d = data as { stopped?: string | null; usage?: { calls?: number; limit?: number } };
@@ -278,7 +292,7 @@ export function AliasBacklogReview({ canEdit }: { canEdit: boolean }) {
         <h2>Tên hàng chờ gán mã</h2>
         <span className="d3-wh-pill">{reviewQuery.data ? rows.length : "…"}</span>
         <p>
-          Tên trên phiếu nhập chưa có mặt hàng kho. Kế toán hoặc chủ xác nhận một lần là lần sau tự chọn.
+          Tên trên phiếu nhập chưa có mặt hàng kho. Kế toán hoặc chủ xác nhận một lần là lần sau tự chọn. Dòng ghi kg, g, l, ml tự đổi theo đơn vị; hệ số chỉ dùng khi phiếu ghi bao, thùng, gói…
           {notScanned ? ` ${notScanned} tên chưa dò bằng Jev.` : ""}
         </p>
         {canEdit ? (
@@ -324,17 +338,18 @@ export function AliasBacklogReview({ canEdit }: { canEdit: boolean }) {
             <ul className="d3-ma-list">
               {list.slice(0, shown).map((row) => (
                 <BacklogRow
-                  key={`${row.supplier_id}|${row.normalized_name}`}
+                  key={`${location}|${row.supplier_id}|${row.normalized_name}`}
                   row={row}
                   catalog={catalogQuery.data ?? []}
-                  onDone={() => setHidden((current) => ({ ...current, [`${row.supplier_id}|${row.normalized_name}`]: true }))}
+                  location={location}
+                  onDone={() => setHidden((current) => ({ ...current, [`${location}|${row.supplier_id}|${row.normalized_name}`]: true }))}
                 />
               ))}
             </ul>
           ) : (
             <ul className="d3-sc-list">
               {list.slice(0, shown).map((row) => (
-                <li key={`${row.supplier_id}|${row.normalized_name}`} className="d3-sc-row is-history">
+                <li key={`${location}|${row.supplier_id}|${row.normalized_name}`} className="d3-sc-row is-history">
                   <div className="d3-sc-side">
                     <strong>{row.raw_name}</strong>
                     <span>{row.line_count} dòng · {row.jev_item_name ?? row.top_candidate?.name ?? "chưa có gợi ý"}</span>

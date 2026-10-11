@@ -85,7 +85,8 @@ function fixtureRows(st) {
       pend("g1", "PN-1010-01", "Tỏi", "tỏi ngày 10", "toi", 5, 2), pend("g2", "PN-1010-04", "Tỏi", "tỏi ngày 11", "toi", 4, 1),
       pend("g3", "PN-1010-02", "Mai Hoàng Bích Hà", "gan 10", "gan", 6, 2), pend("g4", "PN-1010-03", "Đại Tân Việt", "DAIRYMONT WHITE SLICES CHEESE 1.04KG", "dairymont white slices cheese 1.04kg", 2, 1),
     ] : [];
-    return { location: st.args.p_location, location_name: q7 ? "Kho NVL Q7" : "Kho Tân Tạo", as_of: vnDay(0), cutover_date: vnDay(7), items, pending_aliases: pending };
+    const materials = q7 ? [] : [{ item_id: "m-gan", item_code: "NVL-GAN", item_name: "Gan heo", unit: "g", current_qty: 12000, in_qty_7d: 30000, out_qty_7d: 21000, last_count_date: null, last_count_difference: null, is_low_stock: false }];
+    return { location: st.args.p_location, location_name: q7 ? "Kho NVL Q7" : "Kho Tân Tạo", as_of: vnDay(0), cutover_date: vnDay(7), items, materials, pending_aliases: pending };
   }
   if (st.table === "rpc:get_q7_inventory_picker") return [
     { kitchen_inventory_item_id: "k1", display_label: "NVL-TOI · Tỏi bóc vỏ · kg" }, { kitchen_inventory_item_id: "k2", display_label: "NVL-GAN · Gan heo · kg" },
@@ -317,7 +318,8 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       await page.screenshot({ path: `${EVIDENCE}/stock-ledger-q7-${viewport.width}.png`, fullPage: true });
       await page.getByRole("tab", { name: "Kho Tân Tạo" }).click();
       await page.waitForTimeout(400);
-      assert.equal(await page.locator(".d3-sl-items li").count(), 2);
+      assert.equal(await page.locator("[data-bmq-tantao-materials]").count(), 1, "Tân Tạo lists NVL from the shared catalog");
+      assert.equal(await page.locator("[data-bmq-tantao-material-count]").count(), 1, "Tân Tạo can count NVL");
       assert.equal(await overflow(page), 0);
       await page.screenshot({ path: `${EVIDENCE}/stock-ledger-tantao-${viewport.width}.png`, fullPage: true });
     }

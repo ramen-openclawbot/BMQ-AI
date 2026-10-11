@@ -23,6 +23,9 @@ import {
 export const MATERIAL_ALIAS_REVIEW_QUERY_KEY = "material-alias-review";
 export const MATERIAL_ALIAS_BACKLOG_REVIEW_QUERY_KEY = "material-alias-backlog-review";
 export const MATERIAL_ALIAS_NEW_ITEM_QUERY_KEY = "material-alias-new-item-suggestions";
+export const MATERIAL_ALIAS_NEW_ITEM_RUN_QUERY_KEY = "material-alias-new-item-run";
+export const STOCK_UNITS_QUERY_KEY = "stock-units";
+export const UNKNOWN_PURCHASE_UNITS_QUERY_KEY = "unknown-purchase-units";
 
 export type MaterialAliasLocation = "q7" | "tan_tao";
 
@@ -315,44 +318,149 @@ export interface RunNewItemScanInput {
   onProgress?: (processed: number, total: number) => void;
 }
 
+/** The background run row written by stock-alias-jev new_items background mode. */
+export interface StockNewItemRun {
+  id: string;
+  location: MaterialAliasLocation;
+  status: "queued" | "running" | "paused" | "done" | "failed";
+  processed: number;
+  remaining: number;
+  calls: number;
+  groups: number;
+  last_error: string | null;
+  started_at: string;
+  updated_at: string;
+  finished_at: string | null;
+}
+
+export interface RunNewItemScanResult extends Record<string, unknown> {
+  run_id: string | null;
+  status: string;
+  processed: number;
+  remaining: number;
+}
+
 /**
- * Group and classify the 60-day purchased names that still have no stock item
- * (Q7 editor only). Runs the edge function batch by batch until it reports no
- * remaining work or the shared daily quota stops it, then refreshes both review
- * lists.
+ * Start the new-item scan in the background (returns a run id immediately) and
+ * return the first progress snapshot. The caller polls useLatestNewItemRun.
  */
 export function useRunNewItemScan() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (input: RunNewItemScanInput): Promise<Record<string, unknown>> => {
-      let processedTotal = 0;
-      let last: Record<string, unknown> = {};
-      while (true) {
-        const { data, error } = await supabase.functions.invoke("stock-alias-jev", {
-          body: {
-            mode: "new_items",
-            location: input.location,
-            days: input.days ?? 60,
-            batch_size: input.batchSize ?? 10,
-          },
-        });
-        if (error) throw error;
-        const parsed = parseStockAliasJevResponse(data);
-        if (parsed.mode !== "new_items") throw new Error("stock-alias-jev tra ve sai che do");
-        last = parsed as unknown as Record<string, unknown>;
-        processedTotal += parsed.processed;
-        input.onProgress?.(processedTotal, processedTotal + parsed.remaining);
-        if (parsed.stopped !== null) break;
-        if (parsed.remaining <= 0) break;
-        // Safety: a call that made no progress must not loop forever.
-        if (parsed.processed === 0) break;
-      }
-      return last;
+    mutationFn: async (input: RunNewItemScanInput): Promise<RunNewItemScanResult> => {
+      const { data, error } = await supabase.functions.invoke("stock-alias-jev", {
+        body: {
+          mode: "new_items",
+          location: input.location,
+          days: input.days ?? 60,
+          batch_size: input.batchSize ?? 10,
+          background: true,
+        },
+      });
+      if (error) throw error;
+      const body = (data ?? {}) as Record<string, unknown>;
+      const processed = Number(body.processed ?? 0);
+      const remaining = Number(body.remaining ?? 0);
+      input.onProgress?.(processed, processed + remaining);
+      return {
+        ...body,
+        run_id: typeof body.run_id === "string" ? body.run_id : null,
+        status: String(body.status ?? ""),
+        processed,
+        remaining,
+      };
     },
     onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [MATERIAL_ALIAS_NEW_ITEM_RUN_QUERY_KEY] });
       void queryClient.invalidateQueries({ queryKey: [MATERIAL_ALIAS_REVIEW_QUERY_KEY] });
       void queryClient.invalidateQueries({ queryKey: [MATERIAL_ALIAS_BACKLOG_REVIEW_QUERY_KEY] });
       void queryClient.invalidateQueries({ queryKey: [MATERIAL_ALIAS_NEW_ITEM_QUERY_KEY] });
+    },
+  });
+}
+
+function mapStockNewItemRun(row: Record<string, unknown>): StockNewItemRun {
+  return {
+    id: String(row.id ?? ""),
+    location: String(row.location ?? "q7") as MaterialAliasLocation,
+    status: String(row.status ?? "queued") as StockNewItemRun["status"],
+    processed: Number(row.processed ?? 0),
+    remaining: Number(row.remaining ?? 0),
+    calls: Number(row.calls ?? 0),
+    groups: Number(row.groups ?? 0),
+    last_error: row.last_error === null || row.last_error === undefined ? null : String(row.last_error),
+    started_at: String(row.started_at ?? ""),
+    updated_at: String(row.updated_at ?? ""),
+    finished_at: row.finished_at === null || row.finished_at === undefined ? null : String(row.finished_at),
+  };
+}
+
+/** The latest new-item scan run for a location; polls every 3s while it is live. */
+export function useLatestNewItemRun(
+  location: MaterialAliasLocation,
+  options?: { enabled?: boolean },
+) {
+  return useQuery({
+    queryKey: [MATERIAL_ALIAS_NEW_ITEM_RUN_QUERY_KEY, location],
+    enabled: options?.enabled ?? true,
+    queryFn: async (): Promise<StockNewItemRun | null> => {
+      const { data, error } = await supabase.rpc("get_latest_new_item_run", {
+        p_location: location,
+      });
+      if (error) throw error;
+      const rows = Array.isArray(data) ? (data as Record<string, unknown>[]) : [];
+      return rows.length === 0 ? null : mapStockNewItemRun(rows[0]);
+    },
+    refetchInterval: (query) => {
+      const run = query.state.data as StockNewItemRun | null | undefined;
+      if (run && (run.status === "running" || run.status === "queued" || run.status === "paused")) {
+        return 3000;
+      }
+      return false;
+    },
+  });
+}
+
+export interface StockUnitRow {
+  code: string;
+  label: string;
+  kind: string;
+  base_code: string;
+  to_base: number;
+}
+
+/** The standard unit table (authenticated read). */
+export function useStockUnits() {
+  return useQuery({
+    queryKey: [STOCK_UNITS_QUERY_KEY],
+    queryFn: async (): Promise<StockUnitRow[]> => {
+      const { data, error } = await supabase
+        .from("stock_units")
+        .select("code,label,kind,base_code,to_base")
+        .order("code");
+      if (error) throw error;
+      return (data ?? []) as StockUnitRow[];
+    },
+  });
+}
+
+export interface UnknownPurchaseUnitRow {
+  unit: string;
+  line_count: number;
+  example_name: string;
+  source_table: string;
+}
+
+/** Spellings on the three document line tables that are not standard units. */
+export function useUnknownPurchaseUnits(days = 60) {
+  return useQuery({
+    queryKey: [UNKNOWN_PURCHASE_UNITS_QUERY_KEY, days],
+    queryFn: async (): Promise<UnknownPurchaseUnitRow[]> => {
+      const { data, error } = await supabase.rpc("list_unknown_purchase_units", {
+        p_days: days,
+      });
+      if (error) throw error;
+      return (data ?? []) as UnknownPurchaseUnitRow[];
     },
   });
 }

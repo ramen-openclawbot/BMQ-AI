@@ -21,6 +21,7 @@ import { materialAliasActionLabel, materialAliasStatusLabel } from "@/lib/materi
 import { StockRoutingCards } from "@/components/stock-routing/StockRoutingCards";
 import { AliasBacklogReview } from "@/components/material-alias/AliasBacklogReview";
 import { NewItemSuggestions } from "@/components/material-alias/NewItemSuggestions";
+import type { MaterialAliasLocation } from "@/hooks/useMaterialAlias";
 import {
   ITEM_CLASS_LABELS,
   itemClassLabel,
@@ -255,6 +256,9 @@ export default function StockCatalogCleanup() {
   const revert = useRevertStockItemMerge();
   const link = useLinkKitchenItemsToCanonical();
   const review = reviewQuery.data;
+  // One shared NVL catalog for both warehouses (owner decision 2026-10-11); the
+  // receipt-name lists below follow the warehouse picked here.
+  const [location, setLocation] = useState<MaterialAliasLocation>("q7");
 
   const merges = useMemo(() => (review?.pending_suggestions ?? []).filter((row) => row.kind === "merge"), [review]);
   const classifies = useMemo(() => (review?.pending_suggestions ?? []).filter((row) => row.kind === "classify"), [review]);
@@ -291,9 +295,9 @@ export default function StockCatalogCleanup() {
     <div className="d3-wh d3-sl d3-sc min-w-0" data-bmq-stock-catalog>
       <header className="d3-wh-head">
         <div className="min-w-0">
-          <span className="d3-wh-tag">Jev đề xuất · người duyệt quyết định · mọi lần gộp đều hoàn tác được</span>
+          <span className="d3-wh-tag">Một danh mục NVL cho Q7 và Tân Tạo · Jev đề xuất · người duyệt quyết định</span>
           <h1>
-            Dọn danh mục <b>NVL Q7</b>
+            Dọn danh mục <b>kho</b>
           </h1>
         </div>
         {canEdit ? (
@@ -352,8 +356,22 @@ export default function StockCatalogCleanup() {
               </ul>
             )}
           </section>
-          <AliasBacklogReview canEdit={canEdit} />
-          <NewItemSuggestions canEdit={canEdit} />
+          <div className="d3-sl-switch d3-sc-loc" role="tablist" aria-label="Kho nhận hàng" data-bmq-catalog-location>
+            {([["q7", "Kho Q7"], ["tan_tao", "Kho Tân Tạo"]] as const).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={location === id}
+                className={location === id ? "is-on" : undefined}
+                onClick={() => setLocation(id)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <AliasBacklogReview key={`backlog-${location}`} canEdit={canEdit} location={location} />
+          <NewItemSuggestions key={`new-${location}`} canEdit={canEdit} location={location} />
         </div>
 
         <div className="d3-sl-side">

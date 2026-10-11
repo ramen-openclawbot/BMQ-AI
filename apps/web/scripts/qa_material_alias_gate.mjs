@@ -369,6 +369,12 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await pickSupplier(page);
     await page.getByRole("button", { name: /Thêm sản phẩm/ }).click();
     await page.locator('input[name="items.0.product_name"]').fill("Tỏi ngày 10");
+    // Units are picked from the standard list, never typed.
+    const unitSelect = page.locator('select[name="items.0.unit"]');
+    assert.equal(await unitSelect.inputValue(), "kg");
+    const unitOptions = await unitSelect.locator("option").allTextContents();
+    assert.ok(unitOptions.includes("g") && unitOptions.includes("cuộn") && !unitOptions.includes("Cuôn"), unitOptions.join(","));
+    assert.equal(await page.locator('input[name="items.0.unit"]').count(), 0, "no free-typed unit box");
     // Save immediately: the lookup is still debouncing, so the gate must hold.
     await page.getByRole("button", { name: "Tạo đơn đặt hàng" }).click();
     await page.waitForTimeout(200);

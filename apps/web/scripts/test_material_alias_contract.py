@@ -390,7 +390,7 @@ assert re.search(
 ), "create_stock_material_item must be granted to authenticated"
 
 print("== edge function: short keys, deterministic exact, batched backlog ==")
-assert "jev-material-alias-2026-10-20.1" in EDGE_JEV
+assert "jev-material-alias-2026-10-22.1" in EDGE_JEV
 assert "matchOptionKey" in EDGE_JEV
 assert "candidateIdFromChoice" in EDGE_JEV
 assert "Bột mì 888 Cam (25kg)" in EDGE_JEV, "the parsePackFromName case must be shared"
@@ -644,3 +644,154 @@ for case in [
     assert case in SMOKE_NEW, f"new smoke missing case: {case}"
 
 print("new-item suggestions contract passed")
+
+# ---------------------------------------------------------------------------
+# 2026-10-22 shared catalog, standard units, Tân Tạo ledger, background scan
+# ---------------------------------------------------------------------------
+print("== 2026-10-22 shared catalog and units migration ==")
+SHARED_PATH = ROOT / "supabase/migrations/20261022100000_shared_catalog_units.sql"
+assert SHARED_PATH.exists(), "missing the 2026-10-22 shared catalog migration"
+SHARED = SHARED_PATH.read_text(encoding="utf-8")
+SHARED_LOWER = SHARED.lower()
+
+for table in [
+    "stock_units",
+    "stock_unit_aliases",
+    "stock_unit_conversions",
+    "stock_unit_backfill_runs",
+    "tan_tao_material_movements",
+    "stock_new_item_runs",
+]:
+    assert f"create table if not exists public.{table}" in SHARED_LOWER, f"missing table {table}"
+
+assert re.search(
+    r"create\s+or\s+replace\s+function\s+public\.normalize_stock_unit\s*\(",
+    SHARED,
+    re.IGNORECASE,
+), "normalize_stock_unit missing"
+assert "immutable" in SHARED_LOWER
+
+for unit in [
+    "'g'", "'kg'", "'ml'", "'l'", "'cái'", "'hộp'", "'cuộn'", "'chai'", "'bịch'",
+    "'gói'", "'can'", "'bao'", "'quả'", "'tờ'", "'con'", "'cây'", "'thùng'",
+    "'khối'", "'bình'", "'nắp'",
+]:
+    assert unit in SHARED, f"missing stock unit {unit}"
+
+for alias in [
+    "('gr', 'g')", "('gram', 'g')", "('kí', 'kg')", "('ký', 'kg')", "('kgs', 'kg')",
+    "('lit', 'l')", "('lít', 'l')", "('cuôn', 'cuộn')", "('cuốn', 'cuộn')",
+    "('hôp', 'hộp')", "('từ', 'tờ')", "('cai', 'cái')", "('c', 'cái')",
+    "('chiếc', 'cái')", "('bich', 'bịch')", "('goi', 'gói')", "('can lớn', 'can')",
+]:
+    assert alias in SHARED, f"missing unit alias {alias}"
+
+for ambiguous in ["('pack'", "('cối (pack)'", "('cũi (pack)'", "('định'", "('đệnh'", "('lần'"]:
+    assert ambiguous not in SHARED_LOWER, f"ambiguous alias must not be seeded: {ambiguous}"
+
+for table in [
+    "stock_units",
+    "stock_unit_aliases",
+    "stock_unit_conversions",
+    "stock_unit_backfill_runs",
+    "tan_tao_material_movements",
+    "stock_new_item_runs",
+]:
+    assert re.search(
+        rf"alter\s+table\s+public\.{table}\s+enable\s+row\s+level\s+security",
+        SHARED,
+        re.IGNORECASE,
+    ), f"RLS missing for {table}"
+    assert re.search(
+        rf"revoke\s+all\s+on\s+table\s+public\.{table}\s+from\s+public,\s*anon,\s*authenticated",
+        SHARED,
+        re.IGNORECASE,
+    ), f"explicit revoke missing for {table}"
+    assert re.search(
+        rf"grant\s+[a-z, ]+on\s+table\s+public\.{table}\s+to",
+        SHARED,
+        re.IGNORECASE,
+    ), f"grant missing for {table}"
+
+for function in [
+    "kitchen_inventory_items_unit_guard",
+    "stock_document_line_normalize_unit",
+    "backfill_stock_document_units",
+    "list_unknown_purchase_units",
+    "get_latest_new_item_run",
+    "record_tan_tao_material_count",
+    "tan_tao_prevent_material_movement_rewrite",
+    "standardize_stock_item_units",
+]:
+    assert f"function public.{function}" in SHARED_LOWER, f"missing function {function}"
+
+assert "'unit_not_allowed'" in SHARED
+assert "'item_name_duplicate'" in SHARED
+assert "'tan_tao_target_required'" in SHARED
+assert "'+sku'" in SHARED
+assert "'materials'" in SHARED
+assert "merged_into_base_unit" in SHARED
+
+# only the unit column of the three document line tables may be rewritten
+assert "set quantity" not in SHARED_LOWER
+assert "set unit_price" not in SHARED_LOWER
+assert "set line_total" not in SHARED_LOWER
+
+print("== edge background scan, batched cache, NVL vs SKU ==")
+assert "background" in EDGE_HANDLER and "run_id" in EDGE_HANDLER
+assert "MATERIAL_ALIAS_BACKGROUND_BUDGET_MS" in EDGE_HANDLER
+assert "runNewItemBackgroundLoop" in EDGE_HANDLER
+assert "getCacheMany" in EDGE_HANDLER and "getRawCacheMany" in EDGE_HANDLER
+assert "getCacheMany" in EDGE_STORE and "getRawCacheMany" in EDGE_STORE
+assert "stock_new_item_runs" in EDGE_STORE
+assert "createNewItemRun" in EDGE_STORE and "updateNewItemRun" in EDGE_STORE
+assert "candidateKindLabel" in EDGE_JEV
+assert "thành phẩm SKU" in EDGE_JEV
+assert "getCacheMany" in EDGE_INDEX and "waitUntil" in EDGE_INDEX
+
+print("== shared catalog smoke ==")
+SMOKE_SHARED = (ROOT / "scripts/smoke_shared_catalog_units.sql").read_text(encoding="utf-8")
+for case in [
+    "items_outside_standard",
+    "tan_tao_pending_nvl",
+    "backfill_updated",
+    "backfill_blocked",
+    "line_total_po",
+    "line_total_pr",
+    "line_total_gr",
+    "tan_tao_nvl_movement_written",
+    "unit_not_allowed",
+    "tan_tao_cutover_date",
+]:
+    assert case in SMOKE_SHARED, f"shared smoke missing case: {case}"
+
+print("== TS stock units / ledger parser ==")
+STOCK_UNITS_TS = (ROOT / "src/lib/stock-units.ts").read_text(encoding="utf-8")
+assert "normalizeStockUnit" in STOCK_UNITS_TS
+assert "STOCK_UNIT_ALIASES" in STOCK_UNITS_TS
+assert "STOCK_UNIT_NORMALIZE_TEST_CASES" in STOCK_UNITS_TS
+assert "stockUnitConversion" in STOCK_UNITS_TS
+STOCK_UNITS_TEST = (ROOT / "src/lib/stock-units.test.ts").read_text(encoding="utf-8")
+assert "STOCK_UNIT_NORMALIZE_TEST_CASES" in STOCK_UNITS_TEST
+TS_LEDGER = (ROOT / "src/lib/stock-ledger.ts").read_text(encoding="utf-8")
+assert "StockLedgerMaterial" in TS_LEDGER and "materials" in TS_LEDGER
+assert "materialAliasCandidateKind" in TS_LIB
+assert "materialAliasCandidateKind" in (ROOT / "src/lib/material-alias.test.ts").read_text(encoding="utf-8")
+
+print("== TS hooks / types for the shared catalog ==")
+TS_LEDGER_HOOK = (ROOT / "src/hooks/useStockLedger.ts").read_text(encoding="utf-8")
+assert "useStockUnits" in TS_HOOK
+assert "useUnknownPurchaseUnits" in TS_HOOK
+assert "useLatestNewItemRun" in TS_HOOK
+assert "refetchInterval" in TS_HOOK
+assert "background: true" in TS_HOOK
+assert "useRecordTanTaoMaterialCount" in TS_LEDGER_HOOK
+assert "stock_units" in TS_TYPES
+assert "tan_tao_material_movements" in TS_TYPES
+assert "stock_new_item_runs" in TS_TYPES
+assert "get_latest_new_item_run" in TS_TYPES
+assert "record_tan_tao_material_count" in TS_TYPES
+assert "list_unknown_purchase_units" in TS_TYPES
+assert "normalize_stock_unit" in TS_TYPES
+
+print("shared catalog units contract passed")

@@ -10,7 +10,7 @@ import {
   useSuggestMaterialAliases,
   type MaterialAliasLocation,
 } from "@/hooks/useMaterialAlias";
-import { cleanNewItemName, defaultNewItemUnit, NEW_ITEM_OPTION, NewStockItemFields } from "./new-stock-item";
+import { cleanNewItemName, defaultNewItemUnit, NEW_ITEM_OPTION, NewStockItemFields, unitFactor } from "./new-stock-item";
 import type { MaterialAliasSuggestion } from "@/lib/material-alias";
 import { toast } from "sonner";
 import "@/styles/bmq-material-alias.css";
@@ -112,7 +112,9 @@ function PromptRow({
   const isNew = choice === NEW_ITEM_OPTION;
   const candidate = row.candidates.find((item) => item.id === choice) ?? null;
   const stockUnit = isNew ? newUnit.trim() : candidate?.unit ?? "";
-  const factorValue = Number(factor.replace(",", "."));
+  // A kg / g / l / ml line converts by its own unit when it is posted, so no factor is asked.
+  const autoFactor = unitFactor(line.unit, stockUnit);
+  const factorValue = autoFactor ?? Number(factor.replace(",", "."));
   const factorOk = Number.isFinite(factorValue) && factorValue > 0;
   const busy = confirm.isPending || create.isPending;
   const ready = factorOk && (isNew ? newName.trim().length >= 2 && stockUnit.length > 0 : Boolean(candidate));
@@ -153,7 +155,7 @@ function PromptRow({
         rawUnit: line.unit ?? null,
         kitchenInventoryItemId: target.item_id,
         tanTaoSkuId: target.sku_id,
-        enteredUnitLabel: unitLabel.trim() || null,
+        enteredUnitLabel: autoFactor !== null ? line.unit ?? null : unitLabel.trim() || null,
         conversionFactor: factorValue,
         jevItemId: jev?.id ?? null,
         jevProbability: jev?.probability ?? null,
@@ -209,20 +211,29 @@ function PromptRow({
                 {item.name} ({item.unit}){jev && jev.id === item.id ? ` · Jev ${pct(jev.probability)}` : ""}
               </option>
             ))}
-            {canMarkNonStock && location === "q7" ? <option value={NEW_ITEM_OPTION}>+ Tạo mặt hàng mới…</option> : null}
+            {canMarkNonStock ? <option value={NEW_ITEM_OPTION}>+ Tạo mặt hàng mới…</option> : null}
           </select>
         </label>
         {isNew ? (
           <NewStockItemFields name={newName} unit={newUnit} onName={setNewName} onUnit={setNewUnit} idPrefix={`ma-${requestId}`} />
         ) : null}
-        <label className="d3-ma-field">
-          <span>Đơn vị nhập</span>
-          <Input value={unitLabel} onChange={(event) => setUnitLabel(event.target.value)} placeholder="bao 25kg" aria-label="Đơn vị nhân viên nhập" />
-        </label>
-        <label className="d3-ma-field">
-          <span>1 {unitLabel.trim() || "đv"} = ? {stockUnit || "đv kho"}</span>
-          <Input inputMode="decimal" value={factor} onChange={(event) => setFactor(event.target.value)} aria-label="Hệ số đổi sang đơn vị kho" />
-        </label>
+        {autoFactor !== null ? (
+          <p className="d3-ma-field d3-ma-auto" data-bmq-alias-autounit>
+            <span>Đổi đơn vị</span>
+            <strong>1 {line.unit} = {autoFactor.toLocaleString("vi-VN")} {stockUnit} · tự đổi</strong>
+          </p>
+        ) : (
+          <>
+            <label className="d3-ma-field">
+              <span>Đơn vị nhập</span>
+              <Input value={unitLabel} onChange={(event) => setUnitLabel(event.target.value)} placeholder="bao 25kg" aria-label="Đơn vị nhân viên nhập" />
+            </label>
+            <label className="d3-ma-field">
+              <span>1 {unitLabel.trim() || "đv"} = ? {stockUnit || "đv kho"}</span>
+              <Input inputMode="decimal" value={factor} onChange={(event) => setFactor(event.target.value)} aria-label="Hệ số đổi sang đơn vị kho" />
+            </label>
+          </>
+        )}
         <div className="d3-ma-actions">
           <Button type="button" size="sm" onClick={save} disabled={!ready || busy}>
             {isNew ? <Plus className="h-4 w-4" /> : <Check className="h-4 w-4" />}

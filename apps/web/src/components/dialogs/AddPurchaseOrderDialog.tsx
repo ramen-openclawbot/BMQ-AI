@@ -1,4 +1,5 @@
 import { useState, useRef } from "react";
+import { UnitSelect } from "@/components/stock-units/UnitSelect";
 import { useForm, useFieldArray } from "react-hook-form";
 import { blockSaveForMaterialAlias, MaterialAliasPanel, OPEN_MATERIAL_ALIAS_GATE, type MaterialAliasGate } from "@/components/material-alias/MaterialAliasPanel";
 import { useQueryClient } from "@tanstack/react-query";
@@ -759,9 +760,9 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
                             />
                           </TableCell>
                           <TableCell>
-                            <Input
+                            <UnitSelect
                               {...form.register(`items.${index}.unit`)}
-                              placeholder="kg"
+                              currentValue={watchItems?.[index]?.unit}
                               className="h-8"
                             />
                           </TableCell>

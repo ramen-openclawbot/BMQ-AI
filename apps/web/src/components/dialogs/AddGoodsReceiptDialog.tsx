@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { UnitSelect } from "@/components/stock-units/UnitSelect";
 import { useForm, useFieldArray, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -1108,9 +1109,9 @@ export function AddGoodsReceiptDialog() {
                             />
                           </TableCell>
                           <TableCell>
-                            <Input
+                            <UnitSelect
                               {...form.register(`items.${index}.unit`)}
-                              placeholder="kg"
+                              currentValue={watchedItems?.[index]?.unit}
                             />
                           </TableCell>
                           <TableCell>

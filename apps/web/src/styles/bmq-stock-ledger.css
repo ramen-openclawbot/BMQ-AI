@@ -262,3 +262,6 @@
 
 .d3-sc-actions.is-routing { grid-template-columns: minmax(0, 1fr) auto auto; }
 .d3-sc-actions.is-routing .d3-wh-select { height: 40px; background: var(--d3-card); }
+
+/* Warehouse picker above the receipt-name cards on /warehouse/catalog-cleanup. */
+.d3-sc-loc { align-self: flex-start; }

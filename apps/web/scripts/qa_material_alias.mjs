@@ -373,13 +373,14 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     const prompt = page.locator("[data-bmq-alias-prompt]").first();
     assert.ok((await prompt.locator("select").inputValue()) === "k1", "Jev choice preselected");
     assert.ok((await prompt.locator("select option").nth(1).textContent()).includes("Jev 93%"));
-    await prompt.locator("input").nth(0).fill("kg");
-    await prompt.locator("input").nth(1).fill("1000");
+    // The line is written in kg and the item is in kg: the unit converts by itself, no factor asked.
+    assert.equal(await prompt.locator("[data-bmq-alias-autounit]").count(), 1, "kg line converts automatically");
+    assert.equal(await prompt.locator("input").count(), 0, "no pack/factor inputs for a weight line");
     await prompt.getByRole("button", { name: "Xác nhận" }).click();
     await page.waitForTimeout(300);
     const writes = await page.evaluate(() => window.__qaWrites);
     const c = writes.find((w) => w.startsWith("rpc:confirm_material_alias:"));
-    assert.ok(c && c.includes('"p_kitchen_inventory_item_id":"k1"') && c.includes('"p_conversion_factor":1000') && c.includes('"p_entered_unit_label":"kg"') && c.includes('"p_source_table":"purchase_orders"') && c.includes('"p_jev_item_id":"k1"') && c.includes('"p_supplier_id":"sup1"'), c);
+    assert.ok(c && c.includes('"p_kitchen_inventory_item_id":"k1"') && c.includes('"p_conversion_factor":1') && c.includes('"p_entered_unit_label":"kg"') && c.includes('"p_source_table":"purchase_orders"') && c.includes('"p_jev_item_id":"k1"') && c.includes('"p_supplier_id":"sup1"'), c);
     assert.ok(writes.some((w) => w.startsWith("invoke:stock-alias-jev:") && w.includes('"mode":"lines"')), "Jev ranking requested for the prompt line only");
     const dialogBox = await page.locator("[role=dialog]").boundingBox();
     const panelBox = await page.locator("[data-bmq-alias-panel]").boundingBox();
