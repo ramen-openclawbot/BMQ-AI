@@ -71,3 +71,8 @@
   .d3-ma-actions { grid-column: 1 / -1; }
   .d3-ma-actions button { flex: 1; }
 }
+
+/* Save was blocked: draw the eye to the lines that still need an answer. */
+.d3-ma.is-attention { box-shadow: 0 0 0 2px var(--d3-red, #e2401c); animation: d3-ma-nudge .5s ease 2; }
+@keyframes d3-ma-nudge { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
+@media (prefers-reduced-motion: reduce) { .d3-ma.is-attention { animation: none; } }

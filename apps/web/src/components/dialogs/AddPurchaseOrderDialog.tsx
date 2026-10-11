@@ -1,6 +1,6 @@
 import { useState, useRef } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
-import { MaterialAliasPanel } from "@/components/material-alias/MaterialAliasPanel";
+import { blockSaveForMaterialAlias, MaterialAliasPanel, OPEN_MATERIAL_ALIAS_GATE, type MaterialAliasGate } from "@/components/material-alias/MaterialAliasPanel";
 import { useQueryClient } from "@tanstack/react-query";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -345,7 +345,10 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
     }
   };
 
+  const [aliasGate, setAliasGate] = useState<MaterialAliasGate>(OPEN_MATERIAL_ALIAS_GATE);
+  const [aliasAttention, setAliasAttention] = useState(0);
   const onSubmit = async (data: PurchaseOrderFormData) => {
+    if (blockSaveForMaterialAlias(aliasGate, () => setAliasAttention((n) => n + 1))) return;
     setIsSubmitting(true);
     try {
       const poNumber = await generatePONumber();
@@ -794,6 +797,8 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
                 <p className="text-sm text-destructive">{form.formState.errors.items.message}</p>
               )}
               <MaterialAliasPanel
+                onGateChange={setAliasGate}
+                attention={aliasAttention}
                 supplierId={watchSupplierId || null}
                 lines={(watchItems ?? []).map((item) => ({ product_name: item?.product_name ?? "", unit: item?.unit ?? null }))}
                 sourceTable="purchase_orders"

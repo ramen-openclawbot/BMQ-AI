@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
-import { MaterialAliasPanel } from "@/components/material-alias/MaterialAliasPanel";
+import { blockSaveForMaterialAlias, MaterialAliasPanel, OPEN_MATERIAL_ALIAS_GATE, type MaterialAliasGate } from "@/components/material-alias/MaterialAliasPanel";
 import { useQueryClient } from "@tanstack/react-query";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -488,7 +488,10 @@ export function AddPaymentRequestDialog({
     }).format(amount);
   };
 
+  const [aliasGate, setAliasGate] = useState<MaterialAliasGate>(OPEN_MATERIAL_ALIAS_GATE);
+  const [aliasAttention, setAliasAttention] = useState(0);
   const onSubmit = async (data: PaymentRequestFormData) => {
+    if (blockSaveForMaterialAlias(aliasGate, () => setAliasAttention((n) => n + 1))) return;
     try {
       let supplierId = data.supplier_id;
       
@@ -976,6 +979,8 @@ export function AddPaymentRequestDialog({
                 </div>
               )}
               <MaterialAliasPanel
+                onGateChange={setAliasGate}
+                attention={aliasAttention}
                 supplierId={watchSupplierId || null}
                 lines={(watchItems ?? []).map((item) => ({ product_name: item?.product_name ?? "", unit: item?.unit ?? null }))}
                 sourceTable="payment_requests"

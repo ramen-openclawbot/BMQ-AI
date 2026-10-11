@@ -5,11 +5,37 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useConfirmMaterialAlias, useSuggestMaterialAliases, type MaterialAliasLocation } from "@/hooks/useMaterialAlias";
 import type { MaterialAliasSuggestion } from "@/lib/material-alias";
+import { toast } from "sonner";
 import "@/styles/bmq-material-alias.css";
 
 export interface MaterialAliasPanelLine {
   product_name: string;
   unit?: string | null;
+}
+
+/** What still blocks saving: lines that must be answered, or a lookup in flight. */
+export interface MaterialAliasGate {
+  pending: number;
+  loading: boolean;
+}
+
+export const OPEN_MATERIAL_ALIAS_GATE: MaterialAliasGate = { pending: 0, loading: false };
+
+/**
+ * Owner decision 2026-10-11: every new line must be answered (kho item, Không
+ * nhập kho or Chưa rõ) before a PO / phiếu chi is saved. Returns true when the
+ * save must stop; scrolls to the panel and explains why.
+ */
+export function blockSaveForMaterialAlias(gate: MaterialAliasGate, onAttention: () => void): boolean {
+  if (!gate.loading && gate.pending === 0) return false;
+  onAttention();
+  document.querySelector("[data-bmq-alias-panel]")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  toast.error(
+    gate.loading
+      ? "Đang dò mặt hàng kho, chờ 1 giây rồi bấm lưu lại."
+      : `Còn ${gate.pending} dòng chưa chọn mặt hàng kho. Chọn mặt hàng, Không nhập kho hoặc Chưa rõ rồi lưu lại.`,
+  );
+  return true;
 }
 
 interface Props {
@@ -18,6 +44,10 @@ interface Props {
   /** Table name recorded on each confirmation, e.g. purchase_orders. */
   sourceTable: string;
   location?: MaterialAliasLocation;
+  /** Reports what still blocks saving, so the dialog can gate its submit. */
+  onGateChange?: (gate: MaterialAliasGate) => void;
+  /** Bumped by the dialog when a save was blocked; highlights the open lines. */
+  attention?: number;
 }
 
 const pct = (value: number) => `${Math.round(value * 100)}%`;
@@ -175,7 +205,7 @@ function PromptRow({
  * Learn-as-you-go picker shown under the item list of PO / payment request
  * dialogs. Lines whose alias is already auto show a chip; the rest ask once.
  */
-export function MaterialAliasPanel({ supplierId, lines, sourceTable, location = "q7" }: Props) {
+export function MaterialAliasPanel({ supplierId, lines, sourceTable, location = "q7", onGateChange, attention = 0 }: Props) {
   const suggest = useSuggestMaterialAliases();
   const [rows, setRows] = useState<MaterialAliasSuggestion[]>([]);
   const [done, setDone] = useState<Record<string, { status: "confirmed" | "skipped"; label: string }>>({});
@@ -207,10 +237,19 @@ export function MaterialAliasPanel({ supplierId, lines, sourceTable, location = 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, supplierId, named.length]);
 
-  if (!supplierId || named.length === 0) return null;
-
   const byKey = new Map(named.map(({ index, line }) => [String(index), line] as const));
   const prompts = rows.filter((row) => (row.needs_prompt || editing[row.line_key]) && !done[row.line_key] && byKey.has(row.line_key));
+  // A lookup is in flight while the debounced key has not been fetched yet; a
+  // failed lookup never blocks saving (staff without access, network errors).
+  const active = Boolean(supplierId) && named.length > 0;
+  const gateLoading = active && !suggest.isError && (key !== lastKey.current || suggest.isPending);
+  const gatePending = active && !gateLoading ? prompts.length : 0;
+  useEffect(() => {
+    onGateChange?.({ pending: gatePending, loading: gateLoading });
+  }, [gatePending, gateLoading, onGateChange]);
+
+  if (!supplierId || named.length === 0) return null;
+
   const autos = rows.filter((row) => !row.needs_prompt && !editing[row.line_key] && !done[row.line_key] && row.alias && byKey.has(row.line_key));
   const confirmed = Object.entries(done).filter(([, value]) => value.status === "confirmed");
 
@@ -231,11 +270,11 @@ export function MaterialAliasPanel({ supplierId, lines, sourceTable, location = 
   if (rows.length === 0) return null;
 
   return (
-    <div className="d3-ma" data-bmq-alias-panel={prompts.length ? "prompt" : "auto"}>
+    <div className={`d3-ma${attention > 0 && prompts.length ? " is-attention" : ""}`} key={prompts.length ? `att-${attention}` : "ok"} data-bmq-alias-panel={prompts.length ? "prompt" : "auto"}>
       <div className="d3-ma-head">
         <strong>Mặt hàng kho</strong>
         <small>
-          {prompts.length ? `${prompts.length} dòng cần chọn một lần` : "Mọi dòng đã nhận diện"}
+          {prompts.length ? `${prompts.length} dòng cần chọn trước khi lưu` : "Mọi dòng đã nhận diện"}
           {autos.length ? ` · ${autos.length} tự chọn` : ""}
           {confirmed.length ? ` · ${confirmed.length} vừa xác nhận` : ""}
         </small>
