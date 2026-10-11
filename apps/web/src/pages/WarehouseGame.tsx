@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useChangeStockItemUnit, useRenameStockItem, useWarehouseGameSnapshot, WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY } from "@/hooks/useWarehouseGame";
-import { useConfirmMaterialAlias, useCreateStockMaterialItem } from "@/hooks/useMaterialAlias";
+import { useConfirmMaterialAlias, useCreateStockMaterialItem, useRunAliasBacklog } from "@/hooks/useMaterialAlias";
+import { CrateYard, type JevState } from "@/game/CrateYard";
 import { unitConversionFor, type WarehouseGameItem, type WarehouseGameLocation, type WarehouseGamePendingRow, type WarehouseGameSnapshot } from "@/lib/warehouse-game";
 import { packFactorFor } from "@/components/material-alias/new-stock-item";
 import { Yard, type Zone } from "@/game/Yard";
@@ -28,6 +29,7 @@ type View =
   | { kind: "missions" }
   | { kind: "station"; id: StationId }
   | { kind: "warehouse"; location: WarehouseGameLocation }
+  | { kind: "crates"; location: WarehouseGameLocation }
   | { kind: "shelf"; location: WarehouseGameLocation; cls: GameClass };
 
 type Panel =
@@ -87,7 +89,9 @@ export default function WarehouseGame() {
   const [view, setView] = useState<View>({ kind: "yard" });
   const [panel, setPanel] = useState<Panel>(null);
   const [toast, setToast] = useState<string | null>(null);
-  const [flying, setFlying] = useState<{ key: string; to: GameClass } | null>(null);
+  const [leaving, setLeaving] = useState<string | null>(null);
+  const runBacklog = useRunAliasBacklog();
+  const [jev, setJev] = useState<{ location: WarehouseGameLocation; state: JevState; done: number; total: number } | null>(null);
   const [justSaved, setJustSaved] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const { isOwner, canEditModule } = useAuth();
@@ -119,7 +123,7 @@ export default function WarehouseGame() {
 
   const go = (next: View) => { setPanel(null); setQuery(""); setView(next); };
   const back = () => {
-    if (view.kind === "shelf") go({ kind: "warehouse", location: view.location });
+    if (view.kind === "shelf" || view.kind === "crates") go({ kind: "warehouse", location: view.location });
     else if (view.kind === "station") go({ kind: "workshop" });
     else if (view.kind === "warehouse" || view.kind === "workshop" || view.kind === "missions") go({ kind: "yard" });
   };
@@ -137,7 +141,7 @@ export default function WarehouseGame() {
   });
   const workshopTodo = stations.reduce((sum, station) => sum + (station.id === "backlog" ? 0 : station.count ?? 0), 0);
 
-  const inWarehouse = view.kind === "warehouse" || view.kind === "shelf";
+  const inWarehouse = view.kind === "warehouse" || view.kind === "shelf" || view.kind === "crates";
   const current = inWarehouse ? snaps[view.location] : undefined;
   const currentQuery = inWarehouse ? (view.location === "q7" ? q7 : tt) : undefined;
   const title = view.kind === "yard" ? "Phố kho BMQ"
@@ -145,22 +149,36 @@ export default function WarehouseGame() {
     : view.kind === "missions" ? "Bảng nhiệm vụ"
     : view.kind === "station" ? `${STATION_META[view.id].icon} ${STATION_META[view.id].label}`
     : view.kind === "warehouse" ? LOCATION_LABEL[view.location]
+    : view.kind === "crates" ? "Bãi thùng chờ"
     : `${CLASS_META[view.cls].icon} ${CLASS_META[view.cls].label}`;
   const subtitle = view.kind === "yard" ? "Bấm vào kho để vào"
     : view.kind === "workshop" ? (workshopTodo ? `${workshopTodo} việc đang chờ` : "Mọi bàn đã gọn")
     : view.kind === "station" ? "Xưởng dọn danh mục"
     : view.kind === "missions" ? (missions.data?.level ? `Cấp ${missions.data.level.level} · ${missions.data.level.title} · ${missions.data.badges.total} 🐝` : "Làm xong nhận huy hiệu")
-    : view.kind === "shelf" ? LOCATION_LABEL[view.location]
+    : view.kind === "shelf" || view.kind === "crates" ? LOCATION_LABEL[view.location]
     : current?.cutover_date ? `Sổ từ ${current.cutover_date.split("-").reverse().join("/")}` : "Sổ chưa bắt đầu";
 
-  const afterAssign = (location: WarehouseGameLocation, crate: WarehouseGamePendingRow, cls: GameClass, label: string) => {
+  const afterAssign = (crate: WarehouseGamePendingRow, label: string) => {
     setPanel(null);
-    setFlying({ key: crateKey(crate), to: cls });
+    setLeaving(crateKey(crate));
     window.setTimeout(() => {
-      void queryClient.invalidateQueries({ queryKey: [WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY] }).then(() => setFlying(null));
+      void queryClient.invalidateQueries({ queryKey: [WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY] }).then(() => setLeaving(null));
       setToast(`“${crate.raw_name}” → ${label} · ${crate.line_count} dòng`);
-    }, 800);
-    void location;
+    }, 650);
+  };
+
+  const runJev = (location: WarehouseGameLocation) => {
+    setJev({ location, state: "working", done: 0, total: 0 });
+    runBacklog.mutate(
+      { location, onProgress: (done: number, total: number) => setJev({ location, state: "working", done, total }) },
+      {
+        onSuccess: () => {
+          void queryClient.invalidateQueries({ queryKey: [WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY] });
+          setJev((prev) => ({ location, state: "done", done: prev?.done ?? 0, total: prev?.total ?? 0 }));
+        },
+        onError: () => setJev({ location, state: "error", done: 0, total: 0 }),
+      },
+    );
   };
 
   return (
@@ -221,10 +239,24 @@ export default function WarehouseGame() {
               location={view.location}
               rows={layoutRows(current)}
               crates={current.pending}
-              flying={flying}
               canAssign={current.can_edit}
               onShelf={(cls) => go({ kind: "shelf", location: view.location, cls })}
-              onCrate={(crate) => setPanel({ kind: "crate", location: view.location, crate })}
+              onYard={() => go({ kind: "crates", location: view.location })}
+            />
+          </Scene>
+        ) : null}
+
+        {view.kind === "crates" && current ? (
+          <Scene id={`crates-${view.location}`} scroll>
+            <CrateYard
+              location={view.location}
+              crates={current.pending}
+              canAssign={current.can_edit}
+              jev={jev?.location === view.location ? jev.state : "idle"}
+              progress={jev?.location === view.location ? { done: jev.done, total: jev.total } : null}
+              leavingKey={leaving}
+              onRunJev={() => runJev(view.location)}
+              onOpen={(crate) => setPanel({ kind: "crate", location: view.location, crate })}
             />
           </Scene>
         ) : null}
@@ -286,7 +318,8 @@ export default function WarehouseGame() {
             location={panel.location}
             crate={panel.crate}
             snapshot={current}
-            onAssigned={(cls, label) => afterAssign(panel.location, panel.crate, cls, label)}
+            autoPick
+            onAssigned={(_cls, label) => afterAssign(panel.crate, label)}
             onClose={() => setPanel(null)}
           />
         ) : null}
@@ -413,8 +446,8 @@ function ItemSheet({ item, others, canEdit, started, onDone, onClose }: {
 
 interface Target { kind: "item" | "sku"; id: string; name: string; unit: string; cls: GameClass }
 
-function CrateSheet({ location, crate, snapshot, onAssigned, onClose }: {
-  location: WarehouseGameLocation; crate: WarehouseGamePendingRow; snapshot: WarehouseGameSnapshot;
+function CrateSheet({ location, crate, snapshot, autoPick = false, onAssigned, onClose }: {
+  location: WarehouseGameLocation; crate: WarehouseGamePendingRow; snapshot: WarehouseGameSnapshot; autoPick?: boolean;
   onAssigned: (cls: GameClass, label: string) => void; onClose: () => void;
 }) {
   const confirm = useConfirmMaterialAlias();
@@ -452,6 +485,11 @@ function CrateSheet({ location, crate, snapshot, onAssigned, onClose }: {
     setFactorText(String(pack?.factor ?? 1));
     setTarget(next);
   };
+  // Open on the hint: Jev's pick (or the closest name) is already on the label.
+  useEffect(() => {
+    if (autoPick && suggested) pick(suggested);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const factor = Number(factorText.replace(",", "."));
   const busy = confirm.isPending || create.isPending;

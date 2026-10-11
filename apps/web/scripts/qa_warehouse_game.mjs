@@ -351,6 +351,11 @@ const record = (name, detail = {}) => {
 };
 
 const KG_FIXTURE = JSON.parse(fs.readFileSync(path.join(ROOT, "scripts/qa_warehouse_game.fixture.json"), "utf8"));
+// Live data had no Jev hints at ship time; give the first 4 Q7 crates one so the "Jev đã gợi ý" lot renders.
+KG_FIXTURE.q7.slice(0, 4).forEach((crate, i) => {
+  const item = KG_FIXTURE.items[i * 7 % KG_FIXTURE.items.length];
+  Object.assign(crate, { jev_item_id: item.id, jev_item_name: item.name, jev_unit: item.unit, jev_probability: 0.9 - i * 0.05, jev_source: "jev", jev_line_type: "goods", jev_is_sku: false });
+});
 async function open(cfg, route, viewport, extra = {}) {
   const context = await browser.newContext({ viewport, reducedMotion: extra.reducedMotion || "reduce", locale: "vi-VN" });
   await context.addInitScript((fixture) => { window.__kgFixture = fixture; }, KG_FIXTURE);
@@ -431,20 +436,34 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     assert.ok((await page.locator(".kg .title-pill b").textContent()).includes("Kho Q7"));
     await page.screenshot({ path: `${EVIDENCE}/q7-${role}-${viewport.width}.png` });
     if (role === "owner") {
-      const crate = page.locator("[aria-label^='Thùng chưa dán nhãn']").first();
-      await crate.click({ force: true });
+      await page.locator("[data-bmq-yard-gate]").click({ force: true });
+      await page.waitForSelector("[data-bmq-crate-yard='q7']", { timeout: 8000 });
       await page.waitForTimeout(600);
+      assert.equal(await overflow(page), 0, `crate yard no overflow ${viewport.width}`);
+      assert.match(await page.locator(".kg .title-pill b").textContent(), /Bãi thùng chờ/);
+      const cards = await page.locator("[data-bmq-crate]").count();
+      assert.equal(cards, KG_FIXTURE.q7.length, "every pending crate has a card");
+      assert.ok((await page.locator(".kg .crate-card.has-jev").count()) >= 1, "Jev hints grouped");
+      await page.screenshot({ path: `${EVIDENCE}/crate-yard-${viewport.width}.png` });
+      await page.locator("[data-bmq-jev-run]").click({ force: true });
+      await page.waitForTimeout(700);
+      let writes = await page.evaluate(() => window.__qaWrites);
+      assert.ok(writes.includes("invoke:stock-alias-jev"), "Jev robot runs the backlog scan");
+      assert.equal(await page.locator("[data-bmq-jev='error']").count(), 1, "fixture refuses functions → Jev shows the error face");
+      await page.screenshot({ path: `${EVIDENCE}/crate-yard-jev-${viewport.width}.png` });
+      await page.locator(".kg .crate-card.has-jev").first().click({ force: true });
+      await page.waitForTimeout(700);
+      assert.equal(await page.locator(".kg .sheet .pick.is-top", { hasText: "bấm để đổi" }).count(), 1, "label sheet opens on the hint");
       await page.screenshot({ path: `${EVIDENCE}/crate-${viewport.width}.png` });
-      await page.locator(".kg .sheet .picks .pick").first().click({ force: true });
-      await page.waitForTimeout(300);
-      await page.screenshot({ path: `${EVIDENCE}/crate-step2-${viewport.width}.png` });
       await page.getByRole("button", { name: "Xếp vào kệ" }).click({ force: true });
       await page.waitForTimeout(400);
-      let writes = await page.evaluate(() => window.__qaWrites);
+      writes = await page.evaluate(() => window.__qaWrites);
       assert.ok(writes.some((w) => w.startsWith("rpc:confirm_material_alias:") && w.includes('"p_location":"q7"') && w.includes('"p_source_table":"warehouse_game"') && w.includes('"p_line_class":"stock"')), JSON.stringify(writes));
       await page.waitForTimeout(900);
+      await page.locator(".kg .hud .round-btn").first().click({ force: true });
+      await page.waitForTimeout(800);
     } else {
-      assert.equal(await page.locator("[aria-label^='Thùng chưa dán nhãn']").count(), 0, "viewer sees no crates");
+      assert.equal(await page.locator("[data-bmq-yard-gate]").count(), 0, "viewer cannot open the crate yard");
     }
     await page.getByRole("button", { name: /Nguyên liệu, \d+ mặt hàng/ }).click({ force: true });
     await page.waitForTimeout(900);

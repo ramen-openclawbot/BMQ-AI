@@ -1,6 +1,7 @@
 import { C, STROKE } from "./theme";
 import { CLASS_META, CLASS_ORDER, asClass, type GameClass } from "./meta";
 import { Bubble, Buddy, CrateBuddy, Defs, Goods, Panel } from "./Toon";
+import { JevBot } from "./CrateYard";
 import type { WarehouseGameLocation, WarehouseGamePendingRow, WarehouseGameSnapshot } from "@/lib/warehouse-game";
 
 export interface ShelfRow { cls: GameClass; count: number; units: string[] }
@@ -64,10 +65,9 @@ function ShelfTable({ g, row, onClick }: { g: Geo; row: ShelfRow; onClick: () =>
   );
 }
 
-export function Warehouse({ portrait, location, rows, crates, flying, canAssign, onShelf, onCrate }: {
+export function Warehouse({ portrait, location, rows, crates, canAssign, onShelf, onYard }: {
   portrait: boolean; location: WarehouseGameLocation; rows: ShelfRow[]; crates: WarehouseGamePendingRow[];
-  flying: { key: string; to: GameClass } | null; canAssign: boolean;
-  onShelf: (cls: GameClass) => void; onCrate: (crate: WarehouseGamePendingRow) => void;
+  canAssign: boolean; onShelf: (cls: GameClass) => void; onYard: () => void;
 }) {
   const cols = portrait ? 1 : 2;
   const W = portrait ? 600 : 1280;
@@ -84,14 +84,12 @@ export function Warehouse({ portrait, location, rows, crates, flying, canAssign,
     return { x: roomX + 30 + col * (colW + 40), y: top + r * rowGap, w: colW, h: rowH };
   };
   const rowsEnd = top + perCol * rowGap;
-  const perLine = portrait ? 5 : 11;
-  const visibleCrates = crates.slice(0, perLine * 2);
-  const crateTop = rowsEnd + 40;
-  const crateLines = Math.max(1, Math.ceil(visibleCrates.length / perLine));
-  const roomBottom = crateTop + crateLines * 100 + 40;
+  const crateTop = rowsEnd + 30;
+  const yardH = portrait ? 200 : 168;
+  const roomBottom = crateTop + yardH + 40;
   const H = roomBottom + 110;
-  const cratePos = (i: number) => ({ x: roomX + 70 + (i % perLine) * ((roomW - 140) / Math.max(1, perLine - 1)), y: crateTop + 40 + Math.floor(i / perLine) * 100 });
-  const rowIndex = (cls: GameClass) => rows.findIndex((row) => row.cls === cls);
+  const yard = { x: roomX + 30, y: crateTop, w: roomW - 60, h: yardH };
+  const pile = crates.slice(0, portrait ? 3 : 5);
   const title = location === "q7" ? "KHO Q7" : "KHO TÂN TẠO";
   const helper = { x: roomX + roomW - 56, y: 2 };
   const wall = location === "q7" ? C.mustard : C.coral;
@@ -116,28 +114,47 @@ export function Warehouse({ portrait, location, rows, crates, flying, canAssign,
 
       {rows.map((row, index) => <ShelfTable key={row.cls} g={geo(index)} row={row} onClick={() => onShelf(row.cls)} />)}
 
-      <rect x={roomX + 30} y={crateTop - 6} width={roomW - 60} height={crateLines * 100 + 12} rx={14} fill="url(#checker)" stroke={C.ink} strokeWidth={2.5} strokeDasharray="10 8" opacity={.9} />
-      <text x={roomX + 44} y={crateTop + 14} className="t-zone">KHU CHỜ DÁN NHÃN · {crates.length}</text>
-      {visibleCrates.map((crate, i) => {
-        const p = cratePos(i);
-        const key = crateKey(crate);
-        const target = flying && flying.key === key ? rowIndex(flying.to) : -1;
-        const dest = target >= 0 ? geo(target) : null;
-        const style = dest ? { transform: `translate(${dest.x + dest.w - 60 - p.x}px, ${dest.y + dest.h / 2 - p.y}px) scale(.5)`, opacity: 0 } : undefined;
-        return (
-          <g key={key} className="tap crate-fly" style={style} role="button" tabIndex={0} aria-label={`Thùng chưa dán nhãn: ${crate.raw_name}`} onClick={() => onCrate(crate)} onKeyDown={(event) => { if (event.key === "Enter") onCrate(crate); }}>
-            <CrateBuddy x={p.x} y={p.y} mood={dest ? "happy" : "worried"} label="?" />
+      {canAssign ? (
+        <g className="tap yard-gate" role="button" tabIndex={0} aria-label={`Bãi thùng chờ dán nhãn, ${crates.length} thùng`} onClick={onYard} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onYard(); }} data-bmq-yard-gate>
+          <rect x={yard.x + 6} y={yard.y + 7} width={yard.w} height={yard.h} rx={18} fill={C.shadow} />
+          <rect x={yard.x} y={yard.y} width={yard.w} height={yard.h} rx={18} fill="url(#checker)" stroke={C.ink} strokeWidth={STROKE} />
+          <rect x={yard.x} y={yard.y} width={yard.w} height={yard.h} rx={18} fill={C.kraft} opacity={.28} />
+          {/* hazard tape on top */}
+          <rect x={yard.x + 14} y={yard.y - 12} width={yard.w - 28} height={22} rx={6} fill={C.mustard} stroke={C.ink} strokeWidth={STROKE} />
+          <text x={yard.x + yard.w / 2} y={yard.y + 5} textAnchor="middle" className="t-zone">BÃI THÙNG CHỜ DÁN NHÃN</text>
+          {pile.map((crate, i) => {
+            const cx = portrait ? yard.x + 58 + i * 64 : yard.x + 64 + i * 70;
+            const cy = yard.y + (portrait ? 74 : 72) + (i % 2) * 22;
+            return <CrateBuddy key={crateKey(crate)} x={cx} y={cy} mood="worried" label="?" />;
+          })}
+          {crates.length === 0 ? <text x={yard.x + 40} y={yard.y + 84} className="t-sub">Bãi trống ✓</text> : null}
+          <g transform={`translate(${yard.x + yard.w - (portrait ? 110 : 150)} ${yard.y + (portrait ? 18 : 22)})`}>
+            <JevBot state={crates.length ? "idle" : "done"} size={portrait ? 84 : 92} />
           </g>
-        );
-      })}
-      {crates.length > visibleCrates.length ? <text x={roomX + roomW - 44} y={crateTop + 14} textAnchor="end" className="t-zone">+{crates.length - visibleCrates.length} thùng nữa</text> : null}
-      {crates.length === 0 ? <text x={W / 2} y={crateTop + 60} textAnchor="middle" className="t-sub">{canAssign ? "Không còn thùng nào chờ ✓" : "Chỉ chủ hoặc người sửa kho Q7 thấy thùng chờ"}</text> : null}
+          <g transform={`translate(${portrait ? yard.x + 22 : yard.x + yard.w - 380} ${portrait ? yard.y + yard.h - 58 : yard.y + yard.h - 64})`}>
+            <rect x={4} y={5} width={portrait ? 300 : 210} height={44} rx={14} fill={C.shadow} />
+            <rect width={portrait ? 300 : 210} height={44} rx={14} fill={C.sage} stroke={C.ink} strokeWidth={STROKE} />
+            <text x={portrait ? 150 : 105} y={29} textAnchor="middle" className="t-sign">{crates.length ? `Vào bãi · ${crates.length} thùng ›` : "Vào bãi ›"}</text>
+          </g>
+          {crates.length ? (
+            <g className="bounce" style={{ transformOrigin: `${yard.x + yard.w - 8}px ${yard.y + 8}px` }}>
+              <circle cx={yard.x + yard.w - 8} cy={yard.y + 8} r={20} fill={C.coral} stroke={C.ink} strokeWidth={STROKE} />
+              <text x={yard.x + yard.w - 8} y={yard.y + 14} textAnchor="middle" className="t-badge">{crates.length}</text>
+            </g>
+          ) : null}
+        </g>
+      ) : (
+        <g>
+          <rect x={yard.x} y={yard.y} width={yard.w} height={yard.h} rx={18} fill="url(#checker)" stroke={C.ink} strokeWidth={2.5} strokeDasharray="10 8" opacity={.7} />
+          <text x={W / 2} y={yard.y + yard.h / 2 + 4} textAnchor="middle" className="t-sub">Chỉ chủ hoặc người sửa kho Q7 vào bãi thùng chờ</text>
+        </g>
+      )}
 
       <rect x={W / 2 - 50} y={roomBottom - 8} width={100} height={14} fill={C.cream} stroke={C.ink} strokeWidth={STROKE} />
       <rect x={W / 2 - 44} y={roomBottom + 12} width={88} height={40} rx={6} fill="url(#checker)" stroke={C.ink} strokeWidth={2.5} />
 
       <Buddy x={helper.x} y={helper.y + 26} mood="happy" hat="chef" face={C.white} scale={0.9} />
-      {crates.length ? <Bubble x={helper.x - 18} y={helper.y + 22} tail="side" name="Tổ trưởng kho" text={portrait ? "Thùng chờ ở cửa nha!" : "Có thùng chờ ở cửa, bấm vào để dán nhãn nha!"} max={portrait ? 22 : 46} /> : null}
+      {crates.length ? <Bubble x={helper.x - 18} y={helper.y + 22} tail="side" name="Tổ trưởng kho" text={portrait ? "Bấm bãi thùng chờ nha!" : "Bấm vào bãi thùng chờ, Jev sẽ phân loại giúp!"} max={portrait ? 22 : 46} /> : null}
     </svg>
   );
 }
