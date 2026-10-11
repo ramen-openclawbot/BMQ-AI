@@ -59,7 +59,9 @@ function MergeRow({ row, canEdit }: { row: StockCatalogPendingSuggestion; canEdi
   const { toast } = useToast();
   const decide = useDecideStockCatalogSuggestion();
   const [factor, setFactor] = useState(row.proposed_factor === null ? "" : String(row.proposed_factor));
-  const factorValue = Number(factor.replace(",", "."));
+  // Nothing live to convert: the retired item is just switched off, so no factor is asked.
+  const needsFactor = row.source_live_refs === null || row.source_live_refs > 0;
+  const factorValue = needsFactor ? Number(factor.replace(",", ".")) : row.proposed_factor ?? 1;
   const factorOk = Number.isFinite(factorValue) && factorValue > 0;
   const keepIsItem = row.proposed_target_id === row.item_id;
   const keep = keepIsItem
@@ -101,10 +103,12 @@ function MergeRow({ row, canEdit }: { row: StockCatalogPendingSuggestion; canEdi
         <span className={`d3-sc-prob${row.probability >= 0.9 ? " is-high" : row.probability < 0.7 ? " is-low" : ""}`}>
           Jev {pct(row.probability)} cùng mặt hàng
         </span>
-        {row.factor_source === "none" ? <span className="d3-sc-warn">Khác đơn vị, cần nhập hệ số</span> : null}
+        {needsFactor && row.factor_source === "none" ? <span className="d3-sc-warn">Khác đơn vị, cần nhập hệ số</span> : null}
+        {!needsFactor ? <span className="d3-sc-prob is-high">Bên gộp vào không còn dữ liệu, chỉ tắt đi</span> : null}
       </div>
       {canEdit ? (
         <div className="d3-sc-actions">
+          {needsFactor ? (
           <label className="d3-sc-factor">
             <span>1 {drop.unit || "đv"} = ? {keep.unit || "đv"}</span>
             <Input
@@ -114,6 +118,7 @@ function MergeRow({ row, canEdit }: { row: StockCatalogPendingSuggestion; canEdi
               aria-label={`Hệ số đổi từ ${drop.name} sang ${keep.name}`}
             />
           </label>
+          ) : <span className="d3-sc-factor-none" aria-hidden="true" />}
           <Button type="button" onClick={() => act("approve")} disabled={!factorOk || decide.isPending}>
             {decide.isPending ? "Đang gộp…" : "Gộp"}
           </Button>

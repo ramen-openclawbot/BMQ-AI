@@ -77,7 +77,7 @@ function apItem(id, name, unit, mode, usage, onHand, sup, pack, label, reorderBa
 }
 function fixtureRows(st) {
   if (st.table === "rpc:get_stock_catalog_review") {
-    const sug = (id, kind, a, au, ai, b, bu, bi, target, p, factor, fs, cls) => ({ id, kind, item_id: a[0], item_name: a[1], item_unit: au, other_item_id: b ? b[0] : null, other_item_name: b ? b[1] : null, other_item_unit: bu, proposed_target_id: target, target_name: target === a[0] ? a[1] : (b ? b[1] : null), target_unit: target === a[0] ? au : bu, probability: p, proposed_factor: factor, factor_source: fs, proposed_class: cls, prompt_version: "qa", cost: 0.0002, created_at: nowIso, item_issue_count_90d: ai, other_issue_count_90d: bi });
+    const sug = (id, kind, a, au, ai, b, bu, bi, target, p, factor, fs, cls) => ({ id, kind, item_id: a[0], item_name: a[1], item_unit: au, other_item_id: b ? b[0] : null, other_item_name: b ? b[1] : null, other_item_unit: bu, proposed_target_id: target, target_name: target === a[0] ? a[1] : (b ? b[1] : null), target_unit: target === a[0] ? au : bu, probability: p, proposed_factor: factor, factor_source: fs, proposed_class: cls, prompt_version: "qa", cost: 0.0002, created_at: nowIso, item_issue_count_90d: ai, other_issue_count_90d: bi, source_live_refs: kind === 'merge' ? (bi > 0 || id === 'm1' ? 54 : 0) : null });
     return {
       pending_suggestions: [
         sug("m1", "merge", ["i1", "Bột mì 888 Cam"], "g", 60, ["i2", "Bột mì 888"], "g", 54, "i1", 0.93, 1, "unit_rule", null),
@@ -338,15 +338,17 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       assert.ok(chips[2]?.includes("Dọn danh mục"), chips.join(","));
       const first = page.locator("[data-bmq-catalog-merge]").first();
       assert.ok((await first.locator(".is-keep strong").textContent()).includes("Bột mì 888 Cam"), "keep side shows the in-use item");
-      assert.equal(await page.locator(".d3-sc-warn", { hasText: "cần nhập hệ số" }).count(), 1);
+      assert.equal(await page.locator(".d3-sc-warn", { hasText: "cần nhập hệ số" }).count(), 0, "no factor warning when nothing is live");
       assert.equal(await page.locator(".d3-sc-prob.is-low").count(), 1, "Bột mì 888 vs 999 at 12% is marked low");
       if (role === "owner") {
         // Factor-less pair cannot be merged until a factor is typed; others can.
         const eggs = page.locator("[data-bmq-catalog-merge]").nth(2);
-        assert.ok(await eggs.getByRole("button", { name: "Gộp" }).isDisabled());
-        await eggs.locator("input").fill("60");
+        assert.equal(await eggs.locator("input").count(), 0, "retired side has no live data: no factor asked");
+        assert.ok((await eggs.textContent()).includes("không còn dữ liệu"));
         assert.ok(!(await eggs.getByRole("button", { name: "Gộp" }).isDisabled()));
         await eggs.getByRole("button", { name: "Gộp" }).click();
+        // A pair whose retired side still has live rows keeps the factor field.
+        assert.equal(await page.locator("[data-bmq-catalog-merge]").first().locator("input").count(), 1);
         await page.locator("[data-bmq-catalog-merge]").nth(3).getByRole("button", { name: "Bỏ" }).click();
         await page.locator("[data-bmq-catalog-classify]").first().locator("select").selectOption("packaging_supply");
         await page.locator("[data-bmq-catalog-classify]").first().getByRole("button", { name: "Duyệt" }).click();
@@ -355,12 +357,12 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
         await page.getByRole("button", { name: "Quét cặp trùng" }).click();
         await page.waitForTimeout(300);
         const writes = await page.evaluate(() => window.__qaWrites);
-        assert.ok(writes.some((w) => w.startsWith("rpc:decide_stock_catalog_suggestion:") && w.includes('"p_id":"m3"') && w.includes('"p_factor":60') && w.includes('"p_action":"approve"')), JSON.stringify(writes));
+        assert.ok(writes.some((w) => w.startsWith("rpc:decide_stock_catalog_suggestion:") && w.includes('"p_id":"m3"') && w.includes('"p_factor":1') && w.includes('"p_action":"approve"')), JSON.stringify(writes));
         assert.ok(writes.some((w) => w.includes('"p_id":"m4"') && w.includes('"p_action":"reject"')), "reject sent");
         assert.ok(writes.some((w) => w.includes('"p_id":"c1"') && w.includes('"p_class":"packaging_supply"')), "manual class override sent");
         assert.ok(writes.some((w) => w.startsWith("rpc:revert_stock_item_merge:") && w.includes('"p_merge_id":"g1"')), "revert sent");
         assert.ok(writes.includes("invoke:stock-catalog-jev"), "scan invokes the edge function");
-        for (const sel of ["[data-bmq-catalog-merge] input", ".d3-sc-class", ".d3-sc-scan button"]) {
+        for (const sel of [".d3-sc-class", ".d3-sc-scan button"]) {
           const box = await page.locator(sel).first().boundingBox();
           assert.ok(box && box.height >= 36 && box.x >= 0 && box.x + box.width <= viewport.width, `${sel} usable at ${viewport.width}`);
         }

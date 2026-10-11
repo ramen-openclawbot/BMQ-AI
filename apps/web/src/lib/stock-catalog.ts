@@ -160,6 +160,8 @@ export interface StockCatalogPendingSuggestion {
   /** Production issue lines in the last 90 days, used to show which side is in use. */
   item_issue_count_90d: number;
   other_issue_count_90d: number | null;
+  /** Live ledger rows of the item being retired; 0 = no unit factor needed. */
+  source_live_refs: number | null;
 }
 
 export interface StockCatalogRecentMerge {
@@ -269,6 +271,7 @@ export function parseStockCatalogReview(raw: unknown): StockCatalogReview {
       created_at: asString(row.created_at, `${path}.created_at`),
       item_issue_count_90d: asNumber(row.item_issue_count_90d ?? 0, `${path}.item_issue_count_90d`),
       other_issue_count_90d: asNullableNumber(row.other_issue_count_90d, `${path}.other_issue_count_90d`),
+      source_live_refs: asNullableNumber(row.source_live_refs, `${path}.source_live_refs`),
     };
   });
 
