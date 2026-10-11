@@ -14,6 +14,7 @@ EXPECTED_GROUP = '''  {
       { icon: Package, labelKey: "inventoryOverview", path: "/inventory", section: "operations", moduleKey: "inventory", hiddenFromMenu: true },
       { icon: ClipboardList, labelKey: "stockLedger", path: "/warehouse/stock-ledger", section: "operations", moduleKey: "inventory" },
       { icon: ShoppingCart, labelKey: "autoPurchase", path: "/warehouse/auto-purchase", section: "operations", moduleKey: "inventory" },
+      { icon: GitMerge, labelKey: "catalogCleanup", path: "/warehouse/catalog-cleanup", section: "operations", moduleKey: "inventory" },
       { icon: Boxes, labelKey: "tanTaoWarehouse", path: "/warehouse/tan-tao", section: "operations", moduleKey: "inventory" },
       { icon: CookingPot, labelKey: "kitchenInventory", path: "/kitchen-inventory", section: "operations", moduleKey: "kitchen_inventory", hiddenFromMenu: true },
       { icon: PackageCheck, labelKey: "goodsReceipts", path: "/goods-receipts", section: "operations", moduleKey: "goods_receipts" },
@@ -33,7 +34,7 @@ NAVIGATION = (ROOT / "src/components/layout/navigation.ts").read_text()
 assert '<div className="d3-drawer-group-label">' in SIDEBAR
 assert 'data-sidebar-active={childActive ? "true" : undefined}' in SIDEBAR
 warehouse_zone = NAVIGATION.split('id: "warehouse"', 1)[1].split("prefixes:", 1)[0]
-for route in ("/warehouse/stock-ledger", "/warehouse/auto-purchase", "/warehouse/tan-tao", "/goods-receipts", "/purchase-orders"):
+for route in ("/warehouse/stock-ledger", "/warehouse/auto-purchase", "/warehouse/catalog-cleanup", "/warehouse/tan-tao", "/goods-receipts", "/purchase-orders"):
     assert f'"{route}"' in warehouse_zone, f"{route} must be in the Kho zone"
 
 # 2026-10-10: pages with no entries in 30 days are hidden from the menus but stay routable.

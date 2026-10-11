@@ -341,6 +341,16 @@ verify_jwt = false
 # never overwrites a CEO review_decision. BMQ_JEV_KILL_SWITCH=true refuses with 503.
 verify_jwt = false
 
+[functions.stock-catalog-jev]
+# verify_jwt disabled: the project issues ES256 user tokens and the proxy can
+# reject them before the function runs. Auth is enforced inside index.ts: the
+# Bearer token is validated server-side with auth.getUser(token), then the caller
+# must be an owner or have q7_material_inventory / kitchen_inventory edit. Reads
+# use fixed service-role SELECTs; only dedupe/classify suggestions are written,
+# never a payment, PO, goods receipt or allocation. BMQ_JEV_KILL_SWITCH=true
+# refuses with 503 and the daily stock_catalog_jev_usage limit caps Jev calls.
+verify_jwt = false
+
 [functions.salary-payout]
 # verify_jwt disabled: the project issues ES256 user tokens and the proxy can
 # reject them before the function runs. The handler validates the bearer token

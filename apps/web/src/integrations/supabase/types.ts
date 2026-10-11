@@ -2975,6 +2975,301 @@ export type Database = {
         }
         Relationships: []
       }
+      kitchen_inventory_items: {
+        Row: {
+          active: boolean
+          canonical_material_id: string | null
+          created_at: string
+          id: string
+          inventory_item_id: string | null
+          item_class: string | null
+          item_class_source: string | null
+          item_code: string
+          item_type: string
+          material_resolution_request_id: string | null
+          material_resolution_status: string | null
+          merged_at: string | null
+          merged_factor: number | null
+          merged_into_id: string | null
+          name: string
+          normalized_key: string
+          product_sku_id: string | null
+          source_hash: string | null
+          standard_unit_cost: number
+          trusted_source_batch_id: string | null
+          trusted_source_row_id: string | null
+          unit: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          canonical_material_id?: string | null
+          created_at?: string
+          id?: string
+          inventory_item_id?: string | null
+          item_class?: string | null
+          item_class_source?: string | null
+          item_code: string
+          item_type: string
+          material_resolution_request_id?: string | null
+          material_resolution_status?: string | null
+          merged_at?: string | null
+          merged_factor?: number | null
+          merged_into_id?: string | null
+          name: string
+          normalized_key: string
+          product_sku_id?: string | null
+          source_hash?: string | null
+          standard_unit_cost?: number
+          trusted_source_batch_id?: string | null
+          trusted_source_row_id?: string | null
+          unit: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          canonical_material_id?: string | null
+          created_at?: string
+          id?: string
+          inventory_item_id?: string | null
+          item_class?: string | null
+          item_class_source?: string | null
+          item_code?: string
+          item_type?: string
+          material_resolution_request_id?: string | null
+          material_resolution_status?: string | null
+          merged_at?: string | null
+          merged_factor?: number | null
+          merged_into_id?: string | null
+          name?: string
+          normalized_key?: string
+          product_sku_id?: string | null
+          source_hash?: string | null
+          standard_unit_cost?: number
+          trusted_source_batch_id?: string | null
+          trusted_source_row_id?: string | null
+          unit?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "kitchen_inventory_items_canonical_material_id_fkey"
+            columns: ["canonical_material_id"]
+            isOneToOne: false
+            referencedRelation: "sku_cogs_materials"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kitchen_inventory_items_merged_into_id_fkey"
+            columns: ["merged_into_id"]
+            isOneToOne: false
+            referencedRelation: "kitchen_inventory_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      stock_catalog_jev_usage: {
+        Row: {
+          call_limit: number
+          calls: number
+          cost: number
+          updated_at: string
+          usage_date: string
+        }
+        Insert: {
+          call_limit?: number
+          calls?: number
+          cost?: number
+          updated_at?: string
+          usage_date: string
+        }
+        Update: {
+          call_limit?: number
+          calls?: number
+          cost?: number
+          updated_at?: string
+          usage_date?: string
+        }
+        Relationships: []
+      }
+      stock_catalog_suggestions: {
+        Row: {
+          cost: number | null
+          created_at: string
+          decided_at: string | null
+          decided_by: string | null
+          factor_source: string | null
+          id: string
+          item_id: string
+          jev_answer: Json | null
+          kind: string
+          other_item_id: string | null
+          probability: number
+          prompt_version: string
+          proposed_class: string | null
+          proposed_factor: number | null
+          proposed_target_id: string | null
+          status: string
+        }
+        Insert: {
+          cost?: number | null
+          created_at?: string
+          decided_at?: string | null
+          decided_by?: string | null
+          factor_source?: string | null
+          id?: string
+          item_id: string
+          jev_answer?: Json | null
+          kind: string
+          other_item_id?: string | null
+          probability: number
+          prompt_version: string
+          proposed_class?: string | null
+          proposed_factor?: number | null
+          proposed_target_id?: string | null
+          status?: string
+        }
+        Update: {
+          cost?: number | null
+          created_at?: string
+          decided_at?: string | null
+          decided_by?: string | null
+          factor_source?: string | null
+          id?: string
+          item_id?: string
+          jev_answer?: Json | null
+          kind?: string
+          other_item_id?: string | null
+          probability?: number
+          prompt_version?: string
+          proposed_class?: string | null
+          proposed_factor?: number | null
+          proposed_target_id?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stock_catalog_suggestions_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: false
+            referencedRelation: "kitchen_inventory_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stock_catalog_suggestions_other_item_id_fkey"
+            columns: ["other_item_id"]
+            isOneToOne: false
+            referencedRelation: "kitchen_inventory_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stock_catalog_suggestions_proposed_target_id_fkey"
+            columns: ["proposed_target_id"]
+            isOneToOne: false
+            referencedRelation: "kitchen_inventory_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      stock_item_merge_rows: {
+        Row: {
+          created_at: string
+          id: string
+          merge_id: string
+          new_values: Json | null
+          old_values: Json | null
+          row_id: string
+          table_name: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          merge_id: string
+          new_values?: Json | null
+          old_values?: Json | null
+          row_id: string
+          table_name: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          merge_id?: string
+          new_values?: Json | null
+          old_values?: Json | null
+          row_id?: string
+          table_name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stock_item_merge_rows_merge_id_fkey"
+            columns: ["merge_id"]
+            isOneToOne: false
+            referencedRelation: "stock_item_merges"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      stock_item_merges: {
+        Row: {
+          applied_at: string
+          applied_by: string | null
+          factor: number
+          id: string
+          reverted_at: string | null
+          reverted_by: string | null
+          source_id: string
+          status: string
+          suggestion_id: string | null
+          target_id: string
+        }
+        Insert: {
+          applied_at?: string
+          applied_by?: string | null
+          factor: number
+          id?: string
+          reverted_at?: string | null
+          reverted_by?: string | null
+          source_id: string
+          status?: string
+          suggestion_id?: string | null
+          target_id: string
+        }
+        Update: {
+          applied_at?: string
+          applied_by?: string | null
+          factor?: number
+          id?: string
+          reverted_at?: string | null
+          reverted_by?: string | null
+          source_id?: string
+          status?: string
+          suggestion_id?: string | null
+          target_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stock_item_merges_source_id_fkey"
+            columns: ["source_id"]
+            isOneToOne: false
+            referencedRelation: "kitchen_inventory_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stock_item_merges_suggestion_id_fkey"
+            columns: ["suggestion_id"]
+            isOneToOne: false
+            referencedRelation: "stock_catalog_suggestions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stock_item_merges_target_id_fkey"
+            columns: ["target_id"]
+            isOneToOne: false
+            referencedRelation: "kitchen_inventory_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       cost_classification_category_summary: {
@@ -3376,6 +3671,70 @@ export type Database = {
       create_q7_draft_purchase_orders: {
         Args: { p_lines: Json; p_idempotency_key: string }
         Returns: Json
+      }
+      apply_stock_item_merge: {
+        Args: {
+          p_source: string
+          p_target: string
+          p_factor: number
+          p_suggestion?: string | null
+        }
+        Returns: Json
+      }
+      decide_stock_catalog_suggestion: {
+        Args: {
+          p_id: string
+          p_action: string
+          p_factor?: number | null
+          p_class?: string | null
+        }
+        Returns: Json
+      }
+      get_stock_catalog_candidates: {
+        Args: never
+        Returns: {
+          left_id: string
+          right_id: string
+          left_name: string
+          right_name: string
+          left_unit: string
+          right_unit: string
+          left_item_type: string
+          right_item_type: string
+          left_issue_count_90d: number
+          right_issue_count_90d: number
+          left_movement_count_90d: number
+          right_movement_count_90d: number
+          left_canonical_material_id: string | null
+          right_canonical_material_id: string | null
+          left_canonical_material_code: string | null
+          right_canonical_material_code: string | null
+          left_to_right_factor: number | null
+          right_to_left_factor: number | null
+        }[]
+      }
+      get_stock_catalog_review: {
+        Args: never
+        Returns: Json
+      }
+      link_kitchen_items_to_canonical_materials: {
+        Args: never
+        Returns: Json
+      }
+      revert_stock_item_merge: {
+        Args: { p_merge_id: string }
+        Returns: Json
+      }
+      stock_item_merge_resolve: {
+        Args: { p_item: string }
+        Returns: {
+          target_id: string
+          factor: number
+        }[]
+      }
+      stock_unit_factor: {
+        Args: { p_from: string; p_to: string }
+        Returns: number | null
       }
     }
     Enums: {

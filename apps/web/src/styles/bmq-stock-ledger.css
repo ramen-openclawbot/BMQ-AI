@@ -206,3 +206,52 @@
   .d3-ap-order { grid-column: 2; align-items: flex-start; text-align: left; }
   .d3-ap-actions .d3-sl-count-submit { width: 100%; }
 }
+
+/* ---------- Dọn danh mục ---------- */
+.d3-sc-scan { display: flex; flex-wrap: wrap; gap: 8px; }
+.d3-sc-scan button { height: 40px; gap: 8px; }
+
+.d3-sc-list { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+
+.d3-sc-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: var(--d3-white);
+}
+
+.d3-sc-row.is-classify,
+.d3-sc-row.is-history { flex-direction: row; align-items: center; justify-content: space-between; }
+.d3-sc-row.is-reverted { opacity: .6; }
+
+.d3-sc-pair { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 10px; }
+.d3-sc-arrow { color: var(--d3-dim); transform: rotate(180deg); }
+
+.d3-sc-side { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.d3-sc-side small { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--d3-dim); }
+.d3-sc-side strong { overflow-wrap: anywhere; font-size: 14px; font-weight: 500; }
+.d3-sc-side span { font-size: 12px; color: var(--d3-dim); }
+.d3-sc-side.is-keep strong { color: var(--d3-ink); }
+.d3-sc-side.is-keep small { color: #1f7a1f; }
+
+.d3-sc-meta { display: flex; flex-wrap: wrap; gap: 6px; }
+.d3-sc-prob, .d3-sc-warn { padding: 2px 8px; border-radius: 99px; font-size: 11px; background: var(--d3-card); color: var(--d3-dim); }
+.d3-sc-prob.is-high { background: #e3f6e3; color: #1f7a1f; }
+.d3-sc-prob.is-low { background: #fdf0d8; color: #7a4d06; }
+.d3-sc-warn { background: #fdf0d8; color: #7a4d06; }
+
+.d3-sc-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: end; gap: 8px; }
+.d3-sc-actions button { height: 40px; }
+.d3-sc-factor { display: flex; flex-direction: column; gap: 2px; font-size: 11px; color: var(--d3-dim); }
+.d3-sc-factor input { height: 40px; }
+.d3-sc-class { height: 40px; min-width: 150px; background: var(--d3-card); }
+.d3-sc-row.is-classify .d3-sc-actions { grid-template-columns: auto auto auto; }
+
+@media (max-width: 620px) {
+  .d3-sc-pair { grid-template-columns: minmax(0, 1fr); }
+  .d3-sc-arrow { transform: rotate(270deg); justify-self: start; }
+  .d3-sc-row.is-classify { flex-direction: column; align-items: stretch; }
+  .d3-sc-row.is-classify .d3-sc-actions { grid-template-columns: minmax(0, 1fr) auto auto; }
+}

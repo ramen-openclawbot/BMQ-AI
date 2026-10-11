@@ -93,6 +93,7 @@ export const ZONES: Zone[] = [
       // (no entries in 30 days); their routes still work and stay under this zone's prefixes.
       "/warehouse/stock-ledger",
       "/warehouse/auto-purchase",
+      "/warehouse/catalog-cleanup",
       "/warehouse/tan-tao",
       "/goods-receipts",
       "/purchase-orders",

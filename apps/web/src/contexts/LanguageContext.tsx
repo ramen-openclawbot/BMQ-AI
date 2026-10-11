@@ -7,6 +7,7 @@ interface Translations {
   dashboard: string;
   inventory: string;
   inventoryOverview: string;
+  catalogCleanup: string;
   autoPurchase: string;
   stockLedger: string;
   tanTaoWarehouse: string;
@@ -211,6 +212,7 @@ const translations: Record<Language, Translations> = {
     dashboard: "Dashboard",
     inventory: "Inventory",
     inventoryOverview: "Inventory Overview",
+    catalogCleanup: "Catalog Cleanup",
     autoPurchase: "Auto Purchasing",
     stockLedger: "Stock Ledger",
     tanTaoWarehouse: "Tan Tao Warehouse",
@@ -413,6 +415,7 @@ const translations: Record<Language, Translations> = {
     dashboard: "Tổng quan",
     inventory: "Kho hàng",
     inventoryOverview: "Tổng quan kho",
+    catalogCleanup: "Dọn danh mục",
     autoPurchase: "Đặt hàng tự động",
     stockLedger: "Sổ tồn NVL",
     tanTaoWarehouse: "Kho Tân Tạo",
