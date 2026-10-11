@@ -13,6 +13,13 @@ import {
   useStockCatalogReview,
 } from "@/hooks/useStockCatalog";
 import {
+  useMaterialAliasReview,
+  useRunAliasBacklog,
+  useSetMaterialAliasStatus,
+  useUndoMaterialAliasEvent,
+} from "@/hooks/useMaterialAlias";
+import { materialAliasActionLabel, materialAliasStatusLabel } from "@/lib/material-alias";
+import {
   ITEM_CLASS_LABELS,
   itemClassLabel,
   STOCK_ITEM_CLASSES,
@@ -158,6 +165,100 @@ function ClassifyRow({ row, canEdit }: { row: StockCatalogPendingSuggestion; can
         <span className="d3-wh-pill">{itemClassLabel(row.proposed_class)}</span>
       )}
     </li>
+  );
+}
+
+function LearnedAliasesCard({ canEdit }: { canEdit: boolean }) {
+  const { toast } = useToast();
+  const reviewQuery = useMaterialAliasReview(7);
+  const undo = useUndoMaterialAliasEvent();
+  const setStatus = useSetMaterialAliasStatus();
+  const backlog = useRunAliasBacklog();
+  const review = reviewQuery.data;
+  const aliases = review?.aliases ?? [];
+  const summary = review?.summary;
+  const fail = (title: string) => (error: unknown) => toast({ title, description: errorText(error), variant: "destructive" });
+
+  return (
+    <section className="d3-wh-card" style={{ ["--i" as string]: 4 }} data-bmq-learned-aliases>
+      <div className="d3-wh-card-h">
+        <h2>Bí danh đã học</h2>
+        <span className="d3-wh-pill">
+          {summary ? `${summary.auto_count} tự động · ${summary.learning_count} đang học` : "…"}
+        </span>
+        <p>
+          Tên hàng nhân viên đã xác nhận trong 7 ngày. Jev không đồng ý xếp đầu.
+          {summary ? ` Còn ${summary.pending_lines} dòng nhập chưa có mã.` : ""}
+        </p>
+        {canEdit ? (
+          <button
+            type="button"
+            className="d3-ap-link"
+            disabled={backlog.isPending}
+            onClick={() =>
+              backlog.mutate(
+                { location: "q7" },
+                {
+                  onSuccess: (data) => {
+                    const d = data as { evaluated?: number; skipped_existing?: number; calls?: number; stopped?: string | null };
+                    toast({ title: "Jev đã dò tên tồn đọng", description: `${d.evaluated ?? 0} tên mới, ${d.skipped_existing ?? 0} đã có, ${d.calls ?? 0} lượt gọi${d.stopped ? " · dừng vì hết hạn mức" : ""}.` });
+                  },
+                  onError: fail("Jev chưa dò được"),
+                },
+              )
+            }
+          >
+            {backlog.isPending ? "Jev đang dò…" : "Dò tên tồn đọng"}
+          </button>
+        ) : null}
+      </div>
+      {reviewQuery.isLoading ? (
+        <div className="d3-wh-empty">Đang tải…</div>
+      ) : reviewQuery.isError ? (
+        <div className="d3-wh-empty">Không tải được: {errorText(reviewQuery.error)}</div>
+      ) : aliases.length === 0 ? (
+        <div className="d3-wh-empty">Chưa có bí danh nào được xác nhận trong 7 ngày.</div>
+      ) : (
+        <ul className="d3-sc-list">
+          {aliases.map((alias) => (
+            <li key={alias.alias_id} className={`d3-sc-row is-history${alias.jev_disagreed ? " is-flagged" : ""}${alias.status === "disabled" ? " is-reverted" : ""}`} data-bmq-learned-alias>
+              <div className="d3-sc-side">
+                <strong>{alias.normalized_name} → {alias.item_name ?? "—"}</strong>
+                <span>
+                  {alias.supplier_name ?? "mọi NCC"} · {alias.pack_label ? `${alias.pack_label} = ${num(alias.conversion_factor)} ${alias.unit}` : alias.unit} · {materialAliasStatusLabel(alias.status)} {alias.confirm_count}/3
+                  {alias.jev_disagreed ? " · Jev không đồng ý" : ""}
+                  {alias.last_event ? ` · ${materialAliasActionLabel(alias.last_event.action)} ${shortDate(alias.last_event.created_at)}` : ""}
+                </span>
+              </div>
+              {canEdit ? (
+                <div className="d3-sc-actions is-inline">
+                  {alias.last_event?.id && alias.last_event.action !== "undo" && alias.last_event.action !== "auto_promoted" ? (
+                    <Button type="button" variant="outline" size="sm" disabled={undo.isPending} onClick={() => undo.mutate({ eventId: alias.last_event?.id as string }, { onSuccess: () => toast({ title: "Đã hoàn tác" }), onError: fail("Chưa hoàn tác được") })}>
+                      <RotateCcw className="h-3.5 w-3.5" />
+                      Hoàn tác
+                    </Button>
+                  ) : null}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={setStatus.isPending}
+                    onClick={() =>
+                      setStatus.mutate(
+                        { aliasId: alias.alias_id, status: alias.status === "disabled" ? "auto" : "disabled" },
+                        { onSuccess: () => toast({ title: alias.status === "disabled" ? "Đã bật lại" : "Đã tắt bí danh" }), onError: fail("Chưa đổi được") },
+                      )
+                    }
+                  >
+                    {alias.status === "disabled" ? "Bật lại" : "Tắt"}
+                  </Button>
+                </div>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
@@ -347,6 +448,8 @@ export default function StockCatalogCleanup() {
               </ul>
             )}
           </section>
+
+          <LearnedAliasesCard canEdit={canEdit} />
         </div>
       </div>
     </div>

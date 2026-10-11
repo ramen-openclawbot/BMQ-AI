@@ -2720,6 +2720,128 @@ export type Database = {
         }
         Relationships: []
       }
+      material_alias_events: {
+        Row: {
+          action: string
+          actor_id: string | null
+          alias_id: string | null
+          created_at: string
+          id: string
+          jev_item_id: string | null
+          jev_probability: number | null
+          new_factor: number | null
+          new_item_id: string | null
+          new_sku_id: string | null
+          previous_factor: number | null
+          previous_item_id: string | null
+          previous_sku_id: string | null
+          raw_name: string | null
+          raw_unit: string | null
+          source_id: string | null
+          source_table: string | null
+          undo_of_event_id: string | null
+        }
+        Insert: {
+          action: string
+          actor_id?: string | null
+          alias_id?: string | null
+          created_at?: string
+          id?: string
+          jev_item_id?: string | null
+          jev_probability?: number | null
+          new_factor?: number | null
+          new_item_id?: string | null
+          new_sku_id?: string | null
+          previous_factor?: number | null
+          previous_item_id?: string | null
+          previous_sku_id?: string | null
+          raw_name?: string | null
+          raw_unit?: string | null
+          source_id?: string | null
+          source_table?: string | null
+          undo_of_event_id?: string | null
+        }
+        Update: {
+          action?: string
+          actor_id?: string | null
+          alias_id?: string | null
+          created_at?: string
+          id?: string
+          jev_item_id?: string | null
+          jev_probability?: number | null
+          new_factor?: number | null
+          new_item_id?: string | null
+          new_sku_id?: string | null
+          previous_factor?: number | null
+          previous_item_id?: string | null
+          previous_sku_id?: string | null
+          raw_name?: string | null
+          raw_unit?: string | null
+          source_id?: string | null
+          source_table?: string | null
+          undo_of_event_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "material_alias_events_alias_id_fkey"
+            columns: ["alias_id"]
+            isOneToOne: false
+            referencedRelation: "stock_material_aliases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "material_alias_events_undo_of_event_id_fkey"
+            columns: ["undo_of_event_id"]
+            isOneToOne: false
+            referencedRelation: "material_alias_events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      material_alias_jev_cache: {
+        Row: {
+          answer: Json
+          candidates_hash: string
+          cost: number | null
+          created_at: string
+          id: string
+          location: string
+          normalized_name: string
+          prompt_version: string
+          supplier_id: string | null
+        }
+        Insert: {
+          answer: Json
+          candidates_hash: string
+          cost?: number | null
+          created_at?: string
+          id?: string
+          location: string
+          normalized_name: string
+          prompt_version: string
+          supplier_id?: string | null
+        }
+        Update: {
+          answer?: Json
+          candidates_hash?: string
+          cost?: number | null
+          created_at?: string
+          id?: string
+          location?: string
+          normalized_name?: string
+          prompt_version?: string
+          supplier_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "material_alias_jev_cache_supplier_id_fkey"
+            columns: ["supplier_id"]
+            isOneToOne: false
+            referencedRelation: "suppliers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       stock_material_aliases: {
         Row: {
           conversion_factor: number
@@ -2733,6 +2855,15 @@ export type Database = {
           tan_tao_sku_id: string | null
           unit: string
           updated_at: string
+          confirm_count: number
+          confirmers: string[]
+          status: string
+          pack_label: string | null
+          last_confirmed_at: string | null
+          jev_item_id: string | null
+          jev_probability: number | null
+          jev_disagreed: boolean
+          prompt_version: string | null
         }
         Insert: {
           conversion_factor?: number
@@ -2746,6 +2877,15 @@ export type Database = {
           tan_tao_sku_id?: string | null
           unit: string
           updated_at?: string
+          confirm_count?: number
+          confirmers?: string[]
+          status?: string
+          pack_label?: string | null
+          last_confirmed_at?: string | null
+          jev_item_id?: string | null
+          jev_probability?: number | null
+          jev_disagreed?: boolean
+          prompt_version?: string | null
         }
         Update: {
           conversion_factor?: number
@@ -2759,6 +2899,15 @@ export type Database = {
           tan_tao_sku_id?: string | null
           unit?: string
           updated_at?: string
+          confirm_count?: number
+          confirmers?: string[]
+          status?: string
+          pack_label?: string | null
+          last_confirmed_at?: string | null
+          jev_item_id?: string | null
+          jev_probability?: number | null
+          jev_disagreed?: boolean
+          prompt_version?: string | null
         }
         Relationships: [
           {
@@ -3735,6 +3884,81 @@ export type Database = {
       stock_unit_factor: {
         Args: { p_from: string; p_to: string }
         Returns: number | null
+      }
+      material_alias_can_view: {
+        Args: { p_actor_id: string }
+        Returns: boolean
+      }
+      material_alias_can_edit: {
+        Args: { p_actor_id: string }
+        Returns: boolean
+      }
+      material_alias_can_admin: {
+        Args: { p_actor_id: string }
+        Returns: boolean
+      }
+      material_alias_candidate_score: {
+        Args: { p_raw: string; p_candidate: string }
+        Returns: number
+      }
+      material_alias_candidates_hash: {
+        Args: { p_candidate_ids: string[] }
+        Returns: string
+      }
+      material_alias_candidates: {
+        Args: { p_name: string; p_location: string; p_limit?: number }
+        Returns: {
+          item_id: string | null
+          sku_id: string | null
+          name: string
+          unit: string
+          score: number
+          reason: string
+        }[]
+      }
+      suggest_material_aliases: {
+        Args: { p_supplier_id: string | null; p_location: string; p_lines: Json }
+        Returns: Json
+      }
+      confirm_material_alias: {
+        Args: {
+          p_supplier_id: string | null
+          p_location: string
+          p_raw_name: string
+          p_raw_unit: string | null
+          p_kitchen_inventory_item_id: string | null
+          p_tan_tao_sku_id: string | null
+          p_entered_unit_label: string | null
+          p_conversion_factor: number
+          p_jev_item_id: string | null
+          p_jev_probability: number | null
+          p_source_table: string | null
+          p_source_id: string | null
+        }
+        Returns: Json
+      }
+      undo_material_alias_event: {
+        Args: { p_event_id: string }
+        Returns: Json
+      }
+      set_material_alias_status: {
+        Args: { p_alias_id: string; p_status: string }
+        Returns: Json
+      }
+      get_material_alias_review: {
+        Args: { p_days?: number }
+        Returns: Json
+      }
+      get_material_alias_backlog: {
+        Args: { p_location?: string; p_limit?: number }
+        Returns: {
+          supplier_id: string | null
+          normalized_name: string
+          raw_name: string
+          raw_unit: string | null
+          location: string
+          receipt_count: number
+        }[]
       }
     }
     Enums: {

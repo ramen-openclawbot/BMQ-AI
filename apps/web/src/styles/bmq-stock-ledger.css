@@ -255,3 +255,7 @@
   .d3-sc-row.is-classify { flex-direction: column; align-items: stretch; }
   .d3-sc-row.is-classify .d3-sc-actions { grid-template-columns: minmax(0, 1fr) auto auto; }
 }
+
+.d3-sc-row.is-flagged { box-shadow: inset 3px 0 0 var(--d3-red); }
+.d3-sc-actions.is-inline { display: flex; grid-template-columns: none; gap: 6px; }
+.d3-sc-actions.is-inline button { height: 36px; }

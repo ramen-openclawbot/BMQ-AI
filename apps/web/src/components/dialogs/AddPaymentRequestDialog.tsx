@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
+import { MaterialAliasPanel } from "@/components/material-alias/MaterialAliasPanel";
 import { useQueryClient } from "@tanstack/react-query";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -974,6 +975,11 @@ export function AddPaymentRequestDialog({
                   })}
                 </div>
               )}
+              <MaterialAliasPanel
+                supplierId={watchSupplierId || null}
+                lines={(watchItems ?? []).map((item) => ({ product_name: item?.product_name ?? "", unit: item?.unit ?? null }))}
+                sourceTable="payment_requests"
+              />
               <Button
                 type="button"
                 variant="outline"

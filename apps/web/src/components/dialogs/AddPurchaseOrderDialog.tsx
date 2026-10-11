@@ -1,5 +1,6 @@
 import { useState, useRef } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
+import { MaterialAliasPanel } from "@/components/material-alias/MaterialAliasPanel";
 import { useQueryClient } from "@tanstack/react-query";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -572,9 +573,9 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
         </div>
 
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="min-w-0 space-y-6">
             {/* Supplier and Dates */}
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <FormField
                 control={form.control}
                 name="supplier_id"
@@ -792,6 +793,11 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
               {form.formState.errors.items?.message && (
                 <p className="text-sm text-destructive">{form.formState.errors.items.message}</p>
               )}
+              <MaterialAliasPanel
+                supplierId={watchSupplierId || null}
+                lines={(watchItems ?? []).map((item) => ({ product_name: item?.product_name ?? "", unit: item?.unit ?? null }))}
+                sourceTable="purchase_orders"
+              />
             </div>
 
             {/* VAT and Total */}

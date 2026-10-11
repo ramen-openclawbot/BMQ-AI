@@ -351,6 +351,17 @@ verify_jwt = false
 # refuses with 503 and the daily stock_catalog_jev_usage limit caps Jev calls.
 verify_jwt = false
 
+[functions.stock-alias-jev]
+# verify_jwt disabled: the project issues ES256 user tokens and the proxy can
+# reject them before the function runs. Auth is enforced inside index.ts: the
+# Bearer token is validated server-side with auth.getUser(token), then the caller
+# must have Q7 stock edit or a purchase-order / payment-request write role.
+# Reads use fixed service-role SELECTs; only material_alias_jev_cache rows and
+# the shared stock_catalog_jev_usage counter are written, never an alias, a
+# payment, a PO, a goods receipt or an allocation. BMQ_JEV_KILL_SWITCH=true
+# refuses with 503 and the shared daily usage limit caps Jev calls.
+verify_jwt = false
+
 [functions.salary-payout]
 # verify_jwt disabled: the project issues ES256 user tokens and the proxy can
 # reject them before the function runs. The handler validates the bearer token
