@@ -11,10 +11,18 @@ import { Shelf, entriesFor, type ShelfEntry } from "@/game/Shelf";
 import { Sheet } from "@/game/Sheet";
 import { Scene, usePortrait } from "@/game/Scene";
 import { CLASS_META, ITEM_UNITS, asClass, fmtQty, newRequestId, normalizeName, type GameClass } from "@/game/meta";
+import { STATION_META, STATION_ORDER, Workshop, type StationId } from "@/game/Workshop";
+import { StationView } from "@/game/Stations";
+import { useAuth } from "@/contexts/AuthContext";
+import { useStockCatalogReview } from "@/hooks/useStockCatalog";
+import { useMaterialAliasReview, useNewItemSuggestions } from "@/hooks/useMaterialAlias";
+import { useStockRoutingReview } from "@/hooks/useStockRouting";
 import "@/game/game.css";
 
 type View =
   | { kind: "yard" }
+  | { kind: "workshop" }
+  | { kind: "station"; id: StationId }
   | { kind: "warehouse"; location: WarehouseGameLocation }
   | { kind: "shelf"; location: WarehouseGameLocation; cls: GameClass };
 
@@ -77,6 +85,20 @@ export default function WarehouseGame() {
   const [flying, setFlying] = useState<{ key: string; to: GameClass } | null>(null);
   const [justSaved, setJustSaved] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const { isOwner, canEditModule } = useAuth();
+  const canClean = isOwner || canEditModule("q7_material_inventory") || canEditModule("kitchen_inventory");
+  const catalogReview = useStockCatalogReview();
+  const aliasReview = useMaterialAliasReview(7);
+  const newQ7 = useNewItemSuggestions("q7");
+  const newTt = useNewItemSuggestions("tan_tao");
+  const routing = useStockRoutingReview();
+
+  // Full screen: the game owns the page while it is open.
+  useEffect(() => {
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = previous; };
+  }, []);
 
   useEffect(() => {
     if (!toast) return;
@@ -96,13 +118,36 @@ export default function WarehouseGame() {
   const go = (next: View) => { setPanel(null); setQuery(""); setView(next); };
   const back = () => {
     if (view.kind === "shelf") go({ kind: "warehouse", location: view.location });
-    else if (view.kind === "warehouse") go({ kind: "yard" });
+    else if (view.kind === "station") go({ kind: "workshop" });
+    else if (view.kind === "warehouse" || view.kind === "workshop") go({ kind: "yard" });
   };
 
-  const current = view.kind === "yard" ? undefined : snaps[view.location];
-  const currentQuery = view.kind === "yard" ? undefined : view.location === "q7" ? q7 : tt;
-  const title = view.kind === "yard" ? "Phố kho BMQ" : view.kind === "warehouse" ? LOCATION_LABEL[view.location] : `${CLASS_META[view.cls].icon} ${CLASS_META[view.cls].label}`;
-  const subtitle = view.kind === "yard" ? "Bấm vào kho để vào" : view.kind === "shelf" ? LOCATION_LABEL[view.location] : current?.cutover_date ? `Sổ từ ${current.cutover_date.split("-").reverse().join("/")}` : "Sổ chưa bắt đầu";
+  const pendingSuggestions = catalogReview.data?.pending_suggestions ?? [];
+  const stations = STATION_ORDER.map((id) => {
+    const count = id === "merge" ? pendingSuggestions.filter((row) => row.kind === "merge").length
+      : id === "classify" ? pendingSuggestions.filter((row) => row.kind === "classify").length
+      : id === "new" ? (newQ7.data ?? []).filter((g) => g.status === "pending").length + (newTt.data ?? []).filter((g) => g.status === "pending").length
+      : id === "backlog" ? totalCrates
+      : id === "aliases" ? (aliasReview.data?.aliases.length ?? 0)
+      : id === "routing" ? (routing.data ? routing.data.supplier_pending.length + routing.data.material_pending.length : 0)
+      : null;
+    return { id, ...STATION_META[id], count: id === "aliases" ? null : count };
+  });
+  const workshopTodo = stations.reduce((sum, station) => sum + (station.id === "backlog" ? 0 : station.count ?? 0), 0);
+
+  const inWarehouse = view.kind === "warehouse" || view.kind === "shelf";
+  const current = inWarehouse ? snaps[view.location] : undefined;
+  const currentQuery = inWarehouse ? (view.location === "q7" ? q7 : tt) : undefined;
+  const title = view.kind === "yard" ? "Phố kho BMQ"
+    : view.kind === "workshop" ? "Xưởng dọn danh mục"
+    : view.kind === "station" ? `${STATION_META[view.id].icon} ${STATION_META[view.id].label}`
+    : view.kind === "warehouse" ? LOCATION_LABEL[view.location]
+    : `${CLASS_META[view.cls].icon} ${CLASS_META[view.cls].label}`;
+  const subtitle = view.kind === "yard" ? "Bấm vào kho để vào"
+    : view.kind === "workshop" ? (workshopTodo ? `${workshopTodo} việc đang chờ` : "Mọi bàn đã gọn")
+    : view.kind === "station" ? "Xưởng dọn danh mục"
+    : view.kind === "shelf" ? LOCATION_LABEL[view.location]
+    : current?.cutover_date ? `Sổ từ ${current.cutover_date.split("-").reverse().join("/")}` : "Sổ chưa bắt đầu";
 
   const afterAssign = (location: WarehouseGameLocation, crate: WarehouseGamePendingRow, cls: GameClass, label: string) => {
     setPanel(null);
@@ -115,7 +160,7 @@ export default function WarehouseGame() {
   };
 
   return (
-    <div className={`kg${portrait ? " is-portrait" : ""}`} data-bmq-warehouse-game>
+    <div className={`kg is-full${portrait ? " is-portrait" : ""}`} data-bmq-warehouse-game>
       <header className="hud">
         <button type="button" className="round-btn" onClick={back} disabled={view.kind === "yard"} aria-label="Quay lại">
           <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
@@ -130,6 +175,9 @@ export default function WarehouseGame() {
             <span className="todo-bar"><i style={{ width: `${startCrates ? (done / Math.max(1, startCrates)) * 100 : 0}%` }} /></span>
           </div>
         </div>
+        <button type="button" className="round-btn exit-btn" onClick={() => navigate("/")} aria-label="Thoát về Tổng quan" title="Thoát về Tổng quan">
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4M10 16l-4-4 4-4M6 12h10" fill="none" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+        </button>
       </header>
 
       <main className="stage">
@@ -141,16 +189,28 @@ export default function WarehouseGame() {
                 counts={counts}
                 crates={crates}
                 onEnter={(location) => go({ kind: "warehouse", location })}
-                onZone={(zone) => setPanel({ kind: "zone", zone })}
+                onZone={(zone) => (zone.id === "clean" ? go({ kind: "workshop" }) : setPanel({ kind: "zone", zone }))}
               />
             </Scene>
           )
         ) : null}
 
-        {view.kind !== "yard" && currentQuery?.isError ? (
+        {view.kind === "workshop" ? (
+          <Scene id={`workshop-${portrait}`} scroll>
+            <Workshop portrait={portrait} stations={stations} onStation={(id) => go({ kind: "station", id })} />
+          </Scene>
+        ) : null}
+
+        {view.kind === "station" ? (
+          <Scene id={`station-${view.id}`} scroll>
+            <StationView id={view.id} canEdit={canClean} />
+          </Scene>
+        ) : null}
+
+        {inWarehouse && currentQuery?.isError ? (
           <div className="loading"><div className="err">{errorText(currentQuery.error)}</div></div>
         ) : null}
-        {view.kind !== "yard" && !current && currentQuery?.isLoading ? <div className="loading">Đang mở cửa kho…</div> : null}
+        {inWarehouse && !current && currentQuery?.isLoading ? <div className="loading">Đang mở cửa kho…</div> : null}
 
         {view.kind === "warehouse" && current ? (
           <Scene id={`wh-${view.location}-${portrait}`} scroll>

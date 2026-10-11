@@ -45,7 +45,7 @@ const shortDate = (iso: string | null | undefined) => {
   return d && m && y ? `${d}/${m}` : iso;
 };
 
-const errorText = (error: unknown) => {
+export const errorText = (error: unknown) => {
   const message = String((error as { message?: string })?.message ?? error);
   if (message.includes("insufficient_privilege")) return "Tài khoản chưa có quyền sửa danh mục kho.";
   if (message.includes("merge_source_was_target") || message.includes("merge_target_merged")) return "Mặt hàng này đã nằm trong một lần gộp khác. Hoàn tác lần đó trước.";
@@ -57,7 +57,7 @@ const errorText = (error: unknown) => {
 
 const usageText = (count: number | null) => (count === null ? "" : count > 0 ? `${count} phiếu xuất 90 ngày` : "không dùng 90 ngày");
 
-function MergeRow({ row, canEdit }: { row: StockCatalogPendingSuggestion; canEdit: boolean }) {
+export function MergeRow({ row, canEdit }: { row: StockCatalogPendingSuggestion; canEdit: boolean }) {
   const { toast } = useToast();
   const decide = useDecideStockCatalogSuggestion();
   const [factor, setFactor] = useState(row.proposed_factor === null ? "" : String(row.proposed_factor));
@@ -133,7 +133,7 @@ function MergeRow({ row, canEdit }: { row: StockCatalogPendingSuggestion; canEdi
   );
 }
 
-function ClassifyRow({ row, canEdit }: { row: StockCatalogPendingSuggestion; canEdit: boolean }) {
+export function ClassifyRow({ row, canEdit }: { row: StockCatalogPendingSuggestion; canEdit: boolean }) {
   const { toast } = useToast();
   const decide = useDecideStockCatalogSuggestion();
   const [cls, setCls] = useState<StockItemClass | "">(row.proposed_class ?? "");
@@ -176,7 +176,7 @@ function ClassifyRow({ row, canEdit }: { row: StockCatalogPendingSuggestion; can
   );
 }
 
-function LearnedAliasesCard({ canEdit }: { canEdit: boolean }) {
+export function LearnedAliasesCard({ canEdit }: { canEdit: boolean }) {
   const { toast } = useToast();
   const reviewQuery = useMaterialAliasReview(7);
   const undo = useUndoMaterialAliasEvent();

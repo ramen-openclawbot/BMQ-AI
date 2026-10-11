@@ -281,6 +281,9 @@ export function AppRoutes() {
         </ProtectedRoute>
       } />
 
+      {/* Kho 2D runs full screen, outside the BMQ shell (owner decision 2026-10-12). */}
+      <Route path="/warehouse/game" element={<ProtectedRoute><ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><WarehouseGame /></Suspense></ModuleRoute></ProtectedRoute>} />
+
       {/* Main App Routes */}
       <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
         <Route path="/" element={<Index />} />
@@ -333,7 +336,6 @@ export function AppRoutes() {
         {/* Warehouse extension routes */}
         <Route path="/warehouse/stock-ledger" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><StockLedger /></Suspense></ModuleRoute>} />
         <Route path="/warehouse/auto-purchase" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><AutoPurchase /></Suspense></ModuleRoute>} />
-        <Route path="/warehouse/game" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><WarehouseGame /></Suspense></ModuleRoute>} />
         <Route path="/warehouse/catalog-cleanup" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><StockCatalogCleanup /></Suspense></ModuleRoute>} />
         <Route path="/warehouse/tan-tao" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><TanTaoWarehouse /></Suspense></ModuleRoute>} />
         <Route path="/warehouse/dispatch" element={<Suspense fallback={<AppLoadingFallback />}><WarehouseDispatch /></Suspense>} />

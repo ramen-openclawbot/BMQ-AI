@@ -335,7 +335,8 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       assert.equal(await page.locator("[data-bmq-catalog-classify]").count(), 2);
       assert.equal(await page.locator("[data-bmq-catalog-history]").count(), 2);
       const chips = await page.$$eval(".d3-subnav .d3-chip", (els) => els.map((el) => el.textContent.trim()));
-      assert.ok(chips[2]?.includes("Dọn danh mục"), chips.join(","));
+      // Dọn danh mục moved into Kho 2D (2026-10-12): the page still opens but has no chip.
+      assert.ok(!chips.some((chip) => chip.includes("Dọn danh mục")) && chips[0]?.includes("Kho 2D"), chips.join(","));
       const first = page.locator("[data-bmq-catalog-merge]").first();
       assert.ok((await first.locator(".is-keep strong").textContent()).includes("Bột mì 888 Cam"), "keep side shows the in-use item");
       assert.equal(await page.locator(".d3-sc-warn", { hasText: "cần nhập hệ số" }).count(), 0, "no factor warning when nothing is live");

@@ -369,7 +369,7 @@ async function open(cfg, route, viewport, extra = {}) {
   await page.goto(BASE + route, { waitUntil: "domcontentloaded" });
   // Duyệt chi now opens on "Chưa thanh toán" (Trình chi gấp); these checks cover the full list.
   if (route === "/payment-requests") await page.locator("[data-bmq-pr-view-all]").click({ timeout: 15000 });
-  await page.waitForSelector("[data-bmq-shell='demo3-v1']", { timeout: 30000 });
+  await page.waitForSelector(route === "/warehouse/game" ? "[data-bmq-warehouse-game]" : "[data-bmq-shell='demo3-v1']", { timeout: 30000 });
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(250);
   return { context, page, errors };
@@ -476,6 +476,51 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     record(`game ${role} ${viewport.width}`);
     await context.close();
   }
+}
+for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 640 }]) {
+  const { context, page, errors } = await open({ data: "populated", role: "owner" }, "/warehouse/game", viewport);
+  await page.waitForSelector("[data-bmq-warehouse-game]", { timeout: 20000 });
+  await page.waitForTimeout(1200);
+  const box = await page.locator("[data-bmq-warehouse-game]").boundingBox();
+  assert.ok(box && Math.abs(box.width - viewport.width) < 2 && Math.abs(box.height - viewport.height) < 2, `full screen ${viewport.width}: ${JSON.stringify(box)}`);
+  assert.equal(await page.locator(".d3-header").count(), 0, "no BMQ shell header in the game");
+  await page.getByRole("button", { name: "Xưởng dọn" }).click({ force: true });
+  await page.waitForTimeout(900);
+  assert.ok((await page.locator(".kg .title-pill b").textContent()).includes("Xưởng dọn danh mục"));
+  await page.screenshot({ path: `${EVIDENCE}/workshop-${viewport.width}.png` });
+  for (const [station, check] of [["Bàn gộp", "[data-bmq-catalog-merge]"], ["Bàn phân loại", "[data-bmq-catalog-classify]"], ["Hàng mới đề xuất", "[data-bmq-new-items]"], ["Tên chờ gán mã", "[data-bmq-alias-backlog]"], ["Bảng bí danh", "[data-bmq-learned-aliases]"], ["Bàn xếp kho", "[data-bmq-routing-suppliers]"], ["Máy Jev", ".jev-meter"]]) {
+    await page.getByRole("button", { name: new RegExp(`^${station}`) }).click({ force: true });
+    await page.waitForTimeout(900);
+    assert.ok((await page.locator(check).count()) >= 1, `${station} shows its tool at ${viewport.width}`);
+    assert.equal(await overflow(page), 0, `${station} no overflow ${viewport.width}`);
+    await page.screenshot({ path: `${EVIDENCE}/station-${station.replace(/\s+/g, "-")}-${viewport.width}.png` });
+    if (station === "Bàn gộp") {
+      await page.locator("[data-bmq-catalog-merge]").nth(3).getByRole("button", { name: "Bỏ" }).click({ force: true });
+      await page.waitForTimeout(300);
+      const writes = await page.evaluate(() => window.__qaWrites);
+      assert.ok(writes.some((w) => w.startsWith("rpc:decide_stock_catalog_suggestion:") && w.includes('"p_action":"reject"')), "merge decision sent from the workshop");
+    }
+    if (station === "Hàng mới đề xuất") {
+      await page.locator(".kg .loc-switch button", { hasText: "Kho Tân Tạo" }).click({ force: true });
+      await page.waitForTimeout(500);
+      assert.equal(await page.locator(".kg .loc-switch button.is-on", { hasText: "Tân Tạo" }).count(), 1);
+    }
+    if (station === "Máy Jev") {
+      await page.getByRole("button", { name: /Quét cặp trùng/ }).click({ force: true });
+      await page.waitForTimeout(400);
+      const writes = await page.evaluate(() => window.__qaWrites);
+      assert.ok(writes.includes("invoke:stock-catalog-jev"), "Jev machine runs the catalog scan");
+    }
+    await page.locator(".kg .hud .round-btn").first().click({ force: true });
+    await page.waitForTimeout(700);
+  }
+  await page.locator(".kg .exit-btn").click({ force: true });
+  await page.waitForTimeout(1500);
+  assert.equal(new URL(page.url()).pathname, "/", "exit goes to Tổng quan");
+  assert.equal(await page.locator("[data-bmq-warehouse-game]").count(), 0, "game closed");
+  assert.deepEqual(errors, [], "no page errors");
+  record(`workshop + full screen ${viewport.width}`);
+  await context.close();
 }
 await browser.close();
 await server.close();

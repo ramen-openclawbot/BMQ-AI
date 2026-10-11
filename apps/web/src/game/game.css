@@ -254,3 +254,68 @@
 .kg .conv input { width: 110px; height: 44px; padding: 0 10px; font-size: 16px; font-weight: 700; background: var(--white); border: 3px solid var(--ink); border-radius: 12px; }
 .kg .err { padding: 10px 12px; font-size: 13.5px; font-weight: 800; color: #7d1d2c; background: var(--coral-light); border: 2.5px solid var(--ink); border-radius: 12px; }
 .kg .loading { display: grid; place-items: center; height: 100%; font-family: "Baloo 2", sans-serif; font-size: 20px; }
+
+/* ---- Full screen (owner decision 2026-10-12): outside the BMQ shell ---- */
+.kg.is-full {
+  position: fixed; inset: 0; z-index: 40; height: 100dvh; min-height: 0; margin: 0;
+  border-radius: 0; box-shadow: none;
+}
+.kg .hud { grid-template-columns: auto minmax(0, 1fr) auto auto; }
+.kg .exit-btn { background: var(--coral); }
+@media (max-width: 420px) {
+  .kg .round-btn { width: 42px; height: 42px; }
+  .kg .todo { padding: 8px 8px 6px 20px; }
+  .kg .todo-body small { font-size: 10px; }
+  .kg .todo-bar { width: 44px; }
+}
+
+/* ---- Workshop stations: the old cleanup cards, re-skinned for the game ---- */
+.kg .loc-switch { display: inline-flex; gap: 4px; padding: 4px; background: var(--cream); border: 3px solid var(--ink); border-radius: 99px; box-shadow: var(--soft); }
+.kg .loc-switch button { min-height: 38px; padding: 0 14px; border-radius: 99px; font-family: "Baloo 2", sans-serif; font-weight: 800; font-size: 15px; }
+.kg .loc-switch button.is-on { background: var(--ink); color: var(--cream); }
+.kg .station-body {
+  --d3-ink: var(--ink); --d3-ink-2: #4a4766; --d3-dim: #6f6a85; --d3-faint: #a6a1b8; --d3-white: var(--white); --d3-card: var(--cream);
+  --d3-line: rgba(44,41,71,.18); --d3-line-2: rgba(44,41,71,.26); --d3-green: var(--sage-deep); --d3-red: var(--coral); --d3-pink: var(--coral-light); --d3-blue: var(--plum);
+  --d3-sans: "Nunito", system-ui, sans-serif; --d3-num: "Baloo 2", "Nunito", sans-serif; --d3-ease: cubic-bezier(.2, .8, .2, 1); --d3-sh: var(--soft);
+  --background: 42 70% 93%; --foreground: 245 27% 22%; --card: 42 70% 93%; --card-foreground: 245 27% 22%;
+  --popover: 42 100% 97%; --popover-foreground: 245 27% 22%;
+  --primary: 155 19% 53%; --primary-foreground: 42 100% 97%;
+  --secondary: 40 58% 80%; --secondary-foreground: 245 27% 22%;
+  --muted: 40 58% 85%; --muted-foreground: 249 12% 47%;
+  --accent: 40 82% 78%; --accent-foreground: 245 27% 22%;
+  --destructive: 350 60% 63%; --destructive-foreground: 42 100% 97%;
+  --border: 245 27% 22%; --input: 245 27% 22%; --ring: 40 82% 58%;
+  display: grid; gap: 18px; font-family: "Nunito", system-ui, sans-serif; color: var(--ink);
+}
+.kg .station-body .d3-wh-card {
+  padding: 18px; background: var(--cream); border: 3px solid var(--ink); border-radius: 20px; box-shadow: var(--soft); animation: none;
+}
+.kg .station-body .d3-wh-card-h h2 { margin: 0; font-family: "Baloo 2", sans-serif; font-size: 21px; font-weight: 800; color: var(--ink); }
+.kg .station-body .d3-wh-card-h p, .kg .station-body .d3-wh-card-h small { color: #6f6a85; font-weight: 600; }
+.kg .station-body .d3-wh-pill { background: var(--mustard-light); color: var(--ink); border: 2.5px solid var(--ink); font-weight: 800; }
+.kg .station-body .d3-wh-empty { font-weight: 700; color: #6f6a85; }
+.kg .station-body .d3-sc-row, .kg .station-body .d3-ma-row {
+  background: var(--white); border: 2.5px solid var(--ink); border-radius: 14px; box-shadow: none;
+}
+.kg .station-body .d3-ma { background: transparent; padding: 0; }
+.kg .station-body .d3-wh-select, .kg .station-body input:not([type="checkbox"]):not([type="radio"]) {
+  min-height: 42px; background: var(--white); border: 2.5px solid var(--ink); border-radius: 12px; color: var(--ink); font-weight: 700;
+}
+.kg .station-body button[class*="rounded-md"] {
+  border: 2.5px solid var(--ink); border-radius: 12px; box-shadow: var(--soft); font-family: "Baloo 2", sans-serif; font-weight: 800;
+}
+.kg .station-body button[class*="rounded-md"]:active { transform: translate(2px, 3px); box-shadow: none; }
+.kg .station-body .d3-ap-link { color: var(--plum); font-weight: 800; }
+.kg .station-body .d3-sc-prob { border: 2px solid var(--ink); font-weight: 800; }
+.kg .station-body .d3-ab-tabs button.is-on { background: var(--ink); color: var(--cream); }
+.kg .station-body .d3-ab-tabs button { border: 2.5px solid var(--ink); }
+.kg .kg-mini { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 12px; font-family: "Baloo 2", sans-serif; font-weight: 800; background: var(--white); border: 2.5px solid var(--ink); border-radius: 12px; box-shadow: var(--soft); }
+.kg .jev-meter { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.kg .jev-meter div { display: grid; gap: 2px; padding: 12px 14px; background: var(--plum); color: var(--white); border: 3px solid var(--ink); border-radius: 16px; box-shadow: var(--soft); }
+.kg .jev-meter small { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; opacity: .9; }
+.kg .jev-meter b { font-family: "Baloo 2", sans-serif; font-size: 24px; line-height: 1.1; }
+.kg .jev-buttons { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+.kg .jev-buttons .btn { height: 56px; }
+.kg .station-view .note { padding: 0 4px; }
+.kg .station-body button[class*="rounded-md"] { padding: 0 14px; min-width: 64px; white-space: nowrap; }
+.kg .station-body .d3-sc-actions { grid-template-columns: minmax(0, 1fr) auto auto; }
