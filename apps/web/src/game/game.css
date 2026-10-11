@@ -319,3 +319,172 @@
 .kg .station-view .note { padding: 0 4px; }
 .kg .station-body button[class*="rounded-md"] { padding: 0 14px; min-width: 64px; white-space: nowrap; }
 .kg .station-body .d3-sc-actions { grid-template-columns: minmax(0, 1fr) auto auto; }
+
+/* ---- Missions: HUD notebook, rank card, cork board, ceremony (2026-10-12) ---- */
+.kg .mission-hud { text-align: left; cursor: pointer; transition: transform .2s var(--ease); }
+.kg .mission-hud:hover { transform: rotate(-1deg) translateY(-2px); }
+.kg .mission-hud:active { transform: rotate(-3deg) translate(2px, 3px); box-shadow: none; }
+.kg .mission-hud .hud-bee { display: grid; place-items: center; margin-left: -4px; }
+.kg .mission-hud.is-ready { background: var(--mustard-light); }
+.kg .mission-hud .todo-bar i { background: var(--mustard); }
+.kg .hud-dot {
+  position: absolute; top: -10px; right: -10px; width: 26px; height: 26px; display: grid; place-items: center;
+  font-family: "Baloo 2", sans-serif; font-weight: 800; font-size: 15px; color: var(--white);
+  background: var(--coral); border: 3px solid var(--ink); border-radius: 99px; animation: kg-bounce 1.2s ease-in-out infinite;
+}
+@media (max-width: 420px) { .kg .mission-hud .hud-bee, .kg .mission-hud .hud-lv { display: none; } }
+
+.kg .mission-view { display: grid; gap: 20px; }
+.kg .rank-card {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 18px; align-items: center; padding: 16px 20px;
+  background: var(--cream); border: 3px solid var(--ink); border-radius: 22px; box-shadow: var(--pop);
+  animation: kg-card-in .45s var(--ease) both;
+}
+.kg .rank-avatar { position: relative; display: grid; justify-items: center; }
+.kg .rank-level {
+  margin-top: -14px; padding: 2px 12px; font-family: "Baloo 2", sans-serif; font-weight: 800; font-size: 14px;
+  color: var(--white); background: var(--plum); border: 2.5px solid var(--ink); border-radius: 99px; transform: rotate(-3deg);
+}
+.kg .rank-main { display: grid; gap: 6px; min-width: 0; }
+.kg .rank-main > small { font-size: 11px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; color: var(--sage-deep); }
+.kg .rank-main h3 { margin: 0; font-family: "Baloo 2", sans-serif; font-size: 30px; line-height: 1; }
+.kg .rank-bees { display: flex; flex-wrap: wrap; gap: 2px; align-items: center; }
+.kg .rank-more { font-family: "Baloo 2", sans-serif; font-size: 16px; margin-left: 4px; }
+.kg .rank-bar { height: 14px; background: var(--white); border: 2.5px solid var(--ink); border-radius: 99px; overflow: hidden; }
+.kg .rank-bar i { display: block; height: 100%; background: repeating-linear-gradient(-45deg, var(--mustard) 0 8px, #f0b552 8px 16px); transition: width .8s var(--ease); }
+.kg .rank-next { margin: 0; font-size: 14px; font-weight: 700; }
+.kg .ladder { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; margin: 8px 0 0; padding: 0; list-style: none; }
+.kg .ladder li {
+  display: grid; justify-items: center; gap: 0; padding: 6px 4px; text-align: center; background: var(--white);
+  border: 2.5px solid var(--ink); border-radius: 12px; opacity: .55;
+}
+.kg .ladder li b { font-family: "Baloo 2", sans-serif; font-size: 18px; line-height: 1; }
+.kg .ladder li span { font-size: 12px; font-weight: 800; line-height: 1.15; }
+.kg .ladder li small { font-size: 11px; font-weight: 700; color: #6f6a85; }
+.kg .ladder li.is-past { opacity: .9; background: var(--sage-light); }
+.kg .ladder li.is-now { opacity: 1; background: var(--mustard-light); box-shadow: var(--soft); transform: translateY(-3px); }
+
+.kg .cork {
+  position: relative; padding: 18px 18px 22px; border: 3px solid var(--ink); border-radius: 22px; box-shadow: var(--soft);
+  background: var(--kraft) radial-gradient(rgba(44,41,71,.16) 1px, transparent 1.4px) 0 0 / 9px 9px;
+}
+.kg .cork::before { content: ""; position: absolute; inset: 8px; border: 2px dashed rgba(44,41,71,.25); border-radius: 16px; pointer-events: none; }
+.kg .cork.is-done { background-color: #c9b493; }
+.kg .cork-title {
+  position: relative; display: inline-flex; align-items: center; gap: 8px; margin: 0 0 16px; padding: 4px 14px;
+  font-family: "Baloo 2", sans-serif; font-size: 19px; background: var(--cream); border: 2.5px solid var(--ink); border-radius: 12px; transform: rotate(-1deg);
+}
+.kg .cork-empty { position: relative; margin: 0; font-weight: 800; font-size: 15px; }
+.kg .mission-grid { position: relative; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 22px 18px; margin: 0; padding: 6px 0 0; list-style: none; }
+.kg .mission-note {
+  position: relative; display: grid; gap: 8px; width: 100%; min-height: 100%; padding: 22px 16px 14px; text-align: left;
+  background: var(--white); border: 3px solid var(--ink); border-radius: 6px 6px 18px 6px; box-shadow: var(--pop);
+  transform: rotate(var(--tilt, 0deg)); transition: transform .2s var(--ease), box-shadow .2s;
+  animation: kg-note-pin .5s var(--ease) both;
+}
+.kg .mission-note:hover { transform: rotate(0deg) translateY(-4px); }
+.kg .mission-note:active { transform: translate(2px, 3px); box-shadow: var(--soft); }
+@keyframes kg-note-pin { from { transform: translateY(-24px) rotate(calc(var(--tilt, 0deg) * -4)); opacity: 0; } to { transform: rotate(var(--tilt, 0deg)); opacity: 1; } }
+.kg .mission-note .pin {
+  position: absolute; top: -11px; left: 50%; width: 22px; height: 22px; margin-left: -11px; border-radius: 99px;
+  background: var(--coral) radial-gradient(circle at 35% 35%, rgba(255,255,255,.7) 0 3px, transparent 4px); border: 3px solid var(--ink);
+}
+.kg .mission-icon { font-size: 26px; line-height: 1; }
+.kg .mission-title { font-family: "Baloo 2", sans-serif; font-size: 20px; line-height: 1.15; overflow-wrap: anywhere; }
+.kg .mission-desc { font-size: 13.5px; font-weight: 600; line-height: 1.4; color: #4a4766; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.kg .mission-progress { display: grid; gap: 3px; }
+.kg .mission-progress small { font-size: 12px; font-weight: 800; color: #6f6a85; }
+.kg .mission-bar { display: block; height: 12px; background: var(--paper); border: 2.5px solid var(--ink); border-radius: 99px; overflow: hidden; }
+.kg .mission-bar i { display: block; height: 100%; background: var(--sage); transition: width .6s var(--ease); }
+.kg .mission-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 2px; }
+.kg .mission-reward { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 800; }
+.kg .mission-go {
+  padding: 5px 12px; font-family: "Baloo 2", sans-serif; font-weight: 800; font-size: 15px; color: var(--white);
+  background: var(--sage); border: 2.5px solid var(--ink); border-radius: 10px; white-space: nowrap;
+}
+.kg .mission-go.is-ready { background: var(--mustard); color: var(--ink); animation: kg-bounce 1.3s ease-in-out infinite; }
+.kg .mission-note.is-ready { background: #fff4d6; }
+.kg .mission-note.is-done { background: var(--cream); }
+.kg .mission-note.is-done > :not(.stamp):not(.pin) { opacity: .6; }
+.kg .stamp {
+  position: absolute; right: 12px; top: 30px; padding: 2px 12px; font-family: "Baloo 2", sans-serif; font-weight: 800; font-size: 26px; letter-spacing: .1em;
+  color: var(--coral); border: 4px solid var(--coral); border-radius: 10px; transform: rotate(-14deg); background: rgba(255,250,240,.7);
+}
+
+/* Mission sheet tools */
+.kg .hint { margin: 0; padding: 10px 12px; font-size: 13.5px; font-weight: 700; line-height: 1.45; background: var(--sage-light); border: 2.5px solid var(--ink); border-radius: 12px; }
+.kg .task-list { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.kg .task-row { display: grid; gap: 8px; padding: 12px; background: var(--white); border: 2.5px solid var(--ink); border-radius: 14px; }
+.kg .task-row.is-fixed { background: var(--sage-light); }
+.kg .task-head { display: grid; gap: 2px; min-width: 0; }
+.kg .task-head b { font-size: 15px; overflow-wrap: anywhere; }
+.kg .task-head small { font-size: 12.5px; font-weight: 700; color: #6f6a85; overflow-wrap: anywhere; }
+.kg .task-now { font-size: 13.5px; font-weight: 700; }
+.kg .task-ok { font-weight: 900; color: var(--sage-deep); }
+.kg .task-ok.big { margin: 0; padding: 12px; background: var(--sage-light); border: 2.5px solid var(--ink); border-radius: 12px; }
+.kg .task-row .conv .btn { height: 44px; }
+.kg .unit-chip { justify-self: start; padding: 2px 10px; font-family: "Baloo 2", sans-serif; font-size: 17px; background: var(--mustard-light); border: 2.5px solid var(--ink); border-radius: 10px; }
+.kg .unit-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.kg .unit-actions select { grid-column: 1 / 2; height: 44px; padding: 0 10px; font-size: 15px; font-weight: 700; background: var(--white); border: 2.5px solid var(--ink); border-radius: 12px; min-width: 0; }
+.kg .unit-actions .btn { height: 44px; font-size: 15px; padding: 0 14px; }
+.kg .unit-actions .btn.ghost { grid-column: 1 / -1; }
+.kg .dup-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.kg .dup-item { display: grid; gap: 2px; padding: 10px 12px; background: var(--white); border: 2.5px solid var(--ink); border-radius: 14px; min-width: 0; }
+.kg .dup-item.is-picked { background: var(--mustard-light); box-shadow: var(--soft); }
+.kg .dup-item small { font-size: 11px; font-weight: 900; color: #6f6a85; }
+.kg .dup-item b { font-size: 15px; line-height: 1.25; overflow-wrap: anywhere; }
+.kg .dup-item span { font-size: 12.5px; font-weight: 700; color: #6f6a85; }
+.kg .dup-choices { display: grid; gap: 10px; }
+.kg .dup-choices .btn { width: 100%; }
+.kg .seg { display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 4px; background: var(--cream); border: 2.5px solid var(--ink); border-radius: 14px; }
+.kg .seg button { min-height: 38px; padding: 0 12px; border-radius: 10px; font-family: "Baloo 2", sans-serif; font-weight: 800; font-size: 14.5px; }
+.kg .seg button.is-on { background: var(--ink); color: var(--cream); }
+.kg .submit-bar { padding: 6px 0 2px; }
+.kg .btn.submit { width: 100%; height: 56px; font-size: 19px; }
+.kg .btn.submit.is-ready { background: var(--mustard); color: var(--ink); animation: kg-bounce 1.4s ease-in-out infinite; }
+.kg .done-box { display: flex; align-items: center; gap: 12px; padding: 12px; background: var(--mustard-light); border: 2.5px solid var(--ink); border-radius: 14px; }
+.kg .done-box span { display: grid; }
+.kg .done-box small { font-size: 12.5px; font-weight: 700; color: #6f6a85; }
+
+/* Ceremony */
+.kg .ceremony {
+  position: absolute; inset: 0; z-index: 30; display: grid; place-items: center; padding: 20px; overflow: hidden;
+  background: rgba(44, 41, 71, .55); animation: kg-fade .25s ease both;
+}
+.kg .ceremony-card {
+  position: relative; display: grid; justify-items: center; gap: 8px; width: min(380px, 100%); padding: 26px 22px 22px; text-align: center;
+  background: var(--cream); border: 3px solid var(--ink); border-radius: 26px; box-shadow: 6px 8px 0 rgba(44,41,71,.9);
+  animation: kg-pop .5s var(--ease) both;
+}
+.kg .ceremony-card > small { font-size: 12px; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; color: var(--sage-deep); }
+.kg .ceremony-card h2 { margin: 0; font-family: "Baloo 2", sans-serif; font-size: 24px; line-height: 1.15; }
+.kg .ceremony-card p { margin: 0; font-size: 15px; font-weight: 700; }
+.kg .ceremony-card .btn { min-width: 160px; margin-top: 6px; }
+.kg .stamp-drop { animation: kg-stamp .7s cubic-bezier(.3, 1.6, .5, 1) .15s both; }
+@keyframes kg-stamp { 0% { transform: translateY(-160px) scale(1.8) rotate(-30deg); opacity: 0; } 60% { transform: translateY(0) scale(.92) rotate(6deg); opacity: 1; } 100% { transform: none; } }
+.kg .ceremony-card.is-level { background: var(--mustard-light); }
+.kg .ribbon {
+  position: absolute; top: -20px; padding: 6px 26px; font-family: "Baloo 2", sans-serif; font-weight: 800; font-size: 22px; letter-spacing: .08em;
+  color: var(--white); background: var(--coral); border: 3px solid var(--ink); border-radius: 10px; box-shadow: var(--soft);
+  animation: kg-pop .5s var(--ease) .1s both;
+}
+.kg .level-buddy { animation: kg-stamp .8s cubic-bezier(.3, 1.6, .5, 1) .2s both; }
+.kg .confetti { position: absolute; inset: 0; pointer-events: none; }
+.kg .confetti i {
+  position: absolute; top: -20px; width: 10px; height: 16px; border: 2px solid var(--ink); border-radius: 3px;
+  animation: kg-confetti 1.8s cubic-bezier(.3, .6, .4, 1) both;
+}
+@keyframes kg-confetti { from { transform: translateY(0) rotate(0deg); opacity: 1; } to { transform: translateY(110vh) rotate(var(--rot, 360deg)); opacity: .6; } }
+
+@media (max-width: 560px) {
+  .kg .rank-card { grid-template-columns: auto minmax(0, 1fr); padding: 14px; gap: 4px 12px; }
+  .kg .rank-main h3 { font-size: 24px; }
+  .kg .ladder { gap: 4px; }
+  .kg .ladder li { padding: 5px 2px; }
+  .kg .ladder li span { font-size: 10.5px; }
+  .kg .mission-grid { grid-template-columns: minmax(0, 1fr); }
+  .kg .dup-pair { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .kg .ceremony, .kg .ceremony-card, .kg .ribbon, .kg .stamp-drop, .kg .level-buddy, .kg .confetti i, .kg .mission-note, .kg .hud-dot, .kg .btn.submit.is-ready, .kg .mission-go.is-ready { animation: none !important; }
+}

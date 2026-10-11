@@ -4203,6 +4203,31 @@ export type Database = {
         }
         Returns: Json
       }
+      get_my_missions: {
+        Args: { p_user?: string | null }
+        Returns: Json
+      }
+      complete_mission: {
+        Args: { p_mission_id: string; p_request_id: string }
+        Returns: Json
+      }
+      update_stock_material_alias_factor: {
+        Args: { p_alias_id: string; p_factor: number; p_request_id: string }
+        Returns: Json
+      }
+      mark_stock_items_distinct: {
+        Args: { p_item_a: string; p_item_b: string; p_request_id: string }
+        Returns: Json
+      }
+      resolve_unknown_purchase_unit: {
+        Args: {
+          p_variant: string
+          p_action: string
+          p_code?: string | null
+          p_request_id?: string | null
+        }
+        Returns: Json
+      }
       normalize_stock_item_name: {
         Args: { p_name: string }
         Returns: string

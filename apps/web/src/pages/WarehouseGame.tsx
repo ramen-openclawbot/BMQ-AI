@@ -13,6 +13,9 @@ import { Scene, usePortrait } from "@/game/Scene";
 import { CLASS_META, ITEM_UNITS, asClass, fmtQty, newRequestId, normalizeName, type GameClass } from "@/game/meta";
 import { STATION_META, STATION_ORDER, Workshop, type StationId } from "@/game/Workshop";
 import { StationView } from "@/game/Stations";
+import { Ceremony, MissionBoard, MissionHudButton, MissionSheet } from "@/game/Missions";
+import { useMyMissions } from "@/hooks/useMissions";
+import type { CompleteMissionResult } from "@/lib/missions";
 import { useAuth } from "@/contexts/AuthContext";
 import { useStockCatalogReview } from "@/hooks/useStockCatalog";
 import { useMaterialAliasReview, useNewItemSuggestions } from "@/hooks/useMaterialAlias";
@@ -22,6 +25,7 @@ import "@/game/game.css";
 type View =
   | { kind: "yard" }
   | { kind: "workshop" }
+  | { kind: "missions" }
   | { kind: "station"; id: StationId }
   | { kind: "warehouse"; location: WarehouseGameLocation }
   | { kind: "shelf"; location: WarehouseGameLocation; cls: GameClass };
@@ -31,6 +35,7 @@ type Panel =
   | { kind: "item"; location: WarehouseGameLocation; id: string }
   | { kind: "sku"; entry: ShelfEntry }
   | { kind: "crate"; location: WarehouseGameLocation; crate: WarehouseGamePendingRow }
+  | { kind: "mission"; id: string }
   | null;
 
 const LOCATION_LABEL: Record<WarehouseGameLocation, string> = { q7: "Kho Q7", tan_tao: "Kho Tân Tạo" };
@@ -92,6 +97,8 @@ export default function WarehouseGame() {
   const newQ7 = useNewItemSuggestions("q7");
   const newTt = useNewItemSuggestions("tan_tao");
   const routing = useStockRoutingReview();
+  const missions = useMyMissions();
+  const [ceremony, setCeremony] = useState<{ result: CompleteMissionResult; title: string } | null>(null);
 
   // Full screen: the game owns the page while it is open.
   useEffect(() => {
@@ -108,18 +115,13 @@ export default function WarehouseGame() {
 
   const crates = { q7: q7.data?.pending.length ?? 0, tan_tao: tt.data?.pending.length ?? 0 };
   const counts = { q7: q7.data?.items.length ?? 0, tan_tao: (tt.data?.items.length ?? 0) + (tt.data?.skus.length ?? 0) };
-  const [startCrates, setStartCrates] = useState<number | null>(null);
   const totalCrates = crates.q7 + crates.tan_tao;
-  useEffect(() => {
-    if (startCrates === null && q7.data && tt.data) setStartCrates(totalCrates);
-  }, [q7.data, tt.data, startCrates, totalCrates]);
-  const done = Math.max(0, (startCrates ?? totalCrates) - totalCrates);
 
   const go = (next: View) => { setPanel(null); setQuery(""); setView(next); };
   const back = () => {
     if (view.kind === "shelf") go({ kind: "warehouse", location: view.location });
     else if (view.kind === "station") go({ kind: "workshop" });
-    else if (view.kind === "warehouse" || view.kind === "workshop") go({ kind: "yard" });
+    else if (view.kind === "warehouse" || view.kind === "workshop" || view.kind === "missions") go({ kind: "yard" });
   };
 
   const pendingSuggestions = catalogReview.data?.pending_suggestions ?? [];
@@ -140,12 +142,14 @@ export default function WarehouseGame() {
   const currentQuery = inWarehouse ? (view.location === "q7" ? q7 : tt) : undefined;
   const title = view.kind === "yard" ? "Phố kho BMQ"
     : view.kind === "workshop" ? "Xưởng dọn danh mục"
+    : view.kind === "missions" ? "Bảng nhiệm vụ"
     : view.kind === "station" ? `${STATION_META[view.id].icon} ${STATION_META[view.id].label}`
     : view.kind === "warehouse" ? LOCATION_LABEL[view.location]
     : `${CLASS_META[view.cls].icon} ${CLASS_META[view.cls].label}`;
   const subtitle = view.kind === "yard" ? "Bấm vào kho để vào"
     : view.kind === "workshop" ? (workshopTodo ? `${workshopTodo} việc đang chờ` : "Mọi bàn đã gọn")
     : view.kind === "station" ? "Xưởng dọn danh mục"
+    : view.kind === "missions" ? (missions.data?.level ? `Cấp ${missions.data.level.level} · ${missions.data.level.title} · ${missions.data.badges.total} 🐝` : "Làm xong nhận huy hiệu")
     : view.kind === "shelf" ? LOCATION_LABEL[view.location]
     : current?.cutover_date ? `Sổ từ ${current.cutover_date.split("-").reverse().join("/")}` : "Sổ chưa bắt đầu";
 
@@ -166,15 +170,7 @@ export default function WarehouseGame() {
           <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
         </button>
         <div className="title-pill"><b>{title}</b><small>{subtitle}</small></div>
-        <div className="todo" aria-label="Thùng chờ dán nhãn">
-          <div className="todo-rings" aria-hidden="true"><i /><i /><i /><i /></div>
-          <span className="todo-star" aria-hidden="true">★</span>
-          <div className="todo-body">
-            <small>Thùng chờ</small>
-            <b data-bmq-game-pending>{totalCrates}</b>
-            <span className="todo-bar"><i style={{ width: `${startCrates ? (done / Math.max(1, startCrates)) * 100 : 0}%` }} /></span>
-          </div>
-        </div>
+        <MissionHudButton data={missions.data} onOpen={() => go({ kind: "missions" })} />
         <button type="button" className="round-btn exit-btn" onClick={() => navigate("/")} aria-label="Thoát về Tổng quan" title="Thoát về Tổng quan">
           <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4M10 16l-4-4 4-4M6 12h10" fill="none" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
         </button>
@@ -198,6 +194,12 @@ export default function WarehouseGame() {
         {view.kind === "workshop" ? (
           <Scene id={`workshop-${portrait}`} scroll>
             <Workshop portrait={portrait} stations={stations} onStation={(id) => go({ kind: "station", id })} />
+          </Scene>
+        ) : null}
+
+        {view.kind === "missions" ? (
+          <Scene id="missions" scroll>
+            <MissionBoard data={missions.data} isLoading={missions.isLoading} error={missions.error} onOpen={(id) => setPanel({ kind: "mission", id })} />
           </Scene>
         ) : null}
 
@@ -288,6 +290,21 @@ export default function WarehouseGame() {
             onClose={() => setPanel(null)}
           />
         ) : null}
+
+        {panel?.kind === "mission" ? (() => {
+          const mission = missions.data?.missions.find((entry) => entry.id === panel.id);
+          return mission ? (
+            <MissionSheet
+              key={mission.id}
+              mission={mission}
+              onClose={() => setPanel(null)}
+              onToast={setToast}
+              onCompleted={(result, done) => { setPanel(null); setCeremony({ result, title: done.title }); }}
+            />
+          ) : null;
+        })() : null}
+
+        {ceremony ? <Ceremony result={ceremony.result} title={ceremony.title} onClose={() => setCeremony(null)} /> : null}
 
         {toast ? <div className="toast" role="status">{toast}</div> : null}
       </main>
