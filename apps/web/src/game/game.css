@@ -561,3 +561,43 @@
   .kg .jev-bot *, .kg .crate-card, .kg .jev-stage { animation: none !important; }
   .kg .crate-card.is-leaving { opacity: 0; }
 }
+
+/* ---- Loading: roller shutter + van + Bé Kho (2026-10-12) ---- */
+.kg .kg-loading { display: grid; justify-items: center; align-content: center; gap: 12px; height: 100%; padding: 16px; animation: kg-fade .3s ease both; }
+.kg .kg-loading-art { width: min(460px, 86vw, 52dvh); height: auto; overflow: visible; }
+.kg .kg-shutter { animation: kg-shutter 2.8s cubic-bezier(.6, 0, .3, 1) infinite; }
+@keyframes kg-shutter { 0%, 12% { transform: translateY(0); } 52%, 70% { transform: translateY(-96px); } 100% { transform: translateY(0); } }
+.kg .kg-glow { animation: kg-glow 2.8s ease-in-out infinite; }
+@keyframes kg-glow { 0%, 20%, 100% { opacity: 0; } 55%, 68% { opacity: .22; } }
+.kg .kg-sign { transform-box: fill-box; transform-origin: 50% 0; animation: kg-swing 2.2s ease-in-out infinite; }
+@keyframes kg-swing { 0%, 100% { transform: rotate(-3deg); } 50% { transform: rotate(3deg); } }
+.kg .kg-van { animation: kg-van-in 2.8s cubic-bezier(.3, .7, .2, 1) infinite; }
+@keyframes kg-van-in { 0% { transform: translateX(-140px); opacity: 0; } 15% { opacity: 1; } 45%, 82% { transform: translateX(0); opacity: 1; } 100% { transform: translateX(10px); opacity: 0; } }
+.kg .kg-pusher { animation: kg-push 1.4s ease-in-out infinite; }
+@keyframes kg-push { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(-12px); } }
+.kg .kg-loading-text { display: flex; align-items: baseline; gap: 3px; margin: 0; font-family: "Baloo 2", sans-serif; font-weight: 800; font-size: 21px; color: var(--ink); }
+.kg .kg-loading-text span { animation: kg-word .35s var(--ease) both; }
+@keyframes kg-word { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+.kg .kg-loading-text i { width: 6px; height: 6px; border-radius: 99px; background: var(--ink); animation: kg-dot 1s ease-in-out infinite; }
+.kg .kg-loading-text i:nth-of-type(2) { animation-delay: .15s; }
+.kg .kg-loading-text i:nth-of-type(3) { animation-delay: .3s; }
+@keyframes kg-dot { 0%, 60%, 100% { transform: translateY(0); } 30% { transform: translateY(-7px); } }
+.kg .kg-loading-tape { width: min(260px, 70vw); height: 18px; background: var(--white); border: 3px solid var(--ink); border-radius: 99px; overflow: hidden; box-shadow: var(--soft); }
+.kg .kg-loading-tape i { display: block; height: 100%; width: 200%; background: repeating-linear-gradient(-45deg, var(--mustard) 0 12px, var(--ink) 12px 24px); animation: kg-tape 1.2s linear infinite; }
+@keyframes kg-tape { from { transform: translateX(-34px); } to { transform: translateX(0); } }
+@media (prefers-reduced-motion: reduce) {
+  .kg .kg-shutter { animation: none; transform: translateY(-60px); }
+  .kg .kg-glow, .kg .kg-sign, .kg .kg-van, .kg .kg-pusher, .kg .kg-loading-text span, .kg .kg-loading-text i, .kg .kg-loading-tape i { animation: none; }
+}
+@media (max-width: 520px) {
+  .kg .mission-hud { min-width: 0; }
+  .kg .mission-hud .hud-bee, .kg .mission-hud .hud-lv { display: none; }
+}
+/* Hidden back button gives its slot to the title on the street. */
+.kg .hud .round-btn[disabled] { width: 0; min-width: 0; border-width: 0; margin-right: -10px; overflow: hidden; }
+@media (max-width: 360px) {
+  .kg .mission-hud { padding: 8px 8px 6px 20px; gap: 4px; }
+  .kg .mission-hud .todo-body small { display: none; }
+  .kg .mission-hud .todo-bar { width: 34px; }
+  .kg .title-pill { padding: 5px 10px; }
+}

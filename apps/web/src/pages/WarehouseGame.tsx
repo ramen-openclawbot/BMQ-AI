@@ -21,6 +21,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useStockCatalogReview } from "@/hooks/useStockCatalog";
 import { useMaterialAliasReview, useNewItemSuggestions } from "@/hooks/useMaterialAlias";
 import { useStockRoutingReview } from "@/hooks/useStockRouting";
+import { GameLoading } from "@/game/Loading";
 import "@/game/game.css";
 
 type View =
@@ -196,7 +197,7 @@ export default function WarehouseGame() {
 
       <main className="stage">
         {view.kind === "yard" ? (
-          q7.isLoading && tt.isLoading ? <div className="loading">Đang mở cửa kho…</div> : (
+          q7.isLoading && tt.isLoading ? <GameLoading /> : (
             <Scene id={`yard-${portrait}`} fill={portrait}>
               <Yard
                 portrait={portrait}
@@ -230,7 +231,7 @@ export default function WarehouseGame() {
         {inWarehouse && currentQuery?.isError ? (
           <div className="loading"><div className="err">{errorText(currentQuery.error)}</div></div>
         ) : null}
-        {inWarehouse && !current && currentQuery?.isLoading ? <div className="loading">Đang mở cửa kho…</div> : null}
+        {inWarehouse && !current && currentQuery?.isLoading ? <GameLoading /> : null}
 
         {view.kind === "warehouse" && current ? (
           <Scene id={`wh-${view.location}-${portrait}`} scroll>

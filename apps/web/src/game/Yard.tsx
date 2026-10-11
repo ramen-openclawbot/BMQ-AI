@@ -98,7 +98,7 @@ function Plant({ x, y }: { x: number; y: number }) {
 }
 
 /** Delivery van from above, cut away like the reference bus: seats + driver. Drawn facing +x. */
-function Van({ color = C.mustard }: { color?: string }) {
+export function Van({ color = C.mustard }: { color?: string }) {
   return (
     <g>
       <rect x={-66} y={-30} width={132} height={64} rx={14} fill={C.shadow} transform="translate(6 7)" />

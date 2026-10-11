@@ -246,7 +246,10 @@ function builder(table, args) {
   const st = { table, args: args || {}, filters: {}, head: false, single: false, write: null };
   const proxy = new Proxy(function () {}, {
     get(_t, prop) {
-      if (prop === "then") return (ok, ko) => Promise.resolve(settle(st)).then(ok, ko);
+      if (prop === "then") {
+        const slow = cfg().slow && /^rpc:(get_warehouse_game_snapshot|get_my_missions)$/.test(st.table);
+        return (ok, ko) => (slow ? new Promise((r) => setTimeout(r, cfg().slow)) : Promise.resolve()).then(() => settle(st)).then(ok, ko);
+      }
       if (prop === "catch") return (ko) => Promise.resolve(settle(st)).catch(ko);
       if (prop === "finally") return (fn) => Promise.resolve(settle(st)).finally(fn);
       return (...args) => {
@@ -539,6 +542,25 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
   assert.equal(await page.locator("[data-bmq-warehouse-game]").count(), 0, "game closed");
   assert.deepEqual(errors, [], "no page errors");
   record(`workshop + full screen ${viewport.width}`);
+  await context.close();
+}
+for (const viewport of [{ width: 1440, height: 900 }, { width: 430, height: 932 }, { width: 390, height: 844 }, { width: 320, height: 640 }]) {
+  const { context, page, errors } = await open({ data: "populated", role: "owner", slow: 6000 }, "/warehouse/game", viewport, { reducedMotion: "no-preference" });
+  await page.waitForSelector("[data-bmq-game-loading]", { timeout: 5000 });
+  await page.waitForTimeout(1300);
+  await page.screenshot({ path: `${EVIDENCE}/loading-${viewport.width}.png` });
+  const art = await page.locator(".kg-loading-art").boundingBox();
+  assert.ok(art && art.width >= 240 && art.x >= 0 && art.x + art.width <= viewport.width, `loading art fits ${viewport.width}: ${JSON.stringify(art)}`);
+  assert.equal(await overflow(page), 0, `loading no overflow ${viewport.width}`);
+  const text1 = await page.locator(".kg-loading-text span").textContent();
+  await page.waitForTimeout(1600);
+  assert.notEqual(await page.locator(".kg-loading-text span").textContent(), text1, "loading line rotates");
+  await page.waitForSelector("[data-bmq-game-loading]", { state: "detached", timeout: 15000 });
+  await page.waitForTimeout(600);
+  const clipped = await page.$eval(".kg .title-pill b", (el) => el.scrollWidth > el.clientWidth + 1);
+  assert.equal(clipped, false, `title not cut at ${viewport.width}`);
+  assert.deepEqual(errors, []);
+  record(`loading ${viewport.width}`);
   await context.close();
 }
 await browser.close();

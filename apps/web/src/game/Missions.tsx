@@ -10,6 +10,7 @@ import {
 } from "@/lib/missions";
 import { STOCK_UNITS } from "@/lib/stock-units";
 import { Sheet } from "./Sheet";
+import { GameLoading } from "./Loading";
 import { Buddy } from "./Toon";
 import { C, STROKE } from "./theme";
 import { fmtQty, newRequestId } from "./meta";
@@ -168,7 +169,7 @@ function MissionCard({ mission, index, onOpen }: { mission: Mission; index: numb
 export function MissionBoard({ data, isLoading, error, onOpen }: {
   data: MyMissions | undefined; isLoading: boolean; error: unknown; onOpen: (id: string) => void;
 }) {
-  if (isLoading && !data) return <div className="loading">Đang mở bảng nhiệm vụ…</div>;
+  if (isLoading && !data) return <GameLoading lines={["Mở bảng nhiệm vụ", "Đếm huy hiệu", "Ghim thẻ việc"]} />;
   if (error && !data) return <div className="loading"><div className="err">{missionErrorMessage(error)}</div></div>;
   if (!data) return null;
   const open = data.missions.filter((mission) => mission.status === "open");
