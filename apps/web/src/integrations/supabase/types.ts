@@ -3854,6 +3854,33 @@ export type Database = {
           },
         ]
       }
+      warehouse_game_requests: {
+        Row: {
+          action: string
+          created_at: string
+          created_by: string | null
+          item_id: string | null
+          request_id: string
+          result: Json
+        }
+        Insert: {
+          action: string
+          created_at?: string
+          created_by?: string | null
+          item_id?: string | null
+          request_id: string
+          result: Json
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          created_by?: string | null
+          item_id?: string | null
+          request_id?: string
+          result?: Json
+        }
+        Relationships: []
+      }
     }
     Views: {
       cost_classification_category_summary: {
@@ -4157,6 +4184,23 @@ export type Database = {
       }
       get_stock_ledger_overview: {
         Args: { p_location: string; p_as_of?: string | null }
+        Returns: Json
+      }
+      get_warehouse_game_snapshot: {
+        Args: { p_location: string }
+        Returns: Json
+      }
+      rename_stock_item: {
+        Args: { p_item_id: string; p_new_name: string; p_request_id: string }
+        Returns: Json
+      }
+      change_stock_item_unit: {
+        Args: {
+          p_item_id: string
+          p_new_unit: string
+          p_factor: number | null
+          p_request_id: string
+        }
         Returns: Json
       }
       normalize_stock_item_name: {
