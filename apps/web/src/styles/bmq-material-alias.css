@@ -45,7 +45,7 @@
 .d3-ma-field .d3-wh-select { height: 40px; }
 .d3-ma-field .d3-wh-select { background: var(--d3-card, #f4f3ef); }
 
-.d3-ma-actions { display: flex; gap: 6px; }
+.d3-ma-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .d3-ma-actions button { height: 40px; gap: 6px; }
 
 .d3-ma-chips { display: flex; flex-wrap: wrap; gap: 6px; }

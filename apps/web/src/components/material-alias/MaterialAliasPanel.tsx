@@ -67,6 +67,33 @@ function PromptRow({
   const factorValue = Number(factor.replace(",", "."));
   const factorOk = Number.isFinite(factorValue) && factorValue > 0;
 
+  const saveNonStock = () => {
+    confirm.mutate(
+      {
+        supplierId,
+        location,
+        rawName: line.product_name,
+        rawUnit: line.unit ?? null,
+        kitchenInventoryItemId: null,
+        tanTaoSkuId: null,
+        enteredUnitLabel: unitLabel.trim() || null,
+        conversionFactor: 1,
+        jevItemId: jev?.id ?? null,
+        jevProbability: jev?.probability ?? null,
+        sourceTable,
+        sourceId: null,
+        lineClass: "non_stock",
+      },
+      {
+        onSuccess: () => {
+          toast({ title: "Đã đánh dấu không nhập kho", description: line.product_name });
+          onDone("confirmed", "không nhập kho");
+        },
+        onError: (error) => toast({ title: "Chưa đánh dấu được", description: errorText(error), variant: "destructive" }),
+      },
+    );
+  };
+
   const save = () => {
     if (!candidate) return;
     confirm.mutate(
@@ -131,6 +158,9 @@ function PromptRow({
           <Button type="button" size="sm" onClick={save} disabled={!candidate || !factorOk || confirm.isPending}>
             <Check className="h-4 w-4" />
             {confirm.isPending ? "Đang lưu…" : "Xác nhận"}
+          </Button>
+          <Button type="button" size="sm" variant="outline" onClick={saveNonStock} disabled={confirm.isPending} data-bmq-alias-nonstock>
+            Không nhập kho
           </Button>
           <Button type="button" size="sm" variant="ghost" onClick={() => onDone("skipped", "")} disabled={confirm.isPending}>
             Chưa rõ
@@ -240,7 +270,7 @@ export function MaterialAliasPanel({ supplierId, lines, sourceTable, location = 
               title="Bấm để sửa"
             >
               <Check className="h-3 w-3" />
-              {byKey.get(row.line_key)?.product_name} → {row.alias?.item_name}
+              {byKey.get(row.line_key)?.product_name} → {row.alias?.line_class === "non_stock" ? "không nhập kho" : row.alias?.item_name}
               <Pencil className="h-3 w-3 d3-ma-edit" />
             </button>
           ))}

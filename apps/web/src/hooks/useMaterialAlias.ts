@@ -99,6 +99,8 @@ export interface ConfirmMaterialAliasInput {
   jevProbability: number | null;
   sourceTable: string | null;
   sourceId: string | null;
+  /** Giai đoạn 3: 'non_stock' needs no item / SKU and never posts. */
+  lineClass?: "stock" | "non_stock";
 }
 
 /** Confirm the human alias choice and apply it to the matching receipt lines. */
@@ -119,6 +121,7 @@ export function useConfirmMaterialAlias() {
         p_jev_probability: input.jevProbability,
         p_source_table: input.sourceTable,
         p_source_id: input.sourceId,
+        p_line_class: input.lineClass ?? "stock",
       });
       if (error) throw error;
       return (data ?? {}) as Record<string, unknown>;

@@ -2633,6 +2633,65 @@ export type Database = {
           },
         ]
       }
+      supplier_routing_suggestions: {
+        Row: {
+          applied_at: string | null
+          applied_by: string | null
+          cost: number | null
+          created_at: string
+          evidence: Json | null
+          id: string
+          jev_answer: Json | null
+          previous_exempt: boolean | null
+          previous_location: string | null
+          probability: number
+          prompt_version: string
+          proposed_location: string
+          status: string
+          supplier_id: string
+        }
+        Insert: {
+          applied_at?: string | null
+          applied_by?: string | null
+          cost?: number | null
+          created_at?: string
+          evidence?: Json | null
+          id?: string
+          jev_answer?: Json | null
+          previous_exempt?: boolean | null
+          previous_location?: string | null
+          probability: number
+          prompt_version: string
+          proposed_location: string
+          status?: string
+          supplier_id: string
+        }
+        Update: {
+          applied_at?: string | null
+          applied_by?: string | null
+          cost?: number | null
+          created_at?: string
+          evidence?: Json | null
+          id?: string
+          jev_answer?: Json | null
+          previous_exempt?: boolean | null
+          previous_location?: string | null
+          probability?: number
+          prompt_version?: string
+          proposed_location?: string
+          status?: string
+          supplier_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "supplier_routing_suggestions_supplier_id_fkey"
+            columns: ["supplier_id"]
+            isOneToOne: false
+            referencedRelation: "suppliers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       suppliers: {
         Row: {
           address: string | null
@@ -2651,7 +2710,10 @@ export type Database = {
           name: string
           payment_terms_days: number | null
           phone: string | null
+          receiving_location_set_at: string | null
+          receiving_location_source: string | null
           short_code: string | null
+          stock_exempt: boolean
           updated_at: string
           vat_included_in_price: boolean | null
         }
@@ -2672,7 +2734,10 @@ export type Database = {
           name: string
           payment_terms_days?: number | null
           phone?: string | null
+          receiving_location_set_at?: string | null
+          receiving_location_source?: string | null
           short_code?: string | null
+          stock_exempt?: boolean
           updated_at?: string
           vat_included_in_price?: boolean | null
         }
@@ -2693,7 +2758,10 @@ export type Database = {
           name?: string
           payment_terms_days?: number | null
           phone?: string | null
+          receiving_location_set_at?: string | null
+          receiving_location_source?: string | null
           short_code?: string | null
+          stock_exempt?: boolean
           updated_at?: string
           vat_included_in_price?: boolean | null
         }
@@ -2720,6 +2788,66 @@ export type Database = {
         }
         Relationships: []
       }
+      material_category_suggestions: {
+        Row: {
+          cost: number | null
+          created_at: string
+          decided_at: string | null
+          decided_by: string | null
+          id: string
+          jev_answer: Json | null
+          material_id: string
+          previous_category: string | null
+          probability: number
+          prompt_version: string
+          proposed_category: string
+          status: string
+        }
+        Insert: {
+          cost?: number | null
+          created_at?: string
+          decided_at?: string | null
+          decided_by?: string | null
+          id?: string
+          jev_answer?: Json | null
+          material_id: string
+          previous_category?: string | null
+          probability: number
+          prompt_version: string
+          proposed_category: string
+          status?: string
+        }
+        Update: {
+          cost?: number | null
+          created_at?: string
+          decided_at?: string | null
+          decided_by?: string | null
+          id?: string
+          jev_answer?: Json | null
+          material_id?: string
+          previous_category?: string | null
+          probability?: number
+          prompt_version?: string
+          proposed_category?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "material_category_suggestions_material_id_fkey"
+            columns: ["material_id"]
+            isOneToOne: false
+            referencedRelation: "sku_cogs_materials"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "material_category_suggestions_proposed_category_fkey"
+            columns: ["proposed_category"]
+            isOneToOne: false
+            referencedRelation: "stock_material_categories"
+            referencedColumns: ["code"]
+          },
+        ]
+      }
       material_alias_events: {
         Row: {
           action: string
@@ -2731,9 +2859,11 @@ export type Database = {
           jev_probability: number | null
           new_factor: number | null
           new_item_id: string | null
+          new_line_class: string | null
           new_sku_id: string | null
           previous_factor: number | null
           previous_item_id: string | null
+          previous_line_class: string | null
           previous_sku_id: string | null
           raw_name: string | null
           raw_unit: string | null
@@ -2751,9 +2881,11 @@ export type Database = {
           jev_probability?: number | null
           new_factor?: number | null
           new_item_id?: string | null
+          new_line_class?: string | null
           new_sku_id?: string | null
           previous_factor?: number | null
           previous_item_id?: string | null
+          previous_line_class?: string | null
           previous_sku_id?: string | null
           raw_name?: string | null
           raw_unit?: string | null
@@ -2771,9 +2903,11 @@ export type Database = {
           jev_probability?: number | null
           new_factor?: number | null
           new_item_id?: string | null
+          new_line_class?: string | null
           new_sku_id?: string | null
           previous_factor?: number | null
           previous_item_id?: string | null
+          previous_line_class?: string | null
           previous_sku_id?: string | null
           raw_name?: string | null
           raw_unit?: string | null
@@ -2842,6 +2976,24 @@ export type Database = {
           },
         ]
       }
+      stock_material_categories: {
+        Row: {
+          code: string
+          label_vi: string
+          sort_order: number
+        }
+        Insert: {
+          code: string
+          label_vi: string
+          sort_order?: number
+        }
+        Update: {
+          code?: string
+          label_vi?: string
+          sort_order?: number
+        }
+        Relationships: []
+      }
       stock_material_aliases: {
         Row: {
           conversion_factor: number
@@ -2849,6 +3001,7 @@ export type Database = {
           created_by: string | null
           id: string
           kitchen_inventory_item_id: string | null
+          line_class: string
           location: string
           normalized_name: string
           supplier_id: string | null
@@ -2871,6 +3024,7 @@ export type Database = {
           created_by?: string | null
           id?: string
           kitchen_inventory_item_id?: string | null
+          line_class?: string
           location: string
           normalized_name: string
           supplier_id?: string | null
@@ -2893,6 +3047,7 @@ export type Database = {
           created_by?: string | null
           id?: string
           kitchen_inventory_item_id?: string | null
+          line_class?: string
           location?: string
           normalized_name?: string
           supplier_id?: string | null
@@ -3934,6 +4089,7 @@ export type Database = {
           p_jev_probability: number | null
           p_source_table: string | null
           p_source_id: string | null
+          p_line_class?: string
         }
         Returns: Json
       }
@@ -3947,6 +4103,26 @@ export type Database = {
       }
       get_material_alias_review: {
         Args: { p_days?: number }
+        Returns: Json
+      }
+      get_stock_routing_review: {
+        Args: never
+        Returns: Json
+      }
+      decide_supplier_routing: {
+        Args: { p_id: string; p_action: string; p_location?: string | null }
+        Returns: Json
+      }
+      revert_supplier_routing: {
+        Args: { p_suggestion: string }
+        Returns: Json
+      }
+      decide_material_category: {
+        Args: { p_id: string; p_action: string; p_category?: string | null }
+        Returns: Json
+      }
+      revert_material_category: {
+        Args: { p_suggestion: string }
         Returns: Json
       }
       get_material_alias_backlog: {

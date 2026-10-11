@@ -19,6 +19,7 @@ import {
   useUndoMaterialAliasEvent,
 } from "@/hooks/useMaterialAlias";
 import { materialAliasActionLabel, materialAliasStatusLabel } from "@/lib/material-alias";
+import { StockRoutingCards } from "@/components/stock-routing/StockRoutingCards";
 import {
   ITEM_CLASS_LABELS,
   itemClassLabel,
@@ -450,6 +451,7 @@ export default function StockCatalogCleanup() {
           </section>
 
           <LearnedAliasesCard canEdit={canEdit} />
+          <StockRoutingCards canEdit={canEdit} />
         </div>
       </div>
     </div>

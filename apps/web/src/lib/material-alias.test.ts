@@ -4,9 +4,11 @@ import test from "node:test";
 import {
   aliasStatusAfterConfirm,
   MATERIAL_ALIAS_ACTION_LABELS,
+  MATERIAL_ALIAS_LINE_CLASS_LABELS,
   MATERIAL_ALIAS_SCORE_TEST_CASES,
   MATERIAL_ALIAS_STATUS_LABELS,
   materialAliasActionLabel,
+  materialAliasLineClassLabel,
   materialAliasStatusLabel,
   parseMaterialAliasReview,
   parseStockAliasJevResponse,
@@ -55,6 +57,11 @@ test("Vietnamese labels cover every status and action", () => {
     assert.ok(MATERIAL_ALIAS_ACTION_LABELS[action].length > 0);
     assert.equal(materialAliasActionLabel(action), MATERIAL_ALIAS_ACTION_LABELS[action]);
   }
+  for (const lineClass of ["stock", "non_stock"] as const) {
+    assert.ok(MATERIAL_ALIAS_LINE_CLASS_LABELS[lineClass].length > 0);
+    assert.equal(materialAliasLineClassLabel(lineClass), MATERIAL_ALIAS_LINE_CLASS_LABELS[lineClass]);
+  }
+  assert.equal(materialAliasLineClassLabel(null), "");
 });
 
 const CANDIDATE_ID = "11111111-1111-4111-8111-111111111111";
@@ -81,6 +88,75 @@ test("parseSuggestMaterialAliases accepts the RPC payload", () => {
   assert.equal(parsed[0].needs_prompt, true);
   assert.equal(parsed[0].candidates[0].score, 0.9);
   assert.equal(parsed[0].pack_guess?.pack_size, 10);
+});
+
+test("parseSuggestMaterialAliases accepts stock and non_stock line classes", () => {
+  const stock = parseSuggestMaterialAliases([
+    {
+      ...VALID_SUGGESTIONS[0],
+      alias: {
+        alias_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        status: "auto",
+        line_class: "stock",
+        item_id: CANDIDATE_ID,
+        sku_id: null,
+        item_name: "Tỏi bóc vỏ",
+        unit: "kg",
+        conversion_factor: 1,
+        pack_label: null,
+        confirm_count: 3,
+        confirmers_count: 1,
+        jev_disagreed: false,
+      },
+      needs_prompt: false,
+    },
+  ]);
+  assert.equal(stock[0].alias?.line_class, "stock");
+
+  const nonStock = parseSuggestMaterialAliases([
+    {
+      ...VALID_SUGGESTIONS[0],
+      alias: {
+        alias_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        status: "auto",
+        line_class: "non_stock",
+        item_id: null,
+        sku_id: null,
+        item_name: null,
+        unit: "-",
+        conversion_factor: 1,
+        pack_label: null,
+        confirm_count: 3,
+        confirmers_count: 1,
+        jev_disagreed: false,
+      },
+      needs_prompt: false,
+    },
+  ]);
+  assert.equal(nonStock[0].alias?.line_class, "non_stock");
+  assert.equal(nonStock[0].needs_prompt, false);
+
+  assert.throws(() =>
+    parseSuggestMaterialAliases([
+      {
+        ...VALID_SUGGESTIONS[0],
+        alias: {
+          alias_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+          status: "auto",
+          line_class: "unknown",
+          item_id: null,
+          sku_id: null,
+          item_name: null,
+          unit: "-",
+          conversion_factor: 1,
+          pack_label: null,
+          confirm_count: 3,
+          confirmers_count: 1,
+          jev_disagreed: false,
+        },
+      },
+    ]),
+  );
 });
 
 test("parseSuggestMaterialAliases rejects malformed payloads", () => {
@@ -158,6 +234,7 @@ const VALID_REVIEW = {
       supplier_id: null,
       supplier_name: "NCC A",
       location: "q7",
+      line_class: "non_stock",
       item_id: CANDIDATE_ID,
       sku_id: null,
       item_name: "Tỏi bóc vỏ",
@@ -186,9 +263,24 @@ test("parseMaterialAliasReview accepts the RPC payload", () => {
   const review = parseMaterialAliasReview(VALID_REVIEW);
   assert.equal(review.aliases.length, 1);
   assert.equal(review.aliases[0].status, "auto");
+  assert.equal(review.aliases[0].line_class, "non_stock");
   assert.equal(review.aliases[0].last_event?.action, "auto_promoted");
   assert.equal(review.summary.pending_lines, 4);
   assert.equal(review.summary.jev_usage.call_limit, 600);
+});
+
+test("parseMaterialAliasReview defaults a missing line_class to stock", () => {
+  const withoutLineClass = {
+    ...VALID_REVIEW,
+    aliases: [{ ...VALID_REVIEW.aliases[0], line_class: undefined }],
+  };
+  assert.equal(parseMaterialAliasReview(withoutLineClass).aliases[0].line_class, "stock");
+  assert.throws(() =>
+    parseMaterialAliasReview({
+      ...VALID_REVIEW,
+      aliases: [{ ...VALID_REVIEW.aliases[0], line_class: "maybe" }],
+    }),
+  );
 });
 
 test("parseMaterialAliasReview rejects malformed payloads", () => {

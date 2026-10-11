@@ -259,3 +259,6 @@
 .d3-sc-row.is-flagged { box-shadow: inset 3px 0 0 var(--d3-red); }
 .d3-sc-actions.is-inline { display: flex; grid-template-columns: none; gap: 6px; }
 .d3-sc-actions.is-inline button { height: 36px; }
+
+.d3-sc-actions.is-routing { grid-template-columns: minmax(0, 1fr) auto auto; }
+.d3-sc-actions.is-routing .d3-wh-select { height: 40px; background: var(--d3-card); }

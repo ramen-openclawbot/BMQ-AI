@@ -14,6 +14,21 @@ import { normalizeTokens, tokenJaccard } from "./stock-catalog.ts";
 
 export type MaterialAliasStatus = "learning" | "auto" | "disabled";
 
+/** Giai đoạn 3: a line is either posted to stock or explicitly not stock. */
+export type MaterialAliasLineClass = "stock" | "non_stock";
+
+export const MATERIAL_ALIAS_LINE_CLASS_LABELS: Record<MaterialAliasLineClass, string> = {
+  stock: "Nhập kho",
+  non_stock: "Không nhập kho",
+};
+
+export function materialAliasLineClassLabel(value: string | null | undefined): string {
+  if (value && value in MATERIAL_ALIAS_LINE_CLASS_LABELS) {
+    return MATERIAL_ALIAS_LINE_CLASS_LABELS[value as MaterialAliasLineClass];
+  }
+  return value ?? "";
+}
+
 export const MATERIAL_ALIAS_STATUS_LABELS: Record<MaterialAliasStatus, string> = {
   learning: "Đang học",
   auto: "Tự động",
@@ -120,6 +135,7 @@ export interface MaterialAliasCandidateRow {
 export interface MaterialAliasAlias {
   alias_id: string;
   status: MaterialAliasStatus;
+  line_class: MaterialAliasLineClass;
   item_id: string | null;
   sku_id: string | null;
   item_name: string | null;
@@ -163,6 +179,7 @@ export interface MaterialAliasReviewAlias {
   supplier_id: string | null;
   supplier_name: string | null;
   location: "q7" | "tan_tao";
+  line_class: MaterialAliasLineClass;
   item_id: string | null;
   sku_id: string | null;
   item_name: string | null;
@@ -287,6 +304,14 @@ function asAction(value: unknown, path: string): MaterialAliasAction {
   return action as MaterialAliasAction;
 }
 
+function asLineClass(value: unknown, path: string): MaterialAliasLineClass {
+  // Aliases created before Giai đoạn 3 have no line_class and are stock.
+  if (value === null || value === undefined) return "stock";
+  const lineClass = asString(value, path);
+  if (lineClass !== "stock" && lineClass !== "non_stock") throw new TypeError(`${path} is invalid`);
+  return lineClass;
+}
+
 function parsePackGuess(value: unknown, path: string): MaterialAliasPackGuess | null {
   if (value === null || value === undefined) return null;
   const pack = asRecord(value, path);
@@ -319,6 +344,7 @@ function parseAlias(entry: unknown, path: string): MaterialAliasAlias {
   return {
     alias_id: asString(alias.alias_id, `${path}.alias_id`),
     status: asStatus(alias.status, `${path}.status`),
+    line_class: asLineClass(alias.line_class, `${path}.line_class`),
     item_id: asNullableString(alias.item_id, `${path}.item_id`),
     sku_id: asNullableString(alias.sku_id, `${path}.sku_id`),
     item_name: asNullableString(alias.item_name, `${path}.item_name`),
@@ -449,6 +475,7 @@ export function parseMaterialAliasReview(raw: unknown): MaterialAliasReview {
       supplier_id: asNullableString(row.supplier_id, `${path}.supplier_id`),
       supplier_name: asNullableString(row.supplier_name, `${path}.supplier_name`),
       location: asLocation(row.location, `${path}.location`),
+      line_class: asLineClass(row.line_class, `${path}.line_class`),
       item_id: asNullableString(row.item_id, `${path}.item_id`),
       sku_id: asNullableString(row.sku_id, `${path}.sku_id`),
       item_name: asNullableString(row.item_name, `${path}.item_name`),
