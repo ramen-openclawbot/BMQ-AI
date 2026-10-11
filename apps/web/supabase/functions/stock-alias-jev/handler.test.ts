@@ -19,6 +19,8 @@ const CANDIDATE_B = { id: "22222222-2222-4222-8222-222222222222", name: "Tỏi p
 const EVAL: JevMatchEvaluation = {
   choice: CANDIDATE_A.id,
   probability: 0.9,
+  lineType: "goods",
+  lineTypeProbability: 0.95,
   confidence: 0.8,
   usage: { input: 10, output: 5 },
   cost: 0.001,
@@ -28,6 +30,8 @@ const ANSWER: CachedJevAnswer = {
   choice: CANDIDATE_A.id,
   item_id: CANDIDATE_A.id,
   probability: 0.9,
+  line_type: "goods",
+  line_type_probability: 0.95,
   confidence: 0.8,
   pack: { label: "Tỏi ngày 10", base_qty: 10, base_unit: null, multiplier: 1 },
 };
@@ -147,6 +151,39 @@ test("a changed candidates_hash asks Jev again", async () => {
   assert.equal(body.calls, 1);
   assert.equal(body.results[0].answer.choice, CANDIDATE_A.id);
   assert.equal(calls, 2);
+});
+
+test("a rule line (VAT / fee / service) is answered without calling Jev", async () => {
+  let calls = 0;
+  const { deps } = makeDeps({
+    evaluator: () => async () => { calls += 1; return EVAL; },
+  });
+  const handler = createMaterialAliasHandler(deps);
+  const response = await handler(request({
+    mode: "lines",
+    supplier_id: "33333333-3333-4333-8333-333333333333",
+    location: "q7",
+    lines: [{ line_key: "l1", raw_name: "Thuế VAT 8%", raw_unit: null, candidates: [CANDIDATE_A] }],
+  }));
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.calls, 0, "a rule line must never call Jev");
+  assert.equal(calls, 0, "a rule line must never call Jev");
+  assert.equal(body.results[0].answer.line_type, "non_goods");
+  assert.equal(body.results[0].answer.line_type_probability, 1);
+  assert.equal(body.results[0].answer.choice, null);
+});
+
+test("the line_type answer is stored in the Jev cache without changing the key", async () => {
+  const stored: CachedJevAnswer[] = [];
+  const { deps } = makeDeps({
+    putCache: async (_key, answer) => { stored.push(answer); },
+  });
+  const handler = createMaterialAliasHandler(deps);
+  await handler(request(linesBody()));
+  assert.equal(stored.length, 1);
+  assert.equal(stored[0].line_type, "goods");
+  assert.equal(stored[0].line_type_probability, 0.95);
 });
 
 test("the shared daily quota stops a backlog run before any Jev call", async () => {

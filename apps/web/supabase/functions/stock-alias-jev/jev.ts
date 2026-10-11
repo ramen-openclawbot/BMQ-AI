@@ -14,7 +14,7 @@
 export const JEV_ENDPOINT = "https://ai-gateway.vercel.sh/v1/evaluate";
 export const JEV_MODEL = "typesafe-ai/jev";
 // Bump whenever the state, the question or the criteria below change.
-export const JEV_PROMPT_VERSION = "jev-material-alias-2026-10-16.1";
+export const JEV_PROMPT_VERSION = "jev-material-alias-2026-10-19.1";
 export const JEV_TIMEOUT_MS = 4000;
 export const JEV_MAX_TIMEOUT_MS = 4000;
 export const JEV_BODY_LIMIT = 32_000;
@@ -23,6 +23,12 @@ export const JEV_CIRCUIT_COOLDOWN_MS = 30_000;
 
 /** Choice option used when no candidate matches the invoice line. */
 export const NONE_OPTION = "none";
+
+/** Second choice question: goods to receive, or a non-goods VAT / fee / service line. */
+export const LINE_TYPE_GOODS = "goods";
+export const LINE_TYPE_NON_GOODS = "non_goods";
+export const LINE_TYPE_OPTIONS = [LINE_TYPE_GOODS, LINE_TYPE_NON_GOODS] as const;
+export type JevLineType = (typeof LINE_TYPE_OPTIONS)[number];
 
 export interface MaterialAliasCandidate {
   id: string;
@@ -60,12 +66,38 @@ export function matchOptions(candidates: readonly MaterialAliasCandidate[]): str
   return [...candidates.map((candidate) => candidate.id), NONE_OPTION];
 }
 
+/**
+ * Vietnamese instructions + the two fixed options for the second question. A
+ * line that is not goods (VAT, tax, shipping / delivery fee, a service or a
+ * discount) must never be received into stock.
+ */
+export function lineTypeInstructions(): string {
+  return "Dòng hóa đơn `line` là hàng hóa / nguyên vật liệu phải nhập kho, hay là dòng không nhập kho (VAT, thuế, phí vận chuyển, phí giao hàng, dịch vụ, chiết khấu)?";
+}
+
+export function lineTypeCriteria(): Record<string, string> {
+  return {
+    [LINE_TYPE_GOODS]: "Hàng hóa, nguyên vật liệu, bao bì, vật tư mua về phải nhập kho.",
+    [LINE_TYPE_NON_GOODS]: "VAT, thuế, phí vận chuyển, phí giao hàng, dịch vụ, chiết khấu, không nhập kho.",
+  };
+}
+
+export function lineTypeOptions(): JevLineType[] {
+  return [...LINE_TYPE_OPTIONS];
+}
+
 export function jevQuestions(state: MatchJevState) {
   return {
     match: {
       type: "choice",
       instructions: matchInstructions(),
       criteria: matchCriteria(state.candidates),
+    },
+    // Sent together with `match` in the same evaluation call.
+    line_type: {
+      type: "choice",
+      instructions: lineTypeInstructions(),
+      criteria: lineTypeCriteria(),
     },
   };
 }
@@ -105,6 +137,82 @@ export function candidatesHash(ids: readonly string[]): string {
   return [...new Set(ids.filter((id) => typeof id === "string" && id.trim() !== ""))]
     .sort()
     .join("|");
+}
+
+// ---------------------------------------------------------------------------
+// Fixed non-stock rule (mirror of public.stock_line_auto_non_stock)
+// ---------------------------------------------------------------------------
+
+export type AutoNonStockReason = "vat" | "fee" | "service";
+
+/**
+ * Shared case table (same bytes as the SQL comment table and the smoke test):
+ * a rule name maps to 'vat' / 'fee' / 'service' or null for a real material.
+ */
+export const STOCK_LINE_AUTO_NON_STOCK_TEST_CASES: ReadonlyArray<
+  readonly [string, AutoNonStockReason | null]
+> = [
+  ["Thuế VAT 8%", "vat"],
+  ["VAT", "vat"],
+  ["Thuế GTGT", "vat"],
+  ["Phí vận chuyển", "fee"],
+  ["Phụ phí giao hàng", "fee"],
+  ["Cước ship nội thành", "fee"],
+  ["Vận chuyển hàng", "fee"],
+  ["Xử lý côn trùng", "service"],
+  ["Phí phân tích mẫu", "service"],
+  ["Thuê máy", "service"],
+  ["Tỏi phi", null],
+  ["Bánh mì lớn 17", null],
+  ["Phô mai Dairymont", null],
+  ["Ship hàng", "fee"],
+  ["Cước Rửa Chén TBP x 4 Miếng", null],
+  ["Cước điện thoại_0966998998", "fee"],
+  ["Thuê nhà Q.7 T9/26", "service"],
+];
+
+const VAT_TOKENS = [" vat ", " thue gtgt ", " thue vat ", " gtgt "];
+const FEE_TOKENS = [
+  " phi van chuyen ",
+  " phi giao hang ",
+  " phu phi ",
+  " phi ship ",
+  " cuoc van chuyen ",
+  " cuoc ship ",
+  " cuoc giao hang ",
+  " cuoc dien thoai",
+  " cuoc dau so",
+  " cuoc internet",
+  " van chuyen ",
+  " giao hang ",
+  " ship ",
+];
+const SERVICE_TOKENS = [
+  " dich vu ",
+  " xu ly con trung ",
+  " phan tich mau ",
+  " thue may ",
+  " bao tri ",
+  " sua chua ",
+  " chiet khau ",
+];
+
+/** Mirror of `public.stock_line_auto_non_stock` (same bytes as the SQL). */
+export function autoNonStockReason(name: string | null | undefined): AutoNonStockReason | null {
+  const normalized = ` ${normalizeItemName(name)} `;
+  // Rent is a service even though it starts with "thue" and carries a month number.
+  if (normalized.startsWith(" thue nha ") || normalized.includes(" thue mat bang ") || normalized.includes(" tien nha ")) {
+    return "service";
+  }
+  if (
+    VAT_TOKENS.some((token) => normalized.includes(token))
+    || (normalized.startsWith(" thue ") && (/[0-9]/.test(normalized) || normalized.includes("vat")))
+  ) {
+    return "vat";
+  }
+  if (FEE_TOKENS.some((token) => normalized.includes(token))) return "fee";
+  if (SERVICE_TOKENS.some((token) => normalized.includes(token))) return "service";
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -148,6 +256,9 @@ export interface JevMatchEvaluation {
   /** Candidate id, or null when the model picked "none". */
   choice: string | null;
   probability: number;
+  /** Second answer: goods to receive, or non-goods (VAT / fee / service). */
+  lineType: JevLineType;
+  lineTypeProbability: number;
   confidence: number | null;
   usage: JevUsage;
   cost: number | null;
@@ -200,34 +311,29 @@ function validateUsage(body: Record<string, unknown>): JevUsage {
   return { input, output };
 }
 
-/**
- * Strict validation of the single 'match' choice question. The option set is
- * supplied by code (`allowed` = candidate ids + "none"), so an unknown option,
- * a missing/extra probability, a tied top choice or a non-normalised
- * distribution are all refused.
- */
-export function validateJevResponse(allowed: readonly string[], body: unknown): JevMatchEvaluation {
-  if (!isRecord(body) || body.model !== JEV_MODEL) throw new JevError("jev_invalid_response", 502);
-  const usage = validateUsage(body);
-  const cost = gatewayCost(body.providerMetadata);
+/** One strictly-validated choice answer. */
+interface ValidatedChoice {
+  choice: string;
+  probability: number;
+  confidence: number | null;
+}
 
-  if (allowed.length < 2 || !allowed.includes(NONE_OPTION)) throw new JevError("jev_invalid_response", 502);
-  if (!isRecord(body.answers)) throw new JevError("jev_invalid_response", 502);
-  const answers = body.answers;
-  if (Object.keys(answers).length !== 1 || !Object.hasOwn(answers, "match")) {
-    throw new JevError("jev_invalid_response", 502);
-  }
-  const choice = answers.match;
-  if (!isRecord(choice) || choice.type !== "choice") throw new JevError("jev_invalid_response", 502);
-  for (const key of Object.keys(choice)) {
+/**
+ * Validate a single choice question. The option set is supplied by code, so an
+ * unknown option, a missing/extra probability, a tied top choice or a
+ * non-normalised distribution are all refused.
+ */
+function validateChoiceAnswer(value: unknown, allowed: readonly string[]): ValidatedChoice {
+  if (!isRecord(value) || value.type !== "choice") throw new JevError("jev_invalid_response", 502);
+  for (const key of Object.keys(value)) {
     if (key !== "type" && key !== "choice" && key !== "probabilities" && key !== "confidence") {
       throw new JevError("jev_invalid_response", 502);
     }
   }
-  if (Object.hasOwn(choice, "confidence") && !finiteUnit(choice.confidence)) throw new JevError("jev_invalid_response", 502);
-  if (typeof choice.choice !== "string" || !allowed.includes(choice.choice)) throw new JevError("jev_invalid_response", 502);
-  if (!isRecord(choice.probabilities)) throw new JevError("jev_invalid_response", 502);
-  const probabilities = choice.probabilities;
+  if (Object.hasOwn(value, "confidence") && !finiteUnit(value.confidence)) throw new JevError("jev_invalid_response", 502);
+  if (typeof value.choice !== "string" || !allowed.includes(value.choice)) throw new JevError("jev_invalid_response", 502);
+  if (!isRecord(value.probabilities)) throw new JevError("jev_invalid_response", 502);
+  const probabilities = value.probabilities;
   if (
     Object.keys(probabilities).length !== allowed.length
     || allowed.some((option) => !Object.hasOwn(probabilities, option))
@@ -239,16 +345,47 @@ export function validateJevResponse(allowed: readonly string[], body: unknown): 
     if (!finiteUnit(probabilities[option])) throw new JevError("jev_invalid_response", 502);
     sum += probabilities[option] as number;
   }
-  const chosen = choice.choice as string;
+  const chosen = value.choice;
   const chosenProbability = probabilities[chosen] as number;
   if (allowed.some((option) => option !== chosen && (probabilities[option] as number) >= chosenProbability)) {
     throw new JevError("jev_invalid_response", 502);
   }
   if (Math.abs(sum - 1) > 0.02) throw new JevError("jev_invalid_response", 502);
   return {
-    choice: chosen === NONE_OPTION ? null : chosen,
+    choice: chosen,
     probability: chosenProbability,
-    confidence: Object.hasOwn(choice, "confidence") ? (choice.confidence as number) : null,
+    confidence: Object.hasOwn(value, "confidence") ? (value.confidence as number) : null,
+  };
+}
+
+/**
+ * Strict validation of the two choice questions sent in one evaluation call:
+ * `match` (candidate ids + "none") and `line_type` (`goods` / `non_goods`).
+ * Both must be present, with no extra answer.
+ */
+export function validateJevResponse(allowed: readonly string[], body: unknown): JevMatchEvaluation {
+  if (!isRecord(body) || body.model !== JEV_MODEL) throw new JevError("jev_invalid_response", 502);
+  const usage = validateUsage(body);
+  const cost = gatewayCost(body.providerMetadata);
+
+  if (allowed.length < 2 || !allowed.includes(NONE_OPTION)) throw new JevError("jev_invalid_response", 502);
+  if (!isRecord(body.answers)) throw new JevError("jev_invalid_response", 502);
+  const answers = body.answers;
+  if (
+    Object.keys(answers).length !== 2
+    || !Object.hasOwn(answers, "match")
+    || !Object.hasOwn(answers, "line_type")
+  ) {
+    throw new JevError("jev_invalid_response", 502);
+  }
+  const match = validateChoiceAnswer(answers.match, allowed);
+  const lineType = validateChoiceAnswer(answers.line_type, LINE_TYPE_OPTIONS);
+  return {
+    choice: match.choice === NONE_OPTION ? null : match.choice,
+    probability: match.probability,
+    lineType: lineType.choice as JevLineType,
+    lineTypeProbability: lineType.probability,
+    confidence: match.confidence,
     usage,
     cost,
   };

@@ -42,8 +42,22 @@ function mapCandidate(row: Record<string, unknown>): MaterialAliasCandidate {
 function mapCachedAnswer(raw: unknown): CachedJevAnswer | null {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
   const record = raw as Record<string, unknown>;
+  const parseLineType = (value: unknown): "goods" | "non_goods" | null =>
+    value === "goods" || value === "non_goods" ? value : null;
+  const parseLineTypeProbability = (value: unknown): number | null =>
+    value === null || value === undefined ? null : asNumber(value);
   const choice = record.choice === null || record.choice === undefined ? null : String(record.choice);
-  if (choice !== null && choice === NONE_OPTION) return { choice: null, item_id: null, probability: 0, confidence: null, pack: null };
+  if (choice !== null && choice === NONE_OPTION) {
+    return {
+      choice: null,
+      item_id: null,
+      probability: 0,
+      line_type: parseLineType(record.line_type),
+      line_type_probability: parseLineTypeProbability(record.line_type_probability),
+      confidence: null,
+      pack: null,
+    };
+  }
   const parsePack = (value: unknown): CachedJevAnswer["pack"] => {
     if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
     const pack = value as Record<string, unknown>;
@@ -58,6 +72,8 @@ function mapCachedAnswer(raw: unknown): CachedJevAnswer | null {
     choice,
     item_id: choice,
     probability: record.probability === undefined ? 0 : asNumber(record.probability),
+    line_type: parseLineType(record.line_type),
+    line_type_probability: parseLineTypeProbability(record.line_type_probability),
     confidence: record.confidence === null || record.confidence === undefined ? null : asNumber(record.confidence),
     pack: parsePack(record.pack),
   };

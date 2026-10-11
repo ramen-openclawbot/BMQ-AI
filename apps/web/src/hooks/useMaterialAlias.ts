@@ -46,7 +46,10 @@ export function useSuggestMaterialAliases() {
 
       const pending = suggestions.filter(
         (suggestion) =>
-          suggestion.needs_prompt && suggestion.candidates.length > 0 && suggestion.jev === null,
+          suggestion.needs_prompt &&
+          suggestion.auto_non_stock === null &&
+          suggestion.candidates.length > 0 &&
+          suggestion.jev === null,
       );
       if (pending.length === 0) return suggestions;
 

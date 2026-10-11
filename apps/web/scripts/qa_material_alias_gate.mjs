@@ -79,6 +79,7 @@ function fixtureRows(st) {
   if (st.table === "rpc:suggest_material_aliases") {
     const lines = st.args.p_lines || [];
     return lines.map((l) => {
+      if (/ph\u00ed|vat/i.test(l.raw_name)) return { line_key: l.line_key, normalized_name: "phi", alias: null, needs_prompt: false, candidates: [], candidates_hash: "", jev: null, pack_guess: null, auto_non_stock: { reason: /vat/i.test(l.raw_name) ? "vat" : "fee", source: "rule" } };
       const auto = /b\u1ed9t m\u00ec|bot mi/i.test(l.raw_name);
       return auto
         ? { line_key: l.line_key, normalized_name: "bot mi", alias: { alias_id: "al-auto", status: "auto", item_id: "k2", sku_id: null, item_name: "Bột mì 888 Cam", unit: "g", conversion_factor: 25000, pack_label: "bao 25kg", confirm_count: 3, confirmers_count: 2, jev_disagreed: false }, needs_prompt: false, candidates: [], candidates_hash: "h2", jev: null, pack_guess: { pack_size: 25000, pack_label: "25kg", base_qty: 25, base_unit: "kg", multiplier: 1 } }
@@ -249,6 +250,7 @@ const role = cfg.role || "owner";
 const MODULES = {
   owner: null,
   limited: ["dashboard", "inventory", "kitchen_inventory", "goods_receipts", "payment_requests", "suppliers"],
+  buyer: ["dashboard", "inventory", "goods_receipts", "payment_requests", "suppliers", "purchase_orders"],
   viewer: ["dashboard", "inventory"],
   none: [],
 }[role];
@@ -427,6 +429,32 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     assert.deepEqual(errors, []);
     await page.screenshot({ path: `${EVIDENCE}/pr-gate-${viewport.width}.png` });
     record(`pr gate ${viewport.width}`);
+    await context.close();
+  }
+}
+// VAT / fee lines never block; staff do not get "Không nhập kho", owners do.
+for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+  for (const role of ["owner", "buyer"]) {
+    const { context, page, errors } = await open({ data: "populated", role }, "/purchase-orders", viewport);
+    await page.getByRole("button", { name: /Tạo PO/ }).first().click();
+    await page.waitForSelector("[role=dialog]", { timeout: 15000 });
+    await pickSupplier(page);
+    await page.getByRole("button", { name: /Thêm sản phẩm/ }).click();
+    await page.locator('input[name="items.0.product_name"]').fill("Phí vận chuyển");
+    await page.getByRole("button", { name: /Thêm sản phẩm/ }).click();
+    await page.locator('input[name="items.1.product_name"]').fill("Tỏi ngày 10");
+    await page.waitForSelector("[data-bmq-alias-panel='prompt']", { timeout: 15000 });
+    assert.equal(await page.locator("[data-bmq-alias-autononstock]").count(), 1, "fee line shown as auto non-stock chip");
+    assert.equal(await page.locator("[data-bmq-alias-prompt]").count(), 1, "only the goods line asks");
+    assert.equal(await page.locator("[data-bmq-alias-nonstock]").count(), role === "owner" ? 1 : 0, `Không nhập kho visible only to owner (${role})`);
+    await page.locator("[data-bmq-alias-prompt]").first().getByRole("button", { name: "Chưa rõ" }).click();
+    await page.getByRole("button", { name: "Tạo đơn đặt hàng" }).click();
+    await page.waitForTimeout(600);
+    const writes = await page.evaluate(() => window.__qaWrites);
+    assert.ok(writes.some((w) => w.startsWith("purchase_orders:") || w.startsWith("rpc:generate_po_number") || w.startsWith("purchase_order_items:")), "fee line does not block saving: " + JSON.stringify(writes));
+    assert.deepEqual(errors, []);
+    await page.screenshot({ path: `${EVIDENCE}/po-fee-${role}-${viewport.width}.png` });
+    record(`po fee line ${role} ${viewport.width}`);
     await context.close();
   }
 }

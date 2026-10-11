@@ -4071,6 +4071,10 @@ export type Database = {
           reason: string
         }[]
       }
+      stock_line_auto_non_stock: {
+        Args: { p_name: string }
+        Returns: string
+      }
       suggest_material_aliases: {
         Args: { p_supplier_id: string | null; p_location: string; p_lines: Json }
         Returns: Json

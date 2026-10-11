@@ -8,13 +8,16 @@
 // and no alias, PO, receipt, payment or allocation is written here.
 
 import {
+  autoNonStockReason,
   candidatesHash,
+  LINE_TYPE_NON_GOODS,
   NONE_OPTION,
   normalizeItemName,
   parsePackFromName,
   JevError,
   JEV_PROMPT_VERSION,
   type JevEvaluator,
+  type JevLineType,
   type JevMatchEvaluation,
   type MaterialAliasCandidate,
 } from "./jev.ts";
@@ -54,6 +57,9 @@ export interface CachedJevAnswer {
   choice: string | null;
   item_id: string | null;
   probability: number;
+  /** Second Jev answer: goods to receive or a non-goods VAT / fee / service line. */
+  line_type: JevLineType | null;
+  line_type_probability: number | null;
   confidence: number | null;
   pack: { label: string; base_qty: number | null; base_unit: string | null; multiplier: number } | null;
 }
@@ -248,8 +254,26 @@ function buildAnswer(
     choice,
     item_id: choice,
     probability: evaluation?.probability ?? 0,
+    line_type: evaluation?.lineType ?? null,
+    line_type_probability: evaluation?.lineTypeProbability ?? null,
     confidence: evaluation?.confidence ?? null,
     pack: parsedPack,
+  };
+}
+
+/**
+ * Deterministic answer for a line the fixed rule already calls non-goods
+ * (VAT / fee / service): the handler answers from code and never calls Jev.
+ */
+function ruleAnswer(rawName: string): CachedJevAnswer {
+  return {
+    choice: null,
+    item_id: null,
+    probability: 0,
+    line_type: LINE_TYPE_NON_GOODS,
+    line_type_probability: 1,
+    confidence: null,
+    pack: parsePackFromName(rawName),
   };
 }
 
@@ -305,6 +329,18 @@ export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
         const results: unknown[] = [];
         for (const line of input.lines) {
           const normalizedName = normalizeItemName(line.raw_name);
+          // The fixed rule already knows VAT / fee / service: answer from code
+          // and never spend a Jev call on it.
+          if (autoNonStockReason(line.raw_name) !== null) {
+            results.push({
+              line_key: line.line_key,
+              normalized_name: normalizedName,
+              candidates_hash: "",
+              cached: false,
+              answer: ruleAnswer(line.raw_name),
+            });
+            continue;
+          }
           const candidateList = line.candidates;
           const hash = candidatesHash(candidateIds(candidateList));
           const key: MaterialAliasCacheKey = {

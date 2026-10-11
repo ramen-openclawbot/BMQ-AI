@@ -2,12 +2,18 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  autoNonStockReason,
   candidatesHash,
   createJevCircuit,
   createJevEvaluator,
   JEV_ENDPOINT,
   JEV_MODEL,
   JevError,
+  LINE_TYPE_GOODS,
+  LINE_TYPE_NON_GOODS,
+  lineTypeCriteria,
+  lineTypeInstructions,
+  lineTypeOptions,
   matchCriteria,
   matchInstructions,
   matchOptions,
@@ -15,6 +21,7 @@ import {
   normalizeItemName,
   PACK_PARSE_TEST_CASES,
   parsePackFromName,
+  STOCK_LINE_AUTO_NON_STOCK_TEST_CASES,
   validateJevResponse,
   type MaterialAliasCandidate,
 } from "./jev.ts";
@@ -26,17 +33,26 @@ const CANDIDATES: MaterialAliasCandidate[] = [
 ];
 const ALLOWED = matchOptions(CANDIDATES);
 
+const GOODS_ANSWER = {
+  type: "choice",
+  choice: LINE_TYPE_GOODS,
+  probabilities: { [LINE_TYPE_GOODS]: 0.85, [LINE_TYPE_NON_GOODS]: 0.15 },
+  confidence: 0.8,
+};
+
+function answersWith(match: unknown, lineType: unknown = GOODS_ANSWER): Record<string, unknown> {
+  return { match, line_type: lineType };
+}
+
 function validMatch(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     model: JEV_MODEL,
-    answers: {
-      match: {
-        type: "choice",
-        choice: CANDIDATES[0].id,
-        probabilities: { [CANDIDATES[0].id]: 0.86, [CANDIDATES[1].id]: 0.1, [NONE_OPTION]: 0.04 },
-        confidence: 0.8,
-      },
-    },
+    answers: answersWith({
+      type: "choice",
+      choice: CANDIDATES[0].id,
+      probabilities: { [CANDIDATES[0].id]: 0.86, [CANDIDATES[1].id]: 0.1, [NONE_OPTION]: 0.04 },
+      confidence: 0.8,
+    }),
     usage: { inputTokens: 100, outputTokens: 20 },
     providerMetadata: { gateway: { cost: "0.00012" } },
     ...overrides,
@@ -51,19 +67,77 @@ test("validates the match choice and maps none to null", () => {
   const evaluation = validateJevResponse(ALLOWED, validMatch());
   assert.equal(evaluation.choice, CANDIDATES[0].id);
   assert.equal(evaluation.probability, 0.86);
+  assert.equal(evaluation.lineType, LINE_TYPE_GOODS);
+  assert.equal(evaluation.lineTypeProbability, 0.85);
   assert.equal(evaluation.confidence, 0.8);
   assert.equal(evaluation.cost, 0.00012);
 
   const none = validMatch({
-    answers: {
-      match: {
-        type: "choice",
-        choice: NONE_OPTION,
-        probabilities: { [CANDIDATES[0].id]: 0.05, [CANDIDATES[1].id]: 0.05, [NONE_OPTION]: 0.9 },
-      },
-    },
+    answers: answersWith({
+      type: "choice",
+      choice: NONE_OPTION,
+      probabilities: { [CANDIDATES[0].id]: 0.05, [CANDIDATES[1].id]: 0.05, [NONE_OPTION]: 0.9 },
+    }),
   });
   assert.equal(validateJevResponse(ALLOWED, none).choice, null);
+});
+
+test("validates the line_type choice and requires both answers", () => {
+  const nonGoods = validMatch({
+    answers: answersWith(
+      {
+        type: "choice",
+        choice: CANDIDATES[0].id,
+        probabilities: { [CANDIDATES[0].id]: 0.7, [CANDIDATES[1].id]: 0.2, [NONE_OPTION]: 0.1 },
+      },
+      {
+        type: "choice",
+        choice: LINE_TYPE_NON_GOODS,
+        probabilities: { [LINE_TYPE_GOODS]: 0.1, [LINE_TYPE_NON_GOODS]: 0.9 },
+      },
+    ),
+  });
+  const evaluation = validateJevResponse(ALLOWED, nonGoods);
+  assert.equal(evaluation.lineType, LINE_TYPE_NON_GOODS);
+  assert.equal(evaluation.lineTypeProbability, 0.9);
+
+  // Missing line_type answer.
+  assert.throws(
+    () => validateJevResponse(ALLOWED, validMatch({ answers: { match: (validMatch().answers as Record<string, unknown>).match } })),
+    JevError,
+  );
+  // Unknown line_type option.
+  assert.throws(
+    () => validateJevResponse(ALLOWED, validMatch({
+      answers: answersWith((validMatch().answers as Record<string, unknown>).match, {
+        type: "choice",
+        choice: "maybe",
+        probabilities: { [LINE_TYPE_GOODS]: 0.5, [LINE_TYPE_NON_GOODS]: 0.5 },
+      }),
+    })),
+    JevError,
+  );
+  // Tied line_type distribution.
+  assert.throws(
+    () => validateJevResponse(ALLOWED, validMatch({
+      answers: answersWith((validMatch().answers as Record<string, unknown>).match, {
+        type: "choice",
+        choice: LINE_TYPE_GOODS,
+        probabilities: { [LINE_TYPE_GOODS]: 0.5, [LINE_TYPE_NON_GOODS]: 0.5 },
+      }),
+    })),
+    JevError,
+  );
+  // Extra answer key.
+  assert.throws(
+    () => validateJevResponse(ALLOWED, validMatch({
+      answers: {
+        ...answersWith((validMatch().answers as Record<string, unknown>).match),
+        extra: GOODS_ANSWER,
+      },
+    })),
+    JevError,
+  );
 });
 
 test("the match prompt is Vietnamese, describes every candidate and always offers none", () => {
@@ -77,41 +151,55 @@ test("the match prompt is Vietnamese, describes every candidate and always offer
   }
 });
 
+test("the line_type prompt is Vietnamese and offers exactly goods and non_goods", () => {
+  const criteria = lineTypeCriteria();
+  assert.deepEqual(lineTypeOptions().sort(), [LINE_TYPE_GOODS, LINE_TYPE_NON_GOODS].sort());
+  assert.deepEqual(Object.keys(criteria).sort(), [LINE_TYPE_GOODS, LINE_TYPE_NON_GOODS].sort());
+  assert.ok(lineTypeInstructions().includes("nhập kho"));
+  assert.ok(lineTypeInstructions().includes("không nhập kho"));
+  assert.ok(criteria[LINE_TYPE_GOODS].includes("phải nhập kho"));
+  assert.ok(criteria[LINE_TYPE_NON_GOODS].includes("VAT"));
+  assert.ok(criteria[LINE_TYPE_NON_GOODS].includes("không nhập kho"));
+});
+
 test("refuses an unknown or tied option, a bad distribution and a missing none option", () => {
   const unknown = validMatch({
-    answers: {
-      match: {
-        type: "choice",
-        choice: "33333333-3333-4333-8333-333333333333",
-        probabilities: { [CANDIDATES[0].id]: 0.5, [CANDIDATES[1].id]: 0.3, [NONE_OPTION]: 0.2 },
-      },
-    },
+    answers: answersWith({
+      type: "choice",
+      choice: "33333333-3333-4333-8333-333333333333",
+      probabilities: { [CANDIDATES[0].id]: 0.5, [CANDIDATES[1].id]: 0.3, [NONE_OPTION]: 0.2 },
+    }),
   });
   assert.throws(() => validateJevResponse(ALLOWED, unknown), JevError);
 
   const tied = validMatch({
-    answers: {
-      match: {
-        type: "choice",
-        choice: CANDIDATES[0].id,
-        probabilities: { [CANDIDATES[0].id]: 0.5, [CANDIDATES[1].id]: 0.5, [NONE_OPTION]: 0.0 },
-      },
-    },
+    answers: answersWith({
+      type: "choice",
+      choice: CANDIDATES[0].id,
+      probabilities: { [CANDIDATES[0].id]: 0.5, [CANDIDATES[1].id]: 0.5, [NONE_OPTION]: 0.0 },
+    }),
   });
   assert.throws(() => validateJevResponse(ALLOWED, tied), JevError);
 
   const badSum = validMatch({
-    answers: {
-      match: {
-        type: "choice",
-        choice: CANDIDATES[0].id,
-        probabilities: { [CANDIDATES[0].id]: 0.8, [CANDIDATES[1].id]: 0.7, [NONE_OPTION]: 0.1 },
-      },
-    },
+    answers: answersWith({
+      type: "choice",
+      choice: CANDIDATES[0].id,
+      probabilities: { [CANDIDATES[0].id]: 0.8, [CANDIDATES[1].id]: 0.7, [NONE_OPTION]: 0.1 },
+    }),
   });
   assert.throws(() => validateJevResponse(ALLOWED, badSum), JevError);
 
   assert.throws(() => validateJevResponse([CANDIDATES[0].id, CANDIDATES[1].id], validMatch()), JevError);
+});
+
+test("autoNonStockReason mirrors the shared SQL case table", () => {
+  for (const [name, expected] of STOCK_LINE_AUTO_NON_STOCK_TEST_CASES) {
+    assert.equal(autoNonStockReason(name), expected, `autoNonStockReason(${name})`);
+  }
+  assert.equal(autoNonStockReason("Tỏi phi"), null, "the single token phi must never match");
+  assert.equal(autoNonStockReason(null), null);
+  assert.equal(autoNonStockReason(""), null);
 });
 
 test("pack reading mirrors q7_pack_from_name cases", () => {
@@ -149,6 +237,9 @@ test("an empty api key fails closed and the request shape is pinned", async () =
   });
   assert.equal(evaluation.choice, CANDIDATES[0].id);
   assert.equal(seenBody.model, JEV_MODEL);
+  const questions = seenBody.questions as Record<string, unknown>;
+  assert.deepEqual(Object.keys(questions).sort(), ["line_type", "match"]);
+  assert.equal((questions.line_type as Record<string, unknown>).type, "choice");
   const gateway = (seenBody.providerOptions as Record<string, Record<string, unknown>>).gateway;
   assert.equal(gateway.zeroDataRetention, true);
   assert.deepEqual(gateway.only, ["typesafe-ai"]);
@@ -233,7 +324,7 @@ test("the kill switch refuses the ranking before any provider call", async () =>
   let calls = 0;
   const handler = createMaterialAliasHandler({
     killSwitch: () => true,
-    evaluator: () => async () => { calls += 1; return { choice: null, probability: 0, confidence: null, usage: { input: 0, output: 0 }, cost: null }; },
+    evaluator: () => async () => { calls += 1; return { choice: null, probability: 0, lineType: LINE_TYPE_GOODS, lineTypeProbability: 1, confidence: null, usage: { input: 0, output: 0 }, cost: null }; },
     authenticate: async () => ({ userId: "owner-1", q7Editor: true }),
     getCache: async () => null,
     putCache: async () => {},

@@ -3,6 +3,7 @@ import { Check, Pencil, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 import { useConfirmMaterialAlias, useSuggestMaterialAliases, type MaterialAliasLocation } from "@/hooks/useMaterialAlias";
 import type { MaterialAliasSuggestion } from "@/lib/material-alias";
 import { toast } from "sonner";
@@ -50,6 +51,8 @@ interface Props {
   attention?: number;
 }
 
+const NON_STOCK_LABELS: Record<string, string> = { vat: "VAT", fee: "phí", service: "dịch vụ", jev: "Jev: phí/dịch vụ" };
+
 const pct = (value: number) => `${Math.round(value * 100)}%`;
 
 const errorText = (error: unknown) => {
@@ -76,6 +79,7 @@ function PromptRow({
   location,
   sourceTable,
   onDone,
+  canMarkNonStock,
 }: {
   row: MaterialAliasSuggestion;
   line: MaterialAliasPanelLine;
@@ -83,6 +87,8 @@ function PromptRow({
   location: MaterialAliasLocation;
   sourceTable: string;
   onDone: (status: "confirmed" | "skipped", label: string) => void;
+  /** Owner decision 2026-10-11: purchased goods must be received; only owners / Q7 editors may mark a line non-stock. */
+  canMarkNonStock: boolean;
 }) {
   const { toast } = useToast();
   const confirm = useConfirmMaterialAlias();
@@ -189,9 +195,11 @@ function PromptRow({
             <Check className="h-4 w-4" />
             {confirm.isPending ? "Đang lưu…" : "Xác nhận"}
           </Button>
-          <Button type="button" size="sm" variant="outline" onClick={saveNonStock} disabled={confirm.isPending} data-bmq-alias-nonstock>
-            Không nhập kho
-          </Button>
+          {canMarkNonStock ? (
+            <Button type="button" size="sm" variant="outline" onClick={saveNonStock} disabled={confirm.isPending} data-bmq-alias-nonstock>
+              Không nhập kho
+            </Button>
+          ) : null}
           <Button type="button" size="sm" variant="ghost" onClick={() => onDone("skipped", "")} disabled={confirm.isPending}>
             Chưa rõ
           </Button>
@@ -207,6 +215,8 @@ function PromptRow({
  */
 export function MaterialAliasPanel({ supplierId, lines, sourceTable, location = "q7", onGateChange, attention = 0 }: Props) {
   const suggest = useSuggestMaterialAliases();
+  const { isOwner, canEditModule } = useAuth();
+  const canMarkNonStock = isOwner || canEditModule("q7_material_inventory");
   const [rows, setRows] = useState<MaterialAliasSuggestion[]>([]);
   const [done, setDone] = useState<Record<string, { status: "confirmed" | "skipped"; label: string }>>({});
   const [editing, setEditing] = useState<Record<string, boolean>>({});
@@ -250,7 +260,9 @@ export function MaterialAliasPanel({ supplierId, lines, sourceTable, location = 
 
   if (!supplierId || named.length === 0) return null;
 
-  const autos = rows.filter((row) => !row.needs_prompt && !editing[row.line_key] && !done[row.line_key] && row.alias && byKey.has(row.line_key));
+  const autos = rows.filter((row) => !row.needs_prompt && !row.auto_non_stock && !editing[row.line_key] && !done[row.line_key] && row.alias && byKey.has(row.line_key));
+  // VAT, phí vận chuyển, dịch vụ: recognised automatically, never asked, never block saving.
+  const nonStock = rows.filter((row) => row.auto_non_stock && byKey.has(row.line_key));
   const confirmed = Object.entries(done).filter(([, value]) => value.status === "confirmed");
 
   if (suggest.isPending && rows.length === 0) {
@@ -276,6 +288,7 @@ export function MaterialAliasPanel({ supplierId, lines, sourceTable, location = 
         <small>
           {prompts.length ? `${prompts.length} dòng cần chọn trước khi lưu` : "Mọi dòng đã nhận diện"}
           {autos.length ? ` · ${autos.length} tự chọn` : ""}
+          {nonStock.length ? ` · ${nonStock.length} VAT/phí bỏ qua` : ""}
           {confirmed.length ? ` · ${confirmed.length} vừa xác nhận` : ""}
         </small>
       </div>
@@ -289,6 +302,7 @@ export function MaterialAliasPanel({ supplierId, lines, sourceTable, location = 
               supplierId={supplierId}
               location={location}
               sourceTable={sourceTable}
+              canMarkNonStock={canMarkNonStock}
               onDone={(status, label) => {
                 setDone((current) => ({ ...current, [row.line_key]: { status, label } }));
                 setEditing((current) => ({ ...current, [row.line_key]: false }));
@@ -297,8 +311,13 @@ export function MaterialAliasPanel({ supplierId, lines, sourceTable, location = 
           ))}
         </ul>
       ) : null}
-      {autos.length || confirmed.length ? (
+      {autos.length || confirmed.length || nonStock.length ? (
         <div className="d3-ma-chips">
+          {nonStock.map((row) => (
+            <span key={`ns-${row.line_key}`} className="d3-ma-chip is-nonstock" data-bmq-alias-autononstock>
+              {byKey.get(row.line_key)?.product_name} · {NON_STOCK_LABELS[row.auto_non_stock?.reason ?? "jev"]} — không nhập kho
+            </span>
+          ))}
           {autos.map((row) => (
             <button
               key={row.line_key}

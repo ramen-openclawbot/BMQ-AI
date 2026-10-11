@@ -67,6 +67,100 @@ export function aliasStatusAfterConfirm(
   return confirmCount >= 3 || distinctConfirmers >= 2 ? "auto" : "learning";
 }
 
+// ---------------------------------------------------------------------------
+// Fixed non-stock rule (mirror of public.stock_line_auto_non_stock)
+// ---------------------------------------------------------------------------
+
+export type MaterialAliasAutoNonStockRuleReason = "vat" | "fee" | "service";
+export type MaterialAliasAutoNonStockReason = MaterialAliasAutoNonStockRuleReason | "jev";
+export type MaterialAliasAutoNonStockSource = "rule" | "jev";
+/** Giai đoạn 4: second Jev choice, sent for every ranked line. */
+export type MaterialAliasAutoNonStockLineType = "goods" | "non_goods";
+
+export interface MaterialAliasAutoNonStock {
+  reason: MaterialAliasAutoNonStockReason;
+  source: MaterialAliasAutoNonStockSource;
+  /** Present for a Jev answer (line_type_probability). */
+  probability?: number;
+}
+
+/**
+ * Shared case table, byte-for-byte the same as the SQL comment table in
+ * 20261019100000_purchase_must_stock.sql, the edge mirror in
+ * supabase/functions/stock-alias-jev/jev.ts and the smoke test.
+ */
+export const STOCK_LINE_AUTO_NON_STOCK_TEST_CASES: ReadonlyArray<
+  readonly [string, MaterialAliasAutoNonStockRuleReason | null]
+> = [
+  ["Thuế VAT 8%", "vat"],
+  ["VAT", "vat"],
+  ["Thuế GTGT", "vat"],
+  ["Phí vận chuyển", "fee"],
+  ["Phụ phí giao hàng", "fee"],
+  ["Cước ship nội thành", "fee"],
+  ["Vận chuyển hàng", "fee"],
+  ["Xử lý côn trùng", "service"],
+  ["Phí phân tích mẫu", "service"],
+  ["Thuê máy", "service"],
+  ["Tỏi phi", null],
+  ["Bánh mì lớn 17", null],
+  ["Phô mai Dairymont", null],
+  ["Ship hàng", "fee"],
+  ["Cước Rửa Chén TBP x 4 Miếng", null],
+  ["Cước điện thoại_0966998998", "fee"],
+  ["Thuê nhà Q.7 T9/26", "service"],
+];
+
+const AUTO_NON_STOCK_VAT_TOKENS = [" vat ", " thue gtgt ", " thue vat ", " gtgt "];
+const AUTO_NON_STOCK_FEE_TOKENS = [
+  " phi van chuyen ",
+  " phi giao hang ",
+  " phu phi ",
+  " phi ship ",
+  " cuoc van chuyen ",
+  " cuoc ship ",
+  " cuoc giao hang ",
+  " cuoc dien thoai",
+  " cuoc dau so",
+  " cuoc internet",
+  " van chuyen ",
+  " giao hang ",
+  " ship ",
+];
+const AUTO_NON_STOCK_SERVICE_TOKENS = [
+  " dich vu ",
+  " xu ly con trung ",
+  " phan tich mau ",
+  " thue may ",
+  " bao tri ",
+  " sua chua ",
+  " chiet khau ",
+];
+
+/**
+ * Mirror of `public.stock_line_auto_non_stock`: a line whose normalized name
+ * contains one of the fixed VAT / fee / service phrases is non-stock. Matching
+ * is token based, so the single token "phi" never matches ("Tỏi phi" is stock).
+ */
+export function autoNonStockReason(
+  name: string | null | undefined,
+): MaterialAliasAutoNonStockRuleReason | null {
+  const normalized = ` ${normalizeStockItemName(name)} `;
+  // Rent is a service even though it starts with "thue" and carries a month number.
+  if (normalized.startsWith(" thue nha ") || normalized.includes(" thue mat bang ") || normalized.includes(" tien nha ")) {
+    return "service";
+  }
+  if (
+    AUTO_NON_STOCK_VAT_TOKENS.some((token) => normalized.includes(token))
+    || (normalized.startsWith(" thue ") && (/[0-9]/.test(normalized) || normalized.includes("vat")))
+  ) {
+    return "vat";
+  }
+  if (AUTO_NON_STOCK_FEE_TOKENS.some((token) => normalized.includes(token))) return "fee";
+  if (AUTO_NON_STOCK_SERVICE_TOKENS.some((token) => normalized.includes(token))) return "service";
+  return null;
+}
+
 /** Shared scoring test cases: [rawName, candidateName, expectedScore]. */
 export const MATERIAL_ALIAS_SCORE_TEST_CASES: ReadonlyArray<
   readonly [string, string, number]
@@ -164,6 +258,8 @@ export interface MaterialAliasSuggestion {
   candidates_hash: string;
   jev: Record<string, unknown> | null;
   pack_guess: MaterialAliasPackGuess | null;
+  /** Giai đoạn 4: set when the fixed rule or a confident Jev answer says non-stock. */
+  auto_non_stock: MaterialAliasAutoNonStock | null;
 }
 
 export interface MaterialAliasReviewEvent {
@@ -213,6 +309,9 @@ export interface StockAliasJevAnswer {
   choice: string | null;
   item_id: string | null;
   probability: number;
+  /** Giai đoạn 4: the second Jev answer (null for a pre-line_type cache row). */
+  line_type: MaterialAliasAutoNonStockLineType | null;
+  line_type_probability: number | null;
   confidence: number | null;
   pack: MaterialAliasPackGuess | null;
 }
@@ -312,6 +411,40 @@ function asLineClass(value: unknown, path: string): MaterialAliasLineClass {
   return lineClass;
 }
 
+function asLineType(value: unknown, path: string): MaterialAliasAutoNonStockLineType {
+  const lineType = asString(value, path);
+  if (lineType !== "goods" && lineType !== "non_goods") throw new TypeError(`${path} is invalid`);
+  return lineType;
+}
+
+function parseNullableLineType(value: unknown, path: string): MaterialAliasAutoNonStockLineType | null {
+  if (value === null || value === undefined) return null;
+  return asLineType(value, path);
+}
+
+/**
+ * Parse `auto_non_stock`: null for a stock line, otherwise the fixed-rule
+ * reason (`vat` | `fee` | `service`, source `rule`) or the confident Jev answer
+ * (`jev`, source `jev`, with its probability).
+ */
+function parseAutoNonStock(value: unknown, path: string): MaterialAliasAutoNonStock | null {
+  if (value === null || value === undefined) return null;
+  const row = asRecord(value, path);
+  const reason = asString(row.reason, `${path}.reason`);
+  const source = asString(row.source, `${path}.source`);
+  if (reason !== "vat" && reason !== "fee" && reason !== "service" && reason !== "jev") {
+    throw new TypeError(`${path}.reason is invalid`);
+  }
+  if (source !== "rule" && source !== "jev") throw new TypeError(`${path}.source is invalid`);
+  if ((source === "rule") !== (reason !== "jev")) {
+    throw new TypeError(`${path}.reason and ${path}.source disagree`);
+  }
+  const probability = row.probability === null || row.probability === undefined
+    ? undefined
+    : asNumber(row.probability, `${path}.probability`);
+  return probability === undefined ? { reason, source } : { reason, source, probability };
+}
+
 function parsePackGuess(value: unknown, path: string): MaterialAliasPackGuess | null {
   if (value === null || value === undefined) return null;
   const pack = asRecord(value, path);
@@ -377,6 +510,7 @@ export function parseSuggestMaterialAliases(raw: unknown): MaterialAliasSuggesti
       candidates_hash: asString(row.candidates_hash ?? "", `${path}.candidates_hash`),
       jev,
       pack_guess: parsePackGuess(row.pack_guess, `${path}.pack_guess`),
+      auto_non_stock: parseAutoNonStock(row.auto_non_stock, `${path}.auto_non_stock`),
     };
   });
 }
@@ -387,6 +521,8 @@ function parseJevAnswer(entry: unknown, path: string): StockAliasJevAnswer {
     choice: asNullableString(answer.choice, `${path}.choice`),
     item_id: asNullableString(answer.item_id, `${path}.item_id`),
     probability: asNumber(answer.probability, `${path}.probability`),
+    line_type: parseNullableLineType(answer.line_type, `${path}.line_type`),
+    line_type_probability: asNullableNumber(answer.line_type_probability, `${path}.line_type_probability`),
     confidence: asNullableNumber(answer.confidence, `${path}.confidence`),
     pack: parsePackGuess(answer.pack, `${path}.pack`),
   };

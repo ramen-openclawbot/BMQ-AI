@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   aliasStatusAfterConfirm,
+  autoNonStockReason,
   MATERIAL_ALIAS_ACTION_LABELS,
   MATERIAL_ALIAS_LINE_CLASS_LABELS,
   MATERIAL_ALIAS_SCORE_TEST_CASES,
@@ -15,6 +16,7 @@ import {
   parseSuggestMaterialAliases,
   rankMaterialAliasCandidates,
   scoreCandidate,
+  STOCK_LINE_AUTO_NON_STOCK_TEST_CASES,
 } from "./material-alias.ts";
 
 test("an alias is auto only after three confirms", () => {
@@ -45,6 +47,15 @@ test("'tỏi ngày 10' ranks 'Tỏi bóc vỏ' above 'Tỏi phi'", () => {
   assert.equal(ranked[0].candidate.id, "boc");
   assert.equal(ranked[0].score, 0.9);
   assert.equal(ranked[1].score, 0.9);
+});
+
+test("autoNonStockReason mirrors the shared SQL case table", () => {
+  for (const [name, expected] of STOCK_LINE_AUTO_NON_STOCK_TEST_CASES) {
+    assert.equal(autoNonStockReason(name), expected, `autoNonStockReason(${name})`);
+  }
+  assert.equal(autoNonStockReason("Tỏi phi"), null, "the single token phi must never match");
+  assert.equal(autoNonStockReason(null), null);
+  assert.equal(autoNonStockReason(""), null);
 });
 
 test("Vietnamese labels cover every status and action", () => {
@@ -78,6 +89,7 @@ const VALID_SUGGESTIONS = [
     candidates_hash: CANDIDATE_ID,
     jev: null,
     pack_guess: { pack_size: 10, pack_label: "10", base_qty: 10, base_unit: null, multiplier: 1 },
+    auto_non_stock: null,
   },
 ];
 
@@ -88,6 +100,46 @@ test("parseSuggestMaterialAliases accepts the RPC payload", () => {
   assert.equal(parsed[0].needs_prompt, true);
   assert.equal(parsed[0].candidates[0].score, 0.9);
   assert.equal(parsed[0].pack_guess?.pack_size, 10);
+  assert.equal(parsed[0].auto_non_stock, null);
+});
+
+test("parseSuggestMaterialAliases accepts both auto_non_stock shapes", () => {
+  const rule = parseSuggestMaterialAliases([
+    {
+      ...VALID_SUGGESTIONS[0],
+      needs_prompt: false,
+      candidates: [],
+      auto_non_stock: { reason: "fee", source: "rule" },
+    },
+  ]);
+  assert.equal(rule[0].auto_non_stock?.reason, "fee");
+  assert.equal(rule[0].auto_non_stock?.source, "rule");
+  assert.equal(rule[0].auto_non_stock?.probability, undefined);
+
+  const jev = parseSuggestMaterialAliases([
+    {
+      ...VALID_SUGGESTIONS[0],
+      needs_prompt: false,
+      auto_non_stock: { reason: "jev", source: "jev", probability: 0.93 },
+    },
+  ]);
+  assert.equal(jev[0].auto_non_stock?.reason, "jev");
+  assert.equal(jev[0].auto_non_stock?.probability, 0.93);
+
+  // A missing key is the same as null (older cached payloads).
+  const missing = parseSuggestMaterialAliases([{ ...VALID_SUGGESTIONS[0], auto_non_stock: undefined }]);
+  assert.equal(missing[0].auto_non_stock, null);
+
+  assert.throws(() =>
+    parseSuggestMaterialAliases([
+      { ...VALID_SUGGESTIONS[0], auto_non_stock: { reason: "maybe", source: "rule" } },
+    ]),
+  );
+  assert.throws(() =>
+    parseSuggestMaterialAliases([
+      { ...VALID_SUGGESTIONS[0], auto_non_stock: { reason: "vat", source: "jev" } },
+    ]),
+  );
 });
 
 test("parseSuggestMaterialAliases accepts stock and non_stock line classes", () => {
@@ -177,7 +229,7 @@ const VALID_LINES_RESPONSE = {
       normalized_name: "toi",
       candidates_hash: CANDIDATE_ID,
       cached: false,
-      answer: { choice: CANDIDATE_ID, item_id: CANDIDATE_ID, probability: 0.9, confidence: 0.8, pack: null },
+      answer: { choice: CANDIDATE_ID, item_id: CANDIDATE_ID, probability: 0.9, line_type: "goods", line_type_probability: 0.95, confidence: 0.8, pack: null },
     },
   ],
   calls: 1,
@@ -205,11 +257,28 @@ test("parseStockAliasJevResponse accepts lines and backlog payloads", () => {
   assert.equal(lines.mode, "lines");
   if (lines.mode === "lines") {
     assert.equal(lines.results[0].answer.choice, CANDIDATE_ID);
+    assert.equal(lines.results[0].answer.line_type, "goods");
+    assert.equal(lines.results[0].answer.line_type_probability, 0.95);
     assert.equal(lines.stopped, null);
   }
   const backlog = parseStockAliasJevResponse(VALID_BACKLOG_RESPONSE);
   assert.equal(backlog.mode, "backlog");
   if (backlog.mode === "backlog") assert.equal(backlog.evaluated, 2);
+});
+
+test("parseStockAliasJevResponse defaults a missing line_type to null and rejects an invalid one", () => {
+  const missing = parseStockAliasJevResponse({
+    ...VALID_LINES_RESPONSE,
+    results: [{ ...VALID_LINES_RESPONSE.results[0], answer: { ...VALID_LINES_RESPONSE.results[0].answer, line_type: undefined } }],
+  });
+  if (missing.mode === "lines") assert.equal(missing.results[0].answer.line_type, null);
+
+  assert.throws(() =>
+    parseStockAliasJevResponse({
+      ...VALID_LINES_RESPONSE,
+      results: [{ ...VALID_LINES_RESPONSE.results[0], answer: { ...VALID_LINES_RESPONSE.results[0].answer, line_type: "maybe" } }],
+    }),
+  );
 });
 
 test("parseStockAliasJevResponse rejects malformed payloads", () => {
