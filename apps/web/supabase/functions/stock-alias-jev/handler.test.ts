@@ -183,3 +183,12 @@ test("lines mode keeps the prompt version in the cache key", async () => {
   assert.equal(seen[0].promptVersion, JEV_PROMPT_VERSION);
   assert.equal(seen[0].normalizedName, "toi");
 });
+
+test("an empty backlog is not reported as a quota stop", async () => {
+  const handler = createMaterialAliasHandler(makeDeps({ listBacklog: async () => [] }).deps);
+  const response = await handler(request({ mode: "backlog", location: "q7" }));
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.candidates, 0);
+  assert.equal(body.stopped, null, "nothing to rank must not say 'dừng vì hết hạn mức'");
+});

@@ -410,7 +410,8 @@ export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
           call_limit: callLimit,
         });
       }
-      const stopped = budget <= 0 ? "daily_limit" : null;
+      // Only a spent quota stops the scan; an empty backlog is not a quota stop.
+      const stopped = remainingQuota <= 0 && rows.length > 0 ? "daily_limit" : null;
       deps.audit?.({
         event: "stock_alias_jev",
         mode: "backlog",
