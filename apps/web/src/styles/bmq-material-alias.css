@@ -78,3 +78,58 @@
 @media (prefers-reduced-motion: reduce) { .d3-ma.is-attention { animation: none; } }
 
 .d3-ma-chip.is-nonstock { background: var(--d3-card, #f4f3ef); color: var(--d3-dim, #6b6b69); box-shadow: inset 0 0 0 1px rgba(0,0,0,.06); }
+
+/* Tên hàng chờ gán mã (backlog review on /warehouse/catalog-cleanup). */
+.d3-ab-row-h { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 6px 8px; min-width: 0; }
+.d3-ab-row-h > .d3-ma-raw { flex: 1 1 180px; }
+.d3-ab-row-h > .d3-sc-prob,
+.d3-ab-row-h > .d3-sc-warn { flex: none; white-space: nowrap; }
+
+.d3-ab-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  align-items: end;
+  gap: 8px;
+  min-width: 0;
+}
+.d3-ab-form .d3-ma-item,
+.d3-ab-form .d3-ma-actions { grid-column: 1 / -1; }
+.d3-ab-form .d3-ma-item .d3-wh-select { width: 100%; min-width: 0; }
+
+.d3-ab-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.d3-ab-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 4px 12px;
+  border-radius: 99px;
+  background: var(--d3-card, #f4f3ef);
+  font-size: 13px;
+  color: var(--d3-dim, #6b6b69);
+}
+.d3-ab-tabs button b { font-weight: 500; color: var(--d3-ink, #111); }
+.d3-ab-tabs button.is-on { background: var(--d3-ink, #111); color: var(--d3-white, #fdfdfc); }
+.d3-ab-tabs button.is-on b { color: var(--d3-white, #fdfdfc); }
+
+.d3-ab-progress { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+.d3-ab-progress small { font-size: 12px; color: var(--d3-dim, #6b6b69); }
+.d3-ab-bar { display: block; height: 6px; overflow: hidden; border-radius: 99px; background: var(--d3-card, #f4f3ef); }
+.d3-ab-bar i { display: block; height: 100%; border-radius: inherit; background: var(--d3-ink, #111); transition: width .3s ease; }
+@media (prefers-reduced-motion: reduce) { .d3-ab-bar i { transition: none; } }
+
+.d3-ab-more { width: 100%; height: 40px; margin-top: 10px; }
+
+@media (max-width: 640px) {
+  .d3-ab-form { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+}
+
+/* "Tạo mặt hàng mới" in the PO / phiếu chi panel: four inputs wrap onto two rows. */
+.d3-ma-form.is-new { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+.d3-ma-form.is-new .d3-ma-item,
+.d3-ma-form.is-new .d3-ma-actions { grid-column: 1 / -1; }
+@media (max-width: 640px) {
+  .d3-ma-form.is-new { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+}
+
+.d3-ab-scan { display: inline-flex; align-items: center; gap: 4px; }

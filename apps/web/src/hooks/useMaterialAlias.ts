@@ -3,15 +3,20 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
 import {
+  parseCreateStockMaterialItem,
+  parseMaterialAliasBacklogReview,
   parseMaterialAliasReview,
   parseStockAliasJevResponse,
   parseSuggestMaterialAliases,
+  type CreateStockMaterialItemResult,
+  type MaterialAliasBacklogReviewRow,
   type MaterialAliasReview,
   type MaterialAliasSuggestion,
   type StockAliasJevLinesResponse,
 } from "@/lib/material-alias";
 
 export const MATERIAL_ALIAS_REVIEW_QUERY_KEY = "material-alias-review";
+export const MATERIAL_ALIAS_BACKLOG_REVIEW_QUERY_KEY = "material-alias-backlog-review";
 
 export type MaterialAliasLocation = "q7" | "tan_tao";
 
@@ -66,6 +71,7 @@ export function useSuggestMaterialAliases() {
               id: candidate.id,
               name: candidate.name,
               unit: candidate.unit,
+              reason: candidate.reason,
             })),
           })),
         },
@@ -193,21 +199,88 @@ export function useMaterialAliasReview(days = 7) {
 
 export interface RunAliasBacklogInput {
   location: MaterialAliasLocation;
+  /** Names per edge call: default 10, capped at 15 by the edge function. */
+  batchSize?: number;
+  /** Progress: names processed so far out of processed + remaining. */
+  onProgress?: (processed: number, total: number) => void;
 }
 
-/** Rank the confirmed receipt names that still have no alias (Q7 editor only). */
+/**
+ * Rank the confirmed receipt names that still have no alias (Q7 editor only).
+ * Runs batch by batch: it keeps calling while the edge reports `remaining > 0`
+ * and no stop, so a big backlog no longer needs one huge request.
+ */
 export function useRunAliasBacklog() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (input: RunAliasBacklogInput): Promise<Record<string, unknown>> => {
-      const { data, error } = await supabase.functions.invoke("stock-alias-jev", {
-        body: { mode: "backlog", location: input.location },
-      });
-      if (error) throw error;
-      return (data ?? {}) as Record<string, unknown>;
+      let processedTotal = 0;
+      let last: Record<string, unknown> = {};
+      while (true) {
+        const { data, error } = await supabase.functions.invoke("stock-alias-jev", {
+          body: { mode: "backlog", location: input.location, batch_size: input.batchSize ?? 10 },
+        });
+        if (error) throw error;
+        const parsed = parseStockAliasJevResponse(data);
+        if (parsed.mode !== "backlog") throw new Error("stock-alias-jev tra ve sai che do");
+        last = parsed as unknown as Record<string, unknown>;
+        processedTotal += parsed.processed;
+        input.onProgress?.(processedTotal, processedTotal + parsed.remaining);
+        if (parsed.stopped !== null) break;
+        if (parsed.remaining <= 0) break;
+        // Safety: a call that made no progress must not loop forever.
+        if (parsed.processed === 0) break;
+      }
+      return last;
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: [MATERIAL_ALIAS_REVIEW_QUERY_KEY] });
+      void queryClient.invalidateQueries({ queryKey: [MATERIAL_ALIAS_BACKLOG_REVIEW_QUERY_KEY] });
+    },
+  });
+}
+
+/**
+ * Pending backlog names with their top candidate and the latest Jev suggestion
+ * (owner / Q7 admin only; the RPC raises 'forbidden' for anyone else).
+ */
+export function useMaterialAliasBacklogReview(location: MaterialAliasLocation, limit = 100) {
+  return useQuery({
+    queryKey: [MATERIAL_ALIAS_BACKLOG_REVIEW_QUERY_KEY, location, limit],
+    queryFn: async (): Promise<MaterialAliasBacklogReviewRow[]> => {
+      const { data, error } = await supabase.rpc("get_material_alias_backlog_review", {
+        p_location: location,
+        p_limit: limit,
+      });
+      if (error) throw error;
+      return parseMaterialAliasBacklogReview(data);
+    },
+  });
+}
+
+export interface CreateStockMaterialItemInput {
+  name: string;
+  unit: string;
+  location: MaterialAliasLocation;
+  requestId: string;
+}
+
+/** Create (or reuse) a kitchen stock item; idempotent by requestId. */
+export function useCreateStockMaterialItem() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: CreateStockMaterialItemInput): Promise<CreateStockMaterialItemResult> => {
+      const { data, error } = await supabase.rpc("create_stock_material_item", {
+        p_name: input.name,
+        p_unit: input.unit,
+        p_location: input.location,
+        p_request_id: input.requestId,
+      });
+      if (error) throw error;
+      return parseCreateStockMaterialItem(data);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [MATERIAL_ALIAS_BACKLOG_REVIEW_QUERY_KEY] });
     },
   });
 }

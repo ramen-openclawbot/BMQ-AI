@@ -14,12 +14,12 @@ import {
 } from "@/hooks/useStockCatalog";
 import {
   useMaterialAliasReview,
-  useRunAliasBacklog,
   useSetMaterialAliasStatus,
   useUndoMaterialAliasEvent,
 } from "@/hooks/useMaterialAlias";
 import { materialAliasActionLabel, materialAliasStatusLabel } from "@/lib/material-alias";
 import { StockRoutingCards } from "@/components/stock-routing/StockRoutingCards";
+import { AliasBacklogReview } from "@/components/material-alias/AliasBacklogReview";
 import {
   ITEM_CLASS_LABELS,
   itemClassLabel,
@@ -179,7 +179,6 @@ function LearnedAliasesCard({ canEdit }: { canEdit: boolean }) {
   const reviewQuery = useMaterialAliasReview(7);
   const undo = useUndoMaterialAliasEvent();
   const setStatus = useSetMaterialAliasStatus();
-  const backlog = useRunAliasBacklog();
   const review = reviewQuery.data;
   const aliases = review?.aliases ?? [];
   const summary = review?.summary;
@@ -193,37 +192,15 @@ function LearnedAliasesCard({ canEdit }: { canEdit: boolean }) {
           {summary ? `${summary.auto_count} tự động · ${summary.learning_count} đang học` : "…"}
         </span>
         <p>
-          Tên hàng nhân viên đã xác nhận trong 7 ngày. Jev không đồng ý xếp đầu.
-          {summary ? ` Còn ${summary.pending_lines} dòng nhập chưa có mã.` : ""}
+          Tên hàng đã xác nhận trong 7 ngày. Jev không đồng ý xếp đầu.
         </p>
-        {canEdit ? (
-          <button
-            type="button"
-            className="d3-ap-link"
-            disabled={backlog.isPending}
-            onClick={() =>
-              backlog.mutate(
-                { location: "q7" },
-                {
-                  onSuccess: (data) => {
-                    const d = data as { evaluated?: number; skipped_existing?: number; calls?: number; stopped?: string | null };
-                    toast({ title: "Jev đã dò tên tồn đọng", description: `${d.evaluated ?? 0} tên mới, ${d.skipped_existing ?? 0} đã có, ${d.calls ?? 0} lượt gọi${d.stopped ? " · dừng vì hết hạn mức" : ""}.` });
-                  },
-                  onError: fail("Jev chưa dò được"),
-                },
-              )
-            }
-          >
-            {backlog.isPending ? "Jev đang dò…" : "Dò tên tồn đọng"}
-          </button>
-        ) : null}
       </div>
       {reviewQuery.isLoading ? (
         <div className="d3-wh-empty">Đang tải…</div>
       ) : reviewQuery.isError ? (
         <div className="d3-wh-empty">Không tải được: {errorText(reviewQuery.error)}</div>
       ) : aliases.length === 0 ? (
-        <div className="d3-wh-empty">Chưa có bí danh nào được xác nhận trong 7 ngày.</div>
+        <div className="d3-wh-empty">Chưa có bí danh nào được xác nhận trong 7 ngày. Xác nhận ở thẻ "Tên hàng chờ gán mã".</div>
       ) : (
         <ul className="d3-sc-list">
           {aliases.map((alias) => (
@@ -357,22 +334,25 @@ export default function StockCatalogCleanup() {
       ) : null}
 
       <div className="d3-sl-grid">
-        <section className="d3-wh-card" style={{ ["--i" as string]: 1 }}>
-          <div className="d3-wh-card-h">
-            <h2>Đề xuất gộp</h2>
-            <span className="d3-wh-pill">{merges.length}</span>
-            <p>Mặt hàng được giữ là bên đang dùng nhiều hơn. Tồn và lịch sử của bên kia chuyển sang theo hệ số.</p>
-          </div>
-          {loading ? (
-            <div className="d3-wh-empty">Đang tải…</div>
-          ) : merges.length === 0 ? (
-            <div className="d3-wh-empty">Không có cặp nào chờ duyệt.</div>
-          ) : (
-            <ul className="d3-sc-list">
-              {merges.map((row) => <MergeRow key={row.id} row={row} canEdit={canEdit} />)}
-            </ul>
-          )}
-        </section>
+        <div className="d3-sl-side">
+          <section className="d3-wh-card" style={{ ["--i" as string]: 1 }}>
+            <div className="d3-wh-card-h">
+              <h2>Đề xuất gộp</h2>
+              <span className="d3-wh-pill">{merges.length}</span>
+              <p>Mặt hàng được giữ là bên đang dùng nhiều hơn. Tồn và lịch sử của bên kia chuyển sang theo hệ số.</p>
+            </div>
+            {loading ? (
+              <div className="d3-wh-empty">Đang tải…</div>
+            ) : merges.length === 0 ? (
+              <div className="d3-wh-empty">Không có cặp nào chờ duyệt.</div>
+            ) : (
+              <ul className="d3-sc-list">
+                {merges.map((row) => <MergeRow key={row.id} row={row} canEdit={canEdit} />)}
+              </ul>
+            )}
+          </section>
+          <AliasBacklogReview canEdit={canEdit} />
+        </div>
 
         <div className="d3-sl-side">
           <section className="d3-wh-card" style={{ ["--i" as string]: 2 }}>

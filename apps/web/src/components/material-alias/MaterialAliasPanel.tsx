@@ -1,10 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, Pencil, Sparkles } from "lucide-react";
+import { Check, Pencil, Plus, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
-import { useConfirmMaterialAlias, useSuggestMaterialAliases, type MaterialAliasLocation } from "@/hooks/useMaterialAlias";
+import {
+  useConfirmMaterialAlias,
+  useCreateStockMaterialItem,
+  useSuggestMaterialAliases,
+  type MaterialAliasLocation,
+} from "@/hooks/useMaterialAlias";
+import { cleanNewItemName, defaultNewItemUnit, NEW_ITEM_OPTION, NewStockItemFields } from "./new-stock-item";
 import type { MaterialAliasSuggestion } from "@/lib/material-alias";
 import { toast } from "sonner";
 import "@/styles/bmq-material-alias.css";
@@ -92,6 +98,10 @@ function PromptRow({
 }) {
   const { toast } = useToast();
   const confirm = useConfirmMaterialAlias();
+  const create = useCreateStockMaterialItem();
+  const [requestId] = useState(() => crypto.randomUUID());
+  const [newName, setNewName] = useState(() => cleanNewItemName(line.product_name));
+  const [newUnit, setNewUnit] = useState(() => defaultNewItemUnit(line.product_name, line.unit));
   const jev = jevChoice(row);
   const preselected = row.alias?.item_id ?? row.alias?.sku_id ?? jev?.id ?? row.candidates[0]?.id ?? "";
   const [choice, setChoice] = useState(preselected);
@@ -99,9 +109,13 @@ function PromptRow({
   const [factor, setFactor] = useState(
     String(row.alias?.conversion_factor ?? (row.pack_guess?.pack_size && row.pack_guess.pack_size > 0 ? row.pack_guess.pack_size : 1)),
   );
+  const isNew = choice === NEW_ITEM_OPTION;
   const candidate = row.candidates.find((item) => item.id === choice) ?? null;
+  const stockUnit = isNew ? newUnit.trim() : candidate?.unit ?? "";
   const factorValue = Number(factor.replace(",", "."));
   const factorOk = Number.isFinite(factorValue) && factorValue > 0;
+  const busy = confirm.isPending || create.isPending;
+  const ready = factorOk && (isNew ? newName.trim().length >= 2 && stockUnit.length > 0 : Boolean(candidate));
 
   const saveNonStock = () => {
     confirm.mutate(
@@ -130,16 +144,15 @@ function PromptRow({
     );
   };
 
-  const save = () => {
-    if (!candidate) return;
+  const confirmItem = (target: { item_id: string | null; sku_id: string | null; name: string }) => {
     confirm.mutate(
       {
         supplierId,
         location,
         rawName: line.product_name,
         rawUnit: line.unit ?? null,
-        kitchenInventoryItemId: candidate.item_id,
-        tanTaoSkuId: candidate.sku_id,
+        kitchenInventoryItemId: target.item_id,
+        tanTaoSkuId: target.sku_id,
         enteredUnitLabel: unitLabel.trim() || null,
         conversionFactor: factorValue,
         jevItemId: jev?.id ?? null,
@@ -152,11 +165,27 @@ function PromptRow({
           const status = String((data as { alias?: { status?: string } })?.alias?.status ?? "learning");
           toast({
             title: status === "auto" ? "Đã ghi nhớ, lần sau tự chọn" : "Đã xác nhận",
-            description: `${line.product_name} → ${candidate.name}`,
+            description: `${line.product_name} → ${target.name}`,
           });
-          onDone("confirmed", candidate.name);
+          onDone("confirmed", target.name);
         },
         onError: (error) => toast({ title: "Chưa xác nhận được", description: errorText(error), variant: "destructive" }),
+      },
+    );
+  };
+
+  const save = () => {
+    if (!ready) return;
+    if (!isNew) {
+      if (candidate) confirmItem(candidate);
+      return;
+    }
+    // Owner / Q7 editor only: the goods are not in the catalog yet.
+    create.mutate(
+      { name: newName.trim(), unit: stockUnit, location, requestId },
+      {
+        onSuccess: (result) => confirmItem({ item_id: result.item_id, sku_id: null, name: newName.trim() }),
+        onError: (error) => toast({ title: "Chưa tạo được mặt hàng", description: errorText(error), variant: "destructive" }),
       },
     );
   };
@@ -170,7 +199,7 @@ function PromptRow({
           {row.alias && row.alias.status !== "auto" ? ` · đã xác nhận ${row.alias.confirm_count}/3` : ""}
         </small>
       </div>
-      <div className="d3-ma-form">
+      <div className={`d3-ma-form${isNew ? " is-new" : ""}`}>
         <label className="d3-ma-field d3-ma-item">
           <span>Mặt hàng trong kho</span>
           <select className="d3-wh-select" value={choice} onChange={(event) => setChoice(event.target.value)} aria-label={`Mặt hàng kho cho ${line.product_name}`}>
@@ -180,27 +209,31 @@ function PromptRow({
                 {item.name} ({item.unit}){jev && jev.id === item.id ? ` · Jev ${pct(jev.probability)}` : ""}
               </option>
             ))}
+            {canMarkNonStock && location === "q7" ? <option value={NEW_ITEM_OPTION}>+ Tạo mặt hàng mới…</option> : null}
           </select>
         </label>
+        {isNew ? (
+          <NewStockItemFields name={newName} unit={newUnit} onName={setNewName} onUnit={setNewUnit} idPrefix={`ma-${requestId}`} />
+        ) : null}
         <label className="d3-ma-field">
           <span>Đơn vị nhập</span>
           <Input value={unitLabel} onChange={(event) => setUnitLabel(event.target.value)} placeholder="bao 25kg" aria-label="Đơn vị nhân viên nhập" />
         </label>
         <label className="d3-ma-field">
-          <span>1 {unitLabel.trim() || "đv"} = ? {candidate?.unit ?? "đv kho"}</span>
+          <span>1 {unitLabel.trim() || "đv"} = ? {stockUnit || "đv kho"}</span>
           <Input inputMode="decimal" value={factor} onChange={(event) => setFactor(event.target.value)} aria-label="Hệ số đổi sang đơn vị kho" />
         </label>
         <div className="d3-ma-actions">
-          <Button type="button" size="sm" onClick={save} disabled={!candidate || !factorOk || confirm.isPending}>
-            <Check className="h-4 w-4" />
-            {confirm.isPending ? "Đang lưu…" : "Xác nhận"}
+          <Button type="button" size="sm" onClick={save} disabled={!ready || busy}>
+            {isNew ? <Plus className="h-4 w-4" /> : <Check className="h-4 w-4" />}
+            {busy ? "Đang lưu…" : isNew ? "Tạo và gán" : "Xác nhận"}
           </Button>
           {canMarkNonStock ? (
-            <Button type="button" size="sm" variant="outline" onClick={saveNonStock} disabled={confirm.isPending} data-bmq-alias-nonstock>
+            <Button type="button" size="sm" variant="outline" onClick={saveNonStock} disabled={busy} data-bmq-alias-nonstock>
               Không nhập kho
             </Button>
           ) : null}
-          <Button type="button" size="sm" variant="ghost" onClick={() => onDone("skipped", "")} disabled={confirm.isPending}>
+          <Button type="button" size="sm" variant="ghost" onClick={() => onDone("skipped", "")} disabled={busy}>
             Chưa rõ
           </Button>
         </div>

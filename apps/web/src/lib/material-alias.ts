@@ -314,6 +314,8 @@ export interface StockAliasJevAnswer {
   line_type_probability: number | null;
   confidence: number | null;
   pack: MaterialAliasPackGuess | null;
+  /** 'exact' when the code matched a normalized name, otherwise 'jev' | 'rule' | 'none'. */
+  source: string | null;
 }
 
 export interface StockAliasJevLineResult {
@@ -338,6 +340,11 @@ export interface StockAliasJevLinesResponse {
 export interface StockAliasJevBacklogResponse {
   mode: "backlog";
   candidates: number;
+  /** Names ranked in this batch (deterministic exact + Jev). */
+  processed: number;
+  /** Names with candidates that still need ranking after this batch. */
+  remaining: number;
+  batch_size: number;
   evaluated: number;
   skipped_existing: number;
   failed: number;
@@ -348,6 +355,37 @@ export interface StockAliasJevBacklogResponse {
 }
 
 export type StockAliasJevResponse = StockAliasJevLinesResponse | StockAliasJevBacklogResponse;
+
+export interface MaterialAliasBacklogReviewCandidate {
+  item_id: string | null;
+  sku_id: string | null;
+  name: string;
+  unit: string;
+  score: number;
+  reason: string;
+}
+
+/** One pending backlog name with its top candidate and latest Jev suggestion. */
+export interface MaterialAliasBacklogReviewRow {
+  normalized_name: string;
+  raw_name: string;
+  line_count: number;
+  supplier_id: string | null;
+  supplier_name: string | null;
+  last_receipt_date: string | null;
+  top_candidate: MaterialAliasBacklogReviewCandidate | null;
+  jev_item_id: string | null;
+  jev_item_name: string | null;
+  jev_unit: string | null;
+  jev_probability: number | null;
+  jev_line_type: MaterialAliasAutoNonStockLineType | null;
+  jev_source: string | null;
+}
+
+export interface CreateStockMaterialItemResult {
+  item_id: string;
+  created: boolean;
+}
 
 function asRecord(value: unknown, path: string): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -525,6 +563,7 @@ function parseJevAnswer(entry: unknown, path: string): StockAliasJevAnswer {
     line_type_probability: asNullableNumber(answer.line_type_probability, `${path}.line_type_probability`),
     confidence: asNullableNumber(answer.confidence, `${path}.confidence`),
     pack: parsePackGuess(answer.pack, `${path}.pack`),
+    source: asNullableString(answer.source, `${path}.source`),
   };
 }
 
@@ -575,6 +614,9 @@ export function parseStockAliasJevResponse(raw: unknown): StockAliasJevResponse 
     return {
       mode: "backlog",
       candidates: asNumber(root.candidates, "candidates"),
+      processed: asNumber(root.processed ?? root.evaluated ?? 0, "processed"),
+      remaining: asNumber(root.remaining ?? 0, "remaining"),
+      batch_size: asNumber(root.batch_size ?? root.evaluated ?? 0, "batch_size"),
       evaluated: asNumber(root.evaluated, "evaluated"),
       skipped_existing: asNumber(root.skipped_existing ?? 0, "skipped_existing"),
       failed: asNumber(root.failed ?? 0, "failed"),
@@ -645,5 +687,50 @@ export function parseMaterialAliasReview(raw: unknown): MaterialAliasReview {
         call_limit: asNumber(usage.call_limit, "summary.jev_usage.call_limit"),
       },
     },
+  };
+}
+
+/** Parse and validate the JSON returned by `get_material_alias_backlog_review`. */
+export function parseMaterialAliasBacklogReview(raw: unknown): MaterialAliasBacklogReviewRow[] {
+  if (!Array.isArray(raw)) throw new TypeError("materialAliasBacklogReview must be an array");
+  return raw.map((entry, index) => {
+    const path = `backlogReview[${index}]`;
+    const row = asRecord(entry, path);
+    let topCandidate: MaterialAliasBacklogReviewCandidate | null = null;
+    if (row.top_candidate !== null && row.top_candidate !== undefined) {
+      const candidate = asRecord(row.top_candidate, `${path}.top_candidate`);
+      topCandidate = {
+        item_id: asNullableString(candidate.item_id, `${path}.top_candidate.item_id`),
+        sku_id: asNullableString(candidate.sku_id, `${path}.top_candidate.sku_id`),
+        name: asString(candidate.name, `${path}.top_candidate.name`),
+        unit: asString(candidate.unit, `${path}.top_candidate.unit`),
+        score: asNumber(candidate.score, `${path}.top_candidate.score`),
+        reason: asString(candidate.reason, `${path}.top_candidate.reason`),
+      };
+    }
+    return {
+      normalized_name: asString(row.normalized_name, `${path}.normalized_name`),
+      raw_name: asString(row.raw_name, `${path}.raw_name`),
+      line_count: asNumber(row.line_count ?? 0, `${path}.line_count`),
+      supplier_id: asNullableString(row.supplier_id, `${path}.supplier_id`),
+      supplier_name: asNullableString(row.supplier_name, `${path}.supplier_name`),
+      last_receipt_date: asNullableString(row.last_receipt_date, `${path}.last_receipt_date`),
+      top_candidate: topCandidate,
+      jev_item_id: asNullableString(row.jev_item_id, `${path}.jev_item_id`),
+      jev_item_name: asNullableString(row.jev_item_name, `${path}.jev_item_name`),
+      jev_unit: asNullableString(row.jev_unit, `${path}.jev_unit`),
+      jev_probability: asNullableNumber(row.jev_probability, `${path}.jev_probability`),
+      jev_line_type: parseNullableLineType(row.jev_line_type, `${path}.jev_line_type`),
+      jev_source: asNullableString(row.jev_source, `${path}.jev_source`),
+    };
+  });
+}
+
+/** Parse and validate the JSON returned by `create_stock_material_item`. */
+export function parseCreateStockMaterialItem(raw: unknown): CreateStockMaterialItemResult {
+  const root = asRecord(raw, "createStockMaterialItem");
+  return {
+    item_id: asString(root.item_id, "createStockMaterialItem.item_id"),
+    created: asBoolean(root.created, "createStockMaterialItem.created"),
   };
 }

@@ -36,6 +36,7 @@ function mapCandidate(row: Record<string, unknown>): MaterialAliasCandidate {
     id: itemId ?? skuId ?? "",
     name: String(row.name ?? ""),
     unit: String(row.unit ?? ""),
+    reason: String(row.reason ?? ""),
   };
 }
 
@@ -56,6 +57,7 @@ function mapCachedAnswer(raw: unknown): CachedJevAnswer | null {
       line_type_probability: parseLineTypeProbability(record.line_type_probability),
       confidence: null,
       pack: null,
+      source: asNullableString(record.source),
     };
   }
   const parsePack = (value: unknown): CachedJevAnswer["pack"] => {
@@ -76,6 +78,7 @@ function mapCachedAnswer(raw: unknown): CachedJevAnswer | null {
     line_type_probability: parseLineTypeProbability(record.line_type_probability),
     confidence: record.confidence === null || record.confidence === undefined ? null : asNumber(record.confidence),
     pack: parsePack(record.pack),
+    source: asNullableString(record.source),
   };
 }
 
@@ -83,7 +86,7 @@ export interface MaterialAliasStore {
   getCache(key: MaterialAliasCacheKey): Promise<{ answer: CachedJevAnswer; cost: number | null } | null>;
   putCache(key: MaterialAliasCacheKey, answer: CachedJevAnswer, cost: number | null): Promise<void>;
   getUsage(usageDate: string): Promise<MaterialAliasUsage>;
-  recordUsage(usage: MaterialAliasUsage): Promise<void>;
+  incrementUsage(usageDate: string, calls: number, cost: number): Promise<void>;
   listBacklog(location: string, limit: number): Promise<MaterialAliasBacklogRow[]>;
   candidatesFor(name: string, location: string, limit: number): Promise<MaterialAliasCandidate[]>;
 }
@@ -141,10 +144,12 @@ export function createMaterialAliasStore(admin: SupabaseClient): MaterialAliasSt
       };
     },
 
-    async recordUsage(usage) {
-      const { error } = await admin
-        .from("stock_catalog_jev_usage")
-        .upsert(usage, { onConflict: "usage_date" });
+    async incrementUsage(usageDate, calls, cost) {
+      const { error } = await admin.rpc("increment_stock_catalog_jev_usage", {
+        p_date: usageDate,
+        p_calls: calls,
+        p_cost: cost,
+      });
       if (error) fail();
     },
 

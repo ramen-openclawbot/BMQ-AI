@@ -447,7 +447,17 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     assert.equal(await page.locator("[data-bmq-alias-autononstock]").count(), 1, "fee line shown as auto non-stock chip");
     assert.equal(await page.locator("[data-bmq-alias-prompt]").count(), 1, "only the goods line asks");
     assert.equal(await page.locator("[data-bmq-alias-nonstock]").count(), role === "owner" ? 1 : 0, `Không nhập kho visible only to owner (${role})`);
-    await page.locator("[data-bmq-alias-prompt]").first().getByRole("button", { name: "Chưa rõ" }).click();
+    const prompt = page.locator("[data-bmq-alias-prompt]").first();
+    assert.equal(await prompt.locator("option[value='__new__']").count(), role === "owner" ? 1 : 0, `Tạo mặt hàng mới only for owner / Q7 editors (${role})`);
+    if (role === "owner") {
+      await prompt.locator("select").selectOption("__new__");
+      assert.equal(await prompt.getByLabel("Tên mặt hàng mới").inputValue(), "Tỏi ngày 10");
+      assert.equal(await prompt.getByRole("button", { name: "Tạo và gán" }).count(), 1);
+      assert.equal(await overflow(page), 0, `create-new fields fit at ${viewport.width}`);
+      await prompt.scrollIntoViewIfNeeded();
+      await prompt.screenshot({ path: `${EVIDENCE}/po-new-item-${viewport.width}.png` });
+    }
+    await prompt.getByRole("button", { name: "Chưa rõ" }).click();
     await page.getByRole("button", { name: "Tạo đơn đặt hàng" }).click();
     await page.waitForTimeout(600);
     const writes = await page.evaluate(() => window.__qaWrites);

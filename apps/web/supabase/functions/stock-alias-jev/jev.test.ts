@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   autoNonStockReason,
+  candidateIdFromChoice,
   candidatesHash,
   createJevCircuit,
   createJevEvaluator,
@@ -16,6 +17,7 @@ import {
   lineTypeOptions,
   matchCriteria,
   matchInstructions,
+  matchOptionKey,
   matchOptions,
   NONE_OPTION,
   normalizeItemName,
@@ -31,6 +33,8 @@ const CANDIDATES: MaterialAliasCandidate[] = [
   { id: "11111111-1111-4111-8111-111111111111", name: "Tỏi bóc vỏ", unit: "kg" },
   { id: "22222222-2222-4222-8222-222222222222", name: "Tỏi phi", unit: "kg" },
 ];
+const KEY_A = matchOptionKey(0);
+const KEY_B = matchOptionKey(1);
 const ALLOWED = matchOptions(CANDIDATES);
 
 const GOODS_ANSWER = {
@@ -49,8 +53,8 @@ function validMatch(overrides: Record<string, unknown> = {}): Record<string, unk
     model: JEV_MODEL,
     answers: answersWith({
       type: "choice",
-      choice: CANDIDATES[0].id,
-      probabilities: { [CANDIDATES[0].id]: 0.86, [CANDIDATES[1].id]: 0.1, [NONE_OPTION]: 0.04 },
+      choice: KEY_A,
+      probabilities: { [KEY_A]: 0.86, [KEY_B]: 0.1, [NONE_OPTION]: 0.04 },
       confidence: 0.8,
     }),
     usage: { inputTokens: 100, outputTokens: 20 },
@@ -65,7 +69,7 @@ function fetchFake(handler: (init?: RequestInit) => Promise<Response>): typeof f
 
 test("validates the match choice and maps none to null", () => {
   const evaluation = validateJevResponse(ALLOWED, validMatch());
-  assert.equal(evaluation.choice, CANDIDATES[0].id);
+  assert.equal(evaluation.choice, KEY_A);
   assert.equal(evaluation.probability, 0.86);
   assert.equal(evaluation.lineType, LINE_TYPE_GOODS);
   assert.equal(evaluation.lineTypeProbability, 0.85);
@@ -76,10 +80,20 @@ test("validates the match choice and maps none to null", () => {
     answers: answersWith({
       type: "choice",
       choice: NONE_OPTION,
-      probabilities: { [CANDIDATES[0].id]: 0.05, [CANDIDATES[1].id]: 0.05, [NONE_OPTION]: 0.9 },
+      probabilities: { [KEY_A]: 0.05, [KEY_B]: 0.05, [NONE_OPTION]: 0.9 },
     }),
   });
   assert.equal(validateJevResponse(ALLOWED, none).choice, null);
+});
+
+test("the choice keys are c1..cN and map back to the candidate ids", () => {
+  assert.deepEqual(matchOptions(CANDIDATES), ["c1", "c2", NONE_OPTION]);
+  assert.deepEqual(Object.keys(matchCriteria(CANDIDATES)).sort(), ["c1", "c2", NONE_OPTION].sort());
+  assert.equal(candidateIdFromChoice(CANDIDATES, "c1"), CANDIDATES[0].id);
+  assert.equal(candidateIdFromChoice(CANDIDATES, "c2"), CANDIDATES[1].id);
+  assert.equal(candidateIdFromChoice(CANDIDATES, NONE_OPTION), null);
+  assert.equal(candidateIdFromChoice(CANDIDATES, null), null);
+  assert.equal(candidateIdFromChoice(CANDIDATES, "c99"), null);
 });
 
 test("validates the line_type choice and requires both answers", () => {
@@ -87,8 +101,8 @@ test("validates the line_type choice and requires both answers", () => {
     answers: answersWith(
       {
         type: "choice",
-        choice: CANDIDATES[0].id,
-        probabilities: { [CANDIDATES[0].id]: 0.7, [CANDIDATES[1].id]: 0.2, [NONE_OPTION]: 0.1 },
+        choice: KEY_A,
+        probabilities: { [KEY_A]: 0.7, [KEY_B]: 0.2, [NONE_OPTION]: 0.1 },
       },
       {
         type: "choice",
@@ -145,10 +159,10 @@ test("the match prompt is Vietnamese, describes every candidate and always offer
   const criteria = matchCriteria(CANDIDATES);
   assert.deepEqual(Object.keys(criteria).sort(), [...ALLOWED].sort());
   assert.ok(criteria[NONE_OPTION].length > 5);
-  for (const candidate of CANDIDATES) {
-    assert.ok(criteria[candidate.id].includes(candidate.name));
-    assert.ok(criteria[candidate.id].includes(candidate.unit));
-  }
+  CANDIDATES.forEach((candidate, index) => {
+    assert.ok(criteria[matchOptionKey(index)].includes(candidate.name));
+    assert.ok(criteria[matchOptionKey(index)].includes(candidate.unit));
+  });
 });
 
 test("the line_type prompt is Vietnamese and offers exactly goods and non_goods", () => {
@@ -167,7 +181,7 @@ test("refuses an unknown or tied option, a bad distribution and a missing none o
     answers: answersWith({
       type: "choice",
       choice: "33333333-3333-4333-8333-333333333333",
-      probabilities: { [CANDIDATES[0].id]: 0.5, [CANDIDATES[1].id]: 0.3, [NONE_OPTION]: 0.2 },
+      probabilities: { [KEY_A]: 0.5, [KEY_B]: 0.3, [NONE_OPTION]: 0.2 },
     }),
   });
   assert.throws(() => validateJevResponse(ALLOWED, unknown), JevError);
@@ -175,8 +189,8 @@ test("refuses an unknown or tied option, a bad distribution and a missing none o
   const tied = validMatch({
     answers: answersWith({
       type: "choice",
-      choice: CANDIDATES[0].id,
-      probabilities: { [CANDIDATES[0].id]: 0.5, [CANDIDATES[1].id]: 0.5, [NONE_OPTION]: 0.0 },
+      choice: KEY_A,
+      probabilities: { [KEY_A]: 0.5, [KEY_B]: 0.5, [NONE_OPTION]: 0.0 },
     }),
   });
   assert.throws(() => validateJevResponse(ALLOWED, tied), JevError);
@@ -184,8 +198,8 @@ test("refuses an unknown or tied option, a bad distribution and a missing none o
   const badSum = validMatch({
     answers: answersWith({
       type: "choice",
-      choice: CANDIDATES[0].id,
-      probabilities: { [CANDIDATES[0].id]: 0.8, [CANDIDATES[1].id]: 0.7, [NONE_OPTION]: 0.1 },
+      choice: KEY_A,
+      probabilities: { [KEY_A]: 0.8, [KEY_B]: 0.7, [NONE_OPTION]: 0.1 },
     }),
   });
   assert.throws(() => validateJevResponse(ALLOWED, badSum), JevError);
@@ -240,6 +254,10 @@ test("an empty api key fails closed and the request shape is pinned", async () =
   const questions = seenBody.questions as Record<string, unknown>;
   assert.deepEqual(Object.keys(questions).sort(), ["line_type", "match"]);
   assert.equal((questions.line_type as Record<string, unknown>).type, "choice");
+  assert.deepEqual(
+    Object.keys((questions.match as Record<string, unknown>).criteria as Record<string, unknown>).sort(),
+    ["c1", "c2", NONE_OPTION].sort(),
+  );
   const gateway = (seenBody.providerOptions as Record<string, Record<string, unknown>>).gateway;
   assert.equal(gateway.zeroDataRetention, true);
   assert.deepEqual(gateway.only, ["typesafe-ai"]);

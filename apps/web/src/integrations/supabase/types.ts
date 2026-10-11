@@ -4140,6 +4140,32 @@ export type Database = {
           receipt_count: number
         }[]
       }
+      get_material_alias_backlog_review: {
+        Args: { p_location: string; p_limit?: number }
+        Returns: {
+          normalized_name: string
+          raw_name: string
+          line_count: number
+          supplier_id: string | null
+          supplier_name: string | null
+          last_receipt_date: string | null
+          top_candidate: Json
+          jev_item_id: string | null
+          jev_item_name: string | null
+          jev_unit: string | null
+          jev_probability: number | null
+          jev_line_type: string | null
+          jev_source: string | null
+        }[]
+      }
+      increment_stock_catalog_jev_usage: {
+        Args: { p_date: string; p_calls: number; p_cost: number }
+        Returns: undefined
+      }
+      create_stock_material_item: {
+        Args: { p_name: string; p_unit: string; p_location: string; p_request_id: string }
+        Returns: Json
+      }
     }
     Enums: {
       app_role: "owner" | "staff" | "viewer" | "warehouse"

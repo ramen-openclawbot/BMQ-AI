@@ -11,6 +11,8 @@ import {
   materialAliasActionLabel,
   materialAliasLineClassLabel,
   materialAliasStatusLabel,
+  parseCreateStockMaterialItem,
+  parseMaterialAliasBacklogReview,
   parseMaterialAliasReview,
   parseStockAliasJevResponse,
   parseSuggestMaterialAliases,
@@ -374,4 +376,102 @@ test("parseMaterialAliasReview rejects malformed payloads", () => {
       summary: { ...VALID_REVIEW.summary, jev_usage: { usage_date: "2026-10-16" } },
     }),
   );
+});
+
+test("parseStockAliasJevResponse reads the per-call source and backlog batch fields", () => {
+  const lines = parseStockAliasJevResponse({
+    ...VALID_LINES_RESPONSE,
+    results: [{
+      ...VALID_LINES_RESPONSE.results[0],
+      answer: { ...VALID_LINES_RESPONSE.results[0].answer, source: "exact" },
+    }],
+  });
+  assert.equal(lines.mode, "lines");
+  if (lines.mode === "lines") assert.equal(lines.results[0].answer.source, "exact");
+
+  const backlog = parseStockAliasJevResponse({
+    ...VALID_BACKLOG_RESPONSE,
+    processed: 5,
+    remaining: 3,
+    batch_size: 10,
+  });
+  assert.equal(backlog.mode, "backlog");
+  if (backlog.mode === "backlog") {
+    assert.equal(backlog.processed, 5);
+    assert.equal(backlog.remaining, 3);
+    assert.equal(backlog.batch_size, 10);
+  }
+
+  // An older payload without the batch fields still parses.
+  const legacy = parseStockAliasJevResponse(VALID_BACKLOG_RESPONSE);
+  if (legacy.mode === "backlog") {
+    assert.equal(legacy.processed, 2);
+    assert.equal(legacy.remaining, 0);
+  }
+});
+
+test("parseMaterialAliasBacklogReview accepts the RPC payload", () => {
+  const rows = parseMaterialAliasBacklogReview([{
+    normalized_name: "toi",
+    raw_name: "Tỏi ngày 10",
+    line_count: 4,
+    supplier_id: "44444444-4444-4444-8444-444444444444",
+    supplier_name: "NCC A",
+    last_receipt_date: "2026-10-15",
+    top_candidate: {
+      item_id: CANDIDATE_ID,
+      sku_id: null,
+      name: "Tỏi bóc vỏ",
+      unit: "kg",
+      score: 0.9,
+      reason: "name_contains",
+    },
+    jev_item_id: CANDIDATE_ID,
+    jev_item_name: "Tỏi bóc vỏ",
+    jev_unit: "kg",
+    jev_probability: 0.93,
+    jev_line_type: "goods",
+    jev_source: "jev",
+  }]);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].line_count, 4);
+  assert.equal(rows[0].top_candidate?.name, "Tỏi bóc vỏ");
+  assert.equal(rows[0].jev_probability, 0.93);
+  assert.equal(rows[0].jev_line_type, "goods");
+  assert.equal(rows[0].jev_source, "jev");
+
+  assert.deepEqual(parseMaterialAliasBacklogReview([]), []);
+  const empty = parseMaterialAliasBacklogReview([{
+    normalized_name: "gao",
+    raw_name: "Gạo",
+    line_count: 1,
+    supplier_id: null,
+    supplier_name: null,
+    last_receipt_date: null,
+    top_candidate: null,
+    jev_item_id: null,
+    jev_item_name: null,
+    jev_unit: null,
+    jev_probability: null,
+    jev_line_type: null,
+    jev_source: null,
+  }]);
+  assert.equal(empty[0].top_candidate, null);
+  assert.equal(empty[0].jev_line_type, null);
+
+  assert.throws(() => parseMaterialAliasBacklogReview(null));
+  assert.throws(() => parseMaterialAliasBacklogReview([{ normalized_name: "x" }]));
+});
+
+test("parseCreateStockMaterialItem accepts created and reused items", () => {
+  assert.deepEqual(parseCreateStockMaterialItem({ item_id: CANDIDATE_ID, created: true }), {
+    item_id: CANDIDATE_ID,
+    created: true,
+  });
+  assert.deepEqual(parseCreateStockMaterialItem({ item_id: CANDIDATE_ID, created: false }), {
+    item_id: CANDIDATE_ID,
+    created: false,
+  });
+  assert.throws(() => parseCreateStockMaterialItem(null));
+  assert.throws(() => parseCreateStockMaterialItem({ item_id: CANDIDATE_ID, created: "yes" }));
 });

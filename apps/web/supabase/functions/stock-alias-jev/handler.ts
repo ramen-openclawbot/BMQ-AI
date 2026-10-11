@@ -10,6 +10,7 @@
 import {
   autoNonStockReason,
   candidatesHash,
+  LINE_TYPE_GOODS,
   LINE_TYPE_NON_GOODS,
   NONE_OPTION,
   normalizeItemName,
@@ -28,6 +29,8 @@ export const MATERIAL_ALIAS_REQUEST_BUDGET_MS = 110_000;
 export const MATERIAL_ALIAS_DAILY_CALL_LIMIT = 600;
 export const MATERIAL_ALIAS_BACKLOG_LIMIT = 200;
 export const MATERIAL_ALIAS_MAX_CANDIDATES = 50;
+export const MATERIAL_ALIAS_BACKLOG_BATCH_DEFAULT = 10;
+export const MATERIAL_ALIAS_BACKLOG_BATCH_MAX = 15;
 
 export type MaterialAliasMode = "lines" | "backlog";
 
@@ -62,6 +65,8 @@ export interface CachedJevAnswer {
   line_type_probability: number | null;
   confidence: number | null;
   pack: { label: string; base_qty: number | null; base_unit: string | null; multiplier: number } | null;
+  /** Where the answer came from: 'exact' | 'jev' | 'rule' | 'none'. */
+  source: string | null;
 }
 
 export interface MaterialAliasBacklogRow {
@@ -86,7 +91,8 @@ export interface MaterialAliasHandlerDeps {
   getCache: (key: MaterialAliasCacheKey) => Promise<{ answer: CachedJevAnswer; cost: number | null } | null>;
   putCache: (key: MaterialAliasCacheKey, answer: CachedJevAnswer, cost: number | null) => Promise<void>;
   getUsage: (usageDate: string) => Promise<MaterialAliasUsage>;
-  recordUsage: (usage: MaterialAliasUsage) => Promise<void>;
+  /** Atomically add one successful Jev call immediately after it happens. */
+  incrementUsage: (usageDate: string, calls: number, cost: number) => Promise<void>;
   listBacklog: (location: string, limit: number) => Promise<MaterialAliasBacklogRow[]>;
   candidatesFor: (name: string, location: string, limit: number) => Promise<MaterialAliasCandidate[]>;
   now?: () => Date;
@@ -103,6 +109,7 @@ interface ParsedLinesInput {
 interface ParsedBacklogInput {
   mode: "backlog";
   location: string;
+  batchSize: number;
 }
 
 type ParsedInput = ParsedLinesInput | ParsedBacklogInput;
@@ -188,13 +195,17 @@ function asCandidateList(raw: unknown): MaterialAliasCandidate[] {
     const id = entry.id;
     const name = entry.name;
     const unit = entry.unit;
+    const reason = entry.reason;
     if (typeof id !== "string" || id.trim() === "" || id === NONE_OPTION) {
       throw new MaterialAliasError("invalid_request", 400);
     }
     if (typeof name !== "string" || typeof unit !== "string") {
       throw new MaterialAliasError("invalid_request", 400);
     }
-    return { id, name, unit };
+    if (reason !== undefined && typeof reason !== "string") {
+      throw new MaterialAliasError("invalid_request", 400);
+    }
+    return { id, name, unit, reason: typeof reason === "string" ? reason : "" };
   });
 }
 
@@ -221,16 +232,33 @@ function asLine(entry: unknown): MaterialAliasLineInput {
 
 function parseInput(raw: Record<string, unknown>): ParsedInput {
   for (const field of Object.keys(raw)) {
-    if (!["mode", "supplier_id", "location", "lines"].includes(field)) {
+    if (!["mode", "supplier_id", "location", "lines", "batch_size"].includes(field)) {
       throw new MaterialAliasError("invalid_request", 400);
     }
   }
   const location = raw.location;
   if (location !== "q7" && location !== "tan_tao") throw new MaterialAliasError("invalid_request", 400);
   const mode = raw.mode;
-  if (mode === "backlog") return { mode: "backlog", location };
+  if (mode === "backlog") {
+    if (raw.supplier_id !== undefined || raw.lines !== undefined) {
+      throw new MaterialAliasError("invalid_request", 400);
+    }
+    const rawBatch = raw.batch_size;
+    if (
+      rawBatch !== undefined
+      && (typeof rawBatch !== "number" || !Number.isInteger(rawBatch) || rawBatch < 1)
+    ) {
+      throw new MaterialAliasError("invalid_request", 400);
+    }
+    const batchSize = Math.min(
+      (rawBatch as number | undefined) ?? MATERIAL_ALIAS_BACKLOG_BATCH_DEFAULT,
+      MATERIAL_ALIAS_BACKLOG_BATCH_MAX,
+    );
+    return { mode: "backlog", location, batchSize };
+  }
 
   if (mode !== "lines") throw new MaterialAliasError("invalid_request", 400);
+  if (raw.batch_size !== undefined) throw new MaterialAliasError("invalid_request", 400);
   const supplierId = raw.supplier_id === undefined ? null : raw.supplier_id;
   if (supplierId !== null && typeof supplierId !== "string") throw new MaterialAliasError("invalid_request", 400);
   if (!Array.isArray(raw.lines) || raw.lines.length === 0 || raw.lines.length > 200) {
@@ -258,6 +286,7 @@ function buildAnswer(
     line_type_probability: evaluation?.lineTypeProbability ?? null,
     confidence: evaluation?.confidence ?? null,
     pack: parsedPack,
+    source: evaluation ? "jev" : "none",
   };
 }
 
@@ -274,6 +303,30 @@ function ruleAnswer(rawName: string): CachedJevAnswer {
     line_type_probability: 1,
     confidence: null,
     pack: parsePackFromName(rawName),
+    source: "rule",
+  };
+}
+
+/**
+ * Deterministic answer when exactly one candidate is an exact normalized name
+ * match: the answer is code, not Jev. No call is spent; the answer is cached.
+ */
+function exactCandidateAnswer(
+  candidates: readonly MaterialAliasCandidate[],
+  rawName: string,
+): CachedJevAnswer | null {
+  const exact = candidates.filter((candidate) => (candidate.reason ?? "").startsWith("name_exact"));
+  if (exact.length !== 1) return null;
+  const candidate = exact[0];
+  return {
+    choice: candidate.id,
+    item_id: candidate.id,
+    probability: 1,
+    line_type: LINE_TYPE_GOODS,
+    line_type_probability: 1,
+    confidence: null,
+    pack: parsePackFromName(rawName),
+    source: "exact",
   };
 }
 
@@ -352,11 +405,17 @@ export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
           };
           let answer: CachedJevAnswer;
           let usedCache = false;
+          const exact = exactCandidateAnswer(candidateList, line.raw_name);
           const hit = await deps.getCache(key);
           if (hit) {
             answer = hit.answer;
             usedCache = true;
             cached += 1;
+          } else if (exact) {
+            // Exactly one candidate is the normalized name: assign it in code,
+            // never call Jev, but still cache the deterministic answer.
+            answer = exact;
+            await deps.putCache(key, answer, null);
           } else if (candidateList.length === 0) {
             answer = buildAnswer(null, line.raw_name, null);
             await deps.putCache(key, answer, null);
@@ -365,9 +424,11 @@ export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
           } else {
             const evaluation = await evaluator({ state: { line: { name: line.raw_name, unit: line.raw_unit, supplier: input.supplierId }, candidates: candidateList }, signal, deadlineAt });
             calls += 1;
-            cost += evaluationCost(evaluation);
+            const callCost = evaluationCost(evaluation);
+            cost += callCost;
             answer = buildAnswer(evaluation, line.raw_name, evaluation.choice);
             if (!evaluation) failed += 1;
+            await deps.incrementUsage(usageDate, 1, callCost);
             await deps.putCache(key, answer, evaluation.cost ?? null);
           }
           results.push({
@@ -376,14 +437,6 @@ export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
             candidates_hash: hash,
             cached: usedCache,
             answer,
-          });
-        }
-        if (calls > 0 || cost > 0) {
-          await deps.recordUsage({
-            usage_date: usageDate,
-            calls: usage.calls + calls,
-            cost: usage.cost + cost,
-            call_limit: callLimit,
           });
         }
         const stopped = remainingQuota <= 0 ? "daily_limit" : null;
@@ -400,58 +453,79 @@ export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
         });
       }
 
-      // backlog
+      // backlog: process one batch, then report how much is still pending.
       const rows = await deps.listBacklog(input.location, MATERIAL_ALIAS_BACKLOG_LIMIT);
-      const budget = Math.min(rows.length, remainingQuota);
-      let evaluated = 0;
-      let skippedExisting = 0;
-      for (let index = 0; index < rows.length; index += 1) {
-        const row = rows[index];
-        const candidates = await deps.candidatesFor(row.normalized_name, row.location, 5);
+      type BacklogEntry = {
+        row: MaterialAliasBacklogRow;
+        candidates: MaterialAliasCandidate[];
+        key: MaterialAliasCacheKey;
+      };
+      const eligible: BacklogEntry[] = [];
+      for (const row of rows) {
+        const candidates = await deps.candidatesFor(row.raw_name, row.location, 5);
         if (candidates.length === 0) continue;
-        const hash = candidatesHash(candidateIds(candidates));
-        const key: MaterialAliasCacheKey = {
-          supplierId: row.supplier_id,
-          normalizedName: row.normalized_name,
-          location: row.location,
-          promptVersion: JEV_PROMPT_VERSION,
-          candidatesHash: hash,
-        };
-        const hit = await deps.getCache(key);
-        if (hit) {
-          skippedExisting += 1;
+        eligible.push({
+          row,
+          candidates,
+          key: {
+            supplierId: row.supplier_id,
+            normalizedName: row.normalized_name,
+            location: row.location,
+            promptVersion: JEV_PROMPT_VERSION,
+            candidatesHash: candidatesHash(candidateIds(candidates)),
+          },
+        });
+      }
+
+      const pending: BacklogEntry[] = [];
+      let skippedExisting = 0;
+      for (const entry of eligible) {
+        const hit = await deps.getCache(entry.key);
+        if (hit) skippedExisting += 1;
+        else pending.push(entry);
+      }
+
+      let evaluated = 0;
+      let processed = 0;
+      for (const entry of pending) {
+        if (processed >= input.batchSize) break;
+        const exact = exactCandidateAnswer(entry.candidates, entry.row.raw_name);
+        if (exact) {
+          await deps.putCache(entry.key, exact, null);
+          processed += 1;
           continue;
         }
-        if (!evaluator || evaluated >= budget) continue;
+        if (!evaluator || calls >= remainingQuota) break;
         try {
           const evaluation = await evaluator({
-            state: { line: { name: row.raw_name, unit: row.raw_unit, supplier: row.supplier_id }, candidates },
+            state: { line: { name: entry.row.raw_name, unit: entry.row.raw_unit, supplier: entry.row.supplier_id }, candidates: entry.candidates },
             signal,
             deadlineAt,
           });
           calls += 1;
-          cost += evaluationCost(evaluation);
+          const callCost = evaluationCost(evaluation);
+          cost += callCost;
           evaluated += 1;
-          await deps.putCache(key, buildAnswer(evaluation, row.raw_name, evaluation.choice), evaluation.cost ?? null);
+          processed += 1;
+          await deps.incrementUsage(usageDate, 1, callCost);
+          await deps.putCache(entry.key, buildAnswer(evaluation, entry.row.raw_name, evaluation.choice), evaluation.cost ?? null);
         } catch (error) {
           if (error instanceof JevError) throw error;
           failed += 1;
+          processed += 1;
         }
       }
-      if (calls > 0 || cost > 0) {
-        await deps.recordUsage({
-          usage_date: usageDate,
-          calls: usage.calls + calls,
-          cost: usage.cost + cost,
-          call_limit: callLimit,
-        });
-      }
-      // Only a spent quota stops the scan; an empty backlog is not a quota stop.
-      const stopped = remainingQuota <= 0 && rows.length > 0 ? "daily_limit" : null;
+
+      const remaining = Math.max(0, pending.length - processed);
+      // Only a spent quota stops the scan; a finished / empty backlog is not.
+      const stopped = remainingQuota <= 0 && remaining > 0 ? "daily_limit" : null;
       deps.audit?.({
         event: "stock_alias_jev",
         mode: "backlog",
-        candidates: rows.length,
+        candidates: eligible.length,
+        batch_size: input.batchSize,
+        processed,
+        remaining,
         evaluated,
         cached: skippedExisting,
         calls,
@@ -460,7 +534,10 @@ export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
       });
       return json({
         mode: "backlog",
-        candidates: rows.length,
+        candidates: eligible.length,
+        processed,
+        remaining,
+        batch_size: input.batchSize,
         evaluated,
         skipped_existing: skippedExisting,
         failed,

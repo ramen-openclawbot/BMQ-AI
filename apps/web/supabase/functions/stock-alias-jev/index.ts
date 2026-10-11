@@ -63,7 +63,8 @@ Deno.serve(createMaterialAliasHandler({
   getCache: (key) => createMaterialAliasStore(adminClient()).getCache(key),
   putCache: (key, answer, cost) => createMaterialAliasStore(adminClient()).putCache(key, answer, cost),
   getUsage: (usageDate) => createMaterialAliasStore(adminClient()).getUsage(usageDate),
-  recordUsage: (usage) => createMaterialAliasStore(adminClient()).recordUsage(usage),
+  incrementUsage: (usageDate, calls, cost) =>
+    createMaterialAliasStore(adminClient()).incrementUsage(usageDate, calls, cost),
   listBacklog: (location, limit) => createMaterialAliasStore(adminClient()).listBacklog(location, limit),
   candidatesFor: (name, location, limit) =>
     createMaterialAliasStore(adminClient()).candidatesFor(name, location, limit),

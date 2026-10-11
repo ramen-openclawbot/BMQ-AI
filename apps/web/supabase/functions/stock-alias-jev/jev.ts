@@ -14,7 +14,7 @@
 export const JEV_ENDPOINT = "https://ai-gateway.vercel.sh/v1/evaluate";
 export const JEV_MODEL = "typesafe-ai/jev";
 // Bump whenever the state, the question or the criteria below change.
-export const JEV_PROMPT_VERSION = "jev-material-alias-2026-10-19.1";
+export const JEV_PROMPT_VERSION = "jev-material-alias-2026-10-20.1";
 export const JEV_TIMEOUT_MS = 4000;
 export const JEV_MAX_TIMEOUT_MS = 4000;
 export const JEV_BODY_LIMIT = 32_000;
@@ -34,6 +34,8 @@ export interface MaterialAliasCandidate {
   id: string;
   name: string;
   unit: string;
+  /** Deterministic matcher reason ('name_exact', 'name_contains', 'token'). */
+  reason?: string;
 }
 
 export interface MatchLine {
@@ -52,18 +54,38 @@ export function matchInstructions(): string {
   return "Dòng hóa đơn `line` (tên, đơn vị, nhà cung cấp) là mặt hàng nào trong `candidates`, hoặc không có?";
 }
 
-/** One description per candidate id plus the explicit "none" option. */
+/** Short choice key for the candidate at `index` (0-based): c1, c2, … */
+export function matchOptionKey(index: number): string {
+  return `c${index + 1}`;
+}
+
+/** One description per candidate, keyed c1..cN, plus the explicit "none" option. */
 export function matchCriteria(candidates: readonly MaterialAliasCandidate[]): Record<string, string> {
   const criteria: Record<string, string> = {};
-  for (const candidate of candidates) {
-    criteria[candidate.id] = `${candidate.name} (${candidate.unit})`;
-  }
+  candidates.forEach((candidate, index) => {
+    criteria[matchOptionKey(index)] = `${candidate.name} (${candidate.unit})`;
+  });
   criteria[NONE_OPTION] = "Không có mặt hàng nào trong danh sách phù hợp với dòng hóa đơn.";
   return criteria;
 }
 
 export function matchOptions(candidates: readonly MaterialAliasCandidate[]): string[] {
-  return [...candidates.map((candidate) => candidate.id), NONE_OPTION];
+  return [...candidates.map((_candidate, index) => matchOptionKey(index)), NONE_OPTION];
+}
+
+/**
+ * Map a short Jev choice key ("c1".."cN") back to the candidate id. A null or
+ * "none" choice, or an out-of-range key, maps to null.
+ */
+export function candidateIdFromChoice(
+  candidates: readonly MaterialAliasCandidate[],
+  choice: string | null,
+): string | null {
+  if (choice === null || choice === NONE_OPTION) return null;
+  const match = /^c(\d+)$/.exec(choice);
+  if (!match) return null;
+  const candidate = candidates[Number(match[1]) - 1];
+  return candidate ? candidate.id : null;
 }
 
 /**
@@ -230,20 +252,33 @@ export const PACK_PARSE_TEST_CASES: ReadonlyArray<readonly [string, number | nul
   ["Bột mì (25kg)", 25, "kg", 1],
   ["Dầu ăn 5L x 4 chai", 5, "l", 4],
   ["Nước tương x 6 chai", 6, "chai", 1],
+  // The bare "888" has no unit and no "x N": only the packed (25kg) counts.
+  ["Bột mì 888 Cam (25kg)", 25, "kg", 1],
 ];
 
+/** Pack / counting units, longest alternatives first so "gr" beats "g". */
+const PACK_UNIT_PATTERN =
+  "kg|gram|gr|g|lit|ml|l|chai|thùng|thung|hộp|hop|gói|goi|bao|can|bịch|bich|cái|cai|vỉ|vi";
+
+/**
+ * Read a pack size from a receipt name. A bare number is ignored unless it is
+ * followed by a unit or is the "N" of an "x N" form, so "Bột mì 888 Cam (25kg)"
+ * reads 25 kg and never 888.
+ */
 export function parsePackFromName(name: string | null | undefined): ParsedPack | null {
   const text = String(name ?? "");
   if (!text.trim()) return null;
-  const match = text.match(
-    /(\d+(?:[.,]\d+)?)\s*(kg|g|gr|gram|l|lit|ml|chai|thùng|thung|hộp|hop|gói|goi|bao|can|bịch|bich|cái|cai|vỉ|vi)?\s*(?:x\s*(\d+))?/i,
-  );
-  if (!match) return null;
-  const baseQty = match[1] !== undefined ? Number(match[1].replace(",", ".")) : null;
-  const rawUnit = match[2] ? match[2].toLowerCase() : null;
-  const multiplier = match[3] !== undefined ? Number(match[3]) : 1;
-  if ((baseQty === null || !Number.isFinite(baseQty)) && multiplier <= 1) return null;
-  return { label: text.trim(), baseQty, baseUnit: rawUnit, multiplier };
+  const pattern = new RegExp(`(\\d+(?:[.,]\\d+)?)\\s*(${PACK_UNIT_PATTERN})?\\s*(?:x\\s*(\\d+))?`, "gi");
+  for (const match of text.matchAll(pattern)) {
+    const rawUnit = match[2] ? match[2].toLowerCase() : null;
+    const multiplier = match[3] !== undefined ? Number(match[3]) : 1;
+    // Only a unit or an explicit "x N" makes the number a pack quantity.
+    if (rawUnit === null && multiplier <= 1) continue;
+    const baseQty = Number(match[1].replace(",", "."));
+    if (!Number.isFinite(baseQty)) continue;
+    return { label: text.trim(), baseQty, baseUnit: rawUnit, multiplier };
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -507,6 +542,8 @@ export function createJevEvaluator(config: JevConfig): JevEvaluator {
     let evaluation: JevMatchEvaluation;
     try {
       evaluation = validateJevResponse(allowed, parsed);
+      // The model ranks the short c1..cN keys; store the real candidate id.
+      evaluation = { ...evaluation, choice: candidateIdFromChoice(state.candidates, evaluation.choice) };
     } catch (error) {
       circuit.recordFailure();
       throw error;

@@ -282,3 +282,155 @@ assert "NONE_OPTION" in EDGE_JEV
 assert "[functions.stock-alias-jev]" in CONFIG
 
 print("material alias learning contract passed")
+
+# ---------------------------------------------------------------------------
+# 2026-10-20 alias-learning fix
+# ---------------------------------------------------------------------------
+print("== 2026-10-20 alias-learning fix migration ==")
+FIX_PATH = ROOT / "supabase/migrations/20261020100000_alias_learning_fix.sql"
+assert FIX_PATH.exists(), "missing the 2026-10-20 alias-learning fix migration"
+FIX = FIX_PATH.read_text(encoding="utf-8")
+FIX_LOWER = FIX.lower()
+
+
+def fix_block(name: str) -> str:
+    match = re.search(
+        rf"create\s+or\s+replace\s+function\s+public\.{re.escape(name)}\s*\(",
+        FIX,
+        re.IGNORECASE,
+    )
+    assert match, f"fix missing function public.{name}"
+    tail = FIX[match.start():]
+    end = tail.find("\n$$;")
+    assert end != -1, f"unterminated function public.{name}"
+    return tail[:end]
+
+
+FIX_DEFINER = [
+    "material_alias_candidates",
+    "increment_stock_catalog_jev_usage",
+    "get_material_alias_backlog_review",
+    "create_stock_material_item",
+]
+FIX_IMMUTABLE = [
+    "material_alias_clean_name",
+    "material_alias_match_tokens",
+    "material_alias_tokens_match",
+]
+for name in FIX_DEFINER + FIX_IMMUTABLE:
+    block = fix_block(name).lower()
+    assert "set search_path" in block, f"{name} must pin search_path"
+for name in FIX_DEFINER:
+    assert "security definer" in fix_block(name).lower(), f"{name} must be security definer"
+for name in FIX_IMMUTABLE:
+    assert "immutable" in fix_block(name).lower(), f"{name} must be immutable"
+
+print("== candidates: bracket prefix, '/' split, fuzzy OCR tokens ==")
+candidates_fix = fix_block("material_alias_candidates")
+assert "material_alias_clean_name" in candidates_fix
+assert "material_alias_match_tokens" in candidates_fix
+assert "material_alias_tokens_match" in candidates_fix
+assert "regexp_split_to_array" in candidates_fix, "a name with '/' must be scored part by part"
+assert "name_exact" in candidates_fix
+assert "+shared_alias" in candidates_fix
+assert "[^\\]" in fix_block("material_alias_clean_name"), "the [Thùng] prefix must be stripped"
+
+print("== atomic Jev usage counter ==")
+increment_fix = fix_block("increment_stock_catalog_jev_usage").lower()
+assert "on conflict (usage_date) do update" in increment_fix
+assert "updated_at = now()" in increment_fix
+assert re.search(
+    r"grant\s+execute\s+on\s+function\s+public\.increment_stock_catalog_jev_usage\(date,\s*integer,\s*numeric\)\s+to\s+service_role",
+    FIX,
+    re.IGNORECASE,
+), "increment_stock_catalog_jev_usage must be granted to service_role"
+assert not re.search(
+    r"grant\s+execute\s+on\s+function\s+public\.increment_stock_catalog_jev_usage[^;]*to\s+authenticated",
+    FIX,
+    re.IGNORECASE,
+), "increment_stock_catalog_jev_usage must not be granted to authenticated"
+
+print("== admin confirm promotes to auto, both overloads kept ==")
+confirm_fix = fix_block("confirm_material_alias")
+assert "material_alias_can_admin" in confirm_fix
+assert "status = 'auto'" in confirm_fix
+assert "auto_promoted" in confirm_fix
+assert "post_stock_goods_receipt_item" in confirm_fix
+assert len(re.findall(
+    r"create\s+or\s+replace\s+function\s+public\.confirm_material_alias\s*\(",
+    FIX,
+    re.IGNORECASE,
+)) == 2, "both confirm_material_alias overloads must be redefined"
+
+print("== backlog review RPC is admin-only ==")
+review_fix = fix_block("get_material_alias_backlog_review")
+assert "material_alias_can_admin" in review_fix
+assert "'forbidden'" in review_fix
+assert "material_alias_jev_cache" in review_fix
+assert "material_alias_candidates" in review_fix
+assert "last_receipt_date" in review_fix
+assert "jev_source" in review_fix
+
+print("== create_stock_material_item permission + idempotency ==")
+create_fix = fix_block("create_stock_material_item")
+assert "create_item_forbidden" in create_fix
+assert "q7_material_inventory_can_edit" in create_fix
+assert "normalize_stock_item_name" in create_fix
+assert "material_alias_item_requests" in create_fix
+assert "canonical_material_id" not in create_fix, "a new item must not write canonical_material_id"
+assert re.search(
+    r"alter\s+table\s+public\.material_alias_item_requests\s+enable\s+row\s+level\s+security",
+    FIX,
+    re.IGNORECASE,
+), "material_alias_item_requests must enable RLS"
+assert re.search(
+    r"grant\s+execute\s+on\s+function\s+public\.create_stock_material_item\(text,\s*text,\s*text,\s*uuid\)\s+to\s+authenticated",
+    FIX,
+    re.IGNORECASE,
+), "create_stock_material_item must be granted to authenticated"
+
+print("== edge function: short keys, deterministic exact, batched backlog ==")
+assert "jev-material-alias-2026-10-20.1" in EDGE_JEV
+assert "matchOptionKey" in EDGE_JEV
+assert "candidateIdFromChoice" in EDGE_JEV
+assert "Bột mì 888 Cam (25kg)" in EDGE_JEV, "the parsePackFromName case must be shared"
+assert "MATERIAL_ALIAS_BACKLOG_BATCH_DEFAULT" in EDGE_HANDLER
+assert "MATERIAL_ALIAS_BACKLOG_BATCH_MAX" in EDGE_HANDLER
+assert "batch_size" in EDGE_HANDLER
+assert "remaining" in EDGE_HANDLER
+assert "incrementUsage" in EDGE_HANDLER
+assert "exactCandidateAnswer" in EDGE_HANDLER
+assert "increment_stock_catalog_jev_usage" in EDGE_STORE
+
+print("== TS lib / hooks / types ==")
+TS_HOOK = (ROOT / "src/hooks/useMaterialAlias.ts").read_text(encoding="utf-8")
+TS_TYPES = (ROOT / "src/integrations/supabase/types.ts").read_text(encoding="utf-8")
+assert "parseMaterialAliasBacklogReview" in TS_LIB
+assert "parseCreateStockMaterialItem" in TS_LIB
+assert "source" in TS_LIB
+assert "remaining" in TS_LIB
+assert "useMaterialAliasBacklogReview" in TS_HOOK
+assert "useCreateStockMaterialItem" in TS_HOOK
+assert "remaining" in TS_HOOK
+assert "get_material_alias_backlog_review" in TS_TYPES
+assert "create_stock_material_item" in TS_TYPES
+assert "increment_stock_catalog_jev_usage" in TS_TYPES
+
+print("== 2026-10-20 smoke ==")
+SMOKE_FIX = (ROOT / "scripts/smoke_alias_learning_fix.sql").read_text(encoding="utf-8")
+for case in [
+    "Chicken egg 60gr/Trứng gà 60g",
+    "Trứng gà 60gr",
+    "DAIRYMONT WHITE SLICES CHEESE 1KG",
+    "Phô mai 84 lát trắng Dairymont",
+    "MUỐI SÁY KHÔ 500G BAO 25KG",
+    "Muối sấy",
+    "[Thùng] Sữa Tiệt Trùng Mekovita 3.5% Bélo 1L x 12 Hộp",
+    "Sữa Mlekovita",
+    "RE AN KHÈ",
+    "RE AN KHÊ",
+    "create_stock_material_item",
+]:
+    assert case in SMOKE_FIX, f"smoke missing case: {case}"
+
+print("alias learning fix contract passed")
