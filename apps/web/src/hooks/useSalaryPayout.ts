@@ -74,6 +74,30 @@ export interface SalaryPayoutPeriodOption {
   published_at: string | null;
 }
 
+/** One employee line of a payroll_bn period (list_salary_payout_period_lines). */
+export interface SalaryPayoutPeriodLine {
+  employee_code: string;
+  employee_name: string;
+  net_pay: number;
+}
+
+/** One employee excluded from a payout, with the operator reason. */
+export interface SalaryPayoutExclusion {
+  id: string;
+  employee_code: string;
+  employee_name: string;
+  net_pay: number;
+  reason: string;
+  created_by: string | null;
+  created_at: string;
+}
+
+/** p_exclusions item accepted by create_salary_payout. */
+export interface SalaryPayoutExclusionInput {
+  employee_code: string;
+  reason: string;
+}
+
 export interface SalaryPayoutHeader {
   id: string;
   payout_number: string;
@@ -130,6 +154,8 @@ export interface SalaryPayoutData {
   receipts: SalaryPayoutReceipt[];
   /** Supporting documents (image/PDF/Excel); absent on older responses. */
   attachments?: SalaryPayoutAttachment[];
+  /** Employees excluded at creation (with reasons); absent on older responses. */
+  exclusions?: SalaryPayoutExclusion[];
 }
 
 export interface SalaryPayoutCreateResult {
@@ -256,6 +282,27 @@ export const listPublishedPayrollPeriods = async (): Promise<SalaryPayoutPeriodO
   return [...options.values()];
 };
 
+/** One period's published employees for the payout exclusion checklist. */
+export const listSalaryPayoutPeriodLines = async (
+  periodId: string,
+): Promise<SalaryPayoutPeriodLine[]> => {
+  const { data, error } = await client.rpc("list_salary_payout_period_lines", {
+    p_period_id: periodId,
+  });
+  if (error) throw error;
+
+  const rows = Array.isArray(data) ? data : [];
+  return (rows as Array<{
+    employee_code?: string | null;
+    employee_name?: string | null;
+    net_pay?: number | string | null;
+  }>).map((row) => ({
+    employee_code: String(row.employee_code ?? ""),
+    employee_name: String(row.employee_name ?? ""),
+    net_pay: Number(row.net_pay ?? 0),
+  }));
+};
+
 // ---------------------------------------------------------------------------
 // Error classification
 // ---------------------------------------------------------------------------
@@ -265,6 +312,10 @@ const KNOWN_SALARY_PAYOUT_ERRORS = [
   "period_id_required",
   "period_not_found",
   "no_published_payslips",
+  "invalid_exclusions",
+  "reason_required",
+  "unknown_employee_code",
+  "no_employees_left",
   "payout_already_exists",
   "payout_not_found",
   "payout_id_required",
@@ -325,8 +376,31 @@ const extractFunctionError = async (error: unknown): Promise<{ code: string; det
 // Hook
 // ---------------------------------------------------------------------------
 
-export function useSalaryPayout(payoutId: string | null) {
+export function useSalaryPayoutPeriodLines(periodId: string | null) {
+  const query = useQuery({
+    queryKey: ["salary-payout", "period-lines", periodId],
+    enabled: !!periodId,
+    staleTime: 30_000,
+    queryFn: () => (periodId ? listSalaryPayoutPeriodLines(periodId) : Promise.resolve([])),
+  });
+
+  return {
+    periodLines: query.data ?? [],
+    isLoadingPeriodLines: query.isLoading,
+    periodLinesError: query.error,
+    refetchPeriodLines: query.refetch,
+  };
+}
+
+export function useSalaryPayout(payoutId: string | null, periodId: string | null = null) {
   const queryClient = useQueryClient();
+
+  const {
+    periodLines,
+    isLoadingPeriodLines,
+    periodLinesError,
+    refetchPeriodLines,
+  } = useSalaryPayoutPeriodLines(periodId);
 
   const periodsQuery = useQuery({
     queryKey: ["salary-payout", "periods"],
@@ -348,14 +422,19 @@ export function useSalaryPayout(payoutId: string | null) {
   const create = useCallback(
     async (
       periodId: string,
+      exclusions?: SalaryPayoutExclusionInput[],
       options?: { idempotencyKey?: string },
     ): Promise<SalaryPayoutCreateResult> => {
       const idempotencyKey = options?.idempotencyKey?.trim() || buildSalaryPayoutCreateKey(periodId);
+      const payload: Record<string, unknown> = {
+        p_period_id: periodId,
+        p_idempotency_key: idempotencyKey,
+      };
+      const safeExclusions = Array.isArray(exclusions) ? exclusions : [];
+      // Only send p_exclusions when there is one, so a plain create is unchanged.
+      if (safeExclusions.length > 0) payload.p_exclusions = safeExclusions;
       try {
-        const { data, error } = await client.rpc("create_salary_payout", {
-          p_period_id: periodId,
-          p_idempotency_key: idempotencyKey,
-        });
+        const { data, error } = await client.rpc("create_salary_payout", payload);
         if (error) throw error;
         invalidate();
         return data as unknown as SalaryPayoutCreateResult;
@@ -605,6 +684,10 @@ export function useSalaryPayout(payoutId: string | null) {
     isLoading: query.isLoading,
     error: query.error,
     refetch: query.refetch,
+    periodLines,
+    isLoadingPeriodLines,
+    periodLinesError,
+    refetchPeriodLines,
     create,
     createManual,
     load: loadSalaryPayout,

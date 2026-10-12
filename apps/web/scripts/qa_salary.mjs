@@ -36,6 +36,7 @@ const STATE = JSON.parse(sessionStorage.getItem("qa-salary") || "null") || {
   ],
   receipts: [],
   attachments: [],
+  exclusions: [],
 };
 const save = () => sessionStorage.setItem("qa-salary", JSON.stringify(STATE));
 const OCR = [ { amount: 8000000, ben: "TRAN VAN BINH" }, { amount: 8000000, ben: "NGUYEN THI XUAN MAI" }, { amount: null, ben: null }, { amount: 5000000, ben: "KHACH LE" } ];
@@ -43,7 +44,17 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const denied = () => cfg().role !== "owner" && !cfg().salary;
 function settle(st) {
   if (st.table === "rpc:list_salary_payout_periods") { if (denied()) return { data: null, error: { message: "insufficient_privilege" } }; return { data: [{ period_id: "per-1", period_name: "Kỳ lương T09/2026", published_at: "2026-10-05T00:00:00Z" }, { period_id: "per-0", period_name: "Kỳ lương T08/2026", published_at: null }], error: null }; }
-  if (st.table === "rpc:create_salary_payout") { window.__qaCalls.push({ fn: "create", ...st.args }); return { data: { payout_id: PAYOUT_ID, payout_number: STATE.payout.payout_number, period_name: STATE.payout.period_name, employee_count: 3, total_amount: 23000000, status: "pending" }, error: null }; }
+  if (st.table === "rpc:list_salary_payout_period_lines") { if (denied()) return { data: null, error: { message: "insufficient_privilege" } }; return { data: STATE.lines.map((l) => ({ employee_code: l.employee_code, employee_name: l.employee_name, net_pay: l.net_pay })), error: null }; }
+  if (st.table === "rpc:create_salary_payout") {
+    window.__qaCalls.push({ fn: "create", ...st.args });
+    const ex = st.args.p_exclusions || [];
+    if (ex.length) {
+      STATE.exclusions = ex.map((e, i) => { const l = STATE.lines.find((x) => x.employee_code === e.employee_code); return { id: "ex-" + i, employee_code: e.employee_code, employee_name: l.employee_name, net_pay: l.net_pay, reason: e.reason, created_by: "qa-user", created_at: new Date().toISOString() }; });
+      STATE.lines = STATE.lines.filter((l) => !ex.some((e) => e.employee_code === l.employee_code));
+      STATE.payout.employee_count = STATE.lines.length; STATE.payout.total_amount = STATE.lines.reduce((a, l) => a + l.net_pay, 0); save();
+      return { data: { payout_id: PAYOUT_ID, payout_number: STATE.payout.payout_number, period_name: STATE.payout.period_name, employee_count: STATE.lines.length, total_amount: STATE.payout.total_amount, status: "pending" }, error: null };
+    }
+    return { data: { payout_id: PAYOUT_ID, payout_number: STATE.payout.payout_number, period_name: STATE.payout.period_name, employee_count: 3, total_amount: 23000000, status: "pending" }, error: null }; }
   if (st.table === "rpc:create_manual_salary_payout") { window.__qaCalls.push({ fn: "createManual", ...st.args }); STATE.payout.source = "manual"; STATE.payout.period_name = st.args.p_payload.title; save(); return { data: { payout_id: PAYOUT_ID, payout_number: STATE.payout.payout_number, period_name: st.args.p_payload.title, employee_count: st.args.p_payload.lines.length, total_amount: 0, status: "pending", source: "manual" }, error: null }; }
   if (st.table === "rpc:get_salary_payout") { if (denied()) return { data: null, error: { message: "insufficient_privilege" } }; return { data: JSON.parse(JSON.stringify(STATE)), error: null }; }
   if (st.table === "rpc:record_salary_payout_ceo_payment") { window.__qaCalls.push({ fn: "ceo", ...st.args }); STATE.payout.status = "advanced"; STATE.payout.ceo_evidence_storage_path = st.args.p_evidence.storage_path; STATE.payout.ceo_evidence_sha256 = st.args.p_evidence.file_sha256; save(); return { data: { payout_id: PAYOUT_ID, status: "advanced" }, error: null }; }
@@ -206,13 +217,18 @@ try {
     await page.waitForSelector("[data-bmq-salary-period]");
     assert.equal(await page.locator("[data-bmq-salary-period]").count(), 1, "only the published period is offered");
     await page.locator("[data-bmq-salary-period]").click();
+    await page.waitForFunction(() => document.querySelectorAll("[data-bmq-salary-emp]").length === 3);
+    assert.ok((await page.locator("[data-bmq-salary-create-total]").textContent()).includes("23.000.000"), "checklist total");
     assert.ok((await page.locator("[data-bmq-salary-dialog] .d3-unc-head").textContent()).includes("Tạo phiếu lương bếp Q7"), "Q7 header");
     assert.ok(await page.$eval("[data-bmq-salary-dialog]", (el) => el.scrollWidth - el.clientWidth) <= 0, `dialog overflow ${w}`);
     await page.locator("[data-bmq-salary-dialog]").screenshot({ path: `${EVIDENCE}/create-${w}.png` });
     await page.locator("[data-bmq-salary-create-save]").click();
     await page.waitForSelector(PAGE);
     await page.waitForSelector('[data-bmq-salary-status="pending"]');
-    assert.equal((await calls(page)).filter((c) => c.fn === "create")[0].p_period_id, "per-1");
+    const cr = (await calls(page)).filter((c) => c.fn === "create")[0];
+    assert.equal(cr.p_period_id, "per-1");
+    assert.equal(cr.p_exclusions, undefined, "no p_exclusions when everyone is ticked");
+    assert.equal(await page.locator("[data-bmq-salary-exclusions]").count(), 0);
     assert.ok((await page.locator("[data-bmq-salary-total]").textContent()).includes("23.000.000"));
     assert.equal(await page.locator("[data-bmq-salary-docs] [data-bmq-salary-docs-pick]").count(), 1, "chứng từ can be added while pending");
     assert.ok(await pageOverflow(page) <= 0, `page overflow pending ${w}`);
@@ -312,6 +328,38 @@ try {
     await page.screenshot({ path: `${EVIDENCE}/manual-page-${w}.png`, fullPage: true });
     assert.deepEqual(errors, []);
     console.log("PASS", `manual salary ${w}`);
+    await context.close();
+  }
+  for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 640 }]) {
+    const w = viewport.width;
+    const { context, page, errors } = await open({ role: "accountant", salary: true }, "/payment-requests", viewport);
+    await page.evaluate(() => sessionStorage.removeItem("qa-salary"));
+    await page.locator("[data-bmq-pr-create-menu]").first().click(); await page.locator("[data-bmq-pr-create-choice='salary']").first().click();
+    await page.waitForSelector("[data-bmq-salary-period]");
+    await page.locator("[data-bmq-salary-period]").click();
+    await page.waitForFunction(() => document.querySelectorAll("[data-bmq-salary-emp]").length === 3);
+    // Untick Lê Văn Hậu (7.000.000): total drops, reason required.
+    await page.locator('[data-bmq-salary-emp] input[aria-label="Chi lương cho Lê Văn Hậu"]').click({ force: true });
+    assert.deepEqual(await states(page, "data-bmq-salary-emp"), ["on", "on", "off"]);
+    assert.ok((await page.locator("[data-bmq-salary-create-total]").textContent()).includes("16.000.000"), "total without Hậu");
+    await page.locator("[data-bmq-salary-create-save]").click();
+    await page.waitForSelector(".d3-cpr-note.is-bad");
+    assert.equal((await page.evaluate(() => window.__qaCalls)).filter((c) => c.fn === "create").length, 0, "blocked without reason");
+    await page.locator("[data-bmq-salary-emp-reason]").fill("  Đã chi lương lẻ  ");
+    assert.ok(await page.$eval("[data-bmq-salary-dialog]", (el) => el.scrollWidth - el.clientWidth) <= 0, `checklist overflow ${w}`);
+    await page.locator("[data-bmq-salary-employees]").screenshot({ path: `${EVIDENCE}/exclude-${w}.png` });
+    await page.locator("[data-bmq-salary-create-save]").click();
+    await page.waitForSelector(PAGE);
+    const cr = (await page.evaluate(() => window.__qaCalls)).filter((c) => c.fn === "create")[0];
+    assert.deepEqual(cr.p_exclusions, [{ employee_code: "NV03", reason: "Đã chi lương lẻ" }]);
+    await page.waitForSelector("[data-bmq-salary-exclusions]");
+    assert.ok((await page.locator("[data-bmq-salary-total]").textContent()).includes("16.000.000"));
+    assert.equal(await page.locator("[data-bmq-salary-line]").count(), 2);
+    assert.ok((await page.locator("[data-bmq-salary-exclusions]").textContent()).includes("Đã chi lương lẻ"));
+    assert.ok(await pageOverflow(page) <= 0, `page overflow exclusions ${w}`);
+    await page.locator("[data-bmq-salary-exclusions]").screenshot({ path: `${EVIDENCE}/excluded-page-${w}.png` });
+    assert.deepEqual(errors, []);
+    console.log("PASS", `exclude one employee ${w}`);
     await context.close();
   }
   {

@@ -4,11 +4,13 @@
  */
 import { useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Banknote, Loader2, Plus, Trash2, TriangleAlert } from "lucide-react";
+import { Banknote, Check, Loader2, Plus, Trash2, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useSalaryPayout } from "@/hooks/useSalaryPayout";
+import { useSalaryPayout, useSalaryPayoutPeriodLines } from "@/hooks/useSalaryPayout";
+import { buildPayoutSelection, exclusionErrorText, toExclusionPayload } from "@/lib/salary-exclusions";
+import { cn } from "@/lib/utils";
 import { useSalaryPayoutAttachments } from "@/hooks/useSalaryPayoutAttachments";
 import { SalaryAttachmentPicker, toSalaryUploadInputs } from "@/components/payment-requests/SalaryAttachments";
 import { validateManualSalaryPayout } from "@/lib/salary-manual-lines";
@@ -53,6 +55,24 @@ export function SalaryPayoutCreate({ kind, onKindChange: setKind, onDone }: Prop
   const navigate = useNavigate();
   const { periods, isLoadingPeriods, periodsError, create, createManual } = useSalaryPayout(null);
   const [picked, setPicked] = useState<string | null>(null);
+  // Checklist of the picked period: unticked employees are excluded with a reason.
+  const { periodLines, isLoadingPeriodLines, periodLinesError } = useSalaryPayoutPeriodLines(picked);
+  const [excluded, setExcluded] = useState<Record<string, string>>({});
+  const [exclTried, setExclTried] = useState(false);
+  const selection = useMemo(() => buildPayoutSelection(periodLines, excluded), [periodLines, excluded]);
+  const vndText = (n: number) => `${new Intl.NumberFormat("vi-VN").format(Math.round(n))} đ`;
+  const pickPeriod = (id: string) => {
+    setPicked(id);
+    setExcluded({});
+    setExclTried(false);
+  };
+  const toggleEmployee = (code: string) =>
+    setExcluded((prev) => {
+      const next = { ...prev };
+      if (code in next) delete next[code];
+      else next[code] = "";
+      return next;
+    });
   const [title, setTitle] = useState(monthTitle);
   const [rows, setRows] = useState<Row[]>([newRow()]);
   const [errors, setErrors] = useState<string[]>([]);
@@ -92,12 +112,19 @@ export function SalaryPayoutCreate({ kind, onKindChange: setKind, onDone }: Prop
 
   const saveQ7 = async () => {
     if (!picked) return;
+    setExclTried(true);
+    if (selection.errors.length) {
+      toast.error(selection.errors[0].message);
+      return;
+    }
     setSaving(true);
     try {
-      const result = await create(picked);
+      const result = await create(picked, toExclusionPayload(excluded));
       await finish(result.payout_id, result.payout_number);
     } catch (err) {
-      toast.error(errorText(err, "Chưa tạo được phiếu chi lương."));
+      const code = String((err as { message?: unknown })?.message ?? "");
+      const known = ["invalid_exclusions", "reason_required", "unknown_employee_code", "no_employees_left"].find((k) => code.includes(k));
+      toast.error(known ? exclusionErrorText(known) : errorText(err, "Chưa tạo được phiếu chi lương."));
     } finally {
       setSaving(false);
     }
@@ -148,13 +175,60 @@ export function SalaryPayoutCreate({ kind, onKindChange: setKind, onDone }: Prop
             <ul className="d3-cpr-periods">
               {published.map((p) => (
                 <li key={p.period_id}>
-                  <button type="button" className={picked === p.period_id ? "is-on" : undefined} onClick={() => setPicked(p.period_id)} aria-pressed={picked === p.period_id} data-bmq-salary-period={p.period_id}>
+                  <button type="button" className={picked === p.period_id ? "is-on" : undefined} onClick={() => pickPeriod(p.period_id)} aria-pressed={picked === p.period_id} data-bmq-salary-period={p.period_id}>
                     <b>{p.period_name}</b>
                     <small>Lấy lương thực nhận từ bảng lương</small>
                   </button>
                 </li>
               ))}
             </ul>
+          )}
+
+          {picked && (
+            <div className="d3-sal-pick" data-bmq-salary-employees>
+              <div className="d3-cs-head">
+                <h3>Nhân viên chi trong phiếu · {selection.employeeCount}/{periodLines.length}</h3>
+              </div>
+              {isLoadingPeriodLines ? (
+                <p className="d3-unc-ev-note"><Loader2 className="h-4 w-4 animate-spin" /> Đang tải danh sách…</p>
+              ) : periodLinesError ? (
+                <p className="d3-unc-ev-note is-bad"><TriangleAlert className="h-4 w-4" /> Không tải được danh sách nhân viên.</p>
+              ) : (
+                <ul className="d3-sal-pick-list">
+                  {periodLines.map((l) => {
+                    const off = l.employee_code in excluded;
+                    const bad = exclTried && selection.errors.some((e) => e.employee_code === l.employee_code);
+                    return (
+                      <li key={l.employee_code} className={cn(off && "is-off")} data-bmq-salary-emp={off ? "off" : "on"}>
+                        <label className="d3-sal-pick-row">
+                          <input type="checkbox" className="sr-only" checked={!off} onChange={() => toggleEmployee(l.employee_code)} disabled={saving} aria-label={`Chi lương cho ${l.employee_name}`} />
+                          <span className="d3-sal-pick-box" aria-hidden="true">{!off && <Check className="h-3.5 w-3.5" />}</span>
+                          <b>{l.employee_name}</b>
+                          <span className="d3-cs-amt">{vndText(l.net_pay)}</span>
+                        </label>
+                        {off && (
+                          <div className="d3-sal-pick-why">
+                            <Input
+                              value={excluded[l.employee_code] ?? ""}
+                              onChange={(e) => setExcluded((prev) => ({ ...prev, [l.employee_code]: e.target.value }))}
+                              placeholder="Lý do bỏ: đã chi lẻ, trừ lương…"
+                              maxLength={200}
+                              aria-label={`Lý do bỏ ${l.employee_name}`}
+                              className={cn(bad && "is-bad")}
+                              data-bmq-salary-emp-reason
+                            />
+                            {bad && <small className="d3-cpr-note is-bad">Nhập lý do (3–200 ký tự)</small>}
+                          </div>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              {selection.excluded.length > 0 && (
+                <p className="d3-unc-ev-note">Bỏ {selection.excluded.length} người, không tính vào tổng. Lý do được lưu trong phiếu.</p>
+              )}
+            </div>
           )}
         </>
       ) : (
@@ -203,8 +277,8 @@ export function SalaryPayoutCreate({ kind, onKindChange: setKind, onDone }: Prop
       <div className="d3-ub-foot">
         {kind === "q7" ? (
           <>
-            <p>{picked ? "1 kỳ lương" : "Chọn kỳ lương"}</p>
-            <Button className="d3-ub-go" disabled={!picked || saving} onClick={() => void saveQ7()} data-bmq-salary-create-save>
+            <p>{picked ? <><b>{selection.employeeCount}</b> người · <b data-bmq-salary-create-total>{vndText(selection.totalAmount)}</b></> : "Chọn kỳ lương"}</p>
+            <Button className="d3-ub-go" disabled={!picked || saving || isLoadingPeriodLines || selection.employeeCount === 0} onClick={() => void saveQ7()} data-bmq-salary-create-save>
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Banknote className="h-4 w-4" />}
               Tạo phiếu chi lương
             </Button>

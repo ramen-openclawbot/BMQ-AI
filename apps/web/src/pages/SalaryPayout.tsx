@@ -276,6 +276,21 @@ export default function SalaryPayout() {
               })}
             </ul>
 
+            {(data?.exclusions ?? []).length > 0 && (
+              <div className="d3-sal-excl" data-bmq-salary-exclusions>
+                <div className="d3-cs-head"><h3>Không chi trong phiếu này · {data?.exclusions?.length}</h3></div>
+                <ul className="d3-sal-excl-list">
+                  {(data?.exclusions ?? []).map((e) => (
+                    <li key={e.id}>
+                      <b>{e.employee_name}</b>
+                      <span className="d3-cs-amt">{vnd(e.net_pay)}</span>
+                      <small>{e.reason}</small>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             {payout.status === "advanced" && canEdit && (
               <>
                 <input ref={slipFileRef} type="file" accept="image/*" multiple className="sr-only" data-bmq-salary-slip-file onChange={(e) => { void pickSlips(e.target.files); e.currentTarget.value = ""; }} />
