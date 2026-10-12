@@ -189,7 +189,7 @@ export function Yard({ portrait, counts, crates, onEnter, onZone }: {
   const q7Door = portrait ? { x: q7.x - 58, y: q7.y + q7.h / 2 + 10 } : { x: q7.x + q7.w / 2 + 70, y: q7.y + q7.h + 40 };
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio={portrait ? "xMidYMid slice" : "xMidYMid meet"} role="img" aria-label="Phố kho BMQ">
+    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio={portrait ? "xMidYMin meet" : "xMidYMid meet"} role="img" aria-label="Phố kho BMQ">
       <Defs />
       <rect width={W} height={H} fill={C.paper} />
       <rect width={W} height={H} fill="url(#dots)" />

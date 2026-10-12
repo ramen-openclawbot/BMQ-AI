@@ -198,7 +198,7 @@ export default function WarehouseGame() {
       <main className="stage">
         {view.kind === "yard" ? (
           q7.isLoading && tt.isLoading ? <GameLoading /> : (
-            <Scene id={`yard-${portrait}`} fill={portrait}>
+            <Scene id={`yard-${portrait}`} fill={portrait} scroll={portrait}>
               <Yard
                 portrait={portrait}
                 counts={counts}

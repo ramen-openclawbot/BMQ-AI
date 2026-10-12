@@ -89,6 +89,9 @@
 .kg .scene.is-scroll > svg { height: auto; }
 .kg .scene.is-fill { padding: 0; }
 .kg .scene.is-fill > svg { width: 100%; height: 100%; max-width: none; }
+/* Phone street: fit the width and scroll down, so nothing is cropped top or bottom */
+.kg .scene.is-fill.is-scroll { padding-bottom: env(safe-area-inset-bottom); }
+.kg .scene.is-fill.is-scroll > svg { height: auto; flex: none; }
 @keyframes kg-iris { from { clip-path: circle(0% at 50% 50%); } to { clip-path: circle(150% at 50% 50%); } }
 
 /* SVG interactions */
