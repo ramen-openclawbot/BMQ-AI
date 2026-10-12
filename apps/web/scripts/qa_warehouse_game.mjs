@@ -519,7 +519,18 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
         await page.waitForTimeout(300);
         const created = await page.locator(".kg .sheet .field input").first().inputValue();
         assert.ok(created.length >= 2 && !/ngày\s*\d/i.test(created), `clean new name: ${created}`);
-        await page.locator(".kg .sheet .close").click({ force: true });
+        assert.equal(await page.locator("[data-bmq-new-pastry] [role='switch']").getAttribute("aria-checked"), "true", "new item from a Q7 crate starts as pastry");
+        const unitInput = page.locator("[data-bmq-unit-q='pack'] input");
+        if (await unitInput.count()) await unitInput.first().fill("1000");
+        await page.getByRole("button", { name: /Tạo và xếp vào kệ/ }).click({ force: true });
+        await page.waitForTimeout(600);
+        const made = await page.evaluate(() => window.__qaWrites);
+        const iCreate = made.findIndex((w) => w.startsWith("rpc:create_stock_material_item:"));
+        const iFlag = made.findIndex((w) => w.startsWith("rpc:set_item_pastry_q7:") && w.includes('"p_value":true'));
+        const iConfirm = made.findIndex((w, i) => i > iFlag && w.startsWith("rpc:confirm_material_alias:"));
+        assert.ok(iCreate >= 0 && iFlag > iCreate && iConfirm > iFlag, `create → flag pastry → label, got ${JSON.stringify(made.slice(-6))}`);
+        await page.screenshot({ path: `${EVIDENCE}/crate-new-pastry-${viewport.width}.png` });
+        if (await page.locator(".kg .sheet .close").count()) await page.locator(".kg .sheet .close").click({ force: true });
         await page.waitForTimeout(300);
       } else {
         record(`(note) fixture has no hint-less crate ${viewport.width}`);

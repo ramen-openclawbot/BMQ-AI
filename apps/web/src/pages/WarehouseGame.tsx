@@ -114,7 +114,7 @@ function errorText(error: unknown): string {
     ["create_item_forbidden", "Chỉ chủ hoặc người sửa kho Q7 được tạo mặt hàng."],
     ["non_stock_requires_admin", "Chỉ chủ hoặc người sửa kho Q7 được đánh dấu không nhập kho."],
     ["insufficient_privilege", "Tài khoản chưa có quyền với kho này."],
-    ["q7_pastry_only", "Kho Q7 chỉ nhận nguyên liệu bánh ngọt. Chọn món bánh ngọt, hoặc bật dấu Bánh ngọt ở mặt hàng."],
+    ["q7_pastry_only", "Kho Q7 chỉ nhận nguyên liệu bánh ngọt. Bật “Bánh ngọt (Q7)” cho món này, hoặc chọn “Không nhập kho”."],
   ];
   return known.find(([code]) => message.includes(code))?.[1] ?? message;
 }
@@ -551,6 +551,9 @@ function CrateSheet({ location, crate, snapshot, autoPick = false, onAssigned, o
   const confirm = useConfirmMaterialAlias();
   const create = useCreateStockMaterialItem();
   const notes = useCrateReceiptLines(location, crate.supplier_id, crate.normalized_name, true);
+  const setPastry = useSetItemPastryQ7();
+  // Q7 only stocks pastry items, so a new item made from a Q7 crate starts flagged.
+  const [asPastry, setAsPastry] = useState(location === "q7");
   const [query, setQuery] = useState("");
   const [target, setTarget] = useState<Target | null>(null);
   const [creating, setCreating] = useState(false);
@@ -598,8 +601,8 @@ function CrateSheet({ location, crate, snapshot, autoPick = false, onAssigned, o
   const stockUnit = creating ? newUnit : target?.unit ?? "g";
   const plan = unitPlanFor(crate, stockUnit);
   const unitOk = plan.mode === "auto" || (Number.isFinite(factor) && factor > 0 && (plan.mode === "pack" || packLabel.trim().length > 0));
-  const busy = confirm.isPending || create.isPending;
-  const error = confirm.error ?? create.error;
+  const busy = confirm.isPending || create.isPending || setPastry.isPending;
+  const error = confirm.error ?? create.error ?? setPastry.error;
 
   const send = (dest: Target | null, lineClass: "stock" | "non_stock") =>
     confirm.mutate(
@@ -624,7 +627,12 @@ function CrateSheet({ location, crate, snapshot, autoPick = false, onAssigned, o
   const createAndSend = () =>
     create.mutate(
       { name: newName.trim(), unit: newUnit, location, requestId },
-      { onSuccess: (result) => send({ kind: "item", id: result.item_id, name: newName.trim(), unit: newUnit, cls: "unclassified" }, "stock") },
+      {
+        onSuccess: async (result) => {
+          if (asPastry) await setPastry.mutateAsync({ itemId: result.item_id, value: true });
+          send({ kind: "item", id: result.item_id, name: newName.trim(), unit: newUnit, cls: "unclassified" }, "stock");
+        },
+      },
     );
 
   return (
@@ -639,9 +647,16 @@ function CrateSheet({ location, crate, snapshot, autoPick = false, onAssigned, o
             </select>
           </label>
           <UnitQuestion plan={plan} stockUnit={newUnit} label={packLabel} onLabel={setPackLabel} factorText={factorText} onFactor={setFactorText} />
+          <div className={`pastry-switch${asPastry ? " is-on" : ""}`} data-bmq-new-pastry>
+            <span>
+              <b>🧁 Bánh ngọt (Q7)</b>
+              <small>{location === "q7" ? (asPastry ? "Kho Q7 chỉ nhận nguyên liệu bánh ngọt" : "Tắt thì Kho Q7 không nhận món này") : asPastry ? "Nhập ở Tân Tạo xong tự chuyển sang Q7" : "Chỉ ở Tân Tạo"}</small>
+            </span>
+            <button type="button" role="switch" aria-checked={asPastry} aria-label="Bánh ngọt (Q7)" className="kg-switch" onClick={() => setAsPastry((v) => !v)}><i /></button>
+          </div>
           {error ? <div className="err">{errorText(error)}</div> : null}
           <div className="row">
-            <button type="button" className="btn" disabled={busy || newName.trim().length < 2 || !unitOk} onClick={createAndSend}>{busy ? "Đang tạo…" : "Tạo và xếp vào kệ"}</button>
+            <button type="button" className="btn" disabled={busy || newName.trim().length < 2 || !unitOk || (location === "q7" && !asPastry)} onClick={createAndSend}>{busy ? "Đang tạo…" : "Tạo và xếp vào kệ"}</button>
             <button type="button" className="btn ghost" onClick={() => setCreating(false)}>Quay lại</button>
           </div>
         </>
