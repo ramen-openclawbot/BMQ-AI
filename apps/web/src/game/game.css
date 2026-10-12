@@ -639,3 +639,11 @@
 .kg .transfer-list b { font-size: 14.5px; overflow-wrap: anywhere; }
 .kg .transfer-list small { font-size: 12px; font-weight: 700; color: #6f6a85; }
 .kg .transfer-list em { font-style: normal; font-family: "Baloo 2", sans-serif; font-weight: 800; font-size: 16px; color: var(--sage-deep); white-space: nowrap; }
+/* Receipt unit question (owner 12/10) */
+.kg .unit-q { display: grid; gap: 8px; padding: 12px; background: var(--white); border: 2.5px solid var(--ink); border-radius: 14px; }
+.kg .unit-q p { margin: 0; font-size: 14.5px; font-weight: 600; line-height: 1.45; }
+.kg .unit-q.is-auto { background: var(--sage-light); }
+.kg .unit-q.is-pack { background: var(--mustard-light); }
+.kg .unit-q-row { font-size: 16px; }
+.kg .unit-q-row input { width: 130px; }
+.kg .unit-q-hint, .kg .unit-q-mixed { font-size: 12.5px; font-weight: 700; color: #5b4a33; }

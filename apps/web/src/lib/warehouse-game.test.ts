@@ -90,6 +90,11 @@ function validSnapshot(): Record<string, unknown> {
         jev_line_type: null,
         jev_source: null,
         jev_is_sku: false,
+        raw_unit: "PACK",
+        raw_units: [
+          { unit: "PACK", line_count: 2 },
+          { unit: "kg", line_count: 1 },
+        ],
       },
     ],
     transfers: [
@@ -119,6 +124,11 @@ test("parseWarehouseGameSnapshot reads the full payload", () => {
   assert.equal(snapshot.items[1].pastry_q7, false);
   assert.equal(snapshot.skus[0].sku_code, "BMQ-001");
   assert.equal(snapshot.pending[0].normalized_name, "bot mi");
+  assert.equal(snapshot.pending[0].raw_unit, "PACK");
+  assert.deepEqual(snapshot.pending[0].raw_units, [
+    { unit: "PACK", line_count: 2 },
+    { unit: "kg", line_count: 1 },
+  ]);
   assert.equal(snapshot.transfers.length, 1);
   assert.equal(snapshot.transfers[0].transfer_number, "CK-20261012-AB12CD");
   assert.equal(snapshot.transfers[0].receipt_number, "GRN-001");
@@ -135,6 +145,16 @@ test("parseWarehouseGameSnapshot defaults a missing pastry_q7 / transfers", () =
   assert.deepEqual(snapshot.transfers, []);
   raw.transfers = null;
   assert.deepEqual(parseWarehouseGameSnapshot(raw).transfers, []);
+});
+
+test("parseWarehouseGameSnapshot defaults missing pending raw_unit / raw_units", () => {
+  const raw = validSnapshot();
+  const pending = (raw.pending as Record<string, unknown>[])[0];
+  delete pending.raw_unit;
+  delete pending.raw_units;
+  const snapshot = parseWarehouseGameSnapshot(raw);
+  assert.equal(snapshot.pending[0].raw_unit, null);
+  assert.deepEqual(snapshot.pending[0].raw_units, []);
 });
 
 test("parseWarehouseGameTransfers validates the transfer rows", () => {

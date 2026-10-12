@@ -435,6 +435,11 @@ test("parseMaterialAliasBacklogReview accepts the RPC payload", () => {
     jev_probability: 0.93,
     jev_line_type: "goods",
     jev_source: "jev",
+    raw_unit: "kg",
+    raw_units: [
+      { unit: "kg", line_count: 3 },
+      { unit: "gói", line_count: 1 },
+    ],
   }]);
   assert.equal(rows.length, 1);
   assert.equal(rows[0].line_count, 4);
@@ -442,9 +447,14 @@ test("parseMaterialAliasBacklogReview accepts the RPC payload", () => {
   assert.equal(rows[0].jev_probability, 0.93);
   assert.equal(rows[0].jev_line_type, "goods");
   assert.equal(rows[0].jev_source, "jev");
+  assert.equal(rows[0].raw_unit, "kg");
+  assert.deepEqual(rows[0].raw_units, [
+    { unit: "kg", line_count: 3 },
+    { unit: "gói", line_count: 1 },
+  ]);
 
   assert.deepEqual(parseMaterialAliasBacklogReview([]), []);
-  const empty = parseMaterialAliasBacklogReview([{
+  const emptyRow = {
     normalized_name: "gao",
     raw_name: "Gạo",
     line_count: 1,
@@ -458,12 +468,30 @@ test("parseMaterialAliasBacklogReview accepts the RPC payload", () => {
     jev_probability: null,
     jev_line_type: null,
     jev_source: null,
-  }]);
+  };
+  const empty = parseMaterialAliasBacklogReview([emptyRow]);
   assert.equal(empty[0].top_candidate, null);
   assert.equal(empty[0].jev_line_type, null);
+  assert.equal(empty[0].raw_unit, null);
+  assert.deepEqual(empty[0].raw_units, []);
+
+  const rawUnits = parseMaterialAliasBacklogReview([{
+    ...emptyRow,
+    raw_unit: null,
+    raw_units: null,
+  }]);
+  assert.equal(rawUnits[0].raw_unit, null);
+  assert.deepEqual(rawUnits[0].raw_units, []);
+
+  const blankUnit = parseMaterialAliasBacklogReview([{
+    ...emptyRow,
+    raw_units: [{ unit: null, line_count: "2" }],
+  }]);
+  assert.deepEqual(blankUnit[0].raw_units, [{ unit: "", line_count: 2 }]);
 
   assert.throws(() => parseMaterialAliasBacklogReview(null));
   assert.throws(() => parseMaterialAliasBacklogReview([{ normalized_name: "x" }]));
+  assert.throws(() => parseMaterialAliasBacklogReview([{ ...emptyRow, raw_units: { unit: "kg" } }]));
 });
 
 test("parseCreateStockMaterialItem accepts created and reused items", () => {

@@ -405,6 +405,10 @@ export interface MaterialAliasBacklogReviewRow {
   jev_source: string | null;
   /** Tân Tạo: the Jev pick is a finished-goods SKU, not a shared NVL item. */
   jev_is_sku: boolean;
+  /** The unit printed on the receipts for this pending name (null if blank). */
+  raw_unit: string | null;
+  /** Distinct receipt units for this name, by line_count desc. */
+  raw_units: Array<{ unit: string; line_count: number }>;
 }
 
 export interface CreateStockMaterialItemResult {
@@ -869,6 +873,21 @@ export function parseMaterialAliasReview(raw: unknown): MaterialAliasReview {
 }
 
 /** Parse and validate the JSON returned by `get_material_alias_backlog_review`. */
+function parseBacklogRawUnits(
+  value: unknown,
+  path: string,
+): Array<{ unit: string; line_count: number }> {
+  if (value === null || value === undefined) return [];
+  if (!Array.isArray(value)) throw new TypeError(`${path} must be an array`);
+  return value.map((entry, index) => {
+    const unit = asRecord(entry, `${path}[${index}]`);
+    return {
+      unit: asNullableString(unit.unit, `${path}[${index}].unit`) ?? "",
+      line_count: asNumber(unit.line_count ?? 0, `${path}[${index}].line_count`),
+    };
+  });
+}
+
 export function parseMaterialAliasBacklogReview(raw: unknown): MaterialAliasBacklogReviewRow[] {
   if (!Array.isArray(raw)) throw new TypeError("materialAliasBacklogReview must be an array");
   return raw.map((entry, index) => {
@@ -901,6 +920,8 @@ export function parseMaterialAliasBacklogReview(raw: unknown): MaterialAliasBack
       jev_line_type: parseNullableLineType(row.jev_line_type, `${path}.jev_line_type`),
       jev_source: asNullableString(row.jev_source, `${path}.jev_source`),
       jev_is_sku: row.jev_is_sku === true,
+      raw_unit: asNullableString(row.raw_unit, `${path}.raw_unit`),
+      raw_units: parseBacklogRawUnits(row.raw_units, `${path}.raw_units`),
     };
   });
 }

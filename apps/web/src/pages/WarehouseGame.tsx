@@ -5,7 +5,7 @@ import { useChangeStockItemUnit, useRenameStockItem, useSetItemPastryQ7, useWare
 import { useConfirmMaterialAlias, useCreateStockMaterialItem, useRunAliasBacklog } from "@/hooks/useMaterialAlias";
 import { CrateYard, cleanCrateName, type JevState } from "@/game/CrateYard";
 import { unitConversionFor, type WarehouseGameItem, type WarehouseGameLocation, type WarehouseGamePendingRow, type WarehouseGameSnapshot } from "@/lib/warehouse-game";
-import { packFactorFor } from "@/components/material-alias/new-stock-item";
+import { defaultNewItemUnit, packFactorFor, unitFactor } from "@/components/material-alias/new-stock-item";
 import { Yard, type Zone } from "@/game/Yard";
 import { Warehouse, crateKey, layoutRows } from "@/game/Warehouse";
 import { Shelf, entriesFor, type ShelfEntry } from "@/game/Shelf";
@@ -50,6 +50,55 @@ const ZONE_ROUTES: Record<string, string> = {
   auto: "/warehouse/auto-purchase",
   clean: "/warehouse/catalog-cleanup",
 };
+
+/**
+ * How a receipt's unit maps onto the stock unit (owner 12/10: "đơn vị ghi trên phiếu" was a guess).
+ * pack: the receipt counts packs (PACK, gói, thùng…) → ask "1 PACK = ? g", prefilled from the name ("1KG").
+ * auto: kg / g / l / ml lines convert by themselves. unknown: no receipt unit known → free label.
+ */
+type UnitPlan = { mode: "pack" | "auto" | "unknown"; unit: string | null; auto: number | null; prefill: number | null; units: Array<{ unit: string; line_count: number }> };
+function unitPlanFor(crate: WarehouseGamePendingRow, stockUnit: string): UnitPlan {
+  const units = (crate.raw_units ?? []).filter((row) => row.unit.trim());
+  const ordered = units.length ? units : crate.raw_unit ? [{ unit: crate.raw_unit, line_count: crate.line_count }] : [];
+  const pack = ordered.find((row) => unitFactor(row.unit, stockUnit) === null);
+  const measure = ordered.find((row) => unitFactor(row.unit, stockUnit) !== null);
+  const guess = packFactorFor(crate.raw_name, stockUnit)?.factor ?? null;
+  if (pack) return { mode: "pack", unit: pack.unit.trim(), auto: null, prefill: guess, units: ordered };
+  if (measure) return { mode: "auto", unit: measure.unit.trim(), auto: unitFactor(measure.unit, stockUnit), prefill: null, units: ordered };
+  return { mode: "unknown", unit: null, auto: null, prefill: guess, units: ordered };
+}
+
+function UnitQuestion({ plan, stockUnit, label, onLabel, factorText, onFactor }: {
+  plan: UnitPlan; stockUnit: string; label: string; onLabel: (value: string) => void; factorText: string; onFactor: (value: string) => void;
+}) {
+  const mixed = plan.units.length > 1;
+  return (
+    <div className={`unit-q is-${plan.mode}`} data-bmq-unit-q={plan.mode}>
+      {plan.mode === "auto" ? (
+        <p><b>Phiếu ghi “{plan.unit}”</b> → kho tự đổi: 1 {plan.unit} = {fmtQty(plan.auto ?? 1)} {stockUnit}. Không cần điền gì.</p>
+      ) : plan.mode === "pack" ? (
+        <>
+          <p><b>Phiếu ghi “{plan.unit}”</b>, kho tính bằng <b>{stockUnit}</b>. Mỗi khi phiếu ghi {plan.unit}, máy nhân với số dưới đây:</p>
+          <label className="conv unit-q-row">
+            1 {plan.unit} =
+            <input inputMode="decimal" value={factorText} onChange={(event) => onFactor(event.target.value)} placeholder="?" aria-label={`1 ${plan.unit} bằng bao nhiêu ${stockUnit}`} />
+            {stockUnit}
+          </label>
+          {plan.prefill ? <small className="unit-q-hint">Máy đọc từ tên hàng: {fmtQty(plan.prefill)} {stockUnit}. Anh kiểm lại cho đúng.</small> : <small className="unit-q-hint">Ví dụ: 1 PACK phô mai 1 kg → 1000; 1 thùng 12 hộp × 1 l → 12000.</small>}
+        </>
+      ) : (
+        <>
+          <p>Chưa đọc được đơn vị trên phiếu. Ghi đơn vị nhà cung cấp dùng và quy đổi ra <b>{stockUnit}</b>:</p>
+          <div className="unit-row">
+            <label className="field">Đơn vị trên phiếu<input value={label} onChange={(event) => onLabel(event.target.value)} placeholder="PACK, gói, thùng…" /></label>
+            <label className="field">1 {label.trim() || "đv"} = ? {stockUnit}<input inputMode="decimal" value={factorText} onChange={(event) => onFactor(event.target.value)} /></label>
+          </div>
+        </>
+      )}
+      {mixed ? <small className="unit-q-mixed">Các dòng phiếu ghi: {plan.units.map((row) => `${row.unit} ×${row.line_count}`).join(" · ")}. Dòng kg, g, l, ml luôn tự đổi.</small> : null}
+    </div>
+  );
+}
 
 function errorText(error: unknown): string {
   const message = String((error as { message?: string })?.message ?? error);
@@ -498,7 +547,7 @@ function CrateSheet({ location, crate, snapshot, autoPick = false, onAssigned, o
   const [target, setTarget] = useState<Target | null>(null);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState(() => cleanCrateName(crate.raw_name));
-  const [newUnit, setNewUnit] = useState("g");
+  const [newUnit, setNewUnit] = useState(() => defaultNewItemUnit(crate.raw_name, crate.raw_unit));
   const [packLabel, setPackLabel] = useState("");
   const [factorText, setFactorText] = useState("1");
   const [requestId] = useState(newRequestId);
@@ -521,10 +570,14 @@ function CrateSheet({ location, crate, snapshot, autoPick = false, onAssigned, o
     ? snapshot.items.filter((item) => item.id !== suggested?.id && normalizeName(item.name).includes(q)).slice(0, 8)
     : [];
 
+  const preparePlan = (stockUnit: string) => {
+    const plan = unitPlanFor(crate, stockUnit);
+    // No unit on the receipt lines at all: assume they count in the stock unit (1 = 1), editable.
+    setPackLabel(plan.unit ?? (plan.mode === "unknown" ? stockUnit : ""));
+    setFactorText(plan.mode === "auto" ? "1" : plan.prefill ? String(plan.prefill) : plan.mode === "unknown" ? "1" : "");
+  };
   const pick = (next: Target) => {
-    const pack = packFactorFor(crate.raw_name, next.unit);
-    setPackLabel(pack?.label ?? next.unit);
-    setFactorText(String(pack?.factor ?? 1));
+    preparePlan(next.unit);
     setTarget(next);
   };
   // Open on the hint: Jev's pick (or the closest name) is already on the label.
@@ -534,6 +587,9 @@ function CrateSheet({ location, crate, snapshot, autoPick = false, onAssigned, o
   }, []);
 
   const factor = Number(factorText.replace(",", "."));
+  const stockUnit = creating ? newUnit : target?.unit ?? "g";
+  const plan = unitPlanFor(crate, stockUnit);
+  const unitOk = plan.mode === "auto" || (Number.isFinite(factor) && factor > 0 && (plan.mode === "pack" || packLabel.trim().length > 0));
   const busy = confirm.isPending || create.isPending;
   const error = confirm.error ?? create.error;
 
@@ -543,11 +599,11 @@ function CrateSheet({ location, crate, snapshot, autoPick = false, onAssigned, o
         supplierId: crate.supplier_id,
         location,
         rawName: crate.raw_name,
-        rawUnit: null,
+        rawUnit: crate.raw_unit ?? null,
         kitchenInventoryItemId: dest?.kind === "item" ? dest.id : null,
         tanTaoSkuId: dest?.kind === "sku" ? dest.id : null,
-        enteredUnitLabel: lineClass === "stock" ? packLabel.trim() || dest?.unit || null : null,
-        conversionFactor: lineClass === "stock" ? factor : 1,
+        enteredUnitLabel: lineClass === "stock" ? (plan.mode === "unknown" ? packLabel.trim() : plan.unit) || dest?.unit || null : null,
+        conversionFactor: lineClass === "stock" && plan.mode !== "auto" ? factor : 1,
         jevItemId: crate.jev_item_id,
         jevProbability: crate.jev_probability,
         sourceTable: "warehouse_game",
@@ -569,13 +625,14 @@ function CrateSheet({ location, crate, snapshot, autoPick = false, onAssigned, o
         <>
           <label className="field">Tên mặt hàng mới<input value={newName} onChange={(event) => setNewName(event.target.value)} maxLength={120} /></label>
           <label className="field">Đơn vị kho
-            <select value={newUnit} onChange={(event) => setNewUnit(event.target.value)}>
+            <select value={newUnit} onChange={(event) => { setNewUnit(event.target.value); preparePlan(event.target.value); }}>
               {ITEM_UNITS.map((value) => <option key={value} value={value}>{value}</option>)}
             </select>
           </label>
+          <UnitQuestion plan={plan} stockUnit={newUnit} label={packLabel} onLabel={setPackLabel} factorText={factorText} onFactor={setFactorText} />
           {error ? <div className="err">{errorText(error)}</div> : null}
           <div className="row">
-            <button type="button" className="btn" disabled={busy || newName.trim().length < 2} onClick={createAndSend}>{busy ? "Đang tạo…" : "Tạo và xếp vào kệ"}</button>
+            <button type="button" className="btn" disabled={busy || newName.trim().length < 2 || !unitOk} onClick={createAndSend}>{busy ? "Đang tạo…" : "Tạo và xếp vào kệ"}</button>
             <button type="button" className="btn ghost" onClick={() => setCreating(false)}>Quay lại</button>
           </div>
         </>
@@ -585,15 +642,11 @@ function CrateSheet({ location, crate, snapshot, autoPick = false, onAssigned, o
             <span className="pick-star">★</span>
             <span><b>{target.name}</b><small>{target.kind === "sku" ? "Thành phẩm SKU" : CLASS_META[target.cls].label} · {target.unit} · bấm để đổi</small></span>
           </button>
-          <div className="unit-row">
-            <label className="field">Đơn vị trên phiếu<input value={packLabel} onChange={(event) => setPackLabel(event.target.value)} placeholder="bao 25kg" /></label>
-            <label className="field">1 {packLabel.trim() || "đv"} = ? {target.unit}<input inputMode="decimal" value={factorText} onChange={(event) => setFactorText(event.target.value)} /></label>
-          </div>
-          <p className="note" style={{ fontSize: 13 }}>Dòng ghi kg, g, l, ml tự đổi theo đơn vị; hệ số chỉ dùng khi phiếu ghi bao, thùng, gói…</p>
+          <UnitQuestion plan={plan} stockUnit={target.unit} label={packLabel} onLabel={setPackLabel} factorText={factorText} onFactor={setFactorText} />
           {target.kind === "item" && snapshot.items.find((item) => item.id === target.id)?.pastry_q7 && location === "tan_tao" ? <p className="crate-q7-note">🧁 Món bánh ngọt: ghi sổ xong máy tự chuyển sang Kho Q7.</p> : null}
           {error ? <div className="err">{errorText(error)}</div> : null}
           <div className="row">
-            <button type="button" className="btn" disabled={busy || !(factor > 0)} onClick={() => send(target, "stock")}>{busy ? "Đang xếp…" : "Xếp vào kệ"}</button>
+            <button type="button" className="btn" disabled={busy || !unitOk} onClick={() => send(target, "stock")}>{busy ? "Đang xếp…" : "Xếp vào kệ"}</button>
             <button type="button" className="btn ghost" onClick={() => setTarget(null)}>Chọn lại</button>
           </div>
         </>
@@ -608,7 +661,7 @@ function CrateSheet({ location, crate, snapshot, autoPick = false, onAssigned, o
           ) : (
             <div className="no-hint" data-bmq-crate-nohint>
               <p className="note">Kho chưa có mặt hàng giống tên này, nên Jev chưa có gì để gợi ý.</p>
-              <button type="button" className="btn" onClick={() => setCreating(true)}>＋ Tạo mặt hàng “{cleanCrateName(crate.raw_name)}”</button>
+              <button type="button" className="btn" onClick={() => { setCreating(true); preparePlan(newUnit); }}>＋ Tạo mặt hàng “{cleanCrateName(crate.raw_name)}”</button>
             </div>
           )}
           <label className="field">{suggested ? "Hoặc tìm mặt hàng khác" : "Hoặc tìm trong kho"}<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="gõ tên để tìm…" /></label>
@@ -622,7 +675,7 @@ function CrateSheet({ location, crate, snapshot, autoPick = false, onAssigned, o
           {error ? <div className="err">{errorText(error)}</div> : null}
           {q && matches.length === 0 ? <p className="note" style={{ fontSize: 13 }}>Không có mặt hàng nào khớp “{query}”.</p> : null}
           <div className="row">
-            {suggested ? <button type="button" className="btn ghost" onClick={() => setCreating(true)}>＋ Mặt hàng mới</button> : null}
+            {suggested ? <button type="button" className="btn ghost" onClick={() => { setCreating(true); preparePlan(newUnit); }}>＋ Mặt hàng mới</button> : null}
             <button type="button" className="btn ghost" disabled={busy} onClick={() => send(null, "non_stock")}>Không nhập kho</button>
             <button type="button" className="btn ghost" onClick={onClose}>Để sau</button>
           </div>

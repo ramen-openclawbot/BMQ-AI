@@ -466,12 +466,32 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       await page.locator(".kg .crate-card.has-jev").first().click({ force: true });
       await page.waitForTimeout(700);
       assert.equal(await page.locator(".kg .sheet .pick.is-top", { hasText: "bấm để đổi" }).count(), 1, "label sheet opens on the hint");
+      const unitMode = await page.locator("[data-bmq-unit-q]").getAttribute("data-bmq-unit-q");
+      assert.ok(["pack", "auto", "unknown"].includes(unitMode ?? ""), "unit question shown");
+      if (unitMode === "pack") {
+        const factorInput = page.locator("[data-bmq-unit-q] input").first();
+        if (!(await factorInput.inputValue())) {
+          assert.equal(await page.getByRole("button", { name: "Xếp vào kệ" }).isDisabled(), true, "pack unit needs a factor first");
+          await factorInput.fill("1000");
+        }
+      }
       await page.screenshot({ path: `${EVIDENCE}/crate-${viewport.width}.png` });
       await page.getByRole("button", { name: "Xếp vào kệ" }).click({ force: true });
       await page.waitForTimeout(400);
       writes = await page.evaluate(() => window.__qaWrites);
       assert.ok(writes.some((w) => w.startsWith("rpc:confirm_material_alias:") && w.includes('"p_location":"q7"') && w.includes('"p_source_table":"warehouse_game"') && w.includes('"p_line_class":"stock"')), JSON.stringify(writes));
       await page.waitForTimeout(900);
+      // A PACK crate asks "1 PACK = ? g" and blocks shelving until answered.
+      await page.locator("[data-bmq-crate='n3']").click({ force: true });
+      await page.waitForTimeout(700);
+      assert.equal(await page.locator("[data-bmq-unit-q='pack']").count(), 1, "PACK crate asks for the pack factor");
+      assert.match(await page.locator("[data-bmq-unit-q]").textContent(), /PACK/);
+      assert.equal(await page.getByRole("button", { name: "Xếp vào kệ" }).isDisabled(), true, "no default factor for packs");
+      await page.locator("[data-bmq-unit-q] input").first().fill("1000");
+      assert.equal(await page.getByRole("button", { name: "Xếp vào kệ" }).isDisabled(), false);
+      await page.screenshot({ path: `${EVIDENCE}/crate-pack-${viewport.width}.png` });
+      await page.locator(".kg .sheet .close").click({ force: true });
+      await page.waitForTimeout(300);
       const freshLot = page.locator("[data-bmq-crate-lot='new'] [data-bmq-crate]");
       if (await freshLot.count()) {
         await freshLot.first().click({ force: true });
