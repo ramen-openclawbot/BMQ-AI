@@ -86,10 +86,18 @@ export const FINANCE_RECONCILIATION_ERROR_MESSAGES: Record<string, string> = {
   // chi is approved against a PO receipt without a delivery image.
   pr_requires_delivery_image:
     "Phiếu nhập {receipt_number} chưa có ảnh phiếu giao hàng. Mở phiếu nhập, tải ảnh giao hàng rồi duyệt lại.",
+  // Trigger public.guard_cash_pr_payment_method raises
+  // "cash_pr_method_locked: <request_number>" (errcode P0001) when an active
+  // Chi tiền mặt phiếu is switched away from 'cash'.
+  cash_pr_method_locked:
+    "Phiếu {request_number} là Chi tiền mặt — chỉ ghi chi bằng Tiền mặt, không dùng UNC.",
 };
 
 /** Blocking code raised by public.guard_payment_request_delivery_image. */
 export const PR_REQUIRES_DELIVERY_IMAGE_CODE = "pr_requires_delivery_image";
+
+/** Blocking code raised by public.guard_cash_pr_payment_method. */
+export const CASH_PR_METHOD_LOCKED_CODE = "cash_pr_method_locked";
 
 /**
  * Read the receipt number out of a raw `pr_requires_delivery_image: <number>`
@@ -99,6 +107,17 @@ export const PR_REQUIRES_DELIVERY_IMAGE_CODE = "pr_requires_delivery_image";
 export function deliveryImageReceiptNumber(raw: string | null | undefined): string | null {
   if (!raw) return null;
   const match = raw.match(/pr_requires_delivery_image:\s*"?([^\s;,"')]+)/);
+  return match ? match[1] : null;
+}
+
+/**
+ * Read the request number out of a raw `cash_pr_method_locked: <number>` server
+ * error. PostgREST may wrap the database message in a bigger string, so the code
+ * is searched anywhere; returns null when it is absent.
+ */
+export function cashPrMethodLockedRequestNumber(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const match = raw.match(/cash_pr_method_locked:\s*"?([^\s;,"')]+)/);
   return match ? match[1] : null;
 }
 
@@ -171,6 +190,9 @@ export function financeReconciliationErrorMessage(code: string, raw?: string | n
   if (!template) return null;
   if (code === PR_REQUIRES_DELIVERY_IMAGE_CODE) {
     return template.replace("{receipt_number}", deliveryImageReceiptNumber(raw) ?? "?");
+  }
+  if (code === CASH_PR_METHOD_LOCKED_CODE) {
+    return template.replace("{request_number}", cashPrMethodLockedRequestNumber(raw) ?? "?");
   }
   return template;
 }

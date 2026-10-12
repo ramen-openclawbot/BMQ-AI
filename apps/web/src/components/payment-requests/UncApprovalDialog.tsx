@@ -19,6 +19,7 @@ import {
   type UncStandaloneCategory,
 } from "@/hooks/usePaymentUncApproval";
 import { areSameSupplier, evaluatePaymentUncMatch, evaluateUncAllocations, remainingAmount } from "@/lib/payment-unc-matching";
+import { financeReconciliationErrorFromRaw } from "@/lib/finance-reconciliation-flags";
 import "@/styles/bmq-unc-approval.css";
 
 export type UncApprovalRequest = UncPaymentRequestInput & {
@@ -79,11 +80,24 @@ const ERROR_TEXT: Record<string, string> = {
 };
 
 const errorText = (error: unknown) => {
+  const raw =
+    error instanceof PaymentUncApprovalError
+      ? [error.detail, error.message].filter(Boolean).join(" ")
+      : error instanceof Error
+        ? error.message
+        : "";
+  // New database guards (e.g. cash_pr_method_locked) come back from the edge
+  // function collapsed to "approval_failed" with the raw RPC message in
+  // .detail; translate any known finance code. The per-dialog map still owns its
+  // own codes (not_owner, po_overpaid...), which keeps the existing messages.
+  const translated = financeReconciliationErrorFromRaw(raw);
   if (error instanceof PaymentUncApprovalError) {
     const known = ERROR_TEXT[error.code];
     if (known) return known;
+    if (translated) return translated;
     return error.detail ? `Không duyệt được: ${error.detail}` : "Không duyệt được. Thử lại.";
   }
+  if (translated) return translated;
   return error instanceof Error && error.message ? `Không duyệt được: ${error.message}` : "Không duyệt được. Thử lại.";
 };
 

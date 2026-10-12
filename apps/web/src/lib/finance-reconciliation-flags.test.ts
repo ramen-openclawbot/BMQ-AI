@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  CASH_PR_METHOD_LOCKED_CODE,
   FINANCE_RECONCILIATION_ERROR_MESSAGES,
   FINANCE_RECONCILIATION_LABELS,
   FINANCE_RECONCILIATION_PRIORITY_ORDER,
   PR_REQUIRES_DELIVERY_IMAGE_CODE,
+  cashPrMethodLockedRequestNumber,
   deliveryImageReceiptNumber,
   financeReconciliationErrorCode,
   financeReconciliationErrorFromRaw,
@@ -178,4 +180,30 @@ test("does not translate an unrecognised raw error", () => {
   assert.equal(financeReconciliationErrorFromRaw("some other failure"), null);
   assert.equal(financeReconciliationErrorFromRaw(""), null);
   assert.equal(deliveryImageReceiptNumber("some other failure"), null);
+});
+
+test("maps the cash-pr payment-method lock code and fills in the request number", () => {
+  const code = CASH_PR_METHOD_LOCKED_CODE;
+  assert.equal(code, "cash_pr_method_locked");
+  assert.ok(FINANCE_RECONCILIATION_ERROR_MESSAGES[code].includes("Chi tiền mặt"));
+
+  const message = financeReconciliationErrorMessage(code, "cash_pr_method_locked: PR-6C74C201");
+  assert.ok(message, "missing message for the cash-pr payment-method code");
+  assert.ok(message!.includes("PR-6C74C201"));
+  assert.ok(message!.includes("không dùng UNC"));
+
+  assert.equal(cashPrMethodLockedRequestNumber("cash_pr_method_locked: PR-6C74C201"), "PR-6C74C201");
+  assert.equal(financeReconciliationErrorCode("cash_pr_method_locked: PR-6C74C201"), code);
+  assert.equal(financeReconciliationErrorFromRaw("cash_pr_method_locked: PR-6C74C201"), message);
+});
+
+test("reads the cash-pr request number through a PostgREST prefix", () => {
+  const raw = 'PostgrestError: cash_pr_method_locked: "PR-000789"';
+  assert.equal(cashPrMethodLockedRequestNumber(raw), "PR-000789");
+  assert.equal(financeReconciliationErrorCode(raw), CASH_PR_METHOD_LOCKED_CODE);
+
+  const message = financeReconciliationErrorFromRaw(raw);
+  assert.ok(message, "missing message when PostgREST prefixes the error");
+  assert.ok(message!.includes("PR-000789"));
+  assert.ok(!message!.includes("PostgrestError"));
 });
