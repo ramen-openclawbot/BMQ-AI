@@ -5,7 +5,9 @@ import assert from "node:assert/strict";
 import {
   parseChangeStockItemUnitResult,
   parseRenameStockItemResult,
+  parseSetItemPastryQ7Result,
   parseWarehouseGameSnapshot,
+  parseWarehouseGameTransfers,
   unitConversionFor,
 } from "./warehouse-game.ts";
 
@@ -49,6 +51,7 @@ function validSnapshot(): Record<string, unknown> {
             supplier_name: "Nhà cung cấp A",
           },
         ],
+        pastry_q7: true,
       },
       {
         id: "22222222-2222-2222-2222-222222222222",
@@ -59,6 +62,7 @@ function validSnapshot(): Record<string, unknown> {
         on_hand: 0,
         last_count_date: "2026-10-10",
         aliases: [],
+        pastry_q7: false,
       },
     ],
     skus: [
@@ -88,6 +92,17 @@ function validSnapshot(): Record<string, unknown> {
         jev_is_sku: false,
       },
     ],
+    transfers: [
+      {
+        transfer_number: "CK-20261012-AB12CD",
+        transfer_date: "2026-10-12",
+        item_id: "11111111-1111-1111-1111-111111111111",
+        item_name: "Bột mì",
+        quantity: 12.5,
+        unit: "kg",
+        receipt_number: "GRN-001",
+      },
+    ],
     counts: { raw_material: 1, unclassified: 1 },
     can_edit: true,
   };
@@ -100,10 +115,47 @@ test("parseWarehouseGameSnapshot reads the full payload", () => {
   assert.equal(snapshot.items.length, 2);
   assert.equal(snapshot.items[0].item_class, "raw_material");
   assert.equal(snapshot.items[0].aliases[0].supplier_name, "Nhà cung cấp A");
+  assert.equal(snapshot.items[0].pastry_q7, true);
+  assert.equal(snapshot.items[1].pastry_q7, false);
   assert.equal(snapshot.skus[0].sku_code, "BMQ-001");
   assert.equal(snapshot.pending[0].normalized_name, "bot mi");
+  assert.equal(snapshot.transfers.length, 1);
+  assert.equal(snapshot.transfers[0].transfer_number, "CK-20261012-AB12CD");
+  assert.equal(snapshot.transfers[0].receipt_number, "GRN-001");
   assert.deepEqual(snapshot.counts, { raw_material: 1, unclassified: 1 });
   assert.equal(snapshot.can_edit, true);
+});
+
+test("parseWarehouseGameSnapshot defaults a missing pastry_q7 / transfers", () => {
+  const raw = validSnapshot();
+  delete (raw.items as Record<string, unknown>[])[0].pastry_q7;
+  delete raw.transfers;
+  const snapshot = parseWarehouseGameSnapshot(raw);
+  assert.equal(snapshot.items[0].pastry_q7, false);
+  assert.deepEqual(snapshot.transfers, []);
+  raw.transfers = null;
+  assert.deepEqual(parseWarehouseGameSnapshot(raw).transfers, []);
+});
+
+test("parseWarehouseGameTransfers validates the transfer rows", () => {
+  assert.deepEqual(parseWarehouseGameTransfers(null), []);
+  assert.equal(parseWarehouseGameTransfers(validSnapshot().transfers).length, 1);
+  assert.throws(() => parseWarehouseGameTransfers({}), TypeError);
+  assert.throws(
+    () => parseWarehouseGameTransfers([{ transfer_number: "CK-1" }]),
+    TypeError,
+  );
+});
+
+test("parseSetItemPastryQ7Result reads the flag result", () => {
+  assert.deepEqual(
+    parseSetItemPastryQ7Result({
+      item_id: "11111111-1111-1111-1111-111111111111",
+      pastry_q7: true,
+    }),
+    { item_id: "11111111-1111-1111-1111-111111111111", pastry_q7: true },
+  );
+  assert.throws(() => parseSetItemPastryQ7Result({ item_id: "x" }), TypeError);
 });
 
 test("parseWarehouseGameSnapshot tolerates a null cutover and empty skus", () => {

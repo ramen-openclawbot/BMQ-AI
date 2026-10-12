@@ -2,6 +2,7 @@ import { C, STROKE } from "./theme";
 import { CLASS_META, CLASS_ORDER, asClass, type GameClass } from "./meta";
 import { Bubble, Buddy, CrateBuddy, Defs, Goods, Panel } from "./Toon";
 import { JevBot } from "./CrateYard";
+import { Van } from "./Yard";
 import type { WarehouseGameLocation, WarehouseGamePendingRow, WarehouseGameSnapshot } from "@/lib/warehouse-game";
 
 export interface ShelfRow { cls: GameClass; count: number; units: string[] }
@@ -65,9 +66,9 @@ function ShelfTable({ g, row, onClick }: { g: Geo; row: ShelfRow; onClick: () =>
   );
 }
 
-export function Warehouse({ portrait, location, rows, crates, canAssign, onShelf, onYard }: {
+export function Warehouse({ portrait, location, rows, crates, canAssign, transfers, onShelf, onYard, onTransfers }: {
   portrait: boolean; location: WarehouseGameLocation; rows: ShelfRow[]; crates: WarehouseGamePendingRow[];
-  canAssign: boolean; onShelf: (cls: GameClass) => void; onYard: () => void;
+  canAssign: boolean; transfers: number; onShelf: (cls: GameClass) => void; onYard: () => void; onTransfers: () => void;
 }) {
   const cols = portrait ? 1 : 2;
   const W = portrait ? 600 : 1280;
@@ -150,6 +151,12 @@ export function Warehouse({ portrait, location, rows, crates, canAssign, onShelf
         </g>
       )}
 
+      {/* transfer van: Tân Tạo → Q7 (owner rule 12/10) */}
+      <g className="tap" role="button" tabIndex={0} aria-label={`Phiếu chuyển kho, ${transfers} phiếu`} onClick={onTransfers} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onTransfers(); }} data-bmq-transfer-van>
+        <g transform={`translate(${roomX + (portrait ? 50 : 110)} ${roomBottom + 52}) scale(${portrait ? 0.5 : 0.6})`}><Van color={location === "q7" ? C.coral : C.sage} /></g>
+        <rect x={roomX + (portrait ? 88 : 160)} y={roomBottom + 30} width={portrait ? 132 : 250} height={38} rx={12} fill={C.cream} stroke={C.ink} strokeWidth={STROKE} />
+        <text x={roomX + (portrait ? 154 : 285)} y={roomBottom + 55} textAnchor="middle" className="t-count">{portrait ? `Chuyển kho · ${transfers}` : location === "q7" ? `Nhận từ Tân Tạo · ${transfers}` : `Đã chuyển sang Q7 · ${transfers}`}</text>
+      </g>
       <rect x={W / 2 - 50} y={roomBottom - 8} width={100} height={14} fill={C.cream} stroke={C.ink} strokeWidth={STROKE} />
       <rect x={W / 2 - 44} y={roomBottom + 12} width={88} height={40} rx={6} fill="url(#checker)" stroke={C.ink} strokeWidth={2.5} />
 

@@ -39,6 +39,19 @@ export interface WarehouseGameItem {
   on_hand: number;
   last_count_date: string | null;
   aliases: WarehouseGameAlias[];
+  /** Owner rule 2026-10-12: pastry raw materials received at Tân Tạo go to Q7. */
+  pastry_q7: boolean;
+}
+
+/** One automatic Tân Tạo -> Q7 stock transfer of a pastry receipt line. */
+export interface WarehouseGameTransfer {
+  transfer_number: string;
+  transfer_date: string;
+  item_id: string;
+  item_name: string;
+  quantity: number;
+  unit: string;
+  receipt_number: string | null;
 }
 
 export interface WarehouseGameSku {
@@ -57,8 +70,14 @@ export interface WarehouseGameSnapshot {
   items: WarehouseGameItem[];
   skus: WarehouseGameSku[];
   pending: WarehouseGamePendingRow[];
+  transfers: WarehouseGameTransfer[];
   counts: Record<string, number>;
   can_edit: boolean;
+}
+
+export interface SetItemPastryQ7Result {
+  item_id: string;
+  pastry_q7: boolean;
 }
 
 export interface RenameStockItemResult {
@@ -102,6 +121,12 @@ function asNumber(value: unknown, path: string): number {
 function asBoolean(value: unknown, path: string): boolean {
   if (typeof value !== "boolean") throw new TypeError(`${path} must be a boolean`);
   return value;
+}
+
+/** Older payloads have no pastry_q7: treat a missing key as false. */
+function asBooleanDefaultFalse(value: unknown, path: string): boolean {
+  if (value === undefined || value === null) return false;
+  return asBoolean(value, path);
 }
 
 function asLocation(value: unknown, path: string): WarehouseGameLocation {
@@ -161,7 +186,34 @@ function parseWarehouseGameItem(raw: unknown, path: string): WarehouseGameItem {
     aliases: rawAliases.map((alias, index) =>
       parseWarehouseGameAlias(alias, `${path}.aliases[${index}]`),
     ),
+    pastry_q7: asBooleanDefaultFalse(row.pastry_q7, `${path}.pastry_q7`),
   };
+}
+
+/** Parse and validate one automatic Tân Tạo -> Q7 transfer row. */
+function parseWarehouseGameTransfer(raw: unknown, path: string): WarehouseGameTransfer {
+  const row = asRecord(raw, path);
+  return {
+    transfer_number: asString(row.transfer_number, `${path}.transfer_number`),
+    transfer_date: asString(row.transfer_date, `${path}.transfer_date`),
+    item_id: asString(row.item_id, `${path}.item_id`),
+    item_name: asString(row.item_name, `${path}.item_name`),
+    quantity: asNumber(row.quantity, `${path}.quantity`),
+    unit: asString(row.unit, `${path}.unit`),
+    receipt_number: asNullableString(row.receipt_number, `${path}.receipt_number`),
+  };
+}
+
+/**
+ * Parse the jsonb array returned by `get_stock_transfers`. A missing / null
+ * payload is an empty list so an older server keeps the UI usable.
+ */
+export function parseWarehouseGameTransfers(raw: unknown): WarehouseGameTransfer[] {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) throw new TypeError("warehouseGameTransfers must be an array");
+  return raw.map((transfer, index) =>
+    parseWarehouseGameTransfer(transfer, `warehouseGameTransfers[${index}]`),
+  );
 }
 
 /** Parse and validate one finished-goods SKU of the snapshot. */
@@ -194,6 +246,8 @@ export function parseWarehouseGameSnapshot(raw: unknown): WarehouseGameSnapshot 
   if (!Array.isArray(rawPending)) throw new TypeError("pending must be an array");
   const pending = parseMaterialAliasBacklogReview(rawPending);
 
+  const transfers = parseWarehouseGameTransfers(root.transfers);
+
   const rawCounts = asRecord(root.counts, "counts");
   const counts: Record<string, number> = {};
   for (const [key, value] of Object.entries(rawCounts)) {
@@ -206,8 +260,18 @@ export function parseWarehouseGameSnapshot(raw: unknown): WarehouseGameSnapshot 
     items,
     skus,
     pending,
+    transfers,
     counts,
     can_edit: asBoolean(root.can_edit, "can_edit"),
+  };
+}
+
+/** Parse and validate the JSON returned by `set_item_pastry_q7`. */
+export function parseSetItemPastryQ7Result(raw: unknown): SetItemPastryQ7Result {
+  const root = asRecord(raw, "setItemPastryQ7Result");
+  return {
+    item_id: asString(root.item_id, "setItemPastryQ7Result.item_id"),
+    pastry_q7: asBoolean(root.pastry_q7, "setItemPastryQ7Result.pastry_q7"),
   };
 }
 

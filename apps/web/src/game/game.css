@@ -609,3 +609,33 @@
 .kg .no-hint .btn { width: 100%; height: auto; min-height: 50px; padding: 8px 14px; line-height: 1.2; overflow-wrap: anywhere; }
 .kg .yard-lot.is-new { background-color: #f6e3c8; background-image: none; }
 .kg .crate-go.is-new { background: var(--mustard); color: var(--ink); }
+
+/* ---- Kho tổng Tân Tạo → Q7 bánh ngọt (2026-10-12) ---- */
+.kg .kg-switch { position: relative; flex: none; width: 56px; height: 32px; border-radius: 99px; background: var(--paper-deep); border: 3px solid var(--ink); transition: background .2s; }
+.kg .kg-switch i { position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 99px; background: var(--white); border: 2.5px solid var(--ink); transition: transform .25s var(--ease); }
+.kg .kg-switch[aria-checked="true"] { background: #e79a6b; }
+.kg .kg-switch[aria-checked="true"] i { transform: translateX(24px); }
+.kg .kg-switch[disabled] { opacity: .6; }
+.kg .pastry-switch { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 12px; background: var(--white); border: 2.5px solid var(--ink); border-radius: 14px; }
+.kg .pastry-switch.is-on { background: #fbe1cf; }
+.kg .pastry-switch > span { display: grid; flex: 1; min-width: 0; }
+.kg .pastry-switch b { font-size: 15px; }
+.kg .pastry-switch small { font-size: 12.5px; font-weight: 700; color: #6f6a85; }
+.kg .pastry-switch .err { flex-basis: 100%; }
+.kg .pastry-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.kg .pastry-row { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--white); border: 2.5px solid var(--ink); border-radius: 12px; }
+.kg .pastry-row.is-on { background: #fbe1cf; }
+.kg .pastry-name { display: grid; flex: 1; min-width: 0; }
+.kg .pastry-name b { font-size: 14.5px; overflow-wrap: anywhere; }
+.kg .pastry-name small { font-size: 12px; font-weight: 700; color: #6f6a85; }
+.kg .flow-note { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 14px; font-weight: 800; font-size: 15px; background: var(--cream); border: 3px solid var(--ink); border-radius: 16px; box-shadow: var(--soft); }
+.kg .flow-arrow { font-family: "Baloo 2", sans-serif; font-size: 22px; color: #e79a6b; }
+.kg .good-pastry { position: absolute; left: 8px; top: 8px; padding: 1px 6px; font-size: 11px; font-weight: 900; background: #fbe1cf; border: 2px solid var(--ink); border-radius: 8px; }
+.kg .crate-q7 { font-style: normal; font-size: 11.5px; font-weight: 900; color: #b5582b; }
+.kg .crate-q7-note { margin: 0; padding: 8px 12px; font-size: 13.5px; font-weight: 800; background: #fbe1cf; border: 2.5px solid var(--ink); border-radius: 12px; }
+.kg .transfer-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.kg .transfer-list li { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: var(--white); border: 2.5px solid var(--ink); border-radius: 12px; }
+.kg .transfer-list span { display: grid; flex: 1; min-width: 0; }
+.kg .transfer-list b { font-size: 14.5px; overflow-wrap: anywhere; }
+.kg .transfer-list small { font-size: 12px; font-weight: 700; color: #6f6a85; }
+.kg .transfer-list em { font-style: normal; font-family: "Baloo 2", sans-serif; font-weight: 800; font-size: 16px; color: var(--sage-deep); white-space: nowrap; }

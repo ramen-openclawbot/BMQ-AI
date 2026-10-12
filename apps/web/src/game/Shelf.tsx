@@ -3,7 +3,7 @@ import { CLASS_META, asClass, fmtQty, type GameClass } from "./meta";
 import { Goods } from "./Toon";
 import type { WarehouseGameSnapshot } from "@/lib/warehouse-game";
 
-export interface ShelfEntry { id: string; name: string; code: string; unit: string; qty: number; aliases: number; isSku: boolean }
+export interface ShelfEntry { id: string; name: string; code: string; unit: string; qty: number; aliases: number; isSku: boolean; pastry?: boolean }
 
 export function entriesFor(cls: GameClass, snapshot: WarehouseGameSnapshot): ShelfEntry[] {
   if (cls === "finished_goods" && snapshot.location === "tan_tao" && snapshot.skus.length) {
@@ -11,7 +11,7 @@ export function entriesFor(cls: GameClass, snapshot: WarehouseGameSnapshot): She
   }
   return snapshot.items
     .filter((item) => asClass(item.item_class) === cls)
-    .map((item) => ({ id: item.id, name: item.name, code: item.code, unit: item.unit, qty: item.on_hand, aliases: item.aliases.length, isSku: false }));
+    .map((item) => ({ id: item.id, name: item.name, code: item.code, unit: item.unit, qty: item.on_hand, aliases: item.aliases.length, isSku: false, pastry: snapshot.location === "tan_tao" && item.pastry_q7 }));
 }
 
 /** One class opened up: a long shelf of goods cards, each tappable. */
@@ -56,6 +56,7 @@ export function Shelf({ cls, entries, started, query, onQuery, selectedId, justS
                   {started ? <><b>{fmtQty(entry.qty)}</b> {entry.unit}</> : <>{entry.isSku ? "SKU · " : ""}{entry.unit}</>}
                 </span>
                 {entry.aliases ? <span className="good-alias">🏷️ {entry.aliases}</span> : null}
+                {entry.pastry ? <span className="good-pastry" title="Tự chuyển sang Q7">🧁 Q7</span> : null}
                 {entry.id === justSaved ? <span className="good-spark" aria-hidden="true">✨</span> : null}
               </button>
             </li>

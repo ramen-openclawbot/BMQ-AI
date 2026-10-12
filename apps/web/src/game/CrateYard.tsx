@@ -72,8 +72,10 @@ export function crateHint(crate: WarehouseGamePendingRow): { name: string; unit:
   return null;
 }
 
-function CrateCard({ crate, index, leaving, onOpen }: { crate: WarehouseGamePendingRow; index: number; leaving: boolean; onOpen: () => void }) {
+function CrateCard({ crate, index, leaving, pastryIds, onOpen }: { crate: WarehouseGamePendingRow; index: number; leaving: boolean; pastryIds: Set<string>; onOpen: () => void }) {
   const hint = crateHint(crate);
+  const hintId = crate.jev_item_id ?? crate.top_candidate?.item_id ?? null;
+  const toQ7 = Boolean(hint && hintId && pastryIds.has(hintId));
   return (
     <li>
       <button
@@ -91,6 +93,7 @@ function CrateCard({ crate, index, leaving, onOpen }: { crate: WarehouseGamePend
           <span className={`crate-hint${hint.strong ? " is-jev" : ""}`}>
             <small>{hint.tag}</small>
             <span>{hint.name}{hint.unit ? ` · ${hint.unit}` : ""}</span>
+            {toQ7 ? <em className="crate-q7">🧁 tự chuyển Q7</em> : null}
           </span>
         ) : <span className="crate-hint is-none"><small>Chưa có trong kho</small><span>Tạo mới “{cleanCrateName(crate.raw_name)}”</span></span>}
         <span className={`crate-go${hint ? "" : " is-new"}`}>{hint ? "Dán nhãn ›" : "＋ Tạo mới ›"}</span>
@@ -100,8 +103,8 @@ function CrateCard({ crate, index, leaving, onOpen }: { crate: WarehouseGamePend
 }
 
 /** The crate yard of one warehouse: Jev sorts first, then the player labels with the hint. */
-export function CrateYard({ location, crates, canAssign, jev, progress, leavingKey, onRunJev, onOpen }: {
-  location: WarehouseGameLocation; crates: WarehouseGamePendingRow[]; canAssign: boolean;
+export function CrateYard({ location, crates, canAssign, pastryIds, jev, progress, leavingKey, onRunJev, onOpen }: {
+  location: WarehouseGameLocation; crates: WarehouseGamePendingRow[]; canAssign: boolean; pastryIds: Set<string>;
   jev: JevState; progress: { done: number; total: number } | null; leavingKey: string | null;
   onRunJev: () => void; onOpen: (crate: WarehouseGamePendingRow) => void;
 }) {
@@ -128,26 +131,26 @@ export function CrateYard({ location, crates, canAssign, jev, progress, leavingK
               {jev === "working" ? "Jev đang làm…" : withHint.length === crates.length ? "🤖 Cho Jev xem lại" : "🤖 Jev phân loại"}
             </button>
           ) : null}
-          <p className="yard-rule">Chỉ hiện tên có nhập trong 60 ngày; tên lâu không nhập tự bỏ qua.</p>
+          <p className="yard-rule">{location === "tan_tao" ? "Mọi phiếu nhập về Tân Tạo; món bánh ngọt tự chuyển Q7. " : "Q7 chỉ nhận nguyên liệu bánh ngọt. "}Chỉ hiện tên có nhập trong 60 ngày.</p>
         </div>
       </section>
 
       {canAssign && withHint.length ? (
         <section className="yard-lot is-jev">
           <h2 className="cork-title"><span>★</span> Jev đã gợi ý · {withHint.length}</h2>
-          <ul className="crate-grid">{withHint.map((crate, i) => <CrateCard key={crateKey(crate)} crate={crate} index={i} leaving={leavingKey === crateKey(crate)} onOpen={() => onOpen(crate)} />)}</ul>
+          <ul className="crate-grid">{withHint.map((crate, i) => <CrateCard key={crateKey(crate)} crate={crate} index={i} leaving={leavingKey === crateKey(crate)} pastryIds={pastryIds} onOpen={() => onOpen(crate)} />)}</ul>
         </section>
       ) : null}
       {canAssign && near.length ? (
         <section className="yard-lot">
           <h2 className="cork-title"><span>📦</span> Chưa rõ · {near.length}</h2>
-          <ul className="crate-grid">{near.map((crate, i) => <CrateCard key={crateKey(crate)} crate={crate} index={i} leaving={leavingKey === crateKey(crate)} onOpen={() => onOpen(crate)} />)}</ul>
+          <ul className="crate-grid">{near.map((crate, i) => <CrateCard key={crateKey(crate)} crate={crate} index={i} leaving={leavingKey === crateKey(crate)} pastryIds={pastryIds} onOpen={() => onOpen(crate)} />)}</ul>
         </section>
       ) : null}
       {canAssign && fresh.length ? (
         <section className="yard-lot is-new" data-bmq-crate-lot="new">
           <h2 className="cork-title"><span>✨</span> Chưa có trong kho · tạo mới · {fresh.length}</h2>
-          <ul className="crate-grid">{fresh.map((crate, i) => <CrateCard key={crateKey(crate)} crate={crate} index={i} leaving={leavingKey === crateKey(crate)} onOpen={() => onOpen(crate)} />)}</ul>
+          <ul className="crate-grid">{fresh.map((crate, i) => <CrateCard key={crateKey(crate)} crate={crate} index={i} leaving={leavingKey === crateKey(crate)} pastryIds={pastryIds} onOpen={() => onOpen(crate)} />)}</ul>
         </section>
       ) : null}
     </div>

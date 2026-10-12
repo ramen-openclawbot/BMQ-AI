@@ -4190,6 +4190,14 @@ export type Database = {
         Args: { p_location: string }
         Returns: Json
       }
+      set_item_pastry_q7: {
+        Args: { p_item_id: string; p_value: boolean; p_request_id: string }
+        Returns: Json
+      }
+      get_stock_transfers: {
+        Args: { p_limit?: number }
+        Returns: Json
+      }
       rename_stock_item: {
         Args: { p_item_id: string; p_new_name: string; p_request_id: string }
         Returns: Json

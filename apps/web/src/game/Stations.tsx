@@ -7,6 +7,8 @@ import { ClassifyRow, LearnedAliasesCard, MergeRow, errorText } from "@/pages/St
 import { AliasBacklogReview } from "@/components/material-alias/AliasBacklogReview";
 import { NewItemSuggestions } from "@/components/material-alias/NewItemSuggestions";
 import { StockRoutingCards } from "@/components/stock-routing/StockRoutingCards";
+import { useSetItemPastryQ7, useWarehouseGameSnapshot } from "@/hooks/useWarehouseGame";
+import { CLASS_META, asClass, normalizeName } from "./meta";
 import { STATION_META, type StationId } from "./Workshop";
 import "@/styles/bmq-warehouse.css";
 import "@/styles/bmq-stock-ledger.css";
@@ -135,6 +137,57 @@ function JevStation({ canEdit }: { canEdit: boolean }) {
   );
 }
 
+/** Owner rule 12/10: every receipt lands at Tân Tạo; flagged pastry items move on to Q7 by themselves. */
+function PastryStation({ canEdit }: { canEdit: boolean }) {
+  const { toast } = useToast();
+  const snapshot = useWarehouseGameSnapshot("tan_tao");
+  const setFlag = useSetItemPastryQ7();
+  const [query, setQuery] = useState("");
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const q = normalizeName(query);
+  const items = (snapshot.data?.items ?? [])
+    .filter((item) => asClass(item.item_class) !== "non_stock")
+    .filter((item) => (q ? normalizeName(item.name).includes(q) : true));
+  const on = items.filter((item) => item.pastry_q7);
+  const off = items.filter((item) => !item.pastry_q7);
+  const toggle = (id: string, name: string, value: boolean) => {
+    setBusyId(id);
+    setFlag.mutate({ itemId: id, value }, {
+      onSuccess: () => toast({ title: value ? "Đã đánh dấu bánh ngọt" : "Đã bỏ dấu bánh ngọt", description: value ? `${name} sẽ tự chuyển sang Q7 khi nhập.` : `${name} chỉ ở Tân Tạo.` }),
+      onError: (error) => toast({ title: "Chưa lưu được", description: errorText(error), variant: "destructive" }),
+      onSettled: () => setBusyId(null),
+    });
+  };
+  const row = (item: (typeof items)[number]) => (
+    <li key={item.id} className={`pastry-row${item.pastry_q7 ? " is-on" : ""}`}>
+      <span className="pastry-name"><b>{item.name}</b><small>{CLASS_META[asClass(item.item_class)].label} · {item.unit}</small></span>
+      {canEdit ? (
+        <button type="button" role="switch" aria-checked={item.pastry_q7} aria-label={`Bánh ngọt: ${item.name}`} className="kg-switch" disabled={busyId === item.id} onClick={() => toggle(item.id, item.name, !item.pastry_q7)} data-bmq-pastry-toggle={item.id}>
+          <i />
+        </button>
+      ) : <span className="kg-locked">{item.pastry_q7 ? "Q7" : "Tân Tạo"}</span>}
+    </li>
+  );
+  return (
+    <>
+      <div className="flow-note">
+        <span>🏭 Nhập hết vào <b>Tân Tạo</b></span><span className="flow-arrow">→</span><span>🧁 Món bánh ngọt tự <b>chuyển Q7</b></span>
+      </div>
+      <label className="field">Tìm mặt hàng<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="gõ tên…" /></label>
+      {snapshot.isLoading ? <div className="d3-wh-empty">Đang tải…</div> : (
+        <>
+          <Section title={`Tự chuyển sang Q7 · ${on.length}`} sub="Khi ghi sổ phiếu nhập, máy lập phiếu chuyển Tân Tạo → Q7 và trừ hết ở Tân Tạo.">
+            {on.length ? <ul className="pastry-list">{on.map(row)}</ul> : <div className="d3-wh-empty">Chưa có món nào.</div>}
+          </Section>
+          <Section title={`Chỉ ở Tân Tạo · ${off.length}`} sub="Q7 không nhận các món này (ví dụ Patê, rau củ, vật tư chung).">
+            {off.length ? <ul className="pastry-list">{off.map(row)}</ul> : <div className="d3-wh-empty">Không có món nào.</div>}
+          </Section>
+        </>
+      )}
+    </>
+  );
+}
+
 /** One workshop table opened up. */
 export function StationView({ id, canEdit }: { id: StationId; canEdit: boolean }) {
   const meta = STATION_META[id];
@@ -151,6 +204,7 @@ export function StationView({ id, canEdit }: { id: StationId; canEdit: boolean }
       <div className="station-body d3-wh" data-bmq-station={id}>
         {id === "merge" ? <MergeStation canEdit={canEdit} /> : null}
         {id === "classify" ? <ClassifyStation canEdit={canEdit} /> : null}
+        {id === "pastry" ? <PastryStation canEdit={canEdit} /> : null}
         {id === "jev" ? <JevStation canEdit={canEdit} /> : null}
         {id === "aliases" ? <LearnedAliasesCard canEdit={canEdit} /> : null}
         {id === "backlog" ? <AliasBacklogReview key={`b-${location}`} canEdit={canEdit} location={location} /> : null}

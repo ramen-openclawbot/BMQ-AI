@@ -4,11 +4,15 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   parseChangeStockItemUnitResult,
   parseRenameStockItemResult,
+  parseSetItemPastryQ7Result,
   parseWarehouseGameSnapshot,
+  parseWarehouseGameTransfers,
   type ChangeStockItemUnitResult,
   type RenameStockItemResult,
+  type SetItemPastryQ7Result,
   type WarehouseGameLocation,
   type WarehouseGameSnapshot,
+  type WarehouseGameTransfer,
 } from "@/lib/warehouse-game";
 import {
   MATERIAL_ALIAS_BACKLOG_REVIEW_QUERY_KEY,
@@ -94,5 +98,45 @@ export function useChangeStockItemUnit() {
       return parseChangeStockItemUnitResult(data);
     },
     onSuccess: () => invalidateWarehouseGame(queryClient),
+  });
+}
+
+export interface SetItemPastryQ7Input {
+  itemId: string;
+  value: boolean;
+  /** Defaults to a fresh crypto.randomUUID(). */
+  requestId?: string;
+}
+
+/** Flag / unflag one item as pastry; idempotent by requestId. */
+export function useSetItemPastryQ7() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: SetItemPastryQ7Input): Promise<SetItemPastryQ7Result> => {
+      const { data, error } = await supabase.rpc("set_item_pastry_q7", {
+        p_item_id: input.itemId,
+        p_value: input.value,
+        p_request_id: input.requestId ?? crypto.randomUUID(),
+      });
+      if (error) throw error;
+      return parseSetItemPastryQ7Result(data);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY] });
+    },
+  });
+}
+
+export const STOCK_TRANSFERS_QUERY_KEY = "stock-transfers";
+
+/** The newest automatic Tân Tạo -> Q7 transfers for the warehouse game. */
+export function useStockTransfers(limit = 30) {
+  return useQuery({
+    queryKey: [STOCK_TRANSFERS_QUERY_KEY, limit],
+    queryFn: async (): Promise<WarehouseGameTransfer[]> => {
+      const { data, error } = await supabase.rpc("get_stock_transfers", { p_limit: limit });
+      if (error) throw error;
+      return parseWarehouseGameTransfers(data);
+    },
   });
 }

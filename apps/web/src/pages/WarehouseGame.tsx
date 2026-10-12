@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { useChangeStockItemUnit, useRenameStockItem, useWarehouseGameSnapshot, WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY } from "@/hooks/useWarehouseGame";
+import { useChangeStockItemUnit, useRenameStockItem, useSetItemPastryQ7, useWarehouseGameSnapshot, WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY } from "@/hooks/useWarehouseGame";
 import { useConfirmMaterialAlias, useCreateStockMaterialItem, useRunAliasBacklog } from "@/hooks/useMaterialAlias";
 import { CrateYard, cleanCrateName, type JevState } from "@/game/CrateYard";
 import { unitConversionFor, type WarehouseGameItem, type WarehouseGameLocation, type WarehouseGamePendingRow, type WarehouseGameSnapshot } from "@/lib/warehouse-game";
@@ -39,6 +39,7 @@ type Panel =
   | { kind: "sku"; entry: ShelfEntry }
   | { kind: "crate"; location: WarehouseGameLocation; crate: WarehouseGamePendingRow }
   | { kind: "mission"; id: string }
+  | { kind: "transfers"; location: WarehouseGameLocation }
   | null;
 
 const LOCATION_LABEL: Record<WarehouseGameLocation, string> = { q7: "Kho Q7", tan_tao: "Kho Tân Tạo" };
@@ -63,6 +64,7 @@ function errorText(error: unknown): string {
     ["create_item_forbidden", "Chỉ chủ hoặc người sửa kho Q7 được tạo mặt hàng."],
     ["non_stock_requires_admin", "Chỉ chủ hoặc người sửa kho Q7 được đánh dấu không nhập kho."],
     ["insufficient_privilege", "Tài khoản chưa có quyền với kho này."],
+    ["q7_pastry_only", "Kho Q7 chỉ nhận nguyên liệu bánh ngọt. Chọn món bánh ngọt, hoặc bật dấu Bánh ngọt ở mặt hàng."],
   ];
   return known.find(([code]) => message.includes(code))?.[1] ?? message;
 }
@@ -243,6 +245,8 @@ export default function WarehouseGame() {
               canAssign={current.can_edit}
               onShelf={(cls) => go({ kind: "shelf", location: view.location, cls })}
               onYard={() => go({ kind: "crates", location: view.location })}
+              transfers={current.transfers.length}
+              onTransfers={() => setPanel({ kind: "transfers", location: view.location })}
             />
           </Scene>
         ) : null}
@@ -253,6 +257,7 @@ export default function WarehouseGame() {
               location={view.location}
               crates={current.pending}
               canAssign={current.can_edit}
+              pastryIds={new Set((snaps.tan_tao?.items ?? current.items).filter((item) => item.pastry_q7).map((item) => item.id))}
               jev={jev?.location === view.location ? jev.state : "idle"}
               progress={jev?.location === view.location ? { done: jev.done, total: jev.total } : null}
               leavingKey={leaving}
@@ -284,6 +289,21 @@ export default function WarehouseGame() {
               <button type="button" className="btn" onClick={() => navigate(ZONE_ROUTES[panel.zone.id] ?? "/warehouse/stock-ledger")}>Mở trang {panel.zone.label}</button>
               <button type="button" className="btn ghost" onClick={() => setPanel(null)}>Ở lại</button>
             </div>
+          </Sheet>
+        ) : null}
+
+        {panel?.kind === "transfers" && current ? (
+          <Sheet title="Phiếu chuyển kho" tag="🚚 Tân Tạo → Q7" sub="Máy tự lập khi ghi sổ phiếu nhập món bánh ngọt" onClose={() => setPanel(null)}>
+            {current.transfers.length ? (
+              <ul className="transfer-list" data-bmq-transfer-list>
+                {current.transfers.map((row) => (
+                  <li key={row.transfer_number}>
+                    <span><b>{row.item_name}</b><small>{row.transfer_number} · {row.transfer_date.split("-").reverse().join("/")}{row.receipt_number ? ` · từ ${row.receipt_number}` : ""}</small></span>
+                    <em>+{fmtQty(row.quantity)} {row.unit}</em>
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="note">Chưa có phiếu chuyển nào. Phiếu đầu tiên tự xuất hiện khi Tân Tạo bắt đầu sổ (kiểm kê lần đầu) và ghi sổ phiếu nhập có món bánh ngọt.</p>}
           </Sheet>
         ) : null}
 
@@ -346,6 +366,26 @@ export default function WarehouseGame() {
   );
 }
 
+/** "Bánh ngọt (Q7)": flagged items move on to Q7 by themselves after landing at Tân Tạo. */
+function PastrySwitch({ item, canEdit }: { item: WarehouseGameItem; canEdit: boolean }) {
+  const setFlag = useSetItemPastryQ7();
+  const [value, setValue] = useState(item.pastry_q7);
+  const flip = () => {
+    const next = !value;
+    setValue(next);
+    setFlag.mutate({ itemId: item.id, value: next }, { onError: () => setValue(!next) });
+  };
+  return (
+    <div className={`pastry-switch${value ? " is-on" : ""}`} data-bmq-item-pastry>
+      <span><b>🧁 Bánh ngọt (Q7)</b><small>{value ? "Nhập ở Tân Tạo xong tự chuyển sang Q7" : "Chỉ ở Tân Tạo, Q7 không nhận"}</small></span>
+      {canEdit ? (
+        <button type="button" role="switch" aria-checked={value} aria-label="Bánh ngọt (Q7)" className="kg-switch" disabled={setFlag.isPending} onClick={flip}><i /></button>
+      ) : null}
+      {setFlag.error ? <div className="err">{errorText(setFlag.error)}</div> : null}
+    </div>
+  );
+}
+
 function ItemSheet({ item, others, canEdit, started, onDone, onClose }: {
   item: WarehouseGameItem; others: WarehouseGameItem[]; canEdit: boolean; started: boolean;
   onDone: (id: string, message: string) => void; onClose: () => void;
@@ -398,6 +438,7 @@ function ItemSheet({ item, others, canEdit, started, onDone, onClose }: {
             <div><small>Tồn</small><b>{started ? fmtQty(item.on_hand) : "—"}</b></div>
             <div><small>Bí danh</small><b>{item.aliases.length}</b></div>
           </div>
+          <PastrySwitch item={item} canEdit={canEdit} />
           <div className="checklist">
             <small>Cách ghi trên phiếu nhập</small>
             {item.aliases.length
@@ -549,6 +590,7 @@ function CrateSheet({ location, crate, snapshot, autoPick = false, onAssigned, o
             <label className="field">1 {packLabel.trim() || "đv"} = ? {target.unit}<input inputMode="decimal" value={factorText} onChange={(event) => setFactorText(event.target.value)} /></label>
           </div>
           <p className="note" style={{ fontSize: 13 }}>Dòng ghi kg, g, l, ml tự đổi theo đơn vị; hệ số chỉ dùng khi phiếu ghi bao, thùng, gói…</p>
+          {target.kind === "item" && snapshot.items.find((item) => item.id === target.id)?.pastry_q7 && location === "tan_tao" ? <p className="crate-q7-note">🧁 Món bánh ngọt: ghi sổ xong máy tự chuyển sang Kho Q7.</p> : null}
           {error ? <div className="err">{errorText(error)}</div> : null}
           <div className="row">
             <button type="button" className="btn" disabled={busy || !(factor > 0)} onClick={() => send(target, "stock")}>{busy ? "Đang xếp…" : "Xếp vào kệ"}</button>

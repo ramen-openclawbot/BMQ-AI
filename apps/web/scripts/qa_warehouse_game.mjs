@@ -46,9 +46,10 @@ function settle(st) {
     const role = cfg().role || "owner";
     if (mode === "error") return { data: null, error: { message: "QA fixture: network error" } };
     const started = cfg().started ? "2026-10-05" : null;
-    const items = F.items.map((it, i) => ({ ...it, on_hand: started ? (i * 137) % 5000 : 0 }));
-    return { data: { location: loc, cutover_date: started, items, skus: loc === "tan_tao" ? F.skus : [], pending: role === "owner" ? (loc === "q7" ? F.q7 : F.tt) : [], counts: {}, can_edit: role === "owner" }, error: null };
+    const items = F.items.map((it, i) => ({ ...it, on_hand: started ? (i * 137) % 5000 : 0 })).filter((it) => loc !== "q7" || it.pastry_q7);
+    return { data: { location: loc, cutover_date: started, items, skus: loc === "tan_tao" ? F.skus : [], pending: role === "owner" ? (loc === "q7" ? F.q7 : F.tt) : [], transfers: F.transfers ?? [], counts: {}, can_edit: role === "owner" }, error: null };
   }
+  if (st.table === "rpc:set_item_pastry_q7") { window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args)); return { data: { item_id: st.args.p_item_id, pastry_q7: st.args.p_value }, error: null }; }
   if (/^rpc:(rename_stock_item|change_stock_item_unit|confirm_material_alias|create_stock_material_item)$/.test(st.table)) {
     window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args));
     if (st.table === "rpc:rename_stock_item") return { data: { item_id: st.args.p_item_id, old_name: "x", new_name: st.args.p_new_name }, error: null };
@@ -356,7 +357,9 @@ const record = (name, detail = {}) => {
 const KG_FIXTURE = JSON.parse(fs.readFileSync(path.join(ROOT, "scripts/qa_warehouse_game.fixture.json"), "utf8"));
 // Live data had no Jev hints at ship time; give the first 4 Q7 crates one so the "Jev đã gợi ý" lot renders.
 KG_FIXTURE.q7.slice(0, 4).forEach((crate, i) => {
-  const item = KG_FIXTURE.items[i * 7 % KG_FIXTURE.items.length];
+  // Q7 only stocks pastry items (central warehouse rule), so the hint must be one of them.
+  const pastry = KG_FIXTURE.items.filter((it) => it.pastry_q7);
+  const item = pastry[i * 5 % pastry.length];
   Object.assign(crate, { jev_item_id: item.id, jev_item_name: item.name, jev_unit: item.unit, jev_probability: 0.9 - i * 0.05, jev_source: "jev", jev_line_type: "goods", jev_is_sku: false });
 });
 async function open(cfg, route, viewport, extra = {}) {
@@ -439,6 +442,12 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     assert.ok((await page.locator(".kg .title-pill b").textContent()).includes("Kho Q7"));
     await page.screenshot({ path: `${EVIDENCE}/q7-${role}-${viewport.width}.png` });
     if (role === "owner") {
+      await page.locator("[data-bmq-transfer-van]").click({ force: true });
+      await page.waitForTimeout(600);
+      assert.equal(await page.locator("[data-bmq-transfer-list] li").count(), (KG_FIXTURE.transfers ?? []).length, "transfer sheet lists the transfers");
+      await page.screenshot({ path: `${EVIDENCE}/transfers-${viewport.width}.png` });
+      await page.locator(".kg .sheet .close").click({ force: true });
+      await page.waitForTimeout(300);
       await page.locator("[data-bmq-yard-gate]").click({ force: true });
       await page.waitForSelector("[data-bmq-crate-yard='q7']", { timeout: 8000 });
       await page.waitForTimeout(600);
@@ -493,6 +502,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     if (started) assert.ok((await page.locator(".kg .good-meta b").count()) > 0, "stock shown once the ledger started");
     await page.getByRole("button", { name: "Bột mì 888 Cam" }).click({ force: true });
     await page.waitForTimeout(600);
+    assert.equal(await page.locator("[data-bmq-item-pastry]").count(), 1, "item sheet shows the Bánh ngọt (Q7) flag");
     if (role === "owner") {
       await page.getByRole("button", { name: /Đổi tên/ }).click({ force: true });
       await page.locator(".kg .field input").first().fill("Bột mì 999 Cam");
@@ -529,7 +539,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
   await page.waitForTimeout(900);
   assert.ok((await page.locator(".kg .title-pill b").textContent()).includes("Xưởng dọn danh mục"));
   await page.screenshot({ path: `${EVIDENCE}/workshop-${viewport.width}.png` });
-  for (const [station, check] of [["Bàn gộp", "[data-bmq-catalog-merge]"], ["Bàn phân loại", "[data-bmq-catalog-classify]"], ["Hàng mới đề xuất", "[data-bmq-new-items]"], ["Tên chờ gán mã", "[data-bmq-alias-backlog]"], ["Bảng bí danh", "[data-bmq-learned-aliases]"], ["Bàn xếp kho", "[data-bmq-routing-suppliers]"], ["Máy Jev", ".jev-meter"]]) {
+  for (const [station, check] of [["Bàn gộp", "[data-bmq-catalog-merge]"], ["Bàn phân loại", "[data-bmq-catalog-classify]"], ["Bàn bánh ngọt", "[data-bmq-pastry-toggle]"], ["Hàng mới đề xuất", "[data-bmq-new-items]"], ["Tên chờ gán mã", "[data-bmq-alias-backlog]"], ["Bảng bí danh", "[data-bmq-learned-aliases]"], ["Bàn xếp kho", "[data-bmq-routing-suppliers]"], ["Máy Jev", ".jev-meter"]]) {
     await page.getByRole("button", { name: new RegExp(`^${station}`) }).click({ force: true });
     await page.waitForTimeout(900);
     assert.ok((await page.locator(check).count()) >= 1, `${station} shows its tool at ${viewport.width}`);
@@ -545,6 +555,12 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       await page.locator(".kg .loc-switch button", { hasText: "Kho Tân Tạo" }).click({ force: true });
       await page.waitForTimeout(500);
       assert.equal(await page.locator(".kg .loc-switch button.is-on", { hasText: "Tân Tạo" }).count(), 1);
+    }
+    if (station === "Bàn bánh ngọt") {
+      await page.locator("[data-bmq-pastry-toggle]").first().click({ force: true });
+      await page.waitForTimeout(400);
+      assert.ok((await page.evaluate(() => window.__qaWrites)).some((w) => w.startsWith("rpc:set_item_pastry_q7:")), "pastry toggle writes");
+      await page.screenshot({ path: `${EVIDENCE}/station-pastry-${viewport.width}.png` });
     }
     if (station === "Máy Jev") {
       await page.getByRole("button", { name: /Quét cặp trùng/ }).click({ force: true });
