@@ -233,10 +233,8 @@ export const loadSalaryPayout = async (payoutId: string): Promise<SalaryPayoutDa
 };
 
 export const listPublishedPayrollPeriods = async (): Promise<SalaryPayoutPeriodOption[]> => {
-  const { data, error } = await client
-    .from("payroll_bn_payslips")
-    .select("period_id,period_name,published_at")
-    .order("published_at", { ascending: false });
+  // payroll_bn_payslips is owner-only under RLS; this function also serves quyền Chi lương.
+  const { data, error } = await client.rpc("list_salary_payout_periods");
   if (error) throw error;
 
   const options = new Map<string, SalaryPayoutPeriodOption>();

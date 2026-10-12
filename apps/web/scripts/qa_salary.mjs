@@ -42,7 +42,7 @@ const OCR = [ { amount: 8000000, ben: "TRAN VAN BINH" }, { amount: 8000000, ben:
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const denied = () => cfg().role !== "owner" && !cfg().salary;
 function settle(st) {
-  if (st.table === "payroll_bn_payslips") return { data: [{ period_id: "per-1", period_name: "Kỳ lương T09/2026", published_at: "2026-10-05T00:00:00Z" }, { period_id: "per-0", period_name: "Kỳ lương T08/2026", published_at: null }], error: null };
+  if (st.table === "rpc:list_salary_payout_periods") { if (denied()) return { data: null, error: { message: "insufficient_privilege" } }; return { data: [{ period_id: "per-1", period_name: "Kỳ lương T09/2026", published_at: "2026-10-05T00:00:00Z" }, { period_id: "per-0", period_name: "Kỳ lương T08/2026", published_at: null }], error: null }; }
   if (st.table === "rpc:create_salary_payout") { window.__qaCalls.push({ fn: "create", ...st.args }); return { data: { payout_id: PAYOUT_ID, payout_number: STATE.payout.payout_number, period_name: STATE.payout.period_name, employee_count: 3, total_amount: 23000000, status: "pending" }, error: null }; }
   if (st.table === "rpc:create_manual_salary_payout") { window.__qaCalls.push({ fn: "createManual", ...st.args }); STATE.payout.source = "manual"; STATE.payout.period_name = st.args.p_payload.title; save(); return { data: { payout_id: PAYOUT_ID, payout_number: STATE.payout.payout_number, period_name: st.args.p_payload.title, employee_count: st.args.p_payload.lines.length, total_amount: 0, status: "pending", source: "manual" }, error: null }; }
   if (st.table === "rpc:get_salary_payout") { if (denied()) return { data: null, error: { message: "insufficient_privilege" } }; return { data: JSON.parse(JSON.stringify(STATE)), error: null }; }
@@ -330,6 +330,11 @@ try {
     const { context, page, errors } = await open({ role: "accountant", salary: true }, "/payment-requests", { width: 390, height: 844 });
     await page.locator("[data-bmq-pr-create-menu]").first().click(); assert.equal(await page.locator("[data-bmq-pr-create-choice='salary']").count(), 1, "Chi lương choice with permission"); await page.keyboard.press("Escape"); await page.waitForTimeout(350);
     await page.screenshot({ path: `${EVIDENCE}/entry-390.png` });
+    await page.locator("[data-bmq-pr-create-menu]").first().click(); await page.locator("[data-bmq-pr-create-choice='salary']").first().click();
+    await page.waitForSelector("[data-bmq-salary-period]");
+    assert.equal(await page.locator("[data-bmq-salary-period]").count(), 1, "KTT sees the published period");
+    await page.screenshot({ path: `${EVIDENCE}/ktt-period-390.png` });
+    await page.keyboard.press("Escape");
     await page.locator("[data-bmq-pr-create-menu]").first().click(); await page.locator("[data-bmq-pr-create-choice='cash']").first().click();
     await page.waitForSelector("[data-bmq-cash-pr-dialog]");
     assert.equal(await page.locator("[data-bmq-cash-pr-dialog] [role=tab]").count(), 0, "cash dialog is khoản chi only");
