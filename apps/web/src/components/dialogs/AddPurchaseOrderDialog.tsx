@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { Fragment, useEffect, useState, useRef } from "react";
 import { UnitSelect } from "@/components/stock-units/UnitSelect";
 import { useForm, useFieldArray } from "react-hook-form";
 import { blockSaveForMaterialAlias, MaterialAliasPanel, OPEN_MATERIAL_ALIAS_GATE, type MaterialAliasGate } from "@/components/material-alias/MaterialAliasPanel";
@@ -6,7 +6,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { format } from "date-fns";
-import { CalendarIcon, Loader2, Plus, Trash2, Upload, Scan, ImageIcon, X } from "lucide-react";
+import { AlertTriangle, CalendarIcon, Loader2, Plus, Trash2, Upload, Scan, ImageIcon, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -57,6 +57,8 @@ import {
 import { ensureReceiptForPurchaseOrder } from "@/hooks/usePurchaseReceiptQueue";
 
 import { callEdgeFunction } from "@/lib/fetch-with-timeout";
+import { useSupplierLastPrices } from "@/hooks/useSupplierLastPrices";
+import { checkAgainstHistory } from "@/lib/po-scan-check";
 
 const poItemSchema = z.object({
   sku_id: z.string().optional(),
@@ -139,6 +141,24 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
   });
 
   const watchItems = form.watch("items");
+  // Owner 12/10: a scan read PO-000775 as 185 gói × 5.000đ (really 5.000 tờ × 185đ).
+  // Compare each line with this supplier's previous purchases; names settle for 600ms first.
+  const nameKey = (watchItems ?? []).map((item) => item?.product_name?.trim() ?? "").join("\u0001");
+  const [settledNames, setSettledNames] = useState<string[]>([]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSettledNames(nameKey ? nameKey.split("\u0001") : []), 600);
+    return () => window.clearTimeout(timer);
+  }, [nameKey]);
+  const lastPrices = useSupplierLastPrices(form.watch("supplier_id") || null, settledNames);
+  const priceCheckFor = (item: { product_name?: string; quantity?: number; unit?: string; unit_price?: number } | undefined) => {
+    const history = lastPrices.data?.get(item?.product_name?.trim() ?? "");
+    if (!item || !history?.length) return null;
+    const result = checkAgainstHistory(
+      { quantity: Number(item.quantity), unit: item.unit ?? "", unit_price: Number(item.unit_price) },
+      history.filter((h) => h.quantity !== null && h.unit_price !== null).map((h) => ({ quantity: h.quantity as number, unit: h.unit ?? "", unit_price: h.unit_price as number, po_number: h.po_number })),
+    );
+    return result.kind === "ok" ? null : result;
+  };
   const watchSupplierId = form.watch("supplier_id");
   const watchVat = form.watch("vat_amount") || 0;
 
@@ -152,6 +172,9 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
     0
   );
   const total = subtotal + watchVat;
+
+  const fix_label = (fix: { quantity: number; unit: string; unit_price: number }) =>
+    `${fix.quantity.toLocaleString("vi-VN")} ${fix.unit} × ${fix.unit_price.toLocaleString("vi-VN")}đ`;
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("vi-VN", {
@@ -717,9 +740,11 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
                     {fields.map((field, index) => {
                       const item = watchItems[index];
                       const lineTotal = (item?.quantity || 0) * (item?.unit_price || 0);
+                      const check = priceCheckFor(item);
 
                       return (
-                        <TableRow key={field.id}>
+                        <Fragment key={field.id}>
+                        <TableRow className={check ? "border-b-0" : undefined}>
                           <TableCell>
                             <Select
                               value={item?.sku_id || "_none"}
@@ -789,6 +814,35 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
                             </Button>
                           </TableCell>
                         </TableRow>
+                        {check ? (
+                          <TableRow className="bg-amber-50 hover:bg-amber-50" data-bmq-po-price-check={check.kind}>
+                            <TableCell colSpan={7} className="py-2">
+                              <div className="sticky left-0 flex max-w-[calc(100vw-5rem)] flex-wrap items-center gap-2 text-sm text-amber-900 sm:max-w-none">
+                                <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600" />
+                                <span className="min-w-0 flex-1 basis-56">{check.message}</span>
+                                {check.suggestion ? (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 border-amber-300 bg-white text-amber-900 hover:bg-amber-100"
+                                    data-bmq-po-price-fix
+                                    onClick={() => {
+                                      const fix = check.suggestion;
+                                      if (!fix) return;
+                                      form.setValue(`items.${index}.quantity`, fix.quantity, { shouldDirty: true });
+                                      form.setValue(`items.${index}.unit`, fix.unit, { shouldDirty: true });
+                                      form.setValue(`items.${index}.unit_price`, fix.unit_price, { shouldDirty: true });
+                                    }}
+                                  >
+                                    {check.kind === "swap" ? `Đảo lại: ${fix_label(check.suggestion)}` : `Dùng đơn vị ${check.suggestion.unit}`}
+                                  </Button>
+                                ) : null}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ) : null}
+                        </Fragment>
                       );
                     })}
                   </TableBody>
