@@ -72,6 +72,15 @@ function settle(st) {
     return { data: { payout_id: PAYOUT_ID, status: STATE.payout.status, matched_count: st.args.p_matches.length, remaining_count: STATE.lines.filter((l) => !l.receipt_storage_path).length }, error: null };
   }
   if (st.table.startsWith("rpc:")) { window.__qaWrites.push(st.table); return { data: null, error: { message: "QA fixture: rpc disabled" } }; }
+  if (st.table === "salary_payouts" && !st.write) {
+    if (denied()) return { data: [], error: null, count: 0 };
+    const rows = [
+      { id: PAYOUT_ID, payout_number: STATE.payout.payout_number, period_name: STATE.payout.period_name, source: STATE.payout.source || "payroll_q7", employee_count: STATE.payout.employee_count, total_amount: STATE.payout.total_amount, status: STATE.payout.status, created_at: STATE.payout.created_at },
+      { id: "old-1", payout_number: "SAL-261001-01", period_name: "Kỳ lương T08/2026", source: "payroll_q7", employee_count: 15, total_amount: 91000000, status: "completed", created_at: "2026-10-01T03:00:00Z" },
+      { id: "old-2", payout_number: "SAL-261002-01", period_name: "Lương lẻ T09/2026 tên phiếu khá dài để kiểm tra cắt chữ", source: "manual", employee_count: 2, total_amount: 7700000, status: "cancelled", created_at: "2026-10-02T03:00:00Z" },
+    ];
+    const f = st.filters.in; return { data: f ? rows.filter((r) => f.includes(r.status)) : rows, error: null, count: null };
+  }
   if (st.write) { window.__qaWrites.push(st.table + ":" + st.write); return { data: null, error: { message: "QA fixture: writes disabled" }, count: null }; }
   if (st.head) return { data: null, error: null, count: 0 };
   if (st.single) return { data: null, error: null };
@@ -84,7 +93,7 @@ function builder(table, args) {
       if (prop === "then") return (ok, ko) => Promise.resolve(settle(st)).then(ok, ko);
       if (prop === "catch") return (ko) => Promise.resolve(settle(st)).catch(ko);
       if (prop === "finally") return (fn) => Promise.resolve(settle(st)).finally(fn);
-      return (...a) => { if (WRITE.has(prop)) st.write = prop; if (prop === "select" && a[1] && a[1].head) st.head = true; if (prop === "single" || prop === "maybeSingle") st.single = true; return proxy; };
+      return (...a) => { if (WRITE.has(prop)) st.write = prop; if (prop === "select" && a[1] && a[1].head) st.head = true; if (prop === "single" || prop === "maybeSingle") st.single = true; if (prop === "in") st.filters.in = a[1]; return proxy; };
     },
   });
   return proxy;
@@ -368,6 +377,7 @@ try {
     await page.locator("[data-bmq-pr-create-menu]").first().click(); await page.locator("[data-bmq-pr-create-choice='cash']").first().click();
     await page.waitForSelector("[data-bmq-cash-pr-dialog]");
     assert.equal(await page.locator("[data-bmq-cash-pr-dialog] [role=tab]").count(), 0, "cash dialog has no salary tabs");
+    assert.equal(await page.locator("[data-bmq-salary-list]").count(), 0, "no Chi lương list without permission");
     await page.goto(page.url().replace(/\/payment-requests.*$/, `/salary-payouts/${PAYOUT_ID}`));
     await page.waitForSelector("[data-bmq-salary-denied]");
     assert.deepEqual(errors, []);
@@ -377,6 +387,14 @@ try {
   {
     const { context, page, errors } = await open({ role: "accountant", salary: true }, "/payment-requests", { width: 390, height: 844 });
     await page.locator("[data-bmq-pr-create-menu]").first().click(); assert.equal(await page.locator("[data-bmq-pr-create-choice='salary']").count(), 1, "Chi lương choice with permission"); await page.keyboard.press("Escape"); await page.waitForTimeout(350);
+    await page.waitForSelector("[data-bmq-salary-list]");
+    assert.deepEqual(await states(page, "data-bmq-salary-list-item"), ["pending"], "only open phiếu by default");
+    await page.locator("[data-bmq-salary-list-all]").click();
+    await page.waitForFunction(() => document.querySelectorAll("[data-bmq-salary-list-item]").length === 3);
+    assert.ok(await overflowOk(page), "list overflow 390");
+    await page.locator("[data-bmq-salary-list]").screenshot({ path: `${EVIDENCE}/list-390.png` });
+    await page.locator("[data-bmq-salary-list-all]").click();
+    await page.waitForFunction(() => document.querySelectorAll("[data-bmq-salary-list-item]").length === 1);
     await page.screenshot({ path: `${EVIDENCE}/entry-390.png` });
     await page.locator("[data-bmq-pr-create-menu]").first().click(); await page.locator("[data-bmq-pr-create-choice='salary']").first().click();
     await page.waitForSelector("[data-bmq-salary-period]");

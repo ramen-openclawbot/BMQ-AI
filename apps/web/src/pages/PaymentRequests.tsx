@@ -54,6 +54,7 @@ import { UncApprovalDialog, type UncApprovalRequest } from "@/components/payment
 import { UrgentPayablesPanel } from "@/components/payment-requests/UrgentPayablesPanel";
 import { CashPaymentRequestDialog } from "@/components/payment-requests/CashPaymentRequestDialog";
 import { SalaryPayoutDialog } from "@/components/payment-requests/SalaryPayoutDialog";
+import { SalaryPayoutList } from "@/components/payment-requests/SalaryPayoutList";
 import { ReconciliationPanel } from "@/components/payment-requests/ReconciliationPanel";
 import {
   getAllocatedAmount,
@@ -602,6 +603,7 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
           <div className="mb-3 flex justify-end" data-bmq-pr-create-unpaid>
             <CreatePaymentMenu canSalary={canSalary} onChoose={openCreate} isVi={isVi} className="h-11 w-full sm:w-auto sm:px-6" />
           </div>
+          {canSalary && <SalaryPayoutList />}
           <UrgentPayablesPanel canSubmit={isOwner || canEditPaymentRequests} onOpenRequest={setSelectedRequestId} />
         </>
       ) : view === "recon" ? (
