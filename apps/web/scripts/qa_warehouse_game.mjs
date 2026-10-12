@@ -356,6 +356,8 @@ const record = (name, detail = {}) => {
 };
 
 const KG_FIXTURE = JSON.parse(fs.readFileSync(path.join(ROOT, "scripts/qa_warehouse_game.fixture.json"), "utf8"));
+// "Nhãn Bánh Pháp" shares only the word "bánh" with "Chất làm mềm bánh" (live score 0.633): not a hint.
+KG_FIXTURE.q7.filter((crate) => crate.raw_name === "Nhãn Bánh Pháp").forEach((crate) => { crate.top_candidate = { ...crate.top_candidate, score: 0.6333, reason: "token" }; });
 // Live data had no Jev hints at ship time; give the first 4 Q7 crates one so the "Jev đã gợi ý" lot renders.
 KG_FIXTURE.q7.slice(0, 4).forEach((crate, i) => {
   // Q7 only stocks pastry items (central warehouse rule), so the hint must be one of them.
@@ -505,6 +507,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       await page.screenshot({ path: `${EVIDENCE}/crate-pack-${viewport.width}.png` });
       await page.locator(".kg .sheet .close").click({ force: true });
       await page.waitForTimeout(300);
+      assert.equal(await page.locator("[data-bmq-crate-lot='new'] [data-bmq-crate]", { hasText: "Nhãn Bánh Pháp" }).count(), 1, "weak one-word match is not offered as a hint");
       const freshLot = page.locator("[data-bmq-crate-lot='new'] [data-bmq-crate]");
       if (await freshLot.count()) {
         await freshLot.first().click({ force: true });
@@ -515,6 +518,8 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
         await page.locator(".kg .sheet .field input").first().fill("bột");
         await page.waitForTimeout(200);
         assert.ok((await page.locator(".kg .sheet .picks .pick").count()) > 0, "typing lists matches");
+        const pickBox = await page.locator(".kg .sheet .picks .pick").first().boundingBox();
+        assert.ok(pickBox && pickBox.height >= 40, `search result is readable, not squeezed: ${JSON.stringify(pickBox)}`);
         await page.locator("[data-bmq-crate-nohint] .btn").click({ force: true });
         await page.waitForTimeout(300);
         const created = await page.locator(".kg .sheet .field input").first().inputValue();

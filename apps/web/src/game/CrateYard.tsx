@@ -62,19 +62,31 @@ export function cleanCrateName(raw: string): string {
   return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
+/**
+ * A name-match candidate worth showing. One shared word ("bánh", "nhãn") gives a 0.63 token score that ties
+ * across many items (owner 12/10: "Nhãn Bánh Pháp" → "Chất làm mềm bánh"), so token-only matches need ≥ 0.75.
+ */
+export function strongCandidate(crate: WarehouseGamePendingRow) {
+  const c = crate.top_candidate;
+  if (!c?.name) return null;
+  const tokenOnly = (c.reason ?? "").includes("token");
+  return tokenOnly && Number(c.score ?? 0) < 0.75 ? null : c;
+}
+
 /** What the label sheet will offer first for a crate: the Jev pick, else the closest name. */
 export function crateHint(crate: WarehouseGamePendingRow): { name: string; unit: string | null; tag: string; strong: boolean } | null {
   if (crate.jev_item_id && crate.jev_item_name) {
     const tag = crate.jev_source === "exact" ? "Trùng tên" : `Jev ${Math.round((crate.jev_probability ?? 0) * 100)}%`;
     return { name: crate.jev_item_name, unit: crate.jev_unit, tag, strong: true };
   }
-  if (crate.top_candidate?.name) return { name: crate.top_candidate.name, unit: crate.top_candidate.unit ?? null, tag: "Gần nhất", strong: false };
+  const near = strongCandidate(crate);
+  if (near) return { name: near.name, unit: near.unit ?? null, tag: "Gần nhất", strong: false };
   return null;
 }
 
 function CrateCard({ crate, index, leaving, pastryIds, onOpen }: { crate: WarehouseGamePendingRow; index: number; leaving: boolean; pastryIds: Set<string>; onOpen: () => void }) {
   const hint = crateHint(crate);
-  const hintId = crate.jev_item_id ?? crate.top_candidate?.item_id ?? null;
+  const hintId = crate.jev_item_id ?? strongCandidate(crate)?.item_id ?? null;
   const toQ7 = Boolean(hint && hintId && pastryIds.has(hintId));
   return (
     <li>

@@ -677,3 +677,6 @@
 .kg .note-nav { display: inline-flex; align-items: center; gap: 8px; }
 .kg .note-nav .btn { height: 40px; min-width: 44px; padding: 0 12px; font-size: 22px; }
 @media (prefers-reduced-motion: reduce) { .kg .note-wait { animation: none; } }
+/* The sheet scrolls as a whole: its children must not shrink (search results were squeezed to one line). */
+.kg .sheet > * { flex-shrink: 0; }
+.kg .sheet .picks { max-height: none; overflow: visible; }

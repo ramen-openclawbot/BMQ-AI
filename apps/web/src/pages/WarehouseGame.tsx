@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useChangeStockItemUnit, useCrateReceiptLines, useItemReceiptLines, useRenameStockItem, useSetItemPastryQ7, useWarehouseGameSnapshot, WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY } from "@/hooks/useWarehouseGame";
 import { ReceiptNotes } from "@/game/ReceiptNotes";
 import { useConfirmMaterialAlias, useCreateStockMaterialItem, useRunAliasBacklog } from "@/hooks/useMaterialAlias";
-import { CrateYard, cleanCrateName, type JevState } from "@/game/CrateYard";
+import { CrateYard, cleanCrateName, strongCandidate, type JevState } from "@/game/CrateYard";
 import { unitConversionFor, type WarehouseGameItem, type WarehouseGameLocation, type WarehouseGamePendingRow, type WarehouseGameSnapshot } from "@/lib/warehouse-game";
 import { defaultNewItemUnit, packFactorFor, unitFactor } from "@/components/material-alias/new-stock-item";
 import { Yard, type Zone } from "@/game/Yard";
@@ -565,9 +565,10 @@ function CrateSheet({ location, crate, snapshot, autoPick = false, onAssigned, o
 
   const toItem = (item: WarehouseGameItem): Target => ({ kind: "item", id: item.id, name: item.name, unit: item.unit, cls: asClass(item.item_class) });
   const suggested = useMemo<Target | null>(() => {
-    const id = crate.jev_item_id ?? crate.top_candidate?.item_id ?? crate.top_candidate?.sku_id ?? null;
+    const near = strongCandidate(crate);
+    const id = crate.jev_item_id ?? near?.item_id ?? near?.sku_id ?? null;
     if (!id) return null;
-    const isSku = crate.jev_item_id ? crate.jev_is_sku : !crate.top_candidate?.item_id;
+    const isSku = crate.jev_item_id ? crate.jev_is_sku : !near?.item_id;
     if (isSku) {
       const sku = snapshot.skus.find((entry) => entry.id === id);
       return sku ? { kind: "sku", id: sku.id, name: sku.product_name, unit: sku.unit, cls: "finished_goods" } : null;
