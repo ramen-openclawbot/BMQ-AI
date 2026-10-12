@@ -118,6 +118,8 @@ export default function GoodsReceipts() {
   const periodAndSupplierFilteredReceipts = useMemo(() => {
     const supplierNeedle = normalizeSearchText(supplierSearchTerm);
     return receipts.filter((r) => {
+      // A receipt-number hit (e.g. "GRN-000543") is found in any period.
+      if (supplierNeedle && normalizeSearchText(r.receipt_number || "").includes(supplierNeedle)) return true;
       if (!receiptMatchesPeriod(r.receipt_date, timeFilterMode, selectedMonthValue, selectedYearValue, selectedWeekValue)) return false;
       if (supplierNeedle) {
         const supplierName = normalizeSearchText(r.suppliers?.name || "");
@@ -353,7 +355,7 @@ export default function GoodsReceipts() {
                   value={supplierSearchTerm}
                   onChange={(event) => setSupplierSearchTerm(event.target.value)}
                   className="h-9 border-border bg-background pl-9 text-sm"
-                  placeholder={isVi ? "Tìm theo nhà cung cấp..." : "Search supplier..."}
+                  placeholder={isVi ? "Tìm số phiếu GRN hoặc nhà cung cấp..." : "Search GRN number or supplier..."}
                 />
               </div>
 
