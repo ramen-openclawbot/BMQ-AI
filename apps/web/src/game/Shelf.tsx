@@ -1,6 +1,6 @@
 import { C } from "./theme";
 import { CLASS_META, asClass, fmtQty, type GameClass } from "./meta";
-import { Goods } from "./Toon";
+import { GoodsIcon } from "./GoodsArt";
 import type { WarehouseGameSnapshot } from "@/lib/warehouse-game";
 
 export interface ShelfEntry { id: string; name: string; code: string; unit: string; qty: number; aliases: number; isSku: boolean; pastry?: boolean }
@@ -49,7 +49,7 @@ export function Shelf({ cls, entries, started, query, onQuery, selectedId, justS
                 style={{ animationDelay: `${Math.min(i, 24) * 22}ms` }}
               >
                 <svg viewBox="-24 -22 48 44" className="good-icon" aria-hidden="true">
-                  <Goods x={0} y={2} unit={entry.unit} color={entry.isSku ? C.coral : i % 3 === 1 ? C.mustardLight : i % 3 === 2 ? C.cream : meta.tint} size={1.35} />
+                  <GoodsIcon name={entry.name} unit={entry.unit} color={entry.isSku ? C.coral : i % 3 === 1 ? C.mustardLight : i % 3 === 2 ? C.cream : meta.tint} size={1.35} />
                 </svg>
                 <span className="good-name">{entry.name}</span>
                 <span className="good-meta">
