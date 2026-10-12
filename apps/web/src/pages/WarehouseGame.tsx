@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { useChangeStockItemUnit, useRenameStockItem, useSetItemPastryQ7, useWarehouseGameSnapshot, WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY } from "@/hooks/useWarehouseGame";
+import { useChangeStockItemUnit, useCrateReceiptLines, useItemReceiptLines, useRenameStockItem, useSetItemPastryQ7, useWarehouseGameSnapshot, WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY } from "@/hooks/useWarehouseGame";
+import { ReceiptNotes } from "@/game/ReceiptNotes";
 import { useConfirmMaterialAlias, useCreateStockMaterialItem, useRunAliasBacklog } from "@/hooks/useMaterialAlias";
 import { CrateYard, cleanCrateName, type JevState } from "@/game/CrateYard";
 import { unitConversionFor, type WarehouseGameItem, type WarehouseGameLocation, type WarehouseGamePendingRow, type WarehouseGameSnapshot } from "@/lib/warehouse-game";
@@ -415,6 +416,11 @@ export default function WarehouseGame() {
   );
 }
 
+function ItemNotes({ itemId }: { itemId: string }) {
+  const lines = useItemReceiptLines(itemId, true);
+  return <ReceiptNotes title="Phiếu nhập gần đây" lines={lines.data} loading={lines.isLoading} error={lines.error} />;
+}
+
 /** "Bánh ngọt (Q7)": flagged items move on to Q7 by themselves after landing at Tân Tạo. */
 function PastrySwitch({ item, canEdit }: { item: WarehouseGameItem; canEdit: boolean }) {
   const setFlag = useSetItemPastryQ7();
@@ -488,6 +494,7 @@ function ItemSheet({ item, others, canEdit, started, onDone, onClose }: {
             <div><small>Bí danh</small><b>{item.aliases.length}</b></div>
           </div>
           <PastrySwitch item={item} canEdit={canEdit} />
+          {canEdit ? <ItemNotes itemId={item.id} /> : null}
           <div className="checklist">
             <small>Cách ghi trên phiếu nhập</small>
             {item.aliases.length
@@ -543,6 +550,7 @@ function CrateSheet({ location, crate, snapshot, autoPick = false, onAssigned, o
 }) {
   const confirm = useConfirmMaterialAlias();
   const create = useCreateStockMaterialItem();
+  const notes = useCrateReceiptLines(location, crate.supplier_id, crate.normalized_name, true);
   const [query, setQuery] = useState("");
   const [target, setTarget] = useState<Target | null>(null);
   const [creating, setCreating] = useState(false);
@@ -621,6 +629,7 @@ function CrateSheet({ location, crate, snapshot, autoPick = false, onAssigned, o
 
   return (
     <Sheet title={`“${crate.raw_name}”`} tag="📦 Thùng chưa dán nhãn" sub={`${crate.line_count} dòng phiếu · ${crate.supplier_name ?? "chưa rõ NCC"}`} onClose={onClose}>
+      <ReceiptNotes title="Phiếu giao hàng" lines={notes.data} loading={notes.isLoading} error={notes.error} />
       {creating ? (
         <>
           <label className="field">Tên mặt hàng mới<input value={newName} onChange={(event) => setNewName(event.target.value)} maxLength={120} /></label>

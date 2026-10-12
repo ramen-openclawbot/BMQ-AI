@@ -4211,6 +4211,19 @@ export type Database = {
         }
         Returns: Json
       }
+      get_crate_receipt_lines: {
+        Args: {
+          p_location: string
+          p_supplier_id: string | null
+          p_normalized_name: string
+          p_limit?: number
+        }
+        Returns: Json
+      }
+      get_item_receipt_lines: {
+        Args: { p_item_id: string; p_limit?: number }
+        Returns: Json
+      }
       get_my_missions: {
         Args: { p_user?: string | null }
         Returns: Json

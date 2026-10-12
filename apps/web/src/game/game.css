@@ -647,3 +647,33 @@
 .kg .unit-q-row { font-size: 16px; }
 .kg .unit-q-row input { width: 130px; }
 .kg .unit-q-hint, .kg .unit-q-mixed { font-size: 12.5px; font-weight: 700; color: #5b4a33; }
+/* Delivery notes (owner 12/10): photo strip + full-screen viewer */
+.kg .notes { display: grid; gap: 8px; padding: 10px 12px; background: var(--cream); border: 2.5px solid var(--ink); border-radius: 14px; }
+.kg .notes-h { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.kg .notes-h b { font-size: 15px; }
+.kg .notes-h small { font-size: 12px; font-weight: 700; color: #6f6a85; }
+.kg .notes-row { display: flex; gap: 10px; overflow-x: auto; padding: 2px 2px 6px; scroll-snap-type: x proximity; }
+.kg .note-card { flex: none; width: 128px; display: grid; gap: 4px; padding: 6px; text-align: left; background: var(--white); border: 2.5px solid var(--ink); border-radius: 12px; box-shadow: var(--soft); scroll-snap-align: start; }
+.kg .note-card[disabled] { cursor: default; opacity: .8; box-shadow: none; }
+.kg .note-thumb { display: grid; place-items: center; height: 92px; overflow: hidden; border-radius: 8px; background: var(--paper-deep); }
+.kg .note-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.kg .note-thumb em { font-style: normal; font-size: 12px; font-weight: 800; color: #6f6a85; }
+.kg .note-wait { width: 26px; height: 26px; border: 3px solid var(--ink); border-top-color: transparent; border-radius: 99px; animation: kg-spin .8s linear infinite; }
+@keyframes kg-spin { to { transform: rotate(360deg); } }
+.kg .note-meta { display: grid; gap: 1px; min-width: 0; }
+.kg .note-meta b { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kg .note-meta small { font-size: 11.5px; font-weight: 700; color: #6f6a85; }
+.kg .note-viewer { position: fixed; inset: 0; z-index: 60; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; background: #1c1a2e; color: var(--cream); animation: kg-fade .2s ease both; }
+.kg .note-bar { display: flex; align-items: center; gap: 8px; padding: max(12px, env(safe-area-inset-top)) 12px 10px; }
+.kg .note-bar > span { display: grid; flex: 1; min-width: 0; }
+.kg .note-bar b { font-family: "Baloo 2", sans-serif; font-size: 19px; }
+.kg .note-bar small { font-size: 12.5px; font-weight: 700; opacity: .8; }
+.kg .note-bar .round-btn { width: 42px; height: 42px; font-size: 20px; font-weight: 900; }
+.kg .note-bar .round-btn[disabled] { opacity: .35; transform: none; pointer-events: none; }
+.kg .note-stage { overflow: auto; -webkit-overflow-scrolling: touch; padding: 8px; text-align: center; }
+.kg .note-stage img { max-width: none; height: auto; border-radius: 6px; background: #fff; }
+.kg .note-empty { margin: 40px auto; font-weight: 800; }
+.kg .note-line { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px max(12px, env(safe-area-inset-bottom)); font-size: 14px; font-weight: 700; background: rgba(0,0,0,.25); }
+.kg .note-nav { display: inline-flex; align-items: center; gap: 8px; }
+.kg .note-nav .btn { height: 40px; min-width: 44px; padding: 0 12px; font-size: 22px; }
+@media (prefers-reduced-motion: reduce) { .kg .note-wait { animation: none; } }

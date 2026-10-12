@@ -49,6 +49,7 @@ function settle(st) {
     const items = F.items.map((it, i) => ({ ...it, on_hand: started ? (i * 137) % 5000 : 0 })).filter((it) => loc !== "q7" || it.pastry_q7);
     return { data: { location: loc, cutover_date: started, items, skus: loc === "tan_tao" ? F.skus : [], pending: role === "owner" ? (loc === "q7" ? F.q7 : F.tt) : [], transfers: F.transfers ?? [], counts: {}, can_edit: role === "owner" }, error: null };
   }
+  if (st.table === "rpc:get_crate_receipt_lines" || st.table === "rpc:get_item_receipt_lines") { window.__qaWrites.push("read:" + st.table); return { data: window.__kgFixture.receipt_lines ?? [], error: null }; }
   if (st.table === "rpc:set_item_pastry_q7") { window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args)); return { data: { item_id: st.args.p_item_id, pastry_q7: st.args.p_value }, error: null }; }
   if (/^rpc:(rename_stock_item|change_stock_item_unit|confirm_material_alias|create_stock_material_item)$/.test(st.table)) {
     window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args));
@@ -271,7 +272,7 @@ export const supabase = {
   rpc: (fn, args) => builder("rpc:" + fn, args),
   schema: () => ({ from: (table) => builder(table), rpc: (fn) => builder("rpc:" + fn) }),
   functions: { invoke: async (name) => { window.__qaWrites.push("invoke:" + name); return { data: null, error: { message: "QA fixture: functions disabled" } }; } },
-  storage: { from: () => ({ getPublicUrl: () => ({ data: { publicUrl: "" } }), createSignedUrl: async () => ({ data: null, error: null }), list: async () => ({ data: [], error: null }), upload: async () => ({ data: null, error: { message: "QA fixture: writes disabled" } }), download: async () => ({ data: null, error: null }) }) },
+  storage: { from: () => ({ getPublicUrl: () => ({ data: { publicUrl: "" } }), createSignedUrl: async (path) => ({ data: { signedUrl: "data:image/svg+xml;utf8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="600" height="840"><rect width="600" height="840" fill="#fff"/><text x="40" y="80" font-size="40" font-family="sans-serif">PHIẾU GIAO HÀNG</text><text x="40" y="140" font-size="24" font-family="sans-serif">' + String(path).slice(-28) + '</text>' + Array.from({ length: 12 }, (_, i) => '<rect x="40" y="' + (200 + i * 48) + '" width="520" height="2" fill="#999"/>').join("") + '</svg>') }, error: null }), list: async () => ({ data: [], error: null }), upload: async () => ({ data: null, error: { message: "QA fixture: writes disabled" } }), download: async () => ({ data: null, error: null }) }) },
   auth: {
     getSession: async () => ({ data: { session: { access_token: "qa-fixture-token", user } }, error: null }),
     getUser: async () => ({ data: { user }, error: null }),
@@ -475,7 +476,19 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
           await factorInput.fill("1000");
         }
       }
+      const notes = page.locator("[data-bmq-receipt-notes] [data-bmq-note]");
+      assert.equal(await notes.count(), (KG_FIXTURE.receipt_lines ?? []).length, "delivery-note strip lists every receipt line");
       await page.screenshot({ path: `${EVIDENCE}/crate-${viewport.width}.png` });
+      await page.locator("[data-bmq-receipt-notes] .note-card:not([disabled])").first().click({ force: true });
+      await page.waitForSelector("[data-bmq-note-viewer] img", { timeout: 5000 });
+      const viewerBox = await page.locator("[data-bmq-note-viewer]").boundingBox();
+      assert.ok(viewerBox && viewerBox.width >= viewport.width - 2 && viewerBox.x <= 1, `note viewer is full screen ${JSON.stringify(viewerBox)}`);
+      await page.getByRole("button", { name: "Phóng to" }).click({ force: true });
+      await page.waitForTimeout(200);
+      await page.screenshot({ path: `${EVIDENCE}/note-viewer-${viewport.width}.png` });
+      await page.getByRole("button", { name: "Đóng" }).last().click({ force: true });
+      await page.waitForTimeout(300);
+      assert.equal(await page.locator("[data-bmq-note-viewer]").count(), 0, "viewer closes");
       await page.getByRole("button", { name: "Xếp vào kệ" }).click({ force: true });
       await page.waitForTimeout(400);
       writes = await page.evaluate(() => window.__qaWrites);
@@ -523,6 +536,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await page.getByRole("button", { name: "Bột mì 888 Cam" }).click({ force: true });
     await page.waitForTimeout(600);
     assert.equal(await page.locator("[data-bmq-item-pastry]").count(), 1, "item sheet shows the Bánh ngọt (Q7) flag");
+    assert.equal(await page.locator("[data-bmq-receipt-notes]").count(), role === "owner" ? 1 : 0, "item sheet shows recent receipts to editors only");
     if (role === "owner") {
       await page.getByRole("button", { name: /Đổi tên/ }).click({ force: true });
       await page.locator(".kg .field input").first().fill("Bột mì 999 Cam");

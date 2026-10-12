@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 
 import { supabase } from "@/integrations/supabase/client";
+import { parseReceiptLines, type ReceiptLine } from "@/lib/receipt-lines";
 import {
   parseChangeStockItemUnitResult,
   parseRenameStockItemResult,
@@ -137,6 +138,53 @@ export function useStockTransfers(limit = 30) {
       const { data, error } = await supabase.rpc("get_stock_transfers", { p_limit: limit });
       if (error) throw error;
       return parseWarehouseGameTransfers(data);
+    },
+  });
+}
+
+export const CRATE_RECEIPT_LINES_QUERY_KEY = "crate-receipt-lines";
+export const ITEM_RECEIPT_LINES_QUERY_KEY = "item-receipt-lines";
+
+/**
+ * The receipt lines (with their delivery-note image paths) behind one pending
+ * crate. `normalizedName === null` and `enabled === false` both skip the call.
+ */
+export function useCrateReceiptLines(
+  location: WarehouseGameLocation,
+  supplierId: string | null,
+  normalizedName: string | null,
+  enabled: boolean,
+) {
+  return useQuery({
+    queryKey: [CRATE_RECEIPT_LINES_QUERY_KEY, location, supplierId, normalizedName],
+    enabled: enabled && normalizedName !== null,
+    staleTime: 60_000,
+    queryFn: async (): Promise<ReceiptLine[]> => {
+      if (normalizedName === null) return [];
+      const { data, error } = await supabase.rpc("get_crate_receipt_lines", {
+        p_location: location,
+        p_supplier_id: supplierId,
+        p_normalized_name: normalizedName,
+      });
+      if (error) throw error;
+      return parseReceiptLines(data);
+    },
+  });
+}
+
+/** The latest receipt lines matching any alias of one kitchen item. */
+export function useItemReceiptLines(itemId: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: [ITEM_RECEIPT_LINES_QUERY_KEY, itemId],
+    enabled: enabled && itemId !== null,
+    staleTime: 60_000,
+    queryFn: async (): Promise<ReceiptLine[]> => {
+      if (itemId === null) return [];
+      const { data, error } = await supabase.rpc("get_item_receipt_lines", {
+        p_item_id: itemId,
+      });
+      if (error) throw error;
+      return parseReceiptLines(data);
     },
   });
 }
