@@ -5,15 +5,33 @@ import assert from "node:assert/strict";
 
 import {
   createMaterialAliasHandler,
+  MATERIAL_ALIAS_MAX_CANDIDATES,
   MaterialAliasError,
   type CachedJevAnswer,
   type MaterialAliasCacheKey,
   type MaterialAliasHandlerDeps,
 } from "./handler.ts";
-import { JEV_PROMPT_VERSION, type JevMatchEvaluation } from "./jev.ts";
+import {
+  candidatesHash,
+  JEV_PROMPT_VERSION,
+  type JevMatchEvaluation,
+  type MaterialAliasCandidate,
+} from "./jev.ts";
 
 const CANDIDATE_A = { id: "11111111-1111-4111-8111-111111111111", name: "Tỏi bóc vỏ", unit: "kg" };
 const CANDIDATE_B = { id: "22222222-2222-4222-8222-222222222222", name: "Tỏi phi", unit: "kg" };
+const CATALOG_ITEM = { id: "55555555-5555-4555-8555-555555555555", name: "Phô mai Dairymont", unit: "kg", reason: "catalog" };
+const CATALOG_OTHER = { id: "66666666-6666-4666-8666-666666666666", name: "Bột mì", unit: "kg", reason: "catalog" };
+
+function backlogRow(normalized: string, raw: string) {
+  return {
+    supplier_id: null,
+    normalized_name: normalized,
+    raw_name: raw,
+    raw_unit: "kg",
+    location: "q7",
+  };
+}
 
 const EVAL: JevMatchEvaluation = {
   choice: CANDIDATE_A.id,
@@ -59,6 +77,7 @@ function makeDeps(overrides: Partial<MaterialAliasHandlerDeps> = {}) {
     incrementUsage: async (date, calls, cost) => { usageRecords.push({ date, calls, cost }); },
     listBacklog: async () => [],
     candidatesFor: async () => [],
+    catalogOptions: async () => [],
     now: () => new Date("2026-10-16T00:00:00.000Z"),
     audit: () => {},
   };
@@ -394,6 +413,193 @@ test("a backlog run skips names already cached for the same candidate set", asyn
   assert.equal(body.remaining, 0);
   assert.equal(calls, 1, "a cached backlog name must not call Jev again");
   assert.equal(usageRecords.length, 1);
+});
+
+test("a backlog row with zero token candidates is evaluated with the catalog options", async () => {
+  const seen: MaterialAliasCandidate[][] = [];
+  const { deps, cache } = makeDeps({
+    listBacklog: async () => [backlogRow("pho mai", "Phô mai Dairymont")],
+    candidatesFor: async () => [],
+    catalogOptions: async () => [CATALOG_ITEM],
+    evaluator: () => async ({ state }) => {
+      seen.push(state.candidates);
+      return { ...EVAL, choice: CATALOG_ITEM.id };
+    },
+  });
+  const handler = createMaterialAliasHandler(deps);
+  const response = await handler(request({ mode: "backlog", location: "q7" }));
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.candidates, 1, "the row must not be skipped for having no token match");
+  assert.equal(body.evaluated, 1);
+  assert.equal(body.processed, 1);
+  assert.equal(seen.length, 1);
+  assert.deepEqual(seen[0].map((candidate) => candidate.id), [CATALOG_ITEM.id]);
+  assert.equal(cache.size, 1, "a returned catalog choice must be stored");
+  assert.equal([...cache.values()][0].answer.choice, CATALOG_ITEM.id);
+});
+
+test("token candidates come first and are not duplicated by the catalog", async () => {
+  const token = { ...CANDIDATE_A, reason: "token" };
+  const duplicate = { ...CANDIDATE_A, reason: "catalog" };
+  let offered: MaterialAliasCandidate[] = [];
+  let tokenLimit: number | null = null;
+  const { deps } = makeDeps({
+    listBacklog: async () => [backlogRow("toi boc vo", "Tỏi bóc vỏ")],
+    candidatesFor: async (_name, _location, limit) => { tokenLimit = limit; return [token]; },
+    catalogOptions: async () => [duplicate, CATALOG_OTHER],
+    evaluator: () => async ({ state }) => {
+      offered = state.candidates;
+      return { ...EVAL, choice: token.id };
+    },
+  });
+  const handler = createMaterialAliasHandler(deps);
+  await handler(request({ mode: "backlog", location: "q7" }));
+  assert.equal(tokenLimit, 5, "token candidates still ask for the top five");
+  assert.deepEqual(offered.map((candidate) => candidate.id), [CANDIDATE_A.id, CATALOG_OTHER.id]);
+  assert.equal(offered[0].reason, "token", "the token candidate keeps its reason");
+});
+
+test("the offered list is capped at MATERIAL_ALIAS_MAX_CANDIDATES", async () => {
+  const token = { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", name: "Token", unit: "kg", reason: "token" };
+  const catalog: MaterialAliasCandidate[] = Array.from({ length: 200 }, (_, index) => ({
+    id: `catalog-${index}`,
+    name: `Catalog ${index}`,
+    unit: "kg",
+    reason: "catalog",
+  }));
+  let offered: MaterialAliasCandidate[] = [];
+  const { deps } = makeDeps({
+    listBacklog: async () => [backlogRow("token", "Token")],
+    candidatesFor: async () => [token],
+    catalogOptions: async () => catalog,
+    evaluator: () => async ({ state }) => {
+      offered = state.candidates;
+      return { ...EVAL, choice: token.id };
+    },
+  });
+  const handler = createMaterialAliasHandler(deps);
+  await handler(request({ mode: "backlog", location: "q7" }));
+  assert.equal(MATERIAL_ALIAS_MAX_CANDIDATES, 150);
+  assert.equal(offered.length, MATERIAL_ALIAS_MAX_CANDIDATES);
+  assert.equal(offered[0].id, token.id);
+  assert.equal(offered[offered.length - 1].id, "catalog-148");
+});
+
+test("the cache key changes when the catalog changes", async () => {
+  const token = { ...CANDIDATE_A, reason: "token" };
+  const seen: MaterialAliasCacheKey[] = [];
+  const depsFor = (catalog: MaterialAliasCandidate[]): MaterialAliasHandlerDeps => makeDeps({
+    listBacklog: async () => [backlogRow("toi", "Tỏi ngày 10")],
+    candidatesFor: async () => [token],
+    catalogOptions: async () => catalog,
+    getCache: async (key) => { seen.push(key); return null; },
+    putCache: async () => {},
+  }).deps;
+  await createMaterialAliasHandler(depsFor([CATALOG_ITEM]))(request({ mode: "backlog", location: "q7" }));
+  await createMaterialAliasHandler(depsFor([CATALOG_OTHER]))(request({ mode: "backlog", location: "q7" }));
+  assert.equal(seen.length, 2);
+  assert.notEqual(seen[0].candidatesHash, seen[1].candidatesHash);
+  assert.equal(seen[0].promptVersion, JEV_PROMPT_VERSION);
+  assert.equal(seen[0].candidatesHash, candidatesHash([token.id, CATALOG_ITEM.id]));
+});
+
+test("a cache row from the old prompt version is not reused", async () => {
+  const token = { ...CANDIDATE_A, reason: "token" };
+  const { deps, cache } = makeDeps({
+    listBacklog: async () => [backlogRow("pho mai", "Phô mai Dairymont")],
+    candidatesFor: async () => [token],
+    catalogOptions: async () => [CATALOG_ITEM],
+    evaluator: () => async () => ({ ...EVAL, choice: token.id }),
+  });
+  const oldAnswer: CachedJevAnswer = { ...ANSWER, choice: null, item_id: null, source: "none" };
+  cache.set(JSON.stringify({
+    supplierId: null,
+    normalizedName: "pho mai",
+    location: "q7",
+    promptVersion: "jev-material-alias-2026-10-22.1",
+    candidatesHash: candidatesHash([token.id, CATALOG_ITEM.id]),
+  }), { answer: oldAnswer, cost: null });
+  const handler = createMaterialAliasHandler(deps);
+  const body = await (await handler(request({ mode: "backlog", location: "q7" }))).json();
+  assert.equal(body.skipped_existing, 0, "an old prompt-version row must not count as cached");
+  assert.equal(body.evaluated, 1);
+  assert.equal(body.calls, 1);
+  assert.equal(cache.size, 2, "the new answer is stored under the new prompt version");
+  assert.equal(JEV_PROMPT_VERSION, "jev-material-alias-2026-10-29.1");
+});
+
+test("a completely empty catalog is skipped without crashing", async () => {
+  let calls = 0;
+  const { deps } = makeDeps({
+    listBacklog: async () => [backlogRow("hang 1", "Hàng 1")],
+    candidatesFor: async () => [],
+    catalogOptions: async () => [],
+    evaluator: () => async () => { calls += 1; return EVAL; },
+  });
+  const handler = createMaterialAliasHandler(deps);
+  const response = await handler(request({ mode: "backlog", location: "q7" }));
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.candidates, 0);
+  assert.equal(body.evaluated, 0);
+  assert.equal(body.stopped, null);
+  assert.equal(calls, 0, "no option means no Jev call");
+});
+
+test("a missing catalogOptions dependency does not break backlog", async () => {
+  const { deps } = makeDeps({
+    listBacklog: async () => [backlogRow("hang 1", "Hàng 1")],
+    candidatesFor: async () => [CANDIDATE_A],
+    catalogOptions: undefined,
+  });
+  const handler = createMaterialAliasHandler(deps);
+  const body = await (await handler(request({ mode: "backlog", location: "q7" }))).json();
+  assert.equal(body.evaluated, 1);
+});
+
+test("the backlog audit reports the catalog size", async () => {
+  const audits: Record<string, unknown>[] = [];
+  const { deps } = makeDeps({
+    listBacklog: async () => [backlogRow("hang 1", "Hàng 1")],
+    candidatesFor: async () => [],
+    catalogOptions: async () => [CATALOG_ITEM, CATALOG_OTHER],
+    evaluator: () => async () => EVAL,
+    audit: (event) => { audits.push(event); },
+  });
+  const handler = createMaterialAliasHandler(deps);
+  await handler(request({ mode: "backlog", location: "q7" }));
+  assert.equal(audits[0].catalog_size, 2);
+});
+
+test("a lines request with more than five candidates passes the grammar", async () => {
+  const many: MaterialAliasCandidate[] = Array.from({ length: 6 }, (_, index) => ({
+    id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+    name: `Mặt hàng ${index}`,
+    unit: "kg",
+  }));
+  let offeredCount = 0;
+  const { deps } = makeDeps({
+    evaluator: () => async ({ state }) => {
+      offeredCount = state.candidates.length;
+      return EVAL;
+    },
+  });
+  const handler = createMaterialAliasHandler(deps);
+  const response = await handler(request(linesBody(many)));
+  assert.equal(response.status, 200);
+  assert.equal(offeredCount, 6);
+});
+
+test("the request grammar accepts MATERIAL_ALIAS_MAX_CANDIDATES and refuses more", async () => {
+  const make = (count: number): MaterialAliasCandidate[] => Array.from({ length: count }, (_, index) => ({
+    id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+    name: `Item ${index}`,
+    unit: "kg",
+  }));
+  const handler = createMaterialAliasHandler(makeDeps().deps);
+  assert.equal((await handler(request(linesBody(make(MATERIAL_ALIAS_MAX_CANDIDATES))))).status, 200);
+  assert.equal((await handler(request(linesBody(make(MATERIAL_ALIAS_MAX_CANDIDATES + 1))))).status, 400);
 });
 
 function unmatchedRow(normalized: string, raw: string, exact = false) {

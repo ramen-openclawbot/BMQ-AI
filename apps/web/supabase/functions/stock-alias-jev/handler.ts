@@ -47,7 +47,7 @@ export const MATERIAL_ALIAS_REQUEST_BODY_LIMIT = 32_768;
 export const MATERIAL_ALIAS_REQUEST_BUDGET_MS = 110_000;
 export const MATERIAL_ALIAS_DAILY_CALL_LIMIT = 600;
 export const MATERIAL_ALIAS_BACKLOG_LIMIT = 200;
-export const MATERIAL_ALIAS_MAX_CANDIDATES = 50;
+export const MATERIAL_ALIAS_MAX_CANDIDATES = 150;
 export const MATERIAL_ALIAS_BACKLOG_BATCH_DEFAULT = 10;
 export const MATERIAL_ALIAS_BACKLOG_BATCH_MAX = 15;
 export const MATERIAL_ALIAS_NEW_ITEM_DAYS_DEFAULT = 60;
@@ -118,6 +118,8 @@ export interface MaterialAliasHandlerDeps {
   incrementUsage: (usageDate: string, calls: number, cost: number) => Promise<void>;
   listBacklog: (location: string, limit: number) => Promise<MaterialAliasBacklogRow[]>;
   candidatesFor: (name: string, location: string, limit: number) => Promise<MaterialAliasCandidate[]>;
+  /** Whole live catalog of a location, appended after the token candidates. */
+  catalogOptions?: (location: string) => Promise<MaterialAliasCandidate[]>;
   /** new_items mode: confirmed receipt names without an item / alias. */
   listUnmatched?: (location: string, days: number) => Promise<NewItemUnmatchedRow[]>;
   upsertNewItemSuggestions?: (location: string, rows: NewItemSuggestionRow[]) => Promise<void>;
@@ -426,6 +428,27 @@ function exactCandidateAnswer(
 
 function candidateIds(candidates: readonly MaterialAliasCandidate[]): string[] {
   return candidates.map((candidate) => candidate.id);
+}
+
+/**
+ * The option list Jev sees for one backlog row: the token candidates first
+ * (they carry the exact / contains reasons), then every remaining catalog
+ * option, de-duplicated by id and capped at `limit`.
+ */
+export function mergeCandidateOptions(
+  tokenCandidates: readonly MaterialAliasCandidate[],
+  catalog: readonly MaterialAliasCandidate[],
+  limit: number = MATERIAL_ALIAS_MAX_CANDIDATES,
+): MaterialAliasCandidate[] {
+  const merged: MaterialAliasCandidate[] = [];
+  const seen = new Set<string>();
+  for (const candidate of [...tokenCandidates, ...catalog]) {
+    if (candidate.id === "" || seen.has(candidate.id)) continue;
+    seen.add(candidate.id);
+    merged.push(candidate);
+    if (merged.length >= limit) break;
+  }
+  return merged;
 }
 
 interface NewItemScanContext {
@@ -1006,6 +1029,10 @@ export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
       if (input.mode === "backlog") {
         // backlog: process one batch, then report how much is still pending.
         const rows = await deps.listBacklog(input.location, MATERIAL_ALIAS_BACKLOG_LIMIT);
+      // The catalog is the same for every row: read it once, then offer Jev the
+      // token matches plus the whole catalog so a translated / abbreviated /
+      // OCR-damaged name still has real options.
+      const catalog = deps.catalogOptions ? await deps.catalogOptions(input.location) : [];
       type BacklogEntry = {
         row: MaterialAliasBacklogRow;
         candidates: MaterialAliasCandidate[];
@@ -1013,7 +1040,10 @@ export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
       };
       const eligible: BacklogEntry[] = [];
       for (const row of rows) {
-        const candidates = await deps.candidatesFor(row.raw_name, row.location, 5);
+        const tokenCandidates = await deps.candidatesFor(row.raw_name, row.location, 5);
+        const candidates = mergeCandidateOptions(tokenCandidates, catalog);
+        // A row with no token match but catalog options is still evaluated; only
+        // a row with no option at all (an empty catalog) is skipped.
         if (candidates.length === 0) continue;
         eligible.push({
           row,
@@ -1074,6 +1104,7 @@ export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
         event: "stock_alias_jev",
         mode: "backlog",
         candidates: eligible.length,
+        catalog_size: catalog.length,
         batch_size: input.batchSize,
         processed,
         remaining,

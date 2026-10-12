@@ -14,7 +14,7 @@
 export const JEV_ENDPOINT = "https://ai-gateway.vercel.sh/v1/evaluate";
 export const JEV_MODEL = "typesafe-ai/jev";
 // Bump whenever the state, the question or the criteria below change.
-export const JEV_PROMPT_VERSION = "jev-material-alias-2026-10-22.1";
+export const JEV_PROMPT_VERSION = "jev-material-alias-2026-10-29.1";
 export const JEV_TIMEOUT_MS = 4000;
 export const JEV_MAX_TIMEOUT_MS = 4000;
 export const JEV_BODY_LIMIT = 32_000;
@@ -51,7 +51,7 @@ export interface MatchJevState {
 }
 
 export function matchInstructions(): string {
-  return "Dòng hóa đơn `line` (tên, đơn vị, nhà cung cấp) là mặt hàng nào trong `candidates`, hoặc không có? Mỗi ứng viên ghi rõ loại: `NVL` là nguyên vật liệu / bao bì của kho, `thành phẩm SKU` là thành phẩm bán. Chọn `NVL` khi dòng mua là nguyên liệu hoặc bao bì; chọn `thành phẩm SKU` khi dòng mua là thành phẩm.";
+  return "Dòng hóa đơn `line` (tên, đơn vị, nhà cung cấp) là mặt hàng nào trong `candidates`, hoặc không có? Mỗi ứng viên ghi rõ loại: `NVL` là nguyên vật liệu / bao bì của kho, `thành phẩm SKU` là thành phẩm bán. Chọn `NVL` khi dòng mua là nguyên liệu hoặc bao bì; chọn `thành phẩm SKU` khi dòng mua là thành phẩm. Hãy chọn theo ý nghĩa của tên, không chỉ theo chữ giống nhau: tên dịch khác ngôn ngữ, tên viết tắt, tên bị sai do OCR hoặc gõ sai vẫn có thể là cùng một mặt hàng. Chỉ chọn `none` khi thật sự không có ứng viên nào phù hợp với dòng hóa đơn.";
 }
 
 /** Short choice key for the candidate at `index` (0-based): c1, c2, … */

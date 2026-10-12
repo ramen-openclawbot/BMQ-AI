@@ -81,6 +81,7 @@ Deno.serve(createMaterialAliasHandler({
   listBacklog: (location, limit) => createMaterialAliasStore(adminClient()).listBacklog(location, limit),
   candidatesFor: (name, location, limit) =>
     createMaterialAliasStore(adminClient()).candidatesFor(name, location, limit),
+  catalogOptions: (location) => createMaterialAliasStore(adminClient()).catalogOptions(location),
   listUnmatched: (location, days) => createMaterialAliasStore(adminClient()).listUnmatched(location, days),
   upsertNewItemSuggestions: (location, rows) =>
     createMaterialAliasStore(adminClient()).upsertNewItemSuggestions(location, rows),

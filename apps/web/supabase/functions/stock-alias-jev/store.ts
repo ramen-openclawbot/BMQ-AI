@@ -135,6 +135,8 @@ export interface MaterialAliasStore {
   incrementUsage(usageDate: string, calls: number, cost: number): Promise<void>;
   listBacklog(location: string, limit: number): Promise<MaterialAliasBacklogRow[]>;
   candidatesFor(name: string, location: string, limit: number): Promise<MaterialAliasCandidate[]>;
+  /** Whole catalog of a location; the same rows on every call in one request. */
+  catalogOptions(location: string): Promise<MaterialAliasCandidate[]>;
   listUnmatched(location: string, days: number): Promise<NewItemUnmatchedRow[]>;
   upsertNewItemSuggestions(location: string, rows: NewItemSuggestionRow[]): Promise<void>;
   getRawCache(key: MaterialAliasCacheKey): Promise<{ answer: Record<string, unknown>; cost: number | null } | null>;
@@ -146,6 +148,9 @@ export interface MaterialAliasStore {
 }
 
 export function createMaterialAliasStore(admin: SupabaseClient): MaterialAliasStore {
+  // One catalog read per location per store instance (the backlog loop reuses it
+  // for every row).
+  let catalogCache: { location: string; rows: MaterialAliasCandidate[] } | null = null;
   return {
     async getCache(key) {
       let query = admin
@@ -260,6 +265,19 @@ export function createMaterialAliasStore(admin: SupabaseClient): MaterialAliasSt
       return ((data ?? []) as unknown as Record<string, unknown>[])
         .map(mapCandidate)
         .filter((candidate) => candidate.id !== "");
+    },
+
+    async catalogOptions(location) {
+      if (catalogCache && catalogCache.location === location) return catalogCache.rows;
+      const { data, error } = await admin.rpc("material_alias_catalog_options", {
+        p_location: location,
+      });
+      if (error) fail();
+      const rows = ((data ?? []) as unknown as Record<string, unknown>[])
+        .map(mapCandidate)
+        .filter((candidate) => candidate.id !== "");
+      catalogCache = { location, rows };
+      return rows;
     },
 
     async listUnmatched(location, days) {

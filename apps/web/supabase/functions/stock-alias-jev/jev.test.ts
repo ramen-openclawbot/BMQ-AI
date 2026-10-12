@@ -9,6 +9,7 @@ import {
   createJevEvaluator,
   JEV_ENDPOINT,
   JEV_MODEL,
+  JEV_PROMPT_VERSION,
   JevError,
   LINE_TYPE_GOODS,
   LINE_TYPE_NON_GOODS,
@@ -163,6 +164,58 @@ test("the match prompt is Vietnamese, describes every candidate and always offer
     assert.ok(criteria[matchOptionKey(index)].includes(candidate.name));
     assert.ok(criteria[matchOptionKey(index)].includes(candidate.unit));
   });
+});
+
+test("the prompt version is bumped for the whole-catalog backlog", () => {
+  assert.equal(JEV_PROMPT_VERSION, "jev-material-alias-2026-10-29.1");
+});
+
+test("the match prompt asks to choose by meaning and reserves none for no fit", () => {
+  const text = matchInstructions();
+  assert.ok(text.includes("ý nghĩa"), "must ask Jev to choose by meaning");
+  assert.ok(text.includes("dịch"), "must mention translation");
+  assert.ok(text.includes("viết tắt"), "must mention abbreviations");
+  assert.ok(text.includes("OCR"), "must mention OCR damage");
+  assert.ok(text.includes("`none`"), "must keep the none option explicit");
+});
+
+test("a choice list well above five options still validates strictly", () => {
+  const many: MaterialAliasCandidate[] = Array.from({ length: 120 }, (_, index) => ({
+    id: `item-${index}`,
+    name: `Mặt hàng ${index}`,
+    unit: "kg",
+  }));
+  const allowed = matchOptions(many);
+  assert.equal(allowed.length, 121);
+  assert.equal(matchCriteria(many)[matchOptionKey(119)], "[NVL] Mặt hàng 119 (kg)");
+  const chosen = matchOptionKey(60);
+  const probabilities: Record<string, number> = {};
+  for (const option of allowed) probabilities[option] = option === chosen ? 0.5 : 0.5 / 120;
+  const body = {
+    model: JEV_MODEL,
+    answers: answersWith({
+      type: "choice",
+      choice: chosen,
+      probabilities,
+      confidence: 0.7,
+    }),
+    usage: { inputTokens: 1000, outputTokens: 50 },
+    providerMetadata: { gateway: { cost: "0.0002" } },
+  };
+  const evaluation = validateJevResponse(allowed, body);
+  assert.equal(evaluation.choice, chosen);
+  assert.equal(candidateIdFromChoice(many, chosen), many[60].id);
+
+  // One missing probability is still refused.
+  const missing: Record<string, number> = { ...probabilities };
+  delete missing[allowed[10]];
+  assert.throws(
+    () => validateJevResponse(allowed, {
+      ...body,
+      answers: answersWith({ type: "choice", choice: chosen, probabilities: missing }),
+    }),
+    JevError,
+  );
 });
 
 test("the line_type prompt is Vietnamese and offers exactly goods and non_goods", () => {
