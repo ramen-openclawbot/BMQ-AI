@@ -777,3 +777,39 @@
   .kg .cnt-filters button { min-height: 34px; padding: 0 9px; font-size: 13px; }
 }
 @media (prefers-reduced-motion: reduce) { .kg .cnt-card, .kg .cnt-head, .kg .tally-row, .kg .cnt-actions .btn.is-ready { animation: none !important; } }
+
+/* Phiếu chuyển kho thủ công (TransferSlip.tsx) */
+.kg .slip-new { width: 100%; }
+.kg .slip { display: grid; gap: 12px; }
+.kg .slip-lines { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.kg .slip-lines li {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 8px;
+  padding: 8px 8px 8px 10px; background: var(--white); border: 2.5px solid var(--ink); border-radius: 14px; box-shadow: var(--soft);
+  animation: kg-slip-in .3s var(--ease) both;
+}
+@keyframes kg-slip-in { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+.kg .slip-lines li.is-bad { background: var(--coral-light); }
+.kg .slip-no {
+  display: grid; place-items: center; width: 26px; height: 26px; font-family: "Baloo 2", sans-serif; font-weight: 800; font-size: 14px;
+  background: var(--mustard-light); border: 2.5px solid var(--ink); border-radius: 99px;
+}
+.kg .slip-name { display: grid; min-width: 0; }
+.kg .slip-name b { font-size: 14.5px; line-height: 1.2; overflow-wrap: anywhere; }
+.kg .slip-name small { font-size: 12px; font-weight: 700; color: #6f6a85; }
+.kg .slip-qty { display: flex; align-items: center; gap: 4px; }
+.kg .slip-qty input {
+  width: 74px; height: 42px; padding: 0 8px; font-size: 16px; font-weight: 800; text-align: right;
+  background: var(--cream); border: 2.5px solid var(--ink); border-radius: 10px; min-width: 0;
+}
+.kg .slip-qty input:focus { outline: none; box-shadow: 0 0 0 4px var(--mustard-light); }
+.kg .slip-qty i { font-style: normal; font-size: 12.5px; font-weight: 800; color: #6f6a85; max-width: 44px; overflow-wrap: anywhere; }
+.kg .slip-x { width: 32px; height: 32px; border-radius: 99px; font-weight: 900; background: var(--white); border: 2.5px solid var(--ink); }
+.kg .slip-problem { grid-column: 2 / -1; font-size: 12px; font-weight: 800; color: #b23a2a; }
+.kg .slip-picks { max-height: 220px; }
+.kg .slip-actions .btn:first-child { flex: 1; }
+.kg .transfer-list li.is-manual { background: var(--mustard-light); }
+@media (max-width: 360px) {
+  .kg .slip-lines li { grid-template-columns: minmax(0, 1fr) auto auto; }
+  .kg .slip-no { display: none; }
+  .kg .slip-qty input { width: 64px; }
+}

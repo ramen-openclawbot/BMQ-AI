@@ -43,7 +43,7 @@ export interface WarehouseGameItem {
   pastry_q7: boolean;
 }
 
-/** One automatic Tân Tạo -> Q7 stock transfer of a pastry receipt line. */
+/** One Tân Tạo -> Q7 stock transfer (automatic receipt or manual slip). */
 export interface WarehouseGameTransfer {
   transfer_number: string;
   transfer_date: string;
@@ -52,6 +52,13 @@ export interface WarehouseGameTransfer {
   quantity: number;
   unit: string;
   receipt_number: string | null;
+  /** 'auto_goods_receipt' | 'manual'; null on an older server payload. */
+  source: string | null;
+  /** Manual slip shared by every line of one call; null for an automatic row. */
+  slip_id: string | null;
+  /** Manual slip number CKP-YYYYMMDD-XXXXXX; null for an automatic row. */
+  slip_number: string | null;
+  note: string | null;
 }
 
 export interface WarehouseGameSku {
@@ -92,6 +99,24 @@ export interface ChangeStockItemUnitResult {
   new_unit: string;
   factor: number;
   merge_id: string | null;
+}
+
+/** One line of a manual Tân Tạo -> Q7 transfer slip. */
+export interface ManualStockTransferLine {
+  transfer_id: string;
+  transfer_number: string;
+  item_id: string;
+  item_name: string;
+  quantity: number;
+  unit: string;
+}
+
+/** The jsonb result of public.create_manual_stock_transfer. */
+export interface ManualStockTransferResult {
+  slip_id: string;
+  slip_number: string;
+  transfer_date: string;
+  lines: ManualStockTransferLine[];
 }
 
 function asRecord(value: unknown, path: string): Record<string, unknown> {
@@ -190,7 +215,7 @@ function parseWarehouseGameItem(raw: unknown, path: string): WarehouseGameItem {
   };
 }
 
-/** Parse and validate one automatic Tân Tạo -> Q7 transfer row. */
+/** Parse and validate one Tân Tạo -> Q7 transfer row. */
 function parseWarehouseGameTransfer(raw: unknown, path: string): WarehouseGameTransfer {
   const row = asRecord(raw, path);
   return {
@@ -201,6 +226,11 @@ function parseWarehouseGameTransfer(raw: unknown, path: string): WarehouseGameTr
     quantity: asNumber(row.quantity, `${path}.quantity`),
     unit: asString(row.unit, `${path}.unit`),
     receipt_number: asNullableString(row.receipt_number, `${path}.receipt_number`),
+    // Older payloads have no source / slip columns: a missing key is null.
+    source: asNullableString(row.source, `${path}.source`),
+    slip_id: asNullableString(row.slip_id, `${path}.slip_id`),
+    slip_number: asNullableString(row.slip_number, `${path}.slip_number`),
+    note: asNullableString(row.note, `${path}.note`),
   };
 }
 
@@ -296,6 +326,61 @@ export function parseChangeStockItemUnitResult(raw: unknown): ChangeStockItemUni
     merge_id: asNullableString(root.merge_id, "changeStockItemUnitResult.merge_id"),
   };
 }
+
+/** Parse and validate one line of a manual transfer slip. */
+function parseManualTransferLine(raw: unknown, path: string): ManualStockTransferLine {
+  const row = asRecord(raw, path);
+  return {
+    transfer_id: asString(row.transfer_id, `${path}.transfer_id`),
+    transfer_number: asString(row.transfer_number, `${path}.transfer_number`),
+    item_id: asString(row.item_id, `${path}.item_id`),
+    item_name: asString(row.item_name, `${path}.item_name`),
+    quantity: asNumber(row.quantity, `${path}.quantity`),
+    unit: asString(row.unit, `${path}.unit`),
+  };
+}
+
+/**
+ * Defensive parser for the jsonb returned by `create_manual_stock_transfer`.
+ * Every slip field and every line field is required; a malformed payload throws.
+ */
+export function parseManualTransferResult(raw: unknown): ManualStockTransferResult {
+  const root = asRecord(raw, "manualTransferResult");
+  const rawLines = root.lines;
+  if (!Array.isArray(rawLines)) {
+    throw new TypeError("manualTransferResult.lines must be an array");
+  }
+  return {
+    slip_id: asString(root.slip_id, "manualTransferResult.slip_id"),
+    slip_number: asString(root.slip_number, "manualTransferResult.slip_number"),
+    transfer_date: asString(root.transfer_date, "manualTransferResult.transfer_date"),
+    lines: rawLines.map((line, index) =>
+      parseManualTransferLine(line, `manualTransferResult.lines[${index}]`),
+    ),
+  };
+}
+
+const MANUAL_TRANSFER_ERROR_TEXT: Record<string, string> = {
+  transfer_forbidden: "Tài khoản chưa có quyền chuyển kho Tân Tạo.",
+  stock_insufficient: "Tồn kho Tân Tạo không đủ để chuyển.",
+  ledger_not_started: "Sổ kho chưa bắt đầu, chưa thể chuyển kho.",
+  quantity_invalid: "Số lượng chuyển phải là số lớn hơn 0.",
+  duplicate_item: "Một mặt hàng bị lặp lại trong phiếu.",
+  item_invalid: "Mặt hàng không hợp lệ, đã ngừng dùng hoặc đã gộp.",
+  lines_required: "Phiếu chuyển phải có ít nhất 1 mặt hàng.",
+  too_many_lines: "Phiếu chuyển chỉ được tối đa 30 mặt hàng.",
+  date_invalid: "Ngày chuyển không được ở tương lai.",
+};
+
+const MANUAL_TRANSFER_FALLBACK = "Không chuyển kho được. Vui lòng thử lại.";
+
+/** Vietnamese message for a create_manual_stock_transfer error code. */
+export const manualTransferErrorText = (code: unknown): string => {
+  const value = String(code ?? "").trim();
+  if (value in MANUAL_TRANSFER_ERROR_TEXT) return MANUAL_TRANSFER_ERROR_TEXT[value];
+  const hit = Object.keys(MANUAL_TRANSFER_ERROR_TEXT).find((key) => value.includes(key));
+  return hit ? MANUAL_TRANSFER_ERROR_TEXT[hit] : MANUAL_TRANSFER_FALLBACK;
+};
 
 /**
  * 1 oldUnit = factor newUnit, for a weight / volume pair of public.stock_units.

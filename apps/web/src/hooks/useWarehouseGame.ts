@@ -4,11 +4,13 @@ import { supabase } from "@/integrations/supabase/client";
 import { parseReceiptLines, type ReceiptLine } from "@/lib/receipt-lines";
 import {
   parseChangeStockItemUnitResult,
+  parseManualTransferResult,
   parseRenameStockItemResult,
   parseSetItemPastryQ7Result,
   parseWarehouseGameSnapshot,
   parseWarehouseGameTransfers,
   type ChangeStockItemUnitResult,
+  type ManualStockTransferResult,
   type RenameStockItemResult,
   type SetItemPastryQ7Result,
   type WarehouseGameLocation,
@@ -130,7 +132,7 @@ export function useSetItemPastryQ7() {
 
 export const STOCK_TRANSFERS_QUERY_KEY = "stock-transfers";
 
-/** The newest automatic Tân Tạo -> Q7 transfers for the warehouse game. */
+/** The newest Tân Tạo -> Q7 transfers for the warehouse game. */
 export function useStockTransfers(limit = 30) {
   return useQuery({
     queryKey: [STOCK_TRANSFERS_QUERY_KEY, limit],
@@ -138,6 +140,47 @@ export function useStockTransfers(limit = 30) {
       const { data, error } = await supabase.rpc("get_stock_transfers", { p_limit: limit });
       if (error) throw error;
       return parseWarehouseGameTransfers(data);
+    },
+  });
+}
+
+export interface ManualStockTransferLineInput {
+  itemId: string;
+  quantity: number;
+}
+
+export interface ManualStockTransferInput {
+  lines: ManualStockTransferLineInput[];
+  note?: string | null;
+  /** Idempotency key; defaults to a fresh crypto.randomUUID(). */
+  requestId?: string;
+  /** Defaults to the server's Vietnam today when null / omitted. */
+  transferDate?: string | null;
+}
+
+/** Create one manual Tân Tạo -> Q7 transfer slip; idempotent by requestId. */
+export function useCreateManualTransfer() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: ManualStockTransferInput): Promise<ManualStockTransferResult> => {
+      const { data, error } = await supabase.rpc(
+        "create_manual_stock_transfer" as never,
+        {
+          p_lines: input.lines.map((line) => ({
+            item_id: line.itemId,
+            quantity: line.quantity,
+          })),
+          p_note: input.note ?? null,
+          p_request_id: input.requestId ?? crypto.randomUUID(),
+          p_transfer_date: input.transferDate ?? null,
+        } as never,
+      );
+      if (error) throw error;
+      return parseManualTransferResult(data);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY] });
+      void queryClient.invalidateQueries({ queryKey: [STOCK_TRANSFERS_QUERY_KEY] });
     },
   });
 }

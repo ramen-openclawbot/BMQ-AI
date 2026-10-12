@@ -63,6 +63,12 @@ function settle(st) {
     const items = F.items.map((it, i) => ({ ...it, on_hand: started ? (i * 137) % 5000 : 0 })).filter((it) => loc !== "q7" || it.pastry_q7);
     return { data: { location: loc, cutover_date: started, items, skus: loc === "tan_tao" ? F.skus : [], pending: role === "owner" ? (loc === "q7" ? F.q7 : F.tt) : [], transfers: F.transfers ?? [], counts: {}, can_edit: role === "owner" }, error: null };
   }
+  if (st.table === "rpc:get_stock_transfers") return { data: window.__kgFixture.transfers ?? [], error: null };
+  if (st.table === "rpc:create_manual_stock_transfer") {
+    window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args));
+    const names = Object.fromEntries(window.__kgFixture.items.map((it) => [it.id, it]));
+    return { data: { slip_id: "slip-qa-1", slip_number: "CKP-20261012-QA0001", transfer_date: "2026-10-12", lines: st.args.p_lines.map((l, i) => ({ transfer_id: "t-" + i, transfer_number: "CK-20261012-QA000" + i, item_id: l.item_id, item_name: names[l.item_id]?.name ?? "?", quantity: l.quantity, unit: names[l.item_id]?.unit ?? "g" })) }, error: null };
+  }
   if (st.table === "rpc:get_crate_receipt_lines" || st.table === "rpc:get_item_receipt_lines") { window.__qaWrites.push("read:" + st.table); return { data: window.__kgFixture.receipt_lines ?? [], error: null }; }
   if (st.table === "rpc:set_item_pastry_q7") { window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args)); return { data: { item_id: st.args.p_item_id, pastry_q7: st.args.p_value }, error: null }; }
   if (/^rpc:(rename_stock_item|change_stock_item_unit|confirm_material_alias|create_stock_material_item)$/.test(st.table)) {
@@ -731,6 +737,66 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
   assert.ok(writes.some((w) => w.startsWith("rpc:start_stock_count:") && w.includes('"p_location":"tan_tao"')), "start sent for Tân Tạo");
   assert.deepEqual(errors, [], "no page errors");
   record("stock count empty 390");
+  await context.close();
+}
+// Manual Tân Tạo -> Q7 transfer slip (owner 12/10): build, validate, submit; ledger-not-started gate.
+for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 640 }]) {
+  const { context, page, errors } = await open({ data: "populated", role: "owner", started: true }, "/warehouse/game", viewport);
+  await page.waitForSelector("[data-bmq-warehouse-game]", { timeout: 20000 });
+  await page.waitForTimeout(1200);
+  await page.getByRole("button", { name: /KHO TÂN TẠO/i }).click({ force: true });
+  await page.waitForTimeout(900);
+  await page.locator("[data-bmq-transfer-van]").click({ force: true });
+  await page.waitForTimeout(600);
+  assert.equal(await page.locator("[data-bmq-transfer-list] li").count(), (KG_FIXTURE.transfers ?? []).length, "history lists get_stock_transfers rows");
+  await page.locator("[data-bmq-transfer-new]").click({ force: true });
+  await page.waitForTimeout(400);
+  assert.equal(await page.locator("[data-bmq-slip-submit]").isDisabled(), true, "empty slip cannot be sent");
+  await page.locator("[data-bmq-slip-search]").fill("băng keo nhỏ");
+  await page.locator('[data-bmq-slip-pick="Băng keo nhỏ"]').click({ force: true });
+  await page.locator("[data-bmq-slip-search]").fill("bao kiếng");
+  await page.locator('[data-bmq-slip-pick="Bao kiếng chà bông"]').click({ force: true });
+  await page.waitForTimeout(300);
+  assert.equal(await page.locator("[data-bmq-slip-line]").count(), 2, "two lines on the slip");
+  const qty = page.locator(".kg .slip-qty input");
+  await qty.nth(0).fill("999");
+  await qty.nth(1).fill("100");
+  await page.waitForTimeout(200);
+  assert.equal(await page.locator(".kg .slip-problem").count(), 1, "over on-hand line is flagged");
+  assert.equal(await page.locator("[data-bmq-slip-submit]").isDisabled(), true, "over on-hand slip cannot be sent");
+  await qty.nth(0).fill("2,5");
+  await page.waitForTimeout(200);
+  assert.equal(await page.locator(".kg .slip-problem").count(), 0);
+  assert.equal(await overflow(page), 0, `slip no overflow ${viewport.width}`);
+  await page.screenshot({ path: `${EVIDENCE}/transfer-slip-${viewport.width}.png` });
+  await page.locator("[data-bmq-slip-submit]").click({ force: true });
+  await page.waitForTimeout(700);
+  const writes = await page.evaluate(() => window.__qaWrites);
+  const sent = writes.find((w) => w.startsWith("rpc:create_manual_stock_transfer:"));
+  assert.ok(sent && sent.includes('"quantity":2.5') && sent.includes('"quantity":100') && sent.includes('"p_request_id"'), `slip sent: ${sent}`);
+  assert.match(await page.locator(".kg .toast").textContent(), /CKP-20261012-QA0001/);
+  assert.equal(await page.locator("[data-bmq-transfer-list]").count(), 1, "back to the history after sending");
+  await page.screenshot({ path: `${EVIDENCE}/transfer-sent-${viewport.width}.png` });
+  assert.deepEqual(errors, [], "no page errors");
+  record(`manual transfer ${viewport.width}`);
+  await context.close();
+}
+{
+  const viewport = { width: 390, height: 844 };
+  const { context, page, errors } = await open({ data: "populated", role: "owner", started: false }, "/warehouse/game", viewport);
+  await page.waitForSelector("[data-bmq-warehouse-game]", { timeout: 20000 });
+  await page.waitForTimeout(1200);
+  await page.getByRole("button", { name: /KHO TÂN TẠO/i }).click({ force: true });
+  await page.waitForTimeout(900);
+  await page.locator("[data-bmq-transfer-van]").click({ force: true });
+  await page.waitForTimeout(500);
+  await page.locator("[data-bmq-transfer-new]").click({ force: true });
+  await page.waitForTimeout(400);
+  assert.equal(await page.locator(".kg .slip .warn", { hasText: "chưa bắt đầu" }).count(), 1, "ledger-not-started warning");
+  assert.equal(await page.locator("[data-bmq-slip-submit]").isDisabled(), true);
+  await page.screenshot({ path: `${EVIDENCE}/transfer-not-started-390.png` });
+  assert.deepEqual(errors, []);
+  record("manual transfer gate 390");
   await context.close();
 }
 for (const viewport of [{ width: 1440, height: 900 }, { width: 430, height: 932 }, { width: 390, height: 844 }, { width: 320, height: 640 }]) {

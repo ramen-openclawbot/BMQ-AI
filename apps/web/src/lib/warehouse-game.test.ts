@@ -3,7 +3,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  manualTransferErrorText,
   parseChangeStockItemUnitResult,
+  parseManualTransferResult,
   parseRenameStockItemResult,
   parseSetItemPastryQ7Result,
   parseWarehouseGameSnapshot,
@@ -254,5 +256,112 @@ test("parseChangeStockItemUnitResult keeps a nullable merge_id", () => {
         merge_id: null,
       }),
     TypeError,
+  );
+});
+
+test("parseWarehouseGameTransfers keeps the new manual transfer fields", () => {
+  const rows = parseWarehouseGameTransfers([
+    {
+      transfer_number: "CK-20261031-AB12CD",
+      transfer_date: "2026-10-31",
+      item_id: "11111111-1111-1111-1111-111111111111",
+      item_name: "Bột mì",
+      quantity: 4,
+      unit: "kg",
+      receipt_number: null,
+      source: "manual",
+      slip_id: "55555555-5555-5555-5555-555555555555",
+      slip_number: "CKP-20261031-AB12CD",
+      note: "Chuyển kho thủ công",
+    },
+    {
+      transfer_number: "CK-20261012-AB12CD",
+      transfer_date: "2026-10-12",
+      item_id: "11111111-1111-1111-1111-111111111111",
+      item_name: "Bột mì",
+      quantity: 12.5,
+      unit: "kg",
+      receipt_number: "GRN-001",
+    },
+  ]);
+  assert.equal(rows[0].source, "manual");
+  assert.equal(rows[0].slip_id, "55555555-5555-5555-5555-555555555555");
+  assert.equal(rows[0].slip_number, "CKP-20261031-AB12CD");
+  assert.equal(rows[0].note, "Chuyển kho thủ công");
+  assert.equal(rows[1].source, null);
+  assert.equal(rows[1].slip_id, null);
+  assert.equal(rows[1].slip_number, null);
+  assert.equal(rows[1].note, null);
+  assert.equal(rows[1].receipt_number, "GRN-001");
+});
+
+function validManualTransferResult(): Record<string, unknown> {
+  return {
+    slip_id: "55555555-5555-5555-5555-555555555555",
+    slip_number: "CKP-20261031-AB12CD",
+    transfer_date: "2026-10-31",
+    lines: [
+      {
+        transfer_id: "66666666-6666-6666-6666-666666666666",
+        transfer_number: "CK-20261031-AAAAAA",
+        item_id: "11111111-1111-1111-1111-111111111111",
+        item_name: "Bột mì",
+        quantity: 4,
+        unit: "kg",
+      },
+      {
+        transfer_id: "77777777-7777-7777-7777-777777777777",
+        transfer_number: "CK-20261031-BBBBBB",
+        item_id: "22222222-2222-2222-2222-222222222222",
+        item_name: "Đường",
+        quantity: 3,
+        unit: "kg",
+      },
+    ],
+  };
+}
+
+test("parseManualTransferResult reads the slip and its lines", () => {
+  const result = parseManualTransferResult(validManualTransferResult());
+  assert.equal(result.slip_id, "55555555-5555-5555-5555-555555555555");
+  assert.equal(result.slip_number, "CKP-20261031-AB12CD");
+  assert.equal(result.transfer_date, "2026-10-31");
+  assert.equal(result.lines.length, 2);
+  assert.equal(result.lines[1].transfer_number, "CK-20261031-BBBBBB");
+  assert.equal(result.lines[1].item_name, "Đường");
+  assert.equal(result.lines[1].quantity, 3);
+});
+
+test("parseManualTransferResult rejects a malformed payload", () => {
+  assert.throws(() => parseManualTransferResult(null), TypeError);
+  const noLines = validManualTransferResult();
+  delete noLines.lines;
+  assert.throws(() => parseManualTransferResult(noLines), TypeError);
+  const notArray = validManualTransferResult();
+  notArray.lines = {};
+  assert.throws(() => parseManualTransferResult(notArray), TypeError);
+  const noSlip = validManualTransferResult();
+  delete noSlip.slip_id;
+  assert.throws(() => parseManualTransferResult(noSlip), TypeError);
+  const noNumber = validManualTransferResult();
+  delete noNumber.slip_number;
+  assert.throws(() => parseManualTransferResult(noNumber), TypeError);
+  const badLine = validManualTransferResult();
+  (badLine.lines as Record<string, unknown>[])[0].quantity = "many";
+  assert.throws(() => parseManualTransferResult(badLine), TypeError);
+});
+
+test("manualTransferErrorText maps known codes with a generic fallback", () => {
+  assert.match(manualTransferErrorText("stock_insufficient"), /Tồn kho/);
+  assert.match(manualTransferErrorText("transfer_forbidden"), /quyền/);
+  assert.match(manualTransferErrorText("ledger_not_started"), /Sổ kho/);
+  assert.match(manualTransferErrorText("duplicate_item"), /lặp/);
+  assert.match(manualTransferErrorText("too_many_lines"), /30/);
+  assert.ok(manualTransferErrorText("does_not_exist").length > 0);
+  assert.equal(manualTransferErrorText(null), manualTransferErrorText("does_not_exist"));
+  // A Supabase message that embeds the code still maps.
+  assert.equal(
+    manualTransferErrorText("quantity_invalid: must be > 0"),
+    manualTransferErrorText("quantity_invalid"),
   );
 });

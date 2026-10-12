@@ -23,6 +23,7 @@ import { useStockCatalogReview } from "@/hooks/useStockCatalog";
 import { useMaterialAliasReview, useNewItemSuggestions } from "@/hooks/useMaterialAlias";
 import { useStockRoutingReview } from "@/hooks/useStockRouting";
 import { GameLoading } from "@/game/Loading";
+import { TransferSheet } from "@/game/TransferSlip";
 import { CountDone, CountLobby, CountSheet, CountSheetLoading, ReviewSheet, countErrorText, countProgress, dmy, type CountFilter } from "@/game/StockCount";
 import { useCancelStockCount, useSaveStockCountLine, useStartStockCount, useStockCountReview, useSubmitStockCount } from "@/hooks/useStockCount";
 import type { StockCountLine, StockCountLocation, StockCountSession } from "@/lib/stock-count";
@@ -45,7 +46,7 @@ type Panel =
   | { kind: "sku"; entry: ShelfEntry }
   | { kind: "crate"; location: WarehouseGameLocation; crate: WarehouseGamePendingRow }
   | { kind: "mission"; id: string }
-  | { kind: "transfers"; location: WarehouseGameLocation }
+  | { kind: "transfers"; location: WarehouseGameLocation; prefill?: string }
   | { kind: "count-review"; location: StockCountLocation }
   | null;
 
@@ -201,8 +202,10 @@ export default function WarehouseGame() {
   const [jev, setJev] = useState<{ location: WarehouseGameLocation; state: JevState; done: number; total: number } | null>(null);
   const [justSaved, setJustSaved] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const { isOwner, canEditModule } = useAuth();
+  const { isOwner, canEditModule, roles } = useAuth();
   const canClean = isOwner || canEditModule("q7_material_inventory") || canEditModule("kitchen_inventory");
+  // Same gate as public.create_manual_stock_transfer (server re-checks).
+  const canTransfer = isOwner || roles.includes("warehouse") || canEditModule("inventory") || canEditModule("q7_material_inventory");
   const catalogReview = useStockCatalogReview();
   const aliasReview = useMaterialAliasReview(7);
   const newQ7 = useNewItemSuggestions("q7");
@@ -473,19 +476,17 @@ export default function WarehouseGame() {
           </Sheet>
         ) : null}
 
-        {panel?.kind === "transfers" && current ? (
-          <Sheet title="Phiếu chuyển kho" tag="🚚 Tân Tạo → Q7" sub="Máy tự lập khi ghi sổ phiếu nhập món bánh ngọt" onClose={() => setPanel(null)}>
-            {current.transfers.length ? (
-              <ul className="transfer-list" data-bmq-transfer-list>
-                {current.transfers.map((row) => (
-                  <li key={row.transfer_number}>
-                    <span><b>{row.item_name}</b><small>{row.transfer_number} · {row.transfer_date.split("-").reverse().join("/")}{row.receipt_number ? ` · từ ${row.receipt_number}` : ""}</small></span>
-                    <em>+{fmtQty(row.quantity)} {row.unit}</em>
-                  </li>
-                ))}
-              </ul>
-            ) : <p className="note">Chưa có phiếu chuyển nào. Phiếu đầu tiên tự xuất hiện khi Tân Tạo bắt đầu sổ (kiểm kê lần đầu) và ghi sổ phiếu nhập có món bánh ngọt.</p>}
-          </Sheet>
+        {panel?.kind === "transfers" ? (
+          <TransferSheet
+            key={panel.prefill ?? "list"}
+            items={tt.data?.items ?? []}
+            ttStarted={Boolean(tt.data?.cutover_date)}
+            q7Started={Boolean(q7.data?.cutover_date)}
+            canTransfer={canTransfer}
+            prefillId={panel.prefill ?? null}
+            onDone={(message) => setToast(message)}
+            onClose={() => setPanel(null)}
+          />
         ) : null}
 
         {panel?.kind === "sku" ? (
@@ -508,6 +509,7 @@ export default function WarehouseGame() {
               others={current.items}
               canEdit={current.can_edit}
               started={Boolean(current.cutover_date)}
+              onTransfer={panel.location === "tan_tao" && canTransfer && item.on_hand > 0 ? () => setPanel({ kind: "transfers", location: "tan_tao", prefill: item.id }) : undefined}
               onDone={(id, message) => { setJustSaved(id); window.setTimeout(() => setJustSaved(null), 2600); setToast(message); setPanel(null); }}
               onClose={() => setPanel(null)}
             />
@@ -585,8 +587,8 @@ function PastrySwitch({ item, canEdit }: { item: WarehouseGameItem; canEdit: boo
   );
 }
 
-function ItemSheet({ item, others, canEdit, started, onDone, onClose }: {
-  item: WarehouseGameItem; others: WarehouseGameItem[]; canEdit: boolean; started: boolean;
+function ItemSheet({ item, others, canEdit, started, onTransfer, onDone, onClose }: {
+  item: WarehouseGameItem; others: WarehouseGameItem[]; canEdit: boolean; started: boolean; onTransfer?: () => void;
   onDone: (id: string, message: string) => void; onClose: () => void;
 }) {
   const rename = useRenameStockItem();
@@ -638,6 +640,7 @@ function ItemSheet({ item, others, canEdit, started, onDone, onClose }: {
             <div><small>Bí danh</small><b>{item.aliases.length}</b></div>
           </div>
           <PastrySwitch item={item} canEdit={canEdit} />
+          {onTransfer ? <button type="button" className="btn slip-new" onClick={onTransfer} data-bmq-item-transfer>🚚 Chuyển sang Q7</button> : null}
           {canEdit ? <ItemNotes itemId={item.id} /> : null}
           <div className="checklist">
             <small>Cách ghi trên phiếu nhập</small>
