@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useChangeStockItemUnit, useRenameStockItem, useWarehouseGameSnapshot, WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY } from "@/hooks/useWarehouseGame";
 import { useConfirmMaterialAlias, useCreateStockMaterialItem, useRunAliasBacklog } from "@/hooks/useMaterialAlias";
-import { CrateYard, type JevState } from "@/game/CrateYard";
+import { CrateYard, cleanCrateName, type JevState } from "@/game/CrateYard";
 import { unitConversionFor, type WarehouseGameItem, type WarehouseGameLocation, type WarehouseGamePendingRow, type WarehouseGameSnapshot } from "@/lib/warehouse-game";
 import { packFactorFor } from "@/components/material-alias/new-stock-item";
 import { Yard, type Zone } from "@/game/Yard";
@@ -456,7 +456,7 @@ function CrateSheet({ location, crate, snapshot, autoPick = false, onAssigned, o
   const [query, setQuery] = useState("");
   const [target, setTarget] = useState<Target | null>(null);
   const [creating, setCreating] = useState(false);
-  const [newName, setNewName] = useState(crate.raw_name.replace(/^\s*(\[[^\]]*\]\s*)+/, "").split("/")[0].trim());
+  const [newName, setNewName] = useState(() => cleanCrateName(crate.raw_name));
   const [newUnit, setNewUnit] = useState("g");
   const [packLabel, setPackLabel] = useState("");
   const [factorText, setFactorText] = useState("1");
@@ -475,10 +475,10 @@ function CrateSheet({ location, crate, snapshot, autoPick = false, onAssigned, o
     return item ? toItem(item) : null;
   }, [crate, snapshot]);
   const q = normalizeName(query);
-  const matches = snapshot.items
-    .filter((item) => item.id !== suggested?.id)
-    .filter((item) => (q ? normalizeName(item.name).includes(q) : true))
-    .slice(0, 8);
+  // Only search results: an unfiltered A→Z list looked like a suggestion (owner 12/10, "tỏi ngày 10").
+  const matches = q
+    ? snapshot.items.filter((item) => item.id !== suggested?.id && normalizeName(item.name).includes(q)).slice(0, 8)
+    : [];
 
   const pick = (next: Target) => {
     const pack = packFactorFor(crate.raw_name, next.unit);
@@ -563,8 +563,13 @@ function CrateSheet({ location, crate, snapshot, autoPick = false, onAssigned, o
               <span><b>{suggested.name}</b><small>{crate.jev_source === "exact" ? "Trùng tên" : crate.jev_item_id ? `Jev ${Math.round((crate.jev_probability ?? 0) * 100)}%` : "Gần nhất"} · {suggested.kind === "sku" ? "Thành phẩm SKU" : CLASS_META[suggested.cls].label} · {suggested.unit}</small></span>
               <span className="pick-go">Chọn</span>
             </button>
-          ) : <p className="note">Jev chưa chắc mặt hàng nào. Tìm bên dưới hoặc tạo mới.</p>}
-          <label className="field">Chọn mặt hàng khác<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="gõ tên để tìm…" /></label>
+          ) : (
+            <div className="no-hint" data-bmq-crate-nohint>
+              <p className="note">Kho chưa có mặt hàng giống tên này, nên Jev chưa có gì để gợi ý.</p>
+              <button type="button" className="btn" onClick={() => setCreating(true)}>＋ Tạo mặt hàng “{cleanCrateName(crate.raw_name)}”</button>
+            </div>
+          )}
+          <label className="field">{suggested ? "Hoặc tìm mặt hàng khác" : "Hoặc tìm trong kho"}<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="gõ tên để tìm…" /></label>
           <div className="picks">
             {matches.map((item) => (
               <button key={item.id} type="button" className="pick" onClick={() => pick(toItem(item))}>
@@ -573,8 +578,9 @@ function CrateSheet({ location, crate, snapshot, autoPick = false, onAssigned, o
             ))}
           </div>
           {error ? <div className="err">{errorText(error)}</div> : null}
+          {q && matches.length === 0 ? <p className="note" style={{ fontSize: 13 }}>Không có mặt hàng nào khớp “{query}”.</p> : null}
           <div className="row">
-            <button type="button" className="btn ghost" onClick={() => setCreating(true)}>＋ Mặt hàng mới</button>
+            {suggested ? <button type="button" className="btn ghost" onClick={() => setCreating(true)}>＋ Mặt hàng mới</button> : null}
             <button type="button" className="btn ghost" disabled={busy} onClick={() => send(null, "non_stock")}>Không nhập kho</button>
             <button type="button" className="btn ghost" onClick={onClose}>Để sau</button>
           </div>

@@ -601,3 +601,8 @@
   .kg .mission-hud .todo-bar { width: 34px; }
   .kg .title-pill { padding: 5px 10px; }
 }
+/* Crate with no hint: create it (owner 12/10). */
+.kg .no-hint { display: grid; gap: 10px; padding: 12px; background: var(--mustard-light); border: 2.5px solid var(--ink); border-radius: 14px; }
+.kg .no-hint .btn { width: 100%; height: auto; min-height: 50px; padding: 8px 14px; line-height: 1.2; overflow-wrap: anywhere; }
+.kg .yard-lot.is-new { background-color: #f6e3c8; background-image: none; }
+.kg .crate-go.is-new { background: var(--mustard); color: var(--ink); }

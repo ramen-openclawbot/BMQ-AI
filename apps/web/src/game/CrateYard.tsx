@@ -53,6 +53,15 @@ const shortDate = (iso: string | null | undefined) => {
   return d && m ? `${d}/${m}` : iso;
 };
 
+/** Receipt name → a clean catalog name: no [tags], no "/ English", no "ngày 10" or trailing day number. */
+export function cleanCrateName(raw: string): string {
+  let name = raw.replace(/^\s*(\[[^\]]*\]\s*)+/, "").split("/")[0];
+  name = name.replace(/\bng[aà]y\s*\d{1,2}\b/giu, " ").replace(/\s+\d{1,2}\s*$/u, "").replace(/\s+/g, " ").trim();
+  if (!name) return raw.trim();
+  if (name === name.toUpperCase() && /\p{L}/u.test(name)) name = name.toLowerCase();
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
 /** What the label sheet will offer first for a crate: the Jev pick, else the closest name. */
 export function crateHint(crate: WarehouseGamePendingRow): { name: string; unit: string | null; tag: string; strong: boolean } | null {
   if (crate.jev_item_id && crate.jev_item_name) {
@@ -83,8 +92,8 @@ function CrateCard({ crate, index, leaving, onOpen }: { crate: WarehouseGamePend
             <small>{hint.tag}</small>
             <span>{hint.name}{hint.unit ? ` · ${hint.unit}` : ""}</span>
           </span>
-        ) : <span className="crate-hint is-none"><small>Chưa có gợi ý</small><span>Chọn tay hoặc tạo mới</span></span>}
-        <span className="crate-go">{hint ? "Dán nhãn ›" : "Chọn nhãn ›"}</span>
+        ) : <span className="crate-hint is-none"><small>Chưa có trong kho</small><span>Tạo mới “{cleanCrateName(crate.raw_name)}”</span></span>}
+        <span className={`crate-go${hint ? "" : " is-new"}`}>{hint ? "Dán nhãn ›" : "＋ Tạo mới ›"}</span>
       </button>
     </li>
   );
@@ -97,7 +106,8 @@ export function CrateYard({ location, crates, canAssign, jev, progress, leavingK
   onRunJev: () => void; onOpen: (crate: WarehouseGamePendingRow) => void;
 }) {
   const withHint = crates.filter((crate) => crateHint(crate)?.strong);
-  const rest = crates.filter((crate) => !crateHint(crate)?.strong);
+  const near = crates.filter((crate) => { const hint = crateHint(crate); return hint && !hint.strong; });
+  const fresh = crates.filter((crate) => !crateHint(crate));
   const label = location === "q7" ? "Kho Q7" : "Kho Tân Tạo";
   const say = !canAssign ? "Chỉ chủ hoặc người sửa kho được dán nhãn."
     : jev === "working" ? `Jev đang phân loại…${progress && progress.total ? ` ${progress.done}/${progress.total}` : ""}`
@@ -128,10 +138,16 @@ export function CrateYard({ location, crates, canAssign, jev, progress, leavingK
           <ul className="crate-grid">{withHint.map((crate, i) => <CrateCard key={crateKey(crate)} crate={crate} index={i} leaving={leavingKey === crateKey(crate)} onOpen={() => onOpen(crate)} />)}</ul>
         </section>
       ) : null}
-      {canAssign && rest.length ? (
+      {canAssign && near.length ? (
         <section className="yard-lot">
-          <h2 className="cork-title"><span>📦</span> {withHint.length ? "Chưa rõ" : "Thùng chờ"} · {rest.length}</h2>
-          <ul className="crate-grid">{rest.map((crate, i) => <CrateCard key={crateKey(crate)} crate={crate} index={i} leaving={leavingKey === crateKey(crate)} onOpen={() => onOpen(crate)} />)}</ul>
+          <h2 className="cork-title"><span>📦</span> Chưa rõ · {near.length}</h2>
+          <ul className="crate-grid">{near.map((crate, i) => <CrateCard key={crateKey(crate)} crate={crate} index={i} leaving={leavingKey === crateKey(crate)} onOpen={() => onOpen(crate)} />)}</ul>
+        </section>
+      ) : null}
+      {canAssign && fresh.length ? (
+        <section className="yard-lot is-new" data-bmq-crate-lot="new">
+          <h2 className="cork-title"><span>✨</span> Chưa có trong kho · tạo mới · {fresh.length}</h2>
+          <ul className="crate-grid">{fresh.map((crate, i) => <CrateCard key={crateKey(crate)} crate={crate} index={i} leaving={leavingKey === crateKey(crate)} onOpen={() => onOpen(crate)} />)}</ul>
         </section>
       ) : null}
     </div>

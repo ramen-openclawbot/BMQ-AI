@@ -463,6 +463,25 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       writes = await page.evaluate(() => window.__qaWrites);
       assert.ok(writes.some((w) => w.startsWith("rpc:confirm_material_alias:") && w.includes('"p_location":"q7"') && w.includes('"p_source_table":"warehouse_game"') && w.includes('"p_line_class":"stock"')), JSON.stringify(writes));
       await page.waitForTimeout(900);
+      const freshLot = page.locator("[data-bmq-crate-lot='new'] [data-bmq-crate]");
+      if (await freshLot.count()) {
+        await freshLot.first().click({ force: true });
+        await page.waitForTimeout(700);
+        assert.equal(await page.locator("[data-bmq-crate-nohint]").count(), 1, "no-hint crate offers create");
+        assert.equal(await page.locator(".kg .sheet .picks .pick").count(), 0, "no A→Z list before typing");
+        await page.screenshot({ path: `${EVIDENCE}/crate-nohint-${viewport.width}.png` });
+        await page.locator(".kg .sheet .field input").first().fill("bột");
+        await page.waitForTimeout(200);
+        assert.ok((await page.locator(".kg .sheet .picks .pick").count()) > 0, "typing lists matches");
+        await page.locator("[data-bmq-crate-nohint] .btn").click({ force: true });
+        await page.waitForTimeout(300);
+        const created = await page.locator(".kg .sheet .field input").first().inputValue();
+        assert.ok(created.length >= 2 && !/ngày\s*\d/i.test(created), `clean new name: ${created}`);
+        await page.locator(".kg .sheet .close").click({ force: true });
+        await page.waitForTimeout(300);
+      } else {
+        record(`(note) fixture has no hint-less crate ${viewport.width}`);
+      }
       await page.locator(".kg .hud .round-btn").first().click({ force: true });
       await page.waitForTimeout(800);
     } else {
