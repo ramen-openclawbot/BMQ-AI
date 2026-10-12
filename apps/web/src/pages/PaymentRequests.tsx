@@ -5,8 +5,6 @@ import { format } from "date-fns";
 import { vi, enUS } from "date-fns/locale";
 import {
   AlertTriangle,
-  Banknote,
-  HandCoins,
   CalendarDays,
   CheckCircle2,
   ChevronLeft,
@@ -16,7 +14,6 @@ import {
   Loader2,
   MessageCircle,
   PackageCheck,
-  Plus,
   ReceiptText,
   RefreshCw,
   Search,
@@ -48,6 +45,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { AddPaymentRequestDialog } from "@/components/dialogs/AddPaymentRequestDialog";
+import { CreatePaymentMenu, type CreatePaymentChoice } from "@/components/payment-requests/CreatePaymentMenu";
 import { PaymentRequestDetailsDialog } from "@/components/dialogs/PaymentRequestDetailsDialog";
 import { ExportApprovedPDF } from "@/components/payment-requests/ExportApprovedPDF";
 
@@ -121,6 +119,7 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
   const [deletingRequestId, setDeletingRequestId] = useState<string | null>(null);
   const [cashCreateOpen, setCashCreateOpen] = useState(false);
   const [salaryCreateOpen, setSalaryCreateOpen] = useState(false);
+  const [poCreateOpen, setPoCreateOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [sourceFilter, setSourceFilter] = useState<string>(defaultSourceFilter);
   const [searchTerm, setSearchTerm] = useState("");
@@ -155,6 +154,12 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
   const canEditPaymentRequests = canEditModule("payment_requests");
   // Chi lương has its own entry, only for the owner and quyền Chi lương.
   const canSalary = isOwner || canEditModule("salary_cash");
+  // One "Tạo duyệt chi" menu opens one of the three create dialogs.
+  const openCreate = (choice: CreatePaymentChoice) => {
+    if (choice === "po") setPoCreateOpen(true);
+    else if (choice === "cash") setCashCreateOpen(true);
+    else if (canSalary) setSalaryCreateOpen(true);
+  };
 
   const {
     data: requests,
@@ -594,25 +599,8 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
       {view === "unpaid" ? (
         <>
           {/* Create from the default tab too (it was only under Tất cả). */}
-          <div className="mb-3 grid grid-cols-2 gap-2 sm:flex sm:justify-end" data-bmq-pr-create-unpaid>
-            <Button variant="outline" className="h-11 w-full gap-2 whitespace-nowrap sm:w-auto sm:px-5" onClick={() => setCashCreateOpen(true)} data-bmq-cash-pr-open>
-              <Banknote className="h-4 w-4" />
-              {isVi ? "Chi tiền mặt" : "Cash expense"}
-            </Button>
-            {canSalary && (
-              <Button variant="outline" className="h-11 w-full gap-2 whitespace-nowrap sm:w-auto sm:px-5" onClick={() => setSalaryCreateOpen(true)} data-bmq-salary-open>
-                <HandCoins className="h-4 w-4" />
-                {isVi ? "Chi lương" : "Payroll cash"}
-              </Button>
-            )}
-            <AddPaymentRequestDialog
-              trigger={
-                <Button className={cn("d3-pa-primary h-11 w-full whitespace-nowrap sm:w-auto sm:px-6", canSalary && "col-span-2")}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  {isVi ? "Tạo duyệt chi" : "Create request"}
-                </Button>
-              }
-            />
+          <div className="mb-3 flex justify-end" data-bmq-pr-create-unpaid>
+            <CreatePaymentMenu canSalary={canSalary} onChoose={openCreate} isVi={isVi} className="h-11 w-full sm:w-auto sm:px-6" />
           </div>
           <UrgentPayablesPanel canSubmit={isOwner || canEditPaymentRequests} onOpenRequest={setSelectedRequestId} />
         </>
@@ -668,26 +656,7 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
             />
           </div>
 
-          <Button variant="outline" className="h-12 gap-2 rounded-md px-5 text-sm font-medium" onClick={() => setCashCreateOpen(true)}>
-            <Banknote className="h-5 w-5" />
-            {isVi ? "Chi tiền mặt" : "Cash expense"}
-          </Button>
-
-          {canSalary && (
-            <Button variant="outline" className="h-12 gap-2 rounded-md px-5 text-sm font-medium" onClick={() => setSalaryCreateOpen(true)}>
-              <HandCoins className="h-5 w-5" />
-              {isVi ? "Chi lương" : "Payroll cash"}
-            </Button>
-          )}
-
-          <AddPaymentRequestDialog
-            trigger={
-              <Button className="d3-pa-primary h-12 rounded-md px-6 text-sm font-medium shadow-sm">
-                <Plus className="h-5 w-5" />
-                {isVi ? "Tạo duyệt chi" : "Create request"}
-              </Button>
-            }
-          />
+          <CreatePaymentMenu canSalary={canSalary} onChoose={openCreate} isVi={isVi} className="h-12 rounded-md px-6 text-sm font-medium shadow-sm" />
 
           <Button
             variant="outline"
@@ -852,15 +821,8 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
             </button>
           </div>
         ) : null}
-        {canSalary && (
-          <div className="mb-2 grid grid-cols-2 gap-2">
-            <Button variant="outline" className="h-11 w-full gap-2 whitespace-nowrap" onClick={() => setCashCreateOpen(true)}><Banknote className="h-4 w-4" />{isVi ? "Chi tiền mặt" : "Cash expense"}</Button>
-            <Button variant="outline" className="h-11 w-full gap-2 whitespace-nowrap" onClick={() => setSalaryCreateOpen(true)}><HandCoins className="h-4 w-4" />{isVi ? "Chi lương" : "Payroll cash"}</Button>
-          </div>
-        )}
-        <div className={cn("grid gap-2", canSalary ? "grid-cols-[minmax(0,1fr)_44px]" : "grid-cols-[minmax(0,1fr)_minmax(0,1fr)_44px]")}>
-          {!canSalary && <Button variant="outline" className="h-11 w-full gap-2 whitespace-nowrap" onClick={() => setCashCreateOpen(true)}><Banknote className="h-4 w-4" />{isVi ? "Chi tiền mặt" : "Cash expense"}</Button>}
-          <AddPaymentRequestDialog trigger={<Button className="d3-pa-primary h-11 w-full whitespace-nowrap"><Plus className="mr-2 h-4 w-4" />{isVi ? "Tạo duyệt chi" : "Create request"}</Button>} />
+        <div className="grid grid-cols-[minmax(0,1fr)_44px] gap-2">
+          <CreatePaymentMenu canSalary={canSalary} onChoose={openCreate} isVi={isVi} className="h-11 w-full" />
           <Button variant="outline" size="icon" className="d3-pa-icon" onClick={() => setShowDriveInvoiceDialog(true)} title={isVi ? "Nhập từ Google Drive" : "Import from Google Drive"}><Upload className="h-4 w-4" /></Button>
         </div>
       </div>
@@ -1115,6 +1077,7 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
       </>
       )}
 
+      <AddPaymentRequestDialog open={poCreateOpen} onOpenChange={setPoCreateOpen} />
       <CashPaymentRequestDialog open={cashCreateOpen} onOpenChange={setCashCreateOpen} />
       {canSalary && <SalaryPayoutDialog open={salaryCreateOpen} onOpenChange={setSalaryCreateOpen} />}
       <UncApprovalDialog

@@ -313,7 +313,7 @@ try {
   // 4. Create dialog: the option shows a reason field and blocks submit without a reason.
   for (const viewport of WIDTHS) {
     const { context, page, errors } = await open({ role: "owner" }, "/payment-requests", viewport);
-    await page.getByRole("button", { name: "Tạo duyệt chi" }).first().click();
+    await page.locator("[data-bmq-pr-create-menu]").first().click(); await page.locator("[data-bmq-pr-create-choice='po']").first().click();
     const toggle = page.locator("[data-bmq-no-receipt-toggle]");
     await toggle.waitFor();
     assert.equal(await page.locator("[data-bmq-no-receipt-reason]").count(), 0);

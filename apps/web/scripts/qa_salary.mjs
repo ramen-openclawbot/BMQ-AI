@@ -202,7 +202,7 @@ try {
     const w = viewport.width;
     const { context, page, errors } = await open({ role: "owner" }, "/payment-requests", viewport);
     await page.evaluate(() => sessionStorage.removeItem("qa-salary"));
-    await page.locator("[data-bmq-salary-open]").first().click();
+    await page.locator("[data-bmq-pr-create-menu]").first().click(); await page.locator("[data-bmq-pr-create-choice='salary']").first().click();
     await page.waitForSelector("[data-bmq-salary-period]");
     assert.equal(await page.locator("[data-bmq-salary-period]").count(), 1, "only the published period is offered");
     await page.locator("[data-bmq-salary-period]").click();
@@ -260,7 +260,7 @@ try {
     const w = viewport.width;
     const { context, page, errors } = await open({ role: "accountant", salary: true }, "/payment-requests", viewport);
     await page.evaluate(() => sessionStorage.removeItem("qa-salary"));
-    await page.locator("[data-bmq-salary-open]").first().click();
+    await page.locator("[data-bmq-pr-create-menu]").first().click(); await page.locator("[data-bmq-pr-create-choice='salary']").first().click();
     await page.locator('[data-bmq-salary-kind="manual"]').click();
     const head = await page.locator("[data-bmq-salary-dialog] .d3-unc-head").textContent();
     assert.ok(head.includes("Tạo phiếu lương lẻ") && head.includes("ngoài bếp Q7") && !head.includes("bảng lương Q7"), head);
@@ -316,8 +316,8 @@ try {
   }
   {
     const { context, page, errors } = await open({ role: "accountant" }, "/payment-requests", { width: 390, height: 844 });
-    assert.equal(await page.locator("[data-bmq-salary-open]").count(), 0, "no Chi lương button without permission");
-    await page.locator("[data-bmq-cash-pr-open]").first().click();
+    await page.locator("[data-bmq-pr-create-menu]").first().click(); assert.equal(await page.locator("[data-bmq-pr-create-choice='salary']").count(), 0, "no Chi lương choice without permission"); await page.keyboard.press("Escape"); await page.waitForTimeout(350);
+    await page.locator("[data-bmq-pr-create-menu]").first().click(); await page.locator("[data-bmq-pr-create-choice='cash']").first().click();
     await page.waitForSelector("[data-bmq-cash-pr-dialog]");
     assert.equal(await page.locator("[data-bmq-cash-pr-dialog] [role=tab]").count(), 0, "cash dialog has no salary tabs");
     await page.goto(page.url().replace(/\/payment-requests.*$/, `/salary-payouts/${PAYOUT_ID}`));
@@ -328,9 +328,9 @@ try {
   }
   {
     const { context, page, errors } = await open({ role: "accountant", salary: true }, "/payment-requests", { width: 390, height: 844 });
-    assert.equal(await page.locator("[data-bmq-salary-open]").count(), 1, "Chi lương button with permission");
+    await page.locator("[data-bmq-pr-create-menu]").first().click(); assert.equal(await page.locator("[data-bmq-pr-create-choice='salary']").count(), 1, "Chi lương choice with permission"); await page.keyboard.press("Escape"); await page.waitForTimeout(350);
     await page.screenshot({ path: `${EVIDENCE}/entry-390.png` });
-    await page.locator("[data-bmq-cash-pr-open]").first().click();
+    await page.locator("[data-bmq-pr-create-menu]").first().click(); await page.locator("[data-bmq-pr-create-choice='cash']").first().click();
     await page.waitForSelector("[data-bmq-cash-pr-dialog]");
     assert.equal(await page.locator("[data-bmq-cash-pr-dialog] [role=tab]").count(), 0, "cash dialog is khoản chi only");
     await page.locator("[data-bmq-cash-pr-dialog]").screenshot({ path: `${EVIDENCE}/cash-only-390.png` });

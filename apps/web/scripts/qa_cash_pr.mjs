@@ -228,11 +228,17 @@ try {
       if (!data) return route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "AI gateway error: 500" }) });
       return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data }) });
     });
-    const openBtn = page.locator("[data-bmq-cash-pr-open]").first();
+    const openBtn = page.locator("[data-bmq-pr-create-menu]").first();
     await openBtn.waitFor();
     assert.ok(await overflowOk(page), `page overflow ${w}`);
     await page.screenshot({ path: `${EVIDENCE}/entry-${w}.png` });
     await openBtn.click();
+    await page.locator("[data-bmq-pr-create-choice='cash']").first().waitFor();
+    await page.waitForTimeout(400);
+    assert.equal(await page.locator("[data-bmq-pr-create-choice]").count(), 2, `accountant without quyền Chi lương sees PO + cash only ${w}`);
+    assert.ok(await overflowOk(page), `create menu overflow ${w}`);
+    await page.screenshot({ path: `${EVIDENCE}/create-menu-${w}.png` });
+    await page.locator("[data-bmq-pr-create-choice='cash']").first().click();
     await page.waitForSelector(DLG);
     await page.waitForTimeout(250);
     await page.locator(DLG).screenshot({ path: `${EVIDENCE}/empty-${w}.png` });

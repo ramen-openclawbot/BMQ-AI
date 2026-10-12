@@ -420,7 +420,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
   // Phiếu chi: blocked while unanswered.
   {
     const { context, page, errors } = await open({ data: "populated" }, "/payment-requests", viewport);
-    await page.getByRole("button", { name: /Tạo duyệt chi/ }).first().click();
+    await page.locator("[data-bmq-pr-create-menu]").first().click(); await page.locator("[data-bmq-pr-create-choice='po']").first().click();
     await page.waitForSelector("[data-bmq-pr-create-dialog]", { timeout: 15000 });
     await pickSupplier(page);
     await page.getByRole("button", { name: /Thêm/ }).last().click();

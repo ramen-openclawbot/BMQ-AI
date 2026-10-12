@@ -207,6 +207,7 @@ try {
     assert.ok(await overflowOk(page), `page overflow ${viewport.width}`);
     await page.screenshot({ path: `${EVIDENCE}/unpaid-tab-${viewport.width}.png` });
     await trigger.click();
+    await page.locator("[data-bmq-pr-create-choice='po']").first().click();
 
     const overflowers = async () => page.evaluate(() => {
       const dlg = document.querySelector('[role="dialog"]');
