@@ -30,6 +30,7 @@ interface ReceiptInfo {
   id: string;
   purchase_order_id: string | null;
   goods_receipt_id: string | null;
+  payment_method: string | null;
   goods_receipts: {
     receipt_number: string | null;
     receipt_date: string | null;
@@ -52,7 +53,7 @@ function useSubmissionReceipts(ids: string[]) {
     queryFn: async (): Promise<ReceiptInfo[]> => {
       const { data, error } = await supabase
         .from("payment_requests")
-        .select("id, purchase_order_id, goods_receipt_id, goods_receipts!payment_requests_goods_receipt_id_fkey(receipt_number, receipt_date, status, image_url, purchase_order_id, purchase_orders!fk_goods_receipts_purchase_order(image_url))")
+        .select("id, purchase_order_id, goods_receipt_id, payment_method, goods_receipts!payment_requests_goods_receipt_id_fkey(receipt_number, receipt_date, status, image_url, purchase_order_id, purchase_orders!fk_goods_receipts_purchase_order(image_url))")
         .in("id", ids);
       if (error) throw error;
       return (data ?? []) as unknown as ReceiptInfo[];
@@ -91,7 +92,14 @@ export default function PaymentSubmission() {
   const remainingTotal = open.reduce((sum, i) => sum + Number(i.remaining_amount || 0), 0);
   const dialogRequests = payWith ? items.filter((i) => payWith.ids.includes(i.payment_request_id)).map(toDialogRequest) : [];
 
-  const bulkRequests: UncBulkPaymentRequest[] = open.map((i) => ({
+  const itemIds = useMemo(() => items.map((i) => i.payment_request_id), [items]);
+  const { data: receipts } = useSubmissionReceipts(itemIds);
+  const receiptById = useMemo(() => new Map((receipts ?? []).map((r) => [r.id, r])), [receipts]);
+  // Chi tiền mặt phiếu are paid only as cash: "Chi UNC" would switch them to chuyển khoản.
+  const cashIds = useMemo(() => new Set((receipts ?? []).filter((r) => r.payment_method === "cash").map((r) => r.id)), [receipts]);
+  const pickedHasCash = Array.from(picked).some((id) => cashIds.has(id));
+
+  const bulkRequests: UncBulkPaymentRequest[] = open.filter((i) => !cashIds.has(i.payment_request_id)).map((i) => ({
     id: i.payment_request_id,
     requestNumber: i.request_number,
     supplierId: i.supplier_id,
@@ -99,10 +107,6 @@ export default function PaymentSubmission() {
     remaining: Number(i.remaining_amount || 0),
     createdAt: i.created_at,
   }));
-
-  const itemIds = useMemo(() => items.map((i) => i.payment_request_id), [items]);
-  const { data: receipts } = useSubmissionReceipts(itemIds);
-  const receiptById = useMemo(() => new Map((receipts ?? []).map((r) => [r.id, r])), [receipts]);
   const flagEntityIds = useMemo(
     () => [...new Set([...itemIds, ...(receipts ?? []).map((r) => r.purchase_order_id).filter((v): v is string => !!v)])],
     [itemIds, receipts],
@@ -229,9 +233,11 @@ export default function PaymentSubmission() {
                   </button>
                   {isOwner && !paid && (
                     <div className="d3-ps-acts">
-                      <Button size="sm" className="d3-ps-unc" onClick={() => setPayWith({ method: "bank_transfer", ids: [item.payment_request_id] })} data-bmq-submission-pay-unc>
-                        <CreditCard className="h-4 w-4" /> Chi UNC
-                      </Button>
+                      {!cashIds.has(item.payment_request_id) && (
+                        <Button size="sm" className="d3-ps-unc" onClick={() => setPayWith({ method: "bank_transfer", ids: [item.payment_request_id] })} data-bmq-submission-pay-unc>
+                          <CreditCard className="h-4 w-4" /> Chi UNC
+                        </Button>
+                      )}
                       <Button size="sm" variant="outline" className="d3-ps-cash" onClick={() => setPayWith({ method: "cash", ids: [item.payment_request_id] })} data-bmq-submission-pay-cash>
                         <Banknote className="h-4 w-4" /> Tiền mặt
                       </Button>
@@ -253,7 +259,7 @@ export default function PaymentSubmission() {
                 <Button variant="outline" className="d3-ps-cash" onClick={() => setPayWith({ method: "cash", ids: Array.from(picked) })} data-bmq-submission-multi-cash>
                   <Banknote className="h-4 w-4" /> Tiền mặt
                 </Button>
-                <Button className="d3-up-go" onClick={() => setPayWith({ method: "bank_transfer", ids: Array.from(picked) })} data-bmq-submission-multi-unc>
+                <Button className="d3-up-go" disabled={pickedHasCash} title={pickedHasCash ? "Có phiếu Chi tiền mặt — chỉ ghi chi bằng Tiền mặt" : undefined} onClick={() => setPayWith({ method: "bank_transfer", ids: Array.from(picked) })} data-bmq-submission-multi-unc>
                   <CreditCard className="h-4 w-4" /> Chi UNC ({picked.size})
                 </Button>
               </div>

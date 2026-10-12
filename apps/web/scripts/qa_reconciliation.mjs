@@ -57,18 +57,23 @@ const SUB_ITEMS = [
   { payment_request_id: "pr-bb", position: 1, remaining_at_submit: 8800000, request_number: "PR-8CA755E0", title: "Duyệt chi PO PO-000820", supplier_id: "s-bb", supplier_name: "Bao bì Minh Tuấn", total_amount: 8800000, allocated_amount: 0, remaining_amount: 8800000, status: "pending", payment_status: "unpaid", requires_receipt: true, created_at: today + "T02:00:00Z" },
   { payment_request_id: "pr-ta-2", position: 2, remaining_at_submit: 2761350, request_number: "PR-MMEK7ZD8", title: "Đề nghị chi - PO-000144", supplier_id: "s-ta", supplier_name: "Tuyết Anh", total_amount: 2761350, allocated_amount: 0, remaining_amount: 2761350, status: "pending", payment_status: "unpaid", requires_receipt: true, created_at: today + "T02:10:00Z" },
   { payment_request_id: "pr-img", position: 3, remaining_at_submit: 1295000, request_number: "PR-1MG00001", title: "Duyệt chi PO PO-000680", supplier_id: "s-tr", supplier_name: "Thủy Rau Củ", total_amount: 1295000, allocated_amount: 0, remaining_amount: 1295000, status: "pending", payment_status: "unpaid", requires_receipt: true, created_at: today + "T02:20:00Z" },
+  { payment_request_id: "pr-cash", position: 4, remaining_at_submit: 800000, request_number: "PR-CASH0001", title: "chi tiền mặt 12/10", supplier_id: null, supplier_name: null, total_amount: 800000, allocated_amount: 0, remaining_amount: 800000, status: "pending", payment_status: "unpaid", requires_receipt: false, created_at: today + "T03:30:00Z" },
 ];
 const RECEIPTS = [
   // No image on the receipt nor its PO → "Thiếu ảnh giao hàng".
-  { id: "pr-bb", purchase_order_id: "po-820", goods_receipt_id: "gr-571", goods_receipts: { receipt_number: "GRN-000571", receipt_date: today, status: "confirmed", image_url: null, purchase_order_id: "po-820", purchase_orders: { image_url: null } } },
+  { id: "pr-bb", purchase_order_id: "po-820", goods_receipt_id: "gr-571", payment_method: "bank_transfer", goods_receipts: { receipt_number: "GRN-000571", receipt_date: today, status: "confirmed", image_url: null, purchase_order_id: "po-820", purchase_orders: { image_url: null } } },
   // Image only on the PO → no chip (same fallback as the DB guard).
-  { id: "pr-img", purchase_order_id: "po-680", goods_receipt_id: "gr-423", goods_receipts: { receipt_number: "GRN-000423", receipt_date: today, status: "confirmed", image_url: null, purchase_order_id: "po-680", purchase_orders: { image_url: "po-680/delivery.jpg" } } },
-  { id: "pr-ta-2", purchase_order_id: PO_TA, goods_receipt_id: null, goods_receipts: null },
+  { id: "pr-img", purchase_order_id: "po-680", goods_receipt_id: "gr-423", payment_method: "bank_transfer", goods_receipts: { receipt_number: "GRN-000423", receipt_date: today, status: "confirmed", image_url: null, purchase_order_id: "po-680", purchase_orders: { image_url: "po-680/delivery.jpg" } } },
+  { id: "pr-ta-2", purchase_order_id: PO_TA, goods_receipt_id: null, payment_method: "bank_transfer", goods_receipts: null },
+  // Chi tiền mặt: only "Tiền mặt", never "Chi UNC".
+  { id: "pr-cash", purchase_order_id: null, goods_receipt_id: null, payment_method: "cash", goods_receipts: null },
 ];
 const PR_DETAIL = { id: "pr-ta-2", request_number: "PR-MMEK7ZD8", title: "Đề nghị chi - PO-000144", total_amount: 2761350, vat_amount: 0, status: "pending",
   payment_status: "unpaid", payment_method: "bank_transfer", payment_type: "old_order", delivery_status: "pending", requires_receipt: true, created_at: today + "T02:10:00Z",
   supplier_id: "s-ta", suppliers: { id: "s-ta", name: "Tuyết Anh" }, purchase_order_id: PO_TA, goods_receipt_id: null, invoice_id: null, image_url: null,
   payment_allocations: [], notes: null, description: "Thanh toán PO-000144", created_by: null, approved_by: null, approved_at: null, rejection_reason: null, invoice_created: false };
+const CASH_DETAIL = { ...PR_DETAIL, id: "pr-cash", request_number: "PR-CASH0001", title: "chi tiền mặt 12/10", total_amount: 800000, payment_method: "cash", payment_type: "new_order",
+  requires_receipt: false, supplier_id: null, suppliers: null, purchase_order_id: null, description: null, cash_settlement_status: null };
 const PO_DETAIL = { id: PO_TA, po_number: "PO-000144", total_amount: 2761350, status: "sent", order_date: "2026-03-05", suppliers: { id: "s-ta", name: "Tuyết Anh" } };
 const PO_PRS = [
   { id: "pr-ta-1", request_number: "PR-MMEK7KLW", status: "pending", payment_allocations: [] },
@@ -110,7 +115,7 @@ function settle(st) {
   if (st.table === "payment_requests" && st.ins.id) return { data: RECEIPTS.filter((r) => st.ins.id.includes(r.id)), error: null };
   if (st.table === "payment_requests" && st.eqs.purchase_order_id) return { data: PO_PRS, error: null };
   if (st.single) {
-    if (st.table === "payment_requests") return { data: PR_DETAIL, error: null };
+    if (st.table === "payment_requests") return { data: st.eqs.id === "pr-cash" ? CASH_DETAIL : PR_DETAIL, error: null };
     if (st.table === "purchase_orders") return { data: PO_DETAIL, error: null };
     return { data: null, error: null };
   }
@@ -361,6 +366,12 @@ try {
     assert.equal(await page.locator("[data-bmq-submission-row='PR-1MG00001'] [data-bmq-submission-receipt-image]").count(), 0);
     assert.equal(await page.locator("[data-bmq-submission-row='PR-1MG00001'] [data-bmq-submission-receipt='waiting']").count(), 1);
     assert.equal(await page.locator("[data-bmq-submission-receipt-image]").count(), 1);
+    // A Chi tiền mặt phiếu offers only "Tiền mặt"; PO phiếu keep "Chi UNC".
+    assert.equal(await page.locator("[data-bmq-submission-row='PR-CASH0001'] [data-bmq-submission-pay-unc]").count(), 0, "no Chi UNC on a cash phiếu");
+    assert.equal(await page.locator("[data-bmq-submission-row='PR-CASH0001'] [data-bmq-submission-pay-cash]").count(), 1);
+    assert.equal(await page.locator("[data-bmq-submission-row='PR-8CA755E0'] [data-bmq-submission-pay-unc]").count(), 1);
+    await page.locator("[data-bmq-submission-row='PR-CASH0001']").scrollIntoViewIfNeeded();
+    await page.locator("[data-bmq-submission-row='PR-CASH0001']").screenshot({ path: `${EVIDENCE}/submission-cash-row-${w}.png` });
     await page.waitForSelector("[data-bmq-submission-row='PR-MMEK7ZD8'] [data-bmq-submission-flag='pr_twin_created']");
     // The PO-000144 over-request flag is needs_action, so it still shows on the row.
     assert.equal(await page.locator("[data-bmq-submission-row='PR-MMEK7ZD8'] [data-bmq-submission-flag='po_over_requested']").count(), 1);
@@ -371,6 +382,8 @@ try {
     await page.locator(".d3-ps-rows").screenshot({ path: `${EVIDENCE}/submission-rows-${w}.png` });
     await page.locator("[data-bmq-submission-row='PR-MMEK7ZD8'] .d3-ps-open").click();
     await page.waitForSelector("[data-bmq-pr-po-value]");
+    assert.equal((await page.locator("[data-bmq-unc-open]").textContent()).trim(), "Duyệt bằng UNC");
+    assert.equal(await page.locator("[data-bmq-unc-open]").getAttribute("data-bmq-unc-open"), "bank_transfer");
     const po = await page.locator("[data-bmq-pr-po-value]").textContent();
     assert.ok(po.includes("2.761.350") && po.includes("Còn được chi") && po.includes("PR-MMEK7KLW"), po);
     assert.equal(await page.locator("[data-bmq-pr-flag]").count(), 2);
@@ -380,6 +393,18 @@ try {
     await page.waitForTimeout(150);
     await page.locator("[data-bmq-pr-po-value]").locator("xpath=ancestor::li[1]").screenshot({ path: `${EVIDENCE}/detail-po-${w}.png` });
     assert.deepEqual(errors, [], `page errors ${w}`);
+    // Cash phiếu detail: the approve button keeps it cash.
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(350);
+    await page.locator("[data-bmq-submission-row='PR-CASH0001'] .d3-ps-open").click();
+    await page.waitForSelector("[data-bmq-unc-open='cash']");
+    assert.equal((await page.locator("[data-bmq-unc-open]").textContent()).trim(), "Duyệt chi tiền mặt");
+    await page.locator("[data-bmq-unc-open]").scrollIntoViewIfNeeded();
+    await page.waitForTimeout(200);
+    await page.screenshot({ path: `${EVIDENCE}/detail-cash-${w}.png` });
+    await page.locator("[data-bmq-unc-open]").click();
+    await page.waitForSelector("[data-bmq-unc-method='cash']");
+    assert.deepEqual(errors, [], `page errors cash ${w}`);
     console.log("PASS", `submission + detail ${w}`);
     await context.close();
   }

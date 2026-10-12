@@ -618,14 +618,16 @@ export function PaymentRequestDetailsDialog({
               {/* Actions */}
               <div className="d3-prd-actions sticky bottom-0 z-20 -ml-[max(1rem,env(safe-area-inset-left))] -mr-[max(1rem,env(safe-area-inset-right))] grid grid-cols-2 gap-2 border-t border-border bg-background pb-[max(1rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-4 [transform:translateZ(0)] [&>button]:min-h-11 sm:static sm:mx-0 sm:flex sm:flex-wrap sm:p-0 sm:pt-4 sm:[&>button]:min-h-10">
                 {/* CEO: approve and record the payment in one step with the bank UNC. */}
+                {/* A Chi tiền mặt phiếu stays cash: approving it "bằng UNC" would switch it to
+                    chuyển khoản and skip the staff receipt settlement. */}
                 {request.status === "pending" && isOwner && request.payment_status === "unpaid" && (
                   <Button
                     onClick={() => setShowUncDialog(true)}
                     className="d3-prd-btn is-primary col-span-2 w-full gap-2 whitespace-nowrap sm:w-auto"
-                    data-bmq-unc-open
+                    data-bmq-unc-open={request.payment_method === "cash" ? "cash" : "bank_transfer"}
                   >
-                    <CreditCard className="h-4 w-4" />
-                    Duyệt bằng UNC
+                    {request.payment_method === "cash" ? <Banknote className="h-4 w-4" /> : <CreditCard className="h-4 w-4" />}
+                    {request.payment_method === "cash" ? "Duyệt chi tiền mặt" : "Duyệt bằng UNC"}
                   </Button>
                 )}
 
@@ -781,6 +783,7 @@ export function PaymentRequestDetailsDialog({
           open={showUncDialog}
           onOpenChange={setShowUncDialog}
           mode="approve"
+          paymentMethod={request.payment_method === "cash" ? "cash" : "bank_transfer"}
           requests={[
             {
               id: request.id,

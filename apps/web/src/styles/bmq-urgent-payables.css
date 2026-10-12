@@ -75,6 +75,8 @@ html.bmq-d3 .d3-up-go:hover { background: #e2381f; }
 .d3-ps-row:not(:has(> button[role="checkbox"])) > .d3-ps-open { grid-column: 1 / -1; }
 .d3-ps-row.is-paid { opacity: .72; }
 .d3-ps-acts { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+/* A Chi tiền mặt phiếu has only the "Tiền mặt" action: let it fill the row. */
+.d3-ps-acts > button:only-child { grid-column: 1 / -1; }
 html.bmq-d3 .d3-ps-acts button, html.bmq-d3 .d3-ps-cash { min-height: 40px; border: 0; border-radius: 12px; font-weight: 500; }
 html.bmq-d3 .d3-ps-unc { gap: 6px; background: var(--d3-ink, #272727); color: #fff; }
 html.bmq-d3 .d3-ps-unc:hover { background: #000; }
