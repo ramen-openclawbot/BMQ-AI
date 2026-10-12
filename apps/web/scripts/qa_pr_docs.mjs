@@ -208,6 +208,9 @@ try {
     await page.screenshot({ path: `${EVIDENCE}/unpaid-tab-${viewport.width}.png` });
     await trigger.click();
     await page.locator("[data-bmq-pr-create-choice='po']").first().click();
+    // The phone sheet is a dialog too: wait for it to leave and the form dialog to mount.
+    await page.locator("[data-bmq-pr-create-sheet]").waitFor({ state: "detached" });
+    await page.waitForSelector('[role="dialog"]');
 
     const overflowers = async () => page.evaluate(() => {
       const dlg = document.querySelector('[role="dialog"]');
@@ -259,6 +262,25 @@ try {
     await page.screenshot({ path: `${EVIDENCE}/pr-docs-${viewport.width}.png` });
     assert.deepEqual(errors, []);
     console.log("PASS", `pr docs ${viewport.width}`);
+    await context.close();
+  }
+  // Tổng quan uses the same "Tạo duyệt chi" menu as Duyệt chi.
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 640 }]) {
+    const { context, page } = await open({ role: "owner" }, "/", viewport);
+    const menu = page.locator("[data-bmq-overview] [data-bmq-pr-create-menu]");
+    await menu.waitFor({ timeout: 20000 });
+    assert.equal((await menu.textContent()).trim(), "Tạo duyệt chi");
+    assert.equal(await page.getByText("Tạo đề nghị chi", { exact: true }).count(), 0, "old label gone");
+    assert.ok(await overflowOk(page), `overview overflow ${viewport.width}`);
+    await menu.click();
+    await page.locator("[data-bmq-pr-create-choice='salary']").first().waitFor();
+    assert.equal(await page.locator("[data-bmq-pr-create-choice]").count(), 3, "owner sees three choices");
+    await page.waitForTimeout(400);
+    await page.screenshot({ path: `${EVIDENCE}/overview-menu-${viewport.width}.png` });
+    await page.locator("[data-bmq-pr-create-choice='po']").first().click();
+    await page.locator("[data-bmq-pr-create-sheet]").waitFor({ state: "detached" });
+    await page.waitForSelector('[role="dialog"]');
+    console.log("PASS", `overview menu ${viewport.width}`);
     await context.close();
   }
   console.log("ALL PASS");

@@ -1,8 +1,12 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { AlertTriangle, ArrowUpRight, Factory, FileCheck, Inbox, Sparkles, Store, type LucideIcon } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { AddPaymentRequestDialog } from "@/components/dialogs/AddPaymentRequestDialog";
+import { CashPaymentRequestDialog } from "@/components/payment-requests/CashPaymentRequestDialog";
+import { CreatePaymentMenu, type CreatePaymentChoice } from "@/components/payment-requests/CreatePaymentMenu";
+import { SalaryPayoutDialog } from "@/components/payment-requests/SalaryPayoutDialog";
 import { RevenueChannelChart, CHANNEL_META, CHANNEL_ORDER, formatMillions } from "@/components/overview/RevenueChannelChart";
 import { useOverviewSummary } from "@/hooks/useOverviewSummary";
 import type { OverviewMetric } from "@/lib/overview/overview-summary";
@@ -75,7 +79,11 @@ function InsightCard({ m, loading, icon: Icon, title, hint, tone, language, inde
 
 const Index = () => {
   const { language } = useLanguage();
-  const { isOwner, session, user, authzLoaded } = useAuth();
+  const { isOwner, session, user, authzLoaded, canEditModule } = useAuth();
+  // Same "Tạo duyệt chi" menu as Duyệt chi: PO / NCC, Chi tiền mặt, Chi lương (when permitted).
+  const canSalary = isOwner || canEditModule("salary_cash");
+  const [createOpen, setCreateOpen] = useState<CreatePaymentChoice | null>(null);
+  const createDialog = (choice: CreatePaymentChoice) => ({ open: createOpen === choice, onOpenChange: (open: boolean) => setCreateOpen(open ? choice : null) });
   const lang: Lang = language === "en" ? "en" : "vi";
   const en = lang === "en";
   const s = useOverviewSummary();
@@ -132,7 +140,10 @@ const Index = () => {
             {en ? "Overview" : "Tổng quan"} <b>{en ? "today" : "hôm nay"}</b>
           </h1>
         </div>
-        <AddPaymentRequestDialog />
+        <CreatePaymentMenu canSalary={canSalary} onChoose={setCreateOpen} isVi={!en} className="h-11 px-5" />
+        <AddPaymentRequestDialog {...createDialog("po")} />
+        <CashPaymentRequestDialog {...createDialog("cash")} />
+        {canSalary && <SalaryPayoutDialog {...createDialog("salary")} />}
       </header>
 
       {showRevenue && (

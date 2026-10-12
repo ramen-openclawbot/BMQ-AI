@@ -635,7 +635,7 @@ export function AddPaymentRequestDialog({
           {trigger || (
             <Button className="gap-2">
               <Plus className="h-4 w-4" />
-              Tạo đề nghị chi
+              Tạo duyệt chi
             </Button>
           )}
         </DialogTrigger>
