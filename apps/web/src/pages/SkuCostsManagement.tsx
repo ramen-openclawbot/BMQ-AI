@@ -11,6 +11,7 @@ import { DEFAULT_SKU_COST_TEMPLATE, DEFAULT_SKU_COST_VALUES, parseCostTemplate, 
 import { callEdgeFunction } from "@/lib/fetch-with-timeout";
 import { isFinishedSku } from "@/lib/skuType";
 import { dosageInputText, parseDosageGramInput } from "@/lib/dosage-input";
+import { describeSkuCogsSaveError } from "@/lib/sku-cogs-save-error";
 import { MaterialPicker } from "@/components/sku-costs/MaterialPicker";
 import { SkuCostMenuBar } from "@/components/sku-costs/SkuCostMenuBar";
 
@@ -688,6 +689,7 @@ export default function SkuCostsManagement() {
 
     setIsSavingSku(true);
 
+    let formulationRows: any[] = [];
     try {
       const skuUpdates = {
         sku_code: skuForm.sku_code,
@@ -704,11 +706,11 @@ export default function SkuCostsManagement() {
         zeroCostApproval,
       };
 
-      const rows = buildFormulaRowsFromDraft(skuForm.id || "");
+      formulationRows = buildFormulaRowsFromDraft(skuForm.id || "");
       const { data: savedCogs, error: saveCogsError } = await sb.rpc("save_sku_cogs", {
         p_sku_id: skuForm.id || null,
         p_sku_updates: skuUpdates,
-        p_formulations: rows,
+        p_formulations: formulationRows,
         p_effective_from: cogsEffectiveFrom,
         p_change_reason: skuForm.id ? "Cập nhật SKU COGS từ màn hình quản trị" : "Tạo SKU COGS ban đầu",
       }).single();
@@ -738,7 +740,12 @@ export default function SkuCostsManagement() {
       setImportedFormulaDraft([]);
       loadAll();
     } catch (e: any) {
-      const msg = e?.message || "Có lỗi khi lưu dữ liệu, anh thử lại giúp Ramen.";
+      const rawMessage = e?.message || "";
+      const described = describeSkuCogsSaveError(
+        rawMessage,
+        formulationRows.map((r: any) => ({ material_code: r.material_code, ingredient_name: r.ingredient_name })),
+      );
+      const msg = described || rawMessage || "Có lỗi khi lưu dữ liệu, anh thử lại giúp Ramen.";
       setSaveSkuError(msg);
       console.error("saveSku failed", e);
       toast({ title: "Lưu SKU thất bại", description: msg });
