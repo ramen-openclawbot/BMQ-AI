@@ -30,7 +30,7 @@ function Thumb({ line, onOpen }: { line: ReceiptLine; onOpen: () => void }) {
       </span>
       <span className="note-meta">
         <b>{line.receipt_number}</b>
-        <small>{shortDate(line.receipt_date)} · {fmtQty(line.quantity)} {line.unit ?? ""}</small>
+        <small>{shortDate(line.receipt_date)} · {line.quantity > 0 ? `${fmtQty(line.quantity)} ${line.unit ?? ""}` : "chưa ghi số lượng"}</small>
         {line.unit_price !== null ? <small>{money(line.unit_price)}{line.unit ? `/${line.unit}` : ""}</small> : null}
       </span>
     </button>
@@ -64,7 +64,7 @@ function NoteViewer({ lines, index, onIndex, onClose }: { lines: ReceiptLine[]; 
         {url.data ? <img src={url.data} alt={`Phiếu giao hàng ${line.receipt_number}`} style={{ width: `${zoom * 100}%` }} /> : <p className="note-empty">{line.image_path ? "Đang tải ảnh…" : "Phiếu này chưa chụp ảnh giao hàng."}</p>}
       </div>
       <div className="note-line">
-        <span>“{line.raw_name}” · <b>{fmtQty(line.quantity)} {line.unit ?? ""}</b>{line.unit_price !== null ? ` × ${money(line.unit_price)}` : ""}{line.line_total !== null ? ` = ${money(line.line_total)}` : ""}</span>
+        <span>“{line.raw_name}” · <b>{line.quantity > 0 ? `${fmtQty(line.quantity)} ${line.unit ?? ""}` : "chưa ghi số lượng"}</b>{line.quantity > 0 && line.unit_price !== null ? ` × ${money(line.unit_price)}` : line.unit_price !== null ? ` · đơn giá ${money(line.unit_price)}/${line.unit ?? ""}` : ""}{line.quantity > 0 && line.line_total !== null ? ` = ${money(line.line_total)}` : ""}</span>
         <span className="note-nav">
           <button type="button" className="btn ghost" disabled={index === 0} onClick={() => onIndex(index - 1)} aria-label="Phiếu trước">‹</button>
           <small>{index + 1}/{lines.length}</small>

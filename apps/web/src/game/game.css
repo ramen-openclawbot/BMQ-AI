@@ -680,3 +680,11 @@
 /* The sheet scrolls as a whole: its children must not shrink (search results were squeezed to one line). */
 .kg .sheet > * { flex-shrink: 0; }
 .kg .sheet .picks { max-height: none; overflow: visible; }
+/* Count-to-count unit question (cái ↔ gói) */
+.kg .count-q { display: grid; gap: 10px; }
+.kg .count-q p { margin: 0; font-size: 14.5px; font-weight: 600; line-height: 1.45; }
+.kg .count-choices { display: grid; gap: 8px; }
+.kg .count-choices button { display: grid; gap: 1px; padding: 10px 12px; text-align: left; background: var(--white); border: 2.5px solid var(--ink); border-radius: 12px; box-shadow: var(--soft); }
+.kg .count-choices button b { font-size: 15px; }
+.kg .count-choices button small { font-size: 12.5px; font-weight: 700; color: #6f6a85; }
+.kg .count-choices button.is-on { background: var(--sage-light); box-shadow: var(--pop); }

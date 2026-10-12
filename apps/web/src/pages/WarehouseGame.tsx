@@ -69,14 +69,62 @@ function unitPlanFor(crate: WarehouseGamePendingRow, stockUnit: string): UnitPla
   return { mode: "unknown", unit: null, auto: null, prefill: guess, units: ordered };
 }
 
+/** Count units (cái, gói, hộp…) are neither weight nor volume: the receipt and the shelf both count pieces. */
+const isCountUnit = (unit: string) => unitFactor(unit, "g") === null && unitFactor(unit, "ml") === null;
+const trimNumber = (value: number) => String(Math.round(value * 1e6) / 1e6);
+
+/** Receipt counts pieces, the shelf counts packs (owner 12/10: "cái" on the receipt, "gói" on the shelf). */
+function CountUnitQuestion({ receiptUnit, stockUnit, factorText, onFactor }: { receiptUnit: string; stockUnit: string; factorText: string; onFactor: (value: string) => void }) {
+  const [choice, setChoice] = useState<"same" | "stock_has" | "receipt_has" | null>(null);
+  const [n, setN] = useState("");
+  const pick = (next: "same" | "stock_has" | "receipt_has") => {
+    setChoice(next);
+    setN("");
+    onFactor(next === "same" ? "1" : "");
+  };
+  const typeN = (value: string) => {
+    setN(value);
+    const parsed = Number(value.replace(",", "."));
+    if (!(parsed > 0)) return onFactor("");
+    onFactor(trimNumber(choice === "stock_has" ? 1 / parsed : parsed));
+  };
+  return (
+    <div className="count-q" data-bmq-count-q>
+      <p>Phiếu đếm bằng <b>{receiptUnit}</b>, kệ đếm bằng <b>{stockUnit}</b>. Hai đơn vị này liên quan thế nào?</p>
+      <div className="count-choices" role="radiogroup" aria-label="Quan hệ đơn vị">
+        <button type="button" role="radio" aria-checked={choice === "same"} className={choice === "same" ? "is-on" : undefined} onClick={() => pick("same")}>
+          <b>Là một</b><small>1 {receiptUnit} = 1 {stockUnit}</small>
+        </button>
+        <button type="button" role="radio" aria-checked={choice === "stock_has"} className={choice === "stock_has" ? "is-on" : undefined} onClick={() => pick("stock_has")}>
+          <b>{stockUnit} gồm nhiều {receiptUnit}</b><small>vd 1 {stockUnit} = 10 {receiptUnit}</small>
+        </button>
+        <button type="button" role="radio" aria-checked={choice === "receipt_has"} className={choice === "receipt_has" ? "is-on" : undefined} onClick={() => pick("receipt_has")}>
+          <b>{receiptUnit} gồm nhiều {stockUnit}</b><small>vd 1 {receiptUnit} = 12 {stockUnit}</small>
+        </button>
+      </div>
+      {choice === "stock_has" || choice === "receipt_has" ? (
+        <label className="conv unit-q-row">
+          1 {choice === "stock_has" ? stockUnit : receiptUnit} =
+          <input inputMode="decimal" value={n} onChange={(event) => typeN(event.target.value)} placeholder="?" aria-label="Số lượng" autoFocus />
+          {choice === "stock_has" ? receiptUnit : stockUnit}
+        </label>
+      ) : null}
+      {choice && factorText ? <small className="unit-q-hint">Máy sẽ tính: 1 {receiptUnit} = {fmtQty(Number(factorText))} {stockUnit}.</small> : null}
+    </div>
+  );
+}
+
 function UnitQuestion({ plan, stockUnit, label, onLabel, factorText, onFactor }: {
   plan: UnitPlan; stockUnit: string; label: string; onLabel: (value: string) => void; factorText: string; onFactor: (value: string) => void;
 }) {
   const mixed = plan.units.length > 1;
+  const countPair = plan.mode === "pack" && plan.unit !== null && isCountUnit(stockUnit) && isCountUnit(plan.unit);
   return (
     <div className={`unit-q is-${plan.mode}`} data-bmq-unit-q={plan.mode}>
       {plan.mode === "auto" ? (
         <p><b>Phiếu ghi “{plan.unit}”</b> → kho tự đổi: 1 {plan.unit} = {fmtQty(plan.auto ?? 1)} {stockUnit}. Không cần điền gì.</p>
+      ) : countPair ? (
+        <CountUnitQuestion key={`${plan.unit}-${stockUnit}`} receiptUnit={plan.unit ?? ""} stockUnit={stockUnit} factorText={factorText} onFactor={onFactor} />
       ) : plan.mode === "pack" ? (
         <>
           <p><b>Phiếu ghi “{plan.unit}”</b>, kho tính bằng <b>{stockUnit}</b>. Mỗi khi phiếu ghi {plan.unit}, máy nhân với số dưới đây:</p>

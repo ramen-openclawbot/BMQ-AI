@@ -356,6 +356,12 @@ const record = (name, detail = {}) => {
 };
 
 const KG_FIXTURE = JSON.parse(fs.readFileSync(path.join(ROOT, "scripts/qa_warehouse_game.fixture.json"), "utf8"));
+// A count-to-count crate: the receipt says "cái", the shelf counts "cuộn".
+KG_FIXTURE.q7.filter((crate) => crate.normalized_name === "n4").forEach((crate) => {
+  crate.raw_unit = "cái";
+  crate.raw_units = [{ unit: "cái", line_count: crate.line_count }];
+  crate.top_candidate = { item_id: "fbdf4f9a-52db-446b-b3c2-e5b2e5d03842", sku_id: null, name: "Băng keo nhỏ", unit: "cuộn", score: 0.9, reason: "token" };
+});
 // "Nhãn Bánh Pháp" shares only the word "bánh" with "Chất làm mềm bánh" (live score 0.633): not a hint.
 KG_FIXTURE.q7.filter((crate) => crate.raw_name === "Nhãn Bánh Pháp").forEach((crate) => { crate.top_candidate = { ...crate.top_candidate, score: 0.6333, reason: "token" }; });
 // Live data had no Jev hints at ship time; give the first 4 Q7 crates one so the "Jev đã gợi ý" lot renders.
@@ -496,6 +502,20 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       writes = await page.evaluate(() => window.__qaWrites);
       assert.ok(writes.some((w) => w.startsWith("rpc:confirm_material_alias:") && w.includes('"p_location":"q7"') && w.includes('"p_source_table":"warehouse_game"') && w.includes('"p_line_class":"stock"')), JSON.stringify(writes));
       await page.waitForTimeout(900);
+      // cái → cuộn: both are counts, so the sheet asks how they relate (and blocks until answered).
+      await page.locator("[data-bmq-crate='n4']").click({ force: true });
+      await page.waitForTimeout(700);
+      assert.equal(await page.locator("[data-bmq-count-q]").count(), 1, "count-to-count crate asks how the units relate");
+      assert.equal(await page.getByRole("button", { name: "Xếp vào kệ" }).isDisabled(), true, "no default relation");
+      await page.getByRole("radio", { name: /gồm nhiều cái/ }).click({ force: true });
+      await page.locator("[data-bmq-count-q] input").fill("10");
+      assert.match(await page.locator("[data-bmq-count-q] .unit-q-hint").textContent(), /1 cái = 0,1 cuộn|1 cái = 0\.1 cuộn/);
+      assert.equal(await page.getByRole("button", { name: "Xếp vào kệ" }).isDisabled(), false);
+      await page.screenshot({ path: `${EVIDENCE}/crate-count-${viewport.width}.png` });
+      await page.getByRole("radio", { name: /Là một/ }).click({ force: true });
+      assert.equal(await page.getByRole("button", { name: "Xếp vào kệ" }).isDisabled(), false);
+      await page.locator(".kg .sheet .close").click({ force: true });
+      await page.waitForTimeout(300);
       // A PACK crate asks "1 PACK = ? g" and blocks shelving until answered.
       await page.locator("[data-bmq-crate='n3']").click({ force: true });
       await page.waitForTimeout(700);
