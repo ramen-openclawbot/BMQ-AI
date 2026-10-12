@@ -40,6 +40,20 @@ function settle(st) {
     return { data: null, error: null, count };
   }
   if (/^rpc:(resolve_stock_alias|record_q7_stock_count|record_tan_tao_stock_count|set_goods_receipt_receiving_location|create_q7_draft_purchase_orders|upsert_q7_purchase_item_setting|update_q7_auto_purchase_settings|run_q7_auto_purchase_now|decide_stock_catalog_suggestion|revert_stock_item_merge|link_kitchen_items_to_canonical_materials)$/.test(st.table)) { window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args)); return { data: null, error: { message: "QA fixture: writes disabled" } }; }
+  if (st.table === "rpc:get_stock_count_review") {
+    const SC = window.__kgFixture.stock_count;
+    if (mode === "empty") return { data: { open_session: null, history: [], cutover_date: null, can_edit: true }, error: null };
+    return { data: SC.reviews[st.args.p_location], error: null };
+  }
+  if (st.table === "rpc:start_stock_count") { window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args)); return { data: { ...window.__kgFixture.stock_count.start, location: st.args.p_location }, error: null }; }
+  if (st.table === "rpc:save_stock_count_line") {
+    window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args));
+    const L = window.__kgFixture.stock_count.save_line;
+    const qty = st.args.p_counted_qty;
+    return { data: { ...L, id: st.args.p_line_id, counted_qty: qty, difference_qty: qty === null ? null : qty - L.book_qty, result: null }, error: null };
+  }
+  if (st.table === "rpc:submit_stock_count") { window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args)); return { data: window.__kgFixture.stock_count.submit, error: null }; }
+  if (st.table === "rpc:cancel_stock_count") { window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args)); return { data: { ...window.__kgFixture.stock_count.submit, status: "cancelled" }, error: null }; }
   if (st.table === "rpc:get_warehouse_game_snapshot") {
     const F = window.__kgFixture;
     const loc = st.args.p_location;
@@ -647,6 +661,76 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
   assert.equal(await page.locator("[data-bmq-warehouse-game]").count(), 0, "game closed");
   assert.deepEqual(errors, [], "no page errors");
   record(`workshop + full screen ${viewport.width}`);
+  await context.close();
+}
+// Kiểm kê (owner 12/10): lobby → tally sheet → review → done.
+for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 640 }]) {
+  const { context, page, errors } = await open({ data: "populated", role: "owner" }, "/warehouse/game", viewport);
+  await page.waitForSelector("[data-bmq-warehouse-game]", { timeout: 20000 });
+  await page.waitForTimeout(1200);
+  await page.getByRole("button", { name: "Kiểm kê" }).click({ force: true });
+  await page.waitForSelector("[data-bmq-count-lobby]", { timeout: 5000 });
+  await page.waitForTimeout(700);
+  assert.equal(await page.locator("[data-bmq-count-card]").count(), 2, "two warehouse cards");
+  assert.ok((await page.locator('[data-bmq-count-card="q7"]').textContent()).includes("Material Master"), "Q7 card explains the link requirement");
+  assert.equal(await overflow(page), 0, `count lobby no overflow ${viewport.width}`);
+  await page.screenshot({ path: `${EVIDENCE}/count-lobby-${viewport.width}.png` });
+  await page.locator('[data-bmq-count-enter="tan_tao"]').click({ force: true });
+  await page.waitForSelector('[data-bmq-count-sheet="tan_tao"]', { timeout: 5000 });
+  await page.waitForTimeout(700);
+  assert.equal(await page.locator("[data-bmq-count-row]").count(), 6, "six lines on the Tân Tạo sheet");
+  assert.equal(await page.locator('[data-bmq-count-state="diff"]').count(), 2, "two lines differ from the book");
+  assert.ok((await page.locator(".kg .title-pill small").textContent()).includes("đã đếm 3/6"), "HUD shows progress");
+  assert.equal(await overflow(page), 0, `count sheet no overflow ${viewport.width}`);
+  await page.screenshot({ path: `${EVIDENCE}/count-sheet-${viewport.width}.png` });
+  const row = page.locator("[data-bmq-count-row]", { hasText: "Men Tươi 5 Sao" });
+  const input = row.locator("[data-bmq-count-input]");
+  const ib = await input.boundingBox();
+  assert.ok(ib && ib.width >= 90 && ib.x + ib.width <= viewport.width, `count input usable ${viewport.width}: ${JSON.stringify(ib)}`);
+  await input.fill("880");
+  await input.press("Enter");
+  await page.waitForTimeout(500);
+  let writes = await page.evaluate(() => window.__qaWrites);
+  assert.ok(writes.some((w) => w.startsWith("rpc:save_stock_count_line:") && w.includes('"p_counted_qty":880') && w.includes('"p_session_id":"75589837-110f-59cc-afd5-67f0eddfc03e"')), `count saved on Enter: ${JSON.stringify(writes.slice(-3))}`);
+  await page.locator('[data-bmq-count-filter="diff"]').click({ force: true });
+  await page.waitForTimeout(300);
+  assert.equal(await page.locator("[data-bmq-count-row]").count(), 2, "Lệch filter shows the two differing lines");
+  await page.locator('[data-bmq-count-filter="todo"]').click({ force: true });
+  await page.waitForTimeout(300);
+  assert.equal(await page.locator("[data-bmq-count-row]").count(), 3, "Chưa đếm filter shows the uncounted lines");
+  await page.locator("[data-bmq-count-review-open]").click({ force: true });
+  await page.waitForSelector("[data-bmq-count-review]", { timeout: 5000 });
+  await page.waitForTimeout(600);
+  assert.equal(await page.locator(".kg .cnt-diffs li").count(), 2, "review lists the two differences");
+  assert.equal(await overflow(page), 0, `count review no overflow ${viewport.width}`);
+  await page.screenshot({ path: `${EVIDENCE}/count-review-${viewport.width}.png` });
+  await page.locator("[data-bmq-count-submit]").click({ force: true });
+  await page.waitForSelector("[data-bmq-count-done]", { timeout: 5000 });
+  await page.waitForTimeout(700);
+  writes = await page.evaluate(() => window.__qaWrites);
+  assert.ok(writes.some((w) => w.startsWith("rpc:submit_stock_count:") && w.includes('"p_session_id":"75589837-110f-59cc-afd5-67f0eddfc03e"')), "submit sent with the session id");
+  await page.screenshot({ path: `${EVIDENCE}/count-done-${viewport.width}.png` });
+  await page.locator("[data-bmq-count-done] .btn").click({ force: true });
+  await page.waitForSelector("[data-bmq-count-lobby]", { timeout: 5000 });
+  assert.deepEqual(errors, [], "no page errors");
+  record(`stock count ${viewport.width}`);
+  await context.close();
+}
+// Empty warehouse: the lobby offers to open the first sheet.
+{
+  const viewport = { width: 390, height: 844 };
+  const { context, page, errors } = await open({ data: "empty", role: "owner" }, "/warehouse/game", viewport);
+  await page.waitForSelector("[data-bmq-warehouse-game]", { timeout: 20000 });
+  await page.waitForTimeout(1200);
+  await page.getByRole("button", { name: "Kiểm kê" }).click({ force: true });
+  await page.waitForSelector('[data-bmq-count-start="tan_tao"]', { timeout: 5000 });
+  await page.screenshot({ path: `${EVIDENCE}/count-lobby-empty-390.png` });
+  await page.locator('[data-bmq-count-start="tan_tao"]').click({ force: true });
+  await page.waitForTimeout(700);
+  const writes = await page.evaluate(() => window.__qaWrites);
+  assert.ok(writes.some((w) => w.startsWith("rpc:start_stock_count:") && w.includes('"p_location":"tan_tao"')), "start sent for Tân Tạo");
+  assert.deepEqual(errors, [], "no page errors");
+  record("stock count empty 390");
   await context.close();
 }
 for (const viewport of [{ width: 1440, height: 900 }, { width: 430, height: 932 }, { width: 390, height: 844 }, { width: 320, height: 640 }]) {

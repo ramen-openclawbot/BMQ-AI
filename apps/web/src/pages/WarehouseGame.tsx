@@ -23,6 +23,9 @@ import { useStockCatalogReview } from "@/hooks/useStockCatalog";
 import { useMaterialAliasReview, useNewItemSuggestions } from "@/hooks/useMaterialAlias";
 import { useStockRoutingReview } from "@/hooks/useStockRouting";
 import { GameLoading } from "@/game/Loading";
+import { CountDone, CountLobby, CountSheet, CountSheetLoading, ReviewSheet, countErrorText, countProgress, dmy, type CountFilter } from "@/game/StockCount";
+import { useCancelStockCount, useSaveStockCountLine, useStartStockCount, useStockCountReview, useSubmitStockCount } from "@/hooks/useStockCount";
+import type { StockCountLine, StockCountLocation, StockCountSession } from "@/lib/stock-count";
 import "@/game/game.css";
 
 type View =
@@ -32,7 +35,9 @@ type View =
   | { kind: "station"; id: StationId }
   | { kind: "warehouse"; location: WarehouseGameLocation }
   | { kind: "crates"; location: WarehouseGameLocation }
-  | { kind: "shelf"; location: WarehouseGameLocation; cls: GameClass };
+  | { kind: "shelf"; location: WarehouseGameLocation; cls: GameClass }
+  | { kind: "count" }
+  | { kind: "count-sheet"; location: StockCountLocation };
 
 type Panel =
   | { kind: "zone"; zone: Zone }
@@ -41,6 +46,7 @@ type Panel =
   | { kind: "crate"; location: WarehouseGameLocation; crate: WarehouseGamePendingRow }
   | { kind: "mission"; id: string }
   | { kind: "transfers"; location: WarehouseGameLocation }
+  | { kind: "count-review"; location: StockCountLocation }
   | null;
 
 const LOCATION_LABEL: Record<WarehouseGameLocation, string> = { q7: "Kho Q7", tan_tao: "Kho Tân Tạo" };
@@ -204,6 +210,17 @@ export default function WarehouseGame() {
   const routing = useStockRoutingReview();
   const missions = useMyMissions();
   const [ceremony, setCeremony] = useState<{ result: CompleteMissionResult; title: string } | null>(null);
+  // Kiểm kê (owner 12/10): one open count sheet per warehouse.
+  const countQ7 = useStockCountReview("q7");
+  const countTt = useStockCountReview("tan_tao");
+  const countReviews = { q7: countQ7, tan_tao: countTt };
+  const startCount = useStartStockCount();
+  const saveLine = useSaveStockCountLine();
+  const submitCount = useSubmitStockCount();
+  const cancelCount = useCancelStockCount();
+  const [countFilter, setCountFilter] = useState<CountFilter>("all");
+  const [savingLines, setSavingLines] = useState<Set<string>>(new Set());
+  const [countDone, setCountDone] = useState<{ location: StockCountLocation; session: StockCountSession } | null>(null);
 
   // Full screen: the game owns the page while it is open.
   useEffect(() => {
@@ -222,12 +239,27 @@ export default function WarehouseGame() {
   const counts = { q7: q7.data?.items.length ?? 0, tan_tao: (tt.data?.items.length ?? 0) + (tt.data?.skus.length ?? 0) };
   const totalCrates = crates.q7 + crates.tan_tao;
 
-  const go = (next: View) => { setPanel(null); setQuery(""); setView(next); };
+  const go = (next: View) => { setPanel(null); setQuery(""); setCountFilter("all"); setView(next); };
   const back = () => {
     if (view.kind === "shelf" || view.kind === "crates") go({ kind: "warehouse", location: view.location });
     else if (view.kind === "station") go({ kind: "workshop" });
-    else if (view.kind === "warehouse" || view.kind === "workshop" || view.kind === "missions") go({ kind: "yard" });
+    else if (view.kind === "count-sheet") go({ kind: "count" });
+    else if (view.kind === "warehouse" || view.kind === "workshop" || view.kind === "missions" || view.kind === "count") go({ kind: "yard" });
   };
+
+  const openCount = (location: StockCountLocation) =>
+    startCount.mutate({ location }, {
+      onSuccess: () => go({ kind: "count-sheet", location }),
+      onError: (error) => setToast(countErrorText(error)),
+    });
+  const saveCountLine = (location: StockCountLocation, session: StockCountSession, line: StockCountLine, qty: number | null) => {
+    setSavingLines((prev) => new Set(prev).add(line.id));
+    saveLine.mutate({ location, sessionId: session.id, lineId: line.id, countedQty: qty }, {
+      onError: (error) => setToast(countErrorText(error)),
+      onSettled: () => setSavingLines((prev) => { const next = new Set(prev); next.delete(line.id); return next; }),
+    });
+  };
+  const countSession = view.kind === "count-sheet" ? countReviews[view.location].data?.open_session ?? null : null;
 
   const pendingSuggestions = catalogReview.data?.pending_suggestions ?? [];
   const stations = STATION_ORDER.map((id) => {
@@ -246,6 +278,8 @@ export default function WarehouseGame() {
   const current = inWarehouse ? snaps[view.location] : undefined;
   const currentQuery = inWarehouse ? (view.location === "q7" ? q7 : tt) : undefined;
   const title = view.kind === "yard" ? "Phố kho BMQ"
+    : view.kind === "count" ? "Kiểm kê kho"
+    : view.kind === "count-sheet" ? `Kiểm kê · ${LOCATION_LABEL[view.location]}`
     : view.kind === "workshop" ? "Xưởng dọn danh mục"
     : view.kind === "missions" ? "Bảng nhiệm vụ"
     : view.kind === "station" ? `${STATION_META[view.id].icon} ${STATION_META[view.id].label}`
@@ -253,6 +287,8 @@ export default function WarehouseGame() {
     : view.kind === "crates" ? "Bãi thùng chờ"
     : `${CLASS_META[view.cls].icon} ${CLASS_META[view.cls].label}`;
   const subtitle = view.kind === "yard" ? "Bấm vào kho để vào"
+    : view.kind === "count" ? "Chọn kho để đếm"
+    : view.kind === "count-sheet" ? (countSession ? `Phiếu ${dmy(countSession.count_date)} · đã đếm ${countProgress(countSession).done}/${countProgress(countSession).total}` : "Chưa có phiếu đang mở")
     : view.kind === "workshop" ? (workshopTodo ? `${workshopTodo} việc đang chờ` : "Mọi bàn đã gọn")
     : view.kind === "station" ? "Xưởng dọn danh mục"
     : view.kind === "missions" ? (missions.data?.level ? `Cấp ${missions.data.level.level} · ${missions.data.level.title} · ${missions.data.badges.total} 🐝` : "Làm xong nhận huy hiệu")
@@ -304,7 +340,7 @@ export default function WarehouseGame() {
                 counts={counts}
                 crates={crates}
                 onEnter={(location) => go({ kind: "warehouse", location })}
-                onZone={(zone) => (zone.id === "clean" ? go({ kind: "workshop" }) : setPanel({ kind: "zone", zone }))}
+                onZone={(zone) => (zone.id === "clean" ? go({ kind: "workshop" }) : zone.id === "count" ? go({ kind: "count" }) : setPanel({ kind: "zone", zone }))}
               />
             </Scene>
           )
@@ -326,6 +362,53 @@ export default function WarehouseGame() {
           <Scene id={`station-${view.id}`} scroll>
             <StationView id={view.id} canEdit={canClean} />
           </Scene>
+        ) : null}
+
+        {view.kind === "count" ? (
+          <Scene id="count" scroll>
+            <CountLobby
+              reviews={countReviews}
+              starting={startCount.isPending ? (startCount.variables?.location ?? null) : null}
+              onEnter={(location) => go({ kind: "count-sheet", location })}
+              onStart={openCount}
+            />
+          </Scene>
+        ) : null}
+
+        {view.kind === "count-sheet" ? (
+          countReviews[view.location].isLoading && !countReviews[view.location].data ? <CountSheetLoading />
+          : countReviews[view.location].error && !countReviews[view.location].data ? <div className="loading"><div className="err">{countErrorText(countReviews[view.location].error)}</div></div>
+          : countSession ? (
+            <Scene id={`count-${view.location}-${countSession.id}`} scroll>
+              <CountSheet
+                location={view.location}
+                session={countSession}
+                canEdit={Boolean(countReviews[view.location].data?.can_edit)}
+                started={Boolean(countReviews[view.location].data?.cutover_date)}
+                savingIds={savingLines}
+                query={query}
+                onQuery={setQuery}
+                filter={countFilter}
+                onFilter={setCountFilter}
+                onSave={(line, qty) => saveCountLine(view.location, countSession, line, qty)}
+                onReview={() => { submitCount.reset(); setPanel({ kind: "count-review", location: view.location }); }}
+                cancelling={cancelCount.isPending}
+                onCancel={() => {
+                  if (!window.confirm("Hủy phiếu này? Số đã đếm sẽ bỏ, sổ tồn không đổi.")) return;
+                  cancelCount.mutate({ location: view.location, sessionId: countSession.id }, { onSuccess: () => { setToast("Đã hủy phiếu kiểm kê"); go({ kind: "count" }); }, onError: (error) => setToast(countErrorText(error)) });
+                }}
+              />
+            </Scene>
+          ) : (
+            <Scene id={`count-${view.location}-none`} scroll>
+              <CountLobby
+                reviews={countReviews}
+                starting={startCount.isPending ? (startCount.variables?.location ?? null) : null}
+                onEnter={(location) => go({ kind: "count-sheet", location })}
+                onStart={openCount}
+              />
+            </Scene>
+          )
         ) : null}
 
         {inWarehouse && currentQuery?.isError ? (
@@ -455,6 +538,19 @@ export default function WarehouseGame() {
             />
           ) : null;
         })() : null}
+
+        {panel?.kind === "count-review" && countSession ? (
+          <ReviewSheet
+            location={panel.location}
+            session={countSession}
+            submitting={submitCount.isPending}
+            error={submitCount.error}
+            onSubmit={() => submitCount.mutate({ location: panel.location, sessionId: countSession.id }, { onSuccess: (session) => { setPanel(null); setCountDone({ location: panel.location, session }); } })}
+            onClose={() => setPanel(null)}
+          />
+        ) : null}
+
+        {countDone ? <CountDone location={countDone.location} session={countDone.session} onClose={() => { setCountDone(null); go({ kind: "count" }); }} /> : null}
 
         {ceremony ? <Ceremony result={ceremony.result} title={ceremony.title} onClose={() => setCeremony(null)} /> : null}
 

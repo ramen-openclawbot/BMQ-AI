@@ -688,3 +688,92 @@
 .kg .count-choices button b { font-size: 15px; }
 .kg .count-choices button small { font-size: 12.5px; font-weight: 700; color: #6f6a85; }
 .kg .count-choices button.is-on { background: var(--sage-light); box-shadow: var(--pop); }
+
+/* ---- Kiểm kê: clipboard lobby, tally sheet, review (2026-10-12) ---- */
+.kg .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.kg .cnt-lobby { display: grid; gap: 18px; }
+.kg .cnt-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 22px 18px; }
+.kg .cnt-card, .kg .cnt-head {
+  position: relative; display: grid; gap: 12px; padding: 26px 18px 16px;
+  background: var(--cream) repeating-linear-gradient(180deg, transparent 0 31px, rgba(108,92,207,.1) 31px 33px);
+  border: 3px solid var(--ink); border-radius: 18px; box-shadow: var(--pop); animation: kg-card-in .45s var(--ease) both;
+}
+.kg .cnt-card.is-q7 { --cnt-tint: #e79a6b; }
+.kg .cnt-card.is-tan_tao { --cnt-tint: var(--coral); }
+.kg .cnt-card.has-open { background-color: #fff6df; }
+.kg .cnt-clip {
+  position: absolute; top: -14px; left: 50%; width: 92px; height: 26px; margin-left: -46px;
+  background: var(--ink); border-radius: 8px 8px 4px 4px; box-shadow: inset 0 -6px 0 rgba(255,255,255,.12);
+}
+.kg .cnt-clip::after { content: ""; position: absolute; left: 50%; top: 6px; width: 30px; height: 12px; margin-left: -15px; border: 3px solid var(--cream); border-radius: 99px; }
+.kg .cnt-card-h { display: flex; align-items: center; gap: 12px; }
+.kg .cnt-icon { width: 50px; height: 50px; flex: none; display: grid; place-items: center; font-size: 26px; background: var(--cnt-tint, var(--sage)); border: 3px solid var(--ink); border-radius: 14px; box-shadow: var(--soft); }
+.kg .cnt-title { display: grid; min-width: 0; gap: 2px; }
+.kg .cnt-title h3 { margin: 0; font-family: "Baloo 2", sans-serif; font-size: 22px; line-height: 1.1; overflow-wrap: anywhere; }
+.kg .cnt-title small { font-size: 12.5px; font-weight: 700; color: #6f6a85; }
+.kg .cnt-open { display: grid; gap: 8px; padding: 12px; background: var(--white); border: 2.5px solid var(--ink); border-radius: 14px; }
+.kg .cnt-line { display: grid; gap: 1px; }
+.kg .cnt-line b { font-size: 15.5px; }
+.kg .cnt-line span { font-size: 13px; font-weight: 700; color: #6f6a85; }
+.kg .cnt-bar { display: block; height: 14px; background: var(--paper); border: 2.5px solid var(--ink); border-radius: 99px; overflow: hidden; }
+.kg .cnt-bar i { display: block; height: 100%; background: repeating-linear-gradient(-45deg, var(--sage) 0 8px, #86b5a2 8px 16px); transition: width .6s var(--ease); }
+.kg .cnt-open .btn { width: 100%; }
+.kg .cnt-note { margin: 0; padding: 8px 12px; font-size: 13px; font-weight: 800; line-height: 1.4; background: var(--mustard-light); border: 2.5px solid var(--ink); border-radius: 12px; }
+.kg .cnt-meta { margin: 0; font-size: 13px; font-weight: 700; color: #4a4766; }
+
+.kg .cnt-sheet { display: grid; gap: 16px; }
+.kg .cnt-head { grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px 18px; margin-top: 10px; background-color: #fff6df; }
+.kg .cnt-head-main { display: grid; gap: 8px; min-width: 0; }
+.kg .cnt-actions { display: grid; gap: 8px; min-width: 190px; }
+.kg .cnt-actions .btn { height: auto; min-height: 48px; padding: 6px 14px; line-height: 1.15; }
+.kg .cnt-actions .btn.is-ready { background: var(--mustard); color: var(--ink); animation: kg-bounce 1.6s ease-in-out infinite; }
+.kg .cnt-tools { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.kg .cnt-filters { flex: 1 1 auto; }
+.kg .tally-list { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.kg .tally-row {
+  display: grid; grid-template-columns: 50px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 8px 12px 8px 8px;
+  background: var(--white); border: 2.5px solid var(--ink); border-radius: 14px; box-shadow: var(--soft);
+  transition: background .2s, transform .15s var(--ease); animation: kg-card-in .35s var(--ease) both;
+}
+.kg .tally-row.is-ok { background: var(--sage-light); }
+.kg .tally-row.is-diff { background: #fff4d6; }
+.kg .tally-row.is-saving { opacity: .75; }
+.kg .tally-icon { width: 48px; height: 44px; overflow: visible; }
+.kg .tally-name { display: grid; gap: 1px; min-width: 0; }
+.kg .tally-name b { font-size: 15px; line-height: 1.2; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.kg .tally-name small { font-size: 12.5px; font-weight: 700; color: #6f6a85; }
+.kg .tally-name em { font-style: normal; font-family: "Baloo 2", sans-serif; font-size: 15px; color: var(--ink); }
+.kg .tally-in { display: grid; justify-items: end; gap: 3px; }
+.kg .tally-in label { display: block; }
+.kg .tally-in input {
+  width: 118px; height: 46px; padding: 0 12px; text-align: right; font-family: "Baloo 2", sans-serif; font-weight: 800; font-size: 20px;
+  background: var(--cream); border: 3px solid var(--ink); border-radius: 12px; box-shadow: inset 2px 2px 0 rgba(44,41,71,.12);
+}
+.kg .tally-in input:focus { outline: none; box-shadow: 0 0 0 4px var(--mustard-light); background: var(--white); }
+.kg .tally-in input[aria-invalid="true"] { border-color: var(--coral); }
+.kg .tally-in input[disabled] { opacity: .6; }
+.kg .tally-tag { font-size: 11.5px; font-weight: 900; white-space: nowrap; color: #6f6a85; }
+.kg .tally-tag.is-ok { color: var(--sage-deep); }
+.kg .tally-tag.is-diff { padding: 1px 8px; color: var(--ink); background: var(--mustard); border: 2px solid var(--ink); border-radius: 99px; }
+.kg .cnt-diffs { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.kg .cnt-diffs li { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--white); border: 2.5px solid var(--ink); border-radius: 12px; }
+.kg .cnt-diffs li > span { display: grid; flex: 1; min-width: 0; }
+.kg .cnt-diffs b { font-size: 14.5px; overflow-wrap: anywhere; }
+.kg .cnt-diffs small { font-size: 12px; font-weight: 700; color: #6f6a85; }
+.kg .cnt-diffs em { font-style: normal; font-family: "Baloo 2", sans-serif; font-weight: 800; font-size: 17px; white-space: nowrap; }
+.kg .cnt-diffs li.is-up em { color: var(--sage-deep); }
+.kg .cnt-diffs li.is-down em { color: #b23a4e; }
+.kg .cnt-done-stats { width: 100%; }
+@media (max-width: 760px) {
+  .kg .cnt-head { grid-template-columns: minmax(0, 1fr); }
+  .kg .cnt-actions { grid-template-columns: minmax(0, 1fr) auto; min-width: 0; }
+  .kg .cnt-actions .btn.ghost { padding: 0 12px; }
+}
+@media (max-width: 420px) {
+  .kg .cnt-cards { grid-template-columns: minmax(0, 1fr); }
+  .kg .tally-row { grid-template-columns: 40px minmax(0, 1fr) auto; gap: 8px; padding: 8px 8px 8px 6px; }
+  .kg .tally-icon { width: 38px; height: 36px; }
+  .kg .tally-in input { width: 98px; height: 44px; font-size: 18px; }
+  .kg .cnt-filters button { min-height: 34px; padding: 0 9px; font-size: 13px; }
+}
+@media (prefers-reduced-motion: reduce) { .kg .cnt-card, .kg .cnt-head, .kg .tally-row, .kg .cnt-actions .btn.is-ready { animation: none !important; } }

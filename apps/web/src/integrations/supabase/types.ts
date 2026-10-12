@@ -4263,6 +4263,31 @@ export type Database = {
         }
         Returns: Json
       }
+      start_stock_count: {
+        Args: { p_location: string; p_idempotency_key: string | null }
+        Returns: Json
+      }
+      save_stock_count_line: {
+        Args: {
+          p_session_id: string
+          p_line_id: string
+          p_counted_qty: number | null
+          p_note: string | null
+        }
+        Returns: Json
+      }
+      submit_stock_count: {
+        Args: { p_session_id: string; p_idempotency_key: string | null }
+        Returns: Json
+      }
+      cancel_stock_count: {
+        Args: { p_session_id: string }
+        Returns: Json
+      }
+      get_stock_count_review: {
+        Args: { p_location: string; p_limit?: number }
+        Returns: Json
+      }
       resolve_stock_alias: {
         Args: {
           p_goods_receipt_item_id: string
