@@ -529,6 +529,17 @@ test("a cache row from the old prompt version is not reused", async () => {
   assert.equal(JEV_PROMPT_VERSION, "jev-material-alias-2026-10-29.1");
 });
 
+test("a whole-catalog candidate hash is short enough for the btree cache index", () => {
+  const ids = Array.from({ length: 103 }, (_, i) => `${String(i).padStart(8, "0")}-aaaa-4aaa-8aaa-aaaaaaaaaaaa`);
+  const hash = candidatesHash(ids);
+  assert.ok(hash.length < 100, `hash length ${hash.length}`);
+  assert.equal(hash, candidatesHash([...ids].reverse()), "order-insensitive");
+  assert.equal(hash, candidatesHash([...ids, ids[0]]), "duplicates ignored");
+  const changed = [...ids.slice(1), "ffffffff-aaaa-4aaa-8aaa-aaaaaaaaaaaa"];
+  assert.notEqual(hash, candidatesHash(changed), "one id swapped changes the key");
+  assert.equal(candidatesHash(["b", "a"]), "a|b", "short lists keep the readable form");
+});
+
 test("a completely empty catalog is skipped without crashing", async () => {
   let calls = 0;
   const { deps } = makeDeps({

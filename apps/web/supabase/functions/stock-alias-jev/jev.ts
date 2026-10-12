@@ -161,9 +161,28 @@ export function normalizeItemName(name: string | null | undefined): string {
  * `public.material_alias_candidates_hash`: sorted ids joined by '|'.
  */
 export function candidatesHash(ids: readonly string[]): string {
-  return [...new Set(ids.filter((id) => typeof id === "string" && id.trim() !== ""))]
+  const joined = [...new Set(ids.filter((id) => typeof id === "string" && id.trim() !== ""))]
     .sort()
     .join("|");
+  // The key sits in a btree unique index (max ~2.7 KB per row): a whole-catalog list of 100+
+  // ids is ~3.8 KB, so long lists are digested. Short lists keep the readable form.
+  return joined.length <= CANDIDATES_HASH_PLAIN_MAX ? joined : `h2:${cyrb53(joined, 0)}${cyrb53(joined, 7919)}`;
+}
+
+const CANDIDATES_HASH_PLAIN_MAX = 400;
+
+/** Small synchronous 53-bit string hash (cyrb53); two seeds make a 106-bit cache key. */
+function cyrb53(text: string, seed: number): string {
+  let h1 = 0xdeadbeef ^ seed;
+  let h2 = 0x41c6ce57 ^ seed;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16).padStart(14, "0");
 }
 
 // ---------------------------------------------------------------------------

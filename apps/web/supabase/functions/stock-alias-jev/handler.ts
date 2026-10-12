@@ -1039,8 +1039,14 @@ export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
         key: MaterialAliasCacheKey;
       };
       const eligible: BacklogEntry[] = [];
-      for (const row of rows) {
-        const tokenCandidates = await deps.candidatesFor(row.raw_name, row.location, 5);
+      // Token candidates: ten rows at a time (58 sequential RPCs took ~15 s per request).
+      const tokenByRow: MaterialAliasCandidate[][] = [];
+      for (let from = 0; from < rows.length; from += 10) {
+        const chunk = rows.slice(from, from + 10);
+        tokenByRow.push(...await Promise.all(chunk.map((row) => deps.candidatesFor(row.raw_name, row.location, 5))));
+      }
+      for (const [rowIndex, row] of rows.entries()) {
+        const tokenCandidates = tokenByRow[rowIndex] ?? [];
         const candidates = mergeCandidateOptions(tokenCandidates, catalog);
         // A row with no token match but catalog options is still evaluated; only
         // a row with no option at all (an empty catalog) is skipped.
