@@ -6,6 +6,7 @@ import { callEdgeFunction } from "@/lib/fetch-with-timeout";
 import { normalizeUploadImage } from "@/lib/slip-image";
 import { resolveImageUrl } from "@/lib/storage-url";
 import { matchOcrLinesToPoLines, OcrLineCandidate, OcrMatchResult } from "@/lib/payables-receiving-flow";
+import { AI_QUOTA_CODE, AI_QUOTA_MESSAGE, isAiQuotaError, notifyAiQuotaExhausted } from "@/lib/ai-errors";
 
 export type GoodsReceipt = Tables<"goods_receipts"> & {
   suppliers?: { id: string; name: string } | null;
@@ -505,6 +506,12 @@ export function useDeliveryNoteOcr() {
         error?: string;
       }>("match-delivery-note", { deliveryImage, deliveryNotePath, receiptId, useServerMaterialResolutionOnly }, session?.access_token, 60000);
 
+      if (response.error && isAiQuotaError({ code: response.code, error: response.error })) {
+        const quotaError = new Error(AI_QUOTA_MESSAGE) as Error & { code?: string };
+        quotaError.code = AI_QUOTA_CODE;
+        throw quotaError;
+      }
+
       const materialLines = (response.data?.extractedItems || response.data?.items || []) as DeliveryNoteMaterialResolution[];
       setMaterialResolutions(materialLines);
       const extracted = materialLines.map((line) => ({
@@ -519,7 +526,12 @@ export function useDeliveryNoteOcr() {
       setStatus("done");
       return deliveryNotePath;
     } catch (err) {
-      setOcrError(err instanceof Error ? err.message : "OCR thất bại");
+      if (isAiQuotaError(err)) {
+        notifyAiQuotaExhausted();
+        setOcrError(AI_QUOTA_MESSAGE);
+      } else {
+        setOcrError(err instanceof Error ? err.message : "OCR thất bại");
+      }
       setStatus("error");
     }
   };

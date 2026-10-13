@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { supabase } from "@/integrations/supabase/client";
+import { AI_QUOTA_CODE, AI_QUOTA_MESSAGE, isAiQuotaError, notifyAiQuotaExhausted } from "@/lib/ai-errors";
 
 /** At most two OCR calls in flight so the OpenAI Vision gateway is not flooded. */
 export const MAX_PARALLEL_CASH_RECEIPT_EXTRACTS = 2;
@@ -231,11 +232,13 @@ export function useCashSettlement(requestId: string | null) {
             };
           } catch (error) {
             const mapped = await extractFunctionError(error);
+            const quota = isAiQuotaError(mapped) || isAiQuotaError(error);
+            if (quota) notifyAiQuotaExhausted();
             results[index] = {
               index,
               ok: false,
-              errorCode: mapped.code,
-              errorDetail: mapped.detail,
+              errorCode: quota ? AI_QUOTA_CODE : mapped.code,
+              errorDetail: quota ? AI_QUOTA_MESSAGE : mapped.detail,
             };
           }
         }

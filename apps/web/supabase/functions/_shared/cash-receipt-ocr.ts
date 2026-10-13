@@ -12,6 +12,15 @@
  * (`supplier_name`, `items[]`) so older clients keep working.
  */
 import { parseAmountVN, stripVietnamese } from "./bank-slip-ocr.ts";
+import { type AiErrorInfo, classifyOpenAIError } from "./openai-errors.ts";
+
+/**
+ * Classify an OpenAI failure for the cash-receipt scan mode. The cash branch of
+ * scan-invoice returns the same quota (503) / rate-limit (429) payloads as the
+ * generic invoice branch, so it shares the classifier used by bank-slip-ocr.
+ */
+export const classifyCashReceiptOpenAiError = (status: number, bodyText: string): AiErrorInfo =>
+  classifyOpenAIError(status, bodyText);
 
 export const CASH_RECEIPT_MAX_AMOUNT = 50_000_000;
 export const CASH_RECEIPT_MAX_TEXT = 200;

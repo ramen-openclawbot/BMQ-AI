@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 import { requireAuth } from "../_shared/auth.ts";
 import { checkAndRecordRateLimit, getRateLimitHeaders } from "../_shared/rate-limiter.ts";
+import { aiErrorJson, classifyOpenAIError } from "../_shared/openai-errors.ts";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return corsPreflightResponse(req);
@@ -92,16 +93,17 @@ Yêu cầu:
       }),
     });
 
-    const payload = await response.json();
     if (!response.ok) {
-      const aiMsg = payload?.error?.message || "AI request failed";
-      console.error("[kb-suggest-po-rules] OpenAI error:", aiMsg, payload);
-      return new Response(JSON.stringify({ error: aiMsg, code: "OPENAI_ERROR", details: payload?.error?.type }), {
-        status: 500,
+      const bodyText = await response.text();
+      const info = classifyOpenAIError(response.status, bodyText);
+      console.error(`[kb-suggest-po-rules] OpenAI error kind=${info.kind}:`, response.status, bodyText.slice(0, 300));
+      return new Response(JSON.stringify(aiErrorJson(info)), {
+        status: info.httpStatus,
         headers: jsonHeaders,
       });
     }
 
+    const payload = await response.json();
     const content = payload?.choices?.[0]?.message?.content;
     const suggestion = JSON.parse(String(content || "{}"));
 

@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 import { optimizeSlipImageForOcr } from "@/lib/slip-image";
+import { AI_QUOTA_MESSAGE, isAiQuotaError, notifyAiQuotaExhausted } from "@/lib/ai-errors";
 
 const getOcrErrorMessage = (errorLike: any, fallbackMessage: string) => {
   if (typeof errorLike?.error === "string" && errorLike.error.trim()) return errorLike.error.trim();
@@ -66,6 +67,10 @@ const extractSlipAmountFromBase64 = async (
 
   const result = await response.json().catch(() => ({}));
   if (!response.ok) {
+    if (isAiQuotaError(result)) {
+      notifyAiQuotaExhausted();
+      throw new Error(AI_QUOTA_MESSAGE);
+    }
     throw new Error(getOcrErrorMessage(result, "Failed to scan slip"));
   }
 

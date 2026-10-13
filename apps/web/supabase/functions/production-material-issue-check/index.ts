@@ -1,6 +1,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import { requireAuth } from "../_shared/auth.ts";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
+import { aiErrorJson, AiOpenAIError, classifyOpenAIError, getAiErrorInfo } from "../_shared/openai-errors.ts";
 
 const FUNCTION_NAME = "production-material-issue-check";
 const BUCKET = "production-material-issue-documents";
@@ -459,7 +460,12 @@ async function callOpenAi(pdfBytes: Uint8Array, expectedFacts: Record<string, un
         },
       }),
     });
-    if (!response.ok) throw new Error("provider_failed");
+    if (!response.ok) {
+      const bodyText = await response.text();
+      const info = classifyOpenAIError(response.status, bodyText);
+      console.error(`[production-material-issue-check] OpenAI error kind=${info.kind}:`, response.status, bodyText.slice(0, 300));
+      throw new AiOpenAIError(info);
+    }
     const data = await response.json();
     const outputText = typeof data.output_text === "string"
       ? data.output_text
@@ -607,9 +613,13 @@ Deno.serve(async (req) => {
     try {
       summary = await callOpenAi(signedBytes, expectedFacts, expectedRows, model);
     } catch (error) {
-      const reason = error instanceof Error ? error.message : "provider_failed";
+      const aiInfo = getAiErrorInfo(error);
+      const reason = aiInfo ? "provider_failed" : (error instanceof Error ? error.message : "provider_failed");
       const outcome = reason === "provider_timeout" || reason === "provider_failed" ? "failed_transient" : "error";
       const finalized = await finalizeWithSafeError(admin, beginResult, user.id, outcome, reason, model);
+      if (aiInfo) {
+        return jsonResponse(req, { ...aiErrorJson(aiInfo), status: "needs_review" }, aiInfo.httpStatus, limitHeaders);
+      }
       return jsonResponse(req, finalized
         ? { error: "Không thể xác minh tự động phiếu đã ký.", status: "needs_review" }
         : { error: "Không thể lưu lỗi xác minh phiếu đã ký." }, finalized ? 502 : 500, limitHeaders);

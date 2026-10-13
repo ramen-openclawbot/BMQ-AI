@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 import { normalizeUploadImage, optimizeSlipImageForOcr } from "@/lib/slip-image";
+import { AI_QUOTA_MESSAGE, isAiQuotaError, notifyAiQuotaExhausted } from "@/lib/ai-errors";
 
 const getOcrErrorMessage = (errorLike: any, fallbackMessage: string) => {
   if (typeof errorLike?.error === "string" && errorLike.error.trim()) return errorLike.error.trim();
@@ -264,6 +265,10 @@ export function useDeclarationForm(closingDate: Date | string) {
 
       const result = await response.json().catch(() => ({}));
       if (!response.ok) {
+        if (isAiQuotaError(result)) {
+          notifyAiQuotaExhausted();
+          throw new Error(AI_QUOTA_MESSAGE);
+        }
         throw new Error(getOcrErrorMessage(result, "Không thể scan slip. Vui lòng thử lại."));
       }
 

@@ -57,6 +57,7 @@ import {
 import { ensureReceiptForPurchaseOrder } from "@/hooks/usePurchaseReceiptQueue";
 
 import { callEdgeFunction } from "@/lib/fetch-with-timeout";
+import { AI_QUOTA_CODE, AI_QUOTA_MESSAGE, isAiQuotaError, notifyAiQuotaExhausted } from "@/lib/ai-errors";
 import { useSupplierLastPrices } from "@/hooks/useSupplierLastPrices";
 import { checkAgainstHistory } from "@/lib/po-scan-check";
 
@@ -197,6 +198,7 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
   const TOKEN_ERROR_MESSAGE = "Lỗi Token. Liên hệ với bộ phận quản trị hệ thống!";
 
   const getScanErrorMessage = (error: unknown) => {
+    if (isAiQuotaError(error)) return AI_QUOTA_MESSAGE;
     const message = error instanceof Error ? error.message : String(error || "");
     const normalized = message.toLowerCase();
     const isTokenOrQuotaError =
@@ -218,14 +220,18 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
       reader.readAsDataURL(file);
     });
 
-    const { data, error } = await callEdgeFunction<{ success: boolean; data: ScannedPOData; error?: string }>(
+    const { data, error, code } = await callEdgeFunction<{ success: boolean; data: ScannedPOData; error?: string }>(
       "scan-purchase-order",
       { imageBase64: base64, mimeType: file.type },
       token,
       60000
     );
 
-    if (error) throw new Error(error);
+    if (error) {
+      const scanError = new Error(error) as Error & { code?: string };
+      if (code) scanError.code = code;
+      throw scanError;
+    }
     if (!data?.success || !data?.data) throw new Error("Không nhận được dữ liệu scan hợp lệ");
     return data.data;
   };
@@ -257,26 +263,27 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
 
   // Handle image upload and scan (single or batch up to 10 images)
   const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files || []);
+    const input = event.currentTarget;
+    const files = Array.from(input.files || []);
     if (!files.length) return;
 
     if (files.length > MAX_PO_BATCH_FILES) {
       toast.error(`PO scan chỉ cho phép tối đa ${MAX_PO_BATCH_FILES} ảnh mỗi lần`);
-      event.currentTarget.value = "";
+      input.value = "";
       return;
     }
 
     const invalid = files.find((f) => !f.type.startsWith("image/"));
     if (invalid) {
       toast.error("PO scan hiện chỉ hỗ trợ file ảnh");
-      event.currentTarget.value = "";
+      input.value = "";
       return;
     }
 
     const oversized = files.find((f) => f.size > MAX_PO_FILE_SIZE_MB * 1024 * 1024);
     if (oversized) {
       toast.error(`File quá lớn: ${oversized.name} (tối đa ${MAX_PO_FILE_SIZE_MB}MB)`);
-      event.currentTarget.value = "";
+      input.value = "";
       return;
     }
 
@@ -333,6 +340,8 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
         }
 
         if (!scans.length) {
+          const quotaError = scanErrors.find((scanError) => isAiQuotaError(scanError));
+          if (quotaError) throw quotaError;
           const tokenOrQuotaError = scanErrors.find((scanError) => getScanErrorMessage(scanError) === TOKEN_ERROR_MESSAGE);
           throw tokenOrQuotaError ? new Error(TOKEN_ERROR_MESSAGE) : new Error("Không scan được file nào trong batch");
         }
@@ -353,10 +362,14 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
       }
     } catch (error) {
       console.error("[po-scan] error:", error);
-      toast.error(getScanErrorMessage(error));
+      if (isAiQuotaError(error)) {
+        notifyAiQuotaExhausted();
+      } else {
+        toast.error(getScanErrorMessage(error));
+      }
     } finally {
       setIsScanning(false);
-      event.currentTarget.value = "";
+      input.value = "";
     }
   };
 

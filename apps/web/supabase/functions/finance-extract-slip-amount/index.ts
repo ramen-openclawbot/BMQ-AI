@@ -3,6 +3,7 @@ import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 import { requireAuth } from "../_shared/auth.ts";
 import { checkAndRecordRateLimit, getRateLimitHeaders } from "../_shared/rate-limiter.ts";
 import { callOpenAiVision } from "../_shared/bank-slip-ocr.ts";
+import { aiErrorJson, getAiErrorInfo } from "../_shared/openai-errors.ts";
 
 const jsonResponse = (body: unknown, status = 200, corsHeaders?: Record<string, string>) =>
   new Response(JSON.stringify(body), {
@@ -86,6 +87,11 @@ serve(async (req) => {
     return jsonResponse({ success: true, data, meta: { provider: "openai" } }, 200, getCorsHeaders(req));
   } catch (error) {
     if (error instanceof Response) return error;
+    const aiInfo = getAiErrorInfo(error);
+    if (aiInfo) {
+      console.error(`[finance-extract-slip-amount] AI error kind=${aiInfo.kind}`);
+      return jsonResponse(aiErrorJson(aiInfo), aiInfo.httpStatus, getCorsHeaders(req));
+    }
     console.error("[finance-extract-slip-amount] Error:", error);
     const message = error instanceof Error ? error.message : "Unknown error";
     const safeMessage = message.includes("OPENAI_API_KEY") || message.includes("insufficient_quota")

@@ -3,6 +3,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 import { checkAndRecordRateLimit, getRateLimitHeaders } from "../_shared/rate-limiter.ts";
+import { aiErrorJson, classifyOpenAIError } from "../_shared/openai-errors.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -189,21 +190,15 @@ Trả về JSON.`;
       if (aiResponse.ok) break;
       const status = aiResponse.status;
       const errTxt = await aiResponse.text();
-      console.error(`[scan-bank-slip] AI API error attempt ${attempt}:`, status, errTxt);
-      if ((status === 429 || status >= 500) && attempt < 3) {
+      const info = classifyOpenAIError(status, errTxt);
+      console.error(`[scan-bank-slip] AI API error attempt ${attempt} kind=${info.kind}:`, status, errTxt.slice(0, 300));
+      if (info.kind !== "quota" && (status === 429 || status >= 500) && attempt < 3) {
         await sleep(400 * attempt);
         continue;
       }
 
-      if (status === 429 || status === 402) {
-        return new Response(JSON.stringify({ error: 'AI service temporarily unavailable. Please try again later.' }), {
-          status: 429,
-          headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
-        });
-      }
-
-      return new Response(JSON.stringify({ error: 'Failed to process image with AI' }), {
-        status: 500,
+      return new Response(JSON.stringify(aiErrorJson(info)), {
+        status: info.httpStatus,
         headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
       });
     }

@@ -14,6 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import { DealerOrderLockCard } from "@/components/mini-crm/DealerOrderLockCard";
 import { supabase } from "@/integrations/supabase/client";
 import { getFreshAccessToken } from "@/lib/supabase-helpers";
+import { AI_QUOTA_CODE, AI_QUOTA_MESSAGE, isAiQuotaError, notifyAiQuotaExhausted } from "@/lib/ai-errors";
 import { useLanguage } from "@/contexts/LanguageContext";
 import ExcelJS from "exceljs";
 import { getDocument, GlobalWorkerOptions } from "pdfjs-dist/legacy/build/pdf.mjs";
@@ -1371,14 +1372,21 @@ export default function MiniCrm() {
       if (error) {
         // Try to extract structured error detail from function response
         let detail = "";
+        let payload: any = null;
         const context = (error as any)?.context;
         if (context?.json) {
           try {
-            const payload = await context.json();
+            payload = await context.json();
             detail = [payload?.error, payload?.message, payload?.code, payload?.details].filter(Boolean).join(" | ");
           } catch {
             // JSON parse failed (e.g. proxy 401 with no body) — ignore
           }
+        }
+        if (isAiQuotaError(payload) || isAiQuotaError(error)) {
+          notifyAiQuotaExhausted();
+          const quotaError = new Error(AI_QUOTA_MESSAGE) as Error & { code?: string };
+          quotaError.code = AI_QUOTA_CODE;
+          throw quotaError;
         }
         throw new Error(detail || (error as any)?.message || "Edge Function returned a non-2xx status code");
       }
@@ -1414,6 +1422,11 @@ export default function MiniCrm() {
     },
     onError: (e: any) => {
       const message = e?.message || "Không thể tạo rule KB";
+      if (isAiQuotaError(e)) {
+        setKbAiStatus(`AI tính toán thất bại: ${AI_QUOTA_MESSAGE}`);
+        notifyAiQuotaExhausted();
+        return;
+      }
       setKbAiStatus(`AI tính toán thất bại: ${message}`);
       toast({ title: "AI tính toán thất bại", description: message, variant: "destructive" });
     },
@@ -1808,7 +1821,24 @@ export default function MiniCrm() {
     const { data, error } = await supabase.functions.invoke("scan-purchase-order", {
       body: { imageBase64: base64, mimeType: file.type || "image/png" },
     });
-    if (error) throw error;
+    if (error) {
+      let payload: any = null;
+      const context = (error as any)?.context;
+      if (context?.json) {
+        try {
+          payload = await context.json();
+        } catch {
+          // JSON parse failed (e.g. proxy error with no body) — ignore
+        }
+      }
+      if (isAiQuotaError(payload) || isAiQuotaError(error)) {
+        notifyAiQuotaExhausted();
+        const quotaError = new Error(AI_QUOTA_MESSAGE) as Error & { code?: string };
+        quotaError.code = AI_QUOTA_CODE;
+        throw quotaError;
+      }
+      throw error;
+    }
     const items = Array.isArray(data?.items) ? data.items : [];
     const supplier = String(data?.supplier_name || "").trim();
     const lines = items
@@ -4265,7 +4295,11 @@ export default function MiniCrm() {
                     toast({ title: "Đã nhận mẫu KB", description: "Định dạng file này chưa có parser riêng. Anh/chị vẫn có thể dùng mô tả business + mẫu email để AI tạo rule." });
                   }
                 } catch (err: any) {
-                  toast({ title: "Đọc file mẫu thất bại", description: err?.message || "Không thể đọc file", variant: "destructive" });
+                  if (isAiQuotaError(err)) {
+                    notifyAiQuotaExhausted();
+                  } else {
+                    toast({ title: "Đọc file mẫu thất bại", description: err?.message || "Không thể đọc file", variant: "destructive" });
+                  }
                 }
               }}
               onClearTemplate={async () => {

@@ -9,6 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { callEdgeFunction } from "@/lib/fetch-with-timeout";
+import { isAiQuotaError, notifyAiQuotaExhausted } from "@/lib/ai-errors";
 import { supabase } from "@/integrations/supabase/client";
 import { 
   Camera, 
@@ -216,7 +217,9 @@ export default function WarehouseHome() {
       }
 
       if (response.error) {
-        throw new Error(response.error);
+        const scanError = new Error(response.error) as Error & { code?: string };
+        if (response.code) scanError.code = response.code;
+        throw scanError;
       }
 
       if (response.data) {
@@ -226,12 +229,16 @@ export default function WarehouseHome() {
         setCurrentStep("edit");
       }
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Đã xảy ra lỗi khi quét phiếu giao hàng";
-      toast({
-        title: "Lỗi xử lý",
-        description: message,
-        variant: "destructive",
-      });
+      if (isAiQuotaError(err)) {
+        notifyAiQuotaExhausted();
+      } else {
+        const message = err instanceof Error ? err.message : "Đã xảy ra lỗi khi quét phiếu giao hàng";
+        toast({
+          title: "Lỗi xử lý",
+          description: message,
+          variant: "destructive",
+        });
+      }
     } finally {
       setIsScanning(false);
     }

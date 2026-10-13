@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 import { requireAuth } from "../_shared/auth.ts";
 import { checkAndRecordRateLimit, getRateLimitHeaders } from "../_shared/rate-limiter.ts";
+import { aiErrorJson, classifyOpenAIError } from "../_shared/openai-errors.ts";
 import { resolveCanonicalMaterialForLine } from "../_shared/material-controller.ts";
 
 type SkuCogsMaterial = {
@@ -147,7 +148,12 @@ Quy tắc bắt buộc:
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`AI gateway error: ${response.status} - ${errorText}`);
+      const info = classifyOpenAIError(response.status, errorText);
+      console.error(`[scan-sku-cost-sheet] AI gateway error kind=${info.kind}:`, response.status, errorText.slice(0, 300));
+      return new Response(JSON.stringify(aiErrorJson(info)), {
+        status: info.httpStatus,
+        headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
+      });
     }
 
     const aiResponse = await response.json();

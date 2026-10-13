@@ -7,6 +7,8 @@
  * exact same parsing/amount-in-words correctness rules without changing the
  * finance-extract-slip-amount response shape.
  */
+import { AiOpenAIError, classifyOpenAIError } from "./openai-errors.ts";
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Parse common VN/EN bank-slip amount strings to number.
@@ -434,14 +436,16 @@ export const callOpenAiVision = async (
 
     lastStatus = aiResponse.status;
     const errText = await aiResponse.text().catch(() => "");
+    const info = classifyOpenAIError(lastStatus, errText);
     console.error("[bank-slip-ocr] OpenAI API error", {
       attempt,
+      kind: info.kind,
       status: lastStatus,
-      bodyPreview: errText.slice(0, 240),
+      bodyPreview: errText.slice(0, 300),
     });
 
-    if (isOpenAiInsufficientQuotaPayload(errText)) {
-      throw new Error(sanitizeAiErrorMessage(lastStatus, errText));
+    if (info.kind === "quota") {
+      throw new AiOpenAIError(info);
     }
 
     if ((lastStatus === 429 || lastStatus >= 500) && attempt < 3) {
@@ -449,11 +453,11 @@ export const callOpenAiVision = async (
       continue;
     }
 
-    throw new Error(sanitizeAiErrorMessage(lastStatus, errText));
+    throw new AiOpenAIError(info);
   }
 
   if (!aiResponse?.ok) {
-    throw new Error(sanitizeAiErrorMessage(lastStatus));
+    throw new AiOpenAIError(classifyOpenAIError(lastStatus, ""));
   }
 
   const aiData = await aiResponse.json();

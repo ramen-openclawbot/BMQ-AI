@@ -18,8 +18,10 @@ import {
 import {
   CASH_RECEIPT_SYSTEM_PROMPT,
   CASH_RECEIPT_TOOL,
+  classifyCashReceiptOpenAiError,
   normalizeCashReceipt,
 } from "../_shared/cash-receipt-ocr.ts";
+import { aiErrorJson, classifyOpenAIError } from "../_shared/openai-errors.ts";
 
 type ScanTemplateRow = {
   id: string;
@@ -178,21 +180,17 @@ serve(async (req) => {
       });
 
       if (!cashResponse.ok) {
-        if (cashResponse.status === 429) {
-          return new Response(
-            JSON.stringify({ error: "Rate limit exceeded. Please try again later." }),
-            { status: 429, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
-          );
-        }
-        if (cashResponse.status === 402) {
-          return new Response(
-            JSON.stringify({ error: "AI credits exhausted. Please add more credits." }),
-            { status: 402, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
-          );
-        }
         const errorText = await cashResponse.text();
-        console.error("[scan-invoice] AI gateway error (cash_receipt):", cashResponse.status, errorText);
-        throw new Error(`AI gateway error: ${cashResponse.status}`);
+        const info = classifyCashReceiptOpenAiError(cashResponse.status, errorText);
+        console.error(
+          `[scan-invoice] AI gateway error (cash_receipt) kind=${info.kind}:`,
+          cashResponse.status,
+          errorText.slice(0, 300),
+        );
+        return new Response(JSON.stringify(aiErrorJson(info)), {
+          status: info.httpStatus,
+          headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
+        });
       }
 
       const cashAiResponse = await cashResponse.json();
@@ -353,21 +351,17 @@ ${aliases.length ? `Known aliases (alias => canonical supplier):\n${aliases.slic
     });
 
     if (!response.ok) {
-      if (response.status === 429) {
-        return new Response(
-          JSON.stringify({ error: "Rate limit exceeded. Please try again later." }),
-          { status: 429, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
-        );
-      }
-      if (response.status === 402) {
-        return new Response(
-          JSON.stringify({ error: "AI credits exhausted. Please add more credits." }),
-          { status: 402, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
-        );
-      }
       const errorText = await response.text();
-      console.error("[scan-invoice] AI gateway error:", response.status, errorText);
-      throw new Error(`AI gateway error: ${response.status}`);
+      const info = classifyOpenAIError(response.status, errorText);
+      console.error(
+        `[scan-invoice] AI gateway error kind=${info.kind}:`,
+        response.status,
+        errorText.slice(0, 300),
+      );
+      return new Response(JSON.stringify(aiErrorJson(info)), {
+        status: info.httpStatus,
+        headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
+      });
     }
 
     const aiResponse = await response.json();

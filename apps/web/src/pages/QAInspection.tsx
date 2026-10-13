@@ -28,6 +28,7 @@ import {
 import { format } from "date-fns";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { AI_QUOTA_MESSAGE, isAiQuotaError, notifyAiQuotaExhausted } from "@/lib/ai-errors";
 import { evaluateLabelScan, expectedLabelDates, formatDateKeyVi, normalizeLabelIdentity, ProductLabelSpec, ExtractedProductLabelData } from "@/lib/product-label-control";
 
 const QA_PHOTO_BUCKET = "sku-images";
@@ -494,9 +495,16 @@ export default function QAInspection() {
         [itemKey]: { status: result.passed ? "passed" : "failed", reason: result.reason, image_url: imageUrl, extracted },
       }));
     } catch (error) {
+      const context = (error as { context?: Response })?.context;
+      let payload: unknown = null;
+      if (context && typeof context.json === "function") {
+        payload = await context.json().catch(() => null);
+      }
+      const quota = isAiQuotaError(payload) || isAiQuotaError(error);
+      if (quota) notifyAiQuotaExhausted();
       setLabelChecks((current) => ({
         ...current,
-        [itemKey]: { status: "failed", reason: getLabelScanErrorMessage(error), image_url: null, extracted: null },
+        [itemKey]: { status: "failed", reason: quota ? AI_QUOTA_MESSAGE : getLabelScanErrorMessage(error), image_url: null, extracted: null },
       }));
     } finally {
       setScanningLabel(false);

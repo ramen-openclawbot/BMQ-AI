@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 import { checkAndRecordRateLimit, getRateLimitHeaders } from "../_shared/rate-limiter.ts";
+import { aiErrorJson, classifyOpenAIError } from "../_shared/openai-errors.ts";
 import { resolveCanonicalMaterialForLine, MaterialControllerResult } from "../_shared/material-controller.ts";
 // Task 5 contract marker: match-delivery-note keeps nameSimilarity for PO quantity assistance,
 // but canonical_material_id/resolved_exact must come from resolve_canonical_material only.
@@ -489,10 +490,11 @@ Important:
 
     if (!aiResponse.ok) {
       const errorText = await aiResponse.text();
-      console.error("AI API error:", errorText);
+      const info = classifyOpenAIError(aiResponse.status, errorText);
+      console.error(`[match-delivery-note] AI API error kind=${info.kind}:`, aiResponse.status, errorText.slice(0, 300));
       return new Response(
-        JSON.stringify({ error: "Failed to process image" }),
-        { status: 500, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
+        JSON.stringify(aiErrorJson(info)),
+        { status: info.httpStatus, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
       );
     }
 

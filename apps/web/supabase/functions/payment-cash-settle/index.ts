@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 import { callOpenAiVision } from "../_shared/bank-slip-ocr.ts";
+import { aiErrorJson, getAiErrorInfo } from "../_shared/openai-errors.ts";
 
 // Untyped database schema: the generated types are not shared with edge functions.
 // deno-lint-ignore no-explicit-any
@@ -189,6 +190,11 @@ const handleExtract = async (
   try {
     extracted = await callOpenAiVision(imageBase64, mimeType, "cash", { readBeneficiary: true });
   } catch (error) {
+    const aiInfo = getAiErrorInfo(error);
+    if (aiInfo?.code === "ai_quota_exhausted") {
+      console.error("[payment-cash-settle] OCR quota exhausted");
+      return jsonResponse(req, 503, aiErrorJson(aiInfo));
+    }
     ocrError = (error instanceof Error ? error.message : "ocr_failed").slice(0, 500);
     console.error("[payment-cash-settle] OCR failed", ocrError);
   }

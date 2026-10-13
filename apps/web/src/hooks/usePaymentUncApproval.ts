@@ -8,6 +8,7 @@ import {
   type UncMatchCode,
   type UncPaymentRequestInput,
 } from "@/lib/payment-unc-matching";
+import { AI_QUOTA_CODE, AI_QUOTA_MESSAGE, isAiQuotaError, notifyAiQuotaExhausted } from "@/lib/ai-errors";
 
 export { normalizeUncReference };
 export type { UncAllocationInput, UncMatchCode, UncPaymentRequestInput };
@@ -68,10 +69,18 @@ const extractError = async (error: unknown): Promise<PaymentUncApprovalError> =>
   if (context && typeof context.json === "function") {
     try {
       const payload = await context.json() as { code?: string; error?: string; detail?: string };
+      if (isAiQuotaError(payload)) {
+        notifyAiQuotaExhausted();
+        return new PaymentUncApprovalError(AI_QUOTA_CODE, AI_QUOTA_MESSAGE);
+      }
       return new PaymentUncApprovalError(payload.code || payload.error || "approval_failed", payload.detail);
     } catch {
       // Fall through to the generic error below.
     }
+  }
+  if (isAiQuotaError(error)) {
+    notifyAiQuotaExhausted();
+    return new PaymentUncApprovalError(AI_QUOTA_CODE, AI_QUOTA_MESSAGE);
   }
   return new PaymentUncApprovalError(
     "approval_failed",

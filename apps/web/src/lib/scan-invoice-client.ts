@@ -1,5 +1,6 @@
 // Calls the scan-invoice edge function for one image. Shared by the cash phiếu dialog.
 import type { CashPrScanExtracted } from "@/lib/cash-pr-lines";
+import { AI_QUOTA_MESSAGE, isAiQuotaError, notifyAiQuotaExhausted } from "@/lib/ai-errors";
 
 export async function scanInvoiceFile(
   file: File,
@@ -19,6 +20,10 @@ export async function scanInvoiceFile(
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
+    if (isAiQuotaError(payload)) {
+      notifyAiQuotaExhausted();
+      throw new Error(AI_QUOTA_MESSAGE);
+    }
     const message = (payload as { error?: string }).error;
     if (response.status === 429) throw new Error(message || "Đang quét quá nhiều, thử lại sau ít phút");
     throw new Error(message || "Không đọc được hoá đơn");

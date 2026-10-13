@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
+import { AI_QUOTA_CODE, AI_QUOTA_MESSAGE, isAiQuotaError, notifyAiQuotaExhausted } from "@/lib/ai-errors";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -343,7 +344,14 @@ export function Q7SignedMaterialIssueQueue() {
         body: JSON.stringify({ issue_id: issue.id }),
       });
       const result = await safeParseQ7MaterialIssueCheckJson(response);
-      if (!response.ok) throw new Error(result?.error || result?.message || "Edge kiểm tra thất bại.");
+      if (!response.ok) {
+        if (isAiQuotaError(result)) {
+          const quotaError = new Error(AI_QUOTA_MESSAGE) as Error & { code?: string };
+          quotaError.code = AI_QUOTA_CODE;
+          throw quotaError;
+        }
+        throw new Error(result?.error || result?.message || "Edge kiểm tra thất bại.");
+      }
       return issue.id;
     },
     onSuccess: () => {
@@ -352,7 +360,13 @@ export function Q7SignedMaterialIssueQueue() {
       queryClient.invalidateQueries({ queryKey: ["q7_material_issue_checks"] });
       queryClient.invalidateQueries({ queryKey: ["q7_material_issue_actuals"] });
     },
-    onError: (error: Error) => { toast({ title: "Không kiểm tra được phiếu", description: error.message || "Vui lòng thử lại.", variant: "destructive" }); },
+    onError: (error: Error) => {
+      if (isAiQuotaError(error)) {
+        notifyAiQuotaExhausted();
+        return;
+      }
+      toast({ title: "Không kiểm tra được phiếu", description: error.message || "Vui lòng thử lại.", variant: "destructive" });
+    },
     onSettled: (_data, _error, issue) => {
       if (!issue?.id) return;
       setCheckingQ7SignedIssueIds((prev) => { const next = { ...prev }; delete next[issue.id]; return next; });

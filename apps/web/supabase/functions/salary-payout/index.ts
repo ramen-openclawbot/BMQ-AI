@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 import { callOpenAiVision } from "../_shared/bank-slip-ocr.ts";
+import { aiErrorJson, getAiErrorInfo } from "../_shared/openai-errors.ts";
 
 // Untyped database schema: the generated types are not shared with edge functions.
 // deno-lint-ignore no-explicit-any
@@ -306,6 +307,11 @@ const handleCeoExtract = async (
     ocrAmount = numericOrNull(extracted.amount);
     ocrReference = extracted.reference ? String(extracted.reference) : null;
   } catch (error) {
+    const aiInfo = getAiErrorInfo(error);
+    if (aiInfo?.code === "ai_quota_exhausted") {
+      console.error("[salary-payout] CEO OCR quota exhausted");
+      return jsonResponse(req, 503, aiErrorJson(aiInfo));
+    }
     const message = error instanceof Error ? error.message : "ocr_failed";
     // Never echo extracted amounts/names; only the sanitized failure is logged.
     console.error("[salary-payout] CEO OCR failed", message.slice(0, 300));
@@ -395,6 +401,11 @@ const handleReceiptExtract = async (
     ocrBeneficiary = extracted.beneficiary_name ? String(extracted.beneficiary_name) : null;
     ocrReference = extracted.reference ? String(extracted.reference) : null;
   } catch (error) {
+    const aiInfo = getAiErrorInfo(error);
+    if (aiInfo?.code === "ai_quota_exhausted") {
+      console.error("[salary-payout] Receipt OCR quota exhausted");
+      return jsonResponse(req, 503, aiErrorJson(aiInfo));
+    }
     ocrError = (error instanceof Error ? error.message : "ocr_failed").slice(0, 500);
     console.error("[salary-payout] Receipt OCR failed", ocrError);
   }

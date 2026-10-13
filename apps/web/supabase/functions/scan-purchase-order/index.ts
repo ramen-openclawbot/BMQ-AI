@@ -3,6 +3,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 import { checkAndRecordRateLimit, getRateLimitHeaders } from "../_shared/rate-limiter.ts";
+import { aiErrorJson, classifyOpenAIError } from "../_shared/openai-errors.ts";
 
 serve(async (req) => {
   const startTime = Date.now();
@@ -229,23 +230,17 @@ ${supplierVatConfig?.vat_included_in_price ? '- NCC này có giá đã bao gồm
     });
 
     if (!response.ok) {
-      if (response.status === 429) {
-        console.log("[scan-purchase-order] Rate limit exceeded");
-        return new Response(
-          JSON.stringify({ error: "Rate limit exceeded. Please try again later." }),
-          { status: 429, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
-        );
-      }
-      if (response.status === 402) {
-        console.log("[scan-purchase-order] AI credits exhausted");
-        return new Response(
-          JSON.stringify({ error: "AI credits exhausted. Please add more credits." }),
-          { status: 402, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
-        );
-      }
       const errorText = await response.text();
-      console.error("[scan-purchase-order] AI gateway error:", response.status, errorText);
-      throw new Error(`AI gateway error: ${response.status}`);
+      const info = classifyOpenAIError(response.status, errorText);
+      console.error(
+        `[scan-purchase-order] AI gateway error kind=${info.kind}:`,
+        response.status,
+        errorText.slice(0, 300),
+      );
+      return new Response(JSON.stringify(aiErrorJson(info)), {
+        status: info.httpStatus,
+        headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
+      });
     }
 
     const aiResponse = await response.json();

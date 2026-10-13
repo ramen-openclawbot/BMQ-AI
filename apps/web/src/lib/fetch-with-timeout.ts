@@ -3,6 +3,8 @@
  * Used because Supabase functions.invoke can hang indefinitely on Safari.
  */
 
+import { AI_QUOTA_CODE, AI_QUOTA_MESSAGE, isAiQuotaError, notifyAiQuotaExhausted } from "./ai-errors";
+
 const DEFAULT_TIMEOUT = 60000; // 60 seconds default
 
 export async function fetchWithTimeout(
@@ -34,6 +36,8 @@ export interface EdgeFunctionResponse<T> {
   error: string | null;
   isSessionExpired?: boolean;
   isRateLimited?: boolean;
+  /** Structured edge error code (e.g. 'ai_quota_exhausted'). */
+  code?: string;
 }
 
 /**
@@ -98,24 +102,35 @@ export async function callEdgeFunction<T>(
       };
     }
 
-    // Detect rate limiting (429)
-    if (response.status === 429) {
-      const data = await response.json().catch(() => ({}));
+    // Every other non-2xx body is read once so an AI quota exhaustion can be
+    // recognized even when the code sits in detail or message. The internal
+    // rate limiter (429) keeps its existing handling below.
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({})) as {
+        code?: string;
+        error?: string;
+        message?: string;
+        detail?: string;
+      };
+      if (isAiQuotaError(data)) {
+        notifyAiQuotaExhausted();
+        return { data: null, error: AI_QUOTA_MESSAGE, code: AI_QUOTA_CODE };
+      }
+      if (response.status === 429) {
+        return {
+          data: null,
+          error: data.error || 'Bạn đã vượt quá giới hạn scan hôm nay. Vui lòng thử lại vào ngày mai.',
+          isRateLimited: true,
+        };
+      }
       return {
         data: null,
-        error: data.error || 'Bạn đã vượt quá giới hạn scan hôm nay. Vui lòng thử lại vào ngày mai.',
-        isRateLimited: true,
+        error: data.error || data.message || `HTTP ${response.status}`,
+        code: data.code,
       };
     }
 
     const data = await response.json();
-
-    if (!response.ok) {
-      return {
-        data: null,
-        error: data.error || data.message || `HTTP ${response.status}`
-      };
-    }
 
     return { data, error: null };
   } catch (error) {

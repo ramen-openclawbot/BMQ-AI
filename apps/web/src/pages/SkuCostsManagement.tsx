@@ -9,6 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { DEFAULT_SKU_COST_TEMPLATE, DEFAULT_SKU_COST_VALUES, parseCostTemplate, parseCostValues, toNumber } from "@/lib/sku-cost-template";
 import { callEdgeFunction } from "@/lib/fetch-with-timeout";
+import { AI_QUOTA_CODE, AI_QUOTA_MESSAGE, isAiQuotaError, notifyAiQuotaExhausted } from "@/lib/ai-errors";
 import { isFinishedSku } from "@/lib/skuType";
 import { dosageInputText, parseDosageGramInput } from "@/lib/dosage-input";
 import { describeSkuCogsSaveError } from "@/lib/sku-cogs-save-error";
@@ -868,7 +869,9 @@ export default function SkuCostsManagement() {
       );
 
       if (edge.error || !edge.data?.success) {
-        throw new Error(edge.error || "Load failed");
+        const scanError = new Error(edge.error || "Load failed") as Error & { code?: string };
+        if (edge.code) scanError.code = edge.code;
+        throw scanError;
       }
 
       const data = edge.data.data || {};
@@ -909,6 +912,11 @@ export default function SkuCostsManagement() {
         setScanSkuMessage("Đã đọc ảnh và xác nhận toàn bộ NVL exact theo danh mục chuẩn.");
       }
     } catch (e: any) {
+      if (isAiQuotaError(e)) {
+        notifyAiQuotaExhausted();
+        setScanSkuMessage(`Scan thất bại: ${AI_QUOTA_MESSAGE}`);
+        return;
+      }
       const raw = String(e?.message || "Lỗi không xác định");
       const msg = raw.includes("CONFIG_MISSING_OPENAI_API_KEY") || raw.includes("OPENAI_API_KEY")
         ? "Thiếu AI key trên server (OPENAI_API_KEY). Vui lòng cấu hình để dùng scan ảnh."

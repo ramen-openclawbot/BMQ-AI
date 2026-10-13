@@ -2,6 +2,8 @@
 // Uses OpenAI vision to extract product-label fields, then returns structured data.
 // Configure OPENAI_API_KEY in Supabase secrets before deployment.
 
+import { aiErrorJson, AiOpenAIError, classifyOpenAIError, getAiErrorInfo } from "../_shared/openai-errors.ts";
+
 declare const Deno: { env: { get(key: string): string | undefined }; serve(handler: (req: Request) => Response | Promise<Response>): void };
 
 const corsHeaders = {
@@ -122,7 +124,10 @@ async function extract_product_label_data(payload: ExtractProductLabelDataReques
   });
 
   if (!response.ok) {
-    throw new Error(`OpenAI label OCR failed: ${response.status} ${await response.text()}`);
+    const bodyText = await response.text();
+    const info = classifyOpenAIError(response.status, bodyText);
+    console.error(`[scan-product-label] OpenAI label OCR error kind=${info.kind}:`, response.status, bodyText.slice(0, 300));
+    throw new AiOpenAIError(info);
   }
   const body = await response.json();
   const parsed = JSON.parse(body.choices?.[0]?.message?.content || "{}");
@@ -151,6 +156,8 @@ Deno.serve(async (req) => {
     const data = await extract_product_label_data(payload);
     return jsonResponse({ data });
   } catch (error) {
+    const info = getAiErrorInfo(error);
+    if (info) return jsonResponse(aiErrorJson(info), info.httpStatus);
     return jsonResponse({ error: error instanceof Error ? error.message : String(error) }, 400);
   }
 });
