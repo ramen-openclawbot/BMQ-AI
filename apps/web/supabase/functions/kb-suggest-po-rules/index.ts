@@ -3,7 +3,7 @@ import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 import { requireAuth } from "../_shared/auth.ts";
 import { checkAndRecordRateLimit, getRateLimitHeaders } from "../_shared/rate-limiter.ts";
 import { aiErrorJson, classifyOpenAIError } from "../_shared/openai-errors.ts";
-import { OPENAI_SCAN_MODEL } from "../_shared/openai-models.ts";
+import { getScanAiConfig } from "../_shared/ai-vision-provider.ts";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return corsPreflightResponse(req);
@@ -34,10 +34,10 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: "Cần ít nhất mô tả business hoặc ngữ cảnh template để AI phân tích" }), { status: 400, headers: jsonHeaders });
     }
 
-    // OpenAI config
-    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
-    if (!OPENAI_API_KEY) {
-      return new Response(JSON.stringify({ code: "CONFIG_MISSING_OPENAI_API_KEY", error: "Thiếu cấu hình AI key (OPENAI_API_KEY)" }), { status: 503, headers: jsonHeaders });
+    // AI provider config
+    const scanAi = getScanAiConfig();
+    if (!scanAi.apiKey) {
+      return new Response(JSON.stringify({ code: `CONFIG_MISSING_${scanAi.keyName}`, error: `Thiếu cấu hình AI key (${scanAi.keyName})` }), { status: 503, headers: jsonHeaders });
     }
 
     const systemPrompt = `Bạn là chuyên gia thiết kế Knowledge Base parse đơn bán hàng từ email/PO cho hệ thống nội bộ.
@@ -76,14 +76,15 @@ Yêu cầu:
     };
 
     // Call OpenAI
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const response = await fetch(scanAi.endpoint, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        Authorization: `Bearer ${scanAi.apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: OPENAI_SCAN_MODEL,
+        model: scanAi.model,
+        ...scanAi.extraBody,
         temperature: 0.2,
         response_format: { type: "json_object" },
         messages: [

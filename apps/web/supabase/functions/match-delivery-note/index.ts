@@ -3,7 +3,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 import { checkAndRecordRateLimit, getRateLimitHeaders } from "../_shared/rate-limiter.ts";
 import { aiErrorJson, classifyOpenAIError } from "../_shared/openai-errors.ts";
-import { OPENAI_SCAN_MODEL } from "../_shared/openai-models.ts";
+import { getScanAiConfig } from "../_shared/ai-vision-provider.ts";
 import { resolveCanonicalMaterialForLine, MaterialControllerResult } from "../_shared/material-controller.ts";
 // Task 5 contract marker: match-delivery-note keeps nameSimilarity for PO quantity assistance,
 // but canonical_material_id/resolved_exact must come from resolve_canonical_material only.
@@ -375,11 +375,11 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-    const openaiApiKey = Deno.env.get("OPENAI_API_KEY");
+    const scanAi = getScanAiConfig();
 
-    if (!openaiApiKey) {
+    if (!scanAi.apiKey) {
       return new Response(
-        JSON.stringify({ error: "AI service not configured" }),
+        JSON.stringify({ error: `AI service not configured (${scanAi.keyName})` }),
         { status: 500, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
       );
     }
@@ -436,14 +436,15 @@ serve(async (req) => {
       : deliveryImage;
 
     // Call OpenAI to extract delivery note info
-    const aiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+    const aiResponse = await fetch(scanAi.endpoint, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${openaiApiKey}`,
+        "Authorization": `Bearer ${scanAi.apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: OPENAI_SCAN_MODEL,
+        model: scanAi.model,
+        ...scanAi.extraBody,
         messages: [
           {
             role: "system",

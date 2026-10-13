@@ -4,7 +4,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 import { checkAndRecordRateLimit, getRateLimitHeaders } from "../_shared/rate-limiter.ts";
 import { aiErrorJson, classifyOpenAIError } from "../_shared/openai-errors.ts";
-import { OPENAI_SCAN_MODEL } from "../_shared/openai-models.ts";
+import { getScanAiConfig } from "../_shared/ai-vision-provider.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -99,10 +99,10 @@ serve(async (req) => {
       });
     }
 
-    const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
-    if (!openaiApiKey) {
-      console.error("[scan-bank-slip] OPENAI_API_KEY not configured");
-      return new Response(JSON.stringify({ error: 'AI API key not configured' }), {
+    const scanAi = getScanAiConfig();
+    if (!scanAi.apiKey) {
+      console.error(`[scan-bank-slip] ${scanAi.keyName} not configured`);
+      return new Response(JSON.stringify({ error: `AI API key not configured (${scanAi.keyName})` }), {
         status: 500,
         headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
       });
@@ -134,14 +134,15 @@ Trả về JSON.`;
     console.log("[scan-bank-slip] Calling AI gateway");
     let aiResponse: Response | null = null;
     for (let attempt = 1; attempt <= 3; attempt++) {
-      aiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+      aiResponse = await fetch(scanAi.endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${openaiApiKey}`,
+          'Authorization': `Bearer ${scanAi.apiKey}`,
         },
         body: JSON.stringify({
-          model: OPENAI_SCAN_MODEL,
+          model: scanAi.model,
+          ...scanAi.extraBody,
           messages: [
             { role: 'system', content: systemPrompt },
             {

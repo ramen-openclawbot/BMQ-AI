@@ -22,7 +22,7 @@ import {
   normalizeCashReceipt,
 } from "../_shared/cash-receipt-ocr.ts";
 import { aiErrorJson, classifyOpenAIError } from "../_shared/openai-errors.ts";
-import { OPENAI_SCAN_MODEL } from "../_shared/openai-models.ts";
+import { getScanAiConfig } from "../_shared/ai-vision-provider.ts";
 
 type ScanTemplateRow = {
   id: string;
@@ -133,11 +133,11 @@ serve(async (req) => {
       );
     }
 
-    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
-    if (!OPENAI_API_KEY) {
-      console.error("[scan-invoice] OPENAI_API_KEY not configured");
+    const scanAi = getScanAiConfig();
+    if (!scanAi.apiKey) {
+      console.error(`[scan-invoice] ${scanAi.keyName} not configured`);
       return new Response(
-        JSON.stringify({ code: "CONFIG_MISSING_OPENAI_API_KEY", error: "Thiếu cấu hình AI key (OPENAI_API_KEY)" }),
+        JSON.stringify({ code: `CONFIG_MISSING_${scanAi.keyName}`, error: `Thiếu cấu hình AI key (${scanAi.keyName})` }),
         { status: 503, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
       );
     }
@@ -149,14 +149,15 @@ serve(async (req) => {
     // learning, cost classification and supplier writes.
     if (documentType === "cash_receipt") {
       console.log("[scan-invoice] Calling AI gateway (cash_receipt)");
-      const cashResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+      const cashResponse = await fetch(scanAi.endpoint, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
+          Authorization: `Bearer ${scanAi.apiKey}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: OPENAI_SCAN_MODEL,
+          model: scanAi.model,
+          ...scanAi.extraBody,
           messages: [
             { role: "system", content: CASH_RECEIPT_SYSTEM_PROMPT },
             {
@@ -283,14 +284,15 @@ ${learnedTemplatePrompt}
 ${aliases.length ? `Known aliases (alias => canonical supplier):\n${aliases.slice(0,150).map((a)=>`- ${a.alias_text} => ${(supplierList.find((x)=>x.id===a.supplier_id)?.name)||a.supplier_id}`).join("\n")}` : ""}`;
 
     console.log("[scan-invoice] Calling AI gateway");
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const response = await fetch(scanAi.endpoint, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        Authorization: `Bearer ${scanAi.apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: OPENAI_SCAN_MODEL,
+        model: scanAi.model,
+        ...scanAi.extraBody,
         messages: [
           { role: "system", content: systemPrompt },
           {

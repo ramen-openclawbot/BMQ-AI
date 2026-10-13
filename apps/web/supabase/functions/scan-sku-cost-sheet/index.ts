@@ -4,7 +4,7 @@ import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 import { requireAuth } from "../_shared/auth.ts";
 import { checkAndRecordRateLimit, getRateLimitHeaders } from "../_shared/rate-limiter.ts";
 import { aiErrorJson, classifyOpenAIError } from "../_shared/openai-errors.ts";
-import { OPENAI_SCAN_MODEL } from "../_shared/openai-models.ts";
+import { getScanAiConfig } from "../_shared/ai-vision-provider.ts";
 import { resolveCanonicalMaterialForLine } from "../_shared/material-controller.ts";
 
 type SkuCogsMaterial = {
@@ -53,8 +53,8 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: "No image provided" }), { status: 400, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } });
     }
 
-    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
-    if (!OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is not configured");
+    const scanAi = getScanAiConfig();
+    if (!scanAi.apiKey) throw new Error(`${scanAi.keyName} is not configured`);
 
     const systemPrompt = `Bạn là chuyên gia đọc sheet giá thành sản xuất tiếng Việt.
 Trích xuất theo đúng cột cố định (từ trái qua phải) của bảng nguyên vật liệu:
@@ -84,14 +84,15 @@ Quy tắc bắt buộc:
 - Tự kiểm tra: line_cost phải xấp xỉ unit_price * dosage_qty.
 - Nếu không thấy product_name, dùng "SKU từ ảnh".`;
 
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const response = await fetch(scanAi.endpoint, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        Authorization: `Bearer ${scanAi.apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: OPENAI_SCAN_MODEL,
+        model: scanAi.model,
+        ...scanAi.extraBody,
         messages: [
           { role: "system", content: systemPrompt },
           {

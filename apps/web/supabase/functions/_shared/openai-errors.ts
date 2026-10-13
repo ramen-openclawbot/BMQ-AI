@@ -37,12 +37,13 @@ const QUOTA_BODY_PATTERNS = [
   "insufficient_quota",
   "billing_hard_limit",
   "exceeded your current quota",
+  "insufficient balance",
 ];
 
-/** Classify an OpenAI HTTP error body into one stable code + Vietnamese message. */
+/** Classify an OpenAI/DeepSeek HTTP error body into one stable code + Vietnamese message. */
 export function classifyOpenAIError(status: number, bodyText: string): AiErrorInfo {
   const lower = String(bodyText || "").toLowerCase();
-  const isQuota = QUOTA_BODY_PATTERNS.some((pattern) => lower.includes(pattern));
+  const isQuota = status === 402 || QUOTA_BODY_PATTERNS.some((pattern) => lower.includes(pattern));
   if (isQuota) {
     return { kind: "quota", code: AI_QUOTA_CODE, httpStatus: 503, message: AI_QUOTA_MESSAGE };
   }

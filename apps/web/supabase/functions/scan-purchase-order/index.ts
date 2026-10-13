@@ -4,7 +4,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 import { checkAndRecordRateLimit, getRateLimitHeaders } from "../_shared/rate-limiter.ts";
 import { aiErrorJson, classifyOpenAIError } from "../_shared/openai-errors.ts";
-import { OPENAI_SCAN_MODEL } from "../_shared/openai-models.ts";
+import { getScanAiConfig } from "../_shared/ai-vision-provider.ts";
 
 serve(async (req) => {
   const startTime = Date.now();
@@ -81,10 +81,10 @@ serve(async (req) => {
       );
     }
 
-    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
-    if (!OPENAI_API_KEY) {
-      console.error("[scan-purchase-order] OPENAI_API_KEY not configured");
-      throw new Error("OPENAI_API_KEY is not configured");
+    const scanAi = getScanAiConfig();
+    if (!scanAi.apiKey) {
+      console.error(`[scan-purchase-order] ${scanAi.keyName} not configured`);
+      throw new Error(`${scanAi.keyName} is not configured`);
     }
 
     // Conditional VAT instruction based on supplier's learned preference
@@ -120,14 +120,15 @@ Lưu ý quan trọng:
 ${supplierVatConfig?.vat_included_in_price ? '- NCC này có giá đã bao gồm VAT trong đơn giá, không có dòng VAT riêng' : ''}`;
 
     console.log("[scan-purchase-order] Calling AI gateway");
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    const response = await fetch(scanAi.endpoint, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        Authorization: `Bearer ${scanAi.apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: OPENAI_SCAN_MODEL,
+        model: scanAi.model,
+        ...scanAi.extraBody,
         messages: [
           { role: "system", content: systemPrompt },
           {

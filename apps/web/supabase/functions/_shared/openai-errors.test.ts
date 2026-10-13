@@ -58,6 +58,28 @@ Deno.test("billing_hard_limit and exceeded quota text also count as quota", () =
   );
 });
 
+Deno.test("DeepSeek 402 Insufficient Balance maps to ai_quota_exhausted / 503", () => {
+  const info = classifyOpenAIError(
+    402,
+    JSON.stringify({ error: { message: "Insufficient Balance", type: "unknown_error" } }),
+  );
+  assertEqual(info.kind, "quota");
+  assertEqual(info.code, AI_QUOTA_CODE);
+  assertEqual(info.httpStatus, 503);
+  assertEqual(info.message, AI_QUOTA_MESSAGE);
+});
+
+Deno.test("body insufficient balance (any case) counts as quota even without 402", () => {
+  assertEqual(
+    classifyOpenAIError(400, '{"error":{"message":"Insufficient Balance"}}').code,
+    AI_QUOTA_CODE,
+  );
+});
+
+Deno.test("plain 402 without a known body pattern still counts as quota", () => {
+  assertEqual(classifyOpenAIError(402, "payment required").code, AI_QUOTA_CODE);
+});
+
 Deno.test("AiOpenAIError carries code and info for callers", () => {
   const error = new AiOpenAIError(classifyOpenAIError(429, "insufficient_quota"));
   assertEqual(error.code, AI_QUOTA_CODE);

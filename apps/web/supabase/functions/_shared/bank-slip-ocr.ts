@@ -8,7 +8,7 @@
  * finance-extract-slip-amount response shape.
  */
 import { AiOpenAIError, classifyOpenAIError } from "./openai-errors.ts";
-import { OPENAI_SCAN_MODEL } from "./openai-models.ts";
+import { getScanAiConfig } from "./ai-vision-provider.ts";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -330,9 +330,10 @@ export const sanitizeAiErrorMessage = (status?: number, rawError = "") => {
   return "AI Vision is temporarily unavailable. Please try again.";
 };
 
-export const OPENAI_VISION_ENDPOINT = "https://api.openai.com/v1/chat/completions";
-// Giữ export cũ để không làm gãy nơi đang import; nay dùng chung OPENAI_SCAN_MODEL.
-export const OPENAI_VISION_MODEL = OPENAI_SCAN_MODEL;
+const scanAiConfig = getScanAiConfig();
+export const OPENAI_VISION_ENDPOINT = scanAiConfig.endpoint;
+// Giữ export cũ để không làm gãy nơi đang import; nay lấy theo cấu hình AI đọc ảnh.
+export const OPENAI_VISION_MODEL = scanAiConfig.model;
 
 export const callOpenAiVision = async (
   imageBase64: string,
@@ -347,10 +348,10 @@ export const callOpenAiVision = async (
   const userPrompt = readBeneficiary
     ? slipBeneficiaryUserPrompt(slipType)
     : slipUserPrompt(slipType);
-  const openaiApiKey = Deno.env.get("OPENAI_API_KEY");
-  if (!openaiApiKey) {
-    console.error("[bank-slip-ocr] OPENAI_API_KEY not configured");
-    throw new Error("Thiếu cấu hình AI key (OPENAI_API_KEY)");
+  const scanAi = getScanAiConfig();
+  if (!scanAi.apiKey) {
+    console.error(`[bank-slip-ocr] ${scanAi.keyName} not configured`);
+    throw new Error(`Thiếu cấu hình AI key (${scanAi.keyName})`);
   }
 
   let aiResponse: Response | null = null;
@@ -361,15 +362,16 @@ export const callOpenAiVision = async (
     const timeout = setTimeout(() => controller.abort(), 45000);
 
     try {
-      console.log(`[bank-slip-ocr] Calling OpenAI gateway attempt ${attempt}`);
-      aiResponse = await fetch(OPENAI_VISION_ENDPOINT, {
+      console.log(`[bank-slip-ocr] Calling AI gateway attempt ${attempt}`);
+      aiResponse = await fetch(scanAi.endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${openaiApiKey}`,
+          Authorization: `Bearer ${scanAi.apiKey}`,
         },
         body: JSON.stringify({
-          model: OPENAI_VISION_MODEL,
+          model: scanAi.model,
+          ...scanAi.extraBody,
           messages: [
             { role: "system", content: systemPrompt },
             {

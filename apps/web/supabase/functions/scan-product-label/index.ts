@@ -3,7 +3,7 @@
 // Configure OPENAI_API_KEY in Supabase secrets before deployment.
 
 import { aiErrorJson, AiOpenAIError, classifyOpenAIError, getAiErrorInfo } from "../_shared/openai-errors.ts";
-import { OPENAI_SCAN_MODEL } from "../_shared/openai-models.ts";
+import { getScanAiConfig } from "../_shared/ai-vision-provider.ts";
 
 declare const Deno: { env: { get(key: string): string | undefined }; serve(handler: (req: Request) => Response | Promise<Response>): void };
 
@@ -71,8 +71,8 @@ function normalizeDate(value?: string | null) {
 }
 
 async function extract_product_label_data(payload: ExtractProductLabelDataRequest) {
-  const apiKey = Deno.env.get("OPENAI_API_KEY");
-  if (!apiKey) throw new Error("Missing OPENAI_API_KEY");
+  const scanAi = getScanAiConfig();
+  if (!scanAi.apiKey) throw new Error(`Missing ${scanAi.keyName}`);
 
   const allowedImageMimeTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
   const imageMimeType = payload.image_mime_type && allowedImageMimeTypes.has(payload.image_mime_type) ? payload.image_mime_type : "image/jpeg";
@@ -90,14 +90,15 @@ async function extract_product_label_data(payload: ExtractProductLabelDataReques
     ? `SKU: ${payload.sku_code || ""}\nProduct: ${payload.product_name || ""}${expectedHints}\nRead only NSX, HSD, net weight, and raw OCR text from the scanned label image. Prioritize the printed date stamp, usually near the lower-right corner. Do not test barcode for QA pass.`
     : `SKU: ${payload.sku_code || ""}\nProduct: ${payload.product_name || ""}\nExpected barcode: ${payload.barcode_value || ""}\nExpected partner product code: ${payload.partner_product_code || ""}\nBarcode box requested: ${payload.detect_barcode_bbox ? "yes" : "no"}\nExpected barcode reference image provided: ${payload.expected_barcode_image_url ? "yes" : "no"}\nRead NSX, HSD, weight, barcode, partner product code, product code, and product name from the scanned label image. If Barcode box requested is yes, detect the barcode bounding box for cropping. If an expected barcode reference image is provided, compare the scanned label barcode with that reference and return barcode_visual_match fields.`;
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+  const response = await fetch(scanAi.endpoint, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${apiKey}`,
+      Authorization: `Bearer ${scanAi.apiKey}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: OPENAI_SCAN_MODEL,
+      model: scanAi.model,
+      ...scanAi.extraBody,
       response_format: { type: "json_object" },
       messages: [
         {
