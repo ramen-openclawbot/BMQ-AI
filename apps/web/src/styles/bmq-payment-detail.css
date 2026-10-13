@@ -102,3 +102,8 @@ html.bmq-d3 .d3-pr-panel .d3-prd-card,
 html.bmq-d3 .d3-pr-panel .d3-prd-note:not(.is-bad),
 html.bmq-d3 .d3-pr-panel .d3-unc-ev > ul > li { background: var(--d3-white, #fdfdfc); box-shadow: var(--d3-sh); }
 html.bmq-d3 .d3-pr-panel .d3-prd-hero { box-shadow: var(--d3-sh), inset 0 0 0 1px var(--d3-line, #e2e2df); }
+
+/* Linked goods receipt opens its detail (delivery image upload lives there). */
+.d3-prd-linkbtn { padding: 0; border: 0; background: none; font: inherit; font-weight: 600; color: var(--d3-blue, #1f5f9e); text-align: left; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.d3-prd-linkbtn:disabled { color: inherit; text-decoration: none; cursor: default; }
+.d3-prd-missing-img { display: block; margin-top: 6px; padding: 6px 10px; border: 0; border-radius: 10px; background: #fde4df; color: #b4301f; font-size: 12.5px; font-weight: 500; text-align: left; cursor: pointer; }

@@ -77,6 +77,7 @@ import { CreateInvoiceFromRequestDialog } from "./CreateInvoiceFromRequestDialog
 import { EditPaymentRequestDialog } from "./EditPaymentRequestDialog";
 import { DriveImportProgressDialog } from "@/components/payment-requests/DriveImportProgressDialog";
 import { UncApprovalDialog } from "@/components/payment-requests/UncApprovalDialog";
+import { GoodsReceiptDetailsDialog } from "./GoodsReceiptDetailsDialog";
 import { PaymentUncEvidenceSection } from "@/components/payment-requests/PaymentUncEvidenceSection";
 import { CashSettlementPanel } from "@/components/payment-requests/CashSettlementPanel";
 import { PaymentRequestAttachmentsStrip } from "@/components/payment-requests/PaymentRequestAttachmentsStrip";
@@ -147,6 +148,7 @@ export function PaymentRequestDetailsDialog({
   // Fetch linked goods receipt if exists
   const goodsReceiptId = request?.goods_receipt_id;
   const { data: linkedGoodsReceipt } = useGoodsReceipt(goodsReceiptId || null);
+  const [showReceiptDialog, setShowReceiptDialog] = useState(false);
   
   // Fetch linked purchase order if exists
   const purchaseOrderId = request?.purchase_order_id;
@@ -487,17 +489,37 @@ export function PaymentRequestDetailsDialog({
                 <section className="d3-prd-card">
                   <h3>Chứng từ liên kết</h3>
                   <ul className="d3-prd-links">
-                    {(linkedGoodsReceipt || request.goods_receipt_id) && (
-                      <li>
-                        <Package className="h-4 w-4" />
-                        <span>
-                          <b>Phiếu nhập {linkedGoodsReceipt?.receipt_number || request.goods_receipts?.receipt_number || request.goods_receipt_id}</b>
-                          {linkedGoodsReceipt && (
-                            <small>{linkedGoodsReceipt.suppliers?.name || "N/A"} · {format(new Date(linkedGoodsReceipt.receipt_date), "dd/MM/yyyy", { locale: vi })}</small>
-                          )}
-                        </span>
-                      </li>
-                    )}
+                    {(linkedGoodsReceipt || request.goods_receipt_id) && (() => {
+                      // Same rule as trg_guard_payment_request_delivery_image: a PO receipt needs a
+                      // delivery image on the receipt or its PO before this phiếu can be approved.
+                      const gr = linkedGoodsReceipt as (typeof linkedGoodsReceipt & { image_url?: string | null; purchase_order_id?: string | null; status?: string | null }) | undefined;
+                      const poImage = (linkedPurchaseOrder as { image_url?: string | null } | undefined)?.image_url;
+                      const missingImage = !!gr?.purchase_order_id && gr?.status !== "received" && !gr?.image_url?.trim() && !poImage?.trim();
+                      return (
+                        <li>
+                          <Package className="h-4 w-4" />
+                          <span>
+                            <button
+                              type="button"
+                              className="d3-prd-linkbtn"
+                              onClick={() => setShowReceiptDialog(true)}
+                              disabled={!goodsReceiptId}
+                              data-bmq-pr-open-receipt
+                            >
+                              Phiếu nhập {linkedGoodsReceipt?.receipt_number || request.goods_receipts?.receipt_number || request.goods_receipt_id}
+                            </button>
+                            {linkedGoodsReceipt && (
+                              <small>{linkedGoodsReceipt.suppliers?.name || "N/A"} · {format(new Date(linkedGoodsReceipt.receipt_date), "dd/MM/yyyy", { locale: vi })}</small>
+                            )}
+                            {missingImage && (
+                              <button type="button" className="d3-prd-missing-img" onClick={() => setShowReceiptDialog(true)} data-bmq-pr-missing-image>
+                                Thiếu ảnh giao hàng · bấm để mở phiếu nhập và tải ảnh
+                              </button>
+                            )}
+                          </span>
+                        </li>
+                      );
+                    })()}
                     {linkedPurchaseOrder && (
                       <li>
                         <FileText className="h-4 w-4" />
@@ -777,6 +799,10 @@ export function PaymentRequestDetailsDialog({
           )}
         </DialogContent>
       </Dialog>
+
+      {goodsReceiptId && (
+        <GoodsReceiptDetailsDialog receiptId={goodsReceiptId} open={showReceiptDialog} onOpenChange={setShowReceiptDialog} />
+      )}
 
       {request && (
         <UncApprovalDialog
