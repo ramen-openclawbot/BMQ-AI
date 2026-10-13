@@ -206,6 +206,26 @@ export function useMaterialAliasReview(days = 7) {
   });
 }
 
+/**
+ * supabase.functions.invoke hides the edge function's JSON body behind a generic
+ * "non-2xx" error. Read it so the owner sees the real reason (and its code).
+ */
+async function jevInvokeError(error: unknown): Promise<Error> {
+  const context = (error as { context?: unknown })?.context;
+  if (context instanceof Response) {
+    try {
+      const body = (await context.clone().json()) as { error?: unknown; code?: unknown };
+      const message = typeof body.error === "string" ? body.error : null;
+      const code = typeof body.code === "string" ? body.code : null;
+      if (message) return new Error(code ? `${message} (${code}, ${context.status})` : message);
+    } catch {
+      /* not JSON: fall through to the generic error */
+    }
+    return new Error(`Jev trả lỗi ${context.status}`);
+  }
+  return error instanceof Error ? error : new Error(String(error));
+}
+
 export interface RunAliasBacklogInput {
   location: MaterialAliasLocation;
   /** Names per edge call: default 10, capped at 15 by the edge function. */
@@ -229,7 +249,7 @@ export function useRunAliasBacklog() {
         const { data, error } = await supabase.functions.invoke("stock-alias-jev", {
           body: { mode: "backlog", location: input.location, batch_size: input.batchSize ?? 10 },
         });
-        if (error) throw error;
+        if (error) throw await jevInvokeError(error);
         const parsed = parseStockAliasJevResponse(data);
         if (parsed.mode !== "backlog") throw new Error("stock-alias-jev tra ve sai che do");
         last = parsed as unknown as Record<string, unknown>;

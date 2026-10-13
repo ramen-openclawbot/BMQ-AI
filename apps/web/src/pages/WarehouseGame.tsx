@@ -200,7 +200,7 @@ export default function WarehouseGame() {
   const [toast, setToast] = useState<string | null>(null);
   const [leaving, setLeaving] = useState<string | null>(null);
   const runBacklog = useRunAliasBacklog();
-  const [jev, setJev] = useState<{ location: WarehouseGameLocation; state: JevState; done: number; total: number } | null>(null);
+  const [jev, setJev] = useState<{ location: WarehouseGameLocation; state: JevState; done: number; total: number; message?: string } | null>(null);
   const [justSaved, setJustSaved] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const { isOwner, canEditModule, roles } = useAuth();
@@ -319,7 +319,7 @@ export default function WarehouseGame() {
           void queryClient.invalidateQueries({ queryKey: [WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY] });
           setJev((prev) => ({ location, state: "done", done: prev?.done ?? 0, total: prev?.total ?? 0 }));
         },
-        onError: () => setJev({ location, state: "error", done: 0, total: 0 }),
+        onError: (error) => setJev((prev) => ({ location, state: "error", done: prev?.done ?? 0, total: prev?.total ?? 0, message: String((error as { message?: string })?.message ?? error).slice(0, 220) })),
       },
     );
   };
@@ -447,6 +447,7 @@ export default function WarehouseGame() {
               pastryIds={new Set((snaps.tan_tao?.items ?? current.items).filter((item) => item.pastry_q7).map((item) => item.id))}
               jev={jev?.location === view.location ? jev.state : "idle"}
               progress={jev?.location === view.location ? { done: jev.done, total: jev.total } : null}
+              error={jev?.location === view.location && jev.state === "error" ? jev.message ?? null : null}
               leavingKey={leaving}
               onRunJev={() => runJev(view.location)}
               onOpen={(crate) => setPanel({ kind: "crate", location: view.location, crate })}

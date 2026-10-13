@@ -115,9 +115,9 @@ function CrateCard({ crate, index, leaving, pastryIds, onOpen }: { crate: Wareho
 }
 
 /** The crate yard of one warehouse: Jev sorts first, then the player labels with the hint. */
-export function CrateYard({ location, crates, canAssign, pastryIds, jev, progress, leavingKey, onRunJev, onOpen }: {
+export function CrateYard({ location, crates, canAssign, pastryIds, jev, progress, error, leavingKey, onRunJev, onOpen }: {
   location: WarehouseGameLocation; crates: WarehouseGamePendingRow[]; canAssign: boolean; pastryIds: Set<string>;
-  jev: JevState; progress: { done: number; total: number } | null; leavingKey: string | null;
+  jev: JevState; progress: { done: number; total: number } | null; error?: string | null; leavingKey: string | null;
   onRunJev: () => void; onOpen: (crate: WarehouseGamePendingRow) => void;
 }) {
   const withHint = crates.filter((crate) => crateHint(crate)?.strong);
@@ -126,7 +126,7 @@ export function CrateYard({ location, crates, canAssign, pastryIds, jev, progres
   const label = location === "q7" ? "Kho Q7" : "Kho Tân Tạo";
   const say = !canAssign ? "Chỉ chủ hoặc người sửa kho được dán nhãn."
     : jev === "working" ? `Jev đang phân loại…${progress && progress.total ? ` ${progress.done}/${progress.total}` : ""}`
-    : jev === "error" ? "Jev chưa chạy được. Thử lại sau nhé."
+    : jev === "error" ? `Jev chưa chạy được${progress && progress.done ? ` (đã xong ${progress.done} tên)` : ""}: ${(error ?? "thử lại sau nhé").replace(/\.$/, "")}.`
     : crates.length === 0 ? "Bãi sạch trơn! Không còn thùng nào ✓"
     : withHint.length === crates.length ? `Đã gợi ý cả ${crates.length} thùng. Bấm từng thùng để dán nhãn!`
     : jev === "done" ? `Xong! Gợi ý được ${withHint.length}/${crates.length} thùng. Thùng còn lại anh chọn tay nha.`
