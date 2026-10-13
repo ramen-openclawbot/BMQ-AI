@@ -3,6 +3,7 @@ import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 import { requireAuth } from "../_shared/auth.ts";
 import { checkAndRecordRateLimit, getRateLimitHeaders } from "../_shared/rate-limiter.ts";
 import { aiErrorJson, classifyOpenAIError } from "../_shared/openai-errors.ts";
+import { OPENAI_SCAN_MODEL } from "../_shared/openai-models.ts";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return corsPreflightResponse(req);
@@ -35,7 +36,6 @@ serve(async (req) => {
 
     // OpenAI config
     const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
-    const OPENAI_MODEL = Deno.env.get("OPENAI_MODEL") || "gpt-4o-mini";
     if (!OPENAI_API_KEY) {
       return new Response(JSON.stringify({ code: "CONFIG_MISSING_OPENAI_API_KEY", error: "Thiếu cấu hình AI key (OPENAI_API_KEY)" }), { status: 503, headers: jsonHeaders });
     }
@@ -83,7 +83,7 @@ Yêu cầu:
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: OPENAI_MODEL,
+        model: OPENAI_SCAN_MODEL,
         temperature: 0.2,
         response_format: { type: "json_object" },
         messages: [

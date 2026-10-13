@@ -8,6 +8,7 @@
  * finance-extract-slip-amount response shape.
  */
 import { AiOpenAIError, classifyOpenAIError } from "./openai-errors.ts";
+import { OPENAI_SCAN_MODEL } from "./openai-models.ts";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -330,7 +331,8 @@ export const sanitizeAiErrorMessage = (status?: number, rawError = "") => {
 };
 
 export const OPENAI_VISION_ENDPOINT = "https://api.openai.com/v1/chat/completions";
-export const OPENAI_VISION_MODEL = "gpt-4o";
+// Giữ export cũ để không làm gãy nơi đang import; nay dùng chung OPENAI_SCAN_MODEL.
+export const OPENAI_VISION_MODEL = OPENAI_SCAN_MODEL;
 
 export const callOpenAiVision = async (
   imageBase64: string,

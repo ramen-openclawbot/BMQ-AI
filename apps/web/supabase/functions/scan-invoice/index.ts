@@ -22,6 +22,7 @@ import {
   normalizeCashReceipt,
 } from "../_shared/cash-receipt-ocr.ts";
 import { aiErrorJson, classifyOpenAIError } from "../_shared/openai-errors.ts";
+import { OPENAI_SCAN_MODEL } from "../_shared/openai-models.ts";
 
 type ScanTemplateRow = {
   id: string;
@@ -155,7 +156,7 @@ serve(async (req) => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "gpt-4o-mini",
+          model: OPENAI_SCAN_MODEL,
           messages: [
             { role: "system", content: CASH_RECEIPT_SYSTEM_PROMPT },
             {
@@ -289,7 +290,7 @@ ${aliases.length ? `Known aliases (alias => canonical supplier):\n${aliases.slic
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
+        model: OPENAI_SCAN_MODEL,
         messages: [
           { role: "system", content: systemPrompt },
           {

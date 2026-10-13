@@ -3,6 +3,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 import { checkAndRecordRateLimit, getRateLimitHeaders } from "../_shared/rate-limiter.ts";
 import { aiErrorJson, classifyOpenAIError } from "../_shared/openai-errors.ts";
+import { OPENAI_SCAN_MODEL } from "../_shared/openai-models.ts";
 import { resolveCanonicalMaterialForLine, MaterialControllerResult } from "../_shared/material-controller.ts";
 // Task 5 contract marker: match-delivery-note keeps nameSimilarity for PO quantity assistance,
 // but canonical_material_id/resolved_exact must come from resolve_canonical_material only.
@@ -442,7 +443,7 @@ serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
+        model: OPENAI_SCAN_MODEL,
         messages: [
           {
             role: "system",

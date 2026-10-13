@@ -4,6 +4,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 import { checkAndRecordRateLimit, getRateLimitHeaders } from "../_shared/rate-limiter.ts";
 import { aiErrorJson, classifyOpenAIError } from "../_shared/openai-errors.ts";
+import { OPENAI_SCAN_MODEL } from "../_shared/openai-models.ts";
 
 serve(async (req) => {
   const startTime = Date.now();
@@ -126,7 +127,7 @@ ${supplierVatConfig?.vat_included_in_price ? '- NCC này có giá đã bao gồm
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
+        model: OPENAI_SCAN_MODEL,
         messages: [
           { role: "system", content: systemPrompt },
           {

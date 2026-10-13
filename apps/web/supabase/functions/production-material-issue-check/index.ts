@@ -2,6 +2,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import { requireAuth } from "../_shared/auth.ts";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 import { aiErrorJson, AiOpenAIError, classifyOpenAIError, getAiErrorInfo } from "../_shared/openai-errors.ts";
+import { OPENAI_SCAN_MODEL } from "../_shared/openai-models.ts";
 
 const FUNCTION_NAME = "production-material-issue-check";
 const BUCKET = "production-material-issue-documents";
@@ -608,7 +609,7 @@ Deno.serve(async (req) => {
       }, finalized ? 409 : 500, limitHeaders);
     }
 
-    const model = Deno.env.get("Q7_MATERIAL_ISSUE_CHECK_MODEL") || "gpt-4.1-mini";
+    const model = Deno.env.get("Q7_MATERIAL_ISSUE_CHECK_MODEL") || OPENAI_SCAN_MODEL;
     let summary: CheckSummary;
     try {
       summary = await callOpenAi(signedBytes, expectedFacts, expectedRows, model);

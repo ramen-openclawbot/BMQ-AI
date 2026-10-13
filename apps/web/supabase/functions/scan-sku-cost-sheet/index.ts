@@ -4,6 +4,7 @@ import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 import { requireAuth } from "../_shared/auth.ts";
 import { checkAndRecordRateLimit, getRateLimitHeaders } from "../_shared/rate-limiter.ts";
 import { aiErrorJson, classifyOpenAIError } from "../_shared/openai-errors.ts";
+import { OPENAI_SCAN_MODEL } from "../_shared/openai-models.ts";
 import { resolveCanonicalMaterialForLine } from "../_shared/material-controller.ts";
 
 type SkuCogsMaterial = {
@@ -90,7 +91,7 @@ Quy tắc bắt buộc:
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
+        model: OPENAI_SCAN_MODEL,
         messages: [
           { role: "system", content: systemPrompt },
           {

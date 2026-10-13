@@ -3,6 +3,7 @@
 // Configure OPENAI_API_KEY in Supabase secrets before deployment.
 
 import { aiErrorJson, AiOpenAIError, classifyOpenAIError, getAiErrorInfo } from "../_shared/openai-errors.ts";
+import { OPENAI_SCAN_MODEL } from "../_shared/openai-models.ts";
 
 declare const Deno: { env: { get(key: string): string | undefined }; serve(handler: (req: Request) => Response | Promise<Response>): void };
 
@@ -96,7 +97,7 @@ async function extract_product_label_data(payload: ExtractProductLabelDataReques
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "gpt-4o-mini",
+      model: OPENAI_SCAN_MODEL,
       response_format: { type: "json_object" },
       messages: [
         {
