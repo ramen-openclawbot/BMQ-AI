@@ -157,3 +157,7 @@ html .d3-unc.d3-cpr { max-width: 600px; }
 .d3-sal-list-side { display: grid; justify-items: end; gap: 3px; }
 .d3-sal-list-arrow { color: var(--d3-dim, #6b6b69); }
 @media (max-width: 360px) { .d3-sal-list-row { grid-template-columns: minmax(0, 1fr) 16px; } .d3-sal-list-side { grid-column: 1; justify-items: start; grid-auto-flow: column; gap: 8px; margin-top: 4px; } }
+
+/* Huỷ phiếu chi lương (owner, chờ CEO chuyển tiền) */
+.d3-sal-cancel { display: inline-flex; align-items: center; gap: 6px; justify-self: start; width: fit-content; min-height: 36px; margin-top: 8px; padding: 0 12px; border: 1px solid #f2c4bb; border-radius: 10px; background: #fff5f3; color: #b4301f; font-size: 13px; cursor: pointer; }
+.d3-sal-cancel:disabled { opacity: .6; cursor: default; }

@@ -57,6 +57,7 @@ function settle(st) {
     return { data: { payout_id: PAYOUT_ID, payout_number: STATE.payout.payout_number, period_name: STATE.payout.period_name, employee_count: 3, total_amount: 23000000, status: "pending" }, error: null }; }
   if (st.table === "rpc:create_manual_salary_payout") { window.__qaCalls.push({ fn: "createManual", ...st.args }); STATE.payout.source = "manual"; STATE.payout.period_name = st.args.p_payload.title; save(); return { data: { payout_id: PAYOUT_ID, payout_number: STATE.payout.payout_number, period_name: st.args.p_payload.title, employee_count: st.args.p_payload.lines.length, total_amount: 0, status: "pending", source: "manual" }, error: null }; }
   if (st.table === "rpc:get_salary_payout") { if (denied()) return { data: null, error: { message: "insufficient_privilege" } }; return { data: JSON.parse(JSON.stringify(STATE)), error: null }; }
+  if (st.table === "rpc:cancel_salary_payout") { window.__qaCalls.push({ fn: "cancel", ...st.args }); if (cfg().role !== "owner") return { data: null, error: { message: "insufficient_privilege" } }; if (STATE.payout.status !== "pending") return { data: null, error: { message: "not_pending" } }; STATE.payout.status = "cancelled"; save(); return { data: { payout_id: PAYOUT_ID, status: "cancelled" }, error: null }; }
   if (st.table === "rpc:record_salary_payout_ceo_payment") { window.__qaCalls.push({ fn: "ceo", ...st.args }); STATE.payout.status = "advanced"; STATE.payout.ceo_evidence_storage_path = st.args.p_evidence.storage_path; STATE.payout.ceo_evidence_sha256 = st.args.p_evidence.file_sha256; save(); return { data: { payout_id: PAYOUT_ID, status: "advanced" }, error: null }; }
   if (st.table === "rpc:discard_salary_payout_receipt") { window.__qaCalls.push({ fn: "discard", ...st.args }); const r = STATE.receipts.find((x) => x.id === st.args.p_receipt_id); if (r) r.status = "discarded"; save(); return { data: { id: st.args.p_receipt_id, status: "discarded" }, error: null }; }
   if (st.table === "rpc:submit_salary_payout_matches") {
@@ -240,6 +241,8 @@ try {
     assert.equal(await page.locator("[data-bmq-salary-exclusions]").count(), 0);
     assert.ok((await page.locator("[data-bmq-salary-total]").textContent()).includes("23.000.000"));
     assert.equal(await page.locator("[data-bmq-salary-docs] [data-bmq-salary-docs-pick]").count(), 1, "chứng từ can be added while pending");
+    assert.equal(await page.locator("[data-bmq-salary-cancel]").count(), 1, "owner sees Huỷ phiếu while pending");
+    await page.locator(".d3-csp-head").screenshot({ path: `${EVIDENCE}/cancel-btn-${w}.png` });
     assert.ok(await pageOverflow(page) <= 0, `page overflow pending ${w}`);
     await page.screenshot({ path: `${EVIDENCE}/pending-${w}.png`, fullPage: true });
 
@@ -248,6 +251,7 @@ try {
     assert.ok((await page.locator(PAGE).textContent()).includes("Khớp tổng lương"));
     await page.locator("[data-bmq-salary-ceo-confirm]").click();
     await page.waitForSelector('[data-bmq-salary-status="advanced"]');
+    assert.equal(await page.locator("[data-bmq-salary-cancel]").count(), 0, "no Huỷ phiếu after CEO transfer");
     const ceo = (await calls(page)).filter((c) => c.fn === "ceo");
     assert.equal(ceo.length, 1);
     assert.equal(ceo[0].p_evidence.ocr_amount, 23000000);
@@ -314,6 +318,7 @@ try {
     assert.deepEqual(cm[0].p_payload.lines.map((l) => [l.employee_name, l.amount]), [["Phạm Thị Lan", 4500000], ["Võ Minh Tú", 3200000]]);
     assert.ok(cm[0].p_idempotency_key.startsWith("salary-manual:"));
     await page.waitForFunction(() => document.querySelector(".d3-csp-head .d3-up-tag")?.textContent?.startsWith("Lương lẻ"));
+    assert.equal(await page.locator("[data-bmq-salary-cancel]").count(), 0, "KTT does not see Huỷ phiếu");
     const att = (await page.evaluate(() => window.__qaCalls)).filter((c) => c.fn === "attach");
     assert.deepEqual(att.map((c) => c.mime), ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "image/png"]);
     await page.waitForFunction(() => document.querySelectorAll("[data-bmq-salary-doc]").length === 2);
@@ -369,6 +374,27 @@ try {
     await page.locator("[data-bmq-salary-exclusions]").screenshot({ path: `${EVIDENCE}/excluded-page-${w}.png` });
     assert.deepEqual(errors, []);
     console.log("PASS", `exclude one employee ${w}`);
+    await context.close();
+  }
+  {
+    const { context, page, errors } = await open({ role: "owner" }, "/payment-requests", { width: 390, height: 844 });
+    await page.evaluate(() => sessionStorage.removeItem("qa-salary"));
+    await page.goto(page.url().replace(/\/payment-requests.*$/, `/salary-payouts/${PAYOUT_ID}`));
+    await page.waitForSelector('[data-bmq-salary-status="pending"]');
+    page.once("dialog", (d) => d.dismiss());
+    await page.locator("[data-bmq-salary-cancel]").click();
+    await page.waitForTimeout(200);
+    assert.equal((await page.evaluate(() => window.__qaCalls)).filter((c) => c.fn === "cancel").length, 0, "dismissed confirm does not cancel");
+    page.once("dialog", (d) => d.accept());
+    await page.locator("[data-bmq-salary-cancel]").click();
+    await page.waitForSelector('[data-bmq-salary-status="cancelled"]');
+    const cc = (await page.evaluate(() => window.__qaCalls)).filter((c) => c.fn === "cancel");
+    assert.equal(cc.length, 1); assert.equal(cc[0].p_id, PAYOUT_ID);
+    assert.equal(await page.locator("[data-bmq-salary-cancel]").count(), 0, "button gone once cancelled");
+    assert.equal(await page.locator("[data-bmq-salary-ceo-pick]").count(), 0, "no CEO upload on a cancelled phiếu");
+    await page.screenshot({ path: `${EVIDENCE}/cancelled-390.png` });
+    assert.deepEqual(errors, []);
+    console.log("PASS", "owner cancels a pending phiếu");
     await context.close();
   }
   {

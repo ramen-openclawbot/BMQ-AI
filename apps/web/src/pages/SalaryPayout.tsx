@@ -5,7 +5,9 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { Check, ChevronLeft, ImagePlus, Loader2, Trash2, TriangleAlert } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import { Check, ChevronLeft, ImagePlus, Loader2, Trash2, TriangleAlert, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -76,6 +78,24 @@ export default function SalaryPayout() {
   const canEdit = isOwner || canEditModule("salary_cash");
   const { data, isLoading, error, ceoExtract, recordCeoPayment, extractReceipts, discard, submitMatches } = useSalaryPayout(payoutId);
   const [zoom, setZoom] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const [cancelling, setCancelling] = useState(false);
+  // Owner only, while the CEO has not transferred yet (cancel_salary_payout enforces both).
+  const cancelPayout = async () => {
+    if (!payoutId || !window.confirm("Huỷ phiếu chi lương này? Có thể tạo lại phiếu mới cho cùng kỳ.")) return;
+    setCancelling(true);
+    try {
+      const { error: rpcError } = await (supabase as unknown as { rpc: (fn: string, args: Record<string, unknown>) => Promise<{ error: { message?: string } | null }> }).rpc("cancel_salary_payout", { p_id: payoutId });
+      if (rpcError) throw rpcError;
+      toast.success("Đã huỷ phiếu chi lương.");
+      await queryClient.invalidateQueries({ queryKey: ["salary-payout"] });
+    } catch (err) {
+      const message = String((err as { message?: unknown })?.message ?? "");
+      toast.error(message.includes("not_pending") ? "Chỉ huỷ được phiếu chưa có CEO chuyển tiền." : message.includes("insufficient_privilege") || message.includes("not_owner") ? "Chỉ owner được huỷ phiếu." : "Chưa huỷ được phiếu. Thử lại.");
+    } finally {
+      setCancelling(false);
+    }
+  };
   const [ceoEvidence, setCeoEvidence] = useState<(SalaryPayoutCeoEvidence & { preview: string }) | null>(null);
   const [busy, setBusy] = useState<"" | "ceo-read" | "ceo-save" | "receipts" | "submit">("");
   const [manualLine, setManualLine] = useState<Record<string, string>>({});
@@ -196,6 +216,11 @@ export default function SalaryPayout() {
             <p>
               {payout.employee_count} nhân viên · <b data-bmq-salary-total>{vnd(payout.total_amount)}</b>
             </p>
+            {isOwner && payout.status === "pending" && (
+              <button type="button" className="d3-sal-cancel" onClick={() => void cancelPayout()} disabled={cancelling || !!busy} data-bmq-salary-cancel>
+                {cancelling ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />} Huỷ phiếu
+              </button>
+            )}
           </header>
 
           {/* CEO transfer */}
