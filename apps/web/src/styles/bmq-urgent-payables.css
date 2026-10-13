@@ -95,3 +95,11 @@ html.bmq-d3 .d3-ps-cash { gap: 6px; background: var(--d3-white, #fdfdfc); color:
   .d3-ps-hero > div:first-child { grid-column: 1 / -1; }
   .d3-ps-hero > div:first-child b { font-size: 26px; }
 }
+
+/* Trình chi gấp: phiếu đã từ chối = loại khỏi đợt chi (owner 13/10). */
+.d3-ps-row.is-excluded .d3-up-amt { text-decoration: line-through; opacity: .55; }
+.d3-ps-row.is-excluded .d3-up-who b { opacity: .6; }
+.d3-ps-exclude { color: hsl(var(--muted-foreground)); }
+.d3-ps-hero small { display: block; margin-top: 2px; font-size: 12px; opacity: .7; }
+.d3-ps-acts > .d3-ps-exclude { grid-column: 1 / -1; }
+html.bmq-d3 .d3-ps-acts button.d3-ps-exclude { min-height: 34px; background: transparent; font-size: 13px; }

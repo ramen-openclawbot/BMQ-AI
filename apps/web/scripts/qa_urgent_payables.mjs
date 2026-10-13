@@ -70,7 +70,12 @@ function settle(st) {
   if (st.table === "rpc:get_payment_submission") {
     const mk = (r, i, paid) => ({ payment_request_id: r.id, position: i + 1, remaining_at_submit: r.total_amount, request_number: r.request_number, title: r.title, supplier_id: r.supplier_id, supplier_name: r.suppliers.name, total_amount: r.total_amount, allocated_amount: paid ? r.total_amount : 0, remaining_amount: paid ? 0 : r.total_amount, status: paid ? "approved" : r.status, payment_status: paid ? "paid" : "unpaid", requires_receipt: true, created_at: r.created_at });
     const items = [mk(UNPAID[0], 0, false), mk(UNPAID[1], 1, false), mk(UNPAID[2], 2, true)];
+    if (cfg().withRejected) items.push({ ...mk(UNPAID[3], 3, false), status: "rejected" });
     return { data: { id: "sub-1", submission_number: "TC-261007-01", note: "Cần chi trước 15h để nhận hàng", total_amount: items.reduce((s, i) => s + i.remaining_at_submit, 0), created_by: "acc-user", created_at: today + "T03:00:00.000Z", items }, error: null };
+  }
+  if (st.table === "rpc:reject_payment_request" && cfg().withRejected) {
+    window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args));
+    return { data: { status: "rejected", payment_request_id: st.args?.p_payment_request_id }, error: null };
   }
   if (st.table === "rpc:finance_unc_total_from_evidence") return { data: { transfer_date: st.args?.p_date, total_amount: 19750000, evidence_count: 2 }, error: null };
   if (st.table.startsWith("rpc:") && !READ_RPCS.has(st.table)) { window.__qaWrites.push(st.table); return { data: null, error: { message: "QA fixture: writes disabled" } }; }
@@ -376,6 +381,36 @@ try {
     assert.equal(confirm.payment_method, "cash");
     assert.deepEqual(errors, []);
     record(`submission page + cash ${viewport.width}`);
+    await context.close();
+  }
+
+  // 3b. Owner 13/10: a rejected phiếu leaves the đợt chi; the owner can exclude a pending one.
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    const { context, page, errors } = await open({ role: "owner", withRejected: true }, "/payment-requests/submissions/sub-1", viewport);
+    await page.waitForSelector("[data-bmq-submission-row]");
+    assert.equal(await page.locator("[data-bmq-submission-row]").count(), 4);
+    assert.ok((await page.locator("[data-bmq-submission-remaining]").textContent()).includes("3.000.000"), "rejected phiếu not in the remaining total");
+    assert.equal(await page.locator("[data-bmq-submission-excluded]").count(), 1, "rejected row is marked excluded");
+    assert.equal(await page.locator("[data-bmq-submission-row='PR-U004'] [data-bmq-submission-pay-unc]").count(), 0, "excluded row has no pay buttons");
+    assert.equal(await page.locator("[data-bmq-submission-row='PR-U004'] [role=checkbox]").count(), 0, "excluded row cannot be picked");
+    assert.ok((await page.locator("[data-bmq-submission-excluded-count]").textContent()).includes("1 phiếu đã loại"));
+    assert.equal(await page.locator("[data-bmq-submission-exclude]").count(), 1, "only the pending, unpaid row offers Loại khỏi đợt");
+    assert.ok(await overflowOk(page), `no overflow ${viewport.width}`);
+    await page.screenshot({ path: `${EVIDENCE}/submission-excluded-${viewport.width}.png`, fullPage: true });
+    await page.locator("[data-bmq-submission-row='PR-U002'] [data-bmq-submission-exclude]").click();
+    const dlg = page.locator("[data-bmq-submission-exclude-dialog]");
+    await dlg.waitFor();
+    assert.equal(await page.locator("[data-bmq-submission-exclude-reason]").inputValue(), "Đã chi riêng");
+    await page.locator("[data-bmq-submission-exclude-reason]").fill("Đã chi riêng, NCC giảm giá");
+    await page.waitForTimeout(200);
+    await dlg.screenshot({ path: `${EVIDENCE}/submission-exclude-dialog-${viewport.width}.png` });
+    await page.locator("[data-bmq-submission-exclude-confirm]").click();
+    await dlg.waitFor({ state: "detached" });
+    const writes = await page.evaluate(() => window.__qaWrites);
+    const sent = writes.find((w) => w.startsWith("rpc:reject_payment_request:"));
+    assert.ok(sent && sent.includes("88888888-8888-4888-8888-00000000001") && sent.includes("Đã chi riêng, NCC giảm giá"), `reject sent: ${sent}`);
+    assert.deepEqual(errors, []);
+    record(`submission exclude ${viewport.width}`);
     await context.close();
   }
 

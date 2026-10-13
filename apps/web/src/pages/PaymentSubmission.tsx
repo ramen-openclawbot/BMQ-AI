@@ -4,9 +4,21 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
-import { Banknote, ChevronLeft, ChevronRight, CreditCard, Images, Loader2, TriangleAlert } from "lucide-react";
+import { Ban, Banknote, ChevronLeft, ChevronRight, CreditCard, Images, Loader2, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useRejectPaymentRequest } from "@/hooks/usePaymentRequests";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePaymentSubmission, type PaymentSubmissionItemDetail } from "@/hooks/usePaymentSubmissions";
 import { UncApprovalDialog, type UncApprovalRequest } from "@/components/payment-requests/UncApprovalDialog";
@@ -64,6 +76,9 @@ function useSubmissionReceipts(ids: string[]) {
 const isOpenFlag = (f: FinanceReconciliationFlag) => !f.review_status || f.review_status === "needs_action";
 
 const isPaid = (item: PaymentSubmissionItemDetail) => Number(item.remaining_amount) <= 0 || item.payment_status === "paid";
+/** Owner 13/10: a rejected phiếu (e.g. Toàn Phát paid separately at a discount) leaves the đợt chi. */
+const isExcluded = (item: PaymentSubmissionItemDetail) => item.status === "rejected" && !isPaid(item);
+const isClosed = (item: PaymentSubmissionItemDetail) => isPaid(item) || isExcluded(item);
 
 const toDialogRequest = (item: PaymentSubmissionItemDetail): UncApprovalRequest => ({
   id: item.payment_request_id,
@@ -87,8 +102,22 @@ export default function PaymentSubmission() {
   const [bulkOpen, setBulkOpen] = useState(false);
 
   const items = useMemo(() => [...(data?.items ?? [])].sort((a, b) => a.position - b.position), [data]);
-  const open = items.filter((i) => !isPaid(i));
-  const paidCount = items.length - open.length;
+  const open = items.filter((i) => !isClosed(i));
+  const paidCount = items.filter(isPaid).length;
+  const excludedCount = items.filter(isExcluded).length;
+  const reject = useRejectPaymentRequest();
+  const [excluding, setExcluding] = useState<PaymentSubmissionItemDetail | null>(null);
+  const [excludeReason, setExcludeReason] = useState("Đã chi riêng");
+  const confirmExclude = () => {
+    if (!excluding || !excludeReason.trim()) return;
+    reject.mutate({ id: excluding.payment_request_id, reason: excludeReason.trim() }, {
+      onSuccess: () => {
+        setExcluding(null);
+        setPicked((prev) => { const next = new Set(prev); next.delete(excluding.payment_request_id); return next; });
+        void refetch();
+      },
+    });
+  };
   const remainingTotal = open.reduce((sum, i) => sum + Number(i.remaining_amount || 0), 0);
   const dialogRequests = payWith ? items.filter((i) => payWith.ids.includes(i.payment_request_id)).map(toDialogRequest) : [];
 
@@ -152,7 +181,8 @@ export default function PaymentSubmission() {
             </div>
             <div>
               <span>Đã chi</span>
-              <b>{paidCount}/{items.length} phiếu</b>
+              <b>{paidCount}/{items.length - excludedCount} phiếu</b>
+              {excludedCount > 0 && <small data-bmq-submission-excluded-count>{excludedCount} phiếu đã loại</small>}
             </div>
             <div>
               <span>Tổng lúc trình</span>
@@ -173,11 +203,13 @@ export default function PaymentSubmission() {
 
           <ul className="d3-ps-rows">
             {items.map((item) => {
+              const excluded = isExcluded(item);
               const paid = isPaid(item);
+              const closed = paid || excluded;
               const partial = !paid && Number(item.allocated_amount) > 0;
               return (
-                <li key={item.payment_request_id} className={cn("d3-ps-row", paid && "is-paid")} data-bmq-submission-row={item.request_number}>
-                  {isOwner && !paid && (
+                <li key={item.payment_request_id} className={cn("d3-ps-row", closed && "is-paid", excluded && "is-excluded")} data-bmq-submission-row={item.request_number}>
+                  {isOwner && !closed && (
                     <Checkbox
                       checked={picked.has(item.payment_request_id)}
                       onCheckedChange={() => togglePick(item.payment_request_id)}
@@ -190,11 +222,15 @@ export default function PaymentSubmission() {
                       <small>{item.request_number} · {item.title}</small>
                     </span>
                     <span className="d3-up-amt">
-                      {new Intl.NumberFormat("vi-VN").format(Math.round(Number(paid ? item.remaining_at_submit : item.remaining_amount)))}
+                      {new Intl.NumberFormat("vi-VN").format(Math.round(Number(closed ? item.remaining_at_submit : item.remaining_amount)))}
                       <small>đ</small>
                     </span>
                     <span className="d3-up-meta">
-                      {paid ? (
+                      {excluded ? (
+                        <span className="d3-up-chip" data-bmq-submission-excluded>
+                          Đã từ chối · loại khỏi đợt chi
+                        </span>
+                      ) : paid ? (
                         <span className="d3-up-chip is-green">Đã chi</span>
                       ) : partial ? (
                         <span className="d3-up-chip is-blue">Đã trả một phần · còn {vnd(item.remaining_amount)}</span>
@@ -219,7 +255,7 @@ export default function PaymentSubmission() {
                           <span className="d3-up-chip" data-bmq-submission-receipt="none">Chưa nhập kho</span>
                         ) : null;
                       })()}
-                      {!paid && missingDeliveryImage(receiptById.get(item.payment_request_id)?.goods_receipts ?? null) && (
+                      {!closed && missingDeliveryImage(receiptById.get(item.payment_request_id)?.goods_receipts ?? null) && (
                         <span className="d3-up-chip is-red" data-bmq-submission-receipt-image="missing">
                           Thiếu ảnh giao hàng
                         </span>
@@ -231,7 +267,7 @@ export default function PaymentSubmission() {
                       ))}
                     </span>
                   </button>
-                  {isOwner && !paid && (
+                  {isOwner && !closed && (
                     <div className="d3-ps-acts">
                       {!cashIds.has(item.payment_request_id) && (
                         <Button size="sm" className="d3-ps-unc" onClick={() => setPayWith({ method: "bank_transfer", ids: [item.payment_request_id] })} data-bmq-submission-pay-unc>
@@ -241,6 +277,11 @@ export default function PaymentSubmission() {
                       <Button size="sm" variant="outline" className="d3-ps-cash" onClick={() => setPayWith({ method: "cash", ids: [item.payment_request_id] })} data-bmq-submission-pay-cash>
                         <Banknote className="h-4 w-4" /> Tiền mặt
                       </Button>
+                      {item.status === "pending" && Number(item.allocated_amount) <= 0 && (
+                        <Button size="sm" variant="ghost" className="d3-ps-exclude" onClick={() => { reject.reset(); setExcludeReason("Đã chi riêng"); setExcluding(item); }} data-bmq-submission-exclude>
+                          <Ban className="h-4 w-4" /> Loại khỏi đợt
+                        </Button>
+                      )}
                     </div>
                   )}
                 </li>
@@ -249,7 +290,7 @@ export default function PaymentSubmission() {
           </ul>
 
           {!isOwner && open.length > 0 && <p className="d3-up-state">Chỉ CEO (chủ) ghi chi trên phiếu này.</p>}
-          {open.length === 0 && items.length > 0 && <p className="d3-up-state" data-bmq-submission-done>Đã chi hết các phiếu trong đợt trình này.</p>}
+          {open.length === 0 && items.length > 0 && <p className="d3-up-state" data-bmq-submission-done>Đã chi hết các phiếu trong đợt trình này{excludedCount ? ` (${excludedCount} phiếu đã loại)` : ""}.</p>}
 
           {isOwner && picked.size > 0 && (
             <div className="d3-up-bar" data-bmq-submission-bar>
@@ -267,6 +308,37 @@ export default function PaymentSubmission() {
           )}
         </>
       )}
+
+      <AlertDialog open={!!excluding} onOpenChange={(o) => { if (!o && !reject.isPending) setExcluding(null); }}>
+        <AlertDialogContent data-bmq-submission-exclude-dialog>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Loại {excluding?.request_number} khỏi đợt chi?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {excluding?.supplier_name ?? "Phiếu"} · {vnd(excluding?.remaining_amount)}. Phiếu sẽ bị từ chối, không còn trong danh sách chi gấp và tin nhắc Zalo.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <label className="grid gap-1 text-sm font-medium">
+            Lý do
+            <Input value={excludeReason} onChange={(event) => setExcludeReason(event.target.value)} maxLength={200} placeholder="vd: Đã chi riêng (NCC giảm giá)" data-bmq-submission-exclude-reason />
+          </label>
+          {reject.error ? (
+            <p className="text-sm text-destructive" role="alert">
+              {/invalid_status/.test(String((reject.error as { message?: string }).message ?? "")) ? "Phiếu đã duyệt nên không từ chối được ở đây." : /has_payments/.test(String((reject.error as { message?: string }).message ?? "")) ? "Phiếu đã có khoản chi, không loại được." : "Chưa loại được phiếu. Thử lại sau."}
+            </p>
+          ) : null}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={reject.isPending}>Thôi</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={reject.isPending || !excludeReason.trim()}
+              onClick={(event) => { event.preventDefault(); confirmExclude(); }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-bmq-submission-exclude-confirm
+            >
+              {reject.isPending ? "Đang loại…" : "Loại khỏi đợt"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <UncApprovalDialog
         open={!!payWith}
