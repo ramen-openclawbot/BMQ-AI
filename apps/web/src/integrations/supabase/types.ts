@@ -4823,3 +4823,27 @@ export const Constants = {
     },
   },
 } as const
+      stock_name_corrections: {
+        Row: {
+          corrected_name: string
+          created_at: string
+          created_by: string | null
+          note: string | null
+          normalized_name: string
+        }
+        Insert: {
+          corrected_name: string
+          created_at?: string
+          created_by?: string | null
+          note?: string | null
+          normalized_name: string
+        }
+        Update: {
+          corrected_name?: string
+          created_at?: string
+          created_by?: string | null
+          note?: string | null
+          normalized_name?: string
+        }
+        Relationships: []
+      }
