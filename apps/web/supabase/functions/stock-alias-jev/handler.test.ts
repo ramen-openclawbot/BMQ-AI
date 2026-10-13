@@ -22,6 +22,20 @@ const CANDIDATE_A = { id: "11111111-1111-4111-8111-111111111111", name: "Tỏi b
 const CANDIDATE_B = { id: "22222222-2222-4222-8222-222222222222", name: "Tỏi phi", unit: "kg" };
 const CATALOG_ITEM = { id: "55555555-5555-4555-8555-555555555555", name: "Phô mai Dairymont", unit: "kg", reason: "catalog" };
 const CATALOG_OTHER = { id: "66666666-6666-4666-8666-666666666666", name: "Bột mì", unit: "kg", reason: "catalog" };
+// A finished-goods SKU option and the shared NVL item a label line may still get.
+const SKU_CANDIDATE = {
+  id: "77777777-7777-4777-8777-777777777777",
+  name: "Pate 200g",
+  unit: "cái",
+  reason: "name_contains+sku",
+  sku_id: "88888888-8888-4888-8888-888888888888",
+};
+const LABEL_NVL_CANDIDATE = {
+  id: "99999999-9999-4999-8999-999999999999",
+  name: "Nhãn giấy",
+  unit: "cái",
+  reason: "token",
+};
 
 function backlogRow(normalized: string, raw: string) {
   return {
@@ -517,7 +531,7 @@ test("a cache row from the old prompt version is not reused", async () => {
     supplierId: null,
     normalizedName: "pho mai",
     location: "q7",
-    promptVersion: "jev-material-alias-2026-10-22.1",
+    promptVersion: "jev-material-alias-2026-10-13.1",
     candidatesHash: candidatesHash([token.id, CATALOG_ITEM.id]),
   }), { answer: oldAnswer, cost: null });
   const handler = createMaterialAliasHandler(deps);
@@ -526,7 +540,7 @@ test("a cache row from the old prompt version is not reused", async () => {
   assert.equal(body.evaluated, 1);
   assert.equal(body.calls, 1);
   assert.equal(cache.size, 2, "the new answer is stored under the new prompt version");
-  assert.equal(JEV_PROMPT_VERSION, "jev-material-alias-2026-10-29.1");
+  assert.equal(JEV_PROMPT_VERSION, "jev-material-alias-2026-10-14.1");
 });
 
 test("a whole-catalog candidate hash is short enough for the btree cache index", () => {
@@ -556,6 +570,121 @@ test("a completely empty catalog is skipped without crashing", async () => {
   assert.equal(body.evaluated, 0);
   assert.equal(body.stopped, null);
   assert.equal(calls, 0, "no option means no Jev call");
+});
+
+test("a corrected label name drops finished-product SKUs and saves no suggestion", async () => {
+  const offered: MaterialAliasCandidate[][] = [];
+  const seenNames: string[] = [];
+  const correctionsCalls: string[][] = [];
+  const { deps, cache } = makeDeps({
+    listBacklog: async () => [backlogRow("nhan pate heo 200gr", "Nhân Patê Heo 200gr")],
+    candidatesFor: async () => [LABEL_NVL_CANDIDATE],
+    catalogOptions: async () => [SKU_CANDIDATE],
+    getStockNameCorrections: async (names) => {
+      correctionsCalls.push(names);
+      return new Map([["nhan pate heo 200gr", "Nhãn Patê Heo 200gr"]]);
+    },
+    evaluator: () => async ({ state }) => {
+      offered.push(state.candidates);
+      seenNames.push(state.line.name);
+      return { ...EVAL, choice: null };
+    },
+  });
+  const handler = createMaterialAliasHandler(deps);
+  const response = await handler(request({ mode: "backlog", location: "q7" }));
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(correctionsCalls.length, 1, "one grouped correction read per batch, not per row");
+  assert.deepEqual(correctionsCalls[0], ["nhan pate heo 200gr"]);
+  assert.equal(offered.length, 1);
+  assert.deepEqual(offered[0].map((candidate) => candidate.id), [LABEL_NVL_CANDIDATE.id]);
+  assert.equal(seenNames[0], "Nhãn Patê Heo 200gr", "Jev reads the corrected display name");
+  assert.equal(body.evaluated, 1);
+  assert.equal(cache.size, 1);
+  assert.equal([...cache.values()][0].answer.choice, null, "the saved answer is 'không có gợi ý'");
+});
+
+test("a label name with only SKU candidates is skipped without a Jev call", async () => {
+  let calls = 0;
+  const { deps } = makeDeps({
+    listBacklog: async () => [backlogRow("nhan pate heo 200gr", "Nhân Patê Heo 200gr")],
+    candidatesFor: async () => [],
+    catalogOptions: async () => [SKU_CANDIDATE],
+    getStockNameCorrections: async () => new Map([["nhan pate heo 200gr", "Nhãn Patê Heo 200gr"]]),
+    evaluator: () => async () => { calls += 1; return EVAL; },
+  });
+  const handler = createMaterialAliasHandler(deps);
+  const body = await (await handler(request({ mode: "backlog", location: "q7" }))).json();
+  assert.equal(body.candidates, 0);
+  assert.equal(body.evaluated, 0);
+  assert.equal(calls, 0, "no option left means no Jev call and no suggestion");
+});
+
+test("a non-label name still offers the finished-product SKU to Jev", async () => {
+  const offered: MaterialAliasCandidate[][] = [];
+  const seenNames: string[] = [];
+  const { deps } = makeDeps({
+    listBacklog: async () => [backlogRow("pate 200g", "Pate 200g")],
+    candidatesFor: async () => [],
+    catalogOptions: async () => [SKU_CANDIDATE],
+    getStockNameCorrections: async () => new Map(),
+    evaluator: () => async ({ state }) => {
+      offered.push(state.candidates);
+      seenNames.push(state.line.name);
+      return { ...EVAL, choice: SKU_CANDIDATE.id };
+    },
+  });
+  const handler = createMaterialAliasHandler(deps);
+  const body = await (await handler(request({ mode: "backlog", location: "q7" }))).json();
+  assert.equal(body.evaluated, 1);
+  assert.deepEqual(offered[0].map((candidate) => candidate.id), [SKU_CANDIDATE.id]);
+  assert.equal(seenNames[0], "Pate 200g", "an uncorrected name stays the machine name");
+});
+
+test("a failed correction read still runs with the machine name", async () => {
+  const seenNames: string[] = [];
+  const { deps } = makeDeps({
+    listBacklog: async () => [backlogRow("nhan pate heo 200gr", "Nhân Patê Heo 200gr")],
+    candidatesFor: async () => [],
+    catalogOptions: async () => [SKU_CANDIDATE, LABEL_NVL_CANDIDATE],
+    getStockNameCorrections: async () => { throw new Error("corrections table unavailable"); },
+    evaluator: () => async ({ state }) => {
+      seenNames.push(state.line.name);
+      return { ...EVAL, choice: null };
+    },
+  });
+  const handler = createMaterialAliasHandler(deps);
+  const response = await handler(request({ mode: "backlog", location: "q7" }));
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.evaluated, 1, "a failed correction read must not break the run");
+  assert.equal(seenNames[0], "Nhân Patê Heo 200gr", "the machine name is used when the read fails");
+});
+
+test("a label line in lines mode drops SKU candidates before hashing and Jev", async () => {
+  const offered: MaterialAliasCandidate[][] = [];
+  const { deps } = makeDeps({
+    evaluator: () => async ({ state }) => {
+      offered.push(state.candidates);
+      return { ...EVAL, choice: null };
+    },
+  });
+  const handler = createMaterialAliasHandler(deps);
+  const response = await handler(request({
+    mode: "lines",
+    supplier_id: null,
+    location: "q7",
+    lines: [{
+      line_key: "l1",
+      raw_name: "Tem 17k",
+      raw_unit: "cái",
+      candidates: [SKU_CANDIDATE, LABEL_NVL_CANDIDATE],
+    }],
+  }));
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.deepEqual(offered[0].map((candidate) => candidate.id), [LABEL_NVL_CANDIDATE.id]);
+  assert.equal(body.results[0].answer.choice, null);
 });
 
 test("a missing catalogOptions dependency does not break backlog", async () => {

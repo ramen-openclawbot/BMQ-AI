@@ -7,6 +7,7 @@ import {
   candidatesHash,
   createJevCircuit,
   createJevEvaluator,
+  isPackagingLabelName,
   JEV_ENDPOINT,
   JEV_MODEL,
   JEV_PROMPT_VERSION,
@@ -167,7 +168,7 @@ test("the match prompt is Vietnamese, describes every candidate and always offer
 });
 
 test("the prompt version is bumped for the whole-catalog backlog", () => {
-  assert.equal(JEV_PROMPT_VERSION, "jev-material-alias-2026-10-29.1");
+  assert.equal(JEV_PROMPT_VERSION, "jev-material-alias-2026-10-14.1");
 });
 
 test("the match prompt asks to choose by meaning and reserves none for no fit", () => {
@@ -285,6 +286,25 @@ test("normalizes names and hashes candidate sets like the SQL", () => {
   assert.equal(normalizeItemName("Chả lụa lá TVP XL (kg)"), "cha lua la tvp xl");
   assert.equal(candidatesHash(["b", "a", "a"]), "a|b");
   assert.equal(candidatesHash([]), "");
+});
+
+test("isPackagingLabelName matches only a leading Nhãn / Tem / Decal / Nắp / Giấy decal", () => {
+  for (const name of ["Nhãn Patê Heo 200gr", "Tem 17k", "Tem pháp", "Decal PVC 90x60", "Nắp cua croissant"]) {
+    assert.equal(isPackagingLabelName(name), true, name);
+  }
+  for (const name of ["Pate 200g", "Bánh mì que Pate", "Bột nhãn"]) {
+    assert.equal(isPackagingLabelName(name), false, name);
+  }
+  assert.equal(isPackagingLabelName(""), false, "the empty name is never a label");
+  assert.equal(isPackagingLabelName(null), false, "null is never a label");
+  assert.equal(isPackagingLabelName(undefined), false, "undefined is never a label");
+  // Machine-misread "Nhân" (filling) and corrected "Nhãn" (label) both normalize
+  // to "nhan pate heo 200gr"; only the label reading counts, so the uncorrected
+  // name stays a filling until stock_name_corrections fixes it (handler.test.ts).
+  assert.equal(normalizeItemName("Nhân Patê Heo 200gr"), "nhan pate heo 200gr");
+  assert.equal(isPackagingLabelName("Nhân Patê Heo 200gr"), false);
+  assert.equal(isPackagingLabelName("Nhãn Patê Heo 200gr"), true);
+  assert.equal(isPackagingLabelName("Nhan pate heo 200gr"), true, "a plain unaccented nhan is a label");
 });
 
 test("an empty api key fails closed and the request shape is pinned", async () => {

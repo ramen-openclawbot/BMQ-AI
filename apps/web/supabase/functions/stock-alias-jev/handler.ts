@@ -10,6 +10,7 @@
 import {
   autoNonStockReason,
   candidatesHash,
+  isPackagingLabelName,
   LINE_TYPE_GOODS,
   LINE_TYPE_NON_GOODS,
   NONE_OPTION,
@@ -118,6 +119,12 @@ export interface MaterialAliasHandlerDeps {
   incrementUsage: (usageDate: string, calls: number, cost: number) => Promise<void>;
   listBacklog: (location: string, limit: number) => Promise<MaterialAliasBacklogRow[]>;
   candidatesFor: (name: string, location: string, limit: number) => Promise<MaterialAliasCandidate[]>;
+  /**
+   * Display-name overrides from public.stock_name_corrections for a batch of
+   * normalized names. Optional: without it, or when the read fails, the raw
+   * machine name is used and the run still succeeds.
+   */
+  getStockNameCorrections?: (normalizedNames: string[]) => Promise<Map<string, string>>;
   /** Whole live catalog of a location, appended after the token candidates. */
   catalogOptions?: (location: string) => Promise<MaterialAliasCandidate[]>;
   /** new_items mode: confirmed receipt names without an item / alias. */
@@ -257,6 +264,7 @@ function asCandidateList(raw: unknown): MaterialAliasCandidate[] {
     const name = entry.name;
     const unit = entry.unit;
     const reason = entry.reason;
+    const skuId = entry.sku_id;
     if (typeof id !== "string" || id.trim() === "" || id === NONE_OPTION) {
       throw new MaterialAliasError("invalid_request", 400);
     }
@@ -266,7 +274,16 @@ function asCandidateList(raw: unknown): MaterialAliasCandidate[] {
     if (reason !== undefined && typeof reason !== "string") {
       throw new MaterialAliasError("invalid_request", 400);
     }
-    return { id, name, unit, reason: typeof reason === "string" ? reason : "" };
+    if (skuId !== undefined && skuId !== null && typeof skuId !== "string") {
+      throw new MaterialAliasError("invalid_request", 400);
+    }
+    return {
+      id,
+      name,
+      unit,
+      reason: typeof reason === "string" ? reason : "",
+      sku_id: typeof skuId === "string" && skuId.trim() !== "" ? skuId : null,
+    };
   });
 }
 
@@ -428,6 +445,40 @@ function exactCandidateAnswer(
 
 function candidateIds(candidates: readonly MaterialAliasCandidate[]): string[] {
   return candidates.map((candidate) => candidate.id);
+}
+
+/** A finished-goods SKU option carries sku_id, or the SQL '+sku' reason suffix. */
+function isFinishedProductCandidate(candidate: MaterialAliasCandidate): boolean {
+  return (candidate.sku_id !== null && candidate.sku_id !== undefined)
+    || (candidate.reason ?? "").split("+").includes("sku");
+}
+
+/**
+ * Options for a label name (Nhãn / Tem / Decal / Nắp / Giấy decal): a finished
+ * product named after the label must never be suggested.
+ */
+function rejectFinishedProductCandidates(
+  candidates: readonly MaterialAliasCandidate[],
+): MaterialAliasCandidate[] {
+  return candidates.filter((candidate) => !isFinishedProductCandidate(candidate));
+}
+
+/**
+ * One grouped read of public.stock_name_corrections for a whole batch. A
+ * missing dependency or a failed read falls back to the machine names and never
+ * fails the ranking run.
+ */
+async function loadStockNameCorrections(
+  deps: MaterialAliasHandlerDeps,
+  normalizedNames: readonly string[],
+): Promise<Map<string, string>> {
+  const unique = [...new Set(normalizedNames.filter((name) => name !== ""))];
+  if (unique.length === 0 || typeof deps.getStockNameCorrections !== "function") return new Map();
+  try {
+    return await deps.getStockNameCorrections(unique);
+  } catch {
+    return new Map();
+  }
 }
 
 /**
@@ -952,9 +1003,13 @@ export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
       let cached = 0;
 
       if (input.mode === "lines") {
+        const normalizedNames = input.lines.map((line) => normalizeItemName(line.raw_name));
+        const corrections = await loadStockNameCorrections(deps, normalizedNames);
         const results: unknown[] = [];
-        for (const line of input.lines) {
-          const normalizedName = normalizeItemName(line.raw_name);
+        for (const [index, line] of input.lines.entries()) {
+          const normalizedName = normalizedNames[index];
+          // The operator-facing corrected name, when the machine read it wrong.
+          const displayName = corrections.get(normalizedName) ?? line.raw_name;
           // The fixed rule already knows VAT / fee / service: answer from code
           // and never spend a Jev call on it.
           if (autoNonStockReason(line.raw_name) !== null) {
@@ -967,7 +1022,11 @@ export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
             });
             continue;
           }
-          const candidateList = line.candidates;
+          // A label / sticker line must never be matched to the finished product
+          // whose name it carries. The cache key still uses the machine name.
+          const candidateList = isPackagingLabelName(displayName)
+            ? rejectFinishedProductCandidates(line.candidates)
+            : line.candidates;
           const hash = candidatesHash(candidateIds(candidateList));
           const key: MaterialAliasCacheKey = {
             supplierId: input.supplierId,
@@ -995,7 +1054,7 @@ export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
           } else if (!evaluator || calls >= remainingQuota) {
             answer = buildAnswer(null, line.raw_name, null);
           } else {
-            const evaluation = await evaluator({ state: { line: { name: line.raw_name, unit: line.raw_unit, supplier: input.supplierId }, candidates: candidateList }, signal, deadlineAt });
+            const evaluation = await evaluator({ state: { line: { name: displayName, unit: line.raw_unit, supplier: input.supplierId }, candidates: candidateList }, signal, deadlineAt });
             calls += 1;
             const callCost = evaluationCost(evaluation);
             cost += callCost;
@@ -1029,12 +1088,16 @@ export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
       if (input.mode === "backlog") {
         // backlog: process one batch, then report how much is still pending.
         const rows = await deps.listBacklog(input.location, MATERIAL_ALIAS_BACKLOG_LIMIT);
+      // One grouped read of the operator display-name overrides for the batch.
+      const corrections = await loadStockNameCorrections(deps, rows.map((row) => row.normalized_name));
       // The catalog is the same for every row: read it once, then offer Jev the
       // token matches plus the whole catalog so a translated / abbreviated /
       // OCR-damaged name still has real options.
       const catalog = deps.catalogOptions ? await deps.catalogOptions(input.location) : [];
       type BacklogEntry = {
         row: MaterialAliasBacklogRow;
+        /** The corrected name when the machine read is wrong, else the raw name. */
+        displayName: string;
         candidates: MaterialAliasCandidate[];
         key: MaterialAliasCacheKey;
       };
@@ -1047,12 +1110,20 @@ export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
       }
       for (const [rowIndex, row] of rows.entries()) {
         const tokenCandidates = tokenByRow[rowIndex] ?? [];
-        const candidates = mergeCandidateOptions(tokenCandidates, catalog);
+        const displayName = corrections.get(row.normalized_name) ?? row.raw_name;
+        const merged = mergeCandidateOptions(tokenCandidates, catalog);
+        // A label / sticker line must never be matched to the finished product
+        // whose name it carries. The cache key still uses the machine name.
+        const candidates = isPackagingLabelName(displayName)
+          ? rejectFinishedProductCandidates(merged)
+          : merged;
         // A row with no token match but catalog options is still evaluated; only
-        // a row with no option at all (an empty catalog) is skipped.
+        // a row with no option at all (an empty catalog, or a label with only
+        // SKU options) is skipped.
         if (candidates.length === 0) continue;
         eligible.push({
           row,
+          displayName,
           candidates,
           key: {
             supplierId: row.supplier_id,
@@ -1085,7 +1156,7 @@ export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
         if (!evaluator || calls >= remainingQuota) break;
         try {
           const evaluation = await evaluator({
-            state: { line: { name: entry.row.raw_name, unit: entry.row.raw_unit, supplier: entry.row.supplier_id }, candidates: entry.candidates },
+            state: { line: { name: entry.displayName, unit: entry.row.raw_unit, supplier: entry.row.supplier_id }, candidates: entry.candidates },
             signal,
             deadlineAt,
           });

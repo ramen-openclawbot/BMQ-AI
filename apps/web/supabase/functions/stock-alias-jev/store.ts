@@ -43,6 +43,7 @@ function mapCandidate(row: Record<string, unknown>): MaterialAliasCandidate {
     name: String(row.name ?? ""),
     unit: String(row.unit ?? ""),
     reason: String(row.reason ?? ""),
+    sku_id: skuId,
   };
 }
 
@@ -134,6 +135,8 @@ export interface MaterialAliasStore {
   getUsage(usageDate: string): Promise<MaterialAliasUsage>;
   incrementUsage(usageDate: string, calls: number, cost: number): Promise<void>;
   listBacklog(location: string, limit: number): Promise<MaterialAliasBacklogRow[]>;
+  /** Display-name overrides by normalized name; a read error yields an empty map. */
+  getStockNameCorrections(normalizedNames: string[]): Promise<Map<string, string>>;
   candidatesFor(name: string, location: string, limit: number): Promise<MaterialAliasCandidate[]>;
   /** Whole catalog of a location; the same rows on every call in one request. */
   catalogOptions(location: string): Promise<MaterialAliasCandidate[]>;
@@ -253,6 +256,31 @@ export function createMaterialAliasStore(admin: SupabaseClient): MaterialAliasSt
         raw_unit: asNullableString(row.raw_unit),
         location: String(row.location ?? location),
       })).filter((row) => row.normalized_name !== "" && row.raw_name !== "");
+    },
+
+    async getStockNameCorrections(normalizedNames) {
+      const names = [...new Set(normalizedNames.filter((name) => name !== ""))];
+      if (names.length === 0) return new Map();
+      const { data, error } = await admin
+        .from("stock_name_corrections")
+        .select("normalized_name,corrected_name")
+        .in("normalized_name", names);
+      if (error) {
+        // Reference data only: a failed read must never break a ranking run, so
+        // log one short warning and fall back to the machine name.
+        console.warn(JSON.stringify({
+          event: "stock_alias_jev_corrections_read_failed",
+          message: String((error as { message?: unknown }).message ?? error).slice(0, 300),
+        }));
+        return new Map();
+      }
+      const corrections = new Map<string, string>();
+      for (const row of (data ?? []) as unknown as Record<string, unknown>[]) {
+        const normalized = String(row.normalized_name ?? "");
+        const corrected = asNullableString(row.corrected_name);
+        if (normalized !== "" && corrected !== null) corrections.set(normalized, corrected);
+      }
+      return corrections;
     },
 
     async candidatesFor(name, location, limit) {

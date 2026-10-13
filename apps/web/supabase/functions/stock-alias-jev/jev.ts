@@ -14,7 +14,7 @@
 export const JEV_ENDPOINT = "https://ai-gateway.vercel.sh/v1/evaluate";
 export const JEV_MODEL = "typesafe-ai/jev";
 // Bump whenever the state, the question or the criteria below change.
-export const JEV_PROMPT_VERSION = "jev-material-alias-2026-10-29.1";
+export const JEV_PROMPT_VERSION = "jev-material-alias-2026-10-14.1";
 export const JEV_TIMEOUT_MS = 4000;
 export const JEV_MAX_TIMEOUT_MS = 4000;
 export const JEV_BODY_LIMIT = 32_000;
@@ -36,6 +36,8 @@ export interface MaterialAliasCandidate {
   unit: string;
   /** Deterministic matcher reason ('name_exact', 'name_contains', 'token'). */
   reason?: string;
+  /** Set for a finished-goods SKU option; null / absent for a shared kitchen item. */
+  sku_id?: string | null;
 }
 
 export interface MatchLine {
@@ -259,6 +261,37 @@ export function autoNonStockReason(name: string | null | undefined): AutoNonStoc
   if (FEE_TOKENS.some((token) => normalized.includes(token))) return "fee";
   if (SERVICE_TOKENS.some((token) => normalized.includes(token))) return "service";
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Packaging-label rule: a name read as Nhãn / Tem / Decal / Nắp / Giấy decal
+// is a label, never the finished product whose name it carries.
+// ---------------------------------------------------------------------------
+
+/**
+ * Normalized prefixes that mean the receipt line is a label / sticker, not the
+ * finished product named after it ("Nhãn Patê Heo 200gr", "Tem 17k",
+ * "Decal PVC 90x60", "Nắp cua croissant"). Only the START of the normalized
+ * name counts, so "Pate 200g", "Bánh mì que Pate" and "Bột nhãn" are untouched.
+ */
+const PACKAGING_LABEL_PREFIXES = ["nhan ", "tem ", "decal", "nap ", "giay decal"] as const;
+
+/**
+ * "Nhãn" (label) and "Nhân" (meat filling) are different words that both
+ * normalize to "nhan". Only the label reading — or a plain unaccented "nhan" —
+ * is a label, so an uncorrected "Nhân Patê Heo 200gr" is not one; once the
+ * operator correction table maps it to "Nhãn Patê Heo 200gr", it is.
+ */
+function isFillingRead(name: string | null | undefined): boolean {
+  const first = String(name ?? "").trim().split(/\s+/)[0]?.toLowerCase() ?? "";
+  return first === "nhân";
+}
+
+export function isPackagingLabelName(name: string | null | undefined): boolean {
+  const normalized = normalizeItemName(name);
+  if (normalized === "") return false;
+  if (isFillingRead(name)) return false;
+  return PACKAGING_LABEL_PREFIXES.some((prefix) => normalized.startsWith(prefix));
 }
 
 // ---------------------------------------------------------------------------
