@@ -3,6 +3,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 import { checkAndRecordRateLimit, getRateLimitHeaders } from "../_shared/rate-limiter.ts";
+import { applyNameSuffixUnits } from "../_shared/po-line-unit.ts";
 import { aiErrorJson, classifyOpenAIError } from "../_shared/openai-errors.ts";
 import { getScanAiConfig } from "../_shared/ai-vision-provider.ts";
 
@@ -112,6 +113,7 @@ Trích xuất các thông tin sau từ đơn đặt hàng:
 Lưu ý quan trọng:
 - Chép nguyên văn tên hàng đúng như chữ trên chứng từ; không tự đổi sang một tên vật liệu hoặc nhóm hàng khác.
 - Không được suy diễn chất liệu từ công dụng hoặc hình dáng bao bì. Ví dụ: nếu chứng từ ghi "Bao bánh mì" thì phải trả đúng "Bao bánh mì", tuyệt đối không đổi thành "Bao bì nhựa".
+- Đơn vị tính thường nằm trong ngoặc ở cuối tên hàng; hãy lấy đúng đơn vị đó.
 - Đơn đặt hàng Việt Nam thường có chữ tiếng Việt
 - Số có thể dùng dấu chấm/phẩy làm separator (VD: 1.000.000 = 1000000)
 - Trích xuất TẤT CẢ các dòng sản phẩm trong bảng
@@ -278,6 +280,12 @@ ${supplierVatConfig?.vat_included_in_price ? '- NCC này có giá đã bao gồm
     }
 
     const extractedData = JSON.parse(toolCall.function.arguments);
+
+    // The AI often keeps the unit inside the trailing "(...)" of the product
+    // name; recover it deterministically instead of trusting the model's unit.
+    if (Array.isArray(extractedData.items)) {
+      extractedData.items = applyNameSuffixUnits(extractedData.items);
+    }
 
     console.log(`[scan-purchase-order] Completed in ${Date.now() - startTime}ms, extracted ${extractedData.items?.length || 0} items`);
     return new Response(
