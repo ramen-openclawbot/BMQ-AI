@@ -22,6 +22,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useStockCatalogReview } from "@/hooks/useStockCatalog";
 import { useMaterialAliasReview, useNewItemSuggestions } from "@/hooks/useMaterialAlias";
 import { useStockRoutingReview } from "@/hooks/useStockRouting";
+import { useQ7MaterialLinkReview } from "@/hooks/useQ7MaterialLinks";
 import { GameLoading } from "@/game/Loading";
 import { TransferSheet } from "@/game/TransferSlip";
 import { CountDone, CountLobby, CountSheet, CountSheetLoading, ReviewSheet, countErrorText, countProgress, dmy, type CountFilter } from "@/game/StockCount";
@@ -211,6 +212,7 @@ export default function WarehouseGame() {
   const newQ7 = useNewItemSuggestions("q7");
   const newTt = useNewItemSuggestions("tan_tao");
   const routing = useStockRoutingReview();
+  const q7Links = useQ7MaterialLinkReview(isOwner);
   const missions = useMyMissions();
   const [ceremony, setCeremony] = useState<{ result: CompleteMissionResult; title: string } | null>(null);
   // Kiểm kê (owner 12/10): one open count sheet per warehouse.
@@ -272,6 +274,7 @@ export default function WarehouseGame() {
       : id === "backlog" ? totalCrates
       : id === "aliases" ? (aliasReview.data?.aliases.length ?? 0)
       : id === "routing" ? (routing.data ? routing.data.supplier_pending.length + routing.data.material_pending.length : 0)
+      : id === "links" ? (q7Links.data?.counts.total ?? 0)
       : null;
     return { id, ...STATION_META[id], count: id === "aliases" ? null : count };
   });

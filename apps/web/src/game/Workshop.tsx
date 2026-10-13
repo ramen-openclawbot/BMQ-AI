@@ -1,7 +1,7 @@
 import { C, STROKE } from "./theme";
 import { Bubble, Buddy, Defs, Panel } from "./Toon";
 
-export type StationId = "merge" | "classify" | "pastry" | "jev" | "aliases" | "backlog" | "new" | "routing";
+export type StationId = "merge" | "classify" | "pastry" | "links" | "jev" | "aliases" | "backlog" | "new" | "routing";
 
 export interface Station { id: StationId; label: string; icon: string; tint: string; hint: string; count: number | null }
 
@@ -9,6 +9,7 @@ export const STATION_META: Record<StationId, Omit<Station, "id" | "count">> = {
   merge: { label: "Bàn gộp", icon: "🔗", tint: C.coral, hint: "Hai tên cùng một món" },
   classify: { label: "Bàn phân loại", icon: "🏷️", tint: C.mustard, hint: "Gắn nhóm mặt hàng" },
   pastry: { label: "Bàn bánh ngọt", icon: "🧁", tint: "#e79a6b", hint: "Món nào tự chuyển Q7" },
+  links: { label: "Bàn mã chuẩn Q7", icon: "🧩", tint: "#6fa3a0", hint: "Gắn mã để kiểm kê Q7" },
   jev: { label: "Máy Jev", icon: "🤖", tint: C.plum, hint: "Quét trùng · phân loại · rà mã" },
   aliases: { label: "Bảng bí danh", icon: "📋", tint: C.sage, hint: "Tên đã học 7 ngày" },
   backlog: { label: "Tên chờ gán mã", icon: "📦", tint: C.kraft, hint: "Danh sách thùng chờ" },
@@ -16,7 +17,7 @@ export const STATION_META: Record<StationId, Omit<Station, "id" | "count">> = {
   routing: { label: "Bàn xếp kho", icon: "🚚", tint: "#5f8fbf", hint: "NCC về kho nào · nhóm NVL" },
 };
 
-export const STATION_ORDER: StationId[] = ["merge", "classify", "pastry", "new", "backlog", "aliases", "routing", "jev"];
+export const STATION_ORDER: StationId[] = ["merge", "classify", "pastry", "links", "new", "backlog", "aliases", "routing", "jev"];
 
 interface Geo { x: number; y: number; w: number; h: number }
 

@@ -10,6 +10,7 @@ import { StockRoutingCards } from "@/components/stock-routing/StockRoutingCards"
 import { useSetItemPastryQ7, useWarehouseGameSnapshot } from "@/hooks/useWarehouseGame";
 import { CLASS_META, asClass, normalizeName } from "./meta";
 import { STATION_META, type StationId } from "./Workshop";
+import { LinkStation } from "./LinkStation";
 import "@/styles/bmq-warehouse.css";
 import "@/styles/bmq-stock-ledger.css";
 import "@/styles/bmq-material-alias.css";
@@ -205,6 +206,7 @@ export function StationView({ id, canEdit }: { id: StationId; canEdit: boolean }
         {id === "merge" ? <MergeStation canEdit={canEdit} /> : null}
         {id === "classify" ? <ClassifyStation canEdit={canEdit} /> : null}
         {id === "pastry" ? <PastryStation canEdit={canEdit} /> : null}
+        {id === "links" ? <LinkStation canEdit={canEdit} /> : null}
         {id === "jev" ? <JevStation canEdit={canEdit} /> : null}
         {id === "aliases" ? <LearnedAliasesCard canEdit={canEdit} /> : null}
         {id === "backlog" ? <AliasBacklogReview key={`b-${location}`} canEdit={canEdit} location={location} /> : null}

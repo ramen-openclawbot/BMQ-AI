@@ -63,6 +63,27 @@ function settle(st) {
     const items = F.items.map((it, i) => ({ ...it, on_hand: started ? (i * 137) % 5000 : 0 })).filter((it) => loc !== "q7" || it.pastry_q7);
     return { data: { location: loc, cutover_date: started, items, skus: loc === "tan_tao" ? F.skus : [], pending: role === "owner" ? (loc === "q7" ? F.q7 : F.tt) : [], transfers: F.transfers ?? [], counts: {}, can_edit: role === "owner" }, error: null };
   }
+  if (st.table === "rpc:get_q7_material_link_review") {
+    const mat = (id, name, unit) => ({ id, material_code: "MAT-" + id, canonical_name: name, default_unit: unit });
+    const item = (id, name, unit, exact, status, candidates) => ({ item_id: id, item_code: "NVL-" + id, name, unit, exact_material: exact, material_unit: exact ? exact.default_unit : null, unit_status: status, auto_factor: status === "auto" ? 0.001 : null, factor_suggestion: null, candidates });
+    const items = [
+      item("i1", "Bột Ngọt", "g", mat("m1", "Bột Ngọt", "g"), "same", [{ ...mat("m1", "Bột Ngọt", "g"), unit_status: "same", score: 1 }]),
+      item("i2", "Chà bông", "g", mat("m2", "Chà bông", "kg"), "auto", [{ ...mat("m2", "Chà bông", "kg"), unit_status: "auto", score: 1 }]),
+      item("i3", "Trứng gà 60gr", "g", mat("m3", "Trứng gà 60gr", "quả"), "needs_factor", [{ ...mat("m3", "Trứng gà 60gr", "quả"), unit_status: "needs_factor", score: 1 }]),
+      item("i4", "Bột mì 888 Cam", "g", mat("m4", "Bột mì 888 Cam", "bao"), "needs_factor", [{ ...mat("m4", "Bột mì 888 Cam", "bao"), unit_status: "needs_factor", score: 1 }]),
+      item("i5", "Bottega zelachi italian grated cheese", "g", null, null, [{ ...mat("m5", "Phomai Ý nghiền Bottega Zelachi (ĐTV)", "g"), unit_status: "same", score: 0.25 }, { ...mat("m6", "Phô mai ý nghiền", "kg"), unit_status: "auto", score: 0.2 }]),
+      item("i6", "Băng keo lớn", "cuộn", null, null, []),
+    ];
+    return { data: { items, counts: { total: items.length, exact: 4, auto: 1, needs_factor: 2, linked_total: 0 } }, error: null };
+  }
+  if (st.table === "rpc:link_q7_item_material") {
+    window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args));
+    return { data: { item_id: st.args.p_item_id, material_id: st.args.p_material_id ?? "new-mat", material_code: "MAT-X", canonical_name: "Mã chuẩn", created_material: !!st.args.p_create_new, request_id: null }, error: null };
+  }
+  if (st.table === "rpc:link_q7_exact_materials") {
+    window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args));
+    return { data: { linked: 2, needs_factor: [{ item_id: "i3", name: "Trứng gà 60gr", unit: "g", material_unit: "quả", factor_suggestion: null }], failed: [] }, error: null };
+  }
   if (st.table === "rpc:get_stock_transfers") return { data: window.__kgFixture.transfers ?? [], error: null };
   if (st.table === "rpc:create_manual_stock_transfer") {
     window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args));
@@ -629,7 +650,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
   await page.waitForTimeout(900);
   assert.ok((await page.locator(".kg .title-pill b").textContent()).includes("Xưởng dọn danh mục"));
   await page.screenshot({ path: `${EVIDENCE}/workshop-${viewport.width}.png` });
-  for (const [station, check] of [["Bàn gộp", "[data-bmq-catalog-merge]"], ["Bàn phân loại", "[data-bmq-catalog-classify]"], ["Bàn bánh ngọt", "[data-bmq-pastry-toggle]"], ["Hàng mới đề xuất", "[data-bmq-new-items]"], ["Tên chờ gán mã", "[data-bmq-alias-backlog]"], ["Bảng bí danh", "[data-bmq-learned-aliases]"], ["Bàn xếp kho", "[data-bmq-routing-suppliers]"], ["Máy Jev", ".jev-meter"]]) {
+  for (const [station, check] of [["Bàn gộp", "[data-bmq-catalog-merge]"], ["Bàn phân loại", "[data-bmq-catalog-classify]"], ["Bàn bánh ngọt", "[data-bmq-pastry-toggle]"], ["Bàn mã chuẩn Q7", "[data-bmq-link-station]"], ["Hàng mới đề xuất", "[data-bmq-new-items]"], ["Tên chờ gán mã", "[data-bmq-alias-backlog]"], ["Bảng bí danh", "[data-bmq-learned-aliases]"], ["Bàn xếp kho", "[data-bmq-routing-suppliers]"], ["Máy Jev", ".jev-meter"]]) {
     await page.getByRole("button", { name: new RegExp(`^${station}`) }).click({ force: true });
     await page.waitForTimeout(900);
     assert.ok((await page.locator(check).count()) >= 1, `${station} shows its tool at ${viewport.width}`);
@@ -651,6 +672,39 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       await page.waitForTimeout(400);
       assert.ok((await page.evaluate(() => window.__qaWrites)).some((w) => w.startsWith("rpc:set_item_pastry_q7:")), "pastry toggle writes");
       await page.screenshot({ path: `${EVIDENCE}/station-pastry-${viewport.width}.png` });
+    }
+    if (station === "Bàn mã chuẩn Q7") {
+      assert.equal(await page.locator("[data-bmq-link-row]").count(), 6, "every unlinked item is listed");
+      await page.locator("[data-bmq-link-bulk]").click({ force: true });
+      await page.waitForTimeout(400);
+      let writes = await page.evaluate(() => window.__qaWrites);
+      assert.ok(writes.some((w) => w.startsWith("rpc:link_q7_exact_materials:")), "bulk link sent");
+      const egg = page.locator("[data-bmq-link-row='Trứng gà 60gr']");
+      assert.equal(await egg.locator("[data-bmq-link-factor] input").inputValue(), "60", "factor read from the name");
+      const flour = page.locator("[data-bmq-link-row='Bột mì 888 Cam']");
+      assert.equal(await flour.locator("[data-bmq-link-save]").isDisabled(), true, "no factor, no save");
+      await flour.locator("[data-bmq-link-factor] input").fill("25000");
+      await page.screenshot({ path: `${EVIDENCE}/station-links-${viewport.width}.png`, fullPage: true });
+      await egg.locator("[data-bmq-link-save]").dispatchEvent("click");
+      await page.waitForTimeout(500);
+      await flour.locator("[data-bmq-link-save]").dispatchEvent("click");
+      await page.waitForTimeout(300);
+      const cheese = page.locator("[data-bmq-link-row='Bottega zelachi italian grated cheese']");
+      await cheese.locator("[data-bmq-link-pick='Phomai Ý nghiền Bottega Zelachi (ĐTV)']").dispatchEvent("click");
+      await cheese.locator("[data-bmq-link-save]").dispatchEvent("click");
+      await page.waitForTimeout(300);
+      await page.locator("[data-bmq-link-row='Băng keo lớn'] [data-bmq-link-create]").dispatchEvent("click");
+      await page.waitForFunction(() => window.__qaWrites.some((w) => w.includes('"p_item_id":"i6"')), null, { timeout: 5000 }).catch(() => {});
+      writes = await page.evaluate(() => window.__qaWrites);
+      const links = writes.filter((w) => w.startsWith("rpc:link_q7_item_material:")).map((w) => JSON.parse(w.slice("rpc:link_q7_item_material:".length)));
+      const eggW = links.find((l) => l.p_item_id === "i3");
+      assert.ok(eggW && Math.abs(eggW.p_unit_factor - 1 / 60) < 1e-9 && eggW.p_material_id === "m3", `egg link ${JSON.stringify(eggW)}`);
+      const flourW = links.find((l) => l.p_item_id === "i4");
+      assert.ok(flourW && Math.abs(flourW.p_unit_factor - 1 / 25000) < 1e-12, `flour link ${JSON.stringify(flourW)}`);
+      const cheeseW = links.find((l) => l.p_item_id === "i5");
+      assert.ok(cheeseW && cheeseW.p_material_id === "m5" && cheeseW.p_unit_factor === null, `cheese link ${JSON.stringify(cheeseW)}`);
+      const tapeW = links.find((l) => l.p_item_id === "i6");
+      assert.ok(tapeW && tapeW.p_create_new === true && tapeW.p_material_id === null, `create link ${JSON.stringify(links)} rows=${await page.locator("[data-bmq-link-row]").count()}`);
     }
     if (station === "Máy Jev") {
       await page.getByRole("button", { name: /Quét cặp trùng/ }).click({ force: true });

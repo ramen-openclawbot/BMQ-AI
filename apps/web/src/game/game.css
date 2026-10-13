@@ -813,3 +813,29 @@
   .kg .slip-no { display: none; }
   .kg .slip-qty input { width: 64px; }
 }
+
+/* Bàn mã chuẩn Q7 (LinkStation.tsx) */
+.kg .link-station { display: grid; gap: 14px; }
+.kg .link-bulk { width: 100%; }
+.kg .link-sec { display: grid; gap: 8px; }
+.kg .link-sec h3 { margin: 4px 0 0; font-family: "Baloo 2", sans-serif; font-size: 18px; }
+.kg .link-list { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.kg .link-row { display: grid; gap: 8px; padding: 12px; background: var(--white); border: 2.5px solid var(--ink); border-radius: 14px; box-shadow: var(--soft); }
+.kg .link-row.is-picked { background: #eef6f1; }
+.kg .link-head { display: flex; align-items: flex-start; gap: 8px; }
+.kg .link-name { display: grid; flex: 1; min-width: 0; }
+.kg .link-name b { font-size: 15px; overflow-wrap: anywhere; }
+.kg .link-name small { font-size: 12px; font-weight: 700; color: #6f6a85; }
+.kg .link-tag { flex: none; font-style: normal; font-size: 12px; font-weight: 800; padding: 2px 8px; background: var(--sage-light, #cfe6d6); border: 2px solid var(--ink); border-radius: 99px; }
+.kg .link-picks { display: grid; gap: 6px; }
+.kg .link-pick { display: grid; gap: 1px; padding: 8px 10px; text-align: left; background: var(--cream); border: 2px solid var(--ink); border-radius: 10px; }
+.kg .link-pick b { font-size: 14px; overflow-wrap: anywhere; }
+.kg .link-pick small { font-size: 12px; font-weight: 700; color: #6f6a85; }
+.kg .link-pick.is-on { background: var(--mustard-light); box-shadow: 0 0 0 3px var(--mustard-light); }
+.kg .link-target { display: grid; gap: 2px; font-size: 14px; overflow-wrap: anywhere; }
+.kg .link-target small { color: #6f6a85; font-weight: 700; }
+.kg .link-auto { color: var(--sage-deep) !important; }
+.kg .link-factor { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-weight: 800; font-size: 15px; }
+.kg .link-factor input { width: 110px; height: 42px; padding: 0 10px; font-size: 16px; font-weight: 800; text-align: right; background: var(--cream); border: 2.5px solid var(--ink); border-radius: 10px; }
+.kg .link-actions { flex-wrap: wrap; }
+.kg .link-actions .btn:first-child { flex: 1; }
