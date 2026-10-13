@@ -13,6 +13,12 @@ export const DOCUMENT_UNITS = [
   "cuộn", "khối", "quả", "tờ", "con", "cây", "bình", "nắp",
 ] as const;
 
+/**
+ * Service units for phiếu chi lines only (rent, utilities, fees). They never reach the
+ * stock catalog, so PO / goods-receipt forms keep the stock-only list.
+ */
+export const SERVICE_UNITS = ["tháng"] as const;
+
 interface UnitSelectProps extends Omit<SelectHTMLAttributes<HTMLSelectElement>, "children"> {
   /**
    * The value already in the form (OCR or an old line). A spelling variant is
@@ -20,13 +26,16 @@ interface UnitSelectProps extends Omit<SelectHTMLAttributes<HTMLSelectElement>, 
    * someone picks a standard one.
    */
   currentValue?: string | null;
+  /** Also offer SERVICE_UNITS (payment request lines only). */
+  allowServiceUnits?: boolean;
 }
 
 /** Native select of standard units; works with react-hook-form register or a controlled field. */
 export const UnitSelect = forwardRef<HTMLSelectElement, UnitSelectProps>(
-  ({ className, currentValue, value, ...props }, ref) => {
+  ({ className, currentValue, value, allowServiceUnits, ...props }, ref) => {
     const current = String((value ?? currentValue) ?? "").trim();
-    const known = current === "" || (DOCUMENT_UNITS as readonly string[]).includes(current);
+    const units: readonly string[] = allowServiceUnits ? [...DOCUMENT_UNITS, ...SERVICE_UNITS] : DOCUMENT_UNITS;
+    const known = current === "" || units.includes(current);
     const standard = known ? null : stockUnitLabel(current);
     return (
       <select
@@ -44,7 +53,7 @@ export const UnitSelect = forwardRef<HTMLSelectElement, UnitSelectProps>(
         {!known ? (
           <option value={current}>{standard ? `${current} → ${standard}` : `${current} (chưa chuẩn)`}</option>
         ) : null}
-        {DOCUMENT_UNITS.map((unit) => (
+        {units.map((unit) => (
           <option key={unit} value={unit}>{unit}</option>
         ))}
       </select>

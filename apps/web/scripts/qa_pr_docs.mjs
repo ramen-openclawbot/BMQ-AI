@@ -248,6 +248,11 @@ try {
     assert.equal(scanBodies.length, 3, "each invoice scanned");
     assert.ok(scanBodies.every((b) => b.imageBase64 && b.documentType === "payment_request"));
     await page.locator("[data-bmq-pr-item]").first().scrollIntoViewIfNeeded();
+    // Service unit "tháng" is offered on phiếu chi lines (rent, utilities) and can be picked.
+    const unitSel = page.locator("[data-bmq-pr-item] [data-bmq-unit-select]").first();
+    assert.equal(await unitSel.locator('option[value="tháng"]').count(), 1, "tháng offered on phiếu chi");
+    await unitSel.selectOption("tháng");
+    assert.equal(await unitSel.inputValue(), "tháng");
     await page.locator("[data-bmq-pr-create-dialog]").screenshot({ path: `${EVIDENCE}/dlg-items-${viewport.width}.png` });
     // Payment method chips switch the form value (UNC <-> Tiền mặt) and never submit the form.
     await page.locator("#payment_cash").click();

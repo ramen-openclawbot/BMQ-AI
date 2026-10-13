@@ -927,7 +927,7 @@ export function AddPaymentRequestDialog({
                         </label>
                         <label className="d3-prc-c-unit">
                           <small>ĐVT</small>
-                          <UnitSelect {...form.register(`items.${index}.unit`)} currentValue={watchItems?.[index]?.unit} />
+                          <UnitSelect {...form.register(`items.${index}.unit`)} currentValue={watchItems?.[index]?.unit} allowServiceUnits />
                         </label>
                         <label className="d3-prc-c-price">
                           <small>Đơn giá</small>

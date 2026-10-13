@@ -543,6 +543,7 @@ export function EditPaymentRequestDialog({
                             </TableCell>
                             <TableCell>
                               <UnitSelect
+                                allowServiceUnits
                                 {...form.register(`items.${index}.unit`)}
                                 currentValue={watchItems?.[index]?.unit}
                                 className="h-8"
