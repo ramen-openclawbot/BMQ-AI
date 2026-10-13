@@ -12,6 +12,7 @@ import {
   type MaterialAliasHandlerDeps,
 } from "./handler.ts";
 import {
+  JevError,
   candidatesHash,
   JEV_PROMPT_VERSION,
   type JevMatchEvaluation,
@@ -850,4 +851,36 @@ test("new_items reads the same-item and item-class caches in batches", async () 
   assert.equal(response.status, 200);
   assert.equal(rawManyCalls, 2, "one batch per phase (same_item, item_class)");
   assert.equal(rawPerRowCalls, 0);
+});
+
+test("one invalid Jev answer is skipped and the rest of the batch still runs", async () => {
+  let calls = 0;
+  const { deps, cache } = makeDeps({
+    listBacklog: async () => [backlogRow("hang a", "Hàng A"), backlogRow("hang b", "Hàng B"), backlogRow("hang c", "Hàng C")],
+    candidatesFor: async () => [CANDIDATE_A],
+    evaluator: () => async () => {
+      calls += 1;
+      if (calls === 2) throw new JevError("jev_invalid_response", 502);
+      return { ...EVAL, choice: null };
+    },
+  });
+  const handler = createMaterialAliasHandler(deps);
+  const response = await handler(request({ mode: "backlog", location: "q7" }));
+  assert.equal(response.status, 200, "an invalid answer does not fail the request");
+  const body = await response.json();
+  assert.equal(body.failed, 1);
+  assert.equal(body.evaluated, 2, "the other two names are still ranked");
+  assert.equal(cache.size, 2, "only the valid answers are cached");
+});
+
+test("a quota or auth style Jev failure still stops the batch", async () => {
+  const { deps } = makeDeps({
+    listBacklog: async () => [backlogRow("hang a", "Hàng A"), backlogRow("hang b", "Hàng B")],
+    candidatesFor: async () => [CANDIDATE_A],
+    evaluator: () => async () => { throw new JevError("jev_unavailable", 503); },
+  });
+  const handler = createMaterialAliasHandler(deps);
+  const response = await handler(request({ mode: "backlog", location: "q7" }));
+  const text = await response.text();
+  assert.equal(response.status, 503, text);
 });

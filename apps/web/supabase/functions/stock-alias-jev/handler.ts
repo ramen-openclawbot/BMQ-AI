@@ -1168,7 +1168,10 @@ export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
           await deps.incrementUsage(usageDate, 1, callCost);
           await deps.putCache(entry.key, buildAnswer(evaluation, entry.row.raw_name, evaluation.choice), evaluation.cost ?? null);
         } catch (error) {
-          if (error instanceof JevError) throw error;
+          // One answer Jev got wrong (a tied top choice, a distribution that does not sum
+          // to 1) must not stop the whole batch: skip that name, count it, keep going.
+          // Every other Jev failure (auth, quota, circuit, timeout) still stops the run.
+          if (error instanceof JevError && error.code !== "jev_invalid_response") throw error;
           failed += 1;
           processed += 1;
         }
