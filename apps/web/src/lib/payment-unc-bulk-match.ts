@@ -124,7 +124,7 @@ const formatVnd = (value: number): string =>
   `${new Intl.NumberFormat("vi-VN").format(Math.round(value))}\u00a0đ`;
 
 const amountsEqual = (left: number, right: number): boolean =>
-  Number.isFinite(left) && Number.isFinite(right) && Math.round(left * 100) === Math.round(right * 100);
+  Number.isFinite(left) && Number.isFinite(right) && Math.round(left) === Math.round(right);
 
 const toAmount = (value: unknown): number | null => {
   const parsed = Number(value);

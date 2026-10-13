@@ -144,6 +144,28 @@ test("a mismatched amount is unmatched", () => {
   assert.deepEqual(result.allocations, []);
 });
 
+test("amounts match after rounding to whole đồng (lẻ xu VAT)", () => {
+  const [leXu] = matchUncBulk(
+    [read({ fileSha256: "sha-1371659", amount: 1_371_660 })],
+    [req({ id: "pr-1", remaining: 1_371_659.87 })],
+  );
+  assert.equal(leXu.status, "matched");
+  assert.deepEqual(leXu.allocations, [{ paymentRequestId: "pr-1", amount: 1_371_659.87 }]);
+
+  const [leXu2] = matchUncBulk(
+    [read({ fileSha256: "sha-25170707", amount: 25_170_707.7 })],
+    [req({ id: "pr-2", remaining: 25_170_708 })],
+  );
+  assert.equal(leXu2.status, "matched");
+  assert.deepEqual(leXu2.allocations, [{ paymentRequestId: "pr-2", amount: 25_170_708 }]);
+
+  const [offByOne] = matchUncBulk(
+    [read({ fileSha256: "sha-off-by-one", amount: 1_250_000 })],
+    [req({ id: "pr-3", remaining: 1_250_001 })],
+  );
+  assert.equal(offByOne.status, "unmatched");
+});
+
 test("a UNC with no OCR amount is unmatched", () => {
   const [result] = matchUncBulk(
     [read({ amount: null })],

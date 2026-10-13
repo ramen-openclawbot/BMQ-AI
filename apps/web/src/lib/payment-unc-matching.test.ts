@@ -49,10 +49,13 @@ test("requires one shared supplier, treating nulls as their own supplier", () =>
   assert.equal(areSameSupplier([]), false);
 });
 
-test("exact amount compare rejects rounding and off-by-one", () => {
+test("exact amount compare treats amounts equal after rounding to whole đồng", () => {
   assert.equal(isExactAmountMatch(1_250_000, 1_250_000), true);
   assert.equal(isExactAmountMatch(1_250_000, 1_250_001), false);
-  assert.equal(isExactAmountMatch(1_250_000.4, 1_250_000.4), true);
+  // Whole-đồng rule: a fraction of a đồng (VAT lẻ xu) does not block the match.
+  assert.equal(isExactAmountMatch(1_250_000.4, 1_250_000), true);
+  assert.equal(isExactAmountMatch(1371659.87, 1371660), true);
+  assert.equal(isExactAmountMatch(25170708, 25170707.7), true);
   assert.equal(isExactAmountMatch(1_250_000, null), false);
 });
 
@@ -65,6 +68,24 @@ test("evaluate accepts an exact same-supplier pending set", () => {
   assert.equal(result.code, "ok");
   assert.equal(result.remainingTotal, 1_500_000);
   assert.equal(result.supplierId, "supplier-1");
+});
+
+test("evaluate accepts a total whose lẻ xu is rounded away by the UNC amount", () => {
+  const result = evaluatePaymentUncMatch({
+    requests: [request({ totalAmount: 1_371_659.87 })],
+    evidenceAmount: 1_371_660,
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.code, "ok");
+  assert.equal(result.remainingTotal, 1_371_659.87);
+
+  assert.equal(
+    evaluatePaymentUncMatch({
+      requests: [request({ totalAmount: 1_250_000 })],
+      evidenceAmount: 1_250_001,
+    }).code,
+    "amount_mismatch",
+  );
 });
 
 test("evaluate blocks non-pending, mixed-supplier and mismatched amounts", () => {
@@ -214,6 +235,27 @@ test("allocations reject over-remaining, non-pending and mixed suppliers", () =>
       evidenceAmount: 2_000_000,
     }).code,
     "supplier_mismatch",
+  );
+});
+
+test("allocations allow the whole-đồng rounding of a lẻ xu remaining", () => {
+  const leXu = request({ id: "a", totalAmount: 1_371_659.87, allocatedAmount: 0 });
+  const allowed = evaluateUncAllocations({
+    requests: [leXu],
+    allocations: [allocation("a", 1_371_660)],
+    evidenceAmount: 1_371_660,
+  });
+  assert.equal(allowed.ok, true);
+  assert.equal(allowed.code, "ok");
+  assert.equal(allowed.allocatedTotal, 1_371_660);
+
+  assert.equal(
+    evaluateUncAllocations({
+      requests: [leXu],
+      allocations: [allocation("a", 1_371_661)],
+      evidenceAmount: 1_371_661,
+    }).code,
+    "allocation_exceeds_remaining",
   );
 });
 

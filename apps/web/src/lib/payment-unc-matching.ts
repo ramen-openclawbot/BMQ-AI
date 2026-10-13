@@ -63,7 +63,12 @@ export function areSameSupplier(requests: UncPaymentRequestInput[]): boolean {
 export function isExactAmountMatch(remainingTotal: number, evidenceAmount: number | null | undefined): boolean {
   if (evidenceAmount === null || evidenceAmount === undefined) return false;
   const parsed = Number(evidenceAmount);
-  return Number.isFinite(parsed) && Math.round(parsed * 100) === Math.round(remainingTotal * 100);
+  // Whole-đồng rule: an UNC amount and the payable remaining match when they are
+  // equal after rounding to đồng (|difference| < 1). Item VAT leaves a fraction
+  // of a đồng on the request total that the bank slip already rounds away.
+  return Number.isFinite(parsed)
+    && Number.isFinite(remainingTotal)
+    && Math.round(parsed) === Math.round(remainingTotal);
 }
 
 export interface EvaluateUncMatchInput {
@@ -234,7 +239,7 @@ export function evaluateUncAllocations(input: EvaluateUncAllocationsInput): UncA
     if (!request) {
       return allocationFail("invalid_allocation", "Phiếu phân bổ không hợp lệ hoặc bị lặp.", allocatedTotal, supplierId);
     }
-    if (Number(allocation.amount) > remainingAmount(request)) {
+    if (Number(allocation.amount) > Math.round(remainingAmount(request))) {
       return allocationFail(
         "allocation_exceeds_remaining",
         "Số tiền phân bổ vượt quá số còn lại của phiếu.",
