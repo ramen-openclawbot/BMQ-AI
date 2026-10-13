@@ -5,6 +5,7 @@ import { Bubble, Buddy, Defs, Panel, Puffs } from "./Toon";
 export interface Zone { id: string; label: string; icon: string; blurb: string; color: string }
 
 export const ZONES: Zone[] = [
+  { id: "deliver", label: "Giao hàng", icon: "🚛", color: C.kraft, blurb: "Nhập số thực giao và chụp ảnh hàng cho từng phiếu xuất." },
   { id: "ledger", label: "Sổ tồn", icon: "📒", color: C.sage, blurb: "Tự cộng từ phiếu nhập, tự trừ từ phiếu xuất sản xuất. Kiểm kê hằng tuần." },
   { id: "count", label: "Kiểm kê", icon: "✅", color: C.plum, blurb: "Đếm thực tế rồi nhập số; sổ tự ghi phần chênh lệch." },
   { id: "auto", label: "Đặt hàng", icon: "🛒", color: C.coral, blurb: "Dự báo tiêu thụ và tự tạo đơn đặt hàng Q7 mỗi sáng." },
@@ -62,7 +63,7 @@ function Building({ r, roof, title, sub, crates, door, onClick }: {
 }
 
 /** Small kiosk for the other warehouse functions: striped awning + sign. */
-function Kiosk({ r, zone, onClick }: { r: Rect; zone: Zone; onClick: () => void }) {
+function Kiosk({ r, zone, badge = 0, onClick }: { r: Rect; zone: Zone; badge?: number; onClick: () => void }) {
   const stripes = 6;
   return (
     <Tap label={zone.label} onClick={onClick}>
@@ -77,6 +78,12 @@ function Kiosk({ r, zone, onClick }: { r: Rect; zone: Zone; onClick: () => void 
       <circle cx={r.x + r.w / 2} cy={r.y + 64} r={22} fill={zone.color} stroke={C.ink} strokeWidth={STROKE} opacity={.9} />
       <text x={r.x + r.w / 2} y={r.y + 73} textAnchor="middle" fontSize="24">{zone.icon}</text>
       <text x={r.x + r.w / 2} y={r.y + r.h - 14} textAnchor="middle" className="t-kiosk">{zone.label}</text>
+      {badge > 0 ? (
+        <g className="bounce" style={{ transformOrigin: `${r.x + r.w - 4}px ${r.y + 4}px` }} data-bmq-kiosk-badge={zone.id}>
+          <circle cx={r.x + r.w - 4} cy={r.y + 4} r={17} fill={C.coral} stroke={C.ink} strokeWidth={STROKE} />
+          <text x={r.x + r.w - 4} y={r.y + 10} textAnchor="middle" className="t-badge">{badge}</text>
+        </g>
+      ) : null}
     </Tap>
   );
 }
@@ -169,22 +176,23 @@ function Sidewalk({ r, vertical }: { r: Rect; vertical: boolean }) {
   );
 }
 
-export function Yard({ portrait, counts, crates, onEnter, onZone }: {
+export function Yard({ portrait, counts, crates, badges = {}, onEnter, onZone }: {
   portrait: boolean;
+  badges?: Record<string, number>;
   counts: Record<Location, number>;
   crates: Record<Location, number>;
   onEnter: (loc: Location) => void;
   onZone: (zone: Zone) => void;
 }) {
   const W = portrait ? 600 : 1280;
-  const H = portrait ? 1080 : 760;
+  const H = portrait ? 1230 : 760;
   const road: Rect = portrait ? { x: 0, y: 0, w: 168, h: H } : { x: 0, y: H - 160, w: W, h: 160 };
   const walk: Rect = portrait ? { x: 168, y: 0, w: 62, h: H } : { x: 0, y: H - 222, w: W, h: 62 };
   const q7: Rect = portrait ? { x: 270, y: 60, w: 300, h: 290 } : { x: 70, y: 70, w: 380, h: 380 };
   const tt: Rect = portrait ? { x: 270, y: 410, w: 300, h: 300 } : { x: 510, y: 70, w: 400, h: 380 };
   const kiosks: Rect[] = portrait
-    ? [0, 1, 2, 3].map((i) => ({ x: 262 + (i % 2) * 162, y: 770 + Math.floor(i / 2) * 150, w: 146, h: 126 }))
-    : [0, 1, 2, 3].map((i) => ({ x: 960 + (i % 2) * 158, y: 80 + Math.floor(i / 2) * 170, w: 142, h: 138 }));
+    ? ZONES.map((_, i) => ({ x: 262 + (i % 2) * 162, y: 770 + Math.floor(i / 2) * 150, w: 146, h: 126 }))
+    : ZONES.map((_, i) => ({ x: 960 + (i % 2) * 158, y: 64 + Math.floor(i / 2) * 150, w: 142, h: 128 }));
   const door = portrait ? "left" : "bottom";
   const q7Door = portrait ? { x: q7.x - 58, y: q7.y + q7.h / 2 + 10 } : { x: q7.x + q7.w / 2 + 70, y: q7.y + q7.h + 40 };
 
@@ -211,7 +219,7 @@ export function Yard({ portrait, counts, crates, onEnter, onZone }: {
         ? <><Plant x={q7.x + q7.w - 4} y={q7.y + q7.h + 30} /><Plant x={tt.x + 30} y={tt.y + tt.h + 30} /></>
         : <><Plant x={q7.x - 30} y={q7.y + q7.h - 10} /><Plant x={tt.x + tt.w + 26} y={tt.y + 20} /></>}
 
-      {kiosks.map((r, i) => <Kiosk key={ZONES[i].id} r={r} zone={ZONES[i]} onClick={() => onZone(ZONES[i])} />)}
+      {kiosks.map((r, i) => <Kiosk key={ZONES[i].id} r={r} zone={ZONES[i]} badge={badges[ZONES[i].id] ?? 0} onClick={() => onZone(ZONES[i])} />)}
 
       {/* staff on the sidewalk */}
       <g className={portrait ? "stroll-v" : "stroll-h"}>

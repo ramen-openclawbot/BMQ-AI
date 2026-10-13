@@ -25,6 +25,8 @@ import { useStockRoutingReview } from "@/hooks/useStockRouting";
 import { useQ7MaterialLinkReview } from "@/hooks/useQ7MaterialLinks";
 import { GameLoading } from "@/game/Loading";
 import { TransferSheet } from "@/game/TransferSlip";
+import { DeliveryGate } from "@/game/DeliveryGate";
+import { useDispatchGameQueue } from "@/hooks/useDispatchDelivery";
 import { CountDone, CountLobby, CountSheet, CountSheetLoading, ReviewSheet, countErrorText, countProgress, dmy, type CountFilter } from "@/game/StockCount";
 import { useCancelStockCount, useSaveStockCountLine, useStartStockCount, useStockCountReview, useSubmitStockCount } from "@/hooks/useStockCount";
 import type { StockCountLine, StockCountLocation, StockCountSession } from "@/lib/stock-count";
@@ -43,6 +45,7 @@ type View =
 
 type Panel =
   | { kind: "zone"; zone: Zone }
+  | { kind: "deliver" }
   | { kind: "item"; location: WarehouseGameLocation; id: string }
   | { kind: "sku"; entry: ShelfEntry }
   | { kind: "crate"; location: WarehouseGameLocation; crate: WarehouseGamePendingRow }
@@ -206,6 +209,8 @@ export default function WarehouseGame() {
   const { isOwner, canEditModule, roles } = useAuth();
   const canClean = isOwner || canEditModule("q7_material_inventory") || canEditModule("kitchen_inventory");
   // Same gate as public.create_manual_stock_transfer (server re-checks).
+  // Cổng giao hàng (owner 14/10): badge = open dispatches; a user without inventory view just sees no badge.
+  const deliveryQueue = useDispatchGameQueue();
   const canTransfer = isOwner || roles.includes("warehouse") || canEditModule("inventory") || canEditModule("q7_material_inventory");
   const catalogReview = useStockCatalogReview();
   const aliasReview = useMaterialAliasReview(7);
@@ -345,8 +350,9 @@ export default function WarehouseGame() {
                 portrait={portrait}
                 counts={counts}
                 crates={crates}
+                badges={{ deliver: deliveryQueue.data?.length ?? 0 }}
                 onEnter={(location) => go({ kind: "warehouse", location })}
-                onZone={(zone) => (zone.id === "clean" ? go({ kind: "workshop" }) : zone.id === "count" ? go({ kind: "count" }) : setPanel({ kind: "zone", zone }))}
+                onZone={(zone) => (zone.id === "deliver" ? setPanel({ kind: "deliver" }) : zone.id === "clean" ? go({ kind: "workshop" }) : zone.id === "count" ? go({ kind: "count" }) : setPanel({ kind: "zone", zone }))}
               />
             </Scene>
           )
@@ -478,6 +484,10 @@ export default function WarehouseGame() {
               <button type="button" className="btn ghost" onClick={() => setPanel(null)}>Ở lại</button>
             </div>
           </Sheet>
+        ) : null}
+
+        {panel?.kind === "deliver" ? (
+          <DeliveryGate onDone={(message) => { setPanel(null); setToast(message); }} onClose={() => setPanel(null)} />
         ) : null}
 
         {panel?.kind === "transfers" ? (
