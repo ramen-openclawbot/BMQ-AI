@@ -32,10 +32,12 @@ import { useCancelStockCount, useSaveStockCountLine, useStartStockCount, useStoc
 import type { StockCountLine, StockCountLocation, StockCountSession } from "@/lib/stock-count";
 import { useSuggestStockItemName } from "@/hooks/useSuggestStockItemName";
 import { InvoiceScanner } from "@/game/InvoiceScanner";
+import { RobotDesk, basketLineFor, loadBasket, saveBasket, type BasketLine } from "@/game/RobotDesk";
 import "@/game/game.css";
 
 type View =
   | { kind: "yard" }
+  | { kind: "robot" }
   | { kind: "workshop" }
   | { kind: "missions" }
   | { kind: "station"; id: StationId }
@@ -201,6 +203,9 @@ export default function WarehouseGame() {
   const tt = useWarehouseGameSnapshot("tan_tao");
   const snaps: Record<WarehouseGameLocation, WarehouseGameSnapshot | undefined> = { q7: q7.data, tan_tao: tt.data };
   const [view, setView] = useState<View>({ kind: "yard" });
+  // Robot đặt hàng (owner 14/10): the basket survives moving between scenes within the tab.
+  const [basket, setBasketRaw] = useState<BasketLine[]>(loadBasket);
+  const setBasket = (next: BasketLine[]) => { saveBasket(next); setBasketRaw(next); };
   const [panel, setPanel] = useState<Panel>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [leaving, setLeaving] = useState<string | null>(null);
@@ -214,6 +219,9 @@ export default function WarehouseGame() {
   // Cổng giao hàng (owner 14/10): badge = open dispatches; a user without inventory view just sees no badge.
   const deliveryQueue = useDispatchGameQueue();
   const canTransfer = isOwner || roles.includes("warehouse") || canEditModule("inventory") || canEditModule("q7_material_inventory");
+  // Same gates as public.create_robot_order_package (server re-checks): order = q7_material_inventory_can_edit; debt = create_payment_submission.
+  const canRobotOrder = isOwner || canEditModule("q7_material_inventory") || canEditModule("kitchen_inventory");
+  const canRobotDebt = isOwner || canEditModule("payment_requests");
   const catalogReview = useStockCatalogReview();
   const aliasReview = useMaterialAliasReview(7);
   const newQ7 = useNewItemSuggestions("q7");
@@ -256,7 +264,7 @@ export default function WarehouseGame() {
     if (view.kind === "shelf" || view.kind === "crates") go({ kind: "warehouse", location: view.location });
     else if (view.kind === "station") go({ kind: "workshop" });
     else if (view.kind === "count-sheet") go({ kind: "count" });
-    else if (view.kind === "warehouse" || view.kind === "workshop" || view.kind === "missions" || view.kind === "count") go({ kind: "yard" });
+    else if (view.kind === "warehouse" || view.kind === "workshop" || view.kind === "missions" || view.kind === "count" || view.kind === "robot") go({ kind: "yard" });
   };
 
   const openCount = (location: StockCountLocation) =>
@@ -294,6 +302,7 @@ export default function WarehouseGame() {
     : view.kind === "count" ? "Kiểm kê kho"
     : view.kind === "count-sheet" ? `Kiểm kê · ${LOCATION_LABEL[view.location]}`
     : view.kind === "workshop" ? "Xưởng dọn danh mục"
+    : view.kind === "robot" ? "🤖 Robot đặt hàng"
     : view.kind === "missions" ? "Bảng nhiệm vụ"
     : view.kind === "station" ? `${STATION_META[view.id].icon} ${STATION_META[view.id].label}`
     : view.kind === "warehouse" ? LOCATION_LABEL[view.location]
@@ -303,6 +312,7 @@ export default function WarehouseGame() {
     : view.kind === "count" ? "Chọn kho để đếm"
     : view.kind === "count-sheet" ? (countSession ? `Phiếu ${dmy(countSession.count_date)} · đã đếm ${countProgress(countSession).done}/${countProgress(countSession).total}` : "Chưa có phiếu đang mở")
     : view.kind === "workshop" ? (workshopTodo ? `${workshopTodo} việc đang chờ` : "Mọi bàn đã gọn")
+    : view.kind === "robot" ? (basket.length ? `${basket.length} món trong giỏ` : "PO mới + trả đơn cũ")
     : view.kind === "station" ? "Xưởng dọn danh mục"
     : view.kind === "missions" ? (missions.data?.level ? `Cấp ${missions.data.level.level} · ${missions.data.level.title} · ${missions.data.badges.total} 🐝` : "Làm xong nhận huy hiệu")
     : view.kind === "crates" ? `${LOCATION_LABEL[view.location]} · hàng chưa dán nhãn`
@@ -355,7 +365,7 @@ export default function WarehouseGame() {
                 crates={crates}
                 badges={{ deliver: deliveryQueue.data?.length ?? 0 }}
                 onEnter={(location) => go({ kind: "warehouse", location })}
-                onZone={(zone) => (zone.id === "deliver" ? setPanel({ kind: "deliver" }) : zone.id === "clean" ? go({ kind: "workshop" }) : zone.id === "count" ? go({ kind: "count" }) : setPanel({ kind: "zone", zone }))}
+                onZone={(zone) => (zone.id === "deliver" ? setPanel({ kind: "deliver" }) : zone.id === "clean" ? go({ kind: "workshop" }) : zone.id === "count" ? go({ kind: "count" }) : zone.id === "auto" ? go({ kind: "robot" }) : setPanel({ kind: "zone", zone }))}
               />
             </Scene>
           )
@@ -364,6 +374,19 @@ export default function WarehouseGame() {
         {view.kind === "workshop" ? (
           <Scene id={`workshop-${portrait}`} scroll>
             <Workshop portrait={portrait} stations={stations} onStation={(id) => go({ kind: "station", id })} />
+          </Scene>
+        ) : null}
+
+        {view.kind === "robot" ? (
+          <Scene id="robot" scroll>
+            <RobotDesk
+              items={[...(tt.data?.items ?? []), ...(q7.data?.items ?? []).filter((item) => !(tt.data?.items ?? []).some((other) => other.id === item.id))]}
+              basket={basket}
+              setBasket={setBasket}
+              canOrder={canRobotOrder}
+              canDebt={canRobotDebt}
+              onToast={setToast}
+            />
           </Scene>
         ) : null}
 
@@ -527,6 +550,7 @@ export default function WarehouseGame() {
               canEdit={current.can_edit}
               started={Boolean(current.cutover_date)}
               onTransfer={panel.location === "tan_tao" && canTransfer && item.on_hand > 0 ? () => setPanel({ kind: "transfers", location: "tan_tao", prefill: item.id }) : undefined}
+              onRobot={canRobotOrder ? () => { if (!basket.some((line) => line.item_id === item.id)) setBasket([...basket, basketLineFor(item)]); setToast(`🤖 Đã cho robot: ${item.name}`); go({ kind: "robot" }); } : undefined}
               onDone={(id, message) => { setJustSaved(id); window.setTimeout(() => setJustSaved(null), 2600); setToast(message); setPanel(null); }}
               onClose={() => setPanel(null)}
             />
@@ -604,8 +628,8 @@ function PastrySwitch({ item, canEdit }: { item: WarehouseGameItem; canEdit: boo
   );
 }
 
-function ItemSheet({ item, others, canEdit, started, onTransfer, onDone, onClose }: {
-  item: WarehouseGameItem; others: WarehouseGameItem[]; canEdit: boolean; started: boolean; onTransfer?: () => void;
+function ItemSheet({ item, others, canEdit, started, onTransfer, onRobot, onDone, onClose }: {
+  item: WarehouseGameItem; others: WarehouseGameItem[]; canEdit: boolean; started: boolean; onTransfer?: () => void; onRobot?: () => void;
   onDone: (id: string, message: string) => void; onClose: () => void;
 }) {
   const rename = useRenameStockItem();
@@ -658,6 +682,7 @@ function ItemSheet({ item, others, canEdit, started, onTransfer, onDone, onClose
           </div>
           <PastrySwitch item={item} canEdit={canEdit} />
           {onTransfer ? <button type="button" className="btn slip-new" onClick={onTransfer} data-bmq-item-transfer>🚚 Chuyển sang Q7</button> : null}
+          {onRobot ? <button type="button" className="btn ghost slip-new" onClick={onRobot} data-bmq-item-robot>🤖 Cho robot đặt hàng</button> : null}
           {canEdit ? <ItemNotes itemId={item.id} /> : null}
           <div className="checklist">
             <small>Cách ghi trên phiếu nhập</small>

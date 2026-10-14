@@ -97,6 +97,25 @@ function settle(st) {
     localStorage.setItem("qa-rot", JSON.stringify(saved));
     return { data: { image_path: st.args.p_image_path, rotation: st.args.p_rotation, source: "manual" }, error: null };
   }
+  // Robot đặt hàng (owner 14/10): facts, old-debt list (farthest first, one row before the learned cutover), package creation.
+  if (st.table === "rpc:get_item_purchase_facts") {
+    const items = Object.fromEntries(window.__kgFixture.items.map((it) => [it.id, it]));
+    return { data: (st.args.p_item_ids ?? []).map((id) => ({ item_id: id, item_name: items[id]?.name ?? id, unit: items[id]?.unit ?? "g", last_supplier_id: "sup1", last_supplier_name: "Phúc Thịnh", last_unit_price: 20000, last_unit: items[id]?.unit ?? "g", last_date: "2026-10-01", suggested_qty: 25 })), error: null };
+  }
+  if (st.table === "rpc:get_supplier_debt_candidates") {
+    return { data: { supplier_id: st.args.p_supplier_id, cutover: { kind: "po", id: "po-cut", number: "PO-000040", start_date: "2026-01-15" }, stats: { paid_90d: 5, median_lag_days: 0 }, rows: [
+      { kind: "po", id: "po-ancient", number: "PO-000010", doc_date: "2025-12-01", amount: 900000, remaining: 900000, age_days: 317, has_receipt: true, mark: "settled_outside", mark_source: "learned", probability: null, before_cutover: true },
+      { kind: "po", id: "po-old", number: "PO-000063", doc_date: "2026-02-06", amount: 5076000, remaining: 5076000, age_days: 250, has_receipt: true, mark: "settled_outside", mark_source: "jev", probability: 0.8, before_cutover: false },
+      { kind: "pr", id: "pr-mid", number: "PR-ABC123", title: "Đề nghị chi - PO-000700", doc_date: "2026-09-01", amount: 3672000, remaining: 3672000, purchase_order_id: "po-700", po_number: "PO-000700", age_days: 43, has_receipt: true, mark: null, before_cutover: false },
+      { kind: "po", id: "po-new", number: "PO-000842", doc_date: "2026-10-13", amount: 5346000, remaining: 5346000, age_days: 1, has_receipt: false, mark: "real_debt", mark_source: "jev", probability: 0.9, before_cutover: false },
+    ] }, error: null };
+  }
+  if (st.table === "rpc:create_robot_order_package") {
+    window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args));
+    const debt = st.args.p_debt;
+    return { data: { package_id: "pkg-qa-1", purchase_order_ids: ["po-qa-900"], po_numbers: ["PO-000900"], debt: debt ? { kind: debt.kind, id: debt.id, number: debt.kind === "pr" ? "PR-ABC123" : "PO-000842", submission_id: "sub-1", submission_number: "TC-251014-01" } : null, cutover_start_date: debt ? "2026-09-01" : null, marked_settled_outside_count: debt ? 1 : 0, idempotent: false }, error: null };
+  }
+  if (st.table === "robot_order_packages") return { data: [{ id: "pkg-old", supplier_id: "sup1", note: null, created_at: "2026-10-13T08:00:00Z", result: { package_id: "pkg-old", purchase_order_ids: ["po-1"], po_numbers: ["PO-000880"], debt: { kind: "po", id: "x", number: "PO-000700", submission_id: "s", submission_number: "TC-251013-02" }, cutover_start_date: "2026-08-01", marked_settled_outside_count: 3, idempotent: false } }], error: null };
   if (st.table === "rpc:get_stock_transfers") return { data: window.__kgFixture.transfers ?? [], error: null };
   if (st.table === "rpc:create_manual_stock_transfer") {
     window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args));
@@ -936,6 +955,56 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
   await page.screenshot({ path: `${EVIDENCE}/transfer-not-started-390.png` });
   assert.deepEqual(errors, []);
   record("manual transfer gate 390");
+  await context.close();
+}
+// Robot đặt hàng (owner 14/10): basket → facts fill supplier/price → package per supplier → old debt farthest-first → send.
+for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 640 }]) {
+  const { context, page, errors } = await open({ data: "populated", role: "owner", started: true }, "/warehouse/game", viewport);
+  await page.waitForSelector("[data-bmq-warehouse-game]", { timeout: 20000 });
+  await page.waitForTimeout(1200);
+  await page.evaluate(() => sessionStorage.removeItem("bmq-robot-basket-v1"));
+  await page.getByRole("button", { name: "Robot đặt" }).click({ force: true });
+  await page.waitForSelector("[data-bmq-robot-desk]", { timeout: 5000 });
+  await page.waitForTimeout(700);
+  assert.equal(await page.locator("[data-bmq-robot-count]").textContent(), "0", "empty basket");
+  assert.equal(await overflow(page), 0, `robot desk no overflow ${viewport.width}`);
+  await page.screenshot({ path: `${EVIDENCE}/robot-empty-${viewport.width}.png` });
+  await page.locator("[data-bmq-robot-search]").fill("băng keo");
+  await page.locator('[data-bmq-robot-pick="Băng keo nhỏ"]').click({ force: true });
+  await page.waitForSelector('[data-bmq-robot-line="Băng keo nhỏ"]');
+  // facts arrive: supplier + last price fill themselves, the package card for that supplier appears
+  await page.waitForSelector('[data-bmq-robot-pack="Phúc Thịnh"]', { timeout: 5000 });
+  assert.equal(await page.locator("[data-bmq-robot-supplier]").first().inputValue(), "sup1", "supplier filled from facts");
+  assert.equal(await page.locator('[data-bmq-robot-line="Băng keo nhỏ"] .robot-price input').inputValue(), "20000", "last price filled from facts");
+  assert.equal(await page.locator("[data-bmq-robot-send]").isDisabled(), true, "cannot send without quantity + debt choice");
+  await page.waitForSelector("[data-bmq-robot-debts] [data-bmq-robot-debt]", { timeout: 5000 });
+  const debts = await page.locator("[data-bmq-robot-debts] [data-bmq-robot-debt]").evaluateAll((els) => els.map((el) => el.getAttribute("data-bmq-robot-debt")));
+  // farthest first, but rows Jev/learned marked as already paid sink below the live ones; before-cutover rows fold away
+  assert.deepEqual(debts, ["none", "PR-ABC123", "PO-000842", "PO-000063"], `debt order: ${debts.join(",")}`);
+  assert.equal(await page.locator('[data-bmq-robot-debt="PO-000063"].is-faded').count(), 1, "Jev settled-outside row is faded");
+  assert.match(await page.locator("[data-bmq-robot-fold]").textContent(), /1 phiếu trước mốc/);
+  await page.locator("[data-bmq-robot-fold]").click({ force: true });
+  await page.waitForTimeout(200);
+  assert.equal(await page.locator('[data-bmq-robot-debt="PO-000010"]').count(), 1, "folded row shows on demand");
+  await page.locator('[data-bmq-robot-debt="PR-ABC123"]').click({ force: true });
+  await page.locator("[data-bmq-robot-qty]").first().fill("25");
+  await page.waitForTimeout(250);
+  assert.equal(await page.locator("[data-bmq-robot-send]").isDisabled(), false, "ready to send");
+  assert.equal(await overflow(page), 0, `robot package no overflow ${viewport.width}`);
+  await page.screenshot({ path: `${EVIDENCE}/robot-package-${viewport.width}.png` });
+  await page.evaluate(() => { window.__qaWrites.length = 0; });
+  await page.locator("[data-bmq-robot-send]").click({ force: true });
+  await page.waitForTimeout(800);
+  const writes = await page.evaluate(() => window.__qaWrites);
+  const sent = writes.find((w) => w.startsWith("rpc:create_robot_order_package:"));
+  assert.ok(sent && sent.includes('"product_name":"Băng keo nhỏ"') && sent.includes('"quantity":25') && sent.includes('"unit_price":20000') && sent.includes('"supplier_id":"sup1"') && sent.includes('"kind":"pr"') && sent.includes('"id":"pr-mid"') && sent.includes('"p_idempotency_key"'), `package sent: ${sent}`);
+  assert.match(await page.locator(".kg .toast").textContent(), /PO-000900.*PR-ABC123.*TC-251014-01/);
+  assert.equal(await page.locator("[data-bmq-robot-count]").textContent(), "0", "basket emptied after sending");
+  assert.equal(await page.locator('[data-bmq-robot-pack="Phúc Thịnh"]').count(), 0, "package card gone");
+  assert.match(await page.locator(".robot-history").textContent(), /PO-000900/);
+  await page.screenshot({ path: `${EVIDENCE}/robot-sent-${viewport.width}.png` });
+  assert.deepEqual(errors, [], "no page errors");
+  record(`robot order desk ${viewport.width}`);
   await context.close();
 }
 for (const viewport of [{ width: 1440, height: 900 }, { width: 430, height: 932 }, { width: 390, height: 844 }, { width: 320, height: 640 }]) {

@@ -8,7 +8,7 @@ export const ZONES: Zone[] = [
   { id: "deliver", label: "Giao hàng", icon: "🚛", color: C.kraft, blurb: "Nhập số thực giao và chụp ảnh hàng cho từng phiếu xuất." },
   { id: "ledger", label: "Sổ tồn", icon: "📒", color: C.sage, blurb: "Tự cộng từ phiếu nhập, tự trừ từ phiếu xuất sản xuất. Kiểm kê hằng tuần." },
   { id: "count", label: "Kiểm kê", icon: "✅", color: C.plum, blurb: "Đếm thực tế rồi nhập số; sổ tự ghi phần chênh lệch." },
-  { id: "auto", label: "Đặt hàng", icon: "🛒", color: C.coral, blurb: "Dự báo tiêu thụ và tự tạo đơn đặt hàng Q7 mỗi sáng." },
+  { id: "auto", label: "Robot đặt", icon: "🤖", color: C.coral, blurb: "Kéo món sắp hết cho robot: PO mới + trả đơn cũ, lên Zalo Duyệt chi." },
   { id: "clean", label: "Xưởng dọn", icon: "🧹", color: C.mustard, blurb: "Jev gộp tên trùng, gán nhóm, học bí danh từ phiếu nhập." },
 ];
 

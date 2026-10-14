@@ -924,3 +924,51 @@
 .kg .pick-clear { flex: none; align-self: center; min-height: 36px; padding: 0 12px; font-family: "Baloo 2", sans-serif; font-weight: 800; font-size: 14px; white-space: nowrap; color: var(--ink); background: var(--white); border: 2.5px solid var(--ink); border-radius: 10px; box-shadow: var(--soft); }
 .kg .pick-clear:active { transform: translate(2px, 3px); box-shadow: none; }
 .kg .pick .pick-star { flex: none; }
+
+/* Robot đặt hàng (owner 14/10): basket → packages per supplier → old debt picker → send. */
+.kg .robot-desk { display: grid; gap: 16px; }
+.kg .robot-stage { align-items: start; }
+.kg .robot-meter { width: 100%; }
+.kg .robot-add { display: grid; gap: 10px; padding: 12px; background: var(--cream); border: 3px solid var(--ink); border-radius: 18px; box-shadow: var(--soft); }
+.kg .robot-low { display: grid; gap: 6px; }
+.kg .robot-low > small { font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .06em; color: var(--sage-deep); }
+.kg .robot-chip { display: inline-flex; align-items: center; gap: 6px; padding: 7px 11px; font-size: 13.5px; font-weight: 800; background: var(--white); border: 2.5px solid var(--ink); border-radius: 999px; box-shadow: var(--soft); transition: transform .15s var(--ease); }
+.kg .robot-chip:active { transform: translate(1px, 2px); box-shadow: none; }
+.kg .robot-chip em { font-style: normal; font-size: 12px; color: #6f6a85; }
+.kg .robot-h { margin: 0; font-family: "Baloo 2", sans-serif; font-size: 20px; }
+.kg .robot-basket, .kg .robot-history { display: grid; gap: 10px; }
+.kg .robot-lines li { display: grid; gap: 8px; }
+.kg .robot-line-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.kg .robot-line-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr); gap: 6px; }
+.kg .robot-line-fields select { min-width: 0; height: 42px; padding: 0 8px; font-size: 14px; font-weight: 800; background: var(--white); border: 2.5px solid var(--ink); border-radius: 10px; }
+.kg .robot-line-fields .slip-qty input { width: 100%; min-width: 0; }
+.kg .robot-suggest { justify-self: start; padding: 4px 10px; font-size: 12.5px; font-weight: 800; background: var(--mustard-light); border: 2px solid var(--ink); border-radius: 999px; }
+.kg .robot-pack { display: grid; gap: 12px; padding: 14px; background: var(--white); border: 3px solid var(--ink); border-radius: 20px; box-shadow: var(--pop); animation: kg-card-in .4s var(--ease) both; }
+.kg .robot-pack-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.kg .robot-pack-head span { display: grid; }
+.kg .robot-pack-head small { font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .06em; color: var(--sage-deep); }
+.kg .robot-pack-head b { font-family: "Baloo 2", sans-serif; font-size: 22px; line-height: 1.1; }
+.kg .robot-pack-head em { font-style: normal; font-weight: 800; font-size: 14px; white-space: nowrap; }
+.kg .robot-pack-lines { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.kg .robot-pack-lines li { display: flex; justify-content: space-between; gap: 10px; padding: 6px 10px; font-size: 14px; font-weight: 700; background: var(--cream); border: 2px solid var(--ink); border-radius: 10px; }
+.kg .robot-pack-lines em { font-style: normal; font-weight: 800; white-space: nowrap; }
+.kg .robot-debt-box { display: grid; gap: 8px; padding: 10px; background: var(--paper); border: 2.5px dashed var(--ink); border-radius: 14px; }
+.kg .robot-debt-head { display: grid; gap: 2px; }
+.kg .robot-debt-head b { font-size: 15px; }
+.kg .robot-debt-head small { font-size: 12px; font-weight: 700; color: #6f6a85; }
+.kg .robot-picks { max-height: 320px; }
+.kg .robot-debt em { font-style: normal; font-weight: 800; white-space: nowrap; }
+.kg .robot-debt.is-faded { opacity: .62; }
+.kg .robot-mark { display: inline-block; margin-top: 2px; padding: 1px 7px; border-radius: 999px; background: var(--mustard-light); border: 1.5px solid var(--ink); color: var(--ink) !important; }
+.kg .robot-mark.is-settled_outside { background: var(--coral-light); }
+.kg .robot-mark.is-real_debt { background: var(--sage-light); }
+.kg .robot-fold { justify-self: start; padding: 6px 10px; font-size: 13px; font-weight: 800; color: #6f6a85; background: transparent; border: 2px dashed rgba(44,41,71,.4); border-radius: 10px; }
+.kg .robot-jev-note { align-self: center; font-size: 12.5px; font-weight: 700; color: #6f6a85; }
+.kg .robot-send { width: 100%; }
+.kg .btn.submit.robot-send[disabled] { animation: none; background: var(--paper-deep); color: #6f6a85; opacity: 1; }
+@media (max-width: 480px) {
+  .kg .robot-line-fields { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .kg .robot-line-fields select { grid-column: 1 / -1; }
+}
+.kg .robot-line-fields .slip-qty i { max-width: none; white-space: nowrap; }
+.kg .robot-mark { justify-self: start; width: max-content; max-width: 100%; }
