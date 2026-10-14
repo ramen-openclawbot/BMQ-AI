@@ -549,12 +549,13 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                       <input
                         type="file"
                         accept="image/*"
-                        capture="environment"
+                        /* No `capture`: on iPhone it forces the camera and hides the photo library. */
                         className="sr-only"
                         onChange={async (event) => {
-                          const file = event.target.files?.[0];
+                          const input = event.currentTarget;
+                          const file = input.files?.[0];
                           if (file) await handleDeliveryNoteSelect(file);
-                          event.currentTarget.value = "";
+                          input.value = "";
                         }}
                       />
                     </label>

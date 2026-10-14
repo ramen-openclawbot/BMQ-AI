@@ -421,6 +421,10 @@ try {
     await page.waitForFunction(() => document.querySelectorAll('[role="dialog"]').length >= 2);
     await page.waitForTimeout(600);
     await page.screenshot({ path: `${EVIDENCE}/receipt-from-pr-${w}.png` });
+    // The delivery-note picker must offer the photo library on phones (no camera-only capture).
+    const pickers = await page.locator('[role="dialog"] input[type="file"]').evaluateAll((els) => els.map((el) => el.getAttribute("capture")));
+    assert.ok(pickers.length >= 1, "receipt dialog has a file picker");
+    assert.ok(pickers.every((c) => c === null), `no capture attribute: ${JSON.stringify(pickers)}`);
     assert.deepEqual(errors, [], `page errors cash ${w}`);
     console.log("PASS", `submission + detail ${w}`);
     await context.close();
