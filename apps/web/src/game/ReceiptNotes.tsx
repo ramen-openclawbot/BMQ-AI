@@ -6,6 +6,7 @@ import type { ReceiptLine } from "@/lib/receipt-lines";
 import { RotatedImage } from "@/components/RotatedImage";
 import { useImageRotation, useSetImageRotation } from "@/hooks/useImageRotation";
 import { imageRotationErrorCode, imageRotationErrorText, isSideways, nextRotation } from "@/lib/image-rotation";
+import { receiptPhotos } from "@/lib/receipt-photos";
 import { fmtQty } from "./meta";
 
 const money = (value: number | null) => (value === null ? null : `${Math.round(value).toLocaleString("vi-VN")}đ`);
@@ -25,14 +26,18 @@ function useNoteUrl(path: string | null) {
 }
 
 function Thumb({ line, onOpen }: { line: ReceiptLine; onOpen: () => void }) {
-  const url = useNoteUrl(line.image_path);
-  const { data: rotation = 0 } = useImageRotation(line.image_path);
+  const photos = receiptPhotos(line.image_path, line.photo_paths);
+  const first = photos[0]?.path ?? null;
+  const url = useNoteUrl(first);
+  const { data: rotation = 0 } = useImageRotation(first);
+  const extraCount = Math.max(0, photos.length - 1);
   // Cover-cropped thumb: turning a sideways photo needs a slight zoom so the corners stay filled.
   const turn = rotation ? { transform: `rotate(${rotation}deg)${isSideways(rotation) ? " scale(1.35)" : ""}` } : undefined;
   return (
-    <button type="button" className="note-card" onClick={onOpen} disabled={!line.image_path} data-bmq-note={line.receipt_number}>
+    <button type="button" className="note-card" onClick={onOpen} disabled={!first} data-bmq-note={line.receipt_number}>
       <span className="note-thumb">
-        {line.image_path ? (url.data ? <img src={url.data} alt={`Phiếu giao hàng ${line.receipt_number}`} loading="lazy" style={turn} /> : <i className="note-wait" aria-hidden="true" />) : <em>chưa có ảnh</em>}
+        {extraCount ? <b className="note-more" aria-label={`${extraCount} ảnh thêm`}>+{extraCount}</b> : null}
+        {first ? (url.data ? <img src={url.data} alt={`Phiếu giao hàng ${line.receipt_number}`} loading="lazy" style={turn} /> : <i className="note-wait" aria-hidden="true" />) : <em>chưa có ảnh</em>}
       </span>
       <span className="note-meta">
         <b>{line.receipt_number}</b>
@@ -46,17 +51,21 @@ function Thumb({ line, onOpen }: { line: ReceiptLine; onOpen: () => void }) {
 /** Full-screen delivery note: zoom in steps, scroll to pan, arrows between receipts. */
 function NoteViewer({ lines, index, onIndex, onClose }: { lines: ReceiptLine[]; index: number; onIndex: (i: number) => void; onClose: () => void }) {
   const line = lines[index];
-  const url = useNoteUrl(line.image_path);
+  const photos = receiptPhotos(line.image_path, line.photo_paths);
+  const [photoIndex, setPhotoIndex] = useState(0);
+  const photoPath = photos[Math.min(photoIndex, photos.length - 1)]?.path ?? null;
+  const url = useNoteUrl(photoPath);
   const [zoom, setZoom] = useState(1);
-  const { data: rotation = 0 } = useImageRotation(line.image_path);
+  const { data: rotation = 0 } = useImageRotation(photoPath);
   const setRotation = useSetImageRotation();
   const [rotateError, setRotateError] = useState<string | null>(null);
-  useEffect(() => { setZoom(1); setRotateError(null); }, [index]);
+  useEffect(() => { setZoom(1); setRotateError(null); setPhotoIndex(0); }, [index]);
+  useEffect(() => { setZoom(1); setRotateError(null); }, [photoIndex]);
   const rotate = () => {
-    if (!line.image_path) return;
+    if (!photoPath) return;
     setRotateError(null);
     setRotation.mutate(
-      { imagePath: line.image_path, rotation: nextRotation(rotation) },
+      { imagePath: photoPath, rotation: nextRotation(rotation) },
       { onError: (error) => setRotateError(imageRotationErrorText(imageRotationErrorCode(error))) },
     );
   };
@@ -70,7 +79,7 @@ function NoteViewer({ lines, index, onIndex, onClose }: { lines: ReceiptLine[]; 
     return () => window.removeEventListener("keydown", onKey);
   }, [index, lines.length, onClose, onIndex]);
   return (
-    <div className="note-viewer" role="dialog" aria-label={`Phiếu giao hàng ${line.receipt_number}`} data-bmq-note-viewer>
+    <div className={`note-viewer${photos.length > 1 ? " has-photos" : ""}`} role="dialog" aria-label={`Phiếu giao hàng ${line.receipt_number}`} data-bmq-note-viewer>
       <div className="note-bar">
         <span><b>{line.receipt_number}</b><small>{shortDate(line.receipt_date)} · {line.supplier_name ?? ""}</small></span>
         <button type="button" className="round-btn" onClick={rotate} disabled={!url.data || setRotation.isPending} aria-label="Xoay ảnh" data-bmq-rotate-image>↻</button>
@@ -78,9 +87,18 @@ function NoteViewer({ lines, index, onIndex, onClose }: { lines: ReceiptLine[]; 
         <button type="button" className="round-btn" onClick={() => setZoom((z) => Math.min(4, z + 1))} disabled={zoom === 4} aria-label="Phóng to">＋</button>
         <button type="button" className="round-btn exit-btn" onClick={onClose} aria-label="Đóng">✕</button>
       </div>
+      {photos.length > 1 ? (
+        <div className="note-photos" role="tablist" aria-label="Ảnh của phiếu">
+          {photos.map((photo, i) => (
+            <button key={photo.path} type="button" role="tab" aria-selected={i === photoIndex} className={i === photoIndex ? "is-on" : undefined} onClick={() => setPhotoIndex(i)}>
+              {photo.main ? "Phiếu" : `Ảnh ${i + 1}`}
+            </button>
+          ))}
+        </div>
+      ) : null}
       <div className="note-stage" onDoubleClick={() => setZoom((z) => (z >= 3 ? 1 : z + 1))}>
         {rotateError ? <p className="err" role="alert">{rotateError}</p> : null}
-        {url.data ? <RotatedImage src={url.data} alt={`Phiếu giao hàng ${line.receipt_number}`} rotation={rotation} width={`${zoom * 100}%`} className="note-photo" /> : <p className="note-empty">{line.image_path ? "Đang tải ảnh…" : "Phiếu này chưa chụp ảnh giao hàng."}</p>}
+        {url.data ? <RotatedImage src={url.data} alt={`Phiếu giao hàng ${line.receipt_number}`} rotation={rotation} width={`${zoom * 100}%`} className="note-photo" /> : <p className="note-empty">{photoPath ? "Đang tải ảnh…" : "Phiếu này chưa chụp ảnh giao hàng."}</p>}
       </div>
       <div className="note-line">
         <span>“{line.raw_name}” · <b>{line.quantity > 0 ? `${fmtQty(line.quantity)} ${line.unit ?? ""}` : "chưa ghi số lượng"}</b>{line.quantity > 0 && line.unit_price !== null ? ` × ${money(line.unit_price)}` : line.unit_price !== null ? ` · đơn giá ${money(line.unit_price)}/${line.unit ?? ""}` : ""}{line.quantity > 0 && line.line_total !== null ? ` = ${money(line.line_total)}` : ""}</span>
@@ -98,7 +116,7 @@ function NoteViewer({ lines, index, onIndex, onClose }: { lines: ReceiptLine[]; 
 export function ReceiptNotes({ title, lines, loading, error }: { title: string; lines: ReceiptLine[] | undefined; loading: boolean; error: unknown }) {
   const [open, setOpen] = useState<number | null>(null);
   const list = lines ?? [];
-  const withPhoto = list.filter((line) => line.image_path).length;
+  const withPhoto = list.filter((line) => receiptPhotos(line.image_path, line.photo_paths).length > 0).length;
   return (
     <section className="notes" data-bmq-receipt-notes>
       <div className="notes-h"><b>📄 {title}</b><small>{loading ? "đang tải…" : `${list.length} lần nhập · ${withPhoto} có ảnh`}</small></div>

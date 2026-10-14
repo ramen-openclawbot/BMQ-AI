@@ -457,7 +457,7 @@ export async function getGoodsReceiptImageUrl(path: string): Promise<string> {
 // Upload delivery note image (distinct from the general receipt image)
 export async function uploadDeliveryNoteImage(file: File, receiptId: string): Promise<string> {
   const fileExt = file.name.split(".").pop() || "jpg";
-  const fileName = `delivery-note-${receiptId}-${Date.now()}.${fileExt}`;
+  const fileName = `delivery-note-${receiptId}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.${fileExt}`;
   const filePath = `goods-receipts/${fileName}`;
   const { error } = await supabase.storage.from("invoices").upload(filePath, file);
   if (error) throw error;

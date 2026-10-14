@@ -560,6 +560,17 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       await page.getByRole("button", { name: "Xoay ảnh" }).click({ force: true });
       await page.waitForFunction(() => { const img = document.querySelector("[data-bmq-note-viewer] .note-stage img"); return img && !img.closest("[data-bmq-rotated-image]") && !img.style.transform; }, null, { timeout: 5000 });
       await page.evaluate(() => localStorage.removeItem("qa-rot"));
+      // GRN-QA-1001 also has an extra product photo: a "+1" badge on its card and a photo tab in the viewer.
+      assert.equal(await page.locator("[data-bmq-receipt-notes] [data-bmq-note='GRN-QA-1001'] .note-more").first().textContent(), "+1", "extra photo badge");
+      assert.equal(await page.locator("[data-bmq-note-viewer] .note-photos button").count(), 2, "viewer lists main + extra photo");
+      await page.locator("[data-bmq-note-viewer] .note-photos button", { hasText: "Ảnh 2" }).click({ force: true });
+      await page.waitForFunction(() => decodeURIComponent(document.querySelector("[data-bmq-note-viewer] .note-stage img")?.getAttribute("src") ?? "").includes("product-1001"), null, { timeout: 5000 });
+      await page.waitForTimeout(250);
+      await page.screenshot({ path: `${EVIDENCE}/note-extra-photo-${viewport.width}.png` });
+      const tabs = await page.locator("[data-bmq-note-viewer] .note-photos").boundingBox();
+      assert.ok(tabs && tabs.x >= 0 && tabs.x + tabs.width <= viewport.width + 1, `photo tabs fit ${JSON.stringify(tabs)}`);
+      await page.locator("[data-bmq-note-viewer] .note-photos button", { hasText: "Phiếu" }).click({ force: true });
+      await page.waitForFunction(() => decodeURIComponent(document.querySelector("[data-bmq-note-viewer] .note-stage img")?.getAttribute("src") ?? "").includes("note-1001-1729"), null, { timeout: 5000 });
       await page.getByRole("button", { name: "Phóng to" }).click({ force: true });
       await page.waitForTimeout(200);
       await page.screenshot({ path: `${EVIDENCE}/note-viewer-${viewport.width}.png` });

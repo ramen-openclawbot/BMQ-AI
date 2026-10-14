@@ -657,6 +657,11 @@
 .kg .note-card[disabled] { cursor: default; opacity: .8; box-shadow: none; }
 .kg .note-thumb { display: grid; place-items: center; height: 92px; overflow: hidden; border-radius: 8px; background: var(--paper-deep); }
 .kg .note-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.kg .note-thumb { position: relative; }
+.kg .note-more { position: absolute; right: 4px; bottom: 4px; z-index: 1; padding: 1px 6px; border-radius: 999px; background: rgba(28, 25, 46, .78); color: #fff; font-size: 11px; font-weight: 800; }
+.kg .note-photos { display: flex; gap: 6px; overflow-x: auto; padding: 8px 12px 0; }
+.kg .note-photos button { flex: none; min-height: 32px; padding: 4px 12px; border: 2px solid rgba(255, 255, 255, .25); border-radius: 999px; background: transparent; color: #fff; font: inherit; font-size: 13px; font-weight: 800; cursor: pointer; }
+.kg .note-photos button.is-on { background: #fff; color: #1c192e; border-color: #fff; }
 .kg .note-thumb em { font-style: normal; font-size: 12px; font-weight: 800; color: #6f6a85; }
 .kg .note-wait { width: 26px; height: 26px; border: 3px solid var(--ink); border-top-color: transparent; border-radius: 99px; animation: kg-spin .8s linear infinite; }
 @keyframes kg-spin { to { transform: rotate(360deg); } }
@@ -664,6 +669,7 @@
 .kg .note-meta b { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kg .note-meta small { font-size: 11.5px; font-weight: 700; color: #6f6a85; }
 .kg .note-viewer { position: fixed; inset: 0; z-index: 60; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; background: #1c1a2e; color: var(--cream); animation: kg-fade .2s ease both; }
+.kg .note-viewer.has-photos { grid-template-rows: auto auto minmax(0, 1fr) auto; }
 .kg .note-bar { display: flex; align-items: center; gap: 8px; padding: max(12px, env(safe-area-inset-top)) 12px 10px; }
 .kg .note-bar > span { display: grid; flex: 1; min-width: 0; }
 .kg .note-bar b { font-family: "Baloo 2", sans-serif; font-size: 19px; }

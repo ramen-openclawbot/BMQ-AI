@@ -6,14 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
-import { Camera, RotateCw, Sparkles, CheckCircle, Clock, FileCheck, Package, ExternalLink, Loader2, AlertCircle, Link2, XCircle, AlertTriangle, History } from "lucide-react";
-import { useGoodsReceipt, useGoodsReceiptItems, useConfirmGoodsReceipt, useUpdateGoodsReceiptItems, useUpdateGoodsReceipt, getGoodsReceiptImageUrl, useDeliveryNoteOcr, usePaidPaymentRequestsForSupplier, useFinalizeHistoricalPaidGoodsReceipt } from "@/hooks/useGoodsReceipts";
-import { useQuery } from "@tanstack/react-query";
+import { Camera, Sparkles, CheckCircle, Clock, FileCheck, Package, ExternalLink, Loader2, AlertCircle, Link2, XCircle, AlertTriangle, History } from "lucide-react";
+import { useGoodsReceipt, useGoodsReceiptItems, useConfirmGoodsReceipt, useUpdateGoodsReceiptItems, useUpdateGoodsReceipt, useDeliveryNoteOcr, usePaidPaymentRequestsForSupplier, useFinalizeHistoricalPaidGoodsReceipt } from "@/hooks/useGoodsReceipts";
 import { toast } from "sonner";
 import { useState, useEffect } from "react";
-import { RotatedImage } from "@/components/RotatedImage";
-import { useImageRotation, useSetImageRotation } from "@/hooks/useImageRotation";
-import { imageRotationErrorCode, imageRotationErrorText, nextRotation } from "@/lib/image-rotation";
+import { ReceiptPhotoGallery, addReceiptPhotos } from "@/components/goods-receipts/ReceiptPhotoGallery";
+import { supabase } from "@/integrations/supabase/client";
+import { replaceMainPhoto } from "@/lib/receipt-photos";
 
 import { parseDbDate } from "@/lib/date-only";
 interface GoodsReceiptDetailsDialogProps {
@@ -56,7 +55,6 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
   const updateItems = useUpdateGoodsReceiptItems();
   const updateReceipt = useUpdateGoodsReceipt();
   const ocrDelivery = useDeliveryNoteOcr();
-  const [imageOpen, setImageOpen] = useState(false);
   const [historicalDialogOpen, setHistoricalDialogOpen] = useState(false);
   const [selectedHistoricalPaymentRequestId, setSelectedHistoricalPaymentRequestId] = useState("");
   const [historicalStockConfirmed, setHistoricalStockConfirmed] = useState(false);
@@ -70,24 +68,6 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
   );
 
   const receiptImageUrl = receipt?.image_url;
-
-  const { data: imageUrl } = useQuery({
-    queryKey: ["goods-receipt-image", receiptImageUrl],
-    queryFn: async () => {
-      if (!receiptImageUrl) return null;
-      return await getGoodsReceiptImageUrl(receiptImageUrl);
-    },
-    enabled: !!receiptImageUrl,
-  });
-  const { data: imageRotation = 0 } = useImageRotation(receiptImageUrl);
-  const setImageRotation = useSetImageRotation();
-  const rotateImage = () => {
-    if (!receiptImageUrl) return;
-    setImageRotation.mutate(
-      { imagePath: receiptImageUrl, rotation: nextRotation(imageRotation) },
-      { onError: (error) => toast.error(imageRotationErrorText(imageRotationErrorCode(error))) },
-    );
-  };
 
   // Reset draft and OCR state when switching to a different receipt
   useEffect(() => {
@@ -144,7 +124,27 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
     const uploadedPath = await ocrDelivery.process(file, receiptId, poLines);
     if (uploadedPath) {
       setDeliveryNotePath(uploadedPath);
-      await updateReceipt.mutateAsync({ id: receiptId, image_url: uploadedPath });
+      // A re-scan replaces the main photo; the earlier one stays as an extra photo.
+      const { data: fresh } = await supabase.from("goods_receipts").select("image_url, product_photos").eq("id", receiptId).single();
+      await updateReceipt.mutateAsync({
+        id: receiptId,
+        image_url: uploadedPath,
+        product_photos: replaceMainPhoto(fresh?.image_url ?? receipt?.image_url, fresh?.product_photos ?? receipt?.product_photos, uploadedPath),
+      });
+    }
+  };
+
+  const handleReceivePhotosSelect = async (files: File[]) => {
+    if (!receiptId || !files.length) return;
+    const [first, ...rest] = files;
+    await handleDeliveryNoteSelect(first);
+    if (rest.length) {
+      try {
+        await addReceiptPhotos(receiptId, rest);
+        toast.success(`Đã thêm ${rest.length} ảnh phụ`);
+      } catch {
+        toast.error("Chưa thêm được ảnh phụ, thử lại bằng nút Thêm ảnh");
+      }
     }
   };
 
@@ -526,20 +526,12 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                     <Badge variant="destructive">Bắt buộc</Badge>
                   )}
                 </div>
-                {imageUrl ? (
-                  <RotatedImage
-                    src={imageUrl}
-                    alt="Chứng từ phiếu nhập kho"
-                    rotation={imageRotation}
-                    maxHeight="12rem"
-                    className="max-h-48 cursor-pointer rounded-lg border object-contain transition-opacity hover:opacity-80"
-                    onClick={() => setImageOpen(true)}
-                  />
-                ) : (
-                  <div className="rounded-lg border border-dashed border-amber-300 bg-amber-50 p-3 text-xs font-medium text-amber-800">
+                {!receiptImageUrl ? (
+                  <div className="mb-3 rounded-lg border border-dashed border-amber-300 bg-amber-50 p-3 text-xs font-medium text-amber-800">
                     Phiếu nhập kho từ PO chưa có ảnh/chứng từ đính kèm. Tải/chụp phiếu giao hàng hoặc chứng từ PO trước khi nhập kho.
                   </div>
-                )}
+                ) : null}
+                {receiptId ? <ReceiptPhotoGallery receiptId={receiptId} imageUrl={receiptImageUrl} extras={receipt?.product_photos} /> : null}
               </div>
 
               {isReceiveMode && (
@@ -564,13 +556,15 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                       <input
                         type="file"
                         accept="image/*"
+                        multiple
                         /* No `capture`: on iPhone it forces the camera and hides the photo library. */
                         className="sr-only"
                         onChange={async (event) => {
                           const input = event.currentTarget;
-                          const file = input.files?.[0];
-                          if (file) await handleDeliveryNoteSelect(file);
+                          const files = Array.from(input.files ?? []);
                           input.value = "";
+                          // First photo is the delivery note OCR reads; the rest are extra photos.
+                          await handleReceivePhotosSelect(files);
                         }}
                       />
                     </label>
@@ -1011,38 +1005,6 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
               </Button>
             </div>
           </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Image Preview Dialog */}
-      <Dialog open={imageOpen} onOpenChange={setImageOpen}>
-        <DialogContent className="max-w-4xl">
-          <DialogHeader>
-            <DialogTitle>Ảnh/chứng từ phiếu nhập kho</DialogTitle>
-          </DialogHeader>
-          {imageUrl && (
-            <div className="flex flex-col items-center gap-4">
-              <RotatedImage
-                src={imageUrl}
-                alt="Chứng từ phiếu nhập kho"
-                rotation={imageRotation}
-                maxHeight="70vh"
-                className="max-h-[70vh] rounded-lg object-contain"
-              />
-              <div className="flex flex-wrap justify-center gap-2">
-                <Button variant="outline" onClick={rotateImage} disabled={setImageRotation.isPending} data-bmq-rotate-image>
-                  {setImageRotation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RotateCw className="h-4 w-4 mr-2" />}
-                  Xoay
-                </Button>
-                <Button variant="outline" asChild>
-                  <a href={imageUrl} target="_blank" rel="noopener noreferrer">
-                    <ExternalLink className="h-4 w-4 mr-2" />
-                    Mở trong tab mới
-                  </a>
-                </Button>
-              </div>
-            </div>
-          )}
         </DialogContent>
       </Dialog>
     </>
