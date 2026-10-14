@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo } from "react";
 import { format } from "date-fns";
+import { useSearchParams } from "react-router-dom";
 import { vi, enUS } from "date-fns/locale";
 import { Package, Trash2, CheckCircle, Clock, FileCheck, AlertCircle, Link2, Loader2, Menu, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -83,6 +84,14 @@ export default function GoodsReceipts() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [selectedReceiptId, setSelectedReceiptId] = useState<string | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  // Zalo "Xem chi tiết" links open /goods-receipts?id=<receipt id> straight on that receipt.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const linkedReceiptId = searchParams.get("id");
+  useEffect(() => {
+    if (!linkedReceiptId) return;
+    setSelectedReceiptId(linkedReceiptId);
+    setDetailsOpen(true);
+  }, [linkedReceiptId]);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [supplierSearchTerm, setSupplierSearchTerm] = useState("");
@@ -688,7 +697,14 @@ export default function GoodsReceipts() {
           open={detailsOpen}
           onOpenChange={(open) => {
             setDetailsOpen(open);
-            if (!open) setSelectedReceiptId(null);
+            if (!open) {
+              setSelectedReceiptId(null);
+              if (linkedReceiptId) {
+                const next = new URLSearchParams(searchParams);
+                next.delete("id");
+                setSearchParams(next, { replace: true });
+              }
+            }
           }}
         />
       </div>
