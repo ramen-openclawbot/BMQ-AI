@@ -885,3 +885,8 @@
   .kg .dlv-lines li { grid-template-columns: minmax(0, 1fr) auto; }
   .kg .dlv-choice button { font-size: 13.5px; }
 }
+
+/* New item name read from the invoice photo (owner 14/10) */
+.kg .name-hint { margin: -6px 0 0; padding: 6px 10px; font-size: 12.5px; font-weight: 700; line-height: 1.35; color: #4a4766; background: var(--cream); border: 2px dashed rgba(44,41,71,.3); border-radius: 10px; }
+.kg .name-hint.is-ok { color: var(--sage-deep); background: var(--sage-light); border-style: solid; border-color: var(--ink); }
+.kg .name-hint.is-busy { animation: kg-fade .4s ease both; }

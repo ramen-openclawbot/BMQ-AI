@@ -3274,6 +3274,41 @@ export type Database = {
         }
         Relationships: []
       }
+      stock_item_name_suggestions: {
+        Row: {
+          confidence: number
+          created_at: string
+          full_name: string
+          goods_receipt_item_id: string
+          model: string | null
+          unit: string | null
+        }
+        Insert: {
+          confidence: number
+          created_at?: string
+          full_name: string
+          goods_receipt_item_id: string
+          model?: string | null
+          unit?: string | null
+        }
+        Update: {
+          confidence?: number
+          created_at?: string
+          full_name?: string
+          goods_receipt_item_id?: string
+          model?: string | null
+          unit?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stock_item_name_suggestions_goods_receipt_item_id_fkey"
+            columns: ["goods_receipt_item_id"]
+            isOneToOne: true
+            referencedRelation: "goods_receipt_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       stock_material_aliases: {
         Row: {
           conversion_factor: number

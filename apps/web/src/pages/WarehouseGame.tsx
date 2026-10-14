@@ -30,6 +30,7 @@ import { useDispatchGameQueue } from "@/hooks/useDispatchDelivery";
 import { CountDone, CountLobby, CountSheet, CountSheetLoading, ReviewSheet, countErrorText, countProgress, dmy, type CountFilter } from "@/game/StockCount";
 import { useCancelStockCount, useSaveStockCountLine, useStartStockCount, useStockCountReview, useSubmitStockCount } from "@/hooks/useStockCount";
 import type { StockCountLine, StockCountLocation, StockCountSession } from "@/lib/stock-count";
+import { useSuggestStockItemName } from "@/hooks/useSuggestStockItemName";
 import "@/game/game.css";
 
 type View =
@@ -723,6 +724,28 @@ function CrateSheet({ location, crate, snapshot, autoPick = false, onAssigned, o
   const [packLabel, setPackLabel] = useState("");
   const [factorText, setFactorText] = useState("1");
   const [requestId] = useState(newRequestId);
+  // Owner 14/10: the new item takes the full name printed on the invoice photo, not the short name typed on the PO.
+  const suggestName = useSuggestStockItemName();
+  const [nameEdited, setNameEdited] = useState(false);
+  const [nameSource, setNameSource] = useState<"receipt" | "invoice">("receipt");
+
+  const startCreate = () => {
+    setCreating(true);
+    preparePlan(newUnit);
+    if (nameSource === "invoice" || suggestName.isPending) return;
+    suggestName.mutate({ location, supplier_id: crate.supplier_id, normalized_name: crate.normalized_name }, {
+      onSuccess: (suggestion) => {
+        if (!suggestion) return;
+        setNameSource("invoice");
+        setNameEdited((edited) => {
+          if (!edited) setNewName(cleanCrateName(suggestion.full_name));
+          return edited;
+        });
+        const unit = suggestion.unit && ITEM_UNITS.includes(suggestion.unit) ? suggestion.unit : null;
+        if (unit) { setNewUnit(unit); preparePlan(unit); }
+      },
+    });
+  };
 
   const toItem = (item: WarehouseGameItem): Target => ({ kind: "item", id: item.id, name: item.name, unit: item.unit, cls: asClass(item.item_class) });
   const suggested = useMemo<Target | null>(() => {
@@ -802,7 +825,12 @@ function CrateSheet({ location, crate, snapshot, autoPick = false, onAssigned, o
       <ReceiptNotes title="Phiếu giao hàng" lines={notes.data} loading={notes.isLoading} error={notes.error} />
       {creating ? (
         <>
-          <label className="field">Tên mặt hàng mới<input value={newName} onChange={(event) => setNewName(event.target.value)} maxLength={120} /></label>
+          <label className="field">Tên mặt hàng mới<input value={newName} onChange={(event) => { setNewName(event.target.value); setNameEdited(true); }} maxLength={120} data-bmq-new-name /></label>
+          {suggestName.isPending ? <p className="name-hint is-busy" data-bmq-name-hint="busy">📄 Đang đọc tên đầy đủ trên ảnh hóa đơn…</p>
+            : nameSource === "invoice" ? <p className="name-hint is-ok" data-bmq-name-hint="invoice">📄 Tên đầy đủ lấy từ ảnh hóa đơn. Anh kiểm lại trước khi tạo.</p>
+            : suggestName.isError ? <p className="name-hint" data-bmq-name-hint="error">Chưa đọc được ảnh hóa đơn: {String((suggestName.error as Error)?.message ?? "").slice(0, 140)}. Tên đang lấy từ phiếu.</p>
+            : suggestName.isSuccess ? <p className="name-hint" data-bmq-name-hint="none">Không tìm thấy dòng khớp trên ảnh hóa đơn; tên đang lấy từ phiếu.</p>
+            : null}
           <label className="field">Đơn vị kho
             <select value={newUnit} onChange={(event) => { setNewUnit(event.target.value); preparePlan(event.target.value); }}>
               {ITEM_UNITS.map((value) => <option key={value} value={value}>{value}</option>)}
@@ -847,7 +875,7 @@ function CrateSheet({ location, crate, snapshot, autoPick = false, onAssigned, o
           ) : (
             <div className="no-hint" data-bmq-crate-nohint>
               <p className="note">Kho chưa có mặt hàng giống tên này, nên Jev chưa có gì để gợi ý.</p>
-              <button type="button" className="btn" onClick={() => { setCreating(true); preparePlan(newUnit); }}>＋ Tạo mặt hàng “{cleanCrateName(crate.raw_name)}”</button>
+              <button type="button" className="btn" onClick={startCreate}>＋ Tạo mặt hàng “{cleanCrateName(crate.raw_name)}”</button>
             </div>
           )}
           <label className="field">{suggested ? "Hoặc tìm mặt hàng khác" : "Hoặc tìm trong kho"}<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="gõ tên để tìm…" /></label>
@@ -861,7 +889,7 @@ function CrateSheet({ location, crate, snapshot, autoPick = false, onAssigned, o
           {error ? <div className="err">{errorText(error)}</div> : null}
           {q && matches.length === 0 ? <p className="note" style={{ fontSize: 13 }}>Không có mặt hàng nào khớp “{query}”.</p> : null}
           <div className="row">
-            {suggested ? <button type="button" className="btn ghost" onClick={() => { setCreating(true); preparePlan(newUnit); }}>＋ Mặt hàng mới</button> : null}
+            {suggested ? <button type="button" className="btn ghost" onClick={startCreate}>＋ Mặt hàng mới</button> : null}
             <button type="button" className="btn ghost" disabled={busy} onClick={() => send(null, "non_stock")}>Không nhập kho</button>
             <button type="button" className="btn ghost" onClick={onClose}>Để sau</button>
           </div>

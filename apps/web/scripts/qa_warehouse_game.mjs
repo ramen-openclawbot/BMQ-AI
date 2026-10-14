@@ -325,7 +325,7 @@ export const supabase = {
   from: (table) => builder(table),
   rpc: (fn, args) => builder("rpc:" + fn, args),
   schema: () => ({ from: (table) => builder(table), rpc: (fn) => builder("rpc:" + fn) }),
-  functions: { invoke: async (name) => { window.__qaWrites.push("invoke:" + name); return { data: null, error: { message: "QA fixture: functions disabled" } }; } },
+  functions: { invoke: async (name, opts) => { window.__qaWrites.push("invoke:" + name); window.__qaWrites.push("invoke-body:" + name + ":" + JSON.stringify(opts?.body ?? null)); if (name === "suggest-stock-item-name") return { data: { suggestion: { full_name: "GIẤM TINH LUYỆN MINH CHÂU 4% 1L", unit: "chai", confidence: 0.86, source: "invoice_image" } }, error: null }; return { data: null, error: { message: "QA fixture: functions disabled" } }; } },
   storage: { from: () => ({ getPublicUrl: () => ({ data: { publicUrl: "" } }), createSignedUrl: async (path) => ({ data: { signedUrl: "data:image/svg+xml;utf8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="600" height="840"><rect width="600" height="840" fill="#fff"/><text x="40" y="80" font-size="40" font-family="sans-serif">PHIẾU GIAO HÀNG</text><text x="40" y="140" font-size="24" font-family="sans-serif">' + String(path).slice(-28) + '</text>' + Array.from({ length: 12 }, (_, i) => '<rect x="40" y="' + (200 + i * 48) + '" width="520" height="2" fill="#999"/>').join("") + '</svg>') }, error: null }), list: async () => ({ data: [], error: null }), upload: async () => ({ data: null, error: { message: "QA fixture: writes disabled" } }), download: async () => ({ data: null, error: null }) }) },
   auth: {
     getSession: async () => ({ data: { session: { access_token: "qa-fixture-token", user } }, error: null }),
@@ -622,8 +622,13 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
         assert.ok(pickBox && pickBox.height >= 40, `search result is readable, not squeezed: ${JSON.stringify(pickBox)}`);
         await page.locator("[data-bmq-crate-nohint] .btn").click({ force: true });
         await page.waitForTimeout(300);
+        await page.waitForTimeout(400);
         const created = await page.locator(".kg .sheet .field input").first().inputValue();
-        assert.ok(created.length >= 2 && !/ngày\s*\d/i.test(created), `clean new name: ${created}`);
+        assert.equal(created, "Giấm tinh luyện minh châu 4% 1l", `full invoice name prefilled: ${created}`);
+        assert.equal(await page.locator("[data-bmq-name-hint='invoice']").count(), 1, "invoice-name hint shown");
+        assert.equal(await page.locator(".kg .sheet select").first().inputValue(), "chai", "unit taken from the invoice line");
+        assert.ok((await page.evaluate(() => window.__qaWrites)).some((w) => w.startsWith("invoke-body:suggest-stock-item-name:") && w.includes('"normalized_name"')), "suggestion asked with the crate key");
+        await page.screenshot({ path: `${EVIDENCE}/crate-new-fullname-${viewport.width}.png` });
         assert.equal(await page.locator("[data-bmq-new-pastry] [role='switch']").getAttribute("aria-checked"), "true", "new item from a Q7 crate starts as pastry");
         const unitInput = page.locator("[data-bmq-unit-q='pack'] input");
         if (await unitInput.count()) await unitInput.first().fill("1000");
