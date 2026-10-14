@@ -152,16 +152,20 @@ async function loadReceiptLine(
   supabase: ReturnType<typeof createClient>,
   itemId: string,
 ): Promise<ReceiptLine | null> {
+  // Two plain reads instead of an embed: the embedded read came back empty in production (owner 14/10).
   const { data: item, error } = await supabase
     .from("goods_receipt_items")
-    .select(
-      "id, product_name, raw_product_name, quantity, actual_quantity, ordered_quantity, unit, unit_price, goods_receipts(id, status, image_url, product_photos)",
-    )
+    .select("id, goods_receipt_id, product_name, raw_product_name, quantity, actual_quantity, ordered_quantity, unit, unit_price")
     .eq("id", itemId)
     .maybeSingle();
-  if (error || !item) return null;
-
-  const receipt = (item as Record<string, unknown>).goods_receipts as Record<string, unknown> | null;
+  if (error) throw new Error(`receipt line read failed: ${error.message}`);
+  if (!item) return null;
+  const { data: receipt, error: receiptError } = await supabase
+    .from("goods_receipts")
+    .select("id, status, image_url, product_photos")
+    .eq("id", (item as Record<string, unknown>).goods_receipt_id as string)
+    .maybeSingle();
+  if (receiptError) throw new Error(`receipt read failed: ${receiptError.message}`);
   if (!receipt) return null;
 
   const { data: effective } = await supabase.rpc("goods_receipt_effective_quantity", {
@@ -339,9 +343,15 @@ serve(async (req) => {
       );
     }
 
-    const line = await loadReceiptLine(supabase, itemId);
+    let line: ReceiptLine | null;
+    try {
+      line = await loadReceiptLine(supabase, itemId);
+    } catch (readError) {
+      console.error("[suggest-stock-item-name] receipt read failed:", readError);
+      return json(req, { error: `Không đọc được dòng phiếu: ${String((readError as Error)?.message ?? readError).slice(0, 160)}`, code: "receipt_read_failed" }, 500);
+    }
     if (!line) {
-      return json(req, { error: "Goods receipt line not found" }, 404);
+      return json(req, { error: `Không tìm thấy dòng phiếu ${itemId.slice(0, 8)}`, code: "receipt_line_not_found" }, 404);
     }
 
     // Cache hit: no AI call, no image download.
