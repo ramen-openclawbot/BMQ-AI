@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { normalizeStockUnit, STOCK_UNITS } from "@/lib/stock-units";
+import { packCountFactor, parsePackBracket } from "@/lib/pack-count-factor";
 
 /** Value of the item <select> option that switches the row to "create a new item". */
 export const NEW_ITEM_OPTION = "__new__";
@@ -64,18 +65,30 @@ const toBase = (qty: number, unit: string) =>
 /**
  * Pack read from an invoice name, converted into the stock unit when both are
  * weights or both are volumes: "Bột mì 888 Cam (25kg)" with unit g → 25 000.
+ * Falls back to the trailing count bracket when the name carries no weight /
+ * volume pack of the stock unit's kind: "Bao bì (Bao 100 Cái)" with unit cái
+ * → 100.
  */
 export function packFactorFor(raw: string, stockUnit: string): { label: string; factor: number } | null {
   const match = raw.toLowerCase().match(/(\d+(?:[.,]\d+)?)\s*(kg|gr|gram|g|lit|ml|l)\b(?:\s*x\s*(\d+))?/);
-  if (!match) return null;
-  const qty = Number(match[1].replace(",", "."));
-  const packUnit = match[2];
-  const count = match[3] ? Number(match[3]) : 1;
-  const target = stockUnit.trim().toLowerCase();
-  const sameKind = (WEIGHT.has(packUnit) && WEIGHT.has(target)) || (VOLUME.has(packUnit) && VOLUME.has(target));
-  if (!Number.isFinite(qty) || qty <= 0 || !sameKind) return null;
-  const factor = (toBase(qty, packUnit) * count) / toBase(1, target);
-  return { label: match[0].replace(/\s+/g, ""), factor: Math.round(factor * 1000) / 1000 };
+  if (match) {
+    const qty = Number(match[1].replace(",", "."));
+    const packUnit = match[2];
+    const count = match[3] ? Number(match[3]) : 1;
+    const target = stockUnit.trim().toLowerCase();
+    const sameKind = (WEIGHT.has(packUnit) && WEIGHT.has(target)) || (VOLUME.has(packUnit) && VOLUME.has(target));
+    if (Number.isFinite(qty) && qty > 0 && sameKind) {
+      const factor = (toBase(qty, packUnit) * count) / toBase(1, target);
+      return { label: match[0].replace(/\s+/g, ""), factor: Math.round(factor * 1000) / 1000 };
+    }
+  }
+  // "… (Bao 100 Cái)" for an item stocked by the count unit: 1 bao = 100 cái.
+  const bracket = parsePackBracket(raw);
+  if (bracket) {
+    const factor = packCountFactor(raw, bracket.pack, stockUnit);
+    if (factor !== null) return { label: `${bracket.pack} ${bracket.count} ${bracket.unit}`, factor };
+  }
+  return null;
 }
 
 /** 1 `from` = ? `to` when both are weights or both are volumes ("kg" → "g" = 1000). */
