@@ -297,7 +297,7 @@ export default function WarehouseGame() {
     : view.kind === "missions" ? "Bảng nhiệm vụ"
     : view.kind === "station" ? `${STATION_META[view.id].icon} ${STATION_META[view.id].label}`
     : view.kind === "warehouse" ? LOCATION_LABEL[view.location]
-    : view.kind === "crates" ? "Bãi thùng chờ"
+    : view.kind === "crates" ? "Khu phân loại"
     : `${CLASS_META[view.cls].icon} ${CLASS_META[view.cls].label}`;
   const subtitle = view.kind === "yard" ? "Bấm vào kho để vào"
     : view.kind === "count" ? "Chọn kho để đếm"
@@ -305,7 +305,8 @@ export default function WarehouseGame() {
     : view.kind === "workshop" ? (workshopTodo ? `${workshopTodo} việc đang chờ` : "Mọi bàn đã gọn")
     : view.kind === "station" ? "Xưởng dọn danh mục"
     : view.kind === "missions" ? (missions.data?.level ? `Cấp ${missions.data.level.level} · ${missions.data.level.title} · ${missions.data.badges.total} 🐝` : "Làm xong nhận huy hiệu")
-    : view.kind === "shelf" || view.kind === "crates" ? LOCATION_LABEL[view.location]
+    : view.kind === "crates" ? `${LOCATION_LABEL[view.location]} · hàng chưa dán nhãn`
+    : view.kind === "shelf" ? LOCATION_LABEL[view.location]
     : current?.cutover_date ? `Sổ từ ${current.cutover_date.split("-").reverse().join("/")}` : "Sổ chưa bắt đầu";
 
   const afterAssign = (crate: WarehouseGamePendingRow, label: string) => {
@@ -822,7 +823,7 @@ function CrateSheet({ location, crate, snapshot, autoPick = false, onAssigned, o
     );
 
   return (
-    <Sheet title={`“${crate.raw_name}”`} tag="📦 Thùng chưa dán nhãn" sub={`${crate.line_count} dòng phiếu · ${crate.supplier_name ?? "chưa rõ NCC"}`} onClose={onClose}>
+    <Sheet title={`“${crate.raw_name}”`} tag="📦 Hàng chưa dán nhãn" sub={`${crate.line_count} dòng phiếu · ${crate.supplier_name ?? "chưa rõ NCC"}`} onClose={onClose}>
       <ReceiptNotes title="Phiếu giao hàng" lines={notes.data} loading={notes.isLoading} error={notes.error} />
       {creating ? (
         <>
@@ -853,10 +854,11 @@ function CrateSheet({ location, crate, snapshot, autoPick = false, onAssigned, o
         </>
       ) : target ? (
         <>
-          <button type="button" className="pick is-top" onClick={() => setTarget(null)}>
+          <div className="pick is-top is-chosen" data-bmq-picked>
             <span className="pick-star">★</span>
-            <span><b>{target.name}</b><small>{target.kind === "sku" ? "Thành phẩm SKU" : CLASS_META[target.cls].label} · {target.unit} · bấm để đổi</small></span>
-          </button>
+            <span><b>{target.name}</b><small>{target.kind === "sku" ? "Thành phẩm SKU" : CLASS_META[target.cls].label} · {target.unit}</small></span>
+            <button type="button" className="pick-clear" onClick={() => setTarget(null)} aria-label={`Bỏ chọn ${target.name}`} data-bmq-unpick>✕ Bỏ chọn</button>
+          </div>
           <UnitQuestion plan={plan} stockUnit={target.unit} label={packLabel} onLabel={setPackLabel} factorText={factorText} onFactor={setFactorText} />
           {target.kind === "item" && snapshot.items.find((item) => item.id === target.id)?.pastry_q7 && location === "tan_tao" ? <p className="crate-q7-note">🧁 Món bánh ngọt: ghi sổ xong máy tự chuyển sang Kho Q7.</p> : null}
           {error ? <div className="err">{errorText(error)}</div> : null}

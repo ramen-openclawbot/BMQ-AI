@@ -223,7 +223,9 @@ async function jevInvokeError(error: unknown): Promise<Error> {
     }
     return new Error(`Jev trả lỗi ${context.status}`);
   }
-  return error instanceof Error ? error : new Error(String(error));
+  if (error instanceof Error) return error;
+  const message = (error as { message?: unknown } | null)?.message;
+  return new Error(typeof message === "string" && message ? message : String(error));
 }
 
 export interface RunAliasBacklogInput {

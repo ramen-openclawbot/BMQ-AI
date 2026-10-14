@@ -130,7 +130,7 @@ export function CrateYard({ location, crates, canAssign, pastryIds, jev, progres
     : crates.length === 0 ? "Bãi sạch trơn! Không còn thùng nào ✓"
     : withHint.length === crates.length ? `Đã gợi ý cả ${crates.length} thùng. Bấm từng thùng để dán nhãn!`
     : jev === "done" ? `Xong! Gợi ý được ${withHint.length}/${crates.length} thùng. Thùng còn lại anh chọn tay nha.`
-    : `${crates.length} thùng chờ, ${withHint.length} đã có gợi ý. Bấm nút để Jev phân loại giúp!`;
+    : `${crates.length} món chưa dán nhãn, ${withHint.length} đã có gợi ý. Bấm nút để Jev phân loại giúp!`;
   return (
     <div className="shelf-view crate-yard" data-bmq-crate-yard={location}>
       <section className="jev-stage" data-bmq-jev={jev}>

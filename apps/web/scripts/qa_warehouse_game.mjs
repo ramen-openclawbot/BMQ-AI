@@ -515,7 +515,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       await page.waitForSelector("[data-bmq-crate-yard='q7']", { timeout: 8000 });
       await page.waitForTimeout(600);
       assert.equal(await overflow(page), 0, `crate yard no overflow ${viewport.width}`);
-      assert.match(await page.locator(".kg .title-pill b").textContent(), /Bãi thùng chờ/);
+      assert.match(await page.locator(".kg .title-pill b").textContent(), /Khu phân loại/);
       const cards = await page.locator("[data-bmq-crate]").count();
       assert.equal(cards, KG_FIXTURE.q7.length, "every pending crate has a card");
       assert.ok((await page.locator(".kg .crate-card.has-jev").count()) >= 1, "Jev hints grouped");
@@ -528,7 +528,17 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       await page.screenshot({ path: `${EVIDENCE}/crate-yard-jev-${viewport.width}.png` });
       await page.locator(".kg .crate-card.has-jev").first().click({ force: true });
       await page.waitForTimeout(700);
-      assert.equal(await page.locator(".kg .sheet .pick.is-top", { hasText: "bấm để đổi" }).count(), 1, "label sheet opens on the hint");
+      assert.equal(await page.locator(".kg .sheet [data-bmq-picked]").count(), 1, "label sheet opens on the hint");
+      // Owner 14/10: an explicit "Bỏ chọn" drops the pre-picked suggestion; the list comes back, then pick again.
+      const unpickBox = await page.locator("[data-bmq-unpick]").boundingBox();
+      assert.ok(unpickBox && unpickBox.x + unpickBox.width <= viewport.width && unpickBox.height >= 32, `Bỏ chọn usable ${viewport.width}: ${JSON.stringify(unpickBox)}`);
+      await page.screenshot({ path: `${EVIDENCE}/crate-picked-${viewport.width}.png` });
+      await page.locator("[data-bmq-unpick]").click({ force: true });
+      await page.waitForTimeout(250);
+      assert.equal(await page.locator(".kg .sheet [data-bmq-picked]").count(), 0, "Bỏ chọn clears the pick");
+      await page.locator(".kg .sheet .pick.is-top").first().click({ force: true });
+      await page.waitForTimeout(250);
+      assert.equal(await page.locator(".kg .sheet [data-bmq-picked]").count(), 1, "the suggestion can be picked again");
       const unitMode = await page.locator("[data-bmq-unit-q]").getAttribute("data-bmq-unit-q");
       assert.ok(["pack", "auto", "unknown"].includes(unitMode ?? ""), "unit question shown");
       if (unitMode === "pack") {

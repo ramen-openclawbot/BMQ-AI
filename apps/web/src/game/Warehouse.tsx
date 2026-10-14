@@ -116,26 +116,26 @@ export function Warehouse({ portrait, location, rows, crates, canAssign, transfe
       {rows.map((row, index) => <ShelfTable key={row.cls} g={geo(index)} row={row} onClick={() => onShelf(row.cls)} />)}
 
       {canAssign ? (
-        <g className="tap yard-gate" role="button" tabIndex={0} aria-label={`Bãi thùng chờ dán nhãn, ${crates.length} thùng`} onClick={onYard} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onYard(); }} data-bmq-yard-gate>
+        <g className="tap yard-gate" role="button" tabIndex={0} aria-label={`Khu phân loại, ${crates.length} món chưa dán nhãn`} onClick={onYard} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onYard(); }} data-bmq-yard-gate>
           <rect x={yard.x + 6} y={yard.y + 7} width={yard.w} height={yard.h} rx={18} fill={C.shadow} />
           <rect x={yard.x} y={yard.y} width={yard.w} height={yard.h} rx={18} fill="url(#checker)" stroke={C.ink} strokeWidth={STROKE} />
           <rect x={yard.x} y={yard.y} width={yard.w} height={yard.h} rx={18} fill={C.kraft} opacity={.28} />
           {/* hazard tape on top */}
           <rect x={yard.x + 14} y={yard.y - 12} width={yard.w - 28} height={22} rx={6} fill={C.mustard} stroke={C.ink} strokeWidth={STROKE} />
-          <text x={yard.x + yard.w / 2} y={yard.y + 5} textAnchor="middle" className="t-zone">BÃI THÙNG CHỜ DÁN NHÃN</text>
+          <text x={yard.x + yard.w / 2} y={yard.y + 5} textAnchor="middle" className="t-zone">KHU PHÂN LOẠI · HÀNG CHƯA DÁN NHÃN</text>
           {pile.map((crate, i) => {
             const cx = portrait ? yard.x + 58 + i * 64 : yard.x + 64 + i * 70;
             const cy = yard.y + (portrait ? 74 : 72) + (i % 2) * 22;
             return <CrateBuddy key={crateKey(crate)} x={cx} y={cy} mood="worried" label="?" />;
           })}
-          {crates.length === 0 ? <text x={yard.x + 40} y={yard.y + 84} className="t-sub">Bãi trống ✓</text> : null}
+          {crates.length === 0 ? <text x={yard.x + 40} y={yard.y + 84} className="t-sub">Đã phân loại hết ✓</text> : null}
           <g transform={`translate(${yard.x + yard.w - (portrait ? 110 : 150)} ${yard.y + (portrait ? 18 : 22)})`}>
             <JevBot state={crates.length ? "idle" : "done"} size={portrait ? 84 : 92} />
           </g>
           <g transform={`translate(${portrait ? yard.x + 22 : yard.x + yard.w - 380} ${portrait ? yard.y + yard.h - 58 : yard.y + yard.h - 64})`}>
             <rect x={4} y={5} width={portrait ? 300 : 210} height={44} rx={14} fill={C.shadow} />
             <rect width={portrait ? 300 : 210} height={44} rx={14} fill={C.sage} stroke={C.ink} strokeWidth={STROKE} />
-            <text x={portrait ? 150 : 105} y={29} textAnchor="middle" className="t-sign">{crates.length ? `Vào bãi · ${crates.length} thùng ›` : "Vào bãi ›"}</text>
+            <text x={portrait ? 150 : 105} y={29} textAnchor="middle" className="t-sign">{crates.length ? `Vào khu · ${crates.length} món ›` : "Vào khu ›"}</text>
           </g>
           {crates.length ? (
             <g className="bounce" style={{ transformOrigin: `${yard.x + yard.w - 8}px ${yard.y + 8}px` }}>
@@ -147,7 +147,7 @@ export function Warehouse({ portrait, location, rows, crates, canAssign, transfe
       ) : (
         <g>
           <rect x={yard.x} y={yard.y} width={yard.w} height={yard.h} rx={18} fill="url(#checker)" stroke={C.ink} strokeWidth={2.5} strokeDasharray="10 8" opacity={.7} />
-          <text x={W / 2} y={yard.y + yard.h / 2 + 4} textAnchor="middle" className="t-sub">Chỉ chủ hoặc người sửa kho Q7 vào bãi thùng chờ</text>
+          <text x={W / 2} y={yard.y + yard.h / 2 + 4} textAnchor="middle" className="t-sub">Chỉ chủ hoặc người sửa kho Q7 vào khu phân loại</text>
         </g>
       )}
 
@@ -161,7 +161,7 @@ export function Warehouse({ portrait, location, rows, crates, canAssign, transfe
       <rect x={W / 2 - 44} y={roomBottom + 12} width={88} height={40} rx={6} fill="url(#checker)" stroke={C.ink} strokeWidth={2.5} />
 
       <Buddy x={helper.x} y={helper.y + 26} mood="happy" hat="chef" face={C.white} scale={0.9} />
-      {crates.length ? <Bubble x={helper.x - 18} y={helper.y + 22} tail="side" name="Tổ trưởng kho" text={portrait ? "Bấm bãi thùng chờ nha!" : "Bấm vào bãi thùng chờ, Jev sẽ phân loại giúp!"} max={portrait ? 22 : 46} /> : null}
+      {crates.length ? <Bubble x={helper.x - 18} y={helper.y + 22} tail="side" name="Tổ trưởng kho" text={portrait ? "Vào khu phân loại nha!" : "Vào khu phân loại, Jev sẽ gợi ý giúp!"} max={portrait ? 22 : 46} /> : null}
     </svg>
   );
 }

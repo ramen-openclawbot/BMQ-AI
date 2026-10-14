@@ -917,3 +917,10 @@
 .kg .field input.is-popped { animation: kg-name-pop .7s var(--ease) both; }
 @keyframes kg-name-pop { 0% { background: var(--sage-light); transform: scale(.97); } 60% { transform: scale(1.02); } 100% { background: var(--white); transform: none; } }
 @media (prefers-reduced-motion: reduce) { .kg .inv-scan-beam, .kg .inv-scan-steps li.is-now span, .kg .field input.is-popped { animation: none; } }
+
+/* Picked item with an explicit "Bỏ chọn" (owner 14/10) */
+.kg .pick.is-chosen { cursor: default; }
+.kg .pick.is-chosen:hover { transform: none; }
+.kg .pick-clear { flex: none; align-self: center; min-height: 36px; padding: 0 12px; font-family: "Baloo 2", sans-serif; font-weight: 800; font-size: 14px; white-space: nowrap; color: var(--ink); background: var(--white); border: 2.5px solid var(--ink); border-radius: 10px; box-shadow: var(--soft); }
+.kg .pick-clear:active { transform: translate(2px, 3px); box-shadow: none; }
+.kg .pick .pick-star { flex: none; }
