@@ -86,14 +86,28 @@ function settle(st) {
     const base = st.args.p_location === "q7" ? q7.items.map(decorate) : [
       decorate({ item_id: "t1", item_code: "NVL-t1", name: "Đường cát Tân Tạo", unit: "g", exact_material: { id: "m7", material_code: "MAT-m7", canonical_name: "Đường cát Tân Tạo", default_unit: "g" }, material_unit: "g", unit_status: "same", auto_factor: null, candidates: [{ id: "m7", material_code: "MAT-m7", canonical_name: "Đường cát Tân Tạo", default_unit: "g", unit_status: "same", score: 1 }] }, 1),
       decorate({ item_id: "t2", item_code: "NVL-t2", name: "Bao tay nilon", unit: "cái", exact_material: null, material_unit: null, unit_status: null, auto_factor: null, candidates: [] }, 0),
+      // Owner 15/10: kho counts water in bình; the recipe code weighs it in g; a bình code exists and must come first.
+      { item_id: "t3", item_code: "NVL-t3", name: "Nước uống Vĩnh Hảo", unit: "bình", exact_material: { id: "m9", material_code: "NVL-NUOC-VIHAWA", canonical_name: "Nước uống Vĩnh Hảo", default_unit: "g", skus: ["Bánh Mì Chà Bông"] }, material_unit: "g", unit_status: "needs_factor", auto_factor: null,
+        candidates: [{ id: "m10", material_code: "NVL-NUOC-VIHAWA-20L-BINH-VOI", canonical_name: "Nước Vihawa 20L Bình Vòi", default_unit: "bình", unit_status: "same", score: 0.125, skus: ["BÁNH MÌ CHÀ BÔNG CAY"] }, { id: "m9", material_code: "NVL-NUOC-VIHAWA", canonical_name: "Nước uống Vĩnh Hảo", default_unit: "g", unit_status: "needs_factor", score: 1, skus: ["Bánh Mì Chà Bông"] }],
+        last_buy: null, receipt_photo_count: 0, last_purchase_line: { doc_kind: "po", doc_number: "PO-000777", date: "2026-10-02", supplier_name: "Vĩnh Hảo", raw_name: "Nước bình 20L", quantity: 4, unit: "bình", unit_price: 60000 } },
     ];
     const items = base.filter((it) => !skipped.includes(it.item_id) && !linked.includes(it.item_id));
     const exact = items.filter((it) => it.exact_material).length;
     return { data: { items, counts: { total: items.length, exact, auto: items.filter((it) => it.unit_status === "auto").length, needs_factor: items.filter((it) => it.unit_status === "needs_factor").length, none: items.filter((it) => !it.candidates.length).length, linked_total: linked.length, skipped: skipped.length } }, error: null };
   }
+  if (st.table === "rpc:get_material_link_pending_factors") {
+    const pend = JSON.parse(localStorage.getItem("qa-lq-pending") || "[]");
+    return { data: pend.map((id) => ({ item_id: id, name: "Nước uống Vĩnh Hảo", unit: "bình", material_id: "m9", material_code: "NVL-NUOC-VIHAWA", canonical_name: "Nước uống Vĩnh Hảo", material_unit: "g", last_purchase_line: null })), error: null };
+  }
+  if (st.table === "rpc:set_item_material_factor") {
+    window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args));
+    localStorage.setItem("qa-lq-pending", JSON.stringify(JSON.parse(localStorage.getItem("qa-lq-pending") || "[]").filter((id) => id !== st.args.p_item_id)));
+    return { data: { item_id: st.args.p_item_id, material_id: "m9", item_unit: "bình", material_unit: "g", factor: st.args.p_factor, pending: st.args.p_factor === null }, error: null };
+  }
   if (st.table === "rpc:link_item_material") {
     window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args));
     const linked = JSON.parse(localStorage.getItem("qa-lq-linked") || "[]"); linked.push(st.args.p_item_id); localStorage.setItem("qa-lq-linked", JSON.stringify(linked));
+    if (st.args.p_defer_factor) localStorage.setItem("qa-lq-pending", JSON.stringify([...JSON.parse(localStorage.getItem("qa-lq-pending") || "[]"), st.args.p_item_id]));
     return { data: { item_id: st.args.p_item_id, material_id: st.args.p_material_id ?? "new-mat", material_code: "MAT-X", canonical_name: "Mã chuẩn", created_material: !!st.args.p_create_new, request_id: null, location: "q7" }, error: null };
   }
   if (st.table === "rpc:link_exact_materials") {
@@ -783,7 +797,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     }
     if (station === "Bàn mã chuẩn Q7") {
       // The deck: combo first, then one card at a time; "Để sau" shuffles, "Không phải NVL" skips server-side.
-      await page.evaluate(() => { localStorage.removeItem("qa-lq-skip"); localStorage.removeItem("qa-lq-linked"); sessionStorage.removeItem("bmq-link-quest-defer-q7"); });
+      await page.evaluate(() => { localStorage.removeItem("qa-lq-skip"); localStorage.removeItem("qa-lq-linked"); localStorage.removeItem("qa-lq-pending"); sessionStorage.removeItem("bmq-link-quest-defer-q7"); });
       await page.locator(".kg .hud .round-btn").first().click({ force: true });
       await page.waitForTimeout(500);
       await page.getByRole("button", { name: /^Bàn mã chuẩn Q7/ }).click({ force: true });
@@ -829,6 +843,30 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       await page.waitForFunction(() => document.querySelector("[data-bmq-lq-card]")?.getAttribute("data-bmq-lq-card") === "Đường cát Tân Tạo", null, { timeout: 5000 });
       assert.equal(await page.locator("[data-bmq-lq-cand] .lq-skus span").first().textContent(), "Bánh Mì Chà Bông", "SKU chips on the candidate");
       await page.screenshot({ path: `${EVIDENCE}/quest-tantao-${viewport.width}.png` });
+      await page.locator("[data-bmq-lq-link]").dispatchEvent("click");
+      await page.waitForFunction(() => ["Bao tay nilon", "Nước uống Vĩnh Hảo"].includes(document.querySelector("[data-bmq-lq-card]")?.getAttribute("data-bmq-lq-card") ?? ""), null, { timeout: 5000 });
+      if ((await page.locator("[data-bmq-lq-card]").getAttribute("data-bmq-lq-card")) === "Bao tay nilon") await page.locator("[data-bmq-lq-defer]").dispatchEvent("click");
+      await page.waitForFunction(() => document.querySelector("[data-bmq-lq-card]")?.getAttribute("data-bmq-lq-card") === "Nước uống Vĩnh Hảo", null, { timeout: 5000 });
+      // the bình code is first and picked: same unit, no question
+      assert.equal(await page.locator("[data-bmq-lq-cand]").first().getAttribute("data-bmq-lq-cand"), "Nước Vihawa 20L Bình Vòi", "same-unit code first");
+      assert.equal(await page.locator("[data-bmq-lq-cand].is-on").getAttribute("data-bmq-lq-cand"), "Nước Vihawa 20L Bình Vòi", "same-unit code picked");
+      assert.equal(await page.locator("[data-bmq-lq-factor]").count(), 0, "no unit question for the same unit");
+      // the g code asks the natural way round, reads 20L from the other name? no: from its own names; evidence line shows
+      await page.locator("[data-bmq-lq-cand='Nước uống Vĩnh Hảo']").dispatchEvent("click");
+      await page.waitForTimeout(200);
+      assert.match(await page.locator("[data-bmq-lq-target] .lq-conv").textContent(), /^1 bình =.*g/, "asks 1 bình = ? g");
+      assert.match(await page.locator("[data-bmq-lq-evidence]").textContent(), /PO-000777.*4 bình × 60\.000đ/, "last purchase line as evidence");
+      await page.screenshot({ path: `${EVIDENCE}/quest-water-${viewport.width}.png`, fullPage: true });
+      await page.locator("[data-bmq-lq-defer-factor]").dispatchEvent("click");
+      await page.waitForSelector("[data-bmq-lq-pending-row='Nước uống Vĩnh Hảo']", { timeout: 5000 });
+      writes = await page.evaluate(() => window.__qaWrites);
+      assert.ok(writes.some((w) => w.startsWith("rpc:link_item_material:") && w.includes('"p_item_id":"t3"') && w.includes('"p_defer_factor":true') && w.includes('"p_unit_factor":null')), "linked with the factor deferred");
+      await page.locator("[data-bmq-lq-pending-row='Nước uống Vĩnh Hảo'] input").fill("20000");
+      await page.locator("[data-bmq-lq-pending-row='Nước uống Vĩnh Hảo'] .btn").dispatchEvent("click");
+      await page.waitForTimeout(500);
+      writes = await page.evaluate(() => window.__qaWrites);
+      assert.ok(writes.some((w) => w.startsWith("rpc:set_item_material_factor:") && w.includes('"p_factor":20000')), "pending factor saved as 20000 g per bình");
+      await page.screenshot({ path: `${EVIDENCE}/quest-pending-${viewport.width}.png`, fullPage: true });
     }
     if (station === "Máy Jev") {
       await page.getByRole("button", { name: /Quét cặp trùng/ }).click({ force: true });

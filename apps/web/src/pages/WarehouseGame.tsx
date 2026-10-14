@@ -33,7 +33,7 @@ import type { StockCountLine, StockCountLocation, StockCountSession } from "@/li
 import { useSuggestStockItemName } from "@/hooks/useSuggestStockItemName";
 import { InvoiceScanner } from "@/game/InvoiceScanner";
 import { RobotDesk, basketLineFor, loadBasket, saveBasket, type BasketLine } from "@/game/RobotDesk";
-import { LinkQuest, QUEST_LABEL } from "@/game/LinkQuest";
+import { ItemFactorBox, LinkQuest, QUEST_LABEL } from "@/game/LinkQuest";
 import { useMaterialLinkReview } from "@/hooks/useMaterialLinkQuest";
 import type { MaterialLinkLocation } from "@/lib/material-link-quest";
 import "@/game/game.css";
@@ -581,6 +581,7 @@ export default function WarehouseGame() {
               canEdit={current.can_edit}
               started={Boolean(current.cutover_date)}
               onTransfer={panel.location === "tan_tao" && canTransfer && item.on_hand > 0 ? () => setPanel({ kind: "transfers", location: "tan_tao", prefill: item.id }) : undefined}
+              onFactorToast={canLinkQuest ? setToast : undefined}
               onRobot={canRobotOrder ? () => { if (!basket.some((line) => line.item_id === item.id)) setBasket([...basket, basketLineFor(item)]); setToast(`🤖 Đã cho robot: ${item.name}`); go({ kind: "robot" }); } : undefined}
               onDone={(id, message) => { setJustSaved(id); window.setTimeout(() => setJustSaved(null), 2600); setToast(message); setPanel(null); }}
               onClose={() => setPanel(null)}
@@ -660,8 +661,8 @@ function PastrySwitch({ item, canEdit }: { item: WarehouseGameItem; canEdit: boo
   );
 }
 
-function ItemSheet({ item, others, canEdit, started, onTransfer, onRobot, onDone, onClose }: {
-  item: WarehouseGameItem; others: WarehouseGameItem[]; canEdit: boolean; started: boolean; onTransfer?: () => void; onRobot?: () => void;
+function ItemSheet({ item, others, canEdit, started, onTransfer, onRobot, onFactorToast, onDone, onClose }: {
+  item: WarehouseGameItem; others: WarehouseGameItem[]; canEdit: boolean; started: boolean; onTransfer?: () => void; onRobot?: () => void; onFactorToast?: (text: string) => void;
   onDone: (id: string, message: string) => void; onClose: () => void;
 }) {
   const rename = useRenameStockItem();
@@ -715,6 +716,7 @@ function ItemSheet({ item, others, canEdit, started, onTransfer, onRobot, onDone
           <PastrySwitch item={item} canEdit={canEdit} />
           {onTransfer ? <button type="button" className="btn slip-new" onClick={onTransfer} data-bmq-item-transfer>🚚 Chuyển sang Q7</button> : null}
           {onRobot ? <button type="button" className="btn ghost slip-new" onClick={onRobot} data-bmq-item-robot>🤖 Cho robot đặt hàng</button> : null}
+          {onFactorToast ? <ItemFactorBox itemId={item.id} onToast={onFactorToast} /> : null}
           {canEdit ? <ItemNotes itemId={item.id} /> : null}
           <div className="checklist">
             <small>Cách ghi trên phiếu nhập</small>
