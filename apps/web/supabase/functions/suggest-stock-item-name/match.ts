@@ -22,6 +22,10 @@ export interface InvoiceLine {
   quantity: number | null;
   unit: string | null;
   unit_price: number | null;
+  /** Vietnamese name with diacritics and abbreviations expanded ("GIAM T.LUYEN" -> "Giấm tinh luyện"). */
+  standard_name?: string | null;
+  /** Line amount before VAT after discount; Mega Market prints a gross unit price, then a discount. */
+  net_amount?: number | null;
 }
 
 export interface InvoiceTargetLine {
@@ -70,9 +74,15 @@ function isFiniteNumber(value: unknown): value is number {
 }
 
 function priceMatches(target: InvoiceTargetLine, line: InvoiceLine): boolean {
-  if (!isFiniteNumber(target.unit_price) || !isFiniteNumber(line.unit_price)) return false;
+  if (!isFiniteNumber(target.unit_price)) return false;
   const tolerance = Math.abs(target.unit_price) * PRICE_TOLERANCE;
-  return Math.abs(line.unit_price - target.unit_price) <= tolerance + EPSILON;
+  // The receipt keeps the net price; the invoice may print the gross price and a discount, so the net
+  // line amount ÷ quantity is an equally valid unit price (owner 14/10, Mega Market 19.860 − 1.527 = 18.333).
+  const candidates = [line.unit_price];
+  if (isFiniteNumber(line.net_amount) && isFiniteNumber(line.quantity) && line.quantity > 0) {
+    candidates.push(line.net_amount / line.quantity);
+  }
+  return candidates.some((price) => isFiniteNumber(price) && Math.abs(price - target.unit_price!) <= tolerance + EPSILON);
 }
 
 function quantityMatches(target: InvoiceTargetLine, line: InvoiceLine): boolean {
@@ -83,7 +93,8 @@ function quantityMatches(target: InvoiceTargetLine, line: InvoiceLine): boolean 
 /** Score one candidate, or null when it is not eligible. */
 function scoreLine(target: InvoiceTargetLine, line: InvoiceLine): number | null {
   const words = nameWords(target.name);
-  const lineName = removeDiacritics(line.product_name);
+  // Match against both the printed and the expanded name: "T.LUYEN" on the invoice is "tinh luyện".
+  const lineName = removeDiacritics(`${line.product_name} ${line.standard_name ?? ""}`);
   const present = words.filter((word) => lineName.includes(word));
   const allWordsPresent = words.length === 0 || present.length === words.length;
   const nameRatio = words.length === 0 ? 0 : present.length / words.length;
@@ -121,8 +132,9 @@ export function pickInvoiceLine(
 }
 
 /** Trim and collapse whitespace in the chosen line's printed name; keep its unit. */
-export function buildSuggestion(line: Pick<InvoiceLine, "product_name" | "unit">): SuggestionName {
-  const fullName = String(line.product_name ?? "").trim().replace(/\s+/g, " ");
+export function buildSuggestion(line: Pick<InvoiceLine, "product_name" | "unit" | "standard_name">): SuggestionName {
+  const standard = String(line.standard_name ?? "").trim().replace(/\s+/g, " ");
+  const fullName = standard || String(line.product_name ?? "").trim().replace(/\s+/g, " ");
   const unit = String(line.unit ?? "").trim();
   return { full_name: fullName, unit: unit === "" ? null : unit };
 }

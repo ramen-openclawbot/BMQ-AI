@@ -241,6 +241,8 @@ function parseInvoiceLines(items: unknown[]): InvoiceLine[] {
       const item = (raw ?? {}) as Record<string, unknown>;
       return {
         product_name: typeof item.product_name === "string" ? item.product_name : "",
+        standard_name: typeof item.standard_name === "string" ? item.standard_name : null,
+        net_amount: toFiniteNumber(item.net_amount),
         quantity: toFiniteNumber(item.quantity),
         unit: typeof item.unit === "string" ? item.unit : null,
         unit_price: toFiniteNumber(item.unit_price),
@@ -370,12 +372,14 @@ Nhiệm vụ: chép NGUYÊN VĂN tên hàng in trên chứng từ, đầy đủ 
 Trả về DUY NHẤT JSON đúng định dạng:
 {
   "items": [
-    {"product_name": "string", "quantity": number, "unit": "string", "unit_price": number or null}
+    {"product_name": "string", "standard_name": "string", "quantity": number, "unit": "string", "unit_price": number or null, "net_amount": number or null}
   ]
 }
 
 Quy tắc:
-- product_name: chép y nguyên chữ in trên chứng từ, KHÔNG viết tắt, KHÔNG bỏ quy cách.
+- product_name: chép y nguyên chữ in trên chứng từ (kể cả chữ viết tắt, không dấu), KHÔNG bỏ quy cách.
+- standard_name: tên chuẩn tiếng Việt CÓ DẤU, mở rộng chữ viết tắt, giữ thương hiệu và quy cách. Ví dụ "GIAM T.LUYEN MINH CHAU 4% 1L" -> "Giấm tinh luyện Minh Châu 4% 1L"; "OT SUNG DO DALAT-500G" -> "Ớt sừng đỏ Đà Lạt 500g".
+- unit_price: đơn giá in trên dòng; net_amount: thành tiền trước thuế của dòng SAU giảm giá (nếu chứng từ có cột giảm giá).
 - Giữ tên hàng bằng tiếng Việt.
 - quantity và unit_price là số; đơn giá theo đơn vị tính của dòng; nếu không thấy đơn giá trả null.
 - Đơn vị thường gặp: kg, g, con, cái, hộp, thùng, chai, lon, gói, bịch, túi, lít, ml, bao, cuộn.
