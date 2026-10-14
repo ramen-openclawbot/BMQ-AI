@@ -972,3 +972,75 @@
 }
 .kg .robot-line-fields .slip-qty i { max-width: none; white-space: nowrap; }
 .kg .robot-mark { justify-self: start; width: max-content; max-width: 100%; }
+
+/* Gắn mã chuẩn as a card deck (owner approved the demo 15/10). */
+.kg .lq-wrap { width: 100%; max-width: 1180px; margin: 0 auto; display: grid; gap: 12px; padding: 4px 4px 40px; }
+.kg .lq-wrap .loc-switch { justify-self: center; }
+.kg .lq { width: 100%; max-width: 760px; margin: 0 auto; display: grid; gap: 14px; padding-bottom: 60px; }
+.kg .lq-top { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+.kg .lq-bar { display: grid; gap: 4px; }
+.kg .lq-bar small { font-size: 12px; font-weight: 800; color: #6f6a85; }
+.kg .lq-bar .bar { height: 16px; background: var(--white); border: 2.5px solid var(--ink); border-radius: 99px; overflow: hidden; }
+.kg .lq-bar .bar i { display: block; height: 100%; background: repeating-linear-gradient(-45deg, var(--sage) 0 8px, #86b3a0 8px 16px); transition: width .4s var(--ease); }
+.kg .lq-streak { display: grid; justify-items: center; min-width: 64px; padding: 6px 10px; background: var(--mustard-light); border: 3px solid var(--ink); border-radius: 14px; box-shadow: var(--soft); }
+.kg .lq-streak b { font-family: "Baloo 2", sans-serif; font-size: 22px; line-height: 1; }
+.kg .lq-streak small { font-size: 10.5px; font-weight: 900; text-transform: uppercase; letter-spacing: .06em; }
+.kg .lq-streak.is-hot { animation: kg-bounce 1.2s ease-in-out infinite; background: var(--coral-light); }
+.kg .lq-pop { position: absolute; left: 50%; top: 18%; z-index: 13; transform: translateX(-50%) rotate(-4deg); padding: 10px 22px; font-family: "Baloo 2", sans-serif; font-size: 30px; font-weight: 800; color: var(--ink); background: var(--mustard); border: 3px solid var(--ink); border-radius: 18px; box-shadow: var(--pop); animation: kg-lq-pop 1.6s var(--ease) both; pointer-events: none; }
+@keyframes kg-lq-pop { 0% { transform: translateX(-50%) scale(.3) rotate(-14deg); opacity: 0; } 20% { transform: translateX(-50%) scale(1.1) rotate(-4deg); opacity: 1; } 80% { opacity: 1; } 100% { transform: translateX(-50%) translateY(-30px) scale(.9); opacity: 0; } }
+.kg .lq-combo { display: grid; gap: 10px; padding: 16px; background: var(--plum); color: var(--white); border: 3px solid var(--ink); border-radius: 20px; box-shadow: var(--pop); animation: kg-card-in .45s var(--ease) both; }
+.kg .lq-combo h3 { margin: 0; font-family: "Baloo 2", sans-serif; font-size: 22px; line-height: 1.1; }
+.kg .lq-combo p { margin: 0; font-size: 14px; font-weight: 700; opacity: .95; }
+.kg .lq-combo-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.kg .lq-combo-list span { padding: 3px 9px; font-size: 12.5px; font-weight: 800; background: rgba(255,250,240,.18); border: 2px solid rgba(255,250,240,.5); border-radius: 99px; }
+.kg .lq-combo .btn { background: var(--mustard); color: var(--ink); }
+.kg .lq-combo .btn.ghost { background: transparent; color: var(--white); border-color: rgba(255,250,240,.7); box-shadow: none; }
+.kg .lq-deck { position: relative; min-height: 200px; }
+.kg .lq-card { position: relative; display: grid; gap: 10px; padding: 18px 16px 16px; background: var(--cream); border: 3px solid var(--ink); border-radius: 22px; box-shadow: var(--pop); animation: kg-card-in .45s var(--ease) both; }
+.kg .lq-card.is-leaving { animation: kg-lq-fly .45s cubic-bezier(.4, 0, 1, 1) both; pointer-events: none; }
+@keyframes kg-lq-fly { to { transform: translate(60vw, -30vh) rotate(18deg); opacity: 0; } }
+.kg .lq-tape { position: absolute; top: -12px; left: 50%; width: 92px; height: 22px; transform: translateX(-50%) rotate(-2deg); background: rgba(232,162,58,.75); border: 2px solid rgba(44,41,71,.35); }
+.kg .lq-head { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: center; }
+.kg .lq-art { width: 74px; height: 70px; display: grid; place-items: center; background: var(--white); border: 3px solid var(--ink); border-radius: 18px; }
+.kg .lq-art svg { width: 58px; height: 54px; overflow: visible; }
+.kg .lq-name { margin: 0; font-family: "Baloo 2", sans-serif; font-size: 24px; line-height: 1.1; overflow-wrap: anywhere; }
+.kg .lq-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.kg .lq .chip { padding: 3px 9px; font-size: 12px; font-weight: 800; background: var(--white); border: 2px solid var(--ink); border-radius: 99px; }
+.kg .lq .chip.is-unit { background: var(--mustard-light); }
+.kg .lq .chip.is-buy { background: var(--sage-light); }
+.kg .lq-jev { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 900; text-transform: uppercase; letter-spacing: .06em; color: var(--sage-deep); }
+.kg .lq-jev-bot { width: 30px; height: 34px; }
+.kg .lq-cands { display: grid; gap: 8px; }
+.kg .lq-cand { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "name tag" "code tag" "skus skus"; gap: 3px 10px; align-items: start; padding: 10px 12px; text-align: left; background: var(--white); border: 2.5px solid var(--ink); border-radius: 14px; box-shadow: var(--soft); transition: transform .15s var(--ease), background .15s; }
+.kg .lq-cand:hover { transform: translateX(3px); }
+.kg .lq-cand.is-on { background: var(--mustard-light); box-shadow: 0 0 0 3px var(--mustard-light), var(--soft); }
+.kg .lq-cand[disabled] { opacity: .7; }
+.kg .lq-cand > b { grid-area: name; font-size: 15px; overflow-wrap: anywhere; }
+.kg .lq-cand > small { grid-area: code; font-size: 12.5px; font-weight: 700; color: #6f6a85; }
+.kg .lq-cand > .lq-tag { grid-area: tag; justify-self: end; padding: 3px 8px; font-size: 11.5px; font-weight: 900; white-space: nowrap; background: var(--cream); border: 2px solid var(--ink); border-radius: 99px; }
+.kg .lq-cand > .lq-tag.is-exact { background: var(--sage-light); }
+.kg .lq-cand > .lq-skus { grid-area: skus; display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
+.kg .lq-skus span { padding: 2px 7px; font-size: 11px; font-weight: 800; background: var(--sage-light); border: 1.5px solid var(--ink); border-radius: 99px; }
+.kg .lq-skus em { font-style: normal; font-size: 11px; font-weight: 800; color: #6f6a85; align-self: center; }
+.kg .lq-none { margin: 0; padding: 10px 12px; font-size: 13.5px; font-weight: 700; background: var(--paper-deep); border: 2px dashed var(--ink); border-radius: 12px; }
+.kg .lq-target { display: grid; gap: 8px; padding: 10px 12px; background: #eef6f1; border: 2.5px solid var(--ink); border-radius: 14px; font-weight: 800; font-size: 15px; }
+.kg .lq-target small { font-weight: 700; font-size: 12.5px; color: #6f6a85; }
+.kg .lq-target .lq-auto { font-size: 13px; color: var(--sage-deep); }
+.kg .lq-conv { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.kg .lq-conv input { width: 120px; height: 44px; padding: 0 10px; font-size: 17px; font-weight: 800; text-align: right; background: var(--white); border: 2.5px solid var(--ink); border-radius: 12px; }
+.kg .lq-conv .lq-pre { font-size: 12px; font-weight: 800; color: var(--sage-deep); }
+.kg .lq-target .notes { background: var(--white); }
+.kg .lq-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.kg .lq-actions .btn.main { grid-column: 1 / -1; height: 54px; font-size: 19px; background: var(--mustard); color: var(--ink); }
+.kg .lq-actions .btn.main[disabled] { background: var(--paper-deep); color: #6f6a85; opacity: 1; }
+.kg .lq-actions .btn.ghost { background: var(--white); color: var(--ink); font-size: 15px; height: 46px; }
+.kg .lq-actions .btn.ghost.soft { grid-column: 1 / -1; background: var(--cream); color: #6f6a85; }
+.kg .lq-done { display: grid; gap: 12px; justify-items: center; padding: 26px 16px; text-align: center; background: var(--cream); border: 3px solid var(--ink); border-radius: 22px; box-shadow: var(--pop); animation: kg-card-in .45s var(--ease) both; }
+.kg .lq-done h3 { margin: 0; font-family: "Baloo 2", sans-serif; font-size: 26px; }
+.kg .lq-done p { margin: 0; font-weight: 700; color: #6f6a85; }
+.kg .lq-stamped { font-weight: 900; color: var(--sage-deep); }
+.kg .lq-loc { display: flex; gap: 6px; }
+@media (max-width: 480px) {
+  .kg .lq-name { font-size: 20px; }
+  .kg .lq-actions .btn.ghost { font-size: 14px; padding: 0 10px; }
+}

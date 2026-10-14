@@ -6,7 +6,7 @@ import { useRenameStockItem, WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY } from "@/hooks/u
 import { STOCK_CATALOG_REVIEW_QUERY_KEY } from "@/hooks/useStockCatalog";
 import {
   levelProgress, missionErrorMessage,
-  type CompleteMissionResult, type Mission, type MissionAliasDetail, type MissionDuplicateDetail, type MissionLevel, type MissionUnknownUnitDetail, type MyMissions,
+  type CompleteMissionResult, type Mission, type MissionAliasDetail, type MissionDuplicateDetail, type MissionLevel, type MissionMaterialLinksDetail, type MissionUnknownUnitDetail, type MyMissions,
 } from "@/lib/missions";
 import { STOCK_UNITS } from "@/lib/stock-units";
 import { Sheet } from "./Sheet";
@@ -26,17 +26,18 @@ export const LADDER: MissionLevel[] = [
 
 const hatFor = (level: number): "none" | "cap" | "chef" => (level >= 3 ? "chef" : level === 2 ? "cap" : "none");
 
-type Rule = "alias" | "duplicate" | "units" | "other";
+type Rule = "alias" | "duplicate" | "units" | "links" | "other";
 
 function ruleOf(mission: Mission): Rule {
   const kind = mission.progress.detail[0]?.kind;
   if (kind === "alias_factor_fixed" || mission.code.includes("alias")) return "alias";
   if (kind === "duplicate_resolved" || mission.code.includes("duplicate")) return "duplicate";
   if (kind === "unknown_units_cleared" || mission.code.includes("unit")) return "units";
+  if (kind === "material_links" || mission.code.includes("link")) return "links";
   return "other";
 }
 
-const RULE_ICON: Record<Rule, string> = { alias: "🏷️", duplicate: "🥐", units: "📏", other: "📜" };
+const RULE_ICON: Record<Rule, string> = { alias: "🏷️", duplicate: "🥐", units: "📏", links: "🧩", other: "📜" };
 
 /** Steps shown on the card: the duplicate pair is one decision, the others count rows. */
 export function missionSteps(mission: Mission): { done: number; total: number } {
@@ -45,6 +46,8 @@ export function missionSteps(mission: Mission): { done: number; total: number } 
     return { done: total, total };
   }
   if (ruleOf(mission) === "duplicate") return { done: mission.progress.done ? 1 : 0, total: 1 };
+  const links = mission.progress.detail.find((row): row is MissionMaterialLinksDetail => row.kind === "material_links");
+  if (links) return { done: links.linked, total: Math.max(links.linked + links.remaining, 1) };
   const total = Math.max(mission.progress.total, mission.progress.left, 1);
   return { done: Math.max(0, total - mission.progress.left), total };
 }
@@ -333,8 +336,10 @@ function UnitRow({ variant, rows, onSaved }: { variant: string; rows: MissionUnk
 }
 
 /** One mission opened up: the tool to finish it, then "Nộp nhiệm vụ". */
-export function MissionSheet({ mission, onClose, onToast, onCompleted }: {
+export function MissionSheet({ mission, onClose, onToast, onCompleted, onOpenQuest }: {
   mission: Mission; onClose: () => void; onToast: (text: string) => void; onCompleted: (result: CompleteMissionResult, mission: Mission) => void;
+  /** Gắn mã chuẩn missions are played in the card deck, not inside the sheet. */
+  onOpenQuest?: (location: "q7" | "tan_tao") => void;
 }) {
   const complete = useCompleteMission();
   const [requestId] = useState(newRequestId);
@@ -365,6 +370,20 @@ export function MissionSheet({ mission, onClose, onToast, onCompleted }: {
             </>
           ) : null}
           {rule === "duplicate" ? <DuplicateTool items={items} done={mission.progress.done} onSaved={onToast} /> : null}
+          {rule === "links" ? (() => {
+            const links = detail.find((row): row is MissionMaterialLinksDetail => row.kind === "material_links");
+            const location = links?.location === "tan_tao" ? "tan_tao" : "q7";
+            return (
+              <div className="lq-mission" data-bmq-mission-links>
+                <div className="stats">
+                  <div><small>Còn lại</small><b>{links?.remaining ?? "—"}</b></div>
+                  <div><small>Đã gắn</small><b>{links?.linked ?? "—"}</b></div>
+                  <div><small>Trùng tên</small><b>{links?.exact ?? "—"}</b></div>
+                </div>
+                {onOpenQuest ? <button type="button" className="btn slip-new" onClick={() => onOpenQuest(location)} data-bmq-mission-open-quest>🧩 Mở bộ bài {location === "q7" ? "Kho Q7" : "Kho Tân Tạo"}</button> : null}
+              </div>
+            );
+          })() : null}
           {rule === "units" ? (
             grouped.size ? (
               <>

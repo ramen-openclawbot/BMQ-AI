@@ -76,6 +76,36 @@ function settle(st) {
     ];
     return { data: { items, counts: { total: items.length, exact: 4, auto: 1, needs_factor: 2, linked_total: 0 } }, error: null };
   }
+  if (st.table === "rpc:get_material_link_review") {
+    // Same six Q7 rows as the old station, now with the SKUs each material feeds, the last buy and photo counts.
+    const q7 = settle({ ...st, table: "rpc:get_q7_material_link_review" }).data;
+    const withSkus = (m) => (m ? { ...m, skus: m.canonical_name.includes("Bột") ? ["BÁNH CROSS BUN NHO", "BÁNH CUA PHÔ MAI", "BÁNH MÌ CHÀ BÔNG CAY"] : ["Bánh Mì Chà Bông"] } : m);
+    const decorate = (it, i) => ({ ...it, exact_material: withSkus(it.exact_material), candidates: it.candidates.map(withSkus), last_buy: i % 2 ? { supplier_name: "Phúc Thịnh", date: "2026-10-01" } : null, receipt_photo_count: i === 3 ? 2 : 0 });
+    const skipped = JSON.parse(localStorage.getItem("qa-lq-skip") || "[]");
+    const linked = JSON.parse(localStorage.getItem("qa-lq-linked") || "[]");
+    const base = st.args.p_location === "q7" ? q7.items.map(decorate) : [
+      decorate({ item_id: "t1", item_code: "NVL-t1", name: "Đường cát Tân Tạo", unit: "g", exact_material: { id: "m7", material_code: "MAT-m7", canonical_name: "Đường cát Tân Tạo", default_unit: "g" }, material_unit: "g", unit_status: "same", auto_factor: null, candidates: [{ id: "m7", material_code: "MAT-m7", canonical_name: "Đường cát Tân Tạo", default_unit: "g", unit_status: "same", score: 1 }] }, 1),
+      decorate({ item_id: "t2", item_code: "NVL-t2", name: "Bao tay nilon", unit: "cái", exact_material: null, material_unit: null, unit_status: null, auto_factor: null, candidates: [] }, 0),
+    ];
+    const items = base.filter((it) => !skipped.includes(it.item_id) && !linked.includes(it.item_id));
+    const exact = items.filter((it) => it.exact_material).length;
+    return { data: { items, counts: { total: items.length, exact, auto: items.filter((it) => it.unit_status === "auto").length, needs_factor: items.filter((it) => it.unit_status === "needs_factor").length, none: items.filter((it) => !it.candidates.length).length, linked_total: linked.length, skipped: skipped.length } }, error: null };
+  }
+  if (st.table === "rpc:link_item_material") {
+    window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args));
+    const linked = JSON.parse(localStorage.getItem("qa-lq-linked") || "[]"); linked.push(st.args.p_item_id); localStorage.setItem("qa-lq-linked", JSON.stringify(linked));
+    return { data: { item_id: st.args.p_item_id, material_id: st.args.p_material_id ?? "new-mat", material_code: "MAT-X", canonical_name: "Mã chuẩn", created_material: !!st.args.p_create_new, request_id: null, location: "q7" }, error: null };
+  }
+  if (st.table === "rpc:link_exact_materials") {
+    window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args));
+    const linked = JSON.parse(localStorage.getItem("qa-lq-linked") || "[]"); linked.push("i1", "i2"); localStorage.setItem("qa-lq-linked", JSON.stringify(linked));
+    return { data: { linked: 2, needs_factor: [{ item_id: "i3", name: "Trứng gà 60gr", unit: "g", material_unit: "quả", factor_suggestion: null }], failed: [] }, error: null };
+  }
+  if (st.table === "rpc:skip_item_material_link") {
+    window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args));
+    const skipped = JSON.parse(localStorage.getItem("qa-lq-skip") || "[]"); skipped.push(st.args.p_item_id); localStorage.setItem("qa-lq-skip", JSON.stringify(skipped));
+    return { data: { item_id: st.args.p_item_id, skipped: true }, error: null };
+  }
   if (st.table === "rpc:link_q7_item_material") {
     window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args));
     return { data: { item_id: st.args.p_item_id, material_id: st.args.p_material_id ?? "new-mat", material_code: "MAT-X", canonical_name: "Mã chuẩn", created_material: !!st.args.p_create_new, request_id: null }, error: null };
@@ -728,7 +758,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
   await page.waitForTimeout(900);
   assert.ok((await page.locator(".kg .title-pill b").textContent()).includes("Xưởng dọn danh mục"));
   await page.screenshot({ path: `${EVIDENCE}/workshop-${viewport.width}.png` });
-  for (const [station, check] of [["Bàn gộp", "[data-bmq-catalog-merge]"], ["Bàn phân loại", "[data-bmq-catalog-classify]"], ["Bàn bánh ngọt", "[data-bmq-pastry-toggle]"], ["Bàn mã chuẩn Q7", "[data-bmq-link-station]"], ["Hàng mới đề xuất", "[data-bmq-new-items]"], ["Tên chờ gán mã", "[data-bmq-alias-backlog]"], ["Bảng bí danh", "[data-bmq-learned-aliases]"], ["Bàn xếp kho", "[data-bmq-routing-suppliers]"], ["Máy Jev", ".jev-meter"]]) {
+  for (const [station, check] of [["Bàn gộp", "[data-bmq-catalog-merge]"], ["Bàn phân loại", "[data-bmq-catalog-classify]"], ["Bàn bánh ngọt", "[data-bmq-pastry-toggle]"], ["Bàn mã chuẩn Q7", "[data-bmq-link-quest]"], ["Hàng mới đề xuất", "[data-bmq-new-items]"], ["Tên chờ gán mã", "[data-bmq-alias-backlog]"], ["Bảng bí danh", "[data-bmq-learned-aliases]"], ["Bàn xếp kho", "[data-bmq-routing-suppliers]"], ["Máy Jev", ".jev-meter"]]) {
     await page.getByRole("button", { name: new RegExp(`^${station}`) }).click({ force: true });
     await page.waitForTimeout(900);
     assert.ok((await page.locator(check).count()) >= 1, `${station} shows its tool at ${viewport.width}`);
@@ -752,37 +782,53 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       await page.screenshot({ path: `${EVIDENCE}/station-pastry-${viewport.width}.png` });
     }
     if (station === "Bàn mã chuẩn Q7") {
-      assert.equal(await page.locator("[data-bmq-link-row]").count(), 6, "every unlinked item is listed");
-      await page.locator("[data-bmq-link-bulk]").click({ force: true });
-      await page.waitForTimeout(400);
-      let writes = await page.evaluate(() => window.__qaWrites);
-      assert.ok(writes.some((w) => w.startsWith("rpc:link_q7_exact_materials:")), "bulk link sent");
-      const egg = page.locator("[data-bmq-link-row='Trứng gà 60gr']");
-      assert.equal(await egg.locator("[data-bmq-link-factor] input").inputValue(), "60", "factor read from the name");
-      const flour = page.locator("[data-bmq-link-row='Bột mì 888 Cam']");
-      assert.equal(await flour.locator("[data-bmq-link-save]").isDisabled(), true, "no factor, no save");
-      await flour.locator("[data-bmq-link-factor] input").fill("25000");
-      await page.screenshot({ path: `${EVIDENCE}/station-links-${viewport.width}.png`, fullPage: true });
-      await egg.locator("[data-bmq-link-save]").dispatchEvent("click");
+      // The deck: combo first, then one card at a time; "Để sau" shuffles, "Không phải NVL" skips server-side.
+      await page.evaluate(() => { localStorage.removeItem("qa-lq-skip"); localStorage.removeItem("qa-lq-linked"); sessionStorage.removeItem("bmq-link-quest-defer-q7"); });
+      await page.locator(".kg .hud .round-btn").first().click({ force: true });
       await page.waitForTimeout(500);
-      await flour.locator("[data-bmq-link-save]").dispatchEvent("click");
-      await page.waitForTimeout(300);
-      const cheese = page.locator("[data-bmq-link-row='Bottega zelachi italian grated cheese']");
-      await cheese.locator("[data-bmq-link-pick='Phomai Ý nghiền Bottega Zelachi (ĐTV)']").dispatchEvent("click");
-      await cheese.locator("[data-bmq-link-save]").dispatchEvent("click");
-      await page.waitForTimeout(300);
-      await page.locator("[data-bmq-link-row='Băng keo lớn'] [data-bmq-link-create]").dispatchEvent("click");
-      await page.waitForFunction(() => window.__qaWrites.some((w) => w.includes('"p_item_id":"i6"')), null, { timeout: 5000 }).catch(() => {});
+      await page.getByRole("button", { name: /^Bàn mã chuẩn Q7/ }).click({ force: true });
+      await page.waitForSelector("[data-bmq-lq-combo]", { timeout: 5000 });
+      assert.match(await page.locator("[data-bmq-lq-combo-all]").textContent(), /Gắn 2 món/, "combo offers the exact same/auto rows");
+      await page.screenshot({ path: `${EVIDENCE}/quest-combo-${viewport.width}.png` });
+      await page.locator("[data-bmq-lq-combo-all]").click({ force: true });
+      await page.waitForTimeout(700);
+      let writes = await page.evaluate(() => window.__qaWrites);
+      assert.ok(writes.some((w) => w.startsWith("rpc:link_exact_materials:") && w.includes('"p_location":"q7"')), "bulk link sent for q7");
+      // exact rows come first, by name: Bột mì (no size in the name → factor empty) then Trứng gà 60gr
+      await page.waitForFunction(() => document.querySelector("[data-bmq-lq-card]")?.getAttribute("data-bmq-lq-card") === "Bột mì 888 Cam", null, { timeout: 5000 });
+      assert.equal(await page.locator("[data-bmq-lq-link]").isDisabled(), true, "no factor, no link");
+      assert.equal(await page.locator("[data-bmq-lq-target] [data-bmq-receipt-notes]").count(), 1, "delivery notes shown with the unit question");
+      assert.equal(await overflow(page), 0, `quest card no overflow ${viewport.width}`);
+      await page.screenshot({ path: `${EVIDENCE}/quest-card-${viewport.width}.png`, fullPage: true });
+      await page.locator("[data-bmq-lq-factor]").fill("25000");
+      await page.locator("[data-bmq-lq-link]").dispatchEvent("click");
+      await page.waitForFunction(() => document.querySelector("[data-bmq-lq-card]")?.getAttribute("data-bmq-lq-card") === "Trứng gà 60gr", null, { timeout: 5000 });
+      assert.equal(await page.locator("[data-bmq-lq-factor]").inputValue(), "60", "factor read from the name");
+      await page.locator("[data-bmq-lq-link]").dispatchEvent("click");
+      await page.waitForFunction(() => document.querySelector("[data-bmq-lq-card]")?.getAttribute("data-bmq-lq-card") === "Bottega zelachi italian grated cheese", null, { timeout: 5000 });
+      await page.locator("[data-bmq-lq-cand='Phomai Ý nghiền Bottega Zelachi (ĐTV)']").dispatchEvent("click");
+      await page.locator("[data-bmq-lq-defer]").dispatchEvent("click");
+      await page.waitForFunction(() => document.querySelector("[data-bmq-lq-card]")?.getAttribute("data-bmq-lq-card") === "Băng keo lớn", null, { timeout: 5000 });
+      await page.locator("[data-bmq-lq-not]").dispatchEvent("click");
+      await page.waitForFunction(() => document.querySelector("[data-bmq-lq-card]")?.getAttribute("data-bmq-lq-card") === "Bottega zelachi italian grated cheese", null, { timeout: 5000 });
+      await page.locator("[data-bmq-lq-cand='Phomai Ý nghiền Bottega Zelachi (ĐTV)']").dispatchEvent("click");
+      await page.locator("[data-bmq-lq-link]").dispatchEvent("click");
+      await page.waitForSelector("[data-bmq-lq-done]", { timeout: 5000 });
       writes = await page.evaluate(() => window.__qaWrites);
-      const links = writes.filter((w) => w.startsWith("rpc:link_q7_item_material:")).map((w) => JSON.parse(w.slice("rpc:link_q7_item_material:".length)));
+      const links = writes.filter((w) => w.startsWith("rpc:link_item_material:")).map((w) => JSON.parse(w.slice("rpc:link_item_material:".length)));
       const eggW = links.find((l) => l.p_item_id === "i3");
       assert.ok(eggW && Math.abs(eggW.p_unit_factor - 1 / 60) < 1e-9 && eggW.p_material_id === "m3", `egg link ${JSON.stringify(eggW)}`);
       const flourW = links.find((l) => l.p_item_id === "i4");
       assert.ok(flourW && Math.abs(flourW.p_unit_factor - 1 / 25000) < 1e-12, `flour link ${JSON.stringify(flourW)}`);
       const cheeseW = links.find((l) => l.p_item_id === "i5");
       assert.ok(cheeseW && cheeseW.p_material_id === "m5" && cheeseW.p_unit_factor === null, `cheese link ${JSON.stringify(cheeseW)}`);
-      const tapeW = links.find((l) => l.p_item_id === "i6");
-      assert.ok(tapeW && tapeW.p_create_new === true && tapeW.p_material_id === null, `create link ${JSON.stringify(links)} rows=${await page.locator("[data-bmq-link-row]").count()}`);
+      assert.ok(writes.some((w) => w.startsWith("rpc:skip_item_material_link:") && w.includes('"p_item_id":"i6"')), "tape skipped as not material");
+      await page.screenshot({ path: `${EVIDENCE}/quest-done-${viewport.width}.png` });
+      // Tân Tạo deck through the switch
+      await page.locator("[data-bmq-quest-loc='tan_tao']").click({ force: true });
+      await page.waitForFunction(() => document.querySelector("[data-bmq-lq-card]")?.getAttribute("data-bmq-lq-card") === "Đường cát Tân Tạo", null, { timeout: 5000 });
+      assert.equal(await page.locator("[data-bmq-lq-cand] .lq-skus span").first().textContent(), "Bánh Mì Chà Bông", "SKU chips on the candidate");
+      await page.screenshot({ path: `${EVIDENCE}/quest-tantao-${viewport.width}.png` });
     }
     if (station === "Máy Jev") {
       await page.getByRole("button", { name: /Quét cặp trùng/ }).click({ force: true });

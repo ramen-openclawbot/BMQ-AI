@@ -33,11 +33,15 @@ import type { StockCountLine, StockCountLocation, StockCountSession } from "@/li
 import { useSuggestStockItemName } from "@/hooks/useSuggestStockItemName";
 import { InvoiceScanner } from "@/game/InvoiceScanner";
 import { RobotDesk, basketLineFor, loadBasket, saveBasket, type BasketLine } from "@/game/RobotDesk";
+import { LinkQuest, QUEST_LABEL } from "@/game/LinkQuest";
+import { useMaterialLinkReview } from "@/hooks/useMaterialLinkQuest";
+import type { MaterialLinkLocation } from "@/lib/material-link-quest";
 import "@/game/game.css";
 
 type View =
   | { kind: "yard" }
   | { kind: "robot" }
+  | { kind: "quest"; location: MaterialLinkLocation }
   | { kind: "workshop" }
   | { kind: "missions" }
   | { kind: "station"; id: StationId }
@@ -228,6 +232,9 @@ export default function WarehouseGame() {
   const newTt = useNewItemSuggestions("tan_tao");
   const routing = useStockRoutingReview();
   const q7Links = useQ7MaterialLinkReview(isOwner);
+  // Gắn mã chuẩn quest (owner 15/10): Tân Tạo count for the workshop badge; Q7 comes from q7Links.
+  const canLinkQuest = isOwner || canEditModule("material_master");
+  const ttLinks = useMaterialLinkReview("tan_tao", canLinkQuest);
   const missions = useMyMissions();
   const [ceremony, setCeremony] = useState<{ result: CompleteMissionResult; title: string } | null>(null);
   // Kiểm kê (owner 12/10): one open count sheet per warehouse.
@@ -262,7 +269,7 @@ export default function WarehouseGame() {
   const go = (next: View) => { setPanel(null); setQuery(""); setCountFilter("all"); setView(next); };
   const back = () => {
     if (view.kind === "shelf" || view.kind === "crates") go({ kind: "warehouse", location: view.location });
-    else if (view.kind === "station") go({ kind: "workshop" });
+    else if (view.kind === "station" || view.kind === "quest") go({ kind: "workshop" });
     else if (view.kind === "count-sheet") go({ kind: "count" });
     else if (view.kind === "warehouse" || view.kind === "workshop" || view.kind === "missions" || view.kind === "count" || view.kind === "robot") go({ kind: "yard" });
   };
@@ -289,7 +296,7 @@ export default function WarehouseGame() {
       : id === "backlog" ? totalCrates
       : id === "aliases" ? (aliasReview.data?.aliases.length ?? 0)
       : id === "routing" ? (routing.data ? routing.data.supplier_pending.length + routing.data.material_pending.length : 0)
-      : id === "links" ? (q7Links.data?.counts.total ?? 0)
+      : id === "links" ? (q7Links.data?.counts.total ?? 0) + (ttLinks.data?.counts.total ?? 0)
       : null;
     return { id, ...STATION_META[id], count: id === "aliases" ? null : count };
   });
@@ -303,6 +310,7 @@ export default function WarehouseGame() {
     : view.kind === "count-sheet" ? `Kiểm kê · ${LOCATION_LABEL[view.location]}`
     : view.kind === "workshop" ? "Xưởng dọn danh mục"
     : view.kind === "robot" ? "🤖 Robot đặt hàng"
+    : view.kind === "quest" ? "🧩 Gắn mã chuẩn"
     : view.kind === "missions" ? "Bảng nhiệm vụ"
     : view.kind === "station" ? `${STATION_META[view.id].icon} ${STATION_META[view.id].label}`
     : view.kind === "warehouse" ? LOCATION_LABEL[view.location]
@@ -313,6 +321,7 @@ export default function WarehouseGame() {
     : view.kind === "count-sheet" ? (countSession ? `Phiếu ${dmy(countSession.count_date)} · đã đếm ${countProgress(countSession).done}/${countProgress(countSession).total}` : "Chưa có phiếu đang mở")
     : view.kind === "workshop" ? (workshopTodo ? `${workshopTodo} việc đang chờ` : "Mọi bàn đã gọn")
     : view.kind === "robot" ? (basket.length ? `${basket.length} món trong giỏ` : "PO mới + trả đơn cũ")
+    : view.kind === "quest" ? QUEST_LABEL[view.location]
     : view.kind === "station" ? "Xưởng dọn danh mục"
     : view.kind === "missions" ? (missions.data?.level ? `Cấp ${missions.data.level.level} · ${missions.data.level.title} · ${missions.data.badges.total} 🐝` : "Làm xong nhận huy hiệu")
     : view.kind === "crates" ? `${LOCATION_LABEL[view.location]} · hàng chưa dán nhãn`
@@ -373,7 +382,29 @@ export default function WarehouseGame() {
 
         {view.kind === "workshop" ? (
           <Scene id={`workshop-${portrait}`} scroll>
-            <Workshop portrait={portrait} stations={stations} onStation={(id) => go({ kind: "station", id })} />
+            <Workshop portrait={portrait} stations={stations} onStation={(id) => (id === "links" ? go({ kind: "quest", location: "q7" }) : go({ kind: "station", id }))} />
+          </Scene>
+        ) : null}
+
+        {view.kind === "quest" ? (
+          <Scene id={`quest-${view.location}`} scroll>
+            <div className="lq-wrap">
+              <div className="loc-switch lq-loc" role="tablist" aria-label="Kho">
+                {(["q7", "tan_tao"] as MaterialLinkLocation[]).map((location) => (
+                  <button key={location} type="button" role="tab" aria-selected={view.location === location} className={view.location === location ? "is-on" : undefined} onClick={() => go({ kind: "quest", location })} data-bmq-quest-loc={location}>
+                    {QUEST_LABEL[location]}
+                  </button>
+                ))}
+              </div>
+            <LinkQuest
+              key={view.location}
+              location={view.location}
+              canEdit={canLinkQuest}
+              mission={missions.data?.missions.find((entry) => entry.progress.detail.some((row) => row.kind === "material_links" && row.location === view.location))}
+              onToast={setToast}
+              onCompleted={(result, done) => setCeremony({ result, title: done.title })}
+            />
+            </div>
           </Scene>
         ) : null}
 
@@ -578,6 +609,7 @@ export default function WarehouseGame() {
               onClose={() => setPanel(null)}
               onToast={setToast}
               onCompleted={(result, done) => { setPanel(null); setCeremony({ result, title: done.title }); }}
+              onOpenQuest={(location) => go({ kind: "quest", location })}
             />
           ) : null;
         })() : null}
