@@ -852,6 +852,32 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
   record("stock count empty 390");
   await context.close();
 }
+// Owner 14/10: a crate at Tân Tạo shows the picked item's "Bánh ngọt (Q7)" switch so the Q7 transfer can be turned off by hand.
+for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 640 }]) {
+  const { context, page, errors } = await open({ data: "populated", role: "owner", started: true }, "/warehouse/game", viewport);
+  await page.waitForSelector("[data-bmq-warehouse-game]", { timeout: 20000 });
+  await page.waitForTimeout(1200);
+  await page.getByRole("button", { name: /KHO TÂN TẠO/i }).click({ force: true });
+  await page.waitForTimeout(900);
+  await page.locator("[data-bmq-yard-gate]").click({ force: true });
+  await page.waitForSelector("[data-bmq-crate-yard='tan_tao']", { timeout: 8000 });
+  await page.locator("[data-bmq-crate]").first().click({ force: true });
+  await page.waitForTimeout(600);
+  if (await page.locator(".kg .sheet [data-bmq-picked]").count() === 0) { await page.locator(".kg .sheet .pick").first().click({ force: true }); await page.waitForTimeout(300); }
+  const pastrySwitch = page.locator(".kg .sheet [data-bmq-item-pastry] [role='switch']");
+  assert.equal(await pastrySwitch.count(), 1, `Tân Tạo crate sheet shows the pastry switch ${viewport.width}`);
+  const before = await pastrySwitch.getAttribute("aria-checked");
+  await page.evaluate(() => { window.__qaWrites.length = 0; });
+  await pastrySwitch.click({ force: true });
+  await page.waitForTimeout(300);
+  assert.notEqual(await pastrySwitch.getAttribute("aria-checked"), before, "pastry switch flips");
+  assert.ok((await page.evaluate(() => window.__qaWrites)).some((w) => w.startsWith("rpc:set_item_pastry_q7:")), "pastry switch writes");
+  assert.equal(await overflow(page), 0, `crate sheet no overflow ${viewport.width}`);
+  await page.screenshot({ path: `${EVIDENCE}/crate-pastry-switch-${viewport.width}.png` });
+  assert.equal(errors.length, 0, `no page errors: ${errors.join(" | ")}`);
+  await context.close();
+}
+
 // Manual Tân Tạo -> Q7 transfer slip (owner 12/10): build, validate, submit; ledger-not-started gate.
 for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 640 }]) {
   const { context, page, errors } = await open({ data: "populated", role: "owner", started: true }, "/warehouse/game", viewport);

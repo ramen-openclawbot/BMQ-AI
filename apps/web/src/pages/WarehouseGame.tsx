@@ -860,7 +860,10 @@ function CrateSheet({ location, crate, snapshot, autoPick = false, onAssigned, o
             <button type="button" className="pick-clear" onClick={() => setTarget(null)} aria-label={`Bỏ chọn ${target.name}`} data-bmq-unpick>✕ Bỏ chọn</button>
           </div>
           <UnitQuestion plan={plan} stockUnit={target.unit} label={packLabel} onLabel={setPackLabel} factorText={factorText} onFactor={setFactorText} />
-          {target.kind === "item" && snapshot.items.find((item) => item.id === target.id)?.pastry_q7 && location === "tan_tao" ? <p className="crate-q7-note">🧁 Món bánh ngọt: ghi sổ xong máy tự chuyển sang Kho Q7.</p> : null}
+          {target.kind === "item" && location === "tan_tao" ? (() => {
+            const picked = snapshot.items.find((item) => item.id === target.id);
+            return picked ? <PastrySwitch key={picked.id} item={picked} canEdit /> : null;
+          })() : null}
           {error ? <div className="err">{errorText(error)}</div> : null}
           <div className="row">
             <button type="button" className="btn" disabled={busy || !unitOk} onClick={() => send(target, "stock")}>{busy ? "Đang xếp…" : "Xếp vào kệ"}</button>
