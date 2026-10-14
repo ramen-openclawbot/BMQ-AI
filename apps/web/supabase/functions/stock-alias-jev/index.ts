@@ -6,11 +6,15 @@
 // only from the server environment (AI_GATEWAY_API_KEY) and is never forwarded to
 // the caller; `BMQ_JEV_KILL_SWITCH=true` refuses the request with 503 before any
 // data is read. No alias is applied here.
+//
+// The debt_review mode reads get_supplier_debt_candidates and writes
+// set_supplier_debt_mark_ai with the same service-role client.
 
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import { createMaterialAliasHandler, MaterialAliasError } from "./handler.ts";
 import { createJevEvaluator, JEV_TIMEOUT_MS, type JevEvaluator } from "./jev.ts";
 import { createNewItemJevEvaluator, type NewItemJevEvaluator } from "./new-items.ts";
+import { createDebtJevEvaluator, createDebtReviewStore, type DebtJevEvaluator } from "./debt-review.ts";
 import { createMaterialAliasStore } from "./store.ts";
 
 const url = Deno.env.get("SUPABASE_URL")!;
@@ -39,6 +43,18 @@ function newItemJevEvaluator(): NewItemJevEvaluator | null {
     newItemEvaluatorCache = null;
   }
   return newItemEvaluatorCache;
+}
+
+let debtEvaluatorCache: DebtJevEvaluator | null | undefined;
+function debtJevEvaluator(): DebtJevEvaluator | null {
+  if (debtEvaluatorCache !== undefined) return debtEvaluatorCache;
+  const key = Deno.env.get("AI_GATEWAY_API_KEY") ?? "";
+  try {
+    debtEvaluatorCache = key ? createDebtJevEvaluator({ apiKey: key, timeoutMs: JEV_TIMEOUT_MS }) : null;
+  } catch {
+    debtEvaluatorCache = null;
+  }
+  return debtEvaluatorCache;
 }
 
 function adminClient() {
@@ -106,6 +122,11 @@ Deno.serve(createMaterialAliasHandler({
     else void promise;
   },
   newItemEvaluator: newItemJevEvaluator,
+  getDebtCandidates: (supplierId) =>
+    createDebtReviewStore(adminClient()).getCandidates(supplierId),
+  writeDebtMarks: (supplierId, rows) =>
+    createDebtReviewStore(adminClient()).writeMarks(supplierId, rows),
+  debtEvaluator: debtJevEvaluator,
   authenticate: async (request, signal) => {
     const authorization = request.headers.get("authorization");
     if (!authorization?.startsWith("Bearer ") || authorization.length > 8192) {

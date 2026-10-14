@@ -42,6 +42,12 @@ import {
   type NewItemSuggestionRow,
   type NewItemUnmatchedRow,
 } from "./new-items.ts";
+import {
+  runDebtReview,
+  type DebtJevEvaluator,
+  type DebtMarkWriteRow,
+  type SupplierDebtCandidates,
+} from "./debt-review.ts";
 import { getCorsHeaders } from "../_shared/cors.ts";
 
 export const MATERIAL_ALIAS_REQUEST_BODY_LIMIT = 32_768;
@@ -56,7 +62,7 @@ export const MATERIAL_ALIAS_NEW_ITEM_DAYS_MAX = 365;
 export const MATERIAL_ALIAS_NEW_ITEM_BATCH_DEFAULT = 10;
 export const MATERIAL_ALIAS_NEW_ITEM_BATCH_MAX = 20;
 
-export type MaterialAliasMode = "lines" | "backlog" | "new_items";
+export type MaterialAliasMode = "lines" | "backlog" | "new_items" | "debt_review";
 
 export class MaterialAliasError extends Error {
   constructor(public readonly code: string, public readonly status: number) {
@@ -137,6 +143,11 @@ export interface MaterialAliasHandlerDeps {
   getCacheMany?: (keys: MaterialAliasCacheKey[]) => Promise<Array<{ answer: CachedJevAnswer; cost: number | null } | null>>;
   getRawCacheMany?: (keys: MaterialAliasCacheKey[]) => Promise<Array<{ answer: Record<string, unknown>; cost: number | null } | null>>;
   newItemEvaluator?: () => NewItemJevEvaluator | null;
+  /** debt_review mode: read one supplier's old debt candidates, service client. */
+  getDebtCandidates?: (supplierId: string) => Promise<SupplierDebtCandidates>;
+  /** debt_review mode: write Jev marks (service_role-only RPC). */
+  writeDebtMarks?: (supplierId: string, rows: DebtMarkWriteRow[]) => Promise<void>;
+  debtEvaluator?: () => DebtJevEvaluator | null;
   /** Background new-item run bookkeeping (stock_new_item_runs). */
   getActiveNewItemRun?: (location: string) => Promise<NewItemRunRow | null>;
   createNewItemRun?: (location: string, startedBy: string | null) => Promise<NewItemRunRow>;
@@ -180,7 +191,12 @@ interface ParsedNewItemsInput {
   background: boolean;
 }
 
-type ParsedInput = ParsedLinesInput | ParsedBacklogInput | ParsedNewItemsInput;
+interface ParsedDebtReviewInput {
+  mode: "debt_review";
+  supplierId: string;
+}
+
+type ParsedInput = ParsedLinesInput | ParsedBacklogInput | ParsedNewItemsInput | ParsedDebtReviewInput;
 
 const MESSAGES: Record<string, string> = {
   disabled: "Tính năng học bí danh NVL bằng Jev đang tắt.",
@@ -314,9 +330,24 @@ function parseInput(raw: Record<string, unknown>): ParsedInput {
       throw new MaterialAliasError("invalid_request", 400);
     }
   }
+  const mode = raw.mode;
+  // debt_review is finance-scoped: { mode, supplier_id } only, no location.
+  if (mode === "debt_review") {
+    if (
+      raw.location !== undefined || raw.lines !== undefined
+      || raw.batch_size !== undefined || raw.days !== undefined || raw.background !== undefined
+    ) {
+      throw new MaterialAliasError("invalid_request", 400);
+    }
+    const supplierId = raw.supplier_id;
+    if (typeof supplierId !== "string" || supplierId.trim() === "") {
+      throw new MaterialAliasError("invalid_request", 400);
+    }
+    return { mode: "debt_review", supplierId: supplierId.trim() };
+  }
+
   const location = raw.location;
   if (location !== "q7" && location !== "tan_tao") throw new MaterialAliasError("invalid_request", 400);
-  const mode = raw.mode;
   if (mode === "backlog") {
     if (raw.supplier_id !== undefined || raw.lines !== undefined || raw.days !== undefined || raw.background !== undefined) {
       throw new MaterialAliasError("invalid_request", 400);
@@ -995,6 +1026,47 @@ export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
         evaluator = deps.evaluator();
       } catch {
         evaluator = null;
+      }
+
+      // debt_review: rate the supplier's unmarked old documents with Jev and
+      // write the marks through set_supplier_debt_mark_ai. Shares the daily quota.
+      if (input.mode === "debt_review") {
+        if (!deps.getDebtCandidates || !deps.writeDebtMarks) {
+          throw new MaterialAliasError("unconfigured", 503);
+        }
+        let debtEvaluator: DebtJevEvaluator | null = null;
+        try {
+          debtEvaluator = deps.debtEvaluator?.() ?? null;
+        } catch {
+          debtEvaluator = null;
+        }
+        if (!debtEvaluator) throw new MaterialAliasError("unconfigured", 503);
+        const run = await runDebtReview(
+          {
+            evaluator: () => debtEvaluator,
+            getCandidates: deps.getDebtCandidates,
+            writeMarks: deps.writeDebtMarks,
+            incrementUsage: deps.incrementUsage,
+          },
+          input.supplierId,
+          { signal, deadlineAt, usageDate, remainingQuota },
+        );
+        deps.audit?.({
+          event: "stock_alias_jev",
+          mode: "debt_review",
+          supplier_id: input.supplierId,
+          evaluated: run.evaluated,
+          marked: run.marked,
+          stopped: run.stopped,
+        });
+        return json({
+          mode: "debt_review",
+          supplier_id: run.supplier_id,
+          evaluated: run.evaluated,
+          marked: run.marked,
+          stopped: run.stopped,
+          usage: { date: usageDate, calls: usage.calls + run.evaluated, limit: callLimit },
+        });
       }
 
       let calls = 0;
