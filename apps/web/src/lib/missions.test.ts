@@ -95,6 +95,27 @@ test("parseMissionDetailEntry tags each rule shape", () => {
   assert.throws(() => parseMissionDetailEntry(null), TypeError);
 });
 
+test("parseMissionDetailEntry tags the material_links_done detail row", () => {
+  const links = parseMissionDetailEntry({
+    location: "q7",
+    remaining: 4,
+    linked: 10,
+    exact: 2,
+    skipped: 1,
+  });
+  assert.equal(links.kind, "material_links");
+  assert.equal(links.location, "q7");
+  assert.equal(links.remaining, 4);
+  assert.equal(links.linked, 10);
+  assert.equal(links.exact, 2);
+  assert.equal(links.skipped, 1);
+
+  const sparse = parseMissionDetailEntry({ location: "tan_tao", remaining: 0 });
+  assert.equal(sparse.kind, "material_links");
+  assert.equal(sparse.remaining, 0);
+  assert.equal(sparse.linked, 0);
+});
+
 test("parseMissionLevel requires level, title and min_badges", () => {
   assert.deepEqual(parseMissionLevel({ level: 2, title: "Thợ kho", min_badges: 3 }), {
     level: 2,

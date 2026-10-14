@@ -62,10 +62,21 @@ export interface MissionUnknownUnitDetail {
   source_table: string;
 }
 
+/** material_links_done detail row (one per location). */
+export interface MissionMaterialLinksDetail {
+  kind: "material_links";
+  location: string;
+  remaining: number;
+  linked: number;
+  exact: number;
+  skipped: number;
+}
+
 export type MissionDetail =
   | MissionAliasDetail
   | MissionDuplicateDetail
-  | MissionUnknownUnitDetail;
+  | MissionUnknownUnitDetail
+  | MissionMaterialLinksDetail;
 
 export interface MissionEvaluation {
   done: boolean;
@@ -231,6 +242,16 @@ export function parseMissionDetailEntry(raw: unknown, path = "detail"): MissionD
       active: asBoolean(row.active, `${path}.active`),
       on_hand: asNumber(row.on_hand, `${path}.on_hand`),
       alias_count: asNumber(row.alias_count, `${path}.alias_count`),
+    };
+  }
+  if ("remaining" in row && "location" in row) {
+    return {
+      kind: "material_links",
+      location: asString(row.location, `${path}.location`),
+      remaining: asNumber(row.remaining ?? 0, `${path}.remaining`),
+      linked: asNumber(row.linked ?? 0, `${path}.linked`),
+      exact: asNumber(row.exact ?? 0, `${path}.exact`),
+      skipped: asNumber(row.skipped ?? 0, `${path}.skipped`),
     };
   }
   return {

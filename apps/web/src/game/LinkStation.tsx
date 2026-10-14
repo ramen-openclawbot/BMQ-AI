@@ -3,27 +3,9 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLinkQ7ExactMaterials, useLinkQ7ItemMaterial, useQ7MaterialLinkReview } from "@/hooks/useQ7MaterialLinks";
 import { q7MaterialLinkErrorCode, q7MaterialLinkErrorText, type Q7MaterialLinkCandidate, type Q7MaterialLinkReviewItem, type Q7UnitStatus } from "@/lib/q7-material-links";
+import { factorPrefill } from "@/lib/material-link-quest";
 
-const WEIGHT_VOLUME: Record<string, number> = { g: 1, gr: 1, gram: 1, kg: 1000, ml: 1, l: 1000, lit: 1000, "lít": 1000 };
-const unitKey = (unit: string) => unit.trim().toLowerCase();
-
-/**
- * "1 {material unit} = ? {item unit}" prefill, read from the item name ("Trứng gà 60gr" → 60 g/quả,
- * "Bột mì 25kg" → 25000 g/bao, "Sữa tươi 1L" → 1000 g/lít). Only for an item counted in g / ml.
- */
-export function factorPrefill(name: string, itemUnit: string, materialUnit: string): number | null {
-  const base = WEIGHT_VOLUME[unitKey(itemUnit)];
-  if (base !== 1) return null;
-  const match = name.toLowerCase().match(/(\d+(?:[.,]\d+)?)\s*(kg|gram|gr|g|lít|lit|ml|l)\b/u);
-  if (match) {
-    const qty = Number(match[1].replace(",", "."));
-    const mult = WEIGHT_VOLUME[match[2]];
-    if (Number.isFinite(qty) && qty > 0 && mult) return qty * mult;
-  }
-  // No size in the name: 1 lít of a liquid ≈ 1000 g / ml.
-  const mat = unitKey(materialUnit);
-  return mat === "lít" || mat === "lit" || mat === "l" ? 1000 : null;
-}
+export { factorPrefill } from "@/lib/material-link-quest";
 
 const parsePositive = (text: string) => {
   const value = Number(text.replace(/\s/g, "").replace(",", "."));
