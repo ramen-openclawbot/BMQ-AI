@@ -48,6 +48,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { KFM_DAILY_MOQ_PIECES, kfmMoqPieces } from "@/lib/kfm-moq";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { Link } from "react-router-dom";
@@ -110,6 +111,7 @@ interface ProductionOrder {
   items?: ProductionOrderItem[];
   revenue_draft_id?: string | null;
   sales_po_doc_id?: string | null;
+  is_kfm?: boolean;
 }
 
 interface ProductionOrderItem {
@@ -376,6 +378,11 @@ const getProductionOrderDateIso = (order: ProductionOrder) => {
   return normalizeDateForDb(order.planned_start_date) || itemDates.sort()[0] || null;
 };
 
+const ITEMS_PAGE_SIZE = 1000;
+
+const getProductionOrderMoqPieces = (order: ProductionOrder) =>
+  kfmMoqPieces((order.items || []).map((item) => ({ product_name: item.product_name, qty: Number(item.planned_qty ?? item.ordered_qty ?? 0) })));
+
 const getProductionOrderTotalQty = (order: ProductionOrder) =>
   (order.items || []).reduce((sum, item) => sum + Number(item.planned_qty ?? item.ordered_qty ?? 0), 0);
 
@@ -548,18 +555,38 @@ export default function ProductionPlanning() {
         const orderIds = (orders || []).map((order: any) => order.id);
         const itemsByOrderId = new Map<string, ProductionOrderItem[]>();
 
+        const kfmOrderIds = new Set<string>();
         if (orderIds.length > 0) {
-          const { data: items, error: itemsError } = await (supabase as any)
-            .from("production_order_items")
-            .select("*")
-            .in("production_order_id", orderIds)
-            .order("created_at");
-
-          if (itemsError) {
-            console.error("Error fetching order items:", itemsError);
+          // PostgREST returns at most 1000 rows per request; page until the last short page.
+          const items: ProductionOrderItem[] = [];
+          for (let from = 0; ; from += ITEMS_PAGE_SIZE) {
+            const { data: page, error: itemsError } = await (supabase as any)
+              .from("production_order_items")
+              .select("*")
+              .order("created_at")
+              .order("id")
+              .range(from, from + ITEMS_PAGE_SIZE - 1);
+            if (itemsError) throw itemsError;
+            items.push(...((page || []) as ProductionOrderItem[]));
+            if (!page || page.length < ITEMS_PAGE_SIZE) break;
           }
 
-          ((items || []) as ProductionOrderItem[]).forEach((item) => {
+          const sourcePoIds = [...new Set((orders || []).map((order: any) => order.source_po_inbox_id).filter(Boolean))];
+          if (sourcePoIds.length > 0) {
+            const { data: sourcePos, error: sourceError } = await (supabase as any)
+              .from("customer_po_inbox")
+              .select("id,from_name,from_email,email_subject,raw_payload")
+              .in("id", sourcePoIds);
+            if (sourceError) console.error("Error fetching source POs:", sourceError);
+            const kfmPoIds = new Set(
+              ((sourcePos || []) as CustomerPoInbox[]).filter((po) => isPortalPo(po) || isKingfoodPo(po)).map((po) => po.id),
+            );
+            (orders || []).forEach((order: any) => {
+              if (kfmPoIds.has(order.source_po_inbox_id)) kfmOrderIds.add(order.id);
+            });
+          }
+
+          items.forEach((item) => {
             const orderItems = itemsByOrderId.get(item.production_order_id) || [];
             orderItems.push(item);
             itemsByOrderId.set(item.production_order_id, orderItems);
@@ -568,7 +595,7 @@ export default function ProductionPlanning() {
 
         return (orders || []).map((order: any) => {
           const items = itemsByOrderId.get(order.id) || [];
-          return { ...order, items, items_count: items.length };
+          return { ...order, items, items_count: items.length, is_kfm: kfmOrderIds.has(order.id) };
         }) as ProductionOrder[];
       } catch (error) {
         console.error("Error fetching production orders:", error);
@@ -577,6 +604,17 @@ export default function ProductionPlanning() {
       }
     },
   });
+
+  // KFM MOQ applies to all KFM POs of one delivery day together.
+  const kfmMoqPiecesByDate = useMemo(() => {
+    const byDate = new Map<string, number>();
+    productionOrders.forEach((order) => {
+      const dateIso = getProductionOrderDateIso(order);
+      if (!order.is_kfm || order.status === "cancelled" || !dateIso) return;
+      byDate.set(dateIso, (byDate.get(dateIso) || 0) + getProductionOrderMoqPieces(order));
+    });
+    return byDate;
+  }, [productionOrders]);
 
   const { data: orderItems = {} } = useQuery({
     queryKey: ["production-order-items", expandedOrderId],
@@ -1533,6 +1571,8 @@ export default function ProductionPlanning() {
                       const pdfMessage = materialIssuePdfMessages[order.id];
                       const expanded = expandedOrderId === order.id;
                       const unit = order.items?.[0]?.unit || (isVi ? "sp" : "units");
+                      const orderDateIso = getProductionOrderDateIso(order);
+                      const moqPieces = order.is_kfm && orderDateIso ? kfmMoqPiecesByDate.get(orderDateIso) ?? 0 : null;
                       const counterpart = [order.po_number, order.customer_name].filter(Boolean).join(" · ");
                       return (
                         <div key={order.id} className={`d3-pp-order${expanded ? " is-open" : ""}`}>
@@ -1556,7 +1596,19 @@ export default function ProductionPlanning() {
                                 {order.revenue_draft_id ? (isVi ? " · Duyệt DT" : " · Revenue draft") : ""}
                               </small>
                             </span>
-                            <span className="d3-pp-oqty"><strong>{totalQty.toLocaleString("vi-VN")}</strong><small>{unit}</small></span>
+                            <span className="d3-pp-oqty">
+                              <strong>{totalQty.toLocaleString("vi-VN")}</strong>
+                              <small>{unit}</small>
+                              {moqPieces !== null && (
+                                <em
+                                  className={`d3-pp-omoq${moqPieces < KFM_DAILY_MOQ_PIECES ? " is-short" : ""}`}
+                                  title={isVi ? "MOQ KFM: tổng cái của các PO KFM cùng ngày" : "KFM MOQ: pieces across the day's KFM POs"}
+                                  data-testid={`kfm-moq-${order.id}`}
+                                >
+                                  {moqPieces.toLocaleString("vi-VN")}/{KFM_DAILY_MOQ_PIECES}
+                                </em>
+                              )}
+                            </span>
                             <ChevronDown className="d3-pp-ochev h-4 w-4" aria-hidden="true" />
                           </button>
                           {expanded && (

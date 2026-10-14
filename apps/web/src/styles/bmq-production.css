@@ -311,6 +311,8 @@ button.d3-pp-row:disabled { opacity: .55; cursor: not-allowed; }
 .d3-pp-oqty { text-align: right; }
 .d3-pp-oqty strong { display: block; font: 200 26px/1 var(--d3-num); letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
 .d3-pp-oqty small { display: block; margin-top: 2px; font-size: 10.5px; color: var(--d3-dim); }
+.d3-pp-omoq { display: inline-block; margin-top: 4px; padding: 1px 6px; border-radius: 6px; font: 500 11px/1.5 var(--d3-num); font-style: normal; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--d3-green); background: color-mix(in srgb, var(--d3-green) 12%, transparent); }
+.d3-pp-omoq.is-short { color: var(--d3-red); background: color-mix(in srgb, var(--d3-red) 12%, transparent); }
 .d3-pp-ochev { color: var(--d3-faint); transition: transform .3s var(--d3-ease); }
 .d3-pp-order.is-open .d3-pp-ochev { transform: rotate(180deg); color: var(--d3-ink); }
 

@@ -81,12 +81,14 @@ const INBOX = [0, 1].flatMap((offset) => {
       production_items: [item("sku-xx", "Bánh mì que xá xíu", 820, day), item("sku-pate", "Bánh mì que pate", 400, day)] },
   ];
 });
+// Source PO already turned into orders: KFM by portal source, hidden from the pending list.
+INBOX.push({ id: "po-kfm-linked", po_number: "KFM-PO-1190", from_name: "KingFoodMart", delivery_date: vnDay(0), match_status: "approved", total_amount: 0, attachment_names: [], raw_payload: { source: "kfm_portal" }, production_items: [] });
 const ORDERS = [
-  { id: "ord-1", production_number: "SX-Q7-0301", status: "planned", po_number: "KFM-PO-1190", customer_name: "KingFoodMart", planned_start_date: vnDay(0), planned_end_date: vnDay(0), items_count: 2, revenue_draft_id: null, location_code: "Q7", created_at: nowIso,
+  { id: "ord-1", source_po_inbox_id: "po-kfm-linked", production_number: "SX-Q7-0301", status: "planned", po_number: "KFM-PO-1190", customer_name: "KingFoodMart", planned_start_date: vnDay(0), planned_end_date: vnDay(0), items_count: 2, revenue_draft_id: null, location_code: "Q7", created_at: nowIso,
     items: [{ id: "oi-1", product_name: "Bánh mì que pate", planned_qty: 1800, ordered_qty: 1800, unit: "que", delivery_date: vnDay(0) }, { id: "oi-2", product_name: "Bánh mì que bơ sữa", planned_qty: 900, ordered_qty: 900, unit: "que", delivery_date: vnDay(0) }] },
   { id: "ord-2", production_number: "SX-Q7-0300", status: "completed", po_number: "NPP-BT-80", customer_name: "NPP Bình Tân", planned_start_date: vnDay(1), planned_end_date: vnDay(1), items_count: 1, revenue_draft_id: null, location_code: "Q7", created_at: nowIso,
     items: [{ id: "oi-3", product_name: "Bánh mì que xá xíu", planned_qty: 600, ordered_qty: 600, unit: "que", delivery_date: vnDay(1) }] },
-  { id: "ord-3", production_number: "SX-Q7-0302", status: "planned", po_number: "KFM-PO-1203", customer_name: "KingFoodMart", planned_start_date: vnDay(-1), planned_end_date: vnDay(-1), items_count: 1, revenue_draft_id: null, location_code: "Q7", created_at: nowIso,
+  { id: "ord-3", source_po_inbox_id: "po-kfm-linked", production_number: "SX-Q7-0302", status: "planned", po_number: "KFM-PO-1203", customer_name: "KingFoodMart", planned_start_date: vnDay(-1), planned_end_date: vnDay(-1), items_count: 1, revenue_draft_id: null, location_code: "Q7", created_at: nowIso,
     items: [{ id: "oi-4", product_name: "Bánh mì que pate", planned_qty: 2100, ordered_qty: 2100, unit: "que", delivery_date: vnDay(-1) }] },
 ];
 function fixtureRows(st) {
@@ -313,6 +315,9 @@ try {
         assert.equal(await page.locator(".d3-pp-grp").count(), 3, "next 3 days");
         assert.ok(await page.locator(".d3-pp-row", { hasText: "NPP-BT" }).count() > 0, "other PO row listed");
         assert.equal(await page.locator(".d3-pp-order").count(), 3, "orders listed");
+        // KFM MOQ: pieces of the day's KFM orders over 1500; non-KFM orders show none.
+        assert.equal((await page.locator("[data-testid='kfm-moq-ord-1']").textContent()).trim(), "2.700/1500", "KFM MOQ line");
+        assert.equal(await page.locator("[data-testid='kfm-moq-ord-2']").count(), 0, "no MOQ for non-KFM order");
       }
       if (data === "populated" && viewport.width === 390) {
         await page.locator(".d3-pp-order-row").first().click();
