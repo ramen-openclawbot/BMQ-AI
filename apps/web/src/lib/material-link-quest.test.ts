@@ -6,6 +6,8 @@ import {
   bulkableRows,
   deckOrder,
   factorPrefill,
+  itemFactorPrefill,
+  parseMaterialLinkPendingFactors,
   parseMaterialLinkReview,
   type MaterialLinkReviewItem,
 } from "./material-link-quest.ts";
@@ -40,6 +42,16 @@ const validReview = {
         },
       ],
       last_buy: { supplier_name: "Đại Phát", date: "2026-10-20" },
+      last_purchase_line: {
+        doc_kind: "gr",
+        doc_number: "GRN-000585",
+        date: "2026-10-18",
+        supplier_name: "Đại Phát",
+        raw_name: "Bột mì 888 (bao 25kg)",
+        quantity: 25,
+        unit: "bao",
+        unit_price: 480000,
+      },
       receipt_photo_count: 2,
     },
     {
@@ -54,10 +66,11 @@ const validReview = {
       factor_suggestion: null,
       candidates: [],
       last_buy: null,
+      last_purchase_line: null,
       receipt_photo_count: 0,
     },
   ],
-  counts: { total: 2, exact: 1, auto: 0, needs_factor: 0, none: 1, linked_total: 5, skipped: 3 },
+  counts: { total: 2, exact: 1, auto: 0, needs_factor: 0, none: 1, linked_total: 5, skipped: 3, pending_factor: 4 },
 };
 
 test("parseMaterialLinkReview reads the two-warehouse payload", () => {
@@ -68,9 +81,20 @@ test("parseMaterialLinkReview reads the two-warehouse payload", () => {
   assert.equal(review.items[0].exact_material?.score, 1);
   assert.deepEqual(review.items[0].exact_material?.skus, ["Bánh mì"]);
   assert.deepEqual(review.items[0].last_buy, { supplier_name: "Đại Phát", date: "2026-10-20" });
+  assert.deepEqual(review.items[0].last_purchase_line, {
+    doc_kind: "gr",
+    doc_number: "GRN-000585",
+    date: "2026-10-18",
+    supplier_name: "Đại Phát",
+    raw_name: "Bột mì 888 (bao 25kg)",
+    quantity: 25,
+    unit: "bao",
+    unit_price: 480000,
+  });
   assert.equal(review.items[0].receipt_photo_count, 2);
   assert.equal(review.items[1].exact_material, null);
   assert.equal(review.items[1].last_buy, null);
+  assert.equal(review.items[1].last_purchase_line, null);
   assert.deepEqual(review.counts, {
     total: 2,
     exact: 1,
@@ -79,6 +103,7 @@ test("parseMaterialLinkReview reads the two-warehouse payload", () => {
     none: 1,
     linked_total: 5,
     skipped: 3,
+    pending_factor: 4,
   });
 });
 
@@ -93,6 +118,7 @@ test("parseMaterialLinkReview tolerates missing arrays and counts", () => {
     none: 0,
     linked_total: 0,
     skipped: 0,
+    pending_factor: 0,
   });
 
   const sparse = parseMaterialLinkReview({
@@ -110,7 +136,9 @@ test("parseMaterialLinkReview tolerates missing arrays and counts", () => {
   assert.deepEqual(sparse.items[0].exact_material, null);
   assert.equal(sparse.items[0].receipt_photo_count, 0);
   assert.equal(sparse.items[0].last_buy, null);
+  assert.equal(sparse.items[0].last_purchase_line, null);
   assert.equal(sparse.counts.total, 0);
+  assert.equal(sparse.counts.pending_factor, 0);
 
   assert.throws(() => parseMaterialLinkReview({ items: [{ item_id: 42 }] }), TypeError);
 });
@@ -162,6 +190,7 @@ function item(
     auto_factor: null,
     candidates: [],
     last_buy: null,
+    last_purchase_line: null,
     receipt_photo_count: 0,
   };
   if (opts.exact) {
@@ -228,4 +257,93 @@ test("factorPrefill reads package size from the item name", () => {
   assert.equal(factorPrefill("Sữa tươi", "g", "g"), null);
   assert.equal(factorPrefill("Sữa tươi", "g", "lít"), 1000);
   assert.equal(factorPrefill("Bột mì 25kg", "bao", "g"), null);
+});
+
+test("itemFactorPrefill reads the size from the item then the material name", () => {
+  // The owner's case: a 20L bottle read from the material name → 20000 g/bình.
+  assert.equal(
+    itemFactorPrefill("Nước uống Vĩnh Hảo", "bình", "Nước Vihawa 20L Bình Vòi", "g"),
+    20000,
+  );
+  assert.equal(
+    itemFactorPrefill("Bột mì 888 Cam", "bao", "Bột mì 888 Cam (25kg)", "g"),
+    25000,
+  );
+  assert.equal(itemFactorPrefill("Bột mì 888 Cam", "bao", "Bột mì 888 Cam", "kg"), null);
+  // Size in the item name wins over a size in the material name.
+  assert.equal(
+    itemFactorPrefill("Nước mắm 500ml", "chai", "Nước mắm 1L", "ml"),
+    500,
+  );
+  assert.equal(itemFactorPrefill("Nước suối 1L", "bình", "Nước suối", "g"), 1000);
+  assert.equal(itemFactorPrefill("Nước suối 1L", "bình", "Nước suối", "lít"), 1);
+  assert.equal(itemFactorPrefill("Nước suối 25kg", "bao", "Nước suối", "kg"), 25);
+  // Material counted in a count unit → no factor to prefill.
+  assert.equal(itemFactorPrefill("Nước suối 20L", "bình", "Nước Vihawa", "bình"), null);
+  assert.equal(itemFactorPrefill("Nước suối", "bình", "Nước suối", "g"), null);
+});
+
+test("parseMaterialLinkPendingFactors reads the pending RPC payload", () => {
+  const rows = parseMaterialLinkPendingFactors({
+    items: [
+      {
+        item_id: "11111111-1111-1111-1111-111111111111",
+        name: "Nước uống Vĩnh Hảo",
+        unit: "bình",
+        material_id: "22222222-2222-2222-2222-222222222222",
+        material_code: "NVL-NUOC-VINH-HAO",
+        canonical_name: "Nước uống Vĩnh Hảo",
+        material_unit: "g",
+        last_purchase_line: {
+          doc_kind: "po",
+          doc_number: "PO-000842",
+          date: "2026-10-14",
+          supplier_name: null,
+          raw_name: "NƯỚC VĨNH HẢO 20L",
+          quantity: 10,
+          unit: "bình",
+          unit_price: null,
+        },
+      },
+    ],
+  });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].material_unit, "g");
+  assert.equal(rows[0].last_purchase_line?.doc_kind, "po");
+  assert.equal(rows[0].last_purchase_line?.doc_number, "PO-000842");
+  assert.equal(rows[0].last_purchase_line?.unit_price, null);
+  assert.equal(rows[0].last_purchase_line?.quantity, 10);
+
+  // A bare array is tolerated and missing data degrades safely.
+  assert.equal(parseMaterialLinkPendingFactors([]).length, 0);
+  assert.equal(parseMaterialLinkPendingFactors(null).length, 0);
+  const bare = parseMaterialLinkPendingFactors([
+    {
+      item_id: "33333333-3333-3333-3333-333333333333",
+      name: "Đường",
+      unit: "bao",
+      material_id: "44444444-4444-4444-4444-444444444444",
+      material_code: "NVL-DUONG",
+      canonical_name: "Đường cát",
+      material_unit: "kg",
+    },
+  ]);
+  assert.equal(bare[0].last_purchase_line, null);
+});
+
+test("parseMaterialLinkReview tolerates a malformed last_purchase_line", () => {
+  assert.throws(
+    () =>
+      parseMaterialLinkReview({
+        items: [
+          {
+            item_id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            name: "Muối",
+            unit: "g",
+            last_purchase_line: { doc_kind: "xx" },
+          },
+        ],
+      }),
+    TypeError,
+  );
 });

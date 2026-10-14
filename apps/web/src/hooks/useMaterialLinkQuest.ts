@@ -2,8 +2,10 @@ import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tansta
 
 import { supabase } from "@/integrations/supabase/client";
 import {
+  parseMaterialLinkPendingFactors,
   parseMaterialLinkReview,
   type MaterialLinkLocation,
+  type MaterialLinkPendingFactor,
   type MaterialLinkReview,
 } from "@/lib/material-link-quest";
 import {
@@ -17,6 +19,7 @@ import { Q7_MATERIAL_LINK_REVIEW_QUERY_KEY } from "./useQ7MaterialLinks";
 import { WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY } from "./useWarehouseGame";
 
 export const MATERIAL_LINK_REVIEW_QUERY_KEY = "material-link-review";
+export const MATERIAL_LINK_PENDING_FACTORS_QUERY_KEY = "material-link-pending-factors";
 
 /** The new RPC names are not in the generated Database type yet. */
 const rpcClient = supabase as any;
@@ -25,6 +28,7 @@ const rpcClient = supabase as any;
 function invalidateMaterialLinks(queryClient: QueryClient): void {
   void queryClient.invalidateQueries({ queryKey: [MATERIAL_LINK_REVIEW_QUERY_KEY] });
   void queryClient.invalidateQueries({ queryKey: [Q7_MATERIAL_LINK_REVIEW_QUERY_KEY] });
+  void queryClient.invalidateQueries({ queryKey: [MATERIAL_LINK_PENDING_FACTORS_QUERY_KEY] });
   void queryClient.invalidateQueries({ queryKey: [MISSIONS_QUERY_KEY] });
   void queryClient.invalidateQueries({ queryKey: [WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY] });
 }
@@ -57,6 +61,12 @@ export interface LinkItemMaterialInput {
    * for a non-standard unit pair; defaults to null.
    */
   unitFactor?: number | null;
+  /**
+   * Link now and ask for the unit factor later (owner "để sau"); defaults to
+   * false. When true and no factor is given, no unit conversion is written and
+   * the item is recorded in material_link_pending_factors.
+   */
+  deferFactor?: boolean;
 }
 
 /** Link one item of either warehouse to a material (idempotent by request id). */
@@ -70,11 +80,63 @@ export function useLinkItemMaterial() {
         p_create_new: input.createNew ?? false,
         p_request_id: input.requestId ?? crypto.randomUUID(),
         p_unit_factor: input.unitFactor ?? null,
+        p_defer_factor: input.deferFactor ?? false,
       });
       if (error) throw error;
       return parseQ7MaterialLinkResult(data);
     },
     onSuccess: () => invalidateMaterialLinks(queryClient),
+  });
+}
+
+export interface SetItemMaterialFactorInput {
+  itemId: string;
+  /**
+   * Material units per 1 item unit (the stored conversion factor); null clears
+   * the conversion and puts the item back to pending.
+   */
+  factor: number | null;
+}
+
+export interface SetItemMaterialFactorResult {
+  item_id: string;
+  material_id: string;
+  item_unit: string;
+  material_unit: string;
+  factor: number | null;
+  pending: boolean;
+}
+
+/** Set, change or clear the unit factor of an already linked item. */
+export function useSetItemMaterialFactor() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (
+      input: SetItemMaterialFactorInput,
+    ): Promise<SetItemMaterialFactorResult> => {
+      const { data, error } = await rpcClient.rpc("set_item_material_factor", {
+        p_item_id: input.itemId,
+        p_factor: input.factor,
+      });
+      if (error) throw error;
+      return data as SetItemMaterialFactorResult;
+    },
+    onSuccess: () => invalidateMaterialLinks(queryClient),
+  });
+}
+
+/** Linked items of one warehouse that still wait for a unit factor. */
+export function useMaterialLinkPendingFactors(location: MaterialLinkLocation, enabled = true) {
+  return useQuery({
+    queryKey: [MATERIAL_LINK_PENDING_FACTORS_QUERY_KEY, location],
+    enabled,
+    queryFn: async (): Promise<MaterialLinkPendingFactor[]> => {
+      const { data, error } = await rpcClient.rpc("get_material_link_pending_factors", {
+        p_location: location,
+      });
+      if (error) throw error;
+      return parseMaterialLinkPendingFactors(data);
+    },
   });
 }
 

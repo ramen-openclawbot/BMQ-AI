@@ -30,6 +30,23 @@ export interface MaterialLinkLastBuy {
   date: string;
 }
 
+export type MaterialLinkDocKind = "po" | "gr";
+
+/**
+ * Newest purchase-order or goods-receipt line that matches the item's aliases
+ * or the item's own accent-free name. `date` is an ISO date-only string.
+ */
+export interface MaterialLinkPurchaseLine {
+  doc_kind: MaterialLinkDocKind;
+  doc_number: string;
+  date: string;
+  supplier_name: string | null;
+  raw_name: string;
+  quantity: number | null;
+  unit: string | null;
+  unit_price: number | null;
+}
+
 export interface MaterialLinkReviewItem {
   item_id: string;
   item_code: string | null;
@@ -44,6 +61,8 @@ export interface MaterialLinkReviewItem {
   auto_factor: number | null;
   candidates: MaterialLinkCandidate[];
   last_buy: MaterialLinkLastBuy | null;
+  /** Newest PO / receipt line matching the item, null when there is none. */
+  last_purchase_line: MaterialLinkPurchaseLine | null;
   receipt_photo_count: number;
 }
 
@@ -59,11 +78,25 @@ export interface MaterialLinkReviewCounts {
   linked_total: number;
   /** Skipped items whose item belongs to the location. */
   skipped: number;
+  /** Linked items of the location still waiting for a unit factor. */
+  pending_factor: number;
 }
 
 export interface MaterialLinkReview {
   items: MaterialLinkReviewItem[];
   counts: MaterialLinkReviewCounts;
+}
+
+/** A linked item whose unit factor is still unknown (from the pending RPC). */
+export interface MaterialLinkPendingFactor {
+  item_id: string;
+  name: string;
+  unit: string;
+  material_id: string;
+  material_code: string;
+  canonical_name: string;
+  material_unit: string;
+  last_purchase_line: MaterialLinkPurchaseLine | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -152,6 +185,29 @@ function parseLastBuy(value: unknown, path: string): MaterialLinkLastBuy | null 
   };
 }
 
+const DOC_KINDS: readonly MaterialLinkDocKind[] = ["po", "gr"];
+
+function parseDocKind(value: unknown, path: string): MaterialLinkDocKind {
+  if (value === "po" || value === "gr") return value;
+  throw new TypeError(`${path} must be one of ${DOC_KINDS.join(", ")}`);
+}
+
+/** Missing/malformed line degrades to null so a broken payload never fakes a fact. */
+function parsePurchaseLine(value: unknown, path: string): MaterialLinkPurchaseLine | null {
+  if (value === null || value === undefined) return null;
+  const row = asRecord(value, path);
+  return {
+    doc_kind: parseDocKind(row.doc_kind, `${path}.doc_kind`),
+    doc_number: asString(row.doc_number, `${path}.doc_number`),
+    date: asString(row.date, `${path}.date`),
+    supplier_name: asNullableString(row.supplier_name, `${path}.supplier_name`),
+    raw_name: asString(row.raw_name, `${path}.raw_name`),
+    quantity: asNullableNumber(row.quantity, `${path}.quantity`),
+    unit: asNullableString(row.unit, `${path}.unit`),
+    unit_price: asNullableNumber(row.unit_price, `${path}.unit_price`),
+  };
+}
+
 function parseReviewItem(value: unknown, path: string): MaterialLinkReviewItem {
   const row = asRecord(value, path);
   const unitStatus =
@@ -180,6 +236,10 @@ function parseReviewItem(value: unknown, path: string): MaterialLinkReviewItem {
     auto_factor: asNullableNumber(row.auto_factor, `${path}.auto_factor`),
     candidates,
     last_buy: parseLastBuy(row.last_buy, `${path}.last_buy`),
+    last_purchase_line: parsePurchaseLine(
+      row.last_purchase_line,
+      `${path}.last_purchase_line`,
+    ),
     receipt_photo_count: asCount(row.receipt_photo_count, `${path}.receipt_photo_count`),
   };
 }
@@ -200,6 +260,7 @@ export function parseMaterialLinkReview(raw: unknown): MaterialLinkReview {
         none: 0,
         linked_total: 0,
         skipped: 0,
+        pending_factor: 0,
       },
     };
   }
@@ -217,8 +278,40 @@ export function parseMaterialLinkReview(raw: unknown): MaterialLinkReview {
       none: asCount(counts.none, "materialLinkReview.counts.none"),
       linked_total: asCount(counts.linked_total, "materialLinkReview.counts.linked_total"),
       skipped: asCount(counts.skipped, "materialLinkReview.counts.skipped"),
+      pending_factor: asCount(counts.pending_factor, "materialLinkReview.counts.pending_factor"),
     },
   };
+}
+
+/**
+ * Parse the jsonb returned by get_material_link_pending_factors, which is
+ * `{items: [...]}`; a bare array is tolerated too. Missing data degrades to [].
+ */
+export function parseMaterialLinkPendingFactors(raw: unknown): MaterialLinkPendingFactor[] {
+  if (raw === null || raw === undefined) return [];
+  const list: unknown[] = Array.isArray(raw)
+    ? raw
+    : (() => {
+        const root = asRecord(raw, "materialLinkPendingFactors");
+        return Array.isArray(root.items) ? root.items : [];
+      })();
+  return list.map((entry, index) => {
+    const path = `materialLinkPendingFactors[${index}]`;
+    const row = asRecord(entry, path);
+    return {
+      item_id: asString(row.item_id, `${path}.item_id`),
+      name: asString(row.name, `${path}.name`),
+      unit: asString(row.unit, `${path}.unit`),
+      material_id: asString(row.material_id, `${path}.material_id`),
+      material_code: asString(row.material_code, `${path}.material_code`),
+      canonical_name: asString(row.canonical_name, `${path}.canonical_name`),
+      material_unit: asString(row.material_unit, `${path}.material_unit`),
+      last_purchase_line: parsePurchaseLine(
+        row.last_purchase_line,
+        `${path}.last_purchase_line`,
+      ),
+    };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -244,6 +337,58 @@ export function factorPrefill(name: string, itemUnit: string, materialUnit: stri
   // No size in the name: 1 lít of a liquid ≈ 1000 g / ml.
   const mat = unitKey(materialUnit);
   return mat === "lít" || mat === "lit" || mat === "l" ? 1000 : null;
+}
+
+/**
+ * Size units read from a package name, expressed in a common g/ml base
+ * (1 g = 1 ml for the business case). kg/lít are 1000 of the base.
+ */
+const ITEM_FACTOR_UNITS: Record<string, number> = {
+  g: 1,
+  gr: 1,
+  gram: 1,
+  kg: 1000,
+  kgs: 1000,
+  "ký": 1000,
+  "kí": 1000,
+  ml: 1,
+  l: 1000,
+  lit: 1000,
+  "lít": 1000,
+};
+
+const ITEM_FACTOR_SIZE_PATTERN = /(\d+(?:[.,]\d+)?)\s*(kgs?|gram|gr|kg|ký|kí|lít|lit|ml|l)\b/u;
+
+function sizeInBaseUnits(text: string): number | null {
+  const match = text.toLowerCase().match(ITEM_FACTOR_SIZE_PATTERN);
+  if (!match) return null;
+  const qty = Number(match[1].replace(",", "."));
+  const multiplier = ITEM_FACTOR_UNITS[match[2]];
+  if (!Number.isFinite(qty) || qty <= 0 || !multiplier) return null;
+  return qty * multiplier;
+}
+
+/**
+ * Material units per 1 item unit, read from a package size in the item name
+ * first and in the material name second. This is exactly the stored
+ * material_unit_conversions convention (to_unit per from_unit):
+ *   ('Nước uống Vĩnh Hảo', 'bình', 'Nước Vihawa 20L Bình Vòi', 'g') → 20000
+ *   ('Bột mì 888 Cam', 'bao', 'Bột mì 888 Cam (25kg)', 'g')        → 25000
+ *   ('Bột mì 888 Cam', 'bao', 'Bột mì 888 Cam', 'kg')              → null
+ * Returns null when nothing is readable or materialUnit is a count unit.
+ */
+export function itemFactorPrefill(
+  itemName: string,
+  _itemUnit: string,
+  materialName: string,
+  materialUnit: string,
+): number | null {
+  const materialBase = ITEM_FACTOR_UNITS[unitKey(materialUnit)];
+  if (!materialBase) return null;
+  const size = sizeInBaseUnits(itemName) ?? sizeInBaseUnits(materialName);
+  if (size === null) return null;
+  const factor = size / materialBase;
+  return Number.isFinite(factor) && factor > 0 ? factor : null;
 }
 
 function deckGroup(item: MaterialLinkReviewItem): number {
