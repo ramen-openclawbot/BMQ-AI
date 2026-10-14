@@ -24,6 +24,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ImagePreviewDialog } from "./ImagePreviewDialog";
 import { resolveImageUrl } from "@/lib/storage-url";
 
+import { parseDbDate } from "@/lib/date-only";
 interface InvoiceDetailsDialogProps {
   invoiceId: string | null;
   open: boolean;
@@ -114,7 +115,7 @@ export function InvoiceDetailsDialog({
               <div>
                 <p className="text-sm text-muted-foreground">Ngày</p>
                 <p className="font-semibold">
-                  {format(new Date(invoice.invoice_date), "dd/MM/yyyy")}
+                  {format(parseDbDate(invoice.invoice_date), "dd/MM/yyyy")}
                 </p>
               </div>
               <div>

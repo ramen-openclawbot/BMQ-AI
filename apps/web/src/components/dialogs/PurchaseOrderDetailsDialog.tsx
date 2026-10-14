@@ -64,6 +64,7 @@ import { toast } from "sonner";
 import { CreatePaymentRequestFromPODialog } from "./CreatePaymentRequestFromPODialog";
 import { EditPurchaseOrderDialog } from "./EditPurchaseOrderDialog";
 
+import { parseDbDate } from "@/lib/date-only";
 interface PurchaseOrderDetailsDialogProps {
   orderId: string | null;
   open: boolean;
@@ -133,7 +134,7 @@ export function PurchaseOrderDetailsDialog({
 
   const formatSafeDate = (date: string | null | undefined, fallback = "—") => {
     if (!date) return fallback;
-    const parsedDate = new Date(date);
+    const parsedDate = parseDbDate(date);
     if (Number.isNaN(parsedDate.getTime())) return fallback;
     return format(parsedDate, "dd/MM/yyyy", { locale });
   };

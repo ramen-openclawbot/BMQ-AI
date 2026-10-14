@@ -3,6 +3,7 @@
  * pre-emit critique: P5 H5 E4 S5 R5 V4 · contrast: pass (40–41) · mobile: pass (34, 49, 50–57)
  */
 import { useState, type ReactNode } from "react";
+import { parseDbDate } from "@/lib/date-only";
 import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
 import { vi } from "date-fns/locale";
@@ -509,7 +510,7 @@ export function PaymentRequestDetailsDialog({
                               Phiếu nhập {linkedGoodsReceipt?.receipt_number || request.goods_receipts?.receipt_number || request.goods_receipt_id}
                             </button>
                             {linkedGoodsReceipt && (
-                              <small>{linkedGoodsReceipt.suppliers?.name || "N/A"} · {format(new Date(linkedGoodsReceipt.receipt_date), "dd/MM/yyyy", { locale: vi })}</small>
+                              <small>{linkedGoodsReceipt.suppliers?.name || "N/A"} · {format(parseDbDate(linkedGoodsReceipt.receipt_date), "dd/MM/yyyy", { locale: vi })}</small>
                             )}
                             {missingImage && (
                               <button type="button" className="d3-prd-missing-img" onClick={() => setShowReceiptDialog(true)} data-bmq-pr-missing-image>
@@ -525,7 +526,7 @@ export function PaymentRequestDetailsDialog({
                         <FileText className="h-4 w-4" />
                         <span>
                           <b>PO {linkedPurchaseOrder.po_number}</b>
-                          <small>{linkedPurchaseOrder.suppliers?.name || "N/A"} · {format(new Date(linkedPurchaseOrder.order_date), "dd/MM/yyyy", { locale: vi })}</small>
+                          <small>{linkedPurchaseOrder.suppliers?.name || "N/A"} · {format(parseDbDate(linkedPurchaseOrder.order_date), "dd/MM/yyyy", { locale: vi })}</small>
                           {(() => {
                             const poTotal = Number(linkedPurchaseOrder.total_amount ?? 0);
                             if (!poPaid) return null;

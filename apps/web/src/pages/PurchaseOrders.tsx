@@ -51,6 +51,7 @@ import { useSuppliers } from "@/hooks/useSuppliers";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { toast } from "sonner";
 
+import { parseDbDate } from "@/lib/date-only";
 type StatusFilter = "all" | "draft" | "sent" | "in_transit" | "completed" | "cancelled";
 type TimeFilterMode = "day" | "month" | "year";
 
@@ -145,7 +146,7 @@ export default function PurchaseOrders() {
 
   const formatOptionalDate = (date: string | null | undefined) => {
     if (!date) return "—";
-    const parsedDate = new Date(date);
+    const parsedDate = parseDbDate(date);
     if (Number.isNaN(parsedDate.getTime())) return "—";
     return format(parsedDate, "dd/MM/yyyy", { locale });
   };
@@ -225,7 +226,7 @@ export default function PurchaseOrders() {
 
   const orderMatchesSelectedPeriod = useCallback((order: PurchaseOrder) => {
     if (!order.order_date) return false;
-    const orderDate = new Date(order.order_date);
+    const orderDate = parseDbDate(order.order_date);
     if (Number.isNaN(orderDate.getTime())) return false;
     return orderDate >= periodRange.start && orderDate <= periodRange.end;
   }, [periodRange.end, periodRange.start]);

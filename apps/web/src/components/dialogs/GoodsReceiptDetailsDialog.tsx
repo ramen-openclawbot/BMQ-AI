@@ -12,6 +12,7 @@ import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useState, useEffect } from "react";
 
+import { parseDbDate } from "@/lib/date-only";
 interface GoodsReceiptDetailsDialogProps {
   receiptId: string | null;
   open: boolean;
@@ -22,7 +23,7 @@ type LineEdit = { actual_quantity: string; variance_reason: string };
 
 const formatSafeDate = (rawDate?: string | null, pattern = "dd/MM/yyyy") => {
   if (!rawDate) return "-";
-  const date = new Date(rawDate);
+  const date = parseDbDate(rawDate);
   if (Number.isNaN(date.getTime())) return "-";
   return format(date, pattern, { locale: vi });
 };

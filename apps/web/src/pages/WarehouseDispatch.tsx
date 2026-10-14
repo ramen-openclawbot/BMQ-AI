@@ -1,5 +1,6 @@
  
 import { useCallback, useEffect, useState } from "react";
+import { parseDbDate } from "@/lib/date-only";
 import { useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -766,8 +767,8 @@ export default function WarehouseDispatch() {
                           </span>
                         </div>
                         <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-                          <span>Ngày xuất: {d.dispatch_date ? format(new Date(d.dispatch_date), "dd/MM/yyyy") : "—"}</span>
-                          <span>Ngày giao: {d.delivered_date ? format(new Date(d.delivered_date), "dd/MM/yyyy") : "—"}</span>
+                          <span>Ngày xuất: {d.dispatch_date ? format(parseDbDate(d.dispatch_date), "dd/MM/yyyy") : "—"}</span>
+                          <span>Ngày giao: {d.delivered_date ? format(parseDbDate(d.delivered_date), "dd/MM/yyyy") : "—"}</span>
                         </div>
                       </button>
                     ))}
@@ -793,8 +794,8 @@ export default function WarehouseDispatch() {
                           <TableRow key={d.id} className="cursor-pointer border-border hover:bg-muted/40" onClick={() => openDetail(d)}>
                             <TableCell className="font-mono font-medium text-primary">{d.dispatch_number}</TableCell>
                             <TableCell className="text-sm text-muted-foreground">{d.customer_name ?? d.customer_id ?? "—"}</TableCell>
-                            <TableCell>{d.dispatch_date ? format(new Date(d.dispatch_date), "dd/MM/yyyy") : "—"}</TableCell>
-                            <TableCell>{d.delivered_date ? format(new Date(d.delivered_date), "dd/MM/yyyy") : "—"}</TableCell>
+                            <TableCell>{d.dispatch_date ? format(parseDbDate(d.dispatch_date), "dd/MM/yyyy") : "—"}</TableCell>
+                            <TableCell>{d.delivered_date ? format(parseDbDate(d.delivered_date), "dd/MM/yyyy") : "—"}</TableCell>
                             <TableCell>
                               <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${statusColors[d.status as DispatchStatus]}`}>
                                 {statusConfig[d.status as DispatchStatus]?.label ?? d.status}
@@ -1033,7 +1034,7 @@ export default function WarehouseDispatch() {
                       <span className="font-medium">{po.po_number ?? po.id.slice(0, 8)}</span>
                       <span className="ml-2 text-muted-foreground text-xs">— {po.from_name}</span>
                       {po.delivery_date && (
-                        <span className="ml-2 text-muted-foreground text-xs">| Giao: {format(new Date(po.delivery_date), "dd/MM")}</span>
+                        <span className="ml-2 text-muted-foreground text-xs">| Giao: {format(parseDbDate(po.delivery_date), "dd/MM")}</span>
                       )}
                     </SelectItem>
                   ))}
@@ -1042,7 +1043,7 @@ export default function WarehouseDispatch() {
               {selectedPO && (
                 <p className="text-xs text-muted-foreground">
                   Khách: <strong>{selectedPO.from_name}</strong>
-                  {selectedPO.delivery_date && ` · Ngày giao: ${format(new Date(selectedPO.delivery_date), "dd/MM/yyyy")}`}
+                  {selectedPO.delivery_date && ` · Ngày giao: ${format(parseDbDate(selectedPO.delivery_date), "dd/MM/yyyy")}`}
                 </p>
               )}
             </div>
@@ -1280,12 +1281,12 @@ export default function WarehouseDispatch() {
                 </div>
                 <div className="rounded-lg border px-3 py-2">
                   <p className="text-xs text-muted-foreground">Ngày xuất kho</p>
-                  <p className="font-medium">{selected.dispatch_date ? format(new Date(selected.dispatch_date), "dd/MM/yyyy") : "—"}</p>
+                  <p className="font-medium">{selected.dispatch_date ? format(parseDbDate(selected.dispatch_date), "dd/MM/yyyy") : "—"}</p>
                 </div>
                 {selected.delivered_date && (
                   <div className="rounded-lg border px-3 py-2">
                     <p className="text-xs text-muted-foreground">Ngày giao</p>
-                    <p className="font-medium">{format(new Date(selected.delivered_date), "dd/MM/yyyy")}</p>
+                    <p className="font-medium">{format(parseDbDate(selected.delivered_date), "dd/MM/yyyy")}</p>
                   </div>
                 )}
                 {selected.delivery_address && (

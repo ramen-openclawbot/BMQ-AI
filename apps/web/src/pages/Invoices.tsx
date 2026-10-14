@@ -57,6 +57,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { toast } from "sonner";
 
+import { parseDbDate } from "@/lib/date-only";
 const PAGE_SIZE = 20;
 const PAYMENT_TERM_DAYS = 15;
 
@@ -114,7 +115,7 @@ const getSourceMeta = (invoice: Invoice) => {
   return { source, reference };
 };
 
-const getInvoiceDueDate = (invoice: Invoice) => addDays(new Date(invoice.invoice_date), PAYMENT_TERM_DAYS);
+const getInvoiceDueDate = (invoice: Invoice) => addDays(parseDbDate(invoice.invoice_date), PAYMENT_TERM_DAYS);
 
 const getInvoiceStatus = (invoice: Invoice, today = new Date()): InvoicePaymentStatus => {
   if (invoice.payment_slip_url) return "paid";
@@ -243,7 +244,7 @@ const Invoices = () => {
       if (normalizedSearch && !searchableText.includes(normalizedSearch)) return false;
       if (statusFilter !== "all" && status !== statusFilter) return false;
       if (sourceFilter !== "all" && sourceMeta.source !== sourceFilter) return false;
-      if (monthFilter === "this_month" && !isThisMonth(new Date(invoice.invoice_date))) return false;
+      if (monthFilter === "this_month" && !isThisMonth(parseDbDate(invoice.invoice_date))) return false;
       if (supplierFilter !== "all" && supplierName !== supplierFilter) return false;
       if (selectedSupplierName && supplierName !== selectedSupplierName) return false;
       if (quickOverdueOnly && status !== "overdue") return false;
@@ -480,7 +481,7 @@ const Invoices = () => {
                           <TableCell>
                             <div className="font-medium text-foreground">{invoice.suppliers?.name || <span className="text-muted-foreground">-</span>}</div>
                           </TableCell>
-                          <TableCell className="whitespace-nowrap text-muted-foreground">{format(new Date(invoice.invoice_date), "dd/MM/yyyy")}</TableCell>
+                          <TableCell className="whitespace-nowrap text-muted-foreground">{format(parseDbDate(invoice.invoice_date), "dd/MM/yyyy")}</TableCell>
                           <TableCell className="whitespace-nowrap text-muted-foreground">{format(dueDate, "dd/MM/yyyy")}</TableCell>
                           <TableCell className="text-right font-semibold text-foreground">{formatFullCurrency(total)}</TableCell>
                           <TableCell className="text-right">

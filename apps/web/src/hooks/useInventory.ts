@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { db } from "@/lib/supabase-helpers";
 
+import { parseDbDate } from "@/lib/date-only";
 export interface InventoryItem {
   id: string;
   name: string;
@@ -143,7 +144,7 @@ export function useExpiryStats() {
           stats.safe += 1;
           continue;
         }
-        const d = new Date(row.expiry_date);
+        const d = parseDbDate(row.expiry_date);
         d.setHours(0, 0, 0, 0);
         const diffDays = Math.ceil((d.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 

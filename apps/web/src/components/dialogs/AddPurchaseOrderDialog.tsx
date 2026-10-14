@@ -63,6 +63,7 @@ import { useSupplierLastPrices } from "@/hooks/useSupplierLastPrices";
 import { checkAgainstHistory } from "@/lib/po-scan-check";
 import { poCreateErrorText } from "@/lib/po-create-errors";
 
+import { parseDbDate } from "@/lib/date-only";
 const poItemSchema = z.object({
   sku_id: z.string().optional(),
   product_name: z.string().min(1, "Tên sản phẩm là bắt buộc"),
@@ -318,8 +319,8 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
           );
           if (matchedSupplier) form.setValue("supplier_id", matchedSupplier.id);
         }
-        if (scanned.order_date) { try { form.setValue("order_date", new Date(scanned.order_date)); } catch { /* ignore invalid scanned date */ } }
-        if (scanned.expected_date) { try { form.setValue("expected_date", new Date(scanned.expected_date)); } catch { /* ignore invalid scanned date */ } }
+        if (scanned.order_date) { try { form.setValue("order_date", parseDbDate(scanned.order_date)); } catch { /* ignore invalid scanned date */ } }
+        if (scanned.expected_date) { try { form.setValue("expected_date", parseDbDate(scanned.expected_date)); } catch { /* ignore invalid scanned date */ } }
         if (scanned.notes) form.setValue("notes", scanned.notes);
         if (scanned.vat_amount) form.setValue("vat_amount", scanned.vat_amount);
         if (scanned.items?.length) replace(scanned.items.map((item) => ({ sku_id: "", product_name: item.product_name || "", quantity: item.quantity || 1, unit: item.unit || "kg", unit_price: item.unit_price || 0, notes: item.notes || "" })));

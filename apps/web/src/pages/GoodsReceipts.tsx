@@ -17,6 +17,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { AddGoodsReceiptDialog } from "@/components/dialogs/AddGoodsReceiptDialog";
 import { GoodsReceiptDetailsDialog } from "@/components/dialogs/GoodsReceiptDetailsDialog";
 
+import { parseDbDate } from "@/lib/date-only";
 const RECEIPTS_PER_PAGE = 20;
 type TimeFilterMode = "week" | "month" | "year";
 
@@ -38,7 +39,7 @@ const formatMonthLabel = (monthValue: string) => {
 
 const parseReceiptDate = (rawDate: string | null) => {
   if (!rawDate) return null;
-  const date = new Date(rawDate);
+  const date = parseDbDate(rawDate);
   return Number.isNaN(date.getTime()) ? null : date;
 };
 
@@ -194,7 +195,7 @@ export default function GoodsReceipts() {
 
   const formatReceiptDate = (rawDate: string | null) => {
     if (!rawDate) return "-";
-    const d = new Date(rawDate);
+    const d = parseDbDate(rawDate);
     if (Number.isNaN(d.getTime())) return "-";
     return format(d, "dd/MM/yyyy", { locale });
   };

@@ -52,6 +52,7 @@ import { CeoCutoverPanel } from "@/components/finance/CeoCutoverPanel";
 import "@/styles/bmq-ceo.css";
 import { UncAppEvidencePanel } from "@/components/payment-requests/UncAppEvidencePanel";
 
+import { parseDbDate } from "@/lib/date-only";
 const vnd = (value: number) => new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(value || 0);
 const COST_CLASSIFICATION_CARD_CODES = [
   "COGS_BMQ_BREAD",
@@ -2644,7 +2645,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                   <TableBody>
                     {monthlySummary?.rows?.map((r: CostClassificationMonthlySummary) => (
                       <TableRow key={r.id}>
-                        <TableCell className="whitespace-nowrap">{format(new Date(r.closing_date), "dd/MM/yyyy", { locale: vi })}</TableCell>
+                        <TableCell className="whitespace-nowrap">{format(parseDbDate(r.closing_date), "dd/MM/yyyy", { locale: vi })}</TableCell>
                         <TableCell className="whitespace-nowrap text-right">{vnd(Number(r.unc_detail_amount || 0))}</TableCell>
                         <TableCell className="whitespace-nowrap text-right">{vnd(Number(r.unc_declared_amount || 0))}</TableCell>
                         <TableCell className="whitespace-nowrap text-right">{vnd(Number(r.variance_amount || 0))}</TableCell>
