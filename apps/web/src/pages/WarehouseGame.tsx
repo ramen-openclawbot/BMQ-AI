@@ -31,6 +31,7 @@ import { CountDone, CountLobby, CountSheet, CountSheetLoading, ReviewSheet, coun
 import { useCancelStockCount, useSaveStockCountLine, useStartStockCount, useStockCountReview, useSubmitStockCount } from "@/hooks/useStockCount";
 import type { StockCountLine, StockCountLocation, StockCountSession } from "@/lib/stock-count";
 import { useSuggestStockItemName } from "@/hooks/useSuggestStockItemName";
+import { InvoiceScanner } from "@/game/InvoiceScanner";
 import "@/game/game.css";
 
 type View =
@@ -825,8 +826,8 @@ function CrateSheet({ location, crate, snapshot, autoPick = false, onAssigned, o
       <ReceiptNotes title="Phiếu giao hàng" lines={notes.data} loading={notes.isLoading} error={notes.error} />
       {creating ? (
         <>
-          <label className="field">Tên mặt hàng mới<input value={newName} onChange={(event) => { setNewName(event.target.value); setNameEdited(true); }} maxLength={120} data-bmq-new-name /></label>
-          {suggestName.isPending ? <p className="name-hint is-busy" data-bmq-name-hint="busy">📄 Đang đọc tên đầy đủ trên ảnh hóa đơn…</p>
+          <label className="field">Tên mặt hàng mới<input value={newName} onChange={(event) => { setNewName(event.target.value); setNameEdited(true); }} maxLength={120} data-bmq-new-name className={nameSource === "invoice" ? "is-popped" : undefined} key={nameSource} /></label>
+          {suggestName.isPending ? <div data-bmq-name-hint="busy"><InvoiceScanner lines={notes.data} /></div>
             : nameSource === "invoice" ? <p className="name-hint is-ok" data-bmq-name-hint="invoice">📄 Tên đầy đủ lấy từ ảnh hóa đơn. Anh kiểm lại trước khi tạo.</p>
             : suggestName.isError ? <p className="name-hint" data-bmq-name-hint="error">Chưa đọc được ảnh hóa đơn: {String((suggestName.error as Error)?.message ?? "").slice(0, 140)}. Tên đang lấy từ phiếu.</p>
             : suggestName.isSuccess ? <p className="name-hint" data-bmq-name-hint="none">Không tìm thấy dòng khớp trên ảnh hóa đơn; tên đang lấy từ phiếu.</p>

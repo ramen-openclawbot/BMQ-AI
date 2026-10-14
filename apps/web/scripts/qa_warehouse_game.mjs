@@ -325,7 +325,7 @@ export const supabase = {
   from: (table) => builder(table),
   rpc: (fn, args) => builder("rpc:" + fn, args),
   schema: () => ({ from: (table) => builder(table), rpc: (fn) => builder("rpc:" + fn) }),
-  functions: { invoke: async (name, opts) => { window.__qaWrites.push("invoke:" + name); window.__qaWrites.push("invoke-body:" + name + ":" + JSON.stringify(opts?.body ?? null)); if (name === "suggest-stock-item-name") return { data: { suggestion: { full_name: "GIẤM TINH LUYỆN MINH CHÂU 4% 1L", unit: "chai", confidence: 0.86, source: "invoice_image" } }, error: null }; return { data: null, error: { message: "QA fixture: functions disabled" } }; } },
+  functions: { invoke: async (name, opts) => { window.__qaWrites.push("invoke:" + name); window.__qaWrites.push("invoke-body:" + name + ":" + JSON.stringify(opts?.body ?? null)); if (name === "suggest-stock-item-name") { await new Promise((r) => setTimeout(r, 1500)); } if (name === "suggest-stock-item-name") return { data: { suggestion: { full_name: "GIẤM TINH LUYỆN MINH CHÂU 4% 1L", unit: "chai", confidence: 0.86, source: "invoice_image" } }, error: null }; return { data: null, error: { message: "QA fixture: functions disabled" } }; } },
   storage: { from: () => ({ getPublicUrl: () => ({ data: { publicUrl: "" } }), createSignedUrl: async (path) => ({ data: { signedUrl: "data:image/svg+xml;utf8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="600" height="840"><rect width="600" height="840" fill="#fff"/><text x="40" y="80" font-size="40" font-family="sans-serif">PHIẾU GIAO HÀNG</text><text x="40" y="140" font-size="24" font-family="sans-serif">' + String(path).slice(-28) + '</text>' + Array.from({ length: 12 }, (_, i) => '<rect x="40" y="' + (200 + i * 48) + '" width="520" height="2" fill="#999"/>').join("") + '</svg>') }, error: null }), list: async () => ({ data: [], error: null }), upload: async () => ({ data: null, error: { message: "QA fixture: writes disabled" } }), download: async () => ({ data: null, error: null }) }) },
   auth: {
     getSession: async () => ({ data: { session: { access_token: "qa-fixture-token", user } }, error: null }),
@@ -622,7 +622,12 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
         assert.ok(pickBox && pickBox.height >= 40, `search result is readable, not squeezed: ${JSON.stringify(pickBox)}`);
         await page.locator("[data-bmq-crate-nohint] .btn").click({ force: true });
         await page.waitForTimeout(300);
-        await page.waitForTimeout(400);
+        await page.waitForTimeout(250);
+        assert.equal(await page.locator("[data-bmq-invoice-scanner]").count(), 1, "invoice scanner shows while reading");
+        assert.equal(await overflow(page), 0, `scanner no overflow ${viewport.width}`);
+        await page.locator("[data-bmq-invoice-scanner]").screenshot({ path: `${EVIDENCE}/invoice-scanner-${viewport.width}.png` });
+        await page.waitForTimeout(1700);
+        assert.equal(await page.locator("[data-bmq-invoice-scanner]").count(), 0, "scanner gone after reading");
         const created = await page.locator(".kg .sheet .field input").first().inputValue();
         assert.equal(created, "Giấm tinh luyện minh châu 4% 1l", `full invoice name prefilled: ${created}`);
         assert.equal(await page.locator("[data-bmq-name-hint='invoice']").count(), 1, "invoice-name hint shown");
