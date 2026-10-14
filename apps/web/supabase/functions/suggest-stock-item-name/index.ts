@@ -381,8 +381,11 @@ Quy tắc:
 - Đơn vị thường gặp: kg, g, con, cái, hộp, thùng, chai, lon, gói, bịch, túi, lít, ml, bao, cuộn.
 - Nếu ảnh không có bảng hàng thì trả {"items": []}.`;
 
+    // A full-invoice transcription on the vision model can outlast the edge wall clock and the browser then
+    // only sees "Failed to send a request" (owner 14/10). Ask for the few candidate lines and cap the wait.
     const aiResponse = await fetch(scanAi.endpoint, {
       method: "POST",
+      signal: AbortSignal.timeout(55_000),
       headers: {
         "Authorization": `Bearer ${scanAi.apiKey}`,
         "Content-Type": "application/json",
@@ -390,12 +393,20 @@ Quy tắc:
       body: JSON.stringify({
         model: scanAi.model,
         ...scanAi.extraBody,
+        max_tokens: 800,
         messages: [
           { role: "system", content: systemPrompt },
           {
             role: "user",
             content: [
-              { type: "text", text: "Đọc chứng từ và trích các dòng hàng:" },
+              {
+                type: "text",
+                text: `Chỉ cần tìm dòng hàng ứng với tên viết tắt "${line.raw_name}"` +
+                  (line.quantity !== null ? `, số lượng ${line.quantity}` : "") +
+                  (line.unit ? ` ${line.unit}` : "") +
+                  (line.unit_price !== null ? `, đơn giá khoảng ${line.unit_price}` : "") +
+                  `. Trả tối đa 5 dòng gần nhất (chép nguyên văn tên đầy đủ in trên chứng từ), không cần các dòng khác.`,
+              },
               ...images.map((image) => ({
                 type: "image_url",
                 image_url: { url: `data:${image.mimeType};base64,${image.base64}` },
@@ -471,6 +482,9 @@ Quy tắc:
     });
   } catch (error) {
     console.error("[suggest-stock-item-name] unexpected error:", error);
+    if (error instanceof DOMException && (error.name === "TimeoutError" || error.name === "AbortError")) {
+      return json(req, { error: "Đọc ảnh hóa đơn quá lâu (hơn 55 giây). Thử lại hoặc gõ tên tay.", code: "ai_timeout" }, 504);
+    }
     return json(req, { error: "Không thể đọc ảnh hóa đơn. Vui lòng thử lại." }, 500);
   }
 });
