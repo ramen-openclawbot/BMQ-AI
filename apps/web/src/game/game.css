@@ -672,6 +672,8 @@
 .kg .note-bar .round-btn[disabled] { opacity: .35; transform: none; pointer-events: none; }
 .kg .note-stage { overflow: auto; -webkit-overflow-scrolling: touch; padding: 8px; text-align: center; }
 .kg .note-stage img { max-width: none; height: auto; border-radius: 6px; background: #fff; }
+.kg .note-stage div.note-photo { margin: 0 auto; border-radius: 6px; background: #fff; }
+.kg .note-stage .err { margin: 0 0 8px; }
 .kg .note-empty { margin: 40px auto; font-weight: 800; }
 .kg .note-line { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px max(12px, env(safe-area-inset-bottom)); font-size: 14px; font-weight: 700; background: rgba(0,0,0,.25); }
 .kg .note-nav { display: inline-flex; align-items: center; gap: 8px; }

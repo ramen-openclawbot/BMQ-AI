@@ -452,10 +452,12 @@ serve(async (req) => {
 Extract the following information from the image:
 1. Supplier name (nhà cung cấp)
 2. List of items with: product name, quantity, purchase unit, package size printed on the document, and unit price (if visible)
+3. Page orientation: which edge of the image the TOP of the printed letters points toward (the edge where the document's title/header is). "top" when the text is already upright, "left" when lines read from bottom to top, "right" when lines read from top to bottom, "bottom" when the page is upside down.
 
 Return ONLY valid JSON in this exact format:
 {
   "supplier_name": "string",
+  "text_top_edge": "top" | "right" | "bottom" | "left",
   "items": [
     {"product_name": "string", "quantity": number, "unit": "string", "package_quantity": number or null, "package_unit": "string or null", "unit_price": number or null}
   ]
@@ -504,7 +506,7 @@ Important:
     const aiContent = aiData.choices?.[0]?.message?.content || "";
     
     // Parse AI response
-    let extractedData: { supplier_name: string; items: ExtractedItem[] };
+    let extractedData: { supplier_name: string; text_top_edge?: string; items: ExtractedItem[] };
     try {
       // Extract JSON from response (handle markdown code blocks)
       const jsonMatch = aiContent.match(/\{[\s\S]*\}/);
@@ -520,6 +522,27 @@ Important:
       );
     }
 
+    // Clockwise turn that puts the text upright. Asking for the edge the letters point to is
+    // reliable on deepseek-flash (4/4 orientations); asking for degrees came back mirrored (270 for 90).
+    const TOP_EDGE_TO_ROTATION_CW: Record<string, number> = { top: 0, left: 90, bottom: 180, right: 270 };
+    const rotationCw = TOP_EDGE_TO_ROTATION_CW[String(extractedData.text_top_edge ?? "").trim().toLowerCase()] ?? null;
+
+    // Persist the AI rotation for the stored image. A failure here must never
+    // change the OCR match result, so it is only warned about.
+    if (rotationCw !== null && typeof deliveryNotePath === "string" && deliveryNotePath.trim() !== "") {
+      try {
+        const { error: rotationError } = await supabase.rpc("set_document_image_rotation_ai", {
+          p_image_path: deliveryNotePath,
+          p_rotation: rotationCw,
+        });
+        if (rotationError) {
+          console.warn("[match-delivery-note] Failed to save delivery-note rotation:", rotationError);
+        }
+      } catch (rotationError) {
+        console.warn("[match-delivery-note] Failed to save delivery-note rotation:", rotationError);
+      }
+    }
+
     const { supplier_name, items: extractedItems } = extractedData;
 
     if (!extractedItems || extractedItems.length === 0) {
@@ -527,6 +550,7 @@ Important:
         JSON.stringify({ 
           isMatched: false,
           matchScore: 0,
+          rotation_cw: rotationCw,
           items: [],
           supplierName: supplier_name || "Không xác định",
           error: "Không tìm thấy sản phẩm trong phiếu giao hàng"
@@ -615,6 +639,7 @@ Important:
         JSON.stringify({
           isMatched,
           matchScore: bestReceiptMatch.score,
+          rotation_cw: rotationCw,
           matchSource: "purchase_order_receipt",
           goodsReceiptId: receipt.id,
           receiptNumber: receipt.receipt_number,
@@ -652,6 +677,7 @@ Important:
       JSON.stringify({
         isMatched: false,
         matchScore: 0,
+        rotation_cw: rotationCw,
         matchSource: "none",
         error: "Không tìm thấy dòng phù hợp trong phiếu nhập đã chọn.",
       }),

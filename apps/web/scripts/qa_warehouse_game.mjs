@@ -84,6 +84,19 @@ function settle(st) {
     window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args));
     return { data: { linked: 2, needs_factor: [{ item_id: "i3", name: "Trứng gà 60gr", unit: "g", material_unit: "quả", factor_suggestion: null }], failed: [] }, error: null };
   }
+  if (st.table === "document_image_rotations") {
+    // Every photo starts sideways (90) so the viewer has to turn it; manual saves stick per path.
+    const saved = JSON.parse(localStorage.getItem("qa-rot") || "{}");
+    const rotation = saved[st.filters.image_path] ?? 90;
+    return { data: st.single ? { rotation } : [{ rotation }], error: null };
+  }
+  if (st.table === "rpc:set_document_image_rotation") {
+    window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args));
+    const saved = JSON.parse(localStorage.getItem("qa-rot") || "{}");
+    saved[st.args.p_image_path] = st.args.p_rotation;
+    localStorage.setItem("qa-rot", JSON.stringify(saved));
+    return { data: { image_path: st.args.p_image_path, rotation: st.args.p_rotation, source: "manual" }, error: null };
+  }
   if (st.table === "rpc:get_stock_transfers") return { data: window.__kgFixture.transfers ?? [], error: null };
   if (st.table === "rpc:create_manual_stock_transfer") {
     window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args));
@@ -532,6 +545,21 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       await page.waitForSelector("[data-bmq-note-viewer] img", { timeout: 5000 });
       const viewerBox = await page.locator("[data-bmq-note-viewer]").boundingBox();
       assert.ok(viewerBox && viewerBox.width >= viewport.width - 2 && viewerBox.x <= 1, `note viewer is full screen ${JSON.stringify(viewerBox)}`);
+      // Saved rotation 90: the portrait fixture photo shows turned, in a landscape box that fits the screen.
+      await page.waitForFunction(() => document.querySelector("[data-bmq-note-viewer] [data-bmq-rotated-image='90'] img")?.style.visibility === "visible", null, { timeout: 5000 });
+      const turned = await page.locator("[data-bmq-note-viewer] [data-bmq-rotated-image='90']").boundingBox();
+      assert.ok(turned && turned.width > turned.height && turned.x >= 0 && turned.x + turned.width <= viewport.width + 1, `turned photo box ${JSON.stringify(turned)}`);
+      await page.waitForTimeout(500);
+      await page.screenshot({ path: `${EVIDENCE}/note-rotated-${viewport.width}.png` });
+      await page.getByRole("button", { name: "Xoay ảnh" }).click({ force: true });
+      await page.waitForFunction(() => /rotate\(180deg\)/.test(document.querySelector("[data-bmq-note-viewer] .note-stage img")?.style.transform ?? ""), null, { timeout: 5000 });
+      writes = await page.evaluate(() => window.__qaWrites);
+      assert.ok(writes.some((w) => w.startsWith("rpc:set_document_image_rotation:") && w.includes('"p_rotation":180')), JSON.stringify(writes));
+      await page.getByRole("button", { name: "Xoay ảnh" }).click({ force: true });
+      await page.waitForSelector("[data-bmq-note-viewer] [data-bmq-rotated-image='270']", { timeout: 5000 });
+      await page.getByRole("button", { name: "Xoay ảnh" }).click({ force: true });
+      await page.waitForFunction(() => { const img = document.querySelector("[data-bmq-note-viewer] .note-stage img"); return img && !img.closest("[data-bmq-rotated-image]") && !img.style.transform; }, null, { timeout: 5000 });
+      await page.evaluate(() => localStorage.removeItem("qa-rot"));
       await page.getByRole("button", { name: "Phóng to" }).click({ force: true });
       await page.waitForTimeout(200);
       await page.screenshot({ path: `${EVIDENCE}/note-viewer-${viewport.width}.png` });

@@ -6,11 +6,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
-import { Camera, Sparkles, CheckCircle, Clock, FileCheck, Package, ExternalLink, Loader2, AlertCircle, Link2, XCircle, AlertTriangle, History } from "lucide-react";
+import { Camera, RotateCw, Sparkles, CheckCircle, Clock, FileCheck, Package, ExternalLink, Loader2, AlertCircle, Link2, XCircle, AlertTriangle, History } from "lucide-react";
 import { useGoodsReceipt, useGoodsReceiptItems, useConfirmGoodsReceipt, useUpdateGoodsReceiptItems, useUpdateGoodsReceipt, getGoodsReceiptImageUrl, useDeliveryNoteOcr, usePaidPaymentRequestsForSupplier, useFinalizeHistoricalPaidGoodsReceipt } from "@/hooks/useGoodsReceipts";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useState, useEffect } from "react";
+import { RotatedImage } from "@/components/RotatedImage";
+import { useImageRotation, useSetImageRotation } from "@/hooks/useImageRotation";
+import { imageRotationErrorCode, imageRotationErrorText, nextRotation } from "@/lib/image-rotation";
 
 import { parseDbDate } from "@/lib/date-only";
 interface GoodsReceiptDetailsDialogProps {
@@ -76,6 +79,15 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
     },
     enabled: !!receiptImageUrl,
   });
+  const { data: imageRotation = 0 } = useImageRotation(receiptImageUrl);
+  const setImageRotation = useSetImageRotation();
+  const rotateImage = () => {
+    if (!receiptImageUrl) return;
+    setImageRotation.mutate(
+      { imagePath: receiptImageUrl, rotation: nextRotation(imageRotation) },
+      { onError: (error) => toast.error(imageRotationErrorText(imageRotationErrorCode(error))) },
+    );
+  };
 
   // Reset draft and OCR state when switching to a different receipt
   useEffect(() => {
@@ -515,9 +527,11 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                   )}
                 </div>
                 {imageUrl ? (
-                  <img
+                  <RotatedImage
                     src={imageUrl}
                     alt="Chứng từ phiếu nhập kho"
+                    rotation={imageRotation}
+                    maxHeight="12rem"
                     className="max-h-48 cursor-pointer rounded-lg border object-contain transition-opacity hover:opacity-80"
                     onClick={() => setImageOpen(true)}
                   />
@@ -1008,17 +1022,25 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
           </DialogHeader>
           {imageUrl && (
             <div className="flex flex-col items-center gap-4">
-              <img
+              <RotatedImage
                 src={imageUrl}
                 alt="Chứng từ phiếu nhập kho"
+                rotation={imageRotation}
+                maxHeight="70vh"
                 className="max-h-[70vh] rounded-lg object-contain"
               />
-              <Button variant="outline" asChild>
-                <a href={imageUrl} target="_blank" rel="noopener noreferrer">
-                  <ExternalLink className="h-4 w-4 mr-2" />
-                  Mở trong tab mới
-                </a>
-              </Button>
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button variant="outline" onClick={rotateImage} disabled={setImageRotation.isPending} data-bmq-rotate-image>
+                  {setImageRotation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RotateCw className="h-4 w-4 mr-2" />}
+                  Xoay
+                </Button>
+                <Button variant="outline" asChild>
+                  <a href={imageUrl} target="_blank" rel="noopener noreferrer">
+                    <ExternalLink className="h-4 w-4 mr-2" />
+                    Mở trong tab mới
+                  </a>
+                </Button>
+              </div>
             </div>
           )}
         </DialogContent>
