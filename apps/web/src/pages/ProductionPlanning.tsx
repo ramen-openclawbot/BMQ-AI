@@ -1605,7 +1605,7 @@ export default function ProductionPlanning() {
                                   title={isVi ? "MOQ KFM: tổng cái của các PO KFM cùng ngày" : "KFM MOQ: pieces across the day's KFM POs"}
                                   data-testid={`kfm-moq-${order.id}`}
                                 >
-                                  {moqPieces.toLocaleString("vi-VN")}/{KFM_DAILY_MOQ_PIECES}
+                                  MOQ {moqPieces.toLocaleString("vi-VN")}/{KFM_DAILY_MOQ_PIECES}
                                 </em>
                               )}
                             </span>

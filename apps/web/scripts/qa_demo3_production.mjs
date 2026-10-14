@@ -316,7 +316,7 @@ try {
         assert.ok(await page.locator(".d3-pp-row", { hasText: "NPP-BT" }).count() > 0, "other PO row listed");
         assert.equal(await page.locator(".d3-pp-order").count(), 3, "orders listed");
         // KFM MOQ: pieces of the day's KFM orders over 1500; non-KFM orders show none.
-        assert.equal((await page.locator("[data-testid='kfm-moq-ord-1']").textContent()).trim(), "2.700/1500", "KFM MOQ line");
+        assert.equal((await page.locator("[data-testid='kfm-moq-ord-1']").textContent()).trim(), "MOQ 2.700/1500", "KFM MOQ line");
         assert.equal(await page.locator("[data-testid='kfm-moq-ord-2']").count(), 0, "no MOQ for non-KFM order");
       }
       if (data === "populated" && viewport.width === 390) {
