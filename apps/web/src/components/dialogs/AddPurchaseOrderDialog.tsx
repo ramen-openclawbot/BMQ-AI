@@ -51,6 +51,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
   generatePONumber,
+  useCancelPurchaseOrder,
   useCreatePurchaseOrder,
   useCreatePurchaseOrderItem,
 } from "@/hooks/usePurchaseOrders";
@@ -60,6 +61,7 @@ import { callEdgeFunction } from "@/lib/fetch-with-timeout";
 import { AI_QUOTA_CODE, AI_QUOTA_MESSAGE, isAiQuotaError, notifyAiQuotaExhausted } from "@/lib/ai-errors";
 import { useSupplierLastPrices } from "@/hooks/useSupplierLastPrices";
 import { checkAgainstHistory } from "@/lib/po-scan-check";
+import { poCreateErrorText } from "@/lib/po-create-errors";
 
 const poItemSchema = z.object({
   sku_id: z.string().optional(),
@@ -123,6 +125,7 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
   const { data: productSKUs } = useProductSKUs();
   const createPurchaseOrder = useCreatePurchaseOrder();
   const createPurchaseOrderItem = useCreatePurchaseOrderItem();
+  const cancelPurchaseOrder = useCancelPurchaseOrder();
 
   const form = useForm<PurchaseOrderFormData>({
     resolver: zodResolver(purchaseOrderSchema),
@@ -433,24 +436,38 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
         status: "draft",
       });
 
-      // Create items
-      for (const item of data.items) {
-        await createPurchaseOrderItem.mutateAsync({
-          purchase_order_id: order.id,
-          sku_id: item.sku_id || null,
-          product_name: item.product_name,
-          quantity: item.quantity,
-          unit: item.unit || "kg",
-          unit_price: item.unit_price,
-          line_total: item.quantity * item.unit_price,
-          notes: item.notes || null,
-        });
-      }
+      try {
+        // Create items
+        for (const item of data.items) {
+          await createPurchaseOrderItem.mutateAsync({
+            purchase_order_id: order.id,
+            sku_id: item.sku_id || null,
+            product_name: item.product_name,
+            quantity: item.quantity,
+            unit: item.unit || "kg",
+            unit_price: item.unit_price,
+            line_total: item.quantity * item.unit_price,
+            notes: item.notes || null,
+          });
+        }
 
-      // Staff PO creation immediately opens the operating flow:
-      // - pending CEO payment request (duyệt chi)
-      // - draft warehouse goods receipt queue (phiếu nhập kho)
-      await ensureReceiptForPurchaseOrder(order.id);
+        // Staff PO creation immediately opens the operating flow:
+        // - pending CEO payment request (duyệt chi)
+        // - draft warehouse goods receipt queue (phiếu nhập kho)
+        await ensureReceiptForPurchaseOrder(order.id);
+      } catch (error) {
+        // The header is already committed. Never leave an empty draft behind a
+        // failed line / receipt step: cancel it (do not delete rows) and tell
+        // the operator what to do.
+        try {
+          await cancelPurchaseOrder.mutateAsync(order.id);
+        } catch (cancelError) {
+          console.error("Error cancelling PO after create failure:", cancelError);
+        }
+        console.error("Error creating PO:", error);
+        toast.error(poCreateErrorText(error));
+        return;
+      }
 
       // Invalidate queries to refresh all linked operational queues immediately (like AddSupplierDialog)
       queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
@@ -467,7 +484,7 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
       setOpen(false);
     } catch (error) {
       console.error("Error creating PO:", error);
-      toast.error("Lỗi khi tạo đơn đặt hàng");
+      toast.error(poCreateErrorText(error));
     } finally {
       setIsSubmitting(false);
     }
