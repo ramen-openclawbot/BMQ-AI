@@ -90,7 +90,7 @@ function BacklogRow({
   const noCandidate = !row.top_candidate && !row.jev_item_id;
   const [choice, setChoice] = useState(suggested ?? (noCandidate ? NEW_ITEM_OPTION : ""));
   const [newName, setNewName] = useState(() => cleanNewItemName(row.raw_name));
-  const [newUnit, setNewUnit] = useState(() => defaultNewItemUnit(row.raw_name));
+  const [newUnit, setNewUnit] = useState(() => defaultNewItemUnit(row.raw_name, row.raw_unit));
   const [packEdit, setPackEdit] = useState<{ label: string; factor: string } | null>(null);
 
   const isNew = choice === NEW_ITEM_OPTION;

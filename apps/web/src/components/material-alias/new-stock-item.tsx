@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
+import { normalizeStockUnit, STOCK_UNITS } from "@/lib/stock-units";
 
 /** Value of the item <select> option that switches the row to "create a new item". */
 export const NEW_ITEM_OPTION = "__new__";
@@ -46,6 +47,10 @@ const VOLUME = new Set(["l", "lit", "ml"]);
 
 /** Default stock unit for a new item: weight → g, volume → ml, otherwise cái. */
 export function defaultNewItemUnit(raw: string, invoiceUnit?: string | null): string {
+  // Owner 14/10: the invoice counts in chai → the new item counts in chai, never "cái".
+  // A count unit on the invoice (chai, hộp, cuộn, bao, gói…) wins over a pack size in the name.
+  const invoiceBase = normalizeStockUnit(invoiceUnit);
+  if (invoiceBase && STOCK_UNITS.some((u) => u.code === invoiceBase && u.kind === "count")) return invoiceBase;
   const unit = raw.toLowerCase().match(/\d\s*(kg|gr|gram|g|lit|ml|l)\b/)?.[1]
     ?? invoiceUnit?.trim().toLowerCase().match(/^(kg|gr|gram|g|lit|ml|l)$/)?.[1];
   if (unit && WEIGHT.has(unit)) return "g";
