@@ -64,6 +64,7 @@ const StockLedger = lazy(() => import("@/pages/StockLedger"));
 const AutoPurchase = lazy(() => import("@/pages/AutoPurchase"));
 const StockCatalogCleanup = lazy(() => import("@/pages/StockCatalogCleanup"));
 const WarehouseGame = lazy(() => import("@/pages/WarehouseGame"));
+const WarehouseOffice = lazy(() => import("@/pages/WarehouseOffice"));
 const AttendanceManagement = lazy(() => import("@/pages/AttendanceManagement"));
 // Payroll is the Bếp BN flow (owner 2026-10-08); the older PayrollManagement page is no longer routed.
 const BepBnPayroll = lazy(() => import("@/pages/BepBnPayroll"));
@@ -283,6 +284,8 @@ export function AppRoutes() {
 
       {/* Kho 2D runs full screen, outside the BMQ shell (owner decision 2026-10-12). */}
       <Route path="/warehouse/game" element={<ProtectedRoute><ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><WarehouseGame /></Suspense></ModuleRoute></ProtectedRoute>} />
+      {/* Kho văn phòng: fixed-view ordering room + PR desk, full screen (owner approved the demo 2026-10-16). */}
+      <Route path="/warehouse/office" element={<ProtectedRoute><ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><WarehouseOffice /></Suspense></ModuleRoute></ProtectedRoute>} />
 
       {/* Main App Routes */}
       <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
