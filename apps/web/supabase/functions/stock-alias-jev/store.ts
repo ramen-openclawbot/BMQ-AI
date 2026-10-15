@@ -148,6 +148,8 @@ export interface MaterialAliasStore {
   getActiveNewItemRun(location: string): Promise<NewItemRunRow | null>;
   createNewItemRun(location: string, startedBy: string | null): Promise<NewItemRunRow>;
   updateNewItemRun(runId: string, patch: Partial<NewItemRunRow> & { finished_at?: string | null }): Promise<void>;
+  /** Shared secret the hourly unattended backlog worker sends in x-worker-secret. */
+  getWorkerSecret(): Promise<string | null>;
 }
 
 export function createMaterialAliasStore(admin: SupabaseClient): MaterialAliasStore {
@@ -443,6 +445,17 @@ export function createMaterialAliasStore(admin: SupabaseClient): MaterialAliasSt
         .update({ ...patch, updated_at: new Date().toISOString() })
         .eq("id", runId);
       if (error) fail();
+    },
+
+    async getWorkerSecret() {
+      const { data, error } = await admin
+        .from("robot_worker_config")
+        .select("worker_secret")
+        .eq("id", "be-mi")
+        .maybeSingle();
+      if (error) fail();
+      if (!data) return null;
+      return asNullableString((data as unknown as Record<string, unknown>).worker_secret);
     },
   };
 }

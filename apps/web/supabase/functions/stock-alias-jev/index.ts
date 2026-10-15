@@ -141,10 +141,12 @@ Deno.serve(createMaterialAliasHandler({
       p_conversion_factor: input.conversionFactor,
       p_jev_item_id: input.jevItemId,
       p_jev_probability: input.jevProbability,
+      p_require_variant: input.requireVariant === true,
     });
     if (error) return { applied: false, reason: "rpc_error" };
     return (data ?? { applied: false, reason: "empty" }) as { applied: boolean; reason?: string; action_id?: string };
   },
+  getWorkerSecret: () => createMaterialAliasStore(adminClient()).getWorkerSecret(),
   authenticate: async (request, signal) => {
     const authorization = request.headers.get("authorization");
     if (!authorization?.startsWith("Bearer ") || authorization.length > 8192) {

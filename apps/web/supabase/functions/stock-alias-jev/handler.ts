@@ -135,6 +135,8 @@ export interface AutoConfirmAliasInput {
   conversionFactor: number;
   jevItemId: string;
   jevProbability: number;
+  /** Unattended worker runs only: require an existing variant alias. */
+  requireVariant?: boolean;
 }
 
 export interface AutoApplyResult {
@@ -181,6 +183,11 @@ export interface MaterialAliasHandlerDeps {
   getRobotFeedback?: (kind: RobotFeedbackKind, keys: string[], limit: number) => Promise<RobotFeedbackRow[]>;
   /** Internal service-role auto writer robot_auto_confirm_alias. */
   autoConfirmAlias?: (input: AutoConfirmAliasInput) => Promise<AutoApplyResult>;
+  /**
+   * The shared worker secret from public.robot_worker_config, read with the
+   * service client. Missing dependency or missing row => no worker access.
+   */
+  getWorkerSecret?: () => Promise<string | null>;
   newItemEvaluator?: () => NewItemJevEvaluator | null;
   /** debt_review mode: read one supplier's old debt candidates, service client. */
   getDebtCandidates?: (supplierId: string) => Promise<SupplierDebtCandidates>;
@@ -220,6 +227,8 @@ interface ParsedBacklogInput {
   mode: "backlog";
   location: string;
   batchSize: number;
+  /** Set by the unattended hourly worker; gates the worker auth path. */
+  unattended: boolean;
 }
 
 interface ParsedNewItemsInput {
@@ -268,6 +277,18 @@ export function vietnamDate(iso: string): string {
 
 function jsonBody(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Constant-time string compare for the worker secret. Same shape as
+ * _shared/dealer.ts timingSafeEqual; kept local so the handler does not pull the
+ * Deno / https imports of that shared module into the pure test bundle.
+ */
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i += 1) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
 }
 
 async function readBody(req: Request, signal: AbortSignal): Promise<Record<string, unknown>> {
@@ -365,7 +386,7 @@ function asLine(entry: unknown): MaterialAliasLineInput {
 
 function parseInput(raw: Record<string, unknown>): ParsedInput {
   for (const field of Object.keys(raw)) {
-    if (!["mode", "supplier_id", "location", "lines", "batch_size", "days", "background"].includes(field)) {
+    if (!["mode", "supplier_id", "location", "lines", "batch_size", "days", "background", "unattended"].includes(field)) {
       throw new MaterialAliasError("invalid_request", 400);
     }
   }
@@ -375,6 +396,7 @@ function parseInput(raw: Record<string, unknown>): ParsedInput {
     if (
       raw.location !== undefined || raw.lines !== undefined
       || raw.batch_size !== undefined || raw.days !== undefined || raw.background !== undefined
+      || raw.unattended !== undefined
     ) {
       throw new MaterialAliasError("invalid_request", 400);
     }
@@ -398,15 +420,18 @@ function parseInput(raw: Record<string, unknown>): ParsedInput {
     ) {
       throw new MaterialAliasError("invalid_request", 400);
     }
+    if (raw.unattended !== undefined && typeof raw.unattended !== "boolean") {
+      throw new MaterialAliasError("invalid_request", 400);
+    }
     const batchSize = Math.min(
       (rawBatch as number | undefined) ?? MATERIAL_ALIAS_BACKLOG_BATCH_DEFAULT,
       MATERIAL_ALIAS_BACKLOG_BATCH_MAX,
     );
-    return { mode: "backlog", location, batchSize };
+    return { mode: "backlog", location, batchSize, unattended: raw.unattended === true };
   }
 
   if (mode === "new_items") {
-    if (raw.supplier_id !== undefined || raw.lines !== undefined) {
+    if (raw.supplier_id !== undefined || raw.lines !== undefined || raw.unattended !== undefined) {
       throw new MaterialAliasError("invalid_request", 400);
     }
     const rawDays = raw.days;
@@ -439,7 +464,7 @@ function parseInput(raw: Record<string, unknown>): ParsedInput {
   }
 
   if (mode !== "lines") throw new MaterialAliasError("invalid_request", 400);
-  if (raw.batch_size !== undefined || raw.days !== undefined || raw.background !== undefined) {
+  if (raw.batch_size !== undefined || raw.days !== undefined || raw.background !== undefined || raw.unattended !== undefined) {
     throw new MaterialAliasError("invalid_request", 400);
   }
   const supplierId = raw.supplier_id === undefined ? null : raw.supplier_id;
@@ -647,6 +672,7 @@ function autoConfirmInputFor(params: {
   rawUnit: string | null;
   candidate: MaterialAliasCandidate | null;
   answer: CachedJevAnswer;
+  requireVariant?: boolean;
 }): AutoConfirmAliasInput | null {
   const { candidate, answer } = params;
   if (!candidate || answer.choice === null) return null;
@@ -665,6 +691,7 @@ function autoConfirmInputFor(params: {
     conversionFactor: packConversionFactor(answer.pack),
     jevItemId: candidate.id,
     jevProbability: answer.probability,
+    requireVariant: params.requireVariant === true,
   };
 }
 
@@ -1160,11 +1187,38 @@ export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
     const signal = AbortSignal.any([req.signal, AbortSignal.timeout(MATERIAL_ALIAS_REQUEST_BUDGET_MS)]);
     const deadlineAt = Date.now() + MATERIAL_ALIAS_REQUEST_BUDGET_MS;
     try {
-      const { userId, q7Editor } = await deps.authenticate(req, signal);
+      const workerHeader = req.headers.get("x-worker-secret");
+      let userId: string | null = null;
+      let q7Editor = false;
+      let requireVariant = false;
+      if (workerHeader !== null) {
+        // Worker path: the shared secret is the only credential. Never fall back
+        // to user auth when the header is present.
+        const storedSecret = typeof deps.getWorkerSecret === "function"
+          ? await deps.getWorkerSecret()
+          : null;
+        if (storedSecret === null || storedSecret === "" || !timingSafeEqual(workerHeader, storedSecret)) {
+          throw new MaterialAliasError("unauthorized", 401);
+        }
+        q7Editor = true;
+        requireVariant = true;
+      } else {
+        const auth = await deps.authenticate(req, signal);
+        userId = auth.userId;
+        q7Editor = auth.q7Editor;
+      }
       signal.throwIfAborted();
       if (deps.killSwitch()) throw new MaterialAliasError("disabled", 503);
       const raw = await readBody(req, signal);
       const input = parseInput(raw);
+      // The worker may only run an unattended backlog batch.
+      if (workerHeader !== null && (input.mode !== "backlog" || input.unattended !== true)) {
+        throw new MaterialAliasError("invalid_request", 400);
+      }
+      // An unattended body without the worker secret is never a worker run.
+      if (workerHeader === null && input.mode === "backlog" && input.unattended) {
+        throw new MaterialAliasError("unauthorized", 401);
+      }
       if ((input.mode === "backlog" || input.mode === "new_items") && !q7Editor) {
         throw new MaterialAliasError("forbidden", 403);
       }
@@ -1389,15 +1443,30 @@ export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
         });
       }
 
+      const autoSummary: AutoApplySummary = { applied: 0, skipped: {} };
       const pending: BacklogEntry[] = [];
       let skippedExisting = 0;
       for (const entry of eligible) {
         const hit = await deps.getCache(entry.key);
-        if (hit) skippedExisting += 1;
-        else pending.push(entry);
+        if (!hit) {
+          pending.push(entry);
+          continue;
+        }
+        // A cache hit is the same answer a fresh Jev call would return, so the
+        // pass auto-applies it under the same rule as a fresh answer.
+        skippedExisting += 1;
+        const cachedInput = autoConfirmInputFor({
+          supplierId: entry.row.supplier_id,
+          location: entry.row.location,
+          rawName: entry.row.raw_name,
+          rawUnit: entry.row.raw_unit,
+          candidate: chosenCandidate(entry.candidates, hit.answer.choice),
+          answer: hit.answer,
+          requireVariant,
+        });
+        if (cachedInput) await autoApplyAlias(deps, autoSummary, cachedInput);
       }
 
-      const autoSummary: AutoApplySummary = { applied: 0, skipped: {} };
       let evaluated = 0;
       let processed = 0;
       for (const entry of pending) {
@@ -1412,6 +1481,7 @@ export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
             rawUnit: entry.row.raw_unit,
             candidate: chosenCandidate(entry.candidates, exact.choice),
             answer: exact,
+            requireVariant,
           });
           if (exactInput) await autoApplyAlias(deps, autoSummary, exactInput);
           processed += 1;
@@ -1439,6 +1509,7 @@ export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
             rawUnit: entry.row.raw_unit,
             candidate: chosenCandidate(entry.candidates, answer.choice),
             answer,
+            requireVariant,
           });
           if (autoInput) await autoApplyAlias(deps, autoSummary, autoInput);
         } catch (error) {

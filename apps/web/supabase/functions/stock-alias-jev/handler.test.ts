@@ -100,10 +100,10 @@ function makeDeps(overrides: Partial<MaterialAliasHandlerDeps> = {}) {
   return { deps: { ...defaults, ...overrides }, cache, usageRecords };
 }
 
-function request(body: unknown, contentType = "application/json") {
+function request(body: unknown, contentType = "application/json", extraHeaders: Record<string, string> = {}) {
   return new Request("https://edge.test/stock-alias-jev", {
     method: "POST",
-    headers: { "content-type": contentType },
+    headers: { "content-type": contentType, ...extraHeaders },
     body: JSON.stringify(body),
   });
 }
@@ -969,4 +969,150 @@ test("a robot auto-apply failure never fails the ranking response", async () => 
   const body = await response.json();
   assert.equal(body.auto_applied, 0);
   assert.deepEqual(body.auto_skipped, { error: 1 });
+});
+
+/** The cache key a backlog row with one token candidate and no catalog builds. */
+function backlogKey(normalizedName: string, candidateIds: string[]): MaterialAliasCacheKey {
+  return {
+    supplierId: null,
+    normalizedName,
+    location: "q7",
+    promptVersion: JEV_PROMPT_VERSION,
+    candidatesHash: candidatesHash(candidateIds),
+  };
+}
+
+test("a cached backlog answer at 0.97 auto-confirms without calling Jev", async () => {
+  const autoInputs: Array<Record<string, unknown>> = [];
+  const { deps, cache } = makeDeps({
+    listBacklog: async () => [backlogRow("toi ngay 10", "Tỏi ngày 10")],
+    candidatesFor: async () => [CANDIDATE_A],
+    autoConfirmAlias: async (input) => {
+      autoInputs.push(input as unknown as Record<string, unknown>);
+      return { applied: true, action_id: "auto-1" };
+    },
+  });
+  const cached: CachedJevAnswer = {
+    ...ANSWER,
+    choice: CANDIDATE_A.id,
+    item_id: CANDIDATE_A.id,
+    probability: 0.97,
+    line_type: "goods",
+    pack: null,
+  };
+  cache.set(JSON.stringify(backlogKey("toi ngay 10", [CANDIDATE_A.id])), { answer: cached, cost: null });
+
+  const handler = createMaterialAliasHandler(deps);
+  const body = await (await handler(request({ mode: "backlog", location: "q7" }))).json();
+  assert.equal(body.skipped_existing, 1);
+  assert.equal(body.evaluated, 0, "a cache hit must not call Jev");
+  assert.equal(body.auto_applied, 1);
+  assert.equal(autoInputs.length, 1);
+  assert.equal(autoInputs[0].itemId, CANDIDATE_A.id);
+  assert.equal(autoInputs[0].jevProbability, 0.97);
+  assert.equal(autoInputs[0].conversionFactor, 1);
+});
+
+test("a cached answer refused by the robot writer is counted in auto_skipped", async () => {
+  const { deps, cache } = makeDeps({
+    listBacklog: async () => [backlogRow("toi ngay 10", "Tỏi ngày 10")],
+    candidatesFor: async () => [CANDIDATE_A],
+    autoConfirmAlias: async () => ({ applied: false, reason: "not_variant" }),
+  });
+  const cached: CachedJevAnswer = {
+    ...ANSWER,
+    choice: CANDIDATE_A.id,
+    item_id: CANDIDATE_A.id,
+    probability: 0.97,
+    line_type: "goods",
+    pack: null,
+  };
+  cache.set(JSON.stringify(backlogKey("toi ngay 10", [CANDIDATE_A.id])), { answer: cached, cost: null });
+
+  const handler = createMaterialAliasHandler(deps);
+  const body = await (await handler(request({ mode: "backlog", location: "q7" }))).json();
+  assert.equal(body.skipped_existing, 1);
+  assert.equal(body.auto_applied, 0);
+  assert.deepEqual(body.auto_skipped, { not_variant: 1 });
+});
+
+test("a worker request with a wrong, empty or unconfigured secret is refused", async () => {
+  let authCalls = 0;
+  const { deps } = makeDeps({
+    getWorkerSecret: async () => "worker-secret",
+    authenticate: async () => { authCalls += 1; return { userId: "owner-1", q7Editor: true }; },
+    listBacklog: async () => [],
+  });
+  const handler = createMaterialAliasHandler(deps);
+  const workerBody = { mode: "backlog", location: "q7", batch_size: 20, unattended: true };
+  const wrong = await handler(request(workerBody, "application/json", { "x-worker-secret": "nope" }));
+  assert.equal(wrong.status, 401);
+  const empty = await handler(request(workerBody, "application/json", { "x-worker-secret": "" }));
+  assert.equal(empty.status, 401);
+  assert.equal(authCalls, 0, "user auth must never run when the worker header is present");
+
+  const unconfigured = createMaterialAliasHandler(makeDeps({
+    getWorkerSecret: async () => null,
+  }).deps);
+  const missingRow = await unconfigured(request(workerBody, "application/json", { "x-worker-secret": "worker-secret" }));
+  assert.equal(missingRow.status, 401);
+
+  // An unattended body without the header is not a worker run either.
+  const noHeader = await handler(request(workerBody));
+  assert.equal(noHeader.status, 401);
+});
+
+test("the worker secret runs an unattended backlog with requireVariant true", async () => {
+  const autoInputs: Array<Record<string, unknown>> = [];
+  let authCalls = 0;
+  const { deps } = makeDeps({
+    getWorkerSecret: async () => "worker-secret",
+    authenticate: async () => { authCalls += 1; return { userId: "owner-1", q7Editor: true }; },
+    listBacklog: async () => [backlogRow("toi ngay 10", "Tỏi ngày 10")],
+    candidatesFor: async () => [CANDIDATE_A],
+    autoConfirmAlias: async (input) => {
+      autoInputs.push(input as unknown as Record<string, unknown>);
+      return { applied: true, action_id: "auto-1" };
+    },
+  });
+  const handler = createMaterialAliasHandler(deps);
+  const response = await handler(request(
+    { mode: "backlog", location: "q7", batch_size: 20, unattended: true },
+    "application/json",
+    { "x-worker-secret": "worker-secret" },
+  ));
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.auto_applied, 1);
+  assert.equal(authCalls, 0, "the worker secret replaces user auth");
+  assert.equal(autoInputs.length, 1);
+  assert.equal(autoInputs[0].requireVariant, true);
+});
+
+test("the worker secret cannot run lines mode", async () => {
+  const { deps } = makeDeps({
+    getWorkerSecret: async () => "worker-secret",
+    listBacklog: async () => [],
+  });
+  const handler = createMaterialAliasHandler(deps);
+  const response = await handler(request(linesBody(), "application/json", { "x-worker-secret": "worker-secret" }));
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).code, "invalid_request");
+});
+
+test("a signed-in backlog run keeps requireVariant false", async () => {
+  const autoInputs: Array<Record<string, unknown>> = [];
+  const { deps } = makeDeps({
+    listBacklog: async () => [backlogRow("toi ngay 10", "Tỏi ngày 10")],
+    candidatesFor: async () => [CANDIDATE_A],
+    autoConfirmAlias: async (input) => {
+      autoInputs.push(input as unknown as Record<string, unknown>);
+      return { applied: true, action_id: "auto-1" };
+    },
+  });
+  const handler = createMaterialAliasHandler(deps);
+  const response = await handler(request({ mode: "backlog", location: "q7" }));
+  assert.equal(response.status, 200);
+  assert.equal(autoInputs.length, 1);
+  assert.equal(autoInputs[0].requireVariant, false);
 });
