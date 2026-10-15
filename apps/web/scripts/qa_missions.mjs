@@ -40,6 +40,14 @@ function settle(st) {
     return { data: null, error: null, count };
   }
   if (/^rpc:(resolve_stock_alias|record_q7_stock_count|record_tan_tao_stock_count|set_goods_receipt_receiving_location|create_q7_draft_purchase_orders|upsert_q7_purchase_item_setting|update_q7_auto_purchase_settings|run_q7_auto_purchase_now|decide_stock_catalog_suggestion|revert_stock_item_merge|link_kitchen_items_to_canonical_materials)$/.test(st.table)) { window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args)); return { data: null, error: { message: "QA fixture: writes disabled" } }; }
+  if (st.table === "rpc:get_alias_receipt_lines") {
+    window.__qaWrites.push("read:" + st.table);
+    if (cfg().notesError) return { data: null, error: { message: "QA fixture: notes down" } };
+    return { data: [
+      { goods_receipt_id: "gr-459", goods_receipt_item_id: "gri-459-" + st.args.p_alias_id, receipt_number: "GRN-000459", receipt_date: "2026-08-05", status: "confirmed", supplier_name: "Suatuoi.com", raw_name: "Mekovita I-Love-Milk Full Cream 1L - Combo 3 thùng", quantity: 1, unit: "Combo", unit_price: 1036800, line_total: 1036800, image_path: "goods-receipts/delivery-note-459.jpg", photo_paths: null },
+      { goods_receipt_id: "gr-405", goods_receipt_item_id: "gri-405-" + st.args.p_alias_id, receipt_number: "GRN-000405", receipt_date: "2026-07-15", status: "confirmed", supplier_name: "Suatuoi.com", raw_name: "Mekovita I-Love-Milk Full Cream 1L - Combo 3 thùng", quantity: 1, unit: "Combo", unit_price: 1036800, line_total: 1036800, image_path: null, photo_paths: null },
+    ], error: null };
+  }
   if (st.table === "rpc:get_my_missions") {
     if (cfg().missionsError) return { data: null, error: { message: "QA fixture: missions down" } };
     return { data: window.__msFixture[cfg().missions || "three_open_partial"], error: null };
@@ -279,7 +287,7 @@ export const supabase = {
   rpc: (fn, args) => builder("rpc:" + fn, args),
   schema: () => ({ from: (table) => builder(table), rpc: (fn) => builder("rpc:" + fn) }),
   functions: { invoke: async (name) => { window.__qaWrites.push("invoke:" + name); return { data: null, error: { message: "QA fixture: functions disabled" } }; } },
-  storage: { from: () => ({ getPublicUrl: () => ({ data: { publicUrl: "" } }), createSignedUrl: async () => ({ data: null, error: null }), list: async () => ({ data: [], error: null }), upload: async () => ({ data: null, error: { message: "QA fixture: writes disabled" } }), download: async () => ({ data: null, error: null }) }) },
+  storage: { from: () => ({ getPublicUrl: () => ({ data: { publicUrl: "" } }), createSignedUrl: async (path) => ({ data: { signedUrl: "data:image/svg+xml;utf8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="600" height="840"><rect width="600" height="840" fill="#fff"/><text x="40" y="80" font-size="40" font-family="sans-serif">PHIẾU GIAO HÀNG</text><text x="40" y="140" font-size="22" font-family="sans-serif">' + String(path).slice(-28) + '</text></svg>') }, error: null }), list: async () => ({ data: [], error: null }), upload: async () => ({ data: null, error: { message: "QA fixture: writes disabled" } }), download: async () => ({ data: null, error: null }) }) },
   auth: {
     getSession: async () => ({ data: { session: { access_token: "qa-fixture-token", user } }, error: null }),
     getUser: async () => ({ data: { user }, error: null }),
@@ -445,6 +453,23 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     assert.equal(await submit.isDisabled(), true, "submit locked until done");
     assert.match(await submit.textContent(), /Còn 1 việc/);
     const open1 = page.locator("[data-bmq-mission-alias]").nth(1);
+    // Delivery notes (16/10): only the unfixed alias shows them, above the factor input.
+    assert.equal(await page.locator("[data-bmq-mission-alias] [data-bmq-receipt-notes]").count(), 1, "notes only on the open alias");
+    assert.equal(await open1.locator("[data-bmq-note]").count(), 2, "two receipt cards");
+    assert.match(await open1.locator("[data-bmq-receipt-notes]").textContent(), /2 lần nhập · 1 có ảnh/);
+    await open1.locator("[data-bmq-note='GRN-000459'] img").waitFor({ timeout: 5000 });
+    assert.equal(await overflow(page), 0, `alias notes no overflow ${w}`);
+    await page.screenshot({ path: `${EVIDENCE}/sheet-alias-notes-${w}.png` });
+    await open1.locator("[data-bmq-note='GRN-000459']").click({ force: true });
+    await page.waitForSelector(".kg .note-photo", { timeout: 5000 });
+    assert.match(await page.locator(".kg .note-line").textContent(), /1 Combo × 1\.036\.800đ/);
+    await page.waitForTimeout(900);
+    const viewerOnTop = await page.evaluate(() => { const v = document.querySelector(".kg .note-viewer"); if (!v) return false; const r = v.getBoundingClientRect(); const el = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return Boolean(el && v.contains(el)); });
+    assert.ok(viewerOnTop, `note viewer is on top of the mission sheet ${w}`);
+    await page.screenshot({ path: `${EVIDENCE}/alias-note-viewer-${w}.png` });
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(300);
+    if (await page.locator(".kg .note-photo").count()) await page.locator(".kg .note-viewer button[aria-label='Đóng']").click({ force: true }).catch(() => {});
     await open1.locator("input").fill("36000");
     await open1.getByRole("button", { name: "Lưu" }).click({ force: true });
     await page.waitForTimeout(400);

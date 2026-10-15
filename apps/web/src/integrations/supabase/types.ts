@@ -4246,6 +4246,10 @@ export type Database = {
         }
         Returns: Json
       }
+      get_alias_receipt_lines: {
+        Args: { p_alias_id: string; p_limit?: number }
+        Returns: Json
+      }
       get_crate_receipt_lines: {
         Args: {
           p_location: string

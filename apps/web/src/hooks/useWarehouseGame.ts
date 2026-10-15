@@ -215,6 +215,21 @@ export function useCrateReceiptLines(
   });
 }
 
+/** The latest receipt lines (365 days) behind one stock material alias, for the alias-factor mission. */
+export function useAliasReceiptLines(aliasId: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: ["alias-receipt-lines", aliasId],
+    enabled: enabled && aliasId !== null,
+    staleTime: 60_000,
+    queryFn: async (): Promise<ReceiptLine[]> => {
+      if (aliasId === null) return [];
+      const { data, error } = await supabase.rpc("get_alias_receipt_lines", { p_alias_id: aliasId });
+      if (error) throw error;
+      return parseReceiptLines(data);
+    },
+  });
+}
+
 /** The latest receipt lines matching any alias of one kitchen item. */
 export function useItemReceiptLines(itemId: string | null, enabled: boolean) {
   return useQuery({

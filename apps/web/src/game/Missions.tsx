@@ -3,13 +3,14 @@ import { GamePicker } from "@/game/GamePicker";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { MISSIONS_QUERY_KEY, useCompleteMission, useMarkItemsDistinct, useResolveUnknownUnit, useUpdateAliasFactor } from "@/hooks/useMissions";
-import { useRenameStockItem, WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY } from "@/hooks/useWarehouseGame";
+import { useAliasReceiptLines, useRenameStockItem, WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY } from "@/hooks/useWarehouseGame";
 import { STOCK_CATALOG_REVIEW_QUERY_KEY } from "@/hooks/useStockCatalog";
 import {
   levelProgress, missionErrorMessage,
   type CompleteMissionResult, type Mission, type MissionAliasDetail, type MissionDuplicateDetail, type MissionLevel, type MissionMaterialLinksDetail, type MissionUnknownUnitDetail, type MyMissions,
 } from "@/lib/missions";
 import { STOCK_UNITS } from "@/lib/stock-units";
+import { ReceiptNotes } from "./ReceiptNotes";
 import { Sheet } from "./Sheet";
 import { GameLoading } from "./Loading";
 import { Buddy } from "./Toon";
@@ -214,6 +215,12 @@ function useApplyMerge() {
   });
 }
 
+/** Delivery notes behind the alias: the owner checks the photo before typing a factor (16/10). */
+function AliasNotes({ aliasId }: { aliasId: string }) {
+  const lines = useAliasReceiptLines(aliasId, true);
+  return <ReceiptNotes title="Phiếu giao hàng" lines={lines.data} loading={lines.isLoading} error={lines.error} />;
+}
+
 function AliasRow({ row, onSaved }: { row: MissionAliasDetail; onSaved: (text: string) => void }) {
   const update = useUpdateAliasFactor();
   const [text, setText] = useState("");
@@ -229,6 +236,7 @@ function AliasRow({ row, onSaved }: { row: MissionAliasDetail; onSaved: (text: s
       <div className="task-now">Đang tính: 1 đơn vị trên phiếu = <b>{row.factor === null ? "—" : fmtQty(row.factor)} {row.item_unit ?? row.unit ?? ""}</b></div>
       {row.fixed ? <span className="task-ok">✓ Đã sửa</span> : (
         <>
+          <AliasNotes aliasId={row.id} />
           <label className="conv">
             1 đơn vị trên phiếu =
             <input inputMode="decimal" value={text} onChange={(event) => setText(event.target.value)} placeholder="?" aria-label={`Hệ số mới cho ${row.name ?? ""}`} />
