@@ -54,7 +54,7 @@ export const FINANCE_RECONCILIATION_LABELS: Record<string, string> = {
   paid_without_receipt: "Chi khi chưa nhập kho",
   receipt_confirmed_delivery_pending: "Đã nhập kho, phiếu ghi chưa giao",
   invoice_zero_amount: "Hóa đơn 0 đ",
-  jev_possible_duplicate: "Jev nghi chi trùng",
+  jev_possible_duplicate: "Bé Mì nghi chi trùng",
 };
 
 /** Lower rank sorts first. Unknown priorities sort last. */

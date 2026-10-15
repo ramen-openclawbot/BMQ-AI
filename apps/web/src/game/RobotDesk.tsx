@@ -47,9 +47,9 @@ function useRobotPackages() {
 }
 
 const markLabel = (row: SupplierDebtRow) => {
-  if (row.mark === "settled_outside") return row.mark_source === "learned" ? "đã chi ngoài hệ thống (học)" : row.mark_source === "manual" ? "đã chi ngoài hệ thống" : `Jev: có thể đã chi${row.probability != null ? ` ${Math.round(row.probability * 100)}%` : ""}`;
-  if (row.mark === "real_debt") return row.mark_source === "jev" ? `Jev: nợ thật${row.probability != null ? ` ${Math.round(row.probability * 100)}%` : ""}` : "nợ thật";
-  if (row.mark === "unsure") return "Jev: chưa rõ";
+  if (row.mark === "settled_outside") return row.mark_source === "learned" ? "đã chi ngoài hệ thống (học)" : row.mark_source === "manual" ? "đã chi ngoài hệ thống" : `Bé Mì: có thể đã chi${row.probability != null ? ` ${Math.round(row.probability * 100)}%` : ""}`;
+  if (row.mark === "real_debt") return row.mark_source === "jev" ? `Bé Mì: nợ thật${row.probability != null ? ` ${Math.round(row.probability * 100)}%` : ""}` : "nợ thật";
+  if (row.mark === "unsure") return "Bé Mì: chưa rõ";
   return null;
 };
 
@@ -103,10 +103,10 @@ function DebtPicker({ supplierId, picked, onPick }: { supplierId: string; picked
       ) : null}
       <div className="row">
         <button type="button" className="btn ghost jev-run" disabled={review.isPending || !debts.data?.rows.length} onClick={() => review.mutate(supplierId)} data-bmq-robot-jev>
-          {review.isPending ? "Jev đang rà…" : "🤖 Jev rà phiếu cũ"}
+          {review.isPending ? "Bé Mì đang rà…" : "🤖 Bé Mì rà phiếu cũ"}
         </button>
-        {review.data ? <small className="robot-jev-note">Jev xem {review.data.evaluated}, đánh dấu {review.data.marked}{review.data.stopped === "quota" ? " · hết hạn mức hôm nay" : ""}</small> : null}
-        {review.error ? <small className="robot-jev-note">Jev chưa chạy được</small> : null}
+        {review.data ? <small className="robot-jev-note">Bé Mì xem {review.data.evaluated}, đánh dấu {review.data.marked}{review.data.stopped === "quota" ? " · hết hạn mức hôm nay" : ""}</small> : null}
+        {review.error ? <small className="robot-jev-note">Bé Mì chưa chạy được</small> : null}
       </div>
     </div>
   );

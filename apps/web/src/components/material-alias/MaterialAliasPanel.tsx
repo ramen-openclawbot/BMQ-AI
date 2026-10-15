@@ -57,14 +57,14 @@ interface Props {
   attention?: number;
 }
 
-const NON_STOCK_LABELS: Record<string, string> = { vat: "VAT", fee: "phí", service: "dịch vụ", jev: "Jev: phí/dịch vụ" };
+const NON_STOCK_LABELS: Record<string, string> = { vat: "VAT", fee: "phí", service: "dịch vụ", jev: "Bé Mì: phí/dịch vụ" };
 
 const pct = (value: number) => `${Math.round(value * 100)}%`;
 
 const errorText = (error: unknown) => {
   const message = String((error as { message?: string })?.message ?? error);
   if (message.includes("insufficient_privilege")) return "Tài khoản chưa có quyền xác nhận mặt hàng kho.";
-  if (message.includes("daily") || message.includes("quota")) return "Đã hết hạn mức gọi Jev hôm nay, chọn tay vẫn được.";
+  if (message.includes("daily") || message.includes("quota")) return "Đã hết hạn mức gọi Bé Mì hôm nay, chọn tay vẫn được.";
   return message;
 };
 
@@ -208,7 +208,7 @@ function PromptRow({
             <option value="">Chọn…</option>
             {row.candidates.map((item) => (
               <option key={item.id} value={item.id}>
-                {item.name} ({item.unit}){jev && jev.id === item.id ? ` · Jev ${pct(jev.probability)}` : ""}
+                {item.name} ({item.unit}){jev && jev.id === item.id ? ` · Bé Mì ${pct(jev.probability)}` : ""}
               </option>
             ))}
             {canMarkNonStock ? <option value={NEW_ITEM_OPTION}>+ Tạo mặt hàng mới…</option> : null}

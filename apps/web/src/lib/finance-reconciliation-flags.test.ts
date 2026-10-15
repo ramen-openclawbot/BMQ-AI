@@ -49,7 +49,7 @@ test("names every fixed label in short Vietnamese", () => {
     "Đã nhập kho, phiếu ghi chưa giao",
   );
   assert.equal(financeReconciliationLabel("invoice_zero_amount"), "Hóa đơn 0 đ");
-  assert.equal(financeReconciliationLabel("jev_possible_duplicate"), "Jev nghi chi trùng");
+  assert.equal(financeReconciliationLabel("jev_possible_duplicate"), "Bé Mì nghi chi trùng");
   assert.equal(Object.keys(FINANCE_RECONCILIATION_LABELS).length, 8);
 });
 

@@ -48,7 +48,7 @@ export function JevLogsPanel({ language }: { language: Language }) {
   return (
     <div data-da-panel="jev">
       <SectionCard
-        title={t(language, "Nhật ký Jev", "Jev logs")}
+        title={t(language, "Nhật ký Bé Mì", "Bé Mì logs")}
         hint={t(
           language,
           "Chỉ lưu chỉ số/kỳ/hỗ trợ đã chọn kèm xác suất, phiên bản prompt & registry, chi phí, usage, thời gian và số lượt đọc. Không lưu câu hỏi, prompt hay khóa bí mật.",
@@ -56,13 +56,13 @@ export function JevLogsPanel({ language }: { language: Language }) {
         )}
         actions={<button type="button" className="da-btn" onClick={() => void reload()} disabled={loading}>{t(language, "Tải lại", "Refresh")}</button>}
       >
-        {loading && <LoadingBlock label={t(language, "Đang tải nhật ký Jev…", "Loading Jev logs…")} />}
+        {loading && <LoadingBlock label={t(language, "Đang tải nhật ký Bé Mì…", "Loading Bé Mì logs…")} />}
         {!loading && error && <ErrorBlock message={error} onRetry={() => void reload()} retryLabel={t(language, "Thử lại", "Retry")} />}
-        {!loading && !error && events.length === 0 && <EmptyBlock label={t(language, "Chưa có sự kiện Jev nào.", "No Jev events yet.")} />}
+        {!loading && !error && events.length === 0 && <EmptyBlock label={t(language, "Chưa có sự kiện Bé Mì nào.", "No Bé Mì events yet.")} />}
         {!loading && !error && events.length > 0 && (
           <div className="da-tablewrap">
             <table className="da-table">
-              <caption>{t(language, "50 sự kiện Jev gần nhất", "Latest 50 Jev events")}</caption>
+              <caption>{t(language, "50 sự kiện Bé Mì gần nhất", "Latest 50 Bé Mì events")}</caption>
               <thead>
                 <tr>
                   <th scope="col">{t(language, "Thời gian", "Time")}</th>

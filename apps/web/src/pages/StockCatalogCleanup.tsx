@@ -50,8 +50,8 @@ export const errorText = (error: unknown) => {
   if (message.includes("insufficient_privilege")) return "Tài khoản chưa có quyền sửa danh mục kho.";
   if (message.includes("merge_source_was_target") || message.includes("merge_target_merged")) return "Mặt hàng này đã nằm trong một lần gộp khác. Hoàn tác lần đó trước.";
   if (message.includes("factor")) return "Cần hệ số đổi đơn vị dương.";
-  if (message.includes("daily") || message.includes("quota")) return "Đã hết hạn mức gọi Jev hôm nay.";
-  if (message.includes("kill")) return "Jev đang bị tắt bằng công tắc khẩn.";
+  if (message.includes("daily") || message.includes("quota")) return "Đã hết hạn mức gọi Bé Mì hôm nay.";
+  if (message.includes("kill")) return "Bé Mì đang bị tắt bằng công tắc khẩn.";
   return message;
 };
 
@@ -103,7 +103,7 @@ export function MergeRow({ row, canEdit }: { row: StockCatalogPendingSuggestion;
       </div>
       <div className="d3-sc-meta">
         <span className={`d3-sc-prob${row.probability >= 0.9 ? " is-high" : row.probability < 0.7 ? " is-low" : ""}`}>
-          Jev {pct(row.probability)} cùng mặt hàng
+          Bé Mì {pct(row.probability)} cùng mặt hàng
         </span>
         {needsFactor && row.factor_source === "none" ? <span className="d3-sc-warn">Khác đơn vị, cần nhập hệ số</span> : null}
         {!needsFactor ? <span className="d3-sc-prob is-high">Bên gộp vào không còn dữ liệu, chỉ tắt đi</span> : null}
@@ -151,7 +151,7 @@ export function ClassifyRow({ row, canEdit }: { row: StockCatalogPendingSuggesti
     <li className="d3-sc-row is-classify" data-bmq-catalog-classify>
       <div className="d3-sc-side">
         <strong>{row.item_name}</strong>
-        <span>{row.item_unit} · {usageText(row.item_issue_count_90d)} · Jev {pct(row.probability)}</span>
+        <span>{row.item_unit} · {usageText(row.item_issue_count_90d)} · Bé Mì {pct(row.probability)}</span>
       </div>
       {canEdit ? (
         <div className="d3-sc-actions">
@@ -194,7 +194,7 @@ export function LearnedAliasesCard({ canEdit }: { canEdit: boolean }) {
           {summary ? `${summary.auto_count} tự động · ${summary.learning_count} đang học` : "…"}
         </span>
         <p>
-          Tên hàng đã xác nhận trong 7 ngày. Jev không đồng ý xếp đầu.
+          Tên hàng đã xác nhận trong 7 ngày. Bé Mì không đồng ý xếp đầu.
         </p>
       </div>
       {reviewQuery.isLoading ? (
@@ -211,7 +211,7 @@ export function LearnedAliasesCard({ canEdit }: { canEdit: boolean }) {
                 <strong>{alias.normalized_name} → {alias.item_name ?? "—"}</strong>
                 <span>
                   {alias.supplier_name ?? "mọi NCC"} · {alias.pack_label ? `${alias.pack_label} = ${num(alias.conversion_factor)} ${alias.unit}` : alias.unit} · {materialAliasStatusLabel(alias.status)} {alias.confirm_count}/3
-                  {alias.jev_disagreed ? " · Jev không đồng ý" : ""}
+                  {alias.jev_disagreed ? " · Bé Mì không đồng ý" : ""}
                   {alias.last_event ? ` · ${materialAliasActionLabel(alias.last_event.action)} ${shortDate(alias.last_event.created_at)}` : ""}
                 </span>
               </div>
@@ -275,7 +275,7 @@ export default function StockCatalogCleanup() {
     { label: "Đề xuất gộp", value: String(merges.length), hint: "Chờ duyệt", Icon: GitMerge },
     { label: "Chờ phân loại", value: String(classifies.length), hint: `${unclassified} mặt hàng chưa có nhóm`, Icon: Tags },
     { label: "Đã có nhóm", value: String(classified), hint: "Mặt hàng đã phân loại", Icon: Layers },
-    { label: "Jev hôm nay", value: usage ? `${usage.calls}/${usage.call_limit}` : "—", hint: usage ? `${num(usage.cost, 4)} USD` : "Lượt gọi", Icon: Bot },
+    { label: "Bé Mì hôm nay", value: usage ? `${usage.calls}/${usage.call_limit}` : "—", hint: usage ? `${num(usage.cost, 4)} USD` : "Lượt gọi", Icon: Bot },
   ];
 
   const scan = (mode: "dedupe" | "classify") =>
@@ -284,10 +284,10 @@ export default function StockCatalogCleanup() {
       {
         onSuccess: (summary) =>
           toast({
-            title: mode === "dedupe" ? "Jev đã quét cặp trùng" : "Jev đã phân loại",
+            title: mode === "dedupe" ? "Bé Mì đã quét cặp trùng" : "Bé Mì đã phân loại",
             description: `${summary.suggestions} đề xuất mới, ${summary.skipped_existing} đã có, ${summary.failed} lỗi, ${summary.calls} lượt gọi${summary.stopped ? " · dừng vì hết hạn mức" : ""}.`,
           }),
-        onError: (error) => toast({ title: "Jev chưa quét được", description: errorText(error), variant: "destructive" }),
+        onError: (error) => toast({ title: "Bé Mì chưa quét được", description: errorText(error), variant: "destructive" }),
       },
     );
 
@@ -295,7 +295,7 @@ export default function StockCatalogCleanup() {
     <div className="d3-wh d3-sl d3-sc min-w-0" data-bmq-stock-catalog>
       <header className="d3-wh-head">
         <div className="min-w-0">
-          <span className="d3-wh-tag">Một danh mục NVL cho Q7 và Tân Tạo · Jev đề xuất · người duyệt quyết định</span>
+          <span className="d3-wh-tag">Một danh mục NVL cho Q7 và Tân Tạo · Bé Mì đề xuất · người duyệt quyết định</span>
           <h1>
             Dọn danh mục <b>kho</b>
           </h1>
@@ -304,7 +304,7 @@ export default function StockCatalogCleanup() {
           <div className="d3-sc-scan">
             <Button type="button" onClick={() => scan("dedupe")} disabled={runJev.isPending || quotaLeft === 0}>
               <Sparkles className="h-4 w-4" />
-              {runJev.isPending ? "Jev đang quét…" : "Quét cặp trùng"}
+              {runJev.isPending ? "Bé Mì đang quét…" : "Quét cặp trùng"}
             </Button>
             <Button type="button" variant="outline" onClick={() => scan("classify")} disabled={runJev.isPending || quotaLeft === 0}>
               <Tags className="h-4 w-4" />
@@ -334,7 +334,7 @@ export default function StockCatalogCleanup() {
       {!loading && !failed && merges.length === 0 && classifies.length === 0 && history.length === 0 ? (
         <div className="d3-wh-alert is-warn">
           <AlertTriangle className="h-5 w-5 shrink-0" />
-          <div><strong>Chưa có đề xuất nào.</strong> Bấm "Quét cặp trùng" để Jev xét các mặt hàng có tên gần giống nhau, rồi "Phân loại mặt hàng" để gắn nhóm.</div>
+          <div><strong>Chưa có đề xuất nào.</strong> Bấm "Quét cặp trùng" để Bé Mì xét các mặt hàng có tên gần giống nhau, rồi "Phân loại mặt hàng" để gắn nhóm.</div>
         </div>
       ) : null}
 

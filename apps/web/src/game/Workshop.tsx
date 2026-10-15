@@ -10,7 +10,7 @@ export const STATION_META: Record<StationId, Omit<Station, "id" | "count">> = {
   classify: { label: "Phân nhóm hàng", icon: "🏷️", tint: C.mustard, hint: "Gắn nhóm mặt hàng" },
   pastry: { label: "Hàng chuyển sang Q7", icon: "🧁", tint: "#e79a6b", hint: "Món nào tự chuyển Q7" },
   links: { label: "Gắn mã hàng", icon: "🧩", tint: "#6fa3a0", hint: "Kho Q7 và Tân Tạo" },
-  jev: { label: "Jev rà soát", icon: "🤖", tint: C.plum, hint: "Quét trùng · phân loại · rà mã" },
+  jev: { label: "Bé Mì rà soát", icon: "🤖", tint: C.plum, hint: "Quét trùng · phân loại · rà mã" },
   aliases: { label: "Tên đã ghép mã", icon: "📋", tint: C.sage, hint: "Tên đã học 7 ngày" },
   backlog: { label: "Tên chưa có mã", icon: "📦", tint: C.kraft, hint: "Danh sách thùng chờ" },
   new: { label: "Hàng mới chưa có mã", icon: "✨", tint: "#e5868f", hint: "Món mua 60 ngày chưa có mã" },
@@ -85,7 +85,7 @@ export function Workshop({ portrait, stations, onStation }: { portrait: boolean;
         x={helper.x - 18}
         y={helper.y + 22}
         tail="side"
-        name="Jev"
+        name="Bé Mì"
         text={busiest ? `${busiest.label} đang có ${busiest.count} việc!` : "Mọi bàn đã gọn gàng ✓"}
         max={portrait ? 22 : 40}
       />

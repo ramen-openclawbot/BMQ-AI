@@ -135,16 +135,16 @@ interface EvalOutcome {
 }
 
 const MESSAGES: Record<string, string> = {
-  disabled: "Tính năng quét trùng Jev đang tắt.",
+  disabled: "Tính năng quét trùng Bé Mì đang tắt.",
   unauthorized: "Phiên đăng nhập đã hết hạn. Anh đăng nhập lại nhé.",
-  forbidden: "Tính năng quét trùng Jev chỉ dành cho chủ doanh nghiệp.",
-  invalid_content_type: "Yêu cầu quét trùng Jev phải là JSON.",
-  invalid_json: "Nội dung yêu cầu quét trùng Jev không hợp lệ.",
-  invalid_request: "Yêu cầu quét trùng Jev không hợp lệ.",
-  body_limit: "Yêu cầu quét trùng Jev quá lớn.",
-  unconfigured: "Máy chủ chưa cấu hình khoá AI Gateway cho Jev.",
-  scan_failed: "Chưa thể quét trùng Jev. Không có thay đổi nào được ghi.",
-  timeout: "Quét trùng Jev vượt thời gian cho phép. Không có thay đổi nào được ghi.",
+  forbidden: "Tính năng quét trùng Bé Mì chỉ dành cho chủ doanh nghiệp.",
+  invalid_content_type: "Yêu cầu quét trùng Bé Mì phải là JSON.",
+  invalid_json: "Nội dung yêu cầu quét trùng Bé Mì không hợp lệ.",
+  invalid_request: "Yêu cầu quét trùng Bé Mì không hợp lệ.",
+  body_limit: "Yêu cầu quét trùng Bé Mì quá lớn.",
+  unconfigured: "Máy chủ chưa cấu hình khoá AI Gateway cho Bé Mì.",
+  scan_failed: "Chưa thể quét trùng Bé Mì. Không có thay đổi nào được ghi.",
+  timeout: "Quét trùng Bé Mì vượt thời gian cho phép. Không có thay đổi nào được ghi.",
 };
 
 function jsonBody(value: unknown): value is Record<string, unknown> {

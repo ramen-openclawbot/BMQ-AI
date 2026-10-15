@@ -199,15 +199,15 @@ interface ParsedDebtReviewInput {
 type ParsedInput = ParsedLinesInput | ParsedBacklogInput | ParsedNewItemsInput | ParsedDebtReviewInput;
 
 const MESSAGES: Record<string, string> = {
-  disabled: "Tính năng học bí danh NVL bằng Jev đang tắt.",
+  disabled: "Tính năng học bí danh NVL bằng Bé Mì đang tắt.",
   unauthorized: "Phiên đăng nhập đã hết hạn. Anh đăng nhập lại nhé.",
   forbidden: "Tính năng học bí danh NVL chỉ dành cho người có quyền sửa kho NVL Q7 hoặc sửa đơn hàng / phiếu chi.",
   invalid_content_type: "Yêu cầu học bí danh NVL phải là JSON.",
   invalid_json: "Nội dung yêu cầu học bí danh NVL không hợp lệ.",
   invalid_request: "Yêu cầu học bí danh NVL không hợp lệ.",
   body_limit: "Yêu cầu học bí danh NVL quá lớn.",
-  unconfigured: "Máy chủ chưa cấu hình khoá AI Gateway cho Jev.",
-  scan_failed: "Chưa thể xếp hạng bí danh NVL. Không có thay đổi nào được ghi ngoài cache Jev.",
+  unconfigured: "Máy chủ chưa cấu hình khoá AI Gateway cho Bé Mì.",
+  scan_failed: "Chưa thể xếp hạng bí danh NVL. Không có thay đổi nào được ghi ngoài cache Bé Mì.",
   timeout: "Xếp hạng bí danh NVL vượt thời gian cho phép. Không có thay đổi nào được ghi.",
 };
 

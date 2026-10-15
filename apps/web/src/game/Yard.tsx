@@ -9,7 +9,7 @@ export const ZONES: Zone[] = [
   { id: "ledger", label: "Tồn kho", icon: "📒", color: C.sage, blurb: "Tự cộng từ phiếu nhập, tự trừ từ phiếu xuất sản xuất. Kiểm kê hằng tuần." },
   { id: "count", label: "Kiểm kê", icon: "✅", color: C.plum, blurb: "Đếm thực tế rồi nhập số; sổ tự ghi phần chênh lệch." },
   { id: "auto", label: "Đặt hàng tự động", icon: "🤖", color: C.coral, blurb: "Kéo món sắp hết cho robot: PO mới + trả đơn cũ, lên Zalo Duyệt chi." },
-  { id: "clean", label: "Danh mục hàng hóa", icon: "🧹", color: C.mustard, blurb: "Jev gộp tên trùng, gán nhóm, học tên gọi khác từ phiếu nhập." },
+  { id: "clean", label: "Danh mục hàng hóa", icon: "🧹", color: C.mustard, blurb: "Bé Mì gộp tên trùng, gán nhóm, học tên gọi khác từ phiếu nhập." },
 ];
 
 interface Rect { x: number; y: number; w: number; h: number }

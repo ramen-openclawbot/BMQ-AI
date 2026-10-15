@@ -3,7 +3,7 @@ import { C, STROKE } from "./theme";
 import { Buddy, CrateBuddy, Defs, Puffs } from "./Toon";
 import { Van } from "./Yard";
 
-const DEFAULT_LINES = ["Đang mở cửa kho", "Đếm thùng hàng", "Gọi Jev dậy", "Lau kệ cho sạch"];
+const DEFAULT_LINES = ["Đang mở cửa kho", "Đếm thùng hàng", "Gọi Bé Mì dậy", "Lau kệ cho sạch"];
 
 /** Waiting screen: the roller shutter lifts, the van pulls in, Bé Kho pushes a crate. */
 export function GameLoading({ lines = DEFAULT_LINES }: { lines?: string[] }) {

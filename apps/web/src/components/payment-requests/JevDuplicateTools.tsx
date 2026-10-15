@@ -28,16 +28,16 @@ export const JEV_RELATION_TEXT: Record<string, string> = {
 };
 
 const STATUS_TEXT: Record<string, { label: string; tone: string }> = {
-  auto_flag: { label: "Jev: trùng", tone: "is-red" },
+  auto_flag: { label: "Bé Mì: trùng", tone: "is-red" },
   needs_review: { label: "Cần anh duyệt", tone: "is-amber" },
-  auto_clear: { label: "Jev: không trùng", tone: "is-green" },
+  auto_clear: { label: "Bé Mì: không trùng", tone: "is-green" },
 };
 
 const SCAN_ERROR: Record<string, string> = {
-  disabled: "Jev đang tắt (công tắc an toàn).",
-  forbidden: "Chỉ CEO quét được bằng Jev.",
+  disabled: "Bé Mì đang tắt (công tắc an toàn).",
+  forbidden: "Chỉ CEO quét được bằng Bé Mì.",
   unauthorized: "Phiên đăng nhập hết hạn, anh đăng nhập lại.",
-  unconfigured: "Máy chủ chưa có khóa AI cho Jev.",
+  unconfigured: "Máy chủ chưa có khóa AI cho Bé Mì.",
   timeout: "Quét quá thời gian, chưa ghi gì. Thử lại với ít cặp hơn.",
 };
 
@@ -50,7 +50,7 @@ async function scanErrorText(error: unknown): Promise<string> {
       if (typeof body?.error === "string") return body.error;
     } catch { /* fall through */ }
   }
-  return "Chưa quét được bằng Jev, chưa ghi gì. Thử lại sau.";
+  return "Chưa quét được bằng Bé Mì, chưa ghi gì. Thử lại sau.";
 }
 
 /** Short chip text: the error code plus the HTTP status, never the whole provider body. */
@@ -64,9 +64,9 @@ function providerHint(items: Array<{ error: string | null }> | undefined): strin
   const errors = (items ?? []).map((i) => i.error ?? "").filter(Boolean);
   if (errors.length === 0) return null;
   if (errors.some((e) => /free tier/i.test(e))) {
-    return "Tài khoản Vercel AI Gateway của BMQ đang ở gói miễn phí, không được dùng Jev. Cần nạp credit (Top up) trên Vercel → AI Gateway. Lần quét này không tốn phí và không ghi gì.";
+    return "Tài khoản Vercel AI Gateway của BMQ đang ở gói miễn phí, không được dùng Bé Mì. Cần nạp credit (Top up) trên Vercel → AI Gateway. Lần quét này không tốn phí và không ghi gì.";
   }
-  if (errors.some((e) => /HTTP 40[13]/.test(e))) return "Khóa AI Gateway bị từ chối (401/403). Cần kiểm tra khóa hoặc quyền dùng Jev trên Vercel.";
+  if (errors.some((e) => /HTTP 40[13]/.test(e))) return "Khóa AI Gateway bị từ chối (401/403). Cần kiểm tra khóa hoặc quyền dùng Bé Mì trên Vercel.";
   if (errors.some((e) => /HTTP 402/.test(e))) return "AI Gateway hết credit. Cần nạp thêm trên Vercel.";
   return null;
 }
@@ -82,7 +82,7 @@ export function JevScanBar() {
     try {
       const data = await scan.mutateAsync({ mode: next });
       if (next === "dry_run") setResult(data);
-      else toast.success(`Jev đã quét ${data.checked} cặp: ${data.auto_flag} trùng, ${data.needs_review} cần duyệt, ${data.auto_clear} không trùng${data.failed ? `, ${data.failed} lỗi` : ""}.`);
+      else toast.success(`Bé Mì đã quét ${data.checked} cặp: ${data.auto_flag} trùng, ${data.needs_review} cần duyệt, ${data.auto_clear} không trùng${data.failed ? `, ${data.failed} lỗi` : ""}.`);
     } catch (error) {
       toast.error(await scanErrorText(error));
     } finally {
@@ -94,7 +94,7 @@ export function JevScanBar() {
     <div className="d3-jev-bar" data-bmq-jev-bar>
       <span className="d3-jev-ico"><Sparkles className="h-4 w-4" /></span>
       <span className="d3-jev-copy">
-        <b>Jev quét chi trùng khác PO</b>
+        <b>Bé Mì quét chi trùng khác PO</b>
         <small>Cặp phiếu cùng NCC, số tiền gần nhau, trong 45 ngày · 50 cặp mỗi lần · 90 ngày gần nhất</small>
       </span>
       <div className="d3-jev-acts">
@@ -110,7 +110,7 @@ export function JevScanBar() {
         <DialogContent className="d3-unc d3-jev-dialog" data-bmq-jev-result onOpenAutoFocus={(e) => e.preventDefault()}>
           <DialogHeader className="d3-unc-head text-left sm:text-left">
             <span className="d3-unc-tag">Quét thử · chưa ghi gì</span>
-            <DialogTitle className="d3-unc-title">Jev đã xem <b>{result?.checked ?? 0}</b> cặp</DialogTitle>
+            <DialogTitle className="d3-unc-title">Bé Mì đã xem <b>{result?.checked ?? 0}</b> cặp</DialogTitle>
             <DialogDescription className="d3-unc-sub">
               {result?.candidates ?? 0} cặp ứng viên · {result?.auto_flag ?? 0} trùng · {result?.needs_review ?? 0} cần duyệt · {result?.auto_clear ?? 0} không trùng
               {result?.failed ? ` · ${result.failed} lỗi` : ""}{result?.skipped_unchanged ? ` · ${result.skipped_unchanged} đã quét, không đổi` : ""}
@@ -130,7 +130,7 @@ export function JevScanBar() {
                       <span className="d3-jev-pair"><b>{item.older_request}</b> ↔ <b>{item.newer_request}</b></span>
                       <span className="d3-jev-meta">
                         {item.error ? (
-                          <span className="d3-up-chip is-red" data-bmq-jev-error={item.error} title={item.error}>Lỗi Jev · {shortError(item.error)}</span>
+                          <span className="d3-up-chip is-red" data-bmq-jev-error={item.error} title={item.error}>Lỗi Bé Mì · {shortError(item.error)}</span>
                         ) : (
                           <>
                             {st && <span className={cn("d3-up-chip", st.tone)}>{st.label}</span>}
@@ -144,7 +144,7 @@ export function JevScanBar() {
                 })}
             </ul>
           ) : (
-            <p className="d3-up-state">Không có cặp mới cần Jev xem.</p>
+            <p className="d3-up-state">Không có cặp mới cần Bé Mì xem.</p>
           )}
           <div className="d3-up-dialog-acts">
             <Button variant="outline" onClick={() => setResult(null)}>Đóng</Button>
@@ -162,7 +162,7 @@ export function JevScanBar() {
 export function describeJevFlag(flag: FinanceReconciliationFlag): string {
   const e = (flag.evidence ?? {}) as Record<string, unknown>;
   const relation = e.relation ? JEV_RELATION_TEXT[String(e.relation)] ?? String(e.relation) : null;
-  return `Giống ${String(e.older_request ?? "")} (${vnd(e.amount_older)}) · cách ${Number(e.days_apart ?? 0)} ngày · Jev: trùng ${pct(e.p_same)}${relation ? `, ${relation}` : ""}`;
+  return `Giống ${String(e.older_request ?? "")} (${vnd(e.amount_older)}) · cách ${Number(e.days_apart ?? 0)} ngày · Bé Mì: trùng ${pct(e.p_same)}${relation ? `, ${relation}` : ""}`;
 }
 
 interface PairSide {

@@ -493,7 +493,7 @@
 }
 
 /* ---- Bãi thùng chờ + Jev robot (2026-10-12) ---- */
-.kg .t-jev { font-family: "Baloo 2", sans-serif; font-weight: 800; font-size: 15px; fill: var(--ink); letter-spacing: .12em; }
+.kg .t-jev { font-family: "Baloo 2", sans-serif; font-weight: 800; font-size: 13px; fill: var(--ink); letter-spacing: .04em; }
 .kg .jev-bot { overflow: visible; display: block; }
 .kg .jev-bot .jev-body { transform-box: fill-box; transform-origin: 50% 100%; animation: kg-breathe 3s ease-in-out infinite; }
 .kg .jev-bot .jev-eye { transform-box: fill-box; transform-origin: center; animation: kg-blink 4.5s infinite; }

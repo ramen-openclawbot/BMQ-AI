@@ -41,7 +41,7 @@ export function JevBot({ state, size = 120 }: { state: JevState; size?: number }
         )}
         {/* body */}
         <rect x={-30} y={20} width={60} height={36} rx={10} fill={C.plumLight} stroke={C.ink} strokeWidth={STROKE} />
-        <text x={0} y={44} textAnchor="middle" className="t-jev">JEV</text>
+        <text x={0} y={44} textAnchor="middle" className="t-jev">BÉ MÌ</text>
       </g>
     </svg>
   );
@@ -76,7 +76,7 @@ export function strongCandidate(crate: WarehouseGamePendingRow) {
 /** What the label sheet will offer first for a crate: the Jev pick, else the closest name. */
 export function crateHint(crate: WarehouseGamePendingRow): { name: string; unit: string | null; tag: string; strong: boolean } | null {
   if (crate.jev_item_id && crate.jev_item_name) {
-    const tag = crate.jev_source === "exact" ? "Trùng tên" : `Jev ${Math.round((crate.jev_probability ?? 0) * 100)}%`;
+    const tag = crate.jev_source === "exact" ? "Trùng tên" : `Bé Mì ${Math.round((crate.jev_probability ?? 0) * 100)}%`;
     return { name: crate.jev_item_name, unit: crate.jev_unit, tag, strong: true };
   }
   const near = strongCandidate(crate);
@@ -125,22 +125,22 @@ export function CrateYard({ location, crates, canAssign, pastryIds, jev, progres
   const fresh = crates.filter((crate) => !crateHint(crate));
   const label = location === "q7" ? "Kho Q7" : "Kho Tân Tạo";
   const say = !canAssign ? "Chỉ chủ hoặc người sửa kho được dán nhãn."
-    : jev === "working" ? `Jev đang phân loại…${progress && progress.total ? ` ${progress.done}/${progress.total}` : ""}`
-    : jev === "error" ? `Jev chưa chạy được${progress && progress.done ? ` (đã xong ${progress.done} tên)` : ""}: ${(error ?? "thử lại sau nhé").replace(/\.$/, "")}.`
+    : jev === "working" ? `Bé Mì đang phân loại…${progress && progress.total ? ` ${progress.done}/${progress.total}` : ""}`
+    : jev === "error" ? `Bé Mì chưa chạy được${progress && progress.done ? ` (đã xong ${progress.done} tên)` : ""}: ${(error ?? "thử lại sau nhé").replace(/\.$/, "")}.`
     : crates.length === 0 ? "Bãi sạch trơn! Không còn thùng nào ✓"
     : withHint.length === crates.length ? `Đã gợi ý cả ${crates.length} thùng. Bấm từng thùng để dán nhãn!`
     : jev === "done" ? `Xong! Gợi ý được ${withHint.length}/${crates.length} thùng. Thùng còn lại anh chọn tay nha.`
-    : `${crates.length} món chưa dán nhãn, ${withHint.length} đã có gợi ý. Bấm nút để Jev phân loại giúp!`;
+    : `${crates.length} món chưa dán nhãn, ${withHint.length} đã có gợi ý. Bấm nút để Bé Mì phân loại giúp!`;
   return (
     <div className="shelf-view crate-yard" data-bmq-crate-yard={location}>
       <section className="jev-stage" data-bmq-jev={jev}>
         <div className="jev-figure"><JevBot state={jev} size={112} /></div>
         <div className="jev-talk">
-          <div className="jev-bubble"><small>Jev · {label}</small><p>{say}</p></div>
+          <div className="jev-bubble"><small>Bé Mì · {label}</small><p>{say}</p></div>
           {progress && jev === "working" ? <div className="jev-progress"><i style={{ width: `${progress.total ? (progress.done / progress.total) * 100 : 8}%` }} /></div> : null}
           {canAssign && crates.length > 0 ? (
             <button type="button" className="btn jev-run" disabled={jev === "working"} onClick={onRunJev} data-bmq-jev-run>
-              {jev === "working" ? "Jev đang làm…" : withHint.length === crates.length ? "🤖 Cho Jev xem lại" : "🤖 Jev phân loại"}
+              {jev === "working" ? "Bé Mì đang làm…" : withHint.length === crates.length ? "🤖 Cho Bé Mì xem lại" : "🤖 Bé Mì phân loại"}
             </button>
           ) : null}
           <p className="yard-rule">{location === "tan_tao" ? "Mọi phiếu nhập về Tân Tạo; món bánh ngọt tự chuyển Q7. " : "Q7 chỉ nhận nguyên liệu bánh ngọt. "}Chỉ hiện tên có nhập trong 60 ngày.</p>
@@ -149,7 +149,7 @@ export function CrateYard({ location, crates, canAssign, pastryIds, jev, progres
 
       {canAssign && withHint.length ? (
         <section className="yard-lot is-jev">
-          <h2 className="cork-title"><span>★</span> Jev đã gợi ý · {withHint.length}</h2>
+          <h2 className="cork-title"><span>★</span> Bé Mì đã gợi ý · {withHint.length}</h2>
           <ul className="crate-grid">{withHint.map((crate, i) => <CrateCard key={crateKey(crate)} crate={crate} index={i} leaving={leavingKey === crateKey(crate)} pastryIds={pastryIds} onOpen={() => onOpen(crate)} />)}</ul>
         </section>
       ) : null}

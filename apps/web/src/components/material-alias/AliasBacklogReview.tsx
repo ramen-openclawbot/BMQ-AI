@@ -37,8 +37,8 @@ const shortDate = (iso: string | null | undefined) => {
 const errorText = (error: unknown) => {
   const message = String((error as { message?: string })?.message ?? error);
   if (message.includes("forbidden") || message.includes("insufficient_privilege")) return "Chỉ chủ hoặc người có quyền sửa kho Q7 làm được việc này.";
-  if (message.includes("daily") || message.includes("quota")) return "Đã hết hạn mức gọi Jev hôm nay. Chọn tay vẫn được.";
-  if (message.includes("kill")) return "Jev đang bị tắt bằng công tắc khẩn.";
+  if (message.includes("daily") || message.includes("quota")) return "Đã hết hạn mức gọi Bé Mì hôm nay. Chọn tay vẫn được.";
+  if (message.includes("kill")) return "Bé Mì đang bị tắt bằng công tắc khẩn.";
   return message;
 };
 
@@ -62,9 +62,9 @@ function suggestionPill(row: MaterialAliasBacklogReviewRow) {
   if (row.jev_source === "exact") return <span className="d3-sc-prob is-high">Trùng tên</span>;
   if (row.jev_source === "rule") return <span className="d3-sc-prob">VAT/phí</span>;
   if (row.jev_source === "jev" || row.jev_source === "none") {
-    if (!row.jev_item_id) return <span className="d3-sc-warn">Jev: chưa có mã</span>;
+    if (!row.jev_item_id) return <span className="d3-sc-warn">Bé Mì: chưa có mã</span>;
     const p = row.jev_probability ?? 0;
-    return <span className={`d3-sc-prob${p >= 0.9 ? " is-high" : p < 0.7 ? " is-low" : ""}`}>Jev {pct(p)}</span>;
+    return <span className={`d3-sc-prob${p >= 0.9 ? " is-high" : p < 0.7 ? " is-low" : ""}`}>Bé Mì {pct(p)}</span>;
   }
   if (!row.top_candidate) return <span className="d3-sc-warn">Chưa có trong danh mục</span>;
   return <span className="d3-sc-prob">Chưa dò</span>;
@@ -164,7 +164,7 @@ function BacklogRow({
   const topId = topChoice(row);
   const skuTag = (id: string | null) => (id?.startsWith(SKU_PREFIX) ? " · thành phẩm" : "");
   const suggestions = [
-    jevId ? { id: jevId, name: row.jev_item_name ?? "—", unit: row.jev_unit ?? "", tag: (row.jev_source === "exact" ? " · trùng tên" : ` · Jev ${pct(row.jev_probability ?? 0)}`) + skuTag(jevId) } : null,
+    jevId ? { id: jevId, name: row.jev_item_name ?? "—", unit: row.jev_unit ?? "", tag: (row.jev_source === "exact" ? " · trùng tên" : ` · Bé Mì ${pct(row.jev_probability ?? 0)}`) + skuTag(jevId) } : null,
     topId && topId !== jevId && row.top_candidate
       ? { id: topId, name: row.top_candidate.name, unit: row.top_candidate.unit, tag: " · gần nhất" + skuTag(topId) }
       : null,
@@ -267,13 +267,13 @@ export function AliasBacklogReview({ canEdit, location = "q7" }: { canEdit: bool
         onSuccess: (data) => {
           const d = data as { stopped?: string | null; usage?: { calls?: number; limit?: number } };
           toast({
-            title: d.stopped ? "Jev dừng vì hết hạn mức hôm nay" : "Jev đã dò xong",
+            title: d.stopped ? "Bé Mì dừng vì hết hạn mức hôm nay" : "Bé Mì đã dò xong",
             description: d.usage ? `Đã dùng ${d.usage.calls ?? 0}/${d.usage.limit ?? 600} lượt hôm nay.` : undefined,
           });
           setProgress(null);
         },
         onError: (error) => {
-          toast({ title: "Jev chưa dò hết", description: errorText(error), variant: "destructive" });
+          toast({ title: "Bé Mì chưa dò hết", description: errorText(error), variant: "destructive" });
           setProgress(null);
         },
       },
@@ -293,12 +293,12 @@ export function AliasBacklogReview({ canEdit, location = "q7" }: { canEdit: bool
         <span className="d3-wh-pill">{reviewQuery.data ? rows.length : "…"}</span>
         <p>
           Tên trên phiếu nhập chưa có mặt hàng kho. Kế toán hoặc chủ xác nhận một lần là lần sau tự chọn. Dòng ghi kg, g, l, ml tự đổi theo đơn vị; hệ số chỉ dùng khi phiếu ghi bao, thùng, gói…
-          {notScanned ? ` ${notScanned} tên chưa dò bằng Jev.` : ""}
+          {notScanned ? ` ${notScanned} tên chưa dò bằng Bé Mì.` : ""}
         </p>
         {canEdit ? (
           <button type="button" className="d3-ap-link d3-ab-scan" disabled={backlog.isPending} onClick={scan} data-bmq-alias-backlog-scan>
             <Sparkles className="h-3.5 w-3.5" />
-            {backlog.isPending ? "Jev đang dò…" : "Dò tên tồn đọng"}
+            {backlog.isPending ? "Bé Mì đang dò…" : "Dò tên tồn đọng"}
           </button>
         ) : null}
       </div>
