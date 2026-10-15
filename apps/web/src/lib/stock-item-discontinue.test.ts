@@ -108,7 +108,7 @@ test("discontinueErrorText maps every known code and a safe default", () => {
   );
   assert.equal(
     discontinueErrorText("item_in_open_count"),
-    "Món đang nằm trong phiếu kiểm kê chưa chốt",
+    "Món đã được đếm trong phiếu kiểm kê chưa chốt — chốt phiếu trước",
   );
   assert.equal(discontinueErrorText("item_merged"), "Món đã được gộp vào món khác");
   assert.equal(

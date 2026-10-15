@@ -95,7 +95,7 @@ export function discontinueErrorCode(error: unknown): DiscontinueErrorCode {
 /** Short Vietnamese text for a discontinue error code. */
 export function discontinueErrorText(code: string): string {
   if (code === "item_has_stock") return "Món còn tồn — kiểm kê hoặc xuất hết trước khi ngưng";
-  if (code === "item_in_open_count") return "Món đang nằm trong phiếu kiểm kê chưa chốt";
+  if (code === "item_in_open_count") return "Món đã được đếm trong phiếu kiểm kê chưa chốt — chốt phiếu trước";
   if (code === "item_merged") return "Món đã được gộp vào món khác";
   if (code === "insufficient_privilege") return "Bạn không có quyền ngưng món này";
   return "Chưa ngưng được món này";
