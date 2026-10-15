@@ -23,6 +23,11 @@ const { chromium } = createRequire(import.meta.url)(PW);
 fs.mkdirSync(EVIDENCE, { recursive: true });
 const FIXTURE = JSON.parse(fs.readFileSync(path.join(ROOT, "scripts/qa_warehouse_office.fixture.json"), "utf8"));
 const USER_ID = "00000000-0000-4000-8000-0000000000aa";
+// One Kamereo document sits before the learned cutover so the fold shows; a learned pick pattern + recent packages.
+const KAMEREO = Object.values(FIXTURE.debts).find((d) => d.rows.some((r) => r.number === "PO-000386"));
+KAMEREO.rows[KAMEREO.rows.length - 1].before_cutover = true;
+FIXTURE.recent = [{ id: "pkg-old", supplier_id: KAMEREO.supplier_id, result: { po_numbers: ["PO-000901"], purchase_order_ids: ["x"], debt: null, debt_picks: [{ kind: "pr", id: "y", number: "PR-OLD1", doc_date: null, remaining: 1, rank: 1 }] }, created_at: "2026-10-15T09:00:00+07:00" }];
+const BANH_MI = FIXTURE.snapshot.tan_tao.items.find((i) => i.name === "Bánh mì que");
 
 const SUPABASE_FIXTURE = `
 const F = () => window.__officeFixture;
@@ -42,9 +47,11 @@ function settle(st) {
   }
   if (st.table === "rpc:approve_payment_request_with_material_controller") { window.__qaWrites.push(st.table + ":" + JSON.stringify(a)); return { data: { status: "approved", material_master: {} }, error: null }; }
   if (st.table === "rpc:reject_payment_request") { window.__qaWrites.push(st.table + ":" + JSON.stringify(a)); return { data: null, error: null }; }
+  if (st.table === "rpc:get_supplier_debt_pick_pattern") return { data: { supplier_id: a.p_supplier_id, packages: 2, last_picked_count: 1, median_picked_count: 1.5 }, error: null };
   if (st.table.startsWith("rpc:")) return { data: null, error: null };
   if (st.table === "payment_requests") return { data: F().pending, error: null };
   if (st.table === "suppliers") return { data: F().suppliers, error: null };
+  if (st.table === "robot_order_packages") return { data: F().recent, error: null };
   return { data: [], error: null };
 }
 function builder(table, args) {
@@ -128,10 +135,11 @@ const writes = (page) => page.evaluate(() => window.__qaWrites.slice());
 const basketCount = (page) => page.locator(".kvp .basket b").first().textContent().then(Number);
 const projection = (page) => page.evaluate(() => { const c = window.__room.camera; return [c.left, c.right, c.top, c.bottom, ...c.position.toArray()].map((v) => v.toFixed(4)).join(","); });
 
-async function open(viewport, cfg, touch) {
+async function open(viewport, cfg, touch, basket) {
   const context = await browser.newContext({ viewport, deviceScaleFactor: touch ? 2 : 1, hasTouch: touch, isMobile: touch, locale: "vi-VN" });
   await context.addInitScript((f) => { window.__officeFixture = f; }, FIXTURE);
   await context.addInitScript((v) => localStorage.setItem("qa-office", JSON.stringify(v)), cfg);
+  if (basket) await context.addInitScript((b) => { if (!sessionStorage.getItem("qa-seeded")) { sessionStorage.setItem("bmq-robot-basket-v1", JSON.stringify(b)); sessionStorage.setItem("qa-seeded", "1"); } }, basket);
   await context.route("**/*", (r) => {
     const url = r.request().url();
     if (url.startsWith(BASE) || url.startsWith("data:") || url.startsWith("blob:") || /fonts\.(googleapis|gstatic)\.com/.test(url)) return r.continue();
@@ -285,6 +293,66 @@ for (const vp of [{ width: 1440, height: 900, touch: false }, { width: 1280, hei
     assert.deepEqual(small, [], JSON.stringify(small));
   });
   await check(`${w} no page errors`, async () => assert.deepEqual(errors, []));
+  await context.close();
+}
+
+// A shelf item sent from Kho 2D/3D ("🤖 Đặt hàng món này") arrives in the room; qty / price edits reach the package.
+{
+  const seed = [{ key: "k1", item_id: BANH_MI.id, name: BANH_MI.name, unit: "cái", qty: "500", supplier_id: BANH_MI.supplier_id, price: "1200" }];
+  const { context, page, errors } = await open({ width: 1440, height: 900 }, { role: "owner" }, false, seed);
+  await check("shared basket from Kho 2D/3D lands in the machine", async () => {
+    assert.equal(await basketCount(page), 1);
+    await page.locator(".kvp .chips [data-station='machine']").click();
+    await page.waitForSelector(".kvp [data-office-line='Bánh mì que']", { timeout: 5000 });
+    assert.equal(await page.locator("[data-office-line='Bánh mì que'] [data-office-qty]").inputValue(), "500");
+    assert.equal(await page.locator("[data-office-line='Bánh mì que'] [data-office-price]").inputValue(), "1200");
+  });
+  await page.locator("[data-office-line='Bánh mì que'] [data-office-qty]").fill("600");
+  await page.locator("[data-office-line='Bánh mì que'] [data-office-price]").click();
+  await page.locator("[data-office-line='Bánh mì que'] [data-office-price]").fill("1250");
+  await page.locator(".kvp .machine-view h3").first().click();
+  await page.waitForTimeout(200);
+  await check("basket edits persist in the shared session basket", async () => {
+    const stored = await page.evaluate(() => JSON.parse(sessionStorage.getItem("bmq-robot-basket-v1") || "[]"));
+    assert.equal(stored.length, 1);
+    assert.equal(stored[0].qty, "600");
+    assert.equal(stored[0].price, "1250");
+  });
+  await check("learned pattern, recent packages and Bé Mì review are shown", async () => {
+    assert.ok(await page.locator("[data-office-recent]").isVisible(), "recent packages");
+    assert.match(await page.locator("[data-office-recent]").textContent(), /PO-000901/);
+    assert.ok((await page.locator("[data-office-jev]").count()) >= 1, "Bé Mì review button");
+  });
+  await page.locator(".kvp .machine-view .primary.big").click();
+  await page.waitForTimeout(600);
+  await check("edited qty and price are sent", async () => {
+    const pk = (await writes(page)).filter((x) => x.startsWith("rpc:create_robot_order_package:"));
+    assert.equal(pk.length, 1);
+    assert.match(pk[0], /"quantity":600/);
+    assert.match(pk[0], /"unit_price":1250/);
+    assert.match(pk[0], /"p_debt":null/);
+  });
+  await page.waitForTimeout(2300);
+  await check("sent lines leave the shared basket", async () => {
+    const stored = await page.evaluate(() => JSON.parse(sessionStorage.getItem("bmq-robot-basket-v1") || "[]"));
+    assert.equal(stored.length, 0);
+    assert.equal(await basketCount(page), 0);
+  });
+  // Kamereo: the before-cutover row folds away; the learned pattern shows.
+  await page.getByRole("textbox", { name: "Tìm nguyên vật liệu" }).fill("dầu ăn tường an");
+  await page.locator(".kvp .rows .row .tap").first().click();
+  await page.waitForTimeout(700);
+  await page.getByRole("button", { name: "Xoá tìm kiếm" }).click();
+  await page.locator(".kvp .chips [data-station='machine']").click();
+  await page.waitForSelector(".kvp .sup-card [data-office-fold]", { timeout: 5000 });
+  await check("old documents before the learned cutover fold away", async () => {
+    assert.match(await page.locator(".kvp .sup-card [data-office-fold]").textContent(), /1 phiếu trước mốc/);
+    assert.match(await page.locator(".kvp .sup-card [data-office-learned]").textContent(), /Lần trước chọn 1 phiếu/);
+  });
+  await page.screenshot({ path: `${EVIDENCE}/machine-parity-1440.png` });
+  await page.getByRole("button", { name: "Về Kho" }).click();
+  await check("back returns to the Kho game", async () => { await page.waitForURL(/\/warehouse\/game$/, { timeout: 5000 }); });
+  await check("no page errors (basket flow)", async () => assert.deepEqual(errors.filter((e) => !/warehouse_game|snapshot/i.test(e)), []));
   await context.close();
 }
 

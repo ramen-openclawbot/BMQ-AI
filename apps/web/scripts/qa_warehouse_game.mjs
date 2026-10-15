@@ -1259,77 +1259,17 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
   record("manual transfer gate 390");
   await context.close();
 }
-// Đặt hàng tự động (owner 14/10): basket → facts fill supplier/price → package per supplier → old debt farthest-first → send.
-for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 640 }]) {
+// Đặt hàng tự động (owner 16/10): the kiosk opens the office ordering room, which replaced the old robot desk.
+// The room itself (basket, old-debt picks, packages, PR desk) is covered by scripts/qa_warehouse_office.mjs.
+for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
   const { context, page, errors } = await open({ data: "populated", role: "owner", started: true }, "/warehouse/game", viewport);
   await page.waitForSelector("[data-bmq-warehouse-game]", { timeout: 20000 });
   await page.waitForTimeout(1200);
-  await page.evaluate(() => sessionStorage.removeItem("bmq-robot-basket-v1"));
   await page.getByRole("button", { name: "Đặt hàng tự động" }).click({ force: true });
-  await page.waitForSelector("[data-bmq-robot-desk]", { timeout: 5000 });
-  await page.waitForTimeout(700);
-  assert.equal(await page.locator("[data-bmq-robot-count]").textContent(), "0", "empty basket");
-  assert.equal(await overflow(page), 0, `robot desk no overflow ${viewport.width}`);
-  await page.screenshot({ path: `${EVIDENCE}/robot-empty-${viewport.width}.png` });
-  await page.locator("[data-bmq-robot-search]").fill("băng keo");
-  await page.locator('[data-bmq-robot-pick="Băng keo nhỏ"]').click({ force: true });
-  await page.waitForSelector('[data-bmq-robot-line="Băng keo nhỏ"]');
-  // facts arrive: supplier + last price fill themselves, the package card for that supplier appears
-  await page.waitForSelector('[data-bmq-robot-pack="Phúc Thịnh"]', { timeout: 5000 });
-  assert.equal(await page.locator("[data-bmq-robot-supplier]").first().getAttribute("data-value"), "sup1", "supplier filled from facts");
-  assert.equal(await page.locator('[data-bmq-robot-line="Băng keo nhỏ"] .robot-price input').inputValue(), "20000", "last price filled from facts");
-  assert.equal(await page.locator("[data-bmq-robot-send]").isDisabled(), true, "cannot send without quantity + debt choice");
-  // A g item last bought per kg: the price is restated per g (owner 15/10: 91 g of Peerless showed 8,2 triệu).
-  await page.locator("[data-bmq-robot-search]").fill("bơ anchor");
-  await page.locator('[data-bmq-robot-pick="Bơ anchor"]').click({ force: true });
-  await page.waitForFunction(() => document.querySelector('[data-bmq-robot-line="Bơ anchor"] .robot-price input')?.value === "90", null, { timeout: 5000 });
-  // The basket row stacks name over its inputs: the fields span the row and every input is usable.
-  const rowFit = await page.locator('[data-bmq-robot-line="Bơ anchor"]').evaluate((li) => {
-    const fields = li.querySelector(".robot-line-fields").getBoundingClientRect();
-    const inputs = [...li.querySelectorAll(".robot-line-fields input, .robot-line-fields select")].map((el) => Math.round(el.getBoundingClientRect().width));
-    return { ratio: fields.width / li.clientWidth, inputs };
-  });
-  assert.ok(rowFit.ratio > 0.85 && rowFit.inputs.every((w) => w >= 80), `basket row fields usable ${viewport.width}: ${JSON.stringify(rowFit)}`);
-  await page.locator(".robot-basket").screenshot({ path: `${EVIDENCE}/robot-basket-${viewport.width}.png` });
-  await page.getByRole("button", { name: "Bỏ Bơ anchor" }).click({ force: true });
-  await page.waitForTimeout(200);
-  await page.waitForSelector("[data-bmq-robot-debts] [data-bmq-robot-debt]", { timeout: 5000 });
-  const debts = await page.locator("[data-bmq-robot-debts] [data-bmq-robot-debt]").evaluateAll((els) => els.map((el) => el.getAttribute("data-bmq-robot-debt")));
-  // farthest first, but rows Jev/learned marked as already paid sink below the live ones; before-cutover rows fold away
-  assert.deepEqual(debts, ["none", "PR-ABC123", "PO-000842", "PO-000063"], `debt order: ${debts.join(",")}`);
-  assert.equal(await page.locator('[data-bmq-robot-debt="PO-000063"].is-faded').count(), 1, "Jev settled-outside row is faded");
-  assert.match(await page.locator("[data-bmq-robot-fold]").textContent(), /1 phiếu trước mốc/);
-  await page.locator("[data-bmq-robot-fold]").click({ force: true });
-  await page.waitForTimeout(200);
-  assert.equal(await page.locator('[data-bmq-robot-debt="PO-000010"]').count(), 1, "folded row shows on demand");
-  assert.match(await page.locator("[data-bmq-robot-learned]").textContent(), /Lần trước chọn 2 phiếu/, "learned pick pattern shown");
-  // multi-pick (owner 15/10): tick two documents, untick and re-tick one, the sum follows
-  await page.locator('[data-bmq-robot-debt="PR-ABC123"]').click({ force: true });
-  await page.locator('[data-bmq-robot-debt="PO-000842"]').click({ force: true });
-  assert.equal(await page.locator('[data-bmq-robot-debts] [aria-checked="true"]').count(), 2, "two documents ticked");
-  assert.match(await page.locator("[data-bmq-robot-pick-sum]").textContent(), /2 phiếu/);
-  await page.locator('[data-bmq-robot-debt="PO-000842"]').click({ force: true });
-  assert.equal(await page.locator('[data-bmq-robot-debts] [aria-checked="true"]').count(), 1, "untick works");
-  await page.locator('[data-bmq-robot-debt="PO-000842"]').click({ force: true });
-  await page.locator("[data-bmq-robot-qty]").first().fill("25");
-  await page.waitForTimeout(250);
-  assert.equal(await page.locator("[data-bmq-robot-send]").isDisabled(), false, "ready to send");
-  assert.match(await page.locator("[data-bmq-robot-send]").textContent(), /đề nghị chi 2 phiếu/, "send label counts the picks");
-  assert.equal(await overflow(page), 0, `robot package no overflow ${viewport.width}`);
-  await page.screenshot({ path: `${EVIDENCE}/robot-package-${viewport.width}.png` });
-  await page.evaluate(() => { window.__qaWrites.length = 0; });
-  await page.locator("[data-bmq-robot-send]").click({ force: true });
-  await page.waitForTimeout(800);
-  const writes = await page.evaluate(() => window.__qaWrites);
-  const sent = writes.find((w) => w.startsWith("rpc:create_robot_order_package:"));
-  assert.ok(sent && sent.includes('"product_name":"Băng keo nhỏ"') && sent.includes('"quantity":25') && sent.includes('"unit_price":20000') && sent.includes('"supplier_id":"sup1"') && sent.includes('"p_debt":[{"kind":"pr","id":"pr-mid"},{"kind":"po","id":"po-new"}]') && sent.includes('"p_idempotency_key"'), `package sent: ${sent}`);
-  assert.match(await page.locator(".kg .toast").textContent(), /PO-000900.*PR-ABC123, PO-000842.*TC-251014-01/);
-  assert.equal(await page.locator("[data-bmq-robot-count]").textContent(), "0", "basket emptied after sending");
-  assert.equal(await page.locator('[data-bmq-robot-pack="Phúc Thịnh"]').count(), 0, "package card gone");
-  assert.match(await page.locator(".robot-history").textContent(), /PO-000900/);
-  await page.screenshot({ path: `${EVIDENCE}/robot-sent-${viewport.width}.png` });
-  assert.deepEqual(errors, [], "no page errors");
-  record(`robot order desk ${viewport.width}`);
+  await page.waitForURL(/\/warehouse\/office$/, { timeout: 5000 });
+  assert.equal(await page.locator("[data-bmq-robot-desk]").count(), 0, "old robot desk is gone");
+  assert.deepEqual(errors.filter((e) => !/office|snapshot/i.test(e)), [], "no page errors");
+  record(`robot kiosk opens the ordering room ${viewport.width}`);
   await context.close();
 }
 for (const viewport of [{ width: 1440, height: 900 }, { width: 430, height: 932 }, { width: 390, height: 844 }, { width: 320, height: 640 }]) {

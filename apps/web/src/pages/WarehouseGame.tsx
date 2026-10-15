@@ -34,7 +34,9 @@ import { useCancelStockCount, useSaveStockCountLine, useStartStockCount, useStoc
 import type { StockCountLine, StockCountLocation, StockCountSession } from "@/lib/stock-count";
 import { useSuggestStockItemName } from "@/hooks/useSuggestStockItemName";
 import { InvoiceScanner } from "@/game/InvoiceScanner";
-import { RobotDesk, basketLineFor, loadBasket, saveBasket, type BasketLine } from "@/game/RobotDesk";
+// Đặt hàng tự động now opens the office ordering room (owner 16/10: "nằm trong máy đặt hàng tự động, thay bản hiện nay");
+// the shared basket key still carries items picked from a shelf here into the room.
+import { basketLineFor, loadBasket, saveBasket, type BasketLine } from "@/game/RobotDesk";
 import { DiscontinueButton, ItemFactorBox, LinkQuest, QUEST_LABEL } from "@/game/LinkQuest";
 import { useMaterialLinkReview } from "@/hooks/useMaterialLinkQuest";
 import type { MaterialLinkLocation } from "@/lib/material-link-quest";
@@ -44,7 +46,6 @@ import { askGame } from "@/game/ConfirmDialog";
 
 type View =
   | { kind: "yard" }
-  | { kind: "robot" }
   | { kind: "quest"; location: MaterialLinkLocation }
   | { kind: "workshop" }
   | { kind: "missions" }
@@ -299,7 +300,7 @@ export default function WarehouseGame() {
     if (view.kind === "shelf" || view.kind === "crates") go({ kind: "warehouse", location: view.location });
     else if (view.kind === "station" || view.kind === "quest") go({ kind: "workshop" });
     else if (view.kind === "count-sheet") go({ kind: "count" });
-    else if (view.kind === "warehouse" || view.kind === "workshop" || view.kind === "missions" || view.kind === "count" || view.kind === "robot") go({ kind: "yard" });
+    else if (view.kind === "warehouse" || view.kind === "workshop" || view.kind === "missions" || view.kind === "count") go({ kind: "yard" });
   };
 
   const openCount = (location: StockCountLocation) =>
@@ -337,7 +338,6 @@ export default function WarehouseGame() {
     : view.kind === "count" ? "Kiểm kê kho"
     : view.kind === "count-sheet" ? `Kiểm kê · ${LOCATION_LABEL[view.location]}`
     : view.kind === "workshop" ? "Danh mục hàng hóa"
-    : view.kind === "robot" ? "🤖 Đặt hàng tự động"
     : view.kind === "quest" ? "🧩 Gắn mã hàng"
     : view.kind === "missions" ? "Nhiệm vụ"
     : view.kind === "station" ? `${STATION_META[view.id].icon} ${STATION_META[view.id].label}`
@@ -348,7 +348,6 @@ export default function WarehouseGame() {
     : view.kind === "count" ? "Chọn kho để đếm"
     : view.kind === "count-sheet" ? (countSession ? `Phiếu ${dmy(countSession.count_date)} · đã đếm ${countProgress(countSession).done}/${countProgress(countSession).total}` : "Chưa có phiếu đang mở")
     : view.kind === "workshop" ? (workshopTodo ? `${workshopTodo} việc đang chờ` : "Mọi bàn đã gọn")
-    : view.kind === "robot" ? (basket.length ? `${basket.length} món trong giỏ` : "PO mới + trả đơn cũ")
     : view.kind === "quest" ? QUEST_LABEL[view.location]
     : view.kind === "station" ? "Danh mục hàng hóa"
     : view.kind === "missions" ? (missions.data?.level ? `Cấp ${missions.data.level.level} · ${missions.data.level.title} · ${missions.data.badges.total} 🐝` : "Làm xong nhận huy hiệu")
@@ -385,7 +384,7 @@ export default function WarehouseGame() {
     crates,
     badges: { deliver: deliveryQueue.data?.length ?? 0 },
     onEnter: (location: WarehouseGameLocation) => go({ kind: "warehouse", location }),
-    onZone: (zone: Zone) => (zone.id === "deliver" ? setPanel({ kind: "deliver" }) : zone.id === "clean" ? go({ kind: "workshop" }) : zone.id === "count" ? go({ kind: "count" }) : zone.id === "auto" ? go({ kind: "robot" }) : setPanel({ kind: "zone", zone })),
+    onZone: (zone: Zone) => (zone.id === "deliver" ? setPanel({ kind: "deliver" }) : zone.id === "clean" ? go({ kind: "workshop" }) : zone.id === "count" ? go({ kind: "count" }) : zone.id === "auto" ? navigate("/warehouse/office") : setPanel({ kind: "zone", zone })),
   };
 
   return (
@@ -442,18 +441,6 @@ export default function WarehouseGame() {
           </Scene>
         ) : null}
 
-        {view.kind === "robot" ? (
-          <Scene id="robot" scroll>
-            <RobotDesk
-              items={[...(tt.data?.items ?? []), ...(q7.data?.items ?? []).filter((item) => !(tt.data?.items ?? []).some((other) => other.id === item.id))]}
-              basket={basket}
-              setBasket={setBasket}
-              canOrder={canRobotOrder}
-              canDebt={canRobotDebt}
-              onToast={setToast}
-            />
-          </Scene>
-        ) : null}
 
         {view.kind === "missions" ? (
           <Scene id="missions" scroll>
@@ -657,7 +644,7 @@ export default function WarehouseGame() {
               started={Boolean(current.cutover_date)}
               onTransfer={panel.location === "tan_tao" && canTransfer && item.on_hand > 0 ? () => setPanel({ kind: "transfers", location: "tan_tao", prefill: item.id }) : undefined}
               onFactorToast={canLinkQuest ? setToast : undefined}
-              onRobot={canRobotOrder ? () => { if (!basket.some((line) => line.item_id === item.id)) setBasket([...basket, basketLineFor(item)]); setToast(`🤖 Đã cho robot: ${item.name}`); go({ kind: "robot" }); } : undefined}
+              onRobot={canRobotOrder ? () => { if (!basket.some((line) => line.item_id === item.id)) setBasket([...basket, basketLineFor(item)]); navigate("/warehouse/office"); } : undefined}
               onDone={(id, message) => { setJustSaved(id); window.setTimeout(() => setJustSaved(null), 2600); setToast(message); setPanel(null); }}
               onClose={() => setPanel(null)}
             />

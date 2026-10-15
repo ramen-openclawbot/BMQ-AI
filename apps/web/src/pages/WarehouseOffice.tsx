@@ -1,35 +1,39 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
 import {
   OFFICE_PENDING_PAYMENT_REQUESTS_QUERY_KEY, useOfficeOrderSnapshot, usePendingPaymentRequests, type OfficeOrderLocation,
 } from "@/hooks/useOfficeOrder";
-import { useCreateRobotOrderPackage, useSupplierDebtCandidates } from "@/hooks/useRobotOrder";
+import { useCreateRobotOrderPackage, useRunDebtReview, useSupplierDebtCandidates, useSupplierDebtPickPattern } from "@/hooks/useRobotOrder";
 import { useApprovePaymentRequest, useRejectPaymentRequest } from "@/hooks/usePaymentRequests";
 import { useSuppliers } from "@/hooks/useSuppliers";
 import {
   buildShelves, daysLabel, searchItems, startQty, suggestFromLast, type GroupCode, type PredictedOfficeOrderItem,
 } from "@/lib/office-order";
 import {
-  packageSummary, rankDebtRows, robotOrderErrorCode, robotOrderErrorText, sumDebtPicks, toggleDebtPick, type DebtPick, type RobotOrderPackageResult,
+  MAX_DEBT_PICKS, packageDebtNumbers, packageSummary, rankDebtRows, robotOrderErrorCode, robotOrderErrorText, sumDebtPicks, toggleDebtPick,
+  type DebtPick, type RobotOrderPackageResult, type SupplierDebtRow,
 } from "@/lib/robot-order";
 import { GamePicker } from "@/game/GamePicker";
 import { newRequestId } from "@/game/meta";
+import { loadBasket, saveBasket, type BasketLine } from "@/game/RobotDesk";
 import { BEAT, FLY, Room, type RoomData, type RoomItem } from "@/game/office/Room";
 import { OfficeDocDetail, type DocKey } from "@/game/office/OfficeDocDetail";
 import { fmtDate, fmtMillion, fmtMoney, fmtNum } from "@/game/office/format";
 import "@/game/office/office.css";
 
 /**
- * Kho văn phòng (owner approved the demo 16/10): one fixed view of the warehouse room — no zoom, no camera moves.
+ * Đặt hàng tự động — the office ordering room (owner approved the demo 16/10; 16/10 it replaced the old robot
+ * desk inside the Kho 2D/3D "Đặt hàng tự động" kiosk, sharing its session basket): one fixed view of the warehouse room — no zoom, no camera moves.
  * The staff avatar walks to a shelf, the machine or the PR desk; products are dragged into the machine; each
  * product shows its supplier's old unpaid PR/PO to pay with the order; the machine sends one robot package per
  * supplier (create_robot_order_package); the desk opens PRs in full and approves / rejects through the finance flow.
  */
 type Item = PredictedOfficeOrderItem;
-type Line = { item: Item; qty: number; supplierId: string | null; supplierName: string | null };
+type Line = { item: Item; qty: number; price: number | null; supplierId: string | null; supplierName: string | null };
 type Drag = { item: Item; x: number; y: number; ox: number; oy: number; hot: boolean; back: boolean };
 type Press = { item: Item; x0: number; y0: number; id: number; touch: boolean };
 type View = "low" | "machine" | "desk" | GroupCode;
@@ -48,48 +52,100 @@ const KEYS: Record<string, [number, number]> = {
 const NO_SUP = "__none__";
 const REDUCED = typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 const lineUnit = (item: Item) => item.last_unit ?? item.unit ?? "";
+const num = (text: string) => { const v = Number(String(text).replace(/\s/g, "").replace(",", ".")); return Number.isFinite(v) ? v : NaN; };
+const toBasketLine = (l: Line): BasketLine => ({ key: l.item.id, item_id: l.item.id, name: l.item.name, unit: lineUnit(l.item), qty: String(l.qty), supplier_id: l.supplierId, price: l.price === null ? "" : String(l.price) });
+
+/** Robot packages sent recently (RLS: any signed-in user may read), newest first. */
+function useRecentPackages() {
+  return useQuery({
+    queryKey: ["robot-order-packages"],
+    queryFn: async () => {
+      const { data, error } = await (supabase as unknown as { from: (t: string) => { select: (c: string) => { order: (c: string, o: { ascending: boolean }) => { limit: (n: number) => Promise<{ data: unknown; error: unknown }> } } } })
+        .from("robot_order_packages").select("id, supplier_id, result, created_at").order("created_at", { ascending: false }).limit(6);
+      if (error) throw error;
+      return (data ?? []) as { id: string; supplier_id: string; result: RobotOrderPackageResult | null; created_at: string }[];
+    },
+  });
+}
+
+const markLabel = (row: SupplierDebtRow) => {
+  if (row.mark === "settled_outside") return row.mark_source === "learned" ? "đã chi ngoài hệ thống (học)" : row.mark_source === "manual" ? "đã chi ngoài hệ thống" : `Bé Mì: có thể đã chi${row.probability != null ? ` ${Math.round(row.probability * 100)}%` : ""}`;
+  if (row.mark === "real_debt") return row.mark_source === "jev" ? `Bé Mì: nợ thật${row.probability != null ? ` ${Math.round(row.probability * 100)}%` : ""}` : "nợ thật";
+  if (row.mark === "unsure") return "Bé Mì: chưa rõ";
+  return null;
+};
 const suggestText = (item: Item) => {
   const s = suggestFromLast(item);
   return s ? `${fmtNum(s.qty)} ${s.unit ?? item.unit ?? ""}`.trim() : null;
 };
 
 // ---------------------------------------------------------------------------------------------------------------
-// Old unpaid documents of one supplier (farthest first), with picks for the robot package.
+// Old unpaid documents of one supplier (farthest first), with picks for the robot package. Same rules as the old
+// robot desk: rows before the learned cutover fold away, rows already paid outside are faded, the last pick
+// pattern is shown, and Bé Mì can review the list.
 function DebtPicker({ supplierId, picks, onToggle, onView, compact = false }: {
   supplierId: string | null; picks: DebtPick[]; onToggle: (pick: DebtPick) => void; onView: (key: DocKey) => void; compact?: boolean;
 }) {
   const debt = useSupplierDebtCandidates(supplierId);
+  const pattern = useSupplierDebtPickPattern(compact ? null : supplierId);
+  const review = useRunDebtReview();
+  const [showOld, setShowOld] = useState(false);
+  const [showAll, setShowAll] = useState(false);
   if (!supplierId) return <p className="debt-none">Chưa rõ NCC: chọn NCC để xem phiếu cũ.</p>;
   if (debt.isLoading) return <p className="debt-none is-wait">Đang tải phiếu cũ chưa chi…</p>;
   if (debt.isError) return <p className="debt-none err">Không tải được phiếu cũ: {robotOrderErrorText(robotOrderErrorCode(debt.error))}</p>;
-  const rows = rankDebtRows(debt.data?.rows ?? []);
-  if (!rows.length) return <p className="debt-none">✓ NCC này không còn phiếu cũ chưa chi</p>;
-  const limit = compact ? 3 : 8;
-  const total = rows.reduce((s, r) => s + (r.remaining ?? 0), 0);
-  const picked = sumDebtPicks(rows, picks);
-  const lag = debt.data?.stats?.median_lag_days;
+  const ranked = rankDebtRows(debt.data?.rows ?? []);
+  const live = ranked.filter((r) => !r.collapsed);
+  const folded = ranked.filter((r) => r.collapsed);
+  if (!ranked.length) return <p className="debt-none">✓ NCC này không còn phiếu cũ chưa chi</p>;
+  const limit = compact ? 3 : showAll ? live.length : 8;
+  const total = live.reduce((s, r) => s + (r.remaining ?? 0), 0);
+  const picked = sumDebtPicks(ranked, picks);
+  const stats = debt.data?.stats;
+  const cutover = debt.data?.cutover;
+  const learned = pattern.data?.packages ? pattern.data : null;
+  const full = picks.length >= MAX_DEBT_PICKS;
+  const row = (r: SupplierDebtRow) => {
+    const on = picks.some((p) => p.id === r.id);
+    const mark = markLabel(r);
+    return (
+      <li key={r.id} className={r.mark === "settled_outside" ? "is-faded" : undefined}>
+        <label className="pick">
+          <input type="checkbox" checked={on} disabled={full && !on} onChange={() => onToggle({ kind: r.kind, id: r.id })} />
+          <span className={`kind kind-${r.kind}`}>{r.kind.toUpperCase()}</span>
+          <span className="num">{r.number ?? r.id.slice(0, 8)}</span>
+          <span className="age">{fmtDate(r.doc_date)}{r.age_days !== null && r.age_days !== undefined ? ` · ${r.age_days} ngày` : ""}{r.has_receipt ? " · đã nhận hàng" : ""}{r.last_submission_number ? ` · đã trình ${r.last_submission_number}` : ""}{mark ? ` · ${mark}` : ""}</span>
+          <b>{fmtMoney(r.remaining ?? r.amount ?? 0)}</b>
+        </label>
+        <button type="button" className="view" onClick={() => onView({ kind: r.kind, id: r.id })} aria-label={`Xem chi tiết ${r.number ?? ""}`} data-view={r.number ?? r.id}>Xem</button>
+      </li>
+    );
+  };
   return (
     <div className="debt" data-office-debt={supplierId}>
       <div className="debt-head">
-        <b>Phiếu cũ chưa chi · {rows.length}</b>
-        <small>{fmtMillion(total)}{lag !== null && lag !== undefined ? ` · thường trả sau ~${Math.round(lag)} ngày` : ""}</small>
+        <b>Phiếu cũ chưa chi · {live.length}</b>
+        <small>{fmtMillion(total)}{stats?.median_lag_days != null ? ` · thường trả sau ~${Math.round(stats.median_lag_days)} ngày` : ""}</small>
       </div>
-      <ul>
-        {rows.slice(0, limit).map((r) => (
-          <li key={r.id}>
-            <label className="pick">
-              <input type="checkbox" checked={picks.some((p) => p.id === r.id)} onChange={() => onToggle({ kind: r.kind, id: r.id })} />
-              <span className={`kind kind-${r.kind}`}>{r.kind.toUpperCase()}</span>
-              <span className="num">{r.number ?? r.id.slice(0, 8)}</span>
-              <span className="age">{fmtDate(r.doc_date)}{r.age_days !== null && r.age_days !== undefined ? ` · ${r.age_days} ngày` : ""}{r.mark === "settled_outside" ? " · có thể đã trả ngoài" : ""}</span>
-              <b>{fmtMoney(r.remaining ?? 0)}</b>
-            </label>
-            <button type="button" className="view" onClick={() => onView({ kind: r.kind, id: r.id })} aria-label={`Xem chi tiết ${r.number ?? ""}`} data-view={r.number ?? r.id}>Xem</button>
-          </li>
-        ))}
-      </ul>
-      {rows.length > limit ? <small className="more">+{rows.length - limit} phiếu mới hơn{compact ? " · xem đủ ở Máy" : ""}</small> : null}
-      <small className="sum">{picks.length ? `Chi kèm ${picks.length} phiếu · ${fmtMoney(picked)}` : "Chưa chọn phiếu cũ: chỉ đặt đơn mới"}</small>
+      {!compact ? (
+        <small className="debt-meta">
+          {cutover ? `Mốc đã học: từ ${cutover.number ?? ""} (${fmtDate(cutover.start_date)})` : "Chưa có mốc · lần chọn đầu tiên sẽ dạy hệ thống"}
+          {stats?.paid_90d ? ` · 90 ngày chi ${stats.paid_90d} lần` : ""}
+          {learned ? <span data-office-learned> · Lần trước chọn {learned.last_picked_count} phiếu{learned.packages > 1 && learned.median_picked_count != null ? `, thường ${fmtNum(learned.median_picked_count)} phiếu` : ""}</span> : null}
+        </small>
+      ) : null}
+      {live.length ? <ul>{live.slice(0, limit).map(row)}</ul> : <p className="debt-none">Không còn phiếu nào chưa chi sau mốc.</p>}
+      {live.length > limit ? (compact ? <small className="more">+{live.length - limit} phiếu mới hơn · xem đủ ở Máy</small> : <button type="button" className="fold" onClick={() => setShowAll(true)}>Xem thêm {live.length - limit} phiếu</button>) : null}
+      {!compact && folded.length ? <button type="button" className="fold" onClick={() => setShowOld((v) => !v)} data-office-fold>{showOld ? "Ẩn" : "Xem"} {folded.length} phiếu trước mốc đã học</button> : null}
+      {!compact && showOld ? <ul>{folded.map(row)}</ul> : null}
+      <small className="sum">{picks.length ? `Chi kèm ${picks.length} phiếu · ${fmtMoney(picked)}${full ? ` (tối đa ${MAX_DEBT_PICKS})` : ""}` : "Chưa chọn phiếu cũ: chỉ đặt đơn mới"}</small>
+      {!compact ? (
+        <div className="debt-jev">
+          <button type="button" className="fold" disabled={review.isPending} onClick={() => review.mutate(supplierId)} data-office-jev>{review.isPending ? "Bé Mì đang rà…" : "🤖 Bé Mì rà phiếu cũ"}</button>
+          {review.data ? <small>Bé Mì xem {review.data.evaluated}, đánh dấu {review.data.marked}{review.data.stopped === "quota" ? " · hết hạn mức hôm nay" : ""}</small> : null}
+          {review.error ? <small className="err">Bé Mì chưa chạy được</small> : null}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -139,6 +195,9 @@ export default function WarehouseOffice() {
   const keysRef = useRef(new Set<string>());
   const builtFor = useRef<string | null>(null);
   const requestIds = useRef(new Map<string, string>());
+  // Shared session basket with the Kho 2D/3D shelves ("🤖 Đặt hàng món này"); lines of the other warehouse wait here.
+  const parked = useRef<BasketLine[]>([]);
+  const imported = useRef<string | null>(null);
   const [wh, setWh] = useState<OfficeOrderLocation | null>(() => {
     const kho = new URLSearchParams(window.location.search).get("kho");
     return kho === "tan_tao" || kho === "q7" ? kho : null;
@@ -160,6 +219,7 @@ export default function WarehouseOffice() {
 
   const snapshot = useOfficeOrderSnapshot(wh ?? "tan_tao");
   const pending = usePendingPaymentRequests();
+  const recent = useRecentPackages();
   const suppliers = useSuppliers();
   const create = useCreateRobotOrderPackage();
   const snap = wh && snapshot.data?.location === wh ? snapshot.data : null;
@@ -209,6 +269,30 @@ export default function WarehouseOffice() {
 
   useEffect(() => { roomRef.current?.setDeskCount(waiting); }, [waiting]);
 
+  // Bring in the shared basket once this warehouse's items are known; keep the rest parked.
+  useEffect(() => {
+    if (!wh || !snap || imported.current === wh) return;
+    imported.current = wh;
+    const byId = new Map(items.map((i) => [i.id, i]));
+    const stored = loadBasket();
+    const lines: Line[] = [];
+    const rest: BasketLine[] = [];
+    for (const b of stored) {
+      const item = b.item_id ? byId.get(b.item_id) : undefined;
+      if (!item) { rest.push(b); continue; }
+      if (lines.some((l) => l.item.id === item.id)) continue;
+      const qty = num(b.qty);
+      const price = num(b.price);
+      lines.push({ item, qty: qty > 0 ? qty : startQty(item), price: price >= 0 && b.price !== "" ? price : item.last_unit_price, supplierId: b.supplier_id ?? item.supplier_id, supplierName: b.supplier_id && b.supplier_id !== item.supplier_id ? null : item.supplier_name });
+    }
+    parked.current = rest;
+    setBasket(lines);
+  }, [wh, snap, items]);
+  useEffect(() => {
+    if (!imported.current) return;
+    saveBasket([...parked.current, ...basket.map(toBasketLine)]);
+  }, [basket]);
+
   useEffect(() => {
     if (!toast) return;
     const id = window.setTimeout(() => setToast(null), 3200);
@@ -217,10 +301,10 @@ export default function WarehouseOffice() {
 
   const choose = (id: OfficeOrderLocation) => {
     builtFor.current = null;
+    imported.current = null;
     setWh(id);
     setView("low");
     setQuery("");
-    setBasket([]);
     setPicks({});
     setOpen(null);
     setPrOpen(null);
@@ -307,7 +391,7 @@ export default function WarehouseOffice() {
     setBasket((lines) => {
       const found = lines.find((l) => l.item.id === item.id);
       if (found) return lines.map((l) => (l.item.id === item.id ? { ...l, qty: l.qty + startQty(item) } : l));
-      return [...lines, { item, qty: startQty(item), supplierId: item.supplier_id, supplierName: item.supplier_name }];
+      return [...lines, { item, qty: startQty(item), price: item.last_unit_price, supplierId: item.supplier_id, supplierName: item.supplier_name }];
     });
   };
   const dropInto = (item: Item, x: number, y: number) => {
@@ -415,7 +499,7 @@ export default function WarehouseOffice() {
       requestIds.current.set(sup, key);
       try {
         const result = await create.mutateAsync({
-          lines: lines.map((l) => ({ supplier_id: sup, product_name: l.item.name, quantity: l.qty, unit: lineUnit(l.item), unit_price: l.item.last_unit_price ?? 0, item_id: l.item.id })),
+          lines: lines.map((l) => ({ supplier_id: sup, product_name: l.item.name, quantity: l.qty, unit: lineUnit(l.item), unit_price: l.price ?? 0, item_id: l.item.id })),
           debt: picks[sup]?.length ? picks[sup] : null,
           note: "Kho văn phòng",
           idempotency_key: key,
@@ -435,6 +519,7 @@ export default function WarehouseOffice() {
     setPicks((p) => Object.fromEntries(Object.entries(p).filter(([sup]) => !sentSuppliers.includes(sup))));
     setToast(done.map(packageSummary).join(" · "));
     queryClient.invalidateQueries({ queryKey: [OFFICE_PENDING_PAYMENT_REQUESTS_QUERY_KEY] });
+    queryClient.invalidateQueries({ queryKey: ["robot-order-packages"] });
     window.setTimeout(() => { room.push({ type: "clear", t: room.now() }); if (sentSuppliers.length === groups.length) openView("desk"); }, (0.4 + done.length * 0.45 + 0.9) * 1000);
   };
 
@@ -452,7 +537,8 @@ export default function WarehouseOffice() {
 
   // ---- render helpers
   const inBasket = new Map(basket.map((l) => [l.item.id, l.qty]));
-  const total = basket.reduce((s, l) => s + (l.item.last_unit_price ?? 0) * l.qty, 0);
+  const total = basket.reduce((s, l) => s + (l.price ?? 0) * l.qty, 0);
+  const setLine = (id: string, patch: Partial<Line>) => setBasket((ls) => ls.map((x) => (x.item.id === id ? { ...x, ...patch } : x)));
   const row = (item: Item) => {
     const days = item.daysLeft !== null ? daysLabel(item.daysLeft) : "";
     const qty = inBasket.get(item.id);
@@ -495,7 +581,7 @@ export default function WarehouseOffice() {
     <section className="machine-view">
       {!basket.length ? <p className="empty">Máy đang trống. Kéo hàng từ kệ hoặc từ ô tìm kiếm vào phễu (hoặc bấm “+ Máy”).</p> : null}
       {bySupplier.map(([sup, lines]) => {
-        const sum = lines.reduce((s, l) => s + (l.item.last_unit_price ?? 0) * l.qty, 0);
+        const sum = lines.reduce((s, l) => s + (l.price ?? 0) * l.qty, 0);
         return (
           <article key={sup} className="sup-card" data-office-supplier={sup}>
             <h3>{supplierName(sup)}<small>{sum ? fmtMoney(sum) : "chưa có giá"}</small></h3>
@@ -505,15 +591,19 @@ export default function WarehouseOffice() {
                 <GamePicker value="" onChange={(id) => setBasket((ls) => ls.map((l) => (l.supplierId ? l : { ...l, supplierId: id, supplierName: supplierOptions.find((s) => s.value === id)?.label ?? null })))} options={supplierOptions} placeholder="Chọn NCC…" title="Nhà cung cấp" ariaLabel="Chọn nhà cung cấp" />
               </div>
             ) : null}
-            <ul className="lines">
+            <ul className="lines edit">
               {lines.map((l) => (
-                <li key={l.item.id}>
-                  <span>{l.item.name}</span>
-                  <span className="qty">
-                    <button type="button" aria-label="Giảm" onClick={() => setBasket((ls) => ls.map((x) => (x.item.id === l.item.id ? { ...x, qty: Math.max(0, +(x.qty - startQty(x.item) / 4).toFixed(3)) } : x)).filter((x) => x.qty > 0))}>−</button>
-                    <b>{fmtNum(l.qty)} {lineUnit(l.item)}</b>
-                    <button type="button" aria-label="Tăng" onClick={() => setBasket((ls) => ls.map((x) => (x.item.id === l.item.id ? { ...x, qty: +(x.qty + startQty(x.item) / 4).toFixed(3) } : x)))}>+</button>
-                  </span>
+                <li key={l.item.id} data-office-line={l.item.name}>
+                  <span className="lname">{l.item.name}</span>
+                  <label className="lfield">SL
+                    <input inputMode="decimal" defaultValue={String(l.qty)} key={`q-${l.qty}`} onBlur={(e) => { const v = num(e.target.value); if (v > 0) setLine(l.item.id, { qty: v }); else e.target.value = String(l.qty); }} aria-label={`Số lượng ${l.item.name}`} data-office-qty />
+                    <small>{lineUnit(l.item)}</small>
+                  </label>
+                  <label className="lfield">Giá
+                    <input inputMode="decimal" defaultValue={l.price === null ? "" : String(l.price)} key={`p-${l.price}`} placeholder="0" onBlur={(e) => { const v = num(e.target.value); setLine(l.item.id, { price: e.target.value.trim() === "" ? null : v >= 0 ? v : l.price }); }} aria-label={`Đơn giá ${l.item.name}`} data-office-price />
+                    <small>đ/{lineUnit(l.item)}</small>
+                  </label>
+                  <button type="button" className="rm" aria-label={`Bỏ ${l.item.name}`} onClick={() => setBasket((ls) => ls.filter((x) => x.item.id !== l.item.id))}>✕</button>
                 </li>
               ))}
             </ul>
@@ -527,7 +617,17 @@ export default function WarehouseOffice() {
           {sending ? "Đang tạo đơn…" : `🖨️ Tạo ${bySupplier.filter(([sup]) => sup !== NO_SUP).length} đơn nháp & gửi phiếu cũ đi chi`}
         </button>
       ) : null}
-      {basket.length ? <p className="note">Mỗi NCC thành một đơn nháp (PO). Phiếu cũ đã tick được gửi đi chi cùng đợt, như Robot đặt hàng.</p> : null}
+      {basket.length ? <p className="note">Mỗi NCC thành một đơn nháp (PO). Phiếu cũ đã tick được gửi đi chi cùng đợt duyệt chi.</p> : null}
+      {recent.data?.length ? (
+        <div className="recent" data-office-recent>
+          <h4>Đơn robot gần đây</h4>
+          <ul>
+            {recent.data.map((p) => (
+              <li key={p.id}><span>{fmtDate(p.created_at)}</span><b>{(p.result?.po_numbers ?? []).join(", ") || "—"}</b><small>{packageDebtNumbers(p.result).length ? `chi kèm ${packageDebtNumbers(p.result).join(", ")}` : "không kèm phiếu cũ"}</small></li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </section>
   );
 
@@ -561,8 +661,8 @@ export default function WarehouseOffice() {
         <canvas ref={canvasRef} className="bay" />
         <div ref={overlayRef} className="overlay" aria-hidden />
         <header className="hud">
-          <button type="button" className="chip-btn exit" onClick={() => navigate("/")} aria-label="Thoát Kho văn phòng">←</button>
-          <span className="logo">🤖 Kho văn phòng</span>
+          <button type="button" className="chip-btn exit" onClick={() => navigate("/warehouse/game")} aria-label="Về Kho">←</button>
+          <span className="logo">🤖 Đặt hàng tự động</span>
           {wh ? <button type="button" className="chip-btn" onClick={() => { builtFor.current = null; setWh(null); setReady(false); }}>{WAREHOUSES[wh].emoji} {WAREHOUSES[wh].label} · đổi</button> : null}
           {wh && snap && !asmDone ? <button type="button" className="chip-btn skip" onClick={skip}>Bỏ qua ⏭</button> : null}
           {wh && asmDone ? <span className="keys-hint">Bấm vào kệ / máy / bàn để đi · phím ← ↑ → ↓</span> : null}

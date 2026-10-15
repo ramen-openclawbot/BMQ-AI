@@ -380,3 +380,28 @@
 .kvp .doc-actions button { flex: 1; min-height: 48px; border: 2.5px solid var(--ink); border-radius: 12px; background: var(--white); font-weight: 900; font-size: 15px; }
 .kvp .doc-actions .primary { background: var(--sage-deep); color: var(--white); box-shadow: var(--pop); }
 .kvp .pr.is-on { background: var(--mustard-light); }
+
+/* ---- robot-desk parity (16/10): editable lines, fold, learned pattern, Bé Mì review, recent packages */
+.kvp .lines.edit li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto 32px; grid-template-areas: "name name name rm" "q p p rm"; gap: 4px 8px; align-items: center; padding: 6px 0; border-top: 1.5px dashed rgba(44, 41, 71, 0.15); }
+.kvp .lines.edit li:first-child { border-top: 0; }
+.kvp .lines.edit .lname { grid-area: name; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kvp .lines.edit .lfield { display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 900; color: var(--muted); }
+.kvp .lines.edit .lfield:first-of-type { grid-area: q; }
+.kvp .lines.edit .lfield + .lfield { grid-area: p; }
+.kvp .lines.edit .lfield input { width: 92px; min-height: 34px; border: 2px solid var(--ink); border-radius: 9px; padding: 0 8px; font: 800 14px "Nunito", sans-serif; color: var(--ink); background: var(--white); text-align: right; }
+.kvp .lines.edit .lfield small { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.kvp .lines.edit .rm { grid-area: rm; width: 32px; height: 32px; border: 2px solid var(--ink); border-radius: 9px; background: var(--paper-deep); font-weight: 900; }
+.kvp .debt li.is-faded { opacity: 0.55; }
+.kvp .debt .fold { justify-self: start; border: 2px solid var(--ink); background: var(--white); border-radius: 999px; padding: 2px 11px; font-size: 12px; font-weight: 900; min-height: 32px; }
+.kvp .debt .fold:disabled { opacity: 0.6; }
+.kvp .debt-meta { font-size: 11px; color: var(--muted); font-weight: 800; line-height: 1.4; }
+.kvp .debt-meta span { color: var(--plum); }
+.kvp .debt-jev { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.kvp .debt-jev small { font-size: 11px; color: var(--muted); font-weight: 800; }
+.kvp .recent { margin-top: 14px; background: var(--white); border: 2px solid rgba(44, 41, 71, 0.25); border-radius: 12px; padding: 8px 10px; }
+.kvp .recent h4 { margin: 0 0 4px; font-size: 13.5px; font-family: "Baloo 2", sans-serif; }
+.kvp .recent ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; grid-template-columns: minmax(0, 1fr); }
+.kvp .recent li { display: grid; grid-template-columns: 44px auto minmax(0, 1fr); gap: 8px; align-items: baseline; font-size: 12px; }
+.kvp .recent li span { color: var(--muted); font-weight: 900; }
+.kvp .recent li small { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 380px) { .kvp .lines.edit .lfield input { width: 76px; } }
