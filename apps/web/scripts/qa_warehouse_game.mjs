@@ -509,7 +509,8 @@ const KG_FIXTURE = JSON.parse(fs.readFileSync(path.join(ROOT, "scripts/qa_wareho
 // A count-to-count crate: the receipt says "cái", the shelf counts "cuộn".
 KG_FIXTURE.q7.filter((crate) => crate.normalized_name === "n4").forEach((crate) => {
   crate.raw_unit = "cái";
-  crate.raw_units = [{ unit: "cái", line_count: crate.line_count }];
+  // Owner 15/10 (IMG_5718): OCR misreads "cái" as "định"; the stock unit itself is not a misread.
+  crate.raw_units = [{ unit: "cái", line_count: crate.line_count }, { unit: "định", line_count: 1 }, { unit: "Cuộn", line_count: 1 }];
   crate.top_candidate = { item_id: "fbdf4f9a-52db-446b-b3c2-e5b2e5d03842", sku_id: null, name: "Băng keo nhỏ", unit: "cuộn", score: 0.9, reason: "token" };
 });
 // "Nhãn Bánh Pháp" shares only the word "bánh" with "Chất làm mềm bánh" (live score 0.633): not a hint.
@@ -736,7 +737,24 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       await page.screenshot({ path: `${EVIDENCE}/crate-count-${viewport.width}.png` });
       await page.getByRole("radio", { name: /Là một/ }).click({ force: true });
       assert.equal(await page.getByRole("button", { name: "Xếp vào kệ" }).isDisabled(), false);
-      await page.locator(".kg .sheet .close").click({ force: true });
+      // "Phiếu đọc sai chữ" lists every odd receipt unit (not the stock unit) and saves 1 = 1.
+      const misread = page.locator("[data-bmq-count-misread]");
+      assert.match(await misread.textContent(), /“cái”, “định” chính là cuộn/);
+      await misread.click({ force: true });
+      assert.equal(await misread.getAttribute("aria-checked"), "true");
+      assert.match(await page.locator("[data-bmq-count-q] .unit-q-hint").textContent(), /Máy coi “cái”, “định” là cuộn/);
+      assert.equal(await page.locator("[data-bmq-count-q] input").count(), 0, "misread asks no number");
+      assert.equal(await page.getByRole("button", { name: "Xếp vào kệ" }).isDisabled(), false);
+      const misreadBox = await misread.boundingBox();
+      assert.ok(misreadBox && misreadBox.x >= 0 && misreadBox.x + misreadBox.width <= viewport.width + 1, `misread option fits ${JSON.stringify(misreadBox)}`);
+      await page.screenshot({ path: `${EVIDENCE}/crate-count-misread-${viewport.width}.png` });
+      await page.evaluate(() => { window.__qaWrites = []; });
+      await page.getByRole("button", { name: "Xếp vào kệ" }).click({ force: true });
+      await page.waitForTimeout(400);
+      writes = await page.evaluate(() => window.__qaWrites);
+      assert.ok(writes.some((w) => w.startsWith("rpc:confirm_material_alias:") && w.includes('"p_conversion_factor":1') && w.includes('"p_entered_unit_label":"cái"')), JSON.stringify(writes));
+      await page.waitForTimeout(600);
+      if (await page.locator(".kg .sheet .close").count()) await page.locator(".kg .sheet .close").click({ force: true });
       await page.waitForTimeout(300);
       // A PACK crate asks "1 PACK = ? g" and blocks shelving until answered.
       await page.locator("[data-bmq-crate='n3']").click({ force: true });

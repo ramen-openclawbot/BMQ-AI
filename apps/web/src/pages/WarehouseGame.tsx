@@ -96,14 +96,20 @@ const isCountUnit = (unit: string) => unitFactor(unit, "g") === null && unitFact
 const trimNumber = (value: number) => String(Math.round(value * 1e6) / 1e6);
 
 /** Receipt counts pieces, the shelf counts packs (owner 12/10: "cái" on the receipt, "gói" on the shelf). */
-function CountUnitQuestion({ receiptUnit, stockUnit, factorText, onFactor }: { receiptUnit: string; stockUnit: string; factorText: string; onFactor: (value: string) => void }) {
-  const [choice, setChoice] = useState<"same" | "stock_has" | "receipt_has" | null>(null);
+/**
+ * Owner 15/10 (IMG_5718): OCR read "cái" as "đệnh" / "định". A misread unit is the stock unit itself,
+ * so it saves 1 = 1 like "Là một"; count lines all use the alias factor, so every misread line is covered.
+ */
+type CountChoice = "same" | "misread" | "stock_has" | "receipt_has";
+function CountUnitQuestion({ receiptUnit, oddUnits, stockUnit, factorText, onFactor }: { receiptUnit: string; oddUnits: string[]; stockUnit: string; factorText: string; onFactor: (value: string) => void }) {
+  const [choice, setChoice] = useState<CountChoice | null>(null);
   const [n, setN] = useState("");
-  const pick = (next: "same" | "stock_has" | "receipt_has") => {
+  const pick = (next: CountChoice) => {
     setChoice(next);
     setN("");
-    onFactor(next === "same" ? "1" : "");
+    onFactor(next === "same" || next === "misread" ? "1" : "");
   };
+  const misreadList = (oddUnits.length ? oddUnits : [receiptUnit]).map((unit) => `“${unit}”`).join(", ");
   const typeN = (value: string) => {
     setN(value);
     const parsed = Number(value.replace(",", "."));
@@ -116,6 +122,9 @@ function CountUnitQuestion({ receiptUnit, stockUnit, factorText, onFactor }: { r
       <div className="count-choices" role="radiogroup" aria-label="Quan hệ đơn vị">
         <button type="button" role="radio" aria-checked={choice === "same"} className={choice === "same" ? "is-on" : undefined} onClick={() => pick("same")}>
           <b>Là một</b><small>1 {receiptUnit} = 1 {stockUnit}</small>
+        </button>
+        <button type="button" role="radio" aria-checked={choice === "misread"} className={choice === "misread" ? "is-on" : undefined} onClick={() => pick("misread")} data-bmq-count-misread>
+          <b>Phiếu đọc sai chữ</b><small>{misreadList} chính là {stockUnit}</small>
         </button>
         <button type="button" role="radio" aria-checked={choice === "stock_has"} className={choice === "stock_has" ? "is-on" : undefined} onClick={() => pick("stock_has")}>
           <b>{stockUnit} gồm nhiều {receiptUnit}</b><small>vd 1 {stockUnit} = 10 {receiptUnit}</small>
@@ -131,9 +140,22 @@ function CountUnitQuestion({ receiptUnit, stockUnit, factorText, onFactor }: { r
           {choice === "stock_has" ? receiptUnit : stockUnit}
         </label>
       ) : null}
-      {choice && factorText ? <small className="unit-q-hint">Máy sẽ tính: 1 {receiptUnit} = {fmtQty(Number(factorText))} {stockUnit}.</small> : null}
+      {choice === "misread" ? <small className="unit-q-hint">Máy coi {misreadList} là {stockUnit}: phiếu ghi bao nhiêu thì nhập kho bấy nhiêu {stockUnit}.</small>
+        : choice && factorText ? <small className="unit-q-hint">Máy sẽ tính: 1 {receiptUnit} = {fmtQty(Number(factorText))} {stockUnit}.</small> : null}
     </div>
   );
+}
+
+/** Receipt count units other than the stock unit itself ("cái ×2 · Cái ×1 · đệnh ×1 · định ×1" → đệnh, định). */
+function oddCountUnits(plan: UnitPlan, stockUnit: string): string[] {
+  const key = (unit: string) => unit.normalize("NFC").trim().toLowerCase();
+  const seen = new Set<string>([key(stockUnit)]);
+  return plan.units.flatMap((row) => {
+    const k = key(row.unit);
+    if (seen.has(k) || !isCountUnit(row.unit)) return [];
+    seen.add(k);
+    return [row.unit.trim()];
+  });
 }
 
 function UnitQuestion({ plan, stockUnit, label, onLabel, factorText, onFactor }: {
@@ -146,7 +168,7 @@ function UnitQuestion({ plan, stockUnit, label, onLabel, factorText, onFactor }:
       {plan.mode === "auto" ? (
         <p><b>Phiếu ghi “{plan.unit}”</b> → kho tự đổi: 1 {plan.unit} = {fmtQty(plan.auto ?? 1)} {stockUnit}. Không cần điền gì.</p>
       ) : countPair ? (
-        <CountUnitQuestion key={`${plan.unit}-${stockUnit}`} receiptUnit={plan.unit ?? ""} stockUnit={stockUnit} factorText={factorText} onFactor={onFactor} />
+        <CountUnitQuestion key={`${plan.unit}-${stockUnit}`} receiptUnit={plan.unit ?? ""} oddUnits={oddCountUnits(plan, stockUnit)} stockUnit={stockUnit} factorText={factorText} onFactor={onFactor} />
       ) : plan.mode === "pack" ? (
         <>
           <p><b>Phiếu ghi “{plan.unit}”</b>, kho tính bằng <b>{stockUnit}</b>. Mỗi khi phiếu ghi {plan.unit}, máy nhân với số dưới đây:</p>
