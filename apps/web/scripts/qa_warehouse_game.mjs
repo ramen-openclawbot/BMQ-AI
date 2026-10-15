@@ -480,7 +480,9 @@ const server = await createServer({
 await server.listen();
 const BASE = `http://127.0.0.1:${PORT}`;
 
-const browser = await chromium.launch({ executablePath: CHROME });
+// KHO_MODE=3d gives the browser a GPU so the Three.js scenes render; the default (no WebGL) proves the 2D fallback.
+const KHO_MODE = process.env.KHO_MODE === "3d" ? "3d" : "2d";
+const browser = await chromium.launch({ executablePath: CHROME, args: KHO_MODE === "3d" ? ["--use-angle=metal", "--enable-gpu"] : [] });
 const results = [];
 const record = (name, detail = {}) => {
   results.push({ name, ...detail });
@@ -595,12 +597,29 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       continue;
     }
     await page.screenshot({ path: `${EVIDENCE}/yard-${role}-${viewport.width}.png` });
+    assert.equal(await page.locator("[data-bmq-game-3d='yard']").count(), KHO_MODE === "3d" ? 1 : 0, `yard renders ${KHO_MODE} ${viewport.width}`);
+    if (KHO_MODE === "3d") {
+      await page.waitForTimeout(1500);
+      await page.screenshot({ path: `${EVIDENCE}/yard3d-${role}-${viewport.width}.png` });
+      for (const tag of await page.locator(".kg .k3-sign, .kg .k3-kiosk").all()) {
+        const b = await tag.boundingBox();
+        assert.ok(b && b.x >= -1 && b.x + b.width <= viewport.width + 1 && b.y > 60, `3D yard label inside the screen ${viewport.width}: ${await tag.textContent()} ${JSON.stringify(b)}`);
+      }
+    }
     const box = await game.boundingBox();
     assert.ok(box && box.height >= 480 && box.x >= 0 && box.x + box.width <= viewport.width, `game frame fits ${viewport.width}: ${JSON.stringify(box)}`);
     await page.getByRole("button", { name: "KHO Q7" }).click({ force: true });
     await page.waitForTimeout(900);
     assert.ok((await page.locator(".kg .title-pill b").textContent()).includes("Kho Q7"));
+    if (KHO_MODE === "3d") await page.waitForTimeout(1200);
     await page.screenshot({ path: `${EVIDENCE}/q7-${role}-${viewport.width}.png` });
+    assert.equal(await page.locator("[data-bmq-game-3d='wh-q7']").count(), KHO_MODE === "3d" ? 1 : 0, `warehouse renders ${KHO_MODE} ${viewport.width}`);
+    if (KHO_MODE === "3d") {
+      for (const tag of await page.locator(".kg .k3-tag, .kg .k3-sign, .kg .k3-kiosk").all()) {
+        const b = await tag.boundingBox();
+        assert.ok(b && b.x >= -1 && b.x + b.width <= viewport.width + 1, `3D label inside the screen ${viewport.width}: ${await tag.textContent()} ${JSON.stringify(b)}`);
+      }
+    }
     if (role === "owner") {
       await page.locator("[data-bmq-transfer-van]").click({ force: true });
       await page.waitForTimeout(600);
@@ -1045,6 +1064,15 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
   await page.waitForTimeout(1200);
   await page.getByRole("button", { name: /KHO TÂN TẠO/i }).click({ force: true });
   await page.waitForTimeout(900);
+  if (KHO_MODE === "3d") {
+    await page.waitForTimeout(1200);
+    await page.screenshot({ path: `${EVIDENCE}/tantao3d-${viewport.width}.png` });
+    assert.equal(await page.locator("[data-bmq-game-3d='wh-tan_tao']").count(), 1, "Tân Tạo renders 3D");
+    for (const tag of await page.locator(".kg .k3-tag").all()) {
+      const b = await tag.boundingBox();
+      assert.ok(b && b.x >= -1 && b.x + b.width <= viewport.width + 1, `3D Tân Tạo label inside the screen ${viewport.width}: ${await tag.textContent()} ${JSON.stringify(b)}`);
+    }
+  }
   await page.locator("[data-bmq-transfer-van]").click({ force: true });
   await page.waitForTimeout(600);
   assert.equal(await page.locator("[data-bmq-transfer-list] li").count(), (KG_FIXTURE.transfers ?? []).length, "history lists get_stock_transfers rows");

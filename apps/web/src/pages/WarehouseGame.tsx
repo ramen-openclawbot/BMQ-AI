@@ -37,6 +37,7 @@ import { DiscontinueButton, ItemFactorBox, LinkQuest, QUEST_LABEL } from "@/game
 import { useMaterialLinkReview } from "@/hooks/useMaterialLinkQuest";
 import type { MaterialLinkLocation } from "@/lib/material-link-quest";
 import "@/game/game.css";
+import { Kho3D, canUse3D } from "@/game/three/Kho3D";
 import { askGame } from "@/game/ConfirmDialog";
 
 type View =
@@ -352,6 +353,15 @@ export default function WarehouseGame() {
     );
   };
 
+  const use3D = canUse3D();
+  const yardProps = {
+    counts,
+    crates,
+    badges: { deliver: deliveryQueue.data?.length ?? 0 },
+    onEnter: (location: WarehouseGameLocation) => go({ kind: "warehouse", location }),
+    onZone: (zone: Zone) => (zone.id === "deliver" ? setPanel({ kind: "deliver" }) : zone.id === "clean" ? go({ kind: "workshop" }) : zone.id === "count" ? go({ kind: "count" }) : zone.id === "auto" ? go({ kind: "robot" }) : setPanel({ kind: "zone", zone })),
+  };
+
   return (
     <div className={`kg is-full${portrait ? " is-portrait" : ""}`} data-bmq-warehouse-game>
       <header className="hud">
@@ -368,15 +378,12 @@ export default function WarehouseGame() {
       <main className="stage">
         {view.kind === "yard" ? (
           q7.isLoading && tt.isLoading ? <GameLoading /> : (
-            <Scene id={`yard-${portrait}`} fill={portrait} scroll={portrait}>
-              <Yard
-                portrait={portrait}
-                counts={counts}
-                crates={crates}
-                badges={{ deliver: deliveryQueue.data?.length ?? 0 }}
-                onEnter={(location) => go({ kind: "warehouse", location })}
-                onZone={(zone) => (zone.id === "deliver" ? setPanel({ kind: "deliver" }) : zone.id === "clean" ? go({ kind: "workshop" }) : zone.id === "count" ? go({ kind: "count" }) : zone.id === "auto" ? go({ kind: "robot" }) : setPanel({ kind: "zone", zone }))}
-              />
+            <Scene id={`yard-${portrait}`} fill={portrait || use3D} scroll={portrait && !use3D}>
+              {use3D ? (
+                <Kho3D kind="yard" {...yardProps} flat={<Yard portrait={portrait} {...yardProps} />} />
+              ) : (
+                <Yard portrait={portrait} {...yardProps} />
+              )}
             </Scene>
           )
         ) : null}
@@ -487,18 +494,22 @@ export default function WarehouseGame() {
         {inWarehouse && !current && currentQuery?.isLoading ? <GameLoading /> : null}
 
         {view.kind === "warehouse" && current ? (
-          <Scene id={`wh-${view.location}-${portrait}`} scroll>
-            <Warehouse
-              portrait={portrait}
-              location={view.location}
-              rows={layoutRows(current)}
-              crates={current.pending}
-              canAssign={current.can_edit}
-              onShelf={(cls) => go({ kind: "shelf", location: view.location, cls })}
-              onYard={() => go({ kind: "crates", location: view.location })}
-              transfers={current.transfers.length}
-              onTransfers={() => setPanel({ kind: "transfers", location: view.location })}
-            />
+          <Scene id={`wh-${view.location}-${portrait}`} scroll={!use3D} fill={use3D}>
+            {(() => {
+              const location = view.location;
+              const whProps = {
+                location,
+                rows: layoutRows(current),
+                crates: current.pending,
+                canAssign: current.can_edit,
+                onShelf: (cls: GameClass) => go({ kind: "shelf", location, cls }),
+                onYard: () => go({ kind: "crates", location }),
+                transfers: current.transfers.length,
+                onTransfers: () => setPanel({ kind: "transfers", location }),
+              };
+              const flat = <Warehouse portrait={portrait} {...whProps} />;
+              return use3D ? <Kho3D kind="warehouse" {...whProps} flat={flat} /> : flat;
+            })()}
           </Scene>
         ) : null}
 

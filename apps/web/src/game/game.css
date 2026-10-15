@@ -1084,3 +1084,72 @@
   .kg .gconfirm-row { grid-template-columns: 1fr; }
   .kg .gconfirm-row .btn:last-child { order: -1; }
 }
+
+/* Kho 3D (2026-10-15): Three.js yard + warehouse; the labels are HTML over the canvas. */
+.kg .k3 { position: absolute; inset: 0; touch-action: none; }
+.kg .k3 > div:first-child { position: absolute !important; inset: 0; }
+.kg .k3-hint {
+  position: absolute; left: 50%; bottom: max(14px, env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 4; pointer-events: none;
+  padding: 6px 14px; border-radius: 999px; background: var(--ink); color: var(--cream); font-weight: 800; font-size: 12.5px; white-space: nowrap;
+  animation: kg-k3-hint 5.5s ease both;
+}
+@keyframes kg-k3-hint { 0%, 70% { opacity: 1; } 100% { opacity: 0; visibility: hidden; } }
+.kg .k3-sign, .kg .k3-kiosk, .kg .k3-tag { box-shadow: 3px 3px 0 var(--ink); white-space: nowrap; transition: transform .15s; }
+.kg .k3-sign:active, .kg .k3-kiosk:active, .kg button.k3-tag:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--ink); }
+.kg .k3-sign {
+  display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 12px 7px;
+  background: var(--white); border: 3px solid var(--ink); border-radius: 14px;
+}
+.kg .k3-sign b { font-family: "Baloo 2", sans-serif; font-weight: 800; font-size: 17px; letter-spacing: .04em; line-height: 1; }
+.kg .k3-sign.is-tan_tao b { color: #b8455a; }
+.kg .k3-sign.is-q7 b { color: #b0731a; }
+.kg .k3-sign span { font-size: 11.5px; font-weight: 800; color: #6f6a85; }
+.kg .k3-sign em { font-style: normal; font-size: 11px; font-weight: 900; padding: 1px 8px; margin-top: 2px; background: var(--coral-light); border: 2px solid var(--ink); border-radius: 999px; }
+.kg .k3-kiosk {
+  position: relative; display: flex; align-items: center; gap: 5px; padding: 4px 10px 4px 6px;
+  background: var(--white); border: 2.5px solid var(--ink); border-bottom: 5px solid var(--tint, var(--mustard)); border-radius: 12px;
+}
+.kg .k3-kiosk i { font-style: normal; font-size: 16px; }
+.kg .k3-kiosk b { font-family: "Baloo 2", sans-serif; font-weight: 800; font-size: 14px; line-height: 1; }
+.kg .k3-kiosk em {
+  position: absolute; top: -11px; right: -11px; min-width: 22px; height: 22px; padding: 0 5px; display: grid; place-items: center;
+  font-style: normal; font-family: "Baloo 2", sans-serif; font-weight: 800; font-size: 13px; color: var(--white);
+  background: var(--coral); border: 2.5px solid var(--ink); border-radius: 999px; animation: kg-k3-pop 1.3s ease-in-out infinite;
+}
+@keyframes kg-k3-pop { 50% { transform: scale(1.15); } }
+.kg .k3-tag {
+  display: flex; align-items: center; gap: 6px; padding: 4px 10px 4px 6px;
+  background: var(--white); border: 2.5px solid var(--ink); border-left: 8px solid var(--tint, var(--mustard)); border-radius: 12px;
+}
+.kg .k3-tag i { font-style: normal; font-size: 16px; }
+.kg .k3-tag b { font-family: "Baloo 2", sans-serif; font-weight: 800; font-size: 14px; line-height: 1; }
+.kg .k3-tag span { font-size: 11px; font-weight: 900; padding: 1px 7px; background: var(--paper); border-radius: 999px; }
+.kg .k3-tag.is-sort { border-left-color: var(--coral); background: var(--coral-light); }
+.kg .k3-tag.is-sort span { background: var(--white); }
+.kg .k3-tag.is-van { border-left-color: var(--sage); }
+.kg .k3-tag .k3-short { display: none; }
+@media (max-width: 480px) {
+  .kg .k3-tag .k3-long { display: none; }
+  .kg .k3-tag .k3-short { display: inline; }
+}
+.kg .k3-tag.is-locked { flex-direction: column; align-items: flex-start; gap: 1px; border-style: dashed; border-left: 2.5px dashed var(--ink); box-shadow: none; opacity: .85; }
+@media (max-width: 480px) {
+  .kg .k3-sign { padding: 4px 9px 5px; }
+  .kg .k3-sign b { font-size: 14px; }
+  .kg .k3-sign span { display: none; }
+  .kg .k3-sign em { font-size: 9.5px; }
+  .kg .k3-kiosk { padding: 3px 7px 3px 4px; gap: 3px; }
+  .kg .k3-kiosk b { font-size: 11.5px; }
+  .kg .k3-kiosk i { font-size: 13px; }
+  .kg .k3-tag { padding: 3px 7px 3px 4px; gap: 4px; border-left-width: 6px; }
+  .kg .k3-tag b { font-size: 11.5px; }
+  .kg .k3-tag span { font-size: 9.5px; padding: 0 5px; }
+  .kg .k3-tag i { font-size: 13px; }
+}
+@media (max-width: 360px) {
+  .kg .k3-tag i, .kg .k3-kiosk i { display: none; }
+  .kg .k3-tag, .kg .k3-kiosk { padding: 3px 6px; box-shadow: 2px 2px 0 var(--ink); }
+  .kg .k3-tag b, .kg .k3-kiosk b { font-size: 10.5px; }
+  .kg .k3-tag span { font-size: 9px; }
+  .kg .k3-hint { font-size: 11px; }
+}
