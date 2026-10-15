@@ -112,8 +112,8 @@
       }
     ],
     "badges": { "total": 0, "by_code": {} },
-    "level": { "level": 1, "title": "Tập sự", "min_badges": 0 },
-    "next_level": { "level": 2, "title": "Thợ kho", "min_badges": 3 },
+    "level": { "level": 1, "title": "Nhân viên mới", "min_badges": 0 },
+    "next_level": { "level": 2, "title": "Nhân viên kho", "min_badges": 3 },
     "recent_awards": []
   },
   "two_done_two_badges": {
@@ -174,8 +174,8 @@
       }
     ],
     "badges": { "total": 2, "by_code": { "cham_chi": 2 } },
-    "level": { "level": 1, "title": "Tập sự", "min_badges": 0 },
-    "next_level": { "level": 2, "title": "Thợ kho", "min_badges": 3 },
+    "level": { "level": 1, "title": "Nhân viên mới", "min_badges": 0 },
+    "next_level": { "level": 2, "title": "Nhân viên kho", "min_badges": 3 },
     "recent_awards": [
       {
         "badge_code": "cham_chi",

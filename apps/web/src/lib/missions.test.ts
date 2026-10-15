@@ -17,17 +17,17 @@ import {
 } from "./missions.ts";
 
 const LEVELS: MissionLevel[] = [
-  { level: 1, title: "Tập sự", min_badges: 0 },
-  { level: 2, title: "Thợ kho", min_badges: 3 },
-  { level: 3, title: "Thợ lành nghề", min_badges: 7 },
-  { level: 4, title: "Thợ cả", min_badges: 12 },
-  { level: 5, title: "Quản kho", min_badges: 20 },
+  { level: 1, title: "Nhân viên mới", min_badges: 0 },
+  { level: 2, title: "Nhân viên kho", min_badges: 3 },
+  { level: 3, title: "Thủ kho", min_badges: 7 },
+  { level: 4, title: "Thủ kho trưởng", min_badges: 12 },
+  { level: 5, title: "Quản lý kho", min_badges: 20 },
 ];
 
 test("levelProgress walks the real mission levels", () => {
   const start = levelProgress(0, LEVELS);
   assert.equal(start.current?.level, 1);
-  assert.equal(start.next?.title, "Thợ kho");
+  assert.equal(start.next?.title, "Nhân viên kho");
   assert.equal(start.pct, 0);
 
   const half = levelProgress(2, LEVELS);
@@ -117,9 +117,9 @@ test("parseMissionDetailEntry tags the material_links_done detail row", () => {
 });
 
 test("parseMissionLevel requires level, title and min_badges", () => {
-  assert.deepEqual(parseMissionLevel({ level: 2, title: "Thợ kho", min_badges: 3 }), {
+  assert.deepEqual(parseMissionLevel({ level: 2, title: "Nhân viên kho", min_badges: 3 }), {
     level: 2,
-    title: "Thợ kho",
+    title: "Nhân viên kho",
     min_badges: 3,
   });
   assert.throws(() => parseMissionLevel({ level: 2 }), TypeError);
@@ -166,8 +166,8 @@ function validMissions(): Record<string, unknown> {
       },
     ],
     badges: { total: 0, by_code: {} },
-    level: { level: 1, title: "Tập sự", min_badges: 0 },
-    next_level: { level: 2, title: "Thợ kho", min_badges: 3 },
+    level: { level: 1, title: "Nhân viên mới", min_badges: 0 },
+    next_level: { level: 2, title: "Nhân viên kho", min_badges: 3 },
     recent_awards: [],
   };
 }
@@ -182,7 +182,7 @@ test("parseMyMissions reads the full payload", () => {
   assert.equal(parsed.badges.total, 0);
   assert.deepEqual(parsed.badges.by_code, {});
   assert.equal(parsed.level?.level, 1);
-  assert.equal(parsed.next_level?.title, "Thợ kho");
+  assert.equal(parsed.next_level?.title, "Nhân viên kho");
   assert.deepEqual(parsed.recent_awards, []);
 });
 
@@ -209,12 +209,12 @@ test("parseCompleteMissionResult keeps nullable levels", () => {
     mission_id: "11111111-1111-1111-1111-111111111111",
     badge: { code: "cham_chi", name: "Chăm chỉ", icon: "🐝" },
     badges_total: 3,
-    level_before: { level: 1, title: "Tập sự", min_badges: 0 },
-    level_after: { level: 2, title: "Thợ kho", min_badges: 3 },
+    level_before: { level: 1, title: "Nhân viên mới", min_badges: 0 },
+    level_after: { level: 2, title: "Nhân viên kho", min_badges: 3 },
     leveled_up: true,
   });
   assert.equal(result.badges_total, 3);
-  assert.equal(result.level_after?.title, "Thợ kho");
+  assert.equal(result.level_after?.title, "Nhân viên kho");
   assert.equal(result.leveled_up, true);
   assert.throws(() => parseCompleteMissionResult({ mission_id: "x" }), TypeError);
 });

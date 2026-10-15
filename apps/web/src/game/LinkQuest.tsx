@@ -139,7 +139,7 @@ export function ItemFactorBox({ itemId, onToast }: { itemId: string; onToast: (t
   });
   return (
     <div className="lq-factor-box" data-bmq-item-factor>
-      <small>Mã chuẩn · quy đổi</small>
+      <small>Mã hàng · quy đổi</small>
       <b>{material.canonical_name} <em>({material.material_code} · {material.default_unit})</em></b>
       {sameUnit ? <span className="lq-auto">✓ Cùng đơn vị, không cần quy đổi</span> : (
         <span className="lq-conv">
@@ -229,12 +229,12 @@ function ItemCard({ item, canEdit, onLinked, onSkipped, onDefer }: {
         </div>
       </div>
 
-      <div className="lq-jev"><span className="lq-jev-bot"><JevBot state={candidates.length ? "done" : "error"} size={30} /></span>{candidates.length ? "Jev gợi ý mã chuẩn" : "Jev không thấy mã nào giống"}</div>
+      <div className="lq-jev"><span className="lq-jev-bot"><JevBot state={candidates.length ? "done" : "error"} size={30} /></span>{candidates.length ? "Jev gợi ý mã hàng" : "Jev không thấy mã nào giống"}</div>
       {candidates.length ? (
-        <div className="lq-cands" role="radiogroup" aria-label={`Mã chuẩn cho ${item.name}`}>
+        <div className="lq-cands" role="radiogroup" aria-label={`Mã hàng cho ${item.name}`}>
           {candidates.map((candidate) => <Candidate key={candidate.id} item={item} candidate={candidate} picked={picked?.id === candidate.id} onPick={() => pick(candidate)} disabled={!canEdit || busy} />)}
         </div>
-      ) : <p className="lq-none">Không có mã chuẩn nào giống tên. Tạo mã mới từ chính món này, hoặc đánh dấu không phải nguyên liệu (băng keo, bao tay…).</p>}
+      ) : <p className="lq-none">Không có mã hàng nào giống tên. Tạo mã mới từ chính món này, hoặc đánh dấu không phải nguyên liệu (băng keo, bao tay…).</p>}
 
       {picked ? (
         <div className="lq-target" data-bmq-lq-target>
@@ -268,13 +268,13 @@ function ItemCard({ item, canEdit, onLinked, onSkipped, onDefer }: {
           <button type="button" className="btn ghost" disabled={busy} onClick={notMaterial} data-bmq-lq-not>Không phải NVL</button>
           <button type="button" className="btn ghost soft" disabled={busy} onClick={() => fly(onDefer)} data-bmq-lq-defer>Để sau ↓</button>
         </div>
-      ) : <p className="note">Chỉ chủ hoặc người sửa Material Master được gắn mã chuẩn.</p>}
+      ) : <p className="note">Chỉ chủ hoặc người được quyền sửa mã hàng được gắn mã hàng.</p>}
     </article>
   );
 }
 
 /**
- * "Gắn mã chuẩn" as a card deck (owner approved the demo 15/10): one item per card, Jev's candidates
+ * "Gắn mã hàng" as a card deck (owner approved the demo 15/10): one item per card, Jev's candidates
  * with the SKUs they feed, the unit question with the delivery notes, a combo for exact matches,
  * a streak, and the warehouse mission submitted when the deck is empty.
  */
@@ -327,7 +327,7 @@ export function LinkQuest({ location, canEdit, mission, onToast, onCompleted }: 
   const missionOpen = mission && mission.status === "open";
   const missionDone = mission && mission.status === "completed";
 
-  if (!canEdit) return <div className="lq"><p className="note">Chỉ chủ hoặc người sửa Material Master được gắn mã chuẩn.</p></div>;
+  if (!canEdit) return <div className="lq"><p className="note">Chỉ chủ hoặc người được quyền sửa mã hàng được gắn mã hàng.</p></div>;
   if (review.isLoading && !review.data) return <div className="lq"><div className="d3-wh-empty">Đang xếp bài…</div></div>;
   if (review.error || !review.data) return <div className="lq"><div className="err">{errorText(review.error)}</div></div>;
 
@@ -346,7 +346,7 @@ export function LinkQuest({ location, canEdit, mission, onToast, onCompleted }: 
         <section className="lq-combo" data-bmq-lq-combo>
           <div className="row" style={{ alignItems: "center", flexWrap: "nowrap" }}>
             <JevBot state="done" size={56} />
-            <div><h3>Jev thấy {combo.length} món trùng tên mã chuẩn</h3><p>Cùng đơn vị hoặc máy tự đổi được. Gắn một lần, khỏi lật từng thẻ.</p></div>
+            <div><h3>Jev thấy {combo.length} món trùng tên mã hàng</h3><p>Cùng đơn vị hoặc máy tự đổi được. Gắn một lần, khỏi lật từng thẻ.</p></div>
           </div>
           <div className="lq-combo-list">{combo.slice(0, 8).map((row) => <span key={row.item_id}>{row.name}</span>)}{combo.length > 8 ? <span>+{combo.length - 8} món</span> : null}</div>
           <div className="row">

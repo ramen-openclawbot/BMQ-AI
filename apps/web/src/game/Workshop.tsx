@@ -6,15 +6,15 @@ export type StationId = "merge" | "classify" | "pastry" | "links" | "jev" | "ali
 export interface Station { id: StationId; label: string; icon: string; tint: string; hint: string; count: number | null }
 
 export const STATION_META: Record<StationId, Omit<Station, "id" | "count">> = {
-  merge: { label: "Bàn gộp", icon: "🔗", tint: C.coral, hint: "Hai tên cùng một món" },
-  classify: { label: "Bàn phân loại", icon: "🏷️", tint: C.mustard, hint: "Gắn nhóm mặt hàng" },
-  pastry: { label: "Bàn bánh ngọt", icon: "🧁", tint: "#e79a6b", hint: "Món nào tự chuyển Q7" },
-  links: { label: "Bàn mã chuẩn Q7", icon: "🧩", tint: "#6fa3a0", hint: "Gắn mã để kiểm kê Q7" },
-  jev: { label: "Máy Jev", icon: "🤖", tint: C.plum, hint: "Quét trùng · phân loại · rà mã" },
-  aliases: { label: "Bảng bí danh", icon: "📋", tint: C.sage, hint: "Tên đã học 7 ngày" },
-  backlog: { label: "Tên chờ gán mã", icon: "📦", tint: C.kraft, hint: "Danh sách thùng chờ" },
-  new: { label: "Hàng mới đề xuất", icon: "✨", tint: "#e5868f", hint: "Món mua 60 ngày chưa có mã" },
-  routing: { label: "Bàn xếp kho", icon: "🚚", tint: "#5f8fbf", hint: "NCC về kho nào · nhóm NVL" },
+  merge: { label: "Gộp tên trùng", icon: "🔗", tint: C.coral, hint: "Hai tên cùng một món" },
+  classify: { label: "Phân nhóm hàng", icon: "🏷️", tint: C.mustard, hint: "Gắn nhóm mặt hàng" },
+  pastry: { label: "Hàng chuyển sang Q7", icon: "🧁", tint: "#e79a6b", hint: "Món nào tự chuyển Q7" },
+  links: { label: "Gắn mã hàng Q7", icon: "🧩", tint: "#6fa3a0", hint: "Gắn mã để kiểm kê Q7" },
+  jev: { label: "Jev rà soát", icon: "🤖", tint: C.plum, hint: "Quét trùng · phân loại · rà mã" },
+  aliases: { label: "Tên đã ghép mã", icon: "📋", tint: C.sage, hint: "Tên đã học 7 ngày" },
+  backlog: { label: "Tên chưa có mã", icon: "📦", tint: C.kraft, hint: "Danh sách thùng chờ" },
+  new: { label: "Hàng mới chưa có mã", icon: "✨", tint: "#e5868f", hint: "Món mua 60 ngày chưa có mã" },
+  routing: { label: "Nhà cung cấp về kho nào", icon: "🚚", tint: "#5f8fbf", hint: "NCC về kho nào · nhóm NVL" },
 };
 
 export const STATION_ORDER: StationId[] = ["merge", "classify", "pastry", "links", "new", "backlog", "aliases", "routing", "jev"];
@@ -62,7 +62,7 @@ export function Workshop({ portrait, stations, onStation }: { portrait: boolean;
   const helper = { x: roomX + roomW - 56, y: 2 };
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMin meet" role="img" aria-label="Xưởng dọn danh mục">
+    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMin meet" role="img" aria-label="Danh mục hàng hóa">
       <Defs />
       <rect width={W} height={H} fill={C.paper} />
       <rect width={W} height={H} fill="url(#dots)" />
@@ -75,7 +75,7 @@ export function Workshop({ portrait, stations, onStation }: { portrait: boolean;
         <line x1={roomX + 240} y1={20} x2={roomX + 240} y2={44} stroke={C.ink} strokeWidth={STROKE} />
         <Panel x={roomX + 34} y={8} w={234} h={46} r={10} fill={C.cream}>
           <rect x={roomX + 40} y={14} width={222} height={34} rx={7} fill="none" stroke={C.plum} strokeWidth={3} />
-          <text x={roomX + 151} y={39} textAnchor="middle" className="t-hang" fontSize="18">XƯỞNG DỌN</text>
+          <text x={roomX + 151} y={39} textAnchor="middle" className="t-hang" fontSize="14" style={{ letterSpacing: 0 }} textLength={196} lengthAdjust="spacingAndGlyphs">DANH MỤC HÀNG HÓA</text>
         </Panel>
       </g>
       {stations.map((station, i) => <StationTable key={station.id} g={geo(i)} station={station} onClick={() => onStation(station.id)} />)}
@@ -85,7 +85,7 @@ export function Workshop({ portrait, stations, onStation }: { portrait: boolean;
         x={helper.x - 18}
         y={helper.y + 22}
         tail="side"
-        name="Thợ dọn"
+        name="Jev"
         text={busiest ? `${busiest.label} đang có ${busiest.count} việc!` : "Mọi bàn đã gọn gàng ✓"}
         max={portrait ? 22 : 40}
       />

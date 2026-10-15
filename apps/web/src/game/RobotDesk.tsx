@@ -246,7 +246,7 @@ export function RobotDesk({ items, basket, setBasket, canOrder, canDebt, onToast
       <div className="jev-stage robot-stage">
         <div className="jev-figure"><JevBot state={basket.length ? "working" : "idle"} size={104} /></div>
         <div className="jev-talk">
-          <div className="jev-bubble"><small>Robot đặt hàng</small><p>{bubble}</p></div>
+          <div className="jev-bubble"><small>Đặt hàng tự động</small><p>{bubble}</p></div>
           <div className="jev-meter robot-meter">
             <div><small>Trong giỏ</small><b data-bmq-robot-count>{basket.length}</b></div>
             <div><small>Gói</small><b>{groups.length}</b></div>

@@ -56,7 +56,7 @@ function ClipCard({ location, review, isLoading, error, starting, onEnter, onSta
         <span className="cnt-icon">{COUNT_ICON[location]}</span>
         <span className="cnt-title">
           <h3>{COUNT_LABEL[location]}</h3>
-          <small>{review?.cutover_date ? `Sổ tồn từ ${dmy(review.cutover_date)}` : "Sổ chưa bắt đầu · lần chốt đầu tiên sẽ khởi động sổ"}</small>
+          <small>{review?.cutover_date ? `Tồn kho từ ${dmy(review.cutover_date)}` : "Sổ chưa bắt đầu · lần chốt đầu tiên sẽ khởi động sổ"}</small>
         </span>
       </header>
       {isLoading && !review ? <p className="cnt-meta">Đang mở sổ…</p> : null}
@@ -293,7 +293,7 @@ export function CountDone({ location, session, onClose }: { location: StockCount
           <div><small>Điều chỉnh</small><b>{summary.lines_with_diff}</b></div>
           <div><small>Giữ sổ</small><b>{summary.skipped}</b></div>
         </div>
-        <p>{summary.lines_with_diff ? `Sổ tồn đã nhận ${summary.lines_with_diff} dòng điều chỉnh.` : "Không có chênh lệch, sổ giữ nguyên."}</p>
+        <p>{summary.lines_with_diff ? `Tồn kho đã nhận ${summary.lines_with_diff} dòng điều chỉnh.` : "Không có chênh lệch, sổ giữ nguyên."}</p>
         <button type="button" className="btn" onClick={onClose} autoFocus>Tuyệt!</button>
       </div>
     </div>

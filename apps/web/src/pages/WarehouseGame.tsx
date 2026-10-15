@@ -207,7 +207,7 @@ export default function WarehouseGame() {
   const tt = useWarehouseGameSnapshot("tan_tao");
   const snaps: Record<WarehouseGameLocation, WarehouseGameSnapshot | undefined> = { q7: q7.data, tan_tao: tt.data };
   const [view, setView] = useState<View>({ kind: "yard" });
-  // Robot đặt hàng (owner 14/10): the basket survives moving between scenes within the tab.
+  // Đặt hàng tự động (owner 14/10): the basket survives moving between scenes within the tab.
   const [basket, setBasketRaw] = useState<BasketLine[]>(loadBasket);
   const setBasket = (next: BasketLine[]) => { saveBasket(next); setBasketRaw(next); };
   const [panel, setPanel] = useState<Panel>(null);
@@ -232,7 +232,7 @@ export default function WarehouseGame() {
   const newTt = useNewItemSuggestions("tan_tao");
   const routing = useStockRoutingReview();
   const q7Links = useQ7MaterialLinkReview(isOwner);
-  // Gắn mã chuẩn quest (owner 15/10): Tân Tạo count for the workshop badge; Q7 comes from q7Links.
+  // Gắn mã hàng quest (owner 15/10): Tân Tạo count for the workshop badge; Q7 comes from q7Links.
   const canLinkQuest = isOwner || canEditModule("material_master");
   const ttLinks = useMaterialLinkReview("tan_tao", canLinkQuest);
   const missions = useMyMissions();
@@ -305,13 +305,13 @@ export default function WarehouseGame() {
   const inWarehouse = view.kind === "warehouse" || view.kind === "shelf" || view.kind === "crates";
   const current = inWarehouse ? snaps[view.location] : undefined;
   const currentQuery = inWarehouse ? (view.location === "q7" ? q7 : tt) : undefined;
-  const title = view.kind === "yard" ? "Phố kho BMQ"
+  const title = view.kind === "yard" ? "Kho BMQ"
     : view.kind === "count" ? "Kiểm kê kho"
     : view.kind === "count-sheet" ? `Kiểm kê · ${LOCATION_LABEL[view.location]}`
-    : view.kind === "workshop" ? "Xưởng dọn danh mục"
-    : view.kind === "robot" ? "🤖 Robot đặt hàng"
-    : view.kind === "quest" ? "🧩 Gắn mã chuẩn"
-    : view.kind === "missions" ? "Bảng nhiệm vụ"
+    : view.kind === "workshop" ? "Danh mục hàng hóa"
+    : view.kind === "robot" ? "🤖 Đặt hàng tự động"
+    : view.kind === "quest" ? "🧩 Gắn mã hàng"
+    : view.kind === "missions" ? "Nhiệm vụ"
     : view.kind === "station" ? `${STATION_META[view.id].icon} ${STATION_META[view.id].label}`
     : view.kind === "warehouse" ? LOCATION_LABEL[view.location]
     : view.kind === "crates" ? "Khu phân loại"
@@ -322,7 +322,7 @@ export default function WarehouseGame() {
     : view.kind === "workshop" ? (workshopTodo ? `${workshopTodo} việc đang chờ` : "Mọi bàn đã gọn")
     : view.kind === "robot" ? (basket.length ? `${basket.length} món trong giỏ` : "PO mới + trả đơn cũ")
     : view.kind === "quest" ? QUEST_LABEL[view.location]
-    : view.kind === "station" ? "Xưởng dọn danh mục"
+    : view.kind === "station" ? "Danh mục hàng hóa"
     : view.kind === "missions" ? (missions.data?.level ? `Cấp ${missions.data.level.level} · ${missions.data.level.title} · ${missions.data.badges.total} 🐝` : "Làm xong nhận huy hiệu")
     : view.kind === "crates" ? `${LOCATION_LABEL[view.location]} · hàng chưa dán nhãn`
     : view.kind === "shelf" ? LOCATION_LABEL[view.location]
@@ -534,7 +534,7 @@ export default function WarehouseGame() {
         ) : null}
 
         {panel?.kind === "zone" ? (
-          <Sheet title={`${panel.zone.icon} ${panel.zone.label}`} tag="Khu chức năng" sub="Bản game của khu này làm ở bước sau." onClose={() => setPanel(null)}>
+          <Sheet title={`${panel.zone.icon} ${panel.zone.label}`} tag="Sắp có" sub="Bản game của khu này làm ở bước sau." onClose={() => setPanel(null)}>
             <p className="note">{panel.zone.blurb}</p>
             <div className="row">
               <button type="button" className="btn" onClick={() => navigate(ZONE_ROUTES[panel.zone.id] ?? "/warehouse/stock-ledger")}>Mở trang {panel.zone.label}</button>
@@ -711,7 +711,7 @@ function ItemSheet({ item, others, canEdit, started, onTransfer, onRobot, onFact
           <div className="stats">
             <div><small>Đơn vị kho</small><b>{item.unit}</b></div>
             <div><small>Tồn</small><b>{started ? fmtQty(item.on_hand) : "—"}</b></div>
-            <div><small>Bí danh</small><b>{item.aliases.length}</b></div>
+            <div><small>Tên gọi khác</small><b>{item.aliases.length}</b></div>
           </div>
           <PastrySwitch item={item} canEdit={canEdit} />
           {onTransfer ? <button type="button" className="btn slip-new" onClick={onTransfer} data-bmq-item-transfer>🚚 Chuyển sang Q7</button> : null}
@@ -753,7 +753,7 @@ function ItemSheet({ item, others, canEdit, started, onTransfer, onRobot, onFact
             </label>
           ) : null}
           {duplicate ? <div className="warn">Trùng với “{duplicate.name}”. Đổi tên khác hoặc gộp hai mặt hàng ở Dọn danh mục.</div> : null}
-          {unitChanged ? <div className="warn">Đổi đơn vị sẽ quy đổi tồn, hệ số bí danh và giá chuẩn{autoFactor ? ` (1 ${item.unit} = ${fmtQty(autoFactor)} ${unit})` : ""}. Mặt hàng đã có sổ được chuyển sang bản mới, hoàn tác được.</div> : null}
+          {unitChanged ? <div className="warn">Đổi đơn vị sẽ quy đổi tồn, hệ số tên gọi khác và giá chuẩn{autoFactor ? ` (1 ${item.unit} = ${fmtQty(autoFactor)} ${unit})` : ""}. Mặt hàng đã có sổ được chuyển sang bản mới, hoàn tác được.</div> : null}
           {error ? <div className="err">{errorText(error)}</div> : null}
           <div className="row">
             <button type="button" className="btn" disabled={!canSave} onClick={() => void save()}>{busy ? "Đang lưu…" : "Lưu"}</button>

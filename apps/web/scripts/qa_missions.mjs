@@ -46,7 +46,7 @@ function settle(st) {
   }
   if (/^rpc:(complete_mission|update_stock_material_alias_factor|mark_stock_items_distinct|resolve_unknown_purchase_unit|apply_stock_item_merge)$/.test(st.table)) {
     window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args));
-    if (st.table === "rpc:complete_mission") return { data: { mission_id: st.args.p_mission_id, badge: { code: "cham_chi", name: "Chăm chỉ", icon: "🐝" }, badges_total: 3, level_before: { level: 1, title: "Tập sự", min_badges: 0 }, level_after: { level: 2, title: "Thợ kho", min_badges: 3 }, leveled_up: true }, error: null };
+    if (st.table === "rpc:complete_mission") return { data: { mission_id: st.args.p_mission_id, badge: { code: "cham_chi", name: "Chăm chỉ", icon: "🐝" }, badges_total: 3, level_before: { level: 1, title: "Nhân viên mới", min_badges: 0 }, level_after: { level: 2, title: "Nhân viên kho", min_badges: 3 }, leveled_up: true }, error: null };
     if (st.table === "rpc:update_stock_material_alias_factor") return { data: { alias_id: st.args.p_alias_id, old_factor: 1000, new_factor: st.args.p_factor }, error: null };
     if (st.table === "rpc:mark_stock_items_distinct") return { data: { item_a: st.args.p_item_a, item_b: st.args.p_item_b }, error: null };
     if (st.table === "rpc:resolve_unknown_purchase_unit") return { data: { variant: st.args.p_variant, action: st.args.p_action, code: st.args.p_code ?? null }, error: null };
@@ -430,9 +430,9 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await page.screenshot({ path: `${EVIDENCE}/yard-hud-${w}.png` });
     await board(page);
     assert.equal(await overflow(page), 0, `board no overflow ${w}`);
-    assert.equal((await page.locator("[data-bmq-mission-level]").textContent()).trim(), "Tập sự");
+    assert.equal((await page.locator("[data-bmq-mission-level]").textContent()).trim(), "Nhân viên mới");
     assert.equal(await page.locator("[data-bmq-mission]").count(), 3, "3 mission notes");
-    assert.match(await page.locator(".kg .title-pill").textContent(), /Bảng nhiệm vụ/);
+    assert.match(await page.locator(".kg .title-pill").textContent(), /Nhiệm vụ/);
     await page.screenshot({ path: `${EVIDENCE}/board-${w}.png` });
     await page.locator(".kg .mission-view").screenshot({ path: `${EVIDENCE}/board-full-${w}.png` }).catch(() => {});
 
@@ -514,7 +514,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     assert.ok((await writes(page)).some((x) => x.startsWith("rpc:complete_mission:")), "complete via RPC");
     await page.getByRole("button", { name: /Tiếp/ }).click({ force: true });
     await page.waitForSelector("[data-bmq-ceremony='level']", { timeout: 5000 });
-    assert.match(await page.locator(".kg .ceremony-card h2").textContent(), /Thợ kho/);
+    assert.match(await page.locator(".kg .ceremony-card h2").textContent(), /Nhân viên kho/);
     await page.waitForTimeout(400);
     await page.screenshot({ path: `${EVIDENCE}/ceremony-level-${w}.png` });
     await page.getByRole("button", { name: "Nhận danh hiệu" }).click({ force: true });
@@ -530,8 +530,8 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await page.waitForTimeout(700);
     await board(page);
     assert.equal(await page.locator(".kg .stamp").count(), 2, "2 XONG stamps");
-    assert.equal(await page.locator(".kg .rank-bees .bee-badge").count(), 3, "3 slots to Thợ kho");
-    assert.match(await page.locator(".kg .rank-next").textContent(), /Còn 1 huy hiệu nữa lên Thợ kho/);
+    assert.equal(await page.locator(".kg .rank-bees .bee-badge").count(), 3, "3 slots to Nhân viên kho");
+    assert.match(await page.locator(".kg .rank-next").textContent(), /Còn 1 huy hiệu nữa lên Nhân viên kho/);
     await page.screenshot({ path: `${EVIDENCE}/board-done-${w}.png`, fullPage: false });
     await page.locator("[data-bmq-mission='wh-croissant-duplicate']").click({ force: true });
     assert.equal(await page.locator(".kg .done-box").count(), 1, "done mission shows its badge");

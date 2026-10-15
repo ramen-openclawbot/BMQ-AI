@@ -17,11 +17,11 @@ import { fmtQty, newRequestId } from "./meta";
 
 /** Mirrors the public.mission_levels seed; the server decides the real level. */
 export const LADDER: MissionLevel[] = [
-  { level: 1, title: "Tập sự", min_badges: 0 },
-  { level: 2, title: "Thợ kho", min_badges: 3 },
-  { level: 3, title: "Thợ lành nghề", min_badges: 7 },
-  { level: 4, title: "Thợ cả", min_badges: 12 },
-  { level: 5, title: "Quản kho", min_badges: 20 },
+  { level: 1, title: "Nhân viên mới", min_badges: 0 },
+  { level: 2, title: "Nhân viên kho", min_badges: 3 },
+  { level: 3, title: "Thủ kho", min_badges: 7 },
+  { level: 4, title: "Thủ kho trưởng", min_badges: 12 },
+  { level: 5, title: "Quản lý kho", min_badges: 20 },
 ];
 
 const hatFor = (level: number): "none" | "cap" | "chef" => (level >= 3 ? "chef" : level === 2 ? "cap" : "none");
@@ -84,7 +84,7 @@ export function MissionHudButton({ data, onOpen }: { data: MyMissions | undefine
   const progress = levelProgress(data?.badges.total ?? 0, LADDER);
   const level = data?.level?.level ?? progress.current?.level ?? 1;
   return (
-    <button type="button" className={`todo mission-hud${ready ? " is-ready" : ""}`} onClick={onOpen} aria-label={`Bảng nhiệm vụ, ${open.length} nhiệm vụ đang mở`} data-bmq-mission-hud>
+    <button type="button" className={`todo mission-hud${ready ? " is-ready" : ""}`} onClick={onOpen} aria-label={`Nhiệm vụ, ${open.length} nhiệm vụ đang mở`} data-bmq-mission-hud>
       <div className="todo-rings" aria-hidden="true"><i /><i /><i /><i /></div>
       <span className="hud-bee"><BeeBadge size={30} /></span>
       <div className="todo-body">
@@ -105,7 +105,7 @@ function RankCard({ data }: { data: MyMissions }) {
   const slots = next ? next.min_badges : Math.max(total, 1);
   const shown = Math.min(slots, 12);
   return (
-    <section className="rank-card" aria-label="Thẻ thợ">
+    <section className="rank-card" aria-label="Thẻ nhân viên kho">
       <div className="rank-avatar">
         <svg viewBox="-34 -44 68 78" width="86" height="98" aria-hidden="true">
           <circle cx={0} cy={-4} r={30} fill={C.sageLight} stroke={C.ink} strokeWidth={STROKE} />
@@ -114,7 +114,7 @@ function RankCard({ data }: { data: MyMissions }) {
         <span className="rank-level">Cấp {level.level}</span>
       </div>
       <div className="rank-main">
-        <small>Thẻ thợ kho</small>
+        <small>Thẻ nhân viên kho</small>
         <h3 data-bmq-mission-level>{level.title}</h3>
         <div className="rank-bees" aria-label={`${total} huy hiệu Chăm chỉ`}>
           {Array.from({ length: shown }).map((_, i) => <BeeBadge key={i} size={30} empty={i >= total} />)}
@@ -222,7 +222,7 @@ function AliasRow({ row, onSaved }: { row: MissionAliasDetail; onSaved: (text: s
   return (
     <li className={`task-row${row.fixed ? " is-fixed" : ""}`} data-bmq-mission-alias>
       <div className="task-head">
-        <b>“{row.name ?? "bí danh đã xoá"}”</b>
+        <b>“{row.name ?? "tên gọi khác đã xoá"}”</b>
         <small>→ {row.item_name ?? "—"}{row.item_unit ? ` · kho tính ${row.item_unit}` : ""}</small>
       </div>
       <div className="task-now">Đang tính: 1 đơn vị trên phiếu = <b>{row.factor === null ? "—" : fmtQty(row.factor)} {row.item_unit ?? row.unit ?? ""}</b></div>
@@ -264,7 +264,7 @@ function DuplicateTool({ items, done, onSaved }: { items: MissionDuplicateDetail
           <div key={item.id} className={`dup-item${mode !== "pick" && which === i ? " is-picked" : ""}`}>
             <small>{item.code ?? "—"}</small>
             <b>{item.name ?? "—"}</b>
-            <span>{item.unit ?? "—"} · {item.alias_count} bí danh{item.active ? "" : " · đã ngưng"}</span>
+            <span>{item.unit ?? "—"} · {item.alias_count} tên gọi khác{item.active ? "" : " · đã ngưng"}</span>
           </div>
         ))}
       </div>
@@ -291,7 +291,7 @@ function DuplicateTool({ items, done, onSaved }: { items: MissionDuplicateDetail
         </>
       ) : (
         <>
-          <p className="note">Giữ lại món nào? Món kia gộp vào, bí danh và lịch sử chuyển theo (hoàn tác được ở Bàn gộp).</p>
+          <p className="note">Giữ lại món nào? Món kia gộp vào, tên gọi khác và lịch sử chuyển theo (hoàn tác được ở Gộp tên trùng).</p>
           <div className="seg" role="radiogroup" aria-label="Món giữ lại">
             {items.map((item, i) => <button key={item.id} type="button" role="radio" aria-checked={which === i} className={which === i ? "is-on" : undefined} onClick={() => setWhich(i)}>Giữ {item.code ?? `món ${i + 1}`}</button>)}
           </div>
@@ -338,7 +338,7 @@ function UnitRow({ variant, rows, onSaved }: { variant: string; rows: MissionUnk
 /** One mission opened up: the tool to finish it, then "Nộp nhiệm vụ". */
 export function MissionSheet({ mission, onClose, onToast, onCompleted, onOpenQuest }: {
   mission: Mission; onClose: () => void; onToast: (text: string) => void; onCompleted: (result: CompleteMissionResult, mission: Mission) => void;
-  /** Gắn mã chuẩn missions are played in the card deck, not inside the sheet. */
+  /** Gắn mã hàng missions are played in the card deck, not inside the sheet. */
   onOpenQuest?: (location: "q7" | "tan_tao") => void;
 }) {
   const complete = useCompleteMission();

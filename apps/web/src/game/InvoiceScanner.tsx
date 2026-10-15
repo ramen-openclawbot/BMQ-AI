@@ -5,7 +5,7 @@ import type { ReceiptLine } from "@/lib/receipt-lines";
 import { receiptPhotos } from "@/lib/receipt-photos";
 
 /**
- * "Máy soi hóa đơn" (owner 14/10): while the invoice photo is being read, a scan beam sweeps the real
+ * "Đang đọc hóa đơn" (owner 14/10): while the invoice photo is being read, a scan beam sweeps the real
  * thumbnail and three steps light up so the player can see the machine working.
  */
 const STEPS = [
@@ -45,7 +45,7 @@ export function InvoiceScanner({ lines }: { lines: ReceiptLine[] | undefined }) 
         <b className="inv-scan-corner is-bl" /><b className="inv-scan-corner is-br" />
       </div>
       <div className="inv-scan-talk">
-        <strong>Máy soi hóa đơn</strong>
+        <strong>Đang đọc hóa đơn</strong>
         <ol className="inv-scan-steps">
           {STEPS.map((step, i) => (
             <li key={step.label} className={i < current ? "is-done" : i === current ? "is-now" : undefined}>

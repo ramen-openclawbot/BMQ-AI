@@ -61,7 +61,7 @@ function LinkRow({ item, canEdit, onDone }: { item: Q7MaterialLinkReviewItem; ca
         {item.exact_material ? <em className="link-tag">Trùng tên</em> : null}
       </div>
       {exactAsCandidate ? null : candidates.length ? (
-        <div className="link-picks" role="radiogroup" aria-label={`Mã chuẩn cho ${item.name}`}>
+        <div className="link-picks" role="radiogroup" aria-label={`Mã hàng cho ${item.name}`}>
           {candidates.map((candidate) => (
             <button
               key={candidate.id}
@@ -78,7 +78,7 @@ function LinkRow({ item, canEdit, onDone }: { item: Q7MaterialLinkReviewItem; ca
             </button>
           ))}
         </div>
-      ) : <p className="note">Không có mã chuẩn nào giống. Tạo mã mới từ chính món này.</p>}
+      ) : <p className="note">Không có mã hàng nào giống. Tạo mã mới từ chính món này.</p>}
       {picked ? (
         <div className="link-target">
           <span>→ <b>{picked.canonical_name}</b> <small>({picked.material_code} · {picked.default_unit})</small></span>
@@ -111,7 +111,7 @@ export function LinkStation({ canEdit: canEditStock }: { canEdit: boolean }) {
   const canEdit = canEditStock && (isOwner || canEditModule("material_master"));
   const review = useQ7MaterialLinkReview(canEdit);
   const bulk = useLinkQ7ExactMaterials();
-  if (!canEdit) return <p className="note">Chỉ chủ hoặc người sửa Material Master được gắn mã chuẩn.</p>;
+  if (!canEdit) return <p className="note">Chỉ chủ hoặc người được quyền sửa mã hàng được gắn mã hàng.</p>;
   if (review.isLoading) return <div className="d3-wh-empty">Đang tải…</div>;
   if (review.error || !review.data) return <div className="err">{errorText(review.error)}</div>;
 
@@ -149,7 +149,7 @@ export function LinkStation({ canEdit: canEditStock }: { canEdit: boolean }) {
       {needsFactor.length ? (
         <section className="link-sec">
           <h3>Trùng tên · cần số quy đổi · {needsFactor.length}</h3>
-          <p className="note">Đơn vị kho khác đơn vị của mã chuẩn. Nhập 1 đơn vị chuẩn bằng bao nhiêu đơn vị kho.</p>
+          <p className="note">Đơn vị kho khác đơn vị của mã hàng. Nhập 1 đơn vị chuẩn bằng bao nhiêu đơn vị kho.</p>
           <ul className="link-list">{needsFactor.map((item) => <LinkRow key={item.item_id} item={item} canEdit={canEdit} onDone={done} />)}</ul>
         </section>
       ) : null}
@@ -166,7 +166,7 @@ export function LinkStation({ canEdit: canEditStock }: { canEdit: boolean }) {
           <ul className="link-list">{bulkable.map((item) => <LinkRow key={item.item_id} item={item} canEdit={canEdit} onDone={done} />)}</ul>
         </section>
       ) : null}
-      {items.length === 0 ? <div className="d3-wh-empty">Mọi món Q7 đã có mã chuẩn ✓ Kiểm kê Q7 chốt được rồi.</div> : null}
+      {items.length === 0 ? <div className="d3-wh-empty">Mọi món Q7 đã có mã hàng ✓ Kiểm kê Q7 chốt được rồi.</div> : null}
     </div>
   );
 }

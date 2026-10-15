@@ -141,7 +141,7 @@ function settle(st) {
     localStorage.setItem("qa-rot", JSON.stringify(saved));
     return { data: { image_path: st.args.p_image_path, rotation: st.args.p_rotation, source: "manual" }, error: null };
   }
-  // Robot đặt hàng (owner 14/10): facts, old-debt list (farthest first, one row before the learned cutover), package creation.
+  // Đặt hàng tự động (owner 14/10): facts, old-debt list (farthest first, one row before the learned cutover), package creation.
   if (st.table === "rpc:get_item_purchase_facts") {
     const items = Object.fromEntries(window.__kgFixture.items.map((it) => [it.id, it]));
     return { data: (st.args.p_item_ids ?? []).map((id) => ({ item_id: id, item_name: items[id]?.name ?? id, unit: items[id]?.unit ?? "g", last_supplier_id: "sup1", last_supplier_name: "Phúc Thịnh", last_unit_price: 20000, last_unit: items[id]?.unit ?? "g", last_date: "2026-10-01", suggested_qty: 25 })), error: null };
@@ -771,39 +771,40 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
   const box = await page.locator("[data-bmq-warehouse-game]").boundingBox();
   assert.ok(box && Math.abs(box.width - viewport.width) < 2 && Math.abs(box.height - viewport.height) < 2, `full screen ${viewport.width}: ${JSON.stringify(box)}`);
   assert.equal(await page.locator(".d3-header").count(), 0, "no BMQ shell header in the game");
-  await page.getByRole("button", { name: "Xưởng dọn" }).click({ force: true });
+  await page.getByRole("button", { name: "Danh mục hàng hóa" }).click({ force: true });
   await page.waitForTimeout(900);
-  assert.ok((await page.locator(".kg .title-pill b").textContent()).includes("Xưởng dọn danh mục"));
+  assert.ok((await page.locator(".kg .title-pill b").textContent()).includes("Danh mục hàng hóa"));
   await page.screenshot({ path: `${EVIDENCE}/workshop-${viewport.width}.png` });
-  for (const [station, check] of [["Bàn gộp", "[data-bmq-catalog-merge]"], ["Bàn phân loại", "[data-bmq-catalog-classify]"], ["Bàn bánh ngọt", "[data-bmq-pastry-toggle]"], ["Bàn mã chuẩn Q7", "[data-bmq-link-quest]"], ["Hàng mới đề xuất", "[data-bmq-new-items]"], ["Tên chờ gán mã", "[data-bmq-alias-backlog]"], ["Bảng bí danh", "[data-bmq-learned-aliases]"], ["Bàn xếp kho", "[data-bmq-routing-suppliers]"], ["Máy Jev", ".jev-meter"]]) {
+  for (const [station, check] of [["Gộp tên trùng", "[data-bmq-catalog-merge]"], ["Phân nhóm hàng", "[data-bmq-catalog-classify]"], ["Hàng chuyển sang Q7", "[data-bmq-pastry-toggle]"], ["Gắn mã hàng Q7", "[data-bmq-link-quest]"], ["Hàng mới chưa có mã", "[data-bmq-new-items]"], ["Tên chưa có mã", "[data-bmq-alias-backlog]"], ["Tên đã ghép mã", "[data-bmq-learned-aliases]"], ["Nhà cung cấp về kho nào", "[data-bmq-routing-suppliers]"], ["Jev rà soát", ".jev-meter"]]) {
     await page.getByRole("button", { name: new RegExp(`^${station}`) }).click({ force: true });
     await page.waitForTimeout(900);
     assert.ok((await page.locator(check).count()) >= 1, `${station} shows its tool at ${viewport.width}`);
     assert.equal(await overflow(page), 0, `${station} no overflow ${viewport.width}`);
     await page.screenshot({ path: `${EVIDENCE}/station-${station.replace(/\s+/g, "-")}-${viewport.width}.png` });
-    if (station === "Bàn gộp") {
+    if (station === "Gộp tên trùng") {
       await page.locator("[data-bmq-catalog-merge]").nth(3).getByRole("button", { name: "Bỏ" }).click({ force: true });
       await page.waitForTimeout(300);
       const writes = await page.evaluate(() => window.__qaWrites);
       assert.ok(writes.some((w) => w.startsWith("rpc:decide_stock_catalog_suggestion:") && w.includes('"p_action":"reject"')), "merge decision sent from the workshop");
     }
-    if (station === "Hàng mới đề xuất") {
+    if (station === "Hàng mới chưa có mã") {
       await page.locator(".kg .loc-switch button", { hasText: "Kho Tân Tạo" }).click({ force: true });
       await page.waitForTimeout(500);
       assert.equal(await page.locator(".kg .loc-switch button.is-on", { hasText: "Tân Tạo" }).count(), 1);
     }
-    if (station === "Bàn bánh ngọt") {
-      await page.locator("[data-bmq-pastry-toggle]").first().click({ force: true });
+    if (station === "Hàng chuyển sang Q7") {
+      // The earlier "writes disabled" toast can sit over the first row at 320px (the longer title wraps); click the switch itself.
+      await page.locator("[data-bmq-pastry-toggle]").first().dispatchEvent("click");
       await page.waitForTimeout(400);
       assert.ok((await page.evaluate(() => window.__qaWrites)).some((w) => w.startsWith("rpc:set_item_pastry_q7:")), "pastry toggle writes");
       await page.screenshot({ path: `${EVIDENCE}/station-pastry-${viewport.width}.png` });
     }
-    if (station === "Bàn mã chuẩn Q7") {
+    if (station === "Gắn mã hàng Q7") {
       // The deck: combo first, then one card at a time; "Để sau" shuffles, "Không phải NVL" skips server-side.
       await page.evaluate(() => { localStorage.removeItem("qa-lq-skip"); localStorage.removeItem("qa-lq-linked"); localStorage.removeItem("qa-lq-pending"); sessionStorage.removeItem("bmq-link-quest-defer-q7"); });
       await page.locator(".kg .hud .round-btn").first().click({ force: true });
       await page.waitForTimeout(500);
-      await page.getByRole("button", { name: /^Bàn mã chuẩn Q7/ }).click({ force: true });
+      await page.getByRole("button", { name: /^Gắn mã hàng Q7/ }).click({ force: true });
       await page.waitForSelector("[data-bmq-lq-combo]", { timeout: 5000 });
       assert.match(await page.locator("[data-bmq-lq-combo-all]").textContent(), /Gắn 2 món/, "combo offers the exact same/auto rows");
       await page.screenshot({ path: `${EVIDENCE}/quest-combo-${viewport.width}.png` });
@@ -874,7 +875,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       assert.ok(writes.some((w) => w.startsWith("rpc:set_item_material_factor:") && w.includes('"p_factor":20000')), "pending factor saved as 20000 g per bình");
       await page.screenshot({ path: `${EVIDENCE}/quest-pending-${viewport.width}.png`, fullPage: true });
     }
-    if (station === "Máy Jev") {
+    if (station === "Jev rà soát") {
       await page.getByRole("button", { name: /Quét cặp trùng/ }).click({ force: true });
       await page.waitForTimeout(400);
       const writes = await page.evaluate(() => window.__qaWrites);
@@ -1047,13 +1048,13 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
   record("manual transfer gate 390");
   await context.close();
 }
-// Robot đặt hàng (owner 14/10): basket → facts fill supplier/price → package per supplier → old debt farthest-first → send.
+// Đặt hàng tự động (owner 14/10): basket → facts fill supplier/price → package per supplier → old debt farthest-first → send.
 for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 640 }]) {
   const { context, page, errors } = await open({ data: "populated", role: "owner", started: true }, "/warehouse/game", viewport);
   await page.waitForSelector("[data-bmq-warehouse-game]", { timeout: 20000 });
   await page.waitForTimeout(1200);
   await page.evaluate(() => sessionStorage.removeItem("bmq-robot-basket-v1"));
-  await page.getByRole("button", { name: "Robot đặt" }).click({ force: true });
+  await page.getByRole("button", { name: "Đặt hàng tự động" }).click({ force: true });
   await page.waitForSelector("[data-bmq-robot-desk]", { timeout: 5000 });
   await page.waitForTimeout(700);
   assert.equal(await page.locator("[data-bmq-robot-count]").textContent(), "0", "empty basket");

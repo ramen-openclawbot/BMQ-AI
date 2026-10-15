@@ -6,10 +6,10 @@ export interface Zone { id: string; label: string; icon: string; blurb: string; 
 
 export const ZONES: Zone[] = [
   { id: "deliver", label: "Giao hàng", icon: "🚛", color: C.kraft, blurb: "Nhập số thực giao và chụp ảnh hàng cho từng phiếu xuất." },
-  { id: "ledger", label: "Sổ tồn", icon: "📒", color: C.sage, blurb: "Tự cộng từ phiếu nhập, tự trừ từ phiếu xuất sản xuất. Kiểm kê hằng tuần." },
+  { id: "ledger", label: "Tồn kho", icon: "📒", color: C.sage, blurb: "Tự cộng từ phiếu nhập, tự trừ từ phiếu xuất sản xuất. Kiểm kê hằng tuần." },
   { id: "count", label: "Kiểm kê", icon: "✅", color: C.plum, blurb: "Đếm thực tế rồi nhập số; sổ tự ghi phần chênh lệch." },
-  { id: "auto", label: "Robot đặt", icon: "🤖", color: C.coral, blurb: "Kéo món sắp hết cho robot: PO mới + trả đơn cũ, lên Zalo Duyệt chi." },
-  { id: "clean", label: "Xưởng dọn", icon: "🧹", color: C.mustard, blurb: "Jev gộp tên trùng, gán nhóm, học bí danh từ phiếu nhập." },
+  { id: "auto", label: "Đặt hàng tự động", icon: "🤖", color: C.coral, blurb: "Kéo món sắp hết cho robot: PO mới + trả đơn cũ, lên Zalo Duyệt chi." },
+  { id: "clean", label: "Danh mục hàng hóa", icon: "🧹", color: C.mustard, blurb: "Jev gộp tên trùng, gán nhóm, học tên gọi khác từ phiếu nhập." },
 ];
 
 interface Rect { x: number; y: number; w: number; h: number }
@@ -197,7 +197,7 @@ export function Yard({ portrait, counts, crates, badges = {}, onEnter, onZone }:
   const q7Door = portrait ? { x: q7.x - 58, y: q7.y + q7.h / 2 + 10 } : { x: q7.x + q7.w / 2 + 70, y: q7.y + q7.h + 40 };
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio={portrait ? "xMidYMin meet" : "xMidYMid meet"} role="img" aria-label="Phố kho BMQ">
+    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio={portrait ? "xMidYMin meet" : "xMidYMid meet"} role="img" aria-label="Kho BMQ">
       <Defs />
       <rect width={W} height={H} fill={C.paper} />
       <rect width={W} height={H} fill="url(#dots)" />

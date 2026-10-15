@@ -49,7 +49,7 @@ function MergeStation({ canEdit }: { canEdit: boolean }) {
   return (
     <>
       <Section title={`Cặp chờ gộp · ${merges.length}`} sub="Mặt hàng được giữ là bên đang dùng nhiều hơn. Tồn và lịch sử bên kia chuyển sang theo hệ số.">
-        {query.isLoading ? <div className="d3-wh-empty">Đang tải…</div> : merges.length === 0 ? <div className="d3-wh-empty">Không có cặp nào chờ gộp. Bấm “Quét cặp trùng” ở Máy Jev.</div> : (
+        {query.isLoading ? <div className="d3-wh-empty">Đang tải…</div> : merges.length === 0 ? <div className="d3-wh-empty">Không có cặp nào chờ gộp. Bấm “Quét cặp trùng” ở Jev rà soát.</div> : (
           <ul className="d3-sc-list">{merges.map((row) => <MergeRow key={row.id} row={row} canEdit={canEdit} />)}</ul>
         )}
       </Section>
@@ -82,7 +82,7 @@ function ClassifyStation({ canEdit }: { canEdit: boolean }) {
   const counts = query.data?.item_class_counts ?? {};
   return (
     <Section title={`Chờ phân loại · ${rows.length}`} sub={`${counts.unclassified ?? 0} mặt hàng chưa có nhóm. Nguyên liệu, bao bì/vật tư, thành phẩm hay không tồn kho.`}>
-      {query.isLoading ? <div className="d3-wh-empty">Đang tải…</div> : rows.length === 0 ? <div className="d3-wh-empty">Không có mặt hàng chờ phân loại. Bấm “Phân loại mặt hàng” ở Máy Jev.</div> : (
+      {query.isLoading ? <div className="d3-wh-empty">Đang tải…</div> : rows.length === 0 ? <div className="d3-wh-empty">Không có mặt hàng chờ phân loại. Bấm “Phân loại mặt hàng” ở Jev rà soát.</div> : (
         <ul className="d3-sc-list">{rows.map((row) => <ClassifyRow key={row.id} row={row} canEdit={canEdit} />)}</ul>
       )}
     </Section>
@@ -125,11 +125,11 @@ function JevStation({ canEdit }: { canEdit: boolean }) {
             className="btn ghost"
             disabled={link.isPending}
             onClick={() => link.mutate(undefined, {
-              onSuccess: (data) => toast({ title: "Đã rà mã chuẩn", description: `${Number((data as { linkable_count?: number })?.linkable_count ?? 0)} mặt hàng gắn được mã chuẩn. Việc gắn thật làm ở Material Master.` }),
+              onSuccess: (data) => toast({ title: "Đã rà mã hàng", description: `${Number((data as { linkable_count?: number })?.linkable_count ?? 0)} mặt hàng gắn được mã hàng. Việc gắn thật làm ở Material Master.` }),
               onError: (error) => toast({ title: "Chưa rà được", description: errorText(error), variant: "destructive" }),
             })}
           >
-            🧭 Rà mã chuẩn
+            🧭 Rà mã hàng
           </button>
         </div>
       )}
