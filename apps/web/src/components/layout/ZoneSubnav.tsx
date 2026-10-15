@@ -26,7 +26,7 @@ export function ZoneSubnav() {
     <nav className="d3-subnav" aria-label={heading}>
       {pages.map((page) => {
         const active = isPageActive(page.path, pathname, paths);
-        const count = page.showBadge ? paymentStats?.pendingCount || 0 : page.showPOBadge ? draftPOCount || 0 : 0;
+        const count = page.showBadge ? paymentStats?.pendingTotalCount || 0 : page.showPOBadge ? draftPOCount || 0 : 0;
         return (
           <Link
             key={page.path}

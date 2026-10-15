@@ -40,7 +40,7 @@ export function Header() {
   const poPage = getPage("/purchase-orders");
   const notices = [
     paymentPage && canViewNavItem(paymentPage, access)
-      ? { key: "payments", icon: FileCheck, count: paymentStats?.pendingCount || 0, text: en ? "Payment requests awaiting approval" : "Phiếu đề nghị chi chờ duyệt", to: "/payment-requests" }
+      ? { key: "payments", icon: FileCheck, count: paymentStats?.pendingTotalCount || 0, text: en ? "Payment requests awaiting approval" : "Phiếu đề nghị chi chờ duyệt", to: "/payment-requests" }
       : null,
     poPage && canViewNavItem(poPage, access)
       ? { key: "po", icon: ShoppingCart, count: draftPOCount || 0, text: en ? "Draft purchase orders" : "PO mua hàng đang nháp", to: "/purchase-orders" }

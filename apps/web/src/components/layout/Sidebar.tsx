@@ -206,7 +206,7 @@ export function Sidebar() {
   }, []);
 
   // Badge shows pending approval count
-  const badgeCount = paymentStats?.pendingCount || 0;
+  const badgeCount = paymentStats?.pendingTotalCount || 0;
 
   const handleScanDrive = () => {
     setCollapsed(true);

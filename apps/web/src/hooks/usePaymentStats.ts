@@ -4,7 +4,12 @@ import { getRemainingPaymentAmount, type PaymentRequestWithSupplier } from "@/ho
 import { getVietnamDayUtcRange } from "@/lib/vietnam-time";
 
 export interface PaymentStats {
+  /** Pending phiếu created today (Vietnam day). */
   pendingCount: number;
+  /** Every pending phiếu, any date (red badge). */
+  pendingTotalCount: number;
+  /** Unpaid/partial, not rejected, created in the last 90 days (same as the Chưa thanh toán list). */
+  unpaidRecentCount: number;
   approvedCount: number;
   uncTotal: number;
   cashTotal: number;
@@ -28,6 +33,8 @@ export function usePaymentStats() {
         uncRes,
         cashRes,
         pendingInvoiceRes,
+        pendingTotalRes,
+        unpaidRecentRes,
       ] = await Promise.all([
         // Count pending trong ngày hiện tại theo giờ Việt Nam (badge Duyệt chi)
         supabase
@@ -70,9 +77,25 @@ export function usePaymentStats() {
           .select("*", { count: "exact", head: true })
           .eq("status", "approved")
           .eq("invoice_created", false),
+
+        // Every pending phiếu (red badge on Duyệt chi)
+        supabase
+          .from("payment_requests")
+          .select("*", { count: "exact", head: true })
+          .eq("status", "pending"),
+
+        // Unpaid in the last 90 days, matching the Chưa thanh toán list
+        supabase
+          .from("payment_requests")
+          .select("*", { count: "exact", head: true })
+          .in("payment_status", ["unpaid", "partial"])
+          .neq("status", "rejected")
+          .gte("created_at", new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString()),
       ]);
 
       const pendingCount = pendingRes.count || 0;
+      const pendingTotalCount = pendingTotalRes.count || 0;
+      const unpaidRecentCount = unpaidRecentRes.count || 0;
       const approvedCount = approvedUnpaidRes.count || 0;
       const deliveredCount = deliveredRes.count || 0;
       const pendingInvoiceCount = pendingInvoiceRes.count || 0;
@@ -88,6 +111,8 @@ export function usePaymentStats() {
 
       return {
         pendingCount,
+        pendingTotalCount,
+        unpaidRecentCount,
         approvedCount,
         uncTotal,
         cashTotal,

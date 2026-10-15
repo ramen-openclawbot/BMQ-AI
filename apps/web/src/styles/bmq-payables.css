@@ -477,3 +477,10 @@ html.bmq-d3 .d3-pa-pages button.is-on { background: var(--d3-ink); color: #fff; 
 .d3-pa-view { display: inline-flex; justify-self: start; max-width: 100%; gap: 4px; padding: 4px; border-radius: 16px; background: var(--d3-panel, #ececea); }
 .d3-pa-view button { min-height: 40px; padding: 0 14px; border: 0; border-radius: 12px; background: transparent; color: var(--d3-ink-2, #4a4a4a); font-size: 13px; font-weight: 500; white-space: nowrap; cursor: pointer; }
 .d3-pa-view button.is-on { background: var(--d3-white, #fdfdfc); color: var(--d3-ink, #272727); box-shadow: var(--d3-sh); }
+
+/* Headline second count: unpaid list size next to "phiếu mới hôm nay". */
+.d3-pa-head h1 .d3-pa-sub2 { font-size: 0.55em; font-weight: 400; letter-spacing: 0; color: var(--d3-dim, #6b6b69); white-space: nowrap; }
+@media (max-width: 640px) {
+  .d3-pa-head h1 .d3-pa-sub2 { display: block; margin-top: 6px; font-size: 15px; }
+  .d3-pa-head h1 .d3-pa-sep { display: none; }
+}

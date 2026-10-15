@@ -46,6 +46,7 @@ import {
 } from "@/components/ui/select";
 import { AddPaymentRequestDialog } from "@/components/dialogs/AddPaymentRequestDialog";
 import { CreatePaymentMenu, type CreatePaymentChoice } from "@/components/payment-requests/CreatePaymentMenu";
+import { usePaymentStats } from "@/hooks/usePaymentStats";
 import { PaymentRequestDetailsDialog } from "@/components/dialogs/PaymentRequestDetailsDialog";
 import { ExportApprovedPDF } from "@/components/payment-requests/ExportApprovedPDF";
 
@@ -198,6 +199,10 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
     const toLabel = dateTo ? format(new Date(`${dateTo}T00:00:00`), "dd/MM/yyyy") : "--/--/----";
     return `${fromLabel} - ${toLabel}`;
   }, [dateFrom, dateTo]);
+
+  // Headline: phiếu created today (server, Vietnam day) and the unpaid list size.
+  const { data: paymentStats } = usePaymentStats();
+  const todayPendingCount = paymentStats?.pendingCount ?? 0;
 
   const mobileDateRangeLabel = useMemo(() => {
     const fromLabel = dateFrom ? format(new Date(`${dateFrom}T00:00:00`), "dd/MM") : "--/--";
@@ -565,8 +570,13 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
                 ? "…"
                 : isError
                   ? isVi ? "chưa tải được" : "unavailable"
-                  : `${stats.pending.count} ${isVi ? "phiếu chờ" : "pending"}`}
+                  : isVi ? `${todayPendingCount} phiếu mới hôm nay` : `${todayPendingCount} new today`}
             </b>
+            {!isLoading && !isError && paymentStats ? (
+              <span className="d3-pa-sub2" data-bmq-pr-unpaid-count>
+                <span className="d3-pa-sep">{" · "}</span>{paymentStats.unpaidRecentCount} {isVi ? "chưa thanh toán" : "unpaid"}
+              </span>
+            ) : null}
           </h1>
         </div>
         <div className="flex shrink-0 items-center gap-2 lg:hidden">

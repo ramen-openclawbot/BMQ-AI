@@ -333,7 +333,7 @@ try {
     await page.waitForSelector("[data-bmq-jev-result]");
     assert.equal(await page.locator("[data-bmq-jev-item]").count(), 4);
     assert.ok((await page.locator("[data-bmq-jev-hint]").textContent()).includes("gói miễn phí"), "free-tier hint shown once");
-    assert.equal((await page.locator("[data-bmq-jev-item='error'] .d3-up-chip").textContent()).trim(), "Lỗi Jev · jev_http_error · HTTP 403");
+    assert.equal((await page.locator("[data-bmq-jev-item='error'] .d3-up-chip").textContent()).trim(), "Lỗi Bé Mì · jev_http_error · HTTP 403");
     assert.equal(await page.locator("[data-bmq-jev-item]").first().getAttribute("data-bmq-jev-item"), "auto_flag", "highest probability first");
     const dry = (await bodies(page)).filter((b) => b.name === "finance-jev-duplicate-scan").pop();
     assert.deepEqual({ mode: dry.mode, limit: dry.limit, days: dry.days }, { mode: "dry_run", limit: 50, days: 90 });
@@ -410,11 +410,13 @@ try {
     await page.locator("[data-bmq-unc-open]").click();
     await page.waitForSelector("[data-bmq-unc-method='cash']");
     // PO phiếu whose receipt has no delivery image: the receipt opens from the detail.
-    await page.keyboard.press("Escape"); await page.waitForTimeout(300);
-    await page.keyboard.press("Escape"); await page.waitForTimeout(350);
+    // Start clean (stacked dialogs + Escape order is flaky): reload the submission page.
+    await page.reload();
+    await page.waitForSelector("[data-bmq-submission-row='PR-8CA755E0'] .d3-ps-open");
     await page.locator("[data-bmq-submission-row='PR-8CA755E0'] .d3-ps-open").click();
     await page.waitForSelector("[data-bmq-pr-missing-image]");
-    await page.locator("[data-bmq-pr-missing-image]").scrollIntoViewIfNeeded();
+    // Centre it: on phones the sticky action bar covers the bottom of the sheet.
+    await page.locator("[data-bmq-pr-missing-image]").evaluate((el) => el.scrollIntoView({ block: "center" }));
     await page.waitForTimeout(200);
     await page.locator("[data-bmq-pr-missing-image]").locator("xpath=ancestor::section[1]").screenshot({ path: `${EVIDENCE}/detail-missing-image-${w}.png` });
     await page.locator("[data-bmq-pr-missing-image]").click();
