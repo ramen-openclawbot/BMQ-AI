@@ -3,7 +3,7 @@ import { GamePicker } from "@/game/GamePicker";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { MISSIONS_QUERY_KEY, useCompleteMission, useMarkItemsDistinct, useResolveUnknownUnit, useUpdateAliasFactor } from "@/hooks/useMissions";
-import { useAliasReceiptLines, useRenameStockItem, WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY } from "@/hooks/useWarehouseGame";
+import { useAliasReceiptLines, useRenameStockItem, useUnitVariantReceiptLines, WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY } from "@/hooks/useWarehouseGame";
 import { STOCK_CATALOG_REVIEW_QUERY_KEY } from "@/hooks/useStockCatalog";
 import {
   levelProgress, missionErrorMessage,
@@ -319,6 +319,12 @@ function DuplicateTool({ items, done, onSaved }: { items: MissionDuplicateDetail
 
 const UNIT_CHOICES = STOCK_UNITS.filter((unit) => unit.code === unit.baseCode || unit.kind !== "count");
 
+/** Delivery notes written with this unit: the owner reads the photo before mapping it (16/10). */
+function UnitNotes({ variant }: { variant: string }) {
+  const lines = useUnitVariantReceiptLines(variant, true);
+  return <ReceiptNotes title="Phiếu giao hàng" lines={lines.data} loading={lines.isLoading} error={lines.error} />;
+}
+
 function UnitRow({ variant, rows, onSaved }: { variant: string; rows: MissionUnknownUnitDetail[]; onSaved: (text: string) => void }) {
   const resolve = useResolveUnknownUnit();
   const [code, setCode] = useState("");
@@ -331,6 +337,7 @@ function UnitRow({ variant, rows, onSaved }: { variant: string; rows: MissionUnk
         <b className="unit-chip">{rows[0]?.unit ?? variant}</b>
         <small>{lines} dòng phiếu · ví dụ “{example}”</small>
       </div>
+      <UnitNotes variant={variant} />
       <div className="unit-actions">
         <GamePicker value={code} onChange={setCode} placeholder="Quy về đơn vị…" title={`Quy “${variant}” về đơn vị`} ariaLabel={`Quy ${variant} về đơn vị chuẩn`} options={UNIT_CHOICES.map((unit) => ({ value: unit.code, label: unit.label }))} />
         <button type="button" className="btn" disabled={!code || resolve.isPending} onClick={() => resolve.mutate({ variant, action: "map", code, requestId }, { onSuccess: () => onSaved(`“${variant}” → ${code}`) })}>Gán</button>

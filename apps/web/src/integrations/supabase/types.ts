@@ -4250,6 +4250,10 @@ export type Database = {
         Args: { p_alias_id: string; p_limit?: number }
         Returns: Json
       }
+      get_unit_variant_receipt_lines: {
+        Args: { p_unit: string; p_days?: number; p_limit?: number }
+        Returns: Json
+      }
       get_crate_receipt_lines: {
         Args: {
           p_location: string

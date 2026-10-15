@@ -215,6 +215,21 @@ export function useCrateReceiptLines(
   });
 }
 
+/** The latest receipt lines (60 days) written with one unknown unit, for the unknown-units mission. */
+export function useUnitVariantReceiptLines(unit: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: ["unit-variant-receipt-lines", unit],
+    enabled: enabled && unit !== null,
+    staleTime: 60_000,
+    queryFn: async (): Promise<ReceiptLine[]> => {
+      if (unit === null) return [];
+      const { data, error } = await supabase.rpc("get_unit_variant_receipt_lines", { p_unit: unit });
+      if (error) throw error;
+      return parseReceiptLines(data);
+    },
+  });
+}
+
 /** The latest receipt lines (365 days) behind one stock material alias, for the alias-factor mission. */
 export function useAliasReceiptLines(aliasId: string | null, enabled: boolean) {
   return useQuery({

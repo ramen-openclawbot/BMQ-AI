@@ -40,6 +40,13 @@ function settle(st) {
     return { data: null, error: null, count };
   }
   if (/^rpc:(resolve_stock_alias|record_q7_stock_count|record_tan_tao_stock_count|set_goods_receipt_receiving_location|create_q7_draft_purchase_orders|upsert_q7_purchase_item_setting|update_q7_auto_purchase_settings|run_q7_auto_purchase_now|decide_stock_catalog_suggestion|revert_stock_item_merge|link_kitchen_items_to_canonical_materials)$/.test(st.table)) { window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args)); return { data: null, error: { message: "QA fixture: writes disabled" } }; }
+  if (st.table === "rpc:get_unit_variant_receipt_lines") {
+    window.__qaWrites.push("read:" + st.table + ":" + st.args.p_unit);
+    if (/pack/.test(st.args.p_unit)) return { data: [
+      { goods_receipt_id: "gr-u1", goods_receipt_item_id: "gri-u1-" + st.args.p_unit, receipt_number: "GRN-000610", receipt_date: "2026-10-02", status: "confirmed", supplier_name: "Mega Market", raw_name: "Phô mai lát trắng Dairymont 1kg", quantity: 2, unit: st.args.p_unit, unit_price: 152000, line_total: 304000, image_path: "goods-receipts/delivery-note-610.jpg", photo_paths: null },
+    ], error: null };
+    return { data: [], error: null };
+  }
   if (st.table === "rpc:get_alias_receipt_lines") {
     window.__qaWrites.push("read:" + st.table);
     if (cfg().notesError) return { data: null, error: { message: "QA fixture: notes down" } };
@@ -512,6 +519,10 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     assert.ok(all.some((x) => x.includes("rpc:resolve_unknown_purchase_unit:") && x.includes('"p_action":"map"') && x.includes('"p_code":"gói"')), "map via RPC");
     assert.ok(all.some((x) => x.includes("rpc:resolve_unknown_purchase_unit:") && x.includes('"p_action":"not_stock"')), "not_stock via RPC");
     assert.equal(await overflow(page), 0, `units sheet no overflow ${w}`);
+    // Delivery notes per unit (16/10): every row has the strip; a unit with no receipt says so.
+    assert.equal(await page.locator("[data-bmq-mission-unit] [data-bmq-receipt-notes]").count(), 3, "notes on every unit row");
+    assert.ok((await page.locator("[data-bmq-mission-unit] [data-bmq-note='GRN-000610']").count()) >= 1, "pack unit shows its receipt");
+    assert.ok((await page.locator("[data-bmq-mission-unit] [data-bmq-receipt-notes]", { hasText: "Chưa có phiếu nhập nào" }).count()) >= 1, "empty unit says so");
     await page.screenshot({ path: `${EVIDENCE}/sheet-units-${w}.png` });
     await closeSheet(page);
     assert.ok(!all.some((x) => x.startsWith("rpc:complete_mission")), "nothing submitted yet");
