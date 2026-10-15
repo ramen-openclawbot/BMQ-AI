@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { GamePicker } from "@/game/GamePicker";
 import { RotateCcw, Sparkles, Truck, Tags } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -71,11 +72,7 @@ function SupplierRow({ row, canEdit }: { row: StockRoutingSupplierPending; canEd
       </div>
       {canEdit ? (
         <div className="d3-sc-actions is-routing">
-          <select className="d3-wh-select" aria-label={`Kho nhận cho ${row.supplier_name ?? "NCC"}`} value={location} onChange={(event) => setLocation(event.target.value as StockRoutingLocation)}>
-            {STOCK_ROUTING_LOCATIONS.map((value) => (
-              <option key={value} value={value}>{stockRoutingLocationLabel(value)}</option>
-            ))}
-          </select>
+          <GamePicker value={location} onChange={(value) => setLocation(value as StockRoutingLocation)} title={`Kho nhận cho ${row.supplier_name ?? "NCC"}`} ariaLabel={`Kho nhận cho ${row.supplier_name ?? "NCC"}`} options={STOCK_ROUTING_LOCATIONS.map((value) => ({ value, label: stockRoutingLocationLabel(value) }))} />
           <Button type="button" size="sm" onClick={() => act("approve")} disabled={decide.isPending}>Áp</Button>
           <Button type="button" size="sm" variant="outline" onClick={() => act("reject")} disabled={decide.isPending}>Bỏ</Button>
         </div>
@@ -104,11 +101,7 @@ function MaterialRow({ row, categories, canEdit }: { row: StockRoutingMaterialPe
       </div>
       {canEdit ? (
         <div className="d3-sc-actions is-routing">
-          <select className="d3-wh-select" aria-label={`Nhóm cho ${row.canonical_name}`} value={category} onChange={(event) => setCategory(event.target.value)}>
-            {categories.map((item) => (
-              <option key={item.code} value={item.code}>{item.label_vi}</option>
-            ))}
-          </select>
+          <GamePicker value={category} onChange={setCategory} title={`Nhóm cho ${row.canonical_name}`} ariaLabel={`Nhóm cho ${row.canonical_name}`} options={categories.map((item) => ({ value: item.code, label: item.label_vi }))} />
           <Button type="button" size="sm" onClick={() => act("approve")} disabled={decide.isPending}>Duyệt</Button>
           <Button type="button" size="sm" variant="outline" onClick={() => act("reject")} disabled={decide.isPending}>Bỏ</Button>
         </div>

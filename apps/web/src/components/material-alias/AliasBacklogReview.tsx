@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { GamePicker } from "@/game/GamePicker";
 import { useQueryClient } from "@tanstack/react-query";
 import { Check, Plus, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -186,27 +187,17 @@ function BacklogRow({
       <div className="d3-ab-form">
         <label className="d3-ma-field d3-ma-item">
           <span>{isSku ? "Thành phẩm (SKU)" : "Mặt hàng trong kho"}</span>
-          <select
-            className="d3-wh-select"
+          <GamePicker
             value={choice}
-            onChange={(event) => { setChoice(event.target.value); setPackEdit(null); }}
-            aria-label={`Mặt hàng kho cho ${row.raw_name}`}
-          >
-            <option value="">Chọn…</option>
-            {suggestions.length ? (
-              <optgroup label="Gợi ý">
-                {suggestions.map((entry) => (
-                  <option key={`s-${entry.id}`} value={entry.id}>{entry.name} ({entry.unit}){entry.tag}</option>
-                ))}
-              </optgroup>
-            ) : null}
-            <optgroup label="Tất cả mặt hàng">
-              {catalog.filter((entry) => !suggestionIds.has(entry.id)).map((entry) => (
-                <option key={entry.id} value={entry.id}>{entry.name} ({entry.unit})</option>
-              ))}
-            </optgroup>
-            <option value={NEW_ITEM_OPTION}>+ Tạo mặt hàng mới…</option>
-          </select>
+            onChange={(value) => { setChoice(value); setPackEdit(null); }}
+            title={`Mặt hàng kho cho “${row.raw_name}”`}
+            ariaLabel={`Mặt hàng kho cho ${row.raw_name}`}
+            options={[
+              ...suggestions.map((entry) => ({ value: entry.id, label: `${entry.name} (${entry.unit})${entry.tag}`, group: "Gợi ý" })),
+              ...catalog.filter((entry) => !suggestionIds.has(entry.id)).map((entry) => ({ value: entry.id, label: `${entry.name} (${entry.unit})`, group: "Tất cả mặt hàng" })),
+              { value: NEW_ITEM_OPTION, label: "+ Tạo mặt hàng mới…", group: "Món mới" },
+            ]}
+          />
         </label>
         {isNew ? (
           <NewStockItemFields name={newName} unit={newUnit} onName={setNewName} onUnit={setNewUnit} idPrefix={`ab-${requestId}`} />

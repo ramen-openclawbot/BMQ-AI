@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { GamePicker } from "@/game/GamePicker";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { MISSIONS_QUERY_KEY, useCompleteMission, useMarkItemsDistinct, useResolveUnknownUnit, useUpdateAliasFactor } from "@/hooks/useMissions";
@@ -323,10 +324,7 @@ function UnitRow({ variant, rows, onSaved }: { variant: string; rows: MissionUnk
         <small>{lines} dòng phiếu · ví dụ “{example}”</small>
       </div>
       <div className="unit-actions">
-        <select value={code} onChange={(event) => setCode(event.target.value)} aria-label={`Quy ${variant} về đơn vị chuẩn`}>
-          <option value="">Quy về đơn vị…</option>
-          {UNIT_CHOICES.map((unit) => <option key={unit.code} value={unit.code}>{unit.label}</option>)}
-        </select>
+        <GamePicker value={code} onChange={setCode} placeholder="Quy về đơn vị…" title={`Quy “${variant}” về đơn vị`} ariaLabel={`Quy ${variant} về đơn vị chuẩn`} options={UNIT_CHOICES.map((unit) => ({ value: unit.code, label: unit.label }))} />
         <button type="button" className="btn" disabled={!code || resolve.isPending} onClick={() => resolve.mutate({ variant, action: "map", code, requestId }, { onSuccess: () => onSaved(`“${variant}” → ${code}`) })}>Gán</button>
         <button type="button" className="btn ghost" disabled={resolve.isPending} onClick={() => resolve.mutate({ variant, action: "not_stock", requestId }, { onSuccess: () => onSaved(`“${variant}” không phải hàng kho`) })}>Không phải hàng kho</button>
       </div>

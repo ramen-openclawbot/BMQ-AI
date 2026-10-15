@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { GamePicker } from "@/game/GamePicker";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useSuppliers } from "@/hooks/useSuppliers";
@@ -196,10 +197,7 @@ function BasketRow({ line, fact, suppliers, onChange, onRemove }: {
       <div className="robot-line-fields">
         <label className="slip-qty"><input inputMode="decimal" value={line.qty} onChange={(event) => onChange({ ...line, qty: event.target.value })} placeholder={fact?.suggested_qty ? fmtQty(fact.suggested_qty) : "SL"} aria-label={`Số lượng ${line.name}`} data-bmq-robot-qty /><i>{line.unit}</i></label>
         <label className="slip-qty robot-price"><input inputMode="decimal" value={line.price} onChange={(event) => onChange({ ...line, price: event.target.value })} placeholder="đơn giá" aria-label={`Đơn giá ${line.name}`} /><i>đ/{line.unit}</i></label>
-        <select value={line.supplier_id ?? ""} onChange={(event) => onChange({ ...line, supplier_id: event.target.value || null })} aria-label={`NCC cho ${line.name}`} data-bmq-robot-supplier>
-          <option value="">NCC?</option>
-          {suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
-        </select>
+        <GamePicker value={line.supplier_id ?? ""} onChange={(value) => onChange({ ...line, supplier_id: value || null })} placeholder="NCC?" title={`Nhà cung cấp cho ${line.name}`} ariaLabel={`NCC cho ${line.name}`} dataAttrs={{ "bmq-robot-supplier": "" }} options={suppliers.map((supplier) => ({ value: supplier.id, label: supplier.name }))} />
       </div>
       {fact?.suggested_qty && line.qty === "" ? <button type="button" className="robot-suggest" onClick={() => onChange({ ...line, qty: fmtQty(fact.suggested_qty!) })}>Dùng gợi ý {fmtQty(fact.suggested_qty)} {line.unit}</button> : null}
     </li>

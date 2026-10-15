@@ -773,7 +773,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
         const created = await page.locator(".kg .sheet .field input").first().inputValue();
         assert.equal(created, "Giấm tinh luyện minh châu 4% 1l", `full invoice name prefilled: ${created}`);
         assert.equal(await page.locator("[data-bmq-name-hint='invoice']").count(), 1, "invoice-name hint shown");
-        assert.equal(await page.locator(".kg .sheet select").first().inputValue(), "chai", "unit taken from the invoice line");
+        assert.match(await page.locator(".kg .sheet [data-bmq-picker]").first().textContent(), /^chai/, "unit taken from the invoice line");
         assert.ok((await page.evaluate(() => window.__qaWrites)).some((w) => w.startsWith("invoke-body:suggest-stock-item-name:") && w.includes('"normalized_name"')), "suggestion asked with the crate key");
         await page.screenshot({ path: `${EVIDENCE}/crate-new-fullname-${viewport.width}.png` });
         assert.equal(await page.locator("[data-bmq-new-pastry] [role='switch']").getAttribute("aria-checked"), "true", "new item from a Q7 crate starts as pastry");
@@ -810,7 +810,20 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       await page.locator(".kg .field input").first().fill("Bột mì 999 Cam");
       assert.equal(await page.locator(".kg .warn", { hasText: "Trùng" }).count(), 1);
       await page.locator(".kg .field input").first().fill("Bột mì 888 Cam loại 1");
-      await page.locator(".kg .field select").selectOption("bao");
+      // Owner 15/10: pickers are the game's notebook sheet, never the native select menu.
+      assert.equal(await page.locator(".kg select").count(), 0, "no native select in the edit sheet");
+      await page.locator(".kg .field [data-bmq-picker]").click({ force: true });
+      await page.waitForSelector("[data-bmq-picker-sheet]", { timeout: 3000 });
+      await page.waitForTimeout(350);
+      const pickBox = await page.locator(".gpick-sheet").boundingBox();
+      assert.ok(pickBox && pickBox.x >= 0 && pickBox.x + pickBox.width <= viewport.width + 1 && pickBox.y >= 0 && pickBox.y + pickBox.height <= viewport.height + 1, `picker sheet fits ${viewport.width}: ${JSON.stringify(pickBox)}`);
+      const optBox = await page.locator("[data-bmq-picker-option]").first().boundingBox();
+      assert.ok(optBox && optBox.height >= 44, `picker option tappable ${viewport.width}`);
+      await page.screenshot({ path: `${EVIDENCE}/picker-unit-${viewport.width}.png` });
+      assert.equal(await page.locator("[data-bmq-picker-option='kg']").count(), 0, "kg is not offered (catalog keeps g)");
+      await page.locator("[data-bmq-picker-option='bao']").click();
+      await page.waitForSelector("[data-bmq-picker-sheet]", { state: "detached", timeout: 3000 });
+      assert.match(await page.locator(".kg .field [data-bmq-picker]").textContent(), /bao/);
       await page.locator(".kg .conv input").fill("0.00004");
       await page.screenshot({ path: `${EVIDENCE}/edit-${viewport.width}.png` });
       await page.getByRole("button", { name: "Lưu" }).click({ force: true });
@@ -818,7 +831,6 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       const writes = await page.evaluate(() => window.__qaWrites);
       assert.ok(writes.some((w) => w.startsWith("rpc:rename_stock_item:") && w.includes("Bột mì 888 Cam loại 1")), "rename sent");
       assert.ok(writes.some((w) => w.startsWith("rpc:change_stock_item_unit:") && w.includes('"p_new_unit":"bao"') && w.includes('"p_factor":0.00004')), "unit change sent with factor");
-      assert.ok(!(await page.locator(".kg .field select option").allTextContents().catch(() => [])).includes("kg"));
     } else {
       assert.equal(await page.getByRole("button", { name: /Đổi tên/ }).count(), 0, "viewer cannot edit");
       await page.screenshot({ path: `${EVIDENCE}/item-viewer-${viewport.width}.png` });
@@ -857,6 +869,20 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       await page.waitForTimeout(300);
       const writes = await page.evaluate(() => window.__qaWrites);
       assert.ok(writes.some((w) => w.startsWith("rpc:decide_stock_catalog_suggestion:") && w.includes('"p_action":"reject"')), "merge decision sent from the workshop");
+    }
+    if (station === "Tên chưa có mã" && (await page.locator("[data-bmq-picker]").count())) {
+      // Owner 15/10 (IMG_5705): the item list is the game's notebook sheet, with search and groups.
+      assert.equal(await page.locator(".kg select").count(), 0, "no native select in Tên chưa có mã");
+      await page.locator("[data-bmq-picker]").first().click({ force: true });
+      await page.waitForSelector("[data-bmq-picker-sheet]", { timeout: 3000 });
+      await page.waitForTimeout(350);
+      const sheet = await page.locator(".gpick-sheet").boundingBox();
+      assert.ok(sheet && sheet.x >= 0 && sheet.x + sheet.width <= viewport.width + 1 && sheet.y >= 0, `backlog picker fits ${viewport.width}`);
+      const opt = await page.locator(".gpick-layer .gpick-option").first().boundingBox();
+      assert.ok(opt && opt.height >= 44, `backlog picker option tappable ${viewport.width}`);
+      await page.screenshot({ path: `${EVIDENCE}/picker-backlog-${viewport.width}.png` });
+      await page.locator(".gpick-close").click();
+      await page.waitForSelector("[data-bmq-picker-sheet]", { state: "detached", timeout: 3000 });
     }
     if (station === "Hàng mới chưa có mã") {
       await page.locator(".kg .loc-switch button", { hasText: "Kho Tân Tạo" }).click({ force: true });
@@ -1174,7 +1200,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
   await page.waitForSelector('[data-bmq-robot-line="Băng keo nhỏ"]');
   // facts arrive: supplier + last price fill themselves, the package card for that supplier appears
   await page.waitForSelector('[data-bmq-robot-pack="Phúc Thịnh"]', { timeout: 5000 });
-  assert.equal(await page.locator("[data-bmq-robot-supplier]").first().inputValue(), "sup1", "supplier filled from facts");
+  assert.equal(await page.locator("[data-bmq-robot-supplier]").first().getAttribute("data-value"), "sup1", "supplier filled from facts");
   assert.equal(await page.locator('[data-bmq-robot-line="Băng keo nhỏ"] .robot-price input').inputValue(), "20000", "last price filled from facts");
   assert.equal(await page.locator("[data-bmq-robot-send]").isDisabled(), true, "cannot send without quantity + debt choice");
   // A g item last bought per kg: the price is restated per g (owner 15/10: 91 g of Peerless showed 8,2 triệu).

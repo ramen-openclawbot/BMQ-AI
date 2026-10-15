@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { GamePicker } from "@/game/GamePicker";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useChangeStockItemUnit, useCrateReceiptLines, useItemReceiptLines, useRenameStockItem, useSetItemPastryQ7, useWarehouseGameSnapshot, WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY } from "@/hooks/useWarehouseGame";
@@ -754,9 +755,7 @@ function ItemSheet({ item, others, canEdit, started, onTransfer, onRobot, onFact
           </label>
           <label className="field">
             Đơn vị kho
-            <select value={unit} onChange={(event) => setUnit(event.target.value)}>
-              {[...new Set([item.unit, ...ITEM_UNITS])].map((value) => <option key={value} value={value}>{value}</option>)}
-            </select>
+            <GamePicker value={unit} onChange={setUnit} title="Đơn vị kho" ariaLabel="Đơn vị kho" options={[...new Set([item.unit, ...ITEM_UNITS])].map((value) => ({ value, label: value }))} />
           </label>
           {unitChanged && autoFactor === null ? (
             <label className="conv">
@@ -906,9 +905,7 @@ function CrateSheet({ location, crate, snapshot, autoPick = false, onAssigned, o
             : suggestName.isSuccess ? <p className="name-hint" data-bmq-name-hint="none">Không tìm thấy dòng khớp trên ảnh hóa đơn; tên đang lấy từ phiếu.</p>
             : null}
           <label className="field">Đơn vị kho
-            <select value={newUnit} onChange={(event) => { setNewUnit(event.target.value); preparePlan(event.target.value); }}>
-              {ITEM_UNITS.map((value) => <option key={value} value={value}>{value}</option>)}
-            </select>
+            <GamePicker value={newUnit} onChange={(value) => { setNewUnit(value); preparePlan(value); }} title="Đơn vị kho" ariaLabel="Đơn vị kho" options={ITEM_UNITS.map((value) => ({ value, label: value }))} />
           </label>
           <UnitQuestion plan={plan} stockUnit={newUnit} label={packLabel} onLabel={setPackLabel} factorText={factorText} onFactor={setFactorText} />
           <div className={`pastry-switch${asPastry ? " is-on" : ""}`} data-bmq-new-pastry>

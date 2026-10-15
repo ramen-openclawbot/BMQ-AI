@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { GamePicker } from "@/game/GamePicker";
 import { AlertTriangle, Bot, GitMerge, Layers, RotateCcw, Sparkles, Tags } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -155,17 +156,15 @@ export function ClassifyRow({ row, canEdit }: { row: StockCatalogPendingSuggesti
       </div>
       {canEdit ? (
         <div className="d3-sc-actions">
-          <select
-            className="d3-wh-select d3-sc-class"
-            aria-label={`Nhóm cho ${row.item_name}`}
+          <GamePicker
+            className="d3-sc-class"
             value={cls}
-            onChange={(event) => setCls(event.target.value as StockItemClass)}
-          >
-            <option value="">Chọn nhóm…</option>
-            {STOCK_ITEM_CLASSES.map((value) => (
-              <option key={value} value={value}>{ITEM_CLASS_LABELS[value]}</option>
-            ))}
-          </select>
+            onChange={(value) => setCls(value as StockItemClass)}
+            placeholder="Chọn nhóm…"
+            title={`Nhóm cho ${row.item_name}`}
+            ariaLabel={`Nhóm cho ${row.item_name}`}
+            options={STOCK_ITEM_CLASSES.map((value) => ({ value, label: ITEM_CLASS_LABELS[value] }))}
+          />
           <Button type="button" onClick={() => act("approve")} disabled={!cls || decide.isPending}>Duyệt</Button>
           <Button type="button" variant="outline" onClick={() => act("reject")} disabled={decide.isPending}>Bỏ</Button>
         </div>

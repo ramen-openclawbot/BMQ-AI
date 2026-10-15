@@ -477,7 +477,9 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await page.waitForTimeout(700);
     const rows = page.locator("[data-bmq-mission-unit]");
     assert.equal(await rows.count(), 3);
-    await rows.nth(0).locator("select").selectOption("gói");
+    await rows.nth(0).locator("[data-bmq-picker]").click({ force: true });
+    await page.locator("[data-bmq-picker-option='gói']").click();
+    await page.waitForSelector("[data-bmq-picker-sheet]", { state: "detached", timeout: 3000 });
     await rows.nth(0).getByRole("button", { name: "Gán" }).click({ force: true });
     await rows.nth(2).getByRole("button", { name: "Không phải hàng kho" }).click({ force: true });
     await page.waitForTimeout(400);
