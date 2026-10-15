@@ -95,6 +95,18 @@ function settle(st) {
     const exact = items.filter((it) => it.exact_material).length;
     return { data: { items, counts: { total: items.length, exact, auto: items.filter((it) => it.unit_status === "auto").length, needs_factor: items.filter((it) => it.unit_status === "needs_factor").length, none: items.filter((it) => !it.candidates.length).length, linked_total: linked.length, skipped: skipped.length } }, error: null };
   }
+  if (st.table === "rpc:discontinue_stock_item" || st.table === "rpc:reactivate_stock_item") {
+    window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args));
+    const stop = st.table === "rpc:discontinue_stock_item";
+    const list = JSON.parse(localStorage.getItem("qa-stopped") || "[]").filter((id) => id !== st.args.p_item_id);
+    if (stop) list.push(st.args.p_item_id);
+    localStorage.setItem("qa-stopped", JSON.stringify(list));
+    if (stop) { const skipped = JSON.parse(localStorage.getItem("qa-lq-skip") || "[]"); skipped.push(st.args.p_item_id); localStorage.setItem("qa-lq-skip", JSON.stringify(skipped)); }
+    return { data: { item_id: st.args.p_item_id, name: "Bao tay nilon", active: !stop }, error: null };
+  }
+  if (st.table === "rpc:get_discontinued_stock_items") {
+    return { data: JSON.parse(localStorage.getItem("qa-stopped") || "[]").map((id) => ({ item_id: id, item_code: "NVL-" + id, name: "Bao tay nilon", unit: "cái", pastry_q7: false, reason: null, discontinued_by_name: "QA", discontinued_at: "2026-10-15T08:00:00Z" })), error: null };
+  }
   if (st.table === "rpc:get_material_link_pending_factors") {
     const pend = JSON.parse(localStorage.getItem("qa-lq-pending") || "[]");
     return { data: pend.map((id) => ({ item_id: id, name: "Nước uống Vĩnh Hảo", unit: "bình", material_id: "m9", material_code: "NVL-NUOC-VIHAWA", canonical_name: "Nước uống Vĩnh Hảo", material_unit: "g", last_purchase_line: null })), error: null };
@@ -801,7 +813,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     }
     if (station === "Gắn mã hàng Q7") {
       // The deck: combo first, then one card at a time; "Để sau" shuffles, "Không phải NVL" skips server-side.
-      await page.evaluate(() => { localStorage.removeItem("qa-lq-skip"); localStorage.removeItem("qa-lq-linked"); localStorage.removeItem("qa-lq-pending"); sessionStorage.removeItem("bmq-link-quest-defer-q7"); });
+      await page.evaluate(() => { localStorage.removeItem("qa-lq-skip"); localStorage.removeItem("qa-lq-linked"); localStorage.removeItem("qa-lq-pending"); localStorage.removeItem("qa-stopped"); sessionStorage.removeItem("bmq-link-quest-defer-q7"); });
       await page.locator(".kg .hud .round-btn").first().click({ force: true });
       await page.waitForTimeout(500);
       await page.getByRole("button", { name: /^Gắn mã hàng Q7/ }).click({ force: true });
@@ -852,7 +864,16 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       await page.screenshot({ path: `${EVIDENCE}/quest-tantao-${viewport.width}.png` });
       await page.locator("[data-bmq-lq-link]").dispatchEvent("click");
       await page.waitForFunction(() => ["Bao tay nilon", "Nước uống Vĩnh Hảo"].includes(document.querySelector("[data-bmq-lq-card]")?.getAttribute("data-bmq-lq-card") ?? ""), null, { timeout: 5000 });
-      if ((await page.locator("[data-bmq-lq-card]").getAttribute("data-bmq-lq-card")) === "Bao tay nilon") await page.locator("[data-bmq-lq-defer]").dispatchEvent("click");
+      if ((await page.locator("[data-bmq-lq-card]").getAttribute("data-bmq-lq-card")) === "Bao tay nilon") {
+        // Ngưng dùng (owner 15/10): confirm, card leaves, the item shows under "Đã ngưng dùng" and can come back
+        page.once("dialog", (d) => d.accept());
+        await page.locator("[data-bmq-lq-stop]").dispatchEvent("click");
+        await page.waitForSelector("[data-bmq-discontinued-row='Bao tay nilon']", { timeout: 5000 });
+        assert.ok((await page.evaluate(() => window.__qaWrites)).some((w) => w.startsWith("rpc:discontinue_stock_item:") && w.includes('"p_item_id":"t2"')), "discontinue sent");
+        await page.screenshot({ path: `${EVIDENCE}/quest-stopped-${viewport.width}.png`, fullPage: true });
+        await page.locator("[data-bmq-discontinued-row='Bao tay nilon'] .btn").dispatchEvent("click");
+        await page.waitForFunction(() => window.__qaWrites.some((w) => w.startsWith("rpc:reactivate_stock_item:")), null, { timeout: 5000 });
+      }
       await page.waitForFunction(() => document.querySelector("[data-bmq-lq-card]")?.getAttribute("data-bmq-lq-card") === "Nước uống Vĩnh Hảo", null, { timeout: 5000 });
       // the bình code is first and picked: same unit, no question
       assert.equal(await page.locator("[data-bmq-lq-cand]").first().getAttribute("data-bmq-lq-cand"), "Nước Vihawa 20L Bình Vòi", "same-unit code first");
@@ -874,6 +895,16 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       writes = await page.evaluate(() => window.__qaWrites);
       assert.ok(writes.some((w) => w.startsWith("rpc:set_item_material_factor:") && w.includes('"p_factor":20000')), "pending factor saved as 20000 g per bình");
       await page.screenshot({ path: `${EVIDENCE}/quest-pending-${viewport.width}.png`, fullPage: true });
+      // Ngưng dùng (owner 15/10): the last card (no candidates) is taken off; it lists under "Đã ngưng dùng" and can come back
+      await page.waitForFunction(() => document.querySelector("[data-bmq-lq-card]")?.getAttribute("data-bmq-lq-card") === "Bao tay nilon", null, { timeout: 5000 });
+      page.once("dialog", (d) => d.accept());
+      await page.locator("[data-bmq-lq-stop]").dispatchEvent("click");
+      await page.waitForSelector("[data-bmq-discontinued-row='Bao tay nilon']", { timeout: 5000 });
+      assert.ok((await page.evaluate(() => window.__qaWrites)).some((w) => w.startsWith("rpc:discontinue_stock_item:") && w.includes('"p_item_id":"t2"')), "discontinue sent");
+      await page.waitForTimeout(400);
+      await page.screenshot({ path: `${EVIDENCE}/quest-stopped-${viewport.width}.png`, fullPage: true });
+      await page.locator("[data-bmq-discontinued-row='Bao tay nilon'] .btn").dispatchEvent("click");
+      await page.waitForFunction(() => window.__qaWrites.some((w) => w.startsWith("rpc:reactivate_stock_item:")), null, { timeout: 5000 });
     }
     if (station === "Jev rà soát") {
       await page.getByRole("button", { name: /Quét cặp trùng/ }).click({ force: true });

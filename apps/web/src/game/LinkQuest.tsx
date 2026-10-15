@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useCompleteMission } from "@/hooks/useMissions";
+import { useDiscontinueStockItem, useDiscontinuedStockItems, useReactivateStockItem } from "@/hooks/useStockItemDiscontinue";
+import { discontinueErrorCode, discontinueErrorText } from "@/lib/stock-item-discontinue";
 import { useLinkExactMaterials, useLinkItemMaterial, useMaterialLinkPendingFactors, useMaterialLinkReview, useSetItemMaterialFactor, useSkipItemLink } from "@/hooks/useMaterialLinkQuest";
 import { useItemReceiptLines } from "@/hooks/useWarehouseGame";
 import { bulkableRows, deckOrder, factorPrefill, itemFactorPrefill, type MaterialLinkCandidate, type MaterialLinkLocation, type MaterialLinkPendingFactor, type MaterialLinkPurchaseLine, type MaterialLinkReviewItem } from "@/lib/material-link-quest";
@@ -155,6 +157,46 @@ export function ItemFactorBox({ itemId, onToast }: { itemId: string; onToast: (t
   );
 }
 
+/** "Đã ngưng dùng" (owner 15/10): items taken off shelves, counts and decks; bring one back with "Dùng lại". */
+export function DiscontinuedList({ onToast }: { onToast: (text: string) => void }) {
+  const list = useDiscontinuedStockItems(true);
+  const reactivate = useReactivateStockItem();
+  const rows = list.data ?? [];
+  if (!rows.length) return null;
+  return (
+    <section className="lq-pending lq-stopped" data-bmq-discontinued>
+      <h3>⏸ Đã ngưng dùng · {rows.length}</h3>
+      <ul>
+        {rows.map((row) => (
+          <li key={row.item_id} data-bmq-discontinued-row={row.name}>
+            <span className="lq-pending-name"><b>{row.name}</b><small>{row.unit}{row.item_code ? ` · ${row.item_code}` : ""} · ngưng {dmy(row.discontinued_at)}{row.discontinued_by_name ? ` · ${row.discontinued_by_name}` : ""}</small></span>
+            <button type="button" className="btn ghost" disabled={reactivate.isPending} onClick={() => reactivate.mutate({ itemId: row.item_id }, { onSuccess: () => onToast(`▶ ${row.name}: dùng lại`), onError: (error) => onToast(discontinueErrorText(discontinueErrorCode(error))) })}>▶ Dùng lại</button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** Item sheet button: discontinue from the shelf. */
+export function DiscontinueButton({ itemId, name, onDone, onToast }: { itemId: string; name: string; onDone: () => void; onToast: (text: string) => void }) {
+  const discontinue = useDiscontinueStockItem();
+  return (
+    <button
+      type="button"
+      className="btn ghost slip-new"
+      disabled={discontinue.isPending}
+      onClick={() => {
+        if (!window.confirm(`Ngưng dùng “${name}”? Món sẽ rời kệ, kiểm kê, robot đặt hàng và bộ bài. Bật lại được ở Bàn mã hàng › Đã ngưng dùng.`)) return;
+        discontinue.mutate({ itemId, reason: "Ngưng dùng từ kệ" }, { onSuccess: () => { onToast(`⏸ ${name}: đã ngưng dùng`); onDone(); }, onError: (error) => onToast(discontinueErrorText(discontinueErrorCode(error))) });
+      }}
+      data-bmq-item-stop
+    >
+      {discontinue.isPending ? "Đang ngưng…" : "⏸ Ngưng dùng món này"}
+    </button>
+  );
+}
+
 /** One card of the deck: the item, Jev's candidates, the unit question (with the delivery notes), four decisions. */
 function ItemCard({ item, canEdit, onLinked, onSkipped, onDefer }: {
   item: MaterialLinkReviewItem; canEdit: boolean;
@@ -209,6 +251,11 @@ function ItemCard({ item, canEdit, onLinked, onSkipped, onDefer }: {
       { onSuccess: (result) => fly(() => onLinked(`✨ Tạo mã ${result.material_code} cho ${item.name}`)), onError: () => setRequestId(newRequestId()) },
     );
   };
+  const discontinue = useDiscontinueStockItem();
+  const stopUsing = () => {
+    if (!window.confirm(`Ngưng dùng “${item.name}”? Món sẽ rời kệ, kiểm kê, robot đặt hàng và bộ bài. Bật lại được ở mục Đã ngưng dùng.`)) return;
+    discontinue.mutate({ itemId: item.item_id, reason: "Ngưng dùng từ bộ bài gắn mã" }, { onSuccess: () => fly(() => onSkipped(`⏸ ${item.name}: đã ngưng dùng`)) });
+  };
   const notMaterial = () => {
     skip.mutate({ itemId: item.item_id, note: null }, { onSuccess: () => fly(() => onSkipped(`🚫 ${item.name}: không phải NVL`)) });
   };
@@ -260,12 +307,14 @@ function ItemCard({ item, canEdit, onLinked, onSkipped, onDefer }: {
 
       {link.error ? <div className="err">{errorText(link.error)}</div> : null}
       {skip.error ? <div className="err">{errorText(skip.error)}</div> : null}
+      {discontinue.error ? <div className="err">{discontinueErrorText(discontinueErrorCode(discontinue.error))}</div> : null}
       {canEdit ? (
         <div className="lq-actions">
           <button type="button" className="btn main" disabled={!ready} onClick={() => save(false)} data-bmq-lq-link>{link.isPending ? "Đang gắn…" : "🧩 Gắn mã"}</button>
           {needsFactor && picked ? <button type="button" className="btn ghost wide" disabled={busy || !canEdit} onClick={() => save(true)} data-bmq-lq-defer-factor>🧩 Gắn, quy đổi sau</button> : null}
           <button type="button" className="btn ghost" disabled={busy} onClick={create} data-bmq-lq-new>＋ Tạo mã mới</button>
           <button type="button" className="btn ghost" disabled={busy} onClick={notMaterial} data-bmq-lq-not>Không phải NVL</button>
+          <button type="button" className="btn ghost" disabled={busy || discontinue.isPending} onClick={stopUsing} data-bmq-lq-stop>⏸ Ngưng dùng</button>
           <button type="button" className="btn ghost soft" disabled={busy} onClick={() => fly(onDefer)} data-bmq-lq-defer>Để sau ↓</button>
         </div>
       ) : <p className="note">Chỉ chủ hoặc người được quyền sửa mã hàng được gắn mã hàng.</p>}
@@ -376,6 +425,7 @@ export function LinkQuest({ location, canEdit, mission, onToast, onCompleted }: 
         )}
       </div>
       <PendingFactors location={location} onToast={onToast} />
+      <DiscontinuedList onToast={onToast} />
     </div>
   );
 }

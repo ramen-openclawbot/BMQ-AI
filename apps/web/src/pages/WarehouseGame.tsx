@@ -33,7 +33,7 @@ import type { StockCountLine, StockCountLocation, StockCountSession } from "@/li
 import { useSuggestStockItemName } from "@/hooks/useSuggestStockItemName";
 import { InvoiceScanner } from "@/game/InvoiceScanner";
 import { RobotDesk, basketLineFor, loadBasket, saveBasket, type BasketLine } from "@/game/RobotDesk";
-import { ItemFactorBox, LinkQuest, QUEST_LABEL } from "@/game/LinkQuest";
+import { DiscontinueButton, ItemFactorBox, LinkQuest, QUEST_LABEL } from "@/game/LinkQuest";
 import { useMaterialLinkReview } from "@/hooks/useMaterialLinkQuest";
 import type { MaterialLinkLocation } from "@/lib/material-link-quest";
 import "@/game/game.css";
@@ -717,6 +717,7 @@ function ItemSheet({ item, others, canEdit, started, onTransfer, onRobot, onFact
           {onTransfer ? <button type="button" className="btn slip-new" onClick={onTransfer} data-bmq-item-transfer>🚚 Chuyển sang Q7</button> : null}
           {onRobot ? <button type="button" className="btn ghost slip-new" onClick={onRobot} data-bmq-item-robot>🤖 Cho robot đặt hàng</button> : null}
           {onFactorToast ? <ItemFactorBox itemId={item.id} onToast={onFactorToast} /> : null}
+          {onFactorToast && canEdit ? <DiscontinueButton itemId={item.id} name={item.name} onDone={onClose} onToast={onFactorToast} /> : null}
           {canEdit ? <ItemNotes itemId={item.id} /> : null}
           <div className="checklist">
             <small>Cách ghi trên phiếu nhập</small>
