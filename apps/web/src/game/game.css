@@ -1062,3 +1062,25 @@
 .kg .lq-factor-box b em { font-style: normal; font-size: 12px; color: #6f6a85; }
 .kg .lq-factor-box .lq-conv { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .kg .lq-factor-box .lq-auto { font-size: 13px; color: var(--sage-deep); }
+
+/* In-game confirm (ConfirmDialog.tsx) — replaces window.confirm, owner 15/10. */
+.kg .btn.danger { background: var(--coral); color: var(--white); }
+.kg .gconfirm-layer { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 20px; }
+.kg .gconfirm-backdrop { position: absolute; inset: 0; background: rgba(44,41,71,.42); animation: kg-fade .2s both; }
+.kg .gconfirm {
+  position: relative; width: min(100%, 380px); padding: 22px 20px 18px; text-align: center;
+  background: var(--cream) repeating-linear-gradient(180deg, transparent 0 31px, rgba(108,92,207,.12) 31px 33px);
+  border: 3px solid var(--ink); border-radius: 20px; box-shadow: var(--pop); animation: kg-pop .28s var(--ease) both;
+}
+.kg .gconfirm-icon { display: grid; place-items: center; width: 52px; height: 52px; margin: -48px auto 8px; font-size: 26px; background: var(--mustard-light); border: 3px solid var(--ink); border-radius: 99px; box-shadow: var(--soft); }
+.kg .gconfirm.is-danger .gconfirm-icon { background: #fbd5d9; }
+.kg .gconfirm h2 { margin: 0; font-family: "Baloo 2", sans-serif; font-size: 21px; line-height: 1.2; overflow-wrap: anywhere; }
+.kg .gconfirm p { margin: 8px 0 0; font-size: 14.5px; font-weight: 700; line-height: 1.45; color: #5e5a76; }
+.kg .gconfirm-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 18px; }
+.kg .gconfirm-row .btn { width: 100%; padding: 0 10px; }
+@media (prefers-reduced-motion: reduce) { .kg .gconfirm, .kg .gconfirm-backdrop { animation: none; } }
+.kg .gconfirm-row .btn { white-space: nowrap; }
+@media (max-width: 360px) {
+  .kg .gconfirm-row { grid-template-columns: 1fr; }
+  .kg .gconfirm-row .btn:last-child { order: -1; }
+}

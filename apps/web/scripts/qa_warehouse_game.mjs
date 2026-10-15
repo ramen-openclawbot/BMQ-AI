@@ -534,6 +534,25 @@ async function shot(page, locator, file, viewport) {
   await locator.screenshot({ path: file });
   await page.setViewportSize(viewport);
 }
+// Owner 15/10: confirmations use the in-game notebook card, never the browser's system box.
+async function confirmInGame(page, viewport, label) {
+  let native = false;
+  const onDialog = (d) => { native = true; d.dismiss(); };
+  page.on("dialog", onDialog);
+  await page.waitForSelector("[data-bmq-game-confirm]", { timeout: 4000 });
+  const box = await page.locator(".kg .gconfirm").boundingBox();
+  assert.ok(box && box.x >= 0 && box.x + box.width <= viewport.width && box.y >= 0 && box.y + box.height <= viewport.height, `confirm card fits ${viewport.width}: ${JSON.stringify(box)}`);
+  for (const sel of ["[data-bmq-game-confirm-ok]", "[data-bmq-game-confirm-cancel]"]) {
+    const b = await page.locator(sel).boundingBox();
+    assert.ok(b && b.height >= 44, `${sel} tappable ${viewport.width}`);
+  }
+  await page.screenshot({ path: `${EVIDENCE}/confirm-${label}-${viewport.width}.png` });
+  await page.locator("[data-bmq-game-confirm-ok]").click();
+  await page.waitForSelector("[data-bmq-game-confirm]", { state: "detached", timeout: 3000 });
+  page.off("dialog", onDialog);
+  assert.equal(native, false, "no native confirm box");
+}
+
 const overflow = (page) => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
 const tabLabels = (page) => page.$$eval(".d3-tabs .d3-tab", (els) => els.map((el) => el.textContent.trim()));
 const activeTab = (page) => page.$eval(".d3-tabs", (nav) => nav.querySelector("[data-zone-active='true']")?.textContent.trim() ?? null).catch(() => null);
@@ -866,8 +885,8 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       await page.waitForFunction(() => ["Bao tay nilon", "Nước uống Vĩnh Hảo"].includes(document.querySelector("[data-bmq-lq-card]")?.getAttribute("data-bmq-lq-card") ?? ""), null, { timeout: 5000 });
       if ((await page.locator("[data-bmq-lq-card]").getAttribute("data-bmq-lq-card")) === "Bao tay nilon") {
         // Ngưng dùng (owner 15/10): confirm, card leaves, the item shows under "Đã ngưng dùng" and can come back
-        page.once("dialog", (d) => d.accept());
         await page.locator("[data-bmq-lq-stop]").dispatchEvent("click");
+        await confirmInGame(page, viewport, "quest-stop");
         await page.waitForSelector("[data-bmq-discontinued-row='Bao tay nilon']", { timeout: 5000 });
         assert.ok((await page.evaluate(() => window.__qaWrites)).some((w) => w.startsWith("rpc:discontinue_stock_item:") && w.includes('"p_item_id":"t2"')), "discontinue sent");
         await page.screenshot({ path: `${EVIDENCE}/quest-stopped-${viewport.width}.png`, fullPage: true });
@@ -897,8 +916,8 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       await page.screenshot({ path: `${EVIDENCE}/quest-pending-${viewport.width}.png`, fullPage: true });
       // Ngưng dùng (owner 15/10): the last card (no candidates) is taken off; it lists under "Đã ngưng dùng" and can come back
       await page.waitForFunction(() => document.querySelector("[data-bmq-lq-card]")?.getAttribute("data-bmq-lq-card") === "Bao tay nilon", null, { timeout: 5000 });
-      page.once("dialog", (d) => d.accept());
       await page.locator("[data-bmq-lq-stop]").dispatchEvent("click");
+      await confirmInGame(page, viewport, "quest-stop-last");
       await page.waitForSelector("[data-bmq-discontinued-row='Bao tay nilon']", { timeout: 5000 });
       assert.ok((await page.evaluate(() => window.__qaWrites)).some((w) => w.startsWith("rpc:discontinue_stock_item:") && w.includes('"p_item_id":"t2"')), "discontinue sent");
       await page.waitForTimeout(400);

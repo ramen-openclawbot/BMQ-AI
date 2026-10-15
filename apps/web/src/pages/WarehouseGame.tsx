@@ -37,6 +37,7 @@ import { DiscontinueButton, ItemFactorBox, LinkQuest, QUEST_LABEL } from "@/game
 import { useMaterialLinkReview } from "@/hooks/useMaterialLinkQuest";
 import type { MaterialLinkLocation } from "@/lib/material-link-quest";
 import "@/game/game.css";
+import { askGame } from "@/game/ConfirmDialog";
 
 type View =
   | { kind: "yard" }
@@ -462,8 +463,8 @@ export default function WarehouseGame() {
                 onSave={(line, qty) => saveCountLine(view.location, countSession, line, qty)}
                 onReview={() => { submitCount.reset(); setPanel({ kind: "count-review", location: view.location }); }}
                 cancelling={cancelCount.isPending}
-                onCancel={() => {
-                  if (!window.confirm("Hủy phiếu này? Số đã đếm sẽ bỏ, sổ tồn không đổi.")) return;
+                onCancel={async () => {
+                  if (!(await askGame({ title: "Hủy phiếu kiểm kê này?", message: "Số đã đếm sẽ bỏ, tồn kho không đổi.", ok: "Hủy phiếu", cancel: "Đếm tiếp", tone: "danger" }))) return;
                   cancelCount.mutate({ location: view.location, sessionId: countSession.id }, { onSuccess: () => { setToast("Đã hủy phiếu kiểm kê"); go({ kind: "count" }); }, onError: (error) => setToast(countErrorText(error)) });
                 }}
               />
@@ -715,7 +716,7 @@ function ItemSheet({ item, others, canEdit, started, onTransfer, onRobot, onFact
           </div>
           <PastrySwitch item={item} canEdit={canEdit} />
           {onTransfer ? <button type="button" className="btn slip-new" onClick={onTransfer} data-bmq-item-transfer>🚚 Chuyển sang Q7</button> : null}
-          {onRobot ? <button type="button" className="btn ghost slip-new" onClick={onRobot} data-bmq-item-robot>🤖 Cho robot đặt hàng</button> : null}
+          {onRobot ? <button type="button" className="btn ghost slip-new" onClick={onRobot} data-bmq-item-robot>🤖 Đặt hàng món này</button> : null}
           {onFactorToast ? <ItemFactorBox itemId={item.id} onToast={onFactorToast} /> : null}
           {onFactorToast && canEdit ? <DiscontinueButton itemId={item.id} name={item.name} onDone={onClose} onToast={onFactorToast} /> : null}
           {canEdit ? <ItemNotes itemId={item.id} /> : null}

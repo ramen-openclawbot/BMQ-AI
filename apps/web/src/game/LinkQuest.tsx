@@ -15,6 +15,7 @@ import { GoodsIcon } from "./GoodsArt";
 import { ReceiptNotes } from "./ReceiptNotes";
 import { C } from "./theme";
 import { fmtQty, newRequestId } from "./meta";
+import { askGame } from "./ConfirmDialog";
 
 export const QUEST_LABEL: Record<MaterialLinkLocation, string> = { q7: "Kho Q7", tan_tao: "Kho Tân Tạo" };
 const dmy = (iso: string) => iso.slice(0, 10).split("-").reverse().join("/");
@@ -186,8 +187,8 @@ export function DiscontinueButton({ itemId, name, onDone, onToast }: { itemId: s
       type="button"
       className="btn ghost slip-new"
       disabled={discontinue.isPending}
-      onClick={() => {
-        if (!window.confirm(`Ngưng dùng “${name}”? Món sẽ rời kệ, kiểm kê, robot đặt hàng và bộ bài. Bật lại được ở Bàn mã hàng › Đã ngưng dùng.`)) return;
+      onClick={async () => {
+        if (!(await askGame({ title: `Ngưng dùng “${name}”?`, message: "Món sẽ rời khỏi kệ, phiếu kiểm kê, đặt hàng tự động và bộ bài gắn mã. Bật lại được ở mục Đã ngưng dùng.", ok: "Ngưng dùng", cancel: "Giữ lại", tone: "danger" }))) return;
         discontinue.mutate({ itemId, reason: "Ngưng dùng từ kệ" }, { onSuccess: () => { onToast(`⏸ ${name}: đã ngưng dùng`); onDone(); }, onError: (error) => onToast(discontinueErrorText(discontinueErrorCode(error))) });
       }}
       data-bmq-item-stop
@@ -252,8 +253,8 @@ function ItemCard({ item, canEdit, onLinked, onSkipped, onDefer }: {
     );
   };
   const discontinue = useDiscontinueStockItem();
-  const stopUsing = () => {
-    if (!window.confirm(`Ngưng dùng “${item.name}”? Món sẽ rời kệ, kiểm kê, robot đặt hàng và bộ bài. Bật lại được ở mục Đã ngưng dùng.`)) return;
+  const stopUsing = async () => {
+    if (!(await askGame({ title: `Ngưng dùng “${item.name}”?`, message: "Món sẽ rời khỏi kệ, phiếu kiểm kê, đặt hàng tự động và bộ bài gắn mã. Bật lại được ở mục Đã ngưng dùng.", ok: "Ngưng dùng", cancel: "Giữ lại", tone: "danger" }))) return;
     discontinue.mutate({ itemId: item.item_id, reason: "Ngưng dùng từ bộ bài gắn mã" }, { onSuccess: () => fly(() => onSkipped(`⏸ ${item.name}: đã ngưng dùng`)) });
   };
   const notMaterial = () => {

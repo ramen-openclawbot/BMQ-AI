@@ -250,7 +250,7 @@ export function ReviewSheet({ location, session, submitting, error, onSubmit, on
   const diffs = session.lines.filter((line) => line.counted_qty !== null && line.counted_qty !== line.book_qty);
   const skipped = progress.total - progress.done;
   return (
-    <Sheet title="Chốt phiếu kiểm kê" tag={`${COUNT_ICON[location]} ${COUNT_LABEL[location]} · ${dmy(session.count_date)}`} sub="Máy ghi phần chênh lệch vào sổ tồn, một lần duy nhất" onClose={onClose}>
+    <Sheet title="Chốt phiếu kiểm kê" tag={`${COUNT_ICON[location]} ${COUNT_LABEL[location]} · ${dmy(session.count_date)}`} sub="Máy ghi phần chênh lệch vào tồn kho, một lần duy nhất" onClose={onClose}>
       <div className="stats" data-bmq-count-review>
         <div><small>Đã đếm</small><b>{progress.done}</b></div>
         <div><small>Lệch sổ</small><b>{diffs.length}</b></div>
