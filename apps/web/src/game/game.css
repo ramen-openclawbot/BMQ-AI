@@ -635,6 +635,17 @@
 .kg .pastry-switch b { font-size: 15px; }
 .kg .pastry-switch small { font-size: 12.5px; font-weight: 700; color: #6f6a85; }
 .kg .pastry-switch .err { flex-basis: 100%; }
+.kg .class-pick { display: grid; gap: 8px; padding: 10px 12px; background: var(--white); border: 2.5px solid var(--ink); border-radius: 14px; }
+.kg .class-pick[data-bmq-item-class="unclassified"] { background: #fff4d6; }
+.kg .class-pick > span { display: grid; min-width: 0; }
+.kg .class-pick b { font-size: 15px; }
+.kg .class-pick small { font-size: 12.5px; font-weight: 700; color: #6f6a85; }
+.kg .class-pick-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.kg .class-chip { display: flex; align-items: center; gap: 6px; min-height: 44px; padding: 6px 10px; font: inherit; font-size: 13.5px; font-weight: 800; text-align: left; color: var(--ink); background: var(--cream); border: 2.5px solid var(--ink); border-radius: 12px; box-shadow: 0 3px 0 var(--ink); cursor: pointer; }
+.kg .class-chip i { font-style: normal; font-size: 18px; }
+.kg .class-chip.is-on { background: var(--chip); box-shadow: inset 0 2px 0 rgba(0, 0, 0, 0.12); transform: translateY(2px); }
+.kg .class-chip:disabled { opacity: 0.7; cursor: progress; }
+.kg .class-chip:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
 .kg .pastry-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .kg .pastry-row { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--white); border: 2.5px solid var(--ink); border-radius: 12px; }
 .kg .pastry-row.is-on { background: #fbe1cf; }

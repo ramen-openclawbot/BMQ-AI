@@ -130,6 +130,24 @@ export function useSetItemPastryQ7() {
   });
 }
 
+export type StockItemClass = "raw_material" | "packaging_supply" | "finished_goods" | "non_stock";
+
+/** Set / change an item's group by hand (owner 16/10); supersedes any pending Bé Mì classify suggestion. */
+export function useSetStockItemClass() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { itemId: string; itemClass: StockItemClass }) => {
+      const { data, error } = await supabase.rpc("set_stock_item_class", { p_item_id: input.itemId, p_class: input.itemClass });
+      if (error) throw error;
+      return data as { item_id: string; old_class: string | null; item_class: StockItemClass };
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY] });
+      void queryClient.invalidateQueries({ queryKey: [STOCK_CATALOG_REVIEW_QUERY_KEY] });
+    },
+  });
+}
+
 export const STOCK_TRANSFERS_QUERY_KEY = "stock-transfers";
 
 /** The newest Tân Tạo -> Q7 transfers for the warehouse game. */

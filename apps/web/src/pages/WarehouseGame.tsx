@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { GamePicker } from "@/game/GamePicker";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { useChangeStockItemUnit, useCrateReceiptLines, useItemReceiptLines, useRenameStockItem, useSetItemPastryQ7, useWarehouseGameSnapshot, WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY } from "@/hooks/useWarehouseGame";
+import { useChangeStockItemUnit, useCrateReceiptLines, useItemReceiptLines, useRenameStockItem, useSetItemPastryQ7, useSetStockItemClass, useWarehouseGameSnapshot, WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY, type StockItemClass } from "@/hooks/useWarehouseGame";
 import { ReceiptNotes } from "@/game/ReceiptNotes";
 import { useConfirmMaterialAlias, useCreateStockMaterialItem, useRunAliasBacklog } from "@/hooks/useMaterialAlias";
 import { CrateYard, cleanCrateName, strongCandidate, type JevState } from "@/game/CrateYard";
@@ -696,6 +696,35 @@ function PastrySwitch({ item, canEdit }: { item: WarehouseGameItem; canEdit: boo
   );
 }
 
+const PICK_CLASSES: StockItemClass[] = ["raw_material", "packaging_supply", "finished_goods", "non_stock"];
+
+/** "Nhóm": pick the item's shelf group by hand; "Chưa có nhóm" items had no way out before (16/10). */
+function ClassPicker({ item, canEdit }: { item: WarehouseGameItem; canEdit: boolean }) {
+  const setClass = useSetStockItemClass();
+  const [value, setValue] = useState(asClass(item.item_class));
+  const pick = (next: StockItemClass) => {
+    if (next === value || setClass.isPending) return;
+    const before = value;
+    setValue(next);
+    setClass.mutate({ itemId: item.id, itemClass: next }, { onError: () => setValue(before) });
+  };
+  return (
+    <div className="class-pick" data-bmq-item-class={value}>
+      <span><b>Nhóm</b><small>{value === "unclassified" ? "Chưa có nhóm — chọn một nhóm bên dưới" : setClass.isSuccess ? `Đã chuyển sang ${CLASS_META[value].label}` : CLASS_META[value].label}</small></span>
+      {canEdit ? (
+        <div className="class-pick-row" role="radiogroup" aria-label="Nhóm mặt hàng">
+          {PICK_CLASSES.map((cls) => (
+            <button key={cls} type="button" role="radio" aria-checked={value === cls} className={`class-chip${value === cls ? " is-on" : ""}`} style={{ ["--chip" as string]: CLASS_META[cls].tint }} disabled={setClass.isPending} onClick={() => pick(cls)} data-bmq-class-option={cls}>
+              <i aria-hidden="true">{CLASS_META[cls].icon}</i>{CLASS_META[cls].label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {setClass.error ? <div className="err">{errorText(setClass.error)}</div> : null}
+    </div>
+  );
+}
+
 function ItemSheet({ item, others, canEdit, started, onTransfer, onRobot, onFactorToast, onDone, onClose }: {
   item: WarehouseGameItem; others: WarehouseGameItem[]; canEdit: boolean; started: boolean; onTransfer?: () => void; onRobot?: () => void; onFactorToast?: (text: string) => void;
   onDone: (id: string, message: string) => void; onClose: () => void;
@@ -748,6 +777,7 @@ function ItemSheet({ item, others, canEdit, started, onTransfer, onRobot, onFact
             <div><small>Tồn</small><b>{started ? fmtQty(item.on_hand) : "—"}</b></div>
             <div><small>Tên gọi khác</small><b>{item.aliases.length}</b></div>
           </div>
+          <ClassPicker key={item.id} item={item} canEdit={canEdit} />
           <PastrySwitch item={item} canEdit={canEdit} />
           {onTransfer ? <button type="button" className="btn slip-new" onClick={onTransfer} data-bmq-item-transfer>🚚 Chuyển sang Q7</button> : null}
           {onRobot ? <button type="button" className="btn ghost slip-new" onClick={onRobot} data-bmq-item-robot>🤖 Đặt hàng món này</button> : null}

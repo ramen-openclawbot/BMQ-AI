@@ -4246,6 +4246,10 @@ export type Database = {
         }
         Returns: Json
       }
+      set_stock_item_class: {
+        Args: { p_item_id: string; p_class: string }
+        Returns: Json
+      }
       get_alias_receipt_lines: {
         Args: { p_alias_id: string; p_limit?: number }
         Returns: Json

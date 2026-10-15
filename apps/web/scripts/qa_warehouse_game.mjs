@@ -185,6 +185,7 @@ function settle(st) {
     return { data: { slip_id: "slip-qa-1", slip_number: "CKP-20261012-QA0001", transfer_date: "2026-10-12", lines: st.args.p_lines.map((l, i) => ({ transfer_id: "t-" + i, transfer_number: "CK-20261012-QA000" + i, item_id: l.item_id, item_name: names[l.item_id]?.name ?? "?", quantity: l.quantity, unit: names[l.item_id]?.unit ?? "g" })) }, error: null };
   }
   if (st.table === "rpc:get_crate_receipt_lines" || st.table === "rpc:get_item_receipt_lines") { window.__qaWrites.push("read:" + st.table); return { data: window.__kgFixture.receipt_lines ?? [], error: null }; }
+  if (st.table === "rpc:set_stock_item_class") { window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args)); return { data: { item_id: st.args.p_item_id, old_class: "raw_material", item_class: st.args.p_class, item_class_source: "manual", superseded_suggestions: 0 }, error: null }; }
   if (st.table === "rpc:set_item_pastry_q7") { window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args)); return { data: { item_id: st.args.p_item_id, pastry_q7: st.args.p_value }, error: null }; }
   if (/^rpc:(rename_stock_item|change_stock_item_unit|confirm_material_alias|create_stock_material_item)$/.test(st.table)) {
     window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args));
@@ -823,6 +824,18 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await page.waitForTimeout(600);
     assert.equal(await page.locator("[data-bmq-item-pastry]").count(), 1, "item sheet shows the Bánh ngọt (Q7) flag");
     assert.equal(await page.locator("[data-bmq-receipt-notes]").count(), role === "owner" ? 1 : 0, "item sheet shows recent receipts to editors only");
+    // Owner 16/10: the group can be set from the item sheet (editors only).
+    assert.equal(await page.locator("[data-bmq-item-class]").count(), 1, "item sheet shows the group");
+    assert.equal(await page.locator("[data-bmq-class-option]").count(), role === "owner" ? 4 : 0, "group chips for editors only");
+    if (role === "owner") {
+      await page.evaluate(() => { window.__qaWrites.length = 0; });
+      await page.locator("[data-bmq-class-option='packaging_supply']").click({ force: true });
+      await page.waitForTimeout(400);
+      assert.ok((await page.evaluate(() => window.__qaWrites)).some((w) => w.startsWith("rpc:set_stock_item_class:") && w.includes('"p_class":"packaging_supply"')), "group pick writes");
+      assert.equal(await page.locator("[data-bmq-class-option='packaging_supply']").getAttribute("aria-checked"), "true", "picked chip is on");
+      assert.equal(await overflow(page), 0, `item sheet with groups no overflow ${viewport.width}`);
+      await page.locator(".kg .class-pick").screenshot({ path: `${EVIDENCE}/item-class-pick-${viewport.width}.png` });
+    }
     if (role === "owner") {
       await page.getByRole("button", { name: /Đổi tên/ }).click({ force: true });
       await page.locator(".kg .field input").first().fill("Bột mì 999 Cam");
