@@ -1,9 +1,14 @@
+import { useEffect, useState } from "react";
 import { C } from "./theme";
 import { CLASS_META, asClass, fmtQty, type GameClass } from "./meta";
 import { GoodsIcon } from "./GoodsArt";
 import type { WarehouseGameSnapshot } from "@/lib/warehouse-game";
 
 export interface ShelfEntry { id: string; name: string; code: string; unit: string; qty: number; aliases: number; isSku: boolean; pastry?: boolean }
+
+/** Groups an item can be moved to by hand (same set as the item sheet's "Nhóm"). */
+export type BulkClass = "raw_material" | "packaging_supply" | "finished_goods" | "non_stock";
+const BULK_CLASSES: BulkClass[] = ["raw_material", "packaging_supply", "finished_goods", "non_stock"];
 
 export function entriesFor(cls: GameClass, snapshot: WarehouseGameSnapshot): ShelfEntry[] {
   if (cls === "finished_goods" && snapshot.location === "tan_tao" && snapshot.skus.length) {
@@ -14,56 +19,115 @@ export function entriesFor(cls: GameClass, snapshot: WarehouseGameSnapshot): She
     .map((item) => ({ id: item.id, name: item.name, code: item.code, unit: item.unit, qty: item.on_hand, aliases: item.aliases.length, isSku: false, pastry: snapshot.location === "tan_tao" && item.pastry_q7 }));
 }
 
-/** One class opened up: a long shelf of goods cards, each tappable. */
-export function Shelf({ cls, entries, started, query, onQuery, selectedId, justSaved, onPick }: {
+/** One class opened up: a long shelf of goods cards, each tappable. With `bulk`, editors can tick many and move them to a group (16/10). */
+export function Shelf({ cls, entries, started, query, onQuery, selectedId, justSaved, onPick, bulk }: {
   cls: GameClass; entries: ShelfEntry[]; started: boolean; query: string; onQuery: (q: string) => void;
   selectedId: string | null; justSaved: string | null; onPick: (entry: ShelfEntry) => void;
+  bulk?: { busy: boolean; onApply: (ids: string[], target: BulkClass) => Promise<boolean> };
 }) {
   const meta = CLASS_META[cls];
   const q = query.trim().toLowerCase();
   const list = q ? entries.filter((entry) => entry.name.toLowerCase().includes(q) || entry.code.toLowerCase().includes(q)) : entries;
+  const canBulk = Boolean(bulk) && entries.some((entry) => !entry.isSku);
+  const [selecting, setSelecting] = useState(false);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  // Moved items leave this shelf: drop them from the selection.
+  useEffect(() => {
+    setPicked((prev) => {
+      const alive = new Set(entries.map((entry) => entry.id));
+      const next = new Set([...prev].filter((id) => alive.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [entries]);
+  const toggle = (id: string) => setPicked((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const visibleIds = list.filter((entry) => !entry.isSku).map((entry) => entry.id);
+  const allVisible = visibleIds.length > 0 && visibleIds.every((id) => picked.has(id));
+  const stop = () => { setSelecting(false); setPicked(new Set()); };
+  const apply = async (target: BulkClass) => {
+    if (!bulk || picked.size === 0) return;
+    const ok = await bulk.onApply([...picked], target);
+    if (ok) stop();
+  };
   return (
-    <div className="shelf-view">
+    <div className={`shelf-view${selecting ? " is-selecting" : ""}`}>
       <div className="shelf-head">
         <div className="plaque" style={{ ["--tint" as string]: meta.tint }}>
           <span className="plaque-icon">{meta.icon}</span>
           <span>
             <b>{meta.label}</b>
-            <small>{entries.length} mặt hàng · {started ? "tồn theo sổ" : "sổ chưa bắt đầu"} · bấm để xem</small>
+            <small>{entries.length} mặt hàng · {started ? "tồn theo sổ" : "sổ chưa bắt đầu"} · {selecting ? "bấm để chọn" : "bấm để xem"}</small>
           </span>
         </div>
         <label className="search">
           <span aria-hidden="true">🔍</span>
           <input value={query} onChange={(event) => onQuery(event.target.value)} placeholder="Tìm trên kệ…" aria-label="Tìm mặt hàng" />
         </label>
+        {canBulk ? (
+          <div className="bulk-tools">
+            <button type="button" className={`btn${selecting ? "" : " ghost"}`} onClick={() => (selecting ? stop() : setSelecting(true))} data-bmq-bulk-toggle aria-pressed={selecting}>
+              {selecting ? "✕ Thôi chọn" : "☑ Chọn nhiều món"}
+            </button>
+            {selecting ? (
+              <button type="button" className="btn ghost" onClick={() => setPicked((prev) => {
+                const next = new Set(prev);
+                if (allVisible) visibleIds.forEach((id) => next.delete(id)); else visibleIds.forEach((id) => next.add(id));
+                return next;
+              })} data-bmq-bulk-all>
+                {allVisible ? "Bỏ chọn hết" : q ? `Chọn ${visibleIds.length} món đang lọc` : "Chọn hết"}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
       <div className="plank-wrap">
         <ul className="goods-grid">
-          {list.map((entry, i) => (
-            <li key={entry.id}>
-              <button
-                type="button"
-                className={`good${entry.id === selectedId ? " is-selected" : ""}${entry.id === justSaved ? " is-saved" : ""}`}
-                onClick={() => onPick(entry)}
-                aria-label={entry.name}
-                style={{ animationDelay: `${Math.min(i, 24) * 22}ms` }}
-              >
-                <svg viewBox="-24 -22 48 44" className="good-icon" aria-hidden="true">
-                  <GoodsIcon name={entry.name} unit={entry.unit} color={entry.isSku ? C.coral : i % 3 === 1 ? C.mustardLight : i % 3 === 2 ? C.cream : meta.tint} size={1.35} />
-                </svg>
-                <span className="good-name">{entry.name}</span>
-                <span className="good-meta">
-                  {started ? <><b>{fmtQty(entry.qty)}</b> {entry.unit}</> : <>{entry.isSku ? "SKU · " : ""}{entry.unit}</>}
-                </span>
-                {entry.aliases ? <span className="good-alias">🏷️ {entry.aliases}</span> : null}
-                {entry.pastry ? <span className="good-pastry" title="Tự chuyển sang Q7">🧁 Q7</span> : null}
-                {entry.id === justSaved ? <span className="good-spark" aria-hidden="true">✨</span> : null}
-              </button>
-            </li>
-          ))}
+          {list.map((entry, i) => {
+            const ticked = selecting && picked.has(entry.id);
+            return (
+              <li key={entry.id}>
+                <button
+                  type="button"
+                  className={`good${entry.id === selectedId && !selecting ? " is-selected" : ""}${entry.id === justSaved ? " is-saved" : ""}${ticked ? " is-ticked" : ""}`}
+                  onClick={() => (selecting && !entry.isSku ? toggle(entry.id) : onPick(entry))}
+                  aria-label={entry.name}
+                  aria-pressed={selecting && !entry.isSku ? ticked : undefined}
+                  data-bmq-good={entry.id}
+                  style={{ animationDelay: `${Math.min(i, 24) * 22}ms` }}
+                >
+                  {selecting && !entry.isSku ? <span className="good-tick" aria-hidden="true">{ticked ? "✓" : ""}</span> : null}
+                  <svg viewBox="-24 -22 48 44" className="good-icon" aria-hidden="true">
+                    <GoodsIcon name={entry.name} unit={entry.unit} color={entry.isSku ? C.coral : i % 3 === 1 ? C.mustardLight : i % 3 === 2 ? C.cream : meta.tint} size={1.35} />
+                  </svg>
+                  <span className="good-name">{entry.name}</span>
+                  <span className="good-meta">
+                    {started ? <><b>{fmtQty(entry.qty)}</b> {entry.unit}</> : <>{entry.isSku ? "SKU · " : ""}{entry.unit}</>}
+                  </span>
+                  {entry.aliases ? <span className="good-alias">🏷️ {entry.aliases}</span> : null}
+                  {entry.pastry ? <span className="good-pastry" title="Tự chuyển sang Q7">🧁 Q7</span> : null}
+                  {entry.id === justSaved ? <span className="good-spark" aria-hidden="true">✨</span> : null}
+                </button>
+              </li>
+            );
+          })}
         </ul>
         {list.length === 0 ? <p className="empty">Không có mặt hàng nào khớp “{query}”.</p> : null}
       </div>
+      {selecting ? (
+        <div className="bulk-bar" role="region" aria-label="Xếp nhóm các món đã chọn" data-bmq-bulk-bar>
+          <b>{picked.size ? `Đã chọn ${picked.size} món — xếp vào nhóm:` : "Bấm các món cần xếp nhóm"}</b>
+          <div className="bulk-classes">
+            {BULK_CLASSES.filter((target) => target !== cls).map((target) => (
+              <button key={target} type="button" className="class-chip" style={{ ["--chip" as string]: CLASS_META[target].tint }} disabled={!picked.size || bulk?.busy} onClick={() => void apply(target)} data-bmq-bulk-class={target}>
+                <i aria-hidden="true">{CLASS_META[target].icon}</i>{CLASS_META[target].label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

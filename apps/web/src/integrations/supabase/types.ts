@@ -4246,6 +4246,10 @@ export type Database = {
         }
         Returns: Json
       }
+      set_stock_items_class: {
+        Args: { p_item_ids: string[]; p_class: string }
+        Returns: Json
+      }
       set_stock_item_class: {
         Args: { p_item_id: string; p_class: string }
         Returns: Json

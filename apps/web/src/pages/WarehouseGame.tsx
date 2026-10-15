@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { GamePicker } from "@/game/GamePicker";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { useChangeStockItemUnit, useCrateReceiptLines, useItemReceiptLines, useRenameStockItem, useSetItemPastryQ7, useSetStockItemClass, useWarehouseGameSnapshot, WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY, type StockItemClass } from "@/hooks/useWarehouseGame";
+import { useChangeStockItemUnit, useCrateReceiptLines, useItemReceiptLines, useRenameStockItem, useSetItemPastryQ7, useSetStockItemClass, useSetStockItemsClass, useWarehouseGameSnapshot, WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY, type StockItemClass } from "@/hooks/useWarehouseGame";
 import { ReceiptNotes } from "@/game/ReceiptNotes";
 import { useConfirmMaterialAlias, useCreateStockMaterialItem, useRunAliasBacklog } from "@/hooks/useMaterialAlias";
 import { CrateYard, cleanCrateName, strongCandidate, type JevState } from "@/game/CrateYard";
@@ -237,6 +237,7 @@ export default function WarehouseGame() {
   const setBasket = (next: BasketLine[]) => { saveBasket(next); setBasketRaw(next); };
   const [panel, setPanel] = useState<Panel>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const setClasses = useSetStockItemsClass();
   const [leaving, setLeaving] = useState<string | null>(null);
   const runBacklog = useRunAliasBacklog();
   const [jev, setJev] = useState<{ location: WarehouseGameLocation; state: JevState; done: number; total: number; message?: string } | null>(null);
@@ -564,6 +565,19 @@ export default function WarehouseGame() {
               selectedId={panel?.kind === "item" ? panel.id : null}
               justSaved={justSaved}
               onPick={(entry) => (entry.isSku ? setPanel({ kind: "sku", entry }) : setPanel({ kind: "item", location: view.location, id: entry.id }))}
+              bulk={canClean ? {
+                busy: setClasses.isPending,
+                onApply: async (ids, target) => {
+                  try {
+                    await setClasses.mutateAsync({ itemIds: ids, itemClass: target });
+                    setToast(`Đã xếp ${ids.length} món vào ${CLASS_META[target].label}`);
+                    return true;
+                  } catch (error) {
+                    setToast(errorText(error));
+                    return false;
+                  }
+                },
+              } : undefined}
             />
           </Scene>
         ) : null}

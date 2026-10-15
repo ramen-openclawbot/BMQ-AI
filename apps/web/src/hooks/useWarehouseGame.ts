@@ -148,6 +148,22 @@ export function useSetStockItemClass() {
   });
 }
 
+/** Set the group of many shelf items at once; all-or-nothing on the server (owner 16/10). */
+export function useSetStockItemsClass() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { itemIds: string[]; itemClass: StockItemClass }) => {
+      const { data, error } = await supabase.rpc("set_stock_items_class", { p_item_ids: input.itemIds, p_class: input.itemClass });
+      if (error) throw error;
+      return data as { updated: number; item_class: StockItemClass };
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY] });
+      void queryClient.invalidateQueries({ queryKey: [STOCK_CATALOG_REVIEW_QUERY_KEY] });
+    },
+  });
+}
+
 export const STOCK_TRANSFERS_QUERY_KEY = "stock-transfers";
 
 /** The newest Tân Tạo -> Q7 transfers for the warehouse game. */
