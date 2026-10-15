@@ -9,7 +9,7 @@ export const STATION_META: Record<StationId, Omit<Station, "id" | "count">> = {
   merge: { label: "Gộp tên trùng", icon: "🔗", tint: C.coral, hint: "Hai tên cùng một món" },
   classify: { label: "Phân nhóm hàng", icon: "🏷️", tint: C.mustard, hint: "Gắn nhóm mặt hàng" },
   pastry: { label: "Hàng chuyển sang Q7", icon: "🧁", tint: "#e79a6b", hint: "Món nào tự chuyển Q7" },
-  links: { label: "Gắn mã hàng Q7", icon: "🧩", tint: "#6fa3a0", hint: "Gắn mã để kiểm kê Q7" },
+  links: { label: "Gắn mã hàng", icon: "🧩", tint: "#6fa3a0", hint: "Kho Q7 và Tân Tạo" },
   jev: { label: "Jev rà soát", icon: "🤖", tint: C.plum, hint: "Quét trùng · phân loại · rà mã" },
   aliases: { label: "Tên đã ghép mã", icon: "📋", tint: C.sage, hint: "Tên đã học 7 ngày" },
   backlog: { label: "Tên chưa có mã", icon: "📦", tint: C.kraft, hint: "Danh sách thùng chờ" },

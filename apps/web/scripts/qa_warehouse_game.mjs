@@ -787,7 +787,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
   await page.waitForTimeout(900);
   assert.ok((await page.locator(".kg .title-pill b").textContent()).includes("Danh mục hàng hóa"));
   await page.screenshot({ path: `${EVIDENCE}/workshop-${viewport.width}.png` });
-  for (const [station, check] of [["Gộp tên trùng", "[data-bmq-catalog-merge]"], ["Phân nhóm hàng", "[data-bmq-catalog-classify]"], ["Hàng chuyển sang Q7", "[data-bmq-pastry-toggle]"], ["Gắn mã hàng Q7", "[data-bmq-link-quest]"], ["Hàng mới chưa có mã", "[data-bmq-new-items]"], ["Tên chưa có mã", "[data-bmq-alias-backlog]"], ["Tên đã ghép mã", "[data-bmq-learned-aliases]"], ["Nhà cung cấp về kho nào", "[data-bmq-routing-suppliers]"], ["Jev rà soát", ".jev-meter"]]) {
+  for (const [station, check] of [["Gộp tên trùng", "[data-bmq-catalog-merge]"], ["Phân nhóm hàng", "[data-bmq-catalog-classify]"], ["Hàng chuyển sang Q7", "[data-bmq-pastry-toggle]"], ["Gắn mã hàng", "[data-bmq-link-quest]"], ["Hàng mới chưa có mã", "[data-bmq-new-items]"], ["Tên chưa có mã", "[data-bmq-alias-backlog]"], ["Tên đã ghép mã", "[data-bmq-learned-aliases]"], ["Nhà cung cấp về kho nào", "[data-bmq-routing-suppliers]"], ["Jev rà soát", ".jev-meter"]]) {
     await page.getByRole("button", { name: new RegExp(`^${station}`) }).click({ force: true });
     await page.waitForTimeout(900);
     assert.ok((await page.locator(check).count()) >= 1, `${station} shows its tool at ${viewport.width}`);
@@ -811,12 +811,12 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       assert.ok((await page.evaluate(() => window.__qaWrites)).some((w) => w.startsWith("rpc:set_item_pastry_q7:")), "pastry toggle writes");
       await page.screenshot({ path: `${EVIDENCE}/station-pastry-${viewport.width}.png` });
     }
-    if (station === "Gắn mã hàng Q7") {
+    if (station === "Gắn mã hàng") {
       // The deck: combo first, then one card at a time; "Để sau" shuffles, "Không phải NVL" skips server-side.
       await page.evaluate(() => { localStorage.removeItem("qa-lq-skip"); localStorage.removeItem("qa-lq-linked"); localStorage.removeItem("qa-lq-pending"); localStorage.removeItem("qa-stopped"); sessionStorage.removeItem("bmq-link-quest-defer-q7"); });
       await page.locator(".kg .hud .round-btn").first().click({ force: true });
       await page.waitForTimeout(500);
-      await page.getByRole("button", { name: /^Gắn mã hàng Q7/ }).click({ force: true });
+      await page.getByRole("button", { name: /^Gắn mã hàng/ }).click({ force: true });
       await page.waitForSelector("[data-bmq-lq-combo]", { timeout: 5000 });
       assert.match(await page.locator("[data-bmq-lq-combo-all]").textContent(), /Gắn 2 món/, "combo offers the exact same/auto rows");
       await page.screenshot({ path: `${EVIDENCE}/quest-combo-${viewport.width}.png` });
