@@ -157,7 +157,7 @@ function settle(st) {
   // Đặt hàng tự động (owner 14/10): facts, old-debt list (farthest first, one row before the learned cutover), package creation.
   if (st.table === "rpc:get_item_purchase_facts") {
     const items = Object.fromEntries(window.__kgFixture.items.map((it) => [it.id, it]));
-    return { data: (st.args.p_item_ids ?? []).map((id) => ({ item_id: id, item_name: items[id]?.name ?? id, unit: items[id]?.unit ?? "g", last_supplier_id: "sup1", last_supplier_name: "Phúc Thịnh", last_unit_price: 20000, last_unit: items[id]?.unit ?? "g", last_date: "2026-10-01", suggested_qty: 25 })), error: null };
+    return { data: (st.args.p_item_ids ?? []).map((id) => ({ item_id: id, item_name: items[id]?.name ?? id, unit: items[id]?.unit ?? "g", last_supplier_id: "sup1", last_supplier_name: "Phúc Thịnh", last_unit_price: items[id]?.unit === "g" ? 90000 : 20000, last_unit: items[id]?.unit === "g" ? "kg" : (items[id]?.unit ?? "g"), last_date: "2026-10-01", suggested_qty: 25 })), error: null };
   }
   if (st.table === "rpc:get_supplier_debt_candidates") {
     return { data: { supplier_id: st.args.p_supplier_id, cutover: { kind: "po", id: "po-cut", number: "PO-000040", start_date: "2026-01-15" }, stats: { paid_90d: 5, median_lag_days: 0 }, rows: [
@@ -841,6 +841,11 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await page.waitForTimeout(900);
     assert.ok((await page.locator(check).count()) >= 1, `${station} shows its tool at ${viewport.width}`);
     assert.equal(await overflow(page), 0, `${station} no overflow ${viewport.width}`);
+    if (station === "Tên chưa có mã") {
+      // Labels must fit inside their buttons and chips (owner 15/10: "Không nhập kho" spilled out at 390px).
+      const spill = await page.locator("[data-bmq-alias-backlog] .d3-ma-actions button, [data-bmq-alias-backlog] .d3-ab-tabs button").evaluateAll((els) => els.filter((el) => el.scrollWidth > el.clientWidth + 1).map((el) => el.textContent));
+      assert.deepEqual(spill, [], `backlog labels fit ${viewport.width}`);
+    }
     await page.screenshot({ path: `${EVIDENCE}/station-${station.replace(/\s+/g, "-")}-${viewport.width}.png` });
     if (station === "Gộp tên trùng") {
       await page.locator("[data-bmq-catalog-merge]").nth(3).getByRole("button", { name: "Bỏ" }).click({ force: true });
@@ -1167,6 +1172,20 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
   assert.equal(await page.locator("[data-bmq-robot-supplier]").first().inputValue(), "sup1", "supplier filled from facts");
   assert.equal(await page.locator('[data-bmq-robot-line="Băng keo nhỏ"] .robot-price input').inputValue(), "20000", "last price filled from facts");
   assert.equal(await page.locator("[data-bmq-robot-send]").isDisabled(), true, "cannot send without quantity + debt choice");
+  // A g item last bought per kg: the price is restated per g (owner 15/10: 91 g of Peerless showed 8,2 triệu).
+  await page.locator("[data-bmq-robot-search]").fill("bơ anchor");
+  await page.locator('[data-bmq-robot-pick="Bơ anchor"]').click({ force: true });
+  await page.waitForFunction(() => document.querySelector('[data-bmq-robot-line="Bơ anchor"] .robot-price input')?.value === "90", null, { timeout: 5000 });
+  // The basket row stacks name over its inputs: the fields span the row and every input is usable.
+  const rowFit = await page.locator('[data-bmq-robot-line="Bơ anchor"]').evaluate((li) => {
+    const fields = li.querySelector(".robot-line-fields").getBoundingClientRect();
+    const inputs = [...li.querySelectorAll(".robot-line-fields input, .robot-line-fields select")].map((el) => Math.round(el.getBoundingClientRect().width));
+    return { ratio: fields.width / li.clientWidth, inputs };
+  });
+  assert.ok(rowFit.ratio > 0.85 && rowFit.inputs.every((w) => w >= 80), `basket row fields usable ${viewport.width}: ${JSON.stringify(rowFit)}`);
+  await page.locator(".robot-basket").screenshot({ path: `${EVIDENCE}/robot-basket-${viewport.width}.png` });
+  await page.getByRole("button", { name: "Bỏ Bơ anchor" }).click({ force: true });
+  await page.waitForTimeout(200);
   await page.waitForSelector("[data-bmq-robot-debts] [data-bmq-robot-debt]", { timeout: 5000 });
   const debts = await page.locator("[data-bmq-robot-debts] [data-bmq-robot-debt]").evaluateAll((els) => els.map((el) => el.getAttribute("data-bmq-robot-debt")));
   // farthest first, but rows Jev/learned marked as already paid sink below the live ones; before-cutover rows fold away

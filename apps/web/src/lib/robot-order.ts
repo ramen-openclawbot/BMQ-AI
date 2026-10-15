@@ -23,6 +23,29 @@ export interface ItemPurchaseFact {
   suggested_qty: number | null;
 }
 
+const WEIGHT_VOLUME: Readonly<Record<string, { base: string; toBase: number }>> = {
+  g: { base: "g", toBase: 1 }, gr: { base: "g", toBase: 1 }, gram: { base: "g", toBase: 1 },
+  kg: { base: "g", toBase: 1000 },
+  ml: { base: "ml", toBase: 1 },
+  l: { base: "ml", toBase: 1000 }, "lít": { base: "ml", toBase: 1000 }, lit: { base: "ml", toBase: 1000 },
+};
+
+/**
+ * The last price restated per the basket line's unit: the last receipt may be priced per kg
+ * while the kho item counts g (Peerless Úc 25kg: 90.000đ/kg on a g line made 91 g cost 8,2 triệu).
+ * Null when the two units cannot be converted, so the operator types the price.
+ */
+export function priceInUnit(price: number | null, fromUnit: string | null, toUnit: string | null): number | null {
+  if (price === null || !Number.isFinite(price)) return null;
+  const from = (fromUnit ?? "").trim().toLowerCase();
+  const to = (toUnit ?? "").trim().toLowerCase();
+  if (from === "" || to === "" || from === to) return price;
+  const a = WEIGHT_VOLUME[from];
+  const b = WEIGHT_VOLUME[to];
+  if (!a || !b || a.base !== b.base) return null;
+  return (price * b.toBase) / a.toBase;
+}
+
 /** One robot order line; the RPC only needs supplier / name / qty / unit / price. */
 export interface RobotOrderLineInput {
   supplier_id: string;

@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import {
   groupLinesBySupplier,
   packageSummary,
+  priceInUnit,
   rankDebtRows,
   robotOrderErrorCode,
   robotOrderErrorText,
@@ -121,4 +122,15 @@ test("robotOrderErrorText returns a short Vietnamese message per code", () => {
   assert.match(robotOrderErrorText("one_supplier_per_package"), /một nhà cung cấp/);
   assert.match(robotOrderErrorText("forbidden"), /không có quyền/);
   assert.match(robotOrderErrorText("nope"), /thử lại/);
+});
+
+test("priceInUnit restates the last price per the basket line's unit", () => {
+  assert.equal(priceInUnit(90000, "kg", "g"), 90);
+  assert.equal(priceInUnit(90, "g", "kg"), 90000);
+  assert.equal(priceInUnit(30000, "lít", "ml"), 30);
+  assert.equal(priceInUnit(12000, "Hộp", "hộp"), 12000);
+  assert.equal(priceInUnit(12000, null, "g"), 12000);
+  assert.equal(priceInUnit(500000, "thùng", "g"), null);
+  assert.equal(priceInUnit(90000, "kg", "ml"), null);
+  assert.equal(priceInUnit(null, "kg", "g"), null);
 });

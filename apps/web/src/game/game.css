@@ -312,6 +312,19 @@
 .kg .station-body .d3-sc-prob { border: 2px solid var(--ink); font-weight: 800; }
 .kg .station-body .d3-ab-tabs button.is-on { background: var(--ink); color: var(--cream); }
 .kg .station-body .d3-ab-tabs button { border: 2.5px solid var(--ink); }
+/* .kg button resets padding to 0; give the filter chips room. */
+.kg .station-body .d3-ab-tabs button { padding: 4px 12px; white-space: nowrap; }
+/* Three equal nowrap buttons overflow at 390px: confirm takes the row, the other two share the next. */
+.kg .station-body .d3-ab-form .d3-ma-actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.kg .station-body .d3-ab-form .d3-ma-actions button { min-width: 0; padding: 0 10px; }
+.kg .station-body .d3-ab-form .d3-ma-actions button:first-child { grid-column: 1 / -1; }
+@media (max-width: 360px) {
+  .kg .station-body .d3-ab-form .d3-ma-actions { grid-template-columns: minmax(0, 1fr); }
+}
+@media (min-width: 641px) {
+  .kg .station-body .d3-ab-form .d3-ma-actions { grid-template-columns: repeat(3, max-content); }
+  .kg .station-body .d3-ab-form .d3-ma-actions button:first-child { grid-column: auto; }
+}
 .kg .kg-mini { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 12px; font-family: "Baloo 2", sans-serif; font-weight: 800; background: var(--white); border: 2.5px solid var(--ink); border-radius: 12px; box-shadow: var(--soft); }
 .kg .jev-meter { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .kg .jev-meter div { display: grid; gap: 2px; padding: 12px 14px; background: var(--plum); color: var(--white); border: 3px solid var(--ink); border-radius: 16px; box-shadow: var(--soft); }
@@ -937,7 +950,7 @@
 .kg .robot-chip em { font-style: normal; font-size: 12px; color: #6f6a85; }
 .kg .robot-h { margin: 0; font-family: "Baloo 2", sans-serif; font-size: 20px; }
 .kg .robot-basket, .kg .robot-history { display: grid; gap: 10px; }
-.kg .robot-lines li { display: grid; gap: 8px; }
+.kg .robot-lines li { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
 .kg .robot-line-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
 .kg .robot-line-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr); gap: 6px; }
 .kg .robot-line-fields select { min-width: 0; height: 42px; padding: 0 8px; font-size: 14px; font-weight: 800; background: var(--white); border: 2.5px solid var(--ink); border-radius: 10px; }

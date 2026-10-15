@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useSuppliers } from "@/hooks/useSuppliers";
 import { useQ7PurchaseForecast } from "@/hooks/usePurchaseForecast";
 import { useCreateRobotOrderPackage, useItemPurchaseFacts, useRunDebtReview, useSupplierDebtCandidates } from "@/hooks/useRobotOrder";
-import { rankDebtRows, robotOrderErrorCode, robotOrderErrorText, type ItemPurchaseFact, type RobotOrderDebtRef, type RobotOrderPackageResult, type SupplierDebtRow } from "@/lib/robot-order";
+import { priceInUnit, rankDebtRows, robotOrderErrorCode, robotOrderErrorText, type ItemPurchaseFact, type RobotOrderDebtRef, type RobotOrderPackageResult, type SupplierDebtRow } from "@/lib/robot-order";
 import type { WarehouseGameItem } from "@/lib/warehouse-game";
 import { JevBot } from "./CrateYard";
 import { fmtQty, newRequestId, normalizeName } from "./meta";
@@ -170,7 +170,7 @@ function BasketRow({ line, fact, suppliers, onChange, onRemove }: {
       </div>
       <div className="robot-line-fields">
         <label className="slip-qty"><input inputMode="decimal" value={line.qty} onChange={(event) => onChange({ ...line, qty: event.target.value })} placeholder={fact?.suggested_qty ? fmtQty(fact.suggested_qty) : "SL"} aria-label={`Số lượng ${line.name}`} data-bmq-robot-qty /><i>{line.unit}</i></label>
-        <label className="slip-qty robot-price"><input inputMode="decimal" value={line.price} onChange={(event) => onChange({ ...line, price: event.target.value })} placeholder="đơn giá" aria-label={`Đơn giá ${line.name}`} /><i>đ</i></label>
+        <label className="slip-qty robot-price"><input inputMode="decimal" value={line.price} onChange={(event) => onChange({ ...line, price: event.target.value })} placeholder="đơn giá" aria-label={`Đơn giá ${line.name}`} /><i>đ/{line.unit}</i></label>
         <select value={line.supplier_id ?? ""} onChange={(event) => onChange({ ...line, supplier_id: event.target.value || null })} aria-label={`NCC cho ${line.name}`} data-bmq-robot-supplier>
           <option value="">NCC?</option>
           {suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
@@ -209,7 +209,14 @@ export function RobotDesk({ items, basket, setBasket, canOrder, canDebt, onToast
       if (!fact) return line;
       const patch: Partial<BasketLine> = {};
       if (!line.supplier_id && fact.last_supplier_id) patch.supplier_id = fact.last_supplier_id;
-      if (line.price === "" && fact.last_unit_price != null) patch.price = String(Math.round(fact.last_unit_price));
+      // The last price may be per kg while the line counts g: restate it per the line's unit.
+      // A price copied unconverted (forecast chip, older basket) is replaced too.
+      if (fact.last_unit_price != null) {
+        const raw = String(Math.round(fact.last_unit_price));
+        const perUnit = priceInUnit(fact.last_unit_price, fact.last_unit, line.unit);
+        const text = perUnit === null ? "" : String(Math.round(perUnit * 100) / 100);
+        if ((line.price === "" || (line.price === raw && text !== raw)) && text !== line.price) patch.price = text;
+      }
       if (Object.keys(patch).length) { changed = true; return { ...line, ...patch }; }
       return line;
     });
