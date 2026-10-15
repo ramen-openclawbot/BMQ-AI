@@ -11,6 +11,9 @@ import {
   parseWarehouseGameTransfers,
   type ChangeStockItemUnitResult,
   type ManualStockTransferResult,
+  type Q7FinishedGoodsLine,
+  type Q7FinishedGoodsPlannedLine,
+  type Q7FinishedGoodsSlipResult,
   type RenameStockItemResult,
   type SetItemPastryQ7Result,
   type WarehouseGameLocation,
@@ -215,6 +218,102 @@ export function useCreateManualTransfer() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: [WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY] });
       void queryClient.invalidateQueries({ queryKey: [STOCK_TRANSFERS_QUERY_KEY] });
+    },
+  });
+}
+
+export const Q7_FINISHED_GOODS_PLANNED_QUERY_KEY = "q7-finished-goods-planned";
+
+/** The Q7 finished-goods plan lines for one date (defaults to the Vietnam today). */
+export function useQ7FinishedGoodsPlanned(date: string) {
+  return useQuery({
+    queryKey: [Q7_FINISHED_GOODS_PLANNED_QUERY_KEY, date],
+    queryFn: async (): Promise<Q7FinishedGoodsPlannedLine[]> => {
+      const { data, error } = await supabase.rpc(
+        "get_q7_finished_goods_planned" as never,
+        { p_date: date } as never,
+      );
+      if (error) throw error;
+      return (data ?? []) as Q7FinishedGoodsPlannedLine[];
+    },
+  });
+}
+
+export interface Q7FinishedGoodsReceiptInput {
+  lines: Q7FinishedGoodsLine[];
+  note?: string | null;
+  /**
+   * Idempotency key. The slip screen generates it once per submit attempt with
+   * crypto.randomUUID() and reuses it on a retry, so the server replays the slip.
+   */
+  requestId?: string;
+  /** Defaults to the server's Vietnam today when null / omitted. */
+  date?: string | null;
+}
+
+/** Receive finished goods from production; idempotent by requestId. */
+export function useCreateQ7FinishedGoodsReceipt() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: Q7FinishedGoodsReceiptInput): Promise<Q7FinishedGoodsSlipResult> => {
+      const { data, error } = await supabase.rpc(
+        "create_q7_finished_goods_receipt" as never,
+        {
+          p_lines: input.lines.map((line) => ({
+            sku_id: line.sku_id,
+            quantity: line.quantity,
+            production_order_item_id: line.production_order_item_id ?? null,
+          })),
+          p_note: input.note ?? null,
+          p_request_id: input.requestId ?? crypto.randomUUID(),
+          p_date: input.date ?? null,
+        } as never,
+      );
+      if (error) throw error;
+      return data as Q7FinishedGoodsSlipResult;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY, "q7"] });
+      void queryClient.invalidateQueries({ queryKey: [Q7_FINISHED_GOODS_PLANNED_QUERY_KEY] });
+    },
+  });
+}
+
+export interface Q7FinishedGoodsIssueInput {
+  lines: Q7FinishedGoodsLine[];
+  /** 'dispatch' (xuất kho) or 'write_off' (xuất hủy). */
+  reason: "dispatch" | "write_off";
+  note?: string | null;
+  /** Idempotency key, generated once per submit attempt; see the receipt hook. */
+  requestId?: string;
+  /** Defaults to the server's Vietnam today when null / omitted. */
+  date?: string | null;
+}
+
+/** Issue finished goods as a dispatch or a write-off; idempotent by requestId. */
+export function useCreateQ7FinishedGoodsIssue() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: Q7FinishedGoodsIssueInput): Promise<Q7FinishedGoodsSlipResult> => {
+      const { data, error } = await supabase.rpc(
+        "create_q7_finished_goods_issue" as never,
+        {
+          p_lines: input.lines.map((line) => ({
+            sku_id: line.sku_id,
+            quantity: line.quantity,
+          })),
+          p_reason: input.reason,
+          p_note: input.note ?? null,
+          p_request_id: input.requestId ?? crypto.randomUUID(),
+          p_date: input.date ?? null,
+        } as never,
+      );
+      if (error) throw error;
+      return data as Q7FinishedGoodsSlipResult;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY, "q7"] });
+      void queryClient.invalidateQueries({ queryKey: [Q7_FINISHED_GOODS_PLANNED_QUERY_KEY] });
     },
   });
 }

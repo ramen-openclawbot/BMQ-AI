@@ -7,15 +7,15 @@ import type { WarehouseGameLocation, WarehouseGamePendingRow, WarehouseGameSnaps
 
 export interface ShelfRow { cls: GameClass; count: number; units: string[] }
 
-/** Shelf rows present at this warehouse (Tân Tạo also stocks finished-goods SKUs). */
+/** Shelf rows present at this warehouse (both warehouses stock finished-goods SKUs; Q7 since 16/10). */
 export function layoutRows(snapshot: WarehouseGameSnapshot): ShelfRow[] {
   const rows: ShelfRow[] = [];
-  const tanTao = snapshot.location === "tan_tao";
-  if (tanTao && snapshot.skus.length) {
+  const hasSkus = snapshot.skus.length > 0;
+  if (hasSkus) {
     rows.push({ cls: "finished_goods", count: snapshot.skus.length, units: snapshot.skus.map((sku) => sku.unit.toLowerCase()) });
   }
   for (const cls of CLASS_ORDER) {
-    if (tanTao && cls === "finished_goods" && snapshot.skus.length) continue;
+    if (hasSkus && cls === "finished_goods") continue;
     const list = snapshot.items.filter((item) => asClass(item.item_class) === cls);
     if (list.length) rows.push({ cls, count: list.length, units: list.map((item) => item.unit) });
   }

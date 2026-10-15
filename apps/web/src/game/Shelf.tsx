@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { C } from "./theme";
 import { CLASS_META, asClass, fmtQty, type GameClass } from "./meta";
 import { GoodsIcon } from "./GoodsArt";
@@ -11,7 +11,7 @@ export type BulkClass = "raw_material" | "packaging_supply" | "finished_goods" |
 const BULK_CLASSES: BulkClass[] = ["raw_material", "packaging_supply", "finished_goods", "non_stock"];
 
 export function entriesFor(cls: GameClass, snapshot: WarehouseGameSnapshot): ShelfEntry[] {
-  if (cls === "finished_goods" && snapshot.location === "tan_tao" && snapshot.skus.length) {
+  if (cls === "finished_goods" && snapshot.skus.length) {
     return snapshot.skus.map((sku) => ({ id: sku.id, name: sku.product_name, code: sku.sku_code, unit: sku.unit.toLowerCase(), qty: sku.on_hand, aliases: 0, isSku: true }));
   }
   return snapshot.items
@@ -20,10 +20,12 @@ export function entriesFor(cls: GameClass, snapshot: WarehouseGameSnapshot): She
 }
 
 /** One class opened up: a long shelf of goods cards, each tappable. With `bulk`, editors can tick many and move them to a group (16/10). */
-export function Shelf({ cls, entries, started, query, onQuery, selectedId, justSaved, onPick, bulk }: {
+export function Shelf({ cls, entries, started, query, onQuery, selectedId, justSaved, onPick, bulk, tools }: {
   cls: GameClass; entries: ShelfEntry[]; started: boolean; query: string; onQuery: (q: string) => void;
   selectedId: string | null; justSaved: string | null; onPick: (entry: ShelfEntry) => void;
   bulk?: { busy: boolean; onApply: (ids: string[], target: BulkClass) => Promise<boolean> };
+  /** Extra shelf actions under the search box (Q7 thành phẩm: Nhập / Xuất, 16/10). */
+  tools?: ReactNode;
 }) {
   const meta = CLASS_META[cls];
   const q = query.trim().toLowerCase();
@@ -66,6 +68,7 @@ export function Shelf({ cls, entries, started, query, onQuery, selectedId, justS
           <span aria-hidden="true">🔍</span>
           <input value={query} onChange={(event) => onQuery(event.target.value)} placeholder="Tìm trên kệ…" aria-label="Tìm mặt hàng" />
         </label>
+        {tools}
         {canBulk ? (
           <div className="bulk-tools">
             <button type="button" className={`btn${selecting ? "" : " ghost"}`} onClick={() => (selecting ? stop() : setSelecting(true))} data-bmq-bulk-toggle aria-pressed={selecting}>

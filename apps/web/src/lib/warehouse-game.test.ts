@@ -3,6 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  buildQ7FinishedGoodsLines,
   manualTransferErrorText,
   parseChangeStockItemUnitResult,
   parseManualTransferResult,
@@ -11,6 +12,8 @@ import {
   parseWarehouseGameSnapshot,
   parseWarehouseGameTransfers,
   unitConversionFor,
+  validateQ7Issue,
+  type Q7FinishedGoodsPlannedLine,
 } from "./warehouse-game.ts";
 
 test("unitConversionFor converts a weight / volume pair by the to_base ratio", () => {
@@ -364,4 +367,96 @@ test("manualTransferErrorText maps known codes with a generic fallback", () => {
     manualTransferErrorText("quantity_invalid: must be > 0"),
     manualTransferErrorText("quantity_invalid"),
   );
+});
+
+function plannedLine(
+  productionOrderItemId: string,
+  skuId: string,
+  skuCode = "BMQ-001",
+): Q7FinishedGoodsPlannedLine {
+  return {
+    production_order_item_id: productionOrderItemId,
+    sku_id: skuId,
+    sku_code: skuCode,
+    product_name: "Bánh mì que Pate",
+    unit: "gói",
+    planned_qty: 100,
+    already_received: 0,
+  };
+}
+
+test("buildQ7FinishedGoodsLines drops blank/zero and keeps the rest in order", () => {
+  const planned = [
+    plannedLine("poi-1", "sku-1"),
+    plannedLine("poi-2", "sku-2", "BMQ-002"),
+    plannedLine("poi-3", "sku-3", "PATE-500G"),
+  ];
+  const lines = buildQ7FinishedGoodsLines(planned, {
+    "poi-1": 12,
+    "poi-2": "3.5",
+    "poi-3": 0,
+  });
+  assert.deepEqual(lines, [
+    { sku_id: "sku-1", quantity: 12, production_order_item_id: "poi-1" },
+    { sku_id: "sku-2", quantity: 3.5, production_order_item_id: "poi-2" },
+  ]);
+
+  assert.deepEqual(buildQ7FinishedGoodsLines(planned, {}), []);
+  assert.deepEqual(
+    buildQ7FinishedGoodsLines(planned, { "poi-1": "", "poi-2": "   ", "poi-3": null }),
+    [],
+  );
+});
+
+test("buildQ7FinishedGoodsLines merges duplicate sku + order item", () => {
+  const planned = [
+    plannedLine("poi-1", "sku-1"),
+    plannedLine("poi-1", "sku-1"),
+    plannedLine("poi-2", "sku-1"),
+  ];
+  const lines = buildQ7FinishedGoodsLines(planned, { "poi-1": 2, "poi-2": 5 });
+  assert.deepEqual(lines, [
+    { sku_id: "sku-1", quantity: 4, production_order_item_id: "poi-1" },
+    { sku_id: "sku-1", quantity: 5, production_order_item_id: "poi-2" },
+  ]);
+});
+
+test("buildQ7FinishedGoodsLines rejects negative and non-numeric entries", () => {
+  const planned = [plannedLine("poi-1", "sku-1")];
+  assert.throws(() => buildQ7FinishedGoodsLines(planned, { "poi-1": -1 }), TypeError);
+  assert.throws(() => buildQ7FinishedGoodsLines(planned, { "poi-1": "abc" }), TypeError);
+  assert.throws(() => buildQ7FinishedGoodsLines(planned, { "poi-1": Number.NaN }), TypeError);
+});
+
+test("validateQ7Issue accepts enough stock and sums duplicate SKUs", () => {
+  const lines = [
+    { sku_id: "sku-1", quantity: 2 },
+    { sku_id: "sku-2", quantity: 5 },
+  ];
+  assert.deepEqual(validateQ7Issue(lines, { "sku-1": 2, "sku-2": 10 }), []);
+
+  const duplicate = [
+    { sku_id: "sku-1", quantity: 2 },
+    { sku_id: "sku-1", quantity: 2 },
+  ];
+  const errors = validateQ7Issue(duplicate, { "sku-1": 3 });
+  assert.equal(errors.length, 2);
+  assert.equal(errors[0].index, 0);
+  assert.match(errors[0].message, /Không đủ tồn/);
+  assert.match(errors[0].message, /3/);
+});
+
+test("validateQ7Issue flags non-positive quantities and leaves unknown SKUs lenient", () => {
+  const errors = validateQ7Issue(
+    [
+      { sku_id: "sku-1", quantity: 0 },
+      { sku_id: "sku-1", quantity: Number.NaN },
+      { sku_id: "unknown", quantity: 4 },
+    ],
+    { "sku-1": 10 },
+  );
+  assert.equal(errors.length, 2);
+  assert.equal(errors[0].index, 0);
+  assert.equal(errors[1].index, 1);
+  assert.match(errors[0].message, /lớn hơn 0/);
 });

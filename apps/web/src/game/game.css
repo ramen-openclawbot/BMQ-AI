@@ -821,6 +821,10 @@
 
 /* Phiếu chuyển kho thủ công (TransferSlip.tsx) */
 .kg .slip-new { width: 100%; }
+.kg .fg-tools .btn { flex: 1 1 140px; }
+.kg .fg-plan-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.kg .fg-plan-head > b { font-size: 15px; }
+.kg .fg-plan-head .btn { min-height: 40px; }
 .kg .slip { display: grid; gap: 12px; }
 .kg .slip-lines { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .kg .slip-lines li {

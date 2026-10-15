@@ -26,6 +26,7 @@ import { useStockRoutingReview } from "@/hooks/useStockRouting";
 import { useQ7MaterialLinkReview } from "@/hooks/useQ7MaterialLinks";
 import { GameLoading } from "@/game/Loading";
 import { TransferSheet } from "@/game/TransferSlip";
+import { FinishedGoodsSheet, type FinishedGoodsMode } from "@/game/FinishedGoodsSlip";
 import { DeliveryGate } from "@/game/DeliveryGate";
 import { useDispatchGameQueue } from "@/hooks/useDispatchDelivery";
 import { CountDone, CountLobby, CountSheet, CountSheetLoading, ReviewSheet, countErrorText, countProgress, dmy, type CountFilter } from "@/game/StockCount";
@@ -62,6 +63,7 @@ type Panel =
   | { kind: "crate"; location: WarehouseGameLocation; crate: WarehouseGamePendingRow }
   | { kind: "mission"; id: string }
   | { kind: "transfers"; location: WarehouseGameLocation; prefill?: string }
+  | { kind: "finished"; mode: FinishedGoodsMode; prefill?: string }
   | { kind: "count-review"; location: StockCountLocation }
   | null;
 
@@ -289,7 +291,7 @@ export default function WarehouseGame() {
   }, [toast]);
 
   const crates = { q7: q7.data?.pending.length ?? 0, tan_tao: tt.data?.pending.length ?? 0 };
-  const counts = { q7: q7.data?.items.length ?? 0, tan_tao: (tt.data?.items.length ?? 0) + (tt.data?.skus.length ?? 0) };
+  const counts = { q7: (q7.data?.items.length ?? 0) + (q7.data?.skus.length ?? 0), tan_tao: (tt.data?.items.length ?? 0) + (tt.data?.skus.length ?? 0) };
   const totalCrates = crates.q7 + crates.tan_tao;
 
   const go = (next: View) => { setPanel(null); setQuery(""); setCountFilter("all"); setView(next); };
@@ -559,12 +561,18 @@ export default function WarehouseGame() {
             <Shelf
               cls={view.cls}
               entries={entriesFor(view.cls, current)}
-              started={Boolean(current.cutover_date)}
+              started={Boolean(current.cutover_date) || (view.location === "q7" && view.cls === "finished_goods")}
               query={query}
               onQuery={setQuery}
               selectedId={panel?.kind === "item" ? panel.id : null}
               justSaved={justSaved}
               onPick={(entry) => (entry.isSku ? setPanel({ kind: "sku", entry }) : setPanel({ kind: "item", location: view.location, id: entry.id }))}
+              tools={view.location === "q7" && view.cls === "finished_goods" && canTransfer ? (
+                <div className="bulk-tools fg-tools">
+                  <button type="button" className="btn" onClick={() => setPanel({ kind: "finished", mode: "in" })} data-bmq-fg-open="in">⬇ Nhập</button>
+                  <button type="button" className="btn ghost" onClick={() => setPanel({ kind: "finished", mode: "out" })} data-bmq-fg-open="out">⬆ Xuất</button>
+                </div>
+              ) : null}
               bulk={canClean ? {
                 busy: setClasses.isPending,
                 onApply: async (ids, target) => {
@@ -617,7 +625,25 @@ export default function WarehouseGame() {
               <div><small>Nguồn</small><b>SKU</b></div>
             </div>
             <p className="note">Thành phẩm quản lý theo mã SKU; đổi tên ở Material Master.</p>
+            {view.kind === "shelf" && view.location === "q7" && canTransfer ? (
+              <div className="row">
+                <button type="button" className="btn" onClick={() => setPanel({ kind: "finished", mode: "in", prefill: panel.entry.id })} data-bmq-sku-fg="in">⬇ Nhập</button>
+                <button type="button" className="btn ghost" disabled={panel.entry.qty <= 0} onClick={() => setPanel({ kind: "finished", mode: "out", prefill: panel.entry.id })} data-bmq-sku-fg="out">⬆ Xuất</button>
+              </div>
+            ) : null}
           </Sheet>
+        ) : null}
+
+        {panel?.kind === "finished" ? (
+          <FinishedGoodsSheet
+            key={`${panel.mode}:${panel.prefill ?? ""}`}
+            mode={panel.mode}
+            skus={q7.data?.skus ?? []}
+            canEdit={canTransfer}
+            prefillSkuId={panel.prefill ?? null}
+            onDone={(message) => setToast(message)}
+            onClose={() => setPanel(null)}
+          />
         ) : null}
 
         {panel?.kind === "item" && current ? (() => {

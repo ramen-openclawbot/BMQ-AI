@@ -62,7 +62,12 @@ function settle(st) {
     if (mode === "error") return { data: null, error: { message: "QA fixture: network error" } };
     const started = cfg().started ? "2026-10-05" : null;
     const items = F.items.map((it, i) => ({ ...it, on_hand: started ? (i * 137) % 5000 : 0 })).filter((it) => loc !== "q7" || it.pastry_q7);
-    return { data: { location: loc, cutover_date: started, items, skus: loc === "tan_tao" ? F.skus : [], pending: role === "owner" ? (loc === "q7" ? F.q7 : F.tt) : [], transfers: F.transfers ?? [], counts: {}, can_edit: role === "owner" }, error: null };
+    const q7Skus = [
+      { id: "fg-cbc", sku_code: "cbc-2026-v2", product_name: "BÁNH MÌ CHÀ BÔNG CAY", unit: "gói", on_hand: 12 },
+      { id: "fg-cpm", sku_code: "cpm-2026-v3", product_name: "BÁNH CUA PHÔ MAI", unit: "gói", on_hand: 0 },
+      { id: "fg-cro", sku_code: "Croi-2026-v4", product_name: "BÁNH CROISSANT 50G", unit: "gói", on_hand: 30 },
+    ];
+    return { data: { location: loc, cutover_date: started, items, skus: loc === "tan_tao" ? F.skus : cfg().q7fg === false ? [] : q7Skus, pending: role === "owner" ? (loc === "q7" ? F.q7 : F.tt) : [], transfers: F.transfers ?? [], counts: {}, can_edit: role === "owner" }, error: null };
   }
   if (st.table === "rpc:get_q7_material_link_review") {
     const mat = (id, name, unit) => ({ id, material_code: "MAT-" + id, canonical_name: name, default_unit: unit });
@@ -179,6 +184,21 @@ function settle(st) {
   }
   if (st.table === "robot_order_packages") return { data: [{ id: "pkg-old", supplier_id: "sup1", note: null, created_at: "2026-10-13T08:00:00Z", result: { package_id: "pkg-old", purchase_order_ids: ["po-1"], po_numbers: ["PO-000880"], debt: { kind: "po", id: "x", number: "PO-000700", submission_id: "s", submission_number: "TC-251013-02" }, cutover_start_date: "2026-08-01", marked_settled_outside_count: 3, idempotent: false } }], error: null };
   if (st.table === "rpc:get_stock_transfers") return { data: window.__kgFixture.transfers ?? [], error: null };
+  // Q7 finished goods (owner 16/10): today's plan, receipt and issue slips.
+  if (st.table === "rpc:get_q7_finished_goods_planned") {
+    if (cfg().fgPlan === "none") return { data: [], error: null };
+    return { data: [
+      { production_order_item_id: "poi-1", sku_id: "fg-cbc", sku_code: "cbc-2026-v2", product_name: "BÁNH MÌ CHÀ BÔNG CAY", unit: "gói", planned_qty: 40, already_received: 10 },
+      { production_order_item_id: "poi-2", sku_id: "fg-cbc", sku_code: "cbc-2026-v2", product_name: "BÁNH MÌ CHÀ BÔNG CAY", unit: "gói", planned_qty: 20, already_received: 0 },
+      { production_order_item_id: "poi-3", sku_id: "fg-cpm", sku_code: "cpm-2026-v3", product_name: "BÁNH CUA PHÔ MAI", unit: "gói", planned_qty: 25, already_received: 0 },
+    ], error: null };
+  }
+  if (st.table === "rpc:create_q7_finished_goods_receipt" || st.table === "rpc:create_q7_finished_goods_issue") {
+    window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args));
+    if (cfg().fgFail) return { data: null, error: { message: "finished_goods_insufficient: cbc-2026-v2 chỉ còn 12 gói" } };
+    const lines = st.args.p_lines.map((l) => ({ sku_id: l.sku_id, quantity: l.quantity, on_hand_after: 0 }));
+    return { data: { slip_id: "slip-fg", slip_number: st.table.includes("receipt") ? "NTP-20261016-ABC123" : "XTP-20261016-ABC123", lines }, error: null };
+  }
   if (st.table === "rpc:create_manual_stock_transfer") {
     window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args));
     const names = Object.fromEntries(window.__kgFixture.items.map((it) => [it.id, it]));
@@ -1331,6 +1351,112 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 430, height: 932 
   record(`loading ${viewport.width}`);
   await context.close();
 }
+// Q7 finished goods (owner 16/10): Q7 bakes some SKUs, so its shelf takes in today's production and issues stock.
+for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 640 }]) {
+  const { context, page, errors } = await open({ data: "populated", role: "owner", started: true }, "/warehouse/game", viewport);
+  await page.waitForSelector("[data-bmq-warehouse-game]", { timeout: 20000 });
+  await page.waitForTimeout(1200);
+  await page.getByRole("button", { name: /KHO Q7/i }).first().click({ force: true });
+  await page.waitForTimeout(900);
+  await page.getByRole("button", { name: /Thành phẩm, 3 mặt hàng/ }).first().click({ force: true });
+  await page.waitForTimeout(900);
+  assert.equal(await page.locator(".kg .good").count() >= 3 || await page.locator("[data-bmq-good]").count() >= 3 || (await page.locator(".kg .shelf-view button").count()) >= 3, true, "Q7 finished-goods shelf lists the SKUs");
+  assert.match(await page.locator(".kg .plaque small").first().textContent(), /tồn theo sổ/, "Q7 finished goods read as a ledger");
+  assert.equal(await page.locator("[data-bmq-fg-open]").count(), 2, "shelf offers Nhập / Xuất");
+  await page.screenshot({ path: `${EVIDENCE}/q7-fg-shelf-${viewport.width}.png` });
+  assert.equal(await overflow(page), 0, `Q7 FG shelf no overflow ${viewport.width}`);
+
+  // Receipt from today's plan: two plan lines of one SKU fold into one row.
+  await page.locator("[data-bmq-fg-open='in']").click({ force: true });
+  await page.waitForTimeout(600);
+  assert.equal(await page.locator("[data-bmq-fg-plan-line]").count(), 2, "plan grouped per SKU");
+  assert.match(await page.locator("[data-bmq-fg-plan-line]").first().textContent(), /Kế hoạch 60 · đã nhập 10/, "plan totals summed per SKU");
+  assert.equal(await page.locator("[data-bmq-fg-submit]").isDisabled(), true, "empty receipt cannot be sent");
+  await page.locator("[data-bmq-fg-fill]").click({ force: true });
+  await page.waitForTimeout(200);
+  assert.deepEqual(await page.locator("[data-bmq-fg-plan-line] input").evaluateAll((els) => els.map((el) => el.value)), ["50", "25"], "fill uses plan minus received");
+  await page.locator("[data-bmq-fg-search]").fill("croissant");
+  await page.locator('[data-bmq-fg-pick="BÁNH CROISSANT 50G"]').click({ force: true });
+  await page.locator("[data-bmq-fg-line] input").fill("8");
+  await page.waitForTimeout(200);
+  await page.screenshot({ path: `${EVIDENCE}/q7-fg-receipt-${viewport.width}.png` });
+  assert.equal(await overflow(page), 0, `receipt slip no overflow ${viewport.width}`);
+  for (const button of await page.locator(".kg .sheet button").all()) {
+    if (!(await button.isVisible())) continue;
+    const b = await button.boundingBox();
+    assert.ok(b && b.x >= -1 && b.x + b.width <= viewport.width + 1, `receipt button inside the screen ${viewport.width}: ${await button.textContent()}`);
+  }
+  await page.evaluate(() => { window.__qaWrites.length = 0; });
+  await page.locator("[data-bmq-fg-submit]").click({ force: true });
+  await page.waitForTimeout(700);
+  let writes = await page.evaluate(() => window.__qaWrites);
+  const sentIn = writes.find((w) => w.startsWith("rpc:create_q7_finished_goods_receipt:"));
+  assert.ok(sentIn, "receipt RPC called");
+  const argsIn = JSON.parse(sentIn.slice("rpc:create_q7_finished_goods_receipt:".length));
+  assert.deepEqual(argsIn.p_lines, [
+    { sku_id: "fg-cbc", quantity: 50, production_order_item_id: "poi-1" },
+    { sku_id: "fg-cpm", quantity: 25, production_order_item_id: "poi-3" },
+    { sku_id: "fg-cro", quantity: 8, production_order_item_id: null },
+  ], "receipt lines");
+  assert.ok(argsIn.p_request_id, "receipt carries a request id");
+  assert.equal(await page.locator("[data-bmq-fg-slip]").count(), 0, "sheet closes after a receipt");
+
+  // Issue: over on-hand flagged, write-off reason sent.
+  await page.locator("[data-bmq-fg-open='out']").click({ force: true });
+  await page.waitForTimeout(500);
+  assert.equal(await page.locator('[data-bmq-fg-pick="BÁNH CUA PHÔ MAI"]').count(), 0, "out-of-stock SKU not offered for issue");
+  await page.locator('[data-bmq-fg-pick="BÁNH MÌ CHÀ BÔNG CAY"]').click({ force: true });
+  await page.locator("[data-bmq-fg-line] input").fill("13");
+  await page.waitForTimeout(200);
+  assert.equal(await page.locator(".kg .slip-problem").count(), 1, "issue above on-hand is flagged");
+  assert.equal(await page.locator("[data-bmq-fg-submit]").isDisabled(), true, "over-issue cannot be sent");
+  await page.locator("[data-bmq-fg-line] input").fill("5");
+  await page.locator("[data-bmq-fg-reason='write_off']").click({ force: true });
+  await page.waitForTimeout(200);
+  await page.screenshot({ path: `${EVIDENCE}/q7-fg-issue-${viewport.width}.png` });
+  assert.equal(await overflow(page), 0, `issue slip no overflow ${viewport.width}`);
+  await page.evaluate(() => { window.__qaWrites.length = 0; });
+  await page.locator("[data-bmq-fg-submit]").click({ force: true });
+  await page.waitForTimeout(700);
+  writes = await page.evaluate(() => window.__qaWrites);
+  const sentOut = writes.find((w) => w.startsWith("rpc:create_q7_finished_goods_issue:"));
+  assert.ok(sentOut, "issue RPC called");
+  const argsOut = JSON.parse(sentOut.slice("rpc:create_q7_finished_goods_issue:".length));
+  assert.deepEqual([argsOut.p_reason, argsOut.p_lines], ["write_off", [{ sku_id: "fg-cbc", quantity: 5 }]], "issue reason + lines");
+  assert.deepEqual(errors, [], `no page errors: ${errors.join(" | ")}`);
+  record(`q7 finished goods ${viewport.width}`);
+  await context.close();
+}
+
+// Server rejection is shown in Vietnamese and the slip stays open; no plan today shows the empty note.
+{
+  const viewport = { width: 390, height: 844 };
+  const { context, page, errors } = await open({ data: "populated", role: "owner", started: true, fgFail: true, fgPlan: "none" }, "/warehouse/game", viewport);
+  await page.waitForSelector("[data-bmq-warehouse-game]", { timeout: 20000 });
+  await page.waitForTimeout(1200);
+  await page.getByRole("button", { name: /KHO Q7/i }).first().click({ force: true });
+  await page.waitForTimeout(900);
+  await page.getByRole("button", { name: /Thành phẩm, 3 mặt hàng/ }).first().click({ force: true });
+  await page.waitForTimeout(900);
+  await page.locator("[data-bmq-fg-open='in']").click({ force: true });
+  await page.waitForTimeout(500);
+  assert.match(await page.locator("[data-bmq-fg-slip]").textContent(), /Hôm nay chưa có lệnh sản xuất Q7/, "empty plan note");
+  await page.locator("[data-bmq-fg-mode='out']").click({ force: true });
+  await page.locator('[data-bmq-fg-pick="BÁNH MÌ CHÀ BÔNG CAY"]').click({ force: true });
+  await page.locator("[data-bmq-fg-line] input").fill("2");
+  await page.locator("[data-bmq-fg-submit]").click({ force: true });
+  await page.waitForTimeout(700);
+  assert.match(await page.locator("[data-bmq-fg-error]").textContent(), /Không đủ tồn: cbc-2026-v2 chỉ còn 12 gói/, "server error shown");
+  assert.equal(await page.locator("[data-bmq-fg-slip]").count(), 1, "slip stays open on error");
+  await page.screenshot({ path: `${EVIDENCE}/q7-fg-error-390.png` });
+  assert.deepEqual(errors, []);
+  record("q7 finished goods error/empty");
+  await context.close();
+}
+
+// No viewer-only check here: the fixture's "viewer" role can edit "inventory", which the
+// transfer/finished-goods client gate accepts; the server gate is proven by the SQL smoke.
+
 await browser.close();
 await server.close();
 console.log(`ALL ${results.length} WAREHOUSE GAME QA CHECKS PASSED — evidence in ${EVIDENCE}`);

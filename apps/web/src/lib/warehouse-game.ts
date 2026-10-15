@@ -119,6 +119,32 @@ export interface ManualStockTransferResult {
   lines: ManualStockTransferLine[];
 }
 
+/** One line the client sends to create_q7_finished_goods_receipt / _issue. */
+export interface Q7FinishedGoodsLine {
+  sku_id: string;
+  quantity: number;
+  /** Only a receipt line may carry the production-order item it came from. */
+  production_order_item_id?: string | null;
+}
+
+/** One planned Q7 finished-goods line from get_q7_finished_goods_planned. */
+export interface Q7FinishedGoodsPlannedLine {
+  production_order_item_id: string;
+  sku_id: string;
+  sku_code: string;
+  product_name: string;
+  unit: string;
+  planned_qty: number;
+  already_received: number;
+}
+
+/** The jsonb result of create_q7_finished_goods_receipt / _issue. */
+export interface Q7FinishedGoodsSlipResult {
+  slip_id: string;
+  slip_number: string;
+  lines: { sku_id: string; quantity: number; on_hand_after: number }[];
+}
+
 function asRecord(value: unknown, path: string): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new TypeError(`${path} must be an object`);
@@ -401,4 +427,88 @@ export function unitConversionFor(
   if (oldRow.kind !== "weight" && oldRow.kind !== "volume") return null;
   if (oldRow.baseCode !== newRow.baseCode) return null;
   return oldRow.toBase / newRow.toBase;
+}
+
+/**
+ * Turn the day's planned Q7 lines plus the operator-entered quantities into the
+ * RPC lines of a finished-goods receipt. `edits` is keyed by
+ * production_order_item_id. A blank / zero entry is dropped, a duplicate
+ * sku + production-order item pair is merged and a negative / non-numeric entry
+ * throws. The returned list keeps the planned order.
+ */
+export function buildQ7FinishedGoodsLines(
+  planned: readonly Q7FinishedGoodsPlannedLine[],
+  edits: Record<string, number | string | null | undefined>,
+): Q7FinishedGoodsLine[] {
+  const merged = new Map<string, Q7FinishedGoodsLine>();
+  for (const line of planned) {
+    const raw = edits[line.production_order_item_id];
+    if (raw === null || raw === undefined) continue;
+    if (typeof raw === "string" && raw.trim() === "") continue;
+    const quantity = typeof raw === "number" ? raw : Number(String(raw).trim());
+    if (!Number.isFinite(quantity)) {
+      throw new TypeError("Số lượng nhập phải là số hợp lệ.");
+    }
+    if (quantity < 0) {
+      throw new TypeError("Số lượng nhập không được âm.");
+    }
+    if (quantity === 0) continue;
+    const key = `${line.sku_id}::${line.production_order_item_id}`;
+    const existing = merged.get(key);
+    if (existing) {
+      existing.quantity += quantity;
+    } else {
+      merged.set(key, {
+        sku_id: line.sku_id,
+        quantity,
+        production_order_item_id: line.production_order_item_id,
+      });
+    }
+  }
+  return [...merged.values()];
+}
+
+/** One per-line validation error of a finished-goods issue. */
+export interface Q7IssueError {
+  index: number;
+  sku_id: string;
+  message: string;
+}
+
+/**
+ * Per-line Vietnamese errors for a finished-goods issue. `onHandBySku` is keyed
+ * by sku_id. Duplicate SKU lines are summed before the on-hand check so no SKU
+ * can be over-issued.
+ */
+export function validateQ7Issue(
+  lines: readonly Q7FinishedGoodsLine[],
+  onHandBySku: Record<string, number>,
+): Q7IssueError[] {
+  const requestedBySku = new Map<string, number>();
+  for (const line of lines) {
+    requestedBySku.set(line.sku_id, (requestedBySku.get(line.sku_id) ?? 0) + line.quantity);
+  }
+
+  const errors: Q7IssueError[] = [];
+  lines.forEach((line, index) => {
+    if (!Number.isFinite(line.quantity) || line.quantity <= 0) {
+      errors.push({
+        index,
+        sku_id: line.sku_id,
+        message: "Số lượng xuất phải là số lớn hơn 0.",
+      });
+      return;
+    }
+    const onHand = onHandBySku[line.sku_id];
+    if (typeof onHand !== "number" || !Number.isFinite(onHand)) return;
+    const requested = requestedBySku.get(line.sku_id) ?? line.quantity;
+    if (requested > onHand) {
+      errors.push({
+        index,
+        sku_id: line.sku_id,
+        message: `Không đủ tồn để xuất (còn ${onHand}).`,
+      });
+    }
+  });
+  return errors;
 }
