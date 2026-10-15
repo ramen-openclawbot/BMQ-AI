@@ -169,8 +169,13 @@ function settle(st) {
   }
   if (st.table === "rpc:create_robot_order_package") {
     window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args));
-    const debt = st.args.p_debt;
-    return { data: { package_id: "pkg-qa-1", purchase_order_ids: ["po-qa-900"], po_numbers: ["PO-000900"], debt: debt ? { kind: debt.kind, id: debt.id, number: debt.kind === "pr" ? "PR-ABC123" : "PO-000842", submission_id: "sub-1", submission_number: "TC-251014-01" } : null, cutover_start_date: debt ? "2026-09-01" : null, marked_settled_outside_count: debt ? 1 : 0, idempotent: false }, error: null };
+    const picks = Array.isArray(st.args.p_debt) ? st.args.p_debt : st.args.p_debt ? [st.args.p_debt] : [];
+    const numberOf = (pick) => (pick.id === "pr-mid" ? "PR-ABC123" : pick.id === "po-new" ? "PO-000842" : pick.id);
+    const first = picks[0];
+    return { data: { package_id: "pkg-qa-1", purchase_order_ids: ["po-qa-900"], po_numbers: ["PO-000900"], debt: first ? { kind: first.kind, id: first.id, number: numberOf(first), submission_id: "sub-1", submission_number: "TC-251014-01" } : null, debt_picks: picks.map((pick, index) => ({ kind: pick.kind, id: pick.id, number: numberOf(pick), doc_date: null, remaining: null, rank: index + 1 })), cutover_start_date: first ? "2026-09-01" : null, marked_settled_outside_count: first ? 1 : 0, idempotent: false }, error: null };
+  }
+  if (st.table === "rpc:get_supplier_debt_pick_pattern") {
+    return { data: { supplier_id: st.args.p_supplier_id, packages: 3, last_picked_count: 2, median_picked_count: 2, avg_picked_total: 9000000, oldest_first_share: 0.67, last_picked_at: "2026-10-13T08:00:00Z" }, error: null };
   }
   if (st.table === "robot_order_packages") return { data: [{ id: "pkg-old", supplier_id: "sup1", note: null, created_at: "2026-10-13T08:00:00Z", result: { package_id: "pkg-old", purchase_order_ids: ["po-1"], po_numbers: ["PO-000880"], debt: { kind: "po", id: "x", number: "PO-000700", submission_id: "s", submission_number: "TC-251013-02" }, cutover_start_date: "2026-08-01", marked_settled_outside_count: 3, idempotent: false } }], error: null };
   if (st.table === "rpc:get_stock_transfers") return { data: window.__kgFixture.transfers ?? [], error: null };
@@ -1195,10 +1200,19 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
   await page.locator("[data-bmq-robot-fold]").click({ force: true });
   await page.waitForTimeout(200);
   assert.equal(await page.locator('[data-bmq-robot-debt="PO-000010"]').count(), 1, "folded row shows on demand");
+  assert.match(await page.locator("[data-bmq-robot-learned]").textContent(), /Lần trước chọn 2 phiếu/, "learned pick pattern shown");
+  // multi-pick (owner 15/10): tick two documents, untick and re-tick one, the sum follows
   await page.locator('[data-bmq-robot-debt="PR-ABC123"]').click({ force: true });
+  await page.locator('[data-bmq-robot-debt="PO-000842"]').click({ force: true });
+  assert.equal(await page.locator('[data-bmq-robot-debts] [aria-checked="true"]').count(), 2, "two documents ticked");
+  assert.match(await page.locator("[data-bmq-robot-pick-sum]").textContent(), /2 phiếu/);
+  await page.locator('[data-bmq-robot-debt="PO-000842"]').click({ force: true });
+  assert.equal(await page.locator('[data-bmq-robot-debts] [aria-checked="true"]').count(), 1, "untick works");
+  await page.locator('[data-bmq-robot-debt="PO-000842"]').click({ force: true });
   await page.locator("[data-bmq-robot-qty]").first().fill("25");
   await page.waitForTimeout(250);
   assert.equal(await page.locator("[data-bmq-robot-send]").isDisabled(), false, "ready to send");
+  assert.match(await page.locator("[data-bmq-robot-send]").textContent(), /đề nghị chi 2 phiếu/, "send label counts the picks");
   assert.equal(await overflow(page), 0, `robot package no overflow ${viewport.width}`);
   await page.screenshot({ path: `${EVIDENCE}/robot-package-${viewport.width}.png` });
   await page.evaluate(() => { window.__qaWrites.length = 0; });
@@ -1206,8 +1220,8 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
   await page.waitForTimeout(800);
   const writes = await page.evaluate(() => window.__qaWrites);
   const sent = writes.find((w) => w.startsWith("rpc:create_robot_order_package:"));
-  assert.ok(sent && sent.includes('"product_name":"Băng keo nhỏ"') && sent.includes('"quantity":25') && sent.includes('"unit_price":20000') && sent.includes('"supplier_id":"sup1"') && sent.includes('"kind":"pr"') && sent.includes('"id":"pr-mid"') && sent.includes('"p_idempotency_key"'), `package sent: ${sent}`);
-  assert.match(await page.locator(".kg .toast").textContent(), /PO-000900.*PR-ABC123.*TC-251014-01/);
+  assert.ok(sent && sent.includes('"product_name":"Băng keo nhỏ"') && sent.includes('"quantity":25') && sent.includes('"unit_price":20000') && sent.includes('"supplier_id":"sup1"') && sent.includes('"p_debt":[{"kind":"pr","id":"pr-mid"},{"kind":"po","id":"po-new"}]') && sent.includes('"p_idempotency_key"'), `package sent: ${sent}`);
+  assert.match(await page.locator(".kg .toast").textContent(), /PO-000900.*PR-ABC123, PO-000842.*TC-251014-01/);
   assert.equal(await page.locator("[data-bmq-robot-count]").textContent(), "0", "basket emptied after sending");
   assert.equal(await page.locator('[data-bmq-robot-pack="Phúc Thịnh"]').count(), 0, "package card gone");
   assert.match(await page.locator(".robot-history").textContent(), /PO-000900/);

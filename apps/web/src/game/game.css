@@ -972,6 +972,12 @@
 .kg .robot-picks { max-height: 320px; }
 .kg .robot-debt em { font-style: normal; font-weight: 800; white-space: nowrap; }
 .kg .robot-debt.is-faded { opacity: .62; }
+.kg .robot-check { flex: none; display: grid; place-items: center; width: 24px; height: 24px; font-style: normal; font-weight: 900; font-size: 15px; line-height: 1; color: var(--ink); background: var(--white); border: 2.5px solid var(--ink); border-radius: 7px; }
+.kg .pick[aria-checked="true"] .robot-check { background: var(--sage); color: var(--white); }
+.kg .robot-debt[disabled] { opacity: .45; cursor: not-allowed; }
+.kg .robot-learned { color: var(--ink) !important; }
+.kg .robot-pick-sum { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0; padding: 8px 12px; font-size: 14px; font-weight: 800; background: var(--mustard-light); border: 2.5px solid var(--ink); border-radius: 12px; }
+.kg .robot-pick-sum > b { white-space: nowrap; }
 .kg .robot-mark { display: inline-block; margin-top: 2px; padding: 1px 7px; border-radius: 999px; background: var(--mustard-light); border: 1.5px solid var(--ink); color: var(--ink) !important; }
 .kg .robot-mark.is-settled_outside { background: var(--coral-light); }
 .kg .robot-mark.is-real_debt { background: var(--sage-light); }

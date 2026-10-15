@@ -4,11 +4,15 @@ import assert from "node:assert/strict";
 
 import {
   groupLinesBySupplier,
+  MAX_DEBT_PICKS,
   packageSummary,
   priceInUnit,
   rankDebtRows,
   robotOrderErrorCode,
   robotOrderErrorText,
+  sumDebtPicks,
+  toggleDebtPick,
+  type DebtPick,
   type RobotOrderLineInput,
   type SupplierDebtRow,
 } from "./robot-order.ts";
@@ -133,4 +137,56 @@ test("priceInUnit restates the last price per the basket line's unit", () => {
   assert.equal(priceInUnit(500000, "thùng", "g"), null);
   assert.equal(priceInUnit(90000, "kg", "ml"), null);
   assert.equal(priceInUnit(null, "kg", "g"), null);
+});
+
+test("toggleDebtPick adds a new pick and keeps the pick order", () => {
+  const first = toggleDebtPick([], { kind: "po", id: "a" });
+  assert.deepEqual(first, [{ kind: "po", id: "a" }]);
+  const second = toggleDebtPick(first, { kind: "pr", id: "b" });
+  assert.deepEqual(second, [
+    { kind: "po", id: "a" },
+    { kind: "pr", id: "b" },
+  ]);
+  // The input array is not mutated.
+  assert.deepEqual(first, [{ kind: "po", id: "a" }]);
+});
+
+test("toggleDebtPick removes an already-picked row by id", () => {
+  const picks: DebtPick[] = [
+    { kind: "po", id: "a" },
+    { kind: "pr", id: "b" },
+  ];
+  assert.deepEqual(toggleDebtPick(picks, { kind: "po", id: "a" }), [
+    { kind: "pr", id: "b" },
+  ]);
+  assert.deepEqual(toggleDebtPick(picks, { kind: "pr", id: "b" }), [
+    { kind: "po", id: "a" },
+  ]);
+});
+
+test("toggleDebtPick never exceeds MAX_DEBT_PICKS and never duplicates", () => {
+  const full: DebtPick[] = Array.from(
+    { length: MAX_DEBT_PICKS },
+    (_, index): DebtPick => ({ kind: "po", id: `id-${index}` }),
+  );
+  assert.equal(full.length, 20);
+  const capped = toggleDebtPick(full, { kind: "pr", id: "extra" });
+  assert.equal(capped.length, MAX_DEBT_PICKS);
+  assert.equal(capped.some((pick) => pick.id === "extra"), false);
+
+  const withExisting = toggleDebtPick(full, { kind: "po", id: "id-3" });
+  assert.equal(withExisting.length, MAX_DEBT_PICKS - 1);
+  assert.equal(withExisting.some((pick) => pick.id === "id-3"), false);
+});
+
+test("sumDebtPicks sums the remaining of the picked rows only", () => {
+  const rows = [
+    debt({ id: "a", remaining: 1000 }),
+    debt({ id: "b", remaining: 2500 }),
+    debt({ id: "c", remaining: null }),
+  ];
+  assert.equal(sumDebtPicks(rows, [{ kind: "po", id: "a" }, { kind: "pr", id: "b" }]), 3500);
+  assert.equal(sumDebtPicks(rows, [{ kind: "po", id: "a" }, { kind: "po", id: "c" }]), 1000);
+  assert.equal(sumDebtPicks(rows, []), 0);
+  assert.equal(sumDebtPicks([], [{ kind: "po", id: "a" }]), 0);
 });

@@ -6,6 +6,7 @@ import {
   type ItemPurchaseFact,
   type RobotOrderPackageResult,
   type SupplierDebtCandidates,
+  type SupplierDebtPickPattern,
 } from "@/lib/robot-order";
 import { WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY } from "./useWarehouseGame";
 
@@ -16,6 +17,7 @@ import { WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY } from "./useWarehouseGame";
 // invalidation here refreshes the lists the finance / warehouse screens read.
 export const ITEM_PURCHASE_FACTS_QUERY_KEY = "item-purchase-facts";
 export const SUPPLIER_DEBT_CANDIDATES_QUERY_KEY = "supplier-debt-candidates";
+export const SUPPLIER_DEBT_PICK_PATTERN_QUERY_KEY = "supplier-debt-pick-pattern";
 export const PURCHASE_ORDERS_QUERY_KEY = "purchase-orders";
 export const PAYMENT_REQUESTS_QUERY_KEY = "payment-requests";
 export const PAYMENT_SUBMISSIONS_QUERY_KEY = "payment-submissions";
@@ -78,7 +80,7 @@ export function useCreateRobotOrderPackage() {
     mutationFn: async (input: CreateRobotOrderPackageInput): Promise<RobotOrderPackageResult> => {
       const { data, error } = await db.rpc("create_robot_order_package", {
         p_lines: input.lines,
-        p_debt: input.debt,
+        p_debt: input.debt && input.debt.length > 0 ? input.debt : null,
         p_note: input.note,
         p_idempotency_key: input.idempotency_key,
       });
@@ -92,6 +94,23 @@ export function useCreateRobotOrderPackage() {
       void queryClient.invalidateQueries({ queryKey: [WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY] });
       void queryClient.invalidateQueries({ queryKey: [ITEM_PURCHASE_FACTS_QUERY_KEY] });
       void queryClient.invalidateQueries({ queryKey: [SUPPLIER_DEBT_CANDIDATES_QUERY_KEY] });
+      void queryClient.invalidateQueries({ queryKey: [SUPPLIER_DEBT_PICK_PATTERN_QUERY_KEY] });
+    },
+  });
+}
+
+/** One supplier's learned debt-pick pattern, for phase-2 suggestions. */
+export function useSupplierDebtPickPattern(supplierId: string | null) {
+  return useQuery({
+    queryKey: [SUPPLIER_DEBT_PICK_PATTERN_QUERY_KEY, supplierId],
+    enabled: Boolean(supplierId),
+    staleTime: 60 * 1000,
+    queryFn: async (): Promise<SupplierDebtPickPattern | null> => {
+      const { data, error } = await db.rpc("get_supplier_debt_pick_pattern", {
+        p_supplier_id: supplierId,
+      });
+      if (error) throw error;
+      return (data ?? null) as SupplierDebtPickPattern | null;
     },
   });
 }

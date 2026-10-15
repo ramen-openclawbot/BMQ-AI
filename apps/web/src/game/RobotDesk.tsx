@@ -3,8 +3,8 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useSuppliers } from "@/hooks/useSuppliers";
 import { useQ7PurchaseForecast } from "@/hooks/usePurchaseForecast";
-import { useCreateRobotOrderPackage, useItemPurchaseFacts, useRunDebtReview, useSupplierDebtCandidates } from "@/hooks/useRobotOrder";
-import { priceInUnit, rankDebtRows, robotOrderErrorCode, robotOrderErrorText, type ItemPurchaseFact, type RobotOrderDebtRef, type RobotOrderPackageResult, type SupplierDebtRow } from "@/lib/robot-order";
+import { useCreateRobotOrderPackage, useItemPurchaseFacts, useRunDebtReview, useSupplierDebtCandidates, useSupplierDebtPickPattern } from "@/hooks/useRobotOrder";
+import { packageDebtNumbers, priceInUnit, rankDebtRows, robotOrderErrorCode, robotOrderErrorText, sumDebtPicks, toggleDebtPick, MAX_DEBT_PICKS, type DebtPick, type ItemPurchaseFact, type RobotOrderPackageResult, type SupplierDebtRow } from "@/lib/robot-order";
 import type { WarehouseGameItem } from "@/lib/warehouse-game";
 import { JevBot } from "./CrateYard";
 import { fmtQty, newRequestId, normalizeName } from "./meta";
@@ -53,9 +53,16 @@ const markLabel = (row: SupplierDebtRow) => {
   return null;
 };
 
-/** The old-debt picker for one supplier: farthest first; rows before the learned cutover fold away. */
-function DebtPicker({ supplierId, picked, onPick }: { supplierId: string; picked: RobotOrderDebtRef | null | "none"; onPick: (ref: RobotOrderDebtRef | "none") => void }) {
+/** The staff's debt choice: not chosen yet, explicitly none, or one or more picked documents. */
+type DebtChoice = DebtPick[] | "none" | null;
+
+/**
+ * The old-debt picker for one supplier (owner 15/10: staff tick every document to pay, the robot
+ * submits them together): farthest first; rows before the learned cutover fold away.
+ */
+function DebtPicker({ supplierId, picked, onToggle, onNone }: { supplierId: string; picked: DebtChoice; onToggle: (row: SupplierDebtRow) => void; onNone: () => void }) {
   const debts = useSupplierDebtCandidates(supplierId);
+  const pattern = useSupplierDebtPickPattern(supplierId);
   const review = useRunDebtReview();
   const [showOld, setShowOld] = useState(false);
   const ranked = useMemo(() => rankDebtRows(debts.data?.rows ?? []), [debts.data]);
@@ -63,12 +70,16 @@ function DebtPicker({ supplierId, picked, onPick }: { supplierId: string; picked
   const folded = ranked.filter((row) => row.collapsed);
   const stats = debts.data?.stats;
   const cutover = debts.data?.cutover;
-  const isPicked = (row: SupplierDebtRow) => picked !== "none" && picked?.kind === row.kind && picked.id === row.id;
+  const picks = Array.isArray(picked) ? picked : [];
+  const isPicked = (row: SupplierDebtRow) => picks.some((pick) => pick.id === row.id);
+  const full = picks.length >= MAX_DEBT_PICKS;
+  const learned = pattern.data?.packages ? pattern.data : null;
   const rowButton = (row: SupplierDebtRow) => {
     const label = markLabel(row);
     const faded = row.mark === "settled_outside";
     return (
-      <button key={`${row.kind}-${row.id}`} type="button" role="radio" aria-checked={isPicked(row)} className={`pick robot-debt${isPicked(row) ? " is-top" : ""}${faded ? " is-faded" : ""}`} onClick={() => onPick({ kind: row.kind, id: row.id })} data-bmq-robot-debt={row.number ?? row.id}>
+      <button key={`${row.kind}-${row.id}`} type="button" role="checkbox" aria-checked={isPicked(row)} disabled={full && !isPicked(row)} className={`pick robot-debt${isPicked(row) ? " is-top" : ""}${faded ? " is-faded" : ""}`} onClick={() => onToggle(row)} data-bmq-robot-debt={row.number ?? row.id}>
+        <i className="robot-check" aria-hidden="true">{isPicked(row) ? "✓" : ""}</i>
         <span>
           <b>{row.kind === "pr" ? "Đề nghị chi" : "PO chưa có đề nghị chi"} {row.number}</b>
           <small>{dmy(row.doc_date)}{row.age_days != null ? ` · ${row.age_days} ngày` : ""}{row.po_number && row.kind === "pr" ? ` · ${row.po_number}` : ""}{row.has_receipt ? " · đã nhận hàng" : ""}{row.last_submission_number ? ` · đã trình ${row.last_submission_number}` : ""}</small>
@@ -82,13 +93,16 @@ function DebtPicker({ supplierId, picked, onPick }: { supplierId: string; picked
     <div className="robot-debt-box" data-bmq-robot-debts>
       <div className="robot-debt-head">
         <b>Đơn cũ cần trả để NCC giao</b>
+        <small>Tích mọi phiếu cần trả · gửi chung một đợt duyệt chi</small>
+        {learned ? <small className="robot-learned" data-bmq-robot-learned>Lần trước chọn {learned.last_picked_count} phiếu{learned.packages > 1 && learned.median_picked_count != null ? ` · thường ${fmtQty(learned.median_picked_count)} phiếu (${learned.packages} lần)` : ""}</small> : null}
         <small>{cutover ? `Mốc đã học: từ ${cutover.number ?? ""} (${dmy(cutover.start_date)})` : "Chưa có mốc · lựa chọn đầu tiên sẽ dạy hệ thống"}{stats?.paid_90d ? ` · 90 ngày chi ${stats.paid_90d} lần${stats.median_lag_days != null ? `, trung bình sau ${stats.median_lag_days} ngày` : ""}` : ""}</small>
       </div>
       {debts.isLoading ? <p className="note">Đang tìm phiếu cũ…</p> : null}
       {debts.error ? <div className="err">{robotOrderErrorText(robotOrderErrorCode(debts.error))}</div> : null}
       {debts.data ? (
-        <div className="picks robot-picks" role="radiogroup" aria-label="Đơn cũ cần trả">
-          <button type="button" role="radio" aria-checked={picked === "none"} className={`pick${picked === "none" ? " is-top" : ""}`} onClick={() => onPick("none")} data-bmq-robot-debt="none">
+        <div className="picks robot-picks" role="group" aria-label="Đơn cũ cần trả">
+          <button type="button" role="checkbox" aria-checked={picked === "none"} className={`pick${picked === "none" ? " is-top" : ""}`} onClick={onNone} data-bmq-robot-debt="none">
+            <i className="robot-check" aria-hidden="true">{picked === "none" ? "✓" : ""}</i>
             <span><b>Không kèm đơn cũ</b><small>Chỉ tạo PO mới · chi khi nhận hàng như hiện nay</small></span>
           </button>
           {live.map(rowButton)}
@@ -100,6 +114,12 @@ function DebtPicker({ supplierId, picked, onPick }: { supplierId: string; picked
           ) : null}
           {showOld ? folded.map(rowButton) : null}
         </div>
+      ) : null}
+      {picks.length ? (
+        <p className="robot-pick-sum" data-bmq-robot-pick-sum>
+          <span>Đã chọn <b>{picks.length}</b> phiếu{full ? ` (tối đa ${MAX_DEBT_PICKS})` : ""}</span>
+          <b>{money(sumDebtPicks(ranked, picks))}</b>
+        </p>
       ) : null}
       <div className="row">
         <button type="button" className="btn ghost jev-run" disabled={review.isPending || !debts.data?.rows.length} onClick={() => review.mutate(supplierId)} data-bmq-robot-jev>
@@ -118,7 +138,12 @@ function SupplierPackage({ supplierId, supplierName, lines, canDebt, onSent, onE
   onSent: (result: RobotOrderPackageResult, keys: string[]) => void; onError: (text: string) => void;
 }) {
   const create = useCreateRobotOrderPackage();
-  const [debt, setDebt] = useState<RobotOrderDebtRef | "none" | null>(canDebt ? null : "none");
+  const [debt, setDebt] = useState<DebtChoice>(canDebt ? null : "none");
+  const toggle = (row: SupplierDebtRow) => setDebt((current) => {
+    const next = toggleDebtPick(Array.isArray(current) ? current : [], { kind: row.kind, id: row.id });
+    return next.length ? next : null;
+  });
+  const pickCount = Array.isArray(debt) ? debt.length : 0;
   const [note, setNote] = useState("");
   const [requestId, setRequestId] = useState(newRequestId);
   const ready = lines.every((line) => num(line.qty) > 0 && num(line.price) >= 0);
@@ -128,7 +153,7 @@ function SupplierPackage({ supplierId, supplierName, lines, canDebt, onSent, onE
     create.mutate(
       {
         lines: lines.map((line) => ({ supplier_id: supplierId, product_name: line.name, quantity: num(line.qty), unit: line.unit, unit_price: num(line.price) || 0, item_id: line.item_id })),
-        debt: debt === "none" ? null : debt,
+        debt: Array.isArray(debt) ? debt : null,
         note: note.trim() || null,
         idempotency_key: requestId,
       },
@@ -147,11 +172,11 @@ function SupplierPackage({ supplierId, supplierName, lines, canDebt, onSent, onE
       <ul className="robot-pack-lines">
         {lines.map((line) => <li key={line.key}><span>{line.name}</span><em>{num(line.qty) > 0 ? `${fmtQty(num(line.qty))} ${line.unit}` : "? " + line.unit}{num(line.price) > 0 ? ` × ${money(num(line.price))}` : ""}</em></li>)}
       </ul>
-      {canDebt ? <DebtPicker supplierId={supplierId} picked={debt} onPick={setDebt} /> : <p className="note">Bạn không có quyền trình chi, robot chỉ tạo PO mới.</p>}
+      {canDebt ? <DebtPicker supplierId={supplierId} picked={debt} onToggle={toggle} onNone={() => setDebt("none")} /> : <p className="note">Bạn không có quyền trình chi, robot chỉ tạo PO mới.</p>}
       <label className="field"><span>Ghi chú cho Duyệt chi (không bắt buộc)</span><input value={note} onChange={(event) => setNote(event.target.value)} placeholder="vd. hàng cần cho ca sáng mai" /></label>
       {create.error ? <div className="err">{robotOrderErrorText(robotOrderErrorCode(create.error))}</div> : null}
       <button type="button" className="btn submit is-ready robot-send" disabled={!ready || debt === null || create.isPending} onClick={send} data-bmq-robot-send>
-        {create.isPending ? "Robot đang lập gói…" : debt === null ? "Chọn đơn cũ (hoặc Không kèm) trước" : !ready ? "Nhập đủ số lượng trước" : debt === "none" ? "🤖 Tạo PO mới" : "🤖 Tạo PO mới + trình chi đơn cũ"}
+        {create.isPending ? "Robot đang lập gói…" : debt === null ? "Chọn đơn cũ (hoặc Không kèm) trước" : !ready ? "Nhập đủ số lượng trước" : debt === "none" ? "🤖 Tạo PO mới" : `🤖 Tạo PO mới + đề nghị chi ${pickCount} phiếu`}
       </button>
     </section>
   );
@@ -301,7 +326,7 @@ export function RobotDesk({ items, basket, setBasket, canOrder, canDebt, onToast
           onSent={(result, keys) => {
             setSent((list) => [result, ...list]);
             setBasket(basket.filter((line) => !keys.includes(line.key)));
-            onToast(`🤖 ${result.po_numbers.join(", ")} nháp${result.debt ? ` · trả ${result.debt.number} · đợt ${result.debt.submission_number ?? ""} đã lên Zalo` : ""}`);
+            onToast(`🤖 ${result.po_numbers.join(", ")} nháp${result.debt ? ` · trả ${packageDebtNumbers(result).join(", ")} · đợt ${result.debt.submission_number ?? ""} đã lên Zalo` : ""}`);
           }}
           onError={onToast}
         />
@@ -315,7 +340,7 @@ export function RobotDesk({ items, basket, setBasket, canOrder, canDebt, onToast
               <li key={row.id}>
                 <span className="slip-name">
                   <b>{row.result?.po_numbers?.join(", ") ?? "PO"}</b>
-                  <small>{row.result?.debt ? `Trả ${row.result.debt.number}${row.result.debt.submission_number ? ` · đợt ${row.result.debt.submission_number}` : ""}` : "Không kèm đơn cũ"}{row.result?.marked_settled_outside_count ? ` · ${row.result.marked_settled_outside_count} phiếu cũ hơn đánh dấu đã chi ngoài` : ""}{row.created_at ? ` · ${dmy(row.created_at)}` : " · vừa gửi"}</small>
+                  <small>{row.result?.debt ? `Trả ${packageDebtNumbers(row.result).join(", ")}${row.result.debt.submission_number ? ` · đợt ${row.result.debt.submission_number}` : ""}` : "Không kèm đơn cũ"}{row.result?.marked_settled_outside_count ? ` · ${row.result.marked_settled_outside_count} phiếu cũ hơn đánh dấu đã chi ngoài` : ""}{row.created_at ? ` · ${dmy(row.created_at)}` : " · vừa gửi"}</small>
                 </span>
               </li>
             ))}

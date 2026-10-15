@@ -115,10 +115,14 @@ export interface SupplierDebtCandidates {
 // D — create_robot_order_package
 // ---------------------------------------------------------------------------
 
-export interface RobotOrderDebtRef {
+/** One picked old document: a payment request or a PO without a live PR. */
+export type DebtPick = {
   kind: DebtKind;
   id: string;
-}
+};
+
+/** Backwards-compatible alias for the legacy single pick. */
+export type RobotOrderDebtRef = DebtPick;
 
 export interface RobotOrderPackageDebt {
   kind: DebtKind;
@@ -136,13 +140,34 @@ export interface RobotOrderPackageResult {
   cutover_start_date: string | null;
   marked_settled_outside_count: number;
   idempotent: boolean;
+  /** Every picked old document, in pick order (absent on packages sent before 15/10). */
+  debt_picks?: { kind: DebtKind; id: string; number: string | null; doc_date: string | null; remaining: number | null; rank: number | null }[];
+}
+
+/** The picked document numbers of a package, falling back to the legacy single debt. */
+export function packageDebtNumbers(result: Pick<RobotOrderPackageResult, "debt" | "debt_picks"> | null | undefined): string[] {
+  const picks = result?.debt_picks ?? [];
+  if (picks.length) return picks.map((pick) => pick.number ?? pick.id.slice(0, 8));
+  return result?.debt?.number ? [result.debt.number] : [];
 }
 
 export interface CreateRobotOrderPackageInput {
   lines: RobotOrderLineInput[];
-  debt: RobotOrderDebtRef | null;
+  /** The picked old documents; an empty array is sent to the RPC as null. */
+  debt: DebtPick[] | null;
   note: string | null;
   idempotency_key: string;
+}
+
+/** The RPC output for get_supplier_debt_pick_pattern (phase-2 suggestions). */
+export interface SupplierDebtPickPattern {
+  supplier_id: string;
+  packages: number;
+  last_picked_count: number | null;
+  median_picked_count: number | null;
+  avg_picked_total: number | null;
+  oldest_first_share: number | null;
+  last_picked_at: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -193,6 +218,34 @@ export function rankDebtRows(rows: readonly SupplierDebtRow[]): SupplierDebtRow[
         settledRank(left.row) - settledRank(right.row) || left.index - right.index)
       .map((entry) => entry.row);
   return [...orderBucket(normal), ...orderBucket(collapsed)];
+}
+
+/** Maximum number of old documents one robot package may submit. */
+export const MAX_DEBT_PICKS = 20;
+
+/**
+ * Toggle one debt row in the pick list by id: remove it when already picked,
+ * otherwise append it (never past MAX_DEBT_PICKS). Return a new array.
+ */
+export function toggleDebtPick(picks: readonly DebtPick[], row: DebtPick): DebtPick[] {
+  const list = picks ?? [];
+  if (list.some((pick) => pick.id === row.id)) {
+    return list.filter((pick) => pick.id !== row.id);
+  }
+  if (list.length >= MAX_DEBT_PICKS) return [...list];
+  return [...list, { kind: row.kind, id: row.id }];
+}
+
+/** Sum the remaining amount of the rows whose id is picked. */
+export function sumDebtPicks(
+  rows: readonly SupplierDebtRow[],
+  picks: readonly DebtPick[],
+): number {
+  const chosen = new Set((picks ?? []).map((pick) => pick.id));
+  return (rows ?? []).reduce(
+    (total, row) => (chosen.has(row.id) ? total + (row.remaining ?? 0) : total),
+    0,
+  );
 }
 
 /** Short Vietnamese summary of a created package, for a toast. */
