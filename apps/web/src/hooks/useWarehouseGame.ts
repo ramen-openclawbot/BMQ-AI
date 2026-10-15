@@ -133,6 +133,40 @@ export function useSetItemPastryQ7() {
   });
 }
 
+export interface SetItemsPastryQ7Result {
+  /** Items now at the requested place. */
+  done: string[];
+  /** Items the server refused, with the first error seen. */
+  failed: string[];
+  error: unknown;
+}
+
+/**
+ * "Để ở kho" for many shelf items at once (owner 16/10: the materials that really sit at Q7).
+ * Reuses set_item_pastry_q7 per item, each with its own request id, a few at a time; one refusal does not stop the rest.
+ */
+export function useSetItemsPastryQ7() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { itemIds: string[]; value: boolean }): Promise<SetItemsPastryQ7Result> => {
+      const result: SetItemsPastryQ7Result = { done: [], failed: [], error: null };
+      const queue = [...input.itemIds];
+      const worker = async () => {
+        for (let id = queue.shift(); id; id = queue.shift()) {
+          const { error } = await supabase.rpc("set_item_pastry_q7", { p_item_id: id, p_value: input.value, p_request_id: crypto.randomUUID() });
+          if (error) { result.failed.push(id); result.error ??= error; } else result.done.push(id);
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(4, queue.length) }, worker));
+      return result;
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: [WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY] });
+      void queryClient.invalidateQueries({ queryKey: ["office-order-snapshot"] });
+    },
+  });
+}
+
 export type StockItemClass = "raw_material" | "packaging_supply" | "finished_goods" | "non_stock";
 
 /** Set / change an item's group by hand (owner 16/10); supersedes any pending Bé Mì classify suggestion. */

@@ -143,7 +143,7 @@ export function CrateYard({ location, crates, canAssign, pastryIds, jev, progres
               {jev === "working" ? "Bé Mì đang làm…" : withHint.length === crates.length ? "🤖 Cho Bé Mì xem lại" : "🤖 Bé Mì phân loại"}
             </button>
           ) : null}
-          <p className="yard-rule">{location === "tan_tao" ? "Mọi phiếu nhập về Tân Tạo; món bánh ngọt tự chuyển Q7. " : "Q7 chỉ nhận nguyên liệu bánh ngọt. "}Chỉ hiện tên có nhập trong 60 ngày.</p>
+          <p className="yard-rule">{location === "tan_tao" ? "Mọi phiếu nhập về Tân Tạo; món để ở Q7 tự chuyển sang Q7. " : "Q7 chỉ nhận món để ở Q7. "}Chỉ hiện tên có nhập trong 60 ngày.</p>
         </div>
       </section>
 

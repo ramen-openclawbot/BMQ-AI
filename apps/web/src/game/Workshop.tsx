@@ -8,7 +8,7 @@ export interface Station { id: StationId; label: string; icon: string; tint: str
 export const STATION_META: Record<StationId, Omit<Station, "id" | "count">> = {
   merge: { label: "Gộp tên trùng", icon: "🔗", tint: C.coral, hint: "Hai tên cùng một món" },
   classify: { label: "Phân nhóm hàng", icon: "🏷️", tint: C.mustard, hint: "Gắn nhóm mặt hàng" },
-  pastry: { label: "Hàng chuyển sang Q7", icon: "🧁", tint: "#e79a6b", hint: "Món nào tự chuyển Q7" },
+  pastry: { label: "Hàng để ở Q7", icon: "🧁", tint: "#e79a6b", hint: "Món nào để ở Q7" },
   links: { label: "Gắn mã hàng", icon: "🧩", tint: "#6fa3a0", hint: "Kho Q7 và Tân Tạo" },
   jev: { label: "Bé Mì rà soát", icon: "🤖", tint: C.plum, hint: "Quét trùng · phân loại · rà mã" },
   aliases: { label: "Tên đã ghép mã", icon: "📋", tint: C.sage, hint: "Tên đã học 7 ngày" },

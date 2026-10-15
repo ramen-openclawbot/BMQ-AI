@@ -555,6 +555,7 @@ export default function WarehouseOffice() {
           <span className="info">
             <b>{item.name}</b>
             <small>{item.supplier_name ?? "Chưa rõ NCC"}{sug ? ` · lần trước ${sug}` : ""}</small>
+            {wh === "tan_tao" && item.pastry_q7 ? <small className="to-q7" data-office-to-q7>🧁 Giao về Tân Tạo → tự chuyển Q7</small> : null}
           </span>
           <span className="side">
             {qty ? <em className="in">✓ ×{fmtNum(qty)}</em> : days ? <em className={`days${item.low ? " is-low" : ""}`}>{days}</em> : null}
@@ -594,7 +595,7 @@ export default function WarehouseOffice() {
             <ul className="lines edit">
               {lines.map((l) => (
                 <li key={l.item.id} data-office-line={l.item.name}>
-                  <span className="lname">{l.item.name}</span>
+                  <span className="lname">{l.item.name}{wh === "tan_tao" && l.item.pastry_q7 ? <em className="lq7"> → Q7</em> : null}</span>
                   <label className="lfield">SL
                     <input inputMode="decimal" defaultValue={String(l.qty)} key={`q-${l.qty}`} onBlur={(e) => { const v = num(e.target.value); if (v > 0) setLine(l.item.id, { qty: v }); else e.target.value = String(l.qty); }} aria-label={`Số lượng ${l.item.name}`} data-office-qty />
                     <small>{lineUnit(l.item)}</small>

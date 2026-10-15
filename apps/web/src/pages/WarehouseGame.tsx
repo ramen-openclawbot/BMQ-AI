@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { GamePicker } from "@/game/GamePicker";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { useChangeStockItemUnit, useCrateReceiptLines, useItemReceiptLines, useRenameStockItem, useSetItemPastryQ7, useSetStockItemClass, useSetStockItemsClass, useWarehouseGameSnapshot, WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY, type StockItemClass } from "@/hooks/useWarehouseGame";
+import { useChangeStockItemUnit, useCrateReceiptLines, useItemReceiptLines, useRenameStockItem, useSetItemPastryQ7, useSetItemsPastryQ7, useSetStockItemClass, useSetStockItemsClass, useWarehouseGameSnapshot, WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY, type StockItemClass } from "@/hooks/useWarehouseGame";
 import { ReceiptNotes } from "@/game/ReceiptNotes";
 import { useConfirmMaterialAlias, useCreateStockMaterialItem, useRunAliasBacklog } from "@/hooks/useMaterialAlias";
 import { CrateYard, cleanCrateName, strongCandidate, type JevState } from "@/game/CrateYard";
@@ -209,7 +209,8 @@ function errorText(error: unknown): string {
     ["create_item_forbidden", "Chỉ chủ hoặc người sửa kho Q7 được tạo mặt hàng."],
     ["non_stock_requires_admin", "Chỉ chủ hoặc người sửa kho Q7 được đánh dấu không nhập kho."],
     ["insufficient_privilege", "Tài khoản chưa có quyền với kho này."],
-    ["q7_pastry_only", "Kho Q7 chỉ nhận nguyên liệu bánh ngọt. Bật “Bánh ngọt (Q7)” cho món này, hoặc chọn “Không nhập kho”."],
+    ["q7_pastry_only", "Kho Q7 chỉ nhận món để ở Q7. Bật “Để ở Q7” cho món này, hoặc chọn “Không nhập kho”."],
+    ["pastry_forbidden", "Chỉ chủ hoặc người sửa kho Q7 được đổi nơi để."],
   ];
   return known.find(([code]) => message.includes(code))?.[1] ?? message;
 }
@@ -241,6 +242,7 @@ export default function WarehouseGame() {
   const [panel, setPanel] = useState<Panel>(null);
   const [toast, setToast] = useState<string | null>(null);
   const setClasses = useSetStockItemsClass();
+  const setPlaces = useSetItemsPastryQ7();
   const [leaving, setLeaving] = useState<string | null>(null);
   const runBacklog = useRunAliasBacklog();
   const [jev, setJev] = useState<{ location: WarehouseGameLocation; state: JevState; done: number; total: number; message?: string } | null>(null);
@@ -560,6 +562,23 @@ export default function WarehouseGame() {
                   <button type="button" className="btn ghost" onClick={() => setPanel({ kind: "finished", mode: "out" })} data-bmq-fg-open="out">⬆ Xuất</button>
                 </div>
               ) : null}
+              split={view.location === "tan_tao"}
+              place={view.location === "tan_tao" && canClean && current.can_edit ? {
+                busy: setPlaces.isPending,
+                onApply: async (ids, toQ7) => {
+                  try {
+                    const result = await setPlaces.mutateAsync({ itemIds: ids, value: toQ7 });
+                    const where = toQ7 ? "để ở Q7" : "về lại Tân Tạo";
+                    setToast(result.failed.length
+                      ? `${result.done.length}/${ids.length} món ${where} · ${result.failed.length} món lỗi: ${errorText(result.error)}`
+                      : `Đã ${toQ7 ? "để" : "chuyển"} ${ids.length} món ${toQ7 ? "ở Q7 — nhập ở Tân Tạo xong tự chuyển sang Q7" : "về Tân Tạo"}`);
+                    return result.failed;
+                  } catch (error) {
+                    setToast(errorText(error));
+                    return null;
+                  }
+                },
+              } : undefined}
               bulk={canClean ? {
                 busy: setClasses.isPending,
                 onApply: async (ids, target) => {
@@ -703,7 +722,7 @@ function ItemNotes({ itemId }: { itemId: string }) {
   return <ReceiptNotes title="Phiếu nhập gần đây" lines={lines.data} loading={lines.isLoading} error={lines.error} />;
 }
 
-/** "Bánh ngọt (Q7)": flagged items move on to Q7 by themselves after landing at Tân Tạo. */
+/** "Để ở Q7": flagged items move on to Q7 by themselves after landing at Tân Tạo. */
 function PastrySwitch({ item, canEdit }: { item: WarehouseGameItem; canEdit: boolean }) {
   const setFlag = useSetItemPastryQ7();
   const [value, setValue] = useState(item.pastry_q7);
@@ -714,9 +733,9 @@ function PastrySwitch({ item, canEdit }: { item: WarehouseGameItem; canEdit: boo
   };
   return (
     <div className={`pastry-switch${value ? " is-on" : ""}`} data-bmq-item-pastry>
-      <span><b>🧁 Bánh ngọt (Q7)</b><small>{value ? "Nhập ở Tân Tạo xong tự chuyển sang Q7" : "Chỉ ở Tân Tạo, Q7 không nhận"}</small></span>
+      <span><b>🧁 Để ở Q7</b><small>{value ? "Nhập ở Tân Tạo xong tự chuyển sang Q7" : "Để ở Tân Tạo, Q7 không nhận"}</small></span>
       {canEdit ? (
-        <button type="button" role="switch" aria-checked={value} aria-label="Bánh ngọt (Q7)" className="kg-switch" disabled={setFlag.isPending} onClick={flip}><i /></button>
+        <button type="button" role="switch" aria-checked={value} aria-label="Để ở Q7" className="kg-switch" disabled={setFlag.isPending} onClick={flip}><i /></button>
       ) : null}
       {setFlag.error ? <div className="err">{errorText(setFlag.error)}</div> : null}
     </div>
@@ -989,10 +1008,10 @@ function CrateSheet({ location, crate, snapshot, autoPick = false, onAssigned, o
           <UnitQuestion plan={plan} stockUnit={newUnit} label={packLabel} onLabel={setPackLabel} factorText={factorText} onFactor={setFactorText} />
           <div className={`pastry-switch${asPastry ? " is-on" : ""}`} data-bmq-new-pastry>
             <span>
-              <b>🧁 Bánh ngọt (Q7)</b>
-              <small>{location === "q7" ? (asPastry ? "Kho Q7 chỉ nhận nguyên liệu bánh ngọt" : "Tắt thì Kho Q7 không nhận món này") : asPastry ? "Nhập ở Tân Tạo xong tự chuyển sang Q7" : "Chỉ ở Tân Tạo"}</small>
+              <b>🧁 Để ở Q7</b>
+              <small>{location === "q7" ? (asPastry ? "Kho Q7 chỉ nhận món để ở Q7" : "Tắt thì Kho Q7 không nhận món này") : asPastry ? "Nhập ở Tân Tạo xong tự chuyển sang Q7" : "Để ở Tân Tạo"}</small>
             </span>
-            <button type="button" role="switch" aria-checked={asPastry} aria-label="Bánh ngọt (Q7)" className="kg-switch" onClick={() => setAsPastry((v) => !v)}><i /></button>
+            <button type="button" role="switch" aria-checked={asPastry} aria-label="Để ở Q7" className="kg-switch" onClick={() => setAsPastry((v) => !v)}><i /></button>
           </div>
           {error ? <div className="err">{errorText(error)}</div> : null}
           <div className="row">

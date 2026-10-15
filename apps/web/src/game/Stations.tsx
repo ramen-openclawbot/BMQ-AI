@@ -159,7 +159,7 @@ function PastryStation({ canEdit }: { canEdit: boolean }) {
   const toggle = (id: string, name: string, value: boolean) => {
     setBusyId(id);
     setFlag.mutate({ itemId: id, value }, {
-      onSuccess: () => toast({ title: value ? "Đã đánh dấu bánh ngọt" : "Đã bỏ dấu bánh ngọt", description: value ? `${name} sẽ tự chuyển sang Q7 khi nhập.` : `${name} chỉ ở Tân Tạo.` }),
+      onSuccess: () => toast({ title: value ? "Đã để ở Q7" : "Đã để ở Tân Tạo", description: value ? `${name} sẽ tự chuyển sang Q7 khi nhập.` : `${name} để ở Tân Tạo.` }),
       onError: (error) => toast({ title: "Chưa lưu được", description: errorText(error), variant: "destructive" }),
       onSettled: () => setBusyId(null),
     });
@@ -168,7 +168,7 @@ function PastryStation({ canEdit }: { canEdit: boolean }) {
     <li key={item.id} className={`pastry-row${item.pastry_q7 ? " is-on" : ""}`}>
       <span className="pastry-name"><b>{item.name}</b><small>{CLASS_META[asClass(item.item_class)].label} · {item.unit}</small></span>
       {canEdit ? (
-        <button type="button" role="switch" aria-checked={item.pastry_q7} aria-label={`Bánh ngọt: ${item.name}`} className="kg-switch" disabled={busyId === item.id} onClick={() => toggle(item.id, item.name, !item.pastry_q7)} data-bmq-pastry-toggle={item.id}>
+        <button type="button" role="switch" aria-checked={item.pastry_q7} aria-label={`Để ở Q7: ${item.name}`} className="kg-switch" disabled={busyId === item.id} onClick={() => toggle(item.id, item.name, !item.pastry_q7)} data-bmq-pastry-toggle={item.id}>
           <i />
         </button>
       ) : <span className="kg-locked">{item.pastry_q7 ? "Q7" : "Tân Tạo"}</span>}
@@ -177,15 +177,15 @@ function PastryStation({ canEdit }: { canEdit: boolean }) {
   return (
     <>
       <div className="flow-note">
-        <span>🏭 Nhập hết vào <b>Tân Tạo</b></span><span className="flow-arrow">→</span><span>🧁 Món bánh ngọt tự <b>chuyển Q7</b></span>
+        <span>🏭 Nhập hết vào <b>Tân Tạo</b></span><span className="flow-arrow">→</span><span>🧁 Món để ở Q7 tự <b>chuyển sang Q7</b></span>
       </div>
       <label className="field">Tìm mặt hàng<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="gõ tên…" /></label>
       {snapshot.isLoading ? <div className="d3-wh-empty">Đang tải…</div> : (
         <>
-          <Section title={`Tự chuyển sang Q7 · ${on.length}`} sub="Khi ghi sổ phiếu nhập, máy lập phiếu chuyển Tân Tạo → Q7 và trừ hết ở Tân Tạo.">
+          <Section title={`Để ở Q7 · ${on.length}`} sub="Khi ghi sổ phiếu nhập, máy lập phiếu chuyển Tân Tạo → Q7 và trừ hết ở Tân Tạo.">
             {on.length ? <ul className="pastry-list">{on.map(row)}</ul> : <div className="d3-wh-empty">Chưa có món nào.</div>}
           </Section>
-          <Section title={`Chỉ ở Tân Tạo · ${off.length}`} sub="Q7 không nhận các món này (ví dụ Patê, rau củ, vật tư chung).">
+          <Section title={`Để ở Tân Tạo · ${off.length}`} sub="Q7 không nhận các món này (ví dụ Patê, rau củ, vật tư chung).">
             {off.length ? <ul className="pastry-list">{off.map(row)}</ul> : <div className="d3-wh-empty">Không có món nào.</div>}
           </Section>
         </>

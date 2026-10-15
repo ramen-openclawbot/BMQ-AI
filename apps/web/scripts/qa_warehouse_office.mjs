@@ -222,6 +222,14 @@ for (const vp of [{ width: 1440, height: 900, touch: false }, { width: 1280, hei
     assert.match(await page.locator(".kvp .row.is-open .debt .sum").textContent(), /Chi kèm 1 phiếu/);
   });
   await page.screenshot({ path: `${EVIDENCE}/product-${w}.png` });
+  await check(`${w} a good kept at Q7 says it is delivered to Tân Tạo then moved on`, async () => {
+    await page.getByRole("textbox", { name: "Tìm nguyên vật liệu" }).fill("bột mì 888");
+    await page.waitForTimeout(250);
+    assert.match(await page.locator(".kvp .rows .row [data-office-to-q7]").first().textContent(), /Giao về Tân Tạo → tự chuyển Q7/);
+    await page.getByRole("textbox", { name: "Tìm nguyên vật liệu" }).fill("dầu ăn tường an");
+    await page.waitForTimeout(250);
+    assert.equal(await page.locator(".kvp .rows .row [data-office-to-q7]").count(), 0, "Tân Tạo goods carry no note");
+  });
 
   // Drag into the machine.
   const count0 = await basketCount(page);

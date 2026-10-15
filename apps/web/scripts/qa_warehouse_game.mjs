@@ -207,7 +207,13 @@ function settle(st) {
   if (st.table === "rpc:get_crate_receipt_lines" || st.table === "rpc:get_item_receipt_lines") { window.__qaWrites.push("read:" + st.table); return { data: window.__kgFixture.receipt_lines ?? [], error: null }; }
   if (st.table === "rpc:set_stock_items_class") { window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args)); return { data: { item_class: st.args.p_class, updated: st.args.p_item_ids.length, superseded_suggestions: 0 }, error: null }; }
   if (st.table === "rpc:set_stock_item_class") { window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args)); return { data: { item_id: st.args.p_item_id, old_class: "raw_material", item_class: st.args.p_class, item_class_source: "manual", superseded_suggestions: 0 }, error: null }; }
-  if (st.table === "rpc:set_item_pastry_q7") { window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args)); return { data: { item_id: st.args.p_item_id, pastry_q7: st.args.p_value }, error: null }; }
+  if (st.table === "rpc:set_item_pastry_q7") {
+    window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args));
+    if (JSON.parse(localStorage.getItem("qa-pastry-fail") || "[]").includes(st.args.p_item_id)) return { data: null, error: { message: "pastry_forbidden" } };
+    const it = window.__kgFixture.items.find((x) => x.id === st.args.p_item_id);
+    if (it) it.pastry_q7 = st.args.p_value;
+    return { data: { item_id: st.args.p_item_id, pastry_q7: st.args.p_value }, error: null };
+  }
   if (/^rpc:(rename_stock_item|change_stock_item_unit|confirm_material_alias|create_stock_material_item)$/.test(st.table)) {
     window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args));
     if (st.table === "rpc:rename_stock_item") return { data: { item_id: st.args.p_item_id, old_name: "x", new_name: st.args.p_new_name }, error: null };
@@ -841,6 +847,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await page.waitForTimeout(900);
     await page.screenshot({ path: `${EVIDENCE}/shelf-${role}-${viewport.width}.png` });
     if (started) assert.ok((await page.locator(".kg .good-meta b").count()) > 0, "stock shown once the ledger started");
+    assert.equal(await page.locator("[data-bmq-q7-plank], [data-bmq-where], [data-bmq-bulk-place]").count(), 0, "Q7 shelves are not split by place");
     // Owner 16/10: tick many goods on a shelf and move them to a group in one go (editors only).
     assert.equal(await page.locator("[data-bmq-bulk-toggle]").count(), role === "owner" ? 1 : 0, "bulk select for editors only");
     if (role === "owner") {
@@ -867,7 +874,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     }
     await page.getByRole("button", { name: "Bột mì 888 Cam" }).click({ force: true });
     await page.waitForTimeout(600);
-    assert.equal(await page.locator("[data-bmq-item-pastry]").count(), 1, "item sheet shows the Bánh ngọt (Q7) flag");
+    assert.equal(await page.locator("[data-bmq-item-pastry]").count(), 1, "item sheet shows the Để ở Q7 flag");
     assert.equal(await page.locator("[data-bmq-receipt-notes]").count(), role === "owner" ? 1 : 0, "item sheet shows recent receipts to editors only");
     // Owner 16/10: the group can be set from the item sheet (editors only).
     assert.equal(await page.locator("[data-bmq-item-class]").count(), 1, "item sheet shows the group");
@@ -929,7 +936,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
   await page.waitForTimeout(900);
   assert.ok((await page.locator(".kg .title-pill b").textContent()).includes("Danh mục hàng hóa"));
   await page.screenshot({ path: `${EVIDENCE}/workshop-${viewport.width}.png` });
-  for (const [station, check] of [["Gộp tên trùng", "[data-bmq-catalog-merge]"], ["Phân nhóm hàng", "[data-bmq-catalog-classify]"], ["Hàng chuyển sang Q7", "[data-bmq-pastry-toggle]"], ["Gắn mã hàng", "[data-bmq-link-quest]"], ["Hàng mới chưa có mã", "[data-bmq-new-items]"], ["Tên chưa có mã", "[data-bmq-alias-backlog]"], ["Tên đã ghép mã", "[data-bmq-learned-aliases]"], ["Nhà cung cấp về kho nào", "[data-bmq-routing-suppliers]"], ["Bé Mì rà soát", ".jev-meter"]]) {
+  for (const [station, check] of [["Gộp tên trùng", "[data-bmq-catalog-merge]"], ["Phân nhóm hàng", "[data-bmq-catalog-classify]"], ["Hàng để ở Q7", "[data-bmq-pastry-toggle]"], ["Gắn mã hàng", "[data-bmq-link-quest]"], ["Hàng mới chưa có mã", "[data-bmq-new-items]"], ["Tên chưa có mã", "[data-bmq-alias-backlog]"], ["Tên đã ghép mã", "[data-bmq-learned-aliases]"], ["Nhà cung cấp về kho nào", "[data-bmq-routing-suppliers]"], ["Bé Mì rà soát", ".jev-meter"]]) {
     await page.getByRole("button", { name: new RegExp(`^${station}`) }).click({ force: true });
     await page.waitForTimeout(900);
     assert.ok((await page.locator(check).count()) >= 1, `${station} shows its tool at ${viewport.width}`);
@@ -1164,7 +1171,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
   record("stock count empty 390");
   await context.close();
 }
-// Owner 14/10: a crate at Tân Tạo shows the picked item's "Bánh ngọt (Q7)" switch so the Q7 transfer can be turned off by hand.
+// Owner 14/10: a crate at Tân Tạo shows the picked item's "Để ở Q7" switch so the Q7 transfer can be turned off by hand.
 for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 640 }]) {
   const { context, page, errors } = await open({ data: "populated", role: "owner", started: true }, "/warehouse/game", viewport);
   await page.waitForSelector("[data-bmq-warehouse-game]", { timeout: 20000 });
@@ -1188,6 +1195,134 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
   await page.screenshot({ path: `${EVIDENCE}/crate-pastry-switch-${viewport.width}.png` });
   assert.equal(errors.length, 0, `no page errors: ${errors.join(" | ")}`);
   await context.close();
+}
+
+// Để ở Q7 (owner 16/10): at Tân Tạo, goods kept at Q7 sit on their own plank; the bulk bar moves many between places.
+{
+  const RAW = KG_FIXTURE.items.filter((it) => it.item_class === "raw_material");
+  const RAW_Q7 = RAW.filter((it) => it.pastry_q7).length;
+  const RAW_TT = RAW.length - RAW_Q7;
+  const toShelf = async (page) => {
+    await page.waitForSelector("[data-bmq-warehouse-game]", { timeout: 20000 });
+    await page.waitForTimeout(1200);
+    await page.getByRole("button", { name: /KHO TÂN TẠO/i }).click({ force: true });
+    await page.waitForTimeout(900);
+    await page.getByRole("button", { name: /Nguyên liệu, \d+ mặt hàng/ }).click({ force: true });
+    await page.waitForSelector("[data-bmq-q7-plank]", { timeout: 5000 });
+    await page.waitForTimeout(700);
+  };
+  const ttGoods = (page) => page.locator("[data-bmq-good-at='tan_tao']");
+  // Real taps (no force): scroll the card to the middle first so the sticky bulk bar never takes the tap.
+  const tap = async (loc) => { await loc.evaluate((el) => el.scrollIntoView({ block: "center" })); await loc.click(); };
+  const q7Goods = (page) => page.locator("[data-bmq-q7-plank] [data-bmq-good]");
+  const pastryWrites = async (page) => (await page.evaluate(() => window.__qaWrites)).filter((w) => w.startsWith("rpc:set_item_pastry_q7:")).map((w) => JSON.parse(w.slice("rpc:set_item_pastry_q7:".length)));
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 640 }]) {
+    const { context, page, errors } = await open({ data: "populated", role: "owner", started: true }, "/warehouse/game", viewport, { reducedMotion: "no-preference" });
+    await toShelf(page);
+    assert.equal(await q7Goods(page).count(), RAW_Q7, "goods kept at Q7 sit on the Q7 plank");
+    assert.equal(await ttGoods(page).count(), RAW_TT, "the rest stay on the Tân Tạo plank");
+    assert.equal(await page.locator("[data-bmq-q7-plank] [data-bmq-good-at='tan_tao']").count(), 0);
+    const [ttTop, q7Top] = await page.evaluate(() => [document.querySelector(".kg .plank-wrap:not(.is-q7)").getBoundingClientRect().top, document.querySelector("[data-bmq-q7-plank]").getBoundingClientRect().top]);
+    assert.ok(ttTop < q7Top, "Q7 plank comes after the Tân Tạo plank");
+    assert.match(await page.locator("[data-bmq-q7-plank] .q7-sign").textContent(), new RegExp(`Để ở Q7 · ${RAW_Q7} món`));
+    assert.match(await q7Goods(page).first().locator(".good-meta").textContent(), /→ Q7/);
+    assert.equal(await page.locator(".kg .good-pastry").count(), 0, "old corner badge gone");
+    assert.equal(await overflow(page), 0, `split shelf no overflow ${viewport.width}`);
+    await page.locator("[data-bmq-q7-plank]").scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `${EVIDENCE}/shelf-q7-plank-${viewport.width}.png` });
+    // Place filter.
+    await page.locator("[data-bmq-where-chip='q7']").click({ force: true });
+    await page.waitForTimeout(200);
+    assert.equal(await ttGoods(page).count(), 0, "filter Q7 hides Tân Tạo goods");
+    assert.equal(await q7Goods(page).count(), RAW_Q7);
+    await page.locator("[data-bmq-where-chip='tan_tao']").click({ force: true });
+    await page.waitForTimeout(200);
+    assert.equal(await page.locator("[data-bmq-q7-plank]").count(), 0, "filter Tân Tạo hides the Q7 plank");
+    assert.equal(await ttGoods(page).count(), RAW_TT);
+    await page.locator("[data-bmq-where-chip='all']").click({ force: true });
+    await page.waitForTimeout(200);
+    // Bulk: two Tân Tạo goods + one Q7 good.
+    await page.locator("[data-bmq-bulk-toggle]").click({ force: true });
+    await page.waitForTimeout(200);
+    assert.equal(await page.locator("[data-bmq-bulk-place]").count(), 2, "bulk bar offers Tân Tạo / Q7");
+    assert.equal(await page.locator("[data-bmq-bulk-place='q7']").isDisabled(), true, "nothing ticked yet");
+    const ids = [await ttGoods(page).nth(0).getAttribute("data-bmq-good"), await ttGoods(page).nth(1).getAttribute("data-bmq-good")];
+    const backId = await q7Goods(page).first().getAttribute("data-bmq-good");
+    await tap(ttGoods(page).nth(0));
+    await tap(ttGoods(page).nth(1));
+    await tap(page.locator(`[data-bmq-good='${backId}']`));
+    await page.waitForTimeout(200);
+    assert.match(await page.locator("[data-bmq-bulk-place='q7']").textContent(), /2 món sang/);
+    assert.match(await page.locator("[data-bmq-bulk-place='tan_tao']").textContent(), /1 món về/);
+    assert.equal(await overflow(page), 0, `bulk place bar no overflow ${viewport.width}`);
+    const bar = await page.locator("[data-bmq-bulk-bar]").boundingBox();
+    assert.ok(bar.y + bar.height <= viewport.height + 1, `bulk bar fits the screen ${viewport.width}: ${JSON.stringify(bar)}`);
+    const spill = await page.locator("[data-bmq-bulk-bar] button").evaluateAll((els) => els.filter((el) => el.scrollWidth > el.clientWidth + 1).map((el) => el.textContent));
+    assert.deepEqual(spill, [], `bulk bar labels fit ${viewport.width}`);
+    await page.screenshot({ path: `${EVIDENCE}/shelf-place-bar-${viewport.width}.png` });
+    await page.evaluate(() => { window.__qaWrites.length = 0; });
+    await page.locator("[data-bmq-bulk-place='q7']").click({ force: true });
+    await page.waitForSelector("[data-bmq-q7-van='q7']", { timeout: 3000 });
+    await page.waitForTimeout(900);
+    const vanBox = await page.locator("[data-bmq-q7-van='q7']").boundingBox();
+    assert.ok(vanBox && vanBox.x >= 0 && vanBox.x + vanBox.width <= viewport.width + 1 && vanBox.y >= 0, `van card on screen ${viewport.width}: ${JSON.stringify(vanBox)}`);
+    await page.screenshot({ path: `${EVIDENCE}/shelf-q7-van-${viewport.width}.png` });
+    const sent = await pastryWrites(page);
+    assert.deepEqual(sent.map((w) => w.p_item_id).sort(), [...ids].sort(), "only the two Tân Tạo goods are sent");
+    assert.ok(sent.every((w) => w.p_value === true && w.p_request_id), "each sent with value true + its own request id");
+    assert.match(await page.locator(".kg .toast").textContent(), /Đã để 2 món ở Q7/);
+    assert.equal(await page.locator("[data-bmq-bulk-bar]").count(), 0, "selection closes after the move");
+    await page.waitForSelector("[data-bmq-q7-van]", { state: "detached", timeout: 4000 });
+    for (const id of ids) assert.equal(await page.locator(`[data-bmq-good='${id}']`).getAttribute("data-bmq-good-at"), "q7", "moved good now on the Q7 plank");
+    assert.equal(await q7Goods(page).count(), RAW_Q7 + 2);
+    // And back.
+    await page.locator("[data-bmq-bulk-toggle]").click({ force: true });
+    await tap(page.locator(`[data-bmq-good='${ids[0]}']`));
+    await page.evaluate(() => { window.__qaWrites.length = 0; });
+    await page.locator("[data-bmq-bulk-place='tan_tao']").click({ force: true });
+    await page.waitForSelector("[data-bmq-q7-van='tan_tao']", { timeout: 3000 });
+    const back = await pastryWrites(page);
+    assert.ok(back.length === 1 && back[0].p_item_id === ids[0] && back[0].p_value === false, `move back sends false: ${JSON.stringify(back)}`);
+    await page.waitForSelector("[data-bmq-q7-van]", { state: "detached", timeout: 4000 });
+    assert.equal(await page.locator(`[data-bmq-good='${ids[0]}']`).getAttribute("data-bmq-good-at"), "tan_tao");
+    assert.deepEqual(errors, [], "no page errors");
+    record(`Để ở Q7 shelf ${viewport.width}`);
+    await context.close();
+  }
+  // One refusal: the rest still move, the refused good stays ticked and the toast says why.
+  {
+    const viewport = { width: 390, height: 844 };
+    const { context, page, errors } = await open({ data: "populated", role: "owner", started: false }, "/warehouse/game", viewport);
+    await toShelf(page);
+    await page.locator("[data-bmq-bulk-toggle]").click({ force: true });
+    const a = await ttGoods(page).nth(0).getAttribute("data-bmq-good");
+    const b = await ttGoods(page).nth(1).getAttribute("data-bmq-good");
+    await tap(ttGoods(page).nth(0));
+    await tap(ttGoods(page).nth(1));
+    await page.evaluate((id) => localStorage.setItem("qa-pastry-fail", JSON.stringify([id])), b);
+    await page.locator("[data-bmq-bulk-place='q7']").click({ force: true });
+    await page.waitForTimeout(800);
+    assert.match(await page.locator(".kg .toast").textContent(), /1\/2 món để ở Q7 · 1 món lỗi: Chỉ chủ/);
+    assert.match(await page.locator("[data-bmq-bulk-bar] > b").textContent(), /Đã chọn 1 món/);
+    assert.equal(await page.locator(`[data-bmq-good='${b}']`).getAttribute("aria-pressed"), "true", "refused good stays ticked");
+    await page.waitForTimeout(400);
+    assert.equal(await page.locator(`[data-bmq-good='${a}']`).getAttribute("data-bmq-good-at"), "q7");
+    assert.match(await page.locator(`[data-bmq-good='${a}'] .good-meta`).textContent(), /→ Q7/, "not-started ledger: place + unit");
+    await page.screenshot({ path: `${EVIDENCE}/shelf-place-partial-390.png` });
+    assert.deepEqual(errors, []);
+    record("Để ở Q7 partial refusal 390");
+    await context.close();
+  }
+  // Viewers see the plank but no bulk tools.
+  {
+    const { context, page, errors } = await open({ data: "populated", role: "viewer", started: true }, "/warehouse/game", { width: 390, height: 844 });
+    await toShelf(page);
+    assert.equal(await page.locator("[data-bmq-bulk-toggle], [data-bmq-bulk-place]").count(), 0, "no bulk tools for viewers");
+    assert.ok((await q7Goods(page).count()) > 0, "viewer still sees where goods are kept");
+    assert.deepEqual(errors, []);
+    record("Để ở Q7 viewer 390");
+    await context.close();
+  }
 }
 
 // Manual Tân Tạo -> Q7 transfer slip (owner 12/10): build, validate, submit; ledger-not-started gate.
