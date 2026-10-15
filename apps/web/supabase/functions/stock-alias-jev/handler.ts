@@ -49,6 +49,15 @@ import {
   type SupplierDebtCandidates,
 } from "./debt-review.ts";
 import { getCorsHeaders } from "../_shared/cors.ts";
+import {
+  aliasSubjectKey,
+  formatAliasCorrection,
+  loadRobotFeedback,
+  pickAliasCorrections,
+  rejectedRobotChoices,
+  type RobotFeedbackKind,
+  type RobotFeedbackRow,
+} from "../_shared/robot-feedback.ts";
 
 export const MATERIAL_ALIAS_REQUEST_BODY_LIMIT = 32_768;
 export const MATERIAL_ALIAS_REQUEST_BUDGET_MS = 110_000;
@@ -114,6 +123,32 @@ export interface MaterialAliasLineInput {
   candidates: MaterialAliasCandidate[];
 }
 
+/** One robot_auto_confirm_alias call for an answer that passed the rule. */
+export interface AutoConfirmAliasInput {
+  supplierId: string | null;
+  location: string;
+  rawName: string;
+  rawUnit: string | null;
+  itemId: string | null;
+  skuId: string | null;
+  enteredUnitLabel: string | null;
+  conversionFactor: number;
+  jevItemId: string;
+  jevProbability: number;
+}
+
+export interface AutoApplyResult {
+  applied: boolean;
+  reason?: string;
+  action_id?: string;
+}
+
+/** Additive response counters for the auto-apply pass. */
+export interface AutoApplySummary {
+  applied: number;
+  skipped: Record<string, number>;
+}
+
 export interface MaterialAliasHandlerDeps {
   killSwitch: () => boolean;
   evaluator: () => JevEvaluator | null;
@@ -142,6 +177,10 @@ export interface MaterialAliasHandlerDeps {
   /** Batched reads: one DB round-trip per phase instead of one per row. */
   getCacheMany?: (keys: MaterialAliasCacheKey[]) => Promise<Array<{ answer: CachedJevAnswer; cost: number | null } | null>>;
   getRawCacheMany?: (keys: MaterialAliasCacheKey[]) => Promise<Array<{ answer: Record<string, unknown>; cost: number | null } | null>>;
+  /** Human corrections for alias subjects (robot_feedback); a failed read is empty. */
+  getRobotFeedback?: (kind: RobotFeedbackKind, keys: string[], limit: number) => Promise<RobotFeedbackRow[]>;
+  /** Internal service-role auto writer robot_auto_confirm_alias. */
+  autoConfirmAlias?: (input: AutoConfirmAliasInput) => Promise<AutoApplyResult>;
   newItemEvaluator?: () => NewItemJevEvaluator | null;
   /** debt_review mode: read one supplier's old debt candidates, service client. */
   getDebtCandidates?: (supplierId: string) => Promise<SupplierDebtCandidates>;
@@ -510,6 +549,123 @@ async function loadStockNameCorrections(
   } catch {
     return new Map();
   }
+}
+
+type FeedbackBySubject = Map<string, RobotFeedbackRow[]>;
+
+/** Group the alias feedback rows by subject; a missing dependency is empty. */
+async function loadAliasFeedback(
+  deps: MaterialAliasHandlerDeps,
+  keys: readonly string[],
+): Promise<FeedbackBySubject> {
+  const grouped: FeedbackBySubject = new Map();
+  if (typeof deps.getRobotFeedback !== "function") return grouped;
+  const distinct = [...new Set(keys.filter((key) => key !== ""))];
+  if (distinct.length === 0) return grouped;
+  let rows: RobotFeedbackRow[] = [];
+  try {
+    rows = await deps.getRobotFeedback("alias", distinct, 50);
+  } catch {
+    rows = [];
+  }
+  for (const row of rows) {
+    const list = grouped.get(row.subject_key) ?? [];
+    list.push(row);
+    grouped.set(row.subject_key, list);
+  }
+  return grouped;
+}
+
+/** Drop every candidate a human already rejected for this subject. */
+function dropRejectedCandidates(
+  candidates: readonly MaterialAliasCandidate[],
+  rows: readonly RobotFeedbackRow[],
+): MaterialAliasCandidate[] {
+  const rejected = rejectedRobotChoices(rows);
+  if (rejected.size === 0) return [...candidates];
+  return candidates.filter((candidate) => !rejected.has(candidate.id));
+}
+
+/** Up to 5 relevant past corrections rendered for the question text. */
+function aliasCorrections(
+  rows: readonly RobotFeedbackRow[],
+  supplierId: string | null,
+  normalizedName: string,
+): string[] {
+  return pickAliasCorrections(rows, { supplierId, normalizedName }, 5).map(formatAliasCorrection);
+}
+
+/**
+ * The conversion factor implied by a parsed pack (base quantity × multiplier),
+ * or 1 when there is no readable pack.
+ */
+function packConversionFactor(pack: CachedJevAnswer["pack"]): number {
+  const base = pack?.base_qty ?? 1;
+  const multiplier = pack?.multiplier ?? 1;
+  const value = (Number.isFinite(base) ? base : 1) * (Number.isFinite(multiplier) ? multiplier : 1);
+  return Number.isFinite(value) && value > 0 ? value : 1;
+}
+
+function chosenCandidate(
+  candidates: readonly MaterialAliasCandidate[],
+  choiceId: string | null,
+): MaterialAliasCandidate | null {
+  if (choiceId === null) return null;
+  return candidates.find((candidate) => candidate.id === choiceId) ?? null;
+}
+
+/** Call robot_auto_confirm_alias for one answer and fold the result in. */
+async function autoApplyAlias(
+  deps: MaterialAliasHandlerDeps,
+  summary: AutoApplySummary,
+  input: AutoConfirmAliasInput,
+): Promise<void> {
+  if (typeof deps.autoConfirmAlias !== "function") return;
+  try {
+    const result = await deps.autoConfirmAlias(input);
+    if (result?.applied) {
+      summary.applied += 1;
+      return;
+    }
+    const reason = typeof result?.reason === "string" && result.reason !== "" ? result.reason : "not_applied";
+    summary.skipped[reason] = (summary.skipped[reason] ?? 0) + 1;
+  } catch {
+    summary.skipped.error = (summary.skipped.error ?? 0) + 1;
+  }
+}
+
+/**
+ * The auto-apply input for a chosen candidate, or null when the answer is not a
+ * goods alias (none / non-goods). Only outcomes that pass the rule reach the
+ * internal writer, which still re-checks settings, cap, feedback, threshold and
+ * unit convertibility.
+ */
+function autoConfirmInputFor(params: {
+  supplierId: string | null;
+  location: string;
+  rawName: string;
+  rawUnit: string | null;
+  candidate: MaterialAliasCandidate | null;
+  answer: CachedJevAnswer;
+}): AutoConfirmAliasInput | null {
+  const { candidate, answer } = params;
+  if (!candidate || answer.choice === null) return null;
+  if (answer.line_type !== LINE_TYPE_GOODS) return null;
+  // A pack factor read by the robot is never written on its own; a human sets it.
+  if (packConversionFactor(answer.pack) !== 1) return null;
+  const skuId = candidate.sku_id ?? null;
+  return {
+    supplierId: params.supplierId,
+    location: params.location,
+    rawName: params.rawName,
+    rawUnit: params.rawUnit,
+    itemId: skuId === null ? candidate.id : null,
+    skuId,
+    enteredUnitLabel: answer.pack?.label ?? null,
+    conversionFactor: packConversionFactor(answer.pack),
+    jevItemId: candidate.id,
+    jevProbability: answer.probability,
+  };
 }
 
 /**
@@ -1076,12 +1232,19 @@ export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
 
       if (input.mode === "lines") {
         const normalizedNames = input.lines.map((line) => normalizeItemName(line.raw_name));
-        const corrections = await loadStockNameCorrections(deps, normalizedNames);
+        const correctionsByName = await loadStockNameCorrections(deps, normalizedNames);
+        // One feedback read for the whole batch, grouped by subject. A human
+        // rejection removes that candidate permanently for the subject.
+        const feedback = await loadAliasFeedback(
+          deps,
+          normalizedNames.map((name) => aliasSubjectKey(input.supplierId, name)),
+        );
+        const autoSummary: AutoApplySummary = { applied: 0, skipped: {} };
         const results: unknown[] = [];
         for (const [index, line] of input.lines.entries()) {
           const normalizedName = normalizedNames[index];
           // The operator-facing corrected name, when the machine read it wrong.
-          const displayName = corrections.get(normalizedName) ?? line.raw_name;
+          const displayName = correctionsByName.get(normalizedName) ?? line.raw_name;
           // The fixed rule already knows VAT / fee / service: answer from code
           // and never spend a Jev call on it.
           if (autoNonStockReason(line.raw_name) !== null) {
@@ -1094,11 +1257,15 @@ export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
             });
             continue;
           }
+          const subjectKey = aliasSubjectKey(input.supplierId, normalizedName);
+          const subjectRows = feedback.get(subjectKey) ?? [];
           // A label / sticker line must never be matched to the finished product
           // whose name it carries. The cache key still uses the machine name.
-          const candidateList = isPackagingLabelName(displayName)
+          const baseCandidates = isPackagingLabelName(displayName)
             ? rejectFinishedProductCandidates(line.candidates)
             : line.candidates;
+          const candidateList = dropRejectedCandidates(baseCandidates, subjectRows);
+          const lineCorrections = aliasCorrections(subjectRows, input.supplierId, normalizedName);
           const hash = candidatesHash(candidateIds(candidateList));
           const key: MaterialAliasCacheKey = {
             supplierId: input.supplierId,
@@ -1126,7 +1293,7 @@ export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
           } else if (!evaluator || calls >= remainingQuota) {
             answer = buildAnswer(null, line.raw_name, null);
           } else {
-            const evaluation = await evaluator({ state: { line: { name: displayName, unit: line.raw_unit, supplier: input.supplierId }, candidates: candidateList }, signal, deadlineAt });
+            const evaluation = await evaluator({ state: { line: { name: displayName, unit: line.raw_unit, supplier: input.supplierId }, candidates: candidateList, ...(lineCorrections.length ? { corrections: lineCorrections } : {}) }, signal, deadlineAt });
             calls += 1;
             const callCost = evaluationCost(evaluation);
             cost += callCost;
@@ -1135,6 +1302,8 @@ export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
             await deps.incrementUsage(usageDate, 1, callCost);
             await deps.putCache(key, answer, evaluation.cost ?? null);
           }
+          // Lines mode never auto-applies: the person entering the receipt is
+          // choosing right now. Only the backlog pass writes on its own.
           results.push({
             line_key: line.line_key,
             normalized_name: normalizedName,
@@ -1144,7 +1313,7 @@ export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
           });
         }
         const stopped = remainingQuota <= 0 ? "daily_limit" : null;
-        deps.audit?.({ event: "stock_alias_jev", mode: "lines", lines: input.lines.length, cached, calls, cost, failed });
+        deps.audit?.({ event: "stock_alias_jev", mode: "lines", lines: input.lines.length, cached, calls, cost, failed, auto_applied: autoSummary.applied });
         return json({
           mode: "lines",
           results,
@@ -1152,6 +1321,8 @@ export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
           cost,
           cached,
           failed,
+          auto_applied: autoSummary.applied,
+          auto_skipped: autoSummary.skipped,
           usage: { date: usageDate, calls: usage.calls + calls, limit: callLimit },
           stopped,
         });
@@ -1162,6 +1333,11 @@ export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
         const rows = await deps.listBacklog(input.location, MATERIAL_ALIAS_BACKLOG_LIMIT);
       // One grouped read of the operator display-name overrides for the batch.
       const corrections = await loadStockNameCorrections(deps, rows.map((row) => row.normalized_name));
+      // One grouped read of the alias feedback memory for the batch.
+      const feedback = await loadAliasFeedback(
+        deps,
+        rows.map((row) => aliasSubjectKey(row.supplier_id, row.normalized_name)),
+      );
       // The catalog is the same for every row: read it once, then offer Jev the
       // token matches plus the whole catalog so a translated / abbreviated /
       // OCR-damaged name still has real options.
@@ -1171,6 +1347,8 @@ export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
         /** The corrected name when the machine read is wrong, else the raw name. */
         displayName: string;
         candidates: MaterialAliasCandidate[];
+        subjectRows: RobotFeedbackRow[];
+        corrections: string[];
         key: MaterialAliasCacheKey;
       };
       const eligible: BacklogEntry[] = [];
@@ -1186,9 +1364,11 @@ export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
         const merged = mergeCandidateOptions(tokenCandidates, catalog);
         // A label / sticker line must never be matched to the finished product
         // whose name it carries. The cache key still uses the machine name.
-        const candidates = isPackagingLabelName(displayName)
+        const baseCandidates = isPackagingLabelName(displayName)
           ? rejectFinishedProductCandidates(merged)
           : merged;
+        const subjectRows = feedback.get(aliasSubjectKey(row.supplier_id, row.normalized_name)) ?? [];
+        const candidates = dropRejectedCandidates(baseCandidates, subjectRows);
         // A row with no token match but catalog options is still evaluated; only
         // a row with no option at all (an empty catalog, or a label with only
         // SKU options) is skipped.
@@ -1197,6 +1377,8 @@ export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
           row,
           displayName,
           candidates,
+          subjectRows,
+          corrections: aliasCorrections(subjectRows, row.supplier_id, row.normalized_name),
           key: {
             supplierId: row.supplier_id,
             normalizedName: row.normalized_name,
@@ -1215,6 +1397,7 @@ export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
         else pending.push(entry);
       }
 
+      const autoSummary: AutoApplySummary = { applied: 0, skipped: {} };
       let evaluated = 0;
       let processed = 0;
       for (const entry of pending) {
@@ -1222,13 +1405,22 @@ export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
         const exact = exactCandidateAnswer(entry.candidates, entry.row.raw_name);
         if (exact) {
           await deps.putCache(entry.key, exact, null);
+          const exactInput = autoConfirmInputFor({
+            supplierId: entry.row.supplier_id,
+            location: entry.row.location,
+            rawName: entry.row.raw_name,
+            rawUnit: entry.row.raw_unit,
+            candidate: chosenCandidate(entry.candidates, exact.choice),
+            answer: exact,
+          });
+          if (exactInput) await autoApplyAlias(deps, autoSummary, exactInput);
           processed += 1;
           continue;
         }
         if (!evaluator || calls >= remainingQuota) break;
         try {
           const evaluation = await evaluator({
-            state: { line: { name: entry.displayName, unit: entry.row.raw_unit, supplier: entry.row.supplier_id }, candidates: entry.candidates },
+            state: { line: { name: entry.displayName, unit: entry.row.raw_unit, supplier: entry.row.supplier_id }, candidates: entry.candidates, ...(entry.corrections.length ? { corrections: entry.corrections } : {}) },
             signal,
             deadlineAt,
           });
@@ -1237,8 +1429,18 @@ export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
           cost += callCost;
           evaluated += 1;
           processed += 1;
+          const answer = buildAnswer(evaluation, entry.row.raw_name, evaluation.choice);
           await deps.incrementUsage(usageDate, 1, callCost);
-          await deps.putCache(entry.key, buildAnswer(evaluation, entry.row.raw_name, evaluation.choice), evaluation.cost ?? null);
+          await deps.putCache(entry.key, answer, evaluation.cost ?? null);
+          const autoInput = autoConfirmInputFor({
+            supplierId: entry.row.supplier_id,
+            location: entry.row.location,
+            rawName: entry.row.raw_name,
+            rawUnit: entry.row.raw_unit,
+            candidate: chosenCandidate(entry.candidates, answer.choice),
+            answer,
+          });
+          if (autoInput) await autoApplyAlias(deps, autoSummary, autoInput);
         } catch (error) {
           // One answer Jev got wrong (a tied top choice, a distribution that does not sum
           // to 1) must not stop the whole batch: skip that name, count it, keep going.
@@ -1265,6 +1467,7 @@ export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
         calls,
         cost,
         failed,
+        auto_applied: autoSummary.applied,
       });
       return json({
         mode: "backlog",
@@ -1277,6 +1480,8 @@ export function createMaterialAliasHandler(deps: MaterialAliasHandlerDeps) {
         failed,
         calls,
         cost,
+        auto_applied: autoSummary.applied,
+        auto_skipped: autoSummary.skipped,
         usage: { date: usageDate, calls: usage.calls + calls, limit: callLimit },
         stopped,
       });

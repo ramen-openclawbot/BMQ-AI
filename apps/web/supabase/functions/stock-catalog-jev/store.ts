@@ -10,12 +10,18 @@ import { candidatePairKey, type StockCatalogCandidate, type StockCatalogClassify
 import {
   STOCK_CATALOG_DAILY_CALL_LIMIT,
   StockCatalogError,
+  type InsertSuggestionsResult,
   type StockCatalogSuggestionRow,
   type StockCatalogUsage,
 } from "./handler.ts";
+import { formatClassCorrection, type RobotFeedbackRow } from "../_shared/robot-feedback.ts";
 
 const STOCK_CATALOG_CLASSIFY_ITEM_LIMIT = 500;
 const COUNT_LOOKBACK_DAYS = 90;
+const CLASS_THRESHOLD_DEFAULT = 0.9;
+
+/** A classify item plus the corrections the model should see. */
+export type ClassifyItemWithCorrections = StockCatalogClassifyItem & { corrections?: string[] };
 
 function fail(): never {
   throw new StockCatalogError("scan_failed", 503);
@@ -58,10 +64,10 @@ function mapCandidate(row: Record<string, unknown>): StockCatalogCandidate {
 export interface StockCatalogStore {
   listCandidates(): Promise<StockCatalogCandidate[]>;
   listExistingMergePairKeys(promptVersion: string): Promise<string[]>;
-  listUnclassifiedItems(promptVersion: string): Promise<StockCatalogClassifyItem[]>;
+  listUnclassifiedItems(promptVersion: string): Promise<ClassifyItemWithCorrections[]>;
   getUsage(usageDate: string): Promise<StockCatalogUsage>;
   recordUsage(usage: StockCatalogUsage): Promise<void>;
-  insertSuggestions(rows: StockCatalogSuggestionRow[]): Promise<void>;
+  insertSuggestions(rows: StockCatalogSuggestionRow[]): Promise<InsertSuggestionsResult>;
 }
 
 export function createStockCatalogStore(admin: SupabaseClient): StockCatalogStore {
@@ -73,11 +79,12 @@ export function createStockCatalogStore(admin: SupabaseClient): StockCatalogStor
     },
 
     async listExistingMergePairKeys(promptVersion) {
+      // A pair a human rejected is never asked again, regardless of prompt_version.
       const { data, error } = await admin
         .from("stock_catalog_suggestions")
-        .select("item_id,other_item_id")
+        .select("item_id,other_item_id,prompt_version,status")
         .eq("kind", "merge")
-        .eq("prompt_version", promptVersion)
+        .or(`status.eq.rejected,prompt_version.eq.${promptVersion}`)
         .limit(5_000);
       if (error) fail();
       return ((data ?? []) as unknown as { item_id: string; other_item_id: string | null }[])
@@ -154,6 +161,25 @@ export function createStockCatalogStore(admin: SupabaseClient): StockCatalogStor
         }
       }
 
+      // Past human corrections for these items, rendered for the question text.
+      const correctionsById = new Map<string, string[]>();
+      const { data: feedback, error: feedbackError } = await admin
+        .from("robot_feedback")
+        .select("subject_key,robot_choice,human_choice,robot_label,human_label,created_at")
+        .eq("kind", "catalog_class")
+        .in("subject_key", ids)
+        .order("created_at", { ascending: false });
+      if (!feedbackError) {
+        const nameById = new Map(rows.map((row) => [row.id, row.name ?? ""]));
+        for (const entry of (feedback ?? []) as unknown as RobotFeedbackRow[]) {
+          const key = String(entry.subject_key ?? "");
+          const list = correctionsById.get(key) ?? [];
+          if (list.length >= 5) continue;
+          list.push(formatClassCorrection(entry, nameById.get(key) ?? key));
+          correctionsById.set(key, list);
+        }
+      }
+
       return rows.map((row) => ({
         id: row.id,
         name: row.name ?? "",
@@ -163,6 +189,7 @@ export function createStockCatalogStore(admin: SupabaseClient): StockCatalogStor
         movement_count_90d: movementCounts.get(row.id) ?? 0,
         canonical_material_id: row.canonical_material_id,
         canonical_material_code: row.canonical_material_id ? materialCodes.get(row.canonical_material_id) ?? null : null,
+        ...(correctionsById.has(row.id) ? { corrections: correctionsById.get(row.id) } : {}),
       }));
     },
 
@@ -193,16 +220,73 @@ export function createStockCatalogStore(admin: SupabaseClient): StockCatalogStor
     },
 
     async insertSuggestions(rows) {
-      if (rows.length === 0) return;
-      const { error } = await admin.from("stock_catalog_suggestions").insert(rows);
-      if (!error) return;
-      // The unique (kind, pair, prompt_version) index can reject a concurrent
-      // duplicate: keep the first writer and fall back to per-row inserts.
-      if ((error as { code?: string }).code !== "23505") fail();
-      for (const row of rows) {
-        const { error: rowError } = await admin.from("stock_catalog_suggestions").insert(row);
-        if (rowError && (rowError as { code?: string }).code !== "23505") fail();
+      const result: InsertSuggestionsResult = { inserted: 0, auto: { applied: 0, skipped: {} } };
+      if (rows.length === 0) return result;
+
+      const inserted: Array<Record<string, unknown>> = [];
+      const { data, error } = await admin
+        .from("stock_catalog_suggestions")
+        .insert(rows)
+        .select("id,kind,item_id,proposed_class,probability");
+      if (!error) {
+        inserted.push(...((data ?? []) as unknown as Array<Record<string, unknown>>));
+      } else if ((error as { code?: string }).code === "23505") {
+        // The unique (kind, pair, prompt_version) index can reject a concurrent
+        // duplicate: keep the first writer and fall back to per-row inserts.
+        for (const row of rows) {
+          const { data: one, error: rowError } = await admin
+            .from("stock_catalog_suggestions")
+            .insert(row)
+            .select("id,kind,item_id,proposed_class,probability")
+            .maybeSingle();
+          if (!rowError && one) inserted.push(one as unknown as Record<string, unknown>);
+          else if (rowError && (rowError as { code?: string }).code !== "23505") fail();
+        }
+      } else {
+        fail();
       }
+      result.inserted = inserted.length;
+
+      // Only CLASSIFY suggestions may auto-apply; a merge is never automatic.
+      const threshold = await readClassThreshold(admin);
+      for (const row of inserted) {
+        if (row.kind !== "classify") continue;
+        if (asNumber(row.probability) < threshold) continue;
+        try {
+          const { data: applied, error: rpcError } = await admin.rpc("robot_auto_apply_class", {
+            p_suggestion_id: row.id,
+          });
+          if (rpcError) {
+            result.auto.skipped.error = (result.auto.skipped.error ?? 0) + 1;
+            continue;
+          }
+          const payload = (applied ?? {}) as { applied?: boolean; reason?: string };
+          if (payload.applied) result.auto.applied += 1;
+          else {
+            const reason = typeof payload.reason === "string" && payload.reason !== "" ? payload.reason : "not_applied";
+            result.auto.skipped[reason] = (result.auto.skipped[reason] ?? 0) + 1;
+          }
+        } catch {
+          result.auto.skipped.error = (result.auto.skipped.error ?? 0) + 1;
+        }
+      }
+      return result;
     },
   };
+}
+
+/** The current auto-apply class threshold, falling back to the default. */
+async function readClassThreshold(admin: SupabaseClient): Promise<number> {
+  try {
+    const { data, error } = await admin
+      .from("robot_settings")
+      .select("class_threshold")
+      .eq("id", true)
+      .maybeSingle();
+    if (error || !data) return CLASS_THRESHOLD_DEFAULT;
+    const value = asNumber((data as { class_threshold?: unknown }).class_threshold);
+    return value > 0 ? value : CLASS_THRESHOLD_DEFAULT;
+  } catch {
+    return CLASS_THRESHOLD_DEFAULT;
+  }
 }

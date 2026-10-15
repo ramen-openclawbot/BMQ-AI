@@ -15,9 +15,11 @@ import {
   DecisionsError,
   decisionsFailureCode,
   evaluateDecisions,
+  type DecisionsImage,
   type DecisionsOutcome,
   type DecisionsProvider,
 } from "../_shared/decisions-provider.ts";
+import { withCorrections } from "../_shared/robot-feedback.ts";
 
 export const JEV_ENDPOINT = "https://ai-gateway.vercel.sh/v1/evaluate";
 export const JEV_MODEL = "typesafe-ai/jev";
@@ -53,10 +55,24 @@ export const RELATION_CRITERIA: Record<JevRelation, string> = {
   unrelated: "không liên quan",
 };
 
-export function jevQuestions() {
+export function jevQuestions(options: {
+  corrections?: readonly string[];
+  /** When set, replaces the text same_purchase instruction for the image pass. */
+  imageInstructions?: string;
+} = {}) {
+  const sameInstructions = options.imageInstructions ?? SAME_PURCHASE_INSTRUCTIONS;
+  const corrections = options.corrections ?? [];
   return {
-    same_purchase: { type: "boolean", instructions: SAME_PURCHASE_INSTRUCTIONS, criteria: SAME_PURCHASE_CRITERIA },
-    relation: { type: "choice", instructions: RELATION_INSTRUCTIONS, criteria: RELATION_CRITERIA },
+    same_purchase: {
+      type: "boolean",
+      instructions: withCorrections(sameInstructions, corrections),
+      criteria: SAME_PURCHASE_CRITERIA,
+    },
+    relation: {
+      type: "choice",
+      instructions: withCorrections(RELATION_INSTRUCTIONS, corrections),
+      criteria: RELATION_CRITERIA,
+    },
   };
 }
 
@@ -71,11 +87,19 @@ export interface JevEvaluation {
   cost: number | null;
   /** Which provider actually answered ('openai' or the Jev fallback). */
   provider?: DecisionsProvider;
+  /** True only when the OpenAI answer was asked with the receipt images. */
+  images_used?: boolean;
 }
 
 export interface JevEvaluatorParams {
   state: unknown;
   signal: AbortSignal;
+  /** Inline goods-receipt images; only the OpenAI path forwards them. */
+  images?: DecisionsImage[];
+  /** Up to 5 relevant past CEO decisions appended to the question text. */
+  corrections?: string[];
+  /** Image-pass instruction that replaces the default same_purchase text. */
+  imageInstructions?: string;
   /** Absolute epoch-ms budget for the whole scan request, if any. */
   deadlineAt?: number;
 }
@@ -215,7 +239,7 @@ export function createJevEvaluator(config: JevConfig): JevEvaluator {
   const circuit = config.circuit ?? createJevCircuit();
   const configuredTimeout = Math.max(1, Math.min(config.timeoutMs ?? JEV_TIMEOUT_MS, JEV_MAX_TIMEOUT_MS));
 
-  return async ({ state, signal, deadlineAt }): Promise<JevEvaluation> => {
+  return async ({ state, signal, images, corrections, imageInstructions, deadlineAt }): Promise<JevEvaluation> => {
     signal.throwIfAborted();
     if (!circuit.canAttempt()) throw new JevError("jev_circuit_open", 503);
     const remaining = deadlineAt === undefined ? Infinity : deadlineAt - Date.now();
@@ -224,7 +248,7 @@ export function createJevEvaluator(config: JevConfig): JevEvaluator {
     const requestBody = {
       model: JEV_MODEL,
       state,
-      questions: jevQuestions(),
+      questions: jevQuestions({ corrections, imageInstructions }),
       // Server-side key only; no caller bearer token is sent to the provider.
       providerOptions: { gateway: { zeroDataRetention: true, only: ["typesafe-ai"] } },
     };
@@ -236,6 +260,7 @@ export function createJevEvaluator(config: JevConfig): JevEvaluator {
         gatewayKey: apiKey,
         timeoutMs: budget,
         signal,
+        ...(images && images.length ? { images } : {}),
       });
     } catch (error) {
       signal.throwIfAborted();
@@ -259,7 +284,7 @@ export function createJevEvaluator(config: JevConfig): JevEvaluator {
     }
     let evaluation: JevEvaluation;
     try {
-      evaluation = { ...validateJevResponse(outcome.body), provider: outcome.provider };
+      evaluation = { ...validateJevResponse(outcome.body), provider: outcome.provider, images_used: outcome.images_used };
     } catch (error) {
       circuit.recordFailure();
       throw error;

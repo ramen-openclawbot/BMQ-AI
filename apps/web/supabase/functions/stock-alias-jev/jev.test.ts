@@ -168,7 +168,7 @@ test("the match prompt is Vietnamese, describes every candidate and always offer
 });
 
 test("the prompt version is bumped for the whole-catalog backlog", () => {
-  assert.equal(JEV_PROMPT_VERSION, "jev-material-alias-2026-10-14.1");
+  assert.equal(JEV_PROMPT_VERSION, "jev-material-alias-2026-11-01.2");
 });
 
 test("the match prompt asks to choose by meaning and reserves none for no fit", () => {
@@ -433,4 +433,12 @@ test("the kill switch refuses the ranking before any provider call", async () =>
   assert.equal(response.status, 503);
   assert.equal((await response.json()).code, "disabled");
   assert.equal(calls, 0);
+});
+
+test("past human corrections are appended to the match question text", () => {
+  const line = "Người duyệt đã sửa trước đây: Bột mì 888 → Bột mì 999 (Bé Mì đã chọn Bột mì 888)";
+  const text = matchInstructions({ corrections: [line] });
+  assert.ok(text.includes("candidates"), "the base question is preserved");
+  assert.ok(text.includes(line), "the correction line is included");
+  assert.equal(matchInstructions({ corrections: [] }), matchInstructions());
 });

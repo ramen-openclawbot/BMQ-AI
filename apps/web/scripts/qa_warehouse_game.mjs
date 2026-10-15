@@ -37,6 +37,7 @@ function settle(st) {
     if (filled && st.table === "payment_requests" && st.filters.status === "pending") count = 3;
     if (filled && st.table === "purchase_orders" && st.filters.status === "draft") count = 2;
     if (filled && st.table === "customer_po_inbox" && st.filters.match_status === "pending_approval") count = 4;
+    if (filled && st.table === "robot_feedback") count = 12;
     return { data: null, error: null, count };
   }
   if (/^rpc:(resolve_stock_alias|record_q7_stock_count|record_tan_tao_stock_count|set_goods_receipt_receiving_location|create_q7_draft_purchase_orders|upsert_q7_purchase_item_setting|update_q7_auto_purchase_settings|run_q7_auto_purchase_now|decide_stock_catalog_suggestion|revert_stock_item_merge|link_kitchen_items_to_canonical_materials)$/.test(st.table)) { window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args)); return { data: null, error: { message: "QA fixture: writes disabled" } }; }
@@ -228,6 +229,16 @@ function apItem(id, name, unit, mode, usage, onHand, sup, pack, label, reorderBa
   return { item_id: id, item_code: "NVL-" + id, item_name: name, unit, mode, daily_usage: usage, avg_14d: usage, avg_28d: usage, stddev_28d: usage / 10, days_with_data: 52, weekday_factor: 1, scheduled_usage: 0, on_hand: onHand, last_count_date: onHand === null ? null : vnDay(2), open_po_qty: 0, supplier_id: sup, pack_size: pack, pack_label: label, lead_time_days: 2, safety_days: 2, order_cycle_days: 7, reorder_date: vnDay(reorderBack), suggested_qty: qty, last_unit_price: price, estimated_amount: price === null ? null : qty * price, flags: { ...NOFLAGS, ...flags } };
 }
 function fixtureRows(st) {
+  if (st.table === "rpc:get_robot_settings") return { id: true, auto_apply_enabled: true, alias_threshold: 0.95, class_threshold: 0.9, daily_cap: 50, updated_by: null, updated_at: null };
+  if (st.table === "rpc:get_robot_auto_actions") {
+    const at = new Date().toISOString();
+    return [
+      { id: "ra-1", kind: "alias", subject_key: "s|toi ngay 10", target: {}, payload: {}, robot_probability: 0.97, status: "applied", applied_at: at, undone_by: null, undone_at: null, item_name: "Tỏi bóc vỏ (kg)", raw_name: "Tỏi ngày 10 – hàng đã lột vỏ, đóng túi 1kg giao buổi sáng", class_label: null },
+      { id: "ra-2", kind: "catalog_class", subject_key: "i2", target: {}, payload: {}, robot_probability: 0.93, status: "applied", applied_at: at, undone_by: null, undone_at: null, item_name: "Băng keo nhỏ", raw_name: null, class_label: "Bao bì / vật tư" },
+      { id: "ra-3", kind: "alias", subject_key: "s|duong", target: {}, payload: {}, robot_probability: 0.96, status: "undone", applied_at: at, undone_by: null, undone_at: at, item_name: "Đường cát trắng", raw_name: "Đường Biên Hoà 1kg", class_label: null },
+    ];
+  }
+  if (st.table === "rpc:undo_robot_auto_action") { window.__qaWrites.push("rpc:undo_robot_auto_action"); return { status: "undone" }; }
   if (st.table === "rpc:get_stock_catalog_review") {
     const sug = (id, kind, a, au, ai, b, bu, bi, target, p, factor, fs, cls) => ({ id, kind, item_id: a[0], item_name: a[1], item_unit: au, other_item_id: b ? b[0] : null, other_item_name: b ? b[1] : null, other_item_unit: bu, proposed_target_id: target, target_name: target === a[0] ? a[1] : (b ? b[1] : null), target_unit: target === a[0] ? au : bu, probability: p, proposed_factor: factor, factor_source: fs, proposed_class: cls, prompt_version: "qa", cost: 0.0002, created_at: nowIso, item_issue_count_90d: ai, other_issue_count_90d: bi, source_live_refs: kind === 'merge' ? (bi > 0 || id === 'm1' ? 54 : 0) : null });
     return {
@@ -945,6 +956,16 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       await page.waitForFunction(() => window.__qaWrites.some((w) => w.startsWith("rpc:reactivate_stock_item:")), null, { timeout: 5000 });
     }
     if (station === "Bé Mì rà soát") {
+      const panel = page.locator("[data-bmq-robot-auto-panel]");
+      {
+        await panel.waitFor({ timeout: 4000 });
+        assert.equal(await panel.locator("[data-bmq-robot-auto]").count(), 3, "Bé Mì auto list shows today's actions");
+        assert.equal(await panel.getByRole("button", { name: /Hoàn tác/ }).count(), 2, "only applied rows can be undone");
+        await panel.screenshot({ path: `${EVIDENCE}/robot-auto-${viewport.width}.png` });
+        await panel.getByRole("button", { name: /Hoàn tác/ }).first().click({ force: true });
+        await page.waitForTimeout(300);
+        assert.ok((await page.evaluate(() => window.__qaWrites)).includes("rpc:undo_robot_auto_action"), "undo calls the server");
+      }
       await page.getByRole("button", { name: /Quét cặp trùng/ }).click({ force: true });
       await page.waitForTimeout(400);
       const writes = await page.evaluate(() => window.__qaWrites);

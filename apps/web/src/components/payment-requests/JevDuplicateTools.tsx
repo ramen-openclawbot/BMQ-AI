@@ -136,6 +136,7 @@ export function JevScanBar() {
                             {st && <span className={cn("d3-up-chip", st.tone)}>{st.label}</span>}
                             <span>trùng {pct(item.p_same)}</span>
                             {item.relation && <span>· {JEV_RELATION_TEXT[item.relation] ?? item.relation}</span>}
+                            {item.images_used && <span className="d3-up-chip is-green" data-bmq-jev-images>📷 đã xem ảnh phiếu</span>}
                           </>
                         )}
                       </span>

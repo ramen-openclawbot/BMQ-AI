@@ -18,6 +18,7 @@ import {
   type JevMatchEvaluation,
   type MaterialAliasCandidate,
 } from "./jev.ts";
+import { aliasSubjectKey } from "../_shared/robot-feedback.ts";
 
 const CANDIDATE_A = { id: "11111111-1111-4111-8111-111111111111", name: "Tỏi bóc vỏ", unit: "kg" };
 const CANDIDATE_B = { id: "22222222-2222-4222-8222-222222222222", name: "Tỏi phi", unit: "kg" };
@@ -541,7 +542,7 @@ test("a cache row from the old prompt version is not reused", async () => {
   assert.equal(body.evaluated, 1);
   assert.equal(body.calls, 1);
   assert.equal(cache.size, 2, "the new answer is stored under the new prompt version");
-  assert.equal(JEV_PROMPT_VERSION, "jev-material-alias-2026-10-14.1");
+  assert.equal(JEV_PROMPT_VERSION, "jev-material-alias-2026-11-01.2");
 });
 
 test("a whole-catalog candidate hash is short enough for the btree cache index", () => {
@@ -883,4 +884,89 @@ test("a quota or auth style Jev failure still stops the batch", async () => {
   const response = await handler(request({ mode: "backlog", location: "q7" }));
   const text = await response.text();
   assert.equal(response.status, 503, text);
+});
+
+test("a human-rejected candidate is dropped and past corrections reach Jev", async () => {
+  const supplierId = "33333333-3333-4333-8333-333333333333";
+  const seenStates: Array<Record<string, unknown>> = [];
+  const autoInputs: Array<Record<string, unknown>> = [];
+  const feedbackRows = [{
+    id: "f1",
+    kind: "alias",
+    subject_key: aliasSubjectKey(supplierId, "toi"),
+    robot_choice: CANDIDATE_B.id,
+    human_choice: CANDIDATE_A.id,
+    robot_probability: 0.97,
+    note: null,
+    created_at: null,
+    robot_label: "Tỏi phi",
+    human_label: "Tỏi bóc vỏ",
+  }];
+  const { deps } = makeDeps({
+    evaluator: () => async (params) => {
+      seenStates.push(params.state as unknown as Record<string, unknown>);
+      return EVAL;
+    },
+    getRobotFeedback: async () => feedbackRows,
+    autoConfirmAlias: async (input) => {
+      autoInputs.push(input as unknown as Record<string, unknown>);
+      return { applied: true, action_id: "auto-1" };
+    },
+  });
+  const handler = createMaterialAliasHandler(deps);
+  const response = await handler(request(linesBody()));
+  const body = await response.json();
+  // Lines mode ranks only; the person entering the receipt decides.
+  assert.equal(body.auto_applied ?? 0, 0);
+  assert.equal(autoInputs.length, 0);
+  const state = seenStates[0];
+  const candidates = state.candidates as Array<{ id: string }>;
+  assert.ok(!candidates.some((candidate) => candidate.id === CANDIDATE_B.id), "rejected candidate must be dropped");
+  const corrections = state.corrections as string[];
+  assert.ok(corrections.some((line) => line.includes("Người duyệt đã sửa trước đây")), "corrections must reach the question");
+});
+
+test("the backlog pass auto-confirms a confident goods answer", async () => {
+  const autoInputs: Array<Record<string, unknown>> = [];
+  const { deps } = makeDeps({
+    listBacklog: async () => [backlogRow("toi ngay 10", "Tỏi ngày 10")],
+    candidatesFor: async () => [CANDIDATE_A],
+    autoConfirmAlias: async (input) => {
+      autoInputs.push(input as unknown as Record<string, unknown>);
+      return { applied: true, action_id: "auto-1" };
+    },
+  });
+  const handler = createMaterialAliasHandler(deps);
+  const body = await (await handler(request({ mode: "backlog", location: "q7" }))).json();
+  assert.equal(body.auto_applied, 1);
+  assert.deepEqual(body.auto_skipped, {});
+  assert.equal(autoInputs[0].rawName, "Tỏi ngày 10");
+  assert.equal(autoInputs[0].itemId, CANDIDATE_A.id);
+  assert.equal(autoInputs[0].conversionFactor, 1);
+});
+
+test("a robot refusal reason is counted in auto_skipped", async () => {
+  const { deps } = makeDeps({
+    listBacklog: async () => [backlogRow("toi ngay 10", "Tỏi ngày 10")],
+    candidatesFor: async () => [CANDIDATE_A],
+    autoConfirmAlias: async () => ({ applied: false, reason: "unit_mismatch" }),
+  });
+  const handler = createMaterialAliasHandler(deps);
+  const body = await (await handler(request({ mode: "backlog", location: "q7" }))).json();
+  assert.equal(body.auto_applied, 0);
+  assert.deepEqual(body.auto_skipped, { unit_mismatch: 1 });
+});
+
+test("a robot auto-apply failure never fails the ranking response", async () => {
+  const { deps } = makeDeps({
+    listBacklog: async () => [backlogRow("toi ngay 10", "Tỏi ngày 10")],
+    candidatesFor: async () => [CANDIDATE_A],
+    autoConfirmAlias: async () => { throw new Error("rpc down"); },
+  });
+  const handler = createMaterialAliasHandler(deps);
+  const response = await handler(request({ mode: "backlog", location: "q7" }));
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.auto_applied, 0);
+  assert.deepEqual(body.auto_skipped, { error: 1 });
 });

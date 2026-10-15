@@ -11,6 +11,7 @@ import { useSetItemPastryQ7, useWarehouseGameSnapshot } from "@/hooks/useWarehou
 import { CLASS_META, asClass, normalizeName } from "./meta";
 import { STATION_META, type StationId } from "./Workshop";
 import { LinkStation } from "./LinkStation";
+import { RobotAutoPanel } from "./RobotAutoPanel";
 import "@/styles/bmq-warehouse.css";
 import "@/styles/bmq-stock-ledger.css";
 import "@/styles/bmq-material-alias.css";
@@ -99,12 +100,15 @@ function JevStation({ canEdit }: { canEdit: boolean }) {
   const left = usage ? Math.max(0, usage.call_limit - usage.calls) : null;
   const scan = (mode: "dedupe" | "classify") =>
     run.mutate({ mode }, {
-      onSuccess: (s) => toast({ title: mode === "dedupe" ? "Bé Mì đã quét cặp trùng" : "Bé Mì đã phân loại", description: `${s.suggestions} đề xuất mới, ${s.skipped_existing} đã có, ${s.failed} lỗi, ${s.calls} lượt gọi${s.stopped ? " · dừng vì hết hạn mức" : ""}.` }),
+      onSuccess: (s) => toast({ title: mode === "dedupe" ? "Bé Mì đã quét cặp trùng" : "Bé Mì đã phân loại", description: `${s.suggestions} đề xuất mới${Number((s as { auto_applied?: number }).auto_applied ?? 0) > 0 ? ` (tự xếp ${(s as { auto_applied?: number }).auto_applied})` : ""}, ${s.skipped_existing} đã có, ${s.failed} lỗi, ${s.calls} lượt gọi${s.stopped ? " · dừng vì hết hạn mức" : ""}.` }),
       onError: (error) => toast({ title: "Bé Mì chưa quét được", description: errorText(error), variant: "destructive" }),
     });
   const scanBacklog = (location: MaterialAliasLocation) =>
     backlog.mutate({ location }, {
-      onSuccess: () => toast({ title: `Bé Mì đã dò tên tồn đọng ${location === "q7" ? "Q7" : "Tân Tạo"}` }),
+      onSuccess: (data) => {
+        const auto = Number((data as { auto_applied_total?: unknown })?.auto_applied_total ?? 0) || 0;
+        toast({ title: `Bé Mì đã dò tên tồn đọng ${location === "q7" ? "Q7" : "Tân Tạo"}`, description: auto > 0 ? `Tự gắn ${auto} tên chắc chắn · xem và hoàn tác ở mục "Bé Mì tự làm hôm nay".` : undefined });
+      },
       onError: (error) => toast({ title: "Bé Mì chưa dò được", description: errorText(error), variant: "destructive" }),
     });
   return (
@@ -134,6 +138,7 @@ function JevStation({ canEdit }: { canEdit: boolean }) {
         </div>
       )}
       {run.isPending || backlog.isPending ? <p className="note">Bé Mì đang làm việc… có thể mất vài phút.</p> : null}
+      <RobotAutoPanel canEdit={canEdit} />
     </>
   );
 }

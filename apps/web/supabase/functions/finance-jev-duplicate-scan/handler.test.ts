@@ -239,3 +239,115 @@ test("a missing evaluator fails every pair closed instead of guessing", async ()
   assert.equal(body.items[0].error, "unconfigured");
   assert.equal(upserts.length, 0);
 });
+
+const UNCERTAIN: JevEvaluation = {
+  p_same: 0.4,
+  relation: "unrelated",
+  relation_probability: 0.6,
+  relation_confidence: null,
+  usage: { input: 3, output: 2 },
+  cost: null,
+};
+
+const IMAGE_ANSWER: JevEvaluation = {
+  p_same: 0.9,
+  relation: "same_purchase",
+  relation_probability: 0.9,
+  relation_confidence: null,
+  usage: { input: 4, output: 2 },
+  cost: null,
+  images_used: true,
+};
+
+test("an uncertain pair with both receipt photos is re-asked with images and uses the image answer", async () => {
+  const requests = [request("a"), request("b")];
+  const image = { mime: "image/jpeg", base64: "AAA" };
+  const base = sourceFor(requests);
+  const source: JevDuplicateDataSource = {
+    ...base,
+    loadReceiptImages: async (ids) => Object.fromEntries(ids.map((id) => [id, [image]])),
+  };
+  const seen: Array<Record<string, unknown>> = [];
+  const { config } = makeConfig({
+    dataSource: () => source,
+    evaluator: () => async (params) => {
+      seen.push(params as unknown as Record<string, unknown>);
+      return params.images && params.images.length ? IMAGE_ANSWER : UNCERTAIN;
+    },
+  });
+  const body = await (await createJevScanHandler(config)(scanRequest({ mode: "dry_run" }))).json();
+  assert.equal(seen.length, 2, "the pair is asked twice: text then images");
+  assert.match(String(seen[1].imageInstructions), /hai phiếu giao hàng trong ảnh/);
+  assert.equal(body.checked, 1);
+  assert.equal(body.items[0].images_used, true);
+  assert.equal(body.items[0].p_same_text, 0.4);
+  assert.equal(body.items[0].p_same_image, 0.9);
+  assert.equal(body.items[0].status, "auto_flag");
+});
+
+test("a text-only fallback on the image pass keeps the text answer", async () => {
+  const requests = [request("a"), request("b")];
+  const image = { mime: "image/jpeg", base64: "AAA" };
+  const base = sourceFor(requests);
+  const source: JevDuplicateDataSource = {
+    ...base,
+    loadReceiptImages: async (ids) => Object.fromEntries(ids.map((id) => [id, [image]])),
+  };
+  const { config } = makeConfig({
+    dataSource: () => source,
+    evaluator: () => async (params) => (params.images && params.images.length
+      ? { ...IMAGE_ANSWER, p_same: 0.95, images_used: false }
+      : UNCERTAIN),
+  });
+  const body = await (await createJevScanHandler(config)(scanRequest({ mode: "dry_run" }))).json();
+  assert.equal(body.items[0].images_used, false);
+  assert.equal(body.items[0].p_same_text, 0.4);
+  assert.equal(body.items[0].p_same_image, null);
+  assert.equal(body.items[0].p_same, 0.4);
+  assert.equal(body.items[0].status, "needs_review");
+});
+
+test("a confident text pair never spends an image call", async () => {
+  const requests = [request("a"), request("b")];
+  let imageReads = 0;
+  const base = sourceFor(requests);
+  const source: JevDuplicateDataSource = {
+    ...base,
+    loadReceiptImages: async (ids) => {
+      imageReads += 1;
+      return Object.fromEntries(ids.map((id) => [id, [{ mime: "image/jpeg", base64: "AAA" }]]));
+    },
+  };
+  const { config } = makeConfig({ dataSource: () => source, evaluator: () => async () => FLAG_EVAL });
+  await createJevScanHandler(config)(scanRequest({ mode: "dry_run" }));
+  assert.equal(imageReads, 0);
+});
+
+test("past CEO decisions are appended to the duplicate question", async () => {
+  const requests = [request("a"), request("b")];
+  const seen: Array<Record<string, unknown>> = [];
+  const { config } = makeConfig({
+    dataSource: () => sourceFor(requests),
+    evaluator: () => async (params) => {
+      seen.push(params as unknown as Record<string, unknown>);
+      return UNCERTAIN;
+    },
+    getRobotFeedback: async () => [{
+      id: "f1",
+      kind: "finance_duplicate",
+      subject_key: "a:b",
+      robot_choice: "needs_review",
+      human_choice: "different_purchase",
+      robot_probability: 0.4,
+      note: null,
+      created_at: null,
+      robot_label: null,
+      human_label: null,
+    }],
+  });
+  await createJevScanHandler(config)(scanRequest({ mode: "dry_run" }));
+  const corrections = seen[0].corrections as string[];
+  assert.equal(corrections.length, 1);
+  assert.match(corrections[0], /PR-a ↔ PR-b/);
+  assert.match(corrections[0], /hai lần khác nhau/);
+});

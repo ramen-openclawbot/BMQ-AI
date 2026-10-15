@@ -10,6 +10,7 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2.90.1";
 import type { CandidateRequest } from "./candidates.ts";
 import { JEV_SCAN_LOOKBACK_LIMIT, JevScanError, type ExistingCheck, type JevCheckRow, type JevDuplicateDataSource, type JevDuplicateSink } from "./handler.ts";
 import type { RequestStateInput, StateItem } from "./state.ts";
+import { downloadReceiptImages, type ReceiptImage } from "../_shared/receipt-images.ts";
 
 const MAX_ITEMS = 2_000;
 
@@ -136,6 +137,30 @@ export function createServiceDataSource(admin: SupabaseClient): JevDuplicateData
       }
 
       return { requests, supplierNames };
+    },
+
+    async loadReceiptImages(requestIds) {
+      // Best effort: a missing link, photo or download leaves that side empty.
+      const out: Record<string, ReceiptImage[]> = Object.fromEntries(requestIds.map((id) => [id, []]));
+      try {
+        const { data: prs, error } = await admin.from("payment_requests").select("id,goods_receipt_id").in("id", requestIds);
+        if (error) return out;
+        const grByRequest = new Map<string, string>();
+        for (const row of prs ?? []) {
+          if (typeof row.goods_receipt_id === "string") grByRequest.set(row.id as string, row.goods_receipt_id);
+        }
+        const grIds = [...new Set(grByRequest.values())];
+        if (grIds.length === 0) return out;
+        const { data: grs, error: grError } = await admin.from("goods_receipts").select("id,image_url").in("id", grIds);
+        if (grError) return out;
+        const imageByGr = new Map<string, string | null>((grs ?? []).map((row) => [row.id as string, (row.image_url as string) ?? null]));
+        for (const [requestId, grId] of grByRequest) {
+          out[requestId] = await downloadReceiptImages(admin, imageByGr.get(grId) ?? null);
+        }
+      } catch {
+        // keep whatever was loaded
+      }
+      return out;
     },
   };
 }

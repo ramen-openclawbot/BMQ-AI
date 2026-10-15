@@ -16,6 +16,7 @@ import { createJevEvaluator, JEV_TIMEOUT_MS, type JevEvaluator } from "./jev.ts"
 import { createNewItemJevEvaluator, type NewItemJevEvaluator } from "./new-items.ts";
 import { createDebtJevEvaluator, createDebtReviewStore, type DebtJevEvaluator } from "./debt-review.ts";
 import { createMaterialAliasStore } from "./store.ts";
+import { loadRobotFeedback } from "../_shared/robot-feedback.ts";
 
 const url = Deno.env.get("SUPABASE_URL")!;
 const anon = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -127,6 +128,23 @@ Deno.serve(createMaterialAliasHandler({
   writeDebtMarks: (supplierId, rows) =>
     createDebtReviewStore(adminClient()).writeMarks(supplierId, rows),
   debtEvaluator: debtJevEvaluator,
+  getRobotFeedback: (kind, keys, limit) => loadRobotFeedback(adminClient(), kind, keys, limit),
+  autoConfirmAlias: async (input) => {
+    const { data, error } = await adminClient().rpc("robot_auto_confirm_alias", {
+      p_supplier_id: input.supplierId,
+      p_location: input.location,
+      p_raw_name: input.rawName,
+      p_raw_unit: input.rawUnit,
+      p_kitchen_inventory_item_id: input.itemId,
+      p_tan_tao_sku_id: input.skuId,
+      p_entered_unit_label: input.enteredUnitLabel,
+      p_conversion_factor: input.conversionFactor,
+      p_jev_item_id: input.jevItemId,
+      p_jev_probability: input.jevProbability,
+    });
+    if (error) return { applied: false, reason: "rpc_error" };
+    return (data ?? { applied: false, reason: "empty" }) as { applied: boolean; reason?: string; action_id?: string };
+  },
   authenticate: async (request, signal) => {
     const authorization = request.headers.get("authorization");
     if (!authorization?.startsWith("Bearer ") || authorization.length > 8192) {

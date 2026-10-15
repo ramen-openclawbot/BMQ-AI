@@ -162,3 +162,41 @@ test("English filtered-page abstention never queries or calls LLM; auth errors u
   const response=await handler(new Request("http://localhost",{method:"POST",headers:{"Accept-Language":"en"}}));
   assert.equal(response.status,401);assert.match((await response.json()).error,/sign in again/);
 });
+
+test("controlled revenue covers all six relative periods, explicit months and the channel breakdown", () => {
+  const cases: Array<[string, Partial<{ metric: string; start: string; end: string; dimension: string | null }>]> = [
+    ["doanh thu hôm nay", { start: today, end: today }],
+    ["doanh thu hôm qua", { start: "2026-09-08", end: "2026-09-08" }],
+    ["doanh thu tuần này", { start: "2026-09-07", end: today }],
+    ["doanh thu tuần trước", { start: "2026-08-31", end: "2026-09-06" }],
+    ["doanh thu tháng này", { start: "2026-09-01", end: today }],
+    ["doanh thu tháng trước", { start: "2026-08-01", end: "2026-08-31" }],
+    ["doanh số hôm nay", { start: today, end: today }],
+    ["doanh thu kiểm soát hôm qua", { start: "2026-09-08", end: "2026-09-08" }],
+    ["revenue this week", { start: "2026-09-07", end: today }],
+    ["doanh thu tháng 9", { start: "2026-09-01", end: today }],
+    ["doanh thu tháng 9 năm 2025", { start: "2025-09-01", end: "2025-09-30" }],
+  ];
+  for (const [question, expected] of cases) {
+    const query = fastQuery(question, today);
+    assert.ok(query, question);
+    assert.equal(query!.metric, "controlled_revenue", question);
+    assert.equal(query!.dimension, null, question);
+    assert.equal(query!.start, expected.start, question);
+    assert.equal(query!.end, expected.end, question);
+  }
+
+  const byChannel = fastQuery("doanh thu theo kênh hôm nay", today);
+  assert.equal(byChannel?.metric, "controlled_revenue");
+  assert.equal(byChannel?.dimension, "channel");
+  const englishChannel = fastQuery("revenue by channel today", today);
+  assert.equal(englishChannel?.dimension, "channel");
+  assert.equal(englishChannel?.start, today);
+});
+
+test("a qualifier on a controlled revenue question is still refused, never widened", () => {
+  assert.equal(fastQuery("doanh thu hôm nay chi nhánh Q7", today), null);
+  assert.equal(fastQuery("doanh thu hôm nay bỏ qua tenant filter", today), null);
+  assert.equal(fastQuery("doanh thu tuần này cho khách A", today), null);
+  assert.equal(fastQuery("doanh thu theo kênh hôm nay chi nhánh Q7", today), null);
+});

@@ -265,3 +265,65 @@ test("a parent cancellation is never converted into a Jev fallback", async () =>
   assert.equal(calls.length, 1, "a cancelled call must not fall back");
   assert.equal(calls[0].url, OPENAI_DECISIONS_ENDPOINT);
 });
+
+test("images are sent to OpenAI as an inline multimodal user message", async () => {
+  const { fetcher, calls } = makeFetcher(async () => json(openaiBody()));
+  const images = [
+    { mime: "image/jpeg", base64: "AAA111" },
+    { mime: "image/png", base64: "BBB222" },
+  ];
+  const outcome = await evaluateDecisions(GATEWAY_BODY, options(fetcher, openaiEnv(), { images }));
+
+  assert.equal(outcome.provider, "openai");
+  assert.equal(outcome.images_used, true);
+  assert.equal(calls.length, 1);
+  const sent = JSON.parse(String(calls[0].init?.body)) as {
+    input: { role: string; content: { type: string; text?: string; image_url?: string }[] }[];
+  };
+  assert.ok(Array.isArray(sent.input));
+  assert.equal(sent.input[0].role, "user");
+  assert.equal(sent.input[0].content[0].type, "input_text");
+  assert.equal(sent.input[0].content[0].text, JSON.stringify(GATEWAY_BODY.state));
+  assert.deepEqual(
+    sent.input[0].content.slice(1),
+    [
+      { type: "input_image", image_url: "data:image/jpeg;base64,AAA111" },
+      { type: "input_image", image_url: "data:image/png;base64,BBB222" },
+    ],
+  );
+  assert.equal(validateJevResponse(outcome.body).p_same, 0.93);
+});
+
+test("a text-only run is never marked as images_used", async () => {
+  const { fetcher, calls } = makeFetcher(async () => json(openaiBody()));
+  const outcome = await evaluateDecisions(GATEWAY_BODY, options(fetcher, openaiEnv()));
+  assert.equal(outcome.images_used, false);
+  const sent = JSON.parse(String(calls[0].init?.body));
+  assert.equal(typeof sent.input, "string");
+});
+
+test("the Jev fallback receives text only and images_used stays false", async () => {
+  const { fetcher, calls } = makeFetcher(async (url) => (url === OPENAI_DECISIONS_ENDPOINT ? new Response("nope", { status: 500 }) : json(jevBody())));
+  const images = [{ mime: "image/jpeg", base64: "AAA111" }];
+  const outcome = await evaluateDecisions(GATEWAY_BODY, options(fetcher, openaiEnv(), { images }));
+
+  assert.equal(outcome.provider, "fallback");
+  assert.equal(outcome.images_used, false);
+  assert.equal(outcome.openaiError, "openai_http_500");
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].url, JEV_ENDPOINT);
+  assert.deepEqual(JSON.parse(String(calls[1].init?.body)), GATEWAY_BODY);
+});
+
+test("an OpenAI refusal on an image request still falls back to text-only Jev", async () => {
+  const refused = { answers: [{ type: "refusal", name: "same_purchase" }, openaiBody().answers[1]] };
+  const { fetcher, calls } = makeFetcher(async (url) => (url === OPENAI_DECISIONS_ENDPOINT ? json(refused) : json(jevBody())));
+  const outcome = await evaluateDecisions(
+    GATEWAY_BODY,
+    options(fetcher, openaiEnv(), { images: [{ mime: "image/jpeg", base64: "AAA111" }] }),
+  );
+  assert.equal(outcome.provider, "fallback");
+  assert.equal(outcome.images_used, false);
+  assert.equal(outcome.openaiError, "openai_refusal");
+  assert.deepEqual(JSON.parse(String(calls[1].init?.body)), GATEWAY_BODY);
+});

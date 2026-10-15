@@ -89,7 +89,10 @@ function makeDeps(overrides: Partial<StockCatalogHandlerDeps> = {}) {
     listUnclassifiedItems: async () => [],
     getUsage: async (usageDate) => ({ usage_date: usageDate, calls: 0, cost: 0, call_limit: 600 }),
     recordUsage: async (usage) => { usageRecords.push(usage); },
-    insertSuggestions: async (rows) => { inserted.push(rows); },
+    insertSuggestions: async (rows) => {
+      inserted.push(rows);
+      return { inserted: rows.length, auto: { applied: 0, skipped: {} } };
+    },
     now: () => new Date("2026-10-15T00:00:00.000Z"),
     audit: () => {},
   };
@@ -249,4 +252,43 @@ test("a Jev failure is counted without writing anything", async () => {
   assert.equal(body.failed, 1);
   assert.equal(body.suggestions, 0);
   assert.equal(inserted.length, 0);
+});
+
+test("classify mode passes past corrections to Jev and reports auto-applied classes", async () => {
+  const seenCorrections: unknown[] = [];
+  const item = {
+    ...classifyItem(),
+    corrections: ["Người duyệt đã sửa trước đây: Bơ → rejected (Bé Mì đã chọn raw_material)"],
+  };
+  const { deps } = makeDeps({
+    evaluator: () => async (params) => {
+      seenCorrections.push(params.corrections);
+      return CLASS_EVAL;
+    },
+    listUnclassifiedItems: async () => [item],
+    insertSuggestions: async (rows) => ({
+      inserted: rows.length,
+      auto: { applied: rows.length, skipped: {} },
+    }),
+  });
+  const handler = createStockCatalogHandler(deps);
+  const body = await (await handler(scanRequest({ mode: "classify" }))).json();
+  assert.deepEqual(seenCorrections[0], item.corrections);
+  assert.equal(body.auto_applied, 1);
+  assert.deepEqual(body.auto_skipped, {});
+});
+
+test("a merge suggestion is never auto-applied even when the store returns none", async () => {
+  const { deps } = makeDeps({
+    evaluator: () => async () => SAME_EVAL,
+    listCandidates: async () => [candidate()],
+    insertSuggestions: async (rows) => ({
+      inserted: rows.length,
+      auto: { applied: 0, skipped: {} },
+    }),
+  });
+  const handler = createStockCatalogHandler(deps);
+  const body = await (await handler(scanRequest({ mode: "dedupe" }))).json();
+  assert.equal(body.auto_applied, 0);
+  assert.equal(body.suggestions, 1);
 });

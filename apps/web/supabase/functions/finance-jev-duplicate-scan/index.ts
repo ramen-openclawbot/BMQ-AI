@@ -11,6 +11,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import { createJevScanHandler, JevScanError } from "./handler.ts";
 import { createJevEvaluator, JEV_TIMEOUT_MS, type JevEvaluator } from "./jev.ts";
 import { createServiceDataSource, createServiceSink } from "./store.ts";
+import { loadRobotFeedback } from "../_shared/robot-feedback.ts";
 
 const url = Deno.env.get("SUPABASE_URL")!;
 const anon = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -38,6 +39,7 @@ Deno.serve(createJevScanHandler({
   evaluator: jevEvaluator,
   dataSource: () => createServiceDataSource(adminClient()),
   sink: () => createServiceSink(adminClient()),
+  getRobotFeedback: (keys, limit) => loadRobotFeedback(adminClient(), "finance_duplicate", keys, limit),
   authenticate: async (request, signal) => {
     const authorization = request.headers.get("authorization");
     if (!authorization?.startsWith("Bearer ") || authorization.length > 8192) {

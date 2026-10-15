@@ -66,18 +66,92 @@ export function validateQuery(value: unknown, today = vnToday()): Query {
   return { metric: q.metric, dimension: q.dimension as string | null, start, end, limit: Number(q.limit), ...(q.sort ? { sort: q.sort as "asc" | "desc" } : {}) };
 }
 export function normalize(text: string) { return text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").toLowerCase().replace(/[?!.,]/g, "").replace(/\s+/g, " ").trim(); }
+
+// Controlled revenue phrasings: Vietnamese with or without accents, plus English.
+const CONTROLLED_REVENUE_BASES = [
+  "doanh thu kiem soat",
+  "doanh thu",
+  "doanh so",
+  "controlled revenue",
+  "revenue",
+] as const;
+const CONTROLLED_REVENUE_PERIODS: Record<string, string> = {
+  "hom nay": "today", "today": "today",
+  "hom qua": "yesterday", "yesterday": "yesterday",
+  "tuan nay": "this_week", "this week": "this_week",
+  "tuan truoc": "previous_week", "tuan roi": "previous_week", "last week": "previous_week", "previous week": "previous_week",
+  "thang nay": "this_month", "this month": "this_month",
+  "thang truoc": "previous_month", "thang roi": "previous_month", "last month": "previous_month", "previous month": "previous_month",
+};
+
+function shiftIso(today: string, days: number): string {
+  return new Date(Date.parse(today) + days * 86400000).toISOString().slice(0, 10);
+}
+
+/** [start, end] of one named relative period anchored at the Vietnam date. */
+function revenuePeriodRange(period: string, today: string): { start: string; end: string } {
+  if (period === "today") return { start: today, end: today };
+  if (period === "yesterday") { const day = shiftIso(today, -1); return { start: day, end: day }; }
+  const dow = (new Date(`${today}T00:00:00Z`).getUTCDay() + 6) % 7;
+  if (period === "this_week") return { start: shiftIso(today, -dow), end: today };
+  if (period === "previous_week") return { start: shiftIso(today, -dow - 7), end: shiftIso(today, -dow - 1) };
+  if (period === "this_month") return { start: today.slice(0, 8) + "01", end: today };
+  const monthEnd = new Date(Date.UTC(Number(today.slice(0, 4)), Number(today.slice(5, 7)) - 1, 0));
+  const isoEnd = monthEnd.toISOString().slice(0, 10);
+  return { start: isoEnd.slice(0, 8) + "01", end: isoEnd };
+}
+
+/** Explicit "tháng N [năm Y]" -> the month, current year when absent and capped at today. */
+function explicitRevenueMonth(text: string, today: string): { start: string; end: string } | null {
+  const match = /^thang (\d{1,2})(?: (?:nam )?(\d{4}))?$/.exec(text);
+  if (!match) return null;
+  const month = Number(match[1]);
+  if (month < 1 || month > 12) return null;
+  const year = match[2] ? Number(match[2]) : Number(today.slice(0, 4));
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const start = `${year}-${pad(month)}-01`;
+  const monthEnd = `${year}-${pad(month)}-${pad(last)}`;
+  if (start > today) return null; // a wholly future month is not answered from the past
+  return { start, end: monthEnd > today ? today : monthEnd };
+}
+
+/**
+ * Whole-utterance controlled-revenue route. Any other qualifier is refused so a
+ * scoped question is never silently widened to the whole business.
+ */
+function controlledRevenueFastQuery(text: string, today: string): Query | null {
+  let rest: string | null = null;
+  for (const base of CONTROLLED_REVENUE_BASES) {
+    if (text === base) { rest = ""; break; }
+    if (text.startsWith(`${base} `)) { rest = text.slice(base.length + 1).trim(); break; }
+  }
+  if (rest === null) return null;
+  rest = rest.replace(/(?: la)? bao nhieu$/, "").trim();
+
+  let dimension: string | null = null;
+  // "theo kênh" / "by channel" may appear before or after the period.
+  if (/(?:^|\s)(?:theo kenh|by channel)(?=\s|$)/.test(rest)) {
+    dimension = "channel";
+    rest = rest.replace(/(?:^|\s)(?:theo kenh|by channel)(?=\s|$)/g, " ").replace(/\s+/g, " ").trim();
+  }
+
+  let range: { start: string; end: string } | null = null;
+  if (Object.hasOwn(CONTROLLED_REVENUE_PERIODS, rest)) range = revenuePeriodRange(CONTROLLED_REVENUE_PERIODS[rest], today);
+  else range = explicitRevenueMonth(rest, today);
+  if (!range) return null;
+  return { metric: "controlled_revenue", dimension, start: range.start, end: range.end, limit: 20 };
+}
+
 // Whole-utterance matches only: do not discard a qualifier such as a branch/customer.
 export function fastQuery(question: string, today = vnToday()): Query | null {
   const normalized = normalize(question);
   const aliases: Record<string, string> = { "revenue today": "doanh thu hom nay", "revenue yesterday": "doanh thu hom qua", "revenue this month": "doanh thu thang nay", "purchase orders today": "so po hom nay", "low stock items": "hang sap het", "current supplier debt": "cong no ncc hien tai" };
   const text = Object.hasOwn(aliases, normalized) ? aliases[normalized] : normalized;
-  const match = /^(?:doanh thu|doanh thu kiem soat|doanh so) (hom nay|hom qua|thang nay)(?: bao nhieu)?$/.exec(text);
+  const revenue = controlledRevenueFastQuery(text, today);
+  if (revenue) return validateQuery(revenue, today);
   let metric: string, start = today, end = today;
-  if (match) {
-    metric = "controlled_revenue";
-    if (match[1] === "hom qua") start = end = new Date(Date.parse(today) - 86400000).toISOString().slice(0, 10);
-    if (match[1] === "thang nay") start = today.slice(0, 8) + "01";
-  } else if (/^(?:so po|so don mua hang) (?:hom nay)(?: bao nhieu)?$/.test(text)) metric = "purchase_order_count";
+  if (/^(?:so po|so don mua hang) (?:hom nay)(?: bao nhieu)?$/.test(text)) metric = "purchase_order_count";
   else if (/^(?:bao nhieu mat hang sap het|so mat hang duoi nguong|hang sap het)$/.test(text)) metric = "low_stock_count";
   else if (/^(?:cong no nha cung cap|cong no ncc)(?: hien tai| bao nhieu)?$/.test(text)) metric = "supplier_debt";
   else return null;

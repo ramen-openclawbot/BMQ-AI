@@ -19,6 +19,8 @@ import {
   type ExistingStateHash,
 } from "./candidates.ts";
 import { getCorsHeaders } from "../_shared/cors.ts";
+import type { DecisionsImage } from "../_shared/decisions-provider.ts";
+import { formatFinanceCorrection, type RobotFeedbackRow } from "../_shared/robot-feedback.ts";
 import { JEV_MODEL, JEV_PROMPT_VERSION, JevError, type JevEvaluator, type JevEvaluation, type JevRelation } from "./jev.ts";
 import { decideJevStatus, pairFactsFromState, type JevDuplicateStatus } from "./policy.ts";
 import { buildPairState, stateHash, type JevPairState, type RequestStateInput } from "./state.ts";
@@ -31,6 +33,11 @@ export const JEV_SCAN_MAX_DAYS = 400;
 export const JEV_SCAN_LOOKBACK_LIMIT = 2_000;
 export const JEV_SCAN_MAX_PAIR_KEYS = 100;
 export const JEV_SCAN_MAX_CONCURRENCY = 4;
+/** Uncertain text pairs are re-asked with both goods-receipt photos. */
+export const JEV_IMAGE_MIN_P_SAME = 0.15;
+export const JEV_IMAGE_MAX_P_SAME = 0.85;
+export const JEV_IMAGE_INSTRUCTIONS =
+  "So sánh hai phiếu giao hàng trong ảnh: đây là cùng một lần giao hàng hay hai lần khác nhau?";
 
 export type JevDuplicateMode = "dry_run" | "run";
 
@@ -56,6 +63,11 @@ export interface JevDuplicateDataSource {
     supplierNames: Record<string, string | null>;
     requests: Record<string, RequestStateInput>;
   }>;
+  /**
+   * Optional: one inline image per side for the pair's linked goods receipts,
+   * keyed by payment request id. A side with no image maps to an empty list.
+   */
+  loadReceiptImages?(requestIds: string[]): Promise<Record<string, DecisionsImage[]>>;
 }
 
 /** Service-role writer. Only `run` reaches it; `dry_run` never calls it. */
@@ -80,6 +92,8 @@ export interface JevCheckRow {
   model: string;
   prompt_version: string;
   checked_at: string;
+  /** Additive per-pair evidence: images_used, p_same_text, p_same_image. */
+  evidence?: Record<string, unknown>;
   // review_decision / review_note / reviewed_by / reviewed_at are deliberately
   // absent: the upsert must never overwrite a CEO decision.
 }
@@ -96,6 +110,10 @@ export interface JevScanItem {
   relation_probability: number | null;
   relation_confidence: number | null;
   error: string | null;
+  /** Additive image evidence. */
+  images_used?: boolean;
+  p_same_text?: number | null;
+  p_same_image?: number | null;
 }
 
 export interface JevScanSummary {
@@ -116,6 +134,8 @@ export interface JevDuplicateScanConfig {
   dataSource: () => JevDuplicateDataSource;
   sink: () => JevDuplicateSink;
   authenticate: (request: Request, signal: AbortSignal) => Promise<{ userId: string }>;
+  /** Optional: up to 5 past CEO decisions for the candidate pair keys. */
+  getRobotFeedback?: (keys: string[], limit: number) => Promise<RobotFeedbackRow[]>;
   now?: () => Date;
   concurrency?: number;
   audit?: (event: Record<string, unknown>) => void;
@@ -131,6 +151,8 @@ interface ParsedInput {
 interface EvalOutcome {
   pair: CandidatePair;
   evaluation?: JevEvaluation;
+  /** The text-only answer, kept when the image pass is not usable. */
+  textEvaluation?: JevEvaluation;
   error?: unknown;
 }
 
@@ -313,11 +335,65 @@ export function createJevScanHandler(config: JevDuplicateScanConfig) {
       let needsReview = 0;
       let autoFlag = 0;
 
+      // Up to 5 past CEO decisions per candidate pair, appended to the text.
+      const correctionsByPair = new Map<string, string[]>();
+      if (typeof config.getRobotFeedback === "function" && selection.pairs.length > 0) {
+        let feedbackRows: RobotFeedbackRow[] = [];
+        try {
+          feedbackRows = await config.getRobotFeedback(selection.pairs.map((pair) => pair.pair_key), 5);
+        } catch {
+          feedbackRows = [];
+        }
+        const pairByKey = new Map(selection.pairs.map((pair) => [pair.pair_key, pair]));
+        for (const row of feedbackRows) {
+          const pair = pairByKey.get(row.subject_key);
+          if (!pair) continue;
+          const list = correctionsByPair.get(row.subject_key) ?? [];
+          if (list.length >= 5) continue;
+          list.push(formatFinanceCorrection(row, pair.older.request_number, pair.newer.request_number));
+          correctionsByPair.set(row.subject_key, list);
+        }
+      }
+
       const results = await mapWithConcurrency<CandidatePair, EvalOutcome>(selection.pairs, concurrency, async (pair) => {
         if (!evaluator) return { pair, error: new JevScanError("unconfigured", 503) };
+        const corrections = correctionsByPair.get(pair.pair_key) ?? [];
         try {
-          const evaluation = await evaluator({ state: stateByPair.get(pair.pair_key), signal, deadlineAt });
-          return { pair, evaluation };
+          const textEvaluation = await evaluator({
+            state: stateByPair.get(pair.pair_key),
+            signal,
+            deadlineAt,
+            ...(corrections.length ? { corrections } : {}),
+          });
+          // An uncertain text pair is re-asked with both goods-receipt photos.
+          if (
+            textEvaluation.p_same > JEV_IMAGE_MIN_P_SAME
+            && textEvaluation.p_same < JEV_IMAGE_MAX_P_SAME
+            && typeof source.loadReceiptImages === "function"
+          ) {
+            try {
+              const imagesByRequest = await source.loadReceiptImages([pair.pr_older, pair.pr_newer]);
+              const older = imagesByRequest[pair.pr_older] ?? [];
+              const newer = imagesByRequest[pair.pr_newer] ?? [];
+              if (older.length > 0 && newer.length > 0) {
+                const imageEvaluation = await evaluator({
+                  state: stateByPair.get(pair.pair_key),
+                  signal,
+                  deadlineAt,
+                  images: [...older.slice(0, 1), ...newer.slice(0, 1)],
+                  imageInstructions: JEV_IMAGE_INSTRUCTIONS,
+                  ...(corrections.length ? { corrections } : {}),
+                });
+                // Keep the image answer only when OpenAI actually used the photos.
+                if (imageEvaluation.images_used === true) {
+                  return { pair, evaluation: imageEvaluation, textEvaluation };
+                }
+              }
+            } catch {
+              // A failed image read or image call keeps the text answer.
+            }
+          }
+          return { pair, evaluation: textEvaluation, textEvaluation };
         } catch (error) {
           return { pair, error };
         }
@@ -345,6 +421,13 @@ export function createJevScanHandler(config: JevDuplicateScanConfig) {
           continue;
         }
         const evaluation = result.evaluation as JevEvaluation;
+        const textEvaluation = result.textEvaluation ?? evaluation;
+        const imagesUsed = evaluation.images_used === true && evaluation !== textEvaluation;
+        const evidence: Record<string, unknown> = {
+          images_used: imagesUsed,
+          p_same_text: textEvaluation.p_same,
+          p_same_image: imagesUsed ? evaluation.p_same : null,
+        };
         const status = decideJevStatus({
           p_same: evaluation.p_same,
           relation: evaluation.relation,
@@ -373,6 +456,7 @@ export function createJevScanHandler(config: JevDuplicateScanConfig) {
           model: JEV_MODEL,
           prompt_version: JEV_PROMPT_VERSION,
           checked_at: now().toISOString(),
+          evidence,
         });
         items.push({
           pair_key: pair.pair_key,
@@ -386,6 +470,9 @@ export function createJevScanHandler(config: JevDuplicateScanConfig) {
           relation_probability: evaluation.relation_probability,
           relation_confidence: evaluation.relation_confidence,
           error: null,
+          images_used: imagesUsed,
+          p_same_text: textEvaluation.p_same,
+          p_same_image: imagesUsed ? evaluation.p_same : null,
         });
       }
 

@@ -19,11 +19,12 @@ import {
   type DecisionsOutcome,
   type DecisionsProvider,
 } from "../_shared/decisions-provider.ts";
+import { withCorrections } from "../_shared/robot-feedback.ts";
 
 export const JEV_ENDPOINT = "https://ai-gateway.vercel.sh/v1/evaluate";
 export const JEV_MODEL = "typesafe-ai/jev";
 // Bump whenever the state, the questions or the criteria below change.
-export const JEV_PROMPT_VERSION = "jev-stock-catalog-2026-10-15.1";
+export const JEV_PROMPT_VERSION = "jev-stock-catalog-2026-11-01.2";
 // One deadline per call, no retry, hard cap 4000 ms.
 export const JEV_TIMEOUT_MS = 4000;
 export const JEV_MAX_TIMEOUT_MS = 4000;
@@ -57,12 +58,12 @@ export const ITEM_CLASS_CRITERIA: Record<StockItemClass, string> = {
   non_stock: "Không phải hàng tồn kho: nước lau sàn, giấy vệ sinh, dịch vụ, chi phí vận chuyển.",
 };
 
-export function jevQuestions(mode: JevMode) {
+export function jevQuestions(mode: JevMode, corrections: readonly string[] = []) {
   if (mode === "same_item") {
     return {
       same_item: {
         type: "boolean",
-        instructions: SAME_ITEM_INSTRUCTIONS,
+        instructions: withCorrections(SAME_ITEM_INSTRUCTIONS, corrections),
         criteria: SAME_ITEM_CRITERIA,
       },
     };
@@ -70,7 +71,7 @@ export function jevQuestions(mode: JevMode) {
   return {
     item_class: {
       type: "choice",
-      instructions: ITEM_CLASS_INSTRUCTIONS,
+      instructions: withCorrections(ITEM_CLASS_INSTRUCTIONS, corrections),
       criteria: ITEM_CLASS_CRITERIA,
     },
   };
@@ -94,6 +95,8 @@ export interface JevEvaluatorParams {
   mode: JevMode;
   state: unknown;
   signal: AbortSignal;
+  /** Up to 5 relevant human corrections appended to the question text. */
+  corrections?: string[];
   /** Absolute epoch-ms budget for the whole scan request, if any. */
   deadlineAt?: number;
 }
@@ -266,7 +269,7 @@ export function createJevEvaluator(config: JevConfig): JevEvaluator {
   const circuit = config.circuit ?? createJevCircuit();
   const configuredTimeout = Math.max(1, Math.min(config.timeoutMs ?? JEV_TIMEOUT_MS, JEV_MAX_TIMEOUT_MS));
 
-  return async ({ mode, state, signal, deadlineAt }): Promise<JevEvaluation> => {
+  return async ({ mode, state, signal, corrections, deadlineAt }): Promise<JevEvaluation> => {
     signal.throwIfAborted();
     if (!circuit.canAttempt()) throw new JevError("jev_circuit_open", 503);
     const remaining = deadlineAt === undefined ? Infinity : deadlineAt - Date.now();
@@ -275,7 +278,7 @@ export function createJevEvaluator(config: JevConfig): JevEvaluator {
     const requestBody = {
       model: JEV_MODEL,
       state,
-      questions: jevQuestions(mode),
+      questions: jevQuestions(mode, corrections ?? []),
       // Server-side key only; no caller bearer token is sent to the provider.
       providerOptions: { gateway: { zeroDataRetention: true, only: ["typesafe-ai"] } },
     };

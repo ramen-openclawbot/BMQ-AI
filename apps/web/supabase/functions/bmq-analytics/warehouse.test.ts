@@ -137,3 +137,29 @@ test('legacy fast date ranges survive routing to warehouse without becoming toda
   assert.ok(queried);
  }
 });
+
+test("doanh thu hôm nay resolves to controlled revenue, not the raw warehouse revenue metric", async () => {
+  let metric = "";
+  const c = { metrics: { controlled_revenue: { label: "Controlled revenue", unit: "VND" } }, dimensions: { date: "date" } };
+  const result = await runWarehouse({ ...input, question: "doanh thu hôm nay" }, async (path, body) => {
+    if (path === "/v1/semantic") return c;
+    metric = (body as any).metric;
+    return { rows: [{ controlled_revenue: 1, currency: "VND" }] };
+  }, async () => { throw Error("no model"); }, signal);
+  assert.equal(metric, "controlled_revenue");
+  assert.equal(result.provenance.lane, "fast");
+});
+
+test("doanh thu theo kênh asks the live contract for the channel dimension", async () => {
+  let legacy: any = null;
+  const c = { metrics: { other_metric: { label: "x" } }, dimensions: { channel: "channel", date: "date" } };
+  await runWarehouse({ ...input, question: "doanh thu theo kênh hôm nay" }, async (path) => {
+    if (path === "/v1/semantic") return c;
+    throw Error("must use the live contract");
+  }, async () => { throw Error("no model"); }, signal, async (q) => {
+    legacy = q;
+    return { rows: [{ dimension: "Tổng", value: 1 }], source: "live", asOf: "now", note: "controlled", noteEn: "not net" };
+  });
+  assert.equal(legacy.metric, "controlled_revenue");
+  assert.equal(legacy.dimension, "channel");
+});

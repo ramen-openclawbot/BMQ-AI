@@ -68,7 +68,24 @@ export interface StockCatalogSummary {
   cost: number;
   usage: { date: string; calls: number; limit: number };
   stopped: "daily_limit" | null;
+  /** Additive: classify suggestions auto-applied by robot_auto_apply_class. */
+  auto_applied: number;
+  auto_skipped: Record<string, number>;
 }
+
+/** Additive auto-apply counters returned by the store after inserting rows. */
+export interface CatalogAutoApplySummary {
+  applied: number;
+  skipped: Record<string, number>;
+}
+
+export interface InsertSuggestionsResult {
+  inserted: number;
+  auto: CatalogAutoApplySummary;
+}
+
+/** A classify item the store may decorate with past corrections. */
+export type ClassifyItemWithCorrections = StockCatalogClassifyItem & { corrections?: string[] };
 
 export interface StockCatalogHandlerDeps {
   killSwitch: () => boolean;
@@ -79,7 +96,7 @@ export interface StockCatalogHandlerDeps {
   listUnclassifiedItems: (promptVersion: string) => Promise<StockCatalogClassifyItem[]>;
   getUsage: (usageDate: string) => Promise<StockCatalogUsage>;
   recordUsage: (usage: StockCatalogUsage) => Promise<void>;
-  insertSuggestions: (rows: StockCatalogSuggestionRow[]) => Promise<void>;
+  insertSuggestions: (rows: StockCatalogSuggestionRow[]) => Promise<InsertSuggestionsResult>;
   now?: () => Date;
   concurrency?: number;
   audit?: (event: Record<string, unknown>) => void;
@@ -326,11 +343,13 @@ export function createStockCatalogHandler(deps: StockCatalogHandlerDeps) {
           const results = await mapWithConcurrency<StockCatalogClassifyItem, ClassifyOutcome>(batch, concurrency, async (item) => {
             if (!evaluator) return { item, error: new StockCatalogError("unconfigured", 503) };
             try {
+              const corrections = (item as ClassifyItemWithCorrections).corrections;
               const evaluation = await evaluator({
                 mode: "item_class",
                 state: buildClassifyState(item),
                 signal,
                 deadlineAt,
+                ...(corrections && corrections.length ? { corrections } : {}),
               });
               return { item, evaluation };
             } catch (error) {
@@ -363,8 +382,9 @@ export function createStockCatalogHandler(deps: StockCatalogHandlerDeps) {
         }
       }
 
-      if (rows.length > 0) await deps.insertSuggestions(rows);
-      suggestions = rows.length;
+      let insertResult: InsertSuggestionsResult = { inserted: 0, auto: { applied: 0, skipped: {} } };
+      if (rows.length > 0) insertResult = await deps.insertSuggestions(rows);
+      suggestions = insertResult.inserted;
 
       if (calls > 0 || cost > 0) {
         await deps.recordUsage({
@@ -398,6 +418,8 @@ export function createStockCatalogHandler(deps: StockCatalogHandlerDeps) {
         cost,
         usage: { date: usageDate, calls: usage.calls + calls, limit: callLimit },
         stopped: budget <= 0 ? "daily_limit" : null,
+        auto_applied: insertResult.auto.applied,
+        auto_skipped: insertResult.auto.skipped,
       };
       return json(summary);
     } catch (error) {

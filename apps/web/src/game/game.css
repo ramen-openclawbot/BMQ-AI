@@ -1153,3 +1153,25 @@
   .kg .k3-tag span { font-size: 9px; }
   .kg .k3-hint { font-size: 11px; }
 }
+
+/* ---- Bé Mì tự làm hôm nay (2026-10-15) ---- */
+.kg .robot-auto { display: grid; gap: 10px; margin-top: 14px; padding: 14px; background: var(--white); border: 3px solid var(--ink); border-radius: 18px; box-shadow: var(--soft); }
+.kg .robot-auto header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.kg .robot-auto h3 { margin: 0; font-family: "Baloo 2", sans-serif; font-size: 20px; font-weight: 800; line-height: 1.2; }
+.kg .robot-auto header p { margin: 4px 0 0; font-size: 13px; font-weight: 600; line-height: 1.45; color: #5d5878; }
+.kg .robot-auto-switch { flex: none; min-height: 38px; padding: 0 14px; font-family: "Baloo 2", sans-serif; font-weight: 800; color: var(--ink); background: var(--mustard-light); border: 2.5px solid var(--ink); border-radius: 999px; box-shadow: var(--soft); cursor: pointer; }
+.kg .robot-auto-switch.is-on { background: var(--sage); color: var(--white); }
+.kg .robot-auto-switch:active { transform: translate(2px, 3px); box-shadow: none; }
+.kg .robot-auto-learned { padding: 8px 12px; font-size: 13px; font-weight: 700; background: var(--sage-light); border: 2px solid var(--ink); border-radius: 12px; }
+.kg .robot-auto ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.kg .robot-auto-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "kind name btn" "kind meta btn"; align-items: center; column-gap: 10px; row-gap: 2px; padding: 10px 12px; border: 2.5px solid var(--ink); border-radius: 14px; background: #fff; }
+.kg .robot-auto-row .robot-auto-kind { grid-area: kind; font-size: 12px; font-weight: 800; padding: 4px 8px; background: var(--plum); color: var(--white); border-radius: 999px; white-space: nowrap; }
+.kg .robot-auto-row b { grid-area: name; font-size: 14px; font-weight: 800; overflow-wrap: anywhere; }
+.kg .robot-auto-row small { grid-area: meta; font-size: 12px; font-weight: 700; color: #6f6a85; }
+.kg .robot-auto-row .kg-mini { grid-area: btn; white-space: nowrap; }
+.kg .robot-auto-row.is-undone { opacity: .55; }
+@media (max-width: 520px) {
+  .kg .robot-auto header { flex-direction: column; }
+  .kg .robot-auto-row { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "kind btn" "name name" "meta meta"; }
+  .kg .robot-auto-row .robot-auto-kind { justify-self: start; }
+}

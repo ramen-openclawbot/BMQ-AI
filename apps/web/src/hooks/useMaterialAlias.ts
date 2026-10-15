@@ -246,6 +246,7 @@ export function useRunAliasBacklog() {
   return useMutation({
     mutationFn: async (input: RunAliasBacklogInput): Promise<Record<string, unknown>> => {
       let processedTotal = 0;
+      let autoAppliedTotal = 0;
       let last: Record<string, unknown> = {};
       while (true) {
         const { data, error } = await supabase.functions.invoke("stock-alias-jev", {
@@ -255,6 +256,7 @@ export function useRunAliasBacklog() {
         const parsed = parseStockAliasJevResponse(data);
         if (parsed.mode !== "backlog") throw new Error("stock-alias-jev tra ve sai che do");
         last = parsed as unknown as Record<string, unknown>;
+        autoAppliedTotal += Number((data as { auto_applied?: unknown } | null)?.auto_applied ?? 0) || 0;
         processedTotal += parsed.processed;
         input.onProgress?.(processedTotal, processedTotal + parsed.remaining);
         if (parsed.stopped !== null) break;
@@ -262,11 +264,12 @@ export function useRunAliasBacklog() {
         // Safety: a call that made no progress must not loop forever.
         if (parsed.processed === 0) break;
       }
-      return last;
+      return { ...last, auto_applied_total: autoAppliedTotal };
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: [MATERIAL_ALIAS_REVIEW_QUERY_KEY] });
       void queryClient.invalidateQueries({ queryKey: [MATERIAL_ALIAS_BACKLOG_REVIEW_QUERY_KEY] });
+      void queryClient.invalidateQueries({ queryKey: ["robot-auto-actions"] });
     },
   });
 }

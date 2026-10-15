@@ -237,3 +237,12 @@ test("the circuit opens after three consecutive provider failures", async () => 
   );
   assert.equal(calls, 3, "the open circuit must not call the provider again");
 });
+
+test("past human corrections are appended to the question text", () => {
+  const corrections = ["Người duyệt đã sửa trước đây: Bơ → không dùng nhóm raw_material"];
+  const sameItem = jevQuestions("same_item", corrections);
+  assert.ok((sameItem.same_item.instructions as string).includes(corrections[0]));
+  const itemClass = jevQuestions("item_class", corrections);
+  assert.ok((itemClass.item_class.instructions as string).includes(corrections[0]));
+  assert.ok(!(jevQuestions("same_item").same_item.instructions as string).includes(corrections[0]));
+});

@@ -227,3 +227,25 @@ test("a warehouse without the derived metric does not fast-route kiosk revenue",
   assert.equal(modelCalls, 1);
   assert.equal(answer.provenance.lane, "abstain");
 });
+
+test("kiosk revenue by point of sale asks for the location dimension", async () => {
+  let body: any;
+  await runWarehouse(
+    { language: "vi", question: "doanh thu điểm bán theo điểm hôm nay", page, history: [] },
+    warehouseCall((request) => { body = request; }),
+    async () => { throw new Error("planner must not run on the exact route"); },
+    signal,
+  );
+  assert.equal(body.metric, "kiosk_sales_revenue");
+  assert.deepEqual(body.dimensions, ["location"]);
+
+  let english: any;
+  await runWarehouse(
+    { language: "vi", question: "kiosk revenue by location this month", page, history: [] },
+    warehouseCall((request) => { english = request; }),
+    async () => { throw new Error("planner must not run on the exact route"); },
+    signal,
+  );
+  assert.deepEqual(english.dimensions, ["location"]);
+  assert.equal(english.time_range, "this_month");
+});

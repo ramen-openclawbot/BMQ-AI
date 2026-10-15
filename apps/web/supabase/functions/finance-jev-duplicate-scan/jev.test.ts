@@ -7,6 +7,7 @@ import {
   JEV_ENDPOINT,
   JEV_MODEL,
   JevError,
+  jevQuestions,
   validateJevResponse,
 } from "./jev.ts";
 
@@ -209,4 +210,13 @@ test("the circuit opens after consecutive provider failures", async () => {
     (error: unknown) => error instanceof JevError && error.code === "jev_circuit_open",
   );
   assert.equal(calls, 2, "the open circuit must not call the provider again");
+});
+
+test("corrections and the image instruction rewrite only the question text", () => {
+  const corrections = ["Người duyệt đã sửa trước đây: PR-a ↔ PR-b → hai lần khác nhau (Bé Mì đã chọn needs_review)"];
+  const questions = jevQuestions({ corrections, imageInstructions: "So sánh ảnh" });
+  assert.match(String(questions.same_purchase.instructions), /So sánh ảnh/);
+  assert.match(String(questions.same_purchase.instructions), /hai lần khác nhau/);
+  assert.match(String(questions.relation.instructions), /hai lần khác nhau/);
+  assert.doesNotMatch(String(jevQuestions().same_purchase.instructions), /So sánh ảnh/);
 });

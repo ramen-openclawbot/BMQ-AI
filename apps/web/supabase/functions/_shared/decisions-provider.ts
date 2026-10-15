@@ -32,12 +32,23 @@ export const DECISIONS_DEFAULT_TIMEOUT_MS = 4_000;
 
 export type DecisionsEnvGetter = (name: string) => string | undefined;
 
+/**
+ * One inline image for the OpenAI Decisions path. Only base64 payloads are
+ * supported: hosted URLs are never fetched by the provider adapter.
+ */
+export interface DecisionsImage {
+  mime: string;
+  base64: string;
+}
+
 export interface EvaluateDecisionsOptions {
   fetcher: typeof fetch;
   gatewayUrl: string;
   gatewayKey: string;
   timeoutMs?: number;
   signal?: AbortSignal;
+  /** Optional inline images; only the OpenAI path forwards them. */
+  images?: DecisionsImage[];
   /** Injectable environment reader so node tests never touch global Deno state. */
   env?: DecisionsEnvGetter;
   maxBodyBytes?: number;
@@ -47,6 +58,8 @@ export interface DecisionsOutcome {
   status: number;
   body: unknown;
   provider: DecisionsProvider;
+  /** True only when the OpenAI answer that was used was asked with images. */
+  images_used: boolean;
   /** Short failure code when the OpenAI attempt failed and Jev was used instead. */
   openaiError?: string;
 }
@@ -125,7 +138,11 @@ function predicateInstructions(instructions: unknown, criteria: unknown): string
 }
 
 /** Gateway request body -> OpenAI Decisions request body. */
-export function translateDecisionsRequest(gatewayBody: Record<string, unknown>, model = OPENAI_DECISIONS_DEFAULT_MODEL) {
+export function translateDecisionsRequest(
+  gatewayBody: Record<string, unknown>,
+  model = OPENAI_DECISIONS_DEFAULT_MODEL,
+  images: readonly DecisionsImage[] = [],
+) {
   const state = gatewayBody.state;
   let input: string;
   if (typeof state === "string") {
@@ -150,7 +167,22 @@ export function translateDecisionsRequest(gatewayBody: Record<string, unknown>, 
       throw new DecisionsError("openai_unsupported_question", 502, name);
     }
   }
-  return { model, input, questions };
+  // With images, the Decisions input becomes a single user message carrying the
+  // text plus one inline base64 data URL per image. Hosted URLs are not accepted.
+  const multimodal = images.length > 0;
+  const requestInput = multimodal
+    ? [{
+      role: "user",
+      content: [
+        { type: "input_text", text: input },
+        ...images.map((image) => ({
+          type: "input_image",
+          image_url: `data:${image.mime};base64,${image.base64}`,
+        })),
+      ],
+    }]
+    : input;
+  return { model, input: requestInput, questions };
 }
 
 // ---------------------------------------------------------------------------
@@ -313,8 +345,9 @@ async function callOpenAI(
   opts: EvaluateDecisionsOptions,
   openaiKey: string,
   model: string,
-): Promise<Record<string, unknown>> {
-  const request = translateDecisionsRequest(gatewayBody, model);
+): Promise<{ body: Record<string, unknown>; imagesUsed: boolean }> {
+  const images = opts.images ?? [];
+  const request = translateDecisionsRequest(gatewayBody, model, images);
   const { deadline, combined } = withDeadline(opts.timeoutMs ?? DECISIONS_DEFAULT_TIMEOUT_MS, opts.signal);
   let response: Response;
   try {
@@ -345,7 +378,7 @@ async function callOpenAI(
     }
     throw new DecisionsError("openai_invalid_response", 502);
   }
-  return translateDecisionsResponse(gatewayBody, parsed);
+  return { body: translateDecisionsResponse(gatewayBody, parsed), imagesUsed: images.length > 0 };
 }
 
 async function callGateway(
@@ -375,10 +408,10 @@ async function callGateway(
     } catch {
       detail = null;
     }
-    return { status: response.status, body: detail, provider, openaiError };
+    return { status: response.status, body: detail, provider, images_used: false, openaiError };
   }
   const parsed = await readBoundedJson(response, combined, opts.signal, deadline, opts.maxBodyBytes ?? DECISIONS_BODY_LIMIT);
-  return { status: response.status, body: parsed, provider, openaiError };
+  return { status: response.status, body: parsed, provider, images_used: false, openaiError };
 }
 
 // ---------------------------------------------------------------------------
@@ -406,7 +439,7 @@ export async function evaluateDecisions(
   let openaiError: string | undefined;
   try {
     const body = await callOpenAI(gatewayBody, opts, openaiKey, model);
-    return { status: 200, body, provider: "openai" };
+    return { status: 200, body: body.body, provider: "openai", images_used: body.imagesUsed };
   } catch (error) {
     if (opts.signal?.aborted) throw error;
     openaiError = error instanceof DecisionsError ? error.code : "openai_unavailable";
