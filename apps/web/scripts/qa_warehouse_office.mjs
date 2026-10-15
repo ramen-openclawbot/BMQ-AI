@@ -28,6 +28,12 @@ const KAMEREO = Object.values(FIXTURE.debts).find((d) => d.rows.some((r) => r.nu
 KAMEREO.rows[KAMEREO.rows.length - 1].before_cutover = true;
 FIXTURE.recent = [{ id: "pkg-old", supplier_id: KAMEREO.supplier_id, result: { po_numbers: ["PO-000901"], purchase_order_ids: ["x"], debt: null, debt_picks: [{ kind: "pr", id: "y", number: "PR-OLD1", doc_date: null, remaining: 1, rank: 1 }] }, created_at: "2026-10-15T09:00:00+07:00" }];
 const BANH_MI = FIXTURE.snapshot.tan_tao.items.find((i) => i.name === "Bánh mì que");
+// Document photos (owner 16/10 IMG_5762): two attachments (one PDF), the delivery-note photo and one product photo;
+// another PR's photo path does not sign, so it shows as unopenable instead of breaking the detail.
+const DOC = (n) => Object.values(FIXTURE.details).find((d) => d && d.number === n);
+Object.assign(DOC("PR-336DB95D"), { attachments: [{ path: "payment-requests/qa-bill.jpg", name: "hoa-don.jpg", mime: "image/jpeg" }, { path: "payment-requests/qa-contract.pdf", name: "hop-dong.pdf", mime: "application/pdf" }] });
+Object.assign(DOC("PR-336DB95D").gr, { image_path: "goods-receipts/delivery-note-qa.jpg", photos: ["goods-receipts/qa-photo-1.jpg"] });
+Object.assign(DOC("PR-4BFB7283").gr, { image_path: "goods-receipts/missing-qa.jpg", photos: [] });
 
 const SUPABASE_FIXTURE = `
 const F = () => window.__officeFixture;
@@ -73,7 +79,12 @@ export const supabase = {
   rpc: (fn, args) => builder("rpc:" + fn, args),
   schema: () => ({ from: (table) => builder(table), rpc: (fn, args) => builder("rpc:" + fn, args) }),
   functions: { invoke: async (name) => { window.__qaWrites.push("invoke:" + name); return { data: null, error: { message: "QA fixture: functions disabled" } }; } },
-  storage: { from: () => ({ getPublicUrl: () => ({ data: { publicUrl: "" } }), createSignedUrl: async () => ({ data: null, error: null }) }) },
+  storage: { from: (bucket) => ({ getPublicUrl: () => ({ data: { publicUrl: "" } }), createSignedUrl: async (p) => {
+    window.__qaSigned = (window.__qaSigned || []).concat(bucket + ":" + p);
+    if (/missing/.test(p)) return { data: null, error: { message: "Object not found" } };
+    const svg = "<svg xmlns='http://www.w3.org/2000/svg' width='400' height='200'><rect width='400' height='200' fill='#f5c542'/><text x='20' y='120' font-size='48'>" + p.split("/").pop() + "</text></svg>";
+    return { data: { signedUrl: "data:image/svg+xml," + encodeURIComponent(svg) }, error: null };
+  } }) },
   auth: {
     getSession: async () => ({ data: { session: { access_token: "qa", user } }, error: null }),
     getUser: async () => ({ data: { user }, error: null }),
@@ -266,6 +277,39 @@ for (const vp of [{ width: 1440, height: 900, touch: false }, { width: 1280, hei
     assert.match(await page.locator(".kvp .doc-modal .doc-refs").textContent(), /PO-000832/);
     assert.ok(await page.getByRole("button", { name: /Duyệt chi/ }).isVisible());
   });
+  await check(`${w} PR photos show as thumbnails and open in a viewer that rotates`, async () => {
+    const box = page.locator(".kvp .doc-modal [data-office-photos]");
+    assert.equal(await box.getAttribute("data-office-photos"), "4");
+    await page.waitForFunction(() => document.querySelectorAll(".kvp .doc-modal .doc-photos img").length === 3, null, { timeout: 5000 });
+    assert.equal(await page.locator(".kvp .doc-modal .doc-photos .ph-pdf").count(), 1, "PDF attachment shown as a file");
+    const signed = await page.evaluate(() => window.__qaSigned);
+    assert.ok(signed.includes("invoices:goods-receipts/delivery-note-qa.jpg"), JSON.stringify(signed));
+    await page.locator(".kvp [data-office-photo='Phiếu nhập GRN-000583']").click();
+    const viewer = page.locator(".kvp [data-office-viewer]");
+    await viewer.waitFor({ timeout: 3000 });
+    const vb = await viewer.boundingBox();
+    assert.ok(vb.width >= w - 1 && vb.y <= 1, "viewer covers the screen");
+    assert.match(await viewer.textContent(), /3\/4/);
+    assert.ok(await page.locator("[data-office-viewer-img]").evaluate((img) => img.complete && img.naturalWidth > 0), "image decoded");
+    await page.getByRole("button", { name: "Xoay ảnh" }).click();
+    assert.match(await page.locator("[data-office-viewer-img]").getAttribute("style"), /rotate\(90deg\)/);
+    await page.waitForTimeout(300);
+    const fits = await page.evaluate(() => { const r = document.querySelector("[data-office-viewer-img]").getBoundingClientRect(); const s = document.querySelector(".kvp .pv-stage").getBoundingClientRect(); return r.left >= s.left - 1 && r.right <= s.right + 1 && r.top >= s.top - 1 && r.bottom <= s.bottom + 1; });
+    assert.ok(fits, "rotated photo stays inside the screen");
+    await page.getByRole("button", { name: "Ảnh sau" }).click();
+    assert.match(await viewer.textContent(), /4\/4/);
+    assert.match(await page.locator("[data-office-viewer-img]").getAttribute("style"), /rotate\(0deg\)/, "rotation resets per photo");
+    const [sw, cw] = await page.locator(".kvp .pv-bar").evaluate((el) => [el.scrollWidth, el.clientWidth]);
+    assert.ok(sw <= cw + 1, `viewer bar overflows ${sw} > ${cw}`);
+  });
+  await page.screenshot({ path: `${EVIDENCE}/photo-viewer-${w}.png` });
+  await page.getByRole("button", { name: "Đóng ảnh" }).click();
+  await check(`${w} closing the photo keeps the PR open`, async () => {
+    assert.equal(await page.locator(".kvp [data-office-viewer]").count(), 0);
+    assert.equal(await page.locator(".kvp .doc-modal [data-office-doc='PR-336DB95D']").count(), 1);
+  });
+  await page.locator(".kvp .doc-modal .doc-photos").scrollIntoViewIfNeeded();
+  await page.screenshot({ path: `${EVIDENCE}/pr-photos-${w}.png` });
   await page.getByRole("radio", { name: "Tiền mặt" }).click();
   await page.getByRole("button", { name: /Duyệt chi/ }).click();
   await page.waitForTimeout(500);
@@ -278,6 +322,10 @@ for (const vp of [{ width: 1440, height: 900, touch: false }, { width: 1280, hei
   // Reject another PR with a reason.
   await page.locator(".kvp [data-pr='PR-4BFB7283']").click();
   await page.waitForSelector(".kvp .doc-modal [data-office-doc='PR-4BFB7283']", { timeout: 5000 });
+  await check(`${w} a photo that cannot be signed shows as unopenable`, async () => {
+    await page.waitForSelector(".kvp .doc-modal .doc-photos .ph-miss", { timeout: 5000 });
+    assert.ok(await page.locator(".kvp [data-office-photo='Phiếu nhập GRN-000590']").isDisabled());
+  });
   await page.getByRole("button", { name: "Từ chối" }).click();
   await page.getByRole("textbox", { name: "Lý do từ chối" }).fill("Sai số lượng, NCC giao thiếu");
   await page.getByRole("button", { name: "Gửi từ chối" }).click();

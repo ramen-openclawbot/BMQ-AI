@@ -78,6 +78,16 @@ export interface DocGr {
   date: string | null;
   status: string | null;
   has_image: boolean;
+  /** Storage path of the delivery-note photo (migration 20261101360000). */
+  image_path?: string | null;
+  /** Extra product photos taken at receiving. */
+  photos?: string[] | null;
+}
+
+export interface DocAttachment {
+  path: string;
+  name: string | null;
+  mime: string | null;
 }
 
 export interface DocPoRef {
@@ -113,6 +123,8 @@ export interface PaymentDocPrDetail {
   created_at: string | null;
   invoice_created: boolean | null;
   has_image: boolean;
+  image_path?: string | null;
+  attachments?: DocAttachment[] | null;
   supplier: DocSupplier | null;
   po: DocPoRef | null;
   gr: DocGr | null;
@@ -130,6 +142,7 @@ export interface PaymentDocPoDetail {
   vat: number | null;
   notes: string | null;
   has_image: boolean;
+  image_path?: string | null;
   supplier: DocSupplier | null;
   gr: DocGr | null;
   prs: DocPrRef[];

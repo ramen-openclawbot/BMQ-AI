@@ -405,3 +405,20 @@
 .kvp .recent li span { color: var(--muted); font-weight: 900; }
 .kvp .recent li small { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 380px) { .kvp .lines.edit .lfield input { width: 76px; } }
+
+/* ---- document photos + viewer (owner 16/10 IMG_5762) */
+.kvp .doc-photos { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+.kvp .doc-photos button { width: 100%; display: grid; gap: 3px; padding: 4px; background: var(--white); border: 2px solid var(--ink); border-radius: 11px; box-shadow: var(--soft); text-align: center; }
+.kvp .doc-photos button:disabled { cursor: default; opacity: 0.8; }
+.kvp .doc-photos img, .kvp .doc-photos .ph-wait, .kvp .doc-photos .ph-miss, .kvp .doc-photos .ph-pdf { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; display: grid; place-items: center; background: var(--paper-deep); font-size: 11px; font-weight: 900; color: var(--muted); }
+.kvp .doc-photos .ph-pdf { background: var(--coral-light); color: var(--ink); font-size: 16px; }
+.kvp .doc-photos small { font-size: 10.5px; font-weight: 800; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kvp .doc-photos-none { margin: 0; font-size: 12.5px; color: var(--muted); }
+.kvp .photo-viewer { position: fixed; inset: 0; z-index: 90; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; background: rgba(20, 18, 34, 0.97); color: var(--white); }
+.kvp .pv-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: max(10px, env(safe-area-inset-top)) 12px 8px; }
+.kvp .pv-bar b { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kvp .pv-bar span { display: flex; gap: 6px; align-items: center; }
+.kvp .pv-bar button, .kvp .pv-bar a, .kvp .pv-nav button { min-height: 38px; min-width: 38px; border: 2px solid var(--white); border-radius: 10px; background: transparent; color: var(--white); font-weight: 900; font-size: 13px; padding: 0 10px; display: inline-grid; place-items: center; text-decoration: none; }
+.kvp .pv-stage { min-height: 0; display: grid; place-items: center; overflow: hidden; padding: 8px; touch-action: pinch-zoom; }
+.kvp .pv-stage img { max-width: 100%; max-height: 100%; object-fit: contain; transition: transform 0.2s; }
+.kvp .pv-nav { display: flex; justify-content: center; align-items: center; gap: 14px; padding: 8px 12px max(12px, env(safe-area-inset-bottom)); font-weight: 900; }

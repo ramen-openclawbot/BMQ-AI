@@ -6,6 +6,16 @@ import {
   type DocLine, type PaymentDocDetail,
 } from "@/lib/office-order";
 import { fmtDate, fmtMoney, fmtNum } from "./format";
+import { DocPhotos, type DocPhoto } from "./DocPhotos";
+
+// Same bucket hints as the finance pages (usePaymentRequests / useGoodsReceipts / usePurchaseOrders).
+function grPhotos(gr: { number: string | null; image_path?: string | null; photos?: string[] | null } | null): DocPhoto[] {
+  if (!gr) return [];
+  const out: DocPhoto[] = [];
+  if (gr.image_path) out.push({ key: `gr-${gr.image_path}`, label: `Phiếu nhập ${gr.number ?? ""}`.trim(), path: gr.image_path, bucket: "invoices" });
+  (gr.photos ?? []).forEach((path, i) => out.push({ key: `grp-${path}`, label: `Ảnh hàng ${i + 1}`, path, bucket: "invoices" }));
+  return out;
+}
 
 /** A PR or PO opened in full: status chips, links (PO / goods receipt / photo), every line, totals. */
 export type DocKey = { kind: PaymentDocKind; id: string };
@@ -81,8 +91,13 @@ export function OfficeDocDetail({ doc, actions }: { doc: DocKey; actions?: React
         <ul className="doc-refs">
           {d.po ? <Ref title="Đơn mua (PO)" number={d.po.number} parts={[d.po.date ? fmtDate(d.po.date) : null, label(PO_STATUS, d.po.status), d.po.amount ? fmtMoney(d.po.amount) : null]} /> : <li className="none"><small>Đơn mua (PO)</small><span>Không gắn PO</span></li>}
           {d.gr ? <Ref title="Phiếu nhập kho" number={d.gr.number} parts={[d.gr.date ? fmtDate(d.gr.date) : null, label(GR_STATUS, d.gr.status), d.gr.has_image ? "có ảnh" : "chưa có ảnh"]} /> : <li className="none"><small>Phiếu nhập kho</small><span>Chưa có phiếu nhập</span></li>}
-          <li className={d.has_image ? "" : "none"}><small>Ảnh chứng từ</small><span>{d.has_image ? "Đã đính kèm · xem ở trang Đề nghị chi" : "Chưa đính kèm"}</span></li>
         </ul>
+        <h4>Ảnh chứng từ</h4>
+        <DocPhotos photos={[
+          ...(d.image_path ? [{ key: `pr-${d.image_path}`, label: "Ảnh đề nghị chi", path: d.image_path, bucket: "invoices" }] : []),
+          ...(d.attachments ?? []).map((a, i) => ({ key: `att-${a.path}`, label: a.name ?? `Tệp đính kèm ${i + 1}`, path: a.path, bucket: "invoices", name: a.name, mime: a.mime })),
+          ...grPhotos(d.gr),
+        ]} />
         <h4>Dòng hàng · {d.lines.length}</h4>
         <Lines lines={d.lines} />
         <Totals doc={d} />
@@ -110,6 +125,11 @@ export function OfficeDocDetail({ doc, actions }: { doc: DocKey; actions?: React
         {d.gr ? <Ref title="Phiếu nhập kho" number={d.gr.number} parts={[d.gr.date ? fmtDate(d.gr.date) : null, label(GR_STATUS, d.gr.status), d.gr.has_image ? "có ảnh" : "chưa có ảnh"]} /> : <li className="none"><small>Phiếu nhập kho</small><span>Chưa có phiếu nhập</span></li>}
         {d.prs.map((p) => <Ref key={p.id} title="Đề nghị chi (PR)" number={p.number} parts={[label(PR_STATUS, p.status), label(PAY_STATUS, p.payment_status), p.amount ? fmtMoney(p.amount) : null]} />)}
       </ul>
+      <h4>Ảnh chứng từ</h4>
+      <DocPhotos photos={[
+        ...(d.image_path ? [{ key: `po-${d.image_path}`, label: "Ảnh đơn mua", path: d.image_path, bucket: "purchase-orders" }] : []),
+        ...grPhotos(d.gr),
+      ]} />
       <h4>Dòng hàng · {d.lines.length}</h4>
       <Lines lines={d.lines} />
       <Totals doc={d} />
