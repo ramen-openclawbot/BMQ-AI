@@ -11,6 +11,14 @@
 // Contract reference (verified): https://docs.typesafe.ai/api.md and
 // https://docs.typesafe.ai/primitives/choice.md.
 
+import {
+  DecisionsError,
+  decisionsFailureCode,
+  evaluateDecisions,
+  type DecisionsOutcome,
+  type DecisionsProvider,
+} from "../_shared/decisions-provider.ts";
+
 export const JEV_ENDPOINT = "https://ai-gateway.vercel.sh/v1/evaluate";
 export const JEV_MODEL = "typesafe-ai/jev";
 // Bump whenever the state, the question or the criteria below change.
@@ -354,6 +362,8 @@ export interface JevMatchEvaluation {
   confidence: number | null;
   usage: JevUsage;
   cost: number | null;
+  /** Which provider actually answered ('openai' or the Jev fallback). */
+  provider?: DecisionsProvider;
 }
 
 export interface JevEvaluatorParams {
@@ -561,44 +571,43 @@ export function createJevEvaluator(config: JevConfig): JevEvaluator {
     if (remaining <= 0) throw new JevError("jev_deadline_exceeded", 504);
     const budget = Math.max(1, Math.min(configuredTimeout, remaining));
     const allowed = matchOptions(state.candidates);
-    const body = JSON.stringify({
+    const requestBody = {
       model: JEV_MODEL,
       state,
       questions: jevQuestions(state),
       // Server-side key only; no caller bearer token is sent to the provider.
       providerOptions: { gateway: { zeroDataRetention: true, only: ["typesafe-ai"] } },
-    });
-    const deadline = AbortSignal.timeout(budget);
-    const combined = AbortSignal.any([signal, deadline]);
-    let response: Response;
+    };
+    let outcome: DecisionsOutcome;
     try {
-      response = await fetcher(JEV_ENDPOINT, {
-        method: "POST",
-        redirect: "error",
-        signal: combined,
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body,
+      outcome = await evaluateDecisions(requestBody, {
+        fetcher,
+        gatewayUrl: JEV_ENDPOINT,
+        gatewayKey: apiKey,
+        timeoutMs: budget,
+        signal,
       });
-    } catch {
+    } catch (error) {
       signal.throwIfAborted();
       circuit.recordFailure();
-      throw new JevError(deadline.aborted ? "jev_timeout" : "jev_unavailable", deadline.aborted ? 504 : 503);
+      const code = decisionsFailureCode(error);
+      throw new JevError(
+        code,
+        code === "jev_timeout" ? 504 : code === "jev_invalid_response" ? 502 : 503,
+        error instanceof DecisionsError ? error.detail : null,
+      );
     }
-    if (!response.ok) {
+    if (outcome.status < 200 || outcome.status >= 300) {
       circuit.recordFailure();
-      let detail: string | null = null;
-      try {
-        detail = `HTTP ${response.status}: ${(await response.text()).replace(/\s+/g, " ").slice(0, 300)}`;
-      } catch {
-        detail = `HTTP ${response.status}`;
-      }
-      if (response.status === 429) throw new JevError("jev_rate_limited", 429, detail);
+      const detail = outcome.body == null
+        ? `HTTP ${outcome.status}`
+        : `HTTP ${outcome.status}: ${String(outcome.body).replace(/\s+/g, " ").slice(0, 300)}`;
+      if (outcome.status === 429) throw new JevError("jev_rate_limited", 429, detail);
       throw new JevError("jev_http_error", 502, detail);
     }
-    const parsed = await readBoundedBody(response, combined, signal, deadline);
     let evaluation: JevMatchEvaluation;
     try {
-      evaluation = validateJevResponse(allowed, parsed);
+      evaluation = { ...validateJevResponse(allowed, outcome.body), provider: outcome.provider };
       // The model ranks the short c1..cN keys; store the real candidate id.
       evaluation = { ...evaluation, choice: candidateIdFromChoice(state.candidates, evaluation.choice) };
     } catch (error) {

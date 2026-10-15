@@ -16,6 +16,7 @@ import {
   createJevCircuit,
   type JevCircuit,
 } from "../bmq-analytics/jev.ts";
+import { decisionsFailureCode, evaluateDecisions, type DecisionsOutcome } from "../_shared/decisions-provider.ts";
 import {
   MATERIAL_SUGGEST_MODEL,
   MaterialSuggestError,
@@ -93,44 +94,6 @@ export function validateMaterialJevResponse(
   return { choice: materialId, probability: choiceProbability };
 }
 
-async function readBoundedBody(response: Response, combined: AbortSignal, parent: AbortSignal, deadline: AbortSignal): Promise<unknown> {
-  const reader = response.body?.getReader();
-  if (!reader) throw new MaterialSuggestError("material_jev_invalid_response", 502);
-  const cancel = () => { try { void reader.cancel().catch(() => undefined); } catch { /* already released */ } };
-  let onAbort: (() => void) | undefined;
-  const aborted = new Promise<never>((_, reject) => {
-    onAbort = () => reject(new DOMException("material jev request aborted", "AbortError"));
-    if (combined.aborted) onAbort();
-    else combined.addEventListener("abort", onAbort, { once: true });
-  });
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  try {
-    while (true) {
-      const read = reader.read();
-      read.catch(() => undefined);
-      const part = await Promise.race([read, aborted]);
-      if (part.done) break;
-      size += part.value.length;
-      if (size > MATERIAL_JEV_BODY_LIMIT) { cancel(); throw new MaterialSuggestError("material_jev_invalid_response", 502); }
-      chunks.push(part.value);
-    }
-  } catch (error) {
-    cancel();
-    if (parent.aborted) throw error;
-    if (deadline.aborted) throw new MaterialSuggestError("material_jev_timeout", 504);
-    if (error instanceof MaterialSuggestError) throw error;
-    throw new MaterialSuggestError("material_jev_unavailable", 503);
-  } finally {
-    if (onAbort) combined.removeEventListener("abort", onAbort);
-    try { reader.releaseLock(); } catch { /* outstanding read handled by cancel() */ }
-  }
-  const bytes = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
-  try { return JSON.parse(new TextDecoder().decode(bytes)); } catch { throw new MaterialSuggestError("material_jev_invalid_response", 502); }
-}
-
 export function createMaterialJevEvaluator(config: MaterialJevConfig): MaterialEvaluator {
   const apiKey = config.apiKey ?? "";
   if (!apiKey) throw new MaterialSuggestError("material_jev_unconfigured", 503);
@@ -152,7 +115,7 @@ export function createMaterialJevEvaluator(config: MaterialJevConfig): MaterialE
     criteria[MATERIAL_JEV_NONE] = "no offered canonical material is plausible";
     criteria[MATERIAL_JEV_AMBIGUOUS] = "two or more offered canonical materials are equally plausible";
 
-    const body = JSON.stringify({
+    const requestBody = {
       model: MATERIAL_SUGGEST_MODEL,
       state: {
         request: { raw_name: input.raw_name, raw_unit: input.raw_unit },
@@ -171,30 +134,24 @@ export function createMaterialJevEvaluator(config: MaterialJevConfig): MaterialE
         material: { type: "choice", instructions: MATERIAL_JEV_INSTRUCTIONS, criteria },
       },
       providerOptions: { gateway: { zeroDataRetention: true, only: ["typesafe-ai"] } },
-    });
+    };
 
-    const deadline = AbortSignal.timeout(timeoutMs);
-    const combined = AbortSignal.any([signal, deadline]);
-    let response: Response;
+    // OpenAI Decisions first, Jev Gateway on any OpenAI failure (shared adapter, owner 15/10).
+    let outcome: DecisionsOutcome;
     try {
-      response = await fetcher(JEV_ENDPOINT, {
-        method: "POST",
-        redirect: "error",
-        signal: combined,
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body,
-      });
+      outcome = await evaluateDecisions(requestBody, { fetcher, gatewayUrl: JEV_ENDPOINT, gatewayKey: apiKey, timeoutMs, signal, maxBodyBytes: MATERIAL_JEV_BODY_LIMIT });
     } catch (error) {
       signal.throwIfAborted();
       circuit.recordFailure();
-      throw new MaterialSuggestError(deadline.aborted ? "material_jev_timeout" : "material_jev_unavailable", deadline.aborted ? 504 : 503);
+      const code = decisionsFailureCode(error);
+      if (code === "jev_invalid_response") throw new MaterialSuggestError("material_jev_invalid_response", 502);
+      throw new MaterialSuggestError(code === "jev_timeout" ? "material_jev_timeout" : "material_jev_unavailable", code === "jev_timeout" ? 504 : 503);
     }
-    if (!response.ok) {
-      void response.body?.cancel().catch(() => undefined);
+    if (outcome.status < 200 || outcome.status >= 300) {
       circuit.recordFailure();
-      throw new MaterialSuggestError(response.status === 429 ? "material_jev_rate_limited" : "material_jev_http_error", 502);
+      throw new MaterialSuggestError(outcome.status === 429 ? "material_jev_rate_limited" : "material_jev_http_error", 502);
     }
-    const parsed = await readBoundedBody(response, combined, signal, deadline);
+    const parsed = outcome.body;
     const evaluation = validateMaterialJevResponse(parsed, [...refToMaterialId.keys()], refToMaterialId);
     circuit.recordSuccess();
     return evaluation;

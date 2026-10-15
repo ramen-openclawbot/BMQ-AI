@@ -34,6 +34,12 @@
 // Contract reference (verified 2026-09-20, AI Gateway shape — not TypeSafe's raw shape):
 // https://vercel.com/docs/ai-gateway/modalities/evaluation
 import { AnalyticsError, normalize } from "./core.ts";
+import {
+  decisionsFailureCode,
+  evaluateDecisions,
+  type DecisionsOutcome,
+  type DecisionsProvider,
+} from "../_shared/decisions-provider.ts";
 
 export const JEV_ENDPOINT = "https://ai-gateway.vercel.sh/v1/evaluate";
 export const JEV_MODEL = "typesafe-ai/jev";
@@ -84,6 +90,8 @@ export type JevCounts = { warehouseReads: number; plannerCalls: number; narratio
 export type JevTelemetry = {
   enabled: boolean;
   model: string;
+  // Which provider actually answered the last attempt (OpenAI Decisions or Jev).
+  provider?: DecisionsProvider | null;
   promptVersion: string;
   registryVersion: string;
   attempted: boolean;
@@ -123,6 +131,8 @@ export type JevDecision = {
   supportProbability: number;
   usage: JevUsage;
   cost: number | null;
+  /** Which provider actually answered ('openai' or the Jev fallback). */
+  provider?: DecisionsProvider;
 };
 export type JevClient = (params: { question: string; signal: AbortSignal; timeoutMs?: number }) => Promise<JevDecision>;
 
@@ -413,53 +423,9 @@ export function applyJevDecision(decision: JevDecision, metricIds: string[]): { 
 }
 
 // ---------------------------------------------------------------------------
-// Provider client (timeout covers a stalled body; cleanup never awaits cancel()).
+// Provider client (one deadline per call; the shared adapter owns response
+// reading and the OpenAI -> Jev fallback).
 // ---------------------------------------------------------------------------
-async function readJevBody(response: Response, combined: AbortSignal, parent: AbortSignal, deadline: AbortSignal): Promise<unknown> {
-  const reader = response.body?.getReader();
-  if (!reader) throw new AnalyticsError("jev_invalid_response");
-  // Cancellation is cleanup only: a provider stream may never settle its cancel()
-  // promise, so it must never be awaited on the timeout, parent-abort or oversize
-  // path. A rejected cancellation is still observed here (never an unhandled
-  // rejection) and a released/stalled reader can never mask the real error.
-  const cancel = () => { try { void reader.cancel().catch(() => undefined); } catch { /* reader already released */ } };
-  let onAbort: (() => void) | undefined;
-  // The timeout must cover a stalled body, not only the headers.
-  const aborted = new Promise<never>((_, reject) => {
-    onAbort = () => reject(new DOMException("Jev request aborted", "AbortError"));
-    if (combined.aborted) onAbort();
-    else combined.addEventListener("abort", onAbort, { once: true });
-  });
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  try {
-    while (true) {
-      const read = reader.read();
-      read.catch(() => undefined);
-      const part = await Promise.race([read, aborted]);
-      if (part.done) break;
-      size += part.value.length;
-      if (size > JEV_BODY_LIMIT) { cancel(); throw new AnalyticsError("jev_invalid_response"); }
-      chunks.push(part.value);
-    }
-  } catch (error) {
-    cancel();
-    if (parent.aborted) throw error;
-    if (deadline.aborted) throw new AnalyticsError("jev_timeout");
-    if (error instanceof AnalyticsError) throw error;
-    throw new AnalyticsError("jev_unavailable");
-  } finally {
-    if (onAbort) combined.removeEventListener("abort", onAbort);
-    // releaseLock throws while a read is still outstanding on a stalled stream; the
-    // pending read is resolved by cancel() above, so this stays best-effort.
-    try { reader.releaseLock(); } catch { /* outstanding read handled by cancel() */ }
-  }
-  const bytes = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
-  try { return JSON.parse(new TextDecoder().decode(bytes)); } catch { throw new AnalyticsError("jev_invalid_response"); }
-}
-
 export function jevClient(apiKey: string, fetcher: typeof fetch = fetch, timeoutMs = JEV_TIMEOUT_MS): JevClient {
   // Server-side key only. The caller bearer token is never read or forwarded here.
   if (!apiKey) throw new AnalyticsError("jev_unconfigured", 503);
@@ -467,25 +433,30 @@ export function jevClient(apiKey: string, fetcher: typeof fetch = fetch, timeout
     // An already-aborted parent must never open a provider request.
     signal.throwIfAborted();
     const budget = Math.max(1, Math.min(callTimeout ?? timeoutMs, JEV_MAX_TIMEOUT_MS));
-    const body = JSON.stringify({
+    const requestBody = {
       model: JEV_MODEL,
       state: question,
       questions: jevQuestions(),
       providerOptions: { gateway: { zeroDataRetention: true, only: ["typesafe-ai"] } },
-    });
-    // One deadline per call; concurrent calls never share a timer or controller.
-    const deadline = AbortSignal.timeout(budget);
-    const combined = AbortSignal.any([signal, deadline]);
-    let response: Response;
+    };
+    let outcome: DecisionsOutcome;
     try {
-      response = await fetcher(JEV_ENDPOINT, { method: "POST", redirect: "error", signal: combined,
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body });
+      outcome = await evaluateDecisions(requestBody, {
+        fetcher,
+        gatewayUrl: JEV_ENDPOINT,
+        gatewayKey: apiKey,
+        timeoutMs: budget,
+        signal,
+      });
     } catch (error) {
-      if (signal.aborted) throw error;
-      throw new AnalyticsError(deadline.aborted ? "jev_timeout" : "jev_unavailable");
+      // Parent cancellation is propagated, never converted into a provider error.
+      signal.throwIfAborted();
+      throw new AnalyticsError(decisionsFailureCode(error));
     }
-    if (!response.ok) { void response.body?.cancel().catch(() => undefined); throw new AnalyticsError(response.status === 429 ? "jev_rate_limited" : "jev_http_error"); }
-    return validateJevResponse(await readJevBody(response, combined, signal, deadline));
+    if (outcome.status < 200 || outcome.status >= 300) {
+      throw new AnalyticsError(outcome.status === 429 ? "jev_rate_limited" : "jev_http_error");
+    }
+    return { ...validateJevResponse(outcome.body), provider: outcome.provider };
   };
 }
 
@@ -511,7 +482,7 @@ export const defaultJevCircuit = createJevCircuit();
 
 export function jevTelemetry(enabled: boolean): JevTelemetry | null {
   if (!enabled) return null;
-  return { enabled: true, model: JEV_MODEL, promptVersion: JEV_PROMPT_VERSION, registryVersion: JEV_REGISTRY_VERSION,
+  return { enabled: true, model: JEV_MODEL, provider: null, promptVersion: JEV_PROMPT_VERSION, registryVersion: JEV_REGISTRY_VERSION,
     attempted: false, decided: false, screen: "pending", circuit: "closed",
     metric: null, metricProbability: null, period: null, periodProbability: null, support: null, supportProbability: null,
     threshold: JEV_PROBABILITY_THRESHOLD, fallback: null, usage: { input: 0, output: 0 }, cost: null,
@@ -562,6 +533,7 @@ export async function planWithJev(params: {
   telemetry.timings.evaluateMs = Date.now() - evaluateStarted;
   params.signal.throwIfAborted();
   circuit.recordSuccess();
+  telemetry.provider = decision.provider ?? null;
   telemetry.metric = decision.metric;
   telemetry.metricProbability = decision.metricProbability;
   telemetry.period = decision.period;

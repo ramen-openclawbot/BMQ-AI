@@ -12,6 +12,14 @@
 // Contract reference (verified): https://docs.typesafe.ai/api.md and
 // https://docs.typesafe.ai/primitives/noul.md plus choice.md.
 
+import {
+  DecisionsError,
+  decisionsFailureCode,
+  evaluateDecisions,
+  type DecisionsOutcome,
+  type DecisionsProvider,
+} from "../_shared/decisions-provider.ts";
+
 export const JEV_ENDPOINT = "https://ai-gateway.vercel.sh/v1/evaluate";
 export const JEV_MODEL = "typesafe-ai/jev";
 // Bump whenever the state, the questions or the criteria below change.
@@ -78,6 +86,8 @@ export interface JevEvaluation {
   class_confidence: number | null;
   usage: JevUsage;
   cost: number | null;
+  /** Which provider actually answered ('openai' or the Jev fallback). */
+  provider?: DecisionsProvider;
 }
 
 export interface JevEvaluatorParams {
@@ -228,51 +238,6 @@ export function validateJevResponse(mode: JevMode, body: unknown): JevEvaluation
   };
 }
 
-async function readBoundedBody(
-  response: Response,
-  combined: AbortSignal,
-  parent: AbortSignal,
-  deadline: AbortSignal,
-): Promise<unknown> {
-  const reader = response.body?.getReader();
-  if (!reader) throw new JevError("jev_invalid_response", 502);
-  // Cancellation is cleanup only; a provider stream may never settle its
-  // cancel() promise, so it is never awaited on any failure path.
-  const cancel = () => { try { void reader.cancel().catch(() => undefined); } catch { /* already released */ } };
-  let onAbort: (() => void) | undefined;
-  const aborted = new Promise<never>((_, reject) => {
-    onAbort = () => reject(new DOMException("Jev request aborted", "AbortError"));
-    if (combined.aborted) onAbort();
-    else combined.addEventListener("abort", onAbort, { once: true });
-  });
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  try {
-    while (true) {
-      const read = reader.read();
-      read.catch(() => undefined);
-      const part = await Promise.race([read, aborted]);
-      if (part.done) break;
-      size += part.value.length;
-      if (size > JEV_BODY_LIMIT) { cancel(); throw new JevError("jev_invalid_response", 502); }
-      chunks.push(part.value);
-    }
-  } catch (error) {
-    cancel();
-    if (parent.aborted) throw error;
-    if (deadline.aborted) throw new JevError("jev_timeout", 504);
-    if (error instanceof JevError) throw error;
-    throw new JevError("jev_unavailable", 503);
-  } finally {
-    if (onAbort) combined.removeEventListener("abort", onAbort);
-    try { reader.releaseLock(); } catch { /* outstanding read handled by cancel() */ }
-  }
-  const bytes = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
-  try { return JSON.parse(new TextDecoder().decode(bytes)); } catch { throw new JevError("jev_invalid_response", 502); }
-}
-
 export interface JevConfig {
   apiKey: string;
   fetcher?: typeof fetch;
@@ -307,47 +272,45 @@ export function createJevEvaluator(config: JevConfig): JevEvaluator {
     const remaining = deadlineAt === undefined ? Infinity : deadlineAt - Date.now();
     if (remaining <= 0) throw new JevError("jev_deadline_exceeded", 504);
     const budget = Math.max(1, Math.min(configuredTimeout, remaining));
-    const body = JSON.stringify({
+    const requestBody = {
       model: JEV_MODEL,
       state,
       questions: jevQuestions(mode),
       // Server-side key only; no caller bearer token is sent to the provider.
       providerOptions: { gateway: { zeroDataRetention: true, only: ["typesafe-ai"] } },
-    });
-    // One deadline per call; concurrent calls never share a timer or controller.
-    const deadline = AbortSignal.timeout(budget);
-    const combined = AbortSignal.any([signal, deadline]);
-    let response: Response;
+    };
+    let outcome: DecisionsOutcome;
     try {
-      response = await fetcher(JEV_ENDPOINT, {
-        method: "POST",
-        redirect: "error",
-        signal: combined,
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body,
+      outcome = await evaluateDecisions(requestBody, {
+        fetcher,
+        gatewayUrl: JEV_ENDPOINT,
+        gatewayKey: apiKey,
+        timeoutMs: budget,
+        signal,
       });
     } catch (error) {
       signal.throwIfAborted();
       circuit.recordFailure();
-      throw new JevError(deadline.aborted ? "jev_timeout" : "jev_unavailable", deadline.aborted ? 504 : 503);
+      const code = decisionsFailureCode(error);
+      throw new JevError(
+        code,
+        code === "jev_timeout" ? 504 : code === "jev_invalid_response" ? 502 : 503,
+        error instanceof DecisionsError ? error.detail : null,
+      );
     }
-    if (!response.ok) {
+    if (outcome.status < 200 || outcome.status >= 300) {
       circuit.recordFailure();
       // Keep the provider status and a short, single-line error message for diagnosis.
-      // The Gateway error body never carries our key; it is bounded to 300 characters.
-      let detail: string | null = null;
-      try {
-        detail = `HTTP ${response.status}: ${(await response.text()).replace(/\s+/g, " ").slice(0, 300)}`;
-      } catch {
-        detail = `HTTP ${response.status}`;
-      }
-      if (response.status === 429) throw new JevError("jev_rate_limited", 429, detail);
+      // The provider error body never carries our key; it is bounded to 300 characters.
+      const detail = outcome.body == null
+        ? `HTTP ${outcome.status}`
+        : `HTTP ${outcome.status}: ${String(outcome.body).replace(/\s+/g, " ").slice(0, 300)}`;
+      if (outcome.status === 429) throw new JevError("jev_rate_limited", 429, detail);
       throw new JevError("jev_http_error", 502, detail);
     }
-    const parsed = await readBoundedBody(response, combined, signal, deadline);
     let evaluation: JevEvaluation;
     try {
-      evaluation = validateJevResponse(mode, parsed);
+      evaluation = { ...validateJevResponse(mode, outcome.body), provider: outcome.provider };
     } catch (error) {
       circuit.recordFailure();
       throw error;
