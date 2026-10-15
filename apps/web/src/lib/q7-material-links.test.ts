@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  isStaleLinkError,
   parseQ7ExactLinkBatch,
   parseQ7MaterialLinkResult,
   parseQ7MaterialLinkReview,
@@ -261,8 +262,8 @@ test("q7MaterialLinkErrorText maps known codes and falls back", () => {
     q7MaterialLinkErrorText("insufficient_privilege"),
     "Không có quyền liên kết NVL với Material Master.",
   );
-  assert.match(q7MaterialLinkErrorText("item_already_linked"), /đã liên kết/);
-  assert.match(q7MaterialLinkErrorText("item_not_eligible"), /phạm vi Q7/);
+  assert.match(q7MaterialLinkErrorText("item_already_linked"), /người khác gắn mã/);
+  assert.match(q7MaterialLinkErrorText("item_not_eligible"), /người khác gắn mã hoặc đã ngưng dùng/);
   assert.match(q7MaterialLinkErrorText("material_inactive"), /ngừng hoạt động/);
   assert.match(q7MaterialLinkErrorText("unit_factor_required"), /hệ số quy đổi/);
   assert.equal(q7MaterialLinkErrorText("something_else"), "Không liên kết được NVL. Vui lòng thử lại.");
@@ -277,4 +278,10 @@ test("q7MaterialLinkErrorCode extracts a known code from an error", () => {
   );
   assert.equal(q7MaterialLinkErrorCode(new Error("unit_factor_required")), "unit_factor_required");
   assert.equal(q7MaterialLinkErrorCode(new Error("boom")), null);
+});
+
+test("stale link errors (someone else linked first) trigger a refresh", () => {
+  assert.equal(isStaleLinkError(new Error("item_already_linked")), true);
+  assert.equal(isStaleLinkError(new Error("item_not_eligible")), true);
+  assert.equal(isStaleLinkError(new Error("unit_factor_required")), false);
 });

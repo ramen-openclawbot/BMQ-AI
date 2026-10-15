@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tansta
 
 import { supabase } from "@/integrations/supabase/client";
 import {
+  isStaleLinkError,
   parseQ7ExactLinkBatch,
   parseQ7MaterialLinkResult,
   parseQ7MaterialLinkReview,
@@ -65,6 +66,7 @@ export function useLinkQ7ItemMaterial() {
       return parseQ7MaterialLinkResult(data);
     },
     onSuccess: () => invalidateQ7MaterialLinks(queryClient),
+    onError: (error) => { if (isStaleLinkError(error)) invalidateQ7MaterialLinks(queryClient); },
   });
 }
 

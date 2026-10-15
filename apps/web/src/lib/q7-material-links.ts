@@ -297,8 +297,8 @@ export type Q7MaterialLinkErrorCode = (typeof Q7_MATERIAL_LINK_ERROR_CODES)[numb
 
 const Q7_MATERIAL_LINK_ERROR_TEXT: Record<Q7MaterialLinkErrorCode, string> = {
   insufficient_privilege: "Không có quyền liên kết NVL với Material Master.",
-  item_already_linked: "NVL này đã liên kết với một nguyên liệu chuẩn khác.",
-  item_not_eligible: "NVL không thuộc phạm vi Q7 hoặc đã ngừng sử dụng.",
+  item_already_linked: "Món này vừa được người khác gắn mã chuẩn. Danh sách đã được làm mới.",
+  item_not_eligible: "Món này vừa được người khác gắn mã hoặc đã ngưng dùng. Danh sách đã được làm mới.",
   item_skipped: "NVL này đã được đánh dấu bỏ qua, không cần gắn mã.",
   invalid_location: "Kho không hợp lệ (chỉ Q7 hoặc Tân Tạo).",
   material_inactive: "Nguyên liệu chuẩn đang ngừng hoạt động.",
@@ -325,6 +325,12 @@ export function q7MaterialLinkErrorText(code: unknown): string {
 }
 
 /** Extract a known server error code from a raw RPC/Error message, else null. */
+/** Another person linked (or stopped) the item first: the server refused, so the deck must refresh. */
+export function isStaleLinkError(error: unknown): boolean {
+  const code = q7MaterialLinkErrorCode(error);
+  return code === "item_already_linked" || code === "item_not_eligible";
+}
+
 export function q7MaterialLinkErrorCode(error: unknown): Q7MaterialLinkErrorCode | null {
   const message =
     error instanceof Error

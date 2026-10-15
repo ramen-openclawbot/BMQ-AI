@@ -11,6 +11,7 @@ import {
 import {
   parseQ7ExactLinkBatch,
   parseQ7MaterialLinkResult,
+  isStaleLinkError,
   type Q7ExactLinkBatch,
   type Q7MaterialLinkResult,
 } from "@/lib/q7-material-links";
@@ -86,6 +87,7 @@ export function useLinkItemMaterial() {
       return parseQ7MaterialLinkResult(data);
     },
     onSuccess: () => invalidateMaterialLinks(queryClient),
+    onError: (error) => { if (isStaleLinkError(error)) invalidateMaterialLinks(queryClient); },
   });
 }
 
