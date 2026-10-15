@@ -294,13 +294,19 @@ export function LinkQuest({ location, canEdit, mission, onToast, onCompleted }: 
   useEffect(() => { setDeferred(loadDeferred(location)); setStreak(0); setComboHidden(false); }, [location]);
   useEffect(() => { try { sessionStorage.setItem(deferKey(location), JSON.stringify(deferred)); } catch { /* private mode */ } }, [deferred, location]);
 
-  const items = review.data?.items ?? [];
+  // Owner 15/10 ("gắn xong màn hình trắng trơn"): the review takes seconds to reload, so decided cards
+  // leave the deck right away and the refetch catches up in the background.
+  const [decidedIds, setDecidedIds] = useState<Set<string>>(() => new Set());
+  const allItems = review.data?.items ?? [];
+  const items = useMemo(() => allItems.filter((item) => !decidedIds.has(item.item_id)), [allItems, decidedIds]);
+  const localDone = allItems.length - items.length;
+  const decide = (ids: string[]) => setDecidedIds((prev) => { const next = new Set(prev); ids.forEach((id) => next.add(id)); return next; });
   const counts = review.data?.counts;
   const deck = useMemo(() => deckOrder(items, deferred), [items, deferred]);
   const combo = useMemo(() => bulkableRows(items), [items]);
   const current = deck[0] ?? null;
   const total = (counts?.linked_total ?? 0) + (counts?.total ?? 0);
-  const done = counts?.linked_total ?? 0;
+  const done = (counts?.linked_total ?? 0) + localDone;
   const showPop = (text: string) => { setPop(text); window.setTimeout(() => setPop(null), 1700); };
   const advance = (text: string) => {
     const next = streak + 1;
@@ -311,6 +317,8 @@ export function LinkQuest({ location, canEdit, mission, onToast, onCompleted }: 
   const runCombo = () => bulk.mutate({ location, requestId: bulkRequestId }, {
     onSuccess: (result) => {
       setBulkRequestId(newRequestId()); setComboHidden(true); setStreak((s) => s + result.linked);
+      const notLinked = new Set([...result.needs_factor, ...result.failed].map((row: { item_id?: string }) => row.item_id).filter(Boolean) as string[]);
+      decide(combo.map((row) => row.item_id).filter((id) => !notLinked.has(id)));
       showPop(`⚡ ${result.linked} món!`);
       if (result.needs_factor.length || result.failed.length) onToast([result.needs_factor.length ? `${result.needs_factor.length} món cần số quy đổi` : null, result.failed.length ? `${result.failed.length} món lỗi` : null].filter(Boolean).join(" · "));
     },
@@ -350,7 +358,7 @@ export function LinkQuest({ location, canEdit, mission, onToast, onCompleted }: 
 
       <div className="lq-deck">
         {current ? (
-          <ItemCard key={current.item_id} item={current} canEdit={canEdit} onLinked={advance} onSkipped={advance} onDefer={() => defer(current)} />
+          <ItemCard key={current.item_id} item={current} canEdit={canEdit} onLinked={(text) => { decide([current.item_id]); advance(text); }} onSkipped={(text) => { decide([current.item_id]); advance(text); }} onDefer={() => defer(current)} />
         ) : (
           <section className="lq-done" data-bmq-lq-done>
             <JevBot state="done" size={80} />

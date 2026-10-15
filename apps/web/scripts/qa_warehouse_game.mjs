@@ -367,7 +367,10 @@ function builder(table, args) {
     get(_t, prop) {
       if (prop === "then") {
         const slow = cfg().slow && /^rpc:(get_warehouse_game_snapshot|get_my_missions)$/.test(st.table);
-        return (ok, ko) => (slow ? new Promise((r) => setTimeout(r, cfg().slow)) : Promise.resolve()).then(() => settle(st)).then(ok, ko);
+        // Live get_material_link_review takes 5–10 s; the deck must not wait for it after a decision.
+        const slowReview = cfg().slowReview && st.table === "rpc:get_material_link_review";
+        const delay = slow ? cfg().slow : slowReview ? cfg().slowReview : 0;
+        return (ok, ko) => (delay ? new Promise((r) => setTimeout(r, delay)) : Promise.resolve()).then(() => settle(st)).then(ok, ko);
       }
       if (prop === "catch") return (ko) => Promise.resolve(settle(st)).catch(ko);
       if (prop === "finally") return (fn) => Promise.resolve(settle(st)).finally(fn);
@@ -815,8 +818,11 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       assert.equal(await overflow(page), 0, `quest card no overflow ${viewport.width}`);
       await page.screenshot({ path: `${EVIDENCE}/quest-card-${viewport.width}.png`, fullPage: true });
       await page.locator("[data-bmq-lq-factor]").fill("25000");
+      await page.evaluate(() => localStorage.setItem("qa-shell", JSON.stringify({ ...JSON.parse(localStorage.getItem("qa-shell") || "{}"), slowReview: 6000 })));
       await page.locator("[data-bmq-lq-link]").dispatchEvent("click");
-      await page.waitForFunction(() => document.querySelector("[data-bmq-lq-card]")?.getAttribute("data-bmq-lq-card") === "Trứng gà 60gr", null, { timeout: 5000 });
+      // next card within ~1 s although the review refetch takes 6 s
+      await page.waitForFunction(() => document.querySelector("[data-bmq-lq-card]")?.getAttribute("data-bmq-lq-card") === "Trứng gà 60gr", null, { timeout: 1500 });
+      await page.evaluate(() => { const c = JSON.parse(localStorage.getItem("qa-shell") || "{}"); delete c.slowReview; localStorage.setItem("qa-shell", JSON.stringify(c)); });
       assert.equal(await page.locator("[data-bmq-lq-factor]").inputValue(), "60", "factor read from the name");
       await page.locator("[data-bmq-lq-link]").dispatchEvent("click");
       await page.waitForFunction(() => document.querySelector("[data-bmq-lq-card]")?.getAttribute("data-bmq-lq-card") === "Bottega zelachi italian grated cheese", null, { timeout: 5000 });
