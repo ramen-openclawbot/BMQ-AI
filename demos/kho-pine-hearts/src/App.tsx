@@ -28,6 +28,7 @@ export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const boardRef = useRef<HTMLElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
   const roomRef = useRef<Room | null>(null);
   const press = useRef<{ x: number; y: number } | null>(null);
   const machineHot = useRef(false);
@@ -122,6 +123,9 @@ export default function App() {
     return () => { clearTimeout(id); window.removeEventListener("keydown", key); before?.focus(); };
   }, [modal, prOpen, docStack.length]);
 
+  // The notebook follows what you touched: top of the page, active chip in view.
+  useEffect(() => { bodyRef.current?.scrollTo({ top: 0 }); document.querySelector<HTMLElement>(".chip[aria-pressed=true]")?.scrollIntoView({ block: "nearest", inline: "nearest" }); }, [spot, query]);
+
   // ---- quest progress (today's play): low items into the basket, PRs decided
   const inBasket = new Map(basket.map((line) => [line.item.id, line.qty]));
   const lowDone = data.low.filter((item) => inBasket.has(item.id)).length;
@@ -149,6 +153,7 @@ export default function App() {
   const choose = (next: Spot) => {
     const room = roomRef.current;
     setSpot(next); setQuery(""); setOpen(null); setSheetOpen(true);
+    bodyRef.current?.scrollTo({ top: 0 });
     room?.push({ type: "station", t: room.now(), id: next.kind === "shelf" ? next.code : next.kind });
   };
   const startMachine = () => {
@@ -384,7 +389,7 @@ export default function App() {
           <button type="button" className="chip desk" aria-pressed={spot.kind === "desk" && !query} onClick={() => choose({ kind: "desk" })}>📋 Phiếu PR <b>{waiting}</b></button>
         </div>
       </div>
-      <div className="board-body">
+      <div ref={bodyRef} className="board-body">
         <div className="board-head">{heading}</div>
         {body}
         <p className="source-note">Dữ liệu chụp ngày {fmtDate(AS_OF)}/{AS_OF.slice(0, 4)}. “Sắp hết” là dự đoán theo chu kỳ nhập, không phải số tồn kiểm kê.</p>
