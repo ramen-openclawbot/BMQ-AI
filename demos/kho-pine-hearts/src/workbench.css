@@ -23,3 +23,5 @@ html,body{overflow-x:clip}html,body,#root{height:auto;min-height:100%}body{overf
 /* Retained document-row readability: keep the date in its own grid row. */
 .debt li .pick{grid-template-areas:"c k n a" "c k g a";grid-template-rows:auto auto;row-gap:4px;line-height:1.4}
 .debt .pick input{grid-area:c}.debt .pick .kind{grid-area:k}.debt .pick .num{grid-area:n}.debt .pick .age{grid-area:g;grid-column:3;grid-row:2}.debt .pick>b{grid-area:a}
+/* Legacy notifications used top positioning; this workbench uses bottom-only toasts. */
+.pine-app .toast{top:auto;height:auto;min-height:0;max-height:120px}
