@@ -249,11 +249,9 @@ for (const vp of [{ width: 1440, height: 900, touch: false }, { width: 1280, hei
   // Machine: wake scene (skippable), picks kept per supplier; an old document opens in full; one robot package.
   await page.getByRole("button", { name: "Xoá tìm kiếm" }).click();
   await page.locator("[data-open-machine]").click();
-  await check(`${w} opening the machine plays the skippable wake scene in place`, async () => {
-    await page.waitForSelector(".kvp .wake", { timeout: 3000 });
-    assert.match(await page.locator(".kvp .wake").textContent(), /Sushi/);
-    await page.locator("[data-office-skip]").click();
-    await page.waitForSelector("[data-office-machine]", { timeout: 5000 });
+  await check(`${w} opening the machine shows the ordering panel at once (no wake scene)`, async () => {
+    await page.waitForSelector("[data-office-machine]", { timeout: 3000 });
+    assert.equal(await page.locator(".kvp .wake").count(), 0, "no wake / loading scene");
   });
   await page.waitForSelector(".kvp .sup-card .debt .pick", { timeout: 5000 });
   await check(`${w} machine keeps the pick; old doc opens photo-first in full`, async () => {
@@ -459,7 +457,7 @@ for (const vp of [{ width: 1440, height: 900, touch: false }, { width: 1280, hei
   await context.close();
 }
 
-// Reduced motion: opening the machine skips the wake scene.
+// Reduced motion: the room is still; opening the machine works the same.
 {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: "reduce", locale: "vi-VN" });
   await context.addInitScript((f) => { window.__officeFixture = f; }, FIXTURE);
@@ -468,7 +466,7 @@ for (const vp of [{ width: 1440, height: 900, touch: false }, { width: 1280, hei
   const page = await context.newPage();
   await page.goto(`${BASE}/warehouse/office`, { waitUntil: "networkidle" });
   await page.waitForSelector("[data-office-page].is-ready", { timeout: 20000 });
-  await check("reduced motion: the machine opens without the wake scene", async () => {
+  await check("reduced motion: the machine opens at once", async () => {
     await page.locator("[data-open-machine]").click();
     await page.waitForSelector("[data-office-machine]", { timeout: 3000 });
     assert.equal(await page.locator(".kvp .wake").count(), 0);

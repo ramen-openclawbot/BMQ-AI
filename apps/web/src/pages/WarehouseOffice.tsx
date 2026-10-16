@@ -21,7 +21,7 @@ import { resolveImageUrl } from "@/lib/storage-url";
 import { GamePicker } from "@/game/GamePicker";
 import { newRequestId } from "@/game/meta";
 import { loadBasket, saveBasket, type BasketLine } from "@/game/RobotDesk";
-import { BEAT, FLY, Room, type RoomData, type RoomItem } from "@/game/office/Room";
+import { FLY, Room, type RoomData, type RoomItem } from "@/game/office/Room";
 import { OfficeDocDetail, type DocKey } from "@/game/office/OfficeDocDetail";
 import { fmtDate, fmtMillion, fmtMoney, fmtNum } from "@/game/office/format";
 import "@/game/office/office.css";
@@ -236,8 +236,7 @@ export default function WarehouseOffice() {
   const [prOpen, setPrOpen] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(true);
-  const [modal, setModal] = useState<"animation" | "machine" | null>(null);
-  const [animTime, setAnimTime] = useState(0);
+  const [modal, setModal] = useState<"machine" | null>(null);
   const [hover, setHover] = useState<Hover | null>(null);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -300,21 +299,6 @@ export default function WarehouseOffice() {
   }, [wh, snap, items, shelves, low, waiting]);
   useEffect(() => { roomRef.current?.setDeskCount(waiting); }, [waiting]);
 
-  // Opening the machine: the build-up scene plays in place, then the ordering panel opens.
-  useEffect(() => {
-    const room = roomRef.current;
-    if (!room || modal !== "animation") return;
-    const t0 = room.now();
-    room.events = [...room.events.filter((ev) => ev.type !== "assemble"), { type: "assemble", t: t0 }];
-    let raf = 0;
-    const tick = () => {
-      const t = Math.min(BEAT.end, room.now() - t0);
-      setAnimTime(t);
-      if (t < BEAT.end) raf = requestAnimationFrame(tick); else setModal("machine");
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [modal]);
 
   // Bring in the shared basket once this warehouse's items are known; keep the rest parked.
   useEffect(() => {
@@ -366,11 +350,7 @@ export default function WarehouseOffice() {
     prevLowDone.current = lowDone;
   }, [lowDone, low.length]);
 
-  const idleAgain = () => {
-    const room = roomRef.current;
-    if (room && room.frozen === null) room.events = [...room.events.filter((ev) => ev.type !== "assemble"), { type: "assemble", t: room.now() + IDLE_START }];
-  };
-  const closeModal = () => { idleAgain(); setModal(null); };
+  const closeModal = () => setModal(null);
   const switchWarehouse = (id: OfficeOrderLocation) => {
     if (id === wh || sending) return;
     builtFor.current = null;
@@ -385,12 +365,14 @@ export default function WarehouseOffice() {
     setSpot(next); setQuery(""); setOpen(null); setSheetOpen(true);
     room?.push({ type: "station", t: room.now(), id: next.kind === "shelf" ? next.code : next.kind });
   };
+  // Sushi is awake and standing in the warehouse (owner 17/10): tapping her opens the ordering panel at once;
+  // the room just greets (hopper glow + smile) behind the panel.
   const startMachine = () => {
     if (modal || !ready) return;
-    setAnimTime(0); setHover(null); setSheetOpen(false);
-    setModal(REDUCED ? "machine" : "animation");
+    const room = roomRef.current;
+    if (room && room.frozen === null) { room.push({ type: "hover", t: room.now(), on: true }); window.setTimeout(() => room.push({ type: "hover", t: room.now(), on: false }), 900); }
+    setHover(null); setSheetOpen(false); setModal("machine");
   };
-  const skipScene = () => { idleAgain(); setModal("machine"); };
 
   // ---- basket + drops (a crate flies from its shelf into the hopper)
   const addToBasket = (item: Item) => {
@@ -641,7 +623,7 @@ export default function WarehouseOffice() {
   const loading = !snap;
 
   return (
-    <div className={`kvp game${modal === "animation" ? " is-animating" : ""}${ready ? " is-ready" : ""}`} data-office-page data-office-version="sushi-game-v3">
+    <div className={`kvp game${ready ? " is-ready" : ""}`} data-office-page data-office-version="sushi-game-v3">
       <section className="stage" onPointerMove={onStageMove} onPointerLeave={onStageLeave} onPointerDown={onStageDown} onPointerUp={onStageUp} onPointerCancel={() => { press.current = null; }}>
         <canvas ref={canvasRef} className="bay" aria-label="Kho minh hoạ: kệ hàng, bàn duyệt PR và máy Sushi. Chạm vào kệ để xem hàng, chạm máy để đặt hàng." />
         <div ref={overlayRef} className="overlay" aria-hidden />
@@ -657,7 +639,7 @@ export default function WarehouseOffice() {
             {snapshot.isError ? <><b>Không tải được kho</b><p>{String((snapshot.error as Error)?.message ?? "").slice(0, 160)}</p><button type="button" onClick={() => snapshot.refetch()}>Thử lại</button></> : <><b>Đang mở {WAREHOUSES[wh].label}…</b><p>Đang xếp hàng lên kệ.</p></>}
           </div>
         ) : null}
-        {modal === "animation" ? <div className="wake" role="dialog" aria-modal="true" aria-label="Sushi thức dậy"><span className="kicker">MÁY CỦA {WAREHOUSES[wh].label.toUpperCase()}</span><h2>{animTime < 2.6 ? "Sushi đang thức dậy…" : "Sẵn sàng phụ một tay."}</h2><div className="wake-progress" aria-hidden><span style={{ transform: `scaleX(${animTime / BEAT.end})` }} /></div><div className="wake-actions"><button type="button" onClick={skipScene} data-office-skip>Bỏ qua hoạt cảnh ›</button><button type="button" className="quiet" onClick={closeModal}>Đóng</button></div></div> : null}
+
       </section>
 
       <aside ref={boardRef} className={`board${sheetOpen ? "" : " is-closed"}`} aria-label="Sổ kho">
