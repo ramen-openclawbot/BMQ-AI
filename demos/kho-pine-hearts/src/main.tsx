@@ -4,6 +4,7 @@ import App from "./App";
 import "../tokens.css";
 import "./styles.css";
 import "./workbench.css";
+import "./game.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

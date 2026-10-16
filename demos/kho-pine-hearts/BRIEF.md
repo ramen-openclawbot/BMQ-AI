@@ -1,4 +1,7 @@
-# Kho BMQ — Bàn kho Pine (demo only)
+# Kho BMQ — Chơi thử kho (demo only)
+
+v2 (16/10, owner correction "đang yêu cầu làm giao diện game kho"): the room is the screen. Shelves, the PR desk and Bé Mì are picked directly in 3D (hover tag, sign lift, crate bob); the notebook board (desktop side panel / phone bottom sheet) shows the shelf, the desk or today's low-stock list, with search, shelf chips and a quest strip (low items into the basket, PRs decided). Adding an item flies a crate into the hopper; printing flies slips to the desk; deciding stamps. Idle room breathes; the build-up scene plays in place only when the machine is opened (skippable; reduced motion skips; ?t= freezes). Ordering flow inside the machine retained unchanged.
+
 
 BRAND: BÉ MÌ is the ordering machine, body #c88169, trim #fbf4e3, face #3e4b40; NGƯỜI KHO has sage #859b7a apron; KỆ uses #b99464 wood; THÙNG uses existing category colors. Surface #f5f1e5, warm walls #efe5cd, accent #c88169, ink #3e4b40. Ending: machine ready, existing order panel opens. Palette inspired by cozy Pine Hearts, no game assets copied.
 FORMAT: responsive workbench; original read-only demo snapshot and DocDetail retained, original in-machine basket/supplier/debt/print/decision logic retained. No production app edits, no real write or login. Compact room preview, still until the machine is clicked. Direct entry tan_tao; ?kho=q7 selects Q7; warehouse tabs inline.
