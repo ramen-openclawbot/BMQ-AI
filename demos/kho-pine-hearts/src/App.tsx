@@ -5,7 +5,7 @@ import { DocDetail, type DocKey } from "./DocDetail";
 import { Icon, GoodsIcon, GroveMark } from "./Icons";
 
 /**
- * Kho BMQ — a warehouse you play in. The 3D room is the screen: shelves, the PR desk and the Bé Mì
+ * Kho BMQ — a warehouse you play in. The 3D room is the screen: shelves, the PR desk and the Sushi
  * machine are the things you touch. The notebook (side board / bottom sheet) shows what you touched.
  * The ordering flow inside the machine (basket, old receipts, print, approve) is retained from the
  * earlier demo unchanged.
@@ -199,7 +199,7 @@ export default function App() {
       const p = room.shelfScreen(code);
       if (g && p) next = { label: `${g.icon} ${g.label}`, sub: `${g.items.length} món${g.low.length ? ` · ${g.low.length} sắp hết` : ""} · chạm để xem`, x: p.x, y: p.y };
     } else if (hit?.kind === "desk") { const p = room.deskPoint(); next = { label: "📋 Bàn duyệt PR", sub: `${waiting} phiếu chờ · chạm để xem`, x: p.x, y: p.y }; }
-    else if (hit?.kind === "machine") { const p = room.machineScreen(); next = { label: "🤖 Bé Mì · máy đặt hàng", sub: basket.length ? `${basket.length} món trong khay · chạm để mở` : "chạm để mở máy", x: p.x, y: p.y }; }
+    else if (hit?.kind === "machine") { const p = room.machineScreen(); next = { label: "🍣 Sushi · máy đặt hàng", sub: basket.length ? `${basket.length} món trong khay · chạm để mở` : "chạm để mở máy", x: p.x, y: p.y }; }
     setHover((h) => (h?.label === next?.label && h?.x === next?.x ? h : next));
     if (room.frozen !== null) room.renderAt(room.frozen);
   };
@@ -403,7 +403,7 @@ export default function App() {
 
   return <div className={`game${modal === "animation" ? " is-animating" : ""}${ready ? " is-ready" : ""}`} data-demo-version="pine-game-v2">
     <section className="stage" onPointerMove={onStageMove} onPointerLeave={onStageLeave} onPointerDown={onStageDown} onPointerUp={onStageUp} onPointerCancel={() => { press.current = null; }}>
-      <canvas ref={canvasRef} className="bay" aria-label="Kho minh hoạ: kệ hàng, bàn duyệt PR và máy Bé Mì. Chạm vào kệ để xem hàng, chạm máy để đặt hàng." />
+      <canvas ref={canvasRef} className="bay" aria-label="Kho minh hoạ: kệ hàng, bàn duyệt PR và máy Sushi. Chạm vào kệ để xem hàng, chạm máy để đặt hàng." />
       <div ref={overlayRef} className="overlay" aria-hidden="true" />
       {sceneError && <div className="scene-fallback"><GoodsIcon group="flour" /><span>Không mở được mô hình 3D. Dùng các kệ bên dưới.</span></div>}
       {hover && !modal && <div className="world-tag" style={{ left: hover.x, top: hover.y }} aria-hidden="true"><b>{hover.label}</b><small>{hover.sub}</small></div>}
@@ -412,8 +412,8 @@ export default function App() {
         <div className="kho-tabs" role="group" aria-label="Chuyển kho">{(["tan_tao", "q7"] as WarehouseId[]).map((id) => <button type="button" key={id} data-kho={id} aria-pressed={id === wh} disabled={printing} onClick={() => switchWarehouse(id)}><Icon name={id === "q7" ? "oven" : "warehouse"} />{id === "q7" ? "Kho Q7" : "Tân Tạo"}</button>)}</div>
         <span className="hud-note">Không ghi dữ liệu thật</span>
       </header>
-      <p className="stage-hint"><Icon name="leaf" /> Chạm kệ để xem hàng · chạm bàn để duyệt PR · chạm Bé Mì để đặt hàng</p>
-      {modal === "animation" && <div className="wake" role="dialog" aria-modal="true" aria-label="Bé Mì thức dậy"><span className="kicker">MÁY CỦA {WAREHOUSES[wh].label.toUpperCase()}</span><h2>{animTime < 2.6 ? "Bé Mì đang thức dậy…" : "Sẵn sàng phụ một tay."}</h2><div className="wake-progress" aria-hidden="true"><span style={{ transform: `scaleX(${animTime / BEAT.end})` }} /></div><div className="wake-actions"><button type="button" onClick={skipScene}>Bỏ qua hoạt cảnh <Icon name="chevron" /></button><button type="button" className="quiet" onClick={closeModal}>Đóng</button></div></div>}
+      <p className="stage-hint"><Icon name="leaf" /> Chạm kệ để xem hàng · chạm bàn để duyệt PR · chạm Sushi để đặt hàng</p>
+      {modal === "animation" && <div className="wake" role="dialog" aria-modal="true" aria-label="Sushi thức dậy"><span className="kicker">MÁY CỦA {WAREHOUSES[wh].label.toUpperCase()}</span><h2>{animTime < 2.6 ? "Sushi đang thức dậy…" : "Sẵn sàng phụ một tay."}</h2><div className="wake-progress" aria-hidden="true"><span style={{ transform: `scaleX(${animTime / BEAT.end})` }} /></div><div className="wake-actions"><button type="button" onClick={skipScene}>Bỏ qua hoạt cảnh <Icon name="chevron" /></button><button type="button" className="quiet" onClick={closeModal}>Đóng</button></div></div>}
     </section>
     {board}
     {modal === "machine" && <div className="machine-modal" onClick={(e) => { if (e.target === e.currentTarget) closeModal(); }}><section className="machine-dialog" role="dialog" aria-modal="true" aria-label="Máy đặt hàng tự động"><header><div><small>{WAREHOUSES[wh].label} · máy tại kho</small><h2>Máy đặt hàng tự động</h2></div><button type="button" aria-label="Đóng máy" onClick={closeModal}><Icon name="close" /></button></header><div className="machine-preserved-note"><Icon name="info" />Phần chọn phiếu cũ và gửi PR giữ nguyên từ demo trước.</div>{machineView()}{!basket.length && <button type="button" className="return-stock" onClick={closeModal}>Về kho chọn hàng <Icon name="chevron" /></button>}</section></div>}

@@ -884,7 +884,7 @@ export class Room {
       a > BEAT.wave && a < BEAT.wave + 0.9 ? 1 : 0,
       print && !printing && t < printEnd + 1.0 ? 1 : 0,
     );
-    // Bé Mì's eyes follow the player around the room.
+    // Sushi's eyes follow the player around the room.
     const lookX = Math.max(-0.09, Math.min(0.09, (me.x - M.x) * 0.018));
     this.eyes.forEach((eye, i) => {
       eye.scale.set(1 + happy * 0.25, Math.max(0.12, eyeOpen) * (1 - happy * 0.62), 1);
@@ -1104,12 +1104,12 @@ export class Room {
     if (s.printing && s.print) text = `🖨️ In ${s.print.slips} phiếu đặt → bàn duyệt`;
     else if (lastLanded && t - (lastLanded.t + FLY) < 1.4) text = `+1 · ${this.itemById.get(lastLanded.itemId)?.name ?? ""}`;
     else if (s.hover > 0.5) text = "Thả vào phễu nè! 😋";
-    else if (s.drag > 0.5) text = "Kéo lên phễu của Bé Mì";
-    else if (asm && a >= BEAT.eyes && a < BEAT.end + 1.5) text = low ? `Bé Mì dự đoán: ${low} món sắp hết!` : "Kho ổn, chưa có món sắp hết";
+    else if (s.drag > 0.5) text = "Kéo lên phễu của Sushi";
+    else if (asm && a >= BEAT.eyes && a < BEAT.end + 1.5) text = low ? `Sushi dự đoán: ${low} món sắp hết!` : "Kho ổn, chưa có món sắp hết";
     else if (asm && a >= BEAT.end + 1.5 && !interacted) text = "Chạm vào kệ để xem hàng 👆";
     else if (asm && a >= BEAT.base && a < BEAT.eyes) text = "Đang lắp máy…";
     if (text) this.setText(this.bubble, text);
-    this.bubble.classList.toggle("is-warn", text.startsWith("Bé Mì dự đoán"));
+    this.bubble.classList.toggle("is-warn", text.startsWith("Sushi dự đoán"));
     this.place(this.bubble, M.clone().add(new THREE.Vector3(0.2, 3.3, 0.2)), text ? 1 : 0);
     this.setText(this.counter, `🧺 ${s.landed.length}`);
     this.place(this.counter, M.clone().add(new THREE.Vector3(0.95, 2.0, 0.7)), asm && a > BEAT.end && s.landed.length > 0 ? 1 : 0);

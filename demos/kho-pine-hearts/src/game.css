@@ -29,7 +29,7 @@ body { overflow: hidden; background: var(--color-paper); }
 .world-tag small { font-size: 11px; color: var(--color-muted); font-weight: 800; }
 @keyframes tag-in { from { opacity: 0; transform: translate(-50%, calc(-100% - 2px)); } }
 
-/* projected labels drawn by the room (bubble over Bé Mì, desk count, low-stock queue, staff name) */
+/* projected labels drawn by the room (bubble over Sushi, desk count, low-stock queue, staff name) */
 .bay-bubble, .bay-counter, .bay-hint, .bay-queue, .bay-name, .bay-desk { position: absolute; left: 0; top: 0; will-change: transform; transition: opacity .15s; white-space: nowrap; font-weight: 800; }
 .bay-bubble { background: var(--color-ink); color: var(--color-cream); border-radius: 14px; padding: 7px 13px 8px; font-size: 14px; max-width: 300px; overflow: hidden; text-overflow: ellipsis; margin-top: -10px; }
 .bay-bubble::after { content: ""; position: absolute; left: 50%; bottom: -8px; margin-left: -8px; border: 8px solid transparent; border-bottom: 0; border-top-color: var(--color-ink); }
