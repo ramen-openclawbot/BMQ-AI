@@ -39,6 +39,12 @@ Object.assign(DOC("PR-4BFB7283").gr, { image_path: "goods-receipts/missing-qa.jp
 // photo and one attachment; the first Kamereo debt row carries 3 photos, the others none.
 Object.assign(FIXTURE.pending.find((p) => p.request_number === "PR-336DB95D"), { image_url: "payment-requests/qa-pr-header.jpg", payment_request_attachments: [{ id: "att-1" }] });
 KAMEREO.rows[0] = { ...KAMEREO.rows[0], has_image: true, image_path: "payment-requests/qa-old.jpg", photo_count: 3 };
+// Stock ledger (shelf close-up, owner 17/10): Tân Tạo started 05/10; on-hand cycles full / half / low / empty against one
+// usual delivery. Q7 has no ledger read here, so its jars fall back to the purchase-cycle forecast.
+const LEDGER_FACTORS = [1.4, 0.45, 0.15, 0];
+FIXTURE.ledger = { tan_tao: { location: "tan_tao", cutover_date: "2026-10-05", can_edit: true, skus: [], pending: [], transfers: [], counts: {},
+  items: FIXTURE.snapshot.tan_tao.items.map((it, i) => ({ id: it.id, code: it.item_code ?? "", name: it.name, unit: it.unit ?? "", item_class: it.item_class ?? "raw_material",
+    on_hand: Math.round((it.avg_qty ?? 5) * LEDGER_FACTORS[i % 4] * 100) / 100, last_count_date: null, aliases: [], pastry_q7: Boolean(it.pastry_q7) })) } };
 
 const SUPABASE_FIXTURE = `
 const F = () => window.__officeFixture;
@@ -51,6 +57,7 @@ function settle(st) {
   if (st.table === "rpc:get_supplier_debt_candidates") return { data: F().debts[a.p_supplier_id] || { supplier_id: a.p_supplier_id, cutover: null, stats: {}, rows: [] }, error: null };
   if (st.table === "rpc:get_payment_doc_detail") return { data: F().details[a.p_id] || null, error: null };
   if (st.table === "rpc:get_item_purchase_facts") return { data: [], error: null };
+  if (st.table === "rpc:get_warehouse_game_snapshot") return F().ledger && F().ledger[a.p_location] ? { data: F().ledger[a.p_location], error: null } : { data: null, error: { message: "QA fixture: no ledger for " + a.p_location } };
   if (st.table === "rpc:create_robot_order_package") {
     window.__qaWrites.push(st.table + ":" + JSON.stringify(a));
     const debt = Array.isArray(a.p_debt) && a.p_debt.length ? { kind: a.p_debt[0].kind, id: a.p_debt[0].id, number: "PO-QA-OLD", submission_id: "sub-qa", submission_number: "TC-QA-01" } : null;
@@ -207,6 +214,42 @@ for (const vp of [{ width: 1440, height: 900, touch: false }, { width: 1280, hei
     assert.match(await page.locator(".kvp .board-head b").textContent(), /^Kệ /);
     assert.equal(await projection(page), view0, "the view never moves");
   });
+  await check(`${w} the shelf zooms in: products stand on planks, jars full/half/low/empty from the stock ledger`, async () => {
+    const zoom = page.locator(`.kvp [data-office-zoom='${code}']`);
+    await zoom.waitFor({ timeout: 3000 });
+    await page.waitForTimeout(400); // let the zoom-in settle before measuring / screenshots
+    const zb = await zoom.boundingBox();
+    assert.ok(zb.width >= (vp.touch ? w - 1 : w - 420) && zb.height >= vp.height - 2, `zoom fills the screen ${JSON.stringify(zb)}`);
+    const n = Number(await page.locator(".kvp [data-office-zoom-items]").getAttribute("data-office-zoom-items"));
+    assert.equal(await page.locator(".kvp .sz-item").count(), n);
+    const levels = new Set(await page.locator(".kvp .sz-item").evaluateAll((els) => els.map((el) => el.dataset.officeJar)));
+    assert.ok(levels.size >= Math.min(3, n), `several fill levels ${[...levels]}`);
+    assert.match(await zoom.textContent(), /theo số tồn trong sổ kho/);
+    const jar = await page.locator(".kvp .sz-item .jar").first().boundingBox();
+    assert.ok(jar.width >= 50 && jar.height >= 60, `jar big enough ${JSON.stringify(jar)}`);
+    const [sw, cw] = await page.locator(".kvp .sz-shelf").evaluate((el) => [el.scrollWidth, el.clientWidth]);
+    assert.ok(sw <= cw + 1, `shelf overflows ${sw} > ${cw}`);
+    // every product stands above its plank: the item box ends where the plank band starts
+    const off = await page.locator(".kvp .sz-shelf").evaluate((el) => { const top = el.getBoundingClientRect().top + el.clientTop - el.scrollTop; return [...el.querySelectorAll(".sz-item")].map((it) => Math.round((it.getBoundingClientRect().bottom - top) % 204)); });
+    assert.ok(off.every((o) => o === 182 || o === 0), `items sit on their planks ${off}`);
+  });
+  await page.screenshot({ path: `${EVIDENCE}/shelf-zoom-${w}.png` });
+  await check(`${w} tapping a jar opens the product with its stock line and + Thêm adds it`, async () => {
+    const before = await basketCount(page);
+    await page.locator(".kvp .sz-item").first().click();
+    await page.locator(".kvp [data-office-zoom-pick]").waitFor({ timeout: 3000 });
+    await page.waitForTimeout(350);
+    assert.match(await page.locator(".kvp [data-office-zoom-pick]").textContent(), /Tồn sổ/);
+    await page.screenshot({ path: `${EVIDENCE}/shelf-pick-${w}.png` });
+    await page.locator("[data-office-zoom-add]").click();
+    await page.waitForTimeout(700);
+    assert.equal(await basketCount(page), before + 1);
+    assert.equal(await page.locator(".kvp .sz-item.in-basket").count(), 1, "the jar shows it is in the basket");
+    await page.getByRole("button", { name: "Đóng món" }).click();
+    await page.locator("[data-office-zoom-back]").click();
+    await page.waitForTimeout(250);
+    assert.equal(await page.locator(".kvp .shelf-zoom").count(), 0, "back to the room");
+  });
   await page.screenshot({ path: `${EVIDENCE}/shelf-${w}.png` });
   if (!vp.touch) {
     await check(`${w} hovering the machine shows its tag`, async () => {
@@ -271,9 +314,11 @@ for (const vp of [{ width: 1440, height: 900, touch: false }, { width: 1280, hei
   await page.locator(".kvp .machine-view .primary.big").click();
   await page.waitForTimeout(600);
   await check(`${w} send creates a robot package with lines + the picked old doc, then lands on the desk`, async () => {
+    // One package per supplier: the jar picked on the shelf close-up is a second supplier; check the one with the old doc.
     const pk = (await writes(page)).filter((x) => x.startsWith("rpc:create_robot_order_package:"));
-    assert.equal(pk.length, 1, JSON.stringify(pk));
-    const args = JSON.parse(pk[0].slice("rpc:create_robot_order_package:".length));
+    assert.ok(pk.length >= 1, JSON.stringify(pk));
+    const all = pk.map((x) => JSON.parse(x.slice("rpc:create_robot_order_package:".length)));
+    const args = all.find((x) => Array.isArray(x.p_debt) && x.p_debt.length) ?? all[0];
     assert.equal(args.p_lines.length, 1);
     assert.ok(args.p_lines[0].supplier_id && args.p_lines[0].item_id, "line carries supplier + item");
     assert.equal(Array.isArray(args.p_debt) ? args.p_debt.length : 0, 1, "picked old doc sent");
@@ -447,6 +492,14 @@ for (const vp of [{ width: 1440, height: 900, touch: false }, { width: 1280, hei
   await page.locator("[data-kho='q7']").click();
   await page.waitForSelector("[data-office-page].is-ready", { timeout: 10000 });
   await page.waitForTimeout(500);
+  await check("Q7 shelf jars fall back to the purchase-cycle forecast (no ledger yet)", async () => {
+    await page.locator(".kvp .chips [data-group]").first().click();
+    await page.locator(".kvp .shelf-zoom").waitFor({ timeout: 3000 });
+    await page.waitForTimeout(400);
+    assert.match(await page.locator(".kvp .shelf-zoom").textContent(), /dự đoán theo chu kỳ nhập/);
+    await page.screenshot({ path: `${EVIDENCE}/q7-shelf-zoom-1440.png` });
+    await page.locator("[data-office-zoom-back]").click();
+  });
   await check("Q7 tab switches the warehouse in place", async () => {
     assert.equal(await page.locator("[data-kho='q7']").getAttribute("aria-pressed"), "true");
     assert.ok(page.url().includes("kho=q7"));

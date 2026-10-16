@@ -20,6 +20,7 @@ import {
   searchItems,
   suggestFromLast,
   startQty,
+  stockFill,
   type DocLine,
   type OfficeOrderSnapshotItem,
   type PaymentDocPoDetail,
@@ -460,4 +461,45 @@ test("docPhotos uses purchase-orders for the PO header and invoices for its GR",
     { key: "grp-gr/po-p1.jpg", label: "Ảnh hàng 1", path: "gr/po-p1.jpg", bucket: "invoices" },
   ]);
   assert.equal(photoCount(poDetail()), 3);
+});
+
+// ---------------------------------------------------------------------------
+// stockFill
+// ---------------------------------------------------------------------------
+
+function predicted(overrides: Record<string, unknown> = {}) {
+  return {
+    ...item({ receipts: 4, avg_qty: 10, total_qty: 40, median_gap_days: 10 }),
+    group: "flour", daysLeft: 8, basis: "cycle", usagePerDay: 1, low: false,
+    ...overrides,
+  } as Parameters<typeof stockFill>[0];
+}
+
+test("stockFill uses real on-hand once the ledger started", () => {
+  assert.equal(stockFill(predicted(), 12, true).level, "full");
+  assert.equal(stockFill(predicted(), 12, true).source, "stock");
+  assert.equal(stockFill(predicted(), 4, true).level, "half");
+  assert.equal(stockFill(predicted(), 2, true).level, "low");
+  assert.equal(stockFill(predicted(), 0, true).level, "empty");
+  assert.equal(stockFill(predicted(), -3, true).level, "empty");
+  assert.equal(stockFill(predicted({ avg_qty: null, total_qty: null }), 5, true).level, "full", "stock without delivery history");
+  assert.equal(stockFill(predicted({ avg_qty: null }), 3, true).level, "half", "total / receipts as the usual delivery");
+});
+
+test("stockFill falls back to the purchase-cycle forecast before the ledger starts", () => {
+  assert.equal(stockFill(predicted({ daysLeft: 9 }), null, false).level, "full");
+  assert.equal(stockFill(predicted({ daysLeft: 4 }), null, false).level, "half");
+  assert.equal(stockFill(predicted({ daysLeft: 2 }), null, false).level, "low");
+  assert.equal(stockFill(predicted({ daysLeft: -3 }), null, false).level, "empty");
+  assert.equal(stockFill(predicted({ daysLeft: 9 }), 50, false).source, "forecast", "on-hand ignored when the ledger has not started");
+  assert.equal(stockFill(predicted({ daysLeft: 8, low: true }), null, false).level, "low", "a predicted-low item never looks fuller than low");
+  assert.equal(stockFill(predicted({ daysLeft: 2, basis: "cover", median_gap_days: null, usagePerDay: 2, avg_qty: 10 }), null, false).level, "half");
+});
+
+test("stockFill is unknown without any signal and labels in Vietnamese", () => {
+  const none = stockFill(predicted({ daysLeft: null, basis: null }), null, false);
+  assert.equal(none.level, "unknown");
+  assert.equal(none.ratio, null);
+  assert.equal(none.label, "Chưa rõ");
+  assert.equal(stockFill(predicted(), 0, true).label, "Hết");
 });

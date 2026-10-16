@@ -651,3 +651,65 @@ export function docTotals(
     showLinesSum: Math.round(linesSum) !== amountRounded,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Shelf close-up: how full each item's box looks (owner 17/10)
+// ---------------------------------------------------------------------------
+
+export type FillLevel = "full" | "half" | "low" | "empty" | "unknown";
+
+export interface StockFill {
+  level: FillLevel;
+  /** 0..1, null when nothing is known. */
+  ratio: number | null;
+  /** Where the ratio comes from: the stock ledger, the purchase-cycle forecast, or nothing. */
+  source: "stock" | "forecast" | null;
+  /** Short Vietnamese label for the box. */
+  label: string;
+}
+
+export const FILL_LABEL: Record<FillLevel, string> = {
+  full: "Còn nhiều",
+  half: "Còn vừa",
+  low: "Sắp hết",
+  empty: "Hết",
+  unknown: "Chưa rõ",
+};
+
+function levelOf(ratio: number): FillLevel {
+  if (ratio <= 0.08) return "empty";
+  if (ratio < 0.3) return "low";
+  if (ratio < 0.6) return "half";
+  return "full";
+}
+
+/**
+ * How full an item's box is drawn on the shelf.
+ * - Warehouse ledger started (Tân Tạo since 05/10): real on-hand against one usual delivery (avg qty per
+ *   receipt day, else total / receipts). On-hand ≤ 0 is empty; stock with no delivery history counts as full.
+ * - No ledger yet (Q7 before its first count): days left against the purchase cycle (median gap, or the
+ *   average cover for two receipt days). Overdue is empty; a predicted-low item never looks fuller than low.
+ * - Neither: unknown.
+ */
+export function stockFill(item: PredictedOfficeOrderItem, onHand: number | null | undefined, ledgerStarted: boolean): StockFill {
+  const make = (level: FillLevel, ratio: number | null, source: StockFill["source"]): StockFill => ({ level, ratio, source, label: FILL_LABEL[level] });
+  if (ledgerStarted && onHand != null && Number.isFinite(onHand)) {
+    if (onHand <= 0) return make("empty", 0, "stock");
+    const ref = item.avg_qty != null && item.avg_qty > 0
+      ? item.avg_qty
+      : item.total_qty != null && item.total_qty > 0 && item.receipts > 0 ? item.total_qty / item.receipts : null;
+    if (ref == null) return make("full", 1, "stock");
+    const ratio = Math.min(1, onHand / ref);
+    return make(levelOf(ratio), ratio, "stock");
+  }
+  if (item.daysLeft == null || !Number.isFinite(item.daysLeft)) return make("unknown", null, null);
+  if (item.daysLeft <= 0) return make("empty", 0, "forecast");
+  const cycle = item.basis === "cycle" && item.median_gap_days
+    ? item.median_gap_days
+    : item.usagePerDay && item.avg_qty ? item.avg_qty / item.usagePerDay : null;
+  if (!cycle || cycle <= 0) return make(item.low ? "low" : "unknown", null, item.low ? "forecast" : null);
+  let ratio = Math.min(1, item.daysLeft / cycle);
+  let level = levelOf(ratio);
+  if (item.low && (level === "full" || level === "half")) { level = "low"; ratio = Math.min(ratio, 0.29); }
+  return make(level, ratio, "forecast");
+}

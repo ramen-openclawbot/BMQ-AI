@@ -10,8 +10,9 @@ import {
 import { useCreateRobotOrderPackage, useRunDebtReview, useSupplierDebtCandidates, useSupplierDebtPickPattern } from "@/hooks/useRobotOrder";
 import { useApprovePaymentRequest, useRejectPaymentRequest } from "@/hooks/usePaymentRequests";
 import { useSuppliers } from "@/hooks/useSuppliers";
+import { useWarehouseGameSnapshot } from "@/hooks/useWarehouseGame";
 import {
-  buildShelves, daysLabel, searchItems, startQty, suggestFromLast, type GroupCode, type PredictedOfficeOrderItem,
+  buildShelves, daysLabel, FILL_LABEL, searchItems, startQty, stockFill, suggestFromLast, type FillLevel, type GroupCode, type PredictedOfficeOrderItem, type StockFill,
 } from "@/lib/office-order";
 import {
   MAX_DEBT_PICKS, packageDebtNumbers, packageSummary, rankDebtRows, robotOrderErrorCode, robotOrderErrorText, sumDebtPicks, toggleDebtPick,
@@ -53,6 +54,14 @@ const REDUCED = typeof matchMedia !== "undefined" && matchMedia("(prefers-reduce
 const IDLE_START = -20; // the machine is already built when you walk in; the build plays only when you open it
 const isPhone = () => window.innerWidth < 900;
 const lineUnit = (item: Item) => item.last_unit ?? item.unit ?? "";
+/** Stock quantities read naturally: 12.343.750 g → 12.343,75 kg, 2.500 ml → 2,5 l. */
+const qtyText = (n: number, unit: string | null | undefined) => {
+  const u = (unit ?? "").trim().toLowerCase();
+  const r = (v: number) => fmtNum(Math.round(v * 100) / 100);
+  if ((u === "g" || u === "gr") && Math.abs(n) >= 1000) return `${r(n / 1000)} kg`;
+  if (u === "ml" && Math.abs(n) >= 1000) return `${r(n / 1000)} l`;
+  return `${r(n)} ${unit ?? ""}`.trim();
+};
 const num = (text: string) => { const v = Number(String(text).replace(/\s/g, "").replace(",", ".")); return Number.isFinite(v) ? v : NaN; };
 const toBasketLine = (l: Line): BasketLine => ({ key: l.item.id, item_id: l.item.id, name: l.item.name, unit: lineUnit(l.item), qty: String(l.qty), supplier_id: l.supplierId, price: l.price === null ? "" : String(l.price) });
 const startKho = (): OfficeOrderLocation => (new URLSearchParams(window.location.search).get("kho") === "q7" ? "q7" : "tan_tao");
@@ -103,6 +112,23 @@ function PhotoThumb({ path, bucket, count }: { path: string | null | undefined; 
       {url.data ? <img src={url.data} alt="" loading="lazy" /> : <span className="pr-thumb-ph">{count ? "📷" : "📄"}</span>}
       {count > 1 ? <b>{count}</b> : null}
     </span>
+  );
+}
+
+/** One product on the shelf close-up: a jar whose contents show how much is left (owner 17/10). */
+function Jar({ fill, color, icon }: { fill: StockFill; color: string; icon: string }) {
+  const inner = 58; // px of usable height inside the jar
+  const h = fill.ratio == null ? 0 : Math.max(fill.level === "empty" ? 0 : 6, Math.round(fill.ratio * inner));
+  return (
+    <svg viewBox="0 0 80 96" className={`jar is-${fill.level}`} aria-hidden>
+      <rect x="22" y="4" width="36" height="12" rx="4" className="jar-lid" />
+      <path d="M14 20 h52 a6 6 0 0 1 6 6 v58 a8 8 0 0 1 -8 8 h-48 a8 8 0 0 1 -8 -8 v-58 a6 6 0 0 1 6 -6 z" className="jar-glass" />
+      {h > 0 ? <rect x="12" y={86 - h} width="56" height={h} rx="5" fill={color} className="jar-stuff" /> : null}
+      {h > 0 ? <rect x="12" y={86 - h} width="56" height="5" rx="2.5" fill="#fff" opacity=".35" /> : null}
+      <path d="M14 20 h52 a6 6 0 0 1 6 6 v58 a8 8 0 0 1 -8 8 h-48 a8 8 0 0 1 -8 -8 v-58 a6 6 0 0 1 6 -6 z" className="jar-edge" />
+      <rect x="22" y="40" width="36" height="22" rx="5" className="jar-label" />
+      <text x="40" y="56" textAnchor="middle" className="jar-icon">{fill.level === "unknown" ? "?" : icon}</text>
+    </svg>
   );
 }
 
@@ -243,8 +269,16 @@ export default function WarehouseOffice() {
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [decided, setDecided] = useState(0);
+  // Shelf close-up (owner 17/10: "ấn vào kệ nên phóng to ra"): the shelf fills the screen, products sit on planks.
+  const [zoom, setZoom] = useState<GroupCode | null>(null);
+  const [picked, setPicked] = useState<string | null>(null);
 
   const snapshot = useOfficeOrderSnapshot(wh);
+  // Real on-hand from the stock ledger (same item ids, kitchen_inventory_items). Before a warehouse's first count
+  // (no cutover) or when the reader is not allowed, the boxes fall back to the purchase-cycle forecast.
+  const ledger = useWarehouseGameSnapshot(wh);
+  const ledgerStarted = Boolean(ledger.data && ledger.data.location === wh && ledger.data.cutover_date);
+  const onHand = useMemo(() => new Map((ledger.data?.location === wh ? ledger.data.items : []).map((i) => [i.id, i.on_hand])), [ledger.data, wh]);
   const pending = usePendingPaymentRequests();
   const recent = useRecentPackages();
   const suppliers = useSuppliers();
@@ -337,8 +371,13 @@ export default function WarehouseOffice() {
     document.querySelector<HTMLElement>(".kvp .chip[aria-pressed=true]")?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [spot, query]);
   useEffect(() => {
-    if (!modal) return;
+    if (!modal && !zoom) return;
     const key = (e: KeyboardEvent) => { if (e.key === "Escape" && !docStack.length && !prOpen) closeModal(); };
+    if (!modal && zoom && !docStack.length && !prOpen) {
+      const z = (e: KeyboardEvent) => { if (e.key === "Escape") { if (picked) setPicked(null); else setZoom(null); } };
+      window.addEventListener("keydown", z);
+      return () => window.removeEventListener("keydown", z);
+    }
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
   });
@@ -358,7 +397,7 @@ export default function WarehouseOffice() {
     builtFor.current = null;
     imported.current = null;
     saveBasket([...parked.current, ...basket.map(toBasketLine)]);
-    setWh(id); setReady(false); setSpot({ kind: "low" }); setQuery(""); setPicks({}); setOpen(null); setPrOpen(null); setDocStack([]); setSendError(null); setModal(null); setHover(null);
+    setWh(id); setReady(false); setZoom(null); setPicked(null); setSpot({ kind: "low" }); setQuery(""); setPicks({}); setOpen(null); setPrOpen(null); setDocStack([]); setSendError(null); setModal(null); setHover(null);
     roomRef.current?.push({ type: "clear", t: roomRef.current.now() });
     history.replaceState(null, "", `?kho=${id}`);
   };
@@ -366,6 +405,7 @@ export default function WarehouseOffice() {
     const room = roomRef.current;
     setSpot(next); setQuery(""); setOpen(null); setSheetOpen(true);
     room?.push({ type: "station", t: room.now(), id: next.kind === "shelf" ? next.code : next.kind });
+    setPicked(null); setZoom(next.kind === "shelf" ? next.code : null);
   };
   // Sushi is awake and standing in the warehouse (owner 17/10): tapping her opens the ordering panel at once;
   // the room just greets (hopper glow + smile) behind the panel.
@@ -624,6 +664,70 @@ export default function WarehouseOffice() {
   const questPct = low.length ? Math.round((lowDone / low.length) * 100) : 100;
   const loading = !snap;
 
+  // ---- shelf close-up
+  const fillOf = (item: Item) => stockFill(item, onHand.get(item.id), ledgerStarted);
+  const zoomShelf = zoom ? shelves.find((s) => s.code === zoom) ?? null : null;
+  const zoomItems = zoomShelf ? zoomShelf.items.map((item) => ({ item, fill: fillOf(item) })) : [];
+  const LEVEL_ORDER: Record<FillLevel, number> = { empty: 0, low: 1, half: 2, unknown: 3, full: 4 };
+  zoomItems.sort((a, b) => LEVEL_ORDER[a.fill.level] - LEVEL_ORDER[b.fill.level] || a.item.name.localeCompare(b.item.name, "vi"));
+  const counts = zoomItems.reduce((m, z) => ({ ...m, [z.fill.level]: (m[z.fill.level] ?? 0) + 1 }), {} as Partial<Record<FillLevel, number>>);
+  const pickedRow = picked ? zoomItems.find((z) => z.item.id === picked) ?? null : null;
+  const fillDetail = (item: Item, fill: StockFill) => {
+    if (fill.source === "stock") {
+      const oh = onHand.get(item.id) ?? 0;
+      const usual = item.avg_qty ?? (item.total_qty && item.receipts ? item.total_qty / item.receipts : null);
+      return `Tồn sổ ${qtyText(Math.max(0, oh), item.unit)}${usual ? ` · mỗi lần nhập ~${qtyText(usual, item.unit)}` : ""}`;
+    }
+    if (fill.source === "forecast") return item.daysLeft != null ? `Dự đoán theo chu kỳ nhập: ${daysLabel(item.daysLeft).toLowerCase()}` : "Dự đoán theo chu kỳ nhập";
+    return "Chưa đủ dữ liệu nhập để đoán";
+  };
+  const zoomView = zoomShelf ? (
+    <section className="shelf-zoom" role="dialog" aria-modal="true" aria-label={`Kệ ${zoomShelf.label}`} data-office-zoom={zoomShelf.code} style={{ ["--g" as string]: SHELF_HEX[zoomShelf.code] }}>
+      <header className="sz-head">
+        <button type="button" className="sz-back" onClick={() => { setZoom(null); setPicked(null); }} aria-label="Đóng kệ" data-office-zoom-back>‹ Về kho</button>
+        <span className="sz-title"><i>{zoomShelf.icon}</i><span><b>Kệ {zoomShelf.label}</b><small>{zoomItems.length} món · {ledgerStarted ? "theo số tồn trong sổ kho" : "dự đoán theo chu kỳ nhập"}</small></span></span>
+      </header>
+      <div className="sz-legend" aria-label="Chú thích hộp">
+        {(["full", "half", "low", "empty"] as FillLevel[]).map((lv) => <span key={lv} className={`sz-key is-${lv}`}><i />{FILL_LABEL[lv]}{counts[lv] ? <b>{counts[lv]}</b> : null}</span>)}
+      </div>
+      <div className="sz-shelf" data-office-zoom-items={zoomItems.length}>
+        {zoomItems.length ? zoomItems.map(({ item, fill }) => {
+          const qty = inBasket.get(item.id);
+          return (
+            <button key={item.id} type="button" className={`sz-item is-${fill.level}${picked === item.id ? " is-on" : ""}${qty ? " in-basket" : ""}`} onClick={() => setPicked(picked === item.id ? null : item.id)} aria-label={`${item.name}, ${fill.label}`} data-office-jar={fill.level} data-item={item.id}>
+              <Jar fill={fill} color={SHELF_HEX[item.group]} icon={zoomShelf.icon} />
+              {qty ? <em className="sz-in">✓ ×{fmtNum(qty)}</em> : null}
+              <span className={`sz-pill is-${fill.level}`}>{fill.label}</span>
+              <b>{item.name}</b>
+            </button>
+          );
+        }) : <p className="empty">Kệ này chưa có món nào.</p>}
+      </div>
+      {pickedRow ? (
+        <div className="sz-pick" data-office-zoom-pick={pickedRow.item.id}>
+          <div className="sz-pick-head">
+            <Jar fill={pickedRow.fill} color={SHELF_HEX[pickedRow.item.group]} icon={zoomShelf.icon} />
+            <span><b>{pickedRow.item.name}</b><small>{pickedRow.item.supplier_name ?? "Chưa rõ NCC"}</small><span className={`sz-pill is-${pickedRow.fill.level}`}>{pickedRow.fill.label}</span></span>
+            <button type="button" className="sz-close" onClick={() => setPicked(null)} aria-label="Đóng món">✕</button>
+          </div>
+          <p className="facts">
+            <b>{fillDetail(pickedRow.item, pickedRow.fill)}</b>
+            {pickedRow.item.last_unit_price ? <> · giá gần nhất {fmtMoney(pickedRow.item.last_unit_price)}/{lineUnit(pickedRow.item)}</> : null}
+            {pickedRow.item.last_date ? <> · nhập {fmtDate(pickedRow.item.last_date)}</> : null}
+            {suggestText(pickedRow.item) ? <> · lần trước {suggestText(pickedRow.item)}</> : null}
+          </p>
+          {wh === "tan_tao" && pickedRow.item.pastry_q7 ? <p className="sz-q7" data-office-to-q7>🧁 Giao về Tân Tạo → tự chuyển Q7</p> : null}
+          <DebtPicker supplierId={pickedRow.item.supplier_id} picks={picks[pickedRow.item.supplier_id ?? NO_SUP] ?? []} onToggle={(pk) => togglePick(pickedRow.item.supplier_id ?? NO_SUP, pk)} onView={(k) => setDocStack([k])} compact />
+          <button type="button" className="primary wide big" onClick={() => dropItem(pickedRow.item)} data-office-zoom-add>{inBasket.get(pickedRow.item.id) ? `✓ Đã có ×${fmtNum(inBasket.get(pickedRow.item.id)!)} · thêm nữa` : `+ Thêm vào máy${suggestText(pickedRow.item) ? ` (${suggestText(pickedRow.item)})` : ""}`}</button>
+        </div>
+      ) : null}
+      <footer className="sz-foot">
+        <span>🧺 {basket.length ? <><b>{basket.length} món</b> trong khay</> : "Chạm một món để chọn"}</span>
+        <button type="button" className="open-machine" onClick={() => { setZoom(null); setPicked(null); startMachine(); }} disabled={!ready} data-office-zoom-machine>🤖 Mở máy{basket.length ? ` · ${basket.length}` : ""}</button>
+      </footer>
+    </section>
+  ) : null;
+
   return (
     <div className={`kvp game${ready ? " is-ready" : ""}`} data-office-page data-office-version="sushi-game-v3">
       <section className="stage" onPointerMove={onStageMove} onPointerLeave={onStageLeave} onPointerDown={onStageDown} onPointerUp={onStageUp} onPointerCancel={() => { press.current = null; }}>
@@ -675,6 +779,7 @@ export default function WarehouseOffice() {
         </footer>
       </aside>
 
+      {zoomView}
       {modal === "machine" ? (
         <div className="machine-modal" onClick={(e) => { if (e.target === e.currentTarget) closeModal(); }}>
           <section className="machine-dialog" role="dialog" aria-modal="true" aria-label="Máy đặt hàng tự động" data-office-machine>
