@@ -1,0 +1,10 @@
+# Kho BMQ — Bàn kho Pine (demo only)
+
+BRAND: BÉ MÌ is the ordering machine, body #c88169, trim #fbf4e3, face #3e4b40; NGƯỜI KHO has sage #859b7a apron; KỆ uses #b99464 wood; THÙNG uses existing category colors. Surface #f5f1e5, warm walls #efe5cd, accent #c88169, ink #3e4b40. Ending: machine ready, existing order panel opens. Palette inspired by cozy Pine Hearts, no game assets copied.
+FORMAT: responsive workbench; original read-only demo snapshot and DocDetail retained, original in-machine basket/supplier/debt/print/decision logic retained. No production app edits, no real write or login. Compact room preview, still until the machine is clicked. Direct entry tan_tao; ?kho=q7 selects Q7; warehouse tabs inline.
+LOOK: muted clay and sage, rounded readable typography, fine warm outlines, 70–80% inventory/PR work area and compact diorama. No walking required for any task.
+BEATS: reuse Room single contact/event timeline. On machine click only: 0.25 base contact; 0.60 body contact; 0.85 face; 1.10 hopper contact; 1.20–1.90 shelves; 1.35 gears; 1.45 conveyor; 1.90 desk; 2.20 avatar; 2.60 eyes; 2.75 goods; 3.30 wave; 3.80 existing order panel. Skippable, reduced-motion goes straight to order panel.
+CAMERA: fixed orthographic, no automatic pan/zoom. Compact card static at 4.20s; animation opens a separate focused overlay. renderAt(t) and ?t= freeze exact stills; seeded randomness only.
+CHECKS: desktop1440 and mobile320/375/390/414, tablet768; no overflow, populated and empty search, group filter, PR search and document navigation, basket/debt selections/print/approval remain demo-only, direct warehouse context, skip, reduced motion, WebGL failure fallback. Beat stills plus contact neighbors, exact repeated capture, body-color measurement. Publish isolated demo; remove only old bmq-kho-demo/bmq-kho-3d-demo/bmq-may-dat-hang-demo deployments and aliases after new live verification.
+
+Color calibration: target lit body #c88169; original material #c88169 measured median #cc8168 over 2455 visible shell pixels. Albedo corrected red -2%, blue +1% to #c4816a; mask-based remeasurement recorded with release QA.

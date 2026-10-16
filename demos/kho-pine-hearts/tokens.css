@@ -1,0 +1,14 @@
+/* Hallmark · macrostructure: Workbench · tone: cozy operational · anchor hue: clay */
+:root {
+ --color-paper: oklch(95.8% .017 87); --color-cream: oklch(98% .014 83); --color-paper-deep: oklch(91% .027 86);
+ --color-ink: oklch(38.8% .026 147); --color-muted: oklch(48% .022 128); --color-rule: oklch(83% .026 83);
+ --color-accent: oklch(54% .09 42); --color-clay: oklch(66.5% .098 42); --color-clay-light: oklch(87% .05 49);
+ --color-sage: oklch(65% .06 130); --color-sage-deep: oklch(47% .059 133); --color-sage-light: oklch(90% .037 120);
+ --color-wheat: oklch(80% .087 83); --color-wheat-light: oklch(94% .051 86); --color-focus: oklch(47% .059 133);
+ --color-overlay: oklch(26% .02 140 / .45); --color-shadow: oklch(38.8% .026 147 / .07);
+ --font-display: 'Baloo 2', ui-rounded, sans-serif; --font-body: 'Nunito', system-ui, sans-serif;
+ --space-3xs:4px;--space-2xs:8px;--space-xs:12px;--space-sm:16px;--space-md:24px;--space-lg:32px;--space-xl:48px;--space-2xl:64px;
+ --text-xs:.75rem;--text-sm:.875rem;--text-md:1rem;--text-lg:1.125rem;--text-xl:1.5rem;--text-2xl:2rem;--text-display:clamp(1.75rem,2.7vw,2.6rem);
+ --ease-out:cubic-bezier(.16,1,.3,1);--ease-in:cubic-bezier(.7,0,.84,0);--ease-in-out:cubic-bezier(.65,0,.35,1);
+ --dur-short:150ms;--dur-med:250ms;--radius-card:20px;--radius-input:12px;--radius-pill:999px;
+}
