@@ -670,7 +670,7 @@ export default function WarehouseGame() {
               started={Boolean(current.cutover_date)}
               onTransfer={panel.location === "tan_tao" && canTransfer && item.on_hand > 0 ? () => setPanel({ kind: "transfers", location: "tan_tao", prefill: item.id }) : undefined}
               onFactorToast={canLinkQuest ? setToast : undefined}
-              onRobot={canRobotOrder ? () => { if (!basket.some((line) => line.item_id === item.id)) setBasket([...basket, basketLineFor(item)]); navigate("/warehouse/office"); } : undefined}
+              onRobot={canRobotOrder ? () => { if (!basket.some((line) => line.item_id === item.id)) setBasket([...basket, basketLineFor(item)]); navigate(`/warehouse/office?kho=${panel.location}&from=kho`); } : undefined}
               onDone={(id, message) => { setJustSaved(id); window.setTimeout(() => setJustSaved(null), 2600); setToast(message); setPanel(null); }}
               onClose={() => setPanel(null)}
             />

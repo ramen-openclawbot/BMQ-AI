@@ -162,7 +162,7 @@ export function Warehouse({ portrait, location, rows, crates, canAssign, transfe
         const mx = roomX + roomW - (portrait ? 222 : 330);
         const my = roomBottom + 8;
         return (
-          <g className="tap" role="button" tabIndex={0} aria-label="Máy đặt hàng tự động Sushi" onClick={onMachine} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onMachine(); }} data-bmq-sushi-machine>
+          <g className="tap" role="button" tabIndex={0} aria-label="Máy đặt hàng tự động" onClick={onMachine} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onMachine(); }} data-bmq-sushi-machine>
             <ellipse cx={mx + 42} cy={my + 86} rx={46} ry={9} fill={C.shadow} />
             <rect x={mx + 8} y={my + 70} width={68} height={14} rx={5} fill={C.cream} stroke={C.ink} strokeWidth={STROKE} />
             <rect x={mx + 14} y={my + 26} width={56} height={48} rx={8} fill="#c88169" stroke={C.ink} strokeWidth={STROKE} />
@@ -173,7 +173,7 @@ export function Warehouse({ portrait, location, rows, crates, canAssign, transfe
             <path d={`M${mx + 24} ${my + 12} h36 l-8 14 h-20 z`} fill={C.mustard} stroke={C.ink} strokeWidth={STROKE} strokeLinejoin="round" />
             <ellipse cx={mx + 42} cy={my + 12} rx={18} ry={5} fill={C.mustardLight} stroke={C.ink} strokeWidth={STROKE} />
             <rect x={mx + (portrait ? 90 : 96)} y={my + 24} width={portrait ? 126 : 220} height={38} rx={12} fill={C.cream} stroke={C.ink} strokeWidth={STROKE} />
-            <text x={mx + (portrait ? 153 : 206)} y={my + 49} textAnchor="middle" className="t-count">{portrait ? "🍣 Sushi · đặt NVL" : "🍣 Sushi · Máy đặt hàng tự động"}</text>
+            <text x={mx + (portrait ? 153 : 206)} y={my + 49} textAnchor="middle" className="t-count">{portrait ? "🤖 Máy đặt hàng" : "🤖 Máy đặt hàng tự động"}</text>
           </g>
         );
       })()}

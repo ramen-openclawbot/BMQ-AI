@@ -172,7 +172,7 @@ async function open(viewport, cfg, touch, basket, kho = "tan_tao") {
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   page.on("console", (m) => { if (m.type() === "error" && !/Failed to load resource|net::ERR/.test(m.text())) errors.push(m.text()); });
-  await page.goto(`${BASE}/warehouse/office?kho=${kho}`, { waitUntil: "networkidle" });
+  await page.goto(`${BASE}/warehouse/office${kho ? `?kho=${kho}&from=kho` : ""}`, { waitUntil: "networkidle" });
   await page.waitForSelector("[data-office-page].is-ready", { timeout: 20000 });
   await page.waitForTimeout(700);
   return { context, page, errors, cdp: touch ? await context.newCDPSession(page) : null };
@@ -186,7 +186,8 @@ for (const vp of [{ width: 1440, height: 900, touch: false }, { width: 1280, hei
     assert.equal(await page.locator(".kvp .pick-kho").count(), 0, "no blank warehouse picker");
     assert.ok((await page.locator(".kvp .cards .card").count()) >= 4, "today's low rows");
     assert.ok((await page.locator(".kvp .chips [data-group]").count()) >= 8, "shelf chips");
-    assert.equal(await page.locator("[data-kho='tan_tao']").getAttribute("aria-pressed"), "true");
+    assert.equal(await page.locator("[data-office-here='tan_tao']").count(), 1, "entered from Kho Tân Tạo: the room shows where it is");
+    assert.equal(await page.locator("[data-kho]").count(), 0, "no warehouse switch inside a warehouse");
     assert.ok((await page.evaluate(() => document.documentElement.scrollWidth)) <= w + 1, "no sideways scroll");
     const canvas = await page.locator(".kvp canvas.bay").boundingBox();
     assert.ok(canvas.width > 200 && canvas.height > 200, "room visible");
@@ -211,7 +212,7 @@ for (const vp of [{ width: 1440, height: 900, touch: false }, { width: 1280, hei
     await check(`${w} hovering the machine shows its tag`, async () => {
       const mp = await room(page, "machineScreen");
       await page.mouse.move(mp.x, mp.y + 10); await page.waitForTimeout(250);
-      assert.match(await page.locator(".kvp .world-tag").textContent(), /Sushi/);
+      assert.match(await page.locator(".kvp .world-tag").textContent(), /Máy đặt hàng tự động/);
       await page.mouse.move(5, vp.height - 5);
     });
   }
@@ -388,7 +389,8 @@ for (const vp of [{ width: 1440, height: 900, touch: false }, { width: 1280, hei
 // A shelf item sent from Kho 2D/3D ("🤖 Đặt hàng món này") arrives in the room; qty / price edits reach the package.
 {
   const seed = [{ key: "k1", item_id: BANH_MI.id, name: BANH_MI.name, unit: "cái", qty: "500", supplier_id: BANH_MI.supplier_id, price: "1200" }];
-  const { context, page, errors } = await open({ width: 1440, height: 900 }, { role: "owner" }, false, seed);
+  // Opened from the yard kiosk (no ?kho): the warehouse is not known yet, so the switch stays.
+  const { context, page, errors } = await open({ width: 1440, height: 900 }, { role: "owner" }, false, seed, null);
   await check("shared basket from Kho 2D/3D lands in the machine", async () => {
     assert.equal(await basketCount(page), 1);
     await openMachine(page);

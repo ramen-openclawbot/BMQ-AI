@@ -57,6 +57,8 @@ const num = (text: string) => { const v = Number(String(text).replace(/\s/g, "")
 const toBasketLine = (l: Line): BasketLine => ({ key: l.item.id, item_id: l.item.id, name: l.item.name, unit: lineUnit(l.item), qty: String(l.qty), supplier_id: l.supplierId, price: l.price === null ? "" : String(l.price) });
 const startKho = (): OfficeOrderLocation => (new URLSearchParams(window.location.search).get("kho") === "q7" ? "q7" : "tan_tao");
 const FROM_KHO = new URLSearchParams(window.location.search).get("from") === "kho";
+// Entered from inside a warehouse (its machine or a shelf), the room already knows where it is: no warehouse switch (owner 17/10).
+const KHO_FIXED = ["tan_tao", "q7"].includes(new URLSearchParams(window.location.search).get("kho") ?? "");
 
 /** Robot packages sent recently (RLS: any signed-in user may read), newest first. */
 function useRecentPackages() {
@@ -406,7 +408,7 @@ export default function WarehouseOffice() {
       const lowN = g ? g.items.filter((i) => i.low).length : 0;
       if (g && p) next = { label: `${g.icon} ${g.label}`, sub: `${g.items.length} món${lowN ? ` · ${lowN} sắp hết` : ""} · chạm để xem`, x: p.x, y: p.y };
     } else if (hit?.kind === "desk") { const p = room.deskPoint(); next = { label: "📋 Bàn duyệt PR", sub: `${waiting} phiếu chờ · chạm để xem`, x: p.x, y: p.y }; }
-    else if (hit?.kind === "machine") { const p = room.machineScreen(); next = { label: "🍣 Sushi · máy đặt hàng", sub: basket.length ? `${basket.length} món trong khay · chạm để mở` : "chạm để mở máy", x: p.x, y: p.y }; }
+    else if (hit?.kind === "machine") { const p = room.machineScreen(); next = { label: "🤖 Máy đặt hàng tự động", sub: basket.length ? `${basket.length} món trong khay · chạm để mở` : "chạm để mở máy", x: p.x, y: p.y }; }
     setHover((h) => (h?.label === next?.label && h?.x === next?.x ? h : next));
     (e.currentTarget as HTMLElement).style.cursor = hit && hit.kind !== "floor" ? "pointer" : "default";
     if (room.frozen !== null) room.renderAt(room.frozen);
@@ -625,15 +627,17 @@ export default function WarehouseOffice() {
   return (
     <div className={`kvp game${ready ? " is-ready" : ""}`} data-office-page data-office-version="sushi-game-v3">
       <section className="stage" onPointerMove={onStageMove} onPointerLeave={onStageLeave} onPointerDown={onStageDown} onPointerUp={onStageUp} onPointerCancel={() => { press.current = null; }}>
-        <canvas ref={canvasRef} className="bay" aria-label="Kho minh hoạ: kệ hàng, bàn duyệt PR và máy Sushi. Chạm vào kệ để xem hàng, chạm máy để đặt hàng." />
+        <canvas ref={canvasRef} className="bay" aria-label="Kho minh hoạ: kệ hàng, bàn duyệt PR và máy đặt hàng tự động. Chạm vào kệ để xem hàng, chạm máy để đặt hàng." />
         <div ref={overlayRef} className="overlay" aria-hidden />
         {hover && !modal ? <div className="world-tag" style={{ left: hover.x, top: hover.y }} aria-hidden><b>{hover.label}</b><small>{hover.sub}</small></div> : null}
         <header className="hud">
           <button type="button" className="exit" onClick={() => navigate(FROM_KHO ? `/warehouse/game?enter=${wh}` : "/warehouse/game")} aria-label="Về Kho">← Kho</button>
-          <span className="wordmark">🍣 Đặt hàng tự động</span>
-          <div className="kho-tabs" role="group" aria-label="Chuyển kho">{(["tan_tao", "q7"] as OfficeOrderLocation[]).map((id) => <button type="button" key={id} data-kho={id} aria-pressed={id === wh} disabled={sending} onClick={() => switchWarehouse(id)}>{WAREHOUSES[id].emoji} {WAREHOUSES[id].short}</button>)}</div>
+          <span className="wordmark">🤖 Đặt hàng tự động</span>
+          {KHO_FIXED
+            ? <span className="kho-here" data-office-here={wh} aria-label={`Đang ở ${WAREHOUSES[wh].label}`}>📍 {WAREHOUSES[wh].label}</span>
+            : <div className="kho-tabs" role="group" aria-label="Chuyển kho">{(["tan_tao", "q7"] as OfficeOrderLocation[]).map((id) => <button type="button" key={id} data-kho={id} aria-pressed={id === wh} disabled={sending} onClick={() => switchWarehouse(id)}>{WAREHOUSES[id].emoji} {WAREHOUSES[id].short}</button>)}</div>}
         </header>
-        <p className="stage-hint">🍃 Chạm kệ để xem hàng · chạm bàn để duyệt PR · chạm Sushi để đặt hàng</p>
+        <p className="stage-hint">🍃 Chạm kệ để xem hàng · chạm bàn để duyệt PR · chạm máy để đặt hàng</p>
         {loading ? (
           <div className="loading-card" role="status">
             {snapshot.isError ? <><b>Không tải được kho</b><p>{String((snapshot.error as Error)?.message ?? "").slice(0, 160)}</p><button type="button" onClick={() => snapshot.refetch()}>Thử lại</button></> : <><b>Đang mở {WAREHOUSES[wh].label}…</b><p>Đang xếp hàng lên kệ.</p></>}
@@ -667,14 +671,14 @@ export default function WarehouseOffice() {
         </div>
         <footer className="basket-bar">
           <span className="basket-info">🧺 <span>{basket.length ? <><b>{basket.length} món</b> · {bySupplier.length} NCC{total ? ` · ~${fmtMillion(total)}` : ""}</> : <><b>Khay trống</b> · chạm kệ để thêm hàng</>}</span></span>
-          <button type="button" className="open-machine" onClick={startMachine} disabled={!ready} data-open-machine data-station="machine">🍣 Mở máy{basket.length ? ` · ${basket.length}` : ""}</button>
+          <button type="button" className="open-machine" onClick={startMachine} disabled={!ready} data-open-machine data-station="machine">🤖 Mở máy{basket.length ? ` · ${basket.length}` : ""}</button>
         </footer>
       </aside>
 
       {modal === "machine" ? (
         <div className="machine-modal" onClick={(e) => { if (e.target === e.currentTarget) closeModal(); }}>
           <section className="machine-dialog" role="dialog" aria-modal="true" aria-label="Máy đặt hàng tự động" data-office-machine>
-            <header><div><small>{WAREHOUSES[wh].label} · máy tại kho</small><h2>🍣 Sushi · máy đặt hàng</h2></div><button type="button" aria-label="Đóng máy" onClick={closeModal}>✕</button></header>
+            <header><div><small>{WAREHOUSES[wh].label} · máy tại kho</small><h2>🤖 Máy đặt hàng tự động</h2></div><button type="button" aria-label="Đóng máy" onClick={closeModal}>✕</button></header>
             {machineView()}
             {!basket.length ? <button type="button" className="return-stock" onClick={closeModal}>Về kho chọn hàng ›</button> : null}
           </section>

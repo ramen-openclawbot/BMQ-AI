@@ -102,11 +102,10 @@ function SushiMachine({ at, onOpen }: { at: Vec3; onOpen: () => void }) {
         <Block size={[0.2, 0.18, 0.2]} color={C.cream} position={[0.78, 0.98, 0.3]} ink={0.02} />
       </group>
       <Html position={[0, 2.95, 0]} center zIndexRange={HTML_Z}>
-        <button type="button" className="k3-tag is-machine" aria-label="Máy đặt hàng tự động Sushi" onClick={onOpen} data-bmq-sushi-machine>
-          <i>🍣</i>
-          <b className="k3-long">Sushi · Máy đặt hàng</b>
-          <b className="k3-short">Sushi</b>
-          <span className="k3-long">Đặt NVL</span>
+        <button type="button" className="k3-tag is-machine" aria-label="Máy đặt hàng tự động" onClick={onOpen} data-bmq-sushi-machine>
+          <i>🤖</i>
+          <b className="k3-long">Máy đặt hàng tự động</b>
+          <b className="k3-short">Máy đặt hàng</b>
         </button>
       </Html>
     </group>
