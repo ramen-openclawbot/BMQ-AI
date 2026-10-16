@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import {
   buildShelves,
   daysLabel,
+  docPhotos,
   docTotals,
   fold,
   groupForItem,
@@ -12,6 +13,7 @@ import {
   PAY_METHOD,
   PAY_STATUS,
   PAY_TYPE,
+  photoCount,
   PO_STATUS,
   predictItem,
   PR_STATUS,
@@ -20,6 +22,8 @@ import {
   startQty,
   type DocLine,
   type OfficeOrderSnapshotItem,
+  type PaymentDocPoDetail,
+  type PaymentDocPrDetail,
 } from "./office-order.ts";
 
 function item(
@@ -342,4 +346,118 @@ test("the label maps cover the statuses the page shows", () => {
   assert.equal(PO_STATUS.cancelled, "Đã huỷ");
   assert.equal(GR_STATUS.confirmed, "Đã nhập");
   assert.equal(GR_STATUS.received, "Đã nhận");
+});
+
+// ---------------------------------------------------------------------------
+// docPhotos / photoCount
+// ---------------------------------------------------------------------------
+
+function prDetail(overrides: Partial<PaymentDocPrDetail> = {}): PaymentDocPrDetail {
+  return {
+    kind: "pr",
+    number: "PR-001",
+    title: "Đề nghị chi",
+    description: null,
+    notes: null,
+    status: "pending",
+    payment_status: "unpaid",
+    delivery_status: "pending",
+    payment_type: "new_order",
+    payment_method: "cash",
+    amount: 1000,
+    vat: 0,
+    created_at: "2026-10-16",
+    invoice_created: false,
+    has_image: true,
+    image_path: "pr/header.jpg",
+    attachments: [{ path: "pr/att.pdf", name: "Hoá đơn.pdf", mime: "application/pdf" }],
+    supplier: null,
+    po: null,
+    gr: {
+      id: "gr-1",
+      number: "GR-001",
+      date: "2026-10-15",
+      status: "confirmed",
+      has_image: true,
+      image_path: "gr/note.jpg",
+      photos: ["gr/p1.jpg", "gr/p2.jpg"],
+    },
+    lines: [],
+    ...overrides,
+  };
+}
+
+function poDetail(overrides: Partial<PaymentDocPoDetail> = {}): PaymentDocPoDetail {
+  return {
+    kind: "po",
+    number: "PO-001",
+    date: "2026-10-10",
+    expected: null,
+    status: "sent",
+    amount: 2000,
+    vat: 0,
+    notes: null,
+    has_image: true,
+    image_path: "po/header.jpg",
+    supplier: null,
+    gr: {
+      id: "gr-2",
+      number: "GR-002",
+      date: "2026-10-12",
+      status: "received",
+      has_image: true,
+      image_path: "gr/po-note.jpg",
+      photos: ["gr/po-p1.jpg"],
+    },
+    prs: [],
+    lines: [],
+    ...overrides,
+  };
+}
+
+test("docPhotos lists a PR header, attachments and the goods receipt in order", () => {
+  assert.deepEqual(docPhotos(prDetail()), [
+    { key: "pr-pr/header.jpg", label: "Ảnh đề nghị chi", path: "pr/header.jpg", bucket: "invoices" },
+    {
+      key: "att-pr/att.pdf",
+      label: "Hoá đơn.pdf",
+      path: "pr/att.pdf",
+      bucket: "invoices",
+      name: "Hoá đơn.pdf",
+      mime: "application/pdf",
+    },
+    { key: "gr-gr/note.jpg", label: "Phiếu nhập GR-001", path: "gr/note.jpg", bucket: "invoices" },
+    { key: "grp-gr/p1.jpg", label: "Ảnh hàng 1", path: "gr/p1.jpg", bucket: "invoices" },
+    { key: "grp-gr/p2.jpg", label: "Ảnh hàng 2", path: "gr/p2.jpg", bucket: "invoices" },
+  ]);
+  assert.equal(photoCount(prDetail()), 5);
+});
+
+test("docPhotos falls back to a numbered label for an unnamed attachment", () => {
+  const pr = prDetail({ attachments: [{ path: "pr/scan.jpg", name: null, mime: null }] });
+  const photos = docPhotos(pr);
+  assert.equal(photos[0].label, "Ảnh đề nghị chi");
+  assert.deepEqual(photos[1], {
+    key: "att-pr/scan.jpg",
+    label: "Tệp đính kèm 1",
+    path: "pr/scan.jpg",
+    bucket: "invoices",
+    name: null,
+    mime: null,
+  });
+});
+
+test("docPhotos returns nothing for a PR without photos", () => {
+  const bare = prDetail({ image_path: null, has_image: false, attachments: [], gr: null });
+  assert.deepEqual(docPhotos(bare), []);
+  assert.equal(photoCount(bare), 0);
+});
+
+test("docPhotos uses purchase-orders for the PO header and invoices for its GR", () => {
+  assert.deepEqual(docPhotos(poDetail()), [
+    { key: "po-po/header.jpg", label: "Ảnh đơn mua", path: "po/header.jpg", bucket: "purchase-orders" },
+    { key: "gr-gr/po-note.jpg", label: "Phiếu nhập GR-002", path: "gr/po-note.jpg", bucket: "invoices" },
+    { key: "grp-gr/po-p1.jpg", label: "Ảnh hàng 1", path: "gr/po-p1.jpg", bucket: "invoices" },
+  ]);
+  assert.equal(photoCount(poDetail()), 3);
 });

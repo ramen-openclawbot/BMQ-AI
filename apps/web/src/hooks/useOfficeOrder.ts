@@ -72,6 +72,12 @@ export interface PendingPaymentRequestRow {
   purchase_order_id: string | null;
   supplier_name: string | null;
   item_count: number;
+  /** Storage path of the PR header photo (payment_requests.image_url). */
+  image_path: string | null;
+  /** Number of rows in payment_request_attachments. */
+  attachment_count: number;
+  /** Header photo + attachments. */
+  photo_count: number;
 }
 
 interface PendingPaymentRequestRaw {
@@ -82,8 +88,10 @@ interface PendingPaymentRequestRaw {
   created_at: string;
   supplier_id: string | null;
   purchase_order_id: string | null;
+  image_url: string | null;
   suppliers: { id: string; name: string | null } | null;
   payment_request_items: Array<{ id: string }> | null;
+  payment_request_attachments: Array<{ id: string }> | null;
 }
 
 /** The newest 60 unpaid pending payment requests, for the office list. */
@@ -95,7 +103,7 @@ export function usePendingPaymentRequests() {
       const { data, error } = await supabase
         .from("payment_requests")
         .select(
-          "id, request_number, title, total_amount, created_at, supplier_id, purchase_order_id, suppliers(id, name), payment_request_items(id)",
+          "id, request_number, title, total_amount, created_at, supplier_id, purchase_order_id, image_url, suppliers(id, name), payment_request_items(id), payment_request_attachments(id)",
         )
         .eq("status", "pending")
         .eq("payment_status", "unpaid")
@@ -116,6 +124,15 @@ export function usePendingPaymentRequests() {
         item_count: Array.isArray(row.payment_request_items)
           ? row.payment_request_items.length
           : 0,
+        image_path: row.image_url ?? null,
+        attachment_count: Array.isArray(row.payment_request_attachments)
+          ? row.payment_request_attachments.length
+          : 0,
+        photo_count:
+          (row.image_url ? 1 : 0) +
+          (Array.isArray(row.payment_request_attachments)
+            ? row.payment_request_attachments.length
+            : 0),
       }));
     },
   });

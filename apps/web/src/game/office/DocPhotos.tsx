@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
 
 import { resolveImageUrl } from "@/lib/storage-url";
@@ -14,6 +15,7 @@ const isPdf = (p: DocPhoto) => (p.mime ?? "").includes("pdf") || /\.pdf$/i.test(
 
 export function DocPhotos({ photos }: { photos: DocPhoto[] }) {
   const [view, setView] = useState<{ at: number; turn: number } | null>(null);
+  const [zoom, setZoom] = useState(1); // 1× fits the stage; 2× scrolls inside it (tap the photo or the 2× button)
   const open = view?.at ?? null;
   const turn = view?.turn ?? 0;
   // Every photo starts upright; the turn belongs to the photo on screen.
@@ -29,7 +31,7 @@ export function DocPhotos({ photos }: { photos: DocPhoto[] }) {
     ro.observe(el);
     return () => ro.disconnect();
   }, [showing]);
-  const go = (at: number | null) => setView(at === null ? null : { at: (at + photos.length) % photos.length, turn: 0 });
+  const go = (at: number | null) => { setZoom(1); setView(at === null ? null : { at: (at + photos.length) % photos.length, turn: 0 }); };
   const urls = useQuery({
     queryKey: ["doc-photo-urls", photos.map((p) => `${p.bucket}:${p.path}`)],
     enabled: photos.length > 0,
@@ -64,24 +66,27 @@ export function DocPhotos({ photos }: { photos: DocPhoto[] }) {
           </li>
         ))}
       </ul>
-      {open !== null ? (
-        <div className="photo-viewer" role="dialog" aria-label={photos[open].label} onClick={(e) => { if (e.target === e.currentTarget) go(null); }} data-office-viewer>
+      {open !== null ? createPortal(
+        // Portalled to <body>: inside the sticky photo column of the desktop detail the fixed viewer was painted under the sheet bars.
+        <div className="kvp"><div className="photo-viewer" role="dialog" aria-label={photos[open].label} onClick={(e) => { if (e.target === e.currentTarget) go(null); }} data-office-viewer>
           <div className="pv-bar">
             <b>{photos[open].label}</b>
             <span>
               <button type="button" onClick={() => setView((v) => (v ? { ...v, turn: (v.turn + 90) % 360 } : v))} aria-label="Xoay ảnh">↻ Xoay</button>
+              <button type="button" onClick={() => setZoom((z) => (z === 1 ? 2 : 1))} aria-pressed={zoom > 1} aria-label={zoom > 1 ? "Thu nhỏ ảnh" : "Phóng to ảnh"} data-office-zoom>{zoom > 1 ? "1×" : "2×"}</button>
               {current ? <a href={current} target="_blank" rel="noopener noreferrer">Mở ảnh gốc</a> : null}
               <button type="button" onClick={() => go(null)} aria-label="Đóng ảnh">✕</button>
             </span>
           </div>
-          <div className="pv-stage" ref={stage}>
+          <div className={`pv-stage${zoom > 1 ? " is-zoom" : ""}`} ref={stage}>
             {current ? (
               <img
                 key={open}
                 src={current}
                 alt={photos[open].label}
                 // A sideways photo is fitted to the swapped box so it never spills off a phone screen.
-                style={{ transform: `rotate(${turn}deg)`, ...(turn % 180 && room.w > 0 ? { maxWidth: room.h, maxHeight: room.w } : null) }}
+                style={{ transform: `rotate(${turn}deg) scale(${zoom})`, ...(turn % 180 && room.w > 0 ? { maxWidth: room.h, maxHeight: room.w } : null) }}
+                onClick={() => setZoom((z) => (z === 1 ? 2 : 1))}
                 data-office-viewer-img
               />
             ) : <p>Không mở được ảnh.</p>}
@@ -93,7 +98,8 @@ export function DocPhotos({ photos }: { photos: DocPhoto[] }) {
               <button type="button" onClick={() => go(open + 1)} aria-label="Ảnh sau">›</button>
             </div>
           ) : null}
-        </div>
+        </div></div>,
+        document.body,
       ) : null}
     </>
   );

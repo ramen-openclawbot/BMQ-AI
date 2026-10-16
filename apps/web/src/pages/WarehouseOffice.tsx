@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -17,6 +17,7 @@ import {
   MAX_DEBT_PICKS, packageDebtNumbers, packageSummary, rankDebtRows, robotOrderErrorCode, robotOrderErrorText, sumDebtPicks, toggleDebtPick,
   type DebtPick, type RobotOrderPackageResult, type SupplierDebtRow,
 } from "@/lib/robot-order";
+import { resolveImageUrl } from "@/lib/storage-url";
 import { GamePicker } from "@/game/GamePicker";
 import { newRequestId } from "@/game/meta";
 import { loadBasket, saveBasket, type BasketLine } from "@/game/RobotDesk";
@@ -26,34 +27,35 @@ import { fmtDate, fmtMillion, fmtMoney, fmtNum } from "@/game/office/format";
 import "@/game/office/office.css";
 
 /**
- * Đặt hàng tự động — the office ordering room (owner approved the demo 16/10; 16/10 it replaced the old robot
- * desk inside the Kho 2D/3D "Đặt hàng tự động" kiosk, sharing its session basket): one fixed view of the warehouse room — no zoom, no camera moves.
- * The staff avatar walks to a shelf, the machine or the PR desk; products are dragged into the machine; each
- * product shows its supplier's old unpaid PR/PO to pay with the order; the machine sends one robot package per
- * supplier (create_robot_order_package); the desk opens PRs in full and approves / rejects through the finance flow.
+ * Đặt hàng tự động — the warehouse you play in (owner 16/10: "đang yêu cầu làm giao diện game kho", approved
+ * for the real app the same day). The 3D room is the screen: shelves, the PR desk and the Sushi machine are the
+ * things you touch; the notebook (side board on desktop, bottom sheet on phones) shows what you touched. Every
+ * document row carries its photo count and the detail puts the photos first, so a PR can be reconciled against
+ * its invoice / delivery note without leaving the room.
+ * Business flow retained from the earlier room: products → supplier's old unpaid PR/PO picked to pay with the
+ * order, one robot package per supplier (create_robot_order_package), PRs approved / rejected through finance.
  */
 type Item = PredictedOfficeOrderItem;
 type Line = { item: Item; qty: number; price: number | null; supplierId: string | null; supplierName: string | null };
-type Drag = { item: Item; x: number; y: number; ox: number; oy: number; hot: boolean; back: boolean };
-type Press = { item: Item; x0: number; y0: number; id: number; touch: boolean };
-type View = "low" | "machine" | "desk" | GroupCode;
+type Spot = { kind: "low" } | { kind: "desk" } | { kind: "shelf"; code: GroupCode };
+type Hover = { label: string; sub: string; x: number; y: number };
 
 const SHELF_HEX: Record<GroupCode, string> = {
   flour: "#e8a23a", dairy_fat: "#7fb3d5", eggs: "#f6d79a", sugar_additives: "#cfc8f3", meat_filling: "#d9667a",
   cheese: "#f2c14e", vegetables: "#6f9e8b", packaging: "#d7a768", supplies: "#9aa7c7", other: "#b9b3a3",
 };
-const WAREHOUSES: Record<OfficeOrderLocation, { label: string; sub: string; emoji: string }> = {
-  tan_tao: { label: "Kho Tân Tạo", sub: "Kho tổng · nhận mọi phiếu nhập", emoji: "🏭" },
-  q7: { label: "Kho Q7", sub: "Bếp bánh ngọt", emoji: "🧁" },
-};
-const KEYS: Record<string, [number, number]> = {
-  ArrowUp: [0, 1], KeyW: [0, 1], ArrowDown: [0, -1], KeyS: [0, -1], ArrowLeft: [-1, 0], KeyA: [-1, 0], ArrowRight: [1, 0], KeyD: [1, 0],
+const WAREHOUSES: Record<OfficeOrderLocation, { label: string; short: string; emoji: string }> = {
+  tan_tao: { label: "Kho Tân Tạo", short: "Tân Tạo", emoji: "🏭" },
+  q7: { label: "Kho Q7", short: "Kho Q7", emoji: "🧁" },
 };
 const NO_SUP = "__none__";
 const REDUCED = typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+const IDLE_START = -20; // the machine is already built when you walk in; the build plays only when you open it
+const isPhone = () => window.innerWidth < 900;
 const lineUnit = (item: Item) => item.last_unit ?? item.unit ?? "";
 const num = (text: string) => { const v = Number(String(text).replace(/\s/g, "").replace(",", ".")); return Number.isFinite(v) ? v : NaN; };
 const toBasketLine = (l: Line): BasketLine => ({ key: l.item.id, item_id: l.item.id, name: l.item.name, unit: lineUnit(l.item), qty: String(l.qty), supplier_id: l.supplierId, price: l.price === null ? "" : String(l.price) });
+const startKho = (): OfficeOrderLocation => (new URLSearchParams(window.location.search).get("kho") === "q7" ? "q7" : "tan_tao");
 
 /** Robot packages sent recently (RLS: any signed-in user may read), newest first. */
 function useRecentPackages() {
@@ -79,10 +81,32 @@ const suggestText = (item: Item) => {
   return s ? `${fmtNum(s.qty)} ${s.unit ?? item.unit ?? ""}`.trim() : null;
 };
 
+/** "📷 n" on a document row: the row's photos (header, attachments, goods receipt) are one tap away. */
+function PhotoBadge({ count, title }: { count: number | null | undefined; title?: string }) {
+  if (!count) return <span className="ph-badge is-none" title="Chưa có ảnh chứng từ" data-office-photo-count="0">không ảnh</span>;
+  return <span className="ph-badge" title={title ?? `${count} ảnh chứng từ`} data-office-photo-count={count}>📷 {count}</span>;
+}
+
+/** The first photo of a document, signed on the client; falls back to the badge when it cannot be read. */
+function PhotoThumb({ path, bucket, count }: { path: string | null | undefined; bucket: string; count: number }) {
+  const url = useQuery({
+    queryKey: ["office-thumb", bucket, path ?? null],
+    enabled: Boolean(path),
+    staleTime: 30 * 60 * 1000,
+    queryFn: () => resolveImageUrl(path!, { preferredBucket: bucket }),
+  });
+  return (
+    <span className={`pr-thumb${url.data ? " has-img" : ""}`} aria-hidden data-office-thumb={path ? "1" : "0"}>
+      {url.data ? <img src={url.data} alt="" loading="lazy" /> : <span className="pr-thumb-ph">{count ? "📷" : "📄"}</span>}
+      {count > 1 ? <b>{count}</b> : null}
+    </span>
+  );
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // Old unpaid documents of one supplier (farthest first), with picks for the robot package. Same rules as the old
 // robot desk: rows before the learned cutover fold away, rows already paid outside are faded, the last pick
-// pattern is shown, and Bé Mì can review the list.
+// pattern is shown, and Bé Mì (the finance reviewer) can review the list. Each row shows its photo count.
 function DebtPicker({ supplierId, picks, onToggle, onView, compact = false }: {
   supplierId: string | null; picks: DebtPick[]; onToggle: (pick: DebtPick) => void; onView: (key: DocKey) => void; compact?: boolean;
 }) {
@@ -113,11 +137,11 @@ function DebtPicker({ supplierId, picks, onToggle, onView, compact = false }: {
         <label className="pick">
           <input type="checkbox" checked={on} disabled={full && !on} onChange={() => onToggle({ kind: r.kind, id: r.id })} />
           <span className={`kind kind-${r.kind}`}>{r.kind.toUpperCase()}</span>
-          <span className="num">{r.number ?? r.id.slice(0, 8)}</span>
+          <span className="num">{r.number ?? r.id.slice(0, 8)} <PhotoBadge count={r.photo_count} /></span>
           <span className="age">{fmtDate(r.doc_date)}{r.age_days !== null && r.age_days !== undefined ? ` · ${r.age_days} ngày` : ""}{r.has_receipt ? " · đã nhận hàng" : ""}{r.last_submission_number ? ` · đã trình ${r.last_submission_number}` : ""}{mark ? ` · ${mark}` : ""}</span>
           <b>{fmtMoney(r.remaining ?? r.amount ?? 0)}</b>
         </label>
-        <button type="button" className="view" onClick={() => onView({ kind: r.kind, id: r.id })} aria-label={`Xem chi tiết ${r.number ?? ""}`} data-view={r.number ?? r.id}>Xem</button>
+        <button type="button" className="view" onClick={() => onView({ kind: r.kind, id: r.id })} aria-label={`Xem chi tiết ${r.number ?? ""}${r.photo_count ? ` và ${r.photo_count} ảnh` : ""}`} data-view={r.number ?? r.id}>{r.photo_count ? "Xem + ảnh" : "Xem"}</button>
       </li>
     );
   };
@@ -167,7 +191,7 @@ function ApproveBar({ prId, onDone }: { prId: string; onDone: (text: string, ok:
         <>
           <input className="reason" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Lý do từ chối…" aria-label="Lý do từ chối" maxLength={300} autoFocus />
           <button type="button" disabled={busy || reason.trim().length < 3} onClick={() => reject.mutate({ id: prId, reason: reason.trim() }, { onSuccess: () => onDone("Đã từ chối PR", false), onError: fail })}>Gửi từ chối</button>
-          <button type="button" className="ghost" onClick={() => setRejecting(false)}>Huỷ</button>
+          <button type="button" className="quiet" onClick={() => setRejecting(false)}>Huỷ</button>
         </>
       ) : (
         <>
@@ -190,39 +214,40 @@ export default function WarehouseOffice() {
   const queryClient = useQueryClient();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
+  const boardRef = useRef<HTMLElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
   const roomRef = useRef<Room | null>(null);
-  const pressRef = useRef<Press | null>(null);
-  const keysRef = useRef(new Set<string>());
+  const press = useRef<{ x: number; y: number } | null>(null);
+  const machineHot = useRef(false);
   const builtFor = useRef<string | null>(null);
   const requestIds = useRef(new Map<string, string>());
   // Shared session basket with the Kho 2D/3D shelves ("🤖 Đặt hàng món này"); lines of the other warehouse wait here.
   const parked = useRef<BasketLine[]>([]);
   const imported = useRef<string | null>(null);
-  const [wh, setWh] = useState<OfficeOrderLocation | null>(() => {
-    const kho = new URLSearchParams(window.location.search).get("kho");
-    return kho === "tan_tao" || kho === "q7" ? kho : null;
-  });
+  const [wh, setWh] = useState<OfficeOrderLocation>(startKho);
   const [ready, setReady] = useState(false);
-  const [asmDone, setAsmDone] = useState(false);
   const [query, setQuery] = useState("");
-  const [view, setView] = useState<View>("low");
+  const [spot, setSpot] = useState<Spot>({ kind: "low" });
   const [open, setOpen] = useState<string | null>(null);
   const [basket, setBasket] = useState<Line[]>([]);
   const [picks, setPicks] = useState<Record<string, DebtPick[]>>({});
   const [docStack, setDocStack] = useState<DocKey[]>([]);
   const [prOpen, setPrOpen] = useState<string | null>(null);
-  const [drag, setDrag] = useState<Drag | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(true);
+  const [modal, setModal] = useState<"animation" | "machine" | null>(null);
+  const [animTime, setAnimTime] = useState(0);
+  const [hover, setHover] = useState<Hover | null>(null);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [decided, setDecided] = useState(0);
 
-  const snapshot = useOfficeOrderSnapshot(wh ?? "tan_tao");
+  const snapshot = useOfficeOrderSnapshot(wh);
   const pending = usePendingPaymentRequests();
   const recent = useRecentPackages();
   const suppliers = useSuppliers();
   const create = useCreateRobotOrderPackage();
-  const snap = wh && snapshot.data?.location === wh ? snapshot.data : null;
+  const snap = snapshot.data?.location === wh ? snapshot.data : null;
 
   const shelves = useMemo(() => (snap ? buildShelves(snap.items, snap.as_of) : []), [snap]);
   const items = useMemo(() => shelves.flatMap((s) => s.items), [shelves]);
@@ -231,25 +256,36 @@ export default function WarehouseOffice() {
   const supplierOptions = useMemo(() => (suppliers.data ?? []).map((s) => ({ value: s.id, label: s.name })).sort((a, b) => a.label.localeCompare(b.label, "vi")), [suppliers.data]);
   const waiting = pending.data?.length ?? 0;
 
-  // ---- scene lifecycle
+  // ---- scene lifecycle: one room, live idle (breathing, blinking bulbs); the build plays only when the machine opens
   useEffect(() => {
     const room = new Room(canvasRef.current!, overlayRef.current!);
     roomRef.current = room;
-    (window as unknown as { __room: Room }).__room = room; // QA hook (aims drags at the hopper)
-    const onResize = () => {
-      room.insetPx = window.innerWidth < 900 ? Math.round(window.innerHeight * 0.46) : 0;
+    (window as unknown as { __room: Room }).__room = room; // QA hook
+    room.events = [{ type: "assemble", t: IDLE_START }];
+    if (REDUCED) room.frozen = 40;
+    const sync = () => {
+      room.insetPx = isPhone() && boardRef.current ? Math.round(boardRef.current.getBoundingClientRect().height) : 0;
       room.resize();
     };
-    onResize();
+    sync();
     room.start();
-    window.addEventListener("resize", onResize);
-    return () => { window.removeEventListener("resize", onResize); room.dispose(); };
+    const observer = new ResizeObserver(sync);
+    observer.observe(canvasRef.current!.parentElement!);
+    if (boardRef.current) observer.observe(boardRef.current);
+    return () => { observer.disconnect(); room.dispose(); roomRef.current = null; };
   }, []);
-
-  // Build the room once the chosen warehouse's snapshot is in, then play the (skippable) assembly.
+  // Board height changes (sheet open / closed, snapshot arriving) re-frame the room above it on phones.
   useEffect(() => {
     const room = roomRef.current;
-    if (!room || !wh || !snap || builtFor.current === wh) return;
+    if (!room) return;
+    room.insetPx = isPhone() && boardRef.current ? Math.round(boardRef.current.getBoundingClientRect().height) : 0;
+    room.resize();
+  }, [sheetOpen, snap, modal]);
+
+  // Fill the room once the chosen warehouse's snapshot is in. No opening scene: you are already in the warehouse.
+  useEffect(() => {
+    const room = roomRef.current;
+    if (!room || !snap || builtFor.current === wh) return;
     builtFor.current = wh;
     const toRoom = (i: Item): RoomItem => ({ id: i.id, name: i.name, group: i.group, low: i.low });
     const data: RoomData = {
@@ -258,20 +294,30 @@ export default function WarehouseOffice() {
       low: low.map(toRoom),
     };
     room.setWarehouse(data, waiting);
-    const t = room.now();
-    room.push({ type: "assemble", t: REDUCED ? t - BEAT.end : t });
-    setReady(false);
-    setAsmDone(false);
-    const id1 = window.setTimeout(() => setReady(true), REDUCED ? 0 : BEAT.shelves * 1000);
-    const id2 = window.setTimeout(() => setAsmDone(true), REDUCED ? 0 : BEAT.end * 1000);
-    return () => { window.clearTimeout(id1); window.clearTimeout(id2); };
+    if (room.frozen !== null) room.renderAt(room.frozen);
+    setReady(true);
   }, [wh, snap, items, shelves, low, waiting]);
-
   useEffect(() => { roomRef.current?.setDeskCount(waiting); }, [waiting]);
+
+  // Opening the machine: the build-up scene plays in place, then the ordering panel opens.
+  useEffect(() => {
+    const room = roomRef.current;
+    if (!room || modal !== "animation") return;
+    const t0 = room.now();
+    room.events = [...room.events.filter((ev) => ev.type !== "assemble"), { type: "assemble", t: t0 }];
+    let raf = 0;
+    const tick = () => {
+      const t = Math.min(BEAT.end, room.now() - t0);
+      setAnimTime(t);
+      if (t < BEAT.end) raf = requestAnimationFrame(tick); else setModal("machine");
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [modal]);
 
   // Bring in the shared basket once this warehouse's items are known; keep the rest parked.
   useEffect(() => {
-    if (!wh || !snap || imported.current === wh) return;
+    if (!snap || imported.current === wh) return;
     imported.current = wh;
     const byId = new Map(items.map((i) => [i.id, i]));
     const stored = loadBasket();
@@ -298,95 +344,54 @@ export default function WarehouseOffice() {
     const id = window.setTimeout(() => setToast(null), 3200);
     return () => window.clearTimeout(id);
   }, [toast]);
+  // The notebook follows what you touched: top of the page, active chip in view.
+  useEffect(() => {
+    bodyRef.current?.scrollTo({ top: 0 });
+    document.querySelector<HTMLElement>(".kvp .chip[aria-pressed=true]")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [spot, query]);
+  useEffect(() => {
+    if (!modal) return;
+    const key = (e: KeyboardEvent) => { if (e.key === "Escape" && !docStack.length && !prOpen) closeModal(); };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  });
 
-  const choose = (id: OfficeOrderLocation) => {
+  // ---- today's play: low items into the basket, PRs decided here
+  const inBasket = new Map(basket.map((l) => [l.item.id, l.qty]));
+  const lowDone = low.filter((item) => inBasket.has(item.id)).length;
+  const prevLowDone = useRef(0);
+  useEffect(() => {
+    if (low.length && lowDone === low.length && prevLowDone.current < lowDone) setToast("🎉 Mọi món sắp hết đã vào khay. Mở máy để tạo đơn.");
+    prevLowDone.current = lowDone;
+  }, [lowDone, low.length]);
+
+  const idleAgain = () => {
+    const room = roomRef.current;
+    if (room && room.frozen === null) room.events = [...room.events.filter((ev) => ev.type !== "assemble"), { type: "assemble", t: room.now() + IDLE_START }];
+  };
+  const closeModal = () => { idleAgain(); setModal(null); };
+  const switchWarehouse = (id: OfficeOrderLocation) => {
+    if (id === wh || sending) return;
     builtFor.current = null;
     imported.current = null;
-    setWh(id);
-    setView("low");
-    setQuery("");
-    setPicks({});
-    setOpen(null);
-    setPrOpen(null);
-    setDocStack([]);
-    setSendError(null);
+    saveBasket([...parked.current, ...basket.map(toBasketLine)]);
+    setWh(id); setReady(false); setSpot({ kind: "low" }); setQuery(""); setPicks({}); setOpen(null); setPrOpen(null); setDocStack([]); setSendError(null); setModal(null); setHover(null);
+    roomRef.current?.push({ type: "clear", t: roomRef.current.now() });
+    history.replaceState(null, "", `?kho=${id}`);
   };
-
-  const skip = () => {
-    const room = roomRef.current!;
-    const asm = room.events.filter((e) => e.type === "assemble").at(-1);
-    if (asm && room.now() - asm.t < BEAT.end) room.push({ type: "assemble", t: room.now() - BEAT.end });
-    setReady(true);
-    setAsmDone(true);
+  const choose = (next: Spot) => {
+    const room = roomRef.current;
+    setSpot(next); setQuery(""); setOpen(null); setSheetOpen(true);
+    room?.push({ type: "station", t: room.now(), id: next.kind === "shelf" ? next.code : next.kind });
   };
-
-  // ---- walking
-  const walkTo = useCallback((x: number, z: number, face: number | null = null) => {
-    const room = roomRef.current!;
-    const t = room.now();
-    room.push({ type: "walk", t, path: room.planWalk(room.avatarAt(t), { x, z }), face });
-  }, []);
-  const goStation = useCallback((id: string) => {
-    const room = roomRef.current!;
-    const st = room.stations.find((s) => s.id === id);
-    if (!st) return;
-    walkTo(st.stand.x, st.stand.z, st.face);
-    room.push({ type: "station", t: room.now(), id });
-  }, [walkTo]);
-  const openView = (v: View) => {
-    setView(v);
-    setQuery("");
-    setOpen(null);
-    setSheetOpen(true);
-    if (v === "low") roomRef.current!.push({ type: "station", t: roomRef.current!.now(), id: null });
-    else goStation(v);
+  const startMachine = () => {
+    if (modal || !ready) return;
+    setAnimTime(0); setHover(null); setSheetOpen(false);
+    setModal(REDUCED ? "machine" : "animation");
   };
+  const skipScene = () => { idleAgain(); setModal("machine"); };
 
-  // Arrows / WASD walk relative to the fixed view; stop on release.
-  useEffect(() => {
-    if (!wh) return;
-    const az = 0.55;
-    const update = () => {
-      const room = roomRef.current!;
-      let sx = 0, sy = 0;
-      for (const code of keysRef.current) { const k = KEYS[code]; if (k) { sx += k[0]; sy += k[1]; } }
-      const me = room.avatarAt(room.now());
-      if (!sx && !sy) { room.push({ type: "walk", t: room.now(), path: new Float32Array([me.x, me.z]), face: null }); return; }
-      const dx = Math.cos(az) * sx - Math.sin(az) * sy, dz = -Math.sin(az) * sx - Math.cos(az) * sy;
-      const len = Math.hypot(dx, dz) || 1;
-      room.push({ type: "walk", t: room.now(), path: room.planWalk(me, { x: me.x + (dx / len) * 14, z: me.z + (dz / len) * 14 }), face: null });
-    };
-    const down = (e: KeyboardEvent) => {
-      if (!KEYS[e.code] || (e.target as HTMLElement).closest("input, textarea, [role=dialog]")) return;
-      e.preventDefault();
-      if (keysRef.current.has(e.code)) return;
-      keysRef.current.add(e.code);
-      update();
-    };
-    const up = (e: KeyboardEvent) => { if (keysRef.current.delete(e.code)) update(); };
-    window.addEventListener("keydown", down);
-    window.addEventListener("keyup", up);
-    return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); };
-  }, [wh]);
-
-  // Walking up to a station by keys or floor clicks opens it.
-  useEffect(() => {
-    if (!wh || !ready) return;
-    const id = window.setInterval(() => {
-      const room = roomRef.current!;
-      const me = room.avatarAt(room.now());
-      if (me.moving || query) return;
-      const near = room.stations.find((s) => Math.hypot(s.stand.x - me.x, s.stand.z - me.z) < 0.9);
-      if (near && near.id !== view) {
-        setView(near.id as View);
-        setOpen(null);
-        room.push({ type: "station", t: room.now(), id: near.id });
-      }
-    }, 200);
-    return () => window.clearInterval(id);
-  }, [wh, ready, view, query]);
-
-  // ---- basket + drops
+  // ---- basket + drops (a crate flies from its shelf into the hopper)
   const addToBasket = (item: Item) => {
     setBasket((lines) => {
       const found = lines.find((l) => l.item.id === item.id);
@@ -394,87 +399,49 @@ export default function WarehouseOffice() {
       return [...lines, { item, qty: startQty(item), price: item.last_unit_price, supplierId: item.supplier_id, supplierName: item.supplier_name }];
     });
   };
-  const dropInto = (item: Item, x: number, y: number) => {
-    const room = roomRef.current!;
-    room.push({ type: "drop", t: room.now(), itemId: item.id, from: room.worldFromScreen(x, y) });
+  const dropItem = (item: Item) => {
+    const room = roomRef.current;
+    if (!room || room.frozen !== null) { addToBasket(item); return; }
+    room.push({ type: "drop", t: room.now(), itemId: item.id, from: room.itemFrom(item.id, item.group) });
     window.setTimeout(() => addToBasket(item), FLY * 1000);
   };
-  const tapDrop = (item: Item, e: React.MouseEvent<HTMLButtonElement>) => {
-    e.stopPropagation();
-    const r = e.currentTarget.getBoundingClientRect();
-    dropInto(item, r.left + r.width / 2, r.top);
-  };
-  const pressRow = (item: Item, e: RPointerEvent<HTMLElement>) => {
-    if ((e.target as HTMLElement).closest("button, input, label.pick")) return;
-    if (e.pointerType === "mouse" && e.button !== 0) return;
-    const touch = e.pointerType !== "mouse";
-    if (touch && !(e.target as HTMLElement).closest(".grip")) return;
-    pressRef.current = { item, x0: e.clientX, y0: e.clientY, id: e.pointerId, touch };
-  };
-  useEffect(() => {
-    const move = (e: PointerEvent) => {
-      const p = pressRef.current;
-      if (!p || p.id !== e.pointerId || drag) return;
-      if (Math.hypot(e.clientX - p.x0, e.clientY - p.y0) > 6) {
-        pressRef.current = null;
-        const room = roomRef.current!;
-        room.push({ type: "drag", t: room.now(), on: true });
-        setDrag({ item: p.item, x: e.clientX, y: e.clientY, ox: e.clientX, oy: e.clientY, hot: false, back: false });
-      }
-    };
-    const up = () => { pressRef.current = null; };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-    window.addEventListener("pointercancel", up);
-    return () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); window.removeEventListener("pointercancel", up); };
-  }, [drag]);
-  useEffect(() => {
-    if (!drag || drag.back) return;
-    const room = roomRef.current!;
-    const move = (e: PointerEvent) => {
-      const hot = room.machineHit(e.clientX, e.clientY);
-      setDrag((d) => {
-        if (!d) return d;
-        if (hot !== d.hot) room.push({ type: "hover", t: room.now(), on: hot });
-        return { ...d, x: e.clientX, y: e.clientY, hot };
-      });
-    };
-    const up = (e: PointerEvent) => {
-      const hot = room.machineHit(e.clientX, e.clientY);
-      room.push({ type: "hover", t: room.now(), on: false });
-      room.push({ type: "drag", t: room.now(), on: false });
-      if (hot) { dropInto(drag.item, e.clientX, e.clientY); setDrag(null); }
-      else {
-        setToast("Thả trúng phễu của máy nhé");
-        setDrag((d) => (d ? { ...d, back: true, x: d.ox, y: d.oy } : d));
-        window.setTimeout(() => setDrag(null), 320);
-      }
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-    window.addEventListener("pointercancel", up);
-    return () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", up); window.removeEventListener("pointercancel", up); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drag?.item.id, drag?.back]);
 
-  // ---- clicks in the room
-  const stageDown = useRef<{ x: number; y: number } | null>(null);
-  const onStageUp = (e: RPointerEvent<HTMLElement>) => {
-    const d = stageDown.current;
-    stageDown.current = null;
-    if (!d || !wh || !ready || drag || (e.target as HTMLElement).closest("button")) return;
-    if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > 8) return;
-    const hit = roomRef.current!.pick(e.clientX, e.clientY);
-    if (!hit) return;
-    if (hit.kind === "shelf") openView(hit.code as GroupCode);
-    else if (hit.kind === "machine") openView("machine");
-    else if (hit.kind === "desk") openView("desk");
-    else walkTo(hit.x, hit.z);
-  };
+  // ---- touching the room
+  const hitAt = (x: number, y: number) => roomRef.current?.pick(x, y) ?? null;
   const onStageMove = (e: RPointerEvent<HTMLElement>) => {
-    if (e.pointerType !== "mouse" || drag || !ready) return;
-    const hit = roomRef.current!.pick(e.clientX, e.clientY);
-    (e.currentTarget as HTMLElement).style.cursor = hit && hit.kind !== "floor" ? "pointer" : hit ? "crosshair" : "default";
+    const room = roomRef.current;
+    if (!room || !ready || modal || e.pointerType === "touch") return;
+    const hit = hitAt(e.clientX, e.clientY);
+    const code = hit?.kind === "shelf" ? hit.code : null;
+    room.hoverShelf = code;
+    const hot = hit?.kind === "machine";
+    if (hot !== machineHot.current) { machineHot.current = hot; room.push({ type: "hover", t: room.now(), on: hot }); }
+    let next: Hover | null = null;
+    if (code) {
+      const g = shelves.find((x) => x.code === code);
+      const p = room.shelfScreen(code);
+      const lowN = g ? g.items.filter((i) => i.low).length : 0;
+      if (g && p) next = { label: `${g.icon} ${g.label}`, sub: `${g.items.length} món${lowN ? ` · ${lowN} sắp hết` : ""} · chạm để xem`, x: p.x, y: p.y };
+    } else if (hit?.kind === "desk") { const p = room.deskPoint(); next = { label: "📋 Bàn duyệt PR", sub: `${waiting} phiếu chờ · chạm để xem`, x: p.x, y: p.y }; }
+    else if (hit?.kind === "machine") { const p = room.machineScreen(); next = { label: "🍣 Sushi · máy đặt hàng", sub: basket.length ? `${basket.length} món trong khay · chạm để mở` : "chạm để mở máy", x: p.x, y: p.y }; }
+    setHover((h) => (h?.label === next?.label && h?.x === next?.x ? h : next));
+    (e.currentTarget as HTMLElement).style.cursor = hit && hit.kind !== "floor" ? "pointer" : "default";
+    if (room.frozen !== null) room.renderAt(room.frozen);
+  };
+  const onStageLeave = () => {
+    const room = roomRef.current;
+    if (room) { room.hoverShelf = null; if (machineHot.current) { machineHot.current = false; room.push({ type: "hover", t: room.now(), on: false }); } }
+    setHover(null);
+  };
+  const onStageDown = (e: RPointerEvent<HTMLElement>) => { press.current = { x: e.clientX, y: e.clientY }; };
+  const onStageUp = (e: RPointerEvent<HTMLElement>) => {
+    const p = press.current; press.current = null;
+    if (!p || !ready || modal || (e.target as HTMLElement).closest("button, a") || Math.hypot(e.clientX - p.x, e.clientY - p.y) > 10) return;
+    const hit = hitAt(e.clientX, e.clientY);
+    if (!hit) return;
+    if (hit.kind === "shelf") choose({ kind: "shelf", code: hit.code as GroupCode });
+    else if (hit.kind === "desk") choose({ kind: "desk" });
+    else if (hit.kind === "machine") startMachine();
   };
 
   // ---- machine: one robot package per supplier
@@ -520,15 +487,16 @@ export default function WarehouseOffice() {
     setToast(done.map(packageSummary).join(" · "));
     queryClient.invalidateQueries({ queryKey: [OFFICE_PENDING_PAYMENT_REQUESTS_QUERY_KEY] });
     queryClient.invalidateQueries({ queryKey: ["robot-order-packages"] });
-    window.setTimeout(() => { room.push({ type: "clear", t: room.now() }); if (sentSuppliers.length === groups.length) openView("desk"); }, (0.4 + done.length * 0.45 + 0.9) * 1000);
+    if (sentSuppliers.length === groups.length) { closeModal(); choose({ kind: "desk" }); }
+    window.setTimeout(() => room.push({ type: "clear", t: room.now() }), (0.4 + done.length * 0.45 + 0.9) * 1000);
   };
 
   const prDone = (text: string, ok: boolean | null) => {
     setToast(text);
     if (ok === null) return;
     const room = roomRef.current!;
-    goStation("desk");
     room.push({ type: "stamp", t: room.now() + 0.05, ok });
+    setDecided((n) => n + 1);
     setPrOpen(null);
     setDocStack([]);
     queryClient.invalidateQueries({ queryKey: [OFFICE_PENDING_PAYMENT_REQUESTS_QUERY_KEY] });
@@ -536,51 +504,47 @@ export default function WarehouseOffice() {
   const closeDocs = () => { setDocStack([]); setPrOpen(null); };
 
   // ---- render helpers
-  const inBasket = new Map(basket.map((l) => [l.item.id, l.qty]));
   const total = basket.reduce((s, l) => s + (l.price ?? 0) * l.qty, 0);
   const setLine = (id: string, patch: Partial<Line>) => setBasket((ls) => ls.map((x) => (x.item.id === id ? { ...x, ...patch } : x)));
-  const row = (item: Item) => {
+  const card = (item: Item) => {
     const days = item.daysLeft !== null ? daysLabel(item.daysLeft) : "";
     const qty = inBasket.get(item.id);
     const isOpen = open === item.id;
-    const color = SHELF_HEX[item.group];
     const icon = shelves.find((s) => s.code === item.group)?.icon ?? "📦";
     const sug = suggestText(item);
     return (
-      <li key={item.id} className={`row${item.low ? " is-low" : ""}${isOpen ? " is-open" : ""}${drag?.item.id === item.id ? " is-dragging" : ""}`} data-item={item.id}
-        onPointerDown={(e) => pressRow(item, e)} style={{ ["--g" as string]: color }}>
-        <div className="row-main" onClick={() => setOpen(isOpen ? null : item.id)} role="button" aria-expanded={isOpen}>
-          <span className="grip" aria-label={`Kéo ${item.name} vào máy`}><i /><i /><i /></span>
+      <li key={item.id} className={`card${item.low ? " is-low" : ""}${isOpen ? " is-open" : ""}`} data-item={item.id} style={{ ["--g" as string]: SHELF_HEX[item.group] }}>
+        <div className="card-main">
           <span className="crate" aria-hidden>{icon}</span>
-          <span className="info">
+          <button type="button" className="name" aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : item.id)}>
             <b>{item.name}</b>
             <small>{item.supplier_name ?? "Chưa rõ NCC"}{sug ? ` · lần trước ${sug}` : ""}</small>
-            {wh === "tan_tao" && item.pastry_q7 ? <small className="to-q7" data-office-to-q7>🧁 Giao về Tân Tạo → tự chuyển Q7</small> : null}
-          </span>
-          <span className="side">
-            {qty ? <em className="in">✓ ×{fmtNum(qty)}</em> : days ? <em className={`days${item.low ? " is-low" : ""}`}>{days}</em> : null}
-            <button type="button" className="tap" onClick={(e) => tapDrop(item, e)} aria-label={`Bỏ ${item.name} vào máy`}>+ Máy</button>
-          </span>
+            <span className="card-tags">
+              {days ? <span className={`pill${item.low ? " low" : ""}`}>{days}</span> : <span className="pill muted">Chưa dự đoán</span>}
+              {wh === "tan_tao" && item.pastry_q7 ? <span className="pill q7" data-office-to-q7>🧁 Giao về Tân Tạo → tự chuyển Q7</span> : null}
+            </span>
+          </button>
+          <button type="button" className={`add${qty ? " added" : ""}`} onClick={() => dropItem(item)} aria-label={`Bỏ ${item.name} vào máy`} data-office-add>{qty ? `✓ ×${fmtNum(qty)}` : "+ Thêm"}</button>
         </div>
         {isOpen ? (
-          <div className="row-more">
+          <div className="card-more">
             <p className="facts">
               {item.last_unit_price ? <>Giá gần nhất <b>{fmtMoney(item.last_unit_price)}/{lineUnit(item)}</b> · </> : null}
               {item.last_date ? <>nhập {fmtDate(item.last_date)} · {item.receipts} ngày nhập/120 ngày</> : "Chưa có phiếu nhập 120 ngày"}
               {days ? <> · dự đoán: {days.toLowerCase()}</> : null}
             </p>
             <DebtPicker supplierId={item.supplier_id} picks={picks[item.supplier_id ?? NO_SUP] ?? []} onToggle={(p) => togglePick(item.supplier_id ?? NO_SUP, p)} onView={(k) => setDocStack([k])} compact />
-            <button type="button" className="primary wide" onClick={(e) => tapDrop(item, e)}>Bỏ vào máy ↑ {sug ? `(${sug})` : ""}</button>
+            <button type="button" className="primary wide" onClick={() => dropItem(item)}>Bỏ vào máy ↑ {sug ? `(${sug})` : ""}</button>
           </div>
         ) : null}
       </li>
     );
   };
-  const list = (rows: Item[]) => (rows.length ? <ul className="rows">{rows.map(row)}</ul> : <p className="empty">Không có món nào.</p>);
+  const cards = (rows: Item[]) => (rows.length ? <ul className="cards">{rows.map(card)}</ul> : <div className="empty-state"><h3>Không có món nào</h3><p>Chạm vào một kệ trong kho để xem hàng.</p></div>);
 
   const machineView = () => (
     <section className="machine-view">
-      {!basket.length ? <p className="empty">Máy đang trống. Kéo hàng từ kệ hoặc từ ô tìm kiếm vào phễu (hoặc bấm “+ Máy”).</p> : null}
+      {!basket.length ? <p className="empty">Máy đang trống. Chạm vào kệ trong kho rồi bấm “+ Thêm” để cho hàng vào khay.</p> : null}
       {bySupplier.map(([sup, lines]) => {
         const sum = lines.reduce((s, l) => s + (l.price ?? 0) * l.qty, 0);
         return (
@@ -632,19 +596,23 @@ export default function WarehouseOffice() {
     </section>
   );
 
-  const deskView = () => {
+  const prRows = () => {
     if (pending.isLoading) return <p className="empty">Đang tải PR chờ duyệt…</p>;
     if (pending.isError) return <p className="empty err">Không tải được danh sách PR.</p>;
     const rows = pending.data ?? [];
-    if (!rows.length) return <p className="empty">Không còn PR nào chờ duyệt.</p>;
+    if (!rows.length) return <div className="empty-state"><h3>Không còn PR chờ duyệt</h3><p>Bàn duyệt đang trống.</p></div>;
     return (
-      <ul className="prs">
+      <ul className="pr-list">
         {rows.map((p) => (
           <li key={p.id}>
-            <button type="button" className={`pr${prOpen === p.id ? " is-on" : ""}`} onClick={() => { setDocStack([]); setPrOpen(p.id); }} data-pr={p.request_number}>
-              <span className="pr-top"><b>{p.request_number || p.id.slice(0, 8)}</b></span>
-              <span className="pr-sup">{p.supplier_name ?? "—"} · {fmtDate(p.created_at)} · {p.item_count} dòng</span>
-              <b className="pr-amt">{fmtMoney(p.total_amount ?? 0)}</b>
+            <button type="button" className={`pr-row${prOpen === p.id ? " is-on" : ""}`} onClick={() => { setDocStack([]); setPrOpen(p.id); }} data-pr={p.request_number} data-office-pr-photos={p.photo_count}>
+              <PhotoThumb path={p.image_path} bucket="invoices" count={p.photo_count} />
+              <span className="pr-name">
+                <b>{p.request_number || p.id.slice(0, 8)}</b>
+                <small>{p.supplier_name ?? "—"} · {fmtDate(p.created_at)} · {p.item_count} dòng</small>
+                <PhotoBadge count={p.photo_count} />
+              </span>
+              <span className="pr-side"><strong>{fmtMoney(p.total_amount ?? 0)}</strong><span className="pill">Chờ duyệt</span></span>
             </button>
           </li>
         ))}
@@ -652,81 +620,81 @@ export default function WarehouseOffice() {
     );
   };
 
-  const shelf = shelves.find((s) => s.code === view) ?? null;
-  const title = query ? `🔎 “${query}” · ${results.length}` : view === "machine" ? `🤖 Máy đặt hàng · ${basket.length} món` : view === "desk" ? `📋 Bàn duyệt PR · ${waiting} chờ duyệt` : shelf ? `${shelf.icon} Kệ ${shelf.label} · ${shelf.items.length} món` : `🔮 Sắp hết · dự đoán · ${low.length} món`;
-  const loading = Boolean(wh) && !snap;
+  const shelf = spot.kind === "shelf" ? shelves.find((s) => s.code === spot.code) ?? null : null;
+  let heading: React.ReactNode; let body: React.ReactNode;
+  if (query) {
+    heading = <><span className="head-icon">🔍</span><div><b>Tìm trong kho</b><small>{results.length} món khớp “{query}”</small></div></>;
+    body = results.length ? cards(results) : <div className="empty-state"><h3>Chưa tìm thấy</h3><p>Thử tên khác, mã hàng hoặc nhà cung cấp.</p><button type="button" onClick={() => setQuery("")}>Xoá tìm kiếm</button></div>;
+  } else if (spot.kind === "desk") {
+    heading = <><span className="head-icon">📋</span><div><b>Bàn duyệt PR</b><small>{waiting} phiếu chờ · mỗi phiếu kèm ảnh chứng từ để đối soát</small></div></>;
+    body = prRows();
+  } else if (shelf) {
+    const lowN = shelf.items.filter((i) => i.low).length;
+    heading = <><span className="head-icon" style={{ background: SHELF_HEX[shelf.code] }}>{shelf.icon}</span><div><b>Kệ {shelf.label}</b><small>{shelf.items.length} món{lowN ? ` · ${lowN} sắp hết` : " · đủ hàng"}</small></div></>;
+    body = cards(shelf.items);
+  } else {
+    heading = <><span className="head-icon">☀️</span><div><b>Việc hôm nay</b><small>{low.length ? `${low.length} món dự đoán sắp hết` : "Kho ổn, chưa có món sắp hết"}</small></div></>;
+    body = low.length ? <>{cards(low)}<p className="note">Dự đoán theo chu kỳ nhập 120 ngày gần nhất. Kho chưa kiểm kê nên chưa dùng số tồn.</p></> : <div className="empty-state"><h3>Kệ đang đầy</h3><p>Chạm vào một kệ trong kho để xem hàng.</p></div>;
+  }
+  const questPct = low.length ? Math.round((lowDone / low.length) * 100) : 100;
+  const loading = !snap;
 
   return (
-    <div className={`kvp app v2${wh ? " has-kho" : ""}${ready ? " is-ready" : ""}${drag ? " is-drag" : ""}${sheetOpen ? "" : " sheet-closed"}`} data-office-page>
-      <section className="stage" onPointerDown={(e) => { stageDown.current = { x: e.clientX, y: e.clientY }; }} onPointerUp={onStageUp} onPointerMove={onStageMove}>
-        <canvas ref={canvasRef} className="bay" />
+    <div className={`kvp game${modal === "animation" ? " is-animating" : ""}${ready ? " is-ready" : ""}`} data-office-page data-office-version="sushi-game-v3">
+      <section className="stage" onPointerMove={onStageMove} onPointerLeave={onStageLeave} onPointerDown={onStageDown} onPointerUp={onStageUp} onPointerCancel={() => { press.current = null; }}>
+        <canvas ref={canvasRef} className="bay" aria-label="Kho minh hoạ: kệ hàng, bàn duyệt PR và máy Sushi. Chạm vào kệ để xem hàng, chạm máy để đặt hàng." />
         <div ref={overlayRef} className="overlay" aria-hidden />
+        {hover && !modal ? <div className="world-tag" style={{ left: hover.x, top: hover.y }} aria-hidden><b>{hover.label}</b><small>{hover.sub}</small></div> : null}
         <header className="hud">
-          <button type="button" className="chip-btn exit" onClick={() => navigate("/warehouse/game")} aria-label="Về Kho">←</button>
-          <span className="logo">🤖 Đặt hàng tự động</span>
-          {wh ? <button type="button" className="chip-btn" onClick={() => { builtFor.current = null; setWh(null); setReady(false); }}>{WAREHOUSES[wh].emoji} {WAREHOUSES[wh].label} · đổi</button> : null}
-          {wh && snap && !asmDone ? <button type="button" className="chip-btn skip" onClick={skip}>Bỏ qua ⏭</button> : null}
-          {wh && asmDone ? <span className="keys-hint">Bấm vào kệ / máy / bàn để đi · phím ← ↑ → ↓</span> : null}
+          <button type="button" className="exit" onClick={() => navigate("/warehouse/game")} aria-label="Về Kho">← Kho</button>
+          <span className="wordmark">🍣 Đặt hàng tự động</span>
+          <div className="kho-tabs" role="group" aria-label="Chuyển kho">{(["tan_tao", "q7"] as OfficeOrderLocation[]).map((id) => <button type="button" key={id} data-kho={id} aria-pressed={id === wh} disabled={sending} onClick={() => switchWarehouse(id)}>{WAREHOUSES[id].emoji} {WAREHOUSES[id].short}</button>)}</div>
         </header>
-        {!wh ? (
-          <div className="pick-kho">
-            <h1>Chọn kho</h1>
-            <p>Đi tới kệ lấy hàng, kéo vào máy, chọn phiếu cũ cần chi, tạo đơn và duyệt PR ở bàn.</p>
-            <div className="kho-cards">
-              {(Object.keys(WAREHOUSES) as OfficeOrderLocation[]).map((id) => (
-                <button key={id} type="button" className="kho" onClick={() => choose(id)} data-kho={id}>
-                  <span className="emoji">{WAREHOUSES[id].emoji}</span>
-                  <b>{WAREHOUSES[id].label}</b>
-                  <small>{WAREHOUSES[id].sub}</small>
-                </button>
-              ))}
-            </div>
-          </div>
-        ) : null}
+        <p className="stage-hint">🍃 Chạm kệ để xem hàng · chạm bàn để duyệt PR · chạm Sushi để đặt hàng</p>
         {loading ? (
-          <div className="pick-kho loading" role="status">
-            {snapshot.isError ? <><h1>Không tải được kho</h1><p>{String((snapshot.error as Error)?.message ?? "").slice(0, 160)}</p><button type="button" className="chip-btn" onClick={() => snapshot.refetch()}>Thử lại</button></> : <><h1>Đang mở {WAREHOUSES[wh!].label}…</h1><p>Bé Mì đang đếm hàng và tính món sắp hết.</p></>}
+          <div className="loading-card" role="status">
+            {snapshot.isError ? <><b>Không tải được kho</b><p>{String((snapshot.error as Error)?.message ?? "").slice(0, 160)}</p><button type="button" onClick={() => snapshot.refetch()}>Thử lại</button></> : <><b>Đang mở {WAREHOUSES[wh].label}…</b><p>Đang xếp hàng lên kệ.</p></>}
           </div>
         ) : null}
+        {modal === "animation" ? <div className="wake" role="dialog" aria-modal="true" aria-label="Sushi thức dậy"><span className="kicker">MÁY CỦA {WAREHOUSES[wh].label.toUpperCase()}</span><h2>{animTime < 2.6 ? "Sushi đang thức dậy…" : "Sẵn sàng phụ một tay."}</h2><div className="wake-progress" aria-hidden><span style={{ transform: `scaleX(${animTime / BEAT.end})` }} /></div><div className="wake-actions"><button type="button" onClick={skipScene} data-office-skip>Bỏ qua hoạt cảnh ›</button><button type="button" className="quiet" onClick={closeModal}>Đóng</button></div></div> : null}
       </section>
 
-      {wh && snap ? (
-        <aside className="panel" aria-label="Bảng thao tác">
-          <div className="panel-top">
-            <button type="button" className="sheet-toggle" onClick={() => setSheetOpen((v) => !v)} aria-label={sheetOpen ? "Thu gọn bảng" : "Mở bảng"}>{sheetOpen ? "⌄" : "⌃"}</button>
-            <label className="search">
-              <span aria-hidden>🔎</span>
-              <input value={query} onChange={(e) => { setQuery(e.target.value); setOpen(null); setSheetOpen(true); }} placeholder="Tìm nguyên vật liệu…" aria-label="Tìm nguyên vật liệu" enterKeyHint="search" />
-              {query ? <button type="button" onClick={() => setQuery("")} aria-label="Xoá tìm kiếm">✕</button> : null}
-            </label>
-            <ul className="chips" aria-label="Đi tới">
-              <li><button type="button" className={`is-lowchip${view === "low" && !query ? " is-on" : ""}`} onClick={() => openView("low")}>🔮 Sắp hết <b>{low.length}</b></button></li>
-              <li><button type="button" className={`is-machine${view === "machine" && !query ? " is-on" : ""}`} onClick={() => openView("machine")} data-station="machine">🤖 Máy <b>{basket.length}</b></button></li>
-              <li><button type="button" className={`is-desk${view === "desk" && !query ? " is-on" : ""}`} onClick={() => openView("desk")} data-station="desk">📋 Duyệt PR <b>{waiting}</b></button></li>
-              {shelves.map((s) => (
-                <li key={s.code}><button type="button" className={view === s.code && !query ? "is-on" : undefined} onClick={() => openView(s.code)} style={{ ["--g" as string]: SHELF_HEX[s.code] }} data-group={s.code}>{s.icon} {s.label} <b>{s.items.length}</b></button></li>
-              ))}
-            </ul>
+      <aside ref={boardRef} className={`board${sheetOpen ? "" : " is-closed"}`} aria-label="Sổ kho">
+        <div className="board-top">
+          <button type="button" className="handle" onClick={() => setSheetOpen((v) => !v)} aria-expanded={sheetOpen} aria-label={sheetOpen ? "Thu gọn sổ kho" : "Mở sổ kho"}><span /></button>
+          <div className="quest" aria-label="Tiến độ hôm nay">
+            <div className="quest-row"><span>🔮 Sắp hết vào khay</span><b data-quest-low>{lowDone}/{low.length}</b></div>
+            <div className="quest-bar" aria-hidden><span style={{ width: `${questPct}%` }} /></div>
+            <div className="quest-row"><span>📋 PR đã xử lý</span><b data-quest-pr>{decided}/{decided + waiting}</b></div>
           </div>
-          <div className="panel-body">
-            <h2>{title}</h2>
-            {query ? list(results)
-              : view === "machine" ? machineView()
-              : view === "desk" ? deskView()
-              : shelf ? list(shelf.items)
-              : <>{list(low)}<p className="note">Dự đoán theo chu kỳ nhập 120 ngày gần nhất. Kho chưa kiểm kê nên chưa dùng số tồn.</p></>}
+          <label className="search">
+            <span aria-hidden>🔎</span>
+            <input value={query} onChange={(e) => { setQuery(e.target.value); setOpen(null); }} placeholder="Tìm hàng, mã hoặc nhà cung cấp…" aria-label="Tìm nguyên vật liệu" enterKeyHint="search" onFocus={() => setSheetOpen(true)} />
+            {query ? <button type="button" onClick={() => setQuery("")} aria-label="Xoá tìm kiếm">✕</button> : null}
+          </label>
+          <div className="chips" role="group" aria-label="Kệ trong kho">
+            <button type="button" className="chip low" aria-pressed={spot.kind === "low" && !query} onClick={() => choose({ kind: "low" })} data-station="low">☀️ Hôm nay <b>{low.length}</b></button>
+            {shelves.map((s) => <button type="button" key={s.code} className="chip" data-group={s.code} style={{ ["--g" as string]: SHELF_HEX[s.code] }} aria-pressed={spot.kind === "shelf" && spot.code === s.code && !query} onClick={() => choose({ kind: "shelf", code: s.code })}>{s.icon} {s.label} <b>{s.items.length}</b></button>)}
+            <button type="button" className="chip desk" aria-pressed={spot.kind === "desk" && !query} onClick={() => choose({ kind: "desk" })} data-station="desk">📋 Phiếu PR <b>{waiting}</b></button>
           </div>
-          <footer className="basket">
-            <span>🧺 <b>{basket.length}</b> món · {bySupplier.length} NCC{total ? ` · ~${fmtMillion(total)}` : ""}</span>
-            <button type="button" disabled={!basket.length} onClick={() => openView("machine")}>Chọn PR & đặt →</button>
-          </footer>
-        </aside>
-      ) : null}
+        </div>
+        <div ref={bodyRef} className="board-body">
+          <div className="board-head">{heading}</div>
+          {snap ? body : <p className="empty">Đang tải kho…</p>}
+        </div>
+        <footer className="basket-bar">
+          <span className="basket-info">🧺 <span>{basket.length ? <><b>{basket.length} món</b> · {bySupplier.length} NCC{total ? ` · ~${fmtMillion(total)}` : ""}</> : <><b>Khay trống</b> · chạm kệ để thêm hàng</>}</span></span>
+          <button type="button" className="open-machine" onClick={startMachine} disabled={!ready} data-open-machine data-station="machine">🍣 Mở máy{basket.length ? ` · ${basket.length}` : ""}</button>
+        </footer>
+      </aside>
 
-      {drag ? (
-        <div className={`ghost${drag.hot ? " is-hot" : ""}${drag.back ? " is-back" : ""}`} style={{ transform: `translate(${drag.x}px, ${drag.y}px)`, ["--g" as string]: SHELF_HEX[drag.item.group] }}>
-          <span className="crate">{shelves.find((s) => s.code === drag.item.group)?.icon ?? "📦"}</span>
-          <b>{drag.item.name}</b>
+      {modal === "machine" ? (
+        <div className="machine-modal" onClick={(e) => { if (e.target === e.currentTarget) closeModal(); }}>
+          <section className="machine-dialog" role="dialog" aria-modal="true" aria-label="Máy đặt hàng tự động" data-office-machine>
+            <header><div><small>{WAREHOUSES[wh].label} · máy tại kho</small><h2>🍣 Sushi · máy đặt hàng</h2></div><button type="button" aria-label="Đóng máy" onClick={closeModal}>✕</button></header>
+            {machineView()}
+            {!basket.length ? <button type="button" className="return-stock" onClick={closeModal}>Về kho chọn hàng ›</button> : null}
+          </section>
         </div>
       ) : null}
       {toast ? <div className="toast" role="status">{toast}</div> : null}
@@ -738,8 +706,8 @@ export default function WarehouseOffice() {
               <button type="button" onClick={closeDocs} aria-label="Đóng chi tiết">✕ Đóng</button>
             </div>
             {docStack.length
-              ? <OfficeDocDetail doc={docStack[docStack.length - 1]} />
-              : prOpen ? <OfficeDocDetail doc={{ kind: "pr", id: prOpen }} actions={<ApproveBar prId={prOpen} onDone={prDone} />} /> : null}
+              ? <OfficeDocDetail doc={docStack[docStack.length - 1]} onOpen={(k) => setDocStack((st) => [...st, k])} />
+              : prOpen ? <OfficeDocDetail doc={{ kind: "pr", id: prOpen }} onOpen={(k) => setDocStack([k])} actions={<ApproveBar prId={prOpen} onDone={prDone} />} /> : null}
           </div>
         </div>
       ) : null}

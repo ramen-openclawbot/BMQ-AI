@@ -113,6 +113,8 @@ export class Room {
   frozen: number | null = null;
   /** Bottom part of the canvas covered by a panel (mobile sheet); the fixed view frames the room above it. */
   insetPx = 0;
+  /** Shelf under the pointer (game hover): its sign lifts and its crates bob like the selected station. */
+  hoverShelf: string | null = null;
   private t0 = performance.now();
   private raf = 0;
   private wh: WarehouseData | null = null;
@@ -806,6 +808,16 @@ export class Room {
     const s = this.shelves.find((x) => x.code === code);
     return s ? this.toClient(new THREE.Vector3(0, 1.0, 0.1).applyMatrix4(s.group.matrixWorld)) : null;
   }
+  deskPoint() { return this.toClient(DESK.clone().add(new THREE.Vector3(0.2, 1.1, 0))); }
+  machineScreen() { return this.toClient(M.clone().add(new THREE.Vector3(0, 1.4, 0.3))); }
+  /** World point a crate flies from when an item is added: its crate on the shelf, else the shelf of its group. */
+  itemFrom(itemId: string, group: string): [number, number, number] {
+    const c = this.crates.find((x) => x.item.id === itemId && x.queue < 0);
+    if (c) { const p = this.crateRest(c, new THREE.Vector3()); return [p.x, p.y, p.z]; }
+    const s = this.shelves.find((x) => x.code === group);
+    if (s) { s.group.updateMatrixWorld(); const p = new THREE.Vector3(0, 1.2, 0.3).applyMatrix4(s.group.matrixWorld); return [p.x, p.y, p.z]; }
+    return [M.x - 2, 1.5, M.z + 2];
+  }
 
   machineHit(clientX: number, clientY: number): boolean {
     const rect = this.canvas.getBoundingClientRect();
@@ -884,7 +896,7 @@ export class Room {
       a > BEAT.wave && a < BEAT.wave + 0.9 ? 1 : 0,
       print && !printing && t < printEnd + 1.0 ? 1 : 0,
     );
-    // Bé Mì's eyes follow the player around the room.
+    // Sushi's eyes follow the player around the room.
     const lookX = Math.max(-0.09, Math.min(0.09, (me.x - M.x) * 0.018));
     this.eyes.forEach((eye, i) => {
       eye.scale.set(1 + happy * 0.25, Math.max(0.12, eyeOpen) * (1 - happy * 0.62), 1);
@@ -933,7 +945,7 @@ export class Room {
       const k = asm ? span(a, s.rise, 0.4) : 0;
       s.group.visible = k > 0;
       s.group.position.y = (easeOutBack(k, 1.4) - 1) * 2.6;
-      const active = station === s.code;
+      const active = station === s.code || this.hoverShelf === s.code;
       s.sign.position.y = 2.34 + (active ? 0.05 * Math.sin(t * 5) : 0);
       s.sign.scale.setScalar(active ? 1.08 : 1);
       const bulb = s.group.getObjectByName("bulb");
@@ -980,7 +992,7 @@ export class Room {
         const pos = rest.clone();
         tmpQ.copy(this.shelves[c.shelf].group.quaternion);
         let blink = c.item.low ? blinkOn : 0;
-        if (station === this.shelves[c.shelf].code && c.queue < 0) pos.y += 0.02 * Math.abs(Math.sin(t * 5 + i));
+        if ((station === this.shelves[c.shelf].code || this.hoverShelf === this.shelves[c.shelf].code) && c.queue < 0) pos.y += 0.02 * Math.abs(Math.sin(t * 5 + i));
         if (c.queue >= 0) {
           const hopT = BEAT.hop0 + c.queue * BEAT.hopStep;
           const hk = span(a, hopT, HOP);
@@ -1104,12 +1116,12 @@ export class Room {
     if (s.printing && s.print) text = `🖨️ In ${s.print.slips} phiếu đặt → bàn duyệt`;
     else if (lastLanded && t - (lastLanded.t + FLY) < 1.4) text = `+1 · ${this.itemById.get(lastLanded.itemId)?.name ?? ""}`;
     else if (s.hover > 0.5) text = "Thả vào phễu nè! 😋";
-    else if (s.drag > 0.5) text = "Kéo lên phễu của Bé Mì";
-    else if (asm && a >= BEAT.eyes && a < BEAT.end + 1.5) text = low ? `Bé Mì dự đoán: ${low} món sắp hết!` : "Kho ổn, chưa có món sắp hết";
-    else if (asm && a >= BEAT.end + 1.5 && a < BEAT.end + 9 && !interacted) text = "Bấm vào kệ để đi lấy hàng 👆";
+    else if (s.drag > 0.5) text = "Kéo lên phễu của Sushi";
+    else if (asm && a >= BEAT.eyes && a < BEAT.end + 1.5) text = low ? `Sushi dự đoán: ${low} món sắp hết!` : "Kho ổn, chưa có món sắp hết";
+    else if (asm && a >= BEAT.end + 1.5 && !interacted) text = "Chạm vào kệ để xem hàng 👆";
     else if (asm && a >= BEAT.base && a < BEAT.eyes) text = "Đang lắp máy…";
     if (text) this.setText(this.bubble, text);
-    this.bubble.classList.toggle("is-warn", text.startsWith("Bé Mì dự đoán"));
+    this.bubble.classList.toggle("is-warn", text.startsWith("Sushi dự đoán"));
     this.place(this.bubble, M.clone().add(new THREE.Vector3(0.2, 3.3, 0.2)), text ? 1 : 0);
     this.setText(this.counter, `🧺 ${s.landed.length}`);
     this.place(this.counter, M.clone().add(new THREE.Vector3(0.95, 2.0, 0.7)), asm && a > BEAT.end && s.landed.length > 0 ? 1 : 0);

@@ -1,23 +1,23 @@
 import * as THREE from "three";
 
-// Cozy-puzzle palette shared with Kho 2D / Kho 3D.
+// Cozy palette of the approved Sushi demo (16/10): clay machine, warm kraft shelves, sage accents.
 export const C = {
-  ink: "#2c2947",
-  paper: "#f3e4c4",
-  paperDeep: "#ead5ab",
-  cream: "#fbf3e0",
-  white: "#fffaf0",
-  sage: "#6f9e8b",
-  sageDeep: "#4f7e6c",
-  sageLight: "#cfe2d4",
-  coral: "#d9667a",
-  coralLight: "#f4c3c8",
-  mustard: "#e8a23a",
-  mustardLight: "#f6d79a",
-  plum: "#6c5ccf",
-  plumLight: "#cfc8f3",
-  kraft: "#d7a768",
-  kraftDeep: "#b88545",
+  ink: "#3e4b40",
+  paper: "#f5f1e5",
+  paperDeep: "#e4ddc8",
+  cream: "#fbf4e3",
+  white: "#fff9ef",
+  sage: "#859b7a",
+  sageDeep: "#5e7856",
+  sageLight: "#dce4d0",
+  coral: "#c88169",
+  coralLight: "#ebc3b0",
+  mustard: "#ccaa65",
+  mustardLight: "#efe1b7",
+  plum: "#c4816a",
+  plumLight: "#ebc3b0",
+  kraft: "#b99464",
+  kraftDeep: "#906c47",
 } as const;
 
 /** Seeded random (mulberry32): the only randomness allowed in the scene. */

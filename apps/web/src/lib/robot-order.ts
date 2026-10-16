@@ -83,6 +83,12 @@ export interface SupplierDebtRow {
   last_submission_number?: string | null;
   age_days?: number | null;
   has_receipt?: boolean;
+  /** The PR / PO header photo is present (migration 20261101370000). */
+  has_image?: boolean;
+  /** Storage path of the PR / PO header photo. */
+  image_path?: string | null;
+  /** Header photo + PR attachments + the linked goods receipt photos. */
+  photo_count?: number | null;
   mark?: DebtMark | string | null;
   mark_source?: DebtMarkSource | string | null;
   probability?: number | null;

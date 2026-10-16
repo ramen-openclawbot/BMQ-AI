@@ -152,6 +152,74 @@ export interface PaymentDocPoDetail {
 export type PaymentDocDetail = PaymentDocPrDetail | PaymentDocPoDetail;
 
 // ---------------------------------------------------------------------------
+// Document photos
+// ---------------------------------------------------------------------------
+
+/** One viewable photo of a PR / PO, with the storage bucket it belongs to. */
+export interface DocPhotoRef {
+  key: string;
+  label: string;
+  path: string;
+  bucket: "invoices" | "purchase-orders";
+  name?: string | null;
+  mime?: string | null;
+}
+
+/** The goods-receipt photos of a doc: the delivery note then the product photos. */
+function grPhotos(gr: DocGr | null): DocPhotoRef[] {
+  if (!gr) return [];
+  const out: DocPhotoRef[] = [];
+  if (gr.image_path) {
+    out.push({
+      key: `gr-${gr.image_path}`,
+      label: `Phiếu nhập ${gr.number ?? ""}`.trim(),
+      path: gr.image_path,
+      bucket: "invoices",
+    });
+  }
+  (gr.photos ?? []).forEach((path, i) => {
+    out.push({ key: `grp-${path}`, label: `Ảnh hàng ${i + 1}`, path, bucket: "invoices" });
+  });
+  return out;
+}
+
+/**
+ * Every photo of a PR / PO, in the order the detail shows them: the header photo,
+ * the PR attachments, then the linked goods receipt (delivery note, product
+ * photos). Same buckets as the finance pages — 'invoices' for PR / GR and
+ * 'purchase-orders' for PO.
+ */
+export function docPhotos(doc: PaymentDocDetail): DocPhotoRef[] {
+  if (doc.kind === "pr") {
+    return [
+      ...(doc.image_path
+        ? [{ key: `pr-${doc.image_path}`, label: "Ảnh đề nghị chi", path: doc.image_path, bucket: "invoices" as const }]
+        : []),
+      ...(doc.attachments ?? []).map((attachment, i) => ({
+        key: `att-${attachment.path}`,
+        label: attachment.name ?? `Tệp đính kèm ${i + 1}`,
+        path: attachment.path,
+        bucket: "invoices" as const,
+        name: attachment.name,
+        mime: attachment.mime,
+      })),
+      ...grPhotos(doc.gr),
+    ];
+  }
+  return [
+    ...(doc.image_path
+      ? [{ key: `po-${doc.image_path}`, label: "Ảnh đơn mua", path: doc.image_path, bucket: "purchase-orders" as const }]
+      : []),
+    ...grPhotos(doc.gr),
+  ];
+}
+
+/** How many photos the document detail shows. */
+export function photoCount(doc: PaymentDocDetail): number {
+  return docPhotos(doc).length;
+}
+
+// ---------------------------------------------------------------------------
 // Groups / shelves
 // ---------------------------------------------------------------------------
 

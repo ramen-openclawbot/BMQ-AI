@@ -82,6 +82,22 @@ test("rankDebtRows keeps the server farthest-first order inside a bucket", () =>
   assert.deepEqual(rankDebtRows(rows).map((row) => row.id), ["a", "b", "c"]);
 });
 
+test("rankDebtRows keeps the row's image fields", () => {
+  const rows = [
+    debt({ id: "with-photo", before_cutover: true, has_image: true, image_path: "pr/a.jpg", photo_count: 3 }),
+    debt({ id: "plain", has_image: false, image_path: null, photo_count: 0 }),
+  ];
+  const ranked = rankDebtRows(rows);
+  assert.deepEqual(ranked.map((row) => row.id), ["plain", "with-photo"]);
+  assert.equal(ranked[0].has_image, false);
+  assert.equal(ranked[0].image_path, null);
+  assert.equal(ranked[0].photo_count, 0);
+  assert.equal(ranked[1].has_image, true);
+  assert.equal(ranked[1].image_path, "pr/a.jpg");
+  assert.equal(ranked[1].photo_count, 3);
+  assert.equal(ranked[1].collapsed, true);
+});
+
 test("packageSummary renders a short Vietnamese toast", () => {
   const summary = packageSummary({
     purchase_order_ids: ["po-1"],
