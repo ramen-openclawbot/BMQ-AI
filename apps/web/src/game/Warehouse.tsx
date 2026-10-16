@@ -66,9 +66,9 @@ function ShelfTable({ g, row, onClick }: { g: Geo; row: ShelfRow; onClick: () =>
   );
 }
 
-export function Warehouse({ portrait, location, rows, crates, canAssign, transfers, onShelf, onYard, onTransfers }: {
+export function Warehouse({ portrait, location, rows, crates, canAssign, transfers, onShelf, onYard, onTransfers, onMachine }: {
   portrait: boolean; location: WarehouseGameLocation; rows: ShelfRow[]; crates: WarehouseGamePendingRow[];
-  canAssign: boolean; transfers: number; onShelf: (cls: GameClass) => void; onYard: () => void; onTransfers: () => void;
+  canAssign: boolean; transfers: number; onShelf: (cls: GameClass) => void; onYard: () => void; onTransfers: () => void; onMachine: () => void;
 }) {
   const cols = portrait ? 1 : 2;
   const W = portrait ? 600 : 1280;
@@ -157,6 +157,26 @@ export function Warehouse({ portrait, location, rows, crates, canAssign, transfe
         <rect x={roomX + (portrait ? 88 : 160)} y={roomBottom + 30} width={portrait ? 132 : 250} height={38} rx={12} fill={C.cream} stroke={C.ink} strokeWidth={STROKE} />
         <text x={roomX + (portrait ? 154 : 285)} y={roomBottom + 55} textAnchor="middle" className="t-count">{portrait ? `Chuyển kho · ${transfers}` : location === "q7" ? `Nhận từ Tân Tạo · ${transfers}` : `Đã chuyển sang Q7 · ${transfers}`}</text>
       </g>
+      {/* Sushi, the ordering machine, inside this warehouse (owner 17/10) */}
+      {(() => {
+        const mx = roomX + roomW - (portrait ? 222 : 330);
+        const my = roomBottom + 8;
+        return (
+          <g className="tap" role="button" tabIndex={0} aria-label="Máy đặt hàng tự động Sushi" onClick={onMachine} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onMachine(); }} data-bmq-sushi-machine>
+            <ellipse cx={mx + 42} cy={my + 86} rx={46} ry={9} fill={C.shadow} />
+            <rect x={mx + 8} y={my + 70} width={68} height={14} rx={5} fill={C.cream} stroke={C.ink} strokeWidth={STROKE} />
+            <rect x={mx + 14} y={my + 26} width={56} height={48} rx={8} fill="#c88169" stroke={C.ink} strokeWidth={STROKE} />
+            <rect x={mx + 22} y={my + 34} width={40} height={18} rx={4} fill={C.ink} />
+            <rect x={mx + 29} y={my + 38} width={6} height={9} rx={1.5} fill={C.white} />
+            <rect x={mx + 49} y={my + 38} width={6} height={9} rx={1.5} fill={C.white} />
+            <rect x={mx + 36} y={my + 55} width={12} height={3} rx={1.5} fill={C.white} />
+            <path d={`M${mx + 24} ${my + 12} h36 l-8 14 h-20 z`} fill={C.mustard} stroke={C.ink} strokeWidth={STROKE} strokeLinejoin="round" />
+            <ellipse cx={mx + 42} cy={my + 12} rx={18} ry={5} fill={C.mustardLight} stroke={C.ink} strokeWidth={STROKE} />
+            <rect x={mx + (portrait ? 90 : 96)} y={my + 24} width={portrait ? 126 : 220} height={38} rx={12} fill={C.cream} stroke={C.ink} strokeWidth={STROKE} />
+            <text x={mx + (portrait ? 153 : 206)} y={my + 49} textAnchor="middle" className="t-count">{portrait ? "🍣 Sushi · đặt NVL" : "🍣 Sushi · Máy đặt hàng tự động"}</text>
+          </g>
+        );
+      })()}
       <rect x={W / 2 - 50} y={roomBottom - 8} width={100} height={14} fill={C.cream} stroke={C.ink} strokeWidth={STROKE} />
       <rect x={W / 2 - 44} y={roomBottom + 12} width={88} height={40} rx={6} fill="url(#checker)" stroke={C.ink} strokeWidth={2.5} />
 

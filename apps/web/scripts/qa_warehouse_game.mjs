@@ -659,6 +659,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     if (KHO_MODE === "3d") await page.waitForTimeout(1200);
     await page.screenshot({ path: `${EVIDENCE}/q7-${role}-${viewport.width}.png` });
     assert.equal(await page.locator("[data-bmq-game-3d='wh-q7']").count(), KHO_MODE === "3d" ? 1 : 0, `warehouse renders ${KHO_MODE} ${viewport.width}`);
+    assert.ok((await page.locator("[data-bmq-sushi-machine]").count()) >= 1, `Sushi machine inside Q7 (${KHO_MODE})`);
     if (KHO_MODE === "3d") {
       for (const tag of await page.locator(".kg .k3-tag, .kg .k3-sign, .kg .k3-kiosk").all()) {
         const b = await tag.boundingBox();
@@ -1206,7 +1207,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await page.waitForSelector("[data-bmq-warehouse-game]", { timeout: 20000 });
     await page.waitForTimeout(1200);
     await page.getByRole("button", { name: /KHO TÂN TẠO/i }).click({ force: true });
-    await page.waitForTimeout(900);
+    await page.waitForTimeout(KHO_MODE === "3d" ? 2100 : 900); // 3D: let the room chunk settle before tapping a shelf tag
     await page.getByRole("button", { name: /Nguyên liệu, \d+ mặt hàng/ }).click({ force: true });
     await page.waitForSelector("[data-bmq-q7-plank]", { timeout: 5000 });
     await page.waitForTimeout(700);
@@ -1341,6 +1342,16 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       assert.ok(b && b.x >= -1 && b.x + b.width <= viewport.width + 1, `3D Tân Tạo label inside the screen ${viewport.width}: ${await tag.textContent()} ${JSON.stringify(b)}`);
     }
   }
+  // Sushi machine inside the warehouse (owner 17/10): present in 2D and 3D, opens the ordering room for this
+  // warehouse, and the room's "← Kho" (?enter=tan_tao) lands back inside the warehouse instead of the yard.
+  assert.ok((await page.locator("[data-bmq-sushi-machine]").count()) >= 1, `Sushi machine inside Tân Tạo (${KHO_MODE})`);
+  await page.screenshot({ path: `${EVIDENCE}/sushi-machine-${KHO_MODE}-${viewport.width}.png` });
+  await page.locator("[data-bmq-sushi-machine]").first().click({ force: true });
+  await page.waitForURL(/\/warehouse\/office\?kho=tan_tao&from=kho/, { timeout: 5000 });
+  await page.goto(`${BASE}/warehouse/game?enter=tan_tao`, { waitUntil: "networkidle" });
+  await page.waitForSelector("[data-bmq-transfer-van]", { timeout: 20000 });
+  await page.waitForTimeout(KHO_MODE === "3d" ? 1500 : 600);
+  assert.ok((await page.locator(".kg .title-pill b").textContent()).includes("Tân Tạo"), "?enter=tan_tao lands inside the warehouse");
   await page.locator("[data-bmq-transfer-van]").click({ force: true });
   await page.waitForTimeout(600);
   assert.equal(await page.locator("[data-bmq-transfer-list] li").count(), (KG_FIXTURE.transfers ?? []).length, "history lists get_stock_transfers rows");

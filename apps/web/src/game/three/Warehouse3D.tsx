@@ -6,7 +6,7 @@ import type { WarehouseGameLocation, WarehouseGamePendingRow } from "@/lib/wareh
 import { CLASS_META, type GameClass } from "../meta";
 import { C } from "../theme";
 import type { ShelfRow } from "../Warehouse";
-import { Block, Buddy, Crate, JevBot, Truck } from "./parts";
+import { Block, Buddy, Crate, Cyl, JevBot, Truck } from "./parts";
 
 type Vec3 = [number, number, number];
 
@@ -74,9 +74,48 @@ function Rack({ row, at, onOpen }: { row: ShelfRow; at: Vec3; onOpen: (cls: Game
   );
 }
 
-export function Warehouse3D({ location, rows, crates, canAssign, transfers, onShelf, onYard, onTransfers }: {
+
+/** Sushi, the ordering machine, lives inside each warehouse (owner 17/10: "đặt máy đặt hàng tự động trong kho này và kho Q7 luôn"). */
+function SushiMachine({ at, onOpen }: { at: Vec3; onOpen: () => void }) {
+  const [hover, setHover] = useState(false);
+  return (
+    <group position={at}>
+      <group onClick={(event) => { event.stopPropagation(); onOpen(); }} {...pointer(setHover)} position={[0, hover ? 0.06 : 0, 0]}>
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.012, 0]} receiveShadow>
+          <circleGeometry args={[1.35, 40]} />
+          <meshToonMaterial color={hover ? C.mustardLight : C.cream} />
+        </mesh>
+        <Block size={[1.7, 0.3, 1.35]} color={C.cream} position={[0, 0.15, 0]} />
+        <Block size={[1.35, 1.25, 1.0]} color="#c88169" position={[0, 0.92, 0]} />
+        <Block size={[1.39, 0.1, 1.04]} color={C.cream} position={[0, 0.6, 0]} ink={0.02} shadow={false} />
+        <Block size={[0.95, 0.5, 0.05]} color={C.ink} position={[0, 1.05, 0.52]} ink={0.02} shadow={false} />
+        {[-0.2, 0.2].map((x) => <Block key={x} size={[0.12, 0.18, 0.02]} color={C.white} position={[x, 1.1, 0.56]} ink={0} shadow={false} />)}
+        <Block size={[0.22, 0.04, 0.02]} color={C.white} position={[0, 0.9, 0.56]} ink={0} shadow={false} />
+        <Cyl r={0.3} h={0.1} color={C.sage} position={[0, 1.6, 0]} />
+        <mesh position={[0, 1.95, 0]} castShadow>
+          <cylinderGeometry args={[0.62, 0.3, 0.5, 28]} />
+          <meshToonMaterial color={C.mustard} />
+        </mesh>
+        <Cyl r={0.66} h={0.07} color={C.mustardLight} position={[0, 2.22, 0]} seg={28} />
+        <Block size={[0.8, 0.05, 0.45]} color={C.cream} position={[0, 0.45, 0.78]} ink={0.02} />
+        <Block size={[0.12, 0.42, 0.12]} color={C.sage} position={[0.78, 1.25, 0.3]} ink={0.02} />
+        <Block size={[0.2, 0.18, 0.2]} color={C.cream} position={[0.78, 0.98, 0.3]} ink={0.02} />
+      </group>
+      <Html position={[0, 2.95, 0]} center zIndexRange={HTML_Z}>
+        <button type="button" className="k3-tag is-machine" aria-label="Máy đặt hàng tự động Sushi" onClick={onOpen} data-bmq-sushi-machine>
+          <i>🍣</i>
+          <b className="k3-long">Sushi · Máy đặt hàng</b>
+          <b className="k3-short">Sushi</b>
+          <span className="k3-long">Đặt NVL</span>
+        </button>
+      </Html>
+    </group>
+  );
+}
+
+export function Warehouse3D({ location, rows, crates, canAssign, transfers, onShelf, onYard, onTransfers, onMachine }: {
   location: WarehouseGameLocation; rows: ShelfRow[]; crates: WarehouseGamePendingRow[];
-  canAssign: boolean; transfers: number; onShelf: (cls: GameClass) => void; onYard: () => void; onTransfers: () => void;
+  canAssign: boolean; transfers: number; onShelf: (cls: GameClass) => void; onYard: () => void; onTransfers: () => void; onMachine: () => void;
 }) {
   const wall = location === "q7" ? C.mustard : C.coral;
   const path = useMemo(
@@ -156,6 +195,9 @@ export function Warehouse3D({ location, rows, crates, canAssign, transfers, onSh
           </button>
         </Html>
       </group>
+
+      {/* Sushi, the ordering machine, right inside this warehouse */}
+      <SushiMachine at={[0.7, 0, 3.9]} onOpen={onMachine} />
 
       <Buddy position={[2.6, 0, 3.6]} rotation={0.9} shirt={C.sage} cap={C.mustard} wave={crates.length > 0} />
       <Buddy position={[-5.6, 0, -1.5]} rotation={0.7} shirt={C.coral} phase={0.8} />

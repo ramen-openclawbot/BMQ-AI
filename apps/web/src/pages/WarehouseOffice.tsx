@@ -56,6 +56,7 @@ const lineUnit = (item: Item) => item.last_unit ?? item.unit ?? "";
 const num = (text: string) => { const v = Number(String(text).replace(/\s/g, "").replace(",", ".")); return Number.isFinite(v) ? v : NaN; };
 const toBasketLine = (l: Line): BasketLine => ({ key: l.item.id, item_id: l.item.id, name: l.item.name, unit: lineUnit(l.item), qty: String(l.qty), supplier_id: l.supplierId, price: l.price === null ? "" : String(l.price) });
 const startKho = (): OfficeOrderLocation => (new URLSearchParams(window.location.search).get("kho") === "q7" ? "q7" : "tan_tao");
+const FROM_KHO = new URLSearchParams(window.location.search).get("from") === "kho";
 
 /** Robot packages sent recently (RLS: any signed-in user may read), newest first. */
 function useRecentPackages() {
@@ -646,7 +647,7 @@ export default function WarehouseOffice() {
         <div ref={overlayRef} className="overlay" aria-hidden />
         {hover && !modal ? <div className="world-tag" style={{ left: hover.x, top: hover.y }} aria-hidden><b>{hover.label}</b><small>{hover.sub}</small></div> : null}
         <header className="hud">
-          <button type="button" className="exit" onClick={() => navigate("/warehouse/game")} aria-label="Về Kho">← Kho</button>
+          <button type="button" className="exit" onClick={() => navigate(FROM_KHO ? `/warehouse/game?enter=${wh}` : "/warehouse/game")} aria-label="Về Kho">← Kho</button>
           <span className="wordmark">🍣 Đặt hàng tự động</span>
           <div className="kho-tabs" role="group" aria-label="Chuyển kho">{(["tan_tao", "q7"] as OfficeOrderLocation[]).map((id) => <button type="button" key={id} data-kho={id} aria-pressed={id === wh} disabled={sending} onClick={() => switchWarehouse(id)}>{WAREHOUSES[id].emoji} {WAREHOUSES[id].short}</button>)}</div>
         </header>

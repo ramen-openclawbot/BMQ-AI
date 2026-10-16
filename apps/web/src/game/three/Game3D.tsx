@@ -29,6 +29,7 @@ export type Game3DProps =
     onShelf: (cls: GameClass) => void;
     onYard: () => void;
     onTransfers: () => void;
+    onMachine: () => void;
   };
 
 type Frame = { eye: THREE.Vector3; look: THREE.Vector3 };
@@ -122,6 +123,7 @@ export default function Game3D(props: Game3DProps) {
             onShelf={props.onShelf}
             onYard={props.onYard}
             onTransfers={props.onTransfers}
+            onMachine={props.onMachine}
           />
         )}
       </Canvas>

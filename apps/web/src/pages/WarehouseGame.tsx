@@ -235,7 +235,12 @@ export default function WarehouseGame() {
   const q7 = useWarehouseGameSnapshot("q7");
   const tt = useWarehouseGameSnapshot("tan_tao");
   const snaps: Record<WarehouseGameLocation, WarehouseGameSnapshot | undefined> = { q7: q7.data, tan_tao: tt.data };
-  const [view, setView] = useState<View>({ kind: "yard" });
+  const [view, setView] = useState<View>(() => {
+    // Back from the ordering room (?enter=tan_tao|q7) lands inside that warehouse, not in the yard.
+    const enter = new URLSearchParams(window.location.search).get("enter");
+    if (enter === "tan_tao" || enter === "q7") { history.replaceState(null, "", window.location.pathname); return { kind: "warehouse", location: enter }; }
+    return { kind: "yard" };
+  });
   // Đặt hàng tự động (owner 14/10): the basket survives moving between scenes within the tab.
   const [basket, setBasketRaw] = useState<BasketLine[]>(loadBasket);
   const setBasket = (next: BasketLine[]) => { saveBasket(next); setBasketRaw(next); };
@@ -521,6 +526,8 @@ export default function WarehouseGame() {
                 onYard: () => go({ kind: "crates", location }),
                 transfers: current.transfers.length,
                 onTransfers: () => setPanel({ kind: "transfers", location }),
+                // Sushi inside this warehouse opens the ordering room for the same warehouse; its "← Kho" comes back here.
+                onMachine: () => navigate(`/warehouse/office?kho=${location}&from=kho`),
               };
               const flat = <Warehouse portrait={portrait} {...whProps} />;
               return use3D ? <Kho3D kind="warehouse" {...whProps} flat={flat} /> : flat;

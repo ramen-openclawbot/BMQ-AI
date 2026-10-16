@@ -1169,6 +1169,8 @@
 .kg .k3-tag.is-sort { border-left-color: var(--coral); background: var(--coral-light); }
 .kg .k3-tag.is-sort span { background: var(--white); }
 .kg .k3-tag.is-van { border-left-color: var(--sage); }
+.kg .k3-tag.is-machine { border-left-color: #c88169; background: #f6e8df; }
+.kg .k3-tag.is-machine span { background: var(--white); }
 .kg .k3-tag .k3-short { display: none; }
 @media (max-width: 480px) {
   .kg .k3-tag .k3-long { display: none; }
