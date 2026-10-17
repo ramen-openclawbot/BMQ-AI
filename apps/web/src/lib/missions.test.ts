@@ -166,6 +166,35 @@ test("parseMissionDetailEntry tags the q7_bom_mismatch_resolved detail row", () 
   assert.equal(sparse.total, 0);
 });
 
+test("parseMissionDetailEntry tags the tan_tao_recipe_done detail row", () => {
+  const recipe = parseMissionDetailEntry({
+    kind: "recipe",
+    code: "pate-heo",
+    open: 2,
+    answered: 8,
+    not_used: 3,
+    batch_set: true,
+  });
+  assert.equal(recipe.kind, "recipe");
+  assert.equal(recipe.code, "pate-heo");
+  assert.equal(recipe.open, 2);
+  assert.equal(recipe.answered, 8);
+  assert.equal(recipe.not_used, 3);
+  assert.equal(recipe.batch_set, true);
+
+  const sparse = parseMissionDetailEntry({ kind: "recipe", code: "pate-heo" });
+  assert.equal(sparse.kind, "recipe");
+  assert.equal(sparse.open, 0);
+  assert.equal(sparse.answered, 0);
+  assert.equal(sparse.not_used, 0);
+  assert.equal(sparse.batch_set, false);
+
+  assert.throws(
+    () => parseMissionDetailEntry({ kind: "recipe", code: "pate-heo", batch_set: "yes" }),
+    TypeError,
+  );
+});
+
 test("parseMissionLevel requires level, title and min_badges", () => {
   assert.deepEqual(parseMissionLevel({ level: 2, title: "Nhân viên kho", min_badges: 3 }), {
     level: 2,

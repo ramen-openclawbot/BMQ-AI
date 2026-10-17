@@ -27,6 +27,7 @@ import { useQ7MaterialLinkReview } from "@/hooks/useQ7MaterialLinks";
 import { GameLoading } from "@/game/Loading";
 import { TransferSheet } from "@/game/TransferSlip";
 import { FinishedGoodsSheet, type FinishedGoodsMode } from "@/game/FinishedGoodsSlip";
+import { PateProductionSheet } from "@/game/PateProduction";
 import { DeliveryGate } from "@/game/DeliveryGate";
 import { useDispatchGameQueue } from "@/hooks/useDispatchDelivery";
 import { CountDone, CountLobby, CountSheet, CountSheetLoading, ReviewSheet, countErrorText, countProgress, dmy, type CountFilter } from "@/game/StockCount";
@@ -67,6 +68,7 @@ type Panel =
   | { kind: "mission-assign"; id: string }
   | { kind: "transfers"; location: WarehouseGameLocation; prefill?: string }
   | { kind: "finished"; mode: FinishedGoodsMode; prefill?: string }
+  | { kind: "pate" }
   | { kind: "count-review"; location: StockCountLocation }
   | null;
 
@@ -570,6 +572,10 @@ export default function WarehouseGame() {
                   <button type="button" className="btn" onClick={() => setPanel({ kind: "finished", mode: "in" })} data-bmq-fg-open="in">⬇ Nhập</button>
                   <button type="button" className="btn ghost" onClick={() => setPanel({ kind: "finished", mode: "out" })} data-bmq-fg-open="out">⬆ Xuất</button>
                 </div>
+              ) : view.location === "tan_tao" && view.cls === "finished_goods" && current.can_edit ? (
+                <div className="bulk-tools fg-tools">
+                  <button type="button" className="btn" onClick={() => setPanel({ kind: "pate" })} data-bmq-pate-open>🍲 Sản xuất pate</button>
+                </div>
               ) : null}
               split={view.location === "tan_tao"}
               place={view.location === "tan_tao" && canClean && current.can_edit ? {
@@ -647,6 +653,10 @@ export default function WarehouseGame() {
               </div>
             ) : null}
           </Sheet>
+        ) : null}
+
+        {panel?.kind === "pate" ? (
+          <PateProductionSheet canEdit={Boolean(tt.data?.can_edit)} onDone={(message) => setToast(message)} onClose={() => setPanel(null)} />
         ) : null}
 
         {panel?.kind === "finished" ? (

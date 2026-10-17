@@ -6,11 +6,12 @@ import { MISSIONS_QUERY_KEY, useAssignMission, useCompleteMission, useMarkItemsD
 import { useAliasReceiptLines, useItemReceiptLines, useRenameStockItem, useUnitVariantReceiptLines, useWarehouseGameSnapshot, WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY } from "@/hooks/useWarehouseGame";
 import { useAnswerCountUnitQuestion, useCountUnitQuestions } from "@/hooks/useCountUnitQuestions";
 import { usePostPendingQ7Issues, useQ7BomMismatchReview, useResolveQ7BomLine } from "@/hooks/useQ7BomMatch";
+import { PateRecipeTool } from "./PateProduction";
 import { factorPrompt as bomFactorPrompt, type Q7BomMismatchLine } from "@/lib/q7-bom-match";
 import { STOCK_CATALOG_REVIEW_QUERY_KEY } from "@/hooks/useStockCatalog";
 import {
   assignmentsByParent, levelProgress, missionAssignErrorText, missionErrorMessage,
-  type CompleteMissionResult, type MissionAssignment, type MissionStaffMember, type Mission, type MissionAliasDetail, type MissionBomMismatchDetail, type MissionCountQuestionsDetail, type MissionDuplicateDetail, type MissionLevel, type MissionMaterialLinksDetail, type MissionUnknownUnitDetail, type MyMissions,
+  type CompleteMissionResult, type MissionAssignment, type MissionStaffMember, type Mission, type MissionAliasDetail, type MissionBomMismatchDetail, type MissionRecipeDetail, type MissionCountQuestionsDetail, type MissionDuplicateDetail, type MissionLevel, type MissionMaterialLinksDetail, type MissionUnknownUnitDetail, type MyMissions,
 } from "@/lib/missions";
 import { STOCK_UNITS } from "@/lib/stock-units";
 import { canSubmit, computeCountedQty, type StockCountUnitQuestion } from "@/lib/count-unit-questions";
@@ -33,10 +34,11 @@ export const LADDER: MissionLevel[] = [
 
 const hatFor = (level: number): "none" | "cap" | "chef" => (level >= 3 ? "chef" : level === 2 ? "cap" : "none");
 
-type Rule = "alias" | "duplicate" | "units" | "links" | "count" | "bom" | "other";
+type Rule = "alias" | "duplicate" | "units" | "links" | "count" | "bom" | "recipe" | "other";
 
 function ruleOf(mission: Mission): Rule {
   const kind = mission.progress.detail[0]?.kind;
+  if (kind === "recipe" || mission.code.startsWith("wh-tan-tao-pate-recipe")) return "recipe";
   if (kind === "bom_mismatch" || mission.code.startsWith("wh-q7-bom-match")) return "bom";
   if (kind === "count_questions" || mission.code.startsWith("wh-count-units")) return "count";
   if (kind === "alias_factor_fixed" || mission.code.includes("alias")) return "alias";
@@ -46,7 +48,7 @@ function ruleOf(mission: Mission): Rule {
   return "other";
 }
 
-const RULE_ICON: Record<Rule, string> = { alias: "🏷️", duplicate: "🥐", units: "📏", links: "🧩", count: "⚖️", bom: "🧁", other: "📜" };
+const RULE_ICON: Record<Rule, string> = { alias: "🏷️", duplicate: "🥐", units: "📏", links: "🧩", count: "⚖️", bom: "🧁", recipe: "🍲", other: "📜" };
 
 /** Steps shown on the card: the duplicate pair is one decision, the others count rows. */
 export function missionSteps(mission: Mission): { done: number; total: number } {
@@ -61,6 +63,11 @@ export function missionSteps(mission: Mission): { done: number; total: number } 
   if (counts) return { done: counts.answered + counts.skipped, total: Math.max(counts.total, 1) };
   const bom = mission.progress.detail.find((row): row is MissionBomMismatchDetail => row.kind === "bom_mismatch");
   if (bom) return { done: Math.max(0, bom.total - bom.open), total: Math.max(bom.total, 1) };
+  const recipe = mission.progress.detail.find((row): row is MissionRecipeDetail => row.kind === "recipe");
+  if (recipe) {
+    const total = recipe.open + recipe.answered + recipe.not_used + 1;
+    return { done: recipe.answered + recipe.not_used + (recipe.batch_set ? 1 : 0), total };
+  }
   const total = Math.max(mission.progress.total, mission.progress.left, 1);
   return { done: Math.max(0, total - mission.progress.left), total };
 }
@@ -699,6 +706,7 @@ export function MissionSheet({ mission, onClose, onToast, onCompleted, onOpenQue
             );
           })() : null}
           {rule === "bom" ? <BomMatchTool onSaved={onToast} /> : null}
+          {rule === "recipe" ? <PateRecipeTool onSaved={onToast} /> : null}
           {rule === "count" ? <CountQuestionsTool detail={detail.find((row): row is MissionCountQuestionsDetail => row.kind === "count_questions")} onSaved={onToast} /> : null}
           {rule === "units" ? (
             grouped.size ? (

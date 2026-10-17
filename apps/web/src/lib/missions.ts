@@ -94,13 +94,24 @@ export interface MissionBomMismatchDetail {
   total: number;
 }
 
+/** tan_tao_recipe_done detail row. */
+export interface MissionRecipeDetail {
+  kind: "recipe";
+  code: string;
+  open: number;
+  answered: number;
+  not_used: number;
+  batch_set: boolean;
+}
+
 export type MissionDetail =
   | MissionAliasDetail
   | MissionDuplicateDetail
   | MissionUnknownUnitDetail
   | MissionMaterialLinksDetail
   | MissionCountQuestionsDetail
-  | MissionBomMismatchDetail;
+  | MissionBomMismatchDetail
+  | MissionRecipeDetail;
 
 export interface MissionEvaluation {
   done: boolean;
@@ -304,6 +315,16 @@ export function parseMissionDetailEntry(raw: unknown, path = "detail"): MissionD
       resolved: asNumber(row.resolved ?? 0, `${path}.resolved`),
       excluded: asNumber(row.excluded ?? 0, `${path}.excluded`),
       total: asNumber(row.total ?? 0, `${path}.total`),
+    };
+  }
+  if (row.kind === "recipe") {
+    return {
+      kind: "recipe",
+      code: asString(row.code, `${path}.code`),
+      open: asNumber(row.open ?? 0, `${path}.open`),
+      answered: asNumber(row.answered ?? 0, `${path}.answered`),
+      not_used: asNumber(row.not_used ?? 0, `${path}.not_used`),
+      batch_set: asBoolean(row.batch_set ?? false, `${path}.batch_set`),
     };
   }
   if ("batch" in row) {

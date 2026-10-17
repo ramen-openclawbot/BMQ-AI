@@ -185,6 +185,22 @@ function settle(st) {
   if (st.table === "robot_order_packages") return { data: [{ id: "pkg-old", supplier_id: "sup1", note: null, created_at: "2026-10-13T08:00:00Z", result: { package_id: "pkg-old", purchase_order_ids: ["po-1"], po_numbers: ["PO-000880"], debt: { kind: "po", id: "x", number: "PO-000700", submission_id: "s", submission_number: "TC-251013-02" }, cutover_start_date: "2026-08-01", marked_settled_outside_count: 3, idempotent: false } }], error: null };
   if (st.table === "rpc:get_stock_transfers") return { data: window.__kgFixture.transfers ?? [], error: null };
   // Q7 finished goods (owner 16/10): today's plan, receipt and issue slips.
+
+  // Công thức pate Tân Tạo (owner 17/10, part D).
+  if (st.table === "rpc:get_tan_tao_recipe") {
+    const complete = Boolean(cfg().pateComplete);
+    const ing = (id, label, item, name, grams, status) => ({ id, line_kind: "ingredient", sort_order: id.length, label, kitchen_inventory_item_id: item, item_code: item ? "NVL-" + id : null, item_name: name, item_unit: "g", sku_code: null, grams_per_batch: grams, pate_grams_per_pack: null, pack_item_id: null, pack_item_code: null, pack_item_name: null, pack_item_unit: null, label_item_id: null, label_item_code: null, label_item_name: null, label_item_unit: null, status, answered_by: null, answered_at: null });
+    const pack = (id, label, sku, grams, status) => ({ ...ing(id, label, null, null, null, status), line_kind: "pack", sku_code: sku, pate_grams_per_pack: grams, pack_item_id: "hop-" + id, pack_item_name: "Hộp " + label, pack_item_unit: "cái", label_item_id: "tem-" + id, label_item_name: "Tem " + label, label_item_unit: "cái" });
+    const lines = complete
+      ? [ing("l1", "Chả lụa", "it-cl", "Chả lụa lá TVP XL (kg)", 3000, "answered"), ing("l2", "Tiêu", "it-tieu", "Tiêu sọ xay", 50, "answered"), ing("l3", "Muối", null, null, null, "not_used"), pack("p5", "Hộp pate 500g", "PATE-500G", 500, "answered"), pack("p2", "Hộp pate 200g", "PATE-200G", 200, "answered")]
+      : [ing("l1", "Chả lụa", "it-cl", "Chả lụa lá TVP XL (kg)", null, "open"), ing("l2", "Tiêu", "it-tieu", "Tiêu sọ xay", 50, "answered"), ing("l3", "Muối", null, null, null, "open"), pack("p5", "Hộp pate 500g", "PATE-500G", 500, "open")];
+    return { data: { id: "rc-1", code: "pate-heo", name: "Pate heo Tân Tạo", batch_output_kg: complete ? 10 : null, status: complete ? "complete" : "draft", updated_by: null, updated_at: null, lines, can_answer: true }, error: null };
+  }
+  if (/^rpc:(answer_tan_tao_recipe_line|set_tan_tao_recipe_batch|record_tan_tao_pate_production)$/.test(st.table)) {
+    window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args));
+    if (st.table === "rpc:record_tan_tao_pate_production") return { data: { status: "recorded", slip_id: "slip-1", recipe_code: "pate-heo", production_date: st.args.p_date, batches: st.args.p_batches, packs: st.args.p_packs, ingredients: [], packaging: [], documents: [], movement_count: 6, replay: false }, error: null };
+    return { data: { id: "rc-1", code: "pate-heo", name: "Pate heo Tân Tạo", batch_output_kg: 10, status: "draft", updated_by: null, updated_at: null, lines: [], can_answer: true }, error: null };
+  }
   if (st.table === "rpc:get_q7_finished_goods_planned") {
     if (cfg().fgPlan === "none") return { data: [], error: null };
     return { data: [
@@ -1460,6 +1476,47 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 430, height: 932 
   assert.deepEqual(errors, []);
   record(`loading ${viewport.width}`);
   await context.close();
+}
+// Sản xuất pate (owner 17/10): Tân Tạo finished-goods shelf → slip deducts the recipe, adds the packed pate.
+for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 640 }]) {
+  for (const complete of [true, false]) {
+    const { context, page, errors } = await open({ data: "populated", role: "owner", started: true, pateComplete: complete }, "/warehouse/game", viewport);
+    await page.waitForSelector("[data-bmq-warehouse-game]", { timeout: 20000 });
+    await page.waitForTimeout(1200);
+    await page.getByRole("button", { name: /KHO TÂN TẠO/i }).first().click({ force: true });
+    await page.waitForTimeout(900);
+    await page.getByRole("button", { name: /Thành phẩm, \d+ mặt hàng/ }).first().click({ force: true });
+    await page.waitForTimeout(900);
+    assert.equal(await page.locator("[data-bmq-pate-open]").count(), 1, "Tân Tạo finished goods offer Sản xuất pate");
+    await page.locator("[data-bmq-pate-open]").click({ force: true });
+    await page.waitForSelector("[data-bmq-pate-submit]", { timeout: 5000 });
+    await page.waitForTimeout(400);
+    if (!complete) {
+      assert.equal(await page.locator("[data-bmq-pate-incomplete]").count(), 1, "incomplete recipe says so");
+      assert.equal(await page.locator("[data-bmq-pate-submit]").isDisabled(), true, "cannot record without a recipe");
+      await page.screenshot({ path: `${EVIDENCE}/pate-incomplete-${viewport.width}.png` });
+    } else {
+      await page.locator("[data-bmq-pate-batches]").fill("2");
+      await page.locator("[data-bmq-pate-p500]").fill("30");
+      await page.locator("[data-bmq-pate-p200]").fill("25");
+      await page.waitForTimeout(200);
+      const preview = await page.locator("[data-bmq-pate-preview]").textContent();
+      assert.match(preview, /Chả lụa lá TVP XL \(kg\)\s*6\.?000 g/, `2 mẻ × 3000 g chả lụa: ${preview}`);
+      assert.match(preview, /Hộp pate 500g \(hộp \+ tem\)\s*30/, "30 hộp 500g");
+      assert.match(preview, /Pate làm ra 20 kg · đóng hộp 20 kg/, "20 kg made, 20 kg packed");
+      assert.equal(await overflow(page), 0, `pate sheet no overflow ${viewport.width}`);
+      await page.screenshot({ path: `${EVIDENCE}/pate-sheet-${viewport.width}.png` });
+      await page.evaluate(() => { window.__qaWrites.length = 0; });
+      await page.locator("[data-bmq-pate-submit]").click({ force: true });
+      await page.waitForTimeout(500);
+      const sent = (await page.evaluate(() => window.__qaWrites)).find((w) => w.startsWith("rpc:record_tan_tao_pate_production:"));
+      assert.ok(sent && sent.includes('"p_batches":2') && sent.includes('{"sku_code":"PATE-500G","quantity":30}') && sent.includes('{"sku_code":"PATE-200G","quantity":25}') && sent.includes('"p_request_id"'), `slip sent: ${sent}`);
+      assert.match(await page.locator(".kg .toast").textContent(), /Đã ghi sản xuất pate/);
+    }
+    assert.deepEqual(errors, [], "no page errors");
+    record(`pate production ${complete ? "ready" : "incomplete"} ${viewport.width}`);
+    await context.close();
+  }
 }
 // Q7 finished goods (owner 16/10): Q7 bakes some SKUs, so its shelf takes in today's production and issues stock.
 for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 640 }]) {

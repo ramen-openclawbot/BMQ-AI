@@ -118,6 +118,22 @@ function settle(st) {
     window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args));
     return { data: { status: "ok", dry_run: false, cutover_date: "2026-10-16", issues: [], posted: 1, already_posted: 0, regenerated: 1, skipped_open_mismatch: 0 }, error: null };
   }
+
+  // Công thức pate Tân Tạo (owner 17/10, part D).
+  if (st.table === "rpc:get_tan_tao_recipe") {
+    const complete = Boolean(cfg().pateComplete);
+    const ing = (id, label, item, name, grams, status) => ({ id, line_kind: "ingredient", sort_order: id.length, label, kitchen_inventory_item_id: item, item_code: item ? "NVL-" + id : null, item_name: name, item_unit: "g", sku_code: null, grams_per_batch: grams, pate_grams_per_pack: null, pack_item_id: null, pack_item_code: null, pack_item_name: null, pack_item_unit: null, label_item_id: null, label_item_code: null, label_item_name: null, label_item_unit: null, status, answered_by: null, answered_at: null });
+    const pack = (id, label, sku, grams, status) => ({ ...ing(id, label, null, null, null, status), line_kind: "pack", sku_code: sku, pate_grams_per_pack: grams, pack_item_id: "hop-" + id, pack_item_name: "Hộp " + label, pack_item_unit: "cái", label_item_id: "tem-" + id, label_item_name: "Tem " + label, label_item_unit: "cái" });
+    const lines = complete
+      ? [ing("l1", "Chả lụa", "it-cl", "Chả lụa lá TVP XL (kg)", 3000, "answered"), ing("l2", "Tiêu", "it-tieu", "Tiêu sọ xay", 50, "answered"), ing("l3", "Muối", null, null, null, "not_used"), pack("p5", "Hộp pate 500g", "PATE-500G", 500, "answered"), pack("p2", "Hộp pate 200g", "PATE-200G", 200, "answered")]
+      : [ing("l1", "Chả lụa", "it-cl", "Chả lụa lá TVP XL (kg)", null, "open"), ing("l2", "Tiêu", "it-tieu", "Tiêu sọ xay", 50, "answered"), ing("l3", "Muối", null, null, null, "open"), pack("p5", "Hộp pate 500g", "PATE-500G", 500, "open")];
+    return { data: { id: "rc-1", code: "pate-heo", name: "Pate heo Tân Tạo", batch_output_kg: complete ? 10 : null, status: complete ? "complete" : "draft", updated_by: null, updated_at: null, lines, can_answer: true }, error: null };
+  }
+  if (/^rpc:(answer_tan_tao_recipe_line|set_tan_tao_recipe_batch|record_tan_tao_pate_production)$/.test(st.table)) {
+    window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args));
+    if (st.table === "rpc:record_tan_tao_pate_production") return { data: { status: "recorded", slip_id: "slip-1", recipe_code: "pate-heo", production_date: st.args.p_date, batches: st.args.p_batches, packs: st.args.p_packs, ingredients: [], packaging: [], documents: [], movement_count: 6, replay: false }, error: null };
+    return { data: { id: "rc-1", code: "pate-heo", name: "Pate heo Tân Tạo", batch_output_kg: 10, status: "draft", updated_by: null, updated_at: null, lines: [], can_answer: true }, error: null };
+  }
   if (st.table === "rpc:get_my_missions") {
     if (cfg().missionsError) return { data: null, error: { message: "QA fixture: missions down" } };
     return { data: window.__msFixture[cfg().missions || "three_open_partial"], error: null };
@@ -447,7 +463,9 @@ const countFixture = structuredClone(MS_RAW.three_open_partial);
 countFixture.missions = [{ ...countFixture.missions[0], id: "0f0b3d2a-0009-4c11-8a10-000000000009", code: "wh-count-units-20261016", title: "Quy đổi tồn 16/10", description: "Trả lời 12 dòng tồn kho chưa rõ đơn vị trong file 16/10", sort_order: 6, progress: { done: false, total: 12, left: 11, detail: [{ kind: "count_questions", batch: "2026-10-16", total: 12, open: 11, answered: 1, skipped: 0 }] } }];
 const bomFixture = structuredClone(MS_RAW.three_open_partial);
 bomFixture.missions = [{ ...bomFixture.missions[0], id: "0f0b3d2a-0010-4c11-8a10-000000000010", code: "wh-q7-bom-match-20261017", title: "Khớp công thức Q7 với kho", description: "Trỏ từng nguyên liệu công thức vào đúng món kho đã kiểm kê để trừ NVL từ 17/10", sort_order: 7, progress: { done: false, total: 3, left: 2, detail: [{ kind: "bom_mismatch", open: 2, resolved: 0, excluded: 1, total: 3 }] } }];
-const MS_FIXTURE = { ...MS_RAW, ready, count: countFixture, bom: bomFixture };
+const recipeFixture = structuredClone(MS_RAW.three_open_partial);
+recipeFixture.missions = [{ ...recipeFixture.missions[0], id: "0f0b3d2a-0011-4c11-8a10-000000000011", code: "wh-tan-tao-pate-recipe", title: "Công thức pate Tân Tạo", description: "Nhập gram từng nguyên liệu cho 1 mẻ pate và hộp/tem cho mỗi hộp 500g, 200g", sort_order: 8, progress: { done: false, total: 5, left: 4, detail: [{ kind: "recipe", code: "pate-heo", open: 3, answered: 1, not_used: 0, batch_set: false }] } }];
+const MS_FIXTURE = { ...MS_RAW, ready, count: countFixture, bom: bomFixture, recipe: recipeFixture };
 const KG_FIXTURE = JSON.parse(fs.readFileSync(path.join(ROOT, "scripts/qa_warehouse_game.fixture.json"), "utf8"));
 async function open(cfg, route, viewport, extra = {}) {
   const context = await browser.newContext({ viewport, reducedMotion: extra.reducedMotion || "reduce", locale: "vi-VN" });
@@ -673,6 +691,37 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     assert.ok(all.some((x) => x.startsWith("rpc:post_pending_q7_material_issues:")), "post now calls the catch-up");
     assert.deepEqual(errors, [], "no page errors");
     record(`bom match ${w}`);
+    await context.close();
+  }
+  // 1d. Công thức pate Tân Tạo: batch kg, grams per ingredient or "Không dùng", hộp + tem per pack.
+  {
+    const { context, page, errors } = await open({ data: "populated", role: "owner", missions: "recipe" }, "/warehouse/game", viewport);
+    await page.waitForTimeout(700);
+    await board(page);
+    assert.match(await page.locator("[data-bmq-mission='wh-tan-tao-pate-recipe']").textContent(), /1\/5/, "card counts answered of 5");
+    await page.locator("[data-bmq-mission='wh-tan-tao-pate-recipe']").click({ force: true });
+    await page.waitForSelector("[data-bmq-pate-lines]", { timeout: 5000 });
+    await page.waitForTimeout(400);
+    assert.equal(await page.locator("[data-bmq-pate-batch]").count(), 1, "batch question first");
+    assert.equal(await page.locator("[data-bmq-pate-line]").count(), 4, "one card per seeded line");
+    assert.deepEqual(await page.locator("[data-bmq-pate-line]").evaluateAll((els) => els.map((el) => el.getAttribute("data-status"))), ["open", "open", "open", "answered"], "open lines first");
+    assert.equal(await overflow(page), 0, `recipe sheet no overflow ${w}`);
+    await page.screenshot({ path: `${EVIDENCE}/sheet-recipe-${w}.png` });
+    await page.locator("[data-bmq-pate-batch] input").fill("12,5");
+    await page.locator("[data-bmq-pate-batch] .btn").click({ force: true });
+    const chaLua = page.locator("[data-bmq-pate-line='Chả lụa']");
+    await chaLua.locator("[data-bmq-pate-grams]").fill("3000");
+    await chaLua.locator("[data-bmq-pate-save]").click({ force: true });
+    await page.locator("[data-bmq-pate-line='Muối'] [data-bmq-pate-not-used]").click({ force: true });
+    await page.locator("[data-bmq-pate-line='Hộp pate 500g'] [data-bmq-pate-save]").click({ force: true });
+    await page.waitForTimeout(400);
+    const all = await writes(page);
+    assert.ok(all.some((x) => x.startsWith("rpc:set_tan_tao_recipe_batch:") && x.includes('"p_batch_output_kg":12.5')), "batch saved as 12.5 kg");
+    assert.ok(all.some((x) => x.startsWith("rpc:answer_tan_tao_recipe_line:") && x.includes('"p_line_id":"l1"') && x.includes('"p_item_id":"it-cl"') && x.includes('"p_grams":3000')), "ingredient grams saved");
+    assert.ok(all.some((x) => x.startsWith("rpc:answer_tan_tao_recipe_line:") && x.includes('"p_line_id":"l3"') && x.includes('"p_not_used":true')), "not used saved");
+    assert.ok(all.some((x) => x.startsWith("rpc:answer_tan_tao_recipe_line:") && x.includes('"p_line_id":"p5"') && x.includes('"p_pack_item_id":"hop-p5"') && x.includes('"p_pate_grams":500')), "pack line confirmed");
+    assert.deepEqual(errors, [], "no page errors");
+    record(`pate recipe ${w}`);
     await context.close();
   }
   // 2. Ready mission: submit → badge ceremony → level-up.
