@@ -578,8 +578,14 @@ function BomLineCard({ line, items, onSaved }: { line: Q7BomMismatchLine; items:
   const resolve = useResolveQ7BomLine();
   const [requestId] = useState(newRequestId);
   const mapped = line.current_mapping;
-  const firstCandidate = line.candidates[0]?.kitchen_inventory_item_id ?? "";
-  const [target, setTarget] = useState(mapped && line.has_count_since_cutover ? mapped.kitchen_inventory_item_id : firstCandidate);
+  // Owner 18/10 (Bico Soft → "Giấy nến"): only a counted item with the very same name is pre-picked; a loose
+  // name overlap ("bánh", "hướng dương") is never chosen for the user. Otherwise keep the item drawn from now.
+  const sameName = line.candidates.find((c) => c.similarity >= 0.999);
+  const [target, setTarget] = useState(
+    mapped && line.has_count_since_cutover ? mapped.kitchen_inventory_item_id
+      : sameName ? sameName.kitchen_inventory_item_id
+      : mapped?.kitchen_inventory_item_id ?? "",
+  );
   const targetItem = items.find((item) => item.id === target)
     ?? line.candidates.map((c) => ({ id: c.kitchen_inventory_item_id, name: c.name, unit: c.unit })).find((item) => item.id === target)
     ?? (mapped && mapped.kitchen_inventory_item_id === target ? { id: mapped.kitchen_inventory_item_id, name: mapped.name, unit: mapped.unit } : null);
@@ -602,10 +608,16 @@ function BomLineCard({ line, items, onSaved }: { line: Q7BomMismatchLine; items:
       </li>
     );
   }
+  const mappedOption = mapped && !line.candidates.some((c) => c.kitchen_inventory_item_id === mapped.kitchen_inventory_item_id)
+    ? [{ value: mapped.kitchen_inventory_item_id, label: `${mapped.name} · ${mapped.unit} · đang trừ${line.has_count_since_cutover ? "" : " · chưa đếm 16/10"}` }]
+    : [];
   const options = [
+    ...mappedOption,
     ...line.candidates.map((c) => ({ value: c.kitchen_inventory_item_id, label: `${c.name} · ${c.unit} · đếm ${fmtQty(c.counted_balance)}` })),
-    ...items.filter((item) => !line.candidates.some((c) => c.kitchen_inventory_item_id === item.id)).map((item) => ({ value: item.id, label: `${item.name} · ${item.unit}` })),
+    ...items.filter((item) => item.id !== mapped?.kitchen_inventory_item_id && !line.candidates.some((c) => c.kitchen_inventory_item_id === item.id)).map((item) => ({ value: item.id, label: `${item.name} · ${item.unit}` })),
   ];
+  const keepingUncounted = Boolean(mapped && target === mapped.kitchen_inventory_item_id && !line.has_count_since_cutover);
+  const suggested = Boolean(sameName && target === sameName.kitchen_inventory_item_id && target !== mapped?.kitchen_inventory_item_id);
   return (
     <li className="task-row bom-row" data-bmq-bom-line={name} data-status="open">
       <div className="task-head">
@@ -621,6 +633,8 @@ function BomLineCard({ line, items, onSaved }: { line: Q7BomMismatchLine; items:
         <span>Trừ vào món kho</span>
         <GamePicker value={target} onChange={(value) => { setTarget(value); setFactorText(""); }} placeholder="Chọn món đã đếm…" title={`“${name}” trừ vào món nào`} ariaLabel={`Món kho cho ${name}`} options={options} dataAttrs={{ "data-bmq-bom-target": name }} />
       </label>
+      {suggested ? <small className="bom-hint" data-bmq-bom-hint="same-name">💡 Gợi ý: món cùng tên đã đếm 16/10</small> : null}
+      {keepingUncounted ? <small className="bom-hint" data-bmq-bom-hint="uncounted">Món này chưa đếm 16/10 — giữ thì tồn sẽ âm tới lần kiểm kê sau. Món khác thì bấm ô trên để chọn.</small> : null}
       {targetItem && !sameUnit ? (
         <label className="conv">
           1 {targetItem.unit} =

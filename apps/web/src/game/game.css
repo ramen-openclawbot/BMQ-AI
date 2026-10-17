@@ -1422,3 +1422,7 @@
   .kg .mm-batches { grid-template-columns: minmax(0, 1fr); }
   .kg .mm-stars button { width: 40px; height: 40px; }
 }
+
+/* BOM line (owner 18/10): say why the picker shows what it shows. */
+.kg .bom-hint { display: block; margin-top: -4px; font-size: 12.5px; font-weight: 800; line-height: 1.4; color: #6f6a85; }
+.kg .bom-hint[data-bmq-bom-hint="uncounted"] { color: #8a4b12; }

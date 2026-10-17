@@ -736,6 +736,15 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     assert.match(await cbc.locator("[data-bmq-bom-save]").textContent(), /Đúng món này/, "counted item keeps its own mapping");
     assert.equal(await cbc.locator("[data-bmq-bom-factor]").count(), 0, "same unit asks no factor");
     const oil = page.locator("[data-bmq-bom-line='Dầu hướng dương']");
+    // Owner 18/10: a loose name overlap (0.4) is never pre-picked; the line keeps the item it draws from now.
+    assert.equal(await oil.locator("[data-bmq-picker]").getAttribute("data-value"), "it-dhd", "keeps the current item, not the loose match");
+    assert.equal(await oil.locator("[data-bmq-bom-hint='uncounted']").count(), 1, "says the kept item was not counted 16/10");
+    assert.equal(await oil.locator("[data-bmq-bom-factor]").count(), 0, "same unit, no factor");
+    assert.match(await oil.locator("[data-bmq-bom-save]").textContent(), /Đúng món này/);
+    assert.equal(await cbc.locator("[data-bmq-bom-hint]").count(), 0, "counted own item needs no hint");
+    await oil.locator("[data-bmq-picker]").click({ force: true });
+    await page.locator("[data-bmq-picker-option='it-ta']").click();
+    await page.waitForSelector("[data-bmq-picker-sheet]", { state: "detached", timeout: 3000 });
     assert.equal(await oil.locator("[data-bmq-bom-factor]").count(), 1, "g → thùng asks a factor");
     assert.equal(await oil.locator("[data-bmq-bom-save]").isDisabled(), true, "needs the factor first");
     assert.equal(await page.locator("[data-bmq-bom-line][data-status='open'] [data-bmq-receipt-notes]").count(), 2, "delivery notes beside every open line");
