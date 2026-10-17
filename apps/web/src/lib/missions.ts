@@ -6,8 +6,11 @@
  *   public.get_my_missions(uuid),
  *   public.complete_mission(uuid, uuid),
  *   public.update_stock_material_alias_factor(uuid, numeric, uuid),
- *   public.mark_stock_items_distinct(uuid, uuid, uuid) and
- *   public.resolve_unknown_purchase_unit(text, text, text, uuid).
+ *   public.mark_stock_items_distinct(uuid, uuid, uuid),
+ *   public.resolve_unknown_purchase_unit(text, text, text, uuid),
+ *   public.get_mission_staff(),
+ *   public.get_mission_assignments() and
+ *   public.assign_mission(uuid, uuid).
  *
  * The mission detail shape depends on the mission check rule, so every entry is
  * tagged with a `kind` while parsing. levelProgress mirrors public.mission_levels:
@@ -156,6 +159,38 @@ export interface ResolveUnknownUnitResult {
   code: string | null;
 }
 
+/** One row of public.get_mission_staff(). */
+export interface MissionStaffMember {
+  userId: string;
+  name: string;
+  email: string;
+  badges: number;
+  level: { level: number; title: string } | null;
+  openMissions: number;
+}
+
+/** One assigned copy of a mission (public.get_mission_assignments). */
+export interface MissionAssignment {
+  missionId: string;
+  parentMissionId: string;
+  assigneeUserId: string;
+  assigneeName: string;
+  status: "open" | "completed";
+  completedAt: string | null;
+  progress: MissionEvaluation;
+}
+
+/** JSON returned by public.assign_mission(uuid, uuid). */
+export interface AssignMissionResult {
+  missionId: string;
+  parentMissionId: string;
+  assigneeUserId: string;
+  assigneeName: string;
+  status: MissionStatus;
+  created: boolean;
+  reopened: boolean;
+}
+
 function asRecord(value: unknown, path: string): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new TypeError(`${path} must be an object`);
@@ -166,6 +201,24 @@ function asRecord(value: unknown, path: string): Record<string, unknown> {
 function asArray(value: unknown, path: string): unknown[] {
   if (!Array.isArray(value)) throw new TypeError(`${path} must be an array`);
   return value;
+}
+
+/** Parse each row independently; one garbled row never hides the others. */
+function parseRows<T>(
+  raw: unknown,
+  path: string,
+  parseRow: (row: unknown, rowPath: string) => T,
+): T[] {
+  if (!Array.isArray(raw)) return [];
+  const rows: T[] = [];
+  raw.forEach((entry, index) => {
+    try {
+      rows.push(parseRow(entry, `${path}[${index}]`));
+    } catch {
+      // Drop only the garbled row.
+    }
+  });
+  return rows;
 }
 
 function asString(value: unknown, path: string): string {
@@ -397,6 +450,94 @@ export function parseResolveUnknownUnitResult(raw: unknown): ResolveUnknownUnitR
   };
 }
 
+function parseStaffLevel(raw: unknown, path: string): { level: number; title: string } | null {
+  if (raw === null || raw === undefined) return null;
+  try {
+    const row = asRecord(raw, path);
+    return {
+      level: asNumber(row.level, `${path}.level`),
+      title: asString(row.title, `${path}.title`),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function parseStaffMember(raw: unknown, path: string): MissionStaffMember {
+  const row = asRecord(raw, path);
+  const userId = asString(row.user_id, `${path}.user_id`);
+  const email = asNullableString(row.email, `${path}.email`) ?? "";
+  const name = asNullableString(row.name, `${path}.name`)?.trim() || email;
+
+  return {
+    userId,
+    name,
+    email,
+    badges: Math.max(0, Math.trunc(asNumber(row.badges ?? 0, `${path}.badges`))),
+    level: parseStaffLevel(row.level, `${path}.level`),
+    openMissions: Math.max(
+      0,
+      Math.trunc(asNumber(row.open_missions ?? 0, `${path}.open_missions`)),
+    ),
+  };
+}
+
+/** Parse the JSON returned by `get_mission_staff`; garbled rows are dropped. */
+export function parseMissionStaff(raw: unknown): MissionStaffMember[] {
+  return parseRows(raw, "missionStaff", parseStaffMember);
+}
+
+function parseAssignment(raw: unknown, path: string): MissionAssignment {
+  const row = asRecord(raw, path);
+  const status = asString(row.status, `${path}.status`);
+  if (status !== "open" && status !== "completed") {
+    throw new TypeError(`${path}.status is invalid`);
+  }
+
+  return {
+    missionId: asString(row.mission_id, `${path}.mission_id`),
+    parentMissionId: asString(row.parent_mission_id, `${path}.parent_mission_id`),
+    assigneeUserId: asString(row.assignee_user_id, `${path}.assignee_user_id`),
+    assigneeName: asNullableString(row.assignee_name, `${path}.assignee_name`) ?? "",
+    status,
+    completedAt: asNullableString(row.completed_at, `${path}.completed_at`),
+    progress: parseMissionEvaluation(row.progress, `${path}.progress`),
+  };
+}
+
+/** Parse the JSON returned by `get_mission_assignments`; garbled rows are dropped. */
+export function parseMissionAssignments(raw: unknown): MissionAssignment[] {
+  return parseRows(raw, "missionAssignments", parseAssignment);
+}
+
+/** Parse the JSON returned by `assign_mission`. */
+export function parseAssignMissionResult(raw: unknown): AssignMissionResult {
+  const root = asRecord(raw, "assignMissionResult");
+  return {
+    missionId: asString(root.mission_id, "assignMissionResult.mission_id"),
+    parentMissionId: asString(root.parent_mission_id, "assignMissionResult.parent_mission_id"),
+    assigneeUserId: asString(root.assignee_user_id, "assignMissionResult.assignee_user_id"),
+    assigneeName:
+      asNullableString(root.assignee_name, "assignMissionResult.assignee_name") ?? "",
+    status: asMissionStatus(root.status, "assignMissionResult.status"),
+    created: asBoolean(root.created, "assignMissionResult.created"),
+    reopened: asBoolean(root.reopened, "assignMissionResult.reopened"),
+  };
+}
+
+/** Group assignments by their root mission id, preserving list order. */
+export function assignmentsByParent(
+  list: MissionAssignment[],
+): Map<string, MissionAssignment[]> {
+  const grouped = new Map<string, MissionAssignment[]>();
+  for (const assignment of list) {
+    const rows = grouped.get(assignment.parentMissionId);
+    if (rows) rows.push(assignment);
+    else grouped.set(assignment.parentMissionId, [assignment]);
+  }
+  return grouped;
+}
+
 export interface LevelProgress {
   current: MissionLevel | null;
   next: MissionLevel | null;
@@ -472,6 +613,32 @@ export function missionErrorMessage(error: unknown): string {
   }
   if (haystack.includes("item_not_found") || haystack.includes("alias_not_found")) {
     return "Không tìm thấy dữ liệu cần xử lý";
+  }
+  return message || "Có lỗi xảy ra";
+}
+
+/** Map a mission assignment RPC error to a short Vietnamese message. */
+export function missionAssignErrorText(error: unknown): string {
+  const { message, code, details } = readError(error);
+  const haystack = `${message} ${details}`.toLowerCase();
+
+  if (haystack.includes("forbidden") || code === "42501") {
+    return "Bạn không có quyền giao nhiệm vụ kho";
+  }
+  if (haystack.includes("mission_not_open")) {
+    return "Nhiệm vụ này không còn mở";
+  }
+  if (haystack.includes("assignee_not_allowed")) {
+    return "Người này không thể nhận nhiệm vụ kho";
+  }
+  if (haystack.includes("already_assignee")) {
+    return "Người này đã nhận nhiệm vụ";
+  }
+  if (haystack.includes("not_an_assignment")) {
+    return "Đây không phải nhiệm vụ đã giao";
+  }
+  if (haystack.includes("mission_completed")) {
+    return "Nhiệm vụ đã hoàn thành, không thể thu hồi";
   }
   return message || "Có lỗi xảy ra";
 }

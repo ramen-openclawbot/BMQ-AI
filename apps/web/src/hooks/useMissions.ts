@@ -2,13 +2,19 @@ import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tansta
 
 import { supabase } from "@/integrations/supabase/client";
 import {
+  parseAssignMissionResult,
   parseCompleteMissionResult,
   parseMarkItemsDistinctResult,
+  parseMissionAssignments,
+  parseMissionStaff,
   parseMyMissions,
   parseResolveUnknownUnitResult,
   parseUpdateAliasFactorResult,
+  type AssignMissionResult,
   type CompleteMissionResult,
   type MarkItemsDistinctResult,
+  type MissionAssignment,
+  type MissionStaffMember,
   type MyMissions,
   type ResolveUnknownUnitAction,
   type ResolveUnknownUnitResult,
@@ -22,6 +28,8 @@ import { STOCK_CATALOG_REVIEW_QUERY_KEY } from "./useStockCatalog";
 import { WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY } from "./useWarehouseGame";
 
 export const MISSIONS_QUERY_KEY = "missions";
+export const MISSION_ASSIGNMENTS_QUERY_KEY = "mission-assignments";
+export const MISSION_STAFF_QUERY_KEY = "mission-staff";
 
 /** One request id per click so the server can ignore a replay. */
 function newRequestId(): string {
@@ -37,6 +45,13 @@ function invalidateMissions(queryClient: QueryClient): void {
   void queryClient.invalidateQueries({ queryKey: [MATERIAL_ALIAS_BACKLOG_REVIEW_QUERY_KEY] });
 }
 
+/** A new assignment changes the boards and the staff counters. */
+function invalidateMissionAssignments(queryClient: QueryClient): void {
+  void queryClient.invalidateQueries({ queryKey: [MISSIONS_QUERY_KEY] });
+  void queryClient.invalidateQueries({ queryKey: [MISSION_ASSIGNMENTS_QUERY_KEY] });
+  void queryClient.invalidateQueries({ queryKey: [MISSION_STAFF_QUERY_KEY] });
+}
+
 /** My missions, badges, level and recent awards. */
 export function useMyMissions() {
   return useQuery({
@@ -46,6 +61,72 @@ export function useMyMissions() {
       if (error) throw error;
       return parseMyMissions(data);
     },
+  });
+}
+
+/** Staff members the owner may assign a warehouse mission to. */
+export function useMissionStaff(enabled = true) {
+  return useQuery({
+    queryKey: [MISSION_STAFF_QUERY_KEY],
+    enabled,
+    queryFn: async (): Promise<MissionStaffMember[]> => {
+      const { data, error } = await supabase.rpc("get_mission_staff" as never);
+      if (error) throw error;
+      return parseMissionStaff(data);
+    },
+  });
+}
+
+/** Open and completed assigned copies, grouped by the UI with assignmentsByParent. */
+export function useMissionAssignments(enabled = true) {
+  return useQuery({
+    queryKey: [MISSION_ASSIGNMENTS_QUERY_KEY],
+    enabled,
+    queryFn: async (): Promise<MissionAssignment[]> => {
+      const { data, error } = await supabase.rpc("get_mission_assignments" as never);
+      if (error) throw error;
+      return parseMissionAssignments(data);
+    },
+  });
+}
+
+export interface AssignMissionInput {
+  missionId: string;
+  userId: string;
+}
+
+/** Assign an open mission to a staff member (owner only). */
+export function useAssignMission() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: AssignMissionInput): Promise<AssignMissionResult> => {
+      const { data, error } = await supabase.rpc("assign_mission" as never, {
+        p_mission_id: input.missionId,
+        p_user_id: input.userId,
+      } as never);
+      if (error) throw error;
+      return parseAssignMissionResult(data);
+    },
+    onSuccess: () => invalidateMissionAssignments(queryClient),
+  });
+}
+
+export interface UnassignMissionInput {
+  missionId: string;
+}
+
+/** Withdraw an open assigned copy (owner only; the root mission is untouched). */
+export function useUnassignMission() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: UnassignMissionInput) => {
+      const { data, error } = await supabase.rpc("unassign_mission" as never, {
+        p_mission_id: input.missionId,
+      } as never);
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => invalidateMissionAssignments(queryClient),
   });
 }
 

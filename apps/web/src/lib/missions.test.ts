@@ -4,12 +4,17 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import {
+  assignmentsByParent,
   levelProgress,
+  missionAssignErrorText,
   missionErrorMessage,
+  parseAssignMissionResult,
   parseCompleteMissionResult,
   parseMarkItemsDistinctResult,
+  parseMissionAssignments,
   parseMissionDetailEntry,
   parseMissionLevel,
+  parseMissionStaff,
   parseMyMissions,
   parseResolveUnknownUnitResult,
   parseUpdateAliasFactorResult,
@@ -299,4 +304,226 @@ test("the Maestro QA fixture matches the parsers", () => {
   assert.equal(twoDone.missions.filter((mission) => mission.status === "open").length, 1);
   assert.equal(twoDone.badges.total, 2);
   assert.equal(levelProgress(twoDone.badges, LEVELS).current?.level, 1);
+});
+
+test("parseMissionStaff coerces numbers and drops only garbled rows", () => {
+  const parsed = parseMissionStaff([
+    {
+      user_id: "11111111-1111-1111-1111-111111111111",
+      name: "  Nguyễn An  ",
+      email: "an@example.com",
+      badges: "3",
+      level: { level: "2", title: "Nhân viên kho", min_badges: 3 },
+      open_missions: "2",
+      extra: true,
+    },
+    {
+      user_id: "22222222-2222-2222-2222-222222222222",
+      name: "",
+      email: "binh@example.com",
+      badges: 0,
+      level: null,
+      open_missions: 0,
+    },
+    { name: "missing user id" },
+    { user_id: "33333333-3333-3333-3333-333333333333", badges: "not a number" },
+    null,
+    "not a row",
+  ]);
+
+  assert.equal(parsed.length, 2);
+  assert.deepEqual(parsed[0], {
+    userId: "11111111-1111-1111-1111-111111111111",
+    name: "Nguyễn An",
+    email: "an@example.com",
+    badges: 3,
+    level: { level: 2, title: "Nhân viên kho" },
+    openMissions: 2,
+  });
+  // An empty name falls back to the email; missing counters default to 0.
+  assert.equal(parsed[1].name, "binh@example.com");
+  assert.equal(parsed[1].badges, 0);
+  assert.equal(parsed[1].openMissions, 0);
+  assert.equal(parsed[1].level, null);
+
+  assert.deepEqual(parseMissionStaff(null), []);
+  assert.deepEqual(parseMissionStaff({ rows: [] }), []);
+});
+
+test("parseMissionAssignments keeps open / completed copies and drops garbage", () => {
+  const progress = {
+    done: false,
+    total: 2,
+    left: 1,
+    detail: [
+      {
+        id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        name: "pho mai",
+        unit: "g",
+        factor: 1,
+        item_name: "Phô mai",
+        item_unit: "g",
+        fixed: true,
+      },
+    ],
+  };
+
+  const parsed = parseMissionAssignments([
+    {
+      mission_id: "11111111-1111-1111-1111-111111111111",
+      parent_mission_id: "99999999-9999-9999-9999-999999999999",
+      assignee_user_id: "22222222-2222-2222-2222-222222222222",
+      assignee_name: "Nguyễn An",
+      status: "open",
+      completed_at: null,
+      progress,
+      extra: "ignored",
+    },
+    {
+      mission_id: "33333333-3333-3333-3333-333333333333",
+      parent_mission_id: "99999999-9999-9999-9999-999999999999",
+      assignee_user_id: "44444444-4444-4444-4444-444444444444",
+      assignee_name: null,
+      status: "completed",
+      completed_at: "2026-10-17T08:00:00+00:00",
+      progress: { done: true, total: 2, left: 0, detail: [] },
+    },
+    {
+      mission_id: "55555555-5555-5555-5555-555555555555",
+      parent_mission_id: "99999999-9999-9999-9999-999999999999",
+      assignee_user_id: "66666666-6666-6666-6666-666666666666",
+      status: "cancelled",
+      completed_at: null,
+      progress,
+    },
+    { mission_id: "77777777-7777-7777-7777-777777777777" },
+    {
+      mission_id: "88888888-8888-8888-8888-888888888888",
+      parent_mission_id: "99999999-9999-9999-9999-999999999999",
+      assignee_user_id: "66666666-6666-6666-6666-666666666666",
+      status: "open",
+      completed_at: null,
+      progress: null,
+    },
+  ]);
+
+  assert.equal(parsed.length, 2);
+  assert.equal(parsed[0].missionId, "11111111-1111-1111-1111-111111111111");
+  assert.equal(parsed[0].parentMissionId, "99999999-9999-9999-9999-999999999999");
+  assert.equal(parsed[0].assigneeName, "Nguyễn An");
+  assert.equal(parsed[0].status, "open");
+  assert.equal(parsed[0].progress.left, 1);
+  assert.equal(parsed[1].status, "completed");
+  assert.equal(parsed[1].assigneeName, "");
+  assert.equal(parsed[1].completedAt, "2026-10-17T08:00:00+00:00");
+
+  assert.deepEqual(parseMissionAssignments(undefined), []);
+});
+
+test("parseAssignMissionResult validates the assignment result", () => {
+  const parsed = parseAssignMissionResult({
+    mission_id: "11111111-1111-1111-1111-111111111111",
+    parent_mission_id: "99999999-9999-9999-9999-999999999999",
+    assignee_user_id: "22222222-2222-2222-2222-222222222222",
+    assignee_name: "Nguyễn An",
+    status: "open",
+    created: true,
+    reopened: false,
+    extra: "ignored",
+  });
+
+  assert.deepEqual(parsed, {
+    missionId: "11111111-1111-1111-1111-111111111111",
+    parentMissionId: "99999999-9999-9999-9999-999999999999",
+    assigneeUserId: "22222222-2222-2222-2222-222222222222",
+    assigneeName: "Nguyễn An",
+    status: "open",
+    created: true,
+    reopened: false,
+  });
+
+  assert.throws(() => parseAssignMissionResult(null), TypeError);
+  assert.throws(() => parseAssignMissionResult({ mission_id: "x" }), TypeError);
+  assert.throws(
+    () =>
+      parseAssignMissionResult({
+        mission_id: "x",
+        parent_mission_id: "y",
+        assignee_user_id: "z",
+        status: "open",
+        created: "yes",
+        reopened: false,
+      }),
+    TypeError,
+  );
+});
+
+test("assignmentsByParent groups copies under their root mission", () => {
+  const list = parseMissionAssignments([
+    {
+      mission_id: "copy-1",
+      parent_mission_id: "root-1",
+      assignee_user_id: "staff-1",
+      assignee_name: "An",
+      status: "open",
+      completed_at: null,
+      progress: { done: false, total: 1, left: 1, detail: [] },
+    },
+    {
+      mission_id: "copy-2",
+      parent_mission_id: "root-1",
+      assignee_user_id: "staff-2",
+      assignee_name: "Bình",
+      status: "completed",
+      completed_at: "2026-10-17T08:00:00+00:00",
+      progress: { done: true, total: 1, left: 0, detail: [] },
+    },
+    {
+      mission_id: "copy-3",
+      parent_mission_id: "root-2",
+      assignee_user_id: "staff-1",
+      assignee_name: "An",
+      status: "open",
+      completed_at: null,
+      progress: { done: false, total: 1, left: 1, detail: [] },
+    },
+  ]);
+
+  const grouped = assignmentsByParent(list);
+  assert.equal(grouped.size, 2);
+  assert.deepEqual(
+    grouped.get("root-1")?.map((row) => row.missionId),
+    ["copy-1", "copy-2"],
+  );
+  assert.equal(grouped.get("root-2")?.[0].assigneeName, "An");
+  assert.equal(assignmentsByParent([]).size, 0);
+});
+
+test("missionAssignErrorText maps every server error to Vietnamese", () => {
+  assert.equal(
+    missionAssignErrorText({ message: "forbidden", code: "42501" }),
+    "Bạn không có quyền giao nhiệm vụ kho",
+  );
+  assert.equal(
+    missionAssignErrorText({ message: "mission_not_open", code: "22023" }),
+    "Nhiệm vụ này không còn mở",
+  );
+  assert.equal(
+    missionAssignErrorText({ message: "assignee_not_allowed", code: "22023" }),
+    "Người này không thể nhận nhiệm vụ kho",
+  );
+  assert.equal(
+    missionAssignErrorText({ message: "already_assignee", code: "22023" }),
+    "Người này đã nhận nhiệm vụ",
+  );
+  assert.equal(
+    missionAssignErrorText({ message: "not_an_assignment", code: "22023" }),
+    "Đây không phải nhiệm vụ đã giao",
+  );
+  assert.equal(
+    missionAssignErrorText({ message: "mission_completed", code: "22023" }),
+    "Nhiệm vụ đã hoàn thành, không thể thu hồi",
+  );
+  assert.equal(missionAssignErrorText({ message: "mất kết nối" }), "mất kết nối");
+  assert.equal(missionAssignErrorText(null), "Có lỗi xảy ra");
 });

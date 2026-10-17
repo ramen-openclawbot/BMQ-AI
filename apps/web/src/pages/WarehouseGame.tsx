@@ -16,7 +16,7 @@ import { Scene, usePortrait } from "@/game/Scene";
 import { CLASS_META, ITEM_UNITS, asClass, fmtQty, newRequestId, normalizeName, type GameClass } from "@/game/meta";
 import { STATION_META, STATION_ORDER, Workshop, type StationId } from "@/game/Workshop";
 import { StationView } from "@/game/Stations";
-import { Ceremony, MissionBoard, MissionHudButton, MissionSheet } from "@/game/Missions";
+import { AssignSheet, Ceremony, MissionBoard, MissionHudButton, MissionSheet } from "@/game/Missions";
 import { useMyMissions } from "@/hooks/useMissions";
 import type { CompleteMissionResult } from "@/lib/missions";
 import { useAuth } from "@/contexts/AuthContext";
@@ -63,6 +63,7 @@ type Panel =
   | { kind: "sku"; entry: ShelfEntry }
   | { kind: "crate"; location: WarehouseGameLocation; crate: WarehouseGamePendingRow }
   | { kind: "mission"; id: string }
+  | { kind: "mission-assign"; id: string }
   | { kind: "transfers"; location: WarehouseGameLocation; prefill?: string }
   | { kind: "finished"; mode: FinishedGoodsMode; prefill?: string }
   | { kind: "count-review"; location: StockCountLocation }
@@ -451,7 +452,7 @@ export default function WarehouseGame() {
 
         {view.kind === "missions" ? (
           <Scene id="missions" scroll>
-            <MissionBoard data={missions.data} isLoading={missions.isLoading} error={missions.error} onOpen={(id) => setPanel({ kind: "mission", id })} />
+            <MissionBoard data={missions.data} isLoading={missions.isLoading} error={missions.error} onOpen={(id) => setPanel({ kind: "mission", id })} onAssign={isOwner ? (id) => setPanel({ kind: "mission-assign", id }) : undefined} />
           </Scene>
         ) : null}
 
@@ -701,6 +702,11 @@ export default function WarehouseGame() {
               onOpenQuest={(location) => go({ kind: "quest", location })}
             />
           ) : null;
+        })() : null}
+
+        {panel?.kind === "mission-assign" ? (() => {
+          const mission = missions.data?.missions.find((entry) => entry.id === panel.id);
+          return mission ? <AssignSheet key={mission.id} mission={mission} onClose={() => setPanel(null)} onToast={setToast} /> : null;
         })() : null}
 
         {panel?.kind === "count-review" && countSession ? (

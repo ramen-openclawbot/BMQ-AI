@@ -73,6 +73,33 @@ function settle(st) {
     window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args));
     return { data: { batch: "2026-10-16", id: st.args.p_question_id, location: "tan_tao", sort_order: 7, file_label: "x", file_qty: 8, file_unit: "cây", suggested_item_id: null, suggested_factor: null, status: st.args.p_skip ? "skipped" : "answered", item_id: st.args.p_item_id, factor: st.args.p_factor, counted_qty: st.args.p_factor ? 8 * st.args.p_factor : null, record_result: null, note: null, answered_by: null, answered_at: null, suggested_item: null, chosen_item: { id: "it-tape", code: "NVL-083", name: "Băng keo lớn", unit: "cuộn" }, item_units: [], replay: false }, error: null };
   }
+  // Giao nhiệm vụ (owner 17/10): staff list + assignment copies kept in page memory.
+  if (/^rpc:(get_mission_staff|get_mission_assignments)$/.test(st.table)) {
+    window.__qaReads = (window.__qaReads || []).concat(st.table);
+    if (st.table === "rpc:get_mission_staff") return { data: [
+      { user_id: "u-mai", name: "Xuan Mai", email: "mai@bmq.test", badges: 0, level: { level: 1, title: "Nhân viên mới", min_badges: 0 }, open_missions: 0 },
+      { user_id: "u-ha", name: "Thu Hà", email: "ha@bmq.test", badges: 4, level: { level: 2, title: "Nhân viên kho", min_badges: 3 }, open_missions: 1 },
+      { user_id: "u-lan", name: "Ngọc Lan", email: "lan@bmq.test", badges: 0, level: null, open_missions: 0 },
+    ], error: null };
+    return { data: (window.__qaCopies || []).filter((c) => c.status !== "cancelled"), error: null };
+  }
+  if (st.table === "rpc:assign_mission") {
+    window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args));
+    if (st.args.p_user_id === "u-lan") return { data: null, error: { message: "assignee_not_allowed", code: "22023" } };
+    const names = { "u-mai": "Xuan Mai", "u-ha": "Thu Hà" };
+    const copies = window.__qaCopies || (window.__qaCopies = []);
+    let copy = copies.find((c) => c.parent_mission_id === st.args.p_mission_id && c.assignee_user_id === st.args.p_user_id);
+    const created = !copy;
+    if (!copy) { copy = { mission_id: "copy-" + copies.length, parent_mission_id: st.args.p_mission_id, assignee_user_id: st.args.p_user_id, assignee_name: names[st.args.p_user_id], status: "open", completed_at: null, progress: { done: false, total: 2, left: 1, detail: [] } }; copies.push(copy); }
+    else copy.status = "open";
+    return { data: { mission_id: copy.mission_id, parent_mission_id: copy.parent_mission_id, assignee_user_id: copy.assignee_user_id, assignee_name: copy.assignee_name, status: "open", created, reopened: !created }, error: null };
+  }
+  if (st.table === "rpc:unassign_mission") {
+    window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args));
+    const copy = (window.__qaCopies || []).find((c) => c.mission_id === st.args.p_mission_id);
+    if (copy) copy.status = "cancelled";
+    return { data: { mission_id: st.args.p_mission_id, status: "cancelled" }, error: null };
+  }
   if (st.table === "rpc:get_my_missions") {
     if (cfg().missionsError) return { data: null, error: { message: "QA fixture: missions down" } };
     return { data: window.__msFixture[cfg().missions || "three_open_partial"], error: null };
@@ -643,6 +670,77 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     assert.deepEqual(bad.errors, []);
     record(`missions done + error ${w}`);
     await bad.context.close();
+  }
+}
+// Giao nhiệm vụ (owner 17/10): the owner hands an open mission to staff; staff boards have no Giao button.
+{
+  const OPEN = MS_RAW.three_open_partial.missions.filter((m) => m.status === "open");
+  const first = OPEN[0];
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 640 }]) {
+    const w = viewport.width;
+    const { context, page, errors } = await open({ data: "populated", role: "owner", missions: "three_open_partial" }, "/warehouse/game", viewport);
+    // Thu Hà already finished her copy of the first mission.
+    await page.evaluate((root) => { window.__qaCopies = [{ mission_id: "copy-ha", parent_mission_id: root, assignee_user_id: "u-ha", assignee_name: "Thu Hà", status: "completed", completed_at: "2026-10-17T02:00:00Z", progress: { done: true, total: 2, left: 0, detail: [] } }]; }, first.id);
+    await page.waitForTimeout(700);
+    await board(page);
+    assert.equal(await page.locator("[data-bmq-mission-assign]").count(), OPEN.length, "every open mission has a Giao button");
+    assert.match(await page.locator(`[data-bmq-mission='${first.code}'] [data-bmq-mission-crew]`).textContent(), /✓ Thu Hà/, "card shows who finished");
+    const btn = await page.locator(`[data-bmq-mission-assign='${first.code}']`).boundingBox();
+    const icon = await page.locator(`[data-bmq-mission='${first.code}'] .mission-title`).boundingBox();
+    assert.ok(btn.height >= 36 && btn.y + btn.height <= icon.y + 4, `Giao button clears the title ${w}: ${JSON.stringify([btn, icon])}`);
+    assert.equal(await overflow(page), 0, `board no overflow ${w}`);
+    await page.locator(`[data-bmq-mission='${first.code}']`).evaluate((el) => el.scrollIntoView({ block: "center" }));
+    await page.screenshot({ path: `${EVIDENCE}/assign-board-${w}.png` });
+    await page.locator(`[data-bmq-mission-assign='${first.code}']`).click();
+    await page.waitForSelector("[data-bmq-assign-list]", { timeout: 5000 });
+    assert.equal(await page.locator("[data-bmq-assign-row]").count(), 3, "three staff rows");
+    assert.match(await page.locator("[data-bmq-assign-row='Thu Hà']").textContent(), /Đã nộp/);
+    assert.equal(await page.locator(".kg .sheet [data-bmq-mission-submit]").count(), 0, "assign sheet is not the play sheet");
+    await page.evaluate(() => { window.__qaWrites.length = 0; });
+    await page.locator("[data-bmq-assign='u-mai']").click();
+    await page.waitForSelector("[data-bmq-unassign='u-mai']", { timeout: 5000 });
+    const sent = (await writes(page)).filter((x) => x.startsWith("rpc:assign_mission:"));
+    assert.equal(sent.length, 1);
+    assert.deepEqual(JSON.parse(sent[0].slice("rpc:assign_mission:".length)), { p_mission_id: first.id, p_user_id: "u-mai" });
+    assert.match(await page.locator(".kg .toast").textContent(), /Đã giao “.+” cho Xuan Mai/);
+    assert.match(await page.locator("[data-bmq-assign-row='Xuan Mai']").textContent(), /đang làm việc này/);
+    assert.equal(await overflow(page), 0, `assign sheet no overflow ${w}`);
+    const small = await page.evaluate(() => [...document.querySelectorAll(".kg .sheet button")].filter((el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height < 36; }).map((el) => el.outerHTML.slice(0, 60)));
+    assert.deepEqual(small, [], `assign sheet tap targets ${w}`);
+    await page.screenshot({ path: `${EVIDENCE}/assign-sheet-${w}.png` });
+    // Refused staff: error shown, nothing assigned.
+    await page.locator("[data-bmq-assign='u-lan']").click();
+    await page.waitForSelector("[data-bmq-assign-error]", { timeout: 5000 });
+    assert.match(await page.locator("[data-bmq-assign-error]").textContent(), /không thể nhận nhiệm vụ kho/);
+    assert.equal(await page.locator("[data-bmq-assign='u-lan']").count(), 1, "refused staff stays unassigned");
+    // Withdraw.
+    await page.evaluate(() => { window.__qaWrites.length = 0; });
+    await page.locator("[data-bmq-unassign='u-mai']").click();
+    await page.waitForSelector("[data-bmq-assign='u-mai']", { timeout: 5000 });
+    assert.ok((await writes(page)).some((x) => x.startsWith("rpc:unassign_mission:") && x.includes('"p_mission_id":"copy-1"')), "withdraw sends the copy id");
+    // Give again, close: the card lists Mai.
+    await page.locator("[data-bmq-assign='u-mai']").click();
+    await page.waitForSelector("[data-bmq-unassign='u-mai']", { timeout: 5000 });
+    await closeSheet(page);
+    await page.waitForTimeout(400);
+    assert.match(await page.locator(`[data-bmq-mission='${first.code}'] [data-bmq-mission-crew]`).textContent(), /👤 Xuan Mai/);
+    // The card itself still opens the play sheet.
+    await page.locator(`[data-bmq-mission='${first.code}']`).click({ force: true });
+    await page.waitForSelector(".kg .sheet [data-bmq-mission-submit]", { timeout: 5000 });
+    assert.deepEqual(errors, [], "no page errors");
+    record(`assign missions ${w}`);
+    await context.close();
+  }
+  // Staff (not owner): no Giao button and the owner-only RPCs are never called.
+  {
+    const { context, page, errors } = await open({ data: "populated", role: "limited", name: "Xuan Mai", missions: "three_open_partial" }, "/warehouse/game", { width: 390, height: 844 });
+    await page.waitForTimeout(700);
+    await board(page);
+    assert.equal(await page.locator("[data-bmq-mission-assign]").count(), 0, "staff see no Giao button");
+    assert.deepEqual(await page.evaluate(() => window.__qaReads || []), [], "owner-only RPCs not called for staff");
+    assert.deepEqual(errors, []);
+    record("assign missions hidden for staff 390");
+    await context.close();
   }
 }
 await browser.close();

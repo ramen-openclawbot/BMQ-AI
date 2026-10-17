@@ -2,13 +2,13 @@ import { useState } from "react";
 import { GamePicker } from "@/game/GamePicker";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { MISSIONS_QUERY_KEY, useCompleteMission, useMarkItemsDistinct, useResolveUnknownUnit, useUpdateAliasFactor } from "@/hooks/useMissions";
+import { MISSIONS_QUERY_KEY, useAssignMission, useCompleteMission, useMarkItemsDistinct, useMissionAssignments, useMissionStaff, useResolveUnknownUnit, useUnassignMission, useUpdateAliasFactor } from "@/hooks/useMissions";
 import { useAliasReceiptLines, useItemReceiptLines, useRenameStockItem, useUnitVariantReceiptLines, useWarehouseGameSnapshot, WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY } from "@/hooks/useWarehouseGame";
 import { useAnswerCountUnitQuestion, useCountUnitQuestions } from "@/hooks/useCountUnitQuestions";
 import { STOCK_CATALOG_REVIEW_QUERY_KEY } from "@/hooks/useStockCatalog";
 import {
-  levelProgress, missionErrorMessage,
-  type CompleteMissionResult, type Mission, type MissionAliasDetail, type MissionCountQuestionsDetail, type MissionDuplicateDetail, type MissionLevel, type MissionMaterialLinksDetail, type MissionUnknownUnitDetail, type MyMissions,
+  assignmentsByParent, levelProgress, missionAssignErrorText, missionErrorMessage,
+  type CompleteMissionResult, type MissionAssignment, type MissionStaffMember, type Mission, type MissionAliasDetail, type MissionCountQuestionsDetail, type MissionDuplicateDetail, type MissionLevel, type MissionMaterialLinksDetail, type MissionUnknownUnitDetail, type MyMissions,
 } from "@/lib/missions";
 import { STOCK_UNITS } from "@/lib/stock-units";
 import { canSubmit, computeCountedQty, type StockCountUnitQuestion } from "@/lib/count-unit-questions";
@@ -144,17 +144,21 @@ function RankCard({ data }: { data: MyMissions }) {
   );
 }
 
-function MissionCard({ mission, index, onOpen }: { mission: Mission; index: number; onOpen: () => void }) {
+function MissionCard({ mission, index, onOpen, crew, onAssign }: {
+  mission: Mission; index: number; onOpen: () => void;
+  /** Owner board (17/10): who else has this mission, and the "Giao" button. */
+  crew?: MissionAssignment[]; onAssign?: () => void;
+}) {
   const rule = ruleOf(mission);
   const steps = missionSteps(mission);
   const done = mission.status === "completed";
   const ready = readyToSubmit(mission);
   return (
-    <li>
+    <li className="mission-slot" style={{ ["--tilt" as string]: `${index % 2 ? 1.2 : -1.4}deg` }}>
       <button
         type="button"
-        className={`mission-note${done ? " is-done" : ""}${ready ? " is-ready" : ""}`}
-        style={{ ["--tilt" as string]: `${index % 2 ? 1.2 : -1.4}deg`, animationDelay: `${index * 70}ms` }}
+        className={`mission-note${done ? " is-done" : ""}${ready ? " is-ready" : ""}${onAssign ? " has-assign" : ""}`}
+        style={{ animationDelay: `${index * 70}ms` }}
         onClick={onOpen}
         data-bmq-mission={mission.code}
       >
@@ -166,20 +170,35 @@ function MissionCard({ mission, index, onOpen }: { mission: Mission; index: numb
           <span className="mission-bar"><i style={{ width: `${(steps.done / steps.total) * 100}%` }} /></span>
           <small>{rule === "duplicate" ? (steps.done ? "Đã chọn cách xử lý" : "Chờ anh chọn") : `${steps.done}/${steps.total} xong`}</small>
         </span>
+        {crew?.length ? (
+          <span className="mission-crew" data-bmq-mission-crew>
+            <small>Đã giao:</small>
+            {crew.map((copy) => (
+              <span key={copy.missionId} className={`crew-chip${copy.status === "completed" ? " is-done" : ""}`}>{copy.status === "completed" ? "✓" : "👤"} {copy.assigneeName || "Nhân viên"}</span>
+            ))}
+          </span>
+        ) : null}
         <span className="mission-foot">
           <span className="mission-reward"><BeeBadge size={24} /> {mission.badge?.name ?? "Chăm chỉ"}</span>
           {done ? null : <span className={`mission-go${ready ? " is-ready" : ""}`}>{ready ? "Nộp nhận 🐝" : "Làm"}</span>}
         </span>
         {done ? <span className="stamp" aria-label="Đã hoàn thành">XONG</span> : null}
       </button>
+      {onAssign && !done ? (
+        <button type="button" className="mission-assign" onClick={onAssign} aria-label={`Giao nhiệm vụ ${mission.title}`} data-bmq-mission-assign={mission.code}>👥 Giao</button>
+      ) : null}
     </li>
   );
 }
 
 /** The mission board scene: rank card + cork board of notes. */
-export function MissionBoard({ data, isLoading, error, onOpen }: {
+export function MissionBoard({ data, isLoading, error, onOpen, onAssign }: {
   data: MyMissions | undefined; isLoading: boolean; error: unknown; onOpen: (id: string) => void;
+  /** Owner only: hand an open mission to a staff member. */
+  onAssign?: (id: string) => void;
 }) {
+  const assignments = useMissionAssignments(Boolean(onAssign));
+  const crewOf = assignmentsByParent(assignments.data ?? []);
   if (isLoading && !data) return <GameLoading lines={["Mở bảng nhiệm vụ", "Đếm huy hiệu", "Ghim thẻ việc"]} />;
   if (error && !data) return <div className="loading"><div className="err">{missionErrorMessage(error)}</div></div>;
   if (!data) return null;
@@ -191,7 +210,7 @@ export function MissionBoard({ data, isLoading, error, onOpen }: {
       <section className="cork" aria-label="Nhiệm vụ đang mở">
         <h2 className="cork-title"><span>📌</span> Nhiệm vụ đang mở · {open.length}</h2>
         {open.length ? (
-          <ul className="mission-grid">{open.map((mission, i) => <MissionCard key={mission.id} mission={mission} index={i} onOpen={() => onOpen(mission.id)} />)}</ul>
+          <ul className="mission-grid">{open.map((mission, i) => <MissionCard key={mission.id} mission={mission} index={i} onOpen={() => onOpen(mission.id)} crew={crewOf.get(mission.id)} onAssign={onAssign ? () => onAssign(mission.id) : undefined} />)}</ul>
         ) : (
           <p className="cork-empty">Không còn nhiệm vụ nào. Nghỉ tay một chút! ☕</p>
         )}
@@ -199,10 +218,68 @@ export function MissionBoard({ data, isLoading, error, onOpen }: {
       {finished.length ? (
         <section className="cork is-done" aria-label="Nhiệm vụ đã xong">
           <h2 className="cork-title"><span>🏅</span> Đã hoàn thành · {finished.length}</h2>
-          <ul className="mission-grid">{finished.map((mission, i) => <MissionCard key={mission.id} mission={mission} index={i + 1} onOpen={() => onOpen(mission.id)} />)}</ul>
+          <ul className="mission-grid">{finished.map((mission, i) => <MissionCard key={mission.id} mission={mission} index={i + 1} onOpen={() => onOpen(mission.id)} crew={crewOf.get(mission.id)} />)}</ul>
         </section>
       ) : null}
     </div>
+  );
+}
+
+function CrewRow({ member, copy, busy, onGive, onTake }: {
+  member: MissionStaffMember; copy: MissionAssignment | undefined; busy: boolean; onGive: () => void; onTake: () => void;
+}) {
+  const level = member.level ?? LADDER[0];
+  return (
+    <li className={`crew-row${copy ? " is-on" : ""}`} data-bmq-assign-row={member.name}>
+      <svg viewBox="-24 -30 48 52" width="44" height="48" className="crew-face" aria-hidden="true">
+        <circle cx={0} cy={-4} r={21} fill={copy ? C.sageLight : C.cream} stroke={C.ink} strokeWidth={2.5} />
+        <Buddy x={0} y={-5} mood="happy" hat={hatFor(level.level)} face={C.mustardLight} scale={0.8} />
+      </svg>
+      <span className="crew-who">
+        <b>{member.name}</b>
+        <small>Cấp {level.level} · {level.title} · {copy?.status === "completed" ? "đã nộp việc này" : copy ? "đang làm việc này" : `${member.openMissions} việc đang mở`}</small>
+      </span>
+      {copy?.status === "completed" ? <span className="crew-done">✓ Đã nộp</span>
+        : copy ? <button type="button" className="btn ghost" disabled={busy} onClick={onTake} data-bmq-unassign={member.userId}>Rút lại</button>
+        : <button type="button" className="btn" disabled={busy} onClick={onGive} data-bmq-assign={member.userId}>Giao</button>}
+    </li>
+  );
+}
+
+/** Owner (17/10): hand an open mission to staff who may do warehouse work; progress is shared, each submits for their own 🐝. */
+export function AssignSheet({ mission, onClose, onToast }: { mission: Mission; onClose: () => void; onToast: (text: string) => void }) {
+  const staff = useMissionStaff(true);
+  const assignments = useMissionAssignments(true);
+  const assign = useAssignMission();
+  const unassign = useUnassignMission();
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const byUser = new Map((assignments.data ?? []).filter((copy) => copy.parentMissionId === mission.id).map((copy) => [copy.assigneeUserId, copy]));
+  const settle = { onError: (err: unknown) => setError(missionAssignErrorText(err)), onSettled: () => setBusy(null) };
+  const give = (member: MissionStaffMember) => {
+    setBusy(member.userId); setError(null);
+    assign.mutate({ missionId: mission.id, userId: member.userId }, { ...settle, onSuccess: (result) => onToast(`Đã giao “${mission.title}” cho ${result.assigneeName || member.name}`) });
+  };
+  const take = (member: MissionStaffMember, copy: MissionAssignment) => {
+    setBusy(member.userId); setError(null);
+    unassign.mutate({ missionId: copy.missionId }, { ...settle, onSuccess: () => onToast(`Đã rút “${mission.title}” khỏi ${member.name}`) });
+  };
+  return (
+    <Sheet title="Giao nhiệm vụ" tag="👥 Giao việc" sub={mission.title} onClose={onClose}>
+      <p className="hint">Người được giao thấy nhiệm vụ trên bảng của mình. Tiến độ tính chung: ai làm xong phần nào thì phần đó xong cho cả hai. Ai nộp thì người đó nhận 🐝.</p>
+      {staff.isLoading || assignments.isLoading ? <p className="note">Đang tải danh sách nhân viên…</p>
+        : staff.error ? <div className="err">{missionAssignErrorText(staff.error)}</div>
+        : !staff.data?.length ? <p className="note" data-bmq-assign-empty>Chưa có nhân viên nào có quyền sửa kho để nhận nhiệm vụ.</p>
+        : (
+          <ul className="crew-list" data-bmq-assign-list>
+            {staff.data.map((member) => {
+              const copy = byUser.get(member.userId);
+              return <CrewRow key={member.userId} member={member} copy={copy} busy={busy === member.userId} onGive={() => give(member)} onTake={() => copy && take(member, copy)} />;
+            })}
+          </ul>
+        )}
+      {error ? <div className="err" data-bmq-assign-error>{error}</div> : null}
+    </Sheet>
   );
 }
 

@@ -1284,3 +1284,28 @@
   .kg .bulk-places { gap: 6px; }
   .kg .place-chip { min-height: 44px; padding: 4px 8px; }
 }
+
+/* ---- Giao nhiệm vụ (owner 17/10) ---- */
+.kg .mission-slot { position: relative; }
+.kg .mission-note { transform: rotate(var(--tilt, 0deg)); }
+.kg .mission-note.has-assign .mission-icon { margin-right: 92px; }
+.kg .mission-assign {
+  position: absolute; top: 12px; right: 12px; z-index: 1; min-height: 38px; padding: 0 12px; font: inherit; font-size: 14px; font-weight: 900;
+  color: var(--ink); background: var(--mustard-light); border: 2.5px solid var(--ink); border-radius: 10px; box-shadow: 0 3px 0 var(--ink);
+  transform: rotate(var(--tilt, 0deg)); cursor: pointer;
+}
+.kg .mission-assign:active { transform: rotate(var(--tilt, 0deg)) translateY(2px); box-shadow: none; }
+.kg .mission-assign:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+.kg .mission-crew { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.kg .mission-crew small { font-size: 12px; font-weight: 800; color: #6f6a85; }
+.kg .crew-chip { padding: 2px 8px; font-size: 12.5px; font-weight: 800; background: var(--sage-light); border: 2px solid var(--ink); border-radius: 99px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kg .crew-chip.is-done { background: var(--mustard-light); }
+.kg .crew-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.kg .crew-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--white); border: 2.5px solid var(--ink); border-radius: 14px; }
+.kg .crew-row.is-on { background: #eaf3ec; }
+.kg .crew-face { flex: none; overflow: visible; }
+.kg .crew-who { display: grid; flex: 1; min-width: 0; }
+.kg .crew-who b { font-size: 15px; overflow-wrap: anywhere; }
+.kg .crew-who small { font-size: 12px; font-weight: 700; color: #6f6a85; }
+.kg .crew-row .btn { flex: none; min-height: 42px; padding: 0 14px; }
+.kg .crew-done { flex: none; font-size: 13px; font-weight: 900; color: var(--sage-deep, #4f7e6c); }
