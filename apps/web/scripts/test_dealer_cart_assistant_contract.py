@@ -16,6 +16,7 @@ FUNCTIONS = ROOT / "supabase" / "functions"
 EDGE = FUNCTIONS / "dealer-cart-assistant" / "index.ts"
 CATALOG_DATA = FUNCTIONS / "_shared" / "dealer-catalog-data.ts"
 RECENT_ORDERS = FUNCTIONS / "_shared" / "dealer-recent-orders.ts"
+ROUTES_DATA = FUNCTIONS / "_shared" / "dealer-routes-data.ts"
 GATES = FUNCTIONS / "_shared" / "dealer-cart-gates.ts"
 CATALOG_EDGE = FUNCTIONS / "dealer-catalog" / "index.ts"
 MIGRATIONS = ROOT / "supabase" / "migrations"
@@ -34,6 +35,7 @@ def read(path: Path) -> str:
 edge_text = read(EDGE) if EDGE.exists() else ""
 catalog_data_text = read(CATALOG_DATA) if CATALOG_DATA.exists() else ""
 recent_orders_text = read(RECENT_ORDERS) if RECENT_ORDERS.exists() else ""
+routes_data_text = read(ROUTES_DATA) if ROUTES_DATA.exists() else ""
 gates_text = read(GATES) if GATES.exists() else ""
 catalog_edge_text = read(CATALOG_EDGE) if CATALOG_EDGE.exists() else ""
 
@@ -57,6 +59,20 @@ check("logs dealer id, line count, tokens and duration",
       and "lines=${finalProposal?.lines.length" in edge_text
       and "tokens=${totalTokens}" in edge_text
       and "duration_ms=" in edge_text)
+check("logs routeMode", "routeMode=${routeMode}" in edge_text)
+check("imports loadDealerRoutes", "loadDealerRoutes" in edge_text and "dealer-routes-data.ts" in edge_text)
+check("imports normalizeRouteProposal", "normalizeRouteProposal" in edge_text)
+check("route mode uses routes.length", "routes.length > 0" in edge_text)
+check("proposal carries kind routes", 'kind: "routes"' in edge_text)
+check("proposal carries kind products", 'kind: "products"' in edge_text)
+check("route prompt mentions đổi", "đổi" in edge_text)
+check("route prompt mentions bù", "bù" in edge_text)
+check("recent orders select route_customer_id", "route_customer_id" in recent_orders_text)
+check("recent orders select exchange_quantity", "exchange_quantity" in recent_orders_text)
+check("recent orders select makeup_quantity", "makeup_quantity" in recent_orders_text)
+check("recent orders select route_note", "route_note" in recent_orders_text)
+check("routes helper exists", "export async function loadDealerRoutes" in routes_data_text)
+check("routes helper filters by NPP", "supplied_by_npp_customer_id" in routes_data_text)
 
 # ── No sales writes anywhere in the assistant read path ────────────────────
 WRITE_METHOD = re.compile(r"\.(insert|upsert|update|delete)\s*\(")
@@ -64,6 +80,7 @@ for label, text in (
     ("dealer-cart-assistant/index.ts", edge_text),
     ("_shared/dealer-catalog-data.ts", catalog_data_text),
     ("_shared/dealer-recent-orders.ts", recent_orders_text),
+    ("_shared/dealer-routes-data.ts", routes_data_text),
     ("_shared/dealer-cart-gates.ts", gates_text),
 ):
     check(f"{label} has no insert/upsert/update/delete", WRITE_METHOD.search(text) is None)

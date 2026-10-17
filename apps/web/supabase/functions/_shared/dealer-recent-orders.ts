@@ -13,6 +13,11 @@ export type DealerRecentOrderItem = {
   product_name: string;
   unit: string;
   quantity: number;
+  route_customer_id: string | null;
+  route_customer_name: string | null;
+  exchange_quantity: number;
+  makeup_quantity: number;
+  route_note: string | null;
 };
 
 export type DealerRecentOrder = {
@@ -39,6 +44,11 @@ type ItemRow = {
   unit: string | null;
   quantity: number | string | null;
   ordered_quantity: number | string | null;
+  route_customer_id: string | null;
+  route_customer_name: string | null;
+  exchange_quantity: number | string | null;
+  makeup_quantity: number | string | null;
+  route_note: string | null;
 };
 
 const MAX_RECENT_ORDERS = 8;
@@ -73,7 +83,7 @@ export async function loadDealerRecentOrders(
   const orderIds = orders.map((order) => order.id);
   const { data: itemRows, error: itemError } = await supabase
     .from("dealer_order_items")
-    .select("order_id, sku_id, sku_code, product_name, unit, quantity, ordered_quantity")
+    .select("order_id, sku_id, sku_code, product_name, unit, quantity, ordered_quantity, route_customer_id, route_customer_name, exchange_quantity, makeup_quantity, route_note")
     .in("order_id", orderIds)
     .order("created_at", { ascending: true });
 
@@ -88,6 +98,11 @@ export async function loadDealerRecentOrders(
       product_name: item.product_name || item.sku_code || "Sản phẩm BMQ",
       unit: item.unit || "đơn vị",
       quantity: numberValue(item.ordered_quantity ?? item.quantity),
+      route_customer_id: item.route_customer_id || null,
+      route_customer_name: item.route_customer_name || null,
+      exchange_quantity: numberValue(item.exchange_quantity),
+      makeup_quantity: numberValue(item.makeup_quantity),
+      route_note: item.route_note || null,
     });
     itemsByOrder.set(item.order_id, current);
   });
