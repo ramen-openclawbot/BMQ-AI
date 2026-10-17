@@ -1138,6 +1138,8 @@
 /* Kho 3D (2026-10-15): Three.js yard + warehouse; the labels are HTML over the canvas. */
 .kg .k3 { position: absolute; inset: 0; touch-action: none; }
 .kg .k3 > div:first-child { position: absolute !important; inset: 0; }
+.kg .k3-reset { position: absolute; z-index: 6; right: 12px; bottom: calc(max(14px, env(safe-area-inset-bottom)) + 46px); min-height: 40px; padding: 0 14px; border: 2.5px solid var(--ink); border-radius: 999px; background: var(--white); color: var(--ink); font-weight: 900; font-size: 13px; box-shadow: 3px 3px 0 var(--ink); }
+.kg .k3-reset:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--ink); }
 .kg .k3-hint {
   position: absolute; left: 50%; bottom: max(14px, env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 4; pointer-events: none;
   padding: 6px 14px; border-radius: 999px; background: var(--ink); color: var(--cream); font-weight: 800; font-size: 12.5px; white-space: nowrap;

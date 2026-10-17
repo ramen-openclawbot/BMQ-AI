@@ -1412,6 +1412,29 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
   await page.waitForSelector("[data-bmq-warehouse-game]", { timeout: 20000 });
   await page.waitForTimeout(KHO_MODE === "3d" ? 2000 : 1200);
   assert.equal(await page.getByRole("button", { name: "Đặt hàng tự động" }).count(), 0, "no ordering kiosk in the yard");
+  // Owner 17/10 IMG_5826 "Phóng to bị kẹt": the game owns pinch — the page itself never zooms, and the 3D camera has a
+  // one-tap "Toàn cảnh" reset.
+  const guard = await page.evaluate(() => {
+    const g = new Event("gesturestart", { cancelable: true }); document.dispatchEvent(g);
+    let two = null;
+    try {
+      const t = (id, x) => new Touch({ identifier: id, target: document.body, clientX: x, clientY: 200 });
+      const ev = new TouchEvent("touchmove", { cancelable: true, bubbles: true, touches: [t(1, 100), t(2, 200)] });
+      document.body.dispatchEvent(ev); two = ev.defaultPrevented;
+    } catch { two = "n/a"; }
+    return { gesture: g.defaultPrevented, two };
+  });
+  assert.equal(guard.gesture, true, "iOS gesturestart cannot zoom the page");
+  assert.ok(guard.two === true || guard.two === "n/a", `two-finger touchmove cannot zoom the page ${guard.two}`);
+  if (KHO_MODE === "3d") {
+    const reset = page.locator("[data-bmq-3d-reset]");
+    assert.equal(await reset.count(), 1, "Toàn cảnh button");
+    const rb = await reset.boundingBox();
+    assert.ok(rb && rb.x + rb.width <= viewport.width && rb.height >= 36, `reset button usable ${JSON.stringify(rb)}`);
+    await reset.click();
+    await page.waitForTimeout(600);
+    assert.equal(await page.locator("[data-bmq-game-3d='yard']").count(), 1, "yard still renders after reset");
+  }
   for (const name of ["Giao hàng", "Tồn kho", "Kiểm kê", "Danh mục hàng hóa"]) assert.equal(await page.getByRole("button", { name }).count() >= 1, true, `kiosk ${name} still there`);
   await page.screenshot({ path: `${EVIDENCE}/yard-no-auto-${KHO_MODE}-${viewport.width}.png` });
   assert.deepEqual(errors, [], "no page errors");

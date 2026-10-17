@@ -44,7 +44,7 @@ function framing(kind: Game3DProps["kind"], aspect: number) {
   return { base: kind === "yard" ? YARD : ROOM, k: aspect >= 1.2 ? 1 : 1.3 };
 }
 
-function Rig({ scene, focus }: { scene: string; focus: Location | null }) {
+function Rig({ scene, focus, reset }: { scene: string; focus: Location | null; reset: number }) {
   const controls = useRef<CameraControls>(null);
   const { size } = useThree();
   const aspect = size.width / Math.max(1, size.height);
@@ -61,7 +61,7 @@ function Rig({ scene, focus }: { scene: string; focus: Location | null }) {
     void c.setLookAt(eye.x, eye.y, eye.z, base.look.x, base.look.y, base.look.z, true);
     c.minDistance = 8 * Math.min(k, 1.3);
     c.maxDistance = 36 * k;
-  }, [scene, kind, aspect]);
+  }, [scene, kind, aspect, reset]);
 
   useEffect(() => {
     const c = controls.current;
@@ -76,6 +76,8 @@ function Rig({ scene, focus }: { scene: string; focus: Location | null }) {
 
 export default function Game3D(props: Game3DProps) {
   const [focus, setFocus] = useState<Location | null>(null);
+  // "Toàn cảnh" (owner 17/10): one tap brings the camera back to the starting view after any pinch or drag.
+  const [reset, setReset] = useState(0);
   const timer = useRef<number>();
   useEffect(() => () => window.clearTimeout(timer.current), []);
   const scene = props.kind === "yard" ? "yard" : `wh-${props.location}`;
@@ -110,7 +112,7 @@ export default function Game3D(props: Game3DProps) {
           shadow-camera-bottom={-15}
           shadow-bias={-0.0006}
         />
-        <Rig scene={scene} focus={focus} />
+        <Rig scene={scene} focus={focus} reset={reset} />
         {props.kind === "yard" ? (
           <Yard3D counts={props.counts} crates={props.crates} badges={props.badges} onEnter={enter} onZone={props.onZone} />
         ) : (
@@ -127,7 +129,8 @@ export default function Game3D(props: Game3DProps) {
           />
         )}
       </Canvas>
-      <div className="k3-hint">Kéo để xoay · chụm hai ngón để phóng to</div>
+      <button type="button" className="k3-reset" onClick={() => setReset((n) => n + 1)} aria-label="Xem toàn cảnh" data-bmq-3d-reset>⤢ Toàn cảnh</button>
+      <div className="k3-hint">Kéo để xoay · chụm hai ngón để phóng to / thu nhỏ</div>
     </div>
   );
 }

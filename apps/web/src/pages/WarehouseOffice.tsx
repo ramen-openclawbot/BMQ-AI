@@ -21,6 +21,7 @@ import {
 import { resolveImageUrl } from "@/lib/storage-url";
 import { GamePicker } from "@/game/GamePicker";
 import { newRequestId } from "@/game/meta";
+import { usePageZoomGuard } from "@/game/zoomGuard";
 import { loadBasket, saveBasket, type BasketLine } from "@/game/basket";
 import { FLY, Room, type RoomData, type RoomItem } from "@/game/office/Room";
 import { OfficeDocDetail, type DocKey } from "@/game/office/OfficeDocDetail";
@@ -239,6 +240,7 @@ function ApproveBar({ prId, onDone }: { prId: string; onDone: (text: string, ok:
 
 // ---------------------------------------------------------------------------------------------------------------
 export default function WarehouseOffice() {
+  usePageZoomGuard();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const canvasRef = useRef<HTMLCanvasElement>(null);

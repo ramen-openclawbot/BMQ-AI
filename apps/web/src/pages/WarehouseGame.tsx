@@ -34,6 +34,7 @@ import { useCancelStockCount, useSaveStockCountLine, useStartStockCount, useStoc
 import type { StockCountLine, StockCountLocation, StockCountSession } from "@/lib/stock-count";
 import { useSuggestStockItemName } from "@/hooks/useSuggestStockItemName";
 import { InvoiceScanner } from "@/game/InvoiceScanner";
+import { usePageZoomGuard } from "@/game/zoomGuard";
 // Đặt hàng tự động now opens the office ordering room (owner 16/10: "nằm trong máy đặt hàng tự động, thay bản hiện nay");
 // the shared basket key still carries items picked from a shelf here into the room.
 import { basketLineFor, loadBasket, saveBasket, type BasketLine } from "@/game/basket";
@@ -229,6 +230,7 @@ function useGameFonts() {
 }
 
 export default function WarehouseGame() {
+  usePageZoomGuard();
   useGameFonts();
   const portrait = usePortrait();
   const navigate = useNavigate();
