@@ -10,6 +10,10 @@ import { PateRecipeTool } from "./PateProduction";
 import { useMissionSkuCount } from "@/hooks/useMissionSkuCount";
 import { factorPrompt as bomFactorPrompt, type Q7BomMismatchLine } from "@/lib/q7-bom-match";
 import { STOCK_CATALOG_REVIEW_QUERY_KEY } from "@/hooks/useStockCatalog";
+import { useMyManualMissions } from "@/hooks/useManualMissions";
+import type { MyManualMission } from "@/lib/manual-missions";
+import { dueLabel } from "@/lib/manual-missions";
+import { ManualBoardSection, ManualSubmitTool, isManualMissionCode, manualState } from "./ManualMissions";
 import {
   assignmentsByParent, levelProgress, missionAssignErrorText, missionErrorMessage,
   type CompleteMissionResult, type MissionAssignment, type MissionStaffMember, type Mission, type MissionAliasDetail, type MissionBomMismatchDetail, type MissionRecipeDetail, type MissionSkuCountDetail, type MissionCountQuestionsDetail, type MissionDuplicateDetail, type MissionLevel, type MissionMaterialLinksDetail, type MissionUnknownUnitDetail, type MyMissions,
@@ -35,9 +39,10 @@ export const LADDER: MissionLevel[] = [
 
 const hatFor = (level: number): "none" | "cap" | "chef" => (level >= 3 ? "chef" : level === 2 ? "cap" : "none");
 
-type Rule = "alias" | "duplicate" | "units" | "links" | "count" | "bom" | "recipe" | "sku" | "other";
+type Rule = "manual" | "alias" | "duplicate" | "units" | "links" | "count" | "bom" | "recipe" | "sku" | "other";
 
 function ruleOf(mission: Mission): Rule {
+  if (isManualMissionCode(mission.code)) return "manual";
   const kind = mission.progress.detail[0]?.kind;
   if (kind === "sku_count" || mission.code.startsWith("wh-count-bmq")) return "sku";
   if (kind === "recipe" || mission.code.startsWith("wh-tan-tao-pate-recipe")) return "recipe";
@@ -50,7 +55,7 @@ function ruleOf(mission: Mission): Rule {
   return "other";
 }
 
-const RULE_ICON: Record<Rule, string> = { alias: "🏷️", duplicate: "🥐", units: "📏", links: "🧩", count: "⚖️", bom: "🧁", recipe: "🍲", sku: "🥖", other: "📜" };
+const RULE_ICON: Record<Rule, string> = { manual: "📋", alias: "🏷️", duplicate: "🥐", units: "📏", links: "🧩", count: "⚖️", bom: "🧁", recipe: "🍲", sku: "🥖", other: "📜" };
 
 /** Steps shown on the card: the duplicate pair is one decision, the others count rows. */
 export function missionSteps(mission: Mission): { done: number; total: number } {
@@ -158,12 +163,15 @@ function RankCard({ data }: { data: MyMissions }) {
   );
 }
 
-function MissionCard({ mission, index, onOpen, crew, onAssign }: {
+function MissionCard({ mission, index, onOpen, crew, onAssign, manual }: {
   mission: Mission; index: number; onOpen: () => void;
   /** Owner board (17/10): who else has this mission, and the "Giao" button. */
   crew?: MissionAssignment[]; onAssign?: () => void;
+  /** Thẻ tự giao: due date and review state. */
+  manual?: MyManualMission;
 }) {
   const rule = ruleOf(mission);
+  const manualTone = rule === "manual" ? manualState(mission.status, manual?.reviewState ?? null) : null;
   const steps = missionSteps(mission);
   const done = mission.status === "completed";
   const ready = readyToSubmit(mission);
@@ -182,8 +190,15 @@ function MissionCard({ mission, index, onOpen, crew, onAssign }: {
         {mission.description ? <span className="mission-desc">{mission.description}</span> : null}
         <span className="mission-progress">
           <span className="mission-bar"><i style={{ width: `${(steps.done / steps.total) * 100}%` }} /></span>
-          <small>{rule === "duplicate" ? (steps.done ? "Đã chọn cách xử lý" : "Chờ anh chọn") : `${steps.done}/${steps.total} xong`}</small>
+          <small>{manualTone ? manualTone.label : rule === "duplicate" ? (steps.done ? "Đã chọn cách xử lý" : "Chờ anh chọn") : `${steps.done}/${steps.total} xong`}</small>
         </span>
+        {rule === "manual" && manual && !done ? (
+          <span className="mm-card-meta" data-bmq-mm-card-meta>
+            {manual.dueAt ? <em className={`mm-due-chip${new Date(manual.dueAt).getTime() < Date.now() ? " is-late" : ""}`}>{dueLabel(manual.dueAt)}</em> : null}
+            {manual.priority === "high" ? <em className="mm-pri">Gấp</em> : null}
+            {manualTone && manualTone.tone !== "open" ? <em className={`mm-state is-${manualTone.tone}`}>{manualTone.label}</em> : null}
+          </span>
+        ) : null}
         {crew?.length ? (
           <span className="mission-crew" data-bmq-mission-crew>
             <small>Đã giao:</small>
@@ -194,7 +209,7 @@ function MissionCard({ mission, index, onOpen, crew, onAssign }: {
         ) : null}
         <span className="mission-foot">
           <span className="mission-reward"><BeeBadge size={24} /> {mission.badge?.name ?? "Chăm chỉ"}</span>
-          {done ? null : <span className={`mission-go${ready ? " is-ready" : ""}`}>{ready ? "Nộp nhận 🐝" : "Làm"}</span>}
+          {done ? null : <span className={`mission-go${ready ? " is-ready" : ""}`}>{rule === "manual" ? (manual?.reviewState === "pending" ? "Xem" : "Nộp") : ready ? "Nộp nhận 🐝" : "Làm"}</span>}
         </span>
         {done ? <span className="stamp" aria-label="Đã hoàn thành">XONG</span> : null}
       </button>
@@ -206,13 +221,17 @@ function MissionCard({ mission, index, onOpen, crew, onAssign }: {
 }
 
 /** The mission board scene: rank card + cork board of notes. */
-export function MissionBoard({ data, isLoading, error, onOpen, onAssign }: {
+export function MissionBoard({ data, isLoading, error, onOpen, onAssign, onCreateManual, onOpenBatch }: {
   data: MyMissions | undefined; isLoading: boolean; error: unknown; onOpen: (id: string) => void;
   /** Owner only: hand an open mission to a staff member. */
   onAssign?: (id: string) => void;
+  /** Owner only (17/10): write a new card and open a handed-out one. */
+  onCreateManual?: () => void; onOpenBatch?: (batchId: string) => void;
 }) {
   const assignments = useMissionAssignments(Boolean(onAssign));
   const crewOf = assignmentsByParent(assignments.data ?? []);
+  const manual = useMyManualMissions();
+  const manualOf = new Map((manual.data ?? []).map((row) => [row.missionId, row]));
   if (isLoading && !data) return <GameLoading lines={["Mở bảng nhiệm vụ", "Đếm huy hiệu", "Ghim thẻ việc"]} />;
   if (error && !data) return <div className="loading"><div className="err">{missionErrorMessage(error)}</div></div>;
   if (!data) return null;
@@ -224,15 +243,16 @@ export function MissionBoard({ data, isLoading, error, onOpen, onAssign }: {
       <section className="cork" aria-label="Nhiệm vụ đang mở">
         <h2 className="cork-title"><span>📌</span> Nhiệm vụ đang mở · {open.length}</h2>
         {open.length ? (
-          <ul className="mission-grid">{open.map((mission, i) => <MissionCard key={mission.id} mission={mission} index={i} onOpen={() => onOpen(mission.id)} crew={crewOf.get(mission.id)} onAssign={onAssign ? () => onAssign(mission.id) : undefined} />)}</ul>
+          <ul className="mission-grid">{open.map((mission, i) => <MissionCard key={mission.id} mission={mission} index={i} onOpen={() => onOpen(mission.id)} crew={crewOf.get(mission.id)} onAssign={onAssign && !isManualMissionCode(mission.code) ? () => onAssign(mission.id) : undefined} manual={manualOf.get(mission.id)} />)}</ul>
         ) : (
           <p className="cork-empty">Không còn nhiệm vụ nào. Nghỉ tay một chút! ☕</p>
         )}
       </section>
+      {onCreateManual && onOpenBatch ? <ManualBoardSection onCreate={onCreateManual} onOpenBatch={onOpenBatch} /> : null}
       {finished.length ? (
         <section className="cork is-done" aria-label="Nhiệm vụ đã xong">
           <h2 className="cork-title"><span>🏅</span> Đã hoàn thành · {finished.length}</h2>
-          <ul className="mission-grid">{finished.map((mission, i) => <MissionCard key={mission.id} mission={mission} index={i + 1} onOpen={() => onOpen(mission.id)} crew={crewOf.get(mission.id)} />)}</ul>
+          <ul className="mission-grid">{finished.map((mission, i) => <MissionCard key={mission.id} mission={mission} index={i + 1} onOpen={() => onOpen(mission.id)} crew={crewOf.get(mission.id)} manual={manualOf.get(mission.id)} />)}</ul>
         </section>
       ) : null}
     </div>
@@ -711,6 +731,8 @@ export function MissionSheet({ mission, onClose, onToast, onCompleted, onOpenQue
   const complete = useCompleteMission();
   const [requestId] = useState(newRequestId);
   const rule = ruleOf(mission);
+  const manualMissions = useMyManualMissions();
+  const manual = rule === "manual" ? manualMissions.data?.find((row) => row.missionId === mission.id) : undefined;
   const done = mission.status === "completed";
   const detail = mission.progress.detail;
   const aliases = detail.filter((row): row is MissionAliasDetail => row.kind === "alias_factor_fixed");
@@ -724,10 +746,12 @@ export function MissionSheet({ mission, onClose, onToast, onCompleted, onOpenQue
   const steps = missionSteps(mission);
 
   return (
-    <Sheet title={mission.title} tag={`${RULE_ICON[rule]} Nhiệm vụ`} sub={`Thưởng: 🐝 ${mission.badge?.name ?? "Chăm chỉ"} · ${rule === "duplicate" ? (steps.done ? "đã chọn" : "1 quyết định") : `${steps.done}/${steps.total} xong`}`} onClose={onClose}>
+    <Sheet title={mission.title} tag={`${RULE_ICON[rule]} Nhiệm vụ`} sub={`Thưởng: 🐝 ${mission.badge?.name ?? "Chăm chỉ"} · ${rule === "manual" ? "anh duyệt là xong" : rule === "duplicate" ? (steps.done ? "đã chọn" : "1 quyết định") : `${steps.done}/${steps.total} xong`}`} onClose={onClose}>
       {mission.description ? <p className="note">{mission.description}</p> : null}
       {done ? (
-        <div className="done-box"><BeeBadge size={54} /><span><b>Đã hoàn thành</b><small>{mission.completed_at ? new Date(mission.completed_at).toLocaleString("vi-VN") : ""}</small></span></div>
+        <div className="done-box"><BeeBadge size={54} /><span><b>Đã hoàn thành{manual?.lastSubmission?.rating ? ` · ${manual.lastSubmission.rating}★` : ""}</b><small>{mission.completed_at ? new Date(mission.completed_at).toLocaleString("vi-VN") : ""}</small></span></div>
+      ) : rule === "manual" ? (
+        <ManualSubmitTool manual={manual} missionId={mission.id} onToast={onToast} />
       ) : (
         <>
           {rule === "alias" ? (

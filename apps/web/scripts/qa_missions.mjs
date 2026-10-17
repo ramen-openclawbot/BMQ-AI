@@ -138,6 +138,31 @@ function settle(st) {
     window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args));
     return { data: { mission_id: st.args.p_mission_id, sku_code: "BMQ-001", counted_qty: st.args.p_counted_qty, result: { status: "created" } }, error: null };
   }
+  // Thẻ nhiệm vụ tự giao (owner 17/10): batches, staff and the staff member's own cards live in page memory.
+  if (/^rpc:(get_my_manual_missions|get_manual_missions_overview|get_manual_mission_staff|create_manual_mission|submit_manual_mission|review_manual_mission|cancel_manual_mission|add_manual_mission_assignee)$/.test(st.table)) {
+    const M = window.__msFixture.manual_state;
+    if (st.table === "rpc:get_my_manual_missions") return { data: M.my, error: null };
+    if (st.table === "rpc:get_manual_missions_overview") return { data: M.batches, error: null };
+    if (st.table === "rpc:get_manual_mission_staff") return { data: M.staff, error: null };
+    window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args));
+    const a = st.args;
+    if (st.table === "rpc:create_manual_mission") return { data: { batch_id: "b-new", missions: a.p_assignee_ids.map((id, i) => ({ mission_id: "m-new-" + i, assignee_user_id: id, assignee_name: (M.staff.find((x) => x.user_id === id) || {}).name || "?" })) }, error: null };
+    if (st.table === "rpc:submit_manual_mission") {
+      const row = M.my.find((r) => r.mission_id === a.p_mission_id);
+      const sub = { id: "s-new", mission_id: a.p_mission_id, submitted_by: "qa-user", note: a.p_note, number_value: a.p_number, photo_paths: a.p_photo_paths, checklist: a.p_checklist, review_status: "pending", review_note: null, rating: null, created_at: new Date().toISOString() };
+      if (row) { row.review_state = "pending"; row.last_submission = sub; row.submissions_count += 1; }
+      return { data: sub, error: null };
+    }
+    if (st.table === "rpc:review_manual_mission") {
+      for (const b of M.batches) for (const x of b.assignees) if (x.last_submission && x.last_submission.id === a.p_submission_id) {
+        x.review_state = a.p_approve ? "approved" : "returned"; x.last_submission.review_status = x.review_state; x.last_submission.review_note = a.p_note; x.last_submission.rating = a.p_rating;
+        if (a.p_approve) { x.status = "completed"; x.completed_at = new Date().toISOString(); }
+      }
+      return { data: { submission_id: a.p_submission_id, mission_id: "m", review_status: a.p_approve ? "approved" : "returned", rating: a.p_rating, badge_awarded: Boolean(a.p_approve), level_before: null, level_after: null }, error: null };
+    }
+    if (st.table === "rpc:cancel_manual_mission") { for (const b of M.batches) for (const x of b.assignees) if (x.mission_id === a.p_mission_id) x.status = "cancelled"; return { data: { mission_id: a.p_mission_id, status: "cancelled" }, error: null }; }
+    return { data: { mission_id: "m-added", status: "open" }, error: null };
+  }
   if (st.table === "rpc:get_my_missions") {
     if (cfg().missionsError) return { data: null, error: { message: "QA fixture: missions down" } };
     return { data: window.__msFixture[cfg().missions || "three_open_partial"], error: null };
@@ -377,7 +402,7 @@ export const supabase = {
   rpc: (fn, args) => builder("rpc:" + fn, args),
   schema: () => ({ from: (table) => builder(table), rpc: (fn) => builder("rpc:" + fn) }),
   functions: { invoke: async (name) => { window.__qaWrites.push("invoke:" + name); return { data: null, error: { message: "QA fixture: functions disabled" } }; } },
-  storage: { from: () => ({ getPublicUrl: () => ({ data: { publicUrl: "" } }), createSignedUrl: async (path) => ({ data: { signedUrl: "data:image/svg+xml;utf8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="600" height="840"><rect width="600" height="840" fill="#fff"/><text x="40" y="80" font-size="40" font-family="sans-serif">PHIẾU GIAO HÀNG</text><text x="40" y="140" font-size="22" font-family="sans-serif">' + String(path).slice(-28) + '</text></svg>') }, error: null }), list: async () => ({ data: [], error: null }), upload: async () => ({ data: null, error: { message: "QA fixture: writes disabled" } }), download: async () => ({ data: null, error: null }) }) },
+  storage: { from: (bucket) => ({ upload: async (path) => { window.__qaWrites.push("upload:" + bucket + ":" + path); return { data: { path }, error: null }; }, getPublicUrl: () => ({ data: { publicUrl: "" } }), createSignedUrl: async (path) => ({ data: { signedUrl: "data:image/svg+xml;utf8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="600" height="840"><rect width="600" height="840" fill="#fff"/><text x="40" y="80" font-size="40" font-family="sans-serif">PHIẾU GIAO HÀNG</text><text x="40" y="140" font-size="22" font-family="sans-serif">' + String(path).slice(-28) + '</text></svg>') }, error: null }), list: async () => ({ data: [], error: null }), download: async () => ({ data: null, error: null }) }) },
   auth: {
     getSession: async () => ({ data: { session: { access_token: "qa-fixture-token", user } }, error: null }),
     getUser: async () => ({ data: { user }, error: null }),
@@ -474,7 +499,37 @@ const skuFixture = structuredClone(MS_RAW.three_open_partial);
 skuFixture.missions = [skuMission({ counted_at: null, counted_qty: null })];
 const skuDoneFixture = structuredClone(MS_RAW.three_open_partial);
 skuDoneFixture.missions = [skuMission({ counted_at: "2026-10-17T10:31:18+00:00", counted_qty: 60 })];
-const MS_FIXTURE = { ...MS_RAW, ready, count: countFixture, bom: bomFixture, recipe: recipeFixture, sku: skuFixture, sku_done: skuDoneFixture };
+// Thẻ tự giao: one card for the staff member, and two handed-out batches on the owner's side.
+const MM_EVIDENCE = { photo: "required", note: "optional", number: { label: "Số thùng đếm được", unit: "thùng" }, checklist: ["Dán nhãn ngày", "Xếp lên kệ số 3"] };
+const mmSub = (id, extra = {}) => ({ id, note: "Đã đếm và xếp gọn", number_value: 12, photo_paths: ["m-mai/a.jpg", "m-mai/b.jpg"], checklist: [true, true], review_status: "pending", review_note: null, rating: null, created_at: "2026-10-17T09:30:00Z", ...extra });
+const DUE_SOON = new Date(Date.now() + 5 * 3600_000).toISOString();
+const MANUAL_STATE = {
+  staff: [
+    { user_id: "u-mai", name: "Xuan Mai", email: "mai@bmq.test", level: { level: 1, title: "Nhân viên mới", min_badges: 0 }, open_missions: 1 },
+    { user_id: "u-mi", name: "Mi Ái", email: "mi@bmq.test", level: { level: 2, title: "Nhân viên kho", min_badges: 3 }, open_missions: 0 },
+    { user_id: "u-ktt", name: "KTT BMQ", email: "ktt@bmq.test", level: null, open_missions: 0 },
+  ],
+  batches: [
+    { batch_id: "b-1", title: "Kiểm kê bơ ở Q7", description: "Đếm hết bơ trong tủ mát Q7, chụp ảnh từng kệ.", due_at: DUE_SOON, priority: "high", location: "q7", evidence: MM_EVIDENCE, created_at: "2026-10-17T08:00:00Z", assignees: [
+      { mission_id: "m-mai", user_id: "u-mai", name: "Xuan Mai", status: "open", review_state: "pending", completed_at: null, last_submission: mmSub("s-mai") },
+      { mission_id: "m-mi", user_id: "u-mi", name: "Mi Ái", status: "open", review_state: null, completed_at: null, last_submission: null },
+    ] },
+    { batch_id: "b-2", title: "Dọn kệ bao bì Tân Tạo", description: null, due_at: null, priority: "normal", location: "tan_tao", evidence: { photo: "optional", note: "required", number: null, checklist: [] }, created_at: "2026-10-16T08:00:00Z", assignees: [
+      { mission_id: "m-ktt", user_id: "u-ktt", name: "KTT BMQ", status: "open", review_state: "pending", completed_at: null, last_submission: mmSub("s-ktt", { number_value: null, checklist: [], photo_paths: [] }) },
+    ] },
+  ],
+  my: [
+    { mission_id: "mm-1", batch_id: "b-9", title: "Chụp ảnh tủ mát Q7", due_at: DUE_SOON, priority: "high", location: "q7", evidence: MM_EVIDENCE, created_by_name: "Tâm Vũ", created_at: "2026-10-17T08:00:00Z", review_state: null, last_submission: null, submissions_count: 0 },
+    { mission_id: "mm-2", batch_id: "b-8", title: "Ghi số thùng bánh mì", due_at: null, priority: "normal", location: null, evidence: { photo: "none", note: "required", number: null, checklist: [] }, created_by_name: "Tâm Vũ", created_at: "2026-10-16T08:00:00Z", review_state: "returned", last_submission: { id: "s-old", note: "xong", number_value: null, photo_paths: [], checklist: [], review_status: "returned", review_note: "Ghi rõ số thùng từng loại", rating: null, created_at: "2026-10-16T09:00:00Z" }, submissions_count: 1 },
+  ],
+};
+const manualFixture = structuredClone(MS_RAW.three_open_partial);
+manualFixture.missions = [
+  { ...manualFixture.missions[0], id: "mm-1", code: "manual-b9b9b9b9b9@0000aaaa", title: "Chụp ảnh tủ mát Q7", description: "Chụp từng ngăn tủ mát, đếm số thùng bơ.", area: "manual", sort_order: 100, progress: { done: false, total: 1, left: 1, detail: [] } },
+  { ...manualFixture.missions[0], id: "mm-2", code: "manual-b8b8b8b8b8@0000aaaa", title: "Ghi số thùng bánh mì", description: null, area: "manual", sort_order: 100, progress: { done: false, total: 1, left: 1, detail: [] } },
+  ...manualFixture.missions.slice(1),
+];
+const MS_FIXTURE = { ...MS_RAW, manual_state: MANUAL_STATE, manual: manualFixture, ready, count: countFixture, bom: bomFixture, recipe: recipeFixture, sku: skuFixture, sku_done: skuDoneFixture };
 const KG_FIXTURE = JSON.parse(fs.readFileSync(path.join(ROOT, "scripts/qa_warehouse_game.fixture.json"), "utf8"));
 async function open(cfg, route, viewport, extra = {}) {
   const context = await browser.newContext({ viewport, reducedMotion: extra.reducedMotion || "reduce", locale: "vi-VN" });
@@ -495,7 +550,7 @@ async function open(cfg, route, viewport, extra = {}) {
   await page.goto(BASE + route, { waitUntil: "domcontentloaded" });
   // Duyệt chi now opens on "Chưa thanh toán" (Trình chi gấp); these checks cover the full list.
   if (route === "/payment-requests") await page.locator("[data-bmq-pr-view-all]").click({ timeout: 15000 });
-  await page.waitForSelector(route === "/warehouse/game" ? "[data-bmq-warehouse-game]" : "[data-bmq-shell='demo3-v1']", { timeout: 30000 });
+  await page.waitForSelector(route.startsWith("/warehouse/game") ? "[data-bmq-warehouse-game]" : "[data-bmq-shell='demo3-v1']", { timeout: 30000 });
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(250);
   return { context, page, errors };
@@ -890,6 +945,166 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     record("assign missions hidden for staff 390");
     await context.close();
   }
+}
+// Thẻ nhiệm vụ tự giao GĐ1 (owner 17/10).
+const PNG_1PX = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+const mmWrites = async (page, name) => (await writes(page)).filter((x) => x.startsWith(`rpc:${name}:`)).map((x) => JSON.parse(x.slice(`rpc:${name}:`.length)));
+const tapTargets = (page, scope) => page.evaluate((sel) => [...document.querySelectorAll(`${sel} button, ${sel} input:not([type=checkbox]):not([type=file]), ${sel} textarea`)].filter((el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height < 34; }).map((el) => el.outerHTML.slice(0, 70)), scope);
+for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 640 }]) {
+  const w = viewport.width;
+  // Owner: write a card, review hand-ins, withdraw one.
+  {
+    const { context, page, errors } = await open({ data: "populated", role: "owner", missions: "three_open_partial" }, "/warehouse/game", viewport);
+    await page.waitForTimeout(700);
+    await board(page);
+    await page.waitForSelector("[data-bmq-mm-board] [data-bmq-mm-batch]", { timeout: 8000 });
+    assert.equal(await page.locator("[data-bmq-mm-batch]").count(), 2, "two handed-out batches");
+    assert.match(await page.locator("[data-bmq-mm-board] .cork-title").textContent(), /2 chờ duyệt/);
+    assert.match(await page.locator("[data-bmq-mm-batch='Kiểm kê bơ ở Q7']").textContent(), /Gấp[\s\S]*Còn 5 giờ[\s\S]*Xuan Mai · 📨 Chờ duyệt[\s\S]*Mi Ái · Đang làm/);
+    assert.equal(await overflow(page), 0, `owner board no overflow ${w}`);
+    await page.locator("[data-bmq-mm-board]").scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `${EVIDENCE}/mm-board-${w}.png` });
+    // Create.
+    await page.locator("[data-bmq-manual-create]").click();
+    await page.waitForSelector("[data-bmq-mm-create]", { timeout: 5000 });
+    assert.equal(await page.locator("[data-bmq-mm-send]").isDisabled(), true, "empty form cannot be sent");
+    await page.locator("[data-bmq-mm-title]").fill("Kiểm kê bao bì Tân Tạo");
+    await page.locator("[data-bmq-mm-desc]").fill("Đếm thùng giấy và bao ly, ghi số vào thẻ.");
+    await page.locator("[data-bmq-mm-person='Xuan Mai']").click();
+    await page.locator("[data-bmq-mm-person='Mi Ái']").click();
+    await page.locator("[data-bmq-mm-seg='priority:high']").click();
+    await page.locator("[data-bmq-mm-seg='place:tan_tao']").click();
+    await page.locator("[data-bmq-mm-seg='photo:required']").click();
+    await page.locator("[data-bmq-mm-number-on]").check();
+    assert.equal(await page.locator("[data-bmq-mm-send]").isDisabled(), true, "number needs a label");
+    await page.locator("[data-bmq-mm-number-label]").fill("Số thùng đếm được");
+    await page.locator("[data-bmq-mm-number-unit]").fill("thùng");
+    await page.locator("[data-bmq-mm-check-input]").fill("Dán nhãn ngày");
+    await page.locator("[data-bmq-mm-check-add]").click();
+    await page.locator("[data-bmq-mm-check-input]").fill("Chụp kệ sau khi xếp");
+    await page.locator("[data-bmq-mm-check-input]").press("Enter");
+    assert.equal(await overflow(page), 0, `create sheet no overflow ${w}`);
+    assert.deepEqual(await tapTargets(page, ".kg .sheet"), [], `create sheet tap targets ${w}`);
+    await page.screenshot({ path: `${EVIDENCE}/mm-create-${w}.png`, fullPage: false });
+    await page.evaluate(() => { window.__qaWrites.length = 0; });
+    await page.locator("[data-bmq-mm-send]").click();
+    await page.waitForTimeout(500);
+    const [created] = await mmWrites(page, "create_manual_mission");
+    assert.ok(created, "create sent");
+    assert.equal(created.p_title, "Kiểm kê bao bì Tân Tạo");
+    assert.deepEqual(created.p_assignee_ids.sort(), ["u-mai", "u-mi"]);
+    assert.equal(created.p_priority, "high");
+    assert.equal(created.p_location, "tan_tao");
+    assert.deepEqual(created.p_evidence, { photo: "required", note: "optional", number: { label: "Số thùng đếm được", unit: "thùng" }, checklist: ["Dán nhãn ngày", "Chụp kệ sau khi xếp"] });
+    assert.ok(created.p_due_at && created.p_due_at.endsWith("T10:00:00.000Z"), `due tomorrow 17:00 VN: ${created.p_due_at}`);
+    assert.ok(created.p_request_id, "request id");
+    assert.match(await page.locator(".kg .toast").textContent(), /Đã giao “Kiểm kê bao bì Tân Tạo” cho 2 người · đã báo nhóm Zalo Kho/);
+    // Review: approve Mai with 4 stars.
+    await page.waitForTimeout(400);
+    await page.locator("[data-bmq-mm-batch='Kiểm kê bơ ở Q7']").click();
+    await page.waitForSelector("[data-bmq-mm-batch-sheet]", { timeout: 5000 });
+    await page.waitForFunction(() => document.querySelectorAll("[data-bmq-mm-assignee='Xuan Mai'] .mm-photos img").length === 2, null, { timeout: 5000 });
+    await page.waitForTimeout(600); // the notebook sheet slides in over 0.45 s
+    assert.match(await page.locator("[data-bmq-mm-assignee='Xuan Mai'] [data-bmq-mm-evidence]").textContent(), /Số thùng đếm được12 thùng[\s\S]*Đã đếm và xếp gọn[\s\S]*✅ Dán nhãn ngày[\s\S]*✅ Xếp lên kệ số 3/);
+    assert.equal(await overflow(page), 0, `batch sheet no overflow ${w}`);
+    assert.deepEqual(await tapTargets(page, ".kg .sheet"), [], `batch sheet tap targets ${w}`);
+    await page.screenshot({ path: `${EVIDENCE}/mm-review-${w}.png` });
+    await page.locator("[data-bmq-mm-assignee='Xuan Mai'] .mm-photos button").first().click();
+    await page.waitForSelector("[data-bmq-mm-viewer]", { timeout: 3000 });
+    await page.getByRole("button", { name: "Đóng ảnh" }).click();
+    await page.evaluate(() => { window.__qaWrites.length = 0; });
+    await page.locator("[data-bmq-mm-assignee='Xuan Mai'] [data-bmq-mm-star='4']").click();
+    await page.locator("[data-bmq-mm-approve='Xuan Mai']").click();
+    await page.waitForTimeout(500);
+    assert.deepEqual(await mmWrites(page, "review_manual_mission"), [{ p_submission_id: "s-mai", p_approve: true, p_rating: 4, p_note: null }]);
+    assert.match(await page.locator(".kg .toast").textContent(), /Đã duyệt Xuan Mai · 4★/);
+    await page.waitForSelector("[data-bmq-mm-assignee='Xuan Mai'].is-done", { timeout: 5000 });
+    // Withdraw Mi Ái (two taps).
+    await page.locator("[data-bmq-mm-cancel='Mi Ái']").click();
+    await page.locator("[data-bmq-mm-cancel-yes]").click();
+    await page.waitForTimeout(400);
+    assert.deepEqual(await mmWrites(page, "cancel_manual_mission"), [{ p_mission_id: "m-mi" }]);
+    await closeSheet(page);
+    // Return KTT with a reason (the reason is required).
+    await page.locator("[data-bmq-mm-batch='Dọn kệ bao bì Tân Tạo']").click();
+    await page.waitForSelector("[data-bmq-mm-return='KTT BMQ']", { timeout: 5000 });
+    await page.locator("[data-bmq-mm-return='KTT BMQ']").click();
+    assert.equal(await page.locator("[data-bmq-mm-return-send]").isDisabled(), true, "return needs a reason");
+    await page.locator("[data-bmq-mm-reason]").fill("Chưa thấy ảnh kệ sau khi dọn");
+    await page.evaluate(() => { window.__qaWrites.length = 0; });
+    await page.locator("[data-bmq-mm-return-send]").click();
+    await page.waitForTimeout(500);
+    assert.deepEqual(await mmWrites(page, "review_manual_mission"), [{ p_submission_id: "s-ktt", p_approve: false, p_rating: null, p_note: "Chưa thấy ảnh kệ sau khi dọn" }]);
+    assert.deepEqual(errors, [], "no page errors (owner)");
+    record(`manual missions owner ${w}`);
+    await context.close();
+  }
+  // Staff: the card on the board, hand in photo + number + ticks; a returned card shows why.
+  {
+    const { context, page, errors } = await open({ data: "populated", role: "limited", name: "Xuan Mai", missions: "manual" }, "/warehouse/game", viewport);
+    await page.waitForTimeout(700);
+    await board(page);
+    assert.equal(await page.locator("[data-bmq-mm-board], [data-bmq-manual-create]").count(), 0, "staff see no owner section");
+    const card = page.locator("[data-bmq-mission='manual-b9b9b9b9b9@0000aaaa']");
+    await card.waitFor({ timeout: 5000 });
+    assert.match(await card.textContent(), /Chụp ảnh tủ mát Q7[\s\S]*Còn 5 giờ[\s\S]*Gấp/);
+    assert.match(await page.locator("[data-bmq-mission='manual-b8b8b8b8b8@0000aaaa']").textContent(), /↩️ Làm lại/);
+    await page.screenshot({ path: `${EVIDENCE}/mm-staff-board-${w}.png` });
+    await card.click({ force: true });
+    await page.waitForSelector("[data-bmq-mm-submit-form]", { timeout: 5000 });
+    assert.equal(await page.locator(".kg .sheet [data-bmq-mission-submit]").count(), 0, "no auto-check submit bar on manual cards");
+    assert.match(await page.locator(".kg .sheet .mm-req").textContent(), /Chụp ảnh \(bắt buộc\)[\s\S]*Số thùng đếm được \(thùng\)[\s\S]*Dán nhãn ngày[\s\S]*Xếp lên kệ số 3/);
+    assert.equal(await page.locator("[data-bmq-mm-submit]").isDisabled(), true, "nothing handed in yet");
+    await page.locator("[data-bmq-mm-file]").setInputFiles([{ name: "ke so 3.png", mimeType: "image/png", buffer: PNG_1PX }]);
+    await page.locator("[data-bmq-mm-number]").fill("1.234");
+    await page.locator("[data-bmq-mm-note]").fill("Tủ 2 còn 3 thùng chưa dán nhãn");
+    await page.locator("[data-bmq-mm-tick='0']").check();
+    assert.equal(await page.locator("[data-bmq-mm-submit]").isDisabled(), true, "checklist incomplete");
+    await page.locator("[data-bmq-mm-tick='1']").check();
+    assert.equal(await overflow(page), 0, `submit form no overflow ${w}`);
+    assert.deepEqual(await tapTargets(page, ".kg .sheet"), [], `submit form tap targets ${w}`);
+    await page.screenshot({ path: `${EVIDENCE}/mm-submit-${w}.png` });
+    await page.evaluate(() => { window.__qaWrites.length = 0; });
+    await page.locator("[data-bmq-mm-submit]").click();
+    await page.waitForTimeout(600);
+    const all = await writes(page);
+    const upload = all.find((x) => x.startsWith("upload:mission-evidence:mm-1/"));
+    assert.ok(upload && /ke-so-3\.png$/.test(upload), `photo uploaded under the mission folder: ${JSON.stringify(all)} err=${await page.locator(".kg .sheet [data-bmq-mm-error]").textContent().catch(() => "")}`);
+    const [sent] = await mmWrites(page, "submit_manual_mission");
+    assert.equal(sent.p_mission_id, "mm-1");
+    assert.equal(sent.p_number, 1234, "Vietnamese thousands parsed");
+    assert.deepEqual(sent.p_checklist, [true, true]);
+    assert.equal(sent.p_photo_paths.length, 1);
+    assert.ok(sent.p_photo_paths[0].startsWith("mm-1/"));
+    assert.ok(sent.p_request_id);
+    await page.waitForSelector("[data-bmq-mm-waiting]", { timeout: 5000 });
+    await closeSheet(page);
+    await page.locator("[data-bmq-mission='manual-b8b8b8b8b8@0000aaaa']").click({ force: true });
+    await page.waitForSelector("[data-bmq-mm-returned]", { timeout: 5000 });
+    assert.match(await page.locator("[data-bmq-mm-returned]").textContent(), /Ghi rõ số thùng từng loại/);
+    assert.equal(await page.locator("[data-bmq-mm-add-photo]").count(), 0, "photo-less card has no photo picker");
+    assert.deepEqual(errors, [], "no page errors (staff)");
+    record(`manual missions staff ${w}`);
+    await context.close();
+  }
+}
+// Zalo link: /warehouse/game?mission=<id> opens the card straight away.
+{
+  const { context, page, errors } = await open({ data: "populated", role: "limited", name: "Xuan Mai", missions: "manual" }, "/warehouse/game?mission=mm-1", { width: 390, height: 844 });
+  await page.waitForSelector("[data-bmq-mm-submit-form]", { timeout: 10000 });
+  assert.match(await page.locator(".kg .sheet h2").first().textContent(), /Chụp ảnh tủ mát Q7/);
+  assert.equal(new URL(page.url()).search, "", "link parameter cleared");
+  assert.deepEqual(errors, []);
+  record("manual missions zalo link 390");
+  await context.close();
+}
+{
+  const { context, page, errors } = await open({ data: "populated", role: "owner", missions: "three_open_partial" }, "/warehouse/game?mission=m-mai", { width: 1440, height: 900 });
+  await page.waitForSelector("[data-bmq-mm-batch-sheet]", { timeout: 10000 });
+  assert.match(await page.locator(".kg .sheet h2").first().textContent(), /Kiểm kê bơ ở Q7/);
+  assert.deepEqual(errors, []);
+  record("manual missions zalo link owner 1440");
+  await context.close();
 }
 await browser.close();
 await server.close();

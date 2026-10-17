@@ -17,6 +17,8 @@ import { CLASS_META, ITEM_UNITS, asClass, fmtQty, newRequestId, normalizeName, t
 import { STATION_META, STATION_ORDER, Workshop, type StationId } from "@/game/Workshop";
 import { StationView } from "@/game/Stations";
 import { AssignSheet, Ceremony, MissionBoard, MissionHudButton, MissionSheet } from "@/game/Missions";
+import { BatchSheet, CreateMissionSheet } from "@/game/ManualMissions";
+import { useManualMissionsOverview } from "@/hooks/useManualMissions";
 import { useMyMissions } from "@/hooks/useMissions";
 import type { CompleteMissionResult } from "@/lib/missions";
 import { useAuth } from "@/contexts/AuthContext";
@@ -66,6 +68,8 @@ type Panel =
   | { kind: "crate"; location: WarehouseGameLocation; crate: WarehouseGamePendingRow }
   | { kind: "mission"; id: string }
   | { kind: "mission-assign"; id: string }
+  | { kind: "manual-create" }
+  | { kind: "manual-batch"; batchId: string }
   | { kind: "transfers"; location: WarehouseGameLocation; prefill?: string }
   | { kind: "finished"; mode: FinishedGoodsMode; prefill?: string }
   | { kind: "pate" }
@@ -239,10 +243,14 @@ export default function WarehouseGame() {
   const q7 = useWarehouseGameSnapshot("q7");
   const tt = useWarehouseGameSnapshot("tan_tao");
   const snaps: Record<WarehouseGameLocation, WarehouseGameSnapshot | undefined> = { q7: q7.data, tan_tao: tt.data };
+  // Zalo links (17/10): ?mission=<id> opens that card on the mission board.
+  const [linkedMission, setLinkedMission] = useState<string | null>(() => new URLSearchParams(window.location.search).get("mission"));
   const [view, setView] = useState<View>(() => {
     // Back from the ordering room (?enter=tan_tao|q7) lands inside that warehouse, not in the yard.
-    const enter = new URLSearchParams(window.location.search).get("enter");
+    const params = new URLSearchParams(window.location.search);
+    const enter = params.get("enter");
     if (enter === "tan_tao" || enter === "q7") { history.replaceState(null, "", window.location.pathname); return { kind: "warehouse", location: enter }; }
+    if (params.get("mission")) { history.replaceState(null, "", window.location.pathname); return { kind: "missions" }; }
     return { kind: "yard" };
   });
   // Đặt hàng tự động (owner 14/10): the basket survives moving between scenes within the tab.
@@ -276,6 +284,21 @@ export default function WarehouseGame() {
   const canLinkQuest = isOwner || canEditModule("material_master");
   const ttLinks = useMaterialLinkReview("tan_tao", canLinkQuest);
   const missions = useMyMissions();
+  const manualOverview = useManualMissionsOverview(isOwner && Boolean(linkedMission));
+  // Open the linked card once the board has loaded: the staff member's own card, or (owner) the handed-out batch.
+  useEffect(() => {
+    if (!linkedMission || !missions.data) return;
+    if (missions.data.missions.some((mission) => mission.id === linkedMission)) {
+      setPanel({ kind: "mission", id: linkedMission });
+      setLinkedMission(null);
+      return;
+    }
+    if (!isOwner) { setLinkedMission(null); return; }
+    if (!manualOverview.data) return;
+    const batch = manualOverview.data.find((entry) => entry.assignees.some((a) => a.missionId === linkedMission));
+    if (batch) setPanel({ kind: "manual-batch", batchId: batch.batchId });
+    setLinkedMission(null);
+  }, [linkedMission, missions.data, manualOverview.data, isOwner]);
   const [ceremony, setCeremony] = useState<{ result: CompleteMissionResult; title: string } | null>(null);
   // Kiểm kê (owner 12/10): one open count sheet per warehouse.
   const countQ7 = useStockCountReview("q7");
@@ -455,7 +478,7 @@ export default function WarehouseGame() {
 
         {view.kind === "missions" ? (
           <Scene id="missions" scroll>
-            <MissionBoard data={missions.data} isLoading={missions.isLoading} error={missions.error} onOpen={(id) => setPanel({ kind: "mission", id })} onAssign={isOwner ? (id) => setPanel({ kind: "mission-assign", id }) : undefined} />
+            <MissionBoard data={missions.data} isLoading={missions.isLoading} error={missions.error} onOpen={(id) => setPanel({ kind: "mission", id })} onAssign={isOwner ? (id) => setPanel({ kind: "mission-assign", id }) : undefined} onCreateManual={isOwner ? () => setPanel({ kind: "manual-create" }) : undefined} onOpenBatch={isOwner ? (batchId) => setPanel({ kind: "manual-batch", batchId }) : undefined} />
           </Scene>
         ) : null}
 
@@ -719,6 +742,9 @@ export default function WarehouseGame() {
           const mission = missions.data?.missions.find((entry) => entry.id === panel.id);
           return mission ? <AssignSheet key={mission.id} mission={mission} onClose={() => setPanel(null)} onToast={setToast} /> : null;
         })() : null}
+
+        {panel?.kind === "manual-create" ? <CreateMissionSheet onClose={() => setPanel(null)} onToast={setToast} /> : null}
+        {panel?.kind === "manual-batch" ? <BatchSheet key={panel.batchId} batchId={panel.batchId} onClose={() => setPanel(null)} onToast={setToast} /> : null}
 
         {panel?.kind === "count-review" && countSession ? (
           <ReviewSheet

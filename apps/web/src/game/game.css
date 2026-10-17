@@ -1329,3 +1329,96 @@
 .kg .crew-who small { font-size: 12px; font-weight: 700; color: #6f6a85; }
 .kg .crew-row .btn { flex: none; min-height: 42px; padding: 0 14px; }
 .kg .crew-done { flex: none; font-size: 13px; font-weight: 900; color: var(--sage-deep, #4f7e6c); }
+
+/* ---- Thẻ nhiệm vụ tự giao (owner 17/10, GĐ1) ---- */
+.kg .mm-form { display: grid; gap: 12px; }
+.kg .field textarea, .kg .mm-add input { min-height: 48px; padding: 10px 14px; font: inherit; font-size: 16px; font-weight: 700; background: var(--white); border: 3px solid var(--ink); border-radius: 14px; width: 100%; min-width: 0; resize: vertical; }
+.kg .field textarea:focus, .kg .mm-add input:focus { outline: none; box-shadow: 0 0 0 4px var(--mustard-light); }
+.kg .mm-field { display: grid; gap: 6px; min-width: 0; }
+.kg .mm-label { font-size: 13px; font-weight: 800; }
+.kg .mm-seg { display: flex; flex-wrap: wrap; gap: 6px; }
+.kg .mm-seg button { min-height: 40px; padding: 0 12px; font: inherit; font-size: 13.5px; font-weight: 800; color: var(--ink); background: var(--white); border: 2.5px solid var(--ink); border-radius: 12px; box-shadow: 0 3px 0 var(--ink); cursor: pointer; }
+.kg .mm-seg button.is-on { color: var(--white); background: var(--sage-deep); box-shadow: none; transform: translateY(2px); }
+.kg .mm-people { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+.kg .mm-people button { display: grid; gap: 2px; min-height: 52px; padding: 6px 10px; text-align: left; font: inherit; color: var(--ink); background: var(--white); border: 2.5px solid var(--ink); border-radius: 12px; box-shadow: 0 3px 0 var(--ink); cursor: pointer; min-width: 0; }
+.kg .mm-people button b { font-size: 14px; overflow-wrap: anywhere; }
+.kg .mm-people button small { font-size: 11.5px; font-weight: 700; color: #6f6a85; }
+.kg .mm-people button.is-on { background: var(--sage-light); box-shadow: inset 0 0 0 2px var(--sage-deep); transform: translateY(2px); }
+.kg .mm-people button:disabled { opacity: .5; }
+.kg .mm-due { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; align-items: end; }
+.kg .mm-due-text { font-size: 12.5px; font-weight: 800; color: var(--sage-deep); padding-bottom: 14px; }
+.kg .mm-proof { display: grid; gap: 10px; margin: 0; padding: 10px 12px 12px; border: 2.5px dashed rgba(44,41,71,.35); border-radius: 14px; min-width: 0; }
+.kg .mm-proof legend { padding: 0 6px; font-family: "Baloo 2", sans-serif; font-size: 16px; font-weight: 800; }
+.kg .mm-check { display: flex; align-items: center; gap: 8px; min-height: 40px; font-size: 14px; font-weight: 800; }
+.kg .mm-check input, .kg .mm-ticks input { width: 22px; height: 22px; accent-color: var(--sage-deep); flex: none; }
+.kg .mm-number-spec { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 8px; }
+.kg .mm-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.kg .mm-list li { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 12px; font-size: 14px; font-weight: 700; background: var(--white); border: 2px solid var(--ink); border-radius: 10px; }
+.kg .mm-list li span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.kg .mm-list li button { flex: none; width: 34px; height: 34px; font-weight: 900; background: var(--paper-deep); border: 2px solid var(--ink); border-radius: 8px; }
+.kg .mm-add { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.kg .mm-add .btn { min-height: 48px; }
+.kg .mm-problems { margin: 0; padding: 8px 12px 8px 28px; font-size: 13px; font-weight: 800; color: #7d1d2c; background: #fde9ec; border: 2px dashed #c4566a; border-radius: 12px; }
+.kg .mm-cork { margin-top: 18px; }
+.kg .mm-cork-head { position: relative; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
+.kg .mm-cork-head .cork-title { margin: 0; }
+.kg .mm-wait-count { margin-left: 8px; padding: 1px 8px; font-style: normal; font-size: 13px; font-family: "Nunito", sans-serif; font-weight: 900; color: var(--ink); background: var(--mustard); border: 2px solid var(--ink); border-radius: 99px; }
+.kg .mm-new { min-height: 46px; }
+.kg .mm-batches { position: relative; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 18px 16px; margin: 0; padding: 0; list-style: none; }
+.kg .mm-batch { display: grid; gap: 8px; width: 100%; height: 100%; padding: 14px 14px 12px; text-align: left; font: inherit; color: var(--ink); background: #fffdf6 repeating-linear-gradient(0deg, transparent 0 25px, rgba(108,92,207,.12) 25px 26px); border: 3px solid var(--ink); border-radius: 6px 18px 6px 6px; box-shadow: var(--pop); transform: rotate(var(--tilt, 0deg)); transition: transform .2s var(--ease); cursor: pointer; }
+.kg .mm-batch:hover { transform: rotate(0deg) translateY(-3px); }
+.kg .mm-batch.is-pending { background-color: #fff4d6; }
+.kg .mm-batch.is-done { opacity: .75; }
+.kg .mm-batch-top, .kg .mm-card-meta { display: flex; flex-wrap: wrap; gap: 5px; }
+.kg .mm-batch-title { font-family: "Baloo 2", sans-serif; font-size: 19px; line-height: 1.15; overflow-wrap: anywhere; }
+.kg .mm-crew { display: flex; flex-wrap: wrap; gap: 5px; }
+.kg .mm-batch-sum { font-size: 12px; font-weight: 800; color: #6f6a85; }
+.kg .mm-due-chip, .kg .mm-pri, .kg .mm-place, .kg .mm-state { padding: 2px 8px; font-style: normal; font-size: 12px; font-weight: 900; border: 2px solid var(--ink); border-radius: 99px; background: var(--white); white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.kg .mm-due-chip.is-late, .kg .mm-pri { color: #7d1d2c; background: var(--coral-light); }
+.kg .mm-place { background: var(--paper-deep); }
+.kg .mm-state.is-done { background: var(--sage-light); }
+.kg .mm-state.is-wait { background: var(--mustard); }
+.kg .mm-state.is-back { background: var(--coral-light); }
+.kg .mm-state.is-off { opacity: .6; }
+.kg .mm-req { display: grid; gap: 4px; margin: 0; padding: 10px 12px; list-style: none; font-size: 14px; font-weight: 700; background: var(--sage-light); border: 2.5px solid var(--ink); border-radius: 12px; }
+.kg .mm-meta { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 13px; font-weight: 800; color: #4a4766; }
+.kg .mm-meta .is-late { color: #b0303f; }
+.kg .mm-waiting { margin: 0; padding: 10px 12px; font-size: 14px; font-weight: 800; background: #fff4d6; border: 2.5px solid var(--ink); border-radius: 12px; }
+.kg .mm-returned { margin: 0; padding: 10px 12px; font-size: 14px; font-weight: 800; color: #7d1d2c; background: var(--coral-light); border: 2.5px solid var(--ink); border-radius: 12px; overflow-wrap: anywhere; }
+.kg .mm-photos { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; margin: 0; padding: 0; list-style: none; }
+.kg .mm-photos li { position: relative; }
+.kg .mm-photos img, .kg .mm-photos li > button > span { display: grid; place-items: center; width: 100%; aspect-ratio: 1; object-fit: cover; border: 2.5px solid var(--ink); border-radius: 10px; background: var(--paper-deep); font-size: 11px; font-weight: 800; color: #6f6a85; }
+.kg .mm-photos li > button { display: block; width: 100%; padding: 0; background: none; border: 0; cursor: zoom-in; }
+.kg .mm-photos .mm-x { position: absolute; top: -10px; right: -10px; width: 36px; height: 36px; font-weight: 900; color: var(--white); background: var(--ink); border: 2px solid var(--white); border-radius: 99px; }
+.kg .mm-photos .mm-shot { display: grid; place-items: center; gap: 2px; width: 100%; aspect-ratio: 1; font-size: 24px; background: var(--white); border: 2.5px dashed var(--ink); border-radius: 10px; cursor: pointer; }
+.kg .mm-photos .mm-shot small { font-size: 11.5px; font-weight: 800; }
+.kg .mm-viewer { position: fixed; inset: 0; z-index: 80; display: grid; grid-template-rows: minmax(0, 1fr) auto; place-items: center; padding: 12px; background: rgba(20, 18, 34, .95); }
+.kg .mm-viewer img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 8px; }
+.kg .mm-viewer-bar { display: flex; align-items: center; gap: 12px; padding: 10px 0 max(10px, env(safe-area-inset-bottom)); color: var(--white); font-weight: 900; }
+.kg .mm-viewer-bar button { min-width: 44px; min-height: 44px; font-size: 18px; font-weight: 900; color: var(--white); background: transparent; border: 2px solid var(--white); border-radius: 12px; }
+.kg .mm-evidence { display: grid; gap: 8px; padding: 10px 12px; background: var(--white); border: 2.5px solid var(--ink); border-radius: 12px; }
+.kg .mm-number { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 0; }
+.kg .mm-number small { font-size: 13px; font-weight: 800; color: #6f6a85; }
+.kg .mm-number b { font-family: "Baloo 2", sans-serif; font-size: 22px; }
+.kg .mm-note { margin: 0; font-size: 14.5px; font-weight: 700; font-style: italic; overflow-wrap: anywhere; }
+.kg .mm-ticks { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; font-size: 14px; font-weight: 700; }
+.kg .mm-ticks.is-form label { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 4px 12px; background: var(--white); border: 2px solid var(--ink); border-radius: 10px; }
+.kg .mm-when { font-size: 12px; font-weight: 800; color: #6f6a85; }
+.kg .mm-assignees { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.kg .mm-assignee { display: grid; gap: 8px; padding: 10px 12px; background: var(--cream); border: 2.5px solid var(--ink); border-radius: 14px; }
+.kg .mm-assignee.is-wait { background: #fff4d6; box-shadow: var(--soft); }
+.kg .mm-assignee-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.kg .mm-assignee-head b { font-size: 16px; }
+.kg .mm-decide, .kg .mm-return { display: grid; gap: 8px; }
+.kg .mm-approve { background: var(--sage-deep); }
+.kg .mm-stars { display: flex; gap: 4px; }
+.kg .mm-stars button { width: 44px; height: 44px; font-size: 26px; line-height: 1; color: #cfc8b4; background: var(--white); border: 2px solid var(--ink); border-radius: 10px; }
+.kg .mm-stars button.is-on { color: var(--mustard); }
+.kg .mm-cancel { align-items: center; font-size: 13.5px; font-weight: 800; }
+.kg .mm-link { justify-self: start; min-height: 36px; padding: 0 4px; font: inherit; font-size: 13px; font-weight: 800; color: #6f6a85; text-decoration: underline; background: none; border: 0; cursor: pointer; }
+.kg .mm-add-person { justify-self: start; margin-top: 4px; }
+@media (max-width: 420px) {
+  .kg .mm-people { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .kg .mm-batches { grid-template-columns: minmax(0, 1fr); }
+  .kg .mm-stars button { width: 40px; height: 40px; }
+}
