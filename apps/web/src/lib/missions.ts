@@ -104,6 +104,15 @@ export interface MissionRecipeDetail {
   batch_set: boolean;
 }
 
+/** sku_counted detail row. */
+export interface MissionSkuCountDetail {
+  kind: "sku_count";
+  sku_code: string;
+  since: string;
+  counted_at: string | null;
+  counted_qty: number | null;
+}
+
 export type MissionDetail =
   | MissionAliasDetail
   | MissionDuplicateDetail
@@ -111,7 +120,8 @@ export type MissionDetail =
   | MissionMaterialLinksDetail
   | MissionCountQuestionsDetail
   | MissionBomMismatchDetail
-  | MissionRecipeDetail;
+  | MissionRecipeDetail
+  | MissionSkuCountDetail;
 
 export interface MissionEvaluation {
   done: boolean;
@@ -325,6 +335,15 @@ export function parseMissionDetailEntry(raw: unknown, path = "detail"): MissionD
       answered: asNumber(row.answered ?? 0, `${path}.answered`),
       not_used: asNumber(row.not_used ?? 0, `${path}.not_used`),
       batch_set: asBoolean(row.batch_set ?? false, `${path}.batch_set`),
+    };
+  }
+  if (row.kind === "sku_count") {
+    return {
+      kind: "sku_count",
+      sku_code: asString(row.sku_code, `${path}.sku_code`),
+      since: asString(row.since, `${path}.since`),
+      counted_at: asNullableString(row.counted_at, `${path}.counted_at`),
+      counted_qty: asNullableNumber(row.counted_qty, `${path}.counted_qty`),
     };
   }
   if ("batch" in row) {

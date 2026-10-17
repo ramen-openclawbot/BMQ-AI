@@ -134,6 +134,10 @@ function settle(st) {
     if (st.table === "rpc:record_tan_tao_pate_production") return { data: { status: "recorded", slip_id: "slip-1", recipe_code: "pate-heo", production_date: st.args.p_date, batches: st.args.p_batches, packs: st.args.p_packs, ingredients: [], packaging: [], documents: [], movement_count: 6, replay: false }, error: null };
     return { data: { id: "rc-1", code: "pate-heo", name: "Pate heo Tân Tạo", batch_output_kg: 10, status: "draft", updated_by: null, updated_at: null, lines: [], can_answer: true }, error: null };
   }
+  if (st.table === "rpc:record_mission_sku_count") {
+    window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args));
+    return { data: { mission_id: st.args.p_mission_id, sku_code: "BMQ-001", counted_qty: st.args.p_counted_qty, result: { status: "created" } }, error: null };
+  }
   if (st.table === "rpc:get_my_missions") {
     if (cfg().missionsError) return { data: null, error: { message: "QA fixture: missions down" } };
     return { data: window.__msFixture[cfg().missions || "three_open_partial"], error: null };
@@ -465,7 +469,12 @@ const bomFixture = structuredClone(MS_RAW.three_open_partial);
 bomFixture.missions = [{ ...bomFixture.missions[0], id: "0f0b3d2a-0010-4c11-8a10-000000000010", code: "wh-q7-bom-match-20261017", title: "Khớp công thức Q7 với kho", description: "Trỏ từng nguyên liệu công thức vào đúng món kho đã kiểm kê để trừ NVL từ 17/10", sort_order: 7, progress: { done: false, total: 3, left: 2, detail: [{ kind: "bom_mismatch", open: 2, resolved: 0, excluded: 1, total: 3 }] } }];
 const recipeFixture = structuredClone(MS_RAW.three_open_partial);
 recipeFixture.missions = [{ ...recipeFixture.missions[0], id: "0f0b3d2a-0011-4c11-8a10-000000000011", code: "wh-tan-tao-pate-recipe", title: "Công thức pate Tân Tạo", description: "Nhập gram từng nguyên liệu cho 1 mẻ pate và hộp/tem cho mỗi hộp 500g, 200g", sort_order: 8, progress: { done: false, total: 5, left: 4, detail: [{ kind: "recipe", code: "pate-heo", open: 3, answered: 1, not_used: 0, batch_set: false }] } }];
-const MS_FIXTURE = { ...MS_RAW, ready, count: countFixture, bom: bomFixture, recipe: recipeFixture };
+const skuMission = (detail) => ({ ...recipeFixture.missions[0], id: "0f0b3d2a-0012-4c11-8a10-000000000012", code: "wh-count-bmq001-20261017", title: "Đếm bánh mì que Tân Tạo", description: "Đếm thực tế BMQ-001 tại kho Tân Tạo và ghi số đếm", sort_order: 9, progress: { done: Boolean(detail.counted_at), total: 1, left: detail.counted_at ? 0 : 1, detail: [{ kind: "sku_count", sku_code: "BMQ-001", since: "2026-10-17", ...detail }] } });
+const skuFixture = structuredClone(MS_RAW.three_open_partial);
+skuFixture.missions = [skuMission({ counted_at: null, counted_qty: null })];
+const skuDoneFixture = structuredClone(MS_RAW.three_open_partial);
+skuDoneFixture.missions = [skuMission({ counted_at: "2026-10-17T10:31:18+00:00", counted_qty: 60 })];
+const MS_FIXTURE = { ...MS_RAW, ready, count: countFixture, bom: bomFixture, recipe: recipeFixture, sku: skuFixture, sku_done: skuDoneFixture };
 const KG_FIXTURE = JSON.parse(fs.readFileSync(path.join(ROOT, "scripts/qa_warehouse_game.fixture.json"), "utf8"));
 async function open(cfg, route, viewport, extra = {}) {
   const context = await browser.newContext({ viewport, reducedMotion: extra.reducedMotion || "reduce", locale: "vi-VN" });
@@ -723,6 +732,40 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     assert.deepEqual(errors, [], "no page errors");
     record(`pate recipe ${w}`);
     await context.close();
+  }
+  // 1e. Đếm bánh mì que: gõ số đếm → record_mission_sku_count; đã đếm → nút nộp sáng.
+  {
+    const { context, page, errors } = await open({ data: "populated", role: "owner", missions: "sku" }, "/warehouse/game", viewport);
+    await page.waitForTimeout(700);
+    await board(page);
+    assert.match(await page.locator("[data-bmq-mission='wh-count-bmq001-20261017']").textContent(), /0\/1/, "count card 0/1");
+    await page.locator("[data-bmq-mission='wh-count-bmq001-20261017']").click({ force: true });
+    await page.waitForSelector("[data-bmq-sku-count='BMQ-001']", { timeout: 5000 });
+    await page.waitForTimeout(600);
+    assert.equal(await page.locator("[data-bmq-sku-count-save]").isDisabled(), true, "save disabled before a number");
+    assert.equal(await overflow(page), 0, `sku count sheet no overflow ${w}`);
+    await page.screenshot({ path: `${EVIDENCE}/sheet-sku-count-${w}.png` });
+    await page.locator("[data-bmq-sku-count-qty]").fill("60");
+    await page.locator("[data-bmq-sku-count-note]").fill("đếm sáng");
+    await page.locator("[data-bmq-sku-count-save]").click({ force: true });
+    await page.waitForTimeout(400);
+    const all = await writes(page);
+    assert.ok(all.some((x) => x.startsWith("rpc:record_mission_sku_count:") && x.includes('"p_mission_id":"0f0b3d2a-0012-4c11-8a10-000000000012"') && x.includes('"p_counted_qty":60') && x.includes('"p_note":"đếm sáng"') && /"p_request_id":"[0-9a-f-]{36}"/.test(x)), `count saved: ${all.join(" | ")}`);
+    assert.deepEqual(errors, [], "no page errors");
+    await context.close();
+    const done = await open({ data: "populated", role: "owner", missions: "sku_done" }, "/warehouse/game", viewport);
+    await done.page.waitForTimeout(700);
+    await board(done.page);
+    await done.page.locator("[data-bmq-mission='wh-count-bmq001-20261017']").click({ force: true });
+    await done.page.waitForSelector("[data-bmq-sku-counted]", { timeout: 5000 });
+    await done.page.waitForTimeout(600);
+    assert.match(await done.page.locator("[data-bmq-sku-counted]").textContent(), /60 BMQ-001/, "shows counted qty");
+    assert.equal(await done.page.locator("[data-bmq-mission-submit]").isDisabled(), false, "submit enabled after count");
+    assert.equal(await overflow(done.page), 0, `sku counted sheet no overflow ${w}`);
+    await done.page.screenshot({ path: `${EVIDENCE}/sheet-sku-counted-${w}.png` });
+    assert.deepEqual(done.errors, [], "no page errors (counted)");
+    record(`sku count ${w}`);
+    await done.context.close();
   }
   // 2. Ready mission: submit → badge ceremony → level-up.
   {

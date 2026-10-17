@@ -195,6 +195,37 @@ test("parseMissionDetailEntry tags the tan_tao_recipe_done detail row", () => {
   );
 });
 
+test("parseMissionDetailEntry tags the sku_counted detail row", () => {
+  const counted = parseMissionDetailEntry({
+    kind: "sku_count",
+    sku_code: "BMQ-001",
+    since: "2026-10-17",
+    counted_at: "2026-10-17T10:00:00+00:00",
+    counted_qty: 60,
+  });
+  assert.equal(counted.kind, "sku_count");
+  assert.equal(counted.sku_code, "BMQ-001");
+  assert.equal(counted.since, "2026-10-17");
+  assert.equal(counted.counted_at, "2026-10-17T10:00:00+00:00");
+  assert.equal(counted.counted_qty, 60);
+
+  const notCounted = parseMissionDetailEntry({
+    kind: "sku_count",
+    sku_code: "BMQ-001",
+    since: "2026-10-17",
+    counted_at: null,
+    counted_qty: null,
+  });
+  assert.equal(notCounted.kind, "sku_count");
+  assert.equal(notCounted.counted_at, null);
+  assert.equal(notCounted.counted_qty, null);
+
+  assert.throws(
+    () => parseMissionDetailEntry({ kind: "sku_count", sku_code: "BMQ-001" }),
+    TypeError,
+  );
+});
+
 test("parseMissionLevel requires level, title and min_badges", () => {
   assert.deepEqual(parseMissionLevel({ level: 2, title: "Nhân viên kho", min_badges: 3 }), {
     level: 2,

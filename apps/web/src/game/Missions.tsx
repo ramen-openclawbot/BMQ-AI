@@ -7,11 +7,12 @@ import { useAliasReceiptLines, useItemReceiptLines, useRenameStockItem, useUnitV
 import { useAnswerCountUnitQuestion, useCountUnitQuestions } from "@/hooks/useCountUnitQuestions";
 import { usePostPendingQ7Issues, useQ7BomMismatchReview, useResolveQ7BomLine } from "@/hooks/useQ7BomMatch";
 import { PateRecipeTool } from "./PateProduction";
+import { useMissionSkuCount } from "@/hooks/useMissionSkuCount";
 import { factorPrompt as bomFactorPrompt, type Q7BomMismatchLine } from "@/lib/q7-bom-match";
 import { STOCK_CATALOG_REVIEW_QUERY_KEY } from "@/hooks/useStockCatalog";
 import {
   assignmentsByParent, levelProgress, missionAssignErrorText, missionErrorMessage,
-  type CompleteMissionResult, type MissionAssignment, type MissionStaffMember, type Mission, type MissionAliasDetail, type MissionBomMismatchDetail, type MissionRecipeDetail, type MissionCountQuestionsDetail, type MissionDuplicateDetail, type MissionLevel, type MissionMaterialLinksDetail, type MissionUnknownUnitDetail, type MyMissions,
+  type CompleteMissionResult, type MissionAssignment, type MissionStaffMember, type Mission, type MissionAliasDetail, type MissionBomMismatchDetail, type MissionRecipeDetail, type MissionSkuCountDetail, type MissionCountQuestionsDetail, type MissionDuplicateDetail, type MissionLevel, type MissionMaterialLinksDetail, type MissionUnknownUnitDetail, type MyMissions,
 } from "@/lib/missions";
 import { STOCK_UNITS } from "@/lib/stock-units";
 import { canSubmit, computeCountedQty, type StockCountUnitQuestion } from "@/lib/count-unit-questions";
@@ -34,10 +35,11 @@ export const LADDER: MissionLevel[] = [
 
 const hatFor = (level: number): "none" | "cap" | "chef" => (level >= 3 ? "chef" : level === 2 ? "cap" : "none");
 
-type Rule = "alias" | "duplicate" | "units" | "links" | "count" | "bom" | "recipe" | "other";
+type Rule = "alias" | "duplicate" | "units" | "links" | "count" | "bom" | "recipe" | "sku" | "other";
 
 function ruleOf(mission: Mission): Rule {
   const kind = mission.progress.detail[0]?.kind;
+  if (kind === "sku_count" || mission.code.startsWith("wh-count-bmq")) return "sku";
   if (kind === "recipe" || mission.code.startsWith("wh-tan-tao-pate-recipe")) return "recipe";
   if (kind === "bom_mismatch" || mission.code.startsWith("wh-q7-bom-match")) return "bom";
   if (kind === "count_questions" || mission.code.startsWith("wh-count-units")) return "count";
@@ -48,7 +50,7 @@ function ruleOf(mission: Mission): Rule {
   return "other";
 }
 
-const RULE_ICON: Record<Rule, string> = { alias: "🏷️", duplicate: "🥐", units: "📏", links: "🧩", count: "⚖️", bom: "🧁", recipe: "🍲", other: "📜" };
+const RULE_ICON: Record<Rule, string> = { alias: "🏷️", duplicate: "🥐", units: "📏", links: "🧩", count: "⚖️", bom: "🧁", recipe: "🍲", sku: "🥖", other: "📜" };
 
 /** Steps shown on the card: the duplicate pair is one decision, the others count rows. */
 export function missionSteps(mission: Mission): { done: number; total: number } {
@@ -643,6 +645,50 @@ function BomMatchTool({ onSaved }: { onSaved: (text: string) => void }) {
   );
 }
 
+/** Đếm một mã hàng Tân Tạo: gõ số thực tế, hệ thống ghi phiếu kiểm kê. */
+function SkuCountTool({ mission, detail, onSaved }: { mission: Mission; detail: MissionSkuCountDetail | undefined; onSaved: (text: string) => void }) {
+  const record = useMissionSkuCount();
+  const [qty, setQty] = useState("");
+  const [note, setNote] = useState("");
+  const [requestId, setRequestId] = useState(newRequestId);
+  const sku = detail?.sku_code ?? "";
+  const value = Number(qty.replace(",", "."));
+  const valid = qty.trim() !== "" && Number.isFinite(value) && value >= 0;
+  if (detail?.counted_at) {
+    return (
+      <p className="task-ok big" data-bmq-sku-counted>
+        ✓ Đã đếm {fmtQty(detail.counted_qty ?? 0)} {sku} lúc {new Date(detail.counted_at).toLocaleString("vi-VN")}. Tồn kho Tân Tạo đã theo số này.
+      </p>
+    );
+  }
+  return (
+    <div className="sku-count" style={{ display: "grid", gap: 10 }} data-bmq-sku-count={sku}>
+      <p className="hint">Ra kệ Kho Tân Tạo đếm thực tế mã <b>{sku}</b>, gõ số đếm được. Hệ thống ghi phiếu kiểm kê và đặt tồn đúng bằng số này.</p>
+      <label className="field">
+        Số đếm được
+        <input type="number" inputMode="decimal" min={0} step="any" value={qty} onChange={(event) => setQty(event.target.value)} placeholder="vd 60" data-bmq-sku-count-qty />
+      </label>
+      <label className="field">
+        Ghi chú (không bắt buộc)
+        <input type="text" value={note} onChange={(event) => setNote(event.target.value)} placeholder="vd đếm lúc 9h sáng" data-bmq-sku-count-note />
+      </label>
+      {record.error ? <div className="err">{missionErrorMessage(record.error)}</div> : null}
+      <button
+        type="button"
+        className="btn"
+        disabled={!valid || record.isPending}
+        data-bmq-sku-count-save
+        onClick={() => record.mutate(
+          { missionId: mission.id, countedQty: value, note: note.trim() || null, requestId },
+          { onSuccess: () => { onSaved(`Đã ghi ${fmtQty(value)} ${sku}`); setRequestId(newRequestId()); } },
+        )}
+      >
+        {record.isPending ? "Đang ghi…" : "Ghi số đếm"}
+      </button>
+    </div>
+  );
+}
+
 function CountQuestionsTool({ detail, onSaved }: { detail: MissionCountQuestionsDetail | undefined; onSaved: (text: string) => void }) {
   const questions = useCountUnitQuestions(detail?.batch ?? "2026-10-16");
   if (questions.isLoading) return <p className="note">Đang tải câu hỏi…</p>;
@@ -707,6 +753,7 @@ export function MissionSheet({ mission, onClose, onToast, onCompleted, onOpenQue
           })() : null}
           {rule === "bom" ? <BomMatchTool onSaved={onToast} /> : null}
           {rule === "recipe" ? <PateRecipeTool onSaved={onToast} /> : null}
+          {rule === "sku" ? <SkuCountTool mission={mission} detail={detail.find((row): row is MissionSkuCountDetail => row.kind === "sku_count")} onSaved={onToast} /> : null}
           {rule === "count" ? <CountQuestionsTool detail={detail.find((row): row is MissionCountQuestionsDetail => row.kind === "count_questions")} onSaved={onToast} /> : null}
           {rule === "units" ? (
             grouped.size ? (
