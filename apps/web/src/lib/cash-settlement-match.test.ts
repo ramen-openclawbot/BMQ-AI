@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   matchCashSettlement,
+  splitReceiptAcrossItems,
   type CashSettlementItemInput,
   type CashSettlementReceiptInput,
 } from "./cash-settlement-match.ts";
@@ -24,6 +25,77 @@ const receipt = (overrides: Partial<CashSettlementReceiptInput> = {}): CashSettl
 
 const allocationTotal = (allocations: { amount: number }[]): number =>
   allocations.reduce((sum, allocation) => sum + allocation.amount, 0);
+
+test("PR-303EBE40: one 5.238.000 receipt pays 2.592.000 + 2.646.000", () => {
+  const result = matchCashSettlement(
+    [
+      item({ id: "i1", label: "Khoản 1", amount: 2_592_000 }),
+      item({ id: "i2", label: "Khoản 2", amount: 2_646_000 }),
+    ],
+    [receipt({ id: "r1", amount: 5_238_000 })],
+  );
+
+  assert.deepEqual(result.allocations, [
+    { receipt_id: "r1", item_id: "i1", amount: 2_592_000 },
+    { receipt_id: "r1", item_id: "i2", amount: 2_646_000 },
+  ]);
+  assert.equal(allocationTotal(result.allocations), 5_238_000);
+  assert.ok(result.items.every((entry) => entry.fully_covered));
+  assert.equal(result.remaining_total, 0);
+  assert.equal(result.receipts[0].state, "matched");
+});
+
+test("rule 0 compares the all-items total to whole đồng (lẻ xu)", () => {
+  const result = matchCashSettlement(
+    [
+      item({ id: "i1", amount: 2_592_000.4 }),
+      item({ id: "i2", amount: 2_645_999.5 }),
+    ],
+    [receipt({ id: "r1", amount: 5_238_000 })],
+  );
+
+  // 2.592.000,4 + 2.645.999,5 = 5.237.999,9 -> whole đồng 5.238.000.
+  assert.deepEqual(result.allocations, [
+    { receipt_id: "r1", item_id: "i1", amount: 2_592_000.4 },
+    { receipt_id: "r1", item_id: "i2", amount: 2_645_999.5 },
+  ]);
+  assert.ok(result.items.every((entry) => entry.fully_covered));
+  assert.equal(result.remaining_total, 0);
+});
+
+test("splitReceiptAcrossItems fills items in order and never exceeds the receipt", () => {
+  assert.deepEqual(
+    splitReceiptAcrossItems(5_100_000, [
+      { id: "i1", remaining: 2_592_000 },
+      { id: "i2", remaining: 2_646_000 },
+    ]),
+    [
+      { item_id: "i1", amount: 2_592_000 },
+      { item_id: "i2", amount: 2_508_000 },
+    ],
+  );
+
+  assert.deepEqual(
+    splitReceiptAcrossItems(1_000_000, [
+      { id: "i1", remaining: 2_592_000 },
+      { id: "i2", remaining: 2_646_000 },
+    ]),
+    [{ item_id: "i1", amount: 1_000_000 }],
+  );
+
+  assert.deepEqual(
+    splitReceiptAcrossItems(5_238_000, [
+      { id: "i1", remaining: 2_592_000 },
+      { id: "i2", remaining: 2_646_000 },
+    ]),
+    [
+      { item_id: "i1", amount: 2_592_000 },
+      { item_id: "i2", amount: 2_646_000 },
+    ],
+  );
+
+  assert.deepEqual(splitReceiptAcrossItems(0, [{ id: "i1", remaining: 100_000 }]), []);
+});
 
 test("owner example: 252k water, 400k glass, 130k shipping, 320k fuel", () => {
   const result = matchCashSettlement(
@@ -120,9 +192,11 @@ test("never over-allocates a receipt across two items", () => {
     [receipt({ id: "r1", amount: 300_000 })],
   );
 
-  // r1 equals neither single item and no subset of one receipt equals 150k.
-  assert.equal(result.allocations.length, 0);
-  assert.equal(allocationTotal(result.allocations), 0);
+  // Rule 0 now splits r1 across the two items: 150k + 150k = 300k, never over.
+  assert.equal(result.allocations.length, 2);
+  assert.equal(allocationTotal(result.allocations), 300_000);
+  assert.ok(result.allocations.every((allocation) => allocation.amount === 150_000));
+  assert.ok(result.items.every((entry) => entry.fully_covered));
 });
 
 test("combines two receipts for one item when the subset is unique", () => {

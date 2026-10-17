@@ -17,7 +17,10 @@ import {
   type CashSettlementAllocationInput,
   type CashSettlementReceipt,
 } from "@/hooks/useCashSettlement";
-import { matchCashSettlement } from "@/lib/cash-settlement-match";
+import { matchCashSettlement, splitReceiptAcrossItems } from "@/lib/cash-settlement-match";
+
+/** Manual choice that spreads one receipt over every khoản still owed (one bank slip for the whole phiếu). */
+const WHOLE_PHIEU = "__all__";
 import { cn } from "@/lib/utils";
 import "@/styles/bmq-unc-approval.css";
 import "@/styles/bmq-unc-bulk.css";
@@ -103,6 +106,17 @@ export function CashSettlementPanel({ requestId, canEdit }: Props) {
       const itemId = manualItem[r.id];
       if (!itemId) continue;
       const amount = Number(manualAmount[r.id] || r.amount || r.ocr_amount || 0);
+      if (itemId === WHOLE_PHIEU) {
+        const owing = match.items.filter((i) => (remaining.get(i.item_id) ?? 0) > 0).map((i) => ({ id: i.item_id, remaining: remaining.get(i.item_id) ?? 0 }));
+        const owed = owing.reduce((sum, i) => sum + i.remaining, 0);
+        if (amount > 0 && Math.round(amount) <= Math.round(owed)) {
+          for (const split of splitReceiptAcrossItems(amount, owing)) {
+            auto.push({ receipt_id: r.id, item_id: split.item_id, amount: split.amount });
+            remaining.set(split.item_id, (remaining.get(split.item_id) ?? 0) - split.amount);
+          }
+        }
+        continue;
+      }
       const left = remaining.get(itemId) ?? 0;
       if (amount > 0 && amount <= left) {
         auto.push({ receipt_id: r.id, item_id: itemId, amount });
@@ -113,6 +127,10 @@ export function CashSettlementPanel({ requestId, canEdit }: Props) {
   }, [match, open, manualItem, manualAmount]);
 
   const allocatedFor = (receiptId: string) => allocations.find((a) => a.receipt_id === receiptId);
+  const allocatedItemsFor = (receiptId: string) =>
+    allocations.filter((a) => a.receipt_id === receiptId).map((a) => items.find((i) => i.id === a.item_id)?.product_name ?? "Khoản");
+  const owedItems = match.items.filter((i) => i.remaining > 0);
+  const owedTotal = owedItems.reduce((sum, i) => sum + i.remaining, 0);
   const pendingByItem = (itemId: string) =>
     allocations.filter((a) => a.item_id === itemId).reduce((s, a) => s + a.amount, 0);
 
@@ -164,7 +182,8 @@ export function CashSettlementPanel({ requestId, canEdit }: Props) {
     );
   }
 
-  const receiptsOf = (itemId: string) => receipts.filter((r) => r.status === "allocated" && r.payment_request_item_id === itemId);
+  const receiptsOf = (itemId: string) =>
+    receipts.filter((r) => r.status === "allocated" && (r.payment_request_item_id === itemId || (r.splits ?? []).some((sp) => sp.item_id === itemId)));
   const receiptLine = (r: CashSettlementReceipt) => r.ocr_payee || r.ocr_content || r.ocr_reference || null;
 
   return (
@@ -205,7 +224,8 @@ export function CashSettlementPanel({ requestId, canEdit }: Props) {
                   {receiptsOf(item.id).map((r) => (
                     <figure key={r.id}>
                       <ReceiptThumb path={r.storage_path} onOpen={setZoom} />
-                      <figcaption>{vnd(r.amount)}</figcaption>
+                      {/* A shared slip shows the part that pays this khoản. */}
+                      <figcaption data-bmq-cash-settle-part>{vnd((r.splits ?? []).find((sp) => sp.item_id === item.id)?.amount ?? r.amount)}</figcaption>
                     </figure>
                   ))}
                 </div>
@@ -255,7 +275,7 @@ export function CashSettlementPanel({ requestId, canEdit }: Props) {
                   {receiptLine(r) && <small>{receiptLine(r)}</small>}
                   {r.ocr_error && !amount && <small className="is-bad">Chưa đọc được số tiền, nhập tay giúp.</small>}
                   {alloc && item ? (
-                    <p className="d3-ub-why is-ok"><Check className="h-3.5 w-3.5" /> Ghép vào: {item.product_name}</p>
+                    <p className="d3-ub-why is-ok" data-bmq-cash-settle-target><Check className="h-3.5 w-3.5" /> Ghép vào: {allocatedItemsFor(r.id).join(" + ")}</p>
                   ) : null}
                   {editable && !auto && (
                     <div className="d3-cs-manual">
@@ -277,6 +297,9 @@ export function CashSettlementPanel({ requestId, canEdit }: Props) {
                         data-bmq-cash-settle-assign
                       >
                         <option value="">Ghép vào khoản…</option>
+                        {owedItems.length >= 2 && (
+                          <option value={WHOLE_PHIEU}>{`Cả phiếu · ${owedItems.length} khoản · còn ${vnd(owedTotal)}`}</option>
+                        )}
                         {match.items.filter((i) => i.remaining > 0).map((i) => (
                           <option key={i.item_id} value={i.item_id}>{`${i.label ?? "Khoản"} · còn ${vnd(i.remaining)}`}</option>
                         ))}
@@ -284,7 +307,7 @@ export function CashSettlementPanel({ requestId, canEdit }: Props) {
                     </div>
                   )}
                   {editable && manualItem[r.id] && !alloc && (
-                    <small className="is-bad">Số tiền lớn hơn phần còn thiếu của khoản này.</small>
+                    <small className="is-bad">{manualItem[r.id] === WHOLE_PHIEU ? "Số tiền lớn hơn tổng còn thiếu của phiếu." : "Số tiền lớn hơn phần còn thiếu của khoản này."}</small>
                   )}
                 </div>
                 {editable && (

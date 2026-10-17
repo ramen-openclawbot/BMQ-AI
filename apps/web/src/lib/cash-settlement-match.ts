@@ -6,6 +6,9 @@
 // to propose.
 //
 // Rules:
+//   0. when exactly one available receipt equals (whole-đồng) the total
+//      remaining of ALL open items and there are 2+ open items, split that
+//      receipt across every open item (each item gets its full remaining);
 //   1. exact single-receipt match first, and only when the pairing is mutually
 //      unique (one receipt for that item and one item for that receipt);
 //   2. then, for the remaining items, a subset of the remaining receipts whose
@@ -69,11 +72,50 @@ const MAX_SUBSET_NODES = 50000;
 const amountsEqual = (left: number, right: number): boolean =>
   Number.isFinite(left) && Number.isFinite(right) && Math.round(left * 100) === Math.round(right * 100);
 
+/** Whole-đồng equality, matching the server's round() comparisons. */
+const wholeDongEqual = (left: number, right: number): boolean =>
+  Number.isFinite(left) && Number.isFinite(right) && Math.round(left) === Math.round(right);
+
 const toAmount = (value: unknown): number | null => {
   if (value === null || value === undefined || value === "") return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 };
+
+export interface CashSettlementSplitItemInput {
+  id: string;
+  remaining: number;
+}
+
+export interface CashSettlementSplitAllocation {
+  item_id: string;
+  amount: number;
+}
+
+/**
+ * Fill items in the given order up to each remaining, never exceeding the
+ * receipt amount. The UI uses this for the "Cả phiếu" option; the server still
+ * validates every allocation.
+ */
+export function splitReceiptAcrossItems(
+  receiptAmount: number | null,
+  items: CashSettlementSplitItemInput[],
+): CashSettlementSplitAllocation[] {
+  let budget = Math.max(0, toAmount(receiptAmount) ?? 0);
+  const allocations: CashSettlementSplitAllocation[] = [];
+
+  for (const item of Array.isArray(items) ? items : []) {
+    if (budget <= 0) break;
+    const remaining = Math.max(0, toAmount(item.remaining) ?? 0);
+    if (remaining <= 0) continue;
+    const amount = Math.min(remaining, budget);
+    if (amount <= 0) continue;
+    allocations.push({ item_id: String(item.id), amount });
+    budget -= amount;
+  }
+
+  return allocations;
+}
 
 type InternalItem = {
   id: string;
@@ -171,6 +213,27 @@ export function matchCashSettlement(
     item.allocated += amount;
     item.remaining = Math.max(item.amount - item.baseCovered - item.allocated, 0);
   };
+
+  // --- Rule 0: one receipt pays the whole phiếu (2+ open items) ------------
+  const openItems = safeItems.filter((entry) => entry.remaining > 0);
+  if (openItems.length >= 2) {
+    const totalRemaining = openItems.reduce((sum, entry) => sum + entry.remaining, 0);
+    const wholeReceipts = availableReceipts().filter(
+      (entry) => wholeDongEqual(entry.amount as number, totalRemaining),
+    );
+    if (wholeReceipts.length === 1) {
+      const receipt = wholeReceipts[0];
+      receipt.used = true;
+      receipt.itemId = openItems[0].id;
+      for (const item of openItems) {
+        if (item.remaining <= 0) continue;
+        const amount = item.remaining;
+        allocations.push({ receipt_id: receipt.id, item_id: item.id, amount });
+        item.allocated += amount;
+        item.remaining = Math.max(item.amount - item.baseCovered - item.allocated, 0);
+      }
+    }
+  }
 
   // --- Rule 1: mutually-unique exact single-receipt matches ------------------
   let progress = true;

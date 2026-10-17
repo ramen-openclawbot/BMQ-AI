@@ -32,6 +32,8 @@ export interface CashSettlementReceipt {
   uploaded_by: string | null;
   created_at: string;
   allocated_at: string | null;
+  /** Split allocations when one receipt pays 2+ items; [] for legacy receipts. */
+  splits?: { item_id: string; amount: number }[];
 }
 
 export interface CashSettlementAttachment {

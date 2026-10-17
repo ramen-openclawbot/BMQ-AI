@@ -34,7 +34,11 @@ const WRITE = new Set(["insert", "update", "upsert", "delete"]);
 const PR = { id: "${PR_ID}", request_number: "PR-QACASH01", title: "Chi phí hôm nay", description: null, status: "approved",
   payment_status: "paid", payment_method: "cash", total_amount: 1102000, supplier_id: null, supplier_name: null,
   created_by: "staff-mai", requester_name: "Xuan Mai", cash_settlement_status: "awaiting_receipts", cash_settled_at: null, cash_settled_by: null };
-const ITEMS = [
+const SPLIT = !!cfg().scenario;
+const ITEMS = SPLIT ? [
+  { id: "i-mo", product_name: "MỠ", amount: 2592000, covered: 0 },
+  { id: "i-nac", product_name: "NẠC", amount: 2646000, covered: 0 },
+] : [
   { id: "i-water", product_name: "Tiền nước uống Q7", amount: 252000, covered: 0 },
   { id: "i-glass", product_name: "Thay kính bụi viện", amount: 400000, covered: 0 },
   { id: "i-ship", product_name: "Ship hộp + bao giấy", amount: 130000, covered: 0 },
@@ -42,7 +46,7 @@ const ITEMS = [
 ];
 const RECEIPTS = [];
 // OCR result per upload, in pick order; null = unreadable.
-const OCR = [252000, 400000, 81000, 49000, null, 55000];
+const OCR = cfg().scenario === "split-auto" ? [5238000] : cfg().scenario === "split-manual" ? [3000000, 2238000] : [252000, 400000, 81000, 49000, null, 55000];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const settlement = () => ({ payment_request: { ...PR }, items: ITEMS.map((i) => ({ ...i })), receipts: RECEIPTS.map((r) => ({ ...r })), evidence: [], attachments: [] });
 function settle(st) {
@@ -55,10 +59,17 @@ function settle(st) {
   }
   if (st.table === "rpc:submit_cash_settlement") {
     window.__qaCalls.push({ fn: "submit", ...st.args });
-    for (const a of st.args.p_allocations) {
-      const r = RECEIPTS.find((x) => x.id === a.receipt_id); const it = ITEMS.find((x) => x.id === a.item_id);
-      if (!r || r.status !== "uploaded" || !it || it.covered + a.amount > it.amount) return { data: null, error: { message: "invalid_allocation" } };
-      r.status = "allocated"; r.payment_request_item_id = a.item_id; r.amount = a.amount; it.covered += a.amount;
+    const byReceipt = {};
+    for (const a of st.args.p_allocations) (byReceipt[a.receipt_id] = byReceipt[a.receipt_id] || []).push(a);
+    for (const [rid, list] of Object.entries(byReceipt)) {
+      const r = RECEIPTS.find((x) => x.id === rid);
+      const sum = list.reduce((t, a) => t + a.amount, 0);
+      if (!r || r.status !== "uploaded" || Math.round(sum) > Math.round(r.amount ?? r.ocr_amount ?? sum)) return { data: null, error: { message: "receipt_over_allocated" } };
+      for (const a of list) { const it = ITEMS.find((x) => x.id === a.item_id); if (!it || it.covered + a.amount > it.amount) return { data: null, error: { message: "item_over_allocated" } }; }
+      for (const a of list) ITEMS.find((x) => x.id === a.item_id).covered += a.amount;
+      r.status = "allocated"; r.amount = sum;
+      if (list.length === 1) { r.payment_request_item_id = list[0].item_id; r.splits = []; }
+      else { r.payment_request_item_id = null; r.splits = list.map((a) => ({ item_id: a.item_id, amount: a.amount })); }
     }
     const done = ITEMS.every((i) => i.covered >= i.amount);
     if (done) PR.cash_settlement_status = "completed";
@@ -277,6 +288,57 @@ try {
     await context.close();
   }
 
+  // One bank slip pays the whole phiếu (PR-303EBE40: MỠ 2.592.000 + NẠC 2.646.000 = 5.238.000).
+  for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 640 }, { width: 1440, height: 900 }]) {
+    const w = viewport.width;
+    const { context, page, errors } = await open({ role: "owner", scenario: "split-auto" }, ROUTE, viewport);
+    await page.waitForSelector("[data-bmq-cash-settle='awaiting_receipts']");
+    await page.setInputFiles("[data-bmq-cash-settle-file]", SLIPS.slice(0, 1));
+    await page.waitForFunction(() => document.querySelectorAll("[data-bmq-cash-settle-receipt]").length === 1, null, { timeout: 20000 });
+    await page.waitForTimeout(200);
+    assert.deepEqual(await states(page, "data-bmq-cash-settle-receipt"), ["auto"]);
+    assert.ok((await page.locator("[data-bmq-cash-settle-target]").textContent()).includes("MỠ + NẠC"));
+    const confirmBtn = page.locator("[data-bmq-cash-settle-confirm]");
+    assert.ok((await confirmBtn.textContent()).includes("(2)"), await confirmBtn.textContent());
+    assert.ok((await page.locator(".d3-cs-foot").textContent()).includes("đủ, sẽ hoàn tất"));
+    assert.deepEqual(await controlsInside(page), [], `controls overflow split ${w}`);
+    await page.screenshot({ path: `${EVIDENCE}/split-auto-${w}.png`, fullPage: true });
+    await confirmBtn.click();
+    await page.waitForSelector("[data-bmq-cash-settle='completed']", { timeout: 20000 });
+    const sub = (await calls(page)).filter((c) => c.fn === "submit")[0];
+    assert.deepEqual(sub.p_allocations.map((a) => `${a.receipt_id}>${a.item_id}:${a.amount}`), ["rc-1>i-mo:2592000", "rc-1>i-nac:2646000"]);
+    assert.deepEqual(await states(page, "data-bmq-cash-settle-item"), ["done", "done"]);
+    assert.equal(await page.locator(".d3-cs-strip img").count(), 2, "the shared slip shows under both khoản");
+    assert.deepEqual(await page.$$eval("[data-bmq-cash-settle-part]", (els) => els.map((e) => e.textContent.replace(/\s+/g, " ").trim())), ["2.592.000 đ", "2.646.000 đ"]);
+    await page.screenshot({ path: `${EVIDENCE}/split-done-${w}.png`, fullPage: true });
+    assert.deepEqual(errors, []);
+    console.log("PASS", `one slip pays the whole phiếu ${w}`);
+    await context.close();
+  }
+  // Manual "Cả phiếu": 3.000.000 spread over MỠ then NẠC, 2.238.000 closes NẠC.
+  {
+    const { context, page, errors } = await open({ role: "owner", scenario: "split-manual" }, ROUTE, { width: 390, height: 844 });
+    await page.waitForSelector("[data-bmq-cash-settle='awaiting_receipts']");
+    await page.setInputFiles("[data-bmq-cash-settle-file]", SLIPS.slice(0, 2));
+    await page.waitForFunction(() => document.querySelectorAll("[data-bmq-cash-settle-receipt]").length === 2, null, { timeout: 20000 });
+    await page.waitForTimeout(200);
+    assert.deepEqual(await states(page, "data-bmq-cash-settle-receipt"), ["open", "open"]);
+    const first = page.locator("[data-bmq-cash-settle-receipt]").nth(0);
+    assert.ok((await first.locator("[data-bmq-cash-settle-assign] option[value='__all__']").textContent()).includes("Cả phiếu · 2 khoản"));
+    await first.locator("[data-bmq-cash-settle-assign]").selectOption("__all__");
+    assert.ok((await first.locator("[data-bmq-cash-settle-target]").textContent()).includes("MỠ + NẠC"));
+    const second = page.locator("[data-bmq-cash-settle-receipt]").nth(1);
+    await second.locator("[data-bmq-cash-settle-assign]").selectOption("i-nac");
+    assert.deepEqual(await states(page, "data-bmq-cash-settle-receipt"), ["manual", "manual"]);
+    await page.screenshot({ path: `${EVIDENCE}/split-manual-390.png`, fullPage: true });
+    await page.locator("[data-bmq-cash-settle-confirm]").click();
+    await page.waitForSelector("[data-bmq-cash-settle='completed']", { timeout: 20000 });
+    const sub = (await calls(page)).filter((c) => c.fn === "submit")[0];
+    assert.deepEqual(sub.p_allocations.map((a) => `${a.receipt_id}>${a.item_id}:${a.amount}`), ["rc-1>i-mo:2592000", "rc-1>i-nac:408000", "rc-2>i-nac:2238000"]);
+    assert.deepEqual(errors, []);
+    console.log("PASS", "manual Cả phiếu");
+    await context.close();
+  }
   // A user without payment_requests edit who did not create the phiếu sees it read-only.
   {
     const { context, page, errors } = await open({ role: "staff" }, ROUTE, { width: 390, height: 844 });
