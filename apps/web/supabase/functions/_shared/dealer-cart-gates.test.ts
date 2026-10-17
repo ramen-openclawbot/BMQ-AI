@@ -3,6 +3,7 @@ import {
   DEALER_CART_MAX_LINES,
   DEALER_ORDER_STEP,
   normalizeProposal,
+  normalizeRouteProposal,
   type DealerCartCatalogItem,
 } from "./dealer-cart-gates.ts";
 
@@ -97,4 +98,140 @@ Deno.test(`giới hạn tối đa ${DEALER_CART_MAX_LINES} dòng`, () => {
   );
   assertEquals(result.lines.length, DEALER_CART_MAX_LINES);
   assertEquals(result.warnings.length, 1);
+});
+
+const routes = [
+  { id: "route-1", name: "Điểm bán Một" },
+  { id: "route-2", name: "Điểm bán Hai" },
+];
+
+Deno.test("route proposal bỏ điểm bán không thuộc NPP kèm cảnh báo", () => {
+  const result = normalizeRouteProposal(
+    [{ route_id: "route-la", product_id: catalog[0].id, quantity: 10 }],
+    catalog,
+    routes,
+  );
+  assertEquals(result.lines, []);
+  assertEquals(result.warnings.length > 0, true);
+});
+
+Deno.test("route proposal mặc định sản phẩm BMQ-001 khi không nêu món", () => {
+  const result = normalizeRouteProposal(
+    [{ route_id: "route-1", quantity: 10 }],
+    catalog,
+    routes,
+  );
+  assertEquals(result.lines.length, 1);
+  assertEquals(result.lines[0].product_id, catalog[0].id);
+  assertEquals(result.lines[0].sku_code, "BMQ-001");
+});
+
+Deno.test("route proposal làm tròn 95 lên 100", () => {
+  const result = normalizeRouteProposal(
+    [{ route_id: "route-1", product_id: catalog[0].id, quantity: 95 }],
+    catalog,
+    routes,
+  );
+  assertEquals(result.lines[0].quantity, 100);
+  assertEquals(result.warnings.length > 0, true);
+});
+
+Deno.test("route proposal giữ đổi/bù, làm tròn và cắt trần", () => {
+  const result = normalizeRouteProposal(
+    [{
+      route_id: "route-1",
+      product_id: catalog[0].id,
+      quantity: 10,
+      exchange_quantity: 3.6,
+      makeup_quantity: 600,
+    }],
+    catalog,
+    routes,
+  );
+  assertEquals(result.lines[0].exchange_quantity, 4);
+  assertEquals(result.lines[0].makeup_quantity, 500);
+  assertEquals(result.lines[0].quantity, 10);
+});
+
+Deno.test("route proposal giữ dòng quantity 0 khi có bù 3", () => {
+  const result = normalizeRouteProposal(
+    [{ route_id: "route-1", product_id: catalog[0].id, quantity: 0, makeup_quantity: 3 }],
+    catalog,
+    routes,
+  );
+  assertEquals(result.lines.length, 1);
+  assertEquals(result.lines[0].quantity, 0);
+  assertEquals(result.lines[0].makeup_quantity, 3);
+});
+
+Deno.test("route proposal bỏ dòng quantity 0 không có đổi/bù", () => {
+  const result = normalizeRouteProposal(
+    [{ route_id: "route-1", product_id: catalog[0].id, quantity: 0 }],
+    catalog,
+    routes,
+  );
+  assertEquals(result.lines, []);
+  assertEquals(result.warnings.length > 0, true);
+});
+
+Deno.test("route proposal gộp dòng trùng route + sản phẩm", () => {
+  const result = normalizeRouteProposal(
+    [
+      { route_id: "route-1", product_id: catalog[0].id, quantity: 3, exchange_quantity: 1, note: "xin thêm ớt" },
+      { route_id: "route-1", product_id: catalog[0].id, quantity: 4, makeup_quantity: 2, note: "và 2 hộp pate" },
+    ],
+    catalog,
+    routes,
+  );
+  assertEquals(result.lines.length, 1);
+  assertEquals(result.lines[0].quantity, 10);
+  assertEquals(result.lines[0].exchange_quantity, 1);
+  assertEquals(result.lines[0].makeup_quantity, 2);
+  assertEquals(result.lines[0].note, "xin thêm ớt; và 2 hộp pate");
+});
+
+Deno.test("route proposal lấy giá từ catalog, không lấy giá model gửi", () => {
+  const result = normalizeRouteProposal(
+    [{
+      route_id: "route-1",
+      product_id: catalog[0].id,
+      quantity: 10,
+      unit_price: 1,
+      product_name: "Tên giả",
+    }],
+    catalog,
+    routes,
+  );
+  assertEquals(result.lines[0].unit_price, 5500);
+  assertEquals(result.lines[0].product_name, "Bánh Mì Que Pate");
+  assertEquals(result.lines[0].line_total, 55000);
+});
+
+Deno.test("route proposal trim và cắt ghi chú còn 160 ký tự", () => {
+  const result = normalizeRouteProposal(
+    [{
+      route_id: "route-1",
+      product_id: catalog[0].id,
+      quantity: 10,
+      note: `  ${"x".repeat(200)}  `,
+    }],
+    catalog,
+    routes,
+  );
+  assertEquals(result.lines[0].note.length, 160);
+  assertEquals(result.lines[0].note, "x".repeat(160));
+});
+
+Deno.test(`route proposal giữ tối đa ${DEALER_CART_MAX_LINES} dòng`, () => {
+  const manyRoutes = Array.from({ length: DEALER_CART_MAX_LINES + 2 }, (_, index) => ({
+    id: `route-${index + 1}`,
+    name: `Điểm bán ${index + 1}`,
+  }));
+  const result = normalizeRouteProposal(
+    manyRoutes.map((route) => ({ route_id: route.id, product_id: catalog[0].id, quantity: 10 })),
+    catalog,
+    manyRoutes,
+  );
+  assertEquals(result.lines.length, DEALER_CART_MAX_LINES);
+  assertEquals(result.warnings.length > 0, true);
 });
