@@ -26,9 +26,15 @@ export type DealerCartAssistantResponse = {
   code?: string;
 };
 
+export type DealerCartAssistantResult =
+  | { ok: true; data: DealerCartAssistantResponse }
+  | { ok: false; error: string; sessionExpired: boolean };
+
+const ASSISTANT_TIMEOUT_MS = 30000;
+
 /**
  * Calls the dealer-cart-assistant edge function with the dealer session token.
- * No UI is wired yet; the portal chat will consume send/reply/proposal later.
+ * The assistant only proposes lines; the dealer still taps to send the order.
  */
 export function useDealerCartAssistant(dealerToken: string | null | undefined) {
   const [reply, setReply] = useState("");
@@ -41,11 +47,16 @@ export function useDealerCartAssistant(dealerToken: string | null | undefined) {
     message: string,
     cart: Record<string, number>,
     options: DealerCartAssistantSendOptions = {},
-  ): Promise<DealerCartAssistantResponse | null> => {
-    if (!dealerToken) {
-      setError("Phiên đại lý đã hết hạn. Vui lòng đăng nhập lại.");
-      return null;
-    }
+  ): Promise<DealerCartAssistantResult> => {
+    const fail = (text: string, sessionExpired = false): DealerCartAssistantResult => {
+      setError(text);
+      setReply("");
+      setProposal(null);
+      setWarnings([]);
+      return { ok: false, error: text, sessionExpired };
+    };
+
+    if (!dealerToken) return fail("Phiên đại lý đã hết hạn. Vui lòng đăng nhập lại.", true);
 
     setLoading(true);
     setError(null);
@@ -57,25 +68,21 @@ export function useDealerCartAssistant(dealerToken: string | null | undefined) {
         history: options.history || [],
         cart,
         ...(options.mode ? { mode: options.mode } : {}),
-      });
+      }, undefined, ASSISTANT_TIMEOUT_MS);
 
+      if (result.isSessionExpired) return fail(result.error || "Phiên đại lý đã hết hạn. Vui lòng đăng nhập lại.", true);
       if (result.error || !result.data?.success) {
         const quota = isAiQuotaError({ code: result.code, error: result.error });
-        setError(quota ? AI_QUOTA_MESSAGE : (result.error || "Không gọi được trợ lý giỏ hàng."));
-        setReply("");
-        setProposal(null);
-        setWarnings([]);
-        return null;
+        return fail(quota ? AI_QUOTA_MESSAGE : (result.error || result.data?.error || "Không gọi được trợ lý đặt hàng."));
       }
 
       const data = result.data;
       setReply(data.reply || "");
       setProposal(data.proposal || null);
       setWarnings(Array.isArray(data.warnings) ? data.warnings : []);
-      return data;
+      return { ok: true, data };
     } catch (err) {
-      setError(isAiQuotaError(err) ? AI_QUOTA_MESSAGE : (err instanceof Error ? err.message : "Không gọi được trợ lý giỏ hàng."));
-      return null;
+      return fail(isAiQuotaError(err) ? AI_QUOTA_MESSAGE : (err instanceof Error ? err.message : "Không gọi được trợ lý đặt hàng."));
     } finally {
       setLoading(false);
     }

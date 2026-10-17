@@ -40,6 +40,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
+import { useDealerCartAssistant, type DealerCartAssistantHistoryTurn } from "@/hooks/useDealerCartAssistant";
+import { applyCartProposal } from "@/lib/dealer-cart-assistant";
 import { callEdgeFunction } from "@/lib/fetch-with-timeout";
 import { cn } from "@/lib/utils";
 import "@/styles/dealer-order-history.css";
@@ -223,6 +225,12 @@ type DuplicateOrderPrompt = {
   clientSubmissionId: string;
   orderNumber: string;
   requestedDeliveryDate?: string;
+};
+
+// A cart the AI assistant proposed; products come from the dealer's own catalog.
+type DealerAssistantProposal = {
+  lines: Array<{ product: Product; quantity: number }>;
+  warnings: string[];
 };
 
 type DealerLandingBanner = {
@@ -539,6 +547,9 @@ export default function DealerPortal() {
   const [nppParseMessage, setNppParseMessage] = useState("");
   const [nppParseStatus, setNppParseStatus] = useState<"idle" | "processing" | "success">("idle");
   const [chatProductId, setChatProductId] = useState("");
+  const [assistantProposal, setAssistantProposal] = useState<DealerAssistantProposal | null>(null);
+  const assistantHistoryRef = useRef<DealerCartAssistantHistoryTurn[]>([]);
+  const dealerAssistant = useDealerCartAssistant(sessionToken);
   const [directCatalogOrder, setDirectCatalogOrder] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [draftQuantity, setDraftQuantity] = useState("");
@@ -1140,6 +1151,8 @@ export default function DealerPortal() {
       setNppOrderText("");
       setNppParseMessage("");
       setNppParseStatus("idle");
+      setAssistantProposal(null);
+      assistantHistoryRef.current = [];
       orderSubmissionIdRef.current = crypto.randomUUID();
       return true;
     } catch (error) {
@@ -1191,6 +1204,8 @@ export default function DealerPortal() {
 
   const handleStartNewNppOrder = () => {
     setNppConfirmOpen(false);
+    setAssistantProposal(null);
+    assistantHistoryRef.current = [];
     setNppQuantities({});
     setNppExchangeQuantities({});
     setNppMakeupQuantities({});
@@ -1304,6 +1319,59 @@ export default function DealerPortal() {
   };
 
 
+  // Messages the quantity parser cannot read go to the AI assistant. It only
+  // proposes a cart from this dealer's catalog; the dealer still taps to send.
+  const runDealerAssistant = async (text: string) => {
+    const previous = assistantProposal;
+    const cart = Object.fromEntries((previous?.lines || []).map((line) => [line.product.id, line.quantity]));
+    setAssistantProposal(null);
+    setNppParseStatus("processing");
+    const result = await dealerAssistant.send(text, cart, { history: assistantHistoryRef.current.slice(-8) });
+    if (!result.ok) {
+      setNppParseStatus("idle");
+      if (result.sessionExpired) {
+        handleLogoutDealer();
+        return;
+      }
+      setAssistantProposal(previous);
+      setNppParseMessage(`${result.error} Quý Khách Hàng vẫn có thể nhắn số lượng, ví dụ: 200 đổi 14 bù 5.`);
+      return;
+    }
+
+    const proposal = result.data.proposal;
+    const nextCart = proposal ? applyCartProposal(cart, proposal, proposal.mode) : cart;
+    const lines = Object.entries(nextCart)
+      .map(([productId, quantity]) => ({ product: catalogProducts.find((item) => item.id === productId), quantity }))
+      .filter((line): line is { product: Product; quantity: number } => Boolean(line.product) && line.quantity > 0);
+    const reply = (result.data.reply || "").trim();
+    assistantHistoryRef.current = [
+      ...assistantHistoryRef.current,
+      { role: "user" as const, content: text },
+      ...(reply ? [{ role: "assistant" as const, content: reply }] : []),
+    ].slice(-10);
+    setNppParseStatus("idle");
+    setNppParseMessage(reply || (lines.length ? "Em đã chuẩn bị đơn theo yêu cầu. Quý Khách Hàng kiểm tra giúp em nhé." : "Em chưa hiểu yêu cầu. Quý Khách Hàng nhắn lại giúp em nhé."));
+    setAssistantProposal(lines.length ? { lines, warnings: proposal ? (result.data.warnings || []) : [] } : null);
+  };
+
+  const handleAssistantSubmit = async () => {
+    if (!assistantProposal || !sessionToken) return;
+    const submitted = await submitOrderPayload(assistantProposal.lines.map((line) => ({
+      sku_id: line.product.id,
+      quantity: line.quantity,
+      ordered_quantity: line.quantity,
+      exchange_quantity: 0,
+      makeup_quantity: 0,
+      physical_quantity: line.quantity,
+      route_customer_name: dealerDisplayName,
+      route_note: "",
+    })), { chatNative: true });
+    if (submitted) {
+      setAssistantProposal(null);
+      assistantHistoryRef.current = [];
+    }
+  };
+
   const handleParseNppOrderText = () => {
     const submittedText = nppOrderText.trim();
     if (!submittedText) return;
@@ -1323,6 +1391,12 @@ export default function DealerPortal() {
     }
     if (cancellation.stage !== "idle") {
       setCancellation({ stage: "idle", orders: [], selectedOrderIds: [], message: "" });
+    }
+    if (isDealerChatConfirmationIntent(submittedText) && assistantProposal) {
+      setOrderMessage("");
+      setOrderError("");
+      setNppParseMessage("Đơn đã sẵn sàng. Quý Khách Hàng bấm Đặt đơn này để gửi nhé.");
+      return;
     }
     if (isDealerChatConfirmationIntent(submittedText)) {
       const hasReadyOrder = nppSelectedLines.length > 0;
@@ -1348,6 +1422,16 @@ export default function DealerPortal() {
     setNppExchangeQuantities({});
     setNppMakeupQuantities({});
     setNppNotes({});
+
+    if (!isNppMode) {
+      const retailLines = parseRetailDealerChatOrderText(submittedText, retailDealerRoute);
+      if (retailLines.length === 0 || noteMentionsOtherProduct(retailLines[0].note, catalogProducts, chatProduct)) {
+        void runDealerAssistant(submittedText);
+        return;
+      }
+    }
+    setAssistantProposal(null);
+    assistantHistoryRef.current = [];
 
     window.setTimeout(() => {
       const parsedLines = isNppMode
@@ -2308,6 +2392,9 @@ export default function DealerPortal() {
             submitting={orderSubmitting}
             onSubmit={handleSubmitNppOrder}
             onStartNewOrder={handleStartNewNppOrder}
+            assistantEnabled={!isNppMode}
+            assistantProposal={assistantProposal}
+            onAssistantSubmit={() => void handleAssistantSubmit()}
           />
           <ProductDetailDialog
             product={selectedProduct}
@@ -3354,6 +3441,9 @@ function NppQuickOrderPanel({
   submitting,
   onSubmit,
   onStartNewOrder,
+  assistantEnabled = false,
+  assistantProposal = null,
+  onAssistantSubmit,
 }: {
   routes: DealerRoute[];
   isRetailDealer: boolean;
@@ -3399,6 +3489,9 @@ function NppQuickOrderPanel({
   submitting: boolean;
   onSubmit: () => void;
   onStartNewOrder: () => void;
+  assistantEnabled?: boolean;
+  assistantProposal?: DealerAssistantProposal | null;
+  onAssistantSubmit?: () => void;
 }) {
   const unitLabel = product?.unit || "que";
   const selectedRoutes = routes.filter((route) => {
@@ -3412,6 +3505,12 @@ function NppQuickOrderPanel({
   const selectedCancellationQuantity = selectedCancellationOrders.reduce((sum, order) => sum + Number(order.physical_quantity || 0), 0);
   const selectedCancellationAmount = selectedCancellationOrders.reduce((sum, order) => sum + Number(order.total_amount_vnd || 0), 0);
   const cancellationActive = cancellation.stage !== "idle";
+  const showAssistantCard = Boolean(assistantProposal?.lines.length)
+    && !duplicateOrderPrompt
+    && !successMessage
+    && !cancellationActive
+    && parseStatus !== "processing";
+  const assistantTotal = (assistantProposal?.lines || []).reduce((sum, line) => sum + line.product.price * line.quantity, 0);
   const [isEditingOrder, setIsEditingOrder] = useState(false);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
@@ -3440,7 +3539,7 @@ function NppQuickOrderPanel({
       chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [cancellation.stage, cancellation.selectedOrderIds.length, cancellationActive, duplicateOrderPrompt, errorMessage, parseStatus, selectedRouteCount, sentOrderText, successMessage]);
+  }, [assistantProposal, cancellation.stage, cancellation.selectedOrderIds.length, cancellationActive, duplicateOrderPrompt, errorMessage, parseStatus, selectedRouteCount, sentOrderText, successMessage]);
 
   const openOrderConfirmation = () => {
     setIsEditingOrder(false);
@@ -3494,6 +3593,11 @@ function NppQuickOrderPanel({
             {isRetailDealer
               ? "Đại lý đã được xác nhận. Quý Khách Hàng chỉ cần nhắn số lượng, đổi hoặc bù; không cần nhập lại tên đại lý."
               : "Hôm nay mình đặt món gì ạ? Quý Khách Hàng nhắn nội dung đơn, em sẽ tách từng điểm giao để kiểm tra trước khi gửi."}
+            {assistantEnabled ? (
+              <span className="mt-2 block text-[13px] leading-5 text-[#806873]" data-dealer-assistant-hint>
+                Muốn đặt món khác hoặc đặt như đơn trước, Quý Khách Hàng cứ nhắn tự nhiên, ví dụ: “đặt như đơn hôm qua, thêm 50 que”.
+              </span>
+            ) : null}
           </div>
         </div>
       ) : null}
@@ -3572,6 +3676,54 @@ function NppQuickOrderPanel({
           <div className="min-w-0 max-w-[85%] whitespace-normal break-words rounded-2xl rounded-tl-md bg-white px-4 py-3 text-sm font-medium leading-6 text-[#543943] shadow-sm ring-1 ring-[#f4e5eb]">
             {parseMessage}
           </div>
+        </div>
+      ) : null}
+
+      {showAssistantCard && assistantProposal ? (
+        <div className="ml-11 min-w-0 max-w-sm rounded-[22px] border border-[#ebc7d7] bg-white p-4 shadow-[0_8px_20px_rgba(105,49,73,0.08)]" data-dealer-assistant-proposal>
+          <div className="flex items-center gap-2 text-[#a73f70]">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-[#fff0f6]">
+              <Sparkles className="h-4 w-4" />
+            </div>
+            <div className="text-[11px] font-extrabold uppercase tracking-[0.12em]">Trợ lý đề xuất đơn</div>
+          </div>
+          <div className="mt-3 divide-y divide-[#f2dfe7] border-y border-[#f2dfe7]">
+            {assistantProposal.lines.map((line) => (
+              <div key={line.product.id} className="flex min-w-0 items-center gap-3 py-3" data-dealer-assistant-line={line.product.skuCode || line.product.id}>
+                <div className="hidden h-12 w-12 shrink-0 overflow-hidden rounded-xl border border-[#f1dbe4] bg-[#fff3f8] min-[360px]:block">
+                  {line.product.imageUrl
+                    ? <img src={line.product.imageUrl} alt={line.product.name} loading="lazy" className="h-full w-full object-cover" />
+                    : <img src={bmqLogo} alt="BMQ" className="h-full w-full object-contain p-2" />}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="line-clamp-2 break-words text-sm font-extrabold leading-5 text-[#4a343e]">{line.product.name}</div>
+                  <div className="mt-0.5 break-words text-xs font-semibold text-[#806873]">{formatVnd(line.product.price)} / {line.product.unit}</div>
+                </div>
+                <div className="shrink-0 text-right">
+                  <div className="whitespace-nowrap text-base font-extrabold tabular-nums text-[#b33f72]">{formatDealerQuantity(line.quantity)} {line.product.unit}</div>
+                  <div className="whitespace-nowrap text-xs font-semibold tabular-nums text-[#806873]">{formatVnd(line.product.price * line.quantity)}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+          {assistantProposal.warnings.length > 0 ? (
+            <ul className="mt-3 space-y-1 rounded-xl bg-amber-50 px-3 py-2 text-xs font-medium leading-5 text-amber-900" data-dealer-assistant-warnings>
+              {assistantProposal.warnings.map((warning) => <li key={warning} className="break-words">{warning}</li>)}
+            </ul>
+          ) : null}
+          <div className="mt-3 flex items-baseline justify-between gap-3">
+            <span className="text-xs font-bold text-[#927681]">Tổng tiền</span>
+            <span className="whitespace-nowrap text-lg font-extrabold tabular-nums text-[#b33f72]" data-dealer-assistant-total>{formatVnd(assistantTotal)}</span>
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <Button type="button" className="dealer-option-c-primary h-11 rounded-xl bg-[#d94f8a] font-extrabold text-white hover:bg-[#c43f79]" data-dealer-assistant-action="submit" disabled={submitting} onClick={onAssistantSubmit}>
+              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Đặt đơn này
+            </Button>
+            <Button type="button" variant="outline" className="h-11 rounded-xl border-[#e7b9cd] bg-white font-extrabold text-[#a73f70] hover:bg-[#fff0f6]" data-dealer-assistant-action="edit" disabled={submitting} onClick={focusComposer}>
+              Nhắn sửa
+            </Button>
+          </div>
+          <div className="mt-2 text-[11px] font-medium leading-4 text-[#a18d96]">Giá theo bảng giá của đại lý. Đơn chỉ gửi khi Quý Khách Hàng bấm Đặt đơn này.</div>
         </div>
       ) : null}
 
@@ -3681,7 +3833,7 @@ function NppQuickOrderPanel({
         </div>
       ) : null}
 
-      {parseMessage && parseStatus === "idle" && selectedRouteCount === 0 && !cancellationActive ? (
+      {parseMessage && parseStatus === "idle" && selectedRouteCount === 0 && !cancellationActive && !showAssistantCard ? (
         <div className="ml-11 grid max-w-sm grid-cols-2 gap-2 pb-2" data-dealer-chat-choices="parse-recovery" role="group" aria-label="Chọn cách tiếp tục">
           <Button type="button" variant="outline" className="h-10 rounded-full border-[#e7b9cd] bg-white text-sm font-bold text-[#a73f70] hover:bg-[#fff0f6]" onClick={focusComposer}>
             Nhập lại đơn
@@ -4165,6 +4317,19 @@ function parseRetailDealerChatOrderText(text: string, retailDealerRoute: DealerR
     makeupQuantity,
     note,
   }];
+}
+
+const DEALER_CHAT_GENERIC_PRODUCT_WORDS = new Set(["banh", "mi", "que", "bmq", "loai", "goi", "hop", "cai", "con"]);
+
+// "20 croissant" parses as 20 of the default product with note "croissant";
+// such a note names another catalog product, so the assistant handles it.
+function noteMentionsOtherProduct(note: string, products: Product[], current: Product | null): boolean {
+  const noteWords = new Set(normalizeDealerChatText(note).split(" ").filter(Boolean));
+  if (noteWords.size === 0) return false;
+  const currentWords = new Set(normalizeDealerChatText(current?.name || "").split(" "));
+  return products.some((product) => product.id !== current?.id && normalizeDealerChatText(product.name)
+    .split(" ")
+    .some((word) => word.length >= 3 && !DEALER_CHAT_GENERIC_PRODUCT_WORDS.has(word) && !currentWords.has(word) && noteWords.has(word)));
 }
 
 function PublicLandingSupport() {
