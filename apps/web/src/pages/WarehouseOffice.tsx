@@ -264,6 +264,24 @@ export default function WarehouseOffice() {
   const [prOpen, setPrOpen] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(true);
+  // Phones (owner 17/10 IMG_5809): drag the notebook up to see the catalog bigger, down to give the room back.
+  // Three stops: closed (strip only) · half · full; a plain tap on the handle toggles half ⇄ full.
+  const [sheetFull, setSheetFull] = useState(false);
+  const sheetDrag = useRef<{ y0: number; h0: number; moved: boolean } | null>(null);
+  const [dragH, setDragH] = useState<number | null>(null);
+  // The full sheet stops just under the HUD (one row at 390px, two rows on the narrowest phones).
+  const hudRef = useRef<HTMLElement>(null);
+  const [hudBottom, setHudBottom] = useState(64);
+  useEffect(() => {
+    const el = hudRef.current;
+    if (!el) return;
+    const fit = () => setHudBottom(Math.round(el.getBoundingClientRect().bottom));
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
+    window.addEventListener("resize", fit);
+    return () => { ro.disconnect(); window.removeEventListener("resize", fit); };
+  }, []);
   const [modal, setModal] = useState<"machine" | null>(null);
   const [hover, setHover] = useState<Hover | null>(null);
   const [sending, setSending] = useState(false);
@@ -316,7 +334,7 @@ export default function WarehouseOffice() {
     if (!room) return;
     room.insetPx = isPhone() && boardRef.current ? Math.round(boardRef.current.getBoundingClientRect().height) : 0;
     room.resize();
-  }, [sheetOpen, snap, modal]);
+  }, [sheetOpen, sheetFull, dragH === null, snap, modal]);
 
   // Fill the room once the chosen warehouse's snapshot is in. No opening scene: you are already in the warehouse.
   useEffect(() => {
@@ -413,7 +431,7 @@ export default function WarehouseOffice() {
     if (modal || !ready) return;
     const room = roomRef.current;
     if (room && room.frozen === null) { room.push({ type: "hover", t: room.now(), on: true }); window.setTimeout(() => room.push({ type: "hover", t: room.now(), on: false }), 900); }
-    setHover(null); setSheetOpen(false); setModal("machine");
+    setHover(null); setSheetOpen(false); setSheetFull(false); setModal("machine");
   };
 
   // ---- basket + drops (a crate flies from its shelf into the hopper)
@@ -527,6 +545,39 @@ export default function WarehouseOffice() {
     queryClient.invalidateQueries({ queryKey: [OFFICE_PENDING_PAYMENT_REQUESTS_QUERY_KEY] });
   };
   const closeDocs = () => { setDocStack([]); setPrOpen(null); };
+
+  // ---- notebook sheet drag (phones only; desktop keeps the side panel)
+  const onSheetDown = (e: RPointerEvent<HTMLElement>) => {
+    if (!isPhone() || (e.target as HTMLElement).closest("input, .chips, .search button")) return;
+    const h = boardRef.current?.getBoundingClientRect().height ?? 0;
+    sheetDrag.current = { y0: e.clientY, h0: h, moved: false };
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+  };
+  const onSheetMove = (e: RPointerEvent<HTMLElement>) => {
+    const d = sheetDrag.current;
+    if (!d) return;
+    const dy = d.y0 - e.clientY;
+    if (!d.moved && Math.abs(dy) < 6) return;
+    d.moved = true;
+    const max = window.innerHeight - hudBottom - 6;
+    setDragH(Math.max(56, Math.min(max, d.h0 + dy)));
+  };
+  const onSheetUp = () => {
+    const d = sheetDrag.current;
+    sheetDrag.current = null;
+    if (!d) return;
+    if (!d.moved) { // tap on the handle strip
+      if (!sheetOpen) { setSheetOpen(true); setSheetFull(false); } else setSheetFull((v) => !v);
+      setDragH(null);
+      return;
+    }
+    const h = dragH ?? d.h0;
+    const vh = window.innerHeight;
+    if (h > vh * 0.68) { setSheetOpen(true); setSheetFull(true); }
+    else if (h < vh * 0.26) { setSheetOpen(false); setSheetFull(false); }
+    else { setSheetOpen(true); setSheetFull(false); }
+    setDragH(null);
+  };
 
   // ---- render helpers
   const total = basket.reduce((s, l) => s + (l.price ?? 0) * l.qty, 0);
@@ -734,7 +785,7 @@ export default function WarehouseOffice() {
         <canvas ref={canvasRef} className="bay" aria-label="Kho minh hoạ: kệ hàng, bàn duyệt PR và máy đặt hàng tự động. Chạm vào kệ để xem hàng, chạm máy để đặt hàng." />
         <div ref={overlayRef} className="overlay" aria-hidden />
         {hover && !modal ? <div className="world-tag" style={{ left: hover.x, top: hover.y }} aria-hidden><b>{hover.label}</b><small>{hover.sub}</small></div> : null}
-        <header className="hud">
+        <header className="hud" ref={hudRef}>
           <button type="button" className="exit" onClick={() => navigate(FROM_KHO ? `/warehouse/game?enter=${wh}` : "/warehouse/game")} aria-label="Về Kho">← Kho</button>
           <span className="wordmark">🤖 Đặt hàng tự động</span>
           {KHO_FIXED
@@ -750,9 +801,9 @@ export default function WarehouseOffice() {
 
       </section>
 
-      <aside ref={boardRef} className={`board${sheetOpen ? "" : " is-closed"}`} aria-label="Sổ kho">
-        <div className="board-top">
-          <button type="button" className="handle" onClick={() => setSheetOpen((v) => !v)} aria-expanded={sheetOpen} aria-label={sheetOpen ? "Thu gọn sổ kho" : "Mở sổ kho"}><span /></button>
+      <aside ref={boardRef} className={`board${sheetOpen ? "" : " is-closed"}${sheetOpen && sheetFull ? " is-full" : ""}${dragH !== null ? " is-dragging" : ""}`} style={dragH !== null ? { height: dragH } : sheetOpen && sheetFull && isPhone() ? { height: `calc(100dvh - ${hudBottom + 6}px)` } : undefined} aria-label="Sổ kho" data-office-sheet={!sheetOpen ? "closed" : sheetFull ? "full" : "half"}>
+        <div className="board-top" onPointerDown={onSheetDown} onPointerMove={onSheetMove} onPointerUp={onSheetUp} onPointerCancel={() => { sheetDrag.current = null; setDragH(null); }}>
+          <button type="button" className="handle" onClick={(e) => { if (e.detail === 0) { if (!sheetOpen) setSheetOpen(true); else setSheetFull((v) => !v); } }} aria-expanded={sheetOpen && sheetFull} aria-label={sheetFull ? "Thu nhỏ sổ kho" : "Kéo lên để mở rộng sổ kho"} data-office-handle><span /></button>
           <div className="quest" aria-label="Tiến độ hôm nay">
             <div className="quest-row"><span>🔮 Sắp hết vào khay</span><b data-quest-low>{lowDone}/{low.length}</b></div>
             <div className="quest-bar" aria-hidden><span style={{ width: `${questPct}%` }} /></div>

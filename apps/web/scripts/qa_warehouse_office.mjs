@@ -412,14 +412,43 @@ for (const vp of [{ width: 1440, height: 900, touch: false }, { width: 1280, hei
     assert.match(rj[0], /Sai số lượng/);
   });
   if (vp.touch) {
-    await check(`${w} the sheet collapses and re-frames the room above it`, async () => {
-      await page.locator(".kvp .handle").click(); await page.waitForTimeout(400);
-      assert.equal(await page.locator(".kvp .board.is-closed").count(), 1);
+    // Owner 17/10 IMG_5809: drag the notebook up to see the catalog bigger, down to give the room back.
+    const sheet = () => page.locator(".kvp .board").getAttribute("data-office-sheet");
+    const swipe = async (fromY, toY) => {
+      const hb = await page.locator(".kvp .handle").boundingBox();
+      const x = hb.x + hb.width / 2;
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y: fromY, id: 1 }] });
+      for (let i = 1; i <= 12; i++) { await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x, y: fromY + ((toY - fromY) * i) / 12, id: 1 }] }); await page.waitForTimeout(16); }
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      await page.waitForTimeout(450);
+    };
+    await check(`${w} drag the sheet up opens the full catalog, down closes it, and the room re-frames`, async () => {
+      assert.equal(await sheet(), "half");
+      const half = (await page.locator(".kvp .board").boundingBox()).height;
+      const halfBody = (await page.locator(".kvp .board-body").boundingBox()).height;
+      const hy = (await page.locator(".kvp .handle").boundingBox()).y + 10;
+      await swipe(hy, 90);
+      assert.equal(await sheet(), "full", "dragged up");
+      const full = (await page.locator(".kvp .board").boundingBox()).height;
+      assert.ok(full > half + 150 && full >= vp.height - 130, `full ${full} vs half ${half}`);
+      const hudB = await page.locator(".kvp .hud").evaluate((el) => el.getBoundingClientRect().bottom);
+      const boardTop = (await page.locator(".kvp .board").boundingBox()).y;
+      assert.ok(boardTop >= hudB, `full sheet stays under the HUD (${boardTop} >= ${hudB})`);
+      const bodyH = (await page.locator(".kvp .board-body").boundingBox()).height;
+      assert.ok(bodyH >= halfBody + 120, `the list gets the extra room body=${bodyH} vs ${halfBody} at half`);
+      await page.screenshot({ path: `${EVIDENCE}/sheet-full-${w}.png` });
+      const hy2 = (await page.locator(".kvp .handle").boundingBox()).y + 10;
+      await swipe(hy2, vp.height - 30);
+      assert.equal(await sheet(), "closed", `dragged down from y=${hy2} (board ${JSON.stringify(await page.locator(".kvp .board").boundingBox())})`);
       const inset = await page.evaluate(() => window.__room.insetPx);
       assert.ok(inset > 40 && inset < 220, `inset ${inset}`);
       await page.screenshot({ path: `${EVIDENCE}/sheet-closed-${w}.png` });
       await page.locator(".kvp .handle").click(); await page.waitForTimeout(400);
-      assert.equal(await page.locator(".kvp .board.is-closed").count(), 0);
+      assert.equal(await sheet(), "half", "tap reopens half");
+      await page.locator(".kvp .handle").click(); await page.waitForTimeout(400);
+      assert.equal(await sheet(), "full", "tap toggles to full");
+      await page.locator(".kvp .handle").click(); await page.waitForTimeout(400);
+      assert.equal(await sheet(), "half", "tap back to half");
     });
   }
   await check(`${w} the view never moved`, async () => assert.equal(await projection(page), view0));
