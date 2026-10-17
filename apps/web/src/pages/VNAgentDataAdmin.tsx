@@ -30,7 +30,7 @@ export default function VNAgentDataAdmin() {
     { key: "review", label: language === "en" ? "Review queue" : "Hàng chờ duyệt", icon: <ClipboardCheck size={16} /> },
     { key: "contributions", label: language === "en" ? "Contributions" : "Đóng góp câu hỏi", icon: <MessageSquarePlus size={16} /> },
     { key: "generate", label: language === "en" ? "Generate data" : "Tạo câu hỏi tổng hợp", icon: <Wand2 size={16} /> },
-    { key: "jev", label: language === "en" ? "Bé Mì logs" : "Nhật ký Bé Mì", icon: <Activity size={16} /> },
+    { key: "jev", label: language === "en" ? "Sushi logs" : "Nhật ký Sushi", icon: <Activity size={16} /> },
     { key: "export", label: language === "en" ? "Markdown export" : "Xuất Markdown", icon: <FileDown size={16} /> },
   ], [language]);
 

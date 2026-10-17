@@ -483,10 +483,10 @@ for (const vp of [{ width: 1440, height: 900, touch: false }, { width: 1280, hei
     assert.equal(stored[0].qty, "600");
     assert.equal(stored[0].price, "1250");
   });
-  await check("learned pattern, recent packages and Bé Mì review are shown", async () => {
+  await check("learned pattern, recent packages and Sushi review are shown", async () => {
     assert.ok(await page.locator("[data-office-recent]").isVisible(), "recent packages");
     assert.match(await page.locator("[data-office-recent]").textContent(), /PO-000901/);
-    assert.ok((await page.locator("[data-office-jev]").count()) >= 1, "Bé Mì review button");
+    assert.ok((await page.locator("[data-office-jev]").count()) >= 1, "Sushi review button");
   });
   await page.screenshot({ path: `${EVIDENCE}/machine-1440.png` });
   await page.locator(".kvp .machine-view .primary.big").click();

@@ -277,7 +277,7 @@ function ItemCard({ item, canEdit, onLinked, onSkipped, onDefer }: {
         </div>
       </div>
 
-      <div className="lq-jev"><span className="lq-jev-bot"><JevBot state={candidates.length ? "done" : "error"} size={30} /></span>{candidates.length ? "Bé Mì gợi ý mã hàng" : "Bé Mì không thấy mã nào giống"}</div>
+      <div className="lq-jev"><span className="lq-jev-bot"><JevBot state={candidates.length ? "done" : "error"} size={30} /></span>{candidates.length ? "Sushi gợi ý mã hàng" : "Sushi không thấy mã nào giống"}</div>
       {candidates.length ? (
         <div className="lq-cands" role="radiogroup" aria-label={`Mã hàng cho ${item.name}`}>
           {candidates.map((candidate) => <Candidate key={candidate.id} item={item} candidate={candidate} picked={picked?.id === candidate.id} onPick={() => pick(candidate)} disabled={!canEdit || busy} />)}
@@ -396,7 +396,7 @@ export function LinkQuest({ location, canEdit, mission, onToast, onCompleted }: 
         <section className="lq-combo" data-bmq-lq-combo>
           <div className="row" style={{ alignItems: "center", flexWrap: "nowrap" }}>
             <JevBot state="done" size={56} />
-            <div><h3>Bé Mì thấy {combo.length} món trùng tên mã hàng</h3><p>Cùng đơn vị hoặc máy tự đổi được. Gắn một lần, khỏi lật từng thẻ.</p></div>
+            <div><h3>Sushi thấy {combo.length} món trùng tên mã hàng</h3><p>Cùng đơn vị hoặc máy tự đổi được. Gắn một lần, khỏi lật từng thẻ.</p></div>
           </div>
           <div className="lq-combo-list">{combo.slice(0, 8).map((row) => <span key={row.item_id}>{row.name}</span>)}{combo.length > 8 ? <span>+{combo.length - 8} món</span> : null}</div>
           <div className="row">

@@ -11,7 +11,7 @@ const hhmm = (iso: string | null) => {
   return Number.isNaN(d.getTime()) ? "" : d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Ho_Chi_Minh" });
 };
 
-/** How many human corrections Bé Mì keeps in memory (robot_feedback). */
+/** How many human corrections Sushi keeps in memory (robot_feedback). */
 function useLearnedCount() {
   return useQuery({
     queryKey: ["robot-feedback-count"],
@@ -42,7 +42,7 @@ function ActionRow({ action, canEdit }: { action: RobotAutoAction; canEdit: bool
           className="kg-mini"
           disabled={undo.isPending}
           onClick={() => undo.mutate(action.id, {
-            onSuccess: () => toast({ title: "Đã hoàn tác", description: "Bé Mì ghi nhớ và sẽ không tự làm lại việc này." }),
+            onSuccess: () => toast({ title: "Đã hoàn tác", description: "Sushi ghi nhớ và sẽ không tự làm lại việc này." }),
             onError: (error) => toast({ title: "Chưa hoàn tác được", description: robotActionsErrorText(error), variant: "destructive" }),
           })}
         >
@@ -53,7 +53,7 @@ function ActionRow({ action, canEdit }: { action: RobotAutoAction; canEdit: bool
   );
 }
 
-/** "Bé Mì tự làm hôm nay": what the robot applied on its own, each with an undo, plus the owner switch. */
+/** "Sushi tự làm hôm nay": what the robot applied on its own, each with an undo, plus the owner switch. */
 export function RobotAutoPanel({ canEdit }: { canEdit: boolean }) {
   const { toast } = useToast();
   const actions = useRobotAutoActions(1);
@@ -66,7 +66,7 @@ export function RobotAutoPanel({ canEdit }: { canEdit: boolean }) {
   const toggle = () => {
     if (!s) return;
     setSettings.mutate({ autoApplyEnabled: !s.auto_apply_enabled }, {
-      onSuccess: (next) => toast({ title: next.auto_apply_enabled ? "Bé Mì được tự làm khi chắc" : "Bé Mì chỉ gợi ý, không tự làm" }),
+      onSuccess: (next) => toast({ title: next.auto_apply_enabled ? "Sushi được tự làm khi chắc" : "Sushi chỉ gợi ý, không tự làm" }),
       onError: (error) => toast({ title: "Chỉ chủ được đổi công tắc này", description: robotActionsErrorText(error), variant: "destructive" }),
     });
   };
@@ -74,11 +74,11 @@ export function RobotAutoPanel({ canEdit }: { canEdit: boolean }) {
     <section className="robot-auto" data-bmq-robot-auto-panel>
       <header>
         <div>
-          <h3>Bé Mì tự làm hôm nay · {applied}</h3>
+          <h3>Sushi tự làm hôm nay · {applied}</h3>
           <p>
             {s ? (s.auto_apply_enabled
               ? `Tự gắn tên khi chắc từ ${pct(s.alias_threshold)}, tự xếp nhóm từ ${pct(s.class_threshold)}, tối đa ${s.daily_cap} việc/ngày. Gộp mặt hàng và chi tiền vẫn do người duyệt.`
-              : "Đang tắt: Bé Mì chỉ gợi ý, mọi việc chờ người duyệt.")
+              : "Đang tắt: Sushi chỉ gợi ý, mọi việc chờ người duyệt.")
               : "…"}
           </p>
         </div>
@@ -91,7 +91,7 @@ export function RobotAutoPanel({ canEdit }: { canEdit: boolean }) {
       <div className="robot-auto-learned" data-bmq-robot-learned>🧠 Đã học {learned.data ?? "…"} lần người duyệt sửa · gợi ý bị bác sẽ không quay lại</div>
       {actions.isLoading ? <p className="note">Đang tải…</p>
         : actions.error ? <p className="note">Chưa đọc được nhật ký: {robotActionsErrorText(actions.error)}</p>
-        : rows.length === 0 ? <p className="note">Hôm nay Bé Mì chưa tự làm việc nào.</p>
+        : rows.length === 0 ? <p className="note">Hôm nay Sushi chưa tự làm việc nào.</p>
         : <ul>{rows.map((action) => <ActionRow key={action.id} action={action} canEdit={canEdit} />)}</ul>}
     </section>
   );

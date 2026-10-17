@@ -79,11 +79,11 @@ test("pickAliasCorrections prefers the same supplier then shared name tokens", (
 test("formatAliasCorrection renders the approved wording and falls back to ids", () => {
   assert.equal(
     formatAliasCorrection(row({})),
-    "Người duyệt đã sửa trước đây: Bột mì 888 → Bột mì 999 (Bé Mì đã chọn Bột mì 888)",
+    "Người duyệt đã sửa trước đây: Bột mì 888 → Bột mì 999 (Sushi đã chọn Bột mì 888)",
   );
   assert.equal(
     formatAliasCorrection(row({ note: null, robot_label: null, human_label: null, robot_choice: "r", human_choice: "h" })),
-    "Người duyệt đã sửa trước đây: bot mi → h (Bé Mì đã chọn r)",
+    "Người duyệt đã sửa trước đây: bot mi → h (Sushi đã chọn r)",
   );
 });
 
@@ -137,15 +137,15 @@ test("class and finance corrections render the human decision explicitly", () =>
   const classRow = row({ kind: "catalog_class", robot_choice: "raw_material", human_choice: "rejected", robot_label: null, human_label: null });
   assert.equal(
     formatClassCorrection(classRow, "Bột mì"),
-    "Người duyệt đã sửa trước đây: Bột mì → rejected (Bé Mì đã chọn raw_material)",
+    "Người duyệt đã sửa trước đây: Bột mì → rejected (Sushi đã chọn raw_material)",
   );
   const financeRow = row({ kind: "finance_duplicate", robot_choice: "needs_review", human_choice: "different_purchase" });
   assert.equal(
     formatFinanceCorrection(financeRow, "PC-1", "PC-2"),
-    "Người duyệt đã sửa trước đây: PC-1 ↔ PC-2 → hai lần khác nhau (Bé Mì đã chọn needs_review)",
+    "Người duyệt đã sửa trước đây: PC-1 ↔ PC-2 → hai lần khác nhau (Sushi đã chọn needs_review)",
   );
   assert.equal(
     formatFinanceCorrection(row({ human_choice: "same_purchase" }), "PC-1", "PC-2"),
-    "Người duyệt đã sửa trước đây: PC-1 ↔ PC-2 → cùng một lần mua (Bé Mì đã chọn item-a)",
+    "Người duyệt đã sửa trước đây: PC-1 ↔ PC-2 → cùng một lần mua (Sushi đã chọn item-a)",
   );
 });

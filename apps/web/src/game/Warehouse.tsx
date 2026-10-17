@@ -181,7 +181,7 @@ export function Warehouse({ portrait, location, rows, crates, canAssign, transfe
       <rect x={W / 2 - 44} y={roomBottom + 12} width={88} height={40} rx={6} fill="url(#checker)" stroke={C.ink} strokeWidth={2.5} />
 
       <Buddy x={helper.x} y={helper.y + 26} mood="happy" hat="chef" face={C.white} scale={0.9} />
-      {crates.length ? <Bubble x={helper.x - 18} y={helper.y + 22} tail="side" name="Tổ trưởng kho" text={portrait ? "Vào khu phân loại nha!" : "Vào khu phân loại, Bé Mì sẽ gợi ý giúp!"} max={portrait ? 22 : 46} /> : null}
+      {crates.length ? <Bubble x={helper.x - 18} y={helper.y + 22} tail="side" name="Tổ trưởng kho" text={portrait ? "Vào khu phân loại nha!" : "Vào khu phân loại, Sushi sẽ gợi ý giúp!"} max={portrait ? 22 : 46} /> : null}
     </svg>
   );
 }

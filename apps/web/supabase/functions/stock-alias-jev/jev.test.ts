@@ -436,7 +436,7 @@ test("the kill switch refuses the ranking before any provider call", async () =>
 });
 
 test("past human corrections are appended to the match question text", () => {
-  const line = "Người duyệt đã sửa trước đây: Bột mì 888 → Bột mì 999 (Bé Mì đã chọn Bột mì 888)";
+  const line = "Người duyệt đã sửa trước đây: Bột mì 888 → Bột mì 999 (Sushi đã chọn Bột mì 888)";
   const text = matchInstructions({ corrections: [line] });
   assert.ok(text.includes("candidates"), "the base question is preserved");
   assert.ok(text.includes(line), "the correction line is included");

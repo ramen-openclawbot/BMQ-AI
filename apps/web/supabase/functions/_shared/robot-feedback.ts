@@ -123,13 +123,13 @@ export function pickAliasCorrections(
 /**
  * One correction line for the question text, in the exact wording the owner
  * approved: `Người duyệt đã sửa trước đây: <raw name> → <chosen item>
- * (Bé Mì đã chọn <robot item>)`.
+ * (Sushi đã chọn <robot item>)`.
  */
 export function formatAliasCorrection(row: RobotFeedbackRow): string {
   const rawName = row.note && row.note.trim() !== "" ? row.note : aliasSubjectName(row.subject_key);
   const chosen = row.human_label && row.human_label.trim() !== "" ? row.human_label : (row.human_choice ?? "");
   const robot = row.robot_label && row.robot_label.trim() !== "" ? row.robot_label : (row.robot_choice ?? "");
-  return `Người duyệt đã sửa trước đây: ${rawName} → ${chosen} (Bé Mì đã chọn ${robot})`;
+  return `Người duyệt đã sửa trước đây: ${rawName} → ${chosen} (Sushi đã chọn ${robot})`;
 }
 
 /** Append the correction lines to a base question, when there are any. */
@@ -146,7 +146,7 @@ export function withCorrections(base: string, corrections: readonly string[]): s
 export function formatClassCorrection(row: RobotFeedbackRow, itemName: string): string {
   const robot = row.robot_label && row.robot_label.trim() !== "" ? row.robot_label : (row.robot_choice ?? "");
   const human = row.human_label && row.human_label.trim() !== "" ? row.human_label : (row.human_choice ?? "");
-  return `Người duyệt đã sửa trước đây: ${itemName} → ${human} (Bé Mì đã chọn ${robot})`;
+  return `Người duyệt đã sửa trước đây: ${itemName} → ${human} (Sushi đã chọn ${robot})`;
 }
 
 /**
@@ -164,7 +164,7 @@ export function formatFinanceCorrection(
       ? "hai lần khác nhau"
       : (row.human_choice ?? "");
   const robot = row.robot_choice ?? "";
-  return `Người duyệt đã sửa trước đây: ${olderNumber} ↔ ${newerNumber} → ${human} (Bé Mì đã chọn ${robot})`;
+  return `Người duyệt đã sửa trước đây: ${olderNumber} ↔ ${newerNumber} → ${human} (Sushi đã chọn ${robot})`;
 }
 
 /**

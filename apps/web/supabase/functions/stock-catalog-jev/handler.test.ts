@@ -258,7 +258,7 @@ test("classify mode passes past corrections to Jev and reports auto-applied clas
   const seenCorrections: unknown[] = [];
   const item = {
     ...classifyItem(),
-    corrections: ["Người duyệt đã sửa trước đây: Bơ → rejected (Bé Mì đã chọn raw_material)"],
+    corrections: ["Người duyệt đã sửa trước đây: Bơ → rejected (Sushi đã chọn raw_material)"],
   };
   const { deps } = makeDeps({
     evaluator: () => async (params) => {

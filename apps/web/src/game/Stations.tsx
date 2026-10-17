@@ -50,7 +50,7 @@ function MergeStation({ canEdit }: { canEdit: boolean }) {
   return (
     <>
       <Section title={`Cặp chờ gộp · ${merges.length}`} sub="Mặt hàng được giữ là bên đang dùng nhiều hơn. Tồn và lịch sử bên kia chuyển sang theo hệ số.">
-        {query.isLoading ? <div className="d3-wh-empty">Đang tải…</div> : merges.length === 0 ? <div className="d3-wh-empty">Không có cặp nào chờ gộp. Bấm “Quét cặp trùng” ở Bé Mì rà soát.</div> : (
+        {query.isLoading ? <div className="d3-wh-empty">Đang tải…</div> : merges.length === 0 ? <div className="d3-wh-empty">Không có cặp nào chờ gộp. Bấm “Quét cặp trùng” ở Sushi rà soát.</div> : (
           <ul className="d3-sc-list">{merges.map((row) => <MergeRow key={row.id} row={row} canEdit={canEdit} />)}</ul>
         )}
       </Section>
@@ -83,7 +83,7 @@ function ClassifyStation({ canEdit }: { canEdit: boolean }) {
   const counts = query.data?.item_class_counts ?? {};
   return (
     <Section title={`Chờ phân loại · ${rows.length}`} sub={`${counts.unclassified ?? 0} mặt hàng chưa có nhóm. Nguyên liệu, bao bì/vật tư, thành phẩm hay không tồn kho.`}>
-      {query.isLoading ? <div className="d3-wh-empty">Đang tải…</div> : rows.length === 0 ? <div className="d3-wh-empty">Không có mặt hàng chờ phân loại. Bấm “Phân loại mặt hàng” ở Bé Mì rà soát.</div> : (
+      {query.isLoading ? <div className="d3-wh-empty">Đang tải…</div> : rows.length === 0 ? <div className="d3-wh-empty">Không có mặt hàng chờ phân loại. Bấm “Phân loại mặt hàng” ở Sushi rà soát.</div> : (
         <ul className="d3-sc-list">{rows.map((row) => <ClassifyRow key={row.id} row={row} canEdit={canEdit} />)}</ul>
       )}
     </Section>
@@ -100,25 +100,25 @@ function JevStation({ canEdit }: { canEdit: boolean }) {
   const left = usage ? Math.max(0, usage.call_limit - usage.calls) : null;
   const scan = (mode: "dedupe" | "classify") =>
     run.mutate({ mode }, {
-      onSuccess: (s) => toast({ title: mode === "dedupe" ? "Bé Mì đã quét cặp trùng" : "Bé Mì đã phân loại", description: `${s.suggestions} đề xuất mới${Number((s as { auto_applied?: number }).auto_applied ?? 0) > 0 ? ` (tự xếp ${(s as { auto_applied?: number }).auto_applied})` : ""}, ${s.skipped_existing} đã có, ${s.failed} lỗi, ${s.calls} lượt gọi${s.stopped ? " · dừng vì hết hạn mức" : ""}.` }),
-      onError: (error) => toast({ title: "Bé Mì chưa quét được", description: errorText(error), variant: "destructive" }),
+      onSuccess: (s) => toast({ title: mode === "dedupe" ? "Sushi đã quét cặp trùng" : "Sushi đã phân loại", description: `${s.suggestions} đề xuất mới${Number((s as { auto_applied?: number }).auto_applied ?? 0) > 0 ? ` (tự xếp ${(s as { auto_applied?: number }).auto_applied})` : ""}, ${s.skipped_existing} đã có, ${s.failed} lỗi, ${s.calls} lượt gọi${s.stopped ? " · dừng vì hết hạn mức" : ""}.` }),
+      onError: (error) => toast({ title: "Sushi chưa quét được", description: errorText(error), variant: "destructive" }),
     });
   const scanBacklog = (location: MaterialAliasLocation) =>
     backlog.mutate({ location }, {
       onSuccess: (data) => {
         const auto = Number((data as { auto_applied_total?: unknown })?.auto_applied_total ?? 0) || 0;
-        toast({ title: `Bé Mì đã dò tên tồn đọng ${location === "q7" ? "Q7" : "Tân Tạo"}`, description: auto > 0 ? `Tự gắn ${auto} tên chắc chắn · xem và hoàn tác ở mục "Bé Mì tự làm hôm nay".` : undefined });
+        toast({ title: `Sushi đã dò tên tồn đọng ${location === "q7" ? "Q7" : "Tân Tạo"}`, description: auto > 0 ? `Tự gắn ${auto} tên chắc chắn · xem và hoàn tác ở mục "Sushi tự làm hôm nay".` : undefined });
       },
-      onError: (error) => toast({ title: "Bé Mì chưa dò được", description: errorText(error), variant: "destructive" }),
+      onError: (error) => toast({ title: "Sushi chưa dò được", description: errorText(error), variant: "destructive" }),
     });
   return (
     <>
       <div className="jev-meter">
-        <div><small>Lượt Bé Mì hôm nay</small><b>{usage ? `${usage.calls}/${usage.call_limit}` : "…"}</b></div>
+        <div><small>Lượt Sushi hôm nay</small><b>{usage ? `${usage.calls}/${usage.call_limit}` : "…"}</b></div>
         <div><small>Còn lại</small><b>{left ?? "…"}</b></div>
         <div><small>Chi phí</small><b>{usage ? `${usage.cost.toFixed(4)} $` : "…"}</b></div>
       </div>
-      {!canEdit ? <p className="note">Chỉ chủ hoặc người sửa kho được chạy máy Bé Mì.</p> : (
+      {!canEdit ? <p className="note">Chỉ chủ hoặc người sửa kho được chạy máy Sushi.</p> : (
         <div className="jev-buttons">
           <button type="button" className="btn" disabled={run.isPending || left === 0} onClick={() => scan("dedupe")}>🔗 Quét cặp trùng</button>
           <button type="button" className="btn" disabled={run.isPending || left === 0} onClick={() => scan("classify")}>🏷️ Phân loại mặt hàng</button>
@@ -137,7 +137,7 @@ function JevStation({ canEdit }: { canEdit: boolean }) {
           </button>
         </div>
       )}
-      {run.isPending || backlog.isPending ? <p className="note">Bé Mì đang làm việc… có thể mất vài phút.</p> : null}
+      {run.isPending || backlog.isPending ? <p className="note">Sushi đang làm việc… có thể mất vài phút.</p> : null}
       <RobotAutoPanel canEdit={canEdit} />
     </>
   );

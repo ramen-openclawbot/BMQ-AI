@@ -937,7 +937,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
   await page.waitForTimeout(900);
   assert.ok((await page.locator(".kg .title-pill b").textContent()).includes("Danh mục hàng hóa"));
   await page.screenshot({ path: `${EVIDENCE}/workshop-${viewport.width}.png` });
-  for (const [station, check] of [["Gộp tên trùng", "[data-bmq-catalog-merge]"], ["Phân nhóm hàng", "[data-bmq-catalog-classify]"], ["Hàng để ở Q7", "[data-bmq-pastry-toggle]"], ["Gắn mã hàng", "[data-bmq-link-quest]"], ["Hàng mới chưa có mã", "[data-bmq-new-items]"], ["Tên chưa có mã", "[data-bmq-alias-backlog]"], ["Tên đã ghép mã", "[data-bmq-learned-aliases]"], ["Nhà cung cấp về kho nào", "[data-bmq-routing-suppliers]"], ["Bé Mì rà soát", ".jev-meter"]]) {
+  for (const [station, check] of [["Gộp tên trùng", "[data-bmq-catalog-merge]"], ["Phân nhóm hàng", "[data-bmq-catalog-classify]"], ["Hàng để ở Q7", "[data-bmq-pastry-toggle]"], ["Gắn mã hàng", "[data-bmq-link-quest]"], ["Hàng mới chưa có mã", "[data-bmq-new-items]"], ["Tên chưa có mã", "[data-bmq-alias-backlog]"], ["Tên đã ghép mã", "[data-bmq-learned-aliases]"], ["Nhà cung cấp về kho nào", "[data-bmq-routing-suppliers]"], ["Sushi rà soát", ".jev-meter"]]) {
     await page.getByRole("button", { name: new RegExp(`^${station}`) }).click({ force: true });
     await page.waitForTimeout(900);
     assert.ok((await page.locator(check).count()) >= 1, `${station} shows its tool at ${viewport.width}`);
@@ -1075,11 +1075,11 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       await page.locator("[data-bmq-discontinued-row='Bao tay nilon'] .btn").dispatchEvent("click");
       await page.waitForFunction(() => window.__qaWrites.some((w) => w.startsWith("rpc:reactivate_stock_item:")), null, { timeout: 5000 });
     }
-    if (station === "Bé Mì rà soát") {
+    if (station === "Sushi rà soát") {
       const panel = page.locator("[data-bmq-robot-auto-panel]");
       {
         await panel.waitFor({ timeout: 4000 });
-        assert.equal(await panel.locator("[data-bmq-robot-auto]").count(), 3, "Bé Mì auto list shows today's actions");
+        assert.equal(await panel.locator("[data-bmq-robot-auto]").count(), 3, "Sushi auto list shows today's actions");
         assert.equal(await panel.getByRole("button", { name: /Hoàn tác/ }).count(), 2, "only applied rows can be undone");
         await panel.screenshot({ path: `${EVIDENCE}/robot-auto-${viewport.width}.png` });
         await panel.getByRole("button", { name: /Hoàn tác/ }).first().click({ force: true });

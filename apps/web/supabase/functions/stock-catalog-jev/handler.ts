@@ -120,14 +120,14 @@ interface ClassifyOutcome {
 }
 
 const MESSAGES: Record<string, string> = {
-  disabled: "Tính năng dọn danh mục NVL bằng Bé Mì đang tắt.",
+  disabled: "Tính năng dọn danh mục NVL bằng Sushi đang tắt.",
   unauthorized: "Phiên đăng nhập đã hết hạn. Anh đăng nhập lại nhé.",
   forbidden: "Tính năng dọn danh mục NVL chỉ dành cho chủ doanh nghiệp hoặc người có quyền sửa kho NVL Q7.",
   invalid_content_type: "Yêu cầu dọn danh mục NVL phải là JSON.",
   invalid_json: "Nội dung yêu cầu dọn danh mục NVL không hợp lệ.",
   invalid_request: "Yêu cầu dọn danh mục NVL không hợp lệ.",
   body_limit: "Yêu cầu dọn danh mục NVL quá lớn.",
-  unconfigured: "Máy chủ chưa cấu hình khoá AI Gateway cho Bé Mì.",
+  unconfigured: "Máy chủ chưa cấu hình khoá AI Gateway cho Sushi.",
   scan_failed: "Chưa thể chạy dọn danh mục NVL. Không có thay đổi nào được ghi ngoài đề xuất.",
   timeout: "Dọn danh mục NVL vượt thời gian cho phép. Không có thay đổi nào được ghi.",
 };

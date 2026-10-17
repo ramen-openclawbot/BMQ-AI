@@ -125,14 +125,14 @@ interface ParsedInput {
 }
 
 const MESSAGES: Record<string, string> = {
-  disabled: "Tính năng gợi ý kho nhận bằng Bé Mì đang tắt.",
+  disabled: "Tính năng gợi ý kho nhận bằng Sushi đang tắt.",
   unauthorized: "Phiên đăng nhập đã hết hạn. Anh đăng nhập lại nhé.",
   forbidden: "Tính năng gợi ý kho nhận chỉ dành cho chủ hoặc người có quyền sửa kho NVL Q7.",
   invalid_content_type: "Yêu cầu gợi ý kho nhận phải là JSON.",
   invalid_json: "Nội dung yêu cầu gợi ý kho nhận không hợp lệ.",
   invalid_request: "Yêu cầu gợi ý kho nhận không hợp lệ.",
   body_limit: "Yêu cầu gợi ý kho nhận quá lớn.",
-  unconfigured: "Máy chủ chưa cấu hình khoá AI Gateway cho Bé Mì.",
+  unconfigured: "Máy chủ chưa cấu hình khoá AI Gateway cho Sushi.",
   scan_failed: "Chưa thể xếp hạng kho nhận. Không có thay đổi nào được ghi ngoài gợi ý.",
   timeout: "Gợi ý kho nhận vượt thời gian cho phép. Không có thay đổi nào được ghi.",
 };

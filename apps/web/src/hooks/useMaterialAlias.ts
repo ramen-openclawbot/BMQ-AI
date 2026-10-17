@@ -221,7 +221,7 @@ async function jevInvokeError(error: unknown): Promise<Error> {
     } catch {
       /* not JSON: fall through to the generic error */
     }
-    return new Error(`Bé Mì trả lỗi ${context.status}`);
+    return new Error(`Sushi trả lỗi ${context.status}`);
   }
   if (error instanceof Error) return error;
   const message = (error as { message?: unknown } | null)?.message;

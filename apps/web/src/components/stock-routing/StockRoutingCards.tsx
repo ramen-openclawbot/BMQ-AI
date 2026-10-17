@@ -29,7 +29,7 @@ const shortDate = (iso: string | null | undefined) => {
 const errorText = (error: unknown) => {
   const message = String((error as { message?: string })?.message ?? error);
   if (message.includes("insufficient_privilege")) return "Tài khoản chưa có quyền thao tác này. Gắn nhóm mã chuẩn cần quyền Material Master.";
-  if (message.includes("daily") || message.includes("quota")) return "Đã hết hạn mức gọi Bé Mì hôm nay.";
+  if (message.includes("daily") || message.includes("quota")) return "Đã hết hạn mức gọi Sushi hôm nay.";
   if (message.includes("version conflict")) return "Mã này vừa được người khác sửa, tải lại rồi thử lại.";
   return message;
 };
@@ -67,7 +67,7 @@ function SupplierRow({ row, canEdit }: { row: StockRoutingSupplierPending; canEd
         </span>
       </div>
       <div className="d3-sc-meta">
-        <span className={`d3-sc-prob${row.probability >= 0.9 ? " is-high" : row.probability < 0.7 ? " is-low" : ""}`}>Bé Mì {pct(row.probability)} → {stockRoutingLocationLabel(row.proposed_location)}</span>
+        <span className={`d3-sc-prob${row.probability >= 0.9 ? " is-high" : row.probability < 0.7 ? " is-low" : ""}`}>Sushi {pct(row.probability)} → {stockRoutingLocationLabel(row.proposed_location)}</span>
         {row.conflict ? <span className="d3-sc-warn">Luật đoán: {stockRoutingLocationLabel(row.rule_hint)}</span> : null}
       </div>
       {canEdit ? (
@@ -97,7 +97,7 @@ function MaterialRow({ row, categories, canEdit }: { row: StockRoutingMaterialPe
     <li className="d3-sc-row" data-bmq-routing-material>
       <div className="d3-sc-side">
         <strong>{row.canonical_name}</strong>
-        <span>{row.material_code}{row.current_category ? ` · đang ở ${materialCategoryLabel(row.current_category)}` : ""} · Bé Mì {pct(row.probability)}</span>
+        <span>{row.material_code}{row.current_category ? ` · đang ở ${materialCategoryLabel(row.current_category)}` : ""} · Sushi {pct(row.probability)}</span>
       </div>
       {canEdit ? (
         <div className="d3-sc-actions is-routing">
@@ -125,7 +125,7 @@ export function StockRoutingCards({ canEdit }: { canEdit: boolean }) {
   const quotaLeft = review ? Math.max(0, review.jev_usage.call_limit - review.jev_usage.calls) : null;
   const fail = (title: string) => (error: unknown) => toast({ title, description: errorText(error), variant: "destructive" });
   const runToast = (label: string) => (data: { suggestions: number; applied: number; pending: number; failed: number; calls: number; stopped: string | null }) =>
-    toast({ title: `Bé Mì đã ${label}`, description: `${data.applied} tự áp, ${data.pending} chờ duyệt, ${data.failed} lỗi, ${data.calls} lượt gọi${data.stopped ? " · dừng vì hết hạn mức" : ""}.` });
+    toast({ title: `Sushi đã ${label}`, description: `${data.applied} tự áp, ${data.pending} chờ duyệt, ${data.failed} lỗi, ${data.calls} lượt gọi${data.stopped ? " · dừng vì hết hạn mức" : ""}.` });
   const catCounts = review?.material_category_counts ?? {};
   const classified = Object.entries(catCounts).filter(([key]) => key !== "unclassified").reduce((sum, [, n]) => sum + n, 0);
 
@@ -139,16 +139,16 @@ export function StockRoutingCards({ canEdit }: { canEdit: boolean }) {
           <span className="d3-wh-pill">
             {counts ? `Q7 ${counts.q7} · Tân Tạo ${counts.tan_tao} · miễn ${counts.non_stock} · chưa có ${counts.none}` : "…"}
           </span>
-          <p>Bé Mì xếp nhà cung cấp theo tên và hàng đã giao. Tin trên 90% thì tự áp; mâu thuẫn với luật đoán thì chờ anh.</p>
+          <p>Sushi xếp nhà cung cấp theo tên và hàng đã giao. Tin trên 90% thì tự áp; mâu thuẫn với luật đoán thì chờ anh.</p>
           {canEdit ? (
-            <button type="button" className="d3-ap-link" disabled={runSuppliers.isPending || quotaLeft === 0} onClick={() => runSuppliers.mutate(undefined, { onSuccess: runToast("xếp nhà cung cấp"), onError: fail("Bé Mì chưa chạy được") })}>
-              <Truck className="inline h-3.5 w-3.5" /> {runSuppliers.isPending ? "Bé Mì đang xếp…" : "Xếp kho nhận bằng Bé Mì"}
+            <button type="button" className="d3-ap-link" disabled={runSuppliers.isPending || quotaLeft === 0} onClick={() => runSuppliers.mutate(undefined, { onSuccess: runToast("xếp nhà cung cấp"), onError: fail("Sushi chưa chạy được") })}>
+              <Truck className="inline h-3.5 w-3.5" /> {runSuppliers.isPending ? "Sushi đang xếp…" : "Xếp kho nhận bằng Sushi"}
             </button>
           ) : null}
         </div>
         {loadState ?? (
           (review?.supplier_pending.length ?? 0) === 0 && (review?.supplier_recent.length ?? 0) === 0 ? (
-            <div className="d3-wh-empty">Chưa có đề xuất. Bấm "Xếp kho nhận bằng Bé Mì".</div>
+            <div className="d3-wh-empty">Chưa có đề xuất. Bấm "Xếp kho nhận bằng Sushi".</div>
           ) : (
             <ul className="d3-sc-list">
               {review?.supplier_pending.map((row) => <SupplierRow key={row.id} row={row} canEdit={canEdit} />)}
@@ -156,7 +156,7 @@ export function StockRoutingCards({ canEdit }: { canEdit: boolean }) {
                 <li key={row.id} className={`d3-sc-row is-history${row.status === "reverted" ? " is-reverted" : ""}`} data-bmq-routing-recent>
                   <div className="d3-sc-side">
                     <strong>{row.supplier_name ?? "—"} → {stockRoutingLocationLabel(row.proposed_location)}</strong>
-                    <span>{row.status === "applied" ? `đã áp ${shortDate(row.applied_at)}` : "đã hoàn tác"} · Bé Mì {pct(row.probability)}</span>
+                    <span>{row.status === "applied" ? `đã áp ${shortDate(row.applied_at)}` : "đã hoàn tác"} · Sushi {pct(row.probability)}</span>
                   </div>
                   {canEdit && row.status === "applied" ? (
                     <Button type="button" variant="outline" size="sm" disabled={revertSupplier.isPending} onClick={() => revertSupplier.mutate({ suggestionId: row.id }, { onSuccess: () => toast({ title: "Đã hoàn tác kho nhận" }), onError: fail("Chưa hoàn tác được") })}>
@@ -176,8 +176,8 @@ export function StockRoutingCards({ canEdit }: { canEdit: boolean }) {
           <span className="d3-wh-pill">{review ? `${classified} có nhóm · ${catCounts.unclassified ?? 0} chưa` : "…"}</span>
           <p>Mã chuẩn được gắn nhóm để báo cáo giá vốn theo nhóm. Tin trên 85% thì tự áp.</p>
           {canEdit ? (
-            <button type="button" className="d3-ap-link" disabled={runMaterials.isPending || quotaLeft === 0} onClick={() => runMaterials.mutate(undefined, { onSuccess: runToast("gắn nhóm"), onError: fail("Bé Mì chưa chạy được") })}>
-              <Tags className="inline h-3.5 w-3.5" /> {runMaterials.isPending ? "Bé Mì đang gắn…" : "Gắn nhóm bằng Bé Mì"}
+            <button type="button" className="d3-ap-link" disabled={runMaterials.isPending || quotaLeft === 0} onClick={() => runMaterials.mutate(undefined, { onSuccess: runToast("gắn nhóm"), onError: fail("Sushi chưa chạy được") })}>
+              <Tags className="inline h-3.5 w-3.5" /> {runMaterials.isPending ? "Sushi đang gắn…" : "Gắn nhóm bằng Sushi"}
             </button>
           ) : null}
         </div>

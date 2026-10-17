@@ -213,7 +213,7 @@ test("the circuit opens after consecutive provider failures", async () => {
 });
 
 test("corrections and the image instruction rewrite only the question text", () => {
-  const corrections = ["Người duyệt đã sửa trước đây: PR-a ↔ PR-b → hai lần khác nhau (Bé Mì đã chọn needs_review)"];
+  const corrections = ["Người duyệt đã sửa trước đây: PR-a ↔ PR-b → hai lần khác nhau (Sushi đã chọn needs_review)"];
   const questions = jevQuestions({ corrections, imageInstructions: "So sánh ảnh" });
   assert.match(String(questions.same_purchase.instructions), /So sánh ảnh/);
   assert.match(String(questions.same_purchase.instructions), /hai lần khác nhau/);

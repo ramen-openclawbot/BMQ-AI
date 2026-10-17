@@ -1,5 +1,5 @@
 /**
- * Robot Bé Mì — auto-apply client rules (no React, no Supabase).
+ * Robot Sushi — auto-apply client rules (no React, no Supabase).
  *
  * The types mirror the two RPC outputs: get_robot_auto_actions (today's applied /
  * undone automatic actions, with readable labels) and get_robot_settings (the

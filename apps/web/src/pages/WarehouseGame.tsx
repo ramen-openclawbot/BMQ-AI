@@ -1058,12 +1058,12 @@ function CrateSheet({ location, crate, snapshot, autoPick = false, onAssigned, o
           {suggested ? (
             <button type="button" className="pick is-top" onClick={() => pick(suggested)}>
               <span className="pick-star">★</span>
-              <span><b>{suggested.name}</b><small>{crate.jev_source === "exact" ? "Trùng tên" : crate.jev_item_id ? `Bé Mì ${Math.round((crate.jev_probability ?? 0) * 100)}%` : "Gần nhất"} · {suggested.kind === "sku" ? "Thành phẩm SKU" : CLASS_META[suggested.cls].label} · {suggested.unit}</small></span>
+              <span><b>{suggested.name}</b><small>{crate.jev_source === "exact" ? "Trùng tên" : crate.jev_item_id ? `Sushi ${Math.round((crate.jev_probability ?? 0) * 100)}%` : "Gần nhất"} · {suggested.kind === "sku" ? "Thành phẩm SKU" : CLASS_META[suggested.cls].label} · {suggested.unit}</small></span>
               <span className="pick-go">Chọn</span>
             </button>
           ) : (
             <div className="no-hint" data-bmq-crate-nohint>
-              <p className="note">Kho chưa có mặt hàng giống tên này, nên Bé Mì chưa có gì để gợi ý.</p>
+              <p className="note">Kho chưa có mặt hàng giống tên này, nên Sushi chưa có gì để gợi ý.</p>
               <button type="button" className="btn" onClick={startCreate}>＋ Tạo mặt hàng “{cleanCrateName(crate.raw_name)}”</button>
             </div>
           )}

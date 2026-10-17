@@ -37,8 +37,8 @@ const shortDate = (iso: string | null | undefined) => {
 const errorText = (error: unknown) => {
   const message = String((error as { message?: string })?.message ?? error);
   if (message.includes("forbidden") || message.includes("insufficient_privilege")) return "Chỉ chủ hoặc người có quyền sửa kho Q7 làm được việc này.";
-  if (message.includes("daily") || message.includes("quota")) return "Đã hết hạn mức gọi Bé Mì hôm nay.";
-  if (message.includes("kill")) return "Bé Mì đang bị tắt bằng công tắc khẩn.";
+  if (message.includes("daily") || message.includes("quota")) return "Đã hết hạn mức gọi Sushi hôm nay.";
+  if (message.includes("kill")) return "Sushi đang bị tắt bằng công tắc khẩn.";
   if (message.includes("member_not_in_suggestion")) return "Nhóm đã thay đổi, bấm phân loại lại.";
   return message;
 };
@@ -120,7 +120,7 @@ function GroupRow({ group, onDone }: { group: NewItemSuggestion; onDone: () => v
         </div>
         {group.suggested_class ? (
           <span className={`d3-sc-prob${(group.class_probability ?? 0) >= 0.85 ? " is-high" : (group.class_probability ?? 0) < 0.6 ? " is-low" : ""}`}>
-            Bé Mì: {CLASS_LABELS[group.suggested_class]}{group.class_probability !== null ? ` ${pct(group.class_probability)}` : ""}
+            Sushi: {CLASS_LABELS[group.suggested_class]}{group.class_probability !== null ? ` ${pct(group.class_probability)}` : ""}
           </span>
         ) : (
           <span className="d3-sc-warn">Chưa xếp loại</span>
@@ -209,7 +209,7 @@ export function NewItemSuggestions({ canEdit, location = "q7" }: { canEdit: bool
     if (lastStatus.current && RUN_LIVE.has(lastStatus.current) && status && !RUN_LIVE.has(status)) {
       void queryClient.invalidateQueries({ queryKey: [MATERIAL_ALIAS_NEW_ITEM_QUERY_KEY] });
       void queryClient.invalidateQueries({ queryKey: [MATERIAL_ALIAS_BACKLOG_REVIEW_QUERY_KEY] });
-      if (status === "done") toast({ title: `Bé Mì đã phân loại xong · ${run?.groups ?? 0} nhóm` });
+      if (status === "done") toast({ title: `Sushi đã phân loại xong · ${run?.groups ?? 0} nhóm` });
       if (status === "failed") toast({ title: "Lượt phân loại bị lỗi", description: run?.last_error ?? undefined, variant: "destructive" });
     }
     lastStatus.current = status;
@@ -233,13 +233,13 @@ export function NewItemSuggestions({ canEdit, location = "q7" }: { canEdit: bool
   const runNote = !run
     ? null
     : live
-      ? total > 0 ? `Bé Mì đang xét · đã xong ${run.processed}, còn ${run.remaining}` : "Bé Mì đang bắt đầu…"
+      ? total > 0 ? `Sushi đang xét · đã xong ${run.processed}, còn ${run.remaining}` : "Sushi đang bắt đầu…"
       : run.status === "paused"
         ? `Tạm dừng · còn ${run.remaining}. Bấm lại để chạy tiếp.`
         : run.status === "failed"
           ? `Lượt trước bị lỗi: ${run.last_error ?? "không rõ"}`
           : run.finished_at
-            ? `Lần chạy gần nhất xong ${shortDate(run.finished_at)} · ${run.groups} nhóm · ${run.calls} lượt Bé Mì`
+            ? `Lần chạy gần nhất xong ${shortDate(run.finished_at)} · ${run.groups} nhóm · ${run.calls} lượt Sushi`
             : null;
 
   if (!canEdit) return null;
@@ -249,10 +249,10 @@ export function NewItemSuggestions({ canEdit, location = "q7" }: { canEdit: bool
       <div className="d3-wh-card-h">
         <h2>Hàng mới đề xuất</h2>
         <span className="d3-wh-pill">{query.data ? groups.length : "…"}</span>
-        <p>Hàng đã nhập trong 60 ngày nhưng chưa có mã kho. Bé Mì gom các cách ghi của cùng một món và xếp loại; bấm "Tạo mặt hàng" là lần sau tự chọn.</p>
+        <p>Hàng đã nhập trong 60 ngày nhưng chưa có mã kho. Sushi gom các cách ghi của cùng một món và xếp loại; bấm "Tạo mặt hàng" là lần sau tự chọn.</p>
         <button type="button" className="d3-ap-link d3-ab-scan" disabled={scan.isPending || live} onClick={start} data-bmq-new-items-scan>
           <Sparkles className="h-3.5 w-3.5" />
-          {live || scan.isPending ? "Bé Mì đang phân loại…" : run?.status === "paused" ? "Chạy tiếp" : "Phân loại hàng chưa có mã"}
+          {live || scan.isPending ? "Sushi đang phân loại…" : run?.status === "paused" ? "Chạy tiếp" : "Phân loại hàng chưa có mã"}
         </button>
       </div>
 
@@ -270,7 +270,7 @@ export function NewItemSuggestions({ canEdit, location = "q7" }: { canEdit: bool
       ) : query.isError ? (
         <div className="d3-wh-empty">{errorText(query.error)}</div>
       ) : groups.length === 0 ? (
-        <div className="d3-wh-empty">Chưa có nhóm nào. Bấm "Phân loại hàng chưa có mã" để Bé Mì xét hàng 60 ngày.</div>
+        <div className="d3-wh-empty">Chưa có nhóm nào. Bấm "Phân loại hàng chưa có mã" để Sushi xét hàng 60 ngày.</div>
       ) : (
         <>
           <div className="d3-ab-tabs" role="tablist">

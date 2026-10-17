@@ -29,7 +29,7 @@ export interface JevDuplicateScanItem {
   relation_probability: number | null;
   relation_confidence: number | null;
   error: string | null;
-  /** True when Bé Mì re-checked the pair with both delivery-note photos. */
+  /** True when Sushi re-checked the pair with both delivery-note photos. */
   images_used?: boolean;
 }
 

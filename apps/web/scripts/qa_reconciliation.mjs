@@ -333,7 +333,7 @@ try {
     await page.waitForSelector("[data-bmq-jev-result]");
     assert.equal(await page.locator("[data-bmq-jev-item]").count(), 4);
     assert.ok((await page.locator("[data-bmq-jev-hint]").textContent()).includes("gói miễn phí"), "free-tier hint shown once");
-    assert.equal((await page.locator("[data-bmq-jev-item='error'] .d3-up-chip").textContent()).trim(), "Lỗi Bé Mì · jev_http_error · HTTP 403");
+    assert.equal((await page.locator("[data-bmq-jev-item='error'] .d3-up-chip").textContent()).trim(), "Lỗi Sushi · jev_http_error · HTTP 403");
     assert.equal(await page.locator("[data-bmq-jev-item]").first().getAttribute("data-bmq-jev-item"), "auto_flag", "highest probability first");
     const dry = (await bodies(page)).filter((b) => b.name === "finance-jev-duplicate-scan").pop();
     assert.deepEqual({ mode: dry.mode, limit: dry.limit, days: dry.days }, { mode: "dry_run", limit: 50, days: 90 });

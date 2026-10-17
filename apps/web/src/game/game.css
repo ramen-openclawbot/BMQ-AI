@@ -1208,7 +1208,7 @@
   .kg .k3-hint { font-size: 11px; }
 }
 
-/* ---- Bé Mì tự làm hôm nay (2026-10-15) ---- */
+/* ---- Sushi tự làm hôm nay (2026-10-15) ---- */
 .kg .robot-auto { display: grid; gap: 10px; margin-top: 14px; padding: 14px; background: var(--white); border: 3px solid var(--ink); border-radius: 18px; box-shadow: var(--soft); }
 .kg .robot-auto header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .kg .robot-auto h3 { margin: 0; font-family: "Baloo 2", sans-serif; font-size: 20px; font-weight: 800; line-height: 1.2; }

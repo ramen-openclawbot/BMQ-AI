@@ -84,9 +84,9 @@ function useRecentPackages() {
 }
 
 const markLabel = (row: SupplierDebtRow) => {
-  if (row.mark === "settled_outside") return row.mark_source === "learned" ? "đã chi ngoài hệ thống (học)" : row.mark_source === "manual" ? "đã chi ngoài hệ thống" : `Bé Mì: có thể đã chi${row.probability != null ? ` ${Math.round(row.probability * 100)}%` : ""}`;
-  if (row.mark === "real_debt") return row.mark_source === "jev" ? `Bé Mì: nợ thật${row.probability != null ? ` ${Math.round(row.probability * 100)}%` : ""}` : "nợ thật";
-  if (row.mark === "unsure") return "Bé Mì: chưa rõ";
+  if (row.mark === "settled_outside") return row.mark_source === "learned" ? "đã chi ngoài hệ thống (học)" : row.mark_source === "manual" ? "đã chi ngoài hệ thống" : `Sushi: có thể đã chi${row.probability != null ? ` ${Math.round(row.probability * 100)}%` : ""}`;
+  if (row.mark === "real_debt") return row.mark_source === "jev" ? `Sushi: nợ thật${row.probability != null ? ` ${Math.round(row.probability * 100)}%` : ""}` : "nợ thật";
+  if (row.mark === "unsure") return "Sushi: chưa rõ";
   return null;
 };
 const suggestText = (item: Item) => {
@@ -136,7 +136,7 @@ function Jar({ fill, color, icon }: { fill: StockFill; color: string; icon: stri
 // ---------------------------------------------------------------------------------------------------------------
 // Old unpaid documents of one supplier (farthest first), with picks for the robot package. Same rules as the old
 // robot desk: rows before the learned cutover fold away, rows already paid outside are faded, the last pick
-// pattern is shown, and Bé Mì (the finance reviewer) can review the list. Each row shows its photo count.
+// pattern is shown, and Sushi (the finance reviewer) can review the list. Each row shows its photo count.
 function DebtPicker({ supplierId, picks, onToggle, onView, compact = false }: {
   supplierId: string | null; picks: DebtPick[]; onToggle: (pick: DebtPick) => void; onView: (key: DocKey) => void; compact?: boolean;
 }) {
@@ -195,9 +195,9 @@ function DebtPicker({ supplierId, picks, onToggle, onView, compact = false }: {
       <small className="sum">{picks.length ? `Chi kèm ${picks.length} phiếu · ${fmtMoney(picked)}${full ? ` (tối đa ${MAX_DEBT_PICKS})` : ""}` : "Chưa chọn phiếu cũ: chỉ đặt đơn mới"}</small>
       {!compact ? (
         <div className="debt-jev">
-          <button type="button" className="fold" disabled={review.isPending} onClick={() => review.mutate(supplierId)} data-office-jev>{review.isPending ? "Bé Mì đang rà…" : "🤖 Bé Mì rà phiếu cũ"}</button>
-          {review.data ? <small>Bé Mì xem {review.data.evaluated}, đánh dấu {review.data.marked}{review.data.stopped === "quota" ? " · hết hạn mức hôm nay" : ""}</small> : null}
-          {review.error ? <small className="err">Bé Mì chưa chạy được</small> : null}
+          <button type="button" className="fold" disabled={review.isPending} onClick={() => review.mutate(supplierId)} data-office-jev>{review.isPending ? "Sushi đang rà…" : "🤖 Sushi rà phiếu cũ"}</button>
+          {review.data ? <small>Sushi xem {review.data.evaluated}, đánh dấu {review.data.marked}{review.data.stopped === "quota" ? " · hết hạn mức hôm nay" : ""}</small> : null}
+          {review.error ? <small className="err">Sushi chưa chạy được</small> : null}
         </div>
       ) : null}
     </div>
