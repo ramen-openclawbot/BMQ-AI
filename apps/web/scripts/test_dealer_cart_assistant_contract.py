@@ -123,6 +123,10 @@ check("migration does not touch product_skus or price columns",
       re.search(r"\b(from|into|update|delete\s+from|join)\s+(public\.)?product_skus\b", lower_migration) is None
       and not any(column in lower_migration for column in ("price_vnd_per_unit", "unit_price", "cost_values")))
 
+config_text = read(ROOT / "supabase" / "config.toml")
+check("gateway lets dealer calls through (verify_jwt = false)",
+      re.search(r"\[functions\.dealer-cart-assistant\][^\[]*verify_jwt\s*=\s*false", config_text) is not None)
+
 failed = [item for item in CHECKS if not item[1]]
 for name, ok, detail in CHECKS:
     print(f"{'PASS' if ok else 'FAIL'}  {name}" + (f"  ({detail})" if detail and not ok else ""))
