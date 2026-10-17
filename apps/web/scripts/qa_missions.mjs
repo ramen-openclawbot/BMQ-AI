@@ -65,6 +65,10 @@ function settle(st) {
       { ...base, id: "cq-7", location: "tan_tao", sort_order: 7, file_label: "Băng keo lớn", file_qty: 8, file_unit: "cây", suggested_item_id: tape.id, suggested_factor: 6, suggested_item: tape, status: "open" },
     ], error: null };
   }
+  if (st.table === "rpc:get_item_receipt_lines" && st.args.p_item_id === "it-tape") {
+    const line = (n, d, qty, unit) => ({ goods_receipt_id: "gr-" + n, goods_receipt_item_id: "gri-" + n, receipt_number: n, receipt_date: d, status: "confirmed", supplier_name: "Ngọc Trân", raw_name: "Băng keo 100 yard", quantity: qty, unit, unit_price: 135000, line_total: qty * 135000, image_path: null, photo_paths: [] });
+    return { data: [line("GRN-000590", "2026-10-10", 30, "cuộn"), line("GRN-000581", "2026-10-08", 5, "cây")], error: null };
+  }
   if (st.table === "rpc:answer_stock_count_unit_question") {
     window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args));
     return { data: { batch: "2026-10-16", id: st.args.p_question_id, location: "tan_tao", sort_order: 7, file_label: "x", file_qty: 8, file_unit: "cây", suggested_item_id: null, suggested_factor: null, status: st.args.p_skip ? "skipped" : "answered", item_id: st.args.p_item_id, factor: st.args.p_factor, counted_qty: st.args.p_factor ? 8 * st.args.p_factor : null, record_result: null, note: null, answered_by: null, answered_at: null, suggested_item: null, chosen_item: { id: "it-tape", code: "NVL-083", name: "Băng keo lớn", unit: "cuộn" }, item_units: [], replay: false }, error: null };
@@ -564,6 +568,12 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     const tape = page.locator("[data-bmq-count-question='Băng keo lớn']");
     assert.equal(await tape.locator("[data-bmq-count-factor]").inputValue(), "6", "suggested factor prefilled");
     assert.match(await tape.textContent(), /Sẽ ghi tồn 16\/10:\s*48 cuộn/);
+    // Owner rule 17/10: every conversion shows the file line + delivery notes, same-unit receipts first.
+    assert.equal(await page.locator("[data-bmq-count-question] [data-bmq-receipt-notes]").count(), 3, "evidence on every card");
+    assert.equal(await page.locator("[data-bmq-count-question] [data-bmq-note='File tồn 16/10']").count(), 3, "file line pinned on every card");
+    const tapeNotes = await tape.locator("[data-bmq-note]").evaluateAll((els) => els.map((el) => el.getAttribute("data-bmq-note")));
+    assert.deepEqual(tapeNotes, ["File tồn 16/10", "GRN-000581", "GRN-000590"], `file first, then the 'cây' receipt: ${tapeNotes}`);
+    assert.match(await tape.locator("[data-bmq-receipt-notes] .notes-h").textContent(), /2 lần nhập/, "file is not counted as a receipt");
     const salt = page.locator("[data-bmq-count-question='Muối']");
     assert.equal(await salt.locator(".cq-new input").first().inputValue(), "Muối", "no suggestion → new item named after the line");
     assert.equal(await salt.locator("[data-bmq-count-save]").isDisabled(), true, "needs a factor first");

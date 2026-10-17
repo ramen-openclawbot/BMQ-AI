@@ -113,15 +113,20 @@ function NoteViewer({ lines, index, onIndex, onClose }: { lines: ReceiptLine[]; 
 }
 
 /** "📄 Phiếu giao hàng" strip: one card per receipt line, tap to open the photo full screen. */
-export function ReceiptNotes({ title, lines, loading, error }: { title: string; lines: ReceiptLine[] | undefined; loading: boolean; error: unknown }) {
+/**
+ * `pinned` documents (e.g. the owner's stock-count file) lead the strip and share the viewer,
+ * but are not counted as receipts.
+ */
+export function ReceiptNotes({ title, lines, loading, error, pinned = [] }: { title: string; lines: ReceiptLine[] | undefined; loading: boolean; error: unknown; pinned?: ReceiptLine[] }) {
   const [open, setOpen] = useState<number | null>(null);
-  const list = lines ?? [];
-  const withPhoto = list.filter((line) => receiptPhotos(line.image_path, line.photo_paths).length > 0).length;
+  const receipts = lines ?? [];
+  const list = [...pinned, ...receipts];
+  const withPhoto = receipts.filter((line) => receiptPhotos(line.image_path, line.photo_paths).length > 0).length;
   return (
     <section className="notes" data-bmq-receipt-notes>
-      <div className="notes-h"><b>📄 {title}</b><small>{loading ? "đang tải…" : `${list.length} lần nhập · ${withPhoto} có ảnh`}</small></div>
+      <div className="notes-h"><b>📄 {title}</b><small>{loading ? "đang tải…" : `${receipts.length} lần nhập · ${withPhoto} có ảnh`}</small></div>
       {error ? <div className="err">Chưa tải được phiếu nhập.</div> : null}
-      {!loading && !error && list.length === 0 ? <p className="note" style={{ fontSize: 13 }}>Chưa có phiếu nhập nào.</p> : null}
+      {!loading && !error && receipts.length === 0 ? <p className="note" style={{ fontSize: 13 }}>Chưa có phiếu nhập nào.</p> : null}
       {list.length ? (
         <div className="notes-row">{list.map((line, i) => <Thumb key={line.goods_receipt_item_id} line={line} onOpen={() => setOpen(i)} />)}</div>
       ) : null}

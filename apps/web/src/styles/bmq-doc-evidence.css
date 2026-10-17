@@ -1,0 +1,18 @@
+/* Delivery notes beside a quy đổi input on the web pages (owner rule 17/10). */
+.d3-doc-evidence { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 8px 10px; border-radius: 12px; background: var(--d3-card, #f4f3ef); font-family: var(--d3-sans, inherit); color: var(--d3-ink, #111); }
+.d3-doc-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 10px; }
+.d3-doc-head b { font-size: 13px; font-weight: 500; }
+.d3-doc-head small, .d3-doc-note { font-size: 12px; color: var(--d3-dim, #6b6b69); margin: 0; }
+.d3-doc-row { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; scroll-snap-type: x proximity; }
+.d3-doc-card { flex: 0 0 132px; display: flex; flex-direction: column; gap: 4px; padding: 6px; border-radius: 10px; background: var(--d3-white, #fdfdfc); color: inherit; text-decoration: none; scroll-snap-align: start; border: 1px solid rgba(0,0,0,.08); }
+.d3-doc-card:hover { border-color: rgba(0,0,0,.25); }
+.d3-doc-thumb { display: grid; place-items: center; height: 86px; overflow: hidden; border-radius: 7px; background: #e9e7e1; }
+.d3-doc-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.d3-doc-thumb em { font-size: 11px; font-style: normal; color: var(--d3-dim, #6b6b69); }
+.d3-doc-thumb i { width: 18px; height: 18px; border-radius: 50%; border: 2px solid rgba(0,0,0,.15); border-top-color: rgba(0,0,0,.5); animation: d3-doc-spin .8s linear infinite; }
+.d3-doc-meta { display: flex; flex-direction: column; min-width: 0; }
+.d3-doc-meta b { font-size: 12px; font-weight: 600; }
+.d3-doc-meta small { font-size: 11px; color: var(--d3-dim, #6b6b69); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@keyframes d3-doc-spin { to { transform: rotate(360deg); } }
+.d3-sc-evidence { display: grid; gap: 8px; margin-top: 8px; min-width: 0; }
+@media (min-width: 900px) { .d3-sc-evidence { grid-template-columns: 1fr 1fr; } }

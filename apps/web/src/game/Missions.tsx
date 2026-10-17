@@ -3,7 +3,7 @@ import { GamePicker } from "@/game/GamePicker";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { MISSIONS_QUERY_KEY, useCompleteMission, useMarkItemsDistinct, useResolveUnknownUnit, useUpdateAliasFactor } from "@/hooks/useMissions";
-import { useAliasReceiptLines, useRenameStockItem, useUnitVariantReceiptLines, useWarehouseGameSnapshot, WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY } from "@/hooks/useWarehouseGame";
+import { useAliasReceiptLines, useItemReceiptLines, useRenameStockItem, useUnitVariantReceiptLines, useWarehouseGameSnapshot, WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY } from "@/hooks/useWarehouseGame";
 import { useAnswerCountUnitQuestion, useCountUnitQuestions } from "@/hooks/useCountUnitQuestions";
 import { STOCK_CATALOG_REVIEW_QUERY_KEY } from "@/hooks/useStockCatalog";
 import {
@@ -12,6 +12,7 @@ import {
 } from "@/lib/missions";
 import { STOCK_UNITS } from "@/lib/stock-units";
 import { canSubmit, computeCountedQty, type StockCountUnitQuestion } from "@/lib/count-unit-questions";
+import type { ReceiptLine } from "@/lib/receipt-lines";
 import { ReceiptNotes } from "./ReceiptNotes";
 import { Sheet } from "./Sheet";
 import { GameLoading } from "./Loading";
@@ -355,6 +356,29 @@ function UnitRow({ variant, rows, onSaved }: { variant: string; rows: MissionUnk
 
 const LOCATION_LABEL = { q7: "Kho Q7", tan_tao: "Kho Tân Tạo" } as const;
 
+/** The owner's 16/10 stock file, rendered per kho and stored next to the delivery notes (bucket invoices). */
+const COUNT_FILE_IMAGES: Record<string, Record<"q7" | "tan_tao", string>> = {
+  "2026-10-16": { q7: "stock-count-files/ton-thuc-te-2026-10-16-q7.png", tan_tao: "stock-count-files/ton-thuc-te-2026-10-16-tan_tao.png" },
+};
+
+const sameUnit = (a: string | null, b: string) => (a ?? "").trim().toLowerCase() === b.trim().toLowerCase();
+
+/**
+ * Evidence beside every conversion (owner rule 17/10): the file line itself, then the item's delivery
+ * notes — receipts written in the file's unit (e.g. "cây") first.
+ */
+function CountEvidence({ row, itemId }: { row: StockCountUnitQuestion; itemId: string | null }) {
+  const lines = useItemReceiptLines(itemId, Boolean(itemId));
+  const image = COUNT_FILE_IMAGES[row.batch]?.[row.location] ?? null;
+  const file: ReceiptLine = {
+    goods_receipt_id: `file-${row.id}`, goods_receipt_item_id: `file-${row.id}`, receipt_number: "File tồn 16/10", receipt_date: row.batch,
+    status: "file", supplier_name: null, raw_name: row.file_label, quantity: row.file_qty, unit: row.file_unit, unit_price: null, line_total: null,
+    image_path: image, photo_paths: [],
+  };
+  const receipts = [...(lines.data ?? [])].sort((a, b) => Number(sameUnit(b.unit, row.file_unit)) - Number(sameUnit(a.unit, row.file_unit)));
+  return <ReceiptNotes title="Đối soát: file + phiếu giao hàng" pinned={[file]} lines={itemId ? receipts : []} loading={Boolean(itemId) && lines.isLoading} error={lines.error} />;
+}
+
 /**
  * One line of the 16/10 stock file whose unit is unclear (owner 17/10): pick the kho item, answer
  * "1 {file unit} = ? {kho unit}", and the server records file qty × factor as the 16/10 count.
@@ -390,6 +414,7 @@ function CountQuestionRow({ row, onSaved }: { row: StockCountUnitQuestion; onSav
     return (
       <li className="task-row is-fixed cq-row" data-bmq-count-question={row.file_label} data-status={row.status}>
         <div className="task-head"><b>{row.file_label}</b><small>{LOCATION_LABEL[row.location]} · file: {fmtQty(row.file_qty)} {row.file_unit}</small></div>
+        <CountEvidence row={row} itemId={row.item_id ?? row.suggested_item_id} />
         <span className="task-ok">{row.status === "skipped" ? "Đã bỏ qua" : `✓ Đã ghi ${fmtQty(row.counted_qty ?? 0)} ${row.chosen_item?.unit ?? ""} · ${row.chosen_item?.name ?? ""}`}</span>
       </li>
     );
@@ -404,6 +429,7 @@ function CountQuestionRow({ row, onSaved }: { row: StockCountUnitQuestion; onSav
       <div className="cq-item">
         <GamePicker value={creating ? "__new__" : itemId} onChange={setItemId} placeholder="Chọn món trong kho…" title={`Món kho cho “${row.file_label}”`} ariaLabel={`Món kho cho ${row.file_label}`} options={options} dataAttrs={{ "data-bmq-count-item": row.file_label }} />
       </div>
+      <CountEvidence row={row} itemId={creating ? null : itemId || null} />
       {creating ? (
         <div className="cq-new">
           <label className="field">Tên món mới<input value={newName} onChange={(event) => setNewName(event.target.value)} maxLength={120} /></label>

@@ -1,3 +1,4 @@
+import { ItemDocEvidence } from "@/components/DocEvidence";
 import { useMemo, useState } from "react";
 import { GamePicker } from "@/game/GamePicker";
 import { AlertTriangle, Bot, GitMerge, Layers, RotateCcw, Sparkles, Tags } from "lucide-react";
@@ -128,6 +129,12 @@ export function MergeRow({ row, canEdit }: { row: StockCatalogPendingSuggestion;
           <Button type="button" variant="outline" onClick={() => act("reject")} disabled={decide.isPending}>
             Bỏ
           </Button>
+        </div>
+      ) : null}
+      {canEdit && needsFactor ? (
+        <div className="d3-sc-evidence">
+          <ItemDocEvidence itemId={keepIsItem ? row.other_item_id : row.item_id} title={`Phiếu giao hàng — ${drop.name} (bị gộp)`} />
+          <ItemDocEvidence itemId={keepIsItem ? row.item_id : row.other_item_id} title={`Phiếu giao hàng — ${keep.name} (giữ lại)`} />
         </div>
       ) : null}
     </li>

@@ -4,6 +4,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useLinkQ7ExactMaterials, useLinkQ7ItemMaterial, useQ7MaterialLinkReview } from "@/hooks/useQ7MaterialLinks";
 import { q7MaterialLinkErrorCode, q7MaterialLinkErrorText, type Q7MaterialLinkCandidate, type Q7MaterialLinkReviewItem, type Q7UnitStatus } from "@/lib/q7-material-links";
 import { factorPrefill } from "@/lib/material-link-quest";
+import { useItemReceiptLines } from "@/hooks/useWarehouseGame";
+import { ReceiptNotes } from "./ReceiptNotes";
 
 export { factorPrefill } from "@/lib/material-link-quest";
 
@@ -92,6 +94,7 @@ function LinkRow({ item, canEdit, onDone }: { item: Q7MaterialLinkReviewItem; ca
           {item.unit}
         </label>
       ) : null}
+      {picked && needsFactor ? <LinkFactorNotes itemId={item.item_id} /> : null}
       {link.error ? <div className="err">{errorText(link.error)}</div> : null}
       {canEdit ? (
         <div className="row link-actions">
@@ -169,4 +172,10 @@ export function LinkStation({ canEdit: canEditStock }: { canEdit: boolean }) {
       {items.length === 0 ? <div className="d3-wh-empty">Mọi món Q7 đã có mã hàng ✓ Kiểm kê Q7 chốt được rồi.</div> : null}
     </div>
   );
+}
+
+/** Owner rule 17/10: a factor is typed with the item's delivery notes in view. */
+function LinkFactorNotes({ itemId }: { itemId: string }) {
+  const lines = useItemReceiptLines(itemId, true);
+  return <ReceiptNotes title="Phiếu giao hàng" lines={lines.data} loading={lines.isLoading} error={lines.error} />;
 }

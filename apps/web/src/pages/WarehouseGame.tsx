@@ -869,6 +869,7 @@ function ItemSheet({ item, others, canEdit, started, onTransfer, onRobot, onFact
               {unit}
             </label>
           ) : null}
+          {unitChanged ? <ItemNotes itemId={item.id} /> : null}
           {duplicate ? <div className="warn">Trùng với “{duplicate.name}”. Đổi tên khác hoặc gộp hai mặt hàng ở Dọn danh mục.</div> : null}
           {unitChanged ? <div className="warn">Đổi đơn vị sẽ quy đổi tồn, hệ số tên gọi khác và giá chuẩn{autoFactor ? ` (1 ${item.unit} = ${fmtQty(autoFactor)} ${unit})` : ""}. Mặt hàng đã có sổ được chuyển sang bản mới, hoàn tác được.</div> : null}
           {error ? <div className="err">{errorText(error)}</div> : null}

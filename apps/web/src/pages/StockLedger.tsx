@@ -1,3 +1,4 @@
+import { CrateDocEvidence } from "@/components/DocEvidence";
 import { useMemo, useState } from "react";
 import { AlertTriangle, CalendarCheck, ClipboardCheck, Link2, PackageCheck } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -114,6 +115,7 @@ function PendingAliasRow({
           {resolveAlias.isPending ? "Đang gán…" : "Gán mã"}
         </Button>
       </div>
+      <CrateDocEvidence location={location} supplierId={null} normalizedName={row.normalized_name} />
     </li>
   );
 }

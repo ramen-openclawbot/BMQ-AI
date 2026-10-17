@@ -1,3 +1,4 @@
+import { CrateDocEvidence } from "@/components/DocEvidence";
 import { useMemo, useState } from "react";
 import { GamePicker } from "@/game/GamePicker";
 import { useQueryClient } from "@tanstack/react-query";
@@ -210,6 +211,7 @@ function BacklogRow({
           <span>1 {label.trim() || "đv"} = ? {stockUnit || "đv kho"}</span>
           <Input inputMode="decimal" value={factorText} onChange={(event) => setPackEdit({ label, factor: event.target.value })} aria-label="Hệ số đổi sang đơn vị kho" />
         </label>
+        <CrateDocEvidence location={location} supplierId={row.supplier_id} normalizedName={row.normalized_name} />
         <div className="d3-ma-actions">
           <Button type="button" size="sm" onClick={save} disabled={!ready || busy}>
             {isNew ? <Plus className="h-4 w-4" /> : <Check className="h-4 w-4" />}

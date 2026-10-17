@@ -17,6 +17,7 @@ import {
 } from "@/hooks/useMaterialAlias";
 import type { NewItemSuggestion, NewItemSuggestionClass } from "@/lib/material-alias";
 import { packFactorFor, unitFactor } from "./new-stock-item";
+import { CrateDocEvidence } from "@/components/DocEvidence";
 import "@/styles/bmq-material-alias.css";
 
 const CLASS_LABELS: Record<NewItemSuggestionClass, string> = {
@@ -155,6 +156,7 @@ function GroupRow({ group, onDone }: { group: NewItemSuggestion; onDone: () => v
                 <span>{unit.trim() || "đv"}</span>
               </span>
             )}
+            {nonStock ? null : <CrateDocEvidence location={location} supplierId={member.supplier_id} normalizedName={member.normalized_name} title={`Phiếu giao hàng — ${member.raw_name}`} />}
           </li>
         ))}
       </ul>
