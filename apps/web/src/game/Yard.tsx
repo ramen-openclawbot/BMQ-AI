@@ -6,7 +6,7 @@ export interface Zone { id: string; label: string; icon: string; blurb: string; 
 
 export const ZONES: Zone[] = [
   { id: "deliver", label: "Giao hàng", icon: "🚛", color: C.kraft, blurb: "Nhập số thực giao và chụp ảnh hàng cho từng phiếu xuất." },
-  { id: "ledger", label: "Tồn kho", icon: "📒", color: C.sage, blurb: "Tự cộng từ phiếu nhập, tự trừ từ phiếu xuất sản xuất. Kiểm kê hằng tuần." },
+  // Tồn kho no longer has a kiosk (owner 17/10 IMG_5831): it only linked out of the game; stock lives on the shelves and in Kiểm kê.
   { id: "count", label: "Kiểm kê", icon: "✅", color: C.plum, blurb: "Đếm thực tế rồi nhập số; sổ tự ghi phần chênh lệch." },
   // Đặt hàng tự động no longer has a kiosk in the yard (owner 17/10 IMG_5812): its machine stands inside each warehouse.
   { id: "clean", label: "Danh mục hàng hóa", icon: "🧹", color: C.mustard, blurb: "Sushi gộp tên trùng, gán nhóm, học tên gọi khác từ phiếu nhập." },

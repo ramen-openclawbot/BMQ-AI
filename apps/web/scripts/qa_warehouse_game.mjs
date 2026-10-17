@@ -1435,7 +1435,8 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await page.waitForTimeout(600);
     assert.equal(await page.locator("[data-bmq-game-3d='yard']").count(), 1, "yard still renders after reset");
   }
-  for (const name of ["Giao hàng", "Tồn kho", "Kiểm kê", "Danh mục hàng hóa"]) assert.equal(await page.getByRole("button", { name }).count() >= 1, true, `kiosk ${name} still there`);
+  for (const name of ["Giao hàng", "Kiểm kê", "Danh mục hàng hóa"]) assert.equal(await page.getByRole("button", { name }).count() >= 1, true, `kiosk ${name} still there`);
+  assert.equal(await page.getByRole("button", { name: "Tồn kho" }).count(), 0, "no Tồn kho kiosk in the yard (owner 17/10)");
   await page.screenshot({ path: `${EVIDENCE}/yard-no-auto-${KHO_MODE}-${viewport.width}.png` });
   assert.deepEqual(errors, [], "no page errors");
   record(`yard has no ordering kiosk ${viewport.width}`);

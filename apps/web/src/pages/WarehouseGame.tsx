@@ -73,7 +73,6 @@ type Panel =
 const LOCATION_LABEL: Record<WarehouseGameLocation, string> = { q7: "Kho Q7", tan_tao: "Kho Tân Tạo" };
 
 const ZONE_ROUTES: Record<string, string> = {
-  ledger: "/warehouse/stock-ledger",
   count: "/warehouse/stock-ledger",
   auto: "/warehouse/auto-purchase",
   clean: "/warehouse/catalog-cleanup",
