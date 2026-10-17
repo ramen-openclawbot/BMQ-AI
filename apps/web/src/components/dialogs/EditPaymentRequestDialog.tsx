@@ -282,6 +282,9 @@ export function EditPaymentRequestDialog({
 
       queryClient.invalidateQueries({ queryKey: ["payment-request-items", requestId] });
       queryClient.invalidateQueries({ queryKey: ["payment-stats"] });
+      // The open detail and the lists must show the saved header (e.g. UNC -> Tiền mặt).
+      queryClient.invalidateQueries({ queryKey: ["payment-request"] });
+      queryClient.invalidateQueries({ queryKey: ["payment-requests"] });
       
       toast.success("Đã cập nhật đề nghị chi thành công");
       onOpenChange(false);

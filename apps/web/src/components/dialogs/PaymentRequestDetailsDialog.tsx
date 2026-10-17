@@ -143,6 +143,26 @@ export function PaymentRequestDetailsDialog({
   const setRequiresReceipt = useSetPaymentRequestRequiresReceipt();
   const { t } = useLanguage();
   const queryClient = useQueryClient();
+  const [switchingToCash, setSwitchingToCash] = useState(false);
+  // Owner: move a pending UNC phiếu to the Chi tiền mặt flow (CEO pays the staff, staff
+  // uploads receipts). The reverse is blocked server-side once a phiếu is in that flow.
+  const switchToCash = async () => {
+    if (!requestId || !window.confirm("Chuyển phiếu này sang chi tiền mặt? CEO chuyển tiền cho nhân viên, nhân viên up hoá đơn sau khi chi.")) return;
+    setSwitchingToCash(true);
+    try {
+      const { error } = await supabase.from("payment_requests").update({ payment_method: "cash" }).eq("id", requestId).eq("status", "pending");
+      if (error) throw error;
+      toast.success("Đã chuyển sang chi tiền mặt.");
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["payment-request"] }),
+        queryClient.invalidateQueries({ queryKey: ["payment-requests"] }),
+      ]);
+    } catch {
+      toast.error("Chưa chuyển được. Thử lại.");
+    } finally {
+      setSwitchingToCash(false);
+    }
+  };
   const { data: request, isLoading: requestLoading } = usePaymentRequest(requestId);
   const { data: items, isLoading: itemsLoading } = usePaymentRequestItems(requestId);
   
@@ -651,6 +671,18 @@ export function PaymentRequestDetailsDialog({
                   >
                     {request.payment_method === "cash" ? <Banknote className="h-4 w-4" /> : <CreditCard className="h-4 w-4" />}
                     {request.payment_method === "cash" ? "Duyệt chi tiền mặt" : "Duyệt bằng UNC"}
+                  </Button>
+                )}
+                {request.status === "pending" && isOwner && request.payment_status === "unpaid" && request.payment_method !== "cash" && (
+                  <Button
+                    variant="outline"
+                    onClick={() => void switchToCash()}
+                    disabled={switchingToCash}
+                    className="d3-prd-btn col-span-2 w-full gap-2 whitespace-nowrap sm:w-auto"
+                    data-bmq-switch-cash
+                  >
+                    {switchingToCash ? <Loader2 className="h-4 w-4 animate-spin" /> : <Banknote className="h-4 w-4" />}
+                    Chuyển sang chi tiền mặt
                   </Button>
                 )}
 

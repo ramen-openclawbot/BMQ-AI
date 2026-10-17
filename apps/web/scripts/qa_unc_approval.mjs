@@ -60,6 +60,11 @@ const edgeError = (status, code) => ({
 function settle(st) {
   if (st.table === "rpc:finance_unc_total_from_evidence") return { data: { transfer_date: st.args?.p_date, total_amount: 19750000, evidence_count: 2 }, error: null };
   if (st.table.startsWith("rpc:") && !READ_RPCS.has(st.table)) { window.__qaWrites.push(st.table); return { data: null, error: { message: "QA fixture: writes disabled" } }; }
+  if (st.write === "update" && st.table === "payment_requests" && cfg().allowSwitch) {
+    const target = PRS.find((r) => r.id === st.filters.id && r.status === st.filters.status);
+    if (target) { target.payment_method = "cash"; window.__qaSwitch = (window.__qaSwitch || 0) + 1; }
+    return { data: null, error: null, count: null };
+  }
   if (st.write) { window.__qaWrites.push(st.table + ":" + st.write); return { data: null, error: { message: "QA fixture: writes disabled" }, count: null }; }
   if (st.head) return { data: null, error: null, count: st.table === "payment_requests" ? 3 : 0 };
   if (st.single) {
@@ -480,7 +485,8 @@ try {
   }
 
   // 6. CEO khai báo: app UNC total, "Dùng số này", UNC with no request.
-  for (const viewport of WIDTHS) {
+  // 6. CEO khai báo page was removed 10/10 (route redirects to /payment-requests); its test is skipped.
+  if (false) for (const viewport of WIDTHS) {
     const { context, page, errors } = await open({ role: "owner" }, "/finance-control/ceo-declaration", viewport);
     await page.waitForSelector("[data-bmq-unc-app]");
     await page.waitForFunction(() => document.querySelector("[data-bmq-unc-app-total]")?.textContent?.includes("19.750.000"));
@@ -507,6 +513,29 @@ try {
     assert.equal(rec.amount, null, "no client amount without override");
     assert.deepEqual(errors, []);
     record(`ceo UNC panel + standalone ${viewport.width}`);
+    await context.close();
+  }
+
+  // 6b. Owner switches a pending UNC phiếu to Chi tiền mặt in one tap; the detail refreshes.
+  for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 }]) {
+    const { context, page, errors } = await open({ role: "owner", allowSwitch: true }, "/payment-requests", viewport);
+    await openDetail(page, "DC-0102");
+    await page.locator("[data-bmq-switch-cash]").waitFor();
+    assert.equal(await page.locator('[data-bmq-unc-open="bank_transfer"]').count(), 1);
+    await page.locator("[data-bmq-payment-detail]").screenshot({ path: `${EVIDENCE}/switch-cash-before-${viewport.width}.png` });
+    page.once("dialog", (d) => d.dismiss());
+    await page.locator("[data-bmq-switch-cash]").click();
+    await page.waitForTimeout(200);
+    assert.equal(await page.evaluate(() => window.__qaSwitch || 0), 0, "dismissed confirm does not switch");
+    page.once("dialog", (d) => d.accept());
+    await page.locator("[data-bmq-switch-cash]").click();
+    await page.waitForSelector('[data-bmq-unc-open="cash"]');
+    assert.equal(await page.locator("[data-bmq-switch-cash]").count(), 0, "switch button gone once cash");
+    assert.ok((await page.locator('[data-bmq-unc-open="cash"]').textContent()).includes("Duyệt chi tiền mặt"));
+    assert.ok((await overflow(page)) <= 0, `page no overflow switch ${viewport.width}`);
+    await page.locator("[data-bmq-payment-detail]").screenshot({ path: `${EVIDENCE}/switch-cash-after-${viewport.width}.png` });
+    assert.deepEqual(errors, []);
+    record(`owner switches UNC phiếu to cash ${viewport.width}`);
     await context.close();
   }
 
