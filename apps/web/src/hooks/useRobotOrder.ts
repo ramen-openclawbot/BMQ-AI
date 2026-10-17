@@ -3,7 +3,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import {
   type CreateRobotOrderPackageInput,
-  type ItemPurchaseFact,
   type RobotOrderPackageResult,
   type SupplierDebtCandidates,
   type SupplierDebtPickPattern,
@@ -15,7 +14,6 @@ import { WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY } from "./useWarehouseGame";
 //
 // Query keys are the exact strings the existing hooks already use, so an
 // invalidation here refreshes the lists the finance / warehouse screens read.
-export const ITEM_PURCHASE_FACTS_QUERY_KEY = "item-purchase-facts";
 export const SUPPLIER_DEBT_CANDIDATES_QUERY_KEY = "supplier-debt-candidates";
 export const SUPPLIER_DEBT_PICK_PATTERN_QUERY_KEY = "supplier-debt-pick-pattern";
 export const PURCHASE_ORDERS_QUERY_KEY = "purchase-orders";
@@ -35,22 +33,6 @@ export interface DebtReviewResult {
   evaluated: number;
   marked: number;
   stopped: "quota" | null;
-}
-
-/** Last supplier / price / unit / date per kitchen item plus a suggested qty. */
-export function useItemPurchaseFacts(itemIds: string[]) {
-  const ids = Array.from(new Set((itemIds ?? []).filter(Boolean))).sort();
-
-  return useQuery({
-    queryKey: [ITEM_PURCHASE_FACTS_QUERY_KEY, ids],
-    enabled: ids.length > 0,
-    staleTime: 5 * 60 * 1000,
-    queryFn: async (): Promise<ItemPurchaseFact[]> => {
-      const { data, error } = await db.rpc("get_item_purchase_facts", { p_item_ids: ids });
-      if (error) throw error;
-      return Array.isArray(data) ? (data as ItemPurchaseFact[]) : [];
-    },
-  });
 }
 
 /** One supplier's unpaid payment requests plus POs without a live PR. */
@@ -92,7 +74,6 @@ export function useCreateRobotOrderPackage() {
       void queryClient.invalidateQueries({ queryKey: [PAYMENT_REQUESTS_QUERY_KEY] });
       void queryClient.invalidateQueries({ queryKey: [PAYMENT_SUBMISSIONS_QUERY_KEY] });
       void queryClient.invalidateQueries({ queryKey: [WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY] });
-      void queryClient.invalidateQueries({ queryKey: [ITEM_PURCHASE_FACTS_QUERY_KEY] });
       void queryClient.invalidateQueries({ queryKey: [SUPPLIER_DEBT_CANDIDATES_QUERY_KEY] });
       void queryClient.invalidateQueries({ queryKey: [SUPPLIER_DEBT_PICK_PATTERN_QUERY_KEY] });
     },

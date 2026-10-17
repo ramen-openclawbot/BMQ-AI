@@ -21,7 +21,7 @@ import {
 import { resolveImageUrl } from "@/lib/storage-url";
 import { GamePicker } from "@/game/GamePicker";
 import { newRequestId } from "@/game/meta";
-import { loadBasket, saveBasket, type BasketLine } from "@/game/RobotDesk";
+import { loadBasket, saveBasket, type BasketLine } from "@/game/basket";
 import { FLY, Room, type RoomData, type RoomItem } from "@/game/office/Room";
 import { OfficeDocDetail, type DocKey } from "@/game/office/OfficeDocDetail";
 import { fmtDate, fmtMillion, fmtMoney, fmtNum } from "@/game/office/format";

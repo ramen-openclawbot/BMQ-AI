@@ -36,7 +36,7 @@ import { useSuggestStockItemName } from "@/hooks/useSuggestStockItemName";
 import { InvoiceScanner } from "@/game/InvoiceScanner";
 // Đặt hàng tự động now opens the office ordering room (owner 16/10: "nằm trong máy đặt hàng tự động, thay bản hiện nay");
 // the shared basket key still carries items picked from a shelf here into the room.
-import { basketLineFor, loadBasket, saveBasket, type BasketLine } from "@/game/RobotDesk";
+import { basketLineFor, loadBasket, saveBasket, type BasketLine } from "@/game/basket";
 import { DiscontinueButton, ItemFactorBox, LinkQuest, QUEST_LABEL } from "@/game/LinkQuest";
 import { useMaterialLinkReview } from "@/hooks/useMaterialLinkQuest";
 import type { MaterialLinkLocation } from "@/lib/material-link-quest";
