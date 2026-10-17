@@ -89,7 +89,16 @@ const PRODUCTS = [
   { id: "p-chabong", sku_code: "BMQ-CB", product_name: "Chà bông heo", unit: "hộp", price_vnd: 42000, category: "Thành phẩm" },
 ];
 const CUSTOMER = { id: "cus-qa", name: "Đại lý Hồng Phát", code: "DL-001", is_test: true };
-const NPP_ROUTES = [{ id: "r1", name: "Rạch Giá" }, { id: "r2", name: "ĐVC" }];
+const NPP_ROUTES = [
+  { id: "r1", name: "Đại Lý CoopMart Rạch Giá" },
+  { id: "r2", name: "Đại Lý Dĩ An" },
+  { id: "r3", name: "Đại lý Phan Thiết" },
+  { id: "r4", name: "Đại lý Đồng Văn Cống" },
+];
+const routeLine = (route_id, quantity, exchange_quantity = 0, makeup_quantity = 0, note = "") => ({
+  route_id, product_id: "p-pate", sku_code: "BMQ-001", product_name: "Bánh mì que Pate", unit: "que", unit_price: 3500,
+  quantity, exchange_quantity, makeup_quantity, note,
+});
 
 const server = await createServer({
   root: ROOT,
@@ -115,6 +124,11 @@ const line = (id, quantity) => {
 // Scripted assistant: keyed by the dealer's message.
 function assistantAnswer(body) {
   const text = String(body.message || "");
+  if (body.cart_lines !== undefined) {
+    if (text.includes("như hôm qua")) return { status: 200, json: { success: true, reply: "Em chép đơn hôm qua và sửa Dĩ An 150, Phan Thiết bù 13.", proposal: { mode: "replace", kind: "routes", lines: [routeLine("r1", 200, 15), routeLine("r2", 150, 0, 0, "xin thêm ớt"), routeLine("r3", 300, 0, 13, "và 2 hộp pate")] }, warnings: [] } };
+    if (text.includes("ĐVC")) return { status: 200, json: { success: true, reply: "Em thêm Đồng Văn Cống 100 que.", proposal: { mode: "merge", kind: "routes", lines: [routeLine("r4", 100)] }, warnings: ["Số lượng Bánh mì que Pate tại Đại lý Đồng Văn Cống đã làm tròn lên bội số 10."] } };
+    return { status: 200, json: { success: true, reply: "Quý Khách Hàng muốn đặt cho điểm bán nào ạ?", proposal: null, warnings: [] } };
+  }
   if (text.includes("giới hạn")) return { status: 429, json: { success: false, error: "Hôm nay đại lý đã dùng hết 60 lượt hỏi trợ lý.", code: "assistant_daily_limit" } };
   if (text.includes("hết phiên")) return { status: 401, json: { success: false, error: "Phiên đại lý đã hết hạn.", code: "dealer_session_required" } };
   if (text.includes("bánh gì")) return { status: 200, json: { success: true, reply: "Dạ, hôm nay đại lý muốn đặt bánh mì que, croissant hay chà bông ạ?", proposal: null, warnings: [] } };
@@ -270,15 +284,53 @@ try {
     await context.close();
   }
 
-  // 10. NPP dealers keep the route parser; the assistant is never called.
-  {
-    const { context, page, errors, assistantCalls } = await open({ width: 390, height: 844 }, { npp: true });
-    assert.equal(await page.locator("[data-dealer-assistant-hint]").count(), 0, "no hint for NPP");
-    await say(page, "đặt như hôm qua, thêm 18 croissant");
-    await page.locator("[data-dealer-chat-message='agent']").first().waitFor({ timeout: 10000 });
-    assert.equal(assistantCalls.length, 0, "NPP never calls the assistant");
+  // 10. NPP: route-shaped messages keep the parser; free-form ones get a per-route proposal.
+  for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 640 }, { width: 1440, height: 900 }]) {
+    const tag = viewport.width;
+    const { context, page, errors, assistantCalls } = await open(viewport, { npp: true });
+    assert.ok((await page.locator("[data-dealer-assistant-hint]").textContent()).includes("Phan Thiết bù 13"), "NPP hint");
+
+    await say(page, "Rạch Giá 200 đổi 10");
+    await page.locator("[data-dealer-order-preview-card]").waitFor({ timeout: 10000 });
+    assert.equal(assistantCalls.length, 0, "route-shaped message skips the assistant");
+    await page.getByRole("button", { name: "Đặt đơn khác" }).first().click();
+
+    await say(page, "như hôm qua, Dĩ An 150, Phan Thiết bù 13");
+    const card = page.locator("[data-dealer-assistant-proposal]");
+    await card.waitFor({ timeout: 15000 });
+    assert.equal(assistantCalls.length, 1);
+    assert.deepEqual(assistantCalls[0].cart_lines, [], "fresh NPP order sends empty cart_lines");
+    assert.equal(await card.locator("[data-dealer-assistant-route]").count(), 3);
+    const phanThiet = card.locator("[data-dealer-assistant-route='r3']");
+    assert.ok((await phanThiet.textContent()).includes("Bù 13"));
+    assert.ok((await phanThiet.textContent()).includes("và 2 hộp pate"));
+    assert.ok((await card.locator("[data-dealer-assistant-route='r1']").textContent()).includes("Đổi 15"));
+    assert.ok((await page.locator("[data-dealer-assistant-total]").textContent()).includes(vnd((200 + 150 + 300) * 3500)));
+    assert.ok((await card.textContent()).includes("3 điểm · giao 678"));
+    assert.ok(await overflow(page) <= 0, `no overflow NPP ${tag}`);
+    await card.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `${EVIDENCE}/npp-proposal-${tag}.png` });
+    record(`NPP route proposal ${tag}`);
+
+    await say(page, "thêm ĐVC 100");
+    await card.locator("[data-dealer-assistant-route='r4']").waitFor({ timeout: 15000 });
+    assert.equal(assistantCalls[1].cart_lines.length, 3, "follow-up sends the current route lines");
+    assert.deepEqual(assistantCalls[1].cart_lines.find((l) => l.route_id === "r3"), { route_id: "r3", product_id: "p-pate", quantity: 300, exchange_quantity: 0, makeup_quantity: 13, note: "và 2 hộp pate" });
+    assert.equal(await card.locator("[data-dealer-assistant-route]").count(), 4);
+    await card.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `${EVIDENCE}/npp-merged-${tag}.png` });
+    record(`NPP follow-up merge ${tag}`);
+
+    await page.locator("[data-dealer-assistant-action='submit']").click();
+    await page.locator("[data-dealer-chat-message='success']").waitFor();
+    const submit = (await bodies(page)).filter((b) => b.name === "dealer-order-submit").pop();
+    const byRoute = Object.fromEntries(submit.items.map((i) => [i.route_customer_id, i]));
+    assert.equal(submit.items.length, 4);
+    assert.deepEqual([byRoute.r3.sku_id, byRoute.r3.quantity, byRoute.r3.makeup_quantity, byRoute.r3.physical_quantity, byRoute.r3.route_customer_name, byRoute.r3.route_note], ["p-pate", 300, 13, 313, "Đại lý Phan Thiết", "và 2 hộp pate"]);
+    assert.deepEqual([byRoute.r1.exchange_quantity, byRoute.r1.physical_quantity], [15, 215]);
+    assert.deepEqual([byRoute.r4.quantity, byRoute.r4.physical_quantity], [100, 100]);
+    record(`NPP dealer tap submits route lines ${tag}`);
     assert.deepEqual(errors, []);
-    record("NPP unchanged");
     await context.close();
   }
 } finally {

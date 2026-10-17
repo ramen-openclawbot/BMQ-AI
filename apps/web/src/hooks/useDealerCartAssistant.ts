@@ -4,6 +4,8 @@ import { AI_QUOTA_MESSAGE, isAiQuotaError } from "@/lib/ai-errors";
 import type {
   DealerCartMode,
   DealerCartProposal,
+  DealerRouteProposal,
+  DealerRouteProposalLine,
 } from "@/lib/dealer-cart-assistant";
 import { callEdgeFunction } from "@/lib/fetch-with-timeout";
 
@@ -15,12 +17,13 @@ export type DealerCartAssistantHistoryTurn = {
 export type DealerCartAssistantSendOptions = {
   history?: DealerCartAssistantHistoryTurn[];
   mode?: DealerCartMode;
+  cartLines?: DealerRouteProposalLine[];
 };
 
 export type DealerCartAssistantResponse = {
   success?: boolean;
   reply?: string;
-  proposal?: DealerCartProposal | null;
+  proposal?: DealerCartProposal | DealerRouteProposal | null;
   warnings?: string[];
   error?: string;
   code?: string;
@@ -38,7 +41,7 @@ const ASSISTANT_TIMEOUT_MS = 30000;
  */
 export function useDealerCartAssistant(dealerToken: string | null | undefined) {
   const [reply, setReply] = useState("");
-  const [proposal, setProposal] = useState<DealerCartProposal | null>(null);
+  const [proposal, setProposal] = useState<DealerCartProposal | DealerRouteProposal | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -68,6 +71,7 @@ export function useDealerCartAssistant(dealerToken: string | null | undefined) {
         history: options.history || [],
         cart,
         ...(options.mode ? { mode: options.mode } : {}),
+        ...(options.cartLines !== undefined ? { cart_lines: options.cartLines } : {}),
       }, undefined, ASSISTANT_TIMEOUT_MS);
 
       if (result.isSessionExpired) return fail(result.error || "Phiên đại lý đã hết hạn. Vui lòng đăng nhập lại.", true);

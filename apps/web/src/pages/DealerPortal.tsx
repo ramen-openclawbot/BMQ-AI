@@ -41,7 +41,7 @@ import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { useDealerCartAssistant, type DealerCartAssistantHistoryTurn } from "@/hooks/useDealerCartAssistant";
-import { applyCartProposal } from "@/lib/dealer-cart-assistant";
+import { applyCartProposal, applyRouteProposal, type DealerRouteProposalLine } from "@/lib/dealer-cart-assistant";
 import { callEdgeFunction } from "@/lib/fetch-with-timeout";
 import { cn } from "@/lib/utils";
 import "@/styles/dealer-order-history.css";
@@ -227,11 +227,20 @@ type DuplicateOrderPrompt = {
   requestedDeliveryDate?: string;
 };
 
-// A cart the AI assistant proposed; products come from the dealer's own catalog.
-type DealerAssistantProposal = {
-  lines: Array<{ product: Product; quantity: number }>;
-  warnings: string[];
+// A cart the AI assistant proposed; products come from the dealer's own catalog
+// and NPP route lines only use that NPP's own points of sale.
+type DealerAssistantRouteLine = {
+  route: DealerRoute;
+  product: Product;
+  quantity: number;
+  exchangeQuantity: number;
+  makeupQuantity: number;
+  note: string;
 };
+
+type DealerAssistantProposal =
+  | { kind: "products"; lines: Array<{ product: Product; quantity: number }>; warnings: string[] }
+  | { kind: "routes"; lines: DealerAssistantRouteLine[]; warnings: string[] };
 
 type DealerLandingBanner = {
   id?: string;
@@ -1321,12 +1330,25 @@ export default function DealerPortal() {
 
   // Messages the quantity parser cannot read go to the AI assistant. It only
   // proposes a cart from this dealer's catalog; the dealer still taps to send.
-  const runDealerAssistant = async (text: string) => {
+  const runDealerAssistant = async (text: string, routeMode: boolean) => {
     const previous = assistantProposal;
-    const cart = Object.fromEntries((previous?.lines || []).map((line) => [line.product.id, line.quantity]));
+    const previousProducts = previous?.kind === "products" ? previous.lines : [];
+    const previousRoutes = previous?.kind === "routes" ? previous.lines : [];
+    const cart = Object.fromEntries(previousProducts.map((line) => [line.product.id, line.quantity]));
+    const cartLines: DealerRouteProposalLine[] = previousRoutes.map((line) => ({
+      route_id: line.route.id,
+      product_id: line.product.id,
+      quantity: line.quantity,
+      exchange_quantity: line.exchangeQuantity,
+      makeup_quantity: line.makeupQuantity,
+      note: line.note,
+    }));
     setAssistantProposal(null);
     setNppParseStatus("processing");
-    const result = await dealerAssistant.send(text, cart, { history: assistantHistoryRef.current.slice(-8) });
+    const result = await dealerAssistant.send(text, cart, {
+      history: assistantHistoryRef.current.slice(-8),
+      ...(routeMode ? { cartLines } : {}),
+    });
     if (!result.ok) {
       setNppParseStatus("idle");
       if (result.sessionExpired) {
@@ -1334,15 +1356,41 @@ export default function DealerPortal() {
         return;
       }
       setAssistantProposal(previous);
-      setNppParseMessage(`${result.error} Quý Khách Hàng vẫn có thể nhắn số lượng, ví dụ: 200 đổi 14 bù 5.`);
+      setNppParseMessage(`${result.error} ${routeMode
+        ? "Quý Khách Hàng vẫn có thể nhắn theo mẫu: Rạch Giá 200 đổi 10."
+        : "Quý Khách Hàng vẫn có thể nhắn số lượng, ví dụ: 200 đổi 14 bù 5."}`);
       return;
     }
 
     const proposal = result.data.proposal;
-    const nextCart = proposal ? applyCartProposal(cart, proposal, proposal.mode) : cart;
-    const lines = Object.entries(nextCart)
-      .map(([productId, quantity]) => ({ product: catalogProducts.find((item) => item.id === productId), quantity }))
-      .filter((line): line is { product: Product; quantity: number } => Boolean(line.product) && line.quantity > 0);
+    const warnings = proposal ? (result.data.warnings || []) : [];
+    let next: DealerAssistantProposal | null = null;
+    if (routeMode) {
+      const routeProposal = proposal?.kind === "routes" ? proposal : null;
+      const merged = routeProposal ? applyRouteProposal(cartLines, routeProposal, routeProposal.mode) : cartLines;
+      const lines = merged.flatMap((line) => {
+        const route = dealerRoutes.find((item) => item.id === line.route_id);
+        const product = catalogProducts.find((item) => item.id === line.product_id);
+        if (!route || !product) return [];
+        return [{
+          route,
+          product,
+          quantity: Number(line.quantity) || 0,
+          exchangeQuantity: Number(line.exchange_quantity) || 0,
+          makeupQuantity: Number(line.makeup_quantity) || 0,
+          note: String(line.note || ""),
+        }];
+      });
+      next = lines.length ? { kind: "routes", lines, warnings } : null;
+    } else {
+      const productProposal = proposal && proposal.kind !== "routes" ? proposal : null;
+      const nextCart = productProposal ? applyCartProposal(cart, productProposal, productProposal.mode) : cart;
+      const lines = Object.entries(nextCart)
+        .map(([productId, quantity]) => ({ product: catalogProducts.find((item) => item.id === productId), quantity }))
+        .filter((line): line is { product: Product; quantity: number } => Boolean(line.product) && line.quantity > 0);
+      next = lines.length ? { kind: "products", lines, warnings } : null;
+    }
+
     const reply = (result.data.reply || "").trim();
     assistantHistoryRef.current = [
       ...assistantHistoryRef.current,
@@ -1350,22 +1398,35 @@ export default function DealerPortal() {
       ...(reply ? [{ role: "assistant" as const, content: reply }] : []),
     ].slice(-10);
     setNppParseStatus("idle");
-    setNppParseMessage(reply || (lines.length ? "Em đã chuẩn bị đơn theo yêu cầu. Quý Khách Hàng kiểm tra giúp em nhé." : "Em chưa hiểu yêu cầu. Quý Khách Hàng nhắn lại giúp em nhé."));
-    setAssistantProposal(lines.length ? { lines, warnings: proposal ? (result.data.warnings || []) : [] } : null);
+    setNppParseMessage(reply || (next ? "Em đã chuẩn bị đơn theo yêu cầu. Quý Khách Hàng kiểm tra giúp em nhé." : "Em chưa hiểu yêu cầu. Quý Khách Hàng nhắn lại giúp em nhé."));
+    setAssistantProposal(next);
   };
 
   const handleAssistantSubmit = async () => {
     if (!assistantProposal || !sessionToken) return;
-    const submitted = await submitOrderPayload(assistantProposal.lines.map((line) => ({
-      sku_id: line.product.id,
-      quantity: line.quantity,
-      ordered_quantity: line.quantity,
-      exchange_quantity: 0,
-      makeup_quantity: 0,
-      physical_quantity: line.quantity,
-      route_customer_name: dealerDisplayName,
-      route_note: "",
-    })), { chatNative: true });
+    const items = assistantProposal.kind === "routes"
+      ? assistantProposal.lines.map((line) => ({
+          sku_id: line.product.id,
+          quantity: line.quantity,
+          ordered_quantity: line.quantity,
+          exchange_quantity: line.exchangeQuantity,
+          makeup_quantity: line.makeupQuantity,
+          physical_quantity: line.quantity + line.exchangeQuantity + line.makeupQuantity,
+          route_customer_id: line.route.id,
+          route_customer_name: line.route.name,
+          route_note: line.note,
+        }))
+      : assistantProposal.lines.map((line) => ({
+          sku_id: line.product.id,
+          quantity: line.quantity,
+          ordered_quantity: line.quantity,
+          exchange_quantity: 0,
+          makeup_quantity: 0,
+          physical_quantity: line.quantity,
+          route_customer_name: dealerDisplayName,
+          route_note: "",
+        }));
+    const submitted = await submitOrderPayload(items, { chatNative: true });
     if (submitted) {
       setAssistantProposal(null);
       assistantHistoryRef.current = [];
@@ -1426,7 +1487,15 @@ export default function DealerPortal() {
     if (!isNppMode) {
       const retailLines = parseRetailDealerChatOrderText(submittedText, retailDealerRoute);
       if (retailLines.length === 0 || noteMentionsOtherProduct(retailLines[0].note, catalogProducts, chatProduct)) {
-        void runDealerAssistant(submittedText);
+        void runDealerAssistant(submittedText, false);
+        return;
+      }
+    } else {
+      // Any line the route parser cannot read, or a route it cannot match,
+      // means the message is not in the "Rạch Giá 200 đổi 10" shape.
+      const routeLines = parseDealerChatOrderText(submittedText, dealerRoutes);
+      if (routeLines.length < splitDealerChatOrderLines(submittedText).length || routeLines.some((line) => !line.route)) {
+        void runDealerAssistant(submittedText, true);
         return;
       }
     }
@@ -2392,7 +2461,7 @@ export default function DealerPortal() {
             submitting={orderSubmitting}
             onSubmit={handleSubmitNppOrder}
             onStartNewOrder={handleStartNewNppOrder}
-            assistantEnabled={!isNppMode}
+            assistantEnabled
             assistantProposal={assistantProposal}
             onAssistantSubmit={() => void handleAssistantSubmit()}
           />
@@ -3511,6 +3580,9 @@ function NppQuickOrderPanel({
     && !cancellationActive
     && parseStatus !== "processing";
   const assistantTotal = (assistantProposal?.lines || []).reduce((sum, line) => sum + line.product.price * line.quantity, 0);
+  const assistantRoutePhysical = assistantProposal?.kind === "routes"
+    ? assistantProposal.lines.reduce((sum, line) => sum + line.quantity + line.exchangeQuantity + line.makeupQuantity, 0)
+    : 0;
   const [isEditingOrder, setIsEditingOrder] = useState(false);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
@@ -3595,7 +3667,9 @@ function NppQuickOrderPanel({
               : "Hôm nay mình đặt món gì ạ? Quý Khách Hàng nhắn nội dung đơn, em sẽ tách từng điểm giao để kiểm tra trước khi gửi."}
             {assistantEnabled ? (
               <span className="mt-2 block text-[13px] leading-5 text-[#806873]" data-dealer-assistant-hint>
-                Muốn đặt món khác hoặc đặt như đơn trước, Quý Khách Hàng cứ nhắn tự nhiên, ví dụ: “đặt như đơn hôm qua, thêm 50 que”.
+                {isRetailDealer
+                  ? "Muốn đặt món khác hoặc đặt như đơn trước, Quý Khách Hàng cứ nhắn tự nhiên, ví dụ: “đặt như đơn hôm qua, thêm 50 que”."
+                  : "Quý Khách Hàng cũng có thể nhắn tự nhiên, ví dụ: “như hôm qua, Dĩ An 150, Phan Thiết bù 13”."}
               </span>
             ) : null}
           </div>
@@ -3687,32 +3761,64 @@ function NppQuickOrderPanel({
             </div>
             <div className="text-[11px] font-extrabold uppercase tracking-[0.12em]">Trợ lý đề xuất đơn</div>
           </div>
-          <div className="mt-3 divide-y divide-[#f2dfe7] border-y border-[#f2dfe7]">
-            {assistantProposal.lines.map((line) => (
-              <div key={line.product.id} className="flex min-w-0 items-center gap-3 py-3" data-dealer-assistant-line={line.product.skuCode || line.product.id}>
-                <div className="hidden h-12 w-12 shrink-0 overflow-hidden rounded-xl border border-[#f1dbe4] bg-[#fff3f8] min-[360px]:block">
-                  {line.product.imageUrl
-                    ? <img src={line.product.imageUrl} alt={line.product.name} loading="lazy" className="h-full w-full object-cover" />
-                    : <img src={bmqLogo} alt="BMQ" className="h-full w-full object-contain p-2" />}
+          {assistantProposal.kind === "routes" ? (
+            <div className="mt-3 divide-y divide-[#f2dfe7] border-y border-[#f2dfe7]">
+              {assistantProposal.lines.map((line) => (
+                <div key={`${line.route.id}:${line.product.id}`} className="min-w-0 py-3" data-dealer-assistant-route={line.route.id}>
+                  <div className="flex min-w-0 items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="break-words text-sm font-extrabold leading-5 text-[#4a343e]">{line.route.name}</div>
+                      {product && line.product.id !== product.id ? (
+                        <div className="mt-0.5 break-words text-xs font-semibold text-[#a73f70]">{line.product.name}</div>
+                      ) : null}
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <div className="whitespace-nowrap text-base font-extrabold tabular-nums text-[#b33f72]">{formatDealerQuantity(line.quantity)} {line.product.unit}</div>
+                      <div className="whitespace-nowrap text-xs font-semibold tabular-nums text-[#806873]">{formatVnd(line.product.price * line.quantity)}</div>
+                    </div>
+                  </div>
+                  {line.exchangeQuantity > 0 || line.makeupQuantity > 0 ? (
+                    <div className="mt-1.5 flex flex-wrap gap-1.5" data-dealer-assistant-extras>
+                      {line.exchangeQuantity > 0 ? <span className="rounded-full bg-[#fff0f6] px-2 py-0.5 text-[11px] font-bold text-[#a73f70]">Đổi {formatDealerQuantity(line.exchangeQuantity)}</span> : null}
+                      {line.makeupQuantity > 0 ? <span className="rounded-full bg-[#fff0f6] px-2 py-0.5 text-[11px] font-bold text-[#a73f70]">Bù {formatDealerQuantity(line.makeupQuantity)}</span> : null}
+                    </div>
+                  ) : null}
+                  {line.note ? <div className="mt-1.5 break-words text-xs font-medium leading-5 text-[#806873]" data-dealer-assistant-note>Ghi chú: {line.note}</div> : null}
                 </div>
-                <div className="min-w-0 flex-1">
-                  <div className="line-clamp-2 break-words text-sm font-extrabold leading-5 text-[#4a343e]">{line.product.name}</div>
-                  <div className="mt-0.5 break-words text-xs font-semibold text-[#806873]">{formatVnd(line.product.price)} / {line.product.unit}</div>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-3 divide-y divide-[#f2dfe7] border-y border-[#f2dfe7]">
+              {assistantProposal.lines.map((line) => (
+                <div key={line.product.id} className="flex min-w-0 items-center gap-3 py-3" data-dealer-assistant-line={line.product.skuCode || line.product.id}>
+                  <div className="hidden h-12 w-12 shrink-0 overflow-hidden rounded-xl border border-[#f1dbe4] bg-[#fff3f8] min-[360px]:block">
+                    {line.product.imageUrl
+                      ? <img src={line.product.imageUrl} alt={line.product.name} loading="lazy" className="h-full w-full object-cover" />
+                      : <img src={bmqLogo} alt="BMQ" className="h-full w-full object-contain p-2" />}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="line-clamp-2 break-words text-sm font-extrabold leading-5 text-[#4a343e]">{line.product.name}</div>
+                    <div className="mt-0.5 break-words text-xs font-semibold text-[#806873]">{formatVnd(line.product.price)} / {line.product.unit}</div>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <div className="whitespace-nowrap text-base font-extrabold tabular-nums text-[#b33f72]">{formatDealerQuantity(line.quantity)} {line.product.unit}</div>
+                    <div className="whitespace-nowrap text-xs font-semibold tabular-nums text-[#806873]">{formatVnd(line.product.price * line.quantity)}</div>
+                  </div>
                 </div>
-                <div className="shrink-0 text-right">
-                  <div className="whitespace-nowrap text-base font-extrabold tabular-nums text-[#b33f72]">{formatDealerQuantity(line.quantity)} {line.product.unit}</div>
-                  <div className="whitespace-nowrap text-xs font-semibold tabular-nums text-[#806873]">{formatVnd(line.product.price * line.quantity)}</div>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
           {assistantProposal.warnings.length > 0 ? (
             <ul className="mt-3 space-y-1 rounded-xl bg-amber-50 px-3 py-2 text-xs font-medium leading-5 text-amber-900" data-dealer-assistant-warnings>
               {assistantProposal.warnings.map((warning) => <li key={warning} className="break-words">{warning}</li>)}
             </ul>
           ) : null}
           <div className="mt-3 flex items-baseline justify-between gap-3">
-            <span className="text-xs font-bold text-[#927681]">Tổng tiền</span>
+            <span className="text-xs font-bold text-[#927681]">
+              {assistantProposal.kind === "routes"
+                ? `${assistantProposal.lines.length} điểm · giao ${formatDealerQuantity(assistantRoutePhysical)} ${assistantProposal.lines[0]?.product.unit || ""}`.trim()
+                : "Tổng tiền"}
+            </span>
             <span className="whitespace-nowrap text-lg font-extrabold tabular-nums text-[#b33f72]" data-dealer-assistant-total>{formatVnd(assistantTotal)}</span>
           </div>
           <div className="mt-3 grid grid-cols-2 gap-2">
