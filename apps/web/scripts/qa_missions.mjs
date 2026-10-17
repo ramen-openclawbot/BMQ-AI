@@ -55,6 +55,20 @@ function settle(st) {
       { goods_receipt_id: "gr-405", goods_receipt_item_id: "gri-405-" + st.args.p_alias_id, receipt_number: "GRN-000405", receipt_date: "2026-07-15", status: "confirmed", supplier_name: "Suatuoi.com", raw_name: "Mekovita I-Love-Milk Full Cream 1L - Combo 3 thùng", quantity: 1, unit: "Combo", unit_price: 1036800, line_total: 1036800, image_path: null, photo_paths: null },
     ], error: null };
   }
+  // Quy đổi tồn 16/10 (owner 17/10): three questions — answered, suggested item, no suggestion.
+  if (st.table === "rpc:get_stock_count_unit_questions") {
+    const base = { batch: "2026-10-16", suggested_factor: null, item_id: null, factor: null, counted_qty: null, record_result: null, note: null, answered_by: null, answered_at: null, chosen_item: null, item_units: [] };
+    const tape = { id: "it-tape", code: "NVL-083", name: "Băng keo lớn", unit: "cuộn" };
+    return { data: [
+      { ...base, id: "cq-1", location: "q7", sort_order: 1, file_label: "Tem pháp", file_qty: 79, file_unit: "tờ", suggested_item_id: "it-tem", suggested_item: { id: "it-tem", code: "CCDC-038", name: "Tem pháp", unit: "con" }, status: "answered", item_id: "it-tem", factor: 12, counted_qty: 948, chosen_item: { id: "it-tem", code: "CCDC-038", name: "Tem pháp", unit: "con" } },
+      { ...base, id: "cq-6", location: "tan_tao", sort_order: 6, file_label: "Muối", file_qty: 24.9, file_unit: "kg", suggested_item_id: null, suggested_item: null, status: "open" },
+      { ...base, id: "cq-7", location: "tan_tao", sort_order: 7, file_label: "Băng keo lớn", file_qty: 8, file_unit: "cây", suggested_item_id: tape.id, suggested_factor: 6, suggested_item: tape, status: "open" },
+    ], error: null };
+  }
+  if (st.table === "rpc:answer_stock_count_unit_question") {
+    window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args));
+    return { data: { batch: "2026-10-16", id: st.args.p_question_id, location: "tan_tao", sort_order: 7, file_label: "x", file_qty: 8, file_unit: "cây", suggested_item_id: null, suggested_factor: null, status: st.args.p_skip ? "skipped" : "answered", item_id: st.args.p_item_id, factor: st.args.p_factor, counted_qty: st.args.p_factor ? 8 * st.args.p_factor : null, record_result: null, note: null, answered_by: null, answered_at: null, suggested_item: null, chosen_item: { id: "it-tape", code: "NVL-083", name: "Băng keo lớn", unit: "cuộn" }, item_units: [], replay: false }, error: null };
+  }
   if (st.table === "rpc:get_my_missions") {
     if (cfg().missionsError) return { data: null, error: { message: "QA fixture: missions down" } };
     return { data: window.__msFixture[cfg().missions || "three_open_partial"], error: null };
@@ -380,7 +394,9 @@ const record = (name, detail = {}) => {
 const MS_RAW = JSON.parse(fs.readFileSync(path.join(ROOT, "scripts/qa_missions.fixture.json"), "utf8"));
 const ready = structuredClone(MS_RAW.three_open_partial);
 ready.missions[0].progress = { ...ready.missions[0].progress, done: true, left: 0, detail: ready.missions[0].progress.detail.map((row) => ({ ...row, fixed: true })) };
-const MS_FIXTURE = { ...MS_RAW, ready };
+const countFixture = structuredClone(MS_RAW.three_open_partial);
+countFixture.missions = [{ ...countFixture.missions[0], id: "0f0b3d2a-0009-4c11-8a10-000000000009", code: "wh-count-units-20261016", title: "Quy đổi tồn 16/10", description: "Trả lời 12 dòng tồn kho chưa rõ đơn vị trong file 16/10", sort_order: 6, progress: { done: false, total: 12, left: 11, detail: [{ kind: "count_questions", batch: "2026-10-16", total: 12, open: 11, answered: 1, skipped: 0 }] } }];
+const MS_FIXTURE = { ...MS_RAW, ready, count: countFixture };
 const KG_FIXTURE = JSON.parse(fs.readFileSync(path.join(ROOT, "scripts/qa_warehouse_game.fixture.json"), "utf8"));
 async function open(cfg, route, viewport, extra = {}) {
   const context = await browser.newContext({ viewport, reducedMotion: extra.reducedMotion || "reduce", locale: "vi-VN" });
@@ -532,6 +548,38 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     assert.equal(await page.locator("[data-bmq-mission-board]").count(), 0, "back to the street");
     assert.deepEqual(errors, [], "no page errors");
     record(`missions tools ${w}`);
+    await context.close();
+  }
+  // 1b. Quy đổi tồn 16/10: question cards write through answer_stock_count_unit_question.
+  {
+    const { context, page, errors } = await open({ data: "populated", role: "owner", missions: "count" }, "/warehouse/game", viewport);
+    await page.waitForTimeout(700);
+    await board(page);
+    assert.match(await page.locator("[data-bmq-mission='wh-count-units-20261016']").textContent(), /1\/12/, "card counts answered of 12");
+    await page.locator("[data-bmq-mission='wh-count-units-20261016']").click({ force: true });
+    await page.waitForSelector("[data-bmq-count-questions]", { timeout: 5000 });
+    await page.waitForTimeout(500);
+    assert.equal(await page.locator("[data-bmq-count-question]").count(), 3, "three question cards");
+    assert.match(await page.locator("[data-bmq-count-question='Tem pháp']").textContent(), /Đã ghi 948 con/);
+    const tape = page.locator("[data-bmq-count-question='Băng keo lớn']");
+    assert.equal(await tape.locator("[data-bmq-count-factor]").inputValue(), "6", "suggested factor prefilled");
+    assert.match(await tape.textContent(), /Sẽ ghi tồn 16\/10:\s*48 cuộn/);
+    const salt = page.locator("[data-bmq-count-question='Muối']");
+    assert.equal(await salt.locator(".cq-new input").first().inputValue(), "Muối", "no suggestion → new item named after the line");
+    assert.equal(await salt.locator("[data-bmq-count-save]").isDisabled(), true, "needs a factor first");
+    assert.equal(await overflow(page), 0, `count sheet no overflow ${w}`);
+    await page.screenshot({ path: `${EVIDENCE}/sheet-count-${w}.png` });
+    await tape.locator("[data-bmq-count-save]").click({ force: true });
+    await salt.locator("[data-bmq-count-factor]").fill("1000");
+    await page.waitForTimeout(150);
+    assert.match(await salt.textContent(), /24\.?900 g|24900 g/, "kg → g preview");
+    await salt.locator("[data-bmq-count-save]").click({ force: true });
+    await page.waitForTimeout(400);
+    const all = await writes(page);
+    assert.ok(all.some((x) => x.startsWith("rpc:answer_stock_count_unit_question:") && x.includes('"p_question_id":"cq-7"') && x.includes('"p_item_id":"it-tape"') && x.includes('"p_factor":6')), "tape answered with item × 6");
+    assert.ok(all.some((x) => x.startsWith("rpc:answer_stock_count_unit_question:") && x.includes('"p_question_id":"cq-6"') && x.includes('"p_new_item_name":"Muối"') && x.includes('"p_new_item_unit":"g"') && x.includes('"p_factor":1000')), "salt creates a new item");
+    assert.deepEqual(errors, [], "no page errors");
+    record(`count questions ${w}`);
     await context.close();
   }
   // 2. Ready mission: submit → badge ceremony → level-up.

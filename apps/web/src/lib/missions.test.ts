@@ -116,6 +116,29 @@ test("parseMissionDetailEntry tags the material_links_done detail row", () => {
   assert.equal(sparse.linked, 0);
 });
 
+test("parseMissionDetailEntry tags the stock_count_questions_done detail row", () => {
+  const counts = parseMissionDetailEntry({
+    kind: "count_questions",
+    batch: "2026-10-16",
+    total: 12,
+    open: 10,
+    answered: 1,
+    skipped: 1,
+  });
+  assert.equal(counts.kind, "count_questions");
+  assert.equal(counts.batch, "2026-10-16");
+  assert.equal(counts.total, 12);
+  assert.equal(counts.open, 10);
+  assert.equal(counts.answered, 1);
+  assert.equal(counts.skipped, 1);
+
+  const sparse = parseMissionDetailEntry({ batch: "2026-10-16", total: 12 });
+  assert.equal(sparse.kind, "count_questions");
+  assert.equal(sparse.open, 0);
+  assert.equal(sparse.answered, 0);
+  assert.equal(sparse.skipped, 0);
+});
+
 test("parseMissionLevel requires level, title and min_badges", () => {
   assert.deepEqual(parseMissionLevel({ level: 2, title: "Nhân viên kho", min_badges: 3 }), {
     level: 2,

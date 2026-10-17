@@ -3,13 +3,15 @@ import { GamePicker } from "@/game/GamePicker";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { MISSIONS_QUERY_KEY, useCompleteMission, useMarkItemsDistinct, useResolveUnknownUnit, useUpdateAliasFactor } from "@/hooks/useMissions";
-import { useAliasReceiptLines, useRenameStockItem, useUnitVariantReceiptLines, WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY } from "@/hooks/useWarehouseGame";
+import { useAliasReceiptLines, useRenameStockItem, useUnitVariantReceiptLines, useWarehouseGameSnapshot, WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY } from "@/hooks/useWarehouseGame";
+import { useAnswerCountUnitQuestion, useCountUnitQuestions } from "@/hooks/useCountUnitQuestions";
 import { STOCK_CATALOG_REVIEW_QUERY_KEY } from "@/hooks/useStockCatalog";
 import {
   levelProgress, missionErrorMessage,
-  type CompleteMissionResult, type Mission, type MissionAliasDetail, type MissionDuplicateDetail, type MissionLevel, type MissionMaterialLinksDetail, type MissionUnknownUnitDetail, type MyMissions,
+  type CompleteMissionResult, type Mission, type MissionAliasDetail, type MissionCountQuestionsDetail, type MissionDuplicateDetail, type MissionLevel, type MissionMaterialLinksDetail, type MissionUnknownUnitDetail, type MyMissions,
 } from "@/lib/missions";
 import { STOCK_UNITS } from "@/lib/stock-units";
+import { canSubmit, computeCountedQty, type StockCountUnitQuestion } from "@/lib/count-unit-questions";
 import { ReceiptNotes } from "./ReceiptNotes";
 import { Sheet } from "./Sheet";
 import { GameLoading } from "./Loading";
@@ -28,10 +30,11 @@ export const LADDER: MissionLevel[] = [
 
 const hatFor = (level: number): "none" | "cap" | "chef" => (level >= 3 ? "chef" : level === 2 ? "cap" : "none");
 
-type Rule = "alias" | "duplicate" | "units" | "links" | "other";
+type Rule = "alias" | "duplicate" | "units" | "links" | "count" | "other";
 
 function ruleOf(mission: Mission): Rule {
   const kind = mission.progress.detail[0]?.kind;
+  if (kind === "count_questions" || mission.code.startsWith("wh-count-units")) return "count";
   if (kind === "alias_factor_fixed" || mission.code.includes("alias")) return "alias";
   if (kind === "duplicate_resolved" || mission.code.includes("duplicate")) return "duplicate";
   if (kind === "unknown_units_cleared" || mission.code.includes("unit")) return "units";
@@ -39,7 +42,7 @@ function ruleOf(mission: Mission): Rule {
   return "other";
 }
 
-const RULE_ICON: Record<Rule, string> = { alias: "🏷️", duplicate: "🥐", units: "📏", links: "🧩", other: "📜" };
+const RULE_ICON: Record<Rule, string> = { alias: "🏷️", duplicate: "🥐", units: "📏", links: "🧩", count: "⚖️", other: "📜" };
 
 /** Steps shown on the card: the duplicate pair is one decision, the others count rows. */
 export function missionSteps(mission: Mission): { done: number; total: number } {
@@ -50,6 +53,8 @@ export function missionSteps(mission: Mission): { done: number; total: number } 
   if (ruleOf(mission) === "duplicate") return { done: mission.progress.done ? 1 : 0, total: 1 };
   const links = mission.progress.detail.find((row): row is MissionMaterialLinksDetail => row.kind === "material_links");
   if (links) return { done: links.linked, total: Math.max(links.linked + links.remaining, 1) };
+  const counts = mission.progress.detail.find((row): row is MissionCountQuestionsDetail => row.kind === "count_questions");
+  if (counts) return { done: counts.answered + counts.skipped, total: Math.max(counts.total, 1) };
   const total = Math.max(mission.progress.total, mission.progress.left, 1);
   return { done: Math.max(0, total - mission.progress.left), total };
 }
@@ -348,6 +353,91 @@ function UnitRow({ variant, rows, onSaved }: { variant: string; rows: MissionUnk
   );
 }
 
+const LOCATION_LABEL = { q7: "Kho Q7", tan_tao: "Kho Tân Tạo" } as const;
+
+/**
+ * One line of the 16/10 stock file whose unit is unclear (owner 17/10): pick the kho item, answer
+ * "1 {file unit} = ? {kho unit}", and the server records file qty × factor as the 16/10 count.
+ */
+function CountQuestionRow({ row, onSaved }: { row: StockCountUnitQuestion; onSaved: (text: string) => void }) {
+  const answer = useAnswerCountUnitQuestion();
+  const snapshot = useWarehouseGameSnapshot(row.location);
+  const [itemId, setItemId] = useState(row.suggested_item_id ?? "");
+  const [newName, setNewName] = useState(row.suggested_item ? "" : row.file_label);
+  const [newUnit, setNewUnit] = useState(row.file_unit === "kg" ? "g" : row.file_unit);
+  const [factorText, setFactorText] = useState(row.suggested_factor != null ? String(row.suggested_factor) : "");
+  const creating = itemId === "__new__" || (!itemId && !row.suggested_item);
+  const items = snapshot.data?.items ?? [];
+  const chosen = creating ? null : items.find((item) => item.id === itemId) ?? (row.suggested_item?.id === itemId ? row.suggested_item : null);
+  const khoUnit = creating ? (STOCK_UNITS.find((unit) => unit.code === newUnit)?.code ?? newUnit) : chosen?.unit ?? "";
+  const factor = Number(factorText.replace(/\s/g, "").replace(",", "."));
+  const input = creating
+    ? { newItemName: newName.trim(), newItemUnit: newUnit, factor }
+    : { itemId: itemId || null, factor };
+  const ready = canSubmit(row, input) && !answer.isPending;
+  const counted = Number.isFinite(factor) && factor > 0 ? computeCountedQty(row.file_qty, factor) : null;
+  const options = [
+    ...(row.suggested_item && !items.some((item) => item.id === row.suggested_item!.id) ? [{ value: row.suggested_item.id, label: `${row.suggested_item.name} · ${row.suggested_item.unit}` }] : []),
+    ...items.map((item) => ({ value: item.id, label: `${item.name} · ${item.unit}` })),
+    { value: "__new__", label: "＋ Tạo món mới" },
+  ];
+  const send = (skip: boolean) => answer.mutate(
+    skip ? { questionId: row.id, skip: true } : { questionId: row.id, ...input, note: `Tồn 16/10: ${row.file_label} ${fmtQty(row.file_qty)} ${row.file_unit} × ${fmtQty(factor)}` },
+    { onSuccess: (saved) => onSaved(skip ? `Bỏ qua “${row.file_label}”` : `Đã ghi ${fmtQty(saved.counted_qty ?? 0)} ${saved.chosen_item?.unit ?? khoUnit} · ${saved.chosen_item?.name ?? row.file_label}`) },
+  );
+
+  if (row.status !== "open") {
+    return (
+      <li className="task-row is-fixed cq-row" data-bmq-count-question={row.file_label} data-status={row.status}>
+        <div className="task-head"><b>{row.file_label}</b><small>{LOCATION_LABEL[row.location]} · file: {fmtQty(row.file_qty)} {row.file_unit}</small></div>
+        <span className="task-ok">{row.status === "skipped" ? "Đã bỏ qua" : `✓ Đã ghi ${fmtQty(row.counted_qty ?? 0)} ${row.chosen_item?.unit ?? ""} · ${row.chosen_item?.name ?? ""}`}</span>
+      </li>
+    );
+  }
+  return (
+    <li className="task-row cq-row" data-bmq-count-question={row.file_label} data-status="open">
+      <div className="task-head">
+        <b>{row.file_label}</b>
+        <small>{LOCATION_LABEL[row.location]} · trong file 16/10</small>
+      </div>
+      <div className="cq-file"><span>File ghi</span><b>{fmtQty(row.file_qty)} {row.file_unit}</b></div>
+      <div className="cq-item">
+        <GamePicker value={creating ? "__new__" : itemId} onChange={setItemId} placeholder="Chọn món trong kho…" title={`Món kho cho “${row.file_label}”`} ariaLabel={`Món kho cho ${row.file_label}`} options={options} dataAttrs={{ "data-bmq-count-item": row.file_label }} />
+      </div>
+      {creating ? (
+        <div className="cq-new">
+          <label className="field">Tên món mới<input value={newName} onChange={(event) => setNewName(event.target.value)} maxLength={120} /></label>
+          <label className="field">Kho tính theo<GamePicker value={newUnit} onChange={setNewUnit} title="Đơn vị kho" ariaLabel="Đơn vị kho của món mới" options={UNIT_CHOICES.map((unit) => ({ value: unit.code, label: unit.label }))} /></label>
+        </div>
+      ) : null}
+      <label className="conv">
+        1 {row.file_unit} =
+        <input inputMode="decimal" value={factorText} onChange={(event) => setFactorText(event.target.value)} placeholder="?" aria-label={`Quy đổi 1 ${row.file_unit} ${row.file_label}`} data-bmq-count-factor />
+        {khoUnit || "…"}
+      </label>
+      {counted !== null && khoUnit ? <div className="task-now cq-preview">Sẽ ghi tồn 16/10: <b>{fmtQty(counted)} {khoUnit}</b></div> : null}
+      <div className="row cq-actions">
+        <button type="button" className="btn" disabled={!ready} onClick={() => send(false)} data-bmq-count-save>{answer.isPending ? "Đang ghi…" : "Ghi tồn"}</button>
+        <button type="button" className="btn ghost" disabled={answer.isPending} onClick={() => send(true)} data-bmq-count-skip>Bỏ qua</button>
+      </div>
+      {answer.error ? <div className="err">{missionErrorMessage(answer.error)}</div> : null}
+    </li>
+  );
+}
+
+function CountQuestionsTool({ detail, onSaved }: { detail: MissionCountQuestionsDetail | undefined; onSaved: (text: string) => void }) {
+  const questions = useCountUnitQuestions(detail?.batch ?? "2026-10-16");
+  if (questions.isLoading) return <p className="note">Đang tải câu hỏi…</p>;
+  if (questions.error) return <div className="err">{missionErrorMessage(questions.error)}</div>;
+  const rows = questions.data ?? [];
+  return (
+    <>
+      <p className="hint">Mỗi dòng: chọn đúng món trong kho, rồi gõ 1 đơn vị trong file bằng bao nhiêu đơn vị kho. Hệ thống tự nhân và ghi tồn ngày 16/10. Dòng không cần theo dõi thì bấm “Bỏ qua”.</p>
+      <ul className="task-list" data-bmq-count-questions>{rows.map((row) => <CountQuestionRow key={row.id} row={row} onSaved={onSaved} />)}</ul>
+    </>
+  );
+}
+
 /** One mission opened up: the tool to finish it, then "Nộp nhiệm vụ". */
 export function MissionSheet({ mission, onClose, onToast, onCompleted, onOpenQuest }: {
   mission: Mission; onClose: () => void; onToast: (text: string) => void; onCompleted: (result: CompleteMissionResult, mission: Mission) => void;
@@ -397,6 +487,7 @@ export function MissionSheet({ mission, onClose, onToast, onCompleted, onOpenQue
               </div>
             );
           })() : null}
+          {rule === "count" ? <CountQuestionsTool detail={detail.find((row): row is MissionCountQuestionsDetail => row.kind === "count_questions")} onSaved={onToast} /> : null}
           {rule === "units" ? (
             grouped.size ? (
               <>

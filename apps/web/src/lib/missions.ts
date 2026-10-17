@@ -72,11 +72,22 @@ export interface MissionMaterialLinksDetail {
   skipped: number;
 }
 
+/** stock_count_questions_done detail row. */
+export interface MissionCountQuestionsDetail {
+  kind: "count_questions";
+  batch: string;
+  total: number;
+  open: number;
+  answered: number;
+  skipped: number;
+}
+
 export type MissionDetail =
   | MissionAliasDetail
   | MissionDuplicateDetail
   | MissionUnknownUnitDetail
-  | MissionMaterialLinksDetail;
+  | MissionMaterialLinksDetail
+  | MissionCountQuestionsDetail;
 
 export interface MissionEvaluation {
   done: boolean;
@@ -223,6 +234,16 @@ function parseNullableLevel(raw: unknown, path: string): MissionLevel | null {
 /** One mission detail row; `kind` is assigned from the fields the row carries. */
 export function parseMissionDetailEntry(raw: unknown, path = "detail"): MissionDetail {
   const row = asRecord(raw, path);
+  if ("batch" in row) {
+    return {
+      kind: "count_questions",
+      batch: asString(row.batch, `${path}.batch`),
+      total: asNumber(row.total ?? 0, `${path}.total`),
+      open: asNumber(row.open ?? 0, `${path}.open`),
+      answered: asNumber(row.answered ?? 0, `${path}.answered`),
+      skipped: asNumber(row.skipped ?? 0, `${path}.skipped`),
+    };
+  }
   if ("source_table" in row) {
     return {
       kind: "unknown_units_cleared",

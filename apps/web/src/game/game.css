@@ -448,6 +448,14 @@
 .kg .task-ok { font-weight: 900; color: var(--sage-deep); }
 .kg .task-ok.big { margin: 0; padding: 12px; background: var(--sage-light); border: 2.5px solid var(--ink); border-radius: 12px; }
 .kg .task-row .conv .btn { height: 44px; }
+.kg .cq-file { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 8px 12px; background: var(--mustard-light); border: 2.5px solid var(--ink); border-radius: 12px; font-weight: 800; }
+.kg .cq-file span { font-size: 12.5px; color: #6f6a85; text-transform: uppercase; letter-spacing: .04em; }
+.kg .cq-file b { font-size: 18px; }
+.kg .cq-item, .kg .cq-new { display: grid; gap: 8px; min-width: 0; }
+.kg .cq-new .field { min-width: 0; }
+.kg .cq-preview b { font-size: 16px; }
+.kg .cq-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.kg .cq-actions .btn { flex: 1 1 120px; min-height: 44px; }
 .kg .unit-chip { justify-self: start; padding: 2px 10px; font-family: "Baloo 2", sans-serif; font-size: 17px; background: var(--mustard-light); border: 2.5px solid var(--ink); border-radius: 10px; }
 .kg .unit-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
 .kg .unit-actions select { grid-column: 1 / 2; height: 44px; padding: 0 10px; font-size: 15px; font-weight: 700; background: var(--white); border: 2.5px solid var(--ink); border-radius: 12px; min-width: 0; }
