@@ -1405,17 +1405,17 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
   record("manual transfer gate 390");
   await context.close();
 }
-// Đặt hàng tự động (owner 16/10): the kiosk opens the office ordering room, which replaced the old robot desk.
-// The room itself (basket, old-debt picks, packages, PR desk) is covered by scripts/qa_warehouse_office.mjs.
+// Đặt hàng tự động (owner 17/10 IMG_5812): no kiosk outside any more — the machine stands inside each warehouse
+// (asserted in the Tân Tạo / Q7 checks above). The room itself is covered by scripts/qa_warehouse_office.mjs.
 for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
   const { context, page, errors } = await open({ data: "populated", role: "owner", started: true }, "/warehouse/game", viewport);
   await page.waitForSelector("[data-bmq-warehouse-game]", { timeout: 20000 });
-  await page.waitForTimeout(1200);
-  await page.getByRole("button", { name: "Đặt hàng tự động" }).click({ force: true });
-  await page.waitForURL(/\/warehouse\/office$/, { timeout: 5000 });
-  assert.equal(await page.locator("[data-bmq-robot-desk]").count(), 0, "old robot desk is gone");
-  assert.deepEqual(errors.filter((e) => !/office|snapshot/i.test(e)), [], "no page errors");
-  record(`robot kiosk opens the ordering room ${viewport.width}`);
+  await page.waitForTimeout(KHO_MODE === "3d" ? 2000 : 1200);
+  assert.equal(await page.getByRole("button", { name: "Đặt hàng tự động" }).count(), 0, "no ordering kiosk in the yard");
+  for (const name of ["Giao hàng", "Tồn kho", "Kiểm kê", "Danh mục hàng hóa"]) assert.equal(await page.getByRole("button", { name }).count() >= 1, true, `kiosk ${name} still there`);
+  await page.screenshot({ path: `${EVIDENCE}/yard-no-auto-${KHO_MODE}-${viewport.width}.png` });
+  assert.deepEqual(errors, [], "no page errors");
+  record(`yard has no ordering kiosk ${viewport.width}`);
   await context.close();
 }
 for (const viewport of [{ width: 1440, height: 900 }, { width: 430, height: 932 }, { width: 390, height: 844 }, { width: 320, height: 640 }]) {

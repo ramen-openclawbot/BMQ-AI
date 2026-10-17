@@ -391,7 +391,7 @@ export default function WarehouseGame() {
     crates,
     badges: { deliver: deliveryQueue.data?.length ?? 0 },
     onEnter: (location: WarehouseGameLocation) => go({ kind: "warehouse", location }),
-    onZone: (zone: Zone) => (zone.id === "deliver" ? setPanel({ kind: "deliver" }) : zone.id === "clean" ? go({ kind: "workshop" }) : zone.id === "count" ? go({ kind: "count" }) : zone.id === "auto" ? navigate("/warehouse/office") : setPanel({ kind: "zone", zone })),
+    onZone: (zone: Zone) => (zone.id === "deliver" ? setPanel({ kind: "deliver" }) : zone.id === "clean" ? go({ kind: "workshop" }) : zone.id === "count" ? go({ kind: "count" }) : setPanel({ kind: "zone", zone })),
   };
 
   return (
