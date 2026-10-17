@@ -85,12 +85,22 @@ export interface MissionCountQuestionsDetail {
   skipped: number;
 }
 
+/** q7_bom_mismatch_resolved detail row. */
+export interface MissionBomMismatchDetail {
+  kind: "bom_mismatch";
+  open: number;
+  resolved: number;
+  excluded: number;
+  total: number;
+}
+
 export type MissionDetail =
   | MissionAliasDetail
   | MissionDuplicateDetail
   | MissionUnknownUnitDetail
   | MissionMaterialLinksDetail
-  | MissionCountQuestionsDetail;
+  | MissionCountQuestionsDetail
+  | MissionBomMismatchDetail;
 
 export interface MissionEvaluation {
   done: boolean;
@@ -287,6 +297,15 @@ function parseNullableLevel(raw: unknown, path: string): MissionLevel | null {
 /** One mission detail row; `kind` is assigned from the fields the row carries. */
 export function parseMissionDetailEntry(raw: unknown, path = "detail"): MissionDetail {
   const row = asRecord(raw, path);
+  if (row.kind === "bom_mismatch") {
+    return {
+      kind: "bom_mismatch",
+      open: asNumber(row.open ?? 0, `${path}.open`),
+      resolved: asNumber(row.resolved ?? 0, `${path}.resolved`),
+      excluded: asNumber(row.excluded ?? 0, `${path}.excluded`),
+      total: asNumber(row.total ?? 0, `${path}.total`),
+    };
+  }
   if ("batch" in row) {
     return {
       kind: "count_questions",

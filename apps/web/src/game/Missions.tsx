@@ -5,10 +5,12 @@ import { supabase } from "@/integrations/supabase/client";
 import { MISSIONS_QUERY_KEY, useAssignMission, useCompleteMission, useMarkItemsDistinct, useMissionAssignments, useMissionStaff, useResolveUnknownUnit, useUnassignMission, useUpdateAliasFactor } from "@/hooks/useMissions";
 import { useAliasReceiptLines, useItemReceiptLines, useRenameStockItem, useUnitVariantReceiptLines, useWarehouseGameSnapshot, WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY } from "@/hooks/useWarehouseGame";
 import { useAnswerCountUnitQuestion, useCountUnitQuestions } from "@/hooks/useCountUnitQuestions";
+import { usePostPendingQ7Issues, useQ7BomMismatchReview, useResolveQ7BomLine } from "@/hooks/useQ7BomMatch";
+import { factorPrompt as bomFactorPrompt, type Q7BomMismatchLine } from "@/lib/q7-bom-match";
 import { STOCK_CATALOG_REVIEW_QUERY_KEY } from "@/hooks/useStockCatalog";
 import {
   assignmentsByParent, levelProgress, missionAssignErrorText, missionErrorMessage,
-  type CompleteMissionResult, type MissionAssignment, type MissionStaffMember, type Mission, type MissionAliasDetail, type MissionCountQuestionsDetail, type MissionDuplicateDetail, type MissionLevel, type MissionMaterialLinksDetail, type MissionUnknownUnitDetail, type MyMissions,
+  type CompleteMissionResult, type MissionAssignment, type MissionStaffMember, type Mission, type MissionAliasDetail, type MissionBomMismatchDetail, type MissionCountQuestionsDetail, type MissionDuplicateDetail, type MissionLevel, type MissionMaterialLinksDetail, type MissionUnknownUnitDetail, type MyMissions,
 } from "@/lib/missions";
 import { STOCK_UNITS } from "@/lib/stock-units";
 import { canSubmit, computeCountedQty, type StockCountUnitQuestion } from "@/lib/count-unit-questions";
@@ -31,10 +33,11 @@ export const LADDER: MissionLevel[] = [
 
 const hatFor = (level: number): "none" | "cap" | "chef" => (level >= 3 ? "chef" : level === 2 ? "cap" : "none");
 
-type Rule = "alias" | "duplicate" | "units" | "links" | "count" | "other";
+type Rule = "alias" | "duplicate" | "units" | "links" | "count" | "bom" | "other";
 
 function ruleOf(mission: Mission): Rule {
   const kind = mission.progress.detail[0]?.kind;
+  if (kind === "bom_mismatch" || mission.code.startsWith("wh-q7-bom-match")) return "bom";
   if (kind === "count_questions" || mission.code.startsWith("wh-count-units")) return "count";
   if (kind === "alias_factor_fixed" || mission.code.includes("alias")) return "alias";
   if (kind === "duplicate_resolved" || mission.code.includes("duplicate")) return "duplicate";
@@ -43,7 +46,7 @@ function ruleOf(mission: Mission): Rule {
   return "other";
 }
 
-const RULE_ICON: Record<Rule, string> = { alias: "🏷️", duplicate: "🥐", units: "📏", links: "🧩", count: "⚖️", other: "📜" };
+const RULE_ICON: Record<Rule, string> = { alias: "🏷️", duplicate: "🥐", units: "📏", links: "🧩", count: "⚖️", bom: "🧁", other: "📜" };
 
 /** Steps shown on the card: the duplicate pair is one decision, the others count rows. */
 export function missionSteps(mission: Mission): { done: number; total: number } {
@@ -56,6 +59,8 @@ export function missionSteps(mission: Mission): { done: number; total: number } 
   if (links) return { done: links.linked, total: Math.max(links.linked + links.remaining, 1) };
   const counts = mission.progress.detail.find((row): row is MissionCountQuestionsDetail => row.kind === "count_questions");
   if (counts) return { done: counts.answered + counts.skipped, total: Math.max(counts.total, 1) };
+  const bom = mission.progress.detail.find((row): row is MissionBomMismatchDetail => row.kind === "bom_mismatch");
+  if (bom) return { done: Math.max(0, bom.total - bom.open), total: Math.max(bom.total, 1) };
   const total = Math.max(mission.progress.total, mission.progress.left, 1);
   return { done: Math.max(0, total - mission.progress.left), total };
 }
@@ -528,6 +533,109 @@ function CountQuestionRow({ row, onSaved }: { row: StockCountUnitQuestion; onSav
   );
 }
 
+/** Delivery notes of the kho item a BOM line would draw from (owner rule 17/10: evidence beside every quy đổi). */
+function BomItemNotes({ itemId, title }: { itemId: string | null; title: string }) {
+  const lines = useItemReceiptLines(itemId, Boolean(itemId));
+  if (!itemId) return null;
+  return <ReceiptNotes title={title} lines={lines.data} loading={lines.isLoading} error={lines.error} />;
+}
+
+/**
+ * One BOM ingredient of the Q7 material issues after the 16/10 count (owner 17/10): keep drawing from the
+ * mapped kho item, point it at the item that was really counted (with a factor when units differ), or
+ * exclude it ("không theo dõi" / "công thức ghi sai").
+ */
+function BomLineCard({ line, items, onSaved }: { line: Q7BomMismatchLine; items: { id: string; name: string; unit: string }[]; onSaved: (text: string) => void }) {
+  const resolve = useResolveQ7BomLine();
+  const [requestId] = useState(newRequestId);
+  const mapped = line.current_mapping;
+  const firstCandidate = line.candidates[0]?.kitchen_inventory_item_id ?? "";
+  const [target, setTarget] = useState(mapped && line.has_count_since_cutover ? mapped.kitchen_inventory_item_id : firstCandidate);
+  const targetItem = items.find((item) => item.id === target)
+    ?? line.candidates.map((c) => ({ id: c.kitchen_inventory_item_id, name: c.name, unit: c.unit })).find((item) => item.id === target)
+    ?? (mapped && mapped.kitchen_inventory_item_id === target ? { id: mapped.kitchen_inventory_item_id, name: mapped.name, unit: mapped.unit } : null);
+  const sameUnit = Boolean(targetItem && targetItem.unit.trim().toLowerCase() === line.source_unit.trim().toLowerCase());
+  const [factorText, setFactorText] = useState("");
+  // Natural direction (owner 15/10): ask "1 thùng = ? g" and store target units per source unit = 1/x.
+  const answer = Number(factorText.replace(/\s/g, "").replace(",", "."));
+  const factor = sameUnit && factorText === "" ? 1 : sameUnit ? answer : answer > 0 ? 1 / answer : NaN;
+  const factorOk = Number.isFinite(factor) && factor > 0;
+  const name = line.canonical_material.name;
+  const send = (action: "remap" | "not_tracked" | "bom_error") => resolve.mutate(
+    { canonicalMaterialId: line.canonical_material_id, sourceUnit: line.source_unit, action, targetItemId: action === "remap" ? target : null, factor: action === "remap" ? factor : null, requestId },
+    { onSuccess: () => onSaved(action === "remap" ? `“${name}” → ${targetItem?.name ?? ""}` : action === "not_tracked" ? `“${name}”: không theo dõi tồn` : `“${name}”: công thức ghi sai, không trừ`) },
+  );
+  if (!line.open) {
+    return (
+      <li className="task-row is-fixed bom-row" data-bmq-bom-line={name} data-status="done">
+        <div className="task-head"><b>{name}</b><small>công thức · {fmtQty(line.planned_qty_total)} {line.source_unit} cho phiếu sau 16/10</small></div>
+        <span className="task-ok">{line.excluded ? (line.decision?.action === "bom_error" ? "Công thức ghi sai — không trừ" : "Không theo dõi tồn — không trừ") : `✓ Trừ vào ${mapped?.name ?? ""}`}</span>
+      </li>
+    );
+  }
+  const options = [
+    ...line.candidates.map((c) => ({ value: c.kitchen_inventory_item_id, label: `${c.name} · ${c.unit} · đếm ${fmtQty(c.counted_balance)}` })),
+    ...items.filter((item) => !line.candidates.some((c) => c.kitchen_inventory_item_id === item.id)).map((item) => ({ value: item.id, label: `${item.name} · ${item.unit}` })),
+  ];
+  return (
+    <li className="task-row bom-row" data-bmq-bom-line={name} data-status="open">
+      <div className="task-head">
+        <b>{name}</b>
+        <small>Công thức cần <b>{fmtQty(line.planned_qty_total)} {line.source_unit}</b> cho {line.planned_by_issue_date.map((d) => d.issue_date.slice(8, 10) + "/" + d.issue_date.slice(5, 7)).join(", ")}</small>
+      </div>
+      <div className="bom-now">
+        <span>Đang trừ vào</span>
+        <b>{mapped?.name ?? "chưa có món kho"}</b>
+        <small>{line.has_count_since_cutover ? `đã đếm 16/10 · còn ${fmtQty(line.current_balance)} ${mapped?.unit ?? ""}` : "chưa đếm 16/10"}{line.projected_balance < 0 ? ` · sau khi trừ: ${fmtQty(line.projected_balance)}` : ""}</small>
+      </div>
+      <label className="bom-pick">
+        <span>Trừ vào món kho</span>
+        <GamePicker value={target} onChange={(value) => { setTarget(value); setFactorText(""); }} placeholder="Chọn món đã đếm…" title={`“${name}” trừ vào món nào`} ariaLabel={`Món kho cho ${name}`} options={options} dataAttrs={{ "data-bmq-bom-target": name }} />
+      </label>
+      {targetItem && !sameUnit ? (
+        <label className="conv">
+          1 {targetItem.unit} =
+          <input inputMode="decimal" value={factorText} onChange={(event) => setFactorText(event.target.value)} placeholder="?" aria-label={bomFactorPrompt(targetItem.unit, line.source_unit)} data-bmq-bom-factor />
+          {line.source_unit}
+        </label>
+      ) : null}
+      <BomItemNotes itemId={target || null} title={`Phiếu giao hàng — ${targetItem?.name ?? "món kho"}`} />
+      <div className="row bom-actions">
+        <button type="button" className="btn" disabled={!target || !factorOk || resolve.isPending} onClick={() => send("remap")} data-bmq-bom-save>
+          {resolve.isPending ? "Đang lưu…" : mapped && target === mapped.kitchen_inventory_item_id ? "Đúng món này" : "Trỏ sang món này"}
+        </button>
+        <button type="button" className="btn ghost" disabled={resolve.isPending} onClick={() => send("not_tracked")} data-bmq-bom-not-tracked>Không theo dõi</button>
+        <button type="button" className="btn ghost" disabled={resolve.isPending} onClick={() => send("bom_error")} data-bmq-bom-error>Công thức sai</button>
+      </div>
+      {resolve.error ? <div className="err">{missionErrorMessage(resolve.error)}</div> : null}
+    </li>
+  );
+}
+
+function BomMatchTool({ onSaved }: { onSaved: (text: string) => void }) {
+  const review = useQ7BomMismatchReview();
+  const snapshot = useWarehouseGameSnapshot("q7");
+  const post = usePostPendingQ7Issues();
+  if (review.isLoading) return <p className="note">Đang đọc công thức…</p>;
+  if (review.error) return <div className="err">{missionErrorMessage(review.error)}</div>;
+  const rows = [...(review.data ?? [])].sort((a, b) => Number(b.open) - Number(a.open));
+  const open = rows.filter((row) => row.open).length;
+  const items = (snapshot.data?.items ?? []).map((item) => ({ id: item.id, name: item.name, unit: item.unit }));
+  return (
+    <>
+      <p className="hint">Mỗi nguyên liệu trong công thức bánh Q7: chọn đúng món kho đã đếm ngày 16/10 để phiếu xuất NVL trừ vào đó. Khác đơn vị thì gõ quy đổi, xem phiếu giao hàng bên dưới. Món không giữ tồn (nước đá…) chọn “Không theo dõi”; nguyên liệu không thuộc công thức chọn “Công thức sai”.</p>
+      <ul className="task-list" data-bmq-bom-lines>{rows.map((row) => <BomLineCard key={`${row.canonical_material_id}|${row.source_unit}`} line={row} items={items} onSaved={onSaved} />)}</ul>
+      <div className="bom-post">
+        <small>{open ? `Còn ${open} nguyên liệu chưa trả lời — phiếu xuất có nguyên liệu này sẽ chờ.` : "Đã trả lời hết. Phiếu xuất sau 16/10 sẽ được trừ lúc 5:40 sáng, hoặc bấm trừ ngay."}</small>
+        <button type="button" className="btn ghost" disabled={post.isPending} onClick={() => post.mutate({}, { onSuccess: (result) => onSaved(`Đã trừ ${result.posted + result.regenerated} phiếu xuất · ${result.skipped_open_mismatch} phiếu còn chờ`) })} data-bmq-bom-post>
+          {post.isPending ? "Đang trừ…" : "Trừ phiếu xuất ngay"}
+        </button>
+      </div>
+      {post.error ? <div className="err">{missionErrorMessage(post.error)}</div> : null}
+    </>
+  );
+}
+
 function CountQuestionsTool({ detail, onSaved }: { detail: MissionCountQuestionsDetail | undefined; onSaved: (text: string) => void }) {
   const questions = useCountUnitQuestions(detail?.batch ?? "2026-10-16");
   if (questions.isLoading) return <p className="note">Đang tải câu hỏi…</p>;
@@ -590,6 +698,7 @@ export function MissionSheet({ mission, onClose, onToast, onCompleted, onOpenQue
               </div>
             );
           })() : null}
+          {rule === "bom" ? <BomMatchTool onSaved={onToast} /> : null}
           {rule === "count" ? <CountQuestionsTool detail={detail.find((row): row is MissionCountQuestionsDetail => row.kind === "count_questions")} onSaved={onToast} /> : null}
           {rule === "units" ? (
             grouped.size ? (

@@ -100,6 +100,24 @@ function settle(st) {
     if (copy) copy.status = "cancelled";
     return { data: { mission_id: st.args.p_mission_id, status: "cancelled" }, error: null };
   }
+  // Khớp công thức Q7 (owner 17/10): one counted-but-short line, one unit-mismatch remap, one excluded.
+  if (st.table === "rpc:get_q7_bom_mismatch_review") {
+    const mat = (id, code, name) => ({ id, code, name, default_unit: "g" });
+    const base = { planned_by_issue_date: [{ issue_date: "2026-10-17", planned_qty: 1 }, { issue_date: "2026-10-18", planned_qty: 1 }], latest_issue_date: "2026-10-18", item_class: "raw_material", resolved: false, excluded: false, decision: null };
+    return { data: [
+      { ...base, canonical_material_id: "m-cbc", canonical_material: mat("m-cbc", "NVL-CBC", "Chà bông cay"), source_unit: "g", current_mapping: { q7_mapping_id: "q-1", kitchen_inventory_item_id: "it-cbc", item_code: "Q7-CBC", name: "Chà bông cay", unit: "g", conversion_factor: 1 }, planned_qty_total: 5375, current_balance: 5000, projected_balance: -375, has_count_since_cutover: true, open: true, candidates: [{ kitchen_inventory_item_id: "it-cbc", item_code: "Q7-CBC", name: "Chà bông cay", unit: "g", counted_balance: 5000, similarity: 1 }] },
+      { ...base, canonical_material_id: "m-dau", canonical_material: mat("m-dau", "NVL-DAU", "Dầu hướng dương"), source_unit: "g", current_mapping: { q7_mapping_id: "q-2", kitchen_inventory_item_id: "it-dhd", item_code: "Q7-DHD", name: "Dầu hướng dương", unit: "g", conversion_factor: 1 }, planned_qty_total: 5212, current_balance: -8166.21, projected_balance: -13378.21, has_count_since_cutover: false, open: true, candidates: [{ kitchen_inventory_item_id: "it-ta", item_code: "NVL-105", name: "Dầu ăn Tường An 5L x 4 chai (thùng)", unit: "thùng", counted_balance: 1, similarity: 0.4 }] },
+      { ...base, canonical_material_id: "m-da", canonical_material: mat("m-da", "NVL-DA", "NƯỚC ĐÁ"), source_unit: "g", current_mapping: { q7_mapping_id: "q-3", kitchen_inventory_item_id: "it-da", item_code: "Q7-DA", name: "NƯỚC ĐÁ", unit: "g", conversion_factor: 1 }, planned_qty_total: 3600, current_balance: -5310, projected_balance: -8910, has_count_since_cutover: false, open: false, excluded: true, decision: { id: "d-1", action: "not_tracked", new_kitchen_item_id: null, conversion_factor: null, note: null, created_at: "2026-10-17T05:00:00Z" }, candidates: [] },
+    ], error: null };
+  }
+  if (st.table === "rpc:resolve_q7_bom_line") {
+    window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args));
+    return { data: { status: "resolved", replay: false, decision_id: "d-new", action: st.args.p_action, canonical_material_id: st.args.p_canonical_material_id, source_unit: st.args.p_source_unit, old_kitchen_item_id: null, new_kitchen_item_id: st.args.p_target_item_id, conversion_factor: st.args.p_factor, note: null, created_at: "2026-10-17T06:00:00Z" }, error: null };
+  }
+  if (st.table === "rpc:post_pending_q7_material_issues") {
+    window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args));
+    return { data: { status: "ok", dry_run: false, cutover_date: "2026-10-16", issues: [], posted: 1, already_posted: 0, regenerated: 1, skipped_open_mismatch: 0 }, error: null };
+  }
   if (st.table === "rpc:get_my_missions") {
     if (cfg().missionsError) return { data: null, error: { message: "QA fixture: missions down" } };
     return { data: window.__msFixture[cfg().missions || "three_open_partial"], error: null };
@@ -427,7 +445,9 @@ const ready = structuredClone(MS_RAW.three_open_partial);
 ready.missions[0].progress = { ...ready.missions[0].progress, done: true, left: 0, detail: ready.missions[0].progress.detail.map((row) => ({ ...row, fixed: true })) };
 const countFixture = structuredClone(MS_RAW.three_open_partial);
 countFixture.missions = [{ ...countFixture.missions[0], id: "0f0b3d2a-0009-4c11-8a10-000000000009", code: "wh-count-units-20261016", title: "Quy đổi tồn 16/10", description: "Trả lời 12 dòng tồn kho chưa rõ đơn vị trong file 16/10", sort_order: 6, progress: { done: false, total: 12, left: 11, detail: [{ kind: "count_questions", batch: "2026-10-16", total: 12, open: 11, answered: 1, skipped: 0 }] } }];
-const MS_FIXTURE = { ...MS_RAW, ready, count: countFixture };
+const bomFixture = structuredClone(MS_RAW.three_open_partial);
+bomFixture.missions = [{ ...bomFixture.missions[0], id: "0f0b3d2a-0010-4c11-8a10-000000000010", code: "wh-q7-bom-match-20261017", title: "Khớp công thức Q7 với kho", description: "Trỏ từng nguyên liệu công thức vào đúng món kho đã kiểm kê để trừ NVL từ 17/10", sort_order: 7, progress: { done: false, total: 3, left: 2, detail: [{ kind: "bom_mismatch", open: 2, resolved: 0, excluded: 1, total: 3 }] } }];
+const MS_FIXTURE = { ...MS_RAW, ready, count: countFixture, bom: bomFixture };
 const KG_FIXTURE = JSON.parse(fs.readFileSync(path.join(ROOT, "scripts/qa_warehouse_game.fixture.json"), "utf8"));
 async function open(cfg, route, viewport, extra = {}) {
   const context = await browser.newContext({ viewport, reducedMotion: extra.reducedMotion || "reduce", locale: "vi-VN" });
@@ -617,6 +637,42 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     assert.ok(all.some((x) => x.startsWith("rpc:answer_stock_count_unit_question:") && x.includes('"p_question_id":"cq-6"') && x.includes('"p_new_item_name":"Muối"') && x.includes('"p_new_item_unit":"g"') && x.includes('"p_factor":1000')), "salt creates a new item");
     assert.deepEqual(errors, [], "no page errors");
     record(`count questions ${w}`);
+    await context.close();
+  }
+  // 1c. Khớp công thức Q7: keep / remap with a factor / exclude, evidence beside every remap.
+  {
+    const { context, page, errors } = await open({ data: "populated", role: "owner", missions: "bom" }, "/warehouse/game", viewport);
+    await page.waitForTimeout(700);
+    await board(page);
+    assert.match(await page.locator("[data-bmq-mission='wh-q7-bom-match-20261017']").textContent(), /1\/3/, "card counts excluded line as done");
+    await page.locator("[data-bmq-mission='wh-q7-bom-match-20261017']").click({ force: true });
+    await page.waitForSelector("[data-bmq-bom-lines]", { timeout: 5000 });
+    await page.waitForTimeout(500);
+    assert.equal(await page.locator("[data-bmq-bom-line]").count(), 3, "three BOM lines");
+    assert.deepEqual(await page.locator("[data-bmq-bom-line]").evaluateAll((els) => els.map((el) => el.getAttribute("data-status"))), ["open", "open", "done"], "open lines first");
+    const cbc = page.locator("[data-bmq-bom-line='Chà bông cay']");
+    assert.match(await cbc.locator("[data-bmq-bom-save]").textContent(), /Đúng món này/, "counted item keeps its own mapping");
+    assert.equal(await cbc.locator("[data-bmq-bom-factor]").count(), 0, "same unit asks no factor");
+    const oil = page.locator("[data-bmq-bom-line='Dầu hướng dương']");
+    assert.equal(await oil.locator("[data-bmq-bom-factor]").count(), 1, "g → thùng asks a factor");
+    assert.equal(await oil.locator("[data-bmq-bom-save]").isDisabled(), true, "needs the factor first");
+    assert.equal(await page.locator("[data-bmq-bom-line][data-status='open'] [data-bmq-receipt-notes]").count(), 2, "delivery notes beside every open line");
+    assert.equal(await overflow(page), 0, `bom sheet no overflow ${w}`);
+    await page.screenshot({ path: `${EVIDENCE}/sheet-bom-${w}.png` });
+    await cbc.locator("[data-bmq-bom-save]").click({ force: true });
+    assert.match(await oil.locator(".conv").textContent(), /1 thùng =\s*g/, "asks 1 thùng = ? g");
+    await oil.locator("[data-bmq-bom-factor]").fill("18400");
+    await oil.locator("[data-bmq-bom-save]").click({ force: true });
+    await page.locator("[data-bmq-bom-post]").click({ force: true });
+    await page.waitForTimeout(400);
+    const all = await writes(page);
+    assert.ok(all.some((x) => x.startsWith("rpc:resolve_q7_bom_line:") && x.includes('"p_canonical_material_id":"m-cbc"') && x.includes('"p_action":"remap"') && x.includes('"p_target_item_id":"it-cbc"') && x.includes('"p_factor":1')), "keep = remap to itself ×1");
+    const oilWrite = all.find((x) => x.startsWith("rpc:resolve_q7_bom_line:") && x.includes('"p_canonical_material_id":"m-dau"'));
+    const oilArgs = oilWrite ? JSON.parse(oilWrite.slice("rpc:resolve_q7_bom_line:".length)) : null;
+    assert.ok(oilArgs && oilArgs.p_target_item_id === "it-ta" && Math.abs(oilArgs.p_factor - 1 / 18400) < 1e-12, `oil remapped to Tường An with 1/18400: ${oilWrite}`);
+    assert.ok(all.some((x) => x.startsWith("rpc:post_pending_q7_material_issues:")), "post now calls the catch-up");
+    assert.deepEqual(errors, [], "no page errors");
+    record(`bom match ${w}`);
     await context.close();
   }
   // 2. Ready mission: submit → badge ceremony → level-up.
