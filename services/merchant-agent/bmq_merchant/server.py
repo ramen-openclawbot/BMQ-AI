@@ -35,6 +35,7 @@ from .backend import BmqMerchantBackend
 from .config import Settings, strip_anthropic_api_key
 from .supabase import SupabaseClient, SupabaseError
 from .sushi import SushiError
+from .warehouse_tools import build_warehouse_tools
 
 logger = logging.getLogger(__name__)
 
@@ -44,16 +45,24 @@ SUSHI_MCP_SERVER = "bmq"
 SUSHI_TOOL = "ask_sushi"
 SUSHI_ALLOWED_TOOL = "mcp__bmq__ask_sushi"
 SUSHI_TOOL_DESCRIPTION = (
-    "Tra cứu số liệu chuyên sâu của BMQ về: công nợ nhà cung cấp, đề nghị chi/PO, "
-    "hàng sắp hết, phân loại chi phí ('vì sao dòng này'), ảnh UNC, doanh thu "
-    "kiểm soát theo nguồn chứng từ."
+    "Tra cứu số liệu chuyên sâu dự phòng, chỉ dùng khi không có công cụ trực tiếp "
+    "bmq_* phù hợp. Hỗ trợ câu hỏi về công nợ nhà cung cấp, đề nghị chi/PO, hàng "
+    "sắp hết, phân loại chi phí ('vì sao dòng này'), ảnh UNC, doanh thu kiểm soát "
+    "theo nguồn chứng từ."
 )
 SUSHI_SYSTEM_PROMPT = (
-    "\n\nKhi cần số liệu về công nợ nhà cung cấp, đề nghị chi/PO, hàng sắp hết, "
-    "phân loại chi phí ('vì sao dòng này'), ảnh UNC hoặc doanh thu kiểm soát theo "
-    "nguồn chứng từ, hãy gọi công cụ mcp__bmq__ask_sushi với câu hỏi tiếng Việt "
-    "ngắn gọn. Dùng đúng con số công cụ trả về, không tự bịa số liệu; khi trả lời "
-    "không nhắc tên công cụ hay hệ thống nội bộ, cứ nói như VNAgent tự tra."
+    "\n\nƯu tiên các công cụ tra cứu trực tiếp của kho dữ liệu: "
+    "mcp__bmq__bmq_cost cho phân loại chi phí và giải thích một dòng chi phí; "
+    "mcp__bmq__bmq_payment cho thanh toán thực tế nhà cung cấp theo tháng; "
+    "mcp__bmq__bmq_customer cho giá, đơn hàng, công nợ NPP và chi tiết đơn của "
+    "khách/đại lý; mcp__bmq__bmq_metric cho doanh thu kiểm soát, số đơn mua hàng, "
+    "hàng tồn thấp và công nợ nhà cung cấp; mcp__bmq__bmq_unc_images cho ảnh UNC "
+    "đã nộp. Chỉ dùng mcp__bmq__ask_sushi khi không có công cụ trực tiếp nào phù "
+    "hợp, như phương án cuối (last resort). Dùng đúng con số công cụ trả về, không "
+    "tự bịa số liệu; khi trả lời không nhắc tên công cụ hay hệ thống nội bộ, cứ "
+    "nói như VNAgent tự tra. Nếu công cụ kho dữ liệu báo lỗi khi hỏi doanh thu hoặc "
+    "số đơn, dùng get_business_snapshot/query_metrics thay thế. Luôn tự xưng là VNAgent, không bao giờ xưng em hay "
+    "tôi; gọi người dùng là anh."
 )
 
 
@@ -158,18 +167,25 @@ def _wire_sushi(options: Any, chat_session: _ChatSession, settings: Settings) ->
     allowed_tools = getattr(options, "allowed_tools", None)
     if not isinstance(mcp_servers, dict) or not isinstance(allowed_tools, list):
         logger.warning(
-            "Không gắn được công cụ Sushi: options thiếu mcp_servers/allowed_tools"
+            "Không gắn được công cụ kho dữ liệu: options thiếu mcp_servers/allowed_tools"
         )
         return
+    warehouse_tools = build_warehouse_tools(chat_session, settings)
     mcp_servers[SUSHI_MCP_SERVER] = create_sdk_mcp_server(
         name=SUSHI_MCP_SERVER,
         version="1.0.0",
-        tools=[_build_sushi_tool(chat_session, settings)],
+        # ask_sushi stays first for the existing fallback contract; the direct
+        # read-only warehouse tools follow it in the same in-process server.
+        tools=[_build_sushi_tool(chat_session, settings), *warehouse_tools],
     )
+    for warehouse_tool in warehouse_tools:
+        allowed_tool = f"mcp__{SUSHI_MCP_SERVER}__{warehouse_tool.name}"
+        if allowed_tool not in allowed_tools:
+            allowed_tools.append(allowed_tool)
     if SUSHI_ALLOWED_TOOL not in allowed_tools:
         allowed_tools.append(SUSHI_ALLOWED_TOOL)
     system_prompt = getattr(options, "system_prompt", None)
-    if isinstance(system_prompt, str) and SUSHI_ALLOWED_TOOL not in system_prompt:
+    if isinstance(system_prompt, str) and SUSHI_SYSTEM_PROMPT not in system_prompt:
         options.system_prompt = system_prompt + SUSHI_SYSTEM_PROMPT
 
 

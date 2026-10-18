@@ -16,6 +16,7 @@ from merchant_agent import MerchantAgentConfig
 logger = logging.getLogger(__name__)
 
 DEFAULT_SUPABASE_URL = "https://cxntbdvfsikwmitapony.supabase.co"
+DEFAULT_WAREHOUSE_URL = "http://127.0.0.1:8766"
 DEFAULT_MODEL = "claude-haiku-5-5"
 DEFAULT_REFERENCE_SKILLS = Path(
     "/Volumes/Samsung SSD 9100 PRO 1TB Media/VNAgent/research/"
@@ -72,6 +73,8 @@ class Settings:
     port: int = 8767
     allowed_origin: str = "https://ai.banhmique.vn"
     skills_dir: Path = DEFAULT_REFERENCE_SKILLS
+    # Local read-only warehouse API.  The owner JWT is forwarded per request.
+    warehouse_url: str = DEFAULT_WAREHOUSE_URL
 
     def __post_init__(self) -> None:
         if not self.service_role_key:
@@ -82,7 +85,16 @@ class Settings:
             object.__setattr__(self, "analysis_model", self.model)
         if not 1 <= self.port <= 65535:
             raise ConfigError("PORT phải trong khoảng 1..65535")
+        raw_warehouse_url = self.warehouse_url
+        warehouse_url = (
+            raw_warehouse_url.strip().rstrip("/")
+            if isinstance(raw_warehouse_url, str)
+            else ""
+        )
+        if not warehouse_url:
+            raise ConfigError("WAREHOUSE_URL là bắt buộc")
         object.__setattr__(self, "supabase_url", self.supabase_url.rstrip("/"))
+        object.__setattr__(self, "warehouse_url", warehouse_url)
 
     @property
     def auth_api_key(self) -> str:
@@ -136,4 +148,5 @@ class Settings:
             port=_env_int("PORT", 8767),
             allowed_origin=_env_text("ALLOWED_ORIGIN") or "https://ai.banhmique.vn",
             skills_dir=Path(skills_raw),
+            warehouse_url=_env_text("WAREHOUSE_URL") or DEFAULT_WAREHOUSE_URL,
         )
