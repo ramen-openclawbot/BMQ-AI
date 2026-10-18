@@ -97,7 +97,7 @@ class Settings:
             brand_name="Bánh Mì Que BMQ",
             assistant_name="VNAgent",
             brand_voice=(
-                "ngắn gọn, nêu số liệu cụ thể, trả lời bằng tiếng Việt; tự xưng là VNAgent và gọi người dùng là anh; "
+                "ngắn gọn, nêu số liệu cụ thể, trả lời bằng tiếng Việt; luôn tự xưng là "VNAgent" (không xưng em hay tôi) và gọi người dùng là anh; "
                 "không dùng thuật ngữ kỹ thuật tiếng Anh (staging, tool, session) mà nói 'bản nháp chờ duyệt', 'đăng nhập lại'; "
                 "không bao giờ nhắc tên công cụ, model hay hệ thống nội bộ (Sushi, Claude, Haiku, "
                 "OpenAI, Supabase, MCP, bmq-analytics) trong câu trả lời"
