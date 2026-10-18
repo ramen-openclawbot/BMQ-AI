@@ -296,6 +296,25 @@ test("parseMyMissions reads the full payload", () => {
   assert.deepEqual(parsed.recent_awards, []);
 });
 
+test("parseMyMissions exposes and normalizes job_title", () => {
+  const titled = parseMyMissions({ ...validMissions(), job_title: "  Thủ kho  " });
+  assert.equal(titled.job_title, "Thủ kho");
+  assert.equal(titled.jobTitle, "Thủ kho");
+
+  const missing = parseMyMissions(validMissions());
+  assert.equal(missing.job_title, null);
+  assert.equal(missing.jobTitle, null);
+
+  const blank = parseMyMissions({ ...validMissions(), job_title: "" });
+  assert.equal(blank.job_title, null);
+
+  const spaces = parseMyMissions({ ...validMissions(), job_title: "   " });
+  assert.equal(spaces.job_title, null);
+
+  const nonString = parseMyMissions({ ...validMissions(), job_title: 42 });
+  assert.equal(nonString.job_title, null);
+});
+
 test("parseMyMissions rejects malformed payloads", () => {
   assert.throws(() => parseMyMissions(null), TypeError);
   const badStatus = validMissions();

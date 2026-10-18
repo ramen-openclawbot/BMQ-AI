@@ -160,6 +160,10 @@ export interface MyMissions {
   level: MissionLevel | null;
   next_level: MissionLevel | null;
   recent_awards: MissionAward[];
+  /** Actual job title from public.profiles.job_title; null when unset. */
+  job_title: string | null;
+  /** camelCase alias for UI code; same value as job_title. */
+  jobTitle?: string | null;
 }
 
 export interface CompleteMissionResult {
@@ -261,6 +265,13 @@ function asNullableString(value: unknown, path: string): string | null {
   if (value === null || value === undefined) return null;
   if (typeof value !== "string") throw new TypeError(`${path} must be a string or null`);
   return value;
+}
+
+/** UI label: trim, and treat missing, non-string or blank values as unset. */
+function asNullableText(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed === "" ? null : trimmed;
 }
 
 function asNumber(value: unknown, path: string): number {
@@ -451,6 +462,8 @@ export function parseMyMissions(raw: unknown): MyMissions {
     };
   });
 
+  const jobTitle = asNullableText(root.job_title);
+
   return {
     missions,
     badges: {
@@ -460,6 +473,8 @@ export function parseMyMissions(raw: unknown): MyMissions {
     level: parseNullableLevel(root.level, "level"),
     next_level: parseNullableLevel(root.next_level, "next_level"),
     recent_awards: awards,
+    job_title: jobTitle,
+    jobTitle,
   };
 }
 

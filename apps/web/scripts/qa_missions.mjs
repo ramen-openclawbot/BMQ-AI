@@ -165,7 +165,8 @@ function settle(st) {
   }
   if (st.table === "rpc:get_my_missions") {
     if (cfg().missionsError) return { data: null, error: { message: "QA fixture: missions down" } };
-    return { data: window.__msFixture[cfg().missions || "three_open_partial"], error: null };
+    const base = window.__msFixture[cfg().missions || "three_open_partial"];
+    return { data: cfg().jobTitle ? { ...base, job_title: cfg().jobTitle } : base, error: null };
   }
   if (/^rpc:(complete_mission|update_stock_material_alias_factor|mark_stock_items_distinct|resolve_unknown_purchase_unit|apply_stock_item_merge)$/.test(st.table)) {
     window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args));
@@ -582,6 +583,25 @@ async function closeSheet(page) {
 
 for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 640 }]) {
   const w = viewport.width;
+  // 0. Staff cards (owner 18/10): job title from the profile; no title keeps the level heading.
+  for (const [jobTitle, tag] of [["Kế toán trưởng", "titled"], [null, "untitled"]]) {
+    const { context, page, errors } = await open({ data: "populated", role: "limited", missions: "three_open_partial", ...(jobTitle ? { jobTitle } : {}) }, "/warehouse/game", viewport);
+    await page.waitForTimeout(900);
+    await board(page);
+    assert.equal(await overflow(page), 0, `staff ${tag} board no overflow ${w}`);
+    if (jobTitle) {
+      assert.equal((await page.locator("[data-bmq-job-title]").textContent()).trim(), jobTitle);
+      const card = await page.locator(".kg .rank-card").boundingBox();
+      const tier = await page.locator(".kg .rank-tier").boundingBox();
+      assert.ok(card && tier && tier.x + tier.width <= card.x + card.width + 0.5, `tier fits card ${w}`);
+    } else {
+      assert.equal(await page.locator("[data-bmq-job-title]").count(), 0, "no job title heading");
+      assert.equal((await page.locator("[data-bmq-mission-level]").textContent()).trim(), "Nhân viên mới");
+    }
+    await page.locator(".kg .rank-card").screenshot({ path: `${EVIDENCE}/rank-${tag}-${w}.png` });
+    assert.deepEqual(errors, [], `staff ${tag} console errors ${w}`);
+    await context.close();
+  }
   // 1. Three open missions: HUD, board, each tool writes through its RPC.
   {
     const { context, page, errors } = await open({ data: "populated", role: "owner", missions: "three_open_partial" }, "/warehouse/game", viewport);
@@ -594,7 +614,9 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await page.screenshot({ path: `${EVIDENCE}/yard-hud-${w}.png` });
     await board(page);
     assert.equal(await overflow(page), 0, `board no overflow ${w}`);
-    assert.equal((await page.locator("[data-bmq-mission-level]").textContent()).trim(), "Nhân viên mới");
+    // Owner 18/10: the owner account has no profiles row → the card falls back to CEO; the level is the reward line.
+    assert.equal((await page.locator("[data-bmq-job-title]").textContent()).trim(), "CEO");
+    assert.equal((await page.locator("[data-bmq-mission-level]").textContent()).trim(), "🐝 Nhân viên mới");
     assert.equal(await page.locator("[data-bmq-mission]").count(), 3, "3 mission notes");
     assert.match(await page.locator(".kg .title-pill").textContent(), /Nhiệm vụ/);
     await page.screenshot({ path: `${EVIDENCE}/board-${w}.png` });

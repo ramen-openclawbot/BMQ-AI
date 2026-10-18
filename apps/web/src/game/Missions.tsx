@@ -2,6 +2,7 @@ import { useState } from "react";
 import { GamePicker } from "@/game/GamePicker";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 import { MISSIONS_QUERY_KEY, useAssignMission, useCompleteMission, useMarkItemsDistinct, useMissionAssignments, useMissionStaff, useResolveUnknownUnit, useUnassignMission, useUpdateAliasFactor } from "@/hooks/useMissions";
 import { useAliasReceiptLines, useItemReceiptLines, useRenameStockItem, useUnitVariantReceiptLines, useWarehouseGameSnapshot, WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY } from "@/hooks/useWarehouseGame";
 import { useAnswerCountUnitQuestion, useCountUnitQuestions } from "@/hooks/useCountUnitQuestions";
@@ -125,6 +126,10 @@ export function MissionHudButton({ data, onOpen }: { data: MyMissions | undefine
 }
 
 function RankCard({ data }: { data: MyMissions }) {
+  const { isOwner } = useAuth();
+  // Owner 18/10: the card names the real job; the badge level is a reward line under it.
+  // The owner account has no profiles row, so it falls back to CEO.
+  const jobTitle = data.job_title ?? (isOwner ? "CEO" : null);
   const total = data.badges.total;
   const progress = levelProgress(total, LADDER);
   const level = data.level ?? progress.current ?? LADDER[0];
@@ -132,7 +137,7 @@ function RankCard({ data }: { data: MyMissions }) {
   const slots = next ? next.min_badges : Math.max(total, 1);
   const shown = Math.min(slots, 12);
   return (
-    <section className="rank-card" aria-label="Thẻ nhân viên kho">
+    <section className="rank-card" aria-label={jobTitle ? `Thẻ nhân viên · ${jobTitle}` : "Thẻ nhân viên"}>
       <div className="rank-avatar">
         <svg viewBox="-34 -44 68 78" width="86" height="98" aria-hidden="true">
           <circle cx={0} cy={-4} r={30} fill={C.sageLight} stroke={C.ink} strokeWidth={STROKE} />
@@ -141,8 +146,13 @@ function RankCard({ data }: { data: MyMissions }) {
         <span className="rank-level">Cấp {level.level}</span>
       </div>
       <div className="rank-main">
-        <small>Thẻ nhân viên kho</small>
-        <h3 data-bmq-mission-level>{level.title}</h3>
+        <small>Thẻ nhân viên</small>
+        {jobTitle ? (
+          <>
+            <h3 data-bmq-job-title>{jobTitle}</h3>
+            <span className="rank-tier" data-bmq-mission-level>🐝 {level.title}</span>
+          </>
+        ) : <h3 data-bmq-mission-level>{level.title}</h3>}
         <div className="rank-bees" aria-label={`${total} huy hiệu Chăm chỉ`}>
           {Array.from({ length: shown }).map((_, i) => <BeeBadge key={i} size={30} empty={i >= total} />)}
           {total > shown ? <b className="rank-more">+{total - shown}</b> : null}
