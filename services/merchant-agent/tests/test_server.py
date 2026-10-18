@@ -219,3 +219,173 @@ def test_cors_allows_only_configured_origin(settings: Settings) -> None:
     assert allowed.status_code == 200
     assert allowed.headers["access-control-allow-origin"] == "https://ai.banhmique.vn"
     assert "access-control-allow-origin" not in denied.headers
+
+
+class _SushiOptions:
+    def __init__(self) -> None:
+        self.system_prompt = "BASE PROMPT"
+        self.mcp_servers = {"merchant": object()}
+        self.allowed_tools = ["mcp__merchant__get_business_snapshot"]
+
+
+def test_ask_sushi_tool_queues_ui_and_refreshes_the_owner_token(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from bmq_merchant import server as server_module
+    from bmq_merchant.sushi import SushiAnswer
+
+    captured: dict[str, Any] = {"tools": [], "asks": []}
+
+    def fake_create_server(name: str, version: str = "1.0.0", tools: Any = None) -> Any:
+        captured["server_name"] = name
+        captured["tools"] = list(tools or [])
+        return {"type": "sdk", "name": name}
+
+    async def fake_ask(
+        question: str,
+        owner_token: str,
+        conversation_id: str,
+        settings: Settings,
+        http: Any,
+    ) -> SushiAnswer:
+        captured["asks"].append(
+            {
+                "question": question,
+                "token": owner_token,
+                "conversation_id": conversation_id,
+            }
+        )
+        return SushiAnswer(
+            answer="Tổng công nợ nhà cung cấp là 10 triệu.",
+            details="D" * 3500,
+            images=[{"url": "https://img/1.jpg"}],
+            cost_block={"mode": "example_line"},
+            citations=[{"id": "cite-1"}],
+            lane="supplier_debt",
+        )
+
+    monkeypatch.setattr(server_module, "create_sdk_mcp_server", fake_create_server)
+    monkeypatch.setattr(server_module.sushi, "ask_sushi", fake_ask)
+
+    def options_factory(**kwargs: Any) -> Any:
+        captured["options_kwargs"] = kwargs
+        options = _SushiOptions()
+        captured["options"] = options
+        return options, FakeToolset()
+
+    async def fake_turn(client: Any, text: str, *, toolset: Any = None) -> TurnResult:
+        captured["tool_result"] = await captured["tools"][0].handler(
+            {"question": "Công nợ nhà cung cấp?"}
+        )
+        return TurnResult(
+            text="Đã kiểm tra",
+            ui=[{"component": "change_preview", "payload": {"change_id": "change-1"}}],
+        )
+
+    fake = FakeBackend()
+    app = create_app(
+        settings,
+        backend_factory=lambda: fake,
+        options_factory=options_factory,
+        client_factory=lambda _: FakeClient(),
+        turn_runner=fake_turn,
+        owner_verifier=owner_verifier,
+    )
+    headers = {"Authorization": "Bearer owner-token-1"}
+    with TestClient(app) as client:
+        first = client.post(
+            "/v1/chat",
+            headers=headers,
+            json={"session_id": "session-sushi", "message": "Hỏi Sushi"},
+        )
+        second = client.post(
+            "/v1/chat",
+            headers={"Authorization": "Bearer owner-token-2"},
+            json={"session_id": "session-sushi", "message": "Hỏi lại"},
+        )
+        session = app.state.sessions["session-sushi"]
+        assert session.pending_ui == []
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    first_body = first.json()
+    second_body = second.json()
+    assert first_body["ui"][-1]["component"] == "sushi_answer"
+    assert sum(
+        block["component"] == "sushi_answer" for block in first_body["ui"]
+    ) == 1
+    assert sum(
+        block["component"] == "sushi_answer" for block in second_body["ui"]
+    ) == 1
+    payload = first_body["ui"][-1]["payload"]
+    assert payload["answer"] == "Tổng công nợ nhà cung cấp là 10 triệu."
+    assert payload["images"] == [{"url": "https://img/1.jpg"}]
+    assert payload["costBlock"] == {"mode": "example_line"}
+    assert payload["citations"] == [{"id": "cite-1"}]
+    assert payload["details"] == "D" * 3500
+    assert [ask["token"] for ask in captured["asks"]] == [
+        "owner-token-1",
+        "owner-token-2",
+    ]
+    assert captured["asks"][0]["conversation_id"] == captured["asks"][1][
+        "conversation_id"
+    ]
+    tool_text = captured["tool_result"]["content"][0]["text"]
+    assert "Tổng công nợ nhà cung cấp là 10 triệu." in tool_text
+    assert "D" * 3000 in tool_text
+    assert "D" * 3001 not in tool_text
+    options = captured["options"]
+    assert captured["server_name"] == "bmq"
+    assert "bmq" in options.mcp_servers
+    assert options.mcp_servers["merchant"] is not None
+    assert "mcp__bmq__ask_sushi" in options.allowed_tools
+    assert options.system_prompt.startswith("BASE PROMPT")
+    assert "Sushi" in options.system_prompt
+
+
+def test_ask_sushi_error_is_a_tool_error_without_ui(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from bmq_merchant import server as server_module
+    from bmq_merchant.sushi import SushiError
+
+    captured: dict[str, Any] = {"tools": []}
+
+    def fake_create_server(name: str, version: str = "1.0.0", tools: Any = None) -> Any:
+        captured["tools"] = list(tools or [])
+        return {"type": "sdk", "name": name}
+
+    async def failing_ask(*args: Any, **kwargs: Any) -> Any:
+        raise SushiError("Sushi chưa trả lời được")
+
+    monkeypatch.setattr(server_module, "create_sdk_mcp_server", fake_create_server)
+    monkeypatch.setattr(server_module.sushi, "ask_sushi", failing_ask)
+
+    def options_factory(**kwargs: Any) -> Any:
+        return _SushiOptions(), FakeToolset()
+
+    async def fake_turn(client: Any, text: str, *, toolset: Any = None) -> TurnResult:
+        captured["tool_result"] = await captured["tools"][0].handler(
+            {"question": "Công nợ?"}
+        )
+        return TurnResult(text="ok")
+
+    app = create_app(
+        settings,
+        backend_factory=lambda: FakeBackend(),
+        options_factory=options_factory,
+        client_factory=lambda _: FakeClient(),
+        turn_runner=fake_turn,
+        owner_verifier=owner_verifier,
+    )
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/chat",
+            headers={"Authorization": "Bearer owner-token"},
+            json={"session_id": "session-sushi-error", "message": "Hỏi Sushi"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["ui"] == []
+    assert captured["tool_result"]["is_error"] is True
+    assert captured["tool_result"]["content"][0]["text"] == "Sushi chưa trả lời được"

@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 import uvicorn
-from claude_agent_sdk import ClaudeSDKClient
+from claude_agent_sdk import ClaudeSDKClient, create_sdk_mcp_server, tool
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -29,15 +29,31 @@ from merchant_agent_sdk import make_options, run_turn
 from pydantic import BaseModel, Field, field_validator
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from . import sushi
 from .auth import Owner, verify_owner
 from .backend import BmqMerchantBackend
 from .config import Settings, strip_anthropic_api_key
 from .supabase import SupabaseClient, SupabaseError
+from .sushi import SushiError
 
 logger = logging.getLogger(__name__)
 
 SESSION_IDLE_SECONDS = 30 * 60
 MAX_SESSIONS = 5
+SUSHI_MCP_SERVER = "bmq"
+SUSHI_TOOL = "ask_sushi"
+SUSHI_ALLOWED_TOOL = "mcp__bmq__ask_sushi"
+SUSHI_TOOL_DESCRIPTION = (
+    "Dùng khi cần Sushi trả lời về: công nợ nhà cung cấp, đề nghị chi/PO, "
+    "hàng sắp hết, phân loại chi phí ('vì sao dòng này'), ảnh UNC, doanh thu "
+    "kiểm soát theo nguồn chứng từ."
+)
+SUSHI_SYSTEM_PROMPT = (
+    "\n\nKhi cần số liệu về công nợ nhà cung cấp, đề nghị chi/PO, hàng sắp hết, "
+    "phân loại chi phí ('vì sao dòng này'), ảnh UNC hoặc doanh thu kiểm soát theo "
+    "nguồn chứng từ, hãy gọi công cụ mcp__bmq__ask_sushi với câu hỏi tiếng Việt "
+    "ngắn gọn. Các con số và dẫn chứng do Sushi trả về; không tự bịa số liệu."
+)
 
 
 class ChatRequest(BaseModel):
@@ -65,6 +81,12 @@ class _ChatSession:
     # The Agent SDK runtime never passes get_merchant_context to the prompt, so the
     # first message of a session carries it (real channel names, limitations).
     context_sent: bool = False
+    # Refreshed from every /v1/chat Authorization header; only forwarded to
+    # bmq-analytics, never persisted or logged.
+    owner_token: str = field(default="", repr=False)
+    conversation_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    # Sushi answers are appended by the tool and merged into this turn's UI.
+    pending_ui: list[dict[str, Any]] = field(default_factory=list)
 
     async def close(self) -> None:
         try:
@@ -75,6 +97,79 @@ class _ChatSession:
 
 def _serialize_change(change: StagedChange) -> dict[str, Any]:
     return change.model_dump(mode="json")
+
+
+def _bearer_token(authorization: str | None) -> str:
+    if not authorization:
+        return ""
+    scheme, separator, token = authorization.partition(" ")
+    if not separator or scheme.strip().lower() != "bearer":
+        return ""
+    return token.strip()
+
+
+def _build_sushi_tool(chat_session: _ChatSession, settings: Settings) -> Any:
+    @tool(SUSHI_TOOL, SUSHI_TOOL_DESCRIPTION, {"question": str})
+    async def ask_sushi_tool(args: dict[str, Any]) -> dict[str, Any]:
+        question = str(args.get("question") or "")
+        try:
+            result = await sushi.ask_sushi(
+                question,
+                chat_session.owner_token,
+                chat_session.conversation_id,
+                settings,
+                None,
+            )
+        except SushiError as exc:
+            return {
+                "content": [{"type": "text", "text": str(exc)}],
+                "is_error": True,
+            }
+        details = (result.details or "")[:3000]
+        text = result.answer
+        if details:
+            text = f"{result.answer}\n\nChi tiết:\n{details}"
+        chat_session.pending_ui.append(
+            {
+                "component": "sushi_answer",
+                "payload": {
+                    "answer": result.answer,
+                    "images": result.images,
+                    "costBlock": result.cost_block,
+                    "citations": result.citations,
+                    "details": result.details,
+                },
+            }
+        )
+        return {"content": [{"type": "text", "text": text}]}
+
+    return ask_sushi_tool
+
+
+def _wire_sushi(options: Any, chat_session: _ChatSession, settings: Settings) -> None:
+    """Attach the Sushi MCP server when the options object supports it.
+
+    A test double may return a bare object; skip the wiring instead of failing the
+    session.
+    """
+
+    mcp_servers = getattr(options, "mcp_servers", None)
+    allowed_tools = getattr(options, "allowed_tools", None)
+    if not isinstance(mcp_servers, dict) or not isinstance(allowed_tools, list):
+        logger.warning(
+            "Không gắn được công cụ Sushi: options thiếu mcp_servers/allowed_tools"
+        )
+        return
+    mcp_servers[SUSHI_MCP_SERVER] = create_sdk_mcp_server(
+        name=SUSHI_MCP_SERVER,
+        version="1.0.0",
+        tools=[_build_sushi_tool(chat_session, settings)],
+    )
+    if SUSHI_ALLOWED_TOOL not in allowed_tools:
+        allowed_tools.append(SUSHI_ALLOWED_TOOL)
+    system_prompt = getattr(options, "system_prompt", None)
+    if isinstance(system_prompt, str) and SUSHI_ALLOWED_TOOL not in system_prompt:
+        options.system_prompt = system_prompt + SUSHI_SYSTEM_PROMPT
 
 
 def _session_context(session_id: str, owner: Owner) -> MerchantSessionContext:
@@ -133,8 +228,18 @@ def create_app(
             if chat_session is not None:
                 await chat_session.close()
 
-    async def make_chat_session(session_id: str, owner: Owner) -> _ChatSession:
+    async def make_chat_session(
+        session_id: str, owner: Owner, owner_token: str
+    ) -> _ChatSession:
         backend = make_backend()
+        chat_session = _ChatSession(
+            session_id=session_id,
+            owner_id=owner.user_id,
+            client=None,
+            toolset=None,
+            backend=backend,
+            owner_token=owner_token,
+        )
         option_kwargs = {
             "backend": backend,
             "config": settings.merchant_config(),
@@ -152,30 +257,22 @@ def create_app(
             if "skills_dir" not in str(exc):
                 raise
             options, toolset = options_factory(**option_kwargs)
+        _wire_sushi(options, chat_session, settings)
         try:
             client = client_factory(options)
         except TypeError:
             client = client_factory(options=options)
-        entered = False
         try:
             await client.__aenter__()
-            entered = True
         except Exception:
             logger.warning("Không mở được Claude SDK client", exc_info=True)
             raise
-        chat_session = _ChatSession(
-            session_id=session_id,
-            owner_id=owner.user_id,
-            client=client,
-            toolset=toolset,
-            backend=backend,
-        )
-        if not entered:
-            await chat_session.close()
+        chat_session.client = client
+        chat_session.toolset = toolset
         return chat_session
 
     async def get_chat_session(
-        requested_session_id: str | None, owner: Owner
+        requested_session_id: str | None, owner: Owner, owner_token: str
     ) -> _ChatSession:
         async with sessions_lock:
             await cleanup_expired()
@@ -187,6 +284,7 @@ def create_app(
                         status_code=status.HTTP_403_FORBIDDEN,
                         detail="Phiên trò chuyện không thuộc tài khoản này",
                     )
+                existing.owner_token = owner_token
                 existing.last_used = time.monotonic()
                 return existing
 
@@ -197,7 +295,7 @@ def create_app(
                 oldest = sessions.pop(oldest_id)
                 await oldest.close()
 
-            created = await make_chat_session(session_id, owner)
+            created = await make_chat_session(session_id, owner, owner_token)
             sessions[session_id] = created
             return created
 
@@ -323,8 +421,12 @@ def create_app(
 
     @app.post("/v1/chat")
     async def chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
-        owner = await authenticate(request.headers.get("authorization"))
-        chat_session = await get_chat_session(payload.session_id, owner)
+        authorization = request.headers.get("authorization")
+        owner = await authenticate(authorization)
+        owner_token = _bearer_token(authorization)
+        chat_session = await get_chat_session(
+            payload.session_id, owner, owner_token
+        )
         message = payload.message
         if payload.page and payload.page.strip():
             page = " ".join(payload.page.split())
@@ -347,7 +449,11 @@ def create_app(
                 result = await turn_runner(
                     chat_session.client, message, toolset=chat_session.toolset
                 )
+                ui = list(getattr(result, "ui", []) or []) + list(
+                    chat_session.pending_ui
+                )
             finally:
+                chat_session.pending_ui.clear()
                 chat_session.last_used = time.monotonic()
 
         context = _session_context(chat_session.session_id, owner)
@@ -355,7 +461,7 @@ def create_app(
         return {
             "session_id": chat_session.session_id,
             "text": str(getattr(result, "text", "") or ""),
-            "ui": list(getattr(result, "ui", []) or []),
+            "ui": ui,
             "tool_calls": list(getattr(result, "tool_calls", []) or []),
             "pending_changes": [_serialize_change(change) for change in pending],
         }

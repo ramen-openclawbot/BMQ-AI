@@ -66,6 +66,7 @@ class SupabaseClient:
         headers: Mapping[str, str] | None = None,
         params: Mapping[str, str] | None = None,
         json: Any = None,
+        timeout: float | None = None,
     ) -> httpx.Response:
         request_headers = {
             "apikey": self._service_key,
@@ -76,7 +77,9 @@ class SupabaseClient:
             request_headers.update(headers)
         try:
             async with httpx.AsyncClient(
-                timeout=httpx.Timeout(self._timeout),
+                timeout=httpx.Timeout(
+                    self._timeout if timeout is None else timeout
+                ),
                 transport=self._transport,
             ) as client:
                 response = await client.request(
@@ -192,6 +195,26 @@ class SupabaseClient:
             json=values,
         )
         return self._first_row(response)
+
+    async def call_edge_function(
+        self,
+        name: str,
+        payload: dict[str, Any],
+        *,
+        timeout: float = 15.0,
+    ) -> httpx.Response:
+        """Call a service-role Edge Function with the service key.
+
+        Used only by the bounded draft guard; the key is never logged or returned.
+        """
+
+        return await self._request(
+            "POST",
+            f"{self._base}/functions/v1/{name.lstrip('/')}",
+            headers={"Content-Type": "application/json"},
+            json=payload,
+            timeout=timeout,
+        )
 
     async def rpc(self, function: str, payload: dict[str, Any] | None = None) -> Any:
         if function not in ALLOWED_RPCS:

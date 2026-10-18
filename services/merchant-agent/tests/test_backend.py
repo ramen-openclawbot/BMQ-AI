@@ -19,7 +19,7 @@ from merchant_agent import (
 )
 from merchant_agent.changes import ChangeNotApplicable
 
-from bmq_merchant.backend import BmqMerchantBackend
+from bmq_merchant.backend import BmqMerchantBackend, _row_to_staged
 from bmq_merchant.config import Settings
 from bmq_merchant.supabase import SupabaseClient
 from tests.conftest import TEST_SUPABASE_URL
@@ -591,4 +591,149 @@ async def test_query_metrics_orders_uses_requested_delivery_date(settings: Setti
     assert [(point.date, point.value) for point in series.points] == [
         ("2026-10-17", 2),
         ("2026-10-18", 1),
+    ]
+
+
+def _guard_setup(
+    settings: Settings,
+) -> tuple[BmqMerchantBackend, dict[str, Any], Any, Any]:
+    insert: dict[str, Any] = {}
+
+    def sku_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=[_sku_row()])
+
+    def insert_handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        insert["body"] = body
+        return httpx.Response(201, json=[_staged_row(body, "change-guard-1")])
+
+    def patch_handler(request: httpx.Request) -> httpx.Response:
+        values = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json=[_staged_row({**insert["body"], **values}, "change-guard-1")],
+        )
+
+    respx.get(f"{BASE}/rest/v1/product_skus").mock(side_effect=sku_handler)
+    respx.get(f"{BASE}/rest/v1/mini_crm_customer_price_list").mock(
+        return_value=httpx.Response(200, json=[])
+    )
+    respx.post(f"{BASE}/rest/v1/merchant_staged_changes").mock(
+        side_effect=insert_handler
+    )
+    guard_route = respx.post(f"{BASE}/functions/v1/merchant-draft-guard")
+    patch_route = respx.patch(f"{BASE}/rest/v1/merchant_staged_changes").mock(
+        side_effect=patch_handler
+    )
+    return backend(settings), insert, guard_route, patch_route
+
+
+@respx.mock
+async def test_stage_posts_guard_with_service_key_and_keeps_notes(
+    settings: Settings,
+) -> None:
+    subject, insert, guard_route, patch_route = _guard_setup(settings)
+    guard_route.mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "notes": [
+                    "Có thể nhắc món không có trong danh mục.",
+                    "Thời gian/điều kiện chưa rõ.",
+                ],
+                "provider": "openai",
+            },
+        )
+    )
+
+    change = await subject.stage_listing_update(
+        SESSION, "sku-1", {"title": "Tên mới"}
+    )
+
+    guard_request = guard_route.calls.last.request
+    assert str(guard_request.url) == f"{BASE}/functions/v1/merchant-draft-guard"
+    assert guard_request.headers["Authorization"] == (
+        f"Bearer {settings.service_role_key}"
+    )
+    assert guard_request.headers["apikey"] == settings.service_role_key
+    guard_body = json.loads(guard_request.content)
+    assert guard_body["kind"] == "listing"
+    assert guard_body["summary"] == "Cập nhật thông tin Bánh Mì Que Pate"
+    assert guard_body["payload"] == {"listing_id": "sku-1", "fields": {"title": "Tên mới"}}
+    assert guard_body["before"] == {"title": "Bánh Mì Que Pate"}
+    assert guard_body["catalog"] == [
+        {
+            "sku_code": "BMQ-001",
+            "product_name": "Bánh Mì Que Pate",
+            "selling_price": 12000.0,
+        }
+    ]
+
+    patch_body = json.loads(patch_route.calls.last.request.content)
+    assert patch_body == {
+        "guard_notes": [
+            "Có thể nhắc món không có trong danh mục.",
+            "Thời gian/điều kiện chưa rõ.",
+        ],
+        "guard_provider": "openai",
+    }
+    assert patch_route.calls.last.request.url.params.get("status") is None
+    assert change.guardrail_notes == [
+        "Có thể nhắc món không có trong danh mục.",
+        "Thời gian/điều kiện chưa rõ.",
+    ]
+
+
+@respx.mock
+async def test_guard_500_still_returns_the_staged_change_without_notes(
+    settings: Settings,
+) -> None:
+    subject, _, guard_route, patch_route = _guard_setup(settings)
+    guard_route.mock(return_value=httpx.Response(500, json={"error": "boom"}))
+
+    change = await subject.stage_listing_update(
+        SESSION, "sku-1", {"title": "Tên mới"}
+    )
+
+    assert change.status == "staged"
+    assert change.guardrail_notes == []
+    patch_body = json.loads(patch_route.calls.last.request.content)
+    assert patch_body == {"guard_provider": "unavailable"}
+
+
+@respx.mock
+async def test_guard_timeout_still_returns_the_staged_change_without_notes(
+    settings: Settings,
+) -> None:
+    subject, _, guard_route, patch_route = _guard_setup(settings)
+
+    def timeout_handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("slow", request=request)
+
+    guard_route.mock(side_effect=timeout_handler)
+
+    change = await subject.stage_listing_update(
+        SESSION, "sku-1", {"title": "Tên mới"}
+    )
+
+    assert change.status == "staged"
+    assert change.guardrail_notes == []
+    patch_body = json.loads(patch_route.calls.last.request.content)
+    assert patch_body == {"guard_provider": "unavailable"}
+
+
+@respx.mock
+async def test_row_to_staged_maps_guard_notes(settings: Settings) -> None:
+    row = _staged_row(
+        {
+            "kind": "price",
+            "guard_notes": ["Có thể nhắc món không có trong danh mục.", "  "],
+        },
+        "change-guard-notes",
+    )
+
+    change = _row_to_staged(row)
+
+    assert change.guardrail_notes == [
+        "Có thể nhắc món không có trong danh mục."
     ]

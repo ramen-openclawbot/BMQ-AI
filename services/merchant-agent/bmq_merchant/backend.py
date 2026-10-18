@@ -329,6 +329,12 @@ def _row_to_staged(
         status: Any = ChangeStatus(status_value)
     except ValueError:
         status = status_value
+    raw_notes = row.get("guard_notes")
+    guardrail_notes = (
+        [note.strip() for note in raw_notes if isinstance(note, str) and note.strip()]
+        if isinstance(raw_notes, list)
+        else []
+    )
     return BmqStagedChange(
         change_id=str(row["id"]),
         kind=_row_change_kind(row),
@@ -339,6 +345,7 @@ def _row_to_staged(
         created_by=str(row.get("operator") or "unknown"),
         applied_at=applied_at,
         applied_by=str(row.get("operator")) if row.get("applied_at") else None,
+        guardrail_notes=guardrail_notes,
     )
 
 
@@ -934,7 +941,100 @@ class BmqMerchantBackend(MerchantBackend):
                 "session_id": session.session_id,
             }
         )
-        return _row_to_staged(row, items)
+        change = _row_to_staged(row, items)
+        return await self.guard_change(row, change)
+
+    async def _guard_catalog(self) -> list[dict[str, Any]]:
+        skus = await self._load_skus()
+        return [
+            {
+                "sku_code": str(sku.get("sku_code") or ""),
+                "product_name": str(sku.get("product_name") or ""),
+                "selling_price": _selling_price(sku),
+            }
+            for sku in skus[:80]
+        ]
+
+    async def guard_change(
+        self,
+        row: dict[str, Any],
+        change: BmqStagedChange | None = None,
+    ) -> BmqStagedChange:
+        """Ask merchant-draft-guard for Vietnamese warnings and persist them.
+
+        A guard failure never blocks staging: the row keeps no guard notes and only
+        ``guard_provider`` records that the guard was unavailable.
+        """
+
+        change = change or _row_to_staged(row)
+        change_id = str(row.get("id") or change.change_id)
+        try:
+            catalog = await self._guard_catalog()
+            response = await self._db.call_edge_function(
+                "merchant-draft-guard",
+                {
+                    "kind": str(row.get("kind") or ""),
+                    "summary": str(row.get("summary") or ""),
+                    "payload": row.get("payload"),
+                    "before": row.get("before"),
+                    "catalog": catalog,
+                },
+                timeout=15.0,
+            )
+            data = response.json()
+            raw_notes = data.get("notes") if isinstance(data, dict) else None
+            provider = data.get("provider") if isinstance(data, dict) else None
+            if (
+                not isinstance(raw_notes, list)
+                or not isinstance(provider, str)
+                or not provider.strip()
+            ):
+                raise ValueError("invalid guard response")
+            notes = [
+                note.strip()
+                for note in raw_notes
+                if isinstance(note, str) and note.strip()
+            ]
+            provider = provider.strip()[:64]
+        except Exception as exc:  # guard is advisory and must never block staging
+            _LOG.warning(
+                "merchant draft guard failed (%s); change %s stays staged",
+                type(exc).__name__,
+                change_id,
+            )
+            try:
+                updated = await self._db.update_staged_change(
+                    change_id,
+                    {"guard_provider": "unavailable"},
+                )
+            except Exception as update_exc:
+                _LOG.warning(
+                    "merchant draft guard status update failed (%s)",
+                    type(update_exc).__name__,
+                )
+                return change
+            return _row_to_staged(updated, change.items) if updated else change
+
+        try:
+            updated = await self._db.update_staged_change(
+                change_id,
+                {"guard_notes": notes, "guard_provider": provider},
+            )
+        except Exception as exc:
+            _LOG.warning(
+                "merchant draft guard notes update failed (%s); change %s stays staged",
+                type(exc).__name__,
+                change_id,
+            )
+            return change
+        if updated is None:
+            return change
+        guarded = _row_to_staged(updated, change.items)
+        combined = list(change.guardrail_notes)
+        for note in [*notes, *guarded.guardrail_notes]:
+            if note not in combined:
+                combined.append(note)
+        return guarded.model_copy(update={"guardrail_notes": combined})
 
     @staticmethod
     def _guardrail_items(kind: ChangeKind, items: list[ChangeItem], config: Any) -> None:
