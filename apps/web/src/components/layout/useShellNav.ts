@@ -31,7 +31,7 @@ export function useShellNav() {
   const { language } = useLanguage();
   const { isOwner, canAccessModule, authzLoaded, session, user } = useAuth();
 
-  // Same gate as GlobalAgentChatWidget: the chat only mounts for signed-in owners.
+  // Same gate as MerchantAgentChatWidget: the chat only mounts for signed-in owners.
   const agentChatEnabled = Boolean(authzLoaded && isOwner && session?.access_token && user?.id);
 
   const access: NavAccess = useMemo(

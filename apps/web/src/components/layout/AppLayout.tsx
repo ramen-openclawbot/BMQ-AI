@@ -6,7 +6,7 @@ import { Header } from "./Header";
 import { useAutoSync } from "@/hooks/useAutoSync";
 import { useVisibilityRecovery } from "@/hooks/useVisibilityRecovery";
 import { SessionRecoveryOverlay } from "@/components/SessionRecoveryOverlay";
-import { GlobalAgentChatWidget } from "@/components/agent/GlobalAgentChatWidget";
+import { MerchantAgentChatWidget } from "@/components/agent/MerchantAgentChatWidget";
 import { ZoneSubnav } from "./ZoneSubnav";
 import "@/styles/bmq-shell.css";
 
@@ -55,7 +55,7 @@ export function AppLayout() {
           </div>
         </main>
         <Sidebar />
-        <GlobalAgentChatWidget />
+        <MerchantAgentChatWidget />
       </div>
     </>
   );

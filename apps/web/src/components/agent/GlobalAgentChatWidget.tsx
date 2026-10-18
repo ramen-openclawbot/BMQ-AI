@@ -289,7 +289,7 @@ function RevenueDailyChatCard({ setOpen }: { setOpen: (open: boolean) => void })
 
 // chat.vnagent.ai mark (favicon-vnagent-v2): lime "V" over a red bar. It sits on an
 // ink surface supplied by its container, so it never shows square corners in a circle.
-function VnagentMark({ className = "h-full w-full" }: { className?: string } = {}) {
+export function VnagentMark({ className = "h-full w-full" }: { className?: string } = {}) {
   return (
     <svg className={className} viewBox="0 0 32 32" role="img" aria-label="Logo VNAgent" data-vnagent-mark="ink-lime-v2">
       <path d="M6.5 7.5h5.6L16 19.4l3.9-11.9h5.6L19 24h-6Z" className="fill-vn-lime" />
