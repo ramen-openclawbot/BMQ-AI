@@ -15,6 +15,7 @@ import {
   financeReconciliationLabel,
   financeReconciliationPriority,
   groupFlags,
+  purchasePatternEvidenceLines,
   sortFlags,
   type FinanceReconciliationFlag,
 } from "./finance-reconciliation-flags.ts";
@@ -50,7 +51,11 @@ test("names every fixed label in short Vietnamese", () => {
   );
   assert.equal(financeReconciliationLabel("invoice_zero_amount"), "Hóa đơn 0 đ");
   assert.equal(financeReconciliationLabel("jev_possible_duplicate"), "Sushi nghi chi trùng");
-  assert.equal(Object.keys(FINANCE_RECONCILIATION_LABELS).length, 8);
+  assert.equal(financeReconciliationLabel("price_above_usual"), "Giá cao hơn thường lệ");
+  assert.equal(financeReconciliationLabel("quantity_above_usual"), "Số lượng cao bất thường");
+  assert.equal(financeReconciliationLabel("ordered_before_cycle"), "Đặt sớm hơn chu kỳ");
+  assert.equal(financeReconciliationLabel("new_supplier_for_item"), "NCC mới cho món này");
+  assert.equal(Object.keys(FINANCE_RECONCILIATION_LABELS).length, 12);
 });
 
 test("falls back to the raw label when there is no Vietnamese name", () => {
@@ -206,4 +211,182 @@ test("reads the cash-pr request number through a PostgREST prefix", () => {
   assert.ok(message, "missing message when PostgREST prefixes the error");
   assert.ok(message!.includes("PR-000789"));
   assert.ok(!message!.includes("PostgrestError"));
+});
+
+test("formats price-pattern evidence with vi-VN numbers and a rounded percent", () => {
+  const lines = purchasePatternEvidenceLines(
+    flag({
+      label: "price_above_usual",
+      evidence: {
+        request_number: "PR-0001",
+        lines: [
+          {
+            product_name: "Dưa leo",
+            unit: "kg",
+            quantity: 20,
+            unit_price: 20000,
+            prior_count: 5,
+            ratio: 1.33,
+            usual_unit_price: 15000,
+          },
+        ],
+      },
+    }),
+  );
+  assert.deepEqual(lines, ["Dưa leo: 20.000/kg, thường 15.000 (+33%)"]);
+});
+
+test("rounds the price percentage to the nearest whole percent", () => {
+  const lines = purchasePatternEvidenceLines(
+    flag({
+      label: "price_above_usual",
+      evidence: {
+        lines: [
+          {
+            product_name: "Dưa leo",
+            unit: "kg",
+            unit_price: 20000,
+            usual_unit_price: 15000,
+            ratio: 1.337,
+          },
+        ],
+      },
+    }),
+  );
+  assert.deepEqual(lines, ["Dưa leo: 20.000/kg, thường 15.000 (+34%)"]);
+});
+
+test("formats quantity-pattern evidence with a whole and a fractional ratio", () => {
+  const whole = purchasePatternEvidenceLines(
+    flag({
+      label: "quantity_above_usual",
+      evidence: {
+        lines: [
+          {
+            product_name: "Trứng gà",
+            unit: "quả",
+            quantity: 900,
+            usual_quantity: 300,
+            ratio: 3,
+          },
+        ],
+      },
+    }),
+  );
+  assert.deepEqual(whole, ["Trứng gà: 900 quả, thường 300 (gấp 3)"]);
+
+  const fractional = purchasePatternEvidenceLines(
+    flag({
+      label: "quantity_above_usual",
+      evidence: {
+        lines: [
+          {
+            product_name: "Trứng gà",
+            unit: "quả",
+            quantity: 750,
+            usual_quantity: 300,
+            ratio: 2.5,
+          },
+        ],
+      },
+    }),
+  );
+  assert.deepEqual(fractional, ["Trứng gà: 750 quả, thường 300 (gấp 2,5)"]);
+});
+
+test("formats cycle-pattern evidence in Vietnamese", () => {
+  const lines = purchasePatternEvidenceLines(
+    flag({
+      label: "ordered_before_cycle",
+      evidence: {
+        lines: [
+          {
+            product_name: "Hành lá",
+            days_since_last: 1,
+            median_gap_days: 7,
+          },
+        ],
+      },
+    }),
+  );
+  assert.deepEqual(lines, ["Hành lá: đặt lại sau 1 ngày, thường 7 ngày/lần"]);
+});
+
+test("formats new-supplier evidence with the prior supplier names", () => {
+  const lines = purchasePatternEvidenceLines(
+    flag({
+      label: "new_supplier_for_item",
+      evidence: {
+        lines: [
+          {
+            product_name: "Bánh mì que",
+            usual_suppliers: ["Tuyết Anh", "Hasu Food"],
+          },
+        ],
+      },
+    }),
+  );
+  assert.deepEqual(lines, ["Bánh mì que: trước đây mua của Tuyết Anh, Hasu Food"]);
+});
+
+test("caps purchase-pattern evidence at three lines", () => {
+  const entries = ["A", "B", "C", "D", "E"].map((name) => ({
+    product_name: name,
+    unit: "kg",
+    unit_price: 20000,
+    usual_unit_price: 15000,
+    ratio: 1.33,
+  }));
+  const lines = purchasePatternEvidenceLines(
+    flag({ label: "price_above_usual", evidence: { lines: entries } }),
+  );
+  assert.equal(lines.length, 3);
+  assert.deepEqual(
+    lines.map((line) => line.split(":")[0]),
+    ["A", "B", "C"],
+  );
+});
+
+test("returns [] for malformed or missing purchase-pattern evidence", () => {
+  const malformed: Array<Record<string, unknown> | null> = [
+    null,
+    {},
+    { lines: "nope" },
+    { lines: [] },
+    { lines: [{ product_name: "Dưa leo" }] },
+    { lines: [null, 42] },
+  ];
+  for (const evidence of malformed) {
+    assert.deepEqual(
+      purchasePatternEvidenceLines(flag({ label: "price_above_usual", evidence })),
+      [],
+    );
+  }
+  assert.deepEqual(
+    purchasePatternEvidenceLines({ ...flag(), label: "price_above_usual", evidence: null }),
+    [],
+  );
+  assert.deepEqual(
+    purchasePatternEvidenceLines(null as unknown as FinanceReconciliationFlag),
+    [],
+  );
+});
+
+test("returns [] for a non purchase-pattern label", () => {
+  const lines = purchasePatternEvidenceLines(
+    flag({
+      label: "po_overpaid",
+      evidence: {
+        lines: [
+          {
+            product_name: "Dưa leo",
+            unit: "kg",
+            unit_price: 20000,
+            usual_unit_price: 15000,
+          },
+        ],
+      },
+    }),
+  );
+  assert.deepEqual(lines, []);
 });

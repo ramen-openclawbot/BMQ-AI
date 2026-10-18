@@ -342,7 +342,7 @@ def main() -> None:
         "types.ts must declare the review_jev_duplicate_check RPC",
     )
     assert_true(NEW_LABEL in flags_lib, "the flags lib must know the new label")
-    assert_true("Jev nghi chi trùng" in flags_lib, "the flags lib must name the new label in Vietnamese")
+    assert_true("Sushi nghi chi trùng" in flags_lib, "the flags lib must name the new label in Vietnamese")
     assert_true("export function useRunJevDuplicateScan" in hook, "hook must export useRunJevDuplicateScan")
     assert_true("export function useReviewJevDuplicate" in hook, "hook must export useReviewJevDuplicate")
     assert_true('"finance-jev-duplicate-scan"' in hook, "hook must call the scan function")

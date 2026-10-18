@@ -12,7 +12,11 @@ export type FinanceReconciliationLabel =
   | "paid_without_receipt"
   | "receipt_confirmed_delivery_pending"
   | "invoice_zero_amount"
-  | "jev_possible_duplicate";
+  | "jev_possible_duplicate"
+  | "price_above_usual"
+  | "quantity_above_usual"
+  | "ordered_before_cycle"
+  | "new_supplier_for_item";
 
 export type FinanceReconciliationPriority = "critical" | "high" | "medium" | "low";
 
@@ -55,6 +59,10 @@ export const FINANCE_RECONCILIATION_LABELS: Record<string, string> = {
   receipt_confirmed_delivery_pending: "Đã nhập kho, phiếu ghi chưa giao",
   invoice_zero_amount: "Hóa đơn 0 đ",
   jev_possible_duplicate: "Sushi nghi chi trùng",
+  price_above_usual: "Giá cao hơn thường lệ",
+  quantity_above_usual: "Số lượng cao bất thường",
+  ordered_before_cycle: "Đặt sớm hơn chu kỳ",
+  new_supplier_for_item: "NCC mới cho món này",
 };
 
 /** Lower rank sorts first. Unknown priorities sort last. */
@@ -145,6 +153,131 @@ export function financeReconciliationErrorFromRaw(raw: string | null | undefined
 
 export function financeReconciliationLabel(label: string): string {
   return FINANCE_RECONCILIATION_LABELS[label] ?? label;
+}
+
+// ---------------------------------------------------------------------------
+// Purchase-pattern evidence (price / quantity / cycle / new supplier)
+// ---------------------------------------------------------------------------
+
+const VI_NUMBER = new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 1 });
+const VI_PERCENT = new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 });
+
+function evidenceNumber(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "string") {
+    const normalized = value.trim().replace(",", ".");
+    if (!normalized) return null;
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function evidenceText(value: unknown): string | null {
+  return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
+}
+
+function evidenceLineRecords(flag: FinanceReconciliationFlag): Record<string, unknown>[] {
+  if (!flag || typeof flag !== "object") return [];
+  const evidence = flag.evidence;
+  if (!evidence || typeof evidence !== "object") return [];
+  const lines = (evidence as Record<string, unknown>).lines;
+  if (!Array.isArray(lines)) return [];
+  return lines.filter(
+    (line): line is Record<string, unknown> =>
+      !!line && typeof line === "object" && !Array.isArray(line),
+  );
+}
+
+function formatViNumber(value: number): string {
+  return VI_NUMBER.format(value);
+}
+
+function formatViPercent(value: number): string {
+  return VI_PERCENT.format(value);
+}
+
+function priceEvidenceLine(line: Record<string, unknown>): string | null {
+  const name = evidenceText(line.product_name);
+  const unitPrice = evidenceNumber(line.unit_price);
+  const usualPrice = evidenceNumber(line.usual_unit_price);
+  if (!name || unitPrice === null || usualPrice === null || usualPrice <= 0) return null;
+  const ratio = evidenceNumber(line.ratio) ?? unitPrice / usualPrice;
+  const unit = evidenceText(line.unit);
+  const percent = Math.round((ratio - 1) * 100);
+  const sign = percent >= 0 ? "+" : "";
+  return `${name}: ${formatViNumber(unitPrice)}${unit ? `/${unit}` : ""}, thường ${formatViNumber(
+    usualPrice,
+  )} (${sign}${formatViPercent(percent)}%)`;
+}
+
+function quantityEvidenceLine(line: Record<string, unknown>): string | null {
+  const name = evidenceText(line.product_name);
+  const quantity = evidenceNumber(line.quantity);
+  const usualQuantity = evidenceNumber(line.usual_quantity);
+  if (!name || quantity === null || usualQuantity === null || usualQuantity <= 0) return null;
+  const ratio = evidenceNumber(line.ratio) ?? quantity / usualQuantity;
+  const unit = evidenceText(line.unit);
+  return `${name}: ${formatViNumber(quantity)}${unit ? ` ${unit}` : ""}, thường ${formatViNumber(
+    usualQuantity,
+  )} (gấp ${formatViNumber(ratio)})`;
+}
+
+function cycleEvidenceLine(line: Record<string, unknown>): string | null {
+  const name = evidenceText(line.product_name);
+  const daysSinceLast = evidenceNumber(line.days_since_last);
+  const medianGap = evidenceNumber(line.median_gap_days);
+  if (!name || daysSinceLast === null || medianGap === null) return null;
+  return `${name}: đặt lại sau ${formatViNumber(daysSinceLast)} ngày, thường ${formatViNumber(
+    medianGap,
+  )} ngày/lần`;
+}
+
+function supplierEvidenceLine(line: Record<string, unknown>): string | null {
+  const name = evidenceText(line.product_name);
+  const rawSuppliers = line.usual_suppliers;
+  if (!name || !Array.isArray(rawSuppliers)) return null;
+  const suppliers = rawSuppliers
+    .map((supplier) => evidenceText(supplier))
+    .filter((supplier): supplier is string => supplier !== null)
+    .slice(0, 3);
+  if (suppliers.length === 0) return null;
+  return `${name}: trước đây mua của ${suppliers.join(", ")}`;
+}
+
+const PURCHASE_PATTERN_EVIDENCE_FORMATTERS: Record<
+  string,
+  (line: Record<string, unknown>) => string | null
+> = {
+  price_above_usual: priceEvidenceLine,
+  quantity_above_usual: quantityEvidenceLine,
+  ordered_before_cycle: cycleEvidenceLine,
+  new_supplier_for_item: supplierEvidenceLine,
+};
+
+/**
+ * Up to three short Vietnamese evidence lines for the four purchase-pattern
+ * labels. Pure: it only reads `flag.evidence` and never throws. Returns [] for
+ * every other label and for missing / malformed evidence.
+ */
+export function purchasePatternEvidenceLines(flag: FinanceReconciliationFlag): string[] {
+  try {
+    if (!flag || typeof flag !== "object") return [];
+    const label = typeof flag.label === "string" ? flag.label : "";
+    const formatter = PURCHASE_PATTERN_EVIDENCE_FORMATTERS[label];
+    if (!formatter) return [];
+    const result: string[] = [];
+    for (const line of evidenceLineRecords(flag)) {
+      const formatted = formatter(line);
+      if (formatted) {
+        result.push(formatted);
+        if (result.length >= 3) break;
+      }
+    }
+    return result;
+  } catch {
+    return [];
+  }
 }
 
 export function financeReconciliationPriority(priority: string): number {

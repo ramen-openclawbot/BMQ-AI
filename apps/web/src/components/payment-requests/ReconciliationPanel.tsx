@@ -18,6 +18,7 @@ import {
 import {
   financeReconciliationLabel,
   groupFlags,
+  purchasePatternEvidenceLines,
   sortFlags,
   type FinanceReconciliationFlag,
   type FinanceReconciliationReviewStatus,
@@ -65,6 +66,11 @@ export function describeFlag(flag: FinanceReconciliationFlag): string {
       return describeJevFlag(flag);
     case "invoice_zero_amount":
       return `Hóa đơn ${String(e.invoice_number ?? "")} ghi 0 đ`;
+    case "price_above_usual":
+    case "quantity_above_usual":
+    case "ordered_before_cycle":
+    case "new_supplier_for_item":
+      return purchasePatternEvidenceLines(flag).join("; ");
     default:
       return "";
   }

@@ -50,6 +50,16 @@ const FLAGS_RAW = [
   F(8, "jev_possible_duplicate", "medium", "payment_request", "pb", "PR-BB000002", "Bao bì Minh Tuấn", "supplier:s-bb", 1800000,
     { older_request: "PR-BB000001", newer_request: "PR-BB000002", p_same: 0.58, relation: "repeat_order", days_apart: 7, amount_older: 1800000, amount_newer: 1800000, status: "needs_review" }),
   F(7, "paid_without_receipt", "medium", "payment_request", "pr-old-2", "PR-MMAAAA02", "Hasu Food", "supplier:s-h", 5531000, { request_number: "PR-MMAAAA02", days_open: 40 }, ["checked", "Đã đối chiếu"]),
+  // Purchase-pattern labels (20261102220000): evidence.lines rendered by purchasePatternEvidenceLines.
+  F(9, "price_above_usual", "high", "payment_request", "pr-ta-2", "PR-MMEK7ZD8", "Tuyết Anh", "po:" + PO_TA, 2761350,
+    { request_number: "PR-MMEK7ZD8", lines: [
+      { product_name: "bánh mì que 29", unit: "cái", quantity: 184, unit_price: 2300, usual_unit_price: 1230, ratio: 1.87, prior_count: 180 },
+      { product_name: "Găng Tay Nitrile Không Bột Màu Đen Kamereo Size M (100 Cái/Hộp)", unit: "Hộp", quantity: 5, unit_price: 99500, usual_unit_price: 69500, ratio: 1.43, prior_count: 5 },
+    ] }),
+  F(10, "ordered_before_cycle", "medium", "payment_request", "pr-ta-2", "PR-MMEK7ZD8", "Tuyết Anh", "po:" + PO_TA, 2761350,
+    { request_number: "PR-MMEK7ZD8", lines: [
+      { product_name: "Tiêu sọ xay", unit: "kg", quantity: 20, unit_price: 290000, days_since_last: 0, median_gap_days: 46, last_request_number: "PR-4A2BA1B6", prior_count: 4 },
+    ] }),
 ];
 // Real view key for Jev pairs: jev_possible_duplicate:<pair_key>.
 const FLAGS = FLAGS_RAW.map((f) => (f.label === "jev_possible_duplicate" ? { ...f, flag_key: "jev_possible_duplicate:pa:pb" } : f));
@@ -269,7 +279,8 @@ try {
     assert.ok("review_status" in q.is, "hides reviewed by default");
     const groupOrder = await page.$$eval("[data-bmq-rc-group]", (els) => els.map((e) => e.getAttribute("data-bmq-rc-group")));
     assert.equal(groupOrder[0], "po:po-340", "critical group first: " + groupOrder.join());
-    assert.equal(await page.locator("[data-bmq-rc-flag]").count(), 4, "critical+high plus the Jev review queue");
+    assert.equal(await page.locator("[data-bmq-rc-flag]").count(), 5, "critical+high plus the Jev review queue");
+    assert.ok((await page.locator("[data-bmq-rc-flag='price_above_usual']").textContent()).includes("bánh mì que 29: 2.300/cái, thường 1.230 (+87%)"));
     assert.ok((await page.locator("[data-bmq-rc-flag='po_overpaid']").textContent()).includes("vượt 1.272.672"));
     assert.ok((await page.locator("[data-bmq-rc-flag='pr_twin_created']").textContent()).includes("19 giây"));
     assert.ok(await overflowOk(page), `overflow ${w}`);
@@ -278,7 +289,9 @@ try {
     // All + show reviewed.
     await page.locator("[data-bmq-rc-scope-all]").click();
     await page.locator("[data-bmq-rc-hide-reviewed]").uncheck();
-    await page.waitForFunction(() => document.querySelectorAll("[data-bmq-rc-flag]").length === 8);
+    await page.waitForFunction(() => document.querySelectorAll("[data-bmq-rc-flag]").length === 10);
+    assert.ok((await page.locator("[data-bmq-rc-flag='ordered_before_cycle']").textContent()).includes("Tiêu sọ xay: đặt lại sau 0 ngày, thường 46 ngày/lần"));
+    await page.locator("[data-bmq-rc-flag='price_above_usual']").locator("xpath=ancestor::li[contains(@class,'d3-rc-group')][1]").screenshot({ path: `${EVIDENCE}/recon-pattern-group-${w}.png` });
     assert.ok(await overflowOk(page), `overflow all ${w}`);
     await page.screenshot({ path: `${EVIDENCE}/recon-all-${w}.png`, fullPage: true });
     // Review dialog.
@@ -380,6 +393,8 @@ try {
     await page.waitForSelector("[data-bmq-submission-row='PR-MMEK7ZD8'] [data-bmq-submission-flag='pr_twin_created']");
     // The PO-000144 over-request flag is needs_action, so it still shows on the row.
     assert.equal(await page.locator("[data-bmq-submission-row='PR-MMEK7ZD8'] [data-bmq-submission-flag='po_over_requested']").count(), 1);
+    assert.ok((await page.locator("[data-bmq-submission-row='PR-MMEK7ZD8'] [data-bmq-submission-flag='price_above_usual']").getAttribute("title")).includes("thường 1.230 (+87%)"));
+    assert.equal(await page.locator("[data-bmq-submission-row='PR-MMEK7ZD8'] [data-bmq-submission-flag='pr_twin_created']").getAttribute("title"), null);
     assert.ok(await overflowOk(page), `submission overflow ${w}`);
     await page.waitForTimeout(200);
     await page.screenshot({ path: `${EVIDENCE}/submission-${w}.png`, fullPage: true });
@@ -391,7 +406,16 @@ try {
     assert.equal(await page.locator("[data-bmq-unc-open]").getAttribute("data-bmq-unc-open"), "bank_transfer");
     const po = await page.locator("[data-bmq-pr-po-value]").textContent();
     assert.ok(po.includes("2.761.350") && po.includes("Còn được chi") && po.includes("PR-MMEK7KLW"), po);
-    assert.equal(await page.locator("[data-bmq-pr-flag]").count(), 2);
+    assert.equal(await page.locator("[data-bmq-pr-flag]").count(), 4);
+    const why = await page.locator("[data-bmq-pr-flag-why] li").allTextContents();
+    assert.equal(why.length, 3, why.join(" | "));
+    assert.ok(why[0].startsWith("Giá cao hơn thường lệ") && why[0].includes("bánh mì que 29: 2.300/cái, thường 1.230 (+87%)"), why[0]);
+    assert.ok(why[2].includes("Tiêu sọ xay: đặt lại sau 0 ngày, thường 46 ngày/lần"), why[2]);
+    // Centre it: on phones the sticky action bar covers the bottom of the sheet.
+    await page.locator("[data-bmq-pr-flag-why]").evaluate((el) => el.scrollIntoView({ block: "center" }));
+    await page.waitForTimeout(200);
+    await page.screenshot({ path: `${EVIDENCE}/detail-flags-why-${w}.png` });
+    assert.ok(await page.evaluate(() => [...document.querySelectorAll("[data-bmq-pr-flag-why] li")].every((li) => li.scrollWidth <= li.clientWidth + 1)), `why lines fit ${w}`);
     await page.waitForTimeout(250);
     await page.screenshot({ path: `${EVIDENCE}/detail-${w}.png` });
     await page.locator("[data-bmq-pr-po-value]").scrollIntoViewIfNeeded();

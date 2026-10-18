@@ -90,7 +90,7 @@ import { cn } from "@/lib/utils";
 import { useGoodsReceipt } from "@/hooks/useGoodsReceipts";
 import { usePurchaseOrder } from "@/hooks/usePurchaseOrders";
 import { useFinanceReconciliationFlags } from "@/hooks/useFinanceReconciliationFlags";
-import { financeReconciliationLabel, sortFlags } from "@/lib/finance-reconciliation-flags";
+import { financeReconciliationLabel, purchasePatternEvidenceLines, sortFlags } from "@/lib/finance-reconciliation-flags";
 import "@/styles/bmq-urgent-payables.css";
 import "@/styles/bmq-reconciliation.css";
 
@@ -502,6 +502,18 @@ export function PaymentRequestDetailsDialog({
                       </span>
                     ))}
                   </div>
+                  {openDetailFlags.some((f) => purchasePatternEvidenceLines(f).length > 0) && (
+                    <ul className="d3-prd-why" data-bmq-pr-flag-why>
+                      {openDetailFlags.flatMap((f) =>
+                        purchasePatternEvidenceLines(f).map((line, i) => (
+                          <li key={`${f.flag_key}:${i}`} data-bmq-pr-flag-why-line={f.label}>
+                            <span>{financeReconciliationLabel(f.label)}</span>
+                            {line}
+                          </li>
+                        )),
+                      )}
+                    </ul>
+                  )}
                 </section>
               )}
 

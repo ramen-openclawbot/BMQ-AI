@@ -28,7 +28,7 @@ import { PaymentRequestDetailsDialog } from "@/components/dialogs/PaymentRequest
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { useFinanceReconciliationFlags } from "@/hooks/useFinanceReconciliationFlags";
-import { financeReconciliationLabel, sortFlags, type FinanceReconciliationFlag } from "@/lib/finance-reconciliation-flags";
+import { financeReconciliationLabel, purchasePatternEvidenceLines, sortFlags, type FinanceReconciliationFlag } from "@/lib/finance-reconciliation-flags";
 import "@/styles/bmq-reconciliation.css";
 import "@/styles/bmq-urgent-payables.css";
 
@@ -261,7 +261,7 @@ export default function PaymentSubmission() {
                         </span>
                       )}
                       {flagsFor(item.payment_request_id).map((f) => (
-                        <span key={f.flag_key} className={cn("d3-up-chip", f.priority === "critical" ? "is-ink" : f.priority === "high" ? "is-red" : "is-amber")} data-bmq-submission-flag={f.label}>
+                        <span key={f.flag_key} className={cn("d3-up-chip", f.priority === "critical" ? "is-ink" : f.priority === "high" ? "is-red" : "is-amber")} data-bmq-submission-flag={f.label} title={purchasePatternEvidenceLines(f).join("\n") || undefined}>
                           {financeReconciliationLabel(f.label)}
                         </span>
                       ))}
