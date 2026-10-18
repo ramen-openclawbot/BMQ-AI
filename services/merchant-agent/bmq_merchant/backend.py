@@ -748,7 +748,6 @@ class BmqMerchantBackend(MerchantBackend):
         now = datetime.now(VN_TZ)
         today = now.date()
         week_start = today - timedelta(days=6)
-        threshold = now - timedelta(hours=6)
 
         customers = await self._db.select(
             "mini_crm_customers",
@@ -758,17 +757,6 @@ class BmqMerchantBackend(MerchantBackend):
         )
         customer_by_id = {str(row.get("id")): row for row in customers}
 
-        unconfirmed = await self._db.select(
-            "dealer_orders",
-            {
-                "select": (
-                    "order_number,customer_id,status,submitted_at,total_amount_vnd"
-                ),
-                "is_test": "eq.false",
-                "status": "in.(submitted,pending)",
-                "submitted_at": f"lt.{threshold.isoformat()}",
-            },
-        )
         week_orders = await self._db.select(
             "dealer_orders",
             {
@@ -785,19 +773,8 @@ class BmqMerchantBackend(MerchantBackend):
         )
 
         issues: list[OrderIssue] = []
-        for order in unconfirmed:
-            customer = customer_by_id.get(str(order.get("customer_id")), {})
-            name = str(customer.get("customer_name") or order.get("customer_id") or "đại lý")
-            issues.append(
-                OrderIssue(
-                    issue_id=f"unconfirmed-{order.get('order_number')}",
-                    order_id=str(order.get("order_number") or ""),
-                    kind="delayed",
-                    summary=f"Đơn {order.get('order_number')} của {name} chưa xác nhận sau 6 giờ.",
-                    opened_at=_parse_datetime(order.get("submitted_at")),
-                )
-            )
-
+        # BMQ dealer orders stay "submitted" for their whole life (no confirm
+        # status exists), so "unconfirmed after N hours" would flag every order.
         dates_by_customer: dict[str, set[date]] = {}
         for order in week_orders:
             customer_id = str(order.get("customer_id") or "")

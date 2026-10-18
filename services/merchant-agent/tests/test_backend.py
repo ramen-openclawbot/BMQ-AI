@@ -174,7 +174,7 @@ async def test_search_listings_flags_price_image_and_hidden(settings: Settings) 
 
 
 @respx.mock
-async def test_order_issues_missing_regular_unconfirmed_and_locked(
+async def test_order_issues_missing_regular_and_locked(
     settings: Settings,
 ) -> None:
     today = datetime.now().astimezone().date()
@@ -240,7 +240,8 @@ async def test_order_issues_missing_regular_unconfirmed_and_locked(
     issues = await backend(settings).get_order_issues(SESSION)
     summaries = [issue.summary for issue in issues]
 
-    assert any("DO-OLD" in summary and "chưa xác nhận" in summary for summary in summaries)
+    # Orders never leave "submitted" in BMQ, so no "unconfirmed" issue is raised.
+    assert not any("DO-OLD" in summary for summary in summaries)
     assert any("Đại lý Thường" in summary and "4/7" in summary for summary in summaries)
     assert any("Đại lý Khóa" in summary and "khóa đặt hàng" in summary for summary in summaries)
     assert not any("NPP" in summary and "4/7" in summary for summary in summaries)
