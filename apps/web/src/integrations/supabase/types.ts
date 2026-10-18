@@ -4373,6 +4373,18 @@ export type Database = {
         Args: { p_as_of?: string | null; p_horizon_days?: number }
         Returns: Json
       }
+      get_q7_purchase_usage_item_detail: {
+        Args: {
+          p_item_id: string
+          p_from?: string | null
+          p_to?: string | null
+        }
+        Returns: Json
+      }
+      get_q7_purchase_usage_report: {
+        Args: { p_from?: string | null; p_to?: string | null }
+        Returns: Json
+      }
       q7_purchase_daily_usage: {
         Args: { p_item: string; p_as_of: string }
         Returns: {

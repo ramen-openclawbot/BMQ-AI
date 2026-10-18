@@ -1,0 +1,192 @@
+/* Mua so với Dùng NVL Q7. Builds on bmq-warehouse.css (.d3-wh) and bmq-stock-ledger.css. */
+
+/* KPI tiles double as filters */
+.d3-pu-kpi {
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+  transition: box-shadow .2s var(--d3-ease), background .2s var(--d3-ease);
+}
+.d3-pu-kpi:focus-visible { outline: 2px solid var(--d3-blue); outline-offset: 2px; }
+.d3-pu-kpi.is-on { box-shadow: inset 0 0 0 2px var(--d3-ink), var(--d3-sh); }
+.d3-pu-kpi.is-big_gap strong { color: var(--d3-red); }
+.d3-pu-kpi.is-ok strong { color: var(--d3-green); }
+
+.d3-pu-legend { font-size: 12px; }
+
+/* status chip */
+.d3-pu-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 99px;
+  font-size: 11.5px;
+  white-space: nowrap;
+  background: var(--d3-card);
+  color: var(--d3-ink-2);
+}
+.d3-pu-chip.is-red { background: #fde4df; color: #8f2414; }
+.d3-pu-chip.is-amber { background: #fdf0d8; color: #7a4d06; }
+.d3-pu-chip.is-green { background: #e2f3e6; color: #1f6b35; }
+.d3-pu-chip.is-grey { background: #ececea; color: var(--d3-ink-2); }
+
+/* item list */
+.d3-pu-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.d3-pu-item {
+  min-width: 0;
+  border-radius: 16px;
+  background: var(--d3-white);
+  overflow: hidden;
+}
+.d3-pu-item.is-big_gap { box-shadow: inset 3px 0 0 var(--d3-red); }
+.d3-pu-item.is-needs_conversion { box-shadow: inset 3px 0 0 #e0a43a; }
+
+.d3-pu-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 0;
+  background: none;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+.d3-pu-row:hover { background: rgba(0, 0, 0, .025); }
+.d3-pu-row:focus-visible { outline: 2px solid var(--d3-blue); outline-offset: -2px; }
+
+.d3-pu-name { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.d3-pu-name strong { font-size: 14.5px; font-weight: 500; overflow-wrap: anywhere; }
+.d3-pu-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.d3-pu-meta small { font-size: 12px; color: var(--d3-dim); }
+
+.d3-pu-total { display: flex; gap: 16px; flex: none; text-align: right; }
+.d3-pu-total > span { display: flex; flex-direction: column; gap: 1px; min-width: 74px; }
+.d3-pu-total small { font-size: 11px; color: var(--d3-dim); white-space: nowrap; }
+.d3-pu-total b { font-size: 14px; font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.d3-pu-months {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+  gap: 6px;
+  margin: 0;
+  padding: 0 14px 12px;
+  list-style: none;
+}
+.d3-pu-months li {
+  display: grid;
+  gap: 1px;
+  padding: 6px 9px;
+  border-radius: 10px;
+  background: var(--d3-card);
+  font-variant-numeric: tabular-nums;
+}
+.d3-pu-months span { font-size: 11px; color: var(--d3-dim); }
+.d3-pu-months b { font-size: 12.5px; font-weight: 400; white-space: nowrap; }
+.d3-pu-months b + b { color: var(--d3-dim); }
+
+/* detail dialog */
+.d3-pu-dialog {
+  max-width: 640px;
+  max-height: min(88vh, 860px);
+  overflow-y: auto;
+  border-radius: 22px;
+}
+.d3-pu-dialog-title { font-size: 19px; font-weight: 400; overflow-wrap: anywhere; }
+.d3-pu-dialog-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12.5px; }
+
+.d3-pu-sum {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.d3-pu-sum > span {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--d3-card);
+}
+.d3-pu-sum small { font-size: 11.5px; color: var(--d3-dim); }
+.d3-pu-sum b { font-size: 16px; font-weight: 500; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+
+.d3-pu-sec { display: grid; gap: 8px; min-width: 0; }
+.d3-pu-sec h3 { display: flex; align-items: baseline; gap: 6px; margin: 4px 0 0; font-size: 13px; font-weight: 500; }
+.d3-pu-sec h3 small { font-size: 12px; font-weight: 400; color: var(--d3-dim); }
+.d3-pu-none { margin: 0; font-size: 13px; color: var(--d3-dim); }
+
+.d3-pu-products,
+.d3-pu-lines { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+
+.d3-pu-products li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--d3-card);
+  font-size: 13px;
+}
+.d3-pu-products li > span { display: grid; min-width: 0; overflow-wrap: anywhere; }
+.d3-pu-products small { font-size: 11.5px; color: var(--d3-dim); }
+.d3-pu-products b { flex: none; font-weight: 500; font-variant-numeric: tabular-nums; }
+
+.d3-pu-line {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--d3-card);
+}
+.d3-pu-line.is-unknown { box-shadow: inset 3px 0 0 #e0a43a; }
+.d3-pu-line-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
+.d3-pu-line-top small { font-size: 11.5px; color: var(--d3-dim); overflow-wrap: anywhere; }
+.d3-pu-doc {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--d3-blue);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.d3-pu-line-name { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
+.d3-pu-line-math {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  margin: 0;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.d3-pu-line-math b { font-weight: 500; }
+.d3-pu-line-math b.is-bad { color: #8f2414; }
+.d3-pu-line-src { font-size: 11.5px; color: var(--d3-dim); }
+
+@media (max-width: 760px) {
+  .d3-pu-row { flex-direction: column; align-items: stretch; gap: 8px; }
+  .d3-pu-total { justify-content: flex-start; gap: 20px; text-align: left; }
+  .d3-pu-months { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .d3-pu-months li { padding: 6px 8px; }
+  .d3-pu-sum b { font-size: 14px; }
+}
+
+@media (max-width: 360px) {
+  .d3-pu-months b { font-size: 11.5px; }
+}

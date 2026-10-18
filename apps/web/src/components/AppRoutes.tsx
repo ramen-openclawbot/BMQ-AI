@@ -62,6 +62,7 @@ const StockReport = lazy(() => import("@/pages/StockReport"));
 const TanTaoWarehouse = lazy(() => import("@/pages/TanTaoWarehouse"));
 const StockLedger = lazy(() => import("@/pages/StockLedger"));
 const AutoPurchase = lazy(() => import("@/pages/AutoPurchase"));
+const PurchaseUsage = lazy(() => import("@/pages/PurchaseUsage"));
 const StockCatalogCleanup = lazy(() => import("@/pages/StockCatalogCleanup"));
 const WarehouseGame = lazy(() => import("@/pages/WarehouseGame"));
 const WarehouseOffice = lazy(() => import("@/pages/WarehouseOffice"));
@@ -339,6 +340,7 @@ export function AppRoutes() {
         {/* Warehouse extension routes */}
         <Route path="/warehouse/stock-ledger" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><StockLedger /></Suspense></ModuleRoute>} />
         <Route path="/warehouse/auto-purchase" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><AutoPurchase /></Suspense></ModuleRoute>} />
+        <Route path="/warehouse/purchase-usage" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><PurchaseUsage /></Suspense></ModuleRoute>} />
         <Route path="/warehouse/catalog-cleanup" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><StockCatalogCleanup /></Suspense></ModuleRoute>} />
         <Route path="/warehouse/tan-tao" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><TanTaoWarehouse /></Suspense></ModuleRoute>} />
         <Route path="/warehouse/dispatch" element={<Suspense fallback={<AppLoadingFallback />}><WarehouseDispatch /></Suspense>} />

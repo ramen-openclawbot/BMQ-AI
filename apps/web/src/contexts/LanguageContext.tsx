@@ -11,6 +11,7 @@ interface Translations {
   warehouseGame: string;
   warehouseOffice: string;
   autoPurchase: string;
+  purchaseUsage: string;
   stockLedger: string;
   tanTaoWarehouse: string;
   kitchenInventory: string;
@@ -218,6 +219,7 @@ const translations: Record<Language, Translations> = {
     warehouseGame: "Warehouse 2D",
     warehouseOffice: "Office ordering",
     autoPurchase: "Auto Purchasing",
+    purchaseUsage: "Purchase vs Usage",
     stockLedger: "Stock Ledger",
     tanTaoWarehouse: "Tan Tao Warehouse",
     kitchenInventory: "Kitchen Inventory",
@@ -423,6 +425,7 @@ const translations: Record<Language, Translations> = {
     warehouseGame: "Kho 2D",
     warehouseOffice: "Kho văn phòng",
     autoPurchase: "Đặt hàng tự động",
+    purchaseUsage: "Mua so với dùng",
     stockLedger: "Sổ tồn NVL",
     tanTaoWarehouse: "Kho Tân Tạo",
     kitchenInventory: "Kiểm soát kho bếp",
