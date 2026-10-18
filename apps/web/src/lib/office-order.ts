@@ -11,6 +11,8 @@
  * and total a document. They are pure so node:test can cover them offline.
  */
 
+import { formatStockQty } from "./q7-purchase-usage";
+
 // ---------------------------------------------------------------------------
 // Snapshot — get_office_order_snapshot
 // ---------------------------------------------------------------------------
@@ -39,6 +41,24 @@ export interface OfficeOrderSnapshotItem {
   last_raw_qty: number | null;
   forecast_suggested_qty?: number | null;
   forecast_daily_usage?: number | null;
+  /** Learned supplier / pack / cycle facts, or null when nothing was learned. */
+  learned?: OfficeOrderLearned | null;
+}
+
+/** One item's learned purchasing facts (Q7 or Tân Tạo). */
+export interface OfficeOrderLearned {
+  source: "q7" | "tan_tao";
+  supplier_id: string | null;
+  supplier_name: string | null;
+  pack_size: number | null;
+  pack_label: string | null;
+  lead_time_days: number | null;
+  safety_days: number | null;
+  cycle_days: number | null;
+  order_qty: number | null;
+  daily_usage: number | null;
+  receipt_days: number | null;
+  learned_at: string | null;
 }
 
 export interface OfficeOrderCategory {
@@ -441,6 +461,64 @@ export function startQty(
   if (qty != null && Number.isFinite(qty) && qty > 0) return qty;
   const unit = (item?.unit ?? "").trim().toLowerCase();
   return unit === "g" || unit === "gr" || unit === "ml" ? 1000 : 1;
+}
+
+const CYCLE_FORMATTER = new Intl.NumberFormat("vi-VN", {
+  maximumFractionDigits: 1,
+});
+
+function learnedText(value: unknown): string | null {
+  return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
+}
+
+function learnedNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/**
+ * Short Vietnamese lines describing an item's learned purchasing facts, in
+ * display order: supplier, order cycle / size, lead time, pack, then the
+ * Tân Tạo purchase-based daily usage. Missing values are skipped; a null or
+ * malformed learned object returns [] and never throws.
+ */
+export function learnedFacts(
+  item: Pick<OfficeOrderSnapshotItem, "unit" | "learned">,
+): string[] {
+  const out: string[] = [];
+  try {
+    const learned = item?.learned;
+    if (!learned || typeof learned !== "object") return out;
+    const source = (learned as { source?: unknown }).source;
+    if (source !== "q7" && source !== "tan_tao") return out;
+    const unit = typeof item?.unit === "string" ? item.unit : "";
+
+    const supplier = learnedText(learned.supplier_name);
+    if (supplier) out.push(`NCC chính: ${supplier}`);
+
+    const cycle = learnedNumber(learned.cycle_days);
+    const order = learnedNumber(learned.order_qty);
+    if (cycle != null && order != null) {
+      out.push(
+        `Thường ${CYCLE_FORMATTER.format(cycle)} ngày đặt 1 lần, mỗi lần ~${formatStockQty(order, unit)}`,
+      );
+    }
+
+    const lead = learnedNumber(learned.lead_time_days);
+    if (lead != null) {
+      out.push(lead === 0 ? "Giao trong ngày" : `Giao sau ${Math.round(lead)} ngày`);
+    }
+
+    const pack = learnedText(learned.pack_label);
+    if (pack) out.push(`Quy cách: ${pack}`);
+
+    const daily = learnedNumber(learned.daily_usage);
+    if (source === "tan_tao" && daily != null) {
+      out.push(`Ước dùng ~${formatStockQty(daily, unit)}/ngày (theo hàng nhập)`);
+    }
+  } catch {
+    return out;
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------

@@ -271,6 +271,17 @@ for (const vp of [{ width: 1440, height: 900, touch: false }, { width: 1280, hei
     await page.locator(".kvp .card.is-open .debt .pick input").first().check();
     assert.match(await page.locator(".kvp .card.is-open .debt .sum").textContent(), /Chi kèm 1 phiếu/);
   });
+  await check(`${w} the product shows what the bộ học kho learned for Tân Tạo`, async () => {
+    const learned = page.locator(".kvp .card.is-open [data-office-learned='tan_tao']");
+    await learned.waitFor({ timeout: 3000 });
+    const text = await learned.textContent();
+    assert.ok(text.includes("Bộ học kho") && text.includes("NCC chính: Kamereo") && text.includes("Thường 17,5 ngày đặt 1 lần, mỗi lần ~2 thùng") && text.includes("Giao sau 1 ngày") && text.includes("Quy cách: 5L x 4"), text);
+    const [sw, cw] = await learned.evaluate((el) => [el.scrollWidth, el.clientWidth]);
+    assert.ok(sw <= cw + 1, `learned block overflows ${sw} > ${cw}`);
+    await learned.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(150);
+    await page.screenshot({ path: `${EVIDENCE}/product-learned-${w}.png` });
+  });
   await page.screenshot({ path: `${EVIDENCE}/product-${w}.png` });
   await check(`${w} a good kept at Q7 says it is delivered to Tân Tạo then moved on`, async () => {
     await page.getByRole("textbox", { name: "Tìm nguyên vật liệu" }).fill("bột mì 888");

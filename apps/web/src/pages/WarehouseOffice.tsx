@@ -12,7 +12,7 @@ import { useApprovePaymentRequest, useRejectPaymentRequest } from "@/hooks/usePa
 import { useSuppliers } from "@/hooks/useSuppliers";
 import { useWarehouseGameSnapshot } from "@/hooks/useWarehouseGame";
 import {
-  buildShelves, daysLabel, FILL_LABEL, searchItems, startQty, stockFill, suggestFromLast, type FillLevel, type GroupCode, type PredictedOfficeOrderItem, type StockFill,
+  buildShelves, daysLabel, FILL_LABEL, learnedFacts, searchItems, startQty, stockFill, suggestFromLast, type FillLevel, type GroupCode, type PredictedOfficeOrderItem, type StockFill,
 } from "@/lib/office-order";
 import {
   MAX_DEBT_PICKS, packageDebtNumbers, packageSummary, rankDebtRows, robotOrderErrorCode, robotOrderErrorText, sumDebtPicks, toggleDebtPick,
@@ -239,6 +239,20 @@ function ApproveBar({ prId, onDone }: { prId: string; onDone: (text: string, ok:
 }
 
 // ---------------------------------------------------------------------------------------------------------------
+/** What the bộ học kho learned for this item (supplier, cycle, lead time, pack). */
+function LearnedFacts({ item }: { item: Pick<Item, "unit" | "learned"> }) {
+  const facts = learnedFacts(item);
+  if (!facts.length) return null;
+  return (
+    <div className="learned" data-office-learned={item.learned?.source ?? ""}>
+      <span className="learned-h">🧠 Bộ học kho</span>
+      <ul>
+        {facts.map((fact) => <li key={fact}>{fact}</li>)}
+      </ul>
+    </div>
+  );
+}
+
 export default function WarehouseOffice() {
   usePageZoomGuard();
   const navigate = useNavigate();
@@ -611,6 +625,7 @@ export default function WarehouseOffice() {
               {item.last_date ? <>nhập {fmtDate(item.last_date)} · {item.receipts} ngày nhập/120 ngày</> : "Chưa có phiếu nhập 120 ngày"}
               {days ? <> · dự đoán: {days.toLowerCase()}</> : null}
             </p>
+            <LearnedFacts item={item} />
             <DebtPicker supplierId={item.supplier_id} picks={picks[item.supplier_id ?? NO_SUP] ?? []} onToggle={(p) => togglePick(item.supplier_id ?? NO_SUP, p)} onView={(k) => setDocStack([k])} compact />
             <button type="button" className="primary wide" onClick={() => dropItem(item)}>Bỏ vào máy ↑ {sug ? `(${sug})` : ""}</button>
           </div>
@@ -770,6 +785,7 @@ export default function WarehouseOffice() {
             {suggestText(pickedRow.item) ? <> · lần trước {suggestText(pickedRow.item)}</> : null}
           </p>
           {wh === "tan_tao" && pickedRow.item.pastry_q7 ? <p className="sz-q7" data-office-to-q7>🧁 Giao về Tân Tạo → tự chuyển Q7</p> : null}
+          <LearnedFacts item={pickedRow.item} />
           <DebtPicker supplierId={pickedRow.item.supplier_id} picks={picks[pickedRow.item.supplier_id ?? NO_SUP] ?? []} onToggle={(pk) => togglePick(pickedRow.item.supplier_id ?? NO_SUP, pk)} onView={(k) => setDocStack([k])} compact />
           <button type="button" className="primary wide big" onClick={() => dropItem(pickedRow.item)} data-office-zoom-add>{inBasket.get(pickedRow.item.id) ? `✓ Đã có ×${fmtNum(inBasket.get(pickedRow.item.id)!)} · thêm nữa` : `+ Thêm vào máy${suggestText(pickedRow.item) ? ` (${suggestText(pickedRow.item)})` : ""}`}</button>
         </div>

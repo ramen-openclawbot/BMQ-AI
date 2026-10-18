@@ -10,6 +10,7 @@ import {
   fold,
   groupForItem,
   GR_STATUS,
+  learnedFacts,
   PAY_METHOD,
   PAY_STATUS,
   PAY_TYPE,
@@ -22,6 +23,7 @@ import {
   startQty,
   stockFill,
   type DocLine,
+  type OfficeOrderLearned,
   type OfficeOrderSnapshotItem,
   type PaymentDocPoDetail,
   type PaymentDocPrDetail,
@@ -220,6 +222,100 @@ test("suggestFromLast and startQty use the last purchase", () => {
   assert.equal(startQty({ last_raw_qty: null, unit: "g" }), 1000);
   assert.equal(startQty({ last_raw_qty: null, unit: "ml" }), 1000);
   assert.equal(startQty({ last_raw_qty: null, unit: "kg" }), 1);
+});
+
+// ---------------------------------------------------------------------------
+// learnedFacts
+// ---------------------------------------------------------------------------
+
+function learned(overrides: Partial<OfficeOrderLearned> = {}): OfficeOrderLearned {
+  return {
+    source: "tan_tao",
+    supplier_id: "sup-1",
+    supplier_name: null,
+    pack_size: null,
+    pack_label: null,
+    lead_time_days: null,
+    safety_days: null,
+    cycle_days: null,
+    order_qty: null,
+    daily_usage: null,
+    receipt_days: null,
+    learned_at: null,
+    ...overrides,
+  };
+}
+
+test("learnedFacts renders a full Tân Tạo learned row", () => {
+  assert.deepEqual(
+    learnedFacts({
+      unit: "cái",
+      learned: learned({
+        supplier_name: "Tuyết Anh",
+        cycle_days: 3,
+        order_qty: 8935.5,
+        lead_time_days: 0,
+        daily_usage: 2529.2,
+      }),
+    }),
+    [
+      "NCC chính: Tuyết Anh",
+      "Thường 3 ngày đặt 1 lần, mỗi lần ~8.935,5 cái",
+      "Giao trong ngày",
+      "Ước dùng ~2.529,2 cái/ngày (theo hàng nhập)",
+    ],
+  );
+});
+
+test("learnedFacts renders a Q7 pack and lead time", () => {
+  assert.deepEqual(
+    learnedFacts({
+      unit: "kg",
+      learned: learned({
+        source: "q7",
+        supplier_name: "Đại Phát",
+        pack_label: "25kg",
+        lead_time_days: 2,
+      }),
+    }),
+    ["NCC chính: Đại Phát", "Giao sau 2 ngày", "Quy cách: 25kg"],
+  );
+});
+
+test("learnedFacts formats a gram order in kg", () => {
+  assert.deepEqual(
+    learnedFacts({
+      unit: "g",
+      learned: learned({ cycle_days: 2.5, order_qty: 8935.5, lead_time_days: 1 }),
+    }),
+    ["Thường 2,5 ngày đặt 1 lần, mỗi lần ~8,9 kg", "Giao sau 1 ngày"],
+  );
+});
+
+test("learnedFacts returns nothing without a learned row", () => {
+  assert.deepEqual(learnedFacts({ unit: "kg", learned: null }), []);
+  assert.deepEqual(learnedFacts({ unit: "kg", learned: undefined }), []);
+  assert.deepEqual(learnedFacts({ unit: "kg" }), []);
+});
+
+test("learnedFacts never throws on malformed input", () => {
+  const malformed = [
+    { unit: "kg", learned: { source: "other" } },
+    {
+      unit: "kg",
+      learned: {
+        source: "tan_tao",
+        supplier_name: 42,
+        cycle_days: "x",
+        order_qty: {},
+        lead_time_days: Number.NaN,
+        pack_label: 7,
+        daily_usage: [],
+      },
+    },
+    { unit: null, learned: "not-an-object" },
+  ] as unknown as Array<Pick<OfficeOrderSnapshotItem, "unit" | "learned">>;
+  assert.deepEqual(malformed.map((entry) => learnedFacts(entry)), [[], [], []]);
 });
 
 // ---------------------------------------------------------------------------
