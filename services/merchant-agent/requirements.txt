@@ -1,0 +1,7 @@
+git+https://github.com/anthropics/commerce-agents.git@fd4d592#subdirectory=commerce-common
+git+https://github.com/anthropics/commerce-agents.git@fd4d592#subdirectory=merchant-agent/core
+git+https://github.com/anthropics/commerce-agents.git@fd4d592#subdirectory=merchant-agent/runtime-agent-sdk
+fastapi==0.143.3
+uvicorn==0.54.0
+httpx==0.28.1
+pydantic==2.14.1

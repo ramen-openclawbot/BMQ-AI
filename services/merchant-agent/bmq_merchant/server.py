@@ -1,0 +1,385 @@
+"""FastAPI host for the BMQ merchant agent (GĐ1).
+
+The host owns authentication and approval.  The Claude SDK only sees the
+backend tools; a staged change becomes a live write only after an owner calls
+``POST /v1/changes/{id}/approve``.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import time
+import uuid
+from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Awaitable, Callable
+
+import uvicorn
+from claude_agent_sdk import ClaudeSDKClient
+from fastapi import FastAPI, HTTPException, Request, status
+from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from merchant_agent import MerchantSessionContext, StagedChange
+from merchant_agent.changes import ChangeNotApplicable
+from merchant_agent_sdk import make_options, run_turn
+from pydantic import BaseModel, Field, field_validator
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+from .auth import Owner, verify_owner
+from .backend import BmqMerchantBackend
+from .config import Settings, strip_anthropic_api_key
+from .supabase import SupabaseClient, SupabaseError
+
+logger = logging.getLogger(__name__)
+
+SESSION_IDLE_SECONDS = 30 * 60
+MAX_SESSIONS = 5
+
+
+class ChatRequest(BaseModel):
+    session_id: str | None = Field(default=None, min_length=1, max_length=128)
+    message: str = Field(min_length=1, max_length=4000)
+    page: str | None = Field(default=None, max_length=300)
+
+    @field_validator("message")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("message không được để trống")
+        return value
+
+
+@dataclass
+class _ChatSession:
+    session_id: str
+    owner_id: str
+    client: Any
+    toolset: Any
+    backend: BmqMerchantBackend
+    last_used: float = field(default_factory=time.monotonic)
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+
+    async def close(self) -> None:
+        try:
+            await self.client.__aexit__(None, None, None)
+        except Exception:  # closing a broken SDK process must not break the server
+            logger.warning("Không đóng được phiên Claude SDK", exc_info=True)
+
+
+def _serialize_change(change: StagedChange) -> dict[str, Any]:
+    return change.model_dump(mode="json")
+
+
+def _session_context(session_id: str, owner: Owner) -> MerchantSessionContext:
+    return MerchantSessionContext(
+        session_id=session_id,
+        merchant_id="bmq",
+        operator=owner.principal,
+    )
+
+
+def create_app(
+    settings: Settings | None = None,
+    *,
+    backend_factory: Callable[[], BmqMerchantBackend] | None = None,
+    options_factory: Callable[..., Any] | None = None,
+    client_factory: Callable[[Any], Any] | None = None,
+    turn_runner: Callable[..., Awaitable[Any]] | None = None,
+    owner_verifier: Callable[[str | None], Awaitable[Owner]] | None = None,
+) -> FastAPI:
+    options_factory = options_factory or make_options
+    client_factory = client_factory or ClaudeSDKClient
+    turn_runner = turn_runner or run_turn
+    strip_anthropic_api_key()
+    settings = settings or Settings.from_env()
+    supabase = SupabaseClient(
+        supabase_url=settings.supabase_url,
+        service_role_key=settings.service_role_key,
+        anon_key=settings.auth_api_key,
+    )
+
+    def default_backend() -> BmqMerchantBackend:
+        return BmqMerchantBackend(supabase, settings.merchant_config())
+
+    make_backend = backend_factory or default_backend
+    sessions: dict[str, _ChatSession] = {}
+    sessions_lock = asyncio.Lock()
+
+    async def authenticate(authorization: str | None) -> Owner:
+        if owner_verifier is not None:
+            return await owner_verifier(authorization)
+        return await verify_owner(
+            authorization,
+            config=settings,
+            client=supabase,
+        )
+
+    async def cleanup_expired() -> None:
+        now = time.monotonic()
+        expired = [
+            session_id
+            for session_id, chat_session in sessions.items()
+            if now - chat_session.last_used > SESSION_IDLE_SECONDS
+        ]
+        for session_id in expired:
+            chat_session = sessions.pop(session_id, None)
+            if chat_session is not None:
+                await chat_session.close()
+
+    async def make_chat_session(session_id: str, owner: Owner) -> _ChatSession:
+        backend = make_backend()
+        option_kwargs = {
+            "backend": backend,
+            "config": settings.merchant_config(),
+            "session_id": session_id,
+            "merchant_id": "bmq",
+            "operator": owner.principal,
+        }
+        skills_dir = settings.skills_dir
+        if not skills_dir.is_dir():
+            skills_dir = Path(__file__).resolve().parents[1] / "skills"
+        try:
+            options, toolset = options_factory(**option_kwargs, skills_dir=skills_dir)
+        except TypeError as exc:
+            # A test double may implement only the documented make_options arguments.
+            if "skills_dir" not in str(exc):
+                raise
+            options, toolset = options_factory(**option_kwargs)
+        try:
+            client = client_factory(options)
+        except TypeError:
+            client = client_factory(options=options)
+        entered = False
+        try:
+            await client.__aenter__()
+            entered = True
+        except Exception:
+            logger.warning("Không mở được Claude SDK client", exc_info=True)
+            raise
+        chat_session = _ChatSession(
+            session_id=session_id,
+            owner_id=owner.user_id,
+            client=client,
+            toolset=toolset,
+            backend=backend,
+        )
+        if not entered:
+            await chat_session.close()
+        return chat_session
+
+    async def get_chat_session(
+        requested_session_id: str | None, owner: Owner
+    ) -> _ChatSession:
+        async with sessions_lock:
+            await cleanup_expired()
+            session_id = requested_session_id or uuid.uuid4().hex
+            existing = sessions.get(session_id)
+            if existing is not None:
+                if existing.owner_id != owner.user_id:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="Phiên trò chuyện không thuộc tài khoản này",
+                    )
+                existing.last_used = time.monotonic()
+                return existing
+
+            if len(sessions) >= MAX_SESSIONS:
+                oldest_id = min(
+                    sessions, key=lambda key: sessions[key].last_used
+                )
+                oldest = sessions.pop(oldest_id)
+                await oldest.close()
+
+            created = await make_chat_session(session_id, owner)
+            sessions[session_id] = created
+            return created
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI):
+        strip_anthropic_api_key()
+        if not settings.skills_dir.exists():
+            logger.warning(
+                "Không thấy thư mục skills của merchant-agent tại %s",
+                settings.skills_dir,
+            )
+        async def idle_reaper() -> None:
+            while True:
+                await asyncio.sleep(60)
+                async with sessions_lock:
+                    await cleanup_expired()
+
+        reaper = asyncio.create_task(idle_reaper())
+        try:
+            yield
+        finally:
+            reaper.cancel()
+            try:
+                await reaper
+            except asyncio.CancelledError:
+                pass
+            async with sessions_lock:
+                closing = list(sessions.values())
+                sessions.clear()
+            for chat_session in closing:
+                await chat_session.close()
+
+    app = FastAPI(title="BMQ Merchant Agent", version="0.1.0", lifespan=lifespan)
+    app.state.settings = settings
+    app.state.sessions = sessions
+    app.state.supabase = supabase
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[settings.allowed_origin],
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "apikey"],
+    )
+
+    @app.exception_handler(HTTPException)
+    async def http_exception_handler(_: Request, exc: HTTPException) -> JSONResponse:
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"error": str(exc.detail), "code": f"http_{exc.status_code}"},
+        )
+
+    @app.exception_handler(StarletteHTTPException)
+    async def starlette_http_exception_handler(
+        _: Request, exc: StarletteHTTPException
+    ) -> JSONResponse:
+        messages = {
+            404: "Không tìm thấy tài nguyên",
+            405: "Phương thức không được hỗ trợ",
+        }
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={
+                "error": messages.get(exc.status_code, str(exc.detail)),
+                "code": f"http_{exc.status_code}",
+            },
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(
+        _: Request, __: RequestValidationError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={
+                "error": "Dữ liệu gửi lên không hợp lệ",
+                "code": "validation_error",
+            },
+        )
+
+    @app.exception_handler(ChangeNotApplicable)
+    async def change_not_applicable_handler(
+        _: Request, exc: ChangeNotApplicable
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={"error": str(exc), "code": "change_not_applicable"},
+        )
+
+    @app.exception_handler(ValueError)
+    async def value_error_handler(_: Request, exc: ValueError) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={"error": str(exc), "code": "invalid_request"},
+        )
+
+    @app.exception_handler(SupabaseError)
+    async def supabase_exception_handler(
+        _: Request, __: SupabaseError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            content={
+                "error": "Không truy cập được dữ liệu BMQ, vui lòng thử lại",
+                "code": "supabase_unavailable",
+            },
+        )
+
+    @app.exception_handler(Exception)
+    async def unexpected_exception_handler(_: Request, __: Exception) -> JSONResponse:
+        logger.exception("Lỗi không mong đợi trong merchant-agent")
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "error": "Máy chủ gặp lỗi, vui lòng thử lại",
+                "code": "internal_error",
+            },
+        )
+
+    @app.get("/health")
+    async def health() -> dict[str, Any]:
+        return {"ok": True, "model": settings.model}
+
+    @app.post("/v1/chat")
+    async def chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
+        owner = await authenticate(request.headers.get("authorization"))
+        chat_session = await get_chat_session(payload.session_id, owner)
+        message = payload.message
+        if payload.page and payload.page.strip():
+            page = " ".join(payload.page.split())
+            message = f"[Trang: {page}]\n{message}"
+
+        async with chat_session.lock:
+            chat_session.last_used = time.monotonic()
+            try:
+                result = await turn_runner(
+                    chat_session.client, message, toolset=chat_session.toolset
+                )
+            finally:
+                chat_session.last_used = time.monotonic()
+
+        context = _session_context(chat_session.session_id, owner)
+        pending = await chat_session.backend.get_pending_changes(context)
+        return {
+            "session_id": chat_session.session_id,
+            "text": str(getattr(result, "text", "") or ""),
+            "ui": list(getattr(result, "ui", []) or []),
+            "tool_calls": list(getattr(result, "tool_calls", []) or []),
+            "pending_changes": [_serialize_change(change) for change in pending],
+        }
+
+    @app.post("/v1/changes/{change_id}/approve")
+    async def approve_change(change_id: str, request: Request) -> dict[str, Any]:
+        owner = await authenticate(request.headers.get("authorization"))
+        backend = make_backend()
+        await backend.approve_change(change_id, owner.user_id)
+        context = _session_context("host-approval", owner)
+        change = await backend.apply_change(context, change_id)
+        return _serialize_change(change)
+
+    @app.post("/v1/changes/{change_id}/discard")
+    async def discard_change(change_id: str, request: Request) -> dict[str, Any]:
+        owner = await authenticate(request.headers.get("authorization"))
+        backend = make_backend()
+        context = _session_context("host-discard", owner)
+        change = await backend.discard_change(context, change_id)
+        return _serialize_change(change)
+
+    @app.get("/v1/changes")
+    async def pending_changes(request: Request) -> list[dict[str, Any]]:
+        owner = await authenticate(request.headers.get("authorization"))
+        backend = make_backend()
+        context = _session_context("host-pending", owner)
+        changes = await backend.get_pending_changes(context)
+        return [_serialize_change(change) for change in changes]
+
+    return app
+
+
+def main() -> None:
+    logging.basicConfig(level=logging.INFO)
+    settings = Settings.from_env()
+    strip_anthropic_api_key()
+    app = create_app(settings)
+    uvicorn.run(app, host=settings.host, port=settings.port)
+
+
+if __name__ == "__main__":
+    main()
