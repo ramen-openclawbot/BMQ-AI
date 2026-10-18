@@ -121,10 +121,10 @@ async def test_ask_sushi_maps_quota_503_to_ai_quota(settings: Settings) -> None:
 async def test_ask_sushi_maps_other_errors_and_timeouts(settings: Settings) -> None:
     route = respx.post(SUSHI_URL).mock(return_value=httpx.Response(500, json={}))
     async with httpx.AsyncClient() as http:
-        with pytest.raises(SushiError, match="Sushi chưa trả lời được"):
+        with pytest.raises(SushiError, match="Chưa lấy được số liệu này"):
             await ask_sushi("Câu hỏi", "owner-jwt", "conversation-1", settings, http)
 
     route.mock(side_effect=httpx.ReadTimeout("too slow"))
     async with httpx.AsyncClient() as http:
-        with pytest.raises(SushiError, match="Sushi chưa trả lời được"):
+        with pytest.raises(SushiError, match="Chưa lấy được số liệu này"):
             await ask_sushi("Câu hỏi", "owner-jwt", "conversation-1", settings, http)

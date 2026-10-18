@@ -80,10 +80,10 @@ def parse_sushi_response(body: Any) -> SushiAnswer:
     """Parse the documented Sushi response without trusting its shape."""
 
     if not isinstance(body, dict):
-        raise SushiError("Sushi chưa trả lời được")
+        raise SushiError("Chưa lấy được số liệu này")
     answer = body.get("answer")
     if not isinstance(answer, str) or not answer.strip():
-        raise SushiError("Sushi chưa trả lời được")
+        raise SushiError("Chưa lấy được số liệu này")
     provenance = body.get("provenance")
     if not isinstance(provenance, dict):
         provenance = {}
@@ -145,9 +145,9 @@ async def ask_sushi(
             timeout=timeout,
         )
     except httpx.TimeoutException as exc:
-        raise SushiError("Sushi chưa trả lời được") from exc
+        raise SushiError("Chưa lấy được số liệu này") from exc
     except httpx.HTTPError as exc:
-        raise SushiError("Sushi chưa trả lời được") from exc
+        raise SushiError("Chưa lấy được số liệu này") from exc
     finally:
         if http is None:
             await client.aclose()
@@ -160,9 +160,9 @@ async def ask_sushi(
     ):
         raise SushiError("hết hạn mức AI")
     if response.status_code >= 400:
-        raise SushiError("Sushi chưa trả lời được")
+        raise SushiError("Chưa lấy được số liệu này")
     try:
         body = response.json()
     except ValueError as exc:
-        raise SushiError("Sushi chưa trả lời được") from exc
+        raise SushiError("Chưa lấy được số liệu này") from exc
     return parse_sushi_response(body)

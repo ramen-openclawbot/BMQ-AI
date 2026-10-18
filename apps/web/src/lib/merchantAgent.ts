@@ -65,9 +65,9 @@ async function call<T>(path: string, token: string, init: RequestInit, timeoutMs
   } catch (error) {
     if (error instanceof MerchantAgentError) throw error;
     if (error instanceof DOMException && error.name === "AbortError") {
-      throw new MerchantAgentError("Trợ lý trả lời quá lâu. Anh thử lại giúp em.", 504);
+      throw new MerchantAgentError("VNAgent trả lời quá lâu. Anh thử lại giúp VNAgent.", 504);
     }
-    throw new MerchantAgentError("Không kết nối được trợ lý quản trị. Máy chủ trên Mac có thể đang tắt.", 0);
+    throw new MerchantAgentError("Không kết nối được VNAgent. Anh thử lại sau ít phút.", 0);
   } finally {
     window.clearTimeout(timer);
   }
@@ -75,9 +75,9 @@ async function call<T>(path: string, token: string, init: RequestInit, timeoutMs
 
 function readableStatus(status: number): string {
   if (status === 401) return "Phiên đăng nhập đã hết hạn. Anh tải lại trang giúp em.";
-  if (status === 403) return "Tài khoản này không có quyền dùng trợ lý quản trị.";
-  if (status === 502 || status === 503) return "Trợ lý quản trị đang không phản hồi. Máy chủ trên Mac có thể đang tắt.";
-  return `Trợ lý quản trị báo lỗi (${status}).`;
+  if (status === 403) return "Tài khoản này không có quyền dùng VNAgent.";
+  if (status === 502 || status === 503) return "VNAgent đang tạm ngắt kết nối. Anh thử lại sau ít phút.";
+  return `VNAgent báo lỗi (${status}).`;
 }
 
 export function sendMerchantMessage(token: string, input: { message: string; sessionId?: string | null; page?: string }) {

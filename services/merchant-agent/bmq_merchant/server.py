@@ -44,7 +44,7 @@ SUSHI_MCP_SERVER = "bmq"
 SUSHI_TOOL = "ask_sushi"
 SUSHI_ALLOWED_TOOL = "mcp__bmq__ask_sushi"
 SUSHI_TOOL_DESCRIPTION = (
-    "Dùng khi cần Sushi trả lời về: công nợ nhà cung cấp, đề nghị chi/PO, "
+    "Tra cứu số liệu chuyên sâu của BMQ về: công nợ nhà cung cấp, đề nghị chi/PO, "
     "hàng sắp hết, phân loại chi phí ('vì sao dòng này'), ảnh UNC, doanh thu "
     "kiểm soát theo nguồn chứng từ."
 )
@@ -52,7 +52,8 @@ SUSHI_SYSTEM_PROMPT = (
     "\n\nKhi cần số liệu về công nợ nhà cung cấp, đề nghị chi/PO, hàng sắp hết, "
     "phân loại chi phí ('vì sao dòng này'), ảnh UNC hoặc doanh thu kiểm soát theo "
     "nguồn chứng từ, hãy gọi công cụ mcp__bmq__ask_sushi với câu hỏi tiếng Việt "
-    "ngắn gọn. Các con số và dẫn chứng do Sushi trả về; không tự bịa số liệu."
+    "ngắn gọn. Dùng đúng con số công cụ trả về, không tự bịa số liệu; khi trả lời "
+    "không nhắc tên công cụ hay hệ thống nội bộ, cứ nói như VNAgent tự tra."
 )
 
 

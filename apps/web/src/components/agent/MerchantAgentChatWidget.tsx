@@ -134,7 +134,6 @@ function SushiBlock({ payload, ownerId }: { payload: Record<string, unknown>; ow
   if (!answer && !cost.success && !images.length) return null;
   return (
     <div className="mt-3 rounded-xl border border-vn-cobalt-l/30 bg-vn-cobalt-l/[.06] p-3" data-merchant-ui="sushi">
-      <div className="mb-1.5 font-vnMono text-[10px] uppercase tracking-[0.12em] text-vn-cobalt-l">Sushi trả lời</div>
       {answer ? <div className="whitespace-pre-wrap break-words text-[13.5px] leading-6 text-vn-paper">{answer}</div> : null}
       {cost.success ? (
         <div className="mt-2">
@@ -287,7 +286,7 @@ export function MerchantAgentChatWidget() {
         return next;
       });
     } catch (error) {
-      const text = error instanceof Error ? error.message : "Không gọi được trợ lý quản trị.";
+      const text = error instanceof Error ? error.message : "Không gọi được VNAgent.";
       setMessages((current) => [...current, { id: newId(), role: "error", text }]);
     } finally {
       setResponding(false);
@@ -336,7 +335,7 @@ export function MerchantAgentChatWidget() {
           hideLauncherOnMobile && "hidden lg:inline-flex",
         )}
         onClick={() => setOpen(true)}
-        aria-label="Mở trợ lý quản trị"
+        aria-label="Mở VNAgent"
       >
         <span aria-hidden="true" className={cn("pointer-events-none absolute inset-0 -z-10 rounded-full ring-2 ring-vn-lime/50", !open && "animate-vnagent-halo motion-reduce:animate-none")} />
         <span className="grid h-[72%] w-[72%] place-items-center"><VnagentMark className="h-full w-full" /></span>
@@ -351,14 +350,14 @@ export function MerchantAgentChatWidget() {
         >
           <header className="relative flex shrink-0 items-center gap-3 border-b border-vn-paper/10 bg-vn-ink/90 px-4 pb-3 pt-[max(0.875rem,env(safe-area-inset-top))] backdrop-blur-md">
             <div className="min-w-0 flex-1">
-              <SheetTitle className="text-[19px] font-black leading-none tracking-[-0.02em] text-vn-paper [font-stretch:125%]">QUẢN <span className="text-vn-red">TRỊ</span></SheetTitle>
+              <SheetTitle className="text-[19px] font-black leading-none tracking-[-0.02em] text-vn-paper [font-stretch:125%]">VN<span className="text-vn-red">AGENT</span></SheetTitle>
               <div className="mt-2 flex min-w-0 items-center gap-1.5 whitespace-nowrap font-vnMono text-[9.5px] uppercase tracking-[0.14em] text-vn-paper/50">
                 <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", responding ? "animate-pulse bg-vn-lime" : "bg-vn-online shadow-[0_0_0_3px_rgba(61,220,132,0.18)]")} />
-                <span className="min-w-0 truncate">Claude Haiku · dữ liệu BMQ</span>
+                <span className="min-w-0 truncate">{responding ? "Đang trả lời" : "Sẵn sàng"} · Trợ lý AI của BMQ</span>
               </div>
             </div>
             <button type="button" className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-vn-paper/[.18] bg-vn-card text-vn-paper/70 transition hover:border-vn-lime hover:text-vn-paper" onClick={reset} aria-label="Tạo cuộc trò chuyện mới" data-merchant-agent-reset><RotateCcw className="h-[18px] w-[18px]" /></button>
-            <button type="button" className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-vn-paper/[.18] bg-vn-card text-vn-paper/70 transition hover:border-vn-lime hover:text-vn-paper" onClick={() => setOpen(false)} aria-label="Đóng trợ lý quản trị"><X className="h-5 w-5" /></button>
+            <button type="button" className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-vn-paper/[.18] bg-vn-card text-vn-paper/70 transition hover:border-vn-lime hover:text-vn-paper" onClick={() => setOpen(false)} aria-label="Đóng VNAgent"><X className="h-5 w-5" /></button>
           </header>
 
           <div className="flex flex-1 flex-col gap-4 overflow-auto bg-vn-ink px-4 py-5 text-[15px] leading-[1.62]">
@@ -367,7 +366,7 @@ export function MerchantAgentChatWidget() {
                 <div className="flex items-start gap-2.5">
                   <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-[10px] border border-vn-cobalt-l/30 bg-vn-cobalt-l/10 text-vn-lime"><Sparkles className="h-4 w-4" /></span>
                   <div className="max-w-[88%] rounded-2xl rounded-tl-[5px] border border-vn-paper/10 bg-vn-card px-4 py-3 text-vn-paper">
-                    Xin chào{name ? `, ${name}` : ""}. Em đọc doanh thu, đơn đại lý, SKU và giá riêng của BMQ. Mọi thay đổi em soạn chỉ là bản nháp — anh bấm <b>Duyệt</b> mới áp.
+                    Xin chào{name ? `, ${name}` : ""}. VNAgent xem được doanh thu, đơn đại lý, công nợ, chi phí, SKU và giá riêng. Mọi thay đổi VNAgent soạn chỉ là bản nháp — anh bấm <b>Duyệt</b> mới áp.
                   </div>
                 </div>
                 <div className="rounded-2xl border border-vn-paper/10 bg-vn-card p-3.5">
@@ -429,7 +428,7 @@ export function MerchantAgentChatWidget() {
             {responding ? (
               <div className="flex max-w-[88%] items-center gap-2.5 font-vnMono text-[10.5px] uppercase tracking-[0.12em] text-vn-paper/60" data-merchant-responding>
                 <span className="grid h-8 w-8 place-items-center rounded-[10px] border border-vn-cobalt-l/30 bg-vn-cobalt-l/10 text-vn-lime"><Loader2 className="h-4 w-4 animate-spin" /></span>
-                Đang đọc dữ liệu BMQ…
+                VNAgent đang xử lý…
               </div>
             ) : null}
             <div ref={endRef} />
@@ -443,7 +442,7 @@ export function MerchantAgentChatWidget() {
                   rows={1}
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}
-                  aria-label="Tin nhắn cho trợ lý quản trị"
+                  aria-label="Tin nhắn cho VNAgent"
                   placeholder="Hỏi về doanh thu, đại lý, SKU, giá…"
                   className="min-h-0 resize-none rounded-none border-0 bg-transparent px-4 py-0 font-vnDisp text-base leading-6 text-vn-paper shadow-none outline-none ring-0 placeholder:text-vn-paper/40 focus-visible:ring-0 focus-visible:ring-offset-0 disabled:opacity-60"
                   onKeyDown={(event) => {

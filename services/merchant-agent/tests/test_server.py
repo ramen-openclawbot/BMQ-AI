@@ -340,7 +340,9 @@ def test_ask_sushi_tool_queues_ui_and_refreshes_the_owner_token(
     assert options.mcp_servers["merchant"] is not None
     assert "mcp__bmq__ask_sushi" in options.allowed_tools
     assert options.system_prompt.startswith("BASE PROMPT")
-    assert "Sushi" in options.system_prompt
+    assert "mcp__bmq__ask_sushi" in options.system_prompt
+    assert "VNAgent" in options.system_prompt
+    assert "Sushi" not in options.system_prompt, "internal names stay out of the prompt text"
 
 
 def test_ask_sushi_error_is_a_tool_error_without_ui(
@@ -356,7 +358,7 @@ def test_ask_sushi_error_is_a_tool_error_without_ui(
         return {"type": "sdk", "name": name}
 
     async def failing_ask(*args: Any, **kwargs: Any) -> Any:
-        raise SushiError("Sushi chưa trả lời được")
+        raise SushiError("Chưa lấy được số liệu này")
 
     monkeypatch.setattr(server_module, "create_sdk_mcp_server", fake_create_server)
     monkeypatch.setattr(server_module.sushi, "ask_sushi", failing_ask)
@@ -388,4 +390,4 @@ def test_ask_sushi_error_is_a_tool_error_without_ui(
     assert response.status_code == 200
     assert response.json()["ui"] == []
     assert captured["tool_result"]["is_error"] is True
-    assert captured["tool_result"]["content"][0]["text"] == "Sushi chưa trả lời được"
+    assert captured["tool_result"]["content"][0]["text"] == "Chưa lấy được số liệu này"
