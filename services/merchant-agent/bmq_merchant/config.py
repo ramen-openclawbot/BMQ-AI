@@ -99,8 +99,14 @@ class Settings:
             brand_voice="ngắn gọn, nêu số liệu cụ thể, trả lời bằng tiếng Việt",
             model=self.model,
             analysis_model=self.analysis_model,
-            enable_analysis=True,
+            # The analysis delegate runs as a background subagent on the Agent SDK and
+            # the request/response chat ended turns with "I'll report back"; keep it off.
+            enable_analysis=os.environ.get("MERCHANT_ENABLE_ANALYSIS", "").strip().lower() in {"1", "true", "yes"},
             analysis_sql_only=True,
+            # GĐ1 can only apply price and promotion/campaign changes; hide the stage
+            # tools whose changes could never be applied.
+            enable_inventory=False,
+            enable_listing_edits=False,
             analysis_use_code_execution=False,
             max_analysis_rows=200,
             max_campaign_budget=100_000_000_000,

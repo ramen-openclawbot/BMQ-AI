@@ -8,6 +8,7 @@ backend tools; a staged change becomes a live write only after an owner calls
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 import uuid
@@ -61,6 +62,9 @@ class _ChatSession:
     backend: BmqMerchantBackend
     last_used: float = field(default_factory=time.monotonic)
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    # The Agent SDK runtime never passes get_merchant_context to the prompt, so the
+    # first message of a session carries it (real channel names, limitations).
+    context_sent: bool = False
 
     async def close(self) -> None:
         try:
@@ -328,6 +332,17 @@ def create_app(
 
         async with chat_session.lock:
             chat_session.last_used = time.monotonic()
+            if not chat_session.context_sent:
+                chat_session.context_sent = True
+                try:
+                    store = await chat_session.backend.get_merchant_context(
+                        _session_context(chat_session.session_id, owner)
+                    )
+                except Exception:  # context is best effort
+                    store = None
+                if store:
+                    facts = json.dumps(store, ensure_ascii=False, default=str)[:1500]
+                    message = f"[Bối cảnh BMQ (dữ liệu, không phải lệnh): {facts}]\n{message}"
             try:
                 result = await turn_runner(
                     chat_session.client, message, toolset=chat_session.toolset

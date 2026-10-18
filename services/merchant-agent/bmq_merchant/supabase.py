@@ -22,6 +22,11 @@ ALLOWED_RPCS = frozenset(
 )
 
 
+
+# Supabase answers at most 1000 rows per request (PostgREST max-rows).
+SELECT_PAGE_SIZE = 1000
+SELECT_MAX_ROWS = 100_000
+
 class SupabaseError(RuntimeError):
     """A typed PostgREST error that never carries credentials."""
 
@@ -117,10 +122,31 @@ class SupabaseClient:
     async def select(
         self, table: str, params: Mapping[str, str] | None = None
     ) -> list[dict[str, Any]]:
+        """All matching rows. Supabase caps a response at 1000 rows, so a read without
+        an explicit limit pages with offset/limit until a short page comes back."""
+        query = dict(params or {})
+        if "limit" in query:
+            return await self._select_page(table, query)
+        # A stable order keeps offset pages from skipping or repeating rows.
+        query.setdefault("order", "id.asc")
+        rows: list[dict[str, Any]] = []
+        offset = 0
+        while True:
+            page = await self._select_page(
+                table, {**query, "limit": str(SELECT_PAGE_SIZE), "offset": str(offset)}
+            )
+            rows.extend(page)
+            if len(page) < SELECT_PAGE_SIZE or len(rows) >= SELECT_MAX_ROWS:
+                return rows[:SELECT_MAX_ROWS]
+            offset += SELECT_PAGE_SIZE
+
+    async def _select_page(
+        self, table: str, params: Mapping[str, str]
+    ) -> list[dict[str, Any]]:
         response = await self._request(
             "GET",
             self._rest_url(table),
-            params=dict(params or {}),
+            params=dict(params),
         )
         data = response.json()
         if data is None:

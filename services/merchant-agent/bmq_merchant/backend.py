@@ -8,6 +8,8 @@ service-role RPCs that own the live write.  No other table is written here.
 from __future__ import annotations
 
 import json
+import logging
+import re
 import unicodedata
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -47,6 +49,7 @@ from pydantic import BaseModel, Field, field_validator
 from .supabase import SupabaseClient
 
 VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
+_LOG = logging.getLogger("bmq_merchant.backend")
 _CHANGE_KIND_BY_DB_KIND = {
     "listing": ChangeKind.LISTING_UPDATE,
     "price": ChangeKind.PRICE_UPDATE,
@@ -114,6 +117,7 @@ def _previous_month(year: int, month: int) -> tuple[int, int]:
 
 def _period_window(period: str | None, today: date | None = None) -> _PeriodWindow:
     today = today or _today_vn()
+    _LOG.info("merchant period requested: %r", period)
     raw = (period or "last_7_days").strip().casefold()
     key = raw.replace("-", "_").replace(" ", "_")
 
@@ -165,8 +169,10 @@ def _period_window(period: str | None, today: date | None = None) -> _PeriodWind
             _month_end(prev_year, prev_month),
         )
 
-    if ":" in raw:
-        left, _, right = raw.partition(":")
+    range_separator = next((sep for sep in (":", "..", "/") if sep in raw), None)
+    if range_separator:
+        left, _, right = raw.partition(range_separator)
+        left, right = left.strip(), right.strip()
         try:
             start, end = date.fromisoformat(left), date.fromisoformat(right)
         except ValueError:
@@ -183,6 +189,21 @@ def _period_window(period: str | None, today: date | None = None) -> _PeriodWind
                 prev_start,
                 prev_end,
             )
+
+    days_match = re.fullmatch(r"last_(\d{1,3})_days?", key)
+    if days_match and 1 <= int(days_match.group(1)) <= 366:
+        span = int(days_match.group(1))
+        start = today - timedelta(days=span - 1)
+        previous_end = start - timedelta(days=1)
+        previous_start = previous_end - timedelta(days=span - 1)
+        return _PeriodWindow(
+            f"{span} ngày gần nhất",
+            f"{span} ngày trước đó",
+            start,
+            today,
+            previous_start,
+            previous_end,
+        )
 
     # Default and every "last 7 days"/"last week" spelling.
     start = today - timedelta(days=6)
@@ -1334,12 +1355,30 @@ class BmqMerchantBackend(MerchantBackend):
     async def get_merchant_context(
         self, session: MerchantSessionContext
     ) -> dict[str, Any] | None:
+        # Real channel values let the model segment revenue with "channel:<value>".
+        revenue_channels: list[str] = []
+        try:
+            rows = await self._db.rpc(
+                "merchant_analysis_query",
+                {
+                    "p_sql": (
+                        "select channel, count(*) as lines from revenue_lines_v "
+                        "where revenue_date >= current_date - 90 and channel is not null "
+                        "group by channel order by lines desc"
+                    ),
+                    "p_max_rows": 30,
+                },
+            )
+            revenue_channels = [str(row.get("channel")) for row in rows or [] if row.get("channel")]
+        except Exception:  # context is best effort; the agent still works without it
+            revenue_channels = []
         return {
             "brand_name": "Bánh Mì Que BMQ",
             "business": "Chuỗi bánh mì que và đại lý/NPP tại Việt Nam.",
             "currency": "VND",
             "timezone": "Asia/Ho_Chi_Minh",
-            "channels": ["đại lý/NPP", "kiosk", "cửa hàng"],
+            "channels": revenue_channels or ["đại lý/NPP", "kiosk", "cửa hàng"],
+            "revenue_segment_hint": "Lọc doanh thu theo kênh bằng segment 'channel:<tên kênh đúng như trong channels>'.",
             "limitations": [
                 DataLimitation(
                     source="inventory",
