@@ -9,7 +9,7 @@ MIGRATION = (
     / "web"
     / "supabase"
     / "migrations"
-    / "20261102170000_merchant_agent.sql"
+    / "20261102180000_merchant_agent.sql"
 )
 
 

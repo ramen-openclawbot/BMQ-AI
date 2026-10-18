@@ -59,7 +59,7 @@ Lỗi trả về `{error, code}` bằng tiếng Việt, không chứa khóa hay 
 
 ## Migration
 
-File `apps/web/supabase/migrations/20261102170000_merchant_agent.sql` đã được
+File `apps/web/supabase/migrations/20261102180000_merchant_agent.sql` đã được
 viết nhưng **chưa được áp dụng**. Không tự chạy migration này khi deploy GĐ1.
 
 ## Kiểm thử
