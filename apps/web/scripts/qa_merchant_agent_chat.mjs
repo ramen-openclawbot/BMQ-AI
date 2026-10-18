@@ -182,11 +182,19 @@ const browser = await chromium.launch({ executablePath: CHROME });
 const results = [];
 const record = (name) => { results.push({ name }); console.log("PASS", name); };
 
-const CHANGE = { change_id: "chg-1", kind: "campaign", status: "staged", summary: "Thông báo: đặt từ 300 que tặng 1 hộp pate", items: [{ target: "Đặt 300 que tặng 1 hộp pate", field: "name", after: "Đặt 300 que tặng 1 hộp pate (20/10 – 26/10)" }] };
+const CHANGE = { change_id: "chg-1", kind: "campaign", status: "staged", summary: "Thông báo: đặt từ 300 que tặng 1 hộp pate", items: [{ target: "Đặt 300 que tặng 1 hộp pate", field: "name", after: "Đặt 300 que tặng 1 hộp pate (20/10 – 26/10)" }], guardrail_notes: ["Có thể nhắc món không có trong danh mục.", "Thời gian/điều kiện chưa rõ."] };
+const COST_BLOCK = {
+  v: 1, kind: "cost_line", mode: "example", month: "2026-10",
+  line: { classificationId: "cls-1", sourceNumber: "PR-QA01", sourceDate: "2026-10-12", supplierName: "Bột Mì Sài Gòn", productName: "Bột mì số 13", amount: 13500000, categoryLabel: "Nguyên liệu chính", categoryCode: "NVL", reviewStatus: "approved", confidence: "high", classificationSource: "rule" },
+  evidence: { stored: true, rule: null, alias: null, aliasStatus: null },
+  notes: [], source: { name: "Phân loại chi phí", observedAt: "2026-10-18T03:00:00Z", snapshotId: "snap-1", semanticVersion: "v1", selectionRule: null, matchCount: 1, truncated: false, disclaimer: "Số liệu tham khảo." },
+  followUp: "line_explanation",
+};
 function reply(body) {
-  const text = String(body.message || "");
+  const text = String(body.message || "").toLowerCase();
   if (text.includes("lỗi máy chủ")) return { status: 503, json: { detail: "Trợ lý quản trị đang không phản hồi." } };
   if (text.includes("thông báo")) return { status: 200, json: { session_id: "s-1", text: "Em đã soạn bản nháp thông báo, anh xem và bấm Duyệt nếu đồng ý.", tool_calls: ["mcp__merchant__stage_campaign"], ui: [{ component: "change_preview", payload: { change_id: "chg-1", change: CHANGE, headline: "Thông báo khuyến mãi tuần 20/10", note: "Chưa có gì được gửi." } }, { component: "suggestions", payload: { suggestions: ["Rút gọn nội dung", "Đổi thời gian áp dụng"] } }], pending_changes: [CHANGE] } };
+  if (text.includes("công nợ")) return { status: 200, json: { session_id: "s-1", text: "Em đã hỏi Sushi về công nợ nhà cung cấp.", tool_calls: ["mcp__bmq__ask_sushi"], ui: [{ component: "sushi_answer", payload: { answer: "Công nợ nhà cung cấp hiện tại là 182,4 triệu, lớn nhất là Bột Mì Sài Gòn.", costBlock: COST_BLOCK, images: [{ id: "a".repeat(64), date: "2026-10-12", declarationId: "PR-QA01", paymentStatus: "submitted_unverified" }], details: "Bột Mì Sài Gòn: 13,5 triệu\nThiên An Sinh: 10,7 triệu", citations: [{ id: "c1", title: "Bảng công nợ NCC", source: "BMQ", updated_at: "2026-10-18" }] } }], pending_changes: [] } };
   if (text.includes("vấn đề")) return { status: 200, json: { session_id: "s-1", text: "Hôm nay có 3 việc cần chú ý.", tool_calls: [], ui: [{ component: "digest", payload: { title: "Đơn đại lý hôm nay", items: [{ kind: "order_issue", headline: "Đại lý Lê Văn Lương chưa có đơn giao hôm nay", why_it_matters: "Đã đặt 5/7 ngày gần đây." }, { kind: "order_issue", headline: "Đại lý Hồng Lạc đang bị khoá đặt hàng" }] } }], pending_changes: [] } };
   return { status: 200, json: { session_id: "s-1", text: "Doanh thu tháng 9 đạt 979,5 triệu, Đại lý chiếm 46%.", tool_calls: ["mcp__merchant__query_metrics"], ui: [{ component: "metrics", payload: { title: "Doanh thu tháng 9", period: "2026-09", metrics: [{ metric: "sales", value: 979545347, change_pct: 4.2, currency: "VND" }, { metric: "orders", value: 385, change_pct: -2.1 }, { metric: "revenue", series: { metric: "revenue", unit: "VND", segment: "channel:ĐẠI LÝ", points: Array.from({ length: 30 }, (_, i) => ({ date: `2026-09-${String(i + 1).padStart(2, "0")}`, value: 12000000 + (i % 7) * 900000 })) }, note: "Kênh lớn nhất" }] } }, { component: "suggestions", payload: { suggestions: ["So với tháng 8", "Chi tiết kênh Bánh ngọt"] } }], pending_changes: [] } };
 }
@@ -262,17 +270,31 @@ try {
     assert.ok((await page.locator("[data-merchant-ui='digest']").textContent()).includes("Lê Văn Lương"));
     record(`digest card ${tag}`);
 
+    await ask(page, "Công nợ nhà cung cấp hiện tại?");
+    const sushiCard = page.locator("[data-merchant-ui='sushi']");
+    await sushiCard.waitFor();
+    const sushiText = await sushiCard.textContent();
+    assert.ok(sushiText.includes("182,4 triệu") && sushiText.includes("Bột mì số 13"), "Sushi answer and cost card");
+    assert.ok(sushiText.includes("Bảng công nợ NCC"), "sources shown");
+    assert.ok(await overflow(page) <= 0, `no overflow with Sushi card ${tag}`);
+    await sushiCard.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `${EVIDENCE}/sushi-${tag}.png` });
+    record(`Sushi answer card ${tag}`);
+
     await ask(page, "Soạn thông báo khuyến mãi tuần này");
     const card = page.locator("[data-merchant-change='chg-1']");
     await card.waitFor();
     assert.equal(await card.getAttribute("data-merchant-change-status"), "staged");
     assert.ok((await card.textContent()).includes("Thông báo dathang"));
+    const warnings = await card.locator("[data-merchant-change-warnings]").textContent();
+    assert.ok(warnings.includes("không có trong danh mục") && warnings.includes("chưa rõ"), "guard warnings on the draft");
     await card.scrollIntoViewIfNeeded();
     await page.screenshot({ path: `${EVIDENCE}/draft-${tag}.png` });
     assert.equal(calls.filter((c) => c.path.includes("/approve")).length, 0, "nothing approved before the tap");
     await card.locator("[data-merchant-change-action='approve']").click();
     await page.locator("[data-merchant-change='chg-1'][data-merchant-change-status='applied']").waitFor();
     assert.equal(await card.locator("[data-merchant-change-action]").count(), 0, "buttons gone after apply");
+    assert.equal(await card.locator("[data-merchant-change-warnings]").count(), 0, "warnings hidden once applied");
     assert.ok(calls.some((c) => c.path === "/v1/changes/chg-1/approve"));
     await page.screenshot({ path: `${EVIDENCE}/applied-${tag}.png` });
     record(`draft approve applies ${tag}`);

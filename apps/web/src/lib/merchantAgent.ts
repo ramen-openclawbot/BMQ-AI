@@ -22,6 +22,8 @@ export type MerchantChange = {
   items?: MerchantChangeItem[];
   created_at?: string;
   error?: string | null;
+  /** Advisory warnings from the Decisions API draft guard. */
+  guardrail_notes?: string[];
 };
 
 export type MerchantUiBlock = {

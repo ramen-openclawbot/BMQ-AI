@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
-import { ArrowUp, Check, Loader2, RotateCcw, Sparkles, X } from "lucide-react";
+import { AlertTriangle, ArrowUp, Check, Loader2, RotateCcw, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
@@ -8,6 +8,9 @@ import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import { VnagentMark } from "@/components/agent/GlobalAgentChatWidget";
+import { CostBusinessCard } from "@/components/agent/CostBusinessCard";
+import { UncImageGallery } from "@/components/agent/UncImageGallery";
+import { costLineBlockSchema, uncImageSchema } from "@/lib/bmqAnalytics";
 import {
   MerchantAgentError,
   approveMerchantChange,
@@ -117,6 +120,43 @@ function DigestBlock({ payload }: { payload: Record<string, unknown> }) {
   );
 }
 
+// Sushi (bmq-analytics) answers the agent fetched: cost line card, UNC images and
+// sources are re-validated with the same schemas the old Sushi chat used.
+function SushiBlock({ payload, ownerId }: { payload: Record<string, unknown>; ownerId: string }) {
+  const answer = typeof payload.answer === "string" ? payload.answer : "";
+  const cost = costLineBlockSchema.safeParse(payload.costBlock);
+  const images = Array.isArray(payload.images) ? payload.images.flatMap((image) => {
+    const parsed = uncImageSchema.safeParse(image);
+    return parsed.success ? [parsed.data] : [];
+  }) : [];
+  const details = typeof payload.details === "string" ? payload.details : "";
+  const citations = Array.isArray(payload.citations) ? payload.citations as Array<Record<string, unknown>> : [];
+  if (!answer && !cost.success && !images.length) return null;
+  return (
+    <div className="mt-3 rounded-xl border border-vn-cobalt-l/30 bg-vn-cobalt-l/[.06] p-3" data-merchant-ui="sushi">
+      <div className="mb-1.5 font-vnMono text-[10px] uppercase tracking-[0.12em] text-vn-cobalt-l">Sushi trả lời</div>
+      {answer ? <div className="whitespace-pre-wrap break-words text-[13.5px] leading-6 text-vn-paper">{answer}</div> : null}
+      {cost.success ? (
+        <div className="mt-2">
+          <CostBusinessCard block={cost.data} language="vi" followUpEnabled={false} followUpDisabledReason="Anh hỏi tiếp ngay trong ô chat." onFollowUp={() => undefined} />
+        </div>
+      ) : null}
+      {images.length ? <UncImageGallery images={images} language="vi" ownerId={ownerId} /> : null}
+      {details ? (
+        <details className="mt-2 border-t border-vn-paper/10 pt-2 text-xs text-vn-paper/80">
+          <summary className="cursor-pointer font-semibold text-vn-lime">Xem chi tiết</summary>
+          <div className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words">{details}</div>
+        </details>
+      ) : null}
+      {citations.length ? (
+        <div className="mt-2 border-t border-vn-paper/10 pt-2 text-[11px] leading-5 text-vn-paper/55">
+          Nguồn: {citations.slice(0, 3).map((citation) => String(citation.title || citation.source || "")).filter(Boolean).join(" · ")}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function ChangeCard({
   change,
   headline,
@@ -163,6 +203,15 @@ function ChangeCard({
         </ul>
       ) : null}
       {note && open ? <div className="mt-2 text-[12px] leading-5 text-vn-paper/60">{note}</div> : null}
+      {open && change.guardrail_notes?.length ? (
+        <ul className="mt-2 space-y-1 rounded-lg border border-amber-400/30 bg-amber-400/10 px-2.5 py-2" data-merchant-change-warnings>
+          {change.guardrail_notes.map((warning) => (
+            <li key={warning} className="flex gap-1.5 text-[12px] font-semibold leading-5 text-amber-200">
+              <AlertTriangle className="mt-[3px] h-3.5 w-3.5 shrink-0" />{warning}
+            </li>
+          ))}
+        </ul>
+      ) : null}
       {change.status === "failed" && change.error ? <div className="mt-2 text-[12px] leading-5 text-vn-red">{change.error}</div> : null}
       {open ? (
         <div className="mt-3 grid grid-cols-2 gap-2">
@@ -347,6 +396,7 @@ export function MerchantAgentChatWidget() {
                   {message.ui.map((block, index) => {
                     if (block.component === "metrics") return <MetricsBlock key={index} payload={block.payload} />;
                     if (block.component === "digest") return <DigestBlock key={index} payload={block.payload} />;
+                    if (block.component === "sushi_answer") return <SushiBlock key={index} payload={block.payload} ownerId={user?.id || ""} />;
                     if (block.component === "change_preview") {
                       const changeId = String(block.payload.change_id || (block.payload.change as MerchantChange | undefined)?.change_id || "");
                       const change = changes[changeId] || (block.payload.change as MerchantChange | undefined);
