@@ -13,6 +13,7 @@ import re
 import unicodedata
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation
 from typing import Any, Iterable, Literal
 from zoneinfo import ZoneInfo
 
@@ -402,6 +403,165 @@ class BmqMerchantBackend(MerchantBackend):
         }
         params.update(extra or {})
         return await self._db.select("dealer_orders", params)
+
+    async def purchase_orders(
+        self,
+        start: date,
+        end: date,
+        *,
+        supplier: str | None = None,
+        status: str | None = None,
+        limit: int = 30,
+    ) -> dict[str, Any]:
+        """List purchase orders in an inclusive VN date range.
+
+        The ``purchase_order_count`` metric (bmq-analytics data.ts and
+        sme_platform/bmq_business.py) counts purchase_orders by ``order_date``.
+        This read deliberately uses the same column so counts and detail lists
+        always agree.
+
+        Names and line items are fetched in explicit ``id=in.(...)`` batches
+        instead of PostgREST embeds: the live schema has several relationships
+        into purchase_orders, so an embed is ambiguous at runtime.
+        """
+
+        params: dict[str, str] = {
+            "select": (
+                "id,po_number,order_date,expected_date,status,total_amount,"
+                "vat_amount,notes,supplier_id"
+            ),
+            "and": (
+                "("
+                f"order_date.gte.{start.isoformat()},"
+                f"order_date.lte.{end.isoformat()}"
+                ")"
+            ),
+            "order": "order_date.asc,po_number.asc",
+        }
+        if status:
+            params["status"] = f"eq.{status}"
+        rows = await self._db.select("purchase_orders", params)
+        rows.sort(
+            key=lambda row: (
+                str(row.get("order_date") or ""),
+                str(row.get("po_number") or ""),
+            )
+        )
+
+        supplier_ids = list(
+            dict.fromkeys(
+                str(row.get("supplier_id"))
+                for row in rows
+                if row.get("supplier_id") not in (None, "")
+            )
+        )
+        supplier_names: dict[str, str] = {}
+        for offset in range(0, len(supplier_ids), 100):
+            batch = supplier_ids[offset : offset + 100]
+            suppliers = await self._db.select(
+                "suppliers",
+                {
+                    "select": "id,name",
+                    "id": f"in.({','.join(batch)})",
+                },
+            )
+            for supplier_row in suppliers:
+                supplier_id = str(supplier_row.get("id") or "")
+                if supplier_id:
+                    supplier_names[supplier_id] = str(
+                        supplier_row.get("name") or ""
+                    ).strip() or "Chưa gán nhà cung cấp"
+
+        labeled: list[tuple[dict[str, Any], str]] = []
+        for row in rows:
+            supplier_id = str(row.get("supplier_id") or "")
+            label = supplier_names.get(supplier_id, "Chưa gán nhà cung cấp")
+            labeled.append((row, label))
+
+        needle = _normalized(supplier) if supplier else ""
+        if needle:
+            labeled = [
+                (row, label)
+                for row, label in labeled
+                if label != "Chưa gán nhà cung cấp"
+                and needle in _normalized(label)
+            ]
+
+        supplier_counts: dict[str, int] = {}
+        for _, label in labeled:
+            supplier_counts[label] = supplier_counts.get(label, 0) + 1
+
+        total_amount = Decimal("0")
+        for row, _ in labeled:
+            value = row.get("total_amount")
+            if value is None:
+                continue
+            try:
+                total_amount += Decimal(str(value))
+            except (InvalidOperation, TypeError, ValueError):
+                continue
+        total_value: int | float = (
+            int(total_amount)
+            if total_amount == total_amount.to_integral_value()
+            else float(total_amount)
+        )
+
+        selected = labeled[:limit]
+        selected_ids = [
+            str(row.get("id"))
+            for row, _ in selected
+            if row.get("id") not in (None, "")
+        ]
+        items_by_po: dict[str, list[dict[str, Any]]] = {}
+        for offset in range(0, len(selected_ids), 100):
+            batch = selected_ids[offset : offset + 100]
+            items = await self._db.select(
+                "purchase_order_items",
+                {
+                    "select": (
+                        "product_name,quantity,unit,unit_price,line_total,"
+                        "purchase_order_id"
+                    ),
+                    "purchase_order_id": f"in.({','.join(batch)})",
+                },
+            )
+            for item in items:
+                purchase_order_id = str(
+                    item.get("purchase_order_id") or ""
+                )
+                if not purchase_order_id:
+                    continue
+                items_by_po.setdefault(purchase_order_id, []).append(
+                    {
+                        "product_name": item.get("product_name"),
+                        "quantity": item.get("quantity"),
+                        "unit": item.get("unit"),
+                        "unit_price": item.get("unit_price"),
+                        "line_total": item.get("line_total"),
+                    }
+                )
+
+        purchase_orders = [
+            {
+                "po_number": row.get("po_number"),
+                "order_date": row.get("order_date"),
+                "expected_date": row.get("expected_date"),
+                "supplier_name": label,
+                "status": row.get("status"),
+                "total_amount": row.get("total_amount"),
+                "vat_amount": row.get("vat_amount"),
+                "notes": row.get("notes"),
+                "items": items_by_po.get(str(row.get("id") or ""), []),
+            }
+            for row, label in selected
+        ]
+        return {
+            "count": len(labeled),
+            "total_amount": total_value,
+            "supplier_counts": supplier_counts,
+            "pos_omitted": max(0, len(labeled) - len(purchase_orders)),
+            "purchase_orders": purchase_orders,
+        }
 
     # -- revenue snapshot -----------------------------------------------------
 
