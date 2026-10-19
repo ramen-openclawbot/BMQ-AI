@@ -1432,7 +1432,6 @@
 .kg .bom-hint { display: block; margin-top: -4px; font-size: 12.5px; font-weight: 800; line-height: 1.4; color: #6f6a85; }
 .kg .bom-hint[data-bmq-bom-hint="uncounted"] { color: #8a4b12; }
 /* BOM card (owner 19/10): which products the ingredient is deducted for; merged recipe codes. */
-.kg .bom-codes { display: block; margin-top: 2px; font-size: 12px; font-weight: 800; color: var(--sage-deep); }
 .kg .bom-products { display: grid; gap: 6px; padding: 8px 10px; background: var(--white); border: 2px solid var(--ink); border-radius: 12px; }
 .kg .bom-products-title { font-size: 12px; font-weight: 900; letter-spacing: .04em; text-transform: uppercase; color: #6f6a85; }
 .kg .bom-products > ul { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
@@ -1442,5 +1441,4 @@
 .kg .bom-products ol { display: grid; gap: 2px; margin: 2px 0 6px; padding: 0 0 0 4px; list-style: none; font-size: 12.5px; font-weight: 700; color: #4a4766; }
 .kg .bom-products ol li { display: flex; justify-content: space-between; gap: 8px; }
 .kg .bom-products ol li span { min-width: 0; overflow-wrap: anywhere; }
-.kg .bom-product-code { display: block; font-size: 11.5px; font-weight: 800; color: #6f6a85; }
 .kg .bom-products-wait { font-size: 13px; }

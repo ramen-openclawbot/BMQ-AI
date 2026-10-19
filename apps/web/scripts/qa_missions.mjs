@@ -764,7 +764,9 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     assert.deepEqual(await page.locator("[data-bmq-bom-line]").evaluateAll((els) => els.map((el) => el.getAttribute("data-status"))), ["open", "open", "done"], "open lines first");
     const cbc = page.locator("[data-bmq-bom-line='Chà bông cay']");
     // Owner 19/10: recipe codes drawing from one kho item are one card, and each card says what it is deducted for.
-    assert.match(await cbc.locator("[data-bmq-bom-codes]").textContent(), /Gộp 2 mã công thức: Chà bông cay \+ Chà bông cay \(mã cũ\)/);
+    // Owner 19/10 (later): only the kho item name, no "mã A + mã B" listing.
+    assert.equal(await cbc.locator("[data-bmq-bom-codes], .bom-product-code").count(), 0, "no code listing on a grouped card");
+    assert.doesNotMatch(await cbc.textContent(), /\+|mã cũ|Gộp \d mã/, "grouped card shows one name only");
     await cbc.locator("[data-bmq-bom-products]").waitFor({ timeout: 5000 });
     assert.equal(await cbc.locator("[data-bmq-bom-product]").count(), 2, "both products listed");
     assert.match(await cbc.locator("[data-bmq-bom-product='Bánh Mì Chà Bông'] summary").textContent(), /632/);

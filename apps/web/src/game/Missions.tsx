@@ -588,7 +588,6 @@ function BomProducts({ lines }: { lines: Q7BomMismatchLine[] }) {
   if (products.error) return <div className="err">{missionErrorMessage(products.error)}</div>;
   const rows = products.data ?? [];
   if (!rows.length) return null;
-  const codeName = new Map(lines.map((line) => [line.canonical_material_id, line.canonical_material.name]));
   const byProduct = new Map<string, typeof rows>();
   rows.forEach((row) => byProduct.set(row.product, [...(byProduct.get(row.product) ?? []), row]));
   return (
@@ -604,7 +603,6 @@ function BomProducts({ lines }: { lines: Q7BomMismatchLine[] }) {
                   <b>{product}</b>
                   <span>{fmtQty(total)} {slips[0]?.unit ?? ""}</span>
                 </summary>
-                {lines.length > 1 ? <small className="bom-product-code">công thức ghi: {[...new Set(slips.map((slip) => codeName.get(slip.canonicalMaterialId) ?? ""))].join(", ")}</small> : null}
                 <ol>
                   {slips.map((slip) => (
                     <li key={`${slip.issueId}-${slip.canonicalMaterialId}`}><span>{ddmm(slip.issueDate)} · {slip.issueNumber}</span><b>{fmtQty(slip.qty)} {slip.unit}</b></li>
@@ -669,11 +667,11 @@ function BomLineCard({ lines, items, onSaved }: { lines: Q7BomMismatchLine[]; it
       setBusy(false);
     }
   };
-  const codes = grouped ? <small className="bom-codes" data-bmq-bom-codes>Gộp {lines.length} mã công thức: {lines.map((l) => l.canonical_material.name).join(" + ")}</small> : null;
+  // Owner 19/10: a grouped card shows only the kho item name, never "code A + code B".
   if (!openLines.length) {
     return (
       <li className="task-row is-fixed bom-row" data-bmq-bom-line={name} data-status="done">
-        <div className="task-head"><b>{name}</b><small>công thức · {fmtQty(plannedTotal)} {line.source_unit} cho phiếu sau 16/10</small>{codes}</div>
+        <div className="task-head"><b>{name}</b><small>công thức · {fmtQty(plannedTotal)} {line.source_unit} cho phiếu sau 16/10</small></div>
         <span className="task-ok">{line.excluded ? (line.decision?.action === "bom_error" ? "Công thức ghi sai — không trừ" : "Không theo dõi tồn — không trừ") : `✓ Trừ vào ${mapped?.name ?? ""}`}</span>
         <BomProducts lines={lines} />
       </li>
@@ -695,7 +693,6 @@ function BomLineCard({ lines, items, onSaved }: { lines: Q7BomMismatchLine[]; it
       <div className="task-head">
         <b>{name}</b>
         <small>Công thức cần <b>{fmtQty(plannedTotal)} {line.source_unit}</b> cho {days.map(ddmm).join(", ")}</small>
-        {codes}
       </div>
       <BomProducts lines={lines} />
       <div className="bom-now">
