@@ -42,6 +42,43 @@ export function useQ7BomMismatchReview(enabled = true) {
   });
 }
 
+export interface Q7BomProductLine {
+  canonicalMaterialId: string;
+  product: string;
+  skuCode: string | null;
+  issueId: string;
+  issueNumber: string;
+  issueDate: string;
+  qty: number;
+  unit: string;
+}
+
+/** Which finished products (and which PXK slips) a BOM line is deducted for (owner 19/10). */
+export function useQ7BomLineProducts(canonicalMaterialIds: string[]) {
+  const ids = [...canonicalMaterialIds].sort();
+  return useQuery({
+    queryKey: [Q7_BOM_MISMATCH_REVIEW_QUERY_KEY, "products", ids],
+    enabled: ids.length > 0,
+    queryFn: async (): Promise<Q7BomProductLine[]> => {
+      const { data, error } = await (supabase as any).rpc("get_q7_bom_line_products", { p_canonical_material_ids: ids });
+      if (error) throw error;
+      return (Array.isArray(data) ? data : []).flatMap((row: Record<string, unknown>) => {
+        if (!row || typeof row.issue_id !== "string" || typeof row.canonical_material_id !== "string") return [];
+        return [{
+          canonicalMaterialId: row.canonical_material_id,
+          product: typeof row.product === "string" ? row.product : "Không rõ sản phẩm",
+          skuCode: typeof row.sku_code === "string" ? row.sku_code : null,
+          issueId: row.issue_id,
+          issueNumber: typeof row.issue_number === "string" ? row.issue_number : "",
+          issueDate: typeof row.issue_date === "string" ? row.issue_date : "",
+          qty: Number(row.qty ?? 0) || 0,
+          unit: typeof row.unit === "string" ? row.unit : "",
+        }];
+      });
+    },
+  });
+}
+
 export interface ResolveQ7BomLineInput {
   canonicalMaterialId: string;
   sourceUnit: string;

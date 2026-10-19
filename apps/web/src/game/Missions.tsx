@@ -6,7 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { MISSIONS_QUERY_KEY, useAssignMission, useCompleteMission, useMarkItemsDistinct, useMissionAssignments, useMissionStaff, useResolveUnknownUnit, useUnassignMission, useUpdateAliasFactor } from "@/hooks/useMissions";
 import { useAliasReceiptLines, useItemReceiptLines, useRenameStockItem, useUnitVariantReceiptLines, useWarehouseGameSnapshot, WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY } from "@/hooks/useWarehouseGame";
 import { useAnswerCountUnitQuestion, useCountUnitQuestions } from "@/hooks/useCountUnitQuestions";
-import { usePostPendingQ7Issues, useQ7BomMismatchReview, useResolveQ7BomLine } from "@/hooks/useQ7BomMatch";
+import { usePostPendingQ7Issues, useQ7BomLineProducts, useQ7BomMismatchReview, useResolveQ7BomLine } from "@/hooks/useQ7BomMatch";
 import { PateRecipeTool } from "./PateProduction";
 import { useMissionSkuCount } from "@/hooks/useMissionSkuCount";
 import { factorPrompt as bomFactorPrompt, type Q7BomMismatchLine } from "@/lib/q7-bom-match";
@@ -579,25 +579,69 @@ function BomItemNotes({ itemId, title }: { itemId: string | null; title: string 
   return <ReceiptNotes title={title} lines={lines.data} loading={lines.isLoading} error={lines.error} />;
 }
 
+const ddmm = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+
+/** Owner 19/10: what the ingredient is deducted for, per product, with every PXK slip, so kế toán can check it. */
+function BomProducts({ lines }: { lines: Q7BomMismatchLine[] }) {
+  const products = useQ7BomLineProducts(lines.map((line) => line.canonical_material_id));
+  if (products.isLoading) return <p className="note bom-products-wait">Đang tìm sản phẩm dùng nguyên liệu này…</p>;
+  if (products.error) return <div className="err">{missionErrorMessage(products.error)}</div>;
+  const rows = products.data ?? [];
+  if (!rows.length) return null;
+  const codeName = new Map(lines.map((line) => [line.canonical_material_id, line.canonical_material.name]));
+  const byProduct = new Map<string, typeof rows>();
+  rows.forEach((row) => byProduct.set(row.product, [...(byProduct.get(row.product) ?? []), row]));
+  return (
+    <div className="bom-products" data-bmq-bom-products>
+      <span className="bom-products-title">Trừ cho sản phẩm</span>
+      <ul>
+        {[...byProduct.entries()].map(([product, slips]) => {
+          const total = slips.reduce((sum, slip) => sum + slip.qty, 0);
+          return (
+            <li key={product} data-bmq-bom-product={product}>
+              <details>
+                <summary>
+                  <b>{product}</b>
+                  <span>{fmtQty(total)} {slips[0]?.unit ?? ""}</span>
+                </summary>
+                {lines.length > 1 ? <small className="bom-product-code">công thức ghi: {[...new Set(slips.map((slip) => codeName.get(slip.canonicalMaterialId) ?? ""))].join(", ")}</small> : null}
+                <ol>
+                  {slips.map((slip) => (
+                    <li key={`${slip.issueId}-${slip.canonicalMaterialId}`}><span>{ddmm(slip.issueDate)} · {slip.issueNumber}</span><b>{fmtQty(slip.qty)} {slip.unit}</b></li>
+                  ))}
+                </ol>
+              </details>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
 /**
- * One BOM ingredient of the Q7 material issues after the 16/10 count (owner 17/10): keep drawing from the
- * mapped kho item, point it at the item that was really counted (with a factor when units differ), or
- * exclude it ("không theo dõi" / "công thức ghi sai").
+ * One kho item's BOM ingredients of the Q7 material issues after the 16/10 count (owner 17/10): keep drawing
+ * from the mapped kho item, point them at the item that was really counted (with a factor when units differ),
+ * or exclude them ("không theo dõi" / "công thức ghi sai"). Recipe codes that draw from the same kho item are
+ * one card (owner 19/10: two whipping cream codes are one thing).
  */
-function BomLineCard({ line, items, onSaved }: { line: Q7BomMismatchLine; items: { id: string; name: string; unit: string }[]; onSaved: (text: string) => void }) {
+function BomLineCard({ lines, items, onSaved }: { lines: Q7BomMismatchLine[]; items: { id: string; name: string; unit: string }[]; onSaved: (text: string) => void }) {
   const resolve = useResolveQ7BomLine();
-  const [requestId] = useState(newRequestId);
+  const [requestIds] = useState(() => new Map(lines.map((line) => [line.canonical_material_id, newRequestId()])));
+  const line = lines[0];
+  const grouped = lines.length > 1;
   const mapped = line.current_mapping;
+  const candidates = [...new Map(lines.flatMap((l) => l.candidates).map((c) => [c.kitchen_inventory_item_id, c])).values()];
   // Owner 18/10 (Bico Soft → "Giấy nến"): only a counted item with the very same name is pre-picked; a loose
   // name overlap ("bánh", "hướng dương") is never chosen for the user. Otherwise keep the item drawn from now.
-  const sameName = line.candidates.find((c) => c.similarity >= 0.999);
+  const sameName = candidates.find((c) => c.similarity >= 0.999);
   const [target, setTarget] = useState(
     mapped && line.has_count_since_cutover ? mapped.kitchen_inventory_item_id
       : sameName ? sameName.kitchen_inventory_item_id
       : mapped?.kitchen_inventory_item_id ?? "",
   );
   const targetItem = items.find((item) => item.id === target)
-    ?? line.candidates.map((c) => ({ id: c.kitchen_inventory_item_id, name: c.name, unit: c.unit })).find((item) => item.id === target)
+    ?? candidates.map((c) => ({ id: c.kitchen_inventory_item_id, name: c.name, unit: c.unit })).find((item) => item.id === target)
     ?? (mapped && mapped.kitchen_inventory_item_id === target ? { id: mapped.kitchen_inventory_item_id, name: mapped.name, unit: mapped.unit } : null);
   const sameUnit = Boolean(targetItem && targetItem.unit.trim().toLowerCase() === line.source_unit.trim().toLowerCase());
   const [factorText, setFactorText] = useState("");
@@ -605,39 +649,59 @@ function BomLineCard({ line, items, onSaved }: { line: Q7BomMismatchLine; items:
   const answer = Number(factorText.replace(/\s/g, "").replace(",", "."));
   const factor = sameUnit && factorText === "" ? 1 : sameUnit ? answer : answer > 0 ? 1 / answer : NaN;
   const factorOk = Number.isFinite(factor) && factor > 0;
-  const name = line.canonical_material.name;
-  const send = (action: "remap" | "not_tracked" | "bom_error") => resolve.mutate(
-    { canonicalMaterialId: line.canonical_material_id, sourceUnit: line.source_unit, action, targetItemId: action === "remap" ? target : null, factor: action === "remap" ? factor : null, requestId },
-    { onSuccess: () => onSaved(action === "remap" ? `“${name}” → ${targetItem?.name ?? ""}` : action === "not_tracked" ? `“${name}”: không theo dõi tồn` : `“${name}”: công thức ghi sai, không trừ`) },
-  );
-  if (!line.open) {
+  const name = grouped ? mapped?.name ?? line.canonical_material.name : line.canonical_material.name;
+  const plannedTotal = lines.reduce((sum, l) => sum + l.planned_qty_total, 0);
+  const days = [...new Set(lines.flatMap((l) => l.planned_by_issue_date.map((d) => d.issue_date)))].sort();
+  // Same kho item: each code's projection is balance − its own pending use, so the group's is Σ projected − (n−1)·balance.
+  const projected = lines.reduce((sum, l) => sum + l.projected_balance, 0) - (lines.length - 1) * line.current_balance;
+  const openLines = lines.filter((l) => l.open);
+  const [busy, setBusy] = useState(false);
+  const send = async (action: "remap" | "not_tracked" | "bom_error") => {
+    setBusy(true);
+    try {
+      for (const l of openLines) {
+        await resolve.mutateAsync({ canonicalMaterialId: l.canonical_material_id, sourceUnit: l.source_unit, action, targetItemId: action === "remap" ? target : null, factor: action === "remap" ? factor : null, requestId: requestIds.get(l.canonical_material_id) });
+      }
+      onSaved(action === "remap" ? `“${name}” → ${targetItem?.name ?? ""}` : action === "not_tracked" ? `“${name}”: không theo dõi tồn` : `“${name}”: công thức ghi sai, không trừ`);
+    } catch {
+      // resolve.error shows the reason below.
+    } finally {
+      setBusy(false);
+    }
+  };
+  const codes = grouped ? <small className="bom-codes" data-bmq-bom-codes>Gộp {lines.length} mã công thức: {lines.map((l) => l.canonical_material.name).join(" + ")}</small> : null;
+  if (!openLines.length) {
     return (
       <li className="task-row is-fixed bom-row" data-bmq-bom-line={name} data-status="done">
-        <div className="task-head"><b>{name}</b><small>công thức · {fmtQty(line.planned_qty_total)} {line.source_unit} cho phiếu sau 16/10</small></div>
+        <div className="task-head"><b>{name}</b><small>công thức · {fmtQty(plannedTotal)} {line.source_unit} cho phiếu sau 16/10</small>{codes}</div>
         <span className="task-ok">{line.excluded ? (line.decision?.action === "bom_error" ? "Công thức ghi sai — không trừ" : "Không theo dõi tồn — không trừ") : `✓ Trừ vào ${mapped?.name ?? ""}`}</span>
+        <BomProducts lines={lines} />
       </li>
     );
   }
-  const mappedOption = mapped && !line.candidates.some((c) => c.kitchen_inventory_item_id === mapped.kitchen_inventory_item_id)
+  const mappedOption = mapped && !candidates.some((c) => c.kitchen_inventory_item_id === mapped.kitchen_inventory_item_id)
     ? [{ value: mapped.kitchen_inventory_item_id, label: `${mapped.name} · ${mapped.unit} · đang trừ${line.has_count_since_cutover ? "" : " · chưa đếm 16/10"}` }]
     : [];
   const options = [
     ...mappedOption,
-    ...line.candidates.map((c) => ({ value: c.kitchen_inventory_item_id, label: `${c.name} · ${c.unit} · đếm ${fmtQty(c.counted_balance)}` })),
-    ...items.filter((item) => item.id !== mapped?.kitchen_inventory_item_id && !line.candidates.some((c) => c.kitchen_inventory_item_id === item.id)).map((item) => ({ value: item.id, label: `${item.name} · ${item.unit}` })),
+    ...candidates.map((c) => ({ value: c.kitchen_inventory_item_id, label: `${c.name} · ${c.unit} · đếm ${fmtQty(c.counted_balance)}` })),
+    ...items.filter((item) => item.id !== mapped?.kitchen_inventory_item_id && !candidates.some((c) => c.kitchen_inventory_item_id === item.id)).map((item) => ({ value: item.id, label: `${item.name} · ${item.unit}` })),
   ];
   const keepingUncounted = Boolean(mapped && target === mapped.kitchen_inventory_item_id && !line.has_count_since_cutover);
   const suggested = Boolean(sameName && target === sameName.kitchen_inventory_item_id && target !== mapped?.kitchen_inventory_item_id);
+  const pending = busy || resolve.isPending;
   return (
     <li className="task-row bom-row" data-bmq-bom-line={name} data-status="open">
       <div className="task-head">
         <b>{name}</b>
-        <small>Công thức cần <b>{fmtQty(line.planned_qty_total)} {line.source_unit}</b> cho {line.planned_by_issue_date.map((d) => d.issue_date.slice(8, 10) + "/" + d.issue_date.slice(5, 7)).join(", ")}</small>
+        <small>Công thức cần <b>{fmtQty(plannedTotal)} {line.source_unit}</b> cho {days.map(ddmm).join(", ")}</small>
+        {codes}
       </div>
+      <BomProducts lines={lines} />
       <div className="bom-now">
         <span>Đang trừ vào</span>
         <b>{mapped?.name ?? "chưa có món kho"}</b>
-        <small>{line.has_count_since_cutover ? `đã đếm 16/10 · còn ${fmtQty(line.current_balance)} ${mapped?.unit ?? ""}` : "chưa đếm 16/10"}{line.projected_balance < 0 ? ` · sau khi trừ: ${fmtQty(line.projected_balance)}` : ""}</small>
+        <small>{line.has_count_since_cutover ? `đã đếm 16/10 · còn ${fmtQty(line.current_balance)} ${mapped?.unit ?? ""}` : "chưa đếm 16/10"}{projected < 0 ? ` · sau khi trừ: ${fmtQty(projected)}` : ""}</small>
       </div>
       <label className="bom-pick">
         <span>Trừ vào món kho</span>
@@ -654,11 +718,11 @@ function BomLineCard({ line, items, onSaved }: { line: Q7BomMismatchLine; items:
       ) : null}
       <BomItemNotes itemId={target || null} title={`Phiếu giao hàng — ${targetItem?.name ?? "món kho"}`} />
       <div className="row bom-actions">
-        <button type="button" className="btn" disabled={!target || !factorOk || resolve.isPending} onClick={() => send("remap")} data-bmq-bom-save>
-          {resolve.isPending ? "Đang lưu…" : mapped && target === mapped.kitchen_inventory_item_id ? "Đúng món này" : "Trỏ sang món này"}
+        <button type="button" className="btn" disabled={!target || !factorOk || pending} onClick={() => void send("remap")} data-bmq-bom-save>
+          {pending ? "Đang lưu…" : mapped && target === mapped.kitchen_inventory_item_id ? "Đúng món này" : "Trỏ sang món này"}
         </button>
-        <button type="button" className="btn ghost" disabled={resolve.isPending} onClick={() => send("not_tracked")} data-bmq-bom-not-tracked>Không theo dõi</button>
-        <button type="button" className="btn ghost" disabled={resolve.isPending} onClick={() => send("bom_error")} data-bmq-bom-error>Công thức sai</button>
+        <button type="button" className="btn ghost" disabled={pending} onClick={() => void send("not_tracked")} data-bmq-bom-not-tracked>Không theo dõi</button>
+        <button type="button" className="btn ghost" disabled={pending} onClick={() => void send("bom_error")} data-bmq-bom-error>Công thức sai</button>
       </div>
       {resolve.error ? <div className="err">{missionErrorMessage(resolve.error)}</div> : null}
     </li>
@@ -671,13 +735,20 @@ function BomMatchTool({ onSaved }: { onSaved: (text: string) => void }) {
   const post = usePostPendingQ7Issues();
   if (review.isLoading) return <p className="note">Đang đọc công thức…</p>;
   if (review.error) return <div className="err">{missionErrorMessage(review.error)}</div>;
-  const rows = [...(review.data ?? [])].sort((a, b) => Number(b.open) - Number(a.open));
-  const open = rows.filter((row) => row.open).length;
+  // Recipe codes drawing from the same kho item (same unit) are one card.
+  const groups = new Map<string, Q7BomMismatchLine[]>();
+  for (const row of review.data ?? []) {
+    const key = row.current_mapping ? `${row.current_mapping.kitchen_inventory_item_id}|${row.source_unit.trim().toLowerCase()}` : `${row.canonical_material_id}|${row.source_unit}`;
+    groups.set(key, [...(groups.get(key) ?? []), row]);
+  }
+  const cards = [...groups.entries()].map(([key, lines]) => ({ key, lines: [...lines].sort((a, b) => Number(b.open) - Number(a.open)) }))
+    .sort((a, b) => Number(b.lines.some((l) => l.open)) - Number(a.lines.some((l) => l.open)));
+  const open = cards.filter((card) => card.lines.some((l) => l.open)).length;
   const items = (snapshot.data?.items ?? []).map((item) => ({ id: item.id, name: item.name, unit: item.unit }));
   return (
     <>
-      <p className="hint">Mỗi nguyên liệu trong công thức bánh Q7: chọn đúng món kho đã đếm ngày 16/10 để phiếu xuất NVL trừ vào đó. Khác đơn vị thì gõ quy đổi, xem phiếu giao hàng bên dưới. Món không giữ tồn (nước đá…) chọn “Không theo dõi”; nguyên liệu không thuộc công thức chọn “Công thức sai”.</p>
-      <ul className="task-list" data-bmq-bom-lines>{rows.map((row) => <BomLineCard key={`${row.canonical_material_id}|${row.source_unit}`} line={row} items={items} onSaved={onSaved} />)}</ul>
+      <p className="hint">Mỗi nguyên liệu trong công thức bánh Q7: xem nó đang trừ cho bánh nào, rồi chọn đúng món kho đã đếm ngày 16/10 để phiếu xuất NVL trừ vào đó. Khác đơn vị thì gõ quy đổi, xem phiếu giao hàng bên dưới. Món không giữ tồn (nước đá…) chọn “Không theo dõi”; nguyên liệu không thuộc công thức chọn “Công thức sai”.</p>
+      <ul className="task-list" data-bmq-bom-lines>{cards.map((card) => <BomLineCard key={card.key} lines={card.lines} items={items} onSaved={onSaved} />)}</ul>
       <div className="bom-post">
         <small>{open ? `Còn ${open} nguyên liệu chưa trả lời — phiếu xuất có nguyên liệu này sẽ chờ.` : "Đã trả lời hết. Phiếu xuất sau 16/10 sẽ được trừ lúc 5:40 sáng, hoặc bấm trừ ngay."}</small>
         <button type="button" className="btn ghost" disabled={post.isPending} onClick={() => post.mutate({}, { onSuccess: (result) => onSaved(`Đã trừ ${result.posted + result.regenerated} phiếu xuất · ${result.skipped_open_mismatch} phiếu còn chờ`) })} data-bmq-bom-post>

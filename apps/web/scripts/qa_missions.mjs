@@ -101,11 +101,19 @@ function settle(st) {
     return { data: { mission_id: st.args.p_mission_id, status: "cancelled" }, error: null };
   }
   // Khớp công thức Q7 (owner 17/10): one counted-but-short line, one unit-mismatch remap, one excluded.
+  if (st.table === "rpc:get_q7_bom_line_products") {
+    const P = { "m-cbc": "BÁNH MÌ CHÀ BÔNG CAY", "m-cbc-old": "Bánh Mì Chà Bông", "m-dau": "Bánh mì que" };
+    return { data: (st.args.p_canonical_material_ids || []).flatMap((id) => P[id] ? [
+      { canonical_material_id: id, product: P[id], sku_code: "x", issue_id: "pxk-" + id + "-1", issue_number: "PXK-NVL-Q7-20261017-001", issue_date: "2026-10-17", qty: 300.2, unit: "g" },
+      { canonical_material_id: id, product: P[id], sku_code: "x", issue_id: "pxk-" + id + "-2", issue_number: "PXK-NVL-Q7-20261018-001", issue_date: "2026-10-18", qty: 331.8, unit: "g" },
+    ] : []), error: null };
+  }
   if (st.table === "rpc:get_q7_bom_mismatch_review") {
     const mat = (id, code, name) => ({ id, code, name, default_unit: "g" });
     const base = { planned_by_issue_date: [{ issue_date: "2026-10-17", planned_qty: 1 }, { issue_date: "2026-10-18", planned_qty: 1 }], latest_issue_date: "2026-10-18", item_class: "raw_material", resolved: false, excluded: false, decision: null };
     return { data: [
       { ...base, canonical_material_id: "m-cbc", canonical_material: mat("m-cbc", "NVL-CBC", "Chà bông cay"), source_unit: "g", current_mapping: { q7_mapping_id: "q-1", kitchen_inventory_item_id: "it-cbc", item_code: "Q7-CBC", name: "Chà bông cay", unit: "g", conversion_factor: 1 }, planned_qty_total: 5375, current_balance: 5000, projected_balance: -375, has_count_since_cutover: true, open: true, candidates: [{ kitchen_inventory_item_id: "it-cbc", item_code: "Q7-CBC", name: "Chà bông cay", unit: "g", counted_balance: 5000, similarity: 1 }] },
+      { ...base, canonical_material_id: "m-cbc-old", canonical_material: mat("m-cbc-old", "NVL-CBC-OLD", "Chà bông cay (mã cũ)"), source_unit: "g", current_mapping: { q7_mapping_id: "q-1", kitchen_inventory_item_id: "it-cbc", item_code: "Q7-CBC", name: "Chà bông cay", unit: "g", conversion_factor: 1 }, planned_qty_total: 1000, current_balance: 5000, projected_balance: 4000, has_count_since_cutover: true, open: true, candidates: [{ kitchen_inventory_item_id: "it-cbc", item_code: "Q7-CBC", name: "Chà bông cay", unit: "g", counted_balance: 5000, similarity: 1 }] },
       { ...base, canonical_material_id: "m-dau", canonical_material: mat("m-dau", "NVL-DAU", "Dầu hướng dương"), source_unit: "g", current_mapping: { q7_mapping_id: "q-2", kitchen_inventory_item_id: "it-dhd", item_code: "Q7-DHD", name: "Dầu hướng dương", unit: "g", conversion_factor: 1 }, planned_qty_total: 5212, current_balance: -8166.21, projected_balance: -13378.21, has_count_since_cutover: false, open: true, candidates: [{ kitchen_inventory_item_id: "it-ta", item_code: "NVL-105", name: "Dầu ăn Tường An 5L x 4 chai (thùng)", unit: "thùng", counted_balance: 1, similarity: 0.4 }] },
       { ...base, canonical_material_id: "m-da", canonical_material: mat("m-da", "NVL-DA", "NƯỚC ĐÁ"), source_unit: "g", current_mapping: { q7_mapping_id: "q-3", kitchen_inventory_item_id: "it-da", item_code: "Q7-DA", name: "NƯỚC ĐÁ", unit: "g", conversion_factor: 1 }, planned_qty_total: 3600, current_balance: -5310, projected_balance: -8910, has_count_since_cutover: false, open: false, excluded: true, decision: { id: "d-1", action: "not_tracked", new_kitchen_item_id: null, conversion_factor: null, note: null, created_at: "2026-10-17T05:00:00Z" }, candidates: [] },
     ], error: null };
@@ -755,6 +763,13 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     assert.equal(await page.locator("[data-bmq-bom-line]").count(), 3, "three BOM lines");
     assert.deepEqual(await page.locator("[data-bmq-bom-line]").evaluateAll((els) => els.map((el) => el.getAttribute("data-status"))), ["open", "open", "done"], "open lines first");
     const cbc = page.locator("[data-bmq-bom-line='Chà bông cay']");
+    // Owner 19/10: recipe codes drawing from one kho item are one card, and each card says what it is deducted for.
+    assert.match(await cbc.locator("[data-bmq-bom-codes]").textContent(), /Gộp 2 mã công thức: Chà bông cay \+ Chà bông cay \(mã cũ\)/);
+    await cbc.locator("[data-bmq-bom-products]").waitFor({ timeout: 5000 });
+    assert.equal(await cbc.locator("[data-bmq-bom-product]").count(), 2, "both products listed");
+    assert.match(await cbc.locator("[data-bmq-bom-product='Bánh Mì Chà Bông'] summary").textContent(), /632/);
+    await cbc.locator("[data-bmq-bom-product='Bánh Mì Chà Bông'] summary").click();
+    assert.match(await cbc.locator("[data-bmq-bom-product='Bánh Mì Chà Bông']").textContent(), /17\/10 · PXK-NVL-Q7-20261017-001[\s\S]*300,2/);
     assert.match(await cbc.locator("[data-bmq-bom-save]").textContent(), /Đúng món này/, "counted item keeps its own mapping");
     assert.equal(await cbc.locator("[data-bmq-bom-factor]").count(), 0, "same unit asks no factor");
     const oil = page.locator("[data-bmq-bom-line='Dầu hướng dương']");
@@ -779,6 +794,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     await page.locator("[data-bmq-bom-post]").click({ force: true });
     await page.waitForTimeout(400);
     const all = await writes(page);
+    assert.ok(all.some((x) => x.startsWith("rpc:resolve_q7_bom_line:") && x.includes('"p_canonical_material_id":"m-cbc-old"') && x.includes('"p_target_item_id":"it-cbc"')), "merged card resolves both codes");
     assert.ok(all.some((x) => x.startsWith("rpc:resolve_q7_bom_line:") && x.includes('"p_canonical_material_id":"m-cbc"') && x.includes('"p_action":"remap"') && x.includes('"p_target_item_id":"it-cbc"') && x.includes('"p_factor":1')), "keep = remap to itself ×1");
     const oilWrite = all.find((x) => x.startsWith("rpc:resolve_q7_bom_line:") && x.includes('"p_canonical_material_id":"m-dau"'));
     const oilArgs = oilWrite ? JSON.parse(oilWrite.slice("rpc:resolve_q7_bom_line:".length)) : null;
