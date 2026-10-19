@@ -12,9 +12,38 @@ MIGRATION = (
     / "20261102180000_merchant_agent.sql"
 )
 
+PROCUREMENT_MIGRATION = (
+    Path(__file__).resolve().parents[3]
+    / "apps"
+    / "web"
+    / "supabase"
+    / "migrations"
+    / "20261102290000_merchant_analysis_procurement_views.sql"
+)
+
+PROCUREMENT_VIEWS = (
+    "purchase_orders_v",
+    "purchase_order_lines_v",
+    "suppliers_v",
+    "payment_requests_v",
+    "goods_receipts_v",
+    "goods_receipt_lines_v",
+)
+
 
 def migration_sql() -> str:
     return MIGRATION.read_text(encoding="utf-8").lower()
+
+
+def procurement_sql() -> str:
+    return PROCUREMENT_MIGRATION.read_text(encoding="utf-8").lower()
+
+
+def view_block(sql: str, view: str) -> str:
+    marker = f"create or replace view merchant_analysis.{view} as"
+    start = sql.index(marker)
+    end = sql.index(";", start)
+    return sql[start:end]
 
 
 def test_staged_changes_has_rls_and_owner_policy() -> None:
@@ -80,3 +109,33 @@ def test_apply_rpcs_lock_and_are_idempotent() -> None:
     assert "merchant_apply_price_change" in sql
     assert "mini_crm_customer_price_list" in sql
     assert "dealer_announcements" in sql
+
+
+def test_procurement_views_exist_and_are_granted_to_analyst() -> None:
+    sql = procurement_sql()
+    for view in PROCUREMENT_VIEWS:
+        assert f"create or replace view merchant_analysis.{view} as" in sql
+        assert (
+            f"grant select on merchant_analysis.{view} to merchant_analyst" in sql
+        )
+
+
+def test_suppliers_view_has_no_bank_or_contact_columns() -> None:
+    block = view_block(procurement_sql(), "suppliers_v")
+    for column in (
+        "bank_account_name",
+        "address",
+        "phone",
+        "email",
+        "contract_url",
+        "description",
+        "created_by",
+    ):
+        assert column not in block
+
+
+def test_procurement_views_are_not_granted_to_anon_or_authenticated() -> None:
+    sql = procurement_sql()
+    assert "to anon" not in sql
+    assert "to authenticated" not in sql
+    assert "to public" not in sql

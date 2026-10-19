@@ -305,6 +305,40 @@ def test_wire_sushi_registers_purchase_order_tool(
     assert "bmq_metric chỉ dùng để đếm" in options.system_prompt
 
 
+def test_wire_sushi_registers_sql_query_tool(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from bmq_merchant import server as server_module
+
+    captured: dict[str, Any] = {}
+
+    def fake_create_server(
+        name: str, version: str = "1.0.0", tools: Any = None
+    ) -> Any:
+        captured["tools"] = list(tools or [])
+        return {"type": "sdk", "name": name}
+
+    monkeypatch.setattr(server_module, "create_sdk_mcp_server", fake_create_server)
+    session = SimpleNamespace(
+        owner_token="",
+        pending_ui=[],
+        backend=SimpleNamespace(),
+    )
+    options = SimpleNamespace(
+        system_prompt="BASE PROMPT",
+        mcp_servers={},
+        allowed_tools=[],
+    )
+
+    server_module._wire_sushi(options, session, settings)
+
+    tool_names = {sdk_tool.name for sdk_tool in captured["tools"]}
+    assert "bmq_sql_query" in tool_names
+    assert "mcp__bmq__bmq_sql_query" in options.allowed_tools
+    assert "mcp__bmq__bmq_sql_query" in options.system_prompt
+    assert "tối đa 3 lần thử truy vấn" in options.system_prompt
+
+
 def test_approve_and_discard_endpoints(settings: Settings) -> None:
     captured: dict[str, Any] = {}
 

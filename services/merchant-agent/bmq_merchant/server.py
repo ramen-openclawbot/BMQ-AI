@@ -36,6 +36,7 @@ from .config import Settings, strip_anthropic_api_key
 from .purchase_order_tools import build_purchase_order_tools
 from .revenue_snapshot import is_snapshot_command
 from .snapshot_tools import build_snapshot_tools
+from .sql_tools import build_sql_tools
 from .supabase import SupabaseClient, SupabaseError
 from .sushi import SushiError
 from .warehouse_tools import build_warehouse_tools
@@ -62,9 +63,14 @@ SUSHI_SYSTEM_PROMPT = (
     "hàng tồn thấp và công nợ nhà cung cấp; mcp__bmq__bmq_unc_images cho ảnh UNC "
     "đã nộp. Với câu hỏi về chi tiết/danh sách PO (đơn mua hàng) theo ngày, nhà "
     "cung cấp hoặc trạng thái, gọi mcp__bmq__bmq_purchase_orders; bmq_metric chỉ "
-    "dùng để đếm. Chỉ dùng mcp__bmq__ask_sushi khi không có công cụ trực tiếp nào phù "
-    "hợp, như phương án cuối (last resort). Dùng đúng con số công cụ trả về, không "
-    "tự bịa số liệu; khi trả lời không nhắc tên công cụ hay hệ thống nội bộ, cứ "
+    "dùng để đếm. Khi không có công cụ trực tiếp nào phù hợp với câu hỏi dữ liệu "
+    "(tổ hợp PO/PR/phiếu nhập/nhà cung cấp, đơn đại lý, doanh thu chi tiết), tự "
+    "viết một truy vấn chỉ đọc bằng mcp__bmq__bmq_sql_query trước khi dùng "
+    "mcp__bmq__ask_sushi; tối đa 3 lần thử truy vấn cho mỗi câu hỏi. Chỉ dùng "
+    "mcp__bmq__ask_sushi khi không có công cụ trực tiếp nào phù hợp, như phương án "
+    "cuối (last resort). Dùng đúng con số công cụ trả về, không tự bịa số liệu; "
+    "trích dẫn số liệu đúng như công cụ trả về. Khi trả lời không nhắc tên công cụ "
+    "hay hệ thống nội bộ, cứ "
     "nói như VNAgent tự tra. Nếu công cụ kho dữ liệu báo lỗi khi hỏi doanh thu hoặc "
     "số đơn, dùng get_business_snapshot/query_metrics thay thế. Khi được hỏi về "
     "bất thường hoặc so sánh doanh thu tháng này với tháng trước, gọi "
@@ -190,20 +196,31 @@ def _wire_sushi(options: Any, chat_session: _ChatSession, settings: Settings) ->
         if getattr(chat_session, "backend", None) is not None
         else []
     )
+    sql_tools = (
+        build_sql_tools(chat_session, settings)
+        if getattr(chat_session, "backend", None) is not None
+        else []
+    )
     mcp_servers[SUSHI_MCP_SERVER] = create_sdk_mcp_server(
         name=SUSHI_MCP_SERVER,
         version="1.0.0",
         # ask_sushi stays first for the existing fallback contract; the direct
-        # read-only warehouse tools and the snapshot/purchase-order tools follow
-        # it in the same in-process server.
+        # read-only warehouse tools and the snapshot/purchase-order/SQL tools
+        # follow it in the same in-process server.
         tools=[
             _build_sushi_tool(chat_session, settings),
             *warehouse_tools,
             *snapshot_tools,
             *purchase_order_tools,
+            *sql_tools,
         ],
     )
-    for mcp_tool in [*warehouse_tools, *snapshot_tools, *purchase_order_tools]:
+    for mcp_tool in [
+        *warehouse_tools,
+        *snapshot_tools,
+        *purchase_order_tools,
+        *sql_tools,
+    ]:
         allowed_tool = f"mcp__{SUSHI_MCP_SERVER}__{mcp_tool.name}"
         if allowed_tool not in allowed_tools:
             allowed_tools.append(allowed_tool)
