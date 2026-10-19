@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { VnagentMark } from "@/components/agent/GlobalAgentChatWidget";
 import { CostBusinessCard } from "@/components/agent/CostBusinessCard";
 import { UncImageGallery } from "@/components/agent/UncImageGallery";
+import { RevenueSnapshotCard } from "@/components/agent/RevenueSnapshotCard";
 import { costLineBlockSchema, uncImageSchema } from "@/lib/bmqAnalytics";
 import {
   MerchantAgentError,
@@ -35,6 +36,7 @@ type ChatMessage =
   | { id: string; role: "error"; text: string };
 
 const STARTERS = [
+  "Snapshot doanh thu",
   "Tổng quan 7 ngày qua",
   "Doanh thu tháng này theo kênh",
   "Hôm nay đơn đại lý có vấn đề gì?",
@@ -395,6 +397,7 @@ export function MerchantAgentChatWidget() {
                   {message.ui.map((block, index) => {
                     if (block.component === "metrics") return <MetricsBlock key={index} payload={block.payload} />;
                     if (block.component === "digest") return <DigestBlock key={index} payload={block.payload} />;
+                    if (block.component === "revenue_snapshot") return <RevenueSnapshotCard key={index} payload={block.payload} />;
                     if (block.component === "sushi_answer") return <SushiBlock key={index} payload={block.payload} ownerId={user?.id || ""} />;
                     if (block.component === "change_preview") {
                       const changeId = String(block.payload.change_id || (block.payload.change as MerchantChange | undefined)?.change_id || "");

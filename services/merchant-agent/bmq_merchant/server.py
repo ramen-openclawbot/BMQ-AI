@@ -33,6 +33,8 @@ from . import sushi
 from .auth import Owner, verify_owner
 from .backend import BmqMerchantBackend
 from .config import Settings, strip_anthropic_api_key
+from .revenue_snapshot import is_snapshot_command
+from .snapshot_tools import build_snapshot_tools
 from .supabase import SupabaseClient, SupabaseError
 from .sushi import SushiError
 from .warehouse_tools import build_warehouse_tools
@@ -61,7 +63,9 @@ SUSHI_SYSTEM_PROMPT = (
     "hợp, như phương án cuối (last resort). Dùng đúng con số công cụ trả về, không "
     "tự bịa số liệu; khi trả lời không nhắc tên công cụ hay hệ thống nội bộ, cứ "
     "nói như VNAgent tự tra. Nếu công cụ kho dữ liệu báo lỗi khi hỏi doanh thu hoặc "
-    "số đơn, dùng get_business_snapshot/query_metrics thay thế. Luôn tự xưng là VNAgent, không bao giờ xưng em hay "
+    "số đơn, dùng get_business_snapshot/query_metrics thay thế. Khi được hỏi về "
+    "bất thường hoặc so sánh doanh thu tháng này với tháng trước, gọi "
+    "mcp__bmq__bmq_revenue_snapshot trước, không tự cộng số. Luôn tự xưng là VNAgent, không bao giờ xưng em hay "
     "tôi; gọi người dùng là anh."
 )
 
@@ -171,15 +175,27 @@ def _wire_sushi(options: Any, chat_session: _ChatSession, settings: Settings) ->
         )
         return
     warehouse_tools = build_warehouse_tools(chat_session, settings)
+    # Minimal test doubles may not carry a backend; only register the snapshot
+    # tool when it can actually reach one.
+    snapshot_tools = (
+        build_snapshot_tools(chat_session, settings)
+        if getattr(chat_session, "backend", None) is not None
+        else []
+    )
     mcp_servers[SUSHI_MCP_SERVER] = create_sdk_mcp_server(
         name=SUSHI_MCP_SERVER,
         version="1.0.0",
         # ask_sushi stays first for the existing fallback contract; the direct
-        # read-only warehouse tools follow it in the same in-process server.
-        tools=[_build_sushi_tool(chat_session, settings), *warehouse_tools],
+        # read-only warehouse tools and the snapshot tool follow it in the same
+        # in-process server.
+        tools=[
+            _build_sushi_tool(chat_session, settings),
+            *warehouse_tools,
+            *snapshot_tools,
+        ],
     )
-    for warehouse_tool in warehouse_tools:
-        allowed_tool = f"mcp__{SUSHI_MCP_SERVER}__{warehouse_tool.name}"
+    for mcp_tool in [*warehouse_tools, *snapshot_tools]:
+        allowed_tool = f"mcp__{SUSHI_MCP_SERVER}__{mcp_tool.name}"
         if allowed_tool not in allowed_tools:
             allowed_tools.append(allowed_tool)
     if SUSHI_ALLOWED_TOOL not in allowed_tools:
@@ -444,6 +460,45 @@ def create_app(
         chat_session = await get_chat_session(
             payload.session_id, owner, owner_token
         )
+        if is_snapshot_command(payload.message):
+            async with chat_session.lock:
+                chat_session.last_used = time.monotonic()
+                try:
+                    result_dict = await chat_session.backend.revenue_snapshot()
+                except Exception as exc:
+                    logger.warning(
+                        "Không dựng được snapshot doanh thu", exc_info=True
+                    )
+                    raise HTTPException(
+                        status_code=status.HTTP_502_BAD_GATEWAY,
+                        detail=(
+                            "Không lấy được snapshot doanh thu, vui lòng thử lại"
+                        ),
+                    ) from exc
+                chat_session.last_used = time.monotonic()
+            context = _session_context(chat_session.session_id, owner)
+            pending = await chat_session.backend.get_pending_changes(context)
+            return {
+                "session_id": chat_session.session_id,
+                "text": result_dict["text"],
+                "ui": [
+                    result_dict["block"],
+                    {
+                        "component": "suggestions",
+                        "payload": {
+                            "suggestions": [
+                                "Vì sao kênh giảm?",
+                                "Điểm bán nào chưa nộp báo cáo?",
+                                "Doanh thu tháng này theo kênh",
+                            ]
+                        },
+                    },
+                ],
+                "tool_calls": ["bmq_revenue_snapshot"],
+                "pending_changes": [
+                    _serialize_change(change) for change in pending
+                ],
+            }
         message = payload.message
         if payload.page and payload.page.strip():
             page = " ".join(payload.page.split())

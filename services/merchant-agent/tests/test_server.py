@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -61,6 +62,30 @@ class FakeBackend:
         updated = change.model_copy(update={"status": "discarded"})
         self.changes[change_id] = updated
         return updated
+
+    async def revenue_snapshot(self, today: Any = None) -> dict[str, Any]:
+        return {
+            "text": "Snapshot doanh thu 19/10 — tổng 10,0 tr",
+            "block": {
+                "component": "revenue_snapshot",
+                "payload": {
+                    "version": 1,
+                    "periods": {
+                        "current": {"start": "2026-10-01", "end": "2026-10-19"},
+                        "previous": {"start": "2026-09-01", "end": "2026-09-19"},
+                    },
+                    "revenue": {"groups": [], "total": {"current": 10_000_000}},
+                    "kiosk": {},
+                    "dealer_orders": {},
+                    "auto_job": {},
+                    "flags": [],
+                    "sources": [],
+                    "caveat": (
+                        "Số đã kiểm soát theo sổ doanh thu, chưa phải số kiểm toán."
+                    ),
+                },
+            },
+        }
 
 
 class FakeClient:
@@ -152,6 +177,98 @@ def test_chat_uses_fake_sdk_and_returns_pending_changes(settings: Settings) -> N
     assert captured["message"].startswith("[Trang: /dashboard]\n")
     assert captured["options_kwargs"]["merchant_id"] == "bmq"
     assert captured["options_kwargs"]["operator"] == "owner@bmq.vn"
+
+
+def test_chat_snapshot_command_skips_turn_runner(settings: Settings) -> None:
+    captured: dict[str, Any] = {"turns": []}
+
+    async def fake_turn(client: Any, text: str, *, toolset: Any = None) -> TurnResult:
+        captured["turns"].append(text)
+        return TurnResult(text="không được gọi")
+
+    fake = FakeBackend()
+    app = _app(settings, fake, captured, turn_runner=fake_turn)
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/chat",
+            headers={"Authorization": "Bearer owner-token"},
+            json={
+                "session_id": "session-snapshot",
+                "message": "Snapshot doanh thu",
+                "page": "/dashboard",
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["session_id"] == "session-snapshot"
+    assert body["ui"][0]["component"] == "revenue_snapshot"
+    assert body["ui"][1]["component"] == "suggestions"
+    assert body["tool_calls"] == ["bmq_revenue_snapshot"]
+    assert body["pending_changes"][0]["change_id"] == "change-1"
+    assert body["text"].startswith("Snapshot doanh thu")
+    assert captured["turns"] == [], "snapshot fast path must not call turn_runner"
+
+
+def test_chat_snapshot_error_returns_502_without_breaking_session(
+    settings: Settings,
+) -> None:
+    class BrokenSnapshotBackend(FakeBackend):
+        async def revenue_snapshot(self, today: Any = None) -> dict[str, Any]:
+            raise RuntimeError("snapshot boom")
+
+    fake = BrokenSnapshotBackend()
+    app = _app(settings, fake, {}, turn_runner=_unused_turn)
+    with TestClient(app) as client:
+        failed = client.post(
+            "/v1/chat",
+            headers={"Authorization": "Bearer owner-token"},
+            json={"session_id": "session-broken", "message": "Snapshot doanh thu"},
+        )
+        recovered = client.post(
+            "/v1/chat",
+            headers={"Authorization": "Bearer owner-token"},
+            json={"session_id": "session-broken", "message": "Xin chào"},
+        )
+        assert "session-broken" in app.state.sessions
+
+    assert failed.status_code == 502
+    assert "snapshot doanh thu" in failed.json()["error"].casefold()
+    assert recovered.status_code == 200
+    assert recovered.json()["text"] == "unused"
+
+
+def test_wire_sushi_registers_snapshot_tool(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from bmq_merchant import server as server_module
+
+    captured: dict[str, Any] = {}
+
+    def fake_create_server(
+        name: str, version: str = "1.0.0", tools: Any = None
+    ) -> Any:
+        captured["tools"] = list(tools or [])
+        return {"type": "sdk", "name": name}
+
+    monkeypatch.setattr(server_module, "create_sdk_mcp_server", fake_create_server)
+    session = SimpleNamespace(
+        owner_token="",
+        pending_ui=[],
+        backend=SimpleNamespace(),
+    )
+    options = SimpleNamespace(
+        system_prompt="BASE PROMPT",
+        mcp_servers={},
+        allowed_tools=[],
+    )
+
+    server_module._wire_sushi(options, session, settings)
+
+    tool_names = {sdk_tool.name for sdk_tool in captured["tools"]}
+    assert "bmq_revenue_snapshot" in tool_names
+    assert "mcp__bmq__bmq_revenue_snapshot" in options.allowed_tools
+    assert "mcp__bmq__bmq_revenue_snapshot" in options.system_prompt
 
 
 def test_approve_and_discard_endpoints(settings: Settings) -> None:

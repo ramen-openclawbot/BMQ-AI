@@ -46,6 +46,7 @@ from merchant_agent import (
 from merchant_agent.changes import ChangeNotApplicable, check_guardrails
 from pydantic import BaseModel, Field, field_validator
 
+from .revenue_snapshot import build_revenue_snapshot
 from .supabase import SupabaseClient
 
 VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
@@ -401,6 +402,15 @@ class BmqMerchantBackend(MerchantBackend):
         }
         params.update(extra or {})
         return await self._db.select("dealer_orders", params)
+
+    # -- revenue snapshot -----------------------------------------------------
+
+    async def revenue_snapshot(self, today: date | None = None) -> dict[str, Any]:
+        """Snapshot doanh thu theo kênh, dùng chung engine với tool MCP."""
+
+        return await build_revenue_snapshot(
+            self._db, today or self._today_provider()
+        )
 
     # -- performance ----------------------------------------------------------
 

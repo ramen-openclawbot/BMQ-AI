@@ -190,8 +190,36 @@ const COST_BLOCK = {
   notes: [], source: { name: "Phân loại chi phí", observedAt: "2026-10-18T03:00:00Z", snapshotId: "snap-1", semanticVersion: "v1", selectionRule: null, matchCount: 1, truncated: false, disclaimer: "Số liệu tham khảo." },
   followUp: "line_explanation",
 };
+// Shape of the server's deterministic `revenue_snapshot` block (version 1); numbers mirror a
+// real 19/10 run so the card is checked against realistic magnitudes.
+const SNAPSHOT = {
+  version: 1, generated_at: "2026-10-19T14:05:00+07:00",
+  periods: { current: { start: "2026-10-01", end: "2026-10-19" }, previous: { start: "2026-09-01", end: "2026-09-19" } },
+  revenue: {
+    total: { current: 687707835, previous: 605402622, delta_pct: 13.6, daily_avg_current: 36195149.21, daily_avg_previous: 31863295.89 },
+    groups: [
+      { group: "dealer", label: "Đại lý", current: 296500000, previous: 291200000, delta_pct: 1.8, silent_days: 0, previous_active_days: 19, last_day_with_revenue: "2026-10-19" },
+      { group: "bakery", label: "Bánh ngọt", current: 248600000, previous: 168500000, delta_pct: 47.5, silent_days: 0, previous_active_days: 19, last_day_with_revenue: "2026-10-19" },
+      { group: "b2b", label: "B2B / Siêu thị", current: 80400000, previous: 92400000, delta_pct: -13.0, silent_days: 0, previous_active_days: 15, last_day_with_revenue: "2026-10-18" },
+      { group: "retail", label: "Xe bán lẻ", current: 62200000, previous: 53300000, delta_pct: 16.7, silent_days: 2, previous_active_days: 19, last_day_with_revenue: "2026-10-17" },
+    ],
+    channels_raw: [], days_current: 19, days_previous: 19,
+  },
+  kiosk: { channels: [{ channel_code: "khach_le", channel_name: "Khách lẻ", current: 10900000, previous: 9200000, delta_pct: 18.1 }, { channel_code: "grabfood", channel_name: "GrabFood", current: 1200000, previous: 2600000, delta_pct: -53.8 }], reported_yesterday: 2, missing_yesterday: [{ location_code: "HCM005-TN", location_name: "Điểm Tân Phú" }], reported_today: 0, active_count: 3 },
+  dealer_orders: { count_current: 223, count_previous: 250, amount_current: 274300000, amount_previous: 287170000, delta_pct: -4.5, orders_last_2_days: 16, previous_daily_avg: 13.16, days_current: 19, days_previous: 19 },
+  auto_job: { status: "error", message: "timeout" },
+  flags: [
+    { code: "channel_silent", severity: "high", title: "Kênh Xe bán lẻ không có số 2 ngày", detail: "Kênh có số 19/19 ngày của tháng trước nhưng đang im lặng.", action: "Kênh Xe bán lẻ không có số 2 ngày liền: kiểm tra app/kênh vận hành hoặc job nhập sổ" },
+    { code: "kiosk_missing_reports", severity: "medium", title: "1 điểm bán chưa nộp báo cáo hôm qua", detail: "Điểm chưa nộp: Điểm Tân Phú.", action: "Nhắc các điểm chưa nộp báo cáo ngày 18/10: Điểm Tân Phú" },
+    { code: "kiosk_channel_drop", severity: "medium", title: "Kênh GrabFood tại điểm bán giảm 53,8%", detail: "Kỳ này 1,2 tr, cùng kỳ 2,6 tr (-53,8%).", action: "Kiểm tra app GrabFood tại điểm bán (đóng gian hàng, lỗi app, hết hàng)" },
+    { code: "data_source_error", severity: "info", title: "Không đọc được dữ liệu nhật ký job 23:59", detail: "timeout", action: "Thử lại sau; nếu lặp lại, báo kỹ thuật" },
+  ],
+  sources: ["revenue_ledger_lines", "kiosk_report_locations", "kiosk_daily_reports", "dealer_orders", "revenue_auto_daily_parse_logs"],
+  caveat: "Số đã kiểm soát theo sổ doanh thu, chưa phải số kiểm toán.",
+};
 function reply(body) {
   const text = String(body.message || "").toLowerCase();
+  if (text.includes("snapshot")) return { status: 200, json: { session_id: "s-1", text: "Snapshot doanh thu 19/10 — từ đầu tháng so với cùng kỳ tháng trước\nTổng doanh thu: 687,7 tr (+13,6% so với cùng kỳ)", tool_calls: ["bmq_revenue_snapshot"], ui: [{ component: "revenue_snapshot", payload: SNAPSHOT }, { component: "suggestions", payload: { suggestions: ["Vì sao kênh giảm?", "Điểm bán nào chưa nộp báo cáo?", "Doanh thu tháng này theo kênh"] } }], pending_changes: [] } };
   if (text.includes("lỗi máy chủ")) return { status: 503, json: { detail: "Trợ lý quản trị đang không phản hồi." } };
   if (text.includes("thông báo")) return { status: 200, json: { session_id: "s-1", text: "Em đã soạn bản nháp thông báo, anh xem và bấm Duyệt nếu đồng ý.", tool_calls: ["mcp__merchant__stage_campaign"], ui: [{ component: "change_preview", payload: { change_id: "chg-1", change: CHANGE, headline: "Thông báo khuyến mãi tuần 20/10", note: "Chưa có gì được gửi." } }, { component: "suggestions", payload: { suggestions: ["Rút gọn nội dung", "Đổi thời gian áp dụng"] } }], pending_changes: [CHANGE] } };
   if (text.includes("công nợ")) return { status: 200, json: { session_id: "s-1", text: "VNAgent đã tra công nợ nhà cung cấp.", tool_calls: ["mcp__bmq__ask_sushi"], ui: [{ component: "sushi_answer", payload: { answer: "Công nợ nhà cung cấp hiện tại là 182,4 triệu, lớn nhất là Bột Mì Sài Gòn.", costBlock: COST_BLOCK, images: [{ id: "a".repeat(64), date: "2026-10-12", declarationId: "PR-QA01", paymentStatus: "submitted_unverified" }], details: "Bột Mì Sài Gòn: 13,5 triệu\nThiên An Sinh: 10,7 triệu", citations: [{ id: "c1", title: "Bảng công nợ NCC", source: "BMQ", updated_at: "2026-10-18" }] } }], pending_changes: [] } };
@@ -243,7 +271,8 @@ try {
     const { context, page, errors, calls } = await open(viewport);
     await page.locator("[data-merchant-agent-launcher]").click();
     await panel(page).waitFor();
-    assert.equal(await page.locator("[data-merchant-starter]").count(), 4);
+    assert.equal(await page.locator("[data-merchant-starter]").count(), 5);
+    assert.equal(await page.locator("[data-merchant-starter]").first().textContent(), "Snapshot doanh thu");
     assert.ok((await panel(page).textContent()).includes("bấm Duyệt mới áp"));
     await page.screenshot({ path: `${EVIDENCE}/empty-${tag}.png` });
 
@@ -308,9 +337,26 @@ try {
     assert.ok(await page.getByLabel("Tin nhắn cho VNAgent").isEnabled(), "composer usable after an error");
     record(`server error shown ${tag}`);
 
+    await ask(page, "Snapshot doanh thu");
+    const snapshot = page.locator("[data-merchant-ui='revenue_snapshot']");
+    await snapshot.waitFor();
+    const snapshotText = await snapshot.textContent();
+    for (const expected of ["687,7 triệu", "+13,6%", "Đại lý", "Bánh ngọt", "+47,5%", "Xe bán lẻ", "im lặng 2 ngày", "2/3", "Điểm Tân Phú", "16 đơn", "GrabFood", "Bất thường (4)", "Kênh Xe bán lẻ không có số 2 ngày", "→ Kiểm tra app GrabFood", "chưa phải số kiểm toán", "Chụp lúc 14:05 19/10"]) {
+      assert.ok(snapshotText.includes(expected), `snapshot card shows "${expected}"`);
+    }
+    assert.ok(snapshotText.includes("Nhật ký job: chưa đọc được dữ liệu"), "a failed source reads as unreadable, never 0");
+    assert.equal(await snapshot.locator("[data-merchant-snapshot-flag]").count(), 4);
+    assert.equal(await snapshot.locator("[data-merchant-snapshot-flag]").first().getAttribute("data-merchant-snapshot-flag"), "channel_silent", "high flag listed first");
+    assert.equal(await page.locator("[data-merchant-suggestion]").count(), 3, "follow-up chips after the snapshot");
+    assert.ok(await overflow(page) <= 0, `no overflow with snapshot card ${tag}`);
+    await snapshot.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `${EVIDENCE}/snapshot-${tag}.png` });
+    await snapshot.screenshot({ path: `${EVIDENCE}/snapshot-card-${tag}.png` });
+    record(`revenue snapshot card ${tag}`);
+
     await page.locator("[data-merchant-agent-reset]").click();
     assert.equal(await page.locator("[data-merchant-message]").count(), 0);
-    assert.equal(await page.locator("[data-merchant-starter]").count(), 4);
+    assert.equal(await page.locator("[data-merchant-starter]").count(), 5);
     record(`reset clears the conversation ${tag}`);
     assert.ok(await overflow(page) <= 0);
     assert.deepEqual(errors, []);
