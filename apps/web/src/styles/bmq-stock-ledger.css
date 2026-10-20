@@ -60,7 +60,7 @@
   background: var(--d3-white);
 }
 
-.d3-sl-items li.is-low { box-shadow: inset 3px 0 0 var(--d3-red); }
+.d3-sl-items li.is-low { box-shadow: var(--d3-sh), inset 0 0 0 1.5px color-mix(in srgb, var(--d3-red) 55%, transparent); }
 
 .d3-sl-item-name,
 .d3-sl-pending-name {
@@ -172,7 +172,7 @@
   gap: 12px;
 }
 
-.d3-ap-list li.d3-ap-item.is-due { box-shadow: inset 3px 0 0 var(--d3-red); }
+.d3-ap-list li.d3-ap-item.is-due { box-shadow: var(--d3-sh), inset 0 0 0 1.5px color-mix(in srgb, var(--d3-red) 55%, transparent); }
 
 .d3-ap-check { display: flex; align-items: center; justify-content: center; width: 28px; height: 44px; }
 .d3-ap-check input { width: 18px; height: 18px; accent-color: var(--d3-ink); }
@@ -199,7 +199,7 @@
 .d3-ap-actions { display: flex; justify-content: flex-end; margin-top: 12px; }
 
 .d3-ap-decision { font-size: 14px !important; }
-.d3-sl-items li.is-sent { box-shadow: inset 3px 0 0 var(--d3-green); }
+.d3-sl-items li.is-sent { box-shadow: var(--d3-sh), inset 0 0 0 1.5px color-mix(in srgb, var(--d3-green) 55%, transparent); }
 
 @media (max-width: 620px) {
   .d3-ap-list li.d3-ap-item { grid-template-columns: auto minmax(0, 1fr); }
@@ -256,7 +256,7 @@
   .d3-sc-row.is-classify .d3-sc-actions { grid-template-columns: minmax(0, 1fr) auto auto; }
 }
 
-.d3-sc-row.is-flagged { box-shadow: inset 3px 0 0 var(--d3-red); }
+.d3-sc-row.is-flagged { box-shadow: var(--d3-sh), inset 0 0 0 1.5px color-mix(in srgb, var(--d3-red) 55%, transparent); }
 .d3-sc-actions.is-inline { display: flex; grid-template-columns: none; gap: 6px; }
 .d3-sc-actions.is-inline button { height: 36px; }
 

@@ -2,7 +2,8 @@ import { useEffect, useState, useMemo } from "react";
 import { format } from "date-fns";
 import { useSearchParams } from "react-router-dom";
 import { vi, enUS } from "date-fns/locale";
-import { Package, Trash2, CheckCircle, Clock, FileCheck, AlertCircle, Link2, Loader2, Menu, Search } from "lucide-react";
+import { Package, Trash2, CheckCircle, Clock, FileCheck, AlertCircle, Link2, Loader2, Search } from "lucide-react";
+import "@/styles/bmq-warehouse.css";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -318,39 +319,38 @@ export default function GoodsReceipts() {
   ];
 
   return (
-    <div className="-m-4 min-h-screen bg-background text-foreground md:-m-6" data-bmq-goods-receipts-mobile-optimized data-bmq-goods-receipts-finalized-visible-after-confirm>
-      <div className="space-y-4 p-4 pb-8 md:p-6">
-        <div className="rounded-2xl border border-border bg-card p-4 shadow-card">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <div className="mb-2 flex items-center gap-2 md:hidden">
-                <Button type="button" variant="ghost" size="icon" className="-ml-2 h-8 w-8" onClick={() => window.dispatchEvent(new Event("bmq:open-sidebar"))} aria-label="Mở menu">
-                  <Menu className="h-5 w-5" />
-                </Button>
-                <span className="text-xs font-semibold uppercase tracking-wide text-primary">Kho hàng</span>
-              </div>
-              <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight text-foreground">
-                <Package className="h-6 w-6 text-primary" />
-                {isVi ? "Phiếu nhập kho" : "Goods Receipts"}
-              </h1>
-              <p className="mt-1 text-sm text-muted-foreground">{isVi ? "Quản lý nhập kho từ PO và tạo công nợ phải trả" : "Manage receipt from PO and payable creation"}</p>
-            </div>
-            <div className="shrink-0">
-              <AddGoodsReceiptDialog />
-            </div>
+    <div className="text-foreground" data-bmq-goods-receipts-mobile-optimized data-bmq-goods-receipts-finalized-visible-after-confirm>
+      <div className="space-y-4 pb-8">
+        {/* Same page head as the other Kho pages: the shell already carries navigation. */}
+        <header className="d3-wh-head">
+          <div className="min-w-0">
+            <h1>{isVi ? "Phiếu nhập kho" : "Goods Receipts"}</h1>
+            <p className="d3-wh-tag">{isVi ? "Quản lý nhập kho từ PO và tạo công nợ phải trả" : "Manage receipt from PO and payable creation"}</p>
           </div>
-        </div>
+          <div className="shrink-0">
+            <AddGoodsReceiptDialog />
+          </div>
+        </header>
 
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" data-bmq-goods-receipts-filtered-dashboard>
           {statusCards.map((card) => (
             <Card
               key={card.key}
-              className={`cursor-pointer border-border bg-card transition-shadow hover:shadow-card ${statusFilter === card.key ? "ring-2 ring-primary" : ""}`}
+              role="button"
+              tabIndex={0}
+              aria-pressed={statusFilter === card.key}
+              className={`d3-gr-stat cursor-pointer ${statusFilter === card.key ? "is-active" : ""}`}
               onClick={() => setStatusFilter(card.key)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  setStatusFilter(card.key);
+                }
+              }}
             >
-              <CardHeader className="px-3 py-2">
+              <CardHeader className="px-4 py-3">
                 <CardDescription>{card.label}</CardDescription>
-                <CardTitle className={`text-2xl ${card.tone}`}>{card.value}</CardTitle>
+                <CardTitle className={`d3-gr-fig ${card.tone}`}>{card.value}</CardTitle>
               </CardHeader>
             </Card>
           ))}

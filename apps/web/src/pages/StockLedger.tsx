@@ -371,10 +371,10 @@ export default function StockLedger() {
     <div className="d3-wh d3-sl min-w-0" data-bmq-stock-ledger>
       <header className="d3-wh-head">
         <div className="min-w-0">
-          <span className="d3-wh-tag">Tự cộng từ phiếu nhập kho · tự trừ từ phiếu xuất sản xuất · kiểm kê hằng tuần</span>
           <h1>
             Sổ tồn NVL <b>{LOCATIONS.find((item) => item.id === location)?.label}</b>
           </h1>
+          <p className="d3-wh-tag">Tự cộng từ phiếu nhập kho · tự trừ từ phiếu xuất sản xuất · kiểm kê hằng tuần</p>
         </div>
         <div className="d3-sl-switch" role="tablist" aria-label="Chọn kho">
           {LOCATIONS.map((item) => (

@@ -248,10 +248,10 @@ export default function PurchaseUsage() {
     <div className="d3-wh d3-sl d3-pu min-w-0" data-bmq-purchase-usage>
       <header className="d3-wh-head">
         <div className="min-w-0">
-          <span className="d3-wh-tag">Đơn KFM/Vietjet × công thức · so với phiếu nhập và chi tiền mặt</span>
           <h1>
             Mua so với Dùng <b>NVL Q7</b>
           </h1>
+          <p className="d3-wh-tag">Đơn KFM/Vietjet × công thức · so với phiếu nhập và chi tiền mặt</p>
         </div>
         <div className="d3-sl-switch" role="tablist" aria-label="Chọn kỳ">
           {RANGES.map((option) => (

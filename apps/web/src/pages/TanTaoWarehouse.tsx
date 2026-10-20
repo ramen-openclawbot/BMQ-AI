@@ -287,11 +287,11 @@ export default function TanTaoWarehouse() {
     <div className="d3-wh min-w-0" data-bmq-warehouse-layout="demo3-v1">
       <header className="d3-wh-head">
         <div className="min-w-0">
-          <span className="d3-wh-tag">Kho Tân Tạo · Bánh mì tươi, bánh mì đông lạnh và Pate · Sổ kho do BMQ Agent vận hành</span>
           <h1>
             Kho Tân Tạo{" "}
             <b>{snapshotQuery.isLoading ? "…" : snapshotQuery.isError ? "chưa đọc được sổ" : snapshot?.needs_attention ? "cần xử lý" : `ATP ${qty(snapshot?.atp_quantity)} que`}</b>
           </h1>
+          <p className="d3-wh-tag">Kho Tân Tạo · Bánh mì tươi, bánh mì đông lạnh và Pate · Sổ kho do BMQ Agent vận hành</p>
         </div>
         <Badge className="d3-wh-beta">Đang thử nghiệm</Badge>
       </header>
@@ -343,8 +343,8 @@ export default function TanTaoWarehouse() {
               className={`d3-wh-item${isSelected ? " is-selected" : ""}${item.needs_attention ? " is-alert" : ""}`}
               style={{ ["--i" as string]: k + 1 }}
             >
-              <span className="d3-wh-sku">{item.sku_code} · {item.unit}</span>
               <h3>{item.product_name}</h3>
+              <span className="d3-wh-sku">{item.sku_code} · {item.unit}</span>
               <div className="d3-wh-item-row">
                 <div className="d3-wh-onhand">
                   <strong>

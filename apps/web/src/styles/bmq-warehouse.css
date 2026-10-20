@@ -16,28 +16,19 @@
   justify-content: space-between;
   gap: 12px 16px;
   padding: 2px 4px 4px;
-  animation: d3-wh-rise .7s var(--d3-ease) both;
 }
 
+/* What the page is built from: a meta line under the title (it used to be a kicker above it). */
 .d3-wh-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.45;
   color: var(--d3-dim);
 }
 
-.d3-wh-tag::before {
-  content: "";
-  flex: none;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  border: 1.5px solid var(--d3-green);
-}
-
 html.bmq-d3 .d3-wh-head h1 {
-  margin: 6px 0 0;
+  margin: 0;
+  text-wrap: balance;
   font-size: clamp(28px, 3.4vw, 42px);
   font-weight: 200;
   line-height: 1.1;
@@ -70,8 +61,6 @@ html.bmq-d3 .d3-wh-beta {
   border-radius: 18px;
   background: var(--d3-white);
   box-shadow: var(--d3-sh);
-  animation: d3-wh-rise .8s var(--d3-ease) both;
-  animation-delay: calc(var(--i, 0) * 80ms + 80ms);
 }
 
 .d3-wh-kpi > span { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--d3-dim); }
@@ -118,19 +107,17 @@ html.bmq-d3 .d3-wh-beta {
   outline: 2px solid transparent;
   outline-offset: -2px;
   transition: outline-color .2s, background .2s, transform .2s var(--d3-ease);
-  animation: d3-wh-rise .8s var(--d3-ease) both;
-  animation-delay: calc(var(--i, 0) * 90ms + 120ms);
 }
 
 .d3-wh-item:hover { transform: translateY(-2px); }
 .d3-wh-item:focus-visible { outline-color: var(--d3-blue); }
 .d3-wh-item.is-selected { background: var(--d3-white); outline-color: var(--d3-ink); }
-.d3-wh-item.is-alert .d3-wh-sku { color: var(--d3-red); }
+.d3-wh-item.is-alert .d3-wh-sku { color: #c4321d; }
 
-.d3-wh-sku { font: 300 11px var(--d3-num); letter-spacing: .04em; color: var(--d3-faint); text-transform: uppercase; }
+.d3-wh-sku { display: block; margin-top: 2px; font: 400 12px var(--d3-num); color: var(--d3-dim); font-variant-numeric: tabular-nums; }
 
 html.bmq-d3 .d3-wh-item h3 {
-  margin: 4px 0 0;
+  margin: 0;
   font-size: 17px;
   font-weight: 300;
   line-height: 1.25;
@@ -178,8 +165,8 @@ html.bmq-d3 .d3-wh-item h3 {
   bottom: -14px;
   left: 50%;
   transform: translateX(-50%);
-  font: 300 8.5px var(--d3-num);
-  color: var(--d3-faint);
+  font: 400 9.5px var(--d3-num);
+  color: var(--d3-dim);
 }
 
 .d3-wh-item p { margin: 10px 0 0; font-size: 12px; color: var(--d3-dim); }
@@ -191,8 +178,6 @@ html.bmq-d3 .d3-wh-item h3 {
   border-radius: 22px;
   background: var(--d3-card);
   box-shadow: var(--d3-sh);
-  animation: d3-wh-rise .8s var(--d3-ease) both;
-  animation-delay: calc(var(--i, 0) * 90ms + 120ms);
 }
 
 .d3-wh-card-h {
@@ -378,8 +363,6 @@ html.bmq-d3 .d3-wh-ask button {
 .d3-wh-tl li {
   position: relative;
   padding: 0 0 16px 28px;
-  animation: d3-wh-rise .5s var(--d3-ease) both;
-  animation-delay: var(--dl);
 }
 
 .d3-wh-tl li > i {
@@ -395,11 +378,10 @@ html.bmq-d3 .d3-wh-ask button {
 
 .d3-wh-tl li.is-done > i { background: var(--d3-ink); border-color: var(--d3-ink); }
 .d3-wh-tl li.is-now > i { background: var(--d3-green); border-color: var(--d3-green); animation: d3-wh-halo 1.6s infinite; }
-.d3-wh-tl small { display: block; font: 300 10.5px var(--d3-num); color: var(--d3-faint); }
+.d3-wh-tl small { display: block; font: 400 11px var(--d3-num); color: var(--d3-dim); }
 .d3-wh-tl b { display: block; margin: 1px 0 2px; font-size: 14.5px; font-weight: 400; overflow-wrap: anywhere; }
 .d3-wh-tl span { display: block; font-size: 12px; color: var(--d3-dim); overflow-wrap: anywhere; }
 
-@keyframes d3-wh-rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
 @keyframes d3-wh-grow { from { transform: scaleY(0); } to { transform: none; } }
 @keyframes d3-wh-halo { 0% { box-shadow: 0 0 0 0 rgba(41, 191, 18, .5); } 80% { box-shadow: 0 0 0 9px rgba(41, 191, 18, 0); } }
 
@@ -420,3 +402,10 @@ html.bmq-d3 .d3-wh-ask button {
 @media (prefers-reduced-motion: reduce) {
   .d3-wh *, .d3-wh-head, .d3-wh-kpi, .d3-wh-item, .d3-wh-card { animation: none !important; transition: none !important; }
 }
+
+/* ---------- Phiếu nhập kho / PO status tiles (Impeccable pass) ---------- */
+html.bmq-d3 .d3-gr-stat { border: 0; border-radius: 18px; background: var(--d3-white); box-shadow: var(--d3-sh); outline: 2px solid transparent; outline-offset: -2px; transition: outline-color .2s, transform .2s var(--d3-ease); }
+html.bmq-d3 .d3-gr-stat:hover { transform: translateY(-2px); }
+html.bmq-d3 .d3-gr-stat.is-active { outline-color: var(--d3-ink); }
+html.bmq-d3 .d3-gr-stat:focus-visible { outline-color: var(--d3-blue); }
+html.bmq-d3 .d3-gr-fig { font: 200 30px/1 var(--d3-num); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }

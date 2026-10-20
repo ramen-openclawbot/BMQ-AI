@@ -11,10 +11,11 @@ import {
   Clock,
   CheckCircle,
   XCircle,
-  Bell,
   Plus,
   SlidersHorizontal,
 } from "lucide-react";
+import "@/styles/bmq-warehouse.css";
+import "@/styles/bmq-payables.css";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -180,11 +181,11 @@ export default function PurchaseOrders() {
       case "draft":
         return <Badge variant="secondary" className="gap-1"><Clock className="h-3 w-3" />{isVi ? "Nháp" : "Draft"}</Badge>;
       case "sent":
-        return <Badge className="bg-blue-500 hover:bg-blue-600 gap-1"><Send className="h-3 w-3" />{isVi ? "Đã gửi" : "Sent"}</Badge>;
+        return <Badge className="d3-pay-chip is-blue gap-1"><Send className="h-3 w-3" />{isVi ? "Đã gửi" : "Sent"}</Badge>;
       case "in_transit":
-        return <Badge className="bg-orange-500 hover:bg-orange-600 gap-1"><Package className="h-3 w-3" />{isVi ? "Đang vận chuyển" : "In transit"}</Badge>;
+        return <Badge className="d3-pay-chip is-amber gap-1"><Package className="h-3 w-3" />{isVi ? "Đang vận chuyển" : "In transit"}</Badge>;
       case "completed":
-        return <Badge className="bg-green-500 hover:bg-green-600 gap-1"><CheckCircle className="h-3 w-3" />{isVi ? "Hoàn thành" : "Completed"}</Badge>;
+        return <Badge className="d3-pay-chip is-green gap-1"><CheckCircle className="h-3 w-3" />{isVi ? "Hoàn thành" : "Completed"}</Badge>;
       case "cancelled":
         return <Badge variant="destructive" className="gap-1"><XCircle className="h-3 w-3" />{isVi ? "Đã hủy" : "Cancelled"}</Badge>;
       default:
@@ -330,28 +331,17 @@ export default function PurchaseOrders() {
   };
 
   return (
-    <div className="bg-background text-foreground -m-4 min-h-screen md:-m-6">
+    <div className="text-foreground">
       <section className="min-h-screen bg-background pb-28 md:hidden" data-stitch-mobile-po-main data-bmq-mobile-po-revenue-palette>
-        <header className="sticky top-0 z-20 flex items-center justify-between border-b border-border bg-card/95 px-4 py-3 shadow-card backdrop-blur-xl">
-          <button
-            type="button"
-            aria-label="Menu"
-            className="-ml-2 rounded-full p-2 text-primary transition hover:bg-primary/10"
-            onClick={() => window.dispatchEvent(new Event("bmq:open-sidebar"))}
-          >
-            <FileText className="h-5 w-5" />
-          </button>
-          <div className="text-center">
-            <h1 className="text-xl font-bold text-foreground">PO (Mua hàng)</h1>
-            <p className="text-[10px] text-muted-foreground">Quản lý vận hành nhập hàng & công nợ NCC</p>
+        {/* Page head like the other Kho pages; the shell header already carries menu and notifications. */}
+        <header className="d3-wh-head px-1 pb-3">
+          <div className="min-w-0">
+            <h1>PO (Mua hàng)</h1>
+            <p className="d3-wh-tag">Quản lý vận hành nhập hàng & công nợ NCC</p>
           </div>
-          <button type="button" aria-label="Notifications" className="relative -mr-2 rounded-full p-2 text-primary transition hover:bg-primary/10">
-            <Bell className="h-5 w-5" />
-            {stats.draft > 0 && <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-red-500" />}
-          </button>
         </header>
 
-        <div className="sticky top-[57px] z-10 border-b border-border bg-card/95 px-4 pb-3 pt-4 backdrop-blur-xl">
+        <div className="sticky top-0 z-10 rounded-2xl bg-card/95 px-4 pb-3 pt-4 backdrop-blur-xl">
           <div className="relative mb-1">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -504,17 +494,14 @@ export default function PurchaseOrders() {
         </div>
       </section>
 
-      <div className="hidden space-y-4 p-4 md:block md:p-6">
-      <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-[#443b30] dark:bg-[#241f18]/90 lg:flex-row lg:items-center lg:justify-between">
+      <div className="hidden space-y-4 pb-8 md:block">
+      <header className="d3-wh-head">
         <div className="min-w-0">
-          <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight text-slate-950 dark:text-[#f3ece4]">
-            <FileText className="h-6 w-6 text-amber-600" />
-            {t.poPurchasing}
-          </h1>
-          <p className="text-sm text-slate-500 dark:text-[#a99b8c]">{isVi ? "Quản lý vận hành nhập hàng & công nợ nhà cung cấp" : "Manage supplier purchasing operations and payables"}</p>
+          <h1>{t.poPurchasing}</h1>
+          <p className="d3-wh-tag">{isVi ? "Quản lý vận hành nhập hàng & công nợ nhà cung cấp" : "Manage supplier purchasing operations and payables"}</p>
         </div>
         <AddPurchaseOrderDialog />
-      </div>
+      </header>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px]">
         <div className="min-w-0 space-y-4">
@@ -564,7 +551,7 @@ export default function PurchaseOrders() {
                       <button
                         key={mode}
                         type="button"
-                        className={`rounded-md px-3 text-xs font-semibold transition ${timeFilterMode === mode ? "bg-[#D97706] text-white shadow-sm" : "text-slate-500 hover:text-slate-900 dark:text-[#a99b8c] dark:hover:text-[#f3ece4]"}`}
+                        className={`rounded-md px-3 text-xs font-semibold transition ${timeFilterMode === mode ? "bg-[color:var(--d3-ink)] text-white shadow-sm" : "text-slate-500 hover:text-slate-900 dark:text-[#a99b8c] dark:hover:text-[#f3ece4]"}`}
                         onClick={() => handleTimeFilterModeChange(mode)}
                       >
                         {label}
@@ -747,11 +734,11 @@ export default function PurchaseOrders() {
                     <button
                       key={supplier.id}
                       type="button"
-                      className={`w-full rounded-xl border p-3 text-left transition ${isSelected ? "border-[#D97706] bg-amber-50 shadow-sm dark:border-[#D97706] dark:bg-[#3a2612]/80" : "border-slate-200 bg-slate-50 hover:border-amber-300 hover:bg-white dark:border-[#443b30] dark:bg-[#1d1813] dark:hover:bg-[#342b22]/70"}`}
+                      className={`w-full rounded-xl border p-3 text-left transition ${isSelected ? "border-[color:var(--d3-ink)] bg-white shadow-sm dark:border-[#D97706] dark:bg-[#3a2612]/80" : "border-slate-200 bg-slate-50 hover:border-slate-300 hover:bg-white dark:border-[#443b30] dark:bg-[#1d1813] dark:hover:bg-[#342b22]/70"}`}
                       onClick={() => setSelectedSupplierId(isSelected ? null : supplier.id)}
                     >
                       <div className="flex items-start gap-2">
-                        <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${isSelected ? "bg-[#D97706] text-white" : "bg-white text-slate-600 dark:bg-[#2b241c] dark:text-[#d6c8b8]"}`}>{index + 1}</span>
+                        <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${isSelected ? "bg-[color:var(--d3-ink)] text-white" : "bg-white text-slate-600 dark:bg-[#2b241c] dark:text-[#d6c8b8]"}`}>{index + 1}</span>
                         <div className="min-w-0 flex-1">
                           <div className="truncate text-sm font-semibold text-slate-950 dark:text-[#f3ece4]">{supplier.name}</div>
                           <div className="mt-1 flex items-center justify-between gap-2 text-xs text-slate-500 dark:text-[#a99b8c]">
@@ -759,7 +746,7 @@ export default function PurchaseOrders() {
                             <span className="font-semibold text-slate-700 dark:text-[#e8ded2]">{formatCompactCurrency(supplier.totalValue)}</span>
                           </div>
                           <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200 dark:bg-[#443b30]">
-                            <div className="h-full rounded-full bg-[#D97706]" style={{ width: `${Math.min(100, share)}%` }} />
+                            <div className="h-full rounded-full bg-[color:var(--d3-ink)]" style={{ width: `${Math.min(100, share)}%` }} />
                           </div>
                           <div className="mt-1 text-right text-[11px] font-medium text-slate-500 dark:text-[#a99b8c]">{share}% tỷ trọng</div>
                         </div>

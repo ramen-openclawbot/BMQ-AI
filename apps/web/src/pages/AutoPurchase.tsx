@@ -301,10 +301,10 @@ export default function AutoPurchase() {
     <div className="d3-wh d3-sl min-w-0" data-bmq-auto-purchase>
       <header className="d3-wh-head">
         <div className="min-w-0">
-          <span className="d3-wh-tag">Dự báo từ phiếu xuất sản xuất Q7 · trừ tồn và hàng đang về · làm tròn theo bao/thùng</span>
           <h1>
             Đặt hàng tự động <b>NVL Q7</b>
           </h1>
+          <p className="d3-wh-tag">Dự báo từ phiếu xuất sản xuất Q7 · trừ tồn và hàng đang về · làm tròn theo bao/thùng</p>
         </div>
         {status ? (
           <span className={`d3-wh-pill d3-ap-state${status.settings.enabled ? " is-on" : ""}`}>

@@ -365,7 +365,8 @@ def test_goods_receipts_ui_shows_payable_audit_state_and_blocks_duplicate_finali
     assert "setCurrentPage(1)" in page
     assert "onClick={() => handleViewDetails(receipt.id)}" in page
     assert "useSidebar" not in page
-    assert 'window.dispatchEvent(new Event("bmq:open-sidebar"))' in page
+    # The shell header carries navigation; the page no longer opens the drawer itself.
+    assert 'bmq:open-sidebar' not in page
     assert "Chạm vào thẻ để xem chi tiết" in page
     assert "<Eye" not in page
 
@@ -659,7 +660,7 @@ def test_purchase_orders_list_row_opens_details_and_shows_product_names_without_
     assert "event.stopPropagation()" in page
     assert "aria-label={isVi ? \"Xóa PO\" : \"Delete PO\"}" in page
     assert "data-bmq-mobile-po-revenue-palette" in page
-    mobile_section = page.split('data-bmq-mobile-po-revenue-palette', 1)[1].split('<div className="hidden space-y-4 p-4 md:block md:p-6">', 1)[0]
+    mobile_section = page.split('data-bmq-mobile-po-revenue-palette', 1)[1].split('<div className="hidden space-y-4 pb-8 md:block">', 1)[0]
     assert "bg-background" in mobile_section
     assert "bg-card/95" in mobile_section
     assert "bg-primary text-primary-foreground" in mobile_section
@@ -729,9 +730,11 @@ def test_purchase_orders_list_row_opens_details_and_shows_product_names_without_
     assert "fixed bottom-0" not in mobile_section
     assert "Kho hàng" not in page and "Cá nhân" not in page
     assert "Kỳ xem" in page
-    assert 'onClick={() => window.dispatchEvent(new Event("bmq:open-sidebar"))}' in page
-    assert 'sticky top-0 z-20' in page
-    assert 'sticky top-[57px] z-10' in page
+    # The page's own sticky header (menu + dead bell) duplicated the shell header; the filter bar
+    # is now the only sticky strip and sits at the top of the scroller.
+    assert 'bmq:open-sidebar' not in page
+    assert '<Bell' not in page
+    assert 'sticky top-0 z-10' in page
     assert 'fixed bottom-4 right-4 z-40' in page
     # The app drawer and its scrim sit above the page's z-40 create FAB.
     shell_css = read(ROOT / "src/styles/bmq-shell.css")

@@ -301,10 +301,10 @@ export default function StockCatalogCleanup() {
     <div className="d3-wh d3-sl d3-sc min-w-0" data-bmq-stock-catalog>
       <header className="d3-wh-head">
         <div className="min-w-0">
-          <span className="d3-wh-tag">Một danh mục NVL cho Q7 và Tân Tạo · Sushi đề xuất · người duyệt quyết định</span>
           <h1>
             Dọn danh mục <b>kho</b>
           </h1>
+          <p className="d3-wh-tag">Một danh mục NVL cho Q7 và Tân Tạo · Sushi đề xuất · người duyệt quyết định</p>
         </div>
         {canEdit ? (
           <div className="d3-sc-scan">
