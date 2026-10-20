@@ -17,12 +17,13 @@ import { dueLabel } from "@/lib/manual-missions";
 import { ManualBoardSection, ManualSubmitTool, isManualMissionCode, manualState } from "./ManualMissions";
 import {
   assignmentsByParent, levelProgress, missionAssignErrorText, missionErrorMessage,
-  type CompleteMissionResult, type MissionAssignment, type MissionStaffMember, type Mission, type MissionAliasDetail, type MissionBomMismatchDetail, type MissionRecipeDetail, type MissionSkuCountDetail, type MissionCountQuestionsDetail, type MissionDuplicateDetail, type MissionLevel, type MissionMaterialLinksDetail, type MissionUnknownUnitDetail, type MyMissions,
+  type CompleteMissionResult, type MissionAssignment, type MissionStaffMember, type Mission, type MissionAliasDetail, type MissionBomMismatchDetail, type MissionRecipeDetail, type MissionSkuCountDetail, type MissionCountQuestionsDetail, type MissionDocUnitQuestionsDetail, type MissionDuplicateDetail, type MissionLevel, type MissionMaterialLinksDetail, type MissionUnknownUnitDetail, type MyMissions,
 } from "@/lib/missions";
 import { STOCK_UNITS } from "@/lib/stock-units";
 import { canSubmit, computeCountedQty, type StockCountUnitQuestion } from "@/lib/count-unit-questions";
 import type { ReceiptLine } from "@/lib/receipt-lines";
 import { ReceiptNotes } from "./ReceiptNotes";
+import { DocUnitQuestionsTool } from "./DocUnitQuestions";
 import { Sheet } from "./Sheet";
 import { GameLoading } from "./Loading";
 import { Buddy } from "./Toon";
@@ -40,7 +41,7 @@ export const LADDER: MissionLevel[] = [
 
 const hatFor = (level: number): "none" | "cap" | "chef" => (level >= 3 ? "chef" : level === 2 ? "cap" : "none");
 
-type Rule = "manual" | "alias" | "duplicate" | "units" | "links" | "count" | "bom" | "recipe" | "sku" | "other";
+type Rule = "manual" | "alias" | "duplicate" | "units" | "links" | "count" | "docunits" | "bom" | "recipe" | "sku" | "other";
 
 function ruleOf(mission: Mission): Rule {
   if (isManualMissionCode(mission.code)) return "manual";
@@ -48,6 +49,8 @@ function ruleOf(mission: Mission): Rule {
   if (kind === "sku_count" || mission.code.startsWith("wh-count-bmq")) return "sku";
   if (kind === "recipe" || mission.code.startsWith("wh-tan-tao-pate-recipe")) return "recipe";
   if (kind === "bom_mismatch" || mission.code.startsWith("wh-q7-bom-match")) return "bom";
+  // Before the generic "unit" match below: wh-doc-units-… is not the unknown-units mission.
+  if (kind === "document_unit_questions" || mission.code.startsWith("wh-doc-units")) return "docunits";
   if (kind === "count_questions" || mission.code.startsWith("wh-count-units")) return "count";
   if (kind === "alias_factor_fixed" || mission.code.includes("alias")) return "alias";
   if (kind === "duplicate_resolved" || mission.code.includes("duplicate")) return "duplicate";
@@ -56,7 +59,7 @@ function ruleOf(mission: Mission): Rule {
   return "other";
 }
 
-const RULE_ICON: Record<Rule, string> = { manual: "📋", alias: "🏷️", duplicate: "🥐", units: "📏", links: "🧩", count: "⚖️", bom: "🧁", recipe: "🍲", sku: "🥖", other: "📜" };
+const RULE_ICON: Record<Rule, string> = { manual: "📋", alias: "🏷️", duplicate: "🥐", units: "📏", links: "🧩", count: "⚖️", docunits: "🧾", bom: "🧁", recipe: "🍲", sku: "🥖", other: "📜" };
 
 /** Steps shown on the card: the duplicate pair is one decision, the others count rows. */
 export function missionSteps(mission: Mission): { done: number; total: number } {
@@ -69,6 +72,8 @@ export function missionSteps(mission: Mission): { done: number; total: number } 
   if (links) return { done: links.linked, total: Math.max(links.linked + links.remaining, 1) };
   const counts = mission.progress.detail.find((row): row is MissionCountQuestionsDetail => row.kind === "count_questions");
   if (counts) return { done: counts.answered + counts.skipped, total: Math.max(counts.total, 1) };
+  const docUnits = mission.progress.detail.find((row): row is MissionDocUnitQuestionsDetail => row.kind === "document_unit_questions");
+  if (docUnits) return { done: docUnits.answered + docUnits.skipped, total: Math.max(docUnits.total, 1) };
   const bom = mission.progress.detail.find((row): row is MissionBomMismatchDetail => row.kind === "bom_mismatch");
   if (bom) return { done: Math.max(0, bom.total - bom.open), total: Math.max(bom.total, 1) };
   const recipe = mission.progress.detail.find((row): row is MissionRecipeDetail => row.kind === "recipe");
@@ -870,6 +875,7 @@ export function MissionSheet({ mission, onClose, onToast, onCompleted, onOpenQue
           {rule === "bom" ? <BomMatchTool onSaved={onToast} /> : null}
           {rule === "recipe" ? <PateRecipeTool onSaved={onToast} /> : null}
           {rule === "sku" ? <SkuCountTool mission={mission} detail={detail.find((row): row is MissionSkuCountDetail => row.kind === "sku_count")} onSaved={onToast} /> : null}
+          {rule === "docunits" ? <DocUnitQuestionsTool detail={detail.find((row): row is MissionDocUnitQuestionsDetail => row.kind === "document_unit_questions")} onSaved={onToast} /> : null}
           {rule === "count" ? <CountQuestionsTool detail={detail.find((row): row is MissionCountQuestionsDetail => row.kind === "count_questions")} onSaved={onToast} /> : null}
           {rule === "units" ? (
             grouped.size ? (

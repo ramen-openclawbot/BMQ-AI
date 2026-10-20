@@ -628,3 +628,13 @@ test("missionAssignErrorText maps every server error to Vietnamese", () => {
   assert.equal(missionAssignErrorText({ message: "mất kết nối" }), "mất kết nối");
   assert.equal(missionAssignErrorText(null), "Có lỗi xảy ra");
 });
+
+test("parseMissionDetailEntry keeps document_unit_questions apart from count_questions", () => {
+  const row = parseMissionDetailEntry({ kind: "document_unit_questions", batch: "2026-10-20", total: 39, open: 38, answered: 1 });
+  assert.equal(row.kind, "document_unit_questions");
+  assert.equal(row.batch, "2026-10-20");
+  assert.equal(row.total, 39);
+  assert.equal(row.open, 38);
+  assert.equal(row.answered, 1);
+  assert.equal(row.skipped, 0);
+});

@@ -85,6 +85,16 @@ export interface MissionCountQuestionsDetail {
   skipped: number;
 }
 
+/** document_unit_questions_done detail row (batch of document-unit pairs, 20/10). */
+export interface MissionDocUnitQuestionsDetail {
+  kind: "document_unit_questions";
+  batch: string;
+  total: number;
+  open: number;
+  answered: number;
+  skipped: number;
+}
+
 /** q7_bom_mismatch_resolved detail row. */
 export interface MissionBomMismatchDetail {
   kind: "bom_mismatch";
@@ -119,6 +129,7 @@ export type MissionDetail =
   | MissionUnknownUnitDetail
   | MissionMaterialLinksDetail
   | MissionCountQuestionsDetail
+  | MissionDocUnitQuestionsDetail
   | MissionBomMismatchDetail
   | MissionRecipeDetail
   | MissionSkuCountDetail;
@@ -329,6 +340,17 @@ function parseNullableLevel(raw: unknown, path: string): MissionLevel | null {
 /** One mission detail row; `kind` is assigned from the fields the row carries. */
 export function parseMissionDetailEntry(raw: unknown, path = "detail"): MissionDetail {
   const row = asRecord(raw, path);
+  // Checked before the generic `batch` fallback below, which means count_questions.
+  if (row.kind === "document_unit_questions") {
+    return {
+      kind: "document_unit_questions",
+      batch: asString(row.batch, `${path}.batch`),
+      total: asNumber(row.total ?? 0, `${path}.total`),
+      open: asNumber(row.open ?? 0, `${path}.open`),
+      answered: asNumber(row.answered ?? 0, `${path}.answered`),
+      skipped: asNumber(row.skipped ?? 0, `${path}.skipped`),
+    };
+  }
   if (row.kind === "bom_mismatch") {
     return {
       kind: "bom_mismatch",

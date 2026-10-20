@@ -69,6 +69,24 @@ function settle(st) {
     const line = (n, d, qty, unit) => ({ goods_receipt_id: "gr-" + n, goods_receipt_item_id: "gri-" + n, receipt_number: n, receipt_date: d, status: "confirmed", supplier_name: "Ngọc Trân", raw_name: "Băng keo 100 yard", quantity: qty, unit, unit_price: 135000, line_total: qty * 135000, image_path: null, photo_paths: [] });
     return { data: [line("GRN-000590", "2026-10-10", 30, "cuộn"), line("GRN-000581", "2026-10-08", 5, "cây")], error: null };
   }
+  // Quy đổi đơn vị chứng từ (20/10): answered, two disagreeing game values, no value + a duplicate sample line.
+  if (st.table === "rpc:get_document_unit_questions") {
+    const mat = (id, name, unit) => ({ id, material_code: "NVL-" + id.slice(-3), canonical_name: name, default_unit: unit });
+    const line = (table, n, d, name, qty, unit, price, img) => ({ table, line_id: "l-" + n, document_number: n, document_date: d, product_name: name, qty, unit, unit_price: price, supplier_name: "Cholimex", image_path: img, created_at: d + "T08:00:00Z" });
+    const base = { batch: "2026-10-20", status: "open", action: null, factor: null, actual_unit: null, reason: null, answered_by: null, answered_at: null, created_at: "2026-10-20T10:00:00Z", replay: false };
+    return { data: [
+      { ...base, id: "du-1", material_id: "m-tape", doc_unit: "cây", doc_unit_normalized: "cây", default_unit: "cuộn", line_count: 4, material: mat("m-tape", "Băng keo lớn", "cuộn"),
+        candidates: [{ factor: 1, source: "game_alias_factor", alias_id: "a1", sources: ["game_alias_factor"] }, { factor: 6, source: "game_alias_factor", alias_id: "a2", sources: ["game_alias_factor"] }],
+        sample_lines: [line("goods_receipt_items", "GRN-000581", "2026-10-08", "Băng keo 100 yard", 5, "cây", 135000, "goods-receipts/delivery-note-581.jpg")] },
+      { ...base, id: "du-2", material_id: "m-tuong", doc_unit: "Thùng", doc_unit_normalized: "thùng", default_unit: "gói", line_count: 6, material: mat("m-tuong", "Tương ớt Cholimex gói 10g", "gói"), candidates: [],
+        sample_lines: [line("purchase_order_items", "PO-000699", "2026-07-30", "T. Ốt gói 10g", 3, "Thùng", 432000, "PO-000699-1785384210911.jpg"), line("invoice_items", "INV-260804-KQM2", "2026-08-03", "T. Ốt gói 10g với tên rất dài từ hóa đơn nhà cung cấp Cholimex", 3, "Thùng", 432000, null), line("invoice_items", "INV-260804-KQM2", "2026-08-03", "T. Ốt gói 10g với tên rất dài từ hóa đơn nhà cung cấp Cholimex", 3, "Thùng", 432000, null)] },
+      { ...base, id: "du-3", material_id: "m-h07", doc_unit: "cái", doc_unit_normalized: "cái", default_unit: "hộp", line_count: 54, material: mat("m-h07", "Hộp H07", "hộp"), status: "answered", action: "factor", factor: 1, candidates: [], sample_lines: [] },
+    ], error: null };
+  }
+  if (st.table === "rpc:answer_document_unit_question") {
+    window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args));
+    return { data: { id: st.args.p_id, batch: "2026-10-20", material_id: "m", doc_unit: "x", doc_unit_normalized: "x", default_unit: "gói", line_count: 1, candidates: [], sample_lines: [], status: st.args.p_action === "skip" ? "skipped" : "answered", action: st.args.p_action, factor: st.args.p_factor, actual_unit: st.args.p_actual_unit, reason: st.args.p_reason, answered_by: null, answered_at: null, created_at: null, material: null, replay: false }, error: null };
+  }
   if (st.table === "rpc:answer_stock_count_unit_question") {
     window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args));
     return { data: { batch: "2026-10-16", id: st.args.p_question_id, location: "tan_tao", sort_order: 7, file_label: "x", file_qty: 8, file_unit: "cây", suggested_item_id: null, suggested_factor: null, status: st.args.p_skip ? "skipped" : "answered", item_id: st.args.p_item_id, factor: st.args.p_factor, counted_qty: st.args.p_factor ? 8 * st.args.p_factor : null, record_result: null, note: null, answered_by: null, answered_at: null, suggested_item: null, chosen_item: { id: "it-tape", code: "NVL-083", name: "Băng keo lớn", unit: "cuộn" }, item_units: [], replay: false }, error: null };
@@ -499,6 +517,8 @@ const ready = structuredClone(MS_RAW.three_open_partial);
 ready.missions[0].progress = { ...ready.missions[0].progress, done: true, left: 0, detail: ready.missions[0].progress.detail.map((row) => ({ ...row, fixed: true })) };
 const countFixture = structuredClone(MS_RAW.three_open_partial);
 countFixture.missions = [{ ...countFixture.missions[0], id: "0f0b3d2a-0009-4c11-8a10-000000000009", code: "wh-count-units-20261016", title: "Quy đổi tồn 16/10", description: "Trả lời 12 dòng tồn kho chưa rõ đơn vị trong file 16/10", sort_order: 6, progress: { done: false, total: 12, left: 11, detail: [{ kind: "count_questions", batch: "2026-10-16", total: 12, open: 11, answered: 1, skipped: 0 }] } }];
+const docUnitFixture = structuredClone(MS_RAW.three_open_partial);
+docUnitFixture.missions = [{ ...docUnitFixture.missions[0], id: "0f0b3d2a-0012-4c11-8a10-000000000012", code: "wh-doc-units-20261020", title: "Quy đổi đơn vị chứng từ", description: "Trả lời các cặp đơn vị chứng từ chưa có hệ số", sort_order: 9, progress: { done: false, total: 3, left: 2, detail: [{ kind: "document_unit_questions", batch: "2026-10-20", total: 3, open: 2, answered: 1, skipped: 0 }] } }];
 const bomFixture = structuredClone(MS_RAW.three_open_partial);
 bomFixture.missions = [{ ...bomFixture.missions[0], id: "0f0b3d2a-0010-4c11-8a10-000000000010", code: "wh-q7-bom-match-20261017", title: "Khớp công thức Q7 với kho", description: "Trỏ từng nguyên liệu công thức vào đúng món kho đã kiểm kê để trừ NVL từ 17/10", sort_order: 7, progress: { done: false, total: 3, left: 2, detail: [{ kind: "bom_mismatch", open: 2, resolved: 0, excluded: 1, total: 3 }] } }];
 const recipeFixture = structuredClone(MS_RAW.three_open_partial);
@@ -538,7 +558,7 @@ manualFixture.missions = [
   { ...manualFixture.missions[0], id: "mm-2", code: "manual-b8b8b8b8b8@0000aaaa", title: "Ghi số thùng bánh mì", description: null, area: "manual", sort_order: 100, progress: { done: false, total: 1, left: 1, detail: [] } },
   ...manualFixture.missions.slice(1),
 ];
-const MS_FIXTURE = { ...MS_RAW, manual_state: MANUAL_STATE, manual: manualFixture, ready, count: countFixture, bom: bomFixture, recipe: recipeFixture, sku: skuFixture, sku_done: skuDoneFixture };
+const MS_FIXTURE = { ...MS_RAW, manual_state: MANUAL_STATE, manual: manualFixture, ready, count: countFixture, docunits: docUnitFixture, bom: bomFixture, recipe: recipeFixture, sku: skuFixture, sku_done: skuDoneFixture };
 const KG_FIXTURE = JSON.parse(fs.readFileSync(path.join(ROOT, "scripts/qa_warehouse_game.fixture.json"), "utf8"));
 async function open(cfg, route, viewport, extra = {}) {
   const context = await browser.newContext({ viewport, reducedMotion: extra.reducedMotion || "reduce", locale: "vi-VN" });
@@ -749,6 +769,66 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     assert.ok(all.some((x) => x.startsWith("rpc:answer_stock_count_unit_question:") && x.includes('"p_question_id":"cq-6"') && x.includes('"p_new_item_name":"Muối"') && x.includes('"p_new_item_unit":"g"') && x.includes('"p_factor":1000')), "salt creates a new item");
     assert.deepEqual(errors, [], "no page errors");
     record(`count questions ${w}`);
+    await context.close();
+  }
+  // 1b2. Quy đổi đơn vị chứng từ (20/10): documents beside every factor, game values as chips, misread + skip.
+  {
+    const { context, page, errors } = await open({ data: "populated", role: "owner", missions: "docunits" }, "/warehouse/game", viewport);
+    await page.waitForTimeout(700);
+    await board(page);
+    const card = page.locator("[data-bmq-mission='wh-doc-units-20261020']");
+    assert.match(await card.textContent(), /1\/3/, "card counts answered of 3");
+    assert.match(await card.textContent(), /🧾/, "own icon, not the unknown-units mission");
+    await card.click({ force: true });
+    await page.waitForSelector("[data-bmq-doc-unit-questions]", { timeout: 5000 });
+    await page.waitForTimeout(500);
+    assert.equal(await page.locator("[data-bmq-doc-unit-question]").count(), 3, "three question rows");
+    const order = await page.locator("[data-bmq-doc-unit-question]").evaluateAll((els) => els.map((el) => el.getAttribute("data-status")));
+    assert.deepEqual(order, ["open", "open", "answered"], "open rows first");
+    assert.match(await page.locator("[data-bmq-doc-unit-question='du-3']").textContent(), /1 cái = 1 hộp/);
+    const tape = page.locator("[data-bmq-doc-unit-question='du-1']");
+    assert.equal(await tape.locator("[data-bmq-doc-unit-candidates]").getAttribute("data-bmq-doc-unit-candidates"), "2", "two disagreeing game values");
+    assert.equal(await tape.locator("[data-bmq-doc-unit-factor]").inputValue(), "", "no prefill when the game disagrees");
+    assert.equal(await tape.locator("[data-bmq-doc-unit-save]").isDisabled(), true, "needs a factor first");
+    const tuong = page.locator("[data-bmq-doc-unit-question='du-2']");
+    assert.equal(await tuong.locator("[data-bmq-doc-unit-line]").count(), 2, "duplicate sample line shown once");
+    assert.equal(await page.locator("[data-bmq-doc-unit-question][data-status='open'] [data-bmq-doc-unit-line]").count(), 3, "evidence on every open row");
+    await page.waitForFunction(() => document.querySelectorAll(".du-thumb img").length >= 2, null, { timeout: 5000 });
+    assert.equal(await overflow(page), 0, `doc-unit sheet no overflow ${w}`);
+    await page.screenshot({ path: `${EVIDENCE}/sheet-docunits-${w}.png`, fullPage: false });
+    await tape.locator(".du-cand", { hasText: "6" }).click({ force: true });
+    assert.equal(await tape.locator("[data-bmq-doc-unit-factor]").inputValue(), "6", "chip fills the factor");
+    await tape.locator("[data-bmq-doc-unit-save]").click({ force: true });
+    await tuong.locator("[data-bmq-doc-unit-factor]").fill("180");
+    await tuong.locator("[data-bmq-doc-unit-save]").click({ force: true });
+    await page.waitForTimeout(400);
+    const all = await writes(page);
+    assert.ok(all.some((x) => x.startsWith("rpc:answer_document_unit_question:") && x.includes('"p_id":"du-1"') && x.includes('"p_action":"factor"') && x.includes('"p_factor":6')), "tape answered × 6");
+    assert.ok(all.some((x) => x.startsWith("rpc:answer_document_unit_question:") && x.includes('"p_id":"du-2"') && x.includes('"p_factor":180')), "thùng answered × 180");
+    assert.deepEqual(errors, [], "no page errors");
+    record(`doc unit questions ${w}`);
+    await context.close();
+  }
+  // 1b3. Misread + skip on a fresh sheet.
+  {
+    const { context, page, errors } = await open({ data: "populated", role: "owner", missions: "docunits" }, "/warehouse/game", viewport);
+    await page.waitForTimeout(700);
+    await board(page);
+    await page.locator("[data-bmq-mission='wh-doc-units-20261020']").click({ force: true });
+    await page.waitForSelector("[data-bmq-doc-unit-questions]", { timeout: 5000 });
+    const tape = page.locator("[data-bmq-doc-unit-question='du-1']");
+    await page.waitForTimeout(600);
+    await tape.locator("[data-bmq-doc-unit-misread]").click({ force: true });
+    await tape.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(200);
+    assert.equal(await tape.locator("[data-bmq-doc-unit-save]").isDisabled(), true, "misread needs the real unit");
+    await page.screenshot({ path: `${EVIDENCE}/sheet-docunits-misread-${w}.png` });
+    await page.locator("[data-bmq-doc-unit-question='du-2'] [data-bmq-doc-unit-skip]").click({ force: true });
+    await page.waitForTimeout(300);
+    assert.ok((await writes(page)).some((x) => x.startsWith("rpc:answer_document_unit_question:") && x.includes('"p_id":"du-2"') && x.includes('"p_action":"skip"')), "skip sent");
+    assert.equal(await overflow(page), 0, `misread no overflow ${w}`);
+    assert.deepEqual(errors, [], "no page errors");
+    record(`doc unit misread/skip ${w}`);
     await context.close();
   }
   // 1c. Khớp công thức Q7: keep / remap with a factor / exclude, evidence beside every remap.
