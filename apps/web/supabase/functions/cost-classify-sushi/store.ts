@@ -82,7 +82,7 @@ export function createCostClassifyStore(admin: SupabaseClient): CostClassifyStor
     async listCategories() {
       const { data, error } = await admin
         .from("cost_categories")
-        .select("code,label,is_active,sort_order")
+        .select("code,label,parent_code,sushi_hint,is_active,sort_order")
         .eq("is_active", true)
         .neq("code", "UNMAPPED_REVIEW")
         .order("sort_order", { ascending: true })
@@ -92,6 +92,8 @@ export function createCostClassifyStore(admin: SupabaseClient): CostClassifyStor
         .map((row) => ({
           code: asString(row.code),
           label: asString(row.label),
+          parent_code: asNullableString(row.parent_code),
+          sushi_hint: asNullableString(row.sushi_hint),
           is_active: typeof row.is_active === "boolean" ? row.is_active : true,
           sort_order: asNumber(row.sort_order),
         }))
@@ -144,6 +146,7 @@ export function createCostClassifyStore(admin: SupabaseClient): CostClassifyStor
         p_category_code: input.category_code,
         p_probability: input.probability,
         p_note: input.note,
+        p_product_line: input.product_line,
       });
       if (error) fail();
       const row = (data ?? {}) as Record<string, unknown>;
@@ -153,6 +156,7 @@ export function createCostClassifyStore(admin: SupabaseClient): CostClassifyStor
         classification_id: asNullableString(row.classification_id) ?? undefined,
         action_id: asNullableString(row.action_id) ?? undefined,
         category_code: asNullableString(row.category_code) ?? undefined,
+        product_line: asNullableString(row.product_line) ?? undefined,
         review_status: asNullableString(row.review_status) ?? undefined,
       };
     },

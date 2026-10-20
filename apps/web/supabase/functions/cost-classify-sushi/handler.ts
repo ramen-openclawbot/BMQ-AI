@@ -12,6 +12,7 @@
 import { getCorsHeaders } from "../_shared/cors.ts";
 import {
   JevError,
+  PRODUCT_LINE_THRESHOLD,
   allowedOptions,
   buildCostState,
   formatCostCorrection,
@@ -19,6 +20,7 @@ import {
   type CostClassificationCandidate,
   type CostEvaluator,
   type CostFeedbackRow,
+  type ProductLineCode,
 } from "./jev.ts";
 
 export const COST_CLASSIFY_REQUEST_BODY_LIMIT = 32_768;
@@ -48,6 +50,8 @@ export interface CostSettings {
 export interface CostCategoryRow {
   code: string;
   label: string;
+  parent_code?: string | null;
+  sushi_hint?: string | null;
   is_active?: boolean;
   sort_order?: number;
 }
@@ -58,6 +62,7 @@ export interface ApplyCostInput {
   category_code: string;
   probability: number;
   note: string;
+  product_line: ProductLineCode;
 }
 
 export interface ApplyCostResult {
@@ -66,6 +71,7 @@ export interface ApplyCostResult {
   classification_id?: string;
   action_id?: string;
   category_code?: string;
+  product_line?: string;
   review_status?: string;
 }
 
@@ -74,6 +80,7 @@ export interface CostLineResult {
   source_line_id: string;
   status: string;
   category_code?: string;
+  product_line?: ProductLineCode;
   probability?: number;
   review_status?: string;
   note?: string;
@@ -198,6 +205,16 @@ function formatPercent(probability: number): string {
   return `${(probability * 100).toFixed(1)}%`;
 }
 
+function categoryCriterion(row: CostCategoryRow): string {
+  const label = typeof row.label === "string" ? row.label : "";
+  const hint = typeof row.sushi_hint === "string" ? row.sushi_hint.trim() : "";
+  return hint !== "" ? `${label} — ví dụ: ${hint}` : label;
+}
+
+function hasText(value: unknown): value is string {
+  return typeof value === "string" && value !== "";
+}
+
 function fallbackSubjectKey(candidate: CostClassificationCandidate): string {
   return `${candidate.supplier_id ?? ""}|${String(candidate.product_name ?? "").toLowerCase()}`;
 }
@@ -240,15 +257,16 @@ export function createCostClassifyHandler(deps: CostClassifyHandlerDeps) {
       const threshold = thresholdOf(settings);
 
       const rows = await deps.listCategories();
-      const options: CostCategoryOption[] = rows
+      const activeRows = rows.filter((row) => row.is_active !== false && hasText(row.code));
+      const activeParentCodes = new Set(
+        activeRows.map((row) => row.parent_code).filter((code): code is string => hasText(code)),
+      );
+      const options: CostCategoryOption[] = activeRows
         .filter((row) =>
-          typeof row.code === "string"
-          && row.code !== ""
-          && row.code !== "UNMAPPED_REVIEW"
-          && row.is_active !== false
-          && typeof row.label === "string"
-          && row.label !== "")
-        .map((row) => ({ code: row.code, label: row.label }));
+          row.code !== "UNMAPPED_REVIEW"
+          && !activeParentCodes.has(row.code)
+          && hasText(row.label))
+        .map((row) => ({ code: row.code, label: categoryCriterion(row) }));
       if (options.length < 2) throw new CostClassifyError("unconfigured", 503);
 
       let evaluator: CostEvaluator | null = null;
@@ -321,6 +339,9 @@ export function createCostClassifyHandler(deps: CostClassifyHandlerDeps) {
         const categoryCode = evaluation.probability >= threshold
           ? evaluation.category_code
           : "UNMAPPED_REVIEW";
+        const productLine: ProductLineCode = evaluation.product_line_probability >= PRODUCT_LINE_THRESHOLD
+          ? evaluation.product_line
+          : "shared";
         const reviewStatus = categoryCode === "UNMAPPED_REVIEW" ? "needs_review" : "suggested";
         const note = categoryCode === "UNMAPPED_REVIEW"
           ? `Sushi chọn ${evaluation.category_code} (${formatPercent(evaluation.probability)}) — cần review`
@@ -334,6 +355,7 @@ export function createCostClassifyHandler(deps: CostClassifyHandlerDeps) {
             source_line_id: candidate.source_line_id,
             status: "dry_run",
             category_code: categoryCode,
+            product_line: productLine,
             probability: evaluation.probability,
             review_status: reviewStatus,
             note,
@@ -347,6 +369,7 @@ export function createCostClassifyHandler(deps: CostClassifyHandlerDeps) {
           category_code: categoryCode,
           probability: evaluation.probability,
           note,
+          product_line: productLine,
         });
 
         if (outcome.status === "applied") {
@@ -359,6 +382,7 @@ export function createCostClassifyHandler(deps: CostClassifyHandlerDeps) {
             source_line_id: candidate.source_line_id,
             status: "applied",
             category_code: writtenCategory,
+            product_line: productLine,
             probability: evaluation.probability,
             review_status: writtenReviewStatus,
             note,

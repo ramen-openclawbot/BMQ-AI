@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { endOfMonth, format, startOfMonth } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
 import type { Tables } from "@/integrations/supabase/types";
+import { leafCategoryOptions } from "@/lib/cost-categories";
 
 type CostClassificationCategorySummaryRow = Tables<"cost_classification_category_summary">;
 type CostClassificationMonthlySummaryRow = Tables<"cost_classification_monthly_summary">;
@@ -11,6 +12,7 @@ type CostCategoryRow = Tables<"cost_categories">;
 export interface CostCategoryOption {
   code: string;
   label: string;
+  parent_code?: string | null;
   cost_group: string;
   product_line: string;
   sort_order: number;
@@ -86,6 +88,7 @@ function normalizeCategoryOption(row: CostCategoryRow): CostCategoryOption {
   return {
     code: row.code,
     label: row.label || row.code,
+    parent_code: row.parent_code ?? null,
     cost_group: row.cost_group || "unmapped",
     product_line: row.product_line || "general",
     sort_order: Number(row.sort_order || 0),
@@ -358,7 +361,7 @@ export function useCostCategories(enabled = true) {
         .order("code", { ascending: true });
 
       if (error) throw error;
-      return (data || []).map(normalizeCategoryOption);
+      return leafCategoryOptions((data || []).map(normalizeCategoryOption));
     },
     staleTime: COST_CLASSIFICATION_STALE_MS,
   });

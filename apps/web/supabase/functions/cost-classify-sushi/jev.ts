@@ -26,7 +26,7 @@ import {
 export const JEV_ENDPOINT = "https://ai-gateway.vercel.sh/v1/evaluate";
 export const JEV_MODEL = "typesafe-ai/jev";
 // Bump whenever the state, the question or the criteria below change.
-export const SUSHI_COST_PROMPT_VERSION = "sushi-cost-classify-2026-10-20.1";
+export const SUSHI_COST_PROMPT_VERSION = "sushi-cost-classify-2026-10-20.2";
 export const JEV_TIMEOUT_MS = 4000;
 export const JEV_MAX_TIMEOUT_MS = 4000;
 export const JEV_BODY_LIMIT = 32_000;
@@ -34,6 +34,27 @@ export const JEV_CIRCUIT_THRESHOLD = 3;
 export const JEV_CIRCUIT_COOLDOWN_MS = 30_000;
 
 export const COST_QUESTION_KEY = "cost_category";
+export const PRODUCT_LINE_QUESTION_KEY = "product_line";
+export const PRODUCT_LINE_THRESHOLD = 0.8;
+
+export type ProductLineCode = "bmq_bread" | "sweet_kitchen" | "shared";
+
+export const PRODUCT_LINE_OPTIONS: readonly { code: ProductLineCode; label: string }[] = [
+  {
+    code: "bmq_bread",
+    label: "Bánh mì que / bánh mì lớn và pate, chà bông dùng cho bánh mì",
+  },
+  {
+    code: "sweet_kitchen",
+    label: "Bếp bánh ngọt Q7: bơ, bột, phô mai, trứng cho bánh ngọt",
+  },
+  {
+    code: "shared",
+    label: "Dùng chung hoặc không rõ: thuê kho, điện, gas, giao hàng, văn phòng",
+  },
+];
+
+const PRODUCT_LINE_CODES = PRODUCT_LINE_OPTIONS.map((option) => option.code);
 
 export interface CostCategoryOption {
   code: string;
@@ -86,6 +107,10 @@ export const COST_INSTRUCTIONS =
   "Khoản chi `line` (nhà cung cấp, tên hàng, mã hàng, đơn vị, số lượng, " +
   "đơn giá, thành tiền, ghi chú) thuộc danh mục chi phí nào?";
 
+export const PRODUCT_LINE_INSTRUCTIONS =
+  "Khoản chi `line` phục vụ dòng sản phẩm nào? Chọn shared khi dùng chung " +
+  "hoặc không rõ.";
+
 export function costCriteria(options: readonly CostCategoryOption[]): Record<string, string> {
   const criteria: Record<string, string> = {};
   for (const option of options) {
@@ -98,12 +123,25 @@ export function allowedOptions(options: readonly CostCategoryOption[]): string[]
   return options.map((option) => option.code);
 }
 
+export function productLineCriteria(): Record<string, string> {
+  const criteria: Record<string, string> = {};
+  for (const option of PRODUCT_LINE_OPTIONS) {
+    criteria[option.code] = option.label;
+  }
+  return criteria;
+}
+
 export function costQuestion(options: readonly CostCategoryOption[]) {
   return {
     [COST_QUESTION_KEY]: {
       type: "choice" as const,
       instructions: COST_INSTRUCTIONS,
       criteria: costCriteria(options),
+    },
+    [PRODUCT_LINE_QUESTION_KEY]: {
+      type: "choice" as const,
+      instructions: PRODUCT_LINE_INSTRUCTIONS,
+      criteria: productLineCriteria(),
     },
   };
 }
@@ -142,6 +180,8 @@ export type JevUsage = { input: number; output: number };
 export interface CostEvaluation {
   category_code: string;
   probability: number;
+  product_line: ProductLineCode;
+  product_line_probability: number;
   confidence: number | null;
   usage: JevUsage;
   cost: number | null;
@@ -214,6 +254,32 @@ function validateUsage(body: Record<string, unknown>): JevUsage {
  * a provider failure, but an unknown option, a missing answer or a missing
  * probability is "no answer" (`null`) and the caller writes nothing.
  */
+export interface ProductLineAnswer {
+  product_line: ProductLineCode;
+  probability: number;
+}
+
+function isProductLineCode(value: string): value is ProductLineCode {
+  return (PRODUCT_LINE_CODES as readonly string[]).includes(value);
+}
+
+/**
+ * The product-line question is advisory: an unknown option, a missing answer
+ * or a missing probability means `shared` and never invalidates the category.
+ */
+export function validateProductLineAnswer(body: unknown): ProductLineAnswer {
+  const fallback: ProductLineAnswer = { product_line: "shared", probability: 0 };
+  if (!isRecord(body) || !isRecord(body.answers)) return fallback;
+  const answer = body.answers[PRODUCT_LINE_QUESTION_KEY];
+  if (!isRecord(answer) || answer.type !== "choice") return fallback;
+  if (typeof answer.choice !== "string" || !isProductLineCode(answer.choice)) return fallback;
+  if (!isRecord(answer.probabilities)) return fallback;
+  if (!Object.hasOwn(answer.probabilities, answer.choice)) return fallback;
+  const probability = answer.probabilities[answer.choice];
+  if (!finiteUnit(probability)) return fallback;
+  return { product_line: answer.choice, probability };
+}
+
 export function validateCostAnswer(allowed: readonly string[], body: unknown): CostEvaluation | null {
   if (!isRecord(body) || body.model !== JEV_MODEL) throw new JevError("jev_invalid_response", 502);
   const usage = validateUsage(body);
@@ -233,10 +299,13 @@ export function validateCostAnswer(allowed: readonly string[], body: unknown): C
   const confidence = Object.hasOwn(answer, "confidence") && finiteUnit(answer.confidence)
     ? (answer.confidence as number)
     : null;
+  const productLine = validateProductLineAnswer(body);
 
   return {
     category_code: answer.choice,
     probability,
+    product_line: productLine.product_line,
+    product_line_probability: productLine.probability,
     confidence,
     usage,
     cost,

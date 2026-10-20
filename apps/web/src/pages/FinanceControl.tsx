@@ -54,13 +54,15 @@ import { UncAppEvidencePanel } from "@/components/payment-requests/UncAppEvidenc
 
 import { parseDbDate } from "@/lib/date-only";
 const vnd = (value: number) => new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(value || 0);
-const COST_CLASSIFICATION_CARD_CODES = [
-  "COGS_BMQ_BREAD",
-  "COGS_SWEET_KITCHEN",
-  "PACKAGING_SALES",
-  "OPEX_GENERAL",
-  "CAPEX_ASSET_PROJECT",
-  "UNMAPPED_REVIEW",
+// Summary cards follow the approved cost tree (20261102350000): one card per
+// parent group, plus the review bucket and the retired pre-tree groups.
+const COST_CLASSIFICATION_PARENT_CARDS = [
+  { code: "A_COGS", label: "A · Giá vốn hàng bán" },
+  { code: "B_SELLING", label: "B · Chi phí bán hàng" },
+  { code: "C_OPERATING", label: "C · Chi phí vận hành, quản lý" },
+  { code: "D_INVESTMENT", label: "D · Đầu tư (khấu hao)" },
+  { code: "UNMAPPED_REVIEW", label: "Chưa phân loại / cần review" },
+  { code: "LEGACY", label: "Nhóm cũ (trước 20/10)" },
 ];
 
 const EMPTY_COST_CLASSIFICATION_CATEGORY_ROWS: CostClassificationCategorySummary[] = [];
@@ -502,9 +504,39 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
     return totals;
   }, [classificationMonthlyRows, classificationCategoryRows]);
 
+  // Leaf -> parent group; retired codes (not offered any more) fall into LEGACY.
+  const classificationParentTotals = useMemo(() => {
+    const parentByCode = new Map(costCategoryOptions.map((option) => [option.code, option.parent_code || option.code]));
+    const totals = new Map<string, { amount: number; count: number }>();
+    for (const [code, row] of classificationCategoryByCode) {
+      const parent = code === "UNMAPPED_REVIEW" ? code : parentByCode.get(code) || "LEGACY";
+      const existing = totals.get(parent) || { amount: 0, count: 0 };
+      existing.amount += row.amount;
+      existing.count += row.count;
+      totals.set(parent, existing);
+    }
+    return totals;
+  }, [classificationCategoryByCode, costCategoryOptions]);
+
+  // The picker offers active leaves only, but history still carries the retired
+  // codes; keep them in the totals so no spend disappears from the report.
+  const classificationDisplayCategories = useMemo(() => {
+    const known = new Set(costCategoryOptions.map((option) => option.code));
+    const retired = new Map<string, { code: string; label: string; sort_order: number }>();
+    for (const row of classificationMonthlyRows) {
+      if (known.has(row.category_code) || retired.has(row.category_code)) continue;
+      retired.set(row.category_code, {
+        code: row.category_code,
+        label: `${row.category_label || row.category_code} (nhóm cũ)`,
+        sort_order: 900 + retired.size,
+      });
+    }
+    return [...costCategoryOptions, ...retired.values()];
+  }, [classificationMonthlyRows, costCategoryOptions]);
+
   const classificationMonthlyDisplayRows = useMemo<ClassificationMonthlyDisplayRow[]>(
-    () => buildClassificationDisplayRows(classificationMonthlyRows, costCategoryOptions),
-    [classificationMonthlyRows, costCategoryOptions],
+    () => buildClassificationDisplayRows(classificationMonthlyRows, classificationDisplayCategories),
+    [classificationMonthlyRows, classificationDisplayCategories],
   );
 
   const classificationTotalAmount = useMemo(
@@ -2716,12 +2748,13 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                     </div>
                   </CardContent>
                 </Card>
-                {COST_CLASSIFICATION_CARD_CODES.map((code) => {
-                  const row = classificationCategoryByCode.get(code);
+                {COST_CLASSIFICATION_PARENT_CARDS.map(({ code, label }) => {
+                  const row = classificationParentTotals.get(code);
+                  if (code === "LEGACY" && !row?.count) return null;
                   return (
-                    <Card key={code}>
+                    <Card key={code} data-cost-parent={code}>
                       <CardContent className="p-4">
-                        <div className="text-xs text-muted-foreground">{row?.label || code}</div>
+                        <div className="text-xs text-muted-foreground">{label}</div>
                         <div className="break-words text-lg font-semibold sm:text-xl">{vnd(Number(row?.amount || 0))}</div>
                         <div className="text-xs text-muted-foreground">{Number(row?.count || 0)} {isVi ? "dòng" : "lines"}</div>
                       </CardContent>
