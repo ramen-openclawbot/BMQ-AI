@@ -47,6 +47,10 @@ import type { MaterialLinkLocation } from "@/lib/material-link-quest";
 import "@/game/game.css";
 import { Kho3D, canUse3D } from "@/game/three/Kho3D";
 import { askGame } from "@/game/ConfirmDialog";
+import type { StockBotState } from "@/game/three/Warehouse3D";
+import { LowStockSheet } from "@/game/LowStock";
+import { useStockLedgerOverview } from "@/hooks/useStockLedger";
+import { lowStockList } from "@/lib/stock-ledger";
 
 type View =
   | { kind: "yard" }
@@ -74,6 +78,7 @@ type Panel =
   | { kind: "finished"; mode: FinishedGoodsMode; prefill?: string }
   | { kind: "pate" }
   | { kind: "count-review"; location: StockCountLocation }
+  | { kind: "low-stock"; location: WarehouseGameLocation }
   | null;
 
 const LOCATION_LABEL: Record<WarehouseGameLocation, string> = { q7: "Kho Q7", tan_tao: "Kho Tân Tạo" };
@@ -368,6 +373,13 @@ export default function WarehouseGame() {
   const inWarehouse = view.kind === "warehouse" || view.kind === "shelf" || view.kind === "crates";
   const current = inWarehouse ? snaps[view.location] : undefined;
   const currentQuery = inWarehouse ? (view.location === "q7" ? q7 : tt) : undefined;
+  const use3D = canUse3D();
+  // Sushi kiểm tồn (owner 20/10, 3D only): the room's ledger, read only while that 3D room is open.
+  const stockLocation = view.kind === "warehouse" ? view.location : panel?.kind === "low-stock" ? panel.location : null;
+  const stockQuery = useStockLedgerOverview(stockLocation ?? "q7", null, { enabled: use3D && stockLocation !== null });
+  const stockOverview = stockQuery.data && stockQuery.data.location === stockLocation ? stockQuery.data : undefined;
+  const lowRows = stockOverview ? lowStockList(stockOverview) : null;
+  const lowStock: StockBotState = stockQuery.isError ? "error" : lowRows ? lowRows.length : null;
   const title = view.kind === "yard" ? "Kho BMQ"
     : view.kind === "count" ? "Kiểm kê kho"
     : view.kind === "count-sheet" ? `Kiểm kê · ${LOCATION_LABEL[view.location]}`
@@ -412,7 +424,6 @@ export default function WarehouseGame() {
     );
   };
 
-  const use3D = canUse3D();
   const yardProps = {
     counts,
     crates,
@@ -557,7 +568,9 @@ export default function WarehouseGame() {
                 onMachine: () => navigate(`/warehouse/office?kho=${location}&from=kho`),
               };
               const flat = <Warehouse portrait={portrait} {...whProps} />;
-              return use3D ? <Kho3D kind="warehouse" {...whProps} flat={flat} /> : flat;
+              return use3D ? (
+                <Kho3D kind="warehouse" {...whProps} lowStock={lowStock} onStockBot={() => setPanel({ kind: "low-stock", location })} flat={flat} />
+              ) : flat;
             })()}
           </Scene>
         ) : null}
@@ -676,6 +689,18 @@ export default function WarehouseGame() {
               </div>
             ) : null}
           </Sheet>
+        ) : null}
+
+        {panel?.kind === "low-stock" ? (
+          <LowStockSheet
+            location={panel.location}
+            overview={stockOverview}
+            rows={lowRows}
+            loading={stockQuery.isLoading}
+            error={stockQuery.error}
+            onOrder={() => navigate(`/warehouse/office?kho=${panel.location}&from=kho`)}
+            onClose={() => setPanel(null)}
+          />
         ) : null}
 
         {panel?.kind === "pate" ? (

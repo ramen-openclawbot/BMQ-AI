@@ -13,6 +13,7 @@ export const STOCK_LEDGER_OVERVIEW_QUERY_KEY = "stock-ledger-overview";
 export function useStockLedgerOverview(
   location: StockLedgerLocation,
   asOf?: string | null,
+  options: { enabled?: boolean } = {},
 ) {
   return useQuery({
     queryKey: [STOCK_LEDGER_OVERVIEW_QUERY_KEY, location, asOf ?? null],
@@ -24,7 +25,7 @@ export function useStockLedgerOverview(
       if (error) throw error;
       return parseStockLedgerOverview(data);
     },
-    enabled: Boolean(location),
+    enabled: Boolean(location) && options.enabled !== false,
   });
 }
 

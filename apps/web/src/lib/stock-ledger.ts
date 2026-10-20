@@ -112,6 +112,46 @@ export function isLowStock(currentQty: number, outQty7d: number): boolean {
   return currentQty < (outQty7d / 7) * 3;
 }
 
+/** One "sắp hết" line for the warehouse game's stock-check robot. */
+export interface LowStockRow {
+  item_id: string;
+  item_code: string;
+  item_name: string;
+  unit: string;
+  current_qty: number;
+  /** Average daily outgoing quantity over the last seven days. */
+  daily_usage: number;
+  /** current_qty / daily_usage, 0 when nothing is left. */
+  days_left: number;
+  last_count_date: string | null;
+}
+
+/**
+ * Raw materials running low in one warehouse, soonest to run out first.
+ * Q7 NVL is `items`; Tân Tạo NVL is `materials` (its `items` are finished-goods SKUs).
+ * Uses the ledger's own `is_low_stock` flag, so the robot and Sổ tồn always agree.
+ */
+export function lowStockList(overview: StockLedgerOverview): LowStockRow[] {
+  const source: Array<StockLedgerOverviewItem | StockLedgerMaterial> =
+    overview.location === "q7" ? overview.items : overview.materials;
+  return source
+    .filter((row) => row.is_low_stock)
+    .map((row) => {
+      const dailyUsage = row.out_qty_7d / 7;
+      return {
+        item_id: row.item_id,
+        item_code: row.item_code,
+        item_name: row.item_name,
+        unit: row.unit,
+        current_qty: row.current_qty,
+        daily_usage: dailyUsage,
+        days_left: dailyUsage > 0 ? Math.max(0, row.current_qty) / dailyUsage : 0,
+        last_count_date: row.last_count_date,
+      };
+    })
+    .sort((a, b) => a.days_left - b.days_left || a.item_name.localeCompare(b.item_name, "vi"));
+}
+
 function asRecord(value: unknown, path: string): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new TypeError(`${path} must be an object`);

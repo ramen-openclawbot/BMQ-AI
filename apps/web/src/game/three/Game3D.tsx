@@ -7,7 +7,7 @@ import type { GameClass } from "../meta";
 import { C } from "../theme";
 import type { ShelfRow } from "../Warehouse";
 import type { Zone } from "../Yard";
-import { Warehouse3D } from "./Warehouse3D";
+import { Warehouse3D, type StockBotState } from "./Warehouse3D";
 import { BUILDINGS, Yard3D } from "./Yard3D";
 
 export type Game3DProps =
@@ -30,6 +30,8 @@ export type Game3DProps =
     onYard: () => void;
     onTransfers: () => void;
     onMachine: () => void;
+    lowStock?: StockBotState;
+    onStockBot?: () => void;
   };
 
 type Frame = { eye: THREE.Vector3; look: THREE.Vector3 };
@@ -126,6 +128,8 @@ export default function Game3D(props: Game3DProps) {
             onYard={props.onYard}
             onTransfers={props.onTransfers}
             onMachine={props.onMachine}
+            lowStock={props.lowStock}
+            onStockBot={props.onStockBot}
           />
         )}
       </Canvas>

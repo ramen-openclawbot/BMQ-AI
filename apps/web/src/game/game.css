@@ -1442,3 +1442,32 @@
 .kg .bom-products ol li { display: flex; justify-content: space-between; gap: 8px; }
 .kg .bom-products ol li span { min-width: 0; overflow-wrap: anywhere; }
 .kg .bom-products-wait { font-size: 13px; }
+
+/* ---- Sushi kiểm tồn: NVL sắp hết (2026-10-20) ---- */
+.kg .k3-tag.is-stockbot { border-left-color: var(--sage); background: var(--sage-light); }
+.kg .k3-tag.is-stockbot span { background: var(--white); }
+.kg .k3-tag.is-stockbot span.is-alert { color: var(--white); background: var(--coral); }
+.kg .ls-body { display: grid; gap: 12px; }
+.kg .ls-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.kg .ls-list li {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 10px; align-items: start;
+  padding: 10px 12px; background: var(--white); border: 2.5px solid var(--ink); border-left: 8px solid var(--mustard); border-radius: 12px;
+}
+.kg .ls-list li.is-out { border-left-color: var(--coral); }
+.kg .ls-name { display: grid; gap: 1px; min-width: 0; }
+.kg .ls-name b { font-family: "Baloo 2", sans-serif; font-size: 16px; line-height: 1.15; overflow-wrap: anywhere; }
+.kg .ls-name small { font-size: 11.5px; font-weight: 800; color: #6f6a85; overflow-wrap: anywhere; }
+.kg .ls-days { font-style: normal; font-size: 12px; font-weight: 900; white-space: nowrap; padding: 2px 9px; background: var(--mustard-light); border: 2px solid var(--ink); border-radius: 999px; }
+.kg .ls-list li.is-out .ls-days { color: var(--white); background: var(--coral); }
+.kg .ls-facts { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin: 0; }
+.kg .ls-facts div { min-width: 0; padding: 4px 7px; background: var(--cream); border-radius: 8px; }
+.kg .ls-facts dt { font-size: 10px; font-weight: 800; color: #6f6a85; text-transform: uppercase; letter-spacing: .03em; }
+.kg .ls-facts dd { margin: 0; font-size: 13px; font-weight: 800; overflow-wrap: anywhere; }
+.kg .ls-ok { display: grid; gap: 2px; padding: 12px; background: var(--sage-light); border: 2.5px solid var(--ink); border-radius: 12px; }
+.kg .ls-ok b { font-family: "Baloo 2", sans-serif; font-size: 17px; }
+.kg .ls-ok span { font-size: 13px; font-weight: 700; }
+.kg .ls-rule { margin: 0; font-size: 12px; font-weight: 700; color: #6f6a85; line-height: 1.4; }
+@media (max-width: 360px) {
+  .kg .ls-facts { grid-template-columns: 1fr 1fr; }
+  .kg .ls-facts div:last-child { grid-column: 1 / -1; }
+}

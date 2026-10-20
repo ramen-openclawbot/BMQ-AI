@@ -245,6 +245,7 @@ function settle(st) {
   if (st.table === "rpc:get_stock_catalog_review" && mode === "empty") return { data: { pending_suggestions: [], recent_merges: [], item_class_counts: { unclassified: 121 }, jev_usage: { usage_date: vnDay(0), calls: 0, cost: 0, call_limit: 600 } }, error: null };
   if (st.table === "rpc:get_q7_purchase_forecast" && mode === "empty") return { data: { as_of: vnDay(0), horizon_days: 14, items: [] }, error: null };
   if (st.table === "rpc:get_q7_auto_purchase_status" && mode === "empty") return { data: { settings: AP_SETTINGS(false), latest_run: null, decisions: [] }, error: null };
+  if (st.table === "rpc:get_stock_ledger_overview" && cfg().lowStock === "fail") return { data: null, error: { message: "insufficient_privilege", code: "42501" } };
   if (st.table === "rpc:get_stock_ledger_overview" && mode === "empty") return { data: { location: st.args.p_location, location_name: "x", as_of: vnDay(0), cutover_date: null, items: [], pending_aliases: [] }, error: null };
   if (st.table === "rpc:reject_payment_request" && cfg().rejectError) return { data: null, error: { message: cfg().rejectError } };
   if (st.single) {
@@ -379,7 +380,15 @@ function fixtureRows(st) {
       pend("g1", "PN-1010-01", "Tỏi", "tỏi ngày 10", "toi", 5, 2), pend("g2", "PN-1010-04", "Tỏi", "tỏi ngày 11", "toi", 4, 1),
       pend("g3", "PN-1010-02", "Mai Hoàng Bích Hà", "gan 10", "gan", 6, 2), pend("g4", "PN-1010-03", "Đại Tân Việt", "DAIRYMONT WHITE SLICES CHEESE 1.04KG", "dairymont white slices cheese 1.04kg", 2, 1),
     ] : [];
-    return { location: st.args.p_location, location_name: q7 ? "Kho NVL Q7" : "Kho Tân Tạo", as_of: vnDay(0), cutover_date: vnDay(7), items, pending_aliases: pending };
+    // Tân Tạo NVL (the stock robot reads these, not the SKU items).
+    const materials = q7 ? [] : [
+      item("tm1", "NVL-BOTMI", "Bột mì 888 Cam", "kg", 0, 50, 49, vnDay(4), -2),
+      item("tm2", "NVL-DUONG", "Đường cát trắng Biên Hòa loại tinh luyện bao 50kg", "kg", 12.5, 20, 35, null, null),
+      item("tm3", "NVL-MUOI", "Muối", "kg", 30, 5, 7, vnDay(4), 0),
+    ];
+    // Sushi kiểm tồn QA: lowStock "none" = nothing running low.
+    const calm = (rows) => (cfg().lowStock === "none" ? rows.map((r) => ({ ...r, is_low_stock: false })) : rows);
+    return { location: st.args.p_location, location_name: q7 ? "Kho NVL Q7" : "Kho Tân Tạo", as_of: vnDay(0), cutover_date: vnDay(7), items: calm(items), materials: calm(materials), pending_aliases: pending };
   }
   if (st.table === "rpc:get_q7_inventory_picker") return [
     { kitchen_inventory_item_id: "k1", display_label: "NVL-TOI · Tỏi bóc vỏ · kg" }, { kitchen_inventory_item_id: "k2", display_label: "NVL-GAN · Gan heo · kg" },
@@ -1619,6 +1628,73 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
   assert.deepEqual(errors, []);
   record("q7 finished goods error/empty");
   await context.close();
+}
+
+// Sushi kiểm tồn (owner 20/10): 3D only. The robot reads the ledger's NVL "sắp hết" flag for its own
+// warehouse (Q7 items, Tân Tạo materials), opens the list and hands off to the ordering room.
+const overlaps = (a, b) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 640 }]) {
+  for (const [loc, door, expected] of [["q7", /KHO Q7/i, ["Tỏi bóc vỏ"]], ["tan_tao", /KHO TÂN TẠO/i, ["Bột mì 888 Cam", "Đường cát trắng"]]]) {
+    const { context, page, errors } = await open({ data: "populated", role: "owner", started: true }, "/warehouse/game", viewport);
+    await page.waitForSelector("[data-bmq-warehouse-game]", { timeout: 20000 });
+    await page.waitForTimeout(1200);
+    await page.getByRole("button", { name: door }).first().click({ force: true });
+    await page.waitForTimeout(KHO_MODE === "3d" ? 2100 : 900);
+    if (KHO_MODE !== "3d") {
+      assert.equal(await page.locator("[data-bmq-stock-bot]").count(), 0, "no stock robot in the 2D fallback (owner: 3D only)");
+      assert.deepEqual(errors, []);
+      record(`stock robot absent in 2D ${loc} ${viewport.width}`);
+      await context.close();
+      continue;
+    }
+    const bot = page.locator("[data-bmq-stock-bot]");
+    await bot.waitFor({ timeout: 10000 });
+    await page.waitForTimeout(600);
+    assert.match(await bot.textContent(), new RegExp(`${expected.length} sắp hết`), `robot badge counts ${loc}`);
+    const b = await bot.boundingBox();
+    assert.ok(b && b.x >= -1 && b.x + b.width <= viewport.width + 1 && b.y > 60 && b.y + b.height <= viewport.height, `robot tag inside the screen ${loc} ${viewport.width}: ${JSON.stringify(b)}`);
+    for (const other of await page.locator(".kg .k3-tag:not([data-bmq-stock-bot])").all()) {
+      const o = await other.boundingBox();
+      assert.ok(o && !overlaps(b, o), `robot tag clear of "${await other.textContent()}" ${loc} ${viewport.width}: ${JSON.stringify(b)} vs ${JSON.stringify(o)}`);
+    }
+    await page.screenshot({ path: `${EVIDENCE}/stock-bot-${loc}-${viewport.width}.png` });
+    await bot.click({ force: true });
+    await page.waitForTimeout(700);
+    const rows = page.locator("[data-bmq-low-stock-row]");
+    assert.equal(await rows.count(), expected.length, `low-stock rows ${loc}`);
+    for (const [i, name] of expected.entries()) assert.ok((await rows.nth(i).textContent()).includes(name), `row ${i} is ${name}`);
+    if (loc === "tan_tao") assert.ok((await rows.first().textContent()).includes("Đã hết"), "empty material first, marked Đã hết");
+    assert.equal(await overflow(page), 0, `no overflow low-stock ${loc} ${viewport.width}`);
+    const sheet = await page.locator(".kg .sheet").boundingBox();
+    assert.ok(sheet && sheet.x >= 0 && sheet.x + sheet.width <= viewport.width + 1, `low-stock sheet fits ${viewport.width}`);
+    await page.screenshot({ path: `${EVIDENCE}/low-stock-${loc}-${viewport.width}.png` });
+    await page.locator("[data-bmq-low-stock-order]").click({ force: true });
+    await page.waitForURL(new RegExp(`/warehouse/office\\?kho=${loc}&from=kho`), { timeout: 5000 });
+    assert.deepEqual(errors, []);
+    record(`stock robot ${loc} ${viewport.width}`);
+    await context.close();
+  }
+}
+if (KHO_MODE === "3d") {
+  for (const [lowStock, selector, text] of [["none", "[data-bmq-low-stock-empty]", "Chưa có món nào sắp hết"], ["fail", "[data-bmq-low-stock-error]", "chưa có quyền xem sổ tồn"]]) {
+    const viewport = { width: 390, height: 844 };
+    const { context, page, errors } = await open({ data: "populated", role: "owner", started: true, lowStock }, "/warehouse/game", viewport);
+    await page.waitForSelector("[data-bmq-warehouse-game]", { timeout: 20000 });
+    await page.waitForTimeout(1200);
+    await page.getByRole("button", { name: /KHO Q7/i }).first().click({ force: true });
+    await page.waitForTimeout(2100);
+    const bot = page.locator("[data-bmq-stock-bot]");
+    await bot.waitFor({ timeout: 10000 });
+    await page.waitForTimeout(lowStock === "fail" ? 4500 : 600); // react-query retries failed reads before giving up
+    assert.match(await bot.textContent(), lowStock === "none" ? /Đủ hàng/ : /Chưa đọc được/, `robot badge ${lowStock}`);
+    await bot.click({ force: true });
+    await page.waitForTimeout(700);
+    assert.ok((await page.locator(selector).textContent()).includes(text), `low-stock ${lowStock} state`);
+    await page.screenshot({ path: `${EVIDENCE}/low-stock-${lowStock}-390.png` });
+    assert.deepEqual(errors, []);
+    record(`stock robot ${lowStock} 390`);
+    await context.close();
+  }
 }
 
 // No viewer-only check here: the fixture's "viewer" role can edit "inventory", which the

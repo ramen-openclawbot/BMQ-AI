@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   isLowStock,
+  lowStockList,
   NORMALIZE_STOCK_ITEM_NAME_TEST_CASES,
   normalizeStockItemName,
   parseStockLedgerOverview,
@@ -97,4 +98,40 @@ test("parseStockLedgerOverview rejects malformed payloads", () => {
       pending_aliases: [],
     }),
   );
+});
+
+test("lowStockList reads Q7 items and Tân Tạo materials, soonest first", () => {
+  const row = (id: string, name: string, current: number, out7: number, low: boolean) => ({
+    item_id: id,
+    item_code: id.toUpperCase(),
+    item_name: name,
+    unit: "kg",
+    current_qty: current,
+    in_qty_7d: 0,
+    out_qty_7d: out7,
+    last_count_date: null,
+    last_count_difference: null,
+    is_low_stock: low,
+  });
+  const base = { location_name: "x", as_of: "2026-10-20", cutover_date: "2026-10-16", pending_aliases: [] };
+  const q7 = lowStockList({
+    ...base,
+    location: "q7",
+    items: [row("a", "Tỏi", 2, 14, true), row("b", "Gan", 0, 7, true), row("c", "Cà rốt", 40, 28, false)],
+    materials: [row("m", "Bột mì", 1, 70, true)],
+  });
+  assert.deepEqual(q7.map((r) => r.item_id), ["b", "a"]);
+  assert.equal(q7[0].days_left, 0);
+  assert.equal(q7[1].daily_usage, 2);
+  assert.equal(q7[1].days_left, 1);
+
+  const tt = lowStockList({
+    ...base,
+    location: "tan_tao",
+    items: [row("sku", "Bánh mì", 1, 70, true)],
+    materials: [row("m1", "Bột mì", 5, 70, true), row("m2", "Đường", -3, 7, true)],
+  });
+  assert.deepEqual(tt.map((r) => r.item_id), ["m2", "m1"]);
+  assert.equal(tt[0].days_left, 0, "negative balance counts as nothing left");
+  assert.equal(tt[1].days_left, 0.5);
 });
