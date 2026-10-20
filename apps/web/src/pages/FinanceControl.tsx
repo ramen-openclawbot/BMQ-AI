@@ -2941,7 +2941,12 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                               </div>
                               <div className="shrink-0 text-right">
                                 <div className="text-sm font-bold">{vnd(Number(row.line_amount || 0))}</div>
-                                <div className="text-[11px] text-muted-foreground">{Math.round(Number(row.confidence || 0) * 100)}%</div>
+                                <div className="text-[11px] text-muted-foreground">
+                                  {row.classification_source === "sushi" && (
+                                    <Badge variant="outline" className="mr-1 px-1.5 py-0 text-[10px]" data-cost-source="sushi" title={isVi ? "Robot Sushi phân loại" : "Classified by Sushi"}>Sushi</Badge>
+                                  )}
+                                  {Math.round(Number(row.confidence || 0) * 100)}%
+                                </div>
                               </div>
                             </div>
                             <div className="mt-2 flex items-center justify-between gap-2 text-xs text-muted-foreground">
@@ -3071,7 +3076,12 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                                     <div>{row.source_number || "-"}</div>
                                     <div className="text-xs text-muted-foreground">{row.source_type}</div>
                                   </TableCell>
-                                  <TableCell>{Math.round(Number(row.confidence || 0) * 100)}%</TableCell>
+                                  <TableCell>
+                                    <div>{Math.round(Number(row.confidence || 0) * 100)}%</div>
+                                    {row.classification_source === "sushi" && (
+                                      <Badge variant="outline" className="mt-1 px-1.5 py-0 text-[10px]" data-cost-source="sushi" title={isVi ? "Robot Sushi phân loại" : "Classified by Sushi"}>Sushi</Badge>
+                                    )}
+                                  </TableCell>
                                   <TableCell className="text-right">{vnd(Number(row.line_amount || 0))}</TableCell>
                                   <TableCell className="text-right">
                                     {canEditCostClassification ? (

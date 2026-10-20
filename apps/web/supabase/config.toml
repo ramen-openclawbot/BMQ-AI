@@ -381,6 +381,17 @@ verify_jwt = false
 # refuses with 503 and the shared daily usage limit caps Jev calls.
 verify_jwt = false
 
+[functions.cost-classify-sushi]
+# verify_jwt disabled: the project issues ES256 user tokens and the proxy can
+# reject them before the function runs. Auth is enforced inside index.ts: either
+# a valid x-worker-secret for worker 'sushi-cost' or a Bearer token validated
+# server-side with auth.getUser(token) whose caller is an owner. Reads use fixed
+# service-role SELECTs/RPCs; the only write is the audited service-role RPC
+# robot_apply_cost_classification, never a payment, an invoice or a source line.
+# robot_settings.cost_auto_enabled is the off switch and cost_daily_cap caps
+# today's automatic cost_category writes.
+verify_jwt = false
+
 [functions.suggest-stock-item-name]
 # verify_jwt disabled: the project issues ES256 user tokens and the proxy can
 # reject them before the function runs. Auth is enforced inside index.ts: the
