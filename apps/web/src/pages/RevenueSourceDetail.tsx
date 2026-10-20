@@ -503,8 +503,27 @@ export default function RevenueSourceDetail() {
     const next = new URLSearchParams(params);
     next.delete("revenue_date");
     if (value) next.set(key, value); else next.delete(key);
+    // Lines are also filtered by period, so a date in another month must move
+    // the Tháng filter with it; otherwise Tháng 10 + 01/09–30/09 shows 0 rows.
+    const month = value.slice(0, 7);
+    if (/^\d{4}-\d{2}$/.test(month) && next.get("period") !== month) {
+      next.set("period", month);
+      const otherKey = key === "date_from" ? "date_to" : "date_from";
+      const other = next.get(otherKey) || "";
+      if (other && !other.startsWith(`${month}-`)) next.delete(otherKey);
+    }
     setParams(next);
   };
+
+  // A link or bookmark can still carry a date range outside the period; align
+  // the period to the range start so the filters never contradict each other.
+  useEffect(() => {
+    const month = (dateFrom || dateTo || revenueDate).slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(month) || month === period) return;
+    const next = new URLSearchParams(params);
+    next.set("period", month);
+    setParams(next, { replace: true });
+  }, [dateFrom, dateTo, revenueDate, period, params, setParams]);
 
   const clearLedgerFilters = () => {
     const next = new URLSearchParams(params);

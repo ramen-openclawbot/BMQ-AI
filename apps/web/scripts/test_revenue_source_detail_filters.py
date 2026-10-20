@@ -33,6 +33,15 @@ def main() -> None:
     for needle in required:
         assert needle in text, f"missing ledger filter marker: {needle}"
 
+    # A date range in another month must move the Tháng filter with it, because
+    # the query filters by period AND revenue_date (Tháng 10 + 01/09–30/09 = 0 rows).
+    handler = text[text.index("const updateDateRangeFilter"):]
+    handler = handler[:handler.index("\n  };\n")]
+    assert 'next.set("period", month)' in handler, "date change must align period"
+    assert "next.delete(otherKey)" in handler, "the other bound from the old month must be dropped"
+    effect = text[text.index("const month = (dateFrom || dateTo || revenueDate).slice(0, 7);"):]
+    assert "setParams(next, { replace: true })" in effect[:400], "stale URLs must be aligned on load"
+
     print("revenue source detail filter checks passed")
 
 
