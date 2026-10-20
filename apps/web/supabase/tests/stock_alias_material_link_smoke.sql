@@ -1901,7 +1901,7 @@ revoke all on function public.get_stock_item_names_for_lines(jsonb) from public,
 grant execute on function public.get_stock_item_names_for_lines(jsonb) to authenticated, service_role;
 
 -- ===========================================================================
--- Smoke test: 20261102350000_stock_alias_material_link.sql
+-- Smoke test: 20261102370000_stock_alias_material_link.sql
 --
 -- The migration body above is copied verbatim (no \i) because this file is run
 -- with `npx supabase db query --linked -f` before Maestro applies the migration.
