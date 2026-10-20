@@ -85,6 +85,38 @@ test("parseStockLedgerOverview accepts the RPC payload", () => {
   assert.equal(overview.pending_aliases[0].normalized_name, "toi");
 });
 
+test("parseStockLedgerOverview reads material pass_through and defaults it to false", () => {
+  const material = (id: string, name: string, extra: Record<string, unknown>) => ({
+    item_id: id,
+    item_code: id.toUpperCase(),
+    item_name: name,
+    unit: "kg",
+    current_qty: 0,
+    in_qty_7d: 0,
+    out_qty_7d: 70,
+    last_count_date: null,
+    last_count_difference: null,
+    is_low_stock: true,
+    ...extra,
+  });
+  const overview = parseStockLedgerOverview({
+    location: "tan_tao",
+    location_name: "Kho Tân Tạo",
+    as_of: "2026-10-20",
+    cutover_date: "2026-10-16",
+    items: [],
+    materials: [
+      material("m1", "Bánh mì Q7", { pass_through: true }),
+      material("m2", "Bột mì", {}),
+    ],
+    pending_aliases: [],
+  });
+
+  assert.equal(overview.materials[0].pass_through, true);
+  assert.equal(overview.materials[1].pass_through, false);
+  assert.equal(overview.materials[0].is_low_stock, true);
+});
+
 test("parseStockLedgerOverview rejects malformed payloads", () => {
   assert.throws(() => parseStockLedgerOverview(null));
   assert.throws(() => parseStockLedgerOverview({ location: "hcm" }));
@@ -129,7 +161,11 @@ test("lowStockList reads Q7 items and Tân Tạo materials, soonest first", () =
     ...base,
     location: "tan_tao",
     items: [row("sku", "Bánh mì", 1, 70, true)],
-    materials: [row("m1", "Bột mì", 5, 70, true), row("m2", "Đường", -3, 7, true)],
+    materials: [
+      row("m1", "Bột mì", 5, 70, true),
+      row("m2", "Đường", -3, 7, true),
+      { ...row("m3", "Bánh mì Q7", 0, 70, true), pass_through: true },
+    ],
   });
   assert.deepEqual(tt.map((r) => r.item_id), ["m2", "m1"]);
   assert.equal(tt[0].days_left, 0, "negative balance counts as nothing left");

@@ -89,6 +89,8 @@ export interface StockLedgerMaterial {
   last_count_date: string | null;
   last_count_difference: number | null;
   is_low_stock: boolean;
+  /** True when the item stays at Q7 (kitchen_inventory_items.pastry_q7). */
+  pass_through?: boolean;
 }
 
 export interface StockLedgerOverview {
@@ -135,7 +137,11 @@ export function lowStockList(overview: StockLedgerOverview): LowStockRow[] {
   const source: Array<StockLedgerOverviewItem | StockLedgerMaterial> =
     overview.location === "q7" ? overview.items : overview.materials;
   return source
-    .filter((row) => row.is_low_stock)
+    .filter(
+      (row) =>
+        row.is_low_stock &&
+        !("pass_through" in row && row.pass_through === true),
+    )
     .map((row) => {
       const dailyUsage = row.out_qty_7d / 7;
       return {
@@ -287,6 +293,7 @@ export function parseStockLedgerOverview(raw: unknown): StockLedgerOverview {
             typeof material.is_low_stock === "boolean"
               ? material.is_low_stock
               : isLowStock(currentQty, outQty7d),
+          pass_through: material.pass_through === true,
         };
       })
       : (() => {
