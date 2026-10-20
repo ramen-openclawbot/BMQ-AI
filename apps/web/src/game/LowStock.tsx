@@ -14,6 +14,7 @@ const days = (row: LowStockRow) =>
 function stockError(error: unknown): string {
   const message = String((error as { message?: string })?.message ?? error);
   if (/insufficient_privilege|actor_required|42501/.test(message)) return "Tài khoản này chưa có quyền xem sổ tồn của kho này.";
+  if (/statement timeout|57014/.test(message)) return "Sổ tồn đang đọc quá lâu nên máy chủ đã dừng. Đóng bảng rồi bấm lại robot sau ít phút.";
   return `Sushi chưa đọc được sổ tồn: ${message.slice(0, 160)}`;
 }
 

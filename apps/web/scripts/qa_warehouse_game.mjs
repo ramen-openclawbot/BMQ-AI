@@ -246,6 +246,7 @@ function settle(st) {
   if (st.table === "rpc:get_q7_purchase_forecast" && mode === "empty") return { data: { as_of: vnDay(0), horizon_days: 14, items: [] }, error: null };
   if (st.table === "rpc:get_q7_auto_purchase_status" && mode === "empty") return { data: { settings: AP_SETTINGS(false), latest_run: null, decisions: [] }, error: null };
   if (st.table === "rpc:get_stock_ledger_overview" && cfg().lowStock === "fail") return { data: null, error: { message: "insufficient_privilege", code: "42501" } };
+  if (st.table === "rpc:get_stock_ledger_overview" && cfg().lowStock === "timeout") return { data: null, error: { message: "canceling statement due to statement timeout", code: "57014" } };
   if (st.table === "rpc:get_stock_ledger_overview" && mode === "empty") return { data: { location: st.args.p_location, location_name: "x", as_of: vnDay(0), cutover_date: null, items: [], pending_aliases: [] }, error: null };
   if (st.table === "rpc:reject_payment_request" && cfg().rejectError) return { data: null, error: { message: cfg().rejectError } };
   if (st.single) {
@@ -1676,7 +1677,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
   }
 }
 if (KHO_MODE === "3d") {
-  for (const [lowStock, selector, text] of [["none", "[data-bmq-low-stock-empty]", "Chưa có món nào sắp hết"], ["fail", "[data-bmq-low-stock-error]", "chưa có quyền xem sổ tồn"]]) {
+  for (const [lowStock, selector, text] of [["none", "[data-bmq-low-stock-empty]", "Chưa có món nào sắp hết"], ["fail", "[data-bmq-low-stock-error]", "chưa có quyền xem sổ tồn"], ["timeout", "[data-bmq-low-stock-error]", "đọc quá lâu"]]) {
     const viewport = { width: 390, height: 844 };
     const { context, page, errors } = await open({ data: "populated", role: "owner", started: true, lowStock }, "/warehouse/game", viewport);
     await page.waitForSelector("[data-bmq-warehouse-game]", { timeout: 20000 });
@@ -1685,7 +1686,7 @@ if (KHO_MODE === "3d") {
     await page.waitForTimeout(2100);
     const bot = page.locator("[data-bmq-stock-bot]");
     await bot.waitFor({ timeout: 10000 });
-    await page.waitForTimeout(lowStock === "fail" ? 4500 : 600); // react-query retries failed reads before giving up
+    await page.waitForTimeout(lowStock === "none" ? 600 : 4500); // react-query retries failed reads before giving up
     assert.match(await bot.textContent(), lowStock === "none" ? /Đủ hàng/ : /Chưa đọc được/, `robot badge ${lowStock}`);
     await bot.click({ force: true });
     await page.waitForTimeout(700);
