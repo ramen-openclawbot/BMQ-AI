@@ -90,6 +90,8 @@ import { cn } from "@/lib/utils";
 import { useGoodsReceipt } from "@/hooks/useGoodsReceipts";
 import { usePurchaseOrder } from "@/hooks/usePurchaseOrders";
 import { useFinanceReconciliationFlags } from "@/hooks/useFinanceReconciliationFlags";
+import { useStockItemNames } from "@/hooks/useStockItemNames";
+import { buildStockNameLines, displayNameFor } from "@/lib/stock-item-names";
 import { financeReconciliationLabel, purchasePatternEvidenceLines, sortFlags } from "@/lib/finance-reconciliation-flags";
 import "@/styles/bmq-urgent-payables.css";
 import "@/styles/bmq-reconciliation.css";
@@ -165,7 +167,9 @@ export function PaymentRequestDetailsDialog({
   };
   const { data: request, isLoading: requestLoading } = usePaymentRequest(requestId);
   const { data: items, isLoading: itemsLoading } = usePaymentRequestItems(requestId);
-  
+  // Lines linked in the warehouse game show the current stock name, not the scanned text.
+  const { data: stockNames } = useStockItemNames(buildStockNameLines(items ?? [], request?.supplier_id ?? null));
+
   // Fetch linked goods receipt if exists
   const goodsReceiptId = request?.goods_receipt_id;
   const { data: linkedGoodsReceipt } = useGoodsReceipt(goodsReceiptId || null);
@@ -626,10 +630,15 @@ export function PaymentRequestDetailsDialog({
                   <p className="d3-prd-empty">Phiếu chưa có dòng sản phẩm.</p>
                 ) : (
                   <ul className="d3-prd-items">
-                    {items.map((item) => (
+                    {items.map((item) => {
+                      const shown = displayNameFor(item, stockNames ?? new Map());
+                      return (
                       <li key={item.id}>
                         <div className="d3-prd-item-main">
-                          <b>{item.product_name}</b>
+                          <b data-bmq-pr-item-name>{shown.name}</b>
+                          {shown.sourceName && (
+                            <small className="d3-prd-item-src" data-bmq-pr-item-source>Trên chứng từ: {shown.sourceName}</small>
+                          )}
                           <small>
                             {item.product_code ? `${item.product_code} · ` : ""}
                             {item.quantity} {item.unit} × {formatCurrency(item.unit_price)}
@@ -649,7 +658,12 @@ export function PaymentRequestDetailsDialog({
                             ) : (
                               <span className="d3-prd-mini">Chưa có giá lần trước</span>
                             )}
-                            {item.inventory_items ? (
+                            {shown.stock ? (
+                              <span className="d3-prd-mini is-green" data-bmq-pr-item-stock>
+                                {shown.stock.location === "q7" ? "Kho Q7" : shown.stock.location === "tan_tao" ? "Kho Tân Tạo" : "Kho"}
+                                {shown.stock.item_code ? ` · ${shown.stock.item_code}` : ""}
+                              </span>
+                            ) : item.inventory_items ? (
                               <span className="d3-prd-mini">Tồn {item.inventory_items.quantity}</span>
                             ) : (
                               <span className="d3-prd-mini is-amber">Sản phẩm mới</span>
@@ -658,7 +672,8 @@ export function PaymentRequestDetailsDialog({
                         </div>
                         <span className="d3-prd-item-amt">{formatCurrency(item.line_total || 0)}</span>
                       </li>
-                    ))}
+                      );
+                    })}
                   </ul>
                 )}
               </section>

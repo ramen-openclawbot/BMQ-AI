@@ -28,7 +28,7 @@ const cfg = () => JSON.parse(localStorage.getItem("qa-shell") || "{}");
 window.__qaWrites = window.__qaWrites || [];
 window.__qaBodies = window.__qaBodies || [];
 const WRITE = new Set(["insert", "update", "upsert", "delete"]);
-const READ_RPCS = new Set(["rpc:finance_unc_total_from_evidence", "rpc:finance_daily_snapshot", "rpc:get_payment_request_unc_evidence"]);
+const READ_RPCS = new Set(["rpc:finance_unc_total_from_evidence", "rpc:finance_daily_snapshot", "rpc:get_payment_request_unc_evidence", "rpc:get_stock_item_names_for_lines"]);
 const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh" }).format(new Date());
 const pr = (id, number, supplierId, supplierName, amount, status = "pending", unpaid = false, hour = "02") => ({
   id, request_number: number, title: "Thanh toán " + supplierName, total_amount: amount, vat_amount: 0,
@@ -81,6 +81,11 @@ function settle(st) {
     if (id === "66666666-6666-4666-8666-666666666666") return { data: [{ payment_id: "pay-2", payment_number: "PAY-000148", payment_date: "2026-09-14", payment_total: 2883280, allocated_to_request: 2883280, reference_number: null, evidence: null, siblings: [] }], error: null };
     return { data: [], error: null };
   }
+  // Warehouse name link for the scanned "T. Ối gói 10g" line only.
+  if (st.table === "rpc:get_stock_item_names_for_lines") {
+    window.__qaStockNameCalls = (window.__qaStockNameCalls || 0) + 1;
+    return { data: (st.args?.p_lines || []).filter((l) => l.name === "T. Ối gói 10g").map((l) => ({ key: l.key, item_id: "kit-138", item_name: "Tương ớt Cholimex gói 10g", item_code: "NVL-138", unit: "gói", location: "tan_tao", match: "supplier" })), error: null };
+  }
   if (st.table === "rpc:finance_unc_total_from_evidence") return { data: { transfer_date: st.args?.p_date, total_amount: 19750000, evidence_count: 2 }, error: null };
   if (st.table.startsWith("rpc:") && !READ_RPCS.has(st.table)) { window.__qaWrites.push(st.table); return { data: null, error: { message: "QA fixture: writes disabled" } }; }
   if (st.write) { window.__qaWrites.push(st.table + ":" + st.write); return { data: null, error: { message: "QA fixture: writes disabled" }, count: null }; }
@@ -93,6 +98,7 @@ function settle(st) {
   if (st.table === "payment_request_items") return { data: [
     { id: "it1", payment_request_id: st.filters.payment_request_id, product_code: "NVL-BOT-MI-13", product_name: "Bột mì số 13 bao 25kg nhãn xanh (hàng nhập khẩu)", quantity: 20, unit: "bao", unit_price: 450000, line_total: 9000000, last_price: 430000, price_change_percent: 4.65, inventory_items: { id: "inv1", name: "Bột mì", quantity: 12 } },
     { id: "it2", payment_request_id: st.filters.payment_request_id, product_code: null, product_name: "Phí vận chuyển", quantity: 1, unit: "chuyến", unit_price: 4500000, line_total: 4500000, last_price: null, price_change_percent: null, inventory_items: null },
+    { id: "it3", payment_request_id: st.filters.payment_request_id, product_code: null, product_name: "T. Ối gói 10g", raw_product_name: "T. Ối gói 10g", quantity: 540, unit: "gói", unit_price: 2400, line_total: 1296000, last_price: null, price_change_percent: null, inventory_items: null },
   ], error: null };
   return { data: [], error: null, count: 0 };
 }
@@ -289,6 +295,15 @@ try {
       const m = await measure(page);
       assert.ok(m.doc <= 0 && m.inner <= 0 && m.offenders.length === 0, `${c.name} ${viewport.width} overflow ${JSON.stringify(m)}`);
       assert.ok((await page.locator("[data-bmq-prd-chips] .d3-prd-chip").count()) >= 3, "status chips");
+      // A line linked in the warehouse game shows the stock name; the scanned text stays below it.
+      const linked = page.locator(".d3-prd-items li", { has: page.locator("[data-bmq-pr-item-source]") });
+      await linked.waitFor({ timeout: 5000 });
+      assert.equal((await linked.locator("[data-bmq-pr-item-name]").textContent()).trim(), "Tương ớt Cholimex gói 10g");
+      assert.equal((await linked.locator("[data-bmq-pr-item-source]").textContent()).trim(), "Trên chứng từ: T. Ối gói 10g");
+      assert.equal((await linked.locator("[data-bmq-pr-item-stock]").textContent()).trim(), "Kho Tân Tạo · NVL-138");
+      assert.equal(await linked.locator(".d3-prd-mini.is-amber").count(), 0, "linked line is not 'Sản phẩm mới'");
+      assert.equal(await page.locator("[data-bmq-pr-item-source]").count(), 1, "unlinked lines keep their own name");
+      await linked.screenshot({ path: `${EVIDENCE}/${c.name}-${viewport.width}-stock-name.png` });
       assert.equal(await page.locator("[data-bmq-payment-detail] .bg-green-500, [data-bmq-payment-detail] .bg-green-600").count(), 0, "no legacy saturated green");
       await page.screenshot({ path: `${EVIDENCE}/${c.name}-${viewport.width}-top.png` });
       await page.evaluate(() => { const r = document.querySelector("[data-bmq-payment-detail]"); r.scrollTop = r.scrollHeight; });

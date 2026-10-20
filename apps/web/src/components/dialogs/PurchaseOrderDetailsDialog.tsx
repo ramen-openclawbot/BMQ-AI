@@ -65,6 +65,8 @@ import { CreatePaymentRequestFromPODialog } from "./CreatePaymentRequestFromPODi
 import { EditPurchaseOrderDialog } from "./EditPurchaseOrderDialog";
 
 import { parseDbDate } from "@/lib/date-only";
+import { useStockItemNames } from "@/hooks/useStockItemNames";
+import { buildStockNameLines, displayNameFor } from "@/lib/stock-item-names";
 interface PurchaseOrderDetailsDialogProps {
   orderId: string | null;
   open: boolean;
@@ -91,6 +93,10 @@ export function PurchaseOrderDetailsDialog({
   const { data: order, isLoading: orderLoading, isError: orderError, refetch: refetchOrder } = usePurchaseOrder(orderId);
   const { data: items, isLoading: itemsLoading, isError: itemsError, refetch: refetchItems } = usePurchaseOrderItems(orderId);
   const { data: goodsReceipts } = useGoodsReceipts();
+  // Lines linked in the warehouse game show the current stock name, not the scanned text.
+  const { data: stockNames } = useStockItemNames(buildStockNameLines(items ?? [], order?.supplier_id ?? null));
+  const itemName = (item: { id: string; product_name?: string | null; raw_product_name?: string | null }) =>
+    displayNameFor(item, stockNames ?? new Map());
 
   const sendPO = useSendPurchaseOrder();
   const markCompleted = useMarkPOCompleted();
@@ -271,9 +277,12 @@ export function PurchaseOrderDetailsDialog({
                       {items && items.length > 0 ? items.map((item) => (
                         <div key={item.id} className="p-4">
                           <div className="mb-1 flex items-start justify-between gap-3">
-                            <h4 className="font-medium text-slate-950">{item.product_name}</h4>
+                            <h4 className="font-medium text-slate-950" data-bmq-po-item-name>{itemName(item).name}</h4>
                             <span className="whitespace-nowrap font-semibold text-slate-950">{formatCurrency(item.line_total || 0)}</span>
                           </div>
+                          {itemName(item).sourceName && (
+                            <p className="text-xs italic text-slate-500" data-bmq-po-item-source>Trên chứng từ: {itemName(item).sourceName}</p>
+                          )}
                           <p className="text-sm text-slate-500">{item.quantity} {item.unit} × {formatCurrency(item.unit_price || 0)}</p>
                         </div>
                       )) : (
@@ -390,7 +399,10 @@ export function PurchaseOrderDetailsDialog({
                         <TableRow key={item.id}>
                           <TableCell>
                             <div>
-                              <p className="font-medium">{item.product_name}</p>
+                              <p className="font-medium">{itemName(item).name}</p>
+                              {itemName(item).sourceName && (
+                                <p className="text-xs italic text-muted-foreground">Trên chứng từ: {itemName(item).sourceName}</p>
+                              )}
                               {item.productSkus?.sku_code && (
                                 <p className="text-xs text-muted-foreground">
                                   SKU: {item.productSkus.sku_code}
