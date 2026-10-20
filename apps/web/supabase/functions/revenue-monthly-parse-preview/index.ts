@@ -1692,7 +1692,9 @@ async function runCurrentMonthPreview(
       period: window.period,
       revenue_date_from: window.revenueDateFrom,
       revenue_date_to: window.revenueDateTo,
-      po_received_from: window.poReceivedFrom,
+      // post_auto_daily_revenue rejects lines whose po_received_date is before this value,
+      // so it must be the inbox read start, not the narrower Gmail sync start.
+      po_received_from: window.inboxReceivedFrom || window.poReceivedFrom,
       po_received_to: window.poReceivedTo,
       status: "preview_running",
       created_by: userId,

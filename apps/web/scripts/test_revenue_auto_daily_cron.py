@@ -113,6 +113,7 @@ def test_explicit_revenue_date_cron_window_and_metadata() -> None:
         ("poReceivedTo: revenueDate", "explicit PO received same-day correction end"),
         ("inboxReceivedFrom: shiftLocalDate(revenueDate, -DAILY_INBOX_LOOKBACK_DAYS)", "explicit date inbox lookback"),
         ("dateFromLocalParts(window.inboxReceivedFrom || window.poReceivedFrom, TIME_ZONE)", "inbox read uses the lookback, Gmail sync keeps poReceivedFrom"),
+        ("po_received_from: window.inboxReceivedFrom || window.poReceivedFrom", "run row PO window covers the inbox lookback so the post RPC accepts early POs"),
         ("hasRevenueWindow: true", "explicit revenue window enabled"),
         ("Object.prototype.hasOwnProperty.call(body, \"revenueDate\")", "body-only explicit date detection"),
         ("Invalid revenueDate. Expected a real date in YYYY-MM-DD format.", "invalid explicit date 400 message"),
