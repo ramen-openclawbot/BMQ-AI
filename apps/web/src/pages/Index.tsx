@@ -135,10 +135,10 @@ const Index = () => {
     <div className="d3-ov" data-bmq-overview="demo3-v1">
       <header className="d3-ov-head">
         <div>
-          <span className="d3-ov-date">{longDate(lang)}</span>
           <h1>
             {en ? "Overview" : "Tổng quan"} <b>{en ? "today" : "hôm nay"}</b>
           </h1>
+          <p className="d3-ov-date">{longDate(lang)}</p>
         </div>
         <CreatePaymentMenu canSalary={canSalary} onChoose={setCreateOpen} isVi={!en} className="h-11 px-5" />
         <AddPaymentRequestDialog {...createDialog("po")} />
@@ -149,8 +149,6 @@ const Index = () => {
       {showRevenue && (
         <div className="d3-ov-row is-revenue">
           <section className="d3-ov-card d3-ov-hero" style={{ ["--i" as string]: 1 }}>
-            <span className="d3-ov-glow is-red" aria-hidden="true" />
-            <span className="d3-ov-glow is-green" aria-hidden="true" />
             <div className="d3-ov-card-h">
               <h2>{en ? "Revenue, month to date" : "Doanh thu từ đầu tháng"}</h2>
               <Link to={revenue.href} className="d3-ov-ghost">
@@ -233,7 +231,6 @@ const Index = () => {
         <div className={cn("d3-ov-row", showProduction && agentChatEnabled ? "is-split" : "is-single")}>
           {showProduction && (
             <section className="d3-ov-card" style={{ ["--i" as string]: 4 }}>
-              <span className="d3-ov-glow is-green is-low" aria-hidden="true" />
               <div className="d3-ov-card-h">
                 <h2>{en ? "Production today" : "Sản xuất hôm nay"}</h2>
                 <Link to={production.href} className="d3-ov-ghost">
@@ -270,7 +267,6 @@ const Index = () => {
 
           {agentChatEnabled && (
             <section className="d3-ov-card d3-ov-ai" style={{ ["--i" as string]: 5 }}>
-              <span className="d3-ov-glow is-pink" aria-hidden="true" />
               <div className="d3-ov-card-h">
                 <h2>{en ? "Ask BMQ AI" : "Hỏi BMQ AI"}</h2>
               </div>

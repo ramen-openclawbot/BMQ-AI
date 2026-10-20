@@ -89,6 +89,19 @@ html.bmq-d3 :is(input, textarea, select, button[role="combobox"]).bg-background 
   background-color: var(--d3-white);
 }
 
+/* Browser surfaces carry the theme too: selection, caret, scrollbars. */
+html.bmq-d3 ::selection { background: #f7d3e4; color: var(--d3-ink); }
+html.bmq-d3 :is(input, textarea) { caret-color: #d0679a; }
+
+.d3-main {
+  scrollbar-width: thin;
+  scrollbar-color: var(--d3-line-2) transparent;
+}
+
+.d3-main::-webkit-scrollbar { width: 10px; }
+.d3-main::-webkit-scrollbar-thumb { border: 3px solid transparent; border-radius: 99px; background: var(--d3-line-2) padding-box; }
+.d3-main::-webkit-scrollbar-thumb:hover { background-color: var(--d3-faint); }
+
 .d3-header :focus-visible,
 .d3-subnav :focus-visible,
 .d3-drawer :focus-visible {
@@ -108,7 +121,7 @@ html.bmq-d3 :is(input, textarea, select, button[role="combobox"]).bg-background 
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 0 24px 24px;
+  padding: 0 24px calc(104px + env(safe-area-inset-bottom));
 }
 
 .d3-screen {
@@ -180,7 +193,7 @@ html.bmq-d3 :is(input, textarea, select, button[role="combobox"]).bg-background 
 
 .d3-search kbd {
   font: 400 10.5px var(--d3-num);
-  color: var(--d3-faint);
+  color: var(--d3-dim);
   border: 1px solid var(--d3-line-2);
   border-radius: 6px;
   padding: 1px 5px;
@@ -340,6 +353,7 @@ html.bmq-d3 .d3-search-dialog [cmdk-input] { height: 52px; font-size: 15px; }
 
 /* ---------- zone sub-navigation ---------- */
 .d3-subnav {
+  position: relative;
   display: flex;
   gap: 6px;
   margin: -6px -6px 18px;
@@ -349,6 +363,11 @@ html.bmq-d3 .d3-search-dialog [cmdk-input] { height: 52px; font-size: 15px; }
 }
 
 .d3-subnav::-webkit-scrollbar { display: none; }
+
+/* Fade only the edge that has more chips behind it (set by ZoneSubnav). */
+.d3-subnav[data-more="end"] { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); }
+.d3-subnav[data-more="start"] { -webkit-mask-image: linear-gradient(90deg, transparent, #000 28px); mask-image: linear-gradient(90deg, transparent, #000 28px); }
+.d3-subnav[data-more="both"] { -webkit-mask-image: linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(90deg, transparent, #000 28px, #000 calc(100% - 28px), transparent); }
 
 .d3-chip {
   flex: none;
@@ -518,7 +537,7 @@ html.bmq-d3 .d3-search-dialog [cmdk-input] { height: 52px; font-size: 15px; }
 }
 
 @media (min-width: 640px) and (max-width: 1023px) {
-  .d3-main { padding: 0 18px 24px; }
+  .d3-main { padding: 0 18px calc(104px + env(safe-area-inset-bottom)); }
   .d3-screen { padding: 24px; }
 }
 

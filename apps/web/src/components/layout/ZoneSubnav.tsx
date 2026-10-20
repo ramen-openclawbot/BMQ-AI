@@ -1,3 +1,4 @@
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { usePaymentStats } from "@/hooks/usePaymentStats";
@@ -12,6 +13,32 @@ export function ZoneSubnav() {
   const { pathname, zones, utilities, activeZone, activeUtility, label } = useShellNav();
   const { data: paymentStats } = usePaymentStats();
   const { data: draftPOCount } = useDraftPOCount();
+  const navRef = useRef<HTMLElement | null>(null);
+  const [more, setMore] = useState<"start" | "end" | "both" | undefined>();
+
+  // Which edges hide more chips; drives the edge fade in bmq-shell.css.
+  const measure = useCallback(() => {
+    const nav = navRef.current;
+    if (!nav) return;
+    const start = nav.scrollLeft > 2;
+    const end = nav.scrollLeft + nav.clientWidth < nav.scrollWidth - 2;
+    setMore(start && end ? "both" : start ? "start" : end ? "end" : undefined);
+  }, []);
+
+  // Bring the current page's chip into view on narrow screens, then measure.
+  useLayoutEffect(() => {
+    const nav = navRef.current;
+    if (!nav) return;
+    const active = nav.querySelector<HTMLElement>(".d3-chip.is-active");
+    if (active && nav.scrollWidth > nav.clientWidth) {
+      nav.scrollLeft = active.offsetLeft - (nav.clientWidth - active.offsetWidth) / 2;
+    }
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(nav);
+    return () => observer.disconnect();
+  }, [pathname, measure]);
 
   const current = activeZone
     ? zones.find(({ zone }) => zone.id === activeZone.id)
@@ -23,7 +50,7 @@ export function ZoneSubnav() {
   const paths = pages.map((page) => page.path);
 
   return (
-    <nav className="d3-subnav" aria-label={heading}>
+    <nav className="d3-subnav" aria-label={heading} ref={navRef} onScroll={measure} data-more={more}>
       {pages.map((page) => {
         const active = isPageActive(page.path, pathname, paths);
         const count = page.showBadge ? paymentStats?.pendingTotalCount || 0 : page.showPOBadge ? draftPOCount || 0 : 0;
