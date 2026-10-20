@@ -26,6 +26,10 @@ TS_LIB = (ROOT / "src/lib/material-alias.ts").read_text(encoding="utf-8")
 EDGE_JEV = (ROOT / "supabase/functions/stock-alias-jev/jev.ts").read_text(encoding="utf-8")
 SMOKE = (ROOT / "scripts/smoke_purchase_must_stock.sql").read_text(encoding="utf-8")
 
+PHONE_MIGRATION_PATH = ROOT / "supabase/migrations/20261102310000_phone_bill_nonstock.sql"
+PHONE_MIGRATION = PHONE_MIGRATION_PATH.read_text(encoding="utf-8")
+STOCK_LEDGER = (ROOT / "supabase/migrations/20261013100000_stock_ledger_flow.sql").read_text(encoding="utf-8")
+
 FUNCTION_RE = re.compile(
     r"create\s+or\s+replace\s+function\s+public\.(?P<name>[a-z0-9_]+)\s*\(",
     re.IGNORECASE,
@@ -198,5 +202,141 @@ for table in (TS_LIB, EDGE_JEV):
     assert " thue gtgt " in table
     assert " xu ly con trung " in table
     assert " chiet khau " in table
+
+print("== phone-only non-stock names get a stable alias key ==")
+
+
+def source_function_block(source: str, name: str) -> str:
+    match = re.search(
+        rf"create\s+or\s+replace\s+function\s+public\.{re.escape(name)}\s*\(",
+        source,
+        re.IGNORECASE,
+    )
+    assert match, f"missing function public.{name}"
+    tail = source[match.start():]
+    end = tail.find("\n$$;")
+    assert end != -1, f"unterminated function public.{name}"
+    return tail[:end]
+
+
+assert PHONE_MIGRATION_PATH.name > "20261102300000", "phone migration must sort after 20261102300000"
+outside_body = re.sub(r"as\s+\$\$.*?\$\$;", "", PHONE_MIGRATION, flags=re.IGNORECASE | re.DOTALL)
+assert not re.search(r"\b(insert\s+into|update|delete\s+from)\b", outside_body, re.IGNORECASE), (
+    "the migration must not rewrite existing aliases, receipts or ledger rows"
+)
+phone_block = source_function_block(PHONE_MIGRATION, "confirm_material_alias")
+assert PHONE_MIGRATION.lower().count("create or replace function public.confirm_material_alias(") == 1, (
+    "the migration re-creates only the latest 13-argument overload"
+)
+assert "p_line_class text default 'stock'" in phone_block, "the latest 13-argument signature must stay"
+assert "security definer" in phone_block.lower(), "confirm_material_alias must stay security definer"
+assert "set search_path = public, pg_temp" in phone_block.lower(), "confirm_material_alias must pin search_path"
+assert (
+    "grant execute on function public.confirm_material_alias("
+    "uuid, text, text, text, uuid, uuid, text, numeric, uuid, numeric, text, uuid, text) "
+    "to authenticated, service_role" in PHONE_MIGRATION
+), "the 13-argument overload must keep its grants"
+
+fallback_match = re.search(
+    r"if\s+v_norm\s+is\s+null\s+and\s+p_line_class\s*=\s*'non_stock'\s+then"
+    r"(?P<body>.*?)\bend\s+if\s*;",
+    phone_block,
+    re.IGNORECASE | re.DOTALL,
+)
+assert fallback_match, "non_stock must fall back when normalize_stock_item_name returns null"
+fallback = fallback_match.group("body")
+assert "regexp_replace(" in fallback.lower(), "the fallback must build a key from the raw name"
+assert "lower(btrim(coalesce(p_raw_name, '')))" in fallback.lower(), (
+    "the fallback key must use the original raw name"
+)
+assert "'[^a-z0-9]'" in fallback and "'g'" in fallback, (
+    "the fallback key must keep only digits and letters"
+)
+assert "nullif(" in fallback.lower(), "a punctuation-only name must fall back to null"
+
+after_fallback = phone_block[fallback_match.end():]
+assert re.search(
+    r"if\s+v_norm\s+is\s+null\s+then\s+raise\s+exception\s+'item_name_required'",
+    after_fallback,
+    re.IGNORECASE,
+), "an actually empty name must still raise item_name_required"
+stock_branch = after_fallback.lower().find("if p_line_class = 'non_stock' then")
+assert stock_branch != -1, "the non_stock item branch must stay after normalization"
+assert "regexp_replace(" not in after_fallback[:stock_branch].lower(), (
+    "stock must not use the phone fallback before the strict item_name_required raise"
+)
+
+# Mirror public.normalize_stock_item_name (20261013100000) so the phone cases
+# exercise the same trailing-digit rule that made the key null in the first place.
+normalize_block = source_function_block(STOCK_LEDGER, "normalize_stock_item_name")
+translate_match = re.search(
+    r"translate\(\s*lower\(coalesce\(p_name, ''\)\),\s*'([^']*)',\s*'([^']*)'\s*\)",
+    normalize_block,
+    re.IGNORECASE | re.DOTALL,
+)
+assert translate_match, "normalize_stock_item_name must keep its translate table"
+UNACCENT = str.maketrans(translate_match.group(1), translate_match.group(2))
+assert r"\s*\([^()]*\)\s*$" in normalize_block, "normalize_stock_item_name must keep the parenthetical rule"
+assert r"\s*(ngay\s*[0-9]+|[0-9]+)\s*$" in normalize_block, "normalize_stock_item_name must keep the trailing-digit rule"
+
+
+def normalize_mirror(name: str | None) -> str | None:
+    value = (name or "").lower().translate(UNACCENT)
+    value = re.sub(r"\s+", " ", value)
+    value = re.sub(r"\s*\([^()]*\)\s*$", "", value)
+    value = re.sub(r"\s*(ngay\s*[0-9]+|[0-9]+)\s*$", "", value)
+    return value.strip() or None
+
+
+def phone_alias_key(raw: str | None) -> str | None:
+    return re.sub(r"[^a-z0-9]", "", (raw or "").lower().strip()) or None
+
+
+def effective_alias_key(raw: str | None, line_class: str) -> str | None:
+    normalized = normalize_mirror(raw)
+    if normalized is None and line_class == "non_stock":
+        return phone_alias_key(raw)
+    return normalized
+
+
+PHONE_CASES = [
+    ("0966998998", "0966998998"),
+    ("011532087 (Vnpt)", "011532087vnpt"),
+]
+for raw, expected in PHONE_CASES:
+    assert normalize_mirror(raw) is None, f"{raw!r} must normalize to null (the bug case)"
+    assert effective_alias_key(raw, "non_stock") == expected, f"{raw!r} must get key {expected!r}"
+    assert effective_alias_key(raw, "stock") is None, f"stock {raw!r} must still raise item_name_required"
+
+for raw, expected in (
+    ("Cước điện thoại_0966998998", "cuoc dien thoai_"),
+    ("Bánh mì lớn 17", "banh mi lon"),
+):
+    assert normalize_mirror(raw) == expected, f"text name {raw!r} normalization changed"
+    assert effective_alias_key(raw, "non_stock") == expected, f"text name {raw!r} must keep its normalized key"
+
+for raw in ("", "   ", "()", None):
+    assert normalize_mirror(raw) is None, f"{raw!r} must normalize to null"
+    assert phone_alias_key(raw) is None, f"a truly empty name {raw!r} must still raise"
+    assert effective_alias_key(raw, "non_stock") is None, f"a truly empty non_stock name {raw!r} must still raise"
+
+print("== suggest finds a phone-bill alias by the same fallback key ==")
+assert PHONE_MIGRATION.lower().count("create or replace function public.suggest_material_aliases(") == 1
+phone_suggest = source_function_block(PHONE_MIGRATION, "suggest_material_aliases")
+base_suggest = source_function_block(MIGRATION, "suggest_material_aliases")
+suggest_fallback = re.search(
+    r"\n(?:\s*--[^\n]*\n)*\s*if\s+v_norm\s+is\s+null\s+then.*?\bend\s+if\s*;",
+    phone_suggest,
+    re.IGNORECASE | re.DOTALL,
+)
+assert suggest_fallback, "suggest_material_aliases must fall back when the name normalizes to null"
+added = suggest_fallback.group(0)
+assert "lower(btrim(coalesce(v_raw_name, '')))" in added and "'[^a-z0-9]'" in added and "nullif(" in added
+assert phone_suggest.replace(added, "", 1) == base_suggest, (
+    "suggest_material_aliases must otherwise match 20261019100000 byte for byte"
+)
+assert phone_suggest.find("normalize_stock_item_name(v_raw_name)") < suggest_fallback.start(), (
+    "the fallback runs right after normalization"
+)
 
 print("purchase must stock contract passed")
