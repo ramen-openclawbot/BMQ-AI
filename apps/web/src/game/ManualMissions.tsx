@@ -226,7 +226,7 @@ export function CreateMissionSheet({ onClose, onToast }: { onClose: () => void; 
               </div>
             )}
         </div>
-        <Seg label="Hạn chót" name="due" value={preset} onChange={setPreset} options={[["today", "Hôm nay"], ["tomorrow", "Ngày mai"], ["custom", "Chọn ngày"], ["none", "Không hạn"]]} />
+        <Seg label="Hạn chót" name="due" value={preset} onChange={(next) => setPreset(next as DuePreset)} options={[["today", "Hôm nay"], ["tomorrow", "Ngày mai"], ["custom", "Chọn ngày"], ["none", "Không hạn"]]} />
         {preset !== "none" ? (
           <div className="mm-due">
             {preset === "custom" ? <label className="field">Ngày<input type="date" value={date} min={vnDate(0)} onChange={(e) => setDate(e.target.value)} data-bmq-mm-date /></label> : null}
@@ -234,12 +234,12 @@ export function CreateMissionSheet({ onClose, onToast }: { onClose: () => void; 
             {due ? <small className="mm-due-text">{dueLabel(due)}</small> : null}
           </div>
         ) : null}
-        <Seg label="Mức ưu tiên" name="priority" value={priority} onChange={setPriority} options={[["low", "Thấp"], ["normal", "Bình thường"], ["high", "Gấp"]]} />
-        <Seg label="Ở kho" name="place" value={place} onChange={setPlace} options={[["none", "Không ghi"], ["tan_tao", "Tân Tạo"], ["q7", "Q7"]]} />
+        <Seg label="Mức ưu tiên" name="priority" value={priority} onChange={(next) => setPriority(next as ManualPriority)} options={[["low", "Thấp"], ["normal", "Bình thường"], ["high", "Gấp"]]} />
+        <Seg label="Ở kho" name="place" value={place} onChange={(next) => setPlace(next as "none" | ManualLocation)} options={[["none", "Không ghi"], ["tan_tao", "Tân Tạo"], ["q7", "Q7"]]} />
         <fieldset className="mm-proof">
           <legend>Bằng chứng khi nộp</legend>
-          <Seg label="📷 Ảnh" name="photo" value={photo} onChange={setPhoto} options={LEVELS} />
-          <Seg label="✍️ Ghi chú" name="note" value={note} onChange={setNote} options={LEVELS} />
+          <Seg label="📷 Ảnh" name="photo" value={photo} onChange={(next) => setPhoto(next as ManualEvidenceLevel)} options={LEVELS} />
+          <Seg label="✍️ Ghi chú" name="note" value={note} onChange={(next) => setNote(next as ManualEvidenceLevel)} options={LEVELS} />
           <div className="mm-field">
             <label className="mm-check"><input type="checkbox" checked={numberOn} onChange={(e) => setNumberOn(e.target.checked)} data-bmq-mm-number-on /> 🔢 Nhập một số liệu</label>
             {numberOn ? (

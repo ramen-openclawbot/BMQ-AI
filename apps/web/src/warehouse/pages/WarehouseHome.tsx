@@ -122,7 +122,7 @@ export default function WarehouseHome() {
           originalUnit: matchItem?.matchedUnit,
           ordered_quantity: matchItem?.matchedQty,
           actual_quantity: item.quantity,
-          line_status: matchItem?.status === "match" ? "du" : matchItem?.status === "mismatch" && matchItem.matchedQty !== undefined && item.quantity < matchItem.matchedQty ? "thieu" : matchItem?.status === "mismatch" ? "du_thua" : undefined,
+          line_status: matchItem?.status === "match" ? "du" as const : matchItem?.status === "mismatch" && matchItem.matchedQty !== undefined && item.quantity < matchItem.matchedQty ? "thieu" as const : matchItem?.status === "mismatch" ? "du_thua" as const : undefined,
         };
       });
 

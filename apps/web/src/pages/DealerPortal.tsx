@@ -1350,13 +1350,14 @@ export default function DealerPortal() {
       ...(routeMode ? { cartLines } : {}),
     });
     if (!result.ok) {
+      const failure = result as { error?: string; sessionExpired?: boolean };
       setNppParseStatus("idle");
-      if (result.sessionExpired) {
+      if (failure.sessionExpired) {
         handleLogoutDealer();
         return;
       }
       setAssistantProposal(previous);
-      setNppParseMessage(`${result.error} ${routeMode
+      setNppParseMessage(`${failure.error} ${routeMode
         ? "Quý Khách Hàng vẫn có thể nhắn theo mẫu: Rạch Giá 200 đổi 10."
         : "Quý Khách Hàng vẫn có thể nhắn số lượng, ví dụ: 200 đổi 14 bù 5."}`);
       return;

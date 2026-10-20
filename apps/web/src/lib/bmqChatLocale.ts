@@ -66,5 +66,5 @@ const vietnamese = Object.fromEntries(Object.entries(english).map(([vi, en]) => 
 // UI/status copy only; never translate stored conversation messages.
 export function chatText(text: string, language: ChatLanguage) {
   const dictionary = language === "en" ? english : vietnamese;
-  return Object.hasOwn(dictionary, text) ? dictionary[text] : text;
+  return Object.prototype.hasOwnProperty.call(dictionary, text) ? dictionary[text] : text;
 }

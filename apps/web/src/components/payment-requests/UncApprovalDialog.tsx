@@ -314,7 +314,7 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
     if (manual && !reason.trim()) return "Duyệt tay cần ghi lý do.";
     if (supplierMismatch) return ERROR_TEXT.supplier_mismatch;
     if (allocMode && allocatedTotal === 0) return "Nhập số tiền gán cho ít nhất một phiếu.";
-    if (slipPlan && !slipPlan.ok) return SLIP_PLAN_TEXT[slipPlan.code];
+    if (slipPlan && !slipPlan.ok) return SLIP_PLAN_TEXT[(slipPlan as { code: UncSlipPlanCode }).code];
     return null;
   })();
 

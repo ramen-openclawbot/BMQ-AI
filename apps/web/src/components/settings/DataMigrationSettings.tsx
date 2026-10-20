@@ -348,7 +348,7 @@ export function DataMigrationSettings() {
           }
         }
 
-        blob = new Blob(chunks, { type: "application/zip" });
+        blob = new Blob(chunks as BlobPart[], { type: "application/zip" });
         setZipProgress(100);
         setZipProgressText("Tải hoàn tất.");
       }

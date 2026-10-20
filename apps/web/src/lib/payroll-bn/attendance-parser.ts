@@ -379,7 +379,7 @@ export function parseAttendanceWorkbook(
 /** SHA-256 (lowercase hex) of the raw file bytes. */
 export async function computeFileSha256(input: Uint8Array | ArrayBuffer): Promise<string> {
   const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
-  const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes);
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes as BufferSource);
   return Array.from(new Uint8Array(digest))
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");

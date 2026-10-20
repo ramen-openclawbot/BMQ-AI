@@ -59,7 +59,7 @@ function memberDefaults(group: NewItemSuggestion, unit: string): MemberDraft[] {
   });
 }
 
-function GroupRow({ group, onDone }: { group: NewItemSuggestion; onDone: () => void }) {
+function GroupRow({ group, onDone, location }: { group: NewItemSuggestion; onDone: () => void; location: MaterialAliasLocation }) {
   const { toast } = useToast();
   const apply = useApplyNewItemSuggestion();
   const dismiss = useDismissNewItemSuggestion();
@@ -286,7 +286,7 @@ export function NewItemSuggestions({ canEdit, location = "q7" }: { canEdit: bool
           ) : (
             <ul className="d3-ma-list">
               {list.map((group) => (
-                <GroupRow key={group.id} group={group} onDone={() => setHidden((current) => ({ ...current, [group.id]: true }))} />
+                <GroupRow key={group.id} group={group} location={location} onDone={() => setHidden((current) => ({ ...current, [group.id]: true }))} />
               ))}
             </ul>
           )}

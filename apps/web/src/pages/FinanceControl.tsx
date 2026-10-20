@@ -83,6 +83,7 @@ type LooseQueryBuilder<T = JsonRecord[]> = PromiseLike<SupabaseResult<T>> & {
   in: (column: string, values: unknown[]) => LooseQueryBuilder<T>;
   gte: (column: string, value: unknown) => LooseQueryBuilder<T>;
   lt: (column: string, value: unknown) => LooseQueryBuilder<T>;
+  not: (column: string, operator: string, value: unknown) => LooseQueryBuilder<T>;
   order: (column: string, options?: JsonRecord) => LooseQueryBuilder<T>;
   range: (from: number, to: number) => LooseQueryBuilder<T>;
   limit: (count: number) => LooseQueryBuilder<T>;
@@ -97,6 +98,8 @@ const looseSupabase = supabase as unknown as LooseSupabase;
 
 type MismatchResult = {
   uncVariance?: number;
+  uncDetail?: number;
+  uncDeclared?: number;
   qtmClosingBalance?: number;
   qtmClosing?: number;
   qtmOpening?: number;
@@ -122,6 +125,22 @@ const asRecord = (value: unknown): JsonRecord => (value && typeof value === "obj
 const getErrorMessage = (error: unknown, fallback: string) => {
   const record = asRecord(error);
   return typeof record.message === "string" && record.message.trim() ? record.message : fallback;
+};
+const readErrorMessage = (error: unknown) => (error as { message?: string } | null | undefined)?.message;
+
+type MonthlyReconciliationRow = CostClassificationMonthlySummary & {
+  id?: string;
+  closing_date: string;
+  unc_detail_amount?: number;
+  unc_declared_amount?: number;
+  variance_amount?: number;
+  qtm_opening_balance?: number;
+  qtm_declared_amount?: number;
+  qtm_spent_from_folder?: number;
+  qtm_closing_balance?: number;
+  unc_status?: "match" | "mismatch" | "pending";
+  qtm_status?: "match" | "mismatch" | "pending";
+  status?: "match" | "mismatch" | "pending";
 };
 
 type ClassificationEdits = Record<string, string>;
@@ -258,9 +277,10 @@ const hasStandardCostDraftChanged = (row: CostClassificationReviewRow, draft: St
 );
 
 const getOcrErrorMessage = (errorLike: unknown, fallbackMessage: string) => {
-  if (typeof errorLike?.error === "string" && errorLike.error.trim()) return errorLike.error.trim();
-  if (typeof errorLike?.detail === "string" && errorLike.detail.trim()) return errorLike.detail.trim();
-  if (typeof errorLike?.message === "string" && errorLike.message.trim()) return errorLike.message.trim();
+  const record = errorLike as { error?: unknown; detail?: unknown; message?: unknown } | null | undefined;
+  if (typeof record?.error === "string" && record.error.trim()) return record.error.trim();
+  if (typeof record?.detail === "string" && record.detail.trim()) return record.detail.trim();
+  if (typeof record?.message === "string" && record.message.trim()) return record.message.trim();
   return fallbackMessage;
 };
 const getOcrTimeoutMessage = (isVi: boolean) => (
@@ -778,7 +798,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
     } catch (error: unknown) {
       toast({
         title: isVi ? "Không lưu được phân loại" : "Could not save classification",
-        description: error?.message || String(error),
+        description: readErrorMessage(error) || String(error),
         variant: "destructive",
       });
     } finally {
@@ -1277,7 +1297,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
             if (row?.file_id && Number(row.extracted_amount) > 0) {
               const cacheProcessedAt = row.processed_at;
               if (!isOcrCacheFresh(cacheProcessedAt)) continue;
-              ocrCache.set(row.file_id, {
+              ocrCache.set(row.file_id as string, {
                 amount: Number(row.extracted_amount),
                 confidence: Number(row.extraction_confidence || 0),
               });
@@ -1542,7 +1562,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       };
 
     } catch (e: unknown) {
-      const msg = e?.message || (isVi ? "Không thể đối soát UNC/QTM theo ngày" : "Failed reconciling UNC/QTM by date");
+      const msg = readErrorMessage(e) || (isVi ? "Không thể đối soát UNC/QTM theo ngày" : "Failed reconciling UNC/QTM by date");
       setReconcileError(msg);
       setReconcileProgress((prev) => ({ ...prev, currentFile: "" }));
       toast({ title: isVi ? "Lỗi đối soát trong ngày" : "Daily reconciliation error", description: msg, variant: "destructive" });
@@ -1603,7 +1623,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
         description: `${isVi ? "Tổng chi" : "Spent"}: ${vnd(total)} • ${isVi ? "thiếu chứng từ/độ tin cậy thấp" : "low confidence"}: ${lowConfidence}`,
       });
     } catch (e: unknown) {
-      toast({ title: isVi ? "Lỗi quét QTM" : "QTM scan error", description: e?.message || "Failed scanning QTM", variant: "destructive" });
+      toast({ title: isVi ? "Lỗi quét QTM" : "QTM scan error", description: readErrorMessage(e) || "Failed scanning QTM", variant: "destructive" });
     } finally {
       setQtmReconciling(false);
     }
@@ -1749,14 +1769,14 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
         }));
       }
     } catch (e: unknown) {
-      const statusText = e?.message
-        ? `${isVi ? "Ảnh mới chưa được áp dụng:" : "New image not applied:"} ${e.message}`
+      const statusText = readErrorMessage(e)
+        ? `${isVi ? "Ảnh mới chưa được áp dụng:" : "New image not applied:"} ${readErrorMessage(e)}`
         : (isVi
           ? `Ảnh mới chưa được áp dụng cho ${slipType.toUpperCase()}. Hệ thống vẫn đang giữ số/preview đã lưu trước đó.`
           : `The new ${slipType.toUpperCase()} image was not applied. The UI is still showing previously saved amount/preview.`);
       setSlipUploadStatus((prev) => ({ ...prev, [slipType]: statusText }));
-      setDeclarationSaveMessage(e?.message || (isVi ? "Ảnh đã tải lên nhưng OpenAI Vision chưa đọc được số tiền. Anh có thể chỉnh tay số tiền rồi bấm Lưu khai báo." : "Image uploaded but OpenAI Vision could not extract amount. You can adjust the number manually and press Save declaration."));
-      toast({ title: "Lỗi OpenAI Vision slip", description: e?.message || "Không thể trích xuất số tiền từ ảnh upload. Nếu ảnh chụp từ iPhone, vui lòng thử lại sau khi chụp rõ hơn hoặc dùng ảnh/JPEG ít nén hơn.", variant: "destructive" });
+      setDeclarationSaveMessage(readErrorMessage(e) || (isVi ? "Ảnh đã tải lên nhưng OpenAI Vision chưa đọc được số tiền. Anh có thể chỉnh tay số tiền rồi bấm Lưu khai báo." : "Image uploaded but OpenAI Vision could not extract amount. You can adjust the number manually and press Save declaration."));
+      toast({ title: "Lỗi OpenAI Vision slip", description: readErrorMessage(e) || "Không thể trích xuất số tiền từ ảnh upload. Nếu ảnh chụp từ iPhone, vui lòng thử lại sau khi chụp rõ hơn hoặc dùng ảnh/JPEG ít nén hơn.", variant: "destructive" });
     } finally {
       setExtracting(false);
       setActiveSlipScan(null);
@@ -1852,7 +1872,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       if (latestError) throw latestError;
       if (!latestDecl) throw new Error(isVi ? "Không tìm thấy khai báo CEO để xoá slip." : "CEO declaration not found.");
 
-      const meta = latestDecl.extraction_meta || {};
+      const meta = (latestDecl.extraction_meta || {}) as JsonRecord;
       const currentQtmImages = Array.isArray(meta.qtm_images)
         ? meta.qtm_images
         : (latestDecl.qtm_slip_image_base64 ? [latestDecl.qtm_slip_image_base64] : []);
@@ -1913,7 +1933,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
     } catch (e: unknown) {
       toast({
         title: isVi ? "Xoá slip thất bại" : "Failed to delete slip",
-        description: e?.message || (isVi ? "Không thể xoá slip" : "Unable to delete slip"),
+        description: readErrorMessage(e) || (isVi ? "Không thể xoá slip" : "Unable to delete slip"),
         variant: "destructive",
       });
     } finally {
@@ -2009,9 +2029,9 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       await refetchDeclaration();
       return true;
     } catch (e: unknown) {
-      setDeclarationSaveMessage(e?.message || (isVi ? "Không thể lưu khai báo" : "Failed to save declaration"));
+      setDeclarationSaveMessage(readErrorMessage(e) || (isVi ? "Không thể lưu khai báo" : "Failed to save declaration"));
       if (!silent) {
-        toast({ title: "Error", description: e?.message || "Failed to save declaration", variant: "destructive" });
+        toast({ title: "Error", description: readErrorMessage(e) || "Failed to save declaration", variant: "destructive" });
       }
       return false;
     } finally {
@@ -2087,7 +2107,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
         qtmClosingBalance: qtmClosingBalanceFresh,
       };
     } catch (e: unknown) {
-      toast({ title: "Error", description: e?.message || "Reconciliation failed", variant: "destructive" });
+      toast({ title: "Error", description: readErrorMessage(e) || "Reconciliation failed", variant: "destructive" });
       return null;
     } finally {
       setReconciling(false);
@@ -2150,7 +2170,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
         }
       }
     } catch (e: unknown) {
-      setReconcileError(e?.message || (isVi ? "Không thể kết nối Drive" : "Cannot connect to Drive"));
+      setReconcileError(readErrorMessage(e) || (isVi ? "Không thể kết nối Drive" : "Cannot connect to Drive"));
     } finally {
       setPreviewLoading(false);
     }
@@ -2259,7 +2279,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       });
       await refetchDeclaration();
     } catch (e: unknown) {
-      setReconcileError(e?.message || (isVi ? "Lỗi khi chốt ngày" : "Failed closing day"));
+      setReconcileError(readErrorMessage(e) || (isVi ? "Lỗi khi chốt ngày" : "Failed closing day"));
       setCloseDialogStep("preview"); // Go back to preview so user can retry or change settings
     } finally {
       setCloseActing(false);
@@ -2299,7 +2319,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       });
       await refetchDeclaration();
     } catch (e: unknown) {
-      setReconcileError(e?.message || (isVi ? "Lỗi khi chốt ngày" : "Failed closing day"));
+      setReconcileError(readErrorMessage(e) || (isVi ? "Lỗi khi chốt ngày" : "Failed closing day"));
       setCloseDialogStep("mismatch");
     } finally {
       setCloseActing(false);
@@ -2318,7 +2338,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       });
       await refetchDeclaration();
     } catch (e: unknown) {
-      toast({ title: isVi ? "Lỗi" : "Error", description: e?.message || (isVi ? "Không thể mở khoá" : "Failed to unlock"), variant: "destructive" });
+      toast({ title: isVi ? "Lỗi" : "Error", description: readErrorMessage(e) || (isVi ? "Không thể mở khoá" : "Failed to unlock"), variant: "destructive" });
     } finally {
       setCloseActing(false);
     }
@@ -2675,7 +2695,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {monthlySummary?.rows?.map((r: CostClassificationMonthlySummary) => (
+                    {monthlySummary?.rows?.map((r: MonthlyReconciliationRow) => (
                       <TableRow key={r.id}>
                         <TableCell className="whitespace-nowrap">{format(parseDbDate(r.closing_date), "dd/MM/yyyy", { locale: vi })}</TableCell>
                         <TableCell className="whitespace-nowrap text-right">{vnd(Number(r.unc_detail_amount || 0))}</TableCell>

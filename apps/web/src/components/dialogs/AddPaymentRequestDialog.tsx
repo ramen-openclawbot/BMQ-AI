@@ -36,6 +36,7 @@ import { useSuppliers } from "@/hooks/useSuppliers";
 import { useGoodsReceipts } from "@/hooks/useGoodsReceipts";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
+import type { Json } from "@/integrations/supabase/types";
 import {
   useCreatePaymentRequest,
   useCreatePaymentRequestItem,
@@ -589,7 +590,7 @@ export function AddPaymentRequestDialog({
           cost_review_routing: item.cost_review_routing || "none",
           unit_conversion_note: item.unit_conversion_note || null,
           matched_finished_skus: item.matched_finished_skus || null,
-          ocr_classification_json: item.ocr_classification_json || null,
+          ocr_classification_json: (item.ocr_classification_json || null) as unknown as Json,
         });
       }
 

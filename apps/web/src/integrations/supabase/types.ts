@@ -4052,6 +4052,10 @@ export type Database = {
         Args: { p_date: string }
         Returns: Json
       }
+      ensure_payment_request_receipt_queue: {
+        Args: { p_payment_request_id: string }
+        Returns: string
+      }
       normalize_unc_reference: {
         Args: { p_reference: string }
         Returns: string

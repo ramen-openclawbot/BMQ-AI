@@ -280,7 +280,7 @@ export function useCreateInvoiceWithItems() {
     mutationFn: async ({ invoice, items }: CreateInvoiceWithItemsData) => {
       const actorId = await getCurrentActorId();
       return createInvoiceWithMaterialController({
-        invoice: invoice as Record<string, unknown>,
+        invoice: invoice as unknown as Record<string, unknown>,
         items: items.map((item) => item as Record<string, unknown>),
         actorId,
       });

@@ -389,8 +389,8 @@ test("an absent lock is released only past the fixed grace", () => {
 });
 
 test("generation progress reports honest phases, percentage and unknown values", () => {
-  const job = (overrides: Partial<{ status: string; result_summary: Record<string, unknown>; request: Record<string, unknown> }>) => ({
-    status: "running",
+  const job = (overrides: Partial<{ status: "completed" | "failed" | "running" | "budget_exceeded"; result_summary: Record<string, unknown>; request: Record<string, unknown> }>) => ({
+    status: "running" as "completed" | "failed" | "running" | "budget_exceeded",
     result_summary: {},
     ...overrides,
   });

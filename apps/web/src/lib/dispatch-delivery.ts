@@ -43,8 +43,8 @@ export type ShortfallAction = "return_stock" | "write_off";
 export interface DeliveryLine {
   item_id: string;
   /** Số lượng đặt trên phiếu; dùng để chặn giao vượt và nhận diện giao thiếu. */
-  expected_qty: number;
-  delivered_qty: number;
+  expected_qty: number | string | null | undefined;
+  delivered_qty: number | string | null | undefined;
   /** Bắt buộc khi delivered_qty < expected_qty; bỏ qua khi giao đủ. */
   shortfall_action?: ShortfallAction | null;
   /** Bắt buộc (>= 3 ký tự) khi shortfall_action = 'write_off'. */
