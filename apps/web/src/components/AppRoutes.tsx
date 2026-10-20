@@ -40,6 +40,7 @@ import WarehouseHome from "@/warehouse/pages/WarehouseHome";
 // Lazy load: pages nặng — chỉ tải khi user vào trang đó
 const MiniCrm = lazy(() => import("@/pages/MiniCrm"));
 const FinanceControl = lazy(() => import("@/pages/FinanceControl"));
+const FinanceReports = lazy(() => import("@/pages/FinanceReports"));
 const FinanceRevenueControl = lazy(() => import("@/pages/FinanceRevenueControl"));
 const RevenueManagementDashboard = lazy(() => import("@/pages/RevenueManagementDashboard"));
 const RevenueSourceDetail = lazy(() => import("@/pages/RevenueSourceDetail"));
@@ -315,6 +316,7 @@ export function AppRoutes() {
         <Route path="/finance-control/cost" element={<Navigate to="/payment-requests" replace />} />
         <Route path="/finance-control/ceo-declaration" element={<Navigate to="/payment-requests" replace />} />
         <Route path="/finance-control/classification" element={<ModuleRoute moduleKey="finance_cost"><Suspense fallback={<AppLoadingFallback />}><FinanceControl mode="classification" /></Suspense></ModuleRoute>} />
+        <Route path="/finance" element={<ModuleRoute moduleKey="finance_cost"><Suspense fallback={<AppLoadingFallback />}><FinanceReports /></Suspense></ModuleRoute>} />
         <Route path="/finance-control/payables" element={<ModuleRoute moduleKey="payment_requests"><PayablesManagement /></ModuleRoute>} />
         <Route path="/finance-control/revenue" element={<Suspense fallback={<AppLoadingFallback />}><RevenueManagementDashboard /></Suspense>} />
         <Route path="/finance-control/revenue/sources" element={<Suspense fallback={<AppLoadingFallback />}><RevenueSourceDetail /></Suspense>} />

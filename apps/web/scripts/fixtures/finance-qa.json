@@ -1,0 +1,1732 @@
+{
+ "pnl": {
+  "by_product_line": {
+   "2026-04": {
+    "bmq_bread": {
+     "contribution": null,
+     "direct_costs": null,
+     "revenue": 565513600
+    },
+    "shared_costs": 282031888,
+    "sweet_kitchen": {
+     "contribution": null,
+     "direct_costs": null,
+     "revenue": 183690856
+    }
+   },
+   "2026-05": {
+    "bmq_bread": {
+     "contribution": null,
+     "direct_costs": null,
+     "revenue": 572683600
+    },
+    "shared_costs": 193386302,
+    "sweet_kitchen": {
+     "contribution": null,
+     "direct_costs": null,
+     "revenue": 232877664
+    }
+   },
+   "2026-06": {
+    "bmq_bread": {
+     "contribution": null,
+     "direct_costs": null,
+     "revenue": 584408440
+    },
+    "shared_costs": 281745880,
+    "sweet_kitchen": {
+     "contribution": null,
+     "direct_costs": null,
+     "revenue": 263145252
+    }
+   },
+   "2026-07": {
+    "bmq_bread": {
+     "contribution": null,
+     "direct_costs": null,
+     "revenue": 615406640
+    },
+    "shared_costs": 202611987,
+    "sweet_kitchen": {
+     "contribution": null,
+     "direct_costs": null,
+     "revenue": 254528082
+    }
+   },
+   "2026-08": {
+    "bmq_bread": {
+     "contribution": null,
+     "direct_costs": null,
+     "revenue": 596985720
+    },
+    "shared_costs": 159225106,
+    "sweet_kitchen": {
+     "contribution": null,
+     "direct_costs": null,
+     "revenue": 293642330
+    }
+   },
+   "2026-09": {
+    "bmq_bread": {
+     "contribution": 538609200,
+     "direct_costs": 6917200,
+     "revenue": 545526400
+    },
+    "shared_costs": 284817462,
+    "sweet_kitchen": {
+     "contribution": 253383058,
+     "direct_costs": 3848000,
+     "revenue": 257231058
+    }
+   }
+  },
+  "coverage": {
+   "2026-04": {
+    "approved_amount": 1176000,
+    "classified_amount": 0,
+    "classified_pct": 0,
+    "expense_total": 470901927,
+    "suggested_amount": 404268932
+   },
+   "2026-05": {
+    "approved_amount": 58423511,
+    "classified_amount": 0,
+    "classified_pct": 0,
+    "expense_total": 452398339,
+    "suggested_amount": 276981420
+   },
+   "2026-06": {
+    "approved_amount": 0,
+    "classified_amount": 0,
+    "classified_pct": 0,
+    "expense_total": 335591264,
+    "suggested_amount": 160428637
+   },
+   "2026-07": {
+    "approved_amount": 0,
+    "classified_amount": 0,
+    "classified_pct": 0,
+    "expense_total": 245243627,
+    "suggested_amount": 107384907
+   },
+   "2026-08": {
+    "approved_amount": 0,
+    "classified_amount": 0,
+    "classified_pct": 0,
+    "expense_total": 171570946,
+    "suggested_amount": 87529902
+   },
+   "2026-09": {
+    "approved_amount": 0,
+    "classified_amount": 34197200,
+    "classified_pct": 0.1814,
+    "expense_total": 188554862,
+    "suggested_amount": 75581262
+   }
+  },
+  "currency": "VND",
+  "flags": [
+   {
+    "code": "capex_missing",
+    "detail_en": "No capex-classified expense lines for this month.",
+    "month": "2026-04"
+   },
+   {
+    "code": "cogs_missing",
+    "detail_en": "No COGS-classified expense lines for this month.",
+    "month": "2026-04"
+   },
+   {
+    "code": "coverage_below_target",
+    "detail_en": "Classification coverage is below the configured target.",
+    "month": "2026-04"
+   },
+   {
+    "code": "operating_missing",
+    "detail_en": "No operating-classified expense lines for this month.",
+    "month": "2026-04"
+   },
+   {
+    "code": "payroll_missing",
+    "detail_en": "No non-cancelled salary payout found for this month.",
+    "month": "2026-04"
+   },
+   {
+    "code": "selling_missing",
+    "detail_en": "No selling-classified expense lines for this month.",
+    "month": "2026-04"
+   },
+   {
+    "code": "unclassified_present",
+    "detail_en": "Expense lines remain on UNMAPPED_REVIEW or an inactive/legacy category.",
+    "month": "2026-04"
+   },
+   {
+    "code": "capex_missing",
+    "detail_en": "No capex-classified expense lines for this month.",
+    "month": "2026-05"
+   },
+   {
+    "code": "cogs_missing",
+    "detail_en": "No COGS-classified expense lines for this month.",
+    "month": "2026-05"
+   },
+   {
+    "code": "coverage_below_target",
+    "detail_en": "Classification coverage is below the configured target.",
+    "month": "2026-05"
+   },
+   {
+    "code": "operating_missing",
+    "detail_en": "No operating-classified expense lines for this month.",
+    "month": "2026-05"
+   },
+   {
+    "code": "payroll_missing",
+    "detail_en": "No non-cancelled salary payout found for this month.",
+    "month": "2026-05"
+   },
+   {
+    "code": "selling_missing",
+    "detail_en": "No selling-classified expense lines for this month.",
+    "month": "2026-05"
+   },
+   {
+    "code": "unclassified_present",
+    "detail_en": "Expense lines remain on UNMAPPED_REVIEW or an inactive/legacy category.",
+    "month": "2026-05"
+   },
+   {
+    "code": "capex_missing",
+    "detail_en": "No capex-classified expense lines for this month.",
+    "month": "2026-06"
+   },
+   {
+    "code": "cogs_missing",
+    "detail_en": "No COGS-classified expense lines for this month.",
+    "month": "2026-06"
+   },
+   {
+    "code": "coverage_below_target",
+    "detail_en": "Classification coverage is below the configured target.",
+    "month": "2026-06"
+   },
+   {
+    "code": "operating_missing",
+    "detail_en": "No operating-classified expense lines for this month.",
+    "month": "2026-06"
+   },
+   {
+    "code": "payroll_missing",
+    "detail_en": "No non-cancelled salary payout found for this month.",
+    "month": "2026-06"
+   },
+   {
+    "code": "selling_missing",
+    "detail_en": "No selling-classified expense lines for this month.",
+    "month": "2026-06"
+   },
+   {
+    "code": "unclassified_present",
+    "detail_en": "Expense lines remain on UNMAPPED_REVIEW or an inactive/legacy category.",
+    "month": "2026-06"
+   },
+   {
+    "code": "capex_missing",
+    "detail_en": "No capex-classified expense lines for this month.",
+    "month": "2026-07"
+   },
+   {
+    "code": "cogs_missing",
+    "detail_en": "No COGS-classified expense lines for this month.",
+    "month": "2026-07"
+   },
+   {
+    "code": "coverage_below_target",
+    "detail_en": "Classification coverage is below the configured target.",
+    "month": "2026-07"
+   },
+   {
+    "code": "operating_missing",
+    "detail_en": "No operating-classified expense lines for this month.",
+    "month": "2026-07"
+   },
+   {
+    "code": "payroll_missing",
+    "detail_en": "No non-cancelled salary payout found for this month.",
+    "month": "2026-07"
+   },
+   {
+    "code": "selling_missing",
+    "detail_en": "No selling-classified expense lines for this month.",
+    "month": "2026-07"
+   },
+   {
+    "code": "unclassified_present",
+    "detail_en": "Expense lines remain on UNMAPPED_REVIEW or an inactive/legacy category.",
+    "month": "2026-07"
+   },
+   {
+    "code": "capex_missing",
+    "detail_en": "No capex-classified expense lines for this month.",
+    "month": "2026-08"
+   },
+   {
+    "code": "cogs_missing",
+    "detail_en": "No COGS-classified expense lines for this month.",
+    "month": "2026-08"
+   },
+   {
+    "code": "coverage_below_target",
+    "detail_en": "Classification coverage is below the configured target.",
+    "month": "2026-08"
+   },
+   {
+    "code": "operating_missing",
+    "detail_en": "No operating-classified expense lines for this month.",
+    "month": "2026-08"
+   },
+   {
+    "code": "payroll_missing",
+    "detail_en": "No non-cancelled salary payout found for this month.",
+    "month": "2026-08"
+   },
+   {
+    "code": "selling_missing",
+    "detail_en": "No selling-classified expense lines for this month.",
+    "month": "2026-08"
+   },
+   {
+    "code": "unclassified_present",
+    "detail_en": "Expense lines remain on UNMAPPED_REVIEW or an inactive/legacy category.",
+    "month": "2026-08"
+   },
+   {
+    "code": "capex_missing",
+    "detail_en": "No capex-classified expense lines for this month.",
+    "month": "2026-09"
+   },
+   {
+    "code": "coverage_below_target",
+    "detail_en": "Classification coverage is below the configured target.",
+    "month": "2026-09"
+   },
+   {
+    "code": "unclassified_present",
+    "detail_en": "Expense lines remain on UNMAPPED_REVIEW or an inactive/legacy category.",
+    "month": "2026-09"
+   }
+  ],
+  "from": "2026-04-01",
+  "lines": [
+   {
+    "amounts": {
+     "2026-04": 104086400,
+     "2026-05": 100824400,
+     "2026-06": 117552000,
+     "2026-07": 131480000,
+     "2026-08": 121720000,
+     "2026-09": 113824400
+    },
+    "label": "Revenue — B2B BMQ",
+    "line_code": "B2B BMQ",
+    "section": "revenue"
+   },
+   {
+    "amounts": {
+     "2026-04": 183690856,
+     "2026-05": 232877664,
+     "2026-06": 263145252,
+     "2026-07": 254528082,
+     "2026-08": 293642330,
+     "2026-09": 257231058
+    },
+    "label": "Revenue — BÁNH NGỌT",
+    "line_code": "BÁNH NGỌT",
+    "section": "revenue"
+   },
+   {
+    "amounts": {
+     "2026-04": 330008000,
+     "2026-05": 350576000,
+     "2026-06": 338687440,
+     "2026-07": 345031440,
+     "2026-08": 340501120,
+     "2026-09": 360313200
+    },
+    "label": "Revenue — ĐẠI LÝ",
+    "line_code": "ĐẠI LÝ",
+    "section": "revenue"
+   },
+   {
+    "amounts": {
+     "2026-04": 131419200,
+     "2026-05": 121283200,
+     "2026-06": 128169000,
+     "2026-07": 138895200,
+     "2026-08": 134764600,
+     "2026-09": 71388800
+    },
+    "label": "Revenue — Retail Kiosk",
+    "line_code": "Retail Kiosk",
+    "section": "revenue"
+   },
+   {
+    "amounts": {
+     "2026-04": null,
+     "2026-05": null,
+     "2026-06": null,
+     "2026-07": null,
+     "2026-08": null,
+     "2026-09": 6917200
+    },
+    "label": "Pork floss & fillings",
+    "line_code": "A3_FLOSS_FILLING",
+    "section": "cogs"
+   },
+   {
+    "amounts": {
+     "2026-04": null,
+     "2026-05": null,
+     "2026-06": null,
+     "2026-07": null,
+     "2026-08": null,
+     "2026-09": 3848000
+    },
+    "label": "Dairy, butter & eggs",
+    "line_code": "A4_DAIRY_EGG",
+    "section": "cogs"
+   },
+   {
+    "amounts": {
+     "2026-04": null,
+     "2026-05": null,
+     "2026-06": null,
+     "2026-07": null,
+     "2026-08": null,
+     "2026-09": 960000
+    },
+    "label": "Packaging & labels",
+    "line_code": "A7_PACKAGING",
+    "section": "cogs"
+   },
+   {
+    "amounts": {
+     "2026-04": null,
+     "2026-05": null,
+     "2026-06": null,
+     "2026-07": null,
+     "2026-08": null,
+     "2026-09": 32000
+    },
+    "label": "Delivery",
+    "line_code": "B1_DELIVERY",
+    "section": "selling"
+   },
+   {
+    "amounts": {
+     "2026-04": null,
+     "2026-05": null,
+     "2026-06": null,
+     "2026-07": null,
+     "2026-08": null,
+     "2026-09": 22384000
+    },
+    "label": "Warehouse & kitchen rent",
+    "line_code": "C1_WAREHOUSE_RENT",
+    "section": "operating"
+   },
+   {
+    "amounts": {
+     "2026-04": null,
+     "2026-05": null,
+     "2026-06": null,
+     "2026-07": null,
+     "2026-08": null,
+     "2026-09": 127923200
+    },
+    "label": "Payroll (salary payouts)",
+    "line_code": "C6_PAYROLL_PAYOUTS",
+    "section": "operating"
+   },
+   {
+    "amounts": {
+     "2026-04": null,
+     "2026-05": null,
+     "2026-06": null,
+     "2026-07": null,
+     "2026-08": null,
+     "2026-09": 56000
+    },
+    "label": "Tools & cleaning",
+    "line_code": "C9_TOOLS_CLEANING",
+    "section": "operating"
+   },
+   {
+    "amounts": {
+     "2026-04": 65641280,
+     "2026-05": null,
+     "2026-06": null,
+     "2026-07": null,
+     "2026-08": null,
+     "2026-09": null
+    },
+    "label": "Legacy — Capex",
+    "line_code": "CAPEX_ASSET_PROJECT",
+    "section": "unclassified"
+   },
+   {
+    "amounts": {
+     "2026-04": 105496110,
+     "2026-05": 188195532,
+     "2026-06": 33608944,
+     "2026-07": 13960800,
+     "2026-08": 2000000,
+     "2026-09": 960000
+    },
+    "label": "Legacy — Bread COGS",
+    "line_code": "COGS_BMQ_BREAD",
+    "section": "unclassified"
+   },
+   {
+    "amounts": {
+     "2026-04": 83373929,
+     "2026-05": 70816506,
+     "2026-06": 20236440,
+     "2026-07": 28670840,
+     "2026-08": 10345840,
+     "2026-09": 14024200
+    },
+    "label": "Legacy — Sweet kitchen COGS",
+    "line_code": "COGS_SWEET_KITCHEN",
+    "section": "unclassified"
+   },
+   {
+    "amounts": {
+     "2026-04": 873800,
+     "2026-05": 1048160,
+     "2026-06": null,
+     "2026-07": null,
+     "2026-08": 362400,
+     "2026-09": null
+    },
+    "label": "Legacy — Kitchen supplies & repairs",
+    "line_code": "KITCHEN_SUPPLY_REPAIR",
+    "section": "unclassified"
+   },
+   {
+    "amounts": {
+     "2026-04": 130093517,
+     "2026-05": 41300188,
+     "2026-06": 69671877,
+     "2026-07": 32226923,
+     "2026-08": 39097662,
+     "2026-09": 17446390
+    },
+    "label": "Legacy — Operating expenses",
+    "line_code": "OPEX_GENERAL",
+    "section": "unclassified"
+   },
+   {
+    "amounts": {
+     "2026-04": 19966296,
+     "2026-05": 34044546,
+     "2026-06": 36911376,
+     "2026-07": 32526344,
+     "2026-08": 35724000,
+     "2026-09": 8953472
+    },
+    "label": "Legacy — Packaging",
+    "line_code": "PACKAGING_SALES",
+    "section": "unclassified"
+   },
+   {
+    "amounts": {
+     "2026-04": 65456995,
+     "2026-05": 116993408,
+     "2026-06": 175162627,
+     "2026-07": 137858720,
+     "2026-08": 84041044,
+     "2026-09": 112973600
+    },
+    "label": "Unclassified — review required",
+    "line_code": "UNMAPPED_REVIEW",
+    "section": "unclassified"
+   }
+  ],
+  "months": [
+   "2026-04",
+   "2026-05",
+   "2026-06",
+   "2026-07",
+   "2026-08",
+   "2026-09"
+  ],
+  "to": "2026-09-01",
+  "totals": {
+   "2026-04": {
+    "capex": null,
+    "cogs": null,
+    "ebitda": 278302529,
+    "ebitda_margin": 0.3715,
+    "gross_margin": 1,
+    "gross_profit": 749204456,
+    "operating": null,
+    "revenue": 749204456,
+    "selling": null,
+    "unclassified": 470901927
+   },
+   "2026-05": {
+    "capex": null,
+    "cogs": null,
+    "ebitda": 353162925,
+    "ebitda_margin": 0.4384,
+    "gross_margin": 1,
+    "gross_profit": 805561264,
+    "operating": null,
+    "revenue": 805561264,
+    "selling": null,
+    "unclassified": 452398339
+   },
+   "2026-06": {
+    "capex": null,
+    "cogs": null,
+    "ebitda": 511962428,
+    "ebitda_margin": 0.604,
+    "gross_margin": 1,
+    "gross_profit": 847553692,
+    "operating": null,
+    "revenue": 847553692,
+    "selling": null,
+    "unclassified": 335591264
+   },
+   "2026-07": {
+    "capex": null,
+    "cogs": null,
+    "ebitda": 624691094,
+    "ebitda_margin": 0.7181,
+    "gross_margin": 1,
+    "gross_profit": 869934722,
+    "operating": null,
+    "revenue": 869934722,
+    "selling": null,
+    "unclassified": 245243627
+   },
+   "2026-08": {
+    "capex": null,
+    "cogs": null,
+    "ebitda": 719057104,
+    "ebitda_margin": 0.8074,
+    "gross_margin": 1,
+    "gross_profit": 890628050,
+    "operating": null,
+    "revenue": 890628050,
+    "selling": null,
+    "unclassified": 171570946
+   },
+   "2026-09": {
+    "capex": null,
+    "cogs": 11725200,
+    "ebitda": 486279395,
+    "ebitda_margin": 0.6058,
+    "gross_margin": 0.9854,
+    "gross_profit": 791032258,
+    "operating": 150363200,
+    "revenue": 802757458,
+    "selling": 32000,
+    "unclassified": 154357662
+   }
+  }
+ },
+ "variance": {
+  "currency": "VND",
+  "flags": [],
+  "lines": [
+   {
+    "budget": null,
+    "budget_status": "not_set",
+    "current": 113824400,
+    "delta": -7895600,
+    "delta_pct": -0.0649,
+    "driver_text": "Down 7.9M, mainly Customer A (-11.0M).",
+    "drivers": [
+     {
+      "counterparty": "Customer A",
+      "current": 110720000,
+      "delta": -11000000,
+      "prior": 121720000
+     }
+    ],
+    "flag_reason": "material",
+    "flagged": true,
+    "label": "Revenue — B2B BMQ",
+    "level": "leaf",
+    "line_code": "B2B BMQ",
+    "prior": 121720000,
+    "section": "revenue"
+   },
+   {
+    "budget": null,
+    "budget_status": "not_set",
+    "current": 257231058,
+    "delta": -36411273,
+    "delta_pct": -0.124,
+    "driver_text": "Down 36.4M, mainly Customer B (-36.4M).",
+    "drivers": [
+     {
+      "counterparty": "Customer B",
+      "current": 257231058,
+      "delta": -36411273,
+      "prior": 293642330
+     }
+    ],
+    "flag_reason": "material",
+    "flagged": true,
+    "label": "Revenue — BÁNH NGỌT",
+    "level": "leaf",
+    "line_code": "BÁNH NGỌT",
+    "prior": 293642330,
+    "section": "revenue"
+   },
+   {
+    "budget": null,
+    "budget_status": "not_set",
+    "current": 360313200,
+    "delta": 19812080,
+    "delta_pct": 0.0582,
+    "driver_text": "Up 19.8M, mainly Customer C (+11.3M), Customer D (+8.6M) and Customer E (+6.8M).",
+    "drivers": [
+     {
+      "counterparty": "Customer C",
+      "current": 11336000,
+      "delta": 11336000,
+      "prior": null
+     },
+     {
+      "counterparty": "Customer D",
+      "current": 27456000,
+      "delta": 8632000,
+      "prior": 18824000
+     },
+     {
+      "counterparty": "Customer E",
+      "current": 17160000,
+      "delta": 6760000,
+      "prior": 10400000
+     }
+    ],
+    "flag_reason": "material",
+    "flagged": true,
+    "label": "Revenue — ĐẠI LÝ",
+    "level": "leaf",
+    "line_code": "ĐẠI LÝ",
+    "prior": 340501120,
+    "section": "revenue"
+   },
+   {
+    "budget": null,
+    "budget_status": "not_set",
+    "current": 71388800,
+    "delta": -63375800,
+    "delta_pct": -0.4703,
+    "driver_text": "Down 63.4M, mainly Customer F (-24.8M), Customer G (-19.1M) and Customer H (-4.5M).",
+    "drivers": [
+     {
+      "counterparty": "Customer F",
+      "current": null,
+      "delta": -24752000,
+      "prior": 24752000
+     },
+     {
+      "counterparty": "Customer G",
+      "current": null,
+      "delta": -19099200,
+      "prior": 19099200
+     },
+     {
+      "counterparty": "Customer H",
+      "current": null,
+      "delta": -4545000,
+      "prior": 4545000
+     }
+    ],
+    "flag_reason": "material",
+    "flagged": true,
+    "label": "Revenue — Retail Kiosk",
+    "level": "leaf",
+    "line_code": "Retail Kiosk",
+    "prior": 134764600,
+    "section": "revenue"
+   },
+   {
+    "budget": null,
+    "budget_status": "not_set",
+    "current": 802757458,
+    "delta": -87870593,
+    "delta_pct": -0.0987,
+    "driver_text": "Down 87.9M, mainly Customer B (-36.4M), Customer F (-24.8M) and Customer G (-19.1M).",
+    "drivers": [
+     {
+      "counterparty": "Customer B",
+      "current": 257231058,
+      "delta": -36411273,
+      "prior": 293642330
+     },
+     {
+      "counterparty": "Customer F",
+      "current": null,
+      "delta": -24752000,
+      "prior": 24752000
+     },
+     {
+      "counterparty": "Customer G",
+      "current": null,
+      "delta": -19099200,
+      "prior": 19099200
+     }
+    ],
+    "flag_reason": "always",
+    "flagged": true,
+    "label": "Revenue total",
+    "level": "subtotal",
+    "line_code": "REVENUE_TOTAL",
+    "prior": 890628050,
+    "section": "revenue"
+   },
+   {
+    "budget": null,
+    "budget_status": "not_set",
+    "current": 6917200,
+    "delta": null,
+    "delta_pct": null,
+    "driver_text": "Driver unclear — flag for controller.",
+    "drivers": [],
+    "flag_reason": "no_prior",
+    "flagged": true,
+    "label": "Pork floss & fillings",
+    "level": "leaf",
+    "line_code": "A3_FLOSS_FILLING",
+    "prior": null,
+    "section": "cogs"
+   },
+   {
+    "budget": null,
+    "budget_status": "not_set",
+    "current": 3848000,
+    "delta": null,
+    "delta_pct": null,
+    "driver_text": "Driver unclear — flag for controller.",
+    "drivers": [],
+    "flag_reason": "no_prior",
+    "flagged": true,
+    "label": "Dairy, butter & eggs",
+    "level": "leaf",
+    "line_code": "A4_DAIRY_EGG",
+    "prior": null,
+    "section": "cogs"
+   },
+   {
+    "budget": null,
+    "budget_status": "not_set",
+    "current": 960000,
+    "delta": null,
+    "delta_pct": null,
+    "driver_text": "Driver unclear — flag for controller.",
+    "drivers": [],
+    "flag_reason": "no_prior",
+    "flagged": true,
+    "label": "Packaging & labels",
+    "level": "leaf",
+    "line_code": "A7_PACKAGING",
+    "prior": null,
+    "section": "cogs"
+   },
+   {
+    "budget": null,
+    "budget_status": "not_set",
+    "current": 11725200,
+    "delta": null,
+    "delta_pct": null,
+    "driver_text": "Driver unclear — flag for controller.",
+    "drivers": [],
+    "flag_reason": "no_prior",
+    "flagged": true,
+    "label": "COGS total",
+    "level": "subtotal",
+    "line_code": "COGS_TOTAL",
+    "prior": null,
+    "section": "cogs"
+   },
+   {
+    "budget": null,
+    "budget_status": "not_set",
+    "current": 32000,
+    "delta": null,
+    "delta_pct": null,
+    "driver_text": "Driver unclear — flag for controller.",
+    "drivers": [],
+    "flag_reason": "no_prior",
+    "flagged": true,
+    "label": "Delivery",
+    "level": "leaf",
+    "line_code": "B1_DELIVERY",
+    "prior": null,
+    "section": "selling"
+   },
+   {
+    "budget": null,
+    "budget_status": "not_set",
+    "current": 791032258,
+    "delta": -99595793,
+    "delta_pct": -0.1118,
+    "driver_text": "Down 99.6M, mainly Customer B (-36.4M), Customer F (-24.8M) and Customer G (-19.1M).",
+    "drivers": [
+     {
+      "counterparty": "Customer B",
+      "current": 257231058,
+      "delta": -36411273,
+      "prior": 293642330
+     },
+     {
+      "counterparty": "Customer F",
+      "current": null,
+      "delta": -24752000,
+      "prior": 24752000
+     },
+     {
+      "counterparty": "Customer G",
+      "current": null,
+      "delta": -19099200,
+      "prior": 19099200
+     }
+    ],
+    "flag_reason": "material",
+    "flagged": true,
+    "label": "Gross profit",
+    "level": "subtotal",
+    "line_code": "GROSS_PROFIT",
+    "prior": 890628050,
+    "section": "summary"
+   },
+   {
+    "budget": null,
+    "budget_status": "not_set",
+    "current": 32000,
+    "delta": null,
+    "delta_pct": null,
+    "driver_text": "Driver unclear — flag for controller.",
+    "drivers": [],
+    "flag_reason": "no_prior",
+    "flagged": true,
+    "label": "Selling total",
+    "level": "subtotal",
+    "line_code": "SELLING_TOTAL",
+    "prior": null,
+    "section": "selling"
+   },
+   {
+    "budget": null,
+    "budget_status": "not_set",
+    "current": 22384000,
+    "delta": null,
+    "delta_pct": null,
+    "driver_text": "Driver unclear — flag for controller.",
+    "drivers": [],
+    "flag_reason": "no_prior",
+    "flagged": true,
+    "label": "Warehouse & kitchen rent",
+    "level": "leaf",
+    "line_code": "C1_WAREHOUSE_RENT",
+    "prior": null,
+    "section": "operating"
+   },
+   {
+    "budget": null,
+    "budget_status": "not_set",
+    "current": 127923200,
+    "delta": null,
+    "delta_pct": null,
+    "driver_text": "Driver unclear — flag for controller.",
+    "drivers": [],
+    "flag_reason": "always",
+    "flagged": true,
+    "label": "Payroll (salary payouts)",
+    "level": "leaf",
+    "line_code": "C6_PAYROLL_PAYOUTS",
+    "prior": null,
+    "section": "operating"
+   },
+   {
+    "budget": null,
+    "budget_status": "not_set",
+    "current": 56000,
+    "delta": null,
+    "delta_pct": null,
+    "driver_text": "Driver unclear — flag for controller.",
+    "drivers": [],
+    "flag_reason": "no_prior",
+    "flagged": true,
+    "label": "Tools & cleaning",
+    "level": "leaf",
+    "line_code": "C9_TOOLS_CLEANING",
+    "prior": null,
+    "section": "operating"
+   },
+   {
+    "budget": null,
+    "budget_status": "not_set",
+    "current": 150363200,
+    "delta": null,
+    "delta_pct": null,
+    "driver_text": "Driver unclear — flag for controller.",
+    "drivers": [],
+    "flag_reason": "no_prior",
+    "flagged": true,
+    "label": "Operating total",
+    "level": "subtotal",
+    "line_code": "OPERATING_TOTAL",
+    "prior": null,
+    "section": "operating"
+   },
+   {
+    "budget": null,
+    "budget_status": "not_set",
+    "current": 127923200,
+    "delta": null,
+    "delta_pct": null,
+    "driver_text": "Driver unclear — flag for controller.",
+    "drivers": [],
+    "flag_reason": "always",
+    "flagged": true,
+    "label": "Payroll total",
+    "level": "subtotal",
+    "line_code": "PAYROLL_TOTAL",
+    "prior": null,
+    "section": "operating"
+   },
+   {
+    "budget": null,
+    "budget_status": "not_set",
+    "current": 960000,
+    "delta": -1040000,
+    "delta_pct": -0.52,
+    "driver_text": null,
+    "drivers": [],
+    "flag_reason": "below_materiality",
+    "flagged": false,
+    "label": "Legacy — Bread COGS",
+    "level": "leaf",
+    "line_code": "COGS_BMQ_BREAD",
+    "prior": 2000000,
+    "section": "unclassified"
+   },
+   {
+    "budget": null,
+    "budget_status": "not_set",
+    "current": 14024200,
+    "delta": 3678360,
+    "delta_pct": 0.3555,
+    "driver_text": null,
+    "drivers": [],
+    "flag_reason": "below_materiality",
+    "flagged": false,
+    "label": "Legacy — Sweet kitchen COGS",
+    "level": "leaf",
+    "line_code": "COGS_SWEET_KITCHEN",
+    "prior": 10345840,
+    "section": "unclassified"
+   },
+   {
+    "budget": null,
+    "budget_status": "not_set",
+    "current": null,
+    "delta": null,
+    "delta_pct": null,
+    "driver_text": null,
+    "drivers": [],
+    "flag_reason": "below_materiality",
+    "flagged": false,
+    "label": "Legacy — Kitchen supplies & repairs",
+    "level": "leaf",
+    "line_code": "KITCHEN_SUPPLY_REPAIR",
+    "prior": 362400,
+    "section": "unclassified"
+   },
+   {
+    "budget": null,
+    "budget_status": "not_set",
+    "current": 17446390,
+    "delta": -21651272,
+    "delta_pct": -0.5538,
+    "driver_text": "Down 21.7M, mainly Supplier A (-16.0M), Supplier B (-4.3M) and Supplier C (-0.8M).",
+    "drivers": [
+     {
+      "counterparty": "Supplier A",
+      "current": null,
+      "delta": -16000000,
+      "prior": 16000000
+     },
+     {
+      "counterparty": "Supplier B",
+      "current": null,
+      "delta": -4320000,
+      "prior": 4320000
+     },
+     {
+      "counterparty": "Supplier C",
+      "current": 11777465,
+      "delta": -815326,
+      "prior": 12592791
+     }
+    ],
+    "flag_reason": "material",
+    "flagged": true,
+    "label": "Legacy — Operating expenses",
+    "level": "leaf",
+    "line_code": "OPEX_GENERAL",
+    "prior": 39097662,
+    "section": "unclassified"
+   },
+   {
+    "budget": null,
+    "budget_status": "not_set",
+    "current": 8953472,
+    "delta": -26770528,
+    "delta_pct": -0.7494,
+    "driver_text": "Down 26.8M, mainly Supplier D (-17.8M), Supplier E (-8.0M) and Supplier F (-4.9M).",
+    "drivers": [
+     {
+      "counterparty": "Supplier D",
+      "current": null,
+      "delta": -17760000,
+      "prior": 17760000
+     },
+     {
+      "counterparty": "Supplier E",
+      "current": null,
+      "delta": -8016000,
+      "prior": 8016000
+     },
+     {
+      "counterparty": "Supplier F",
+      "current": null,
+      "delta": -4948000,
+      "prior": 4948000
+     }
+    ],
+    "flag_reason": "material",
+    "flagged": true,
+    "label": "Legacy — Packaging",
+    "level": "leaf",
+    "line_code": "PACKAGING_SALES",
+    "prior": 35724000,
+    "section": "unclassified"
+   },
+   {
+    "budget": null,
+    "budget_status": "not_set",
+    "current": 112973600,
+    "delta": 28932556,
+    "delta_pct": 0.3443,
+    "driver_text": "Up 28.9M, mainly Supplier G (+9.3M), Supplier D (+8.9M) and Supplier H (+8.7M).",
+    "drivers": [
+     {
+      "counterparty": "Supplier G",
+      "current": 9280000,
+      "delta": 9280000,
+      "prior": null
+     },
+     {
+      "counterparty": "Supplier D",
+      "current": 8880000,
+      "delta": 8880000,
+      "prior": null
+     },
+     {
+      "counterparty": "Supplier H",
+      "current": 8728000,
+      "delta": 8728000,
+      "prior": null
+     }
+    ],
+    "flag_reason": "material",
+    "flagged": true,
+    "label": "Unclassified — review required",
+    "level": "leaf",
+    "line_code": "UNMAPPED_REVIEW",
+    "prior": 84041044,
+    "section": "unclassified"
+   },
+   {
+    "budget": null,
+    "budget_status": "not_set",
+    "current": 154357662,
+    "delta": -17213284,
+    "delta_pct": -0.1003,
+    "driver_text": "Down 17.2M, mainly Supplier A (-16.0M), Supplier D (-8.9M) and Supplier E (-8.0M).",
+    "drivers": [
+     {
+      "counterparty": "Supplier A",
+      "current": null,
+      "delta": -16000000,
+      "prior": 16000000
+     },
+     {
+      "counterparty": "Supplier D",
+      "current": 8880000,
+      "delta": -8880000,
+      "prior": 17760000
+     },
+     {
+      "counterparty": "Supplier E",
+      "current": null,
+      "delta": -8016000,
+      "prior": 8016000
+     }
+    ],
+    "flag_reason": "material",
+    "flagged": true,
+    "label": "Unclassified total",
+    "level": "subtotal",
+    "line_code": "UNCLASSIFIED_TOTAL",
+    "prior": 171570946,
+    "section": "unclassified"
+   },
+   {
+    "budget": null,
+    "budget_status": "not_set",
+    "current": 486279395,
+    "delta": -232777709,
+    "delta_pct": -0.3237,
+    "driver_text": "Down 232.8M, mainly Supplier I (-70.1M), Supplier J (-43.4M) and Customer B (-36.4M).",
+    "drivers": [
+     {
+      "counterparty": "Supplier I",
+      "current": -70123200,
+      "delta": -70123200,
+      "prior": null
+     },
+     {
+      "counterparty": "Supplier J",
+      "current": -43378400,
+      "delta": -43378400,
+      "prior": null
+     },
+     {
+      "counterparty": "Customer B",
+      "current": 257231058,
+      "delta": -36411273,
+      "prior": 293642330
+     }
+    ],
+    "flag_reason": "always",
+    "flagged": true,
+    "label": "EBITDA",
+    "level": "subtotal",
+    "line_code": "EBITDA",
+    "prior": 719057104,
+    "section": "summary"
+   },
+   {
+    "budget": null,
+    "budget_status": "not_set",
+    "current": null,
+    "delta": null,
+    "delta_pct": null,
+    "driver_text": null,
+    "drivers": [],
+    "flag_reason": "below_materiality",
+    "flagged": false,
+    "label": "Capex total",
+    "level": "subtotal",
+    "line_code": "CAPEX_TOTAL",
+    "prior": null,
+    "section": "capex"
+   }
+  ],
+  "materiality": {
+   "floor_vnd": 4000000,
+   "pct": 0.05
+  },
+  "month": "2026-09",
+  "prior_month": "2026-08",
+  "summary": "(fixture)"
+ },
+ "ap": {
+  "additions": 197280645,
+  "adjustments": 0,
+  "aging": [
+   {
+    "amount": 152436938,
+    "bucket": "0-30",
+    "count": 28
+   },
+   {
+    "amount": 8746000,
+    "bucket": "31-60",
+    "count": 2
+   },
+   {
+    "amount": 5684616,
+    "bucket": "61-90",
+    "count": 4
+   },
+   {
+    "amount": 91842651,
+    "bucket": "90+",
+    "count": 34
+   }
+  ],
+  "closing_actual": 258710205,
+  "closing_computed": 258710205,
+  "currency": "VND",
+  "flags": [
+   "adjustments_not_tracked",
+   "overdue_payables"
+  ],
+  "foot": {
+   "diff": 0,
+   "pass": true,
+   "unexplained_delta": 0
+  },
+  "lines": [
+   {
+    "amount": 187810451,
+    "code": "opening",
+    "label": "Opening payables",
+    "ties_to": "payment_requests: status = approved, created_at < period start, paid_at null or >= period start"
+   },
+   {
+    "amount": 197280645,
+    "code": "additions",
+    "label": "Additions",
+    "ties_to": "payment_requests: status = approved, created_at >= period start and < period end exclusive"
+   },
+   {
+    "amount": 126380891,
+    "code": "payments",
+    "label": "Payments",
+    "ties_to": "payment_requests: status = approved, paid_at >= period start and < period end exclusive, sum(total_amount)"
+   },
+   {
+    "amount": 0,
+    "code": "adjustments",
+    "label": "Adjustments",
+    "ties_to": "payment_requests: rejected/cancelled in month; no status-change timestamp exists, so amount is 0 and adjustments_not_tracked is set"
+   },
+   {
+    "amount": 258710205,
+    "code": "closing_computed",
+    "label": "Closing payables (computed)",
+    "ties_to": "opening + additions - payments - adjustments; no plug"
+   },
+   {
+    "amount": 258710205,
+    "code": "closing_actual",
+    "label": "Closing payables (actual)",
+    "ties_to": "payment_requests: status = approved, created_at < period end exclusive, paid_at null or >= period end exclusive"
+   }
+  ],
+  "month": "2026-09",
+  "opening": 187810451,
+  "overdue": {
+   "amount": 97527267,
+   "count": 38,
+   "days_threshold": 60
+  },
+  "payments": 126380891,
+  "top_suppliers": [
+   {
+    "amount": 26077200,
+    "count": 3,
+    "supplier_id": null,
+    "supplier_name": "Supplier K"
+   },
+   {
+    "amount": 22384000,
+    "count": 1,
+    "supplier_id": null,
+    "supplier_name": "Supplier L"
+   },
+   {
+    "amount": 21900747,
+    "count": 1,
+    "supplier_id": null,
+    "supplier_name": "Supplier M"
+   },
+   {
+    "amount": 21600000,
+    "count": 1,
+    "supplier_id": null,
+    "supplier_name": "Supplier N"
+   },
+   {
+    "amount": 19200000,
+    "count": 1,
+    "supplier_id": null,
+    "supplier_name": "Supplier O"
+   },
+   {
+    "amount": 18000000,
+    "count": 2,
+    "supplier_id": null,
+    "supplier_name": "Supplier P"
+   },
+   {
+    "amount": 14515200,
+    "count": 3,
+    "supplier_id": null,
+    "supplier_name": "Supplier D"
+   },
+   {
+    "amount": 12896000,
+    "count": 1,
+    "supplier_id": null,
+    "supplier_name": "Supplier Q"
+   },
+   {
+    "amount": 9504000,
+    "count": 1,
+    "supplier_id": null,
+    "supplier_name": "Supplier R"
+   },
+   {
+    "amount": 9423994,
+    "count": 1,
+    "supplier_id": null,
+    "supplier_name": "Supplier H"
+   }
+  ]
+ },
+ "accruals": {
+  "currency": "VND",
+  "month": "2026-09",
+  "policies": [
+   {
+    "accrual": null,
+    "already_booked": 22384000,
+    "basis": null,
+    "basis_method": "trailing_3m_avg",
+    "category_code": "C1_WAREHOUSE_RENT",
+    "code": "RENT",
+    "draft_je": null,
+    "flags": [
+     "no_history"
+    ],
+    "months_used": [],
+    "name_en": "Warehouse & kitchen rent",
+    "status": "draft — not posted",
+    "support": "Avg of no complete months per cost classification"
+   },
+   {
+    "accrual": null,
+    "already_booked": 0,
+    "basis": null,
+    "basis_method": "trailing_3m_avg",
+    "category_code": "C2_ELECTRICITY",
+    "code": "ELECTRICITY",
+    "draft_je": null,
+    "flags": [
+     "no_history",
+     "no_current_bookings"
+    ],
+    "months_used": [],
+    "name_en": "Electricity",
+    "status": "draft — not posted",
+    "support": "Avg of no complete months per cost classification"
+   },
+   {
+    "accrual": null,
+    "already_booked": 0,
+    "basis": null,
+    "basis_method": "trailing_3m_avg",
+    "category_code": "C4_GAS",
+    "code": "GAS",
+    "draft_je": null,
+    "flags": [
+     "no_history",
+     "no_current_bookings"
+    ],
+    "months_used": [],
+    "name_en": "Gas",
+    "status": "draft — not posted",
+    "support": "Avg of no complete months per cost classification"
+   },
+   {
+    "accrual": null,
+    "already_booked": 0,
+    "basis": null,
+    "basis_method": "trailing_3m_avg",
+    "category_code": "C5_TELECOM",
+    "code": "TELECOM",
+    "draft_je": null,
+    "flags": [
+     "no_history",
+     "no_current_bookings"
+    ],
+    "months_used": [],
+    "name_en": "Internet & phone",
+    "status": "draft — not posted",
+    "support": "Avg of no complete months per cost classification"
+   },
+   {
+    "accrual": null,
+    "already_booked": 0,
+    "basis": null,
+    "basis_method": "trailing_3m_avg",
+    "category_code": "C7_SOCIAL_INSURANCE",
+    "code": "SOCIAL_INS",
+    "draft_je": null,
+    "flags": [
+     "no_history",
+     "no_current_bookings"
+    ],
+    "months_used": [],
+    "name_en": "Social insurance",
+    "status": "draft — not posted",
+    "support": "Avg of no complete months per cost classification"
+   },
+   {
+    "accrual": null,
+    "already_booked": 127923200,
+    "basis": null,
+    "basis_method": "payroll_last_month",
+    "category_code": "C6_PAYROLL",
+    "code": "PAYROLL",
+    "draft_je": null,
+    "flags": [
+     "no_history"
+    ],
+    "months_used": [],
+    "name_en": "Payroll",
+    "status": "draft — not posted",
+    "support": "Avg of no complete months per cost classification"
+   }
+  ]
+ },
+ "close": {
+  "checks": [
+   {
+    "code": "REVENUE_CONTROLLED",
+    "detail_en": "Approved controlled revenue lines exist for the month.",
+    "status": "pass",
+    "title_en": "Controlled revenue approved",
+    "value": {
+     "approved_amount": 802757458,
+     "approved_lines": 1207,
+     "pending_lines": 0
+    }
+   },
+   {
+    "code": "EXPENSE_COVERAGE",
+    "detail_en": "Classified expense coverage is below the configured target.",
+    "status": "warn",
+    "title_en": "Expense classification coverage",
+    "value": {
+     "classified_amount": 34197200,
+     "classified_pct": 0.1814,
+     "expense_total": 188554862,
+     "target": 0.9
+    }
+   },
+   {
+    "code": "REVIEW_QUEUE",
+    "detail_en": "Expense lines still need classification review.",
+    "status": "warn",
+    "title_en": "Classification review queue",
+    "value": {
+     "amount": 3282624,
+     "line_count": 2
+    }
+   },
+   {
+    "code": "PAYROLL_RECORDED",
+    "detail_en": "A non-cancelled salary payout is recorded for the month.",
+    "status": "pass",
+    "title_en": "Payroll recorded",
+    "value": {
+     "amount": 127923200,
+     "payout_count": 3
+    }
+   },
+   {
+    "code": "PAYROLL_DOUBLE_COUNT",
+    "detail_en": "No payroll payout and C6_PAYROLL overlap was found.",
+    "status": "pass",
+    "title_en": "Payroll double-count risk",
+    "value": {
+     "c6_expense_lines": 0,
+     "payout_count": 3
+    }
+   },
+   {
+    "code": "AP_OVERDUE",
+    "detail_en": "Some unpaid payables are older than the configured overdue threshold.",
+    "status": "warn",
+    "title_en": "AP overdue",
+    "value": {
+     "amount": 97527267,
+     "count": 38,
+     "days_threshold": 60
+    }
+   },
+   {
+    "code": "AP_ROLLFORWARD_FOOT",
+    "detail_en": "Opening plus additions minus payments minus adjustments ties to the independently measured closing balance.",
+    "status": "pass",
+    "title_en": "AP roll-forward foot",
+    "value": {
+     "diff": 0,
+     "pass": true,
+     "unexplained_delta": 0
+    }
+   },
+   {
+    "code": "LEGACY_CATEGORIES",
+    "detail_en": "No amount remains on an inactive or legacy cost category.",
+    "status": "pass",
+    "title_en": "Legacy categories",
+    "value": {
+     "amount": 0,
+     "line_count": 0
+    }
+   },
+   {
+    "code": "BUDGET",
+    "detail_en": "No budget is set. Variance output uses budget_status not_set and never invents a budget.",
+    "status": "info",
+    "title_en": "Budget",
+    "value": {
+     "budget_status": "not_set"
+    }
+   },
+   {
+    "code": "COLLECTIONS",
+    "detail_en": "Customer collections are not recorded, so AR and collection metrics are not available.",
+    "status": "info",
+    "title_en": "Collections and AR",
+    "value": {
+     "ar_available": false,
+     "collections_recorded": false
+    }
+   }
+  ],
+  "month": "2026-09"
+ },
+ "accruals_draft": {
+  "currency": "VND",
+  "month": "2026-10",
+  "policies": [
+   {
+    "accrual": 384000,
+    "already_booked": 22000000,
+    "basis": 22384000,
+    "basis_method": "trailing_3m_avg",
+    "category_code": "C1_WAREHOUSE_RENT",
+    "code": "RENT",
+    "draft_je": {
+     "amount": 384000,
+     "credit": "Accrued expenses",
+     "debit": "Warehouse & kitchen rent expense",
+     "memo": "Warehouse & kitchen rent — 2026-10 accrual per Avg of 2026-09 per cost classification; reverses on day 1 of next period"
+    },
+    "flags": [],
+    "months_used": [
+     "2026-09"
+    ],
+    "name_en": "Warehouse & kitchen rent",
+    "status": "draft — not posted",
+    "support": "Avg of 2026-09 per cost classification"
+   },
+   {
+    "accrual": null,
+    "already_booked": 16984553,
+    "basis": null,
+    "basis_method": "trailing_3m_avg",
+    "category_code": "C2_ELECTRICITY",
+    "code": "ELECTRICITY",
+    "draft_je": null,
+    "flags": [
+     "no_history"
+    ],
+    "months_used": [],
+    "name_en": "Electricity",
+    "status": "draft — not posted",
+    "support": "Avg of no complete months per cost classification"
+   },
+   {
+    "accrual": null,
+    "already_booked": 0,
+    "basis": null,
+    "basis_method": "trailing_3m_avg",
+    "category_code": "C4_GAS",
+    "code": "GAS",
+    "draft_je": null,
+    "flags": [
+     "no_history",
+     "no_current_bookings"
+    ],
+    "months_used": [],
+    "name_en": "Gas",
+    "status": "draft — not posted",
+    "support": "Avg of no complete months per cost classification"
+   },
+   {
+    "accrual": null,
+    "already_booked": 2412800,
+    "basis": null,
+    "basis_method": "trailing_3m_avg",
+    "category_code": "C5_TELECOM",
+    "code": "TELECOM",
+    "draft_je": null,
+    "flags": [
+     "no_history"
+    ],
+    "months_used": [],
+    "name_en": "Internet & phone",
+    "status": "draft — not posted",
+    "support": "Avg of no complete months per cost classification"
+   },
+   {
+    "accrual": null,
+    "already_booked": 0,
+    "basis": null,
+    "basis_method": "trailing_3m_avg",
+    "category_code": "C7_SOCIAL_INSURANCE",
+    "code": "SOCIAL_INS",
+    "draft_je": null,
+    "flags": [
+     "no_history",
+     "no_current_bookings"
+    ],
+    "months_used": [],
+    "name_en": "Social insurance",
+    "status": "draft — not posted",
+    "support": "Avg of no complete months per cost classification"
+   },
+   {
+    "accrual": 127923200,
+    "already_booked": 0,
+    "basis": 127923200,
+    "basis_method": "payroll_last_month",
+    "category_code": "C6_PAYROLL",
+    "code": "PAYROLL",
+    "draft_je": {
+     "amount": 127923200,
+     "credit": "Accrued expenses",
+     "debit": "Payroll expense",
+     "memo": "Payroll — 2026-10 accrual per Avg of 2026-09 per cost classification; reverses on day 1 of next period"
+    },
+    "flags": [
+     "no_current_bookings"
+    ],
+    "months_used": [
+     "2026-09"
+    ],
+    "name_en": "Payroll",
+    "status": "draft — not posted",
+    "support": "Avg of 2026-09 per cost classification"
+   }
+  ]
+ }
+}

@@ -3,11 +3,11 @@ import { navItems, type NavItem } from "./Sidebar";
 import { canViewNavItem, type NavAccess } from "./navAccess";
 
 /**
- * Demo 3 shell: six top-level zones plus a utilities menu.
+ * Demo 3 shell: seven top-level zones plus a utilities menu.
  * Pages, labels and permission keys come from the Sidebar's navItems so the
  * routes and module checks stay single-sourced; this file only groups them.
  */
-export type ZoneId = "overview" | "sales" | "production" | "warehouse" | "approvals" | "ai";
+export type ZoneId = "overview" | "sales" | "production" | "warehouse" | "approvals" | "finance" | "ai";
 
 export interface ShellPage {
   path: string;
@@ -120,6 +120,8 @@ export const ZONES: Zone[] = [
       "/finance-control/cost",
     ],
   },
+  // English-only reporting module (P&L, variance, payables, accruals, close).
+  { id: "finance", label: { vi: "Finance", en: "Finance" }, paths: ["/finance"], prefixes: ["/finance"] },
   // "Hỏi AI" opens the existing VNAgent chat instead of navigating.
   { id: "ai", label: { vi: "Hỏi AI", en: "Ask AI" }, paths: [], prefixes: [] },
 ];

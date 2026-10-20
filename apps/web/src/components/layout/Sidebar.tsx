@@ -3,6 +3,7 @@ import { NavLink, useLocation } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   LayoutDashboard,
+  LineChart,
   Package,
   CookingPot,
   Users,
@@ -82,6 +83,7 @@ export const navItems: NavItem[] = [
     children: [
       // CEO khai báo replaced by Trình chi gấp (2026-10-07); route kept for history.
       { icon: ClipboardCheck, labelKey: "financeCostClassification", path: "/finance-control/classification", section: "finance", moduleKey: "finance_cost" },
+      { icon: LineChart, labelKey: "financeReports", path: "/finance", section: "finance", moduleKey: "finance_cost" },
       { icon: FileCheck, labelKey: "financePayablesManagement", path: "/finance-control/payables", section: "finance", moduleKey: "payment_requests" },
     ],
   },
