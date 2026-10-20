@@ -2,10 +2,12 @@
  * Flow: chọn ảnh → máy chủ đọc UNC → đối chiếu số tiền → xác nhận.
  * The server re-reads its own OCR draft; the amount typed here only counts for
  * a reasoned manual override.
+ * Approve mode takes several slips when one payment went out in several transfers:
+ * the slips' total must match, and each slip is recorded as its own payment.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Camera, Check, Loader2, RotateCcw, TriangleAlert } from "lucide-react";
+import { Camera, Check, Loader2, Plus, RotateCcw, TriangleAlert, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -20,6 +22,7 @@ import {
 } from "@/hooks/usePaymentUncApproval";
 import { areSameSupplier, evaluatePaymentUncMatch, evaluateUncAllocations, remainingAmount } from "@/lib/payment-unc-matching";
 import { financeReconciliationErrorFromRaw } from "@/lib/finance-reconciliation-flags";
+import { planUncSlipAllocations, type UncSlipPlanCode } from "@/lib/payment-unc-multi-slip";
 import "@/styles/bmq-unc-approval.css";
 
 export type UncApprovalRequest = UncPaymentRequestInput & {
@@ -79,6 +82,29 @@ const ERROR_TEXT: Record<string, string> = {
   allocation_exceeds_remaining: "Số gán cho một phiếu vượt quá số còn nợ của phiếu đó.",
 };
 
+/** One chosen image. `typed` is the amount used when "Duyệt tay" is on. */
+type Slip = {
+  id: number;
+  preview: string;
+  draft: UncExtractResponse | null;
+  reading: boolean;
+  error: string | null;
+  typed: string;
+  done: boolean;
+};
+
+/** A multi-slip write as sent: kept after a partial failure so "bấm lại" replays the same calls. */
+type SentSlip = {
+  slipId: number;
+  fileSha256: string;
+  amount: number;
+  allocations: UncAllocationInput[];
+  idempotencyKey: string;
+  manualOverride: boolean;
+};
+
+const digits = (value: string) => Number(value.replace(/[^\d]/g, "")) || 0;
+
 const errorText = (error: unknown) => {
   const raw =
     error instanceof PaymentUncApprovalError
@@ -129,13 +155,17 @@ export async function fileToJpegBase64(file: File): Promise<{ base64: string; mi
 export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onDone, paymentMethod = "bank_transfer" }: Props) {
   const isCash = paymentMethod === "cash";
   const docName = isCash ? "chứng từ tiền mặt" : "UNC";
-  const { extract, confirm, record } = usePaymentUncApproval();
+  const { extract, confirm, confirmSlips, record } = usePaymentUncApproval();
   const fileRef = useRef<HTMLInputElement>(null);
-  const [preview, setPreview] = useState<string | null>(null);
-  const [draft, setDraft] = useState<UncExtractResponse | null>(null);
+  // "replace": the picked files replace every slip; "add": they are appended.
+  const pickModeRef = useRef<"replace" | "add">("replace");
+  const slipSeq = useRef(0);
+  // Bumped on close so a read still in flight never writes into the next opening.
+  const generation = useRef(0);
+  const [slips, setSlips] = useState<Slip[]>([]);
+  const [sent, setSent] = useState<SentSlip[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [manual, setManual] = useState(false);
-  const [manualAmount, setManualAmount] = useState("");
   const [reason, setReason] = useState("");
   const [category, setCategory] = useState<UncStandaloneCategory | null>(null);
   const [note, setNote] = useState("");
@@ -160,11 +190,11 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
 
   useEffect(() => {
     if (open) return;
-    setPreview(null);
-    setDraft(null);
+    generation.current += 1;
+    setSlips([]);
+    setSent(null);
     setError(null);
     setManual(false);
-    setManualAmount("");
     setReason("");
     setCategory(null);
     setNote("");
@@ -172,10 +202,30 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
   }, [open]);
 
   const approve = mode === "approve";
-  const reading = extract.isPending;
-  const saving = confirm.isPending || record.isPending;
-  const ocrAmount = draft?.ocr.amount ?? null;
-  const typedAmount = manualAmount.trim() ? Number(manualAmount.replace(/[^\d]/g, "")) : null;
+  const multi = approve && slips.length > 1;
+  const first = slips[0] ?? null;
+  // Single slip: the original one-image flow, unchanged.
+  const draft = multi ? null : first?.draft ?? null;
+  const reading = extract.isPending || slips.some((s) => s.reading);
+  const saving = confirm.isPending || confirmSlips.isPending || record.isPending;
+  // Once a slip is written, the set of slips is locked until the dialog closes.
+  const locked = saving || sent !== null || slips.some((s) => s.done);
+  const slipsReady = slips.length > 0 && slips.every((s) => s.draft && !s.reading && !s.error);
+  // Something was read: one slip with its draft, or several slips (verdicts wait for every read).
+  const hasEvidence = multi ? slipsReady : !!first?.draft;
+  // A single slip that failed to read shows its error in the dialog's error line.
+  const shownError = error ?? (!multi ? first?.error ?? null : null);
+  const ocrAmount = multi
+    ? slips.every((s) => s.draft && s.draft.ocr.amount !== null)
+      ? slips.reduce((sum, s) => sum + Math.round(s.draft?.ocr.amount ?? 0), 0)
+      : null
+    : draft?.ocr.amount ?? null;
+  const manualAmount = first?.typed ?? "";
+  const typedAmount = multi
+    ? slips.reduce((sum, s) => sum + digits(s.typed), 0)
+    : manualAmount.trim() ? Number(manualAmount.replace(/[^\d]/g, "")) : null;
+  const setManualAmount = (value: string) =>
+    setSlips((prev) => prev.map((s, i) => (i === 0 ? { ...s, typed: value } : s)));
 
   // Many requests, or any request that is already approved, are paid by explicit per-request amounts.
   const allocMode = approve && (requests.length > 1 || requests.some((r) => r.status === "approved"));
@@ -223,13 +273,52 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
     : null;
   const needTotal = allocMode ? requests.reduce((sum, r) => sum + remainingOf(r), 0) : match?.remainingTotal ?? 0;
   const compareTotal = allocMode ? allocatedTotal : needTotal;
-  const amountMatches = approve && ocrAmount !== null && Math.round(ocrAmount) === Math.round(compareTotal);
-  const lowConfidence =
-    !!draft && ((draft.ocr.confidence ?? 1) < LOW_CONFIDENCE || draft.ocr.amount_corrected_from_words);
+  // Several slips compare their total (typed amounts when "Duyệt tay" is on).
+  const slipTotal = multi ? evidenceAmount : ocrAmount;
+  const amountMatches = approve && slipTotal !== null && Math.round(slipTotal) === Math.round(compareTotal);
+  const isLowConfidence = (d: UncExtractResponse | null | undefined) =>
+    !!d && ((d.ocr.confidence ?? 1) < LOW_CONFIDENCE || d.ocr.amount_corrected_from_words);
+  const lowConfidence = multi ? slips.some((s) => isLowConfidence(s.draft)) : isLowConfidence(draft);
   const supplierNames = Array.from(new Set(requests.map((r) => r.supplierName).filter(Boolean)));
   const supplierMismatch = allocMode ? !areSameSupplier(requests) : match?.code === "supplier_mismatch";
 
-  const blocker = (() => {
+  // Several slips: split the amount to pay over the slips, each slip one payment.
+  const slipTargets: UncAllocationInput[] = allocMode
+    ? allocations
+    : requests.map((r) => ({ paymentRequestId: r.id, amount: Math.round(remainingOf(r)) }));
+  const slipPlan =
+    multi && slipsReady
+      ? planUncSlipAllocations({
+          requests,
+          targets: slipTargets,
+          slips: slips.map((s) => ({
+            fileSha256: s.draft?.file_sha256 ?? "",
+            amount: manual ? digits(s.typed) : s.draft?.ocr.amount ?? null,
+          })),
+        })
+      : null;
+  const SLIP_PLAN_TEXT: Record<UncSlipPlanCode, string> = {
+    no_slips: `Chọn ảnh ${docName}.`,
+    duplicate_slip: "Có hai ảnh giống nhau. Bỏ bớt một ảnh.",
+    slip_amount_required: manual
+      ? "Nhập số tiền cho từng ảnh."
+      : "Có ảnh chưa đọc được số tiền. Bật Duyệt tay và nhập số tiền.",
+    amount_mismatch: `Tổng ${slips.length} ảnh chưa khớp số cần chi.`,
+    invalid_allocation: ERROR_TEXT.invalid_allocation,
+    allocation_exceeds_remaining: ERROR_TEXT.allocation_exceeds_remaining,
+  };
+
+  const multiBlocker = (() => {
+    if (slips.some((s) => s.reading)) return `Đang đọc ảnh ${docName}…`;
+    if (slips.some((s) => s.error)) return "Bỏ ảnh lỗi rồi duyệt tiếp.";
+    if (manual && !reason.trim()) return "Duyệt tay cần ghi lý do.";
+    if (supplierMismatch) return ERROR_TEXT.supplier_mismatch;
+    if (allocMode && allocatedTotal === 0) return "Nhập số tiền gán cho ít nhất một phiếu.";
+    if (slipPlan && !slipPlan.ok) return SLIP_PLAN_TEXT[slipPlan.code];
+    return null;
+  })();
+
+  const singleBlocker = (() => {
     if (!draft) return `Chọn ảnh ${docName} để bắt đầu.`;
     if (manual && !reason.trim()) return "Duyệt tay cần ghi lý do.";
     if (manual && !(typedAmount && typedAmount > 0)) return "Nhập số tiền thực chuyển.";
@@ -244,25 +333,124 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
     return null;
   })();
 
-  const pickFile = async (file: File | undefined) => {
-    if (!file) return;
+  // A retry after a partial write replays the calls already planned, whatever the list now shows.
+  const blocker = sent ? null : multi ? multiBlocker : singleBlocker;
+
+  const updateSlip = (id: number, patch: Partial<Slip>) =>
+    setSlips((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
+
+  const pickFiles = async (picked: File[]) => {
+    if (picked.length === 0 || locked) return;
+    // Standalone UNC (no request) stays one image.
+    const files = approve ? picked : picked.slice(0, 1);
+    const run = generation.current;
+    const append = approve && pickModeRef.current === "add";
     setError(null);
-    setDraft(null);
-    setManual(false);
-    setManualAmount("");
+    if (!append) {
+      setSlips([]);
+      setManual(false);
+    }
+    for (const file of files) {
+      if (generation.current !== run) return;
+      const id = ++slipSeq.current;
+      let image: Awaited<ReturnType<typeof fileToJpegBase64>>;
+      try {
+        image = await fileToJpegBase64(file);
+      } catch (e) {
+        if (generation.current !== run) return;
+        setSlips((prev) => [...prev, { id, preview: "", draft: null, reading: false, error: errorText(e), typed: "", done: false }]);
+        continue;
+      }
+      if (generation.current !== run) return;
+      setSlips((prev) => [...prev, { id, preview: image.preview, draft: null, reading: true, error: null, typed: "", done: false }]);
+      try {
+        const result = await extract.mutateAsync({ image_base64: image.base64, mime_type: image.mime, slip_type: isCash ? "cash" : "unc" });
+        if (generation.current !== run) return;
+        setSlips((prev) =>
+          prev.map((s) => {
+            if (s.id !== id) return s;
+            if (prev.some((o) => o.id !== id && o.draft?.file_sha256 === result.file_sha256)) {
+              return { ...s, reading: false, error: "Ảnh này đã chọn rồi." };
+            }
+            return { ...s, reading: false, draft: result, typed: result.ocr.amount ? String(Math.round(result.ocr.amount)) : "" };
+          }),
+        );
+      } catch (e) {
+        if (generation.current !== run) return;
+        updateSlip(id, { reading: false, error: errorText(e) });
+      }
+    }
+  };
+
+  const openPicker = (pickMode: "replace" | "add") => {
+    pickModeRef.current = pickMode;
+    fileRef.current?.click();
+  };
+
+  const removeSlip = (id: number) => {
+    if (locked) return;
+    setError(null);
+    setSlips((prev) => prev.filter((s) => s.id !== id));
+  };
+
+  const submitSlips = async () => {
+    let plan = sent;
+    if (!plan) {
+      if (!slipPlan?.ok) return;
+      plan = slipPlan.slips.map((p, index) => {
+        const slip = slips[index];
+        const ocr = Math.round(slip.draft?.ocr.amount ?? 0);
+        return {
+          slipId: slip.id,
+          fileSha256: p.fileSha256,
+          amount: p.amount,
+          allocations: p.allocations,
+          idempotencyKey: slip.draft?.suggested_idempotency_key || `unc:${p.fileSha256}`,
+          // Only a slip whose amount differs from its own read counts as a manual override.
+          manualOverride: manual && p.amount !== ocr,
+        };
+      });
+    }
+    const toSend = plan;
+    // A retry sends only the slips not yet written: the refreshed request already counts the
+    // written ones, so replaying them would fail the client-side remaining-amount check.
+    const pending = toSend.filter((p) => !slips.find((s) => s.id === p.slipId)?.done);
+    const alreadyDone = toSend.length - pending.length;
+    setError(null);
     try {
-      const image = await fileToJpegBase64(file);
-      setPreview(image.preview);
-      const result = await extract.mutateAsync({ image_base64: image.base64, mime_type: image.mime, slip_type: isCash ? "cash" : "unc" });
-      setDraft(result);
-      if (result.ocr.amount) setManualAmount(String(Math.round(result.ocr.amount)));
+      await confirmSlips.mutateAsync({
+        requests,
+        slips: pending,
+        overrideReason: manual ? reason.trim() : null,
+        payment_method: paymentMethod,
+        onSlipDone: (index) => updateSlip(pending[index].slipId, { done: true }),
+      });
+      toast.success(
+        `Đã ${isCash ? "ghi chi tiền mặt" : "duyệt và ghi chi"} ${toSend.length} ảnh ${docName}` +
+          (requests.length > 1 ? ` cho ${requests.length} phiếu` : ""),
+      );
+      onOpenChange(false);
+      onDone?.();
     } catch (e) {
-      setError(errorText(e));
+      const doneCount = alreadyDone + (e instanceof PaymentUncApprovalError ? e.doneCount ?? 0 : 0);
+      // Keep the plan once something is written: the retry replays the written slips
+      // (same idempotency keys) and continues with the rest.
+      if (doneCount > 0) setSent(toSend);
+      setError(
+        doneCount > 0
+          ? `${errorText(e)} Đã ghi ${doneCount}/${toSend.length} ảnh. Bấm "Ghi tiếp" để ghi các ảnh còn lại.`
+          : errorText(e),
+      );
     }
   };
 
   const submit = async () => {
-    if (!draft || blocker) return;
+    if (blocker) return;
+    if (multi || sent) {
+      await submitSlips();
+      return;
+    }
+    if (!draft) return;
     setError(null);
     try {
       if (approve) {
@@ -343,7 +531,7 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
           <div className="d3-unc-alloc" data-bmq-unc-alloc>
             <div className="d3-unc-alloc-head">
               <span>Gán số tiền cho từng phiếu</span>
-              {draft && (
+              {hasEvidence && (
                 <span className="d3-unc-alloc-tools">
                   <button type="button" className="d3-unc-link" onClick={() => autoAllocate(Number.MAX_SAFE_INTEGER)} data-bmq-unc-alloc-full>
                     Trả đủ số còn nợ
@@ -380,7 +568,7 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
             </ul>
             {(
               <p className="d3-unc-alloc-sum" data-bmq-unc-alloc-sum>
-                Đã gán <b>{vnd(allocatedTotal)}</b>{draft ? <> / {isCash ? "chứng từ" : "UNC"} <b>{vnd(evidenceAmount ?? null)}</b></> : " · mặc định trả đủ số còn nợ, sửa nếu thực chuyển khác"}
+                Đã gán <b>{vnd(allocatedTotal)}</b>{hasEvidence ? <> / {isCash ? "chứng từ" : "UNC"} <b>{vnd(evidenceAmount ?? null)}</b></> : " · mặc định trả đủ số còn nợ, sửa nếu thực chuyển khác"}
                 {paidRequests.length < requests.length && " · phiếu để trống 0 đ không được trả lần này"}
               </p>
             )}
@@ -391,23 +579,95 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
           ref={fileRef}
           type="file"
           accept="image/*"
+          multiple={approve}
           className="sr-only"
           data-bmq-unc-file
           onChange={(e) => {
-            void pickFile(e.target.files?.[0]);
+            void pickFiles(Array.from(e.target.files ?? []));
             e.currentTarget.value = "";
           }}
         />
 
-        {!preview ? (
-          <button type="button" className="d3-unc-drop" onClick={() => fileRef.current?.click()} data-bmq-unc-pick>
+        {!first ? (
+          <button type="button" className="d3-unc-drop" onClick={() => openPicker("replace")} data-bmq-unc-pick>
             <Camera className="h-6 w-6" />
             <span>{isCash ? "Chụp hoặc chọn chứng từ tiền mặt" : "Chụp hoặc chọn ảnh UNC"}</span>
-            <small>Máy chủ đọc số tiền và mã giao dịch</small>
+            <small>
+              {approve
+                ? "Chuyển nhiều lần thì chọn nhiều ảnh. Máy chủ đọc số tiền từng ảnh."
+                : "Máy chủ đọc số tiền và mã giao dịch"}
+            </small>
           </button>
+        ) : multi ? (
+          <div className="d3-unc-slips" data-bmq-unc-slips={slips.length}>
+            <ul>
+              {slips.map((s, index) => (
+                <li
+                  key={s.id}
+                  className={s.error ? "is-bad" : s.done ? "is-done" : undefined}
+                  data-bmq-unc-slip-row={index + 1}
+                >
+                  {s.preview ? <img src={s.preview} alt={`Ảnh ${docName} ${index + 1}`} /> : <span className="d3-unc-slips-noimg" />}
+                  <div className="d3-unc-slips-info" aria-live="polite">
+                    <small className="d3-unc-slips-no">Ảnh {index + 1}</small>
+                    {s.reading ? (
+                      <p className="d3-unc-reading">
+                        <Loader2 className="h-4 w-4 animate-spin" /> Đang đọc…
+                      </p>
+                    ) : s.error ? (
+                      <p className="d3-unc-slips-err">{s.error}</p>
+                    ) : s.draft ? (
+                      <>
+                        {manual ? (
+                          <Input
+                            inputMode="numeric"
+                            value={s.typed ? new Intl.NumberFormat("vi-VN").format(digits(s.typed)) : ""}
+                            onChange={(e) => updateSlip(s.id, { typed: e.target.value.replace(/[^\d]/g, "") })}
+                            placeholder="Số tiền"
+                            aria-label={`Số tiền ảnh ${index + 1}`}
+                            disabled={locked}
+                          />
+                        ) : (
+                          <b className="d3-unc-slips-amt" data-bmq-unc-slip-ocr>{vnd(s.draft.ocr.amount)}</b>
+                        )}
+                        <small className="d3-unc-slips-meta">
+                          {s.draft.ocr.reference || "Không đọc được mã"}
+                          {s.draft.ocr.transfer_date ? ` · ${s.draft.ocr.transfer_date}` : ""}
+                        </small>
+                      </>
+                    ) : null}
+                    {s.done && (
+                      <small className="d3-unc-slips-done" data-bmq-unc-slip-done>
+                        <Check className="h-3.5 w-3.5" /> Đã ghi chi
+                      </small>
+                    )}
+                  </div>
+                  {!locked && (
+                    <button
+                      type="button"
+                      className="d3-unc-slips-x"
+                      onClick={() => removeSlip(s.id)}
+                      aria-label={`Bỏ ảnh ${index + 1}`}
+                      data-bmq-unc-slip-remove
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+            <div className="d3-unc-slips-foot">
+              <button type="button" className="d3-unc-link" onClick={() => openPicker("add")} disabled={locked || reading} data-bmq-unc-add>
+                <Plus className="h-3.5 w-3.5" /> Thêm ảnh
+              </button>
+              <span data-bmq-unc-slip-total>
+                Tổng {slips.length} ảnh <b>{slipsReady ? vnd(evidenceAmount) : "…"}</b>
+              </span>
+            </div>
+          </div>
         ) : (
           <div className="d3-unc-slip">
-            <img src={preview} alt={`Ảnh ${docName}`} />
+            {first.preview ? <img src={first.preview} alt={`Ảnh ${docName}`} /> : <span className="d3-unc-slips-noimg" />}
             <div className="d3-unc-read" aria-live="polite">
               {reading ? (
                 <p className="d3-unc-reading">
@@ -429,18 +689,40 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
                   </div>
                 </dl>
               ) : null}
-              <button type="button" className="d3-unc-link" onClick={() => fileRef.current?.click()} disabled={reading || saving}>
-                <RotateCcw className="h-3.5 w-3.5" /> Chọn ảnh khác
-              </button>
+              <span className="d3-unc-read-links">
+                <button type="button" className="d3-unc-link" onClick={() => openPicker("replace")} disabled={reading || locked}>
+                  <RotateCcw className="h-3.5 w-3.5" /> Chọn ảnh khác
+                </button>
+                {approve && (
+                  <button type="button" className="d3-unc-link" onClick={() => openPicker("add")} disabled={reading || locked} data-bmq-unc-add>
+                    <Plus className="h-3.5 w-3.5" /> Thêm ảnh
+                  </button>
+                )}
+              </span>
             </div>
           </div>
         )}
 
-        {draft && approve && supplierMismatch ? (
+        {hasEvidence && approve && supplierMismatch ? (
           <p className="d3-unc-verdict is-bad" data-bmq-unc-verdict="supplier">
             <TriangleAlert className="h-4 w-4" /> {ERROR_TEXT.supplier_mismatch} Bỏ chọn bớt rồi duyệt từng nhà cung cấp.
           </p>
-        ) : draft && approve && (
+        ) : hasEvidence && approve && multi ? (
+          <p className={amountMatches ? "d3-unc-verdict is-ok" : "d3-unc-verdict is-bad"} data-bmq-unc-verdict={amountMatches ? "match" : "mismatch"}>
+            {amountMatches ? (
+              <>
+                <Check className="h-4 w-4" /> Tổng {slips.length} ảnh khớp {allocMode ? "tổng gán" : "số cần chi"}
+              </>
+            ) : (
+              <>
+                <TriangleAlert className="h-4 w-4" />
+                {slipTotal === null
+                  ? "Có ảnh chưa đọc được số tiền"
+                  : `Tổng ${slips.length} ảnh lệch ${vnd(Math.abs(slipTotal - compareTotal))} so với ${allocMode ? "tổng gán" : "số cần chi"}`}
+              </>
+            )}
+          </p>
+        ) : hasEvidence && approve && (
           <p className={amountMatches ? "d3-unc-verdict is-ok" : "d3-unc-verdict is-bad"} data-bmq-unc-verdict={amountMatches ? "match" : "mismatch"}>
             {amountMatches ? (
               <>
@@ -458,7 +740,7 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
             )}
           </p>
         )}
-        {draft && lowConfidence && (
+        {hasEvidence && lowConfidence && (
           <p className="d3-unc-verdict is-warn">
             <TriangleAlert className="h-4 w-4" /> Đọc chưa chắc chắn. Hãy so lại số tiền với ảnh trước khi xác nhận.
           </p>
@@ -485,21 +767,27 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
           </div>
         )}
 
-        {draft && (
+        {hasEvidence && (
           <div className="d3-unc-field">
             <label className="d3-unc-toggle">
-              <input type="checkbox" checked={manual} onChange={(e) => setManual(e.target.checked)} data-bmq-unc-manual />
-              <span>{isCash ? "Duyệt tay (số trên chứng từ khác số cần chi)" : "Duyệt tay (số trên UNC khác, ví dụ ngân hàng trừ phí)"}</span>
+              <input type="checkbox" checked={manual} onChange={(e) => setManual(e.target.checked)} disabled={locked} data-bmq-unc-manual />
+              <span>
+                {multi
+                  ? "Duyệt tay (sửa số tiền từng ảnh nếu máy đọc sai)"
+                  : isCash ? "Duyệt tay (số trên chứng từ khác số cần chi)" : "Duyệt tay (số trên UNC khác, ví dụ ngân hàng trừ phí)"}
+              </span>
             </label>
             {manual && (
               <div className="d3-unc-manual">
-                <Input
-                  inputMode="numeric"
-                  value={manualAmount ? new Intl.NumberFormat("vi-VN").format(Number(manualAmount.replace(/[^\d]/g, "")) || 0) : ""}
-                  onChange={(e) => setManualAmount(e.target.value.replace(/[^\d]/g, ""))}
-                  placeholder="Số tiền thực chuyển"
-                  aria-label="Số tiền thực chuyển"
-                />
+                {!multi && (
+                  <Input
+                    inputMode="numeric"
+                    value={manualAmount ? new Intl.NumberFormat("vi-VN").format(Number(manualAmount.replace(/[^\d]/g, "")) || 0) : ""}
+                    onChange={(e) => setManualAmount(e.target.value.replace(/[^\d]/g, ""))}
+                    placeholder="Số tiền thực chuyển"
+                    aria-label="Số tiền thực chuyển"
+                  />
+                )}
                 <Textarea
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
@@ -513,13 +801,13 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
           </div>
         )}
 
-        {error && (
+        {shownError && (
           <p className="d3-unc-verdict is-bad" role="alert" data-bmq-unc-error>
-            <TriangleAlert className="h-4 w-4" /> {error}
+            <TriangleAlert className="h-4 w-4" /> {shownError}
           </p>
         )}
 
-        {draft && blocker && !error && !supplierMismatch && <p className="d3-unc-hint">{blocker}</p>}
+        {(hasEvidence || multi) && blocker && !shownError && !supplierMismatch && <p className="d3-unc-hint">{blocker}</p>}
 
         <div className="d3-unc-actions">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
@@ -527,7 +815,7 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
           </Button>
           <Button type="button" className="d3-unc-go" onClick={submit} disabled={!!blocker || reading || saving} title={blocker || undefined} data-bmq-unc-submit>
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-            {approve ? (isCash ? "Ghi chi tiền mặt" : "Duyệt và ghi chi") : "Ghi nhận UNC"}
+            {sent ? "Ghi tiếp" : approve ? (isCash ? "Ghi chi tiền mặt" : "Duyệt và ghi chi") : "Ghi nhận UNC"}
           </Button>
         </div>
       </DialogContent>

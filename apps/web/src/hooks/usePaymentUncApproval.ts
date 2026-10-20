@@ -55,6 +55,8 @@ export interface UncConfirmResponse {
 export class PaymentUncApprovalError extends Error {
   code: string;
   detail?: string;
+  /** Slips written successfully before a multi-slip approval failed. */
+  doneCount?: number;
 
   constructor(code: string, detail?: string) {
     super(code);
@@ -167,6 +169,73 @@ export function usePaymentUncApproval() {
     },
   });
 
+  const confirmSlips = useMutation({
+    mutationFn: async (payload: {
+      requests: UncPaymentRequestInput[];
+      slips: {
+        fileSha256: string;
+        amount: number;
+        allocations: UncAllocationInput[];
+        idempotencyKey: string;
+        manualOverride: boolean;
+      }[];
+      overrideReason?: string | null;
+      payment_method?: "bank_transfer" | "cash";
+      onSlipDone?: (index: number, result: UncConfirmResponse) => void;
+    }) => {
+      // Slips are written one at a time: each call settles the requests in its
+      // own allocations, so a later slip must see the earlier writes.
+      for (let index = 0; index < payload.slips.length; index += 1) {
+        const slip = payload.slips[index];
+        try {
+          const slipRequestIds = new Set(slip.allocations.map((allocation) => allocation.paymentRequestId));
+          const slipRequests = payload.requests.filter((request) => slipRequestIds.has(request.id));
+          const allocationMatch = evaluateUncAllocations({
+            requests: slipRequests,
+            allocations: slip.allocations,
+            evidenceAmount: slip.amount,
+            manualOverride: slip.manualOverride,
+            overrideReason: payload.overrideReason,
+          });
+          if (!allocationMatch.ok) throw new PaymentUncApprovalError(allocationMatch.code);
+
+          const result = await invokePaymentUncApproval<UncConfirmResponse>({
+            mode: "confirm",
+            request_ids: slip.allocations.map((allocation) => allocation.paymentRequestId),
+            allocations: slip.allocations.map((allocation) => ({
+              payment_request_id: allocation.paymentRequestId,
+              amount: allocation.amount,
+            })),
+            file_sha256: slip.fileSha256,
+            amount: slip.amount,
+            manual_override: slip.manualOverride,
+            override_reason: slip.manualOverride ? payload.overrideReason ?? null : null,
+            idempotency_key: slip.idempotencyKey,
+            payment_method: payload.payment_method,
+          });
+          payload.onSlipDone?.(index, result);
+        } catch (error) {
+          if (error instanceof PaymentUncApprovalError) {
+            error.doneCount = index;
+            throw error;
+          }
+          const wrapped = new PaymentUncApprovalError(
+            "approval_failed",
+            error instanceof Error ? error.message : undefined,
+          );
+          wrapped.doneCount = index;
+          throw wrapped;
+        }
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["payment-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["payment-request"] });
+      queryClient.invalidateQueries({ queryKey: ["payment-stats"] });
+      queryClient.invalidateQueries({ queryKey: ["unc-evidence-day-total"] });
+    },
+  });
+
   const record = useMutation({
     mutationFn: async (payload: {
       file_sha256: string;
@@ -194,7 +263,7 @@ export function usePaymentUncApproval() {
     },
   });
 
-  return { extract, confirm, record };
+  return { extract, confirm, confirmSlips, record };
 }
 
 export type UncStandaloneCategory = "luong" | "thue" | "thue_nha" | "khac";

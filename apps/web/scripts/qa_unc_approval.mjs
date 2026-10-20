@@ -101,14 +101,20 @@ async function invoke(name, options) {
   if (body.mode === "extract") {
     await sleep(400);
     if (c.ocr === "fail") return edgeError(502, "ocr_failed");
-    return { data: { success: true, mode: "extract", file_sha256: "a".repeat(64), storage_path: "payment-unc/2026/10/a.jpg",
-      suggested_idempotency_key: "unc:" + "a".repeat(64),
-      ocr: { amount: c.ocrAmount ?? 13500000, amount_raw: null, amount_in_words: null, reference: "FT26279123456",
+    // n-th read gets its own hash ("a"…, "b"…) and, with ocrAmounts, its own amount.
+    const n = window.__qaExtractN = (window.__qaExtractN ?? -1) + 1;
+    const sha = (c.sameSha ? "a" : String.fromCharCode(97 + n)).repeat(64);
+    const amount = c.ocrAmounts ? c.ocrAmounts[n % c.ocrAmounts.length] : c.ocrAmount ?? 13500000;
+    return { data: { success: true, mode: "extract", file_sha256: sha, storage_path: "payment-unc/2026/10/" + sha.slice(0, 1) + ".jpg",
+      suggested_idempotency_key: "unc:" + sha,
+      ocr: { amount, amount_raw: null, amount_in_words: null, reference: "FT2627912345" + n,
         transfer_date: today, confidence: c.confidence ?? 0.97, amount_corrected_from_words: false } }, error: null };
   }
   if (body.mode === "confirm") {
     await sleep(300);
     if (c.confirmError) return edgeError(409, c.confirmError);
+    const k = window.__qaConfirmN = (window.__qaConfirmN ?? 0) + 1;
+    if (c.confirmFailAt === k) return edgeError(409, "not_pending");
     return { data: { success: true, mode: "confirm", result: { status: "approved", payment_id: "pay-1", payment_request_ids: body.request_ids, amount: 0, idempotent: false } }, error: null };
   }
   if (body.mode === "record") {
@@ -223,6 +229,8 @@ const SLIP_PNG = await (async () => {
   return buf;
 })();
 const upload = (page) => page.setInputFiles("[data-bmq-unc-file]", { name: "unc.png", mimeType: "image/png", buffer: SLIP_PNG });
+const uploadMany = (page, count) =>
+  page.setInputFiles("[data-bmq-unc-file]", Array.from({ length: count }, (_, i) => ({ name: `unc-${i + 1}.png`, mimeType: "image/png", buffer: SLIP_PNG })));
 
 async function openDetail(page, requestNumber) {
   await page.waitForSelector("[data-bmq-pr-row]");
@@ -536,6 +544,86 @@ try {
     await page.locator("[data-bmq-payment-detail]").screenshot({ path: `${EVIDENCE}/switch-cash-after-${viewport.width}.png` });
     assert.deepEqual(errors, []);
     record(`owner switches UNC phiếu to cash ${viewport.width}`);
+    await context.close();
+  }
+
+  // 8. One payment sent in two transfers: pick two slips at once, totals match, two confirms.
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 640 }]) {
+    const { context, page, errors } = await open({ role: "owner", ocrAmounts: [8000000, 5500000] }, "/payment-requests", viewport);
+    await openDetail(page, "DC-0101");
+    await page.locator("[data-bmq-unc-open]").click();
+    await page.waitForSelector("[data-bmq-unc-dialog='approve']");
+    assert.equal(await page.locator("[data-bmq-unc-file]").getAttribute("multiple"), "", "approve input takes several files");
+    await uploadMany(page, 2);
+    await page.waitForSelector("[data-bmq-unc-slips='2']");
+    await page.waitForFunction(() => document.querySelectorAll("[data-bmq-unc-slip-ocr]").length === 2);
+    assert.ok((await page.locator("[data-bmq-unc-slip-total]").textContent()).includes("13.500.000"), "slip total");
+    assert.equal(await page.locator("[data-bmq-unc-verdict='match']").count(), 1, "two slips match");
+    assert.ok(await page.locator("[data-bmq-unc-submit]").isEnabled(), "submit enabled");
+    assert.ok((await dialogOverflow(page)) <= 0, `dialog no overflow two slips ${viewport.width}`);
+    assert.ok((await overflow(page)) <= 0, `page no overflow two slips ${viewport.width}`);
+    await page.locator("[data-bmq-unc-dialog]").screenshot({ path: `${EVIDENCE}/unc-multi-match-${viewport.width}.png` });
+    await page.locator("[data-bmq-unc-submit]").click();
+    await page.locator("[data-bmq-unc-dialog]").waitFor({ state: "detached" });
+    await page.locator("[data-sonner-toast]", { hasText: "2 ảnh UNC" }).first().waitFor({ timeout: 4000 });
+    const confirms = (await bodies(page)).filter((b) => b.mode === "confirm");
+    assert.equal(confirms.length, 2, "one confirm per slip");
+    assert.deepEqual(confirms.map((c) => c.allocations), [
+      [{ payment_request_id: "11111111-1111-4111-8111-111111111111", amount: 8000000 }],
+      [{ payment_request_id: "11111111-1111-4111-8111-111111111111", amount: 5500000 }],
+    ]);
+    assert.deepEqual(confirms.map((c) => c.idempotency_key), ["unc:" + "a".repeat(64), "unc:" + "b".repeat(64)]);
+    assert.ok(confirms.every((c) => c.manual_override === false && c.amount > 0));
+    assert.deepEqual(errors, []);
+    record(`two slips one request ${viewport.width}`);
+    await context.close();
+  }
+
+  // 9. Add a second slip with "Thêm ảnh"; the second write fails, "Ghi tiếp" sends only slip 2 (same key).
+  for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 }]) {
+    const { context, page, errors } = await open({ role: "owner", ocrAmounts: [8000000, 5500000], confirmFailAt: 2 }, "/payment-requests", viewport);
+    await openDetail(page, "DC-0101");
+    await page.locator("[data-bmq-unc-open]").click();
+    await upload(page);
+    await page.waitForSelector("[data-bmq-unc-ocr]");
+    assert.equal(await page.locator("[data-bmq-unc-verdict='mismatch']").count(), 1, "one slip short");
+    await page.locator("[data-bmq-unc-add]").click();
+    await upload(page);
+    await page.waitForFunction(() => document.querySelectorAll("[data-bmq-unc-slip-ocr]").length === 2);
+    assert.equal(await page.locator("[data-bmq-unc-verdict='match']").count(), 1, "added slip completes the total");
+    await page.locator("[data-bmq-unc-submit]").click();
+    await page.waitForSelector("[data-bmq-unc-error]");
+    assert.ok((await page.locator("[data-bmq-unc-error]").textContent()).includes("Đã ghi 1/2"), "partial count shown");
+    assert.equal(await page.locator("[data-bmq-unc-slip-done]").count(), 1, "first slip marked written");
+    assert.equal(await page.locator("[data-bmq-unc-slip-remove]").count(), 0, "slips locked after a write");
+    assert.ok((await page.locator("[data-bmq-unc-submit]").textContent()).includes("Ghi tiếp"));
+    assert.ok((await dialogOverflow(page)) <= 0, `dialog no overflow partial ${viewport.width}`);
+    await page.locator("[data-bmq-unc-dialog]").screenshot({ path: `${EVIDENCE}/unc-multi-partial-${viewport.width}.png` });
+    await page.locator("[data-bmq-unc-submit]").click();
+    await page.locator("[data-bmq-unc-dialog]").waitFor({ state: "detached" });
+    const confirms = (await bodies(page)).filter((b) => b.mode === "confirm");
+    assert.deepEqual(confirms.map((c) => c.idempotency_key), ["unc:" + "a".repeat(64), "unc:" + "b".repeat(64), "unc:" + "b".repeat(64)], "retry sends only the unwritten slip, same key");
+    assert.deepEqual(errors, []);
+    record(`add slip + partial failure + retry ${viewport.width}`);
+    await context.close();
+  }
+
+  // 10. The same image twice is flagged and blocks approval; removing it returns to the one-slip flow.
+  {
+    const { context, page, errors } = await open({ role: "owner", sameSha: true }, "/payment-requests", { width: 390, height: 844 });
+    await openDetail(page, "DC-0101");
+    await page.locator("[data-bmq-unc-open]").click();
+    await uploadMany(page, 2);
+    await page.waitForSelector(".d3-unc-slips-err");
+    assert.ok((await page.locator(".d3-unc-slips-err").textContent()).includes("đã chọn rồi"));
+    assert.ok(await page.locator("[data-bmq-unc-submit]").isDisabled(), "duplicate blocks submit");
+    await page.locator("[data-bmq-unc-dialog]").screenshot({ path: `${EVIDENCE}/unc-multi-duplicate-390.png` });
+    await page.locator("[data-bmq-unc-slip-row='2'] [data-bmq-unc-slip-remove]").click();
+    await page.waitForSelector("[data-bmq-unc-ocr]");
+    assert.equal(await page.locator("[data-bmq-unc-verdict='match']").count(), 1, "back to single slip match");
+    assert.equal((await bodies(page)).filter((b) => b.mode === "confirm").length, 0);
+    assert.deepEqual(errors, []);
+    record("duplicate slip flagged + removed 390");
     await context.close();
   }
 

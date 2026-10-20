@@ -251,3 +251,45 @@ html .d3-unc { background: var(--d3-white, #fdfdfc); }
 .d3-unc-ev-sib li b { font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .d3-unc-ev-zoom { width: calc(100vw - 24px); max-width: 560px; max-height: calc(100dvh - 24px); overflow-y: auto; }
 .d3-unc-ev-zoom img { width: 100%; height: auto; border-radius: 12px; }
+
+/* Several slips for one approval (one payment went out in several transfers) */
+.d3-unc-read-links { display: flex; flex-wrap: wrap; gap: 0 16px; }
+.d3-unc-slips { display: grid; gap: 8px; padding: 10px; border-radius: 18px; background: var(--d3-card, #f7f7f5); }
+.d3-unc-slips ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.d3-unc-slips li {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  background: var(--d3-white, #fdfdfc);
+}
+.d3-unc-slips li.is-bad { border-color: #f3c4bd; }
+.d3-unc-slips li.is-done { border-color: #bfe5b5; }
+.d3-unc-slips li > img,
+.d3-unc-slips-noimg { width: 56px; height: 72px; object-fit: cover; border-radius: 10px; background: var(--d3-panel, #ececea); }
+.d3-unc-slips-noimg { display: block; }
+.d3-unc-slips-info { display: grid; min-width: 0; gap: 2px; }
+.d3-unc-slips-no { font-size: 11px; color: var(--d3-dim, #6b6b69); }
+.d3-unc-slips-amt { font-family: var(--d3-num, inherit); font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.d3-unc-slips-meta { font-size: 12px; color: var(--d3-ink-2, #4a4a4a); overflow-wrap: anywhere; }
+.d3-unc-slips-err { margin: 0; font-size: 12px; color: #a32314; overflow-wrap: anywhere; }
+.d3-unc-slips-done { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: #1d6b10; }
+.d3-unc-slips-info input { min-height: 40px; max-width: 180px; text-align: right; font-variant-numeric: tabular-nums; }
+.d3-unc-slips-x {
+  display: inline-flex;
+  width: 40px;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  color: var(--d3-dim, #6b6b69);
+  cursor: pointer;
+}
+.d3-unc-slips-x:hover { background: var(--d3-panel, #ececea); color: var(--d3-ink, #272727); }
+.d3-unc-slips-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; padding: 0 2px; font-size: 13px; color: var(--d3-ink-2, #4a4a4a); }
+.d3-unc-slips-foot b { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--d3-ink, #272727); }
