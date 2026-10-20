@@ -327,3 +327,36 @@ async def test_limit_reports_pos_omitted(settings: Settings) -> None:
     assert len(payload["purchase_orders"]) == 2
     assert payload["pos_omitted"] == 1
     assert "1 đơn không hiển thị" in summary
+
+
+async def test_doc_link_blocks_are_appended_for_at_most_ten_pos(
+    settings: Settings,
+) -> None:
+    orders = [
+        _po(f"PO-{index:03d}", po_id=f"id-{index:03d}")
+        for index in range(1, 13)
+    ]
+    database = FakeSupabase(
+        orders=orders,
+        suppliers=[{"id": "sup-1", "name": "Nhà cung cấp Một"}],
+    )
+    tool, session = _tool(settings, database)
+
+    await tool.handler({"date": "2026-10-18", "limit": 12})
+
+    blocks = [
+        block
+        for block in session.pending_ui
+        if block.get("component") == "doc_link"
+    ]
+    assert len(blocks) == 10
+    assert all(block["version"] == 1 for block in blocks)
+    payloads = [block["payload"] for block in blocks]
+    assert all(payload["kind"] == "po" for payload in payloads)
+    assert [payload["code"] for payload in payloads] == [
+        f"PO-{index:03d}" for index in range(1, 11)
+    ]
+    assert payloads[0]["id"] == "id-001"
+    assert payloads[0]["path"] == "/purchase-orders?id=id-001"
+    assert "PO-001" in payloads[0]["title"]
+    assert "100 VND" in payloads[0]["title"]

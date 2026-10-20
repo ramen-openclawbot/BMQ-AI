@@ -2,7 +2,7 @@
 // exposed at bmq-agent.vnagent.ai). The service checks the Supabase JWT and the
 // owner role itself; every write it proposes stays staged until the owner approves.
 
-export const MERCHANT_AGENT_URL = (import.meta.env.VITE_BMQ_MERCHANT_AGENT_URL || "https://bmq-agent.vnagent.ai").replace(/\/$/, "");
+export const MERCHANT_AGENT_URL = (import.meta.env?.VITE_BMQ_MERCHANT_AGENT_URL || "https://bmq-agent.vnagent.ai").replace(/\/$/, "");
 
 const CHAT_TIMEOUT_MS = 120_000;
 const ACTION_TIMEOUT_MS = 30_000;
@@ -30,6 +30,35 @@ export type MerchantUiBlock = {
   component: string;
   payload: Record<string, unknown>;
 };
+
+export type DocLinkPayload = {
+  kind: "pr" | "po" | "gr";
+  code: string;
+  id: string;
+  title: string;
+  path: string;
+};
+
+const DOC_LINK_PATHS: Record<DocLinkPayload["kind"], string> = {
+  pr: "/payment-requests",
+  po: "/purchase-orders",
+  gr: "/goods-receipts",
+};
+
+const DOC_LINK_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Validate a `doc_link` UI payload before the chat renders its open button. */
+export function parseDocLink(payload: unknown): DocLinkPayload | null {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const candidate = payload as Record<string, unknown>;
+  const kind = candidate.kind;
+  if (kind !== "pr" && kind !== "po" && kind !== "gr") return null;
+  const { code, id, title, path } = candidate;
+  if (typeof code !== "string" || typeof id !== "string" || typeof title !== "string" || typeof path !== "string") return null;
+  if (!DOC_LINK_UUID_RE.test(id)) return null;
+  if (!path.startsWith(`${DOC_LINK_PATHS[kind]}?id=`)) return null;
+  return { kind, code, id, title, path };
+}
 
 export type MerchantChatResponse = {
   session_id: string;

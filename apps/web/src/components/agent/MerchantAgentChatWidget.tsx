@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useLocation } from "react-router-dom";
-import { AlertTriangle, ArrowUp, Check, Loader2, RotateCcw, Sparkles, X } from "lucide-react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { AlertTriangle, ArrowLeft, ArrowUp, Check, ExternalLink, Loader2, RotateCcw, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
@@ -21,7 +21,9 @@ import {
   merchantChangeKindLabel,
   merchantChangeStatusLabel,
   merchantMetricLabel,
+  parseDocLink,
   sendMerchantMessage,
+  type DocLinkPayload,
   type MerchantChange,
   type MerchantUiBlock,
 } from "@/lib/merchantAgent";
@@ -34,6 +36,38 @@ type ChatMessage =
   | { id: string; role: "user"; text: string }
   | { id: string; role: "agent"; text: string; ui: MerchantUiBlock[] }
   | { id: string; role: "error"; text: string };
+
+// The conversation survives closing the sheet (the widget stays mounted across routes) and,
+// through sessionStorage, a page reload in the same tab. The server keeps its own context
+// for 30 idle minutes under the same session_id.
+const STORE_PREFIX = "bmq-merchant-chat:";
+const STORE_MAX_MESSAGES = 60;
+
+type StoredChat = { messages: ChatMessage[]; sessionId: string | null; changes: Record<string, MerchantChange>; openedDoc: DocLinkPayload | null };
+
+function loadChat(userId: string | undefined): StoredChat | null {
+  if (!userId || typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(STORE_PREFIX + userId);
+    const parsed = raw ? JSON.parse(raw) as Partial<StoredChat> : null;
+    if (!parsed || !Array.isArray(parsed.messages)) return null;
+    return { messages: parsed.messages, sessionId: typeof parsed.sessionId === "string" ? parsed.sessionId : null, changes: parsed.changes && typeof parsed.changes === "object" ? parsed.changes : {}, openedDoc: parseDocLink(parsed.openedDoc) };
+  } catch {
+    return null;
+  }
+}
+
+function saveChat(userId: string | undefined, chat: StoredChat) {
+  if (!userId || typeof window === "undefined") return;
+  try {
+    if (!chat.messages.length) window.sessionStorage.removeItem(STORE_PREFIX + userId);
+    else window.sessionStorage.setItem(STORE_PREFIX + userId, JSON.stringify({ ...chat, messages: chat.messages.slice(-STORE_MAX_MESSAGES) }));
+  } catch {
+    // Storage full or blocked: the in-memory conversation still works.
+  }
+}
+
+const DOC_KIND_LABEL: Record<DocLinkPayload["kind"], string> = { pr: "PR", po: "PO", gr: "Phiếu nhập" };
 
 const STARTERS = [
   "Snapshot doanh thu",
@@ -230,6 +264,7 @@ function ChangeCard({
 
 export function MerchantAgentChatWidget() {
   const location = useLocation();
+  const navigate = useNavigate();
   const { authzLoaded, isOwner, session, user, profile } = useAuth();
   const enabled = authzLoaded && isOwner && Boolean(session?.access_token && user?.id);
   const name = user && profile?.user_id === user.id ? profile.full_name?.trim() : "";
@@ -240,16 +275,38 @@ export function MerchantAgentChatWidget() {
   const [responding, setResponding] = useState(false);
   const [changes, setChanges] = useState<Record<string, MerchantChange>>({});
   const [busyChange, setBusyChange] = useState<string | null>(null);
+  // Set when the owner opened a phiếu from the chat; shows a "back to chat" pill.
+  const [openedDoc, setOpenedDoc] = useState<DocLinkPayload | null>(null);
+  const [restoredFor, setRestoredFor] = useState<string | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
 
-  // A different signed-in account never sees the previous conversation.
+  // A different signed-in account never sees the previous conversation; the same account
+  // gets its conversation back after a reload in this tab.
   useEffect(() => {
-    setMessages([]);
-    setSessionId(null);
-    setChanges({});
+    const stored = loadChat(user?.id);
+    setMessages(stored?.messages || []);
+    setSessionId(stored?.sessionId || null);
+    setChanges(stored?.changes || {});
     setDraft("");
+    setOpenedDoc(stored?.openedDoc || null);
+    setRestoredFor(user?.id || null);
   }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id || restoredFor !== user.id) return;
+    saveChat(user.id, { messages, sessionId, changes, openedDoc });
+  }, [user?.id, restoredFor, messages, sessionId, changes, openedDoc]);
+
+  const openDoc = useCallback((doc: DocLinkPayload) => {
+    setOpen(false);
+    setOpenedDoc(doc);
+    navigate(doc.path);
+  }, [navigate]);
+
+  // The pill stays while the owner is still on the phiếu's page, so a closed chat can always
+  // be reopened there (the launcher is hidden on mobile for /payment-requests).
+  const backToChat = useCallback(() => setOpen(true), []);
 
   useLayoutEffect(() => {
     const node = composerRef.current;
@@ -314,6 +371,7 @@ export function MerchantAgentChatWidget() {
     setSessionId(null);
     setChanges({});
     setDraft("");
+    setOpenedDoc(null);
   };
 
   if (!enabled) return null;
@@ -336,12 +394,29 @@ export function MerchantAgentChatWidget() {
             : "right-6 bottom-[calc(1.5rem+env(safe-area-inset-bottom))] h-14 w-14",
           hideLauncherOnMobile && "hidden lg:inline-flex",
         )}
-        onClick={() => setOpen(true)}
+        onClick={backToChat}
         aria-label="Mở VNAgent"
       >
         <span aria-hidden="true" className={cn("pointer-events-none absolute inset-0 -z-10 rounded-full ring-2 ring-vn-lime/50", !open && "animate-vnagent-halo motion-reduce:animate-none")} />
         <span className="grid h-[72%] w-[72%] place-items-center"><VnagentMark className="h-full w-full" /></span>
       </Button>
+
+      {openedDoc && !open && location.pathname === openedDoc.path.split("?")[0] ? (
+        // A compact tab on the left edge: phiếu dialogs keep their sticky header (title, close)
+        // at the top and their action bar at the bottom on mobile. z-[60] sits above the dialog
+        // and pointer-events-auto keeps it clickable while a modal sets pointer-events: none.
+        <button
+          type="button"
+          className="pointer-events-auto fixed left-0 top-[42%] z-[60] flex items-center gap-1.5 rounded-r-full border border-l-0 border-vn-lime/60 bg-vn-ink py-1.5 pl-2 pr-3 text-xs font-bold text-vn-paper shadow-[0_10px_28px_rgba(12,12,18,0.45)] transition hover:border-vn-lime active:scale-[0.98] sm:py-2 sm:pl-2.5 sm:pr-4 sm:text-sm"
+          onClick={backToChat}
+          aria-label={`Quay lại chat VNAgent (đang xem ${openedDoc.code})`}
+          data-merchant-back-to-chat
+        >
+          <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-vn-lime text-vn-ink"><ArrowLeft className="h-4 w-4 stroke-[2.4]" /></span>
+          <span>Chat</span>
+          <span className="hidden max-w-[11rem] truncate font-vnMono text-[11px] font-semibold text-vn-paper/60 sm:inline">{openedDoc.code}</span>
+        </button>
+      ) : null}
 
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent
@@ -391,6 +466,11 @@ export function MerchantAgentChatWidget() {
               }
               const chips = message.ui.find((block) => block.component === "suggestions");
               const suggestionList = Array.isArray(chips?.payload.suggestions) ? (chips!.payload.suggestions as unknown[]).map(String).slice(0, 4) : [];
+              const docLinks = message.ui
+                .filter((block) => block.component === "doc_link")
+                .map((block) => parseDocLink(block.payload))
+                .filter((doc, index, all): doc is DocLinkPayload => doc !== null && all.findIndex((other) => other?.path === doc.path) === index)
+                .slice(0, 10);
               return (
                 <div key={message.id} className="w-full max-w-[94%] self-start" data-merchant-message="agent">
                   {message.text ? <div className="whitespace-pre-wrap break-words rounded-2xl rounded-tl-[5px] border border-vn-paper/10 bg-vn-card px-4 py-3 text-vn-paper">{message.text}</div> : null}
@@ -417,6 +497,24 @@ export function MerchantAgentChatWidget() {
                     }
                     return null;
                   })}
+                  {docLinks.length ? (
+                    <div className="mt-2.5 flex flex-col gap-1.5" data-merchant-doc-links>
+                      {docLinks.map((doc) => (
+                        <button
+                          key={doc.path}
+                          type="button"
+                          className="flex min-h-[44px] w-full items-center gap-3 rounded-[12px] border border-vn-paper/[.14] bg-vn-card2 px-3 py-2 text-left transition hover:border-vn-lime active:scale-[0.99]"
+                          onClick={() => openDoc(doc)}
+                          aria-label={`Mở phiếu ${doc.code}`}
+                          data-merchant-doc-link={doc.kind}
+                        >
+                          <span className="shrink-0 rounded-md bg-vn-cobalt/25 px-1.5 py-0.5 font-vnMono text-[10px] font-bold uppercase tracking-[0.08em] text-vn-paper/80">{DOC_KIND_LABEL[doc.kind]}</span>
+                          <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-vn-paper">{doc.title || doc.code}</span>
+                          <span className="flex shrink-0 items-center gap-1 text-xs font-bold text-vn-lime">Mở phiếu<ExternalLink className="h-3.5 w-3.5" /></span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
                   {suggestionList.length && message.id === lastAgentId && !responding ? (
                     <div className="mt-2.5 flex flex-wrap gap-2">
                       {suggestionList.map((suggestion) => (

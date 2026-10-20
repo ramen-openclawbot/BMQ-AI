@@ -33,6 +33,7 @@ from . import sushi
 from .auth import Owner, verify_owner
 from .backend import BmqMerchantBackend
 from .config import Settings, strip_anthropic_api_key
+from .document_link_tools import build_document_link_tools
 from .purchase_order_tools import build_purchase_order_tools
 from .revenue_snapshot import is_snapshot_command
 from .snapshot_tools import build_snapshot_tools
@@ -63,7 +64,9 @@ SUSHI_SYSTEM_PROMPT = (
     "hàng tồn thấp và công nợ nhà cung cấp; mcp__bmq__bmq_unc_images cho ảnh UNC "
     "đã nộp. Với câu hỏi về chi tiết/danh sách PO (đơn mua hàng) theo ngày, nhà "
     "cung cấp hoặc trạng thái, gọi mcp__bmq__bmq_purchase_orders; bmq_metric chỉ "
-    "dùng để đếm. Khi không có công cụ trực tiếp nào phù hợp với câu hỏi dữ liệu "
+    "dùng để đếm. Khi trả lời về một PR/PO/phiếu nhập cụ thể, gọi "
+    "mcp__bmq__bmq_document_link để anh có nút mở phiếu; không dán đường dẫn "
+    "vào câu trả lời. Khi không có công cụ trực tiếp nào phù hợp với câu hỏi dữ liệu "
     "(tổ hợp PO/PR/phiếu nhập/nhà cung cấp, đơn đại lý, doanh thu chi tiết), tự "
     "viết một truy vấn chỉ đọc bằng mcp__bmq__bmq_sql_query trước khi dùng "
     "mcp__bmq__ask_sushi; tối đa 3 lần thử truy vấn cho mỗi câu hỏi. Chỉ dùng "
@@ -201,6 +204,11 @@ def _wire_sushi(options: Any, chat_session: _ChatSession, settings: Settings) ->
         if getattr(chat_session, "backend", None) is not None
         else []
     )
+    document_link_tools = (
+        build_document_link_tools(chat_session, settings)
+        if getattr(chat_session, "backend", None) is not None
+        else []
+    )
     mcp_servers[SUSHI_MCP_SERVER] = create_sdk_mcp_server(
         name=SUSHI_MCP_SERVER,
         version="1.0.0",
@@ -213,6 +221,7 @@ def _wire_sushi(options: Any, chat_session: _ChatSession, settings: Settings) ->
             *snapshot_tools,
             *purchase_order_tools,
             *sql_tools,
+            *document_link_tools,
         ],
     )
     for mcp_tool in [
@@ -220,6 +229,7 @@ def _wire_sushi(options: Any, chat_session: _ChatSession, settings: Settings) ->
         *snapshot_tools,
         *purchase_order_tools,
         *sql_tools,
+        *document_link_tools,
     ]:
         allowed_tool = f"mcp__{SUSHI_MCP_SERVER}__{mcp_tool.name}"
         if allowed_tool not in allowed_tools:

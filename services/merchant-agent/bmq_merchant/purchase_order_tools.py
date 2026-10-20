@@ -16,8 +16,10 @@ from claude_agent_sdk import SdkMcpTool
 
 from .backend import _today_vn
 from .config import Settings
+from .document_link_tools import doc_link_block
 from .warehouse_tools import (
     MAX_COMPACT_CHARS,
+    _append_ui,
     _compact_json,
     _day_value,
     _error,
@@ -306,6 +308,20 @@ def build_purchase_order_tools(
         }
         payload = _fit_payload(payload)
         summary = _summary(payload, request["start"], request["end"])
+        for purchase_order in payload.get("purchase_orders", [])[:10]:
+            po_number = str(purchase_order.get("po_number") or "")
+            title = po_number
+            total_amount = purchase_order.get("total_amount")
+            if total_amount is not None:
+                title = f"{po_number} · {_format_amount(total_amount)}"
+            block = doc_link_block(
+                "po",
+                po_number,
+                str(purchase_order.get("id") or ""),
+                title,
+            )
+            if block is not None:
+                _append_ui(chat_session, block)
         return _ok(f"{summary}\n{_compact_json(payload)}")
 
     return [purchase_orders_tool]

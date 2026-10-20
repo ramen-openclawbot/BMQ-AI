@@ -50,12 +50,14 @@ import { usePurchaseOrders, useDeletePurchaseOrder, type PurchaseOrder } from "@
 import { useSuppliers } from "@/hooks/useSuppliers";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { toast } from "sonner";
+import { useSearchParams } from "react-router-dom";
 
 import { parseDbDate } from "@/lib/date-only";
 type StatusFilter = "all" | "draft" | "sent" | "in_transit" | "completed" | "cancelled";
 type TimeFilterMode = "day" | "month" | "year";
 
 const PAGE_SIZE = 20;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const getInitialPeriodValue = (mode: TimeFilterMode) => {
   const today = new Date();
@@ -119,7 +121,12 @@ export default function PurchaseOrders() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [currentPage, setCurrentPage] = useState(1);
-  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+  // Deep link from the chat's doc_link button: /purchase-orders?id=<uuid> opens that PO.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const linkedOrderId = searchParams.get("id");
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(() =>
+    linkedOrderId && UUID_RE.test(linkedOrderId) ? linkedOrderId : null,
+  );
   const [deleteOrderId, setDeleteOrderId] = useState<string | null>(null);
   const [timeFilterMode, setTimeFilterMode] = useState<TimeFilterMode>("month");
   const [selectedPeriodValue, setSelectedPeriodValue] = useState(() => getInitialPeriodValue("month"));
@@ -301,6 +308,10 @@ export default function PurchaseOrders() {
       setCurrentPage(totalPages);
     }
   }, [currentPage, totalPages]);
+
+  useEffect(() => {
+    if (linkedOrderId && UUID_RE.test(linkedOrderId)) setSelectedOrderId(linkedOrderId);
+  }, [linkedOrderId]);
 
   const handleTimeFilterModeChange = (mode: TimeFilterMode) => {
     setTimeFilterMode(mode);
@@ -763,7 +774,20 @@ export default function PurchaseOrders() {
       </div>
       </div>
 
-      <PurchaseOrderDetailsDialog orderId={selectedOrderId} open={!!selectedOrderId} onOpenChange={(open) => !open && setSelectedOrderId(null)} />
+      <PurchaseOrderDetailsDialog
+        orderId={selectedOrderId}
+        open={!!selectedOrderId}
+        onOpenChange={(open) => {
+          if (open) return;
+          setSelectedOrderId(null);
+          // Drop the deep-link id so closing the PO does not reopen it.
+          if (searchParams.has("id")) {
+            const next = new URLSearchParams(searchParams);
+            next.delete("id");
+            setSearchParams(next, { replace: true });
+          }
+        }}
+      />
 
       <AlertDialog open={!!deleteOrderId} onOpenChange={() => setDeleteOrderId(null)}>
         <AlertDialogContent>

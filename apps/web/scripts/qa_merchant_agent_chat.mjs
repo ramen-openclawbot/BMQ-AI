@@ -217,9 +217,12 @@ const SNAPSHOT = {
   sources: ["revenue_ledger_lines", "kiosk_report_locations", "kiosk_daily_reports", "dealer_orders", "revenue_auto_daily_parse_logs"],
   caveat: "Số đã kiểm soát theo sổ doanh thu, chưa phải số kiểm toán.",
 };
+const DOC_PR = { kind: "pr", code: "PR-MV6H33KA", id: "11111111-1111-4111-8111-111111111111", title: "DNTT 131026 · Chi phí thuê nhà kho Q7 tháng 10 · 28,040,000 đ", path: "/payment-requests?id=11111111-1111-4111-8111-111111111111" };
+const DOC_PO = { kind: "po", code: "PO-000854", id: "22222222-2222-4222-8222-222222222222", title: "PO-000854 · 7,830,000 đ", path: "/purchase-orders?id=22222222-2222-4222-8222-222222222222" };
 function reply(body) {
   const text = String(body.message || "").toLowerCase();
   if (text.includes("snapshot")) return { status: 200, json: { session_id: "s-1", text: "Snapshot doanh thu 19/10 — từ đầu tháng so với cùng kỳ tháng trước\nTổng doanh thu: 687,7 tr (+13,6% so với cùng kỳ)", tool_calls: ["bmq_revenue_snapshot"], ui: [{ component: "revenue_snapshot", payload: SNAPSHOT }, { component: "suggestions", payload: { suggestions: ["Vì sao kênh giảm?", "Điểm bán nào chưa nộp báo cáo?", "Doanh thu tháng này theo kênh"] } }], pending_changes: [] } };
+  if (text.includes("chi tiết pr")) return { status: 200, json: { session_id: "s-1", text: "VNAgent xem được PR-MV6H33KA (DNTT 131026) của ANH HẢI (CHỦ NHÀ KHO Q.7): 28.040.000 VND, chờ duyệt.", tool_calls: ["mcp__bmq__bmq_document_link"], ui: [{ component: "doc_link", version: 1, payload: DOC_PR }, { component: "doc_link", version: 1, payload: DOC_PR }, { component: "doc_link", version: 1, payload: { ...DOC_PR, path: "javascript:alert(1)" } }, { component: "doc_link", version: 1, payload: DOC_PO }], pending_changes: [] } };
   if (text.includes("lỗi máy chủ")) return { status: 503, json: { detail: "Trợ lý quản trị đang không phản hồi." } };
   if (text.includes("thông báo")) return { status: 200, json: { session_id: "s-1", text: "Em đã soạn bản nháp thông báo, anh xem và bấm Duyệt nếu đồng ý.", tool_calls: ["mcp__merchant__stage_campaign"], ui: [{ component: "change_preview", payload: { change_id: "chg-1", change: CHANGE, headline: "Thông báo khuyến mãi tuần 20/10", note: "Chưa có gì được gửi." } }, { component: "suggestions", payload: { suggestions: ["Rút gọn nội dung", "Đổi thời gian áp dụng"] } }], pending_changes: [CHANGE] } };
   if (text.includes("công nợ")) return { status: 200, json: { session_id: "s-1", text: "VNAgent đã tra công nợ nhà cung cấp.", tool_calls: ["mcp__bmq__ask_sushi"], ui: [{ component: "sushi_answer", payload: { answer: "Công nợ nhà cung cấp hiện tại là 182,4 triệu, lớn nhất là Bột Mì Sài Gòn.", costBlock: COST_BLOCK, images: [{ id: "a".repeat(64), date: "2026-10-12", declarationId: "PR-QA01", paymentStatus: "submitted_unverified" }], details: "Bột Mì Sài Gòn: 13,5 triệu\nThiên An Sinh: 10,7 triệu", citations: [{ id: "c1", title: "Bảng công nợ NCC", source: "BMQ", updated_at: "2026-10-18" }] } }], pending_changes: [] } };
@@ -353,6 +356,44 @@ try {
     await page.screenshot({ path: `${EVIDENCE}/snapshot-${tag}.png` });
     await snapshot.screenshot({ path: `${EVIDENCE}/snapshot-card-${tag}.png` });
     record(`revenue snapshot card ${tag}`);
+
+    await ask(page, "Xem chi tiết PR-MV6H33KA");
+    const docLinks = page.locator("[data-merchant-doc-link]");
+    await docLinks.first().waitFor();
+    assert.equal(await docLinks.count(), 2, "duplicate and unsafe doc links are dropped");
+    assert.ok((await docLinks.first().textContent()).includes("Mở phiếu"));
+    assert.ok(await overflow(page) <= 0, `no overflow with doc links ${tag}`);
+    await docLinks.first().scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `${EVIDENCE}/doc-links-${tag}.png` });
+    const turnsBefore = await page.locator("[data-merchant-message]").count();
+    await docLinks.first().click();
+    await page.waitForURL(/\/payment-requests\?id=11111111-1111-4111-8111-111111111111/);
+    await panel(page).waitFor({ state: "hidden" });
+    const back = page.locator("[data-merchant-back-to-chat]");
+    await back.waitFor();
+    assert.ok((await back.getAttribute("aria-label")).includes("PR-MV6H33KA"));
+    const backBox = await back.boundingBox();
+    assert.ok(backBox && backBox.x >= 0 && backBox.x + backBox.width <= viewport.width, `back pill inside viewport ${tag}`);
+    await page.waitForTimeout(400);
+    await page.screenshot({ path: `${EVIDENCE}/doc-opened-${tag}.png` });
+    record(`Mở phiếu closes the chat and opens the PR page ${tag}`);
+    await back.click();
+    await panel(page).waitFor();
+    assert.equal(await page.locator("[data-merchant-message]").count(), turnsBefore, "conversation kept after opening a phiếu");
+    assert.equal(await back.count(), 0, "pill hidden while the chat is open");
+    record(`back to chat keeps the conversation ${tag}`);
+    await page.keyboard.press("Escape");
+    await panel(page).waitFor({ state: "hidden" });
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.locator("[data-merchant-agent-launcher]").waitFor({ state: "attached", timeout: 30000 });
+    await back.waitFor();
+    await back.click();
+    await panel(page).waitFor();
+    assert.equal(await page.locator("[data-merchant-message]").count(), turnsBefore, "conversation restored after reload");
+    await ask(page, "Doanh thu tháng 9");
+    await page.waitForFunction((n) => document.querySelectorAll("[data-merchant-message]").length >= n + 2, turnsBefore);
+    assert.equal(calls[calls.length - 1].body.session_id, "s-1", "reloaded chat continues the same server session");
+    record(`reload restores the conversation and session ${tag}`);
 
     await page.locator("[data-merchant-agent-reset]").click();
     assert.equal(await page.locator("[data-merchant-message]").count(), 0);

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -300,6 +301,58 @@ def _pct_change(current: float, previous: float) -> float | None:
     return round((current - previous) / previous * 100, 1)
 
 
+# kind -> (table, code column, selected columns) for the chat document link.
+_DOCUMENT_SPECS = {
+    "pr": (
+        "payment_requests",
+        "request_number",
+        "id,request_number,title,total_amount",
+    ),
+    "po": ("purchase_orders", "po_number", "id,po_number,total_amount"),
+    "gr": (
+        "goods_receipts",
+        "receipt_number",
+        "id,receipt_number,receipt_date",
+    ),
+}
+
+
+def _escape_like(value: str) -> str:
+    """Make a code literal inside a PostgREST ``ilike`` pattern."""
+
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _document_amount(value: Any) -> str:
+    try:
+        amount = float(value)
+    except (TypeError, ValueError):
+        return ""
+    if not math.isfinite(amount):
+        return ""
+    return f"{amount:,.0f} đ"
+
+
+def _document_title(kind: str, row: dict[str, Any], code: str) -> str:
+    parts: list[str] = []
+    if kind == "pr":
+        parts.append(str(row.get("title") or "").strip() or code)
+        amount = _document_amount(row.get("total_amount"))
+        if amount:
+            parts.append(amount)
+    elif kind == "po":
+        parts.append(str(row.get("po_number") or "").strip() or code)
+        amount = _document_amount(row.get("total_amount"))
+        if amount:
+            parts.append(amount)
+    else:
+        parts.append(str(row.get("receipt_number") or "").strip() or code)
+        receipt_date = str(row.get("receipt_date") or "").strip()
+        if receipt_date:
+            parts.append(receipt_date)
+    return " · ".join(parts)[:200]
+
+
 def _row_change_kind(row: dict[str, Any]) -> ChangeKind:
     try:
         return _CHANGE_KIND_BY_DB_KIND[str(row.get("kind"))]
@@ -543,6 +596,7 @@ class BmqMerchantBackend(MerchantBackend):
 
         purchase_orders = [
             {
+                "id": row.get("id"),
                 "po_number": row.get("po_number"),
                 "order_date": row.get("order_date"),
                 "expected_date": row.get("expected_date"),
@@ -561,6 +615,43 @@ class BmqMerchantBackend(MerchantBackend):
             "supplier_counts": supplier_counts,
             "pos_omitted": max(0, len(labeled) - len(purchase_orders)),
             "purchase_orders": purchase_orders,
+        }
+
+    async def document_link(
+        self, kind: str, code: str
+    ) -> dict[str, Any] | None:
+        """Resolve an exact PR/PO/GR code to the row's UUID and a short title.
+
+        The code comparison is case-insensitive but literal: ``%`` and ``_`` are
+        escaped so a code can never act as a LIKE wildcard.
+        """
+
+        try:
+            table, column, select = _DOCUMENT_SPECS[kind]
+        except KeyError:
+            raise ValueError("kind không hợp lệ") from None
+        rows = await self._db.select(
+            table,
+            {
+                "select": select,
+                column: f"ilike.{_escape_like(str(code))}",
+                "limit": "1",
+            },
+        )
+        if not rows:
+            return None
+        row = rows[0]
+        stored_code = str(row.get(column) or "")
+        if stored_code.casefold() != str(code).casefold():
+            return None
+        identifier = str(row.get("id") or "")
+        if not identifier:
+            return None
+        return {
+            "id": identifier,
+            "kind": kind,
+            "code": stored_code,
+            "title": _document_title(kind, row, stored_code),
         }
 
     # -- revenue snapshot -----------------------------------------------------
