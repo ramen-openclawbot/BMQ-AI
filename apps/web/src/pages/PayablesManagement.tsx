@@ -35,6 +35,7 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import "@/styles/bmq-payables.css";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -214,28 +215,28 @@ const PayablesManagement = () => {
       value: formatCurrency(stats.totalAmount),
       helper: `${stats.count} phiếu`,
       icon: Wallet,
-      tone: "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-200",
+      tone: "is-total",
     },
     {
       label: "Còn phải thanh toán",
       value: formatCurrency(stats.outstandingAmount),
       helper: `${stats.outstandingCount} phiếu chưa tất toán`,
       icon: Clock3,
-      tone: "border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-900/50 dark:bg-rose-950/20 dark:text-rose-200",
+      tone: "is-pending",
     },
     {
       label: "Đã thanh toán",
       value: formatCurrency(stats.paidAmount),
       helper: `${stats.paidCount} phiếu`,
       icon: CheckCircle2,
-      tone: "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-200",
+      tone: "is-approved",
     },
     {
       label: "Công nợ từ phiếu nhập kho",
       value: formatCurrency(stats.warehouseAmount),
       helper: `${stats.warehouseCount} phiếu có link nhập kho`,
       icon: PackageCheck,
-      tone: "border-slate-200 bg-white text-slate-800 dark:border-slate-800 dark:bg-card dark:text-slate-100",
+      tone: "is-warehouse",
     },
   ];
 
@@ -282,7 +283,7 @@ const PayablesManagement = () => {
     if (source === "invoice") {
       return (
         <div className="space-y-1 text-xs">
-          <Badge className="bg-blue-600 text-white">Từ hóa đơn</Badge>
+          <Badge className="d3-pay-chip is-blue">Từ hóa đơn</Badge>
           <div className="font-mono text-muted-foreground">
             {paymentRequest.invoices?.invoice_number || paymentRequest.invoice_id}
           </div>
@@ -296,7 +297,7 @@ const PayablesManagement = () => {
     if (source === "purchase_order") {
       return (
         <div className="space-y-1 text-xs">
-          <Badge className="bg-amber-600 text-white">Từ PO</Badge>
+          <Badge className="d3-pay-chip is-amber">Từ PO</Badge>
           <div className="font-mono text-muted-foreground">
             {paymentRequest.purchase_orders?.po_number || paymentRequest.purchase_order_id}
           </div>
@@ -305,7 +306,7 @@ const PayablesManagement = () => {
     }
 
     if (source === "ocr_scan") {
-      return <Badge className="bg-violet-600 text-white">OCR/scan</Badge>;
+      return <Badge className="d3-pay-chip is-violet">OCR/scan</Badge>;
     }
 
     if (source === "manual") {
@@ -314,7 +315,7 @@ const PayablesManagement = () => {
 
     return (
       <div className="space-y-1 text-xs">
-        <Badge className="bg-emerald-600 text-white">
+        <Badge className="d3-pay-chip is-green">
           <PackageCheck className="mr-1 h-3 w-3" />
           Từ phiếu nhập kho
         </Badge>
@@ -331,12 +332,12 @@ const PayablesManagement = () => {
   const renderPaymentBadge = (paymentRequest: PaymentRequestWithSupplier) => {
     const remaining = getRemainingPaymentAmount(paymentRequest);
     if (paymentRequest.payment_status === "paid" || remaining <= 0) {
-      return <Badge className="bg-emerald-600 text-white">Đã thanh toán</Badge>;
+      return <Badge className="d3-pay-chip is-green">Đã thanh toán</Badge>;
     }
     if (paymentRequest.payment_status === "partial") {
-      return <Badge className="bg-amber-500 text-white">Còn {formatCurrency(remaining)}</Badge>;
+      return <Badge className="d3-pay-chip is-amber">Còn {formatCurrency(remaining)}</Badge>;
     }
-    return <Badge variant="destructive">Chưa thanh toán</Badge>;
+    return <Badge className="d3-pay-chip is-red">Chưa thanh toán</Badge>;
   };
 
   if (isError) {
@@ -348,19 +349,19 @@ const PayablesManagement = () => {
   }
 
   return (
-    <div className="space-y-5 bg-slate-50/40 pb-28 dark:bg-background lg:pb-20">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+    <div className="d3-pay space-y-4 pb-8">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div className="space-y-2">
-          <h1 className="text-[28px] font-semibold leading-tight tracking-normal text-slate-950 dark:text-slate-50">
+          <h1 className="d3-pay-title">
             Quản lý công nợ phải trả
           </h1>
-          <p className="max-w-3xl text-sm text-muted-foreground">
+          <p className="max-w-3xl text-sm leading-relaxed text-[color:var(--d3-dim)]">
             Theo dõi công nợ nhà cung cấp phát sinh từ phiếu nhập kho, PO và các đề nghị chi liên quan. Trang này tách riêng khỏi Duyệt chi để kế toán xem số phải trả và trạng thái thanh toán nhanh hơn.
           </p>
         </div>
         <Button
           variant="outline"
-          className="h-11 rounded-md border-slate-200 bg-white shadow-none dark:border-slate-800 dark:bg-card"
+          className="d3-pay-btn h-11 self-start lg:self-auto"
           onClick={() => refetch()}
         >
           <RefreshCw className={cn("mr-2 h-4 w-4", isLoading && "animate-spin")} />
@@ -368,27 +369,20 @@ const PayablesManagement = () => {
         </Button>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="d3-pay-stats">
         {statCards.map((card) => {
           const Icon = card.icon;
           return (
-            <Card key={card.label} className={cn("rounded-xl shadow-none", card.tone)}>
-              <CardContent className="flex items-start gap-3 p-4">
-                <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-white/70 dark:bg-black/20">
-                  <Icon className="h-5 w-5" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs font-medium uppercase tracking-wide opacity-75">{card.label}</p>
-                  <p className="mt-2 truncate text-xl font-semibold tabular-nums" title={card.value}>{card.value}</p>
-                  <p className="mt-1 text-xs opacity-75">{card.helper}</p>
-                </div>
-              </CardContent>
-            </Card>
+            <div key={card.label} className={cn("d3-pay-stat", card.tone)}>
+              <p className="d3-pa-lvl"><i aria-hidden="true" />{card.label}<Icon className="ml-auto h-4 w-4" aria-hidden="true" /></p>
+              <p className="d3-pay-fig" title={card.value}>{card.value}</p>
+              <p className="d3-pa-sub">{card.helper}</p>
+            </div>
           );
         })}
       </div>
 
-      <Card className="rounded-xl border-slate-200 bg-white shadow-none dark:border-slate-800 dark:bg-card">
+      <Card className="d3-pay-card">
         <CardContent className="space-y-4 p-4">
           <div className="grid gap-3 lg:grid-cols-[minmax(250px,1fr)_180px_180px_220px]">
             <div className="relative min-w-0">
@@ -444,12 +438,12 @@ const PayablesManagement = () => {
         </CardContent>
       </Card>
 
-      <Card className="rounded-xl border-slate-200 bg-white shadow-none dark:border-slate-800 dark:bg-card">
+      <Card className="d3-pay-card">
         <CardContent className="p-0">
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
-                <TableRow className="bg-slate-50/80 dark:bg-slate-900/40">
+                <TableRow>
                   <TableHead className="min-w-[180px]">Mã công nợ</TableHead>
                   <TableHead className="min-w-[220px]">Nhà cung cấp</TableHead>
                   <TableHead className="min-w-[210px]">Nguồn</TableHead>
@@ -480,7 +474,7 @@ const PayablesManagement = () => {
                     const productNames = getProductNames(paymentRequest);
 
                     return (
-                      <TableRow key={paymentRequest.id} className="align-top hover:bg-amber-50/50 dark:hover:bg-amber-950/10">
+                      <TableRow key={paymentRequest.id} className="align-top">
                         <TableCell>
                           <button
                             type="button"

@@ -173,3 +173,11 @@ html.bmq-d3 .d3-ceo-go:disabled { background: #cfcfcc; box-shadow: none; }
   .d3-ceo-head, .d3-ceo-kpi, .d3-ceo-tile { animation: none !important; }
 }
 html.bmq-d3 .d3-ceo-scan[data-bmq-cutover-rescan] { margin-top: 8px; background: transparent; color: var(--d3-ink); border: 1px solid currentColor; }
+
+/* ---------- Phân loại chi phí (Impeccable pass): no card-in-card, quiet KPI figures ---------- */
+html.bmq-d3 .d3-cls-shell { border: 0; background: transparent; box-shadow: none; }
+html.bmq-d3 .d3-cls-shell > :is(.p-6, [class*="p-6"]) { padding-left: 0; padding-right: 0; }
+html.bmq-d3 .d3-cls-shell > div:first-child { padding-top: 0; }
+html.bmq-d3 .d3-cls-kpi { border: 0; border-radius: 20px; background: var(--d3-white); box-shadow: var(--d3-sh); }
+html.bmq-d3 .d3-cls-kpi .font-semibold { font: 200 26px/1.1 var(--d3-num); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+html.bmq-d3 .d3-cls-kpi.is-review { box-shadow: var(--d3-sh), inset 0 0 0 1.5px #e6a100; }

@@ -12,34 +12,33 @@ html.bmq-d3 .d3-pa {
 }
 
 /* ---------- header ---------- */
+/* Title, then the unpaid count + date range under it; phone actions sit beside that meta line. */
 .d3-pa-head {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 12px 16px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "title acts" "meta acts";
+  align-items: end;
+  gap: 6px 16px;
   padding: 2px 4px 4px;
-  animation: d3-pa-rise .7s var(--d3-ease, ease) both;
 }
 
-.d3-pa-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--d3-dim, #6b6b6b);
+.d3-pa-head h1 { grid-area: title; }
+.d3-pa-headacts { grid-area: acts; }
+
+.d3-pa-headmeta {
+  grid-area: meta;
+  margin: 0;
+  font-size: 14px;
+  color: var(--d3-dim, #6b6b69);
+  font-variant-numeric: tabular-nums;
 }
 
-.d3-pa-tag::before {
-  content: "";
-  flex: none;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  border: 1.5px solid var(--d3-blue, #3c91e6);
-}
+.d3-pa-headmeta > span { white-space: nowrap; }
+.d3-pa-headmeta [data-bmq-pr-unpaid-count] { color: var(--d3-ink-2, #4a4a4a); }
 
 .d3-pa-head h1 {
-  margin: 6px 0 0;
+  margin: 0;
+  text-wrap: balance;
   font-size: clamp(28px, 3.4vw, 42px);
   font-weight: 200;
   line-height: 1.1;
@@ -82,27 +81,12 @@ html.bmq-d3 .d3-pa-icon {
   outline: 2px solid transparent;
   outline-offset: -2px;
   transition: transform .3s var(--d3-ease, ease), outline-color .2s;
-  animation: d3-pa-rise .8s var(--d3-ease, ease) both;
-  animation-delay: calc(var(--i, 0) * 70ms + 80ms);
 }
 
 .d3-pa-sumc:hover { transform: translateY(-2px); }
 .d3-pa-sumc:focus-visible { outline-color: var(--d3-blue, #3c91e6); }
 .d3-pa-sumc.is-active { outline-color: var(--d3-ink, #272727); }
 .d3-pa-sumc.is-hero { background: var(--d3-card, #f7f7f5); }
-.d3-pa-sumc > :not(.d3-pa-glow) { position: relative; z-index: 1; }
-
-.d3-pa-glow {
-  position: absolute;
-  right: -60px;
-  top: -70px;
-  width: 260px;
-  height: 180px;
-  border-radius: 50%;
-  background: radial-gradient(closest-side, rgba(244, 68, 46, .28), rgba(244, 68, 46, 0));
-  filter: blur(6px);
-  pointer-events: none;
-}
 
 .d3-pa-lvl { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--d3-dim, #6b6b6b); }
 .d3-pa-lvl i { width: 8px; height: 8px; border-radius: 50%; background: var(--c, #8a8a88); }
@@ -257,8 +241,6 @@ html.bmq-d3 .d3-pa-bulk button:not(.d3-pa-go):hover { background: rgba(255, 255,
   padding: 18px;
   border-radius: 22px;
   background: var(--d3-panel, #ececea);
-  animation: d3-pa-rise .8s var(--d3-ease, ease) both;
-  animation-delay: 200ms;
 }
 
 .d3-pa-list-h {
@@ -306,8 +288,6 @@ html.bmq-d3 .d3-pa-list-h h2 { font-weight: 300; }
   outline: 1.5px solid transparent;
   outline-offset: -1.5px;
   transition: transform .3s var(--d3-ease, ease), outline-color .2s, background .2s;
-  animation: d3-pa-rise .5s var(--d3-ease, ease) both;
-  animation-delay: calc(var(--i, 0) * 50ms + 250ms);
 }
 
 .d3-pa-row:hover { transform: translateY(-2px); }
@@ -362,7 +342,7 @@ html.bmq-d3 .d3-pa-row.d3-pr-row-active { outline-color: var(--d3-ink); backgrou
 
 .d3-pa-due.is-pending { background: #ffe1db; color: var(--d3-red, #f4442e); }
 .d3-pa-due.is-approved { background: #dcf5d5; color: #1f8a0f; }
-.d3-pa-meta { min-width: 0; font-size: 11px; color: var(--d3-faint, #8a8a88); overflow-wrap: anywhere; }
+.d3-pa-meta { min-width: 0; font-size: 11px; color: var(--d3-dim, #6b6b69); overflow-wrap: anywhere; }
 .d3-pa-paid { grid-column: 1 / -1; font-size: 11.5px; color: var(--d3-dim, #6b6b6b); font-variant-numeric: tabular-nums; }
 
 .d3-pa-acts { grid-column: 2; display: flex; justify-content: flex-end; gap: 6px; margin-top: 4px; }
@@ -470,7 +450,7 @@ html.bmq-d3 .d3-pa-pages button.is-on { background: var(--d3-ink); color: #fff; 
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .d3-pa-head, .d3-pa-sumc, .d3-pa-list, .d3-pa-row, .d3-pa-bulk { animation: none !important; transition: none !important; }
+  .d3-pa-sumc, .d3-pa-row, .d3-pa-bulk { animation: none !important; transition: none !important; }
 }
 
 /* View switch: Chưa thanh toán (default) | Tất cả phiếu */
@@ -478,9 +458,72 @@ html.bmq-d3 .d3-pa-pages button.is-on { background: var(--d3-ink); color: #fff; 
 .d3-pa-view button { min-height: 40px; padding: 0 14px; border: 0; border-radius: 12px; background: transparent; color: var(--d3-ink-2, #4a4a4a); font-size: 13px; font-weight: 500; white-space: nowrap; cursor: pointer; }
 .d3-pa-view button.is-on { background: var(--d3-white, #fdfdfc); color: var(--d3-ink, #272727); box-shadow: var(--d3-sh); }
 
-/* Headline second count: unpaid list size next to "phiếu mới hôm nay". */
-.d3-pa-head h1 .d3-pa-sub2 { font-size: 0.55em; font-weight: 400; letter-spacing: 0; color: var(--d3-dim, #6b6b69); white-space: nowrap; }
+/* Tab row: view switch on the left, "Tạo duyệt chi" on the right (full width on phones). */
+.d3-pa-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 12px; }
+
 @media (max-width: 640px) {
-  .d3-pa-head h1 .d3-pa-sub2 { display: block; margin-top: 6px; font-size: 15px; }
-  .d3-pa-head h1 .d3-pa-sep { display: none; }
+  .d3-pa-head { grid-template-areas: "title title" "meta acts"; align-items: center; gap: 8px 12px; }
+  .d3-pa-head h1 { font-size: 30px; }
+  .d3-pa-view { width: 100%; overflow-x: auto; scrollbar-width: none; }
+  .d3-pa-view button { flex: 1; }
+  .d3-pa-barcreate { width: 100%; }
 }
+
+/* ---------- Quản lý công nợ phải trả (same language as the Duyệt chi summary) ---------- */
+html.bmq-d3 .d3-pay { font-family: var(--d3-sans); color: var(--d3-ink); }
+html.bmq-d3 .d3-pay-title { margin: 0; font-size: clamp(28px, 3.2vw, 40px); font-weight: 200; line-height: 1.1; letter-spacing: -.02em; text-wrap: balance; }
+
+html.bmq-d3 .d3-pay-btn { border: 0; border-radius: 13px; background: var(--d3-white); box-shadow: var(--d3-sh); font-weight: 500; }
+
+.d3-pay-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+
+.d3-pay-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  min-height: 116px;
+  padding: 16px 18px;
+  border-radius: 20px;
+  background: var(--d3-white, #fdfdfc);
+  box-shadow: var(--d3-sh);
+}
+
+.d3-pay-stat .d3-pa-lvl { margin: 0; }
+.d3-pay-stat .d3-pa-lvl svg { color: var(--d3-faint, #a3a3a0); }
+.d3-pay-stat.is-pending { --c: var(--d3-red, #f4442e); }
+.d3-pay-stat.is-approved { --c: var(--d3-green, #29bf12); }
+.d3-pay-stat.is-total { --c: var(--d3-ink, #272727); }
+.d3-pay-stat.is-warehouse { --c: var(--d3-blue, #3c91e6); }
+
+.d3-pay-fig {
+  margin: auto 0 0;
+  overflow: hidden;
+  font: 200 30px/1 var(--d3-num, inherit);
+  letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.d3-pay-stat .d3-pa-sub { margin: 0; }
+
+html.bmq-d3 .d3-pay-card { border: 0; border-radius: 20px; background: var(--d3-card); box-shadow: var(--d3-sh); }
+html.bmq-d3 .d3-pay-card :is(input, button[role="combobox"]) { border-color: transparent; border-radius: 13px; background: var(--d3-white); }
+
+/* Soft status chips (detail-panel palette) instead of saturated solid badges. */
+html.bmq-d3 .d3-pay-chip { border: 0; border-radius: 99px; font-weight: 500; box-shadow: none; }
+html.bmq-d3 .d3-pay-chip.is-blue { background: #e1eefc; color: #1f5f9e; }
+html.bmq-d3 .d3-pay-chip.is-amber { background: #fdf0d8; color: #8a5a00; }
+html.bmq-d3 .d3-pay-chip.is-violet { background: #ece6fb; color: #5a3d9e; }
+html.bmq-d3 .d3-pay-chip.is-green { background: #dcf5d5; color: #1f7a10; }
+html.bmq-d3 .d3-pay-chip.is-red { background: #ffe1db; color: #b4301f; }
+html.bmq-d3 .d3-pay-chip:hover { filter: none; }
+
+@media (max-width: 1100px) { .d3-pay-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 760px) {
+  .d3-pay-stats { gap: 10px; }
+  .d3-pay-stat { min-height: 100px; padding: 14px; border-radius: 18px; }
+  .d3-pay-fig { font-size: 24px; }
+}
+@media (max-width: 380px) { .d3-pay-stats { grid-template-columns: minmax(0, 1fr); } }

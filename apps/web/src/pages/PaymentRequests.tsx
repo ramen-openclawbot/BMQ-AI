@@ -559,27 +559,26 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
       className={cn("d3-pa min-w-0 overflow-x-clip pb-8 lg:pb-20", detailAsPanel && "d3-pr-has-panel")}
     >
       <header className="d3-pa-head">
-        <div className="min-w-0">
-          <span className="d3-pa-tag">
-            {isVi ? "Tài chính · đề nghị chi" : "Finance · payment requests"} · {mobileDateRangeLabel}
-          </span>
-          <h1>
-            {t.paymentRequestsTitle}{" "}
-            <b>
-              {isLoading
-                ? "…"
-                : isError
-                  ? isVi ? "chưa tải được" : "unavailable"
-                  : isVi ? `${todayPendingCount} phiếu mới hôm nay` : `${todayPendingCount} new today`}
-            </b>
-            {!isLoading && !isError && paymentStats ? (
-              <span className="d3-pa-sub2" data-bmq-pr-unpaid-count>
-                <span className="d3-pa-sep">{" · "}</span>{paymentStats.unpaidRecentCount} {isVi ? "chưa thanh toán" : "unpaid"}
-              </span>
-            ) : null}
-          </h1>
-        </div>
-        <div className="flex shrink-0 items-center gap-2 lg:hidden">
+        <h1>
+          {t.paymentRequestsTitle}{" "}
+          <b>
+            {isLoading
+              ? "…"
+              : isError
+                ? isVi ? "chưa tải được" : "unavailable"
+                : isVi ? `${todayPendingCount} phiếu mới hôm nay` : `${todayPendingCount} new today`}
+          </b>
+        </h1>
+        <p className="d3-pa-headmeta">
+          {!isLoading && !isError && paymentStats ? (
+            <span data-bmq-pr-unpaid-count>
+              {paymentStats.unpaidRecentCount} {isVi ? "chưa thanh toán" : "unpaid"}
+              <span aria-hidden="true">{" · "}</span>
+            </span>
+          ) : null}
+          <span>{mobileDateRangeLabel}</span>
+        </p>
+        <div className="d3-pa-headacts flex shrink-0 items-center gap-2 lg:hidden">
           <Button
             variant="outline"
             size="icon"
@@ -595,6 +594,7 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
         </div>
       </header>
 
+      <div className="d3-pa-bar">
       <div className="d3-pa-view" role="tablist" aria-label="Chế độ xem" data-bmq-pr-view={view}>
         <button type="button" role="tab" aria-selected={view === "unpaid"} className={cn(view === "unpaid" && "is-on")} onClick={() => setView("unpaid")} data-bmq-pr-view-unpaid>
           Chưa thanh toán
@@ -606,13 +606,16 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
           Đối soát
         </button>
       </div>
+      {/* Create from the default tab too (it was only under Tất cả); sits on the tab row. */}
+      {view === "unpaid" ? (
+        <div className="d3-pa-barcreate" data-bmq-pr-create-unpaid>
+          <CreatePaymentMenu canSalary={canSalary} onChoose={openCreate} isVi={isVi} className="h-11 w-full sm:w-auto sm:px-6" />
+        </div>
+      ) : null}
+      </div>
 
       {view === "unpaid" ? (
         <>
-          {/* Create from the default tab too (it was only under Tất cả). */}
-          <div className="mb-3 flex justify-end" data-bmq-pr-create-unpaid>
-            <CreatePaymentMenu canSalary={canSalary} onChoose={openCreate} isVi={isVi} className="h-11 w-full sm:w-auto sm:px-6" />
-          </div>
           {canSalary && <SalaryPayoutList />}
           <UrgentPayablesPanel canSubmit={isOwner || canEditPaymentRequests} onOpenRequest={setSelectedRequestId} />
         </>
@@ -638,7 +641,6 @@ const PaymentRequests = ({ defaultSourceFilter = "all" }: PaymentRequestsProps) 
                 setActiveCardFilter(card.key === activeCardFilter ? null : card.key);
               }}
             >
-              {index === 0 ? <span className="d3-pa-glow" aria-hidden="true" /> : null}
               <span className="d3-pa-lvl"><i aria-hidden="true" />{card.label}</span>
               <span className="d3-pa-big">
                 {figure(toMillions(card.amount))}

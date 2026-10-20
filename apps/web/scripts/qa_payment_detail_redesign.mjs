@@ -305,6 +305,18 @@ try {
       assert.equal(await page.locator("[data-bmq-pr-item-source]").count(), 1, "unlinked lines keep their own name");
       await linked.screenshot({ path: `${EVIDENCE}/${c.name}-${viewport.width}-stock-name.png` });
       assert.equal(await page.locator("[data-bmq-payment-detail] .bg-green-500, [data-bmq-payment-detail] .bg-green-600").count(), 0, "no legacy saturated green");
+      // The close key is a real, unobstructed 40px+ button at the top of the detail (it was hidden
+      // under the sticky phone header). Scroll back to the top first: the line screenshot above scrolled.
+      await page.evaluate(() => { document.querySelector("[data-bmq-payment-detail]").scrollTop = 0; });
+      await page.waitForTimeout(150);
+      const close = await page.evaluate(() => {
+        const btn = [...document.querySelectorAll("[data-bmq-payment-detail] > button")].find((b) => b.querySelector(".sr-only"));
+        if (!btn) return { found: false };
+        const r = btn.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return { found: true, w: r.width, h: r.height, onTop: btn === hit || btn.contains(hit), opacity: getComputedStyle(btn).opacity, hit: hit ? hit.tagName : null };
+      });
+      assert.ok(close.found && close.onTop && close.w >= 40 && close.h >= 40 && close.opacity === "1", `close key visible ${viewport.width}: ${JSON.stringify(close)}`);
       await page.screenshot({ path: `${EVIDENCE}/${c.name}-${viewport.width}-top.png` });
       await page.evaluate(() => { const r = document.querySelector("[data-bmq-payment-detail]"); r.scrollTop = r.scrollHeight; });
       await page.waitForTimeout(300);

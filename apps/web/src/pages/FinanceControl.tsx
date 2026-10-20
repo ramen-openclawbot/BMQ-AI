@@ -2376,7 +2376,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       ) : (
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-display font-bold">{isVi ? "Phân loại chi phí" : "Cost Classification"}</h1>
+            <h1 className="text-3xl">{isVi ? "Phân loại chi phí" : "Cost Classification"}</h1>
             <p className="text-muted-foreground text-sm">{isVi ? "Rà soát và chỉnh nhóm chi phí nội bộ" : "Review and adjust internal cost categories"}</p>
           </div>
         </div>
@@ -2726,11 +2726,12 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
         </TabsContent>}
 
         {mode === "classification" && <TabsContent value="classification" className="space-y-4">
-          <Card>
+          {/* Page shell, not a card: the summary and the totals cards sit directly on the panel. */}
+          <Card className="d3-cls-shell">
             <CardHeader>
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <CardTitle className="text-xl sm:text-2xl">{isVi ? "Phân loại chi phí nội bộ" : "Internal Cost Classification"}</CardTitle>
+                  <CardTitle className="sr-only">{isVi ? "Phân loại chi phí nội bộ" : "Internal Cost Classification"}</CardTitle>
                   <CardDescription>
                     {isVi
                       ? "Phân loại theo line-item, bấm từng nhóm để xem chi tiết và chỉnh nhóm khi cần."
@@ -2739,7 +2740,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                 </div>
                 <Input
                   type="month"
-                  className="w-full sm:w-40"
+                  className="w-full sm:w-48"
                   value={format(selectedMonth, "yyyy-MM")}
                   onChange={(e) => setSelectedMonth(parseMonthInputValue(e.target.value))}
                 />
@@ -2753,7 +2754,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
               )}
 
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                <Card className={classificationPendingReviewStats.count > 0 ? "border-amber-300 bg-amber-500/5" : ""}>
+                <Card className={classificationPendingReviewStats.count > 0 ? "d3-cls-kpi is-review" : "d3-cls-kpi"}>
                   <CardContent className="p-4">
                     <div className="text-xs text-muted-foreground">{isVi ? "Đang chờ review" : "Pending review"}</div>
                     <div className="break-words text-lg font-semibold sm:text-xl">{vnd(Number(classificationPendingReviewStats.amount || 0))}</div>
@@ -2772,7 +2773,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
                   const row = classificationParentTotals.get(code);
                   if (code === "LEGACY" && !row?.count) return null;
                   return (
-                    <Card key={code} data-cost-parent={code}>
+                    <Card key={code} data-cost-parent={code} className="d3-cls-kpi">
                       <CardContent className="p-4">
                         <div className="text-xs text-muted-foreground">{label}</div>
                         <div className="break-words text-lg font-semibold sm:text-xl">{vnd(Number(row?.amount || 0))}</div>

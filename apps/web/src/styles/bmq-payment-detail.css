@@ -10,10 +10,22 @@ html.bmq-d3 .d3-prd-head { background: var(--d3-bg, #e4e4e4); border-bottom: 1px
 html.bmq-d3 .d3-pr-panel .d3-prd-head { background: transparent; border-bottom: 0; }
 @media (min-width: 640px) { html.bmq-d3 .d3-prd-head { background: transparent; border-bottom: 0; } }
 
-.d3-prd-tag { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--d3-dim, #6b6b69); overflow-wrap: anywhere; }
-.d3-prd-tag::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid var(--d3-blue, #3c91e6); }
-.d3-prd-title { margin: 4px 0 0; font-size: clamp(22px, 5.4vw, 28px); font-weight: 300 !important; line-height: 1.15; letter-spacing: -.01em; overflow-wrap: anywhere; }
-.d3-prd-sub { margin: 0; font-size: 13px; color: var(--d3-dim, #6b6b69); overflow-wrap: anywhere; }
+.d3-prd-title { margin: 0; font-size: clamp(22px, 5.4vw, 28px); font-weight: 300 !important; line-height: 1.15; letter-spacing: -.01em; overflow-wrap: anywhere; }
+.d3-prd-sub { margin: 2px 0 0; font-size: 13px; color: var(--d3-dim, #6b6b69); overflow-wrap: anywhere; }
+.d3-prd-code { color: var(--d3-ink-2, #4a4a4a); font-variant-numeric: tabular-nums; }
+
+/* Close button: a visible white key, not the faint shadcn corner X with an auto focus ring. */
+html.bmq-d3 .d3-prd > button:has(> .sr-only) {
+  z-index: 30; /* above the sticky phone header (z-20) that used to cover it */
+  border-radius: 12px;
+  background: var(--d3-white, #fdfdfc);
+  box-shadow: var(--d3-sh);
+  color: var(--d3-ink, #272727);
+  opacity: 1;
+}
+html.bmq-d3 .d3-prd > button:has(> .sr-only):hover { background: #fff; }
+html.bmq-d3 .d3-prd > button:has(> .sr-only):focus:not(:focus-visible) { --tw-ring-shadow: 0 0 #0000; --tw-ring-offset-shadow: 0 0 #0000; box-shadow: var(--d3-sh); }
+html.bmq-d3 .d3-prd > button:has(> .sr-only) svg { width: 18px; height: 18px; }
 
 /* ---------- body ---------- */
 .d3-prd-body { display: grid; gap: 12px; align-content: start; }

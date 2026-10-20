@@ -388,9 +388,11 @@ export function PaymentRequestDetailsDialog({
           }
         >
           <DialogHeader className="d3-prd-head sticky top-0 z-20 pb-4 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(3.75rem,calc(2.75rem+env(safe-area-inset-right)))] pt-[max(1rem,env(safe-area-inset-top))] text-left sm:static sm:p-0 sm:pr-12">
-            <span className="d3-prd-tag">Duyệt chi · {request?.request_number || "…"}</span>
             <DialogTitle className="d3-prd-title">{request?.suppliers?.name || "Chi tiết đề nghị duyệt chi"}</DialogTitle>
-            <DialogDescription className="d3-prd-sub">{request?.title || ""}</DialogDescription>
+            <DialogDescription className="d3-prd-sub">
+              <span className="d3-prd-code">{request?.request_number || "…"}</span>
+              {request?.title ? ` · ${request.title}` : ""}
+            </DialogDescription>
           </DialogHeader>
 
           {isLoading ? (
