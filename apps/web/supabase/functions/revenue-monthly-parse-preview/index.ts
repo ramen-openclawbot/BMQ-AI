@@ -70,6 +70,10 @@ type ParseWindow = {
   revenueDateTo: string;
   poReceivedFrom: string;
   poReceivedTo: string;
+  // Daily runs read the PO inbox from this earlier date (Gmail sync still covers only
+  // poReceivedFrom..poReceivedTo). Line-level service_date filtering keeps each PO on its
+  // own delivery date, so a wider read cannot move revenue to another day.
+  inboxReceivedFrom?: string;
   hasRevenueWindow: boolean;
 };
 type PreviewOptions = {
@@ -443,6 +447,11 @@ const currentMonthWindow = (now = new Date()) => {
   return { period, revenueDateFrom, revenueDateTo, poReceivedFrom, poReceivedTo, hasRevenueWindow };
 };
 
+// Kingfood sends POs up to 3 days ahead before weekends and holidays (PO1002634906 on
+// 31/08 for 03/09, PO1002646817 on 12/09 for 14/09, PO1002677894 on 16/10 for 18/10).
+// A one-day received window never fetched them, so their revenue was never posted.
+const DAILY_INBOX_LOOKBACK_DAYS = 7;
+
 const autoDailyWindow = (now = new Date()) => {
   const current = getDatePartsInTimeZone(now, TIME_ZONE);
   const period = `${current.year}-${String(current.month).padStart(2, "0")}`;
@@ -453,7 +462,8 @@ const autoDailyWindow = (now = new Date()) => {
   // cancellation emails and replacement POs can arrive on the revenue date itself.
   // Line-level service_date filtering still prevents tomorrow's POs received today from posting.
   const poReceivedTo = current.date;
-  return { period, revenueDateFrom, revenueDateTo, poReceivedFrom, poReceivedTo, hasRevenueWindow: true };
+  const inboxReceivedFrom = shiftLocalDate(current.date, -DAILY_INBOX_LOOKBACK_DAYS);
+  return { period, revenueDateFrom, revenueDateTo, poReceivedFrom, poReceivedTo, inboxReceivedFrom, hasRevenueWindow: true };
 };
 
 const explicitRevenueDateWindow = (revenueDate: string) => ({
@@ -462,6 +472,7 @@ const explicitRevenueDateWindow = (revenueDate: string) => ({
   revenueDateTo: revenueDate,
   poReceivedFrom: shiftLocalDate(revenueDate, -1),
   poReceivedTo: revenueDate,
+  inboxReceivedFrom: shiftLocalDate(revenueDate, -DAILY_INBOX_LOOKBACK_DAYS),
   hasRevenueWindow: true,
 });
 
@@ -1672,7 +1683,7 @@ async function runCurrentMonthPreview(
     throw error;
   }
 
-  const receivedFrom = dateFromLocalParts(window.poReceivedFrom, TIME_ZONE).toISOString();
+  const receivedFrom = dateFromLocalParts(window.inboxReceivedFrom || window.poReceivedFrom, TIME_ZONE).toISOString();
   const receivedTo = dateFromLocalParts(window.poReceivedTo, TIME_ZONE, true).toISOString();
 
   const { data: run, error: runErr } = await supabaseAdmin
