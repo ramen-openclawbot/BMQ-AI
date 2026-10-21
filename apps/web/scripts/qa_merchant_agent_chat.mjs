@@ -274,16 +274,22 @@ try {
     const { context, page, errors, calls } = await open(viewport);
     await page.locator("[data-merchant-agent-launcher]").click();
     await panel(page).waitFor();
-    assert.equal(await page.locator("[data-merchant-starter]").count(), 5);
-    assert.equal(await page.locator("[data-merchant-starter]").first().textContent(), "Snapshot doanh thu");
+    // Starters follow the page: /mini-crm has its own CRM set.
+    assert.equal(await page.locator("[data-merchant-starters]").getAttribute("data-merchant-starters"), "/mini-crm");
+    assert.equal(await page.locator("[data-merchant-starter]").count(), 3);
+    assert.equal(await page.locator("[data-merchant-starter]").first().textContent(), "Đại lý nào lâu chưa đặt hàng?");
+    assert.ok((await page.locator("[data-merchant-starters]").textContent()).includes("Gợi ý · CRM"));
     assert.ok((await panel(page).textContent()).includes("bấm Duyệt mới áp"));
+    assert.ok(await overflow(page) <= 0, `no overflow with page starters ${tag}`);
     await page.screenshot({ path: `${EVIDENCE}/empty-${tag}.png` });
+    record(`page starters on CRM ${tag}`);
 
     await page.locator("[data-merchant-starter]").nth(1).click();
     await page.locator("[data-merchant-ui='metrics']").waitFor({ timeout: 10000 });
     assert.equal(calls[0].path, "/v1/chat");
     assert.equal(calls[0].auth, "Bearer qa-fixture-token", "sends the Supabase session token");
-    assert.equal(calls[0].body.page, "/mini-crm");
+    assert.equal(calls[0].body.page, "/mini-crm · CRM: khách hàng và đại lý của BMQ", "page context names the page and its purpose");
+    assert.equal(calls[0].body.message, "Top đại lý theo doanh số tháng này");
     assert.equal(calls[0].body.session_id, undefined, "first turn opens a new session");
     const metricsText = await page.locator("[data-merchant-ui='metrics']").textContent();
     assert.ok(metricsText.includes("979,5 triệu") && metricsText.includes("+4,2%") && metricsText.includes("ĐẠI LÝ"), metricsText);
@@ -397,9 +403,33 @@ try {
 
     await page.locator("[data-merchant-agent-reset]").click();
     assert.equal(await page.locator("[data-merchant-message]").count(), 0);
-    assert.equal(await page.locator("[data-merchant-starter]").count(), 5);
-    record(`reset clears the conversation ${tag}`);
+    // Reset happened on the PR page, so the Duyệt chi starters show.
+    assert.equal(await page.locator("[data-merchant-starters]").getAttribute("data-merchant-starters"), "/payment-requests");
+    assert.equal(await page.locator("[data-merchant-starter]").count(), 4);
+    assert.equal(await page.locator("[data-merchant-starter]").first().textContent(), "Phiếu chi nào đang chờ duyệt?");
     assert.ok(await overflow(page) <= 0);
+    await page.screenshot({ path: `${EVIDENCE}/reset-payment-requests-${tag}.png` });
+    record(`reset clears the conversation and shows the page starters ${tag}`);
+    await page.locator("[data-merchant-starter]").first().click();
+    await page.waitForFunction(() => document.querySelectorAll("[data-merchant-message='agent']").length >= 1);
+    assert.ok(calls[calls.length - 1].body.page.startsWith("/payment-requests · Duyệt chi: phiếu đề nghị chi (PR)"), calls[calls.length - 1].body.page);
+    record(`PR page context sent ${tag}`);
+    assert.deepEqual(errors, []);
+
+    // A page without its own set keeps the five general starters.
+    await page.keyboard.press("Escape");
+    await panel(page).waitFor({ state: "hidden" });
+    await page.goto(BASE + "/settings", { waitUntil: "domcontentloaded" });
+    await page.locator("[data-merchant-agent-launcher]").waitFor({ timeout: 30000 });
+    await page.locator("[data-merchant-agent-launcher]").click();
+    await panel(page).waitFor();
+    await page.locator("[data-merchant-agent-reset]").click();
+    assert.equal(await page.locator("[data-merchant-starters]").getAttribute("data-merchant-starters"), "general");
+    assert.equal(await page.locator("[data-merchant-starter]").count(), 5);
+    assert.equal(await page.locator("[data-merchant-starter]").first().textContent(), "Snapshot doanh thu");
+    assert.ok((await page.locator("[data-merchant-starters]").textContent()).includes("Gợi ý nhanh"));
+    await page.screenshot({ path: `${EVIDENCE}/general-starters-${tag}.png` });
+    record(`general starters on a page without its own set ${tag}`);
     assert.deepEqual(errors, []);
     await context.close();
   }

@@ -27,6 +27,7 @@ import {
   type MerchantChange,
   type MerchantUiBlock,
 } from "@/lib/merchantAgent";
+import { merchantPageContext, merchantPageGuide } from "@/lib/merchantPageGuide";
 
 // The owner's back-office chat: Anthropic's merchant agent (Claude Haiku via the owner's
 // Claude Code login) answering from BMQ data. It replaced the Sushi analytics chat on
@@ -330,7 +331,7 @@ export function MerchantAgentChatWidget() {
     setResponding(true);
     try {
       const token = await currentToken(session?.access_token);
-      const result = await sendMerchantMessage(token, { message, sessionId, page: location.pathname });
+      const result = await sendMerchantMessage(token, { message, sessionId, page: merchantPageContext(location.pathname) });
       setSessionId(result.session_id || sessionId);
       setMessages((current) => [...current, { id: newId(), role: "agent", text: result.text || "", ui: result.ui || [] }]);
       setChanges((current) => {
@@ -380,6 +381,10 @@ export function MerchantAgentChatWidget() {
   const liftLauncher = ["/finance-control/revenue", "/sku-costs", "/purchase-orders", "/production/products"].some((prefix) => path.startsWith(prefix));
   const hideLauncherOnMobile = path.startsWith("/payment-requests");
   const lastAgentId = [...messages].reverse().find((message) => message.role === "agent")?.id;
+  // Starters follow the page the owner is on; pages without their own set keep the general ones.
+  const pageGuide = merchantPageGuide(path);
+  const pageStarters = pageGuide?.suggestions?.length ? pageGuide.suggestions : null;
+  const starters = pageStarters || STARTERS;
 
   return (
     <>
@@ -446,10 +451,12 @@ export function MerchantAgentChatWidget() {
                     Xin chào{name ? `, ${name}` : ""}. VNAgent xem được doanh thu, đơn đại lý, công nợ, chi phí, SKU và giá riêng. Mọi thay đổi VNAgent soạn chỉ là bản nháp — anh bấm <b>Duyệt</b> mới áp.
                   </div>
                 </div>
-                <div className="rounded-2xl border border-vn-paper/10 bg-vn-card p-3.5">
-                  <div className="mb-2.5 font-vnMono text-[10px] uppercase tracking-[0.14em] text-vn-paper/45">Gợi ý nhanh</div>
+                <div className="rounded-2xl border border-vn-paper/10 bg-vn-card p-3.5" data-merchant-starters={pageStarters ? pageGuide?.prefix : "general"}>
+                  <div className="mb-2.5 font-vnMono text-[10px] uppercase tracking-[0.14em] text-vn-paper/45">
+                    {pageStarters && pageGuide ? <>Gợi ý · <span className="text-vn-paper/70">{pageGuide.label}</span></> : "Gợi ý nhanh"}
+                  </div>
                   <div className="flex flex-wrap gap-2">
-                    {STARTERS.map((starter) => (
+                    {starters.map((starter) => (
                       <button key={starter} type="button" className="min-h-[36px] rounded-[11px] border border-vn-paper/[.18] bg-vn-card2 px-3 py-2 text-left text-xs font-bold text-vn-lime transition hover:-translate-y-px hover:border-vn-lime disabled:opacity-50" onClick={() => void send(starter)} disabled={responding} data-merchant-starter>{starter}</button>
                     ))}
                   </div>
