@@ -139,6 +139,8 @@ export function PaymentRequestDetailsDialog({
   const [showUncDialog, setShowUncDialog] = useState(false);
   // Method chosen for the remainder of an approved phiếu (owner 22/10: UNC part, then cash rest).
   const [restMethod, setRestMethod] = useState<"bank_transfer" | "cash" | null>(null);
+  // "Chi phần còn lại" opens a two-way choice in place: tiền mặt or UNC.
+  const [choosingRest, setChoosingRest] = useState(false);
   const [showNoReceiptDialog, setShowNoReceiptDialog] = useState(false);
   const [noReceiptReason, setNoReceiptReason] = useState("");
 
@@ -793,33 +795,43 @@ export function PaymentRequestDetailsDialog({
                   </>
                 )}
 
-                {/* Owner pays what is still owed with a slip: cash or UNC, each its own payment. */}
+                {/* Owner pays what is still owed with a slip (owner 22/10: one button, pick tiền mặt or UNC). */}
                 {request.status === "approved" && isOwner && hasOutstandingPayment(request) && (
-                  <>
-                    <Button
-                      onClick={() => { setRestMethod("cash"); setShowUncDialog(true); }}
-                      className="d3-prd-btn is-primary col-span-2 w-full gap-2 whitespace-nowrap sm:w-auto"
-                      data-bmq-pay-rest="cash"
-                    >
-                      <Banknote className="h-4 w-4" />
-                      {allocatedAmount > 0 ? "Chi tiền mặt phần còn lại" : "Chi tiền mặt"}
-                    </Button>
-                    {request.payment_method !== "cash" && (
+                  choosingRest && request.payment_method !== "cash" ? (
+                    <div className="col-span-2 grid grid-cols-2 gap-2 sm:flex" data-bmq-pay-rest-choice>
                       <Button
-                        onClick={() => { setRestMethod("bank_transfer"); setShowUncDialog(true); }}
-                        variant="outline"
-                        className="w-full gap-2 whitespace-nowrap sm:w-auto"
+                        onClick={() => { setChoosingRest(false); setRestMethod("cash"); setShowUncDialog(true); }}
+                        className="d3-prd-btn is-primary w-full gap-2 whitespace-nowrap sm:w-auto"
+                        data-bmq-pay-rest="cash"
+                      >
+                        <Banknote className="h-4 w-4" /> Tiền mặt
+                      </Button>
+                      <Button
+                        onClick={() => { setChoosingRest(false); setRestMethod("bank_transfer"); setShowUncDialog(true); }}
+                        className="d3-prd-btn is-primary w-full gap-2 whitespace-nowrap sm:w-auto"
                         data-bmq-pay-rest="bank_transfer"
                       >
-                        <CreditCard className="h-4 w-4" />
-                        {allocatedAmount > 0 ? "Chi UNC phần còn lại" : "Chi UNC"}
+                        <CreditCard className="h-4 w-4" /> UNC
                       </Button>
-                    )}
-                  </>
+                    </div>
+                  ) : (
+                    <Button
+                      onClick={() => {
+                        // A Chi tiền mặt phiếu is paid only in cash: no choice to make.
+                        if (request.payment_method === "cash") { setRestMethod("cash"); setShowUncDialog(true); }
+                        else setChoosingRest(true);
+                      }}
+                      className="d3-prd-btn is-primary col-span-2 w-full gap-2 whitespace-nowrap sm:w-auto"
+                      data-bmq-pay-rest-open
+                    >
+                      <Banknote className="h-4 w-4" />
+                      {allocatedAmount > 0 ? "Chi phần còn lại" : "Ghi chi"}
+                    </Button>
+                  )
                 )}
 
                 {/* Mark as paid (only for approved requests) */}
-                {request.status === "approved" && hasOutstandingPayment(request) && (
+                {request.status === "approved" && hasOutstandingPayment(request) && !isOwner && (
                   <Button
                     onClick={handleMarkPaidClick}
                     disabled={markPaid.isPending}

@@ -708,14 +708,20 @@ try {
   for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 640 }, { width: 1440, height: 900 }]) {
     const { context, page, errors } = await open({ role: "owner", ocrAmount: 259200 }, "/payment-requests", viewport);
     await openDetail(page, "DC-0110");
+    const openRest = page.locator("[data-bmq-pay-rest-open]");
+    await openRest.waitFor();
+    assert.match(await openRest.textContent(), /Chi phần còn lại/);
+    assert.equal(await page.getByRole("button", { name: /^Thanh toán$|Ghi nhận thanh toán/ }).count(), 0, "slip-less Thanh toán hidden for the owner");
+    assert.equal(await page.locator("[data-bmq-pay-rest]").count(), 0, "no method buttons before the choice");
+    await page.waitForTimeout(600);
+    await page.screenshot({ path: `${EVIDENCE}/detail-pay-rest-${viewport.width}.png` });
+    await openRest.click();
     const cash = page.locator("[data-bmq-pay-rest='cash']");
     await cash.waitFor();
-    assert.match(await cash.textContent(), /Chi tiền mặt phần còn lại/);
-    assert.equal(await page.locator("[data-bmq-pay-rest='bank_transfer']").count(), 1, "UNC rest offered too");
-    await page.waitForTimeout(600);
+    assert.equal(await page.locator("[data-bmq-pay-rest='bank_transfer']").count(), 1, "UNC offered in the choice");
     assert.ok((await overflow(page)) <= 0, `detail no overflow ${viewport.width}`);
     assert.ok(await cash.evaluate((el) => el.scrollWidth <= el.clientWidth + 1), `cash button label fits ${viewport.width}`);
-    await page.screenshot({ path: `${EVIDENCE}/detail-pay-rest-${viewport.width}.png` });
+    await page.screenshot({ path: `${EVIDENCE}/detail-pay-rest-choice-${viewport.width}.png` });
     await cash.click();
     await page.waitForSelector("[data-bmq-unc-dialog='approve'][data-bmq-unc-method='cash']");
     assert.equal(await page.getByLabel("Số tiền gán cho DC-0110").inputValue(), "259.200", "remaining prefilled");
