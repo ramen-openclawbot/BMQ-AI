@@ -3211,7 +3211,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       </Tabs>
 
       {hasClassificationEdits && (
-        <div className="fixed inset-x-0 bottom-0 z-50 border-t bg-background/95 px-4 py-3 shadow-lg backdrop-blur">
+        <div data-bmq-bottom-bar="save" className="fixed inset-x-0 bottom-0 z-50 border-t bg-background/95 px-4 py-3 shadow-lg backdrop-blur">
           <div className="mx-auto flex max-w-5xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="text-sm">
               <div className="font-medium">

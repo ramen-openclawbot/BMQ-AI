@@ -305,8 +305,8 @@ export function MerchantAgentChatWidget() {
     navigate(doc.path);
   }, [navigate]);
 
-  // The pill stays while the owner is still on the phiếu's page, so a closed chat can always
-  // be reopened there (the launcher is hidden on mobile for /payment-requests).
+  // The pill stays while the owner is still on the phiếu's page, so a closed chat can be reopened
+  // there even while the phiếu dialog covers the launcher.
   const backToChat = useCallback(() => setOpen(true), []);
 
   useLayoutEffect(() => {
@@ -378,8 +378,6 @@ export function MerchantAgentChatWidget() {
   if (!enabled) return null;
 
   const path = location.pathname;
-  const liftLauncher = ["/finance-control/revenue", "/sku-costs", "/purchase-orders", "/production/products"].some((prefix) => path.startsWith(prefix));
-  const hideLauncherOnMobile = path.startsWith("/payment-requests");
   const lastAgentId = [...messages].reverse().find((message) => message.role === "agent")?.id;
   // Starters follow the page the owner is on; pages without their own set keep the general ones.
   const pageGuide = merchantPageGuide(path);
@@ -392,13 +390,9 @@ export function MerchantAgentChatWidget() {
         type="button"
         size="icon"
         data-merchant-agent-launcher="v1"
-        className={cn(
-          "fixed z-50 rounded-full border border-vn-paper/[.18] bg-vn-ink shadow-[0_10px_28px_rgba(12,12,18,0.35)] transition-colors hover:border-vn-lime hover:bg-vn-ink focus-visible:ring-2 focus-visible:ring-vn-lime focus-visible:ring-offset-2 [&_svg]:!h-full [&_svg]:!w-full",
-          liftLauncher
-            ? "bottom-[calc(5rem+env(safe-area-inset-bottom))] right-3 h-11 w-11 sm:bottom-[calc(1.5rem+env(safe-area-inset-bottom))] sm:right-6 sm:h-14 sm:w-14"
-            : "right-6 bottom-[calc(1.5rem+env(safe-area-inset-bottom))] h-14 w-14",
-          hideLauncherOnMobile && "hidden lg:inline-flex",
-        )}
+        // One size on every page (owner 22/10). Pages with a pinned bottom bar or button move it
+        // clear in bmq-shell.css ("chat launcher"), not by shrinking or hiding it here.
+        className="d3-agent-launcher fixed bottom-[calc(1.5rem+env(safe-area-inset-bottom))] right-6 z-50 h-14 w-14 rounded-full border border-vn-paper/[.18] bg-vn-ink shadow-[0_10px_28px_rgba(12,12,18,0.35)] transition-colors hover:border-vn-lime hover:bg-vn-ink focus-visible:ring-2 focus-visible:ring-vn-lime focus-visible:ring-offset-2 [&_svg]:!h-full [&_svg]:!w-full"
         onClick={backToChat}
         aria-label="Mở VNAgent"
       >

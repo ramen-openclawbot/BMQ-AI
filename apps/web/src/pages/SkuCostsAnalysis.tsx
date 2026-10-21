@@ -230,7 +230,7 @@ export default function SkuCostsAnalysis() {
           )}
         </main>
 
-        <div className="fixed inset-x-0 bottom-0 z-30 mx-auto max-w-[430px] border-t border-border/70 bg-background/92 px-4 py-3 shadow-card backdrop-blur-xl md:max-w-[520px] lg:hidden">
+        <div data-bmq-bottom-bar="actions" className="fixed inset-x-0 bottom-0 z-30 mx-auto max-w-[430px] border-t border-border/70 bg-background/92 px-4 py-3 shadow-card backdrop-blur-xl md:max-w-[520px] lg:hidden">
           <div className="grid grid-cols-2 gap-3">
             <Button onClick={exportCurrentAnalysis} disabled={!analysis} variant="outline" className="h-12 rounded-[16px] border-border/70 bg-muted/40 text-[13px] font-extrabold text-foreground hover:bg-muted/60 hover:text-foreground disabled:opacity-45">
               Xuất sheet review

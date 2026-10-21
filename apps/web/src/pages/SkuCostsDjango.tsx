@@ -459,7 +459,7 @@ export default function SkuCostsDjango() {
           </section>
         </main>
 
-        <div className="fixed inset-x-0 bottom-0 z-30 mx-auto max-w-[430px] bg-gradient-to-t from-background via-background/96 to-transparent px-4 pb-4 pt-8 md:max-w-[560px] lg:hidden">
+        <div data-bmq-bottom-bar="actions" className="fixed inset-x-0 bottom-0 z-30 mx-auto max-w-[430px] bg-gradient-to-t from-background via-background/96 to-transparent px-4 pb-4 pt-8 md:max-w-[560px] lg:hidden">
           <div className="grid grid-cols-2 gap-3 rounded-[24px] border border-border/70 bg-card/80 p-2 shadow-card backdrop-blur-xl">
             <Button onClick={exportSkuSheet} className="h-12 rounded-[18px] border border-border/70 bg-card/80 text-[13px] font-extrabold text-foreground hover:bg-muted/70">Xuất sheet SKU</Button>
             <Button onClick={() => navigate("/sku-costs/management")} className="h-12 rounded-[18px] bg-primary text-[13px] font-extrabold text-primary-foreground shadow-card hover:bg-primary/90">Cập nhật giá</Button>

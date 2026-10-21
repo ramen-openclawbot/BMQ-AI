@@ -802,3 +802,21 @@ html.bmq-d3 .point-revenue-page h2 {
 html.bmq-d3 .d3-screen :is(button, a[role="button"]):is(.font-bold, .font-extrabold, .font-black) {
   font-weight: 500;
 }
+
+/* ---------- VNAgent chat launcher ---------- */
+/* One size on every page (owner 22/10: it shrank on Bán hàng and vanished on Duyệt chi). Where a
+   bar or button is pinned to the bottom-right it moves clear instead; :has() follows bars that
+   come and go, such as the cost-classification save bar shown only while editing. */
+@media (max-width: 767.98px) {
+  html.bmq-d3 body:has([data-bmq-mobile-po-create-fab]) .d3-agent-launcher { bottom: calc(6rem + env(safe-area-inset-bottom)); }
+}
+/* The Giá vốn action bars are 430px wide and centred, so they reach the corner only on phones. */
+@media (max-width: 639.98px) {
+  html.bmq-d3 body:has([data-bmq-bottom-bar="actions"]) .d3-agent-launcher { bottom: calc(6rem + env(safe-area-inset-bottom)); }
+}
+html.bmq-d3 body:has([data-bmq-bottom-bar="save"]) .d3-agent-launcher { bottom: calc(6rem + env(safe-area-inset-bottom)); }
+@media (max-width: 639.98px) {
+  html.bmq-d3 body:has([data-bmq-bottom-bar="save"]) .d3-agent-launcher { bottom: calc(10rem + env(safe-area-inset-bottom)); }
+}
+/* Duyệt chi docks the phiếu panel on the right from 1280px; the launcher sits just left of it. */
+html.bmq-d3 body:has(.d3-pr-panel) .d3-agent-launcher { right: calc(min(620px, 44vw) + 48px); }
