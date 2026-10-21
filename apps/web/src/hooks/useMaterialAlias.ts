@@ -269,7 +269,6 @@ export function useRunAliasBacklog() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: [MATERIAL_ALIAS_REVIEW_QUERY_KEY] });
       void queryClient.invalidateQueries({ queryKey: [MATERIAL_ALIAS_BACKLOG_REVIEW_QUERY_KEY] });
-      void queryClient.invalidateQueries({ queryKey: ["robot-auto-actions"] });
     },
   });
 }

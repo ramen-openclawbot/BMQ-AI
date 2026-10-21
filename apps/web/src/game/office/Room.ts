@@ -896,7 +896,7 @@ export class Room {
       a > BEAT.wave && a < BEAT.wave + 0.9 ? 1 : 0,
       print && !printing && t < printEnd + 1.0 ? 1 : 0,
     );
-    // Sushi's eyes follow the player around the room.
+    // The machine's eyes follow the player around the room.
     const lookX = Math.max(-0.09, Math.min(0.09, (me.x - M.x) * 0.018));
     this.eyes.forEach((eye, i) => {
       eye.scale.set(1 + happy * 0.25, Math.max(0.12, eyeOpen) * (1 - happy * 0.62), 1);

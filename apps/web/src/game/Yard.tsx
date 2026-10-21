@@ -9,7 +9,7 @@ export const ZONES: Zone[] = [
   // Tồn kho no longer has a kiosk (owner 17/10 IMG_5831): it only linked out of the game; stock lives on the shelves and in Kiểm kê.
   { id: "count", label: "Kiểm kê", icon: "✅", color: C.plum, blurb: "Đếm thực tế rồi nhập số; sổ tự ghi phần chênh lệch." },
   // Đặt hàng tự động no longer has a kiosk in the yard (owner 17/10 IMG_5812): its machine stands inside each warehouse.
-  { id: "clean", label: "Danh mục hàng hóa", icon: "🧹", color: C.mustard, blurb: "Sushi gộp tên trùng, gán nhóm, học tên gọi khác từ phiếu nhập." },
+  { id: "clean", label: "Danh mục hàng hóa", icon: "🧹", color: C.mustard, blurb: "Gộp tên trùng, gán nhóm, học tên gọi khác từ phiếu nhập." },
 ];
 
 interface Rect { x: number; y: number; w: number; h: number }

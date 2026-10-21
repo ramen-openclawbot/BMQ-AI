@@ -48,7 +48,6 @@ export function useRunStockCatalogJev() {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: [STOCK_CATALOG_REVIEW_QUERY_KEY] });
-      void queryClient.invalidateQueries({ queryKey: ["robot-auto-actions"] });
     },
   });
 }

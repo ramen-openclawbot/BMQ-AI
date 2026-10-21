@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-// Cozy palette of the approved Sushi demo (16/10): clay machine, warm kraft shelves, sage accents.
+// Cozy palette of the approved ordering-machine demo (16/10): clay machine, warm kraft shelves, sage accents.
 export const C = {
   ink: "#3e4b40",
   paper: "#f5f1e5",

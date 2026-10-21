@@ -4,8 +4,8 @@ import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useChangeStockItemUnit, useCrateReceiptLines, useItemReceiptLines, useRenameStockItem, useSetItemPastryQ7, useSetItemsPastryQ7, useSetStockItemClass, useSetStockItemsClass, useWarehouseGameSnapshot, WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY, type StockItemClass } from "@/hooks/useWarehouseGame";
 import { ReceiptNotes } from "@/game/ReceiptNotes";
-import { useConfirmMaterialAlias, useCreateStockMaterialItem, useRunAliasBacklog } from "@/hooks/useMaterialAlias";
-import { CrateYard, cleanCrateName, strongCandidate, type JevState } from "@/game/CrateYard";
+import { useConfirmMaterialAlias, useCreateStockMaterialItem } from "@/hooks/useMaterialAlias";
+import { CrateYard, cleanCrateName, strongCandidate } from "@/game/CrateYard";
 import { unitConversionFor, type WarehouseGameItem, type WarehouseGameLocation, type WarehouseGamePendingRow, type WarehouseGameSnapshot } from "@/lib/warehouse-game";
 import { defaultNewItemUnit, packFactorFor, unitFactor } from "@/components/material-alias/new-stock-item";
 import { Yard, type Zone } from "@/game/Yard";
@@ -47,10 +47,7 @@ import type { MaterialLinkLocation } from "@/lib/material-link-quest";
 import "@/game/game.css";
 import { Kho3D, canUse3D } from "@/game/three/Kho3D";
 import { askGame } from "@/game/ConfirmDialog";
-import type { StockBotState } from "@/game/three/Warehouse3D";
-import { LowStockSheet } from "@/game/LowStock";
 import { useStockLedgerOverview } from "@/hooks/useStockLedger";
-import { lowStockList } from "@/lib/stock-ledger";
 import { useDiscontinuedStockItems, useSetStockItemInUse } from "@/hooks/useStockItemDiscontinue";
 import { discontinueErrorCode, discontinueErrorText } from "@/lib/stock-item-discontinue";
 
@@ -80,7 +77,6 @@ type Panel =
   | { kind: "finished"; mode: FinishedGoodsMode; prefill?: string }
   | { kind: "pate" }
   | { kind: "count-review"; location: StockCountLocation }
-  | { kind: "low-stock"; location: WarehouseGameLocation }
   | null;
 
 const LOCATION_LABEL: Record<WarehouseGameLocation, string> = { q7: "Kho Q7", tan_tao: "Kho Tân Tạo" };
@@ -268,8 +264,6 @@ export default function WarehouseGame() {
   const setClasses = useSetStockItemsClass();
   const setPlaces = useSetItemsPastryQ7();
   const [leaving, setLeaving] = useState<string | null>(null);
-  const runBacklog = useRunAliasBacklog();
-  const [jev, setJev] = useState<{ location: WarehouseGameLocation; state: JevState; done: number; total: number; message?: string } | null>(null);
   const [justSaved, setJustSaved] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const { isOwner, canEditModule, roles } = useAuth();
@@ -376,12 +370,6 @@ export default function WarehouseGame() {
   const current = inWarehouse ? snaps[view.location] : undefined;
   const currentQuery = inWarehouse ? (view.location === "q7" ? q7 : tt) : undefined;
   const use3D = canUse3D();
-  // Sushi kiểm tồn (owner 20/10, 3D only): the room's ledger, read only while that 3D room is open.
-  const stockLocation = view.kind === "warehouse" ? view.location : panel?.kind === "low-stock" ? panel.location : null;
-  const stockQuery = useStockLedgerOverview(stockLocation ?? "q7", null, { enabled: use3D && stockLocation !== null });
-  const stockOverview = stockQuery.data && stockQuery.data.location === stockLocation ? stockQuery.data : undefined;
-  const lowRows = stockOverview ? lowStockList(stockOverview) : null;
-  const lowStock: StockBotState = stockQuery.isError ? "error" : lowRows ? lowRows.length : null;
   // ON/OFF per item (owner 21/10): Nguyên liệu and Bao bì / vật tư shelves, for anyone who can edit the warehouse
   // (same gate as public.discontinue_stock_item / reactivate_stock_item; the server re-checks).
   const canPower = isOwner || canEditModule("inventory") || canEditModule("q7_material_inventory") || canEditModule("kitchen_inventory") || canEditModule("material_master");
@@ -404,7 +392,7 @@ export default function WarehouseGame() {
       const perDay = usedPerDay(location, entry.id);
       const ok = await askGame({
         title: `Tắt “${entry.name}”?`,
-        message: `Món sẽ không còn trong robot kiểm tồn, đặt hàng tự động và phiếu kiểm kê. Tồn ${fmtQty(entry.qty)} ${entry.unit} vẫn giữ trong sổ; bật lại ở kệ “Đã tắt” cuối trang.${perDay > 0 ? ` ⚠ 7 ngày qua món này vẫn bị trừ ~${fmtQty(perDay)} ${entry.unit}/ngày theo công thức bánh.` : ""}`,
+        message: `Món sẽ không còn trong danh sách sắp hết, đặt hàng tự động và phiếu kiểm kê. Tồn ${fmtQty(entry.qty)} ${entry.unit} vẫn giữ trong sổ; bật lại ở kệ “Đã tắt” cuối trang.${perDay > 0 ? ` ⚠ 7 ngày qua món này vẫn bị trừ ~${fmtQty(perDay)} ${entry.unit}/ngày theo công thức bánh.` : ""}`,
         ok: "Tắt món",
         cancel: "Giữ dùng",
         tone: "danger",
@@ -446,20 +434,6 @@ export default function WarehouseGame() {
       void queryClient.invalidateQueries({ queryKey: [WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY] }).then(() => setLeaving(null));
       setToast(`“${crate.raw_name}” → ${label} · ${crate.line_count} dòng`);
     }, 650);
-  };
-
-  const runJev = (location: WarehouseGameLocation) => {
-    setJev({ location, state: "working", done: 0, total: 0 });
-    runBacklog.mutate(
-      { location, onProgress: (done: number, total: number) => setJev({ location, state: "working", done, total }) },
-      {
-        onSuccess: () => {
-          void queryClient.invalidateQueries({ queryKey: [WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY] });
-          setJev((prev) => ({ location, state: "done", done: prev?.done ?? 0, total: prev?.total ?? 0 }));
-        },
-        onError: (error) => setJev((prev) => ({ location, state: "error", done: prev?.done ?? 0, total: prev?.total ?? 0, message: String((error as { message?: string })?.message ?? error).slice(0, 220) })),
-      },
-    );
   };
 
   const yardProps = {
@@ -602,12 +576,12 @@ export default function WarehouseGame() {
                 onYard: () => go({ kind: "crates", location }),
                 transfers: current.transfers.length,
                 onTransfers: () => setPanel({ kind: "transfers", location }),
-                // Sushi inside this warehouse opens the ordering room for the same warehouse; its "← Kho" comes back here.
+                // The ordering machine inside this warehouse opens the ordering room for the same warehouse; its "← Kho" comes back here.
                 onMachine: () => navigate(`/warehouse/office?kho=${location}&from=kho`),
               };
               const flat = <Warehouse portrait={portrait} {...whProps} />;
               return use3D ? (
-                <Kho3D kind="warehouse" {...whProps} lowStock={lowStock} onStockBot={() => setPanel({ kind: "low-stock", location })} flat={flat} />
+                <Kho3D kind="warehouse" {...whProps} flat={flat} />
               ) : flat;
             })()}
           </Scene>
@@ -620,11 +594,7 @@ export default function WarehouseGame() {
               crates={current.pending}
               canAssign={current.can_edit}
               pastryIds={new Set((snaps.tan_tao?.items ?? current.items).filter((item) => item.pastry_q7).map((item) => item.id))}
-              jev={jev?.location === view.location ? jev.state : "idle"}
-              progress={jev?.location === view.location ? { done: jev.done, total: jev.total } : null}
-              error={jev?.location === view.location && jev.state === "error" ? jev.message ?? null : null}
               leavingKey={leaving}
-              onRunJev={() => runJev(view.location)}
               onOpen={(crate) => setPanel({ kind: "crate", location: view.location, crate })}
             />
           </Scene>
@@ -728,18 +698,6 @@ export default function WarehouseGame() {
               </div>
             ) : null}
           </Sheet>
-        ) : null}
-
-        {panel?.kind === "low-stock" ? (
-          <LowStockSheet
-            location={panel.location}
-            overview={stockOverview}
-            rows={lowRows}
-            loading={stockQuery.isLoading}
-            error={stockQuery.error}
-            onOrder={() => navigate(`/warehouse/office?kho=${panel.location}&from=kho`)}
-            onClose={() => setPanel(null)}
-          />
         ) : null}
 
         {panel?.kind === "pate" ? (
@@ -1036,10 +994,9 @@ export function CrateSheet({ location, crate, snapshot, autoPick = false, onAssi
   const toItem = (item: WarehouseGameItem): Target => ({ kind: "item", id: item.id, name: item.name, unit: item.unit, cls: asClass(item.item_class) });
   const suggested = useMemo<Target | null>(() => {
     const near = strongCandidate(crate);
-    const id = crate.jev_item_id ?? near?.item_id ?? near?.sku_id ?? null;
+    const id = near?.item_id ?? near?.sku_id ?? null;
     if (!id) return null;
-    const isSku = crate.jev_item_id ? crate.jev_is_sku : !near?.item_id;
-    if (isSku) {
+    if (!near?.item_id) {
       const sku = snapshot.skus.find((entry) => entry.id === id);
       return sku ? { kind: "sku", id: sku.id, name: sku.product_name, unit: sku.unit, cls: "finished_goods" } : null;
     }
@@ -1062,7 +1019,7 @@ export function CrateSheet({ location, crate, snapshot, autoPick = false, onAssi
     preparePlan(next.unit);
     setTarget(next);
   };
-  // Open on the hint: Jev's pick (or the closest name) is already on the label.
+  // Open on the hint: the closest name is already on the label.
   useEffect(() => {
     if (autoPick && suggested) pick(suggested);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1086,8 +1043,8 @@ export function CrateSheet({ location, crate, snapshot, autoPick = false, onAssi
         tanTaoSkuId: dest?.kind === "sku" ? dest.id : null,
         enteredUnitLabel: lineClass === "stock" ? (plan.mode === "unknown" ? packLabel.trim() : plan.unit) || dest?.unit || null : null,
         conversionFactor: lineClass === "stock" && plan.mode !== "auto" ? factor : 1,
-        jevItemId: crate.jev_item_id,
-        jevProbability: crate.jev_probability,
+        jevItemId: null,
+        jevProbability: null,
         sourceTable: "warehouse_game",
         sourceId: null,
         lineClass,
@@ -1157,12 +1114,12 @@ export function CrateSheet({ location, crate, snapshot, autoPick = false, onAssi
           {suggested ? (
             <button type="button" className="pick is-top" onClick={() => pick(suggested)}>
               <span className="pick-star">★</span>
-              <span><b>{suggested.name}</b><small>{crate.jev_source === "exact" ? "Trùng tên" : crate.jev_item_id ? `Sushi ${Math.round((crate.jev_probability ?? 0) * 100)}%` : "Gần nhất"} · {suggested.kind === "sku" ? "Thành phẩm SKU" : CLASS_META[suggested.cls].label} · {suggested.unit}</small></span>
+              <span><b>{suggested.name}</b><small>Gần nhất · {suggested.kind === "sku" ? "Thành phẩm SKU" : CLASS_META[suggested.cls].label} · {suggested.unit}</small></span>
               <span className="pick-go">Chọn</span>
             </button>
           ) : (
             <div className="no-hint" data-bmq-crate-nohint>
-              <p className="note">Kho chưa có mặt hàng giống tên này, nên Sushi chưa có gì để gợi ý.</p>
+              <p className="note">Kho chưa có mặt hàng giống tên này.</p>
               <button type="button" className="btn" onClick={startCreate}>＋ Tạo mặt hàng “{cleanCrateName(crate.raw_name)}”</button>
             </div>
           )}

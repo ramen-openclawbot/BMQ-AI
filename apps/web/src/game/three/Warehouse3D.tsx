@@ -1,12 +1,11 @@
 import { Html } from "@react-three/drei";
-import { useFrame, type ThreeEvent } from "@react-three/fiber";
-import { useMemo, useRef, useState } from "react";
-import * as THREE from "three";
+import type { ThreeEvent } from "@react-three/fiber";
+import { useState } from "react";
 import type { WarehouseGameLocation, WarehouseGamePendingRow } from "@/lib/warehouse-game";
 import { CLASS_META, type GameClass } from "../meta";
 import { C } from "../theme";
 import type { ShelfRow } from "../Warehouse";
-import { Block, Buddy, Crate, Cyl, JevBot, Truck } from "./parts";
+import { Block, Buddy, Crate, Cyl, Truck } from "./parts";
 
 type Vec3 = [number, number, number];
 
@@ -75,8 +74,8 @@ function Rack({ row, at, onOpen }: { row: ShelfRow; at: Vec3; onOpen: (cls: Game
 }
 
 
-/** Sushi, the ordering machine, lives inside each warehouse (owner 17/10: "đặt máy đặt hàng tự động trong kho này và kho Q7 luôn"). */
-function SushiMachine({ at, onOpen }: { at: Vec3; onOpen: () => void }) {
+/** The ordering machine lives inside each warehouse (owner 17/10: "đặt máy đặt hàng tự động trong kho này và kho Q7 luôn"). */
+function OrderMachine({ at, onOpen }: { at: Vec3; onOpen: () => void }) {
   const [hover, setHover] = useState(false);
   return (
     <group position={at}>
@@ -102,7 +101,7 @@ function SushiMachine({ at, onOpen }: { at: Vec3; onOpen: () => void }) {
         <Block size={[0.2, 0.18, 0.2]} color={C.cream} position={[0.78, 0.98, 0.3]} ink={0.02} />
       </group>
       <Html position={[0, 2.95, 0]} center zIndexRange={HTML_Z}>
-        <button type="button" className="k3-tag is-machine" aria-label="Máy đặt hàng tự động" onClick={onOpen} data-bmq-sushi-machine>
+        <button type="button" className="k3-tag is-machine" aria-label="Máy đặt hàng tự động" onClick={onOpen} data-bmq-order-machine>
           <i>🤖</i>
           <b className="k3-long">Máy đặt hàng tự động</b>
           <b className="k3-short">Máy đặt hàng</b>
@@ -112,89 +111,11 @@ function SushiMachine({ at, onOpen }: { at: Vec3; onOpen: () => void }) {
   );
 }
 
-/** null while Sushi is still reading the ledger; "error" when it could not. */
-export type StockBotState = number | null | "error";
-
-/**
- * Sushi kiểm tồn (owner 20/10): a robot scanning the rack beside it; its lamp blinks
- * coral while raw materials are running low. 3D only (owner chose not to draw it in the 2D fallback).
- */
-function StockBot({ at, low, onOpen }: { at: Vec3; low: StockBotState; onOpen: () => void }) {
-  const [hover, setHover] = useState(false);
-  const bob = useRef<THREE.Group>(null);
-  const lamp = useRef<THREE.MeshBasicMaterial>(null);
-  const beam = useRef<THREE.Mesh>(null);
-  const alert = typeof low === "number" && low > 0;
-  useFrame(({ clock }) => {
-    const t = clock.elapsedTime;
-    if (bob.current) bob.current.position.y = Math.sin(t * 2.4) * 0.05;
-    if (lamp.current) lamp.current.color.set(alert ? (Math.sin(t * 5) > 0 ? C.coral : C.cream) : C.sageLight);
-    if (beam.current) beam.current.rotation.y = Math.sin(t * 1.6) * 0.35;
-  });
-  const tag = low === null ? "…" : low === "error" ? "Chưa đọc được" : low > 0 ? `${low} sắp hết` : "Đủ hàng ✓";
-  return (
-    <group position={at}>
-      <group onClick={(event) => { event.stopPropagation(); onOpen(); }} {...pointer(setHover)} position={[0, hover ? 0.06 : 0, 0]}>
-        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.012, 0]} receiveShadow>
-          <circleGeometry args={[0.78, 36]} />
-          <meshToonMaterial color={hover ? C.mustardLight : C.cream} />
-        </mesh>
-        {/* turned toward the rack on its left, scanning the shelves */}
-        <group ref={bob} rotation={[0, -0.55, 0]} scale={0.9}>
-          <Block size={[0.78, 0.1, 0.62]} color={C.cream} position={[0, 0.12, 0]} ink={0.025} />
-          {[-0.28, 0.28].map((x) => <Cyl key={x} r={0.09} h={0.06} color={C.ink} position={[x, 0.08, 0.26]} rotation={[0, 0, Math.PI / 2]} ink={0} seg={10} />)}
-          <Block size={[0.62, 0.6, 0.5]} color={C.sage} position={[0, 0.5, 0]} />
-          <Block size={[0.4, 0.05, 0.02]} color={C.cream} position={[0, 0.62, 0.26]} ink={0} shadow={false} />
-          <Block size={[0.66, 0.46, 0.54]} color={C.sage} position={[0, 1.06, 0]} />
-          <Block size={[0.5, 0.28, 0.04]} color={C.ink} position={[0, 1.08, 0.28]} ink={0} shadow={false} />
-          {[-0.11, 0.11].map((x) => (
-            <mesh key={x} position={[x, 1.09, 0.305]}>
-              <boxGeometry args={[0.08, 0.11, 0.01]} />
-              <meshBasicMaterial color={C.sageLight} />
-            </mesh>
-          ))}
-          <Cyl r={0.025} h={0.24} color={C.ink} position={[0, 1.41, 0]} ink={0} seg={6} />
-          <mesh position={[0, 1.56, 0]}>
-            <sphereGeometry args={[0.08, 12, 10]} />
-            <meshBasicMaterial ref={lamp} color={C.sageLight} />
-          </mesh>
-          {/* scanner arm sweeping a beam over the bins */}
-          <group position={[-0.36, 0.72, 0.05]}>
-            <Block size={[0.1, 0.1, 0.36]} color={C.mustard} position={[0, 0, 0.12]} ink={0.02} />
-            <mesh ref={beam} position={[0, 0, 0.3]}>
-              <coneGeometry args={[0.2, 0.5, 16, 1, true]} />
-              <meshBasicMaterial color={C.mustardLight} transparent opacity={0.45} side={THREE.DoubleSide} />
-            </mesh>
-          </group>
-          {/* clipboard in the other hand */}
-          <group position={[0.38, 0.7, 0.18]} rotation={[-0.35, -0.3, 0]}>
-            <Block size={[0.3, 0.38, 0.03]} color={C.white} ink={0.02} />
-            {[0.08, 0, -0.08].map((y) => <Block key={y} size={[0.2, 0.025, 0.01]} color={y > 0 ? C.coral : C.ink} position={[0, y, 0.02]} ink={0} shadow={false} />)}
-          </group>
-        </group>
-      </group>
-      <Html position={[-0.1, 1.9, 0.05]} center zIndexRange={HTML_Z}>
-        <button type="button" className="k3-tag is-stockbot" aria-label={`Sushi kiểm tồn: ${tag}`} onClick={onOpen} data-bmq-stock-bot>
-          <i>🔎</i>
-          <b className="k3-long">Sushi kiểm tồn</b>
-          <b className="k3-short">Kiểm tồn</b>
-          <span className={alert ? "is-alert" : undefined}>{tag}</span>
-        </button>
-      </Html>
-    </group>
-  );
-}
-
-export function Warehouse3D({ location, rows, crates, canAssign, transfers, onShelf, onYard, onTransfers, onMachine, lowStock, onStockBot }: {
+export function Warehouse3D({ location, rows, crates, canAssign, transfers, onShelf, onYard, onTransfers, onMachine }: {
   location: WarehouseGameLocation; rows: ShelfRow[]; crates: WarehouseGamePendingRow[];
   canAssign: boolean; transfers: number; onShelf: (cls: GameClass) => void; onYard: () => void; onTransfers: () => void; onMachine: () => void;
-  lowStock?: StockBotState; onStockBot?: () => void;
 }) {
   const wall = location === "q7" ? C.mustard : C.coral;
-  const path = useMemo(
-    () => [new THREE.Vector3(-6.4, 0, -0.8), new THREE.Vector3(6.4, 0, -0.8), new THREE.Vector3(6.4, 0, 1.1), new THREE.Vector3(2.2, 0, 1.3), new THREE.Vector3(2.2, 0, 2.6), new THREE.Vector3(-6.4, 0, 2.6)],
-    [],
-  );
   const pile = Math.min(crates.length, 10);
   const vanLabel = location === "q7" ? `Nhận từ Tân Tạo · ${transfers}` : `Đã chuyển sang Q7 · ${transfers}`;
   return (
@@ -269,15 +190,11 @@ export function Warehouse3D({ location, rows, crates, canAssign, transfers, onSh
         </Html>
       </group>
 
-      {/* Sushi, the ordering machine, right inside this warehouse */}
-      <SushiMachine at={[0.7, 0, 3.9]} onOpen={onMachine} />
-
-      {/* Sushi kiểm tồn: at the end of the back-right rack, where its tag clears every other tag on phones and desktop */}
-      {onStockBot ? <StockBot at={[6.7, 0, -2.6]} low={lowStock ?? null} onOpen={onStockBot} /> : null}
+      {/* the ordering machine, right inside this warehouse */}
+      <OrderMachine at={[0.7, 0, 3.9]} onOpen={onMachine} />
 
       <Buddy position={[2.6, 0, 3.6]} rotation={0.9} shirt={C.sage} cap={C.mustard} wave={crates.length > 0} />
       <Buddy position={[-5.6, 0, -1.5]} rotation={0.7} shirt={C.coral} phase={0.8} />
-      <JevBot path={path} />
     </group>
   );
 }

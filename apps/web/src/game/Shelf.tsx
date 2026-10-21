@@ -217,7 +217,7 @@ export function Shelf({ cls, entries, started, query, onQuery, selectedId, justS
         <section className="plank-wrap is-off" aria-label={`Đã tắt, ${offList.length} món`} data-bmq-off-plank>
           <header className="q7-sign off-sign">
             <span className="q7-sign-icon" aria-hidden="true">🔌</span>
-            <span><b>Đã tắt · {offList.length} món</b><small>Không vào robot kiểm tồn, đặt hàng, kiểm kê · tồn vẫn giữ</small></span>
+            <span><b>Đã tắt · {offList.length} món</b><small>Không vào danh sách sắp hết, đặt hàng, kiểm kê · tồn vẫn giữ</small></span>
           </header>
           <ul className="goods-grid">{offList.map((entry, i) => offCard(entry, i))}</ul>
         </section>

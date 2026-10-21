@@ -1,7 +1,6 @@
 import { C, STROKE } from "./theme";
 import { CLASS_META, CLASS_ORDER, asClass, type GameClass } from "./meta";
 import { Bubble, Buddy, CrateBuddy, Defs, Goods, Panel } from "./Toon";
-import { JevBot } from "./CrateYard";
 import { Van } from "./Yard";
 import type { WarehouseGameLocation, WarehouseGamePendingRow, WarehouseGameSnapshot } from "@/lib/warehouse-game";
 
@@ -129,9 +128,6 @@ export function Warehouse({ portrait, location, rows, crates, canAssign, transfe
             return <CrateBuddy key={crateKey(crate)} x={cx} y={cy} mood="worried" label="?" />;
           })}
           {crates.length === 0 ? <text x={yard.x + 40} y={yard.y + 84} className="t-sub">Đã phân loại hết ✓</text> : null}
-          <g transform={`translate(${yard.x + yard.w - (portrait ? 110 : 150)} ${yard.y + (portrait ? 18 : 22)})`}>
-            <JevBot state={crates.length ? "idle" : "done"} size={portrait ? 84 : 92} />
-          </g>
           <g transform={`translate(${portrait ? yard.x + 22 : yard.x + yard.w - 380} ${portrait ? yard.y + yard.h - 58 : yard.y + yard.h - 64})`}>
             <rect x={4} y={5} width={portrait ? 300 : 210} height={44} rx={14} fill={C.shadow} />
             <rect width={portrait ? 300 : 210} height={44} rx={14} fill={C.sage} stroke={C.ink} strokeWidth={STROKE} />
@@ -157,12 +153,12 @@ export function Warehouse({ portrait, location, rows, crates, canAssign, transfe
         <rect x={roomX + (portrait ? 88 : 160)} y={roomBottom + 30} width={portrait ? 132 : 250} height={38} rx={12} fill={C.cream} stroke={C.ink} strokeWidth={STROKE} />
         <text x={roomX + (portrait ? 154 : 285)} y={roomBottom + 55} textAnchor="middle" className="t-count">{portrait ? `Chuyển kho · ${transfers}` : location === "q7" ? `Nhận từ Tân Tạo · ${transfers}` : `Đã chuyển sang Q7 · ${transfers}`}</text>
       </g>
-      {/* Sushi, the ordering machine, inside this warehouse (owner 17/10) */}
+      {/* the ordering machine, inside this warehouse (owner 17/10) */}
       {(() => {
         const mx = roomX + roomW - (portrait ? 222 : 330);
         const my = roomBottom + 8;
         return (
-          <g className="tap" role="button" tabIndex={0} aria-label="Máy đặt hàng tự động" onClick={onMachine} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onMachine(); }} data-bmq-sushi-machine>
+          <g className="tap" role="button" tabIndex={0} aria-label="Máy đặt hàng tự động" onClick={onMachine} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onMachine(); }} data-bmq-order-machine>
             <ellipse cx={mx + 42} cy={my + 86} rx={46} ry={9} fill={C.shadow} />
             <rect x={mx + 8} y={my + 70} width={68} height={14} rx={5} fill={C.cream} stroke={C.ink} strokeWidth={STROKE} />
             <rect x={mx + 14} y={my + 26} width={56} height={48} rx={8} fill="#c88169" stroke={C.ink} strokeWidth={STROKE} />
@@ -181,7 +177,7 @@ export function Warehouse({ portrait, location, rows, crates, canAssign, transfe
       <rect x={W / 2 - 44} y={roomBottom + 12} width={88} height={40} rx={6} fill="url(#checker)" stroke={C.ink} strokeWidth={2.5} />
 
       <Buddy x={helper.x} y={helper.y + 26} mood="happy" hat="chef" face={C.white} scale={0.9} />
-      {crates.length ? <Bubble x={helper.x - 18} y={helper.y + 22} tail="side" name="Tổ trưởng kho" text={portrait ? "Vào khu phân loại nha!" : "Vào khu phân loại, Sushi sẽ gợi ý giúp!"} max={portrait ? 22 : 46} /> : null}
+      {crates.length ? <Bubble x={helper.x - 18} y={helper.y + 22} tail="side" name="Tổ trưởng kho" text={portrait ? "Vào khu phân loại nha!" : "Vào khu phân loại, dán nhãn từng thùng nha!"} max={portrait ? 22 : 46} /> : null}
     </svg>
   );
 }

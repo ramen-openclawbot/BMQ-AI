@@ -169,7 +169,7 @@ export function useSetItemsPastryQ7() {
 
 export type StockItemClass = "raw_material" | "packaging_supply" | "finished_goods" | "non_stock";
 
-/** Set / change an item's group by hand (owner 16/10); supersedes any pending Sushi classify suggestion. */
+/** Set / change an item's group by hand (owner 16/10); supersedes any pending automatic classify suggestion. */
 export function useSetStockItemClass() {
   const queryClient = useQueryClient();
   return useMutation({

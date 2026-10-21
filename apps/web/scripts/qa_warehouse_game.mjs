@@ -37,7 +37,6 @@ function settle(st) {
     if (filled && st.table === "payment_requests" && st.filters.status === "pending") count = 3;
     if (filled && st.table === "purchase_orders" && st.filters.status === "draft") count = 2;
     if (filled && st.table === "customer_po_inbox" && st.filters.match_status === "pending_approval") count = 4;
-    if (filled && st.table === "robot_feedback") count = 12;
     return { data: null, error: null, count };
   }
   if (/^rpc:(resolve_stock_alias|record_q7_stock_count|record_tan_tao_stock_count|set_goods_receipt_receiving_location|create_q7_draft_purchase_orders|upsert_q7_purchase_item_setting|update_q7_auto_purchase_settings|run_q7_auto_purchase_now|decide_stock_catalog_suggestion|revert_stock_item_merge|link_kitchen_items_to_canonical_materials)$/.test(st.table)) { window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args)); return { data: null, error: { message: "QA fixture: writes disabled" } }; }
@@ -250,8 +249,6 @@ function settle(st) {
   if (st.table === "rpc:get_stock_catalog_review" && mode === "empty") return { data: { pending_suggestions: [], recent_merges: [], item_class_counts: { unclassified: 121 }, jev_usage: { usage_date: vnDay(0), calls: 0, cost: 0, call_limit: 600 } }, error: null };
   if (st.table === "rpc:get_q7_purchase_forecast" && mode === "empty") return { data: { as_of: vnDay(0), horizon_days: 14, items: [] }, error: null };
   if (st.table === "rpc:get_q7_auto_purchase_status" && mode === "empty") return { data: { settings: AP_SETTINGS(false), latest_run: null, decisions: [] }, error: null };
-  if (st.table === "rpc:get_stock_ledger_overview" && cfg().lowStock === "fail") return { data: null, error: { message: "insufficient_privilege", code: "42501" } };
-  if (st.table === "rpc:get_stock_ledger_overview" && cfg().lowStock === "timeout") return { data: null, error: { message: "canceling statement due to statement timeout", code: "57014" } };
   if (st.table === "rpc:get_stock_ledger_overview" && mode === "empty") return { data: { location: st.args.p_location, location_name: "x", as_of: vnDay(0), cutover_date: null, items: [], pending_aliases: [] }, error: null };
   if (st.table === "rpc:reject_payment_request" && cfg().rejectError) return { data: null, error: { message: cfg().rejectError } };
   if (st.single) {
@@ -285,16 +282,6 @@ function apItem(id, name, unit, mode, usage, onHand, sup, pack, label, reorderBa
   return { item_id: id, item_code: "NVL-" + id, item_name: name, unit, mode, daily_usage: usage, avg_14d: usage, avg_28d: usage, stddev_28d: usage / 10, days_with_data: 52, weekday_factor: 1, scheduled_usage: 0, on_hand: onHand, last_count_date: onHand === null ? null : vnDay(2), open_po_qty: 0, supplier_id: sup, pack_size: pack, pack_label: label, lead_time_days: 2, safety_days: 2, order_cycle_days: 7, reorder_date: vnDay(reorderBack), suggested_qty: qty, last_unit_price: price, estimated_amount: price === null ? null : qty * price, flags: { ...NOFLAGS, ...flags } };
 }
 function fixtureRows(st) {
-  if (st.table === "rpc:get_robot_settings") return { id: true, auto_apply_enabled: true, alias_threshold: 0.95, class_threshold: 0.9, daily_cap: 50, updated_by: null, updated_at: null };
-  if (st.table === "rpc:get_robot_auto_actions") {
-    const at = new Date().toISOString();
-    return [
-      { id: "ra-1", kind: "alias", subject_key: "s|toi ngay 10", target: {}, payload: {}, robot_probability: 0.97, status: "applied", applied_at: at, undone_by: null, undone_at: null, item_name: "Tỏi bóc vỏ (kg)", raw_name: "Tỏi ngày 10 – hàng đã lột vỏ, đóng túi 1kg giao buổi sáng", class_label: null },
-      { id: "ra-2", kind: "catalog_class", subject_key: "i2", target: {}, payload: {}, robot_probability: 0.93, status: "applied", applied_at: at, undone_by: null, undone_at: null, item_name: "Băng keo nhỏ", raw_name: null, class_label: "Bao bì / vật tư" },
-      { id: "ra-3", kind: "alias", subject_key: "s|duong", target: {}, payload: {}, robot_probability: 0.96, status: "undone", applied_at: at, undone_by: null, undone_at: at, item_name: "Đường cát trắng", raw_name: "Đường Biên Hoà 1kg", class_label: null },
-    ];
-  }
-  if (st.table === "rpc:undo_robot_auto_action") { window.__qaWrites.push("rpc:undo_robot_auto_action"); return { status: "undone" }; }
   if (st.table === "rpc:get_stock_catalog_review") {
     const sug = (id, kind, a, au, ai, b, bu, bi, target, p, factor, fs, cls) => ({ id, kind, item_id: a[0], item_name: a[1], item_unit: au, other_item_id: b ? b[0] : null, other_item_name: b ? b[1] : null, other_item_unit: bu, proposed_target_id: target, target_name: target === a[0] ? a[1] : (b ? b[1] : null), target_unit: target === a[0] ? au : bu, probability: p, proposed_factor: factor, factor_source: fs, proposed_class: cls, prompt_version: "qa", cost: 0.0002, created_at: nowIso, item_issue_count_90d: ai, other_issue_count_90d: bi, source_live_refs: kind === 'merge' ? (bi > 0 || id === 'm1' ? 54 : 0) : null });
     return {
@@ -386,15 +373,13 @@ function fixtureRows(st) {
       pend("g1", "PN-1010-01", "Tỏi", "tỏi ngày 10", "toi", 5, 2), pend("g2", "PN-1010-04", "Tỏi", "tỏi ngày 11", "toi", 4, 1),
       pend("g3", "PN-1010-02", "Mai Hoàng Bích Hà", "gan 10", "gan", 6, 2), pend("g4", "PN-1010-03", "Đại Tân Việt", "DAIRYMONT WHITE SLICES CHEESE 1.04KG", "dairymont white slices cheese 1.04kg", 2, 1),
     ] : [];
-    // Tân Tạo NVL (the stock robot reads these, not the SKU items).
+    // Tân Tạo NVL (the ledger lists these, not the SKU items).
     const materials = q7 ? [] : [
       item("tm1", "NVL-BOTMI", "Bột mì 888 Cam", "kg", 0, 50, 49, vnDay(4), -2),
       item("tm2", "NVL-DUONG", "Đường cát trắng Biên Hòa loại tinh luyện bao 50kg", "kg", 12.5, 20, 35, null, null),
       item("tm3", "NVL-MUOI", "Muối", "kg", 30, 5, 7, vnDay(4), 0),
     ];
-    // Sushi kiểm tồn QA: lowStock "none" = nothing running low.
-    const calm = (rows) => (cfg().lowStock === "none" ? rows.map((r) => ({ ...r, is_low_stock: false })) : rows);
-    return { location: st.args.p_location, location_name: q7 ? "Kho NVL Q7" : "Kho Tân Tạo", as_of: vnDay(0), cutover_date: vnDay(7), items: calm(items), materials: calm(materials), pending_aliases: pending };
+    return { location: st.args.p_location, location_name: q7 ? "Kho NVL Q7" : "Kho Tân Tạo", as_of: vnDay(0), cutover_date: vnDay(7), items, materials, pending_aliases: pending };
   }
   if (st.table === "rpc:get_q7_inventory_picker") return [
     { kitchen_inventory_item_id: "k1", display_label: "NVL-TOI · Tỏi bóc vỏ · kg" }, { kitchen_inventory_item_id: "k2", display_label: "NVL-GAN · Gan heo · kg" },
@@ -577,7 +562,8 @@ KG_FIXTURE.q7.filter((crate) => crate.normalized_name === "n4").forEach((crate) 
 });
 // "Nhãn Bánh Pháp" shares only the word "bánh" with "Chất làm mềm bánh" (live score 0.633): not a hint.
 KG_FIXTURE.q7.filter((crate) => crate.raw_name === "Nhãn Bánh Pháp").forEach((crate) => { crate.top_candidate = { ...crate.top_candidate, score: 0.6333, reason: "token" }; });
-// Live data had no Jev hints at ship time; give the first 4 Q7 crates one so the "Jev đã gợi ý" lot renders.
+// The backend still stores Jev picks on crates; give the first 4 Q7 crates one so the QA proves the game no longer shows them
+// (robot Sushi removed from the game 21/10: the crate yard and label sheet only offer the closest name).
 KG_FIXTURE.q7.slice(0, 4).forEach((crate, i) => {
   // Q7 only stocks pastry items (central warehouse rule), so the hint must be one of them.
   const pastry = KG_FIXTURE.items.filter((it) => it.pastry_q7);
@@ -693,7 +679,9 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
     if (KHO_MODE === "3d") await page.waitForTimeout(1200);
     await page.screenshot({ path: `${EVIDENCE}/q7-${role}-${viewport.width}.png` });
     assert.equal(await page.locator("[data-bmq-game-3d='wh-q7']").count(), KHO_MODE === "3d" ? 1 : 0, `warehouse renders ${KHO_MODE} ${viewport.width}`);
-    assert.ok((await page.locator("[data-bmq-sushi-machine]").count()) >= 1, `Sushi machine inside Q7 (${KHO_MODE})`);
+    assert.ok((await page.locator("[data-bmq-order-machine]").count()) >= 1, `ordering machine inside Q7 (${KHO_MODE})`);
+    assert.equal(await page.locator("[data-bmq-stock-bot]").count(), 0, `no stock robot in Q7 (${KHO_MODE})`);
+    assert.ok(!(await page.locator(".kg").first().textContent()).includes("Sushi"), `no Sushi text inside Q7 (${KHO_MODE})`);
     if (KHO_MODE === "3d") {
       for (const tag of await page.locator(".kg .k3-tag, .kg .k3-sign, .kg .k3-kiosk").all()) {
         const b = await tag.boundingBox();
@@ -714,17 +702,16 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       assert.match(await page.locator(".kg .title-pill b").textContent(), /Khu phân loại/);
       const cards = await page.locator("[data-bmq-crate]").count();
       assert.equal(cards, KG_FIXTURE.q7.length, "every pending crate has a card");
-      assert.ok((await page.locator(".kg .crate-card.has-jev").count()) >= 1, "Jev hints grouped");
+      const hinted = page.locator(".kg .crate-card:has(.crate-hint:not(.is-none))");
+      assert.ok((await hinted.count()) >= 1, "closest-name hints shown");
+      assert.equal(await page.locator(".kg .jev-stage, .kg .jev-bot, [data-bmq-jev-run], [data-bmq-jev]").count(), 0, "no sorting robot in the crate yard");
+      assert.ok(!(await page.locator("[data-bmq-crate-yard]").textContent()).includes("Sushi"), "no Sushi text in the crate yard");
       await page.screenshot({ path: `${EVIDENCE}/crate-yard-${viewport.width}.png` });
-      await page.locator("[data-bmq-jev-run]").click({ force: true });
-      await page.waitForTimeout(700);
-      let writes = await page.evaluate(() => window.__qaWrites);
-      assert.ok(writes.includes("invoke:stock-alias-jev"), "Jev robot runs the backlog scan");
-      assert.equal(await page.locator("[data-bmq-jev='error']").count(), 1, "fixture refuses functions → Jev shows the error face");
-      await page.screenshot({ path: `${EVIDENCE}/crate-yard-jev-${viewport.width}.png` });
-      await page.locator(".kg .crate-card.has-jev").first().click({ force: true });
+      let writes;
+      await hinted.first().click({ force: true });
       await page.waitForTimeout(700);
       assert.equal(await page.locator(".kg .sheet [data-bmq-picked]").count(), 1, "label sheet opens on the hint");
+      assert.ok(!(await page.locator(".kg .sheet").textContent()).includes("Sushi"), "no Sushi tag in the label sheet");
       // Owner 14/10: an explicit "Bỏ chọn" drops the pre-picked suggestion; the list comes back, then pick again.
       const unpickBox = await page.locator("[data-bmq-unpick]").boundingBox();
       assert.ok(unpickBox && unpickBox.x + unpickBox.width <= viewport.width && unpickBox.height >= 32, `Bỏ chọn usable ${viewport.width}: ${JSON.stringify(unpickBox)}`);
@@ -971,7 +958,7 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
   await page.waitForTimeout(900);
   assert.ok((await page.locator(".kg .title-pill b").textContent()).includes("Danh mục hàng hóa"));
   await page.screenshot({ path: `${EVIDENCE}/workshop-${viewport.width}.png` });
-  for (const [station, check] of [["Gộp tên trùng", "[data-bmq-catalog-merge]"], ["Phân nhóm hàng", "[data-bmq-catalog-classify]"], ["Hàng để ở Q7", "[data-bmq-pastry-toggle]"], ["Gắn mã hàng", "[data-bmq-link-quest]"], ["Hàng mới chưa có mã", "[data-bmq-new-items]"], ["Tên chưa có mã", "[data-bmq-alias-backlog]"], ["Tên đã ghép mã", "[data-bmq-learned-aliases]"], ["Nhà cung cấp về kho nào", "[data-bmq-routing-suppliers]"], ["Sushi rà soát", ".jev-meter"]]) {
+  for (const [station, check] of [["Gộp tên trùng", "[data-bmq-catalog-merge]"], ["Phân nhóm hàng", "[data-bmq-catalog-classify]"], ["Hàng để ở Q7", "[data-bmq-pastry-toggle]"], ["Gắn mã hàng", "[data-bmq-link-quest]"], ["Hàng mới chưa có mã", "[data-bmq-new-items]"], ["Tên chưa có mã", "[data-bmq-alias-backlog]"], ["Tên đã ghép mã", "[data-bmq-learned-aliases]"], ["Nhà cung cấp về kho nào", "[data-bmq-routing-suppliers]"]]) {
     await page.getByRole("button", { name: new RegExp(`^${station}`) }).click({ force: true });
     await page.waitForTimeout(900);
     assert.ok((await page.locator(check).count()) >= 1, `${station} shows its tool at ${viewport.width}`);
@@ -1108,22 +1095,6 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       await page.screenshot({ path: `${EVIDENCE}/quest-stopped-${viewport.width}.png`, fullPage: true });
       await page.locator("[data-bmq-discontinued-row='Bao tay nilon'] .btn").dispatchEvent("click");
       await page.waitForFunction(() => window.__qaWrites.some((w) => w.startsWith("rpc:reactivate_stock_item:")), null, { timeout: 5000 });
-    }
-    if (station === "Sushi rà soát") {
-      const panel = page.locator("[data-bmq-robot-auto-panel]");
-      {
-        await panel.waitFor({ timeout: 4000 });
-        assert.equal(await panel.locator("[data-bmq-robot-auto]").count(), 3, "Sushi auto list shows today's actions");
-        assert.equal(await panel.getByRole("button", { name: /Hoàn tác/ }).count(), 2, "only applied rows can be undone");
-        await panel.screenshot({ path: `${EVIDENCE}/robot-auto-${viewport.width}.png` });
-        await panel.getByRole("button", { name: /Hoàn tác/ }).first().click({ force: true });
-        await page.waitForTimeout(300);
-        assert.ok((await page.evaluate(() => window.__qaWrites)).includes("rpc:undo_robot_auto_action"), "undo calls the server");
-      }
-      await page.getByRole("button", { name: /Quét cặp trùng/ }).click({ force: true });
-      await page.waitForTimeout(400);
-      const writes = await page.evaluate(() => window.__qaWrites);
-      assert.ok(writes.includes("invoke:stock-catalog-jev"), "Jev machine runs the catalog scan");
     }
     await page.locator(".kg .hud .round-btn").first().click({ force: true });
     await page.waitForTimeout(700);
@@ -1376,11 +1347,11 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
       assert.ok(b && b.x >= -1 && b.x + b.width <= viewport.width + 1, `3D Tân Tạo label inside the screen ${viewport.width}: ${await tag.textContent()} ${JSON.stringify(b)}`);
     }
   }
-  // Sushi machine inside the warehouse (owner 17/10): present in 2D and 3D, opens the ordering room for this
+  // Ordering machine inside the warehouse (owner 17/10): present in 2D and 3D, opens the ordering room for this
   // warehouse, and the room's "← Kho" (?enter=tan_tao) lands back inside the warehouse instead of the yard.
-  assert.ok((await page.locator("[data-bmq-sushi-machine]").count()) >= 1, `Sushi machine inside Tân Tạo (${KHO_MODE})`);
-  await page.screenshot({ path: `${EVIDENCE}/sushi-machine-${KHO_MODE}-${viewport.width}.png` });
-  await page.locator("[data-bmq-sushi-machine]").first().click({ force: true });
+  assert.ok((await page.locator("[data-bmq-order-machine]").count()) >= 1, `ordering machine inside Tân Tạo (${KHO_MODE})`);
+  await page.screenshot({ path: `${EVIDENCE}/order-machine-${KHO_MODE}-${viewport.width}.png` });
+  await page.locator("[data-bmq-order-machine]").first().click({ force: true });
   await page.waitForURL(/\/warehouse\/office\?kho=tan_tao&from=kho/, { timeout: 5000 });
   await page.goto(`${BASE}/warehouse/game?enter=tan_tao`, { waitUntil: "networkidle" });
   await page.waitForSelector("[data-bmq-transfer-van]", { timeout: 20000 });
@@ -1639,69 +1610,19 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
   await context.close();
 }
 
-// Sushi kiểm tồn (owner 20/10): 3D only. The robot reads the ledger's NVL "sắp hết" flag for its own
-// warehouse (Q7 items, Tân Tạo materials), opens the list and hands off to the ordering room.
-const overlaps = (a, b) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
-for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 640 }]) {
-  for (const [loc, door, expected] of [["q7", /KHO Q7/i, ["Tỏi bóc vỏ"]], ["tan_tao", /KHO TÂN TẠO/i, ["Bột mì 888 Cam", "Đường cát trắng"]]]) {
+// Robot Sushi removed from the game (owner 21/10): no robot, no stock-check robot and no Sushi text in either
+// warehouse, in 2D or 3D. The ledger's "sắp hết" list stays on the Sổ tồn pages.
+for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+  for (const door of [/KHO Q7/i, /KHO TÂN TẠO/i]) {
     const { context, page, errors } = await open({ data: "populated", role: "owner", started: true }, "/warehouse/game", viewport);
     await page.waitForSelector("[data-bmq-warehouse-game]", { timeout: 20000 });
     await page.waitForTimeout(1200);
     await page.getByRole("button", { name: door }).first().click({ force: true });
     await page.waitForTimeout(KHO_MODE === "3d" ? 2100 : 900);
-    if (KHO_MODE !== "3d") {
-      assert.equal(await page.locator("[data-bmq-stock-bot]").count(), 0, "no stock robot in the 2D fallback (owner: 3D only)");
-      assert.deepEqual(errors, []);
-      record(`stock robot absent in 2D ${loc} ${viewport.width}`);
-      await context.close();
-      continue;
-    }
-    const bot = page.locator("[data-bmq-stock-bot]");
-    await bot.waitFor({ timeout: 10000 });
-    await page.waitForTimeout(600);
-    assert.match(await bot.textContent(), new RegExp(`${expected.length} sắp hết`), `robot badge counts ${loc}`);
-    const b = await bot.boundingBox();
-    assert.ok(b && b.x >= -1 && b.x + b.width <= viewport.width + 1 && b.y > 60 && b.y + b.height <= viewport.height, `robot tag inside the screen ${loc} ${viewport.width}: ${JSON.stringify(b)}`);
-    for (const other of await page.locator(".kg .k3-tag:not([data-bmq-stock-bot])").all()) {
-      const o = await other.boundingBox();
-      assert.ok(o && !overlaps(b, o), `robot tag clear of "${await other.textContent()}" ${loc} ${viewport.width}: ${JSON.stringify(b)} vs ${JSON.stringify(o)}`);
-    }
-    await page.screenshot({ path: `${EVIDENCE}/stock-bot-${loc}-${viewport.width}.png` });
-    await bot.click({ force: true });
-    await page.waitForTimeout(700);
-    const rows = page.locator("[data-bmq-low-stock-row]");
-    assert.equal(await rows.count(), expected.length, `low-stock rows ${loc}`);
-    for (const [i, name] of expected.entries()) assert.ok((await rows.nth(i).textContent()).includes(name), `row ${i} is ${name}`);
-    if (loc === "tan_tao") assert.ok((await rows.first().textContent()).includes("Đã hết"), "empty material first, marked Đã hết");
-    assert.equal(await overflow(page), 0, `no overflow low-stock ${loc} ${viewport.width}`);
-    const sheet = await page.locator(".kg .sheet").boundingBox();
-    assert.ok(sheet && sheet.x >= 0 && sheet.x + sheet.width <= viewport.width + 1, `low-stock sheet fits ${viewport.width}`);
-    await page.screenshot({ path: `${EVIDENCE}/low-stock-${loc}-${viewport.width}.png` });
-    await page.locator("[data-bmq-low-stock-order]").click({ force: true });
-    await page.waitForURL(new RegExp(`/warehouse/office\\?kho=${loc}&from=kho`), { timeout: 5000 });
+    assert.equal(await page.locator("[data-bmq-stock-bot], [data-bmq-low-stock-row], .kg .jev-bot").count(), 0, `no robot in ${door} ${viewport.width}`);
+    assert.ok(!(await page.locator(".kg").first().textContent()).includes("Sushi"), `no Sushi text in ${door} ${viewport.width}`);
     assert.deepEqual(errors, []);
-    record(`stock robot ${loc} ${viewport.width}`);
-    await context.close();
-  }
-}
-if (KHO_MODE === "3d") {
-  for (const [lowStock, selector, text] of [["none", "[data-bmq-low-stock-empty]", "Chưa có món nào sắp hết"], ["fail", "[data-bmq-low-stock-error]", "chưa có quyền xem sổ tồn"], ["timeout", "[data-bmq-low-stock-error]", "đọc quá lâu"]]) {
-    const viewport = { width: 390, height: 844 };
-    const { context, page, errors } = await open({ data: "populated", role: "owner", started: true, lowStock }, "/warehouse/game", viewport);
-    await page.waitForSelector("[data-bmq-warehouse-game]", { timeout: 20000 });
-    await page.waitForTimeout(1200);
-    await page.getByRole("button", { name: /KHO Q7/i }).first().click({ force: true });
-    await page.waitForTimeout(2100);
-    const bot = page.locator("[data-bmq-stock-bot]");
-    await bot.waitFor({ timeout: 10000 });
-    await page.waitForTimeout(lowStock === "none" ? 600 : 4500); // react-query retries failed reads before giving up
-    assert.match(await bot.textContent(), lowStock === "none" ? /Đủ hàng/ : /Chưa đọc được/, `robot badge ${lowStock}`);
-    await bot.click({ force: true });
-    await page.waitForTimeout(700);
-    assert.ok((await page.locator(selector).textContent()).includes(text), `low-stock ${lowStock} state`);
-    await page.screenshot({ path: `${EVIDENCE}/low-stock-${lowStock}-390.png` });
-    assert.deepEqual(errors, []);
-    record(`stock robot ${lowStock} 390`);
+    record(`no robot ${door} ${KHO_MODE} ${viewport.width}`);
     await context.close();
   }
 }

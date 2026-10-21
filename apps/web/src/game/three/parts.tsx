@@ -136,52 +136,6 @@ export function Buddy({ position, rotation = 0, shirt = C.plum, head = "#f2c79a"
   );
 }
 
-/** Jev, the warehouse robot: hovering body, screen face, blinking antenna. */
-export function JevBot({ path, speed = 0.035, color = C.sage }: { path: THREE.Vector3[]; speed?: number; color?: string }) {
-  const root = useRef<THREE.Group>(null);
-  const hover = useRef<THREE.Group>(null);
-  const light = useRef<THREE.MeshBasicMaterial>(null);
-  const curve = useMemo(() => new THREE.CatmullRomCurve3(path, true, "catmullrom", 0.2), [path]);
-  const ahead = useMemo(() => new THREE.Vector3(), []);
-  useFrame(({ clock }) => {
-    const t = (clock.elapsedTime * speed) % 1;
-    const p = curve.getPointAt(t);
-    curve.getPointAt((t + 0.01) % 1, ahead);
-    if (root.current) {
-      root.current.position.set(p.x, 0, p.z);
-      root.current.rotation.y = Math.atan2(ahead.x - p.x, ahead.z - p.z);
-    }
-    if (hover.current) hover.current.position.y = 0.2 + Math.sin(clock.elapsedTime * 3) * 0.06;
-    if (light.current) light.current.color.set(Math.sin(clock.elapsedTime * 5) > 0 ? C.mustard : C.cream);
-  });
-  return (
-    <group ref={root}>
-      <mesh position={[0, 0.01, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <circleGeometry args={[0.36, 20]} />
-        <meshBasicMaterial color={C.ink} transparent opacity={0.18} />
-      </mesh>
-      <group ref={hover}>
-        <Block size={[0.62, 0.52, 0.5]} color={color} position={[0, 0.36, 0]} />
-        <Block size={[0.46, 0.28, 0.04]} color={C.ink} position={[0, 0.42, 0.26]} ink={0} />
-        <mesh position={[-0.1, 0.43, 0.285]}>
-          <boxGeometry args={[0.07, 0.1, 0.01]} />
-          <meshBasicMaterial color={C.sageLight} />
-        </mesh>
-        <mesh position={[0.1, 0.43, 0.285]}>
-          <boxGeometry args={[0.07, 0.1, 0.01]} />
-          <meshBasicMaterial color={C.sageLight} />
-        </mesh>
-        <Cyl r={0.025} h={0.22} color={C.ink} position={[0, 0.72, 0]} ink={0} seg={6} />
-        <mesh position={[0, 0.86, 0]}>
-          <sphereGeometry args={[0.07, 12, 10]} />
-          <meshBasicMaterial ref={light} color={C.mustard} />
-        </mesh>
-        <Block size={[0.7, 0.08, 0.56]} color={C.cream} position={[0, 0.08, 0]} ink={0.025} />
-      </group>
-    </group>
-  );
-}
-
 export function Crate({ position, rotation = 0, size = 0.6, color = C.kraft }: { position: Vec3; rotation?: number; size?: number; color?: string }) {
   return (
     <group position={position} rotation={[0, rotation, 0]}>

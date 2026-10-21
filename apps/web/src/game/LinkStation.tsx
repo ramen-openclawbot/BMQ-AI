@@ -139,7 +139,7 @@ export function LinkStation({ canEdit: canEditStock }: { canEdit: boolean }) {
       <div className="flow-note">
         <span>📋 Kiểm kê Q7 cần mỗi món có <b>mã nguyên liệu chuẩn</b></span>
       </div>
-      <div className="jev-meter link-meter">
+      <div className="link-meter">
         <div><small>Chưa gắn</small><b>{counts.total}</b></div>
         <div><small>Trùng tên</small><b>{counts.exact}</b></div>
         <div><small>Đã gắn</small><b>{counts.linked_total}</b></div>

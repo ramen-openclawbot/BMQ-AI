@@ -9,7 +9,6 @@ import { useItemReceiptLines } from "@/hooks/useWarehouseGame";
 import { bulkableRows, deckOrder, factorPrefill, itemFactorPrefill, type MaterialLinkCandidate, type MaterialLinkLocation, type MaterialLinkPendingFactor, type MaterialLinkPurchaseLine, type MaterialLinkReviewItem } from "@/lib/material-link-quest";
 import { q7MaterialLinkErrorCode, q7MaterialLinkErrorText } from "@/lib/q7-material-links";
 import { missionErrorMessage, type CompleteMissionResult, type Mission } from "@/lib/missions";
-import { JevBot } from "./CrateYard";
 import { Defs } from "./Toon";
 import { GoodsIcon } from "./GoodsArt";
 import { ReceiptNotes } from "./ReceiptNotes";
@@ -198,7 +197,7 @@ export function DiscontinueButton({ itemId, name, onDone, onToast }: { itemId: s
   );
 }
 
-/** One card of the deck: the item, Jev's candidates, the unit question (with the delivery notes), four decisions. */
+/** One card of the deck: the item, its suggested candidates, the unit question (with the delivery notes), four decisions. */
 function ItemCard({ item, canEdit, onLinked, onSkipped, onDefer }: {
   item: MaterialLinkReviewItem; canEdit: boolean;
   onLinked: (text: string) => void; onSkipped: (text: string) => void; onDefer: () => void;
@@ -277,7 +276,7 @@ function ItemCard({ item, canEdit, onLinked, onSkipped, onDefer }: {
         </div>
       </div>
 
-      <div className="lq-jev"><span className="lq-jev-bot"><JevBot state={candidates.length ? "done" : "error"} size={30} /></span>{candidates.length ? "Sushi gợi ý mã hàng" : "Sushi không thấy mã nào giống"}</div>
+      <div className="lq-hint">{candidates.length ? "Gợi ý mã hàng" : "Không thấy mã nào giống"}</div>
       {candidates.length ? (
         <div className="lq-cands" role="radiogroup" aria-label={`Mã hàng cho ${item.name}`}>
           {candidates.map((candidate) => <Candidate key={candidate.id} item={item} candidate={candidate} picked={picked?.id === candidate.id} onPick={() => pick(candidate)} disabled={!canEdit || busy} />)}
@@ -324,7 +323,7 @@ function ItemCard({ item, canEdit, onLinked, onSkipped, onDefer }: {
 }
 
 /**
- * "Gắn mã hàng" as a card deck (owner approved the demo 15/10): one item per card, Jev's candidates
+ * "Gắn mã hàng" as a card deck (owner approved the demo 15/10): one item per card, suggested candidates
  * with the SKUs they feed, the unit question with the delivery notes, a combo for exact matches,
  * a streak, and the warehouse mission submitted when the deck is empty.
  */
@@ -394,10 +393,7 @@ export function LinkQuest({ location, canEdit, mission, onToast, onCompleted }: 
 
       {!comboHidden && combo.length >= 2 ? (
         <section className="lq-combo" data-bmq-lq-combo>
-          <div className="row" style={{ alignItems: "center", flexWrap: "nowrap" }}>
-            <JevBot state="done" size={56} />
-            <div><h3>Sushi thấy {combo.length} món trùng tên mã hàng</h3><p>Cùng đơn vị hoặc máy tự đổi được. Gắn một lần, khỏi lật từng thẻ.</p></div>
-          </div>
+          <div><h3>Có {combo.length} món trùng tên mã hàng</h3><p>Cùng đơn vị hoặc máy tự đổi được. Gắn một lần, khỏi lật từng thẻ.</p></div>
           <div className="lq-combo-list">{combo.slice(0, 8).map((row) => <span key={row.item_id}>{row.name}</span>)}{combo.length > 8 ? <span>+{combo.length - 8} món</span> : null}</div>
           <div className="row">
             <button type="button" className="btn" disabled={bulk.isPending} onClick={runCombo} data-bmq-lq-combo-all>{bulk.isPending ? "Đang gắn…" : `⚡ Gắn ${combo.length} món`}</button>
@@ -411,7 +407,6 @@ export function LinkQuest({ location, canEdit, mission, onToast, onCompleted }: 
           <ItemCard key={current.item_id} item={current} canEdit={canEdit} onLinked={(text) => { decide([current.item_id]); advance(text); }} onSkipped={(text) => { decide([current.item_id]); advance(text); }} onDefer={() => defer(current)} />
         ) : (
           <section className="lq-done" data-bmq-lq-done>
-            <JevBot state="done" size={80} />
             <h3>{QUEST_LABEL[location]} đã có mã đủ!</h3>
             <p>{done} món có mã{counts?.skipped ? ` · ${counts.skipped} món không phải NVL` : ""}. {location === "q7" ? "Kiểm kê Q7 giờ chốt được rồi." : "Giá vốn các SKU nối thẳng vào kho."}</p>
             {missionOpen ? (

@@ -1,51 +1,5 @@
 import type { WarehouseGameLocation, WarehouseGamePendingRow } from "@/lib/warehouse-game";
 import { crateKey } from "./Warehouse";
-import { C, STROKE } from "./theme";
-
-export type JevState = "idle" | "working" | "done" | "error";
-
-/** Jev, the sorting robot: plum body, screen face, antenna bulb. `working` scans and blinks. */
-export function JevBot({ state, size = 120 }: { state: JevState; size?: number }) {
-  const eye = state === "working" ? C.mustardLight : state === "error" ? C.coralLight : C.sageLight;
-  return (
-    <svg viewBox="-60 -70 120 140" width={size} height={size * (140 / 120)} className={`jev-bot is-${state}`} aria-hidden="true">
-      <ellipse cx={4} cy={62} rx={40} ry={7} fill={C.shadow} />
-      {/* antenna */}
-      <line x1={0} y1={-42} x2={0} y2={-58} stroke={C.ink} strokeWidth={STROKE} strokeLinecap="round" />
-      <circle className="jev-bulb" cx={0} cy={-61} r={7} fill={state === "working" ? C.mustard : state === "done" ? C.sage : C.coral} stroke={C.ink} strokeWidth={STROKE} />
-      <g className="jev-body">
-        {/* arms */}
-        <g className="jev-arm-l"><path d="M-40 8 q-16 4 -18 22" fill="none" stroke={C.ink} strokeWidth={STROKE} strokeLinecap="round" /><circle cx={-58} cy={32} r={7} fill={C.plumLight} stroke={C.ink} strokeWidth={STROKE} /></g>
-        <g className="jev-arm-r"><path d="M40 8 q16 4 18 22" fill="none" stroke={C.ink} strokeWidth={STROKE} strokeLinecap="round" /><circle cx={58} cy={32} r={7} fill={C.plumLight} stroke={C.ink} strokeWidth={STROKE} /></g>
-        {/* head */}
-        <rect x={-42} y={-44} width={84} height={64} rx={18} fill={C.plum} stroke={C.ink} strokeWidth={STROKE} />
-        <rect x={-32} y={-34} width={64} height={44} rx={11} fill={C.ink} />
-        {state === "working" ? (
-          <>
-            <rect className="jev-scan" x={-30} y={-32} width={60} height={4} rx={2} fill={C.mustardLight} opacity={0.8} />
-            <rect x={-20} y={-18} width={12} height={8} rx={3} fill={eye} />
-            <rect x={8} y={-18} width={12} height={8} rx={3} fill={eye} />
-          </>
-        ) : state === "done" ? (
-          <>
-            <path d="M-20 -12 q6 -9 12 0" fill="none" stroke={eye} strokeWidth={3.5} strokeLinecap="round" />
-            <path d="M8 -12 q6 -9 12 0" fill="none" stroke={eye} strokeWidth={3.5} strokeLinecap="round" />
-            <path d="M-8 0 q8 7 16 0" fill="none" stroke={eye} strokeWidth={3} strokeLinecap="round" />
-          </>
-        ) : (
-          <>
-            <circle className="jev-eye" cx={-14} cy={-14} r={6} fill={eye} />
-            <circle className="jev-eye" cx={14} cy={-14} r={6} fill={eye} />
-            <path d={state === "error" ? "M-8 4 q8 -6 16 0" : "M-7 1 h14"} fill="none" stroke={eye} strokeWidth={3} strokeLinecap="round" />
-          </>
-        )}
-        {/* body */}
-        <rect x={-30} y={20} width={60} height={36} rx={10} fill={C.plumLight} stroke={C.ink} strokeWidth={STROKE} />
-        <text x={0} y={44} textAnchor="middle" className="t-jev">SUSHI</text>
-      </g>
-    </svg>
-  );
-}
 
 const shortDate = (iso: string | null | undefined) => {
   if (!iso) return "—";
@@ -73,37 +27,31 @@ export function strongCandidate(crate: WarehouseGamePendingRow) {
   return tokenOnly && Number(c.score ?? 0) < 0.75 ? null : c;
 }
 
-/** What the label sheet will offer first for a crate: the Jev pick, else the closest name. */
-export function crateHint(crate: WarehouseGamePendingRow): { name: string; unit: string | null; tag: string; strong: boolean } | null {
-  if (crate.jev_item_id && crate.jev_item_name) {
-    const tag = crate.jev_source === "exact" ? "Trùng tên" : `Sushi ${Math.round((crate.jev_probability ?? 0) * 100)}%`;
-    return { name: crate.jev_item_name, unit: crate.jev_unit, tag, strong: true };
-  }
+/** What the label sheet will offer first for a crate: the closest name already in this warehouse. */
+function crateHint(crate: WarehouseGamePendingRow): { name: string; unit: string | null; itemId: string | null } | null {
   const near = strongCandidate(crate);
-  if (near) return { name: near.name, unit: near.unit ?? null, tag: "Gần nhất", strong: false };
-  return null;
+  return near ? { name: near.name, unit: near.unit ?? null, itemId: near.item_id ?? null } : null;
 }
 
 function CrateCard({ crate, index, leaving, pastryIds, onOpen }: { crate: WarehouseGamePendingRow; index: number; leaving: boolean; pastryIds: Set<string>; onOpen: () => void }) {
   const hint = crateHint(crate);
-  const hintId = crate.jev_item_id ?? strongCandidate(crate)?.item_id ?? null;
-  const toQ7 = Boolean(hint && hintId && pastryIds.has(hintId));
+  const toQ7 = Boolean(hint?.itemId && pastryIds.has(hint.itemId));
   return (
     <li>
       <button
         type="button"
-        className={`crate-card${hint?.strong ? " has-jev" : ""}${leaving ? " is-leaving" : ""}`}
+        className={`crate-card${leaving ? " is-leaving" : ""}`}
         style={{ animationDelay: `${Math.min(index, 16) * 35}ms` }}
         onClick={onOpen}
         data-bmq-crate={crate.normalized_name}
       >
         <span className="crate-tape" aria-hidden="true" />
-        <span className="crate-face" aria-hidden="true">{hint?.strong ? "•ᴗ•" : "•︵•"}</span>
+        <span className="crate-face" aria-hidden="true">{hint ? "•ᴗ•" : "•︵•"}</span>
         <b className="crate-name">{crate.raw_name}</b>
         <span className="crate-meta">{crate.supplier_name ?? "Chưa rõ NCC"} · {crate.line_count} dòng · {shortDate(crate.last_receipt_date)}</span>
         {hint ? (
-          <span className={`crate-hint${hint.strong ? " is-jev" : ""}`}>
-            <small>{hint.tag}</small>
+          <span className="crate-hint">
+            <small>Gần nhất</small>
             <span>{hint.name}{hint.unit ? ` · ${hint.unit}` : ""}</span>
             {toQ7 ? <em className="crate-q7">🧁 tự chuyển Q7</em> : null}
           </span>
@@ -114,45 +62,23 @@ function CrateCard({ crate, index, leaving, pastryIds, onOpen }: { crate: Wareho
   );
 }
 
-/** The crate yard of one warehouse: Jev sorts first, then the player labels with the hint. */
-export function CrateYard({ location, crates, canAssign, pastryIds, jev, progress, error, leavingKey, onRunJev, onOpen }: {
+/** The crate yard of one warehouse: the player labels each crate, starting from the closest name. */
+export function CrateYard({ location, crates, canAssign, pastryIds, leavingKey, onOpen }: {
   location: WarehouseGameLocation; crates: WarehouseGamePendingRow[]; canAssign: boolean; pastryIds: Set<string>;
-  jev: JevState; progress: { done: number; total: number } | null; error?: string | null; leavingKey: string | null;
-  onRunJev: () => void; onOpen: (crate: WarehouseGamePendingRow) => void;
+  leavingKey: string | null; onOpen: (crate: WarehouseGamePendingRow) => void;
 }) {
-  const withHint = crates.filter((crate) => crateHint(crate)?.strong);
-  const near = crates.filter((crate) => { const hint = crateHint(crate); return hint && !hint.strong; });
+  const near = crates.filter((crate) => crateHint(crate));
   const fresh = crates.filter((crate) => !crateHint(crate));
-  const label = location === "q7" ? "Kho Q7" : "Kho Tân Tạo";
   const say = !canAssign ? "Chỉ chủ hoặc người sửa kho được dán nhãn."
-    : jev === "working" ? `Sushi đang phân loại…${progress && progress.total ? ` ${progress.done}/${progress.total}` : ""}`
-    : jev === "error" ? `Sushi chưa chạy được${progress && progress.done ? ` (đã xong ${progress.done} tên)` : ""}: ${(error ?? "thử lại sau nhé").replace(/\.$/, "")}.`
     : crates.length === 0 ? "Bãi sạch trơn! Không còn thùng nào ✓"
-    : withHint.length === crates.length ? `Đã gợi ý cả ${crates.length} thùng. Bấm từng thùng để dán nhãn!`
-    : jev === "done" ? `Xong! Gợi ý được ${withHint.length}/${crates.length} thùng. Thùng còn lại anh chọn tay nha.`
-    : `${crates.length} món chưa dán nhãn, ${withHint.length} đã có gợi ý. Bấm nút để Sushi phân loại giúp!`;
+    : `${crates.length} món chưa dán nhãn${near.length ? `, ${near.length} món có tên gần giống trong kho` : ""}. Bấm từng thùng để dán nhãn!`;
   return (
     <div className="shelf-view crate-yard" data-bmq-crate-yard={location}>
-      <section className="jev-stage" data-bmq-jev={jev}>
-        <div className="jev-figure"><JevBot state={jev} size={112} /></div>
-        <div className="jev-talk">
-          <div className="jev-bubble"><small>Sushi · {label}</small><p>{say}</p></div>
-          {progress && jev === "working" ? <div className="jev-progress"><i style={{ width: `${progress.total ? (progress.done / progress.total) * 100 : 8}%` }} /></div> : null}
-          {canAssign && crates.length > 0 ? (
-            <button type="button" className="btn jev-run" disabled={jev === "working"} onClick={onRunJev} data-bmq-jev-run>
-              {jev === "working" ? "Sushi đang làm…" : withHint.length === crates.length ? "🤖 Cho Sushi xem lại" : "🤖 Sushi phân loại"}
-            </button>
-          ) : null}
-          <p className="yard-rule">{location === "tan_tao" ? "Mọi phiếu nhập về Tân Tạo; món để ở Q7 tự chuyển sang Q7. " : "Q7 chỉ nhận món để ở Q7. "}Chỉ hiện tên có nhập trong 60 ngày.</p>
-        </div>
+      <section className="yard-head">
+        <p className="yard-say">{say}</p>
+        <p className="yard-rule">{location === "tan_tao" ? "Mọi phiếu nhập về Tân Tạo; món để ở Q7 tự chuyển sang Q7. " : "Q7 chỉ nhận món để ở Q7. "}Chỉ hiện tên có nhập trong 60 ngày.</p>
       </section>
 
-      {canAssign && withHint.length ? (
-        <section className="yard-lot is-jev">
-          <h2 className="cork-title"><span>★</span> Sushi đã gợi ý · {withHint.length}</h2>
-          <ul className="crate-grid">{withHint.map((crate, i) => <CrateCard key={crateKey(crate)} crate={crate} index={i} leaving={leavingKey === crateKey(crate)} pastryIds={pastryIds} onOpen={() => onOpen(crate)} />)}</ul>
-        </section>
-      ) : null}
       {canAssign && near.length ? (
         <section className="yard-lot">
           <h2 className="cork-title"><span>📦</span> Chưa rõ · {near.length}</h2>

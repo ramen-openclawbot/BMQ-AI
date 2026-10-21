@@ -1,8 +1,8 @@
 import { useState, type ReactNode } from "react";
 import { RotateCcw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { useLinkKitchenItemsToCanonical, useRevertStockItemMerge, useRunStockCatalogJev, useStockCatalogReview } from "@/hooks/useStockCatalog";
-import { useRunAliasBacklog, type MaterialAliasLocation } from "@/hooks/useMaterialAlias";
+import { useRevertStockItemMerge, useStockCatalogReview } from "@/hooks/useStockCatalog";
+import type { MaterialAliasLocation } from "@/hooks/useMaterialAlias";
 import { ClassifyRow, LearnedAliasesCard, MergeRow, errorText } from "@/pages/StockCatalogCleanup";
 import { AliasBacklogReview } from "@/components/material-alias/AliasBacklogReview";
 import { NewItemSuggestions } from "@/components/material-alias/NewItemSuggestions";
@@ -11,7 +11,6 @@ import { useSetItemPastryQ7, useWarehouseGameSnapshot } from "@/hooks/useWarehou
 import { CLASS_META, asClass, normalizeName } from "./meta";
 import { STATION_META, type StationId } from "./Workshop";
 import { LinkStation } from "./LinkStation";
-import { RobotAutoPanel } from "./RobotAutoPanel";
 import "@/styles/bmq-warehouse.css";
 import "@/styles/bmq-stock-ledger.css";
 import "@/styles/bmq-material-alias.css";
@@ -50,7 +49,7 @@ function MergeStation({ canEdit }: { canEdit: boolean }) {
   return (
     <>
       <Section title={`Cặp chờ gộp · ${merges.length}`} sub="Mặt hàng được giữ là bên đang dùng nhiều hơn. Tồn và lịch sử bên kia chuyển sang theo hệ số.">
-        {query.isLoading ? <div className="d3-wh-empty">Đang tải…</div> : merges.length === 0 ? <div className="d3-wh-empty">Không có cặp nào chờ gộp. Bấm “Quét cặp trùng” ở Sushi rà soát.</div> : (
+        {query.isLoading ? <div className="d3-wh-empty">Đang tải…</div> : merges.length === 0 ? <div className="d3-wh-empty">Không có cặp nào chờ gộp.</div> : (
           <ul className="d3-sc-list">{merges.map((row) => <MergeRow key={row.id} row={row} canEdit={canEdit} />)}</ul>
         )}
       </Section>
@@ -83,63 +82,10 @@ function ClassifyStation({ canEdit }: { canEdit: boolean }) {
   const counts = query.data?.item_class_counts ?? {};
   return (
     <Section title={`Chờ phân loại · ${rows.length}`} sub={`${counts.unclassified ?? 0} mặt hàng chưa có nhóm. Nguyên liệu, bao bì/vật tư, thành phẩm hay không tồn kho.`}>
-      {query.isLoading ? <div className="d3-wh-empty">Đang tải…</div> : rows.length === 0 ? <div className="d3-wh-empty">Không có mặt hàng chờ phân loại. Bấm “Phân loại mặt hàng” ở Sushi rà soát.</div> : (
+      {query.isLoading ? <div className="d3-wh-empty">Đang tải…</div> : rows.length === 0 ? <div className="d3-wh-empty">Không có mặt hàng chờ phân loại.</div> : (
         <ul className="d3-sc-list">{rows.map((row) => <ClassifyRow key={row.id} row={row} canEdit={canEdit} />)}</ul>
       )}
     </Section>
-  );
-}
-
-function JevStation({ canEdit }: { canEdit: boolean }) {
-  const { toast } = useToast();
-  const query = useStockCatalogReview();
-  const run = useRunStockCatalogJev();
-  const link = useLinkKitchenItemsToCanonical();
-  const backlog = useRunAliasBacklog();
-  const usage = query.data?.jev_usage;
-  const left = usage ? Math.max(0, usage.call_limit - usage.calls) : null;
-  const scan = (mode: "dedupe" | "classify") =>
-    run.mutate({ mode }, {
-      onSuccess: (s) => toast({ title: mode === "dedupe" ? "Sushi đã quét cặp trùng" : "Sushi đã phân loại", description: `${s.suggestions} đề xuất mới${Number((s as { auto_applied?: number }).auto_applied ?? 0) > 0 ? ` (tự xếp ${(s as { auto_applied?: number }).auto_applied})` : ""}, ${s.skipped_existing} đã có, ${s.failed} lỗi, ${s.calls} lượt gọi${s.stopped ? " · dừng vì hết hạn mức" : ""}.` }),
-      onError: (error) => toast({ title: "Sushi chưa quét được", description: errorText(error), variant: "destructive" }),
-    });
-  const scanBacklog = (location: MaterialAliasLocation) =>
-    backlog.mutate({ location }, {
-      onSuccess: (data) => {
-        const auto = Number((data as { auto_applied_total?: unknown })?.auto_applied_total ?? 0) || 0;
-        toast({ title: `Sushi đã dò tên tồn đọng ${location === "q7" ? "Q7" : "Tân Tạo"}`, description: auto > 0 ? `Tự gắn ${auto} tên chắc chắn · xem và hoàn tác ở mục "Sushi tự làm hôm nay".` : undefined });
-      },
-      onError: (error) => toast({ title: "Sushi chưa dò được", description: errorText(error), variant: "destructive" }),
-    });
-  return (
-    <>
-      <div className="jev-meter">
-        <div><small>Lượt Sushi hôm nay</small><b>{usage ? `${usage.calls}/${usage.call_limit}` : "…"}</b></div>
-        <div><small>Còn lại</small><b>{left ?? "…"}</b></div>
-        <div><small>Chi phí</small><b>{usage ? `${usage.cost.toFixed(4)} $` : "…"}</b></div>
-      </div>
-      {!canEdit ? <p className="note">Chỉ chủ hoặc người sửa kho được chạy máy Sushi.</p> : (
-        <div className="jev-buttons">
-          <button type="button" className="btn" disabled={run.isPending || left === 0} onClick={() => scan("dedupe")}>🔗 Quét cặp trùng</button>
-          <button type="button" className="btn" disabled={run.isPending || left === 0} onClick={() => scan("classify")}>🏷️ Phân loại mặt hàng</button>
-          <button type="button" className="btn ghost" disabled={backlog.isPending} onClick={() => scanBacklog("q7")}>📦 Dò tên tồn đọng Q7</button>
-          <button type="button" className="btn ghost" disabled={backlog.isPending} onClick={() => scanBacklog("tan_tao")}>📦 Dò tên tồn đọng Tân Tạo</button>
-          <button
-            type="button"
-            className="btn ghost"
-            disabled={link.isPending}
-            onClick={() => link.mutate(undefined, {
-              onSuccess: (data) => toast({ title: "Đã rà mã hàng", description: `${Number((data as { linkable_count?: number })?.linkable_count ?? 0)} mặt hàng gắn được mã hàng. Việc gắn thật làm ở Material Master.` }),
-              onError: (error) => toast({ title: "Chưa rà được", description: errorText(error), variant: "destructive" }),
-            })}
-          >
-            🧭 Rà mã hàng
-          </button>
-        </div>
-      )}
-      {run.isPending || backlog.isPending ? <p className="note">Sushi đang làm việc… có thể mất vài phút.</p> : null}
-      <RobotAutoPanel canEdit={canEdit} />
-    </>
   );
 }
 
@@ -212,7 +158,6 @@ export function StationView({ id, canEdit }: { id: StationId; canEdit: boolean }
         {id === "classify" ? <ClassifyStation canEdit={canEdit} /> : null}
         {id === "pastry" ? <PastryStation canEdit={canEdit} /> : null}
         {id === "links" ? <LinkStation canEdit={canEdit} /> : null}
-        {id === "jev" ? <JevStation canEdit={canEdit} /> : null}
         {id === "aliases" ? <LearnedAliasesCard canEdit={canEdit} /> : null}
         {id === "backlog" ? <AliasBacklogReview key={`b-${location}`} canEdit={canEdit} location={location} /> : null}
         {id === "new" ? <NewItemSuggestions key={`n-${location}`} canEdit={canEdit} location={location} /> : null}

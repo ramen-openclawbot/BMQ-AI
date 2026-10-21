@@ -1,7 +1,7 @@
 import { C, STROKE } from "./theme";
-import { Bubble, Buddy, Defs, Panel } from "./Toon";
+import { Defs, Panel } from "./Toon";
 
-export type StationId = "merge" | "classify" | "pastry" | "links" | "jev" | "aliases" | "backlog" | "new" | "routing";
+export type StationId = "merge" | "classify" | "pastry" | "links" | "aliases" | "backlog" | "new" | "routing";
 
 export interface Station { id: StationId; label: string; icon: string; tint: string; hint: string; count: number | null }
 
@@ -10,14 +10,13 @@ export const STATION_META: Record<StationId, Omit<Station, "id" | "count">> = {
   classify: { label: "Phân nhóm hàng", icon: "🏷️", tint: C.mustard, hint: "Gắn nhóm mặt hàng" },
   pastry: { label: "Hàng để ở Q7", icon: "🧁", tint: "#e79a6b", hint: "Món nào để ở Q7" },
   links: { label: "Gắn mã hàng", icon: "🧩", tint: "#6fa3a0", hint: "Kho Q7 và Tân Tạo" },
-  jev: { label: "Sushi rà soát", icon: "🤖", tint: C.plum, hint: "Quét trùng · phân loại · rà mã" },
   aliases: { label: "Tên đã ghép mã", icon: "📋", tint: C.sage, hint: "Tên đã học 7 ngày" },
   backlog: { label: "Tên chưa có mã", icon: "📦", tint: C.kraft, hint: "Danh sách thùng chờ" },
   new: { label: "Hàng mới chưa có mã", icon: "✨", tint: "#e5868f", hint: "Món mua 60 ngày chưa có mã" },
   routing: { label: "Nhà cung cấp về kho nào", icon: "🚚", tint: "#5f8fbf", hint: "NCC về kho nào · nhóm NVL" },
 };
 
-export const STATION_ORDER: StationId[] = ["merge", "classify", "pastry", "links", "new", "backlog", "aliases", "routing", "jev"];
+export const STATION_ORDER: StationId[] = ["merge", "classify", "pastry", "links", "new", "backlog", "aliases", "routing"];
 
 interface Geo { x: number; y: number; w: number; h: number }
 
@@ -58,8 +57,6 @@ export function Workshop({ portrait, stations, onStation }: { portrait: boolean;
   const roomBottom = top + rows * (cardH + 34) + 40;
   const H = roomBottom + 80;
   const geo = (i: number): Geo => ({ x: roomX + 30 + (i % cols) * (cardW + gap), y: top + Math.floor(i / cols) * (cardH + 34), w: cardW, h: cardH });
-  const busiest = stations.filter((s) => s.count).sort((a, b) => (b.count ?? 0) - (a.count ?? 0))[0];
-  const helper = { x: roomX + roomW - 56, y: 2 };
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMin meet" role="img" aria-label="Danh mục hàng hóa">
@@ -80,15 +77,6 @@ export function Workshop({ portrait, stations, onStation }: { portrait: boolean;
       </g>
       {stations.map((station, i) => <StationTable key={station.id} g={geo(i)} station={station} onClick={() => onStation(station.id)} />)}
       <rect x={W / 2 - 50} y={roomBottom - 8} width={100} height={14} fill={C.cream} stroke={C.ink} strokeWidth={STROKE} />
-      <Buddy x={helper.x} y={helper.y + 26} mood="happy" hat="cap" face={C.mustardLight} scale={0.9} />
-      <Bubble
-        x={helper.x - 18}
-        y={helper.y + 22}
-        tail="side"
-        name="Sushi"
-        text={busiest ? `${busiest.label} đang có ${busiest.count} việc!` : "Mọi bàn đã gọn gàng ✓"}
-        max={portrait ? 22 : 40}
-      />
     </svg>
   );
 }

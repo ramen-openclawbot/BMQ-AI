@@ -30,7 +30,7 @@ import "@/game/office/office.css";
 
 /**
  * Đặt hàng tự động — the warehouse you play in (owner 16/10: "đang yêu cầu làm giao diện game kho", approved
- * for the real app the same day). The 3D room is the screen: shelves, the PR desk and the Sushi machine are the
+ * for the real app the same day). The 3D room is the screen: shelves, the PR desk and the ordering machine are the
  * things you touch; the notebook (side board on desktop, bottom sheet on phones) shows what you touched. Every
  * document row carries its photo count and the detail puts the photos first, so a PR can be reconciled against
  * its invoice / delivery note without leaving the room.
@@ -84,9 +84,9 @@ function useRecentPackages() {
 }
 
 const markLabel = (row: SupplierDebtRow) => {
-  if (row.mark === "settled_outside") return row.mark_source === "learned" ? "đã chi ngoài hệ thống (học)" : row.mark_source === "manual" ? "đã chi ngoài hệ thống" : `Sushi: có thể đã chi${row.probability != null ? ` ${Math.round(row.probability * 100)}%` : ""}`;
-  if (row.mark === "real_debt") return row.mark_source === "jev" ? `Sushi: nợ thật${row.probability != null ? ` ${Math.round(row.probability * 100)}%` : ""}` : "nợ thật";
-  if (row.mark === "unsure") return "Sushi: chưa rõ";
+  if (row.mark === "settled_outside") return row.mark_source === "learned" ? "đã chi ngoài hệ thống (học)" : row.mark_source === "manual" ? "đã chi ngoài hệ thống" : `AI: có thể đã chi${row.probability != null ? ` ${Math.round(row.probability * 100)}%` : ""}`;
+  if (row.mark === "real_debt") return row.mark_source === "jev" ? `AI: nợ thật${row.probability != null ? ` ${Math.round(row.probability * 100)}%` : ""}` : "nợ thật";
+  if (row.mark === "unsure") return "AI: chưa rõ";
   return null;
 };
 const suggestText = (item: Item) => {
@@ -136,7 +136,7 @@ function Jar({ fill, color, icon }: { fill: StockFill; color: string; icon: stri
 // ---------------------------------------------------------------------------------------------------------------
 // Old unpaid documents of one supplier (farthest first), with picks for the robot package. Same rules as the old
 // robot desk: rows before the learned cutover fold away, rows already paid outside are faded, the last pick
-// pattern is shown, and Sushi (the finance reviewer) can review the list. Each row shows its photo count.
+// pattern is shown, and the AI finance reviewer can review the list. Each row shows its photo count.
 function DebtPicker({ supplierId, picks, onToggle, onView, compact = false }: {
   supplierId: string | null; picks: DebtPick[]; onToggle: (pick: DebtPick) => void; onView: (key: DocKey) => void; compact?: boolean;
 }) {
@@ -195,9 +195,9 @@ function DebtPicker({ supplierId, picks, onToggle, onView, compact = false }: {
       <small className="sum">{picks.length ? `Chi kèm ${picks.length} phiếu · ${fmtMoney(picked)}${full ? ` (tối đa ${MAX_DEBT_PICKS})` : ""}` : "Chưa chọn phiếu cũ: chỉ đặt đơn mới"}</small>
       {!compact ? (
         <div className="debt-jev">
-          <button type="button" className="fold" disabled={review.isPending} onClick={() => review.mutate(supplierId)} data-office-jev>{review.isPending ? "Sushi đang rà…" : "🤖 Sushi rà phiếu cũ"}</button>
-          {review.data ? <small>Sushi xem {review.data.evaluated}, đánh dấu {review.data.marked}{review.data.stopped === "quota" ? " · hết hạn mức hôm nay" : ""}</small> : null}
-          {review.error ? <small className="err">Sushi chưa chạy được</small> : null}
+          <button type="button" className="fold" disabled={review.isPending} onClick={() => review.mutate(supplierId)} data-office-jev>{review.isPending ? "AI đang rà soát…" : "AI rà phiếu cũ"}</button>
+          {review.data ? <small>AI xem {review.data.evaluated}, đánh dấu {review.data.marked}{review.data.stopped === "quota" ? " · hết hạn mức hôm nay" : ""}</small> : null}
+          {review.error ? <small className="err">AI chưa chạy được</small> : null}
         </div>
       ) : null}
     </div>
@@ -441,7 +441,7 @@ export default function WarehouseOffice() {
     room?.push({ type: "station", t: room.now(), id: next.kind === "shelf" ? next.code : next.kind });
     setPicked(null); setZoom(next.kind === "shelf" ? next.code : null);
   };
-  // Sushi is awake and standing in the warehouse (owner 17/10): tapping her opens the ordering panel at once;
+  // The ordering machine is awake in the warehouse (owner 17/10): tapping it opens the ordering panel at once;
   // the room just greets (hopper glow + smile) behind the panel.
   const startMachine = () => {
     if (modal || !ready) return;
