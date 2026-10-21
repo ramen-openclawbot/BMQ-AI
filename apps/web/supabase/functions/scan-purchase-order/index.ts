@@ -4,6 +4,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 import { checkAndRecordRateLimit, getRateLimitHeaders } from "../_shared/rate-limiter.ts";
 import { applyNameSuffixUnits } from "../_shared/po-line-unit.ts";
+import { checkScanTotals } from "../_shared/scan-total-check.ts";
 import { aiErrorJson, classifyOpenAIError } from "../_shared/openai-errors.ts";
 import { getScanAiConfig } from "../_shared/ai-vision-provider.ts";
 
@@ -111,6 +112,9 @@ Trích xuất các thông tin sau từ đơn đặt hàng:
    - Ghi chú (Notes) nếu có - VD: NSX, HSD, thông tin thêm
 
 Lưu ý quan trọng:
+- Chỉ trích xuất MỘT chứng từ chính nằm giữa/rõ nhất; bỏ qua mọi tờ hóa đơn, phiếu khác lọt vào mép ảnh.
+- Với hóa đơn bán lẻ in tên hàng trên một dòng và đơn giá / SL / thành tiền ở dòng ngay bên dưới, mỗi sản phẩm = dòng tên + dòng số ngay dưới nó, không ghép số của sản phẩm kế tiếp; số dòng sản phẩm trả về phải bằng số tên hàng in trên chứng từ.
+- Trích Tổng tiền hàng (Cộng tiền hàng, trước VAT) vào subtotal_amount.
 - Chép nguyên văn tên hàng đúng như chữ trên chứng từ; không tự đổi sang một tên vật liệu hoặc nhóm hàng khác.
 - Không được suy diễn chất liệu từ công dụng hoặc hình dáng bao bì. Ví dụ: nếu chứng từ ghi "Bao bánh mì" thì phải trả đúng "Bao bánh mì", tuyệt đối không đổi thành "Bao bì nhựa".
 - Đơn vị tính thường nằm trong ngoặc ở cuối tên hàng; hãy lấy đúng đơn vị đó.
@@ -177,6 +181,10 @@ ${supplierVatConfig?.vat_included_in_price ? '- NCC này có giá đã bao gồm
                   vat_amount: {
                     type: "number",
                     description: "Số tiền thuế VAT (VND)",
+                  },
+                  subtotal_amount: {
+                    type: "number",
+                    description: "Tổng tiền hàng trước VAT in trên chứng từ (Cộng tiền hàng / Tổng tiền hàng)",
                   },
                   total_amount: {
                     type: "number",
@@ -286,6 +294,13 @@ ${supplierVatConfig?.vat_included_in_price ? '- NCC này có giá đã bao gồm
     if (Array.isArray(extractedData.items)) {
       extractedData.items = applyNameSuffixUnits(extractedData.items);
     }
+
+    // Re-compute every line and the printed subtotal so the UI can warn on
+    // OCR drift instead of trusting the model's arithmetic.
+    const totalCheck = checkScanTotals(extractedData);
+    extractedData.subtotal_amount = totalCheck.subtotal_amount;
+    extractedData.warnings = totalCheck.warnings;
+    console.log(`[scan-purchase-order] Total check: ${totalCheck.warnings.length} warning(s)`);
 
     console.log(`[scan-purchase-order] Completed in ${Date.now() - startTime}ms, extracted ${extractedData.items?.length || 0} items`);
     return new Response(

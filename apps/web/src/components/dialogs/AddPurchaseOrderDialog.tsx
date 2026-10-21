@@ -101,6 +101,8 @@ interface ScannedPOData {
     notes?: string;
   }>;
   notes?: string;
+  /** Server-side total check: line or document totals that do not add up. */
+  warnings?: Array<{ kind: string; message: string; line_index?: number; difference?: number }>;
 }
 
 interface AddPurchaseOrderDialogProps {
@@ -325,7 +327,11 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
         if (scanned.vat_amount) form.setValue("vat_amount", scanned.vat_amount);
         if (scanned.items?.length) replace(scanned.items.map((item) => ({ sku_id: "", product_name: item.product_name || "", quantity: item.quantity || 1, unit: item.unit || "kg", unit_price: item.unit_price || 0, notes: item.notes || "" })));
 
-        toast.success("Đã scan thành công đơn đặt hàng");
+        if (scanned.warnings?.length) {
+          toast.warning("Đã scan, nhưng số tiền không khớp chứng từ — kiểm tra trước khi lưu");
+        } else {
+          toast.success("Đã scan thành công đơn đặt hàng");
+        }
       } else {
         setScannedImage(null);
         setSelectedImagePreviews([]);
@@ -350,7 +356,7 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
           throw tokenOrQuotaError ? new Error(TOKEN_ERROR_MESSAGE) : new Error("Không scan được file nào trong batch");
         }
 
-        setScannedData({ items: mergeScannedPOItems(scans), supplier_name: scans[0]?.supplier_name, vat_amount: scans.reduce((x, y) => x + Number(y.vat_amount || 0), 0), total_amount: scans.reduce((x, y) => x + Number(y.total_amount || 0), 0), notes: `Batch scan ${files.length} ảnh` });
+        setScannedData({ items: mergeScannedPOItems(scans), supplier_name: scans[0]?.supplier_name, vat_amount: scans.reduce((x, y) => x + Number(y.vat_amount || 0), 0), total_amount: scans.reduce((x, y) => x + Number(y.total_amount || 0), 0), notes: `Batch scan ${files.length} ảnh`, warnings: scans.flatMap((scan, scanIndex) => (scan.warnings || []).map((warning) => ({ ...warning, message: `Ảnh ${scanIndex + 1}: ${warning.message}` }))) });
 
         const mergedItems = mergeScannedPOItems(scans);
         replace(mergedItems);
@@ -557,6 +563,7 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
               </Button>
             </div>
           ) : (
+            <>
             <div className="flex gap-4">
               <div className="relative w-48 h-32 flex-shrink-0">
                 <img
@@ -627,6 +634,27 @@ export function AddPurchaseOrderDialog({ children }: AddPurchaseOrderDialogProps
                 ) : null}
               </div>
             </div>
+              {!isScanning && scannedData?.warnings && scannedData.warnings.length > 0 && (
+                <div
+                  role="alert"
+                  data-bmq-po-scan-warnings
+                  className="mt-4 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive"
+                >
+                  <div className="flex items-center gap-2 font-medium">
+                    <AlertTriangle className="h-4 w-4 shrink-0" />
+                    <span>Số tiền đọc được không khớp chứng từ</span>
+                  </div>
+                  <ul className="mt-2 list-disc space-y-1 pl-5 break-words">
+                    {scannedData.warnings.map((warning, index) => (
+                      <li key={index}>{warning.message}</li>
+                    ))}
+                  </ul>
+                  <p className="mt-2 text-xs text-destructive/80">
+                    Đối chiếu từng dòng với ảnh trước khi lưu.
+                  </p>
+                </div>
+              )}
+            </>
           )}
         </div>
 
