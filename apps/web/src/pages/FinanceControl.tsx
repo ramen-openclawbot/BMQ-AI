@@ -23,7 +23,6 @@ import {
   useFinanceDailySnapshot,
   useDailyDeclaration,
   useUncDetailAmount,
-  useDailyReconciliation,
   useQtmOpeningBalance,
   useDailyDeclarationImages,
   useMonthlyReconciliation,
@@ -48,7 +47,6 @@ import { Lock, Pencil, Trash2, Unlock, X } from "lucide-react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 import { normalizeUploadImage, optimizeSlipImageForOcr } from "@/lib/slip-image";
-import { CeoCutoverPanel } from "@/components/finance/CeoCutoverPanel";
 import "@/styles/bmq-ceo.css";
 import { UncAppEvidencePanel } from "@/components/payment-requests/UncAppEvidencePanel";
 
@@ -457,7 +455,6 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
   } = useDailyDeclaration(debouncedSelectedDate, snapshotFailed);
 
   const { data: fallbackUncDetailAmount, error: fallbackUncDetailError, refetch: refetchFallbackUncDetail } = useUncDetailAmount(debouncedSelectedDate, snapshotFailed);
-  const { data: fallbackDailyReconciliation, error: fallbackDailyReconError, refetch: refetchFallbackDailyReconciliation } = useDailyReconciliation(debouncedSelectedDate, snapshotFailed);
   const { data: fallbackQtmOpeningBalance, error: fallbackQtmBalanceError } = useQtmOpeningBalance(debouncedSelectedDate, fallbackDailyDeclaration?.extraction_meta, snapshotFailed);
 
   const dailyDeclaration = snapshotFailed
@@ -468,10 +465,6 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
     ? Number(fallbackUncDetailAmount || 0)
     : Number(dailySnapshot?.uncDetailAmount || 0);
 
-  const dailyReconciliation = snapshotFailed
-    ? (fallbackDailyReconciliation || null)
-    : (dailySnapshot?.dailyReconciliation || null);
-
   const qtmOpeningBalanceFromHook = snapshotFailed
     ? Number(fallbackQtmOpeningBalance || 0)
     : Number(dailySnapshot?.qtmOpeningBalance || 0);
@@ -481,11 +474,9 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
 
   const refetchDeclaration = snapshotFailed ? refetchFallbackDeclaration : refetchDailySnapshot;
   const refetchUncDetail = snapshotFailed ? refetchFallbackUncDetail : refetchDailySnapshot;
-  const refetchDailyReconciliation = snapshotFailed ? refetchFallbackDailyReconciliation : refetchDailySnapshot;
 
   const declarationError = snapshotFailed ? fallbackDeclarationError : dailySnapshotError;
   const uncDetailError = snapshotFailed ? fallbackUncDetailError : dailySnapshotError;
-  const dailyReconError = snapshotFailed ? fallbackDailyReconError : dailySnapshotError;
   const qtmBalanceError = snapshotFailed ? fallbackQtmBalanceError : dailySnapshotError;
 
   const { data: monthlySummary, error: monthlyError, refetch: refetchMonthly } = useMonthlyReconciliation(selectedMonth, mode === "ceo" && activeTab === "monthly");
@@ -823,7 +814,6 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
     const errors = [
       declarationError && `Khai báo CEO: ${(declarationError as Error).message}`,
       uncDetailError && `UNC chi tiết: ${(uncDetailError as Error).message}`,
-      dailyReconError && `Đối soát ngày: ${(dailyReconError as Error).message}`,
       monthlyError && `Chốt tháng: ${(monthlyError as Error).message}`,
       qtmBalanceError && `Số dư QTM: ${(qtmBalanceError as Error).message}`,
     ].filter(Boolean) as string[];
@@ -836,7 +826,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [declarationError, uncDetailError, dailyReconError, monthlyError, qtmBalanceError]);
+  }, [declarationError, uncDetailError, monthlyError, qtmBalanceError]);
 
   const [uncTotalDeclared, setUncTotalDeclared] = useState<number>(0);
   const [cashFundTopupAmount, setCashFundTopupAmount] = useState<number>(0);
@@ -949,10 +939,10 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
 
   const persistedFolderTotal = Number(dailyDeclaration?.extraction_meta?.unc_folder_total || 0);
   const persistedFolderStatus = dailyDeclaration?.extraction_meta?.unc_folder_status as ("match" | "mismatch" | undefined);
-  const resolvedUncDetail = Number((uncReconSummary?.folderTotal ?? persistedFolderTotal ?? dailyReconciliation?.unc_detail_amount ?? uncDetailAmount) || 0);
-  const resolvedUncDeclared = Number((uncReconSummary?.ceoTotal ?? dailyReconciliation?.unc_declared_amount ?? uncTotalDeclared) || 0);
+  const resolvedUncDetail = Number((uncReconSummary?.folderTotal ?? persistedFolderTotal ?? uncDetailAmount) || 0);
+  const resolvedUncDeclared = Number((uncReconSummary?.ceoTotal ?? uncTotalDeclared) || 0);
   const resolvedVariance = resolvedUncDetail - resolvedUncDeclared;
-  const resolvedStatus = (uncReconSummary?.status || persistedFolderStatus || dailyReconciliation?.status) as ("match" | "mismatch" | undefined);
+  const resolvedStatus = (uncReconSummary?.status || persistedFolderStatus) as ("match" | "mismatch" | undefined);
   const hasDeclaredUnc = Number(uncTotalDeclared || 0) > 0;
   const hasDeclaredQtm = Number(cashFundTopupAmount || 0) > 0;
   const canCloseWithoutBankSlips = !hasDeclaredUnc && !hasDeclaredQtm;
@@ -1045,7 +1035,6 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
       await Promise.allSettled([
         refetchDeclaration(),
-        refetchDailyReconciliation(),
         refetchUncDetail(),
       ]);
     };
@@ -1059,7 +1048,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("focus", onWindowFocus);
     };
-  }, [refetchDeclaration, refetchDailyReconciliation, refetchUncDetail]);
+  }, [refetchDeclaration, refetchUncDetail]);
 
   const expectedFolderFromDate = format(selectedDate, "ddMMyyyy");
   const applyDatePathTemplate = (template: string) => {
@@ -2044,8 +2033,8 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
     try {
       // --- UNC reconciliation: exact match required (bank-automated, no tolerance) ---
       // freshData bypasses stale React state when called right after runFolderReconciliation
-      const uncDetail = Number((freshData?.uncFolderTotal ?? uncReconSummary?.folderTotal ?? persistedFolderTotal ?? dailyReconciliation?.unc_detail_amount ?? uncDetailAmount) || 0);
-      const uncDeclared = Number((freshData?.uncDeclared ?? uncReconSummary?.ceoTotal ?? dailyReconciliation?.unc_declared_amount ?? uncTotalDeclared) || 0);
+      const uncDetail = Number((freshData?.uncFolderTotal ?? uncReconSummary?.folderTotal ?? persistedFolderTotal ?? uncDetailAmount) || 0);
+      const uncDeclared = Number((freshData?.uncDeclared ?? uncReconSummary?.ceoTotal ?? uncTotalDeclared) || 0);
       const uncVariance = uncDetail - uncDeclared;
       const uncStatus: "match" | "mismatch" = uncVariance === 0 ? "match" : "mismatch";
 
@@ -2059,26 +2048,6 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
 
       // Overall status: UNC must match exactly; QTM only fails if closing balance goes negative
       const status: "match" | "mismatch" = (uncStatus === "match" && qtmStatus === "match") ? "match" : "mismatch";
-
-      const { error } = await looseSupabase
-        .from("daily_reconciliations")
-        .upsert({
-          closing_date: dateKey,
-          unc_detail_amount: uncDetail,
-          unc_declared_amount: uncDeclared,
-          cash_fund_topup_amount: qtmDeclared,
-          qtm_spent_from_folder: qtmSpent,
-          variance_amount: uncVariance,
-          qtm_variance_amount: qtmVariance,
-          unc_status: uncStatus,
-          qtm_status: qtmStatus,
-          status,
-          tolerance_amount: 0,
-          matched_at: new Date().toISOString(),
-          notes: notes || null,
-        }, { onConflict: "closing_date" });
-
-      if (error) throw error;
 
       const summaryParts: string[] = [];
       if (uncStatus === "mismatch") summaryParts.push(`UNC ${isVi ? "chênh lệch" : "variance"}: ${vnd(uncVariance)}`);
@@ -2094,7 +2063,7 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
         variant: status === "match" ? "default" : "destructive",
       });
 
-      await Promise.all([refetchDailyReconciliation(), refetchMonthly()]);
+      await refetchMonthly();
       return {
         status,
         uncVariance,
@@ -2424,7 +2393,6 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
           <TabsList>
             <TabsTrigger value="daily">{isVi ? "Chốt ngày" : "Daily Close"}</TabsTrigger>
             <TabsTrigger value="monthly">{isVi ? "Chốt tháng" : "Monthly Close"}</TabsTrigger>
-            {isOwner && <TabsTrigger value="cutover" data-bmq-ceo-cutover-tab>{isVi ? "Chốt mốc tháng" : "Month cutover"}</TabsTrigger>}
           </TabsList>
         )}
 
@@ -2719,10 +2687,6 @@ export default function FinanceControl({ mode = "ceo" }: { mode?: FinanceControl
               )}
             </CardContent>
           </Card>
-        </TabsContent>}
-
-        {mode === "ceo" && isOwner && <TabsContent value="cutover" className="space-y-4">
-          <CeoCutoverPanel initialMonth={format(startOfMonth(selectedDate), "yyyy-MM-01")} />
         </TabsContent>}
 
         {mode === "classification" && <TabsContent value="classification" className="space-y-4">

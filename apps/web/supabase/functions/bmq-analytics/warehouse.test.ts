@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { warehouseClient } from '../_shared/warehouse.ts';
-import { sourceOperation, createSourcesHandler } from '../bmq-data-sources/handler.ts';
 import { runWarehouse } from './warehouse.ts';
 const signal = new AbortController().signal;
 const input = {question:'What is BMQ AI?',language:'en',page:{route:'/',label:'Home'},history:[]};
@@ -11,14 +10,6 @@ test('fixed HTTPS upstream rejects credentials/path/HTTP; redirects never follow
  for(const url of ['http://localhost:9000','https://host.test/a','https://name:pw@host.test','https://host.test/?q=1']) assert.throws(()=>warehouseClient(url,'Bearer fake',signal));
  const call=warehouseClient('https://warehouse.test','Bearer fake',signal,async(url,init)=>{assert.equal(String(url),'https://warehouse.test/v1/status');assert.equal(init?.redirect,'error');assert.equal((init?.headers as any).Authorization,'Bearer fake');return new Response('{}');});
  await call('/v1/status');await assert.rejects(()=>call('https://evil.test'));
-});
-test('source operations prevent tenant, URL, traversal and unwanted files',()=>{
- for(const raw of [{action:'sources',tenant:'other'},{action:'sources',url:'https://x'},{action:'document',source:'bmq',title:'T',filename:'../a.md',content:'x'},{action:'document',source:'bmq',title:'T',filename:'a.html',content:'x'}]) assert.throws(()=>sourceOperation(raw));
- assert.deepEqual(sourceOperation({action:'document',language:'en',source:'bmq',title:'T',filename:'guide.md',content:'hello'}),{path:'/v1/documents',body:{source:'bmq',title:'T',filename:'guide.md',content:'hello'}});
-});
-test('disabled sources authenticate first and do not call upstream',async()=>{
- let auth=0; const handler=createSourcesHandler({enabled:()=>false,url:()=>'',authenticate:async()=>{auth++;return 'Bearer fake';},fetcher:async()=>{throw Error('unexpected')}});
- const res=await handler(new Request('https://test',{method:'POST',headers:{'Content-Type':'application/json','Accept-Language':'en'},body:'{"action":"status"}'})); assert.equal(auth,1);assert.equal(res.status,503);assert.equal((await res.json()).code,'warehouse_disabled');
 });
 test('knowledge no source abstains, citations cannot invent source',async()=>{
  const planner=async()=>({value:{lane:'knowledge',queries:[],search:'BMQ',clarification:''},usage});

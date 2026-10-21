@@ -49,7 +49,6 @@ export function useFinanceDailySnapshot(closingDate: Date) {
 
       return {
         declaration: data?.declaration || null,
-        dailyReconciliation: data?.dailyReconciliation || null,
         uncDetailAmount: Number(data?.uncDetailAmount || 0),
         qtmOpeningBalance: Number(data?.qtmOpeningBalance || 0),
       };
@@ -213,31 +212,6 @@ async function uncDetailAmountFallback(date: string, startUtc: string, endUtc: s
   }
 
   return Array.from(merged.values()).reduce((sum, amount) => sum + amount, 0);
-}
-
-// ---------------------------------------------------------------------------
-// 3. Daily reconciliation row
-// ---------------------------------------------------------------------------
-export function useDailyReconciliation(closingDate: Date, enabled = true) {
-  const date = format(closingDate, "yyyy-MM-dd");
-
-  return useQuery({
-    queryKey: ["daily-reconciliation", date],
-    enabled,
-    queryFn: async () => {
-      const { data, error } = await (supabase as any)
-        .from("daily_reconciliations")
-        .select("*")
-        .eq("closing_date", date)
-        .maybeSingle();
-
-      if (error) throw error;
-      return data || null;
-    },
-    staleTime: DAILY_STALE_MS,
-    gcTime: GC_TIME_MS,
-    placeholderData: (previous) => previous,
-  });
 }
 
 // ---------------------------------------------------------------------------

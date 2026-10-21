@@ -3,7 +3,6 @@ import { Outlet } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
-import { useAutoSync } from "@/hooks/useAutoSync";
 import { useVisibilityRecovery } from "@/hooks/useVisibilityRecovery";
 import { SessionRecoveryOverlay } from "@/components/SessionRecoveryOverlay";
 import { MerchantAgentChatWidget } from "@/components/agent/MerchantAgentChatWidget";
@@ -18,9 +17,6 @@ export function AppLayout() {
   const queryClient = useQueryClient();
   const [showRecoveryOverlay, setShowRecoveryOverlay] = useState(false);
 
-  // Auto-sync Drive folders once on login
-  useAutoSync();
-  
   const handleSessionLost = useCallback(() => {
     setShowRecoveryOverlay(true);
   }, []);

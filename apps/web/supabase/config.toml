@@ -1,12 +1,5 @@
 project_id = "cxntbdvfsikwmitapony"
 
-[functions.payment-agent-search]
-verify_jwt = false
-
-# ──────────────────────────────────────────────────────────
-# Functions with JWT verification ENABLED (have auth checks in code)
-# ──────────────────────────────────────────────────────────
-
 [functions.scan-invoice]
 # verify_jwt disabled: proxy uses HS256 but project issues ES256 user tokens.
 # Auth handled inside function via requireAuth().
@@ -23,10 +16,6 @@ verify_jwt = false
 [functions.scan-drive-folder]
 verify_jwt = false
 
-[functions.sync-drive-index]
-# verify_jwt disabled: proxy uses HS256 but project issues ES256 user tokens.
-verify_jwt = false
-
 [functions.create-invoice-from-pr]
 # verify_jwt disabled: proxy uses HS256 but project issues ES256 user tokens.
 verify_jwt = false
@@ -40,10 +29,6 @@ verify_jwt = false
 # verify_jwt disabled: proxy uses HS256 but project issues ES256 user tokens.
 verify_jwt = false
 
-[functions.create-warehouse-receipt]
-# verify_jwt disabled: proxy uses HS256 but project issues ES256 user tokens.
-verify_jwt = false
-
 [functions.finalize-goods-receipt]
 # verify_jwt disabled: proxy uses HS256 but project issues ES256 user tokens.
 # Auth handled inside function via getUser(token).
@@ -52,11 +37,6 @@ verify_jwt = false
 [functions.scan-bank-slip]
 # verify_jwt disabled: proxy uses HS256 but project issues ES256 user tokens.
 # Auth handled inside function via getUser(token).
-verify_jwt = false
-
-[functions.scan-sku-cost-sheet]
-# verify_jwt disabled: proxy uses HS256 but project issues ES256 user tokens.
-# Auth handled inside function via requireAuth().
 verify_jwt = false
 
 [functions.user-invite-member]
@@ -95,32 +75,10 @@ static_files = [
   "./functions/_shared/brand/bmq-logo-192.png",
 ]
 
-[functions.production-material-issue-signed-upload]
-# verify_jwt disabled: proxy may reject valid ES256 user tokens before the function runs.
-# Auth, permission, and rate checks are enforced inside the function.
-verify_jwt = false
-
-[functions.production-material-issue-check]
-# verify_jwt disabled: proxy may reject valid ES256 user tokens before the function runs.
-# Auth, permission, and rate checks are enforced inside the function.
-verify_jwt = false
-
 [functions.export-npp-debt-sheet]
 verify_jwt = false
 
 [functions.get-ai-credit-balance]
-verify_jwt = false
-
-[functions.migration-storage-summary]
-verify_jwt = false
-
-[functions.kb-suggest-po-rules]
-# verify_jwt disabled: proxy uses HS256 but project now issues ES256 user tokens
-# (alg: ES256, kid present). Auth is handled inside the function via requireAuth()
-# which calls supabaseAdmin.auth.getUser(token) — this correctly validates ES256.
-verify_jwt = false
-
-[functions.migration-storage-manifest]
 verify_jwt = false
 
 [functions.dealer-auth-start]
@@ -190,16 +148,6 @@ verify_jwt = false
 [functions.payslip-auth-logout]
 verify_jwt = false
 
-[functions.payslip-missions]
-verify_jwt = false
-
-[functions.payslip-mission-accept]
-verify_jwt = false
-
-[functions.attendance-check-in]
-# Public report-token endpoint; actor/session authorization is enforced inside the function.
-verify_jwt = false
-
 [functions.kiosk-report-admin]
 verify_jwt = false
 
@@ -214,92 +162,15 @@ verify_jwt = false
 [functions.google-gmail-auth]
 verify_jwt = false
 
-[functions.finance-auto-reconcile]
-verify_jwt = false
-
 [functions.finance-auto-close-day]
 verify_jwt = false
 
-[functions.po-gmail-ingest]
-verify_jwt = false
-
-[functions.facebook-messenger-webhook]
-# Public Meta webhook: verifies Meta token/signature in function code.
-verify_jwt = false
-
-# Public Meta data deletion callback: verifies Meta signed_request in function code.
-[functions.facebook-data-deletion]
-verify_jwt = false
-
-[functions.facebook-messenger-inbox]
-# JWT plus facebook_messenger can_view/can_edit enforced in function code.
-verify_jwt = false
-
-[functions.facebook-messenger-send]
-# JWT plus facebook_messenger can_edit enforced in function code.
-verify_jwt = false
-
-[functions.facebook-messenger-worker]
-# Cron/internal worker: dedicated x-worker-secret enforced in function code.
-verify_jwt = false
-
-[functions.facebook-messenger-email-worker]
-# Cron/internal worker: dedicated x-worker-secret enforced in function code.
-verify_jwt = false
-
-[functions.facebook-messenger-agent-reply]
-# Instinct bridge endpoint: verify_jwt disabled because dedicated HMAC timestamp/nonce auth is enforced in code.
-verify_jwt = false
-
-[functions.facebook-messenger-health]
-# Public safe readiness booleans only; no tokens/secrets/status details returned.
-verify_jwt = false
-
-[functions.facebook-page-connect]
-# OAuth callback has no user JWT; POST start/status verifies fresh JWT in code and callback verifies signed one-time state.
-verify_jwt = false
-
-# ──────────────────────────────────────────────────────────
-# Functions needing further audit before enabling JWT
-# Keep verify_jwt = false until auth is added to the code
-# ──────────────────────────────────────────────────────────
-
 [functions.test-drive-connection]
-verify_jwt = false
-
-[functions.po-gmail-debug-check]
-verify_jwt = false
-
-[functions.po-parse-inbox-order]
-verify_jwt = false
-
-[functions.po-promote-latest-kingfood]
-verify_jwt = false
-
-[functions.po-use-latest-kingfood-today]
-verify_jwt = false
-
-[functions.po-parse-latest-kingfood-now]
-verify_jwt = false
-
-[functions.po-debug-kingfood-xlsx]
-verify_jwt = false
-
-[functions.migration-storage-archive]
-verify_jwt = false
-
-[functions.po-sync-scheduler-run]
-# verify_jwt disabled: proxy uses HS256 but project issues ES256 user tokens.
-# Auth is enforced inside the function via requireAuth().
 verify_jwt = false
 
 [functions.bmq-analytics]
 # ES256 user JWT is verified by auth.getUser in the handler; owner role is checked
 # server-side before any query/cache/model call. Feature remains default-off.
-verify_jwt = false
-
-[functions.bmq-data-sources]
-# ES256 owner tokens are verified via auth.getUser and user_roles in code.
 verify_jwt = false
 
 [functions.material-learning-suggest]

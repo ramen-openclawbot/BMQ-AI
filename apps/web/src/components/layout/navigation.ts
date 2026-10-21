@@ -78,7 +78,6 @@ export const ZONES: Zone[] = [
     label: { vi: "Sản xuất", en: "Production" },
     paths: [
       "/production/planning/q7",
-      "/production/shifts",
       "/production/qa",
       "/production/products",
       // Kho NVL Q7 hidden from the menu 2026-10-10 (no entries in 30 days); the route still works.
@@ -94,14 +93,13 @@ export const ZONES: Zone[] = [
       "/warehouse/game",
       "/warehouse/phieu",
       "/warehouse/stock-ledger",
-      "/warehouse/auto-purchase",
       "/warehouse/purchase-usage",
       // Dọn danh mục moved into Kho 2D (Xưởng dọn danh mục) 2026-10-12; the route still works.
       "/warehouse/tan-tao",
       "/goods-receipts",
       "/purchase-orders",
     ],
-    prefixes: ["/inventory", "/warehouse", "/kitchen-inventory", "/goods-receipts", "/low-stock", "/purchase-orders"],
+    prefixes: ["/inventory", "/warehouse", "/goods-receipts", "/low-stock", "/purchase-orders"],
   },
   {
     id: "approvals",
@@ -134,18 +132,13 @@ export const UTILITY_GROUPS: UtilityGroup[] = [
   },
   {
     label: { vi: "Nhân sự", en: "People" },
-    paths: ["/attendance", "/payroll"],
-    prefixes: ["/attendance", "/payroll"],
-  },
-  {
-    label: { vi: "Marketing", en: "Marketing" },
-    paths: ["/marketing-sales/facebook-page"],
-    prefixes: ["/marketing-sales"],
+    paths: ["/payroll"],
+    prefixes: ["/payroll"],
   },
   {
     label: { vi: "Hệ thống", en: "System" },
-    paths: ["/settings", "/user-management", "/system-management", "/data-sources"],
-    prefixes: ["/settings", "/user-management", "/system-management", "/data-sources"],
+    paths: ["/settings", "/user-management", "/system-management"],
+    prefixes: ["/settings", "/user-management", "/system-management"],
   },
 ];
 

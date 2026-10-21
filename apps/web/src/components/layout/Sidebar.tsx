@@ -5,7 +5,6 @@ import {
   LayoutDashboard,
   LineChart,
   Package,
-  CookingPot,
   Users,
   FileText,
   AlertTriangle,
@@ -27,18 +26,13 @@ import {
   FolderSearch,
   Shield,
   ServerCog,
-  Database,
   Factory,
-  CalendarClock,
   ClipboardCheck,
-  Truck,
   BarChart4,
-  ScanLine,
   Store,
   Wallet,
   Boxes,
   ClipboardList,
-  MessageCircle,
   X
 } from "lucide-react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
@@ -70,7 +64,6 @@ export interface NavItem {
 }
 
 export const navItems: NavItem[] = [
-  { icon: Database, labelKey: "dataSources", path: "/data-sources", section: "execution", ownerOnly: true, dataPlatformOnly: true },
   { icon: Shield, labelKey: "userManagement", path: "/user-management", section: "execution", ownerOnly: true, moduleKey: "user_management" },
   { icon: ServerCog, labelKey: "systemManagement", path: "/system-management", section: "execution", ownerOnly: true },
   { icon: LayoutDashboard, labelKey: "dashboard", path: "/", section: "execution", moduleKey: "dashboard" },
@@ -103,15 +96,6 @@ export const navItems: NavItem[] = [
   { icon: ShoppingCart, labelKey: "poPurchasing", path: "/purchase-orders", section: "finance", showPOBadge: true, moduleKey: "purchase_orders" },
 
   {
-    icon: MessageCircle,
-    labelKey: "sectionMarketingSales",
-    section: "marketingSales",
-    children: [
-      { icon: MessageCircle, labelKey: "facebookPageManagement", path: "/marketing-sales/facebook-page", section: "marketingSales", moduleKey: "facebook_messenger" },
-    ],
-  },
-
-  {
     icon: Factory,
     labelKey: "productionPlanning",
     section: "production",
@@ -122,10 +106,8 @@ export const navItems: NavItem[] = [
       { icon: Tags, labelKey: "productionProducts", path: "/production/products", section: "production", moduleKey: "production_products" },
     ],
   },
-  { icon: CalendarClock, labelKey: "productionShifts", path: "/production/shifts", section: "production", moduleKey: "production_shifts" },
   { icon: ClipboardCheck, labelKey: "qaInspection", path: "/production/qa", section: "production", moduleKey: "production_qa" },
 
-  { icon: ScanLine, labelKey: "attendance", path: "/attendance", section: "operations", moduleKey: "attendance" },
   { icon: Wallet, labelKey: "payroll", path: "/payroll", section: "operations", moduleKey: "payroll" },
   {
     icon: Package,
@@ -136,13 +118,10 @@ export const navItems: NavItem[] = [
       { icon: Gamepad2, labelKey: "warehouseGame", path: "/warehouse/game", section: "operations", moduleKey: "inventory" },
       { icon: FileText, labelKey: "warehouseSlips", path: "/warehouse/phieu", section: "operations", moduleKey: "inventory" },
       { icon: ClipboardList, labelKey: "stockLedger", path: "/warehouse/stock-ledger", section: "operations", moduleKey: "inventory" },
-      { icon: ShoppingCart, labelKey: "autoPurchase", path: "/warehouse/auto-purchase", section: "operations", moduleKey: "inventory" },
       { icon: ArrowLeftRight, labelKey: "purchaseUsage", path: "/warehouse/purchase-usage", section: "operations", moduleKey: "inventory" },
       { icon: GitMerge, labelKey: "catalogCleanup", path: "/warehouse/catalog-cleanup", section: "operations", moduleKey: "inventory", hiddenFromMenu: true },
       { icon: Boxes, labelKey: "tanTaoWarehouse", path: "/warehouse/tan-tao", section: "operations", moduleKey: "inventory" },
-      { icon: CookingPot, labelKey: "kitchenInventory", path: "/kitchen-inventory", section: "operations", moduleKey: "kitchen_inventory", hiddenFromMenu: true },
       { icon: PackageCheck, labelKey: "goodsReceipts", path: "/goods-receipts", section: "operations", moduleKey: "goods_receipts" },
-      { icon: Truck, labelKey: "warehouseDispatch", path: "/warehouse/dispatch", section: "operations", moduleKey: "inventory", hiddenFromMenu: true },
       { icon: BarChart4, labelKey: "stockReport", path: "/warehouse/stock-report", section: "operations", moduleKey: "inventory", hiddenFromMenu: true },
     ],
   },

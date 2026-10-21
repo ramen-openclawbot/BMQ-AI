@@ -11,7 +11,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Check, ChevronsUpDown, ClipboardCheck, Loader2, PackagePlus, RefreshCw, Scale } from "lucide-react";
-import { Q7SignedMaterialIssueQueue } from "@/components/q7-material-inventory/Q7SignedMaterialIssueQueue";
 import { type Q7InventoryPickerRow, useQ7InventoryMutations, useQ7InventoryMovements, useQ7InventoryPicker, useQ7InventorySnapshot } from "@/hooks/useQ7MaterialInventory";
 import { cn } from "@/lib/utils";
 
@@ -176,7 +175,7 @@ export default function Q7MaterialInventory() {
           <div>
             <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-1.5 text-xs font-semibold text-primary"><Scale className="h-3.5 w-3.5" /> Xuất-nhập-tồn NVL Q7</div>
             <h1 className="mt-3 font-display text-3xl font-bold tracking-tight md:text-4xl">Xuất-nhập-tồn NVL Q7</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">Theo dõi tồn Q7 không giá tiền: snapshot XNT, phiếu ký, audit tồn đầu và phát sinh an toàn.</p>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">Theo dõi tồn Q7 không giá tiền: snapshot XNT, audit tồn đầu và phát sinh an toàn.</p>
           </div>
           <div className="min-w-[190px] space-y-1.5">
             <label htmlFor="q7-as-of-date" className="text-sm font-medium">Ngày xem</label>
@@ -185,19 +184,17 @@ export default function Q7MaterialInventory() {
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <Card><CardContent className="p-4"><p className="text-sm text-muted-foreground">Tồn âm</p><p className="mt-2 text-3xl font-bold text-amber-700">{negativeCount}</p><p className="mt-1 text-xs text-muted-foreground">Âm tồn để kế toán audit sau</p></CardContent></Card>
         <Card><CardContent className="p-4"><p className="text-sm text-muted-foreground">Xuất dùng hôm nay</p><p className="mt-2 text-3xl font-bold">{numberVi(todayTotals.usage)}</p></CardContent></Card>
-        <Card><CardContent className="p-4"><p className="text-sm text-muted-foreground">Phiếu chờ xử lý</p><p className="mt-2 text-3xl font-bold">—</p><p className="mt-1 text-xs text-muted-foreground">Xem tab Hàng đợi phiếu ký</p></CardContent></Card>
         <Card><CardContent className="p-4"><p className="text-sm text-muted-foreground">Nhập hôm nay</p><p className="mt-2 text-3xl font-bold">{numberVi(todayTotals.receipt)}</p></CardContent></Card>
       </div>
 
-      {!canWriteQ7 && <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">Bạn không có quyền ghi sổ Q7. Có thể xem snapshot, phiếu và lịch sử.</div>}
+      {!canWriteQ7 && <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">Bạn không có quyền ghi sổ Q7. Có thể xem snapshot và lịch sử.</div>}
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList className="flex h-auto w-full flex-nowrap justify-start gap-2 overflow-x-auto bg-muted/40 p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <TabsTrigger className="shrink-0 rounded-full border border-transparent px-4 py-2.5 text-sm font-semibold data-[state=active]:border-primary data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm" value="snapshot">XNT</TabsTrigger>
-          <TabsTrigger className="shrink-0 rounded-full border border-transparent px-4 py-2.5 text-sm font-semibold data-[state=active]:border-primary data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm" value="queue">Phiếu ký</TabsTrigger>
           <TabsTrigger className="shrink-0 rounded-full border border-transparent px-4 py-2.5 text-sm font-semibold data-[state=active]:border-primary data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm" value="receipt">Nhập kho</TabsTrigger>
           <TabsTrigger className="shrink-0 rounded-full border border-transparent px-4 py-2.5 text-sm font-semibold data-[state=active]:border-primary data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm" value="audit">Audit tồn đầu</TabsTrigger>
           <TabsTrigger className="shrink-0 rounded-full border border-transparent px-4 py-2.5 text-sm font-semibold data-[state=active]:border-primary data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm" value="history">Lịch sử</TabsTrigger>
@@ -213,8 +210,6 @@ export default function Q7MaterialInventory() {
             </CardContent>
           </Card>
         </TabsContent>
-
-        <TabsContent value="queue"><Q7SignedMaterialIssueQueue /></TabsContent>
 
         <TabsContent value="receipt">
           <div className="mx-auto max-w-2xl">

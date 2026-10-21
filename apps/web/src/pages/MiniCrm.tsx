@@ -21,7 +21,6 @@ import { getDocument, GlobalWorkerOptions } from "pdfjs-dist/legacy/build/pdf.mj
 import { SalesPoQuickViewEditor } from "@/components/mini-crm/SalesPoQuickViewEditor";
 import { KnowledgeBaseProfileEditor } from "@/components/mini-crm/KnowledgeBaseProfileEditor";
 import { KioskReportAdminPanel } from "@/components/mini-crm/KioskReportAdminPanel";
-import { DeliveryStaffAdminPanel } from "@/components/mini-crm/DeliveryStaffAdminPanel";
 import { AttendanceGeofenceAdminPanel } from "@/components/mini-crm/AttendanceGeofenceAdminPanel";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -493,7 +492,7 @@ export default function MiniCrm() {
   const [poSummaryDraft, setPoSummaryDraft] = useState<any>({});
   const [poDraftBaseSignature, setPoDraftBaseSignature] = useState<string>("");
   const [poDraftHydrationNonce, setPoDraftHydrationNonce] = useState(0);
-  const [pendingParseAction, setPendingParseAction] = useState<null | "attachment" | "email_body">(null);
+  const [pendingParseAction, setPendingParseAction] = useState<null | "email_body">(null);
   const poDraftHydrationKeyRef = useRef<string>("");
   const [savePoStatus, setSavePoStatus] = useState<string>("");
   const [postRevenueStatus, setPostRevenueStatus] = useState<string>("");
@@ -523,15 +522,13 @@ export default function MiniCrm() {
   const [setupModalOpen, setSetupModalOpen] = useState(false);
   const [setupDealerPhone, setSetupDealerPhone] = useState("");
   const [viewCustomer, setViewCustomer] = useState<any | null>(null);
-  const [miniCrmSection, setMiniCrmSection] = useState<"customers" | "locations" | "staff" | "delivery_staff" | "attendance_geofences">("customers");
-  const [setupContractFile, setSetupContractFile] = useState<File | null>(null);
+  const [miniCrmSection, setMiniCrmSection] = useState<"customers" | "locations" | "staff" | "attendance_geofences">("customers");
   const [setupPriceRows, setSetupPriceRows] = useState<Array<{ skuId: string; price: string }>>([{ skuId: "", price: "" }]);
   const [setupEmailBodyTemplate, setSetupEmailBodyTemplate] = useState("");
   const [setupIsNpp, setSetupIsNpp] = useState(false);
   const [setupUsesNpp, setSetupUsesNpp] = useState(false);
   const [setupSuppliedByNppCustomerId, setSetupSuppliedByNppCustomerId] = useState("");
   const [setupNppManagementFee, setSetupNppManagementFee] = useState("");
-  const [editContractFile, setEditContractFile] = useState<File | null>(null);
   const [editPriceRows, setEditPriceRows] = useState<Array<{ skuId: string; price: string }>>([{ skuId: "", price: "" }]);
   const [editSkuPriceMap, setEditSkuPriceMap] = useState<Map<string, string>>(new Map());
   const [editKbProfileName, setEditKbProfileName] = useState("Default Customer Knowledge");
@@ -607,20 +604,6 @@ export default function MiniCrm() {
   }, [finishedSkus]);
 
   const renderBusinessProductLabel = (value: unknown) => getBusinessProductLabel(value, finishedSkus as BusinessSkuOption[]);
-
-  const { data: customerContracts = [] } = useQuery({
-    queryKey: ["mini-crm-customer-contracts"],
-    queryFn: async () => {
-      const { data, error } = await (supabase as any)
-        .from("mini_crm_customer_contracts")
-        .select("*")
-        .eq("is_active", true)
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data || [];
-    },
-    enabled: !isSalesPoPage,
-  });
 
   const { data: customerPriceList = [] } = useQuery({
     queryKey: ["mini-crm-customer-price-list"],
@@ -755,7 +738,6 @@ export default function MiniCrm() {
     setPendingTemplateFileName("");
     setPendingTemplatePreview(null);
     setTemplateConfirmOpen(false);
-    setEditContractFile(null);
     const currentPrices = getLatestActivePriceRows(customerPriceList, c.id);
     setEditSkuPriceMap(buildSkuPriceMap(customerPriceList, c.id, finishedSkus));
     setEditPriceRows(currentPrices.length ? currentPrices.map((p: any) => ({ skuId: p.sku_id, price: String(Number(p.price_vnd_per_unit || 0)) })) : [{ skuId: "", price: "" }]);
@@ -802,7 +784,6 @@ export default function MiniCrm() {
     setPendingTemplatePreview(null);
     setTemplateConfirmOpen(false);
     setTemplateReviewDraft(null);
-    setEditContractFile(null);
     setEditPriceRows([{ skuId: "", price: "" }]);
     setEditSkuPriceMap(new Map());
     setEditKbProfileName("Default Customer Knowledge");
@@ -1104,17 +1085,6 @@ export default function MiniCrm() {
         if (emailError) throw emailError;
       }
 
-      if (setupContractFile) {
-        const filePath = `${customerId}/${Date.now()}-${setupContractFile.name}`;
-        const { error: uploadError } = await (supabase as any).storage.from("customer-contracts").upload(filePath, setupContractFile, { upsert: false, contentType: setupContractFile.type || "application/pdf" });
-        if (uploadError) throw uploadError;
-        const { data: pub } = (supabase as any).storage.from("customer-contracts").getPublicUrl(filePath);
-        const { error: contractError } = await (supabase as any)
-          .from("mini_crm_customer_contracts")
-          .insert({ customer_id: customerId, file_name: setupContractFile.name, file_url: pub?.publicUrl || filePath, file_size: setupContractFile.size, mime_type: setupContractFile.type || "application/pdf", is_active: true });
-        if (contractError) throw contractError;
-      }
-
       const validRows = setupPriceRows
         .map((r) => ({ sku_id: r.skuId, price_vnd_per_unit: Number(String(r.price || "").replace(/[^0-9]/g, "")) }))
         .filter((r) => r.sku_id && Number.isFinite(r.price_vnd_per_unit) && r.price_vnd_per_unit > 0);
@@ -1185,7 +1155,6 @@ export default function MiniCrm() {
       setSetupDealerPhone("");
       setEmailsInput("");
       setDebtEmailsInput("");
-      setSetupContractFile(null);
       setSetupPriceRows([{ skuId: "", price: "" }]);
       setSetupEmailBodyTemplate("");
       setSetupIsNpp(false);
@@ -1197,7 +1166,6 @@ export default function MiniCrm() {
       setTemplateAiContext("");
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["mini-crm-customers"] }),
-        queryClient.invalidateQueries({ queryKey: ["mini-crm-customer-contracts"] }),
         queryClient.invalidateQueries({ queryKey: ["mini-crm-customer-price-list"] }),
         queryClient.invalidateQueries({ queryKey: ["mini-crm-po-templates"] }),
         queryClient.invalidateQueries({ queryKey: ["mini-crm-knowledge-profiles"] }),
@@ -1355,84 +1323,6 @@ export default function MiniCrm() {
     },
   });
 
-  const kbAiSuggestMutation = useMutation({
-    mutationFn: async () => {
-      // Ensure fresh JWT — getSession() returns stale cached token → 401
-      await getFreshAccessToken();
-      const activeTemplateName = poTemplates.find((t: any) => t.customer_id === editingCustomerId && t.is_active)?.file_name || null;
-      const { data, error } = await supabase.functions.invoke("kb-suggest-po-rules", {
-        body: {
-          profileName: editKbProfileName,
-          poMode: editKbPoMode,
-          poSource: editKbPoSource,
-          businessDescription: editKbBusinessDescription,
-          templateFileName: activeTemplateName || templateFileName || null,
-          templateExtractedContext: templateAiContext || null,
-        },
-      });
-      if (error) {
-        // Try to extract structured error detail from function response
-        let detail = "";
-        let payload: any = null;
-        const context = (error as any)?.context;
-        if (context?.json) {
-          try {
-            payload = await context.json();
-            detail = [payload?.error, payload?.message, payload?.code, payload?.details].filter(Boolean).join(" | ");
-          } catch {
-            // JSON parse failed (e.g. proxy 401 with no body) — ignore
-          }
-        }
-        if (isAiQuotaError(payload) || isAiQuotaError(error)) {
-          notifyAiQuotaExhausted();
-          const quotaError = new Error(AI_QUOTA_MESSAGE) as Error & { code?: string };
-          quotaError.code = AI_QUOTA_CODE;
-          throw quotaError;
-        }
-        throw new Error(detail || (error as any)?.message || "Edge Function returned a non-2xx status code");
-      }
-      if (!data?.suggestion) throw new Error("AI không trả về rule hợp lệ");
-      return data.suggestion as KbAiParseSuggestion;
-    },
-    onMutate: () => {
-      setKbAiStatus("AI đang phân tích mô tả business + template để đề xuất rule...");
-    },
-    onSuccess: (suggestion) => {
-      const normalizedSuggestion = {
-        ...suggestion,
-        exchange_rule: suggestion?.exchange_rule || {
-          keywords: Array.isArray(suggestion?.exchange_keywords) ? suggestion.exchange_keywords : [],
-          pattern: Array.isArray(suggestion?.exchange_keywords) ? suggestion.exchange_keywords.join(", ") : "",
-        },
-      };
-      setKbAiSuggestion(normalizedSuggestion);
-      setParseContract((current) => {
-        if (current?.status === "locked") return current;
-        const next = aiSuggestionToParseContract(normalizedSuggestion, { po_mode: editKbPoMode as any });
-        return current
-          ? {
-              ...next,
-              test_evidence: current.test_evidence || [],
-              locked_at: current.locked_at,
-              locked_by: current.locked_by,
-            }
-          : next;
-      });
-      setKbAiStatus(`Đã tạo đề xuất AI • confidence ${Math.round(Number(normalizedSuggestion?.confidence || 0) * 100)}%`);
-      toast({ title: "AI đã đề xuất rule KB", description: normalizedSuggestion?.human_summary || "" });
-    },
-    onError: (e: any) => {
-      const message = e?.message || "Không thể tạo rule KB";
-      if (isAiQuotaError(e)) {
-        setKbAiStatus(`AI tính toán thất bại: ${AI_QUOTA_MESSAGE}`);
-        notifyAiQuotaExhausted();
-        return;
-      }
-      setKbAiStatus(`AI tính toán thất bại: ${message}`);
-      toast({ title: "AI tính toán thất bại", description: message, variant: "destructive" });
-    },
-  });
-
   const updateCustomerMutation = useMutation({
     mutationFn: async () => {
       if (!editingCustomerId) throw new Error("Chưa chọn khách hàng để sửa");
@@ -1565,24 +1455,6 @@ export default function MiniCrm() {
           }
         }
 
-        if (editContractFile) {
-          const { error: deactivateContractError } = await (supabase as any)
-            .from("mini_crm_customer_contracts")
-            .update({ is_active: false })
-            .eq("customer_id", editingCustomerId)
-            .eq("is_active", true);
-          if (deactivateContractError) throw deactivateContractError;
-
-          const filePath = `${editingCustomerId}/${Date.now()}-${editContractFile.name}`;
-          const { error: uploadError } = await (supabase as any).storage.from("customer-contracts").upload(filePath, editContractFile, { upsert: false, contentType: editContractFile.type || "application/pdf" });
-          if (uploadError) throw uploadError;
-          const { data: pub } = (supabase as any).storage.from("customer-contracts").getPublicUrl(filePath);
-          const { error: contractInsertError } = await (supabase as any)
-            .from("mini_crm_customer_contracts")
-            .insert({ customer_id: editingCustomerId, file_name: editContractFile.name, file_url: pub?.publicUrl || filePath, file_size: editContractFile.size, mime_type: editContractFile.type || "application/pdf", is_active: true });
-          if (contractInsertError) throw contractInsertError;
-        }
-
         const validRows = editPriceRows
           .map((r) => ({ sku_id: r.skuId, price_vnd_per_unit: Number(String(r.price || "").replace(/[^0-9]/g, "")) }))
           .filter((r) => r.sku_id && Number.isFinite(r.price_vnd_per_unit) && r.price_vnd_per_unit > 0);
@@ -1676,7 +1548,6 @@ export default function MiniCrm() {
       setEditFeedback(msg);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["mini-crm-customers"] }),
-        queryClient.invalidateQueries({ queryKey: ["mini-crm-customer-contracts"] }),
         queryClient.invalidateQueries({ queryKey: ["mini-crm-customer-price-list"] }),
         queryClient.invalidateQueries({ queryKey: ["mini-crm-po-templates"] }),
         queryClient.invalidateQueries({ queryKey: ["mini-crm-knowledge-profiles"] }),
@@ -2491,49 +2362,6 @@ export default function MiniCrm() {
     }));
   }, [selectedPo, selectedPoKnowledgeProfile, selectedPoAiConfig, poSummaryDraft?.production_items, isPoDraftDirty]);
 
-  const fetchAttachmentParseResult = async (inboxId: string, accessToken?: string) => {
-    const token = accessToken || (await supabase.auth.getSession()).data.session?.access_token;
-    if (!token) throw new Error("Phiên đăng nhập hết hạn");
-    const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/po-parse-inbox-order`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ inboxId }),
-    });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result?.error || "Parse attachment thất bại");
-    return result;
-  };
-
-  const parseAttachmentMutation = useMutation({
-    mutationFn: async (inboxId: string) => {
-      return fetchAttachmentParseResult(inboxId);
-    },
-    onSuccess: async (result: any) => {
-      await queryClient.invalidateQueries({ queryKey: ["customer-po-inbox"] });
-      if (Array.isArray(result?.parsed?.items)) {
-        const parsedItems = result.parsed.items;
-        const subtotal = Number(result?.parsed?.subtotal || calcSubtotalFromItems(parsedItems) || 0);
-        const vat = Number(result?.parsed?.vat ?? 0);
-        const total = subtotal + vat;
-        replacePoDraftItems(parsedItems, {
-          po_number: poSummaryDraft?.po_number || extractPoNumberFromSubject(selectedPo?.email_subject),
-          delivery_date: poSummaryDraft?.delivery_date || extractDeliveryDateFromSubject(selectedPo?.email_subject),
-          subtotal_amount: subtotal || poSummaryDraft?.subtotal_amount,
-          vat_amount: vat,
-          total_amount: total,
-        });
-      }
-      setSavePoStatus("Đã cập nhật draft từ file đính kèm. Nhớ lưu trước khi đẩy doanh thu.");
-      toast({ title: "Đã parse file đính kèm", description: `${result?.parsed?.itemCount || 0} dòng sản phẩm` });
-    },
-    onError: (e: any) => {
-      toast({ title: "Lỗi parse file", description: e?.message || "Không parse được", variant: "destructive" });
-    },
-  });
-
   const savePoSummaryMutation = useMutation({
     onMutate: () => {
       setSavePoStatus("Đang lưu tóm tắt PO...");
@@ -2614,15 +2442,6 @@ export default function MiniCrm() {
     },
   });
 
-  const requestParseAttachment = () => {
-    if (!selectedPo?.id) return;
-    if (isPoDraftDirty) {
-      setPendingParseAction("attachment");
-      return;
-    }
-    parseAttachmentMutation.mutate(selectedPo.id);
-  };
-
   const requestParseFromEmailBody = () => {
     if (isPoDraftDirty) {
       setPendingParseAction("email_body");
@@ -2632,11 +2451,6 @@ export default function MiniCrm() {
   };
 
   const confirmOverwriteDraftAndParse = () => {
-    if (pendingParseAction === "attachment") {
-      setPendingParseAction(null);
-      if (selectedPo?.id) parseAttachmentMutation.mutate(selectedPo.id);
-      return;
-    }
     if (pendingParseAction === "email_body") {
       setPendingParseAction(null);
       applyParseFromEmailBody();
@@ -2830,101 +2644,6 @@ export default function MiniCrm() {
         description: errMsg,
         variant: "destructive",
       });
-    },
-  });
-
-  const bulkRunLockedContractMutation = useMutation({
-    mutationFn: async () => {
-      if (!editingCustomerId) throw new Error("Chưa chọn khách hàng");
-      const contract = buildParseContractForSave();
-      if (!contract || contract.status !== "locked") {
-        throw new Error("Contract phải ở trạng thái locked trước khi bulk-run.");
-      }
-      const { data: session } = await supabase.auth.getSession();
-      const accessToken = session?.session?.access_token;
-      if (!accessToken) throw new Error("Phiên đăng nhập hết hạn");
-
-      const { data: rows, error } = await (supabase as any)
-        .from("customer_po_inbox")
-        .select("id,matched_customer_id,po_number,delivery_date,email_subject,body_preview,total_amount,subtotal_amount,vat_amount,revenue_channel,production_items,match_status,posted_to_revenue,raw_payload,received_at")
-        .eq("matched_customer_id", editingCustomerId)
-        .order("received_at", { ascending: false })
-        .limit(100);
-      if (error) throw error;
-
-      const kbProfile = customerKnowledgeProfiles.find((x: any) => x.customer_id === editingCustomerId) || null;
-      const aiConfig = kbAiSuggestion || kbProfile?.ai_parse_config || null;
-      const candidates = (rows || []).filter((row: any) => {
-        if (row?.posted_to_revenue || row?.raw_payload?.revenue_post?.posted) return false;
-        if (["rejected", "unmatched"].includes(String(row?.match_status || ""))) return false;
-        return true;
-      });
-
-      const summary = { processed: 0, success: 0, failed: 0, skipped: 0, failures: [] as string[] };
-      for (const row of candidates) {
-        summary.processed += 1;
-        try {
-          let parsedItems: any[] = [];
-          let nextSubtotal = Number(row?.subtotal_amount || 0) || null;
-          let nextVat = Number(row?.vat_amount || 0) || null;
-          let nextTotal = Number(row?.total_amount || 0) || null;
-
-          if (contract.source === "email_body") {
-            const parsed = parseEmailBodyToProductionItems(row?.email_subject, row?.body_preview || row?.raw_payload?.snippet || "", aiConfig);
-            parsedItems = normalizePoDraftItems(Array.isArray(parsed.items) ? parsed.items : []);
-          } else {
-            const attachmentResult = await fetchAttachmentParseResult(row.id, accessToken);
-            parsedItems = normalizePoDraftItems(Array.isArray(attachmentResult?.parsed?.items) ? attachmentResult.parsed.items : []);
-            nextSubtotal = Number(attachmentResult?.parsed?.subtotal || calcSubtotalFromItems(parsedItems) || row?.subtotal_amount || 0) || null;
-            nextVat = Number(attachmentResult?.parsed?.vat ?? row?.vat_amount ?? 0) || null;
-            nextTotal = Number(calcSafeTotal(nextSubtotal, nextVat, attachmentResult?.parsed?.total || row?.total_amount) || 0) || null;
-          }
-
-          if (!parsedItems.length) {
-            summary.failed += 1;
-            summary.failures.push(`${row.id}: parse ra 0 item`);
-            continue;
-          }
-
-          const { error: updateErr } = await (supabase as any)
-            .from("customer_po_inbox")
-            .update({
-              production_items: parsedItems,
-              subtotal_amount: nextSubtotal,
-              vat_amount: nextVat,
-              total_amount: nextTotal,
-              raw_payload: {
-                ...(row?.raw_payload || {}),
-                bulk_run_contract: {
-                  profile_name: kbProfile?.profile_name || null,
-                  source: contract.source,
-                  ran_at: new Date().toISOString(),
-                },
-              },
-            })
-            .eq("id", row.id);
-          if (updateErr) throw updateErr;
-
-          await postRevenueMutation.mutateAsync(row.id);
-          summary.success += 1;
-        } catch (e: any) {
-          summary.failed += 1;
-          summary.failures.push(`${row.id}: ${e?.message || "unknown error"}`);
-        }
-      }
-      summary.skipped = Math.max((rows || []).length - candidates.length, 0);
-      return summary;
-    },
-    onSuccess: async (result: any) => {
-      await queryClient.invalidateQueries({ queryKey: ["customer-po-inbox"] });
-      await queryClient.invalidateQueries({ queryKey: ["po-revenue-post-audit"] });
-      toast({
-        title: "Bulk-run contract hoàn tất",
-        description: `Success ${result?.success || 0} • Failed ${result?.failed || 0} • Skipped ${result?.skipped || 0}`,
-      });
-    },
-    onError: (e: any) => {
-      toast({ title: "Bulk-run contract thất bại", description: e?.message || "Không thể chạy bulk-run", variant: "destructive" });
     },
   });
 
@@ -3239,15 +2958,14 @@ export default function MiniCrm() {
 
       <Tabs
         value={miniCrmSection}
-        onValueChange={(value) => setMiniCrmSection(value as "customers" | "locations" | "staff" | "delivery_staff" | "attendance_geofences")}
+        onValueChange={(value) => setMiniCrmSection(value as "customers" | "locations" | "staff" | "attendance_geofences")}
         className="w-full"
         data-kiosk-report-admin-function="kiosk-report-admin"
       >
-        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 md:w-auto md:grid-cols-5">
+        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 md:w-auto md:grid-cols-4">
           <TabsTrigger value="customers">Khách hàng</TabsTrigger>
           <TabsTrigger value="locations">Điểm bán</TabsTrigger>
           <TabsTrigger value="staff">Nhân viên bán hàng</TabsTrigger>
-          <TabsTrigger value="delivery_staff">Nhân viên giao hàng</TabsTrigger>
           <TabsTrigger value="attendance_geofences">GPS chấm công</TabsTrigger>
         </TabsList>
       </Tabs>
@@ -3344,12 +3062,6 @@ export default function MiniCrm() {
               <Label>Phí quản lí / hỗ trợ cố định (VND)</Label>
               <Input value={setupNppManagementFee} onChange={(e) => setSetupNppManagementFee(e.target.value)} placeholder="VD: 300000" />
               <p className="text-xs text-muted-foreground">Dùng để trừ khi tính công nợ NPP cho đại lý này.</p>
-            </div>
-
-            <div className="space-y-2 md:col-span-2 rounded-md border p-3">
-              <Label>Upload hợp đồng (PDF)</Label>
-              <Input type="file" accept="application/pdf,.pdf" onChange={(e) => setSetupContractFile(e.target.files?.[0] || null)} />
-              {setupContractFile && <div className="text-xs text-muted-foreground">{setupContractFile.name}</div>}
             </div>
 
             <div className="space-y-2 md:col-span-2 rounded-md border p-3">
@@ -3600,10 +3312,6 @@ export default function MiniCrm() {
 
       {miniCrmSection === "staff" && (
         <KioskReportAdminPanel mode="staff" canView={canViewKioskAdmin} canEdit={canEditKioskAdmin} />
-      )}
-
-      {miniCrmSection === "delivery_staff" && (
-        <DeliveryStaffAdminPanel canView={canViewKioskAdmin} canEdit={canEditKioskAdmin} />
       )}
 
       {miniCrmSection === "attendance_geofences" && (
@@ -3941,14 +3649,12 @@ export default function MiniCrm() {
                     isPoDraftDirty={isPoDraftDirty}
                     savePoStatus={savePoStatus}
                     postRevenueStatus={postRevenueStatus}
-                    parseAttachmentPending={parseAttachmentMutation.isPending}
                     savePending={savePoSummaryMutation.isPending}
                     postRevenuePending={postRevenueMutation.isPending}
                     onDraftFieldChange={(field, value) => updatePoDraft((draft: any) => ({ ...draft, [field]: value }))}
                     onAddLineItem={addPoDraftItem}
                     onPatchLineItem={patchPoDraftItem}
                     onRemoveLineItem={removePoDraftItem}
-                    onParseAttachment={requestParseAttachment}
                     onParseEmailBody={requestParseFromEmailBody}
                     poParseDebug={poParseDebug}
                     onSave={() => savePoSummaryMutation.mutate()}
@@ -4001,7 +3707,6 @@ export default function MiniCrm() {
                 <div><b>Email nhận diện:</b> {(viewCustomer.mini_crm_customer_emails || []).map((e: any) => e.email).join(", ") || "-"}</div>
                 <div><b>Email nhận công nợ:</b> {formatEmailList(viewCustomer.debt_emails) || "-"}</div>
                 <div><b>SĐT dealer portal:</b> {formatDealerContactPhones(viewCustomer.dealer_customer_contacts || []) || "Chưa có"}</div>
-                <div><b>Hợp đồng:</b> {(customerContracts.find((x: any) => x.customer_id === viewCustomer.id)?.file_name) || "Chưa có"}</div>
                 <div>
                   <b>Bảng giá:</b>
                   <ul className="list-disc pl-5">
@@ -4218,19 +3923,6 @@ export default function MiniCrm() {
             })()}
 
             <div className="space-y-2 md:col-span-2 rounded-md border p-3">
-              <Label>Hợp đồng (PDF)</Label>
-              <div className="text-xs">Active: {(customerContracts.find((x: any) => x.customer_id === editingCustomerId)?.file_name) || "Chưa có"}</div>
-              <div className="flex gap-2">
-                <Input type="file" accept="application/pdf,.pdf" onChange={(e) => setEditContractFile(e.target.files?.[0] || null)} />
-                <Button type="button" variant="outline" onClick={async () => {
-                  await (supabase as any).from("mini_crm_customer_contracts").update({ is_active: false }).eq("customer_id", editingCustomerId).eq("is_active", true);
-                  await queryClient.invalidateQueries({ queryKey: ["mini-crm-customer-contracts"] });
-                  toast({ title: "Đã xoá hợp đồng active" });
-                }}>Xoá HĐ</Button>
-              </div>
-            </div>
-
-            <div className="space-y-2 md:col-span-2 rounded-md border p-3">
               <Label>Giá bán SKU</Label>
               {editPriceRows.map((row, idx) => (
                 <div key={idx} className="grid grid-cols-12 gap-2 mb-2">
@@ -4251,17 +3943,14 @@ export default function MiniCrm() {
 
             <KnowledgeBaseProfileEditor
               poTemplates={poTemplates}
-              customerPos={recentCustomerPosForKbTest}
               editingCustomerId={editingCustomerId}
               editKbProfileName={editKbProfileName}
               editKbPoMode={editKbPoMode}
               editKbBusinessDescription={editKbBusinessDescription}
-              kbAiSuggestion={kbAiSuggestion}
               kbAiStatus={kbAiStatus}
               kbChangeNote={kbChangeNote}
               templateFileName={templateFileName}
               templateAiContext={templateAiContext}
-              kbAiSuggestPending={kbAiSuggestMutation.isPending}
               submitPending={submitKbChangeRequestMutation.isPending}
               approvePending={approveKbLatestRequestMutation.isPending}
               pendingCount={0}
@@ -4270,8 +3959,6 @@ export default function MiniCrm() {
               activeKnowledgeProfile={customerKnowledgeProfiles.find((x: any) => x.customer_id === editingCustomerId) || null}
               knowledgeVersionHistory={knowledgeProfileVersions.filter((v: any) => v.customer_id === editingCustomerId).sort((a: any, b: any) => Number(b.version_no || 0) - Number(a.version_no || 0))}
               latestPendingRequest={null}
-              parseContract={parseContract}
-              currentUserLabel={user?.email || user?.id || "mini-crm-ui"}
               onKbProfileNameChange={setEditKbProfileName}
               onKbPoModeChange={setEditKbPoMode}
               onKbBusinessDescriptionChange={setEditKbBusinessDescription}
@@ -4312,10 +3999,8 @@ export default function MiniCrm() {
                 await queryClient.invalidateQueries({ queryKey: ["mini-crm-po-templates"] });
                 toast({ title: "Đã xoá mẫu PO active" });
               }}
-              onAiSuggest={() => kbAiSuggestMutation.mutate()}
               onSubmitApproval={() => submitKbChangeRequestMutation.mutate()}
               onApproveLatest={() => approveKbLatestRequestMutation.mutate()}
-              onParseContractChange={setParseContract}
             />
           </div>
 

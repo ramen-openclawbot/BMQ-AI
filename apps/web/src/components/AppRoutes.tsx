@@ -20,22 +20,14 @@ import SalaryPayout from "@/pages/SalaryPayout";
 import PayablesManagement from "@/pages/PayablesManagement";
 import LowStock from "@/pages/LowStock";
 import GoodsReceipts from "@/pages/GoodsReceipts";
-import KitchenInventory from "@/pages/KitchenInventory";
 import PurchaseOrders from "@/pages/PurchaseOrders";
 import Settings from "@/pages/Settings";
 import Auth from "@/pages/Auth";
 import NotFound from "@/pages/NotFound";
 import DealerPortal from "@/pages/DealerPortal";
 import DealerPromotionDetail from "@/pages/DealerPromotionDetail";
-import SkuCostsProducts from "@/pages/SkuCostsProducts";
-import SkuCostsIngredients from "@/pages/SkuCostsIngredients";
-import SkuCostsEmployees from "@/pages/SkuCostsEmployees";
-import SkuCostsOverhead from "@/pages/SkuCostsOverhead";
-import TraceabilityPublic from "@/pages/TraceabilityPublic";
 import UserManagement from "@/pages/UserManagement";
-import BmqDataSources from "@/pages/BmqDataSources";
 import SystemManagement from "@/pages/SystemManagement";
-import WarehouseHome from "@/warehouse/pages/WarehouseHome";
 
 // Lazy load: pages nặng — chỉ tải khi user vào trang đó
 const MiniCrm = lazy(() => import("@/pages/MiniCrm"));
@@ -44,7 +36,6 @@ const FinanceReports = lazy(() => import("@/pages/FinanceReports"));
 const FinanceRevenueControl = lazy(() => import("@/pages/FinanceRevenueControl"));
 const RevenueManagementDashboard = lazy(() => import("@/pages/RevenueManagementDashboard"));
 const RevenueSourceDetail = lazy(() => import("@/pages/RevenueSourceDetail"));
-const RevenueDailyReview = lazy(() => import("@/pages/RevenueDailyReview"));
 const NppDebtManagement = lazy(() => import("@/pages/NppDebtManagement"));
 const PointRevenueManagement = lazy(() => import("@/pages/PointRevenueManagement"));
 const SkuCostsManagement = lazy(() => import("@/pages/SkuCostsManagement"));
@@ -56,22 +47,16 @@ const Q7MaterialInventory = lazy(() => import("@/pages/Q7MaterialInventory"));
 const MaterialMasterAdmin = lazy(() => import("@/pages/material-master/MaterialMasterAdmin"));
 const MaterialMasterSystemStatus = lazy(() => import("@/pages/material-master/MaterialMasterSystemStatus"));
 const ProductionProducts = lazy(() => import("@/pages/ProductionProducts"));
-const ProductionShifts = lazy(() => import("@/pages/ProductionShifts"));
 const QAInspection = lazy(() => import("@/pages/QAInspection"));
-const WarehouseDispatch = lazy(() => import("@/pages/WarehouseDispatch"));
 const StockReport = lazy(() => import("@/pages/StockReport"));
 const TanTaoWarehouse = lazy(() => import("@/pages/TanTaoWarehouse"));
 const StockLedger = lazy(() => import("@/pages/StockLedger"));
-const AutoPurchase = lazy(() => import("@/pages/AutoPurchase"));
 const PurchaseUsage = lazy(() => import("@/pages/PurchaseUsage"));
 const StockCatalogCleanup = lazy(() => import("@/pages/StockCatalogCleanup"));
 /** Game kho 2 việc (owner 21/10/2026): the old game and the 3D game were removed the same day. */
 const KhoGame = lazy(() => import("@/pages/KhoGame"));
 const WarehouseSlips = lazy(() => import("@/pages/WarehouseSlips"));
-const AttendanceManagement = lazy(() => import("@/pages/AttendanceManagement"));
-// Payroll is the Bếp BN flow (owner 2026-10-08); the older PayrollManagement page is no longer routed.
 const BepBnPayroll = lazy(() => import("@/pages/BepBnPayroll"));
-const FacebookMessengerInbox = lazy(() => import("@/pages/FacebookMessengerInbox"));
 const VNAgentDataAdmin = lazy(() => import("@/pages/VNAgentDataAdmin"));
 
 const DEALER_ORDERING_HOST = "dathang.banhmique.vn";
@@ -175,11 +160,9 @@ function ModuleRoute({ moduleKey, children }: { moduleKey: string; children: Rea
     q7_material_inventory: "Xuất-nhập-tồn NVL Q7",
     material_master: "Quản trị NVL chuẩn",
     production_products: "Quản lý sản phẩm",
-    production_shifts: "Ca sản xuất",
     production_qa: "QA & Nhập kho TP",
     goods_receipts: "Phiếu nhập kho",
     inventory: "Kho",
-    facebook_messenger: "Quản lý Facebook Page",
   };
   const moduleLabel = moduleLabels[moduleKey] || moduleKey;
 
@@ -276,14 +259,6 @@ export function AppRoutes() {
   return (
     <Routes>
       <Route path="/auth" element={<Auth />} />
-      <Route path="/trace/:token" element={<TraceabilityPublic />} />
-
-      {/* Warehouse App Route - uses main app auth */}
-      <Route path="/kho" element={
-        <ProtectedRoute>
-          <WarehouseHome />
-        </ProtectedRoute>
-      } />
 
       {/* Kho 2D runs full screen, outside the BMQ shell (owner decision 2026-10-12). */}
       <Route path="/warehouse/game" element={<ProtectedRoute><ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><KhoGame /></Suspense></ModuleRoute></ProtectedRoute>} />
@@ -296,7 +271,6 @@ export function AppRoutes() {
       <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
         <Route path="/" element={<Index />} />
         <Route path="/inventory" element={<Inventory />} />
-        <Route path="/kitchen-inventory" element={<KitchenInventory />} />
         <Route path="/suppliers" element={<ModuleRoute moduleKey="suppliers"><Suppliers /></ModuleRoute>} />
         <Route path="/invoices" element={<Invoices />} />
         <Route path="/payment-requests" element={<PaymentRequests />} />
@@ -310,10 +284,6 @@ export function AppRoutes() {
         <Route path="/sku-costs/dashboard" element={<Suspense fallback={<AppLoadingFallback />}><SkuCostsDjango /></Suspense>} />
         <Route path="/sku-costs/management" element={<Suspense fallback={<AppLoadingFallback />}><SkuCostsManagement /></Suspense>} />
         <Route path="/sku-costs/analysis" element={<Suspense fallback={<AppLoadingFallback />}><SkuCostsAnalysis /></Suspense>} />
-        <Route path="/sku-costs/products" element={<SkuCostsProducts />} />
-        <Route path="/sku-costs/ingredients" element={<SkuCostsIngredients />} />
-        <Route path="/sku-costs/employees" element={<SkuCostsEmployees />} />
-        <Route path="/sku-costs/overhead" element={<SkuCostsOverhead />} />
         {/* CEO khai báo removed (owner decision 2026-10-10): old links land on Duyệt chi. */}
         <Route path="/finance-control" element={<Navigate to="/payment-requests" replace />} />
         <Route path="/finance-control/cost" element={<Navigate to="/payment-requests" replace />} />
@@ -324,12 +294,10 @@ export function AppRoutes() {
         <Route path="/finance-control/revenue" element={<Suspense fallback={<AppLoadingFallback />}><RevenueManagementDashboard /></Suspense>} />
         <Route path="/finance-control/revenue/sources" element={<Suspense fallback={<AppLoadingFallback />}><RevenueSourceDetail /></Suspense>} />
         <Route path="/finance-control/revenue/setup" element={<Suspense fallback={<AppLoadingFallback />}><FinanceRevenueControl /></Suspense>} />
-        <Route path="/finance-control/revenue/daily-review" element={<Suspense fallback={<AppLoadingFallback />}><RevenueDailyReview /></Suspense>} />
         <Route path="/finance-control/revenue/debt" element={<Suspense fallback={<AppLoadingFallback />}><NppDebtManagement /></Suspense>} />
         <Route path="/finance-control/revenue/points" element={<ModuleRoute moduleKey="finance_revenue"><Suspense fallback={<AppLoadingFallback />}><PointRevenueManagement /></Suspense></ModuleRoute>} />
         <Route path="/mini-crm" element={<Suspense fallback={<AppLoadingFallback />}><MiniCrm /></Suspense>} />
         <Route path="/sales-po-inbox" element={<Suspense fallback={<AppLoadingFallback />}><MiniCrm /></Suspense>} />
-        <Route path="/marketing-sales/facebook-page" element={<ModuleRoute moduleKey="facebook_messenger"><Suspense fallback={<AppLoadingFallback />}><FacebookMessengerInbox /></Suspense></ModuleRoute>} />
         {/* Production routes */}
         <Route path="/production/planning" element={<Navigate to="/production/planning/q7" replace />} />
         <Route path="/production/planning/q7/kfm" element={<ModuleRoute moduleKey="production_q7"><Suspense fallback={<AppLoadingFallback />}><KfmPrintToday /></Suspense></ModuleRoute>} />
@@ -338,22 +306,17 @@ export function AppRoutes() {
         <Route path="/material-master" element={<ModuleRoute moduleKey="material_master"><Suspense fallback={<AppLoadingFallback />}><MaterialMasterAdmin /></Suspense></ModuleRoute>} />
         <Route path="/material-master/system-status" element={<ModuleRoute moduleKey="material_master"><Suspense fallback={<AppLoadingFallback />}><MaterialMasterSystemStatus /></Suspense></ModuleRoute>} />
         <Route path="/production/products" element={<ModuleRoute moduleKey="production_products"><Suspense fallback={<AppLoadingFallback />}><ProductionProducts /></Suspense></ModuleRoute>} />
-        <Route path="/production/shifts" element={<ModuleRoute moduleKey="production_shifts"><Suspense fallback={<AppLoadingFallback />}><ProductionShifts /></Suspense></ModuleRoute>} />
         <Route path="/production/qa" element={<ModuleRoute moduleKey="production_qa"><Suspense fallback={<AppLoadingFallback />}><QAInspection /></Suspense></ModuleRoute>} />
-        <Route path="/attendance" element={<Suspense fallback={<AppLoadingFallback />}><AttendanceManagement /></Suspense>} />
         <Route path="/payroll" element={<Suspense fallback={<AppLoadingFallback />}><BepBnPayroll /></Suspense>} />
         {/* Warehouse extension routes */}
         <Route path="/warehouse/stock-ledger" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><StockLedger /></Suspense></ModuleRoute>} />
-        <Route path="/warehouse/auto-purchase" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><AutoPurchase /></Suspense></ModuleRoute>} />
         <Route path="/warehouse/purchase-usage" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><PurchaseUsage /></Suspense></ModuleRoute>} />
         <Route path="/warehouse/catalog-cleanup" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><StockCatalogCleanup /></Suspense></ModuleRoute>} />
         <Route path="/warehouse/tan-tao" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><TanTaoWarehouse /></Suspense></ModuleRoute>} />
-        <Route path="/warehouse/dispatch" element={<Suspense fallback={<AppLoadingFallback />}><WarehouseDispatch /></Suspense>} />
         <Route path="/warehouse/stock-report" element={<Suspense fallback={<AppLoadingFallback />}><StockReport /></Suspense>} />
         <Route path="/settings" element={<Settings />} />
         {/* Owner-only routes */}
         <Route path="/user-management" element={<OwnerRoute><UserManagement /></OwnerRoute>} />
-        <Route path="/data-sources" element={<OwnerRoute><BmqDataSources /></OwnerRoute>} />
         <Route path="/system-management" element={<OwnerRoute><SystemManagement /></OwnerRoute>} />
       </Route>
       <Route path="*" element={<NotFound />} />

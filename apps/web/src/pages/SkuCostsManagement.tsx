@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,8 +8,6 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { DEFAULT_SKU_COST_TEMPLATE, DEFAULT_SKU_COST_VALUES, parseCostTemplate, parseCostValues, toNumber } from "@/lib/sku-cost-template";
-import { callEdgeFunction } from "@/lib/fetch-with-timeout";
-import { AI_QUOTA_CODE, AI_QUOTA_MESSAGE, isAiQuotaError, notifyAiQuotaExhausted } from "@/lib/ai-errors";
 import { isFinishedSku } from "@/lib/skuType";
 import { dosageInputText, parseDosageGramInput } from "@/lib/dosage-input";
 import { describeSkuCogsSaveError } from "@/lib/sku-cogs-save-error";
@@ -85,35 +83,6 @@ const pickPrice = (points: PurchasePoint[], mode: PriceMode) => {
   };
 };
 
-const parseLocaleNumber = (value: unknown, fallback = 0) => {
-  if (typeof value === "number") return Number.isFinite(value) ? value : fallback;
-  if (value === null || value === undefined) return fallback;
-
-  let s = String(value).trim();
-  if (!s) return fallback;
-  s = s.replace(/\s+/g, "");
-
-  const hasComma = s.includes(",");
-  const hasDot = s.includes(".");
-
-  if (hasComma && hasDot) {
-    if (s.lastIndexOf(",") > s.lastIndexOf(".")) {
-      s = s.replace(/\./g, "").replace(/,/g, ".");
-    } else {
-      s = s.replace(/,/g, "");
-    }
-  } else if (hasComma) {
-    s = /,\d{3}$/.test(s) ? s.replace(/,/g, "") : s.replace(/,/g, ".");
-  } else if (hasDot) {
-    s = /\.\d{3}$/.test(s) ? s.replace(/\./g, "") : s;
-  }
-
-  const n = Number(s);
-  return Number.isFinite(n) ? n : fallback;
-};
-
-const normalizeUnitName = (u: unknown) => String(u || "").trim().toLowerCase();
-
 const buildMaterialCode = (name: unknown) => {
   const normalized = String(name || "")
     .normalize("NFD")
@@ -126,6 +95,8 @@ const buildMaterialCode = (name: unknown) => {
     .replace(/-{2,}/g, "-");
   return `NVL-${normalized || "CHUA-DAT-TEN"}`;
 };
+
+const normalizeUnitName = (u: unknown) => String(u || "").trim().toLowerCase();
 
 const convertAmountByUnit = (amount: number, fromUnit: unknown, toUnit: unknown) => {
   const from = normalizeUnitName(fromUnit);
@@ -147,56 +118,6 @@ const convertAmountByUnit = (amount: number, fromUnit: unknown, toUnit: unknown)
 const FORMULA_BASE_QTY = 100;
 
 // parseDosageGramInput / dosageInputText live in @/lib/dosage-input (unit-tested).
-
-const normalizeScannedIngredient = (row: any) => {
-  let unit = normalizeUnitName(row.unit || row.uom || "g");
-  let unitPrice = parseLocaleNumber(row.unit_price ?? row.price ?? row.don_gia, 0);
-  let dosageQty = parseDosageGramInput(row.dosage_qty ?? row.quantity ?? row.dinh_luong, 0);
-  let lineCost = parseLocaleNumber(row.line_cost ?? row.gia_von ?? row.cost, 0);
-
-  // Heuristic: OCR often swaps Đơn giá and Định lượng for this sheet
-  if (unit === "g" && unitPrice > 500 && dosageQty > 0 && dosageQty < 200) {
-    const tmp = unitPrice;
-    unitPrice = dosageQty;
-    dosageQty = tmp;
-  }
-
-  if (unit === "kg" || unit === "kilogram" || unit === "kí" || unit === "ký") {
-    dosageQty = convertAmountByUnit(dosageQty, unit, "g");
-    unitPrice = unitPrice / 1000;
-    unit = "g";
-  }
-
-  // If unit is gram but price looks like price/kg, convert to VND/g
-  if (unit === "g" && unitPrice >= 1000) unitPrice = unitPrice / 1000;
-
-  // Use line cost to repair unit price when OCR reads line_cost into đơn giá (e.g. Muối 210)
-  if (lineCost > 0 && dosageQty > 0) {
-    const expected = unitPrice * dosageQty;
-    const mismatch = Math.abs(expected - lineCost) / Math.max(1, lineCost);
-    if (mismatch > 0.2) {
-      unitPrice = lineCost / dosageQty;
-    }
-  }
-
-  if (lineCost <= 0) lineCost = unitPrice * dosageQty;
-
-  return {
-    ingredient_name: row.ingredient_name || row.name || row.product_name || "",
-    canonical_material_id: row.canonical_material_id || "",
-    canonical_material_name: row.canonical_material_name || "",
-    canonical_default_unit: row.canonical_default_unit || row.unit || "",
-    material_code: row.material_code || "",
-    ingredient_sku_id: row.ingredient_sku_id || "",
-    material_resolution_status: row.material_resolution_status || (row.canonical_material_id ? "resolved_exact" : "pending_resolution"),
-    material_resolution_request_id: row.material_resolution_request_id || "",
-    raw_ocr_name: row.raw_ocr_name || row.ingredient_name || row.name || row.product_name || "",
-    unit,
-    unit_price: unitPrice,
-    dosage_qty: dosageQty,
-    line_cost: lineCost,
-  };
-};
 
 const LEVEL2_SEPARATOR = " > ";
 
@@ -307,13 +228,10 @@ export default function SkuCostsManagement() {
   const [searchByRow, setSearchByRow] = useState<Record<string, string>>({});
   const [purchasePoints, setPurchasePoints] = useState<PurchasePoint[]>([]);
   const [inventoryMap, setInventoryMap] = useState<Map<string, number>>(new Map());
-  const [isScanningSkuImage, setIsScanningSkuImage] = useState(false);
-  const [scanSkuMessage, setScanSkuMessage] = useState<string>("");
   const [importedFormulaDraft, setImportedFormulaDraft] = useState<any[]>([]);
   const [isSavingSku, setIsSavingSku] = useState(false);
   const [saveSkuError, setSaveSkuError] = useState<string>("");
   const [zeroCostApproval, setZeroCostApproval] = useState(false);
-  const skuImageInputRef = useRef<HTMLInputElement | null>(null);
 
   const [skuForm, setSkuForm] = useState<any>({
     id: "", sku_code: "", product_name: "", unit: "gói", unit_price: 0, category: "Thành phẩm", base_unit: "gói", yield_percent: 100,
@@ -567,7 +485,7 @@ export default function SkuCostsManagement() {
     };
   }, [activeSku.finished_output_qty, formulaComputed]);
 
-  const openCreateSku = () => { setScanSkuMessage(""); setSaveSkuError(""); setZeroCostApproval(false); setImportedFormulaDraft([]); setCogsEffectiveFrom(new Date().toISOString().slice(0, 10)); setSkuForm({ id: "", sku_code: "", product_name: "", unit: "gói", unit_price: 0, category: "Thành phẩm", base_unit: "gói", yield_percent: 100, finished_output_qty: FORMULA_BASE_QTY, finished_output_unit: "cái", cost_template: DEFAULT_SKU_COST_TEMPLATE, cost_values: DEFAULT_SKU_COST_VALUES, cost_widgets: {}, hide_from_dealer_portal: false }); setDialogOpen(true); };
+  const openCreateSku = () => { setSaveSkuError(""); setZeroCostApproval(false); setImportedFormulaDraft([]); setCogsEffectiveFrom(new Date().toISOString().slice(0, 10)); setSkuForm({ id: "", sku_code: "", product_name: "", unit: "gói", unit_price: 0, category: "Thành phẩm", base_unit: "gói", yield_percent: 100, finished_output_qty: FORMULA_BASE_QTY, finished_output_unit: "cái", cost_template: DEFAULT_SKU_COST_TEMPLATE, cost_values: DEFAULT_SKU_COST_VALUES, cost_widgets: {}, hide_from_dealer_portal: false }); setDialogOpen(true); };
   const openSkuDetail = (sku: SKU) => { setActiveSkuId(sku.id); setDetailOpen(true); };
 
   const buildFormulaRowsFromDraft = (skuId: string) => {
@@ -721,17 +639,6 @@ export default function SkuCostsManagement() {
       if (!targetSkuId) throw new Error("Không nhận được SKU sau khi lưu COGS.");
       setActiveSkuId(targetSkuId);
 
-      try {
-        await sb.from("sku_trace_documents").insert({
-          sku_id: targetSkuId,
-          document_type: "audit",
-          document_name: `${skuForm.id ? "EDIT" : "CREATE"}_COST_${new Date().toISOString()}`,
-          document_url: `audit://sku/${targetSkuId}/${skuForm.id ? "edit" : "create"}`,
-        });
-      } catch (_) {
-        // Versioned COGS tables are authoritative; trace document remains best-effort.
-      }
-
       toast({
         title: skuForm.id ? "Đã cập nhật SKU" : "SKU đã tạo thành công",
         description: `Đã lưu ngày hiệu lực ${cogsEffectiveFrom} và phiên bản công thức COGS.`,
@@ -755,10 +662,6 @@ export default function SkuCostsManagement() {
     }
   };
 
-  const openCreateSkuFromImage = () => {
-    skuImageInputRef.current?.click();
-  };
-
   const addDraftMaterialRow = () => {
     setImportedFormulaDraft((prev) => [
       ...prev,
@@ -779,153 +682,6 @@ export default function SkuCostsManagement() {
       next.splice(insertIdx, 0, { is_level2: true, canonical_material_id: "", raw_ocr_name: "", level1_sku_id: "", ingredient_sku_id: "", level1_name: parentLevel1, level2_name: "", ingredient_name: `${parentLevel1} > `, material_code: buildMaterialCode(`${parentLevel1} > `), unit: "g", unit_price: 0, dosage_qty: 0, dosage_input: "", line_cost: 0 });
       return next;
     });
-  };
-
-  const applyScannedDataToForm = (d: any) => {
-    const ingredients = Array.isArray(d.ingredients) ? d.ingredients : Array.isArray(d.items) ? d.items : [];
-    const draftRows = ingredients
-      .map((r: any) => normalizeScannedIngredient(r))
-      .filter((x: any) => x.ingredient_name)
-      .map((x: any) => ({
-        ...x,
-        is_level2: false,
-        canonical_material_id: x.canonical_material_id || "",
-        raw_ocr_name: x.raw_ocr_name || x.ingredient_name,
-        level1_name: x.canonical_material_name || x.ingredient_name,
-        level2_name: "",
-        material_code: x.material_code || buildMaterialCode(x.ingredient_name),
-        dosage_input: String(x.dosage_qty).replace(".", ","),
-      }));
-    setImportedFormulaDraft(draftRows);
-
-    const productName = d.product_name || d.ten_mon || "SKU từ ảnh";
-    const scannedOutputQty = parseLocaleNumber(d.finished_output_qty ?? d.output_qty ?? d.thanh_pham_sl, 1);
-    const outputUnit = d.finished_output_unit || d.output_unit || d.thanh_pham_dvt || "cái";
-
-    // Auto-correct common OCR miss: missing "SL thành phẩm" causes cost/unit inflated
-    const estimatedTotalMaterial = draftRows.reduce((s: number, r: any) => s + toNumber(r.line_cost, toNumber(r.unit_price, 0) * toNumber(r.dosage_qty, 0)), 0);
-    const outputQty = scannedOutputQty <= 1 && estimatedTotalMaterial >= 10000 ? 100 : scannedOutputQty;
-
-    setSkuForm({
-      id: "",
-      sku_code: d.sku_code || `TP-${productName.toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 16) || "AUTO"}-001`,
-      product_name: productName,
-      unit: outputUnit,
-      category: "Thành phẩm",
-      sku_type: "finished_good",
-      base_unit: outputUnit,
-      yield_percent: 100,
-      finished_output_qty: outputQty,
-      finished_output_unit: outputUnit,
-      cost_template: DEFAULT_SKU_COST_TEMPLATE,
-      cost_values: {
-        ...DEFAULT_SKU_COST_VALUES,
-        material_provision_percent: parseLocaleNumber(d.material_provision_percent ?? d.provision_percent, 0),
-        packaging_cost: parseLocaleNumber(d.packaging_cost, 0),
-        labor_cost: parseLocaleNumber(d.labor_cost, 0),
-        delivery_cost: parseLocaleNumber(d.delivery_cost, 0),
-        other_production_cost: parseLocaleNumber(d.other_production_cost, 0),
-        sga_cost: parseLocaleNumber(d.sga_cost ?? d.management_cost, 0),
-        selling_price: parseLocaleNumber(d.selling_price ?? d.sale_price, 0),
-      },
-      cost_widgets: {},
-    });
-
-    setDialogOpen(true);
-    setScanSkuMessage("");
-  };
-
-  const handleScanSkuCostImage = async (file?: File | null) => {
-    if (!file) return;
-    setScanSkuMessage("");
-
-    // Optional session: use token if available, otherwise call as anon
-    let accessToken = "";
-    const { data: sessionData } = await sb.auth.getSession();
-    if (sessionData.session) {
-      const expiresAt = Number(sessionData.session.expires_at || 0) * 1000;
-      const shouldRefresh = !expiresAt || expiresAt - Date.now() < 60_000;
-      if (shouldRefresh) {
-        const { data: refreshed } = await sb.auth.refreshSession();
-        accessToken = refreshed?.session?.access_token || "";
-      } else {
-        accessToken = sessionData.session.access_token;
-      }
-    }
-
-    setIsScanningSkuImage(true);
-    try {
-      const imageBase64 = await new Promise<string>((resolve) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(String(reader.result).split(",")[1]);
-        reader.readAsDataURL(file);
-      });
-
-      const edge = await callEdgeFunction<any>(
-        "scan-sku-cost-sheet",
-        { imageBase64, mimeType: file.type },
-        accessToken,
-        90000
-      );
-
-      if (edge.error || !edge.data?.success) {
-        const scanError = new Error(edge.error || "Load failed") as Error & { code?: string };
-        if (edge.code) scanError.code = edge.code;
-        throw scanError;
-      }
-
-      const data = edge.data.data || {};
-      applyScannedDataToForm({
-        product_name: data.product_name || "SKU từ ảnh",
-        sku_code: data.sku_code,
-        finished_output_qty: data.finished_output_qty,
-        finished_output_unit: data.finished_output_unit,
-        material_provision_percent: data.material_provision_percent,
-        packaging_cost: data.packaging_cost,
-        labor_cost: data.labor_cost,
-        delivery_cost: data.delivery_cost,
-        other_production_cost: data.other_production_cost,
-        sga_cost: data.sga_cost,
-        selling_price: data.selling_price,
-        ingredients: (data.ingredients || []).map((x: any) => ({
-          ingredient_name: x.ingredient_name,
-          canonical_material_id: x.canonical_material_id,
-          canonical_material_name: x.canonical_material_name,
-          canonical_default_unit: x.canonical_default_unit,
-          material_code: x.material_code,
-          ingredient_sku_id: x.ingredient_sku_id,
-          raw_ocr_name: x.raw_ocr_name,
-          unit: x.unit,
-          unit_price: x.unit_price,
-          dosage_qty: x.dosage_qty,
-          line_cost: x.line_cost,
-          material_resolution_status: x.material_resolution_status,
-          material_resolution_request_id: x.material_resolution_request_id,
-        })),
-      });
-      if (edge.data.material_resolution_status === "blocked") {
-        const blockedCount = Number(edge.data.blocked_materials?.length || 0);
-        const message = `Đã đọc ảnh; ${blockedCount} NVL cần chuẩn hóa trước khi lưu COGS.`;
-        setScanSkuMessage(message);
-        toast({ title: "COGS đang bị chặn", description: message, variant: "destructive" });
-      } else {
-        setScanSkuMessage("Đã đọc ảnh và xác nhận toàn bộ NVL exact theo danh mục chuẩn.");
-      }
-    } catch (e: any) {
-      if (isAiQuotaError(e)) {
-        notifyAiQuotaExhausted();
-        setScanSkuMessage(`Scan thất bại: ${AI_QUOTA_MESSAGE}`);
-        return;
-      }
-      const raw = String(e?.message || "Lỗi không xác định");
-      const msg = raw.includes("CONFIG_MISSING_OPENAI_API_KEY") || raw.includes("OPENAI_API_KEY")
-        ? "Thiếu AI key trên server (OPENAI_API_KEY). Vui lòng cấu hình để dùng scan ảnh."
-        : raw;
-      setScanSkuMessage(`Scan thất bại: ${msg}`);
-      toast({ title: "Không scan được ảnh", description: msg, variant: "destructive" });
-    } finally {
-      setIsScanningSkuImage(false);
-    }
   };
 
   const removeSku = async (sku: any) => {

@@ -10,7 +10,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { vi } from "date-fns/locale";
-import { DriveSyncSection } from "./DriveSyncSection";
 
 export function GoogleDriveSettings() {
   const [poFolderUrl, setPoFolderUrl] = useState("");
@@ -820,11 +819,6 @@ export function GoogleDriveSettings() {
         </div>
 
       <Separator />
-
-      {/* Sync Section - Only show when connected */}
-      {connectedEmail && poFolderSaved && (
-        <DriveSyncSection />
-      )}
 
       <Separator />
 

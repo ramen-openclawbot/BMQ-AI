@@ -15,7 +15,7 @@ import {
 import {
   MISSIONS_T09_PERIOD,
   MISSIONS_T09_ROWS,
-} from "../payroll-missions/missions-t09.fixture.ts";
+} from "./t09-attendance.fixture.ts";
 
 const PERIOD = { dateFrom: "2026-08-01", dateTo: "2026-08-31" };
 
@@ -190,7 +190,7 @@ function pad5(value: unknown): string {
 }
 
 test(
-  "T09 gốc: Ca và Trễ của Ngọc khớp missions-t09.fixture.ts",
+  "T09 gốc: Ca và Trễ của Ngọc khớp t09-attendance.fixture.ts",
   { skip: !T09_XLS },
   (t) => {
     const inputPath = T09_XLS as string;

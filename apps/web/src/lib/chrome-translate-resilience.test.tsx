@@ -40,10 +40,6 @@ vi.mock("@/components/payment-requests/DriveImportProgressDialog", () => ({
   DriveImportProgressDialog: () => null,
 }));
 
-vi.mock("@/hooks/useAutoSync", () => ({
-  useAutoSync: () => undefined,
-}));
-
 vi.mock("@/hooks/useVisibilityRecovery", () => ({
   useVisibilityRecovery: () => undefined,
 }));

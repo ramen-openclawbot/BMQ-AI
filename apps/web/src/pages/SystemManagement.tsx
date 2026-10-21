@@ -1,7 +1,6 @@
 import { useLanguage } from "@/contexts/LanguageContext";
 import { AppVersionSection } from "@/components/settings/AppVersionSection";
 import { GoogleDriveSettings } from "@/components/settings/GoogleDriveSettings";
-import { DataMigrationSettings } from "@/components/settings/DataMigrationSettings";
 import { DealerPortalBannerSettings } from "@/components/settings/DealerPortalBannerSettings";
 
 export default function SystemManagement() {
@@ -16,8 +15,8 @@ export default function SystemManagement() {
         </h1>
         <p className="text-muted-foreground mt-1">
           {isVi
-            ? "Quản lý các tích hợp hệ thống và công cụ migration dành cho owner."
-            : "Manage system integrations and migration tools for owners."}
+            ? "Quản lý các tích hợp hệ thống dành cho owner."
+            : "Manage system integrations for owners."}
         </p>
       </div>
 
@@ -25,7 +24,6 @@ export default function SystemManagement() {
         <div className="flex gap-2 overflow-x-auto whitespace-nowrap">
           <a href="#dealer-portal" className="text-xs px-3 py-1.5 rounded-md hover:bg-accent">{isVi ? "Landing đặt hàng" : "Dealer Landing"}</a>
           <a href="#google-drive" className="text-xs px-3 py-1.5 rounded-md hover:bg-accent">{isVi ? "Tích hợp Google Drive" : "Google Drive Integration"}</a>
-          <a href="#data-migration" className="text-xs px-3 py-1.5 rounded-md hover:bg-accent">{isVi ? "Di chuyển dữ liệu" : "Data Migration"}</a>
           <a href="#app-info" className="text-xs px-3 py-1.5 rounded-md hover:bg-accent">{isVi ? "Thông tin ứng dụng" : "Application Info"}</a>
         </div>
       </div>
@@ -36,10 +34,6 @@ export default function SystemManagement() {
 
       <div id="google-drive" className="scroll-mt-24">
         <GoogleDriveSettings />
-      </div>
-
-      <div id="data-migration" className="scroll-mt-24">
-        <DataMigrationSettings />
       </div>
 
       <div id="app-info" className="scroll-mt-24">

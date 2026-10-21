@@ -32,7 +32,6 @@ import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { callEdgeFunction } from "@/lib/fetch-with-timeout";
-import AttendanceCheckInCard from "@/components/kiosk/AttendanceCheckInCard";
 import {
   calculateKioskChannelAmount,
   calculateEffectiveConsumedQuantity,
@@ -302,7 +301,6 @@ export default function KioskReportPortal() {
   const [staff, setStaff] = useState<PublicStaff | null>(null);
   const [deliveryStaff, setDeliveryStaff] = useState<PublicDeliveryStaff | null>(null);
   const [actorType, setActorType] = useState<"report_staff" | "delivery_staff">("report_staff");
-  const [attendanceEnabled, setAttendanceEnabled] = useState(false);
   const [location, setLocation] = useState<PublicLocation | null>(null);
   const [products, setProducts] = useState<ReportProduct[]>(DEFAULT_PRODUCTS);
   const [channels, setChannels] = useState<ReportChannel[]>(DEFAULT_CHANNELS);
@@ -395,7 +393,6 @@ export default function KioskReportPortal() {
       localStorage.removeItem(REPORT_SESSION_STORAGE_KEY);
       invalidateActiveLoads("");
       setReportToken("");
-      setAttendanceEnabled(false);
       setStep("phone");
       setErrorMessage("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
       setBootstrapping(false);
@@ -403,7 +400,6 @@ export default function KioskReportPortal() {
     }
 
     setActorType(sessionResult.data.actor_type === "delivery_staff" ? "delivery_staff" : "report_staff");
-    setAttendanceEnabled(sessionResult.data.attendance_enabled === true);
     if (sessionResult.data.actor_type === "delivery_staff") {
       setDeliveryStaff(sessionResult.data.delivery_staff || null);
       setStaff(null);
@@ -476,7 +472,6 @@ export default function KioskReportPortal() {
     invalidateActiveLoads(result.data.report_token);
     setReportToken(result.data.report_token);
     setActorType(result.data.actor_type === "delivery_staff" ? "delivery_staff" : "report_staff");
-    setAttendanceEnabled(result.data.attendance_enabled === true);
     setStaff(result.data.staff || null);
     setDeliveryStaff(result.data.delivery_staff || null);
     setLocation(result.data.location || null);
@@ -554,7 +549,6 @@ export default function KioskReportPortal() {
     loadRequestIdRef.current += 1;
     setReportToken("");
     setActorType("report_staff");
-    setAttendanceEnabled(false);
     setStaff(null);
     setDeliveryStaff(null);
     setLocation(null);
@@ -778,9 +772,6 @@ export default function KioskReportPortal() {
 
         {actorType === "delivery_staff" && (
           <div className="mx-auto max-w-md space-y-4">
-            {attendanceEnabled && (
-              <AttendanceCheckInCard reportToken={reportToken} actorLabel="Nhân viên giao hàng" />
-            )}
             <section className="rounded-[20px] border border-[#f0dfe5] bg-white p-4 shadow-[0_8px_22px_rgba(86,48,63,0.07)] sm:p-5">
               <div className="flex items-center gap-3">
                 <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#ec5b91] text-sm font-bold text-white">
@@ -804,8 +795,6 @@ export default function KioskReportPortal() {
 
         {actorType === "report_staff" && (
           <div>
-            {attendanceEnabled && <AttendanceCheckInCard reportToken={reportToken} actorLabel="Nhân viên điểm bán" className="mb-4" />}
-
             <section className="relative mb-4 flex min-h-[68px] items-center justify-between gap-3 overflow-hidden rounded-[18px] border border-[#f0dfe5] bg-white px-3.5 py-3 shadow-[0_6px_18px_rgba(86,48,63,0.07)] sm:px-5">
               {/* The invisible date input covers the icon and the date, so the whole group is a thumb-sized target. */}
               <div className="relative flex min-h-11 min-w-0 items-center gap-3 pr-2 sm:gap-4">

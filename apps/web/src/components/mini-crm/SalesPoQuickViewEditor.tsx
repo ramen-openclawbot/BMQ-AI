@@ -97,7 +97,6 @@ type Props = {
   isPoDraftDirty: boolean;
   savePoStatus: string;
   postRevenueStatus: string;
-  parseAttachmentPending: boolean;
   savePending: boolean;
   postRevenuePending: boolean;
   poParseDebug?: any | null;
@@ -105,7 +104,6 @@ type Props = {
   onAddLineItem: () => void;
   onPatchLineItem: (_rowId: string, patch: Record<string, any>) => void;
   onRemoveLineItem: (_rowId: string) => void;
-  onParseAttachment: () => void;
   onParseEmailBody: () => void;
   onSave: () => void;
   onPostRevenue: () => void;
@@ -125,7 +123,6 @@ export function SalesPoQuickViewEditor(props: Props) {
     isPoDraftDirty,
     savePoStatus,
     postRevenueStatus,
-    parseAttachmentPending,
     savePending,
     postRevenuePending,
     poParseDebug,
@@ -133,7 +130,6 @@ export function SalesPoQuickViewEditor(props: Props) {
     onAddLineItem,
     onPatchLineItem,
     onRemoveLineItem,
-    onParseAttachment,
     onParseEmailBody,
     onSave,
     onPostRevenue,
@@ -333,9 +329,6 @@ export function SalesPoQuickViewEditor(props: Props) {
       </div>
 
       <div className="flex flex-wrap items-center gap-2 pt-1">
-        <Button variant="secondary" className="h-9" onClick={onParseAttachment} disabled={parseAttachmentPending}>
-          {parseAttachmentPending ? "Đang parse..." : "Parse file đính kèm"}
-        </Button>
         <Button variant="outline" className="h-9" onClick={onParseEmailBody}>Parse nội dung email</Button>
         <div className="mx-1 h-6 w-px bg-border" />
         <Button className="h-9" onClick={onSave} disabled={savePending}>Lưu PO</Button>
