@@ -252,6 +252,31 @@ try {
     await page.screenshot({ path: `${EVIDENCE}/q7-bb-${vp.width}.png` });
     pass(`Danh mục Kho Tân Tạo / Kho Q7 × Nguyên liệu / Bao bì & vật tư / Thành phẩm ${vp.width}`);
 
+    // Sheet pinned to the screen: scroll deep into the list, tap an item, the sheet must be inside the viewport (owner 22/10).
+    {
+      await page.locator("[data-bmq-kho2-dmloc='tan_tao']").click();
+      await page.locator("[data-bmq-kho2-group='nl']").click();
+      await page.waitForSelector("[data-bmq-kho2-names] li");
+      const scroller = page.locator(".k2-stage").first();
+      const scrolled = await scroller.evaluate((el) => { el.scrollTop = Math.floor((el.scrollHeight - el.clientHeight) * 0.7); return el.scrollTop; });
+      if (vp.width < 900) assert.ok(scrolled > 200, `list must be scrollable on phones (scrolled ${scrolled})`);
+      const target = page.locator("[data-bmq-kho2-names] li .k2-row-main").last();
+      await target.scrollIntoViewIfNeeded();
+      await target.click();
+      await page.waitForSelector(".sheet .sheet-tag");
+      await page.waitForTimeout(700);
+      const box = await page.locator(".sheet").boundingBox();
+      assert.ok(box.y >= -1 && box.y + box.height <= vp.height + 1 && box.x >= -1 && box.x + box.width <= vp.width + 1, `sheet outside the viewport at ${vp.width}: ${JSON.stringify(box)} (scrolled ${scrolled})`);
+      assert.ok(await page.locator(".sheet .close").isVisible(), "close button visible");
+      await page.screenshot({ path: `${EVIDENCE}/sheet-scrolled-${vp.width}.png` });
+      await page.locator(".sheet .close").click();
+      await page.waitForSelector(".sheet", { state: "detached" });
+      // Put the page back where the following checks expect it: Kho Q7 · Bao bì.
+      await page.locator("[data-bmq-kho2-dmloc='q7']").click();
+      await page.locator("[data-bmq-kho2-group='bb']").click();
+      pass(`sheet opens in view after scrolling the list ${vp.width} (scrolled ${scrolled})`);
+    }
+
     // Move a Q7 item to Kho Tân Tạo from its sheet
     const q7Id = await page.locator("[data-bmq-kho2-names] li .k2-row-main").first().getAttribute("data-bmq-kho2-item");
     await page.locator(`[data-bmq-kho2-item='${q7Id}']`).click();

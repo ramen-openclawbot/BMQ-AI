@@ -140,3 +140,7 @@
   .kg .k2-groups button b { font-size: 14px; }
   .kg .k2-class button { padding: 0 10px; font-size: 13px; }
 }
+
+/* Sheets pin to the screen, not to the scrolling list: tapping an item far down Danh mục
+   opened its sheet at the top of the list, out of sight (owner 22/10). .kg.is-full is itself fixed. */
+.kg.k2 .sheet-backdrop, .kg.k2 .sheet { position: fixed; }
