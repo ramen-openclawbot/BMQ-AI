@@ -27,12 +27,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATIONS = ROOT / "supabase" / "migrations"
 SCRIPTS = ROOT / "scripts"
-SRC = ROOT / "src"
 
 MIGRATION = MIGRATIONS / "20261101190000_material_link_defer_factor.sql"
-HOOK = SRC / "hooks" / "useMaterialLinkQuest.ts"
-QUEST_LIB = SRC / "lib" / "material-link-quest.ts"
-Q7_LIB = SRC / "lib" / "q7-material-links.ts"
 
 
 def read(path: Path) -> str:
@@ -275,50 +271,7 @@ def main() -> None:
         "get_material_link_pending_factors must be granted to authenticated and service_role",
     )
 
-    # --- 6. source contracts -------------------------------------------------
-    hook = read(HOOK)
-    assert_true(".tsx" not in hook, "the material-link hook must not import any .tsx")
-    assert_true(
-        "p_defer_factor" in hook and "deferFactor" in hook,
-        "the hook must send p_defer_factor from deferFactor",
-    )
-    assert_true(
-        "set_item_material_factor" in hook and "useSetItemMaterialFactor" in hook,
-        "the hook must call set_item_material_factor",
-    )
-    assert_true(
-        "get_material_link_pending_factors" in hook
-        and "useMaterialLinkPendingFactors" in hook,
-        "the hook must read get_material_link_pending_factors",
-    )
-    assert_true(
-        "MATERIAL_LINK_PENDING_FACTORS_QUERY_KEY" in hook
-        and '"material-link-pending-factors"' in hook,
-        "the hook must export the pending-factors query key",
-    )
-
-    quest_lib = read(QUEST_LIB)
-    for marker in (
-        "export function itemFactorPrefill(",
-        "export function parseMaterialLinkPendingFactors(",
-        "last_purchase_line",
-        "pending_factor",
-    ):
-        assert_true(marker in quest_lib, f"material-link-quest.ts must contain {marker}")
-    assert_true(
-        "export function factorPrefill(" in quest_lib,
-        "the old factorPrefill export must stay",
-    )
-
-    q7_lib = read(Q7_LIB)
-    assert_true(
-        '"item_not_linked"' in q7_lib and "Món chưa gắn mã chuẩn" in q7_lib,
-        "q7-material-links.ts must map item_not_linked",
-    )
-    assert_true(
-        '"invalid_factor"' in q7_lib and "Số quy đổi phải lớn hơn 0" in q7_lib,
-        "q7-material-links.ts must map invalid_factor",
-    )
+    # The material-link quest front end left with the old warehouse game (owner 21/10/2026); only the backend is guarded here.
 
     print("PASS: material link defer-factor contracts hold")
 

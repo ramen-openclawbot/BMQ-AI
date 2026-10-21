@@ -13,15 +13,15 @@ import { GameLoading } from "@/game/Loading";
 import { askGame } from "@/game/ConfirmDialog";
 import { usePageZoomGuard } from "@/game/zoomGuard";
 import { ITEM_UNITS, newRequestId } from "@/game/meta";
-import { crateKey } from "@/game/Warehouse";
-import { CrateSheet } from "@/pages/WarehouseGame";
+import { crateKey } from "@/game/crate";
+import { CrateSheet } from "@/game/CrateSheet";
 import "@/game/game.css";
 import "@/game/kho2.css";
 
 /**
  * Game kho — 2 việc (owner 21/10/2026): Danh mục (one name, one unit, on/off; documents grouped under
  * the confirmed name; three groups) and Kiểm kê (type the counted quantity, the ledger updates at once).
- * Everything else that used to live in the game is hidden; the old game stays at ?ban=cu.
+ * The old game, the 3D game, Kho văn phòng and the in-game missions were removed the same day.
  */
 
 type View = "home" | "names" | "new" | "count";

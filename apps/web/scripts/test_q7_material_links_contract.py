@@ -36,9 +36,6 @@ SCRIPTS = ROOT / "scripts"
 
 MIGRATION = MIGRATIONS / "20261031140000_q7_material_links.sql"
 SMOKE = SCRIPTS / "smoke_q7_material_links.sql"
-LIB = ROOT / "src" / "lib" / "q7-material-links.ts"
-LIB_TEST = ROOT / "src" / "lib" / "q7-material-links.test.ts"
-HOOK = ROOT / "src" / "hooks" / "useQ7MaterialLinks.ts"
 
 INTERNAL_SIM = "function public.q7_material_name_similarity("
 INTERNAL_LINK = "function public.q7_link_item_material_internal("
@@ -280,25 +277,7 @@ def main() -> None:
         "smoke must end with an explicit rollback after the final RAISE",
     )
 
-    # --- 7. defensive TS surface exists --------------------------------------
-    assert_true(LIB.exists(), f"missing {LIB.name}")
-    lib = read(LIB)
-    for exported in (
-        "parseQ7MaterialLinkReview",
-        "parseQ7MaterialLinkResult",
-        "parseQ7ExactLinkBatch",
-        "q7MaterialLinkErrorText",
-    ):
-        assert_true(exported in lib, f"{LIB.name} must export {exported}")
-    assert_true(LIB_TEST.exists(), f"missing {LIB_TEST.name}")
-    assert_true(HOOK.exists(), f"missing {HOOK.name}")
-    hook = read(HOOK)
-    for exported in (
-        "useQ7MaterialLinkReview",
-        "useLinkQ7ItemMaterial",
-        "useLinkQ7ExactMaterials",
-    ):
-        assert_true(exported in hook, f"{HOOK.name} must export {exported}")
+    # The Q7 material-link front end left with the old warehouse game (owner 21/10/2026); only the backend is guarded here.
 
     print("PASS: q7 material links contracts hold")
 

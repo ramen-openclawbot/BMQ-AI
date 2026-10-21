@@ -10,7 +10,6 @@ interface Translations {
   catalogCleanup: string;
   warehouseGame: string;
   warehouseSlips: string;
-  warehouseOffice: string;
   autoPurchase: string;
   purchaseUsage: string;
   stockLedger: string;
@@ -220,7 +219,6 @@ const translations: Record<Language, Translations> = {
     catalogCleanup: "Catalog Cleanup",
     warehouseGame: "Warehouse game",
     warehouseSlips: "Stock slips",
-    warehouseOffice: "Office ordering",
     autoPurchase: "Auto Purchasing",
     purchaseUsage: "Purchase vs Usage",
     stockLedger: "Stock Ledger",
@@ -428,7 +426,6 @@ const translations: Record<Language, Translations> = {
     catalogCleanup: "Dọn danh mục",
     warehouseGame: "Game kho",
     warehouseSlips: "Phiếu kho",
-    warehouseOffice: "Kho văn phòng",
     autoPurchase: "Đặt hàng tự động",
     purchaseUsage: "Mua so với dùng",
     stockLedger: "Sổ tồn NVL",

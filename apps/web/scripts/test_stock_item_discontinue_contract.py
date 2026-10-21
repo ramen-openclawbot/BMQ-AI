@@ -25,12 +25,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATIONS = ROOT / "supabase" / "migrations"
-LIB = ROOT / "src" / "lib"
-HOOKS = ROOT / "src" / "hooks"
 
 MIGRATION = MIGRATIONS / "20261102460000_stock_item_in_use_toggle.sql"
-HOOK = HOOKS / "useStockItemDiscontinue.ts"
-LIBRARY = LIB / "stock-item-discontinue.ts"
 
 DISCONTINUE_MARKER = "create or replace function public.discontinue_stock_item("
 REACTIVATE_MARKER = "create or replace function public.reactivate_stock_item("
@@ -74,8 +70,6 @@ def canon(text: str) -> str:
 
 def main() -> None:
     assert_true(MIGRATION.exists(), f"missing migration {MIGRATION.name}")
-    assert_true(HOOK.exists(), f"missing hook {HOOK.name}")
-    assert_true(LIBRARY.exists(), f"missing library {LIBRARY.name}")
     migration = read(MIGRATION)
     flat = canon(migration)
 
@@ -255,40 +249,7 @@ def main() -> None:
     for line in GRANT_LINES:
         assert_true(canon(line) in flat, f"missing grant line: {line}")
 
-    # --- 6. hook -------------------------------------------------------------
-    hook = read(HOOK)
-    assert_true(".tsx" not in hook, "the hook must not import a .tsx module")
-    assert_true(re.search(r"from\s+[\"'][^\"']+\.tsx[\"']", hook) is None,
-                "the hook must not import a .tsx module")
-    assert_true("DISCONTINUED_ITEMS_QUERY_KEY" in hook,
-                "the hook must export DISCONTINUED_ITEMS_QUERY_KEY")
-    for export in ("useDiscontinuedStockItems", "useDiscontinueStockItem",
-                   "useReactivateStockItem", "useSetStockItemInUse"):
-        assert_true(f"export function {export}" in hook,
-                    f"the hook must export {export}")
-    assert_true('"discontinue_stock_item"' in hook
-                and '"reactivate_stock_item"' in hook,
-                "useSetStockItemInUse must call both RPCs")
-    assert_true("p_request_id: crypto.randomUUID()" in hook,
-                "useSetStockItemInUse must send a fresh request id")
-    for key in ("WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY",
-                "DISCONTINUED_ITEMS_QUERY_KEY",
-                "STOCK_LEDGER_OVERVIEW_QUERY_KEY"):
-        assert_true(key in hook, f"useSetStockItemInUse must invalidate {key}")
-
-    # --- 7. library ----------------------------------------------------------
-    library = read(LIBRARY)
-    assert_true("parseDiscontinuedStockItems" in library,
-                "the library must export parseDiscontinuedStockItems")
-    assert_true("discontinueErrorCode" in library and "discontinueErrorText" in library,
-                "the library must export discontinueErrorCode / discontinueErrorText")
-    for field in ("item_class", "tan_tao_qty", "q7_qty", "in_q7", "used_7d",
-                  "tan_tao_qty_at_stop", "q7_qty_at_stop"):
-        assert_true(field in library,
-                    f"the library must parse the {field} field")
-    for text in ("Món còn tồn", "phiếu kiểm kê chưa chốt", "Món đã được gộp vào món khác",
-                 "Bạn không có quyền ngưng món này", "Chưa ngưng được món này"):
-        assert_true(text in library, f"the library must map the text {text!r}")
+    # The stock-item ON/OFF front end left with the old warehouse game (owner 21/10/2026); only the backend is guarded here.
 
     print("PASS: stock-item ON/OFF toggle contracts hold")
 

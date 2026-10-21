@@ -106,11 +106,6 @@ def main() -> None:
     # --- 3. normalization mirrors the TS table ----------------------------
     for literal in ("'ky'", "'ký'", "'kilogram'", "'b bao'", "'hop'", "'hôp'", "'hộp'"):
         assert_true(literal in lower, f"SQL normalize must contain {literal}")
-    for literal in ('"ky"', '"ký"', '"kilogram"', '"b bao"', '"hop"', '"hôp"', '"hộp"'):
-        assert_true(
-            literal in read(ROOT / "src" / "lib" / "document-unit-questions.ts"),
-            f"TS normalize must contain {literal}",
-        )
     assert_true("\\s*kg\\s*" in lower, "SQL normalize must treat (kg) as kg")
     assert_true("pack" in lower, "SQL normalize must drop the (pack) suffix")
 

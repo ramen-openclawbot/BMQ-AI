@@ -27,9 +27,6 @@ SCRIPTS = ROOT / "scripts"
 
 MIGRATION = MIGRATIONS / "20261101280000_robot_multi_debt_learning.sql"
 SMOKE = SCRIPTS / "smoke_robot_multi_debt.sql"
-LIB = ROOT / "src" / "lib" / "robot-order.ts"
-TEST = ROOT / "src" / "lib" / "robot-order.test.ts"
-HOOK = ROOT / "src" / "hooks" / "useRobotOrder.ts"
 
 HISTORY = "supplier_debt_pick_history"
 
@@ -189,42 +186,7 @@ def main() -> None:
         "get_supplier_debt_pick_pattern must grant execute to authenticated / service_role",
     )
 
-    # --- 7. the TS lib surface -----------------------------------------------
-    assert_true(LIB.exists(), "missing src/lib/robot-order.ts")
-    lib = read(LIB)
-    for token in (
-        "export type DebtPick",
-        "export function toggleDebtPick",
-        "export function sumDebtPicks",
-        "export interface SupplierDebtPickPattern",
-        "debt: DebtPick[] | null;",
-    ):
-        assert_true(token in lib, f"robot-order.ts must contain `{token}`")
-
-    assert_true(TEST.exists(), "missing src/lib/robot-order.test.ts")
-    test = read(TEST)
-    assert_true(
-        "toggleDebtPick" in test and "sumDebtPicks" in test,
-        "robot-order.test.ts must cover toggleDebtPick and sumDebtPicks",
-    )
-
-    # --- 8. the hook sends the array and adds the pattern query --------------
-    assert_true(HOOK.exists(), "missing src/hooks/useRobotOrder.ts")
-    hook = read(HOOK)
-    assert_true(
-        "input.debt && input.debt.length > 0 ? input.debt : null" in hook,
-        "useCreateRobotOrderPackage must send the pick array (empty -> null)",
-    )
-    assert_true(
-        "get_supplier_debt_pick_pattern" in hook
-        and "useSupplierDebtPickPattern" in hook
-        and "SUPPLIER_DEBT_PICK_PATTERN_QUERY_KEY" in hook,
-        "useRobotOrder.ts must add useSupplierDebtPickPattern with its own query key",
-    )
-    assert_true(
-        ".tsx" not in hook,
-        "useRobotOrder.ts must not import a .tsx file",
-    )
+    # The robot order desk front end left with the old warehouse game (owner 21/10/2026); only the backend is guarded here.
 
     # --- 9. the rollback-only smoke exists -----------------------------------
     assert_true(SMOKE.exists(), f"missing smoke {SMOKE.name}")

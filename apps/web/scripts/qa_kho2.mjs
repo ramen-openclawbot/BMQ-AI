@@ -422,14 +422,14 @@ try {
     pass("error message in plain Vietnamese + retry");
     await context.close();
   }
-  // The old game stays reachable.
-  {
+  // The old game and the 3D office are gone (owner 21/10/2026): ?ban=cu and /warehouse/office land on this game.
+  for (const route of ["/warehouse/game?ban=cu", "/warehouse/office"]) {
     const vp = { width: 1440, height: 900 };
-    const context = await browser.newContext({ viewport: vp });
-    const page = await context.newPage();
-    await page.goto(`${BASE}/warehouse/game?ban=cu`, { waitUntil: "domcontentloaded" });
-    await page.waitForFunction(() => !document.querySelector("[data-bmq-kho2]"), null, { timeout: 15000 });
-    pass("?ban=cu does not render the new game");
+    const { context, page, errors } = await open({ role: "owner" }, route, vp);
+    assert.equal(new URL(page.url()).pathname, "/warehouse/game", `${route} ends on /warehouse/game`);
+    assert.equal(await page.locator("canvas").count(), 0, `${route}: no 3D canvas`);
+    assert.deepEqual(errors, [], `${route}: page errors`);
+    pass(`${route} renders the current game`);
     await context.close();
   }
   console.log(`\n${results.length} checks passed · evidence ${EVIDENCE}`);

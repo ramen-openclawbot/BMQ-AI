@@ -65,16 +65,9 @@ const StockLedger = lazy(() => import("@/pages/StockLedger"));
 const AutoPurchase = lazy(() => import("@/pages/AutoPurchase"));
 const PurchaseUsage = lazy(() => import("@/pages/PurchaseUsage"));
 const StockCatalogCleanup = lazy(() => import("@/pages/StockCatalogCleanup"));
-const WarehouseGame = lazy(() => import("@/pages/WarehouseGame"));
+/** Game kho 2 việc (owner 21/10/2026): the old game and the 3D game were removed the same day. */
 const KhoGame = lazy(() => import("@/pages/KhoGame"));
 const WarehouseSlips = lazy(() => import("@/pages/WarehouseSlips"));
-
-/** Game kho 2 việc (owner 21/10/2026); the old game stays at ?ban=cu for two weeks. */
-function WarehouseGameEntry() {
-  const old = new URLSearchParams(window.location.search).get("ban") === "cu";
-  return old ? <WarehouseGame /> : <KhoGame />;
-}
-const WarehouseOffice = lazy(() => import("@/pages/WarehouseOffice"));
 const AttendanceManagement = lazy(() => import("@/pages/AttendanceManagement"));
 // Payroll is the Bếp BN flow (owner 2026-10-08); the older PayrollManagement page is no longer routed.
 const BepBnPayroll = lazy(() => import("@/pages/BepBnPayroll"));
@@ -293,11 +286,11 @@ export function AppRoutes() {
       } />
 
       {/* Kho 2D runs full screen, outside the BMQ shell (owner decision 2026-10-12). */}
-      <Route path="/warehouse/game" element={<ProtectedRoute><ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><WarehouseGameEntry /></Suspense></ModuleRoute></ProtectedRoute>} />
+      <Route path="/warehouse/game" element={<ProtectedRoute><ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><KhoGame /></Suspense></ModuleRoute></ProtectedRoute>} />
       {/* Phiếu kho: finished-goods + transfer slips moved out of the game (owner 21/10/2026). */}
       <Route path="/warehouse/phieu" element={<ProtectedRoute><ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><WarehouseSlips /></Suspense></ModuleRoute></ProtectedRoute>} />
-      {/* Kho văn phòng: fixed-view ordering room + PR desk, full screen (owner approved the demo 2026-10-16). */}
-      <Route path="/warehouse/office" element={<ProtectedRoute><ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><WarehouseOffice /></Suspense></ModuleRoute></ProtectedRoute>} />
+      {/* Kho văn phòng (3D) removed 21/10/2026; old links land on the game. */}
+      <Route path="/warehouse/office" element={<Navigate to="/warehouse/game" replace />} />
 
       {/* Main App Routes */}
       <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>

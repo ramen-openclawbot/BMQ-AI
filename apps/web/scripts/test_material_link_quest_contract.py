@@ -29,14 +29,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATIONS = ROOT / "supabase" / "migrations"
 SCRIPTS = ROOT / "scripts"
-SRC = ROOT / "src"
 
 MIGRATION = MIGRATIONS / "20261101180000_material_link_quest.sql"
 SMOKE = SCRIPTS / "smoke_material_link_quest.sql"
-HOOK = SRC / "hooks" / "useMaterialLinkQuest.ts"
-MISSIONS_TS = SRC / "lib" / "missions.ts"
-LINK_STATION = SRC / "game" / "LinkStation.tsx"
-QUEST_LIB = SRC / "lib" / "material-link-quest.ts"
 
 
 def read(path: Path) -> str:
@@ -294,58 +289,7 @@ def main() -> None:
         "assign_material_link_missions must use the per-user mission codes",
     )
 
-    # --- 6. source contracts --------------------------------------------------
-    hook = read(HOOK)
-    assert_true(".tsx" not in hook, "the material-link hook must not import any .tsx")
-    assert_true(
-        "MATERIAL_LINK_REVIEW_QUERY_KEY" in hook
-        and '"material-link-review"' in hook,
-        "the hook must export MATERIAL_LINK_REVIEW_QUERY_KEY = 'material-link-review'",
-    )
-    assert_true(
-        "get_material_link_review" in hook
-        and "link_item_material" in hook
-        and "link_exact_materials" in hook
-        and "skip_item_material_link" in hook
-        and "unskip_item_material_link" in hook,
-        "the hook must call all five new RPCs",
-    )
-    assert_true(
-        "Q7_MATERIAL_LINK_REVIEW_QUERY_KEY" in hook
-        and "MISSIONS_QUERY_KEY" in hook
-        and "WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY" in hook,
-        "the hook must invalidate the Q7 review, missions and warehouse snapshot",
-    )
-
-    missions_ts = read(MISSIONS_TS)
-    assert_true(
-        'kind: "material_links"' in missions_ts or 'kind: "material_links",' in missions_ts,
-        'lib/missions.ts must tag the material_links detail kind',
-    )
-    assert_true(
-        '"remaining" in row' in missions_ts and '"location" in row' in missions_ts,
-        "lib/missions.ts must detect the material_links row by remaining + location",
-    )
-
-    link_station = read(LINK_STATION)
-    assert_true(
-        'export { factorPrefill } from "@/lib/material-link-quest";' in link_station,
-        "LinkStation.tsx must re-export factorPrefill from the quest lib",
-    )
-    assert_true(
-        "function factorPrefill(" not in link_station,
-        "LinkStation.tsx must not keep its own factorPrefill definition",
-    )
-
-    assert_true(QUEST_LIB.exists(), f"missing {QUEST_LIB.name}")
-    quest_lib = read(QUEST_LIB)
-    assert_true(
-        "export function factorPrefill(" in quest_lib
-        and "export function deckOrder(" in quest_lib
-        and "export function bulkableRows(" in quest_lib
-        and "export function parseMaterialLinkReview(" in quest_lib,
-        "material-link-quest.ts must export factorPrefill, deckOrder, bulkableRows and parseMaterialLinkReview",
-    )
+    # The material-link quest front end left with the old warehouse game (owner 21/10/2026); only the backend is guarded here.
 
     # --- 7. smoke test --------------------------------------------------------
     assert_true(SMOKE.exists(), f"missing smoke test {SMOKE.name}")

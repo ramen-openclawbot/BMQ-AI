@@ -39,7 +39,7 @@ import {
   Boxes,
   ClipboardList,
   MessageCircle,
-  X, Building2
+  X
 } from "lucide-react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { cn } from "@/lib/utils";
@@ -135,7 +135,6 @@ export const navItems: NavItem[] = [
       { icon: Package, labelKey: "inventoryOverview", path: "/inventory", section: "operations", moduleKey: "inventory", hiddenFromMenu: true },
       { icon: Gamepad2, labelKey: "warehouseGame", path: "/warehouse/game", section: "operations", moduleKey: "inventory" },
       { icon: FileText, labelKey: "warehouseSlips", path: "/warehouse/phieu", section: "operations", moduleKey: "inventory" },
-      { icon: Building2, labelKey: "warehouseOffice", path: "/warehouse/office", section: "operations", moduleKey: "inventory", hiddenFromMenu: true },
       { icon: ClipboardList, labelKey: "stockLedger", path: "/warehouse/stock-ledger", section: "operations", moduleKey: "inventory" },
       { icon: ShoppingCart, labelKey: "autoPurchase", path: "/warehouse/auto-purchase", section: "operations", moduleKey: "inventory" },
       { icon: ArrowLeftRight, labelKey: "purchaseUsage", path: "/warehouse/purchase-usage", section: "operations", moduleKey: "inventory" },

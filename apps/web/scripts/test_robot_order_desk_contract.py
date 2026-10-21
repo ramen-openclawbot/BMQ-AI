@@ -31,7 +31,6 @@ SMOKE = SCRIPTS / "smoke_robot_order_desk.sql"
 HANDLER = FUNCTIONS / "handler.ts"
 INDEX = FUNCTIONS / "index.ts"
 DEBT_REVIEW = FUNCTIONS / "debt-review.ts"
-USE_ROBOT_ORDER = ROOT / "src" / "hooks" / "useRobotOrder.ts"
 
 TABLES = (
     "supplier_debt_cutovers",
@@ -223,14 +222,7 @@ def main() -> None:
         "index.ts must mention the debt_review service RPC",
     )
 
-    # --- 6. the hook imports no .tsx -----------------------------------------
-    assert_true(USE_ROBOT_ORDER.exists(), "missing src/hooks/useRobotOrder.ts")
-    hook = read(USE_ROBOT_ORDER)
-    assert_true(".tsx" not in hook, "useRobotOrder.ts must not import a .tsx file")
-    assert_true(
-        'from "@/integrations/supabase/client"' in hook,
-        "useRobotOrder.ts must import the shared supabase client",
-    )
+    # The robot order desk front end left with the old warehouse game (owner 21/10/2026); only the backend is guarded here.
 
     # --- 7. the rollback-only smoke exists -----------------------------------
     assert_true(SMOKE.exists(), f"missing smoke {SMOKE.name}")
