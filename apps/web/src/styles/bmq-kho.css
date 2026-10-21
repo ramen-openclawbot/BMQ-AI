@@ -668,6 +668,171 @@ html.bmq-d3 .d3-kho-confirm p { font-size: 14px; line-height: 1.5; }
 html.bmq-d3 .d3-kho-confirm .is-danger { background: #c4321d; color: #fff; }
 html.bmq-d3 .d3-kho-confirm .is-danger:hover { background: #a82a18; }
 
+/* ---------- Đơn vị & quy đổi (owner 22/10) ---------- */
+/* The pencil on every row: quiet until hovered, a clear target on a phone. */
+html.bmq-d3 .d3-kho-edit {
+  display: grid;
+  place-items: center;
+  justify-self: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  color: var(--d3-dim);
+}
+html.bmq-d3 .d3-kho-edit:hover { background: rgba(39, 39, 39, .06); color: var(--d3-ink); }
+html.bmq-d3 .d3-kho-edit:focus-visible { outline: 2px solid var(--d3-ink); outline-offset: 1px; }
+.d3-kho-edit svg { width: 16px; height: 16px; }
+html.bmq-d3 .d3-kho-edit.is-inline { width: 32px; height: 32px; margin: -6px 0; }
+.d3-kho-namerow { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.d3-kho-namerow b { min-width: 0; }
+
+.d3-kho-listhead.has-edit,
+.d3-kho-list[data-bmq-kho-names] .d3-kho-row:has(> .d3-kho-edit) { grid-template-columns: minmax(0, 1fr) 128px 44px 56px; }
+.d3-kho-listhead.has-edit span:nth-child(3) { text-align: center; }
+.d3-kho-listhead.has-edit span:nth-child(4) { text-align: center; }
+
+.d3-kho-sec-h { display: grid; gap: 2px; }
+html.bmq-d3 .d3-kho-sec-h h3 { margin: 0; font-size: 15px; font-weight: 500; letter-spacing: -.005em; }
+.d3-kho-sec-h small { font-size: 12.5px; color: var(--d3-dim); }
+.d3-kho-unitsec, .d3-kho-convsec { display: grid; gap: 12px; min-width: 0; }
+.d3-kho-convsec { padding-top: 18px; box-shadow: 0 -1px 0 var(--d3-line); }
+
+/* Unit chips: the current unit is outlined, the chosen one filled. */
+.d3-kho-chipgroups { display: grid; gap: 10px; }
+.d3-kho-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.d3-kho-chips-label { flex-basis: 100%; font-size: 12px; color: var(--d3-dim); }
+html.bmq-d3 .d3-kho-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--d3-line-2);
+  border-radius: 99px;
+  background: var(--d3-white);
+  color: var(--d3-ink-2);
+  font-size: 14px;
+  white-space: nowrap;
+}
+html.bmq-d3 .d3-kho-chip:hover { border-color: var(--d3-faint); color: var(--d3-ink); }
+html.bmq-d3 .d3-kho-chip:focus-visible { outline: 2px solid var(--d3-ink); outline-offset: 2px; }
+html.bmq-d3 .d3-kho-chip.is-current { border-color: var(--d3-ink); color: var(--d3-ink); }
+html.bmq-d3 .d3-kho-chip.is-on { border-color: var(--d3-ink); background: var(--d3-ink); color: #fff; font-weight: 500; }
+html.bmq-d3 .d3-kho-chip.is-new { animation: d3-kho-pop .24s var(--kho-ease) both; }
+html.bmq-d3 .d3-kho-chip.is-add { border-style: dashed; color: var(--d3-ink); }
+.d3-kho-chip.is-add svg { width: 14px; height: 14px; }
+.d3-kho-chip.is-ghost { width: 56px; border: 0; background: #e6e6e3; }
+.d3-kho-chip-new {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 36px;
+  padding: 0 3px 0 14px;
+  border: 1px solid var(--d3-ink);
+  border-radius: 99px;
+  background: var(--d3-white);
+  animation: d3-kho-pop .2s var(--kho-ease) both;
+}
+html.bmq-d3 .d3-kho-chip-new input { width: 7.5em; min-width: 0; border: 0; background: transparent; color: var(--d3-ink); font-size: 14px; outline: none; }
+html.bmq-d3 .d3-kho-chip-new button { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 99px; color: var(--d3-dim); }
+html.bmq-d3 .d3-kho-chip-new button:first-of-type { background: var(--d3-ink); color: #fff; }
+html.bmq-d3 .d3-kho-chip-new button:first-of-type:disabled { background: var(--d3-line-2); }
+html.bmq-d3 .d3-kho-chip-new button:not(:first-of-type):hover { background: rgba(39, 39, 39, .06); color: var(--d3-ink); }
+.d3-kho-chip-new svg { width: 15px; height: 15px; }
+@keyframes d3-kho-pop { from { opacity: 0; transform: scale(.92); } to { opacity: 1; transform: none; } }
+
+/* A panel that opens in place: the row grows to its content, the content rises in. */
+.d3-kho-reveal { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .26s var(--kho-ease); }
+.d3-kho-reveal[aria-hidden="false"] { grid-template-rows: 1fr; }
+.d3-kho-reveal-inner { min-height: 0; overflow: hidden; }
+.d3-kho-conv-editor { display: grid; gap: 12px; padding-top: 12px; min-width: 0; animation: d3-kho-rise .26s var(--kho-ease) both; }
+@keyframes d3-kho-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.d3-kho-change-title { margin: 0; font-size: 14px; color: var(--d3-ink-2); }
+.d3-kho-change-title b { font-weight: 500; color: var(--d3-ink); }
+
+/* "1 cây = [12] cuộn": the number is the only field; the swap key flips which unit stands alone. */
+.d3-kho-sentence {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  padding: 10px 10px 10px 16px;
+  border: 1px solid var(--d3-line-2);
+  border-radius: 14px;
+  background: var(--d3-white);
+  transition: border-color .15s ease;
+}
+.d3-kho-sentence:focus-within { border-color: var(--d3-ink); }
+.d3-kho-sentence-one { font: 300 24px/1 var(--d3-num); font-variant-numeric: tabular-nums; color: var(--d3-ink); }
+.d3-kho-sentence-unit { font-size: 15px; font-weight: 500; color: var(--d3-ink); }
+.d3-kho-sentence-eq { font-size: 18px; color: var(--d3-faint); }
+html.bmq-d3 .d3-kho-sentence-n {
+  width: 104px;
+  height: 44px;
+  padding: 0 10px;
+  border: 1px solid var(--d3-line-2);
+  border-radius: 10px;
+  background: #fafaf8;
+  color: var(--d3-ink);
+  font: 400 22px var(--d3-num);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  transition: border-color .15s ease, background-color .15s ease;
+}
+html.bmq-d3 .d3-kho-sentence-n:focus { border-color: var(--d3-ink); background: #fff; outline: none; }
+.d3-kho-sentence-n::placeholder { color: var(--d3-faint); }
+html.bmq-d3 .d3-kho-swap { display: grid; place-items: center; width: 38px; height: 38px; margin-left: auto; border-radius: 10px; color: var(--d3-dim); }
+html.bmq-d3 .d3-kho-swap:hover { background: rgba(39, 39, 39, .06); color: var(--d3-ink); }
+.d3-kho-swap svg { width: 17px; height: 17px; transition: transform .22s var(--kho-ease); }
+.d3-kho-swap.is-flipped svg { transform: rotate(180deg); }
+
+/* What the factor does to stock, before saving. */
+.d3-kho-impact { display: grid; gap: 6px; margin: 0; padding: 12px 14px; border-radius: 14px; background: var(--d3-white); font-size: 13.5px; transition: opacity .2s ease; }
+.d3-kho-impact b { font-weight: 500; color: var(--d3-ink); }
+.d3-kho-impact > span { font-size: 12.5px; color: var(--d3-dim); }
+.d3-kho-impact ul { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.d3-kho-impact li { display: flex; justify-content: space-between; gap: 12px; font-size: 12.5px; color: var(--d3-dim); font-variant-numeric: tabular-nums; }
+.d3-kho-impact li.is-more { justify-content: flex-start; }
+.d3-kho-impact.is-quiet { padding: 0; background: transparent; color: var(--d3-dim); font-size: 13px; line-height: 1.5; }
+.d3-kho-impact.is-stale { opacity: .55; }
+
+.d3-kho-conv-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.d3-kho-conv-row { min-width: 0; padding: 12px 14px; border-radius: 14px; background: var(--d3-white); transition: box-shadow .2s ease; }
+.d3-kho-conv-row.is-open { box-shadow: inset 0 0 0 1px var(--d3-ink); }
+.d3-kho-conv-row.is-warn:not(.is-open) { box-shadow: inset 0 0 0 1px #e8c27a; }
+.d3-kho-conv-row.is-saved { animation: d3-kho-saved .9s ease-out; }
+@keyframes d3-kho-saved { from { background: var(--kho-ok-bg, #e2f3e6); } to { background: var(--d3-white); } }
+.d3-kho-conv-row.is-ghost { display: flex; align-items: center; justify-content: space-between; height: 58px; background: #ececea; }
+.d3-kho-conv-row.is-add { padding: 0; background: transparent; }
+.d3-kho-conv-row.is-add.is-open { padding: 12px 14px; background: var(--d3-white); }
+.d3-kho-conv-row.is-add.is-open .d3-kho-conv-editor { padding-top: 0; }
+.d3-kho-conv-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.d3-kho-conv-main { display: grid; gap: 4px; min-width: 0; }
+.d3-kho-conv-main > b { font-size: 15.5px; font-weight: 500; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.d3-kho-conv-main small { display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: 12.5px; color: var(--d3-dim); }
+.d3-kho-conv-warn { display: flex; align-items: flex-start; gap: 6px; margin: 2px 0 0; font-size: 12.5px; line-height: 1.45; color: var(--kho-warn, #7a4d06); }
+.d3-kho-conv-warn svg { flex: none; width: 14px; height: 14px; margin-top: 2px; }
+.d3-kho-tag { flex: none; display: inline-flex; align-items: center; height: 24px; padding: 0 10px; border-radius: 99px; background: #ececea; font-size: 12px; color: var(--d3-dim); }
+html.bmq-d3 .d3-kho-addrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+  width: 100%;
+  min-height: 52px;
+  padding: 12px 14px;
+  border: 1px dashed var(--d3-line-2);
+  border-radius: 14px;
+  color: var(--d3-ink);
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+}
+html.bmq-d3 .d3-kho-addrow:hover { border-color: var(--d3-ink); }
+.d3-kho-addrow svg { width: 16px; height: 16px; }
+.d3-kho-addrow small { font-size: 12.5px; font-weight: 400; color: var(--d3-dim); }
+.d3-kho-conv-empty { padding: 12px 14px; border: 1px dashed var(--d3-line-2); border-radius: 12px; font-size: 13px; color: var(--d3-dim); }
+
 /* ---------- phones ---------- */
 @media (max-width: 760px) {
   .d3-kho .d3-wh-head { align-items: stretch; }
@@ -687,6 +852,10 @@ html.bmq-d3 .d3-kho-confirm .is-danger:hover { background: #a82a18; }
   .d3-kho-list[data-bmq-kho-finished] .d3-kho-row,
   .d3-kho-list[data-bmq-kho-names] .d3-kho-row:not(:has(button[role="switch"])) { grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
   .d3-kho-row:has(> button[role="switch"]) { grid-template-columns: minmax(0, 1fr) auto auto; }
+  .d3-kho-list[data-bmq-kho-names] .d3-kho-row:has(> .d3-kho-edit) { grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 4px; }
+  .d3-kho-addrow small { flex-basis: 100%; }
+  html.bmq-d3 .d3-kho-sentence-n { width: 88px; }
+  html.bmq-d3 .d3-kho-dialog input.d3-kho-sentence-n { font-size: 20px; }
   .d3-kho-row-qty { font-size: 13px; }
   .d3-kho-progress { grid-template-columns: minmax(0, 1fr); }
   .d3-kho-progress > button { justify-self: start; }
@@ -697,6 +866,15 @@ html.bmq-d3 .d3-kho-confirm .is-danger:hover { background: #a82a18; }
   .d3-kho-pair { grid-template-columns: minmax(0, 1fr); }
   .d3-kho-actions > button { flex: 1 1 auto; }
   .d3-kho-viewer { inset: 0; border-radius: 0; }
+}
+
+/* Small phones: the stock figure moves under the name so the name keeps its width. */
+.d3-kho-row-qty-sub { display: none; }
+@media (max-width: 420px) {
+  .d3-kho-row-qty-sub { display: inline; color: var(--d3-ink-2); }
+  .d3-kho-list[data-bmq-kho-names] .d3-kho-row > .d3-kho-row-qty { display: none; }
+  .d3-kho-list[data-bmq-kho-names] .d3-kho-row:has(> .d3-kho-edit) { grid-template-columns: minmax(0, 1fr) auto auto; }
+  .d3-kho-list[data-bmq-kho-names] .d3-kho-row:not(:has(> button[role="switch"])) { grid-template-columns: minmax(0, 1fr); }
 }
 
 @media (max-width: 360px) {
@@ -712,5 +890,8 @@ html.bmq-d3 .d3-kho-confirm .is-danger:hover { background: #a82a18; }
   :is(.d3-kho, .d3-kho-dialog, .d3-kho-confirm) :is(button, [role="button"]):active:not(:disabled) { transform: none; }
   .d3-kho-tabs button::after, .d3-kho-meter i { transition: none; }
   .d3-kho-scan-line { animation: none; top: 50%; }
+  .d3-kho-reveal { transition: none; }
+  .d3-kho-conv-editor, .d3-kho-chip.is-new, .d3-kho-chip-new, .d3-kho-conv-row.is-saved { animation: none; }
+  .d3-kho-swap svg { transition: none; }
   html.bmq-d3 .d3-kho-dialog[data-state] { animation-duration: .01ms; }
 }

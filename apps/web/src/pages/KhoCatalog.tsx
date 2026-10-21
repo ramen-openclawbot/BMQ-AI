@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, FileText, Search, X } from "lucide-react";
+import { ArrowLeft, FileText, PencilLine, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
@@ -15,6 +15,7 @@ import { GROUPS, KHO_LABEL, KHO_LOCATIONS, atKho, crateKey, fmtAmount, groupOf, 
 import { useKhoConfirm } from "@/components/kho/KhoConfirm";
 import { ItemDialog } from "@/components/kho/ItemDialog";
 import { CrateDialog } from "@/components/kho/CrateDialog";
+import { UnitDialog } from "@/components/kho/UnitDialog";
 import "@/styles/bmq-warehouse.css";
 import "@/styles/bmq-stock-ledger.css";
 import "@/styles/bmq-kho.css";
@@ -148,6 +149,7 @@ function Catalog({ items, loading, error, onRetry, activeCount, canEdit, newCoun
   const [query, setQuery] = useState("");
   const [showOff, setShowOff] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [unitId, setUnitId] = useState<string | null>(null);
   const save = useKhoSaveItem();
   const fg = useFinishedGoods();
   const finished = useMemo<Record<KhoLocation, FinishedRow[]>>(() => {
@@ -181,6 +183,7 @@ function Catalog({ items, loading, error, onRetry, activeCount, canEdit, newCoun
     return c;
   }, [items, finished]);
   const open = items.find((item) => item.id === openId) ?? null;
+  const unitItem = items.find((item) => item.id === unitId) ?? null;
   const groupLabel = GROUPS.find((g) => g.id === group)?.label.toLowerCase() ?? "";
 
   const flip = async (item: KhoItem) => {
@@ -257,7 +260,7 @@ function Catalog({ items, loading, error, onRetry, activeCount, canEdit, newCoun
           </div>
         ) : (
           <>
-            <div className="d3-kho-listhead" aria-hidden="true"><span>Mặt hàng</span><span>Tồn sổ</span>{canEdit && !(group === "tp" && !showOff && !rows.length) ? <span>Bật</span> : null}</div>
+            <div className={cn("d3-kho-listhead", canEdit && "has-edit")} aria-hidden="true"><span>Mặt hàng</span><span>Tồn sổ</span>{canEdit && !(group === "tp" && !showOff && !rows.length) ? <><span>Sửa</span><span>Bật</span></> : null}</div>
             {fgRows.length ? (
               <ul className="d3-kho-list" data-bmq-kho-finished>
                 {fgRows.map((row) => (
@@ -280,9 +283,16 @@ function Catalog({ items, loading, error, onRetry, activeCount, canEdit, newCoun
                       <span>{item.unit}</span>
                       <span>{item.doc_lines ? `${item.doc_lines} dòng phiếu` : "chưa có phiếu"}</span>
                       {!item.item_class || item.item_class === "unclassified" ? <span className="is-flag">chưa phân loại</span> : item.item_class === "non_stock" ? <span>không tính tồn</span> : null}
+                      <span className="d3-kho-row-qty-sub">Tồn {fmtAmount(item.qty[kho], item.unit)}</span>
                     </small>
                   </button>
                   <span className="d3-kho-row-qty">{fmtAmount(item.qty[kho], item.unit)}</span>
+                  {canEdit ? (
+                    <button type="button" className="d3-kho-edit" onClick={() => setUnitId(item.id)}
+                      aria-label={`Sửa đơn vị và quy đổi · ${item.name}`} title="Đơn vị & quy đổi" data-bmq-kho-unit-edit={item.id}>
+                      <PencilLine aria-hidden="true" />
+                    </button>
+                  ) : null}
                   {canEdit ? (
                     <Switch checked={item.active} disabled={save.isPending} onCheckedChange={() => void flip(item)}
                       aria-label={item.active ? `Tắt ${item.name}` : `Bật ${item.name}`} data-bmq-kho-power={item.id} />
@@ -298,6 +308,7 @@ function Catalog({ items, loading, error, onRetry, activeCount, canEdit, newCoun
           </>
         )}
       </section>
+      {unitItem ? <UnitDialog key={unitItem.id} item={unitItem} onClose={() => setUnitId(null)} onToast={say} onReplaced={setUnitId} /> : null}
       {open ? <ItemDialog key={open.id} item={open} items={items} canEdit={canEdit} confirm={confirm} onDone={(text) => { say(text); setOpenId(null); }} onClose={() => setOpenId(null)} /> : null}
     </>
   );

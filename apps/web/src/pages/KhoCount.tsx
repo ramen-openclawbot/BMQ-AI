@@ -1,10 +1,11 @@
 import { useMemo, useState } from "react";
-import { Check, Search, X } from "lucide-react";
+import { Check, PencilLine, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useKhoCountItem, useKhoItems } from "@/hooks/useKhoItems";
 import { filterItems, khoErrorText, type KhoItem, type KhoLocation } from "@/lib/kho-items";
 import { cn } from "@/lib/utils";
+import { UnitDialog } from "@/components/kho/UnitDialog";
 import { KHO_LABEL, KHO_LOCATIONS, countUnits, dmy, fmtAmount, inCountList, newRequestId, parseNum, todayVN } from "@/components/kho/kho-meta";
 import "@/styles/bmq-warehouse.css";
 import "@/styles/bmq-stock-ledger.css";
@@ -23,6 +24,9 @@ export default function KhoCount() {
   const kho: KhoLocation = loc ?? (canCount.tan_tao || !canCount.q7 ? "tan_tao" : "q7");
   const [query, setQuery] = useState("");
   const [onlyLeft, setOnlyLeft] = useState(false);
+  const [unitId, setUnitId] = useState<string | null>(null);
+  const canEdit = Boolean(list.data?.can_edit);
+  const unitItem = items.find((item) => item.id === unitId) ?? null;
   const today = todayVN();
   const all = useMemo(() => items.filter((item) => inCountList(item, kho)), [items, kho]);
   const done = all.filter((item) => item.last_count_date[kho] === today).length;
@@ -80,7 +84,7 @@ export default function KhoCount() {
         ) : (
           <>
             <ul className="d3-kho-list" data-bmq-kho-count={kho}>
-              {rows.map((item) => <CountRow key={`${kho}:${item.id}`} item={item} loc={kho} today={today} canCount={canCount[kho]} onSaved={(text) => toast({ title: text })} />)}
+              {rows.map((item) => <CountRow key={`${kho}:${item.id}`} item={item} loc={kho} today={today} canCount={canCount[kho]} onSaved={(text) => toast({ title: text })} onEdit={canEdit ? () => setUnitId(item.id) : undefined} />)}
             </ul>
             {rows.length === 0 ? (
               <p className="d3-kho-empty" data-bmq-kho-empty>
@@ -90,12 +94,13 @@ export default function KhoCount() {
           </>
         )}
       </section>
+      {unitItem ? <UnitDialog key={unitItem.id} item={unitItem} onClose={() => setUnitId(null)} onToast={(text) => toast({ title: text })} onReplaced={setUnitId} /> : null}
     </div>
   );
 }
 
-function CountRow({ item, loc, today, canCount, onSaved }: {
-  item: KhoItem; loc: KhoLocation; today: string; canCount: boolean; onSaved: (text: string) => void;
+function CountRow({ item, loc, today, canCount, onSaved, onEdit }: {
+  item: KhoItem; loc: KhoLocation; today: string; canCount: boolean; onSaved: (text: string) => void; onEdit?: () => void;
 }) {
   const count = useKhoCountItem();
   const units = countUnits(item.unit);
@@ -127,7 +132,14 @@ function CountRow({ item, loc, today, canCount, onSaved }: {
   return (
     <li className={cn("d3-kho-row d3-kho-countrow", isDone && "is-done")} data-bmq-kho-countrow={item.id}>
       <div className="d3-kho-row-main">
-        <b>{isDone ? <Check className="d3-kho-done-mark" aria-label="Đã đếm hôm nay" /> : null}{item.name}</b>
+        <span className="d3-kho-namerow">
+          <b>{isDone ? <Check className="d3-kho-done-mark" aria-label="Đã đếm hôm nay" /> : null}{item.name}</b>
+          {onEdit ? (
+            <button type="button" className="d3-kho-edit is-inline" onClick={onEdit} aria-label={`Sửa đơn vị và quy đổi · ${item.name}`} title="Đơn vị & quy đổi" data-bmq-kho-unit-edit={item.id}>
+              <PencilLine aria-hidden="true" />
+            </button>
+          ) : null}
+        </span>
         <small>
           <span>Sổ {fmtAmount(book, item.unit)}</span>
           <span>{item.last_count_date[loc] ? `Đếm ${dmy(item.last_count_date[loc])}` : "Chưa đếm lần nào"}</span>

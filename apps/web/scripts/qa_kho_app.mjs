@@ -84,6 +84,22 @@ function settle(st) {
     const q7Skus = [{ id: "fg-cbc", sku_code: "cbc-2026-v2", product_name: "BÁNH MÌ CHÀ BÔNG CAY", unit: "gói", on_hand: 12 }];
     return { data: { location: loc, cutover_date: "2026-10-16", items, skus: loc === "tan_tao" ? F.skus : q7Skus, pending: mode === "empty" ? [] : (loc === "q7" ? F.q7 : F.tt), transfers: F.transfers ?? [], counts: {}, can_edit: role === "owner" }, error: null };
   }
+  if (st.table === "rpc:kho_get_units") return { data: ["g","ml"].map((c) => ({ code: c, label: c, kind: c === "g" ? "weight" : "volume", base_code: c, to_base: 1 })).concat(["bao","bịch","cái","cây","chai","cuộn","gói","hộp","thùng","tờ"].concat(JSON.parse(localStorage.getItem("qa-units") || "[]")).map((c) => ({ code: c, label: c, kind: "count", base_code: c, to_base: 1 }))), error: null };
+  if (st.table === "rpc:kho_add_stock_unit") { const u = String(st.args.p_label).trim().toLowerCase(); const list = JSON.parse(localStorage.getItem("qa-units") || "[]"); list.push(u); localStorage.setItem("qa-units", JSON.stringify(list)); return { data: { status: "created", unit: u }, error: null }; }
+  if (st.table === "rpc:kho_get_item_conversions") {
+    const me = khoItems().find((it) => it.id === st.args.p_item_id);
+    return { data: { item: { id: me.id, name: me.name, unit: me.unit, in_q7: me.in_q7 }, can_edit: role === "owner", cutover: { tan_tao: "2026-10-16", q7: "2026-10-16" },
+      conversions: [
+        { unit: "cây", factors: [1, 6], disagree: true, auto: false, alias_count: 3, supplier_names: ["Ngọc Trân- Cô Trang"], line_count: 4, posted_count: 1, last_receipt_date: "2026-09-20" },
+        { unit: "thùng", factors: [24], disagree: false, auto: false, alias_count: 1, supplier_names: ["Mỹ Toàn"], line_count: 2, posted_count: 0, last_receipt_date: "2026-10-12" },
+      ], saved: [] }, error: null };
+  }
+  if (st.table === "rpc:kho_set_item_conversion") {
+    const f = Number(st.args.p_factor);
+    const line = { receipt_number: "GRN-000543", receipt_date: "2026-09-20", location: "tan_tao", posted_qty: 10, new_qty: 10 * f, delta: 10 * f - 10 };
+    if (st.args.p_dry_run) return { data: { status: "preview", aliases: 3, lines: [line], total_delta: { tan_tao: line.delta, q7: 0 } }, error: null };
+    return { data: { status: "saved", aliases_updated: 3, lines: 1, total_delta: { tan_tao: line.delta, q7: 0 } }, error: null };
+  }
   if (st.table === "rpc:get_stock_transfers") return { data: (window.__kgFixture.transfers ?? []).map((t, i) => ({ ...t, source: i % 2 ? "manual" : "auto", slip_id: null, slip_number: i % 2 ? "PCK-QA-" + i : null, note: i === 1 ? "hàng cho ca sáng Q7" : null })), error: null };
   if (st.table === "rpc:get_q7_finished_goods_planned") return { data: [{ sku_id: "fg-cbc", product_name: "BÁNH MÌ CHÀ BÔNG CAY", unit: "gói", planned_qty: 40, already_received: 12, production_order_item_id: "poi-qa-1" }], error: null };
   if (/^rpc:/.test(st.table)) return { data: null, error: null };
@@ -363,6 +379,77 @@ try {
     assert.deepEqual(errors, [], `page errors catalog ${vp.width}`);
     await context.close();
 
+
+    // ---------- Đơn vị & quy đổi (owner 22/10) ----------
+    ({ context, page, errors } = await open({ role: "owner" }, "/warehouse/danh-muc", vp));
+    await page.waitForSelector("[data-bmq-kho-names] li");
+    const unitTarget = await page.evaluate(() => {
+      const F = window.__kgFixture;
+      const i = F.items.findIndex((it, idx) => idx % 3 !== 0 && idx % 17 !== 5 && !it.pastry_q7 && ["raw_material", "unclassified"].includes(it.item_class));
+      return { id: F.items[i].id, unit: F.items[i].unit };
+    });
+    assert.ok(await page.locator(`[data-bmq-kho-unit-edit='${unitTarget.id}']`).isVisible(), "pencil on the row");
+    await page.locator(`[data-bmq-kho-unit-edit='${unitTarget.id}']`).click();
+    await dialogInView(page, "[data-bmq-unit-dialog]", vp);
+    await page.waitForSelector("[data-bmq-conversion='cây']");
+    assert.ok(await page.locator(`[data-bmq-unit-chip='${unitTarget.unit}']`).evaluate((el) => el.classList.contains("is-current")), "current unit outlined");
+    assert.ok(await page.locator("[data-bmq-conversion-disagree]").isVisible(), "disagreeing factors flagged");
+    await noSpill(page, "unit-dialog", vp);
+    await shot(page, `unit-dialog-${vp.width}.png`, false);
+    // + Đơn vị mới -> khay, then change the unit with a factor
+    await page.locator("[data-bmq-unit-new]").click();
+    await page.locator("[data-bmq-unit-new-field] input").fill("Khay");
+    await page.locator("[data-bmq-unit-new-save]").click();
+    await page.waitForSelector("[data-bmq-unit-change='khay']");
+    assert.ok((await calls(page)).some((c) => c.startsWith("rpc:kho_add_stock_unit:") && c.includes('"p_label":"Khay"')), "add unit call");
+    await page.locator("[data-bmq-unit-change] [data-bmq-unit-factor]").fill("12");
+    await page.waitForSelector("[data-bmq-unit-after]");
+    await page.waitForTimeout(350);
+    await shot(page, `unit-change-${vp.width}.png`, false);
+    await page.locator("[data-bmq-unit-save]").click();
+    await page.waitForTimeout(400);
+    const unitSave = (await calls(page)).filter((c) => c.startsWith("rpc:kho_save_item:")).pop();
+    // g -> khay reads "1 khay = 12 g", so 1 g = 1/12 khay is sent as the old->new factor.
+    assert.ok(unitSave && unitSave.includes('"p_unit":"khay"') && unitSave.includes('"p_unit_factor":0.08333'), unitSave);
+    pass(`unit dialog: new unit + change with factor ${vp.width}`);
+    // Fix the disagreeing conversion: 1 cây = 6 <unit>, preview then save
+    await page.locator("[data-bmq-conversion='cây'] [data-bmq-conversion-edit]").click();
+    await page.locator("[data-bmq-conversion='cây'] [data-bmq-unit-factor]").fill("6");
+    await page.waitForSelector("[data-bmq-conversion='cây'] [data-bmq-unit-impact='change']", { timeout: 5000 });
+    assert.match(await page.locator("[data-bmq-conversion='cây'] [data-bmq-unit-impact]").innerText(), /Tồn sẽ đổi: Kho Tân Tạo \+50/);
+    await page.waitForSelector("[data-bmq-conversion='cây'] [data-bmq-receipt-notes]");
+    await page.waitForTimeout(300);
+    await noSpill(page, "conversion-edit", vp);
+    await shot(page, `conversion-edit-${vp.width}.png`, false);
+    await page.locator("[data-bmq-conversion-save]").click();
+    await page.waitForTimeout(400);
+    const convCalls = (await calls(page)).filter((c) => c.startsWith("rpc:kho_set_item_conversion:"));
+    assert.ok(convCalls.some((c) => c.includes('"p_dry_run":true') && c.includes('"p_factor":6')), "preview call");
+    assert.ok(convCalls.some((c) => c.includes('"p_dry_run":false') && c.includes('"p_factor":6') && c.includes('"p_unit":"cây"') && /"p_request_id":"[0-9a-f-]{36}"/.test(c)), "save call");
+    pass(`conversion: preview stock impact, then save with a request id ${vp.width}`);
+    // + Thêm quy đổi: 1 bao = 25 <unit>
+    await page.locator("[data-bmq-conversion-add]").click();
+    await page.locator("[data-bmq-conversion-new] [data-bmq-picker]").click();
+    await page.locator("[data-bmq-picker-sheet] [data-bmq-picker-option='bao']").click();
+    await page.waitForSelector("[data-bmq-picker-sheet]", { state: "detached" });
+    await page.locator("[data-bmq-conversion-new] [data-bmq-unit-factor]").fill("25");
+    await shot(page, `conversion-add-${vp.width}.png`, false);
+    await page.locator("[data-bmq-conversion-add-save]").click();
+    await page.waitForTimeout(400);
+    assert.ok((await calls(page)).some((c) => c.startsWith("rpc:kho_set_item_conversion:") && c.includes('"p_unit":"bao"') && c.includes('"p_factor":25') && c.includes('"p_dry_run":false')), "add conversion call");
+    pass(`add a conversion for a new delivery-note unit ${vp.width}`);
+    assert.deepEqual(errors, [], `page errors unit dialog ${vp.width}`);
+    await context.close();
+    // Kiểm kê rows carry the same pencil
+    ({ context, page, errors } = await open({ role: "owner" }, "/warehouse/kiem-ke", vp));
+    await page.waitForSelector("[data-bmq-kho-count='tan_tao'] li [data-bmq-kho-unit-edit]");
+    await noSpill(page, "count-pencil", vp);
+    await page.locator("[data-bmq-kho-count='tan_tao'] li [data-bmq-kho-unit-edit]").first().click();
+    await dialogInView(page, "[data-bmq-unit-dialog]", vp);
+    await shot(page, `count-unit-dialog-${vp.width}.png`, false);
+    pass(`Kiểm kê row opens Đơn vị & quy đổi ${vp.width}`);
+    await context.close();
+
     // ---------- Tên mới trên phiếu ----------
     ({ context, page, errors } = await open({ role: "owner" }, "/warehouse/danh-muc", vp));
     await page.locator("[data-bmq-kho-new-open]").click();
@@ -446,6 +533,7 @@ try {
     let { context, page } = await open({ role: "viewonly" }, "/warehouse/danh-muc", vp);
     await page.waitForSelector("[data-bmq-kho-names] li");
     assert.equal(await page.locator("[data-bmq-kho-power]").count(), 0, "no switches for view-only");
+    assert.equal(await page.locator("[data-bmq-kho-unit-edit]").count(), 0, "no pencil for view-only");
     await page.locator("[data-bmq-kho-names] li .d3-kho-row-main").first().click();
     await page.waitForSelector("[data-bmq-kho-item-dialog]");
     assert.equal(await page.locator("[data-bmq-kho-save]").count(), 0, "no save for view-only");
