@@ -3,9 +3,9 @@ import { Link, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { KHO_ITEMS_QUERY_KEY, useKhoCountItem, useKhoItems, useKhoSaveItem } from "@/hooks/useKhoItems";
-import { useItemReceiptLines, useSetStockItemClass, useWarehouseGameSnapshot, WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY, type StockItemClass } from "@/hooks/useWarehouseGame";
+import { useItemReceiptLines, useSetItemPastryQ7, useSetStockItemClass, useWarehouseGameSnapshot, WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY, type StockItemClass } from "@/hooks/useWarehouseGame";
 import { filterItems, khoErrorText, searchKey, standardUnitFactor, type KhoItem, type KhoLocation, type KhoSaveResult } from "@/lib/kho-items";
-import type { WarehouseGamePendingRow } from "@/lib/warehouse-game";
+import type { WarehouseGamePendingRow, WarehouseGameSku } from "@/lib/warehouse-game";
 import { Sheet } from "@/game/Sheet";
 import { GamePicker } from "@/game/GamePicker";
 import { ReceiptNotes } from "@/game/ReceiptNotes";
@@ -167,7 +167,8 @@ export default function KhoGame() {
           ) : view === "home" ? (
             <Home activeCount={activeCount} offCount={items.length - activeCount} newCount={pending.length} countedToday={countedToday} onGo={setView} />
           ) : view === "names" ? (
-            <NamesView items={items} canEdit={Boolean(data?.can_edit)} newCount={pending.length} onNew={() => setView("new")} onToast={setToast} />
+            <NamesView items={items} canEdit={Boolean(data?.can_edit)} newCount={pending.length} onNew={() => setView("new")} onToast={setToast}
+              q7Skus={q7.data?.skus} q7SkusState={q7.isLoading ? "loading" : q7.isError ? "error" : "ok"} />
           ) : view === "new" ? (
             <NewLinesView rows={pending} q7={q7.data} tt={tt.data} loading={q7.isLoading || tt.isLoading}
               onAssigned={(text) => {
@@ -216,24 +217,34 @@ function Home({ activeCount, offCount, newCount, countedToday, onGo }: {
 
 /* ---------------------------------------------------------------- Danh mục */
 
-function NamesView({ items, canEdit, newCount, onNew, onToast }: {
+/** Each item lives in one kho (owner 21/10): pastry_q7 = kept at Q7, everything else at Tân Tạo. */
+const atKho = (item: KhoItem, kho: KhoLocation) => (kho === "q7" ? item.in_q7 : !item.in_q7);
+
+function NamesView({ items, canEdit, newCount, onNew, onToast, q7Skus, q7SkusState }: {
   items: KhoItem[]; canEdit: boolean; newCount: number; onNew: () => void; onToast: (text: string) => void;
+  q7Skus: WarehouseGameSku[] | undefined; q7SkusState: "loading" | "error" | "ok";
 }) {
+  const [kho, setKho] = useState<KhoLocation>("tan_tao");
   const [group, setGroup] = useState<Group>("nl");
   const [query, setQuery] = useState("");
   const [showOff, setShowOff] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
   const save = useKhoSaveItem();
   const fg = useFinishedGoods();
-  const finished = useMemo<FinishedRow[]>(() => {
+  const finished = useMemo<Record<KhoLocation, FinishedRow[]>>(() => {
     const bySku = new Map((fg.data?.items ?? []).map((row) => [row.sku_code, row]));
-    return FINISHED.map(({ sku, name }) => {
+    const tanTao = FINISHED.map(({ sku, name }) => {
       const row = bySku.get(sku);
       const onHand = row ? Number(row.on_hand_quantity ?? 0) : null;
       return { sku, name, unit: row?.unit ?? (sku.startsWith("PATE") ? "hộp" : "que"), onHand: Number.isFinite(onHand) ? onHand : null };
     });
-  }, [fg.data]);
-  const inGroup = useMemo(() => items.filter((item) => groupOf(item) === group), [items, group]);
+    // Q7 thành phẩm = the pastry SKUs of the Q7 finished-goods ledger (owner 21/10).
+    const q7 = (q7Skus ?? []).map((sku) => ({ sku: sku.sku_code, name: sku.product_name, unit: sku.unit, onHand: sku.on_hand }));
+    return { tan_tao: tanTao, q7 };
+  }, [fg.data, q7Skus]);
+  const fgState = kho === "q7" ? q7SkusState : fg.isLoading ? "loading" : fg.isError ? "error" : "ok";
+  const inKhoItems = useMemo(() => items.filter((item) => atKho(item, kho)), [items, kho]);
+  const inGroup = useMemo(() => inKhoItems.filter((item) => groupOf(item) === group), [inKhoItems, group]);
   const off = inGroup.filter((item) => !item.active);
   const rows = useMemo(
     () => filterItems(inGroup, query).filter((item) => item.active !== showOff),
@@ -241,13 +252,14 @@ function NamesView({ items, canEdit, newCount, onNew, onToast }: {
   );
   const fgRows = useMemo(() => {
     const key = searchKey(query);
-    return group !== "tp" || showOff ? [] : finished.filter((row) => !key || searchKey(row.name).includes(key));
-  }, [group, showOff, finished, query]);
+    return group !== "tp" || showOff ? [] : finished[kho].filter((row) => !key || searchKey(row.name).includes(key));
+  }, [group, showOff, finished, kho, query]);
   const counts = useMemo(() => {
-    const c: Record<Group, number> = { nl: 0, bb: 0, tp: FINISHED.length };
-    for (const item of items) if (item.active) c[groupOf(item)] += 1;
+    const c: Record<Group, number> = { nl: 0, bb: 0, tp: finished[kho].length };
+    for (const item of inKhoItems) if (item.active) c[groupOf(item)] += 1;
     return c;
-  }, [items]);
+  }, [inKhoItems, finished, kho]);
+  const khoCount = (loc: KhoLocation) => items.filter((item) => item.active && atKho(item, loc)).length + finished[loc].length;
   const open = items.find((item) => item.id === openId) ?? null;
   const groupLabel = GROUPS.find((g) => g.id === group)?.label.toLowerCase() ?? "";
 
@@ -278,6 +290,14 @@ function NamesView({ items, canEdit, newCount, onNew, onToast }: {
           <span className="pick-go">Xem</span>
         </button>
       ) : null}
+      <div className="loc-switch k2-kho" role="tablist" aria-label="Kho" data-bmq-kho2-dmkho>
+        {(["tan_tao", "q7"] as KhoLocation[]).map((id) => (
+          <button key={id} type="button" role="tab" aria-selected={kho === id} className={kho === id ? "is-on" : undefined}
+            onClick={() => { setKho(id); setShowOff(false); }} data-bmq-kho2-dmloc={id}>
+            Kho {KHO_LABEL[id]} <small>{khoCount(id)}</small>
+          </button>
+        ))}
+      </div>
       <div className="k2-groups" role="tablist" aria-label="Loại hàng" data-bmq-kho2-groups>
         {GROUPS.map((g) => (
           <button key={g.id} type="button" role="tab" aria-selected={group === g.id} className={group === g.id ? "is-on" : undefined}
@@ -297,7 +317,9 @@ function NamesView({ items, canEdit, newCount, onNew, onToast }: {
       </div>
       {!canEdit ? <p className="k2-hint">Tài khoản này chỉ xem được. Người có quyền sửa kho mới đổi được tên, đơn vị, loại hàng và bật/tắt.</p> : null}
       {group === "tp" && !showOff ? (
-        <p className="k2-hint">Thành phẩm Kho Tân Tạo. Tồn lấy từ sổ thành phẩm, nhập/xuất qua phiếu kho Tân Tạo.</p>
+        <p className="k2-hint">{kho === "q7"
+          ? "Bánh ngọt Kho Q7. Tồn lấy từ sổ thành phẩm Q7, nhập/xuất ở trang Phiếu kho."
+          : "Thành phẩm Kho Tân Tạo. Tồn lấy từ sổ thành phẩm, nhập/xuất qua phiếu kho Tân Tạo."}</p>
       ) : null}
       {fgRows.length ? (
         <ul className="k2-list" data-bmq-kho2-finished>
@@ -307,8 +329,7 @@ function NamesView({ items, canEdit, newCount, onNew, onToast }: {
                 <b>{row.name}</b>
                 <small>
                   <span className="k2-unit">{row.unit}</span>
-                  <span>Tân Tạo</span>
-                  <span>{fg.isLoading ? "đang đọc tồn…" : fg.isError ? "chưa đọc được tồn" : `Tồn ${fmtAmount(row.onHand, row.unit)}`}</span>
+                  <span>{fgState === "loading" ? "đang đọc tồn…" : fgState === "error" ? "chưa đọc được tồn" : `Tồn ${fmtAmount(row.onHand, row.unit)}`}</span>
                 </small>
               </div>
             </li>
@@ -322,7 +343,6 @@ function NamesView({ items, canEdit, newCount, onNew, onToast }: {
               <b>{item.name}</b>
               <small>
                 <span className="k2-unit">{item.unit}</span>
-                {item.in_q7 ? <span>Để ở Q7</span> : <span>Tân Tạo</span>}
                 <span>{item.doc_lines ? `${item.doc_lines} dòng phiếu` : "chưa có phiếu"}</span>
                 {!item.item_class || item.item_class === "unclassified" ? <span>chưa phân loại</span> : item.item_class === "non_stock" ? <span>không tính tồn</span> : null}
               </small>
@@ -349,8 +369,21 @@ function ItemSheet({ item, items, canEdit, onDone, onClose }: {
   const setClass = useSetStockItemClass();
   const queryClient = useQueryClient();
   const lines = useItemReceiptLines(item.id, true);
+  const setPlace = useSetItemPastryQ7();
+  const placeTo = (loc: KhoLocation) => {
+    if ((loc === "q7") === item.in_q7) return;
+    setPlace.mutate(
+      { itemId: item.id, value: loc === "q7" },
+      {
+        onSuccess: () => {
+          void queryClient.invalidateQueries({ queryKey: [KHO_ITEMS_QUERY_KEY] });
+          onDone(`Đã chuyển “${item.name}” sang Kho ${KHO_LABEL[loc]}`);
+        },
+      },
+    );
+  };
   const group = groupOf(item);
-  const moveTo = (next: Exclude<Group, "tp">) => {
+  const moveTo =(next: Exclude<Group, "tp">) => {
     if (next === group) return;
     setClass.mutate(
       { itemId: item.id, itemClass: CLASS_OF[next] },
@@ -435,6 +468,15 @@ function ItemSheet({ item, items, canEdit, onDone, onClose }: {
         </div>
       </div>
       {setClass.error ? <div className="err">{khoErrorText(setClass.error)}</div> : null}
+      <div className="field">Kho
+        <div className="k2-units k2-class" role="group" aria-label="Kho" data-bmq-kho2-place>
+          {(["tan_tao", "q7"] as KhoLocation[]).map((loc) => (
+            <button key={loc} type="button" aria-pressed={(loc === "q7") === item.in_q7} className={(loc === "q7") === item.in_q7 ? "is-on" : undefined}
+              disabled={!canEdit || setPlace.isPending} onClick={() => placeTo(loc)} data-bmq-kho2-place-pick={loc}>Kho {KHO_LABEL[loc]}</button>
+          ))}
+        </div>
+      </div>
+      {setPlace.error ? <div className="err">{khoErrorText(setPlace.error)}</div> : null}
       <div className={`pastry-switch${active ? " is-on" : ""}`}>
         <span><b>{active ? "Đang bật" : "Đã tắt"}</b><small>{active ? "Hiện khi đếm và khi đặt hàng" : "Không hiện khi đếm, sổ tồn giữ nguyên"}</small></span>
         <button type="button" role="switch" aria-checked={active} aria-label="Bật/tắt món" className="kg-switch" disabled={!canEdit} onClick={() => setActive((v) => !v)}><i /></button>

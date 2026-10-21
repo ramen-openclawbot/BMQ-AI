@@ -73,6 +73,7 @@ function settle(st) {
       { sku_code: "PATE-200G", product_name: "Pate 200g", unit: "hộp", on_hand_quantity: 22 },
     ] }, error: null };
   }
+  if (st.table === "rpc:set_item_pastry_q7") return { data: { item_id: st.args.p_item_id, pastry_q7: st.args.p_value }, error: null };
   if (st.table === "rpc:set_stock_item_class") return { data: { item_id: st.args.p_item_id, old_class: null, item_class: st.args.p_class }, error: null };
   if (st.table === "rpc:get_item_receipt_lines" || st.table === "rpc:get_crate_receipt_lines") return { data: window.__kgFixture.receipt_lines ?? [], error: null };
   if (st.table === "rpc:get_warehouse_game_snapshot") {
@@ -219,12 +220,16 @@ try {
     await page.locator("[data-bmq-kho2-door='names']").click();
     await page.waitForSelector("[data-bmq-kho2-groups]");
     assert.deepEqual(await page.locator("[data-bmq-kho2-group] b").allTextContents(), ["Nguyên liệu", "Bao bì & vật tư", "Thành phẩm"]);
+    assert.equal(await page.locator("[data-bmq-kho2-dmloc='tan_tao']").getAttribute("aria-selected"), "true", "opens on Kho Tân Tạo");
     assert.equal(await page.locator("[data-bmq-kho2-group='nl']").getAttribute("aria-selected"), "true", "opens on Nguyên liệu");
-    const nlNames = await page.locator("[data-bmq-kho2-names] li b").allTextContents();
-    assert.ok(nlNames.some((n) => /băng keo lớn/i.test(n)) && !nlNames.some((n) => /băng keo nhỏ/i.test(n)), "packaging not in Nguyên liệu");
+    // Every visible row belongs to the chosen kho and group (fixture: pastry_q7 = Q7).
+    const expectNames = (kho, classes) => page.evaluate(({ kho, classes }) => window.__kgFixture.items
+      .filter((it, i) => i % 17 !== 5 && Boolean(it.pastry_q7) === (kho === "q7") && classes.includes(it.item_class))
+      .map((it) => it.name).sort(), { kho, classes });
+    const shown = async () => (await page.locator("[data-bmq-kho2-names] li b").allTextContents()).sort();
+    assert.deepEqual(await shown(), await expectNames("tan_tao", ["raw_material", "unclassified"]), "Tân Tạo · Nguyên liệu");
     await page.locator("[data-bmq-kho2-group='bb']").click();
-    const bbNames = await page.locator("[data-bmq-kho2-names] li b").allTextContents();
-    assert.ok(bbNames.some((n) => /băng keo nhỏ/i.test(n)) && !bbNames.some((n) => /băng keo lớn/i.test(n)), "Bao bì list");
+    assert.deepEqual(await shown(), await expectNames("tan_tao", ["packaging_supply", "non_stock"]), "Tân Tạo · Bao bì");
     await noSpill(page, "group-bb", vp);
     await page.screenshot({ path: `${EVIDENCE}/group-bb-${vp.width}.png` });
     await page.locator("[data-bmq-kho2-group='tp']").click();
@@ -233,7 +238,31 @@ try {
     assert.match(await page.locator("[data-bmq-kho2-fg='BMQ-002']").textContent(), /Tồn 194 que/);
     await noSpill(page, "group-tp", vp);
     await page.screenshot({ path: `${EVIDENCE}/group-tp-${vp.width}.png` });
-    pass(`Danh mục groups Nguyên liệu / Bao bì & vật tư / Thành phẩm ${vp.width}`);
+    // Kho Q7: its own items and the pastry finished goods.
+    await page.locator("[data-bmq-kho2-dmloc='q7']").click();
+    await page.waitForSelector("[data-bmq-kho2-fg='cbc-2026-v2']");
+    assert.match(await page.locator("[data-bmq-kho2-fg='cbc-2026-v2']").textContent(), /BÁNH MÌ CHÀ BÔNG CAY.*Tồn 12 gói/);
+    assert.equal(await page.locator("[data-bmq-kho2-fg='BMQ-002']").count(), 0, "Tân Tạo finished goods not at Q7");
+    await page.screenshot({ path: `${EVIDENCE}/q7-tp-${vp.width}.png` });
+    await page.locator("[data-bmq-kho2-group='nl']").click();
+    assert.deepEqual(await shown(), await expectNames("q7", ["raw_material", "unclassified"]), "Q7 · Nguyên liệu");
+    await page.locator("[data-bmq-kho2-group='bb']").click();
+    assert.deepEqual(await shown(), await expectNames("q7", ["packaging_supply", "non_stock"]), "Q7 · Bao bì");
+    await noSpill(page, "q7-bb", vp);
+    await page.screenshot({ path: `${EVIDENCE}/q7-bb-${vp.width}.png` });
+    pass(`Danh mục Kho Tân Tạo / Kho Q7 × Nguyên liệu / Bao bì & vật tư / Thành phẩm ${vp.width}`);
+
+    // Move a Q7 item to Kho Tân Tạo from its sheet
+    const q7Id = await page.locator("[data-bmq-kho2-names] li .k2-row-main").first().getAttribute("data-bmq-kho2-item");
+    await page.locator(`[data-bmq-kho2-item='${q7Id}']`).click();
+    await page.waitForSelector("[data-bmq-kho2-place]");
+    assert.equal(await page.locator("[data-bmq-kho2-place-pick='q7']").getAttribute("aria-pressed"), "true");
+    await page.locator("[data-bmq-kho2-place-pick='tan_tao']").click();
+    await page.waitForSelector("[data-bmq-kho2-name]", { state: "detached", timeout: 4000 });
+    const placed = await calls(page);
+    assert.ok(placed.some((c) => c.startsWith("rpc:set_item_pastry_q7:") && c.includes(q7Id) && c.includes('"p_value":false')), "place call");
+    pass(`move an item to Kho Tân Tạo ${vp.width}`);
+    await page.locator("[data-bmq-kho2-dmloc='tan_tao']").click();
 
     // Move an item to another group from its sheet
     await page.locator("[data-bmq-kho2-group='nl']").click();
@@ -255,7 +284,7 @@ try {
     await page.locator("[data-bmq-kho2-door='names']").click();
     await page.waitForSelector("[data-bmq-kho2-names] li");
     const rows = await page.locator("[data-bmq-kho2-names] li").count();
-    assert.ok(rows > 50, `names rows ${rows}`);
+    assert.ok(rows > 30, `names rows ${rows}`);
     assert.ok(await page.locator("[data-bmq-kho2-new]").isVisible(), "new-lines banner");
     await noSpill(page, "names", vp);
     await page.screenshot({ path: `${EVIDENCE}/names-${vp.width}.png` });

@@ -148,6 +148,7 @@ export function filterItems(
 
 const ERROR_TEXT: Record<string, string> = {
   insufficient_privilege: "Anh/chị không có quyền thực hiện thao tác này.",
+  pastry_forbidden: "Anh/chị không có quyền chuyển món sang kho khác.",
   rename_forbidden: "Anh/chị không có quyền đổi tên món.",
   unit_forbidden: "Anh/chị không có quyền đổi đơn vị món.",
   invalid_name: "Tên món phải có từ 2 đến 120 ký tự.",

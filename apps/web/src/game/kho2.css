@@ -37,7 +37,10 @@
 .kg .k2-slips-link { grid-column: 1 / -1; justify-self: center; padding: 8px 12px; font-size: 13.5px; font-weight: 700; color: #4a4766; text-align: center; text-decoration: none; }
 .kg .k2-slips-link b { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
 
-/* Danh mục: three groups */
+/* Danh mục: kho first, then three groups */
+.kg .k2-kho { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
+.kg .k2-kho button { min-height: 44px; font-size: 16px; }
+.kg .k2-kho button small { margin-left: 4px; font-family: "Nunito", sans-serif; font-size: 13px; font-weight: 900; opacity: .7; }
 .kg .k2-groups {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 4px;
   background: var(--paper-deep); border: 3px solid var(--ink); border-radius: 18px;
@@ -132,6 +135,7 @@
   .kg .k2-door-text b { font-size: 24px; }
   .kg .k2-score { height: 38px; padding: 0 9px; font-size: 16px; }
   .kg .k2-count-input .btn { padding: 0 12px; }
+  .kg .k2-kho button { padding: 0 8px; font-size: 14.5px; white-space: nowrap; }
   .kg .k2-groups button { min-height: 56px; padding: 6px 4px; }
   .kg .k2-groups button b { font-size: 14px; }
   .kg .k2-class button { padding: 0 10px; font-size: 13px; }
