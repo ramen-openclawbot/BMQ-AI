@@ -1,6 +1,6 @@
 import { CrateDocEvidence } from "@/components/DocEvidence";
 import { useMemo, useState } from "react";
-import { GamePicker } from "@/game/GamePicker";
+import { OptionPicker } from "@/components/OptionPicker";
 import { useQueryClient } from "@tanstack/react-query";
 import { Check, Plus, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -188,7 +188,7 @@ function BacklogRow({
       <div className="d3-ab-form">
         <label className="d3-ma-field d3-ma-item">
           <span>{isSku ? "Thành phẩm (SKU)" : "Mặt hàng trong kho"}</span>
-          <GamePicker
+          <OptionPicker
             value={choice}
             onChange={(value) => { setChoice(value); setPackEdit(null); }}
             title={`Mặt hàng kho cho “${row.raw_name}”`}

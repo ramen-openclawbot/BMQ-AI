@@ -50,8 +50,9 @@ const TanTaoWarehouse = lazy(() => import("@/pages/TanTaoWarehouse"));
 const StockLedger = lazy(() => import("@/pages/StockLedger"));
 const PurchaseUsage = lazy(() => import("@/pages/PurchaseUsage"));
 const StockCatalogCleanup = lazy(() => import("@/pages/StockCatalogCleanup"));
-/** Game kho 2 việc (owner 21/10/2026): the old game and the 3D game were removed the same day. */
-const KhoGame = lazy(() => import("@/pages/KhoGame"));
+/** Kho pages in the app theme (owner 22/10/2026); they replaced the Game kho screen. */
+const KhoCatalog = lazy(() => import("@/pages/KhoCatalog"));
+const KhoCount = lazy(() => import("@/pages/KhoCount"));
 const WarehouseSlips = lazy(() => import("@/pages/WarehouseSlips"));
 const BepBnPayroll = lazy(() => import("@/pages/BepBnPayroll"));
 const VNAgentDataAdmin = lazy(() => import("@/pages/VNAgentDataAdmin"));
@@ -257,12 +258,9 @@ export function AppRoutes() {
     <Routes>
       <Route path="/auth" element={<Auth />} />
 
-      {/* Kho 2D runs full screen, outside the BMQ shell (owner decision 2026-10-12). */}
-      <Route path="/warehouse/game" element={<ProtectedRoute><ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><KhoGame /></Suspense></ModuleRoute></ProtectedRoute>} />
-      {/* Phiếu kho: finished-goods + transfer slips moved out of the game (owner 21/10/2026). */}
-      <Route path="/warehouse/phieu" element={<ProtectedRoute><ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><WarehouseSlips /></Suspense></ModuleRoute></ProtectedRoute>} />
-      {/* Kho văn phòng (3D) removed 21/10/2026; old links land on the game. */}
-      <Route path="/warehouse/office" element={<Navigate to="/warehouse/game" replace />} />
+      {/* The Game kho screen and Kho văn phòng are gone (owner 21–22/10/2026); old links land on Danh mục kho. */}
+      <Route path="/warehouse/game" element={<Navigate to="/warehouse/danh-muc" replace />} />
+      <Route path="/warehouse/office" element={<Navigate to="/warehouse/danh-muc" replace />} />
 
       {/* Main App Routes */}
       <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
@@ -304,6 +302,9 @@ export function AppRoutes() {
         <Route path="/production/qa" element={<ModuleRoute moduleKey="production_qa"><Suspense fallback={<AppLoadingFallback />}><QAInspection /></Suspense></ModuleRoute>} />
         <Route path="/payroll" element={<Suspense fallback={<AppLoadingFallback />}><BepBnPayroll /></Suspense>} />
         {/* Warehouse extension routes */}
+        <Route path="/warehouse/danh-muc" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><KhoCatalog /></Suspense></ModuleRoute>} />
+        <Route path="/warehouse/kiem-ke" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><KhoCount /></Suspense></ModuleRoute>} />
+        <Route path="/warehouse/phieu" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><WarehouseSlips /></Suspense></ModuleRoute>} />
         <Route path="/warehouse/stock-ledger" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><StockLedger /></Suspense></ModuleRoute>} />
         <Route path="/warehouse/purchase-usage" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><PurchaseUsage /></Suspense></ModuleRoute>} />
         <Route path="/warehouse/catalog-cleanup" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><StockCatalogCleanup /></Suspense></ModuleRoute>} />

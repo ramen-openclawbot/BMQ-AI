@@ -1,17 +1,24 @@
 import { useEffect, useMemo, useState } from "react";
-import { GamePicker } from "@/game/GamePicker";
+import { Check, FileText, Plus, Search, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import { OptionPicker } from "@/components/OptionPicker";
 import { useCrateReceiptLines, useSetItemPastryQ7 } from "@/hooks/useWarehouseGame";
-import { ReceiptNotes } from "@/game/ReceiptNotes";
 import { useConfirmMaterialAlias, useCreateStockMaterialItem } from "@/hooks/useMaterialAlias";
-import { cleanCrateName, strongCandidate } from "@/game/crate";
+import { useSuggestStockItemName } from "@/hooks/useSuggestStockItemName";
 import type { WarehouseGameItem, WarehouseGameLocation, WarehouseGamePendingRow, WarehouseGameSnapshot } from "@/lib/warehouse-game";
 import { defaultNewItemUnit, packFactorFor, unitFactor } from "@/components/material-alias/new-stock-item";
-import { Sheet } from "@/game/Sheet";
-import { CLASS_META, ITEM_UNITS, asClass, fmtQty, newRequestId, normalizeName, type GameClass } from "@/game/meta";
-import { useSuggestStockItemName } from "@/hooks/useSuggestStockItemName";
-import { InvoiceScanner } from "@/game/InvoiceScanner";
+import { cn } from "@/lib/utils";
+import { CLASS_LABEL, ITEM_UNITS, asClass, cleanCrateName, fmtQty, newRequestId, normalizeName, strongCandidate, type ItemClass } from "./kho-meta";
+import { KhoDialog } from "./KhoDialog";
+import { ReceiptNotes } from "./ReceiptNotes";
+import { InvoiceScanner } from "./InvoiceScanner";
 
-/** Label sheet for one pending receipt name ("crate"), moved out of the old warehouse game (owner 21/10/2026). */
+/**
+ * One name printed on delivery notes that the warehouse does not know yet: pick the right item once and every
+ * later note from the same supplier lands on it; or make a new item; or mark the line as not stocked.
+ */
 
 /**
  * How a receipt's unit maps onto the stock unit (owner 12/10: "đơn vị ghi trên phiếu" was a guess).
@@ -34,8 +41,8 @@ function unitPlanFor(crate: WarehouseGamePendingRow, stockUnit: string): UnitPla
 const isCountUnit = (unit: string) => unitFactor(unit, "g") === null && unitFactor(unit, "ml") === null;
 const trimNumber = (value: number) => String(Math.round(value * 1e6) / 1e6);
 
-/** Receipt counts pieces, the shelf counts packs (owner 12/10: "cái" on the receipt, "gói" on the shelf). */
 /**
+ * Receipt counts pieces, the shelf counts packs (owner 12/10: "cái" on the receipt, "gói" on the shelf).
  * Owner 15/10 (IMG_5718): OCR read "cái" as "đệnh" / "định". A misread unit is the stock unit itself,
  * so it saves 1 = 1 like "Là một"; count lines all use the alias factor, so every misread line is covered.
  */
@@ -55,32 +62,32 @@ function CountUnitQuestion({ receiptUnit, oddUnits, stockUnit, factorText, onFac
     if (!(parsed > 0)) return onFactor("");
     onFactor(trimNumber(choice === "stock_has" ? 1 / parsed : parsed));
   };
+  const options: Array<{ id: CountChoice; title: string; detail: string }> = [
+    { id: "same", title: "Là một", detail: `1 ${receiptUnit} = 1 ${stockUnit}` },
+    { id: "misread", title: "Phiếu đọc sai chữ", detail: `${misreadList} chính là ${stockUnit}` },
+    { id: "stock_has", title: `${stockUnit} gồm nhiều ${receiptUnit}`, detail: `vd 1 ${stockUnit} = 10 ${receiptUnit}` },
+    { id: "receipt_has", title: `${receiptUnit} gồm nhiều ${stockUnit}`, detail: `vd 1 ${receiptUnit} = 12 ${stockUnit}` },
+  ];
   return (
-    <div className="count-q" data-bmq-count-q>
-      <p>Phiếu đếm bằng <b>{receiptUnit}</b>, kệ đếm bằng <b>{stockUnit}</b>. Hai đơn vị này liên quan thế nào?</p>
-      <div className="count-choices" role="radiogroup" aria-label="Quan hệ đơn vị">
-        <button type="button" role="radio" aria-checked={choice === "same"} className={choice === "same" ? "is-on" : undefined} onClick={() => pick("same")}>
-          <b>Là một</b><small>1 {receiptUnit} = 1 {stockUnit}</small>
-        </button>
-        <button type="button" role="radio" aria-checked={choice === "misread"} className={choice === "misread" ? "is-on" : undefined} onClick={() => pick("misread")} data-bmq-count-misread>
-          <b>Phiếu đọc sai chữ</b><small>{misreadList} chính là {stockUnit}</small>
-        </button>
-        <button type="button" role="radio" aria-checked={choice === "stock_has"} className={choice === "stock_has" ? "is-on" : undefined} onClick={() => pick("stock_has")}>
-          <b>{stockUnit} gồm nhiều {receiptUnit}</b><small>vd 1 {stockUnit} = 10 {receiptUnit}</small>
-        </button>
-        <button type="button" role="radio" aria-checked={choice === "receipt_has"} className={choice === "receipt_has" ? "is-on" : undefined} onClick={() => pick("receipt_has")}>
-          <b>{receiptUnit} gồm nhiều {stockUnit}</b><small>vd 1 {receiptUnit} = 12 {stockUnit}</small>
-        </button>
+    <div className="d3-kho-unitq" data-bmq-count-q>
+      <p>Phiếu đếm bằng <b>{receiptUnit}</b>, kho đếm bằng <b>{stockUnit}</b>. Hai đơn vị này liên quan thế nào?</p>
+      <div className="d3-kho-options" role="radiogroup" aria-label="Quan hệ đơn vị">
+        {options.map((option) => (
+          <button key={option.id} type="button" role="radio" aria-checked={choice === option.id} className={cn("d3-kho-option", choice === option.id && "is-on")}
+            onClick={() => pick(option.id)} data-bmq-count-misread={option.id === "misread" ? "" : undefined}>
+            <b>{option.title}</b><small>{option.detail}</small>
+          </button>
+        ))}
       </div>
       {choice === "stock_has" || choice === "receipt_has" ? (
-        <label className="conv unit-q-row">
+        <label className="d3-kho-conv">
           1 {choice === "stock_has" ? stockUnit : receiptUnit} =
-          <input inputMode="decimal" value={n} onChange={(event) => typeN(event.target.value)} placeholder="?" aria-label="Số lượng" autoFocus />
+          <Input inputMode="decimal" value={n} onChange={(event) => typeN(event.target.value)} placeholder="?" aria-label="Số lượng" autoFocus />
           {choice === "stock_has" ? receiptUnit : stockUnit}
         </label>
       ) : null}
-      {choice === "misread" ? <small className="unit-q-hint">Máy coi {misreadList} là {stockUnit}: phiếu ghi bao nhiêu thì nhập kho bấy nhiêu {stockUnit}.</small>
-        : choice && factorText ? <small className="unit-q-hint">Máy sẽ tính: 1 {receiptUnit} = {fmtQty(Number(factorText))} {stockUnit}.</small> : null}
+      {choice === "misread" ? <small className="d3-kho-quiet">Máy coi {misreadList} là {stockUnit}: phiếu ghi bao nhiêu thì nhập kho bấy nhiêu {stockUnit}.</small>
+        : choice && factorText ? <small className="d3-kho-quiet">Máy sẽ tính: 1 {receiptUnit} = {fmtQty(Number(factorText))} {stockUnit}.</small> : null}
     </div>
   );
 }
@@ -103,31 +110,31 @@ function UnitQuestion({ plan, stockUnit, label, onLabel, factorText, onFactor }:
   const mixed = plan.units.length > 1;
   const countPair = plan.mode === "pack" && plan.unit !== null && isCountUnit(stockUnit) && isCountUnit(plan.unit);
   return (
-    <div className={`unit-q is-${plan.mode}`} data-bmq-unit-q={plan.mode}>
+    <div className={cn("d3-kho-unit", `is-${plan.mode}`)} data-bmq-unit-q={plan.mode}>
       {plan.mode === "auto" ? (
-        <p><b>Phiếu ghi “{plan.unit}”</b> → kho tự đổi: 1 {plan.unit} = {fmtQty(plan.auto ?? 1)} {stockUnit}. Không cần điền gì.</p>
+        <p><b>Phiếu ghi “{plan.unit}”</b>: kho tự đổi 1 {plan.unit} = {fmtQty(plan.auto ?? 1)} {stockUnit}. Không cần điền gì.</p>
       ) : countPair ? (
         <CountUnitQuestion key={`${plan.unit}-${stockUnit}`} receiptUnit={plan.unit ?? ""} oddUnits={oddCountUnits(plan, stockUnit)} stockUnit={stockUnit} factorText={factorText} onFactor={onFactor} />
       ) : plan.mode === "pack" ? (
         <>
-          <p><b>Phiếu ghi “{plan.unit}”</b>, kho tính bằng <b>{stockUnit}</b>. Mỗi khi phiếu ghi {plan.unit}, máy nhân với số dưới đây:</p>
-          <label className="conv unit-q-row">
+          <p><b>Phiếu ghi “{plan.unit}”</b>, kho tính bằng <b>{stockUnit}</b>. Mỗi khi phiếu ghi {plan.unit}, máy nhân với số này:</p>
+          <label className="d3-kho-conv">
             1 {plan.unit} =
-            <input inputMode="decimal" value={factorText} onChange={(event) => onFactor(event.target.value)} placeholder="?" aria-label={`1 ${plan.unit} bằng bao nhiêu ${stockUnit}`} />
+            <Input inputMode="decimal" value={factorText} onChange={(event) => onFactor(event.target.value)} placeholder="?" aria-label={`1 ${plan.unit} bằng bao nhiêu ${stockUnit}`} />
             {stockUnit}
           </label>
-          {plan.prefill ? <small className="unit-q-hint">Máy đọc từ tên hàng: {fmtQty(plan.prefill)} {stockUnit}. Anh kiểm lại cho đúng.</small> : <small className="unit-q-hint">Ví dụ: 1 PACK phô mai 1 kg → 1000; 1 thùng 12 hộp × 1 l → 12000.</small>}
+          <small className="d3-kho-quiet">{plan.prefill ? `Máy đọc từ tên hàng: ${fmtQty(plan.prefill)} ${stockUnit}. Kiểm lại cho đúng.` : "Ví dụ: 1 PACK phô mai 1 kg → 1000; 1 thùng 12 hộp × 1 lít → 12000."}</small>
         </>
       ) : (
         <>
           <p>Chưa đọc được đơn vị trên phiếu. Ghi đơn vị nhà cung cấp dùng và quy đổi ra <b>{stockUnit}</b>:</p>
-          <div className="unit-row">
-            <label className="field">Đơn vị trên phiếu<input value={label} onChange={(event) => onLabel(event.target.value)} placeholder="PACK, gói, thùng…" /></label>
-            <label className="field">1 {label.trim() || "đv"} = ? {stockUnit}<input inputMode="decimal" value={factorText} onChange={(event) => onFactor(event.target.value)} /></label>
+          <div className="d3-kho-pair">
+            <label className="d3-kho-field"><span>Đơn vị trên phiếu</span><Input value={label} onChange={(event) => onLabel(event.target.value)} placeholder="PACK, gói, thùng…" /></label>
+            <label className="d3-kho-field"><span>1 {label.trim() || "đơn vị"} = ? {stockUnit}</span><Input inputMode="decimal" value={factorText} onChange={(event) => onFactor(event.target.value)} /></label>
           </div>
         </>
       )}
-      {mixed ? <small className="unit-q-mixed">Các dòng phiếu ghi: {plan.units.map((row) => `${row.unit} ×${row.line_count}`).join(" · ")}. Dòng kg, g, l, ml luôn tự đổi.</small> : null}
+      {mixed ? <small className="d3-kho-quiet">Các dòng phiếu ghi: {plan.units.map((row) => `${row.unit} ×${row.line_count}`).join(" · ")}. Dòng kg, g, lít, ml luôn tự đổi.</small> : null}
     </div>
   );
 }
@@ -152,36 +159,33 @@ function errorText(error: unknown): string {
 }
 
 /** "Để ở Q7": flagged items move on to Q7 by themselves after landing at Tân Tạo. */
-function PastrySwitch({ item, canEdit }: { item: WarehouseGameItem; canEdit: boolean }) {
+function PastrySwitch({ item }: { item: WarehouseGameItem }) {
   const setFlag = useSetItemPastryQ7();
   const [value, setValue] = useState(item.pastry_q7);
-  const flip = () => {
-    const next = !value;
+  const flip = (next: boolean) => {
     setValue(next);
     setFlag.mutate({ itemId: item.id, value: next }, { onError: () => setValue(!next) });
   };
   return (
-    <div className={`pastry-switch${value ? " is-on" : ""}`} data-bmq-item-pastry>
-      <span><b>🧁 Để ở Q7</b><small>{value ? "Nhập ở Tân Tạo xong tự chuyển sang Q7" : "Để ở Tân Tạo, Q7 không nhận"}</small></span>
-      {canEdit ? (
-        <button type="button" role="switch" aria-checked={value} aria-label="Để ở Q7" className="kg-switch" disabled={setFlag.isPending} onClick={flip}><i /></button>
-      ) : null}
-      {setFlag.error ? <div className="err">{errorText(setFlag.error)}</div> : null}
+    <div className="d3-kho-switchrow" data-bmq-item-pastry>
+      <span><b>Để ở Q7</b><small>{value ? "Nhập ở Tân Tạo xong tự chuyển sang Q7" : "Để ở Tân Tạo, Q7 không nhận"}</small></span>
+      <Switch checked={value} onCheckedChange={flip} disabled={setFlag.isPending} aria-label="Để ở Q7" />
+      {setFlag.error ? <p className="d3-kho-error">{errorText(setFlag.error)}</p> : null}
     </div>
   );
 }
 
-interface Target { kind: "item" | "sku"; id: string; name: string; unit: string; cls: GameClass }
+interface Target { kind: "item" | "sku"; id: string; name: string; unit: string; cls: ItemClass }
 
-export function CrateSheet({ location, crate, snapshot, autoPick = false, onAssigned, onClose }: {
+export function CrateDialog({ location, crate, snapshot, autoPick = false, onAssigned, onClose }: {
   location: WarehouseGameLocation; crate: WarehouseGamePendingRow; snapshot: WarehouseGameSnapshot; autoPick?: boolean;
-  onAssigned: (cls: GameClass, label: string) => void; onClose: () => void;
+  onAssigned: (label: string) => void; onClose: () => void;
 }) {
   const confirm = useConfirmMaterialAlias();
   const create = useCreateStockMaterialItem();
   const notes = useCrateReceiptLines(location, crate.supplier_id, crate.normalized_name, true);
   const setPastry = useSetItemPastryQ7();
-  // Q7 only stocks pastry items, so a new item made from a Q7 crate starts flagged.
+  // Q7 only stocks pastry items, so a new item made from a Q7 name starts flagged.
   const [asPastry, setAsPastry] = useState(location === "q7");
   const [query, setQuery] = useState("");
   const [target, setTarget] = useState<Target | null>(null);
@@ -195,6 +199,13 @@ export function CrateSheet({ location, crate, snapshot, autoPick = false, onAssi
   const suggestName = useSuggestStockItemName();
   const [nameEdited, setNameEdited] = useState(false);
   const [nameSource, setNameSource] = useState<"receipt" | "invoice">("receipt");
+
+  const preparePlan = (stockUnit: string) => {
+    const plan = unitPlanFor(crate, stockUnit);
+    // No unit on the receipt lines at all: assume they count in the stock unit (1 = 1), editable.
+    setPackLabel(plan.unit ?? (plan.mode === "unknown" ? stockUnit : ""));
+    setFactorText(plan.mode === "auto" ? "1" : plan.prefill ? String(plan.prefill) : plan.mode === "unknown" ? "1" : "");
+  };
 
   const startCreate = () => {
     setCreating(true);
@@ -232,17 +243,11 @@ export function CrateSheet({ location, crate, snapshot, autoPick = false, onAssi
     ? snapshot.items.filter((item) => item.id !== suggested?.id && normalizeName(item.name).includes(q)).slice(0, 8)
     : [];
 
-  const preparePlan = (stockUnit: string) => {
-    const plan = unitPlanFor(crate, stockUnit);
-    // No unit on the receipt lines at all: assume they count in the stock unit (1 = 1), editable.
-    setPackLabel(plan.unit ?? (plan.mode === "unknown" ? stockUnit : ""));
-    setFactorText(plan.mode === "auto" ? "1" : plan.prefill ? String(plan.prefill) : plan.mode === "unknown" ? "1" : "");
-  };
   const pick = (next: Target) => {
     preparePlan(next.unit);
     setTarget(next);
   };
-  // Open on the hint: the closest name is already on the label.
+  // Open on the hint: the closest name is already chosen.
   useEffect(() => {
     if (autoPick && suggested) pick(suggested);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -254,6 +259,7 @@ export function CrateSheet({ location, crate, snapshot, autoPick = false, onAssi
   const unitOk = plan.mode === "auto" || (Number.isFinite(factor) && factor > 0 && (plan.mode === "pack" || packLabel.trim().length > 0));
   const busy = confirm.isPending || create.isPending || setPastry.isPending;
   const error = confirm.error ?? create.error ?? setPastry.error;
+  const classLabel = (entry: Target) => (entry.kind === "sku" ? "Thành phẩm SKU" : CLASS_LABEL[entry.cls]);
 
   const send = (dest: Target | null, lineClass: "stock" | "non_stock") =>
     confirm.mutate(
@@ -272,7 +278,7 @@ export function CrateSheet({ location, crate, snapshot, autoPick = false, onAssi
         sourceId: null,
         lineClass,
       },
-      { onSuccess: () => onAssigned(dest?.cls ?? "non_stock", dest ? dest.name : "không nhập kho") },
+      { onSuccess: () => onAssigned(dest ? dest.name : "không nhập kho") },
     );
 
   const createAndSend = () =>
@@ -287,82 +293,96 @@ export function CrateSheet({ location, crate, snapshot, autoPick = false, onAssi
     );
 
   return (
-    <Sheet title={`“${crate.raw_name}”`} tag="📦 Hàng mới trên phiếu" sub={`${crate.line_count} dòng phiếu · ${crate.supplier_name ?? "chưa rõ NCC"}`} onClose={onClose}>
+    <KhoDialog title={`“${crate.raw_name}”`} sub={`${crate.line_count} dòng phiếu · ${crate.supplier_name ?? "chưa rõ nhà cung cấp"}`} onClose={onClose} data={{ "data-bmq-crate-dialog": "" }}>
       <ReceiptNotes title="Phiếu giao hàng" lines={notes.data} loading={notes.isLoading} error={notes.error} />
       {creating ? (
         <>
-          <label className="field">Tên mặt hàng mới<input value={newName} onChange={(event) => { setNewName(event.target.value); setNameEdited(true); }} maxLength={120} data-bmq-new-name className={nameSource === "invoice" ? "is-popped" : undefined} key={nameSource} /></label>
+          <label className="d3-kho-field">
+            <span>Tên mặt hàng mới</span>
+            <Input value={newName} onChange={(event) => { setNewName(event.target.value); setNameEdited(true); }} maxLength={120}
+              className={cn(nameSource === "invoice" && "is-filled")} key={nameSource} data-bmq-new-name />
+          </label>
           {suggestName.isPending ? <div data-bmq-name-hint="busy"><InvoiceScanner lines={notes.data} /></div>
-            : nameSource === "invoice" ? <p className="name-hint is-ok" data-bmq-name-hint="invoice">📄 Tên đầy đủ lấy từ ảnh hóa đơn. Anh kiểm lại trước khi tạo.</p>
-            : suggestName.isError ? <p className="name-hint" data-bmq-name-hint="error">Chưa đọc được ảnh hóa đơn: {String((suggestName.error as Error)?.message ?? "").slice(0, 140)}. Tên đang lấy từ phiếu.</p>
-            : suggestName.isSuccess ? <p className="name-hint" data-bmq-name-hint="none">Không tìm thấy dòng khớp trên ảnh hóa đơn; tên đang lấy từ phiếu.</p>
+            : nameSource === "invoice" ? <p className="d3-kho-hint is-ok" data-bmq-name-hint="invoice"><FileText aria-hidden="true" />Tên đầy đủ lấy từ ảnh hóa đơn. Kiểm lại trước khi tạo.</p>
+            : suggestName.isError ? <p className="d3-kho-hint" data-bmq-name-hint="error">Chưa đọc được ảnh hóa đơn: {String((suggestName.error as Error)?.message ?? "").slice(0, 140)}. Tên đang lấy từ phiếu.</p>
+            : suggestName.isSuccess ? <p className="d3-kho-hint" data-bmq-name-hint="none">Không tìm thấy dòng khớp trên ảnh hóa đơn; tên đang lấy từ phiếu.</p>
             : null}
-          <label className="field">Đơn vị kho
-            <GamePicker value={newUnit} onChange={(value) => { setNewUnit(value); preparePlan(value); }} title="Đơn vị kho" ariaLabel="Đơn vị kho" options={ITEM_UNITS.map((value) => ({ value, label: value }))} />
+          <label className="d3-kho-field">
+            <span>Đơn vị kho</span>
+            <OptionPicker value={newUnit} onChange={(value) => { setNewUnit(value); preparePlan(value); }} title="Đơn vị kho" ariaLabel="Đơn vị kho" options={ITEM_UNITS.map((value) => ({ value, label: value }))} />
           </label>
           <UnitQuestion plan={plan} stockUnit={newUnit} label={packLabel} onLabel={setPackLabel} factorText={factorText} onFactor={setFactorText} />
-          <div className={`pastry-switch${asPastry ? " is-on" : ""}`} data-bmq-new-pastry>
+          <div className="d3-kho-switchrow" data-bmq-new-pastry>
             <span>
-              <b>🧁 Để ở Q7</b>
+              <b>Để ở Q7</b>
               <small>{location === "q7" ? (asPastry ? "Kho Q7 chỉ nhận món để ở Q7" : "Tắt thì Kho Q7 không nhận món này") : asPastry ? "Nhập ở Tân Tạo xong tự chuyển sang Q7" : "Để ở Tân Tạo"}</small>
             </span>
-            <button type="button" role="switch" aria-checked={asPastry} aria-label="Để ở Q7" className="kg-switch" onClick={() => setAsPastry((v) => !v)}><i /></button>
+            <Switch checked={asPastry} onCheckedChange={setAsPastry} aria-label="Để ở Q7" />
           </div>
-          {error ? <div className="err">{errorText(error)}</div> : null}
-          <div className="row">
-            <button type="button" className="btn" disabled={busy || newName.trim().length < 2 || !unitOk || (location === "q7" && !asPastry)} onClick={createAndSend}>{busy ? "Đang lưu…" : "Tạo tên mới"}</button>
-            <button type="button" className="btn ghost" onClick={() => setCreating(false)}>Quay lại</button>
+          {error ? <p className="d3-kho-error">{errorText(error)}</p> : null}
+          <div className="d3-kho-actions">
+            <Button disabled={busy || newName.trim().length < 2 || !unitOk || (location === "q7" && !asPastry)} onClick={createAndSend} data-bmq-crate-create>{busy ? "Đang lưu…" : "Tạo mặt hàng"}</Button>
+            <Button variant="outline" onClick={() => setCreating(false)}>Quay lại</Button>
           </div>
         </>
       ) : target ? (
         <>
-          <div className="pick is-top is-chosen" data-bmq-picked>
-            <span className="pick-star">★</span>
-            <span><b>{target.name}</b><small>{target.kind === "sku" ? "Thành phẩm SKU" : CLASS_META[target.cls].label} · {target.unit}</small></span>
-            <button type="button" className="pick-clear" onClick={() => setTarget(null)} aria-label={`Bỏ chọn ${target.name}`} data-bmq-unpick>✕ Bỏ chọn</button>
+          <div className="d3-kho-chosen" data-bmq-picked>
+            <Check aria-hidden="true" />
+            <span><b>{target.name}</b><small>{classLabel(target)} · {target.unit}</small></span>
+            <button type="button" className="d3-kho-textbtn" onClick={() => setTarget(null)} aria-label={`Bỏ chọn ${target.name}`} data-bmq-unpick>Bỏ chọn</button>
           </div>
           <UnitQuestion plan={plan} stockUnit={target.unit} label={packLabel} onLabel={setPackLabel} factorText={factorText} onFactor={setFactorText} />
           {target.kind === "item" && location === "tan_tao" ? (() => {
             const picked = snapshot.items.find((item) => item.id === target.id);
-            return picked ? <PastrySwitch key={picked.id} item={picked} canEdit /> : null;
+            return picked ? <PastrySwitch key={picked.id} item={picked} /> : null;
           })() : null}
-          {error ? <div className="err">{errorText(error)}</div> : null}
-          <div className="row">
-            <button type="button" className="btn" disabled={busy || !unitOk} onClick={() => send(target, "stock")}>{busy ? "Đang lưu…" : "Gộp vào tên này"}</button>
-            <button type="button" className="btn ghost" onClick={() => setTarget(null)}>Chọn lại</button>
+          {error ? <p className="d3-kho-error">{errorText(error)}</p> : null}
+          <div className="d3-kho-actions">
+            <Button disabled={busy || !unitOk} onClick={() => send(target, "stock")} data-bmq-crate-assign>{busy ? "Đang lưu…" : "Gộp vào tên này"}</Button>
+            <Button variant="outline" onClick={() => setTarget(null)}>Chọn lại</Button>
           </div>
         </>
       ) : (
         <>
           {suggested ? (
-            <button type="button" className="pick is-top" onClick={() => pick(suggested)}>
-              <span className="pick-star">★</span>
-              <span><b>{suggested.name}</b><small>Gần nhất · {suggested.kind === "sku" ? "Thành phẩm SKU" : CLASS_META[suggested.cls].label} · {suggested.unit}</small></span>
-              <span className="pick-go">Chọn</span>
+            <button type="button" className="d3-kho-suggest" onClick={() => pick(suggested)} data-bmq-crate-suggest>
+              <span><small>Gần nhất trong kho</small><b>{suggested.name}</b><small>{classLabel(suggested)} · {suggested.unit}</small></span>
+              <span className="d3-kho-suggest-go">Chọn</span>
             </button>
           ) : (
-            <div className="no-hint" data-bmq-crate-nohint>
-              <p className="note">Kho chưa có mặt hàng giống tên này.</p>
-              <button type="button" className="btn" onClick={startCreate}>＋ Tạo mặt hàng “{cleanCrateName(crate.raw_name)}”</button>
+            <div className="d3-kho-nohint" data-bmq-crate-nohint>
+              <p>Kho chưa có mặt hàng giống tên này.</p>
+              <Button onClick={startCreate}><Plus aria-hidden="true" />Tạo mặt hàng “{cleanCrateName(crate.raw_name)}”</Button>
             </div>
           )}
-          <label className="field">{suggested ? "Hoặc tìm mặt hàng khác" : "Hoặc tìm trong kho"}<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="gõ tên để tìm…" /></label>
-          <div className="picks">
-            {matches.map((item) => (
-              <button key={item.id} type="button" className="pick" onClick={() => pick(toItem(item))}>
-                <span><b>{item.name}</b><small>{CLASS_META[asClass(item.item_class)].label} · {item.unit}</small></span>
-              </button>
-            ))}
-          </div>
-          {error ? <div className="err">{errorText(error)}</div> : null}
-          {q && matches.length === 0 ? <p className="note" style={{ fontSize: 13 }}>Không có mặt hàng nào khớp “{query}”.</p> : null}
-          <div className="row">
-            {suggested ? <button type="button" className="btn ghost" onClick={startCreate}>＋ Mặt hàng mới</button> : null}
-            <button type="button" className="btn ghost" disabled={busy} onClick={() => send(null, "non_stock")}>Không nhập kho</button>
-            <button type="button" className="btn ghost" onClick={onClose}>Để sau</button>
+          <label className="d3-kho-field">
+            <span>{suggested ? "Hoặc tìm mặt hàng khác" : "Hoặc tìm trong kho"}</span>
+            <span className="d3-kho-search">
+              <Search aria-hidden="true" />
+              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Gõ tên để tìm…" aria-label="Tìm mặt hàng trong kho" enterKeyHint="search" />
+              {query ? <button type="button" onClick={() => setQuery("")} aria-label="Xóa tìm kiếm"><X /></button> : null}
+            </span>
+          </label>
+          {matches.length ? (
+            <ul className="d3-kho-picks">
+              {matches.map((item) => (
+                <li key={item.id}>
+                  <button type="button" onClick={() => pick(toItem(item))} data-bmq-crate-match={item.id}>
+                    <b>{item.name}</b><small>{CLASS_LABEL[asClass(item.item_class)]} · {item.unit}</small>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : q ? <p className="d3-kho-quiet">Không có mặt hàng nào khớp “{query}”.</p> : null}
+          {error ? <p className="d3-kho-error">{errorText(error)}</p> : null}
+          <div className="d3-kho-actions">
+            {suggested ? <Button variant="outline" onClick={startCreate}><Plus aria-hidden="true" />Mặt hàng mới</Button> : null}
+            <Button variant="outline" disabled={busy} onClick={() => send(null, "non_stock")} data-bmq-crate-nonstock>Không nhập kho</Button>
+            <Button variant="ghost" onClick={onClose}>Để sau</Button>
           </div>
         </>
       )}
-    </Sheet>
+    </KhoDialog>
   );
 }

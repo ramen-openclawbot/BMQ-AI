@@ -17,7 +17,7 @@ import {
   ShoppingCart,
   ArrowLeftRight,
   GitMerge,
-  Gamepad2,
+  ListChecks,
   Inbox,
   Scale,
   TrendingUp,
@@ -112,7 +112,8 @@ export const navItems: NavItem[] = [
     labelKey: "inventory",
     section: "operations",
     children: [
-      { icon: Gamepad2, labelKey: "warehouseGame", path: "/warehouse/game", section: "operations", moduleKey: "inventory" },
+      { icon: ListChecks, labelKey: "khoCatalog", path: "/warehouse/danh-muc", section: "operations", moduleKey: "inventory" },
+      { icon: Scale, labelKey: "khoCount", path: "/warehouse/kiem-ke", section: "operations", moduleKey: "inventory" },
       { icon: FileText, labelKey: "warehouseSlips", path: "/warehouse/phieu", section: "operations", moduleKey: "inventory" },
       { icon: ClipboardList, labelKey: "stockLedger", path: "/warehouse/stock-ledger", section: "operations", moduleKey: "inventory" },
       { icon: ArrowLeftRight, labelKey: "purchaseUsage", path: "/warehouse/purchase-usage", section: "operations", moduleKey: "inventory" },

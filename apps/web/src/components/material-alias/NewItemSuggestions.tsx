@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { GamePicker } from "@/game/GamePicker";
+import { OptionPicker } from "@/components/OptionPicker";
 import { useQueryClient } from "@tanstack/react-query";
 import { Plus, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -133,7 +133,7 @@ function GroupRow({ group, onDone, location }: { group: NewItemSuggestion; onDon
         </label>
         <label className="d3-ma-field">
           <span>Loại</span>
-          <GamePicker value={itemClass} onChange={(value) => setItemClass(value as NewItemSuggestionClass)} title="Loại mặt hàng" ariaLabel="Loại mặt hàng" options={(Object.keys(CLASS_LABELS) as NewItemSuggestionClass[]).map((value) => ({ value, label: CLASS_LABELS[value] }))} />
+          <OptionPicker value={itemClass} onChange={(value) => setItemClass(value as NewItemSuggestionClass)} title="Loại mặt hàng" ariaLabel="Loại mặt hàng" options={(Object.keys(CLASS_LABELS) as NewItemSuggestionClass[]).map((value) => ({ value, label: CLASS_LABELS[value] }))} />
         </label>
         <label className="d3-ma-field">
           <span>Đơn vị kho</span>

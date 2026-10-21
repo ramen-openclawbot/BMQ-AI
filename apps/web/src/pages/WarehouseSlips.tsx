@@ -1,85 +1,114 @@
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { useWarehouseGameSnapshot } from "@/hooks/useWarehouseGame";
+import { useState } from "react";
+import { ArrowDownToLine, ArrowRightLeft, ArrowUpFromLine } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
-import { FinishedGoodsSheet, type FinishedGoodsMode } from "@/game/FinishedGoodsSlip";
-import { TransferSheet } from "@/game/TransferSlip";
-import { GameLoading } from "@/game/Loading";
-import { usePageZoomGuard } from "@/game/zoomGuard";
-import "@/game/game.css";
-import "@/game/kho2.css";
+import { useStockTransfers, useWarehouseGameSnapshot } from "@/hooks/useWarehouseGame";
+import type { WarehouseGameTransfer } from "@/lib/warehouse-game";
+import { cn } from "@/lib/utils";
+import { dmy, fmtQty } from "@/components/kho/kho-meta";
+import { FinishedGoodsDialog, type FinishedGoodsMode } from "@/components/kho/FinishedGoodsDialog";
+import { TransferDialog } from "@/components/kho/TransferDialog";
+import "@/styles/bmq-warehouse.css";
+import "@/styles/bmq-stock-ledger.css";
+import "@/styles/bmq-kho.css";
 
 /**
- * Phiếu kho (owner 21/10/2026): the finished-goods and transfer slips left the warehouse game,
- * which now keeps only Danh mục + Kiểm kê. Same sheets, same data, own page.
+ * Phiếu kho (owner 21/10/2026): finished goods of Kho Q7 in and out, and the Tân Tạo → Q7 transfer slip.
+ * The page shows what those slips change: Q7 finished-goods stock and the latest transfers.
  */
-type Panel = { kind: "finished"; mode: FinishedGoodsMode } | { kind: "transfers" } | null;
+type Panel = { kind: "finished"; mode: FinishedGoodsMode } | { kind: "transfer" } | null;
+
+function TransferRow({ row }: { row: WarehouseGameTransfer }) {
+  const manual = row.source === "manual";
+  return (
+    <li className="d3-kho-row is-static" data-bmq-transfer-row={row.source}>
+      <span className="d3-kho-row-main">
+        <b>{row.item_name}</b>
+        <small>
+          <span>{manual ? `Phiếu ${row.slip_number ?? row.transfer_number}` : `Tự động${row.receipt_number ? ` · từ ${row.receipt_number}` : ""}`}</span>
+          <span>{dmy(row.transfer_date)}</span>
+          {manual && row.note ? <span>{row.note}</span> : null}
+        </small>
+      </span>
+      <span className="d3-kho-row-qty">+{fmtQty(row.quantity)} {row.unit}</span>
+    </li>
+  );
+}
 
 export default function WarehouseSlips() {
-  usePageZoomGuard();
-  useEffect(() => {
-    const id = "kg-fonts";
-    if (document.getElementById(id)) return;
-    const link = document.createElement("link");
-    link.id = id;
-    link.rel = "stylesheet";
-    link.href = "https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Nunito:wght@600;700;800;900&display=swap";
-    document.head.appendChild(link);
-  }, []);
-  const navigate = useNavigate();
+  const { toast } = useToast();
   const q7 = useWarehouseGameSnapshot("q7");
   const tt = useWarehouseGameSnapshot("tan_tao");
+  const history = useStockTransfers(40);
   const { isOwner, canEditModule, roles } = useAuth();
   const canTransfer = isOwner || roles.includes("warehouse") || canEditModule("inventory") || canEditModule("q7_material_inventory");
   const [panel, setPanel] = useState<Panel>(null);
-  const [toast, setToast] = useState<string | null>(null);
-  useEffect(() => {
-    if (!toast) return;
-    const id = window.setTimeout(() => setToast(null), 3200);
-    return () => window.clearTimeout(id);
-  }, [toast]);
-
-  const loading = q7.isLoading || tt.isLoading;
-  const doors: { key: string; icon: string; title: string; text: string; open: Panel }[] = [
-    { key: "in", icon: "🧁", title: "Nhập thành phẩm Q7", text: "Bánh làm xong nhập vào Kho Q7.", open: { kind: "finished", mode: "in" } },
-    { key: "out", icon: "🚚", title: "Xuất thành phẩm Q7", text: "Bánh giao đi, trừ Kho Q7.", open: { kind: "finished", mode: "out" } },
-    { key: "transfer", icon: "🔁", title: "Chuyển kho Tân Tạo → Q7", text: "Hàng chuyển từ Tân Tạo sang Q7.", open: { kind: "transfers" } },
-  ];
+  const say = (title: string) => toast({ title });
+  const skus = q7.data?.skus ?? [];
+  const transfers = history.data ?? [];
+  const started = Boolean(tt.data?.cutover_date) && Boolean(q7.data?.cutover_date);
 
   return (
-    <div className="kg is-full k2" data-bmq-warehouse-slips data-bmq-warehouse-game>
-      <header className="hud">
-        <button type="button" className="round-btn" onClick={() => navigate("/warehouse/game")} aria-label="Về game kho">
-          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
-        </button>
-        <div className="title-pill"><b>Phiếu kho</b><small>Thành phẩm Q7 · Chuyển kho</small></div>
-        <span />
-        <button type="button" className="round-btn exit-btn" onClick={() => navigate("/")} aria-label="Thoát về Tổng quan" title="Thoát về Tổng quan">
-          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4M10 16l-4-4 4-4M6 12h10" fill="none" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
-        </button>
+    <div className="d3-wh d3-kho min-w-0" data-bmq-warehouse-slips>
+      <header className="d3-wh-head">
+        <div className="min-w-0">
+          <h1>Phiếu kho</h1>
+          <p className="d3-wh-tag">Thành phẩm Kho Q7 · chuyển kho Tân Tạo → Q7</p>
+        </div>
+        <div className="d3-kho-head-actions">
+          <Button variant="outline" onClick={() => setPanel({ kind: "finished", mode: "in" })} data-bmq-slip-open="in"><ArrowDownToLine aria-hidden="true" />Nhập thành phẩm</Button>
+          <Button variant="outline" onClick={() => setPanel({ kind: "finished", mode: "out" })} data-bmq-slip-open="out"><ArrowUpFromLine aria-hidden="true" />Xuất thành phẩm</Button>
+          <Button variant="outline" disabled={!canTransfer || tt.isLoading} onClick={() => setPanel({ kind: "transfer" })} data-bmq-slip-open="transfer"><ArrowRightLeft aria-hidden="true" />Chuyển sang Q7</Button>
+        </div>
       </header>
-      <main className="stage k2-stage">
-        {loading ? <GameLoading lines={["Đang mở phiếu kho…"]} /> : (
-          <div className="k2-home is-slips">
-            {doors.map((door) => (
-              <button key={door.key} type="button" className="k2-door is-names" onClick={() => setPanel(door.open)} data-bmq-slip-door={door.key}>
-                <span className="k2-door-icon" aria-hidden="true">{door.icon}</span>
-                <span className="k2-door-text"><b>{door.title}</b><small>{door.text}</small></span>
-              </button>
-            ))}
-            {!canTransfer ? <p className="k2-hint is-warn">Tài khoản này chỉ xem được, chưa lập phiếu được.</p> : null}
+      {!canTransfer ? <p className="d3-kho-hint is-warn">Tài khoản này chỉ xem được, chưa lập phiếu được.</p> : null}
+
+      <div className="d3-kho-split">
+        <section className="d3-wh-card d3-kho-card" data-bmq-slip-fg>
+          <div className="d3-wh-card-h">
+            <h2>Thành phẩm Kho Q7</h2>
+            {!q7.isLoading && !q7.isError ? <span className="d3-wh-pill">{skus.length} mã</span> : null}
           </div>
-        )}
-        {panel?.kind === "finished" ? (
-          <FinishedGoodsSheet key={panel.mode} mode={panel.mode} skus={q7.data?.skus ?? []} canEdit={canTransfer} prefillSkuId={null}
-            onDone={(message) => setToast(message)} onClose={() => setPanel(null)} />
-        ) : null}
-        {panel?.kind === "transfers" ? (
-          <TransferSheet items={tt.data?.items ?? []} ttStarted={Boolean(tt.data?.cutover_date)} q7Started={Boolean(q7.data?.cutover_date)}
-            canTransfer={canTransfer} prefillId={null} onDone={(message) => setToast(message)} onClose={() => setPanel(null)} />
-        ) : null}
-      </main>
-      {toast ? <div className="toast" role="status">{toast}</div> : null}
+          {q7.isLoading ? (
+            <ul className="d3-kho-list" aria-hidden="true">{[0, 1, 2, 3].map((i) => <li key={i} className="d3-kho-row is-ghost"><span className="d3-kho-bar" /><span className="d3-kho-bar is-short" /></li>)}</ul>
+          ) : q7.isError ? (
+            <div className="d3-kho-failed" role="alert"><p>Không tải được tồn thành phẩm Q7.</p><Button variant="outline" onClick={() => void q7.refetch()}>Thử lại</Button></div>
+          ) : skus.length ? (
+            <ul className="d3-kho-list">
+              {skus.map((sku) => (
+                <li key={sku.id} className={cn("d3-kho-row is-static", sku.on_hand <= 0 && "is-off")} data-bmq-slip-sku={sku.sku_code}>
+                  <span className="d3-kho-row-main"><b>{sku.product_name}</b><small><span>{sku.sku_code}</span></small></span>
+                  <span className="d3-kho-row-qty">{fmtQty(sku.on_hand)} {sku.unit}</span>
+                </li>
+              ))}
+            </ul>
+          ) : <p className="d3-kho-empty">Kho Q7 chưa có mã thành phẩm nào.</p>}
+        </section>
+
+        <section className="d3-wh-card d3-kho-card" data-bmq-transfer-list>
+          <div className="d3-wh-card-h">
+            <h2>Chuyển Tân Tạo → Q7 gần đây</h2>
+            {!history.isLoading && !history.isError ? <span className="d3-wh-pill">{transfers.length} dòng</span> : null}
+            <p>Bánh ngọt tự chuyển khi nhập ở Tân Tạo; vật tư lập phiếu chuyển.{!started && !tt.isLoading && !q7.isLoading ? " Sổ kho chưa bắt đầu: kiểm kê lần đầu xong mới chuyển được." : ""}</p>
+          </div>
+          {history.isLoading ? (
+            <ul className="d3-kho-list" aria-hidden="true">{[0, 1, 2, 3].map((i) => <li key={i} className="d3-kho-row is-ghost"><span className="d3-kho-bar" /><span className="d3-kho-bar is-short" /></li>)}</ul>
+          ) : history.isError ? (
+            <div className="d3-kho-failed" role="alert"><p>Không tải được phiếu chuyển.</p><Button variant="outline" onClick={() => void history.refetch()}>Thử lại</Button></div>
+          ) : transfers.length ? (
+            <ul className="d3-kho-list">{transfers.map((row) => <TransferRow key={`${row.source}:${row.transfer_number}:${row.item_name}`} row={row} />)}</ul>
+          ) : <p className="d3-kho-empty">Chưa có phiếu chuyển nào.</p>}
+        </section>
+      </div>
+
+      {panel?.kind === "finished" ? (
+        <FinishedGoodsDialog key={panel.mode} mode={panel.mode} skus={skus} canEdit={canTransfer} onDone={say} onClose={() => setPanel(null)} />
+      ) : null}
+      {panel?.kind === "transfer" ? (
+        <TransferDialog items={tt.data?.items ?? []} ttStarted={Boolean(tt.data?.cutover_date)} q7Started={Boolean(q7.data?.cutover_date)}
+          onDone={say} onClose={() => setPanel(null)} />
+      ) : null}
     </div>
   );
 }

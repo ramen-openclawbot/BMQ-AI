@@ -1,6 +1,6 @@
 import { ItemDocEvidence } from "@/components/DocEvidence";
 import { useMemo, useState } from "react";
-import { GamePicker } from "@/game/GamePicker";
+import { OptionPicker } from "@/components/OptionPicker";
 import { AlertTriangle, Bot, GitMerge, Layers, RotateCcw, Sparkles, Tags } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -163,7 +163,7 @@ export function ClassifyRow({ row, canEdit }: { row: StockCatalogPendingSuggesti
       </div>
       {canEdit ? (
         <div className="d3-sc-actions">
-          <GamePicker
+          <OptionPicker
             className="d3-sc-class"
             value={cls}
             onChange={(value) => setCls(value as StockItemClass)}

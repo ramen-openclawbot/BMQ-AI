@@ -88,7 +88,8 @@ export const ZONES: Zone[] = [
     id: "warehouse",
     label: { vi: "Kho", en: "Warehouse" },
     paths: [
-      "/warehouse/game",
+      "/warehouse/danh-muc",
+      "/warehouse/kiem-ke",
       "/warehouse/phieu",
       "/warehouse/stock-ledger",
       "/warehouse/purchase-usage",
