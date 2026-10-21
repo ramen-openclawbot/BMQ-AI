@@ -71,11 +71,13 @@ def main() -> None:
             f"{name} must import ai-vision-provider.ts (directly or via bank-slip-ocr.ts)",
         )
 
-    # 4. The signed-PDF material-issue check stays on OpenAI until it sends page images
-    #    (DeepSeek rejects application/pdf, live probe 21/10).
+    # 4. The signed-PDF material-issue check sends rendered page images to DeepSeek.
     pmic_text = read(PRODUCTION_MATERIAL_ISSUE_CHECK)
-    assert_true("api.openai.com" in pmic_text, "production-material-issue-check keeps the OpenAI endpoint for now")
-    assert_true("OPENAI_SCAN_MODEL" in pmic_text, "production-material-issue-check keeps OPENAI_SCAN_MODEL for now")
+    assert_true("callDeepSeekJson" in pmic_text, "production-material-issue-check must use callDeepSeekJson")
+    assert_true("getScanAiConfig" in pmic_text, "production-material-issue-check must use getScanAiConfig")
+    assert_true('"deepseek"' in pmic_text, "production-material-issue-check must request the deepseek provider")
+    assert_true("api.openai.com" not in pmic_text, "production-material-issue-check must not call OpenAI")
+    assert_true("OPENAI_API_KEY" not in pmic_text, "production-material-issue-check must not read OPENAI_API_KEY")
 
     print("PASS: every scan function reads endpoint/key/model from _shared/ai-vision-provider.ts (DeepSeek by default)")
 

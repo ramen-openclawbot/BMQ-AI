@@ -1,12 +1,21 @@
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import { requireAuth } from "../_shared/auth.ts";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
+import {
+  MAX_PAGE_BYTES,
+  MAX_PAGES,
+  buildManifest,
+  manifestPath,
+  pagePath,
+  parsePageFields,
+  type ManifestPageInput,
+} from "../_shared/material-issue-pages.ts";
 
 const FUNCTION_NAME = "production-material-issue-signed-upload";
 const BUCKET = "production-material-issue-documents";
 const DAILY_UPLOAD_LIMIT = 80;
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
-const MAX_BODY_BYTES = MAX_UPLOAD_BYTES + 512 * 1024;
+const MAX_BODY_BYTES = MAX_UPLOAD_BYTES + MAX_PAGES * MAX_PAGE_BYTES + 512 * 1024;
 const PDF_TAIL_BYTES = 2048;
 const CANONICAL_UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/;
 const ISSUE_SELECT = "id,issue_number,status,revision,location_code,is_current,superseded_by_issue_id,pdf_path,pdf_sha256,signed_file_path,signed_file_sha256";
@@ -180,11 +189,62 @@ Deno.serve(async (req) => {
     const signedPath = `q7/${issue.id}/revision-${issue.revision}/signed/${signedSha256}.pdf`;
     let uploadedByThisRequest = false;
 
+    let pageImages: Awaited<ReturnType<typeof parsePageFields>>;
+    try {
+      pageImages = await parsePageFields(form.entries(), Number(form.get("page_count")));
+    } catch {
+      return jsonResponse(req, { error: "Thiếu ảnh trang của phiếu. Vui lòng tải lại." }, 400, limitHeaders);
+    }
+
+    const manifestPages: ManifestPageInput[] = [];
+    for (const pageImage of pageImages) {
+      manifestPages.push({
+        page: pageImage.page,
+        path: pagePath(signedPath, pageImage.page),
+        sha256: await sha256Hex(pageImage.bytes),
+        bytes: pageImage.bytes.byteLength,
+      });
+    }
+
+    const uploadedPagePaths: string[] = [];
+    const removeUploadedPages = async () => {
+      if (uploadedPagePaths.length > 0) await admin.storage.from(BUCKET).remove(uploadedPagePaths);
+    };
+
+    for (const pageImage of pageImages) {
+      const objectPath = pagePath(signedPath, pageImage.page);
+      const { error: pageUploadError } = await admin.storage
+        .from(BUCKET)
+        .upload(objectPath, pageImage.bytes, { contentType: "image/jpeg", upsert: false });
+      if (pageUploadError) {
+        if (!isStorageObjectAlreadyExistsError(pageUploadError)) {
+          await removeUploadedPages();
+          return jsonResponse(req, { error: "Không thể lưu PDF đã ký ở vùng riêng tư." }, 500, limitHeaders);
+        }
+      } else {
+        uploadedPagePaths.push(objectPath);
+      }
+    }
+
+    const manifestBytes = new TextEncoder().encode(JSON.stringify(buildManifest(signedSha256, manifestPages)));
+    const { error: manifestUploadError } = await admin.storage
+      .from(BUCKET)
+      .upload(manifestPath(signedPath), manifestBytes, { contentType: "application/json", upsert: false });
+    if (manifestUploadError) {
+      if (!isStorageObjectAlreadyExistsError(manifestUploadError)) {
+        await removeUploadedPages();
+        return jsonResponse(req, { error: "Không thể lưu PDF đã ký ở vùng riêng tư." }, 500, limitHeaders);
+      }
+    } else {
+      uploadedPagePaths.push(manifestPath(signedPath));
+    }
+
     const { error: uploadError } = await admin.storage
       .from(BUCKET)
       .upload(signedPath, bytes, { contentType: "application/pdf", upsert: false });
     if (uploadError) {
       if (!isStorageObjectAlreadyExistsError(uploadError)) {
+        await removeUploadedPages();
         return jsonResponse(req, { error: "Không thể lưu PDF đã ký ở vùng riêng tư." }, 500, limitHeaders);
       }
     } else {
@@ -199,6 +259,7 @@ Deno.serve(async (req) => {
     });
     if (recordError || !recordData) {
       if (uploadedByThisRequest) await admin.storage.from(BUCKET).remove([signedPath]);
+      await removeUploadedPages();
       return jsonResponse(req, { error: "Không thể ghi nhận PDF đã ký." }, uploadedByThisRequest ? 409 : 409, limitHeaders);
     }
 
@@ -206,6 +267,7 @@ Deno.serve(async (req) => {
     const status = String(record.status || "signed_uploaded");
     if (status !== "signed_uploaded" && status !== "signed_uploaded_unchanged") {
       if (uploadedByThisRequest) await admin.storage.from(BUCKET).remove([signedPath]);
+      await removeUploadedPages();
       return jsonResponse(req, { error: "Kết quả ghi nhận PDF đã ký không hợp lệ." }, 409, limitHeaders);
     }
 

@@ -32,8 +32,8 @@ TARGET_FUNCTIONS = {
     "salary-payout": FUNCTIONS / "salary-payout/index.ts",
 }
 
-# Functions with their own provider HTTP call. production-material-issue-check stays
-# on OpenAI until its signed PDF is sent to DeepSeek as page images.
+# Functions with their own provider HTTP call. production-material-issue-check now
+# goes through _shared/deepseek-json.ts, which classifies the provider response.
 DIRECT_OPENAI = [
     "scan-purchase-order",
     "scan-invoice",
@@ -42,7 +42,6 @@ DIRECT_OPENAI = [
     "scan-sku-cost-sheet",
     "match-delivery-note",
     "kb-suggest-po-rules",
-    "production-material-issue-check",
 ]
 
 # Functions that read images through the shared OCR helpers.

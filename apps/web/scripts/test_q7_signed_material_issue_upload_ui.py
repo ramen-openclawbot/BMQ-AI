@@ -142,6 +142,11 @@ def test_q7_upload_validates_pdf_size_uses_access_token_formdata_and_no_content_
     assert "new FormData()" in logic
     assert 'formData.append("issue_id", issue.id)' in logic
     assert 'formData.append("file", selected.file)' in logic
+    assert 'import { renderPdfPagesToJpeg } from "@/lib/q7-signed-pdf-pages";' in src
+    assert "await renderPdfPagesToJpeg(selected.file)" in logic
+    assert "Không đọc được PDF để tạo ảnh trang. Vui lòng xuất lại PDF rồi thử lại." in logic
+    assert 'formData.append("page_count", String(pageImages.length))' in logic
+    assert "formData.append(`page_${pageImage.page}`, pageImage.blob, `p${pageImage.page}.jpg`)" in logic
     assert "production-material-issue-signed-upload" in logic
     assert "VITE_SUPABASE_URL" in logic
     assert "Authorization: `Bearer ${session.access_token}`" in logic

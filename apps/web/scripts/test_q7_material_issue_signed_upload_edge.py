@@ -154,6 +154,31 @@ def test_edge_config_auth_cors_multipart_pdf_validation_and_private_upload() -> 
     assert "console.error(`[${FUNCTION_NAME}] request failed`)" in edge
 
 
+def test_edge_page_images_manifest_before_record_and_cleanup_on_failure() -> None:
+    edge = read(EDGE)
+    assert "../_shared/material-issue-pages.ts" in edge
+    for marker in ("MAX_PAGES", "MAX_PAGE_BYTES", "parsePageFields", "buildManifest", "manifestPath", "pagePath"):
+        assert marker in edge, f"page upload must use {marker}"
+    assert "MAX_BODY_BYTES = MAX_UPLOAD_BYTES + MAX_PAGES * MAX_PAGE_BYTES + 512 * 1024" in edge
+    assert 'form.entries()' in edge and 'form.get("page_count")' in edge
+    assert "Thiếu ảnh trang của phiếu. Vui lòng tải lại." in edge
+    assert 'contentType: "image/jpeg", upsert: false' in edge
+    assert 'contentType: "application/json", upsert: false' in edge
+    assert "buildManifest(signedSha256, manifestPages)" in edge
+
+    page_upload = edge.index("pagePath(signedPath, pageImage.page)")
+    manifest_upload = edge.index("manifestPath(signedPath)")
+    pdf_upload = edge.index(".upload(signedPath, bytes")
+    record_upload = edge.index("record_q7_material_issue_signed_upload")
+    assert page_upload < manifest_upload < pdf_upload < record_upload, (
+        "pages and manifest must be uploaded before the signed PDF and record RPC"
+    )
+
+    assert "uploadedPagePaths" in edge and "remove(uploadedPagePaths)" in edge
+    assert edge.count("await removeUploadedPages();") >= 2, "page/manifest failures must clean up uploaded pages"
+    assert edge.index("removeUploadedPages") < record_upload
+
+
 def test_edge_permission_safe_select_safe_response_no_cost_fields_or_task6_work() -> None:
     edge = read(EDGE)
     edge_lower = edge.lower()

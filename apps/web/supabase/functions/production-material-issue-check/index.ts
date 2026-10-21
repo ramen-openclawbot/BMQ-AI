@@ -1,8 +1,10 @@
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import { requireAuth } from "../_shared/auth.ts";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
-import { aiErrorJson, AiOpenAIError, classifyOpenAIError, getAiErrorInfo } from "../_shared/openai-errors.ts";
-import { OPENAI_SCAN_MODEL } from "../_shared/openai-models.ts";
+import { aiErrorJson, getAiErrorInfo } from "../_shared/openai-errors.ts";
+import { getScanAiConfig } from "../_shared/ai-vision-provider.ts";
+import { callDeepSeekJson, DeepSeekJsonError } from "../_shared/deepseek-json.ts";
+import { manifestPath, pagePath, validateManifest } from "../_shared/material-issue-pages.ts";
 
 const FUNCTION_NAME = "production-material-issue-check";
 const BUCKET = "production-material-issue-documents";
@@ -374,110 +376,77 @@ async function finalizeWithSafeError(
   return error || !data ? null : safe;
 }
 
-async function callOpenAi(pdfBytes: Uint8Array, expectedFacts: Record<string, unknown>, expectedRows: ExpectedLine[], model: string): Promise<CheckSummary> {
-  const apiKey = Deno.env.get("OPENAI_API_KEY") || "";
-  if (!apiKey) throw new Error("provider_failed");
+type PageImage = { page: number; bytes: Uint8Array };
+
+async function callDeepSeekPageCheck(
+  pageImages: PageImage[],
+  expectedFacts: Record<string, unknown>,
+  expectedRows: ExpectedLine[],
+  model: string,
+): Promise<CheckSummary> {
+  const schema = {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "identity_exact",
+      "rows_exact",
+      "document_legible",
+      "pages_complete",
+      "preparer_signed",
+      "warehouse_keeper_signed",
+      "receiver_signed",
+      "actual_rows",
+      "confidence",
+    ],
+    properties: {
+      identity_exact: { type: "boolean" },
+      rows_exact: { type: "boolean" },
+      document_legible: { type: "boolean" },
+      pages_complete: { type: "boolean" },
+      preparer_signed: { type: "boolean" },
+      warehouse_keeper_signed: { type: "boolean" },
+      receiver_signed: { type: "boolean" },
+      actual_rows: {
+        type: "array",
+        minItems: expectedRows.length,
+        maxItems: expectedRows.length,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["line_no", "actual_qty", "unit", "evidence_kind", "confidence"],
+          properties: {
+            line_no: { type: "integer", minimum: 1, maximum: expectedRows.length },
+            actual_qty: { type: "number", minimum: 0, maximum: MAX_REQUIRED_QTY },
+            unit: { type: "string", enum: expectedRows.map((row) => row.unit) },
+            evidence_kind: { type: "string", enum: ["handwritten_final", "printed_planned", "ambiguous"] },
+            confidence: { type: "number", minimum: 0, maximum: 1 },
+          },
+        },
+      },
+      confidence: { type: "number", minimum: 0, maximum: 1 },
+    },
+  };
+  const instructions = "Validate the page images of this signed Q7 material issue PDF conservatively against the expected safe facts. identity_exact is true only when issue number, production order number, issue date, and revision are all visibly exact. rows_exact is true only when every expected line number, material display name, planned quantity, and unit matches the document table with no missing, changed, duplicate, or extra row. For actual_rows, extract the final signed actual quantity for every line_no exactly once: a handwritten final quantity or amendment wins; if there is no amendment use the printed planned quantity; if the final quantity is unclear return evidence_kind ambiguous with confidence below 0.8. Each signature boolean is true only for a visible handwritten or digital signature/mark in that exact signature block; printed labels or typed names alone are not signatures. pages_complete requires every page and the signature section to be visible. Return false whenever uncertain. Do not transcribe OCR text, UUIDs, QR payloads, hashes, paths, material rows, raw OCR, comments, or other document content. Return only JSON matching the schema.";
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), PROVIDER_TIMEOUT_MS);
   try {
-    const response = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
+    const parsed = await callDeepSeekJson({
+      system: `${instructions}\nJSON Schema: ${JSON.stringify(schema)}`,
+      userText: JSON.stringify({ expectedFacts }),
+      images: pageImages.map((pageImage) => ({
+        base64: bytesToBase64(pageImage.bytes),
+        mimeType: "image/jpeg",
+      })),
+      model,
+      timeoutMs: PROVIDER_TIMEOUT_MS,
       signal: controller.signal,
-      headers: {
-        ["Authori" + "zation"]: ["Bea", "rer ", apiKey].join(""),
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        store: false,
-        max_output_tokens: 1200,
-        input: [{
-          role: "user",
-          content: [
-            {
-              type: "input_text",
-              text: "Validate this signed Q7 material issue PDF conservatively against the expected safe facts. identity_exact is true only when issue number, production order number, issue date, and revision are all visibly exact. rows_exact is true only when every expected line number, material display name, planned quantity, and unit matches the document table with no missing, changed, duplicate, or extra row. For actual_rows, extract the final signed actual quantity for every line_no exactly once: a handwritten final quantity or amendment wins; if there is no amendment use the printed planned quantity; if the final quantity is unclear return evidence_kind ambiguous with confidence below 0.8. Each signature boolean is true only for a visible handwritten or digital signature/mark in that exact signature block; printed labels or typed names alone are not signatures. pages_complete requires every page and the signature section to be visible. Return false whenever uncertain. Do not transcribe OCR text, UUIDs, QR payloads, hashes, paths, material rows, raw OCR, comments, or other document content. Return only JSON matching the schema.",
-            },
-            {
-              type: "input_text",
-              text: JSON.stringify({ expectedFacts }),
-            },
-            {
-              type: "input_file",
-              filename: "signed-q7-material-issue.pdf",
-              file_data: `data:application/pdf;base64,${bytesToBase64(pdfBytes)}`,
-            },
-          ],
-        }],
-        text: {
-          format: {
-            type: "json_schema",
-            name: "q7_signed_material_issue_check",
-            strict: true,
-            schema: {
-              type: "object",
-              additionalProperties: false,
-              required: [
-                "identity_exact",
-                "rows_exact",
-                "document_legible",
-                "pages_complete",
-                "preparer_signed",
-                "warehouse_keeper_signed",
-                "receiver_signed",
-                "actual_rows",
-                "confidence",
-              ],
-              properties: {
-                identity_exact: { type: "boolean" },
-                rows_exact: { type: "boolean" },
-                document_legible: { type: "boolean" },
-                pages_complete: { type: "boolean" },
-                preparer_signed: { type: "boolean" },
-                warehouse_keeper_signed: { type: "boolean" },
-                receiver_signed: { type: "boolean" },
-                actual_rows: {
-                  type: "array",
-                  minItems: expectedRows.length,
-                  maxItems: expectedRows.length,
-                  items: {
-                    type: "object",
-                    additionalProperties: false,
-                    required: ["line_no", "actual_qty", "unit", "evidence_kind", "confidence"],
-                    properties: {
-                      line_no: { type: "integer", minimum: 1, maximum: expectedRows.length },
-                      actual_qty: { type: "number", minimum: 0, maximum: MAX_REQUIRED_QTY },
-                      unit: { type: "string", enum: expectedRows.map((row) => row.unit) },
-                      evidence_kind: { type: "string", enum: ["handwritten_final", "printed_planned", "ambiguous"] },
-                      confidence: { type: "number", minimum: 0, maximum: 1 },
-                    },
-                  },
-                },
-                confidence: { type: "number", minimum: 0, maximum: 1 },
-              },
-            },
-          },
-        },
-      }),
     });
-    if (!response.ok) {
-      const bodyText = await response.text();
-      const info = classifyOpenAIError(response.status, bodyText);
-      console.error(`[production-material-issue-check] OpenAI error kind=${info.kind}:`, response.status, bodyText.slice(0, 300));
-      throw new AiOpenAIError(info);
-    }
-    const data = await response.json();
-    const outputText = typeof data.output_text === "string"
-      ? data.output_text
-      : Array.isArray(data.output)
-      ? data.output.flatMap((entry: any) => entry.content || []).map((part: any) => part.text || "").join("")
-      : "";
-    if (!outputText || outputText.length > 10000) throw new Error("provider_parse_failed");
-    return sanitizeCheckSummary(JSON.parse(outputText), expectedRows);
+    return sanitizeCheckSummary(parsed, expectedRows);
   } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") throw new Error("provider_timeout");
-    if (error instanceof SyntaxError) throw new Error("provider_parse_failed");
+    if (error instanceof DOMException && (error.name === "AbortError" || error.name === "TimeoutError")) {
+      throw new Error("provider_timeout");
+    }
     throw error;
   } finally {
     clearTimeout(timeout);
@@ -609,13 +578,66 @@ Deno.serve(async (req) => {
       }, finalized ? 409 : 500, limitHeaders);
     }
 
-    const model = Deno.env.get("Q7_MATERIAL_ISSUE_CHECK_MODEL") || OPENAI_SCAN_MODEL;
+    const finalizePageFailure = async (code: "pages_missing" | "pages_mismatch") => {
+      const finalized = await finalizeWithSafeError(admin, beginResult, user.id, "error", code, "edge");
+      return jsonResponse(req, {
+        error: finalized
+          ? "Phiếu này chưa có ảnh trang hợp lệ. Vui lòng tải lại PDF đã ký rồi kiểm tra."
+          : "Không thể ghi nhận lỗi kiểm tra phiếu đã ký.",
+      }, finalized ? 422 : 500, limitHeaders);
+    };
+
+    const { data: manifestBlob, error: manifestDownloadError } = await admin.storage
+      .from(BUCKET)
+      .download(manifestPath(beginResult.signed_file_path));
+    if (manifestDownloadError || !(manifestBlob instanceof Blob)) {
+      return await finalizePageFailure("pages_missing");
+    }
+
+    let manifestJson: unknown;
+    try {
+      manifestJson = JSON.parse(await manifestBlob.text());
+    } catch {
+      return await finalizePageFailure("pages_mismatch");
+    }
+
+    const manifestValidation = validateManifest(manifestJson, beginResult.signed_file_sha256);
+    if (!manifestValidation.ok) return await finalizePageFailure(manifestValidation.code);
+
+    const pageImages: PageImage[] = [];
+    for (const entry of manifestValidation.pages) {
+      if (entry.path !== pagePath(beginResult.signed_file_path, entry.page)) {
+        return await finalizePageFailure("pages_mismatch");
+      }
+      const { data: pageBlob, error: pageDownloadError } = await admin.storage.from(BUCKET).download(entry.path);
+      if (pageDownloadError || !(pageBlob instanceof Blob)) {
+        return await finalizePageFailure("pages_missing");
+      }
+      let pageBytes: Uint8Array;
+      try {
+        pageBytes = new Uint8Array(await pageBlob.arrayBuffer());
+      } catch {
+        return await finalizePageFailure("pages_missing");
+      }
+      if (pageBytes.byteLength !== entry.bytes) return await finalizePageFailure("pages_mismatch");
+      if (await sha256Hex(pageBytes) !== entry.sha256) return await finalizePageFailure("pages_mismatch");
+      pageImages.push({ page: entry.page, bytes: pageBytes });
+    }
+
+    const scanAi = getScanAiConfig("deepseek");
+    const model = Deno.env.get("Q7_MATERIAL_ISSUE_CHECK_MODEL") || scanAi.model;
     let summary: CheckSummary;
     try {
-      summary = await callOpenAi(signedBytes, expectedFacts, expectedRows, model);
+      summary = await callDeepSeekPageCheck(pageImages, expectedFacts, expectedRows, model);
     } catch (error) {
       const aiInfo = getAiErrorInfo(error);
-      const reason = aiInfo ? "provider_failed" : (error instanceof Error ? error.message : "provider_failed");
+      const reason = aiInfo
+        ? "provider_failed"
+        : error instanceof DeepSeekJsonError
+        ? "provider_parse_failed"
+        : error instanceof Error
+        ? error.message
+        : "provider_failed";
       const outcome = reason === "provider_timeout" || reason === "provider_failed" ? "failed_transient" : "error";
       const finalized = await finalizeWithSafeError(admin, beginResult, user.id, outcome, reason, model);
       if (aiInfo) {
@@ -634,7 +656,7 @@ Deno.serve(async (req) => {
       summary,
       summary.actual_rows,
       model,
-      "responses-api",
+      "deepseek-json",
       user.id,
     ));
     if (finalError || !finalData) {

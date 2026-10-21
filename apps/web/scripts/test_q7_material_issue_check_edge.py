@@ -200,16 +200,24 @@ def test_edge_config_auth_rate_begin_concurrency_and_private_download_hash() -> 
     assert "signed_file_path" not in edge_lower[edge_lower.index("return jsonresponse"):] or "sanitize" in edge_lower
 
 
-def test_edge_safe_expected_facts_prompt_openai_once_schema_server_derived_outcome() -> None:
+def test_edge_safe_expected_facts_prompt_deepseek_pages_schema_server_derived_outcome() -> None:
     edge = read(EDGE)
     edge_lower = edge.lower()
-    assert "OPENAI_API_KEY" in edge
-    assert "Q7_MATERIAL_ISSUE_CHECK_MODEL" in edge and "gpt-4.1-mini" in edge
-    assert "https://api.openai.com/v1/responses" in edge
-    assert "store: false" in edge
-    assert "AbortController" in edge and "setTimeout" in edge and "90_000" in edge
-    assert "input_file" in edge and "data:application/pdf;base64," in edge
-    assert "json_schema" in edge and "additionalProperties: false" in edge
+    assert "callDeepSeekJson" in edge
+    assert "getScanAiConfig" in edge and 'getScanAiConfig("deepseek")' in edge
+    assert "Q7_MATERIAL_ISSUE_CHECK_MODEL" in edge
+    assert "OPENAI_API_KEY" not in edge
+    assert "OPENAI_SCAN_MODEL" not in edge
+    assert "api.openai.com" not in edge
+    assert "input_file" not in edge and "data:application/pdf;base64," not in edge
+    assert "responses-api" not in edge
+    assert "AbortController" in edge and "setTimeout" in edge and "PROVIDER_TIMEOUT_MS = 90_000" in edge
+    assert "timeoutMs: PROVIDER_TIMEOUT_MS" in edge
+    assert "images:" in edge and 'mimeType: "image/jpeg"' in edge
+    assert "base64: bytesToBase64(pageImage.bytes)" in edge
+    assert "page images of this signed Q7 material issue PDF" in edge
+    assert "additionalProperties: false" in edge
+    assert "JSON Schema:" in edge and "JSON.stringify(schema)" in edge
     for field in (
         "identity_exact",
         "rows_exact",
@@ -248,9 +256,26 @@ def test_edge_safe_expected_facts_prompt_openai_once_schema_server_derived_outco
     assert "MAX_REQUIRED_QTY" in edge
     for forbidden in FORBIDDEN_MODEL_OR_RESPONSE_TERMS:
         assert forbidden not in edge_lower, f"Edge must not expose/select/prompt forbidden field: {forbidden}"
-    assert "response_format" not in edge_lower or "json_schema" in edge_lower
     assert "console.log" not in edge_lower
     assert "console.error(`[${FUNCTION_NAME}] request failed`)" in edge
+
+
+def test_edge_manifest_and_page_hashes_verified_before_deepseek_with_safe_page_errors() -> None:
+    edge = read(EDGE)
+    assert "../_shared/material-issue-pages.ts" in edge
+    assert "manifestPath(beginResult.signed_file_path)" in edge
+    assert "validateManifest(manifestJson, beginResult.signed_file_sha256)" in edge
+    assert "pagePath(beginResult.signed_file_path, entry.page)" in edge
+    assert "admin.storage.from(BUCKET).download(entry.path)" in edge
+    assert "pageBytes.byteLength !== entry.bytes" in edge
+    assert "await sha256Hex(pageBytes) !== entry.sha256" in edge
+    assert "pages_missing" in edge and "pages_mismatch" in edge
+    assert "Phiếu này chưa có ảnh trang hợp lệ. Vui lòng tải lại PDF đã ký rồi kiểm tra." in edge
+    assert 'finalizeWithSafeError(admin, beginResult, user.id, "error", code, "edge")' in edge
+    assert "callDeepSeekPageCheck(pageImages, expectedFacts, expectedRows, model)" in edge
+    assert edge.index("manifestPath(beginResult.signed_file_path)") < edge.index(
+        "callDeepSeekPageCheck(pageImages, expectedFacts, expectedRows, model)"
+    ), "page manifest and images must be verified before the model call"
 
 
 def test_edge_actual_rows_are_line_numbered_validated_and_finalized_with_actuals() -> None:
@@ -294,7 +319,7 @@ def test_edge_finalize_errors_once_safe_response_no_path_hash_raw_provider() -> 
     edge = read(EDGE)
     edge_lower = edge.lower()
     assert "finalizeWithSafeError" in edge
-    for reason in ("download_failed", "hash_mismatch", "provider_failed", "provider_timeout", "provider_parse_failed"):
+    for reason in ("download_failed", "hash_mismatch", "pages_missing", "pages_mismatch", "provider_failed", "provider_timeout", "provider_parse_failed"):
         assert reason in edge
     assert "p_outcome: \"failed_transient\"" in edge or "p_outcome: outcome" in edge
     assert "p_outcome: \"error\"" in edge or "p_outcome: outcome" in edge

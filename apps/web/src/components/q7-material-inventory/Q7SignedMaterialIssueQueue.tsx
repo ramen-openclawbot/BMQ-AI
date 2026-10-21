@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { AI_QUOTA_CODE, AI_QUOTA_MESSAGE, isAiQuotaError, notifyAiQuotaExhausted } from "@/lib/ai-errors";
+import { renderPdfPagesToJpeg } from "@/lib/q7-signed-pdf-pages";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -381,11 +382,21 @@ export function Q7SignedMaterialIssueQueue() {
       if (!selected?.file) throw new Error(selected?.error || "Vui lòng chọn tệp PDF đã ký.");
       const validationError = validateQ7SignedPdfFile(selected.file);
       if (validationError) throw new Error(validationError);
+      let pageImages: Awaited<ReturnType<typeof renderPdfPagesToJpeg>>;
+      try {
+        pageImages = await renderPdfPagesToJpeg(selected.file);
+      } catch {
+        throw new Error("Không đọc được PDF để tạo ảnh trang. Vui lòng xuất lại PDF rồi thử lại.");
+      }
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) throw new Error("Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
       const formData = new FormData();
       formData.append("issue_id", issue.id);
       formData.append("file", selected.file);
+      formData.append("page_count", String(pageImages.length));
+      for (const pageImage of pageImages) {
+        formData.append(`page_${pageImage.page}`, pageImage.blob, `p${pageImage.page}.jpg`);
+      }
       setUploadingQ7SignedIssueId(issue.id);
       const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/production-material-issue-signed-upload`, {
         method: "POST",
