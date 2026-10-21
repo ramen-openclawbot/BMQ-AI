@@ -16,14 +16,14 @@
   justify-content: space-between;
   gap: 12px 16px;
   padding: 2px 4px 4px;
-  animation: d3-rv-rise .7s var(--d3-ease, ease) both;
 }
 
-.d3-rv-tag { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--d3-dim, #6b6b6b); }
-.d3-rv-tag::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid var(--d3-green, #29bf12); }
+/* Period line under the title (it used to be a kicker above it). */
+.d3-rv-tag { margin: 6px 0 0; font-size: 13px; color: var(--d3-dim, #6b6b69); font-variant-numeric: tabular-nums; }
 
 .d3-rv-head h1 {
-  margin: 6px 0 0;
+  margin: 0;
+  text-wrap: balance;
   font-size: clamp(28px, 3.4vw, 42px);
   font-weight: 200;
   line-height: 1.1;
@@ -74,11 +74,9 @@ html.bmq-d3 .d3-rv-month { width: 170px; }
   border-radius: 22px;
   background: var(--d3-card, #f7f7f5);
   box-shadow: var(--d3-sh);
-  animation: d3-rv-rise .8s var(--d3-ease, ease) both;
-  animation-delay: calc(var(--i, 0) * 90ms + 100ms);
 }
 
-.d3-rv-card > :not(.d3-rv-glow) { position: relative; z-index: 1; }
+
 .d3-rv-card.is-click { cursor: pointer; outline: 2px solid transparent; outline-offset: -2px; transition: outline-color .2s, transform .3s var(--d3-ease, ease); }
 .d3-rv-card.is-click:hover { transform: translateY(-2px); }
 .d3-rv-card.is-click:focus-visible { outline-color: var(--d3-blue, #3c91e6); }
@@ -88,18 +86,7 @@ html.bmq-d3 .d3-rv-month { width: 170px; }
 html.bmq-d3 .d3-rv-card-h h2 { font-weight: 300; }
 .d3-rv-card-h p { width: 100%; margin: 0; font-size: 12px; color: var(--d3-dim, #6b6b6b); }
 
-.d3-rv-glow {
-  position: absolute;
-  width: 240px;
-  height: 150px;
-  border-radius: 50%;
-  filter: blur(42px);
-  opacity: .55;
-  pointer-events: none;
-}
 
-.d3-rv-glow.is-green { right: -40px; bottom: -40px; background: #bdf0b0; }
-.d3-rv-glow.is-blue { left: -60px; bottom: -60px; background: #b8d8f7; }
 
 .d3-rv-pill {
   display: inline-flex;
@@ -241,8 +228,6 @@ html.bmq-d3 .d3-rv-card-h h2 { font-weight: 300; }
   font-size: 13px;
   text-align: left;
   transition: transform .3s var(--d3-ease, ease), box-shadow .2s;
-  animation: d3-rv-rise .6s var(--d3-ease, ease) both;
-  animation-delay: var(--dl);
 }
 
 .d3-rv-trow:hover { transform: translateY(-1px); box-shadow: var(--d3-sh); }
@@ -295,7 +280,6 @@ html.bmq-d3 .d3-rv-card-h h2 { font-weight: 300; }
 .d3-rv-ch > i { position: absolute; left: 14px; right: 14px; bottom: 7px; height: 3px; border-radius: 99px; background: #ececea; }
 .d3-rv-ch > i::after { content: ""; display: block; width: var(--w); height: 100%; border-radius: inherit; background: var(--c); transform-origin: left; animation: d3-rv-growx .8s var(--d3-ease, ease) both; }
 
-@keyframes d3-rv-rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
 @keyframes d3-rv-grow { from { transform: scaleY(0); } to { transform: none; } }
 @keyframes d3-rv-growx { from { transform: scaleX(0); } to { transform: none; } }
 @keyframes d3-rv-draw { from { stroke-dashoffset: var(--len); } to { stroke-dashoffset: 0; } }
@@ -332,3 +316,8 @@ html.bmq-d3 .d3-rv-card-h h2 { font-weight: 300; }
 @media (prefers-reduced-motion: reduce) {
   .d3-rv *, .d3-rv-head, .d3-rv-card { animation: none !important; transition: none !important; }
 }
+
+/* ---------- PO (Bán hàng) inbox stats (Impeccable pass) ---------- */
+html.bmq-d3 .d3-crm-stat { padding: 10px 12px; border-radius: 14px; background: var(--d3-white); box-shadow: var(--d3-sh); }
+html.bmq-d3 .d3-crm-fig { font: 200 26px/1.1 var(--d3-num); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+html.bmq-d3 .d3-crm h1 { font-weight: 200; letter-spacing: -.02em; text-wrap: balance; }

@@ -54,6 +54,7 @@ import {
   type KbAiParseSuggestion,
 } from "@/components/mini-crm/kbAiUtils";
 import type { CustomerParseContract, ParseContractSource } from "@/components/mini-crm/parseContractTypes";
+import "@/styles/bmq-revenue.css";
 
 const GROUP_OPTIONS = [
   { value: "banhmi_point", label: "Bán lẻ" },
@@ -3052,20 +3053,21 @@ export default function MiniCrm() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-3xl font-display font-bold">{ui.pageTitle}</h1>
+    <div className="d3-crm min-w-0 space-y-6">
+      {/* Title takes the full width on phones; the Gmail sync controls wrap under it. */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-3xl">{ui.pageTitle}</h1>
           <p className="text-muted-foreground">
             {ui.pageDesc}
           </p>
           {isSalesPoPage && <p className="text-xs text-muted-foreground mt-1">{ui.gmailHint}</p>}
         </div>
         {isSalesPoPage && (
-          <div className="flex flex-col gap-2 items-end">
-            {gmailConnectedEmail ? <Badge>{gmailConnectedEmail}</Badge> : <Badge variant="secondary">{ui.gmailNotConnected}</Badge>}
+          <div className="flex shrink-0 flex-col gap-2 sm:items-end">
+            {gmailConnectedEmail ? <Badge className="self-start sm:self-end">{gmailConnectedEmail}</Badge> : <Badge variant="secondary" className="self-start sm:self-end">{ui.gmailNotConnected}</Badge>}
             <div className="flex items-center gap-2">
-              <Input type="date" value={syncDate} onChange={(e) => setSyncDate(e.target.value)} className="w-[150px] h-9" />
+              <Input type="date" value={syncDate} onChange={(e) => setSyncDate(e.target.value)} className="h-10 min-w-0 flex-1 sm:w-[150px] sm:flex-none" />
               <Button onClick={() => { setSyncModalOpen(true); syncGmailMutation.mutate(); }} disabled={syncGmailMutation.isPending || !gmailConnectedEmail}>
                 {syncGmailMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
                 Sync PO
@@ -3621,22 +3623,22 @@ export default function MiniCrm() {
               <CardDescription className="mt-1">{ui.poInboxDesc}</CardDescription>
             </div>
             <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-              <div className="rounded-lg border bg-background/80 px-3 py-2">
-                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Đang hiển thị</div>
-                <div className="text-xl font-semibold leading-tight">{paginatedPoInbox.length}</div>
+              <div className="d3-crm-stat">
+                <div className="text-xs text-muted-foreground">Đang hiển thị</div>
+                <div className="d3-crm-fig">{paginatedPoInbox.length}</div>
                 <div className="text-[11px] text-muted-foreground">/ {filteredPoInbox.length} PO sau lọc</div>
               </div>
-              <div className="rounded-lg border bg-background/80 px-3 py-2">
-                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Đã auto parse</div>
-                <div className="text-xl font-semibold leading-tight">{filteredPoInbox.filter((x: any) => x?.raw_payload?.auto_merge || x?.raw_payload?.parsed_items_preview?.length).length}</div>
+              <div className="d3-crm-stat">
+                <div className="text-xs text-muted-foreground">Đã auto parse</div>
+                <div className="d3-crm-fig">{filteredPoInbox.filter((x: any) => x?.raw_payload?.auto_merge || x?.raw_payload?.parsed_items_preview?.length).length}</div>
               </div>
-              <div className="rounded-lg border bg-background/80 px-3 py-2">
-                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Cần xử lý</div>
-                <div className="text-xl font-semibold leading-tight text-amber-600">{pendingDeltaReviewCount}</div>
+              <div className="d3-crm-stat">
+                <div className="text-xs text-muted-foreground">Cần xử lý</div>
+                <div className="d3-crm-fig text-amber-700">{pendingDeltaReviewCount}</div>
               </div>
-              <div className="rounded-lg border bg-background/80 px-3 py-2">
-                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Exception</div>
-                <div className="text-xl font-semibold leading-tight">{exceptionQueue.length}</div>
+              <div className="d3-crm-stat">
+                <div className="text-xs text-muted-foreground">Exception</div>
+                <div className="d3-crm-fig">{exceptionQueue.length}</div>
               </div>
             </div>
           </div>
@@ -3790,11 +3792,11 @@ export default function MiniCrm() {
               Hiển thị {filteredPoInbox.length === 0 ? 0 : (currentPoPage - 1) * PO_PAGE_SIZE + 1}
               -{Math.min(currentPoPage * PO_PAGE_SIZE, filteredPoInbox.length)} trên tổng {filteredPoInbox.length} PO
             </div>
-            <div className="flex items-center gap-2">
+            <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 sm:flex [&>button]:px-2 sm:[&>button]:px-3">
               <Button type="button" variant="outline" size="sm" onClick={() => setPoPage((p) => Math.max(1, p - 1))} disabled={currentPoPage <= 1}>
                 Trang trước
               </Button>
-              <div className="min-w-[88px] text-center text-muted-foreground">
+              <div className="shrink-0 text-center sm:min-w-[88px] text-muted-foreground">
                 Trang {currentPoPage} / {totalPoPages}
               </div>
               <Button type="button" variant="outline" size="sm" onClick={() => setPoPage((p) => Math.min(totalPoPages, p + 1))} disabled={currentPoPage >= totalPoPages}>
@@ -3805,7 +3807,7 @@ export default function MiniCrm() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-4 md:grid-cols-2 [&>*]:min-w-0">
         <Card>
           <CardHeader>
             <CardTitle>Exception Queue</CardTitle>

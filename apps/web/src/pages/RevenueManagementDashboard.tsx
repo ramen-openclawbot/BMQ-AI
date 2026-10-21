@@ -1020,12 +1020,12 @@ export default function RevenueManagementDashboard() {
     >
       <header className="d3-rv-head">
         <div className="min-w-0">
-          <span className="d3-rv-tag">
-            {isVi ? "Bán hàng" : "Sales"} · {periodLabel(period)} · {isVi ? "tính đến" : "through"} {figure(formatDate(throughDate))}
-          </span>
           <h1>
             {isVi ? "Doanh thu" : "Revenue"} <b>{isVi ? "theo kênh" : "by channel"}</b>
           </h1>
+          <p className="d3-rv-tag">
+            {isVi ? "Bán hàng" : "Sales"} · {periodLabel(period)} · {isVi ? "tính đến" : "through"} {figure(formatDate(throughDate))}
+          </p>
         </div>
         <div aria-label="Xem doanh thu theo tháng" className="d3-rv-actions">
           <Input
@@ -1061,7 +1061,6 @@ export default function RevenueManagementDashboard() {
           style={{ ["--i" as string]: 1 }}
           data-bmq-revenue-hero
         >
-          <span className="d3-rv-glow is-green" aria-hidden="true" />
           <div className="d3-rv-card-h">
             <h2>Đã vào ledger</h2>
             {!isLoading && !error ? (
@@ -1149,7 +1148,6 @@ export default function RevenueManagementDashboard() {
 
         {/* Operational forecast + volume / customers tiles. */}
         <section className="d3-rv-card d3-rv-fc" style={{ ["--i" as string]: 3 }} data-bmq-revenue-forecast>
-          <span className="d3-rv-glow is-blue" aria-hidden="true" />
           <div className="d3-rv-card-h">
             <h2>Dự báo vận hành</h2>
             {!isLoading && !error ? <span className={cn("d3-rv-conf", `is-${forecast.confidenceLabel === "Cao" ? "high" : forecast.confidenceLabel === "Thấp" ? "low" : "mid"}`)}>Độ tin cậy {forecast.confidenceLabel}</span> : null}
