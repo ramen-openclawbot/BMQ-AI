@@ -406,7 +406,12 @@ function StatementTable({ rows, months, month, totals }: { rows: ReturnType<type
     const cell = wrap?.querySelector<HTMLElement>("thead th.is-on");
     const first = wrap?.querySelector<HTMLElement>("thead th");
     if (!wrap || !cell || !first || wrap.scrollWidth <= wrap.clientWidth) return;
-    wrap.scrollLeft = Math.max(0, cell.offsetLeft + cell.offsetWidth - wrap.clientWidth + 16);
+    // Show the prior month and the selected month whole, right of the sticky Line column.
+    const prior = cell.previousElementSibling as HTMLElement | null;
+    const anchor = prior && prior !== first ? prior : cell;
+    let target = anchor.offsetLeft - first.offsetWidth;
+    if (target + wrap.clientWidth < cell.offsetLeft + cell.offsetWidth) target = cell.offsetLeft + cell.offsetWidth - wrap.clientWidth;
+    wrap.scrollLeft = Math.max(0, target);
   }, [month, months.length]);
   return (
     <div className="fin-table-wrap" ref={wrapRef} tabIndex={0} role="region" aria-label="Income statement, scrolls sideways">

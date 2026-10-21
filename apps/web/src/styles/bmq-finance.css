@@ -429,10 +429,15 @@ html.bmq-d3 .fin-panel-h h2 { font-weight: 400; }
 @keyframes fin-fill { from { transform: scaleX(0.02); } }
 
 /* -------------------------------------------------------------- statement */
+/* The scroller has no side padding: a sticky column sticks inside the padding box, so
+   padding left a strip where scrolled figures showed beside the Line column (iOS report). */
 .fin-table-wrap {
+  --fin-edge: 20px;
   overflow-x: auto;
-  margin: 0 -20px -8px;
-  padding: 0 20px 8px;
+  margin: 0 calc(var(--fin-edge) * -1) -8px;
+  padding: 0 0 8px;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-x: contain;
   scrollbar-width: thin;
   scrollbar-color: var(--d3-line-2, #d6d6d3) transparent;
 }
@@ -444,6 +449,8 @@ html.bmq-d3 .fin-panel-h h2 { font-weight: 400; }
   left: 0;
   z-index: 1;
   min-width: 190px;
+  padding-left: var(--fin-edge);
+  box-shadow: 1px 0 0 var(--d3-line, #e2e2df);
   text-align: left;
   background: var(--d3-card, #f7f7f5);
   font-weight: 400;
@@ -451,7 +458,8 @@ html.bmq-d3 .fin-panel-h h2 { font-weight: 400; }
 .fin-table thead th:first-child { font-weight: 500; }
 .fin-table .is-on { background: color-mix(in srgb, var(--fin-hue) 7%, transparent); }
 .fin-table thead th.is-on { color: var(--d3-ink, #272727); font-weight: 600; }
-.fin-table tr.is-line th { padding-left: 22px; color: var(--d3-ink-2, #4a4a4a); }
+.fin-table th:last-child, .fin-table td:last-child { padding-right: var(--fin-edge); }
+.fin-table tr.is-line th { padding-left: calc(var(--fin-edge) + 12px); color: var(--d3-ink-2, #4a4a4a); }
 .fin-table tr.is-line td { color: var(--d3-ink-2, #4a4a4a); }
 .fin-table tr.is-section th, .fin-table tr.is-section td { padding-top: 14px; font-weight: 600; }
 .fin-table tr.is-subtotal th, .fin-table tr.is-subtotal td { border-top: 1px solid var(--d3-line-2, #d6d6d3); font-weight: 700; }
@@ -651,7 +659,13 @@ html.bmq-d3 .fin-panel-h h2 { font-weight: 400; }
   .fin-kpi strong { font-size: 22px; }
   .fin-kpi.is-lead strong { font-size: 28px; }
   .fin-panel { padding: 16px; }
-  .fin-table-wrap { margin: 0 -16px -8px; padding: 0 16px 8px; }
+  .fin-table-wrap { --fin-edge: 16px; }
+  .fin-table { min-width: 0; }
+  .fin-table th:first-child { min-width: 150px; white-space: normal; }
+}
+
+@media (max-width: 360px) {
+  .fin-table th:first-child { min-width: 124px; }
   .fin-chart-plot { height: 190px; }
   .fin-cols { gap: 8px; padding: 0 2px; }
 

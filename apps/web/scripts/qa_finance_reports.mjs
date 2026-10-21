@@ -268,8 +268,19 @@ const CHECKS = {
     const tabsFit = await page.locator(".fin-tabs").evaluate((el) => el.scrollWidth <= el.clientWidth + 1);
     if ((await page.viewportSize()).width >= 390) assert.ok(tabsFit, "all five tabs fit");
     if ((await page.viewportSize()).width < 760) {
-      const visible = await page.locator(".fin-table thead th.is-on").evaluate((th) => { const w = th.closest(".fin-table-wrap"); const a = th.getBoundingClientRect(), b = w.getBoundingClientRect(); return a.right <= b.right + 1 && a.left >= b.left; });
-      assert.ok(visible, "selected month column scrolled into view on phones");
+      const view = await page.locator(".fin-table thead th.is-on").evaluate((th) => {
+        const wrap = th.closest(".fin-table-wrap");
+        const sticky = wrap.querySelector("thead th").getBoundingClientRect();
+        const box = wrap.getBoundingClientRect();
+        const on = th.getBoundingClientRect();
+        const prior = th.previousElementSibling.getBoundingClientRect();
+        // Nothing may show left of the sticky Line column (iOS report 21/10).
+        const leak = Math.round(sticky.left - box.left);
+        return { leak, onWhole: on.right <= box.right + 1, priorWhole: prior.left >= sticky.right - 1 };
+      });
+      assert.equal(view.leak, 0, "sticky Line column sits flush with the card edge");
+      assert.ok(view.onWhole, `selected month fully visible ${JSON.stringify(view)}`);
+      if ((await page.viewportSize()).width >= 375) assert.ok(view.priorWhole, `prior month fully visible ${JSON.stringify(view)}`);
     }
   },
   async variance(page) {
