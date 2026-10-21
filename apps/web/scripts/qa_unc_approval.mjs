@@ -349,6 +349,7 @@ try {
     await bulk.click();
     await page.waitForSelector("[data-bmq-unc-dialog='approve']");
     assert.equal(await page.locator("[data-bmq-unc-alloc-row]").count(), 2, "lists both requests");
+    assert.equal(await page.locator("[data-bmq-unc-partial]").count(), 0, "no partial toggle for several phiếu");
     assert.ok((await page.locator("[data-bmq-unc-need]").textContent()).includes("19.750.000"));
     await upload(page);
     await page.waitForSelector("[data-bmq-unc-verdict='match']");
@@ -624,6 +625,49 @@ try {
     assert.equal((await bodies(page)).filter((b) => b.mode === "confirm").length, 0);
     assert.deepEqual(errors, []);
     record("duplicate slip flagged + removed 390");
+    await context.close();
+  }
+
+  // 11. One pending phiếu paid partly by UNC (the rest later in cash): "Chỉ trả một phần".
+  for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 640 }, { width: 1440, height: 900 }]) {
+    const { context, page, errors } = await open({ role: "owner", ocrAmount: 8000000 }, "/payment-requests", viewport);
+    await openDetail(page, "DC-0101");
+    await page.locator("[data-bmq-unc-open]").click();
+    await page.waitForSelector("[data-bmq-unc-dialog='approve']");
+    assert.equal(await page.locator("[data-bmq-unc-partial]").count(), 1, "partial toggle on a single pending phiếu");
+    await upload(page);
+    await page.waitForSelector("[data-bmq-unc-ocr]");
+    assert.equal(await page.locator("[data-bmq-unc-verdict='mismatch']").count(), 1, "8M vs 13.5M mismatches before the toggle");
+    await page.locator("[data-bmq-unc-partial]").check();
+    await page.waitForSelector("[data-bmq-unc-alloc]");
+    assert.equal(await page.getByLabel("Số tiền gán cho DC-0101").inputValue(), "8.000.000", "allocation starts at the slip amount");
+    assert.equal(await page.locator("[data-bmq-unc-verdict='match']").count(), 1, "partial amount matches the slip");
+    assert.ok(await page.locator("[data-bmq-unc-submit]").isEnabled(), "submit enabled");
+    assert.ok((await dialogOverflow(page)) <= 0, `dialog no overflow partial ${viewport.width}`);
+    assert.ok((await overflow(page)) <= 0, `page no overflow partial ${viewport.width}`);
+    await page.locator("[data-bmq-unc-dialog]").screenshot({ path: `${EVIDENCE}/unc-partial-${viewport.width}.png` });
+    await page.locator("[data-bmq-unc-submit]").click();
+    await page.locator("[data-bmq-unc-dialog]").waitFor({ state: "detached" });
+    const confirm = (await bodies(page)).find((b) => b.mode === "confirm");
+    assert.deepEqual(confirm.allocations, [{ payment_request_id: "11111111-1111-4111-8111-111111111111", amount: 8000000 }], "pays 8M only");
+    assert.equal(confirm.manual_override, false);
+    assert.deepEqual(errors, []);
+    record(`partial UNC on one pending phiếu ${viewport.width}`);
+    await context.close();
+  }
+  // 12. Unticking returns to "pay in full"; the toggle is not offered for several phiếu.
+  {
+    const { context, page, errors } = await open({ role: "owner", ocrAmount: 13500000 }, "/payment-requests", { width: 390, height: 844 });
+    await openDetail(page, "DC-0101");
+    await page.locator("[data-bmq-unc-open]").click();
+    await upload(page);
+    await page.waitForSelector("[data-bmq-unc-ocr]");
+    await page.locator("[data-bmq-unc-partial]").check();
+    await page.locator("[data-bmq-unc-partial]").uncheck();
+    assert.equal(await page.locator("[data-bmq-unc-alloc]").count(), 0, "full-payment layout again");
+    assert.equal(await page.locator("[data-bmq-unc-verdict='match']").count(), 1, "full amount still matches");
+    assert.deepEqual(errors, []);
+    record("partial toggle off restores full payment");
     await context.close();
   }
 

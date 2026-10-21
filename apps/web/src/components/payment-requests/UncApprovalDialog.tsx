@@ -166,6 +166,8 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
   const [sent, setSent] = useState<SentSlip[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [manual, setManual] = useState(false);
+  // One pending phiếu paid only partly here (the rest by the other method, e.g. UNC + tiền mặt).
+  const [partial, setPartial] = useState(false);
   const [reason, setReason] = useState("");
   const [category, setCategory] = useState<UncStandaloneCategory | null>(null);
   const [note, setNote] = useState("");
@@ -195,6 +197,7 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
     setSent(null);
     setError(null);
     setManual(false);
+    setPartial(false);
     setReason("");
     setCategory(null);
     setNote("");
@@ -228,7 +231,9 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
     setSlips((prev) => prev.map((s, i) => (i === 0 ? { ...s, typed: value } : s)));
 
   // Many requests, or any request that is already approved, are paid by explicit per-request amounts.
-  const allocMode = approve && (requests.length > 1 || requests.some((r) => r.status === "approved"));
+  // A single pending phiếu is paid in full unless the owner ticks "Chỉ trả một phần".
+  const canPartial = approve && requests.length === 1 && requests[0].status !== "approved";
+  const allocMode = approve && (requests.length > 1 || requests.some((r) => r.status === "approved") || (canPartial && partial));
   const evidenceAmount = manual ? typedAmount : ocrAmount;
   const remainingOf = (r: UncApprovalRequest) => Math.max(remainingAmount(r), 0);
   const allocAmount = (id: string) => {
@@ -525,6 +530,28 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
               </li>
             ))}
           </ul>
+        )}
+
+        {canPartial && (
+          <label className="d3-unc-toggle d3-unc-partial">
+            <input
+              type="checkbox"
+              checked={partial}
+              disabled={locked}
+              onChange={(e) => {
+                const on = e.target.checked;
+                setPartial(on);
+                // Start from the amount on the slip(s) already read; the owner can still edit it.
+                if (on && evidenceAmount && evidenceAmount > 0) autoAllocate(evidenceAmount);
+                if (!on) autoAllocate(Number.MAX_SAFE_INTEGER);
+              }}
+              data-bmq-unc-partial
+            />
+            <span>
+              Chỉ trả một phần bằng {isCash ? "tiền mặt" : "UNC"}
+              <small>Phần còn lại chi sau bằng {isCash ? "UNC" : "tiền mặt"} ở Trình chi gấp</small>
+            </span>
+          </label>
         )}
 
         {allocMode && (
