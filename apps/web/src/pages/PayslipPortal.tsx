@@ -548,7 +548,7 @@ function PayslipDetail({ payslip, hidden, onBack }: { payslip: Payslip; hidden: 
       </button>
 
       <div className="mt-2 rounded-[24px] bg-white p-5 shadow-[0_12px_28px_rgba(70,50,55,0.08)] ring-1 ring-[#eee8e5]">
-        <p className="text-[13px] font-semibold uppercase tracking-wide text-[#85808a]">{payslip.periodName}</p>
+        <h2 className="text-lg font-bold leading-tight text-[#20212d]">{payslip.periodName}</h2>
         <p className="mt-0.5 text-sm text-[#666263]">{periodRange(payslip)}</p>
         <div className="mt-4 rounded-2xl bg-[#fff5f8] px-4 py-3.5">
           <p className="text-[13px] font-medium text-[#80566a]">Thực nhận</p>

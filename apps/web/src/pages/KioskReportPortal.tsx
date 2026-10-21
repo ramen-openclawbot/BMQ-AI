@@ -807,9 +807,10 @@ export default function KioskReportPortal() {
             {attendanceEnabled && <AttendanceCheckInCard reportToken={reportToken} actorLabel="Nhân viên điểm bán" className="mb-4" />}
 
             <section className="relative mb-4 flex min-h-[68px] items-center justify-between gap-3 overflow-hidden rounded-[18px] border border-[#f0dfe5] bg-white px-3.5 py-3 shadow-[0_6px_18px_rgba(86,48,63,0.07)] sm:px-5">
-              <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+              {/* The invisible date input covers the icon and the date, so the whole group is a thumb-sized target. */}
+              <div className="relative flex min-h-11 min-w-0 items-center gap-3 pr-2 sm:gap-4">
                 <CalendarDays className="h-6 w-6 shrink-0 text-[#ec5b91]" strokeWidth={2.2} />
-                <div className="relative">
+                <div>
                   <span className="text-[18px] font-extrabold sm:text-[20px]">{formatReportDate(reportDate)}</span>
                   <Input
                     aria-label="Ngày báo cáo"

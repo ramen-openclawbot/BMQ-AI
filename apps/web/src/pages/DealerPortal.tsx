@@ -3760,7 +3760,7 @@ function NppQuickOrderPanel({
             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-[#fff0f6]">
               <Sparkles className="h-4 w-4" />
             </div>
-            <div className="text-[11px] font-extrabold uppercase tracking-[0.12em]">Trợ lý đề xuất đơn</div>
+            <div className="text-[13px] font-bold">Trợ lý đề xuất đơn</div>
           </div>
           {assistantProposal.kind === "routes" ? (
             <div className="mt-3 divide-y divide-[#f2dfe7] border-y border-[#f2dfe7]">
