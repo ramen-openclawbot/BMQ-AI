@@ -100,6 +100,22 @@ function settle(st) {
     if (st.args.p_dry_run) return { data: { status: "preview", aliases: 3, lines: [line], total_delta: { tan_tao: line.delta, q7: 0 } }, error: null };
     return { data: { status: "saved", aliases_updated: 3, lines: 1, total_delta: { tan_tao: line.delta, q7: 0 } }, error: null };
   }
+  if (st.table === "rpc:kho_get_commitments") {
+    const F = window.__kgFixture;
+    const q7Item = F.items.find((it, i) => it.pastry_q7 && i % 17 !== 5 && ["raw_material", "unclassified"].includes(it.item_class));
+    const ttItem = F.items.find((it, i) => !it.pastry_q7 && i % 3 !== 0 && i % 17 !== 5 && ["raw_material", "unclassified"].includes(it.item_class));
+    const src = (ref, date, qty) => ({ kind: "pxk", ref, date, qty });
+    return { data: { as_of: today,
+      items: mode === "empty" ? [] : [
+        { kitchen_inventory_item_id: q7Item.id, location: "q7", committed_qty: 1250, unit: q7Item.unit, next_date: today.replace(/\d\d$/, (d) => String(Math.min(28, Number(d) + 1)).padStart(2, "0")), sources: [src("PXK-NVL-Q7-QA-001", today, 1000), src("PXK-NVL-Q7-QA-002", today, 250)] },
+        { kitchen_inventory_item_id: ttItem.id, location: "tan_tao", committed_qty: 3, unit: ttItem.unit, next_date: today, sources: [src("PXK-NVL-Q7-QA-003", today, 3)] },
+      ],
+      skus: mode === "empty" ? [] : [
+        { location: "tan_tao", sku_id: "s-bmq2", sku_code: "BMQ-002", name: "Bánh mì que đông lạnh", unit: "que", on_hand: 194, incoming_qty: 0, committed_qty: 120, overdue_qty: 0, available: 74, orders: 3, next_date: today },
+        { location: "q7", sku_id: "fg-cbc", sku_code: "cbc-2026-v2", name: "BÁNH MÌ CHÀ BÔNG CAY", unit: "gói", on_hand: 12, incoming_qty: 170, committed_qty: 170, overdue_qty: 0, available: 12, orders: 1, next_date: today },
+      ],
+      gaps: mode === "empty" ? { pxk_lines_unposted: 0, pxk_unposted_issues: [] } : { pxk_lines_unposted: 7, pxk_unposted_issues: ["PXK-NVL-Q7-QA-009", "PXK-NVL-Q7-QA-010"] } }, error: null };
+  }
   if (st.table === "rpc:get_stock_transfers") return { data: (window.__kgFixture.transfers ?? []).map((t, i) => ({ ...t, source: i % 2 ? "manual" : "auto", slip_id: null, slip_number: i % 2 ? "PCK-QA-" + i : null, note: i === 1 ? "hàng cho ca sáng Q7" : null })), error: null };
   if (st.table === "rpc:get_q7_finished_goods_planned") return { data: [{ sku_id: "fg-cbc", product_name: "BÁNH MÌ CHÀ BÔNG CAY", unit: "gói", planned_qty: 40, already_received: 12, production_order_item_id: "poi-qa-1" }], error: null };
   if (/^rpc:/.test(st.table)) return { data: null, error: null };
@@ -446,6 +462,29 @@ try {
     await page.waitForSelector("[data-bmq-kho-item-dialog] [data-bmq-unit-chips]");
     await shot(page, `count-item-dialog-${vp.width}.png`, false);
     pass(`Kiểm kê name opens the item detail with unit + conversions ${vp.width}`);
+    await context.close();
+
+
+    // ---------- Đã đặt / Giữ cho sản xuất (owner 22/10) ----------
+    ({ context, page, errors } = await open({ role: "owner" }, "/warehouse/danh-muc", vp));
+    await page.waitForSelector("[data-bmq-kho-names] li");
+    await page.locator("[data-bmq-kho-group='tp']").click();
+    await page.waitForSelector("[data-bmq-kho-fg='BMQ-002'] [data-bmq-kho-fg-held]");
+    assert.match(await page.locator("[data-bmq-kho-fg='BMQ-002'] [data-bmq-kho-fg-held]").innerText(), /Đã đặt 120 que · 3 đơn · hôm nay/);
+    if (vp.width > 420) assert.match(await page.locator("[data-bmq-kho-fg='BMQ-002'] [data-bmq-kho-fg-available]").innerText(), /còn bán 74 que/);
+    await shot(page, `commit-fg-${vp.width}.png`, false);
+    await page.locator("[data-bmq-kho-loc='q7']").click();
+    await page.locator("[data-bmq-kho-group='nl']").click();
+    await page.waitForSelector("[data-bmq-kho-held]");
+    assert.ok(await page.locator("[data-bmq-kho-pxk-gap]").isVisible(), "unposted PXK lines are named");
+    await noSpill(page, "commit-q7", vp);
+    await shot(page, `commit-q7-${vp.width}.png`, false);
+    await page.locator("[data-bmq-kho-names] li").filter({ has: page.locator("[data-bmq-kho-held]") }).first().locator(".d3-kho-row-main").click();
+    await page.waitForSelector("[data-bmq-kho-hold-detail]");
+    assert.match(await page.locator("[data-bmq-kho-hold-detail]").innerText(), /PXK-NVL-Q7-QA-001/);
+    await shot(page, `commit-detail-${vp.width}.png`, false);
+    pass(`Đã đặt / Giữ cho sản xuất on Danh mục kho + detail ${vp.width}`);
+    assert.deepEqual(errors, [], `page errors commitments ${vp.width}`);
     await context.close();
 
     // ---------- Tên mới trên phiếu ----------

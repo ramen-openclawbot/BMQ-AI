@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useKhoItems } from "@/hooks/useKhoItems";
+import { useKhoCommitments } from "@/hooks/useKhoCommitments";
+import { commitmentByItem, commitmentBySku, dayLabel } from "@/lib/kho-commitments";
 import { useWarehouseGameSnapshot, WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY } from "@/hooks/useWarehouseGame";
 import { filterItems, khoErrorText, searchKey, type KhoItem, type KhoLocation } from "@/lib/kho-items";
 import type { WarehouseGamePendingRow, WarehouseGameSku } from "@/lib/warehouse-game";
@@ -148,6 +150,11 @@ function Catalog({ items, loading, error, onRetry, activeCount, canEdit, newCoun
   const [showOff, setShowOff] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
   const fg = useFinishedGoods();
+  const commitments = useKhoCommitments();
+  const holds = useMemo(() => (commitments.data ? commitmentByItem(commitments.data) : null), [commitments.data]);
+  const orders = useMemo(() => (commitments.data ? commitmentBySku(commitments.data) : null), [commitments.data]);
+  const asOf = commitments.data?.as_of ?? "";
+  const gaps = commitments.data?.gaps;
   const finished = useMemo<Record<KhoLocation, FinishedRow[]>>(() => {
     const bySku = new Map((fg.data?.items ?? []).map((row) => [row.sku_code, row]));
     const tanTao = FINISHED.map(({ sku, name }) => {
@@ -224,6 +231,11 @@ function Catalog({ items, loading, error, onRetry, activeCount, canEdit, newCoun
           ) : null}
         </div>
         {!canEdit && !loading && !error ? <p className="d3-kho-hint">Tài khoản này chỉ xem được. Người có quyền sửa kho mới đổi được tên, đơn vị, loại hàng và bật/tắt.</p> : null}
+        {kho === "q7" && group !== "tp" && gaps && gaps.pxk_lines_unposted > 0 ? (
+          <p className="d3-kho-hint is-warn" data-bmq-kho-pxk-gap>
+            {gaps.pxk_lines_unposted} dòng trên {gaps.pxk_unposted_issues.length} phiếu xuất NVL chưa trừ được vì chưa khớp công thức với món trong kho, nên số giữ cho sản xuất đang thiếu phần này.
+          </p>
+        ) : null}
         {group === "tp" && !showOff && !loading && !error ? (
           <p className="d3-kho-hint">{kho === "q7"
             ? "Bánh ngọt Kho Q7. Tồn lấy từ sổ thành phẩm Q7, nhập/xuất ở trang Phiếu kho."
@@ -240,15 +252,26 @@ function Catalog({ items, loading, error, onRetry, activeCount, canEdit, newCoun
             <div className="d3-kho-listhead" aria-hidden="true"><span>Mặt hàng</span><span>Tồn sổ</span></div>
             {fgRows.length ? (
               <ul className="d3-kho-list" data-bmq-kho-finished>
-                {fgRows.map((row) => (
-                  <li key={row.sku} className="d3-kho-row is-static" data-bmq-kho-fg={row.sku}>
-                    <span className="d3-kho-row-main">
-                      <b>{row.name}</b>
-                      <small><span>{row.unit}</span><span>{row.sku}</span></small>
-                    </span>
-                    <span className="d3-kho-row-qty">{fgState === "loading" ? "…" : fgState === "error" ? "Chưa đọc được" : fmtAmount(row.onHand, row.unit)}</span>
-                  </li>
-                ))}
+                {fgRows.map((row) => {
+                  const c = orders?.get(`${kho}:${row.sku}`);
+                  const held = c ? c.committed_qty + c.overdue_qty : 0;
+                  return (
+                    <li key={row.sku} className="d3-kho-row is-static" data-bmq-kho-fg={row.sku}>
+                      <span className="d3-kho-row-main">
+                        <b>{row.name}</b>
+                        <small>
+                          <span>{row.unit}</span><span>{row.sku}</span>
+                          {c && held > 0 ? <span className="d3-kho-hold" data-bmq-kho-fg-held>Đã đặt {fmtAmount(held, c.unit)} · {c.orders} đơn · {dayLabel(asOf, c.next_date)}</span> : null}
+                          {c && c.incoming_qty > 0 ? <span>{kho === "q7" ? "sẽ làm" : "sắp nhập"} {fmtAmount(c.incoming_qty, c.unit)}</span> : null}
+                        </small>
+                      </span>
+                      <span className="d3-kho-row-qty">
+                        {fgState === "loading" ? "…" : fgState === "error" ? "Chưa đọc được" : fmtAmount(row.onHand, row.unit)}
+                        {c && held > 0 ? <small className={cn(c.available < 0 && "is-short")} data-bmq-kho-fg-available>còn bán {fmtAmount(c.available, c.unit)}</small> : null}
+                      </span>
+                    </li>
+                  );
+                })}
               </ul>
             ) : null}
             <ul className="d3-kho-list" data-bmq-kho-names>
@@ -261,9 +284,19 @@ function Catalog({ items, loading, error, onRetry, activeCount, canEdit, newCoun
                       <span>{item.doc_lines ? `${item.doc_lines} dòng phiếu` : "chưa có phiếu"}</span>
                       {!item.item_class || item.item_class === "unclassified" ? <span className="is-flag">chưa phân loại</span> : item.item_class === "non_stock" ? <span>không tính tồn</span> : null}
                       <span className="d3-kho-row-qty-sub">Tồn {fmtAmount(item.qty[kho], item.unit)}</span>
+                      {holds?.get(`${kho}:${item.id}`) ? (
+                        <span className="d3-kho-hold" data-bmq-kho-held>Giữ cho sản xuất {fmtAmount(holds.get(`${kho}:${item.id}`)?.committed_qty, item.unit)} · {dayLabel(asOf, holds.get(`${kho}:${item.id}`)?.next_date)}</span>
+                      ) : null}
                     </small>
                   </button>
-                  <span className="d3-kho-row-qty">{fmtAmount(item.qty[kho], item.unit)}</span>
+                  <span className="d3-kho-row-qty">
+                    {fmtAmount(item.qty[kho], item.unit)}
+                    {holds?.get(`${kho}:${item.id}`) && item.qty[kho] !== null ? (
+                      <small className={cn((item.qty[kho] ?? 0) - (holds.get(`${kho}:${item.id}`)?.committed_qty ?? 0) < 0 && "is-short")}>
+                        còn dùng {fmtAmount((item.qty[kho] ?? 0) - (holds.get(`${kho}:${item.id}`)?.committed_qty ?? 0), item.unit)}
+                      </small>
+                    ) : null}
+                  </span>
                 </li>
               ))}
             </ul>

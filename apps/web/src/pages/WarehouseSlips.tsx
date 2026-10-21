@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { useStockTransfers, useWarehouseGameSnapshot } from "@/hooks/useWarehouseGame";
+import { useKhoCommitments } from "@/hooks/useKhoCommitments";
+import { commitmentBySku, dayLabel } from "@/lib/kho-commitments";
 import type { WarehouseGameTransfer } from "@/lib/warehouse-game";
 import { cn } from "@/lib/utils";
 import { dmy, fmtQty } from "@/components/kho/kho-meta";
@@ -41,6 +43,8 @@ export default function WarehouseSlips() {
   const q7 = useWarehouseGameSnapshot("q7");
   const tt = useWarehouseGameSnapshot("tan_tao");
   const history = useStockTransfers(40);
+  const commitments = useKhoCommitments();
+  const orders = commitments.data ? commitmentBySku(commitments.data) : null;
   const { isOwner, canEditModule, roles } = useAuth();
   const canTransfer = isOwner || roles.includes("warehouse") || canEditModule("inventory") || canEditModule("q7_material_inventory");
   const [panel, setPanel] = useState<Panel>(null);
@@ -76,12 +80,25 @@ export default function WarehouseSlips() {
             <div className="d3-kho-failed" role="alert"><p>Không tải được tồn thành phẩm Q7.</p><Button variant="outline" onClick={() => void q7.refetch()}>Thử lại</Button></div>
           ) : skus.length ? (
             <ul className="d3-kho-list">
-              {skus.map((sku) => (
-                <li key={sku.id} className={cn("d3-kho-row is-static", sku.on_hand <= 0 && "is-off")} data-bmq-slip-sku={sku.sku_code}>
-                  <span className="d3-kho-row-main"><b>{sku.product_name}</b><small><span>{sku.sku_code}</span></small></span>
-                  <span className="d3-kho-row-qty">{fmtQty(sku.on_hand)} {sku.unit}</span>
-                </li>
-              ))}
+              {skus.map((sku) => {
+                const c = orders?.get(`q7:${sku.sku_code}`);
+                return (
+                  <li key={sku.id} className={cn("d3-kho-row is-static", sku.on_hand <= 0 && !c && "is-off")} data-bmq-slip-sku={sku.sku_code}>
+                    <span className="d3-kho-row-main">
+                      <b>{sku.product_name}</b>
+                      <small>
+                        <span>{sku.sku_code}</span>
+                        {c ? <span className="d3-kho-hold">Đã đặt {fmtQty(c.committed_qty)} · {c.orders} đơn · {dayLabel(commitments.data?.as_of ?? "", c.next_date)}</span> : null}
+                        {c && c.incoming_qty > 0 ? <span>sẽ làm {fmtQty(c.incoming_qty)}</span> : null}
+                      </small>
+                    </span>
+                    <span className="d3-kho-row-qty">
+                      {fmtQty(sku.on_hand)} {sku.unit}
+                      {c ? <small className={cn(c.available < 0 && "is-short")}>còn bán {fmtQty(c.available)}</small> : null}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           ) : <p className="d3-kho-empty">Kho Q7 chưa có mã thành phẩm nào.</p>}
         </section>

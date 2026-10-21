@@ -830,6 +830,18 @@ html.bmq-d3 .d3-kho-addrow:hover { border-color: var(--d3-ink); }
 .d3-kho-addrow small { font-size: 12.5px; font-weight: 400; color: var(--d3-dim); }
 .d3-kho-conv-empty { padding: 12px 14px; border: 1px dashed var(--d3-line-2); border-radius: 12px; font-size: 13px; color: var(--d3-dim); }
 
+/* ---------- Đã đặt / Giữ cho sản xuất (owner 22/10) ---------- */
+.d3-kho-hold { color: var(--d3-ink-2); }
+.d3-kho-row-qty small { display: block; margin-top: 2px; font-size: 12px; color: var(--d3-dim); }
+.d3-kho-row-qty small.is-short { color: var(--kho-bad, #8f2414); }
+.d3-kho-holdsec { display: grid; gap: 10px; padding: 12px 14px; border-radius: 14px; background: var(--d3-white); }
+.d3-kho-holdlist { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.d3-kho-holdlist li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 12px; font-size: 13px; color: var(--d3-ink-2); font-variant-numeric: tabular-nums; }
+.d3-kho-holdlist li span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.d3-kho-holdlist li span:nth-child(2) { color: var(--d3-dim); }
+.d3-kho-holdlist b { font-weight: 500; color: var(--d3-ink); text-align: right; }
+.d3-kho-holdsec .d3-kho-quiet b { color: var(--d3-ink); font-weight: 500; }
+
 /* ---------- phones ---------- */
 @media (max-width: 760px) {
   .d3-kho .d3-wh-head { align-items: stretch; }

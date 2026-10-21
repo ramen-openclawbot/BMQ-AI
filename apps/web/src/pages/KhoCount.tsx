@@ -3,6 +3,8 @@ import { Check, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useKhoCountItem, useKhoItems } from "@/hooks/useKhoItems";
+import { useKhoCommitments } from "@/hooks/useKhoCommitments";
+import { commitmentByItem, dayLabel, type KhoItemCommitment } from "@/lib/kho-commitments";
 import { filterItems, khoErrorText, type KhoItem, type KhoLocation } from "@/lib/kho-items";
 import { cn } from "@/lib/utils";
 import { ItemDialog } from "@/components/kho/ItemDialog";
@@ -29,6 +31,8 @@ export default function KhoCount() {
   const canEdit = Boolean(list.data?.can_edit);
   const unitItem = items.find((item) => item.id === unitId) ?? null;
   const { confirm, dialog } = useKhoConfirm();
+  const commitments = useKhoCommitments();
+  const holds = useMemo(() => (commitments.data ? commitmentByItem(commitments.data) : null), [commitments.data]);
   const today = todayVN();
   const all = useMemo(() => items.filter((item) => inCountList(item, kho)), [items, kho]);
   const done = all.filter((item) => item.last_count_date[kho] === today).length;
@@ -86,7 +90,8 @@ export default function KhoCount() {
         ) : (
           <>
             <ul className="d3-kho-list" data-bmq-kho-count={kho}>
-              {rows.map((item) => <CountRow key={`${kho}:${item.id}`} item={item} loc={kho} today={today} canCount={canCount[kho]} onSaved={(text) => toast({ title: text })} onOpen={() => setUnitId(item.id)} />)}
+              {rows.map((item) => <CountRow key={`${kho}:${item.id}`} item={item} loc={kho} today={today} canCount={canCount[kho]} onSaved={(text) => toast({ title: text })} onOpen={() => setUnitId(item.id)}
+                hold={holds?.get(`${kho}:${item.id}`) ?? null} asOf={commitments.data?.as_of ?? ""} />)}
             </ul>
             {rows.length === 0 ? (
               <p className="d3-kho-empty" data-bmq-kho-empty>
@@ -106,8 +111,10 @@ export default function KhoCount() {
   );
 }
 
-function CountRow({ item, loc, today, canCount, onSaved, onOpen }: {
+function CountRow({ item, loc, today, canCount, onSaved, onOpen, hold, asOf }: {
   item: KhoItem; loc: KhoLocation; today: string; canCount: boolean; onSaved: (text: string) => void; onOpen: () => void;
+  /** Usage already booked for a later delivery day: still on the shelf today, so it is counted. */
+  hold: KhoItemCommitment | null; asOf: string;
 }) {
   const count = useKhoCountItem();
   const units = countUnits(item.unit);
@@ -145,6 +152,7 @@ function CountRow({ item, loc, today, canCount, onSaved, onOpen }: {
         <small>
           <span>Sổ {fmtAmount(book, item.unit)}</span>
           <span>{item.last_count_date[loc] ? `Đếm ${dmy(item.last_count_date[loc])}` : "Chưa đếm lần nào"}</span>
+          {hold ? <span className="d3-kho-hold" title="Hàng này vẫn còn trên kệ hôm nay, cứ đếm bình thường">Giữ cho sản xuất {fmtAmount(hold.committed_qty, item.unit)} · {dayLabel(asOf, hold.next_date)}</span> : null}
         </small>
         {last ? (
           <p className="d3-kho-done" data-bmq-kho-done>

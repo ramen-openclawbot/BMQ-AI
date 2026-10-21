@@ -12,6 +12,8 @@ import type { KhoConfirmOptions } from "./KhoConfirm";
 import { KhoDialog } from "./KhoDialog";
 import { ReceiptNotes } from "./ReceiptNotes";
 import { UnitAndConversions } from "./UnitSections";
+import { useKhoCommitments } from "@/hooks/useKhoCommitments";
+import { dayLabel } from "@/lib/kho-commitments";
 
 type Ask = { kind: "merge"; other: { id: string; name: string; unit: string }; from: string; to: string } | { kind: "unit"; from: string; to: string };
 type MovableGroup = Exclude<Group, "tp">;
@@ -34,6 +36,9 @@ export function ItemDialog({ item, items, canEdit, confirm, onDone, onClose, onT
   const setClass = useSetStockItemClass();
   const queryClient = useQueryClient();
   const lines = useItemReceiptLines(item.id, true);
+  const commitments = useKhoCommitments();
+  const kho: KhoLocation = item.in_q7 ? "q7" : "tan_tao";
+  const hold = commitments.data?.items.find((c) => c.kitchen_inventory_item_id === item.id && c.location === kho) ?? null;
   const setPlace = useSetItemPastryQ7();
   const group = groupOf(item);
   const [name, setName] = useState(item.name);
@@ -176,6 +181,24 @@ export function ItemDialog({ item, items, canEdit, confirm, onDone, onClose, onT
           </Button>
           <Button variant="outline" onClick={onClose}>Đóng</Button>
         </div>
+      ) : null}
+      {hold ? (
+        <section className="d3-kho-holdsec" data-bmq-kho-hold-detail>
+          <div className="d3-kho-sec-h">
+            <h3>Giữ cho sản xuất · {fmtAmount(hold.committed_qty, item.unit)}</h3>
+            <small>Phiếu xuất NVL cho ngày tới. Sổ tồn trừ vào đầu ngày đó; hôm nay hàng vẫn trên kệ.</small>
+          </div>
+          <ul className="d3-kho-holdlist">
+            {hold.sources.map((source) => (
+              <li key={`${source.ref}-${source.date}`}>
+                <span>{source.ref}</span>
+                <span>{dayLabel(commitments.data?.as_of ?? "", source.date)}</span>
+                <b>{fmtAmount(source.qty, item.unit)}</b>
+              </li>
+            ))}
+          </ul>
+          {item.qty[kho] !== null ? <p className="d3-kho-quiet">Còn dùng được sau khi trừ: <b>{fmtAmount((item.qty[kho] ?? 0) - hold.committed_qty, item.unit)}</b></p> : null}
+        </section>
       ) : null}
       <UnitAndConversions item={item} canEdit={canEdit} lines={lines.data} linesLoading={lines.isLoading} linesError={lines.error}
         onToast={onToast} onReplaced={onReplaced} />
