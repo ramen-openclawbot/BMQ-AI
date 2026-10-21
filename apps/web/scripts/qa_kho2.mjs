@@ -65,6 +65,15 @@ function settle(st) {
     const book = me.qty[st.args.p_location] ?? 0;
     return { data: { status: "counted", location: st.args.p_location, item_id: st.args.p_item_id, counted_qty: st.args.p_counted_qty, result: { status: "recorded", difference_qty: st.args.p_counted_qty - book } }, error: null };
   }
+  if (st.table === "rpc:get_tan_tao_warehouse_snapshot") {
+    return { data: { can_manage: role === "owner", items: [
+      { sku_code: "BMQ-001", product_name: "Bánh mì tươi", unit: "que", on_hand_quantity: 38 },
+      { sku_code: "BMQ-002", product_name: "Bánh mì đông lạnh", unit: "que", on_hand_quantity: 194 },
+      { sku_code: "PATE-500G", product_name: "Pate 500g", unit: "hộp", on_hand_quantity: 23 },
+      { sku_code: "PATE-200G", product_name: "Pate 200g", unit: "hộp", on_hand_quantity: 22 },
+    ] }, error: null };
+  }
+  if (st.table === "rpc:set_stock_item_class") return { data: { item_id: st.args.p_item_id, old_class: null, item_class: st.args.p_class }, error: null };
   if (st.table === "rpc:get_item_receipt_lines" || st.table === "rpc:get_crate_receipt_lines") return { data: window.__kgFixture.receipt_lines ?? [], error: null };
   if (st.table === "rpc:get_warehouse_game_snapshot") {
     const F = window.__kgFixture;
@@ -199,11 +208,50 @@ try {
     let { context, page, errors } = await open({ role: "owner" }, "/warehouse/game", vp);
     await page.waitForSelector("[data-bmq-kho2-door='names']");
     assert.equal(await page.locator("[data-bmq-kho2-door]").count(), 2, "exactly two doors");
+    assert.match(await page.locator("[data-bmq-kho2-door='names'] b").textContent(), /^Danh mục$/);
+    assert.match(await page.locator("[data-bmq-kho2-door='count'] b").textContent(), /^Kiểm kê$/);
+    assert.equal(await page.locator(".k2 :text-matches('Tên hàng|Đếm hàng')").count(), 0, "old labels gone");
     await noSpill(page, "home", vp);
     await page.screenshot({ path: `${EVIDENCE}/home-${vp.width}.png` });
-    pass(`home two doors ${vp.width}`);
+    pass(`home two doors Danh mục + Kiểm kê ${vp.width}`);
 
-    // Tên hàng list
+    // Danh mục: three groups
+    await page.locator("[data-bmq-kho2-door='names']").click();
+    await page.waitForSelector("[data-bmq-kho2-groups]");
+    assert.deepEqual(await page.locator("[data-bmq-kho2-group] b").allTextContents(), ["Nguyên liệu", "Bao bì & vật tư", "Thành phẩm"]);
+    assert.equal(await page.locator("[data-bmq-kho2-group='nl']").getAttribute("aria-selected"), "true", "opens on Nguyên liệu");
+    const nlNames = await page.locator("[data-bmq-kho2-names] li b").allTextContents();
+    assert.ok(nlNames.some((n) => /băng keo lớn/i.test(n)) && !nlNames.some((n) => /băng keo nhỏ/i.test(n)), "packaging not in Nguyên liệu");
+    await page.locator("[data-bmq-kho2-group='bb']").click();
+    const bbNames = await page.locator("[data-bmq-kho2-names] li b").allTextContents();
+    assert.ok(bbNames.some((n) => /băng keo nhỏ/i.test(n)) && !bbNames.some((n) => /băng keo lớn/i.test(n)), "Bao bì list");
+    await noSpill(page, "group-bb", vp);
+    await page.screenshot({ path: `${EVIDENCE}/group-bb-${vp.width}.png` });
+    await page.locator("[data-bmq-kho2-group='tp']").click();
+    await page.waitForSelector("[data-bmq-kho2-fg]");
+    assert.deepEqual(await page.locator("[data-bmq-kho2-fg] b").allTextContents(), ["Bánh mì que đông lạnh", "Pate 200g", "Pate 500g"]);
+    assert.match(await page.locator("[data-bmq-kho2-fg='BMQ-002']").textContent(), /Tồn 194 que/);
+    await noSpill(page, "group-tp", vp);
+    await page.screenshot({ path: `${EVIDENCE}/group-tp-${vp.width}.png` });
+    pass(`Danh mục groups Nguyên liệu / Bao bì & vật tư / Thành phẩm ${vp.width}`);
+
+    // Move an item to another group from its sheet
+    await page.locator("[data-bmq-kho2-group='nl']").click();
+    const moveId = await page.evaluate(() => window.__kgFixture.items[0].id);
+    await page.locator(`[data-bmq-kho2-item='${moveId}']`).click();
+    await page.waitForSelector("[data-bmq-kho2-class]");
+    assert.equal(await page.locator("[data-bmq-kho2-class-pick='nl']").getAttribute("aria-pressed"), "true");
+    await page.waitForTimeout(700);
+    await page.screenshot({ path: `${EVIDENCE}/class-pick-${vp.width}.png` });
+    await page.locator("[data-bmq-kho2-class-pick='bb']").click();
+    await page.waitForSelector("[data-bmq-kho2-name]", { state: "detached", timeout: 4000 });
+    let moved = await calls(page);
+    assert.ok(moved.some((c) => c.startsWith("rpc:set_stock_item_class:") && c.includes(moveId) && c.includes('"p_class":"packaging_supply"')), "class call");
+    pass(`move an item to Bao bì & vật tư ${vp.width}`);
+    await context.close();
+    ({ context, page, errors } = await open({ role: "owner" }, "/warehouse/game", vp));
+
+    // Danh mục list
     await page.locator("[data-bmq-kho2-door='names']").click();
     await page.waitForSelector("[data-bmq-kho2-names] li");
     const rows = await page.locator("[data-bmq-kho2-names] li").count();

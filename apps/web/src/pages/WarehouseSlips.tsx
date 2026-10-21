@@ -11,7 +11,7 @@ import "@/game/kho2.css";
 
 /**
  * Phiếu kho (owner 21/10/2026): the finished-goods and transfer slips left the warehouse game,
- * which now keeps only Tên hàng + Đếm hàng. Same sheets, same data, own page.
+ * which now keeps only Danh mục + Kiểm kê. Same sheets, same data, own page.
  */
 type Panel = { kind: "finished"; mode: FinishedGoodsMode } | { kind: "transfers" } | null;
 

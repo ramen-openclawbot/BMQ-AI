@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { useQueryClient } from "@tanstack/react-query";
-import { useKhoCountItem, useKhoItems, useKhoSaveItem } from "@/hooks/useKhoItems";
-import { useItemReceiptLines, useWarehouseGameSnapshot, WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY } from "@/hooks/useWarehouseGame";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import { KHO_ITEMS_QUERY_KEY, useKhoCountItem, useKhoItems, useKhoSaveItem } from "@/hooks/useKhoItems";
+import { useItemReceiptLines, useSetStockItemClass, useWarehouseGameSnapshot, WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY, type StockItemClass } from "@/hooks/useWarehouseGame";
 import { filterItems, khoErrorText, searchKey, standardUnitFactor, type KhoItem, type KhoLocation, type KhoSaveResult } from "@/lib/kho-items";
 import type { WarehouseGamePendingRow } from "@/lib/warehouse-game";
 import { Sheet } from "@/game/Sheet";
@@ -18,13 +19,54 @@ import "@/game/game.css";
 import "@/game/kho2.css";
 
 /**
- * Game kho — 2 việc (owner 21/10/2026): Tên hàng (one name, one unit, on/off; documents grouped under
- * the confirmed name) and Đếm hàng (type the counted quantity, the ledger updates at once).
+ * Game kho — 2 việc (owner 21/10/2026): Danh mục (one name, one unit, on/off; documents grouped under
+ * the confirmed name; three groups) and Kiểm kê (type the counted quantity, the ledger updates at once).
  * Everything else that used to live in the game is hidden; the old game stays at ?ban=cu.
  */
 
 type View = "home" | "names" | "new" | "count";
 const KHO_LABEL: Record<KhoLocation, string> = { tan_tao: "Tân Tạo", q7: "Q7" };
+
+/** Danh mục groups (owner 21/10): Nguyên liệu · Bao bì & vật tư · Thành phẩm. */
+type Group = "nl" | "bb" | "tp";
+const GROUPS: { id: Group; label: string }[] = [
+  { id: "nl", label: "Nguyên liệu" },
+  { id: "bb", label: "Bao bì & vật tư" },
+  { id: "tp", label: "Thành phẩm" },
+];
+/** Kho items carry item_class; non_stock (cleaning goods, ice) are supplies. Unclassified reads as Nguyên liệu. */
+function groupOf(item: KhoItem): Group {
+  if (item.item_class === "packaging_supply" || item.item_class === "non_stock") return "bb";
+  if (item.item_class === "finished_goods") return "tp";
+  return "nl";
+}
+const CLASS_OF: Record<Exclude<Group, "tp">, StockItemClass> = { nl: "raw_material", bb: "packaging_supply" };
+
+/**
+ * Thành phẩm in the warehouse are the Tân Tạo SKUs the owner named: frozen bánh mì que and pate 200g / 500g.
+ * Fresh bánh mì que (BMQ-001) is not a stocked finished good. Stock comes from the Tân Tạo SKU ledger.
+ */
+const FINISHED: { sku: string; name: string }[] = [
+  { sku: "BMQ-002", name: "Bánh mì que đông lạnh" },
+  { sku: "PATE-200G", name: "Pate 200g" },
+  { sku: "PATE-500G", name: "Pate 500g" },
+];
+type FinishedRow = { sku: string; name: string; unit: string; onHand: number | null };
+type TanTaoSnapshot = { items?: { sku_code: string; unit?: string; on_hand_quantity?: number | string | null }[] };
+
+function useFinishedGoods() {
+  return useQuery({
+    queryKey: ["tan-tao-warehouse-snapshot"],
+    queryFn: async (): Promise<TanTaoSnapshot> => {
+      const { data, error } = await (supabase as unknown as {
+        rpc: (name: string) => Promise<{ data: unknown; error: { message: string } | null }>;
+      }).rpc("get_tan_tao_warehouse_snapshot");
+      if (error) throw new Error(error.message);
+      return (data ?? {}) as TanTaoSnapshot;
+    },
+    staleTime: 60_000,
+  });
+}
 
 function useGameFonts() {
   useEffect(() => {
@@ -99,11 +141,11 @@ export default function KhoGame() {
   const countedToday = items.filter((item) => item.last_count_date.tan_tao === today || item.last_count_date.q7 === today).length;
 
   const back = () => setView(view === "new" ? "names" : "home");
-  const title = view === "names" ? "Tên hàng" : view === "new" ? "Hàng mới trên phiếu" : view === "count" ? "Đếm hàng" : "Game kho";
+  const title = view === "names" ? "Danh mục" : view === "new" ? "Hàng mới trên phiếu" : view === "count" ? "Kiểm kê" : "Game kho";
   const subtitle = view === "names" ? `${activeCount} món đang bật`
     : view === "new" ? `${pending.length} tên trên phiếu chưa có trong kho`
     : view === "count" ? "Gõ số đếm được, sổ cập nhật ngay"
-    : "Tên hàng · Đếm hàng";
+    : "Danh mục · Kiểm kê";
 
   return (
     <div className="kg is-full k2" data-bmq-kho2 data-bmq-warehouse-game>
@@ -119,7 +161,7 @@ export default function KhoGame() {
       </header>
 
       <main className="stage k2-stage">
-        {list.isLoading ? <GameLoading lines={["Đang mở sổ kho…", "Đang đếm tên hàng…"]} />
+        {list.isLoading ? <GameLoading lines={["Đang mở sổ kho…", "Đang đọc danh mục…"]} />
           : list.isError ? (
             <div className="k2-wrap"><div className="err">{khoErrorText(list.error)}</div><button type="button" className="btn" onClick={() => list.refetch()}>Thử lại</button></div>
           ) : view === "home" ? (
@@ -150,8 +192,8 @@ function Home({ activeCount, offCount, newCount, countedToday, onGo }: {
       <button type="button" className="k2-door is-names" onClick={() => onGo("names")} data-bmq-kho2-door="names">
         <span className="k2-door-icon" aria-hidden="true">🏷️</span>
         <span className="k2-door-text">
-          <b>Tên hàng</b>
-          <small>Mỗi món một tên, một đơn vị, một nút bật/tắt. Hóa đơn và phiếu giao gộp theo tên này.</small>
+          <b>Danh mục</b>
+          <small>Nguyên liệu, bao bì & vật tư, thành phẩm. Mỗi món một tên, một đơn vị, một nút bật/tắt.</small>
           <span className="k2-chips">
             <i>{activeCount} món đang bật</i>
             {offCount ? <i>{offCount} đã tắt</i> : null}
@@ -162,7 +204,7 @@ function Home({ activeCount, offCount, newCount, countedToday, onGo }: {
       <button type="button" className="k2-door is-count" onClick={() => onGo("count")} data-bmq-kho2-door="count">
         <span className="k2-door-icon" aria-hidden="true">⚖️</span>
         <span className="k2-door-text">
-          <b>Đếm hàng</b>
+          <b>Kiểm kê</b>
           <small>Chọn kho, gõ số đếm được. Sổ tồn cập nhật ngay.</small>
           <span className="k2-chips"><i>⭐ Hôm nay đã đếm {countedToday} món</i></span>
         </span>
@@ -172,21 +214,42 @@ function Home({ activeCount, offCount, newCount, countedToday, onGo }: {
   );
 }
 
-/* ---------------------------------------------------------------- Tên hàng */
+/* ---------------------------------------------------------------- Danh mục */
 
 function NamesView({ items, canEdit, newCount, onNew, onToast }: {
   items: KhoItem[]; canEdit: boolean; newCount: number; onNew: () => void; onToast: (text: string) => void;
 }) {
+  const [group, setGroup] = useState<Group>("nl");
   const [query, setQuery] = useState("");
   const [showOff, setShowOff] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
   const save = useKhoSaveItem();
-  const off = items.filter((item) => !item.active);
+  const fg = useFinishedGoods();
+  const finished = useMemo<FinishedRow[]>(() => {
+    const bySku = new Map((fg.data?.items ?? []).map((row) => [row.sku_code, row]));
+    return FINISHED.map(({ sku, name }) => {
+      const row = bySku.get(sku);
+      const onHand = row ? Number(row.on_hand_quantity ?? 0) : null;
+      return { sku, name, unit: row?.unit ?? (sku.startsWith("PATE") ? "hộp" : "que"), onHand: Number.isFinite(onHand) ? onHand : null };
+    });
+  }, [fg.data]);
+  const inGroup = useMemo(() => items.filter((item) => groupOf(item) === group), [items, group]);
+  const off = inGroup.filter((item) => !item.active);
   const rows = useMemo(
-    () => filterItems(items, query).filter((item) => item.active !== showOff),
-    [items, query, showOff],
+    () => filterItems(inGroup, query).filter((item) => item.active !== showOff),
+    [inGroup, query, showOff],
   );
+  const fgRows = useMemo(() => {
+    const key = searchKey(query);
+    return group !== "tp" || showOff ? [] : finished.filter((row) => !key || searchKey(row.name).includes(key));
+  }, [group, showOff, finished, query]);
+  const counts = useMemo(() => {
+    const c: Record<Group, number> = { nl: 0, bb: 0, tp: FINISHED.length };
+    for (const item of items) if (item.active) c[groupOf(item)] += 1;
+    return c;
+  }, [items]);
   const open = items.find((item) => item.id === openId) ?? null;
+  const groupLabel = GROUPS.find((g) => g.id === group)?.label.toLowerCase() ?? "";
 
   const flip = async (item: KhoItem) => {
     if (item.active) {
@@ -215,14 +278,43 @@ function NamesView({ items, canEdit, newCount, onNew, onToast }: {
           <span className="pick-go">Xem</span>
         </button>
       ) : null}
-      <div className="k2-tools">
-        <input className="k2-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm tên hàng…" aria-label="Tìm tên hàng" />
-        <div className="loc-switch" role="tablist" aria-label="Lọc">
-          <button type="button" role="tab" aria-selected={!showOff} className={!showOff ? "is-on" : undefined} onClick={() => setShowOff(false)}>Đang bật</button>
-          <button type="button" role="tab" aria-selected={showOff} className={showOff ? "is-on" : undefined} onClick={() => setShowOff(true)}>Đã tắt {off.length ? `· ${off.length}` : ""}</button>
-        </div>
+      <div className="k2-groups" role="tablist" aria-label="Loại hàng" data-bmq-kho2-groups>
+        {GROUPS.map((g) => (
+          <button key={g.id} type="button" role="tab" aria-selected={group === g.id} className={group === g.id ? "is-on" : undefined}
+            onClick={() => { setGroup(g.id); setShowOff(false); }} data-bmq-kho2-group={g.id}>
+            <b>{g.label}</b><small>{counts[g.id]} món</small>
+          </button>
+        ))}
       </div>
-      {!canEdit ? <p className="k2-hint">Tài khoản này chỉ xem được. Người có quyền sửa kho mới đổi được tên, đơn vị và bật/tắt.</p> : null}
+      <div className="k2-tools">
+        <input className="k2-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`Tìm ${groupLabel}…`} aria-label={`Tìm ${groupLabel}`} />
+        {group !== "tp" || off.length ? (
+          <div className="loc-switch" role="tablist" aria-label="Lọc">
+            <button type="button" role="tab" aria-selected={!showOff} className={!showOff ? "is-on" : undefined} onClick={() => setShowOff(false)}>Đang bật</button>
+            <button type="button" role="tab" aria-selected={showOff} className={showOff ? "is-on" : undefined} onClick={() => setShowOff(true)}>Đã tắt {off.length ? `· ${off.length}` : ""}</button>
+          </div>
+        ) : null}
+      </div>
+      {!canEdit ? <p className="k2-hint">Tài khoản này chỉ xem được. Người có quyền sửa kho mới đổi được tên, đơn vị, loại hàng và bật/tắt.</p> : null}
+      {group === "tp" && !showOff ? (
+        <p className="k2-hint">Thành phẩm Kho Tân Tạo. Tồn lấy từ sổ thành phẩm, nhập/xuất qua phiếu kho Tân Tạo.</p>
+      ) : null}
+      {fgRows.length ? (
+        <ul className="k2-list" data-bmq-kho2-finished>
+          {fgRows.map((row) => (
+            <li key={row.sku} className="k2-row is-fg" data-bmq-kho2-fg={row.sku}>
+              <div className="k2-row-main">
+                <b>{row.name}</b>
+                <small>
+                  <span className="k2-unit">{row.unit}</span>
+                  <span>Tân Tạo</span>
+                  <span>{fg.isLoading ? "đang đọc tồn…" : fg.isError ? "chưa đọc được tồn" : `Tồn ${fmtAmount(row.onHand, row.unit)}`}</span>
+                </small>
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : null}
       <ul className="k2-list" data-bmq-kho2-names>
         {rows.map((item) => (
           <li key={item.id} className={`k2-row${item.active ? "" : " is-off"}`}>
@@ -232,6 +324,7 @@ function NamesView({ items, canEdit, newCount, onNew, onToast }: {
                 <span className="k2-unit">{item.unit}</span>
                 {item.in_q7 ? <span>Để ở Q7</span> : <span>Tân Tạo</span>}
                 <span>{item.doc_lines ? `${item.doc_lines} dòng phiếu` : "chưa có phiếu"}</span>
+                {!item.item_class || item.item_class === "unclassified" ? <span>chưa phân loại</span> : item.item_class === "non_stock" ? <span>không tính tồn</span> : null}
               </small>
             </button>
             {canEdit ? (
@@ -241,7 +334,7 @@ function NamesView({ items, canEdit, newCount, onNew, onToast }: {
           </li>
         ))}
       </ul>
-      {rows.length === 0 ? <p className="k2-empty">{query ? `Không có món nào khớp “${query}”.` : showOff ? "Chưa có món nào tắt." : "Chưa có món nào."}</p> : null}
+      {rows.length === 0 && fgRows.length === 0 ? <p className="k2-empty">{query ? `Không có món nào khớp “${query}”.` : showOff ? "Chưa có món nào tắt." : "Chưa có món nào."}</p> : null}
       {open ? <ItemSheet key={open.id} item={open} items={items} canEdit={canEdit} onDone={(text) => { onToast(text); setOpenId(null); }} onClose={() => setOpenId(null)} /> : null}
     </div>
   );
@@ -253,7 +346,22 @@ function ItemSheet({ item, items, canEdit, onDone, onClose }: {
   item: KhoItem; items: KhoItem[]; canEdit: boolean; onDone: (text: string) => void; onClose: () => void;
 }) {
   const save = useKhoSaveItem();
+  const setClass = useSetStockItemClass();
+  const queryClient = useQueryClient();
   const lines = useItemReceiptLines(item.id, true);
+  const group = groupOf(item);
+  const moveTo = (next: Exclude<Group, "tp">) => {
+    if (next === group) return;
+    setClass.mutate(
+      { itemId: item.id, itemClass: CLASS_OF[next] },
+      {
+        onSuccess: () => {
+          void queryClient.invalidateQueries({ queryKey: [KHO_ITEMS_QUERY_KEY] });
+          onDone(`Đã chuyển “${item.name}” sang ${GROUPS.find((g) => g.id === next)?.label}`);
+        },
+      },
+    );
+  };
   const [name, setName] = useState(item.name);
   const [unit, setUnit] = useState(item.unit);
   const [active, setActive] = useState(item.active);
@@ -309,7 +417,7 @@ function ItemSheet({ item, items, canEdit, onDone, onClose }: {
   const standard = ask ? standardUnitFactor(ask.from, ask.to) : null;
 
   return (
-    <Sheet title={item.name} tag="🏷️ Tên hàng" sub={`${item.in_q7 ? "Để ở Q7" : "Kho Tân Tạo"} · Tồn Tân Tạo ${fmtAmount(item.qty.tan_tao, item.unit)} · Q7 ${fmtAmount(item.qty.q7, item.unit)}`} onClose={onClose}>
+    <Sheet title={item.name} tag="🏷️ Danh mục" sub={`${item.in_q7 ? "Để ở Q7" : "Kho Tân Tạo"} · Tồn Tân Tạo ${fmtAmount(item.qty.tan_tao, item.unit)} · Q7 ${fmtAmount(item.qty.q7, item.unit)}`} onClose={onClose}>
       <label className="field">Tên duy nhất
         <input value={name} onChange={(event) => { setName(event.target.value); setAsk(null); }} maxLength={120} disabled={!canEdit} data-bmq-kho2-name />
       </label>
@@ -318,6 +426,15 @@ function ItemSheet({ item, items, canEdit, onDone, onClose }: {
         <GamePicker value={unit} onChange={(value) => { setUnit(value); setAsk(null); }} title="Đơn vị" ariaLabel="Đơn vị" options={unitOptions} disabled={!canEdit} />
       </label>
       <p className="k2-hint">Cân theo g, đong theo ml: 1 kg = 1000 g và 1 lít = 1000 ml máy tự đổi.</p>
+      <div className="field">Loại hàng
+        <div className="k2-units k2-class" role="group" aria-label="Loại hàng" data-bmq-kho2-class>
+          {GROUPS.filter((g): g is { id: Exclude<Group, "tp">; label: string } => g.id !== "tp").map((g) => (
+            <button key={g.id} type="button" aria-pressed={group === g.id} className={group === g.id ? "is-on" : undefined}
+              disabled={!canEdit || setClass.isPending} onClick={() => moveTo(g.id)} data-bmq-kho2-class-pick={g.id}>{g.label}</button>
+          ))}
+        </div>
+      </div>
+      {setClass.error ? <div className="err">{khoErrorText(setClass.error)}</div> : null}
       <div className={`pastry-switch${active ? " is-on" : ""}`}>
         <span><b>{active ? "Đang bật" : "Đã tắt"}</b><small>{active ? "Hiện khi đếm và khi đặt hàng" : "Không hiện khi đếm, sổ tồn giữ nguyên"}</small></span>
         <button type="button" role="switch" aria-checked={active} aria-label="Bật/tắt món" className="kg-switch" disabled={!canEdit} onClick={() => setActive((v) => !v)}><i /></button>
@@ -379,7 +496,7 @@ function NewLinesView({ rows, q7, tt, loading, onAssigned }: {
   );
 }
 
-/* ---------------------------------------------------------------- Đếm hàng */
+/* ---------------------------------------------------------------- Kiểm kê */
 
 function CountView({ items, canCount, today, onToast }: {
   items: KhoItem[]; canCount: { tan_tao: boolean; q7: boolean }; today: string; onToast: (text: string) => void;
