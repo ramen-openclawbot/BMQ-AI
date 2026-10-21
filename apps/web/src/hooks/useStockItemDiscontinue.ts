@@ -11,6 +11,7 @@ import {
   MATERIAL_LINK_REVIEW_QUERY_KEY,
 } from "./useMaterialLinkQuest";
 import { MISSIONS_QUERY_KEY } from "./useMissions";
+import { STOCK_LEDGER_OVERVIEW_QUERY_KEY } from "./useStockLedger";
 import { WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY } from "./useWarehouseGame";
 
 export const DISCONTINUED_ITEMS_QUERY_KEY = "discontinued-stock-items";
@@ -80,5 +81,39 @@ export function useReactivateStockItem() {
       return data as DiscontinueResult;
     },
     onSuccess: () => invalidateDiscontinuedItems(queryClient),
+  });
+}
+
+export interface SetStockItemInUseInput {
+  itemId: string;
+  /** false turns the item OFF (discontinue); true turns it back ON. */
+  inUse: boolean;
+  reason?: string;
+}
+
+/**
+ * The ON/OFF switch on one item. Stopping is allowed while stock is left: the
+ * server records the on-hand at stop time, so the stopped item still shows on
+ * the right shelf/warehouse.
+ */
+export function useSetStockItemInUse() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: SetStockItemInUseInput): Promise<DiscontinueResult> => {
+      const { data, error } = input.inUse
+        ? await rpcClient.rpc("reactivate_stock_item", { p_item_id: input.itemId })
+        : await rpcClient.rpc("discontinue_stock_item", {
+            p_item_id: input.itemId,
+            p_reason: input.reason ?? null,
+            p_request_id: crypto.randomUUID(),
+          });
+      if (error) throw error;
+      return data as DiscontinueResult;
+    },
+    onSuccess: () => {
+      // Same refresh as the old Ngưng dùng button (shelf, link deck, counts, missions) plus the robot's ledger.
+      invalidateDiscontinuedItems(queryClient);
+      void queryClient.invalidateQueries({ queryKey: [STOCK_LEDGER_OVERVIEW_QUERY_KEY] });
+    },
   });
 }

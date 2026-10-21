@@ -51,6 +51,8 @@ import type { StockBotState } from "@/game/three/Warehouse3D";
 import { LowStockSheet } from "@/game/LowStock";
 import { useStockLedgerOverview } from "@/hooks/useStockLedger";
 import { lowStockList } from "@/lib/stock-ledger";
+import { useDiscontinuedStockItems, useSetStockItemInUse } from "@/hooks/useStockItemDiscontinue";
+import { discontinueErrorCode, discontinueErrorText } from "@/lib/stock-item-discontinue";
 
 type View =
   | { kind: "yard" }
@@ -380,7 +382,43 @@ export default function WarehouseGame() {
   const stockOverview = stockQuery.data && stockQuery.data.location === stockLocation ? stockQuery.data : undefined;
   const lowRows = stockOverview ? lowStockList(stockOverview) : null;
   const lowStock: StockBotState = stockQuery.isError ? "error" : lowRows ? lowRows.length : null;
-  const title = view.kind === "yard" ? "Kho BMQ"
+  // ON/OFF per item (owner 21/10): Nguyên liệu and Bao bì / vật tư shelves, for anyone who can edit the warehouse
+  // (same gate as public.discontinue_stock_item / reactivate_stock_item; the server re-checks).
+  const canPower = isOwner || canEditModule("inventory") || canEditModule("q7_material_inventory") || canEditModule("kitchen_inventory") || canEditModule("material_master");
+  const powerShelf = view.kind === "shelf" && canPower && (view.cls === "raw_material" || view.cls === "packaging_supply") ? view : null;
+  const stoppedItems = useDiscontinuedStockItems(Boolean(powerShelf));
+  const shelfLedger = useStockLedgerOverview(powerShelf?.location ?? "q7", null, { enabled: Boolean(powerShelf) });
+  const setInUse = useSetStockItemInUse();
+  const [powerBusy, setPowerBusy] = useState<string | null>(null);
+  const usedPerDay = (location: WarehouseGameLocation, id: string) => {
+    const ledger = shelfLedger.data?.location === location ? shelfLedger.data : undefined;
+    const row = (location === "q7" ? ledger?.items : ledger?.materials)?.find((entry) => entry.item_id === id);
+    return row ? row.out_qty_7d / 7 : 0;
+  };
+  const offEntries: ShelfEntry[] = powerShelf ? (stoppedItems.data ?? [])
+    .filter((item) => asClass(item.item_class) === powerShelf.cls && (powerShelf.location === "tan_tao" || item.in_q7))
+    .map((item) => ({ id: item.item_id, name: item.name, code: item.item_code ?? "", unit: item.unit, qty: powerShelf.location === "q7" ? item.q7_qty : item.tan_tao_qty, aliases: 0, isSku: false, usedRecently: item.used_7d }))
+    .sort((a, b) => a.name.localeCompare(b.name, "vi")) : [];
+  const switchItem = async (location: WarehouseGameLocation, entry: ShelfEntry, on: boolean) => {
+    if (!on) {
+      const perDay = usedPerDay(location, entry.id);
+      const ok = await askGame({
+        title: `Tắt “${entry.name}”?`,
+        message: `Món sẽ không còn trong robot kiểm tồn, đặt hàng tự động và phiếu kiểm kê. Tồn ${fmtQty(entry.qty)} ${entry.unit} vẫn giữ trong sổ; bật lại ở kệ “Đã tắt” cuối trang.${perDay > 0 ? ` ⚠ 7 ngày qua món này vẫn bị trừ ~${fmtQty(perDay)} ${entry.unit}/ngày theo công thức bánh.` : ""}`,
+        ok: "Tắt món",
+        cancel: "Giữ dùng",
+        tone: "danger",
+      });
+      if (!ok) return;
+    }
+    setPowerBusy(entry.id);
+    setInUse.mutate({ itemId: entry.id, inUse: on, reason: on ? undefined : "Tắt trên kệ" }, {
+      onSuccess: () => setToast(on ? `▶ ${entry.name}: đang dùng lại` : `⏸ ${entry.name}: đã tắt — nằm ở kệ “Đã tắt”`),
+      onError: (error) => setToast(discontinueErrorText(discontinueErrorCode(error))),
+      onSettled: () => setPowerBusy(null),
+    });
+  };
+  const title =view.kind === "yard" ? "Kho BMQ"
     : view.kind === "count" ? "Kiểm kê kho"
     : view.kind === "count-sheet" ? `Kiểm kê · ${LOCATION_LABEL[view.location]}`
     : view.kind === "workshop" ? "Danh mục hàng hóa"
@@ -603,6 +641,7 @@ export default function WarehouseGame() {
               selectedId={panel?.kind === "item" ? panel.id : null}
               justSaved={justSaved}
               onPick={(entry) => (entry.isSku ? setPanel({ kind: "sku", entry }) : setPanel({ kind: "item", location: view.location, id: entry.id }))}
+              power={powerShelf ? { off: offEntries, busyId: powerBusy, onSwitch: (entry, on) => void switchItem(view.location, entry, on) } : undefined}
               tools={view.location === "q7" && view.cls === "finished_goods" && canTransfer ? (
                 <div className="bulk-tools fg-tools">
                   <button type="button" className="btn" onClick={() => setPanel({ kind: "finished", mode: "in" })} data-bmq-fg-open="in">⬇ Nhập</button>

@@ -5,7 +5,14 @@ import { GoodsIcon } from "./GoodsArt";
 import { Van } from "./Yard";
 import type { WarehouseGameSnapshot } from "@/lib/warehouse-game";
 
-export interface ShelfEntry { id: string; name: string; code: string; unit: string; qty: number; aliases: number; isSku: boolean; pastry?: boolean }
+export interface ShelfEntry { id: string; name: string; code: string; unit: string; qty: number; aliases: number; isSku: boolean; pastry?: boolean; usedRecently?: boolean }
+
+/** ON/OFF per item (owner 21/10): editors switch goods in and out of use; stopped ones wait on the last plank. */
+export interface ShelfPower {
+  off: ShelfEntry[];
+  busyId: string | null;
+  onSwitch: (entry: ShelfEntry, on: boolean) => void;
+}
 
 /** Groups an item can be moved to by hand (same set as the item sheet's "Nhóm"). */
 export type BulkClass = "raw_material" | "packaging_supply" | "finished_goods" | "non_stock";
@@ -23,7 +30,7 @@ export function entriesFor(cls: GameClass, snapshot: WarehouseGameSnapshot): She
 type Where = "all" | "tan_tao" | "q7";
 
 /** One class opened up: a long shelf of goods cards, each tappable. With `bulk`, editors can tick many and move them to a group (16/10). */
-export function Shelf({ cls, entries, started, query, onQuery, selectedId, justSaved, onPick, bulk, tools, split, place }: {
+export function Shelf({ cls, entries, started, query, onQuery, selectedId, justSaved, onPick, bulk, tools, split, place, power }: {
   cls: GameClass; entries: ShelfEntry[]; started: boolean; query: string; onQuery: (q: string) => void;
   selectedId: string | null; justSaved: string | null; onPick: (entry: ShelfEntry) => void;
   bulk?: { busy: boolean; onApply: (ids: string[], target: BulkClass) => Promise<boolean> };
@@ -33,6 +40,7 @@ export function Shelf({ cls, entries, started, query, onQuery, selectedId, justS
   split?: boolean;
   /** "Để ở kho" in the bulk bar: resolves to the ids the server refused (empty = all moved), null when nothing moved. */
   place?: { busy: boolean; onApply: (ids: string[], toQ7: boolean) => Promise<string[] | null> };
+  power?: ShelfPower;
 }) {
   const meta = CLASS_META[cls];
   const q = query.trim().toLowerCase();
@@ -87,11 +95,29 @@ export function Shelf({ cls, entries, started, query, onQuery, selectedId, justS
     if (ids.length > failed.length) setVan({ n: ids.length - failed.length, toQ7, key: Date.now() });
     if (failed.length) setPicked(new Set(failed)); else stop();
   };
+  const offList = power ? (q ? power.off.filter((entry) => entry.name.toLowerCase().includes(q) || entry.code.toLowerCase().includes(q)) : power.off) : [];
+  const powerSwitch = (entry: ShelfEntry, on: boolean) => (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={`${entry.name}: ${on ? "đang dùng, bấm để tắt" : "đã tắt, bấm để bật lại"}`}
+      className="good-power"
+      disabled={power?.busyId === entry.id}
+      onClick={() => power?.onSwitch(entry, !on)}
+      data-bmq-power={on ? "on" : "off"}
+      data-bmq-power-item={entry.id}
+    >
+      <span className="kg-switch" aria-hidden="true"><i /></span>
+      <span className="good-power-label">{power?.busyId === entry.id ? "Đang lưu…" : on ? "Đang dùng" : "Đã tắt"}</span>
+    </button>
+  );
+  const showPower = Boolean(power) && !selecting;
   const card = (entry: ShelfEntry, i: number) => {
     const ticked = selecting && picked.has(entry.id);
     const kept = atQ7(entry);
     return (
-      <li key={entry.id}>
+      <li key={entry.id} className={showPower && !entry.isSku ? "has-power" : undefined}>
         <button
           type="button"
           className={`good${kept ? " is-away" : ""}${entry.id === selectedId && !selecting ? " is-selected" : ""}${entry.id === justSaved ? " is-saved" : ""}${ticked ? " is-ticked" : ""}`}
@@ -116,9 +142,23 @@ export function Shelf({ cls, entries, started, query, onQuery, selectedId, justS
           {entry.aliases ? <span className="good-alias">🏷️ {entry.aliases}</span> : null}
           {entry.id === justSaved ? <span className="good-spark" aria-hidden="true">✨</span> : null}
         </button>
+        {showPower && !entry.isSku ? powerSwitch(entry, true) : null}
       </li>
     );
   };
+  const offCard = (entry: ShelfEntry, i: number) => (
+    <li key={entry.id} className="has-power">
+      <div className="good is-off" data-bmq-good-off={entry.id} style={{ animationDelay: `${Math.min(i, 24) * 22}ms` }}>
+        <svg viewBox="-24 -22 48 44" className="good-icon" aria-hidden="true">
+          <GoodsIcon name={entry.name} unit={entry.unit} color={C.cream} size={1.35} />
+        </svg>
+        <span className="good-name">{entry.name}</span>
+        <span className="good-meta">{started ? <><b>{fmtQty(entry.qty)}</b> {entry.unit}</> : entry.unit}</span>
+        {entry.usedRecently ? <span className="good-alias is-warn" title="7 ngày qua món này vẫn bị trừ theo công thức">⚠ còn trừ kho</span> : null}
+      </div>
+      {powerSwitch(entry, false)}
+    </li>
+  );
   return (
     <div className={`shelf-view${selecting ? " is-selecting" : ""}`}>
       <div className="shelf-head">
@@ -171,6 +211,15 @@ export function Shelf({ cls, entries, started, query, onQuery, selectedId, justS
             <span><b>Để ở Q7 · {away.length} món</b><small>Nhập ở Tân Tạo xong tự chuyển sang Q7</small></span>
           </header>
           <ul className="goods-grid">{away.map((entry, i) => card(entry, home.length + i))}</ul>
+        </section>
+      ) : null}
+      {offList.length && !selecting ? (
+        <section className="plank-wrap is-off" aria-label={`Đã tắt, ${offList.length} món`} data-bmq-off-plank>
+          <header className="q7-sign off-sign">
+            <span className="q7-sign-icon" aria-hidden="true">🔌</span>
+            <span><b>Đã tắt · {offList.length} món</b><small>Không vào robot kiểm tồn, đặt hàng, kiểm kê · tồn vẫn giữ</small></span>
+          </header>
+          <ul className="goods-grid">{offList.map((entry, i) => offCard(entry, i))}</ul>
         </section>
       ) : null}
       {selecting ? (

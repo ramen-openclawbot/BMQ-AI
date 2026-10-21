@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
-"""Static contract checks for the stock-item discontinue migration.
+"""Static contract checks for the stock-item ON/OFF toggle migration.
 
-These checks never connect to a database or Supabase. They guard that migration
-20261101230000_stock_item_discontinue.sql keeps the public contracts for the
-owner "Ngưng dùng" action (owner 15/10):
+These checks never connect to a database or Supabase. They guard migration
+20261102460000_stock_item_in_use_toggle.sql, the owner 21/10 ON/OFF request:
 
-  * public.stock_item_discontinuations exists with RLS, a select policy for
-    authenticated, and the expected table grants;
-  * public.discontinue_stock_item is gated, raises item_has_stock and
-    item_in_open_count, sets active = false, upserts the discontinuation row and
-    deletes the item from material_link_skips / material_link_pending_factors;
-  * public.reactivate_stock_item raises item_merged and clears the row;
-  * public.get_discontinued_stock_items exists and returns the owner shape;
-  * material_link_review_items_internal carries 'bot' in the same-unit shared
-    word stopwords while still merging 'huongduong';
-  * the React hook imports no .tsx module.
+  * stock_item_discontinuations gains tan_tao_qty_at_stop / q7_qty_at_stop;
+  * public.discontinue_stock_item no longer raises item_has_stock, records the
+    on-hand at stop time and accepts the old edit gates OR the 'inventory' edit
+    module permission;
+  * public.reactivate_stock_item uses the same gate;
+  * public.get_discontinued_stock_items still returns every old key and adds
+    item_class, current on-hand, in_q7, used_7d and the qty at stop;
+  * public.get_stock_ledger_overview carries 'active' and never marks a stopped
+    item as low stock;
+  * every redefined function keeps its revoke/grant contract;
+  * the hook exposes useSetStockItemInUse and the library keeps its error texts.
 
 Everything here is a text assertion; it does not prove runtime behaviour.
 """
@@ -28,22 +28,24 @@ MIGRATIONS = ROOT / "supabase" / "migrations"
 LIB = ROOT / "src" / "lib"
 HOOKS = ROOT / "src" / "hooks"
 
-MIGRATION = MIGRATIONS / "20261101230000_stock_item_discontinue.sql"
+MIGRATION = MIGRATIONS / "20261102460000_stock_item_in_use_toggle.sql"
 HOOK = HOOKS / "useStockItemDiscontinue.ts"
 LIBRARY = LIB / "stock-item-discontinue.ts"
 
 DISCONTINUE_MARKER = "create or replace function public.discontinue_stock_item("
 REACTIVATE_MARKER = "create or replace function public.reactivate_stock_item("
 LIST_MARKER = "create or replace function public.get_discontinued_stock_items("
-REVIEW_MARKER = "create or replace function public.material_link_review_items_internal("
+LEDGER_MARKER = "create or replace function public.get_stock_ledger_overview("
 
 GRANT_LINES = [
     "revoke all on function public.discontinue_stock_item(uuid, text, uuid) from public, anon;",
     "revoke all on function public.reactivate_stock_item(uuid) from public, anon;",
     "revoke all on function public.get_discontinued_stock_items() from public, anon;",
+    "revoke all on function public.get_stock_ledger_overview(text, date) from public, anon;",
     "grant execute on function public.discontinue_stock_item(uuid, text, uuid) to authenticated, service_role;",
     "grant execute on function public.reactivate_stock_item(uuid) to authenticated, service_role;",
     "grant execute on function public.get_discontinued_stock_items() to authenticated, service_role;",
+    "grant execute on function public.get_stock_ledger_overview(text, date) to authenticated, service_role;",
 ]
 
 
@@ -75,87 +77,78 @@ def main() -> None:
     assert_true(HOOK.exists(), f"missing hook {HOOK.name}")
     assert_true(LIBRARY.exists(), f"missing library {LIBRARY.name}")
     migration = read(MIGRATION)
+    flat = canon(migration)
 
-    # --- 1. table + RLS + policy + grants ------------------------------------
+    # --- 1. header + the two qty-at-stop columns -----------------------------
     assert_true(
-        "create table if not exists public.stock_item_discontinuations" in canon(migration),
-        "migration must create public.stock_item_discontinuations",
-    )
-    table_section = canon(migration)
-    assert_true(
-        "item_id uuid primary key references public.kitchen_inventory_items(id)" in table_section,
-        "discontinuations.item_id must be the item primary key",
+        "21/10" in flat or "21/10" in migration,
+        "the migration header must explain the owner 21/10 ON/OFF request",
     )
     assert_true(
-        "discontinued_at timestamptz not null default now()" in table_section,
-        "discontinuations.discontinued_at must default to now()",
+        "add column if not exists tan_tao_qty_at_stop numeric" in flat,
+        "stock_item_discontinuations must add tan_tao_qty_at_stop numeric",
     )
     assert_true(
-        "alter table public.stock_item_discontinuations enable row level security" in table_section,
-        "discontinuations must enable RLS",
-    )
-    assert_true(
-        canon(
-            "create policy stock_item_discontinuations_select on public.stock_item_discontinuations"
-            " for select to authenticated using (true)"
-        )
-        in table_section,
-        "discontinuations must grant a select policy to authenticated",
-    )
-    assert_true(
-        "grant select on table public.stock_item_discontinuations to authenticated" in table_section,
-        "discontinuations must grant select to authenticated",
-    )
-    assert_true(
-        "grant all on table public.stock_item_discontinuations to service_role" in table_section,
-        "discontinuations must grant all to service_role",
+        "add column if not exists q7_qty_at_stop numeric" in flat,
+        "stock_item_discontinuations must add q7_qty_at_stop numeric",
     )
 
     # --- 2. discontinue_stock_item -------------------------------------------
     assert_true(DISCONTINUE_MARKER in migration,
                 "migration must define public.discontinue_stock_item")
     discontinue_def = extract_function(migration, DISCONTINUE_MARKER)
-    header = discontinue_def[: discontinue_def.index("as $")]
-    assert_true("p_item_id uuid" in header, "discontinue must take p_item_id uuid")
-    assert_true("p_reason text default null" in canon(header),
+    discontinue_header = discontinue_def[: discontinue_def.index("as $")]
+    assert_true("p_item_id uuid" in discontinue_header,
+                "discontinue must take p_item_id uuid")
+    assert_true("p_reason text default null" in canon(discontinue_header),
                 "discontinue must take p_reason text default null")
-    assert_true("p_request_id uuid default null" in canon(header),
+    assert_true("p_request_id uuid default null" in canon(discontinue_header),
                 "discontinue must take p_request_id uuid default null")
-    assert_true("returns jsonb" in header, "discontinue must return jsonb")
-    assert_true("language plpgsql" in header, "discontinue must be plpgsql")
-    assert_true("security definer" in header, "discontinue must be security definer")
-    assert_true("set search_path = public, extensions, pg_temp" in header,
+    assert_true("returns jsonb" in discontinue_header,
+                "discontinue must return jsonb")
+    assert_true("security definer" in discontinue_header,
+                "discontinue must be security definer")
+    assert_true("set search_path = public, extensions, pg_temp" in discontinue_header,
                 "discontinue must keep its search_path")
+
+    # Owner 21/10: stopping is allowed with stock left.
+    assert_true(
+        re.search(r"raise\s+exception\s+'item_has_stock'", discontinue_def) is None,
+        "discontinue must NOT raise item_has_stock any more",
+    )
+    assert_true(
+        "'item_has_stock'" not in discontinue_def,
+        "the item_has_stock code must be gone from discontinue_stock_item",
+    )
+
+    # Permission gate: old gates plus the inventory edit module.
     assert_true("public.q7_material_inventory_can_edit(v_actor)" in discontinue_def,
-                "discontinue must gate on q7_material_inventory_can_edit")
+                "discontinue must keep q7_material_inventory_can_edit")
     assert_true("public.can_edit_material_master()" in discontinue_def,
-                "discontinue must fall back to can_edit_material_master")
+                "discontinue must keep can_edit_material_master")
+    assert_true(
+        "public.has_module_permission(v_actor, 'inventory', 'edit')" in discontinue_def,
+        "discontinue must accept the inventory edit module permission",
+    )
     assert_true("insufficient_privilege" in discontinue_def
                 and "errcode = '42501'" in discontinue_def,
                 "discontinue must raise insufficient_privilege 42501")
+
+    # Old behaviour kept.
     assert_true("merged_into_id is not null" in discontinue_def
                 and "item_merged" in discontinue_def,
                 "discontinue must reject merged items")
     assert_true(re.search(r"v_item\.active = false", discontinue_def) is not None,
                 "discontinue must short-circuit an inactive item")
-    assert_true("'item_has_stock'" in discontinue_def,
-                "discontinue must raise item_has_stock")
-    assert_true("errcode = '22023'" in discontinue_def,
-                "item errors must use SQLSTATE 22023")
     assert_true("'item_in_open_count'" in discontinue_def,
-                "discontinue must raise item_in_open_count")
+                "discontinue must keep the item_in_open_count rule")
     assert_true("public.stock_count_lines" in discontinue_def
                 and "public.stock_count_sessions" in discontinue_def,
                 "discontinue must inspect the open stock-count lines")
-    assert_true("status = 'open'" in discontinue_def,
-                "discontinue must only count an open stock-count session")
     assert_true(re.search(r"set active = false", discontinue_def) is not None,
                 "discontinue must set kitchen_inventory_items.active = false")
-    assert_true("insert into public.stock_item_discontinuations" in discontinue_def,
-                "discontinue must write the discontinuation row")
-    assert_true("on conflict (item_id) do update" in discontinue_def,
-                "discontinue must upsert the discontinuation row")
-    assert_true("delete from public.material_link_skips where item_id = v_item.id" in discontinue_def,
+    assert_true("delete from public.material_link_skips where item_id = v_item.id"
+                in discontinue_def,
                 "discontinue must delete the item's material_link_skips row")
     assert_true(
         "delete from public.material_link_pending_factors where item_id = v_item.id"
@@ -165,15 +158,45 @@ def main() -> None:
     for key in ("'item_id'", "'name'", "'active'"):
         assert_true(key in discontinue_def, f"discontinue result must include {key}")
 
+    # On-hand computation + write of the qty at stop.
+    assert_true("public.tan_tao_material_movements" in discontinue_def,
+                "discontinue must compute the Tân Tạo on-hand")
+    assert_true("public.q7_inventory_openings" in discontinue_def
+                and "public.q7_inventory_movements" in discontinue_def,
+                "discontinue must compute the Q7 on-hand")
+    assert_true("v_tan_tao" in discontinue_def and "v_q7" in discontinue_def,
+                "discontinue must keep computing v_tan_tao / v_q7")
+    insert_section = canon(discontinue_def)
+    assert_true(
+        "tan_tao_qty_at_stop, q7_qty_at_stop" in insert_section,
+        "discontinue insert must write both qty-at-stop columns",
+    )
+    assert_true(
+        "tan_tao_qty_at_stop = excluded.tan_tao_qty_at_stop" in insert_section,
+        "discontinue on-conflict update must refresh tan_tao_qty_at_stop",
+    )
+    assert_true(
+        "q7_qty_at_stop = excluded.q7_qty_at_stop" in insert_section,
+        "discontinue on-conflict update must refresh q7_qty_at_stop",
+    )
+
     # --- 3. reactivate_stock_item --------------------------------------------
     assert_true(REACTIVATE_MARKER in migration,
                 "migration must define public.reactivate_stock_item")
     reactivate_def = extract_function(migration, REACTIVATE_MARKER)
-    reactivate_header = reactivate_def[: reactivate_def.index("as $")]
-    assert_true("security definer" in reactivate_header,
+    assert_true("security definer" in reactivate_def,
                 "reactivate must be security definer")
+    assert_true("public.q7_material_inventory_can_edit(v_actor)" in reactivate_def,
+                "reactivate must keep q7_material_inventory_can_edit")
     assert_true("public.can_edit_material_master()" in reactivate_def,
-                "reactivate must keep the same edit gate")
+                "reactivate must keep can_edit_material_master")
+    assert_true(
+        "public.has_module_permission(v_actor, 'inventory', 'edit')" in reactivate_def,
+        "reactivate must accept the inventory edit module permission",
+    )
+    assert_true("insufficient_privilege" in reactivate_def
+                and "errcode = '42501'" in reactivate_def,
+                "reactivate must raise insufficient_privilege 42501")
     assert_true("'item_merged'" in reactivate_def and "errcode = '22023'" in reactivate_def,
                 "reactivate must raise item_merged 22023")
     assert_true(re.search(r"set active = true", reactivate_def) is not None,
@@ -192,30 +215,47 @@ def main() -> None:
                 "the discontinued list must only return inactive items")
     for key in ("'item_id'", "'item_code'", "'name'", "'unit'", "'pastry_q7'",
                 "'reason'", "'discontinued_by_name'", "'discontinued_at'"):
-        assert_true(key in list_def, f"the discontinued list must return {key}")
-    assert_true("raw_user_meta_data ->> 'full_name'" in list_def,
-                "the discontinued list must resolve the actor name")
+        assert_true(key in list_def, f"the discontinued list must keep returning {key}")
+    for key in ("'item_class'", "'tan_tao_qty'", "'q7_qty'", "'in_q7'",
+                "'used_7d'", "'tan_tao_qty_at_stop'", "'q7_qty_at_stop'"):
+        assert_true(key in list_def, f"the discontinued list must add {key}")
+    assert_true("kii.item_class" in list_def,
+                "the discontinued list must read kii.item_class")
+    assert_true("kii.pastry_q7" in list_def,
+                "in_q7 must consider kii.pastry_q7")
+    assert_true("'production_usage'" in list_def,
+                "used_7d must look at production_usage movements")
+    assert_true("public.q7_inventory_movements" in list_def
+                and "public.tan_tao_material_movements" in list_def,
+                "used_7d must look in both movement tables")
+
+    # --- 5. get_stock_ledger_overview ----------------------------------------
+    assert_true(LEDGER_MARKER in migration,
+                "migration must define public.get_stock_ledger_overview")
+    ledger_def = extract_function(migration, LEDGER_MARKER)
+    ledger_flat = canon(ledger_def)
+    assert_true("'active', coalesce(x.active, true)" in ledger_flat,
+                "the ledger rows must expose active (true when null)")
+    assert_true("'active', true," in ledger_flat
+                or "'active', true\n" in ledger_def,
+                "the Tân Tạo finished-goods rows must carry active = true")
+    assert_true("'pass_through', x.pass_through" in ledger_flat,
+                "the ledger must keep its pass_through key")
+    assert_true(
+        "not x.pass_through and coalesce(x.active, true)" in ledger_flat,
+        "the Tân Tạo is_low_stock rule must combine pass_through and active",
+    )
+    assert_true(
+        "coalesce(x.active, true) and x.out_qty_7d > 0" in ledger_flat,
+        "the Q7 is_low_stock rule must be false for inactive items",
+    )
+    assert_true("with lines as materialized" in ledger_def,
+                "the materialized pending-alias CTE must be kept")
 
     for line in GRANT_LINES:
-        assert_true(canon(line) in canon(migration), f"missing grant line: {line}")
+        assert_true(canon(line) in flat, f"missing grant line: {line}")
 
-    # --- 5. review stopword 'bot' --------------------------------------------
-    assert_true(REVIEW_MARKER in migration,
-                "migration must CREATE OR REPLACE material_link_review_items_internal")
-    review_def = extract_function(migration, REVIEW_MARKER)
-    assert_true("huongduong" in review_def,
-                "the review word rule must still merge 'huong duong' into 'huongduong'")
-    assert_true("'bot'" in review_def,
-                "the review same-unit stopword list must contain 'bot'")
-    assert_true(review_def.count("'bot'") >= 1,
-                "the review stopword list must contain 'bot'")
-    assert_true(
-        "revoke execute on function public.material_link_review_items_internal(text)"
-        " from public, anon, authenticated, service_role;" in canon(migration),
-        "the internal review revoke line must be kept",
-    )
-
-    # --- 6. hook imports no .tsx ---------------------------------------------
+    # --- 6. hook -------------------------------------------------------------
     hook = read(HOOK)
     assert_true(".tsx" not in hook, "the hook must not import a .tsx module")
     assert_true(re.search(r"from\s+[\"'][^\"']+\.tsx[\"']", hook) is None,
@@ -223,21 +263,34 @@ def main() -> None:
     assert_true("DISCONTINUED_ITEMS_QUERY_KEY" in hook,
                 "the hook must export DISCONTINUED_ITEMS_QUERY_KEY")
     for export in ("useDiscontinuedStockItems", "useDiscontinueStockItem",
-                   "useReactivateStockItem"):
+                   "useReactivateStockItem", "useSetStockItemInUse"):
         assert_true(f"export function {export}" in hook,
                     f"the hook must export {export}")
+    assert_true('"discontinue_stock_item"' in hook
+                and '"reactivate_stock_item"' in hook,
+                "useSetStockItemInUse must call both RPCs")
+    assert_true("p_request_id: crypto.randomUUID()" in hook,
+                "useSetStockItemInUse must send a fresh request id")
+    for key in ("WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY",
+                "DISCONTINUED_ITEMS_QUERY_KEY",
+                "STOCK_LEDGER_OVERVIEW_QUERY_KEY"):
+        assert_true(key in hook, f"useSetStockItemInUse must invalidate {key}")
 
-    # --- 7. library error texts ----------------------------------------------
+    # --- 7. library ----------------------------------------------------------
     library = read(LIBRARY)
     assert_true("parseDiscontinuedStockItems" in library,
                 "the library must export parseDiscontinuedStockItems")
     assert_true("discontinueErrorCode" in library and "discontinueErrorText" in library,
                 "the library must export discontinueErrorCode / discontinueErrorText")
+    for field in ("item_class", "tan_tao_qty", "q7_qty", "in_q7", "used_7d",
+                  "tan_tao_qty_at_stop", "q7_qty_at_stop"):
+        assert_true(field in library,
+                    f"the library must parse the {field} field")
     for text in ("Món còn tồn", "phiếu kiểm kê chưa chốt", "Món đã được gộp vào món khác",
                  "Bạn không có quyền ngưng món này", "Chưa ngưng được món này"):
         assert_true(text in library, f"the library must map the text {text!r}")
 
-    print("PASS: stock-item discontinue contracts hold")
+    print("PASS: stock-item ON/OFF toggle contracts hold")
 
 
 if __name__ == "__main__":

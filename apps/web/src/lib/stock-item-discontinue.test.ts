@@ -15,7 +15,14 @@ test("parseDiscontinuedStockItems maps a valid payload", () => {
       item_code: "NVL-BOT-CUSTARD",
       name: "Bột custard sư tử",
       unit: "g",
+      item_class: "raw_material",
       pastry_q7: false,
+      tan_tao_qty: 125.5,
+      q7_qty: 0,
+      in_q7: false,
+      used_7d: true,
+      tan_tao_qty_at_stop: 125.5,
+      q7_qty_at_stop: 0,
       reason: "hết dùng",
       discontinued_by_name: "Chủ BMQ",
       discontinued_at: "2026-11-01T10:00:00+07:00",
@@ -27,11 +34,77 @@ test("parseDiscontinuedStockItems maps a valid payload", () => {
     item_code: "NVL-BOT-CUSTARD",
     name: "Bột custard sư tử",
     unit: "g",
+    item_class: "raw_material",
     pastry_q7: false,
+    tan_tao_qty: 125.5,
+    q7_qty: 0,
+    in_q7: false,
+    used_7d: true,
+    tan_tao_qty_at_stop: 125.5,
+    q7_qty_at_stop: 0,
     reason: "hết dùng",
     discontinued_by_name: "Chủ BMQ",
     discontinued_at: "2026-11-01T10:00:00+07:00",
   });
+});
+
+test("parseDiscontinuedStockItems defaults the ON/OFF fields for older payloads", () => {
+  const items = parseDiscontinuedStockItems([
+    {
+      item_id: "old-q7",
+      pastry_q7: true,
+      reason: null,
+      discontinued_at: "2026-10-15T10:00:00+07:00",
+    },
+    {
+      item_id: "old-tt",
+      pastry_q7: false,
+    },
+  ]);
+  assert.deepEqual(items[0], {
+    item_id: "old-q7",
+    item_code: null,
+    name: "",
+    unit: "",
+    item_class: null,
+    pastry_q7: true,
+    tan_tao_qty: 0,
+    q7_qty: 0,
+    in_q7: true,
+    used_7d: false,
+    tan_tao_qty_at_stop: null,
+    q7_qty_at_stop: null,
+    reason: null,
+    discontinued_by_name: null,
+    discontinued_at: "2026-10-15T10:00:00+07:00",
+  });
+  assert.equal(items[1].in_q7, false);
+  assert.equal(items[1].used_7d, false);
+  assert.equal(items[1].tan_tao_qty_at_stop, null);
+  assert.equal(items[1].q7_qty_at_stop, null);
+});
+
+test("parseDiscontinuedStockItems keeps explicit in_q7/used_7d and numeric strings", () => {
+  const items = parseDiscontinuedStockItems([
+    {
+      item_id: "new",
+      item_class: null,
+      pastry_q7: false,
+      tan_tao_qty: "3.5",
+      q7_qty: "7",
+      in_q7: true,
+      used_7d: true,
+      tan_tao_qty_at_stop: "3.5",
+      q7_qty_at_stop: null,
+    },
+  ]);
+  assert.equal(items[0].item_class, null);
+  assert.equal(items[0].tan_tao_qty, 3.5);
+  assert.equal(items[0].q7_qty, 7);
+  assert.equal(items[0].in_q7, true);
+  assert.equal(items[0].used_7d, true);
+  assert.equal(items[0].tan_tao_qty_at_stop, 3.5);
+  assert.equal(items[0].q7_qty_at_stop, null);
 });
 
 test("parseDiscontinuedStockItems is tolerant of a non-array payload", () => {
@@ -54,7 +127,14 @@ test("parseDiscontinuedStockItems skips malformed entries and missing ids", () =
     item_code: null,
     name: "",
     unit: "",
+    item_class: null,
     pastry_q7: false,
+    tan_tao_qty: 0,
+    q7_qty: 0,
+    in_q7: false,
+    used_7d: false,
+    tan_tao_qty_at_stop: null,
+    q7_qty_at_stop: null,
     reason: null,
     discontinued_by_name: null,
     discontinued_at: "",

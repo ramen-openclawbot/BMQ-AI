@@ -1484,3 +1484,33 @@
   .kg .ls-facts { grid-template-columns: 1fr 1fr; }
   .kg .ls-facts div:last-child { grid-column: 1 / -1; }
 }
+
+/* ---- ON/OFF từng món trên kệ (2026-10-21) ---- */
+.kg .goods-grid li.has-power { position: relative; }
+.kg .goods-grid li.has-power .good { padding-bottom: 52px; }
+.kg .good-power {
+  position: absolute; left: 6px; right: 6px; bottom: 7px; z-index: 1; height: 40px; padding: 0 4px;
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  font: inherit; color: var(--ink); background: none; border: 0; border-top: 2px dashed rgba(44,41,71,.22); cursor: pointer;
+}
+.kg .good-power .kg-switch { width: 44px; height: 26px; border-width: 2.5px; }
+.kg .good-power .kg-switch i { top: 2px; left: 2px; width: 16px; height: 16px; border-width: 2px; }
+.kg .good-power[aria-checked="true"] .kg-switch { background: var(--sage); }
+.kg .good-power[aria-checked="true"] .kg-switch i { transform: translateX(18px); }
+.kg .good-power[disabled] { cursor: progress; opacity: .6; }
+.kg .good-power-label { font-size: 12px; font-weight: 800; white-space: nowrap; }
+.kg .good-power[aria-checked="false"] .good-power-label { color: #6f6a85; }
+.kg .good.is-off { background: #f4efe3; border-style: dashed; box-shadow: none; animation: none; }
+.kg .good.is-off:hover { transform: none; box-shadow: none; }
+.kg .good.is-off .good-icon { opacity: .6; filter: grayscale(1); }
+.kg .good.is-off .good-name { color: #4f4a66; }
+.kg .good-alias.is-warn { background: var(--mustard-light); }
+.kg .plank-wrap.is-off {
+  margin-top: 22px; padding-top: 14px; border-style: dashed;
+  background: #d9d3c4 repeating-linear-gradient(0deg, transparent 0 138px, rgba(44,41,71,.12) 138px 141px, #c4bca9 141px 152px, rgba(44,41,71,.22) 152px 155px);
+}
+.kg .off-sign { background: #7d7896; }
+@media (max-width: 360px) {
+  .kg .good-power { gap: 5px; padding: 0 2px; }
+  .kg .good-power-label { font-size: 11px; }
+}

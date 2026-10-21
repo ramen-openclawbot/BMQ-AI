@@ -82,6 +82,7 @@ test("parseStockLedgerOverview accepts the RPC payload", () => {
   assert.equal(overview.cutover_date, "2026-10-01");
   assert.equal(overview.items.length, 1);
   assert.equal(overview.items[0].is_low_stock, true);
+  assert.equal(overview.items[0].active, true, "missing active defaults to true");
   assert.equal(overview.pending_aliases[0].normalized_name, "toi");
 });
 
@@ -108,6 +109,7 @@ test("parseStockLedgerOverview reads material pass_through and defaults it to fa
     materials: [
       material("m1", "Bánh mì Q7", { pass_through: true }),
       material("m2", "Bột mì", {}),
+      material("m3", "Món đã ngưng", { active: false }),
     ],
     pending_aliases: [],
   });
@@ -115,6 +117,8 @@ test("parseStockLedgerOverview reads material pass_through and defaults it to fa
   assert.equal(overview.materials[0].pass_through, true);
   assert.equal(overview.materials[1].pass_through, false);
   assert.equal(overview.materials[0].is_low_stock, true);
+  assert.equal(overview.materials[0].active, true, "missing active defaults to true");
+  assert.equal(overview.materials[2].active, false);
 });
 
 test("parseStockLedgerOverview rejects malformed payloads", () => {
@@ -144,12 +148,18 @@ test("lowStockList reads Q7 items and Tân Tạo materials, soonest first", () =
     last_count_date: null,
     last_count_difference: null,
     is_low_stock: low,
+    active: true,
   });
   const base = { location_name: "x", as_of: "2026-10-20", cutover_date: "2026-10-16", pending_aliases: [] };
   const q7 = lowStockList({
     ...base,
     location: "q7",
-    items: [row("a", "Tỏi", 2, 14, true), row("b", "Gan", 0, 7, true), row("c", "Cà rốt", 40, 28, false)],
+    items: [
+      row("a", "Tỏi", 2, 14, true),
+      row("b", "Gan", 0, 7, true),
+      row("c", "Cà rốt", 40, 28, false),
+      { ...row("off", "Món đã ngưng", 0, 70, true), active: false },
+    ],
     materials: [row("m", "Bột mì", 1, 70, true)],
   });
   assert.deepEqual(q7.map((r) => r.item_id), ["b", "a"]);
@@ -160,11 +170,15 @@ test("lowStockList reads Q7 items and Tân Tạo materials, soonest first", () =
   const tt = lowStockList({
     ...base,
     location: "tan_tao",
-    items: [row("sku", "Bánh mì", 1, 70, true)],
+    items: [
+      row("sku", "Bánh mì", 1, 70, true),
+      { ...row("sku-off", "Bánh mì đã ngưng", 0, 70, true), active: false },
+    ],
     materials: [
       row("m1", "Bột mì", 5, 70, true),
       row("m2", "Đường", -3, 7, true),
       { ...row("m3", "Bánh mì Q7", 0, 70, true), pass_through: true },
+      { ...row("m4", "Món đã ngưng", 0, 70, true), active: false },
     ],
   });
   assert.deepEqual(tt.map((r) => r.item_id), ["m2", "m1"]);

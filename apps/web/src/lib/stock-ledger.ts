@@ -65,6 +65,8 @@ export interface StockLedgerOverviewItem {
   last_count_date: string | null;
   last_count_difference: number | null;
   is_low_stock: boolean;
+  /** False when the kitchen item was stopped (ON/OFF toggle); defaults to true. */
+  active: boolean;
 }
 
 export interface StockLedgerPendingAlias {
@@ -89,6 +91,8 @@ export interface StockLedgerMaterial {
   last_count_date: string | null;
   last_count_difference: number | null;
   is_low_stock: boolean;
+  /** False when the kitchen item was stopped (ON/OFF toggle); defaults to true. */
+  active: boolean;
   /** True when the item stays at Q7 (kitchen_inventory_items.pastry_q7). */
   pass_through?: boolean;
 }
@@ -140,6 +144,7 @@ export function lowStockList(overview: StockLedgerOverview): LowStockRow[] {
     .filter(
       (row) =>
         row.is_low_stock &&
+        row.active !== false &&
         !("pass_through" in row && row.pass_through === true),
     )
     .map((row) => {
@@ -229,6 +234,8 @@ export function parseStockLedgerOverview(raw: unknown): StockLedgerOverview {
         typeof item.is_low_stock === "boolean"
           ? item.is_low_stock
           : isLowStock(currentQty, outQty7d),
+      // Older payloads have no `active`; a missing flag means the item is on.
+      active: typeof item.active === "boolean" ? item.active : true,
     };
   });
 
@@ -293,6 +300,7 @@ export function parseStockLedgerOverview(raw: unknown): StockLedgerOverview {
             typeof material.is_low_stock === "boolean"
               ? material.is_low_stock
               : isLowStock(currentQty, outQty7d),
+          active: typeof material.active === "boolean" ? material.active : true,
           pass_through: material.pass_through === true,
         };
       })

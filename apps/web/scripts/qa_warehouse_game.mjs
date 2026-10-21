@@ -61,7 +61,8 @@ function settle(st) {
     const role = cfg().role || "owner";
     if (mode === "error") return { data: null, error: { message: "QA fixture: network error" } };
     const started = cfg().started ? "2026-10-05" : null;
-    const items = F.items.map((it, i) => ({ ...it, on_hand: started ? (i * 137) % 5000 : 0 })).filter((it) => loc !== "q7" || it.pastry_q7);
+    const stoppedIds = JSON.parse(localStorage.getItem("qa-stopped") || "[]");
+    const items = F.items.map((it, i) => ({ ...it, on_hand: started ? (i * 137) % 5000 : 0 })).filter((it) => (loc !== "q7" || it.pastry_q7) && !stoppedIds.includes(it.id));
     const q7Skus = [
       { id: "fg-cbc", sku_code: "cbc-2026-v2", product_name: "BÁNH MÌ CHÀ BÔNG CAY", unit: "gói", on_hand: 12 },
       { id: "fg-cpm", sku_code: "cpm-2026-v3", product_name: "BÁNH CUA PHÔ MAI", unit: "gói", on_hand: 0 },
@@ -111,7 +112,11 @@ function settle(st) {
     return { data: { item_id: st.args.p_item_id, name: "Bao tay nilon", active: !stop }, error: null };
   }
   if (st.table === "rpc:get_discontinued_stock_items") {
-    return { data: JSON.parse(localStorage.getItem("qa-stopped") || "[]").map((id) => ({ item_id: id, item_code: "NVL-" + id, name: "Bao tay nilon", unit: "cái", pastry_q7: false, reason: null, discontinued_by_name: "QA", discontinued_at: "2026-10-15T08:00:00Z" })), error: null };
+    // ON/OFF QA (21/10): stopped fixture items keep their real name/class; the first one still had usage this week.
+    return { data: JSON.parse(localStorage.getItem("qa-stopped") || "[]").map((id, n) => {
+      const it = window.__kgFixture.items.find((row) => row.id === id);
+      return { item_id: id, item_code: it ? it.code : "NVL-" + id, name: it ? it.name : "Bao tay nilon", unit: it ? it.unit : "cái", item_class: it ? it.item_class : null, pastry_q7: it ? Boolean(it.pastry_q7) : false, tan_tao_qty: 1250, q7_qty: 0, in_q7: it ? Boolean(it.pastry_q7) : false, used_7d: n === 0, tan_tao_qty_at_stop: 1250, q7_qty_at_stop: 0, reason: null, discontinued_by_name: "QA", discontinued_at: "2026-10-15T08:00:00Z" };
+    }), error: null };
   }
   if (st.table === "rpc:get_material_link_pending_factors") {
     const pend = JSON.parse(localStorage.getItem("qa-lq-pending") || "[]");
@@ -497,7 +502,10 @@ const MODULES = {
   limited: ["dashboard", "inventory", "kitchen_inventory", "goods_receipts", "payment_requests", "suppliers"],
   viewer: ["dashboard", "inventory"],
   none: [],
+  // Sees every module, edits none (ON/OFF QA 21/10).
+  viewonly: null,
 }[role];
+const EDITS = role === "viewonly" ? [] : null;
 const name = cfg.name || "Tâm Vũ";
 const user = { id: "qa-user", email: "qa@bmq.test", user_metadata: { full_name: name } };
 const can = (key) => MODULES === null || MODULES.includes(key);
@@ -512,7 +520,7 @@ const value = {
   authzError: false,
   isOwner: role === "owner",
   canAccessModule: can,
-  canEditModule: can,
+  canEditModule: (key) => (EDITS ? EDITS.includes(key) : can(key)),
   signOut: async () => { window.__qaSignedOut = true; },
   refreshProfile: async () => {},
   refreshRoles: async () => {},
@@ -1696,6 +1704,68 @@ if (KHO_MODE === "3d") {
     record(`stock robot ${lowStock} 390`);
     await context.close();
   }
+}
+
+// ON/OFF per item (owner 21/10): editors switch goods off on the Nguyên liệu / Bao bì shelves; stopped goods
+// wait on the "Đã tắt" plank with their stock and come back with one tap; users without a warehouse edit right see no switch.
+for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 640 }]) {
+  const { context, page, errors } = await open({ data: "populated", role: "owner", started: true }, "/warehouse/game", viewport);
+  await page.evaluate(() => localStorage.removeItem("qa-stopped"));
+  await page.waitForSelector("[data-bmq-warehouse-game]", { timeout: 20000 });
+  await page.waitForTimeout(900);
+  await page.getByRole("button", { name: /KHO TÂN TẠO/i }).first().click({ force: true });
+  await page.waitForTimeout(KHO_MODE === "3d" ? 2100 : 900);
+  await page.getByRole("button", { name: /Nguyên liệu, \d+ mặt hàng/ }).first().click({ force: true });
+  await page.waitForTimeout(900);
+  const before = await page.locator("[data-bmq-good]").count();
+  assert.ok(before > 0, "raw shelf has goods");
+  assert.equal(await page.locator("[data-bmq-power='on']").count(), before, "every raw good has an ON switch");
+  assert.equal(await overflow(page), 0, `no overflow power shelf ${viewport.width}`);
+  for (const sw of (await page.locator("[data-bmq-power]").all()).slice(0, 4)) {
+    const b = await sw.boundingBox();
+    assert.ok(b && b.height >= 38 && b.x >= 0 && b.x + b.width <= viewport.width, `switch is a usable target ${viewport.width}: ${JSON.stringify(b)}`);
+  }
+  await page.screenshot({ path: `${EVIDENCE}/power-shelf-${viewport.width}.png` });
+  const target = page.locator("[data-bmq-power='on']").first();
+  const id = await target.getAttribute("data-bmq-power-item");
+  await target.click();
+  await page.locator("[data-bmq-game-confirm]").waitFor({ timeout: 3000 });
+  assert.match(await page.locator("[data-bmq-game-confirm]").textContent(), /vẫn giữ trong sổ/, "confirm explains the stock stays");
+  await page.screenshot({ path: `${EVIDENCE}/power-confirm-${viewport.width}.png` });
+  await page.locator("[data-bmq-game-confirm-ok]").click();
+  await page.waitForFunction((itemId) => window.__qaWrites.some((w) => w.startsWith("rpc:discontinue_stock_item:") && w.includes(itemId)), id, { timeout: 5000 });
+  await page.locator(`[data-bmq-good-off="${id}"]`).waitFor({ timeout: 5000 });
+  assert.equal(await page.locator(`[data-bmq-good="${id}"]`).count(), 0, "stopped good left the live shelf");
+  assert.match(await page.locator("[data-bmq-off-plank]").textContent(), /Đã tắt · 1 món/, "Đã tắt plank lists it");
+  assert.match(await page.locator(`[data-bmq-good-off="${id}"]`).textContent(), /1\.250/, "stopped good keeps its stock figure");
+  assert.equal(await overflow(page), 0, `no overflow off plank ${viewport.width}`);
+  await page.locator("[data-bmq-off-plank]").scrollIntoViewIfNeeded();
+  await page.screenshot({ path: `${EVIDENCE}/power-off-plank-${viewport.width}.png` });
+  await page.locator(`[data-bmq-power-item="${id}"][data-bmq-power='off']`).click();
+  await page.waitForFunction((itemId) => window.__qaWrites.some((w) => w.startsWith("rpc:reactivate_stock_item:") && w.includes(itemId)), id, { timeout: 5000 });
+  await page.locator(`[data-bmq-good="${id}"]`).waitFor({ timeout: 5000 });
+  assert.equal(await page.locator("[data-bmq-off-plank]").count(), 0, "plank gone once nothing is off");
+  // Selecting many hides the switches so a tap only ticks.
+  await page.locator("[data-bmq-bulk-toggle]").click();
+  assert.equal(await page.locator("[data-bmq-power]").count(), 0, "no switches while selecting");
+  assert.deepEqual(errors, []);
+  record(`item ON/OFF ${viewport.width}`);
+  await context.close();
+}
+{
+  const viewport = { width: 390, height: 844 };
+  const { context, page, errors } = await open({ data: "populated", role: "viewonly", started: true }, "/warehouse/game", viewport);
+  await page.waitForSelector("[data-bmq-warehouse-game]", { timeout: 20000 });
+  await page.waitForTimeout(900);
+  await page.getByRole("button", { name: /KHO TÂN TẠO/i }).first().click({ force: true });
+  await page.waitForTimeout(KHO_MODE === "3d" ? 2100 : 900);
+  await page.getByRole("button", { name: /Bao bì \/ vật tư, \d+ mặt hàng/ }).first().click({ force: true });
+  await page.waitForTimeout(900);
+  assert.ok((await page.locator("[data-bmq-good]").count()) > 0, "no-rights user still sees the shelf");
+  assert.equal(await page.locator("[data-bmq-power]").count(), 0, "no ON/OFF without a warehouse edit right");
+  assert.deepEqual(errors, []);
+  record("item ON/OFF hidden without edit right 390");
+  await context.close();
 }
 
 // No viewer-only check here: the fixture's "viewer" role can edit "inventory", which the
