@@ -271,7 +271,8 @@ export function CrateDialog({ location, crate, snapshot, autoPick = false, onAss
         kitchenInventoryItemId: dest?.kind === "item" ? dest.id : null,
         tanTaoSkuId: dest?.kind === "sku" ? dest.id : null,
         enteredUnitLabel: lineClass === "stock" ? (plan.mode === "unknown" ? packLabel.trim() : plan.unit) || dest?.unit || null : null,
-        conversionFactor: lineClass === "stock" && plan.mode !== "auto" ? factor : 1,
+        // kg / g / l / ml lines convert by themselves; store that standard factor, never 1 ("1 kg = 1 g", owner 22/10).
+        conversionFactor: lineClass !== "stock" ? 1 : plan.mode === "auto" ? plan.auto ?? 1 : factor,
         jevItemId: null,
         jevProbability: null,
         sourceTable: "warehouse_game",

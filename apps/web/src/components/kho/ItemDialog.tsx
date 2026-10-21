@@ -3,27 +3,32 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { OptionPicker } from "@/components/OptionPicker";
 import { KHO_ITEMS_QUERY_KEY, useKhoSaveItem } from "@/hooks/useKhoItems";
 import { useItemReceiptLines, useSetItemPastryQ7, useSetStockItemClass } from "@/hooks/useWarehouseGame";
 import { khoErrorText, searchKey, standardUnitFactor, type KhoItem, type KhoLocation, type KhoSaveResult } from "@/lib/kho-items";
 import { cn } from "@/lib/utils";
-import { CLASS_OF, GROUPS, ITEM_UNITS, KHO_LABEL, KHO_LOCATIONS, fmtAmount, groupOf, newRequestId, parseNum, type Group } from "./kho-meta";
+import { CLASS_OF, GROUPS, KHO_LABEL, KHO_LOCATIONS, fmtAmount, groupOf, newRequestId, parseNum, type Group } from "./kho-meta";
 import type { KhoConfirmOptions } from "./KhoConfirm";
 import { KhoDialog } from "./KhoDialog";
 import { ReceiptNotes } from "./ReceiptNotes";
+import { UnitAndConversions } from "./UnitSections";
 
 type Ask = { kind: "merge"; other: { id: string; name: string; unit: string }; from: string; to: string } | { kind: "unit"; from: string; to: string };
 type MovableGroup = Exclude<Group, "tp">;
 
 /**
- * One item of Danh mục kho: one name, one unit, its group and kho, on/off, and every delivery note
- * already filed under the name. A name taken by another item asks once, then merges the two.
+ * One item of the warehouse: one name, its group and kho, on/off, its unit and the conversions of its
+ * delivery notes, and every delivery note already filed under the name (owner 22/10: unit, conversions and
+ * on/off live here, not on the list). A name taken by another item asks once, then merges the two.
  */
-export function ItemDialog({ item, items, canEdit, confirm, onDone, onClose }: {
+export function ItemDialog({ item, items, canEdit, confirm, onDone, onClose, onToast, onReplaced }: {
   item: KhoItem; items: KhoItem[]; canEdit: boolean;
   confirm: (options: KhoConfirmOptions) => Promise<boolean>;
   onDone: (text: string) => void; onClose: () => void;
+  /** A message that keeps the dialog open (unit and conversion saves). */
+  onToast: (text: string) => void;
+  /** A unit change with history moves the item to a new id. */
+  onReplaced: (newId: string) => void;
 }) {
   const save = useKhoSaveItem();
   const setClass = useSetStockItemClass();
@@ -32,7 +37,7 @@ export function ItemDialog({ item, items, canEdit, confirm, onDone, onClose }: {
   const setPlace = useSetItemPastryQ7();
   const group = groupOf(item);
   const [name, setName] = useState(item.name);
-  const [unit, setUnit] = useState(item.unit);
+  const unit = item.unit;
   const [active, setActive] = useState(item.active);
   const [ask, setAsk] = useState<Ask | null>(null);
   const [factorText, setFactorText] = useState("");
@@ -63,16 +68,12 @@ export function ItemDialog({ item, items, canEdit, confirm, onDone, onClose }: {
     );
   };
 
-  const unitOptions = useMemo(() => {
-    const base = ITEM_UNITS.includes(item.unit) ? ITEM_UNITS : [item.unit, ...ITEM_UNITS];
-    return base.map((value) => ({ value, label: value }));
-  }, [item.unit]);
   // Name already used by another item? Say it before the save; the server decides.
   const twin = useMemo(() => {
     const key = searchKey(name);
     return key && key !== searchKey(item.name) ? items.find((other) => other.id !== item.id && searchKey(other.name) === key) ?? null : null;
   }, [name, items, item]);
-  const changed = name.trim() !== item.name || unit !== item.unit || active !== item.active;
+  const changed = name.trim() !== item.name || active !== item.active;
   const x = parseNum(factorText);
   const factorOk = Number.isFinite(x) && x > 0;
 
@@ -99,7 +100,16 @@ export function ItemDialog({ item, items, canEdit, confirm, onDone, onClose }: {
     });
   };
 
-  const submit = () => {
+  const submit = async () => {
+    // Turning an item off hides it from counting and ordering: ask once, as the list switch used to.
+    if (item.active && !active && !ask) {
+      const ok = await confirm({
+        title: `Tắt “${item.name}”?`,
+        message: "Món đã tắt không hiện khi đếm và khi đặt hàng. Sổ tồn giữ nguyên, bật lại lúc nào cũng được.",
+        ok: "Tắt món này", cancel: "Thôi", tone: "danger",
+      });
+      if (!ok) return;
+    }
     const other = ask?.kind === "merge" ? ask.other : null;
     // The server takes old -> new: 1 g = 1/x bao when 1 bao = x g.
     const unitFactor = ask && factorOk ? 1 / x : null;
@@ -119,11 +129,6 @@ export function ItemDialog({ item, items, canEdit, confirm, onDone, onClose }: {
         <Input value={name} onChange={(event) => { setName(event.target.value); setAsk(null); }} maxLength={120} disabled={!canEdit} data-bmq-kho-name />
       </label>
       {twin ? <p className="d3-kho-hint is-warn" data-bmq-kho-twin>Đã có món “{twin.name}”. Lưu tên này sẽ hỏi gộp hai món làm một.</p> : null}
-      <div className="d3-kho-field">
-        <span>Đơn vị duy nhất</span>
-        <OptionPicker value={unit} onChange={(value) => { setUnit(value); setAsk(null); }} title="Đơn vị" ariaLabel="Đơn vị" options={unitOptions} disabled={!canEdit} />
-        <small className="d3-kho-quiet">Cân theo g, đong theo ml: 1 kg = 1000 g và 1 lít = 1000 ml máy tự đổi.</small>
-      </div>
       <div className="d3-kho-field">
         <span>Loại hàng</span>
         <div className="d3-kho-seg" role="group" aria-label="Loại hàng" data-bmq-kho-class>
@@ -166,12 +171,14 @@ export function ItemDialog({ item, items, canEdit, confirm, onDone, onClose }: {
       {save.error ? <p className="d3-kho-error">{khoErrorText(save.error)}</p> : null}
       {canEdit ? (
         <div className="d3-kho-actions">
-          <Button disabled={save.isPending || name.trim().length < 2 || (!changed && !ask) || (ask !== null && !factorOk && !standard)} onClick={submit} data-bmq-kho-save>
+          <Button disabled={save.isPending || name.trim().length < 2 || (!changed && !ask) || (ask !== null && !factorOk && !standard)} onClick={() => void submit()} data-bmq-kho-save>
             {save.isPending ? "Đang lưu…" : ask?.kind === "merge" ? "Gộp làm một" : "Lưu"}
           </Button>
           <Button variant="outline" onClick={onClose}>Đóng</Button>
         </div>
       ) : null}
+      <UnitAndConversions item={item} canEdit={canEdit} lines={lines.data} linesLoading={lines.isLoading} linesError={lines.error}
+        onToast={onToast} onReplaced={onReplaced} />
       <ReceiptNotes title={`Hóa đơn, phiếu giao đã gộp vào tên này${item.doc_lines ? ` · ${item.doc_lines} dòng` : ""}`} lines={lines.data} loading={lines.isLoading} error={lines.error} />
     </KhoDialog>
   );

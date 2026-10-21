@@ -3,18 +3,16 @@ import { AlertTriangle, ArrowLeftRight, Check, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { OptionPicker } from "@/components/OptionPicker";
 import { useKhoSaveItem } from "@/hooks/useKhoItems";
-import { useItemReceiptLines } from "@/hooks/useWarehouseGame";
 import { useAddKhoUnit, useKhoConversionPreview, useKhoItemConversions, useKhoUnits, useSetKhoItemConversion } from "@/hooks/useKhoUnits";
 import { khoErrorText, standardUnitFactor, type KhoItem } from "@/lib/kho-items";
 import { conversionSentence, type KhoConversionGroup, type KhoConversionPreview, type KhoUnit } from "@/lib/kho-units";
 import type { ReceiptLine } from "@/lib/receipt-lines";
 import { cn } from "@/lib/utils";
 import { KHO_LABEL, fmtAmount, fmtQty, newRequestId, normalizeName, parseNum } from "./kho-meta";
-import { KhoDialog } from "./KhoDialog";
 import { ReceiptNotes } from "./ReceiptNotes";
 
 /**
- * "Đơn vị & quy đổi" (owner 22/10): the warehouse editor changes an item's unit (any unit in the catalogue,
+ * Đơn vị & quy đổi (owner 22/10), shown inside an item's detail dialog: the warehouse editor changes an item's unit (any unit in the catalogue,
  * or a new one) and the factor each delivery-note unit converts by. Saving a factor corrects the stock of
  * receipts already in the ledger; the preview shows by how much before anything is written.
  * Every factor input sits next to the delivery notes it comes from (owner rule 17/10).
@@ -156,7 +154,7 @@ function ConversionRow({ itemId, group, stockUnit, canEdit, lines, linesLoading,
   };
 
   return (
-    <li className={cn("d3-kho-conv-row", open && "is-open", flash && "is-saved", group.disagree && "is-warn")} data-bmq-conversion={group.unit}>
+    <li className={cn("d3-kho-conv-row", open && "is-open", flash && "is-saved", group.disagree && !group.auto && "is-warn")} data-bmq-conversion={group.unit}>
       <div className="d3-kho-conv-head">
         <div className="d3-kho-conv-main">
           <b>{group.auto ? `${group.unit} tự đổi sang ${stockUnit}` : sentence ?? `1 ${group.unit} = ? ${stockUnit}`}</b>
@@ -166,7 +164,7 @@ function ConversionRow({ itemId, group, stockUnit, canEdit, lines, linesLoading,
             {group.posted_count ? <span>{group.posted_count} đã vào sổ</span> : null}
             {group.supplier_names[0] ? <span>{group.supplier_names.join(", ")}</span> : null}
           </small>
-          {group.disagree ? (
+          {group.disagree && !group.auto ? (
             <p className="d3-kho-conv-warn" data-bmq-conversion-disagree>
               <AlertTriangle aria-hidden="true" />
               Đang có {group.factors.length} cách quy đổi khác nhau: {group.factors.map((f) => conversionSentence(group.unit, f, stockUnit)).join(" · ")}. Chọn một số đúng cho mọi phiếu.
@@ -388,31 +386,39 @@ function UnitPicker({ item, units, unitsLoading, onDone, onToast, lines, linesLo
   );
 }
 
-export function UnitDialog({ item, onClose, onToast, onReplaced }: {
-  item: KhoItem; onClose: () => void; onToast: (text: string) => void; onReplaced: (newId: string) => void;
+/**
+ * The unit and conversion part of an item's detail dialog (owner 22/10: "quy đổi và bật tắt nằm trong màn
+ * chi tiết"). View-only accounts see the unit and the conversions without any control.
+ */
+export function UnitAndConversions({ item, canEdit, lines, linesLoading, linesError, onToast, onReplaced }: {
+  item: KhoItem; canEdit: boolean; lines: ReceiptLine[] | undefined; linesLoading: boolean; linesError: unknown;
+  onToast: (text: string) => void; onReplaced: (newId: string) => void;
 }) {
   const units = useKhoUnits();
   const conversions = useKhoItemConversions(item.id);
-  const lines = useItemReceiptLines(item.id, true);
   const data = conversions.data;
   const stockUnit = item.unit;
   // A delivery note written in the stock unit itself at factor 1 is no conversion.
   const groups = useMemo(() => (data?.conversions ?? []).filter((g) => !(same(g.unit, stockUnit) && g.factors.every((f) => f === 1))), [data, stockUnit]);
   const savedOnly = useMemo(() => (data?.saved ?? []).filter((s) => !groups.some((g) => same(g.unit, s.unit)) && !same(s.unit, stockUnit)), [data, groups, stockUnit]);
-  const canEdit = data?.can_edit ?? true;
-  const kho = item.in_q7 ? "q7" : "tan_tao";
-  const sub = `Đang tính bằng ${item.unit} · tồn Kho ${KHO_LABEL[kho]} ${fmtAmount(item.qty[kho], item.unit)}`;
+  const editable = canEdit && (data?.can_edit ?? true);
 
   return (
-    <KhoDialog title={item.name} sub={sub} onClose={onClose} data={{ "data-bmq-unit-dialog": "" }}>
-      <UnitPicker item={item} units={units.data ?? []} unitsLoading={units.isLoading} onToast={onToast}
-        lines={lines.data} linesLoading={lines.isLoading} linesError={lines.error}
-        onDone={(text, newId) => { onToast(text); if (newId) onReplaced(newId); }} />
-      {units.error ? <p className="d3-kho-error">Chưa tải được danh sách đơn vị. {khoErrorText(units.error)}</p> : null}
+    <>
+      {editable ? (
+        <UnitPicker item={item} units={units.data ?? []} unitsLoading={units.isLoading} onToast={onToast}
+          lines={lines} linesLoading={linesLoading} linesError={linesError}
+          onDone={(text, newId) => { onToast(text); if (newId) onReplaced(newId); }} />
+      ) : (
+        <section className="d3-kho-unitsec">
+          <div className="d3-kho-sec-h"><h3>Đơn vị kho</h3><small>Đếm và ghi sổ tồn theo <b>{item.unit}</b></small></div>
+        </section>
+      )}
+      {editable && units.error ? <p className="d3-kho-error">Chưa tải được danh sách đơn vị. {khoErrorText(units.error)}</p> : null}
 
-      <section className="d3-kho-convsec" aria-labelledby="kho-conv-title">
+      <section className="d3-kho-convsec" aria-labelledby={`kho-conv-${item.id}`}>
         <div className="d3-kho-sec-h">
-          <h3 id="kho-conv-title">Quy đổi trên phiếu giao</h3>
+          <h3 id={`kho-conv-${item.id}`}>Quy đổi trên phiếu giao</h3>
           <small>Phiếu ghi đơn vị khác thì máy nhân theo số này khi nhập kho</small>
         </div>
         {conversions.isLoading ? (
@@ -422,8 +428,8 @@ export function UnitDialog({ item, onClose, onToast, onReplaced }: {
         ) : (
           <ul className="d3-kho-conv-list" data-bmq-conversions>
             {groups.map((group) => (
-              <ConversionRow key={group.unit} itemId={item.id} group={group} stockUnit={stockUnit} canEdit={canEdit}
-                lines={lines.data} linesLoading={lines.isLoading} linesError={lines.error} onSaved={onToast} />
+              <ConversionRow key={group.unit} itemId={item.id} group={group} stockUnit={stockUnit} canEdit={editable}
+                lines={lines} linesLoading={linesLoading} linesError={linesError} onSaved={onToast} />
             ))}
             {savedOnly.map((s) => (
               <li key={`saved-${s.unit}`} className="d3-kho-conv-row" data-bmq-conversion-saved={s.unit}>
@@ -438,13 +444,13 @@ export function UnitDialog({ item, onClose, onToast, onReplaced }: {
             {!groups.length && !savedOnly.length ? (
               <li className="d3-kho-conv-empty">Phiếu giao của món này đều ghi đúng đơn vị {stockUnit}, chưa cần quy đổi.</li>
             ) : null}
-            {canEdit ? (
+            {editable ? (
               <NewConversion itemId={item.id} stockUnit={stockUnit} units={units.data ?? []}
                 taken={[...groups.map((g) => g.unit), ...savedOnly.map((s) => s.unit)]} onSaved={onToast} />
             ) : null}
           </ul>
         )}
       </section>
-    </KhoDialog>
+    </>
   );
 }

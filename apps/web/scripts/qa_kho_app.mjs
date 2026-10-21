@@ -351,34 +351,32 @@ try {
     pass(`search + rename to an existing name asks once then merges ${vp.width}`);
     await context.close();
 
-    // Unit change needs a factor: 1 bao = 25000 g -> p_unit_factor 1/25000; then switch off asks first
+    // Unit and on/off live in the item's detail (owner 22/10), not on the list.
     ({ context, page, errors } = await open({ role: "owner" }, "/warehouse/danh-muc", vp));
     await page.waitForSelector("[data-bmq-kho-names] li");
+    assert.equal(await page.locator("[data-bmq-kho-names] [role='switch'], [data-bmq-kho-unit-edit]").count(), 0, "no switch or pencil on the list");
     const gItem = await page.evaluate(() => window.__kgFixture.items[0].id);
     await page.locator(`[data-bmq-kho-item='${gItem}']`).click();
-    await page.locator("[data-bmq-kho-item-dialog] [data-bmq-picker]").first().click();
-    await dialogInView(page, "[data-bmq-picker-sheet]", vp);
-    await shot(page, `unit-picker-${vp.width}.png`, false);
-    await page.locator("[data-bmq-picker-sheet] [data-bmq-picker-option='bao']").click();
-    await page.waitForSelector("[data-bmq-picker-sheet]", { state: "detached" });
-    await page.locator("[data-bmq-kho-save]").click();
-    await page.waitForSelector("[data-bmq-kho-ask='unit']");
-    await page.locator("[data-bmq-kho-ask] input").fill("25000");
+    await dialogInView(page, "[data-bmq-kho-item-dialog]", vp);
+    // 1 bao = 25000 g -> old->new factor 1/25000
+    await page.locator("[data-bmq-unit-chip='bao']").click();
+    await page.waitForSelector("[data-bmq-unit-change='bao']");
+    await page.locator("[data-bmq-unit-change] [data-bmq-unit-factor]").fill("25000");
     await shot(page, `unit-ask-${vp.width}.png`, false);
-    await page.locator("[data-bmq-kho-save]").click();
-    await page.waitForSelector("[data-bmq-kho-item-dialog]", { state: "detached", timeout: 4000 });
+    await page.locator("[data-bmq-unit-save]").click();
+    await page.waitForTimeout(400);
     const unitCall = (await calls(page)).filter((c) => c.startsWith("rpc:kho_save_item:")).pop();
     assert.ok(unitCall.includes('"p_unit":"bao"') && unitCall.includes('"p_unit_factor":0.00004'), unitCall);
-    pass(`unit change asks 1 bao = ? g and sends old->new factor ${vp.width}`);
-    const powerId = await page.locator("[data-bmq-kho-power]").first().getAttribute("data-bmq-kho-power");
-    await page.locator(`[data-bmq-kho-power='${powerId}']`).click();
+    pass(`unit change in the detail: 1 bao = 25000 g sends the old->new factor ${vp.width}`);
+    // Turning off in the detail asks first, then saves
+    await page.locator("[data-bmq-kho-item-dialog] [aria-label='Bật/tắt món']").click();
+    await page.locator("[data-bmq-kho-save]").click();
     await confirmOk(page);
-    await page.waitForTimeout(200);
-    assert.ok((await calls(page)).some((c) => c.startsWith("rpc:kho_save_item:") && c.includes(powerId) && c.includes('"p_active":false')), "off call");
-    pass(`switch off asks then saves ${vp.width}`);
+    await page.waitForTimeout(300);
+    assert.ok((await calls(page)).some((c) => c.startsWith("rpc:kho_save_item:") && c.includes(gItem) && c.includes('"p_active":false')), "off call");
+    pass(`switch off in the detail asks then saves ${vp.width}`);
     assert.deepEqual(errors, [], `page errors catalog ${vp.width}`);
     await context.close();
-
 
     // ---------- Đơn vị & quy đổi (owner 22/10) ----------
     ({ context, page, errors } = await open({ role: "owner" }, "/warehouse/danh-muc", vp));
@@ -388,9 +386,8 @@ try {
       const i = F.items.findIndex((it, idx) => idx % 3 !== 0 && idx % 17 !== 5 && !it.pastry_q7 && ["raw_material", "unclassified"].includes(it.item_class));
       return { id: F.items[i].id, unit: F.items[i].unit };
     });
-    assert.ok(await page.locator(`[data-bmq-kho-unit-edit='${unitTarget.id}']`).isVisible(), "pencil on the row");
-    await page.locator(`[data-bmq-kho-unit-edit='${unitTarget.id}']`).click();
-    await dialogInView(page, "[data-bmq-unit-dialog]", vp);
+    await page.locator(`[data-bmq-kho-item='${unitTarget.id}']`).click();
+    await dialogInView(page, "[data-bmq-kho-item-dialog]", vp);
     await page.waitForSelector("[data-bmq-conversion='cây']");
     assert.ok(await page.locator(`[data-bmq-unit-chip='${unitTarget.unit}']`).evaluate((el) => el.classList.contains("is-current")), "current unit outlined");
     assert.ok(await page.locator("[data-bmq-conversion-disagree]").isVisible(), "disagreeing factors flagged");
@@ -440,14 +437,15 @@ try {
     pass(`add a conversion for a new delivery-note unit ${vp.width}`);
     assert.deepEqual(errors, [], `page errors unit dialog ${vp.width}`);
     await context.close();
-    // Kiểm kê rows carry the same pencil
+    // Kiểm kê: the item name opens the same detail
     ({ context, page, errors } = await open({ role: "owner" }, "/warehouse/kiem-ke", vp));
-    await page.waitForSelector("[data-bmq-kho-count='tan_tao'] li [data-bmq-kho-unit-edit]");
-    await noSpill(page, "count-pencil", vp);
-    await page.locator("[data-bmq-kho-count='tan_tao'] li [data-bmq-kho-unit-edit]").first().click();
-    await dialogInView(page, "[data-bmq-unit-dialog]", vp);
-    await shot(page, `count-unit-dialog-${vp.width}.png`, false);
-    pass(`Kiểm kê row opens Đơn vị & quy đổi ${vp.width}`);
+    await page.waitForSelector("[data-bmq-kho-count='tan_tao'] li [data-bmq-kho-count-open]");
+    assert.equal(await page.locator("[data-bmq-kho-unit-edit]").count(), 0, "no pencil on the count list");
+    await page.locator("[data-bmq-kho-count='tan_tao'] li [data-bmq-kho-count-open]").first().click();
+    await dialogInView(page, "[data-bmq-kho-item-dialog]", vp);
+    await page.waitForSelector("[data-bmq-kho-item-dialog] [data-bmq-unit-chips]");
+    await shot(page, `count-item-dialog-${vp.width}.png`, false);
+    pass(`Kiểm kê name opens the item detail with unit + conversions ${vp.width}`);
     await context.close();
 
     // ---------- Tên mới trên phiếu ----------
@@ -532,11 +530,10 @@ try {
     const vp = { width: 390, height: 844 };
     let { context, page } = await open({ role: "viewonly" }, "/warehouse/danh-muc", vp);
     await page.waitForSelector("[data-bmq-kho-names] li");
-    assert.equal(await page.locator("[data-bmq-kho-power]").count(), 0, "no switches for view-only");
-    assert.equal(await page.locator("[data-bmq-kho-unit-edit]").count(), 0, "no pencil for view-only");
     await page.locator("[data-bmq-kho-names] li .d3-kho-row-main").first().click();
     await page.waitForSelector("[data-bmq-kho-item-dialog]");
     assert.equal(await page.locator("[data-bmq-kho-save]").count(), 0, "no save for view-only");
+    assert.equal(await page.locator("[data-bmq-unit-chips], [data-bmq-conversion-edit], [data-bmq-conversion-add]").count(), 0, "no unit or conversion controls for view-only");
     await context.close();
     ({ context, page } = await open({ role: "viewonly" }, "/warehouse/kiem-ke", vp));
     await page.waitForSelector("[data-bmq-kho-count='tan_tao'] li");

@@ -203,14 +203,13 @@ html.bmq-d3 .d3-kho-textbtn:disabled { color: var(--d3-faint); cursor: not-allow
 /* ---------- list ---------- */
 .d3-kho-listhead {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 128px 56px;
+  grid-template-columns: minmax(0, 1fr) 128px;
   gap: 12px;
   padding: 4px 12px 0;
   font-size: 12px;
   color: var(--d3-dim);
 }
 .d3-kho-listhead span:nth-child(2) { text-align: right; }
-.d3-kho-listhead span:nth-child(3) { text-align: center; }
 
 .d3-kho-list { display: grid; margin: 0; padding: 0; list-style: none; }
 
@@ -226,7 +225,7 @@ html.bmq-d3 .d3-kho-textbtn:disabled { color: var(--d3-faint); cursor: not-allow
 .d3-kho-row.is-static,
 .d3-kho-row.is-link { grid-template-columns: minmax(0, 1fr) auto; }
 .d3-kho-list[data-bmq-kho-finished] .d3-kho-row,
-.d3-kho-list[data-bmq-kho-names] .d3-kho-row:not(:has(button[role="switch"])) { grid-template-columns: minmax(0, 1fr) 128px 56px; }
+.d3-kho-list[data-bmq-kho-names] .d3-kho-row { grid-template-columns: minmax(0, 1fr) 128px; }
 
 html.bmq-d3 .d3-kho-row-main {
   display: flex;
@@ -256,7 +255,6 @@ html.bmq-d3 button.d3-kho-row-main:active:not(:disabled) { transform: scale(.99)
   text-align: right;
   white-space: nowrap;
 }
-.d3-kho-row > button[role="switch"] { justify-self: center; }
 
 /* A row whose whole width opens something, with its action named at the far right. */
 html.bmq-d3 .d3-kho-row.is-link .d3-kho-row-main {
@@ -669,33 +667,32 @@ html.bmq-d3 .d3-kho-confirm .is-danger { background: #c4321d; color: #fff; }
 html.bmq-d3 .d3-kho-confirm .is-danger:hover { background: #a82a18; }
 
 /* ---------- Đơn vị & quy đổi (owner 22/10) ---------- */
-/* The pencil on every row: quiet until hovered, a clear target on a phone. */
-html.bmq-d3 .d3-kho-edit {
-  display: grid;
-  place-items: center;
-  justify-self: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-  color: var(--d3-dim);
+/* Kiểm kê: the item name opens its detail (unit, conversions, on/off). */
+html.bmq-d3 .d3-kho-namebtn {
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 0;
+  color: var(--d3-ink);
+  font-size: 14.5px;
+  font-weight: 500;
+  line-height: 1.35;
+  text-align: left;
+  overflow-wrap: anywhere;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 3px;
+  transition: text-decoration-color .15s ease;
 }
-html.bmq-d3 .d3-kho-edit:hover { background: rgba(39, 39, 39, .06); color: var(--d3-ink); }
-html.bmq-d3 .d3-kho-edit:focus-visible { outline: 2px solid var(--d3-ink); outline-offset: 1px; }
-.d3-kho-edit svg { width: 16px; height: 16px; }
-html.bmq-d3 .d3-kho-edit.is-inline { width: 32px; height: 32px; margin: -6px 0; }
-.d3-kho-namerow { display: flex; align-items: center; gap: 2px; min-width: 0; }
-.d3-kho-namerow b { min-width: 0; }
-
-.d3-kho-listhead.has-edit,
-.d3-kho-list[data-bmq-kho-names] .d3-kho-row:has(> .d3-kho-edit) { grid-template-columns: minmax(0, 1fr) 128px 44px 56px; }
-.d3-kho-listhead.has-edit span:nth-child(3) { text-align: center; }
-.d3-kho-listhead.has-edit span:nth-child(4) { text-align: center; }
+html.bmq-d3 .d3-kho-namebtn:hover { text-decoration-color: var(--d3-line-2); }
+html.bmq-d3 .d3-kho-namebtn:focus-visible { outline: 2px solid var(--d3-ink); outline-offset: 2px; border-radius: 4px; }
 
 .d3-kho-sec-h { display: grid; gap: 2px; }
 html.bmq-d3 .d3-kho-sec-h h3 { margin: 0; font-size: 15px; font-weight: 500; letter-spacing: -.005em; }
 .d3-kho-sec-h small { font-size: 12.5px; color: var(--d3-dim); }
 .d3-kho-unitsec, .d3-kho-convsec { display: grid; gap: 12px; min-width: 0; }
 .d3-kho-convsec { padding-top: 18px; box-shadow: 0 -1px 0 var(--d3-line); }
+/* Inside an item's detail the unit part starts its own band under the item form. */
+.d3-kho-dialog-body > .d3-kho-unitsec { padding-top: 18px; box-shadow: 0 -1px 0 var(--d3-line); }
 
 /* Unit chips: the current unit is outlined, the chosen one filled. */
 .d3-kho-chipgroups { display: grid; gap: 10px; }
@@ -850,9 +847,7 @@ html.bmq-d3 .d3-kho-addrow:hover { border-color: var(--d3-ink); }
   .d3-kho-listhead { display: none; }
   .d3-kho-row,
   .d3-kho-list[data-bmq-kho-finished] .d3-kho-row,
-  .d3-kho-list[data-bmq-kho-names] .d3-kho-row:not(:has(button[role="switch"])) { grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
-  .d3-kho-row:has(> button[role="switch"]) { grid-template-columns: minmax(0, 1fr) auto auto; }
-  .d3-kho-list[data-bmq-kho-names] .d3-kho-row:has(> .d3-kho-edit) { grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 4px; }
+  .d3-kho-list[data-bmq-kho-names] .d3-kho-row { grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
   .d3-kho-addrow small { flex-basis: 100%; }
   html.bmq-d3 .d3-kho-sentence-n { width: 88px; }
   html.bmq-d3 .d3-kho-dialog input.d3-kho-sentence-n { font-size: 20px; }
@@ -873,8 +868,7 @@ html.bmq-d3 .d3-kho-addrow:hover { border-color: var(--d3-ink); }
 @media (max-width: 420px) {
   .d3-kho-row-qty-sub { display: inline; color: var(--d3-ink-2); }
   .d3-kho-list[data-bmq-kho-names] .d3-kho-row > .d3-kho-row-qty { display: none; }
-  .d3-kho-list[data-bmq-kho-names] .d3-kho-row:has(> .d3-kho-edit) { grid-template-columns: minmax(0, 1fr) auto auto; }
-  .d3-kho-list[data-bmq-kho-names] .d3-kho-row:not(:has(> button[role="switch"])) { grid-template-columns: minmax(0, 1fr); }
+  .d3-kho-list[data-bmq-kho-names] .d3-kho-row { grid-template-columns: minmax(0, 1fr); }
 }
 
 @media (max-width: 360px) {
