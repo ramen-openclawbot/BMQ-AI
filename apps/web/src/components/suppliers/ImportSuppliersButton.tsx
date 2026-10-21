@@ -138,7 +138,7 @@ export function ImportSuppliersButton({ compactIcon: Icon = Upload }: ImportSupp
         onChange={handleFileSelect}
         className="hidden"
       />
-      <Button variant="outline" onClick={() => fileInputRef.current?.click()} className="h-10 rounded-xl border-amber-200 bg-white px-2 text-xs text-amber-800 hover:bg-amber-50 sm:px-3 sm:text-sm">
+      <Button variant="outline" onClick={() => fileInputRef.current?.click()} className="h-10 rounded-xl border-border bg-white px-2 text-xs text-foreground hover:bg-muted sm:px-3 sm:text-sm">
         <Icon className="mr-1.5 h-4 w-4 sm:mr-2" />
         Nhập Excel
       </Button>

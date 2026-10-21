@@ -290,6 +290,24 @@ html.bmq-d3 :is(input, textarea) { caret-color: #d0679a; }
   font-weight: 500;
 }
 
+/* ---------- dialogs (portalled) ---------- */
+/* The shadcn close key was a 16px icon at 70% opacity: too small to hit on a phone. Make it a
+   visible 40px key everywhere; pages that set their own size keep the larger one. */
+html.bmq-d3 [role="dialog"] > button:has(> .sr-only) {
+  display: grid;
+  place-items: center;
+  min-width: 40px;
+  min-height: 40px;
+  border-radius: 12px;
+  opacity: 1;
+  color: var(--d3-ink);
+  z-index: 30;
+}
+html.bmq-d3 [role="dialog"] > button:has(> .sr-only):hover { background: rgba(39, 39, 39, .06); }
+html.bmq-d3 [role="dialog"] > button:has(> .sr-only) svg { width: 18px; height: 18px; }
+/* The container takes programmatic focus on open; its ring drew a second blue frame round the dialog. */
+html.bmq-d3 [role="dialog"]:focus { outline: none; --tw-ring-shadow: 0 0 #0000; --tw-ring-offset-shadow: 0 0 #0000; }
+
 /* ---------- menus (portalled; html.bmq-d3 only exists inside the app) ---------- */
 html.bmq-d3 .d3-menu {
   border-radius: 16px;

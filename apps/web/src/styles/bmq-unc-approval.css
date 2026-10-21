@@ -19,19 +19,13 @@ html .d3-unc { background: var(--d3-white, #fdfdfc); }
 
 .d3-unc-head { gap: 4px; padding-right: 36px; text-align: left; }
 
+/* Dialog context line: under the title, not an eyebrow above it (Impeccable pass). DOM order is
+   unchanged so every dialog using it (UNC, tiền mặt, lương, đối soát, Jev, PR) flips at once. */
+.d3-unc-head > .d3-unc-title { order: -1; }
 .d3-unc-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
+  display: block;
+  font-size: 13px;
   color: var(--d3-dim, #6b6b69);
-}
-.d3-unc-tag::before {
-  content: "";
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  border: 1.5px solid var(--d3-blue, #3c91e6);
 }
 
 .d3-unc-title {

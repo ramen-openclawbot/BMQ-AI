@@ -506,25 +506,25 @@ export default function PurchaseOrders() {
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px]">
         <div className="min-w-0 space-y-4">
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-            <Card className={`cursor-pointer border-slate-200 bg-white dark:border-[#443b30] dark:bg-[#241f18]/90 ${statusFilter === "all" ? "ring-2 ring-amber-500" : ""}`} onClick={() => setStatusFilter("all")}>
+            <Card className={`d3-gr-stat cursor-pointer dark:border-[#443b30] dark:bg-[#241f18]/90 ${statusFilter === "all" ? "is-active" : ""}`} onClick={() => setStatusFilter("all")}>
               <CardHeader className="px-3 py-2"><CardTitle className="text-xs font-medium text-slate-500 dark:text-[#a99b8c]">{isVi ? "Tổng đơn" : "Total orders"}</CardTitle></CardHeader>
-              <CardContent className="px-3 pb-3 pt-0"><p className="text-xl font-semibold text-slate-950 dark:text-[#f3ece4]">{stats.total}</p></CardContent>
+              <CardContent className="px-3 pb-3 pt-0"><p className="d3-gr-fig">{stats.total}</p></CardContent>
             </Card>
-            <Card className={`cursor-pointer border-slate-200 bg-white dark:border-[#443b30] dark:bg-[#241f18]/90 ${statusFilter === "draft" ? "ring-2 ring-amber-500" : ""}`} onClick={() => setStatusFilter("draft")}>
+            <Card className={`d3-gr-stat cursor-pointer dark:border-[#443b30] dark:bg-[#241f18]/90 ${statusFilter === "draft" ? "is-active" : ""}`} onClick={() => setStatusFilter("draft")}>
               <CardHeader className="px-3 py-2"><CardTitle className="text-xs font-medium text-slate-500 dark:text-[#a99b8c]">{isVi ? "Nháp" : "Draft"}</CardTitle></CardHeader>
-              <CardContent className="px-3 pb-3 pt-0"><p className="text-xl font-semibold text-slate-950 dark:text-[#f3ece4]">{stats.draft}</p></CardContent>
+              <CardContent className="px-3 pb-3 pt-0"><p className="d3-gr-fig">{stats.draft}</p></CardContent>
             </Card>
-            <Card className={`cursor-pointer border-slate-200 bg-white dark:border-[#443b30] dark:bg-[#241f18]/90 ${statusFilter === "sent" ? "ring-2 ring-amber-500" : ""}`} onClick={() => setStatusFilter("sent")}>
-              <CardHeader className="px-3 py-2"><CardTitle className="text-xs font-medium text-blue-600 dark:text-[#f0ad4e]">{isVi ? "Đã gửi" : "Sent"}</CardTitle></CardHeader>
-              <CardContent className="px-3 pb-3 pt-0"><p className="text-xl font-semibold text-blue-600 dark:text-[#f0ad4e]">{stats.sent}</p></CardContent>
+            <Card className={`d3-gr-stat cursor-pointer dark:border-[#443b30] dark:bg-[#241f18]/90 ${statusFilter === "sent" ? "is-active" : ""}`} onClick={() => setStatusFilter("sent")}>
+              <CardHeader className="px-3 py-2"><CardTitle className="text-xs font-medium text-slate-500 dark:text-[#a99b8c]">{isVi ? "Đã gửi" : "Sent"}</CardTitle></CardHeader>
+              <CardContent className="px-3 pb-3 pt-0"><p className="d3-gr-fig">{stats.sent}</p></CardContent>
             </Card>
-            <Card className={`cursor-pointer border-slate-200 bg-white dark:border-[#443b30] dark:bg-[#241f18]/90 ${statusFilter === "in_transit" ? "ring-2 ring-amber-500" : ""}`} onClick={() => setStatusFilter("in_transit")}>
-              <CardHeader className="px-3 py-2"><CardTitle className="text-xs font-medium text-amber-600 dark:text-[#f0ad4e]">{isVi ? "Đang giao" : "In transit"}</CardTitle></CardHeader>
-              <CardContent className="px-3 pb-3 pt-0"><p className="text-xl font-semibold text-amber-600 dark:text-[#f0ad4e]">{stats.inTransit}</p></CardContent>
+            <Card className={`d3-gr-stat cursor-pointer dark:border-[#443b30] dark:bg-[#241f18]/90 ${statusFilter === "in_transit" ? "is-active" : ""}`} onClick={() => setStatusFilter("in_transit")}>
+              <CardHeader className="px-3 py-2"><CardTitle className="text-xs font-medium text-slate-500 dark:text-[#a99b8c]">{isVi ? "Đang giao" : "In transit"}</CardTitle></CardHeader>
+              <CardContent className="px-3 pb-3 pt-0"><p className="d3-gr-fig">{stats.inTransit}</p></CardContent>
             </Card>
-            <Card className="border-slate-200 bg-white dark:border-[#443b30] dark:bg-[#241f18]/90">
+            <Card className="d3-gr-stat dark:border-[#443b30] dark:bg-[#241f18]/90">
               <CardHeader className="px-3 py-2"><CardTitle className="text-xs font-medium text-slate-500 dark:text-[#a99b8c]">{isVi ? "Tổng giá trị" : "Total value"}</CardTitle></CardHeader>
-              <CardContent className="px-3 pb-3 pt-0"><p className="truncate text-sm font-semibold text-slate-950 dark:text-[#f3ece4]">{formatCurrency(stats.totalValue)}</p></CardContent>
+              <CardContent className="px-3 pb-3 pt-0"><p className="d3-gr-fig truncate !text-[20px]">{formatCurrency(stats.totalValue)}</p></CardContent>
             </Card>
           </div>
 
