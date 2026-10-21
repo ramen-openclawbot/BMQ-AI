@@ -134,6 +134,7 @@ export const navItems: NavItem[] = [
     children: [
       { icon: Package, labelKey: "inventoryOverview", path: "/inventory", section: "operations", moduleKey: "inventory", hiddenFromMenu: true },
       { icon: Gamepad2, labelKey: "warehouseGame", path: "/warehouse/game", section: "operations", moduleKey: "inventory" },
+      { icon: FileText, labelKey: "warehouseSlips", path: "/warehouse/phieu", section: "operations", moduleKey: "inventory" },
       { icon: Building2, labelKey: "warehouseOffice", path: "/warehouse/office", section: "operations", moduleKey: "inventory", hiddenFromMenu: true },
       { icon: ClipboardList, labelKey: "stockLedger", path: "/warehouse/stock-ledger", section: "operations", moduleKey: "inventory" },
       { icon: ShoppingCart, labelKey: "autoPurchase", path: "/warehouse/auto-purchase", section: "operations", moduleKey: "inventory" },

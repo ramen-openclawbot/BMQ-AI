@@ -992,7 +992,7 @@ function ItemSheet({ item, others, canEdit, started, onTransfer, onRobot, onFact
 
 interface Target { kind: "item" | "sku"; id: string; name: string; unit: string; cls: GameClass }
 
-function CrateSheet({ location, crate, snapshot, autoPick = false, onAssigned, onClose }: {
+export function CrateSheet({ location, crate, snapshot, autoPick = false, onAssigned, onClose }: {
   location: WarehouseGameLocation; crate: WarehouseGamePendingRow; snapshot: WarehouseGameSnapshot; autoPick?: boolean;
   onAssigned: (cls: GameClass, label: string) => void; onClose: () => void;
 }) {
@@ -1107,7 +1107,7 @@ function CrateSheet({ location, crate, snapshot, autoPick = false, onAssigned, o
     );
 
   return (
-    <Sheet title={`“${crate.raw_name}”`} tag="📦 Hàng chưa dán nhãn" sub={`${crate.line_count} dòng phiếu · ${crate.supplier_name ?? "chưa rõ NCC"}`} onClose={onClose}>
+    <Sheet title={`“${crate.raw_name}”`} tag="📦 Hàng mới trên phiếu" sub={`${crate.line_count} dòng phiếu · ${crate.supplier_name ?? "chưa rõ NCC"}`} onClose={onClose}>
       <ReceiptNotes title="Phiếu giao hàng" lines={notes.data} loading={notes.isLoading} error={notes.error} />
       {creating ? (
         <>
@@ -1130,7 +1130,7 @@ function CrateSheet({ location, crate, snapshot, autoPick = false, onAssigned, o
           </div>
           {error ? <div className="err">{errorText(error)}</div> : null}
           <div className="row">
-            <button type="button" className="btn" disabled={busy || newName.trim().length < 2 || !unitOk || (location === "q7" && !asPastry)} onClick={createAndSend}>{busy ? "Đang tạo…" : "Tạo và xếp vào kệ"}</button>
+            <button type="button" className="btn" disabled={busy || newName.trim().length < 2 || !unitOk || (location === "q7" && !asPastry)} onClick={createAndSend}>{busy ? "Đang lưu…" : "Tạo tên mới"}</button>
             <button type="button" className="btn ghost" onClick={() => setCreating(false)}>Quay lại</button>
           </div>
         </>
@@ -1148,7 +1148,7 @@ function CrateSheet({ location, crate, snapshot, autoPick = false, onAssigned, o
           })() : null}
           {error ? <div className="err">{errorText(error)}</div> : null}
           <div className="row">
-            <button type="button" className="btn" disabled={busy || !unitOk} onClick={() => send(target, "stock")}>{busy ? "Đang xếp…" : "Xếp vào kệ"}</button>
+            <button type="button" className="btn" disabled={busy || !unitOk} onClick={() => send(target, "stock")}>{busy ? "Đang lưu…" : "Gộp vào tên này"}</button>
             <button type="button" className="btn ghost" onClick={() => setTarget(null)}>Chọn lại</button>
           </div>
         </>

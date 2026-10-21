@@ -9,6 +9,7 @@ interface Translations {
   inventoryOverview: string;
   catalogCleanup: string;
   warehouseGame: string;
+  warehouseSlips: string;
   warehouseOffice: string;
   autoPurchase: string;
   purchaseUsage: string;
@@ -217,7 +218,8 @@ const translations: Record<Language, Translations> = {
     inventory: "Inventory",
     inventoryOverview: "Inventory Overview",
     catalogCleanup: "Catalog Cleanup",
-    warehouseGame: "Warehouse 2D",
+    warehouseGame: "Warehouse game",
+    warehouseSlips: "Stock slips",
     warehouseOffice: "Office ordering",
     autoPurchase: "Auto Purchasing",
     purchaseUsage: "Purchase vs Usage",
@@ -424,7 +426,8 @@ const translations: Record<Language, Translations> = {
     inventory: "Kho hàng",
     inventoryOverview: "Tổng quan kho",
     catalogCleanup: "Dọn danh mục",
-    warehouseGame: "Kho 2D",
+    warehouseGame: "Game kho",
+    warehouseSlips: "Phiếu kho",
     warehouseOffice: "Kho văn phòng",
     autoPurchase: "Đặt hàng tự động",
     purchaseUsage: "Mua so với dùng",
