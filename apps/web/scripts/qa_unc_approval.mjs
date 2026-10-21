@@ -50,6 +50,7 @@ const PRS = [
   pr("55555555-5555-4555-8555-555555555552", "DC-0097", "sup-t", "Thiên An Sinh", 10732500, "approved", true, "01"),
   pr("55555555-5555-4555-8555-555555555553", "DC-0098", "sup-t", "Thiên An Sinh", 11131500, "approved", true, "02"),
   pr("55555555-5555-4555-8555-555555555554", "DC-0104", "sup-t", "Thiên An Sinh", 11131500, "pending", false, "03"),
+  { ...pr("66666666-6666-4666-8666-666666666666", "DC-0110", "sup-n", "Ngọc Trân- Cô Trang", 7943400, "approved", true, "05"), payment_status: "partial", payment_allocations: [{ id: "a-110", amount: 7684200, payment_id: "p-110", created_at: today }] },
   pr("55555555-5555-4555-8555-555555555555", "DC-0105", "sup-t", "Thiên An Sinh", 2607720, "pending", false, "04"),
 ];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -700,6 +701,35 @@ try {
     assert.equal(confirm.amount, 7684200);
     assert.deepEqual(errors, []);
     record(`manual amount below need = partial ${viewport.width}`);
+    await context.close();
+  }
+
+  // 14. Approved, partly paid by UNC: the rest is paid in cash from the detail (owner 22/10, PR-5C3C04AC).
+  for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 640 }, { width: 1440, height: 900 }]) {
+    const { context, page, errors } = await open({ role: "owner", ocrAmount: 259200 }, "/payment-requests", viewport);
+    await openDetail(page, "DC-0110");
+    const cash = page.locator("[data-bmq-pay-rest='cash']");
+    await cash.waitFor();
+    assert.match(await cash.textContent(), /Chi tiền mặt phần còn lại/);
+    assert.equal(await page.locator("[data-bmq-pay-rest='bank_transfer']").count(), 1, "UNC rest offered too");
+    await page.waitForTimeout(600);
+    assert.ok((await overflow(page)) <= 0, `detail no overflow ${viewport.width}`);
+    assert.ok(await cash.evaluate((el) => el.scrollWidth <= el.clientWidth + 1), `cash button label fits ${viewport.width}`);
+    await page.screenshot({ path: `${EVIDENCE}/detail-pay-rest-${viewport.width}.png` });
+    await cash.click();
+    await page.waitForSelector("[data-bmq-unc-dialog='approve'][data-bmq-unc-method='cash']");
+    assert.equal(await page.getByLabel("Số tiền gán cho DC-0110").inputValue(), "259.200", "remaining prefilled");
+    await upload(page);
+    await page.waitForSelector("[data-bmq-unc-ocr]");
+    assert.equal(await page.locator("[data-bmq-unc-verdict='match']").count(), 1, "cash slip matches the rest");
+    await page.locator("[data-bmq-unc-dialog]").screenshot({ path: `${EVIDENCE}/cash-rest-${viewport.width}.png` });
+    await page.locator("[data-bmq-unc-submit]").click();
+    await page.locator("[data-bmq-unc-dialog]").waitFor({ state: "detached" });
+    const confirm = (await bodies(page)).find((b) => b.mode === "confirm");
+    assert.equal(confirm.payment_method, "cash");
+    assert.deepEqual(confirm.allocations, [{ payment_request_id: "66666666-6666-4666-8666-666666666666", amount: 259200 }]);
+    assert.deepEqual(errors, []);
+    record(`cash for the rest from the detail ${viewport.width}`);
     await context.close();
   }
 

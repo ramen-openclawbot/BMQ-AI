@@ -137,6 +137,8 @@ export function PaymentRequestDetailsDialog({
   const [showDriveImportDialog, setShowDriveImportDialog] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState("");
   const [showUncDialog, setShowUncDialog] = useState(false);
+  // Method chosen for the remainder of an approved phiếu (owner 22/10: UNC part, then cash rest).
+  const [restMethod, setRestMethod] = useState<"bank_transfer" | "cash" | null>(null);
   const [showNoReceiptDialog, setShowNoReceiptDialog] = useState(false);
   const [noReceiptReason, setNoReceiptReason] = useState("");
 
@@ -791,6 +793,31 @@ export function PaymentRequestDetailsDialog({
                   </>
                 )}
 
+                {/* Owner pays what is still owed with a slip: cash or UNC, each its own payment. */}
+                {request.status === "approved" && isOwner && hasOutstandingPayment(request) && (
+                  <>
+                    <Button
+                      onClick={() => { setRestMethod("cash"); setShowUncDialog(true); }}
+                      className="d3-prd-btn is-primary col-span-2 w-full gap-2 whitespace-nowrap sm:w-auto"
+                      data-bmq-pay-rest="cash"
+                    >
+                      <Banknote className="h-4 w-4" />
+                      {allocatedAmount > 0 ? "Chi tiền mặt phần còn lại" : "Chi tiền mặt"}
+                    </Button>
+                    {request.payment_method !== "cash" && (
+                      <Button
+                        onClick={() => { setRestMethod("bank_transfer"); setShowUncDialog(true); }}
+                        variant="outline"
+                        className="w-full gap-2 whitespace-nowrap sm:w-auto"
+                        data-bmq-pay-rest="bank_transfer"
+                      >
+                        <CreditCard className="h-4 w-4" />
+                        {allocatedAmount > 0 ? "Chi UNC phần còn lại" : "Chi UNC"}
+                      </Button>
+                    )}
+                  </>
+                )}
+
                 {/* Mark as paid (only for approved requests) */}
                 {request.status === "approved" && hasOutstandingPayment(request) && (
                   <Button
@@ -869,9 +896,9 @@ export function PaymentRequestDetailsDialog({
       {request && (
         <UncApprovalDialog
           open={showUncDialog}
-          onOpenChange={setShowUncDialog}
+          onOpenChange={(next) => { setShowUncDialog(next); if (!next) setRestMethod(null); }}
           mode="approve"
-          paymentMethod={request.payment_method === "cash" ? "cash" : "bank_transfer"}
+          paymentMethod={restMethod ?? (request.payment_method === "cash" ? "cash" : "bank_transfer")}
           requests={[
             {
               id: request.id,
