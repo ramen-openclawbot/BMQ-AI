@@ -309,8 +309,10 @@ html.bmq-d3 [role="dialog"] > button:has(> .sr-only) svg { width: 18px; height: 
 html.bmq-d3 [role="dialog"]:focus { outline: none; --tw-ring-shadow: 0 0 #0000; --tw-ring-offset-shadow: 0 0 #0000; }
 
 /* Dialog content kit: portalled dialogs sit outside .d3-screen, so the page kit below never
-   reached them (owner IMG_5997: "Sửa lệnh sản xuất" kept the old heavy theme on iPhone). */
-html.bmq-d3 [role="dialog"] { font-family: var(--d3-sans); color: var(--d3-ink); }
+   reached them (owner IMG_5997: "Sửa lệnh sản xuất" kept the old heavy theme on iPhone).
+   The VNAgent chat sheet is also a Radix dialog but keeps its own dark theme, so the font,
+   weight, caption and field rules skip it (owner IMG_6026: its composer became a white bar). */
+html.bmq-d3 [role="dialog"]:where(:not([data-merchant-agent-chat])) { font-family: var(--d3-sans); color: var(--d3-ink); }
 /* Titles: left-aligned, light, sized for a phone, and clear of the 40px close key. */
 html.bmq-d3 [role="dialog"] > div > h2:not([class*="d3-"]) {
   padding-right: 40px;
@@ -323,11 +325,11 @@ html.bmq-d3 [role="dialog"] > div > h2:not([class*="d3-"]) {
 }
 html.bmq-d3 [role="dialog"] > div:has(> h2:not([class*="d3-"])) { text-align: left; }
 /* Heavy legacy weights read as shouting inside a form; decision text keeps 600. */
-html.bmq-d3 [role="dialog"] :is(.font-black, .font-extrabold) { font-weight: 600; }
+html.bmq-d3 [role="dialog"]:where(:not([data-merchant-agent-chat])) :is(.font-black, .font-extrabold) { font-weight: 600; }
 /* Small all-caps captions (unit names, section labels) become plain captions. */
-html.bmq-d3 [role="dialog"] :is(.uppercase.text-xs, .uppercase.text-\[11px\], .uppercase.text-\[10px\]) { text-transform: none; letter-spacing: 0; }
+html.bmq-d3 [role="dialog"]:where(:not([data-merchant-agent-chat])) :is(.uppercase.text-xs, .uppercase.text-\[11px\], .uppercase.text-\[10px\]) { text-transform: none; letter-spacing: 0; }
 /* Fields: white wells, same radius as the page kit. */
-html.bmq-d3 [role="dialog"] :is(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), textarea, select, button[role="combobox"]) {
+html.bmq-d3 [role="dialog"]:where(:not([data-merchant-agent-chat])) :is(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), textarea, select, button[role="combobox"]) {
   border-radius: 12px;
   background-color: var(--d3-white);
 }

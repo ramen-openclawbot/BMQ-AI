@@ -281,6 +281,24 @@ try {
     assert.ok((await page.locator("[data-merchant-starters]").textContent()).includes("Gợi ý · CRM"));
     assert.ok((await panel(page).textContent()).includes("bấm Duyệt mới áp"));
     assert.ok(await overflow(page) <= 0, `no overflow with page starters ${tag}`);
+    // The chat sheet is a Radix dialog; the form-dialog kit must not repaint it (owner IMG_6026:
+    // the composer became a white bar, the font, title weight and caps changed).
+    const look = await page.evaluate(() => {
+      const sheet = document.querySelector("[data-merchant-agent-chat]");
+      const style = (el) => (el ? getComputedStyle(el) : null);
+      return {
+        composerBg: style(document.querySelector("[aria-label='Tin nhắn cho VNAgent']"))?.backgroundColor,
+        sheetFont: style(sheet)?.fontFamily,
+        titleWeight: style(sheet?.querySelector("h2"))?.fontWeight,
+        captionCase: style(document.querySelector("[data-merchant-starters] > div"))?.textTransform,
+      };
+    });
+    assert.equal(look.composerBg, "rgba(0, 0, 0, 0)", `composer stays transparent ${tag}`);
+    assert.ok(look.sheetFont?.startsWith("Archivo"), `chat keeps its Archivo font ${tag}: ${look.sheetFont}`);
+    assert.equal(look.titleWeight, "900", `VNAGENT title keeps its weight ${tag}`);
+    assert.equal(look.captionCase, "uppercase", `starter caption stays in caps ${tag}`);
+    record(`chat keeps its own theme inside the dialog kit ${tag}`);
+    await page.waitForTimeout(400);
     await page.screenshot({ path: `${EVIDENCE}/empty-${tag}.png` });
     record(`page starters on CRM ${tag}`);
 
