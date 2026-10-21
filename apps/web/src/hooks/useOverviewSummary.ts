@@ -20,7 +20,7 @@ import { getVietnamDayUtcRange } from "@/lib/vietnam-time";
 const HREF = {
   revenue: "/finance-control/revenue",
   pendingApprovals: "/payment-requests",
-  lowStock: "/low-stock",
+  lowStock: "/warehouse/game",
   salesPo: "/sales-po-inbox",
   kioskReports: "/finance-control/revenue/points",
   production: "/production/planning/q7",

@@ -133,12 +133,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         const viewerRows = [
           "dashboard", "finance_cost", "finance_revenue", "crm",
-          "sales_po_inbox", "facebook_messenger", "purchase_orders", "production_q7", "production_products", "production_shifts", "production_qa", "inventory", "goods_receipts", "sku_costs",
-          "suppliers", "invoices", "payment_requests", "low_stock", "settings",
+          "sales_po_inbox", "purchase_orders", "production_q7", "production_products", "production_qa", "inventory", "goods_receipts", "sku_costs",
+          "suppliers", "invoices", "payment_requests", "settings",
         ].map((moduleKey) => ({
           user_id: userId,
           module_key: moduleKey,
-          can_view: ["dashboard", "inventory", "low_stock", "settings"].includes(moduleKey),
+          can_view: ["dashboard", "inventory", "settings"].includes(moduleKey),
           can_edit: false,
         }));
 

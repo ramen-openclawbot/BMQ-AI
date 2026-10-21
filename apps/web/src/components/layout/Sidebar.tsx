@@ -7,7 +7,6 @@ import {
   Package,
   Users,
   FileText,
-  AlertTriangle,
   Settings,
   FileCheck,
   Barcode,
@@ -28,7 +27,6 @@ import {
   ServerCog,
   Factory,
   ClipboardCheck,
-  BarChart4,
   Store,
   Wallet,
   Boxes,
@@ -114,7 +112,6 @@ export const navItems: NavItem[] = [
     labelKey: "inventory",
     section: "operations",
     children: [
-      { icon: Package, labelKey: "inventoryOverview", path: "/inventory", section: "operations", moduleKey: "inventory", hiddenFromMenu: true },
       { icon: Gamepad2, labelKey: "warehouseGame", path: "/warehouse/game", section: "operations", moduleKey: "inventory" },
       { icon: FileText, labelKey: "warehouseSlips", path: "/warehouse/phieu", section: "operations", moduleKey: "inventory" },
       { icon: ClipboardList, labelKey: "stockLedger", path: "/warehouse/stock-ledger", section: "operations", moduleKey: "inventory" },
@@ -122,7 +119,6 @@ export const navItems: NavItem[] = [
       { icon: GitMerge, labelKey: "catalogCleanup", path: "/warehouse/catalog-cleanup", section: "operations", moduleKey: "inventory", hiddenFromMenu: true },
       { icon: Boxes, labelKey: "tanTaoWarehouse", path: "/warehouse/tan-tao", section: "operations", moduleKey: "inventory" },
       { icon: PackageCheck, labelKey: "goodsReceipts", path: "/goods-receipts", section: "operations", moduleKey: "goods_receipts" },
-      { icon: BarChart4, labelKey: "stockReport", path: "/warehouse/stock-report", section: "operations", moduleKey: "inventory", hiddenFromMenu: true },
     ],
   },
   { icon: Barcode, labelKey: "skuCosts", path: "/sku-costs", section: "operations", moduleKey: "sku_costs" },
@@ -130,7 +126,6 @@ export const navItems: NavItem[] = [
   { icon: Users, labelKey: "suppliers", path: "/suppliers", section: "operations", moduleKey: "suppliers" },
   { icon: FileText, labelKey: "invoices", path: "/invoices", section: "operations", moduleKey: "invoices" },
   { icon: FileCheck, labelKey: "paymentRequests", path: "/payment-requests", section: "operations", showBadge: true, moduleKey: "payment_requests" },
-  { icon: AlertTriangle, labelKey: "lowStock", path: "/low-stock", section: "operations", moduleKey: "low_stock", hiddenFromMenu: true },
 ];
 
 const SIDEBAR_SCROLL_STORAGE_KEY = "bmq-sidebar-scroll-top";

@@ -41,25 +41,20 @@ export const ALL_MODULES: { key: string; labelEn: string; labelVi: string }[] = 
   { key: "finance_revenue", labelEn: "Revenue Management", labelVi: "Quản lý doanh thu" },
   { key: "crm", labelEn: "CRM", labelVi: "CRM" },
   { key: "sales_po_inbox", labelEn: "Sales PO Inbox", labelVi: "PO (Bán hàng)" },
-  { key: "facebook_messenger", labelEn: "Facebook Page Management", labelVi: "Quản lý Facebook Page" },
   { key: "purchase_orders", labelEn: "PO (Purchasing)", labelVi: "PO (Mua hàng)" },
   { key: "production_q7", labelEn: "Production Planning - Q7 Workshop", labelVi: "Kế hoạch SX - Xưởng Q7" },
   { key: "q7_material_inventory", labelEn: "Q7 Material Inventory", labelVi: "Xuất-nhập-tồn NVL Q7" },
   { key: "production_products", labelEn: "Product Management", labelVi: "Quản lý sản phẩm" },
-  { key: "production_shifts", labelEn: "Production Shifts", labelVi: "Ca sản xuất" },
   { key: "production_qa", labelEn: "QA & Finished Goods Receiving", labelVi: "QA & Nhập kho TP" },
-  { key: "attendance", labelEn: "Attendance", labelVi: "Chấm công" },
   { key: "payroll", labelEn: "Payroll", labelVi: "Bảng lương" },
   { key: "salary_cash", labelEn: "Salary payout", labelVi: "Chi lương" },
   { key: "inventory", labelEn: "Inventory", labelVi: "Kho hàng" },
-  { key: "kitchen_inventory", labelEn: "Kitchen Inventory", labelVi: "Kiểm soát kho bếp" },
   { key: "goods_receipts", labelEn: "Goods Receipts", labelVi: "Phiếu nhập kho" },
   { key: "sku_costs", labelEn: "SKU Costs", labelVi: "Giá vốn" },
   { key: "material_master", labelEn: "Canonical Materials", labelVi: "Quản trị NVL chuẩn" },
   { key: "suppliers", labelEn: "Suppliers", labelVi: "Nhà cung cấp" },
   { key: "invoices", labelEn: "Invoices", labelVi: "Hoá đơn" },
   { key: "payment_requests", labelEn: "Payment Requests", labelVi: "Duyệt chi" },
-  { key: "low_stock", labelEn: "Low Stock", labelVi: "Sắp hết hàng" },
   { key: "settings", labelEn: "Settings", labelVi: "Cài đặt" },
 ];
 
@@ -295,20 +290,20 @@ export function useInviteUser() {
 // Default permission sets per role (mirrors the SQL seed logic)
 // ---------------------------------------------------------------------------
 const DEFAULT_VIEW: Record<string, string[]> = {
-  staff: ["dashboard","finance_cost","finance_revenue","crm","sales_po_inbox","purchase_orders","production_q7","q7_material_inventory","production_products","production_shifts","production_qa","attendance","inventory","goods_receipts","sku_costs","suppliers","invoices","payment_requests","low_stock","settings"],
-  warehouse: ["dashboard","purchase_orders","inventory","goods_receipts","suppliers","invoices","low_stock","settings"],
-  viewer: ["dashboard","inventory","low_stock","settings"],
+  staff: ["dashboard","finance_cost","finance_revenue","crm","sales_po_inbox","purchase_orders","production_q7","q7_material_inventory","production_products","production_qa","inventory","goods_receipts","sku_costs","suppliers","invoices","payment_requests","settings"],
+  warehouse: ["dashboard","purchase_orders","inventory","goods_receipts","suppliers","invoices","settings"],
+  viewer: ["dashboard","inventory","settings"],
 };
 const DEFAULT_EDIT: Record<string, string[]> = {
-  staff: ["dashboard","finance_cost","finance_revenue","crm","sales_po_inbox","purchase_orders","production_q7","q7_material_inventory","production_products","production_shifts","production_qa","attendance","suppliers","invoices","payment_requests"],
+  staff: ["dashboard","finance_cost","finance_revenue","crm","sales_po_inbox","purchase_orders","production_q7","q7_material_inventory","production_products","production_qa","suppliers","invoices","payment_requests"],
   warehouse: ["inventory","goods_receipts"],
   viewer: [],
 };
 
 const ALL_MODULE_KEYS = [
   "dashboard","finance_cost","finance_revenue","crm",
-  "sales_po_inbox","facebook_messenger","purchase_orders","production_q7","q7_material_inventory","production_products","production_shifts","production_qa","attendance","payroll","salary_cash","inventory","kitchen_inventory","goods_receipts","sku_costs","material_master",
-  "suppliers","invoices","payment_requests","low_stock","settings",
+  "sales_po_inbox","purchase_orders","production_q7","q7_material_inventory","production_products","production_qa","payroll","salary_cash","inventory","goods_receipts","sku_costs","material_master",
+  "suppliers","invoices","payment_requests","settings",
 ];
 
 // ---------------------------------------------------------------------------

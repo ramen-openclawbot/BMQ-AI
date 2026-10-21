@@ -10,7 +10,6 @@ import { adminHostCopy, isVnagentAdminHostname } from "@/lib/adminHostLanguage";
 
 // Eager load: pages nhẹ, core navigation
 import Index from "@/pages/Index";
-import Inventory from "@/pages/Inventory";
 import Suppliers from "@/pages/Suppliers";
 import Invoices from "@/pages/Invoices";
 import PaymentRequests from "@/pages/PaymentRequests";
@@ -18,7 +17,6 @@ import PaymentSubmission from "@/pages/PaymentSubmission";
 import CashSettlement from "@/pages/CashSettlement";
 import SalaryPayout from "@/pages/SalaryPayout";
 import PayablesManagement from "@/pages/PayablesManagement";
-import LowStock from "@/pages/LowStock";
 import GoodsReceipts from "@/pages/GoodsReceipts";
 import PurchaseOrders from "@/pages/PurchaseOrders";
 import Settings from "@/pages/Settings";
@@ -48,7 +46,6 @@ const MaterialMasterAdmin = lazy(() => import("@/pages/material-master/MaterialM
 const MaterialMasterSystemStatus = lazy(() => import("@/pages/material-master/MaterialMasterSystemStatus"));
 const ProductionProducts = lazy(() => import("@/pages/ProductionProducts"));
 const QAInspection = lazy(() => import("@/pages/QAInspection"));
-const StockReport = lazy(() => import("@/pages/StockReport"));
 const TanTaoWarehouse = lazy(() => import("@/pages/TanTaoWarehouse"));
 const StockLedger = lazy(() => import("@/pages/StockLedger"));
 const PurchaseUsage = lazy(() => import("@/pages/PurchaseUsage"));
@@ -270,7 +267,6 @@ export function AppRoutes() {
       {/* Main App Routes */}
       <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
         <Route path="/" element={<Index />} />
-        <Route path="/inventory" element={<Inventory />} />
         <Route path="/suppliers" element={<ModuleRoute moduleKey="suppliers"><Suppliers /></ModuleRoute>} />
         <Route path="/invoices" element={<Invoices />} />
         <Route path="/payment-requests" element={<PaymentRequests />} />
@@ -279,7 +275,6 @@ export function AppRoutes() {
         <Route path="/salary-payouts/:id" element={<SalaryPayout />} />
         <Route path="/goods-receipts" element={<GoodsReceipts />} />
         <Route path="/purchase-orders" element={<ModuleRoute moduleKey="purchase_orders"><PurchaseOrders /></ModuleRoute>} />
-        <Route path="/low-stock" element={<LowStock />} />
         <Route path="/sku-costs" element={<Navigate to="/sku-costs/dashboard" replace />} />
         <Route path="/sku-costs/dashboard" element={<Suspense fallback={<AppLoadingFallback />}><SkuCostsDjango /></Suspense>} />
         <Route path="/sku-costs/management" element={<Suspense fallback={<AppLoadingFallback />}><SkuCostsManagement /></Suspense>} />
@@ -313,7 +308,6 @@ export function AppRoutes() {
         <Route path="/warehouse/purchase-usage" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><PurchaseUsage /></Suspense></ModuleRoute>} />
         <Route path="/warehouse/catalog-cleanup" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><StockCatalogCleanup /></Suspense></ModuleRoute>} />
         <Route path="/warehouse/tan-tao" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><TanTaoWarehouse /></Suspense></ModuleRoute>} />
-        <Route path="/warehouse/stock-report" element={<Suspense fallback={<AppLoadingFallback />}><StockReport /></Suspense>} />
         <Route path="/settings" element={<Settings />} />
         {/* Owner-only routes */}
         <Route path="/user-management" element={<OwnerRoute><UserManagement /></OwnerRoute>} />
