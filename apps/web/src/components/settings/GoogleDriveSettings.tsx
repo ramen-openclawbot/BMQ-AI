@@ -564,7 +564,7 @@ export function GoogleDriveSettings() {
               </Button>
             </div>
           ) : (
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="text-sm text-muted-foreground flex items-center gap-2">
                 <X className="h-4 w-4 text-destructive" />
                 Chưa kết nối
@@ -619,7 +619,7 @@ export function GoogleDriveSettings() {
               </Button>
             </div>
           ) : (
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="text-sm text-muted-foreground flex items-center gap-2">
                 <X className="h-4 w-4 text-destructive" />
                 Chưa kết nối Gmail
@@ -676,7 +676,7 @@ export function GoogleDriveSettings() {
               </Button>
             </div>
           ) : (
-            <div className="flex items-center justify-between rounded-md border border-destructive/20 bg-destructive/5 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-destructive/20 bg-destructive/5 p-3">
               <span className="text-sm text-muted-foreground flex items-center gap-2">
                 <X className="h-4 w-4 text-destructive" />
                 Chưa kết nối Gmail gửi công nợ

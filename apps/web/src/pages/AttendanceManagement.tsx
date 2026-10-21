@@ -742,7 +742,7 @@ export default function AttendanceManagement() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">{isVi ? "Tổng bản ghi" : "Total records"}</CardTitle>
@@ -811,7 +811,8 @@ export default function AttendanceManagement() {
       </Card>
 
       <Tabs defaultValue="records" className="space-y-4">
-        <TabsList>
+        {/* Four tabs do not fit a phone: the list scrolls sideways instead of pushing the page wider. */}
+        <TabsList className="max-w-full justify-start overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <TabsTrigger value="records" className="gap-2"><Users className="h-4 w-4" />{copy.records}</TabsTrigger>
           <TabsTrigger value="events" className="gap-2"><CalendarClock className="h-4 w-4" />{copy.events}</TabsTrigger>
           <TabsTrigger value="pilot" className="gap-2"><Radar className="h-4 w-4" />{copy.pilotDashboard}</TabsTrigger>

@@ -83,7 +83,10 @@ export default function BmqDataSources() {
   const localText = (value: string) => { const pair = localPairs.find((pair) => pair.includes(value)); return pair ? pair[en ? 0 : 1] : value; };
   const statusText = (value: string) => ({ validated: en ? "Validated" : "Đạt kiểm tra", ready: en ? "Ready" : "Sẵn sàng", success: en ? "Imported" : "Đã nạp", rejected: en ? "Rejected" : "Bị từ chối", failed: en ? "Failed" : "Lỗi", pending: en ? "Pending validation" : "Chờ kiểm tra", duplicate: en ? "Duplicate" : "Đã tồn tại" }[value] || value);
   const field = "w-full rounded-md border bg-background px-3 py-2 text-sm min-h-11";
-  if (!enabled || !isOwner) return <div className="p-6">{en ? "BMQ data sources are not enabled for this account." : "Nguồn dữ liệu BMQ chưa được bật cho tài khoản này."}</div>;
+  if (!enabled || !isOwner) return <div className="mx-auto max-w-5xl space-y-4" data-bmq-data-sources="disabled">
+    <header><h1 className="text-2xl font-bold">{t.dataSources}</h1></header>
+    <p className="rounded-xl border bg-card p-4 text-sm text-muted-foreground">{en ? "BMQ data sources are not enabled for this account. Ask the owner to turn them on." : "Nguồn dữ liệu BMQ chưa được bật cho tài khoản này. Nhờ chủ sở hữu bật tính năng này."}</p>
+  </div>;
   return <div className="mx-auto max-w-5xl space-y-6" data-bmq-data-sources="v1-owner-ingest">
     <header><h1 className="text-2xl font-bold">{t.dataSources}</h1><p className="mt-2 text-sm text-muted-foreground">{en ? "Import business records and reference documents for BMQ answers. Files are not submitted for model training by this workflow." : "Nạp dữ liệu và tài liệu nghiệp vụ để BMQ tra cứu khi trả lời. Luồng này không đưa file vào huấn luyện model."}</p></header>
     <section className="rounded-xl border p-4 space-y-2" aria-label={en ? "Storage status" : "Trạng thái lưu trữ"}>

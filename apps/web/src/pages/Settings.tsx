@@ -189,9 +189,9 @@ const Settings = () => {
         <Separator />
         <div className="flex items-center justify-between">
           <div>
-            <p className="font-medium">Reload Page</p>
+            <p className="font-medium">{language === "en" ? "Reload page" : "Tải lại trang"}</p>
             <p className="text-sm text-muted-foreground">
-              If you're experiencing display issues, try reloading the page.
+              {language === "en" ? "If the page looks wrong, reload it." : "Nếu giao diện hiển thị sai, hãy tải lại trang."}
             </p>
           </div>
           <Button 
@@ -199,7 +199,7 @@ const Settings = () => {
             onClick={() => window.location.reload()}
           >
             <RefreshCw className="h-4 w-4 mr-2" />
-            Reload
+            {language === "en" ? "Reload" : "Tải lại"}
           </Button>
         </div>
       </div>
