@@ -308,6 +308,45 @@ html.bmq-d3 [role="dialog"] > button:has(> .sr-only) svg { width: 18px; height: 
 /* The container takes programmatic focus on open; its ring drew a second blue frame round the dialog. */
 html.bmq-d3 [role="dialog"]:focus { outline: none; --tw-ring-shadow: 0 0 #0000; --tw-ring-offset-shadow: 0 0 #0000; }
 
+/* Dialog content kit: portalled dialogs sit outside .d3-screen, so the page kit below never
+   reached them (owner IMG_5997: "Sửa lệnh sản xuất" kept the old heavy theme on iPhone). */
+html.bmq-d3 [role="dialog"] { font-family: var(--d3-sans); color: var(--d3-ink); }
+/* Titles: left-aligned, light, sized for a phone, and clear of the 40px close key. */
+html.bmq-d3 [role="dialog"] > div > h2:not([class*="d3-"]) {
+  padding-right: 40px;
+  text-align: left;
+  font-size: clamp(20px, 5.2vw, 24px);
+  font-weight: 400;
+  line-height: 1.2;
+  letter-spacing: -.01em;
+  overflow-wrap: anywhere;
+}
+html.bmq-d3 [role="dialog"] > div:has(> h2:not([class*="d3-"])) { text-align: left; }
+/* Heavy legacy weights read as shouting inside a form; decision text keeps 600. */
+html.bmq-d3 [role="dialog"] :is(.font-black, .font-extrabold) { font-weight: 600; }
+/* Small all-caps captions (unit names, section labels) become plain captions. */
+html.bmq-d3 [role="dialog"] :is(.uppercase.text-xs, .uppercase.text-\[11px\], .uppercase.text-\[10px\]) { text-transform: none; letter-spacing: 0; }
+/* Fields: white wells, same radius as the page kit. */
+html.bmq-d3 [role="dialog"] :is(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), textarea, select, button[role="combobox"]) {
+  border-radius: 12px;
+  background-color: var(--d3-white);
+}
+
+/* iOS Safari gives date/time inputs an intrinsic width and centred value, so they ran past the
+   dialog edge (IMG_5997). Let them shrink to their column and read like the other fields. Scoped
+   to the app's dialogs and page panel; the native picker stays. */
+html.bmq-d3 :is([role="dialog"], .d3-screen) input:is([type="date"], [type="month"], [type="time"], [type="datetime-local"]) {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  -webkit-appearance: none;
+  appearance: none;
+  text-align: left;
+}
+html.bmq-d3 :is([role="dialog"], .d3-screen) input:is([type="date"], [type="month"], [type="time"], [type="datetime-local"])::-webkit-date-and-time-value { text-align: left; }
+html.bmq-d3 [role="dialog"] .grid > * { min-width: 0; }
+
 /* ---------- menus (portalled; html.bmq-d3 only exists inside the app) ---------- */
 html.bmq-d3 .d3-menu {
   border-radius: 16px;

@@ -221,6 +221,37 @@ async function open(cfg, route, viewport, extra = {}) {
 
 const overflow = (page) => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
 
+
+// Dialog title must not run under the close key; date inputs must stay inside the dialog and shrink.
+async function dialogLayout(dialog) {
+  return dialog.evaluate((d) => {
+    const r = d.getBoundingClientRect();
+    const title = d.querySelector(":scope > div > h2") || d.querySelector("h2");
+    const close = [...d.querySelectorAll(":scope > button")].find((b) => b.querySelector(".sr-only"));
+    const t = title?.getBoundingClientRect();
+    const c = close?.getBoundingClientRect();
+    const textRight = (() => {
+      if (!title) return null;
+      const range = document.createRange();
+      range.selectNodeContents(title);
+      return Math.max(...[...range.getClientRects()].map((x) => x.right));
+    })();
+    const dates = [...d.querySelectorAll("input[type='date'], input[type='month']")].map((el) => {
+      const b = el.getBoundingClientRect();
+      return { right: Math.round(b.right), minWidth: getComputedStyle(el).minWidth, align: getComputedStyle(el).textAlign };
+    });
+    return {
+      titleFont: title ? getComputedStyle(title).fontSize : null,
+      titleWeight: title ? getComputedStyle(title).fontWeight : null,
+      titleTextRight: textRight && Math.round(textRight),
+      closeLeft: c && Math.round(c.left),
+      titleTop: t && Math.round(t.top), closeBottom: c && Math.round(c.bottom),
+      dialogRight: Math.round(r.right),
+      dates,
+    };
+  });
+}
+
 const WIDTHS = [
   { width: 1440, height: 900 },
   { width: 390, height: 844 },
@@ -279,6 +310,26 @@ try {
       record(`${choice.key} ${viewport.width}`, facts);
       await context.close();
     }
+  }
+  // Owner IMG_5997: "Sửa lệnh sản xuất" on iPhone — heavy title under the close key, dates past the edge.
+  for (const viewport of WIDTHS) {
+    const { context, page, errors } = await open({ role: "owner", data: "populated" }, "/production/planning/q7", viewport);
+    await page.waitForSelector(".d3-pp-order-row", { timeout: 20000 });
+    await page.locator(".d3-pp-order-row").first().click();
+    await page.locator(".d3-pp-order-actions button", { hasText: "Sửa" }).first().click();
+    const dialog = page.locator("[role='dialog']").last();
+    await dialog.waitFor({ timeout: 10000 });
+    await page.waitForTimeout(500);
+    const lay = await dialogLayout(dialog);
+    await page.screenshot({ path: `${EVIDENCE}/production-edit-${viewport.width}.png` });
+    if (!process.env.SHOTS_ONLY) {
+      assert.ok(lay.titleTextRight <= lay.closeLeft - 4 || lay.titleTop >= lay.closeBottom, `title clear of close key @${viewport.width}: ${JSON.stringify(lay)}`);
+      assert.ok(Number(lay.titleWeight) <= 500, `dialog title not heavy @${viewport.width}: ${lay.titleWeight}`);
+      assert.ok(lay.dates.length >= 2 && lay.dates.every((x) => x.right <= lay.dialogRight && x.minWidth === "0px" && x.align === "left"), `dates shrink and stay inside @${viewport.width}: ${JSON.stringify(lay.dates)}`);
+    }
+    assert.deepEqual(errors, []);
+    record(`production edit ${viewport.width}`, lay);
+    await context.close();
   }
 } finally {
   fs.writeFileSync(`${EVIDENCE}/qa-impeccable-dialogs.json`, JSON.stringify(results, null, 2));
