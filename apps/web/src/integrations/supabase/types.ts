@@ -4252,6 +4252,35 @@ export type Database = {
         Args: { p_location: string; p_as_of?: string | null }
         Returns: Json
       }
+      kho_get_items: {
+        Args: never
+        Returns: Json
+      }
+      kho_item_can_edit: {
+        Args: { p_actor: string }
+        Returns: boolean
+      }
+      kho_save_item: {
+        Args: {
+          p_item_id: string
+          p_name: string
+          p_unit: string
+          p_active: boolean
+          p_unit_factor: number | null
+          p_merge: boolean
+          p_request_id: string
+        }
+        Returns: Json
+      }
+      kho_count_item: {
+        Args: {
+          p_location: string
+          p_item_id: string
+          p_counted_qty: number
+          p_request_id: string
+        }
+        Returns: Json
+      }
       get_warehouse_game_snapshot: {
         Args: { p_location: string }
         Returns: Json
