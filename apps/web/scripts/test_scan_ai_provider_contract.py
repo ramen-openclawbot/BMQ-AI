@@ -4,12 +4,13 @@
 Checks (no network, no deploy):
   1. _shared/ai-vision-provider.ts defines SCAN_AI_PROVIDER plus the DeepSeek
      endpoint/key/model (deepseek-flash, api.deepseek.com, DEEPSEEK_API_KEY).
-  2. Every target scan function and _shared/bank-slip-ocr.ts no longer hardcodes
-     "api.openai.com" (only ai-vision-provider.ts and production-material-issue-check
-     keep the OpenAI endpoint).
+  2. Every target scan function, _shared/bank-slip-ocr.ts and
+     production-material-issue-check use the shared DeepSeek configuration; no
+     function hardcodes api.openai.com.
   3. Every target imports ai-vision-provider.ts (directly or via bank-slip-ocr.ts)
      and reads its config through getScanAiConfig().
-  4. production-material-issue-check stays on OpenAI (the PDF path was not migrated).
+  4. production-material-issue-check uses callDeepSeekJson through the shared
+     getScanAiConfig("deepseek") provider.
 """
 from pathlib import Path
 
@@ -47,11 +48,8 @@ def main() -> None:
     for marker in ("SCAN_AI_PROVIDER", "deepseek-flash", "api.deepseek.com", "DEEPSEEK_API_KEY"):
         assert_true(marker in provider_text, f"ai-vision-provider.ts must mention {marker}")
     assert_true("getScanAiConfig" in provider_text, "ai-vision-provider.ts must export getScanAiConfig")
-    assert_true("OPENAI_API_KEY" in provider_text, "ai-vision-provider.ts must keep the OpenAI fallback key")
-    assert_true(
-        "https://api.openai.com/v1/chat/completions" in provider_text,
-        "ai-vision-provider.ts must keep the OpenAI endpoint for the fallback provider",
-    )
+    assert_true("api.openai.com" not in provider_text, "ai-vision-provider.ts must not expose an OpenAI endpoint")
+    assert_true("OPENAI_API_KEY" not in provider_text, "ai-vision-provider.ts must not read OPENAI_API_KEY")
 
     # 2./3. Every scan file goes through the provider module and drops the hardcoded URL.
     bank_slip_text = read(BANK_SLIP_OCR)
@@ -73,10 +71,11 @@ def main() -> None:
             f"{name} must import ai-vision-provider.ts (directly or via bank-slip-ocr.ts)",
         )
 
-    # 4. The PDF material-issue path stays on OpenAI and is intentionally not migrated.
+    # 4. The signed-PDF material-issue check stays on OpenAI until it sends page images
+    #    (DeepSeek rejects application/pdf, live probe 21/10).
     pmic_text = read(PRODUCTION_MATERIAL_ISSUE_CHECK)
-    assert_true("api.openai.com" in pmic_text, "production-material-issue-check must keep the OpenAI endpoint")
-    assert_true("OPENAI_SCAN_MODEL" in pmic_text, "production-material-issue-check must keep OPENAI_SCAN_MODEL")
+    assert_true("api.openai.com" in pmic_text, "production-material-issue-check keeps the OpenAI endpoint for now")
+    assert_true("OPENAI_SCAN_MODEL" in pmic_text, "production-material-issue-check keeps OPENAI_SCAN_MODEL for now")
 
     print("PASS: every scan function reads endpoint/key/model from _shared/ai-vision-provider.ts (DeepSeek by default)")
 

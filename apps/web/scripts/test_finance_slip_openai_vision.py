@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Regression checks for CEO daily bank slip extraction.
 
-These checks are intentionally static and do not call OpenAI/Supabase. They guard
-that CEO-uploaded UNC/QTM slips use the same OpenAI Vision edge function as the
-Drive UNC flow, and that the old PaddleOCR path is not reintroduced.
+These checks are intentionally static and do not call the AI provider/Supabase.
+They guard that CEO-uploaded UNC/QTM slips use the same shared scan-AI Edge
+function as the Drive UNC flow (DeepSeek by default), and that the old PaddleOCR
+path is not reintroduced.
 """
 from pathlib import Path
 
@@ -29,16 +30,16 @@ def main() -> None:
     combined = "\n".join([finance_page, folder_scan, extract_fn]).lower()
 
     assert_true("paddle" not in combined, "PaddleOCR/Paddle backend must not appear in CEO/UNC slip flow")
-    assert_true("https://api.openai.com/v1/chat/completions" in extract_fn, "edge function must call OpenAI Vision")
-    assert_true('model: "gpt-4o"' in extract_fn, "UNC/QTM finance OCR must use full gpt-4o, not mini, to reduce digit-scale mistakes")
-    assert_true("provider: \"openai\"" in extract_fn, "edge function must tag extraction provider as openai")
+    assert_true("bank-slip-ocr" in extract_fn and "callOpenAiVision" in extract_fn, "edge function must use the shared scan-AI OCR helper")
+    assert_true("getScanAiConfig" in extract_fn, "edge function must read the configured scan-AI provider")
+    assert_true("provider: getScanAiConfig().provider" in extract_fn, "edge function must report the configured scan-AI provider")
     assert_true("finance-extract-slip-amount" in finance_page, "CEO upload must call finance-extract-slip-amount")
     assert_true("finance-extract-slip-amount" in folder_scan, "Drive UNC/QTM flow must call finance-extract-slip-amount")
     assert_true("scan-bank-slip" not in finance_page, "CEO upload must not call legacy scan-bank-slip endpoint")
     assert_true("slipType" in finance_page and "slipType" in folder_scan, "both CEO and Drive flows must pass slipType")
     assert_true("OpenAI Vision" in finance_page, "CEO upload UI/errors should identify OpenAI Vision provider")
     assert_true("insufficient_quota" in extract_fn, "edge function must preserve explicit OpenAI insufficient_quota errors")
-    assert_true("OpenAI rate limit" in extract_fn, "edge function must distinguish generic OpenAI 429 rate limits from insufficient_quota")
+    assert_true("aiErrorJson" in extract_fn and "getAiErrorInfo" in extract_fn, "edge function must return the classified AI quota/rate-limit error")
     assert_true("amount_in_words" in extract_fn, "edge function must request/read amount words to guard OCR digit-scaling mistakes")
     assert_true("HA GAN UNC 14/05/2026" in extract_fn and "30.000.000" in extract_fn, "edge prompt must guard the 3,000,000 vs 30,000,000 HA GAN UNC regression")
     assert_true("required: [\"amount\", \"amount_in_words\", \"confidence\"]" in extract_fn, "OpenAI schema must require amount_in_words so OCR can be cross-checked")
@@ -85,7 +86,7 @@ def main() -> None:
     assert_true("activeSlipScan?.type === \"qtm\"" not in finance_page, "QTM input must not repeat the full sticky scan notification inline")
     assert_true("disabled={extracting || ceoDeclarationLocked || closeApprovalLocked}" in finance_page, "slip file inputs must be disabled while a scan is running")
 
-    print("PASS: CEO bank slip upload and UNC/QTM close-day flow use OpenAI Vision with visible scan progress")
+    print("PASS: CEO bank slip upload and UNC/QTM close-day flow use the shared scan-AI pipeline (DeepSeek by default) with visible scan progress")
 
 
 if __name__ == "__main__":

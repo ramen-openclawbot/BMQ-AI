@@ -90,7 +90,7 @@ export type JevCounts = { warehouseReads: number; plannerCalls: number; narratio
 export type JevTelemetry = {
   enabled: boolean;
   model: string;
-  // Which provider actually answered the last attempt (OpenAI Decisions or Jev).
+  // Which provider actually answered the last attempt (always the Jev Gateway).
   provider?: DecisionsProvider | null;
   promptVersion: string;
   registryVersion: string;
@@ -131,7 +131,7 @@ export type JevDecision = {
   supportProbability: number;
   usage: JevUsage;
   cost: number | null;
-  /** Which provider actually answered ('openai' or the Jev fallback). */
+  /** Which provider actually answered ('typesafe' = the Jev Gateway). */
   provider?: DecisionsProvider;
 };
 export type JevClient = (params: { question: string; signal: AbortSignal; timeoutMs?: number }) => Promise<JevDecision>;
@@ -424,7 +424,7 @@ export function applyJevDecision(decision: JevDecision, metricIds: string[]): { 
 
 // ---------------------------------------------------------------------------
 // Provider client (one deadline per call; the shared adapter owns response
-// reading and the OpenAI -> Jev fallback).
+// reading; the adapter always calls the Jev Gateway).
 // ---------------------------------------------------------------------------
 export function jevClient(apiKey: string, fetcher: typeof fetch = fetch, timeoutMs = JEV_TIMEOUT_MS): JevClient {
   // Server-side key only. The caller bearer token is never read or forwarded here.

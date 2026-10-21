@@ -1,6 +1,8 @@
 import { legacyPresentation } from './presentation.ts';
 import { AnalyticsError, canonicalKey, fastQuery, MODEL, parseInput, PLAN_SCHEMA, renderResults, ResultCache, SEMANTIC_VERSION, validatePlan, vnToday, type Input, type Query, type Result } from "./core.ts";
 import { METRICS } from "./data.ts";
+import { callDeepSeekJson, DeepSeekJsonError } from "../_shared/deepseek-json.ts";
+import { getAiErrorInfo } from "../_shared/openai-errors.ts";
 
 export type Usage = { input: number; output: number; cached: number };
 export type ModelCall = (instructions: string, input: unknown, schema: Record<string, unknown>, signal: AbortSignal) => Promise<{ value: unknown; usage: Usage }>;
@@ -69,21 +71,81 @@ export async function runAnalytics(raw: unknown, deps: Dependencies, signal: Abo
   return { answer, requestId, presentation: queries.map((q,i)=>legacyPresentation(q, results[i])), provenance: { lane: plan.lane, model: modelCalls ? MODEL : null, queries, semanticVersion: SEMANTIC_VERSION, elapsedMs: Date.now() - started, cacheHits, maxCacheAgeSeconds: 15, modelCalls, usage } };
 }
 
-export function openAIModel(apiKey: string, fetcher: typeof fetch = fetch): ModelCall {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Minimal validator for the JSON-schema subset used by the analytics prompts.
+ * DeepSeek json_object does not enforce a schema, so a mismatch must be rejected
+ * as a model error instead of reaching the DSL validators as a client error.
+ */
+export function matchesSchema(value: unknown, schema: Record<string, unknown>): boolean {
+  const anyOf = schema.anyOf;
+  if (Array.isArray(anyOf)) {
+    if (!anyOf.some((part) => isRecord(part) && matchesSchema(value, part))) return false;
+  }
+  const types = Array.isArray(schema.type) ? schema.type : schema.type === undefined ? [] : [schema.type];
+  if (types.length > 0) {
+    const accepted = types.some((type) => {
+      if (type === "null") return value === null;
+      if (type === "string") return typeof value === "string";
+      if (type === "number") return typeof value === "number" && Number.isFinite(value);
+      if (type === "integer") return typeof value === "number" && Number.isInteger(value);
+      if (type === "boolean") return typeof value === "boolean";
+      if (type === "array") return Array.isArray(value);
+      if (type === "object") return isRecord(value);
+      return true;
+    });
+    if (!accepted) return false;
+  }
+  if (Array.isArray(schema.enum) && !schema.enum.some((option) => Object.is(option, value))) return false;
+  if (typeof value === "number") {
+    if (typeof schema.minimum === "number" && value < schema.minimum) return false;
+    if (typeof schema.maximum === "number" && value > schema.maximum) return false;
+  }
+  if (Array.isArray(value)) {
+    if (typeof schema.minItems === "number" && value.length < schema.minItems) return false;
+    if (typeof schema.maxItems === "number" && value.length > schema.maxItems) return false;
+    if (isRecord(schema.items) && !value.every((item) => matchesSchema(item, schema.items as Record<string, unknown>))) return false;
+  }
+  if (isRecord(value)) {
+    const properties = isRecord(schema.properties) ? schema.properties : {};
+    for (const key of Array.isArray(schema.required) ? schema.required : []) {
+      if (typeof key === "string" && !(key in value)) return false;
+    }
+    if (schema.additionalProperties === false) {
+      for (const key of Object.keys(value)) if (!(key in properties)) return false;
+    }
+    for (const [key, property] of Object.entries(properties)) {
+      if (key in value && isRecord(property) && !matchesSchema(value[key], property)) return false;
+    }
+  }
+  return true;
+}
+
+export function deepseekModel(apiKey: string, fetcher: typeof fetch = fetch): ModelCall {
   return async (instructions, input, schema, signal) => {
     if (!apiKey) throw new AnalyticsError("model_unconfigured", 503);
-    const response = await fetcher("https://api.openai.com/v1/responses", {
-      method: "POST", signal, headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: MODEL, store: false, reasoning: { effort: "none" }, max_output_tokens: 1200,
-        instructions, input: JSON.stringify(input), text: { format: { type: "json_schema", name: "bmq_analytics", strict: true, schema } },
-      }),
-    });
-    if (!response.ok) throw new AnalyticsError(response.status === 429 ? "model_rate_limited" : "model_unavailable", 503);
-    const body = await response.json();
-    if (body.status !== "completed") throw new AnalyticsError("model_incomplete", 503);
-    const text = (body.output ?? []).flatMap((item: { content?: { type: string; text?: string }[] }) => item.content ?? []).filter((part: { type: string }) => part.type === "output_text").map((part: { text: string }) => part.text).join("");
+    let usage = { input: 0, output: 0, cached: 0 };
+    let value: unknown;
     try {
-      return { value: JSON.parse(text), usage: { input: Number(body.usage?.input_tokens ?? 0), output: Number(body.usage?.output_tokens ?? 0), cached: Number(body.usage?.input_tokens_details?.cached_tokens ?? 0) } };
-    } catch { throw new AnalyticsError("model_invalid_json", 503); }
+      value = await callDeepSeekJson({
+        system: `${instructions}\nReply with one JSON object matching this JSON Schema: ${JSON.stringify(schema)}`,
+        userText: JSON.stringify(input),
+        model: MODEL,
+        signal,
+        fetcher,
+        env: (name) => (name === "DEEPSEEK_API_KEY" ? apiKey : undefined),
+        onUsage: (reported) => { usage = reported; },
+      });
+    } catch (error) {
+      if (error instanceof DeepSeekJsonError) throw new AnalyticsError("model_invalid_json", 503);
+      const info = getAiErrorInfo(error);
+      if (info) throw new AnalyticsError(info.httpStatus === 429 ? "model_rate_limited" : "model_unavailable", 503);
+      throw error;
+    }
+    if (!matchesSchema(value, schema)) throw new AnalyticsError("model_invalid_json", 503);
+    return { value, usage };
   };
 }

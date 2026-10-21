@@ -85,16 +85,16 @@ export interface JevEvaluation {
   relation_confidence: number | null;
   usage: JevUsage;
   cost: number | null;
-  /** Which provider actually answered ('openai' or the Jev fallback). */
+  /** Which provider actually answered (always the Jev Gateway). */
   provider?: DecisionsProvider;
-  /** True only when the OpenAI answer was asked with the receipt images. */
+  /** True only when the provider used the receipt images (never for Jev). */
   images_used?: boolean;
 }
 
 export interface JevEvaluatorParams {
   state: unknown;
   signal: AbortSignal;
-  /** Inline goods-receipt images; only the OpenAI path forwards them. */
+  /** Inline goods-receipt images; the Jev Gateway never forwards them. */
   images?: DecisionsImage[];
   /** Up to 5 relevant past CEO decisions appended to the question text. */
   corrections?: string[];

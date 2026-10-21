@@ -2,7 +2,7 @@
 //
 // Compares three lanes on the same synthetic dataset, interleaved case-by-case so a
 // budget stop cannot silently favour one lane:
-//   A — the EXISTING warehouse pipeline (deterministic routes first, then the Luna
+//   A — the EXISTING warehouse pipeline (deterministic routes first, then the DeepSeek
 //       planner) with Jev disabled. This is the real production path.
 //   B — the ACTUAL enabled deterministic bounded matcher (`matchExactBounded`), the
 //       same function the runtime uses to bypass Jev for regex-known answers.
@@ -27,7 +27,7 @@
 //   * The emitted report contains synthetic questions and measured numbers only —
 //     never an API key, JWT, prompt body or real business row.
 import type { WarehouseCall } from "../_shared/warehouse.ts";
-import { openAIModel, type ModelCall } from "./service.ts";
+import { deepseekModel, type ModelCall } from "./service.ts";
 import { runWarehouse } from "./warehouse.ts";
 import { createJevCircuit, matchExactBounded, type JevOptions } from "./jev.ts";
 import { casesForSplit, type JevDatasetCase } from "./jev-dataset.ts";
@@ -50,7 +50,7 @@ export type LaneOutcome = {
   usage: { input: number; output: number } | null;
   // Gateway-reported Jev cost when the provider metadata carries it, else null.
   jevCost: number | null;
-  // The OpenAI planner path does not report a per-request cost in this harness, so
+  // The DeepSeek planner path does not report a per-request cost in this harness, so
   // this is null (unknown) and must never be treated as zero or folded into `jevCost`.
   plannerCost: number | null;
   jevDecided?: boolean;
@@ -373,7 +373,7 @@ function runnerFrom(config: { call: WarehouseCall; model: ModelCall; jev?: JevOp
         input: (telemetry?.usage?.input ?? 0) + (result?.provenance?.usage?.input ?? 0),
         output: (telemetry?.usage?.output ?? 0) + (result?.provenance?.usage?.output ?? 0),
       },
-      // Jev cost is Gateway-reported; the planner (OpenAI Responses) reports no cost
+      // Jev cost is Gateway-reported; the planner (DeepSeek chat completions) reports no cost
       // here, so the total pipeline cost stays unknown rather than being the Jev part.
       jevCost: telemetry?.cost ?? null,
       plannerCost: null,
@@ -381,22 +381,22 @@ function runnerFrom(config: { call: WarehouseCall; model: ModelCall; jev?: JevOp
     };
   };
 }
-export function createWarehouseRunners(config: { openAIKey: string; gatewayKey: string; fetcher?: typeof fetch; timeoutMs?: number }): { A: LaneRunner; C: LaneRunner } {
+export function createWarehouseRunners(config: { deepseekKey: string; gatewayKey: string; fetcher?: typeof fetch; timeoutMs?: number }): { A: LaneRunner; C: LaneRunner } {
   const realFetch = config.fetcher ?? fetch;
   return {
     A: async (testCase, { budget }) => runnerFrom({
       call: benchmarkWarehouseCall(),
-      model: openAIModel(config.openAIKey, gatedFetch(budget, realFetch)),
+      model: deepseekModel(config.deepseekKey, gatedFetch(budget, realFetch)),
     })(testCase, { budget }),
     C: async (testCase, { budget }) => runnerFrom({
       call: benchmarkWarehouseCall(),
-      model: openAIModel(config.openAIKey, gatedFetch(budget, realFetch)),
+      model: deepseekModel(config.deepseekKey, gatedFetch(budget, realFetch)),
       jev: { enabled: () => true, apiKey: () => config.gatewayKey, fetcher: gatedFetch(budget, realFetch), timeoutMs: config.timeoutMs, circuit: createJevCircuit() },
     })(testCase, { budget }),
   };
 }
 
-export type BenchmarkEnvConfig = { enabled: boolean; split: "tune" | "holdout" | "both"; lanes: BenchmarkLane[]; maxRequests: number; openAIKey: string; gatewayKey: string };
+export type BenchmarkEnvConfig = { enabled: boolean; split: "tune" | "holdout" | "both"; lanes: BenchmarkLane[]; maxRequests: number; deepseekKey: string; gatewayKey: string };
 export function benchmarkConfigFromEnv(env: Record<string, string | undefined>): BenchmarkEnvConfig {
   const requested = (env.BMQ_JEV_BENCH_SPLIT ?? "tune") as BenchmarkEnvConfig["split"];
   const split: BenchmarkEnvConfig["split"] = requested === "holdout" || requested === "both" ? requested : "tune";
@@ -406,14 +406,14 @@ export function benchmarkConfigFromEnv(env: Record<string, string | undefined>):
     split,
     lanes: lanes.length ? lanes : ["A", "B", "C"],
     maxRequests: safeLimit(env.BMQ_JEV_BENCH_MAX_REQUESTS),
-    openAIKey: env.OPENAI_API_KEY ?? "",
+    deepseekKey: env.DEEPSEEK_API_KEY ?? "",
     gatewayKey: env.AI_GATEWAY_API_KEY ?? "",
   };
 }
 export async function main(env: Record<string, string | undefined>, log: (line: string) => void): Promise<BenchmarkReport> {
   const config = benchmarkConfigFromEnv(env);
   const cases = casesForSplit(config.split);
-  const runners = config.enabled ? createWarehouseRunners({ openAIKey: config.openAIKey, gatewayKey: config.gatewayKey }) : {};
+  const runners = config.enabled ? createWarehouseRunners({ deepseekKey: config.deepseekKey, gatewayKey: config.gatewayKey }) : {};
   const report = await runJevBenchmark({ cases, lanes: config.lanes, enabled: config.enabled, runners, maxRequests: config.maxRequests, includeQuestions: true });
   log(JSON.stringify(report, null, 2));
   return report;

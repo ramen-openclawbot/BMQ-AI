@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { AnalyticsError, canonicalKey, fastQuery, parseInput, ResultCache, validatePlan, validateQuery, vnToday } from "./core.ts";
-import { openAIModel, runAnalytics, type Dependencies } from "./service.ts";
+import { deepseekModel, matchesSchema, runAnalytics, type Dependencies } from "./service.ts";
 import { createHandler } from "./handler.ts";
 
 const today = "2026-09-09";
@@ -62,7 +62,7 @@ test("semantic executes only validated query and unsafe model plan never hits DB
   await assert.rejects(runAnalytics({ ...input, question: "custom" }, d, new AbortController().signal)); assert.equal(reads, 0);
   d.model = async () => ({ value: { lane: "semantic", queries: [query], clarification: "" }, usage: { input: 100, output: 50, cached: 5 } });
   const response = await runAnalytics({ ...input, question: "custom" }, d, new AbortController().signal);
-  assert.equal(reads, 1); assert.equal(response.provenance.model, "gpt-5.6-luna");
+  assert.equal(reads, 1); assert.equal(response.provenance.model, "deepseek-flash");
 });
 test("agentic lane bounded queries + grounded explanation and token accounting", async () => {
   let calls = 0; const d = deps();
@@ -78,15 +78,26 @@ test("cache isolates user, tenant, policy, version/time; expires rather than sta
   assert.equal(c.get(canonicalKey(scope, { ...query, sort: "asc" }, "v1"), 1001), null);
   assert.equal(c.get(key, 1001)?.rows[0].value, 150000); assert.equal(c.get(key, 16000), null);
 });
-test("OpenAI transport pinned Luna none/no storage, structured output, no retry/fallback", async () => {
+test("DeepSeek transport is json_object with the schema in the system prompt, no retry/fallback", async () => {
   let payload: Record<string, unknown> = {};
-  const model = openAIModel("fixture-only", (async (_url, options) => {
-    payload = JSON.parse(String(options?.body));
-    return Response.json({ status: "completed", output: [{ content: [{ type: "output_text", text: '{"ok":true}' }] }], usage: { input_tokens: 20, output_tokens: 5 } });
+  let url = "";
+  const model = deepseekModel("fixture-only", (async (input, options) => {
+    url = String(input); payload = JSON.parse(String(options?.body));
+    return Response.json({ choices: [{ message: { content: '{"ok":true}' } }], usage: { prompt_tokens: 20, completion_tokens: 5, prompt_tokens_details: { cached_tokens: 2 } } });
   }) as typeof fetch);
-  assert.deepEqual((await model("policy", {}, {}, new AbortController().signal)).value, { ok: true });
-  assert.equal(payload.model, "gpt-5.6-luna"); assert.deepEqual(payload.reasoning, { effort: "none" }); assert.equal(payload.store, false);
-  await assert.rejects(openAIModel("")("", {}, {}, new AbortController().signal), /model_unconfigured/);
+  const answer = await model("policy", {}, { type: "object", required: ["ok"], properties: { ok: { type: "boolean" } } }, new AbortController().signal);
+  assert.deepEqual(answer.value, { ok: true });
+  assert.deepEqual(answer.usage, { input: 20, output: 5, cached: 2 });
+  assert.equal(url, "https://api.deepseek.com/chat/completions");
+  assert.equal(payload.model, "deepseek-flash");
+  assert.deepEqual(payload.response_format, { type: "json_object" });
+  assert.equal(payload.temperature, 0);
+  const messages = payload.messages as { role: string; content: string }[];
+  assert.match(messages[0].content, /JSON Schema/);
+  assert.equal(messages[1].content, "{}");
+  assert.equal(matchesSchema({ ok: true }, { type: "object", required: ["ok"], properties: { ok: { type: "boolean" } } }), true);
+  assert.equal(matchesSchema({ ok: "yes" }, { type: "object", required: ["ok"], properties: { ok: { type: "boolean" } } }), false);
+  await assert.rejects(deepseekModel("")("", {}, {}, new AbortController().signal), /model_unconfigured/);
 });
 test("HTTP authenticates every call before cache; rejects disabled/origin/body abuse", async () => {
   let enabled = false, auth = 0, reads = 0;

@@ -4,7 +4,7 @@ import { COST_CONTEXT_MIN_SECRET_LENGTH } from "./context.ts";
 import { executeQuery } from "./data.ts";
 import { createHandler } from "./handler.ts";
 import { buildInteractionRecord, buildJevRow, type CaptureEvent } from "./interaction-log.ts";
-import { openAIModel } from "./service.ts";
+import { deepseekModel } from "./service.ts";
 
 const url = Deno.env.get("SUPABASE_URL")!;
 const anon = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -57,7 +57,7 @@ Deno.serve(createHandler({
     enabled: () => Deno.env.get("BMQ_JEV_ENABLED") === "true" && Deno.env.get("BMQ_JEV_KILL_SWITCH") !== "true",
     apiKey: () => Deno.env.get("AI_GATEWAY_API_KEY") ?? "",
   },
-  model: openAIModel(Deno.env.get("OPENAI_API_KEY") ?? ""),
+  model: deepseekModel(Deno.env.get("DEEPSEEK_API_KEY") ?? ""),
   // Only wire capture when the flag is on, so a disabled pipeline does not emit
   // fake capture-failure audits on every chat. When the flag is on but the
   // service-role key is absent, capture throws and is audited honestly.

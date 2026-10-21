@@ -2,7 +2,7 @@
 // explicitly with Deno when the coordinator has approved paid provider calls:
 //
 //   BMQ_JEV_BENCH_ENABLED=true BMQ_JEV_BENCH_SPLIT=tune \
-//   OPENAI_API_KEY=... AI_GATEWAY_API_KEY=... \
+//   DEEPSEEK_API_KEY=... AI_GATEWAY_API_KEY=... \
 //   deno run --allow-net --allow-env \
 //     apps/web/supabase/functions/bmq-analytics/jev-benchmark-cli.ts
 //

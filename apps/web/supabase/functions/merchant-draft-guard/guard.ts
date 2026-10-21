@@ -1,8 +1,8 @@
 // Merchant draft guard: advisory Vietnamese warnings for a staged change.
 //
 // One Decisions gateway request is built from the draft and the finished-goods
-// catalog. The shared provider tries OpenAI Decisions first and falls back to the
-// original Jev Gateway call. A provider failure is reported as HTTP 200 with an
+// catalog. The shared provider always calls the Jev Gateway directly. A provider
+// failure is reported as HTTP 200 with an
 // empty note list so it can never block staging; only the service role may call
 // this function.
 

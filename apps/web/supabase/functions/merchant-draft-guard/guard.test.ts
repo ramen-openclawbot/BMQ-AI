@@ -1,7 +1,7 @@
 // Offline tests for the merchant draft guard.
 //
 // Every provider call is an injected fetcher and the service-role check uses a
-// fake key, so no network, real Supabase or real OpenAI request happens.
+// fake key, so no network, real Supabase or real provider request happens.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";

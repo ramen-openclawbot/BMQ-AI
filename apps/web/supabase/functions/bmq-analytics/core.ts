@@ -1,7 +1,11 @@
 // BMQ semantic contract v1. No SQL, identity, table or arbitrary filter in the DSL.
 import { METRICS } from "./data.ts";
 
-export const MODEL = "gpt-5.6-luna";
+/** DeepSeek analytics model; override with the server-only DEEPSEEK_ANALYTICS_MODEL secret. */
+function analyticsModelEnv(): string | undefined {
+  try { return Deno.env.get("DEEPSEEK_ANALYTICS_MODEL"); } catch { return undefined; }
+}
+export const MODEL = (analyticsModelEnv() || "deepseek-flash").trim();
 export const SEMANTIC_VERSION = "bmq-analytics-v1";
 export const MAX_QUERIES = 4;
 export type Query = { metric: string; dimension: string | null; start: string; end: string; limit: number; sort?: "asc" | "desc" };

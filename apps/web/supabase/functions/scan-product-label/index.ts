@@ -1,6 +1,6 @@
 // Supabase Edge Function: scan-product-label
-// Uses OpenAI vision to extract product-label fields, then returns structured data.
-// Configure OPENAI_API_KEY in Supabase secrets before deployment.
+// Uses the shared DeepSeek vision provider to extract product-label fields, then returns structured data.
+// Configure DEEPSEEK_API_KEY in Supabase secrets before deployment.
 
 import { aiErrorJson, AiOpenAIError, classifyOpenAIError, getAiErrorInfo } from "../_shared/openai-errors.ts";
 import { getScanAiConfig } from "../_shared/ai-vision-provider.ts";

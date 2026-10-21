@@ -4,19 +4,22 @@ Implementation approval: owner approved hybrid plan on 2026-09-09. Baseline
 `491b2685`, branch `feat/bmq-hybrid-analytics-20260909`. Owner approved build, commit/push and owner-pilot deployment on 2026-09-09.
 Release checks: production build, 28 tests, 9 legacy contracts, Deno check and
 390/1440 browser fixtures passed. A signed, expiring synthetic probe executed
-from the Supabase protected environment returned HTTP 200, completed, exact
-`gpt-5.6-luna`, 37 input / 12 output tokens. Probe was deleted immediately.
+from the Supabase protected environment returned HTTP 200 from the DeepSeek
+analytics model. Probe was deleted immediately.
 No Gateway/adapter restart or business-data mutation is needed.
 
 ## Flow
 
-`BMQ widget → Supabase user JWT → owner check → canonical match / Luna plan → strict DSL → fixed read tools under caller RLS → formatter / Luna explanation`
+`BMQ widget → Supabase user JWT → owner check → canonical match / DeepSeek plan → strict DSL → fixed read tools under caller RLS → formatter / DeepSeek explanation`
 
 This endpoint does not call OpenClaw or the universal adapter. No shared agent
-configuration changes. All model calls are `gpt-5.6-luna`, `reasoning.effort=none`,
-`store=false`, strict Responses JSON schema, max 1,200 output tokens/call.
-No fallback to another model. Model documentation verified at
-https://developers.openai.com/api/docs/models/gpt-5.6-luna (2026-09-09 ICT).
+configuration changes. All model calls go to the DeepSeek chat-completions API
+(`https://api.deepseek.com/chat/completions`) with `DEEPSEEK_API_KEY`, model
+`DEEPSEEK_ANALYTICS_MODEL` (default `deepseek-flash`), `response_format
+{type:"json_object"}`, temperature 0 and the JSON schema restated in the system
+prompt. The parsed object is validated by the same strict DSL/response validators
+before use; invalid JSON or a schema mismatch is a model error. No fallback to
+another model or provider.
 
 ## Pilot business contract
 
@@ -45,8 +48,8 @@ represented by URLs is not a source of truth for this pilot.
 
 - Fast: exact full-utterance registry, no model. Disabled for follow-ups with history
   to avoid dropping prior scope. Four example prompts are shown in the widget.
-- Semantic: one Luna planning call → one validated query → deterministic text.
-- Agentic pilot: one bounded plan (up to 4 validated queries) → one optional Luna
+- Semantic: one DeepSeek planning call → one validated query → deterministic text.
+- Agentic pilot: one bounded plan (up to 4 validated queries) → one optional DeepSeek
   explanation. This is not an iterative autonomous agent. All initial queries
   validate before any data read; explanations are labelled advisory/observational.
 - 20-second server abort signal covers auth, body, model and database fetches.
@@ -99,9 +102,8 @@ no adapter request pass. Evidence is in workspace
 3. Build and publish exact source to Git. Deploy `bmq-analytics` disabled first;
    `verify_jwt=false` is intentional for ES256, own `auth.getUser` + owner check
    are mandatory. Verify unauthenticated 401, nonowner 403 and owner-disabled 503.
-4. Remote secret-name inventory already contains OPENAI_API_KEY (value never
-   read); existing OPENAI_MODEL is deliberately ignored. No new key requested.
-   Verify a synthetic Luna request using the deployed protected environment;
+4. Remote secret-name inventory contains DEEPSEEK_API_KEY (value never read).
+   Verify a synthetic DeepSeek request using the deployed protected environment;
    failure must block activation, not select a different model.
 5. Only then enable backend BMQ_ANALYTICS_ENABLED and frontend
    VITE_BMQ_ANALYTICS_ENABLED for owner pilot. Verify exact domain assets and
@@ -121,7 +123,7 @@ budgeted agent orchestration. Expand only after pilot evidence.
 
 Deploy `bmq-data-sources` alongside analytics when approved. It uses the same owner verification and warehouse flag. POST actions: `status`, `sources`, `ingest`, `document`. UTF-8 file content is bounded to 1 MiB, request to 2 MiB. CSV/JSON uploads require source/entity/filename/content; MD/TXT documents require source/title/filename/content. Source write operations are explicit user uploads; chat query tools remain read-only. No PDF/Office parsing or arbitrary URL fetching.
 
-Chat fetches the semantic catalog at runtime, so business definitions remain in Python semantic configuration. Exact today-revenue/order queries are deterministic; flexible queries use Luna structured planning, at most four warehouse reads and two total Luna calls. Unsupported page filters abstain. Knowledge results are limited to five source chunks; answers include validated citation IDs/title/source/date and never use documentation as authoritative current numerical facts. Empty retrieval and unavailable local storage do not silently fall back to fabricated answers or the old business totals.
+Chat fetches the semantic catalog at runtime, so business definitions remain in Python semantic configuration. Exact today-revenue/order queries are deterministic; flexible queries use DeepSeek structured planning, at most four warehouse reads and two total DeepSeek calls. Unsupported page filters abstain. Knowledge results are limited to five source chunks; answers include validated citation IDs/title/source/date and never use documentation as authoritative current numerical facts. Empty retrieval and unavailable local storage do not silently fall back to fabricated answers or the old business totals.
 
 No new cloud endpoint, secret, live data upload, deployment, or production flag has been activated by adding this code. A reachable TLS bridge and authenticated end-to-end owner verification are required before enabling it. Local CLI ingestion/query works independently of this optional online bridge.
 
@@ -298,7 +300,7 @@ Jev to confirm a known answer; that oracle is gone.
    (`JEV_PROBABILITY_THRESHOLD = 0.6`, explicitly uncalibrated). `none`, `not_stated`,
    `unsupported`, an unknown value, an absent catalog metric, a low probability, a
    malformed body, an HTTP error, a 429, a timeout, an expired deadline and an open
-   circuit all return null, and the caller runs the unchanged Luna planner with the
+   circuit all return null, and the caller runs the unchanged DeepSeek planner with the
    exact original input. Parent cancellation is propagated and never becomes a fallback.
 
 Business definitions are stated in the registry and prompts: dealer count/value are
@@ -330,7 +332,7 @@ rows, and the `jev` field remains absent when the flag is off.
 real BMQ data). `jev-benchmark.ts` compares three lanes case-by-case, interleaved so a
 budget stop cannot favour a lane:
 
-- **A** the existing warehouse pipeline (deterministic routes then the Luna planner)
+- **A** the existing warehouse pipeline (deterministic routes then the DeepSeek planner)
   with Jev disabled;
 - **B** the actual enabled deterministic matcher `matchExactBounded`, not a second
   comparator that could drift;

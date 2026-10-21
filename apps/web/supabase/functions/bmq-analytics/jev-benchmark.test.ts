@@ -199,8 +199,8 @@ test('an errored lane drops the whole case from the paired subset instead of hid
 });
 
 test('benchmark env parsing is fail-closed, NaN-safe and split/lane bounded', () => {
-  assert.deepEqual(benchmarkConfigFromEnv({}), { enabled: false, split: 'tune', lanes: ['A', 'B', 'C'], maxRequests: 60, openAIKey: '', gatewayKey: '' });
-  const parsed = benchmarkConfigFromEnv({ BMQ_JEV_BENCH_ENABLED: 'true', BMQ_JEV_BENCH_SPLIT: 'holdout', BMQ_JEV_BENCH_LANES: 'b,c', BMQ_JEV_BENCH_MAX_REQUESTS: '45', OPENAI_API_KEY: 'sk-x', AI_GATEWAY_API_KEY: 'gw-y' });
+  assert.deepEqual(benchmarkConfigFromEnv({}), { enabled: false, split: 'tune', lanes: ['A', 'B', 'C'], maxRequests: 60, deepseekKey: '', gatewayKey: '' });
+  const parsed = benchmarkConfigFromEnv({ BMQ_JEV_BENCH_ENABLED: 'true', BMQ_JEV_BENCH_SPLIT: 'holdout', BMQ_JEV_BENCH_LANES: 'b,c', BMQ_JEV_BENCH_MAX_REQUESTS: '45', DEEPSEEK_API_KEY: 'sk-x', AI_GATEWAY_API_KEY: 'gw-y' });
   assert.equal(parsed.enabled, true);
   assert.equal(parsed.split, 'holdout');
   assert.deepEqual(parsed.lanes, ['B', 'C']);

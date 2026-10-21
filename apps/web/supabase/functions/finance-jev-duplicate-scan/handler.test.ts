@@ -259,7 +259,7 @@ const IMAGE_ANSWER: JevEvaluation = {
   images_used: true,
 };
 
-test("an uncertain pair with both receipt photos is re-asked with images and uses the image answer", async () => {
+test("an uncertain pair with both receipt photos keeps the text answer because Jev never uses images", async () => {
   const requests = [request("a"), request("b")];
   const image = { mime: "image/jpeg", base64: "AAA" };
   const base = sourceFor(requests);
@@ -272,17 +272,18 @@ test("an uncertain pair with both receipt photos is re-asked with images and use
     dataSource: () => source,
     evaluator: () => async (params) => {
       seen.push(params as unknown as Record<string, unknown>);
-      return params.images && params.images.length ? IMAGE_ANSWER : UNCERTAIN;
+      return params.images && params.images.length ? { ...IMAGE_ANSWER, images_used: false } : UNCERTAIN;
     },
   });
   const body = await (await createJevScanHandler(config)(scanRequest({ mode: "dry_run" }))).json();
-  assert.equal(seen.length, 2, "the pair is asked twice: text then images");
+  assert.equal(seen.length, 2, "the pair is asked twice: text then a text-only image pass");
   assert.match(String(seen[1].imageInstructions), /hai phiếu giao hàng trong ảnh/);
   assert.equal(body.checked, 1);
-  assert.equal(body.items[0].images_used, true);
+  assert.equal(body.items[0].images_used, false);
   assert.equal(body.items[0].p_same_text, 0.4);
-  assert.equal(body.items[0].p_same_image, 0.9);
-  assert.equal(body.items[0].status, "auto_flag");
+  assert.equal(body.items[0].p_same_image, null);
+  assert.equal(body.items[0].p_same, 0.4);
+  assert.equal(body.items[0].status, "needs_review");
 });
 
 test("a text-only fallback on the image pass keeps the text answer", async () => {

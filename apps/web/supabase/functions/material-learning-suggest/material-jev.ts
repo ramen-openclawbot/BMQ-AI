@@ -136,7 +136,7 @@ export function createMaterialJevEvaluator(config: MaterialJevConfig): MaterialE
       providerOptions: { gateway: { zeroDataRetention: true, only: ["typesafe-ai"] } },
     };
 
-    // OpenAI Decisions first, Jev Gateway on any OpenAI failure (shared adapter, owner 15/10).
+    // Jev Gateway only through the shared adapter (owner 15/10).
     let outcome: DecisionsOutcome;
     try {
       outcome = await evaluateDecisions(requestBody, { fetcher, gatewayUrl: JEV_ENDPOINT, gatewayKey: apiKey, timeoutMs, signal, maxBodyBytes: MATERIAL_JEV_BODY_LIMIT });

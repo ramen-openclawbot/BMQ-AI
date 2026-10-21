@@ -395,7 +395,7 @@ def main() -> None:
         "shared OCR module must expose the parse + OCR helpers",
     )
     assert_true(
-        "callOpenAiVision" in extract_fn and "provider: \"openai\"" in extract_fn,
+        "callOpenAiVision" in extract_fn and "provider: getScanAiConfig().provider" in extract_fn,
         "finance-extract-slip-amount must keep using the shared OCR pipeline",
     )
     assert_true(

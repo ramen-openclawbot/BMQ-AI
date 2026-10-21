@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Static contract: every OpenAI-reading edge function reports quota exhaustion.
+"""Static contract: every AI-reading edge function reports quota exhaustion.
 
 Checks (no network, no deploy):
   1. Every direct OpenAI caller imports/uses classifyOpenAIError + aiErrorJson.
@@ -32,7 +32,8 @@ TARGET_FUNCTIONS = {
     "salary-payout": FUNCTIONS / "salary-payout/index.ts",
 }
 
-# Functions with their own OpenAI HTTP call.
+# Functions with their own provider HTTP call. production-material-issue-check stays
+# on OpenAI until its signed PDF is sent to DeepSeek as page images.
 DIRECT_OPENAI = [
     "scan-purchase-order",
     "scan-invoice",

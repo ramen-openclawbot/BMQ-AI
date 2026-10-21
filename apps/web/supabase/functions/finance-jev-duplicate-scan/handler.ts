@@ -384,7 +384,7 @@ export function createJevScanHandler(config: JevDuplicateScanConfig) {
                   imageInstructions: JEV_IMAGE_INSTRUCTIONS,
                   ...(corrections.length ? { corrections } : {}),
                 });
-                // Keep the image answer only when OpenAI actually used the photos.
+                // Keep the image answer only when the provider actually used the photos.
                 if (imageEvaluation.images_used === true) {
                   return { pair, evaluation: imageEvaluation, textEvaluation };
                 }

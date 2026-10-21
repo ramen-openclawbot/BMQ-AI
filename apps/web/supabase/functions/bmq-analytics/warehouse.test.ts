@@ -25,9 +25,9 @@ test('knowledge no source abstains, citations cannot invent source',async()=>{
  const no=await runWarehouse(input,async(path)=>path==='/v1/semantic'?catalog:{chunks:[]},planner,signal);assert.match(no.answer,/No relevant source/);assert.equal(no.provenance.modelCalls,1);
  let round=0; await assert.rejects(()=>runWarehouse(input,async(path)=>path==='/v1/semantic'?catalog:{chunks:[{id:'c1',title:'Guide',text:'BMQ guidance',source:'manual',updated_at:'2026-09-09'}]},async()=>({value:++round===1?{lane:'knowledge',queries:[],search:'BMQ',clarification:''}:{answer:'Made up',citations:['fake']},usage}),signal),/invalid_citations/);
 });
-test('knowledge grounded response retains citations and uses Luna at most twice',async()=>{
+test('knowledge grounded response retains citations and uses DeepSeek at most twice',async()=>{
  let round=0; const result=await runWarehouse(input,async(path)=>path==='/v1/semantic'?catalog:{chunks:[{id:'c1',title:'Guide',text:'BMQ guidance',source:'manual',updated_at:'2026-09-09'}]},async(instructions)=>{assert.match(instructions,/English/);return {value:++round===1?{lane:'knowledge',queries:[],search:'BMQ',clarification:''}:{answer:'BMQ guidance [c1]',citations:['c1']},usage}},signal);
- assert.equal(result.provenance.model,'gpt-5.6-luna');assert.equal(round,2);assert.equal(result.provenance.citations.length,1);
+ assert.equal(result.provenance.model,'deepseek-flash');assert.equal(round,2);assert.equal(result.provenance.citations.length,1);
 });
 test('fast warehouse query bypasses LLM and qualifiers cannot silently become whole-business facts',async()=>{
  let queries=0;const result=await runWarehouse({...input,question:'revenue today'},async(path,body)=>{if(path==='/v1/semantic')return catalog;queries++;assert.equal((body as any).metric,'revenue');return {rows:[{revenue:'12',currency:'VND'}]};},async()=>{throw Error('no model');},signal);assert.equal(queries,1);assert.equal(result.provenance.lane,'fast');

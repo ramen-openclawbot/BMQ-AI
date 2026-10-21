@@ -366,7 +366,7 @@ export interface JevMatchEvaluation {
   confidence: number | null;
   usage: JevUsage;
   cost: number | null;
-  /** Which provider actually answered ('openai' or the Jev fallback). */
+  /** Which provider actually answered (always the Jev Gateway). */
   provider?: DecisionsProvider;
 }
 
