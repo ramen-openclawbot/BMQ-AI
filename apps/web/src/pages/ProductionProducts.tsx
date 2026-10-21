@@ -10,6 +10,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { formatDateKeyVi, expectedLabelDates, ProductLabelSpec } from "@/lib/product-label-control";
 import { CheckCircle2, Loader2, PackageSearch, Save, ShieldCheck } from "lucide-react";
+import "@/styles/bmq-production.css";
 
 type QueryResult<T = unknown> = { data: T | null; error: { message?: string } | null };
 type SupabaseQueryBuilder<T = unknown> = PromiseLike<QueryResult<T>> & {
@@ -130,14 +131,15 @@ export default function ProductionProducts() {
   const demoDates = expectedLabelDates("2026-06-06", Number(draft.shelf_life_days || 1));
 
   return (
-    <div className="-m-4 min-h-screen bg-background p-4 text-foreground md:-m-6 md:p-6" data-production-products-label-specs="mvp">
-      <div className="mx-auto max-w-7xl space-y-5">
-        <header className="card-elevated rounded-[1.75rem] p-4 md:p-6">
-          <Badge className="mb-3 rounded-full bg-primary/10 text-primary hover:bg-primary/10">Quản lý sản phẩm · tem nhãn QA</Badge>
-          <h1 className="text-2xl font-black tracking-tight md:text-4xl">Quản lý sản phẩm</h1>
-          <p className="mt-2 max-w-3xl text-sm font-semibold text-muted-foreground md:text-base">
+    <div className="text-foreground" data-production-products-label-specs="mvp">
+      <div className="space-y-5">
+        <header className="d3-prod-head">
+          <div className="min-w-0">
+          <h1>Quản lý sản phẩm</h1>
+          <p>
             Cấu hình HSD, khối lượng và link sheet truy xuất theo SKU thành phẩm. QA phải quét/đối chiếu NSX, HSD và trọng lượng đạt trước khi nhập kho TP.
           </p>
+          </div>
         </header>
 
         <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_420px]">
@@ -168,7 +170,7 @@ export default function ProductionProducts() {
                         })}
                       </SelectContent>
                     </Select>
-                    <p className="text-xs font-semibold text-muted-foreground">Danh sách SKU được thu gọn vào dropdown để tránh kéo dài màn hình.</p>
+                    <p className="text-xs text-muted-foreground">Danh sách SKU được thu gọn vào dropdown để tránh kéo dài màn hình.</p>
                   </div>
 
                   {selectedSku ? (
@@ -231,7 +233,7 @@ export default function ProductionProducts() {
                 <Label>Link Google Sheet truy xuất</Label>
                 <Input className="mt-1 rounded-2xl" placeholder="https://docs.google.com/spreadsheets/..." value={draft.traceability_sheet_url || ""} onChange={(event) => setDraft((cur) => ({ ...cur, traceability_sheet_url: event.target.value }))} />
               </div>
-              <div className="rounded-2xl bg-muted/60 p-3 text-sm font-semibold text-muted-foreground">
+              <div className="rounded-2xl bg-muted/60 p-3 text-sm text-muted-foreground">
                 Ví dụ ngày SX 06/06/2026: tem phải in NSX {formatDateKeyVi(demoDates.expectedNsx)} · HSD {formatDateKeyVi(demoDates.expectedHsd)}.
               </div>
               <Button type="button" className="h-12 w-full rounded-2xl font-black" data-product-label-save-button="primary" disabled={!selectedSkuId || saveMutation.isPending} onClick={() => saveMutation.mutate()}>

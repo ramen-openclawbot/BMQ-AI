@@ -1262,9 +1262,6 @@ export default function ProductionPlanning() {
     <div className="d3-pp min-w-0" data-stitch-production-planning="bmq-light-operations" data-bmq-production-layout="demo3-v2">
       <header className="d3-pp-head" data-stitch-production-header="true" data-bmq-q7-header="v2">
         <div className="d3-pp-titles">
-          <span className="d3-pp-tag">
-            {isVi ? `Sản xuất · xưởng Q7 · ngày giao ${deliveryLabel}` : `Production · Q7 workshop · delivery ${deliveryLabel}`}
-          </span>
           <h1>
             {activeTab === "settings" ? (
               <>{isVi ? "Thiết lập " : "Production "}<b>{isVi ? "SKU sản xuất" : "SKU setup"}</b></>
@@ -1278,6 +1275,9 @@ export default function ProductionPlanning() {
               <>{isVi ? "Chưa có " : "No "}<b>{isVi ? "đơn cần sản xuất" : "production demand"}</b>{isVi ? ` cho ${deliveryLabel}` : ` for ${deliveryLabel}`}</>
             )}
           </h1>
+          <p className="d3-pp-tag">
+            {isVi ? `Sản xuất · xưởng Q7 · ngày giao ${deliveryLabel}` : `Production · Q7 workshop · delivery ${deliveryLabel}`}
+          </p>
         </div>
         <div className="d3-pp-actions sm:flex sm:flex-wrap">
           {activeTab === "settings" ? (
@@ -1385,7 +1385,6 @@ export default function ProductionPlanning() {
         <>
       <div className="d3-pp-dash">
         <section className="d3-pp-card d3-pp-hero" style={{ ["--i" as string]: 1 }} data-stitch-production-metrics="true">
-          <span className="d3-pp-glow" aria-hidden="true" />
           <div className="d3-pp-card-h">
             <h2>{isVi ? "Sản lượng so với kế hoạch" : "Output vs plan"}</h2>
             <span className="d3-pp-pill is-green">{isVi ? `Ngày giao ${deliveryLabel}` : deliveryLabel}</span>

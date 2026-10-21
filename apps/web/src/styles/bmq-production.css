@@ -17,29 +17,16 @@
   justify-content: space-between;
   gap: 16px;
   padding: 2px 4px 4px;
-  animation: d3-pp-rise .7s var(--d3-ease) both;
 }
 
 .d3-pp-titles { min-width: 0; }
 
-.d3-pp-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--d3-dim);
-}
-
-.d3-pp-tag::before {
-  content: "";
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  border: 1.5px solid var(--d3-green);
-}
+/* Delivery line under the title (it used to be a kicker above it). */
+html.bmq-d3 .d3-pp-head p.d3-pp-tag { margin: 6px 0 0; font-size: 13px; color: var(--d3-dim); }
 
 html.bmq-d3 .d3-pp-head h1 {
-  margin: 6px 0 0;
+  margin: 0;
+  text-wrap: balance;
   font-size: clamp(28px, 3.4vw, 42px);
   font-weight: 200;
   line-height: 1.1;
@@ -80,8 +67,6 @@ html.bmq-d3 .d3-pp-actions :is(button, a) {
   border-radius: 18px;
   background: var(--d3-white);
   box-shadow: var(--d3-sh);
-  animation: d3-pp-rise .8s var(--d3-ease) both;
-  animation-delay: calc(var(--i, 0) * 80ms + 80ms);
 }
 
 .d3-pp-kpi span { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--d3-dim); }
@@ -106,8 +91,6 @@ html.bmq-d3 .d3-pp-actions :is(button, a) {
   border-radius: 22px;
   background: var(--d3-card);
   box-shadow: var(--d3-sh);
-  animation: d3-pp-rise .8s var(--d3-ease) both;
-  animation-delay: calc(var(--i, 0) * 90ms + 120ms);
 }
 
 .d3-pp-card-h {
@@ -142,21 +125,6 @@ html.bmq-d3 .d3-pp-card-h h2 {
 
 .d3-pp-pill.is-warn { background: #ffe1db; color: #b4321f; }
 
-.d3-pp-glow {
-  position: absolute;
-  z-index: 0;
-  width: 320px;
-  height: 200px;
-  right: 6%;
-  top: 30px;
-  border-radius: 50%;
-  background: #bdf0b0;
-  filter: blur(46px);
-  opacity: .45;
-  pointer-events: none;
-}
-
-.d3-pp-card > :not(.d3-pp-glow) { position: relative; z-index: 1; }
 
 /* ---------- by product ---------- */
 .d3-pp-products { display: flex; flex-direction: column; }
@@ -469,3 +437,17 @@ html.bmq-d3 .d3-pp-order-actions .d3-pp-odelete:hover { background: #ffe1db; col
 @media (prefers-reduced-motion: reduce) {
   .d3-pp, .d3-pp * { animation: none !important; transition: none !important; }
 }
+
+/* ---------- shared Sản xuất page head (Ca, QA, Sản phẩm) — Impeccable pass ---------- */
+.d3-prod-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px 16px; padding: 2px 4px 4px; }
+html.bmq-d3 .d3-prod-head h1 { margin: 0; font-size: clamp(28px, 3.4vw, 42px); font-weight: 200; line-height: 1.1; letter-spacing: -.02em; text-wrap: balance; }
+.d3-prod-head p { margin: 6px 0 0; max-width: 68ch; font-size: 13.5px; line-height: 1.5; color: var(--d3-dim); }
+html.bmq-d3 .d3-prod-stat { min-width: 92px; padding: 10px 14px; border-radius: 14px; background: var(--d3-white); box-shadow: var(--d3-sh); text-align: left; }
+html.bmq-d3 .d3-prod-stat small { display: block; font-size: 12px; color: var(--d3-dim); }
+html.bmq-d3 .d3-prod-stat b { display: block; font: 200 26px/1.1 var(--d3-num); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+
+/* KFM intake renders two stacked buttons in its own wrapper; lay them out with the other
+   header actions so the row aligns instead of wrapping one button onto a ragged second line. */
+html.bmq-d3 .d3-pp-actions > [data-kfm-po-intake] { display: contents; }
+html.bmq-d3 .d3-pp-actions > [data-kfm-po-intake] > button { width: auto; height: 44px; min-height: 0; margin: 0; border-radius: 13px; font-size: 13px; font-weight: 500; }
+@media (max-width: 639px) { html.bmq-d3 .d3-pp-actions > [data-kfm-po-intake] > button { width: 100%; } }

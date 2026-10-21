@@ -28,6 +28,7 @@ import { format, addDays, startOfWeek, eachDayOfInterval, parseISO } from "date-
 import { vi, enUS } from "date-fns/locale";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { ShiftWorkersPanel } from "@/components/production/ShiftWorkersPanel";
+import "@/styles/bmq-production.css";
 
 interface ProductionOrder {
   id: string;
@@ -619,7 +620,7 @@ function ShiftDetailDialog({
               <Button
                 onClick={() => startShiftMutation.mutate()}
                 disabled={startShiftMutation.isPending}
-                className="bg-blue-600 hover:bg-blue-700"
+                className=""
               >
                 {startShiftMutation.isPending && (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -770,8 +771,14 @@ export default function ProductionShifts() {
   const weekEndStr = format(addDays(currentWeekStart, 6), "dd/MM");
 
   return (
-    <div className="space-y-4 p-4 md:space-y-6 md:p-6">
-      {/* Header */}
+    <div className="space-y-4 md:space-y-6">
+      <header className="d3-prod-head">
+        <div className="min-w-0">
+          <h1>{isVi ? "Ca sản xuất" : "Production shifts"}</h1>
+          <p>{isVi ? "Lịch ca theo tuần: ai làm, làm gì, ở đâu." : "Weekly shift plan: who works, on what, where."}</p>
+        </div>
+      </header>
+      {/* Week switcher */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-2">
           <Button
@@ -797,7 +804,7 @@ export default function ProductionShifts() {
 
         <Button
           onClick={() => setCreateDialogOpen(true)}
-          className="bg-blue-600 hover:bg-blue-700 ml-auto"
+          className="ml-auto"
         >
           <Plus className="mr-2 h-4 w-4" />
           <span className="sm:hidden">{isVi ? "Tạo ca" : "New shift"}</span>
@@ -915,7 +922,7 @@ export default function ProductionShifts() {
           </p>
           <Button
             onClick={() => setCreateDialogOpen(true)}
-            className="bg-blue-600 hover:bg-blue-700"
+            className=""
           >
             <Plus className="mr-2 h-4 w-4" />
             {isVi ? "Tạo ca sản xuất" : "Create production shift"}

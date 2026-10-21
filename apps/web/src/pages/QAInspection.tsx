@@ -20,7 +20,6 @@ import {
   Loader2,
   PackageCheck,
   RefreshCw,
-  ShieldCheck,
   Sparkles,
   UploadCloud,
   X,
@@ -30,6 +29,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { AI_QUOTA_MESSAGE, isAiQuotaError, notifyAiQuotaExhausted } from "@/lib/ai-errors";
 import { evaluateLabelScan, expectedLabelDates, formatDateKeyVi, normalizeLabelIdentity, ProductLabelSpec, ExtractedProductLabelData } from "@/lib/product-label-control";
+import "@/styles/bmq-production.css";
 
 const QA_PHOTO_BUCKET = "sku-images";
 
@@ -733,35 +733,25 @@ export default function QAInspection() {
   const selectedChecklist = checklistFromNotes(selectedInspection?.notes);
 
   return (
-    <div className="-m-4 min-h-screen bg-background p-4 text-foreground md:-m-6 md:p-6" data-stitch-qa-finished-goods="q7-current-theme-vn-date">
-      <div className="mx-auto max-w-7xl space-y-5">
-        <header className="card-elevated rounded-[1.75rem] p-4 md:p-6">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-start gap-3">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-warm">
-                <ShieldCheck className="h-7 w-7" />
-              </div>
-              <div>
-                <Badge className="mb-2 rounded-full bg-success/15 text-success hover:bg-success/15">
-                  {isVi ? "Xưởng Q7 · bánh ngọt" : "Q7 workshop · sweet bakery"}
-                </Badge>
-                <h1 className="text-2xl font-black tracking-tight md:text-4xl">{copy.title}</h1>
-                <p className="mt-1 max-w-3xl text-sm font-semibold text-muted-foreground md:text-base">{copy.subtitle}</p>
-              </div>
+    <div className="text-foreground" data-stitch-qa-finished-goods="q7-current-theme-vn-date">
+      <div className="space-y-5">
+        <header className="d3-prod-head">
+          <div className="min-w-0">
+            <h1>{copy.title}</h1>
+            <p>{isVi ? "Xưởng Q7 · bánh ngọt. " : "Q7 workshop · sweet bakery. "}{copy.subtitle}</p>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <div className="d3-prod-stat">
+              <small>{isVi ? "QA pass" : "Passed"}</small>
+              <b className="text-success">{inspectionsLoading ? "…" : stats.passed}</b>
             </div>
-            <div className="grid grid-cols-3 gap-2 text-center">
-              <div className="stat-card rounded-2xl p-3 before:bg-success">
-                <p className="text-xs font-bold text-muted-foreground">{isVi ? "QA pass" : "Passed"}</p>
-                <p className="text-2xl font-black text-success">{inspectionsLoading ? "…" : stats.passed}</p>
-              </div>
-              <div className="stat-card rounded-2xl p-3 before:bg-accent">
-                <p className="text-xs font-bold text-muted-foreground">{isVi ? "Ảnh audit" : "Photos"}</p>
-                <p className="text-2xl font-black text-primary">{inspectionsLoading ? "…" : stats.photos}</p>
-              </div>
-              <div className="stat-card rounded-2xl p-3 before:bg-warning">
-                <p className="text-xs font-bold text-muted-foreground">{isVi ? "SL đang nhập" : "Receiving"}</p>
-                <p className="text-2xl font-black text-warning-foreground">{stats.items.toLocaleString("vi-VN")}</p>
-              </div>
+            <div className="d3-prod-stat">
+              <small>{isVi ? "Ảnh audit" : "Photos"}</small>
+              <b>{inspectionsLoading ? "…" : stats.photos}</b>
+            </div>
+            <div className="d3-prod-stat">
+              <small>{isVi ? "SL đang nhập" : "Receiving"}</small>
+              <b>{stats.items.toLocaleString("vi-VN")}</b>
             </div>
           </div>
         </header>
@@ -783,7 +773,7 @@ export default function QAInspection() {
             {inspectionsLoading ? (
               <div className="flex min-h-32 items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-primary" /></div>
             ) : inspections.length === 0 ? (
-              <div className="rounded-3xl border border-dashed border-border bg-muted/50 p-8 text-center font-semibold text-muted-foreground">{copy.noAudits}</div>
+              <div className="rounded-3xl border border-dashed border-border bg-muted/50 p-8 text-center text-muted-foreground">{copy.noAudits}</div>
             ) : (
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                 {inspections.map((inspection) => {
@@ -838,7 +828,7 @@ export default function QAInspection() {
                     <Loader2 className="h-7 w-7 animate-spin text-primary" />
                   </div>
                 ) : filteredProductionOrders.length === 0 ? (
-                  <div className="rounded-3xl border border-dashed border-border bg-muted/50 p-6 text-center font-semibold text-muted-foreground">{isVi ? `Không có lệnh SX cho ngày ${displayDateKey(selectedDate)}.` : `No production orders for ${displayDateKey(selectedDate)}.`}</div>
+                  <div className="rounded-3xl border border-dashed border-border bg-muted/50 p-6 text-center text-muted-foreground">{isVi ? `Không có lệnh SX cho ngày ${displayDateKey(selectedDate)}.` : `No production orders for ${displayDateKey(selectedDate)}.`}</div>
                 ) : (
                   <div className="space-y-3">
                     {filteredProductionOrders.slice(0, 14).map((order) => {
@@ -862,7 +852,7 @@ export default function QAInspection() {
                                 {alreadyPassed && <Badge className="bg-success/15 text-success hover:bg-success/15">QA pass</Badge>}
                                 <Badge variant="outline" className="rounded-full text-[11px] uppercase">{order.status}</Badge>
                               </div>
-                              <p className="mt-1 line-clamp-2 text-sm font-semibold text-muted-foreground">
+                              <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
                                 {items.slice(0, 2).map((item) => item.product_name).join(" · ") || (isVi ? "Chưa có dòng sản phẩm" : "No item lines")}
                               </p>
                             </div>
@@ -948,7 +938,7 @@ export default function QAInspection() {
                     <Badge variant="outline">{formItems.length} dòng</Badge>
                   </div>
                   {formItems.length === 0 ? (
-                    <div className="rounded-2xl bg-muted p-4 text-sm font-semibold text-muted-foreground">{isVi ? "Chọn lệnh SX để tự điền danh sách sản phẩm." : "Select an order to auto-fill items."}</div>
+                    <div className="rounded-2xl bg-muted p-4 text-sm text-muted-foreground">{isVi ? "Chọn lệnh SX để tự điền danh sách sản phẩm." : "Select an order to auto-fill items."}</div>
                   ) : (
                     <div className="space-y-2">
                       {formItems.map((item, index) => {
