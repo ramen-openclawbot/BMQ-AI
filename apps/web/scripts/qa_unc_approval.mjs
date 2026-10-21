@@ -294,6 +294,12 @@ try {
     await page.locator("[data-bmq-unc-manual]").check();
     assert.ok(await page.locator("[data-bmq-unc-submit]").isDisabled(), "override without reason blocked");
     await page.getByLabel("Lý do duyệt tay").fill("Ngân hàng trừ phí 20.000 đ");
+    // 22/10: a smaller manual amount is a partial payment by default; the fee case is an explicit choice.
+    await page.waitForSelector("[data-bmq-unc-auto-partial]");
+    assert.equal(await page.locator("[data-bmq-unc-partial]").isChecked(), true, "auto partial ticked");
+    await page.locator("[data-bmq-unc-fee-full]").click();
+    await page.waitForSelector("[data-bmq-unc-fee-note]");
+    assert.equal(await page.locator("[data-bmq-unc-alloc]").count(), 0, "fee case pays in full");
     assert.ok(await page.locator("[data-bmq-unc-submit]").isEnabled(), "override with reason allowed");
     assert.ok((await dialogOverflow(page)) <= 0, `dialog no overflow manual ${viewport.width}`);
     await page.locator("[data-bmq-unc-dialog]").screenshot({ path: `${EVIDENCE}/unc-manual-${viewport.width}.png` });
@@ -668,6 +674,32 @@ try {
     assert.equal(await page.locator("[data-bmq-unc-verdict='match']").count(), 1, "full amount still matches");
     assert.deepEqual(errors, []);
     record("partial toggle off restores full payment");
+    await context.close();
+  }
+
+  // 13. Duyệt tay below the need on one pending phiếu books a partial payment (owner 22/10, PR-5C3C04AC).
+  for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 640 }, { width: 1440, height: 900 }]) {
+    const { context, page, errors } = await open({ role: "owner", ocrAmount: 7684200 }, "/payment-requests", viewport);
+    await openDetail(page, "DC-0101");
+    await page.locator("[data-bmq-unc-open]").click();
+    await upload(page);
+    await page.waitForSelector("[data-bmq-unc-ocr]");
+    await page.locator("[data-bmq-unc-manual]").check();
+    await page.getByLabel("Lý do duyệt tay").fill("Chi 1 phần tiền mặt");
+    await page.waitForSelector("[data-bmq-unc-auto-partial]");
+    assert.match(await page.locator("[data-bmq-unc-auto-partial]").textContent(), /7\.684\.200.*5\.815\.800/, "shows paid and remaining");
+    assert.equal(await page.getByLabel("Số tiền gán cho DC-0101").inputValue(), "7.684.200", "allocation = manual amount");
+    assert.ok(await page.locator("[data-bmq-unc-submit]").isEnabled(), "submit enabled");
+    assert.ok((await dialogOverflow(page)) <= 0, `dialog no overflow auto partial ${viewport.width}`);
+    await page.locator("[data-bmq-unc-dialog]").screenshot({ path: `${EVIDENCE}/unc-auto-partial-${viewport.width}.png` });
+    await page.locator("[data-bmq-unc-submit]").click();
+    await page.locator("[data-bmq-unc-dialog]").waitFor({ state: "detached" });
+    const confirm = (await bodies(page)).find((b) => b.mode === "confirm");
+    assert.deepEqual(confirm.allocations, [{ payment_request_id: "11111111-1111-4111-8111-111111111111", amount: 7684200 }], "books 7.684.200 only");
+    assert.equal(confirm.manual_override, true);
+    assert.equal(confirm.amount, 7684200);
+    assert.deepEqual(errors, []);
+    record(`manual amount below need = partial ${viewport.width}`);
     await context.close();
   }
 

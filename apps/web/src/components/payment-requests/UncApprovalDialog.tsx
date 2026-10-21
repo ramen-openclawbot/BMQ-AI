@@ -168,6 +168,8 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
   const [manual, setManual] = useState(false);
   // One pending phiếu paid only partly here (the rest by the other method, e.g. UNC + tiền mặt).
   const [partial, setPartial] = useState(false);
+  // Duyệt tay below the need: the owner says the gap is a bank fee and the phiếu is settled in full.
+  const [feeFull, setFeeFull] = useState(false);
   const [reason, setReason] = useState("");
   const [category, setCategory] = useState<UncStandaloneCategory | null>(null);
   const [note, setNote] = useState("");
@@ -198,6 +200,7 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
     setError(null);
     setManual(false);
     setPartial(false);
+    setFeeFull(false);
     setReason("");
     setCategory(null);
     setNote("");
@@ -233,10 +236,15 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
   // Many requests, or any request that is already approved, are paid by explicit per-request amounts.
   // A single pending phiếu is paid in full unless the owner ticks "Chỉ trả một phần".
   const canPartial = approve && requests.length === 1 && requests[0].status !== "approved";
-  const allocMode = approve && (requests.length > 1 || requests.some((r) => r.status === "approved") || (canPartial && partial));
+  // Duyệt tay with less than the phiếu still owes is a partial payment, never "paid in full"
+  // (owner 22/10, PR-5C3C04AC: a manual 7.684.200 UNC was booked as the full 7.943.400).
+  const singleNeed = canPartial ? Math.round(Math.max(remainingAmount(requests[0]), 0)) : 0;
+  const autoPartial = canPartial && !partial && !feeFull && manual && typedAmount !== null && typedAmount > 0 && typedAmount < singleNeed;
+  const allocMode = approve && (requests.length > 1 || requests.some((r) => r.status === "approved") || (canPartial && partial) || autoPartial);
   const evidenceAmount = manual ? typedAmount : ocrAmount;
   const remainingOf = (r: UncApprovalRequest) => Math.max(remainingAmount(r), 0);
   const allocAmount = (id: string) => {
+    if (autoPartial) return typedAmount ?? 0;
     const raw = allocInputs[id];
     return raw ? Number(raw.replace(/[^\d]/g, "")) || 0 : 0;
   };
@@ -536,8 +544,8 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
           <label className="d3-unc-toggle d3-unc-partial">
             <input
               type="checkbox"
-              checked={partial}
-              disabled={locked}
+              checked={partial || autoPartial}
+              disabled={locked || autoPartial}
               onChange={(e) => {
                 const on = e.target.checked;
                 setPartial(on);
@@ -549,7 +557,11 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
             />
             <span>
               Chỉ trả một phần bằng {isCash ? "tiền mặt" : "UNC"}
-              <small>Phần còn lại chi sau bằng {isCash ? "UNC" : "tiền mặt"} ở Trình chi gấp</small>
+              <small>
+                {autoPartial
+                  ? "Tự bật vì số duyệt tay nhỏ hơn số cần chi"
+                  : `Phần còn lại chi sau bằng ${isCash ? "UNC" : "tiền mặt"} ở Trình chi gấp`}
+              </small>
             </span>
           </label>
         )}
@@ -586,7 +598,8 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
                       inputMode="numeric"
                       aria-label={`Số tiền gán cho ${r.requestNumber}`}
                       placeholder="0"
-                                      value={allocInputs[r.id] ? new Intl.NumberFormat("vi-VN").format(value) : ""}
+                      value={autoPartial || allocInputs[r.id] ? new Intl.NumberFormat("vi-VN").format(value) : ""}
+                      readOnly={autoPartial}
                       onChange={(e) => setAllocInputs((prev) => ({ ...prev, [r.id]: e.target.value.replace(/[^\d]/g, "") }))}
                     />
                   </li>
@@ -826,6 +839,26 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
               </div>
             )}
           </div>
+        )}
+
+        {autoPartial && (
+          <p className="d3-unc-verdict is-warn" data-bmq-unc-auto-partial>
+            <TriangleAlert className="h-4 w-4" />
+            <span>
+              Chỉ ghi trả {vnd(typedAmount)}. Còn {vnd(singleNeed - (typedAmount ?? 0))} chi sau bằng {isCash ? "UNC" : "tiền mặt"} ở Trình chi gấp.{" "}
+              {!isCash && (
+                <button type="button" className="d3-unc-link d3-unc-inline" onClick={() => setFeeFull(true)} disabled={locked} data-bmq-unc-fee-full>
+                  Ngân hàng trừ phí, ghi trả đủ
+                </button>
+              )}
+            </span>
+          </p>
+        )}
+        {feeFull && manual && canPartial && !partial && typedAmount !== null && typedAmount < singleNeed && (
+          <p className="d3-unc-hint" data-bmq-unc-fee-note>
+            Ghi trả đủ {vnd(singleNeed)}; lệch {vnd(singleNeed - typedAmount)} là phí ngân hàng.{" "}
+            <button type="button" className="d3-unc-link d3-unc-inline" onClick={() => setFeeFull(false)} disabled={locked}>Không, chỉ trả một phần</button>
+          </p>
         )}
 
         {shownError && (
