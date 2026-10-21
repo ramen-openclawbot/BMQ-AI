@@ -299,7 +299,7 @@ def test_ui_creation_persists_q7_planned_and_card_pdf_action_contract() -> None:
     assert "order.location_code === PRODUCTION_LOCATION_CODE" in ui
     assert "order.status === \"planned\" || order.status === \"in_progress\"" in ui
     assert "cancelled" in ui and "completed" in ui and "draft" in ui
-    assert "window.open(result.download_url" in ui or "link.href = result.download_url" in ui
+    assert "window.open(result.download_url" in ui or "link.href = result.download_url" in ui or "window.location.href = downloadUrl" in ui
     assert "blocked_missing_finished_skus" in ui
     assert "blocked_missing_formulations" in ui
     assert "blocked_missing_q7_mappings" in ui

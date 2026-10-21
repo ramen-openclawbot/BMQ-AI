@@ -1141,13 +1141,22 @@ export default function ProductionPlanning() {
           throw new Error(q7PdfBlockerMessage(result));
         }
 
+        const downloadUrl = result.download_url;
         if (viewerWindow) {
           viewerWindow.opener = null;
-          viewerWindow.location.href = result.download_url;
-        } else {
-          window.open(result.download_url, "_blank", "noopener,noreferrer");
+          viewerWindow.location.href = downloadUrl;
         }
-        toast.success(isVi ? `Đã tạo Phiếu NVL ${result.issue_number || order.production_number}` : "Material issue PDF is ready.");
+        // iPhone Safari blocks pop-ups opened after an await, so the PDF tab may never appear.
+        // Keep an explicit button that opens the PDF in this tab (a direct tap is never blocked).
+        toast.success(isVi ? `Đã tạo Phiếu NVL ${result.issue_number || order.production_number}` : "Material issue PDF is ready.", {
+          duration: 30000,
+          action: {
+            label: isVi ? "Mở phiếu" : "Open PDF",
+            onClick: () => {
+              window.location.href = downloadUrl;
+            },
+          },
+        });
       } catch (error: any) {
         const message = String(error?.message || (isVi ? "Không thể tạo Phiếu NVL." : "Failed to create material issue PDF."));
         setMaterialIssuePdfMessages((current) => ({ ...current, [order.id]: message }));
