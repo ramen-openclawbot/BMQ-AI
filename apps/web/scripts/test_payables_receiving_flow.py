@@ -505,7 +505,8 @@ def test_invoices_page_matches_approved_stitch_dashboard_handoff():
     assert "data-stitch-invoice-filters" in page
     assert "data-stitch-invoice-table" in page
     assert "data-stitch-invoice-insights" in page
-    assert "Kế toán phải trả" in page
+    # The "Kế toán phải trả" kicker above the title was removed in the Impeccable pass (no kickers).
+    assert "Kế toán phải trả" not in page
     assert "Theo dõi hóa đơn, công nợ và liên kết PO/phiếu nhập" in page
     assert "Tổng hóa đơn" in page
     assert "Chờ thanh toán" in page

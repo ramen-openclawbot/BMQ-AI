@@ -9,6 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { parseCostValues, toNumber } from "@/lib/sku-cost-template";
 import { isFinishedSku } from "@/lib/skuType";
 import { cn } from "@/lib/utils";
+import "@/styles/bmq-production.css";
 
 const SKU_IMAGE_BUCKET = "sku-images";
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
@@ -466,19 +467,13 @@ export default function SkuCostsDjango() {
         </div>
       </div>
 
-      <div className="hidden min-h-screen bg-background px-8 py-8 lg:block">
-        <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
-          <header className="rounded-[32px] border border-border/70 bg-card/70 p-6 shadow-card backdrop-blur-xl">
-            <div className="flex items-start justify-between gap-6">
-              <div className="flex items-start gap-4">
-                <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10 text-primary shadow-inner">
-                  <Package2 className="h-7 w-7" />
-                </div>
-                <div>
-                  <p className="text-xs font-extrabold uppercase tracking-[0.22em] text-primary/70">SKU Costs</p>
-                  <h1 className="mt-1 text-[34px] font-black leading-tight tracking-[-0.04em] text-foreground">Tổng quan giá vốn</h1>
-                  <p className="mt-2 max-w-2xl text-sm font-semibold text-muted-foreground">Dashboard desktop cho toàn bộ SKU thành phẩm, giá bán, giá vốn và trạng thái ảnh sản phẩm.</p>
-                </div>
+      <div className="hidden px-6 py-6 lg:block">
+        <div className="flex w-full flex-col gap-6">
+          <header>
+            <div className="d3-prod-head">
+              <div className="min-w-0">
+                <h1>Tổng quan giá vốn</h1>
+                <p>Toàn bộ SKU thành phẩm: giá bán, giá vốn và trạng thái ảnh sản phẩm.</p>
               </div>
               <div className="flex shrink-0 items-center gap-3">
                 <Button onClick={exportSkuSheet} className="h-11 rounded-2xl border border-border/70 bg-card/80 px-5 text-sm font-extrabold text-foreground hover:bg-muted/70">Xuất sheet SKU</Button>
@@ -512,13 +507,13 @@ export default function SkuCostsDjango() {
             {[
               { label: "SKU thành phẩm", value: loading ? "..." : stats.count, sub: "đang quản lý", tone: "text-foreground" },
               { label: "Giá bán TB", value: loading ? "..." : vnd(stats.avgSelling), sub: `${stats.pricedCount} SKU có giá`, tone: "text-primary" },
-              { label: "Giá cao nhất", value: loading ? "..." : vnd(stats.maxSelling), sub: "top giá bán", tone: "text-warning" },
+              { label: "Giá cao nhất", value: loading ? "..." : vnd(stats.maxSelling), sub: "top giá bán", tone: "text-foreground" },
               { label: "Cập nhật", value: loading ? "..." : formatDateTime(stats.updatedAt), sub: "gần nhất", tone: "text-success" },
             ].map((card) => (
               <article key={card.label} className="rounded-[28px] border border-border/70 bg-card/80 p-5 shadow-card">
-                <p className="text-xs font-extrabold uppercase tracking-[0.15em] text-muted-foreground">{card.label}</p>
-                <div className={cn("mt-4 text-[30px] font-black leading-none tracking-[-0.04em]", card.tone)}>{card.value}</div>
-                <p className="mt-3 text-sm font-bold text-muted-foreground">{card.sub}</p>
+                <p className="text-xs font-medium text-muted-foreground">{card.label}</p>
+                <div className={cn("d3-prod-fig mt-3", card.tone)}>{card.value}</div>
+                <p className="mt-2 text-sm text-muted-foreground">{card.sub}</p>
               </article>
             ))}
           </section>
@@ -565,7 +560,7 @@ export default function SkuCostsDjango() {
                   </div>
                 ))}
               </div>
-              <div className="mt-4 rounded-[24px] border border-warning/25 bg-warning/10 p-4 text-sm font-semibold leading-relaxed text-warning">
+              <div className="mt-4 rounded-[24px] border border-warning/25 bg-warning/10 p-4 text-sm leading-relaxed text-foreground">
                 Desktop dùng cùng dữ liệu realtime với mobile. Upload ảnh, xuất sheet và mở quản trị SKU hoạt động chung một state.
               </div>
             </article>

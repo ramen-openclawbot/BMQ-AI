@@ -451,3 +451,4 @@ html.bmq-d3 .d3-prod-stat b { display: block; font: 200 26px/1.1 var(--d3-num); 
 html.bmq-d3 .d3-pp-actions > [data-kfm-po-intake] { display: contents; }
 html.bmq-d3 .d3-pp-actions > [data-kfm-po-intake] > button { width: auto; height: 44px; min-height: 0; margin: 0; border-radius: 13px; font-size: 13px; font-weight: 500; }
 @media (max-width: 639px) { html.bmq-d3 .d3-pp-actions > [data-kfm-po-intake] > button { width: 100%; } }
+html.bmq-d3 .d3-prod-fig { font: 200 30px/1 var(--d3-num); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }

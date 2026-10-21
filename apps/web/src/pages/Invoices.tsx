@@ -11,7 +11,6 @@ import {
   FileText,
   Filter,
   Link2,
-  ReceiptText,
   RefreshCw,
   Search,
   Sparkles,
@@ -58,6 +57,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { toast } from "sonner";
 
 import { parseDbDate } from "@/lib/date-only";
+import "@/styles/bmq-production.css";
 const PAGE_SIZE = 20;
 const PAYMENT_TERM_DAYS = 15;
 
@@ -289,14 +289,10 @@ const Invoices = () => {
 
   return (
     <div className="space-y-5 p-0 text-foreground" data-stitch-invoice-dashboard>
-      <div className="flex flex-col gap-4 rounded-2xl border bg-card p-5 shadow-card lg:flex-row lg:items-center lg:justify-between">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2 text-sm font-medium text-primary">
-            <ReceiptText className="h-4 w-4" />
-            {isVi ? "Kế toán phải trả" : "Accounts payable"}
-          </div>
-          <h1 className="text-3xl font-display font-bold tracking-tight text-foreground">{isVi ? "Hóa đơn" : "Invoices"}</h1>
-          <p className="text-sm text-muted-foreground">
+      <div className="d3-prod-head flex-col lg:flex-row lg:items-end">
+        <div className="min-w-0">
+          <h1>{isVi ? "Hóa đơn" : "Invoices"}</h1>
+          <p>
             {isVi ? "Theo dõi hóa đơn, công nợ và liên kết PO/phiếu nhập" : "Track invoices, payables, and PO/receipt links"}
           </p>
         </div>
@@ -319,7 +315,7 @@ const Invoices = () => {
         <Card className="border-border bg-card shadow-card">
           <CardContent className="flex items-center justify-between p-4">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{isVi ? "Tổng hóa đơn" : "Total invoices"}</p>
+              <p className="text-xs font-medium text-muted-foreground">{isVi ? "Tổng hóa đơn" : "Total invoices"}</p>
               <p className="mt-1 text-2xl font-bold text-foreground">{formatCurrency(stats.totalAmount)}</p>
               <p className="text-xs text-muted-foreground">{invoiceRows.length} {isVi ? "hóa đơn" : "invoices"}</p>
             </div>
@@ -329,7 +325,7 @@ const Invoices = () => {
         <Card className="border-border bg-card shadow-card">
           <CardContent className="flex items-center justify-between p-4">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{isVi ? "Chờ thanh toán" : "Pending payment"}</p>
+              <p className="text-xs font-medium text-muted-foreground">{isVi ? "Chờ thanh toán" : "Pending payment"}</p>
               <p className="mt-1 text-2xl font-bold text-foreground">{formatCurrency(stats.waitingAmount)}</p>
               <p className="text-xs text-muted-foreground">{isVi ? "Còn lại phải trả" : "Remaining balance"}</p>
             </div>
@@ -339,7 +335,7 @@ const Invoices = () => {
         <Card className="border-destructive/20 bg-card shadow-card">
           <CardContent className="flex items-center justify-between p-4">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-destructive">{isVi ? "Quá hạn" : "Overdue"}</p>
+              <p className="text-xs font-medium text-destructive">{isVi ? "Quá hạn" : "Overdue"}</p>
               <p className="mt-1 text-2xl font-bold text-destructive">{formatCurrency(stats.overdueAmount)}</p>
               <p className="text-xs text-muted-foreground">{isVi ? "Cần xử lý trước" : "Needs attention"}</p>
             </div>
@@ -349,7 +345,7 @@ const Invoices = () => {
         <Card className="border-warning/30 bg-card shadow-card">
           <CardContent className="flex items-center justify-between p-4">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-primary">{isVi ? "Chưa liên kết chứng từ" : "Unlinked docs"}</p>
+              <p className="text-xs font-medium text-primary">{isVi ? "Chưa liên kết chứng từ" : "Unlinked docs"}</p>
               <p className="mt-1 text-2xl font-bold text-primary">{stats.unlinkedCount}</p>
               <p className="text-xs text-muted-foreground">{isVi ? "hóa đơn cần gắn PO/PNK" : "need PO/receipt link"}</p>
             </div>
@@ -455,14 +451,14 @@ const Invoices = () => {
                   <Table>
                     <TableHeader className="bg-muted/70">
                       <TableRow className="border-border hover:bg-transparent">
-                        <TableHead className="min-w-[140px] text-xs font-bold uppercase tracking-wide text-muted-foreground">{isVi ? "Số hóa đơn" : "Invoice #"}</TableHead>
-                        <TableHead className="min-w-[170px] text-xs font-bold uppercase tracking-wide text-muted-foreground">{isVi ? "Nhà cung cấp" : "Supplier"}</TableHead>
-                        <TableHead className="text-xs font-bold uppercase tracking-wide text-muted-foreground">{isVi ? "Ngày HĐ" : "Date"}</TableHead>
-                        <TableHead className="text-xs font-bold uppercase tracking-wide text-muted-foreground">{isVi ? "Hạn TT" : "Due"}</TableHead>
-                        <TableHead className="text-right text-xs font-bold uppercase tracking-wide text-muted-foreground">{isVi ? "Giá trị" : "Amount"}</TableHead>
-                        <TableHead className="min-w-[150px] text-right text-xs font-bold uppercase tracking-wide text-muted-foreground">{isVi ? "Đã trả/Còn lại" : "Paid/Remaining"}</TableHead>
-                        <TableHead className="text-xs font-bold uppercase tracking-wide text-muted-foreground">{isVi ? "Trạng thái" : "Status"}</TableHead>
-                        <TableHead className="min-w-[180px] text-xs font-bold uppercase tracking-wide text-muted-foreground">{isVi ? "Nguồn/PO/PNK" : "Source/PO/Receipt"}</TableHead>
+                        <TableHead className="min-w-[140px] text-xs font-medium text-muted-foreground">{isVi ? "Số hóa đơn" : "Invoice #"}</TableHead>
+                        <TableHead className="min-w-[170px] text-xs font-medium text-muted-foreground">{isVi ? "Nhà cung cấp" : "Supplier"}</TableHead>
+                        <TableHead className="text-xs font-medium text-muted-foreground">{isVi ? "Ngày HĐ" : "Date"}</TableHead>
+                        <TableHead className="text-xs font-medium text-muted-foreground">{isVi ? "Hạn TT" : "Due"}</TableHead>
+                        <TableHead className="text-right text-xs font-medium text-muted-foreground">{isVi ? "Giá trị" : "Amount"}</TableHead>
+                        <TableHead className="min-w-[150px] text-right text-xs font-medium text-muted-foreground">{isVi ? "Đã trả/Còn lại" : "Paid/Remaining"}</TableHead>
+                        <TableHead className="text-xs font-medium text-muted-foreground">{isVi ? "Trạng thái" : "Status"}</TableHead>
+                        <TableHead className="min-w-[180px] text-xs font-medium text-muted-foreground">{isVi ? "Nguồn/PO/PNK" : "Source/PO/Receipt"}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>

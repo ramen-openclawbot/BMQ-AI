@@ -39,6 +39,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import "@/styles/bmq-production.css";
 
 const emptyForm = {
   material_code: "",
@@ -666,7 +667,7 @@ function MaterialCoveragePanel({ coverage }: { coverage: MaterialCoverage }) {
   return <Card data-bmq-material-learning-coverage>
     <CardHeader><CardTitle>Độ phủ danh mục NVL và tên nguồn chưa liên kết</CardTitle><CardDescription>Toàn bộ NVL, công thức, tên NCC và sản phẩm NCC được tải phân trang đầy đủ. Phần nào chưa tải đủ sẽ hiện rõ, không cắt im lặng.</CardDescription></CardHeader>
     <CardContent className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{summary.map((item) => <div key={item.label} className="min-w-0 rounded-2xl border bg-white p-4"><p className="break-words text-xs font-semibold uppercase text-slate-500">{item.label}</p><p className="mt-1 text-2xl font-bold">{item.value}</p></div>)}</div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{summary.map((item) => <div key={item.label} className="min-w-0 rounded-2xl border bg-white p-4"><p className="break-words text-xs font-medium text-slate-500">{item.label}</p><p className="mt-1 text-2xl font-bold">{item.value}</p></div>)}</div>
       {(coverage.formulations_null_root > 0 || coverage.formulations_orphan_root > 0) && <p className="text-xs text-slate-600">Trong đó {coverage.formulations_missing_canonical} dòng thiếu NVL chuẩn: {coverage.formulations_null_root} dòng chưa có NVL chuẩn, {coverage.formulations_orphan_root} dòng trỏ tới NVL chuẩn không còn tồn tại.</p>}
       {!coverage.complete && <Alert variant="destructive"><AlertTriangle className="h-4 w-4" /><AlertTitle>Độ phủ chưa đầy đủ</AlertTitle><AlertDescription>{coverage.truncated ? "Có phần vượt giới hạn trang an toàn nên chưa thể xác nhận đầy đủ. " : ""}{missing.length > 0 ? `${missing.map((section) => sectionErrorLabels[section.key] || "Thông tin liên kết").join(", ")}: Không tải được dữ liệu` : "Một số phần chưa tải đủ."}</AlertDescription></Alert>}
       <div>
@@ -749,12 +750,12 @@ export default function MaterialMasterAdmin() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50/80 p-3 text-slate-900 sm:p-4 md:p-6" data-bmq-material-master-admin data-bmq-material-master-rbac="material_master" data-bmq-material-master-light-ui>
-      <div className="mx-auto max-w-7xl space-y-4 md:space-y-5">
-        <section className="rounded-3xl border border-emerald-100 bg-white p-4 shadow-sm sm:p-5">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">Danh mục nguyên vật liệu từ Giá vốn</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">Giá vốn là nguồn gốc của danh mục NVL. Tại đây anh xác nhận sản phẩm Nhà cung cấp, sau đó đồng bộ các Duyệt chi khớp chính xác.</p>
+    <div className="text-slate-900" data-bmq-material-master-admin data-bmq-material-master-rbac="material_master" data-bmq-material-master-light-ui>
+      <div className="space-y-4 md:space-y-5">
+        <section className="d3-prod-head">
+          <div className="min-w-0">
+            <h1>Danh mục nguyên vật liệu từ Giá vốn</h1>
+            <p>Giá vốn là nguồn gốc của danh mục NVL. Tại đây anh xác nhận sản phẩm Nhà cung cấp, sau đó đồng bộ các Duyệt chi khớp chính xác.</p>
           </div>
         </section>
 
