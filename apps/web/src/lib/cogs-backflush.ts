@@ -87,6 +87,13 @@ export interface CogsGaps {
   recipes: CogsGapRecipe[];
 }
 
+export interface CogsSkuOption {
+  sku_id: string;
+  sku_code: string;
+  name: string;
+  unit: string;
+}
+
 export interface CogsOverview {
   as_of: string | null;
   from: string | null;
@@ -96,6 +103,12 @@ export interface CogsOverview {
   coverage: CogsCoverage[];
   items: CogsItemUsage[];
   gaps: CogsGaps;
+  /** Server gate of the decision RPCs (owner or kho admin). */
+  can_decide: boolean;
+  /** Server gate of cogs_set_backflush (owner). */
+  can_switch: boolean;
+  /** Finished-good SKUs for the product picker. */
+  sku_options: CogsSkuOption[];
 }
 
 export interface CogsTraceLine {
@@ -106,6 +119,8 @@ export interface CogsTraceLine {
   revenue_line_id: string;
   channel: string;
   ref: string;
+  customer: string;
+  revenue_qty: number;
   version_id: string | null;
   version_no: number | null;
   version_no_text: string;
@@ -240,6 +255,16 @@ function parseGapIngredient(raw: unknown): CogsGapIngredient {
   };
 }
 
+function parseSkuOption(raw: unknown): CogsSkuOption {
+  const row = asRecord(raw);
+  return {
+    sku_id: asString(row.sku_id),
+    sku_code: asString(row.sku_code),
+    name: asString(row.name),
+    unit: asString(row.unit),
+  };
+}
+
 function parseGapRecipe(raw: unknown): CogsGapRecipe {
   const row = asRecord(raw);
   return {
@@ -267,6 +292,9 @@ export function parseCogsOverview(raw: unknown): CogsOverview {
       ingredients: asArray(gaps.ingredients).map(parseGapIngredient),
       recipes: asArray(gaps.recipes).map(parseGapRecipe),
     },
+    can_decide: asBoolean(root.can_decide),
+    can_switch: asBoolean(root.can_switch),
+    sku_options: asArray(root.sku_options).map(parseSkuOption).filter((option) => option.sku_id !== ""),
   };
 }
 
@@ -280,6 +308,8 @@ function parseTraceLine(raw: unknown): CogsTraceLine {
     revenue_line_id: asString(row.revenue_line_id),
     channel: asString(row.channel),
     ref: asString(row.ref),
+    customer: asString(row.customer),
+    revenue_qty: asNumber(row.revenue_qty),
     version_id: asNullableString(row.version_id),
     version_no: typeof row.version_no === "number" ? row.version_no : null,
     version_no_text: asString(row.version_no_text),
@@ -319,4 +349,37 @@ export function gapCount(source: CogsGaps | Pick<CogsOverview, "gaps">): number 
     (gaps.ingredients?.length ?? 0) +
     (gaps.recipes?.length ?? 0)
   );
+}
+
+/** Why an ingredient is not deducted yet, in words the kho team uses. */
+export function ingredientReasonText(gap: Pick<CogsGapIngredient, "reason" | "recipe_unit" | "candidates">): string {
+  const first = asRecord(gap.candidates[0]);
+  const itemUnit = asString(first.unit);
+  switch (gap.reason) {
+    case "unit":
+      return itemUnit
+        ? `Công thức tính bằng ${gap.recipe_unit}, món kho tính bằng ${itemUnit}: chưa có quy đổi.`
+        : `Công thức tính bằng ${gap.recipe_unit}: chưa đổi được ra đơn vị kho.`;
+    case "never_stocked":
+      return "Món kho nối với nguyên liệu này chưa từng có nhập hay xuất.";
+    case "several_items":
+      return "Có nhiều món kho cùng nối với nguyên liệu này: chọn 1 món.";
+    case "no_item":
+      return "Chưa có món kho nào nối với nguyên liệu này.";
+    case "material":
+      return "Dòng công thức chưa nối mã nguyên liệu chuẩn: sửa trong Giá vốn.";
+    case "sub_recipe_unit":
+      return "Công thức con khác đơn vị với dòng gọi nó: sửa trong Giá vốn.";
+    default:
+      return "Chưa nối với món kho.";
+  }
+}
+
+/**
+ * How far the recipe figure is from what the material issues (PXK) took, as a
+ * whole percent of the PXK figure; null when there is no PXK figure to compare.
+ */
+export function recipeVsIssuePct(item: Pick<CogsItemUsage, "recipe_qty" | "pxk_usage">): number | null {
+  if (!(item.pxk_usage > 0)) return null;
+  return Math.round(((item.recipe_qty - item.pxk_usage) / item.pxk_usage) * 100);
 }

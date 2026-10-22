@@ -119,6 +119,12 @@ const GUIDES: MerchantPageGuide[] = [
     purpose: "so lượng NVL mua với lượng dùng theo định mức, cờ bất thường",
     suggestions: ["NVL nào mua nhiều nhất tháng này?", "NVL nào tăng giá mua tháng này?", "Có bao nhiêu mặt hàng đang tồn thấp?"],
   },
+  {
+    prefix: "/warehouse/gia-von",
+    label: "Giá vốn → Kho",
+    purpose: "trừ nguyên liệu theo công thức giá vốn từ đơn đã ghi nhận doanh thu: độ phủ, chỗ chưa nối, so với phiếu xuất",
+    suggestions: KHO_SUGGESTIONS,
+  },
   { prefix: "/warehouse/tan-tao", label: "Kho Tân Tạo", purpose: "kho chính của BMQ: tồn, nhập, xuất NVL", suggestions: KHO_SUGGESTIONS },
   { prefix: "/production", label: "Sản xuất", purpose: "kế hoạch sản xuất, sản phẩm, QA" },
   {

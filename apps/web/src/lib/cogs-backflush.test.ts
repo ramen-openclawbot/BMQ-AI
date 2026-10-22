@@ -101,6 +101,9 @@ function overviewPayload(): CogsOverview {
       ],
       recipes: [{ sku_code: "BMQ-002", name: "Bánh mì đông lạnh", reason: "no_recipe", lines: 1 }],
     },
+    can_decide: true,
+    can_switch: false,
+    sku_options: [{ sku_id: "77777777-7777-4777-8777-777777777777", sku_code: "BMQ-001", name: "Bánh mì que Pate", unit: "cái" }],
   };
 }
 
@@ -117,6 +120,9 @@ test("parseCogsOverview defaults missing keys to zeroes and empty arrays", () =>
   assert.deepEqual(parsed.coverage, []);
   assert.deepEqual(parsed.items, []);
   assert.deepEqual(parsed.gaps, { products: [], ingredients: [], recipes: [] });
+  assert.equal(parsed.can_decide, false);
+  assert.equal(parsed.can_switch, false);
+  assert.deepEqual(parsed.sku_options, []);
 
   const partial = parseCogsOverview({
     coverage: [{ channel: "BÁNH NGỌT" }],
@@ -145,6 +151,8 @@ test("parseCogsTrace keeps rows and tolerates a missing payload", () => {
         revenue_line_id: "55555555-5555-4555-8555-555555555555",
         channel: "BÁNH NGỌT",
         ref: "SO-100",
+        customer: "KFM",
+        revenue_qty: 25,
         version_id: "66666666-6666-4666-8666-666666666666",
         version_no: 3,
         version_no_text: "3",
@@ -159,6 +167,8 @@ test("parseCogsTrace keeps rows and tolerates a missing payload", () => {
   assert.equal(trace.rows.length, 1);
   assert.equal(trace.rows[0].recipe_qty, 1.25);
   assert.equal(trace.rows[0].version_no, 3);
+  assert.equal(trace.rows[0].customer, "KFM");
+  assert.equal(trace.rows[0].revenue_qty, 25);
 
   const empty = parseCogsTrace({});
   assert.deepEqual(empty.rows, []);
@@ -178,4 +188,16 @@ test("coveragePct weighs by revenue value and gapCount totals every gap kind", (
   assert.equal(gapCount(overview.gaps), 3);
   assert.equal(gapCount(overview), 3);
   assert.equal(gapCount({ products: [], ingredients: [], recipes: [] }), 0);
+});
+
+test("ingredientReasonText names the units and recipeVsIssuePct compares with PXK", async () => {
+  const { ingredientReasonText, recipeVsIssuePct } = await import("./cogs-backflush.ts");
+  assert.equal(
+    ingredientReasonText({ reason: "unit", recipe_unit: "g", candidates: [{ item_id: "x", name: "Bánh mì que", unit: "cái" }] }),
+    "Công thức tính bằng g, món kho tính bằng cái: chưa có quy đổi.",
+  );
+  assert.equal(ingredientReasonText({ reason: "no_item", recipe_unit: "g", candidates: [] }), "Chưa có món kho nào nối với nguyên liệu này.");
+  assert.equal(recipeVsIssuePct({ recipe_qty: 120, pxk_usage: 100 }), 20);
+  assert.equal(recipeVsIssuePct({ recipe_qty: 80, pxk_usage: 100 }), -20);
+  assert.equal(recipeVsIssuePct({ recipe_qty: 50, pxk_usage: 0 }), null);
 });

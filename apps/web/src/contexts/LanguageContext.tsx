@@ -13,6 +13,7 @@ interface Translations {
   warehouseSlips: string;
   autoPurchase: string;
   purchaseUsage: string;
+  khoCogs: string;
   stockLedger: string;
   tanTaoWarehouse: string;
   kitchenInventory: string;
@@ -223,6 +224,7 @@ const translations: Record<Language, Translations> = {
     warehouseSlips: "Stock slips",
     autoPurchase: "Auto Purchasing",
     purchaseUsage: "Purchase vs Usage",
+    khoCogs: "COGS → Stock",
     stockLedger: "Stock Ledger",
     tanTaoWarehouse: "Tan Tao Warehouse",
     kitchenInventory: "Kitchen Inventory",
@@ -431,6 +433,7 @@ const translations: Record<Language, Translations> = {
     warehouseSlips: "Phiếu kho",
     autoPurchase: "Đặt hàng tự động",
     purchaseUsage: "Mua so với dùng",
+    khoCogs: "Giá vốn → Kho",
     stockLedger: "Sổ tồn NVL",
     tanTaoWarehouse: "Kho Tân Tạo",
     kitchenInventory: "Kiểm soát kho bếp",

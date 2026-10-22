@@ -49,6 +49,7 @@ const QAInspection = lazy(() => import("@/pages/QAInspection"));
 const TanTaoWarehouse = lazy(() => import("@/pages/TanTaoWarehouse"));
 const StockLedger = lazy(() => import("@/pages/StockLedger"));
 const PurchaseUsage = lazy(() => import("@/pages/PurchaseUsage"));
+const KhoCogs = lazy(() => import("@/pages/KhoCogs"));
 const StockCatalogCleanup = lazy(() => import("@/pages/StockCatalogCleanup"));
 /** Kho pages in the app theme (owner 22/10/2026); they replaced the Game kho screen. */
 const KhoCatalog = lazy(() => import("@/pages/KhoCatalog"));
@@ -307,6 +308,7 @@ export function AppRoutes() {
         <Route path="/warehouse/phieu" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><WarehouseSlips /></Suspense></ModuleRoute>} />
         <Route path="/warehouse/stock-ledger" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><StockLedger /></Suspense></ModuleRoute>} />
         <Route path="/warehouse/purchase-usage" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><PurchaseUsage /></Suspense></ModuleRoute>} />
+        <Route path="/warehouse/gia-von" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><KhoCogs /></Suspense></ModuleRoute>} />
         <Route path="/warehouse/catalog-cleanup" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><StockCatalogCleanup /></Suspense></ModuleRoute>} />
         <Route path="/warehouse/tan-tao" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><TanTaoWarehouse /></Suspense></ModuleRoute>} />
         <Route path="/settings" element={<Settings />} />

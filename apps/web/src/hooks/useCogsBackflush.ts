@@ -156,3 +156,16 @@ export function useCogsSetBackflush() {
     onSuccess: invalidate,
   });
 }
+
+/** Owner / kho admin: re-run the window now so a decision shows at once. */
+export function useCogsRefreshNow() {
+  const invalidate = useInvalidateCogsReads();
+  return useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.rpc("cogs_refresh_now" as never);
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: invalidate,
+  });
+}

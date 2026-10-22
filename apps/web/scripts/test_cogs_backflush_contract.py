@@ -265,6 +265,24 @@ def main() -> None:
     assert "production_material_issue_reversal" in set_backflush
     assert "warning" in set_backflush and "không tự đăng lại" in set_backflush
 
+    # --- 9. 20261102600000: screen data fixes ----------------------------
+    fixes = read(MIGRATION.parent / "20261102600000_cogs_overview_fixes.sql")
+    overview = extract_function(fixes, "create or replace function public.cogs_backflush_overview").lower()
+    for key in ("'can_decide'", "'can_switch'", "'sku_options'"):
+        assert key in overview, f"overview missing {key}"
+    assert "sum(t.stock_qty) filter (where t.status = 'ok')" in overview, "items compare in kho units"
+    assert "'pmi-item-reverse:' || m.source_issue_item_id::text" in overview, "PXK usage net of give-backs"
+    explode2 = extract_function(fixes, "create or replace function public.cogs_explode_revenue").lower()
+    assert "m.status = 'rejected'" in explode2 and "'skipped' else 'gap_product'" in explode2
+    trace = extract_function(fixes, "create or replace function public.cogs_item_usage_trace").lower()
+    assert "t.version_no" not in trace and "left join public.sku_cogs_versions v on v.id = t.version_id" in trace
+    refresh_now = extract_function(fixes, "create or replace function public.cogs_refresh_now").lower()
+    assert "material_alias_can_admin" in refresh_now and "run_cogs_backflush(v_today - 35, v_today + 14, false)" in refresh_now
+    assert "grant execute on function public.cogs_refresh_now() to authenticated" in fixes.lower()
+    for marker in re.findall(r"create\s+or\s+replace\s+function\s+public\.[a-z0-9_]+\s*\(", fixes, re.IGNORECASE):
+        body = extract_function(fixes, marker).lower()
+        assert "security definer" in body and "set search_path = public, pg_temp" in body, marker
+
     print("PASS: cogs backflush contracts hold")
 
 
