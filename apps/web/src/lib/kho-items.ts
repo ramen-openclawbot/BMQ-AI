@@ -162,6 +162,9 @@ const ERROR_TEXT: Record<string, string> = {
   invalid_quantity: "Số lượng đếm phải lớn hơn hoặc bằng 0.",
   item_inactive: "Món này đã tắt nên không đếm được.",
   item_not_in_location: "Món này không có trong kho đã chọn.",
+  // discontinue_stock_item: a counted line on an open count sheet must be submitted first.
+  item_in_open_count: "Món này đã được đếm trong phiếu kiểm kê đang mở. Nộp phiếu kiểm kê đó trước, rồi mới tắt được món.",
+  item_merged: "Món này đã gộp vào món khác. Mở món mới để sửa.",
 };
 
 function errorFields(error: unknown): { message: string; code: string } {

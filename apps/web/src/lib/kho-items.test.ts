@@ -119,6 +119,8 @@ test("khoErrorText maps every game error", () => {
     invalid_quantity: "Số lượng đếm phải lớn hơn hoặc bằng 0.",
     item_inactive: "Món này đã tắt nên không đếm được.",
     item_not_in_location: "Món này không có trong kho đã chọn.",
+    item_in_open_count: "Món này đã được đếm trong phiếu kiểm kê đang mở. Nộp phiếu kiểm kê đó trước, rồi mới tắt được món.",
+    item_merged: "Món này đã gộp vào món khác. Mở món mới để sửa.",
   };
 
   for (const [code, text] of Object.entries(expected)) {
