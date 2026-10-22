@@ -2,12 +2,14 @@ import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tansta
 
 import { supabase } from "@/integrations/supabase/client";
 import type {
+  KhoReviewDismissReason,
   KhoReviewFactorHint,
   KhoReviewJevFeedbackResult,
   KhoReviewJevVerdict,
   KhoReviewLineRead,
   KhoReviewLinkResult,
   KhoReviewList,
+  KhoReviewSearchRow,
 } from "@/lib/kho-review";
 import { KHO_ITEMS_QUERY_KEY } from "./useKhoItems";
 
@@ -38,6 +40,26 @@ export function useKhoReviewList() {
       const { data, error } = await rpc.rpc("kho_review_list");
       if (error) throw error;
       return data as KhoReviewList;
+    },
+  });
+}
+
+/**
+ * Search every confirmed/received receipt line for one target.  The caller
+ * debounces; this hook only stays idle until the query has 2 characters.
+ */
+export function useKhoReviewSearchLines(targetKey: string, query: string) {
+  const trimmed = query.trim();
+  return useQuery({
+    queryKey: [KHO_REVIEW_QUERY_KEY, "search-lines", targetKey, trimmed],
+    enabled: trimmed.length >= 2,
+    queryFn: async (): Promise<KhoReviewSearchRow[]> => {
+      const { data, error } = await rpc.rpc("kho_review_search_lines", {
+        p_target_key: targetKey,
+        p_query: trimmed,
+      });
+      if (error) throw error;
+      return (data ?? []) as KhoReviewSearchRow[];
     },
   });
 }
@@ -210,6 +232,70 @@ export function useKhoReviewUnlinkEvidence() {
       });
       if (error) throw error;
       return data as KhoReviewUnlinkEvidenceResult;
+    },
+    onSuccess: () => invalidateKhoReview(queryClient),
+  });
+}
+
+export interface KhoReviewDismissInput {
+  targetKey: string;
+  reason: KhoReviewDismissReason;
+  note?: string | null;
+  /** Defaults to a fresh crypto.randomUUID(). */
+  requestId?: string;
+}
+
+export interface KhoReviewDismissResult {
+  status: "dismissed";
+  id: string;
+  target_key: string;
+  reason: KhoReviewDismissReason;
+  /** True when the request_id (or an active target) already existed. */
+  replayed: boolean;
+}
+
+/** Mark an item target as intentionally having no receipt; hides it. */
+export function useKhoReviewDismiss() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: KhoReviewDismissInput): Promise<KhoReviewDismissResult> => {
+      const { data, error } = await rpc.rpc("kho_review_dismiss", {
+        p_target_key: input.targetKey,
+        p_reason: input.reason,
+        p_note: input.note ?? null,
+        p_request_id: input.requestId ?? crypto.randomUUID(),
+      });
+      if (error) throw error;
+      return data as KhoReviewDismissResult;
+    },
+    onSuccess: () => invalidateKhoReview(queryClient),
+  });
+}
+
+export interface KhoReviewUndismissInput {
+  targetKey: string;
+  /** Defaults to a fresh crypto.randomUUID(). */
+  requestId?: string;
+}
+
+export interface KhoReviewUndismissResult {
+  /** 'none' when the target had no active dismissal to remove. */
+  status: "removed" | "none";
+}
+
+/** Soft-remove an active dismissal so the item target is shown again. */
+export function useKhoReviewUndismiss() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (
+      input: KhoReviewUndismissInput,
+    ): Promise<KhoReviewUndismissResult> => {
+      const { data, error } = await rpc.rpc("kho_review_undismiss", {
+        p_target_key: input.targetKey,
+        p_request_id: input.requestId ?? crypto.randomUUID(),
+      });
+      if (error) throw error;
+      return data as KhoReviewUndismissResult;
     },
     onSuccess: () => invalidateKhoReview(queryClient),
   });

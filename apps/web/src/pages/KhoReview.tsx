@@ -3,19 +3,20 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { toast as sonnerToast } from "sonner";
 import { LoadingState } from "@/components/ui/loading";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import {
   useKhoReviewCreateItem, useKhoReviewFactorHint, useKhoReviewFixLineUnit, useKhoReviewJev, useKhoReviewLink, useKhoReviewList,
-  KHO_REVIEW_QUERY_KEY, useKhoReviewReadLine, useKhoReviewUndoUnitFix,
+  KHO_REVIEW_QUERY_KEY, useKhoReviewDismiss, useKhoReviewReadLine, useKhoReviewSearchLines, useKhoReviewUndismiss, useKhoReviewUndoUnitFix,
 } from "@/hooks/useKhoReview";
 import { useKhoItems, useKhoSaveItem } from "@/hooks/useKhoItems";
 import { useSetItemKhoLocations } from "@/hooks/useWarehouseGame";
 import type { KhoItem } from "@/lib/kho-items";
 import {
-  factorFromRead, jevVerdictText, khoReviewErrorText, reviewReasonText, suggestedFactor,
-  type KhoReviewCandidate, type KhoReviewFactorSource, type KhoReviewItem, type KhoReviewLocation, type KhoReviewMaterial,
+  KHO_REVIEW_DISMISS_REASON_LABELS, factorFromRead, jevVerdictText, khoReviewErrorText, reviewReasonText, suggestedFactor,
+  type KhoReviewCandidate, type KhoReviewDismissReason, type KhoReviewFactorSource, type KhoReviewItem, type KhoReviewLocation, type KhoReviewMaterial,
 } from "@/lib/kho-review";
 import type { ReceiptLine } from "@/lib/receipt-lines";
 import { cn } from "@/lib/utils";
@@ -278,13 +279,122 @@ function useSuggestedFactor(suggestion: { factor: number } | null, pickedId: str
   }, [value, pickedId]);
 }
 
+/** Search every receipt line (all dates, corrected + scanned names) when the suggestions are wrong or missing. */
+function LineSearch({ targetKey, exclude, onPick }: { targetKey: string; exclude: string[]; onPick: (c: KhoReviewCandidate) => void }) {
+  const [text, setText] = useState("");
+  const [query, setQuery] = useState("");
+  useEffect(() => {
+    const t = window.setTimeout(() => setQuery(text.trim()), 300);
+    return () => window.clearTimeout(t);
+  }, [text]);
+  const search = useKhoReviewSearchLines(targetKey, query);
+  const rows = (search.data ?? []).filter((r) => !exclude.includes(r.receipt_item_id));
+  return (
+    <section className="d3-kr-exist" data-bmq-review-search>
+      <div className="d3-kr-exist-head">
+        <b>Tìm phiếu mua</b>
+        <small>Gợi ý sai hoặc không có? Gõ tên trên phiếu, tìm trên mọi phiếu nhập.</small>
+      </div>
+      <span className="d3-kho-search">
+        <Search aria-hidden="true" />
+        <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Ví dụ: opp, mực in…" aria-label="Tìm phiếu mua" enterKeyHint="search" data-bmq-review-search-input />
+        {text ? <button type="button" onClick={() => setText("")} aria-label="Xóa tìm kiếm"><X /></button> : null}
+      </span>
+      {query.length < 2 ? null
+        : search.isLoading ? <small className="d3-kr-read-wait">Đang tìm…</small>
+        : search.isError ? <p className="d3-kho-error">{khoReviewErrorText(search.error)}</p>
+        : !rows.length ? <p className="d3-kho-hint">Không có phiếu nào có “{query}”.</p>
+        : (
+          <ul className="d3-kr-exist-list">
+            {rows.map((r) => (
+              <li key={r.receipt_item_id}>
+                <button type="button" className="d3-kr-exist-item" onClick={() => onPick(r)} data-bmq-review-search-row={r.receipt_item_id}>
+                  <b>{r.product_name}</b>
+                  <small>
+                    <span>{r.receipt_number} · {dm(r.receipt_date)}</span>
+                    {r.supplier_name ? <span>{r.supplier_name}</span> : null}
+                    <span>{r.actual_quantity !== null ? `${fmtQty(r.actual_quantity)} ${r.unit ?? ""}` : "chưa ghi số lượng"}</span>
+                    {r.linked_item_id ? <span className="is-off">đang nối món khác</span> : null}
+                  </small>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+    </section>
+  );
+}
+
+const DISMISS_REASONS: KhoReviewDismissReason[] = ["no_receipt", "self_made", "gift", "other"];
+
+/** An item that will never have a receipt leaves the list with a reason, or is turned off; both can be undone. */
+function NoReceipt({ item, confirm, onDone }: { item: KhoReviewItem; confirm: ReturnType<typeof useKhoConfirm>["confirm"]; onDone: () => void }) {
+  const { toast } = useToast();
+  const dismiss = useKhoReviewDismiss();
+  const undismiss = useKhoReviewUndismiss();
+  const saveItem = useKhoSaveItem();
+  const queryClient = useQueryClient();
+  const [reason, setReason] = useState<KhoReviewDismissReason | null>(null);
+  const [note, setNote] = useState("");
+  const markIt = () => {
+    if (!reason) return;
+    dismiss.mutate({ targetKey: item.target_key, reason, note: note.trim() || null, requestId: newRequestId() }, {
+      onSuccess: () => {
+        // The app renders sonner only; its action button is the undo.
+        sonnerToast(`“${item.name}” rời danh sách: ${KHO_REVIEW_DISMISS_REASON_LABELS[reason]}`, {
+          duration: 8000,
+          action: { label: "Hoàn tác", onClick: () => undismiss.mutate({ targetKey: item.target_key, requestId: newRequestId() }) },
+        });
+        onDone();
+      },
+    });
+  };
+  const turnOff = async () => {
+    const ok = await confirm({ title: "Tắt món", message: `Tắt “${item.name}”? Món không hiện ở danh mục và kiểm kê nữa; bật lại được trong Danh mục kho.`, ok: "Tắt món", cancel: "Thôi" });
+    if (!ok) return;
+    saveItem.mutate({ itemId: item.item_id, name: item.name, unit: item.unit, active: false, requestId: newRequestId() }, {
+      onSuccess: (r) => {
+        if (r.status !== "saved") { toast({ title: "Chưa tắt được món", description: "Mở Danh mục kho để tắt.", variant: "destructive" }); return; }
+        void queryClient.invalidateQueries({ queryKey: [KHO_REVIEW_QUERY_KEY] });
+        toast({ title: `Đã tắt “${item.name}”` });
+        onDone();
+      },
+    });
+  };
+  return (
+    <section className="d3-kr-exist" data-bmq-review-noreceipt>
+      <div className="d3-kr-exist-head">
+        <b>Không có phiếu mua?</b>
+        <small>Chọn lý do để món rời danh sách, hoặc tắt món nếu không dùng nữa.</small>
+      </div>
+      <div className="d3-kho-seg d3-kr-reasons" role="group" aria-label="Lý do">
+        {DISMISS_REASONS.map((r) => (
+          <button key={r} type="button" aria-pressed={reason === r} className={cn(reason === r && "is-on")} onClick={() => setReason(r)} data-bmq-review-reason={r}>{KHO_REVIEW_DISMISS_REASON_LABELS[r]}</button>
+        ))}
+      </div>
+      {reason ? <Input value={note} onChange={(e) => setNote(e.target.value)} maxLength={200} placeholder="Ghi chú (không bắt buộc)" aria-label="Ghi chú" data-bmq-review-reason-note /> : null}
+      {dismiss.error ? <p className="d3-kho-error">{khoReviewErrorText(dismiss.error)}</p> : null}
+      <div className="d3-kho-actions">
+        <Button disabled={!reason || dismiss.isPending} onClick={markIt} data-bmq-review-dismiss>{dismiss.isPending ? "Đang lưu…" : "Đánh dấu không có phiếu"}</Button>
+        <Button variant="outline" disabled={saveItem.isPending} onClick={() => void turnOff()} data-bmq-review-turnoff>Tắt món</Button>
+      </div>
+    </section>
+  );
+}
+
+function HiddenNote({ n }: { n?: number }) {
+  return n ? <p className="d3-kho-hint" data-bmq-review-hidden>Đã ẩn {n} dòng Jev chấm khác loại.</p> : null;
+}
+
 function ItemReview({ item, confirm, onClose, onJev, jevBusy }: { item: KhoReviewItem; confirm: ReturnType<typeof useKhoConfirm>["confirm"]; onClose: () => void; onJev: () => void; jevBusy: boolean }) {
   const { toast } = useToast();
   const link = useKhoReviewLink();
   const [picked, setPicked] = useState<string | null>(null);
   const [factorText, setFactorText] = useState("");
   const [touched, setTouched] = useState(false);
-  const cand = item.candidates.find((c) => c.receipt_item_id === picked) ?? null;
+  const [extra, setExtra] = useState<KhoReviewCandidate[]>([]);
+  const all = useMemo(() => [...extra.filter((e) => !item.candidates.some((c) => c.receipt_item_id === e.receipt_item_id)), ...item.candidates], [extra, item.candidates]);
+  const cand = all.find((c) => c.receipt_item_id === picked) ?? null;
   const assist = useLineAssist(cand, item.unit, item.item_id);
   useSuggestedFactor(assist.suggestion, picked, touched, setFactorText);
   const x = parseNum(factorText);
@@ -317,9 +427,10 @@ function ItemReview({ item, confirm, onClose, onJev, jevBusy }: { item: KhoRevie
       {item.candidates.length && item.candidates.some((c) => !c.jev_verdict) ? (
         <Button variant="outline" size="sm" className="d3-kr-pick" disabled={jevBusy} onClick={onJev} data-bmq-review-jev-one>{jevBusy ? "Jev đang chấm…" : "Nhờ Jev chấm các dòng này"}</Button>
       ) : null}
-      {item.candidates.length ? (
+      <HiddenNote n={item.hidden_different} />
+      {all.length ? (
         <ul className="d3-kr-cands">
-          {item.candidates.map((c) => (
+          {all.map((c) => (
             <CandidateCard key={c.receipt_item_id} c={c} note={c.linked_item_id && c.linked_item_id !== item.item_id ? "Tên này đang nối vào món khác" : c.linked_item_id === item.item_id ? "Đã nối vào món này" : undefined}>
               {picked === c.receipt_item_id ? (
                 <div className="d3-kho-ask">
@@ -343,8 +454,10 @@ function ItemReview({ item, confirm, onClose, onJev, jevBusy }: { item: KhoRevie
             </CandidateCard>
           ))}
         </ul>
-      ) : <p className="d3-kho-hint">Chưa thấy phiếu mua nào có tên gần giống. Gửi ảnh phiếu cho VNAgent trong chat để nối, hoặc tắt món nếu không dùng nữa.</p>}
-      {item.candidates.length ? <ReceiptNotes title="Ảnh phiếu giao của các dòng trên" lines={asLines(item.candidates)} loading={false} error={null} /> : null}
+      ) : <p className="d3-kho-hint">Chưa thấy phiếu mua nào có tên gần giống. Tìm phiếu bên dưới, hoặc đánh dấu không có phiếu.</p>}
+      <LineSearch targetKey={item.target_key} exclude={all.map((c) => c.receipt_item_id)} onPick={(r) => { setExtra((x) => [r, ...x]); pick(r); }} />
+      <NoReceipt item={item} confirm={confirm} onDone={onClose} />
+      {all.length ? <ReceiptNotes title="Ảnh phiếu giao của các dòng trên" lines={asLines(all)} loading={false} error={null} /> : null}
     </KhoDialog>
   );
 }
@@ -489,7 +602,9 @@ function MaterialReview({ mat, onClose, onJev, jevBusy }: { mat: KhoReviewMateri
   const { toast } = useToast();
   const create = useKhoReviewCreateItem();
   const [picked, setPicked] = useState<string | null>(null);
-  const cand = mat.candidates.find((c) => c.receipt_item_id === picked) ?? null;
+  const [extra, setExtra] = useState<KhoReviewCandidate[]>([]);
+  const all = useMemo(() => [...extra.filter((e) => !mat.candidates.some((c) => c.receipt_item_id === e.receipt_item_id)), ...mat.candidates], [extra, mat.candidates]);
+  const cand = all.find((c) => c.receipt_item_id === picked) ?? null;
   const [name, setName] = useState("");
   const [unit, setUnit] = useState("g");
   const [cls, setCls] = useState<"raw_material" | "packaging_supply">("raw_material");
@@ -539,9 +654,10 @@ function MaterialReview({ mat, onClose, onJev, jevBusy }: { mat: KhoReviewMateri
       {mat.candidates.length && mat.candidates.some((c) => !c.jev_verdict) ? (
         <Button variant="outline" size="sm" className="d3-kr-pick" disabled={jevBusy} onClick={onJev} data-bmq-review-jev-one>{jevBusy ? "Jev đang chấm…" : "Nhờ Jev chấm các dòng này"}</Button>
       ) : null}
-      {mat.candidates.length ? (
+      <HiddenNote n={mat.hidden_different} />
+      {all.length ? (
         <ul className="d3-kr-cands">
-          {mat.candidates.map((c) => (
+          {all.map((c) => (
             <CandidateCard key={c.receipt_item_id} c={c} note={c.linked_item_id ? "Tên này đã nối vào một món kho: dùng “Nối vào món kho có sẵn” bên dưới" : undefined}>
               {picked === c.receipt_item_id ? (
                 <div className="d3-kho-ask">
@@ -579,9 +695,10 @@ function MaterialReview({ mat, onClose, onJev, jevBusy }: { mat: KhoReviewMateri
             </CandidateCard>
           ))}
         </ul>
-      ) : <p className="d3-kho-hint">Chưa có phiếu mua nào cho NVL này. Khi mua lần đầu, phiếu nhập sẽ hiện ở đây; hoặc nhắn VNAgent để tạo món trước.</p>}
+      ) : <p className="d3-kho-hint">Chưa thấy phiếu mua nào có tên gần giống. Tìm phiếu bên dưới, hoặc nối vào món kho có sẵn.</p>}
+      <LineSearch targetKey={mat.target_key} exclude={all.map((c) => c.receipt_item_id)} onPick={(r) => { setExtra((x) => [r, ...x]); pick(r); }} />
       <LinkExisting mat={mat} onDone={onClose} />
-      {mat.candidates.length ? <ReceiptNotes title="Ảnh phiếu giao của các dòng trên" lines={asLines(mat.candidates)} loading={false} error={null} /> : null}
+      {all.length ? <ReceiptNotes title="Ảnh phiếu giao của các dòng trên" lines={asLines(all)} loading={false} error={null} /> : null}
     </KhoDialog>
   );
 }

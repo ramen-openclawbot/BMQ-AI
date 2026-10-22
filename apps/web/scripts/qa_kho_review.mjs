@@ -71,7 +71,7 @@ function settle(st) {
       { target_key: "i:it-kem:q7", item_id: "it-kem", item_code: "Q7-KEM", name: "Kem làm mềm bánh", unit: "g", item_class: "raw_material", location: "q7", qty: -13021.8, reason: "no_docs_negative", candidates: [cand(1, "Kem rich làm mềm bánh", "kg", 5, 95000, "q7", 1), cand(2, "Kem Rich's Whipping Topping 907g / hộp (thùng 12 hộp) giao kèm hóa đơn đỏ", "hộp", 12, 89000, "q7", 0.5, { linked_item_id: "other" })] },
       { target_key: "i:it-nuoc:q7", item_id: "it-nuoc", item_code: "Q7-NUOC", name: "Nước Vihawa 20L Bình Vòi", unit: "g", item_class: "raw_material", location: "q7", qty: -47274.04, reason: "no_docs_negative", candidates: [cand(3, "Nước Vihawa 20L Bình Vòi", "Bình", 6, 61000, "tan_tao", 1)] },
       { target_key: "i:it-gang:q7", item_id: "it-gang", item_code: "CCDC-GANG", name: "Bao tay đen size M", unit: "cái", item_class: "packaging_supply", location: "q7", qty: 800, reason: "no_docs", candidates: [cand(9, "Bao tay y tế đen size M", "kg", 7, 90000, "q7", 1, { image_url: "goods-receipts/qa-9.jpg", raw_name: "BAO TAY Y TE DEN SIZE M (HOP 100 CAI)" })] },
-      { target_key: "i:it-tem:q7", item_id: "it-tem", item_code: "CCDC-038", name: "Tem pháp", unit: "con", item_class: "packaging_supply", location: "q7", qty: 1085, reason: "no_docs", candidates: [] },
+      { target_key: "i:it-tem:q7", item_id: "it-tem", item_code: "CCDC-038", name: "Tem pháp", unit: "con", item_class: "packaging_supply", location: "q7", qty: 1085, reason: "no_docs", hidden_different: 1, candidates: [] },
       { target_key: "i:it-muoi:tan_tao", item_id: "it-muoi", item_code: "NVL-155", name: "Muối", unit: "g", item_class: "raw_material", location: "tan_tao", qty: 24900, reason: "no_docs", candidates: [cand(4, "Muối sấy khô 500G bao 25kg", "kg", 200, 6500, "tan_tao", 0.5)] },
     ];
     const materials = [
@@ -84,6 +84,9 @@ function settle(st) {
   if (st.table === "rpc:kho_review_fix_line_unit") return { data: { status: "fixed", fix_id: "fix-1", receipt_item_id: st.args.p_receipt_item_id, old_unit: "kg", new_unit: "hộp", request_id: st.args.p_request_id, replayed: false }, error: null };
   if (st.table === "rpc:kho_review_undo_unit_fix") return { data: { status: "undone", fix_id: st.args.p_fix_id, receipt_item_id: "gri-9", unit: "kg" }, error: null };
   if (st.table === "rpc:kho_review_factor_hint") return { data: { factor: null, source: null }, error: null };
+  if (st.table === "rpc:kho_review_search_lines") return { data: String(st.args.p_query).toLowerCase().includes("tem") ? [{ target_key: st.args.p_target_key, receipt_item_id: "gri-s1", receipt_number: "GRN-QA-0343", receipt_date: "2026-06-23", location: "tan_tao", supplier_name: "Hoàng Tuấn", product_name: "IN TEM 17K", raw_name: null, unit: "con", actual_quantity: 10000, unit_price: 136, image_url: "goods-receipts/qa-s1.jpg", score: 1, linked_item_id: null, posted: false, jev_verdict: null, jev_probability: null, jev_model: null }] : [], error: null };
+  if (st.table === "rpc:kho_review_dismiss") return { data: { status: "dismissed", id: "dm-1", target_key: st.args.p_target_key, reason: st.args.p_reason, replayed: false }, error: null };
+  if (st.table === "rpc:kho_review_undismiss") return { data: { status: "removed" }, error: null };
   if (st.table === "rpc:kho_review_link_line") return st.args.p_receipt_item_id === "gri-3" ? { data: { status: "evidence", posted: false, location: "tan_tao", evidence_id: "ev-1" }, error: null } : { data: { status: "linked", alias_id: "al-1", posted: true, location: "q7" }, error: null };
   if (st.table === "rpc:kho_review_create_item_from_line") return { data: { status: "created", item_id: "new-1", alias_id: "al-2", posted: false, location: "q7" }, error: null };
   if (st.table === "rpc:cogs_decide_ingredient") return { data: { ok: true }, error: null };
@@ -353,6 +356,39 @@ try {
     await page.waitForSelector("[data-bmq-review-dialog]", { state: "detached", timeout: 5000 });
     assert.ok((await calls(page)).some((c) => c.startsWith("rpc:kho_review_link_line:") && c.includes("gri-9") && c.includes('"p_factor":100')), "link 1 hộp = 100 cái");
     pass(`photo read -> fix kg to hộp -> link 1 hộp = 100 cái ${vp.width}`);
+    // No suggestion: search every receipt, pick a row, link it; then dismiss another item.
+    await page.mouse.move(1, 1);
+    await page.waitForFunction(() => !document.querySelector("[data-sonner-toast]"), null, { timeout: 12000 });
+    await page.locator("[data-bmq-review-item='it-tem']").click();
+    await dialogInView(page, "[data-bmq-review-dialog]", vp);
+    assert.match(await page.locator("[data-bmq-review-hidden]").innerText(), /Đã ẩn 1 dòng/, "hidden different note");
+    await page.locator("[data-bmq-review-search-input]").fill("tem");
+    await page.waitForSelector("[data-bmq-review-search-row='gri-s1']");
+    await noSpill(page, "review-search", vp);
+    await shot(page, `review-search-${vp.width}.png`, false);
+    await page.locator("[data-bmq-review-search-row='gri-s1']").click();
+    await page.waitForSelector("[data-bmq-review-cand='gri-s1'] [data-bmq-review-factor]");
+    await page.locator("[data-bmq-review-factor]").fill("1");
+    await page.locator("[data-bmq-review-link]").click();
+    await confirmOk(page);
+    await page.waitForSelector("[data-bmq-review-dialog]", { state: "detached", timeout: 5000 });
+    assert.ok((await calls(page)).some((c) => c.startsWith("rpc:kho_review_search_lines:") && c.includes('"p_query":"tem"')), "search call");
+    assert.ok((await calls(page)).some((c) => c.startsWith("rpc:kho_review_link_line:") && c.includes("gri-s1")), "link searched line");
+    await page.locator("[data-bmq-review-item='it-gang']").click();
+    await dialogInView(page, "[data-bmq-review-dialog]", vp);
+    await page.locator("[data-bmq-review-reason='no_receipt']").click();
+    await noSpill(page, "review-noreceipt", vp);
+    await shot(page, `review-noreceipt-${vp.width}.png`, false);
+    await page.locator("[data-bmq-review-dismiss]").click();
+    await page.waitForSelector("[data-bmq-review-dialog]", { state: "detached", timeout: 5000 });
+    assert.ok((await calls(page)).some((c) => c.startsWith("rpc:kho_review_dismiss:") && c.includes("i:it-gang:q7") && c.includes("no_receipt")), "dismiss call");
+    await page.locator("[data-sonner-toast] button", { hasText: "Hoàn tác" }).first().click();
+    await page.waitForTimeout(200);
+    assert.ok((await calls(page)).some((c) => c.startsWith("rpc:kho_review_undismiss:") && c.includes("i:it-gang:q7")), "undo from the toast");
+    // Let the toasts expire so they do not cover the list rows on a phone (a hovered toast never expires).
+    await page.mouse.move(1, 1);
+    await page.waitForFunction(() => !document.querySelector("[data-sonner-toast]"), null, { timeout: 12000 });
+    pass(`search all receipts + link, mark no receipt ${vp.width}`);
     // A line received at the other kho asks first.
     await page.locator("[data-bmq-review-item='it-nuoc']").click();
     await dialogInView(page, "[data-bmq-review-dialog]", vp);

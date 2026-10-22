@@ -57,6 +57,19 @@ export interface KhoReviewCandidate {
   jev_model: string | null;
 }
 
+/** A manual all-time search result has the same shape as a list candidate. */
+export type KhoReviewSearchRow = KhoReviewCandidate;
+
+/** Reasons the owner can give when an item has no receipt to link. */
+export type KhoReviewDismissReason = "self_made" | "gift" | "no_receipt" | "other";
+
+export const KHO_REVIEW_DISMISS_REASON_LABELS: Record<KhoReviewDismissReason, string> = {
+  self_made: "Tự làm",
+  gift: "Được tặng",
+  no_receipt: "Mua ngoài, không có phiếu",
+  other: "Lý do khác",
+};
+
 export interface KhoReviewItem {
   item_id: string;
   item_code: string;
@@ -68,6 +81,8 @@ export interface KhoReviewItem {
   reason: KhoReviewReason;
   /** 'i:<item_id>:<location>' — same key the server and Jev marks use. */
   target_key: string;
+  /** Candidates hidden because their latest Jev verdict is 'different'. */
+  hidden_different?: number;
   candidates: KhoReviewCandidate[];
 }
 
@@ -79,6 +94,8 @@ export interface KhoReviewMaterial {
   sku_codes: string[];
   /** 'm:<canonical_material_id>:<recipe_unit>' — same key the server uses. */
   target_key: string;
+  /** Candidates hidden because their latest Jev verdict is 'different'. */
+  hidden_different?: number;
   candidates: KhoReviewCandidate[];
 }
 
@@ -175,6 +192,11 @@ export function jevVerdictText(
     case "unsure":
       return "Jev: chưa chắc";
   }
+}
+
+/** Short Vietnamese label for one dismissal reason. */
+export function khoReviewDismissReasonText(reason: KhoReviewDismissReason): string {
+  return KHO_REVIEW_DISMISS_REASON_LABELS[reason];
 }
 
 const MEASURE_FACTORS: Record<string, Record<string, number>> = {
@@ -306,6 +328,9 @@ export function khoReviewErrorText(error: unknown): string {
   }
   if (text.includes("fix_not_found")) {
     return "Không tìm thấy lần sửa đơn vị.";
+  }
+  if (text.includes("invalid_target")) {
+    return "Mặt hàng/kho không hợp lệ để đánh dấu.";
   }
   if (text.includes("invalid_request") || text.includes("invalid_json")) {
     return "Yêu cầu không hợp lệ.";

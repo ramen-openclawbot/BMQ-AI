@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   factorFromRead,
   jevVerdictText,
+  khoReviewDismissReasonText,
   khoReviewErrorText,
   reviewReasonText,
   suggestedFactor,
@@ -26,6 +27,13 @@ test("jevVerdictText shows the same-item probability and the other verdicts", ()
   assert.equal(jevVerdictText("unsure", 0.5), "Jev: chưa chắc");
   assert.equal(jevVerdictText(null, 0.9), null);
   assert.equal(jevVerdictText(undefined, null), null);
+});
+
+test("khoReviewDismissReasonText labels every dismissal reason", () => {
+  assert.equal(khoReviewDismissReasonText("self_made"), "Tự làm");
+  assert.equal(khoReviewDismissReasonText("gift"), "Được tặng");
+  assert.equal(khoReviewDismissReasonText("no_receipt"), "Mua ngoài, không có phiếu");
+  assert.equal(khoReviewDismissReasonText("other"), "Lý do khác");
 });
 
 test("suggestedFactor follows the standard measure table", () => {

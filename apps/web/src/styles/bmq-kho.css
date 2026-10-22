@@ -1084,3 +1084,5 @@ html.bmq-d3 .d3-kho-unitpick .d3-kho-chip { height: 34px; min-height: 34px; padd
 .d3-kr-exist-item b { font-size: 14px; font-weight: 500; overflow-wrap: anywhere; }
 .d3-kr-exist-item small { display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: 12px; color: var(--d3-dim); }
 .d3-kr-exist-item small .is-off { color: var(--kho-warn, #7a4d06); }
+.d3-kr-reasons { flex-wrap: wrap; }
+.d3-kr-reasons button { flex: 1 1 auto; }
