@@ -130,8 +130,11 @@ for (const width of [390, 820, 1440]) {
   ok(visibleText === "", `${width}: loading states write visible text (${visibleText})`);
   const statuses = await page.locator("[role=status]").count();
   ok(statuses === 4, `${width}: expected 4 status regions, got ${statuses}`);
-  const shimmer = await page.$eval(".bmq-ld-line", (el) => getComputedStyle(el).animationName);
-  ok(shimmer === "bmq-ld-shimmer", `${width}: shimmer not running (${shimmer})`);
+  // Every data block shows the posting ledger (owner 22/10: shimmer alone read as empty).
+  const posting = await page.$$eval("[role=status]", (els) => els.map((el) => [...el.querySelectorAll(".bmq-ld-entry")].length > 0 && getComputedStyle(el.querySelector(".bmq-ld-entry")).animationName === "bmq-ld-post"));
+  ok(posting.length === 4 && posting.every(Boolean), `${width}: a data block has no posting ledger (${posting})`);
+  const rowsHeight = await page.$eval("[data-qa=rows] [role=status]", (el) => el.getBoundingClientRect().height);
+  ok(rowsHeight >= 180, `${width}: rows block not sized like its content (${rowsHeight})`);
   const sk = await page.$eval(".bmq-ld-skeleton", (el) => getComputedStyle(el).animationName);
   ok(sk === "bmq-ld-shimmer", `${width}: Skeleton not shimmering (${sk})`);
   ok(errors.length === 0, `${width}: page errors ${errors.join(" | ")}`);
@@ -172,7 +175,9 @@ for (const width of [390, 1440]) {
 {
   const { context, page } = await open("blocks", 390, { reduced: true });
   await page.waitForTimeout(500);
-  const names = await page.$$eval(".bmq-ld-line, .bmq-ld-skeleton, .bmq-ld-entry", (els) => [...new Set(els.map((el) => getComputedStyle(el).animationName))]);
+  const fade = await page.$$eval(".bmq-ld-entry", (els) => [...new Set(els.map((el) => getComputedStyle(el).animationName))]);
+  ok(fade.length === 1 && fade[0] === "bmq-ld-fade", `reduced motion: ledger entries do not pulse (${fade})`);
+  const names = await page.$$eval(".bmq-ld-line, .bmq-ld-skeleton", (els) => [...new Set(els.map((el) => getComputedStyle(el).animationName))]);
   ok(names.length === 1 && names[0] === "none", `reduced motion: shimmer still runs (${names})`);
   const shown = await opacity(page, ".bmq-ld-delay");
   ok(shown.every((o) => o > 0.95), `reduced motion: placeholders hidden (${shown})`);

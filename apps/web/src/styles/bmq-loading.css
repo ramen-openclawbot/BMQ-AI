@@ -133,10 +133,25 @@
   --bmq-ld-hi: hsl(var(--card));
 }
 
+/*
+ * Reduced motion: the ledger must still show and still read as "loading".
+ * Page CSS such as `.d3-wh * { animation: none !important }` would otherwise freeze
+ * the appear fade at opacity 0 and leave a blank block (owner iPhone, 22/10), so these
+ * rules use two-class selectors + !important to win. Entries fade in place, no movement.
+ */
 @media (prefers-reduced-motion: reduce) {
-  .bmq-ld-bar::before { animation: none; transform: scaleX(.6); }
-  .bmq-ld-ledger .bmq-ld-entry { animation: none; transform: none; }
+  .bmq-ld.bmq-ld-delay { animation: bmq-ld-in 1ms linear var(--bmq-ld-delay, 300ms) forwards !important; }
+  .bmq-ld.bmq-ld-bar::before { animation: none !important; transform: scaleX(.6); }
+  .bmq-ld-ledger .bmq-ld-entry {
+    transform: none !important;
+    animation: bmq-ld-fade 2.6s ease-in-out calc(var(--i, 0) * 160ms) infinite !important;
+  }
   .bmq-ld-shimmer,
   .bmq-ld-line { animation: none; }
-  .bmq-ld-delay { animation-duration: 1ms; }
+}
+
+@keyframes bmq-ld-fade {
+  0% { opacity: .12; }
+  14%, 72% { opacity: 1; }
+  86%, 100% { opacity: .12; }
 }

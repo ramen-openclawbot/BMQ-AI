@@ -1,3 +1,4 @@
+import { LoadingState } from "@/components/ui/loading";
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -53,13 +54,7 @@ function useFinishedGoods() {
 }
 
 function SkeletonRows({ count = 6 }: { count?: number }) {
-  return (
-    <ul className="d3-kho-list" aria-hidden="true">
-      {Array.from({ length: count }).map((_, i) => (
-        <li key={i} className="d3-kho-row is-ghost"><span className="d3-kho-bar" style={{ width: `${46 + ((i * 17) % 30)}%` }} /><span className="d3-kho-bar is-short" /></li>
-      ))}
-    </ul>
-  );
+  return <LoadingState rows={count} flat label="Đang đọc danh mục…" />;
 }
 
 function KhoSwitch({ value, onChange, counts }: { value: KhoLocation; onChange: (loc: KhoLocation) => void; counts?: Record<KhoLocation, number> }) {

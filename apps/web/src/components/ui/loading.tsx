@@ -7,7 +7,7 @@ import "@/styles/bmq-loading.css";
  * They only cover blank screens while data loads, so nothing is written on screen;
  * the label is kept for screen readers.
  * PageLoader: route bar + a ledger page whose entries are posted line by line.
- * LoadingState: placeholder ledger rows (date · description · amount) for a data block.
+ * LoadingState: the same ledger, sized like the data block it stands in for.
  * Everything stays invisible for the first moments so quick loads never flash.
  */
 
@@ -70,7 +70,7 @@ export function PageLoader({ label, className }: { label?: string; className?: s
 type LoadingStateProps = {
   /** Read by screen readers only; nothing is written on screen. */
   label: string;
-  /** rows: ledger lines; cards: stacked tiles; ledger: the ledger page, for dialogs and media. */
+  /** Sizing hint only: rows ≈ 44 px each, cards ≈ 76 px each, ledger = compact. */
   variant?: "rows" | "cards" | "ledger";
   rows?: number;
   /** flat: no panel background, for blocks that already sit inside a card. */
@@ -78,36 +78,24 @@ type LoadingStateProps = {
   className?: string;
 };
 
-/** Placeholder for a data block that is still loading. */
+/**
+ * Placeholder for a data block that is still loading.
+ * Every variant shows the posting ledger (owner 22/10: shimmer bars alone read as an
+ * empty page on a phone); rows/cards only size the block like the content to come,
+ * so the page does not jump when the data arrives.
+ */
 export function LoadingState({ label, variant = "rows", rows = 3, flat = false, className }: LoadingStateProps) {
-  if (variant === "ledger") {
-    return (
-      <div className={cn("bmq-ld bmq-ld-block is-center", flat && "is-flat", className)} role="status" aria-live="polite" aria-label={label}>
-        <LedgerMark />
-      </div>
-    );
-  }
-
   const count = Math.max(1, Math.min(rows, 8));
+  const minHeight = variant === "ledger" ? undefined : Math.max(160, count * (variant === "cards" ? 76 : 44) + 12);
   return (
     <div
-      className={cn("bmq-ld bmq-ld-block bmq-ld-delay", flat && "is-flat", className)}
-      style={delayStyle(300)}
+      className={cn("bmq-ld bmq-ld-block is-center", flat && "is-flat", className)}
+      style={minHeight ? { minHeight } : undefined}
       role="status"
       aria-live="polite"
       aria-label={label}
     >
-      {Array.from({ length: count }, (_, index) => (
-        variant === "cards"
-          ? <span key={index} className="bmq-ld-line is-card" aria-hidden="true" />
-          : (
-            <span key={index} className="bmq-ld-row" aria-hidden="true">
-              <span className="bmq-ld-line is-date" />
-              <span className="bmq-ld-line" style={{ maxWidth: `${92 - ((index * 17) % 40)}%` }} />
-              <span className="bmq-ld-line is-amount" style={{ width: `${56 + ((index * 23) % 36)}px` }} />
-            </span>
-          )
-      ))}
+      <LedgerMark />
     </div>
   );
 }

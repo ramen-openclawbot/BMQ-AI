@@ -126,6 +126,8 @@ function builder(table, args) {
   const st = { table, args: args || {} };
   const proxy = new Proxy(function () {}, {
     get(_t, prop) {
+      // data "loading": the catalog/count lists never arrive, so the loading state stays on screen.
+      if (prop === "then" && cfg().data === "loading" && st.table === "rpc:kho_get_items") return () => new Promise(() => {});
       if (prop === "then") return (ok, ko) => Promise.resolve().then(() => settle(st)).then(ok, ko);
       if (prop === "catch") return (ko) => Promise.resolve(settle(st)).catch(ko);
       if (prop === "finally") return (fn) => Promise.resolve(settle(st)).finally(fn);
@@ -616,6 +618,21 @@ try {
     await page.waitForSelector(".d3-kho-failed");
     await context.close();
     pass("empty + error states inside the card, with retry");
+    // Loading: the posting ledger shows while the list is read (owner screenshot 22/10).
+    for (const route of ["/warehouse/danh-muc", "/warehouse/kiem-ke"]) {
+      ({ context, page } = await open({ role: "owner", data: "loading" }, route, vp, "[role=status] .bmq-ld-ledger"));
+      await page.waitForTimeout(700);
+      const ledger = await page.locator("main [role=status] .bmq-ld-ledger").first().boundingBox();
+      assert.ok(ledger && ledger.width >= 50, `${route}: ledger visible while loading`);
+      // open() runs with reduced motion on, like an iPhone with "Reduce Motion": the ledger must be shown and still pulse.
+      const facts = await page.evaluate(() => { const o = document.querySelector("main [role=status] .bmq-ld-oven"); const e = o.querySelector(".bmq-ld-entry"); return { opacity: Number(getComputedStyle(o).opacity), entry: getComputedStyle(e).animationName }; });
+      assert.ok(facts.opacity > 0.95, `${route}: ledger invisible under reduced motion (${JSON.stringify(facts)})`);
+      assert.equal(facts.entry, "bmq-ld-fade", `${route}: ledger frozen under reduced motion`);
+      assert.equal(await page.locator(".d3-kho-row.is-ghost").count(), 0, `${route}: no static ghost rows`);
+      await shot(page, `loading-${route.split("/").pop()}-390.png`, false);
+      await context.close();
+    }
+    pass("loading shows the Sổ cái ledger on Danh mục kho + Kiểm kê");
   }
   // The game is gone: old links land on Danh mục kho; the Kho menu names the three pages.
   for (const route of ["/warehouse/game", "/warehouse/game?ban=cu", "/warehouse/office"]) {

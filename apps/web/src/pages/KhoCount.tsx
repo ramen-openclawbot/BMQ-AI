@@ -1,3 +1,4 @@
+import { LoadingState } from "@/components/ui/loading";
 import { useMemo, useState } from "react";
 import { Check, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -79,9 +80,7 @@ export default function KhoCount() {
         </div>
         {!list.isLoading && !list.isError && !canCount[kho] ? <p className="d3-kho-hint is-warn">Tài khoản này chưa có quyền đếm Kho {KHO_LABEL[kho]}.</p> : null}
         {list.isLoading ? (
-          <ul className="d3-kho-list" aria-hidden="true">
-            {Array.from({ length: 6 }).map((_, i) => <li key={i} className="d3-kho-row is-ghost"><span className="d3-kho-bar" style={{ width: `${40 + ((i * 13) % 30)}%` }} /><span className="d3-kho-bar is-short" /></li>)}
-          </ul>
+          <LoadingState rows={6} flat label="Đang tải danh sách kiểm kê…" />
         ) : list.isError ? (
           <div className="d3-kho-failed" role="alert">
             <p>Không tải được danh sách đếm. {khoErrorText(list.error)}</p>

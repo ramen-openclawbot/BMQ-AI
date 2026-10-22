@@ -50,7 +50,8 @@
       @keyframes bmq-boot-in{to{opacity:1}}
       @keyframes bmq-boot-bar{40%{transform:scaleX(.55)}to{transform:scaleX(.86)}}
       @keyframes bmq-boot-post{0%{transform:scaleX(0);opacity:1}14%,72%{transform:scaleX(1);opacity:1}86%,to{transform:scaleX(1);opacity:0}}
-      @media (prefers-reduced-motion:reduce){.bmq-boot-bar::before,.bmq-boot .e{animation:none;transform:none}}
+      @media (prefers-reduced-motion:reduce){.bmq-boot-bar::before{animation:none;transform:scaleX(.6)}.bmq-boot .e{transform:none;animation-name:bmq-boot-fade}}
+      @keyframes bmq-boot-fade{0%{opacity:.12}14%,72%{opacity:1}86%,to{opacity:.12}}
     </style>
     <div id="root"><div class="bmq-boot" role="status" aria-label="Đang tải…">
       <div class="bmq-boot-bar"></div>

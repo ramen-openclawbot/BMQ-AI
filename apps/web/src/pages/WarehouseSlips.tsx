@@ -1,3 +1,4 @@
+import { LoadingState } from "@/components/ui/loading";
 import { useState } from "react";
 import { ArrowDownToLine, ArrowRightLeft, ArrowUpFromLine } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -75,7 +76,7 @@ export default function WarehouseSlips() {
             {!q7.isLoading && !q7.isError ? <span className="d3-wh-pill">{skus.length} mã</span> : null}
           </div>
           {q7.isLoading ? (
-            <ul className="d3-kho-list" aria-hidden="true">{[0, 1, 2, 3].map((i) => <li key={i} className="d3-kho-row is-ghost"><span className="d3-kho-bar" /><span className="d3-kho-bar is-short" /></li>)}</ul>
+            <LoadingState rows={4} flat label="Đang tải…" />
           ) : q7.isError ? (
             <div className="d3-kho-failed" role="alert"><p>Không tải được tồn thành phẩm Q7.</p><Button variant="outline" onClick={() => void q7.refetch()}>Thử lại</Button></div>
           ) : skus.length ? (
@@ -110,7 +111,7 @@ export default function WarehouseSlips() {
             <p>Bánh ngọt tự chuyển khi nhập ở Tân Tạo; vật tư lập phiếu chuyển.{!started && !tt.isLoading && !q7.isLoading ? " Sổ kho chưa bắt đầu: kiểm kê lần đầu xong mới chuyển được." : ""}</p>
           </div>
           {history.isLoading ? (
-            <ul className="d3-kho-list" aria-hidden="true">{[0, 1, 2, 3].map((i) => <li key={i} className="d3-kho-row is-ghost"><span className="d3-kho-bar" /><span className="d3-kho-bar is-short" /></li>)}</ul>
+            <LoadingState rows={4} flat label="Đang tải…" />
           ) : history.isError ? (
             <div className="d3-kho-failed" role="alert"><p>Không tải được phiếu chuyển.</p><Button variant="outline" onClick={() => void history.refetch()}>Thử lại</Button></div>
           ) : transfers.length ? (
