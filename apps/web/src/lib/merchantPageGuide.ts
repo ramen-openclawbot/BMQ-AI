@@ -113,18 +113,6 @@ const GUIDES: MerchantPageGuide[] = [
   { prefix: "/warehouse/kiem-ke", label: "Kiểm kê", purpose: "phiếu kiểm kê tồn thực tế", suggestions: KHO_SUGGESTIONS },
   { prefix: "/warehouse/phieu", label: "Phiếu kho", purpose: "phiếu nhập, xuất, chuyển kho", suggestions: KHO_SUGGESTIONS },
   { prefix: "/warehouse/stock-ledger", label: "Sổ tồn NVL", purpose: "sổ nhập, xuất, tồn NVL theo ngày", suggestions: KHO_SUGGESTIONS },
-  {
-    prefix: "/warehouse/purchase-usage",
-    label: "Mua so với dùng",
-    purpose: "so lượng NVL mua với lượng dùng theo định mức, cờ bất thường",
-    suggestions: ["NVL nào mua nhiều nhất tháng này?", "NVL nào tăng giá mua tháng này?", "Có bao nhiêu mặt hàng đang tồn thấp?"],
-  },
-  {
-    prefix: "/warehouse/gia-von",
-    label: "Giá vốn → Kho",
-    purpose: "trừ nguyên liệu theo công thức giá vốn từ đơn đã ghi nhận doanh thu: độ phủ, chỗ chưa nối, so với phiếu xuất",
-    suggestions: KHO_SUGGESTIONS,
-  },
   { prefix: "/warehouse/tan-tao", label: "Kho Tân Tạo", purpose: "kho chính của BMQ: tồn, nhập, xuất NVL", suggestions: KHO_SUGGESTIONS },
   { prefix: "/production", label: "Sản xuất", purpose: "kế hoạch sản xuất, sản phẩm, QA" },
   {

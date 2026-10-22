@@ -15,7 +15,6 @@ import {
   PackageCheck,
   PackageSearch,
   ShoppingCart,
-  ArrowLeftRight,
   GitMerge,
   ListChecks,
   Inbox,
@@ -32,7 +31,6 @@ import {
   Boxes,
   ClipboardList,
   X,
-  Calculator,
 } from "lucide-react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { cn } from "@/lib/utils";
@@ -117,8 +115,6 @@ export const navItems: NavItem[] = [
       { icon: Scale, labelKey: "khoCount", path: "/warehouse/kiem-ke", section: "operations", moduleKey: "inventory" },
       { icon: FileText, labelKey: "warehouseSlips", path: "/warehouse/phieu", section: "operations", moduleKey: "inventory" },
       { icon: ClipboardList, labelKey: "stockLedger", path: "/warehouse/stock-ledger", section: "operations", moduleKey: "inventory" },
-      { icon: ArrowLeftRight, labelKey: "purchaseUsage", path: "/warehouse/purchase-usage", section: "operations", moduleKey: "inventory" },
-      { icon: Calculator, labelKey: "khoCogs", path: "/warehouse/gia-von", section: "operations", moduleKey: "inventory" },
       { icon: GitMerge, labelKey: "catalogCleanup", path: "/warehouse/catalog-cleanup", section: "operations", moduleKey: "inventory", hiddenFromMenu: true },
       { icon: Boxes, labelKey: "tanTaoWarehouse", path: "/warehouse/tan-tao", section: "operations", moduleKey: "inventory" },
       { icon: PackageCheck, labelKey: "goodsReceipts", path: "/goods-receipts", section: "operations", moduleKey: "goods_receipts" },

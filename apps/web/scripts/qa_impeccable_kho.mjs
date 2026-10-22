@@ -227,7 +227,7 @@ const WIDTHS = [
   { width: 390, height: 844 },
   { width: 320, height: 640 },
 ];
-const ROUTES = ["/warehouse/stock-ledger", "/warehouse/auto-purchase", "/warehouse/purchase-usage", "/warehouse/tan-tao", "/goods-receipts", "/purchase-orders"];
+const ROUTES = ["/warehouse/stock-ledger", "/warehouse/auto-purchase", "/warehouse/tan-tao", "/goods-receipts", "/purchase-orders"];
 
 async function fullShot(page, file) {
   await page.addStyleTag({ content: ".d3-app{height:auto!important}.d3-main{overflow:visible!important}" });
