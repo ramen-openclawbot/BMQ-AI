@@ -3,8 +3,9 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 import { checkAndRecordRateLimit, getRateLimitHeaders } from "../_shared/rate-limiter.ts";
-import { aiErrorJson, classifyOpenAIError } from "../_shared/openai-errors.ts";
+import { aiErrorJson, AiOpenAIError, classifyOpenAIError, getAiErrorInfo } from "../_shared/openai-errors.ts";
 import { getScanAiConfig } from "../_shared/ai-vision-provider.ts";
+import { runTextFirst, callDeepSeekTool, buildOcrTextUserContent, OCR_TEXT_SYSTEM_SUFFIX, type DeepSeekToolDefinition } from "../_shared/text-first-extract.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -19,6 +20,34 @@ const parseAmountVN = (v: unknown): number | null => {
     .replace(/[^0-9.-]/g, "");
   const n = Number(normalized);
   return Number.isFinite(n) ? n : null;
+};
+
+const BANK_SLIP_TOOL: DeepSeekToolDefinition = {
+  name: 'extract_bank_slip_data',
+  description: 'Extract structured data from a bank transfer slip image',
+  parameters: {
+    type: 'object',
+    properties: {
+      amount: { type: 'string', description: 'Exact amount string as shown on slip, preserving dots and commas. E.g. "41.006.300,00"' },
+      recipient_name: { type: ['string', 'null'] },
+      recipient_account: { type: ['string', 'null'] },
+      recipient_bank: { type: ['string', 'null'] },
+      transaction_date: { type: ['string', 'null'] },
+      transaction_id: { type: ['string', 'null'] },
+      content: { type: ['string', 'null'] },
+      sender_name: { type: ['string', 'null'] },
+    },
+  },
+};
+
+const BANK_SLIP_USER_PROMPT = 'Trích xuất thông tin UNC từ ảnh này.';
+
+const finalizeBankSlip = (raw: Record<string, unknown>) => {
+  const extractedData = { ...raw };
+  extractedData.amount_raw = extractedData.amount; // Keep original string for audit
+  extractedData.amount = parseAmountVN(extractedData.amount);
+  console.log(`[scan-bank-slip] Amount: raw="${extractedData.amount_raw}" → parsed=${extractedData.amount}`);
+  return extractedData;
 };
 
 serve(async (req) => {
@@ -130,102 +159,100 @@ Quy tắc quan trọng:
 
 Trả về JSON.`;
 
-    // Call OpenAI Gateway (retry on transient errors)
-    console.log("[scan-bank-slip] Calling AI gateway");
-    let aiResponse: Response | null = null;
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      aiResponse = await fetch(scanAi.endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${scanAi.apiKey}`,
-        },
-        body: JSON.stringify({
-          model: scanAi.model,
-          ...scanAi.extraBody,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            {
-              role: 'user',
-              content: [
-                {
-                  type: 'image_url',
-                  image_url: {
-                    url: `data:${mimeType};base64,${imageBase64}`,
-                    detail: 'high',
+    // Call OpenAI Gateway (retry on transient errors) — today's image request.
+    const imageAttempt = async (): Promise<Record<string, unknown>> => {
+      console.log("[scan-bank-slip] Calling AI gateway");
+      let aiResponse: Response | null = null;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        aiResponse = await fetch(scanAi.endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${scanAi.apiKey}`,
+          },
+          body: JSON.stringify({
+            model: scanAi.model,
+            ...scanAi.extraBody,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              {
+                role: 'user',
+                content: [
+                  {
+                    type: 'image_url',
+                    image_url: {
+                      url: `data:${mimeType};base64,${imageBase64}`,
+                      detail: 'high',
+                    },
                   },
-                },
-                {
-                  type: 'text',
-                  text: 'Trích xuất thông tin UNC từ ảnh này.',
-                },
-              ],
-            },
-          ],
-          tools: [
-            {
-              type: 'function',
-              function: {
-                name: 'extract_bank_slip_data',
-                description: 'Extract structured data from a bank transfer slip image',
-                parameters: {
-                  type: 'object',
-                  properties: {
-                    amount: { type: 'string', description: 'Exact amount string as shown on slip, preserving dots and commas. E.g. "41.006.300,00"' },
-                    recipient_name: { type: ['string', 'null'] },
-                    recipient_account: { type: ['string', 'null'] },
-                    recipient_bank: { type: ['string', 'null'] },
-                    transaction_date: { type: ['string', 'null'] },
-                    transaction_id: { type: ['string', 'null'] },
-                    content: { type: ['string', 'null'] },
-                    sender_name: { type: ['string', 'null'] },
+                  {
+                    type: 'text',
+                    text: BANK_SLIP_USER_PROMPT,
                   },
-                },
+                ],
               },
-            },
-          ],
-          tool_choice: { type: 'function', function: { name: 'extract_bank_slip_data' } },
-          max_tokens: 1000,
-        }),
-      });
+            ],
+            tools: [
+              {
+                type: 'function',
+                function: BANK_SLIP_TOOL,
+              },
+            ],
+            tool_choice: { type: 'function', function: { name: 'extract_bank_slip_data' } },
+            max_tokens: 1000,
+          }),
+        });
 
-      if (aiResponse.ok) break;
-      const status = aiResponse.status;
-      const errTxt = await aiResponse.text();
-      const info = classifyOpenAIError(status, errTxt);
-      console.error(`[scan-bank-slip] AI API error attempt ${attempt} kind=${info.kind}:`, status, errTxt.slice(0, 300));
-      if (info.kind !== "quota" && (status === 429 || status >= 500) && attempt < 3) {
-        await sleep(400 * attempt);
-        continue;
+        if (aiResponse.ok) break;
+        const status = aiResponse.status;
+        const errTxt = await aiResponse.text();
+        const info = classifyOpenAIError(status, errTxt);
+        console.error(`[scan-bank-slip] AI API error attempt ${attempt} kind=${info.kind}:`, status, errTxt.slice(0, 300));
+        if (info.kind !== "quota" && (status === 429 || status >= 500) && attempt < 3) {
+          await sleep(400 * attempt);
+          continue;
+        }
+
+        throw new AiOpenAIError(info);
       }
 
-      return new Response(JSON.stringify(aiErrorJson(info)), {
-        status: info.httpStatus,
-        headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
-      });
-    }
+      const aiData = await aiResponse!.json();
 
-    const aiData = await aiResponse!.json();
-    
-    // Extract the function call result
-    const toolCall = aiData.choices?.[0]?.message?.tool_calls?.[0];
-    if (!toolCall || toolCall.function.name !== 'extract_bank_slip_data') {
-      console.error("[scan-bank-slip] Failed to extract data from image");
-      return new Response(JSON.stringify({ error: 'Failed to extract data from image' }), {
-        status: 500,
-        headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
-      });
-    }
+      // Extract the function call result
+      const toolCall = aiData.choices?.[0]?.message?.tool_calls?.[0];
+      if (!toolCall || toolCall.function.name !== 'extract_bank_slip_data') {
+        console.error("[scan-bank-slip] Failed to extract data from image");
+        throw new Error('Failed to extract data from image');
+      }
 
-    const extractedData = JSON.parse(toolCall.function.arguments || '{}');
-    extractedData.amount_raw = extractedData.amount; // Keep original string for audit
-    extractedData.amount = parseAmountVN(extractedData.amount);
-    console.log(`[scan-bank-slip] Amount: raw="${extractedData.amount_raw}" → parsed=${extractedData.amount}`);
+      return finalizeBankSlip(JSON.parse(toolCall.function.arguments || '{}'));
+    };
+
+    const outcome = await runTextFirst<Record<string, unknown>>({
+      label: "bank-slip",
+      images: [{ base64: imageBase64, mimeType }],
+      textAttempt: async (ocr) => {
+        const raw = await callDeepSeekTool({
+          system: `${systemPrompt}${OCR_TEXT_SYSTEM_SUFFIX}`,
+          userContent: buildOcrTextUserContent(BANK_SLIP_USER_PROMPT, ocr),
+          tool: BANK_SLIP_TOOL,
+          maxTokens: 1000,
+        });
+        return finalizeBankSlip(raw);
+      },
+      validate: (data) => {
+        const parsed = parseAmountVN(data.amount);
+        return parsed !== null && parsed > 0 ? null : "no_amount";
+      },
+      imageAttempt,
+    });
 
     console.log(`[scan-bank-slip] Completed in ${Date.now() - startTime}ms`);
-    return new Response(JSON.stringify({ 
-      success: true, 
-      data: extractedData 
+    return new Response(JSON.stringify({
+      success: true,
+      data: outcome.result,
+      ocr_engine: outcome.engine,
+      ocr_fallback_reason: outcome.fallbackReason,
     }), {
       status: 200,
       headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
@@ -233,6 +260,13 @@ Trả về JSON.`;
 
   } catch (error: unknown) {
     console.error('[scan-bank-slip] Error:', error);
+    const aiInfo = getAiErrorInfo(error);
+    if (aiInfo) {
+      return new Response(JSON.stringify(aiErrorJson(aiInfo)), {
+        status: aiInfo.httpStatus,
+        headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
+      });
+    }
     const message = error instanceof Error ? error.message : 'Unknown error';
     return new Response(JSON.stringify({ error: message }), {
       status: 500,

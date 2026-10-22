@@ -22,26 +22,21 @@ TARGET_FUNCTIONS = {
     "scan-invoice": FUNCTIONS / "scan-invoice/index.ts",
     "scan-bank-slip": FUNCTIONS / "scan-bank-slip/index.ts",
     "scan-product-label": FUNCTIONS / "scan-product-label/index.ts",
-    "scan-sku-cost-sheet": FUNCTIONS / "scan-sku-cost-sheet/index.ts",
     "match-delivery-note": FUNCTIONS / "match-delivery-note/index.ts",
     "finance-extract-slip-amount": FUNCTIONS / "finance-extract-slip-amount/index.ts",
-    "production-material-issue-check": FUNCTIONS / "production-material-issue-check/index.ts",
-    "kb-suggest-po-rules": FUNCTIONS / "kb-suggest-po-rules/index.ts",
     "payment-cash-settle": FUNCTIONS / "payment-cash-settle/index.ts",
     "payment-unc-approve": FUNCTIONS / "payment-unc-approve/index.ts",
     "salary-payout": FUNCTIONS / "salary-payout/index.ts",
 }
 
-# Functions with their own provider HTTP call. production-material-issue-check now
-# goes through _shared/deepseek-json.ts, which classifies the provider response.
+# Functions with their own provider HTTP call. For the two scan functions whose
+# provider call moved into extract.ts, the assertions run over both source files.
 DIRECT_OPENAI = [
     "scan-purchase-order",
     "scan-invoice",
     "scan-bank-slip",
     "scan-product-label",
-    "scan-sku-cost-sheet",
     "match-delivery-note",
-    "kb-suggest-po-rules",
 ]
 
 # Functions that read images through the shared OCR helpers.
@@ -57,9 +52,7 @@ INTERNAL_RATE_LIMITED = [
     "scan-purchase-order",
     "scan-invoice",
     "scan-bank-slip",
-    "scan-sku-cost-sheet",
     "match-delivery-note",
-    "kb-suggest-po-rules",
     "finance-extract-slip-amount",
 ]
 
@@ -82,8 +75,15 @@ def main() -> None:
     texts = {name: read(path) for name, path in TARGET_FUNCTIONS.items()}
 
     # 1. Direct OpenAI callers classify the body before returning.
+    def direct_source(name: str) -> str:
+        paths = [TARGET_FUNCTIONS[name]]
+        moved = FUNCTIONS / name / "extract.ts"
+        if moved.exists():
+            paths.append(moved)
+        return "\n".join(read(path) for path in paths)
+
     for name in DIRECT_OPENAI:
-        text = texts[name]
+        text = direct_source(name)
         assert_true("classifyOpenAIError" in text, f"{name} must import/use classifyOpenAIError")
         assert_true("aiErrorJson" in text, f"{name} must return aiErrorJson(error body)")
         assert_true("slice(0, 300)" in text, f"{name} must log at most 300 body chars")

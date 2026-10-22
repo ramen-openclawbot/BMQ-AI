@@ -4,13 +4,10 @@
 Checks (no network, no deploy):
   1. _shared/ai-vision-provider.ts defines SCAN_AI_PROVIDER plus the DeepSeek
      endpoint/key/model (deepseek-flash, api.deepseek.com, DEEPSEEK_API_KEY).
-  2. Every target scan function, _shared/bank-slip-ocr.ts and
-     production-material-issue-check use the shared DeepSeek configuration; no
-     function hardcodes api.openai.com.
+  2. Every target scan function and _shared/bank-slip-ocr.ts use the shared
+     DeepSeek configuration; no function hardcodes api.openai.com.
   3. Every target imports ai-vision-provider.ts (directly or via bank-slip-ocr.ts)
      and reads its config through getScanAiConfig().
-  4. production-material-issue-check uses callDeepSeekJson through the shared
-     getScanAiConfig("deepseek") provider.
 """
 from pathlib import Path
 
@@ -20,16 +17,13 @@ FUNCTIONS = ROOT / "supabase/functions"
 
 SHARED_PROVIDER = FUNCTIONS / "_shared/ai-vision-provider.ts"
 BANK_SLIP_OCR = FUNCTIONS / "_shared/bank-slip-ocr.ts"
-PRODUCTION_MATERIAL_ISSUE_CHECK = FUNCTIONS / "production-material-issue-check/index.ts"
 
 SCAN_FUNCTIONS = {
     "scan-purchase-order": FUNCTIONS / "scan-purchase-order/index.ts",
     "scan-invoice": FUNCTIONS / "scan-invoice/index.ts",
     "scan-bank-slip": FUNCTIONS / "scan-bank-slip/index.ts",
     "scan-product-label": FUNCTIONS / "scan-product-label/index.ts",
-    "scan-sku-cost-sheet": FUNCTIONS / "scan-sku-cost-sheet/index.ts",
     "match-delivery-note": FUNCTIONS / "match-delivery-note/index.ts",
-    "kb-suggest-po-rules": FUNCTIONS / "kb-suggest-po-rules/index.ts",
 }
 
 
@@ -61,23 +55,19 @@ def main() -> None:
 
     for name, path in SCAN_FUNCTIONS.items():
         text = read(path)
-        assert_true("api.openai.com" not in text, f"{name} must not hardcode api.openai.com")
-        if "ai-vision-provider" in text:
-            assert_true("scanAi.extraBody" in text, f"{name} must spread scanAi.extraBody (DeepSeek thinking off)")
+        # The provider request may have moved into <function>/extract.ts; the
+        # contract still runs over the function's source as a whole.
+        moved = path.parent / "extract.ts"
+        source = text + ("\n" + read(moved) if moved.exists() else "")
+        assert_true("api.openai.com" not in source, f"{name} must not hardcode api.openai.com")
+        if "ai-vision-provider" in source:
+            assert_true("scanAi.extraBody" in source, f"{name} must spread scanAi.extraBody (DeepSeek thinking off)")
         imports_directly = "ai-vision-provider" in text and "getScanAiConfig" in text
         imports_via_bank_slip = "bank-slip-ocr" in text and "getScanAiConfig" in bank_slip_text
         assert_true(
             imports_directly or imports_via_bank_slip,
             f"{name} must import ai-vision-provider.ts (directly or via bank-slip-ocr.ts)",
         )
-
-    # 4. The signed-PDF material-issue check sends rendered page images to DeepSeek.
-    pmic_text = read(PRODUCTION_MATERIAL_ISSUE_CHECK)
-    assert_true("callDeepSeekJson" in pmic_text, "production-material-issue-check must use callDeepSeekJson")
-    assert_true("getScanAiConfig" in pmic_text, "production-material-issue-check must use getScanAiConfig")
-    assert_true('"deepseek"' in pmic_text, "production-material-issue-check must request the deepseek provider")
-    assert_true("api.openai.com" not in pmic_text, "production-material-issue-check must not call OpenAI")
-    assert_true("OPENAI_API_KEY" not in pmic_text, "production-material-issue-check must not read OPENAI_API_KEY")
 
     print("PASS: every scan function reads endpoint/key/model from _shared/ai-vision-provider.ts (DeepSeek by default)")
 

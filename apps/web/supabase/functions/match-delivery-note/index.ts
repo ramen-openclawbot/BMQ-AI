@@ -2,8 +2,11 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 import { checkAndRecordRateLimit, getRateLimitHeaders } from "../_shared/rate-limiter.ts";
-import { aiErrorJson, classifyOpenAIError } from "../_shared/openai-errors.ts";
+import { aiErrorJson, AiOpenAIError, classifyOpenAIError, getAiErrorInfo } from "../_shared/openai-errors.ts";
 import { getScanAiConfig } from "../_shared/ai-vision-provider.ts";
+import { callDeepSeekJson } from "../_shared/deepseek-json.ts";
+import { runTextFirst, buildOcrTextUserContent, OCR_TEXT_SYSTEM_SUFFIX } from "../_shared/text-first-extract.ts";
+import { rotationToTextTopEdge } from "../_shared/indra-ocr.ts";
 import { resolveCanonicalMaterialForLine, MaterialControllerResult } from "../_shared/material-controller.ts";
 // Task 5 contract marker: match-delivery-note keeps nameSimilarity for PO quantity assistance,
 // but canonical_material_id/resolved_exact must come from resolve_canonical_material only.
@@ -342,6 +345,49 @@ async function attachMaterialResolutionToReceiptMatch(
   }));
 }
 
+const DELIVERY_NOTE_SYSTEM_PROMPT = `You are an expert at extracting information from Vietnamese delivery notes and invoices.
+Extract the following information from the image:
+1. Supplier name (nhà cung cấp)
+2. List of items with: product name, quantity, purchase unit, package size printed on the document, and unit price (if visible)
+3. Page orientation: which edge of the image the TOP of the printed letters points toward (the edge where the document's title/header is). "top" when the text is already upright, "left" when lines read from bottom to top, "right" when lines read from top to bottom, "bottom" when the page is upside down.
+
+Return ONLY valid JSON in this exact format:
+{
+  "supplier_name": "string",
+  "text_top_edge": "top" | "right" | "bottom" | "left",
+  "items": [
+    {"product_name": "string", "quantity": number, "unit": "string", "package_quantity": number or null, "package_unit": "string or null", "unit_price": number or null}
+  ]
+}
+
+Important:
+- Keep product names in Vietnamese
+- Convert all quantities to numbers
+- Common units: kg, g, con, cái, hộp, thùng, chai, lon, gói, bịch, túi, lít, ml
+- unit is the purchase unit printed for the line (for example Bao, Thùng, kg)
+- package_quantity/package_unit are only the explicitly visible size per one purchase unit (for example 25 and kg for "25kg/bao" or a product explicitly named "(25kg)")
+- Never infer a package size that is not visibly printed; return null for both package fields when unclear
+- If unit price is not visible, set to null
+- If supplier name is not clear, set to empty string`;
+
+const DELIVERY_NOTE_USER_PROMPT = "Extract delivery note information from this image:";
+
+interface ExtractedDeliveryNote {
+  supplier_name: string;
+  text_top_edge?: string;
+  items: ExtractedItem[];
+}
+
+class DeliveryNoteExtractError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "DeliveryNoteExtractError";
+    this.status = status;
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return corsPreflightResponse(req);
@@ -435,92 +481,86 @@ serve(async (req) => {
       ? deliveryImage.split(",")[1] 
       : deliveryImage;
 
-    // Call OpenAI to extract delivery note info
-    const aiResponse = await fetch(scanAi.endpoint, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${scanAi.apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: scanAi.model,
-        ...scanAi.extraBody,
-        messages: [
-          {
-            role: "system",
-            content: `You are an expert at extracting information from Vietnamese delivery notes and invoices.
-Extract the following information from the image:
-1. Supplier name (nhà cung cấp)
-2. List of items with: product name, quantity, purchase unit, package size printed on the document, and unit price (if visible)
-3. Page orientation: which edge of the image the TOP of the printed letters points toward (the edge where the document's title/header is). "top" when the text is already upright, "left" when lines read from bottom to top, "right" when lines read from top to bottom, "bottom" when the page is upside down.
-
-Return ONLY valid JSON in this exact format:
-{
-  "supplier_name": "string",
-  "text_top_edge": "top" | "right" | "bottom" | "left",
-  "items": [
-    {"product_name": "string", "quantity": number, "unit": "string", "package_quantity": number or null, "package_unit": "string or null", "unit_price": number or null}
-  ]
-}
-
-Important:
-- Keep product names in Vietnamese
-- Convert all quantities to numbers
-- Common units: kg, g, con, cái, hộp, thùng, chai, lon, gói, bịch, túi, lít, ml
-- unit is the purchase unit printed for the line (for example Bao, Thùng, kg)
-- package_quantity/package_unit are only the explicitly visible size per one purchase unit (for example 25 and kg for "25kg/bao" or a product explicitly named "(25kg)")
-- Never infer a package size that is not visibly printed; return null for both package fields when unclear
-- If unit price is not visible, set to null
-- If supplier name is not clear, set to empty string`
-          },
-          {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: "Extract delivery note information from this image:"
-              },
-              {
-                type: "image_url",
-                image_url: {
-                  url: `data:image/jpeg;base64,${imageData}`
+    const imageAttempt = async (): Promise<ExtractedDeliveryNote> => {
+      const aiResponse = await fetch(scanAi.endpoint, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${scanAi.apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: scanAi.model,
+          ...scanAi.extraBody,
+          messages: [
+            {
+              role: "system",
+              content: DELIVERY_NOTE_SYSTEM_PROMPT
+            },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: DELIVERY_NOTE_USER_PROMPT
+                },
+                {
+                  type: "image_url",
+                  image_url: {
+                    url: `data:image/jpeg;base64,${imageData}`
+                  }
                 }
-              }
-            ]
-          }
-        ],
-      }),
+              ]
+            }
+          ],
+        }),
+      });
+
+      if (!aiResponse.ok) {
+        const errorText = await aiResponse.text();
+        const info = classifyOpenAIError(aiResponse.status, errorText);
+        console.error(`[match-delivery-note] AI API error kind=${info.kind}:`, aiResponse.status, errorText.slice(0, 300));
+        throw new AiOpenAIError(info);
+      }
+
+      const aiData = await aiResponse.json();
+      const aiContent = aiData.choices?.[0]?.message?.content || "";
+
+      try {
+        // Extract JSON from response (handle markdown code blocks)
+        const jsonMatch = aiContent.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) {
+          throw new Error("No JSON found in response");
+        }
+        return JSON.parse(jsonMatch[0]) as ExtractedDeliveryNote;
+      } catch (parseError) {
+        console.error("Failed to parse AI response:", aiContent);
+        throw new DeliveryNoteExtractError(400, "Failed to extract information from image");
+      }
+    };
+
+    const outcome = await runTextFirst<ExtractedDeliveryNote>({
+      label: "delivery-note",
+      images: [{ base64: imageData, mimeType: "image/jpeg" }],
+      textAttempt: async (ocr) => {
+        const raw = await callDeepSeekJson({
+          system: `${DELIVERY_NOTE_SYSTEM_PROMPT}${OCR_TEXT_SYSTEM_SUFFIX}`,
+          userText: buildOcrTextUserContent(DELIVERY_NOTE_USER_PROMPT, ocr),
+        });
+        // Indra rotation is the clockwise turn that makes the page upright; it
+        // overrides whatever the text model guessed so the rotation RPC keeps working.
+        return {
+          supplier_name: String(raw.supplier_name ?? ""),
+          text_top_edge: rotationToTextTopEdge(ocr.pages[0]?.rotation ?? 0) ?? undefined,
+          items: Array.isArray(raw.items) ? raw.items as ExtractedItem[] : [],
+        };
+      },
+      validate: (data) => (Array.isArray(data.items) && data.items.length > 0 ? null : "no_items"),
+      imageAttempt,
     });
 
-    if (!aiResponse.ok) {
-      const errorText = await aiResponse.text();
-      const info = classifyOpenAIError(aiResponse.status, errorText);
-      console.error(`[match-delivery-note] AI API error kind=${info.kind}:`, aiResponse.status, errorText.slice(0, 300));
-      return new Response(
-        JSON.stringify(aiErrorJson(info)),
-        { status: info.httpStatus, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
-      );
-    }
-
-    const aiData = await aiResponse.json();
-    const aiContent = aiData.choices?.[0]?.message?.content || "";
-    
-    // Parse AI response
-    let extractedData: { supplier_name: string; text_top_edge?: string; items: ExtractedItem[] };
-    try {
-      // Extract JSON from response (handle markdown code blocks)
-      const jsonMatch = aiContent.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        throw new Error("No JSON found in response");
-      }
-      extractedData = JSON.parse(jsonMatch[0]);
-    } catch (parseError) {
-      console.error("Failed to parse AI response:", aiContent);
-      return new Response(
-        JSON.stringify({ error: "Failed to extract information from image" }),
-        { status: 400, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
-      );
-    }
+    const extractedData = outcome.result;
+    const ocrEngine = outcome.engine;
+    const ocrFallbackReason = outcome.fallbackReason;
 
     // Clockwise turn that puts the text upright. Asking for the edge the letters point to is
     // reliable on deepseek-flash (4/4 orientations); asking for degrees came back mirrored (270 for 90).
@@ -553,7 +593,9 @@ Important:
           rotation_cw: rotationCw,
           items: [],
           supplierName: supplier_name || "Không xác định",
-          error: "Không tìm thấy sản phẩm trong phiếu giao hàng"
+          error: "Không tìm thấy sản phẩm trong phiếu giao hàng",
+          ocr_engine: ocrEngine,
+          ocr_fallback_reason: ocrFallbackReason,
         }),
         { headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
       );
@@ -649,6 +691,8 @@ Important:
           supplierId: receipt.supplier_id,
           supplierName: (receipt.suppliers as any)?.name || supplier_name,
           items: resolvedItems,
+          ocr_engine: ocrEngine,
+          ocr_fallback_reason: ocrFallbackReason,
           extractedItems: resolvedItems
             .filter((item) => item.status !== "missing")
             .map((item) => ({
@@ -680,12 +724,27 @@ Important:
         rotation_cw: rotationCw,
         matchSource: "none",
         error: "Không tìm thấy dòng phù hợp trong phiếu nhập đã chọn.",
+        ocr_engine: ocrEngine,
+        ocr_fallback_reason: ocrFallbackReason,
       }),
       { status: 422, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
     );
 
   } catch (error) {
     console.error("Error in match-delivery-note:", error);
+    if (error instanceof DeliveryNoteExtractError) {
+      return new Response(
+        JSON.stringify({ error: error.message }),
+        { status: error.status, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
+      );
+    }
+    const aiInfo = getAiErrorInfo(error);
+    if (aiInfo) {
+      return new Response(JSON.stringify(aiErrorJson(aiInfo)), {
+        status: aiInfo.httpStatus,
+        headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
+      });
+    }
     return new Response(
       JSON.stringify({ error: "Không thể xử lý phiếu giao hàng. Vui lòng thử lại." }),
       { status: 500, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }

@@ -15,14 +15,9 @@ import {
   type SupplierAliasRow,
   type SupplierLite,
 } from "../_shared/invoice-supplier-match.ts";
-import {
-  CASH_RECEIPT_SYSTEM_PROMPT,
-  CASH_RECEIPT_TOOL,
-  classifyCashReceiptOpenAiError,
-  normalizeCashReceipt,
-} from "../_shared/cash-receipt-ocr.ts";
-import { aiErrorJson, classifyOpenAIError } from "../_shared/openai-errors.ts";
+import { aiErrorJson, getAiErrorInfo } from "../_shared/openai-errors.ts";
 import { getScanAiConfig } from "../_shared/ai-vision-provider.ts";
+import { extractCashReceipt, extractInvoicePage, InvoiceExtractError } from "./extract.ts";
 
 type ScanTemplateRow = {
   id: string;
@@ -142,71 +137,20 @@ serve(async (req) => {
       );
     }
 
-    // ===== Cash receipt mode =====
-    // Dedicated prompt/schema for Vietnamese cash vouchers: the operator needs
-    // the amount actually paid plus a short description, never a quantity,
-    // weight, distance or address. This branch skips supplier template
-    // learning, cost classification and supplier writes.
     if (documentType === "cash_receipt") {
-      console.log("[scan-invoice] Calling AI gateway (cash_receipt)");
-      const cashResponse = await fetch(scanAi.endpoint, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${scanAi.apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: scanAi.model,
-          ...scanAi.extraBody,
-          messages: [
-            { role: "system", content: CASH_RECEIPT_SYSTEM_PROMPT },
-            {
-              role: "user",
-              content: [
-                {
-                  type: "image_url",
-                  image_url: {
-                    url: `data:${mimeType || "image/jpeg"};base64,${imageBase64}`,
-                  },
-                },
-                {
-                  type: "text",
-                  text: "Đọc số tiền thực trả, người nhận tiền và nội dung ngắn gọn từ chứng từ chi tiền mặt này.",
-                },
-              ],
-            },
-          ],
-          tools: [CASH_RECEIPT_TOOL],
-          tool_choice: { type: "function", function: { name: "extract_cash_receipt" } },
-        }),
-      });
-
-      if (!cashResponse.ok) {
-        const errorText = await cashResponse.text();
-        const info = classifyCashReceiptOpenAiError(cashResponse.status, errorText);
-        console.error(
-          `[scan-invoice] AI gateway error (cash_receipt) kind=${info.kind}:`,
-          cashResponse.status,
-          errorText.slice(0, 300),
-        );
-        return new Response(JSON.stringify(aiErrorJson(info)), {
-          status: info.httpStatus,
-          headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
-        });
+      const { data, engine, fallbackReason } = await extractCashReceipt({ imageBase64, mimeType });
+      if (!data) {
+        throw new InvoiceExtractError("model_invalid_tool", "Failed to extract cash receipt data from image");
       }
 
-      const cashAiResponse = await cashResponse.json();
-      const cashToolCall = cashAiResponse.choices?.[0]?.message?.tool_calls?.[0];
-      if (!cashToolCall || cashToolCall.function?.name !== "extract_cash_receipt") {
-        throw new Error("Failed to extract cash receipt data from image");
-      }
-
-      const cashExtractedData = JSON.parse(cashToolCall.function.arguments || "{}");
-      const normalizedCashReceipt = normalizeCashReceipt(cashExtractedData);
-
-      console.log(`[scan-invoice] Completed cash_receipt in ${Date.now() - startTime}ms, amount=${normalizedCashReceipt.total_amount}`);
+      console.log(`[scan-invoice] Completed cash_receipt in ${Date.now() - startTime}ms, amount=${data.total_amount}`);
       return new Response(
-        JSON.stringify({ success: true, data: normalizedCashReceipt }),
+        JSON.stringify({
+          success: true,
+          data,
+          ocr_engine: engine,
+          ocr_fallback_reason: fallbackReason,
+        }),
         { headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
       );
     }
@@ -241,139 +185,24 @@ serve(async (req) => {
       console.warn("[scan-invoice] cost alias mappings unavailable:", e instanceof Error ? e.message : e);
     }
 
-    const knownSuppliersPrompt = supplierList.length
-      ? `Known supplier master data (choose from this list when possible):\n${supplierList
-          .slice(0, 120)
-          .map((s) => `- ${s.name}`)
-          .join("\n")}`
-      : "";
-
-    const learnedTemplatePrompt = templates.length
-      ? `Learned supplier templates from prior scans:\n${templates
-          .slice(0, 20)
-          .map((t) => {
-            const header = String(t.template_json?.header_hint || "");
-            const aliases = Array.isArray(t.template_json?.aliases) ? t.template_json?.aliases.join(", ") : "";
-            const preferred = String(t.template_json?.preferred_supplier_name || "");
-            return `- key=${t.supplier_name_key}; preferred=${preferred}; header_hint=${header}; aliases=${aliases}`;
-          })
-          .join("\n")}`
-      : "";
-
-    const systemPrompt = `You are an expert invoice/delivery-note data extractor for Vietnamese documents.
-
-Extract the following data:
-1. Invoice number (Số hóa đơn, Số HD, No., Số phiếu)
-2. Invoice date (Ngày, Date) - format as YYYY-MM-DD
-3. Supplier name if visible (seller/exporter company at top of document, not buyer)
-4. VAT amount if present (VAT, Thuế GTGT)
-5. All line items with:
-   - Product code (Mã hàng, Code) if available
-   - Product name (Tên hàng, Tên sản phẩm, Description)
-   - Unit (Đơn vị tính, ĐVT)
-   - Quantity (Số lượng, SL)
-   - Unit price (Đơn giá, Giá)
-
-Important notes:
-- Prioritize seller/company logo header text for supplier_name.
-- Vietnamese numbers may use comma as decimal separator.
-- Extract ALL visible line items.
-- CHỈ lấy quantity từ cột Số lượng/SL của bảng hàng.\n- KHÔNG lấy số trong tên hàng/quy cách (ví dụ "(25kg)" không phải quantity).\n- For quantities and prices, convert to numbers.
-${knownSuppliersPrompt}
-${learnedTemplatePrompt}
-${aliases.length ? `Known aliases (alias => canonical supplier):\n${aliases.slice(0,150).map((a)=>`- ${a.alias_text} => ${(supplierList.find((x)=>x.id===a.supplier_id)?.name)||a.supplier_id}`).join("\n")}` : ""}`;
-
-    console.log("[scan-invoice] Calling AI gateway");
-    const response = await fetch(scanAi.endpoint, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${scanAi.apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: scanAi.model,
-        ...scanAi.extraBody,
-        messages: [
-          { role: "system", content: systemPrompt },
-          {
-            role: "user",
-            content: [
-              {
-                type: "image_url",
-                image_url: {
-                  url: `data:${mimeType || "image/jpeg"};base64,${imageBase64}`,
-                },
-              },
-              {
-                type: "text",
-                text: "Please extract all invoice data from this image.",
-              },
-            ],
-          },
-        ],
-        tools: [
-          {
-            type: "function",
-            function: {
-              name: "extract_invoice_data",
-              description: "Extract structured invoice data from the image",
-              parameters: {
-                type: "object",
-                properties: {
-                  invoice_number: { type: "string" },
-                  invoice_date: { type: "string" },
-                  supplier_name: { type: "string" },
-                  vat_amount: { type: "number" },
-                  seller_name_candidates: {
-                    type: "array",
-                    items: { type: "string" },
-                    description: "Danh sách tên ứng viên bên bán nhìn thấy trên phiếu"
-                  },
-                  items: {
-                    type: "array",
-                    items: {
-                      type: "object",
-                      properties: {
-                        product_code: { type: "string" },
-                        product_name: { type: "string" },
-                        unit: { type: "string" },
-                        quantity: { type: "number" },
-                        unit_price: { type: "number" },
-                      },
-                      required: ["product_name", "quantity", "unit_price"],
-                    },
-                  },
-                },
-                required: ["items"],
-              },
-            },
-          },
-        ],
-        tool_choice: { type: "function", function: { name: "extract_invoice_data" } },
-      }),
+    const {
+      data: extractedData,
+      engine: ocrEngine,
+      fallbackReason: ocrFallbackReason,
+      ocrPageCount,
+    } = await extractInvoicePage({
+      imageBase64,
+      mimeType,
+      supplierList,
+      templates: templates.map((t) => ({
+        supplier_name_key: t.supplier_name_key,
+        template_json: t.template_json,
+      })),
+      aliases: aliases.map((a) => ({
+        supplier_id: a.supplier_id,
+        alias_text: a.alias_text,
+      })),
     });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      const info = classifyOpenAIError(response.status, errorText);
-      console.error(
-        `[scan-invoice] AI gateway error kind=${info.kind}:`,
-        response.status,
-        errorText.slice(0, 300),
-      );
-      return new Response(JSON.stringify(aiErrorJson(info)), {
-        status: info.httpStatus,
-        headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
-      });
-    }
-
-    const aiResponse = await response.json();
-    const toolCall = aiResponse.choices?.[0]?.message?.tool_calls?.[0];
-    if (!toolCall || toolCall.function.name !== "extract_invoice_data") {
-      throw new Error("Failed to extract invoice data from image");
-    }
-
-    const extractedData = JSON.parse(toolCall.function.arguments || "{}");
 
     // Normalize numeric fields from Vietnamese OCR formats
     if (Array.isArray(extractedData?.items)) {
@@ -493,15 +322,44 @@ ${aliases.length ? `Known aliases (alias => canonical supplier):\n${aliases.slic
       }
     }
 
-    console.log(`[scan-invoice] Completed in ${Date.now() - startTime}ms, extracted ${extractedData.items?.length || 0} items`);
+    const pageMeta = ocrPageCount > 1
+      ? Array.from({ length: ocrPageCount }, () => ({
+          ocr_engine: ocrEngine,
+          ocr_fallback_reason: ocrFallbackReason,
+        }))
+      : null;
+
+    console.log(`[scan-invoice] Completed in ${Date.now() - startTime}ms, extracted ${(extractedData.items as unknown[] | undefined)?.length || 0} items`);
     return new Response(
-      JSON.stringify({ success: true, data: extractedData, supplier_match: supplierMatch, detected_supplier_name: scannedSupplierName || null, template_learning: supplierKey || null }),
+      JSON.stringify({
+        success: true,
+        data: extractedData,
+        supplier_match: supplierMatch,
+        detected_supplier_name: scannedSupplierName || null,
+        template_learning: supplierKey || null,
+        ocr_engine: ocrEngine,
+        ocr_fallback_reason: ocrFallbackReason,
+        ...(pageMeta ? { pages: pageMeta } : {}),
+      }),
       { headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
     );
   } catch (error) {
     // requireAuth throws Response objects for 401 — pass them through
     if (error instanceof Response) return error;
     console.error("[scan-invoice] Error:", error);
+    if (error instanceof InvoiceExtractError) {
+      return new Response(
+        JSON.stringify({ error: error.message }),
+        { status: 500, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }
+      );
+    }
+    const aiInfo = getAiErrorInfo(error);
+    if (aiInfo) {
+      return new Response(JSON.stringify(aiErrorJson(aiInfo)), {
+        status: aiInfo.httpStatus,
+        headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
+      });
+    }
     return new Response(
       JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
       { status: 500, headers: { ...getCorsHeaders(req), "Content-Type": "application/json" } }

@@ -22,7 +22,9 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
 import { getScanAiConfig } from "../_shared/ai-vision-provider.ts";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
-import { aiErrorJson, classifyOpenAIError } from "../_shared/openai-errors.ts";
+import { aiErrorJson, AiOpenAIError, classifyOpenAIError, getAiErrorInfo } from "../_shared/openai-errors.ts";
+import { callDeepSeekJson } from "../_shared/deepseek-json.ts";
+import { runTextFirst, buildOcrTextUserContent, OCR_TEXT_SYSTEM_SUFFIX } from "../_shared/text-first-extract.ts";
 import { buildSuggestion, MAX_LINE_SCORE, pickInvoiceLine, type InvoiceLine } from "./match.ts";
 
 const MAX_IMAGES = 2;
@@ -397,63 +399,86 @@ Quy tắc:
 
     // A full-invoice transcription on the vision model can outlast the edge wall clock and the browser then
     // only sees "Failed to send a request" (owner 14/10). Ask for the few candidate lines and cap the wait.
-    const aiResponse = await fetch(scanAi.endpoint, {
-      method: "POST",
-      signal: AbortSignal.timeout(55_000),
-      headers: {
-        "Authorization": `Bearer ${scanAi.apiKey}`,
-        "Content-Type": "application/json",
+    const aiStarted = Date.now();
+    const userInstruction = `Chỉ cần tìm dòng hàng ứng với tên viết tắt "${line.raw_name}"` +
+      (line.quantity !== null ? `, số lượng ${line.quantity}` : "") +
+      (line.unit ? ` ${line.unit}` : "") +
+      (line.unit_price !== null ? `, đơn giá khoảng ${line.unit_price}` : "") +
+      `. Trả tối đa 5 dòng gần nhất (chép nguyên văn tên đầy đủ in trên chứng từ), không cần các dòng khác.`;
+
+    const imageAttempt = async (): Promise<Record<string, unknown>> => {
+      const aiResponse = await fetch(scanAi.endpoint, {
+        method: "POST",
+        signal: AbortSignal.timeout(55_000),
+        headers: {
+          "Authorization": `Bearer ${scanAi.apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: scanAi.model,
+          ...scanAi.extraBody,
+          max_tokens: 800,
+          messages: [
+            { role: "system", content: systemPrompt },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: userInstruction,
+                },
+                ...images.map((image) => ({
+                  type: "image_url",
+                  image_url: { url: `data:${image.mimeType};base64,${image.base64}` },
+                })),
+              ],
+            },
+          ],
+        }),
+      });
+
+      if (!aiResponse.ok) {
+        const errorText = await aiResponse.text();
+        const info = classifyOpenAIError(aiResponse.status, errorText);
+        console.error(
+          `[suggest-stock-item-name] AI API error kind=${info.kind}:`,
+          aiResponse.status,
+          errorText.slice(0, 300),
+        );
+        throw new AiOpenAIError(info);
+      }
+
+      const aiData = await aiResponse.json();
+      const aiContent = String(aiData?.choices?.[0]?.message?.content ?? "");
+      let extractedItems: unknown[] = [];
+      try {
+        const jsonMatch = aiContent.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]) as { items?: unknown };
+          extractedItems = Array.isArray(parsed.items) ? parsed.items : [];
+        }
+      } catch (parseError) {
+        console.error("[suggest-stock-item-name] failed to parse AI response:", parseError);
+      }
+      return { items: extractedItems };
+    };
+
+    const outcome = await runTextFirst<Record<string, unknown>>({
+      label: "stock-item-name",
+      images: images.map((image) => ({ base64: image.base64, mimeType: image.mimeType })),
+      textAttempt: async (ocr) => {
+        const parsed = await callDeepSeekJson({
+          system: `${systemPrompt}${OCR_TEXT_SYSTEM_SUFFIX}`,
+          userText: buildOcrTextUserContent(userInstruction, ocr),
+          timeoutMs: Math.max(1000, 55_000 - (Date.now() - aiStarted)),
+        });
+        return { items: Array.isArray(parsed.items) ? parsed.items : [] };
       },
-      body: JSON.stringify({
-        model: scanAi.model,
-        ...scanAi.extraBody,
-        max_tokens: 800,
-        messages: [
-          { role: "system", content: systemPrompt },
-          {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: `Chỉ cần tìm dòng hàng ứng với tên viết tắt "${line.raw_name}"` +
-                  (line.quantity !== null ? `, số lượng ${line.quantity}` : "") +
-                  (line.unit ? ` ${line.unit}` : "") +
-                  (line.unit_price !== null ? `, đơn giá khoảng ${line.unit_price}` : "") +
-                  `. Trả tối đa 5 dòng gần nhất (chép nguyên văn tên đầy đủ in trên chứng từ), không cần các dòng khác.`,
-              },
-              ...images.map((image) => ({
-                type: "image_url",
-                image_url: { url: `data:${image.mimeType};base64,${image.base64}` },
-              })),
-            ],
-          },
-        ],
-      }),
+      validate: (data) => (Array.isArray(data.items) && data.items.length > 0 ? null : "no_items"),
+      imageAttempt,
     });
 
-    if (!aiResponse.ok) {
-      const errorText = await aiResponse.text();
-      const info = classifyOpenAIError(aiResponse.status, errorText);
-      console.error(
-        `[suggest-stock-item-name] AI API error kind=${info.kind}:`,
-        aiResponse.status,
-        errorText.slice(0, 300),
-      );
-      return json(req, aiErrorJson(info), info.httpStatus);
-    }
-
-    const aiData = await aiResponse.json();
-    const aiContent = String(aiData?.choices?.[0]?.message?.content ?? "");
-    let extractedItems: unknown[] = [];
-    try {
-      const jsonMatch = aiContent.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]) as { items?: unknown };
-        extractedItems = Array.isArray(parsed.items) ? parsed.items : [];
-      }
-    } catch (parseError) {
-      console.error("[suggest-stock-item-name] failed to parse AI response:", parseError);
-    }
+    const extractedItems: unknown[] = Array.isArray(outcome.result.items) ? outcome.result.items : [];
 
     const picked = pickInvoiceLine(
       {
@@ -492,10 +517,13 @@ Quy tắc:
         unit,
         confidence,
         source: "invoice_image",
+        ocr_engine: outcome.engine,
       },
     });
   } catch (error) {
     console.error("[suggest-stock-item-name] unexpected error:", error);
+    const aiInfo = getAiErrorInfo(error);
+    if (aiInfo) return json(req, aiErrorJson(aiInfo), aiInfo.httpStatus);
     if (error instanceof DOMException && (error.name === "TimeoutError" || error.name === "AbortError")) {
       return json(req, { error: "Đọc ảnh hóa đơn quá lâu (hơn 55 giây). Thử lại hoặc gõ tên tay.", code: "ai_timeout" }, 504);
     }

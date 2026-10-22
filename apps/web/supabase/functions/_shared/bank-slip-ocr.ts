@@ -9,6 +9,8 @@
  */
 import { AiOpenAIError, classifyOpenAIError } from "./openai-errors.ts";
 import { getScanAiConfig } from "./ai-vision-provider.ts";
+import { runTextFirst, callDeepSeekTool, buildOcrTextUserContent, OCR_TEXT_SYSTEM_SUFFIX, type DeepSeekToolDefinition } from "./text-first-extract.ts";
+import type { IndraOcrEnvGetter, IndraOcrResult } from "./indra-ocr.ts";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -266,6 +268,11 @@ export const slipBeneficiaryUserPrompt = (slipType?: string) =>
 export interface SlipOcrOptions {
   /** Also read beneficiary_name + transfer_content (bulk UNC matching). */
   readBeneficiary?: boolean;
+  /** Injectable environment/fetcher, used by node tests and the benchmark. */
+  env?: IndraOcrEnvGetter;
+  fetcher?: typeof fetch;
+  /** Benchmark-only engine override; never set from an HTTP request. */
+  engineOverride?: "indra" | "deepseek";
 }
 
 export type ExtractedSlipData = {
@@ -335,24 +342,71 @@ export const OPENAI_VISION_ENDPOINT = scanAiConfig.endpoint;
 // Giữ export cũ để không làm gãy nơi đang import; nay lấy theo cấu hình AI đọc ảnh.
 export const OPENAI_VISION_MODEL = scanAiConfig.model;
 
-export const callOpenAiVision = async (
+/** Built once per call and shared by the text and image paths. */
+const buildSlipTool = (readBeneficiary: boolean): DeepSeekToolDefinition => ({
+  name: "extract_slip_amount",
+  description: "Extract transferred amount and key metadata from a Vietnamese bank slip image",
+  parameters: {
+    type: "object",
+    properties: {
+      amount: {
+        type: "string",
+        description: "Exact amount string as shown on slip, preserving dots and commas. E.g. '41.006.300,00'",
+      },
+      amount_in_words: {
+        type: ["string", "null"],
+        description: "Exact amount-in-words line if present, e.g. 'Bảy trăm ba mươi bốn nghìn ba trăm chín mươi tám đồng'",
+      },
+      transfer_date: { type: ["string", "null"] },
+      reference: { type: ["string", "null"] },
+      confidence: { type: "number" },
+      notes: { type: ["string", "null"] },
+      ...(readBeneficiary
+        ? {
+            beneficiary_name: {
+              type: ["string", "null"],
+              description: "Recipient name exactly as shown on the slip; null when absent",
+            },
+            transfer_content: {
+              type: ["string", "null"],
+              description: "Transfer content / narration exactly as shown on the slip; null when absent",
+            },
+          }
+        : {}),
+    },
+    required: ["amount", "amount_in_words", "confidence"],
+  },
+});
+
+type NormalizedSlip = ReturnType<typeof normalizeExtractedSlip>;
+
+const validateSlip = (data: NormalizedSlip): string | null => {
+  const parsed = parseAmountVN(data.amount);
+  if (!parsed || parsed <= 0) return "slip_amount_check";
+  // If the digits disagreed with the words, normalizeExtractedSlip had to
+  // correct them; the text read is not trustworthy enough to skip the image.
+  if (data.amount_corrected_from_words === true) return "slip_amount_check";
+  return null;
+};
+
+/** Today's DeepSeek image request, unchanged (prompt/schema/retries/timeout). */
+const callSlipImage = async (
   imageBase64: string,
   mimeType: string,
-  slipType?: string,
-  options?: SlipOcrOptions,
-) => {
-  const readBeneficiary = options?.readBeneficiary === true;
-  const systemPrompt = readBeneficiary
-    ? `${SLIP_EXTRACTION_SYSTEM_PROMPT}${SLIP_BENEFICIARY_SYSTEM_PROMPT}`
-    : SLIP_EXTRACTION_SYSTEM_PROMPT;
-  const userPrompt = readBeneficiary
-    ? slipBeneficiaryUserPrompt(slipType)
-    : slipUserPrompt(slipType);
+  systemPrompt: string,
+  userPrompt: string,
+  tool: DeepSeekToolDefinition,
+  env?: IndraOcrEnvGetter,
+  injectedFetcher?: typeof fetch,
+): Promise<NormalizedSlip> => {
   const scanAi = getScanAiConfig();
-  if (!scanAi.apiKey) {
+  const apiKey = String((env ? env(scanAi.keyName) : scanAi.apiKey) ?? "").trim();
+  const model = String((env ? env("DEEPSEEK_SCAN_MODEL") : "") || scanAi.model).trim();
+  if (!apiKey) {
     console.error(`[bank-slip-ocr] ${scanAi.keyName} not configured`);
     throw new Error(`Thiếu cấu hình AI key (${scanAi.keyName})`);
   }
+  const fetcher = injectedFetcher ?? fetch;
 
   let aiResponse: Response | null = null;
   let lastStatus = 0;
@@ -363,14 +417,14 @@ export const callOpenAiVision = async (
 
     try {
       console.log(`[bank-slip-ocr] Calling AI gateway attempt ${attempt}`);
-      aiResponse = await fetch(scanAi.endpoint, {
+      aiResponse = await fetcher(scanAi.endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${scanAi.apiKey}`,
+          Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: scanAi.model,
+          model,
           ...scanAi.extraBody,
           messages: [
             { role: "system", content: systemPrompt },
@@ -391,40 +445,7 @@ export const callOpenAiVision = async (
           tools: [
             {
               type: "function",
-              function: {
-                name: "extract_slip_amount",
-                description: "Extract transferred amount and key metadata from a Vietnamese bank slip image",
-                parameters: {
-                  type: "object",
-                  properties: {
-                    amount: {
-                      type: "string",
-                      description: "Exact amount string as shown on slip, preserving dots and commas. E.g. '41.006.300,00'",
-                    },
-                    amount_in_words: {
-                      type: ["string", "null"],
-                      description: "Exact amount-in-words line if present, e.g. 'Bảy trăm ba mươi bốn nghìn ba trăm chín mươi tám đồng'",
-                    },
-                    transfer_date: { type: ["string", "null"] },
-                    reference: { type: ["string", "null"] },
-                    confidence: { type: "number" },
-                    notes: { type: ["string", "null"] },
-                    ...(readBeneficiary
-                      ? {
-                          beneficiary_name: {
-                            type: ["string", "null"],
-                            description: "Recipient name exactly as shown on the slip; null when absent",
-                          },
-                          transfer_content: {
-                            type: ["string", "null"],
-                            description: "Transfer content / narration exactly as shown on the slip; null when absent",
-                          },
-                        }
-                      : {}),
-                  },
-                  required: ["amount", "amount_in_words", "confidence"],
-                },
-              },
+              function: tool,
             },
           ],
           tool_choice: { type: "function", function: { name: "extract_slip_amount" } },
@@ -475,4 +496,47 @@ export const callOpenAiVision = async (
   const normalized = normalizeExtractedSlip(extractedData);
   console.log(`[bank-slip-ocr] Amount: raw="${normalized.amount_raw}" → parsed=${normalized.amount}`);
   return normalized;
+};
+
+export const callOpenAiVision = async (
+  imageBase64: string,
+  mimeType: string,
+  slipType?: string,
+  options?: SlipOcrOptions,
+) => {
+  const readBeneficiary = options?.readBeneficiary === true;
+  const systemPrompt = readBeneficiary
+    ? `${SLIP_EXTRACTION_SYSTEM_PROMPT}${SLIP_BENEFICIARY_SYSTEM_PROMPT}`
+    : SLIP_EXTRACTION_SYSTEM_PROMPT;
+  const userPrompt = readBeneficiary
+    ? slipBeneficiaryUserPrompt(slipType)
+    : slipUserPrompt(slipType);
+  const tool = buildSlipTool(readBeneficiary);
+
+  const outcome = await runTextFirst<NormalizedSlip>({
+    label: "slip",
+    images: [{ base64: imageBase64, mimeType: mimeType || "image/jpeg" }],
+    textAttempt: async (ocr: IndraOcrResult) => {
+      const extracted = await callDeepSeekTool({
+        system: `${systemPrompt}${OCR_TEXT_SYSTEM_SUFFIX}`,
+        userContent: buildOcrTextUserContent(userPrompt, ocr),
+        tool,
+        maxTokens: 1000,
+        fetcher: options?.fetcher,
+        env: options?.env,
+      });
+      return normalizeExtractedSlip(extracted as ExtractedSlipData);
+    },
+    validate: validateSlip,
+    imageAttempt: () => callSlipImage(imageBase64, mimeType, systemPrompt, userPrompt, tool, options?.env, options?.fetcher),
+    env: options?.env,
+    fetcher: options?.fetcher,
+    engineOverride: options?.engineOverride,
+  });
+
+  return {
+    ...outcome.result,
+    ocr_engine: outcome.engine,
+    ocr_fallback_reason: outcome.fallbackReason,
+  };
 };
