@@ -1032,3 +1032,16 @@ html.bmq-d3 .d3-kho-unitpick .d3-kho-chip { height: 34px; min-height: 34px; padd
   .d3-kho-swap svg { transition: none; }
   html.bmq-d3 .d3-kho-dialog[data-state] { animation-duration: .01ms; }
 }
+
+/* Rà soát nhập kho (temporary tab, owner 22/10) */
+.d3-kr-cands { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.d3-kr-cand { display: grid; gap: 4px; min-width: 0; padding: 12px 14px; border-radius: 14px; background: var(--d3-white, #fff); box-shadow: inset 0 0 0 1px var(--d3-line); }
+.d3-kr-cand-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; min-width: 0; }
+.d3-kr-cand-head b { font-size: 14.5px; font-weight: 500; line-height: 1.35; overflow-wrap: anywhere; }
+.d3-kr-cand > small { font-size: 12.5px; line-height: 1.45; color: var(--d3-dim); overflow-wrap: anywhere; }
+.d3-kr-cand > small.is-flag { color: var(--kho-warn, #7a4d06); }
+.d3-kr-score { flex: none; padding: 1px 8px; border-radius: 999px; background: var(--d3-paper-2, rgba(0,0,0,.05)); font-size: 12px; font-variant-numeric: tabular-nums; color: var(--d3-ink-2); }
+.d3-kr-pick { justify-self: start; margin-top: 4px; }
+.d3-kr-cand .d3-kho-ask { margin-top: 6px; }
+.d3-kr-select { min-height: 40px; width: 100%; max-width: 220px; padding: 0 10px; border-radius: 10px; border: 1px solid var(--d3-line-2, #d9d6cc); background: var(--d3-white, #fff); font-size: 14px; }
+.d3-kho-row-qty.is-short { color: var(--kho-bad, #8f2414); }

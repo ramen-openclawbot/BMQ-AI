@@ -54,6 +54,7 @@ const StockCatalogCleanup = lazy(() => import("@/pages/StockCatalogCleanup"));
 const KhoCatalog = lazy(() => import("@/pages/KhoCatalog"));
 const KhoCount = lazy(() => import("@/pages/KhoCount"));
 const WarehouseSlips = lazy(() => import("@/pages/WarehouseSlips"));
+const KhoReview = lazy(() => import("@/pages/KhoReview"));
 const BepBnPayroll = lazy(() => import("@/pages/BepBnPayroll"));
 const VNAgentDataAdmin = lazy(() => import("@/pages/VNAgentDataAdmin"));
 
@@ -301,6 +302,7 @@ export function AppRoutes() {
         <Route path="/warehouse/danh-muc" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><KhoCatalog /></Suspense></ModuleRoute>} />
         <Route path="/warehouse/kiem-ke" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><KhoCount /></Suspense></ModuleRoute>} />
         <Route path="/warehouse/phieu" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><WarehouseSlips /></Suspense></ModuleRoute>} />
+        <Route path="/warehouse/ra-soat" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><KhoReview /></Suspense></ModuleRoute>} />
         <Route path="/warehouse/stock-ledger" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><StockLedger /></Suspense></ModuleRoute>} />
         {/* Owner 22/10: Mua so với dùng and Giá vốn → Kho removed (decisions go through chat); old links land on Danh mục kho. */}
         <Route path="/warehouse/purchase-usage" element={<Navigate to="/warehouse/danh-muc" replace />} />
