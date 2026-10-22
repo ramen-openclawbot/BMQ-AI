@@ -100,9 +100,6 @@ export interface MaterialAuditLog {
   action: string | null;
   reason: string | null;
   actor_id: string | null;
-  old_values: Record<string, unknown> | null;
-  new_values: Record<string, unknown> | null;
-  safe_payload: Record<string, unknown> | null;
   created_at: string | null;
 }
 
@@ -224,7 +221,6 @@ export interface MaterialMasterData {
   prices: MaterialPriceHistory[];
   conversions: MaterialUnitConversion[];
   resolutionRequests: ResolutionRequest[];
-  auditLogs: MaterialAuditLog[];
   suppliers: SupplierLite[];
   kitchenMappings: Q7Mapping[];
   finishedSkus: FinishedSkuLite[];
@@ -299,7 +295,8 @@ interface SupplierOwnerLite {
 const db = supabase as unknown as MaterialMasterDb;
 const functionsDb = supabase as unknown as MaterialLearningFunctionsClient;
 
-const PAGE_SIZE = 500;
+// PostgREST caps a response at 1000 rows; matching it halves the sequential round trips.
+const PAGE_SIZE = 1000;
 const MAX_PAGES = 40;
 const COVERAGE_SECTION_KEYS = [
   "materials",
@@ -309,7 +306,6 @@ const COVERAGE_SECTION_KEYS = [
   "prices",
   "conversions",
   "resolutionRequests",
-  "auditLogs",
   "suppliers",
   "kitchenMappings",
   "finishedSkus",
@@ -335,7 +331,8 @@ const supplierProductSelect = "id, material_id, supplier_id, supplier_product_co
 const priceSelect = "id, material_id, supplier_product_id, price_type, price, price_unit, normalized_base_unit_price, effective_from, effective_to, approved, created_at";
 const conversionSelect = "id, material_id, from_unit, to_unit, factor, effective_from, effective_to, approved, active, created_at";
 const requestSelect = "id, source_type, source_table, source_id, supplier_id, raw_name, raw_code, raw_unit, status, candidate_status, resolved_material_id, reviewer_reason, safe_payload, created_at";
-const auditSelect = "id, material_id, action, reason, actor_id, old_values, new_values, safe_payload, created_at";
+// The timeline only shows action/reason/time; old/new JSON made this read ~5 MB.
+const auditSelect = "id, material_id, action, reason, actor_id, created_at";
 const supplierSelect = "id, name";
 const unresolvedPaymentItemSelect = "id, payment_request_id, product_name, raw_product_name, unit, line_total, created_at";
 const unresolvedInvoiceItemSelect = "id, invoice_id, product_name, raw_product_name, unit, line_total, created_at";
@@ -517,8 +514,8 @@ export function useMaterialMaster() {
         readAllTable<SupplierProduct>("material_supplier_products", supplierProductSelect, "created_at", [{ column: "active", value: "true" }, { column: "approved", value: "true" }]),
         readAllTable<MaterialPriceHistory>("material_price_history", priceSelect, "effective_from", []),
         readAllTable<MaterialUnitConversion>("material_unit_conversions", conversionSelect, "created_at", []),
-        readAllTable<ResolutionRequest>("material_resolution_requests", requestSelect, "created_at", []),
-        readAllTable<MaterialAuditLog>("material_master_audit_logs", auditSelect, "created_at", []),
+        // Only open lines are shown in "Cần xác nhận"; resolved history (~4.7k rows) is not needed here.
+        readAllTable<ResolutionRequest>("material_resolution_requests", requestSelect, "created_at", [{ column: "status", value: "pending" }]),
         readAllTable<SupplierLite>("suppliers", supplierSelect, "name", []),
         readAllTable<Q7Mapping>("kitchen_inventory_items", "id, item_code, name, unit, canonical_material_id", "name", []),
         readAllTable<FinishedSkuLite>("product_skus", "id, sku_code, product_name, unit, sku_type", "product_name", [{ column: "sku_type", value: "finished_good" }]),
@@ -554,16 +551,15 @@ export function useMaterialMaster() {
       const prices = valueAt<MaterialPriceHistory>(4);
       const conversions = valueAt<MaterialUnitConversion>(5);
       const resolutionRequests = valueAt<ResolutionRequest>(6);
-      const auditLogs = valueAt<MaterialAuditLog>(7);
-      const suppliers = valueAt<SupplierLite>(8);
-      const kitchenMappings = valueAt<Q7Mapping>(9);
-      const finishedSkus = valueAt<FinishedSkuLite>(10).filter((sku) => sku.sku_type === "finished_good");
-      const cogsLinks = valueAt<CogsMaterialLink>(11).filter((link) => link.product_skus?.sku_type === "finished_good");
-      const unresolvedPaymentItems = valueAt<UnresolvedSourceItem>(12);
-      const unresolvedInvoiceItems = valueAt<UnresolvedSourceItem>(13);
-      const allFormulations = valueAt<CogsMaterialLink>(14);
-      const requestSupplier = new Map(valueAt<SupplierOwnerLite>(15).map((row) => [row.id, row.supplier_id]));
-      const invoiceSupplier = new Map(valueAt<SupplierOwnerLite>(16).map((row) => [row.id, row.supplier_id]));
+      const suppliers = valueAt<SupplierLite>(7);
+      const kitchenMappings = valueAt<Q7Mapping>(8);
+      const finishedSkus = valueAt<FinishedSkuLite>(9).filter((sku) => sku.sku_type === "finished_good");
+      const cogsLinks = valueAt<CogsMaterialLink>(10).filter((link) => link.product_skus?.sku_type === "finished_good");
+      const unresolvedPaymentItems = valueAt<UnresolvedSourceItem>(11);
+      const unresolvedInvoiceItems = valueAt<UnresolvedSourceItem>(12);
+      const allFormulations = valueAt<CogsMaterialLink>(13);
+      const requestSupplier = new Map(valueAt<SupplierOwnerLite>(14).map((row) => [row.id, row.supplier_id]));
+      const invoiceSupplier = new Map(valueAt<SupplierOwnerLite>(15).map((row) => [row.id, row.supplier_id]));
       const supplierNames = new Map(suppliers.map((supplier) => [supplier.id, supplier.name || "NCC chưa tên"]));
       const unresolved = buildUnresolvedSourceNames(unresolvedPaymentItems, unresolvedInvoiceItems, requestSupplier, invoiceSupplier, supplierNames);
       const coverage = buildCoverage(reads, materials, allFormulations, scopedAliases, supplierProducts, unresolved);
@@ -576,7 +572,6 @@ export function useMaterialMaster() {
         prices,
         conversions,
         resolutionRequests,
-        auditLogs,
         suppliers,
         kitchenMappings,
         finishedSkus,
@@ -584,6 +579,21 @@ export function useMaterialMaster() {
         sectionErrors,
         coverage,
       };
+    },
+  });
+}
+
+// Edit history is read only for the material being viewed; the full log (~7k rows)
+// used to be paged into every page load.
+export function useMaterialAuditLogs(materialId: string | null) {
+  return useQuery({
+    queryKey: ["material-master", "audit-logs", materialId],
+    enabled: Boolean(materialId),
+    queryFn: async (): Promise<MaterialAuditLog[]> => {
+      if (!materialId) return [];
+      const { data, error } = await db.from<MaterialAuditLog>("material_master_audit_logs").select(auditSelect).eq("material_id", materialId).order("created_at", { ascending: false }).limit(200);
+      if (error) throw error;
+      return (data || []) as MaterialAuditLog[];
     },
   });
 }

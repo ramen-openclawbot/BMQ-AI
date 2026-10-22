@@ -25,6 +25,7 @@ import {
   useMaterialSupplierSuggestions,
   useSyncMaterialSupplierPaymentRequests,
   useUpdateCanonicalMaterial,
+  useMaterialAuditLogs,
 } from "@/hooks/useMaterialMaster";
 import ReconciliationQueue from "./ReconciliationQueue";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -728,7 +729,8 @@ export default function MaterialMasterAdmin() {
   const conversions = (data?.conversions || []).filter((row) => !selected || row.material_id === selected.id);
   const q7Mappings = (data?.kitchenMappings || []).filter((row) => !selected || row.canonical_material_id === selected.id);
   const cogsMappings = (data?.cogsLinks || []).filter((row) => !selected || row.canonical_material_id === selected.id);
-  const auditLogs = (data?.auditLogs || []).filter((row) => !selected || row.material_id === selected.id);
+  const auditLogsQuery = useMaterialAuditLogs(selected?.id ?? null);
+  const auditLogs = auditLogsQuery.data || [];
   const queueRequests = useMemo(() => {
     const requests = data?.resolutionRequests || [];
     if (sourceFilter === "all") return requests;
@@ -753,9 +755,16 @@ export default function MaterialMasterAdmin() {
     <div className="text-slate-900" data-bmq-material-master-admin data-bmq-material-master-rbac="material_master" data-bmq-material-master-light-ui>
       <div className="space-y-4 md:space-y-5">
         <section className="d3-prod-head">
-          <div className="min-w-0">
-            <h1>Danh mục nguyên vật liệu từ Giá vốn</h1>
-            <p>Giá vốn là nguồn gốc của danh mục NVL. Tại đây anh xác nhận sản phẩm Nhà cung cấp, sau đó đồng bộ các Duyệt chi khớp chính xác.</p>
+          <div className="flex w-full flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div className="min-w-0">
+              <h1>Danh mục nguyên vật liệu từ Giá vốn</h1>
+              <p>Giá vốn là nguồn gốc của danh mục NVL. Tại đây anh xác nhận sản phẩm Nhà cung cấp, sau đó đồng bộ các Duyệt chi khớp chính xác.</p>
+            </div>
+            {canEdit && (
+              <Button type="button" size="lg" className="min-h-11 w-full shrink-0 gap-2 sm:w-auto" onClick={() => { setActiveTab("materials"); setDialog("create"); }} data-bmq-material-create-open>
+                <Plus className="h-4 w-4" /> Tạo NVL mới
+              </Button>
+            )}
           </div>
         </section>
 
@@ -777,8 +786,6 @@ export default function MaterialMasterAdmin() {
             </CardContent>
           </Card>
 
-          <MaterialCoveragePanel coverage={data.coverage} />
-
           <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
             <TabsList className="grid h-auto w-full grid-cols-2 gap-1 rounded-2xl bg-white p-1 shadow-sm md:grid-cols-5" data-bmq-material-master-business-tabs>
               <TabsTrigger className="col-span-2 min-h-11 whitespace-normal md:col-span-1" value="materials">NVL từ Giá vốn</TabsTrigger>
@@ -789,14 +796,6 @@ export default function MaterialMasterAdmin() {
             </TabsList>
 
             <TabsContent value="materials" className="space-y-4">
-              {canEdit && (
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between" data-bmq-material-create-bar>
-                  <p className="text-sm text-slate-600">NVL chưa có trong danh sách? Tạo NVL chuẩn mới để chọn được ở màn Tạo SKU.</p>
-                  <Button type="button" className="min-h-11 w-full gap-2 sm:w-auto" onClick={() => setDialog("create")} data-bmq-material-create-open>
-                    <Plus className="h-4 w-4" /> Tạo NVL mới
-                  </Button>
-                </div>
-              )}
               <ResponsiveMaterialList materials={filteredMaterials} selected={selected} supplierProductCountByMaterialId={supplierProductCountByMaterialId} onSelect={chooseMaterial} onEdit={openMaterialEditor} editable={canEdit} />
               <Dialog open={dialog === "edit"} onOpenChange={(open) => setDialog(open ? "edit" : null)}>
                 <DialogContent className="max-h-[90dvh] w-[calc(100vw-1.5rem)] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>Điều chỉnh NVL</DialogTitle><DialogDescription>Chỉ điều chỉnh thông tin chuẩn của NVL từ Giá vốn; liên kết NCC và Duyệt chi được xác nhận tại tab nghiệp vụ riêng.</DialogDescription></DialogHeader>{selected && <MaterialMutationForm key={`edit-${selected.id}-${selected.version}`} canMutate={canMutate} selected={selected} onClose={() => setDialog(null)} />}</DialogContent>
@@ -848,6 +847,14 @@ export default function MaterialMasterAdmin() {
             </TabsContent>
           </Tabs>
 
+          <details className="group rounded-2xl border bg-white" data-bmq-material-coverage-toggle>
+            <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold">
+              <span>Độ phủ danh mục · {data.coverage.unresolved_total} tên nguồn chưa liên kết</span>
+              <span className="text-xs font-normal text-slate-500 group-open:hidden">Mở</span>
+              <span className="hidden text-xs font-normal text-slate-500 group-open:inline">Thu gọn</span>
+            </summary>
+            <div className="border-t p-3"><MaterialCoveragePanel coverage={data.coverage} /></div>
+          </details>
         </>}
       </div>
     </div>

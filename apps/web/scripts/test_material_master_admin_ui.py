@@ -197,7 +197,7 @@ def test_task4_uses_exact_task2_schema_columns_and_rejects_removed_columns():
         '"id, material_id, supplier_id, supplier_product_code, supplier_product_name, purchase_unit, base_unit, approved, active, created_at"',
         '"id, material_id, supplier_product_id, price_type, price, price_unit, normalized_base_unit_price, effective_from, effective_to, approved, created_at"',
         '"id, material_id, from_unit, to_unit, factor, effective_from, effective_to, approved, active, created_at"',
-        '"id, material_id, action, reason, actor_id, old_values, new_values, safe_payload, created_at"',
+        '"id, material_id, action, reason, actor_id, created_at"',
         '"id, name"',
     ]
     for select in expected_selects:
