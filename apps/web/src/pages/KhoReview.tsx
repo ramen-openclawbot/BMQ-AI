@@ -293,11 +293,11 @@ function LineSearch({ targetKey, exclude, onPick }: { targetKey: string; exclude
     <section className="d3-kr-exist" data-bmq-review-search>
       <div className="d3-kr-exist-head">
         <b>Tìm phiếu mua</b>
-        <small>Gợi ý sai hoặc không có? Gõ tên trên phiếu, tìm trên mọi phiếu nhập.</small>
+        <small>Gợi ý sai hoặc không có? Gõ tên hàng, mã GRN/PO hoặc nhà cung cấp; tìm trên mọi phiếu nhập.</small>
       </div>
       <span className="d3-kho-search">
         <Search aria-hidden="true" />
-        <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Ví dụ: opp, mực in…" aria-label="Tìm phiếu mua" enterKeyHint="search" data-bmq-review-search-input />
+        <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Ví dụ: opp, GRN-000435, Ngọc Trân" aria-label="Tìm phiếu mua" enterKeyHint="search" data-bmq-review-search-input />
         {text ? <button type="button" onClick={() => setText("")} aria-label="Xóa tìm kiếm"><X /></button> : null}
       </span>
       {query.length < 2 ? null
