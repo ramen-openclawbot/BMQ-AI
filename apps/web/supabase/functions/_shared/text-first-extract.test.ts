@@ -371,6 +371,24 @@ test("engineOverride forces image mode for the benchmark", async () => {
   assert.equal(outcome.fallbackReason, null);
 });
 
+test("engineOverride indra reaches the OCR call even when SCAN_OCR_ENGINE is unset", async () => {
+  const { fetcher, ocrCalls } = routed(async () => ocrOk());
+  const outcome = await runTextFirst({
+    label: "unit",
+    images: [{ base64: "AAAA" }],
+    textAttempt: async () => "text",
+    validate: () => null,
+    imageAttempt: async () => "image",
+    env: env({ SCAN_OCR_ENGINE: undefined }),
+    fetcher,
+    engineOverride: "indra",
+  });
+  assert.equal(ocrCalls().length, 1);
+  assert.equal(outcome.result, "text");
+  assert.equal(outcome.engine, "indra_text");
+  assert.equal(outcome.fallbackReason, null);
+});
+
 test("multiple images are OCR'd in order and joined with Ảnh headers", async () => {
   const { fetcher, ocrCalls } = routed(async () => ocrOk());
   let received = "";

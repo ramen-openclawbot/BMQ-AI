@@ -263,8 +263,10 @@ function isQuotaError(error: unknown): boolean {
  */
 export async function runTextFirst<T>(options: RunTextFirstOptions<T>): Promise<TextFirstOutcome<T>> {
   const started = Date.now();
-  const config = readIndraOcrConfig(options.env);
-  const engine = options.engineOverride ?? config.engine;
+  const envConfig = readIndraOcrConfig(options.env);
+  const engine = options.engineOverride ?? envConfig.engine;
+  // The override must reach callIndraOcr too, or it refuses with "disabled".
+  const config = { ...envConfig, engine };
 
   const log = (chosenEngine: TextFirstEngine, fallbackReason: string | null, ocrMs: number) => {
     // Only metadata: never document text, markdown, headers or secrets.
