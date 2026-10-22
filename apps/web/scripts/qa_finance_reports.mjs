@@ -51,6 +51,10 @@ const vnDay = (offsetDays) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia
 const FINANCE = ${JSON.stringify(JSON.parse(fs.readFileSync(path.join(ROOT, "scripts/fixtures/finance-qa.json"), "utf8"))).replace(/\\/g, "\\\\")};
 function fixtureRows(st) {
   const fin = { "rpc:finance_pnl": "pnl", "rpc:finance_variance": "variance", "rpc:finance_ap_rollforward": "ap", "rpc:finance_accrual_schedule": "accruals", "rpc:finance_close_checklist": "close" }[st.table];
+  if (st.table === "rpc:finance_fx_monthly") {
+    // Flat 25,000 VND per USD keeps the expected USD figures easy to read.
+    return ["2026-03", "2026-04", "2026-05", "2026-06", "2026-07", "2026-08", "2026-09", "2026-10"].map((month) => ({ month, vnd_per_usd: 25000, days: 20, source: "vietcombank_transfer" }));
+  }
   if (fin === "accruals" && cfg().accrualsDraft) return FINANCE.accruals_draft;
   if (fin) return FINANCE[fin];
   if (st.table === "revenue_ledger_lines") {
@@ -253,13 +257,16 @@ async function common(page, errors, label, viewport) {
   assert.deepEqual(errors, [], `page errors ${label} ${viewport.width}`);
   const vietnamese = await page.locator("[data-bmq-finance]").evaluate((el) => /Doanh thu|Chi phí|tháng|Kỳ lương/.test(el.innerText));
   assert.equal(vietnamese, false, `module copy stays English ${label}`);
+  const body = await page.locator("[data-bmq-finance]").innerText();
+  assert.ok(!/(^|[^$\d.,])\d[\d,]*\.\d{1,2}M\b/m.test(body), `no VND millions left ${label}: ${body.match(/\S*\d\.\d{1,2}M\b/)?.[0]}`);
+  if (/\$\d/.test(body)) assert.match(body, /1 USD = 25,000 VND/, `rate line shown ${label}`);
 }
 
 const CHECKS = {
   async pnl(page) {
     await page.waitForSelector(".fin-kpi");
     assert.equal(await page.locator(".fin-kpi").count(), 4, "four KPIs");
-    assert.match(await text(page, ".fin-kpi.is-lead"), /EBITDA[\s\S]*486\.3M/, "EBITDA lead figure");
+    assert.match(await text(page, ".fin-kpi.is-lead"), /EBITDA[\s\S]*\$19\.5K/, "EBITDA lead figure in USD");
     assert.equal(await page.locator(".fin-cols li").count(), 6, "six monthly columns");
     assert.equal(await page.locator(".fin-cols li.is-on").count(), 1, "selected month marked");
     assert.match(await text(page, ".fin-notice"), /18% of Sep spend is classified/);

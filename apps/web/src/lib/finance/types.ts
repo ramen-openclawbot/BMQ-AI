@@ -198,3 +198,10 @@ export interface FinanceCloseChecklist {
   month: FinanceMonthKey;
   checks: FinanceCloseCheck[];
 }
+
+export interface FinanceFxMonth {
+  month: FinanceMonthKey;
+  vndPerUsd: number | null;
+  days: number;
+  source: string | null;
+}

@@ -1,17 +1,17 @@
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, Fragment, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Info, RotateCw, XCircle } from "lucide-react";
 
-import { useAccrualSchedule, useApRollforward, useCloseChecklist, usePnl, useVariance } from "@/hooks/useFinance";
-import { addMonths, formatPct, formatVndMillions, isMonthKey, monthEnd, monthStart, toMonthKey } from "@/lib/finance/format";
+import { useAccrualSchedule, useApRollforward, useCloseChecklist, useFxMonthly, usePnl, useVariance } from "@/hooks/useFinance";
+import { addMonths, formatPct, isMonthKey, monthEnd, monthStart, toMonthKey } from "@/lib/finance/format";
+import { formatUsd, formatUsdRate, rateByMonth, signedUsd, vndToUsd } from "@/lib/finance/fx";
 import {
   closeProgress,
   deltaTone,
-  driverText,
+  driverTextUsd,
   lineLabel,
   monthName,
   niceScale,
-  signedMillions,
   varianceSummary,
 } from "@/lib/finance/labels";
 import { buildPnlStatement } from "@/lib/finance/statement";
@@ -27,6 +27,8 @@ import "@/styles/bmq-finance.css";
 /**
  * Finance — English-only management reporting built on the finance_* RPCs
  * (migration 20261102450000). Read-only: nothing here writes to the ledger.
+ * Amounts are stored in VND and shown in USD: each month at its own average
+ * Vietcombank transfer rate (finance_fx_monthly, migration 20261102630000).
  */
 
 type View = "pnl" | "variance" | "payables" | "accruals" | "close";
@@ -40,7 +42,20 @@ const VIEWS: { id: View; label: string }[] = [
 ];
 
 const FIRST_MONTH = "2026-01";
-const M = (value: number | null | undefined) => formatVndMillions(value ?? null) ?? "—";
+/** Display an amount that is already in USD. */
+const D = (usd: number | null | undefined) => formatUsd(usd ?? null) ?? "—";
+
+type Fx = {
+  rate: (month: string) => number | null;
+  usd: (vnd: number | null | undefined, month: string) => number | null;
+};
+const FxContext = createContext<Fx>({ rate: () => null, usd: () => null });
+const useFx = () => useContext(FxContext);
+/** VND amount of one month, shown in USD at that month's rate. */
+const useMonthUsd = (month: string) => {
+  const { usd } = useFx();
+  return (vnd: number | null | undefined) => D(usd(vnd, toMonthKey(month)));
+};
 
 function currentMonthVN(): string {
   return toMonthKey(new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh" }).format(new Date()));
@@ -107,6 +122,12 @@ export default function FinanceReports() {
   const totals = pnl.data?.totals[month];
   const coverage = pnl.data?.coverage[month];
   const progress = close.data ? closeProgress(close.data.checks) : null;
+  const fxQuery = useFxMonthly(monthStart(addMonths(month, -6)), monthEnd(month));
+  const fx = useMemo<Fx>(() => {
+    const rates = rateByMonth(fxQuery.data ?? []);
+    return { rate: (m) => rates[m] ?? null, usd: (vnd, m) => vndToUsd(vnd ?? null, rates[m] ?? null) };
+  }, [fxQuery.data]);
+  const U = (vnd: number | null | undefined) => D(fx.usd(vnd, month));
 
   return (
     <div className="fin" lang="en" data-bmq-finance>
@@ -115,10 +136,15 @@ export default function FinanceReports() {
           <h1>Finance</h1>
           <p>
             {totals?.revenue != null
-              ? <>{monthName(month)} · EBITDA <b>{M(totals.ebitda)}</b> on revenue of {M(totals.revenue)}
+              ? <>{monthName(month)} · EBITDA <b>{U(totals.ebitda)}</b> on revenue of {U(totals.revenue)}
                 {coverage?.classified_pct != null ? <> · {formatPct(coverage.classified_pct, 0)} of spend classified</> : null}</>
               : <>{monthName(month)} · management accounts from the controlled ledger and approved payment requests.</>}
           </p>
+          {fx.rate(month) ? (
+            <p className="fin-fx">
+              In USD at Vietcombank's {month === maxMonth ? "month-to-date " : ""}average transfer rate, <span className="fin-nowrap">{formatUsdRate(fx.rate(month))}</span>.
+            </p>
+          ) : null}
         </div>
         <MonthStepper month={month} min={FIRST_MONTH} max={maxMonth} onChange={(next) => set({ month: next })} />
       </header>
@@ -129,13 +155,17 @@ export default function FinanceReports() {
         badges={{ close: progress?.attention ? String(progress.attention) : undefined }}
       />
 
-      <div className="fin-view" key={`${view}-${month}`}>
-        {view === "pnl" && <PnlView month={month} query={pnl} />}
-        {view === "variance" && <VarianceView month={month} />}
-        {view === "payables" && <PayablesView month={month} />}
-        {view === "accruals" && <AccrualsView month={month} />}
-        {view === "close" && <CloseView month={month} query={close} />}
-      </div>
+      <FxContext.Provider value={fx}>
+        <div className="fin-view" key={`${view}-${month}`}>
+          <QueryState query={fxQuery}>
+            {view === "pnl" && <PnlView month={month} query={pnl} />}
+            {view === "variance" && <VarianceView month={month} />}
+            {view === "payables" && <PayablesView month={month} />}
+            {view === "accruals" && <AccrualsView month={month} />}
+            {view === "close" && <CloseView month={month} query={close} />}
+          </QueryState>
+        </div>
+      </FxContext.Provider>
     </div>
   );
 }
@@ -260,9 +290,16 @@ const FLAG_NOTES: Record<string, string | null> = {
 
 function PnlView({ month, query }: { month: string; query: ReturnType<typeof usePnl> }) {
   const data = query.data;
+  const { usd } = useFx();
+  const U = useMonthUsd(month);
+  const priorMonth = addMonths(month, -1);
   const totals = data?.totals[month];
-  const prior = data?.totals[addMonths(month, -1)];
+  const prior = data?.totals[priorMonth];
   const coverage = data?.coverage[month];
+  const pair = (key: "revenue" | "gross_profit" | "ebitda" | "unclassified") => ({
+    value: usd(totals?.[key], month),
+    prior: prior ? usd(prior[key], priorMonth) : null,
+  });
   const rows = useMemo(() => (data ? buildPnlStatement(data) : []), [data]);
   const notes = (data?.flags ?? [])
     .filter((flag) => flag.month === month && FLAG_NOTES[flag.code] !== null)
@@ -276,17 +313,17 @@ function PnlView({ month, query }: { month: string; query: ReturnType<typeof use
             <div className="fin-notice" role="note">
               <Info aria-hidden />
               <p>
-                <b>{formatPct(coverage.classified_pct, 0)} of {monthName(month, true)} spend is classified</b> ({M(coverage.classified_amount)} of {M(coverage.expense_total)}).
+                <b>{formatPct(coverage.classified_pct, 0)} of {monthName(month, true)} spend is classified</b> ({U(coverage.classified_amount)} of {U(coverage.expense_total)}).
                 The rest sits under Unclassified until Sushi and the controller finish review, so EBITDA is provisional.
               </p>
             </div>
           ) : null}
 
           <div className="fin-kpis" aria-label={`${monthName(month)} headline figures`}>
-            <Kpi label="Revenue" value={totals.revenue} prior={prior?.revenue ?? null} section="revenue" code="REVENUE_TOTAL" />
-            <Kpi label="Gross profit" value={totals.gross_profit} prior={prior?.gross_profit ?? null} section="summary" code="GROSS_PROFIT" sub={totals.gross_margin != null ? `${formatPct(totals.gross_margin)} margin` : undefined} />
-            <Kpi label="EBITDA" value={totals.ebitda} prior={prior?.ebitda ?? null} section="summary" code="EBITDA" lead sub={totals.ebitda_margin != null ? `${formatPct(totals.ebitda_margin)} margin` : undefined} />
-            <Kpi label="Unclassified spend" value={totals.unclassified} prior={prior?.unclassified ?? null} section="unclassified" code="UNCLASSIFIED_TOTAL" />
+            <Kpi label="Revenue" {...pair("revenue")} section="revenue" code="REVENUE_TOTAL" />
+            <Kpi label="Gross profit" {...pair("gross_profit")} section="summary" code="GROSS_PROFIT" sub={totals.gross_margin != null ? `${formatPct(totals.gross_margin)} margin` : undefined} />
+            <Kpi label="EBITDA" {...pair("ebitda")} section="summary" code="EBITDA" lead sub={totals.ebitda_margin != null ? `${formatPct(totals.ebitda_margin)} margin` : undefined} />
+            <Kpi label="Unclassified spend" {...pair("unclassified")} section="unclassified" code="UNCLASSIFIED_TOTAL" />
           </div>
 
           <div className="fin-grid">
@@ -298,7 +335,7 @@ function PnlView({ month, query }: { month: string; query: ReturnType<typeof use
             </Panel>
           </div>
 
-          <Panel title="Income statement" note="Management view in VND millions. Capex sits below EBITDA and is not deducted from it.">
+          <Panel title="Income statement" note="Management view in USD, each month at its own average Vietcombank rate. Capex sits below EBITDA and is not deducted from it.">
             <StatementTable rows={rows} months={data.months} month={month} totals={data.totals} />
           </Panel>
 
@@ -321,38 +358,39 @@ function Kpi({ label, value, prior, section, code, sub, lead }: { label: string;
   return (
     <div className={cn("fin-kpi", lead && "is-lead")}>
       <span className="fin-kpi-label">{label}</span>
-      <strong className="fin-num"><CountUp value={value} format={M} /></strong>
+      <strong className="fin-num"><CountUp value={value} format={D} /></strong>
       <span className="fin-kpi-sub">
         {sub ? <>{sub} · </> : null}
-        {delta === null ? <span className="fin-dim">no prior month</span> : <span className={`fin-tone-${tone}`}>{signedMillions(delta)} vs last month</span>}
+        {delta === null ? <span className="fin-dim">no prior month</span> : <span className={`fin-tone-${tone}`}>{signedUsd(delta)} vs last month</span>}
       </span>
     </div>
   );
 }
 
 function EbitdaChart({ data, month }: { data: FinancePnl; month: string }) {
-  const points = data.months.map((key) => ({ key, revenue: data.totals[key]?.revenue ?? null, ebitda: data.totals[key]?.ebitda ?? null }));
+  const { usd } = useFx();
+  const points = data.months.map((key) => ({ key, revenue: usd(data.totals[key]?.revenue, key), ebitda: usd(data.totals[key]?.ebitda, key) }));
   const max = Math.max(0, ...points.map((p) => p.revenue ?? 0));
-  const scale = niceScale(max / 1_000_000);
+  const scale = niceScale(max / 1_000);
   return (
     <figure className="fin-chart" aria-label="Revenue and EBITDA by month">
       <div className="fin-chart-plot">
         <div className="fin-chart-grid" aria-hidden>
           {scale.ticks.slice().reverse().map((tick) => (
-            <span key={tick} style={{ bottom: `${(tick / scale.top) * 100}%` }}><em>{tick.toLocaleString("en-US")}M</em></span>
+            <span key={tick} style={{ bottom: `${(tick / scale.top) * 100}%` }}><em>${tick.toLocaleString("en-US")}K</em></span>
           ))}
         </div>
         <ol className="fin-cols">
           {points.map((point, index) => {
-            const rev = point.revenue ? point.revenue / 1_000_000 / scale.top : 0;
+            const rev = point.revenue ? point.revenue / 1_000 / scale.top : 0;
             const ebitda = point.revenue && point.ebitda && point.ebitda > 0 ? Math.min(1, point.ebitda / point.revenue) : 0;
             return (
               <li key={point.key} className={cn(point.key === month && "is-on")} style={{ ["--i" as string]: index }}>
-                <div className="fin-col" style={{ height: `${rev * 100}%` }} title={`${monthName(point.key)}: revenue ${M(point.revenue)}, EBITDA ${M(point.ebitda)}`}>
+                <div className="fin-col" style={{ height: `${rev * 100}%` }} title={`${monthName(point.key)}: revenue ${D(point.revenue)}, EBITDA ${D(point.ebitda)}`}>
                   <span className="fin-col-fill" style={{ height: `${ebitda * 100}%` }} />
                 </div>
                 <span className="fin-col-x">{monthName(point.key, true)}</span>
-                <span className="sr-only">{monthName(point.key)}: revenue {M(point.revenue)}, EBITDA {M(point.ebitda)}</span>
+                <span className="sr-only">{monthName(point.key)}: revenue {D(point.revenue)}, EBITDA {D(point.ebitda)}</span>
               </li>
             );
           })}
@@ -368,6 +406,7 @@ function EbitdaChart({ data, month }: { data: FinancePnl; month: string }) {
 
 function ProductLines({ data, month }: { data: FinancePnl; month: string }) {
   const lines = data.by_product_line[month];
+  const U = useMonthUsd(month);
   if (!lines) return <p className="fin-empty">No product-line split for this month.</p>;
   const rows = [
     { key: "bmq_bread", label: "Bánh mì que & bread", ...lines.bmq_bread },
@@ -380,17 +419,17 @@ function ProductLines({ data, month }: { data: FinancePnl; month: string }) {
         <div key={row.key} className="fin-line-row" style={{ ["--i" as string]: index }}>
           <div className="fin-line-top">
             <span>{row.label}</span>
-            <b className="fin-num">{M(row.contribution)}</b>
+            <b className="fin-num">{U(row.contribution)}</b>
           </div>
           <div className="fin-line-track" aria-hidden>
             <span style={{ transform: `scaleX(${(row.revenue ?? 0) / max})` }} />
           </div>
-          <span className="fin-line-sub">Revenue {M(row.revenue)} · direct costs {M(row.direct_costs)}</span>
+          <span className="fin-line-sub">Revenue {U(row.revenue)} · direct costs {U(row.direct_costs)}</span>
         </div>
       ))}
       <div className="fin-line-shared">
         <span>Shared costs (not allocated)</span>
-        <b className="fin-num">{M(lines.shared_costs)}</b>
+        <b className="fin-num">{U(lines.shared_costs)}</b>
       </div>
     </div>
   );
@@ -400,6 +439,7 @@ function StatementTable({ rows, months, month, totals }: { rows: ReturnType<type
   // Without classified COGS a 100% gross margin would be an artefact, not a margin.
   const margin = (key: "gross_margin" | "ebitda_margin") =>
     months.map((m) => (key === "gross_margin" && totals[m]?.cogs == null ? "—" : formatPct(totals[m]?.[key] ?? null) ?? "—"));
+  const { usd } = useFx();
   const wrapRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const wrap = wrapRef.current;
@@ -433,7 +473,7 @@ function StatementTable({ rows, months, month, totals }: { rows: ReturnType<type
                     const value = row.amounts[m] ?? null;
                     return (
                       <td key={m} className={cn("fin-num", m === month && "is-on", value !== null && value < 0 && "is-neg")}>
-                        {value === null ? <span className="fin-dim">—</span> : M(value)}
+                        {value === null ? <span className="fin-dim">—</span> : D(usd(value, m))}
                       </td>
                     );
                   })}
@@ -459,8 +499,13 @@ function StatementTable({ rows, months, month, totals }: { rows: ReturnType<type
 
 function VarianceView({ month }: { month: string }) {
   const query = useVariance(monthStart(month));
+  const { usd } = useFx();
   const [all, setAll] = useState(false);
   const data = query.data;
+  const cur = (vnd: number | null | undefined) => usd(vnd, toMonthKey(data?.month ?? month));
+  const pri = (vnd: number | null | undefined) => usd(vnd, toMonthKey(data?.prior_month ?? addMonths(month, -1)));
+  const usdDelta = (line: FinanceVarianceLine) =>
+    line.delta === null ? null : (cur(line.current ?? 0) ?? 0) - (pri(line.prior ?? 0) ?? 0);
   const lines = (data?.lines ?? []).filter((line) => all || line.flagged);
   const hidden = (data?.lines.length ?? 0) - (data?.lines.filter((line) => line.flagged).length ?? 0);
 
@@ -469,7 +514,7 @@ function VarianceView({ month }: { month: string }) {
       {data ? (
         <Panel
           title="Month-on-month variance"
-          note={<>{varianceSummary(data.lines, data.month, data.prior_month)} Lines are flagged above {formatPct(data.materiality.pct, 0)} of last month or {M(data.materiality.floor_vnd)}; revenue, payroll and EBITDA are always shown. No budget is set, so there is no budget column.</>}
+          note={<>{varianceSummary(data.lines, data.month, data.prior_month, (line) => signedUsd(usdDelta(line)))} Lines are flagged above {formatPct(data.materiality.pct, 0)} of last month or {D(cur(data.materiality.floor_vnd))}; revenue, payroll and EBITDA are always shown. No budget is set, so there is no budget column.</>}
           aside={hidden > 0 ? (
             <button type="button" className="fin-btn fin-press" aria-pressed={all} onClick={() => setAll((v) => !v)}>
               {all ? "Flagged only" : `Show all (${data.lines.length})`}
@@ -484,7 +529,7 @@ function VarianceView({ month }: { month: string }) {
               <span role="columnheader" className="fin-num">Change</span>
               <span role="columnheader">Driver</span>
             </div>
-            {lines.map((line, index) => <VarianceRow key={`${line.level}-${line.line_code}`} line={line} index={index} />)}
+            {lines.map((line, index) => <VarianceRow key={`${line.level}-${line.line_code}`} line={line} index={index} cur={cur} pri={pri} delta={usdDelta(line)} />)}
           </div>
         </Panel>
       ) : null}
@@ -492,16 +537,18 @@ function VarianceView({ month }: { month: string }) {
   );
 }
 
-function VarianceRow({ line, index }: { line: FinanceVarianceLine; index: number }) {
-  const tone = deltaTone(line.section, line.line_code, line.delta);
-  const driver = driverText(line);
+type ToUsd = (vnd: number | null | undefined) => number | null;
+
+function VarianceRow({ line, index, cur, pri, delta }: { line: FinanceVarianceLine; index: number; cur: ToUsd; pri: ToUsd; delta: number | null }) {
+  const tone = deltaTone(line.section, line.line_code, delta);
+  const driver = driverTextUsd(line, cur, pri);
   return (
     <div className={cn("fin-var-row", line.level === "subtotal" && "is-subtotal")} role="row" style={{ ["--i" as string]: Math.min(index, 12) }}>
       <span role="cell" className="fin-var-line">{lineLabel(line.section, line.line_code, line.label)}</span>
-      <span role="cell" className="fin-num" data-label="This month">{M(line.current)}</span>
-      <span role="cell" className="fin-num" data-label="Last month">{M(line.prior)}</span>
+      <span role="cell" className="fin-num" data-label="This month">{D(cur(line.current))}</span>
+      <span role="cell" className="fin-num" data-label="Last month">{D(pri(line.prior))}</span>
       <span role="cell" className={cn("fin-num", `fin-tone-${tone}`)} data-label="Change">
-        {signedMillions(line.delta)}
+        {signedUsd(delta)}
         {line.delta_pct != null ? <small>{formatPct(line.delta_pct, 1)}</small> : null}
       </span>
       <span role="cell" className={cn("fin-var-driver", driver?.startsWith("Driver unclear") && "is-unclear")}>{driver ?? <span className="fin-dim">Below threshold</span>}</span>
@@ -515,6 +562,7 @@ const AGING_LABELS: Record<string, string> = { "0-30": "0–30 days", "31-60": "
 
 function PayablesView({ month }: { month: string }) {
   const query = useApRollforward(monthStart(month));
+  const M = useMonthUsd(month);
   const data = query.data;
   const agingTotal = data ? data.aging.reduce((sum, bucket) => sum + bucket.amount, 0) : 0;
   const topMax = data ? Math.max(1, ...data.top_suppliers.map((s) => s.amount)) : 1;
@@ -622,6 +670,7 @@ const ACCRUAL_FLAGS: Record<string, string> = {
 
 function AccrualsView({ month }: { month: string }) {
   const query = useAccrualSchedule(monthStart(month));
+  const { usd } = useFx();
   const data = query.data;
   const total = data?.policies.reduce((sum, p) => sum + (p.accrual ?? 0), 0) ?? 0;
   return (
@@ -633,11 +682,11 @@ function AccrualsView({ month }: { month: string }) {
           aside={<span className="fin-chip">Draft — not posted</span>}
         >
           <div className="fin-acc">
-            {data.policies.map((policy, index) => <AccrualRow key={policy.code} policy={policy} index={index} />)}
+            {data.policies.map((policy, index) => <AccrualRow key={policy.code} policy={policy} index={index} month={month} />)}
           </div>
           <div className="fin-acc-total">
             <span>Total proposed accruals</span>
-            <b className="fin-num"><CountUp value={total} format={M} /></b>
+            <b className="fin-num"><CountUp value={usd(total, month)} format={D} /></b>
           </div>
         </Panel>
       ) : null}
@@ -645,8 +694,9 @@ function AccrualsView({ month }: { month: string }) {
   );
 }
 
-function AccrualRow({ policy, index }: { policy: FinanceAccrualPolicy; index: number }) {
+function AccrualRow({ policy, index, month }: { policy: FinanceAccrualPolicy; index: number; month: string }) {
   const [open, setOpen] = useState(false);
+  const M = useMonthUsd(month);
   return (
     <div className="fin-acc-row" style={{ ["--i" as string]: index }}>
       <div className="fin-acc-main">
@@ -700,7 +750,7 @@ function CloseView({ month, query }: { month: string; query: ReturnType<typeof u
             </div>
           </div>
           <ul className="fin-checks">
-            {data.checks.map((check, index) => <CheckRow key={check.code} check={check} index={index} />)}
+            {data.checks.map((check, index) => <CheckRow key={check.code} check={check} index={index} month={month} />)}
           </ul>
         </Panel>
       ) : null}
@@ -708,21 +758,22 @@ function CloseView({ month, query }: { month: string; query: ReturnType<typeof u
   );
 }
 
-function CheckRow({ check, index }: { check: FinanceCloseCheck; index: number }) {
+function CheckRow({ check, index, month }: { check: FinanceCloseCheck; index: number; month: string }) {
   const Icon = CHECK_ICON[check.status];
+  const M = useMonthUsd(month);
   return (
     <li className={`fin-check is-${check.status}`} style={{ ["--i" as string]: index }}>
       <Icon aria-hidden />
       <div>
         <b>{check.title_en}</b>
-        <p>{checkDetail(check)}</p>
+        <p>{checkDetail(check, M)}</p>
       </div>
       <span className="sr-only">Status: {check.status}</span>
     </li>
   );
 }
 
-function checkDetail(check: FinanceCloseCheck): string {
+function checkDetail(check: FinanceCloseCheck, M: (vnd: number | null | undefined) => string): string {
   const v = (check.value ?? {}) as Record<string, number | boolean | null>;
   const n = (key: string) => (typeof v[key] === "number" ? (v[key] as number) : null);
   switch (check.code) {

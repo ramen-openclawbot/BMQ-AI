@@ -1,10 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { supabase } from "@/integrations/supabase/client";
+import { parseFxMonthly } from "@/lib/finance/fx";
 import type {
   FinanceAccrualSchedule,
   FinanceApRollforward,
   FinanceCloseChecklist,
+  FinanceFxMonth,
   FinancePnl,
   FinanceVariance,
 } from "@/lib/finance/types";
@@ -79,6 +81,19 @@ export function useCloseChecklist(month: string | null | undefined) {
       const { data, error } = await rpc("finance_close_checklist", { p_month: month });
       if (error) throw error;
       return data as FinanceCloseChecklist;
+    },
+  });
+}
+
+export function useFxMonthly(from: string | null | undefined, to: string | null | undefined) {
+  return useQuery({
+    queryKey: [FINANCE_QUERY_KEY, "fx-monthly", from, to],
+    enabled: Boolean(from && to),
+    queryFn: async (): Promise<FinanceFxMonth[]> => {
+      if (!from || !to) throw new Error("finance_fx_monthly requires from and to");
+      const { data, error } = await rpc("finance_fx_monthly", { p_from: from, p_to: to });
+      if (error) throw error;
+      return parseFxMonthly(data);
     },
   });
 }

@@ -207,6 +207,10 @@ verify_jwt = false
 # Server-only worker: authorizes service-role, x-cron-secret or x-worker-secret in code.
 verify_jwt = false
 
+[functions.finance-fx-sync]
+# Server-only worker: daily Vietcombank USD rate; authorizes service-role, x-cron-secret or x-worker-secret in code.
+verify_jwt = false
+
 [functions.mission-zalo-notify]
 # Server-only worker: authorizes service-role or x-worker-secret in code.
 verify_jwt = false

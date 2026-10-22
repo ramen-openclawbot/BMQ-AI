@@ -1,4 +1,5 @@
 import { formatVndMillions } from "./format.ts";
+import { formatUsd } from "./fx.ts";
 import type { FinanceCloseCheck, FinanceVarianceLine } from "./types.ts";
 
 /** Revenue channels are stored with their Vietnamese ledger names; the module is English. */
@@ -53,13 +54,37 @@ export function driverText(line: FinanceVarianceLine): string | null {
   return line.driver_text;
 }
 
+type ToUsd = (vnd: number | null | undefined) => number | null;
+
+/**
+ * The RPC writes its driver sentence in VND millions. Rebuild the same sentence
+ * in USD, each side at its own month's rate: "Up $8.0K, mainly A (+$5.1K) and B (+$2.2K)."
+ */
+export function driverTextUsd(line: FinanceVarianceLine, currentUsd: ToUsd, priorUsd: ToUsd): string | null {
+  const text = driverText(line);
+  if (!text || !/^(Up|Down) /.test(text)) return text;
+  const move = (current: number | null, prior: number | null) => (currentUsd(current ?? 0) ?? 0) - (priorUsd(prior ?? 0) ?? 0);
+  const delta = move(line.current, line.prior);
+  const pieces = line.drivers.slice(0, 3).map((driver) => {
+    const d = move(driver.current, driver.prior);
+    return `${driver.counterparty} (${d >= 0 ? "+" : "-"}${formatUsd(Math.abs(d))})`;
+  });
+  const phrase = pieces.length >= 3 ? `${pieces[0]}, ${pieces[1]} and ${pieces[2]}` : pieces.join(" and ");
+  return `${delta >= 0 ? "Up" : "Down"} ${formatUsd(Math.abs(delta))}${phrase ? `, mainly ${phrase}` : ""}.`;
+}
+
 /** Three biggest leaf movements, in English, built from the lines as shown. */
-export function varianceSummary(lines: FinanceVarianceLine[], month: string, priorMonth: string): string {
+export function varianceSummary(
+  lines: FinanceVarianceLine[],
+  month: string,
+  priorMonth: string,
+  signed: (line: FinanceVarianceLine) => string = (line) => signedMillions(line.delta),
+): string {
   const movers = lines
     .filter((line) => line.level === "leaf" && line.delta !== null && line.delta !== 0)
     .sort((a, b) => Math.abs(b.delta ?? 0) - Math.abs(a.delta ?? 0))
     .slice(0, 3)
-    .map((line) => `${lineLabel(line.section, line.line_code, line.label)} ${signedMillions(line.delta)}`);
+    .map((line) => `${lineLabel(line.section, line.line_code, line.label)} ${signed(line)}`);
   const head = `${monthName(month)} against ${monthName(priorMonth)}.`;
   return movers.length ? `${head} Biggest movements: ${movers.join(", ")}.` : `${head} No line moved.`;
 }

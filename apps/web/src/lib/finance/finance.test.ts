@@ -205,3 +205,21 @@ test("labels: channels in English, tone by good direction, honest drivers, round
     { code: "c", title_en: "", status: "info", value: null, detail_en: "" },
   ]), { pass: 1, total: 2, attention: 1 });
 });
+
+test("labels: driver sentence is rebuilt in USD at each month's rate", async () => {
+  const { driverTextUsd, varianceSummary } = await import("./labels.ts");
+  const line = {
+    level: "leaf" as const, section: "operating" as const, line_code: "C2_RENT", label: "Rent", budget: null, budget_status: "not_set" as const, delta_pct: null,
+    current: 52_000_000, prior: 26_000_000, delta: 26_000_000, flagged: true, flag_reason: "material" as const,
+    drivers: [
+      { counterparty: "Landlord A", current: 39_000_000, prior: 13_000_000, delta: 26_000_000 },
+      { counterparty: "Landlord B", current: 13_000_000, prior: 13_000_000, delta: 0 },
+    ],
+    driver_text: "Up 26.0M, mainly Landlord A (+26.0M) and Landlord B (+0.0M).",
+  };
+  const cur = (v: number | null | undefined) => (v == null ? null : v / 26_000);
+  const pri = (v: number | null | undefined) => (v == null ? null : v / 26_000);
+  assert.equal(driverTextUsd(line, cur, pri), "Up $1.0K, mainly Landlord A (+$1.0K) and Landlord B (+$0).");
+  assert.equal(driverTextUsd({ ...line, driver_text: "Driver unclear — flag for controller." }, cur, pri), "Driver unclear — flag for controller.");
+  assert.match(varianceSummary([line], "2026-10", "2026-09", () => "+$1.0K"), /Rent \+\$1\.0K/);
+});

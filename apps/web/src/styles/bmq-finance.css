@@ -71,6 +71,13 @@ html.bmq-d3 .fin-title h1 { font-weight: 200; }
   text-wrap: pretty;
 }
 .fin-title p b { font-weight: 600; color: var(--d3-ink, #272727); }
+.fin-title p.fin-fx {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--d3-dim, #6b6b69);
+  font-variant-numeric: tabular-nums;
+}
+.fin-nowrap { white-space: nowrap; }
 
 .fin-month {
   display: inline-flex;
