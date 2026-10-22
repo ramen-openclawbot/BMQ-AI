@@ -23,6 +23,7 @@ type ProductSku = {
   image_path?: string | null;
   image_updated_at?: string | null;
   hide_from_dealer_portal?: boolean | null;
+  discontinued_at?: string | null;
 };
 
 type ProductLabelSpec = {
@@ -94,13 +95,13 @@ export async function loadDealerCatalog(
 ): Promise<DealerCatalogProduct[]> {
   const { data: skus, error: skuError } = await supabase
     .from("product_skus")
-    .select("id, sku_code, product_name, category, sku_type, unit, unit_price, cost_values, notes, image_url, image_path, image_updated_at, hide_from_dealer_portal")
+    .select("id, sku_code, product_name, category, sku_type, unit, unit_price, cost_values, notes, image_url, image_path, image_updated_at, hide_from_dealer_portal, discontinued_at")
     .order("sku_code", { ascending: true });
 
   if (skuError) throw skuError;
 
   const eligibleSkus = ((skus || []) as ProductSku[])
-    .filter((sku) => isFinishedSku(sku) && !sku.hide_from_dealer_portal);
+    .filter((sku) => isFinishedSku(sku) && !sku.hide_from_dealer_portal && !sku.discontinued_at);
   const skuIds = eligibleSkus.map((sku) => sku.id).filter(Boolean);
   const labelSpecBySkuId = new Map<string, ProductLabelSpec>();
   if (skuIds.length > 0) {

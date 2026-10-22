@@ -2202,6 +2202,8 @@ export type Database = {
           sku_type: Database["public"]["Enums"]["sku_type"]
           created_at: string
           created_by: string | null
+          discontinued_at: string | null
+          discontinued_by: string | null
           hide_from_dealer_portal: boolean
           id: string
           image_path: string | null
@@ -2220,6 +2222,8 @@ export type Database = {
           sku_type?: Database["public"]["Enums"]["sku_type"]
           created_at?: string
           created_by?: string | null
+          discontinued_at?: string | null
+          discontinued_by?: string | null
           hide_from_dealer_portal?: boolean
           id?: string
           image_path?: string | null
@@ -2238,6 +2242,8 @@ export type Database = {
           sku_type?: Database["public"]["Enums"]["sku_type"]
           created_at?: string
           created_by?: string | null
+          discontinued_at?: string | null
+          discontinued_by?: string | null
           hide_from_dealer_portal?: boolean
           id?: string
           image_path?: string | null
@@ -4283,6 +4289,10 @@ export type Database = {
       }
       get_warehouse_game_snapshot: {
         Args: { p_location: string }
+        Returns: Json
+      }
+      set_sku_discontinued: {
+        Args: { p_sku_id: string; p_value: boolean; p_request_id: string }
         Returns: Json
       }
       set_item_pastry_q7: {

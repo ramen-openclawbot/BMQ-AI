@@ -66,6 +66,7 @@ type ProductSku = {
   unit_price: number | null;
   cost_values?: Record<string, unknown> | null;
   hide_from_dealer_portal?: boolean | null;
+  discontinued_at?: string | null;
 };
 
 const normalizeSkuText = (value: string | null | undefined) =>
@@ -137,13 +138,13 @@ serve(async (req) => {
     const skuIds = Array.from(new Set(items.map((item) => item.sku_id)));
     const { data: skus, error: skuError } = await supabase
       .from("product_skus")
-      .select("id, sku_code, product_name, category, sku_type, unit, unit_price, cost_values, hide_from_dealer_portal")
+      .select("id, sku_code, product_name, category, sku_type, unit, unit_price, cost_values, hide_from_dealer_portal, discontinued_at")
       .in("id", skuIds);
 
     if (skuError) throw skuError;
 
     const skuMap = new Map<string, ProductSku>();
-    ((skus || []) as ProductSku[]).filter((sku) => isFinishedSku(sku) && !sku.hide_from_dealer_portal).forEach((sku) => skuMap.set(sku.id, sku));
+    ((skus || []) as ProductSku[]).filter((sku) => isFinishedSku(sku) && !sku.hide_from_dealer_portal && !sku.discontinued_at).forEach((sku) => skuMap.set(sku.id, sku));
 
     if (skuMap.size !== skuIds.length) {
       return errorResponse(req, "Một hoặc nhiều SKU không hợp lệ hoặc chưa thuộc nhóm thành phẩm.", 400, "invalid_sku");

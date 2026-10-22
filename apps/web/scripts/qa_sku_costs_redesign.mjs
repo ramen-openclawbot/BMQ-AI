@@ -63,6 +63,7 @@ function fixtureRows(st) {
     updated_at: new Date(Date.now() - i * 3600e3).toISOString(), created_at: "2026-05-01T00:00:00Z",
     cost_values: { selling_price: price, material_cost: cost }, cost_widgets: {}, cost_template: null,
     finished_output_qty: 100, finished_output_unit: "cái",
+    discontinued_at: JSON.parse(sessionStorage.getItem("qa-discontinued") || "[]").includes("sku-" + (i + 1)) ? "2026-10-22T05:00:00Z" : null,
     image_url: i % 3 === 2 ? null : "data:image/svg+xml;utf8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" fill="#e9d9b8"/><rect x="12" y="30" width="56" height="20" rx="10" fill="#c98a3a"/></svg>'),
   }));
   if (st.table === "sku_formulations") return [
@@ -71,7 +72,13 @@ function fixtureRows(st) {
     ["NVL-BO", "Bơ lạt", "g", 210, 300],
     ["NVL-DUONG", "Đường tinh luyện", "g", 22, 150],
     ["NVL-MUOI", "Muối sấy", "g", 9, 40],
-  ].map(([material_code, ingredient_name, unit, unit_price, dosage_qty], i) => ({ id: "f" + i, sku_id: "sku-2", ingredient_sku_id: null, material_code, ingredient_name, unit, unit_price, dosage_qty, wastage_percent: 0, sort_order: i }));
+    // Real names run long (owner IMG_6072): the dialogs must wrap, never scroll sideways.
+    ["NVL-MEN-KHO-MEIZAN-NHAN-VANG-0-5-10KG-THUN", "Men Khô Meizan - Nhãn Vàng (0.5*10kg/Thùng)", "g", 95.5, 30],
+  ].map(([material_code, ingredient_name, unit, unit_price, dosage_qty], i) => ({ id: "f" + i, sku_id: "sku-2", ingredient_sku_id: null, canonical_material_id: "m" + i, material_code, ingredient_name, unit, unit_price, dosage_qty, wastage_percent: 0, sort_order: i }));
+  if (st.table === "sku_cogs_materials") return [
+    ["NVL-BOT-MI", "Bột mì số 13"], ["NVL-PATE", "Pate gan"], ["NVL-BO", "Bơ lạt"], ["NVL-DUONG", "Đường tinh luyện"], ["NVL-MUOI", "Muối sấy"],
+    ["NVL-MEN-KHO-MEIZAN-NHAN-VANG-0-5-10KG-THUN", "Men Khô Meizan - Nhãn Vàng (0.5*10kg/Thùng)"],
+  ].map(([material_code, canonical_name], i) => ({ id: "m" + i, material_code, canonical_name, default_unit: "g", ingredient_sku_id: null }));
   if (st.table === "payment_request_items") return [
     { sku_id: null, product_name: "Bột mì số 13", product_code: "NVL-BOT-MI", unit: "g", quantity: 25000, unit_price: 19, line_total: 475000, created_at: month + "-05T03:00:00Z", confirmed_standard_cost_code: "NVL-BOT-MI", payment_requests: { request_number: "PR-1", payment_status: "paid", status: "approved", paid_at: month + "-05T03:00:00Z" } },
     { sku_id: null, product_name: "Bột mì số 13", product_code: "NVL-BOT-MI", unit: "g", quantity: 25000, unit_price: 20, line_total: 500000, created_at: month + "-12T03:00:00Z", confirmed_standard_cost_code: "NVL-BOT-MI", payment_requests: { request_number: "PR-2", payment_status: "paid", status: "approved", paid_at: month + "-12T03:00:00Z" } },
@@ -103,7 +110,13 @@ const user = { id: "qa-user", email: "qa@bmq.test", user_metadata: {} };
 const channel = { on() { return channel; }, subscribe() { return channel; }, unsubscribe() {} };
 export const supabase = {
   from: (table) => builder(table),
-  rpc: (fn) => builder("rpc:" + fn),
+  rpc: (fn, args) => {
+    window.__qaRpc = window.__qaRpc || [];
+    window.__qaRpc.push(fn + ":" + JSON.stringify(args || {}));
+    // Ngưng kinh doanh: remember the flag so the reloaded list shows it.
+    if (fn === "set_sku_discontinued") { const off = JSON.parse(sessionStorage.getItem("qa-discontinued") || "[]"); const next = args.p_value ? [...new Set([...off, args.p_sku_id])] : off.filter((id) => id !== args.p_sku_id); sessionStorage.setItem("qa-discontinued", JSON.stringify(next)); }
+    return builder("rpc:" + fn);
+  },
   schema: () => ({ from: (table) => builder(table), rpc: (fn) => builder("rpc:" + fn) }),
   functions: { invoke: async (name) => { window.__qaWrites.push("invoke:" + name); return { data: null, error: { message: "QA fixture: functions disabled" } }; } },
   storage: { from: () => ({ getPublicUrl: () => ({ data: { publicUrl: "" } }), createSignedUrl: async () => ({ data: null, error: null }), list: async () => ({ data: [], error: null }), upload: async () => ({ data: null, error: { message: "QA fixture: writes disabled" } }), download: async () => ({ data: null, error: null }) }) },
@@ -346,13 +359,68 @@ try {
     const { context, page, errors } = await open({ role: "owner", data: "populated" }, "/sku-costs/management", { width: 390, height: 844 });
     await page.waitForSelector(".gv-row");
     await page.getByRole("button", { name: "Xem chi tiết Bánh mì que pate" }).click();
-    await page.waitForSelector("text=Chi tiết SKU");
+    await page.waitForSelector("[data-bmq-sku-detail]");
     await page.keyboard.press("Escape");
     await page.waitForTimeout(300);
-    await page.locator(".gv-row").first().getByRole("button", { name: "Sửa" }).click();
+    await page.locator(".gv-row", { hasText: "Bánh mì que pate" }).first().getByRole("button", { name: "Sửa" }).click();
     await page.waitForSelector("text=Sửa SKU");
     assert.deepEqual(errors, []);
     record("management dialogs 390");
+    await context.close();
+  }
+
+  // Phone support (owner IMG_6072/6073): neither SKU dialog scrolls sideways, long NVL names included;
+  // Ngưng kinh doanh asks first, calls set_sku_discontinued and the list then shows "Ngưng KD".
+  const dialogOverflow = (page) => page.evaluate(() => { const d = document.querySelector("[role=dialog]"); return d.scrollWidth - d.clientWidth; });
+  const dialogShot = async (page, file) => {
+    await page.evaluate(() => { const d = document.querySelector("[role=dialog]"); d.style.maxHeight = "none"; d.style.overflow = "visible"; d.style.position = "absolute"; d.style.top = "8px"; d.style.transform = "translateX(-50%)"; });
+    await page.waitForTimeout(150);
+    await page.locator("[role=dialog]").screenshot({ path: file });
+  };
+  for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 640 }, { width: 1440, height: 900 }]) {
+    const { context, page, errors } = await open({ role: "owner", data: "populated" }, "/sku-costs/management", viewport);
+    await page.waitForSelector(".gv-row");
+    await page.getByRole("button", { name: "Xem chi tiết Bánh mì que pate" }).click();
+    await page.waitForSelector("[data-bmq-sku-detail]");
+    await page.waitForTimeout(500);
+    assert.ok((await dialogOverflow(page)) <= 0, `detail dialog overflow ${viewport.width}: ${await dialogOverflow(page)}`);
+    if (viewport.width < 768) assert.equal(await page.locator("[data-bmq-sku-detail-lines] li").count(), 6, "6 NVL lines on the phone");
+    await dialogShot(page, `${EVIDENCE}/sku-detail-${viewport.width}.png`);
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(300);
+    await page.locator(".gv-row", { hasText: "Bánh mì que pate" }).first().getByRole("button", { name: "Sửa" }).click();
+    await page.waitForSelector("[data-bmq-sku-edit]");
+    await page.waitForTimeout(700);
+    assert.ok((await dialogOverflow(page)) <= 0, `edit dialog overflow ${viewport.width}: ${await dialogOverflow(page)}`);
+    // Natural scroll positions inside the edit dialog (top, NVL cards, totals).
+    for (const [i, frac] of [[0, 0], [1, 0.35], [2, 0.7]]) {
+      await page.evaluate((f) => { const d = document.querySelector("[role=dialog]"); d.scrollTop = (d.scrollHeight - d.clientHeight) * f; }, frac);
+      await page.waitForTimeout(150);
+      await page.screenshot({ path: `${EVIDENCE}/sku-edit-${viewport.width}-${i}.png` });
+    }
+    assert.deepEqual(errors, []);
+    record(`SKU dialogs fit ${viewport.width}`);
+    await context.close();
+  }
+  {
+    const { context, page, errors } = await open({ role: "owner", data: "populated" }, "/sku-costs/management", { width: 390, height: 844 });
+    await page.waitForSelector(".gv-row");
+    await page.getByRole("button", { name: "Xem chi tiết Bánh mì que pate" }).click();
+    await page.locator("[data-bmq-sku-discontinue]").click();
+    await page.waitForSelector("[data-bmq-sku-discontinue-confirm]");
+    assert.equal((await page.evaluate(() => (window.__qaRpc || []).filter((c) => c.startsWith("set_sku_discontinued")).length)), 0, "nothing sent before the confirm");
+    await page.locator("[data-bmq-sku-detail-actions]").scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `${EVIDENCE}/sku-discontinue-confirm-390.png` });
+    await page.locator("[data-bmq-sku-discontinue-confirm]").click();
+    await page.waitForSelector("[data-bmq-sku-resume]");
+    const call = await page.evaluate(() => (window.__qaRpc || []).find((c) => c.startsWith("set_sku_discontinued")));
+    assert.match(call, /"p_sku_id":"sku-1","p_value":true,"p_request_id":"[0-9a-f-]{36}"/);
+    assert.ok(await page.locator("[data-bmq-sku-discontinued]").isVisible(), "detail shows Ngưng kinh doanh");
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(300);
+    assert.match(await page.locator(".gv-row", { hasText: "Bánh mì que pate" }).first().innerText(), /Ngưng KD/);
+    assert.deepEqual(errors, []);
+    record("Ngưng kinh doanh: confirm, RPC with request id, list chip");
     await context.close();
   }
 } finally {

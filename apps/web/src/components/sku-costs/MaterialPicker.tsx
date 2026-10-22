@@ -41,7 +41,7 @@ export function MaterialPicker({ value, materials, onValueChange, placeholder = 
           role="combobox"
           aria-expanded={open}
           data-bmq-material-picker
-          className={cn("h-10 w-full justify-between gap-2 px-3 font-normal", !selected && "text-muted-foreground", className)}
+          className={cn("h-10 w-full min-w-0 max-w-full justify-between gap-2 px-3 font-normal", !selected && "text-muted-foreground", className)}
         >
           <span className="min-w-0 truncate text-left">{selected ? `${selected.material_code} - ${selected.canonical_name}` : placeholder}</span>
           <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />

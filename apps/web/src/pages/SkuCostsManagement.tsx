@@ -12,6 +12,7 @@ import { dosageInputText, parseDosageGramInput } from "@/lib/dosage-input";
 import { describeSkuCogsSaveError } from "@/lib/sku-cogs-save-error";
 import { MaterialPicker } from "@/components/sku-costs/MaterialPicker";
 import { SkuCostHeader } from "@/components/sku-costs/SkuCostMenuBar";
+import { isSkuDiscontinued, useSetSkuDiscontinued } from "@/hooks/useSkuDiscontinue";
 
 type SKU = any;
 type FormulaRow = any;
@@ -215,6 +216,8 @@ const buildDraftFromStoredRows = (rows: any[]) => {
 
 export default function SkuCostsManagement() {
   const { toast } = useToast();
+  const setDiscontinued = useSetSkuDiscontinued();
+  const [confirmDiscontinue, setConfirmDiscontinue] = useState(false);
   const [skus, setSkus] = useState<SKU[]>([]);
   const [formula, setFormula] = useState<FormulaRow[]>([]);
   const [canonicalMaterials, setCanonicalMaterials] = useState<CanonicalMaterial[]>([]);
@@ -248,7 +251,7 @@ export default function SkuCostsManagement() {
 
   const loadAll = async () => {
     const [skuRes, poRes, prRes, invRes, materialRes] = await Promise.all([
-      sb.from("product_skus").select("id,sku_code,product_name,category,unit,unit_price,updated_at,supplier_id,sku_type,notes,cost_values,cost_widgets,cost_template,finished_output_qty,finished_output_unit,created_at,created_by,hide_from_dealer_portal").order("updated_at", { ascending: false }),
+      sb.from("product_skus").select("id,sku_code,product_name,category,unit,unit_price,updated_at,supplier_id,sku_type,notes,cost_values,cost_widgets,cost_template,finished_output_qty,finished_output_unit,created_at,created_by,hide_from_dealer_portal,discontinued_at").order("updated_at", { ascending: false }),
       sb.from("purchase_order_items").select("sku_id, unit_price, created_at, purchase_order_id, purchase_orders(po_number, order_date)").not("sku_id", "is", null).limit(500),
       sb.from("payment_request_items").select("sku_id, unit_price, created_at, payment_request_id, payment_requests(request_number)").not("sku_id", "is", null).limit(500),
       sb.from("inventory_batches").select("sku_id, quantity").not("sku_id", "is", null).limit(500),
@@ -481,7 +484,20 @@ export default function SkuCostsManagement() {
   }, [activeSku.finished_output_qty, formulaComputed]);
 
   const openCreateSku = () => { setSaveSkuError(""); setZeroCostApproval(false); setImportedFormulaDraft([]); setCogsEffectiveFrom(new Date().toISOString().slice(0, 10)); setSkuForm({ id: "", sku_code: "", product_name: "", unit: "gói", unit_price: 0, category: "Thành phẩm", base_unit: "gói", yield_percent: 100, finished_output_qty: FORMULA_BASE_QTY, finished_output_unit: "cái", cost_template: DEFAULT_SKU_COST_TEMPLATE, cost_values: DEFAULT_SKU_COST_VALUES, cost_widgets: {}, hide_from_dealer_portal: false }); setDialogOpen(true); };
-  const openSkuDetail = (sku: SKU) => { setActiveSkuId(sku.id); setDetailOpen(true); };
+  const openSkuDetail = (sku: SKU) => { setActiveSkuId(sku.id); setConfirmDiscontinue(false); setDetailOpen(true); };
+  // Ngưng kinh doanh (owner 22/10): the SKU leaves the kho finished-goods lists and the dealer page; history stays.
+  const toggleDiscontinued = async (value: boolean) => {
+    const skuId = String(activeSku.id || "");
+    if (!skuId) return;
+    try {
+      await setDiscontinued.mutateAsync({ skuId, value });
+      setConfirmDiscontinue(false);
+      await loadAll();
+      toast({ title: value ? "Đã ngưng kinh doanh" : "Đã kinh doanh lại", description: activeSku.product_name || undefined });
+    } catch (error) {
+      toast({ title: "Chưa đổi được trạng thái", description: error instanceof Error ? error.message : String(error), variant: "destructive" });
+    }
+  };
 
   const buildFormulaRowsFromDraft = (skuId: string) => {
     const rows: any[] = [];
@@ -744,7 +760,7 @@ export default function SkuCostsManagement() {
                     </div>
                     <div className="gv-fig gv-state">
                       <small>Trang đặt hàng</small>
-                      {s.hide_from_dealer_portal ? <span className="gv-chip">Đang ẩn</span> : <span className="gv-chip is-good">Đang hiện</span>}
+                      {isSkuDiscontinued(s) ? <span className="gv-chip is-bad">Ngưng KD</span> : s.hide_from_dealer_portal ? <span className="gv-chip">Đang ẩn</span> : <span className="gv-chip is-good">Đang hiện</span>}
                     </div>
                     <div className="gv-fig is-updated">
                       <b className="is-missing">{s.updated_at ? new Date(s.updated_at).toLocaleString("vi-VN", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit", year: "numeric" }) : "-"}</b>
@@ -764,19 +780,21 @@ export default function SkuCostsManagement() {
       {/* Đã tắt scan ảnh theo yêu cầu: nhập NVL thủ công */}
 
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-        <DialogContent className="max-h-[92dvh] w-[calc(100vw-1rem)] overflow-y-auto rounded-2xl p-4 sm:max-w-6xl sm:p-6">
-          <DialogHeader>
-            <DialogTitle className="text-lg leading-tight sm:text-xl">Chi tiết SKU</DialogTitle>
+        <DialogContent className="max-h-[92dvh] w-[calc(100vw-1rem)] overflow-y-auto rounded-2xl p-4 sm:max-w-4xl sm:p-6 [&>*]:min-w-0" data-bmq-sku-detail>
+          <DialogHeader className="space-y-1 pr-8 text-left">
+            <DialogTitle className="text-lg leading-snug sm:text-xl">{activeSku.product_name || "Chi tiết SKU"}</DialogTitle>
+            <p className="break-all font-mono text-xs text-muted-foreground">{activeSku.sku_code || "—"}</p>
           </DialogHeader>
 
-          <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2 md:grid-cols-4">
-            <div className="rounded border p-3 bg-muted/30"><div className="text-muted-foreground">Tên SKU</div><div className="font-semibold mt-1 leading-snug break-words">{activeSku.product_name || "-"}</div></div>
-            <div className="rounded border p-3 bg-muted/30"><div className="text-muted-foreground">Mã SKU</div><div className="font-mono mt-1 break-all">{activeSku.sku_code || "-"}</div></div>
-            <div className="rounded border p-3 bg-muted/30"><div className="text-muted-foreground">Thành phẩm</div><div className="mt-1">{toNumber(activeSku.finished_output_qty, FORMULA_BASE_QTY)} {activeSku.finished_output_unit || "cái"}</div></div>
-            <div className="rounded border p-3 bg-muted/30"><div className="text-muted-foreground">Giá bán/cái</div><div className="font-semibold mt-1">{vnd(toNumber(costValues.selling_price, 0))}</div></div>
+          <div className="skd-chips">
+            <span className="gv-chip">{toNumber(activeSku.finished_output_qty, FORMULA_BASE_QTY)} {activeSku.finished_output_unit || "cái"} / mẻ</span>
+            <span className="gv-chip">Giá bán {vnd(toNumber(costValues.selling_price, 0))}đ</span>
+            {isSkuDiscontinued(activeSku) ? <span className="gv-chip is-bad" data-bmq-sku-discontinued>Ngưng kinh doanh</span>
+              : activeSku.hide_from_dealer_portal ? <span className="gv-chip">Ẩn trên trang đặt hàng</span> : null}
           </div>
 
-          <div className="mt-4 rounded border">
+          <section className="skd-card" aria-label="Công thức NVL">
+            <h3 className="skd-h">Công thức · {formulaComputed.length} NVL</h3>
             <Table className="hidden md:table">
               <TableHeader>
                 <TableRow>
@@ -803,68 +821,80 @@ export default function SkuCostsManagement() {
                 ))}
               </TableBody>
             </Table>
-            <div className="space-y-3 p-3 md:hidden">
+            <ul className="skd-lines md:hidden" data-bmq-sku-detail-lines>
               {formulaComputed.length === 0 ? (
-                <div className="rounded-xl border border-dashed p-3 text-sm text-muted-foreground">Chưa có dữ liệu NVL</div>
-              ) : formulaComputed.map((r) => {
-                const materialCode = r.material_code || buildMaterialCode(r.displayName || r.ingredient_name);
-                return (
-                  <article key={r.id || `${r.ingredient_name}-${r.sort_order}`} className="rounded-2xl border bg-card p-3 text-sm shadow-sm">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="break-all font-mono text-[11px] font-semibold text-muted-foreground">{materialCode}</p>
-                        <h3 className="mt-1 line-clamp-2 font-semibold leading-snug text-foreground">{r.displayName || r.ingredient_name || "-"}</h3>
-                      </div>
-                      <span className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-xs font-semibold text-muted-foreground">{r.unit || "g"}</span>
-                    </div>
-                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                      <div className="rounded-xl bg-muted/45 p-2"><div className="text-muted-foreground">Đơn giá</div><div className="mt-1 font-bold text-foreground">{vnd(toNumber(r.unit_price, 0))}</div></div>
-                      <div className="rounded-xl bg-muted/45 p-2"><div className="text-muted-foreground">Định lượng</div><div className="mt-1 font-bold text-foreground">{toNumber(r.dosage_qty, 0)}</div></div>
-                      <div className="col-span-2 rounded-xl bg-primary/10 p-2"><div className="text-primary/80">Cost NVL</div><div className="mt-1 text-base font-bold text-primary">{vnd(toNumber(r.standardLineCost, 0))}</div></div>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          </div>
+                <li className="skd-empty">Chưa có NVL</li>
+              ) : formulaComputed.map((r) => (
+                <li key={r.id || `${r.ingredient_name}-${r.sort_order}`}>
+                  <div className="skd-line-main">
+                    <b>{r.displayName || r.ingredient_name || "-"}</b>
+                    <small>{toNumber(r.dosage_qty, 0).toLocaleString("vi-VN")} {r.unit || "g"} × {vnd(toNumber(r.unit_price, 0))}</small>
+                  </div>
+                  <b className="skd-line-cost">{vnd(toNumber(r.standardLineCost, 0))}</b>
+                </li>
+              ))}
+            </ul>
+          </section>
 
-          <div className="grid grid-cols-1 gap-3 text-sm mt-4 sm:grid-cols-2 md:grid-cols-3">
-            <div className="rounded border p-3">Total material cost/mẻ: <b>{vnd(detailCosting.materialBatch)}</b></div>
-            <div className="rounded border p-3">Total material cost/cái: <b>{vnd(detailCosting.materialPerUnit)}</b></div>
-            <div className="rounded border p-3">Total cost NVL/cái: <b>{vnd(detailCosting.totalCostNVLPerUnit)}</b></div>
-            <div className="rounded border p-3">Tổng cost/cái: <b>{vnd(detailCosting.totalCostPerUnit)}</b></div>
-            <div className="rounded border p-3">Net profit/cái: <b>{vnd(detailCosting.netProfitPerUnit)}</b></div>
-            <div className="rounded border p-3">Net profit (%): <b>{Number(detailCosting.netProfitPct || 0).toFixed(2)}%</b></div>
-            <div className="rounded border p-3">Cập nhật: <b>{activeSku.updated_at ? new Date(activeSku.updated_at).toLocaleString("vi-VN") : "-"}</b></div>
-          </div>
+          <section className="skd-card" aria-label="Giá vốn">
+            <h3 className="skd-h">Giá vốn / cái</h3>
+            <dl className="skd-facts">
+              <div><dt>NVL / mẻ</dt><dd>{vnd(detailCosting.materialBatch)}</dd></div>
+              <div><dt>NVL / cái</dt><dd>{vnd(detailCosting.totalCostNVLPerUnit)}</dd></div>
+              <div><dt>Tổng cost / cái</dt><dd>{vnd(detailCosting.totalCostPerUnit)}</dd></div>
+              <div><dt>Lãi / cái</dt><dd className={detailCosting.netProfitPerUnit < 0 ? "is-bad" : ""}>{vnd(detailCosting.netProfitPerUnit)} · {Number(detailCosting.netProfitPct || 0).toFixed(1)}%</dd></div>
+              <div><dt>Cập nhật</dt><dd>{activeSku.updated_at ? new Date(activeSku.updated_at).toLocaleString("vi-VN", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit", year: "numeric" }) : "-"}</dd></div>
+            </dl>
+          </section>
 
-          <div className="mt-4 rounded border p-3">
-            <h3 className="font-semibold">Lịch sử phiên bản COGS</h3>
-            <p className="mt-1 text-xs text-muted-foreground">Mỗi lần lưu sẽ giữ công thức cũ, ngày hiệu lực và người cập nhật trong hệ thống.</p>
-            <div className="mt-3 space-y-2">
+          <section className="skd-card" aria-label="Lịch sử phiên bản COGS">
+            <h3 className="skd-h">Lịch sử phiên bản</h3>
+            <div className="mt-2 space-y-2">
               {skuCogsVersions.map((version) => (
-                <div key={version.id} className="grid gap-1 rounded-lg bg-muted/40 p-3 text-sm md:grid-cols-4">
-                  <div><span className="text-muted-foreground">Phiên bản:</span> <b>v{version.version_no}</b></div>
-                  <div><span className="text-muted-foreground">Hiệu lực:</span> <b>{version.effective_from}</b></div>
-                  <div><span className="text-muted-foreground">Kết thúc:</span> <b>{version.effective_to || "Đang áp dụng"}</b></div>
-                  <div><span className="text-muted-foreground">Lưu lúc:</span> <b>{new Date(version.created_at).toLocaleString("vi-VN")}</b></div>
-                  <div className="md:col-span-4 text-muted-foreground">{version.change_reason}</div>
+                <div key={version.id} className="rounded-lg bg-muted/40 px-3 py-2 text-sm">
+                  <p className="font-medium">v{version.version_no} · từ {version.effective_from} · {version.effective_to ? `đến ${version.effective_to}` : "đang áp dụng"}</p>
+                  {version.change_reason ? <p className="mt-0.5 text-xs text-muted-foreground">{version.change_reason}</p> : null}
                 </div>
               ))}
-              {skuCogsVersions.length === 0 && <div className="text-sm text-muted-foreground">Chưa có phiên bản lịch sử. Phiên bản đầu tiên sẽ được tạo khi migration hoặc khi lưu COGS.</div>}
+              {skuCogsVersions.length === 0 && <div className="text-sm text-muted-foreground">Chưa có phiên bản.</div>}
             </div>
+          </section>
+
+          <div className="skd-actions" data-bmq-sku-detail-actions>
+            {isSkuDiscontinued(activeSku) ? (
+              <Button type="button" variant="outline" className="h-11" disabled={setDiscontinued.isPending} onClick={() => void toggleDiscontinued(false)} data-bmq-sku-resume>
+                {setDiscontinued.isPending ? "Đang lưu…" : "Kinh doanh lại"}
+              </Button>
+            ) : confirmDiscontinue ? (
+              <div className="skd-confirm" role="group" aria-label="Xác nhận ngưng kinh doanh">
+                <p>Ngưng bán và bỏ khỏi kiểm kho, trang đặt hàng. Lịch sử giữ nguyên.</p>
+                <div>
+                  <Button type="button" variant="destructive" className="h-11" disabled={setDiscontinued.isPending} onClick={() => void toggleDiscontinued(true)} data-bmq-sku-discontinue-confirm>
+                    {setDiscontinued.isPending ? "Đang lưu…" : "Ngưng kinh doanh"}
+                  </Button>
+                  <Button type="button" variant="ghost" className="h-11" onClick={() => setConfirmDiscontinue(false)}>Thôi</Button>
+                </div>
+              </div>
+            ) : (
+              <Button type="button" variant="outline" className="h-11 text-destructive" onClick={() => setConfirmDiscontinue(true)} data-bmq-sku-discontinue>
+                Ngưng kinh doanh
+              </Button>
+            )}
+            {!confirmDiscontinue ? (
+              <Button type="button" className="h-11" onClick={() => { setDetailOpen(false); openEditSku(activeSku as SKU); }}>Sửa SKU</Button>
+            ) : null}
           </div>
         </DialogContent>
       </Dialog>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-h-[92dvh] w-[calc(100vw-1rem)] overflow-y-auto rounded-2xl p-4 sm:max-w-5xl sm:p-6">
+        <DialogContent className="max-h-[92dvh] w-[calc(100vw-1rem)] overflow-y-auto overflow-x-hidden rounded-2xl p-4 sm:max-w-5xl sm:p-6 [&>*]:min-w-0" data-bmq-sku-edit>
           <DialogHeader>
             <DialogTitle>{skuForm.id ? "Sửa SKU" : "Tạo SKU theo form mẫu"}</DialogTitle>
             {skuForm.id && <div className="text-xs text-muted-foreground">Lần chỉnh sửa gần nhất: {skuForm.updated_at ? new Date(skuForm.updated_at).toLocaleString("vi-VN") : "-"}</div>}
           </DialogHeader>
 
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-4">
             <div className="sticky top-0 z-20 flex flex-col gap-2 rounded-xl border bg-background/95 p-2 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:flex-row sm:flex-wrap sm:items-center">
               <Button type="button" className="h-11 w-full sm:h-10 sm:w-auto" variant="outline" onClick={addDraftMaterialRow}>+ Thêm NVL cấp 1</Button>
               {level1Options.length > 0 && (
@@ -1001,7 +1031,7 @@ export default function SkuCostsManagement() {
                   const perUnit = row.perUnit;
 
                   return (
-                    <div key={`draft-card-${idx}`} className={`rounded-2xl border p-3 shadow-sm ${isLevel1Row ? "bg-background" : "bg-muted/30"}`}>
+                    <div key={`draft-card-${idx}`} className={`min-w-0 rounded-2xl border p-3 shadow-sm ${isLevel1Row ? "bg-background" : "bg-muted/30"}`}>
                       <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
                         <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
                           {isLevel1Row ? "NVL cấp 1" : `NVL cấp 2 · ${r.level1_name || "-"}`}
@@ -1012,7 +1042,7 @@ export default function SkuCostsManagement() {
                         <Button type="button" className="h-9 shrink-0" size="sm" variant="destructive" onClick={() => setImportedFormulaDraft((prev) => prev.filter((_, i) => i !== idx))}>Xóa</Button>
                       </div>
 
-                      <div className="space-y-1">
+                      <div className="min-w-0 space-y-1">
                         <Label>Tên NVL</Label>
                         <MaterialPicker
                           value={r.canonical_material_id || undefined}

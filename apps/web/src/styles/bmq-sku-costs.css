@@ -305,3 +305,30 @@ html.bmq-d3 .gv-panel-h h2 { font-weight: 400; }
   .gv-btn, .gv-tab, .gv-seg button { transition: none; }
   .gv-loading span, .gv-thumb .gv-thumb-busy svg { animation: none; }
 }
+
+/* ---------- Chi tiết SKU dialog (owner 22/10: phone first, short copy) ---------- */
+.skd-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.skd-card { min-width: 0; padding: 12px 14px; border-radius: 14px; background: var(--d3-white, #fdfdfc); box-shadow: inset 0 0 0 1px var(--d3-line, #e2e2df); }
+.skd-h { margin: 0 0 6px; font-size: 13px; font-weight: 500; color: var(--d3-dim, #6b6b69); }
+.skd-lines { margin: 0; padding: 0; list-style: none; }
+.skd-lines li { display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 8px 0; box-shadow: inset 0 -1px 0 var(--d3-line, #e2e2df); }
+.skd-lines li:last-child { box-shadow: none; }
+.skd-line-main { display: grid; gap: 2px; min-width: 0; flex: 1 1 auto; }
+.skd-line-main b { font-size: 14px; font-weight: 500; line-height: 1.35; overflow-wrap: anywhere; }
+.skd-line-main small { font-size: 12px; color: var(--d3-dim, #6b6b69); font-variant-numeric: tabular-nums; }
+.skd-line-cost { flex: none; font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.skd-empty { font-size: 13px; color: var(--d3-dim, #6b6b69); }
+.skd-facts { display: grid; gap: 0; margin: 0; }
+.skd-facts > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 7px 0; box-shadow: inset 0 -1px 0 var(--d3-line, #e2e2df); font-size: 14px; }
+.skd-facts > div:last-child { box-shadow: none; }
+.skd-facts dt { color: var(--d3-dim, #6b6b69); }
+.skd-facts dd { margin: 0; font-weight: 500; text-align: right; font-variant-numeric: tabular-nums; }
+.skd-facts dd.is-bad { color: #a32314; }
+@media (min-width: 768px) { .skd-facts { grid-template-columns: 1fr 1fr; column-gap: 24px; } .skd-facts > div:nth-last-child(2):nth-child(odd) { box-shadow: inset 0 -1px 0 var(--d3-line, #e2e2df); } }
+.skd-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding-top: 4px; }
+.skd-actions > button { flex: 1 1 160px; }
+@media (min-width: 640px) { .skd-actions > button { flex: 0 0 auto; } }
+.skd-confirm { display: grid; gap: 8px; width: 100%; padding: 12px 14px; border-radius: 14px; background: #fdecea; }
+.skd-confirm p { margin: 0; font-size: 13.5px; color: #7a1d10; }
+.skd-confirm > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.skd-confirm > div > button { flex: 1 1 140px; }
