@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
-import { Camera, Sparkles, CheckCircle, Clock, FileCheck, Package, ExternalLink, Loader2, AlertCircle, Link2, XCircle, AlertTriangle, History } from "lucide-react";
+import { Camera, Sparkles, CheckCircle, Clock, FileCheck, Package, Loader2, AlertCircle, Link2, XCircle, AlertTriangle, History } from "lucide-react";
 import { useGoodsReceipt, useGoodsReceiptItems, useConfirmGoodsReceipt, useUpdateGoodsReceiptItems, useUpdateGoodsReceipt, useDeliveryNoteOcr, usePaidPaymentRequestsForSupplier, useFinalizeHistoricalPaidGoodsReceipt } from "@/hooks/useGoodsReceipts";
 import { toast } from "sonner";
 import { Fragment, useState, useEffect } from "react";
@@ -23,6 +23,13 @@ interface GoodsReceiptDetailsDialogProps {
 }
 
 type LineEdit = { actual_quantity: string; variance_reason: string };
+
+// Plain-language reasons for material-resolution blockers; unknown codes are not shown.
+const MATERIAL_BLOCKER_TEXT: Record<string, string> = {
+  unit_unmapped: "Chưa có quy đổi đơn vị",
+  unit_conversion_required: "Cần quy đổi đơn vị",
+  supplier_unmapped: "Món này chưa gắn với nhà cung cấp",
+};
 
 const formatSafeDate = (rawDate?: string | null, pattern = "dd/MM/yyyy") => {
   if (!rawDate) return "-";
@@ -230,22 +237,29 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
     if (exact) {
       return (
         <div className="mt-1 space-y-1 text-xs" data-bmq-goods-receipt-material-resolution>
-          <p className="text-muted-foreground">Tên OCR gốc: <span className="font-medium text-foreground">{rawName}</span></p>
+          <p className="text-muted-foreground">Tên trên phiếu: <span className="font-medium text-foreground">{rawName}</span></p>
           <p className="text-emerald-700">NVL chuẩn: <span className="font-semibold">{canonicalCode ? `${canonicalCode} · ` : ""}{canonicalName || item.product_name}</span></p>
         </div>
       );
     }
 
+    // Owner 22/10: no queue link or internal status/request ids here; linking is
+    // decided in the VNAgent chat. The status/request id stay in data attributes.
+    const blockerText = blockers
+      .map((blocker) => MATERIAL_BLOCKER_TEXT[blocker])
+      .filter(Boolean);
     return (
-      <div className="mt-1 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900" data-bmq-goods-receipt-material-resolution>
-        <p className="font-semibold">Cần xử lý NVL</p>
-        <p>Tên OCR gốc: <span className="font-medium">{rawName}</span></p>
-        <p>Trạng thái: {status}{requestId ? ` · yêu cầu ${requestId.slice(0, 8)}` : ""}</p>
-        {blockers.length > 0 && <p>Blocker: {blockers.join(", ")}</p>}
-        {candidateNames.length > 0 && <p>Gợi ý: {candidateNames.join("; ")}</p>}
-        <a href="/material-master" className="mt-1 inline-flex items-center gap-1 font-medium text-primary hover:underline">
-          Mở hàng đợi /material-master <ExternalLink className="h-3 w-3" />
-        </a>
+      <div
+        className="mt-1 min-w-[13rem] rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-900"
+        data-bmq-goods-receipt-material-resolution
+        data-material-resolution-status={status}
+        data-material-resolution-request-id={requestId || undefined}
+      >
+        <p className="font-semibold">Chưa gắn mã nguyên liệu chuẩn</p>
+        <p className="mt-0.5">Tên trên phiếu: <span className="font-medium">{rawName}</span></p>
+        {candidateNames.length > 0 && <p className="mt-0.5">Có thể là: {candidateNames.join("; ")}</p>}
+        {blockerText.length > 0 && <p className="mt-0.5">{blockerText.join(" · ")}</p>}
+        <p className="mt-1 text-amber-800/80">Quản lý gắn mã trong chat VNAgent.</p>
       </div>
     );
   };
@@ -579,7 +593,7 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                   {hasMaterialResolutionBlockers && (
                     <p className="flex items-center gap-1 text-xs font-medium text-amber-700">
                       <AlertTriangle className="h-3 w-3" />
-                      Cần xử lý NVL (Material Master) trước khi nhập kho.
+                      Còn dòng chưa gắn mã nguyên liệu chuẩn; quản lý gắn trong chat VNAgent rồi mới nhập kho.
                     </p>
                   )}
                 </div>

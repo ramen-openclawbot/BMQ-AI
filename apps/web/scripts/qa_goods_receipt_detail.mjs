@@ -62,6 +62,8 @@ const ITEMS = {
   "gr-b": [
     { id: "it-b1", goods_receipt_id: "gr-b", product_name: "Hộp giấy bánh mì", quantity: 5000, ordered_quantity: 5000, actual_quantity: 4800, unit: "cái", unit_price: 250, line_status: "thieu", product_skus: null, inventory_items: null, purchase_order_items: { id: "poi-2", product_name: "Hộp giấy bánh mì", quantity: 5000, unit_price: 250 }, canonical_materials: { id: "m2", material_code: "BB-002", canonical_name: "Hộp giấy bánh mì", default_unit: "cái" }, canonical_material_id: "m2" },
     { id: "it-b2", goods_receipt_id: "gr-b", product_name: "Tem dán logo", quantity: 2000, ordered_quantity: 2000, actual_quantity: 2000, unit: "cái", unit_price: 30, line_status: "du", product_skus: null, inventory_items: null, purchase_order_items: { id: "poi-3", product_name: "Tem dán logo", quantity: 2000, unit_price: 30 }, canonical_materials: { id: "m3", material_code: "BB-003", canonical_name: "Tem dán logo", default_unit: "cái" }, canonical_material_id: "m3" },
+    // Not linked to a standard material yet (shows the plain amber note, no queue link).
+    { id: "it-b3", goods_receipt_id: "gr-b", product_name: "Túi Bánh Mì (giao đợt 1717)", raw_product_name: "Túi Bánh Mì (giao đợt 1717)", quantity: 10000, ordered_quantity: 10000, actual_quantity: 10000, unit: "cái", unit_price: 180, line_status: "du", product_skus: null, inventory_items: null, purchase_order_items: null, canonical_materials: null, canonical_material_id: null, material_resolution_status: "unknown", material_resolution_request_id: "574fcdfb-a48d-4754-8cac-bb6b8f790813" },
   ],
 };
 function fixtureRows(st) {
@@ -242,6 +244,13 @@ try {
         assert.match(facts.text, /Ngày chốt/);
         assert.match(facts.text, /Lệch: 1 dòng thiếu/);
         assert.match(facts.text, /Đã duyệt/);
+        assert.match(facts.text, /Chưa gắn mã nguyên liệu chuẩn/);
+        assert.match(facts.text, /Tên trên phiếu: Túi Bánh Mì \(giao đợt 1717\)/);
+        assert.doesNotMatch(facts.text, /material-master|unknown|yêu cầu 574fcdfb|Cần xử lý NVL/);
+        assert.equal(await page.locator('[data-bmq-goods-receipt-detail-mobile-v2] a[href="/material-master"]').count(), 0, "no queue link");
+        const note = page.locator("[data-bmq-goods-receipt-detail-mobile-v2] [data-material-resolution-status]:visible").first();
+        await note.scrollIntoViewIfNeeded();
+        await note.locator("xpath=../..").screenshot({ path: `${EVIDENCE}/gr-unlinked-line-${viewport.width}.png` });
       }
       assert.ok(facts.bodyOverflow <= 0, `no horizontal overflow in the dialog @${label} ${viewport.width}: ${facts.bodyOverflow}`);
       assert.ok((await overflow(page)) <= 0, `no page overflow @${label} ${viewport.width}`);

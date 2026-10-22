@@ -797,9 +797,10 @@ def test_task5_goods_receipt_canonical_controller_contracts_are_server_side():
     assert "resolve_canonical_material" in edge.split("nameSimilarity", 1)[1]
     assert "useServerMaterialResolutionOnly" in hook
     assert "canonical_materials" in hook
-    assert "Cần xử lý NVL" in details
-    assert "/material-master" in details
-    assert "Tên OCR gốc" in details
+    # Owner 22/10: plain copy, no queue link; linking is decided in the VNAgent chat.
+    assert "Chưa gắn mã nguyên liệu chuẩn" in details
+    assert "/material-master" not in details
+    assert "Tên trên phiếu" in details
     assert "data-bmq-goods-receipt-material-resolution" in details
     assert "data-bmq-goods-receipt-ocr-safe-quantity-only" in details
     assert "material_resolution_status" in details
