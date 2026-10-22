@@ -390,8 +390,11 @@ try {
     const gItem = await page.evaluate(() => window.__kgFixture.items[0].id);
     await page.locator(`[data-bmq-kho-item='${gItem}']`).click();
     await dialogInView(page, "[data-bmq-kho-item-dialog]", vp);
-    // 1 bao = 25000 g -> old->new factor 1/25000
+    // 1 bao = 25000 g -> old->new factor 1/25000. The unit row opens the chip picker (owner 22/10 settings card).
+    assert.equal(await page.locator("[data-bmq-unit-chip]").count(), 0, "unit chips stay folded until the row is tapped");
+    await page.locator("[data-bmq-unit-open]").click();
     await page.locator("[data-bmq-unit-chip='bao']").click();
+    assert.equal(await page.locator("[data-bmq-unit-open]").getAttribute("aria-expanded"), "false", "picker closes after a pick");
     await page.waitForSelector("[data-bmq-unit-change='bao']");
     await page.locator("[data-bmq-unit-change] [data-bmq-unit-factor]").fill("25000");
     await shot(page, `unit-ask-${vp.width}.png`, false);
@@ -421,6 +424,11 @@ try {
     await page.locator(`[data-bmq-kho-item='${unitTarget.id}']`).click();
     await dialogInView(page, "[data-bmq-kho-item-dialog]", vp);
     await page.waitForSelector("[data-bmq-conversion='cây']");
+    await page.locator(".d3-kho-unitset").screenshot({ path: path.join(EVIDENCE, `unit-card-${vp.width}.png`) });
+    await page.locator("[data-bmq-unit-open]").click();
+    await page.waitForSelector("[data-bmq-unit-chips]");
+    await page.waitForTimeout(350);
+    await page.locator(".d3-kho-unitset").screenshot({ path: path.join(EVIDENCE, `unit-card-open-${vp.width}.png`) });
     assert.ok(await page.locator(`[data-bmq-unit-chip='${unitTarget.unit}']`).evaluate((el) => el.classList.contains("is-current")), "current unit outlined");
     assert.ok(await page.locator("[data-bmq-conversion-disagree]").isVisible(), "disagreeing factors flagged");
     await noSpill(page, "unit-dialog", vp);
@@ -475,7 +483,7 @@ try {
     assert.equal(await page.locator("[data-bmq-kho-unit-edit]").count(), 0, "no pencil on the count list");
     await page.locator("[data-bmq-kho-count='tan_tao'] li [data-bmq-kho-count-open]").first().click();
     await dialogInView(page, "[data-bmq-kho-item-dialog]", vp);
-    await page.waitForSelector("[data-bmq-kho-item-dialog] [data-bmq-unit-chips]");
+    await page.waitForSelector("[data-bmq-kho-item-dialog] [data-bmq-unit-open]");
     await shot(page, `count-item-dialog-${vp.width}.png`, false);
     pass(`Kiểm kê name opens the item detail with unit + conversions ${vp.width}`);
     await context.close();

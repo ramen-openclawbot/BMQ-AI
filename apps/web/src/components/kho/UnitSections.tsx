@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, ArrowLeftRight, Check, Plus, X } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, Check, ChevronRight, Plus, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { OptionPicker } from "@/components/OptionPicker";
 import { useKhoSaveItem } from "@/hooks/useKhoItems";
@@ -16,6 +16,8 @@ import { ReceiptNotes } from "./ReceiptNotes";
  * or a new one) and the factor each delivery-note unit converts by. Saving a factor corrects the stock of
  * receipts already in the ledger; the preview shows by how much before anything is written.
  * Every factor input sits next to the delivery notes it comes from (owner rule 17/10).
+ * Layout (owner 22/10 "gọn và clean"): one settings card, one row per thing. The unit row opens its chip
+ * picker only when tapped; the conversion row says "Chưa có" with a + Thêm link until there is one.
  */
 
 const same = (a: string, b: string) => normalizeName(a) === normalizeName(b);
@@ -172,7 +174,7 @@ function ConversionRow({ itemId, group, stockUnit, canEdit, lines, linesLoading,
           ) : null}
         </div>
         {group.auto ? <span className="d3-kho-tag">Tự đổi</span>
-          : canEdit && !open ? <Button variant="outline" size="sm" onClick={() => setOpen(true)} data-bmq-conversion-edit>Sửa</Button> : null}
+          : canEdit && !open ? <button type="button" className="d3-kho-setlink" onClick={() => setOpen(true)} data-bmq-conversion-edit>Sửa</button> : null}
       </div>
       <div className="d3-kho-reveal" aria-hidden={!open}>
         <div className="d3-kho-reveal-inner">
@@ -196,10 +198,9 @@ function ConversionRow({ itemId, group, stockUnit, canEdit, lines, linesLoading,
 }
 
 /** A conversion for a unit no supplier has written yet ("nhà cung cấp mới giao theo thùng"). */
-function NewConversion({ itemId, stockUnit, units, taken, onSaved }: {
-  itemId: string; stockUnit: string; units: KhoUnit[]; taken: string[]; onSaved: (text: string) => void;
+function NewConversion({ itemId, stockUnit, units, taken, onSaved, onClose }: {
+  itemId: string; stockUnit: string; units: KhoUnit[]; taken: string[]; onSaved: (text: string) => void; onClose: () => void;
 }) {
-  const [open, setOpen] = useState(false);
   const [unit, setUnit] = useState("");
   const [factor, setFactor] = useState<number | null>(null);
   const [requestId, setRequestId] = useState(newRequestId);
@@ -214,21 +215,12 @@ function NewConversion({ itemId, stockUnit, units, taken, onSaved }: {
     save.mutate({ itemId, unit, factor, requestId }, {
       onSuccess: () => {
         onSaved(`Đã lưu ${conversionSentence(unit, factor, stockUnit)}`);
-        setOpen(false); setUnit(""); setFactor(null); setRequestId(newRequestId());
+        setUnit(""); setFactor(null); setRequestId(newRequestId()); onClose();
       },
     });
   };
   return (
-    <li className={cn("d3-kho-conv-row is-add", open && "is-open")} data-bmq-conversion-new>
-      {!open ? (
-        <button type="button" className="d3-kho-addrow" onClick={() => setOpen(true)} data-bmq-conversion-add>
-          <Plus aria-hidden="true" />Thêm quy đổi
-          <small>khi nhà cung cấp giao theo đơn vị khác (thùng, bao, kg…)</small>
-        </button>
-      ) : null}
-      <div className="d3-kho-reveal" aria-hidden={!open}>
-        <div className="d3-kho-reveal-inner">
-          {open ? (
+    <li className="d3-kho-conv-row is-add is-open" data-bmq-conversion-new>
             <div className="d3-kho-conv-editor">
               <div className="d3-kho-field">
                 <span>Phiếu giao ghi đơn vị</span>
@@ -238,12 +230,9 @@ function NewConversion({ itemId, stockUnit, units, taken, onSaved }: {
               {save.error ? <p className="d3-kho-error">{khoErrorText(save.error)}</p> : null}
               <div className="d3-kho-actions">
                 <Button disabled={!unit || factor === null || save.isPending} onClick={submit} data-bmq-conversion-add-save>{save.isPending ? "Đang lưu…" : "Lưu quy đổi"}</Button>
-                <Button variant="ghost" onClick={() => { setOpen(false); setUnit(""); setFactor(null); }}>Hủy</Button>
+                <Button variant="ghost" onClick={() => { setUnit(""); setFactor(null); onClose(); }}>Hủy</Button>
               </div>
             </div>
-          ) : null}
-        </div>
-      </div>
     </li>
   );
 }
@@ -254,6 +243,8 @@ function UnitPicker({ item, units, unitsLoading, onDone, onToast, lines, linesLo
   lines: ReceiptLine[] | undefined; linesLoading: boolean; linesError: unknown;
 }) {
   const [target, setTarget] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
   const [label, setLabel] = useState("");
   const [fresh, setFresh] = useState<string | null>(null);
@@ -263,8 +254,9 @@ function UnitPicker({ item, units, unitsLoading, onDone, onToast, lines, linesLo
   const add = useAddKhoUnit();
   const save = useKhoSaveItem();
   const inputRef = useRef<HTMLInputElement>(null);
-  const measure = units.filter((u) => u.kind !== "count");
-  const count = units.filter((u) => u.kind === "count");
+  const shown = query.trim() ? units.filter((u) => normalizeName(u.label).includes(normalizeName(query))) : units;
+  const measure = shown.filter((u) => u.kind !== "count");
+  const count = shown.filter((u) => u.kind === "count");
   const standard = target ? standardUnitFactor(item.unit, target) : null;
   const ready = target !== null && !same(target, item.unit) && (standard !== null || factor !== null);
   // Stock at every kho the item has a place at (a two-kho item converts both).
@@ -273,6 +265,8 @@ function UnitPicker({ item, units, unitsLoading, onDone, onToast, lines, linesLo
   const after = (f: number) => (book === null ? null : book * f);
 
   const pick = (code: string) => {
+    setOpen(false);
+    setQuery("");
     if (same(code, item.unit)) { setTarget(null); return; }
     setTarget(code);
     setFactor(null);
@@ -329,30 +323,47 @@ function UnitPicker({ item, units, unitsLoading, onDone, onToast, lines, linesLo
   };
 
   return (
-    <section className="d3-kho-unitsec" aria-labelledby="kho-unit-title">
-      <div className="d3-kho-sec-h">
-        <h3 id="kho-unit-title">Đơn vị kho</h3>
-        <small>Đơn vị dùng để đếm và ghi sổ tồn</small>
-      </div>
-      {unitsLoading ? <div className="d3-kho-chips" aria-hidden="true">{Array.from({ length: 8 }).map((_, i) => <span key={i} className="d3-kho-chip is-ghost" />)}</div> : (
-        <div className="d3-kho-chipgroups" role="radiogroup" aria-label="Đơn vị kho" data-bmq-unit-chips>
-          <div className="d3-kho-chips"><span className="d3-kho-chips-label">Cân, đong</span>{measure.map(chip)}</div>
-          <div className="d3-kho-chips">
-            <span className="d3-kho-chips-label">Đếm</span>
-            {count.map(chip)}
-            {adding ? (
-              <span className="d3-kho-chip-new" data-bmq-unit-new-field>
-                <input ref={inputRef} value={label} onChange={(event) => setLabel(event.target.value)} maxLength={16} placeholder="vd: khay"
-                  aria-label="Tên đơn vị mới" onKeyDown={(event) => { if (event.key === "Enter") createUnit(); if (event.key === "Escape") setAdding(false); }} />
-                <button type="button" onClick={createUnit} disabled={!label.trim() || add.isPending} aria-label="Thêm đơn vị" data-bmq-unit-new-save><Check /></button>
-                <button type="button" onClick={() => { setAdding(false); setLabel(""); add.reset(); }} aria-label="Thôi"><X /></button>
-              </span>
-            ) : (
-              <button type="button" className="d3-kho-chip is-add" onClick={() => setAdding(true)} data-bmq-unit-new><Plus aria-hidden="true" />Đơn vị mới</button>
-            )}
-          </div>
+    <div className={cn("d3-kho-setitem", (open || target) && "is-open")}>
+      <button type="button" className="d3-kho-setrow" aria-expanded={open} onClick={() => { setOpen((v) => !v); setQuery(""); }} data-bmq-unit-open>
+        <span className="d3-kho-setrow-label">Đơn vị kho</span>
+        <span className="d3-kho-setrow-value">{target ? <>{item.unit} → <b>{target}</b></> : <b>{item.unit}</b>}</span>
+        <ChevronRight className="d3-kho-setrow-chev" aria-hidden="true" />
+      </button>
+      <div className="d3-kho-reveal" aria-hidden={!open}>
+        <div className="d3-kho-reveal-inner">
+          {open ? (
+            <div className="d3-kho-unitpick">
+              {unitsLoading ? <div className="d3-kho-chips" aria-hidden="true">{Array.from({ length: 8 }).map((_, i) => <span key={i} className="d3-kho-chip is-ghost" />)}</div> : (
+                <>
+                  {units.length > 8 ? (
+                    <label className="d3-kho-unitsearch">
+                      <Search aria-hidden="true" />
+                      <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm đơn vị…" aria-label="Tìm đơn vị" data-bmq-unit-search />
+                    </label>
+                  ) : null}
+                  <div className="d3-kho-chipgroups" role="radiogroup" aria-label="Đơn vị kho" data-bmq-unit-chips>
+                    {measure.length ? <div className="d3-kho-chips"><span className="d3-kho-chips-label">Cân, đong</span>{measure.map(chip)}</div> : null}
+                    <div className="d3-kho-chips">
+                      {count.length ? <span className="d3-kho-chips-label">Đếm</span> : null}
+                      {count.map(chip)}
+                      {adding ? (
+                        <span className="d3-kho-chip-new" data-bmq-unit-new-field>
+                          <input ref={inputRef} value={label} onChange={(event) => setLabel(event.target.value)} maxLength={16} placeholder="vd: khay"
+                            aria-label="Tên đơn vị mới" onKeyDown={(event) => { if (event.key === "Enter") createUnit(); if (event.key === "Escape") setAdding(false); }} />
+                          <button type="button" onClick={createUnit} disabled={!label.trim() || add.isPending} aria-label="Thêm đơn vị" data-bmq-unit-new-save><Check /></button>
+                          <button type="button" onClick={() => { setAdding(false); setLabel(""); add.reset(); }} aria-label="Thôi"><X /></button>
+                        </span>
+                      ) : (
+                        <button type="button" className="d3-kho-chip is-add" onClick={() => { setAdding(true); setLabel(query.trim()); }} data-bmq-unit-new><Plus aria-hidden="true" />Đơn vị mới</button>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          ) : null}
         </div>
-      )}
+      </div>
       {add.error ? <p className="d3-kho-error">{khoErrorText(add.error)}</p> : null}
       <div className="d3-kho-reveal" aria-hidden={target === null}>
         <div className="d3-kho-reveal-inner">
@@ -384,7 +395,7 @@ function UnitPicker({ item, units, unitsLoading, onDone, onToast, lines, linesLo
           ) : null}
         </div>
       </div>
-    </section>
+    </div>
   );
 }
 
@@ -405,54 +416,61 @@ export function UnitAndConversions({ item, canEdit, lines, linesLoading, linesEr
   const savedOnly = useMemo(() => (data?.saved ?? []).filter((s) => !groups.some((g) => same(g.unit, s.unit)) && !same(s.unit, stockUnit)), [data, groups, stockUnit]);
   const editable = canEdit && (data?.can_edit ?? true);
 
-  return (
-    <>
-      {editable ? (
-        <UnitPicker item={item} units={units.data ?? []} unitsLoading={units.isLoading} onToast={onToast}
-          lines={lines} linesLoading={linesLoading} linesError={linesError}
-          onDone={(text, newId) => { onToast(text); if (newId) onReplaced(newId); }} />
-      ) : (
-        <section className="d3-kho-unitsec">
-          <div className="d3-kho-sec-h"><h3>Đơn vị kho</h3><small>Đếm và ghi sổ tồn theo <b>{item.unit}</b></small></div>
-        </section>
-      )}
-      {editable && units.error ? <p className="d3-kho-error">Chưa tải được danh sách đơn vị. {khoErrorText(units.error)}</p> : null}
+  const [adding, setAdding] = useState(false);
+  const total = groups.length + savedOnly.length;
 
-      <section className="d3-kho-convsec" aria-labelledby={`kho-conv-${item.id}`}>
-        <div className="d3-kho-sec-h">
-          <h3 id={`kho-conv-${item.id}`}>Quy đổi trên phiếu giao</h3>
-          <small>Phiếu ghi đơn vị khác thì máy nhân theo số này khi nhập kho</small>
-        </div>
-        {conversions.isLoading ? (
-          <ul className="d3-kho-conv-list" aria-hidden="true">{[0, 1].map((i) => <li key={i} className="d3-kho-conv-row is-ghost"><span className="d3-kho-bar" /><span className="d3-kho-bar is-short" /></li>)}</ul>
-        ) : conversions.isError ? (
-          <div className="d3-kho-failed" role="alert"><p>Không tải được quy đổi. {khoErrorText(conversions.error)}</p><Button variant="outline" onClick={() => void conversions.refetch()}>Thử lại</Button></div>
+  return (
+    <section className="d3-kho-unitset" aria-labelledby={`kho-unitset-${item.id}`}>
+      <h3 className="d3-kho-set-title" id={`kho-unitset-${item.id}`}>Đơn vị &amp; quy đổi</h3>
+      <div className="d3-kho-setcard">
+        {editable ? (
+          <UnitPicker item={item} units={units.data ?? []} unitsLoading={units.isLoading} onToast={onToast}
+            lines={lines} linesLoading={linesLoading} linesError={linesError}
+            onDone={(text, newId) => { onToast(text); if (newId) onReplaced(newId); }} />
         ) : (
-          <ul className="d3-kho-conv-list" data-bmq-conversions>
-            {groups.map((group) => (
-              <ConversionRow key={group.unit} itemId={item.id} group={group} stockUnit={stockUnit} canEdit={editable}
-                lines={lines} linesLoading={linesLoading} linesError={linesError} onSaved={onToast} />
-            ))}
-            {savedOnly.map((s) => (
-              <li key={`saved-${s.unit}`} className="d3-kho-conv-row" data-bmq-conversion-saved={s.unit}>
-                <div className="d3-kho-conv-head">
-                  <div className="d3-kho-conv-main">
-                    <b>{conversionSentence(s.unit, s.factor, stockUnit)}</b>
-                    <small><span>Chưa có phiếu nào ghi {s.unit}</span></small>
-                  </div>
-                </div>
-              </li>
-            ))}
-            {!groups.length && !savedOnly.length ? (
-              <li className="d3-kho-conv-empty">Phiếu giao của món này đều ghi đúng đơn vị {stockUnit}, chưa cần quy đổi.</li>
-            ) : null}
-            {editable ? (
-              <NewConversion itemId={item.id} stockUnit={stockUnit} units={units.data ?? []}
-                taken={[...groups.map((g) => g.unit), ...savedOnly.map((s) => s.unit)]} onSaved={onToast} />
-            ) : null}
-          </ul>
+          <div className="d3-kho-setitem">
+            <div className="d3-kho-setrow is-static">
+              <span className="d3-kho-setrow-label">Đơn vị kho</span>
+              <span className="d3-kho-setrow-value"><b>{item.unit}</b></span>
+            </div>
+          </div>
         )}
-      </section>
-    </>
+        {editable && units.error ? <p className="d3-kho-error d3-kho-setnote">Chưa tải được danh sách đơn vị. {khoErrorText(units.error)}</p> : null}
+
+        <div className="d3-kho-setitem">
+          <div className="d3-kho-setrow is-static">
+            <span className="d3-kho-setrow-label">Quy đổi phiếu giao</span>
+            <span className="d3-kho-setrow-value">{conversions.isLoading ? "…" : conversions.isError ? "—" : total ? `${total} đơn vị` : "Chưa có"}</span>
+            {editable && !adding && !conversions.isLoading && !conversions.isError ? (
+              <button type="button" className="d3-kho-setlink" onClick={() => setAdding(true)} data-bmq-conversion-add><Plus aria-hidden="true" />Thêm</button>
+            ) : null}
+          </div>
+          {conversions.isError ? (
+            <div className="d3-kho-failed d3-kho-setnote" role="alert"><p>Không tải được quy đổi. {khoErrorText(conversions.error)}</p><Button variant="outline" onClick={() => void conversions.refetch()}>Thử lại</Button></div>
+          ) : !conversions.isLoading && (total > 0 || adding) ? (
+            <ul className="d3-kho-conv-list" data-bmq-conversions>
+              {groups.map((group) => (
+                <ConversionRow key={group.unit} itemId={item.id} group={group} stockUnit={stockUnit} canEdit={editable}
+                  lines={lines} linesLoading={linesLoading} linesError={linesError} onSaved={onToast} />
+              ))}
+              {savedOnly.map((s) => (
+                <li key={`saved-${s.unit}`} className="d3-kho-conv-row" data-bmq-conversion-saved={s.unit}>
+                  <div className="d3-kho-conv-head">
+                    <div className="d3-kho-conv-main">
+                      <b>{conversionSentence(s.unit, s.factor, stockUnit)}</b>
+                      <small><span>Chưa có phiếu nào ghi {s.unit}</span></small>
+                    </div>
+                  </div>
+                </li>
+              ))}
+              {editable && adding ? (
+                <NewConversion itemId={item.id} stockUnit={stockUnit} units={units.data ?? []}
+                  taken={[...groups.map((g) => g.unit), ...savedOnly.map((s) => s.unit)]} onSaved={onToast} onClose={() => setAdding(false)} />
+              ) : null}
+            </ul>
+          ) : null}
+        </div>
+      </div>
+    </section>
   );
 }

@@ -887,6 +887,80 @@ html.bmq-d3 .d3-kho-addrow:hover { border-color: var(--d3-ink); }
 .d3-kho-addrow small { font-size: 12.5px; font-weight: 400; color: var(--d3-dim); }
 .d3-kho-conv-empty { padding: 12px 14px; border: 1px dashed var(--d3-line-2); border-radius: 12px; font-size: 13px; color: var(--d3-dim); }
 
+/* ---------- Đơn vị & quy đổi as one settings card (owner 22/10 "gọn và clean") ---------- */
+.d3-kho-unitset { display: grid; gap: 8px; min-width: 0; }
+.d3-kho-dialog-body > .d3-kho-unitset { padding-top: 18px; box-shadow: 0 -1px 0 var(--d3-line); }
+html.bmq-d3 .d3-kho-set-title { margin: 0; padding: 0 2px; font-size: 12px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; color: var(--d3-dim); }
+.d3-kho-setcard { min-width: 0; overflow: hidden; border-radius: 14px; background: var(--d3-white); }
+.d3-kho-setitem { min-width: 0; }
+.d3-kho-setitem + .d3-kho-setitem { box-shadow: inset 0 1px 0 var(--d3-line); }
+html.bmq-d3 .d3-kho-setrow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 52px;
+  padding: 0 16px;
+  border: 0;
+  background: none;
+  color: var(--d3-ink);
+  font-size: 15px;
+  text-align: left;
+}
+html.bmq-d3 button.d3-kho-setrow { cursor: pointer; transition: background-color .15s ease; }
+html.bmq-d3 button.d3-kho-setrow:hover { background: rgba(39, 39, 39, .03); }
+html.bmq-d3 button.d3-kho-setrow:focus-visible { outline: 2px solid var(--d3-ink); outline-offset: -2px; }
+.d3-kho-setrow-label { flex: 1 1 auto; min-width: 0; }
+.d3-kho-setrow-value { flex: none; font-size: 14px; color: var(--d3-dim); font-variant-numeric: tabular-nums; }
+.d3-kho-setrow-value b { font-weight: 500; color: var(--d3-ink); }
+.d3-kho-setrow-chev { flex: none; width: 16px; height: 16px; color: var(--d3-faint); transition: transform .2s var(--kho-ease); }
+.d3-kho-setrow[aria-expanded="true"] .d3-kho-setrow-chev { transform: rotate(90deg); }
+html.bmq-d3 .d3-kho-setlink {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  padding: 0 10px;
+  margin-right: -10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--d3-ink);
+  font-size: 14px;
+  font-weight: 500;
+}
+html.bmq-d3 .d3-kho-setlink:hover { background: rgba(39, 39, 39, .05); }
+html.bmq-d3 .d3-kho-setlink:focus-visible { outline: 2px solid var(--d3-ink); outline-offset: 1px; }
+.d3-kho-setlink svg { width: 15px; height: 15px; }
+.d3-kho-setnote { margin: 0 16px 14px; }
+.d3-kho-setrow-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Narrow phones: the + Thêm link already says what to do; drop the count so the label stays on one line. */
+@media (max-width: 360px) { .d3-kho-setrow.is-static .d3-kho-setrow-value:not(:last-child) { display: none; } }
+
+/* The unit picker opens under its row: optional search, then compact chips. */
+.d3-kho-unitpick { display: grid; gap: 10px; padding: 2px 16px 16px; }
+html.bmq-d3 .d3-kho-unitsearch { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 12px; border: 1px solid var(--d3-line-2); border-radius: 12px; background: var(--d3-white); color: var(--d3-dim); }
+html.bmq-d3 .d3-kho-unitsearch:focus-within { border-color: var(--d3-ink); }
+.d3-kho-unitsearch svg { flex: none; width: 15px; height: 15px; }
+html.bmq-d3 .d3-kho-unitsearch input { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; border-radius: 0; color: var(--d3-ink); font-size: 14px; outline: none; box-shadow: none; }
+.d3-kho-unitpick .d3-kho-chipgroups { gap: 8px; }
+.d3-kho-unitpick .d3-kho-chips { gap: 6px; }
+.d3-kho-unitpick .d3-kho-chips-label { font-size: 11.5px; }
+html.bmq-d3 .d3-kho-unitpick .d3-kho-chip { height: 34px; min-height: 34px; padding: 0 12px; font-size: 14px; }
+.d3-kho-setitem > .d3-kho-reveal .d3-kho-conv-editor { padding: 4px 16px 16px; }
+.d3-kho-setitem > .d3-kho-error { margin: 0 16px 14px; }
+
+/* Conversions sit as hairline rows under their header row. */
+.d3-kho-setcard .d3-kho-conv-list { gap: 0; }
+.d3-kho-setcard .d3-kho-conv-row { padding: 12px 16px; border-radius: 0; background: transparent; box-shadow: inset 0 1px 0 var(--d3-line); }
+.d3-kho-setcard .d3-kho-conv-row.is-open,
+.d3-kho-setcard .d3-kho-conv-row.is-add.is-open { padding: 12px 16px 16px; background: #fafaf9; box-shadow: inset 0 1px 0 var(--d3-line); }
+.d3-kho-setcard .d3-kho-conv-row.is-warn:not(.is-open) { box-shadow: inset 0 1px 0 var(--d3-line), inset 3px 0 0 #e8c27a; }
+.d3-kho-setcard .d3-kho-conv-head { align-items: center; }
+.d3-kho-setcard .d3-kho-conv-main > b { font-size: 15px; }
+.d3-kho-setcard .d3-kho-conv-main small { font-size: 12px; }
+
 /* ---------- Đã đặt / Giữ cho sản xuất (owner 22/10) ---------- */
 .d3-kho-hold { color: var(--d3-ink-2); }
 .d3-kho-row-qty small { display: block; margin-top: 2px; font-size: 12px; color: var(--d3-dim); }
