@@ -286,6 +286,19 @@ html.bmq-d3 .d3-kho-row.is-link .d3-kho-row-main {
 .d3-kho-bar { display: block; width: 52%; height: 12px; border-radius: 6px; background: #e3e3e0; }
 .d3-kho-bar.is-short { width: 72px; }
 
+/* Every Kho placeholder shimmers like the shared "Sổ cái" loading rows (owner 22/10). */
+.d3-kho-row.is-ghost .d3-kho-bar,
+.d3-kho-note.is-ghost,
+.d3-kho-chip.is-ghost,
+.d3-kho-conv-row.is-ghost {
+  background: linear-gradient(90deg, #e3e3e0 0%, #f4f4f2 50%, #e3e3e0 100%) 0 0 / 200% 100%;
+  animation: d3-kho-shimmer 1.4s linear infinite;
+}
+@keyframes d3-kho-shimmer { to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .d3-kho-row.is-ghost .d3-kho-bar, .d3-kho-note.is-ghost, .d3-kho-chip.is-ghost, .d3-kho-conv-row.is-ghost { animation: none; }
+}
+
 /* ---------- Kiểm kê ---------- */
 .d3-kho-progress {
   display: grid;

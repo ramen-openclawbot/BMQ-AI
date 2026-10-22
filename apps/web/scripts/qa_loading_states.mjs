@@ -23,6 +23,7 @@ const ENTRY = `
 import { createRoot } from "react-dom/client";
 import "/src/index.css";
 import "/src/styles/bmq-shell.css";
+import "/src/styles/bmq-kho.css";
 import { PageLoader, LoadingState, LedgerMark } from "@/components/ui/loading";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -38,6 +39,7 @@ function Blocks() {
         <LoadingState flat rows={3} label="Đang tải danh sách PO chờ thiết lập SX — một nhãn rất dài để kiểm tra xuống dòng trên điện thoại 390px…" />
       </section>
       <section data-qa="ledger"><LoadingState variant="ledger" label="Đang tải chi tiết phiếu nhập..." /></section>
+      <ul data-qa="kho-ghost" style={{ display: "grid", gap: 8, listStyle: "none", padding: 0 }}>{[0, 1].map((i) => <li key={i} className="d3-kho-row is-ghost"><span className="d3-kho-bar" /><span className="d3-kho-bar is-short" /></li>)}</ul>
       <section data-qa="skeleton" style={{ display: "grid", gap: 8 }}><Skeleton className="h-16" /><Skeleton className="h-4 w-1/2" /></section>
     </main>
   );
@@ -61,6 +63,13 @@ const fixtures = {
   load(id) { return id === "\0qa-loading-entry.tsx" ? ENTRY : null; },
   configureServer(server) {
     server.middlewares.use(async (req, res, next) => {
+      if (req.url?.startsWith("/__qa/boot")) {
+        // The real index.html without the app bundle: what a phone shows before the JS arrives.
+        const raw = fs.readFileSync(path.join(ROOT, "index.html"), "utf8").replace(/<script type="module"[^>]*><\/script>/, "");
+        res.setHeader("content-type", "text/html");
+        res.end(raw);
+        return;
+      }
       if (!req.url?.startsWith("/__qa/loading")) return next();
       const html = await server.transformIndexHtml(req.url, `<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="/__qa_loading_entry.tsx"></script></body></html>`);
       res.setHeader("content-type", "text/html");
@@ -167,6 +176,35 @@ for (const width of [390, 1440]) {
   ok(names.length === 1 && names[0] === "none", `reduced motion: shimmer still runs (${names})`);
   const shown = await opacity(page, ".bmq-ld-delay");
   ok(shown.every((o) => o > 0.95), `reduced motion: placeholders hidden (${shown})`);
+  await context.close();
+}
+
+{
+  // Kho screens keep their own ghost rows; they must shimmer too (owner screenshot 22/10).
+  const { context, page } = await open("blocks", 390);
+  const kho = await page.$$eval("[data-qa=kho-ghost] .d3-kho-bar", (els) => [...new Set(els.map((el) => getComputedStyle(el).animationName))]);
+  ok(kho.length === 1 && kho[0] === "d3-kho-shimmer", `kho ghost rows static (${kho})`);
+  await context.close();
+}
+
+for (const width of [390, 1440]) {
+  // Boot loader inside index.html covers the blank screen before React mounts.
+  const context = await browser.newContext({ viewport: { width, height: 900 } });
+  const page = await context.newPage();
+  await page.goto(`http://127.0.0.1:${PORT}/__qa/boot`);
+  await page.waitForTimeout(1100);
+  const boot = await page.evaluate(() => {
+    const svg = document.querySelector(".bmq-boot svg");
+    return {
+      shown: svg ? Number(getComputedStyle(svg).opacity) : -1,
+      posting: [...document.querySelectorAll(".bmq-boot .e")].every((el) => getComputedStyle(el).animationName === "bmq-boot-post"),
+      text: document.querySelector("#root")?.innerText.trim() ?? "missing",
+      overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+    };
+  });
+  ok(boot.shown > 0.95 && boot.posting, `${width}: boot ledger not animating (${JSON.stringify(boot)})`);
+  ok(boot.text === "" && !boot.overflow, `${width}: boot loader text/overflow (${JSON.stringify(boot)})`);
+  await page.screenshot({ path: path.join(EVIDENCE, `boot-${width}.png`) });
   await context.close();
 }
 

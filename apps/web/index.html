@@ -38,7 +38,34 @@
   </head>
 
   <body>
-    <div id="root"></div>
+    <!-- Boot loader ("Sổ cái", owner 22/10/2026): covers the blank screen until React mounts and replaces #root. -->
+    <style>
+      .bmq-boot{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#e4e4e4}
+      .bmq-boot-bar{position:fixed;inset:0 0 auto 0;height:2px;overflow:hidden}
+      .bmq-boot-bar::before{content:"";position:absolute;inset:0;background:#272727;transform-origin:left;transform:scaleX(0);animation:bmq-boot-bar 2.4s cubic-bezier(.2,.8,.2,1) .12s forwards}
+      .bmq-boot svg{width:60px;height:auto;opacity:0;animation:bmq-boot-in .22s ease-out .4s forwards}
+      .bmq-boot .e{transform-box:view-box;transform-origin:8px 0;transform:scaleX(0);animation:bmq-boot-post 2.6s cubic-bezier(.2,.8,.2,1) infinite}
+      .bmq-boot .e rect{fill:#272727;fill-opacity:.78}.bmq-boot .e rect:first-child{fill:#a3a3a0;fill-opacity:1}
+      .bmq-boot .t{transform-origin:40px 0}.bmq-boot .t rect{fill-opacity:1}.bmq-boot .t line{stroke:#272727}
+      @keyframes bmq-boot-in{to{opacity:1}}
+      @keyframes bmq-boot-bar{40%{transform:scaleX(.55)}to{transform:scaleX(.86)}}
+      @keyframes bmq-boot-post{0%{transform:scaleX(0);opacity:1}14%,72%{transform:scaleX(1);opacity:1}86%,to{transform:scaleX(1);opacity:0}}
+      @media (prefers-reduced-motion:reduce){.bmq-boot-bar::before,.bmq-boot .e{animation:none;transform:none}}
+    </style>
+    <div id="root"><div class="bmq-boot" role="status" aria-label="Đang tải…">
+      <div class="bmq-boot-bar"></div>
+      <svg viewBox="0 0 64 76" aria-hidden="true">
+        <rect x="1" y="1" width="62" height="74" rx="7" fill="#fdfdfc" stroke="#d6d6d3" />
+        <rect x="8" y="9" width="20" height="4" rx="2" fill="#272727" /><rect x="44" y="9" width="12" height="4" rx="2" fill="#a3a3a0" />
+        <line x1="8" y1="18" x2="56" y2="18" stroke="#d6d6d3" /><line x1="15.5" y1="21" x2="15.5" y2="57" stroke="#d6d6d3" stroke-dasharray="2 2" />
+        <g class="e"><rect x="8" y="25" width="4" height="3" rx="1.5" /><rect x="19" y="25" width="22" height="3" rx="1.5" /><rect x="46" y="25" width="10" height="3" rx="1.5" /></g>
+        <g class="e" style="animation-delay:.16s"><rect x="8" y="34" width="4" height="3" rx="1.5" /><rect x="19" y="34" width="16" height="3" rx="1.5" /><rect x="44" y="34" width="12" height="3" rx="1.5" /></g>
+        <g class="e" style="animation-delay:.32s"><rect x="8" y="43" width="4" height="3" rx="1.5" /><rect x="19" y="43" width="20" height="3" rx="1.5" /><rect x="48" y="43" width="8" height="3" rx="1.5" /></g>
+        <g class="e" style="animation-delay:.48s"><rect x="8" y="52" width="4" height="3" rx="1.5" /><rect x="19" y="52" width="13" height="3" rx="1.5" /><rect x="45" y="52" width="11" height="3" rx="1.5" /></g>
+        <g class="e t" style="animation-delay:.64s"><line x1="40" y1="60.5" x2="56" y2="60.5" /><rect x="42" y="64" width="14" height="4" rx="2" /><line x1="40" y1="71" x2="56" y2="71" /></g>
+      </svg>
+    </div></div>
+    <script>if (location.hostname === "dathang.banhmique.vn") { var b = document.querySelector(".bmq-boot"); if (b) b.style.background = "#fff9f5"; }</script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
