@@ -64,6 +64,8 @@ const ITEMS = {
     { id: "it-b2", goods_receipt_id: "gr-b", product_name: "Tem dán logo", quantity: 2000, ordered_quantity: 2000, actual_quantity: 2000, unit: "cái", unit_price: 30, line_status: "du", product_skus: null, inventory_items: null, purchase_order_items: { id: "poi-3", product_name: "Tem dán logo", quantity: 2000, unit_price: 30 }, canonical_materials: { id: "m3", material_code: "BB-003", canonical_name: "Tem dán logo", default_unit: "cái" }, canonical_material_id: "m3" },
     // Not linked to a standard material yet (shows the plain amber note, no queue link).
     { id: "it-b3", goods_receipt_id: "gr-b", product_name: "Túi Bánh Mì (giao đợt 1717)", raw_product_name: "Túi Bánh Mì (giao đợt 1717)", quantity: 10000, ordered_quantity: 10000, actual_quantity: 10000, unit: "cái", unit_price: 180, line_status: "du", product_skus: null, inventory_items: null, purchase_order_items: null, canonical_materials: null, canonical_material_id: null, material_resolution_status: "unknown", material_resolution_request_id: "574fcdfb-a48d-4754-8cac-bb6b8f790813" },
+    // Owner marked as not stock (request rejected): muted note, no amber box.
+    { id: "it-b4", goods_receipt_id: "gr-b", product_name: "Vận chuyển hàng", raw_product_name: "Vận chuyển hàng", quantity: 1, ordered_quantity: 1, actual_quantity: 1, unit: "lần", unit_price: 40000, line_status: "du", product_skus: null, inventory_items: null, purchase_order_items: null, canonical_materials: null, canonical_material_id: null, material_resolution_status: "unknown", material_resolution_request_id: "11111111-2222-4333-8444-555555555555", material_resolution_request: { status: "rejected" } },
   ],
 };
 function fixtureRows(st) {
@@ -248,6 +250,11 @@ try {
         assert.match(facts.text, /Tên trên phiếu: Túi Bánh Mì \(giao đợt 1717\)/);
         assert.doesNotMatch(facts.text, /material-master|unknown|yêu cầu 574fcdfb|Cần xử lý NVL/);
         assert.equal(await page.locator('[data-bmq-goods-receipt-detail-mobile-v2] a[href="/material-master"]').count(), 0, "no queue link");
+        assert.match(facts.text, /Vận chuyển hàng[\s\S]*Không tính vào kho/);
+        const nonstock = page.locator("[data-bmq-goods-receipt-detail-mobile-v2] [data-bmq-goods-receipt-material-nonstock]:visible").first();
+        await nonstock.scrollIntoViewIfNeeded();
+        await nonstock.locator("xpath=../..").screenshot({ path: `${EVIDENCE}/gr-nonstock-line-${viewport.width}.png` });
+        assert.equal(await page.locator("[data-bmq-goods-receipt-detail-mobile-v2] [data-material-resolution-status]:visible").count(), 1, "only the unlinked line gets the amber note");
         const note = page.locator("[data-bmq-goods-receipt-detail-mobile-v2] [data-material-resolution-status]:visible").first();
         await note.scrollIntoViewIfNeeded();
         await note.locator("xpath=../..").screenshot({ path: `${EVIDENCE}/gr-unlinked-line-${viewport.width}.png` });

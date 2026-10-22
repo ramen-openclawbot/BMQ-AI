@@ -26,6 +26,8 @@ export type GoodsReceiptItem = Tables<"goods_receipt_items"> & {
   inventory_items?: { id: string; name: string; quantity: number } | null;
   purchase_order_items?: { id: string; product_name: string | null; quantity: number | null; unit_price: number | null } | null;
   canonical_materials?: { id: string; material_code: string | null; canonical_name: string | null; default_unit: string | null } | null;
+  /** Null when the viewer cannot read Material Master requests (RLS). */
+  material_resolution_request?: { status: string | null } | null;
 };
 
 export type DeliveryNoteMaterialResolution = {
@@ -167,7 +169,7 @@ export function useGoodsReceiptItems(receiptId: string | null) {
       if (!receiptId) throw new Error("No receipt ID provided");
       const relationQuery = await supabase
         .from("goods_receipt_items")
-        .select("*, product_skus(id, sku_code, product_name), inventory_items(id, name, quantity), purchase_order_items(id, product_name, quantity, unit_price), canonical_materials:sku_cogs_materials!goods_receipt_items_canonical_material_id_fkey(id, material_code, canonical_name, default_unit)")
+        .select("*, product_skus(id, sku_code, product_name), inventory_items(id, name, quantity), purchase_order_items(id, product_name, quantity, unit_price), canonical_materials:sku_cogs_materials!goods_receipt_items_canonical_material_id_fkey(id, material_code, canonical_name, default_unit), material_resolution_request:material_resolution_requests!goods_receipt_items_material_resolution_request_id_fkey(status)")
         .eq("goods_receipt_id", receiptId)
         .order("created_at", { ascending: true });
 

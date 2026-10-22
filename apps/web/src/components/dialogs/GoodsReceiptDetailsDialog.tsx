@@ -243,6 +243,16 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
       );
     }
 
+    // Owner 22/10: lines the owner marked as not stock (shipping, services) are
+    // not a pending task, so they get a muted note instead of the amber one.
+    if (item.material_resolution_request?.status === "rejected") {
+      return (
+        <p className="mt-1 text-xs text-muted-foreground" data-bmq-goods-receipt-material-nonstock>
+          Không tính vào kho
+        </p>
+      );
+    }
+
     // Owner 22/10: no queue link or internal status/request ids here; linking is
     // decided in the VNAgent chat. The status/request id stay in data attributes.
     const blockerText = blockers
