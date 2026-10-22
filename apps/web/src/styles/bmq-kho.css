@@ -1045,3 +1045,10 @@ html.bmq-d3 .d3-kho-unitpick .d3-kho-chip { height: 34px; min-height: 34px; padd
 .d3-kr-cand .d3-kho-ask { margin-top: 6px; }
 .d3-kr-select { min-height: 40px; width: 100%; max-width: 220px; padding: 0 10px; border-radius: 10px; border: 1px solid var(--d3-line-2, #d9d6cc); background: var(--d3-white, #fff); font-size: 14px; }
 .d3-kho-row-qty.is-short { color: var(--kho-bad, #8f2414); }
+
+.d3-kr-jev { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.d3-kr-jev small { font-size: 12.5px; color: var(--d3-dim); }
+.d3-kr-jevtag { justify-self: start; padding: 2px 9px; border-radius: 999px; font-size: 12.5px; font-weight: 500; background: var(--d3-paper-2, rgba(0,0,0,.05)); color: var(--d3-ink-2); }
+.d3-kr-jevtag.is-same_item { background: var(--kho-ok-bg, #e2f3e6); color: var(--kho-ok, #1f6b35); }
+.d3-kr-jevtag.is-different { background: var(--kho-bad-bg, #fde4df); color: var(--kho-bad, #8f2414); }
+.d3-kr-jevtag.is-unsure { background: var(--kho-warn-bg, #fdf0d8); color: var(--kho-warn, #7a4d06); }

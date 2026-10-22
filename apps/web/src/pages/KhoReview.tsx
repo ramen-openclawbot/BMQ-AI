@@ -5,9 +5,9 @@ import { Input } from "@/components/ui/input";
 import { LoadingState } from "@/components/ui/loading";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { useKhoReviewCreateItem, useKhoReviewLink, useKhoReviewList } from "@/hooks/useKhoReview";
+import { useKhoReviewCreateItem, useKhoReviewJev, useKhoReviewLink, useKhoReviewList } from "@/hooks/useKhoReview";
 import {
-  khoReviewErrorText, reviewReasonText, suggestedFactor,
+  jevVerdictText, khoReviewErrorText, reviewReasonText, suggestedFactor,
   type KhoReviewCandidate, type KhoReviewItem, type KhoReviewLocation, type KhoReviewMaterial,
 } from "@/lib/kho-review";
 import type { ReceiptLine } from "@/lib/receipt-lines";
@@ -45,6 +45,12 @@ export default function KhoReview() {
   const [openItem, setOpenItem] = useState<string | null>(null);
   const [openMat, setOpenMat] = useState<string | null>(null);
   const { confirm, dialog } = useKhoConfirm();
+  const { toast } = useToast();
+  const jev = useKhoReviewJev();
+  const runJev = (targetKeys?: string[]) => jev.mutate({ targetKeys, limit: 40 }, {
+    onSuccess: (r) => toast({ title: r.asked ? `Jev đã chấm ${r.marks.length} dòng gợi ý` : "Các gợi ý đã được Jev chấm trước đó", description: r.skipped ? `Còn ${r.skipped} dòng chưa chấm, bấm lần nữa để chấm tiếp.` : undefined }),
+    onError: (e) => toast({ title: "Jev chưa chấm được", description: khoReviewErrorText(e), variant: "destructive" }),
+  });
   const items = useMemo(() => list.data?.items ?? [], [list.data]);
   const materials = useMemo(() => list.data?.materials ?? [], [list.data]);
   const key = normalizeName(query);
@@ -87,6 +93,12 @@ export default function KhoReview() {
             <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Tìm món…" aria-label="Tìm món" enterKeyHint="search" />
             {query ? <button type="button" onClick={() => setQuery("")} aria-label="Xóa tìm kiếm"><X /></button> : null}
           </span>
+        </div>
+        <div className="d3-kr-jev">
+          <Button variant="outline" size="sm" disabled={jev.isPending || list.isLoading} onClick={() => runJev()} data-bmq-review-jev>
+            {jev.isPending ? "Jev đang chấm…" : "Nhờ Jev chấm"}
+          </Button>
+          <small>Jev xem từng dòng phiếu có đúng món không. Chỉ đánh dấu, không tự nối.</small>
         </div>
         <p className="d3-kho-hint">
           {view === "items"
@@ -134,8 +146,8 @@ export default function KhoReview() {
         ) : <p className="d3-kho-empty">Mọi NVL trong giá vốn đã có món kho.</p>}
       </section>
 
-      {item ? <ItemReview item={item} confirm={confirm} onClose={() => setOpenItem(null)} /> : null}
-      {mat ? <MaterialReview mat={mat} onClose={() => setOpenMat(null)} /> : null}
+      {item ? <ItemReview item={item} confirm={confirm} onClose={() => setOpenItem(null)} onJev={() => runJev([item.target_key])} jevBusy={jev.isPending} /> : null}
+      {mat ? <MaterialReview mat={mat} onClose={() => setOpenMat(null)} onJev={() => runJev([mat.target_key])} jevBusy={jev.isPending} /> : null}
       {dialog}
     </div>
   );
@@ -148,6 +160,9 @@ function CandidateCard({ c, children, note }: { c: KhoReviewCandidate; children?
         <b>{c.product_name}</b>
         <span className="d3-kr-score" title="Mức giống tên">{Math.round(c.score * 100)}%</span>
       </div>
+      {jevVerdictText(c.jev_verdict, c.jev_probability) ? (
+        <span className={cn("d3-kr-jevtag", c.jev_verdict && `is-${c.jev_verdict}`)} data-bmq-review-jevtag={c.jev_verdict ?? ""}>{jevVerdictText(c.jev_verdict, c.jev_probability)}</span>
+      ) : null}
       <small>
         {c.receipt_number} · {dm(c.receipt_date)} · Kho {c.location ? KHO_LABEL[c.location] : "?"}
         {c.supplier_name ? ` · ${c.supplier_name}` : ""}
@@ -163,7 +178,7 @@ function CandidateCard({ c, children, note }: { c: KhoReviewCandidate; children?
   );
 }
 
-function ItemReview({ item, confirm, onClose }: { item: KhoReviewItem; confirm: ReturnType<typeof useKhoConfirm>["confirm"]; onClose: () => void }) {
+function ItemReview({ item, confirm, onClose, onJev, jevBusy }: { item: KhoReviewItem; confirm: ReturnType<typeof useKhoConfirm>["confirm"]; onClose: () => void; onJev: () => void; jevBusy: boolean }) {
   const { toast } = useToast();
   const link = useKhoReviewLink();
   const [picked, setPicked] = useState<string | null>(null);
@@ -193,6 +208,9 @@ function ItemReview({ item, confirm, onClose }: { item: KhoReviewItem; confirm: 
 
   return (
     <KhoDialog title={item.name} sub={`Kho ${KHO_LABEL[item.location]} · ${reviewReasonText(item.reason)} · tồn ${fmtAmount(item.qty, item.unit)}`} onClose={onClose} wide data={{ "data-bmq-review-dialog": "" }}>
+      {item.candidates.length && item.candidates.some((c) => !c.jev_verdict) ? (
+        <Button variant="outline" size="sm" className="d3-kr-pick" disabled={jevBusy} onClick={onJev} data-bmq-review-jev-one>{jevBusy ? "Jev đang chấm…" : "Nhờ Jev chấm các dòng này"}</Button>
+      ) : null}
       {item.candidates.length ? (
         <ul className="d3-kr-cands">
           {item.candidates.map((c) => (
@@ -223,7 +241,7 @@ function ItemReview({ item, confirm, onClose }: { item: KhoReviewItem; confirm: 
   );
 }
 
-function MaterialReview({ mat, onClose }: { mat: KhoReviewMaterial; onClose: () => void }) {
+function MaterialReview({ mat, onClose, onJev, jevBusy }: { mat: KhoReviewMaterial; onClose: () => void; onJev: () => void; jevBusy: boolean }) {
   const { toast } = useToast();
   const create = useKhoReviewCreateItem();
   const [picked, setPicked] = useState<string | null>(null);
@@ -270,6 +288,9 @@ function MaterialReview({ mat, onClose }: { mat: KhoReviewMaterial; onClose: () 
 
   return (
     <KhoDialog title={mat.name} sub={`NVL giá vốn · ${mat.recipe_unit} · ${mat.sku_codes.join(", ")}`} onClose={onClose} wide data={{ "data-bmq-review-dialog": "" }}>
+      {mat.candidates.length && mat.candidates.some((c) => !c.jev_verdict) ? (
+        <Button variant="outline" size="sm" className="d3-kr-pick" disabled={jevBusy} onClick={onJev} data-bmq-review-jev-one>{jevBusy ? "Jev đang chấm…" : "Nhờ Jev chấm các dòng này"}</Button>
+      ) : null}
       {mat.candidates.length ? (
         <ul className="d3-kr-cands">
           {mat.candidates.map((c) => (

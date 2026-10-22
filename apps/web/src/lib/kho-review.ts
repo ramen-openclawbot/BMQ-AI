@@ -7,6 +7,10 @@
  *   kho_review_create_item_from_line(uuid, text, text, text, numeric, uuid)
  *     -> KhoReviewLinkResult
  *
+ * Jev slice (apps/web/supabase/migrations/20261102740000_kho_review_jev.sql):
+ *   kho_review_list() also returns target_key + the latest jev_* marks;
+ *   kho_review_jev_feedback(text, uuid, text, uuid) records the human decision.
+ *
  * `items` are active items that have a place at a kho and either no linked
  * receipt line or a negative balance there.  `materials` are canonical recipe
  * ingredients whose cogs_ingredient_stock_map row is still missing / suggested.
@@ -17,6 +21,9 @@ export type KhoReviewLocation = "tan_tao" | "q7";
 
 /** 'no_docs_negative' means both reasons apply to the same item/kho row. */
 export type KhoReviewReason = "no_docs" | "negative" | "no_docs_negative";
+
+/** Jev suggestion only; Jev never links or creates anything by itself. */
+export type KhoReviewJevVerdict = "same_item" | "different" | "unsure";
 
 export interface KhoReviewCandidate {
   receipt_item_id: string;
@@ -36,6 +43,10 @@ export interface KhoReviewCandidate {
   linked_item_id: string | null;
   /** A 'gr-item:' ledger movement already exists for the line. */
   posted: boolean;
+  /** Latest Jev mark for this (target, receipt line) pair, if any. */
+  jev_verdict: KhoReviewJevVerdict | null;
+  jev_probability: number | null;
+  jev_model: string | null;
 }
 
 export interface KhoReviewItem {
@@ -47,6 +58,8 @@ export interface KhoReviewItem {
   location: KhoReviewLocation;
   qty: number;
   reason: KhoReviewReason;
+  /** 'i:<item_id>:<location>' — same key the server and Jev marks use. */
+  target_key: string;
   candidates: KhoReviewCandidate[];
 }
 
@@ -56,6 +69,8 @@ export interface KhoReviewMaterial {
   /** public.normalize_document_unit(recipe unit). */
   recipe_unit: string;
   sku_codes: string[];
+  /** 'm:<canonical_material_id>:<recipe_unit>' — same key the server uses. */
+  target_key: string;
   candidates: KhoReviewCandidate[];
 }
 
@@ -73,6 +88,14 @@ export interface KhoReviewLinkResult {
   location: KhoReviewLocation;
 }
 
+export interface KhoReviewJevFeedbackResult {
+  status: "recorded";
+  updated: number;
+  target_key: string;
+  receipt_item_id: string;
+  human_action: "linked" | "dismissed";
+}
+
 /** Short Vietnamese label for the item/kho row reason. */
 export function reviewReasonText(reason: KhoReviewReason): string {
   switch (reason) {
@@ -82,6 +105,30 @@ export function reviewReasonText(reason: KhoReviewReason): string {
       return "Đang âm";
     case "no_docs_negative":
       return "Chưa có phiếu mua, đang âm";
+  }
+}
+
+/**
+ * Short Vietnamese label for one Jev suggestion.  A same-item mark carries the
+ * probability as a percentage; different / unsure do not.  No mark -> null.
+ */
+export function jevVerdictText(
+  verdict: KhoReviewJevVerdict | null | undefined,
+  probability: number | null | undefined,
+): string | null {
+  if (verdict === null || verdict === undefined) return null;
+  switch (verdict) {
+    case "same_item": {
+      if (typeof probability !== "number" || !Number.isFinite(probability)) {
+        return "Jev: đúng món";
+      }
+      const clamped = Math.max(0, Math.min(1, probability));
+      return `Jev: đúng món ${Math.round(clamped * 100)}%`;
+    }
+    case "different":
+      return "Jev: khác loại";
+    case "unsure":
+      return "Jev: chưa chắc";
   }
 }
 

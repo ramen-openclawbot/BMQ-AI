@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  jevVerdictText,
   khoReviewErrorText,
   reviewReasonText,
   suggestedFactor,
@@ -11,6 +12,17 @@ test("reviewReasonText labels every reason", () => {
   assert.equal(reviewReasonText("no_docs"), "Chưa có phiếu mua");
   assert.equal(reviewReasonText("negative"), "Đang âm");
   assert.equal(reviewReasonText("no_docs_negative"), "Chưa có phiếu mua, đang âm");
+});
+
+test("jevVerdictText shows the same-item probability and the other verdicts", () => {
+  assert.equal(jevVerdictText("same_item", 0.92), "Jev: đúng món 92%");
+  assert.equal(jevVerdictText("same_item", 0.8), "Jev: đúng món 80%");
+  assert.equal(jevVerdictText("same_item", 0.805), "Jev: đúng món 81%");
+  assert.equal(jevVerdictText("same_item", null), "Jev: đúng món");
+  assert.equal(jevVerdictText("different", 0.1), "Jev: khác loại");
+  assert.equal(jevVerdictText("unsure", 0.5), "Jev: chưa chắc");
+  assert.equal(jevVerdictText(null, 0.9), null);
+  assert.equal(jevVerdictText(undefined, null), null);
 });
 
 test("suggestedFactor follows the standard measure table", () => {

@@ -65,16 +65,16 @@ function settle(st) {
   if (st.table === "rpc:kho_review_list") {
     if (mode === "error") return { data: null, error: { message: "canceling statement due to statement timeout", code: "57014" } };
     if (mode === "empty") return { data: { items: [], materials: [] }, error: null };
-    const cand = (n, name, unit, qty, price, loc, score, extra) => Object.assign({ receipt_item_id: "gri-" + n, receipt_number: "GRN-QA-" + (1000 + n), receipt_date: "2026-10-" + String(10 + (n % 10)).padStart(2, "0"), location: loc, supplier_name: n % 2 ? "Kamereo" : "Nhất Hương Thực Phẩm Sài Gòn (rất dài tên nhà cung cấp)", product_name: name, unit, actual_quantity: qty, unit_price: price, image_url: n % 3 === 0 ? null : "goods-receipts/qa-" + n + ".jpg", score, linked_item_id: null, posted: false }, extra || {});
+    const cand = (n, name, unit, qty, price, loc, score, extra) => Object.assign({ receipt_item_id: "gri-" + n, receipt_number: "GRN-QA-" + (1000 + n), receipt_date: "2026-10-" + String(10 + (n % 10)).padStart(2, "0"), location: loc, supplier_name: n % 2 ? "Kamereo" : "Nhất Hương Thực Phẩm Sài Gòn (rất dài tên nhà cung cấp)", product_name: name, unit, actual_quantity: qty, unit_price: price, image_url: n % 3 === 0 ? null : "goods-receipts/qa-" + n + ".jpg", score, linked_item_id: null, posted: false, jev_verdict: n === 1 ? "same_item" : n === 2 ? "different" : null, jev_probability: n === 1 ? 0.93 : n === 2 ? 0.05 : null, jev_model: n <= 2 ? "typesafe-ai/jev" : null }, extra || {});
     const items = [
-      { item_id: "it-kem", item_code: "Q7-KEM", name: "Kem làm mềm bánh", unit: "g", item_class: "raw_material", location: "q7", qty: -13021.8, reason: "no_docs_negative", candidates: [cand(1, "Kem rich làm mềm bánh", "kg", 5, 95000, "q7", 1), cand(2, "Kem Rich's Whipping Topping 907g / hộp (thùng 12 hộp) giao kèm hóa đơn đỏ", "hộp", 12, 89000, "q7", 0.5, { linked_item_id: "other" })] },
-      { item_id: "it-nuoc", item_code: "Q7-NUOC", name: "Nước Vihawa 20L Bình Vòi", unit: "g", item_class: "raw_material", location: "q7", qty: -47274.04, reason: "no_docs_negative", candidates: [cand(3, "Nước Vihawa 20L Bình Vòi", "Bình", 6, 61000, "tan_tao", 1)] },
-      { item_id: "it-tem", item_code: "CCDC-038", name: "Tem pháp", unit: "con", item_class: "packaging_supply", location: "q7", qty: 1085, reason: "no_docs", candidates: [] },
-      { item_id: "it-muoi", item_code: "NVL-155", name: "Muối", unit: "g", item_class: "raw_material", location: "tan_tao", qty: 24900, reason: "no_docs", candidates: [cand(4, "Muối sấy khô 500G bao 25kg", "kg", 200, 6500, "tan_tao", 0.5)] },
+      { target_key: "i:it-kem:q7", item_id: "it-kem", item_code: "Q7-KEM", name: "Kem làm mềm bánh", unit: "g", item_class: "raw_material", location: "q7", qty: -13021.8, reason: "no_docs_negative", candidates: [cand(1, "Kem rich làm mềm bánh", "kg", 5, 95000, "q7", 1), cand(2, "Kem Rich's Whipping Topping 907g / hộp (thùng 12 hộp) giao kèm hóa đơn đỏ", "hộp", 12, 89000, "q7", 0.5, { linked_item_id: "other" })] },
+      { target_key: "i:it-nuoc:q7", item_id: "it-nuoc", item_code: "Q7-NUOC", name: "Nước Vihawa 20L Bình Vòi", unit: "g", item_class: "raw_material", location: "q7", qty: -47274.04, reason: "no_docs_negative", candidates: [cand(3, "Nước Vihawa 20L Bình Vòi", "Bình", 6, 61000, "tan_tao", 1)] },
+      { target_key: "i:it-tem:q7", item_id: "it-tem", item_code: "CCDC-038", name: "Tem pháp", unit: "con", item_class: "packaging_supply", location: "q7", qty: 1085, reason: "no_docs", candidates: [] },
+      { target_key: "i:it-muoi:tan_tao", item_id: "it-muoi", item_code: "NVL-155", name: "Muối", unit: "g", item_class: "raw_material", location: "tan_tao", qty: 24900, reason: "no_docs", candidates: [cand(4, "Muối sấy khô 500G bao 25kg", "kg", 200, 6500, "tan_tao", 0.5)] },
     ];
     const materials = [
-      { canonical_material_id: "mat-honey", name: "Mật Ong Tam Đảo Eufood", recipe_unit: "g", sku_codes: ["KF-XUCXICH-PHOMAI-40G-T0526"], candidates: [cand(5, "MẬT ONG TAM ĐẢO 860G/EUF T=15C", "CHAI", 3, 99000, "q7", 1)] },
-      { canonical_material_id: "mat-gas", name: "Gas", recipe_unit: "kg", sku_codes: ["TP-PATE"], candidates: [] },
+      { target_key: "m:mat-honey:g", canonical_material_id: "mat-honey", name: "Mật Ong Tam Đảo Eufood", recipe_unit: "g", sku_codes: ["KF-XUCXICH-PHOMAI-40G-T0526"], candidates: [cand(5, "MẬT ONG TAM ĐẢO 860G/EUF T=15C", "CHAI", 3, 99000, "q7", 1)] },
+      { target_key: "m:mat-gas:kg", canonical_material_id: "mat-gas", name: "Gas", recipe_unit: "kg", sku_codes: ["TP-PATE"], candidates: [] },
     ];
     return { data: { items, materials }, error: null };
   }
@@ -162,7 +162,7 @@ export const supabase = {
   from: (table) => builder(table),
   rpc: (fn, args) => builder("rpc:" + fn, args),
   schema: () => ({ from: (table) => builder(table), rpc: (fn) => builder("rpc:" + fn) }),
-  functions: { invoke: async (name) => { window.__qaCalls.push("invoke:" + name); return { data: null, error: { message: "QA fixture: functions disabled" } }; } },
+  functions: { invoke: async (name, opts) => { window.__qaCalls.push("fn:" + name + ":" + JSON.stringify(opts && opts.body)); if (name === "kho-review-jev") return { data: { asked: 3, cached: 0, skipped: 0, marks: [] }, error: null }; return { data: null, error: { message: "QA fixture: functions disabled" } }; } },
   storage: { from: () => ({ getPublicUrl: () => ({ data: { publicUrl: "" } }), createSignedUrl: async () => ({ data: { signedUrl: "data:image/svg+xml;utf8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="600" height="840"><rect width="600" height="840" fill="#fff"/><text x="40" y="80" font-size="40">PHIẾU GIAO HÀNG</text></svg>') }, error: null }), list: async () => ({ data: [], error: null }) }) },
   auth: {
     getSession: async () => ({ data: { session: { access_token: "qa", user } }, error: null }),
@@ -308,6 +308,8 @@ try {
     await page.locator("[data-bmq-review-item='it-kem']").click();
     await dialogInView(page, "[data-bmq-review-dialog]", vp);
     assert.ok(await page.locator("[data-bmq-review-dialog] .is-flag", { hasText: "món khác" }).count() >= 1, "linked-elsewhere note");
+    assert.equal(await page.locator("[data-bmq-review-jevtag='same_item']").innerText(), "Jev: đúng món 93%", "jev same tag");
+    assert.equal(await page.locator("[data-bmq-review-jevtag='different']").count(), 1, "jev different tag");
     await page.locator("[data-bmq-review-cand='gri-1'] [data-bmq-review-pick]").click();
     assert.equal(await page.locator("[data-bmq-review-factor]").inputValue(), "1000", "kg->g suggested");
     await noSpill(page, "review-dialog", vp);
@@ -316,6 +318,10 @@ try {
     await page.waitForSelector("[data-bmq-review-dialog]", { state: "detached", timeout: 5000 });
     assert.ok((await calls(page)).some((c) => c.startsWith("rpc:kho_review_link_line:") && c.includes('"p_factor":1000') && c.includes("gri-1")), "link call");
     pass(`list + link a line with kg->g 1000 ${vp.width}`);
+    await page.locator("[data-bmq-review-jev]").click();
+    await page.waitForTimeout(300);
+    assert.ok((await calls(page)).some((c) => c.startsWith("fn:kho-review-jev:") && c.includes('"limit":40')), "jev invoke");
+    pass(`Jev button calls kho-review-jev with limit 40 ${vp.width}`);
     // A line received at the other kho asks first.
     await page.locator("[data-bmq-review-item='it-nuoc']").click();
     await dialogInView(page, "[data-bmq-review-dialog]", vp);

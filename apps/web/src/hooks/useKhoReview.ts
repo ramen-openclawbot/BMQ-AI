@@ -1,7 +1,12 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 
 import { supabase } from "@/integrations/supabase/client";
-import type { KhoReviewLinkResult, KhoReviewList } from "@/lib/kho-review";
+import type {
+  KhoReviewJevFeedbackResult,
+  KhoReviewJevVerdict,
+  KhoReviewLinkResult,
+  KhoReviewList,
+} from "@/lib/kho-review";
 import { KHO_ITEMS_QUERY_KEY } from "./useKhoItems";
 
 export const KHO_REVIEW_QUERY_KEY = "kho-review";
@@ -88,6 +93,77 @@ export function useKhoReviewCreateItem() {
       });
       if (error) throw error;
       return data as KhoReviewLinkResult;
+    },
+    onSuccess: () => invalidateKhoReview(queryClient),
+  });
+}
+
+export interface KhoReviewJevInput {
+  /** Narrow the run to these target_key values; omit for every target. */
+  targetKeys?: string[];
+  /** Server default 20, hard-capped at 40. */
+  limit?: number;
+}
+
+export interface KhoReviewJevMark {
+  target_key: string;
+  receipt_item_id: string;
+  verdict: KhoReviewJevVerdict;
+  probability: number;
+  suggested_class: "raw_material" | "packaging_supply" | null;
+}
+
+export interface KhoReviewJevResult {
+  asked: number;
+  cached: number;
+  skipped: number;
+  marks: KhoReviewJevMark[];
+}
+
+/**
+ * Owner-triggered Jev scoring.  The edge function reads the review list as the
+ * caller and stores suggestions only; it never links a line or creates an item.
+ */
+export function useKhoReviewJev() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: KhoReviewJevInput = {}): Promise<KhoReviewJevResult> => {
+      const { data, error } = await supabase.functions.invoke("kho-review-jev", {
+        body: {
+          target_keys: input.targetKeys,
+          limit: input.limit,
+        },
+      });
+      if (error) throw error;
+      return data as KhoReviewJevResult;
+    },
+    onSuccess: () => invalidateKhoReview(queryClient),
+  });
+}
+
+export interface KhoReviewJevFeedbackInput {
+  targetKey: string;
+  receiptItemId: string;
+  action: "linked" | "dismissed";
+  /** Defaults to a fresh crypto.randomUUID(). */
+  requestId?: string;
+}
+
+/** Record the human decision for one (target, receipt line) Jev pair. */
+export function useKhoReviewJevFeedback() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (
+      input: KhoReviewJevFeedbackInput,
+    ): Promise<KhoReviewJevFeedbackResult> => {
+      const { data, error } = await rpc.rpc("kho_review_jev_feedback", {
+        p_target_key: input.targetKey,
+        p_receipt_item_id: input.receiptItemId,
+        p_action: input.action,
+        p_request_id: input.requestId ?? crypto.randomUUID(),
+      });
+      if (error) throw error;
+      return data as KhoReviewJevFeedbackResult;
     },
     onSuccess: () => invalidateKhoReview(queryClient),
   });
