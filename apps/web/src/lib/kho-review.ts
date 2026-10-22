@@ -39,6 +39,8 @@ export interface KhoReviewCandidate {
   location: KhoReviewLocation | null;
   supplier_name: string | null;
   product_name: string;
+  /** Raw scanned name when it differs from the corrected one. */
+  raw_name?: string | null;
   unit: string | null;
   actual_quantity: number | null;
   unit_price: number | null;

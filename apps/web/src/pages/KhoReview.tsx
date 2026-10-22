@@ -167,6 +167,7 @@ function CandidateCard({ c, children, note }: { c: KhoReviewCandidate; children?
         <b>{c.product_name}</b>
         <span className="d3-kr-score" title="Mức giống tên">{Math.round(c.score * 100)}%</span>
       </div>
+      {c.raw_name ? <small data-bmq-review-raw-name>Tên quét trên phiếu: {c.raw_name}</small> : null}
       {jevVerdictText(c.jev_verdict, c.jev_probability) ? (
         <span className={cn("d3-kr-jevtag", c.jev_verdict && `is-${c.jev_verdict}`)} data-bmq-review-jevtag={c.jev_verdict ?? ""}>{jevVerdictText(c.jev_verdict, c.jev_probability)}</span>
       ) : null}

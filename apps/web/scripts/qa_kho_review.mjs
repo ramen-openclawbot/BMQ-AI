@@ -70,7 +70,7 @@ function settle(st) {
     const items = [
       { target_key: "i:it-kem:q7", item_id: "it-kem", item_code: "Q7-KEM", name: "Kem làm mềm bánh", unit: "g", item_class: "raw_material", location: "q7", qty: -13021.8, reason: "no_docs_negative", candidates: [cand(1, "Kem rich làm mềm bánh", "kg", 5, 95000, "q7", 1), cand(2, "Kem Rich's Whipping Topping 907g / hộp (thùng 12 hộp) giao kèm hóa đơn đỏ", "hộp", 12, 89000, "q7", 0.5, { linked_item_id: "other" })] },
       { target_key: "i:it-nuoc:q7", item_id: "it-nuoc", item_code: "Q7-NUOC", name: "Nước Vihawa 20L Bình Vòi", unit: "g", item_class: "raw_material", location: "q7", qty: -47274.04, reason: "no_docs_negative", candidates: [cand(3, "Nước Vihawa 20L Bình Vòi", "Bình", 6, 61000, "tan_tao", 1)] },
-      { target_key: "i:it-gang:q7", item_id: "it-gang", item_code: "CCDC-GANG", name: "Bao tay đen size M", unit: "cái", item_class: "packaging_supply", location: "q7", qty: 800, reason: "no_docs", candidates: [cand(9, "Bao tay y tế đen size M", "kg", 7, 90000, "q7", 1, { image_url: "goods-receipts/qa-9.jpg" })] },
+      { target_key: "i:it-gang:q7", item_id: "it-gang", item_code: "CCDC-GANG", name: "Bao tay đen size M", unit: "cái", item_class: "packaging_supply", location: "q7", qty: 800, reason: "no_docs", candidates: [cand(9, "Bao tay y tế đen size M", "kg", 7, 90000, "q7", 1, { image_url: "goods-receipts/qa-9.jpg", raw_name: "BAO TAY Y TE DEN SIZE M (HOP 100 CAI)" })] },
       { target_key: "i:it-tem:q7", item_id: "it-tem", item_code: "CCDC-038", name: "Tem pháp", unit: "con", item_class: "packaging_supply", location: "q7", qty: 1085, reason: "no_docs", candidates: [] },
       { target_key: "i:it-muoi:tan_tao", item_id: "it-muoi", item_code: "NVL-155", name: "Muối", unit: "g", item_class: "raw_material", location: "tan_tao", qty: 24900, reason: "no_docs", candidates: [cand(4, "Muối sấy khô 500G bao 25kg", "kg", 200, 6500, "tan_tao", 0.5)] },
     ];
@@ -331,6 +331,7 @@ try {
     // Photo read: the line was stored as kg, the delivery note says 7 hộp of 100 cái.
     await page.locator("[data-bmq-review-item='it-gang']").click();
     await dialogInView(page, "[data-bmq-review-dialog]", vp);
+    assert.match(await page.locator("[data-bmq-review-cand='gri-9'] [data-bmq-review-raw-name]").innerText(), /Tên quét trên phiếu: BAO TAY/, "raw scanned name shown");
     await page.locator("[data-bmq-review-cand='gri-9'] [data-bmq-review-pick]").click();
     await page.waitForSelector("[data-bmq-review-read='found']");
     assert.ok((await calls(page)).some((c) => c.startsWith("fn:kho-review-read-line:") && c.includes("gri-9")), "read invoke");
