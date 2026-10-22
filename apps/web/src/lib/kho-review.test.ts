@@ -2,10 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  factorFromRead,
   jevVerdictText,
   khoReviewErrorText,
   reviewReasonText,
   suggestedFactor,
+  unitMismatchText,
+  type KhoReviewLineRead,
 } from "./kho-review.ts";
 
 test("reviewReasonText labels every reason", () => {
@@ -89,4 +92,80 @@ test("khoReviewErrorText falls back to the generic sentence", () => {
   );
   assert.equal(khoReviewErrorText(null), "Có lỗi xảy ra, anh/chị thử lại giúp.");
   assert.equal(khoReviewErrorText({}), "Có lỗi xảy ra, anh/chị thử lại giúp.");
+});
+
+function readFixture(overrides: Partial<KhoReviewLineRead> = {}): KhoReviewLineRead {
+  return {
+    ok: true,
+    found: true,
+    doc_unit: "hộp",
+    doc_quantity: 7,
+    doc_unit_price: 120000,
+    pack_count: 100,
+    pack_unit: "cái",
+    evidence_text: "Bao tay y tế đen size M 7 hộp",
+    unit_mismatch: true,
+    ocr_engine: "indra",
+    ocr_fallback_reason: null,
+    cached: false,
+    ...overrides,
+  };
+}
+
+test("unitMismatchText shows the printed quantity/unit against the stored unit", () => {
+  assert.equal(
+    unitMismatchText(readFixture(), "kg"),
+    "Phiếu ghi 7 hộp, dữ liệu đang là kg",
+  );
+  assert.equal(
+    unitMismatchText(readFixture({ doc_quantity: 7.5 }), "kg"),
+    "Phiếu ghi 7,5 hộp, dữ liệu đang là kg",
+  );
+  assert.equal(
+    unitMismatchText(readFixture({ doc_unit: "Hôp" }), "hộp"),
+    null,
+  );
+  assert.equal(unitMismatchText(readFixture({ found: false }), "kg"), null);
+  assert.equal(unitMismatchText(readFixture(), null), null);
+});
+
+test("factorFromRead uses pack content only when it lands on the item unit", () => {
+  assert.equal(factorFromRead(readFixture(), "cái"), 100);
+  assert.equal(factorFromRead(readFixture(), "Cái"), 100);
+  assert.equal(factorFromRead(readFixture(), "kg"), null);
+  assert.equal(factorFromRead(readFixture({ pack_unit: null, pack_count: null }), "cái"), null);
+  assert.equal(factorFromRead(readFixture({ found: false }), "cái"), null);
+  assert.equal(factorFromRead(readFixture(), null), null);
+});
+
+test("khoReviewErrorText maps the read/fix codes", () => {
+  assert.equal(khoReviewErrorText({ message: "no_image" }), "Dòng phiếu này chưa có ảnh để đọc.");
+  assert.equal(
+    khoReviewErrorText({ message: "ocr_failed" }),
+    "Chưa đọc được ảnh phiếu. Anh/chị thử lại giúp.",
+  );
+  assert.equal(
+    khoReviewErrorText({ message: "not_on_document" }),
+    "Không thấy dòng hàng này trên phiếu.",
+  );
+  assert.equal(
+    khoReviewErrorText({ message: "not_found" }),
+    "Không tìm thấy dòng phiếu nhập.",
+  );
+  assert.equal(
+    khoReviewErrorText({ message: "unknown_unit" }),
+    "Đơn vị mới không hợp lệ.",
+  );
+  assert.equal(
+    khoReviewErrorText({ message: "line_posted" }),
+    "Dòng phiếu đã ghi sổ kho, không sửa được đơn vị.",
+  );
+  assert.equal(
+    khoReviewErrorText({ message: "line_linked" }),
+    "Dòng phiếu đã liên kết mặt hàng, không sửa được đơn vị.",
+  );
+  assert.equal(
+    khoReviewErrorText({ message: "fix_not_found" }),
+    "Không tìm thấy lần sửa đơn vị.",
+  );
 });

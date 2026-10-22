@@ -69,6 +69,7 @@ function settle(st) {
     const items = [
       { target_key: "i:it-kem:q7", item_id: "it-kem", item_code: "Q7-KEM", name: "Kem làm mềm bánh", unit: "g", item_class: "raw_material", location: "q7", qty: -13021.8, reason: "no_docs_negative", candidates: [cand(1, "Kem rich làm mềm bánh", "kg", 5, 95000, "q7", 1), cand(2, "Kem Rich's Whipping Topping 907g / hộp (thùng 12 hộp) giao kèm hóa đơn đỏ", "hộp", 12, 89000, "q7", 0.5, { linked_item_id: "other" })] },
       { target_key: "i:it-nuoc:q7", item_id: "it-nuoc", item_code: "Q7-NUOC", name: "Nước Vihawa 20L Bình Vòi", unit: "g", item_class: "raw_material", location: "q7", qty: -47274.04, reason: "no_docs_negative", candidates: [cand(3, "Nước Vihawa 20L Bình Vòi", "Bình", 6, 61000, "tan_tao", 1)] },
+      { target_key: "i:it-gang:q7", item_id: "it-gang", item_code: "CCDC-GANG", name: "Bao tay đen size M", unit: "cái", item_class: "packaging_supply", location: "q7", qty: 800, reason: "no_docs", candidates: [cand(9, "Bao tay y tế đen size M", "kg", 7, 90000, "q7", 1, { image_url: "goods-receipts/qa-9.jpg" })] },
       { target_key: "i:it-tem:q7", item_id: "it-tem", item_code: "CCDC-038", name: "Tem pháp", unit: "con", item_class: "packaging_supply", location: "q7", qty: 1085, reason: "no_docs", candidates: [] },
       { target_key: "i:it-muoi:tan_tao", item_id: "it-muoi", item_code: "NVL-155", name: "Muối", unit: "g", item_class: "raw_material", location: "tan_tao", qty: 24900, reason: "no_docs", candidates: [cand(4, "Muối sấy khô 500G bao 25kg", "kg", 200, 6500, "tan_tao", 0.5)] },
     ];
@@ -78,6 +79,9 @@ function settle(st) {
     ];
     return { data: { items, materials }, error: null };
   }
+  if (st.table === "rpc:kho_review_fix_line_unit") return { data: { status: "fixed", fix_id: "fix-1", receipt_item_id: st.args.p_receipt_item_id, old_unit: "kg", new_unit: "hộp", request_id: st.args.p_request_id, replayed: false }, error: null };
+  if (st.table === "rpc:kho_review_undo_unit_fix") return { data: { status: "undone", fix_id: st.args.p_fix_id, receipt_item_id: "gri-9", unit: "kg" }, error: null };
+  if (st.table === "rpc:kho_review_factor_hint") return { data: { factor: null, source: null }, error: null };
   if (st.table === "rpc:kho_review_link_line") return { data: { status: "linked", alias_id: "al-1", posted: true, location: "q7" }, error: null };
   if (st.table === "rpc:kho_review_create_item_from_line") return { data: { status: "created", item_id: "new-1", alias_id: "al-2", posted: false, location: "q7" }, error: null };
   if (st.table === "rpc:cogs_decide_ingredient") return { data: { ok: true }, error: null };
@@ -162,7 +166,7 @@ export const supabase = {
   from: (table) => builder(table),
   rpc: (fn, args) => builder("rpc:" + fn, args),
   schema: () => ({ from: (table) => builder(table), rpc: (fn) => builder("rpc:" + fn) }),
-  functions: { invoke: async (name, opts) => { window.__qaCalls.push("fn:" + name + ":" + JSON.stringify(opts && opts.body)); if (name === "kho-review-jev") return { data: { asked: 3, cached: 0, skipped: 0, marks: [] }, error: null }; return { data: null, error: { message: "QA fixture: functions disabled" } }; } },
+  functions: { invoke: async (name, opts) => { window.__qaCalls.push("fn:" + name + ":" + JSON.stringify(opts && opts.body)); if (name === "kho-review-jev") return { data: { asked: 3, cached: 0, skipped: 0, marks: [] }, error: null }; if (name === "kho-review-read-line") { await new Promise((r) => setTimeout(r, 250)); const id = opts && opts.body && opts.body.receipt_item_id; if (id === "gri-9") return { data: { ok: true, found: true, doc_unit: "hộp", doc_quantity: 7, doc_unit_price: 90000, pack_count: 100, pack_unit: "cái", evidence_text: "Bao tay y tế đen size M 7 hộp", unit_mismatch: true, ocr_engine: "indra", ocr_fallback_reason: null, cached: false }, error: null }; if (id === "gri-3") return { data: null, error: { message: "ocr_failed" } }; return { data: { ok: true, found: false, doc_unit: null, doc_quantity: null, doc_unit_price: null, pack_count: null, pack_unit: null, evidence_text: null, unit_mismatch: false, ocr_engine: "indra", ocr_fallback_reason: null, cached: false }, error: null }; } return { data: null, error: { message: "QA fixture: functions disabled" } }; } },
   storage: { from: () => ({ getPublicUrl: () => ({ data: { publicUrl: "" } }), createSignedUrl: async () => ({ data: { signedUrl: "data:image/svg+xml;utf8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="600" height="840"><rect width="600" height="840" fill="#fff"/><text x="40" y="80" font-size="40">PHIẾU GIAO HÀNG</text></svg>') }, error: null }), list: async () => ({ data: [], error: null }) }) },
   auth: {
     getSession: async () => ({ data: { session: { access_token: "qa", user } }, error: null }),
@@ -302,7 +306,7 @@ try {
   for (const vp of VIEWPORTS) {
     let { context, page, errors } = await open({ role: "owner" }, "/warehouse/ra-soat", vp, READY);
     await page.waitForSelector("[data-bmq-review-items] li");
-    assert.equal(await page.locator("[data-bmq-review-items] li").count(), 3, "Q7 rows");
+    assert.equal(await page.locator("[data-bmq-review-items] li").count(), 4, "Q7 rows");
     await noSpill(page, "review-list", vp);
     await shot(page, `review-list-${vp.width}.png`);
     await page.locator("[data-bmq-review-item='it-kem']").click();
@@ -322,10 +326,36 @@ try {
     await page.waitForTimeout(300);
     assert.ok((await calls(page)).some((c) => c.startsWith("fn:kho-review-jev:") && c.includes('"limit":40')), "jev invoke");
     pass(`Jev button calls kho-review-jev with limit 40 ${vp.width}`);
+    // Photo read: the line was stored as kg, the delivery note says 7 hộp of 100 cái.
+    await page.locator("[data-bmq-review-item='it-gang']").click();
+    await dialogInView(page, "[data-bmq-review-dialog]", vp);
+    await page.locator("[data-bmq-review-cand='gri-9'] [data-bmq-review-pick]").click();
+    await page.waitForSelector("[data-bmq-review-read='found']");
+    assert.ok((await calls(page)).some((c) => c.startsWith("fn:kho-review-read-line:") && c.includes("gri-9")), "read invoke");
+    assert.match(await page.locator(".d3-kr-read-line").innerText(), /7 hộp × 90\.000đ/, "printed line");
+    assert.equal(await page.locator("[data-bmq-review-factor]").inputValue(), "", "no factor while the unit is still kg");
+    await noSpill(page, "review-read", vp);
+    await shot(page, `review-read-${vp.width}.png`, false);
+    await page.locator("[data-bmq-review-fix-unit]").click();
+    await page.waitForSelector("[data-bmq-review-unit-fixed]");
+    assert.ok((await calls(page)).some((c) => c.startsWith("rpc:kho_review_fix_line_unit:") && c.includes("gri-9") && c.includes("hộp")), "fix call");
+    assert.match(await page.locator(".d3-kho-conv").innerText(), /1 hộp =/, "label follows the fixed unit");
+    // The prefill lands in an effect after the fixed unit renders.
+    await page.waitForFunction(() => document.querySelector("[data-bmq-review-factor]")?.value === "100", null, { timeout: 3000 }).catch(() => {});
+    assert.equal(await page.locator("[data-bmq-review-factor]").inputValue(), "100", "pack 100 cái prefilled");
+    assert.match(await page.locator("[data-bmq-review-factor-why]").innerText(), /quy cách in trên phiếu/, "factor reason");
+    await noSpill(page, "review-fixed", vp);
+    await shot(page, `review-fixed-${vp.width}.png`, false);
+    await page.locator("[data-bmq-review-link]").click();
+    await page.waitForSelector("[data-bmq-review-dialog]", { state: "detached", timeout: 5000 });
+    assert.ok((await calls(page)).some((c) => c.startsWith("rpc:kho_review_link_line:") && c.includes("gri-9") && c.includes('"p_factor":100')), "link 1 hộp = 100 cái");
+    pass(`photo read -> fix kg to hộp -> link 1 hộp = 100 cái ${vp.width}`);
     // A line received at the other kho asks first.
     await page.locator("[data-bmq-review-item='it-nuoc']").click();
     await dialogInView(page, "[data-bmq-review-dialog]", vp);
     await page.locator("[data-bmq-review-cand='gri-3'] [data-bmq-review-pick]").click();
+    await page.waitForSelector("[data-bmq-review-read='error']");
+    assert.match(await page.locator("[data-bmq-review-read='error']").innerText(), /Chưa đọc được ảnh phiếu/, "read failure is shown");
     await page.locator("[data-bmq-review-factor]").fill("20000");
     await page.locator("[data-bmq-review-link]").click();
     await confirmOk(page);

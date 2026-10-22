@@ -1,14 +1,17 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { LoadingState } from "@/components/ui/loading";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { useKhoReviewCreateItem, useKhoReviewJev, useKhoReviewLink, useKhoReviewList } from "@/hooks/useKhoReview";
 import {
-  jevVerdictText, khoReviewErrorText, reviewReasonText, suggestedFactor,
-  type KhoReviewCandidate, type KhoReviewItem, type KhoReviewLocation, type KhoReviewMaterial,
+  useKhoReviewCreateItem, useKhoReviewFactorHint, useKhoReviewFixLineUnit, useKhoReviewJev, useKhoReviewLink, useKhoReviewList,
+  useKhoReviewReadLine, useKhoReviewUndoUnitFix,
+} from "@/hooks/useKhoReview";
+import {
+  factorFromRead, jevVerdictText, khoReviewErrorText, reviewReasonText, suggestedFactor,
+  type KhoReviewCandidate, type KhoReviewFactorSource, type KhoReviewItem, type KhoReviewLocation, type KhoReviewMaterial,
 } from "@/lib/kho-review";
 import type { ReceiptLine } from "@/lib/receipt-lines";
 import { cn } from "@/lib/utils";
@@ -178,17 +181,113 @@ function CandidateCard({ c, children, note }: { c: KhoReviewCandidate; children?
   );
 }
 
+const HINT_WHY: Record<KhoReviewFactorSource, string> = {
+  approved_conversion: "theo quy đổi đã duyệt của món",
+  alias: "theo lần nối trước của nhà cung cấp này",
+  name_pack: "theo quy cách ghi trong tên hàng",
+  standard: "theo bảng đổi chuẩn",
+};
+
+/**
+ * Reads the picked line's photo (Indra OCR on the Mac, DeepSeek fallback) as soon as a line is chosen, offers to
+ * fix a mis-scanned document unit (7 kg -> 7 hộp) and proposes a factor only with a reason. Never links by itself.
+ */
+function useLineAssist(c: KhoReviewCandidate | null, targetUnit: string, itemId: string | null) {
+  const read = useKhoReviewReadLine();
+  const fix = useKhoReviewFixLineUnit();
+  const undo = useKhoReviewUndoUnitFix();
+  const [fixed, setFixed] = useState<{ id: string; fixId: string | null; from: string | null; to: string } | null>(null);
+  const id = c?.receipt_item_id ?? "";
+  useEffect(() => {
+    setFixed(null);
+    fix.reset();
+    undo.reset();
+    if (id) read.mutate({ receiptItemId: id });
+    else read.reset();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one read per picked line
+  }, [id]);
+  const data = read.data && read.variables?.receiptItemId === id ? read.data : null;
+  const myFix = fixed && fixed.id === id ? fixed : null;
+  const unit = myFix ? myFix.to : c?.unit ?? null;
+  const hint = useKhoReviewFactorHint({ receiptItemId: id, itemId, docUnit: unit, enabled: Boolean(id && unit && itemId) });
+
+  // A printed pack ("Hộp 100 cái") counts per printed unit, so it only applies once the line carries that unit.
+  const printed = data?.found && (!data.unit_mismatch || myFix) ? factorFromRead(data, targetUnit) : null;
+  const proven = hint.data?.source && hint.data.factor !== null && hint.data.factor > 0 ? hint.data : null;
+  const standard = suggestedFactor(unit, targetUnit);
+  const suggestion: { factor: number; why: string } | null = printed !== null
+    ? { factor: printed, why: "theo quy cách in trên phiếu" }
+    : proven ? { factor: Number(proven.factor), why: HINT_WHY[proven.source as KhoReviewFactorSource] }
+    : standard !== null ? { factor: standard, why: HINT_WHY.standard } : null;
+
+  const canFix = Boolean(c && data?.found && data.unit_mismatch && data.doc_unit && !myFix && !c.posted && !c.linked_item_id);
+  const doFix = () => {
+    if (!c || !data?.doc_unit) return;
+    fix.mutate({ receiptItemId: c.receipt_item_id, newUnit: data.doc_unit, requestId: newRequestId() }, {
+      onSuccess: (r) => setFixed({ id: c.receipt_item_id, fixId: r.fix_id ?? null, from: r.old_unit, to: r.new_unit }),
+    });
+  };
+  const doUndo = () => {
+    if (!myFix?.fixId) return;
+    undo.mutate({ fixId: myFix.fixId }, { onSuccess: () => setFixed(null) });
+  };
+
+  const panel = c ? (
+    <div className="d3-kr-read" data-bmq-review-read={read.isPending ? "reading" : read.isError ? "error" : data ? (data.found ? "found" : "missing") : ""}>
+      {read.isPending ? <small className="d3-kr-read-wait">Đang đọc ảnh phiếu…</small>
+        : read.isError ? <small>Chưa đọc được ảnh phiếu: {khoReviewErrorText(read.error)}</small>
+        : data && !data.found ? <small>Không thấy dòng này trên ảnh phiếu, xem ảnh bên dưới.</small>
+        : data ? (
+          <p className="d3-kr-read-line">
+            <span>Phiếu ghi</span>
+            <b>{data.doc_quantity !== null ? `${fmtQty(data.doc_quantity)} ` : ""}{data.doc_unit}{data.doc_unit_price !== null ? ` × ${money(data.doc_unit_price)}` : ""}</b>
+            {data.pack_count !== null && data.pack_unit ? <span>quy cách {fmtQty(data.pack_count)} {data.pack_unit}/{data.doc_unit}</span> : null}
+          </p>
+        ) : null}
+      {canFix ? (
+        <div className="d3-kr-read-fix" data-bmq-review-unit-mismatch>
+          <small>Dữ liệu đang ghi <b>{c.unit ?? "?"}</b>, phiếu ghi <b>{data?.doc_unit}</b>.</small>
+          <Button size="sm" variant="outline" disabled={fix.isPending} onClick={doFix} data-bmq-review-fix-unit>{fix.isPending ? "Đang sửa…" : `Sửa thành ${data?.doc_unit}`}</Button>
+        </div>
+      ) : null}
+      {myFix ? (
+        <div className="d3-kr-read-fix is-done" data-bmq-review-unit-fixed>
+          <small>Đã sửa đơn vị dòng này: {myFix.from ?? "?"} → {myFix.to}. Số lượng, tiền giữ nguyên.</small>
+          {myFix.fixId ? <Button size="sm" variant="ghost" disabled={undo.isPending} onClick={doUndo} data-bmq-review-undo-unit>{undo.isPending ? "Đang hoàn tác…" : "Hoàn tác"}</Button> : null}
+        </div>
+      ) : null}
+      {fix.error ? <p className="d3-kho-error">{khoReviewErrorText(fix.error)}</p> : null}
+      {undo.error ? <p className="d3-kho-error">{khoReviewErrorText(undo.error)}</p> : null}
+    </div>
+  ) : null;
+
+  return { panel, unit, suggestion, reading: read.isPending };
+}
+
+/** Prefills the factor from the assist suggestion until the user types their own. */
+function useSuggestedFactor(suggestion: { factor: number } | null, pickedId: string | null, touched: boolean, set: (v: string) => void) {
+  const value = suggestion?.factor ?? null;
+  useEffect(() => {
+    if (!touched && value !== null) set(String(value));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only when the suggestion or picked line changes
+  }, [value, pickedId]);
+}
+
 function ItemReview({ item, confirm, onClose, onJev, jevBusy }: { item: KhoReviewItem; confirm: ReturnType<typeof useKhoConfirm>["confirm"]; onClose: () => void; onJev: () => void; jevBusy: boolean }) {
   const { toast } = useToast();
   const link = useKhoReviewLink();
   const [picked, setPicked] = useState<string | null>(null);
   const [factorText, setFactorText] = useState("");
+  const [touched, setTouched] = useState(false);
   const cand = item.candidates.find((c) => c.receipt_item_id === picked) ?? null;
+  const assist = useLineAssist(cand, item.unit, item.item_id);
+  useSuggestedFactor(assist.suggestion, picked, touched, setFactorText);
   const x = parseNum(factorText);
   const factorOk = Number.isFinite(x) && x > 0;
 
   const pick = (c: KhoReviewCandidate) => {
     setPicked(c.receipt_item_id);
+    setTouched(false);
     const f = suggestedFactor(c.unit, item.unit);
     setFactorText(f !== null ? String(f) : "");
   };
@@ -217,12 +316,14 @@ function ItemReview({ item, confirm, onClose, onJev, jevBusy }: { item: KhoRevie
             <CandidateCard key={c.receipt_item_id} c={c} note={c.linked_item_id && c.linked_item_id !== item.item_id ? "Tên này đang nối vào món khác" : c.linked_item_id === item.item_id ? "Đã nối vào món này" : undefined}>
               {picked === c.receipt_item_id ? (
                 <div className="d3-kho-ask">
-                  <b>Quy đổi: xem ảnh phiếu bên dưới rồi gõ</b>
+                  {assist.panel}
+                  <b>{assist.suggestion && !touched ? "Quy đổi: đã điền sẵn, kiểm tra lại" : "Quy đổi: xem ảnh phiếu bên dưới rồi gõ"}</b>
                   <label className="d3-kho-conv">
-                    1 {c.unit ?? "đơn vị"} =
-                    <Input inputMode="decimal" value={factorText} onChange={(e) => setFactorText(e.target.value)} placeholder="?" aria-label={`1 ${c.unit ?? "đơn vị"} bằng bao nhiêu ${item.unit}`} data-bmq-review-factor />
+                    1 {assist.unit ?? "đơn vị"} =
+                    <Input inputMode="decimal" value={factorText} onChange={(e) => { setTouched(true); setFactorText(e.target.value); }} placeholder="?" aria-label={`1 ${assist.unit ?? "đơn vị"} bằng bao nhiêu ${item.unit}`} data-bmq-review-factor />
                     {item.unit}
                   </label>
+                  {assist.suggestion && !touched ? <small data-bmq-review-factor-why>Điền {fmtQty(assist.suggestion.factor)} {assist.suggestion.why}.</small> : null}
                   {link.error ? <p className="d3-kho-error">{khoReviewErrorText(link.error)}</p> : null}
                   <div className="d3-kho-actions">
                     <Button disabled={!factorOk || link.isPending} onClick={() => void save()} data-bmq-review-link>{link.isPending ? "Đang nối…" : "Nối vào món này"}</Button>
@@ -250,13 +351,17 @@ function MaterialReview({ mat, onClose, onJev, jevBusy }: { mat: KhoReviewMateri
   const [unit, setUnit] = useState("g");
   const [cls, setCls] = useState<"raw_material" | "packaging_supply">("raw_material");
   const [factorText, setFactorText] = useState("");
+  const [touched, setTouched] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
+  const assist = useLineAssist(cand, unit, null);
+  useSuggestedFactor(assist.suggestion, picked ? `${picked}:${unit}` : null, touched, setFactorText);
   const x = parseNum(factorText);
   const factorOk = Number.isFinite(x) && x > 0;
 
   const pick = (c: KhoReviewCandidate) => {
     setPicked(c.receipt_item_id);
     setName(c.product_name.trim());
+    setTouched(false);
     const f = suggestedFactor(c.unit, unit);
     setFactorText(f !== null ? String(f) : "");
   };
@@ -297,6 +402,7 @@ function MaterialReview({ mat, onClose, onJev, jevBusy }: { mat: KhoReviewMateri
             <CandidateCard key={c.receipt_item_id} c={c} note={c.linked_item_id ? "Tên này đã nối vào một món kho, nhắn VNAgent để nối công thức" : undefined}>
               {picked === c.receipt_item_id ? (
                 <div className="d3-kho-ask">
+                  {assist.panel}
                   <label className="d3-kho-field"><span>Tên món kho</span>
                     <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={120} data-bmq-review-name />
                   </label>
@@ -307,15 +413,16 @@ function MaterialReview({ mat, onClose, onJev, jevBusy }: { mat: KhoReviewMateri
                     </div>
                   </div>
                   <label className="d3-kho-field"><span>Đơn vị kho</span>
-                    <select className="d3-kr-select" value={unit} onChange={(e) => { setUnit(e.target.value); const f = suggestedFactor(c.unit, e.target.value); if (f !== null) setFactorText(String(f)); }} data-bmq-review-unit>
+                    <select className="d3-kr-select" value={unit} onChange={(e) => { setUnit(e.target.value); setTouched(false); }} data-bmq-review-unit>
                       {ITEM_UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
                     </select>
                   </label>
                   <label className="d3-kho-conv">
-                    1 {c.unit ?? "đơn vị"} =
-                    <Input inputMode="decimal" value={factorText} onChange={(e) => setFactorText(e.target.value)} placeholder="?" aria-label={`1 ${c.unit ?? "đơn vị"} bằng bao nhiêu ${unit}`} data-bmq-review-factor />
+                    1 {assist.unit ?? "đơn vị"} =
+                    <Input inputMode="decimal" value={factorText} onChange={(e) => { setTouched(true); setFactorText(e.target.value); }} placeholder="?" aria-label={`1 ${assist.unit ?? "đơn vị"} bằng bao nhiêu ${unit}`} data-bmq-review-factor />
                     {unit}
                   </label>
+                  {assist.suggestion && !touched ? <small data-bmq-review-factor-why>Điền {fmtQty(assist.suggestion.factor)} {assist.suggestion.why}.</small> : null}
                   {create.error ? <p className="d3-kho-error">{khoReviewErrorText(create.error)}</p> : null}
                   {linkError ? <p className="d3-kho-error">{linkError}</p> : null}
                   <div className="d3-kho-actions">

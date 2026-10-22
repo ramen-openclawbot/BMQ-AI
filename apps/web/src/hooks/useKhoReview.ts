@@ -2,8 +2,10 @@ import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tansta
 
 import { supabase } from "@/integrations/supabase/client";
 import type {
+  KhoReviewFactorHint,
   KhoReviewJevFeedbackResult,
   KhoReviewJevVerdict,
+  KhoReviewLineRead,
   KhoReviewLinkResult,
   KhoReviewList,
 } from "@/lib/kho-review";
@@ -36,6 +38,124 @@ export function useKhoReviewList() {
       const { data, error } = await rpc.rpc("kho_review_list");
       if (error) throw error;
       return data as KhoReviewList;
+    },
+  });
+}
+
+export interface KhoReviewReadLineInput {
+  receiptItemId: string;
+}
+
+/**
+ * Ask the server to read one candidate line's photo.  The edge function calls
+ * kho_review_line_context as the caller and never links or creates anything.
+ */
+export function useKhoReviewReadLine() {
+  return useMutation({
+    mutationFn: async (input: KhoReviewReadLineInput): Promise<KhoReviewLineRead> => {
+      const { data, error } = await supabase.functions.invoke("kho-review-read-line", {
+        body: { receipt_item_id: input.receiptItemId },
+      });
+      if (error) throw error;
+      if (data && typeof data === "object" && (data as { ok?: unknown }).ok === false) {
+        throw data;
+      }
+      return data as KhoReviewLineRead;
+    },
+  });
+}
+
+export interface KhoReviewFixLineUnitInput {
+  receiptItemId: string;
+  newUnit: string;
+  /** Defaults to a fresh crypto.randomUUID(). */
+  requestId?: string;
+}
+
+export interface KhoReviewLineUnitFixResult {
+  status: "fixed" | "unchanged";
+  fix_id?: string;
+  receipt_item_id: string;
+  old_unit: string | null;
+  new_unit: string;
+  request_id?: string | null;
+  replayed?: boolean;
+}
+
+/** Correct the stored document unit on an unposted, unlinked receipt line. */
+export function useKhoReviewFixLineUnit() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (
+      input: KhoReviewFixLineUnitInput,
+    ): Promise<KhoReviewLineUnitFixResult> => {
+      const { data, error } = await rpc.rpc("kho_review_fix_line_unit", {
+        p_receipt_item_id: input.receiptItemId,
+        p_new_unit: input.newUnit,
+        p_request_id: input.requestId ?? crypto.randomUUID(),
+      });
+      if (error) throw error;
+      return data as KhoReviewLineUnitFixResult;
+    },
+    onSuccess: () => invalidateKhoReview(queryClient),
+  });
+}
+
+export interface KhoReviewUndoUnitFixInput {
+  fixId: string;
+}
+
+export interface KhoReviewUndoUnitFixResult {
+  status: "undone" | "already_undone";
+  fix_id: string;
+  receipt_item_id: string;
+  unit: string | null;
+}
+
+/** Undo one unit fix while the line is still unposted/unlinked. */
+export function useKhoReviewUndoUnitFix() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (
+      input: KhoReviewUndoUnitFixInput,
+    ): Promise<KhoReviewUndoUnitFixResult> => {
+      const { data, error } = await rpc.rpc("kho_review_undo_unit_fix", {
+        p_fix_id: input.fixId,
+      });
+      if (error) throw error;
+      return data as KhoReviewUndoUnitFixResult;
+    },
+    onSuccess: () => invalidateKhoReview(queryClient),
+  });
+}
+
+export interface KhoReviewFactorHintInput {
+  receiptItemId: string;
+  itemId?: string | null;
+  docUnit?: string | null;
+  /** Defaults to true; false keeps the query idle until a line is chosen. */
+  enabled?: boolean;
+}
+
+/** Server-proven conversion factor; null source means "type it yourself". */
+export function useKhoReviewFactorHint(input: KhoReviewFactorHintInput) {
+  return useQuery({
+    queryKey: [
+      KHO_REVIEW_QUERY_KEY,
+      "factor-hint",
+      input.receiptItemId,
+      input.itemId ?? null,
+      input.docUnit ?? null,
+    ],
+    enabled: input.enabled !== false && input.receiptItemId !== "",
+    queryFn: async (): Promise<KhoReviewFactorHint> => {
+      const { data, error } = await rpc.rpc("kho_review_factor_hint", {
+        p_receipt_item_id: input.receiptItemId,
+        p_item_id: input.itemId ?? null,
+        p_doc_unit: input.docUnit ?? null,
+      });
+      if (error) throw error;
+      return data as KhoReviewFactorHint;
     },
   });
 }

@@ -1052,3 +1052,19 @@ html.bmq-d3 .d3-kho-unitpick .d3-kho-chip { height: 34px; min-height: 34px; padd
 .d3-kr-jevtag.is-same_item { background: var(--kho-ok-bg, #e2f3e6); color: var(--kho-ok, #1f6b35); }
 .d3-kr-jevtag.is-different { background: var(--kho-bad-bg, #fde4df); color: var(--kho-bad, #8f2414); }
 .d3-kr-jevtag.is-unsure { background: var(--kho-warn-bg, #fdf0d8); color: var(--kho-warn, #7a4d06); }
+
+/* Rà soát nhập kho: what the photo of the picked line says (Indra OCR, DeepSeek fallback). */
+.d3-kr-read { display: grid; gap: 6px; min-width: 0; padding-bottom: 8px; margin-bottom: 2px; box-shadow: 0 1px 0 rgba(92, 59, 5, .14); }
+.d3-kr-read:empty { display: none; }
+.d3-kr-read small { font-size: 12.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.d3-kr-read-wait { color: #8a6a2e; animation: d3-kr-pulse 1.4s ease-in-out infinite; }
+.d3-kr-read-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; margin: 0; font-size: 13px; }
+.d3-kr-read-line > span { color: #8a6a2e; }
+.d3-kr-read-line > b { font-size: 14.5px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--d3-ink); }
+.d3-kr-read-fix { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; padding: 8px 10px; border-radius: 10px; background: rgba(255, 255, 255, .7); box-shadow: inset 0 0 0 1px #e8c27a; }
+.d3-kr-read-fix small { flex: 1 1 180px; color: #5c3b05; }
+.d3-kr-read-fix small b { font-weight: 600; }
+.d3-kr-read-fix.is-done { box-shadow: inset 0 0 0 1px var(--kho-ok-line, #b9dfc3); background: var(--kho-ok-bg, #e2f3e6); }
+.d3-kr-read-fix.is-done small { color: var(--kho-ok, #1f6b35); }
+@keyframes d3-kr-pulse { 50% { opacity: .55; } }
+@media (prefers-reduced-motion: reduce) { .d3-kr-read-wait { animation: none; } }
