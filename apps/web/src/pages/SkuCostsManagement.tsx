@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,7 +11,7 @@ import { isFinishedSku } from "@/lib/skuType";
 import { dosageInputText, parseDosageGramInput } from "@/lib/dosage-input";
 import { describeSkuCogsSaveError } from "@/lib/sku-cogs-save-error";
 import { MaterialPicker } from "@/components/sku-costs/MaterialPicker";
-import { SkuCostMenuBar } from "@/components/sku-costs/SkuCostMenuBar";
+import { SkuCostHeader } from "@/components/sku-costs/SkuCostMenuBar";
 
 type SKU = any;
 type FormulaRow = any;
@@ -705,56 +704,62 @@ export default function SkuCostsManagement() {
   };
 
   return (
-    <div className="space-y-4 px-1 sm:space-y-6 sm:px-0">
-      <SkuCostMenuBar />
-      <h1 className="text-xl font-bold tracking-[-0.02em] sm:text-2xl">Quản trị SKU thành phẩm</h1>
-      <Card>
-        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <CardTitle className="text-lg sm:text-xl">Danh sách SKU thành phẩm</CardTitle>
-          <div className="flex gap-2"><Button className="h-11 w-full sm:h-10 sm:w-auto" onClick={openCreateSku}>Tạo SKU</Button></div>
-        </CardHeader>
-        <CardContent className="px-3 sm:px-6">
-          <div className="hidden md:block">
-            <Table><TableHeader><TableRow><TableHead>SKU</TableHead><TableHead>Tên</TableHead><TableHead>Giá bán</TableHead><TableHead>Trang đặt hàng</TableHead><TableHead>Chỉnh sửa lúc</TableHead><TableHead></TableHead></TableRow></TableHeader><TableBody>
-              {finishedSkus.map((s) => <TableRow key={s.id}><TableCell className="font-mono">{s.sku_code}</TableCell><TableCell><button className="text-left underline decoration-dotted underline-offset-4 hover:text-primary transition-colors" onClick={() => openSkuDetail(s)}>{s.product_name}</button></TableCell><TableCell>{vnd(toNumber(parseCostValues(s.cost_values).selling_price, 0))}</TableCell><TableCell className="text-xs">{s.hide_from_dealer_portal ? <span className="rounded bg-muted px-2 py-1 text-muted-foreground">Đang ẩn</span> : <span className="rounded bg-emerald-100 px-2 py-1 text-emerald-800">Đang hiện</span>}</TableCell><TableCell className="text-xs">{s.updated_at ? new Date(s.updated_at).toLocaleString("vi-VN") : "-"}</TableCell><TableCell><div className="flex gap-2 justify-end"><Button variant="outline" size="sm" onClick={() => openEditSku(s)}>Sửa</Button><Button variant="destructive" size="sm" onClick={() => removeSku(s)}>Xóa</Button></div></TableCell></TableRow>)}
-              {finishedSkus.length === 0 && <TableRow><TableCell colSpan={6} className="text-muted-foreground">Chưa có SKU thành phẩm.</TableCell></TableRow>}
-            </TableBody></Table>
+    <div className="gv">
+      <SkuCostHeader
+        title="Quản trị SKU"
+        description={<><b>{finishedSkus.length} SKU thành phẩm</b> · công thức, giá bán và hiển thị trên trang đặt hàng</>}
+        actions={<button type="button" className="gv-btn is-primary" onClick={openCreateSku}>Tạo SKU</button>}
+      />
+      <section className="gv-panel is-flush" aria-label="Danh sách SKU thành phẩm">
+        <div className="gv-panel-h">
+          <div>
+            <h2>Danh sách SKU thành phẩm</h2>
+            <p>Bấm vào SKU để xem công thức và lịch sử giá vốn.</p>
           </div>
-          <div className="space-y-3 md:hidden">
-            {finishedSkus.map((s) => {
-              const sellingPrice = toNumber(parseCostValues(s.cost_values).selling_price, 0);
-              return (
-                <article key={s.id} className="rounded-2xl border bg-card p-3 shadow-sm">
-                  <button className="block w-full text-left" onClick={() => openSkuDetail(s)}>
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="truncate font-mono text-[11px] font-bold text-muted-foreground">{s.sku_code || s.id}</p>
-                        <h2 className="mt-1 line-clamp-2 text-[15px] font-semibold leading-snug text-foreground">{s.product_name}</h2>
-                      </div>
-                      {s.hide_from_dealer_portal ? <span className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-[11px] font-semibold text-muted-foreground">Đang ẩn</span> : <span className="shrink-0 rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-semibold text-emerald-800">Đang hiện</span>}
+        </div>
+        {finishedSkus.length === 0 ? (
+          <p className="gv-empty"><b>Chưa có SKU thành phẩm</b>Bấm “Tạo SKU” để thêm SKU đầu tiên.</p>
+        ) : (
+          <>
+            <div className="gv-list-head is-admin-head" aria-hidden="true">
+              <span>SKU</span>
+              <span>Giá bán</span>
+              <span>Trang đặt hàng</span>
+              <span>Chỉnh sửa lúc</span>
+              <span />
+            </div>
+            <ul className="gv-list is-admin">
+              {finishedSkus.map((s) => {
+                const sellingPrice = toNumber(parseCostValues(s.cost_values).selling_price, 0);
+                return (
+                  <li key={s.id} className="gv-row">
+                    <button type="button" className="gv-row-link" onClick={() => openSkuDetail(s)} aria-label={`Xem chi tiết ${s.product_name}`} />
+                    <div className="gv-name">
+                      <b>{s.product_name}</b>
+                      <small><code>{s.sku_code || "—"}</code></small>
                     </div>
-                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                      <div className="rounded-xl bg-muted/45 p-2">
-                        <div className="text-muted-foreground">Giá bán</div>
-                        <div className="mt-1 text-base font-bold text-primary">{vnd(sellingPrice)}</div>
-                      </div>
-                      <div className="rounded-xl bg-muted/45 p-2">
-                        <div className="text-muted-foreground">Cập nhật</div>
-                        <div className="mt-1 font-semibold text-foreground">{s.updated_at ? new Date(s.updated_at).toLocaleString("vi-VN") : "-"}</div>
-                      </div>
+                    <div className="gv-fig is-price">
+                      <small>Giá bán</small>
+                      {sellingPrice > 0 ? <b>{vnd(sellingPrice)}đ</b> : <b className="is-missing">Chưa có</b>}
                     </div>
-                  </button>
-                  <div className="mt-3 grid grid-cols-2 gap-2">
-                    <Button className="h-10" variant="outline" size="sm" onClick={() => openEditSku(s)}>Sửa</Button>
-                    <Button className="h-10" variant="destructive" size="sm" onClick={() => removeSku(s)}>Xóa</Button>
-                  </div>
-                </article>
-              );
-            })}
-            {finishedSkus.length === 0 && <div className="rounded-2xl border border-dashed p-4 text-sm text-muted-foreground">Chưa có SKU thành phẩm.</div>}
-          </div>
-        </CardContent>
-      </Card>
+                    <div className="gv-fig gv-state">
+                      <small>Trang đặt hàng</small>
+                      {s.hide_from_dealer_portal ? <span className="gv-chip">Đang ẩn</span> : <span className="gv-chip is-good">Đang hiện</span>}
+                    </div>
+                    <div className="gv-fig is-updated">
+                      <b className="is-missing">{s.updated_at ? new Date(s.updated_at).toLocaleString("vi-VN", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit", year: "numeric" }) : "-"}</b>
+                    </div>
+                    <div className="gv-row-actions">
+                      <button type="button" className="gv-btn" onClick={() => openEditSku(s)}>Sửa</button>
+                      <button type="button" className="gv-btn is-danger" onClick={() => removeSku(s)}>Xóa</button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </>
+        )}
+      </section>
 
       {/* Đã tắt scan ảnh theo yêu cầu: nhập NVL thủ công */}
 

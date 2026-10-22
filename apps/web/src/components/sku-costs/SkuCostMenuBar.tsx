@@ -1,38 +1,32 @@
+import type { ReactNode } from "react";
 import { NavLink } from "react-router-dom";
-import { BarChart3, LineChart, Settings2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import "@/styles/bmq-sku-costs.css";
 
 const skuCostMenuItems = [
-  { to: "/sku-costs/dashboard", label: "Tổng quan giá vốn", icon: BarChart3 },
-  { to: "/sku-costs/analysis", label: "Xu hướng giá vốn", icon: LineChart },
-  { to: "/sku-costs/management", label: "Quản trị SKU", icon: Settings2 },
+  { to: "/sku-costs/dashboard", label: "Tổng quan" },
+  { to: "/sku-costs/analysis", label: "Xu hướng" },
+  { to: "/sku-costs/management", label: "Quản trị SKU" },
 ];
 
-export function SkuCostMenuBar() {
+/** One header for the three giá vốn pages: title, one line of context, actions, then the only tab row. */
+export function SkuCostHeader({ title, description, actions }: { title: string; description?: ReactNode; actions?: ReactNode }) {
   return (
-    <div className="sticky top-0 z-10 -mx-1 overflow-x-auto bg-background/95 px-1 py-2 backdrop-blur supports-[backdrop-filter]:bg-background/80 md:static md:bg-transparent md:p-0">
-      <div className="flex min-w-max gap-2 rounded-2xl border border-border/70 bg-card/80 p-1 shadow-sm md:inline-flex">
-        {skuCostMenuItems.map((item) => {
-          const Icon = item.icon;
-          return (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              className={({ isActive }) =>
-                cn(
-                  "inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition-colors",
-                  isActive
-                    ? "bg-primary text-primary-foreground shadow-sm"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                )
-              }
-            >
-              <Icon className="h-4 w-4" />
-              <span>{item.label}</span>
-            </NavLink>
-          );
-        })}
+    <header className="gv-head">
+      <div className="gv-head-row">
+        <div className="gv-title">
+          <h1>{title}</h1>
+          {description ? <p>{description}</p> : null}
+        </div>
+        {actions ? <div className="gv-actions">{actions}</div> : null}
       </div>
-    </div>
+      <nav className="gv-tabs" aria-label="Giá vốn">
+        {skuCostMenuItems.map((item) => (
+          <NavLink key={item.to} to={item.to} className={({ isActive }) => cn("gv-tab", isActive && "is-on")}>
+            {item.label}
+          </NavLink>
+        ))}
+      </nav>
+    </header>
   );
 }

@@ -27,24 +27,21 @@ FORBIDDEN_OLD_THEME_TOKENS = [
 ]
 
 
+HEADER = ROOT / "src/components/sku-costs/SkuCostMenuBar.tsx"
+STYLES = ROOT / "src/styles/bmq-sku-costs.css"
+
+
 def assert_shared_light_theme(path: Path, marker: str) -> None:
     src = path.read_text()
     assert marker in src
-    required_tokens = [
-        "bg-background",
-        "bg-card/70",
-        "bg-card/80",
-        "text-foreground",
-        "text-muted-foreground",
-        "border-border/70",
-        "bg-primary",
-        "text-primary",
-        "text-success",
-        "text-destructive",
-        "shadow-card",
-    ]
-    for token in required_tokens:
-        assert token in src, f"{path.name} missing shared light token {token!r}"
+    # The giá vốn pages share one light stylesheet (.gv, Demo 3 shell tokens) through SkuCostHeader.
+    assert 'className="gv"' in src, f"{path.name} must render inside the shared .gv page"
+    assert "SkuCostHeader" in src, f"{path.name} must use the shared giá vốn header"
+    assert '@/styles/bmq-sku-costs.css' in HEADER.read_text()
+    styles = STYLES.read_text()
+    assert "var(--d3-card" in styles and "var(--d3-ink" in styles
+    for token in FORBIDDEN_OLD_THEME_TOKENS:
+        assert token not in styles, f"bmq-sku-costs.css contains old SKU cost theme token {token!r}"
     for token in FORBIDDEN_OLD_THEME_TOKENS:
         assert token not in src, f"{path.name} still contains old SKU cost theme token {token!r}"
 

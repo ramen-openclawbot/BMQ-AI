@@ -1,16 +1,14 @@
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
-import { AlertCircle, BarChart3, Camera, ChevronRight, ImageIcon, Loader2, Package2, Search, Upload } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { AlertCircle, ChevronRight, Download, ImageIcon, Loader2, Search, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { parseCostValues, toNumber } from "@/lib/sku-cost-template";
 import { isFinishedSku } from "@/lib/skuType";
 import { cn } from "@/lib/utils";
-import { LoadingState } from "@/components/ui/loading";
-import "@/styles/bmq-production.css";
+import { SkuCostHeader } from "@/components/sku-costs/SkuCostMenuBar";
 
 const SKU_IMAGE_BUCKET = "sku-images";
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
@@ -41,11 +39,6 @@ type SupabaseSkuClient = {
 const sb = supabase as unknown as SupabaseSkuClient;
 const errorMessage = (error: unknown, fallback: string) => (error && typeof error === "object" && "message" in error ? String((error as { message?: unknown }).message || fallback) : fallback);
 
-const navItems = [
-  { to: "/sku-costs/dashboard", label: "Tổng quan giá vốn", icon: BarChart3 },
-  { to: "/sku-costs/analysis", label: "Xu hướng giá vốn", icon: BarChart3 },
-  { to: "/sku-costs/management", label: "Quản trị SKU", icon: Package2 },
-];
 
 type SkuRow = {
   id: string;
@@ -86,48 +79,35 @@ function validateImageFile(file: File | null) {
   return null;
 }
 
-function priceBandLabel(price: number) {
-  if (price <= 0) return "0đ";
-  if (price < 10000) return "0-10k";
-  if (price < 15000) return "10-15k";
-  if (price < 20000) return "15-20k";
-  return ">20k";
-}
-
 function SkuImageThumb({ sku, uploading, onClick }: { sku: SkuRow; uploading?: boolean; onClick: () => void }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="group relative h-[72px] w-[72px] shrink-0 overflow-hidden rounded-[18px] border border-border/70 bg-muted/45 shadow-inner transition hover:border-primary/40"
-      aria-label={`Cập nhật ảnh ${sku.product_name}`}
-    >
+    <button type="button" onClick={onClick} className="gv-thumb" aria-label={`Cập nhật ảnh ${sku.product_name}`} title="Đổi ảnh">
       {sku.image_url ? (
-        <img src={sku.image_url} alt={sku.product_name} className="h-full w-full object-cover" loading="lazy" />
+        <img src={sku.image_url} alt="" loading="lazy" />
       ) : (
-        <div className="flex h-full w-full flex-col items-center justify-center gap-1 bg-muted text-muted-foreground">
-          <ImageIcon className="h-5 w-5" />
-          <span className="text-[9px] font-bold leading-none">Chưa có ảnh</span>
-        </div>
+        <span><ImageIcon /></span>
       )}
-      <span className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-1 bg-foreground/70 py-1 text-[9px] font-extrabold text-primary opacity-0 backdrop-blur transition group-hover:opacity-100">
-        <Camera className="h-3 w-3" /> Đổi ảnh
-      </span>
       {uploading && (
-        <span className="absolute inset-0 flex items-center justify-center bg-foreground/60 text-primary backdrop-blur-sm">
-          <Loader2 className="h-5 w-5 animate-spin" />
-        </span>
+        <span className="gv-thumb-busy"><Loader2 /></span>
       )}
     </button>
   );
 }
+
+type SortMode = "lc" | "price" | "updated";
+type FilterMode = "all" | "missing";
+
+const sortLabels: Record<SortMode, string> = { lc: "LC thấp nhất", price: "Giá bán cao", updated: "Mới sửa" };
+const pctText = (n: number) => `${Math.round(n)}%`;
 
 export default function SkuCostsDjango() {
   const navigate = useNavigate();
   const [skus, setSkus] = useState<SkuRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
-  const [sortMode, setSortMode] = useState<"updated" | "price">("updated");
+  const [sortMode, setSortMode] = useState<SortMode>("lc");
+  const [filterMode, setFilterMode] = useState<FilterMode>("all");
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [editingSku, setEditingSku] = useState<SkuRow | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -146,6 +126,7 @@ export default function SkuCostsDjango() {
         const finished = (data || []).filter((s: SkuRow) => isFinishedSku(s));
         setSkus(finished);
       } catch (error: unknown) {
+        setLoadError(errorMessage(error, "Vui lòng thử lại."));
         toast.error("Không tải được SKU", { description: errorMessage(error, "Vui lòng thử lại.") });
       } finally {
         setLoading(false);
@@ -176,35 +157,52 @@ export default function SkuCostsDjango() {
           toNumber(costValues.other_production_cost, 0) +
           toNumber(costValues.sga_cost, 0);
       const marginPct = sellingPrice > 0 ? ((sellingPrice - totalCost) / sellingPrice) * 100 : 0;
-      return { ...sku, sellingPrice, totalCost, marginPct };
+      // LC only means something when both numbers exist; a missing cost would otherwise read as 100%.
+      const hasLc = sellingPrice > 0 && totalCost > 0;
+      return { ...sku, sellingPrice, totalCost, marginPct, hasLc };
     });
   }, [skus]);
 
   const stats = useMemo(() => {
     const count = enrichedSkus.length;
     const priced = enrichedSkus.filter((s) => s.sellingPrice > 0);
-    const avgSelling = priced.length ? priced.reduce((sum, s) => sum + s.sellingPrice, 0) / priced.length : 0;
-    const maxSelling = priced.length ? Math.max(...priced.map((s) => s.sellingPrice)) : 0;
-    const imageCount = enrichedSkus.filter((s) => !!s.image_url).length;
-    const updatedAt = enrichedSkus[0]?.updated_at;
-    const bandCounts = ["0đ", "0-10k", "10-15k", "15-20k", ">20k"].map((label) => ({
-      label,
-      count: enrichedSkus.filter((s) => priceBandLabel(s.sellingPrice) === label).length,
-    }));
-    return { count, pricedCount: priced.length, missingPrice: count - priced.length, avgSelling, maxSelling, imageCount, updatedAt, bandCounts };
+    const costed = enrichedSkus.filter((s) => s.totalCost > 0);
+    const withLc = enrichedSkus.filter((s) => s.hasLc);
+    const avg = (rows: number[]) => (rows.length ? rows.reduce((sum, n) => sum + n, 0) / rows.length : 0);
+    const updatedAt = enrichedSkus.reduce<string | null>((latest, s) => (s.updated_at && (!latest || s.updated_at > latest) ? s.updated_at : latest), null);
+    const missing = enrichedSkus.filter((s) => !s.hasLc).length;
+    return {
+      count,
+      pricedCount: priced.length,
+      costedCount: costed.length,
+      lcCount: withLc.length,
+      missingPrice: count - priced.length,
+      missingCost: count - costed.length,
+      missing,
+      avgSelling: avg(priced.map((s) => s.sellingPrice)),
+      avgCost: avg(costed.map((s) => s.totalCost)),
+      avgLc: avg(withLc.map((s) => s.marginPct)),
+      lowestLc: withLc.length ? withLc.reduce((low, s) => (s.marginPct < low.marginPct ? s : low)) : null,
+      updatedAt,
+    };
   }, [enrichedSkus]);
 
   const filteredSkus = useMemo(() => {
     const needle = query.trim().toLowerCase();
     const rows = enrichedSkus.filter((sku) => {
+      if (filterMode === "missing" && sku.hasLc) return false;
       if (!needle) return true;
       return `${sku.product_name} ${sku.sku_code || ""}`.toLowerCase().includes(needle);
     });
     return rows.sort((a, b) => {
       if (sortMode === "price") return b.sellingPrice - a.sellingPrice;
+      if (sortMode === "lc") {
+        if (a.hasLc !== b.hasLc) return a.hasLc ? -1 : 1;
+        if (a.hasLc && b.hasLc) return a.marginPct - b.marginPct;
+      }
       return String(b.updated_at || "").localeCompare(String(a.updated_at || ""));
     });
-  }, [enrichedSkus, query, sortMode]);
+  }, [enrichedSkus, query, sortMode, filterMode]);
 
   const openUploadModal = (sku: SkuRow) => {
     setEditingSku(sku);
@@ -302,354 +300,154 @@ export default function SkuCostsDjango() {
     }
   };
 
-  const maxBand = Math.max(1, ...stats.bandCounts.map((b) => b.count));
+  const lcCell = (sku: (typeof enrichedSkus)[number]) => {
+    if (!sku.hasLc) {
+      return (
+        <div className="gv-lc">
+          <small>LC</small>
+          <span className="gv-chip is-warn">{sku.sellingPrice > 0 ? "Thiếu giá vốn" : "Thiếu giá bán"}</span>
+        </div>
+      );
+    }
+    const costShare = (sku.totalCost / sku.sellingPrice) * 100;
+    return (
+      <div className="gv-lc">
+        <small>LC</small>
+        <b className={cn("gv-num", sku.marginPct < 0 && "gv-bad")}>{pctText(sku.marginPct)}</b>
+        <span className={cn("gv-lc-bar", costShare > 100 && "is-over")} title={`Giá vốn = ${pctText(costShare)} giá bán`}>
+          <span style={{ width: `${Math.min(100, Math.max(2, costShare))}%` }} />
+        </span>
+      </div>
+    );
+  };
 
   return (
-    <div data-stitch-sku-cost-dashboard-theme="pantone-2026-light" className="-m-4 min-h-screen bg-background text-foreground md:-m-6">
-      <div className="mx-auto min-h-screen w-full max-w-[430px] bg-background px-4 pb-28 pt-3 shadow-2xl md:max-w-[560px] md:px-5 lg:hidden">
-        <header className="sticky top-0 z-20 -mx-4 border-b border-border/60 bg-background/92 px-4 pb-3 pt-2 backdrop-blur-xl md:-mx-5 md:px-5">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full border border-border/70 bg-card/80 text-primary shadow-inner">
-              <Package2 className="h-5 w-5" />
-            </div>
-            <div className="min-w-0 text-center">
-              <h1 className="text-[21px] font-black leading-tight tracking-[-0.03em] text-foreground">Tổng quan giá vốn</h1>
-              <p className="mt-0.5 text-[11px] font-bold text-muted-foreground">Toàn bộ SKU thành phẩm hiện có</p>
-            </div>
-            <div className="flex h-10 w-10 items-center justify-center rounded-full border border-primary/20 bg-primary/10 text-primary shadow-inner">
-              <Camera className="h-5 w-5" />
-            </div>
+    <div data-stitch-sku-cost-dashboard-theme="pantone-2026-light" className="gv">
+      <SkuCostHeader
+        title="Tổng quan giá vốn"
+        description={
+          loading ? "Đang tải SKU thành phẩm…" : (
+            <>
+              <b>{stats.count} SKU thành phẩm</b>
+              {stats.updatedAt ? <> · cập nhật {formatDateTime(stats.updatedAt)}</> : null}
+            </>
+          )
+        }
+        actions={
+          <>
+            <button type="button" className="gv-btn" onClick={exportSkuSheet} disabled={loading || !filteredSkus.length}>
+              <Download /> Xuất CSV
+            </button>
+            <button type="button" className="gv-btn is-primary" onClick={() => navigate("/sku-costs/management")}>
+              Cập nhật giá
+            </button>
+          </>
+        }
+      />
+
+      {loadError ? (
+        <div className="gv-notice" role="alert">
+          <AlertCircle />
+          <p><b>Không tải được SKU.</b> {loadError}</p>
+        </div>
+      ) : null}
+
+      <section className="gv-kpis" aria-label="Chỉ số giá vốn">
+        <div className="gv-kpi">
+          <span className="gv-kpi-label">Giá vốn TB</span>
+          <strong>{loading ? "…" : stats.costedCount ? vnd(stats.avgCost) : "—"}</strong>
+          <span className="gv-kpi-sub">{loading ? " " : `${stats.costedCount}/${stats.count} SKU có giá vốn`}</span>
+        </div>
+        <div className="gv-kpi">
+          <span className="gv-kpi-label">LC TB</span>
+          <strong>{loading ? "…" : stats.lcCount ? pctText(stats.avgLc) : "—"}</strong>
+          <span className="gv-kpi-sub">{loading ? " " : stats.lowestLc ? `Thấp nhất: ${stats.lowestLc.product_name} ${pctText(stats.lowestLc.marginPct)}` : "Chưa SKU nào đủ giá vốn và giá bán"}</span>
+        </div>
+        <div className="gv-kpi">
+          <span className="gv-kpi-label">Giá bán TB</span>
+          <strong>{loading ? "…" : stats.pricedCount ? vnd(stats.avgSelling) : "—"}</strong>
+          <span className="gv-kpi-sub">{loading ? " " : `${stats.pricedCount}/${stats.count} SKU có giá bán`}</span>
+        </div>
+        <div className="gv-kpi">
+          <span className="gv-kpi-label">Thiếu dữ liệu</span>
+          <strong className={cn(!loading && stats.missing > 0 && "gv-bad")}>{loading ? "…" : stats.missing}<small>SKU</small></strong>
+          <span className="gv-kpi-sub">{loading ? " " : stats.missing ? `${stats.missingCost} chưa giá vốn · ${stats.missingPrice} chưa giá bán` : "Đủ giá vốn và giá bán"}</span>
+        </div>
+      </section>
+
+      <section className="gv-panel is-flush" aria-label="Danh sách SKU">
+        <div className="gv-panel-h">
+          <div>
+            <h2>SKU thành phẩm</h2>
+            <p>Bấm vào SKU để xem công thức và lịch sử giá vốn. Bấm ảnh để đổi ảnh.</p>
           </div>
-
-          <nav className="mt-4 flex gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-label="Điều hướng giá vốn">
-            {navItems.map((item) => {
-              const Icon = item.icon;
-              return (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  className={({ isActive }) =>
-                    cn(
-                      "inline-flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-2 text-[12px] font-extrabold transition",
-                      isActive ? "bg-primary text-primary-foreground shadow-card" : "border border-border/70 bg-muted/45 text-muted-foreground hover:text-foreground"
-                    )
-                  }
-                >
-                  <Icon className="h-3.5 w-3.5" />
-                  {item.label}
-                </NavLink>
-              );
-            })}
-          </nav>
-        </header>
-
-        <main className="space-y-4 pt-4">
-          <section className="rounded-[28px] border border-border/70 bg-card/70 p-4 shadow-card backdrop-blur-xl">
-            <div className="grid grid-cols-2 gap-3">
-              {[
-                { label: "SKU thành phẩm", value: loading ? "..." : stats.count, sub: "đang quản lý" },
-                { label: "Giá bán TB", value: loading ? "..." : vnd(stats.avgSelling), sub: `${stats.pricedCount} SKU có giá` },
-                { label: "Giá cao nhất", value: loading ? "..." : vnd(stats.maxSelling), sub: "top giá bán" },
-                { label: "Cập nhật", value: loading ? "..." : formatDateTime(stats.updatedAt), sub: "gần nhất" },
-              ].map((card) => (
-                <article key={card.label} className="min-h-[94px] rounded-[22px] border border-border/70 bg-card/80 p-3.5 shadow-inner">
-                  <p className="text-[11px] font-extrabold uppercase tracking-[0.12em] text-muted-foreground">{card.label}</p>
-                  <div className="mt-3 text-[22px] font-black leading-none tracking-[-0.04em] text-foreground">{card.value}</div>
-                  <p className="mt-2 text-[11px] font-bold text-muted-foreground">{card.sub}</p>
-                </article>
-              ))}
-            </div>
-            <div className="mt-3 grid grid-cols-3 gap-2">
-              {[
-                { label: "Có giá bán", value: stats.pricedCount, tone: "text-success" },
-                { label: "Chưa có giá", value: stats.missingPrice, tone: stats.missingPrice ? "text-destructive" : "text-foreground/70" },
-                { label: "Có ảnh", value: stats.imageCount, tone: "text-primary" },
-              ].map((chip) => (
-                <div key={chip.label} className="rounded-2xl border border-border/70 bg-muted/50 px-3 py-2 text-center">
-                  <div className={cn("text-[18px] font-black", chip.tone)}>{loading ? "..." : chip.value}</div>
-                  <div className="mt-0.5 text-[10px] font-bold text-muted-foreground">{chip.label}</div>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section className="rounded-[24px] border border-border/70 bg-card/80 p-4 shadow-card">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <div>
-                <h2 className="text-[16px] font-black tracking-[-0.02em] text-foreground">Phân bổ giá bán SKU</h2>
-                <p className="mt-0.5 text-[11px] font-semibold text-muted-foreground">Nhìn nhanh dải giá toàn bộ SKU.</p>
-              </div>
-              <span className="rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-extrabold text-primary ring-1 ring-primary/20">{stats.count} SKU</span>
-            </div>
-            <div className="space-y-2.5">
-              {stats.bandCounts.map((band) => (
-                <div key={band.label} className="grid grid-cols-[48px_minmax(0,1fr)_28px] items-center gap-2">
-                  <span className="text-[11px] font-bold text-muted-foreground">{band.label}</span>
-                  <div className="h-3 overflow-hidden rounded-full bg-muted/60">
-                    <div className="h-full rounded-full bg-gradient-to-r from-primary to-warning" style={{ width: `${Math.max(6, (band.count / maxBand) * 100)}%` }} />
-                  </div>
-                  <span className="text-right text-[12px] font-black tabular-nums text-foreground">{loading ? "-" : band.count}</span>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section className="space-y-3">
-            <div className="flex items-end justify-between gap-3">
-              <div>
-                <h2 className="text-[18px] font-black tracking-[-0.02em] text-foreground">Toàn bộ SKU hiện có</h2>
-                <p className="mt-0.5 text-[11px] font-bold text-muted-foreground">Bấm ảnh để upload/cập nhật hình SKU.</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setSortMode((mode) => (mode === "price" ? "updated" : "price"))}
-                className="rounded-full border border-primary/20 bg-primary/10 px-3 py-2 text-[11px] font-extrabold text-primary"
-              >
-                {sortMode === "price" ? "Giá bán" : "Mới cập nhật"}
+        </div>
+        <div className="gv-tools">
+          <label className="gv-search">
+            <Search />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm theo tên hoặc mã SKU" aria-label="Tìm SKU" />
+          </label>
+          <div className="gv-seg" role="group" aria-label="Lọc SKU">
+            <button type="button" className={cn(filterMode === "all" && "is-on")} aria-pressed={filterMode === "all"} onClick={() => setFilterMode("all")}>Tất cả</button>
+            <button type="button" className={cn(filterMode === "missing" && "is-on")} aria-pressed={filterMode === "missing"} onClick={() => setFilterMode("missing")}>
+              Thiếu dữ liệu{!loading && stats.missing ? <em>{stats.missing}</em> : null}
+            </button>
+          </div>
+          <div className="gv-seg" role="group" aria-label="Sắp xếp">
+            {(Object.keys(sortLabels) as SortMode[]).map((mode) => (
+              <button key={mode} type="button" className={cn(sortMode === mode && "is-on")} aria-pressed={sortMode === mode} onClick={() => setSortMode(mode)}>
+                {sortLabels[mode]}
               </button>
-            </div>
-            <div className="flex items-center gap-2 rounded-[18px] border border-border/70 bg-muted/45 px-3 py-2 shadow-inner">
-              <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
-              <Input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Tìm SKU"
-                className="h-9 border-0 bg-transparent px-0 text-[13px] font-bold text-foreground placeholder:text-muted-foreground/70 focus-visible:ring-0"
-              />
-            </div>
-
-            {loading ? (
-              <LoadingState rows={4} label="Đang tải SKU..." />
-            ) : filteredSkus.length === 0 ? (
-              <div className="rounded-[24px] border border-dashed border-border/70 bg-muted/35 px-4 py-8 text-center text-[13px] font-bold text-muted-foreground">Không tìm thấy SKU phù hợp.</div>
-            ) : (
-              <div className="space-y-3">
-                {filteredSkus.map((sku) => {
-                  const hasPrice = sku.sellingPrice > 0;
-                  return (
-                    <article key={sku.id} className="flex items-center gap-3 rounded-[24px] border border-border/70 bg-card/80 p-3 shadow-card">
-                      <SkuImageThumb sku={sku} uploading={uploadingSkuId === sku.id} onClick={() => openUploadModal(sku)} />
-                      <button type="button" onClick={() => openSkuDetail(sku)} className="min-w-0 flex-1 text-left" aria-label={`Xem chi tiết ${sku.product_name}`}>
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <h3 className="truncate text-[14px] font-black leading-tight text-foreground">{sku.product_name}</h3>
-                            <p className="mt-1 truncate font-mono text-[10px] font-bold text-muted-foreground">{sku.sku_code || sku.id}</p>
-                          </div>
-                          <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground/60" />
-                        </div>
-                        <div className="mt-3 flex items-center justify-between gap-2">
-                          <div>
-                            <div className="text-[17px] font-black leading-none tracking-[-0.03em] text-primary">{vnd(sku.sellingPrice)}</div>
-                            <div className="mt-1 text-[10px] font-bold text-muted-foreground">Giá bán</div>
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            <span className={cn("rounded-full px-2 py-1 text-[10px] font-extrabold ring-1", hasPrice ? "bg-success/10 text-success ring-success/20" : "bg-destructive/10 text-destructive ring-destructive/20")}>
-                              {hasPrice ? "Có giá" : "Chưa giá"}
-                            </span>
-                            <span className="rounded-xl border border-border/70 bg-muted/45 px-2 py-1 text-[10px] font-black text-muted-foreground">
-                              LC {Number.isFinite(sku.marginPct) ? `${Math.round(sku.marginPct)}%` : "—"}
-                            </span>
-                          </div>
-                        </div>
-                      </button>
-                    </article>
-                  );
-                })}
-              </div>
-            )}
-          </section>
-        </main>
-
-        <div data-bmq-bottom-bar="actions" className="fixed inset-x-0 bottom-0 z-30 mx-auto max-w-[430px] bg-gradient-to-t from-background via-background/96 to-transparent px-4 pb-4 pt-8 md:max-w-[560px] lg:hidden">
-          <div className="grid grid-cols-2 gap-3 rounded-[24px] border border-border/70 bg-card/80 p-2 shadow-card backdrop-blur-xl">
-            <Button onClick={exportSkuSheet} className="h-12 rounded-[18px] border border-border/70 bg-card/80 text-[13px] font-extrabold text-foreground hover:bg-muted/70">Xuất sheet SKU</Button>
-            <Button onClick={() => navigate("/sku-costs/management")} className="h-12 rounded-[18px] bg-primary text-[13px] font-extrabold text-primary-foreground shadow-card hover:bg-primary/90">Cập nhật giá</Button>
+            ))}
           </div>
         </div>
-      </div>
 
-      <div className="hidden px-6 py-6 lg:block">
-        <div className="flex w-full flex-col gap-6">
-          <header>
-            <div className="d3-prod-head">
-              <div className="min-w-0">
-                <h1>Tổng quan giá vốn</h1>
-                <p>Toàn bộ SKU thành phẩm: giá bán, giá vốn và trạng thái ảnh sản phẩm.</p>
-              </div>
-              <div className="flex shrink-0 items-center gap-3">
-                <Button onClick={exportSkuSheet} className="h-11 rounded-2xl border border-border/70 bg-card/80 px-5 text-sm font-extrabold text-foreground hover:bg-muted/70">Xuất sheet SKU</Button>
-                <Button onClick={() => navigate("/sku-costs/management")} className="h-11 rounded-2xl bg-primary px-5 text-sm font-extrabold text-primary-foreground shadow-card hover:bg-primary/90">Cập nhật giá</Button>
-              </div>
+        {loading ? (
+          <div className="gv-loading" aria-label="Đang tải SKU"><span /><span /><span /></div>
+        ) : filteredSkus.length === 0 ? (
+          <p className="gv-empty">
+            <b>{enrichedSkus.length === 0 ? "Chưa có SKU thành phẩm" : "Không có SKU phù hợp"}</b>
+            {enrichedSkus.length === 0 ? "Tạo SKU ở tab Quản trị SKU." : filterMode === "missing" && !query ? "Mọi SKU đã đủ giá vốn và giá bán." : "Thử từ khoá khác."}
+          </p>
+        ) : (
+          <>
+            <div className="gv-list-head" aria-hidden="true">
+              <span />
+              <span>SKU</span>
+              <span>Giá vốn</span>
+              <span>Giá bán</span>
+              <span>LC</span>
+              <span />
             </div>
-
-            <nav className="mt-6 flex flex-wrap gap-2" aria-label="Điều hướng giá vốn desktop">
-              {navItems.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <NavLink
-                    key={item.to}
-                    to={item.to}
-                    className={({ isActive }) =>
-                      cn(
-                        "inline-flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-extrabold transition",
-                        isActive ? "bg-primary text-primary-foreground shadow-card" : "border border-border/70 bg-muted/45 text-muted-foreground hover:text-foreground"
-                      )
-                    }
-                  >
-                    <Icon className="h-4 w-4" />
-                    {item.label}
-                  </NavLink>
-                );
-              })}
-            </nav>
-          </header>
-
-          <section className="grid grid-cols-4 gap-4">
-            {[
-              { label: "SKU thành phẩm", value: loading ? "..." : stats.count, sub: "đang quản lý", tone: "text-foreground" },
-              { label: "Giá bán TB", value: loading ? "..." : vnd(stats.avgSelling), sub: `${stats.pricedCount} SKU có giá`, tone: "text-primary" },
-              { label: "Giá cao nhất", value: loading ? "..." : vnd(stats.maxSelling), sub: "top giá bán", tone: "text-foreground" },
-              { label: "Cập nhật", value: loading ? "..." : formatDateTime(stats.updatedAt), sub: "gần nhất", tone: "text-success" },
-            ].map((card) => (
-              <article key={card.label} className="rounded-[28px] border border-border/70 bg-card/80 p-5 shadow-card">
-                <p className="text-xs font-medium text-muted-foreground">{card.label}</p>
-                <div className={cn("d3-prod-fig mt-3", card.tone)}>{card.value}</div>
-                <p className="mt-2 text-sm text-muted-foreground">{card.sub}</p>
-              </article>
-            ))}
-          </section>
-
-          <section className="grid grid-cols-[minmax(0,0.95fr)_minmax(0,1.35fr)] gap-5">
-            <article className="rounded-[30px] border border-border/70 bg-card/80 p-5 shadow-card">
-              <div className="mb-5 flex items-start justify-between gap-4">
-                <div>
-                  <h2 className="text-xl font-black tracking-[-0.03em] text-foreground">Phân bổ giá bán SKU</h2>
-                  <p className="mt-1 text-sm font-semibold text-muted-foreground">Dải giá toàn bộ SKU thành phẩm.</p>
-                </div>
-                <span className="rounded-full bg-primary/10 px-3 py-1.5 text-xs font-extrabold text-primary ring-1 ring-primary/20">{stats.count} SKU</span>
-              </div>
-              <div className="space-y-4">
-                {stats.bandCounts.map((band) => (
-                  <div key={band.label} className="grid grid-cols-[64px_minmax(0,1fr)_40px] items-center gap-3">
-                    <span className="text-sm font-bold text-muted-foreground">{band.label}</span>
-                    <div className="h-4 overflow-hidden rounded-full bg-muted/60">
-                      <div className="h-full rounded-full bg-gradient-to-r from-primary to-warning" style={{ width: `${Math.max(6, (band.count / maxBand) * 100)}%` }} />
-                    </div>
-                    <span className="text-right text-sm font-black tabular-nums text-foreground">{loading ? "-" : band.count}</span>
+            <ul className="gv-list">
+              {filteredSkus.map((sku) => (
+                <li key={sku.id} className="gv-row">
+                  <button type="button" className="gv-row-link" onClick={() => openSkuDetail(sku)} aria-label={`Xem chi tiết ${sku.product_name}`} />
+                  <SkuImageThumb sku={sku} uploading={uploadingSkuId === sku.id} onClick={() => openUploadModal(sku)} />
+                  <div className="gv-name">
+                    <b>{sku.product_name}</b>
+                    <small>
+                      <code>{sku.sku_code || "—"}</code>
+                      {sku.unit ? <span>{sku.unit}</span> : null}
+                    </small>
                   </div>
-                ))}
-              </div>
-            </article>
-
-            <article className="rounded-[30px] border border-border/70 bg-card/80 p-5 shadow-card">
-              <div className="mb-5 flex items-start justify-between gap-4">
-                <div>
-                  <h2 className="text-xl font-black tracking-[-0.03em] text-foreground">Tình trạng dữ liệu</h2>
-                  <p className="mt-1 text-sm font-semibold text-muted-foreground">Theo dõi giá bán và ảnh sản phẩm trước khi review COGS.</p>
-                </div>
-                <Camera className="h-5 w-5 text-primary/70" />
-              </div>
-              <div className="grid grid-cols-3 gap-3">
-                {[
-                  { label: "Có giá bán", value: stats.pricedCount, tone: "text-success" },
-                  { label: "Chưa có giá", value: stats.missingPrice, tone: stats.missingPrice ? "text-destructive" : "text-foreground/70" },
-                  { label: "Có ảnh", value: stats.imageCount, tone: "text-primary" },
-                ].map((chip) => (
-                  <div key={chip.label} className="rounded-[24px] border border-border/70 bg-muted/50 p-5 text-center">
-                    <div className={cn("text-[32px] font-black leading-none", chip.tone)}>{loading ? "..." : chip.value}</div>
-                    <div className="mt-3 text-xs font-extrabold uppercase tracking-[0.12em] text-muted-foreground">{chip.label}</div>
+                  <div className="gv-fig is-cost">
+                    <small>Giá vốn</small>
+                    {sku.totalCost > 0 ? <b>{vnd(sku.totalCost)}</b> : <b className="is-missing">Chưa có</b>}
                   </div>
-                ))}
-              </div>
-              <div className="mt-4 rounded-[24px] border border-warning/25 bg-warning/10 p-4 text-sm leading-relaxed text-foreground">
-                Desktop dùng cùng dữ liệu realtime với mobile. Upload ảnh, xuất sheet và mở quản trị SKU hoạt động chung một state.
-              </div>
-            </article>
-          </section>
-
-          <section className="rounded-[32px] border border-border/70 bg-card/80 p-5 shadow-card">
-            <div className="mb-5 flex items-end justify-between gap-5">
-              <div>
-                <h2 className="text-2xl font-black tracking-[-0.03em] text-foreground">Toàn bộ SKU hiện có</h2>
-                <p className="mt-1 text-sm font-bold text-muted-foreground">Bấm ảnh để upload/cập nhật hình; bấm dòng để mở quản trị SKU.</p>
-              </div>
-              <div className="flex min-w-[420px] items-center gap-3">
-                <div className="flex min-w-0 flex-1 items-center gap-2 rounded-2xl border border-border/70 bg-muted/45 px-3 py-2.5 shadow-inner">
-                  <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <Input
-                    value={query}
-                    onChange={(event) => setQuery(event.target.value)}
-                    placeholder="Tìm SKU theo tên hoặc mã"
-                    className="h-9 border-0 bg-transparent px-0 text-sm font-bold text-foreground placeholder:text-muted-foreground/70 focus-visible:ring-0"
-                  />
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setSortMode((mode) => (mode === "price" ? "updated" : "price"))}
-                  className="h-12 rounded-2xl border border-primary/20 bg-primary/10 px-4 text-sm font-extrabold text-primary"
-                >
-                  Sort: {sortMode === "price" ? "Giá bán" : "Mới cập nhật"}
-                </button>
-              </div>
-            </div>
-
-            {loading ? (
-              <LoadingState rows={5} label="Đang tải SKU..." />
-            ) : filteredSkus.length === 0 ? (
-              <div className="rounded-[24px] border border-dashed border-border/70 bg-muted/35 px-4 py-12 text-center text-sm font-bold text-muted-foreground">Không tìm thấy SKU phù hợp.</div>
-            ) : (
-              <div className="overflow-hidden rounded-[26px] border border-border/70">
-                <table className="w-full border-collapse text-left">
-                  <thead className="bg-muted/45 text-xs font-extrabold uppercase tracking-[0.12em] text-muted-foreground">
-                    <tr>
-                      <th className="px-4 py-3">SKU</th>
-                      <th className="px-4 py-3">Giá bán</th>
-                      <th className="px-4 py-3">Giá vốn</th>
-                      <th className="px-4 py-3">LC %</th>
-                      <th className="px-4 py-3">Trạng thái</th>
-                      <th className="px-4 py-3">Cập nhật</th>
-                      <th className="px-4 py-3 text-right">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border/50">
-                    {filteredSkus.map((sku) => {
-                      const hasPrice = sku.sellingPrice > 0;
-                      return (
-                        <tr key={sku.id} className="group bg-card/60 transition hover:bg-muted/45">
-                          <td className="px-4 py-3">
-                            <div className="flex min-w-0 items-center gap-3">
-                              <SkuImageThumb sku={sku} uploading={uploadingSkuId === sku.id} onClick={() => openUploadModal(sku)} />
-                              <button type="button" onClick={() => openSkuDetail(sku)} className="min-w-0 text-left" aria-label={`Xem chi tiết ${sku.product_name}`}>
-                                <div className="max-w-[340px] truncate text-sm font-black text-foreground group-hover:text-primary">{sku.product_name}</div>
-                                <div className="mt-1 truncate font-mono text-xs font-bold text-muted-foreground">{sku.sku_code || sku.id}</div>
-                              </button>
-                            </div>
-                          </td>
-                          <td className="px-4 py-3 text-sm font-black text-primary">{vnd(sku.sellingPrice)}</td>
-                          <td className="px-4 py-3 text-sm font-bold text-foreground/72">{vnd(sku.totalCost)}</td>
-                          <td className="px-4 py-3 text-sm font-black text-foreground">{Number.isFinite(sku.marginPct) ? `${Math.round(sku.marginPct)}%` : "—"}</td>
-                          <td className="px-4 py-3">
-                            <span className={cn("rounded-full px-2.5 py-1 text-xs font-extrabold ring-1", hasPrice ? "bg-success/10 text-success ring-success/20" : "bg-destructive/10 text-destructive ring-destructive/20")}>
-                              {hasPrice ? "Có giá" : "Chưa giá"}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-sm font-semibold text-muted-foreground">{formatDateTime(sku.updated_at)}</td>
-                          <td className="px-4 py-3 text-right">
-                            <Button type="button" onClick={() => openSkuDetail(sku)} className="h-10 rounded-2xl bg-muted/50 px-4 text-xs font-extrabold text-foreground hover:bg-primary/90 hover:text-primary-foreground">
-                              Mở chi tiết
-                              <ChevronRight className="ml-1.5 h-4 w-4" />
-                            </Button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-        </div>
-      </div>
+                  <div className="gv-fig is-price">
+                    <small>Giá bán</small>
+                    {sku.sellingPrice > 0 ? <b>{vnd(sku.sellingPrice)}</b> : <b className="is-missing">Chưa có</b>}
+                  </div>
+                  {lcCell(sku)}
+                  <ChevronRight className="gv-chev" aria-hidden="true" />
+                </li>
+              ))}
+            </ul>
+            <p className="gv-list-foot">LC = (giá bán − giá vốn) ÷ giá bán. Vạch xám là phần giá vốn trong giá bán; vạch đỏ là giá vốn vượt giá bán.</p>
+          </>
+        )}
+      </section>
 
       <Dialog open={!!editingSku} onOpenChange={(open) => { if (!open && !uploadingSkuId) { setEditingSku(null); setSelectedFile(null); setUploadError(null); } }}>
         <DialogContent className="border-border/70 bg-card text-foreground sm:max-w-[420px]">
