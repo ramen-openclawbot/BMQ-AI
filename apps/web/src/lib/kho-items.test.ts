@@ -136,6 +136,7 @@ test("khoErrorText maps every game error", () => {
     unit_forbidden: "Anh/chị không có quyền đổi đơn vị món.",
     invalid_name: "Tên món phải có từ 2 đến 120 ký tự.",
     item_not_found: "Không tìm thấy món này.",
+    item_inactive_place: "Món này đang tắt (có thể vừa có người tắt). Tải lại, bật món rồi chọn kho.",
     item_name_duplicate: "Tên món đã được dùng cho món khác.",
     invalid_factor: "Hệ số quy đổi phải lớn hơn 0.",
     unit_not_allowed: "Đơn vị này không được dùng trong kho.",
