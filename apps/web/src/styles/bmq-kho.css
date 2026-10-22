@@ -1068,3 +1068,19 @@ html.bmq-d3 .d3-kho-unitpick .d3-kho-chip { height: 34px; min-height: 34px; padd
 .d3-kr-read-fix.is-done small { color: var(--kho-ok, #1f6b35); }
 @keyframes d3-kr-pulse { 50% { opacity: .55; } }
 @media (prefers-reduced-motion: reduce) { .d3-kr-read-wait { animation: none; } }
+
+/* Rà soát nhập kho: link a recipe material to a kho item that already exists. */
+.d3-kr-exist { display: grid; gap: 10px; min-width: 0; padding: 14px; border-radius: 14px; background: var(--d3-white, #fff); box-shadow: inset 0 0 0 1px var(--d3-line); }
+.d3-kr-exist-head { display: grid; gap: 2px; }
+.d3-kr-exist-head b { font-size: 14.5px; font-weight: 500; }
+.d3-kr-exist-head small { font-size: 12.5px; color: var(--d3-dim); }
+.d3-kr-exist .d3-kho-search { width: 100%; }
+.d3-kr-exist-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.d3-kr-exist-item { display: grid; gap: 3px; width: 100%; min-width: 0; padding: 10px 12px; border: 0; border-radius: 12px; background: #f6f6f4; color: inherit; font: inherit; text-align: left; cursor: pointer; transition: box-shadow .16s ease, background-color .16s ease; }
+.d3-kr-exist-item:hover { background: #f0efec; }
+.d3-kr-exist-item:active { transform: scale(.99); }
+.d3-kr-exist-item:focus-visible { outline: 2px solid var(--d3-ink); outline-offset: 2px; }
+.d3-kr-exist-item.is-on { background: var(--d3-white, #fff); box-shadow: inset 0 0 0 1.5px var(--d3-ink); }
+.d3-kr-exist-item b { font-size: 14px; font-weight: 500; overflow-wrap: anywhere; }
+.d3-kr-exist-item small { display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: 12px; color: var(--d3-dim); }
+.d3-kr-exist-item small .is-off { color: var(--kho-warn, #7a4d06); }

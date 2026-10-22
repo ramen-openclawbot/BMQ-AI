@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,8 +8,11 @@ import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import {
   useKhoReviewCreateItem, useKhoReviewFactorHint, useKhoReviewFixLineUnit, useKhoReviewJev, useKhoReviewLink, useKhoReviewList,
-  useKhoReviewReadLine, useKhoReviewUndoUnitFix,
+  KHO_REVIEW_QUERY_KEY, useKhoReviewReadLine, useKhoReviewUndoUnitFix,
 } from "@/hooks/useKhoReview";
+import { useKhoItems, useKhoSaveItem } from "@/hooks/useKhoItems";
+import { useSetItemKhoLocations } from "@/hooks/useWarehouseGame";
+import type { KhoItem } from "@/lib/kho-items";
 import {
   factorFromRead, jevVerdictText, khoReviewErrorText, reviewReasonText, suggestedFactor,
   type KhoReviewCandidate, type KhoReviewFactorSource, type KhoReviewItem, type KhoReviewLocation, type KhoReviewMaterial,
@@ -342,6 +346,142 @@ function ItemReview({ item, confirm, onClose, onJev, jevBusy }: { item: KhoRevie
   );
 }
 
+/** First two words of a recipe name without pack sizes, e.g. "Nho khô vàng 10kg/thùng" -> "Nho khô". */
+function searchSeed(name: string): string {
+  return name.split(/\s+/).filter((w) => !/\d/.test(w) && !w.includes("/")).slice(0, 2).join(" ");
+}
+
+/**
+ * Point a recipe material at a kho item that already exists (owner 23/10): search every item, on or off, pick the
+ * kho, set the recipe-unit factor. An off item is turned back on and a missing kho place is added before the
+ * recipe link, because cogs_decide_ingredient only accepts an active item placed at that kho.
+ */
+function LinkExisting({ mat, onDone }: { mat: KhoReviewMaterial; onDone: () => void }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const items = useKhoItems();
+  const saveItem = useKhoSaveItem();
+  const setPlaces = useSetItemKhoLocations();
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState(() => searchSeed(mat.name));
+  const [pickedId, setPickedId] = useState<string | null>(null);
+  const [loc, setLoc] = useState<KhoReviewLocation>("q7");
+  const [factorText, setFactorText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const key = normalizeName(query);
+  const all = items.data?.items ?? [];
+  const hits = key.length < 2 ? [] : all.filter((it) => normalizeName(it.name).includes(key) || normalizeName(it.item_code ?? "") === key).slice(0, 8);
+  const picked: KhoItem | null = all.find((it) => it.id === pickedId) ?? null;
+  const x = parseNum(factorText);
+  const factorOk = Number.isFinite(x) && x > 0;
+  const placed = picked ? (loc === "q7" ? picked.in_q7 : picked.in_tan_tao ?? !picked.in_q7) : false;
+
+  const pick = (it: KhoItem) => {
+    setPickedId(it.id);
+    setError(null);
+    setLoc(it.in_q7 ? "q7" : "tan_tao");
+    const f = suggestedFactor(mat.recipe_unit, it.unit);
+    setFactorText(f !== null ? String(f) : "");
+  };
+  const save = async () => {
+    if (!picked || !factorOk) return;
+    setBusy(true);
+    setError(null);
+    try {
+      if (!picked.active) {
+        const r = await saveItem.mutateAsync({ itemId: picked.id, name: picked.name, unit: picked.unit, active: true, requestId: newRequestId() });
+        if (r.status === "name_taken") throw new Error(`Đã có món “${r.other.name}” cùng tên${r.other.active ? " đang bật" : ""}. Chọn món đó.`);
+        if (r.status !== "saved") throw new Error("Chưa bật lại được món này. Mở Danh mục kho để bật.");
+      }
+      if (!placed) {
+        const inTanTao = picked.in_tan_tao ?? !picked.in_q7;
+        await setPlaces.mutateAsync({ itemId: picked.id, tanTao: inTanTao || loc === "tan_tao", q7: picked.in_q7 || loc === "q7", requestId: newRequestId() });
+      }
+      const { error: rpcError } = await (supabase as unknown as { rpc: (fn: string, args: Record<string, unknown>) => Promise<{ error: unknown }> })
+        .rpc("cogs_decide_ingredient", {
+          p_canonical_material_id: mat.canonical_material_id, p_recipe_unit: mat.recipe_unit, p_action: "deduct",
+          p_location: loc, p_item_id: picked.id, p_factor: x, p_request_id: newRequestId(),
+        });
+      if (rpcError) throw rpcError;
+      void queryClient.invalidateQueries({ queryKey: [KHO_REVIEW_QUERY_KEY] });
+      toast({ title: `Đã nối công thức vào “${picked.name}”`, description: `Kho ${KHO_LABEL[loc]} · 1 ${mat.recipe_unit} = ${fmtQty(x)} ${picked.unit}` });
+      onDone();
+    } catch (e) {
+      setError(e instanceof Error && !("code" in e) ? e.message : khoReviewErrorText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <Button variant="outline" size="sm" className="d3-kr-pick" onClick={() => setOpen(true)} data-bmq-review-existing-open>
+        Nối vào món kho có sẵn
+      </Button>
+    );
+  }
+  return (
+    <section className="d3-kr-exist" data-bmq-review-existing>
+      <div className="d3-kr-exist-head">
+        <b>Nối vào món kho có sẵn</b>
+        <small>Tìm cả món đang tắt. Công thức sẽ trừ vào món này.</small>
+      </div>
+      <span className="d3-kho-search">
+        <Search aria-hidden="true" />
+        <input value={query} onChange={(e) => { setQuery(e.target.value); setPickedId(null); }} placeholder="Tên hoặc mã món…" aria-label="Tìm món kho" enterKeyHint="search" data-bmq-review-existing-search />
+        {query ? <button type="button" onClick={() => { setQuery(""); setPickedId(null); }} aria-label="Xóa tìm kiếm"><X /></button> : null}
+      </span>
+      {items.isLoading ? <LoadingState label="Đang đọc danh mục kho" />
+        : items.isError ? <p className="d3-kho-error">Chưa đọc được danh mục kho. {khoReviewErrorText(items.error)}</p>
+        : key.length >= 2 && !hits.length ? <p className="d3-kho-hint">Không có món nào tên “{query}”. Tạo món từ một dòng phiếu ở trên.</p>
+        : (
+          <ul className="d3-kr-exist-list">
+            {hits.map((it) => (
+              <li key={it.id}>
+                <button type="button" className={cn("d3-kr-exist-item", it.id === pickedId && "is-on")} aria-pressed={it.id === pickedId} onClick={() => pick(it)} data-bmq-review-existing-item={it.id}>
+                  <b>{it.name}</b>
+                  <small>
+                    <span>{it.item_code ?? "chưa có mã"}</span>
+                    <span>{it.unit}</span>
+                    <span>{[it.in_q7 ? "Kho Q7" : null, (it.in_tan_tao ?? !it.in_q7) ? "Kho Tân Tạo" : null].filter(Boolean).join(" · ")}</span>
+                    {!it.active ? <span className="is-off">đang tắt</span> : null}
+                  </small>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      {picked ? (
+        <div className="d3-kho-ask" data-bmq-review-existing-form>
+          <div className="d3-kho-field"><span>Trừ ở kho</span>
+            <div className="d3-kho-seg" role="group" aria-label="Kho trừ">
+              {KHO_LOCATIONS.map((l) => (
+                <button key={l} type="button" aria-pressed={loc === l} className={cn(loc === l && "is-on")} onClick={() => setLoc(l)} data-bmq-review-existing-loc={l}>Kho {KHO_LABEL[l]}</button>
+              ))}
+            </div>
+          </div>
+          <label className="d3-kho-conv">
+            1 {mat.recipe_unit} =
+            <Input inputMode="decimal" value={factorText} onChange={(e) => setFactorText(e.target.value)} placeholder="?" aria-label={`1 ${mat.recipe_unit} bằng bao nhiêu ${picked.unit}`} data-bmq-review-existing-factor />
+            {picked.unit}
+          </label>
+          {!picked.active || !placed ? (
+            <small data-bmq-review-existing-note>
+              {[!picked.active ? "Món đang tắt, sẽ bật lại" : null, !placed ? `sẽ thêm món vào Kho ${KHO_LABEL[loc]}` : null].filter(Boolean).join("; ")}.
+            </small>
+          ) : null}
+          {error ? <p className="d3-kho-error">{error}</p> : null}
+          <div className="d3-kho-actions">
+            <Button disabled={!factorOk || busy} onClick={() => void save()} data-bmq-review-existing-link>{busy ? "Đang nối…" : "Nối công thức vào món này"}</Button>
+            <Button variant="outline" onClick={() => { setOpen(false); setPickedId(null); }}>Thôi</Button>
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 function MaterialReview({ mat, onClose, onJev, jevBusy }: { mat: KhoReviewMaterial; onClose: () => void; onJev: () => void; jevBusy: boolean }) {
   const { toast } = useToast();
   const create = useKhoReviewCreateItem();
@@ -399,7 +539,7 @@ function MaterialReview({ mat, onClose, onJev, jevBusy }: { mat: KhoReviewMateri
       {mat.candidates.length ? (
         <ul className="d3-kr-cands">
           {mat.candidates.map((c) => (
-            <CandidateCard key={c.receipt_item_id} c={c} note={c.linked_item_id ? "Tên này đã nối vào một món kho, nhắn VNAgent để nối công thức" : undefined}>
+            <CandidateCard key={c.receipt_item_id} c={c} note={c.linked_item_id ? "Tên này đã nối vào một món kho: dùng “Nối vào món kho có sẵn” bên dưới" : undefined}>
               {picked === c.receipt_item_id ? (
                 <div className="d3-kho-ask">
                   {assist.panel}
@@ -437,6 +577,7 @@ function MaterialReview({ mat, onClose, onJev, jevBusy }: { mat: KhoReviewMateri
           ))}
         </ul>
       ) : <p className="d3-kho-hint">Chưa có phiếu mua nào cho NVL này. Khi mua lần đầu, phiếu nhập sẽ hiện ở đây; hoặc nhắn VNAgent để tạo món trước.</p>}
+      <LinkExisting mat={mat} onDone={onClose} />
       {mat.candidates.length ? <ReceiptNotes title="Ảnh phiếu giao của các dòng trên" lines={asLines(mat.candidates)} loading={false} error={null} /> : null}
     </KhoDialog>
   );

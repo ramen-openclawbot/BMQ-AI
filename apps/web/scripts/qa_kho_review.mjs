@@ -37,7 +37,8 @@ function khoItems() {
     last_count_date: { tan_tao: i % 7 === 0 ? today : i % 3 === 0 ? "2026-10-16" : null, q7: it.pastry_q7 && i % 5 === 0 ? today : null },
     pending_count: { tan_tao: i % 11 === 1 ? 21600 : null, q7: it.pastry_q7 && i % 6 === 1 ? 160000 : null },
     doc_lines: (i * 7) % 40,
-  }));
+  })).concat([{ id: "it-nho", item_code: "NVL-031", name: "Nho khô Mỹ", unit: "g", active: false, item_class: "raw_material", in_q7: false, in_tan_tao: true,
+    qty: { tan_tao: 0, q7: null }, last_count_date: { tan_tao: null, q7: null }, pending_count: { tan_tao: null, q7: null }, doc_lines: 4 }]);
 }
 function settle(st) {
   const mode = cfg().data || "populated";
@@ -75,6 +76,7 @@ function settle(st) {
     ];
     const materials = [
       { target_key: "m:mat-honey:g", canonical_material_id: "mat-honey", name: "Mật Ong Tam Đảo Eufood", recipe_unit: "g", sku_codes: ["KF-XUCXICH-PHOMAI-40G-T0526"], candidates: [cand(5, "MẬT ONG TAM ĐẢO 860G/EUF T=15C", "CHAI", 3, 99000, "q7", 1)] },
+      { target_key: "m:mat-nho:g", canonical_material_id: "mat-nho", name: "Nho khô vàng 10kg/thùng", recipe_unit: "g", sku_codes: ["rbn-2026-v5"], candidates: [cand(6, "Men Kho Meizan - Nhãn Vàng (0.5*10kg/Thùng)", "Thùng", 10, 92593, "q7", 0.5, { linked_item_id: "it-men", posted: true })] },
       { target_key: "m:mat-gas:kg", canonical_material_id: "mat-gas", name: "Gas", recipe_unit: "kg", sku_codes: ["TP-PATE"], candidates: [] },
     ];
     return { data: { items, materials }, error: null };
@@ -376,6 +378,24 @@ try {
     assert.ok(cs.some((c) => c.startsWith("rpc:kho_review_create_item_from_line:") && c.includes('"p_factor":860')), "create call");
     assert.ok(cs.some((c) => c.startsWith("rpc:cogs_decide_ingredient:") && c.includes("mat-honey") && c.includes("new-1")), "recipe link call");
     pass(`create item from a line + recipe link ${vp.width}`);
+    // Recipe material whose look-alike lines are the wrong goods: link the existing (off, Tân Tạo-only) item.
+    await page.locator("[data-bmq-review-material='mat-nho']").click();
+    await dialogInView(page, "[data-bmq-review-dialog]", vp);
+    await page.locator("[data-bmq-review-existing-open]").click();
+    assert.equal(await page.locator("[data-bmq-review-existing-search]").inputValue(), "Nho khô", "search seeded from the recipe name");
+    await page.locator("[data-bmq-review-existing-item='it-nho']").click();
+    assert.equal(await page.locator("[data-bmq-review-existing-factor]").inputValue(), "1", "g -> g");
+    await page.locator("[data-bmq-review-existing-loc='q7']").click();
+    assert.match(await page.locator("[data-bmq-review-existing-note]").innerText(), /sẽ bật lại.*Kho Q7/, "off + new place note");
+    await noSpill(page, "review-existing", vp);
+    await shot(page, `review-existing-${vp.width}.png`, false);
+    await page.locator("[data-bmq-review-existing-link]").click();
+    await page.waitForSelector("[data-bmq-review-dialog]", { state: "detached", timeout: 5000 });
+    const ex = await calls(page);
+    assert.ok(ex.some((c) => c.startsWith("rpc:kho_save_item:") && c.includes("it-nho") && c.includes('"p_active":true')), "turn the item back on");
+    assert.ok(ex.some((c) => c.startsWith("rpc:set_item_kho_locations:") && c.includes("it-nho") && c.includes('"p_q7":true') && c.includes('"p_tan_tao":true')), "add the Q7 place, keep Tân Tạo");
+    assert.ok(ex.some((c) => c.startsWith("rpc:cogs_decide_ingredient:") && c.includes("mat-nho") && c.includes("it-nho") && c.includes('"p_location":"q7"') && c.includes('"p_factor":1')), "recipe link to the existing item");
+    pass(`link a recipe material to an existing off item ${vp.width}`);
     assert.deepEqual(errors, [], `page errors ${vp.width}`);
     await context.close();
   }
