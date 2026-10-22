@@ -130,7 +130,7 @@ function Viewer({ receiptId, photos, index, onIndex, onClose }: {
           {url.data ? (
             <RotatedImage src={url.data} alt={photo.main ? "Ảnh phiếu chính" : `Ảnh ${index + 1}`} rotation={rotation} maxHeight="65vh" className="max-h-[65vh] max-w-full rounded-lg object-contain" />
           ) : (
-            <LoadingState variant="loaf" flat label="Đang tải ảnh…" className="my-6" />
+            <LoadingState variant="ledger" flat label="Đang tải ảnh…" className="my-6" />
           )}
         </div>
         {photos.length > 1 ? (

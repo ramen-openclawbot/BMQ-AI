@@ -411,7 +411,7 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
 
           <div className="flex-1 overflow-y-auto overscroll-contain">
             {isLoading ? (
-            <LoadingState variant="loaf" label="Đang tải chi tiết phiếu nhập..." className="m-4 min-h-64" />
+            <LoadingState variant="ledger" label="Đang tải chi tiết phiếu nhập..." className="m-4 min-h-64" />
           ) : receiptError ? (
             <div className="m-4 rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
               <div className="mb-1 flex items-center gap-2 font-semibold"><XCircle className="h-4 w-4" />Không tải được chi tiết phiếu nhập</div>

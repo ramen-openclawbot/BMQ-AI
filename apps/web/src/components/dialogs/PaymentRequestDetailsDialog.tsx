@@ -401,7 +401,7 @@ export function PaymentRequestDetailsDialog({
           </DialogHeader>
 
           {isLoading ? (
-            <LoadingState variant="loaf" label="Đang tải phiếu duyệt chi…" />
+            <LoadingState variant="ledger" label="Đang tải phiếu duyệt chi…" />
           ) : request ? (
             <div className="d3-prd-body min-w-0 pb-4 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-3 sm:p-0 sm:pt-4">
               {/* Paid but no goods-receipt invoice yet (goods requests only) */}

@@ -1,20 +1,19 @@
 /*
- * Shared loading motion — "Lò bánh" (owner 22/10/2026).
- * Three layers: a thin route bar + baking loaf for page loads, shimmering
- * placeholder rows for data blocks, and the Skeleton primitive.
- * Every animated element waits before it appears so quick loads never flash,
- * and only transform/opacity/background-position animate.
+ * Shared loading motion — "Sổ cái" ledger concept (owner 22/10/2026).
+ * A thin route bar + a ledger page whose entries are posted line by line for page
+ * loads, hairline ledger rows for data blocks, and the Skeleton primitive.
+ * No visible text. Every animated element waits before it appears so quick loads
+ * never flash, and only transform/opacity/background-position animate.
  * Colours fall back to shadcn tokens so portals outside the d3 shell work too.
  */
 
 .bmq-ld {
   --bmq-ld-ink: var(--d3-ink, hsl(var(--foreground)));
-  --bmq-ld-dim: var(--d3-dim, hsl(var(--muted-foreground)));
+  --bmq-ld-faint: var(--d3-faint, hsl(var(--muted-foreground) / .55));
+  --bmq-ld-rule: var(--d3-line-2, hsl(var(--border)));
   --bmq-ld-base: var(--d3-line, hsl(var(--muted)));
   --bmq-ld-hi: var(--d3-card, hsl(var(--card)));
   --bmq-ld-panel: var(--d3-white, hsl(var(--card)));
-  --bmq-ld-crust: #ecbf6e;
-  --bmq-ld-ear: #f8e2b4;
   --bmq-ld-ease: cubic-bezier(.2, .8, .2, 1);
 }
 
@@ -31,7 +30,7 @@
   position: fixed;
   inset: 0 0 auto 0;
   z-index: 60;
-  height: 3px;
+  height: 2px;
   overflow: hidden;
   pointer-events: none;
 }
@@ -46,24 +45,12 @@
   animation: bmq-ld-bar 2.4s var(--bmq-ld-ease) 120ms forwards;
 }
 
-.bmq-ld-bar::after {
-  content: "";
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 30%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .65), transparent);
-  transform: translateX(-100%);
-  animation: bmq-ld-glint 1.4s ease-in-out 400ms infinite;
-}
-
 @keyframes bmq-ld-bar {
   40% { transform: scaleX(.55); }
   100% { transform: scaleX(.86); }
 }
 
-@keyframes bmq-ld-glint { to { transform: translateX(340%); } }
-
-/* ---------- baking loaf ---------- */
+/* ---------- ledger page ---------- */
 .bmq-ld-page {
   display: flex;
   min-height: 100dvh;
@@ -73,84 +60,70 @@
   background: hsl(var(--background));
 }
 
-.bmq-ld-oven {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  color: var(--bmq-ld-ink);
-}
+.bmq-ld-oven { display: flex; align-items: center; justify-content: center; color: var(--bmq-ld-ink); }
 
-.bmq-ld-loaf { width: 104px; height: auto; overflow: visible; }
+.bmq-ld-ledger { width: 60px; height: auto; overflow: visible; }
 
-.bmq-ld-loaf .bmq-ld-crust { fill: var(--bmq-ld-crust); stroke: currentColor; stroke-width: 2; stroke-linejoin: round; }
-.bmq-ld-loaf .bmq-ld-ear { fill: var(--bmq-ld-ear); }
-.bmq-ld-loaf .bmq-ld-cut { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
-.bmq-ld-loaf .bmq-ld-shadow { fill: currentColor; opacity: .08; }
+.bmq-ld-ledger .bmq-ld-paper { fill: var(--bmq-ld-panel); stroke: var(--bmq-ld-rule); stroke-width: 1; }
+.bmq-ld-ledger .bmq-ld-head { fill: var(--bmq-ld-ink); }
+.bmq-ld-ledger .bmq-ld-head.is-faint { fill: var(--bmq-ld-faint); }
+.bmq-ld-ledger .bmq-ld-rule { stroke: var(--bmq-ld-rule); stroke-width: 1; }
+.bmq-ld-ledger .bmq-ld-rule.is-margin { stroke-dasharray: 2 2; }
 
-.bmq-ld-loaf .bmq-ld-sweep {
+.bmq-ld-ledger .bmq-ld-entry {
+  fill: var(--bmq-ld-faint);
+  stroke: var(--bmq-ld-ink);
+  stroke-width: 1;
   transform-box: view-box;
-  transform: translateX(-40px);
-  animation: bmq-ld-sweep 1.6s var(--bmq-ld-ease) infinite;
+  transform-origin: 8px 0;
+  transform: scaleX(0);
+  animation: bmq-ld-post 2.6s var(--bmq-ld-ease) calc(var(--i, 0) * 160ms) infinite;
 }
 
-@keyframes bmq-ld-sweep {
-  0% { transform: translateX(-40px); }
-  70%, 100% { transform: translateX(110px); }
+.bmq-ld-ledger .bmq-ld-entry rect { stroke: none; fill: var(--bmq-ld-ink); fill-opacity: .78; }
+.bmq-ld-ledger .bmq-ld-entry rect:first-child { fill: var(--bmq-ld-faint); fill-opacity: 1; }
+.bmq-ld-ledger .bmq-ld-entry.is-total rect { fill-opacity: 1; }
+.bmq-ld-ledger .bmq-ld-entry.is-total { fill: var(--bmq-ld-ink); transform-origin: 40px 0; }
+
+/* Post the entry, hold it while the rest are written, then clear the page together. */
+@keyframes bmq-ld-post {
+  0% { transform: scaleX(0); opacity: 1; }
+  14% { transform: scaleX(1); opacity: 1; }
+  72% { transform: scaleX(1); opacity: 1; }
+  86%, 100% { transform: scaleX(1); opacity: 0; }
 }
 
-.bmq-ld-loaf .bmq-ld-crumb {
-  fill: currentColor;
-  opacity: .55;
-  transform-box: fill-box;
-  transform-origin: center bottom;
-  animation: bmq-ld-hop 1.2s var(--bmq-ld-ease) infinite;
-}
-
-.bmq-ld-loaf .bmq-ld-crumb:nth-of-type(2) { animation-delay: 150ms; }
-.bmq-ld-loaf .bmq-ld-crumb:nth-of-type(3) { animation-delay: 300ms; }
-
-@keyframes bmq-ld-hop {
-  0%, 60%, 100% { transform: translateY(0); }
-  30% { transform: translateY(-5px); }
-}
-
-.bmq-ld-label {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.4;
-  color: var(--bmq-ld-dim);
-  text-align: center;
-  overflow-wrap: anywhere;
-}
-
-/* ---------- placeholder rows ---------- */
+/* ---------- ledger rows ---------- */
 .bmq-ld-block {
   display: grid;
-  gap: 10px;
-  padding: 16px;
+  padding: 6px 16px;
   border-radius: 16px;
   background: var(--bmq-ld-panel);
 }
 
-.bmq-ld-block.is-flat { padding: 4px 0; background: none; border-radius: 0; }
-.bmq-ld-block.is-center { min-height: 10rem; align-content: center; }
+.bmq-ld-block.is-flat { padding: 0; background: none; border-radius: 0; }
+.bmq-ld-block.is-center { min-height: 10rem; place-items: center; padding: 24px; }
 
-.bmq-ld-row { display: flex; align-items: center; gap: 12px; }
+.bmq-ld-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 44px;
+  border-bottom: 1px solid var(--bmq-ld-base);
+}
+
+.bmq-ld-row:last-child { border-bottom: 0; }
 
 .bmq-ld-shimmer,
 .bmq-ld-line {
   background: linear-gradient(90deg, var(--bmq-ld-base) 0%, var(--bmq-ld-hi) 50%, var(--bmq-ld-base) 100%) 0 0 / 200% 100%;
-  animation: bmq-ld-shimmer 1.3s linear infinite;
+  animation: bmq-ld-shimmer 1.4s linear infinite;
 }
 
-.bmq-ld-line { display: block; height: 12px; border-radius: 6px; flex: 1 1 auto; }
-.bmq-ld-line.is-dot { flex: 0 0 auto; width: 28px; height: 28px; border-radius: 9px; }
-.bmq-ld-line.is-short { flex: 0 0 22%; }
-.bmq-ld-line.is-card { height: 64px; border-radius: 12px; }
-
-.bmq-ld-block .bmq-ld-label { text-align: left; font-size: 12.5px; }
-.bmq-ld-block.is-center .bmq-ld-label { text-align: center; }
+.bmq-ld-line { display: block; height: 8px; border-radius: 4px; flex: 1 1 auto; }
+.bmq-ld-line.is-date { flex: 0 0 52px; }
+.bmq-ld-line.is-amount { flex: 0 0 auto; margin-left: auto; }
+.bmq-ld-line.is-card { height: 64px; border-radius: 12px; margin: 6px 0; }
 
 @keyframes bmq-ld-shimmer { to { background-position: -200% 0; } }
 
@@ -162,10 +135,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .bmq-ld-bar::before { animation: none; transform: scaleX(.6); }
-  .bmq-ld-bar::after,
-  .bmq-ld-loaf .bmq-ld-sweep,
-  .bmq-ld-loaf .bmq-ld-crumb { animation: none; }
-  .bmq-ld-loaf .bmq-ld-sweep { opacity: 0; }
+  .bmq-ld-ledger .bmq-ld-entry { animation: none; transform: none; }
   .bmq-ld-shimmer,
   .bmq-ld-line { animation: none; }
   .bmq-ld-delay { animation-duration: 1ms; }

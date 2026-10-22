@@ -1,5 +1,5 @@
-// QA for the shared loading states ("Lò bánh", owner 22/10/2026).
-// Renders PageLoader, LoadingState (rows/cards/loaf), BreadLoader and Skeleton in a
+// QA for the shared loading states ("Sổ cái" ledger concept, owner 22/10/2026).
+// Renders PageLoader, LoadingState (rows/cards/ledger), LedgerMark and Skeleton in a
 // fixture page (no backend) inside the d3 shell theme and a portal theme, then checks:
 // nothing shows before the delay, everything shows after it, no horizontal overflow,
 // reduced motion stops the loops. Screenshots go to EVIDENCE_DIR.
@@ -23,7 +23,7 @@ const ENTRY = `
 import { createRoot } from "react-dom/client";
 import "/src/index.css";
 import "/src/styles/bmq-shell.css";
-import { PageLoader, LoadingState, BreadLoader } from "@/components/ui/loading";
+import { PageLoader, LoadingState, LedgerMark } from "@/components/ui/loading";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const mode = new URLSearchParams(location.search).get("mode") || "blocks";
@@ -37,7 +37,7 @@ function Blocks() {
       <section data-qa="flat" style={{ background: "var(--d3-white)", borderRadius: 16, padding: 16 }}>
         <LoadingState flat rows={3} label="Đang tải danh sách PO chờ thiết lập SX — một nhãn rất dài để kiểm tra xuống dòng trên điện thoại 390px…" />
       </section>
-      <section data-qa="loaf"><LoadingState variant="loaf" label="Đang tải chi tiết phiếu nhập..." /></section>
+      <section data-qa="ledger"><LoadingState variant="ledger" label="Đang tải chi tiết phiếu nhập..." /></section>
       <section data-qa="skeleton" style={{ display: "grid", gap: 8 }}><Skeleton className="h-16" /><Skeleton className="h-4 w-1/2" /></section>
     </main>
   );
@@ -46,7 +46,7 @@ function Blocks() {
 function Portal() {
   return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#fff8fa", color: "#80566a" }}>
-      <BreadLoader label="Đang tải phiếu lương…" />
+      <div role="status" aria-label="Đang tải phiếu lương…"><LedgerMark /></div>
     </div>
   );
 }
@@ -115,8 +115,10 @@ for (const width of [390, 820, 1440]) {
   const late = await opacity(page, ".bmq-ld-delay");
   ok(late.every((o) => o > 0.95), `${width}: placeholders not shown after the delay (${late})`);
   ok(!(await overflow(page)), `${width}: horizontal overflow`);
-  const labels = await page.$$eval(".bmq-ld-label", (els) => els.map((el) => el.textContent));
-  ok(labels.includes("Đang tải phiếu trình chi…"), `${width}: label text missing`);
+  const labels = await page.$$eval("[role=status]", (els) => els.map((el) => el.getAttribute("aria-label")));
+  ok(labels.includes("Đang tải phiếu trình chi…"), `${width}: screen-reader label missing`);
+  const visibleText = await page.$$eval("[role=status]", (els) => els.map((el) => el.innerText.trim()).join(""));
+  ok(visibleText === "", `${width}: loading states write visible text (${visibleText})`);
   const statuses = await page.locator("[role=status]").count();
   ok(statuses === 4, `${width}: expected 4 status regions, got ${statuses}`);
   const shimmer = await page.$eval(".bmq-ld-line", (el) => getComputedStyle(el).animationName);
@@ -133,22 +135,26 @@ for (const width of [390, 1440]) {
   const bar = await page.$eval(".bmq-ld-bar", (el) => getComputedStyle(el).position);
   ok(bar === "fixed", `${width}: route bar not pinned (${bar})`);
   const early = await opacityAt(page, ".bmq-ld-oven", 550);
-  ok(early[0] === 0, `${width}: loaf showed before 0.6 s (${early})`);
+  ok(early[0] === 0, `${width}: ledger showed before 0.6 s (${early})`);
   await page.waitForTimeout(900);
-  ok((await opacity(page, ".bmq-ld-oven"))[0] > 0.95, `${width}: loaf not shown after 0.6 s`);
+  ok((await opacity(page, ".bmq-ld-oven"))[0] > 0.95, `${width}: ledger not shown after 0.6 s`);
   ok(!(await overflow(page)), `${width}: page loader overflow`);
-  const sweep = await page.$eval(".bmq-ld-sweep", (el) => getComputedStyle(el).animationName);
-  ok(sweep === "bmq-ld-sweep", `${width}: crust sweep not running (${sweep})`);
+  const post = await page.$$eval(".bmq-ld-entry", (els) => [...new Set(els.map((el) => getComputedStyle(el).animationName))]);
+  ok(post.length === 1 && post[0] === "bmq-ld-post", `${width}: ledger entries not posting (${post})`);
   await page.screenshot({ path: path.join(EVIDENCE, `page-${width}.png`) });
-  const box = await page.$eval(".bmq-ld-loaf", (el) => { const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; });
-  await page.screenshot({ path: path.join(EVIDENCE, `loaf-zoom-${width}.png`), clip: { x: box.x - 30, y: box.y - 20, width: box.w + 60, height: box.h + 70 } });
+  const box = await page.$eval(".bmq-ld-ledger", (el) => { const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; });
+  // Freeze the posting loop at a few moments and capture each frame.
+  for (const t of [250, 520, 900, 1500]) {
+    await page.evaluate((ms) => document.querySelectorAll(".bmq-ld-entry").forEach((el) => el.getAnimations().forEach((a) => { a.pause(); a.currentTime = ms; })), t);
+    await page.screenshot({ path: path.join(EVIDENCE, `ledger-${width}-${t}ms.png`), clip: { x: box.x - 24, y: box.y - 24, width: box.w + 48, height: box.h + 48 } });
+  }
   await context.close();
 }
 
 {
   const { context, page } = await open("portal", 390);
   await page.waitForTimeout(800);
-  ok((await opacity(page, ".bmq-ld-oven"))[0] > 0.95, "portal: loaf not shown");
+  ok((await opacity(page, ".bmq-ld-oven"))[0] > 0.95, "portal: ledger not shown");
   ok(!(await overflow(page)), "portal: overflow");
   await page.screenshot({ path: path.join(EVIDENCE, "portal-390.png") });
   await context.close();
@@ -157,7 +163,7 @@ for (const width of [390, 1440]) {
 {
   const { context, page } = await open("blocks", 390, { reduced: true });
   await page.waitForTimeout(500);
-  const names = await page.$$eval(".bmq-ld-line, .bmq-ld-skeleton", (els) => [...new Set(els.map((el) => getComputedStyle(el).animationName))]);
+  const names = await page.$$eval(".bmq-ld-line, .bmq-ld-skeleton, .bmq-ld-entry", (els) => [...new Set(els.map((el) => getComputedStyle(el).animationName))]);
   ok(names.length === 1 && names[0] === "none", `reduced motion: shimmer still runs (${names})`);
   const shown = await opacity(page, ".bmq-ld-delay");
   ok(shown.every((o) => o > 0.95), `reduced motion: placeholders hidden (${shown})`);

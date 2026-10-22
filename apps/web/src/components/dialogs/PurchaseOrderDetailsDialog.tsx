@@ -224,7 +224,7 @@ export function PurchaseOrderDetailsDialog({
               </Button>
             </div>
           ) : isLoading ? (
-            <LoadingState variant="loaf" label="Đang tải đơn đặt hàng…" />
+            <LoadingState variant="ledger" label="Đang tải đơn đặt hàng…" />
           ) : order ? (
             <div className="space-y-6">
               <div className="space-y-4 bg-gradient-to-b from-amber-50 via-white to-slate-50 pb-6 md:hidden" data-stitch-mobile-po-approve-detail data-bmq-po-detail-light-theme>

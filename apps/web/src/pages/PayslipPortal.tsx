@@ -28,7 +28,7 @@ import {
   type PayslipLine,
   type PayslipPortalSource,
 } from "@/lib/payslip-portal/types";
-import { BreadLoader } from "@/components/ui/loading";
+import { LedgerMark } from "@/components/ui/loading";
 
 const BRAND_GRADIENT = { background: "linear-gradient(90deg, #dc4f78 0%, #dc527a 100%)" };
 const LOGO_SRC = "/assets/brand/bmq-logo-master-1024.png";
@@ -185,8 +185,8 @@ export default function PayslipPortal({ source, demo = false }: PayslipPortalPro
   if (step === "loading") {
     return (
       <Shell demo={demo}>
-        <div className="flex min-h-[70vh] items-center justify-center text-[#80566a]" role="status" aria-live="polite">
-          <BreadLoader label="Đang tải…" />
+        <div className="flex min-h-[70vh] items-center justify-center text-[#80566a]" role="status" aria-live="polite" aria-label="Đang tải…">
+          <LedgerMark />
         </div>
       </Shell>
     );
@@ -410,8 +410,8 @@ function PayslipList({
           </Button>
         </div>
       ) : busy && payslips.length === 0 ? (
-        <div className="mt-8 flex items-center justify-center text-[#80566a]" role="status" aria-live="polite">
-          <BreadLoader label="Đang tải phiếu lương…" />
+        <div className="mt-8 flex items-center justify-center text-[#80566a]" role="status" aria-live="polite" aria-label="Đang tải phiếu lương…">
+          <LedgerMark />
         </div>
       ) : !latest ? (
         <div className="mt-6 rounded-[24px] border border-dashed border-[#efb6ca] bg-white px-6 py-10 text-center">
