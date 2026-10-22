@@ -84,7 +84,7 @@ function settle(st) {
   if (st.table === "rpc:kho_review_fix_line_unit") return { data: { status: "fixed", fix_id: "fix-1", receipt_item_id: st.args.p_receipt_item_id, old_unit: "kg", new_unit: "hộp", request_id: st.args.p_request_id, replayed: false }, error: null };
   if (st.table === "rpc:kho_review_undo_unit_fix") return { data: { status: "undone", fix_id: st.args.p_fix_id, receipt_item_id: "gri-9", unit: "kg" }, error: null };
   if (st.table === "rpc:kho_review_factor_hint") return { data: { factor: null, source: null }, error: null };
-  if (st.table === "rpc:kho_review_link_line") return { data: { status: "linked", alias_id: "al-1", posted: true, location: "q7" }, error: null };
+  if (st.table === "rpc:kho_review_link_line") return st.args.p_receipt_item_id === "gri-3" ? { data: { status: "evidence", posted: false, location: "tan_tao", evidence_id: "ev-1" }, error: null } : { data: { status: "linked", alias_id: "al-1", posted: true, location: "q7" }, error: null };
   if (st.table === "rpc:kho_review_create_item_from_line") return { data: { status: "created", item_id: "new-1", alias_id: "al-2", posted: false, location: "q7" }, error: null };
   if (st.table === "rpc:cogs_decide_ingredient") return { data: { ok: true }, error: null };
   if (st.table === "rpc:kho_count_item") {
@@ -363,7 +363,8 @@ try {
     await page.locator("[data-bmq-review-link]").click();
     await confirmOk(page);
     await page.waitForSelector("[data-bmq-review-dialog]", { state: "detached", timeout: 5000 });
-    pass(`other-kho line asks before linking ${vp.width}`);
+    await page.getByText("làm chứng từ cho", { exact: false }).first().waitFor({ timeout: 3000 });
+    pass(`other-kho line asks, then links as evidence ${vp.width}`);
     // NVL giá vốn: create an item from a line, then the recipe link call follows.
     await page.locator("[data-bmq-review-view='materials']").click();
     await page.waitForSelector("[data-bmq-review-materials] li");

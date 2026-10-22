@@ -186,6 +186,35 @@ export function useKhoReviewLink() {
   });
 }
 
+export interface KhoReviewUnlinkEvidenceInput {
+  receiptItemId: string;
+  /** Defaults to a fresh crypto.randomUUID(). */
+  requestId?: string;
+}
+
+export interface KhoReviewUnlinkEvidenceResult {
+  /** 'none' when the line had no active evidence link to remove. */
+  status: "removed" | "none";
+}
+
+/** Soft-remove the evidence link for one receipt line; no alias/ledger write. */
+export function useKhoReviewUnlinkEvidence() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (
+      input: KhoReviewUnlinkEvidenceInput,
+    ): Promise<KhoReviewUnlinkEvidenceResult> => {
+      const { data, error } = await rpc.rpc("kho_review_unlink_evidence", {
+        p_receipt_item_id: input.receiptItemId,
+        p_request_id: input.requestId ?? crypto.randomUUID(),
+      });
+      if (error) throw error;
+      return data as KhoReviewUnlinkEvidenceResult;
+    },
+    onSuccess: () => invalidateKhoReview(queryClient),
+  });
+}
+
 export interface KhoReviewCreateItemInput {
   receiptItemId: string;
   name: string;

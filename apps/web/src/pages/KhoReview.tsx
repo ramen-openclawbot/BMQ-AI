@@ -299,12 +299,14 @@ function ItemReview({ item, confirm, onClose, onJev, jevBusy }: { item: KhoRevie
   const save = async () => {
     if (!cand || !factorOk) return;
     if (cand.location !== item.location) {
-      const ok = await confirm({ title: "Phiếu ở kho khác", message: `Phiếu này nhận ở Kho ${cand.location ? KHO_LABEL[cand.location] : "?"}, món đang rà ở Kho ${KHO_LABEL[item.location]}. Vẫn nối?`, ok: "Vẫn nối", cancel: "Thôi" });
+      const ok = await confirm({ title: "Phiếu ở kho khác", message: `Phiếu này nhận ở Kho ${cand.location ? KHO_LABEL[cand.location] : "?"}, món đang rà ở Kho ${KHO_LABEL[item.location]}. Nếu món không có chỗ ở kho của phiếu, phiếu chỉ được nối làm chứng từ, không cộng tồn. Vẫn nối?`, ok: "Vẫn nối", cancel: "Thôi" });
       if (!ok) return;
     }
     link.mutate({ receiptItemId: cand.receipt_item_id, itemId: item.item_id, factor: x, requestId: newRequestId() }, {
       onSuccess: (r) => {
-        toast({ title: `Đã nối “${cand.product_name}” vào ${item.name}`, description: r.posted ? "Phiếu đã vào sổ kho." : "Phiếu trước ngày kiểm kê nên không cộng tồn; các phiếu sau tự vào đúng món." });
+        toast(r.status === "evidence"
+          ? { title: `Đã nối “${cand.product_name}” làm chứng từ cho ${item.name}`, description: `Phiếu nhận ở Kho ${KHO_LABEL[r.location]}, món không có chỗ ở kho đó nên không cộng tồn.` }
+          : { title: `Đã nối “${cand.product_name}” vào ${item.name}`, description: r.posted ? "Phiếu đã vào sổ kho." : "Phiếu trước ngày kiểm kê nên không cộng tồn; các phiếu sau tự vào đúng món." });
         onClose();
       },
     });

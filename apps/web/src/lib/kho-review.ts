@@ -88,12 +88,16 @@ export interface KhoReviewList {
 }
 
 export interface KhoReviewLinkResult {
-  status: "linked" | "created";
+  /** 'evidence' means the item has no place at the line's kho: document only. */
+  status: "linked" | "created" | "evidence";
   /** Only the create-from-line result carries item_id. */
   item_id?: string;
-  alias_id: string;
+  /** Absent on an evidence link, which writes no alias. */
+  alias_id?: string;
   posted: boolean;
   location: KhoReviewLocation;
+  /** Only the evidence result carries the evidence row id. */
+  evidence_id?: string;
 }
 
 export interface KhoReviewJevFeedbackResult {
