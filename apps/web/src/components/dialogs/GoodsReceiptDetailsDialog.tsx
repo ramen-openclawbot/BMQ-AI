@@ -9,7 +9,7 @@ import { Separator } from "@/components/ui/separator";
 import { Camera, Sparkles, CheckCircle, Clock, FileCheck, Package, ExternalLink, Loader2, AlertCircle, Link2, XCircle, AlertTriangle, History } from "lucide-react";
 import { useGoodsReceipt, useGoodsReceiptItems, useConfirmGoodsReceipt, useUpdateGoodsReceiptItems, useUpdateGoodsReceipt, useDeliveryNoteOcr, usePaidPaymentRequestsForSupplier, useFinalizeHistoricalPaidGoodsReceipt } from "@/hooks/useGoodsReceipts";
 import { toast } from "sonner";
-import { useState, useEffect } from "react";
+import { Fragment, useState, useEffect } from "react";
 import { ReceiptPhotoGallery, addReceiptPhotos } from "@/components/goods-receipts/ReceiptPhotoGallery";
 import { supabase } from "@/integrations/supabase/client";
 import { replaceMainPhoto } from "@/lib/receipt-photos";
@@ -47,6 +47,9 @@ function getConfirmReceiptErrorMessage(error: unknown): string {
   }
   return message;
 }
+
+const APPROVAL_LABEL: Record<string, string> = { pending: "Chờ duyệt", approved: "Đã duyệt", rejected: "Từ chối", paid: "Đã chi", cancelled: "Đã hủy" };
+const VARIANCE_LABEL: Record<string, string> = { thieu: "thiếu", du: "dư", thua: "thừa", ngoai_po: "ngoài PO" };
 
 export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: GoodsReceiptDetailsDialogProps) {
   const { data: receipt, isLoading: receiptLoading, error: receiptError } = useGoodsReceipt(receiptId);
@@ -389,6 +392,19 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
     }
   };
 
+  // Đối soát công nợ shows only the links that exist (owner 22/10: no rows of "-").
+  const payableFacts = ([
+    ["Mã PO", receipt?.purchase_orders?.po_number],
+    ["Mã công nợ", receipt?.payment_requests?.request_number],
+    ["Trạng thái duyệt", receipt?.payment_requests?.status ? (APPROVAL_LABEL[receipt.payment_requests.status] ?? receipt.payment_requests.status) : null],
+    ["Ngày chốt", receipt?.finalized_at ? formatSafeDate(receipt.finalized_at, "dd/MM/yyyy HH:mm") : null],
+  ] as Array<[string, string | null | undefined]>).filter(([, value]) => Boolean(value) && value !== "-");
+  const varianceSummary = receipt?.variance_summary;
+  const varianceText = varianceSummary && typeof varianceSummary === "object" && !Array.isArray(varianceSummary)
+    ? Object.entries(varianceSummary).filter(([, value]) => value !== null && value !== "" && value !== 0)
+      .map(([key, value]) => (VARIANCE_LABEL[key] ? `${String(value)} dòng ${VARIANCE_LABEL[key]}` : `${key}: ${String(value)}`)).join(" · ")
+    : "";
+
   const isSubmitting = isSaving || confirmReceipt.isPending || finalizeHistoricalPaidReceipt.isPending || updateItems.isPending;
 
   return (
@@ -402,9 +418,6 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
               </span>
               <span className="min-w-0">
                 <span className="block truncate">Chi tiết phiếu nhập kho</span>
-                {receipt?.receipt_number && (
-                  <span className="block font-mono text-xs font-medium text-muted-foreground">{receipt.receipt_number}</span>
-                )}
               </span>
             </DialogTitle>
           </DialogHeader>
@@ -419,94 +432,54 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
             </div>
           ) : receipt ? (
             <div className="space-y-4 p-4 sm:space-y-6 sm:p-6">
-              <div className="rounded-2xl border border-primary/15 bg-gradient-to-br from-primary/10 via-background to-card p-4 shadow-sm" data-bmq-goods-receipt-detail-mobile-hero>
+              <div className="rounded-2xl border border-border bg-background/70 p-4" data-bmq-goods-receipt-detail-mobile-hero>
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-primary">Phiếu nhập kho</p>
-                    <p className="mt-1 truncate font-mono text-xl font-bold text-foreground">{receipt.receipt_number}</p>
-                    <p className="mt-1 truncate text-sm font-medium text-muted-foreground">{receipt.suppliers?.name || "Chưa có NCC"}</p>
+                    <p className="truncate font-mono text-lg font-bold text-foreground">{receipt.receipt_number}</p>
+                    <p className="mt-0.5 truncate text-sm text-foreground">{receipt.suppliers?.name || "Chưa có NCC"}</p>
+                    <p className="text-xs text-muted-foreground">Nhận ngày {formatSafeDate(receipt.receipt_date)}</p>
                   </div>
-                  <div className="flex shrink-0 flex-col items-end gap-2">
+                  <div className="flex shrink-0 flex-col items-end gap-1.5">
                     {getStatusBadge(receipt.status)}
                     {getPayableBadge()}
                   </div>
                 </div>
-                <div className="mt-4 grid grid-cols-3 gap-2 text-center" data-bmq-goods-receipt-detail-mobile-summary>
-                  <div className="rounded-xl border border-border/70 bg-card/80 p-3">
-                    <p className="text-[11px] text-muted-foreground">Dòng hàng</p>
-                    <p className="text-lg font-bold text-foreground">{itemCount}</p>
+                <dl className="mt-3 grid grid-cols-3 divide-x divide-border/70 rounded-xl bg-muted/40 py-2.5 text-center" data-bmq-goods-receipt-detail-mobile-summary>
+                  <div>
+                    <dt className="text-[11px] text-muted-foreground">Dòng hàng</dt>
+                    <dd className="text-base font-semibold text-foreground">{itemCount}</dd>
                   </div>
-                  <div className="rounded-xl border border-border/70 bg-card/80 p-3">
-                    <p className="text-[11px] text-muted-foreground">Thực nhận</p>
-                    <p className="text-lg font-bold text-foreground">{actualTotal.toLocaleString("vi-VN")}</p>
+                  <div>
+                    <dt className="text-[11px] text-muted-foreground">Thực nhận</dt>
+                    <dd className="text-base font-semibold text-foreground">{actualTotal.toLocaleString("vi-VN")}</dd>
                   </div>
-                  <div className="rounded-xl border border-border/70 bg-card/80 p-3">
-                    <p className="text-[11px] text-muted-foreground">Lệch</p>
-                    <p className={varianceCount > 0 ? "text-lg font-bold text-amber-700" : "text-lg font-bold text-emerald-700"}>{varianceCount}</p>
+                  <div>
+                    <dt className="text-[11px] text-muted-foreground">Lệch</dt>
+                    <dd className={varianceCount > 0 ? "text-base font-semibold text-amber-700" : "text-base font-semibold text-emerald-700"}>{varianceCount}</dd>
                   </div>
-                </div>
+                </dl>
               </div>
 
-              {/* Receipt Info */}
-              <div className="grid grid-cols-2 gap-3 rounded-xl border border-border bg-background/70 p-4 sm:grid-cols-2">
-                <div>
-                  <p className="text-sm text-muted-foreground">Mã phiếu</p>
-                  <p className="font-mono font-medium">{receipt.receipt_number}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Trạng thái</p>
-                  <div className="mt-1">{getStatusBadge(receipt.status)}</div>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Nhà cung cấp</p>
-                  <p className="font-medium">{receipt.suppliers?.name || "-"}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Ngày nhận hàng</p>
-                  <p className="font-medium">
-                    {formatSafeDate(receipt.receipt_date)}
-                  </p>
-                </div>
-              </div>
-
-              {/* Payable audit */}
-              <div className="space-y-3 rounded-xl border border-border bg-muted/30 p-4">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <p className="text-sm font-medium">Đối soát công nợ</p>
-                    <p className="text-xs text-muted-foreground">Liên kết PO → phiếu nhập → công nợ phải trả</p>
-                  </div>
-                  {getPayableBadge()}
-                </div>
-                <div className="grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
-                  <div>
-                    <p className="text-muted-foreground">Mã PO</p>
-                    <p className="font-mono font-medium">{receipt.purchase_orders?.po_number || "-"}</p>
-                  </div>
-                  <div>
-                    <p className="text-muted-foreground">Mã công nợ</p>
-                    <p className="font-mono font-medium">{receipt.payment_requests?.request_number || "-"}</p>
-                  </div>
-                  <div>
-                    <p className="text-muted-foreground">Trạng thái duyệt</p>
-                    <p className="font-medium">{receipt.payment_requests?.status || "-"}</p>
-                  </div>
-                  <div>
-                    <p className="text-muted-foreground">Ngày chốt</p>
-                    <p className="font-medium">
-                      {formatSafeDate(receipt.finalized_at, "dd/MM/yyyy HH:mm")}
-                    </p>
-                  </div>
-                </div>
-                {receipt.variance_summary && (
-                  <p className="text-xs text-muted-foreground">
-                    Tổng hợp lệch: {JSON.stringify(receipt.variance_summary)}
-                  </p>
+              {/* Payable audit: only the links that exist */}
+              <div className="rounded-xl border border-border bg-background/70 px-4 py-3 text-sm" data-bmq-goods-receipt-payable-audit>
+                <p className="mb-2 font-medium">Đối soát công nợ</p>
+                {payableFacts.length ? (
+                  <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5">
+                    {payableFacts.map(([label, value]) => (
+                      <Fragment key={label}>
+                        <dt className="text-muted-foreground">{label}</dt>
+                        <dd className="truncate text-right font-medium">{value}</dd>
+                      </Fragment>
+                    ))}
+                  </dl>
+                ) : (
+                  <p className="text-muted-foreground">Chưa liên kết PO hay công nợ.</p>
                 )}
+                {varianceText ? <p className="mt-2 text-xs text-muted-foreground">Lệch: {varianceText}</p> : null}
                 {isFinalizedWithPayable && (
-                  <p className="flex items-center gap-1 text-xs text-emerald-700">
-                    <Link2 className="h-3 w-3" />
-                    Không chốt lại phiếu đã tạo công nợ; mọi điều chỉnh tiếp theo phải đi qua quy trình audit/điều chỉnh.
+                  <p className="mt-2 flex items-center gap-1 text-xs text-emerald-700">
+                    <Link2 className="h-3 w-3 shrink-0" />
+                    Không chốt lại phiếu đã tạo công nợ; điều chỉnh đi qua quy trình audit.
                   </p>
                 )}
               </div>
@@ -514,10 +487,7 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
               {/* Image */}
               <div className="rounded-xl border border-border bg-background/70 p-4" data-bmq-goods-receipt-attached-evidence>
                 <div className="mb-3 flex items-center justify-between gap-2">
-                  <div>
-                    <p className="text-sm font-semibold text-foreground">Ảnh/chứng từ phiếu nhập kho</p>
-                    <p className="text-xs text-muted-foreground">Staff mở lại để đối chiếu PO, giao nhận và công nợ bất cứ lúc nào.</p>
-                  </div>
+                  <p className="text-sm font-medium text-foreground">Chứng từ</p>
                   {hasDeliveryNoteEvidence ? (
                     <Badge className="bg-emerald-600">Đã đính kèm</Badge>
                   ) : (
@@ -525,30 +495,23 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                   )}
                 </div>
                 {!receiptImageUrl ? (
-                  <div className="mb-3 rounded-lg border border-dashed border-amber-300 bg-amber-50 p-3 text-xs font-medium text-amber-800">
-                    Phiếu nhập kho từ PO chưa có ảnh/chứng từ đính kèm. Tải/chụp phiếu giao hàng hoặc chứng từ PO trước khi nhập kho.
-                  </div>
+                  <p className="mb-3 text-xs font-medium text-amber-800">Chưa có ảnh phiếu giao. Chụp hoặc tải lên trước khi nhập kho.</p>
                 ) : null}
                 {receiptId ? <ReceiptPhotoGallery receiptId={receiptId} imageUrl={receiptImageUrl} extras={receipt?.product_photos} /> : null}
               </div>
 
               {isReceiveMode && (
                 <div
-                  className="space-y-3 rounded-2xl border border-primary/20 bg-primary/5 p-4"
+                  className="space-y-3 rounded-xl border border-border bg-background/70 p-4"
                   data-bmq-goods-receipt-delivery-note-required
                   data-bmq-goods-receipt-ocr-assist
                 >
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <p className="flex items-center gap-2 text-sm font-semibold text-primary">
-                        <Camera className="h-4 w-4" />
-                        Chụp/scan phiếu giao hàng bắt buộc
-                      </p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        Phiếu nhập kho PO luôn phải có ảnh/chứng từ đã upload để staff đối chiếu sau này. Nếu chứng từ NCC có lệch, dùng OCR rồi cập nhật số thực nhận trước khi chốt.
-                      </p>
-                    </div>
-                    <label className="inline-flex cursor-pointer items-center justify-center rounded-md border border-primary/30 bg-background px-3 py-2 text-sm font-medium text-primary shadow-sm hover:bg-primary/10">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="flex min-w-0 items-center gap-2 text-sm font-medium text-foreground">
+                      <Camera className="h-4 w-4 shrink-0" />
+                      Phiếu giao hàng
+                    </p>
+                    <label className="inline-flex shrink-0 cursor-pointer items-center justify-center rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium text-foreground shadow-sm hover:bg-muted">
                       <Camera className="mr-2 h-4 w-4" />
                       Tải/chụp phiếu
                       <input
@@ -566,21 +529,6 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                         }}
                       />
                     </label>
-                  </div>
-
-                  <div className="grid gap-2 text-xs sm:grid-cols-3" data-bmq-goods-receipt-ocr-compare-po>
-                    <div className="rounded-lg border border-border bg-card/80 p-2">
-                      <p className="font-medium">1. OCR tự điền</p>
-                      <p className="text-muted-foreground">Đọc số lượng từ phiếu giao hàng NCC.</p>
-                    </div>
-                    <div className="rounded-lg border border-border bg-card/80 p-2">
-                      <p className="font-medium">2. So với PO</p>
-                      <p className="text-muted-foreground">Tự flag đủ, thiếu, dư hoặc ngoài PO.</p>
-                    </div>
-                    <div className="rounded-lg border border-border bg-card/80 p-2">
-                      <p className="font-medium">3. Nhân viên xác nhận cuối</p>
-                      <p className="text-muted-foreground">Kho vẫn được sửa ngoại lệ trước khi chốt.</p>
-                    </div>
                   </div>
 
                   {ocrDelivery.status !== "idle" && (
@@ -619,19 +567,19 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                   {!hasDeliveryNoteEvidence && (
                     <p className="flex items-center gap-1 text-xs font-medium text-amber-700" data-bmq-goods-receipt-evidence-required-always>
                       <AlertTriangle className="h-3 w-3" />
-                      Bắt buộc đính kèm ảnh/chứng từ phiếu nhập trước khi Nhập kho + Tạo công nợ.
+                      Cần ảnh phiếu giao trước khi nhập kho.
                     </p>
                   )}
                   {hasShortageItems && (
                     <p className="flex items-center gap-1 text-xs font-medium text-amber-700" data-bmq-goods-receipt-variance-evidence-required>
                       <AlertTriangle className="h-3 w-3" />
-                      Thiếu/lệch hàng cần lý do và ảnh chứng từ để kế toán đối soát.
+                      Hàng thiếu/lệch cần lý do và ảnh.
                     </p>
                   )}
                   {hasMaterialResolutionBlockers && (
                     <p className="flex items-center gap-1 text-xs font-medium text-amber-700">
                       <AlertTriangle className="h-3 w-3" />
-                      Cần xử lý NVL trong /material-master trước khi Nhập kho + Tạo công nợ.
+                      Cần xử lý NVL (Material Master) trước khi nhập kho.
                     </p>
                   )}
                 </div>
@@ -645,24 +593,14 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
 
                 {/* Receiving workflow banner */}
                 {isReceiveMode && (
-                  <div
-                    className="mb-4 rounded-xl border border-primary/30 bg-primary/5 p-3 text-sm"
+                  <p
+                    className="mb-3 flex items-start gap-1.5 text-xs text-muted-foreground"
                     data-bmq-goods-receipt-receive-editor
+                    data-bmq-goods-receipt-actual-payable-only
                   >
-                    <p className="font-semibold text-primary">Kế toán kho xác nhận thực nhận</p>
-                    <p className="mt-1 text-muted-foreground">
-                      Phiếu nhập đã nhận đủ thông tin từ PO và phải giữ ảnh/chứng từ đính kèm để đối chiếu. Mặc định số thực nhận bằng số đặt;
-                      chỉ sửa hoặc OCR khi phiếu giao hàng có chênh lệch, rồi nhấn{" "}
-                      <strong>Nhập kho + Tạo công nợ</strong>.
-                    </p>
-                    <p
-                      className="mt-1.5 flex items-center gap-1 text-xs font-medium text-primary"
-                      data-bmq-goods-receipt-actual-payable-only
-                    >
-                      <CheckCircle className="h-3 w-3" />
-                      Công nợ theo thực nhận — thiếu hàng chỉ tính giá trị đã nhận.
-                    </p>
-                  </div>
+                    <CheckCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    Thực nhận mặc định = số đặt; sửa nếu phiếu giao lệch. Công nợ theo thực nhận.
+                  </p>
                 )}
 
                 {/* Mobile cards */}

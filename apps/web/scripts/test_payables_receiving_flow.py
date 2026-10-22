@@ -395,16 +395,16 @@ def test_goods_receipts_ui_shows_payable_audit_state_and_blocks_duplicate_finali
     assert "Đang tải chi tiết phiếu nhập" in details
     assert "data-bmq-goods-receipt-delivery-note-required" in details
     assert "data-bmq-goods-receipt-ocr-assist" in details
-    assert "data-bmq-goods-receipt-ocr-compare-po" in details
+    # Owner 22/10: the three OCR step cards and long descriptions were removed; the flow itself stays.
+    assert "data-bmq-goods-receipt-payable-audit" in details
+    assert "payableFacts" in details
     assert "data-bmq-goods-receipt-ocr-prefill-actuals" in details
     assert "data-bmq-goods-receipt-variance-evidence-required" in details
     assert "data-bmq-goods-receipt-attached-evidence" in details
     assert "data-bmq-goods-receipt-evidence-required-always" in details
-    assert "Chụp/scan phiếu giao hàng bắt buộc" in details
-    assert "PO luôn phải có ảnh/chứng từ" in details
-    assert "OCR tự điền" in details
-    assert "So với PO" in details
-    assert "Nhân viên xác nhận cuối" in details
+    assert "Phiếu giao hàng" in details
+    assert "Cần ảnh phiếu giao trước khi nhập kho" in details
+    assert "OCR tự điền" not in details
     assert "useDeliveryNoteOcr" in details
     assert "hasDeliveryNoteEvidence" in details
 
@@ -914,10 +914,8 @@ def test_goods_receipt_receiving_edit_mode():
     assert "data-bmq-goods-receipt-actual-payable-only" in details
 
     # Workflow Vietnamese copy
-    assert "Kế toán kho xác nhận thực nhận" in details
-    assert "Phiếu nhập đã nhận đủ thông tin từ PO" in details
-    assert "Mặc định số thực nhận bằng số đặt" in details
-    assert "phải giữ ảnh/chứng từ đính kèm" in details
+    assert "Thực nhận mặc định = số đặt" in details
+    # Short banner since owner 22/10: one line instead of the paragraph.
     assert "Nhập kho + Tạo công nợ" in details
     assert "thực nhận" in details
     assert "Công nợ theo thực nhận" in details
