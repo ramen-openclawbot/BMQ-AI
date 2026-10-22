@@ -118,7 +118,7 @@ export default function FinanceReports() {
   };
 
   const pnl = usePnl(monthStart(addMonths(month, -5)), monthEnd(month));
-  const close = useCloseChecklist(month);
+  const close = useCloseChecklist(monthStart(month));
   const totals = pnl.data?.totals[month];
   const coverage = pnl.data?.coverage[month];
   const progress = close.data ? closeProgress(close.data.checks) : null;

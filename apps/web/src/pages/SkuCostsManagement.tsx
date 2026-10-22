@@ -288,12 +288,8 @@ export default function SkuCostsManagement() {
   };
 
   useEffect(() => {
-    (async () => {
-      try { await sb.rpc("snapshot_sku_costs_daily", { p_snapshot_date: new Date().toISOString().slice(0, 10) }); } catch (_) {
-        // Snapshot is best-effort; page load should continue if the RPC is unavailable.
-      }
-      loadAll();
-    })();
+    // snapshot_sku_costs_daily no longer exists in the database (404 on every open).
+    loadAll();
     /* eslint-disable-next-line */
   }, []);
   useEffect(() => {
