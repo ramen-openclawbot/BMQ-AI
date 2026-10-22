@@ -20,7 +20,9 @@ const EVIDENCE = process.env.EVIDENCE_DIR || "/tmp/bmq-sku-costs-qa";
 const PW = process.env.PLAYWRIGHT_CORE || "/private/tmp/pwqa/node_modules/playwright-core";
 const CHROME = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const PORT = Number(process.env.QA_PORT || 5203);
-const { chromium } = createRequire(import.meta.url)(PW);
+const { chromium, webkit } = createRequire(import.meta.url)(PW);
+// QA_WEBKIT=1 runs on WebKit with touch, like iPhone Safari.
+const WEBKIT = Boolean(process.env.QA_WEBKIT);
 fs.mkdirSync(EVIDENCE, { recursive: true });
 
 const SUPABASE_FIXTURE = `
@@ -30,6 +32,7 @@ const WRITE = new Set(["insert", "update", "upsert", "delete"]);
 function settle(st) {
   const mode = cfg().data || "populated";
   if (st.write) { window.__qaWrites.push(st.table + ":" + st.write); return { data: null, error: { message: "QA fixture: writes disabled" }, count: null }; }
+  if (cfg().rpcFail && st.table === "rpc:set_sku_discontinued") return { data: null, error: { message: "forbidden", code: "42501" } };
   if (mode === "error" && st.table === "product_skus") return { data: null, error: { message: "QA fixture: network error", code: "QA" }, count: null };
   if (st.head) return { data: null, error: null, count: 0 };
   if (st.single) return { data: null, error: null };
@@ -194,7 +197,7 @@ const server = await createServer({
 await server.listen();
 const BASE = `http://127.0.0.1:${PORT}`;
 
-const browser = await chromium.launch({ executablePath: CHROME });
+const browser = WEBKIT ? await webkit.launch() : await chromium.launch({ executablePath: CHROME });
 const results = [];
 const record = (name, detail = {}) => {
   results.push({ name, ...detail });
@@ -202,7 +205,8 @@ const record = (name, detail = {}) => {
 };
 
 async function open(cfg, route, viewport, extra = {}) {
-  const context = await browser.newContext({ viewport, reducedMotion: extra.reducedMotion || "reduce", locale: "vi-VN" });
+  const touch = WEBKIT && viewport.width < 768 ? { isMobile: true, hasTouch: true, deviceScaleFactor: 3 } : {};
+  const context = await browser.newContext({ viewport, reducedMotion: extra.reducedMotion || "reduce", locale: "vi-VN", ...touch });
   await context.addInitScript((value) => {
     localStorage.setItem("qa-shell", JSON.stringify(value));
     if (value.language) localStorage.setItem("app-language", value.language);
@@ -406,12 +410,13 @@ try {
     const { context, page, errors } = await open({ role: "owner", data: "populated" }, "/sku-costs/management", { width: 390, height: 844 });
     await page.waitForSelector(".gv-row");
     await page.getByRole("button", { name: "Xem chi tiết Bánh mì que pate" }).click();
-    await page.locator("[data-bmq-sku-discontinue]").click();
+    const press = (locator) => (WEBKIT ? locator.tap() : locator.click());
+    await press(page.locator("[data-bmq-sku-discontinue]"));
     await page.waitForSelector("[data-bmq-sku-discontinue-confirm]");
     assert.equal((await page.evaluate(() => (window.__qaRpc || []).filter((c) => c.startsWith("set_sku_discontinued")).length)), 0, "nothing sent before the confirm");
     await page.locator("[data-bmq-sku-detail-actions]").scrollIntoViewIfNeeded();
     await page.screenshot({ path: `${EVIDENCE}/sku-discontinue-confirm-390.png` });
-    await page.locator("[data-bmq-sku-discontinue-confirm]").click();
+    await press(page.locator("[data-bmq-sku-discontinue-confirm]"));
     await page.waitForSelector("[data-bmq-sku-resume]");
     const call = await page.evaluate(() => (window.__qaRpc || []).find((c) => c.startsWith("set_sku_discontinued")));
     assert.match(call, /"p_sku_id":"sku-1","p_value":true,"p_request_id":"[0-9a-f-]{36}"/);
@@ -421,6 +426,22 @@ try {
     assert.match(await page.locator(".gv-row", { hasText: "Bánh mì que pate" }).first().innerText(), /Ngưng KD/);
     assert.deepEqual(errors, []);
     record("Ngưng kinh doanh: confirm, RPC with request id, list chip");
+    await context.close();
+  }
+  {
+    // A refused request is said inside the dialog, not in a toast behind it.
+    const { context, page, errors } = await open({ role: "owner", data: "populated", rpcFail: true }, "/sku-costs/management", { width: 390, height: 844 });
+    await page.waitForSelector(".gv-row");
+    await page.getByRole("button", { name: "Xem chi tiết Bánh mì que pate" }).click();
+    const actionsTop = await page.locator("[data-bmq-sku-detail-actions]").evaluate((el) => el.getBoundingClientRect().top);
+    assert.ok(actionsTop < 300, `actions sit near the top of the dialog (${actionsTop})`);
+    await page.locator("[data-bmq-sku-discontinue]").click();
+    await page.locator("[data-bmq-sku-discontinue-confirm]").click();
+    await page.waitForSelector("[data-bmq-sku-discontinue-error]");
+    assert.match(await page.locator("[data-bmq-sku-discontinue-error]").innerText(), /Chưa đổi được trạng thái: tài khoản này chưa có quyền/);
+    await page.screenshot({ path: `${EVIDENCE}/sku-discontinue-error-390.png` });
+    assert.deepEqual(errors, []);
+    record("Ngưng kinh doanh: refusal shown in the dialog; actions at the top");
     await context.close();
   }
 } finally {

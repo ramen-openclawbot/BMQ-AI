@@ -218,6 +218,7 @@ export default function SkuCostsManagement() {
   const { toast } = useToast();
   const setDiscontinued = useSetSkuDiscontinued();
   const [confirmDiscontinue, setConfirmDiscontinue] = useState(false);
+  const [discontinueError, setDiscontinueError] = useState("");
   const [skus, setSkus] = useState<SKU[]>([]);
   const [formula, setFormula] = useState<FormulaRow[]>([]);
   const [canonicalMaterials, setCanonicalMaterials] = useState<CanonicalMaterial[]>([]);
@@ -484,18 +485,25 @@ export default function SkuCostsManagement() {
   }, [activeSku.finished_output_qty, formulaComputed]);
 
   const openCreateSku = () => { setSaveSkuError(""); setZeroCostApproval(false); setImportedFormulaDraft([]); setCogsEffectiveFrom(new Date().toISOString().slice(0, 10)); setSkuForm({ id: "", sku_code: "", product_name: "", unit: "gói", unit_price: 0, category: "Thành phẩm", base_unit: "gói", yield_percent: 100, finished_output_qty: FORMULA_BASE_QTY, finished_output_unit: "cái", cost_template: DEFAULT_SKU_COST_TEMPLATE, cost_values: DEFAULT_SKU_COST_VALUES, cost_widgets: {}, hide_from_dealer_portal: false }); setDialogOpen(true); };
-  const openSkuDetail = (sku: SKU) => { setActiveSkuId(sku.id); setConfirmDiscontinue(false); setDetailOpen(true); };
+  const openSkuDetail = (sku: SKU) => { setActiveSkuId(sku.id); setConfirmDiscontinue(false); setDiscontinueError(""); setDetailOpen(true); };
   // Ngưng kinh doanh (owner 22/10): the SKU leaves the kho finished-goods lists and the dealer page; history stays.
   const toggleDiscontinued = async (value: boolean) => {
     const skuId = String(activeSku.id || "");
-    if (!skuId) return;
+    setDiscontinueError("");
+    if (!skuId) { setDiscontinueError("Chưa đọc được mã SKU. Đóng rồi mở lại SKU này."); return; }
     try {
-      await setDiscontinued.mutateAsync({ skuId, value });
+      // Never wait silently: a request that hangs shows an error after 20 s.
+      await Promise.race([
+        setDiscontinued.mutateAsync({ skuId, value }),
+        new Promise((_, reject) => window.setTimeout(() => reject(new Error("Máy chủ chưa trả lời sau 20 giây. Kiểm tra mạng rồi bấm lại.")), 20_000)),
+      ]);
       setConfirmDiscontinue(false);
       await loadAll();
       toast({ title: value ? "Đã ngưng kinh doanh" : "Đã kinh doanh lại", description: activeSku.product_name || undefined });
     } catch (error) {
-      toast({ title: "Chưa đổi được trạng thái", description: error instanceof Error ? error.message : String(error), variant: "destructive" });
+      const text = error instanceof Error ? error.message : String((error as { message?: string })?.message ?? error);
+      const plain = /forbidden|42501/i.test(text) ? "tài khoản này chưa có quyền sửa giá vốn." : /sku_not_found/i.test(text) ? "không tìm thấy SKU (có thể đã bị xóa)." : text;
+      setDiscontinueError(`Chưa đổi được trạng thái: ${plain}`);
     }
   };
 
@@ -793,6 +801,33 @@ export default function SkuCostsManagement() {
               : activeSku.hide_from_dealer_portal ? <span className="gv-chip">Ẩn trên trang đặt hàng</span> : null}
           </div>
 
+          {/* Actions at the top (owner 22/10): iPhone Safari used the first tap near the bottom edge to show its toolbar. */}
+          <div className="skd-actions" data-bmq-sku-detail-actions>
+            {isSkuDiscontinued(activeSku) ? (
+              <Button type="button" variant="outline" className="h-11" disabled={setDiscontinued.isPending} onClick={() => void toggleDiscontinued(false)} data-bmq-sku-resume>
+                {setDiscontinued.isPending ? "Đang lưu…" : "Kinh doanh lại"}
+              </Button>
+            ) : confirmDiscontinue ? (
+              <div className="skd-confirm" role="group" aria-label="Xác nhận ngưng kinh doanh">
+                <p>Ngưng bán và bỏ khỏi kiểm kho, trang đặt hàng. Lịch sử giữ nguyên.</p>
+                <div>
+                  <Button type="button" variant="destructive" className="h-11" disabled={setDiscontinued.isPending} onClick={() => void toggleDiscontinued(true)} data-bmq-sku-discontinue-confirm>
+                    {setDiscontinued.isPending ? "Đang lưu…" : "Ngưng kinh doanh"}
+                  </Button>
+                  <Button type="button" variant="ghost" className="h-11" onClick={() => setConfirmDiscontinue(false)}>Thôi</Button>
+                </div>
+              </div>
+            ) : (
+              <Button type="button" variant="outline" className="h-11 text-destructive" onClick={() => setConfirmDiscontinue(true)} data-bmq-sku-discontinue>
+                Ngưng kinh doanh
+              </Button>
+            )}
+            {!confirmDiscontinue ? (
+              <Button type="button" className="h-11" onClick={() => { setDetailOpen(false); openEditSku(activeSku as SKU); }}>Sửa SKU</Button>
+            ) : null}
+          </div>
+          {discontinueError ? <p className="skd-error" role="alert" data-bmq-sku-discontinue-error>{discontinueError}</p> : null}
+
           <section className="skd-card" aria-label="Công thức NVL">
             <h3 className="skd-h">Công thức · {formulaComputed.length} NVL</h3>
             <Table className="hidden md:table">
@@ -860,30 +895,6 @@ export default function SkuCostsManagement() {
             </div>
           </section>
 
-          <div className="skd-actions" data-bmq-sku-detail-actions>
-            {isSkuDiscontinued(activeSku) ? (
-              <Button type="button" variant="outline" className="h-11" disabled={setDiscontinued.isPending} onClick={() => void toggleDiscontinued(false)} data-bmq-sku-resume>
-                {setDiscontinued.isPending ? "Đang lưu…" : "Kinh doanh lại"}
-              </Button>
-            ) : confirmDiscontinue ? (
-              <div className="skd-confirm" role="group" aria-label="Xác nhận ngưng kinh doanh">
-                <p>Ngưng bán và bỏ khỏi kiểm kho, trang đặt hàng. Lịch sử giữ nguyên.</p>
-                <div>
-                  <Button type="button" variant="destructive" className="h-11" disabled={setDiscontinued.isPending} onClick={() => void toggleDiscontinued(true)} data-bmq-sku-discontinue-confirm>
-                    {setDiscontinued.isPending ? "Đang lưu…" : "Ngưng kinh doanh"}
-                  </Button>
-                  <Button type="button" variant="ghost" className="h-11" onClick={() => setConfirmDiscontinue(false)}>Thôi</Button>
-                </div>
-              </div>
-            ) : (
-              <Button type="button" variant="outline" className="h-11 text-destructive" onClick={() => setConfirmDiscontinue(true)} data-bmq-sku-discontinue>
-                Ngưng kinh doanh
-              </Button>
-            )}
-            {!confirmDiscontinue ? (
-              <Button type="button" className="h-11" onClick={() => { setDetailOpen(false); openEditSku(activeSku as SKU); }}>Sửa SKU</Button>
-            ) : null}
-          </div>
         </DialogContent>
       </Dialog>
 

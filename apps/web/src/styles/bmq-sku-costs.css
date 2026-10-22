@@ -325,10 +325,11 @@ html.bmq-d3 .gv-panel-h h2 { font-weight: 400; }
 .skd-facts dd { margin: 0; font-weight: 500; text-align: right; font-variant-numeric: tabular-nums; }
 .skd-facts dd.is-bad { color: #a32314; }
 @media (min-width: 768px) { .skd-facts { grid-template-columns: 1fr 1fr; column-gap: 24px; } .skd-facts > div:nth-last-child(2):nth-child(odd) { box-shadow: inset 0 -1px 0 var(--d3-line, #e2e2df); } }
-.skd-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding-top: 4px; }
+.skd-actions { display: flex; flex-wrap: wrap; justify-content: flex-start; gap: 8px; }
 .skd-actions > button { flex: 1 1 160px; }
 @media (min-width: 640px) { .skd-actions > button { flex: 0 0 auto; } }
 .skd-confirm { display: grid; gap: 8px; width: 100%; padding: 12px 14px; border-radius: 14px; background: #fdecea; }
 .skd-confirm p { margin: 0; font-size: 13.5px; color: #7a1d10; }
 .skd-confirm > div { display: flex; flex-wrap: wrap; gap: 8px; }
 .skd-confirm > div > button { flex: 1 1 140px; }
+.skd-error { margin: 0; padding: 10px 12px; border-radius: 12px; background: #fdecea; color: #7a1d10; font-size: 13.5px; overflow-wrap: anywhere; }
