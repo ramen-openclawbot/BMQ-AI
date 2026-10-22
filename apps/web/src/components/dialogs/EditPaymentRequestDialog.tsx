@@ -48,6 +48,7 @@ import {
 } from "@/hooks/useProductSKUs";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { LoadingState } from "@/components/ui/loading";
 
 interface EditPaymentRequestDialogProps {
   requestId: string | null;
@@ -318,9 +319,7 @@ export function EditPaymentRequestDialog({
         </DialogHeader>
 
         {isLoading ? (
-          <div className="flex items-center justify-center py-8">
-            <Loader2 className="h-8 w-8 animate-spin" />
-          </div>
+          <LoadingState variant="cards" rows={3} label="Đang tải phiếu duyệt chi…" />
         ) : (
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">

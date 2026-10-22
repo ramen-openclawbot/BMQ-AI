@@ -40,6 +40,7 @@ import {
   recalculatePointInventory,
   summarizePointRevenue,
 } from "@/lib/point-revenue";
+import { LoadingState } from "@/components/ui/loading";
 import "./point-revenue-management.css";
 
 type ChannelAmounts = Record<string, number>;
@@ -428,10 +429,7 @@ function EditorPanel({
       </section>
 
       {detailLoading ? (
-        <div className="pr-detail-loading">
-          <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
-          Đang tải báo cáo…
-        </div>
+        <LoadingState variant="cards" rows={3} label="Đang tải báo cáo…" />
       ) : (
         <>
           <div className="pr-channel-list">

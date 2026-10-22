@@ -15,6 +15,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { replaceMainPhoto } from "@/lib/receipt-photos";
 
 import { parseDbDate } from "@/lib/date-only";
+import { LoadingState } from "@/components/ui/loading";
 interface GoodsReceiptDetailsDialogProps {
   receiptId: string | null;
   open: boolean;
@@ -410,10 +411,7 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
 
           <div className="flex-1 overflow-y-auto overscroll-contain">
             {isLoading ? (
-            <div className="flex min-h-64 items-center justify-center gap-2 px-4 py-10 text-muted-foreground">
-              <Loader2 className="h-6 w-6 animate-spin" />
-              Đang tải chi tiết phiếu nhập...
-            </div>
+            <LoadingState variant="loaf" label="Đang tải chi tiết phiếu nhập..." className="m-4 min-h-64" />
           ) : receiptError ? (
             <div className="m-4 rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
               <div className="mb-1 flex items-center gap-2 font-semibold"><XCircle className="h-4 w-4" />Không tải được chi tiết phiếu nhập</div>

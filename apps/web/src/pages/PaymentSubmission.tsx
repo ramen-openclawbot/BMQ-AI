@@ -4,7 +4,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
-import { Ban, Banknote, ChevronLeft, ChevronRight, CreditCard, Images, Loader2, TriangleAlert } from "lucide-react";
+import { Ban, Banknote, ChevronLeft, ChevronRight, CreditCard, Images, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -29,6 +29,7 @@ import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { useFinanceReconciliationFlags } from "@/hooks/useFinanceReconciliationFlags";
 import { financeReconciliationLabel, purchasePatternEvidenceLines, sortFlags, type FinanceReconciliationFlag } from "@/lib/finance-reconciliation-flags";
+import { LoadingState } from "@/components/ui/loading";
 import "@/styles/bmq-reconciliation.css";
 import "@/styles/bmq-urgent-payables.css";
 
@@ -159,7 +160,7 @@ export default function PaymentSubmission() {
       <Link to="/payment-requests" className="d3-ps-back"><ChevronLeft className="h-4 w-4" /> Duyệt chi</Link>
 
       {isLoading ? (
-        <p className="d3-up-state"><Loader2 className="h-4 w-4 animate-spin" /> Đang tải phiếu trình chi…</p>
+        <LoadingState rows={4} label="Đang tải phiếu trình chi…" />
       ) : isError || !data ? (
         <p className="d3-up-state is-bad" role="alert" data-bmq-submission-error>
           <TriangleAlert className="h-4 w-4" />

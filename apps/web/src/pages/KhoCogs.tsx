@@ -32,6 +32,7 @@ import {
 } from "@/lib/cogs-backflush";
 import { khoErrorText, standardUnitFactor } from "@/lib/kho-items";
 import { cn } from "@/lib/utils";
+import { LoadingState } from "@/components/ui/loading";
 import "@/styles/bmq-warehouse.css";
 import "@/styles/bmq-stock-ledger.css";
 import "@/styles/bmq-purchase-usage.css";
@@ -429,7 +430,7 @@ function ItemTraceDialog({ item, range, onClose }: { item: CogsItemUsage; range:
         <span><small>Đã trừ sổ</small><b>{item.posted_cogs > 0 ? fmtAmount(item.posted_cogs, item.unit) : "—"}</b></span>
       </div>
       {trace.isLoading ? (
-        <div className="d3-wh-empty">Đang tải đơn…</div>
+        <LoadingState label="Đang tải đơn…" />
       ) : trace.isError ? (
         <p className="d3-kho-error">{cogsErrorText(trace.error)}</p>
       ) : days.length === 0 ? (
@@ -612,7 +613,7 @@ export default function KhoCogs() {
           </p>
         </div>
         {overview.isLoading ? (
-          <div className="d3-wh-empty">Đang tải…</div>
+          <LoadingState label="Đang tải…" />
         ) : gapTotal === 0 ? (
           <div className="d3-wh-empty d3-cogs-allset"><Check className="h-4 w-4" /> Mọi đơn trong kỳ đều tìm được công thức và món kho.</div>
         ) : (

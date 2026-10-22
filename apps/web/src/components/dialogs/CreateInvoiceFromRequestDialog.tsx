@@ -31,6 +31,7 @@ import { getFreshAccessToken } from "@/lib/supabase-helpers";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { callEdgeFunction } from "@/lib/fetch-with-timeout";
+import { LoadingState } from "@/components/ui/loading";
 
 interface CreateInvoiceFromRequestDialogProps {
   requestId: string | null;
@@ -239,9 +240,7 @@ export function CreateInvoiceFromRequestDialog({
         </DialogHeader>
 
         {isLoading ? (
-          <div className="flex items-center justify-center py-8">
-            <Loader2 className="h-8 w-8 animate-spin" />
-          </div>
+          <LoadingState variant="cards" rows={3} label="Đang tải dữ liệu…" />
         ) : (
           <div className="space-y-6">
             {/* Invoice Info */}

@@ -54,6 +54,7 @@ import { toast } from "sonner";
 import { useSearchParams } from "react-router-dom";
 
 import { parseDbDate } from "@/lib/date-only";
+import { LoadingState } from "@/components/ui/loading";
 type StatusFilter = "all" | "draft" | "sent" | "in_transit" | "completed" | "cancelled";
 type TimeFilterMode = "day" | "month" | "year";
 
@@ -437,7 +438,7 @@ export default function PurchaseOrders() {
           </div>
 
           {isLoading ? (
-            <div className="flex items-center justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
+            <LoadingState variant="cards" rows={3} label="Đang tải đơn đặt hàng…" />
           ) : error ? (
             <div className="rounded-xl border border-red-200 bg-red-50 py-10 text-center text-sm text-red-700">{isVi ? "Lỗi tải dữ liệu PO" : "Failed to load data"}</div>
           ) : filteredOrders.length === 0 ? (
@@ -609,7 +610,7 @@ export default function PurchaseOrders() {
             </CardHeader>
             <CardContent className="p-0">
               {isLoading ? (
-                <div className="flex items-center justify-center py-12"><Loader2 className="h-8 w-8 animate-spin" /></div>
+                <LoadingState flat rows={5} label="Đang tải đơn đặt hàng…" />
               ) : error ? (
                 <div className="py-12 text-center text-destructive">{isVi ? "Lỗi tải dữ liệu" : "Failed to load data"}</div>
               ) : filteredOrders.length === 0 ? (

@@ -54,6 +54,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Link } from "react-router-dom";
 import { isFinishedSku } from "@/lib/skuType";
 import KfmPoIntake, { type KfmAwaitingSetupPo, type KfmIntakeOutcome } from "@/components/production/KfmPoIntake";
+import { LoadingState } from "@/components/ui/loading";
 import "@/styles/bmq-production.css";
 
 interface ProductionItem {
@@ -1349,9 +1350,7 @@ export default function ProductionPlanning() {
               </Alert>
             )}
             {loadingSkus || loadingLocationSettings ? (
-              <div className="flex min-h-[240px] items-center justify-center rounded-3xl border border-border/60 bg-card/60">
-                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-              </div>
+              <LoadingState variant="cards" rows={3} label={isVi ? "Đang tải danh mục SKU…" : "Loading SKUs…"} />
             ) : skuImageRows.length === 0 ? (
               <div className="rounded-3xl border border-dashed border-border bg-card/60 p-10 text-center text-muted-foreground">
                 {isVi ? "Chưa có SKU nào trong hệ thống." : "No SKUs found."}
@@ -1455,7 +1454,7 @@ export default function ProductionPlanning() {
             {stats.pendingPos > 0 && <span className="d3-pp-pill is-warn">{isVi ? `Còn ${stats.pendingPos} PO chờ lập SX` : `${stats.pendingPos} POs awaiting setup`}</span>}
           </div>
           {loadingPos ? (
-            <div className="d3-pp-state"><Loader2 className="h-8 w-8 animate-spin" /></div>
+            <LoadingState rows={4} label={isVi ? "Đang tải…" : "Loading…"} />
           ) : pendingPosError ? (
             <div role="alert" className="d3-pp-state is-error" data-kfm-pending-error="v1">
               <AlertCircle className="h-10 w-10" />
@@ -1551,7 +1550,7 @@ export default function ProductionPlanning() {
             <span className="d3-pp-pill">{isVi ? `${liveOrders.length} lệnh` : `${liveOrders.length} orders`}</span>
           </div>
           {loadingOrders ? (
-            <div className="d3-pp-state"><Loader2 className="h-6 w-6 animate-spin" /></div>
+            <LoadingState rows={3} label={isVi ? "Đang tải…" : "Loading…"} />
           ) : ordersEmpty ? (
             <div className="d3-pp-state">
               <Factory className="h-10 w-10" />

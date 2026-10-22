@@ -333,7 +333,8 @@ async function runScenario(scenario) {
     alertText: await textIfPresent(page.locator('[role="alert"]')),
     deniedOwnerOnly: await page.locator('[data-da-denied="owner-only"]').count(),
     adminShell: await page.locator("[data-vnagent-data-admin]").count(),
-    spinner: await page.locator(".animate-spin").count(),
+    // Page loads show the shared loaf/route bar (bmq-ld-*) instead of a spinner since 22/10.
+    spinner: await page.locator(".animate-spin, .bmq-ld-page, .bmq-ld-oven").count(),
     timeoutRecovery: await page.getByRole("button", { name: /Refresh session|Làm mới phiên/ }).count(),
     pageNotFound: await page.getByText("Oops! Page not found").count(),
     bodyOverflow: await page.evaluate(

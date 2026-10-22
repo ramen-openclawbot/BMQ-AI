@@ -67,6 +67,7 @@ import { EditPurchaseOrderDialog } from "./EditPurchaseOrderDialog";
 import { parseDbDate } from "@/lib/date-only";
 import { useStockItemNames } from "@/hooks/useStockItemNames";
 import { buildStockNameLines, displayNameFor } from "@/lib/stock-item-names";
+import { LoadingState } from "@/components/ui/loading";
 interface PurchaseOrderDetailsDialogProps {
   orderId: string | null;
   open: boolean;
@@ -223,9 +224,7 @@ export function PurchaseOrderDetailsDialog({
               </Button>
             </div>
           ) : isLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-8 w-8 animate-spin" />
-            </div>
+            <LoadingState variant="loaf" label="Đang tải đơn đặt hàng…" />
           ) : order ? (
             <div className="space-y-6">
               <div className="space-y-4 bg-gradient-to-b from-amber-50 via-white to-slate-50 pb-6 md:hidden" data-stitch-mobile-po-approve-detail data-bmq-po-detail-light-theme>

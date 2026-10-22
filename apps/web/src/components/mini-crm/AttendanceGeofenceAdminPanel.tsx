@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import { LoadingState } from "@/components/ui/loading";
 
 type KioskLocation = {
   id: string;
@@ -193,7 +194,7 @@ export function AttendanceGeofenceAdminPanel({ canView, canEdit }: { canView: bo
   }
 
   if (geofencesQuery.isLoading || kioskLocationsQuery.isLoading) {
-    return <Card><CardContent className="flex min-h-40 items-center justify-center text-muted-foreground"><Loader2 className="mr-2 h-5 w-5 animate-spin" />Đang tải cấu hình GPS chấm công...</CardContent></Card>;
+    return <Card><CardContent className="pt-6"><LoadingState flat rows={4} label="Đang tải cấu hình GPS chấm công..." /></CardContent></Card>;
   }
 
   if (geofencesQuery.error || kioskLocationsQuery.error) {

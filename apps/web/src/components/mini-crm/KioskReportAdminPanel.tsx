@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { callEdgeFunction } from "@/lib/fetch-with-timeout";
 import { getFreshAccessToken } from "@/lib/supabase-helpers";
+import { LoadingState } from "@/components/ui/loading";
 
 type KioskLocation = {
   id: string;
@@ -162,9 +163,8 @@ export function KioskReportAdminPanel({
   if (isLoading) {
     return (
       <Card>
-        <CardContent className="flex min-h-40 items-center justify-center text-muted-foreground">
-          <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-          Đang tải dữ liệu báo cáo điểm bán...
+        <CardContent className="pt-6">
+          <LoadingState flat rows={4} label="Đang tải dữ liệu báo cáo điểm bán..." />
         </CardContent>
       </Card>
     );

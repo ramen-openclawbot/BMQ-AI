@@ -31,6 +31,7 @@ import {
   type StockCatalogPendingSuggestion,
   type StockItemClass,
 } from "@/lib/stock-catalog";
+import { LoadingState } from "@/components/ui/loading";
 import "@/styles/bmq-warehouse.css";
 import "@/styles/bmq-stock-ledger.css";
 
@@ -204,7 +205,7 @@ export function LearnedAliasesCard({ canEdit }: { canEdit: boolean }) {
         </p>
       </div>
       {reviewQuery.isLoading ? (
-        <div className="d3-wh-empty">Đang tải…</div>
+        <LoadingState label="Đang tải…" />
       ) : reviewQuery.isError ? (
         <div className="d3-wh-empty">Không tải được: {errorText(reviewQuery.error)}</div>
       ) : aliases.length === 0 ? (
@@ -353,7 +354,7 @@ export default function StockCatalogCleanup() {
               <p>Mặt hàng được giữ là bên đang dùng nhiều hơn. Tồn và lịch sử của bên kia chuyển sang theo hệ số.</p>
             </div>
             {loading ? (
-              <div className="d3-wh-empty">Đang tải…</div>
+              <LoadingState label="Đang tải…" />
             ) : merges.length === 0 ? (
               <div className="d3-wh-empty">Không có cặp nào chờ duyệt.</div>
             ) : (
@@ -388,7 +389,7 @@ export default function StockCatalogCleanup() {
               <p>Nguyên liệu, bao bì/vật tư, thành phẩm hay không tồn kho.</p>
             </div>
             {loading ? (
-              <div className="d3-wh-empty">Đang tải…</div>
+              <LoadingState label="Đang tải…" />
             ) : classifies.length === 0 ? (
               <div className="d3-wh-empty">Không có mặt hàng chờ phân loại.</div>
             ) : (

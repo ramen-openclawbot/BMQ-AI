@@ -16,6 +16,7 @@ import {
   type Q7PurchaseUsageStatus,
 } from "@/lib/q7-purchase-usage";
 import { cn } from "@/lib/utils";
+import { LoadingState } from "@/components/ui/loading";
 import "@/styles/bmq-warehouse.css";
 import "@/styles/bmq-stock-ledger.css";
 import "@/styles/bmq-purchase-usage.css";
@@ -177,7 +178,7 @@ function ItemDetail({
           ) : null}
 
           {detail.isLoading ? (
-            <div className="d3-wh-empty">Đang tải phiếu…</div>
+            <LoadingState rows={4} label="Đang tải phiếu…" />
           ) : detail.isError ? (
             <div className="d3-wh-alert is-error"><AlertTriangle className="h-5 w-5 shrink-0" /><div>{errorText(detail.error)}</div></div>
           ) : data ? (

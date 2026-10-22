@@ -10,6 +10,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { LoadingState } from "@/components/ui/loading";
 
 const TIME_ZONE = "Asia/Ho_Chi_Minh";
 const DEALER_PARSE_SOURCE_SETTING_KEY = "dealer_parse_source";
@@ -716,7 +717,7 @@ export default function FinanceRevenueControl() {
         <CardContent>
           <div className="space-y-3 md:hidden">
             {logsLoading ? (
-              <div className="rounded-xl border px-3 py-4 text-sm text-muted-foreground">Đang tải log...</div>
+              <LoadingState rows={3} label="Đang tải log..." />
             ) : autoDailyLogs.length > 0 ? autoDailyLogs.map((log) => (
               <button
                 key={log.id}
@@ -761,7 +762,7 @@ export default function FinanceRevenueControl() {
             </div>
             <div className="divide-y">
               {logsLoading ? (
-                <div className="px-3 py-4 text-sm text-muted-foreground">Đang tải log...</div>
+                <LoadingState flat rows={4} label="Đang tải log..." className="px-3 py-4" />
               ) : autoDailyLogs.length > 0 ? autoDailyLogs.map((log) => (
                 <button
                   key={log.id}

@@ -5,7 +5,6 @@ import {
   AlertTriangle,
   CalendarDays,
   CheckCircle2,
-  Loader2,
   Settings,
   Users,
 } from "lucide-react";
@@ -31,6 +30,7 @@ import { Input } from "@/components/ui/input";
 import { ChartContainer } from "@/components/ui/chart";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { cn } from "@/lib/utils";
+import { LoadingState } from "@/components/ui/loading";
 import "@/styles/bmq-revenue.css";
 
 const vnd = (v: number) =>
@@ -1326,7 +1326,7 @@ export default function RevenueManagementDashboard() {
             <p>Sắp xếp theo doanh thu hiện tại; khách chỉ có kỳ trước nằm cuối danh sách. Chạm một dòng để xem source lines, PO trace và audit.</p>
           </div>
           {isLoading ? (
-            <div className="d3-rv-empty"><Loader2 className="h-6 w-6 animate-spin" /></div>
+            <LoadingState rows={3} label="Đang tải doanh thu…" />
           ) : error ? (
             <div className="d3-rv-empty">—</div>
           ) : byCustomer.length === 0 ? (
@@ -1382,7 +1382,7 @@ export default function RevenueManagementDashboard() {
             <p>Tỷ trọng revenue của từng kênh trong ledger đã kiểm soát. Chạm để mở chi tiết.</p>
           </div>
           {isLoading ? (
-            <div className="d3-rv-empty"><Loader2 className="h-6 w-6 animate-spin" /></div>
+            <LoadingState rows={3} label="Đang tải doanh thu…" />
           ) : error ? (
             <div className="d3-rv-empty">—</div>
           ) : byChannel.length === 0 ? (

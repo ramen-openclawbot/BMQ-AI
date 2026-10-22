@@ -10,6 +10,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { formatDateKeyVi, expectedLabelDates, ProductLabelSpec } from "@/lib/product-label-control";
 import { CheckCircle2, Loader2, PackageSearch, Save, ShieldCheck } from "lucide-react";
+import { LoadingState } from "@/components/ui/loading";
 import "@/styles/bmq-production.css";
 
 type QueryResult<T = unknown> = { data: T | null; error: { message?: string } | null };
@@ -150,7 +151,7 @@ export default function ProductionProducts() {
             </CardHeader>
             <CardContent>
               {skusLoading || specsLoading ? (
-                <div className="flex min-h-40 items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-primary" /></div>
+                <LoadingState variant="cards" rows={3} label="Đang tải sản phẩm…" />
               ) : (
                 <div className="space-y-4" data-production-products-sku-dropdown="compact-select">
                   <div className="space-y-2">

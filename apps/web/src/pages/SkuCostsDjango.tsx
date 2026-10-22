@@ -9,6 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { parseCostValues, toNumber } from "@/lib/sku-cost-template";
 import { isFinishedSku } from "@/lib/skuType";
 import { cn } from "@/lib/utils";
+import { LoadingState } from "@/components/ui/loading";
 import "@/styles/bmq-production.css";
 
 const SKU_IMAGE_BUCKET = "sku-images";
@@ -418,7 +419,7 @@ export default function SkuCostsDjango() {
             </div>
 
             {loading ? (
-              <div className="rounded-[24px] border border-border/70 bg-muted/40 px-4 py-8 text-center text-[13px] font-bold text-muted-foreground">Đang tải SKU...</div>
+              <LoadingState rows={4} label="Đang tải SKU..." />
             ) : filteredSkus.length === 0 ? (
               <div className="rounded-[24px] border border-dashed border-border/70 bg-muted/35 px-4 py-8 text-center text-[13px] font-bold text-muted-foreground">Không tìm thấy SKU phù hợp.</div>
             ) : (
@@ -593,7 +594,7 @@ export default function SkuCostsDjango() {
             </div>
 
             {loading ? (
-              <div className="rounded-[24px] border border-border/70 bg-muted/40 px-4 py-12 text-center text-sm font-bold text-muted-foreground">Đang tải SKU...</div>
+              <LoadingState rows={5} label="Đang tải SKU..." />
             ) : filteredSkus.length === 0 ? (
               <div className="rounded-[24px] border border-dashed border-border/70 bg-muted/35 px-4 py-12 text-center text-sm font-bold text-muted-foreground">Không tìm thấy SKU phù hợp.</div>
             ) : (

@@ -31,6 +31,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Loader2, Users, Shield, Trash2, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { LoadingState } from "@/components/ui/loading";
 
 // ---------------------------------------------------------------------------
 // Role badge color mapping
@@ -172,9 +173,7 @@ function UsersTab({ isVi }: { isVi: boolean }) {
   if (isLoading) {
     return (
       <Card>
-        <CardContent className="flex items-center justify-center py-12">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-        </CardContent>
+        <CardContent className="pt-6"><LoadingState flat rows={4} label="Đang tải người dùng…" /></CardContent>
       </Card>
     );
   }
@@ -344,9 +343,7 @@ function PermissionsTab({ isVi }: { isVi: boolean }) {
   if (isLoading) {
     return (
       <Card>
-        <CardContent className="flex items-center justify-center py-12">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-        </CardContent>
+        <CardContent className="pt-6"><LoadingState flat rows={4} label="Đang tải người dùng…" /></CardContent>
       </Card>
     );
   }

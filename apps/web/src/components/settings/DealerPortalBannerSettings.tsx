@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
+import { LoadingState } from "@/components/ui/loading";
 
 const DEALER_ASSET_BUCKET = "dealer-portal-assets";
 const BANNER_URL_KEY = "dealer_landing_banner_url";
@@ -243,10 +244,7 @@ export function DealerPortalBannerSettings() {
       </CardHeader>
       <CardContent className="space-y-4">
         {loading ? (
-          <div className="flex items-center gap-2 rounded-md border bg-muted/40 p-4 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Đang tải cấu hình banner...
-          </div>
+          <LoadingState variant="cards" rows={2} label="Đang tải cấu hình banner..." />
         ) : (
           <>
             <div className="grid gap-4 lg:grid-cols-3">

@@ -10,6 +10,7 @@ import { getGoodsReceiptImageUrl, uploadDeliveryNoteImage } from "@/hooks/useGoo
 import { useImageRotation, useSetImageRotation } from "@/hooks/useImageRotation";
 import { imageRotationErrorCode, imageRotationErrorText, nextRotation } from "@/lib/image-rotation";
 import { appendExtraPhotos, receiptPhotos, removeExtraPhoto, type ReceiptPhoto } from "@/lib/receipt-photos";
+import { LoadingState } from "@/components/ui/loading";
 
 function usePhotoUrl(path: string | null) {
   return useQuery({
@@ -129,7 +130,7 @@ function Viewer({ receiptId, photos, index, onIndex, onClose }: {
           {url.data ? (
             <RotatedImage src={url.data} alt={photo.main ? "Ảnh phiếu chính" : `Ảnh ${index + 1}`} rotation={rotation} maxHeight="65vh" className="max-h-[65vh] max-w-full rounded-lg object-contain" />
           ) : (
-            <Loader2 className="my-16 h-6 w-6 animate-spin text-muted-foreground" />
+            <LoadingState variant="loaf" flat label="Đang tải ảnh…" className="my-6" />
           )}
         </div>
         {photos.length > 1 ? (

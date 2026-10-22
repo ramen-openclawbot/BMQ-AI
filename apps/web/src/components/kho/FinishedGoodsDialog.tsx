@@ -7,6 +7,7 @@ import type { Q7FinishedGoodsLine, WarehouseGameSnapshot } from "@/lib/warehouse
 import { cn } from "@/lib/utils";
 import { fmtQty, newRequestId, normalizeName, todayVN } from "./kho-meta";
 import { KhoDialog } from "./KhoDialog";
+import { LoadingState } from "@/components/ui/loading";
 
 type Sku = WarehouseGameSnapshot["skus"][number];
 export type FinishedGoodsMode = "in" | "out";
@@ -157,7 +158,7 @@ export function FinishedGoodsDialog({ mode: initialMode, skus, canEdit, onDone, 
       ) : null}
 
       {mode === "in" ? (
-        planned.isLoading ? <p className="d3-kho-quiet">Đang tải kế hoạch sản xuất hôm nay…</p>
+        planned.isLoading ? <LoadingState label="Đang tải kế hoạch sản xuất hôm nay…" rows={2} />
         : planned.error ? <p className="d3-kho-error">Chưa tải được kế hoạch sản xuất. Vẫn có thể thêm món bên dưới.</p>
         : planRows.length ? (
           <section className="d3-kho-slip">

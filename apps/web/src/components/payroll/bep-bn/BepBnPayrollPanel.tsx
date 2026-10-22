@@ -21,6 +21,7 @@ import { AttendanceSection, UploadCard } from "./AttendanceSection";
 import { PayrollDraftSection } from "./PayrollDraftSection";
 import { CatalogSection } from "./CatalogSection";
 import type { BepBnPeriodData, BepBnPeriodSummary, UseBepBnData } from "./types";
+import { LoadingState } from "@/components/ui/loading";
 
 interface BepBnPayrollPanelProps {
   useData: UseBepBnData;
@@ -221,9 +222,8 @@ export function BepBnPayrollPanel({ useData, canEdit, canLock }: BepBnPayrollPan
 function LoadingCard() {
   return (
     <Card>
-      <CardContent className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        Đang tải dữ liệu…
+      <CardContent className="pt-6">
+        <LoadingState flat label="Đang tải dữ liệu…" />
       </CardContent>
     </Card>
   );

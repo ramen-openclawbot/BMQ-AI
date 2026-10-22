@@ -22,6 +22,7 @@ import { matchCashSettlement, splitReceiptAcrossItems } from "@/lib/cash-settlem
 /** Manual choice that spreads one receipt over every khoản still owed (one bank slip for the whole phiếu). */
 const WHOLE_PHIEU = "__all__";
 import { cn } from "@/lib/utils";
+import { LoadingState } from "@/components/ui/loading";
 import "@/styles/bmq-unc-approval.css";
 import "@/styles/bmq-unc-bulk.css";
 import "@/styles/bmq-cash-settlement.css";
@@ -172,7 +173,7 @@ export function CashSettlementPanel({ requestId, canEdit }: Props) {
   };
 
   if (isLoading) {
-    return <p className="d3-unc-ev-note"><Loader2 className="h-4 w-4 animate-spin" /> Đang tải chứng từ chi lẻ…</p>;
+    return <LoadingState flat rows={2} label="Đang tải chứng từ chi lẻ…" />;
   }
   if (error || !data) {
     return (

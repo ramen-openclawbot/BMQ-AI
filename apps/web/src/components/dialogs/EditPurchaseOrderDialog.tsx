@@ -37,6 +37,7 @@ import { useSuppliers } from "@/hooks/useSuppliers";
 import { getCurrentActorId, updateProcurementDocumentWithMaterialController } from "@/lib/material-controller-rpcs";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { LoadingState } from "@/components/ui/loading";
 
 interface EditPurchaseOrderDialogProps {
   orderId: string;
@@ -218,9 +219,7 @@ export function EditPurchaseOrderDialog({
         </DialogHeader>
 
         {isLoading ? (
-          <div className="flex items-center justify-center py-8">
-            <Loader2 className="h-8 w-8 animate-spin" />
-          </div>
+          <LoadingState variant="cards" rows={3} label="Đang tải đơn đặt hàng…" />
         ) : (
           <div className="space-y-6">
             {/* Basic Info */}

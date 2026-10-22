@@ -1,6 +1,6 @@
 import { Navigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
-import { Loader2 } from "lucide-react";
+import { PageLoader } from "@/components/ui/loading";
 
 /**
  * Route guard that only allows access to users with the "owner" role.
@@ -11,9 +11,7 @@ export function OwnerRoute({ children }: { children: React.ReactNode }) {
 
   if (loading) {
     return (
-      <div className="min-h-[50vh] flex items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
+      <PageLoader className="min-h-[50vh]" />
     );
   }
 

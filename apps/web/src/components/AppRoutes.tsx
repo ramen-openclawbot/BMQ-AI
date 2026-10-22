@@ -3,8 +3,9 @@ import { lazy, Suspense } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { OwnerRoute } from "@/components/OwnerRoute";
-import { Loader2, AlertTriangle, RefreshCw, RotateCcw } from "lucide-react";
+import { AlertTriangle, RefreshCw, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PageLoader } from "@/components/ui/loading";
 import { clearSessionAndReload } from "@/lib/session-utils";
 import { adminHostCopy, isVnagentAdminHostname } from "@/lib/adminHostLanguage";
 
@@ -65,11 +66,7 @@ function isDealerOrderingHost() {
 }
 
 function AppLoadingFallback() {
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
-      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-    </div>
-  );
+  return <PageLoader />;
 }
 
 function AuthTimeoutFallback() {

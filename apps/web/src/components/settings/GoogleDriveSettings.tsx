@@ -10,6 +10,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { vi } from "date-fns/locale";
+import { LoadingState } from "@/components/ui/loading";
 
 export function GoogleDriveSettings() {
   const [poFolderUrl, setPoFolderUrl] = useState("");
@@ -498,9 +499,7 @@ export function GoogleDriveSettings() {
   if (loading) {
     return (
       <div className="card-elevated rounded-xl border border-border p-6">
-        <div className="flex items-center justify-center py-8">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-        </div>
+        <LoadingState flat rows={3} label="Đang tải cấu hình Google Drive…" />
       </div>
     );
   }

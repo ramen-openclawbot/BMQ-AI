@@ -3,12 +3,13 @@
  * earlier and marks the phiếu "Hoàn tất chi tiền mặt" when all are covered.
  */
 import { Link, useParams } from "react-router-dom";
-import { ChevronLeft, Loader2, TriangleAlert } from "lucide-react";
+import { ChevronLeft, TriangleAlert } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCashSettlement } from "@/hooks/useCashSettlement";
 import { CashSettlementPanel } from "@/components/payment-requests/CashSettlementPanel";
 import { PaymentUncEvidenceSection } from "@/components/payment-requests/PaymentUncEvidenceSection";
 import { PaymentRequestAttachmentsStrip } from "@/components/payment-requests/PaymentRequestAttachmentsStrip";
+import { LoadingState } from "@/components/ui/loading";
 import "@/styles/bmq-urgent-payables.css";
 import "@/styles/bmq-cash-settlement.css";
 
@@ -29,7 +30,7 @@ export default function CashSettlement() {
       {!requestId ? (
         <p className="d3-up-state is-bad" role="alert"><TriangleAlert className="h-4 w-4" /> Link không hợp lệ.</p>
       ) : isLoading ? (
-        <p className="d3-up-state"><Loader2 className="h-4 w-4 animate-spin" /> Đang tải phiếu…</p>
+        <LoadingState rows={4} label="Đang tải phiếu…" />
       ) : error || !pr ? (
         <p className="d3-up-state is-bad" role="alert" data-bmq-cash-settle-page-error>
           <TriangleAlert className="h-4 w-4" /> Không tải được phiếu, hoặc anh/chị chưa có quyền xem.

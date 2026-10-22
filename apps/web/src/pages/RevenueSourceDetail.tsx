@@ -14,6 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
+import { LoadingState } from "@/components/ui/loading";
 
 const vnd = (v: number) => new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(v || 0);
 const numberFmt = (v: number) => new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 1 }).format(v || 0);
@@ -943,7 +944,7 @@ export default function RevenueSourceDetail() {
         </CardHeader>
         <CardContent>
           {isLoading ? (
-            <div className="p-8 text-center text-muted-foreground">Đang tải…</div>
+            <LoadingState flat rows={5} label="Đang tải…" />
           ) : (
             <div className="overflow-x-auto">
               <Table>

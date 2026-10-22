@@ -13,6 +13,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { Check, ChevronsUpDown, ClipboardCheck, Loader2, PackagePlus, RefreshCw, Scale } from "lucide-react";
 import { type Q7InventoryPickerRow, useQ7InventoryMutations, useQ7InventoryMovements, useQ7InventoryPicker, useQ7InventorySnapshot } from "@/hooks/useQ7MaterialInventory";
 import { cn } from "@/lib/utils";
+import { LoadingState } from "@/components/ui/loading";
 
 const numberVi = (value: unknown) => Number(value || 0).toLocaleString("vi-VN", { maximumFractionDigits: 3 });
 const movementLabel: Record<string, string> = { receipt: "Nhập", production_usage: "Xuất dùng", adjustment: "Điều chỉnh" };
@@ -204,7 +205,7 @@ export default function Q7MaterialInventory() {
           <Card>
             <CardHeader><CardTitle>Snapshot XNT</CardTitle><p className="text-sm text-muted-foreground">Tồn âm là thông tin để audit sau, không chặn ghi sổ xuất Q7.</p></CardHeader>
             <CardContent>
-              {snapshotQuery.isLoading ? <div className="flex min-h-[180px] items-center justify-center"><Loader2 className="h-7 w-7 animate-spin" /></div> : snapshotQuery.isError ? <div role="alert" className="rounded-2xl border border-red-300 bg-red-50 p-5 text-red-800">Không tải được snapshot Q7.</div> : (
+              {snapshotQuery.isLoading ? <LoadingState rows={4} label="Đang tải tồn kho Q7…" /> : snapshotQuery.isError ? <div role="alert" className="rounded-2xl border border-red-300 bg-red-50 p-5 text-red-800">Không tải được snapshot Q7.</div> : (
                 <div className="overflow-x-auto rounded-2xl border"><Table className="min-w-[900px]"><TableHeader><TableRow><TableHead>Tên NVL</TableHead><TableHead>ĐVT</TableHead><TableHead className="text-right">Tồn đầu</TableHead><TableHead className="text-right">Nhập</TableHead><TableHead className="text-right">Xuất dùng</TableHead><TableHead className="text-right">Điều chỉnh</TableHead><TableHead className="text-right">Tồn cuối</TableHead><TableHead>Audit</TableHead></TableRow></TableHeader><TableBody>{rows.map((row) => <TableRow key={row.kitchen_inventory_item_id} className={row.is_negative ? "bg-amber-50/60" : undefined}><TableCell className="font-medium">{row.item_name}</TableCell><TableCell>{row.unit}</TableCell><TableCell className="text-right">{row.opening_qty === null ? "— Chưa audit" : numberVi(row.opening_qty)}</TableCell><TableCell className="text-right">{numberVi(row.receipt_qty)}</TableCell><TableCell className="text-right">{numberVi(row.usage_qty)}</TableCell><TableCell className="text-right">{numberVi(row.adjustment_qty)}</TableCell><TableCell className="text-right font-semibold">{numberVi(row.balance_qty)}</TableCell><TableCell>{row.opening_audited ? "Đã audit" : "— Chưa audit"}{row.is_negative ? <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800">Âm tồn để kế toán audit sau</span> : null}</TableCell></TableRow>)}</TableBody></Table></div>
               )}
             </CardContent>

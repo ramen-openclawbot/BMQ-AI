@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/integrations/supabase/client";
+import { LoadingState } from "@/components/ui/loading";
 
 export type KfmIntakeOrder = {
   orderId: number;
@@ -326,9 +327,8 @@ export default function KfmPoIntake({ canDecide, isVi, paused, onImported, await
       </p>
     </div>
     {awaitingSetupLoading ? (
-      <div role="status" aria-live="polite" className="mt-4 flex items-center gap-2 text-sm text-muted-foreground" data-kfm-awaiting-setup-loading>
-        <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin motion-reduce:animate-none" />
-        {isVi ? "Đang tải danh sách PO chờ thiết lập SX…" : "Loading confirmed POs awaiting setup…"}
+      <div className="mt-4" data-kfm-awaiting-setup-loading>
+        <LoadingState flat rows={2} label={isVi ? "Đang tải danh sách PO chờ thiết lập SX…" : "Loading confirmed POs awaiting setup…"} />
       </div>
     ) : awaitingSetupError ? (
       <p role="alert" className="mt-4 break-words text-sm text-destructive" data-kfm-awaiting-setup-error>

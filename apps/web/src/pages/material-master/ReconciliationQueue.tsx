@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { LoadingState } from "@/components/ui/loading";
 
 type QueueDecision = "auto_ready" | "review" | "blocked";
 
@@ -205,7 +206,7 @@ export default function ReconciliationQueue({ canMutate = false, sourceFilter = 
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
-          {isLoading && <div className="flex items-center gap-2 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /> Đang tải danh sách...</div>}
+          {isLoading && <LoadingState flat rows={4} label="Đang tải danh sách..." />}
           {error && <div className="text-sm text-rose-600">Không tải được danh sách. Vui lòng thử lại.</div>}
           {!isLoading && filteredRows.length === 0 && <div className="rounded-xl border border-dashed p-6 text-center text-sm text-slate-500">Không có dòng phù hợp bộ lọc.</div>}
           {filteredRows.map((row) => {

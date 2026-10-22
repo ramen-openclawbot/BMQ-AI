@@ -24,6 +24,7 @@ import {
   useStockCatalogItems,
   type StockCatalogItem,
 } from "./new-stock-item";
+import { LoadingState } from "@/components/ui/loading";
 import "@/styles/bmq-material-alias.css";
 
 const PAGE = 15;
@@ -304,7 +305,7 @@ export function AliasBacklogReview({ canEdit, location = "q7" }: { canEdit: bool
       ) : null}
 
       {reviewQuery.isLoading ? (
-        <div className="d3-wh-empty">Đang tải…</div>
+        <LoadingState label="Đang tải…" />
       ) : reviewQuery.isError ? (
         <div className="d3-wh-empty">{errorText(reviewQuery.error)}</div>
       ) : rows.length === 0 ? (

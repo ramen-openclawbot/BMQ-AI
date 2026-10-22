@@ -1,4 +1,5 @@
 import { lazy, Suspense } from "react";
+import { PageLoader } from "@/components/ui/loading";
 import { RecoveryScreen } from "@/components/RecoveryScreen";
 import KioskReportPortal from "@/pages/KioskReportPortal";
 import { isEnglishAdminSurface, isVnagentAdminHostname } from "@/lib/adminHostLanguage";
@@ -85,7 +86,7 @@ function App() {
 
   if (window.location.hostname === PAYSLIP_HOST) {
     return (
-      <Suspense fallback={null}>
+      <Suspense fallback={<PageLoader />}>
         <PayslipPortalHost />
       </Suspense>
     );

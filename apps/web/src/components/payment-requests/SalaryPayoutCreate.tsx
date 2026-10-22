@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { useSalaryPayoutAttachments } from "@/hooks/useSalaryPayoutAttachments";
 import { SalaryAttachmentPicker, toSalaryUploadInputs } from "@/components/payment-requests/SalaryAttachments";
 import { validateManualSalaryPayout } from "@/lib/salary-manual-lines";
+import { LoadingState } from "@/components/ui/loading";
 import "@/styles/bmq-pr-create.css";
 
 const ERROR_TEXT: Record<string, string> = {
@@ -166,7 +167,7 @@ export function SalaryPayoutCreate({ kind, onKindChange: setKind, onDone }: Prop
         <>
           <div className="d3-cs-head"><h3>Kỳ lương Q7 đã công bố</h3></div>
           {isLoadingPeriods ? (
-            <p className="d3-unc-ev-note"><Loader2 className="h-4 w-4 animate-spin" /> Đang tải kỳ lương…</p>
+            <LoadingState flat rows={2} label="Đang tải kỳ lương…" />
           ) : periodsError ? (
             <p className="d3-unc-ev-note is-bad"><TriangleAlert className="h-4 w-4" /> Không tải được bảng lương.</p>
           ) : published.length === 0 ? (
@@ -190,7 +191,7 @@ export function SalaryPayoutCreate({ kind, onKindChange: setKind, onDone }: Prop
                 <h3>Nhân viên chi trong phiếu · {selection.employeeCount}/{periodLines.length}</h3>
               </div>
               {isLoadingPeriodLines ? (
-                <p className="d3-unc-ev-note"><Loader2 className="h-4 w-4 animate-spin" /> Đang tải danh sách…</p>
+                <LoadingState flat rows={4} label="Đang tải danh sách…" />
               ) : periodLinesError ? (
                 <p className="d3-unc-ev-note is-bad"><TriangleAlert className="h-4 w-4" /> Không tải được danh sách nhân viên.</p>
               ) : (

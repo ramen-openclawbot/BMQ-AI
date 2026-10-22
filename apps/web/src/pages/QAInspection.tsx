@@ -29,6 +29,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { AI_QUOTA_MESSAGE, isAiQuotaError, notifyAiQuotaExhausted } from "@/lib/ai-errors";
 import { evaluateLabelScan, expectedLabelDates, formatDateKeyVi, normalizeLabelIdentity, ProductLabelSpec, ExtractedProductLabelData } from "@/lib/product-label-control";
+import { LoadingState } from "@/components/ui/loading";
 import "@/styles/bmq-production.css";
 
 const QA_PHOTO_BUCKET = "sku-images";
@@ -771,7 +772,7 @@ export default function QAInspection() {
           </CardHeader>
           <CardContent>
             {inspectionsLoading ? (
-              <div className="flex min-h-32 items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-primary" /></div>
+              <LoadingState rows={3} label={isVi ? "Đang tải…" : "Loading…"} />
             ) : inspections.length === 0 ? (
               <div className="rounded-3xl border border-dashed border-border bg-muted/50 p-8 text-center text-muted-foreground">{copy.noAudits}</div>
             ) : (
@@ -824,9 +825,7 @@ export default function QAInspection() {
               </CardHeader>
               <CardContent className="space-y-3">
                 {ordersLoading ? (
-                  <div className="flex min-h-36 items-center justify-center rounded-3xl bg-muted/50">
-                    <Loader2 className="h-7 w-7 animate-spin text-primary" />
-                  </div>
+                  <LoadingState rows={3} label={isVi ? "Đang tải lệnh sản xuất…" : "Loading production orders…"} />
                 ) : filteredProductionOrders.length === 0 ? (
                   <div className="rounded-3xl border border-dashed border-border bg-muted/50 p-6 text-center text-muted-foreground">{isVi ? `Không có lệnh SX cho ngày ${displayDateKey(selectedDate)}.` : `No production orders for ${displayDateKey(selectedDate)}.`}</div>
                 ) : (

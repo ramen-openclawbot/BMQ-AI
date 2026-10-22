@@ -5,9 +5,10 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronRight, HandCoins, Loader2 } from "lucide-react";
+import { ChevronRight, HandCoins } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
+import { LoadingState } from "@/components/ui/loading";
 import "@/styles/bmq-urgent-payables.css";
 
 const STATUS: Record<string, { label: string; tone: string }> = {
@@ -59,7 +60,7 @@ export function SalaryPayoutList() {
         </button>
       </div>
       {isLoading ? (
-        <p className="d3-unc-ev-note"><Loader2 className="h-4 w-4 animate-spin" /> Đang tải phiếu lương…</p>
+        <LoadingState rows={3} label="Đang tải phiếu lương…" />
       ) : error ? (
         <p className="d3-unc-ev-note is-bad">Không tải được phiếu lương.</p>
       ) : rows.length === 0 ? (

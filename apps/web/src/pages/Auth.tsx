@@ -8,6 +8,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { adminHostCopy } from "@/lib/adminHostLanguage";
 import { withAuthTimeout } from "@/lib/authTimeout";
 import bmqLogo from "@/assets/bmq-logo.png";
+import { PageLoader } from "@/components/ui/loading";
 
 // Google Icon component
 const GoogleIcon = ({ className }: { className?: string }) => (
@@ -177,9 +178,7 @@ export default function Auth() {
   // Show loading while processing OAuth callback or checking auth
   if (processingCallback || authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
+      <PageLoader />
     );
   }
 

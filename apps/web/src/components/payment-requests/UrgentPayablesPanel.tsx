@@ -14,6 +14,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { getRemainingPaymentAmount, type PaymentRequestWithSupplier } from "@/hooks/usePaymentRequests";
 import { useCreatePaymentSubmission, useUnpaidPaymentRequestsPage } from "@/hooks/usePaymentSubmissions";
 import { cn } from "@/lib/utils";
+import { LoadingState } from "@/components/ui/loading";
 import "@/styles/bmq-urgent-payables.css";
 
 const vnd = (value: number) => `${new Intl.NumberFormat("vi-VN").format(Math.round(value))} đ`;
@@ -123,7 +124,7 @@ export function UrgentPayablesPanel({ canSubmit, onOpenRequest }: Props) {
       </div>
 
       {isLoading ? (
-        <p className="d3-up-state"><Loader2 className="h-4 w-4 animate-spin" /> Đang tải…</p>
+        <LoadingState rows={3} label="Đang tải…" />
       ) : isError ? (
         <p className="d3-up-state is-bad" role="alert" data-bmq-urgent-error>
           <TriangleAlert className="h-4 w-4" /> Không tải được danh sách.{" "}

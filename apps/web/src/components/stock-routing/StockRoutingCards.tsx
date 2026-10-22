@@ -19,6 +19,7 @@ import {
   type StockRoutingMaterialPending,
   type StockRoutingSupplierPending,
 } from "@/lib/stock-routing";
+import { LoadingState } from "@/components/ui/loading";
 
 const pct = (value: number) => `${Math.round(value * 100)}%`;
 const shortDate = (iso: string | null | undefined) => {
@@ -129,7 +130,7 @@ export function StockRoutingCards({ canEdit }: { canEdit: boolean }) {
   const catCounts = review?.material_category_counts ?? {};
   const classified = Object.entries(catCounts).filter(([key]) => key !== "unclassified").reduce((sum, [, n]) => sum + n, 0);
 
-  const loadState = reviewQuery.isLoading ? <div className="d3-wh-empty">Đang tải…</div> : reviewQuery.isError ? <div className="d3-wh-empty">Không tải được: {errorText(reviewQuery.error)}</div> : null;
+  const loadState = reviewQuery.isLoading ? <LoadingState label="Đang tải…" /> : reviewQuery.isError ? <div className="d3-wh-empty">Không tải được: {errorText(reviewQuery.error)}</div> : null;
 
   return (
     <>

@@ -16,6 +16,7 @@ import {
   useStockLedgerOverview,
 } from "@/hooks/useStockLedger";
 import type { StockLedgerLocation, StockLedgerMaterial, StockLedgerOverviewItem, StockLedgerPendingAlias } from "@/lib/stock-ledger";
+import { LoadingState } from "@/components/ui/loading";
 import "@/styles/bmq-warehouse.css";
 import "@/styles/bmq-stock-ledger.css";
 
@@ -302,7 +303,7 @@ function MaterialList({ materials, loading }: { materials: StockLedgerMaterial[]
         <span className="d3-wh-pill">{materials.length} mặt hàng</span>
       </div>
       {loading ? (
-        <div className="d3-wh-empty">Đang tải sổ…</div>
+        <LoadingState rows={5} label="Đang tải sổ…" />
       ) : materials.length === 0 ? (
         <div className="d3-wh-empty">Chưa có NVL nào trong sổ Tân Tạo. Gán mã ở Dọn danh mục kho, rồi kiểm kê lần đầu.</div>
       ) : (
@@ -426,7 +427,7 @@ export default function StockLedger() {
             <span className="d3-wh-pill">{items.length} mặt hàng</span>
           </div>
           {loading ? (
-            <div className="d3-wh-empty">Đang tải sổ…</div>
+            <LoadingState rows={5} label="Đang tải sổ…" />
           ) : items.length === 0 ? (
             <div className="d3-wh-empty">Chưa có mặt hàng nào trong sổ kho này.</div>
           ) : (

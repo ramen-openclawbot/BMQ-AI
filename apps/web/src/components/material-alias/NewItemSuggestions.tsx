@@ -18,6 +18,7 @@ import {
 import type { NewItemSuggestion, NewItemSuggestionClass } from "@/lib/material-alias";
 import { packFactorFor, unitFactor } from "./new-stock-item";
 import { CrateDocEvidence } from "@/components/DocEvidence";
+import { LoadingState } from "@/components/ui/loading";
 import "@/styles/bmq-material-alias.css";
 
 const CLASS_LABELS: Record<NewItemSuggestionClass, string> = {
@@ -266,7 +267,7 @@ export function NewItemSuggestions({ canEdit, location = "q7" }: { canEdit: bool
       ) : null}
 
       {query.isLoading ? (
-        <div className="d3-wh-empty">Đang tải…</div>
+        <LoadingState label="Đang tải…" />
       ) : query.isError ? (
         <div className="d3-wh-empty">{errorText(query.error)}</div>
       ) : groups.length === 0 ? (

@@ -19,6 +19,7 @@ import { useSalaryPayout, type SalaryPayoutCeoEvidence } from "@/hooks/useSalary
 import { SalaryAttachmentsCard } from "@/components/payment-requests/SalaryAttachments";
 import { matchSalaryPayout } from "@/lib/salary-payout-match";
 import { cn } from "@/lib/utils";
+import { LoadingState } from "@/components/ui/loading";
 import "@/styles/bmq-urgent-payables.css";
 import "@/styles/bmq-unc-approval.css";
 import "@/styles/bmq-unc-bulk.css";
@@ -203,7 +204,7 @@ export default function SalaryPayout() {
       {!payoutId ? (
         <p className="d3-up-state is-bad" role="alert"><TriangleAlert className="h-4 w-4" /> Link không hợp lệ.</p>
       ) : isLoading ? (
-        <p className="d3-up-state"><Loader2 className="h-4 w-4 animate-spin" /> Đang tải phiếu chi lương…</p>
+        <LoadingState rows={4} label="Đang tải phiếu chi lương…" />
       ) : error || !payout ? (
         <p className="d3-up-state is-bad" role="alert" data-bmq-salary-denied>
           <TriangleAlert className="h-4 w-4" /> Không xem được phiếu chi lương. Cần quyền Chi lương hoặc owner.

@@ -8,6 +8,7 @@ import { FileImage, Loader2, TriangleAlert } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { getUncEvidenceSignedUrl, usePaymentRequestUncEvidence } from "@/hooks/usePaymentRequestUncEvidence";
 import type { UncEvidenceDisplayRow } from "@/lib/payment-unc-evidence";
+import { LoadingState } from "@/components/ui/loading";
 import "@/styles/bmq-unc-approval.css";
 
 const vnd = (value: number | null | undefined) =>
@@ -65,9 +66,7 @@ export function PaymentUncEvidenceSection({ requestId, enabled, onSelectRequest,
     <section className="d3-unc-ev" data-bmq-unc-evidence aria-label="Chứng từ thanh toán">
       <h3>{title}</h3>
       {isLoading ? (
-        <p className="d3-unc-ev-note">
-          <Loader2 className="h-4 w-4 animate-spin" /> Đang tải chứng từ…
-        </p>
+        <LoadingState flat rows={2} label="Đang tải chứng từ…" />
       ) : isError ? (
         <p className="d3-unc-ev-note is-bad" role="alert" data-bmq-unc-ev-error>
           <TriangleAlert className="h-4 w-4" /> Không tải được chứng từ UNC. Tải lại trang để thử lại.

@@ -42,6 +42,7 @@ import {
   kioskRetailCustomerUnitPriceVnd,
 } from "@/lib/kiosk-report-inventory";
 import { cn } from "@/lib/utils";
+import { BreadLoader } from "@/components/ui/loading";
 
 const REPORT_SESSION_STORAGE_KEY = "bmq_report_session_token";
 const SAFE_SAVE_ERROR_MESSAGES = new Set([
@@ -583,9 +584,8 @@ export default function KioskReportPortal() {
 
   if (bootstrapping) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#fff8fa] text-[#20212d]">
-        <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-        Đang tải báo cáo...
+      <div className="flex min-h-screen items-center justify-center bg-[#fff8fa] text-[#20212d]" role="status" aria-live="polite">
+        <BreadLoader label="Đang tải báo cáo..." />
       </div>
     );
   }

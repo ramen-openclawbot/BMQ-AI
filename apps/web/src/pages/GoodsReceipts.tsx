@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { format } from "date-fns";
 import { useSearchParams } from "react-router-dom";
 import { vi, enUS } from "date-fns/locale";
-import { Package, Trash2, CheckCircle, Clock, FileCheck, AlertCircle, Link2, Loader2, Search } from "lucide-react";
+import { Package, Trash2, CheckCircle, Clock, FileCheck, AlertCircle, Link2, Search } from "lucide-react";
 import "@/styles/bmq-warehouse.css";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -19,6 +19,7 @@ import { AddGoodsReceiptDialog } from "@/components/dialogs/AddGoodsReceiptDialo
 import { GoodsReceiptDetailsDialog } from "@/components/dialogs/GoodsReceiptDetailsDialog";
 
 import { parseDbDate } from "@/lib/date-only";
+import { LoadingState } from "@/components/ui/loading";
 const RECEIPTS_PER_PAGE = 20;
 type TimeFilterMode = "week" | "month" | "year";
 
@@ -446,10 +447,7 @@ export default function GoodsReceipts() {
 
         <div className="space-y-3 md:hidden" data-bmq-goods-receipts-mobile-card-list>
           {isLoading ? (
-            <Card className="border-border bg-card p-6 text-center text-muted-foreground">
-              <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin" />
-              {isVi ? "Đang tải phiếu nhập kho..." : "Loading goods receipts..."}
-            </Card>
+            <LoadingState variant="cards" rows={3} label={isVi ? "Đang tải phiếu nhập kho..." : "Loading goods receipts..."} />
           ) : error ? (
             <Card className="border-destructive/30 bg-card p-6 text-center text-destructive">
               {isVi ? "Lỗi tải dữ liệu phiếu nhập kho. Vui lòng thử lại." : "Failed to load goods receipts. Please try again."}
@@ -580,10 +578,7 @@ export default function GoodsReceipts() {
                   {isLoading ? (
                     <TableRow>
                       <TableCell colSpan={7} className="py-10 text-center">
-                        <div className="flex items-center justify-center gap-2 text-muted-foreground">
-                          <Loader2 className="h-5 w-5 animate-spin" />
-                          {isVi ? "Đang tải phiếu nhập kho..." : "Loading goods receipts..."}
-                        </div>
+                        <LoadingState flat rows={5} label={isVi ? "Đang tải phiếu nhập kho..." : "Loading goods receipts..."} />
                       </TableCell>
                     </TableRow>
                   ) : error ? (
