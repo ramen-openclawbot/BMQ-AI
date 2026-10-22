@@ -444,6 +444,50 @@ html.bmq-d3 .d3-kho-option {
 html.bmq-d3 .d3-kho-option:hover { border-color: var(--d3-faint); }
 html.bmq-d3 .d3-kho-option.is-on { border-color: var(--d3-ink); box-shadow: inset 0 0 0 1px var(--d3-ink); }
 
+/* "Có ở kho": one tick per kho, an item may be at both (owner 22/10). */
+.d3-kho-checks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+html.bmq-d3 .d3-kho-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  height: auto;
+  min-height: 52px;
+  padding: 10px 12px;
+  border: 1px solid var(--d3-line-2);
+  border-radius: 12px;
+  background: var(--d3-white);
+  color: var(--d3-ink);
+  text-align: left;
+  white-space: normal;
+  transition: border-color .16s var(--d3-ease), box-shadow .16s var(--d3-ease);
+}
+html.bmq-d3 .d3-kho-check:hover:not(:disabled) { border-color: var(--d3-faint); }
+html.bmq-d3 .d3-kho-check.is-on { border-color: var(--d3-ink); box-shadow: inset 0 0 0 1px var(--d3-ink); }
+html.bmq-d3 .d3-kho-check:disabled { cursor: default; opacity: 1; }
+html.bmq-d3 .d3-kho-check:focus-visible { outline: 2px solid var(--d3-blue); outline-offset: 2px; }
+.d3-kho-check > span:last-child { display: grid; gap: 1px; min-width: 0; }
+.d3-kho-check b { font-size: 14px; font-weight: 500; overflow-wrap: anywhere; }
+.d3-kho-check small { font-size: 12px; color: var(--d3-dim); font-variant-numeric: tabular-nums; }
+.d3-kho-check-box {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border: 1.5px solid var(--d3-line-2);
+  border-radius: 6px;
+  background: var(--d3-white);
+  transition: background-color .16s var(--d3-ease), border-color .16s var(--d3-ease);
+}
+.d3-kho-check-box svg { width: 14px; height: 14px; color: #fff; opacity: 0; transform: scale(.6); transition: opacity .16s var(--d3-ease), transform .2s var(--d3-ease); }
+.d3-kho-check.is-on .d3-kho-check-box { border-color: var(--d3-ink); background: var(--d3-ink); }
+.d3-kho-check.is-on .d3-kho-check-box svg { opacity: 1; transform: none; }
+@media (max-width: 360px) { .d3-kho-checks { grid-template-columns: minmax(0, 1fr); } }
+@media (prefers-reduced-motion: reduce) {
+  html.bmq-d3 .d3-kho-check, .d3-kho-check-box, .d3-kho-check-box svg { transition: none; }
+}
+
 .d3-kho-chosen {
   display: flex;
   align-items: center;

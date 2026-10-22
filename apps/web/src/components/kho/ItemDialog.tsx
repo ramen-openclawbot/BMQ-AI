@@ -1,11 +1,12 @@
 import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { KHO_ITEMS_QUERY_KEY, useKhoSaveItem } from "@/hooks/useKhoItems";
-import { useItemReceiptLines, useSetItemPastryQ7, useSetStockItemClass } from "@/hooks/useWarehouseGame";
-import { khoErrorText, searchKey, standardUnitFactor, type KhoItem, type KhoLocation, type KhoSaveResult } from "@/lib/kho-items";
+import { useItemReceiptLines, useSetItemKhoLocations, useSetStockItemClass } from "@/hooks/useWarehouseGame";
+import { hasTanTaoPlace, khoErrorText, searchKey, standardUnitFactor, type KhoItem, type KhoLocation, type KhoSaveResult } from "@/lib/kho-items";
 import { cn } from "@/lib/utils";
 import { CLASS_OF, GROUPS, KHO_LABEL, KHO_LOCATIONS, fmtAmount, groupOf, newRequestId, parseNum, type Group } from "./kho-meta";
 import type { KhoConfirmOptions } from "./KhoConfirm";
@@ -17,6 +18,9 @@ import { dayLabel } from "@/lib/kho-commitments";
 
 type Ask = { kind: "merge"; other: { id: string; name: string; unit: string }; from: string; to: string } | { kind: "unit"; from: string; to: string };
 type MovableGroup = Exclude<Group, "tp">;
+
+const placeLabel = (places: Record<KhoLocation, boolean>) =>
+  places.tan_tao && places.q7 ? "Kho Tân Tạo + Kho Q7" : places.q7 ? "Kho Q7" : "Kho Tân Tạo";
 
 /**
  * One item of the warehouse: one name, its group and kho, on/off, its unit and the conversions of its
@@ -37,9 +41,10 @@ export function ItemDialog({ item, items, canEdit, confirm, onDone, onClose, onT
   const queryClient = useQueryClient();
   const lines = useItemReceiptLines(item.id, true);
   const commitments = useKhoCommitments();
-  const kho: KhoLocation = item.in_q7 ? "q7" : "tan_tao";
-  const hold = commitments.data?.items.find((c) => c.kitchen_inventory_item_id === item.id && c.location === kho) ?? null;
-  const setPlace = useSetItemPastryQ7();
+  // An item can have a place at both kho (owner 22/10): one tick per kho, at least one.
+  const [places, setPlaces] = useState<Record<KhoLocation, boolean>>({ tan_tao: hasTanTaoPlace(item), q7: item.in_q7 });
+  const holds = (commitments.data?.items ?? []).filter((c) => c.kitchen_inventory_item_id === item.id && places[c.location as KhoLocation]);
+  const setPlace = useSetItemKhoLocations();
   const group = groupOf(item);
   const [name, setName] = useState(item.name);
   const unit = item.unit;
@@ -48,15 +53,28 @@ export function ItemDialog({ item, items, canEdit, confirm, onDone, onClose, onT
   const [factorText, setFactorText] = useState("");
   const [requestId, setRequestId] = useState(newRequestId);
 
-  const placeTo = (loc: KhoLocation) => {
-    if ((loc === "q7") === item.in_q7) return;
+  const togglePlace = async (loc: KhoLocation) => {
+    const next = { ...places, [loc]: !places[loc] };
+    if (!next.tan_tao && !next.q7) return;
+    const stock = item.qty[loc] ?? 0;
+    if (!next[loc] && stock !== 0) {
+      const ok = await confirm({
+        title: `Bỏ “${item.name}” khỏi Kho ${KHO_LABEL[loc]}?`,
+        message: `Kho ${KHO_LABEL[loc]} còn ${fmtAmount(stock, item.unit)} trong sổ. Bỏ tick thì món không hiện khi đếm ở kho này; số trong sổ giữ nguyên.`,
+        ok: "Bỏ tick", cancel: "Thôi",
+      });
+      if (!ok) return;
+    }
+    const before = places;
+    setPlaces(next);
     setPlace.mutate(
-      { itemId: item.id, value: loc === "q7" },
+      { itemId: item.id, tanTao: next.tan_tao, q7: next.q7 },
       {
         onSuccess: () => {
           void queryClient.invalidateQueries({ queryKey: [KHO_ITEMS_QUERY_KEY] });
-          onDone(`Đã chuyển “${item.name}” sang Kho ${KHO_LABEL[loc]}`);
+          onToast(`“${item.name}” có ở ${placeLabel(next)}`);
         },
+        onError: () => setPlaces(before),
       },
     );
   };
@@ -125,7 +143,7 @@ export function ItemDialog({ item, items, canEdit, confirm, onDone, onClose, onT
   };
 
   const standard = ask ? standardUnitFactor(ask.from, ask.to) : null;
-  const sub = `${item.in_q7 ? "Kho Q7" : "Kho Tân Tạo"} · tồn Tân Tạo ${fmtAmount(item.qty.tan_tao, item.unit)} · Q7 ${fmtAmount(item.qty.q7, item.unit)}`;
+  const sub = `${placeLabel(places)} · tồn Tân Tạo ${fmtAmount(item.qty.tan_tao, item.unit)} · Q7 ${fmtAmount(item.qty.q7, item.unit)}`;
 
   return (
     <KhoDialog title={item.name} sub={sub} onClose={onClose} data={{ "data-bmq-kho-item-dialog": "" }}>
@@ -145,12 +163,20 @@ export function ItemDialog({ item, items, canEdit, confirm, onDone, onClose, onT
       </div>
       {setClass.error ? <p className="d3-kho-error">{khoErrorText(setClass.error)}</p> : null}
       <div className="d3-kho-field">
-        <span>Kho</span>
-        <div className="d3-kho-seg" role="group" aria-label="Kho" data-bmq-kho-place>
-          {KHO_LOCATIONS.map((loc) => (
-            <button key={loc} type="button" aria-pressed={(loc === "q7") === item.in_q7} className={cn((loc === "q7") === item.in_q7 && "is-on")}
-              disabled={!canEdit || setPlace.isPending} onClick={() => placeTo(loc)} data-bmq-kho-place-pick={loc}>Kho {KHO_LABEL[loc]}</button>
-          ))}
+        <span>Có ở kho</span>
+        <div className="d3-kho-checks" role="group" aria-label="Có ở kho" data-bmq-kho-place>
+          {KHO_LOCATIONS.map((loc) => {
+            const on = places[loc];
+            const last = on && !places[loc === "q7" ? "tan_tao" : "q7"];
+            return (
+              <button key={loc} type="button" role="checkbox" aria-checked={on} className={cn("d3-kho-check", on && "is-on")}
+                disabled={!canEdit || setPlace.isPending || last} title={last ? "Món phải có ở ít nhất 1 kho" : undefined}
+                onClick={() => void togglePlace(loc)} data-bmq-kho-place-pick={loc}>
+                <span className="d3-kho-check-box" aria-hidden="true"><Check /></span>
+                <span><b>Kho {KHO_LABEL[loc]}</b><small>tồn {fmtAmount(item.qty[loc], item.unit)}</small></span>
+              </button>
+            );
+          })}
         </div>
       </div>
       {setPlace.error ? <p className="d3-kho-error">{khoErrorText(setPlace.error)}</p> : null}
@@ -182,10 +208,10 @@ export function ItemDialog({ item, items, canEdit, confirm, onDone, onClose, onT
           <Button variant="outline" onClick={onClose}>Đóng</Button>
         </div>
       ) : null}
-      {hold ? (
-        <section className="d3-kho-holdsec" data-bmq-kho-hold-detail>
+      {holds.map((hold) => (
+        <section key={hold.location} className="d3-kho-holdsec" data-bmq-kho-hold-detail>
           <div className="d3-kho-sec-h">
-            <h3>Giữ cho sản xuất · {fmtAmount(hold.committed_qty, item.unit)}</h3>
+            <h3>Giữ cho sản xuất{places.tan_tao && places.q7 ? ` · Kho ${KHO_LABEL[hold.location as KhoLocation]}` : ""} · {fmtAmount(hold.committed_qty, item.unit)}</h3>
             <small>Phiếu xuất NVL cho ngày tới. Sổ tồn trừ vào đầu ngày đó; hôm nay hàng vẫn trên kệ.</small>
           </div>
           <ul className="d3-kho-holdlist">
@@ -197,9 +223,9 @@ export function ItemDialog({ item, items, canEdit, confirm, onDone, onClose, onT
               </li>
             ))}
           </ul>
-          {item.qty[kho] !== null ? <p className="d3-kho-quiet">Còn dùng được sau khi trừ: <b>{fmtAmount((item.qty[kho] ?? 0) - hold.committed_qty, item.unit)}</b></p> : null}
+          {item.qty[hold.location as KhoLocation] !== null ? <p className="d3-kho-quiet">Còn dùng được sau khi trừ: <b>{fmtAmount((item.qty[hold.location as KhoLocation] ?? 0) - hold.committed_qty, item.unit)}</b></p> : null}
         </section>
-      ) : null}
+      ))}
       <UnitAndConversions item={item} canEdit={canEdit} lines={lines.data} linesLoading={lines.isLoading} linesError={lines.error}
         onToast={onToast} onReplaced={onReplaced} />
       <ReceiptNotes title={`Hóa đơn, phiếu giao đã gộp vào tên này${item.doc_lines ? ` · ${item.doc_lines} dòng` : ""}`} lines={lines.data} loading={lines.isLoading} error={lines.error} />

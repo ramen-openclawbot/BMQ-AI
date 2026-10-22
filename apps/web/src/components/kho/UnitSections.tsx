@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { OptionPicker } from "@/components/OptionPicker";
 import { useKhoSaveItem } from "@/hooks/useKhoItems";
 import { useAddKhoUnit, useKhoConversionPreview, useKhoItemConversions, useKhoUnits, useSetKhoItemConversion } from "@/hooks/useKhoUnits";
-import { khoErrorText, standardUnitFactor, type KhoItem } from "@/lib/kho-items";
+import { hasTanTaoPlace, khoErrorText, standardUnitFactor, type KhoItem } from "@/lib/kho-items";
 import { conversionSentence, type KhoConversionGroup, type KhoConversionPreview, type KhoUnit } from "@/lib/kho-units";
 import type { ReceiptLine } from "@/lib/receipt-lines";
 import { cn } from "@/lib/utils";
@@ -267,7 +267,9 @@ function UnitPicker({ item, units, unitsLoading, onDone, onToast, lines, linesLo
   const count = units.filter((u) => u.kind === "count");
   const standard = target ? standardUnitFactor(item.unit, target) : null;
   const ready = target !== null && !same(target, item.unit) && (standard !== null || factor !== null);
-  const book = item.qty[item.in_q7 ? "q7" : "tan_tao"];
+  // Stock at every kho the item has a place at (a two-kho item converts both).
+  const book = item.qty.tan_tao === null && item.qty.q7 === null ? null
+    : (hasTanTaoPlace(item) ? item.qty.tan_tao ?? 0 : 0) + (item.in_q7 ? item.qty.q7 ?? 0 : 0);
   const after = (f: number) => (book === null ? null : book * f);
 
   const pick = (code: string) => {

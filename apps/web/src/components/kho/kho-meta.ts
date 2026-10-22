@@ -1,5 +1,5 @@
 import { STOCK_UNITS } from "@/lib/stock-units";
-import type { KhoItem, KhoLocation } from "@/lib/kho-items";
+import { hasTanTaoPlace, type KhoItem, type KhoLocation } from "@/lib/kho-items";
 import type { WarehouseGamePendingRow } from "@/lib/warehouse-game";
 
 /** Shared words and helpers of the Kho pages (Danh mục kho, Kiểm kê, Phiếu kho). */
@@ -37,14 +37,15 @@ export function groupOf(item: KhoItem): Group {
 }
 export const CLASS_OF: Record<Exclude<Group, "tp">, "raw_material" | "packaging_supply"> = { nl: "raw_material", bb: "packaging_supply" };
 
-/** Each item lives in one kho (owner 21/10): pastry_q7 = kept at Q7, everything else at Tân Tạo. */
-export const atKho = (item: KhoItem, kho: KhoLocation) => (kho === "q7" ? item.in_q7 : !item.in_q7);
+/** An item can have a place at both kho (owner 22/10): in_q7 / in_tan_tao. */
+export const atKho = (item: KhoItem, kho: KhoLocation) =>
+  kho === "q7" ? item.in_q7 : hasTanTaoPlace(item);
 
 /** Which items belong on a warehouse's count list. */
 export function inCountList(item: KhoItem, loc: KhoLocation): boolean {
   if (!item.active) return false;
   if (loc === "q7") return item.in_q7;
-  return !item.in_q7 || (item.qty.tan_tao ?? 0) !== 0;
+  return hasTanTaoPlace(item) || (item.qty.tan_tao ?? 0) !== 0;
 }
 
 /** Units an item may be stored in (owner rule: g / ml, never kg / l). */

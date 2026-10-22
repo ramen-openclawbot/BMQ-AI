@@ -182,7 +182,11 @@ function Catalog({ items, loading, error, onRetry, activeCount, canEdit, newCoun
   }, [inKhoItems, finished, kho]);
   const khoCounts = useMemo(() => {
     const c: Record<KhoLocation, number> = { tan_tao: finished.tan_tao.length, q7: finished.q7.length };
-    for (const item of items) if (item.active) c[item.in_q7 ? "q7" : "tan_tao"] += 1;
+    for (const item of items) {
+      if (!item.active) continue;
+      if (atKho(item, "tan_tao")) c.tan_tao += 1;
+      if (atKho(item, "q7")) c.q7 += 1;
+    }
     return c;
   }, [items, finished]);
   const open = items.find((item) => item.id === openId) ?? null;

@@ -75,6 +75,7 @@ function settle(st) {
     ] }, error: null };
   }
   if (st.table === "rpc:set_item_pastry_q7") return { data: { item_id: st.args.p_item_id, pastry_q7: st.args.p_value }, error: null };
+  if (st.table === "rpc:set_item_kho_locations") return { data: { item_id: st.args.p_item_id, in_tan_tao: st.args.p_tan_tao, in_q7: st.args.p_q7 }, error: null };
   if (st.table === "rpc:set_stock_item_class") return { data: { item_id: st.args.p_item_id, old_class: null, item_class: st.args.p_class }, error: null };
   if (st.table === "rpc:get_item_receipt_lines" || st.table === "rpc:get_crate_receipt_lines") return { data: window.__kgFixture.receipt_lines ?? [], error: null };
   if (st.table === "rpc:get_warehouse_game_snapshot") {
@@ -312,15 +313,28 @@ try {
     await shot(page, `catalog-q7-bb-${vp.width}.png`, false);
     pass(`Danh mục kho: Tân Tạo / Q7 × Nguyên liệu / Bao bì & vật tư / Thành phẩm ${vp.width}`);
 
-    // Move a Q7 item to Kho Tân Tạo from its dialog
+    // "Có ở kho": tick Kho Tân Tạo on a Q7 item (owner 22/10: an item can be at both kho), then untick Q7
     const q7Id = await page.locator("[data-bmq-kho-names] li .d3-kho-row-main").first().getAttribute("data-bmq-kho-item");
     await page.locator(`[data-bmq-kho-item='${q7Id}']`).click();
     await dialogInView(page, "[data-bmq-kho-item-dialog]", vp);
-    assert.equal(await page.locator("[data-bmq-kho-place-pick='q7']").getAttribute("aria-pressed"), "true");
-    await page.locator("[data-bmq-kho-place-pick='tan_tao']").click();
-    await page.waitForSelector("[data-bmq-kho-item-dialog]", { state: "detached", timeout: 4000 });
-    assert.ok((await calls(page)).some((c) => c.startsWith("rpc:set_item_pastry_q7:") && c.includes(q7Id) && c.includes('"p_value":false')), "place call");
-    pass(`move an item to Kho Tân Tạo ${vp.width}`);
+    const tick = (loc) => page.locator(`[data-bmq-kho-place-pick='${loc}']`);
+    assert.equal(await tick("q7").getAttribute("aria-checked"), "true");
+    assert.equal(await tick("tan_tao").getAttribute("aria-checked"), "false");
+    assert.equal(await tick("q7").isDisabled(), true, "the only kho cannot be unticked");
+    await tick("tan_tao").click();
+    await page.waitForFunction(() => document.querySelector("[data-bmq-kho-place-pick='tan_tao']")?.getAttribute("aria-checked") === "true");
+    assert.ok((await calls(page)).some((c) => c.startsWith("rpc:set_item_kho_locations:") && c.includes(q7Id) && c.includes('"p_tan_tao":true') && c.includes('"p_q7":true')), "both-kho call");
+    assert.equal(await tick("q7").isDisabled(), false, "with two kho either can be unticked");
+    assert.match(await page.locator("[data-bmq-kho-item-dialog] .d3-kho-dialog-head").innerText(), /Kho Tân Tạo \+ Kho Q7/);
+    await noSpill(page, "kho-ticks", vp);
+    await shot(page, `item-kho-ticks-${vp.width}.png`, false);
+    await tick("q7").click();
+    const q7Qty = await page.evaluate((id) => { const F = window.__kgFixture; const i = F.items.findIndex((it) => it.id === id); return i % 17 === 5 ? 0 : (i * 977) % 200000 - (i % 4 === 0 ? 3000 : 0); }, q7Id);
+    if (q7Qty !== 0) await confirmOk(page);
+    await page.waitForFunction(() => document.querySelector("[data-bmq-kho-place-pick='q7']")?.getAttribute("aria-checked") === "false");
+    assert.ok((await calls(page)).some((c) => c.startsWith("rpc:set_item_kho_locations:") && c.includes('"p_tan_tao":true') && c.includes('"p_q7":false')), "Tân Tạo-only call");
+    assert.equal(await tick("tan_tao").isDisabled(), true, "last kho locked again");
+    pass(`kho ticks: add Tân Tạo, then drop Q7 with a confirm ${vp.width}`);
     await context.close();
 
     // Item dialog: group move, after scrolling deep into the list

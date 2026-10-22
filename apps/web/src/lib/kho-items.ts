@@ -1,10 +1,12 @@
 /**
  * Pure helpers for the two-job warehouse game (Kho 2 việc).
  *
- * Server contract (apps/web/supabase/migrations/20261102500000_kho_two_jobs.sql):
- *   kho_get_items()  -> KhoItemsPayload
- *   kho_save_item()  -> KhoSaveResult
- *   kho_count_item() -> KhoCountResult
+ * Server contract:
+ *   kho_get_items()         -> KhoItemsPayload   (20261102500000, expanded by
+ *                                                20261102620000 with in_tan_tao)
+ *   kho_save_item()         -> KhoSaveResult
+ *   kho_count_item()        -> KhoCountResult
+ *   set_item_kho_locations() -> SetItemKhoLocationsResult (20261102620000)
  *
  * Everything here is synchronous and UI-free so the game screen can filter and
  * explain errors without duplicating SQL.
@@ -29,11 +31,20 @@ export interface KhoItem {
   unit: string;
   active: boolean;
   item_class: string | null;
+  /** Has a place at Kho Q7. */
   in_q7: boolean;
+  /** Has a place at Kho Tân Tạo. A two-kho item has both flags true. */
+  in_tan_tao: boolean;
   qty: KhoQtyByLocation;
   last_count_date: KhoDateByLocation;
   pending_count: KhoQtyByLocation;
   doc_lines: number;
+}
+
+export interface SetItemKhoLocationsResult {
+  item_id: string;
+  in_tan_tao: boolean;
+  in_q7: boolean;
 }
 
 export interface KhoItemsPayload {
@@ -67,6 +78,20 @@ export interface KhoCountResult {
   item_id: string;
   counted_qty: number;
   result: Record<string, unknown>;
+}
+
+/** Membership flags needed by the Tân Tạo fallback. */
+export interface KhoMembershipFlags {
+  in_q7: boolean;
+  in_tan_tao?: boolean | null;
+}
+
+/**
+ * The server now returns in_tan_tao. Cached / older payloads without it keep
+ * the previous single-kho meaning: anything not at Q7 belonged to Tân Tạo.
+ */
+export function hasTanTaoPlace(item: KhoMembershipFlags): boolean {
+  return item.in_tan_tao ?? !item.in_q7;
 }
 
 interface UnitDefinition {
@@ -120,8 +145,8 @@ export interface KhoItemFilters {
 
 /**
  * Search by accent-insensitive name and optionally narrow to one warehouse.
- * Q7 uses the pastry_q7 flag; Tân Tạo uses an existing ledger, count or pending
- * line so a never-counted item does not silently disappear from its list.
+ * An item may belong to both warehouses. Q7 follows in_q7; Tân Tạo follows
+ * in_tan_tao, with a non-zero Tân Tạo balance also keeping legacy stock visible.
  */
 export function filterItems(
   items: KhoItem[],
@@ -134,10 +159,7 @@ export function filterItems(
 
     if (options.location === "q7" && !item.in_q7) return false;
     if (options.location === "tan_tao") {
-      const present =
-        item.qty.tan_tao !== null ||
-        item.pending_count.tan_tao !== null ||
-        item.last_count_date.tan_tao !== null;
+      const present = hasTanTaoPlace(item) || (item.qty.tan_tao ?? 0) !== 0;
       if (!present) return false;
     }
 

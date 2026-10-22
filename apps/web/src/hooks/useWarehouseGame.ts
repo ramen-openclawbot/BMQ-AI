@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 
 import { supabase } from "@/integrations/supabase/client";
+import type { SetItemKhoLocationsResult } from "@/lib/kho-items";
 import { parseReceiptLines, type ReceiptLine } from "@/lib/receipt-lines";
 import {
   parseChangeStockItemUnitResult,
@@ -126,6 +127,44 @@ export function useSetItemPastryQ7() {
       });
       if (error) throw error;
       return parseSetItemPastryQ7Result(data);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY] });
+    },
+  });
+}
+
+export interface SetItemKhoLocationsInput {
+  itemId: string;
+  tanTao: boolean;
+  q7: boolean;
+  /** Defaults to a fresh crypto.randomUUID(). */
+  requestId?: string;
+}
+
+/**
+ * Set both warehouse places in one owner / kho-admin call.  Unlike
+ * set_item_pastry_q7 (single kho), this keeps a two-kho item at both places.
+ */
+export function useSetItemKhoLocations() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: SetItemKhoLocationsInput): Promise<SetItemKhoLocationsResult> => {
+      // The generated Database type predates this migration; keep the call
+      // typed here instead of widening every RPC in the client.
+      const { data, error } = await (supabase as unknown as {
+        rpc: (
+          fn: string,
+          args: Record<string, unknown>,
+        ) => Promise<{ data: unknown; error: unknown }>;
+      }).rpc("set_item_kho_locations", {
+        p_item_id: input.itemId,
+        p_tan_tao: input.tanTao,
+        p_q7: input.q7,
+        p_request_id: input.requestId ?? crypto.randomUUID(),
+      });
+      if (error) throw error;
+      return data as SetItemKhoLocationsResult;
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: [WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY] });

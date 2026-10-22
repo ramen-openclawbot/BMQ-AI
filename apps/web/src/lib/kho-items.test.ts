@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   filterItems,
+  hasTanTaoPlace,
   khoErrorText,
   searchKey,
   standardUnitFactor,
@@ -18,6 +19,7 @@ function item(overrides: Partial<KhoItem> & { name: string; id?: string }): KhoI
     active: true,
     item_class: null,
     in_q7: false,
+    in_tan_tao: false,
     qty: { tan_tao: null, q7: null },
     last_count_date: { tan_tao: null, q7: null },
     pending_count: { tan_tao: null, q7: null },
@@ -77,7 +79,17 @@ test("filterItems searches accent-insensitively", () => {
   );
 });
 
-test("filterItems applies activeOnly and location", () => {
+test("hasTanTaoPlace falls back to !in_q7 for an old payload", () => {
+  const legacyQ7 = item({ name: "Tỏi", in_q7: true });
+  const legacyTanTao = item({ name: "Gan", in_q7: false });
+  delete (legacyQ7 as Partial<KhoItem>).in_tan_tao;
+  delete (legacyTanTao as Partial<KhoItem>).in_tan_tao;
+  assert.equal(hasTanTaoPlace(legacyQ7), false);
+  assert.equal(hasTanTaoPlace(legacyTanTao), true);
+  assert.equal(hasTanTaoPlace({ in_q7: true, in_tan_tao: true }), true);
+});
+
+test("filterItems applies activeOnly and membership at both kho", () => {
   const items = [
     item({ name: "Tỏi", in_q7: true }),
     item({ name: "Gan", in_q7: true, active: false }),
@@ -85,24 +97,35 @@ test("filterItems applies activeOnly and location", () => {
       name: "Bột mì",
       qty: { tan_tao: 12, q7: null },
     }),
+    item({ name: "Cà chua", in_tan_tao: true }),
+    item({
+      name: "Bánh mì",
+      in_q7: true,
+      in_tan_tao: true,
+      qty: { tan_tao: 8, q7: 3 },
+    }),
     item({ name: "Món mới" }),
   ];
 
   assert.deepEqual(
     filterItems(items, "", { activeOnly: true }).map((row) => row.name),
-    ["Tỏi", "Bột mì", "Món mới"],
+    ["Tỏi", "Bột mì", "Cà chua", "Bánh mì", "Món mới"],
   );
   assert.deepEqual(
     filterItems(items, "", { location: "q7" }).map((row) => row.name),
-    ["Tỏi", "Gan"],
+    ["Tỏi", "Gan", "Bánh mì"],
   );
   assert.deepEqual(
     filterItems(items, "", { location: "tan_tao" }).map((row) => row.name),
-    ["Bột mì"],
+    ["Bột mì", "Cà chua", "Bánh mì"],
   );
   assert.deepEqual(
     filterItems(items, "", { location: "tan_tao", activeOnly: true }).map((row) => row.name),
-    ["Bột mì"],
+    ["Bột mì", "Cà chua", "Bánh mì"],
+  );
+  assert.deepEqual(
+    filterItems(items, "", { location: "q7", activeOnly: true }).map((row) => row.name),
+    ["Tỏi", "Bánh mì"],
   );
 });
 
