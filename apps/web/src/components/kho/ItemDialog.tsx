@@ -4,7 +4,7 @@ import { Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { KHO_ITEMS_QUERY_KEY, useKhoSaveItem } from "@/hooks/useKhoItems";
+import { KHO_ITEMS_QUERY_KEY, useKhoSaveItem, useKhoSetItemNote } from "@/hooks/useKhoItems";
 import { useItemReceiptLines, useSetItemKhoLocations, useSetStockItemClass } from "@/hooks/useWarehouseGame";
 import { hasTanTaoPlace, khoErrorText, searchKey, standardUnitFactor, type KhoItem, type KhoLocation, type KhoSaveResult } from "@/lib/kho-items";
 import { cn } from "@/lib/utils";
@@ -27,6 +27,36 @@ const placeLabel = (places: Record<KhoLocation, boolean>) =>
  * delivery notes, and every delivery note already filed under the name (owner 22/10: unit, conversions and
  * on/off live here, not on the list). A name taken by another item asks once, then merges the two.
  */
+/** The item's code (old codes still searchable) and a short editor note, saved on its own button. */
+function ItemCodeNote({ item, canEdit, onToast }: { item: KhoItem; canEdit: boolean; onToast?: (text: string) => void }) {
+  const save = useKhoSetItemNote();
+  const [note, setNote] = useState(item.note ?? "");
+  const dirty = note.trim() !== (item.note ?? "").trim();
+  return (
+    <>
+      <div className="d3-kho-field">
+        <span>Mã</span>
+        <p className="d3-kho-codeline" data-bmq-kho-code-detail>
+          <b>{item.item_code ?? "chưa có mã"}</b>
+          {item.old_codes?.length ? <small>mã cũ {item.old_codes.join(", ")}</small> : null}
+        </p>
+      </div>
+      <label className="d3-kho-field">
+        <span>Ghi chú</span>
+        <textarea className="d3-kho-notearea" value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} rows={2} disabled={!canEdit || save.isPending}
+          placeholder={canEdit ? "Ví dụ: chỉ mua của Ngọc Trân, 1 bao = 1.000 cây" : ""} data-bmq-kho-note-input />
+      </label>
+      {dirty && canEdit ? (
+        <div className="d3-kho-actions">
+          <Button size="sm" disabled={save.isPending} onClick={() => save.mutate({ itemId: item.id, note: note.trim() || null, requestId: newRequestId() }, { onSuccess: () => onToast?.("Đã lưu ghi chú") })} data-bmq-kho-note-save>{save.isPending ? "Đang lưu…" : "Lưu ghi chú"}</Button>
+          <Button size="sm" variant="outline" onClick={() => setNote(item.note ?? "")}>Thôi</Button>
+        </div>
+      ) : null}
+      {save.error ? <p className="d3-kho-error">{khoErrorText(save.error)}</p> : null}
+    </>
+  );
+}
+
 export function ItemDialog({ item, items, canEdit, confirm, onDone, onClose, onToast, onReplaced }: {
   item: KhoItem; items: KhoItem[]; canEdit: boolean;
   confirm: (options: KhoConfirmOptions) => Promise<boolean>;
@@ -151,6 +181,7 @@ export function ItemDialog({ item, items, canEdit, confirm, onDone, onClose, onT
         <span>Tên duy nhất</span>
         <Input value={name} onChange={(event) => { setName(event.target.value); setAsk(null); }} maxLength={120} disabled={!canEdit} data-bmq-kho-name />
       </label>
+      <ItemCodeNote item={item} canEdit={canEdit} onToast={onToast} />
       {twin ? <p className="d3-kho-hint is-warn" data-bmq-kho-twin>Đã có món “{twin.name}”. Lưu tên này sẽ hỏi gộp hai món làm một.</p> : null}
       <div className="d3-kho-field">
         <span>Loại hàng</span>

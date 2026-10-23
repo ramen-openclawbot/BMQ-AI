@@ -12,6 +12,15 @@ import { WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY } from "./useWarehouseGame";
 
 export const KHO_ITEMS_QUERY_KEY = "kho-items";
 
+/**
+ * The generated Supabase RPC union only lists applied migrations. Keep the new
+ * note RPC locally typed until the migration is applied and types regenerate.
+ */
+const rpcUntyped = supabase.rpc as unknown as (
+  fn: string,
+  args?: Record<string, unknown>,
+) => Promise<{ data: unknown; error: unknown }>;
+
 /** A save/count moves the list, the game snapshot and both stock ledgers. */
 function invalidateKhoItems(queryClient: QueryClient): void {
   void queryClient.invalidateQueries({ queryKey: [KHO_ITEMS_QUERY_KEY] });
@@ -57,6 +66,34 @@ export function useKhoSaveItem() {
       });
       if (error) throw error;
       return data as unknown as KhoSaveResult;
+    },
+    onSuccess: () => invalidateKhoItems(queryClient),
+  });
+}
+
+export interface KhoSetItemNoteInput {
+  itemId: string;
+  note: string | null;
+  requestId: string;
+}
+
+export interface KhoSetItemNoteResult {
+  item_id: string;
+  note: string | null;
+}
+
+/** Set or clear the short editor note on one item. */
+export function useKhoSetItemNote() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: KhoSetItemNoteInput): Promise<KhoSetItemNoteResult> => {
+      const { data, error } = await rpcUntyped("kho_set_item_note", {
+        p_item_id: input.itemId,
+        p_note: input.note,
+        p_request_id: input.requestId,
+      });
+      if (error) throw error;
+      return data as KhoSetItemNoteResult;
     },
     onSuccess: () => invalidateKhoItems(queryClient),
   });

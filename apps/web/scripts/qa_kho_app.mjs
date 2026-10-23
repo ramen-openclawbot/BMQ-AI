@@ -30,7 +30,7 @@ function khoItems() {
   const F = window.__kgFixture;
   const off = JSON.parse(localStorage.getItem("qa-off") || "[]");
   return F.items.map((it, i) => ({
-    id: it.id, item_code: it.code, name: it.name, unit: i % 3 === 0 ? "g" : it.unit, active: !off.includes(it.id) && i % 17 !== 5,
+    id: it.id, item_code: it.code, note: i === 0 ? "Chỉ mua của Ngọc Trân" : null, old_codes: i === 0 ? ["Q7-12103FFD875718D7A205"] : [], name: it.name, unit: i % 3 === 0 ? "g" : it.unit, active: !off.includes(it.id) && i % 17 !== 5,
     item_class: it.item_class, in_q7: Boolean(it.pastry_q7),
     qty: { tan_tao: it.pastry_q7 ? null : (i * 1371) % 50000, q7: it.pastry_q7 ? (i * 977) % 200000 - (i % 4 === 0 ? 3000 : 0) : null },
     last_count_date: { tan_tao: i % 7 === 0 ? today : i % 3 === 0 ? "2026-10-16" : null, q7: it.pastry_q7 && i % 5 === 0 ? today : null },
@@ -119,6 +119,7 @@ function settle(st) {
   }
   if (st.table === "rpc:get_stock_transfers") return { data: (window.__kgFixture.transfers ?? []).map((t, i) => ({ ...t, source: i % 2 ? "manual" : "auto", slip_id: null, slip_number: i % 2 ? "PCK-QA-" + i : null, note: i === 1 ? "hàng cho ca sáng Q7" : null })), error: null };
   if (st.table === "rpc:get_q7_finished_goods_planned") return { data: [{ sku_id: "fg-cbc", product_name: "BÁNH MÌ CHÀ BÔNG CAY", unit: "gói", planned_qty: 40, already_received: 12, production_order_item_id: "poi-qa-1" }], error: null };
+  if (st.table === "rpc:kho_set_item_note") return { data: { item_id: st.args.p_item_id, note: st.args.p_note }, error: null };
   if (/^rpc:/.test(st.table)) return { data: null, error: null };
   return { data: [], error: null, count: 0 };
 }
@@ -319,6 +320,12 @@ try {
     const q7Id = await page.locator("[data-bmq-kho-names] li .d3-kho-row-main").first().getAttribute("data-bmq-kho-item");
     await page.locator(`[data-bmq-kho-item='${q7Id}']`).click();
     await dialogInView(page, "[data-bmq-kho-item-dialog]", vp);
+    assert.ok((await page.locator("[data-bmq-kho-code-detail]").innerText()).trim().length > 0, "item code shown");
+    await page.locator("[data-bmq-kho-note-input]").fill("Kiểm tra QA ghi chú");
+    await page.locator("[data-bmq-kho-note-save]").click();
+    await page.waitForFunction(() => window.__qaCalls.some((c) => c.startsWith("rpc:kho_set_item_note:")));
+    assert.ok((await calls(page)).some((c) => c.startsWith("rpc:kho_set_item_note:") && c.includes(q7Id) && c.includes("Kiểm tra QA ghi chú")), "note saved");
+    await noSpill(page, "item-note", vp);
     const tick = (loc) => page.locator(`[data-bmq-kho-place-pick='${loc}']`);
     assert.equal(await tick("q7").getAttribute("aria-checked"), "true");
     assert.equal(await tick("tan_tao").getAttribute("aria-checked"), "false");

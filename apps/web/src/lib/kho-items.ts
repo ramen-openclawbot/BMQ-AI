@@ -31,6 +31,10 @@ export interface KhoItem {
   unit: string;
   active: boolean;
   item_class: string | null;
+  /** Editor note (<= 500 characters); null when none. */
+  note?: string | null;
+  /** Up to five previous item codes, newest first. */
+  old_codes?: string[];
   /** Has a place at Kho Q7. */
   in_q7: boolean;
   /** Has a place at Kho Tân Tạo. A two-kho item has both flags true. */
@@ -164,12 +168,14 @@ export function filterItems(
     }
 
     if (term === "") return true;
-    return searchKey(item.name).includes(term);
+    // Name, current code, older codes (labels printed before the renumber) and the note.
+    return [item.name, item.item_code, item.note, ...(item.old_codes ?? [])].some((v) => searchKey(v).includes(term));
   });
 }
 
 const ERROR_TEXT: Record<string, string> = {
   insufficient_privilege: "Anh/chị không có quyền thực hiện thao tác này.",
+  invalid_note: "Ghi chú tối đa 500 ký tự.",
   pastry_forbidden: "Anh/chị không có quyền chuyển món sang kho khác.",
   rename_forbidden: "Anh/chị không có quyền đổi tên món.",
   unit_forbidden: "Anh/chị không có quyền đổi đơn vị món.",

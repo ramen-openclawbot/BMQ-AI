@@ -1089,3 +1089,12 @@ html.bmq-d3 .d3-kho-unitpick .d3-kho-chip { height: 34px; min-height: 34px; padd
 html.bmq-d3 .d3-kr-unit { width: auto; min-width: 84px; }
 .d3-kr-unitchange { display: grid; justify-content: stretch; gap: 8px; }
 .d3-kr-unitchange small { flex: none; }
+
+/* Danh mục kho: item code + note. */
+.d3-kho-code { font-family: var(--d3-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 11.5px; letter-spacing: .02em; color: var(--d3-ink-2, #3b3a36); }
+.d3-kho-note-line { display: block; margin-top: 2px; font-size: 12.5px; line-height: 1.4; color: var(--d3-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.d3-kho-codeline { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 0; }
+.d3-kho-codeline b { font-family: var(--d3-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 14px; font-weight: 500; }
+.d3-kho-codeline small { font-size: 12.5px; color: var(--d3-dim); }
+.d3-kho-notearea { width: 100%; min-height: 64px; padding: 10px 12px; border: 1px solid var(--d3-line-2, #d9d6cc); border-radius: 10px; background: var(--d3-white, #fff); font: inherit; font-size: 14px; line-height: 1.45; resize: vertical; }
+.d3-kho-notearea:focus-visible { outline: 2px solid var(--d3-ink); outline-offset: 1px; }

@@ -279,6 +279,7 @@ function Catalog({ items, loading, error, onRetry, activeCount, canEdit, newCoun
                   <button type="button" className="d3-kho-row-main" onClick={() => setOpenId(item.id)} data-bmq-kho-item={item.id}>
                     <b>{item.name}</b>
                     <small>
+                      {item.item_code ? <span className="d3-kho-code" data-bmq-kho-code>{item.item_code}</span> : null}
                       <span>{item.unit}</span>
                       <span>{item.doc_lines ? `${item.doc_lines} dòng phiếu` : "chưa có phiếu"}</span>
                       {!item.item_class || item.item_class === "unclassified" ? <span className="is-flag">chưa phân loại</span> : item.item_class === "non_stock" ? <span>không tính tồn</span> : null}
@@ -287,6 +288,7 @@ function Catalog({ items, loading, error, onRetry, activeCount, canEdit, newCoun
                         <span className="d3-kho-hold" data-bmq-kho-held>Giữ cho sản xuất {fmtAmount(holds.get(`${kho}:${item.id}`)?.committed_qty, item.unit)} · {dayLabel(asOf, holds.get(`${kho}:${item.id}`)?.next_date)}</span>
                       ) : null}
                     </small>
+                    {item.note ? <small className="d3-kho-note-line" data-bmq-kho-note>{item.note}</small> : null}
                   </button>
                   <span className="d3-kho-row-qty">
                     {fmtAmount(item.qty[kho], item.unit)}
