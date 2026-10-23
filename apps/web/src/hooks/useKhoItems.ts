@@ -16,7 +16,8 @@ export const KHO_ITEMS_QUERY_KEY = "kho-items";
  * The generated Supabase RPC union only lists applied migrations. Keep the new
  * note RPC locally typed until the migration is applied and types regenerate.
  */
-const rpcUntyped = supabase.rpc as unknown as (
+// Bound to the client: a detached `supabase.rpc` loses `this` and throws before any request.
+const rpcUntyped = supabase.rpc.bind(supabase) as unknown as (
   fn: string,
   args?: Record<string, unknown>,
 ) => Promise<{ data: unknown; error: unknown }>;
