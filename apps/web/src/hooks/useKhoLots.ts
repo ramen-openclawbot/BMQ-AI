@@ -283,3 +283,25 @@ export async function uploadFoodCertFile(file: File): Promise<FoodCertUploadResu
     mime_type: file.type || null,
   };
 }
+
+/** Create (or reuse by name) a manufacturer from the certificate form. */
+export function useUpsertFoodManufacturer() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (name: string): Promise<{ id: string; name: string }> => {
+      const { data, error } = await rpc("food_manufacturer_upsert", { p_name: name });
+      if (error) throw error;
+      return data as { id: string; name: string };
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [FOOD_MANUFACTURERS_QUERY_KEY] });
+    },
+  });
+}
+
+/** Short-lived link to open a certificate file from the private bucket. */
+export async function foodCertFileUrl(filePath: string): Promise<string> {
+  const { data, error } = await supabase.storage.from("food-safety-docs").createSignedUrl(filePath, 300);
+  if (error || !data?.signedUrl) throw error ?? new Error("signed_url_failed");
+  return data.signedUrl;
+}

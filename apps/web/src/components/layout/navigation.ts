@@ -92,6 +92,7 @@ export const ZONES: Zone[] = [
       "/warehouse/kiem-ke",
       "/warehouse/phieu",
       "/warehouse/ra-soat",
+      "/warehouse/ho-so-attp",
       "/warehouse/stock-ledger",
       // Dọn danh mục moved into Kho 2D (Xưởng dọn danh mục) 2026-10-12; the route still works.
       "/warehouse/tan-tao",

@@ -11,6 +11,7 @@ interface Translations {
   khoCatalog: string;
   khoCount: string;
   khoReview: string;
+  khoCerts: string;
   warehouseSlips: string;
   autoPurchase: string;
   stockLedger: string;
@@ -221,6 +222,7 @@ const translations: Record<Language, Translations> = {
     khoCatalog: "Warehouse catalogue",
     khoCount: "Stock count",
     khoReview: "Receipt review",
+    khoCerts: "Food safety files",
     warehouseSlips: "Stock slips",
     autoPurchase: "Auto Purchasing",
     stockLedger: "Stock Ledger",
@@ -429,6 +431,7 @@ const translations: Record<Language, Translations> = {
     khoCatalog: "Danh mục kho",
     khoCount: "Kiểm kê",
     khoReview: "Rà soát nhập kho",
+    khoCerts: "Hồ sơ ATTP",
     warehouseSlips: "Phiếu kho",
     autoPurchase: "Đặt hàng tự động",
     stockLedger: "Sổ tồn NVL",

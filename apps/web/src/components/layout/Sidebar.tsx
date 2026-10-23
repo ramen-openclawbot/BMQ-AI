@@ -7,7 +7,7 @@ import {
   Package,
   Users,
   FileText,
-  FileSearch,
+  FileSearch, ShieldCheck,
   Settings,
   FileCheck,
   Barcode,
@@ -117,6 +117,7 @@ export const navItems: NavItem[] = [
       { icon: FileText, labelKey: "warehouseSlips", path: "/warehouse/phieu", section: "operations", moduleKey: "inventory" },
       // Temporary (owner 22/10): remove once the review list is empty.
       { icon: FileSearch, labelKey: "khoReview", path: "/warehouse/ra-soat", section: "operations", moduleKey: "inventory" },
+      { icon: ShieldCheck, labelKey: "khoCerts", path: "/warehouse/ho-so-attp", section: "operations", moduleKey: "inventory" },
       { icon: ClipboardList, labelKey: "stockLedger", path: "/warehouse/stock-ledger", section: "operations", moduleKey: "inventory" },
       { icon: GitMerge, labelKey: "catalogCleanup", path: "/warehouse/catalog-cleanup", section: "operations", moduleKey: "inventory", hiddenFromMenu: true },
       { icon: Boxes, labelKey: "tanTaoWarehouse", path: "/warehouse/tan-tao", section: "operations", moduleKey: "inventory" },

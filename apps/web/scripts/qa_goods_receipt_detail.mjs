@@ -30,6 +30,10 @@ window.__qaWrites = window.__qaWrites || [];
 const WRITE = new Set(["insert", "update", "upsert", "delete"]);
 function settle(st) {
   const mode = cfg().data || "populated";
+  if (st.table.startsWith("rpc:")) window.__qaWrites.push(st.table + ":" + JSON.stringify(st.args || {}));
+  if (st.table === "rpc:food_manufacturer_list") return { data: [{ id: "m1", name: "Cty TNHH Interflour Vietnam" }], error: null };
+  if (st.table === "rpc:kho_manufacturer_suggest") return { data: { manufacturer_id: "m1", name: "Cty TNHH Interflour Vietnam" }, error: null };
+  if (st.table === "rpc:kho_set_receipt_line_lot") return { data: { receipt_item_id: st.args.p_receipt_item_id, manufacture_date: st.args.p_manufacture_date, expiry_date: st.args.p_expiry_date, manufacturer_lot: st.args.p_lot, manufacturer_id: "m1", manufacturer_name: st.args.p_manufacturer_name, batches_updated: 1, item_default_set: true, replayed: false }, error: null };
   if (st.write) { window.__qaWrites.push(st.table + ":" + st.write); return { data: null, error: { message: "QA fixture: writes disabled" }, count: null }; }
   if (mode === "error") return { data: null, error: { message: "QA fixture: network error", code: "QA" }, count: null };
   // "partial": only the revenue ledger fails; every other source answers.
@@ -73,8 +77,8 @@ function fixtureRows(st) {
   if (st.table === "goods_receipt_items") return ITEMS[st.filters.goods_receipt_id] ?? [];
   return null;
 }
-function builder(table) {
-  const st = { table, filters: {}, head: false, single: false, write: null };
+function builder(table, args) {
+  const st = { table, args: args || {}, filters: {}, head: false, single: false, write: null };
   const proxy = new Proxy(function () {}, {
     get(_t, prop) {
       if (prop === "then") return (ok, ko) => Promise.resolve(settle(st)).then(ok, ko);
@@ -95,7 +99,7 @@ const user = { id: "qa-user", email: "qa@bmq.test", user_metadata: {} };
 const channel = { on() { return channel; }, subscribe() { return channel; }, unsubscribe() {} };
 export const supabase = {
   from: (table) => builder(table),
-  rpc: (fn) => builder("rpc:" + fn),
+  rpc: (fn, args) => builder("rpc:" + fn, args),
   schema: () => ({ from: (table) => builder(table), rpc: (fn) => builder("rpc:" + fn) }),
   functions: { invoke: async (name) => { window.__qaWrites.push("invoke:" + name); return { data: null, error: { message: "QA fixture: functions disabled" } }; } },
   storage: { from: () => ({ getPublicUrl: () => ({ data: { publicUrl: "" } }), createSignedUrl: async () => ({ data: null, error: null }), list: async () => ({ data: [], error: null }), upload: async () => ({ data: null, error: { message: "QA fixture: writes disabled" } }), download: async () => ({ data: null, error: null }) }) },
@@ -259,6 +263,18 @@ try {
         await note.scrollIntoViewIfNeeded();
         await note.locator("xpath=../..").screenshot({ path: `${EVIDENCE}/gr-unlinked-line-${viewport.width}.png` });
       }
+      // Lô & hạn on every line; the owner can edit and save NSX / HSD / lot / manufacturer.
+      const lots = page.locator("[data-bmq-goods-receipt-detail-mobile-v2] [data-bmq-lot-info]:visible");
+      assert.ok((await lots.count()) >= 1, `lot info on lines @${label} ${viewport.width}`);
+      await lots.first().locator("[data-bmq-lot-edit]").click();
+      await page.waitForSelector("[data-bmq-lot-editor]:visible");
+      await page.waitForFunction(() => [...document.querySelectorAll("[data-bmq-lot-maker]")].some((el) => el.value.includes("Interflour")), null, { timeout: 4000 });
+      await page.locator("[data-bmq-lot-nsx]:visible").first().fill("2026-09-08");
+      await page.locator("[data-bmq-lot-hsd]:visible").first().fill("2026-12-08");
+      await page.locator("[data-bmq-lot-code]:visible").first().fill("M829092026");
+      await lots.first().screenshot({ path: `${EVIDENCE}/gr-lot-editor-${label}-${viewport.width}.png` });
+      await page.locator("[data-bmq-lot-save]:visible").first().click();
+      await page.waitForFunction(() => window.__qaWrites.some((w) => w.startsWith("rpc:kho_set_receipt_line_lot:") && w.includes("M829092026") && w.includes("2026-12-08") && w.includes("Interflour")), null, { timeout: 4000 });
       assert.ok(facts.bodyOverflow <= 0, `no horizontal overflow in the dialog @${label} ${viewport.width}: ${facts.bodyOverflow}`);
       assert.ok((await overflow(page)) <= 0, `no page overflow @${label} ${viewport.width}`);
       // Whole dialog body, top to bottom.

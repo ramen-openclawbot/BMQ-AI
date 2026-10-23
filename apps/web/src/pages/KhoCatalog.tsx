@@ -2,12 +2,14 @@ import { LoadingState } from "@/components/ui/loading";
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, FileText, Search, X } from "lucide-react";
+import { ArrowLeft, CalendarClock, FileText, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { useKhoItems } from "@/hooks/useKhoItems";
 import { useKhoCommitments } from "@/hooks/useKhoCommitments";
+import { useExpiryOverview } from "@/hooks/useKhoLots";
+import { expiryTone, type ExpiryOverviewRow } from "@/lib/kho-lots";
 import { commitmentByItem, commitmentBySku, dayLabel } from "@/lib/kho-commitments";
 import { useWarehouseGameSnapshot, WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY } from "@/hooks/useWarehouseGame";
 import { filterItems, khoErrorText, searchKey, type KhoItem, type KhoLocation } from "@/lib/kho-items";
@@ -134,6 +136,44 @@ export default function KhoCatalog() {
   );
 }
 
+const dmyShort = (iso: string) => iso.slice(0, 10).split("-").reverse().slice(0, 2).join("/");
+
+function expiryText(days: number): string {
+  return days < 0 ? `quá hạn ${-days} ngày` : days === 0 ? "hết hạn hôm nay" : `còn ${days} ngày`;
+}
+
+/** Lots whose HSD falls within 30 days at this kho (owner 23/10, traceability GĐ1). */
+function ExpiryBanner({ rows }: { rows: ExpiryOverviewRow[] }) {
+  const [open, setOpen] = useState(false);
+  if (!rows.length) return null;
+  const expired = rows.filter((r) => r.days_left < 0).length;
+  return (
+    <section className={cn("d3-kho-queue d3-kho-expiry", expired && "is-expired")} data-bmq-kho-expiry>
+      <CalendarClock aria-hidden="true" />
+      <p>
+        <b>{rows.length} lô hết hạn trong 30 ngày{expired ? `, ${expired} đã quá hạn` : ""}</b>
+        <span className="d3-kho-queue-more"> · dùng lô gần hết hạn trước</span>
+      </p>
+      <Button variant="outline" onClick={() => setOpen((v) => !v)} aria-expanded={open} data-bmq-kho-expiry-toggle>{open ? "Thu gọn" : "Xem lô"}</Button>
+      {open ? (
+        <ul className="d3-kho-expiry-list" data-bmq-kho-expiry-list>
+          {rows.map((r) => (
+            <li key={r.batch_id}>
+              <b>{r.name}</b>
+              <small>
+                <span className={cn("d3-kho-exp", r.days_left < 0 ? "is-expired" : "is-soon")}>HSD {dmyShort(r.expiry_date)} · {expiryText(r.days_left)}</span>
+                {r.manufacturer_lot ? <span>Lô {r.manufacturer_lot}</span> : null}
+                {r.receipt_number ? <span>{r.receipt_number}</span> : null}
+                {r.quantity !== null ? <span>{fmtAmount(r.quantity, r.unit ?? "")}</span> : null}
+              </small>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
+  );
+}
+
 function Catalog({ items, loading, error, onRetry, activeCount, canEdit, newCount, onNew, q7Skus, q7SkusState, confirm, say }: {
   items: KhoItem[]; loading: boolean; error: unknown; onRetry: () => void; activeCount: number; canEdit: boolean;
   newCount: number; onNew: () => void; q7Skus: WarehouseGameSku[] | undefined; q7SkusState: "loading" | "error" | "ok";
@@ -149,6 +189,17 @@ function Catalog({ items, loading, error, onRetry, activeCount, canEdit, newCoun
   const holds = useMemo(() => (commitments.data ? commitmentByItem(commitments.data) : null), [commitments.data]);
   const orders = useMemo(() => (commitments.data ? commitmentBySku(commitments.data) : null), [commitments.data]);
   const asOf = commitments.data?.as_of ?? "";
+  const expiry = useExpiryOverview(30);
+  const expiryAtKho = useMemo(() => (expiry.data ?? []).filter((r) => r.kho === kho && r.item_id), [expiry.data, kho]);
+  // Nearest HSD per item at this kho, for the row chip.
+  const expiryByItem = useMemo(() => {
+    const m = new Map<string, ExpiryOverviewRow>();
+    for (const r of expiryAtKho) {
+      const cur = m.get(r.item_id as string);
+      if (!cur || r.days_left < cur.days_left) m.set(r.item_id as string, r);
+    }
+    return m;
+  }, [expiryAtKho]);
   const gaps = commitments.data?.gaps;
   const finished = useMemo<Record<KhoLocation, FinishedRow[]>>(() => {
     const bySku = new Map((fg.data?.items ?? []).map((row) => [row.sku_code, row]));
@@ -206,6 +257,8 @@ function Catalog({ items, loading, error, onRetry, activeCount, canEdit, newCoun
           <Button onClick={onNew} data-bmq-kho-new-open>Gắn tên</Button>
         </section>
       ) : null}
+
+      <ExpiryBanner rows={expiryAtKho} />
 
       <section className="d3-wh-card d3-kho-card">
         <div className="d3-kho-tabs" role="tablist" aria-label="Loại hàng" data-bmq-kho-groups>
@@ -282,6 +335,11 @@ function Catalog({ items, loading, error, onRetry, activeCount, canEdit, newCoun
                       {item.item_code ? <span className="d3-kho-code" data-bmq-kho-code>{item.item_code}</span> : null}
                       <span>{item.unit}</span>
                       <span>{item.doc_lines ? `${item.doc_lines} dòng phiếu` : "chưa có phiếu"}</span>
+                      {expiryByItem.get(item.id) ? (
+                        <span className={cn("d3-kho-exp", expiryTone(expiryByItem.get(item.id)!.days_left) === "expired" ? "is-expired" : "is-soon")} data-bmq-kho-item-exp>
+                          HSD {expiryText(expiryByItem.get(item.id)!.days_left)}
+                        </span>
+                      ) : null}
                       {!item.item_class || item.item_class === "unclassified" ? <span className="is-flag">chưa phân loại</span> : item.item_class === "non_stock" ? <span>không tính tồn</span> : null}
                       <span className="d3-kho-row-qty-sub">Tồn {fmtAmount(item.qty[kho], item.unit)}</span>
                       {holds?.get(`${kho}:${item.id}`) ? (

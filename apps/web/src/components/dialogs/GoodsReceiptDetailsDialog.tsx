@@ -8,6 +8,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Separator } from "@/components/ui/separator";
 import { Camera, Sparkles, CheckCircle, Clock, FileCheck, Package, Loader2, AlertCircle, Link2, XCircle, AlertTriangle, History } from "lucide-react";
 import { useGoodsReceipt, useGoodsReceiptItems, useConfirmGoodsReceipt, useUpdateGoodsReceiptItems, useUpdateGoodsReceipt, useDeliveryNoteOcr, usePaidPaymentRequestsForSupplier, useFinalizeHistoricalPaidGoodsReceipt } from "@/hooks/useGoodsReceipts";
+import { LotInfo } from "@/components/goods-receipts/LotInfo";
+import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { Fragment, useState, useEffect } from "react";
 import { ReceiptPhotoGallery, addReceiptPhotos } from "@/components/goods-receipts/ReceiptPhotoGallery";
@@ -61,6 +63,8 @@ const VARIANCE_LABEL: Record<string, string> = { thieu: "thiếu", du: "dư", th
 export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: GoodsReceiptDetailsDialogProps) {
   const { data: receipt, isLoading: receiptLoading, error: receiptError } = useGoodsReceipt(receiptId);
   const { data: items = [], isLoading: itemsLoading } = useGoodsReceiptItems(receiptId);
+  const { canEditModule } = useAuth();
+  const canEditLots = canEditModule("inventory");
   const confirmReceipt = useConfirmGoodsReceipt();
   const finalizeHistoricalPaidReceipt = useFinalizeHistoricalPaidGoodsReceipt();
   const updateItems = useUpdateGoodsReceiptItems();
@@ -685,6 +689,7 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                           </div>
                         </div>
                         {renderMaterialResolution(item)}
+                        <LotInfo line={item} canEdit={canEditLots} />
                         {isReceiveMode && isShort && (
                           <div className="mt-2" data-bmq-goods-receipt-shortage-reason>
                             <Input
@@ -750,6 +755,7 @@ export function GoodsReceiptDetailsDialog({ receiptId, open, onOpenChange }: Goo
                           <TableCell className="font-medium">
                             {item.product_name}
                             {renderMaterialResolution(item)}
+                            <LotInfo line={item} canEdit={canEditLots} />
                             {validationError && (
                               <p className="mt-0.5 flex items-center gap-1 text-xs text-destructive">
                                 <AlertTriangle className="h-3 w-3" />{validationError}
