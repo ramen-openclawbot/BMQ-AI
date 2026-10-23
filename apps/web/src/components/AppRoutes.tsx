@@ -52,6 +52,7 @@ const StockLedger = lazy(() => import("@/pages/StockLedger"));
 const StockCatalogCleanup = lazy(() => import("@/pages/StockCatalogCleanup"));
 /** Kho pages in the app theme (owner 22/10/2026); they replaced the Game kho screen. */
 const KhoCatalog = lazy(() => import("@/pages/KhoCatalog"));
+const SupplierOrders = lazy(() => import("@/pages/SupplierOrders"));
 const KhoCount = lazy(() => import("@/pages/KhoCount"));
 const WarehouseSlips = lazy(() => import("@/pages/WarehouseSlips"));
 const KhoReview = lazy(() => import("@/pages/KhoReview"));
@@ -271,6 +272,7 @@ export function AppRoutes() {
         <Route path="/salary-payouts/:id" element={<SalaryPayout />} />
         <Route path="/goods-receipts" element={<GoodsReceipts />} />
         <Route path="/purchase-orders" element={<ModuleRoute moduleKey="purchase_orders"><PurchaseOrders /></ModuleRoute>} />
+        <Route path="/dat-hang" element={<ModuleRoute moduleKey="purchase_orders"><Suspense fallback={<AppLoadingFallback />}><SupplierOrders /></Suspense></ModuleRoute>} />
         <Route path="/sku-costs" element={<Navigate to="/sku-costs/dashboard" replace />} />
         <Route path="/sku-costs/dashboard" element={<Suspense fallback={<AppLoadingFallback />}><SkuCostsDjango /></Suspense>} />
         <Route path="/sku-costs/management" element={<Suspense fallback={<AppLoadingFallback />}><SkuCostsManagement /></Suspense>} />

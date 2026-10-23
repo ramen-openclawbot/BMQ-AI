@@ -5,6 +5,14 @@
  * value is escaped before it reaches the HTML.
  */
 
+export type SupplierOrderEmailLine = {
+  productName: string;
+  quantity: number;
+  unit: string;
+  unitPrice: number | null;
+  lineTotal: number | null;
+};
+
 export type SupplierOrderEmailInput = {
   poNumber: string;
   supplierName: string;
@@ -21,6 +29,22 @@ export type SupplierOrderEmailInput = {
   uploadUrl: string;
   companyName?: string;
   taxCode?: string;
+};
+
+export type SupplierOrderEmailLinesInput = {
+  poNumber: string;
+  supplierName: string;
+  lines: SupplierOrderEmailLine[];
+  total: number | null;
+  deliveryAddress: string;
+  contactName: string;
+  contactPhone: string;
+  note: string;
+  requestedDate: string;
+  uploadUrl: string;
+  companyName?: string;
+  taxCode?: string;
+  subjectName?: string;
 };
 
 export type SupplierOrderEmail = {
@@ -69,31 +93,45 @@ function displayDate(value: string): string {
   return `${match[3]}/${match[2]}/${match[1]}`;
 }
 
-export function buildSupplierOrderEmail(
-  input: SupplierOrderEmailInput,
+const PREVIEW_PO_LABEL = "PO mới (số cấp khi gửi)";
+const PREVIEW_UPLOAD_TEXT =
+  "Liên kết tải hóa đơn / phiếu giao hàng sẽ được gửi kèm khi đơn hàng được gửi.";
+
+export function buildSupplierOrderEmailLines(
+  input: SupplierOrderEmailLinesInput,
 ): SupplierOrderEmail {
   const companyName = input.companyName || "Công ty CP Thực phẩm BMQ";
   const taxCode = input.taxCode || "0311840107";
-  const subject = `BMQ đặt hàng ${input.poNumber} – ${input.productName}`;
+  const poLabel = String(input.poNumber ?? "").trim() || PREVIEW_PO_LABEL;
+  const lines = Array.isArray(input.lines) ? input.lines : [];
+  const subjectName = input.subjectName
+    || (lines.length === 1 ? lines[0].productName : input.supplierName);
+  const subject = `BMQ đặt hàng ${poLabel} – ${subjectName}`;
   const requestedDate = displayDate(input.requestedDate);
   const note = String(input.note ?? "").trim();
+  const uploadUrl = String(input.uploadUrl ?? "").trim();
+  const total = input.total;
 
   const textLines = [
     `Kính gửi ${input.supplierName},`,
     "",
-    `${companyName} xin gửi Quý công ty đơn đặt hàng ${input.poNumber}.`,
+    `${companyName} xin gửi Quý công ty đơn đặt hàng ${poLabel}.`,
     "",
     "Tên hàng | Số lượng | Đơn vị | Đơn giá | Thành tiền",
-    `${input.productName} | ${formatQuantity(input.quantity)} | ${input.unit} | ${formatVnd(input.unitPrice)} | ${formatVnd(input.lineTotal)}`,
+    ...lines.map((line) =>
+      `${line.productName} | ${formatQuantity(line.quantity)} | ${line.unit} | ${formatVnd(line.unitPrice)} | ${formatVnd(line.lineTotal)}`
+    ),
     "",
-    `Tổng cộng: ${formatVnd(input.lineTotal)}`,
+    `Tổng cộng: ${formatVnd(total)}`,
     "",
     `Địa chỉ giao hàng: ${input.deliveryAddress}`,
     `Người nhận: ${input.contactName} - ${input.contactPhone}`,
     `Ngày đặt hàng: ${requestedDate}`,
     ...(note ? [`Ghi chú: ${note}`] : []),
     "",
-    `Sau khi giao hàng, Quý công ty vui lòng tải lên hóa đơn / phiếu giao hàng tại đây: ${input.uploadUrl}`,
+    uploadUrl
+      ? `Sau khi giao hàng, Quý công ty vui lòng tải lên hóa đơn / phiếu giao hàng tại đây: ${uploadUrl}`
+      : `Sau khi giao hàng, Quý công ty vui lòng tải lên hóa đơn / phiếu giao hàng. ${PREVIEW_UPLOAD_TEXT}`,
     "",
     "Vui lòng trả lời (reply) email này nếu cần trao đổi thêm.",
     "",
@@ -101,6 +139,24 @@ export function buildSupplierOrderEmail(
     companyName,
     `Mã số thuế: ${taxCode}`,
   ];
+
+  const htmlRows = lines.map((line) => `
+                <tr>
+                  <td style="padding:8px;border:1px solid #d1d5db;">${escapeHtml(line.productName)}</td>
+                  <td align="right" style="padding:8px;border:1px solid #d1d5db;">${escapeHtml(formatQuantity(line.quantity))}</td>
+                  <td style="padding:8px;border:1px solid #d1d5db;">${escapeHtml(line.unit)}</td>
+                  <td align="right" style="padding:8px;border:1px solid #d1d5db;">${escapeHtml(formatVnd(line.unitPrice))}</td>
+                  <td align="right" style="padding:8px;border:1px solid #d1d5db;">${escapeHtml(formatVnd(line.lineTotal))}</td>
+                </tr>`).join("");
+
+  const uploadHtml = uploadUrl
+    ? `<p style="margin:20px 0 12px;">Sau khi giao hàng, Quý công ty vui lòng tải lên <strong>hóa đơn / phiếu giao hàng</strong> tại liên kết bên dưới:</p>
+              <p style="margin:0 0 16px;">
+                <a href="${escapeHtml(uploadUrl)}" style="display:inline-block;padding:11px 18px;background-color:#b91c1c;color:#ffffff;text-decoration:none;border-radius:4px;font-weight:bold;">Tải lên hóa đơn / phiếu giao hàng</a>
+              </p>
+              <p style="margin:0 0 8px;font-size:12px;color:#6b7280;word-break:break-all;">${escapeHtml(uploadUrl)}</p>`
+    : `<p style="margin:20px 0 12px;">Sau khi giao hàng, Quý công ty vui lòng tải lên <strong>hóa đơn / phiếu giao hàng</strong>.</p>
+              <p style="margin:0 0 16px;color:#6b7280;">${escapeHtml(PREVIEW_UPLOAD_TEXT)}</p>`;
 
   const html = `
 <div style="margin:0;padding:0;background-color:#f5f5f5;font-family:Arial,Helvetica,sans-serif;color:#1f2937;font-size:14px;line-height:1.55;">
@@ -117,7 +173,7 @@ export function buildSupplierOrderEmail(
           <tr>
             <td style="padding:20px 24px;">
               <p style="margin:0 0 12px;">Kính gửi <strong>${escapeHtml(input.supplierName)}</strong>,</p>
-              <p style="margin:0 0 16px;">${escapeHtml(companyName)} xin gửi Quý công ty đơn đặt hàng <strong>${escapeHtml(input.poNumber)}</strong> với nội dung sau:</p>
+              <p style="margin:0 0 16px;">${escapeHtml(companyName)} xin gửi Quý công ty đơn đặt hàng <strong>${escapeHtml(poLabel)}</strong> với nội dung sau:</p>
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;width:100%;font-size:13px;">
                 <tr>
                   <th align="left" style="padding:8px;border:1px solid #d1d5db;background-color:#f3f4f6;">Tên hàng</th>
@@ -125,17 +181,10 @@ export function buildSupplierOrderEmail(
                   <th align="left" style="padding:8px;border:1px solid #d1d5db;background-color:#f3f4f6;">Đơn vị</th>
                   <th align="right" style="padding:8px;border:1px solid #d1d5db;background-color:#f3f4f6;">Đơn giá</th>
                   <th align="right" style="padding:8px;border:1px solid #d1d5db;background-color:#f3f4f6;">Thành tiền</th>
-                </tr>
-                <tr>
-                  <td style="padding:8px;border:1px solid #d1d5db;">${escapeHtml(input.productName)}</td>
-                  <td align="right" style="padding:8px;border:1px solid #d1d5db;">${escapeHtml(formatQuantity(input.quantity))}</td>
-                  <td style="padding:8px;border:1px solid #d1d5db;">${escapeHtml(input.unit)}</td>
-                  <td align="right" style="padding:8px;border:1px solid #d1d5db;">${escapeHtml(formatVnd(input.unitPrice))}</td>
-                  <td align="right" style="padding:8px;border:1px solid #d1d5db;">${escapeHtml(formatVnd(input.lineTotal))}</td>
-                </tr>
+                </tr>${htmlRows}
                 <tr>
                   <td colspan="4" align="right" style="padding:8px;border:1px solid #d1d5db;font-weight:bold;">Tổng cộng</td>
-                  <td align="right" style="padding:8px;border:1px solid #d1d5db;font-weight:bold;">${escapeHtml(formatVnd(input.lineTotal))}</td>
+                  <td align="right" style="padding:8px;border:1px solid #d1d5db;font-weight:bold;">${escapeHtml(formatVnd(total))}</td>
                 </tr>
               </table>
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:16px;font-size:13px;">
@@ -160,11 +209,7 @@ export function buildSupplierOrderEmail(
                     : ""
                 }
               </table>
-              <p style="margin:20px 0 12px;">Sau khi giao hàng, Quý công ty vui lòng tải lên <strong>hóa đơn / phiếu giao hàng</strong> tại liên kết bên dưới:</p>
-              <p style="margin:0 0 16px;">
-                <a href="${escapeHtml(input.uploadUrl)}" style="display:inline-block;padding:11px 18px;background-color:#b91c1c;color:#ffffff;text-decoration:none;border-radius:4px;font-weight:bold;">Tải lên hóa đơn / phiếu giao hàng</a>
-              </p>
-              <p style="margin:0 0 8px;font-size:12px;color:#6b7280;word-break:break-all;">${escapeHtml(input.uploadUrl)}</p>
+              ${uploadHtml}
               <p style="margin:16px 0 0;">Vui lòng trả lời (reply) email này nếu cần trao đổi thêm.</p>
             </td>
           </tr>
@@ -185,4 +230,30 @@ export function buildSupplierOrderEmail(
     text: textLines.join("\n"),
     html,
   };
+}
+
+export function buildSupplierOrderEmail(
+  input: SupplierOrderEmailInput,
+): SupplierOrderEmail {
+  return buildSupplierOrderEmailLines({
+    poNumber: input.poNumber,
+    supplierName: input.supplierName,
+    lines: [{
+      productName: input.productName,
+      quantity: input.quantity,
+      unit: input.unit,
+      unitPrice: input.unitPrice,
+      lineTotal: input.lineTotal,
+    }],
+    total: input.lineTotal,
+    deliveryAddress: input.deliveryAddress,
+    contactName: input.contactName,
+    contactPhone: input.contactPhone,
+    note: input.note,
+    requestedDate: input.requestedDate,
+    uploadUrl: input.uploadUrl,
+    companyName: input.companyName,
+    taxCode: input.taxCode,
+    subjectName: input.productName,
+  });
 }

@@ -46,6 +46,7 @@ interface Translations {
   financeRevenueSetup: string;
   crm: string;
   poPurchasing: string;
+  supplierOrders: string;
   poSales: string;
   sectionExecution: string;
   sectionFinance: string;
@@ -257,6 +258,7 @@ const translations: Record<Language, Translations> = {
     financeRevenueSetup: "Revenue Setup",
     crm: "CRM",
     poPurchasing: "PO (Procurement)",
+    supplierOrders: "Supplier orders",
     poSales: "PO (Sales)",
     sectionExecution: "Executive",
     sectionFinance: "Finance",
@@ -466,6 +468,7 @@ const translations: Record<Language, Translations> = {
     financeRevenueSetup: "Thiết lập doanh thu",
     crm: "CRM",
     poPurchasing: "PO (Mua hàng)",
+    supplierOrders: "Đặt hàng",
     poSales: "PO (Bán hàng)",
     sectionExecution: "Điều hành",
     sectionFinance: "Tài chính",

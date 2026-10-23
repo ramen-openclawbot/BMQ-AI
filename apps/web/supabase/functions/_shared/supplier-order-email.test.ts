@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   buildSupplierOrderEmail,
+  buildSupplierOrderEmailLines,
   escapeHtml,
   formatQuantity,
   formatVnd,
@@ -94,4 +95,98 @@ test("omits the optional note row when empty", () => {
   const email = buildSupplierOrderEmail({ ...baseInput, note: "" });
   assert.ok(!email.text.includes("Ghi chú:"));
   assert.ok(!email.html.includes("Ghi chú"));
+});
+
+test("renders two lines and a total row", () => {
+  const email = buildSupplierOrderEmailLines({
+    ...baseInput,
+    poNumber: "PO-2026-002",
+    lines: [
+      {
+        productName: "Bột mì 999 Cam",
+        quantity: 25,
+        unit: "kg",
+        unitPrice: 19300,
+        lineTotal: 482500,
+      },
+      {
+        productName: "Bột mì 888 Cam",
+        quantity: 50,
+        unit: "kg",
+        unitPrice: 18296,
+        lineTotal: 914800,
+      },
+    ],
+    total: 1397300,
+  });
+
+  assert.equal(email.subject, "BMQ đặt hàng PO-2026-002 – TV Food");
+  assert.ok(
+    email.text.includes(
+      "Bột mì 999 Cam | 25 | kg | 19.300 đ | 482.500 đ\nBột mì 888 Cam | 50 | kg | 18.296 đ | 914.800 đ",
+    ),
+  );
+  assert.ok(email.text.includes("Tổng cộng: 1.397.300 đ"));
+  assert.ok(email.html.includes("Bột mì 999 Cam"));
+  assert.ok(email.html.includes("Bột mì 888 Cam"));
+  assert.ok(email.html.includes("1.397.300 đ"));
+});
+
+test("escapes every multi-line value", () => {
+  const email = buildSupplierOrderEmailLines({
+    ...baseInput,
+    lines: [
+      {
+        productName: `<b>Bột mì</b>`,
+        quantity: 1,
+        unit: `<i>kg</i>`,
+        unitPrice: 1,
+        lineTotal: 1,
+      },
+    ],
+    total: 1,
+    deliveryAddress: `<img src=x onerror=alert(1)>`,
+    note: `<iframe>`,
+    supplierName: `<script>`,
+  });
+
+  assert.ok(!email.html.includes("<script>"));
+  assert.ok(!email.html.includes("<iframe>"));
+  assert.ok(!email.html.includes("<img src=x"));
+  assert.ok(!email.html.includes("<b>Bột mì</b>"));
+  assert.ok(email.html.includes("&lt;b&gt;Bột mì&lt;/b&gt;"));
+});
+
+test("preview keeps a PO and upload placeholder", () => {
+  const email = buildSupplierOrderEmailLines({
+    ...baseInput,
+    poNumber: "",
+    uploadUrl: "",
+    lines: [
+      {
+        productName: "Bơ Peerless",
+        quantity: 25,
+        unit: "kg",
+        unitPrice: 90000,
+        lineTotal: 2250000,
+      },
+    ],
+    total: 2250000,
+  });
+
+  assert.ok(email.subject.includes("PO mới (số cấp khi gửi)"));
+  assert.ok(email.text.includes("PO mới (số cấp khi gửi)"));
+  assert.ok(email.html.includes("PO mới (số cấp khi gửi)"));
+  assert.ok(!email.html.includes('href=""'));
+  assert.ok(email.text.includes("sẽ được gửi kèm"));
+  assert.ok(email.html.includes("sẽ được gửi kèm"));
+});
+
+test("single-item output keeps the same subject, table and total", () => {
+  const single = buildSupplierOrderEmail(baseInput);
+  assert.equal(single.subject, "BMQ đặt hàng PO-2026-001 – Bơ Peerless");
+  assert.ok(single.text.includes("Bơ Peerless | 25 | kg | 90.000 đ | 2.250.000 đ"));
+  assert.ok(single.text.includes("Tổng cộng: 2.250.000 đ"));
+  assert.ok(single.html.includes("2.250.000 đ"));
+  assert.ok(single.html.includes('href="https://ai.banhmique.vn/ncc/hoa-don/token-abc"'));
 });

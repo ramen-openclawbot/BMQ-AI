@@ -10,7 +10,11 @@ import { requireAuth } from "../_shared/auth.ts";
 import { corsPreflightResponse, getCorsHeaders } from "../_shared/cors.ts";
 import { checkAndRecordRateLimit } from "../_shared/rate-limiter.ts";
 import { getGmailAccessToken, sendGmail } from "../_shared/gmail-send.ts";
-import { buildSupplierOrderEmail } from "../_shared/supplier-order-email.ts";
+import {
+  buildSupplierOrderEmail,
+  buildSupplierOrderEmailLines,
+  type SupplierOrderEmailLine,
+} from "../_shared/supplier-order-email.ts";
 
 const ORDER_MAILBOX = "order@bmq.vn";
 const FROM_ADDRESS = "BMQ Đặt hàng <order@bmq.vn>";
@@ -101,10 +105,119 @@ function mapCreateError(error: unknown): { status: number; code: string } {
   if (message.includes("invalid_quantity")) {
     return { status: 400, code: "invalid_quantity" };
   }
-  if (message.includes("item_not_found") || code === "P0002") {
+  if (
+    message.includes("invalid_lines")
+    || message.includes("duplicate_items")
+    || message.includes("invalid_item_id")
+  ) {
+    return { status: 400, code: "invalid_lines" };
+  }
+  if (message.includes("supplier_not_found") || message.includes("item_not_found") || code === "P0002") {
     return { status: 404, code: "item_not_found" };
   }
   return { status: 500, code: "create_failed" };
+}
+
+function mapMultiCreateError(error: unknown): { status: number; code: string } {
+  if (errorMessage(error).includes("no_supplier_email")) {
+    return { status: 409, code: "no_supplier_email" };
+  }
+  return mapCreateError(error);
+}
+
+type MultiLineRequest = { item_id: string; quantity: number };
+
+type MultiLine = SupplierOrderEmailLine & {
+  position: number;
+  item_id: string;
+};
+
+function numberValue(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = typeof value === "number" ? value : Number(String(value).trim());
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function readMultiLines(value: unknown): MultiLineRequest[] | null {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 20) return null;
+  const output: MultiLineRequest[] = [];
+  const seen = new Set<string>();
+  for (const raw of value) {
+    const record = (raw ?? {}) as Record<string, unknown>;
+    const itemId = String(record.item_id ?? "").trim();
+    const quantity = Number(record.quantity);
+    if (!UUID_RE.test(itemId) || !Number.isFinite(quantity) || quantity <= 0) {
+      return null;
+    }
+    if (seen.has(itemId)) return null;
+    seen.add(itemId);
+    output.push({ item_id: itemId, quantity });
+  }
+  return output;
+}
+
+function catalogItemMap(data: unknown): Map<string, Record<string, unknown>> {
+  const root = (data ?? {}) as Record<string, unknown>;
+  const rows = Array.isArray(root.items) ? root.items : [];
+  const output = new Map<string, Record<string, unknown>>();
+  for (const raw of rows) {
+    const row = (raw ?? {}) as Record<string, unknown>;
+    const item = (row.item ?? {}) as Record<string, unknown>;
+    const itemId = String(item.id ?? "").trim();
+    if (itemId) output.set(itemId, row);
+  }
+  return output;
+}
+
+function buildMultiLines(
+  catalogRows: Map<string, Record<string, unknown>>,
+  requested: MultiLineRequest[],
+  maxAmount: number,
+): { lines: MultiLine[]; total: number } | { error: string; status: number } {
+  const lines: MultiLine[] = [];
+  let total = 0;
+
+  for (let index = 0; index < requested.length; index += 1) {
+    const request = requested[index];
+    const row = catalogRows.get(request.item_id);
+    if (!row) return { error: "item_not_found", status: 404 };
+
+    const quantity = request.quantity;
+    const proposal = numberValue(row.proposal_qty) ?? 0;
+    const packSize = numberValue(row.pack_size_po);
+    const maxQty = Math.max(3 * proposal, 10 * (packSize ?? 0));
+    if (maxQty <= 0 || quantity > maxQty) {
+      return { error: "over_quantity_limit", status: 400 };
+    }
+
+    const unitPrice = numberValue(row.unit_price);
+    if (unitPrice === null) return { error: "no_price", status: 409 };
+
+    const lineTotal = round2(quantity * unitPrice);
+    total = round2(total + lineTotal);
+    lines.push({
+      position: index + 1,
+      item_id: request.item_id,
+      productName: String(row.product_name ?? ""),
+      quantity,
+      unit: String(row.po_unit ?? ""),
+      unitPrice,
+      lineTotal,
+    });
+  }
+
+  if (total > maxAmount) return { error: "over_amount_limit", status: 400 };
+  return { lines, total };
+}
+
+async function readMaxAmount(admin: AdminClient): Promise<number> {
+  const text = (await readSetting(admin, "order_email_max_amount")).trim();
+  const value = Number(text);
+  return Number.isFinite(value) && value > 0 ? value : 30000000;
 }
 
 Deno.serve(async (req) => {
@@ -134,11 +247,6 @@ Deno.serve(async (req) => {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
-    const rate = await checkAndRecordRateLimit(user.id, "supplier-order-send", 30);
-    if (!rate.allowed) {
-      return respond({ code: "rate_limited" }, 429, "rate_limited");
-    }
-
     let body: Record<string, unknown>;
     try {
       body = await req.json();
@@ -146,8 +254,311 @@ Deno.serve(async (req) => {
       return respond({ code: "invalid_body" }, 400, "invalid_body");
     }
 
-    itemId = String(body.item_id ?? "").trim();
+    // A preview sends nothing: it gets its own, larger daily budget so checking
+    // an order a few times never uses up the 30 real sends.
+    const isPreview = Array.isArray(body.lines) && String(body.mode ?? "").trim() === "preview";
+    const rate = isPreview
+      ? await checkAndRecordRateLimit(user.id, "supplier-order-preview", 300)
+      : await checkAndRecordRateLimit(user.id, "supplier-order-send", 30);
+    if (!rate.allowed) {
+      return respond({ code: "rate_limited" }, 429, "rate_limited");
+    }
+
     requestId = String(body.request_id ?? "").trim();
+
+    // ------------------------------------------------------------------
+    // Multi-line supplier order (new page). The single-item body path below
+    // stays untouched.
+    // ------------------------------------------------------------------
+    if (Array.isArray(body.lines)) {
+      const supplierId = String(body.supplier_id ?? "").trim();
+      const mode = String(body.mode ?? "").trim();
+      const note = typeof body.note === "string" ? body.note.trim().slice(0, 2000) : "";
+      const prepay = body.prepay === true;
+
+      if (!UUID_RE.test(supplierId)) {
+        return respond({ code: "invalid_supplier_id" }, 400, "invalid_supplier_id");
+      }
+      if (!UUID_RE.test(requestId)) {
+        return respond({ code: "invalid_request_id" }, 400, "invalid_request_id");
+      }
+      if (mode !== "preview" && mode !== "send") {
+        return respond({ code: "invalid_mode" }, 400, "invalid_mode");
+      }
+      const requestedLines = readMultiLines(body.lines);
+      if (!requestedLines) {
+        return respond({ code: "invalid_lines" }, 400, "invalid_lines");
+      }
+
+      const userDb = createClient(supabaseUrl, anonKey, {
+        global: { headers: { Authorization: `Bearer ${token}` } },
+        auth: { persistSession: false, autoRefreshToken: false },
+      });
+
+      // Permission gate: the SQL function raises insufficient_privilege for a
+      // caller who is neither owner nor a purchase_orders editor.
+      const catalogResult = await userDb.rpc("supplier_order_catalog", {
+        p_supplier_id: supplierId,
+      });
+      if (catalogResult.error) {
+        const message = errorMessage(catalogResult.error);
+        const code = errorCode(catalogResult.error);
+        if (code === "42501" || message.includes("insufficient_privilege")) {
+          return respond({ code: "forbidden" }, 403, "forbidden");
+        }
+        if (code === "P0002" || message.includes("supplier_not_found")) {
+          return respond({ code: "supplier_not_found" }, 404, "supplier_not_found");
+        }
+        return respond({ code: "catalog_failed" }, 400, "catalog_failed");
+      }
+
+      const catalog = (catalogResult.data ?? {}) as Record<string, unknown>;
+      const supplier = (catalog.supplier ?? {}) as Record<string, unknown>;
+      const delivery = (catalog.delivery ?? {}) as Record<string, unknown>;
+      const toEmail = String(supplier.email ?? "").trim();
+      const supplierName = String(supplier.name ?? "").trim();
+      const catalogRows = catalogItemMap(catalogResult.data);
+      const maxAmount = await readMaxAmount(admin);
+      const computed = buildMultiLines(catalogRows, requestedLines, maxAmount);
+      if ("error" in computed) {
+        return respond({ code: computed.error }, computed.status, computed.error);
+      }
+
+      const orderLines = computed.lines;
+      const total = computed.total;
+      const prepayRow = catalog.prepay && typeof catalog.prepay === "object"
+        ? (catalog.prepay as Record<string, unknown>)
+        : null;
+      const prepayRecent = Boolean(prepayRow?.recent_submission);
+
+      if (mode === "preview") {
+        const email = buildSupplierOrderEmailLines({
+          poNumber: "",
+          supplierName,
+          lines: orderLines,
+          total,
+          deliveryAddress: String(delivery.address ?? ""),
+          contactName: String(delivery.contact_name ?? ""),
+          contactPhone: String(delivery.contact_phone ?? ""),
+          note: note || String(delivery.note ?? ""),
+          requestedDate: vnToday(),
+          uploadUrl: "",
+          subjectName: supplierName,
+        });
+        return respond(
+          {
+            subject: email.subject,
+            html: email.html,
+            text: email.text,
+            to_email: toEmail,
+            lines: orderLines.map((line) => ({
+              position: line.position,
+              item_id: line.item_id,
+              product_name: line.productName,
+              quantity: line.quantity,
+              unit: line.unit,
+              unit_price: line.unitPrice,
+              line_total: line.lineTotal,
+            })),
+            total,
+            prepay: prepayRow && !prepayRecent ? prepayRow : null,
+            prepay_reason: prepayRow ? (prepayRecent ? "recent" : null) : "none",
+          },
+          200,
+          "preview",
+        );
+      }
+
+      if (!toEmail) {
+        return respond({ code: "no_supplier_email" }, 409, "no_supplier_email");
+      }
+
+      // The edge never sends before the server-side create succeeds and never
+      // trusts the client's line prices: the RPC recomputes them.
+      const createResult = await admin.rpc("create_supplier_order_multi", {
+        p_request_id: requestId,
+        p_supplier_id: supplierId,
+        p_lines: requestedLines,
+        p_note: note || null,
+        p_actor: user.id,
+      });
+      if (createResult.error) {
+        const mapped = mapMultiCreateError(createResult.error);
+        return respond({ code: mapped.code }, mapped.status, mapped.code);
+      }
+
+      const created = (createResult.data ?? {}) as Record<string, unknown>;
+      const orderRequestId = String(created.request_id ?? requestId);
+
+      if (created.replayed === true && created.in_progress === true) {
+        return respond({ code: "in_progress" }, 409, "in_progress");
+      }
+
+      if (String(created.status ?? "") === "sent") {
+        return respond(
+          {
+            status: "sent",
+            po_number: created.po_number ?? null,
+            to_email: created.to_email ?? null,
+            sent_at: created.sent_at ?? null,
+            prepay: created.prepay ?? null,
+            replayed: true,
+          },
+          200,
+          "replayed_sent",
+        );
+      }
+
+      const connectedEmail = (await readSetting(admin, "order_gmail_connected_email")).trim();
+      if (connectedEmail.toLowerCase() !== ORDER_MAILBOX) {
+        return respond({ code: "mailbox_not_connected" }, 409, "mailbox_not_connected");
+      }
+
+      const tokenBytes = crypto.getRandomValues(new Uint8Array(32));
+      const uploadToken = base64Url(tokenBytes);
+      const uploadTokenHash = await sha256Hex(uploadToken);
+      const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+      const createdRows = Array.isArray(created.lines) ? created.lines : orderLines;
+      const emailLines: SupplierOrderEmailLine[] = createdRows.map((raw) => {
+        const line = (raw ?? {}) as Record<string, unknown>;
+        return {
+          productName: String(line.product_name ?? ""),
+          quantity: Number(line.quantity ?? 0),
+          unit: String(line.unit ?? ""),
+          unitPrice: numberValue(line.unit_price),
+          lineTotal: numberValue(line.line_total),
+        };
+      });
+      const createdTotal = numberValue(created.total) ?? total;
+      const mail = buildSupplierOrderEmailLines({
+        poNumber: String(created.po_number ?? ""),
+        supplierName: String(created.supplier_name ?? supplierName),
+        lines: emailLines,
+        total: createdTotal,
+        deliveryAddress: String(delivery.address ?? ""),
+        contactName: String(delivery.contact_name ?? ""),
+        contactPhone: String(delivery.contact_phone ?? ""),
+        note: note || String(delivery.note ?? ""),
+        requestedDate: vnToday(),
+        uploadUrl: `${UPLOAD_BASE}/${uploadToken}`,
+        subjectName: String(created.supplier_name ?? supplierName),
+      });
+
+      try {
+        const accessToken = await getGmailAccessToken(admin as any, "order_gmail_refresh_token");
+        const sent = await sendGmail({
+          accessToken,
+          from: FROM_ADDRESS,
+          to: String(created.to_email ?? toEmail),
+          replyTo: ORDER_MAILBOX,
+          subject: mail.subject,
+          html: mail.html,
+          text: mail.text,
+        });
+
+        const marked = await admin.rpc("mark_supplier_order_sent", {
+          p_request_id: orderRequestId,
+          p_gmail_message_id: sent.id,
+          p_upload_token_hash: uploadTokenHash,
+          p_expires_at: expiresAt,
+        });
+        if (marked.error) {
+          await admin.rpc("mark_supplier_order_failed", {
+            p_request_id: orderRequestId,
+            p_error: "state_update_failed",
+          });
+          return respond({ code: "state_update_failed" }, 502, "state_update_failed");
+        }
+
+        // Gối đầu runs only after the order is recorded as sent. Failures are
+        // recorded but never turn the sent order into an error.
+        let prepayResult: Record<string, unknown> | null = null;
+        if (prepay) {
+          let prepayStatus = "skipped_none";
+          let submissionId: string | null = null;
+          let submissionNumber: string | null = null;
+          if (prepayRow) {
+            if (prepayRecent) {
+              prepayStatus = "skipped_recent";
+            } else {
+              try {
+                const submission = await userDb.rpc("create_payment_submission", {
+                  p_request_ids: [String(prepayRow.id ?? "")],
+                  p_note: `Gối đầu khi đặt ${String(created.po_number ?? "")} cho NCC`,
+                  p_idempotency_key: `supplier-order:${requestId}`,
+                });
+                if (submission.error) {
+                  const message = errorMessage(submission.error);
+                  const code = errorCode(submission.error);
+                  if (
+                    code === "42501"
+                    || message.includes("insufficient_privilege")
+                    || message.includes("not_owner")
+                  ) {
+                    prepayStatus = "forbidden";
+                  } else if (
+                    message.includes("not_payable")
+                    || message.includes("not_pending")
+                    || message.includes("request_not_found")
+                    || message.includes("request_ids_required")
+                  ) {
+                    prepayStatus = "declined";
+                  } else {
+                    prepayStatus = "failed";
+                  }
+                } else {
+                  const submissionData = (submission.data ?? {}) as Record<string, unknown>;
+                  prepayStatus = "created";
+                  submissionId = String(submissionData.submission_id ?? "");
+                  submissionNumber = String(submissionData.submission_number ?? "");
+                }
+              } catch {
+                prepayStatus = "failed";
+              }
+            }
+          }
+
+          try {
+            await admin.rpc("record_supplier_order_prepay", {
+              p_request_id: orderRequestId,
+              p_status: prepayStatus,
+              p_pr_id: prepayRow ? String(prepayRow.id ?? "") : null,
+              p_submission_id: submissionId,
+            });
+          } catch {
+            // Recording the prepay outcome must not fail the sent order.
+          }
+
+          prepayResult = {
+            status: prepayStatus,
+            request_number: prepayRow ? String(prepayRow.request_number ?? "") : null,
+            submission_number: submissionNumber,
+          };
+        }
+
+        return respond(
+          {
+            status: "sent",
+            po_number: created.po_number ?? null,
+            to_email: created.to_email ?? null,
+            sent_at: (marked.data as { sent_at?: string } | null)?.sent_at
+              ?? new Date().toISOString(),
+            prepay: prepayResult,
+          },
+          200,
+          "sent",
+        );
+      } catch {
+        await admin.rpc("mark_supplier_order_failed", {
+          p_request_id: orderRequestId,
+          p_error: "email_failed",
+        });
+        return respond({ code: "email_failed" }, 502, "email_failed");
+      }
+    }
+
+    itemId = String(body.item_id ?? "").trim();
     const quantity = Number(body.quantity);
     const note = typeof body.note === "string" ? body.note.trim().slice(0, 2000) : "";
 

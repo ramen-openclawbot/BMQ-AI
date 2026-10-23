@@ -3,11 +3,11 @@ import { navItems, type NavItem } from "./Sidebar";
 import { canViewNavItem, type NavAccess } from "./navAccess";
 
 /**
- * Demo 3 shell: seven top-level zones plus a utilities menu.
+ * Demo 3 shell: eight top-level zones plus a utilities menu.
  * Pages, labels and permission keys come from the Sidebar's navItems so the
  * routes and module checks stay single-sourced; this file only groups them.
  */
-export type ZoneId = "overview" | "sales" | "production" | "warehouse" | "approvals" | "finance" | "ai";
+export type ZoneId = "overview" | "sales" | "production" | "warehouse" | "ordering" | "approvals" | "finance" | "ai";
 
 export interface ShellPage {
   path: string;
@@ -101,6 +101,8 @@ export const ZONES: Zone[] = [
     ],
     prefixes: ["/warehouse", "/goods-receipts", "/purchase-orders"],
   },
+  // Đặt hàng (owner 23/10): supplier orders by email, its own entry in the main menu.
+  { id: "ordering", label: { vi: "Đặt hàng", en: "Ordering" }, paths: ["/dat-hang"], prefixes: ["/dat-hang"] },
   {
     id: "approvals",
     label: { vi: "Duyệt chi", en: "Approvals" },

@@ -275,3 +275,145 @@ assert "upload_limit_reached" in SMOKE
 assert "insufficient_privilege" in SMOKE
 
 print("supplier order email contract passed")
+
+print("== supplier order page migration ==")
+PAGE_MIGRATIONS = sorted(ROOT.glob("supabase/migrations/*_supplier_order_page.sql"))
+assert len(PAGE_MIGRATIONS) == 1, (
+    f"expected exactly one supplier_order_page migration, found {PAGE_MIGRATIONS}"
+)
+PAGE_MIGRATION = PAGE_MIGRATIONS[0].read_text(encoding="utf-8")
+PAGE_LOWER = PAGE_MIGRATION.lower()
+
+
+def page_block(name: str) -> str:
+    match = re.search(
+        rf"create\s+or\s+replace\s+function\s+public\.{re.escape(name)}\s*\(",
+        PAGE_MIGRATION,
+        re.IGNORECASE,
+    )
+    assert match, f"missing page function public.{name}"
+    tail = PAGE_MIGRATION[match.start():]
+    end = tail.find("\n$$;")
+    assert end != -1, f"unterminated page function public.{name}"
+    return tail[:end]
+
+
+for table in ("supplier_order_catalog_items", "supplier_order_request_lines"):
+    assert re.search(
+        rf"create\s+table\s+if\s+not\s+exists\s+public\.{table}", PAGE_LOWER
+    ), f"missing table {table}"
+    assert re.search(
+        rf"alter\s+table\s+public\.{table}\s+enable\s+row\s+level\s+security",
+        PAGE_LOWER,
+    ), f"RLS must be enabled on {table}"
+    assert re.search(
+        rf"revoke\s+all\s+on\s+table\s+public\.{table}\s+from\s+public\s*,\s*anon\s*,\s*authenticated",
+        PAGE_LOWER,
+    ), f"public/anon/authenticated must not read {table} directly"
+    assert re.search(
+        rf"grant\s+all\s+on\s+table\s+public\.{table}\s+to\s+service_role",
+        PAGE_LOWER,
+    ), f"service_role grant missing for {table}"
+
+assert "supplier_order_requests_prepay_status_check" in PAGE_LOWER
+assert "drop not null" in PAGE_LOWER
+assert re.search(r"prepay_status\s+text", PAGE_LOWER)
+for value in ("created", "skipped_none", "skipped_recent", "declined", "forbidden", "failed"):
+    assert f"'{value}'" in PAGE_LOWER
+
+print("== supplier order page functions: security definer + pinned search_path ==")
+PAGE_FUNCTIONS = [
+    "supplier_order_line_price",
+    "prepare_supplier_order",
+    "supplier_order_suppliers",
+    "supplier_order_catalog",
+    "supplier_order_catalog_candidates",
+    "supplier_order_catalog_set",
+    "create_supplier_order_multi",
+    "record_supplier_order_prepay",
+    "supplier_order_history",
+    "supplier_order_history_by_supplier",
+]
+for name in PAGE_FUNCTIONS:
+    block = page_block(name).lower()
+    assert "security definer" in block, f"{name} must be security definer"
+    assert "set search_path = public, pg_temp" in block, (
+        f"{name} must pin search_path to public, pg_temp"
+    )
+
+print("== supplier order page grants ==")
+for name in (
+    "supplier_order_suppliers",
+    "supplier_order_catalog",
+    "supplier_order_catalog_candidates",
+    "supplier_order_catalog_set",
+    "supplier_order_history",
+    "supplier_order_history_by_supplier",
+    "prepare_supplier_order",
+):
+    assert re.search(
+        rf"grant\s+execute\s+on\s+function\s+public\.{name}\([^)]*\)\s+to\s+authenticated\s*,\s*service_role",
+        PAGE_LOWER,
+        re.DOTALL,
+    ), f"{name} must be callable by authenticated + service_role"
+
+for name in ("create_supplier_order_multi", "record_supplier_order_prepay"):
+    assert re.search(
+        rf"revoke\s+all\s+on\s+function\s+public\.{name}\([^;]*?\)\s*from\s+public\s*,\s*anon\s*,\s*authenticated",
+        PAGE_LOWER,
+        re.DOTALL,
+    ), f"{name} must revoke public/anon/authenticated"
+    assert re.search(
+        rf"grant\s+execute\s+on\s+function\s+public\.{name}\([^;]*?\)\s*to\s+service_role\s*;",
+        PAGE_LOWER,
+        re.DOTALL,
+    ), f"{name} must grant execute to service_role only"
+
+print("== multi create computes prices server-side ==")
+create_multi = page_block("create_supplier_order_multi").lower()
+assert "supplier_order_line_price(" in create_multi
+assert "supplier_order_catalog_items" in create_multi
+assert "over_quantity_limit" in create_multi
+assert "over_amount_limit" in create_multi
+assert "order_email_max_amount" in create_multi
+assert "purchase_order_items" in create_multi
+assert "supplier_order_request_lines" in create_multi
+assert re.search(r"from\s+jsonb_array_elements\(p_lines\)", create_multi)
+
+print("== edge orders create, then mail, then prepay ==")
+assert "create_supplier_order_multi" in send_source
+assert send_source.index('admin.rpc("create_supplier_order_multi"') < send_source.index(
+    "await sendGmail("
+)
+assert send_source.index('admin.rpc("mark_supplier_order_sent"') < send_source.index(
+    'userDb.rpc("create_payment_submission"'
+)
+assert "supplier_order_catalog" in send_source
+assert "buildSupplierOrderEmailLines" in send_source
+assert "in_progress" in send_source
+assert "prepay" in send_source
+
+print("== supplier order page smoke is rollback-only ==")
+PAGE_SMOKE = (ROOT / "scripts/smoke_supplier_order_page.sql").read_text(encoding="utf-8")
+assert re.search(r"^\s*begin\s*;", PAGE_SMOKE, re.IGNORECASE | re.MULTILINE)
+assert re.search(r"^\s*rollback\s*;\s*$", PAGE_SMOKE, re.IGNORECASE | re.MULTILINE)
+assert not re.search(r"^\s*commit\s*;", PAGE_SMOKE, re.IGNORECASE | re.MULTILINE)
+non_comment = [
+    line.strip()
+    for line in PAGE_SMOKE.splitlines()
+    if line.strip() and not line.strip().startswith("--")
+]
+assert non_comment[-1].lower() == "rollback;"
+assert "27dbc34e-75ee-4973-8f9a-d1b125c90483" in PAGE_SMOKE
+assert "set local role authenticated" in PAGE_SMOKE.lower()
+assert "supplier_order_suppliers" in PAGE_SMOKE
+assert "supplier_order_catalog" in PAGE_SMOKE
+assert "supplier_order_catalog_candidates" in PAGE_SMOKE
+assert "supplier_order_catalog_set" in PAGE_SMOKE
+assert "create_supplier_order_multi" in PAGE_SMOKE
+assert "replayed" in PAGE_SMOKE
+assert "over_quantity_limit" in PAGE_SMOKE
+assert "supplier_order_history_by_supplier" in PAGE_SMOKE
+assert "supplier_order_history" in PAGE_SMOKE
+
+print("supplier order page contract passed")

@@ -1,0 +1,191 @@
+/*
+ * Đặt hàng (owner 23/10/2026): supplier order page in the app theme, on the Kho kit
+ * (.d3-wh, .d3-wh-card, .d3-kho-tabs, .d3-kho-field) and the shell tokens.
+ * Motion is state only: a press, the preview and the sent note arriving.
+ */
+
+.d3-so-card { display: grid; gap: 16px; }
+.d3-so-card-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 10px 16px; }
+.d3-so-card-head h2 { margin: 0; font-size: 17px; font-weight: 500; line-height: 1.3; letter-spacing: -.01em; color: var(--d3-ink); }
+.d3-so-card-head p { margin: 4px 0 0; max-width: 62ch; font-size: 13.5px; line-height: 1.5; color: var(--d3-ink-2); }
+.d3-so-card-head p b { font-weight: 500; color: var(--d3-ink); }
+.d3-so-card-head > button { flex: none; }
+.d3-so-card-head > button svg { width: 15px; height: 15px; }
+.is-wrap { overflow-wrap: anywhere; }
+
+/* ---------- order lines ---------- */
+.d3-so-lines { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.d3-so-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px 20px;
+  min-width: 0;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: var(--d3-white);
+}
+.d3-so-line-main { display: grid; gap: 3px; min-width: 0; }
+.d3-so-line-main > b { font-size: 15px; font-weight: 500; line-height: 1.35; color: var(--d3-ink); overflow-wrap: anywhere; }
+.d3-so-line-main > small {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  font-size: 12.5px;
+  color: var(--d3-dim);
+  font-variant-numeric: tabular-nums;
+}
+.d3-so-stock { margin: 2px 0 0; font-size: 13px; line-height: 1.45; color: var(--d3-ink-2); font-variant-numeric: tabular-nums; }
+.d3-so-stock .is-bad { color: var(--kho-bad); font-weight: 500; }
+.d3-so-proposal { color: var(--d3-ink); }
+.d3-so-open {
+  justify-self: start;
+  margin: 4px 0 0;
+  padding: 3px 9px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: var(--kho-warn);
+  background: var(--kho-warn-bg);
+}
+
+.d3-so-line-qty { display: grid; justify-items: end; gap: 6px; min-width: 0; }
+.d3-so-stepper { display: flex; align-items: center; gap: 6px; }
+html.bmq-d3 .d3-so-stepper button {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--kho-muted);
+  color: var(--d3-ink);
+  cursor: pointer;
+}
+html.bmq-d3 .d3-so-stepper button:hover:not(:disabled) { background: #deded9; }
+html.bmq-d3 .d3-so-stepper button:disabled { opacity: .4; cursor: default; }
+.d3-so-stepper button:focus-visible { outline: 2px solid var(--d3-ink); outline-offset: 1px; }
+.d3-so-stepper button svg { width: 16px; height: 16px; }
+.d3-so-stepper input { width: 84px; height: 36px; text-align: right; font-variant-numeric: tabular-nums; }
+.d3-so-stepper input[aria-invalid="true"] { border-color: var(--kho-bad); }
+.d3-so-unit { min-width: 20px; font-size: 13px; color: var(--d3-dim); }
+.d3-so-line-total { min-height: 20px; font-size: 15px; font-weight: 500; color: var(--d3-ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+html.bmq-d3 .d3-so-remove {
+  grid-column: 1 / -1;
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  font-size: 13px;
+  color: var(--kho-bad);
+  cursor: pointer;
+}
+.d3-so-remove svg { width: 14px; height: 14px; }
+.d3-so-remove:focus-visible { outline: 2px solid var(--d3-ink); outline-offset: 2px; border-radius: 6px; }
+
+/* ---------- catalog: add items the supplier delivered before ---------- */
+.d3-so-adder { display: grid; gap: 8px; }
+.d3-so-adder ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.d3-so-adder li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px 10px 16px;
+  border-radius: 12px;
+  background: var(--d3-white);
+}
+.d3-so-adder li > span { display: grid; gap: 2px; min-width: 0; }
+.d3-so-adder li b { font-size: 14px; font-weight: 500; color: var(--d3-ink); overflow-wrap: anywhere; }
+.d3-so-adder li small { font-size: 12.5px; color: var(--d3-dim); }
+.d3-so-adder li button { flex: none; }
+.d3-so-adder li button svg { width: 14px; height: 14px; }
+
+/* ---------- note, gối đầu, total ---------- */
+.d3-so-foot { display: grid; gap: 12px; }
+.d3-so-delivery { margin: 0; font-size: 13px; line-height: 1.5; color: var(--d3-ink-2); }
+.d3-so-prepay {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 0;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: var(--d3-white);
+  cursor: pointer;
+}
+.d3-so-prepay input { flex: none; width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--d3-ink); cursor: pointer; }
+.d3-so-prepay > span { display: grid; gap: 2px; min-width: 0; }
+.d3-so-prepay b { font-size: 14px; font-weight: 500; color: var(--d3-ink); }
+.d3-so-prepay small { font-size: 12.5px; line-height: 1.45; color: var(--d3-ink-2); font-variant-numeric: tabular-nums; }
+.d3-so-prepay.is-none { display: block; padding: 0; background: none; font-size: 13px; line-height: 1.5; color: var(--d3-ink-2); cursor: default; }
+
+/* Total and action sit together on the left: the VNAgent launcher owns the bottom-right corner. */
+.d3-so-submit { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 28px; }
+.d3-so-total { display: grid; margin: 0; }
+.d3-so-total span { font-size: 12.5px; color: var(--d3-dim); }
+.d3-so-total b { font-size: 22px; font-weight: 500; line-height: 1.2; letter-spacing: -.015em; color: var(--d3-ink); font-variant-numeric: tabular-nums; }
+
+/* ---------- preview ---------- */
+.d3-so-preview, .d3-so-done { animation: d3-so-in .2s var(--kho-ease, ease-out) both; }
+.d3-so-preview { display: grid; gap: 14px; min-width: 0; }
+.d3-so-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 20px; margin: 0; }
+.d3-so-facts > div { display: grid; gap: 2px; min-width: 0; }
+.d3-so-facts dt { font-size: 12px; color: var(--d3-dim); }
+.d3-so-facts dd { margin: 0; font-size: 14px; font-weight: 500; color: var(--d3-ink); font-variant-numeric: tabular-nums; }
+.d3-so-mail { display: block; width: 100%; border: 0; border-radius: 12px; background: #f5f5f5; }
+.d3-so-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.d3-so-actions button svg { width: 15px; height: 15px; }
+
+/* ---------- sent ---------- */
+.d3-so-done { display: flex; align-items: flex-start; gap: 14px; }
+.d3-so-done-mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  background: var(--kho-ok-bg);
+  color: var(--kho-ok);
+}
+.d3-so-done-mark svg { width: 18px; height: 18px; }
+.d3-so-done h2 { margin: 6px 0 0; font-size: 17px; font-weight: 500; letter-spacing: -.01em; color: var(--d3-ink); }
+.d3-so-done p { margin: 4px 0 0; max-width: 62ch; font-size: 13.5px; line-height: 1.5; color: var(--d3-ink-2); }
+.d3-so-done button { margin-top: 12px; }
+
+/* ---------- history ---------- */
+.d3-so-hist { display: grid; margin: 0; padding: 0; list-style: none; }
+.d3-so-hist > li { display: grid; gap: 4px; min-width: 0; padding: 12px 0; }
+.d3-so-hist > li:first-child { padding-top: 0; }
+.d3-so-hist > li + li { box-shadow: 0 -1px 0 var(--d3-line); }
+.d3-so-hist-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; font-size: 13.5px; color: var(--d3-ink-2); font-variant-numeric: tabular-nums; }
+.d3-so-hist-head > b { font-weight: 500; color: var(--d3-ink); }
+.d3-so-hist-total { margin-left: auto; }
+.d3-so-status { padding: 1px 8px; border-radius: 999px; font-size: 12px; background: var(--kho-muted); color: var(--d3-ink-2); }
+.d3-so-status.is-ok { background: var(--kho-ok-bg); color: var(--kho-ok); }
+.d3-so-status.is-bad { background: var(--kho-bad-bg); color: var(--kho-bad); }
+.d3-so-hist-lines { margin: 0; font-size: 13px; line-height: 1.45; color: var(--d3-ink-2); overflow-wrap: anywhere; }
+.d3-so-hist-meta { margin: 0; font-size: 12.5px; color: var(--d3-dim); }
+
+@keyframes d3-so-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .d3-so-preview, .d3-so-done { animation: none; }
+}
+
+@media (max-width: 640px) {
+  .d3-so-line { grid-template-columns: minmax(0, 1fr); padding: 14px; }
+  /* The total moves under the stepper when the row has no room for both. */
+  .d3-so-line-qty { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
+  .d3-so-line-total { margin-left: auto; }
+  .d3-so-stepper input { width: 72px; }
+  .d3-so-facts { grid-template-columns: minmax(0, 1fr); }
+  .d3-so-submit > button { width: 100%; }
+  .d3-so-actions > button { flex: 1 1 auto; }
+}

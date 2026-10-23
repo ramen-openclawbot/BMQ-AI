@@ -91,6 +91,144 @@ export type SupplierOrderHistoryEntry = {
   uploads: SupplierOrderUpload[];
 };
 
+export type SupplierOrderSupplierListEntry = {
+  id: string;
+  name: string;
+  email: string | null;
+  itemCount: number;
+  lastOrder: { poNumber: string | null; sentAt: string | null } | null;
+  unpaidCount: number;
+};
+
+export type SupplierOrderCatalogStock = {
+  onHand: number | null;
+  dailyUsage: number;
+  daysLeft: number | null;
+  reorderDate: string | null;
+  lastCountDate: string | null;
+};
+
+export type SupplierOrderCatalogOpenOrder = {
+  poNumber: string | null;
+  quantity: number | null;
+  unit: string | null;
+  sentAt: string | null;
+};
+
+export type SupplierOrderCatalogItem = {
+  catalogId: string;
+  item: { id: string; name: string; code: string; unit: string };
+  productName: string;
+  poUnit: string;
+  poUnitFactor: number;
+  packSizePo: number | null;
+  stock: SupplierOrderCatalogStock;
+  proposalQty: number;
+  unitPrice: number | null;
+  openOrder: SupplierOrderCatalogOpenOrder | null;
+};
+
+export type SupplierOrderPrepay = {
+  id: string;
+  requestNumber: string;
+  createdAt: string | null;
+  totalAmount: number | null;
+  remaining: number | null;
+  poNumber: string | null;
+  recentSubmission: {
+    submissionNumber: string;
+    createdAt: string | null;
+  } | null;
+};
+
+export type SupplierOrderCatalog = {
+  supplier: SupplierOrderSupplier | null;
+  delivery: SupplierOrderDelivery;
+  mailboxConnected: boolean;
+  blockers: string[];
+  items: SupplierOrderCatalogItem[];
+  prepay: SupplierOrderPrepay | null;
+};
+
+export type SupplierOrderCatalogCandidate = {
+  itemId: string;
+  name: string;
+  unit: string;
+  latestProductName: string | null;
+  lastOrderDate: string | null;
+  lineCount: number;
+};
+
+export type SupplierOrderPreviewLine = {
+  position: number;
+  itemId: string;
+  productName: string;
+  quantity: number;
+  unit: string;
+  unitPrice: number | null;
+  lineTotal: number | null;
+};
+
+export type SupplierOrderPreview = {
+  subject: string;
+  html: string;
+  text: string;
+  toEmail: string | null;
+  lines: SupplierOrderPreviewLine[];
+  total: number | null;
+  prepay: SupplierOrderPrepay | null;
+  prepayReason: string | null;
+};
+
+export type SendSupplierOrderLinesInput = {
+  supplierId: string;
+  lines: { itemId: string; quantity: number }[];
+  note?: string;
+  requestId?: string;
+  prepay?: boolean;
+};
+
+export type SendSupplierOrderLinesResult = {
+  status: "sent";
+  poNumber: string | null;
+  toEmail: string | null;
+  sentAt: string | null;
+  prepay: {
+    status: string;
+    requestNumber: string | null;
+    submissionNumber: string | null;
+  } | null;
+  replayed?: boolean;
+};
+
+export type SupplierOrderRequestLine = {
+  position: number;
+  itemId: string;
+  productName: string;
+  quantity: number;
+  unit: string;
+  unitPrice: number | null;
+  lineTotal: number | null;
+};
+
+export type SupplierOrderHistoryBySupplierEntry = {
+  id: string | null;
+  requestId: string | null;
+  poNumber: string | null;
+  total: number | null;
+  status: string;
+  sentAt: string | null;
+  toEmail: string | null;
+  createdAt: string | null;
+  lines: SupplierOrderRequestLine[];
+  uploads: SupplierOrderUpload[];
+  prepay: {
+    status: string;
+    requestNumber: string | null;
+    submissionNumber: string | null;
+  } | null;
+};
+
 export type SendSupplierOrderInput = {
   itemId: string;
   quantity: number;
@@ -290,6 +428,242 @@ export function parseSupplierOrderUploadSummary(value: unknown): SupplierOrderUp
   };
 }
 
+function parseCatalogItem(value: unknown): SupplierOrderCatalogItem | null {
+  const row = asRecord(value);
+  if (Object.keys(row).length === 0) return null;
+  const item = asRecord(row.item);
+  const stock = asRecord(row.stock);
+  const openValue = row.open_order;
+  const open = openValue === null || openValue === undefined ? null : asRecord(openValue);
+  return {
+    catalogId: asText(row.catalog_id),
+    item: {
+      id: asText(item.id),
+      name: asText(item.name),
+      code: asText(item.code),
+      unit: asText(item.unit),
+    },
+    productName: asText(row.product_name, asText(item.name)),
+    poUnit: asText(row.po_unit),
+    poUnitFactor: asNumber(row.po_unit_factor) ?? 0,
+    packSizePo: asNumber(row.pack_size_po),
+    stock: {
+      onHand: asNumber(stock.on_hand),
+      dailyUsage: asNumber(stock.daily_usage) ?? 0,
+      daysLeft: asNumber(stock.days_left),
+      reorderDate: asNullableText(stock.reorder_date),
+      lastCountDate: asNullableText(stock.last_count_date),
+    },
+    proposalQty: asNumber(row.proposal_qty) ?? 0,
+    unitPrice: asNumber(row.unit_price),
+    openOrder: open === null || Object.keys(open).length === 0
+      ? null
+      : {
+          poNumber: asNullableText(open.po_number),
+          quantity: asNumber(open.quantity),
+          unit: asNullableText(open.unit),
+          sentAt: asNullableText(open.sent_at),
+        },
+  };
+}
+
+function parsePrepay(value: unknown): SupplierOrderPrepay | null {
+  const row = asRecord(value);
+  if (Object.keys(row).length === 0) return null;
+  const recent = asRecord(row.recent_submission);
+  return {
+    id: asText(row.id),
+    requestNumber: asText(row.request_number),
+    createdAt: asNullableText(row.created_at),
+    totalAmount: asNumber(row.total_amount),
+    remaining: asNumber(row.remaining),
+    poNumber: asNullableText(row.po_number),
+    recentSubmission: Object.keys(recent).length === 0
+      ? null
+      : {
+          submissionNumber: asText(recent.submission_number),
+          createdAt: asNullableText(recent.created_at),
+        },
+  };
+}
+
+export function parseSupplierOrderSuppliers(value: unknown): SupplierOrderSupplierListEntry[] {
+  const root = asRecord(value);
+  const rows = Array.isArray(value) ? value : Array.isArray(root.suppliers) ? root.suppliers : [];
+  const output: SupplierOrderSupplierListEntry[] = [];
+  for (const raw of rows) {
+    const row = asRecord(raw);
+    if (Object.keys(row).length === 0) continue;
+    const lastValue = row.last_order;
+    const last = lastValue === null || lastValue === undefined ? null : asRecord(lastValue);
+    output.push({
+      id: asText(row.id),
+      name: asText(row.name),
+      email: asNullableText(row.email),
+      itemCount: asNumber(row.item_count) ?? 0,
+      lastOrder: last === null || Object.keys(last).length === 0
+        ? null
+        : {
+            poNumber: asNullableText(last.po_number),
+            sentAt: asNullableText(last.sent_at),
+          },
+      unpaidCount: asNumber(row.unpaid_count) ?? 0,
+    });
+  }
+  return output;
+}
+
+export function parseSupplierOrderCatalog(value: unknown): SupplierOrderCatalog | null {
+  const root = asRecord(value);
+  if (Object.keys(root).length === 0) return null;
+  const supplierValue = root.supplier;
+  const supplier = supplierValue === null || supplierValue === undefined
+    ? null
+    : asRecord(supplierValue);
+  const delivery = asRecord(root.delivery);
+  return {
+    supplier: supplier === null || Object.keys(supplier).length === 0
+      ? null
+      : {
+          id: asText(supplier.id),
+          name: asText(supplier.name),
+          email: asNullableText(supplier.email),
+        },
+    delivery: {
+      address: asText(delivery.address),
+      contactName: asText(delivery.contact_name),
+      contactPhone: asText(delivery.contact_phone),
+      note: asText(delivery.note),
+    },
+    mailboxConnected: root.mailbox_connected === true,
+    blockers: asStringArray(root.blockers),
+    items: (Array.isArray(root.items) ? root.items : [])
+      .map(parseCatalogItem)
+      .filter((item): item is SupplierOrderCatalogItem => item !== null),
+    prepay: parsePrepay(root.prepay),
+  };
+}
+
+export function parseSupplierOrderCatalogCandidates(
+  value: unknown,
+): SupplierOrderCatalogCandidate[] {
+  const root = asRecord(value);
+  const rows = Array.isArray(value) ? value : Array.isArray(root.items) ? root.items : [];
+  const output: SupplierOrderCatalogCandidate[] = [];
+  for (const raw of rows) {
+    const row = asRecord(raw);
+    if (Object.keys(row).length === 0) continue;
+    output.push({
+      itemId: asText(row.item_id),
+      name: asText(row.name),
+      unit: asText(row.unit),
+      latestProductName: asNullableText(row.latest_product_name),
+      lastOrderDate: asNullableText(row.last_order_date),
+      lineCount: asNumber(row.line_count) ?? 0,
+    });
+  }
+  return output;
+}
+
+function parsePreviewLine(value: unknown): SupplierOrderPreviewLine | null {
+  const row = asRecord(value);
+  if (Object.keys(row).length === 0) return null;
+  return {
+    position: asNumber(row.position) ?? 0,
+    itemId: asText(row.item_id),
+    productName: asText(row.product_name),
+    quantity: asNumber(row.quantity) ?? 0,
+    unit: asText(row.unit),
+    unitPrice: asNumber(row.unit_price),
+    lineTotal: asNumber(row.line_total),
+  };
+}
+
+export function parseSupplierOrderPreview(value: unknown): SupplierOrderPreview | null {
+  const root = asRecord(value);
+  if (Object.keys(root).length === 0) return null;
+  return {
+    subject: asText(root.subject),
+    html: asText(root.html),
+    text: asText(root.text),
+    toEmail: asNullableText(root.to_email),
+    lines: (Array.isArray(root.lines) ? root.lines : [])
+      .map(parsePreviewLine)
+      .filter((line): line is SupplierOrderPreviewLine => line !== null),
+    total: asNumber(root.total),
+    prepay: parsePrepay(root.prepay),
+    prepayReason: asNullableText(root.prepay_reason),
+  };
+}
+
+export function parseSendSupplierOrderLinesResult(
+  value: unknown,
+): SendSupplierOrderLinesResult | null {
+  const root = asRecord(value);
+  if (Object.keys(root).length === 0) return null;
+  const prepay = asRecord(root.prepay);
+  return {
+    status: "sent",
+    poNumber: asNullableText(root.po_number),
+    toEmail: asNullableText(root.to_email),
+    sentAt: asNullableText(root.sent_at),
+    prepay: Object.keys(prepay).length === 0
+      ? null
+      : {
+          status: asText(prepay.status),
+          requestNumber: asNullableText(prepay.request_number),
+          submissionNumber: asNullableText(prepay.submission_number),
+        },
+    replayed: root.replayed === true,
+  };
+}
+
+export function parseSupplierOrderHistoryBySupplier(
+  value: unknown,
+): SupplierOrderHistoryBySupplierEntry[] {
+  const root = asRecord(value);
+  const rows = Array.isArray(value) ? value : Array.isArray(root.items) ? root.items : [];
+  const output: SupplierOrderHistoryBySupplierEntry[] = [];
+  for (const raw of rows) {
+    const row = asRecord(raw);
+    if (Object.keys(row).length === 0) continue;
+    const prepay = asRecord(row.prepay);
+    output.push({
+      id: asNullableText(row.id),
+      requestId: asNullableText(row.request_id),
+      poNumber: asNullableText(row.po_number),
+      total: asNumber(row.total),
+      status: asText(row.status),
+      sentAt: asNullableText(row.sent_at),
+      toEmail: asNullableText(row.to_email),
+      createdAt: asNullableText(row.created_at),
+      lines: (Array.isArray(row.lines) ? row.lines : []).map((rawLine) => {
+        const line = asRecord(rawLine);
+        return {
+          position: asNumber(line.position) ?? 0,
+          itemId: asText(line.item_id),
+          productName: asText(line.product_name),
+          quantity: asNumber(line.quantity) ?? 0,
+          unit: asText(line.unit),
+          unitPrice: asNumber(line.unit_price),
+          lineTotal: asNumber(line.line_total),
+        };
+      }),
+      uploads: (Array.isArray(row.uploads) ? row.uploads : [])
+        .map(parseHistoryUpload)
+        .filter((upload): upload is SupplierOrderUpload => upload !== null),
+      prepay: Object.keys(prepay).length === 0
+        ? null
+        : {
+            status: asText(prepay.status),
+            requestNumber: asNullableText(prepay.request_number),
+            submissionNumber: asNullableText(prepay.submission_number),
+          },
+    });
+  }
+  return output;
+}
+
 export function formatQuantity(value: number | null | undefined): string {
   const number = typeof value === "number" && Number.isFinite(value) ? value : 0;
   const rounded = Math.round(number * 1000) / 1000;
@@ -403,6 +777,86 @@ export async function sendSupplierOrder(
     sentAt: asNullableText(payload.sent_at),
     replayed: payload.replayed === true,
   };
+}
+
+export async function previewSupplierOrder(
+  input: SendSupplierOrderLinesInput,
+): Promise<SupplierOrderPreview> {
+  const requestId = input.requestId ?? createSupplierOrderRequestId();
+  const { supabase } = await import("../integrations/supabase/client");
+  const { data, error } = await supabase.functions.invoke("supplier-order-send", {
+    body: {
+      supplier_id: input.supplierId,
+      lines: input.lines.map((line) => ({
+        item_id: line.itemId,
+        quantity: line.quantity,
+      })),
+      note: input.note ?? "",
+      request_id: requestId,
+      mode: "preview",
+      prepay: input.prepay === true,
+    },
+  });
+
+  if (error) {
+    const parsed = await readFunctionError(error);
+    throw new SupplierOrderClientError(parsed.code, parsed.message, parsed.status);
+  }
+
+  const payload = asRecord(data);
+  if (asText(payload.code)) {
+    throw new SupplierOrderClientError(
+      asText(payload.code),
+      asText(payload.error, "Không xem trước được đơn đặt hàng"),
+    );
+  }
+  const parsed = parseSupplierOrderPreview(payload);
+  if (!parsed) {
+    throw new SupplierOrderClientError("preview_failed", "Không xem trước được đơn đặt hàng");
+  }
+  return parsed;
+}
+
+export async function sendSupplierOrderLines(
+  input: SendSupplierOrderLinesInput,
+): Promise<SendSupplierOrderLinesResult> {
+  const requestId = input.requestId ?? createSupplierOrderRequestId();
+  const { supabase } = await import("../integrations/supabase/client");
+  const { data, error } = await supabase.functions.invoke("supplier-order-send", {
+    body: {
+      supplier_id: input.supplierId,
+      lines: input.lines.map((line) => ({
+        item_id: line.itemId,
+        quantity: line.quantity,
+      })),
+      note: input.note ?? "",
+      request_id: requestId,
+      mode: "send",
+      prepay: input.prepay === true,
+    },
+  });
+
+  if (error) {
+    const parsed = await readFunctionError(error);
+    throw new SupplierOrderClientError(parsed.code, parsed.message, parsed.status);
+  }
+
+  const payload = asRecord(data);
+  if (asText(payload.code)) {
+    throw new SupplierOrderClientError(
+      asText(payload.code),
+      asText(payload.error, "Không gửi được email đặt hàng"),
+    );
+  }
+  if (asText(payload.status) !== "sent") {
+    throw new SupplierOrderClientError("send_failed", "Không gửi được email đặt hàng");
+  }
+
+  const parsed = parseSendSupplierOrderLinesResult(payload);
+  if (!parsed) {
+    throw new SupplierOrderClientError("send_failed", "Không gửi được email đặt hàng");
+  }
+  return parsed;
 }
 
 function publicHeaders(): Record<string, string> {
