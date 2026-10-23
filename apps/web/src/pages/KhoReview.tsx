@@ -12,6 +12,7 @@ import {
   KHO_REVIEW_QUERY_KEY, useKhoReviewDismiss, useKhoReviewReadLine, useKhoReviewSearchLines, useKhoReviewUndismiss, useKhoReviewUndoUnitFix,
 } from "@/hooks/useKhoReview";
 import { useKhoItems, useKhoSaveItem } from "@/hooks/useKhoItems";
+import { useKhoUnits } from "@/hooks/useKhoUnits";
 import { useSetItemKhoLocations } from "@/hooks/useWarehouseGame";
 import type { KhoItem } from "@/lib/kho-items";
 import {
@@ -303,7 +304,7 @@ function LineSearch({ targetKey, exclude, onPick }: { targetKey: string; exclude
       {query.length < 2 ? null
         : search.isLoading ? <small className="d3-kr-read-wait">Đang tìm…</small>
         : search.isError ? <p className="d3-kho-error">{khoReviewErrorText(search.error)}</p>
-        : !rows.length ? <p className="d3-kho-hint">Không có phiếu nào có “{query}”.</p>
+        : !rows.length ? <p className="d3-kho-hint">{search.data?.length ? "Dòng tìm được đang ở phía trên." : `Không có phiếu nào có “${query}”.`}</p>
         : (
           <ul className="d3-kr-exist-list">
             {rows.map((r) => (
@@ -395,22 +396,62 @@ function ItemReview({ item, confirm, onClose, onJev, jevBusy }: { item: KhoRevie
   const [extra, setExtra] = useState<KhoReviewCandidate[]>([]);
   const all = useMemo(() => [...extra.filter((e) => !item.candidates.some((c) => c.receipt_item_id === e.receipt_item_id)), ...item.candidates], [extra, item.candidates]);
   const cand = all.find((c) => c.receipt_item_id === picked) ?? null;
-  const assist = useLineAssist(cand, item.unit, item.item_id);
-  useSuggestedFactor(assist.suggestion, picked, touched, setFactorText);
+  // The item's own unit can be changed here (owner 23/10): the new unit, and how many new units one old unit is.
+  const units = useKhoUnits();
+  const kho = useKhoItems();
+  const saveItem = useKhoSaveItem();
+  const [targetUnit, setTargetUnit] = useState(item.unit);
+  const [unitFactorText, setUnitFactorText] = useState("");
+  const [unitError, setUnitError] = useState<string | null>(null);
+  const unitChanged = targetUnit !== item.unit;
+  const unitOptions = useMemo(() => {
+    const codes = units.data?.map((u) => u.code) ?? ITEM_UNITS;
+    return codes.includes(item.unit) ? codes : [item.unit, ...codes];
+  }, [units.data, item.unit]);
+  const uf = parseNum(unitFactorText);
+  const unitOk = !unitChanged || (Number.isFinite(uf) && uf > 0);
+  const assist = useLineAssist(cand, targetUnit, unitChanged ? null : item.item_id);
+  useSuggestedFactor(assist.suggestion, picked ? `${picked}:${targetUnit}` : null, touched, setFactorText);
   const x = parseNum(factorText);
   const factorOk = Number.isFinite(x) && x > 0;
 
   const pick = (c: KhoReviewCandidate) => {
     setPicked(c.receipt_item_id);
     setTouched(false);
+    setTargetUnit(item.unit);
+    setUnitFactorText("");
+    setUnitError(null);
     const f = suggestedFactor(c.unit, item.unit);
     setFactorText(f !== null ? String(f) : "");
   };
+  const chooseUnit = (u: string) => {
+    setTargetUnit(u);
+    setTouched(false);
+    setUnitError(null);
+    const f = suggestedFactor(item.unit, u);
+    setUnitFactorText(u === item.unit ? "" : f !== null ? String(f) : "");
+  };
   const save = async () => {
-    if (!cand || !factorOk) return;
+    if (!cand || !factorOk || !unitOk) return;
+    if (cand.linked_item_id && cand.linked_item_id !== item.item_id) {
+      const other = kho.data?.items.find((it) => it.id === cand.linked_item_id)?.name ?? "một món khác";
+      const ok = await confirm({ title: "Dòng đang thuộc món khác", message: `Dòng “${cand.product_name}” đang nối vào “${other}”. Vẫn chuyển sang “${item.name}”?`, ok: "Vẫn chuyển", cancel: "Thôi" });
+      if (!ok) return;
+    }
     if (cand.location !== item.location) {
       const ok = await confirm({ title: "Phiếu ở kho khác", message: `Phiếu này nhận ở Kho ${cand.location ? KHO_LABEL[cand.location] : "?"}, món đang rà ở Kho ${KHO_LABEL[item.location]}. Nếu món không có chỗ ở kho của phiếu, phiếu chỉ được nối làm chứng từ, không cộng tồn. Vẫn nối?`, ok: "Vẫn nối", cancel: "Thôi" });
       if (!ok) return;
+    }
+    if (unitChanged) {
+      setUnitError(null);
+      try {
+        const r = await saveItem.mutateAsync({ itemId: item.item_id, name: item.name, unit: targetUnit, active: true, unitFactor: uf, requestId: newRequestId() });
+        if (r.status === "name_taken") throw new Error(`Đã có món “${r.other.name}” cùng tên, chưa đổi được đơn vị.`);
+        if (r.status !== "saved") throw new Error("Chưa đổi được đơn vị món. Mở Danh mục kho để đổi.");
+      } catch (e) {
+        setUnitError(e instanceof Error && !("code" in e) ? e.message : khoReviewErrorText(e));
+        return;
+      }
     }
     link.mutate({ receiptItemId: cand.receipt_item_id, itemId: item.item_id, factor: x, requestId: newRequestId() }, {
       onSuccess: (r) => {
@@ -438,13 +479,27 @@ function ItemReview({ item, confirm, onClose, onJev, jevBusy }: { item: KhoRevie
                   <b>{assist.suggestion && !touched ? "Quy đổi: đã điền sẵn, kiểm tra lại" : "Quy đổi: xem ảnh phiếu bên dưới rồi gõ"}</b>
                   <label className="d3-kho-conv">
                     1 {assist.unit ?? "đơn vị"} =
-                    <Input inputMode="decimal" value={factorText} onChange={(e) => { setTouched(true); setFactorText(e.target.value); }} placeholder="?" aria-label={`1 ${assist.unit ?? "đơn vị"} bằng bao nhiêu ${item.unit}`} data-bmq-review-factor />
-                    {item.unit}
+                    <Input inputMode="decimal" value={factorText} onChange={(e) => { setTouched(true); setFactorText(e.target.value); }} placeholder="?" aria-label={`1 ${assist.unit ?? "đơn vị"} bằng bao nhiêu ${targetUnit}`} data-bmq-review-factor />
+                    <select className="d3-kr-select d3-kr-unit" value={targetUnit} onChange={(e) => chooseUnit(e.target.value)} aria-label="Đơn vị món kho" data-bmq-review-target-unit>
+                      {unitOptions.map((u) => <option key={u} value={u}>{u}</option>)}
+                    </select>
                   </label>
                   {assist.suggestion && !touched ? <small data-bmq-review-factor-why>Điền {fmtQty(assist.suggestion.factor)} {assist.suggestion.why}.</small> : null}
+                  {unitChanged ? (
+                    <div className="d3-kr-read-fix d3-kr-unitchange" data-bmq-review-unit-change>
+                      <small>Đổi đơn vị món từ <b>{item.unit}</b> sang <b>{targetUnit}</b>. Tồn hiện có cũng đổi theo.</small>
+                      <label className="d3-kho-conv">
+                        1 {item.unit} cũ =
+                        <Input inputMode="decimal" value={unitFactorText} onChange={(e) => setUnitFactorText(e.target.value)} placeholder="?" aria-label={`1 ${item.unit} bằng bao nhiêu ${targetUnit}`} data-bmq-review-unit-factor />
+                        {targetUnit}
+                      </label>
+                      <small data-bmq-review-unit-preview>{unitOk ? `Tồn sau khi đổi: ${fmtAmount(item.qty * uf, targetUnit)} (đang là ${fmtAmount(item.qty, item.unit)})` : "Gõ số để xem tồn sau khi đổi."}</small>
+                    </div>
+                  ) : null}
+                  {unitError ? <p className="d3-kho-error">{unitError}</p> : null}
                   {link.error ? <p className="d3-kho-error">{khoReviewErrorText(link.error)}</p> : null}
                   <div className="d3-kho-actions">
-                    <Button disabled={!factorOk || link.isPending} onClick={() => void save()} data-bmq-review-link>{link.isPending ? "Đang nối…" : "Nối vào món này"}</Button>
+                    <Button disabled={!factorOk || !unitOk || link.isPending || saveItem.isPending} onClick={() => void save()} data-bmq-review-link>{link.isPending || saveItem.isPending ? "Đang nối…" : unitChanged ? "Đổi đơn vị và nối" : "Nối vào món này"}</Button>
                     <Button variant="outline" onClick={() => setPicked(null)}>Thôi</Button>
                   </div>
                 </div>

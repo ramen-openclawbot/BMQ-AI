@@ -38,7 +38,11 @@ function khoItems() {
     pending_count: { tan_tao: i % 11 === 1 ? 21600 : null, q7: it.pastry_q7 && i % 6 === 1 ? 160000 : null },
     doc_lines: (i * 7) % 40,
   })).concat([{ id: "it-nho", item_code: "NVL-031", name: "Nho khô Mỹ", unit: "g", active: false, item_class: "raw_material", in_q7: false, in_tan_tao: true,
-    qty: { tan_tao: 0, q7: null }, last_count_date: { tan_tao: null, q7: null }, pending_count: { tan_tao: null, q7: null }, doc_lines: 4 }]);
+    qty: { tan_tao: 0, q7: null }, last_count_date: { tan_tao: null, q7: null }, pending_count: { tan_tao: null, q7: null }, doc_lines: 4 },
+    { id: "it-tem", item_code: "CCDC-038", name: "Tem pháp QA", unit: "con", active: true, item_class: "packaging_supply", in_q7: true, in_tan_tao: false,
+    qty: { tan_tao: null, q7: 1085 }, last_count_date: { tan_tao: null, q7: null }, pending_count: { tan_tao: null, q7: null }, doc_lines: 0 },
+    { id: "other", item_code: "NVL-999", name: "Kem Rich's", unit: "g", active: true, item_class: "raw_material", in_q7: true, in_tan_tao: false,
+    qty: { tan_tao: null, q7: 0 }, last_count_date: { tan_tao: null, q7: null }, pending_count: { tan_tao: null, q7: null }, doc_lines: 3 }]);
 }
 function settle(st) {
   const mode = cfg().data || "populated";
@@ -71,7 +75,7 @@ function settle(st) {
       { target_key: "i:it-kem:q7", item_id: "it-kem", item_code: "Q7-KEM", name: "Kem làm mềm bánh", unit: "g", item_class: "raw_material", location: "q7", qty: -13021.8, reason: "no_docs_negative", candidates: [cand(1, "Kem rich làm mềm bánh", "kg", 5, 95000, "q7", 1), cand(2, "Kem Rich's Whipping Topping 907g / hộp (thùng 12 hộp) giao kèm hóa đơn đỏ", "hộp", 12, 89000, "q7", 0.5, { linked_item_id: "other" })] },
       { target_key: "i:it-nuoc:q7", item_id: "it-nuoc", item_code: "Q7-NUOC", name: "Nước Vihawa 20L Bình Vòi", unit: "g", item_class: "raw_material", location: "q7", qty: -47274.04, reason: "no_docs_negative", candidates: [cand(3, "Nước Vihawa 20L Bình Vòi", "Bình", 6, 61000, "tan_tao", 1)] },
       { target_key: "i:it-gang:q7", item_id: "it-gang", item_code: "CCDC-GANG", name: "Bao tay đen size M", unit: "cái", item_class: "packaging_supply", location: "q7", qty: 800, reason: "no_docs", candidates: [cand(9, "Bao tay y tế đen size M", "kg", 7, 90000, "q7", 1, { image_url: "goods-receipts/qa-9.jpg", raw_name: "BAO TAY Y TE DEN SIZE M (HOP 100 CAI)" })] },
-      { target_key: "i:it-tem:q7", item_id: "it-tem", item_code: "CCDC-038", name: "Tem pháp", unit: "con", item_class: "packaging_supply", location: "q7", qty: 1085, reason: "no_docs", hidden_different: 1, candidates: [] },
+      { target_key: "i:it-tem:q7", item_id: "it-tem", item_code: "CCDC-038", name: "Tem pháp QA", unit: "con", item_class: "packaging_supply", location: "q7", qty: 1085, reason: "no_docs", hidden_different: 1, candidates: [] },
       { target_key: "i:it-muoi:tan_tao", item_id: "it-muoi", item_code: "NVL-155", name: "Muối", unit: "g", item_class: "raw_material", location: "tan_tao", qty: 24900, reason: "no_docs", candidates: [cand(4, "Muối sấy khô 500G bao 25kg", "kg", 200, 6500, "tan_tao", 0.5)] },
     ];
     const materials = [
@@ -369,11 +373,19 @@ try {
     await page.locator("[data-bmq-review-search-row='gri-s1']").click();
     await page.waitForSelector("[data-bmq-review-cand='gri-s1'] [data-bmq-review-factor]");
     await page.locator("[data-bmq-review-factor]").fill("1");
+    // Change the item's own unit con → cái in place, with a stock preview.
+    await page.locator("[data-bmq-review-target-unit]").selectOption("cái");
+    await page.locator("[data-bmq-review-unit-factor]").fill("1");
+    assert.match(await page.locator("[data-bmq-review-unit-preview]").innerText(), /Tồn sau khi đổi: 1\.085 cái/, "stock preview after the unit change");
+    await page.locator("[data-bmq-review-factor]").fill("1");
+    await noSpill(page, "review-unitchange", vp);
+    await shot(page, `review-unitchange-${vp.width}.png`, false);
     await page.locator("[data-bmq-review-link]").click();
     await confirmOk(page);
     await page.waitForSelector("[data-bmq-review-dialog]", { state: "detached", timeout: 5000 });
     assert.ok((await calls(page)).some((c) => c.startsWith("rpc:kho_review_search_lines:") && c.includes('"p_query":"tem"')), "search call");
     assert.ok((await calls(page)).some((c) => c.startsWith("rpc:kho_review_link_line:") && c.includes("gri-s1")), "link searched line");
+    assert.ok((await calls(page)).some((c) => c.startsWith("rpc:kho_save_item:") && c.includes("it-tem") && c.includes('"p_unit":"cái"') && c.includes('"p_unit_factor":1')), "unit change saved before the link");
     await page.locator("[data-bmq-review-item='it-gang']").click();
     await dialogInView(page, "[data-bmq-review-dialog]", vp);
     await page.locator("[data-bmq-review-reason='no_receipt']").click();
@@ -389,6 +401,22 @@ try {
     await page.mouse.move(1, 1);
     await page.waitForFunction(() => !document.querySelector("[data-sonner-toast]"), null, { timeout: 12000 });
     pass(`search all receipts + link, mark no receipt ${vp.width}`);
+    // A line already linked to another item asks before moving it.
+    await page.mouse.move(1, 1);
+    await page.waitForFunction(() => !document.querySelector("[data-sonner-toast]"), null, { timeout: 12000 });
+    await page.locator("[data-bmq-review-item='it-kem']").click();
+    await dialogInView(page, "[data-bmq-review-dialog]", vp);
+    await page.locator("[data-bmq-review-cand='gri-2'] [data-bmq-review-pick]").click();
+    await page.locator("[data-bmq-review-factor]").fill("907");
+    await page.locator("[data-bmq-review-link]").click();
+    await page.waitForSelector("[data-bmq-kho-confirm]", { timeout: 4000 });
+    assert.match(await page.locator("[data-bmq-kho-confirm]").innerText(), /đang nối vào “Kem Rich's”/, "names the other item");
+    await page.locator("[data-bmq-kho-confirm-ok]").click();
+    await page.waitForSelector("[data-bmq-review-dialog]", { state: "detached", timeout: 5000 });
+    assert.ok((await calls(page)).some((c) => c.startsWith("rpc:kho_review_link_line:") && c.includes("gri-2")), "moved after confirming");
+    pass(`linked-elsewhere line asks before moving ${vp.width}`);
+    await page.mouse.move(1, 1);
+    await page.waitForFunction(() => !document.querySelector("[data-sonner-toast]"), null, { timeout: 12000 });
     // A line received at the other kho asks first.
     await page.locator("[data-bmq-review-item='it-nuoc']").click();
     await dialogInView(page, "[data-bmq-review-dialog]", vp);
