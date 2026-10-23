@@ -194,6 +194,12 @@ const ERROR_TEXT: Record<string, string> = {
   // discontinue_stock_item: a counted line on an open count sheet must be submitted first.
   item_in_open_count: "Món này đã được đếm trong phiếu kiểm kê đang mở. Nộp phiếu kiểm kê đó trước, rồi mới tắt được món.",
   item_merged: "Món này đã gộp vào món khác. Mở món mới để sửa.",
+  merge_source_was_target: "Món này từng nhận món gộp, chưa gộp tiếp được. Nhắn VNAgent giúp.",
+  merge_target_already_merged: "Món đích đã được gộp vào món khác.",
+  merge_item_type_mismatch: "Hai món khác loại (nguyên liệu / vật tư), không gộp được.",
+  merge_source_inactive: "Món này đã tắt hoặc đã gộp.",
+  merge_target_inactive: "Món đích đang tắt.",
+  merge_factor_invalid: "Hệ số quy đổi phải lớn hơn 0.",
 };
 
 function errorFields(error: unknown): { message: string; code: string } {
@@ -219,6 +225,11 @@ export function khoErrorText(error: unknown): string {
 
   if (code === "57014" || lower.includes("statement timeout") || lower.includes("timeout")) {
     return "Máy chủ xử lý quá lâu, anh/chị thử lại giúp.";
+  }
+
+  // Server messages carry detail after a colon: "merge_factor_invalid: ...".
+  for (const [key, text] of Object.entries(ERROR_TEXT)) {
+    if (lower === key || lower.startsWith(`${key}:`)) return text;
   }
 
   for (const [key, text] of Object.entries(ERROR_TEXT)) {

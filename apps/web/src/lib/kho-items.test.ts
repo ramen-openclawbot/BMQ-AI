@@ -145,10 +145,17 @@ test("khoErrorText maps every game error", () => {
     item_not_in_location: "Món này không có trong kho đã chọn.",
     item_in_open_count: "Món này đã được đếm trong phiếu kiểm kê đang mở. Nộp phiếu kiểm kê đó trước, rồi mới tắt được món.",
     item_merged: "Món này đã gộp vào món khác. Mở món mới để sửa.",
+    merge_source_was_target: "Món này từng nhận món gộp, chưa gộp tiếp được. Nhắn VNAgent giúp.",
+    merge_target_already_merged: "Món đích đã được gộp vào món khác.",
+    merge_item_type_mismatch: "Hai món khác loại (nguyên liệu / vật tư), không gộp được.",
+    merge_source_inactive: "Món này đã tắt hoặc đã gộp.",
+    merge_target_inactive: "Món đích đang tắt.",
+    merge_factor_invalid: "Hệ số quy đổi phải lớn hơn 0.",
   };
 
   for (const [code, text] of Object.entries(expected)) {
     assert.equal(khoErrorText({ message: code, code: "22023" }), text, code);
+    assert.equal(khoErrorText({ message: `${code}: server detail`, code: "23514" }), text, code);
   }
 
   assert.equal(
