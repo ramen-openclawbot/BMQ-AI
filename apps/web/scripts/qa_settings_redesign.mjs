@@ -60,6 +60,21 @@ const APP_SETTINGS = () => (cfg().conn === "none" ? [
 ]);
 function fixtureRows(st) {
   if (st.table === "app_settings") return APP_SETTINGS();
+  if (st.table === "profiles") return [
+    { user_id: "qa-user", full_name: "Tâm Vũ", email: "qa@bmq.test" },
+    { user_id: "u-ktt", full_name: "KTT BMQ", email: "ketoantruong@bmq.vn" },
+    { user_id: "u-mi", full_name: "Mi Ái", email: "mi@bmq.vn" },
+    { user_id: "u-nir", full_name: "nirran De silva với tên rất dài để thử xuống dòng", email: "nirran.desilva.longaddress@bmq.vn" },
+    { user_id: "u-kho", full_name: "Kho Tân Tạo", email: "kho@bmq.vn" },
+  ];
+  if (st.table === "user_roles") return [
+    { user_id: "qa-user", role: "owner" }, { user_id: "u-ktt", role: "staff" }, { user_id: "u-mi", role: "staff" },
+    { user_id: "u-nir", role: "viewer" }, { user_id: "u-kho", role: "warehouse" },
+  ];
+  if (st.table === "user_module_permissions") return [
+    { user_id: "u-mi", module_key: "dashboard", can_view: true, can_edit: false },
+    { user_id: "u-mi", module_key: "finance_cost", can_view: true, can_edit: true },
+  ];
   if (st.table === "revenue_ledger_lines") {
     const rows = [];
     // The ledger lags: no figures for today and yesterday.
@@ -304,6 +319,42 @@ try {
     await fullShot(page, `${EVIDENCE}/settings-${viewport.width}.png`);
     assert.deepEqual(errors, []);
     record(`settings ${viewport.width}`);
+    await context.close();
+  }
+  // Người dùng & Phân quyền (owner 23/10).
+  for (const viewport of VIEWPORTS) {
+    const { context, page, errors } = await open({ role: "owner", data: "populated" }, "/user-management", viewport);
+    await page.waitForSelector("[data-bmq-user-row]", { timeout: 20000 });
+    let f = await facts(page);
+    assert.ok(f.overflow <= 0, `users fit ${viewport.width}: ${f.overflow}`);
+    assert.equal(f.rowsOverflow, 0, `user rows fit ${viewport.width}`);
+    assert.equal(await page.locator("[data-bmq-user-row]").count(), 5);
+    assert.equal(await page.locator("[data-bmq-user-row]").first().locator(".st-row-toggle").count(), 0, "own row is not editable");
+    await page.locator("[data-bmq-user-row]", { hasText: "Mi Ái" }).locator(".st-row-toggle").click();
+    await page.locator("[data-bmq-role-option='warehouse']").click();
+    await page.waitForTimeout(300);
+    assert.ok((await page.evaluate(() => window.__qaWrites)).some((w) => w.startsWith("user_roles:")), "role change writes user_roles");
+    await page.locator("[data-bmq-user-delete]").click();
+    await page.waitForSelector("[role=alertdialog]");
+    await page.keyboard.press("Escape");
+    await page.waitForSelector("[role=alertdialog]", { state: "detached" });
+    await fullShot(page, `${EVIDENCE}/users-${viewport.width}.png`);
+    await page.locator("[role=tab]", { hasText: "Phân quyền" }).click();
+    await page.waitForSelector("[data-bmq-perm-user]");
+    assert.equal(await page.locator("[data-bmq-perm-user]").count(), 4, "owners are not listed");
+    assert.match(await page.locator("[data-bmq-perm-user]", { hasText: "Mi Ái" }).innerText(), /2\/\d+/);
+    await page.locator("[data-bmq-perm-user]", { hasText: "Mi Ái" }).locator(".st-row-toggle").click();
+    await page.waitForSelector("[data-bmq-perm-module='dashboard']");
+    assert.equal(await page.locator("[data-bmq-perm-module='finance_cost'] [data-bmq-perm-edit]").getAttribute("aria-pressed"), "true");
+    await page.locator("[data-bmq-perm-module='crm'] [data-bmq-perm-edit]").click();
+    await page.waitForTimeout(300);
+    const w = await page.evaluate(() => window.__qaWrites);
+    assert.ok(w.some((x) => x.startsWith("user_module_permissions:")), "toggle writes permissions");
+    f = await facts(page);
+    assert.ok(f.overflow <= 0, `permissions fit ${viewport.width}: ${f.overflow}`);
+    await fullShot(page, `${EVIDENCE}/permissions-${viewport.width}.png`);
+    assert.deepEqual(errors, []);
+    record(`user-management ${viewport.width}`);
     await context.close();
   }
 } finally {

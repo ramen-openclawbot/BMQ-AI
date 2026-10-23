@@ -10,12 +10,8 @@ import {
   useResetPermissionsToDefault,
   ALL_MODULES,
   type UserWithRole,
-  type ModulePermissionRow,
 } from "@/hooks/useUserManagement";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -26,47 +22,34 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Loader2, Users, Shield, Trash2, RefreshCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { LoadingState } from "@/components/ui/loading";
+import { SettingsGroup, SettingsPage, SettingsRow } from "@/components/settings/SettingsKit";
 
-// ---------------------------------------------------------------------------
-// Role badge color mapping
-// ---------------------------------------------------------------------------
-const ROLE_BADGE: Record<string, { label: string; variant: "default" | "secondary" | "outline" | "destructive" }> = {
-  owner: { label: "Owner", variant: "destructive" },
-  staff: { label: "Staff", variant: "default" },
-  warehouse: { label: "Warehouse", variant: "secondary" },
-  viewer: { label: "Viewer", variant: "outline" },
-};
+const ROLES: Array<{ value: AppRole; label: string; vi: string }> = [
+  { value: "owner", label: "Owner", vi: "Toàn quyền" },
+  { value: "staff", label: "Staff", vi: "Văn phòng" },
+  { value: "warehouse", label: "Warehouse", vi: "Kho" },
+  { value: "viewer", label: "Viewer", vi: "Chỉ xem" },
+];
+const roleLabel = (role: string | null | undefined) => ROLES.find((r) => r.value === role)?.label ?? (role || "Viewer");
 
 type AppRole = "owner" | "staff" | "viewer" | "warehouse";
 
-// ---------------------------------------------------------------------------
-// Main page component
-// ---------------------------------------------------------------------------
+/**
+ * Người dùng & Phân quyền (owner 23/10/2026): phone-first grouped lists instead of wide tables.
+ * Users: one row per person, the row opens role + delete. Permissions: one row per person,
+ * the row opens one line per module with Xem / Sửa toggles. Guards are unchanged.
+ */
 export default function UserManagement() {
   const { language } = useLanguage();
   const isVi = language === "vi";
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">
-          {isVi ? "Quản lý người dùng" : "User Management"}
-        </h1>
-        <p className="text-muted-foreground">
-          {isVi
-            ? "Quản lý role, mời thành viên, phân quyền module."
-            : "Manage roles, invite members, assign module permissions."}
-        </p>
-      </div>
-
-      <Tabs defaultValue="users" className="space-y-4">
-        <TabsList>
+    <SettingsPage title={isVi ? "Người dùng" : "Users"}>
+      <Tabs defaultValue="users" className="grid gap-5">
+        <TabsList className="w-fit">
           <TabsTrigger value="users" className="gap-2">
             <Users className="h-4 w-4" />
             {isVi ? "Người dùng" : "Users"}
@@ -76,15 +59,14 @@ export default function UserManagement() {
             {isVi ? "Phân quyền" : "Permissions"}
           </TabsTrigger>
         </TabsList>
-
-        <TabsContent value="users">
+        <TabsContent value="users" className="mt-0">
           <UsersTab isVi={isVi} />
         </TabsContent>
-        <TabsContent value="permissions">
+        <TabsContent value="permissions" className="mt-0">
           <PermissionsTab isVi={isVi} />
         </TabsContent>
       </Tabs>
-    </div>
+    </SettingsPage>
   );
 }
 
@@ -171,91 +153,52 @@ function UsersTab({ isVi }: { isVi: boolean }) {
   };
 
   if (isLoading) {
-    return (
-      <Card>
-        <CardContent className="pt-6"><LoadingState flat rows={4} label="Đang tải người dùng…" /></CardContent>
-      </Card>
-    );
+    return <SettingsGroup title={isVi ? "Danh sách" : "List"}><LoadingState flat rows={4} label="Đang tải người dùng…" /></SettingsGroup>;
   }
 
+  const list = users || [];
   return (
     <>
-      <Card>
-        <CardHeader>
-          <CardTitle>{isVi ? "Danh sách người dùng" : "User List"}</CardTitle>
-          <CardDescription>
-            {isVi
-              ? `${(users || []).length} người dùng trong hệ thống`
-              : `${(users || []).length} users in the system`}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{isVi ? "Tên" : "Name"}</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead>Role</TableHead>
-                <TableHead className="w-[60px]" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {(users || []).map((u) => {
-                const isCurrentUser = u.user_id === currentUser?.id;
-                const badge = ROLE_BADGE[u.role || "viewer"];
-                return (
-                  <TableRow key={u.user_id}>
-                    <TableCell className="font-medium">
-                      {u.full_name || "—"}
-                      {isCurrentUser && (
-                        <Badge variant="outline" className="ml-2 text-xs">
-                          {isVi ? "Bạn" : "You"}
-                        </Badge>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">{u.email || "—"}</TableCell>
-                    <TableCell>
-                      {isCurrentUser ? (
-                        <Badge variant={badge?.variant || "outline"}>{badge?.label || u.role}</Badge>
-                      ) : (
-                        <Select
-                          value={u.role || "viewer"}
-                          onValueChange={(val) => handleRoleChange(u, val as AppRole)}
-                          disabled={assignRole.isPending}
-                        >
-                          <SelectTrigger className="w-[140px]">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="owner">Owner</SelectItem>
-                            <SelectItem value="staff">Staff</SelectItem>
-                            <SelectItem value="warehouse">Warehouse</SelectItem>
-                            <SelectItem value="viewer">Viewer</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {!isCurrentUser && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                          onClick={() => handleDeleteClick(u)}
-                          disabled={deleteUser.isPending}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-
+      <SettingsGroup title={isVi ? `${list.length} người dùng` : `${list.length} users`}>
+        {list.map((u) => {
+          const isCurrentUser = u.user_id === currentUser?.id;
+          const name = u.full_name || u.email || "—";
+          if (isCurrentUser) {
+            return (
+              <SettingsRow key={u.user_id} dataAttr="bmq-user-row" label={<>{name} <span className="st-tag">{isVi ? "Bạn" : "You"}</span></>} hint={u.email || undefined} value={<b>{roleLabel(u.role)}</b>} />
+            );
+          }
+          return (
+            <SettingsRow key={u.user_id} dataAttr="bmq-user-row" label={name} hint={u.email || undefined} value={<b>{roleLabel(u.role)}</b>}>
+              <div className="st-field">
+                <span>Role</span>
+                <div className="st-seg" role="radiogroup" aria-label="Role">
+                  {ROLES.map((r) => (
+                    <button
+                      key={r.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={(u.role || "viewer") === r.value}
+                      className="st-seg-opt"
+                      disabled={assignRole.isPending}
+                      onClick={() => { if ((u.role || "viewer") !== r.value) handleRoleChange(u, r.value); }}
+                      data-bmq-role-option={r.value}
+                    >
+                      <b>{r.label}</b>
+                      {isVi ? <small>{r.vi}</small> : null}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="st-panel-actions">
+                <button type="button" className="st-link is-danger" onClick={() => handleDeleteClick(u)} disabled={deleteUser.isPending} data-bmq-user-delete>
+                  <Trash2 />{isVi ? "Xoá người dùng" : "Delete user"}
+                </button>
+              </div>
+            </SettingsRow>
+          );
+        })}
+      </SettingsGroup>
       {/* Delete confirmation dialog */}
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <AlertDialogContent>
@@ -292,7 +235,7 @@ function UsersTab({ isVi }: { isVi: boolean }) {
 }
 
 // ===========================================================================
-// TAB 2: Permissions matrix
+// TAB 2: Permissions by person
 // ===========================================================================
 function PermissionsTab({ isVi }: { isVi: boolean }) {
   const { data: users, isLoading: usersLoading } = useUsersList();
@@ -341,103 +284,58 @@ function PermissionsTab({ isVi }: { isVi: boolean }) {
   };
 
   if (isLoading) {
+    return <SettingsGroup title={isVi ? "Phân quyền" : "Permissions"}><LoadingState flat rows={4} label="Đang tải quyền…" /></SettingsGroup>;
+  }
+
+  if (nonOwnerUsers.length === 0) {
     return (
-      <Card>
-        <CardContent className="pt-6"><LoadingState flat rows={4} label="Đang tải người dùng…" /></CardContent>
-      </Card>
+      <SettingsGroup title={isVi ? "Phân quyền" : "Permissions"}>
+        <SettingsRow label={isVi ? "Chưa có người nào cần phân quyền" : "No one to set permissions for"} hint={isVi ? "Owner luôn có toàn quyền" : "Owners always have full access"} />
+      </SettingsGroup>
     );
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{isVi ? "Phân quyền module" : "Module Permissions"}</CardTitle>
-        <CardDescription>
-          {isVi
-            ? "Owner luôn có full quyền. Bảng dưới đây chỉ áp dụng cho Staff, Warehouse, Viewer."
-            : "Owners always have full access. The table below applies to Staff, Warehouse, and Viewer roles."}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="overflow-x-auto">
-        {nonOwnerUsers.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-4">
-            {isVi
-              ? "Không có user non-owner nào để phân quyền."
-              : "No non-owner users to manage permissions for."}
-          </p>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="sticky left-0 bg-background z-10 min-w-[160px]">
-                  Module
-                </TableHead>
-                {nonOwnerUsers.map((u) => (
-                  <TableHead key={u.user_id} className="text-center min-w-[140px]">
-                    <div className="space-y-1.5">
-                      <div className="font-medium text-xs">{u.full_name || u.email || "—"}</div>
-                      <Badge variant={ROLE_BADGE[u.role || "viewer"]?.variant || "outline"} className="text-[10px]">
-                        {ROLE_BADGE[u.role || "viewer"]?.label || u.role}
-                      </Badge>
-                      {/* Reset to default button */}
-                      <div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-6 text-[10px] px-1.5 text-muted-foreground hover:text-foreground gap-1"
-                          onClick={() => resetToDefault.mutate({ userId: u.user_id, role: u.role || "viewer" })}
-                          disabled={resetToDefault.isPending}
-                          title={isVi ? "Gán quyền mặc định theo role" : "Reset to role defaults"}
-                        >
-                          <RefreshCw className="h-2.5 w-2.5" />
-                          {isVi ? "Mặc định" : "Defaults"}
-                        </Button>
-                      </div>
-                    </div>
-                  </TableHead>
-                ))}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {ALL_MODULES.map((mod) => (
-                <TableRow key={mod.key}>
-                  <TableCell className="sticky left-0 bg-background z-10 font-medium text-sm">
-                    {isVi ? mod.labelVi : mod.labelEn}
-                  </TableCell>
-                  {nonOwnerUsers.map((u) => {
-                    const key = `${u.user_id}::${mod.key}`;
-                    const perm = permMap.get(key) || { can_view: false, can_edit: false };
-                    return (
-                      <TableCell key={u.user_id} className="text-center">
-                        <div className="flex items-center justify-center gap-3">
-                          <label className="flex items-center gap-1 text-xs cursor-pointer">
-                            <Checkbox
-                              checked={perm.can_view}
-                              onCheckedChange={() =>
-                                handleToggle(u.user_id, mod.key, "can_view", perm.can_view)
-                              }
-                            />
-                            <span className="text-muted-foreground">{isVi ? "Xem" : "View"}</span>
-                          </label>
-                          <label className="flex items-center gap-1 text-xs cursor-pointer">
-                            <Checkbox
-                              checked={perm.can_edit}
-                              onCheckedChange={() =>
-                                handleToggle(u.user_id, mod.key, "can_edit", perm.can_edit)
-                              }
-                            />
-                            <span className="text-muted-foreground">{isVi ? "Sửa" : "Edit"}</span>
-                          </label>
-                        </div>
-                      </TableCell>
-                    );
-                  })}
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-      </CardContent>
-    </Card>
+    <SettingsGroup title={isVi ? "Quyền theo người · Owner luôn có toàn quyền" : "Permissions by person · Owners have full access"}>
+      {nonOwnerUsers.map((u) => {
+        const viewCount = ALL_MODULES.filter((m) => permMap.get(`${u.user_id}::${m.key}`)?.can_view).length;
+        return (
+          <SettingsRow
+            key={u.user_id}
+            dataAttr="bmq-perm-user"
+            label={u.full_name || u.email || "—"}
+            hint={roleLabel(u.role)}
+            value={<b>{viewCount}/{ALL_MODULES.length}</b>}
+          >
+            <ul className="st-perms" aria-label={isVi ? "Quyền module" : "Module permissions"}>
+              {ALL_MODULES.map((mod) => {
+                const perm = permMap.get(`${u.user_id}::${mod.key}`) || { can_view: false, can_edit: false };
+                const name = isVi ? mod.labelVi : mod.labelEn;
+                return (
+                  <li key={mod.key} data-bmq-perm-module={mod.key}>
+                    <span className="st-perm-name">{name}</span>
+                    <span className="st-perm-toggles">
+                      <button type="button" className="st-toggle" aria-pressed={perm.can_view} aria-label={`${name}: ${isVi ? "Xem" : "View"}`}
+                        disabled={updatePermission.isPending} onClick={() => handleToggle(u.user_id, mod.key, "can_view", perm.can_view)} data-bmq-perm-view>
+                        {isVi ? "Xem" : "View"}
+                      </button>
+                      <button type="button" className="st-toggle" aria-pressed={perm.can_edit} aria-label={`${name}: ${isVi ? "Sửa" : "Edit"}`}
+                        disabled={updatePermission.isPending} onClick={() => handleToggle(u.user_id, mod.key, "can_edit", perm.can_edit)} data-bmq-perm-edit>
+                        {isVi ? "Sửa" : "Edit"}
+                      </button>
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+            <div className="st-panel-actions">
+              <button type="button" className="st-link" onClick={() => resetToDefault.mutate({ userId: u.user_id, role: u.role || "viewer" })} disabled={resetToDefault.isPending} data-bmq-perm-reset>
+                {resetToDefault.isPending ? <Loader2 className="animate-spin" /> : <RefreshCw />}{isVi ? `Về mặc định của ${roleLabel(u.role)}` : `Reset to ${roleLabel(u.role)} defaults`}
+              </button>
+            </div>
+          </SettingsRow>
+        );
+      })}
+    </SettingsGroup>
   );
 }
