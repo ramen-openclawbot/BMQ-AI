@@ -127,7 +127,9 @@ function settle(st) {
   if (st.table === "rpc:prepare_supplier_order") return { data: {
     item: { id: st.args.p_item_id, name: "Bơ Peerless Úc 25kg", unit: "g" },
     supplier: { id: "sup-tv", name: "TV Food", email: "dathang@tvfood.example" },
-    stock: { on_hand: "105812.654", daily_usage: "8870.791", days_left: "11.9", last_count_date: "2026-10-16", reorder_date: "2026-10-30" },
+    stock: cfg().orderOut
+      ? { on_hand: "-17660.24", daily_usage: "18581.266", days_left: "-1", last_count_date: "2026-10-16", reorder_date: "2026-10-22" }
+      : { on_hand: "105812.654", daily_usage: "8870.791", days_left: "11.9", last_count_date: "2026-10-16", reorder_date: "2026-10-30" },
     proposal: { quantity: "75", unit: "kg", unit_price: "90000", line_total: "6750000", product_name: "BƠ PEERLESS", pack_size_po_units: "25", suggested_book_qty: "75000" },
     open_order: null,
     delivery: { address: "24 Đường số 36, P. Tân Quy, Q7, TP.HCM", contact_name: "Phương Nhi", contact_phone: "0903 051 971", note: "" },
@@ -712,15 +714,21 @@ try {
     await context.close();
 
     // Blocked: the send button stays disabled and says why.
-    const blocked = await open({ role: "owner", orderBlocked: true }, "/warehouse/danh-muc", vp);
+    // Also stock below zero (receipt not yet in the ledger): "đã hết", never "đủ ~-1 ngày".
+    const blocked = await open({ role: "owner", orderBlocked: true, orderOut: true }, "/warehouse/danh-muc", vp);
     await blocked.page.waitForSelector("[data-bmq-kho-names] li");
     await blocked.page.locator("[data-bmq-kho-names] li .d3-kho-row-main").first().click();
     await blocked.page.locator("[data-bmq-kho-order-open]").click();
     await blocked.page.waitForSelector("[data-bmq-kho-order-blockers]");
     assert.match(await blocked.page.locator("[data-bmq-kho-order-blockers]").innerText(), /Chưa kết nối hộp thư order@bmq\.vn/);
     assert.ok(await blocked.page.locator("[data-bmq-kho-order-send]").isDisabled(), "send disabled while blocked");
+    const outCard = await blocked.page.locator("[data-bmq-kho-order-confirm]").innerText();
+    assert.ok(outCard.includes("đã hết") && !/đủ ~-/.test(outCard), `out-of-stock card: ${outCard}`);
+    await noSpill(blocked.page, "order-out", vp);
+    await blocked.page.locator("[data-bmq-kho-order-confirm]").scrollIntoViewIfNeeded();
+    await blocked.page.locator("[data-bmq-kho-item-dialog]").screenshot({ path: `${EVIDENCE}/order-out-${vp.width}.png` });
     await blocked.context.close();
-    pass(`Đặt hàng qua email: confirm card, total, send call, history, blocked state ${vp.width}`);
+    pass(`Đặt hàng qua email: confirm card, total, send call, history, blocked + out-of-stock state ${vp.width}`);
 
     // Supplier upload page (public link, no login, no app shell).
     const ctx = await browser.newContext({ viewport: vp, reducedMotion: "reduce", locale: "vi-VN" });

@@ -166,7 +166,9 @@ export function SupplierOrderSection({ item, onToast }: { item: KhoItem; onToast
         ) : (
           <div className="d3-kho-order-card" data-bmq-kho-order-confirm>
             <dl className="d3-kho-order-facts">
-              <div><dt>Tồn Q7</dt><dd>{fmtAmount(data.stock.onHand, item.unit)}{data.stock.daysLeft !== null ? <small> · đủ ~{formatQuantity(data.stock.daysLeft)} ngày</small> : null}</dd></div>
+              <div><dt>Tồn Q7</dt><dd>{fmtAmount(data.stock.onHand, item.unit)}{data.stock.daysLeft === null ? null : data.stock.daysLeft <= 0
+                ? <small className="is-bad" data-bmq-kho-order-out> · đã hết</small>
+                : <small> · đủ ~{formatQuantity(data.stock.daysLeft)} ngày</small>}</dd></div>
               <div><dt>Dùng mỗi ngày</dt><dd>{fmtAmount(data.stock.dailyUsage, item.unit)}</dd></div>
               <div><dt>Đề xuất</dt><dd>{data.proposal.quantity > 0 ? `${formatQuantity(data.proposal.quantity)} ${unit}` : "Chưa cần đặt"}</dd></div>
               <div><dt>Gửi tới</dt><dd className="is-wrap">{data.supplier?.email || "—"}</dd></div>

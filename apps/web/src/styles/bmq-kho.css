@@ -984,6 +984,7 @@ html.bmq-d3 .d3-kho-unitpick .d3-kho-chip { height: 34px; min-height: 34px; padd
 .d3-kho-order-facts dt { font-size: 12px; color: var(--d3-dim); }
 .d3-kho-order-facts dd { margin: 0; font-size: 14px; font-weight: 500; color: var(--d3-ink); font-variant-numeric: tabular-nums; }
 .d3-kho-order-facts dd small { font-weight: 400; color: var(--d3-dim); }
+.d3-kho-order-facts dd small.is-bad { color: var(--kho-bad, #8f2414); }
 .d3-kho-order-facts dd.is-wrap { font-weight: 400; overflow-wrap: anywhere; }
 .d3-kho-order-line {
   display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px 12px;
