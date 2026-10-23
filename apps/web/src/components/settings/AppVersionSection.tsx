@@ -1,7 +1,6 @@
-import { Info } from "lucide-react";
-import { Separator } from "@/components/ui/separator";
+import { RefreshCw } from "lucide-react";
 import { useAppVersion } from "@/hooks/useAppVersion";
-import { Skeleton } from "@/components/ui/skeleton";
+import { SettingsGroup, SettingsRow } from "./SettingsKit";
 import { useLanguage } from "@/contexts/LanguageContext";
 
 // Declare the global build version injected by Vite
@@ -31,38 +30,14 @@ export function AppVersionSection() {
   const buildTime = formatBuildTime(__APP_VERSION__);
 
   return (
-    <div className="card-elevated rounded-xl border border-border p-6 space-y-4">
-      <div className="flex items-center gap-3">
-        <Info className="h-5 w-5 text-primary" />
-        <h2 className="font-display font-semibold text-lg">{isVi ? "Thông tin ứng dụng" : "Application Info"}</h2>
-      </div>
-      <Separator />
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="font-medium">{isVi ? "Phiên bản" : "Version"}</p>
-          <p className="text-sm text-muted-foreground">
-            {isVi ? "Phiên bản hiện tại của ứng dụng" : "Current application version"}
-          </p>
-        </div>
-        {isLoading ? (
-          <Skeleton className="h-6 w-24" />
-        ) : (
-          <span className="text-sm font-mono bg-muted px-3 py-1.5 rounded-md">
-            {version || "v0.0.0"}
-          </span>
-        )}
-      </div>
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="font-medium">Build time</p>
-          <p className="text-sm text-muted-foreground">
-            {isVi ? "Thời điểm build ứng dụng" : "Application build time"}
-          </p>
-        </div>
-        <span className="text-sm font-mono bg-muted px-3 py-1.5 rounded-md">
-          {buildTime}
-        </span>
-      </div>
-    </div>
+    <SettingsGroup id="app-info" title={isVi ? "Ứng dụng" : "Application"}>
+      <SettingsRow label={isVi ? "Phiên bản" : "Version"} value={isLoading ? "…" : <b>{version || "v0.0.0"}</b>} />
+      <SettingsRow label={isVi ? "Bản dựng lúc" : "Build time"} value={buildTime} />
+      <SettingsRow
+        label={isVi ? "Tải lại trang" : "Reload page"}
+        hint={isVi ? "Khi giao diện hiển thị sai" : "If the page looks wrong"}
+        action={<button type="button" className="st-link" onClick={() => window.location.reload()}><RefreshCw />{isVi ? "Tải lại" : "Reload"}</button>}
+      />
+    </SettingsGroup>
   );
 }

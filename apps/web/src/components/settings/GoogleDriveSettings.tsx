@@ -1,17 +1,11 @@
 import { useState, useEffect } from "react";
-import { FolderOpen, Save, Check, X, Loader2, TestTube, Link2, Unlink, RefreshCw, Clock, Mail } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Save, Loader2, TestTube, Link2, Unlink } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { format } from "date-fns";
-import { vi } from "date-fns/locale";
 import { LoadingState } from "@/components/ui/loading";
 import { OrderEmailSettings } from "./OrderEmailSettings";
+import { SettingsGroup, SettingsRow, SettingsStatus } from "./SettingsKit";
 
 export function GoogleDriveSettings() {
   const [poFolderUrl, setPoFolderUrl] = useState("");
@@ -472,368 +466,111 @@ export function GoogleDriveSettings() {
     }
   };
 
-  const getUrlStatusIndicator = (url: string, saved: boolean) => {
-    if (!url) {
-      return (
-        <span className="flex items-center gap-1 text-sm text-muted-foreground">
-          <X className="h-4 w-4 text-destructive" />
-          Chưa cấu hình
-        </span>
-      );
-    }
-    if (saved) {
-      return (
-        <span className="flex items-center gap-1 text-sm text-primary">
-          <Check className="h-4 w-4" />
-          Đã lưu
-        </span>
-      );
-    }
-    return (
-      <span className="flex items-center gap-1 text-sm text-muted-foreground">
-        <Check className="h-4 w-4 text-warning" />
-        Chưa lưu
-      </span>
-    );
-  };
+  const folderStatus = (url: string, saved: boolean) => (
+    !url ? <SettingsStatus tone="off">Chưa có</SettingsStatus>
+      : saved ? <SettingsStatus tone="ok">Đã lưu</SettingsStatus>
+      : <SettingsStatus tone="warn">Chưa lưu</SettingsStatus>
+  );
+  const busyIcon = (busy: boolean, Icon: typeof Link2) => busy ? <Loader2 className="animate-spin" /> : <Icon />;
+  const saveButton = (
+    <button type="button" className="st-link is-primary" onClick={() => void handleSave()} disabled={saving} data-bmq-settings-save>
+      {busyIcon(saving, Save)}Lưu
+    </button>
+  );
 
   if (loading) {
     return (
-      <div className="card-elevated rounded-xl border border-border p-6">
-        <LoadingState flat rows={3} label="Đang tải cấu hình Google Drive…" />
-      </div>
+      <SettingsGroup title="Kết nối">
+        <LoadingState flat rows={4} label="Đang tải cấu hình kết nối…" />
+      </SettingsGroup>
     );
   }
 
   return (
-    <div className="card-elevated rounded-xl border border-border p-6 space-y-4">
-      <div className="flex items-center gap-3">
-        <FolderOpen className="h-5 w-5 text-primary" />
-        <h2 className="font-display font-semibold text-lg">Google Drive Integration</h2>
-      </div>
-      <Separator />
-
-      <div className="bg-muted/50 rounded-lg p-4 text-sm text-muted-foreground mb-4">
-        <p className="font-medium text-foreground mb-2">Hướng dẫn:</p>
-        <ol className="list-decimal ml-4 space-y-1">
-          <li>Kết nối Google account cho Drive (bấm nút bên dưới)</li>
-          <li>Kết nối Gmail PO account riêng (nếu mailbox PO dùng tài khoản khác)</li>
-          <li>Kết nối Gmail gửi công nợ bằng no-reply@bmq.vn trong block Email gửi công nợ</li>
-          <li>Tạo 2 folder trên Google Drive: 1 cho PO, 1 cho Bank Receipts</li>
-          <li>Copy link folder và dán vào ô bên dưới</li>
-          <li>Trong mỗi folder, tạo subfolder theo ngày (YYMMDD, VD: 260124)</li>
-        </ol>
-        <p className="mt-2 text-xs text-muted-foreground">
-          <strong>Lưu ý:</strong> Folder không cần share public. Hệ thống sử dụng OAuth để truy cập private folder.
-        </p>
-      </div>
-
-      <div className="space-y-4">
-        {/* Google Account Connection */}
-        <div className="p-4 border border-border rounded-lg bg-card">
-          <Label className="flex items-center gap-2 mb-3">
-            <Link2 className="h-4 w-4" />
-            Kết nối Google Account
-          </Label>
-          
-          {connectedEmail ? (
-            <div className="flex items-center justify-between">
-              <div className="flex flex-col gap-1">
-                <div className="flex items-center gap-2">
-                  <Check className="h-5 w-5 text-primary" />
-                  <span className="text-sm">
-                    Đã kết nối: <strong>{connectedEmail}</strong>
-                  </span>
-                </div>
-                <span className="text-xs text-muted-foreground">Kết nối này chỉ dùng cho Drive (PO folder/UNC folder).</span>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleDisconnect}
-                disabled={disconnecting}
-                className="text-destructive hover:text-destructive hover:bg-destructive/10"
-              >
-                {disconnecting ? (
-                  <Loader2 className="h-4 w-4 animate-spin mr-1" />
-                ) : (
-                  <Unlink className="h-4 w-4 mr-1" />
-                )}
-                Ngắt kết nối
-              </Button>
-            </div>
+    <>
+      <SettingsGroup id="google-drive" title="Kết nối">
+        <SettingsRow
+          dataAttr="bmq-settings-drive"
+          label="Google Drive"
+          hint={connectedEmail ? connectedEmail : "Đọc thư mục PO và UNC"}
+          value={connectedEmail ? <SettingsStatus tone="ok">Đã kết nối</SettingsStatus> : <SettingsStatus tone="off">Chưa kết nối</SettingsStatus>}
+          action={connectedEmail ? (
+            <button type="button" className="st-link is-danger" onClick={() => void handleDisconnect()} disabled={disconnecting}>{busyIcon(disconnecting, Unlink)}Ngắt</button>
           ) : (
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="text-sm text-muted-foreground flex items-center gap-2">
-                <X className="h-4 w-4 text-destructive" />
-                Chưa kết nối
-              </span>
-              <Button
-                onClick={handleConnect}
-                disabled={connecting}
-                size="sm"
-              >
-                {connecting ? (
-                  <Loader2 className="h-4 w-4 animate-spin mr-1" />
-                ) : (
-                  <Link2 className="h-4 w-4 mr-1" />
-                )}
-                Kết nối Google Drive
-              </Button>
-            </div>
+            <button type="button" className="st-link is-primary" onClick={() => void handleConnect()} disabled={connecting}>{busyIcon(connecting, Link2)}Kết nối</button>
           )}
-        </div>
-
-        {/* Gmail PO Account Connection */}
-        <div className="p-4 border border-border rounded-lg bg-card">
-          <Label className="flex items-center gap-2 mb-3">
-            <Link2 className="h-4 w-4" />
-            Kết nối Gmail PO Account
-          </Label>
-
-          {gmailConnectedEmail ? (
-            <div className="flex items-center justify-between">
-              <div className="flex flex-col gap-1">
-                <div className="flex items-center gap-2">
-                  <Check className="h-5 w-5 text-primary" />
-                  <span className="text-sm">
-                    Đã kết nối Gmail: <strong>{gmailConnectedEmail}</strong>
-                  </span>
-                </div>
-                <span className="text-xs text-muted-foreground">Tài khoản này dùng để đọc mailbox PO (có thể khác tài khoản Drive và email gửi công nợ).</span>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleDisconnectGmail}
-                disabled={gmailDisconnecting}
-                className="text-destructive hover:text-destructive hover:bg-destructive/10"
-              >
-                {gmailDisconnecting ? (
-                  <Loader2 className="h-4 w-4 animate-spin mr-1" />
-                ) : (
-                  <Unlink className="h-4 w-4 mr-1" />
-                )}
-                Ngắt Gmail
-              </Button>
-            </div>
+        />
+        <SettingsRow
+          dataAttr="bmq-settings-gmail-po"
+          label="Gmail đọc PO"
+          hint={gmailConnectedEmail ? gmailConnectedEmail : "Hộp thư nhận PO của khách"}
+          value={gmailConnectedEmail ? <SettingsStatus tone="ok">Đã kết nối</SettingsStatus> : <SettingsStatus tone="off">Chưa kết nối</SettingsStatus>}
+          action={gmailConnectedEmail ? (
+            <button type="button" className="st-link is-danger" onClick={() => void handleDisconnectGmail()} disabled={gmailDisconnecting}>{busyIcon(gmailDisconnecting, Unlink)}Ngắt</button>
           ) : (
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="text-sm text-muted-foreground flex items-center gap-2">
-                <X className="h-4 w-4 text-destructive" />
-                Chưa kết nối Gmail
-              </span>
-              <Button
-                onClick={handleConnectGmail}
-                disabled={gmailConnecting}
-                size="sm"
-              >
-                {gmailConnecting ? (
-                  <Loader2 className="h-4 w-4 animate-spin mr-1" />
-                ) : (
-                  <Link2 className="h-4 w-4 mr-1" />
-                )}
-                Kết nối Gmail
-              </Button>
-            </div>
+            <button type="button" className="st-link is-primary" onClick={() => void handleConnectGmail()} disabled={gmailConnecting}>{busyIcon(gmailConnecting, Link2)}Kết nối</button>
           )}
-        </div>
-
+        />
         <OrderEmailSettings />
-
-        {/* Debt Email Sender */}
-        <div className="p-4 border border-border rounded-lg bg-card space-y-3">
-          <Label className="flex items-center gap-2">
-            <Mail className="h-4 w-4" />
-            Email gửi công nợ
-          </Label>
-          <p className="text-xs text-muted-foreground">
-            Cấu hình này chỉ dùng khi gửi file Excel công nợ. Không dùng tài khoản này để quét Drive UNC/QTM hoặc đọc PO.
-          </p>
-          {debtGmailConnectedEmail ? (
-            <div className="flex items-center justify-between rounded-md border border-primary/20 bg-primary/5 p-3">
-              <div className="flex flex-col gap-1">
-                <div className="flex items-center gap-2">
-                  <Check className="h-5 w-5 text-primary" />
-                  <span className="text-sm">
-                    Đã kết nối Gmail gửi công nợ: <strong>{debtGmailConnectedEmail}</strong>
-                  </span>
-                </div>
-                <span className="text-xs text-muted-foreground">Email gửi nên trùng với tài khoản OAuth này hoặc là alias được Gmail cho phép gửi.</span>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleDisconnectDebtGmail}
-                disabled={debtGmailDisconnecting}
-                className="text-destructive hover:text-destructive hover:bg-destructive/10"
-              >
-                {debtGmailDisconnecting ? (
-                  <Loader2 className="h-4 w-4 animate-spin mr-1" />
-                ) : (
-                  <Unlink className="h-4 w-4 mr-1" />
-                )}
-                Ngắt Gmail công nợ
-              </Button>
-            </div>
+        <SettingsRow
+          dataAttr="bmq-settings-debt-email"
+          label="Email gửi công nợ"
+          hint={debtGmailConnectedEmail ? `Gửi từ ${debtEmailSender || debtGmailConnectedEmail}` : "Gửi file công nợ cho khách"}
+          value={debtGmailConnectedEmail ? <SettingsStatus tone="ok">Đã kết nối</SettingsStatus> : <SettingsStatus tone="off">Chưa kết nối</SettingsStatus>}
+          action={debtGmailConnectedEmail ? (
+            <button type="button" className="st-link is-danger" onClick={() => void handleDisconnectDebtGmail()} disabled={debtGmailDisconnecting}>{busyIcon(debtGmailDisconnecting, Unlink)}Ngắt</button>
           ) : (
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-destructive/20 bg-destructive/5 p-3">
-              <span className="text-sm text-muted-foreground flex items-center gap-2">
-                <X className="h-4 w-4 text-destructive" />
-                Chưa kết nối Gmail gửi công nợ
-              </span>
-              <Button onClick={handleConnectDebtGmail} disabled={debtGmailConnecting} size="sm">
-                {debtGmailConnecting ? (
-                  <Loader2 className="h-4 w-4 animate-spin mr-1" />
-                ) : (
-                  <Link2 className="h-4 w-4 mr-1" />
-                )}
-                Kết nối Gmail công nợ
-              </Button>
-            </div>
+            <button type="button" className="st-link is-primary" onClick={() => void handleConnectDebtGmail()} disabled={debtGmailConnecting}>{busyIcon(debtGmailConnecting, Link2)}Kết nối</button>
           )}
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="debt-email-sender">Email gửi</Label>
-              <Input
-                id="debt-email-sender"
-                type="email"
-                value={debtEmailSender}
-                onChange={(e) => setDebtEmailSender(e.target.value)}
-                placeholder="no-reply@bmq.vn"
-              />
-              <p className="text-xs text-muted-foreground">Khuyến nghị: <code>no-reply@bmq.vn</code></p>
+        >
+          <p className="st-note">{debtGmailConnectedEmail ? <>Tài khoản Gmail: <b>{debtGmailConnectedEmail}</b>. Email gửi nên trùng tài khoản này.</> : "Đăng nhập Gmail bằng đúng email gửi bên dưới."}</p>
+          <div className="st-panel-grid is-two">
+            <label className="st-field">
+              <span>Email gửi</span>
+              <Input id="debt-email-sender" type="email" value={debtEmailSender} onChange={(e) => setDebtEmailSender(e.target.value)} placeholder="no-reply@bmq.vn" />
+            </label>
+            <label className="st-field">
+              <span>CC mặc định</span>
+              <Input id="debt-email-cc" type="text" value={debtEmailCc} onChange={(e) => setDebtEmailCc(e.target.value)} placeholder="ketoantruong@bmq.vn" />
+              <small>Nhiều email cách nhau bằng dấu phẩy</small>
+            </label>
+          </div>
+          <div className="st-panel-actions">{saveButton}</div>
+        </SettingsRow>
+      </SettingsGroup>
+
+      <SettingsGroup title="Thư mục Google Drive" footer={saveButton}>
+        <SettingsRow dataAttr="bmq-settings-po-folder" label="Thư mục PO" hint="Thư mục con theo ngày YYMMDD" value={folderStatus(poFolderUrl, poFolderSaved)}>
+          <label className="st-field">
+            <span>Link thư mục</span>
+            <div className="st-inline">
+              <Input id="po-folder" type="text" value={poFolderUrl} onChange={(e) => { setPoFolderUrl(e.target.value); setPoFolderSaved(false); }} placeholder="https://drive.google.com/drive/folders/..." />
+              <button type="button" className="st-link" onClick={() => void handleTestConnection("po")} disabled={testingPo || !poFolderUrl || !connectedEmail}>{busyIcon(testingPo, TestTube)}Thử</button>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="debt-email-cc">CC mặc định</Label>
-              <Input
-                id="debt-email-cc"
-                type="text"
-                value={debtEmailCc}
-                onChange={(e) => setDebtEmailCc(e.target.value)}
-                placeholder="ketoantruong@bmq.vn"
-              />
-              <p className="text-xs text-muted-foreground">Có thể nhập nhiều email, phân tách bằng dấu phẩy.</p>
+          </label>
+        </SettingsRow>
+        <SettingsRow dataAttr="bmq-settings-receipts-folder" label="Thư mục UNC (ủy nhiệm chi)" hint="Thư mục con theo ngày YYMMDD" value={folderStatus(receiptsFolderUrl, receiptsFolderSaved)}>
+          <label className="st-field">
+            <span>Link thư mục</span>
+            <div className="st-inline">
+              <Input id="receipts-folder" type="text" value={receiptsFolderUrl} onChange={(e) => { setReceiptsFolderUrl(e.target.value); setReceiptsFolderSaved(false); }} placeholder="https://drive.google.com/drive/folders/..." />
+              <button type="button" className="st-link" onClick={() => void handleTestConnection("receipts")} disabled={testingReceipts || !receiptsFolderUrl || !connectedEmail}>{busyIcon(testingReceipts, TestTube)}Thử</button>
             </div>
+          </label>
+        </SettingsRow>
+        <SettingsRow dataAttr="bmq-settings-patterns" label="Mẫu đường dẫn UNC / QTM" value={<span>{receiptsUncPattern} · {receiptsQtmPattern}</span>}>
+          <div className="st-panel-grid is-two">
+            <label className="st-field">
+              <span>UNC</span>
+              <Input id="receipts-unc-pattern" type="text" value={receiptsUncPattern} onChange={(e) => setReceiptsUncPattern(e.target.value)} placeholder="yyyy/MM/dd/UNC" />
+            </label>
+            <label className="st-field">
+              <span>QTM</span>
+              <Input id="receipts-qtm-pattern" type="text" value={receiptsQtmPattern} onChange={(e) => setReceiptsQtmPattern(e.target.value)} placeholder="yyyy/MM/dd/QTM" />
+            </label>
           </div>
-          <p className="text-xs text-muted-foreground">
-            Nếu gửi bằng <code>no-reply@bmq.vn</code>, hãy kết nối OAuth bằng chính <code>no-reply@bmq.vn</code> ở block này.
-          </p>
-        </div>
-
-        {/* PO Folder */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <Label htmlFor="po-folder">
-              Folder PO (Purchase Orders)
-            </Label>
-            {getUrlStatusIndicator(poFolderUrl, poFolderSaved)}
-          </div>
-          <div className="flex gap-2">
-            <Input
-              id="po-folder"
-              type="text"
-              value={poFolderUrl}
-              onChange={(e) => {
-                setPoFolderUrl(e.target.value);
-                setPoFolderSaved(false);
-              }}
-              placeholder="https://drive.google.com/drive/folders/..."
-              className="flex-1"
-            />
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => handleTestConnection('po')}
-              disabled={testingPo || !poFolderUrl || !connectedEmail}
-            >
-              {testingPo ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <TestTube className="h-4 w-4" />
-              )}
-              <span className="ml-1 hidden sm:inline">Test</span>
-            </Button>
-          </div>
-        </div>
-
-        {/* Receipts Folder */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <Label htmlFor="receipts-folder">
-              Folder Bank Receipts (Ủy nhiệm chi)
-            </Label>
-            {getUrlStatusIndicator(receiptsFolderUrl, receiptsFolderSaved)}
-          </div>
-          <div className="flex gap-2">
-            <Input
-              id="receipts-folder"
-              type="text"
-              value={receiptsFolderUrl}
-              onChange={(e) => {
-                setReceiptsFolderUrl(e.target.value);
-                setReceiptsFolderSaved(false);
-              }}
-              placeholder="https://drive.google.com/drive/folders/..."
-              className="flex-1"
-            />
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => handleTestConnection('receipts')}
-              disabled={testingReceipts || !receiptsFolderUrl || !connectedEmail}
-            >
-              {testingReceipts ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <TestTube className="h-4 w-4" />
-              )}
-              <span className="ml-1 hidden sm:inline">Test</span>
-            </Button>
-          </div>
-        </div>
-      </div>
-
-        {/* Bank Receipts Patterns */}
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor="receipts-unc-pattern">UNC path template</Label>
-            <Input
-              id="receipts-unc-pattern"
-              type="text"
-              value={receiptsUncPattern}
-              onChange={(e) => setReceiptsUncPattern(e.target.value)}
-              placeholder="yyyy/MM/dd/UNC"
-            />
-            <p className="text-xs text-muted-foreground">Ví dụ: <code>yyyy/MM/dd/UNC</code></p>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="receipts-qtm-pattern">QTM path template</Label>
-            <Input
-              id="receipts-qtm-pattern"
-              type="text"
-              value={receiptsQtmPattern}
-              onChange={(e) => setReceiptsQtmPattern(e.target.value)}
-              placeholder="yyyy/MM/dd/QTM"
-            />
-            <p className="text-xs text-muted-foreground">Ví dụ: <code>yyyy/MM/dd/QTM</code></p>
-          </div>
-        </div>
-
-      <Separator />
-
-      <Separator />
-
-      <div className="flex justify-end">
-        <Button onClick={handleSave} disabled={saving}>
-          {saving ? (
-            <Loader2 className="h-4 w-4 animate-spin mr-2" />
-          ) : (
-            <Save className="h-4 w-4 mr-2" />
-          )}
-          Lưu cấu hình
-        </Button>
-      </div>
-    </div>
+        </SettingsRow>
+      </SettingsGroup>
+    </>
   );
 }

@@ -2,43 +2,17 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { AppVersionSection } from "@/components/settings/AppVersionSection";
 import { GoogleDriveSettings } from "@/components/settings/GoogleDriveSettings";
 import { DealerPortalBannerSettings } from "@/components/settings/DealerPortalBannerSettings";
+import { SettingsPage } from "@/components/settings/SettingsKit";
 
+/** Owner-only system settings as grouped lists (owner 23/10/2026). */
 export default function SystemManagement() {
-  const { language, t } = useLanguage();
-  const isVi = language === "vi";
+  const { t } = useLanguage();
 
   return (
-    <div className="space-y-6 max-w-4xl">
-      <div>
-        <h1 className="text-3xl font-display font-bold text-foreground">
-          {t.systemManagement}
-        </h1>
-        <p className="text-muted-foreground mt-1">
-          {isVi
-            ? "Quản lý các tích hợp hệ thống dành cho owner."
-            : "Manage system integrations for owners."}
-        </p>
-      </div>
-
-      <div className="sticky top-2 z-10 rounded-lg border border-border bg-background/95 backdrop-blur p-2">
-        <div className="flex gap-2 overflow-x-auto whitespace-nowrap">
-          <a href="#dealer-portal" className="text-xs px-3 py-1.5 rounded-md hover:bg-accent">{isVi ? "Landing đặt hàng" : "Dealer Landing"}</a>
-          <a href="#google-drive" className="text-xs px-3 py-1.5 rounded-md hover:bg-accent">{isVi ? "Tích hợp Google Drive" : "Google Drive Integration"}</a>
-          <a href="#app-info" className="text-xs px-3 py-1.5 rounded-md hover:bg-accent">{isVi ? "Thông tin ứng dụng" : "Application Info"}</a>
-        </div>
-      </div>
-
-      <div id="dealer-portal" className="scroll-mt-24">
-        <DealerPortalBannerSettings />
-      </div>
-
-      <div id="google-drive" className="scroll-mt-24">
-        <GoogleDriveSettings />
-      </div>
-
-      <div id="app-info" className="scroll-mt-24">
-        <AppVersionSection />
-      </div>
-    </div>
+    <SettingsPage title={t.systemManagement}>
+      <GoogleDriveSettings />
+      <DealerPortalBannerSettings />
+      <AppVersionSection />
+    </SettingsPage>
   );
 }

@@ -1,12 +1,10 @@
 import { useState, useEffect } from "react";
-import { User, Bell, Shield, Palette, Globe, RefreshCw } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { LogOut, RefreshCw } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { SettingsGroup, SettingsPage, SettingsRow } from "@/components/settings/SettingsKit";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { Separator } from "@/components/ui/separator";
 import { supabase } from "@/integrations/supabase/client";
 import {
   Select,
@@ -45,166 +43,62 @@ const Settings = () => {
     }
   };
 
+  const isVi = language !== "en";
+  const nameChanged = displayName.trim() !== (profile?.full_name || user?.user_metadata?.full_name || "").trim();
+
   return (
-    <div className="space-y-6 max-w-2xl">
-      <div>
-         <h1 className="text-3xl font-display font-bold text-foreground">
-           {t.settingsTitle}
-         </h1>
-         <p className="text-muted-foreground mt-1">
-           {t.settingsDescription}
-         </p>
-       </div>
-
-      <div className="sticky top-2 z-10 rounded-lg border border-border bg-background/95 backdrop-blur p-2">
-        <div className="flex gap-2 overflow-x-auto whitespace-nowrap">
-          <a href="#profile" className="text-xs px-3 py-1.5 rounded-md hover:bg-accent">Hồ sơ</a>
-          <a href="#language" className="text-xs px-3 py-1.5 rounded-md hover:bg-accent">Ngôn ngữ</a>
-          <a href="#appearance" className="text-xs px-3 py-1.5 rounded-md hover:bg-accent">Giao diện</a>
-          <a href="#security" className="text-xs px-3 py-1.5 rounded-md hover:bg-accent">Bảo mật</a>
-        </div>
-      </div>
-
-      {/* Profile Section */}
-      <div id="profile" className="card-elevated rounded-xl border border-border p-6 space-y-4 scroll-mt-24">
-        <div className="flex items-center gap-3">
-          <User className="h-5 w-5 text-primary" />
-          <h2 className="font-display font-semibold text-lg">{t.profile}</h2>
-        </div>
-        <Separator />
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="email">{t.email}</Label>
-            <Input id="email" value={user?.email || ""} disabled />
+    <SettingsPage title={t.settingsTitle}>
+      <SettingsGroup id="profile" title={t.profile}>
+        <SettingsRow label={t.email} value={user?.email || "—"} />
+        <SettingsRow dataAttr="bmq-settings-name" label={t.displayName} value={<b>{displayName || "—"}</b>}>
+          <label className="st-field">
+            <span>{t.displayName}</span>
+            <Input id="name" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder={t.enterYourName} />
+          </label>
+          <div className="st-panel-actions">
+            <button type="button" className="st-link is-primary" onClick={() => void handleSaveProfile()} disabled={saving || !nameChanged || !displayName.trim()}>
+              {saving ? t.saving : t.saveProfile}
+            </button>
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="name">{t.displayName}</Label>
-            <Input 
-              id="name" 
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              placeholder={t.enterYourName}
-            />
-          </div>
-          <Button onClick={handleSaveProfile} disabled={saving}>
-            {saving ? t.saving : t.saveProfile}
-          </Button>
-        </div>
-      </div>
+        </SettingsRow>
+      </SettingsGroup>
 
-      {/* Language Section */}
-      <div id="language" className="card-elevated rounded-xl border border-border p-6 space-y-4 scroll-mt-24">
-        <div className="flex items-center gap-3">
-          <Globe className="h-5 w-5 text-primary" />
-          <h2 className="font-display font-semibold text-lg">{t.language}</h2>
-        </div>
-        <Separator />
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="font-medium">{t.language}</p>
-            <p className="text-sm text-muted-foreground">{t.languageDesc}</p>
-          </div>
-          <Select value={language} onValueChange={(value: "en" | "vi") => setLanguage(value)}>
-            <SelectTrigger className="w-40">
-              <SelectValue>
-                <span>{language === "en" ? "English" : "Tiếng Việt"}</span>
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="en"><span>English</span></SelectItem>
-              <SelectItem value="vi"><span>Tiếng Việt</span></SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
+      <SettingsGroup id="language" title={isVi ? "Hiển thị" : "Display"}>
+        <SettingsRow
+          label={t.language}
+          action={
+            <Select value={language} onValueChange={(value: "en" | "vi") => setLanguage(value)}>
+              <SelectTrigger className="h-9 w-36" aria-label={t.language}>
+                <SelectValue><span>{language === "en" ? "English" : "Tiếng Việt"}</span></SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="en"><span>English</span></SelectItem>
+                <SelectItem value="vi"><span>Tiếng Việt</span></SelectItem>
+              </SelectContent>
+            </Select>
+          }
+        />
+        <SettingsRow label={t.appearance} value={isVi ? "Sáng" : "Light"} />
+      </SettingsGroup>
 
-      {/* Notifications Section */}
-      <div className="card-elevated rounded-xl border border-border p-6 space-y-4">
-        <div className="flex items-center gap-3">
-          <Bell className="h-5 w-5 text-primary" />
-          <h2 className="font-display font-semibold text-lg">{t.notifications}</h2>
-        </div>
-        <Separator />
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="font-medium">{t.lowStockAlerts}</p>
-              <p className="text-sm text-muted-foreground">{t.lowStockAlertsDesc}</p>
-            </div>
-            <Switch defaultChecked />
-          </div>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="font-medium">{t.paymentRequestUpdates}</p>
-              <p className="text-sm text-muted-foreground">{t.paymentRequestUpdatesDesc}</p>
-            </div>
-            <Switch defaultChecked />
-          </div>
-        </div>
-      </div>
+      <SettingsGroup title={t.notifications}>
+        <SettingsRow label={t.lowStockAlerts} action={<Switch defaultChecked aria-label={t.lowStockAlerts} />} />
+        <SettingsRow label={t.paymentRequestUpdates} action={<Switch defaultChecked aria-label={t.paymentRequestUpdates} />} />
+      </SettingsGroup>
 
-      {/* Appearance Section */}
-      <div id="appearance" className="card-elevated rounded-xl border border-border p-6 space-y-4 scroll-mt-24">
-        <div className="flex items-center gap-3">
-          <Palette className="h-5 w-5 text-primary" />
-          <h2 className="font-display font-semibold text-lg">{t.appearance}</h2>
-        </div>
-        <Separator />
-          <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-muted/30 p-4">
-            <div>
-              <p className="font-medium">{t.darkMode}</p>
-              <p className="text-sm text-muted-foreground">
-                Tạm thời tắt để tập trung phát triển light mode và đồng bộ theme chung.
-              </p>
-            </div>
-            <span className="rounded-full border border-border bg-background px-3 py-1 text-xs font-semibold text-muted-foreground">
-              Light mode
-            </span>
-          </div>
-      </div>
-
-      {/* Security Section */}
-      <div id="security" className="card-elevated rounded-xl border border-border p-6 space-y-4 scroll-mt-24">
-        <div className="flex items-center gap-3">
-          <Shield className="h-5 w-5 text-primary" />
-          <h2 className="font-display font-semibold text-lg">{t.security}</h2>
-        </div>
-        <Separator />
-        <div className="space-y-4">
-          <Button variant="outline">{t.changePassword}</Button>
-          <div>
-            <Button variant="destructive" onClick={signOut}>
-              {t.signOut}
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      {/* Troubleshooting Section */}
-      <div className="card-elevated rounded-xl border border-border p-6 space-y-4">
-        <div className="flex items-center gap-3">
-          <RefreshCw className="h-5 w-5 text-primary" />
-          <h2 className="font-display font-semibold text-lg">{t.troubleshooting || "Troubleshooting"}</h2>
-        </div>
-        <Separator />
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="font-medium">{language === "en" ? "Reload page" : "Tải lại trang"}</p>
-            <p className="text-sm text-muted-foreground">
-              {language === "en" ? "If the page looks wrong, reload it." : "Nếu giao diện hiển thị sai, hãy tải lại trang."}
-            </p>
-          </div>
-          <Button 
-            variant="outline" 
-            onClick={() => window.location.reload()}
-          >
-            <RefreshCw className="h-4 w-4 mr-2" />
-            {language === "en" ? "Reload" : "Tải lại"}
-          </Button>
-        </div>
-      </div>
-
-    </div>
+      <SettingsGroup id="security" title={t.security}>
+        <SettingsRow
+          label={isVi ? "Tải lại trang" : "Reload page"}
+          hint={isVi ? "Khi giao diện hiển thị sai" : "If the page looks wrong"}
+          action={<button type="button" className="st-link" onClick={() => window.location.reload()}><RefreshCw />{isVi ? "Tải lại" : "Reload"}</button>}
+        />
+        <SettingsRow
+          label={isVi ? "Phiên đăng nhập" : "Session"}
+          hint={user?.email || undefined}
+          action={<button type="button" className="st-link is-danger" onClick={() => void signOut()} data-bmq-settings-signout><LogOut />{t.signOut}</button>}
+        />
+      </SettingsGroup>
+    </SettingsPage>
   );
 };
 

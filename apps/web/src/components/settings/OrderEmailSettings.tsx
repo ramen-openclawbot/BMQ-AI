@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
-import { Check, Link2, Loader2, Mail, Unlink, X } from "lucide-react";
+import { Link2, Loader2, Unlink } from "lucide-react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
+import { SettingsRow, SettingsStatus } from "./SettingsKit";
 import { supabase } from "@/integrations/supabase/client";
 
 const ORDER_MAILBOX = "order@bmq.vn";
@@ -88,39 +87,20 @@ export function OrderEmailSettings() {
   const isOrderMailbox = connected?.toLowerCase() === ORDER_MAILBOX;
 
   return (
-    <div className="p-4 border border-border rounded-lg bg-card space-y-3" data-bmq-order-email-settings>
-      <Label className="flex items-center gap-2">
-        <Mail className="h-4 w-4" />
-        Email đặt hàng nhà cung cấp
-      </Label>
-      {connected ? (
-        <div className={`flex flex-wrap items-center justify-between gap-2 rounded-md border p-3 ${isOrderMailbox ? "border-primary/20 bg-primary/5" : "border-destructive/20 bg-destructive/5"}`}>
-          <span className="flex min-w-0 items-center gap-2 text-sm">
-            {isOrderMailbox ? <Check className="h-5 w-5 shrink-0 text-primary" /> : <X className="h-5 w-5 shrink-0 text-destructive" />}
-            <span className="min-w-0 break-all">
-              {isOrderMailbox ? "Đang gửi từ " : "Đã kết nối "}
-              <strong>{connected}</strong>
-              {isOrderMailbox ? "" : ` — cần đăng nhập ${ORDER_MAILBOX}`}
-            </span>
-          </span>
-          <Button variant="outline" size="sm" onClick={() => void disconnect()} disabled={busy !== null}
-            className="text-destructive hover:text-destructive hover:bg-destructive/10">
-            {busy === "disconnect" ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Unlink className="h-4 w-4 mr-1" />}
-            Ngắt
-          </Button>
-        </div>
+    <SettingsRow
+      dataAttr="bmq-order-email-settings"
+      label="Email đặt hàng nhà cung cấp"
+      hint={connected ? (isOrderMailbox ? connected : `${connected} · cần đăng nhập ${ORDER_MAILBOX}`) : ORDER_MAILBOX}
+      value={connected ? (isOrderMailbox ? <SettingsStatus tone="ok">Đã kết nối</SettingsStatus> : <SettingsStatus tone="warn">Sai tài khoản</SettingsStatus>) : <SettingsStatus tone="off">Chưa kết nối</SettingsStatus>}
+      action={connected ? (
+        <button type="button" className="st-link is-danger" onClick={() => void disconnect()} disabled={busy !== null}>
+          {busy === "disconnect" ? <Loader2 className="animate-spin" /> : <Unlink />}Ngắt
+        </button>
       ) : (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-destructive/20 bg-destructive/5 p-3">
-          <span className="flex items-center gap-2 text-sm text-muted-foreground">
-            <X className="h-4 w-4 text-destructive" />
-            Chưa kết nối {ORDER_MAILBOX}
-          </span>
-          <Button onClick={() => void connect()} disabled={busy !== null} size="sm" data-bmq-order-email-connect>
-            {busy === "connect" ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Link2 className="h-4 w-4 mr-1" />}
-            Đăng nhập {ORDER_MAILBOX}
-          </Button>
-        </div>
+        <button type="button" className="st-link is-primary" onClick={() => void connect()} disabled={busy !== null} data-bmq-order-email-connect>
+          {busy === "connect" ? <Loader2 className="animate-spin" /> : <Link2 />}Kết nối
+        </button>
       )}
-    </div>
+    />
   );
 }

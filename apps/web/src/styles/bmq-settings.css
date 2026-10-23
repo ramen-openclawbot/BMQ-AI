@@ -1,0 +1,145 @@
+/*
+ * Settings pages (Cài đặt, Quản trị hệ thống) — owner 23/10/2026.
+ * Grouped lists in the Demo 3 shell: one card per group, hairline rows, panels that
+ * open under their row. Tokens come from bmq-shell (.bmq-d3) with plain fallbacks.
+ */
+
+.st {
+  --st-ink: var(--d3-ink, #272727);
+  --st-ink-2: var(--d3-ink-2, #4a4a4a);
+  --st-dim: var(--d3-dim, #6b6b69);
+  --st-faint: var(--d3-faint, #a3a3a0);
+  --st-line: var(--d3-line, #e2e2df);
+  --st-card: var(--d3-white, #fdfdfc);
+  --st-well: var(--d3-card, #f7f7f5);
+  --st-ok: #2f7d1f;
+  --st-bad: #a32314;
+  --st-warn: #8a5a06;
+  --st-ease: cubic-bezier(.23, 1, .32, 1);
+  display: grid;
+  gap: 28px;
+  width: 100%;
+  max-width: 760px;
+  min-width: 0;
+  color: var(--st-ink);
+}
+
+html.bmq-d3 .st-title { margin: 0; font-size: 28px; font-weight: 500; line-height: 1.15; letter-spacing: -.02em; }
+
+.st-group { display: grid; gap: 8px; min-width: 0; scroll-margin-top: 96px; }
+html.bmq-d3 .st-group-title { margin: 0; padding: 0 4px; font-size: 15px; font-weight: 500; color: var(--st-ink-2); }
+.st-group-foot { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding: 2px 4px 0; }
+
+.st-card { min-width: 0; overflow: hidden; border-radius: 16px; background: var(--st-card); box-shadow: 0 1px 2px rgba(0, 0, 0, .04); }
+.st-item + .st-item { box-shadow: inset 0 1px 0 var(--st-line); }
+
+.st-row { display: flex; align-items: center; gap: 10px; min-height: 56px; padding: 8px 16px; min-width: 0; }
+html.bmq-d3 .st-row-toggle {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 40px;
+  margin: -8px -6px -8px -16px;
+  padding: 8px 6px 8px 16px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+html.bmq-d3 .st-row-toggle:focus-visible { outline: 2px solid var(--st-ink); outline-offset: -2px; border-radius: 12px; }
+@media (hover: hover) { html.bmq-d3 .st-row-toggle:hover .st-row-label { text-decoration: underline; text-decoration-color: var(--st-line); text-underline-offset: 3px; } }
+
+.st-row-text { display: grid; flex: 1 1 auto; gap: 2px; min-width: 0; }
+.st-row-label { font-size: 15px; line-height: 1.35; overflow-wrap: anywhere; }
+.st-row-label.is-danger { color: var(--st-bad); }
+.st-row-hint { font-size: 12.5px; line-height: 1.4; color: var(--st-dim); overflow-wrap: anywhere; }
+.st-row-value { flex: 0 1 auto; max-width: 52%; min-width: 0; font-size: 14px; color: var(--st-dim); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.st-row-value b { font-weight: 500; color: var(--st-ink); }
+/* A status never truncates; long emails in the hint line ellipsize instead. */
+.st-row-value:has(> .st-status) { flex: none; max-width: none; }
+.st-row-hint { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; overflow-wrap: normal; }
+.st-row-action { display: flex; flex: none; align-items: center; gap: 6px; }
+.st-chev { flex: none; width: 16px; height: 16px; color: var(--st-faint); transition: transform .22s var(--st-ease); }
+.st-row-toggle[aria-expanded="true"] .st-chev { transform: rotate(90deg); }
+
+.st-status { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; white-space: nowrap; color: var(--st-dim); }
+.st-status::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.st-status.is-ok { color: var(--st-ok); }
+.st-status.is-off { color: var(--st-faint); }
+.st-status.is-warn { color: var(--st-warn); }
+
+/* Text-style actions on the row: Ngắt / Kết nối / Test. */
+html.bmq-d3 .st-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 36px;
+  padding: 0 10px;
+  margin-right: -10px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--st-ink);
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color .15s ease;
+}
+html.bmq-d3 .st-link:hover:not(:disabled) { background: rgba(39, 39, 39, .05); }
+html.bmq-d3 .st-link:focus-visible { outline: 2px solid var(--st-ink); outline-offset: 1px; }
+html.bmq-d3 .st-link:disabled { color: var(--st-faint); cursor: default; }
+html.bmq-d3 .st-link.is-danger { color: var(--st-bad); }
+html.bmq-d3 .st-link.is-primary { margin-right: 0; padding: 0 14px; background: var(--st-ink); color: #fff; }
+html.bmq-d3 .st-link.is-primary:hover:not(:disabled) { background: #000; }
+html.bmq-d3 .st-link.is-primary:disabled { background: var(--st-line); color: var(--st-dim); }
+.st-link svg { width: 15px; height: 15px; }
+
+/* Panel under a row. */
+.st-reveal { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .26s var(--st-ease); }
+.st-reveal[aria-hidden="false"] { grid-template-rows: 1fr; }
+.st-reveal-inner { min-height: 0; overflow: hidden; }
+.st-panel { display: grid; gap: 14px; min-width: 0; padding: 2px 16px 16px; }
+.st-panel-grid { display: grid; gap: 14px; }
+@media (min-width: 640px) { .st-panel-grid.is-two { grid-template-columns: 1fr 1fr; } }
+.st-field { display: grid; gap: 6px; min-width: 0; }
+.st-field > span:first-child { font-size: 13px; font-weight: 500; color: var(--st-ink-2); }
+.st-field small { font-size: 12px; color: var(--st-dim); }
+.st-inline { display: flex; gap: 8px; min-width: 0; }
+.st-inline > :first-child { flex: 1 1 auto; min-width: 0; }
+.st-note { margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--st-dim); }
+.st-note.is-warn { color: var(--st-warn); }
+.st-panel-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+
+/* Banner rows: a small thumbnail leads the row. */
+.st-thumb { flex: none; width: 56px; height: 35px; overflow: hidden; border-radius: 8px; background: var(--st-well); }
+.st-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.st-panel .st-preview { max-width: 360px; overflow: hidden; border-radius: 12px; background: var(--st-well); }
+.st-panel .st-preview img { display: block; width: 100%; aspect-ratio: 16 / 10; object-fit: cover; }
+.st-checks { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.st-check { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; font-size: 14px; color: var(--st-ink-2); }
+.st-check input { width: 18px; height: 18px; accent-color: var(--st-ink); }
+html.bmq-d3 .st textarea { min-height: 76px; width: 100%; resize: vertical; padding: 10px 12px; border: 1px solid var(--d3-line-2, #d6d6d3); border-radius: 12px; background: var(--st-card); font-size: 14px; line-height: 1.45; color: var(--st-ink); }
+html.bmq-d3 .st textarea:focus-visible { outline: 2px solid var(--st-ink); outline-offset: 1px; }
+
+@media (max-width: 640px) {
+  .st { gap: 22px; }
+  html.bmq-d3 .st-title { font-size: 24px; }
+  .st-row { padding: 8px 14px; }
+  html.bmq-d3 .st-row-toggle { margin-left: -14px; padding-left: 14px; }
+  .st-panel { padding: 2px 14px 14px; }
+  .st-row-value { max-width: 46%; }
+  /* Phones: where a row has its own Kết nối / Ngắt, the action already says the state; keep only the dot. */
+  .st-row:has(> .st-row-action) .st-status { gap: 0; font-size: 0; }
+  /* iOS zooms into fields under 16px. */
+  .st input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), html.bmq-d3 .st textarea { font-size: 16px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .st-reveal, .st-chev { transition: none; }
+}

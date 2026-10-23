@@ -1,10 +1,8 @@
 import { useEffect, useState } from "react";
-import { ImageIcon, Loader2, Save, UploadCloud } from "lucide-react";
+import { Loader2, Save, UploadCloud } from "lucide-react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { SettingsGroup, SettingsRow, SettingsStatus } from "./SettingsKit";
 import { supabase } from "@/integrations/supabase/client";
 import { LoadingState } from "@/components/ui/loading";
 
@@ -231,163 +229,80 @@ export function DealerPortalBannerSettings() {
     }
   };
 
+  const listButton = (
+    <button type="button" className="st-link" onClick={() => void saveBannerList()} disabled={savingSlot !== null} data-bmq-banner-save-list>
+      {savingSlot === -1 ? <Loader2 className="animate-spin" /> : <Save />}Lưu trạng thái 3 banner
+    </button>
+  );
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <ImageIcon className="h-5 w-5 text-primary" />
-          Banner landing đặt hàng đại lý
-        </CardTitle>
-        <CardDescription>
-          Quản lý tối đa 3 banner promotion/event hiển thị luân phiên ở landing page public của dathang.banhmique.vn trước khi đại lý đăng nhập.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {loading ? (
-          <LoadingState variant="cards" rows={2} label="Đang tải cấu hình banner..." />
-        ) : (
-          <>
-            <div className="grid gap-4 lg:grid-cols-3">
-              {banners.map((banner, index) => {
-                const previewUrl = previewUrls[index] || banner.url;
-                const saving = savingSlot === index;
-
-                return (
-                  <div key={banner.id} className="space-y-3 rounded-lg border bg-card p-3">
-                    <div className="overflow-hidden rounded-lg border bg-muted/40">
-                      {previewUrl ? (
-                        <img src={previewUrl} alt={`Banner landing đặt hàng đại lý ${index + 1}`} className="aspect-[16/10] w-full object-cover" />
-                      ) : (
-                        <div className="flex aspect-[16/10] flex-col items-center justify-center gap-2 text-muted-foreground">
-                          <ImageIcon className="h-8 w-8" />
-                          <span className="text-sm">Chưa có banner</span>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor={`dealer-banner-label-${index}`}>Tên event/banner {index + 1}</Label>
-                      <Input
-                        id={`dealer-banner-label-${index}`}
-                        value={banner.eventLabel}
-                        maxLength={60}
-                        onChange={(event) => updateBanner(index, { eventLabel: event.target.value })}
-                        placeholder={`Sự kiện ${index + 1}`}
-                      />
-                    </div>
-
-                    <div className="grid gap-2 md:grid-cols-2">
-                      <div className="flex items-center justify-between rounded-md border bg-muted/30 p-3 text-sm">
-                        <span className="text-muted-foreground">Hiển thị banner này</span>
-                        <input
-                          type="checkbox"
-                          checked={banner.enabled}
-                          disabled={!banner.url && !bannerFiles[index]}
-                          onChange={(event) => updateBanner(index, { enabled: event.target.checked })}
-                          className="h-4 w-4 accent-primary"
-                          aria-label={`Bật banner ${index + 1}`}
-                        />
-                      </div>
-                      <div className="flex items-center justify-between rounded-md border bg-muted/30 p-3 text-sm">
-                        <span className="text-muted-foreground">Post nội dung</span>
-                        <input
-                          type="checkbox"
-                          checked={banner.published}
-                          onChange={(event) => updateBanner(index, { published: event.target.checked })}
-                          className="h-4 w-4 accent-primary"
-                          aria-label={`Post nội dung banner ${index + 1}`}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
-                      <div className="space-y-2">
-                        <Label htmlFor={`dealer-banner-content-title-${index}`}>Tiêu đề trang nội dung</Label>
-                        <Input
-                          id={`dealer-banner-content-title-${index}`}
-                          value={banner.contentTitle}
-                          maxLength={90}
-                          onChange={(event) => updateBanner(index, { contentTitle: event.target.value })}
-                          placeholder="VD: Ưu đãi khai trương dành cho đại lý"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor={`dealer-banner-content-intro-${index}`}>Mô tả ngắn</Label>
-                        <textarea
-                          id={`dealer-banner-content-intro-${index}`}
-                          value={banner.contentIntro}
-                          maxLength={260}
-                          onChange={(event) => updateBanner(index, { contentIntro: event.target.value })}
-                          placeholder="Tóm tắt chương trình trong 1-2 câu."
-                          className="min-h-[76px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor={`dealer-banner-highlights-${index}`}>Điểm nổi bật (mỗi dòng một ý)</Label>
-                        <textarea
-                          id={`dealer-banner-highlights-${index}`}
-                          value={banner.contentHighlights.join("\n")}
-                          onChange={(event) => updateBanner(index, { contentHighlights: event.target.value.split("\n").map((line) => line.trim()).filter(Boolean).slice(0, 6) })}
-                          placeholder={'Giá sỉ theo hồ sơ đại lý\nChương trình áp dụng trong tháng\nHỗ trợ vận hành xác nhận đơn'}
-                          className="min-h-[104px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor={`dealer-banner-terms-${index}`}>Điều kiện áp dụng</Label>
-                        <textarea
-                          id={`dealer-banner-terms-${index}`}
-                          value={banner.contentTerms}
-                          maxLength={360}
-                          onChange={(event) => updateBanner(index, { contentTerms: event.target.value })}
-                          placeholder="Áp dụng theo khu vực, hồ sơ đại lý và chính sách BMQ tại thời điểm đặt hàng."
-                          className="min-h-[76px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor={`dealer-banner-note-${index}`}>Ghi chú</Label>
-                        <Input
-                          id={`dealer-banner-note-${index}`}
-                          value={banner.contentNote}
-                          maxLength={160}
-                          onChange={(event) => updateBanner(index, { contentNote: event.target.value })}
-                          placeholder="VD: Cần hỗ trợ vui lòng liên hệ CSKH / Zalo OA BMQ."
-                        />
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor={`dealer-landing-banner-${index}`}>Ảnh banner</Label>
-                      <Input
-                        id={`dealer-landing-banner-${index}`}
-                        type="file"
-                        accept="image/png,image/jpeg,image/webp"
-                        onChange={(event) => handlePickFile(index, event.target.files?.[0] || null)}
-                      />
-                      <p className="text-xs leading-5 text-muted-foreground">Khuyến nghị 1600×1000 hoặc 16:10, JPG/PNG/WebP, tối đa 5MB.</p>
-                    </div>
-
-                    {banner.path ? (
-                      <div className="break-all rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
-                        Path: <span className="font-mono">{banner.path}</span>
-                      </div>
-                    ) : null}
-
-                    <Button className="w-full" onClick={() => saveBannerSlot(index)} disabled={savingSlot !== null || (!bannerFiles[index] && !banner.url)}>
-                      {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : bannerFiles[index] ? <Save className="h-4 w-4" /> : <UploadCloud className="h-4 w-4" />}
-                      Lưu banner {index + 1}
-                    </Button>
-                  </div>
-                );
-              })}
+    <SettingsGroup id="dealer-portal" title="Banner trang đặt hàng đại lý" footer={loading ? null : listButton}>
+      {loading ? (
+        <LoadingState flat rows={3} label="Đang tải cấu hình banner…" />
+      ) : banners.map((banner, index) => {
+        const previewUrl = previewUrls[index] || banner.url;
+        const saving = savingSlot === index;
+        const state = !previewUrl ? <SettingsStatus tone="off">Trống</SettingsStatus>
+          : banner.enabled ? <SettingsStatus tone="ok">Đang hiện</SettingsStatus>
+          : <SettingsStatus tone="off">Tắt</SettingsStatus>;
+        return (
+          <SettingsRow
+            key={banner.id}
+            dataAttr="bmq-banner-row"
+            label={<span className="flex items-center gap-3">
+              <span className="st-thumb" aria-hidden="true">{previewUrl ? <img src={previewUrl} alt="" /> : null}</span>
+              <span className="min-w-0">{banner.eventLabel || `Banner ${index + 1}`}</span>
+            </span>}
+            value={state}
+          >
+            {previewUrl ? <div className="st-preview"><img src={previewUrl} alt={`Banner ${index + 1}`} /></div> : null}
+            <label className="st-field">
+              <span>Ảnh banner</span>
+              <Input id={`dealer-landing-banner-${index}`} type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => handlePickFile(index, event.target.files?.[0] || null)} />
+              <small>16:10, JPG/PNG/WebP, tối đa 5MB</small>
+            </label>
+            <label className="st-field">
+              <span>Tên banner</span>
+              <Input id={`dealer-banner-label-${index}`} value={banner.eventLabel} maxLength={60} onChange={(event) => updateBanner(index, { eventLabel: event.target.value })} placeholder={`Sự kiện ${index + 1}`} />
+            </label>
+            <div className="st-checks">
+              <label className="st-check">
+                <input type="checkbox" checked={banner.enabled} disabled={!banner.url && !bannerFiles[index]} onChange={(event) => updateBanner(index, { enabled: event.target.checked })} aria-label={`Bật banner ${index + 1}`} />
+                Hiện banner
+              </label>
+              <label className="st-check">
+                <input type="checkbox" checked={banner.published} onChange={(event) => updateBanner(index, { published: event.target.checked })} aria-label={`Post nội dung banner ${index + 1}`} />
+                Có trang nội dung
+              </label>
             </div>
-
-            <Button variant="outline" className="w-full md:w-auto" onClick={saveBannerList} disabled={savingSlot !== null}>
-              {savingSlot === -1 ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-              Lưu thứ tự / trạng thái 3 banner
-            </Button>
-          </>
-        )}
-      </CardContent>
-    </Card>
+            <label className="st-field">
+              <span>Tiêu đề trang nội dung</span>
+              <Input id={`dealer-banner-content-title-${index}`} value={banner.contentTitle} maxLength={90} onChange={(event) => updateBanner(index, { contentTitle: event.target.value })} placeholder="VD: Ưu đãi khai trương dành cho đại lý" />
+            </label>
+            <label className="st-field">
+              <span>Mô tả ngắn</span>
+              <textarea id={`dealer-banner-content-intro-${index}`} value={banner.contentIntro} maxLength={260} onChange={(event) => updateBanner(index, { contentIntro: event.target.value })} placeholder="Tóm tắt chương trình trong 1-2 câu." />
+            </label>
+            <label className="st-field">
+              <span>Điểm nổi bật · mỗi dòng một ý</span>
+              <textarea id={`dealer-banner-highlights-${index}`} value={banner.contentHighlights.join("\n")} onChange={(event) => updateBanner(index, { contentHighlights: event.target.value.split("\n").map((line) => line.trim()).filter(Boolean).slice(0, 6) })} placeholder={"Giá sỉ theo hồ sơ đại lý\nChương trình áp dụng trong tháng"} />
+            </label>
+            <label className="st-field">
+              <span>Điều kiện áp dụng</span>
+              <textarea id={`dealer-banner-terms-${index}`} value={banner.contentTerms} maxLength={360} onChange={(event) => updateBanner(index, { contentTerms: event.target.value })} placeholder="Áp dụng theo khu vực, hồ sơ đại lý và chính sách BMQ." />
+            </label>
+            <label className="st-field">
+              <span>Ghi chú</span>
+              <Input id={`dealer-banner-note-${index}`} value={banner.contentNote} maxLength={160} onChange={(event) => updateBanner(index, { contentNote: event.target.value })} placeholder="VD: Cần hỗ trợ liên hệ CSKH / Zalo OA BMQ." />
+            </label>
+            <div className="st-panel-actions">
+              <button type="button" className="st-link is-primary" onClick={() => void saveBannerSlot(index)} disabled={savingSlot !== null || (!bannerFiles[index] && !banner.url)} data-bmq-banner-save>
+                {saving ? <Loader2 className="animate-spin" /> : bannerFiles[index] ? <Save /> : <UploadCloud />}Lưu banner
+              </button>
+            </div>
+          </SettingsRow>
+        );
+      })}
+    </SettingsGroup>
   );
 }
