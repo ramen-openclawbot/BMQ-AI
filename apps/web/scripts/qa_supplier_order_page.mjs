@@ -24,25 +24,36 @@ fs.mkdirSync(EVIDENCE, { recursive: true });
 
 const SUPABASE_FIXTURE = `
 import { buildSupplierOrderEmailLines } from "/supabase/functions/_shared/supplier-order-email.ts";
+import { computeOrderAmounts } from "/src/lib/supplier-order.ts";
 const cfg = () => JSON.parse(localStorage.getItem("qa-shell") || "{}");
 window.__qaCalls = window.__qaCalls || [];
 const PT = "bc39ded3-755c-4b31-9e4c-d7729e009608";
 const TV = "9546bd80-18d7-4ec7-b0e5-de50798ea718";
 const delivery = { address: "24 Đường số 36, P. Tân Quy, Q7, TP.HCM", contact_name: "Huỳnh Kim Ngân", contact_phone: "0926 504 623", note: "" };
-const line = (id, name, wording, onHand, daily, proposal, price, open, vat = 8) => ({
+const prices = () => JSON.parse(localStorage.getItem("qa-prices") || "{}");
+const line = (id, name, wording, onHand, daily, proposal, price, open, vat = 8, list = null) => {
+  const set = prices()[id];
+  const listPrice = set ? (set.price > 0 ? set.price : null) : list;
+  const gross = set ? set.gross : list !== null;
+  return {
+  list_price: listPrice === null ? null : String(listPrice), list_price_includes_vat: listPrice !== null && gross,
+  list_price_source: listPrice === null ? null : set ? "Sửa trong trang Đặt hàng" : "Phiếu xuất kho Phúc Thịnh ĐH19993 ngày 22/10/2026",
+  history_price: String(price),
+  unit_price_gross: listPrice !== null && gross ? String(listPrice) : String(Math.round(price * (1 + vat / 100) * 100) / 100),
   catalog_id: "c-" + id, item: { id, name, code: "NVL-" + id.slice(0, 3), unit: "g" }, product_name: wording, po_unit: "kg",
   po_unit_factor: "1000", pack_size_po: "25", vat_rate: String(vat),
   stock: { on_hand: String(onHand), daily_usage: String(daily), days_left: daily > 0 ? String(Math.round(onHand / daily * 10) / 10) : null, reorder_date: "2026-11-02", last_count_date: "2026-10-16" },
-  proposal_qty: String(proposal), unit_price: String(price), open_order: open || null,
-});
+  proposal_qty: String(proposal), unit_price: String(listPrice !== null ? (gross ? Math.round(listPrice / (1 + vat / 100) * 100) / 100 : listPrice) : price), open_order: open || null,
+  };
+};
 const removed = () => JSON.parse(localStorage.getItem("qa-removed") || "[]");
 const added = () => JSON.parse(localStorage.getItem("qa-added") || "[]");
 function catalog(id) {
   if (id === PT) {
     const items = [
-      line("1039f461-8f9f-45a1-b05c-b96cb736812e", "Bột mì 999 Cam", "Bột mì 999 Cam (25kg)", 303751.946, 13561.438, 0, 19300),
-      line("64952d75-2351-43f8-886f-de5282c96ed2", "Bột mì 888 Cam", "Bột mì 888 Cam (25kg)", 232339.76, 18581.266, 0, 18900),
-      line("6ba549f7-d3b6-4971-a742-2fb4091800bb", "Sữa Bột Béo New Zealand", "Sữa Bột Béo New Zealand (25kg)", -5712.81, 1303.958, 25, 140740),
+      line("1039f461-8f9f-45a1-b05c-b96cb736812e", "Bột mì 999 Cam", "Bột mì 999 Cam (25kg)", 303751.946, 13561.438, 0, 19300, null, 8, 20840),
+      line("64952d75-2351-43f8-886f-de5282c96ed2", "Bột mì 888 Cam", "Bột mì 888 Cam (25kg)", 232339.76, 18581.266, 0, 18900, null, 8, 20440),
+      line("6ba549f7-d3b6-4971-a742-2fb4091800bb", "Sữa Bột Béo New Zealand", "Sữa Bột Béo New Zealand (25kg)", -5712.81, 1303.958, 25, 140740, null, 8, 152000),
       ...(added().includes("c78c5281-0000-4000-8000-000000000001") ? [line("c78c5281-0000-4000-8000-000000000001", "Men khô Meizan nhãn vàng", "Men Khô Meizan - Nhãn Vàng (0.5*10kg/Thùng)", 4200, 350, 0, 92592)] : []),
     ].filter((it) => !removed().includes(it.item.id));
     return { supplier: { id: PT, name: "Phúc Thịnh", email: "botmiphucthinh@gmail.com" }, delivery, mailbox_connected: true, blockers: [], items, prepay: null };
@@ -75,7 +86,9 @@ function settle(st) {
   ], error: null };
   if (st.table === "rpc:supplier_order_catalog_set") {
     const a = st.args;
-    if (a.p_active) localStorage.setItem("qa-added", JSON.stringify([...added(), a.p_item_id]));
+    if (a.p_active && a.p_list_price !== null && a.p_list_price !== undefined) {
+      localStorage.setItem("qa-prices", JSON.stringify({ ...prices(), [a.p_item_id]: { price: Number(a.p_list_price), gross: a.p_list_price_includes_vat === true } }));
+    } else if (a.p_active) localStorage.setItem("qa-added", JSON.stringify([...added(), a.p_item_id]));
     else localStorage.setItem("qa-removed", JSON.stringify([...removed(), a.p_item_id]));
     return { data: { supplier_id: a.p_supplier_id, kitchen_inventory_item_id: a.p_item_id, active: a.p_active }, error: null };
   }
@@ -97,14 +110,12 @@ function builder(table, args) {
 }
 function priced(body) {
   const items = catalog(body.supplier_id).items;
-  const lines = body.lines.map((l, i) => {
-    const it = items.find((row) => row.item.id === l.item_id);
-    const price = Number(it.unit_price);
-    return { position: i + 1, item_id: l.item_id, product_name: it.product_name, quantity: l.quantity, unit: "kg", unit_price: price, line_total: Math.round(l.quantity * price * 100) / 100, vat_rate: Number(it.vat_rate) };
-  });
-  const subtotal = lines.reduce((s, l) => s + l.line_total, 0);
-  const vat = Math.round(lines.reduce((s, l) => s + l.line_total * l.vat_rate / 100, 0));
-  return { lines, subtotal, vat, total: subtotal + vat };
+  const picked = body.lines.map((l) => items.find((row) => row.item.id === l.item_id));
+  const a = computeOrderAmounts(body.lines.map((l, i) => ({ quantity: l.quantity, unitPrice: Number(picked[i].history_price), vatRate: Number(picked[i].vat_rate),
+    listPrice: picked[i].list_price === null ? null : Number(picked[i].list_price), listPriceIncludesVat: picked[i].list_price_includes_vat })));
+  const lines = a.lines.map((x, i) => ({ position: i + 1, item_id: body.lines[i].item_id, product_name: picked[i].product_name, quantity: x.quantity, unit: "kg",
+    unit_price: x.unitPrice, line_total: x.lineTotal, vat_rate: x.vatRate, vat_amount: x.vatAmount, gross_amount: x.grossAmount }));
+  return { lines, subtotal: a.subtotal, vat: a.vatAmount, total: a.total };
 }
 const user = { id: "qa-user", email: "qa@bmq.test", user_metadata: {} };
 const channel = { on() { return channel; }, subscribe() { return channel; }, unsubscribe() {} };
@@ -247,32 +258,34 @@ try {
     const tabs = await page.locator("[data-bmq-so-suppliers] button").allInnerTexts();
     assert.ok(tabs.length === 2 && /Phúc Thịnh/.test(tabs[0]) && /3 món/.test(tabs[0]) && /TV Food/.test(tabs[1]), `supplier tabs ${tabs}`);
     const card = await page.locator("[data-bmq-so-card]").innerText();
-    for (const text of ["botmiphucthinh@gmail.com", "Bột mì 999 Cam (25kg)", "19.300 đ/kg", "18.900 đ/kg", "VAT 8%", "đã hết", "chưa cần đặt", "đề xuất 25 kg", "Huỳnh Kim Ngân", "không có phiếu chi nào đang chờ trả"]) {
+    for (const text of ["botmiphucthinh@gmail.com", "Bột mì 999 Cam (25kg)", "20.840 đ/kg gồm VAT", "20.440 đ/kg gồm VAT", "152.000 đ/kg gồm VAT", "VAT 8%", "đã hết", "chưa cần đặt", "đề xuất 25 kg", "Huỳnh Kim Ngân", "không có phiếu chi nào đang chờ trả"]) {
       assert.ok(card.includes(text), `Phúc Thịnh card shows "${text}" @${vp.width}: ${card}`);
     }
     assert.ok(!EMOJI.test(card), "no emoji");
     // Proposal seeds Sữa bột 25 kg; the others start empty.
     assert.equal(await page.locator(`[data-bmq-so-qty='${IMILK}']`).inputValue(), "25");
     assert.equal(await page.locator(`[data-bmq-so-qty='${I999}']`).inputValue(), "");
-    assert.match(await page.locator("[data-bmq-so-subtotal]").innerText(), /3\.518\.500 đ/);
-    assert.match(await page.locator("[data-bmq-so-vat]").innerText(), /281\.480 đ/);
-    assert.match(await page.locator("[data-bmq-so-total]").innerText(), /3\.799\.980 đ/);
+    assert.match(await page.locator("[data-bmq-so-subtotal]").innerText(), /3\.518\.519 đ/);
+    assert.match(await page.locator("[data-bmq-so-vat]").innerText(), /281\.481 đ/);
+    assert.match(await page.locator("[data-bmq-so-total]").innerText(), /3\.800\.000 đ/);
+    assert.match(await page.locator(`[data-bmq-so-line='${IMILK}'] [data-bmq-so-line-total]`).innerText(), /3\.800\.000 đ/);
     // + adds one bag of 25 kg.
     await page.locator(`[data-bmq-so-line='${I999}'] .d3-so-stepper button`).last().click();
     assert.equal(await page.locator(`[data-bmq-so-qty='${I999}']`).inputValue(), "25");
-    assert.match(await page.locator("[data-bmq-so-total]").innerText(), /4\.321\.080 đ/);
+    assert.match(await page.locator("[data-bmq-so-total]").innerText(), /4\.321\.000 đ/);
     // A wrong number blocks Lập phiếu and says so on the line.
     await page.locator(`[data-bmq-so-qty='${I999}']`).fill("abc");
     assert.match(await page.locator(`[data-bmq-so-line='${I999}'] [data-bmq-so-line-total]`).innerText(), /Số chưa đúng/);
     assert.ok(await page.locator("[data-bmq-so-make]").isDisabled(), "Lập phiếu disabled on a bad number");
     await page.locator(`[data-bmq-so-qty='${I999}']`).fill("50");
-    assert.match(await page.locator("[data-bmq-so-subtotal]").innerText(), /4\.483\.500 đ/);
-    assert.match(await page.locator("[data-bmq-so-vat]").innerText(), /358\.680 đ/);
-    assert.match(await page.locator("[data-bmq-so-total]").innerText(), /4\.842\.180 đ/);
+    assert.match(await page.locator("[data-bmq-so-subtotal]").innerText(), /4\.483\.334 đ/);
+    assert.match(await page.locator("[data-bmq-so-vat]").innerText(), /358\.666 đ/);
+    assert.match(await page.locator("[data-bmq-so-total]").innerText(), /4\.842\.000 đ/);
+    assert.match(await page.locator(`[data-bmq-so-line='${I999}'] [data-bmq-so-line-total]`).innerText(), /1\.042\.000 đ/);
     await page.locator("[data-bmq-so-note]").fill("Giao trước 10h");
     // Kho name shows only when it adds something to the supplier's wording.
     assert.ok(!(await page.locator(`[data-bmq-so-line='${I999}'] .d3-so-line-main > small`).innerText()).includes("Bột mì 999 Cam\n"), "no duplicate kho name");
-    assert.equal(await page.locator(`[data-bmq-so-line='${I999}'] .d3-so-line-main > small span`).first().innerText(), "19.300 đ/kg");
+    assert.equal(await page.locator(`[data-bmq-so-line='${I999}'] .d3-so-line-main > small span`).first().innerText(), "20.840 đ/kg gồm VAT");
     // The VNAgent launcher never covers Lập phiếu once the button is on screen.
     const clash = await page.evaluate(() => {
       document.querySelector("[data-bmq-so-make]")?.scrollIntoView({ block: "center" });
@@ -301,7 +314,7 @@ try {
     assert.ok(prev[0].includes('"mode":"preview"') && prev[0].includes('"quantity":50') && prev[0].includes('"quantity":25') && prev[0].includes("Giao trước 10h") && prev[0].includes('"prepay":false'), `preview body ${prev[0]}`);
     const frame = page.frameLocator("[data-bmq-so-mail]");
     const mailText = await frame.locator("body").innerText();
-    for (const text of ["Kính gửi Phúc Thịnh", "Bột mì 999 Cam (25kg)", "Sữa Bột Béo New Zealand (25kg)", "Cộng tiền hàng", "4.483.500 đ", "Thuế GTGT", "358.680 đ", "4.842.180 đ", "8%", "Huỳnh Kim Ngân", "PO mới (số cấp khi gửi)", "Giao trước 10h"]) {
+    for (const text of ["Kính gửi Phúc Thịnh", "Bột mì 999 Cam (25kg)", "Sữa Bột Béo New Zealand (25kg)", "Cộng tiền hàng", "4.483.334 đ", "Thuế GTGT", "358.666 đ", "4.842.000 đ", "19.296,30 đ", "140.740,74 đ", "8%", "Huỳnh Kim Ngân", "PO mới (số cấp khi gửi)", "Giao trước 10h"]) {
       assert.ok(mailText.includes(text), `email preview shows "${text}"`);
     }
     // The whole email fits the frame at every width (it scales down on phones), so no column is cut off.
@@ -314,7 +327,7 @@ try {
     const frameBox = await page.locator("[data-bmq-so-mail]").boundingBox();
     assert.ok(frameBox && frameBox.height > 400, `email frame grows to its content: ${JSON.stringify(frameBox)}`);
     const facts = await page.locator(".d3-so-facts").innerText();
-    assert.ok(/botmiphucthinh@gmail\.com/.test(facts) && /Không trình chi/.test(facts) && /4\.842\.180 đ · gồm VAT 358\.680 đ/.test(facts), `preview facts ${facts}`);
+    assert.ok(/botmiphucthinh@gmail\.com/.test(facts) && /Không trình chi/.test(facts) && /4\.842\.000 đ · gồm VAT 358\.666 đ/.test(facts), `preview facts ${facts}`);
     await noSpill(page, "preview", vp);
     await shot(page, `preview-pt-${vp.width}.png`);
 
@@ -387,10 +400,18 @@ try {
     await page.waitForSelector("[data-bmq-so-candidates]");
     await page.locator("[data-bmq-so-add]").first().click();
     await page.waitForSelector("[data-bmq-so-line='c78c5281-0000-4000-8000-000000000001']");
+    // Price editor: 888 to 20.500 đ/kg gồm VAT; the label follows and the RPC keeps the row's unit and bag.
+    const I888 = "64952d75-2351-43f8-886f-de5282c96ed2";
+    assert.match(await page.locator(`[data-bmq-so-price-edit='${I888}']`).innerText(), /Nguồn giá: Phiếu xuất kho Phúc Thịnh ĐH19993/);
+    await page.locator(`[data-bmq-so-price='${I888}']`).fill("20500");
+    await page.locator(`[data-bmq-so-price-save='${I888}']`).click();
+    await page.waitForFunction((id) => /20\.500 đ\/kg gồm VAT/.test(document.querySelector(`[data-bmq-so-line='${id}'] [data-bmq-so-price-label]`)?.textContent || ""), I888);
+    const priceCall = (await calls(page)).find((c) => c.startsWith("rpc:supplier_order_catalog_set:") && c.includes('"p_list_price":20500'));
+    assert.ok(priceCall && priceCall.includes('"p_list_price_includes_vat":true') && priceCall.includes('"p_pack_size_po":25') && priceCall.includes('"p_po_unit":"kg"'), `price call ${priceCall}`);
     await page.locator(`[data-bmq-so-remove='${IMILK}']`).click();
     await page.waitForSelector(`[data-bmq-so-line='${IMILK}']`, { state: "detached" });
     const sets = (await calls(page)).filter((c) => c.startsWith("rpc:supplier_order_catalog_set:"));
-    assert.ok(sets.length === 2 && sets[0].includes('"p_active":true') && sets[0].includes('"p_po_unit":"kg"') && sets[1].includes('"p_active":false') && sets[1].includes(IMILK), `catalog set calls ${sets}`);
+    assert.ok(sets.length === 3 && sets[0].includes('"p_active":true') && sets[0].includes('"p_po_unit":"kg"') && sets[2].includes('"p_active":false') && sets[2].includes(IMILK), `catalog set calls ${sets}`);
     await noSpill(page, "catalog edit", vp);
     await shot(page, "catalog-edit-390.png");
     assert.deepEqual(errors, []);

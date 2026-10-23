@@ -23,14 +23,20 @@ declare
   v_tvfood constant uuid := '9546bd80-18d7-4ec7-b0e5-de50798ea718';
   v_mi999 constant uuid := '1039f461-8f9f-45a1-b05c-b96cb736812e';
   v_mi888 constant uuid := '64952d75-2351-43f8-886f-de5282c96ed2';
+  v_sua constant uuid := '6ba549f7-d3b6-4971-a742-2fb4091800bb';
   v_bo constant uuid := '3c16ed3f-54c7-427f-a316-5aa4fcadda5a';
   v_suppliers jsonb;
   v_catalog jsonb;
   v_candidates jsonb;
   v_set jsonb;
+  v_quote jsonb;
   v_count integer;
   v_price numeric;
   v_vat numeric;
+  v_list_price numeric;
+  v_includes_vat boolean;
+  v_source text;
+  v_history_price numeric;
 begin
   if not public.has_role(
     '27dbc34e-75ee-4973-8f9a-d1b125c90483'::uuid, 'owner'
@@ -80,22 +86,63 @@ begin
     raise exception 'catalog supplier mismatch: %', v_catalog -> 'supplier';
   end if;
 
-  select (e.value ->> 'unit_price')::numeric
-  into v_price
+  select (e.value ->> 'unit_price')::numeric,
+         (e.value ->> 'list_price')::numeric,
+         (e.value ->> 'list_price_includes_vat')::boolean,
+         (e.value ->> 'list_price_source')::text,
+         (e.value ->> 'history_price')::numeric
+  into v_price, v_list_price, v_includes_vat, v_source, v_history_price
   from jsonb_array_elements(v_catalog -> 'items') e
   where e.value -> 'item' ->> 'id' = v_mi999::text;
 
-  if v_price is distinct from 19300 then
-    raise exception 'Bột mì 999 price must be 19300/kg, got %', v_price;
+  if v_price is distinct from 19296.30 then
+    raise exception 'Bột mì 999 net price must be 19296.30/kg, got %', v_price;
+  end if;
+  if v_list_price is distinct from 20840 then
+    raise exception 'Bột mì 999 list price must be 20840, got %', v_list_price;
+  end if;
+  if v_includes_vat is not true then
+    raise exception 'Bột mì 999 list price must include VAT';
+  end if;
+  if v_source is null or v_source not like '%ĐH19993%' then
+    raise exception 'Bột mì 999 list price source is missing: %', v_source;
+  end if;
+  if v_history_price is distinct from 19300 then
+    raise exception 'Bột mì 999 history price must be 19300/kg, got %', v_history_price;
   end if;
 
-  select (e.value ->> 'unit_price')::numeric
-  into v_price
+  select (e.value ->> 'unit_price')::numeric,
+         (e.value ->> 'list_price')::numeric,
+         (e.value ->> 'list_price_includes_vat')::boolean
+  into v_price, v_list_price, v_includes_vat
   from jsonb_array_elements(v_catalog -> 'items') e
   where e.value -> 'item' ->> 'id' = v_mi888::text;
 
-  if v_price is distinct from 18900 then
-    raise exception 'Bột mì 888 price must be 18900/kg, got %', v_price;
+  if v_price is distinct from 18925.93 then
+    raise exception 'Bột mì 888 net price must be 18925.93/kg, got %', v_price;
+  end if;
+  if v_list_price is distinct from 20440 then
+    raise exception 'Bột mì 888 list price must be 20440, got %', v_list_price;
+  end if;
+  if v_includes_vat is not true then
+    raise exception 'Bột mì 888 list price must include VAT';
+  end if;
+
+  select (e.value ->> 'unit_price')::numeric,
+         (e.value ->> 'list_price')::numeric,
+         (e.value ->> 'list_price_includes_vat')::boolean
+  into v_price, v_list_price, v_includes_vat
+  from jsonb_array_elements(v_catalog -> 'items') e
+  where e.value -> 'item' ->> 'id' = v_sua::text;
+
+  if v_price is distinct from 140740.74 then
+    raise exception 'Sữa bột net price must be 140740.74/kg, got %', v_price;
+  end if;
+  if v_list_price is distinct from 152000 then
+    raise exception 'Sữa bột list price must be 152000, got %', v_list_price;
+  end if;
+  if v_includes_vat is not true then
+    raise exception 'Sữa bột list price must include VAT';
   end if;
 
   select (e.value ->> 'vat_rate')::numeric
@@ -153,6 +200,57 @@ begin
     raise exception 'catalog set reactivate failed: %', v_set;
   end if;
 
+  ------------------------------------------------------------------
+  -- quote for the ĐH19993 lines
+  ------------------------------------------------------------------
+  v_quote := public.supplier_order_quote(
+    v_phuc,
+    jsonb_build_array(
+      jsonb_build_object('item_id', v_mi999, 'quantity', 200),
+      jsonb_build_object('item_id', v_mi888, 'quantity', 250),
+      jsonb_build_object('item_id', v_sua, 'quantity', 25)
+    )
+  );
+
+  if (v_quote ->> 'subtotal')::numeric is distinct from 12109259
+     or (v_quote ->> 'vat_amount')::numeric is distinct from 968741
+     or (v_quote ->> 'total')::numeric is distinct from 13078000 then
+    raise exception 'ĐH19993 quote totals mismatch: %', v_quote;
+  end if;
+  if jsonb_array_length(v_quote -> 'lines') <> 3 then
+    raise exception 'ĐH19993 quote must return three lines: %', v_quote;
+  end if;
+
+  ------------------------------------------------------------------
+  -- catalog set can set and clear a list price
+  ------------------------------------------------------------------
+  v_set := public.supplier_order_catalog_set(
+    v_phuc, v_mi999, true, 'kg', 25, null, null, 21000, true
+  );
+  if v_set is null
+     or (v_set ->> 'list_price')::numeric is distinct from 21000
+     or (v_set ->> 'list_price_includes_vat')::boolean is not true
+     or (v_set ->> 'list_price_source') <> 'Sửa trong trang Đặt hàng' then
+    raise exception 'catalog set list price failed: %', v_set;
+  end if;
+
+  v_set := public.supplier_order_catalog_set(
+    v_phuc, v_mi999, true, 'kg', 25, null, null, 0, null
+  );
+  if v_set is null
+     or v_set -> 'list_price' is distinct from 'null'::jsonb
+     or v_set -> 'list_price_source' is distinct from 'null'::jsonb then
+    raise exception 'catalog set must clear the list price: %', v_set;
+  end if;
+
+  v_set := public.supplier_order_catalog_set(
+    v_phuc, v_mi999, true, 'kg', 25, null, null, 20840, true
+  );
+  if v_set is null
+     or (v_set ->> 'list_price')::numeric is distinct from 20840 then
+    raise exception 'catalog set must restore the list price: %', v_set;
+  end if;
+
   raise notice 'supplier order page read smoke passed';
 end;
 $read$;
@@ -170,17 +268,25 @@ do $write$
 declare
   v_actor constant uuid := '27dbc34e-75ee-4973-8f9a-d1b125c90483';
   v_phuc constant uuid := 'bc39ded3-755c-4b31-9e4c-d7729e009608';
+  v_tvfood constant uuid := '9546bd80-18d7-4ec7-b0e5-de50798ea718';
   v_mi999 constant uuid := '1039f461-8f9f-45a1-b05c-b96cb736812e';
   v_mi888 constant uuid := '64952d75-2351-43f8-886f-de5282c96ed2';
+  v_sua constant uuid := '6ba549f7-d3b6-4971-a742-2fb4091800bb';
+  v_bo constant uuid := '3c16ed3f-54c7-427f-a316-5aa4fcadda5a';
   v_new_item uuid := gen_random_uuid();
   v_request_id uuid;
+  v_request3_id uuid;
   v_create jsonb;
+  v_create3 jsonb;
   v_replay jsonb;
+  v_quote jsonb;
   v_set jsonb;
   v_po_id uuid;
+  v_po3_id uuid;
   v_history jsonb;
   v_item_history jsonb;
   v_count integer;
+  v_sum numeric;
   v_subtotal numeric;
   v_vat_amount numeric;
   v_total numeric;
@@ -206,24 +312,24 @@ begin
   v_vat_amount := (v_create ->> 'vat_amount')::numeric;
   v_total := (v_create ->> 'total')::numeric;
 
-  if v_subtotal is distinct from 955000 then
-    raise exception 'multi create subtotal must be 955000, got %', v_subtotal;
+  if v_subtotal is distinct from 955555 then
+    raise exception 'multi create subtotal must be 955555, got %', v_subtotal;
   end if;
-  if v_vat_amount is distinct from 76400 then
-    raise exception 'multi create VAT must be 76400, got %', v_vat_amount;
+  if v_vat_amount is distinct from 76445 then
+    raise exception 'multi create VAT must be 76445, got %', v_vat_amount;
   end if;
-  if v_total is distinct from 1031400 then
-    raise exception 'multi create total must be 1031400, got %', v_total;
+  if v_total is distinct from 1032000 then
+    raise exception 'multi create total must be 1032000, got %', v_total;
   end if;
 
   if not exists (
     select 1
     from public.purchase_orders
     where id = v_po_id
-      and vat_amount = 76400
-      and total_amount = 1031400
+      and vat_amount = 76445
+      and total_amount = 1032000
   ) then
-    raise exception 'PO row must store vat_amount 76400 and total_amount 1031400';
+    raise exception 'PO row must store vat_amount 76445 and total_amount 1032000';
   end if;
 
   select count(*) into v_count
@@ -255,10 +361,10 @@ begin
     where request_id = v_request_id
       and kitchen_inventory_item_id is null
       and quantity is null
-      and line_total = 955000
-      and subtotal_amount = 955000
-      and vat_amount = 76400
-      and total_amount = 1031400
+      and line_total = 955555
+      and subtotal_amount = 955555
+      and vat_amount = 76445
+      and total_amount = 1032000
   ) then
     raise exception 'multi request row is missing its nullable item fields, VAT or total';
   end if;
@@ -272,6 +378,15 @@ begin
       and l.vat_amount > 0
   ) then
     raise exception 'request lines must carry the 8%% VAT rate and amount';
+  end if;
+
+  select coalesce(sum(l.gross_amount), 0)
+  into v_sum
+  from public.supplier_order_request_lines l
+  join public.supplier_order_requests r on r.id = l.request_id
+  where r.request_id = v_request_id;
+  if v_sum is distinct from 1032000 then
+    raise exception 'two-line gross sum must be 1032000, got %', v_sum;
   end if;
 
   v_replay := public.create_supplier_order_multi(
@@ -291,10 +406,68 @@ begin
   if (v_replay ->> 'purchase_order_id')::uuid <> v_po_id then
     raise exception 'replay created a different PO: %', v_replay;
   end if;
-  if (v_replay ->> 'subtotal')::numeric is distinct from 955000
-     or (v_replay ->> 'vat_amount')::numeric is distinct from 76400
-     or (v_replay ->> 'total')::numeric is distinct from 1031400 then
+  if (v_replay ->> 'subtotal')::numeric is distinct from 955555
+     or (v_replay ->> 'vat_amount')::numeric is distinct from 76445
+     or (v_replay ->> 'total')::numeric is distinct from 1032000 then
     raise exception 'replay must return subtotal / VAT / total: %', v_replay;
+  end if;
+
+  ------------------------------------------------------------------
+  -- ĐH19993: 200 kg 999 + 250 kg 888 + 25 kg sữa bột
+  ------------------------------------------------------------------
+  v_request3_id := gen_random_uuid();
+  v_create3 := public.create_supplier_order_multi(
+    v_request3_id,
+    v_phuc,
+    jsonb_build_array(
+      jsonb_build_object('item_id', v_mi999, 'quantity', 200),
+      jsonb_build_object('item_id', v_mi888, 'quantity', 250),
+      jsonb_build_object('item_id', v_sua, 'quantity', 25)
+    ),
+    'Smoke ĐH19993',
+    v_actor
+  );
+
+  if (v_create3 ->> 'subtotal')::numeric is distinct from 12109259
+     or (v_create3 ->> 'vat_amount')::numeric is distinct from 968741
+     or (v_create3 ->> 'total')::numeric is distinct from 13078000 then
+    raise exception 'ĐH19993 create totals mismatch: %', v_create3;
+  end if;
+
+  v_po3_id := (v_create3 ->> 'purchase_order_id')::uuid;
+  if not exists (
+    select 1
+    from public.purchase_orders
+    where id = v_po3_id
+      and vat_amount = 968741
+      and total_amount = 13078000
+  ) then
+    raise exception 'ĐH19993 PO must store vat_amount 968741 and total_amount 13078000';
+  end if;
+
+  select count(*), coalesce(sum(line_total), 0)
+  into v_count, v_sum
+  from public.purchase_order_items
+  where purchase_order_id = v_po3_id;
+  if v_count <> 3 or v_sum is distinct from 12109259 then
+    raise exception 'ĐH19993 PO must have three lines summing to 12109259, got % / %',
+      v_count, v_sum;
+  end if;
+
+  ------------------------------------------------------------------
+  -- TV Food keeps the history price and zero VAT
+  ------------------------------------------------------------------
+  v_quote := public.supplier_order_quote(
+    v_tvfood,
+    jsonb_build_array(
+      jsonb_build_object('item_id', v_bo, 'quantity', 25)
+    )
+  );
+  if (v_quote ->> 'subtotal')::numeric is distinct from 2250000
+     or (v_quote ->> 'vat_amount')::numeric is distinct from 0
+     or (v_quote ->> 'total')::numeric is distinct from 2250000
+     or (v_quote -> 'lines' -> 0 ->> 'unit_price')::numeric is distinct from 90000 then
+    raise exception 'TV Food Bơ quote must stay 2250000 with VAT 0: %', v_quote;
   end if;
 
   -- A new Phúc Thịnh item with a null vat_rate defaults to 8 from the newest
@@ -340,12 +513,13 @@ begin
   if not exists (
     select 1 from jsonb_array_elements(v_history -> 'items') e
     where e.value ->> 'request_id' = v_request_id::text
-      and (e.value ->> 'subtotal')::numeric = 955000
-      and (e.value ->> 'vat_amount')::numeric = 76400
+      and (e.value ->> 'subtotal')::numeric = 955555
+      and (e.value ->> 'vat_amount')::numeric = 76445
       and exists (
         select 1
         from jsonb_array_elements(e.value -> 'lines') l
         where (l ->> 'vat_rate')::numeric = 8
+          and (l ->> 'gross_amount')::numeric > 0
       )
   ) then
     raise exception 'supplier history is missing the VAT fields: %', v_history;

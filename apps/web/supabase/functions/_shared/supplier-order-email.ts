@@ -81,6 +81,20 @@ export function formatVnd(value: number | null | undefined): string {
   return `${groupThousands(number)} đ`;
 }
 
+/**
+ * Unit prices may be net prices with cents (for example 19.296,30 đ). Whole
+ * đồng values keep the exact formatVnd output so unchanged emails stay
+ * byte-identical.
+ */
+export function formatUnitPrice(value: number | null | undefined): string {
+  const number = typeof value === "number" && Number.isFinite(value) ? value : 0;
+  const rounded = Math.round(number * 100) / 100;
+  if (Number.isInteger(rounded)) return formatVnd(rounded);
+  const sign = rounded < 0 ? "-" : "";
+  const [whole, decimal] = Math.abs(rounded).toFixed(2).split(".");
+  return `${sign}${groupThousands(Number(whole))},${decimal} đ`;
+}
+
 export function formatVatRate(value: number | null | undefined): string {
   const number = typeof value === "number" && Number.isFinite(value) ? value : 0;
   const rounded = Math.round(number * 100) / 100;
@@ -153,7 +167,7 @@ export function buildSupplierOrderEmailLines(
     "",
     "Tên hàng | Số lượng | Đơn vị | Đơn giá | Thành tiền",
     ...lines.map((line) =>
-      `${line.productName} | ${formatQuantity(line.quantity)} | ${line.unit} | ${formatVnd(line.unitPrice)} | ${formatVnd(line.lineTotal)}`
+      `${line.productName} | ${formatQuantity(line.quantity)} | ${line.unit} | ${formatUnitPrice(line.unitPrice)} | ${formatVnd(line.lineTotal)}`
     ),
     "",
     ...totalTextLines,
@@ -179,7 +193,7 @@ export function buildSupplierOrderEmailLines(
                   <td style="padding:8px;border:1px solid #d1d5db;">${escapeHtml(line.productName)}</td>
                   <td align="right" style="padding:8px;border:1px solid #d1d5db;">${escapeHtml(formatQuantity(line.quantity))}</td>
                   <td style="padding:8px;border:1px solid #d1d5db;">${escapeHtml(line.unit)}</td>
-                  <td align="right" style="padding:8px;border:1px solid #d1d5db;white-space:nowrap;">${escapeHtml(formatVnd(line.unitPrice))}</td>
+                  <td align="right" style="padding:8px;border:1px solid #d1d5db;white-space:nowrap;">${escapeHtml(formatUnitPrice(line.unitPrice))}</td>
                   <td align="right" style="padding:8px;border:1px solid #d1d5db;white-space:nowrap;">${escapeHtml(formatVnd(line.lineTotal))}</td>${hasVat ? `
                   <td align="right" style="padding:8px;border:1px solid #d1d5db;">${escapeHtml(formatVatRate(line.vatRate))}</td>` : ""}
                 </tr>`).join("");

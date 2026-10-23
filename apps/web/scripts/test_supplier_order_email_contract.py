@@ -552,10 +552,10 @@ assert "'vat_rate', l.vat_rate" in history
 
 print("== VAT smoke is rollback-only and checks the new numbers ==")
 for token in (
-    "1031400",
-    "955000",
-    "76400",
-    "18900",
+    "1032000",
+    "955555",
+    "76445",
+    "18925.93",
     "vat_amount",
     "subtotal_amount",
     "20261102920000",
@@ -563,5 +563,149 @@ for token in (
     assert token in PAGE_SMOKE, f"VAT smoke is missing {token}"
 assert "supplier_order_catalog_set" in PAGE_SMOKE
 assert "vat_rate" in PAGE_SMOKE
+
+print("== supplier order list price migration ==")
+LIST_MIGRATIONS = sorted(
+    ROOT.glob("supabase/migrations/*_supplier_order_list_price.sql")
+)
+assert len(LIST_MIGRATIONS) == 1, (
+    f"expected exactly one supplier_order_list_price migration, found {LIST_MIGRATIONS}"
+)
+LIST_MIGRATION = LIST_MIGRATIONS[0].read_text(encoding="utf-8")
+LIST_LOWER = LIST_MIGRATION.lower()
+
+
+def list_block(name: str) -> str:
+    match = re.search(
+        rf"create\s+or\s+replace\s+function\s+public\.{re.escape(name)}\s*\(",
+        LIST_MIGRATION,
+        re.IGNORECASE,
+    )
+    assert match, f"missing list-price function public.{name}"
+    tail = LIST_MIGRATION[match.start():]
+    end = tail.find("\n$$;")
+    assert end != -1, f"unterminated list-price function public.{name}"
+    return tail[:end]
+
+
+print("== list price columns, gross amount and the ĐH19993 seed ==")
+assert re.search(
+    r"add\s+column\s+if\s+not\s+exists\s+list_price\s+numeric\s*\(\s*18\s*,\s*2\s*\)",
+    LIST_LOWER,
+), "catalog list_price column missing"
+assert re.search(
+    r"add\s+column\s+if\s+not\s+exists\s+list_price_includes_vat\s+boolean\s+not\s+null\s+default\s+false",
+    LIST_LOWER,
+), "catalog list_price_includes_vat column missing"
+assert re.search(r"add\s+column\s+if\s+not\s+exists\s+list_price_source\s+text", LIST_LOWER)
+assert re.search(
+    r"add\s+column\s+if\s+not\s+exists\s+list_price_updated_at\s+timestamptz", LIST_LOWER
+)
+assert re.search(
+    r"add\s+column\s+if\s+not\s+exists\s+list_price_updated_by\s+uuid", LIST_LOWER
+)
+assert "supplier_order_catalog_items_list_price_check" in LIST_MIGRATION
+assert re.search(r"add\s+column\s+if\s+not\s+exists\s+gross_amount\s+numeric", LIST_LOWER)
+
+for item_id in (
+    "1039f461-8f9f-45a1-b05c-b96cb736812e",
+    "64952d75-2351-43f8-886f-de5282c96ed2",
+    "6ba549f7-d3b6-4971-a742-2fb4091800bb",
+):
+    assert item_id in LIST_MIGRATION, f"missing seeded item {item_id}"
+for price in ("20840", "20440", "152000"):
+    assert re.search(rf"set\s+list_price\s*=\s*{price}", LIST_LOWER), (
+        f"missing seeded list price {price}"
+    )
+assert LIST_MIGRATION.count("list_price_includes_vat = true") >= 3
+assert "Phiếu xuất kho Phúc Thịnh ĐH19993 ngày 22/10/2026" in LIST_MIGRATION
+assert "9546bd80-18d7-4ec7-b0e5-de50798ea718" not in LIST_MIGRATION, (
+    "TV Food must not be seeded with a list price"
+)
+
+print("== quote function: security definer, pinned search_path and grants ==")
+quote = list_block("supplier_order_quote").lower()
+assert "security definer" in quote
+assert "set search_path = public, pg_temp" in quote
+assert "has_module_permission" in quote and "'purchase_orders', 'edit'" in quote
+assert "supplier_order_line_price" in quote
+assert "over_quantity_limit" in quote
+assert "no_price" in quote
+assert "over_amount_limit" in quote
+assert "order_email_max_amount" in quote
+assert "'list_price', v_list_price" in quote
+assert "'list_price_includes_vat', v_list_price_includes_vat" in quote
+assert "'gross_amount', v_gross_amount" in quote
+assert re.search(
+    r"grant\s+execute\s+on\s+function\s+public\.supplier_order_quote\(\s*uuid\s*,\s*jsonb\s*\)\s+to\s+authenticated\s*,\s*service_role",
+    LIST_LOWER,
+    re.DOTALL,
+), "supplier_order_quote must be callable by authenticated + service_role"
+
+print("== create and catalog use the quote / expose the list price ==")
+create_multi = list_block("create_supplier_order_multi").lower()
+assert "supplier_order_quote(p_supplier_id, p_lines)" in create_multi
+assert "v_quote -> 'lines'" in create_multi
+assert "supplier_order_request_lines" in create_multi
+assert "'gross_amount'" in create_multi
+assert "'vat_amount'" in create_multi
+assert "over_amount_limit" in quote
+
+catalog = list_block("supplier_order_catalog")
+for field in (
+    "'list_price', v_item.list_price",
+    "'list_price_includes_vat', coalesce(v_item.list_price_includes_vat, false)",
+    "'list_price_source', v_item.list_price_source",
+    "'list_price_updated_at', v_item.list_price_updated_at",
+    "'history_price', v_history_price",
+    "'unit_price', v_unit_price",
+    "'unit_price_gross', v_unit_price_gross",
+):
+    assert field in catalog, f"supplier_order_catalog is missing {field}"
+
+print("== catalog_set 9-arg signature and list price behaviour ==")
+assert re.search(
+    r"drop\s+function\s+if\s+exists\s+public\.supplier_order_catalog_set\(\s*uuid\s*,\s*uuid\s*,\s*boolean\s*,\s*text\s*,\s*numeric\s*,\s*text\s*,\s*numeric\s*\)",
+    LIST_LOWER,
+    re.DOTALL,
+), "the old 7-argument catalog_set must be dropped"
+catalog_set = list_block("supplier_order_catalog_set").lower()
+assert "p_list_price numeric default null" in catalog_set
+assert "p_list_price_includes_vat boolean default null" in catalog_set
+assert "invalid_list_price" in catalog_set
+assert "'sửa trong trang đặt hàng'" in catalog_set
+assert "list_price_updated_by" in catalog_set
+assert re.search(
+    r"grant\s+execute\s+on\s+function\s+public\.supplier_order_catalog_set\(\s*uuid\s*,\s*uuid\s*,\s*boolean\s*,\s*text\s*,\s*numeric\s*,\s*text\s*,\s*numeric\s*,\s*numeric\s*,\s*boolean\s*\)\s+to\s+authenticated\s*,\s*service_role",
+    LIST_LOWER,
+    re.DOTALL,
+), "catalog_set must be granted with its 9-argument signature"
+
+print("== history exposes gross_amount ==")
+history = list_block("supplier_order_history_by_supplier").lower()
+assert "'gross_amount', l.gross_amount" in history
+
+print("== list price smoke checks the ĐH19993 numbers and rollback ==")
+for token in (
+    "12109259",
+    "968741",
+    "13078000",
+    "20840",
+    "20440",
+    "152000",
+    "supplier_order_quote",
+    "gross_amount",
+):
+    assert token in PAGE_SMOKE, f"list price smoke is missing {token}"
+assert re.search(r"^\s*begin\s*;", PAGE_SMOKE, re.IGNORECASE | re.MULTILINE)
+assert re.search(r"^\s*rollback\s*;\s*$", PAGE_SMOKE, re.IGNORECASE | re.MULTILINE)
+assert not re.search(r"^\s*commit\s*;", PAGE_SMOKE, re.IGNORECASE | re.MULTILINE)
+
+print("== email unit price formatter ==")
+EMAIL = (ROOT / "supabase/functions/_shared/supplier-order-email.ts").read_text(
+    encoding="utf-8"
+)
+assert "export function formatUnitPrice" in EMAIL
+assert "formatUnitPrice(line.unitPrice)" in EMAIL
 
 print("supplier order page contract passed")

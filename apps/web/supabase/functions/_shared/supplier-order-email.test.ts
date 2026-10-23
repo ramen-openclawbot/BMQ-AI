@@ -6,6 +6,7 @@ import {
   buildSupplierOrderEmailLines,
   escapeHtml,
   formatQuantity,
+  formatUnitPrice,
   formatVnd,
 } from "./supplier-order-email.ts";
 
@@ -33,6 +34,11 @@ test("formats Vietnamese money and quantities", () => {
   assert.equal(formatQuantity(1.5), "1,5");
   assert.equal(formatQuantity(1000), "1.000");
   assert.equal(formatQuantity(1.23456), "1,235");
+  assert.equal(formatUnitPrice(90000), "90.000 đ");
+  assert.equal(formatUnitPrice(19296.3), "19.296,30 đ");
+  assert.equal(formatUnitPrice(18925.93), "18.925,93 đ");
+  assert.equal(formatUnitPrice(140740.74), "140.740,74 đ");
+  assert.equal(formatUnitPrice(null), "0 đ");
 });
 
 test("escapes every interpolated HTML value", () => {
@@ -223,6 +229,88 @@ test("renders VAT columns, subtotal, VAT and total rows", () => {
   assert.ok(email.text.includes("Thuế GTGT: 76.400 đ"));
   assert.ok(email.text.includes("Tổng cộng: 1.031.400 đ"));
   assert.ok(!email.text.includes("% VAT"));
+});
+
+test("renders the ĐH19993 decimal unit prices and totals", () => {
+  const email = buildSupplierOrderEmailLines({
+    ...baseInput,
+    poNumber: "PO-2026-004",
+    supplierName: "Phúc Thịnh",
+    lines: [
+      {
+        productName: "Bột mì 999",
+        quantity: 200,
+        unit: "kg",
+        unitPrice: 19296.3,
+        lineTotal: 3859259,
+        vatRate: 8,
+      },
+      {
+        productName: "Bột mì 888",
+        quantity: 250,
+        unit: "kg",
+        unitPrice: 18925.93,
+        lineTotal: 4731481,
+        vatRate: 8,
+      },
+      {
+        productName: "Sữa bột",
+        quantity: 25,
+        unit: "kg",
+        unitPrice: 140740.74,
+        lineTotal: 3518519,
+        vatRate: 8,
+      },
+    ],
+    subtotal: 12109259,
+    vatAmount: 968741,
+    total: 13078000,
+  });
+
+  assert.ok(
+    email.text.includes(
+      "Bột mì 999 | 200 | kg | 19.296,30 đ | 3.859.259 đ",
+    ),
+  );
+  assert.ok(
+    email.text.includes(
+      "Bột mì 888 | 250 | kg | 18.925,93 đ | 4.731.481 đ",
+    ),
+  );
+  assert.ok(
+    email.text.includes(
+      "Sữa bột | 25 | kg | 140.740,74 đ | 3.518.519 đ",
+    ),
+  );
+  assert.ok(email.html.includes("19.296,30 đ"));
+  assert.ok(email.html.includes("18.925,93 đ"));
+  assert.ok(email.html.includes("140.740,74 đ"));
+  assert.ok(email.text.includes("Cộng tiền hàng: 12.109.259 đ"));
+  assert.ok(email.text.includes("Thuế GTGT: 968.741 đ"));
+  assert.ok(email.text.includes("Tổng cộng: 13.078.000 đ"));
+  // Amount columns stay whole-đồng.
+  assert.ok(!email.text.includes("3.859.259,00 đ"));
+});
+
+test("keeps whole-number unit prices byte-identical", () => {
+  const whole = buildSupplierOrderEmailLines({
+    ...baseInput,
+    poNumber: "PO-2026-005",
+    lines: [
+      {
+        productName: "Bơ Peerless",
+        quantity: 25,
+        unit: "kg",
+        unitPrice: 90000,
+        lineTotal: 2250000,
+      },
+    ],
+    total: 2250000,
+  });
+  assert.ok(whole.text.includes("Bơ Peerless | 25 | kg | 90.000 đ | 2.250.000 đ"));
+  assert.ok(!whole.text.includes("90.000,00 đ"));
+  assert.ok(whole.html.includes("90.000 đ"));
+  assert.ok(!whole.html.includes("90.000,00 đ"));
 });
 
 test("keeps the no-VAT output exactly as before", () => {

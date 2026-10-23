@@ -86,6 +86,25 @@ html.bmq-d3 .d3-so-remove {
 .d3-so-remove svg { width: 14px; height: 14px; }
 .d3-so-remove:focus-visible { outline: 2px solid var(--d3-ink); outline-offset: 2px; border-radius: 6px; }
 
+/* ---------- catalog: the supplier's price per item ---------- */
+.d3-so-price-edit {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--kho-muted);
+}
+.d3-so-price-input { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--d3-ink-2); }
+.d3-so-price-input input { width: 120px; height: 36px; text-align: right; font-variant-numeric: tabular-nums; background: var(--d3-white); }
+.d3-so-price-input input[aria-invalid="true"] { border-color: var(--kho-bad); }
+.d3-so-price-input input::placeholder { text-align: left; font-size: 12px; }
+.d3-so-price-vat { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--d3-ink-2); cursor: pointer; }
+.d3-so-price-vat input { width: 16px; height: 16px; accent-color: var(--d3-ink); }
+.d3-so-price-source { flex-basis: 100%; font-size: 12px; color: var(--d3-dim); }
+
 /* ---------- catalog: add items the supplier delivered before ---------- */
 .d3-so-adder { display: grid; gap: 8px; }
 .d3-so-adder ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }

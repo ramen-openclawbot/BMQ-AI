@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   blockerLabel,
+  computeOrderAmounts,
   formatQuantity,
   formatVnd,
   parsePreparedSupplierOrder,
@@ -155,6 +156,98 @@ test("formats quantities and VND", () => {
   assert.equal(formatVnd(null), "0 đ");
 });
 
+test("computes the ĐH19993 order with VAT-inclusive list prices", () => {
+  const result = computeOrderAmounts([
+    {
+      quantity: 200,
+      unitPrice: 19296.3,
+      vatRate: 8,
+      listPrice: 20840,
+      listPriceIncludesVat: true,
+    },
+    {
+      quantity: 250,
+      unitPrice: 18925.93,
+      vatRate: 8,
+      listPrice: 20440,
+      listPriceIncludesVat: true,
+    },
+    {
+      quantity: 25,
+      unitPrice: 140740.74,
+      vatRate: 8,
+      listPrice: 152000,
+      listPriceIncludesVat: true,
+    },
+  ]);
+
+  assert.equal(result.lines[0].lineTotal, 3859259);
+  assert.equal(result.lines[0].vatAmount, 308741);
+  assert.equal(result.lines[0].grossAmount, 4168000);
+  assert.equal(result.lines[0].unitPrice, 19296.3);
+  assert.equal(result.lines[1].lineTotal, 4731481);
+  assert.equal(result.lines[1].vatAmount, 378519);
+  assert.equal(result.lines[1].grossAmount, 5110000);
+  assert.equal(result.lines[1].unitPrice, 18925.93);
+  assert.equal(result.lines[2].lineTotal, 3518519);
+  assert.equal(result.lines[2].vatAmount, 281481);
+  assert.equal(result.lines[2].grossAmount, 3800000);
+  assert.equal(result.lines[2].unitPrice, 140740.74);
+  assert.equal(result.subtotal, 12109259);
+  assert.equal(result.vatAmount, 968741);
+  assert.equal(result.total, 13078000);
+});
+
+test("keeps the history-price behavior when there is no list price", () => {
+  const result = computeOrderAmounts([
+    {
+      quantity: 25,
+      unitPrice: 90000,
+      vatRate: 0,
+      listPrice: null,
+      listPriceIncludesVat: false,
+    },
+  ]);
+  assert.equal(result.lines[0].unitPrice, 90000);
+  assert.equal(result.lines[0].lineTotal, 2250000);
+  assert.equal(result.lines[0].vatAmount, 0);
+  assert.equal(result.lines[0].grossAmount, 2250000);
+  assert.equal(result.subtotal, 2250000);
+  assert.equal(result.vatAmount, 0);
+  assert.equal(result.total, 2250000);
+});
+
+test("a net list price at 8% matches the history-price path", () => {
+  const listNet = computeOrderAmounts([
+    {
+      quantity: 25,
+      unitPrice: 18900,
+      vatRate: 8,
+      listPrice: 19300,
+      listPriceIncludesVat: false,
+    },
+  ]);
+  const history = computeOrderAmounts([
+    {
+      quantity: 25,
+      unitPrice: 19300,
+      vatRate: 8,
+      listPrice: null,
+      listPriceIncludesVat: false,
+    },
+  ]);
+  assert.equal(listNet.lines[0].lineTotal, history.lines[0].lineTotal);
+  assert.equal(listNet.lines[0].unitPrice, history.lines[0].unitPrice);
+  assert.equal(listNet.lines[0].vatAmount, history.lines[0].vatAmount);
+  assert.equal(listNet.lines[0].grossAmount, history.lines[0].grossAmount);
+  assert.equal(listNet.subtotal, history.subtotal);
+  assert.equal(listNet.vatAmount, history.vatAmount);
+  assert.equal(listNet.total, history.total);
+  assert.equal(listNet.subtotal, 482500);
+  assert.equal(listNet.vatAmount, 38600);
+  assert.equal(listNet.total, 521100);
+});
+
 test("parses the supplier list with numeric strings and nulls", () => {
   const suppliers = parseSupplierOrderSuppliers({
     suppliers: [
@@ -291,6 +384,7 @@ test("parses a multi-line preview payload", () => {
         unit_price: "19300",
         line_total: "482500",
         vat_rate: "8",
+        gross_amount: "521100",
       },
     ],
     subtotal: "482500",
@@ -305,6 +399,7 @@ test("parses a multi-line preview payload", () => {
   assert.equal(preview.lines[0].quantity, 25);
   assert.equal(preview.lines[0].unitPrice, 19300);
   assert.equal(preview.lines[0].vatRate, 8);
+  assert.equal(preview.lines[0].grossAmount, 521100);
   assert.equal(preview.subtotal, 482500);
   assert.equal(preview.vatAmount, 38600);
   assert.equal(preview.total, 521100);
@@ -359,6 +454,7 @@ test("parses supplier history with lines, uploads and prepay", () => {
             unit_price: "19300",
             line_total: "482500",
             vat_rate: "8",
+            gross_amount: "521100",
           },
           {
             position: 2,
@@ -394,12 +490,43 @@ test("parses supplier history with lines, uploads and prepay", () => {
   assert.equal(history[0].vatAmount, 76400);
   assert.equal(history[0].lines[0].quantity, 25);
   assert.equal(history[0].lines[0].vatRate, 8);
+  assert.equal(history[0].lines[0].grossAmount, 521100);
   assert.equal(history[0].lines[1].lineTotal, 914800);
   assert.equal(history[0].lines[1].vatRate, 8);
   assert.equal(history[0].uploads[0].fileName, "hoa-don.pdf");
   assert.equal(history[0].prepay?.submissionNumber, "TC-261023-01");
   assert.deepEqual(parseSupplierOrderHistoryBySupplier(null), []);
   assert.deepEqual(parseSupplierOrderHistoryBySupplier("nope"), []);
+});
+
+test("parses list, history and gross catalog prices", () => {
+  const catalog = parseSupplierOrderCatalog({
+    items: [
+      {
+        catalog_id: "cat-1",
+        item: { id: "item-1", name: "Bột mì 999 Cam" },
+        product_name: "Bột mì 999 Cam (25kg)",
+        po_unit: "kg",
+        po_unit_factor: "1000",
+        vat_rate: "8",
+        list_price: "20840.00",
+        list_price_includes_vat: true,
+        list_price_source: "Phiếu xuất kho Phúc Thịnh ĐH19993 ngày 22/10/2026",
+        list_price_updated_at: "2026-10-22T00:00:00Z",
+        history_price: "19300.00",
+        unit_price: "19296.30",
+        unit_price_gross: "20840.00",
+      },
+    ],
+  });
+  assert.ok(catalog);
+  assert.equal(catalog.items[0].listPrice, 20840);
+  assert.equal(catalog.items[0].listPriceIncludesVat, true);
+  assert.equal(catalog.items[0].listPriceSource?.includes("ĐH19993"), true);
+  assert.equal(catalog.items[0].listPriceUpdatedAt, "2026-10-22T00:00:00Z");
+  assert.equal(catalog.items[0].historyPrice, 19300);
+  assert.equal(catalog.items[0].unitPrice, 19296.3);
+  assert.equal(catalog.items[0].unitPriceGross, 20840);
 });
 
 test("tolerates missing VAT fields", () => {

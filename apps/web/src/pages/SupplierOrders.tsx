@@ -18,6 +18,7 @@ import {
 import {
   SupplierOrderClientError,
   blockerLabel,
+  computeOrderAmounts,
   createSupplierOrderRequestId,
   formatQuantity,
   formatVnd,
@@ -92,6 +93,22 @@ function stockLine(item: SupplierOrderCatalogItem) {
   );
 }
 
+/** One line of the shared amount rule (same as the server quote): list price first, else the PO price. */
+const amountInput = (item: SupplierOrderCatalogItem, quantity: number) => ({
+  quantity,
+  unitPrice: item.listPrice !== null ? item.unitPrice : (item.historyPrice ?? item.unitPrice),
+  vatRate: item.vatRate,
+  listPrice: item.listPrice,
+  listPriceIncludesVat: item.listPriceIncludesVat,
+});
+
+/** "20.840 đ/kg gồm VAT", "90.000 đ/kg" — the price the supplier quotes, as it quotes it. */
+function priceLabel(item: SupplierOrderCatalogItem): string {
+  if (item.listPrice !== null) return `${formatVnd(item.listPrice)}/${item.poUnit}${item.vatRate > 0 ? (item.listPriceIncludesVat ? " gồm VAT" : " chưa VAT") : ""}`;
+  if (item.unitPrice !== null) return `${formatVnd(item.unitPrice)}/${item.poUnit}${item.vatRate > 0 ? " chưa VAT" : ""} · giá PO gần nhất`;
+  return "Chưa có giá";
+}
+
 async function openUpload(path: string) {
   const { data } = await supabase.storage.from("supplier-delivery-docs").createSignedUrl(path, 600);
   if (data?.signedUrl) window.open(data.signedUrl, "_blank", "noopener");
@@ -128,17 +145,63 @@ function EmailFrame({ html, title }: { html: string; title: string }) {
   );
 }
 
-function OrderLine({ item, qtyText, onQty, editing, onRemove, removing }: {
+function PriceEditor({ item, supplierId, onToast }: { item: SupplierOrderCatalogItem; supplierId: string; onToast: (text: string) => void }) {
+  const setItem = useSetSupplierCatalogItem();
+  const [text, setText] = useState(item.listPrice !== null ? formatQuantity(item.listPrice) : "");
+  const [gross, setGross] = useState(item.listPrice !== null ? item.listPriceIncludesVat : item.vatRate > 0);
+  const value = readQty(text);
+  const bad = Number.isNaN(value);
+  const save = () => {
+    if (bad) return;
+    setItem.mutate({
+      supplierId, itemId: item.item.id, active: true,
+      // Keep the rest of the catalog row as it is: the RPC writes these on every save.
+      poUnit: item.poUnit, packSizePo: item.packSizePo, productName: item.productName,
+      listPrice: value > 0 ? value : 0, listPriceIncludesVat: gross,
+    }, {
+      onSuccess: () => onToast(value > 0 ? `Đã lưu giá ${item.item.name}` : `Đã bỏ giá NCC của ${item.item.name}, dùng giá PO gần nhất`),
+      onError: () => onToast("Chưa lưu được giá. Thử lại."),
+    });
+  };
+  return (
+    <div className="d3-so-price-edit" data-bmq-so-price-edit={item.item.id}>
+      <label className="d3-so-price-input">
+        <span>Giá NCC</span>
+        <Input inputMode="decimal" value={text} onChange={(event) => setText(event.target.value)} placeholder="—"
+          aria-label={`Giá NCC ${item.productName} (đ/${item.poUnit})`} aria-invalid={bad || undefined} data-bmq-so-price={item.item.id} />
+        <span>đ/{item.poUnit}</span>
+      </label>
+      {item.vatRate > 0 ? (
+        <label className="d3-so-price-vat">
+          <input type="checkbox" checked={gross} onChange={(event) => setGross(event.target.checked)} data-bmq-so-price-gross={item.item.id} />
+          <span>đã gồm VAT {formatQuantity(item.vatRate)}%</span>
+        </label>
+      ) : null}
+      <Button size="sm" variant="outline" onClick={save} disabled={bad || setItem.isPending} data-bmq-so-price-save={item.item.id}>Lưu giá</Button>
+      <small className="d3-so-price-source">
+        {item.listPrice !== null
+          ? `Nguồn giá: ${item.listPriceSource ?? "chưa ghi"}${item.listPriceUpdatedAt ? ` · cập nhật ${dmy(item.listPriceUpdatedAt)}` : ""}. Xoá số rồi lưu để dùng giá PO gần nhất.`
+          : "Chưa có giá NCC: đang lấy giá PO gần nhất. Nhập giá NCC báo rồi lưu."}
+      </small>
+    </div>
+  );
+}
+
+function OrderLine({ item, supplierId, qtyText, onQty, editing, onRemove, removing, onToast }: {
   item: SupplierOrderCatalogItem;
+  supplierId: string;
   qtyText: string;
   onQty: (text: string) => void;
   editing: boolean;
   onRemove: () => void;
   removing: boolean;
+  onToast: (text: string) => void;
 }) {
   const qty = readQty(qtyText);
   const bad = Number.isNaN(qty);
-  const total = !bad && qty > 0 && item.unitPrice !== null ? qty * item.unitPrice : null;
+  const priced = item.listPrice !== null || item.unitPrice !== null;
+  // What this line costs to pay, VAT included, by the same rule as the server quote.
+  const total = !bad && qty > 0 && priced ? computeOrderAmounts([amountInput(item, qty)]).lines[0].grossAmount : null;
   const step = item.packSizePo && item.packSizePo > 0 ? item.packSizePo : 1;
   const bump = (sign: 1 | -1) => {
     const base = bad ? 0 : qty;
@@ -155,7 +218,7 @@ function OrderLine({ item, qtyText, onQty, editing, onRemove, removing }: {
         <b>{item.productName}</b>
         <small>
           {showKhoName ? <span>{item.item.name}</span> : null}
-          <span>{item.unitPrice !== null ? `${formatVnd(item.unitPrice)}/${item.poUnit}` : "Chưa có giá"}</span>
+          <span data-bmq-so-price-label>{priceLabel(item)}</span>
           {item.packSizePo ? <span>bao {formatQuantity(item.packSizePo)} {item.poUnit}</span> : null}
           <span>{item.vatRate > 0 ? `VAT ${formatQuantity(item.vatRate)}%` : "không VAT"}</span>
         </small>
@@ -180,9 +243,12 @@ function OrderLine({ item, qtyText, onQty, editing, onRemove, removing }: {
         <b className="d3-so-line-total" data-bmq-so-line-total>{bad ? "Số chưa đúng" : total !== null ? formatVnd(total) : ""}</b>
       </div>
       {editing ? (
-        <button type="button" className="d3-so-remove" onClick={onRemove} disabled={removing} data-bmq-so-remove={item.item.id}>
-          <X aria-hidden="true" /> Bỏ khỏi danh mục
-        </button>
+        <>
+          <PriceEditor key={`${item.listPrice}-${item.listPriceIncludesVat}`} item={item} supplierId={supplierId} onToast={onToast} />
+          <button type="button" className="d3-so-remove" onClick={onRemove} disabled={removing} data-bmq-so-remove={item.item.id}>
+            <X aria-hidden="true" /> Bỏ khỏi danh mục
+          </button>
+        </>
       ) : null}
     </li>
   );
@@ -312,10 +378,13 @@ function SupplierPanel({ supplierId, onToast }: { supplierId: string; onToast: (
     .map((item) => ({ item, value: readQty(qty[item.item.id] ?? "") }))
     .filter(({ value }) => Number.isNaN(value) || value > 0), [data, qty]);
   const invalid = lines.some(({ value }) => Number.isNaN(value));
-  // Same rule as the server: VAT per line at the item's rate, summed, then rounded to the đồng once.
-  const subtotal = lines.reduce((sum, { item, value }) => sum + (Number.isNaN(value) || item.unitPrice === null ? 0 : value * item.unitPrice), 0);
-  const vat = Math.round(lines.reduce((sum, { item, value }) => sum + (Number.isNaN(value) || item.unitPrice === null ? 0 : value * item.unitPrice * item.vatRate / 100), 0));
-  const total = subtotal + vat;
+  // Same rule as the server quote (list price gồm VAT → tiền hàng = tổng / 1,08; else VAT on the PO price).
+  const amounts = computeOrderAmounts(lines
+    .filter(({ item, value }) => !Number.isNaN(value) && (item.listPrice !== null || item.unitPrice !== null))
+    .map(({ item, value }) => amountInput(item, value)));
+  const subtotal = amounts.subtotal;
+  const vat = amounts.vatAmount;
+  const total = amounts.total;
   const blockers = data?.blockers ?? [];
   const usePrepay = Boolean(prepay && data?.prepay && !data.prepay.recentSubmission);
 
@@ -389,7 +458,7 @@ function SupplierPanel({ supplierId, onToast }: { supplierId: string; onToast: (
             {data.items.length ? (
               <ul className="d3-so-lines" data-bmq-so-lines>
                 {data.items.map((item) => (
-                  <OrderLine key={item.item.id} item={item} qtyText={qty[item.item.id] ?? ""} editing={editing} removing={setItem.isPending}
+                  <OrderLine key={item.item.id} item={item} supplierId={supplierId} onToast={onToast} qtyText={qty[item.item.id] ?? ""} editing={editing} removing={setItem.isPending}
                     onQty={(text) => setQty((prev) => ({ ...prev, [item.item.id]: text }))}
                     onRemove={() => setItem.mutate({ supplierId, itemId: item.item.id, active: false }, {
                       onSuccess: () => { setQty((prev) => { const next = { ...prev }; delete next[item.item.id]; return next; }); onToast(`Đã bỏ ${item.item.name} khỏi danh mục`); },

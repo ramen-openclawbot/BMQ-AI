@@ -122,6 +122,8 @@ export type SetSupplierCatalogItemInput = {
   poUnit?: string;
   packSizePo?: number | null;
   productName?: string | null;
+  listPrice?: number | null;
+  listPriceIncludesVat?: boolean | null;
 };
 
 export function useSetSupplierCatalogItem() {
@@ -136,6 +138,8 @@ export function useSetSupplierCatalogItem() {
         p_po_unit: input.poUnit ?? "kg",
         p_pack_size_po: input.packSizePo ?? null,
         p_product_name: input.productName ?? null,
+        p_list_price: input.listPrice ?? null,
+        p_list_price_includes_vat: input.listPriceIncludesVat ?? null,
       });
       if (error) throw error;
       return (data ?? null) as Record<string, unknown> | null;

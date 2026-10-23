@@ -127,19 +127,46 @@ function mapMultiCreateError(error: unknown): { status: number; code: string } {
 
 type MultiLineRequest = { item_id: string; quantity: number };
 
-type MultiLine = SupplierOrderEmailLine & {
-  position: number;
-  item_id: string;
-};
-
 function numberValue(value: unknown): number | null {
   if (value === null || value === undefined || value === "") return null;
   const parsed = typeof value === "number" ? value : Number(String(value).trim());
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function round2(value: number): number {
-  return Math.round(value * 100) / 100;
+type QuoteLine = {
+  position: number;
+  item_id: string;
+  product_name: string;
+  quantity: number;
+  unit: string;
+  unit_price: number | null;
+  line_total: number | null;
+  vat_rate: number;
+  vat_amount: number | null;
+  gross_amount: number | null;
+  list_price: number | null;
+  list_price_includes_vat: boolean;
+};
+
+function readQuoteLines(value: unknown): QuoteLine[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((raw, index) => {
+    const line = (raw ?? {}) as Record<string, unknown>;
+    return {
+      position: numberValue(line.position) ?? index + 1,
+      item_id: String(line.item_id ?? ""),
+      product_name: String(line.product_name ?? ""),
+      quantity: numberValue(line.quantity) ?? 0,
+      unit: String(line.unit ?? ""),
+      unit_price: numberValue(line.unit_price),
+      line_total: numberValue(line.line_total),
+      vat_rate: numberValue(line.vat_rate) ?? 0,
+      vat_amount: numberValue(line.vat_amount),
+      gross_amount: numberValue(line.gross_amount),
+      list_price: numberValue(line.list_price),
+      list_price_includes_vat: line.list_price_includes_vat === true,
+    };
+  });
 }
 
 function readMultiLines(value: unknown): MultiLineRequest[] | null {
@@ -158,74 +185,6 @@ function readMultiLines(value: unknown): MultiLineRequest[] | null {
     output.push({ item_id: itemId, quantity });
   }
   return output;
-}
-
-function catalogItemMap(data: unknown): Map<string, Record<string, unknown>> {
-  const root = (data ?? {}) as Record<string, unknown>;
-  const rows = Array.isArray(root.items) ? root.items : [];
-  const output = new Map<string, Record<string, unknown>>();
-  for (const raw of rows) {
-    const row = (raw ?? {}) as Record<string, unknown>;
-    const item = (row.item ?? {}) as Record<string, unknown>;
-    const itemId = String(item.id ?? "").trim();
-    if (itemId) output.set(itemId, row);
-  }
-  return output;
-}
-
-function buildMultiLines(
-  catalogRows: Map<string, Record<string, unknown>>,
-  requested: MultiLineRequest[],
-  maxAmount: number,
-):
-  | { lines: MultiLine[]; subtotal: number; vatAmount: number; total: number }
-  | { error: string; status: number } {
-  const lines: MultiLine[] = [];
-  let subtotal = 0;
-  let vatTotal = 0;
-
-  for (let index = 0; index < requested.length; index += 1) {
-    const request = requested[index];
-    const row = catalogRows.get(request.item_id);
-    if (!row) return { error: "item_not_found", status: 404 };
-
-    const quantity = request.quantity;
-    const proposal = numberValue(row.proposal_qty) ?? 0;
-    const packSize = numberValue(row.pack_size_po);
-    const maxQty = Math.max(3 * proposal, 10 * (packSize ?? 0));
-    if (maxQty <= 0 || quantity > maxQty) {
-      return { error: "over_quantity_limit", status: 400 };
-    }
-
-    const unitPrice = numberValue(row.unit_price);
-    if (unitPrice === null) return { error: "no_price", status: 409 };
-
-    const vatRate = numberValue(row.vat_rate) ?? 0;
-    const lineTotal = round2(quantity * unitPrice);
-    subtotal = round2(subtotal + lineTotal);
-    vatTotal += quantity * unitPrice * vatRate / 100;
-    lines.push({
-      position: index + 1,
-      item_id: request.item_id,
-      productName: String(row.product_name ?? ""),
-      quantity,
-      unit: String(row.po_unit ?? ""),
-      unitPrice,
-      lineTotal,
-      vatRate,
-    });
-  }
-
-  const vatAmount = Math.round(vatTotal);
-  const total = round2(subtotal + vatAmount);
-  if (total > maxAmount) return { error: "over_amount_limit", status: 400 };
-  return { lines, subtotal, vatAmount, total };
-}
-
-async function readMaxAmount(admin: AdminClient): Promise<number> {
-  const text = (await readSetting(admin, "order_email_max_amount")).trim();
-  const value = Number(text);
-  return Number.isFinite(value) && value > 0 ? value : 30000000;
 }
 
 Deno.serve(async (req) => {
@@ -325,27 +284,39 @@ Deno.serve(async (req) => {
       const delivery = (catalog.delivery ?? {}) as Record<string, unknown>;
       const toEmail = String(supplier.email ?? "").trim();
       const supplierName = String(supplier.name ?? "").trim();
-      const catalogRows = catalogItemMap(catalogResult.data);
-      const maxAmount = await readMaxAmount(admin);
-      const computed = buildMultiLines(catalogRows, requestedLines, maxAmount);
-      if ("error" in computed) {
-        return respond({ code: computed.error }, computed.status, computed.error);
-      }
-
-      const orderLines = computed.lines;
-      const subtotal = computed.subtotal;
-      const vatAmount = computed.vatAmount;
-      const total = computed.total;
       const prepayRow = catalog.prepay && typeof catalog.prepay === "object"
         ? (catalog.prepay as Record<string, unknown>)
         : null;
       const prepayRecent = Boolean(prepayRow?.recent_submission);
 
       if (mode === "preview") {
+        // The preview uses the same server-side quote as the create RPC, so the
+        // email totals always match what will be stored on the PO.
+        const quoteResult = await userDb.rpc("supplier_order_quote", {
+          p_supplier_id: supplierId,
+          p_lines: requestedLines,
+        });
+        if (quoteResult.error) {
+          const mapped = mapCreateError(quoteResult.error);
+          return respond({ code: mapped.code }, mapped.status, mapped.code);
+        }
+
+        const quote = (quoteResult.data ?? {}) as Record<string, unknown>;
+        const orderLines = readQuoteLines(quote.lines);
+        const subtotal = numberValue(quote.subtotal) ?? 0;
+        const vatAmount = numberValue(quote.vat_amount) ?? 0;
+        const total = numberValue(quote.total) ?? 0;
         const email = buildSupplierOrderEmailLines({
           poNumber: "",
           supplierName,
-          lines: orderLines,
+          lines: orderLines.map((line) => ({
+            productName: line.product_name,
+            quantity: line.quantity,
+            unit: line.unit,
+            unitPrice: line.unit_price,
+            lineTotal: line.line_total,
+            vatRate: line.vat_rate,
+          })),
           subtotal,
           vatAmount,
           total,
@@ -366,12 +337,16 @@ Deno.serve(async (req) => {
             lines: orderLines.map((line) => ({
               position: line.position,
               item_id: line.item_id,
-              product_name: line.productName,
+              product_name: line.product_name,
               quantity: line.quantity,
               unit: line.unit,
-              unit_price: line.unitPrice,
-              line_total: line.lineTotal,
-              vat_rate: line.vatRate ?? 0,
+              unit_price: line.unit_price,
+              line_total: line.line_total,
+              vat_rate: line.vat_rate,
+              vat_amount: line.vat_amount,
+              gross_amount: line.gross_amount,
+              list_price: line.list_price,
+              list_price_includes_vat: line.list_price_includes_vat,
             })),
             subtotal,
             vat_amount: vatAmount,
@@ -434,7 +409,7 @@ Deno.serve(async (req) => {
       const uploadTokenHash = await sha256Hex(uploadToken);
       const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
-      const createdRows = Array.isArray(created.lines) ? created.lines : orderLines;
+      const createdRows = Array.isArray(created.lines) ? created.lines : [];
       const emailLines: SupplierOrderEmailLine[] = createdRows.map((raw) => {
         const line = (raw ?? {}) as Record<string, unknown>;
         return {
@@ -446,9 +421,9 @@ Deno.serve(async (req) => {
           vatRate: numberValue(line.vat_rate) ?? 0,
         };
       });
-      const createdSubtotal = numberValue(created.subtotal) ?? subtotal;
-      const createdVatAmount = numberValue(created.vat_amount) ?? vatAmount;
-      const createdTotal = numberValue(created.total) ?? total;
+      const createdSubtotal = numberValue(created.subtotal) ?? 0;
+      const createdVatAmount = numberValue(created.vat_amount) ?? 0;
+      const createdTotal = numberValue(created.total) ?? 0;
       const mail = buildSupplierOrderEmailLines({
         poNumber: String(created.po_number ?? ""),
         supplierName: String(created.supplier_name ?? supplierName),

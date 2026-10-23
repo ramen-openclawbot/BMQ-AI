@@ -125,7 +125,13 @@ export type SupplierOrderCatalogItem = {
   vatRate: number;
   stock: SupplierOrderCatalogStock;
   proposalQty: number;
+  listPrice: number | null;
+  listPriceIncludesVat: boolean;
+  listPriceSource: string | null;
+  listPriceUpdatedAt: string | null;
+  historyPrice: number | null;
   unitPrice: number | null;
+  unitPriceGross: number | null;
   openOrder: SupplierOrderCatalogOpenOrder | null;
 };
 
@@ -169,6 +175,7 @@ export type SupplierOrderPreviewLine = {
   unitPrice: number | null;
   lineTotal: number | null;
   vatRate: number;
+  grossAmount: number | null;
 };
 
 export type SupplierOrderPreview = {
@@ -214,6 +221,7 @@ export type SupplierOrderRequestLine = {
   unitPrice: number | null;
   lineTotal: number | null;
   vatRate: number | null;
+  grossAmount: number | null;
 };
 
 export type SupplierOrderHistoryBySupplierEntry = {
@@ -250,6 +258,123 @@ export type SendSupplierOrderResult = {
   sentAt: string | null;
   replayed?: boolean;
 };
+
+export type SupplierOrderAmountInput = {
+  quantity: number;
+  unitPrice: number | null;
+  vatRate: number;
+  listPrice: number | null;
+  listPriceIncludesVat: boolean;
+};
+
+export type SupplierOrderAmountLine = {
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+  vatRate: number;
+  vatAmount: number;
+  grossAmount: number;
+  listPrice: number | null;
+  listPriceIncludesVat: boolean;
+};
+
+export type SupplierOrderAmounts = {
+  lines: SupplierOrderAmountLine[];
+  subtotal: number;
+  vatAmount: number;
+  total: number;
+};
+
+function roundAmount(value: number, decimals: number): number {
+  const factor = 10 ** decimals;
+  return Math.round((value + Number.EPSILON) * factor) / factor;
+}
+
+/**
+ * Client mirror of public.supplier_order_quote.
+ *
+ * r = vatRate / 100. A list price that includes VAT is reduced to a net line;
+ * every other line is net and its VAT is accumulated raw before the final
+ * whole-đồng rounding. Items without a list price use the supplied history
+ * unit price exactly as before.
+ */
+export function computeOrderAmounts(
+  lines: SupplierOrderAmountInput[],
+): SupplierOrderAmounts {
+  const output: SupplierOrderAmountLine[] = [];
+  let subtotal = 0;
+  let grossVat = 0;
+  let netVatRaw = 0;
+
+  for (const input of lines) {
+    const quantity = Number.isFinite(input.quantity) ? input.quantity : 0;
+    const vatRate = Number.isFinite(input.vatRate) ? input.vatRate : 0;
+    const rate = vatRate / 100;
+    const listPrice = typeof input.listPrice === "number"
+        && Number.isFinite(input.listPrice) && input.listPrice > 0
+      ? input.listPrice
+      : null;
+    const listPriceIncludesVat = listPrice !== null
+      && input.listPriceIncludesVat === true;
+
+    let unitPrice: number;
+    let lineTotal: number;
+    let vatAmount: number;
+    let grossAmount: number;
+    let vatRaw = 0;
+
+    if (listPrice !== null && listPriceIncludesVat) {
+      grossAmount = roundAmount(quantity * listPrice, 0);
+      lineTotal = roundAmount(grossAmount / (1 + rate), 0);
+      vatAmount = grossAmount - lineTotal;
+      unitPrice = roundAmount(listPrice / (1 + rate), 2);
+    } else if (listPrice !== null) {
+      unitPrice = listPrice;
+      lineTotal = roundAmount(quantity * unitPrice, 2);
+      vatRaw = lineTotal * rate;
+      vatAmount = roundAmount(vatRaw, 2);
+      grossAmount = roundAmount(lineTotal + vatRaw, 2);
+    } else {
+      unitPrice = roundAmount(
+        typeof input.unitPrice === "number" && Number.isFinite(input.unitPrice)
+          ? input.unitPrice
+          : 0,
+        2,
+      );
+      lineTotal = roundAmount(quantity * unitPrice, 2);
+      vatRaw = lineTotal * rate;
+      vatAmount = roundAmount(vatRaw, 2);
+      grossAmount = roundAmount(lineTotal + vatRaw, 2);
+    }
+
+    subtotal += lineTotal;
+    if (listPrice !== null && listPriceIncludesVat) {
+      grossVat += vatAmount;
+    } else {
+      netVatRaw += vatRaw;
+    }
+
+    output.push({
+      quantity,
+      unitPrice,
+      lineTotal,
+      vatRate,
+      vatAmount,
+      grossAmount,
+      listPrice,
+      listPriceIncludesVat,
+    });
+  }
+
+  const roundedSubtotal = roundAmount(subtotal, 2);
+  const vatAmount = roundAmount(grossVat + Math.round(netVatRaw), 0);
+  return {
+    lines: output,
+    subtotal: roundedSubtotal,
+    vatAmount,
+    total: roundAmount(roundedSubtotal + vatAmount, 2),
+  };
+}
 
 export type SupplierOrderUploadSummary = {
   poNumber: string | null;
@@ -463,7 +588,13 @@ function parseCatalogItem(value: unknown): SupplierOrderCatalogItem | null {
       lastCountDate: asNullableText(stock.last_count_date),
     },
     proposalQty: asNumber(row.proposal_qty) ?? 0,
+    listPrice: asNumber(row.list_price),
+    listPriceIncludesVat: row.list_price_includes_vat === true,
+    listPriceSource: asNullableText(row.list_price_source),
+    listPriceUpdatedAt: asNullableText(row.list_price_updated_at),
+    historyPrice: asNumber(row.history_price),
     unitPrice: asNumber(row.unit_price),
+    unitPriceGross: asNumber(row.unit_price_gross),
     openOrder: open === null || Object.keys(open).length === 0
       ? null
       : {
@@ -585,6 +716,7 @@ function parsePreviewLine(value: unknown): SupplierOrderPreviewLine | null {
     unitPrice: asNumber(row.unit_price),
     lineTotal: asNumber(row.line_total),
     vatRate: asNumber(row.vat_rate) ?? 0,
+    grossAmount: asNumber(row.gross_amount),
   };
 }
 
@@ -661,6 +793,7 @@ export function parseSupplierOrderHistoryBySupplier(
           unitPrice: asNumber(line.unit_price),
           lineTotal: asNumber(line.line_total),
           vatRate: asNumber(line.vat_rate),
+          grossAmount: asNumber(line.gross_amount),
         };
       }),
       uploads: (Array.isArray(row.uploads) ? row.uploads : [])
