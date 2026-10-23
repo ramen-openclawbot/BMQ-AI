@@ -12,6 +12,7 @@ import { CLASS_OF, GROUPS, KHO_LABEL, KHO_LOCATIONS, fmtAmount, groupOf, newRequ
 import type { KhoConfirmOptions } from "./KhoConfirm";
 import { KhoDialog } from "./KhoDialog";
 import { ReceiptNotes } from "./ReceiptNotes";
+import { SupplierOrderSection } from "./SupplierOrderSection";
 import { UnitAndConversions } from "./UnitSections";
 import { useKhoCommitments } from "@/hooks/useKhoCommitments";
 import { dayLabel } from "@/lib/kho-commitments";
@@ -257,6 +258,7 @@ export function ItemDialog({ item, items, canEdit, confirm, onDone, onClose, onT
           {item.qty[hold.location as KhoLocation] !== null ? <p className="d3-kho-quiet">Còn dùng được sau khi trừ: <b>{fmtAmount((item.qty[hold.location as KhoLocation] ?? 0) - hold.committed_qty, item.unit)}</b></p> : null}
         </section>
       ))}
+      <SupplierOrderSection item={item} onToast={onToast} />
       <UnitAndConversions item={item} canEdit={canEdit} lines={lines.data} linesLoading={lines.isLoading} linesError={lines.error}
         onToast={onToast} onReplaced={onReplaced} />
       <ReceiptNotes title={`Hóa đơn, phiếu giao đã gộp vào tên này${item.doc_lines ? ` · ${item.doc_lines} dòng` : ""}`} lines={lines.data} loading={lines.isLoading} error={lines.error} />

@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { format } from "date-fns";
 import { vi } from "date-fns/locale";
 import { LoadingState } from "@/components/ui/loading";
+import { OrderEmailSettings } from "./OrderEmailSettings";
 
 export function GoogleDriveSettings() {
   const [poFolderUrl, setPoFolderUrl] = useState("");
@@ -637,6 +638,8 @@ export function GoogleDriveSettings() {
             </div>
           )}
         </div>
+
+        <OrderEmailSettings />
 
         {/* Debt Email Sender */}
         <div className="p-4 border border-border rounded-lg bg-card space-y-3">

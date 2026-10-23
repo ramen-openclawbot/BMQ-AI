@@ -973,6 +973,48 @@ html.bmq-d3 .d3-kho-unitpick .d3-kho-chip { height: 34px; min-height: 34px; padd
 .d3-kho-holdlist b { font-weight: 500; color: var(--d3-ink); text-align: right; }
 .d3-kho-holdsec .d3-kho-quiet b { color: var(--d3-ink); font-weight: 500; }
 
+/* Order by email (owner 23/10): one card in the item detail; facts, one line, send. */
+.d3-kho-order { display: grid; gap: 12px; padding: 14px; border-radius: 14px; background: var(--d3-white); min-width: 0; }
+.d3-kho-order-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.d3-kho-order-head .d3-kho-sec-h { min-width: 0; }
+.d3-kho-order-head > button { flex: none; }
+.d3-kho-order-card { display: grid; gap: 12px; min-width: 0; }
+.d3-kho-order-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; margin: 0; }
+.d3-kho-order-facts > div { display: grid; gap: 2px; min-width: 0; }
+.d3-kho-order-facts dt { font-size: 12px; color: var(--d3-dim); }
+.d3-kho-order-facts dd { margin: 0; font-size: 14px; font-weight: 500; color: var(--d3-ink); font-variant-numeric: tabular-nums; }
+.d3-kho-order-facts dd small { font-weight: 400; color: var(--d3-dim); }
+.d3-kho-order-facts dd.is-wrap { font-weight: 400; overflow-wrap: anywhere; }
+.d3-kho-order-line {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px 12px;
+  padding: 12px; border-radius: 12px; box-shadow: inset 0 0 0 1px var(--d3-line);
+}
+.d3-kho-order-product { grid-column: 1 / -1; font-size: 14px; font-weight: 500; overflow-wrap: anywhere; }
+.d3-kho-order-qty { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 14px; color: var(--d3-ink-2); }
+.d3-kho-order-qty input { width: 104px; font-variant-numeric: tabular-nums; text-align: right; }
+.d3-kho-order-price { justify-self: end; font-size: 13px; color: var(--d3-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.d3-kho-order-total { grid-column: 1 / -1; justify-self: end; font-size: 17px; font-weight: 500; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+.d3-kho-order-blockers { display: grid; gap: 2px; list-style: none; }
+.d3-kho-order-hist { display: grid; gap: 8px; margin: 0; padding: 12px 0 0; list-style: none; box-shadow: 0 -1px 0 var(--d3-line); }
+.d3-kho-order-hist > li { display: grid; gap: 4px; min-width: 0; }
+.d3-kho-order-hist-row { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; gap: 10px; align-items: baseline; font-size: 13px; color: var(--d3-ink-2); font-variant-numeric: tabular-nums; }
+.d3-kho-order-hist-row > span:nth-child(2) { color: var(--d3-dim); }
+.d3-kho-order-hist-row > b { font-weight: 500; color: var(--d3-ink); text-align: right; }
+.d3-kho-order-hist-row > .is-bad { color: var(--kho-bad, #8f2414); }
+.d3-kho-order-files { display: flex; flex-wrap: wrap; gap: 6px; }
+.d3-kho-order-files button {
+  display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 32px; padding: 0 10px;
+  border: 0; border-radius: 999px; background: var(--d3-paper, #f3f2ee); color: var(--d3-ink); font: inherit; font-size: 12.5px; cursor: pointer;
+}
+.d3-kho-order-files button svg { flex: none; width: 14px; height: 14px; }
+.d3-kho-order-files button:focus-visible { outline: 2px solid var(--d3-ink); outline-offset: 1px; }
+@media (max-width: 420px) {
+  .d3-kho-order-head { flex-direction: column; align-items: stretch; }
+  .d3-kho-order-head > button { width: 100%; }
+  .d3-kho-order-hist-row { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .d3-kho-order-hist-row > span:nth-child(2) { display: none; }
+}
+
 /* ---------- phones ---------- */
 @media (max-width: 760px) {
   .d3-kho .d3-wh-head { align-items: stretch; }

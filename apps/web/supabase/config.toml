@@ -283,3 +283,18 @@ verify_jwt = false
 # with auth.getUser and requires owner (ceo_extract) or owner / salary_cash edit
 # (receipt_extract). Storage writes and receipt inserts use the service role.
 verify_jwt = false
+
+[functions.supplier-order-send]
+# verify_jwt disabled: the project issues ES256 user tokens and the proxy can
+# reject them before the function runs. Auth is enforced inside index.ts with
+# requireAuth(); the same prepare_supplier_order RPC gate requires owner or
+# purchase_orders edit. The service role creates one draft PO idempotently per
+# request_id and sends one Vietnamese order email. No cron and no automatic send.
+verify_jwt = false
+
+[functions.supplier-order-upload]
+# verify_jwt disabled: this is a public one-time link for suppliers and has no
+# user session. The URL token is hashed and resolved server-side; only jpeg/png/
+# webp/pdf files up to 10 MB are accepted into the private supplier-delivery-docs
+# bucket through the service role. No storage path or token is returned by GET.
+verify_jwt = false

@@ -11,6 +11,8 @@ const PAYSLIP_HOST = "payroll.banhmique.vn";
 
 // Employee payslip portal; loaded only on its own host.
 const PayslipPortalHost = lazy(() => import("@/pages/PayslipPortalHost"));
+// Supplier delivery-invoice upload page (public link from the order email).
+const SupplierUploadPortal = lazy(() => import("@/pages/SupplierUploadPortal"));
 const ADMIN_APP_TITLE = "BMQ AI Quản Trị";
 const DEALER_APP_TITLE = "BMQ Đặt Hàng";
 const VNAGENT_ADMIN_TITLE = "VNAgent · Data Admin";
@@ -67,6 +69,12 @@ function isRecoveryRoute(): boolean {
   return path === "/recover" || search.includes("recover=1");
 }
 
+/** /ncc/hoa-don/<token> → token (base64url, 43 chars from the order email). */
+function supplierUploadToken(): string | null {
+  const match = /^\/ncc\/hoa-don\/([A-Za-z0-9_-]{20,128})\/?$/.exec(window.location.pathname);
+  return match ? match[1] : null;
+}
+
 function isKioskReportHost(): boolean {
   return window.location.hostname === KIOSK_REPORT_HOST;
 }
@@ -88,6 +96,17 @@ function App() {
     return (
       <Suspense fallback={<PageLoader />}>
         <PayslipPortalHost />
+      </Suspense>
+    );
+  }
+
+  // Supplier's one-time link from an order email: no login, no internal providers.
+  const supplierToken = supplierUploadToken();
+  if (supplierToken) {
+    document.title = "BMQ · Gửi hoá đơn giao hàng";
+    return (
+      <Suspense fallback={<PageLoader />}>
+        <SupplierUploadPortal token={supplierToken} />
       </Suspense>
     );
   }

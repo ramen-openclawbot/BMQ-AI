@@ -120,6 +120,18 @@ function settle(st) {
   if (st.table === "rpc:get_stock_transfers") return { data: (window.__kgFixture.transfers ?? []).map((t, i) => ({ ...t, source: i % 2 ? "manual" : "auto", slip_id: null, slip_number: i % 2 ? "PCK-QA-" + i : null, note: i === 1 ? "hàng cho ca sáng Q7" : null })), error: null };
   if (st.table === "rpc:get_q7_finished_goods_planned") return { data: [{ sku_id: "fg-cbc", product_name: "BÁNH MÌ CHÀ BÔNG CAY", unit: "gói", planned_qty: 40, already_received: 12, production_order_item_id: "poi-qa-1" }], error: null };
   if (st.table === "rpc:kho_set_item_note") return { data: { item_id: st.args.p_item_id, note: st.args.p_note }, error: null };
+  // Order by email (owner 23/10): every item has TV Food as order supplier in this fixture.
+  if (st.table === "q7_purchase_item_settings") return { data: { supplier_id: "sup-tv", po_unit: "kg", suppliers: { name: "TV Food " } }, error: null };
+  if (st.table === "rpc:prepare_supplier_order") return { data: {
+    item: { id: st.args.p_item_id, name: "Bơ Peerless Úc 25kg", unit: "g" },
+    supplier: { id: "sup-tv", name: "TV Food", email: "dathang@tvfood.example" },
+    stock: { on_hand: "105812.654", daily_usage: "8870.791", days_left: "11.9", last_count_date: "2026-10-16", reorder_date: "2026-10-30" },
+    proposal: { quantity: "75", unit: "kg", unit_price: "90000", line_total: "6750000", product_name: "BƠ PEERLESS", pack_size_po_units: "25", suggested_book_qty: "75000" },
+    open_order: null,
+    delivery: { address: "24 Đường số 36, P. Tân Quy, Q7, TP.HCM", contact_name: "Phương Nhi", contact_phone: "0903 051 971", note: "" },
+    blockers: cfg().orderBlocked ? ["mailbox_not_connected"] : [],
+  }, error: null };
+  if (st.table === "rpc:supplier_order_history") return { data: { items: JSON.parse(localStorage.getItem("qa-orders") || "[]") }, error: null };
   if (/^rpc:/.test(st.table)) return { data: null, error: null };
   return { data: [], error: null, count: 0 };
 }
@@ -143,7 +155,17 @@ export const supabase = {
   from: (table) => builder(table),
   rpc: (fn, args) => builder("rpc:" + fn, args),
   schema: () => ({ from: (table) => builder(table), rpc: (fn) => builder("rpc:" + fn) }),
-  functions: { invoke: async (name) => { window.__qaCalls.push("invoke:" + name); return { data: null, error: { message: "QA fixture: functions disabled" } }; } },
+  functions: { invoke: async (name, options) => {
+    window.__qaCalls.push("invoke:" + name + ":" + JSON.stringify(options?.body ?? {}));
+    if (name === "supplier-order-send") {
+      const b = options.body;
+      const row = { id: "o1", request_id: b.request_id, po_number: "PO-000861", quantity: b.quantity, unit: "kg", total: b.quantity * 90000, status: "sent", sent_at: new Date().toISOString(), to_email: "dathang@tvfood.example",
+        uploads: [{ file_name: "phieu-giao-hang-TV-Food.jpg", mime_type: "image/jpeg", size_bytes: 120000, created_at: new Date().toISOString(), storage_path: "o1/a.jpg" }] };
+      localStorage.setItem("qa-orders", JSON.stringify([row]));
+      return { data: { status: "sent", po_number: "PO-000861", to_email: "dathang@tvfood.example", sent_at: row.sent_at }, error: null };
+    }
+    return { data: null, error: { message: "QA fixture: functions disabled" } };
+  } },
   storage: { from: () => ({ getPublicUrl: () => ({ data: { publicUrl: "" } }), createSignedUrl: async () => ({ data: { signedUrl: "data:image/svg+xml;utf8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="600" height="840"><rect width="600" height="840" fill="#fff"/><text x="40" y="80" font-size="40">PHIẾU GIAO HÀNG</text></svg>') }, error: null }), list: async () => ({ data: [], error: null }) }) },
   auth: {
     getSession: async () => ({ data: { session: { access_token: "qa", user } }, error: null }),
@@ -189,6 +211,9 @@ const fixtures = {
   },
 };
 
+// The supplier upload page calls the functions URL directly (no Supabase client); route it in the browser.
+process.env.VITE_SUPABASE_URL ||= "https://qa-supabase.invalid";
+process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||= "qa-anon";
 const server = await createServer({
   root: ROOT, configFile: false, logLevel: "error",
   cacheDir: process.env.QA_VITE_CACHE || "/tmp/bmq-kho-app-qa/vite-cache",
@@ -649,6 +674,87 @@ try {
     }
     pass("loading shows the Sổ cái ledger on Danh mục kho + Kiểm kê");
   }
+  // Order by email (owner 23/10): item detail → Đặt hàng → confirmation → send; then the supplier's upload page.
+  for (const vp of [{ width: 390, height: 844 }, { width: 1440, height: 900 }]) {
+    const { context, page, errors } = await open({ role: "owner" }, "/warehouse/danh-muc", vp);
+    await page.waitForSelector("[data-bmq-kho-names] li");
+    const firstId = await page.locator("[data-bmq-kho-names] li .d3-kho-row-main").first().getAttribute("data-bmq-kho-item");
+    await page.locator(`[data-bmq-kho-item='${firstId}']`).click();
+    await dialogInView(page, "[data-bmq-kho-item-dialog]", vp);
+    const section = page.locator("[data-bmq-kho-order]");
+    await section.waitFor();
+    assert.match(await section.innerText(), /Đặt hàng · TV Food\b/);
+    await section.scrollIntoViewIfNeeded();
+    await page.locator("[data-bmq-kho-order-open]").click();
+    await page.waitForSelector("[data-bmq-kho-order-confirm]");
+    const card = await page.locator("[data-bmq-kho-order-confirm]").innerText();
+    for (const text of ["105,81 kg", "đủ ~11,9 ngày", "8,87 kg", "75 kg", "dathang@tvfood.example", "BƠ PEERLESS", "Phương Nhi"]) assert.ok(card.includes(text), `confirm card shows ${text}: ${card}`);
+    assert.equal(await page.locator("[data-bmq-kho-order-qty]").inputValue(), "75");
+    assert.match(await page.locator("[data-bmq-kho-order-total]").innerText(), /6\.750\.000 đ/);
+    await page.locator("[data-bmq-kho-order-qty]").fill("100");
+    assert.match(await page.locator("[data-bmq-kho-order-total]").innerText(), /9\.000\.000 đ/);
+    await page.locator("[data-bmq-kho-order-note]").fill("Giao trước 10h");
+    await noSpill(page, "order-confirm", vp);
+    await page.locator("[data-bmq-kho-order-confirm]").scrollIntoViewIfNeeded();
+    await page.locator("[data-bmq-kho-item-dialog]").screenshot({ path: `${EVIDENCE}/order-confirm-${vp.width}.png` });
+    await page.locator("[data-bmq-kho-order-send]").click();
+    await page.waitForSelector("[data-bmq-kho-order-confirm]", { state: "detached" });
+    const sent = (await calls(page)).find((c) => c.startsWith("invoke:supplier-order-send:"));
+    assert.ok(sent && sent.includes('"quantity":100') && sent.includes("Giao trước 10h") && /"request_id":"[0-9a-f-]{36}"/.test(sent), `send call: ${sent}`);
+    await page.waitForSelector("[data-bmq-kho-order-history] li");
+    const hist = await page.locator("[data-bmq-kho-order-history]").innerText();
+    assert.ok(/PO-000861/.test(hist) && /100 kg/.test(hist) && /Đã gửi/.test(hist) && /phieu-giao-hang-TV-Food\.jpg/.test(hist), `history: ${hist}`);
+    await noSpill(page, "order-history", vp);
+    await page.locator("[data-bmq-kho-order]").screenshot({ path: `${EVIDENCE}/order-history-${vp.width}.png` });
+    assert.deepEqual(errors, [], `order page errors @${vp.width}`);
+    await context.close();
+
+    // Blocked: the send button stays disabled and says why.
+    const blocked = await open({ role: "owner", orderBlocked: true }, "/warehouse/danh-muc", vp);
+    await blocked.page.waitForSelector("[data-bmq-kho-names] li");
+    await blocked.page.locator("[data-bmq-kho-names] li .d3-kho-row-main").first().click();
+    await blocked.page.locator("[data-bmq-kho-order-open]").click();
+    await blocked.page.waitForSelector("[data-bmq-kho-order-blockers]");
+    assert.match(await blocked.page.locator("[data-bmq-kho-order-blockers]").innerText(), /Chưa kết nối hộp thư order@bmq\.vn/);
+    assert.ok(await blocked.page.locator("[data-bmq-kho-order-send]").isDisabled(), "send disabled while blocked");
+    await blocked.context.close();
+    pass(`Đặt hàng qua email: confirm card, total, send call, history, blocked state ${vp.width}`);
+
+    // Supplier upload page (public link, no login, no app shell).
+    const ctx = await browser.newContext({ viewport: vp, reducedMotion: "reduce", locale: "vi-VN" });
+    let uploads = 0;
+    await ctx.route("**/*", async (r) => {
+      const url = r.request().url();
+      if (url.includes("/functions/v1/supplier-order-upload")) {
+        const token = new URL(url).searchParams.get("t");
+        if (token !== "QAtoken_abcdefghijklmnopqrstuvwxyz0123456789") return r.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ code: "link_invalid" }) });
+        if (r.request().method() === "POST") { uploads += 1; return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ uploaded: true, count: uploads }) }); }
+        return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ po_number: "PO-000861", supplier_name: "TV Food", product_name: "BƠ PEERLESS", quantity: 100, unit: "kg", sent_at: new Date().toISOString(), upload_count: 0 }) });
+      }
+      if (url.startsWith(BASE) || url.startsWith("data:") || url.startsWith("blob:")) return r.continue();
+      return r.abort();
+    });
+    const portal = await ctx.newPage();
+    const portalErrors = [];
+    portal.on("pageerror", (e) => portalErrors.push(e.message));
+    await portal.goto(`${BASE}/ncc/hoa-don/QAtoken_abcdefghijklmnopqrstuvwxyz0123456789`, { waitUntil: "domcontentloaded" });
+    await portal.waitForSelector("[data-bmq-supplier-upload-order]", { timeout: 30000 });
+    assert.match(await portal.locator("[data-bmq-supplier-upload-order]").innerText(), /PO-000861[\s\S]*BƠ PEERLESS · 100 kg/);
+    assert.equal(await portal.locator("[data-bmq-shell]").count(), 0, "no app shell on the supplier page");
+    await portal.screenshot({ path: `${EVIDENCE}/supplier-upload-${vp.width}.png`, fullPage: true });
+    await portal.setInputFiles("#supplier-upload-file", { name: "phieu-giao.jpg", mimeType: "image/jpeg", buffer: Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4]) });
+    await portal.waitForSelector("[data-bmq-supplier-upload-thanks]");
+    assert.match(await portal.locator("[data-bmq-supplier-upload-count]").innerText(), /1 file/);
+    const spill = await portal.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert.ok(spill <= 0, `supplier page overflow ${spill}`);
+    await portal.screenshot({ path: `${EVIDENCE}/supplier-upload-done-${vp.width}.png`, fullPage: true });
+    await portal.goto(`${BASE}/ncc/hoa-don/WRONGtoken_abcdefghijklmnopqrstuvwxyz0123`, { waitUntil: "domcontentloaded" });
+    await portal.waitForSelector("[data-bmq-supplier-upload-invalid]");
+    assert.deepEqual(portalErrors, [], `supplier page errors @${vp.width}`);
+    await ctx.close();
+    pass(`Trang NCC gửi hoá đơn: order summary, upload, invalid link ${vp.width}`);
+  }
+
   // The game is gone: old links land on Danh mục kho; the Kho menu names the three pages.
   for (const route of ["/warehouse/game", "/warehouse/game?ban=cu", "/warehouse/office"]) {
     const vp = { width: 1440, height: 900 };
