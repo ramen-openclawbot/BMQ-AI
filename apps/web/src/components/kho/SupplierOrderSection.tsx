@@ -40,20 +40,19 @@ function sendErrorText(error: unknown): string {
   return "Chưa gửi được đơn. Thử lại.";
 }
 
-/** Owner-configured order supplier for this item (cheap gate before the forecast runs). */
+/**
+ * Owner-configured order supplier for this item (cheap gate before the forecast runs). Read through a
+ * definer RPC: the settings table's RLS function is not executable by signed-in users.
+ */
 function useOrderSetting(itemId: string) {
   return useQuery({
     queryKey: ["supplier-order-setting", itemId],
     queryFn: async () => {
-      const { data, error } = await (supabase as any)
-        .from("q7_purchase_item_settings")
-        .select("supplier_id, po_unit, suppliers:supplier_id(name)")
-        .eq("kitchen_inventory_item_id", itemId)
-        .maybeSingle();
-      if (error) return null;
-      const row = data as { supplier_id: string | null; po_unit: string | null; suppliers: { name: string | null } | null } | null;
+      const { data, error } = await (supabase as any).rpc("supplier_order_setting", { p_item_id: itemId });
+      if (error) throw error;
+      const row = data as { supplier_id?: string | null; supplier_name?: string | null; po_unit?: string | null } | null;
       if (!row?.supplier_id || !row.po_unit) return null;
-      return { supplierName: (row.suppliers?.name ?? "").trim() };
+      return { supplierName: String(row.supplier_name ?? "").trim() };
     },
     staleTime: 60_000,
   });

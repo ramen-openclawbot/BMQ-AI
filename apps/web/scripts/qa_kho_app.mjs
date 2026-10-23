@@ -121,7 +121,9 @@ function settle(st) {
   if (st.table === "rpc:get_q7_finished_goods_planned") return { data: [{ sku_id: "fg-cbc", product_name: "BÁNH MÌ CHÀ BÔNG CAY", unit: "gói", planned_qty: 40, already_received: 12, production_order_item_id: "poi-qa-1" }], error: null };
   if (st.table === "rpc:kho_set_item_note") return { data: { item_id: st.args.p_item_id, note: st.args.p_note }, error: null };
   // Order by email (owner 23/10): every item has TV Food as order supplier in this fixture.
-  if (st.table === "q7_purchase_item_settings") return { data: { supplier_id: "sup-tv", po_unit: "kg", suppliers: { name: "TV Food " } }, error: null };
+  // The card's gate is a definer RPC (the settings table's RLS function is not executable by signed-in users).
+  if (st.table === "q7_purchase_item_settings") return { data: null, error: { code: "42501", message: "permission denied for function q7_material_inventory_can_view" } };
+  if (st.table === "rpc:supplier_order_setting") return { data: { supplier_id: "sup-tv", supplier_name: "TV Food", po_unit: "kg" }, error: null };
   if (st.table === "rpc:prepare_supplier_order") return { data: {
     item: { id: st.args.p_item_id, name: "Bơ Peerless Úc 25kg", unit: "g" },
     supplier: { id: "sup-tv", name: "TV Food", email: "dathang@tvfood.example" },
