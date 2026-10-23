@@ -1,8 +1,9 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Bell, FileCheck, LayoutGrid, LogOut, Search, Settings, ShoppingCart, Sparkles } from "lucide-react";
+import { Bell, Bot, CalendarClock, FileCheck, LayoutGrid, LogOut, Search, Settings, ShoppingCart, Sparkles } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useAutoPaymentRequestCount, useExpenseDueNotices } from "@/hooks/useAutoPaymentNotices";
 import { usePaymentStats } from "@/hooks/usePaymentStats";
 import { useDraftPOCount } from "@/hooks/usePurchaseOrders";
 import { cn } from "@/lib/utils";
@@ -22,6 +23,17 @@ import { getPage } from "./navigation";
 import { ShellSearch } from "./ShellSearch";
 import { openAgentChat, openAppDrawer, useShellNav } from "./useShellNav";
 
+/** "2026-09" → "T09/2026" (en: "09/2026"). */
+function formatDuePeriod(period: string, en: boolean) {
+  const match = /^(\d{4})-(\d{2})/.exec(period);
+  if (!match) return period;
+  return `${en ? "" : "T"}${match[2]}/${match[1]}`;
+}
+
+function formatDueAmount(amount: number | null) {
+  return amount && amount > 0 ? `~${Math.round(amount).toLocaleString("vi-VN")}đ` : "";
+}
+
 export function Header() {
   const { user, profile, signOut, isOwner } = useAuth();
   const { t, language, setLanguage } = useLanguage();
@@ -38,15 +50,23 @@ export function Header() {
   const { data: draftPOCount } = useDraftPOCount();
   const paymentPage = getPage("/payment-requests");
   const poPage = getPage("/purchase-orders");
+  const canSeePayments = Boolean(paymentPage && canViewNavItem(paymentPage, access));
+  // Bộ học duyệt chi: phiếu tự lập chờ duyệt + khoản định kỳ tới kỳ chưa có hóa đơn.
+  const { data: autoCount } = useAutoPaymentRequestCount();
+  const { data: dueNotices } = useExpenseDueNotices();
+  const due = canSeePayments ? dueNotices ?? [] : [];
   const notices = [
-    paymentPage && canViewNavItem(paymentPage, access)
+    canSeePayments
       ? { key: "payments", icon: FileCheck, count: paymentStats?.pendingTotalCount || 0, text: en ? "Payment requests awaiting approval" : "Phiếu đề nghị chi chờ duyệt", to: "/payment-requests" }
+      : null,
+    canSeePayments && (autoCount || 0) > 0
+      ? { key: "auto", icon: Bot, count: autoCount || 0, text: en ? "Auto-drafted from invoices" : "Phiếu tự lập từ hóa đơn chờ duyệt", to: "/payment-requests" }
       : null,
     poPage && canViewNavItem(poPage, access)
       ? { key: "po", icon: ShoppingCart, count: draftPOCount || 0, text: en ? "Draft purchase orders" : "PO mua hàng đang nháp", to: "/purchase-orders" }
       : null,
   ].filter((notice): notice is NonNullable<typeof notice> => Boolean(notice));
-  const unread = notices.reduce((sum, notice) => sum + notice.count, 0);
+  const unread = notices.reduce((sum, notice) => sum + (notice.key === "auto" ? 0 : notice.count), 0) + due.length;
 
   // Sliding pill under the active zone tab.
   const tabsRef = useRef<HTMLDivElement | null>(null);
@@ -145,6 +165,26 @@ export function Header() {
                   <span className={cn("d3-count", notice.count > 0 && notice.key === "payments" && "is-alert")}>{notice.count}</span>
                 </DropdownMenuItem>
               ))}
+              {due.length > 0 && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel className="d3-menu-section">
+                    {en ? "Recurring costs without an invoice" : "Chi phí định kỳ chưa có hóa đơn"}
+                  </DropdownMenuLabel>
+                  <ul className="d3-menu-due" data-bmq-expense-due>
+                    {due.slice(0, 4).map((notice) => (
+                      <li key={`${notice.label}-${notice.period}`}>
+                        <CalendarClock className="h-4 w-4" aria-hidden="true" />
+                        <span>
+                          <b>{notice.label}</b>
+                          <small>{[formatDuePeriod(notice.period, en), notice.supplier_name, formatDueAmount(notice.amount_median)].filter(Boolean).join(" · ")}</small>
+                        </span>
+                      </li>
+                    ))}
+                    {due.length > 4 && <li className="is-more">{en ? `+${due.length - 4} more` : `+${due.length - 4} khoản khác`}</li>}
+                  </ul>
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         )}

@@ -2,6 +2,11 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
 
+/** Invoice Gmail is a single shared mailbox; every other Google account is refused. */
+export function isAllowedInvoiceGmail(email: string | null | undefined): boolean {
+  return String(email ?? '').trim().toLowerCase() === 'hoadon@bmq.vn';
+}
+
 serve(async (req) => {
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
@@ -39,14 +44,14 @@ serve(async (req) => {
 
   // Parse state to get redirect URL + oauth mode
   let redirectBase = 'https://bmqvn.lovable.app';
-  let oauthMode: 'drive' | 'gmail' | 'debt_gmail' | 'order_gmail' = 'drive';
+  let oauthMode: 'drive' | 'gmail' | 'debt_gmail' | 'order_gmail' | 'invoice_gmail' = 'drive';
   if (state) {
     try {
       const stateData = JSON.parse(atob(state));
       if (stateData.redirect && isAllowedRedirect(stateData.redirect)) {
         redirectBase = stateData.redirect;
       }
-      if (stateData.mode === 'gmail' || stateData.mode === 'debt_gmail' || stateData.mode === 'order_gmail') {
+      if (stateData.mode === 'gmail' || stateData.mode === 'debt_gmail' || stateData.mode === 'order_gmail' || stateData.mode === 'invoice_gmail') {
         oauthMode = stateData.mode;
       }
     } catch (e) {
@@ -55,9 +60,9 @@ serve(async (req) => {
   }
 
   const settingsUrl = `${redirectBase}/settings`;
-  const errorKey = oauthMode === 'drive' ? 'drive_error' : oauthMode === 'gmail' ? 'gmail_error' : oauthMode === 'order_gmail' ? 'order_gmail_error' : 'debt_gmail_error';
-  const successKey = oauthMode === 'drive' ? 'drive_success' : oauthMode === 'gmail' ? 'gmail_success' : oauthMode === 'order_gmail' ? 'order_gmail_success' : 'debt_gmail_success';
-  const emailKey = oauthMode === 'drive' ? 'drive_email' : oauthMode === 'gmail' ? 'gmail_email' : oauthMode === 'order_gmail' ? 'order_gmail_email' : 'debt_gmail_email';
+  const errorKey = oauthMode === 'drive' ? 'drive_error' : oauthMode === 'gmail' ? 'gmail_error' : oauthMode === 'order_gmail' ? 'order_gmail_error' : oauthMode === 'invoice_gmail' ? 'invoice_gmail_error' : 'debt_gmail_error';
+  const successKey = oauthMode === 'drive' ? 'drive_success' : oauthMode === 'gmail' ? 'gmail_success' : oauthMode === 'order_gmail' ? 'order_gmail_success' : oauthMode === 'invoice_gmail' ? 'invoice_gmail_success' : 'debt_gmail_success';
+  const emailKey = oauthMode === 'drive' ? 'drive_email' : oauthMode === 'gmail' ? 'gmail_email' : oauthMode === 'order_gmail' ? 'order_gmail_email' : oauthMode === 'invoice_gmail' ? 'invoice_gmail_email' : 'debt_gmail_email';
 
   // Handle errors from Google
   if (error) {
@@ -76,14 +81,14 @@ serve(async (req) => {
 
     // Get redirect URL and oauth mode from request body
     let appRedirect = redirectBase;
-    let requestMode: 'drive' | 'gmail' | 'debt_gmail' | 'order_gmail' = oauthMode;
+    let requestMode: 'drive' | 'gmail' | 'debt_gmail' | 'order_gmail' | 'invoice_gmail' = oauthMode;
     if (req.method === 'POST') {
       try {
         const body = await req.json();
         if (body.redirect && isAllowedRedirect(body.redirect)) {
           appRedirect = body.redirect;
         }
-        if (body.mode === 'gmail' || body.mode === 'debt_gmail' || body.mode === 'order_gmail') {
+        if (body.mode === 'gmail' || body.mode === 'debt_gmail' || body.mode === 'order_gmail' || body.mode === 'invoice_gmail') {
           requestMode = body.mode;
         }
       } catch (e) {
@@ -94,6 +99,8 @@ serve(async (req) => {
     const redirectUri = `${supabaseUrl}/functions/v1/google-drive-auth`;
     const stateParam = btoa(JSON.stringify({ redirect: appRedirect, mode: requestMode }));
     const scope = requestMode === 'gmail'
+      ? 'https://www.googleapis.com/auth/gmail.readonly email profile'
+      : requestMode === 'invoice_gmail'
       ? 'https://www.googleapis.com/auth/gmail.readonly email profile'
       : requestMode === 'debt_gmail'
       ? 'https://www.googleapis.com/auth/gmail.send email profile'
@@ -168,11 +175,17 @@ serve(async (req) => {
       userEmail = userInfo.email || 'Unknown';
     }
 
+    // Invoice inbox is a shared mailbox: never store another account's token.
+    if (oauthMode === 'invoice_gmail' && !isAllowedInvoiceGmail(userEmail)) {
+      console.error('Refusing invoice_gmail token for a different Google account');
+      return Response.redirect(`${settingsUrl}?invoice_gmail_error=wrong_account`, 302);
+    }
+
     // Save tokens to database using service role key
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
-    const refreshTokenKey = oauthMode === 'drive' ? 'google_drive_refresh_token' : oauthMode === 'gmail' ? 'google_gmail_refresh_token' : oauthMode === 'order_gmail' ? 'order_gmail_refresh_token' : 'debt_gmail_refresh_token';
-    const connectedEmailKey = oauthMode === 'drive' ? 'google_drive_connected_email' : oauthMode === 'gmail' ? 'google_gmail_connected_email' : oauthMode === 'order_gmail' ? 'order_gmail_connected_email' : 'debt_gmail_connected_email';
+    const refreshTokenKey = oauthMode === 'drive' ? 'google_drive_refresh_token' : oauthMode === 'gmail' ? 'google_gmail_refresh_token' : oauthMode === 'order_gmail' ? 'order_gmail_refresh_token' : oauthMode === 'invoice_gmail' ? 'invoice_gmail_refresh_token' : 'debt_gmail_refresh_token';
+    const connectedEmailKey = oauthMode === 'drive' ? 'google_drive_connected_email' : oauthMode === 'gmail' ? 'google_gmail_connected_email' : oauthMode === 'order_gmail' ? 'order_gmail_connected_email' : oauthMode === 'invoice_gmail' ? 'invoice_gmail_connected_email' : 'debt_gmail_connected_email';
 
     // Save refresh token
     const { error: tokenError } = await supabaseAdmin

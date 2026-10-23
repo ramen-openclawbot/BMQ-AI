@@ -388,6 +388,22 @@ html.bmq-d3 .d3-menu-section {
 
 .d3-count.is-alert { background: var(--d3-red); color: #fff; }
 
+/* Bell: recurring costs due without an invoice — read-only lines, not links. */
+.d3-menu-due { list-style: none; margin: 0; padding: 2px 0 4px; }
+.d3-menu-due li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 7px 8px;
+  font-size: 13px;
+  color: var(--d3-ink);
+}
+.d3-menu-due li > svg { flex: none; margin-top: 1px; color: var(--d3-dim); }
+.d3-menu-due li > span { min-width: 0; flex: 1; }
+.d3-menu-due b { display: block; font-weight: 500; overflow-wrap: anywhere; }
+.d3-menu-due small { display: block; color: var(--d3-dim); font-size: 12px; overflow-wrap: anywhere; }
+.d3-menu-due li.is-more { color: var(--d3-dim); font-size: 12px; padding-left: 34px; }
+
 html.bmq-d3 .d3-search-dialog {
   width: calc(100% - 24px);
   max-width: 560px;

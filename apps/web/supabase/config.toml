@@ -267,6 +267,16 @@ verify_jwt = false
 # today's automatic cost_category writes.
 verify_jwt = false
 
+[functions.invoice-inbox-ingest]
+# verify_jwt disabled: the project issues ES256 user tokens and the proxy can
+# reject them before the function runs. Auth is enforced inside index.ts: either
+# a valid x-worker-secret for worker 'invoice-ingest' or a Bearer token validated
+# server-side with auth.getUser(token) whose caller is an owner. The handler only
+# calls service-role ingest/apply RPCs, stores files in the private invoices
+# bucket and writes app_settings.invoice_ingest_last_run. It never approves,
+# pays, edits or deletes a payment request; new requests stay pending.
+verify_jwt = false
+
 [functions.suggest-stock-item-name]
 # verify_jwt disabled: the project issues ES256 user tokens and the proxy can
 # reject them before the function runs. Auth is enforced inside index.ts: the

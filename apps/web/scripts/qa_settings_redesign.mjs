@@ -36,6 +36,7 @@ function settle(st) {
     if (filled && st.table === "customer_po_inbox" && st.filters.match_status === "pending_approval") count = 4;
     return { data: null, error: null, count };
   }
+  if (st.table === "rpc:get_auto_payment_request_count") return { data: filled ? 2 : 0, error: null };
   if (st.single && st.table === "app_settings") return { data: APP_SETTINGS().find((r) => r.key === st.filters.key) ?? null, error: null };
   if (st.single) return { data: null, error: null };
   const rows = filled ? fixtureRows(st) : null;
@@ -56,10 +57,18 @@ const APP_SETTINGS = () => (cfg().conn === "none" ? [
   { key: "customer_debt_gmail_sender", value: "no-reply@bmq.vn" },
   { key: "customer_debt_default_cc", value: "ketoantruong@bmq.vn" },
   { key: "order_gmail_connected_email", value: cfg().conn === "wrong" ? "tam@bmq.vn" : "order@bmq.vn" },
+  { key: "invoice_gmail_connected_email", value: "hoadon@bmq.vn" },
   { key: "dealer_landing_banners", value: JSON.stringify([{ id: "b1", eventLabel: "Khai trương Quận 7 — ưu đãi đại lý tháng 11", url: "data:image/svg+xml;utf8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="160" height="100"><rect width="160" height="100" fill="#e9d9b8"/><rect x="20" y="40" width="120" height="24" rx="12" fill="#c98a3a"/></svg>'), path: "landing/b1.jpg", enabled: true, published: true, contentTitle: "Ưu đãi khai trương", contentIntro: "", contentHighlights: [], contentTerms: "", contentNote: "" }]) },
 ]);
 function fixtureRows(st) {
   if (st.table === "app_settings") return APP_SETTINGS();
+  if (st.table === "rpc:get_expense_due_notices") return [
+    { label: "VAT TAS", supplier_name: "Thiên An Sinh", period: "2026-09", typical_day: 6, amount_median: 2607720 },
+    { label: "Thuê nhà Q.7", supplier_name: "Chủ nhà Q7", period: "2026-10", typical_day: 1, amount_median: 25000000 },
+    { label: "Điện (Tân Thuận)", supplier_name: "Điện lực Tân Thuận", period: "2026-09", typical_day: 12, amount_median: 4210000 },
+    { label: "Cước internet cáp quang văn phòng và kho Tân Tạo gói doanh nghiệp rất dài", supplier_name: "Công ty Cổ phần Viễn thông FPT chi nhánh Thành phố Hồ Chí Minh", period: "2026-09", typical_day: 20, amount_median: 880000 },
+    { label: "Điện Kho Tân Tạo", supplier_name: "Điện lực Bình Phú", period: "2026-09", typical_day: 15, amount_median: null },
+  ];
   if (st.table === "profiles") return [
     { user_id: "qa-user", full_name: "Tâm Vũ", email: "qa@bmq.test" },
     { user_id: "u-ktt", full_name: "KTT BMQ", email: "ketoantruong@bmq.vn" },
@@ -279,7 +288,8 @@ try {
       assert.doesNotMatch(f.text, /Hướng dẫn:/, "no instruction block");
       if (conn === "all") {
         assert.equal(await page.locator("[data-bmq-settings-drive] .st-status.is-ok").count(), 1, "Drive connected");
-        assert.equal(await page.locator("[data-bmq-settings] .st-link.is-danger").count(), 4, "Ngắt on every connection");
+        assert.equal(await page.locator("[data-bmq-settings] .st-link.is-danger").count(), 5, "Ngắt on every connection");
+        assert.match(await page.locator("[data-bmq-invoice-email-settings]").innerText(), /hoadon@bmq\.vn[\s\S]*Đã kết nối/);
         // Open the debt email panel and the PO folder panel.
         await page.locator("[data-bmq-settings-debt-email] .st-row-toggle").click();
         await page.waitForSelector("#debt-email-sender");
@@ -297,7 +307,7 @@ try {
         assert.ok((await page.evaluate(() => window.__qaWrites)).some((w) => w.startsWith("app_settings:upsert")), "save tries app_settings upsert");
       }
       if (conn === "none") {
-        assert.equal(await page.locator("[data-bmq-settings] .st-link.is-primary", { hasText: "Kết nối" }).count(), 4, "4 Kết nối buttons");
+        assert.equal(await page.locator("[data-bmq-settings] .st-link.is-primary", { hasText: "Kết nối" }).count(), 5, "5 Kết nối buttons");
       }
       if (conn === "wrong") {
         assert.match(await page.locator("[data-bmq-order-email-settings]").innerText(), /Sai tài khoản/);
@@ -320,6 +330,38 @@ try {
     assert.deepEqual(errors, []);
     record(`settings ${viewport.width}`);
     await context.close();
+  }
+  // Chuông: phiếu tự lập + chi phí định kỳ chưa có hóa đơn (bộ học duyệt chi, 24/10).
+  for (const viewport of VIEWPORTS) {
+    for (const data of ["populated", "empty", "error"]) {
+      const { context, page, errors } = await open({ role: "owner", data }, "/system-management", viewport);
+      await page.locator(".d3-actions button[aria-label^='Thông báo']").click();
+      await page.waitForSelector(".d3-menu[role=menu]");
+      await page.waitForTimeout(300);
+      const menu = page.locator(".d3-menu[role=menu]");
+      const text = await menu.innerText();
+      if (data === "populated") {
+        assert.match(text, /Phiếu tự lập từ hóa đơn chờ duyệt\s*2/);
+        assert.match(text, /Chi phí định kỳ chưa có hóa đơn/);
+        assert.equal(await page.locator("[data-bmq-expense-due] li").count(), 5, "4 due lines + more");
+        assert.match(text, /T09\/2026 · Thiên An Sinh · ~2\.607\.720đ/);
+        assert.match(text, /\+1 khoản khác/);
+      } else {
+        assert.doesNotMatch(text, /Phiếu tự lập|định kỳ/, `${data}: no learner rows`);
+      }
+      const box = await menu.boundingBox();
+      assert.ok(box.x >= 0 && box.x + box.width <= viewport.width + 0.5, `bell menu inside viewport ${data} ${viewport.width}`);
+      const clipped = await page.evaluate(() => [...document.querySelectorAll("[data-bmq-expense-due] li")].filter((li) => li.scrollWidth > li.clientWidth + 1).length);
+      assert.equal(clipped, 0, `due lines wrap ${viewport.width}`);
+      await page.screenshot({ path: `${EVIDENCE}/bell-${data}-${viewport.width}.png` });
+      if (data === "populated") {
+        await page.locator(".d3-menu-item", { hasText: "Phiếu tự lập" }).click();
+        await page.waitForURL(/\/payment-requests/);
+      }
+      assert.deepEqual(errors, [], `bell page errors ${data} ${viewport.width}`);
+      record(`bell ${data} ${viewport.width}`);
+      await context.close();
+    }
   }
   // Người dùng & Phân quyền (owner 23/10).
   for (const viewport of VIEWPORTS) {

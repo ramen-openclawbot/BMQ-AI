@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { LoadingState } from "@/components/ui/loading";
+import { InvoiceEmailSettings } from "./InvoiceEmailSettings";
 import { OrderEmailSettings } from "./OrderEmailSettings";
 import { SettingsGroup, SettingsRow, SettingsStatus } from "./SettingsKit";
 
@@ -512,6 +513,7 @@ export function GoogleDriveSettings() {
           )}
         />
         <OrderEmailSettings />
+        <InvoiceEmailSettings />
         <SettingsRow
           dataAttr="bmq-settings-debt-email"
           label="Email gửi công nợ"
