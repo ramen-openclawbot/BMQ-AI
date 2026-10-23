@@ -237,6 +237,68 @@ Deno.serve(async (req) => {
   }
 
   const data = (recorded.data ?? {}) as Record<string, unknown>;
+  const purchaseOrderId = String(data.purchase_order_id ?? "").trim();
+  const poNumber = String(resolvedData.po_number ?? "").trim();
+
+  // Old orders such as PO-000865 have no receipt queue yet. The opener is
+  // idempotent for orders that already have one, and a failure here must not
+  // fail the supplier's upload.
+  if (purchaseOrderId) {
+    try {
+      await admin.rpc("supplier_order_open_receipt_queue", {
+        p_request_id: orderRequestId,
+        p_actor: data.created_by ? String(data.created_by) : null,
+      });
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          fn: "supplier-order-upload",
+          event: "receipt_queue_failed",
+          order_request_id: orderRequestId,
+          error: errorMessage(error).slice(0, 300),
+        }),
+      );
+    }
+  }
+
+  // The PO screens read image_url from the purchase-orders bucket, so copy the
+  // supplier document there and attach it as evidence of the PO / goods
+  // receipt / payment request when they have no image yet.
+  if (purchaseOrderId && poNumber) {
+    try {
+      const downloaded = await admin.storage.from(BUCKET).download(storagePath);
+      if (!downloaded.error && downloaded.data) {
+        const evidenceBytes = new Uint8Array(await downloaded.data.arrayBuffer());
+        const evidencePath = `${poNumber}-supplier-${Date.now()}.${extension}`;
+        const copied = await admin.storage
+          .from("purchase-orders")
+          .upload(evidencePath, evidenceBytes, {
+            contentType: mime,
+            upsert: false,
+          });
+        if (copied.error) {
+          throw copied.error;
+        }
+        const attached = await admin.rpc("supplier_order_attach_evidence", {
+          p_request_id: orderRequestId,
+          p_object_path: evidencePath,
+        });
+        if (attached.error) {
+          throw attached.error;
+        }
+      }
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          fn: "supplier-order-upload",
+          event: "evidence_attach_failed",
+          order_request_id: orderRequestId,
+          error: errorMessage(error).slice(0, 300),
+        }),
+      );
+    }
+  }
+
   return jsonResponse(
     { uploaded: true, count: Number(data.count ?? 0) },
     200,

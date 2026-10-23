@@ -42,6 +42,7 @@ export const ALL_MODULES: { key: string; labelEn: string; labelVi: string }[] = 
   { key: "crm", labelEn: "CRM", labelVi: "CRM" },
   { key: "sales_po_inbox", labelEn: "Sales PO Inbox", labelVi: "PO (Bán hàng)" },
   { key: "purchase_orders", labelEn: "PO (Purchasing)", labelVi: "PO (Mua hàng)" },
+  { key: "supplier_orders", labelEn: "Supplier ordering", labelVi: "Đặt hàng NCC" },
   { key: "production_q7", labelEn: "Production Planning - Q7 Workshop", labelVi: "Kế hoạch SX - Xưởng Q7" },
   { key: "q7_material_inventory", labelEn: "Q7 Material Inventory", labelVi: "Xuất-nhập-tồn NVL Q7" },
   { key: "production_products", labelEn: "Product Management", labelVi: "Quản lý sản phẩm" },
@@ -303,7 +304,7 @@ const DEFAULT_EDIT: Record<string, string[]> = {
 const ALL_MODULE_KEYS = [
   "dashboard","finance_cost","finance_revenue","crm",
   "sales_po_inbox","purchase_orders","production_q7","q7_material_inventory","production_products","production_qa","payroll","salary_cash","inventory","goods_receipts","sku_costs","material_master",
-  "suppliers","invoices","payment_requests","settings",
+  "suppliers","invoices","payment_requests","settings","supplier_orders",
 ];
 
 // ---------------------------------------------------------------------------

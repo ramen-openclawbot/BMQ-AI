@@ -466,6 +466,35 @@ Deno.serve(async (req) => {
           return respond({ code: "state_update_failed" }, 502, "state_update_failed");
         }
 
+        // Same receipt queue as a manual PO: one confirmed goods receipt and one
+        // pending/unpaid "Duyệt chi PO …" payment request. A failure here never
+        // turns a sent order into an error.
+        let receipt: {
+          receipt_number: string | null;
+          request_number: string | null;
+        } | null = null;
+        try {
+          const queued = await admin.rpc("supplier_order_open_receipt_queue", {
+            p_request_id: orderRequestId,
+            p_actor: user.id,
+          });
+          if (!queued.error && queued.data) {
+            const queue = queued.data as Record<string, unknown>;
+            if (queue.receipt_number || queue.request_number) {
+              receipt = {
+                receipt_number: queue.receipt_number
+                  ? String(queue.receipt_number)
+                  : null,
+                request_number: queue.request_number
+                  ? String(queue.request_number)
+                  : null,
+              };
+            }
+          }
+        } catch {
+          // The sent order stays successful even if the queue could not open.
+        }
+
         // Gối đầu runs only after the order is recorded as sent. Failures are
         // recorded but never turn the sent order into an error.
         let prepayResult: Record<string, unknown> | null = null;
@@ -540,6 +569,7 @@ Deno.serve(async (req) => {
             sent_at: (marked.data as { sent_at?: string } | null)?.sent_at
               ?? new Date().toISOString(),
             prepay: prepayResult,
+            receipt,
           },
           200,
           "sent",

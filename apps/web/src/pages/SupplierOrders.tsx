@@ -57,6 +57,10 @@ const ERROR_TEXT: Record<string, string> = {
 
 const STATUS_LABEL: Record<string, string> = { sent: "Đã gửi", failed: "Gửi lỗi", preparing: "Đang gửi" };
 
+const RECEIPT_LABEL: Record<string, string> = { draft: "nháp", confirmed: "chờ kho xác nhận", received: "đã nhập kho" };
+const PR_LABEL: Record<string, string> = { pending: "chờ duyệt", approved: "đã duyệt", rejected: "từ chối" };
+const PAY_LABEL: Record<string, string> = { unpaid: "chưa trả", partial: "trả một phần", paid: "đã trả", overpaid: "trả dư" };
+
 const PREPAY_LABEL: Record<string, string> = {
   created: "Đã trình chi gấp",
   skipped_none: "Không có phiếu chi chờ trả",
@@ -299,6 +303,24 @@ function History({ rows }: { rows: SupplierOrderHistoryBySupplierEntry[] }) {
             <b className="d3-so-hist-total">{row.total !== null ? formatVnd(row.total) : ""}</b>
           </div>
           <p className="d3-so-hist-lines">{row.lines.map((line) => `${line.productName} ${formatQuantity(line.quantity)} ${line.unit}`).join(" · ")}</p>
+          {row.receipt || row.payment ? (
+            <dl className="d3-so-chain" data-bmq-so-chain>
+              <div>
+                <dt>Nhập kho</dt>
+                <dd className={cn(row.receipt?.status === "received" && "is-ok")}>
+                  {row.receipt ? `${row.receipt.receiptNumber ?? "—"} · ${RECEIPT_LABEL[row.receipt.status] ?? row.receipt.status}` : "chưa có phiếu nhập"}
+                </dd>
+              </div>
+              <div>
+                <dt>Thanh toán</dt>
+                <dd className={cn(row.payment?.paymentStatus === "paid" && "is-ok")}>
+                  {row.payment
+                    ? `${row.payment.requestNumber ?? "—"} · ${PR_LABEL[row.payment.status] ?? row.payment.status} · ${PAY_LABEL[row.payment.paymentStatus] ?? row.payment.paymentStatus}`
+                    : "chưa có đề nghị thanh toán"}
+                </dd>
+              </div>
+            </dl>
+          ) : null}
           {row.prepay?.status === "created" ? (
             <p className="d3-so-hist-meta">Gối đầu: {row.prepay.submissionNumber} ({row.prepay.requestNumber})</p>
           ) : null}

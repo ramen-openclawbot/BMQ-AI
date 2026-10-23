@@ -70,7 +70,9 @@ function history(id) {
   const mine = JSON.parse(localStorage.getItem("qa-orders") || "[]").filter((row) => row.supplier_id === id);
   if (id === TV) mine.push({ id: "h-tv", request_id: "r-tv", po_number: "PO-000862", total: "6750000", status: "sent", sent_at: "2026-10-23T05:09:25Z", to_email: "order@bmq.vn", created_at: "2026-10-23T05:09:22Z",
     lines: [{ position: 1, item_id: "3c16ed3f-54c7-427f-a316-5aa4fcadda5a", product_name: "BƠ PEERLESS", quantity: 75, unit: "kg", unit_price: 90000, line_total: 6750000 }],
-    uploads: [{ file_name: "phieu-giao-hang-TV-Food.jpg", mime_type: "image/jpeg", size_bytes: 120000, created_at: "2026-10-23T08:00:00Z", storage_path: "h-tv/a.jpg" }], prepay: null });
+    uploads: [{ file_name: "phieu-giao-hang-TV-Food.jpg", mime_type: "image/jpeg", size_bytes: 120000, created_at: "2026-10-23T08:00:00Z", storage_path: "h-tv/a.jpg" }], prepay: null,
+    po_status: "sent", receipt: { id: "gr-1", receipt_number: "GRN-000607", status: "confirmed", finalized_at: null },
+    payment: { request_number: "PR-7399CE38", status: "pending", payment_status: "unpaid", total_amount: "6750000" } });
   return { items: mine };
 }
 function settle(st) {
@@ -371,6 +373,7 @@ try {
     assert.ok(tvSend.includes('"prepay":true') && tvSend.includes(TV), `TV send ${tvSend}`);
     const tvHist = await tv.page.locator("[data-bmq-so-history]").innerText();
     assert.ok(/phieu-giao-hang-TV-Food\.jpg/.test(tvHist) && /Gối đầu: TC-261023-05/.test(tvHist), `TV history ${tvHist}`);
+    assert.ok(/Nhập kho\s*GRN-000607 · chờ kho xác nhận/.test(tvHist) && /Thanh toán\s*PR-7399CE38 · chờ duyệt · chưa trả/.test(tvHist), `TV chain ${tvHist}`);
     await noSpill(tv.page, "tv", vp);
     await shot(tv.page, `sent-tv-${vp.width}.png`);
     assert.deepEqual(tv.errors, [], `TV errors @${vp.width}`);

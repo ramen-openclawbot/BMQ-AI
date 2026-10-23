@@ -94,7 +94,7 @@ export const navItems: NavItem[] = [
   { icon: Inbox, labelKey: "poSales", path: "/sales-po-inbox", section: "finance", moduleKey: "sales_po_inbox" },
   { icon: ShoppingCart, labelKey: "poPurchasing", path: "/purchase-orders", section: "finance", showPOBadge: true, moduleKey: "purchase_orders" },
   // Đặt hàng (owner 23/10): order from a supplier by email; its own zone in the main menu.
-  { icon: Send, labelKey: "supplierOrders", path: "/dat-hang", section: "finance", moduleKey: "purchase_orders" },
+  { icon: Send, labelKey: "supplierOrders", path: "/dat-hang", section: "finance", moduleKey: "supplier_orders" },
 
   {
     icon: Factory,

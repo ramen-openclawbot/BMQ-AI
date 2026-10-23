@@ -709,3 +709,232 @@ assert "export function formatUnitPrice" in EMAIL
 assert "formatUnitPrice(line.unitPrice)" in EMAIL
 
 print("supplier order page contract passed")
+
+# ---------------------------------------------------------------------------
+# Supplier ordering closed loop (20261102970000_supplier_order_loop.sql)
+# ---------------------------------------------------------------------------
+
+print("== supplier order loop migration ==")
+LOOP_MIGRATIONS = sorted(
+    ROOT.glob("supabase/migrations/*_supplier_order_loop.sql")
+)
+assert len(LOOP_MIGRATIONS) == 1, (
+    f"expected exactly one supplier_order_loop migration, found {LOOP_MIGRATIONS}"
+)
+assert LOOP_MIGRATIONS[0].name.startswith("20261102970000"), LOOP_MIGRATIONS[0].name
+LOOP_MIGRATION = LOOP_MIGRATIONS[0].read_text(encoding="utf-8")
+LOOP_LOWER = LOOP_MIGRATION.lower()
+
+
+def loop_block(name: str) -> str:
+    match = re.search(
+        rf"create\s+or\s+replace\s+function\s+public\.{re.escape(name)}\s*\(",
+        LOOP_MIGRATION,
+        re.IGNORECASE,
+    )
+    assert match, f"missing loop function public.{name}"
+    tail = LOOP_MIGRATION[match.start():]
+    end = tail.find("\n$$;")
+    assert end != -1, f"unterminated loop function public.{name}"
+    return tail[:end]
+
+
+print("== permission backfill from purchase_orders editors ==")
+assert re.search(
+    r"insert\s+into\s+public\.user_module_permissions[\s\S]{0,200}?'supplier_orders'",
+    LOOP_LOWER,
+), "supplier_orders permission backfill is missing"
+assert re.search(
+    r"from\s+public\.user_module_permissions\s+p[\s\S]{0,200}?module_key\s*=\s*'purchase_orders'",
+    LOOP_LOWER,
+), "backfill must copy purchase_orders editors"
+assert re.search(r"p\.can_edit\s*=\s*true", LOOP_LOWER)
+assert "on conflict (user_id, module_key) do nothing" in LOOP_LOWER
+
+print("== loop functions: security definer + pinned search_path ==")
+loop_defs = re.findall(
+    r"create\s+or\s+replace\s+function\s+public\.(\w+)\s*\(",
+    LOOP_MIGRATION,
+    re.IGNORECASE,
+)
+assert loop_defs, "loop migration defines no functions"
+for name in loop_defs:
+    block = loop_block(name).lower()
+    assert "security definer" in block, f"{name} must be security definer"
+    assert "set search_path = public, pg_temp" in block, (
+        f"{name} must pin search_path to public, pg_temp"
+    )
+
+print("== gates use supplier_orders ==")
+for name in (
+    "supplier_order_suppliers",
+    "supplier_order_catalog",
+    "supplier_order_catalog_candidates",
+    "supplier_order_history",
+    "supplier_order_history_by_supplier",
+    "supplier_order_quote",
+    "supplier_order_setting",
+):
+    block = loop_block(name).lower()
+    assert "public.has_role(v_actor, 'owner')" in block, f"{name} must keep the owner gate"
+    assert "public.has_module_permission(v_actor, 'supplier_orders', 'view')" in block, (
+        f"{name} must allow supplier_orders view"
+    )
+    assert "public.has_module_permission(v_actor, 'supplier_orders', 'edit')" in block, (
+        f"{name} must allow supplier_orders edit"
+    )
+    assert "'purchase_orders', 'edit'" not in block, (
+        f"{name} must no longer gate on purchase_orders edit"
+    )
+
+for name in ("supplier_order_catalog_set", "prepare_supplier_order"):
+    block = loop_block(name).lower()
+    assert "public.has_role(v_actor, 'owner')" in block, f"{name} must keep the owner gate"
+    assert "public.has_module_permission(v_actor, 'supplier_orders', 'edit')" in block, (
+        f"{name} must require supplier_orders edit"
+    )
+    assert "public.has_module_permission(v_actor, 'supplier_orders', 'view')" not in block, (
+        f"{name} must not accept view permission"
+    )
+    assert "'purchase_orders', 'edit'" not in block, (
+        f"{name} must no longer gate on purchase_orders edit"
+    )
+
+print("== queue/evidence columns and policies ==")
+for column in (
+    "goods_receipt_id uuid",
+    "payment_request_id uuid",
+    "receipt_queue_error text",
+):
+    assert re.search(
+        r"add\s+column\s+if\s+not\s+exists\s+" + column.replace(" ", r"\s+"),
+        LOOP_LOWER,
+    ), f"missing supplier_order_requests column {column}"
+assert re.search(
+    r"drop\s+policy\s+if\s+exists\s+supplier_delivery_docs_read\s+on\s+storage\.objects",
+    LOOP_LOWER,
+)
+assert re.search(
+    r"create\s+policy\s+supplier_delivery_docs_read\s+on\s+storage\.objects"
+    r"[\s\S]{0,500}?'supplier_orders', 'view'",
+    LOOP_LOWER,
+)
+for policy in (
+    "supplier_order_requests_select",
+    "supplier_order_request_lines_select",
+    "supplier_order_uploads_select",
+):
+    assert re.search(
+        rf"create\s+policy\s+{policy}\s+on\s+public\.\w+[\s\S]{{0,500}}?'supplier_orders', 'view'",
+        LOOP_LOWER,
+    ), f"{policy} must allow supplier_orders view"
+
+print("== receipt queue opener ==")
+queue = loop_block("supplier_order_open_receipt_queue").lower()
+assert "ensure_purchase_order_receipt_queue" in queue
+assert "p_request_id or r.id = p_request_id" in queue
+assert "r.status = 'sent'" in queue
+assert "request.jwt.claim.sub" in queue
+assert "request.jwt.claims" in queue
+assert "receipt_queue_error = left(sqlerrm, 2000)" in queue
+assert "'goods_receipt_id', v_receipt.id" in queue
+assert "'payment_request_id', v_payment.id" in queue
+assert "'receipt_number', v_receipt.receipt_number" in queue
+assert "'request_number', v_payment.request_number" in queue
+
+print("== attach evidence only fills empty images ==")
+evidence = loop_block("supplier_order_attach_evidence").lower()
+assert "update public.purchase_orders" in evidence
+assert "update public.goods_receipts" in evidence
+assert "update public.payment_requests" in evidence
+assert evidence.count("btrim(image_url) = ''") >= 3, (
+    "attach_evidence must only overwrite null/empty images"
+)
+assert "'purchase_order_image_set'" in evidence
+assert "'goods_receipt_image_set'" in evidence
+assert "'payment_request_image_set'" in evidence
+
+record_loop = loop_block("record_supplier_order_upload").lower()
+assert "'purchase_order_id', v_request.purchase_order_id" in record_loop
+
+print("== service-role-only grants on the new functions ==")
+for name in ("supplier_order_open_receipt_queue", "supplier_order_attach_evidence"):
+    assert re.search(
+        rf"revoke\s+all\s+on\s+function\s+public\.{name}\([^;]*?\)\s*from\s+public\s*,\s*anon\s*,\s*authenticated",
+        LOOP_LOWER,
+        re.DOTALL,
+    ), f"{name} must revoke public/anon/authenticated"
+    assert re.search(
+        rf"grant\s+execute\s+on\s+function\s+public\.{name}\([^;]*?\)\s*to\s+service_role\s*;",
+        LOOP_LOWER,
+        re.DOTALL,
+    ), f"{name} must be service_role only"
+
+print("== history chain columns ==")
+history_loop = loop_block("supplier_order_history_by_supplier").lower()
+assert "'po_status', r.po_status" in history_loop
+assert "'receipt', case" in history_loop
+assert "'receipt_number', gr.receipt_number" in history_loop
+assert "'finalized_at', gr.finalized_at" in history_loop
+assert "'payment', case" in history_loop
+assert "'payment_status', pay.payment_status" in history_loop
+assert "'total_amount', pay.total_amount" in history_loop
+
+print("== PO-000865 backfill ==")
+assert "PO-000865" in LOOP_MIGRATION
+assert "supplier_order_open_receipt_queue" in LOOP_MIGRATION
+backfill = LOOP_LOWER.split("po-000865", 1)[1]
+assert "exists" in backfill and "goods_receipts" in backfill
+assert "payment_requests" in backfill
+assert "13078000" in LOOP_MIGRATION or "13.078.000" in LOOP_MIGRATION
+assert "968741" in LOOP_MIGRATION or "968.741" in LOOP_MIGRATION
+
+print("== loop smoke is rollback-only and covers the acceptance paths ==")
+LOOP_SMOKE = (ROOT / "scripts/smoke_supplier_order_loop.sql").read_text(encoding="utf-8")
+assert re.search(r"^\s*begin\s*;", LOOP_SMOKE, re.IGNORECASE | re.MULTILINE)
+assert re.search(r"^\s*rollback\s*;\s*$", LOOP_SMOKE, re.IGNORECASE | re.MULTILINE)
+assert not re.search(r"^\s*commit\s*;", LOOP_SMOKE, re.IGNORECASE | re.MULTILINE)
+loop_non_comment = [
+    line.strip()
+    for line in LOOP_SMOKE.splitlines()
+    if line.strip() and not line.strip().startswith("--")
+]
+assert loop_non_comment[-1].lower() == "rollback;"
+for token in (
+    "create_supplier_order_multi",
+    "mark_supplier_order_sent",
+    "supplier_order_open_receipt_queue",
+    "supplier_order_attach_evidence",
+    "PO-000865",
+    "13078000",
+    "968741",
+    "insufficient_privilege",
+    "supplier_order_catalog_set",
+    "supplier_order_history",
+):
+    assert token in LOOP_SMOKE, f"loop smoke is missing {token}"
+
+print("== send edge opens the queue after mark_sent and before gối đầu ==")
+assert "supplier_order_open_receipt_queue" in send_source
+assert send_source.index('admin.rpc("mark_supplier_order_sent"') < send_source.index(
+    'admin.rpc("supplier_order_open_receipt_queue"'
+)
+assert send_source.index('admin.rpc("supplier_order_open_receipt_queue"') < send_source.index(
+    'userDb.rpc("create_payment_submission"'
+)
+assert "receipt_number" in send_source
+assert "request_number" in send_source
+
+print("== upload edge copies evidence into purchase-orders and attaches it ==")
+assert "supplier_order_attach_evidence" in upload_source
+assert "supplier_order_open_receipt_queue" in upload_source
+assert re.search(r'\.from\("purchase-orders"\)', upload_source), (
+    "upload edge must copy into the purchase-orders bucket"
+)
+assert re.search(r"-\$\{Date\.now\(\)\}\.\$\{extension\}", upload_source), (
+    "upload edge must use the PO-number-supplier-timestamp naming"
+)
+assert "receipt_queue_failed" in upload_source
+assert "evidence_attach_failed" in upload_source
+
+print("supplier order loop contract passed")

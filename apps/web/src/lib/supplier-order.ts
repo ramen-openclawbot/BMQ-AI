@@ -224,10 +224,25 @@ export type SupplierOrderRequestLine = {
   grossAmount: number | null;
 };
 
+export type SupplierOrderHistoryReceipt = {
+  id: string | null;
+  receiptNumber: string | null;
+  status: string;
+  finalizedAt: string | null;
+};
+
+export type SupplierOrderHistoryPayment = {
+  requestNumber: string | null;
+  status: string;
+  paymentStatus: string;
+  totalAmount: number | null;
+};
+
 export type SupplierOrderHistoryBySupplierEntry = {
   id: string | null;
   requestId: string | null;
   poNumber: string | null;
+  poStatus: string | null;
   subtotal: number | null;
   vatAmount: number | null;
   total: number | null;
@@ -237,6 +252,8 @@ export type SupplierOrderHistoryBySupplierEntry = {
   createdAt: string | null;
   lines: SupplierOrderRequestLine[];
   uploads: SupplierOrderUpload[];
+  receipt: SupplierOrderHistoryReceipt | null;
+  payment: SupplierOrderHistoryPayment | null;
   prepay: {
     status: string;
     requestNumber: string | null;
@@ -771,10 +788,13 @@ export function parseSupplierOrderHistoryBySupplier(
     const row = asRecord(raw);
     if (Object.keys(row).length === 0) continue;
     const prepay = asRecord(row.prepay);
+    const receipt = asRecord(row.receipt);
+    const payment = asRecord(row.payment);
     output.push({
       id: asNullableText(row.id),
       requestId: asNullableText(row.request_id),
       poNumber: asNullableText(row.po_number),
+      poStatus: asNullableText(row.po_status),
       subtotal: asNumber(row.subtotal),
       vatAmount: asNumber(row.vat_amount),
       total: asNumber(row.total),
@@ -799,6 +819,22 @@ export function parseSupplierOrderHistoryBySupplier(
       uploads: (Array.isArray(row.uploads) ? row.uploads : [])
         .map(parseHistoryUpload)
         .filter((upload): upload is SupplierOrderUpload => upload !== null),
+      receipt: Object.keys(receipt).length === 0
+        ? null
+        : {
+            id: asNullableText(receipt.id),
+            receiptNumber: asNullableText(receipt.receipt_number),
+            status: asText(receipt.status),
+            finalizedAt: asNullableText(receipt.finalized_at),
+          },
+      payment: Object.keys(payment).length === 0
+        ? null
+        : {
+            requestNumber: asNullableText(payment.request_number),
+            status: asText(payment.status),
+            paymentStatus: asText(payment.payment_status),
+            totalAmount: asNumber(payment.total_amount),
+          },
       prepay: Object.keys(prepay).length === 0
         ? null
         : {

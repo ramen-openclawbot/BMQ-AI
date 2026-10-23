@@ -272,7 +272,7 @@ export function AppRoutes() {
         <Route path="/salary-payouts/:id" element={<SalaryPayout />} />
         <Route path="/goods-receipts" element={<GoodsReceipts />} />
         <Route path="/purchase-orders" element={<ModuleRoute moduleKey="purchase_orders"><PurchaseOrders /></ModuleRoute>} />
-        <Route path="/dat-hang" element={<ModuleRoute moduleKey="purchase_orders"><Suspense fallback={<AppLoadingFallback />}><SupplierOrders /></Suspense></ModuleRoute>} />
+        <Route path="/dat-hang" element={<ModuleRoute moduleKey="supplier_orders"><Suspense fallback={<AppLoadingFallback />}><SupplierOrders /></Suspense></ModuleRoute>} />
         <Route path="/sku-costs" element={<Navigate to="/sku-costs/dashboard" replace />} />
         <Route path="/sku-costs/dashboard" element={<Suspense fallback={<AppLoadingFallback />}><SkuCostsDjango /></Suspense>} />
         <Route path="/sku-costs/management" element={<Suspense fallback={<AppLoadingFallback />}><SkuCostsManagement /></Suspense>} />

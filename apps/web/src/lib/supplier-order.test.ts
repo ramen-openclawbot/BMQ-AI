@@ -437,6 +437,7 @@ test("parses supplier history with lines, uploads and prepay", () => {
         id: "row-1",
         request_id: "req-1",
         po_number: "PO-3",
+        po_status: "sent",
         subtotal: "955000",
         vat_amount: "76400",
         total: "1397300",
@@ -444,6 +445,18 @@ test("parses supplier history with lines, uploads and prepay", () => {
         sent_at: "2026-10-23T00:00:00Z",
         to_email: "pt@example.test",
         created_at: "2026-10-23T00:00:00Z",
+        receipt: {
+          id: "gr-1",
+          receipt_number: "PN-261023-01",
+          status: "confirmed",
+          finalized_at: null,
+        },
+        payment: {
+          request_number: "PR-3",
+          status: "pending",
+          payment_status: "unpaid",
+          total_amount: "13078000",
+        },
         lines: [
           {
             position: "1",
@@ -495,6 +508,14 @@ test("parses supplier history with lines, uploads and prepay", () => {
   assert.equal(history[0].lines[1].vatRate, 8);
   assert.equal(history[0].uploads[0].fileName, "hoa-don.pdf");
   assert.equal(history[0].prepay?.submissionNumber, "TC-261023-01");
+  assert.equal(history[0].poStatus, "sent");
+  assert.equal(history[0].receipt?.receiptNumber, "PN-261023-01");
+  assert.equal(history[0].receipt?.status, "confirmed");
+  assert.equal(history[0].receipt?.finalizedAt, null);
+  assert.equal(history[0].payment?.requestNumber, "PR-3");
+  assert.equal(history[0].payment?.status, "pending");
+  assert.equal(history[0].payment?.paymentStatus, "unpaid");
+  assert.equal(history[0].payment?.totalAmount, 13078000);
   assert.deepEqual(parseSupplierOrderHistoryBySupplier(null), []);
   assert.deepEqual(parseSupplierOrderHistoryBySupplier("nope"), []);
 });
@@ -550,4 +571,7 @@ test("tolerates missing VAT fields", () => {
   assert.equal(history[0].subtotal, null);
   assert.equal(history[0].vatAmount, null);
   assert.equal(history[0].lines[0].vatRate, null);
+  assert.equal(history[0].poStatus, null);
+  assert.equal(history[0].receipt, null);
+  assert.equal(history[0].payment, null);
 });
