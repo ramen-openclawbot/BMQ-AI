@@ -5,7 +5,6 @@
  *   kho_set_receipt_line_lot(uuid, date, date, text, text, uuid)
  *   kho_manufacturer_suggest(uuid)
  *   kho_expiry_overview(int)
- *   sku_set_shelf_life(uuid, int, uuid)
  *   food_cert_list(text, uuid, int), food_cert_upsert(...), food_cert_archive(...)
  *   food_manufacturer_list(text)
  *

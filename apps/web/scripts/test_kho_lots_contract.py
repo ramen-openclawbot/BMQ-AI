@@ -3,7 +3,8 @@
 
 No database or Supabase connection is made.  These checks guard migration
 20261102850000_kho_lots_expiry.sql against schema, permission, idempotency and
-ledger-posting drift.
+ledger-posting drift, and assert that 20261102950000_kho_trace_report.sql
+removes the legacy SKU shelf-life RPC/column.
 """
 from __future__ import annotations
 
@@ -11,6 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = ROOT / "supabase" / "migrations" / "20261102850000_kho_lots_expiry.sql"
+TRACE_MIGRATION = ROOT / "supabase" / "migrations" / "20261102950000_kho_trace_report.sql"
 
 
 def read(path: Path) -> str:
@@ -209,23 +211,28 @@ def main() -> None:
         "suggest must return manufacturer_id",
     )
 
-    # --- sku_set_shelf_life -------------------------------------------------
-    shelf = body_after(migration, "CREATE OR REPLACE FUNCTION public.sku_set_shelf_life(")
-    shelf_lower = shelf.lower()
-    for parameter in ("p_sku_id uuid", "p_days integer", "p_request_id uuid"):
-        assert_true(parameter in shelf_lower, f"sku_set_shelf_life missing {parameter}")
+    # --- legacy shelf-life RPC + column removed -----------------------------
+    # 20261102850000 introduced sku_set_shelf_life and
+    # product_skus.shelf_life_days, but 20261102950000 makes
+    # product_label_specs.shelf_life_days the single source.  Assert the new
+    # state instead of the dropped RPC.
+    trace_migration = read(TRACE_MIGRATION)
+    trace_lower = trace_migration.lower()
     assert_true(
-        "public.has_role(v_actor, 'owner')" in shelf_lower
-        and "public.has_role(v_actor, 'staff')" in shelf_lower
-        and "public.has_role(v_actor, 'warehouse')" in shelf_lower,
-        "sku_set_shelf_life must reuse the save_sku_cogs role gate",
+        "drop function if exists public.sku_set_shelf_life(uuid, integer, uuid)" in trace_lower,
+        "the legacy sku_set_shelf_life RPC must be dropped",
     )
-    assert_true("p_days not between 0 and 3650" in shelf_lower, "shelf life bounds must be validated")
     assert_true(
-        "update public.product_skus" in shelf_lower and "set shelf_life_days = p_days" in shelf_lower,
-        "sku_set_shelf_life must write product_skus.shelf_life_days",
+        "product_skus_shelf_life_days_not_empty" in trace_lower
+        and "raise exception" in trace_lower
+        and "where ps.shelf_life_days is not null" in trace_lower,
+        "dropping product_skus.shelf_life_days must be guarded by a non-null check",
     )
-    assert_true("sku_shelf_life_edits" in shelf_lower, "SKU shelf life must be idempotent per request_id")
+    assert_true(
+        trace_lower.index("product_skus_shelf_life_days_not_empty")
+        < trace_lower.index("drop column if exists shelf_life_days"),
+        "the non-null guard must run before the column drop",
+    )
 
     # --- kho_expiry_overview ------------------------------------------------
     overview = body_after(migration, "CREATE OR REPLACE FUNCTION public.kho_expiry_overview(")
@@ -307,7 +314,6 @@ def main() -> None:
         "public.kho_lot_can_view(uuid)",
         "public.kho_set_receipt_line_lot(uuid, date, date, text, text, uuid)",
         "public.kho_manufacturer_suggest(uuid)",
-        "public.sku_set_shelf_life(uuid, integer, uuid)",
         "public.kho_expiry_overview(integer)",
     ):
         assert_true(

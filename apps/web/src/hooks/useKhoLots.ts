@@ -116,38 +116,6 @@ export function useScanLotLabel() {
   });
 }
 
-export interface SetSkuShelfLifeInput {
-  skuId: string;
-  days: number | null;
-  /** Defaults to a fresh crypto.randomUUID(). */
-  requestId?: string;
-}
-
-export interface SkuShelfLifeResult {
-  sku_id: string;
-  shelf_life_days: number | null;
-  replayed: boolean;
-}
-
-/** Set or clear the shelf life (days) of one finished-goods SKU. */
-export function useSetSkuShelfLife() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (input: SetSkuShelfLifeInput): Promise<SkuShelfLifeResult> => {
-      const { data, error } = await rpc("sku_set_shelf_life", {
-        p_sku_id: input.skuId,
-        p_days: input.days,
-        p_request_id: input.requestId ?? crypto.randomUUID(),
-      });
-      if (error) throw error;
-      return data as SkuShelfLifeResult;
-    },
-    onSuccess: () => {
-      invalidateExpiry(queryClient);
-    },
-  });
-}
-
 /** Certificate vault list, newest first; archived certificates are excluded. */
 export function useFoodCerts(params: FoodCertListParams = {}) {
   const ownerKind = params.ownerKind ?? null;

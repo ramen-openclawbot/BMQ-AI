@@ -93,6 +93,28 @@ function settle(st) {
     { id: "c2", owner_kind: "manufacturer", owner_id: "m2", owner_name: "Cty Sữa TH True Milk", cert_type: "coa", cert_no: "KN-2026-0912", issuer: "Quatest 3", issued_on: "2026-01-01", expires_on: "2026-10-01", days_left: -22, file_path: "certs/c2/coa.jpg", file_name: "COA-Bo-TH.jpg", mime_type: "image/jpeg", note: null, created_by: null, created_at: "2026-10-22T08:00:00Z", archived_at: null, archived_by: null },
     { id: "c3", owner_kind: "company", owner_id: null, owner_name: "Công ty", cert_type: "product_declaration", cert_no: null, issuer: null, issued_on: null, expires_on: null, days_left: null, file_path: "certs/c3/cb.pdf", file_name: "Cong-bo-Banh-mi-pho-mai.pdf", mime_type: "application/pdf", note: null, created_by: null, created_at: "2026-10-21T08:00:00Z", archived_at: null, archived_by: null },
   ], error: null };
+  if (st.table === "rpc:kho_trace_candidates") return { data: (cfg().data === "empty") ? [] : [
+    { production_order_item_id: "poi-1", production_number: "SX-20261023-001", production_date: "2026-10-23", sku_id: "s1", sku_code: "cpm-2026-v3", product_name: "BÁNH CUA PHÔ MAI", qty: 200, unit: "cái", location_code: "q7", has_issue: true },
+    { production_order_item_id: "poi-2", production_number: "SX-20261022-001", production_date: "2026-10-22", sku_id: "s2", sku_code: "Croi-2026-v4", product_name: "BÁNH CROISSANT 50G có tên rất dài để thử xuống dòng trên điện thoại nhỏ", qty: 120, unit: "cái", location_code: "q7", has_issue: false },
+  ], error: null };
+  if (st.table === "rpc:kho_trace_report") {
+    const lot = (o) => ({ receipt_number: "GRN-000590", received_date: "2026-10-15", quantity: 13, unit: "gói", manufacture_date: null, expiry_date: null, manufacturer_lot: null, lot_code: "GRN-000590-003", lot_code_internal: true, manufacturer_id: null, manufacturer_name: null, supplier_name: "Đại Tân Việt", ...o });
+    return { data: {
+      production_order_item_id: "poi-1", product_name: "BÁNH CUA PHÔ MAI", sku_code: "cpm-2026-v3", production_number: "SX-20261023-001", production_date: "2026-10-23", qty: 200, unit: "cái", shelf_life_days: 3, expiry_date: "2026-10-26", missing: [],
+      materials: [
+        { item_id: "k1", item_code: "NVL-001", name: "Bột mì 999 Cam", section: "raw", required_qty: 14342, unit: "g", lots: [lot({ receipt_number: "GRN-000604", quantity: 250, unit: "kg", manufacture_date: "2026-09-08", expiry_date: "2026-12-08", manufacturer_lot: "M829092026", lot_code: "M829092026", lot_code_internal: false, manufacturer_name: "Cty TNHH Interflour Vietnam" })], missing: [] },
+        { item_id: "k2", item_code: "NVL-060", name: "Phô mai 84 lát trắng Dairymont (1kg/khối 12 khối/thùng)", section: "raw", required_qty: 3660, unit: "g", lots: [lot({})], missing: ["manufacturer", "nsx", "hsd"] },
+        { item_id: "k3", item_code: "NVL-090", name: "sữa tươi 1L", section: "raw", required_qty: 1758, unit: "g", lots: [], missing: ["lot", "receipt", "nsx", "hsd", "manufacturer"] },
+        { item_id: "k4", item_code: "CCDC-010", name: "Túi OPP", section: "packaging", required_qty: 200, unit: "cái", lots: [lot({ quantity: 10, unit: "kg", manufacturer_name: "Cty TNHH Minh Sang" })], missing: [] },
+      ],
+      certificates: [{ id: "c1", cert_type: "attp_facility", cert_no: "123/2025", issuer: "Sở Y tế", expires_on: "2026-11-05", file_path: "certs/a.pdf", file_name: "GCN-ATTP-Interflour.pdf", mime_type: "application/pdf" }],
+      company_certificates: [],
+      semi_finished: [
+        { name: "Lô bánh ủ", production_date: "2026-10-23", qty: 200, remaining: null, lot_code: "CPM23102026 Ủ" },
+        { name: "Vỏ bánh", production_date: "2026-10-23", qty: 200, remaining: null, lot_code: "CPM23102026" },
+      ],
+    }, error: null };
+  }
   if (st.table === "rpc:food_manufacturer_list") return { data: [{ id: "m1", name: "Cty TNHH Interflour Vietnam" }, { id: "m2", name: "Cty Sữa TH True Milk" }], error: null };
   if (st.table === "rpc:food_manufacturer_upsert") return { data: { id: "m9", name: st.args.p_name }, error: null };
   if (st.table === "rpc:food_cert_upsert") return { data: { id: "c9", owner_kind: st.args.p_owner_kind, owner_id: st.args.p_owner_id, cert_type: st.args.p_cert_type, file_path: st.args.p_file_path }, error: null };
@@ -340,6 +362,30 @@ try {
     assert.equal(await page.locator("[data-bmq-cert-list] li").count(), 1, "search by owner");
     await page.locator("[data-bmq-cert-search]").fill("");
     pass(`Hồ sơ ATTP list, filters, search ${vp.width}`);
+    await page.locator("[data-bmq-trace-open]").click();
+    await page.waitForSelector("[data-bmq-trace-list] li");
+    await dialogInView(page, "[data-bmq-trace]", vp);
+    assert.equal(await page.locator("[data-bmq-trace-list] li").count(), 2, "two production orders to trace");
+    await noSpill(page, "trace-list", vp);
+    await shot(page, `trace-list-${vp.width}.png`, false);
+    await page.locator("[data-bmq-trace-pick='poi-1']").click();
+    await page.waitForSelector("[data-bmq-trace-report]");
+    assert.match(await page.locator("[data-bmq-trace-report]").innerText(), /26\/10\/2026/, "HSD = NSX + shelf life");
+    assert.equal(await page.locator("[data-bmq-trace-missing]").count(), 2, "two rows name their gaps");
+    assert.equal(await page.locator("[data-bmq-trace-gaps]").getAttribute("data-bmq-trace-gaps"), "2", "gap count");
+    await page.locator("[data-bmq-trace-semi='1'] [data-bmq-trace-semi-left]").fill("4");
+    await noSpill(page, "trace-report", vp);
+    await shot(page, `trace-report-${vp.width}.png`, false);
+    const [xlsx] = await Promise.all([page.waitForEvent("download", { timeout: 20000 }), page.locator("[data-bmq-trace-xlsx]").click()]);
+    assert.match(xlsx.suggestedFilename(), /^Truy-xuat-cpm-2026-v3-20261023\.xlsx$/, "excel file name");
+    const [zip] = await Promise.all([page.waitForEvent("download", { timeout: 30000 }), page.locator("[data-bmq-trace-zip]").click()]);
+    assert.match(zip.suggestedFilename(), /\.zip$/, "zip bundle");
+    if (vp.width === 1440) { await xlsx.saveAs(`${EVIDENCE}/trace.xlsx`); await zip.saveAs(`${EVIDENCE}/trace.zip`); }
+    await page.locator("[data-bmq-trace-back]").click();
+    await page.waitForSelector("[data-bmq-trace-list]");
+    await page.keyboard.press("Escape");
+    await page.waitForSelector("[data-bmq-trace]", { state: "detached" });
+    pass(`Truy xuất pick → report → Excel + zip ${vp.width}`);
     await page.locator("[data-bmq-cert-add]").click();
     await dialogInView(page, "[data-bmq-cert-form]", vp);
     await page.locator("[data-bmq-cert-type='coa']").click();

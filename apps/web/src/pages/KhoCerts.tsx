@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { FileText, Plus, Search, X } from "lucide-react";
+import { FileSearch, FileText, Plus, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { LoadingState } from "@/components/ui/loading";
@@ -19,6 +19,7 @@ import {
 import { searchKey } from "@/lib/kho-items";
 import { cn } from "@/lib/utils";
 import { KhoDialog } from "@/components/kho/KhoDialog";
+import { KhoTraceDialog } from "@/components/kho/KhoTraceDialog";
 import { useKhoConfirm } from "@/components/kho/KhoConfirm";
 import "@/styles/bmq-warehouse.css";
 import "@/styles/bmq-kho.css";
@@ -51,6 +52,7 @@ export default function KhoCerts() {
   const [view, setView] = useState<View>("all");
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
+  const [tracing, setTracing] = useState(false);
   const rows = certs.data ?? [];
   const soon = rows.filter((c) => expiryTone(c.days_left) === "soon").length;
   const expired = rows.filter((c) => expiryTone(c.days_left) === "expired").length;
@@ -83,7 +85,10 @@ export default function KhoCerts() {
           <h1>Hồ sơ ATTP</h1>
           <p className="d3-wh-tag">{certs.isLoading ? "Đang đọc hồ sơ…" : certs.isError ? "Chưa đọc được" : `${rows.length} giấy tờ${soon ? ` · ${soon} sắp hết hạn` : ""}${expired ? ` · ${expired} đã hết hạn` : ""}`}</p>
         </div>
-        {canEdit ? <Button onClick={() => setAdding(true)} data-bmq-cert-add><Plus className="mr-1.5 h-4 w-4" />Thêm giấy</Button> : null}
+        <div className="d3-kho-head-acts">
+          <Button variant={canEdit ? "outline" : "default"} onClick={() => setTracing(true)} data-bmq-trace-open><FileSearch className="mr-1.5 h-4 w-4" />Truy xuất</Button>
+          {canEdit ? <Button onClick={() => setAdding(true)} data-bmq-cert-add><Plus className="mr-1.5 h-4 w-4" />Thêm giấy</Button> : null}
+        </div>
       </header>
 
       <section className="d3-wh-card d3-kho-card">
@@ -101,7 +106,7 @@ export default function KhoCerts() {
             {query ? <button type="button" onClick={() => setQuery("")} aria-label="Xóa tìm kiếm"><X /></button> : null}
           </span>
         </div>
-        <p className="d3-kho-hint">Giấy chứng nhận cơ sở đủ điều kiện ATTP, phiếu kiểm nghiệm và bản công bố của nhà sản xuất từng nguyên liệu. Báo cáo truy xuất nguồn gốc sẽ đính kèm các giấy này.</p>
+        <p className="d3-kho-hint">Giấy chứng nhận cơ sở đủ điều kiện ATTP, phiếu kiểm nghiệm và bản công bố của nhà sản xuất từng nguyên liệu. Nút “Truy xuất” dựng báo cáo theo mẫu KFM cho từng lệnh sản xuất và đính kèm các giấy này.</p>
 
         {certs.isLoading ? <LoadingState label="Đang đọc hồ sơ" /> : certs.isError ? (
           <div className="d3-kho-failed" role="alert">
@@ -136,6 +141,7 @@ export default function KhoCerts() {
         )}
       </section>
       {adding ? <CertForm onClose={() => setAdding(false)} /> : null}
+      {tracing ? <KhoTraceDialog onClose={() => setTracing(false)} /> : null}
       {dialog}
     </div>
   );
