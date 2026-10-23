@@ -177,9 +177,12 @@ function buildMultiLines(
   catalogRows: Map<string, Record<string, unknown>>,
   requested: MultiLineRequest[],
   maxAmount: number,
-): { lines: MultiLine[]; total: number } | { error: string; status: number } {
+):
+  | { lines: MultiLine[]; subtotal: number; vatAmount: number; total: number }
+  | { error: string; status: number } {
   const lines: MultiLine[] = [];
-  let total = 0;
+  let subtotal = 0;
+  let vatTotal = 0;
 
   for (let index = 0; index < requested.length; index += 1) {
     const request = requested[index];
@@ -197,8 +200,10 @@ function buildMultiLines(
     const unitPrice = numberValue(row.unit_price);
     if (unitPrice === null) return { error: "no_price", status: 409 };
 
+    const vatRate = numberValue(row.vat_rate) ?? 0;
     const lineTotal = round2(quantity * unitPrice);
-    total = round2(total + lineTotal);
+    subtotal = round2(subtotal + lineTotal);
+    vatTotal += quantity * unitPrice * vatRate / 100;
     lines.push({
       position: index + 1,
       item_id: request.item_id,
@@ -207,11 +212,14 @@ function buildMultiLines(
       unit: String(row.po_unit ?? ""),
       unitPrice,
       lineTotal,
+      vatRate,
     });
   }
 
+  const vatAmount = Math.round(vatTotal);
+  const total = round2(subtotal + vatAmount);
   if (total > maxAmount) return { error: "over_amount_limit", status: 400 };
-  return { lines, total };
+  return { lines, subtotal, vatAmount, total };
 }
 
 async function readMaxAmount(admin: AdminClient): Promise<number> {
@@ -325,6 +333,8 @@ Deno.serve(async (req) => {
       }
 
       const orderLines = computed.lines;
+      const subtotal = computed.subtotal;
+      const vatAmount = computed.vatAmount;
       const total = computed.total;
       const prepayRow = catalog.prepay && typeof catalog.prepay === "object"
         ? (catalog.prepay as Record<string, unknown>)
@@ -336,6 +346,8 @@ Deno.serve(async (req) => {
           poNumber: "",
           supplierName,
           lines: orderLines,
+          subtotal,
+          vatAmount,
           total,
           deliveryAddress: String(delivery.address ?? ""),
           contactName: String(delivery.contact_name ?? ""),
@@ -359,7 +371,10 @@ Deno.serve(async (req) => {
               unit: line.unit,
               unit_price: line.unitPrice,
               line_total: line.lineTotal,
+              vat_rate: line.vatRate ?? 0,
             })),
+            subtotal,
+            vat_amount: vatAmount,
             total,
             prepay: prepayRow && !prepayRecent ? prepayRow : null,
             prepay_reason: prepayRow ? (prepayRecent ? "recent" : null) : "none",
@@ -428,13 +443,18 @@ Deno.serve(async (req) => {
           unit: String(line.unit ?? ""),
           unitPrice: numberValue(line.unit_price),
           lineTotal: numberValue(line.line_total),
+          vatRate: numberValue(line.vat_rate) ?? 0,
         };
       });
+      const createdSubtotal = numberValue(created.subtotal) ?? subtotal;
+      const createdVatAmount = numberValue(created.vat_amount) ?? vatAmount;
       const createdTotal = numberValue(created.total) ?? total;
       const mail = buildSupplierOrderEmailLines({
         poNumber: String(created.po_number ?? ""),
         supplierName: String(created.supplier_name ?? supplierName),
         lines: emailLines,
+        subtotal: createdSubtotal,
+        vatAmount: createdVatAmount,
         total: createdTotal,
         deliveryAddress: String(delivery.address ?? ""),
         contactName: String(delivery.contact_name ?? ""),

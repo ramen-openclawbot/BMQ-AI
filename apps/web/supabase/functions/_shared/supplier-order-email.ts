@@ -11,6 +11,7 @@ export type SupplierOrderEmailLine = {
   unit: string;
   unitPrice: number | null;
   lineTotal: number | null;
+  vatRate?: number | null;
 };
 
 export type SupplierOrderEmailInput = {
@@ -36,6 +37,8 @@ export type SupplierOrderEmailLinesInput = {
   supplierName: string;
   lines: SupplierOrderEmailLine[];
   total: number | null;
+  subtotal?: number | null;
+  vatAmount?: number | null;
   deliveryAddress: string;
   contactName: string;
   contactPhone: string;
@@ -78,6 +81,12 @@ export function formatVnd(value: number | null | undefined): string {
   return `${groupThousands(number)} đ`;
 }
 
+export function formatVatRate(value: number | null | undefined): string {
+  const number = typeof value === "number" && Number.isFinite(value) ? value : 0;
+  const rounded = Math.round(number * 100) / 100;
+  return `${String(rounded).replace(".", ",")}%`;
+}
+
 export function formatQuantity(value: number | null | undefined): string {
   const number = typeof value === "number" && Number.isFinite(value) ? value : 0;
   const rounded = Math.round(number * 1000) / 1000;
@@ -111,6 +120,31 @@ export function buildSupplierOrderEmailLines(
   const note = String(input.note ?? "").trim();
   const uploadUrl = String(input.uploadUrl ?? "").trim();
   const total = input.total;
+  const vatAmount = typeof input.vatAmount === "number"
+      && Number.isFinite(input.vatAmount)
+    ? input.vatAmount
+    : 0;
+  const hasVat = vatAmount > 0;
+  const derivedSubtotal = lines.reduce(
+    (sum, line) =>
+      sum
+      + (typeof line.lineTotal === "number" && Number.isFinite(line.lineTotal)
+        ? line.lineTotal
+        : 0),
+    0,
+  );
+  const subtotal = typeof input.subtotal === "number"
+      && Number.isFinite(input.subtotal)
+    ? input.subtotal
+    : derivedSubtotal;
+
+  const totalTextLines = hasVat
+    ? [
+        `Cộng tiền hàng: ${formatVnd(subtotal)}`,
+        `Thuế GTGT: ${formatVnd(vatAmount)}`,
+        `Tổng cộng: ${formatVnd(total)}`,
+      ]
+    : [`Tổng cộng: ${formatVnd(total)}`];
 
   const textLines = [
     `Kính gửi ${input.supplierName},`,
@@ -122,7 +156,7 @@ export function buildSupplierOrderEmailLines(
       `${line.productName} | ${formatQuantity(line.quantity)} | ${line.unit} | ${formatVnd(line.unitPrice)} | ${formatVnd(line.lineTotal)}`
     ),
     "",
-    `Tổng cộng: ${formatVnd(total)}`,
+    ...totalTextLines,
     "",
     `Địa chỉ giao hàng: ${input.deliveryAddress}`,
     `Người nhận: ${input.contactName} - ${input.contactPhone}`,
@@ -145,9 +179,28 @@ export function buildSupplierOrderEmailLines(
                   <td style="padding:8px;border:1px solid #d1d5db;">${escapeHtml(line.productName)}</td>
                   <td align="right" style="padding:8px;border:1px solid #d1d5db;">${escapeHtml(formatQuantity(line.quantity))}</td>
                   <td style="padding:8px;border:1px solid #d1d5db;">${escapeHtml(line.unit)}</td>
-                  <td align="right" style="padding:8px;border:1px solid #d1d5db;">${escapeHtml(formatVnd(line.unitPrice))}</td>
-                  <td align="right" style="padding:8px;border:1px solid #d1d5db;">${escapeHtml(formatVnd(line.lineTotal))}</td>
+                  <td align="right" style="padding:8px;border:1px solid #d1d5db;white-space:nowrap;">${escapeHtml(formatVnd(line.unitPrice))}</td>
+                  <td align="right" style="padding:8px;border:1px solid #d1d5db;white-space:nowrap;">${escapeHtml(formatVnd(line.lineTotal))}</td>${hasVat ? `
+                  <td align="right" style="padding:8px;border:1px solid #d1d5db;">${escapeHtml(formatVatRate(line.vatRate))}</td>` : ""}
                 </tr>`).join("");
+
+  const summaryHtml = hasVat
+    ? `                <tr>
+                  <td colspan="5" align="right" style="padding:8px;border:1px solid #d1d5db;">Cộng tiền hàng</td>
+                  <td align="right" style="padding:8px;border:1px solid #d1d5db;white-space:nowrap;">${escapeHtml(formatVnd(subtotal))}</td>
+                </tr>
+                <tr>
+                  <td colspan="5" align="right" style="padding:8px;border:1px solid #d1d5db;">Thuế GTGT</td>
+                  <td align="right" style="padding:8px;border:1px solid #d1d5db;white-space:nowrap;">${escapeHtml(formatVnd(vatAmount))}</td>
+                </tr>
+                <tr>
+                  <td colspan="5" align="right" style="padding:8px;border:1px solid #d1d5db;font-weight:bold;">Tổng cộng</td>
+                  <td align="right" style="padding:8px;border:1px solid #d1d5db;font-weight:bold;white-space:nowrap;">${escapeHtml(formatVnd(total))}</td>
+                </tr>`
+    : `                <tr>
+                  <td colspan="4" align="right" style="padding:8px;border:1px solid #d1d5db;font-weight:bold;">Tổng cộng</td>
+                  <td align="right" style="padding:8px;border:1px solid #d1d5db;font-weight:bold;white-space:nowrap;">${escapeHtml(formatVnd(total))}</td>
+                </tr>`;
 
   const uploadHtml = uploadUrl
     ? `<p style="margin:20px 0 12px;">Sau khi giao hàng, Quý công ty vui lòng tải lên <strong>hóa đơn / phiếu giao hàng</strong> tại liên kết bên dưới:</p>
@@ -180,12 +233,10 @@ export function buildSupplierOrderEmailLines(
                   <th align="right" style="padding:8px;border:1px solid #d1d5db;background-color:#f3f4f6;">Số lượng</th>
                   <th align="left" style="padding:8px;border:1px solid #d1d5db;background-color:#f3f4f6;">Đơn vị</th>
                   <th align="right" style="padding:8px;border:1px solid #d1d5db;background-color:#f3f4f6;">Đơn giá</th>
-                  <th align="right" style="padding:8px;border:1px solid #d1d5db;background-color:#f3f4f6;">Thành tiền</th>
+                  <th align="right" style="padding:8px;border:1px solid #d1d5db;background-color:#f3f4f6;">Thành tiền</th>${hasVat ? `
+                  <th align="right" style="padding:8px;border:1px solid #d1d5db;background-color:#f3f4f6;">% VAT</th>` : ""}
                 </tr>${htmlRows}
-                <tr>
-                  <td colspan="4" align="right" style="padding:8px;border:1px solid #d1d5db;font-weight:bold;">Tổng cộng</td>
-                  <td align="right" style="padding:8px;border:1px solid #d1d5db;font-weight:bold;">${escapeHtml(formatVnd(total))}</td>
-                </tr>
+${summaryHtml}
               </table>
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:16px;font-size:13px;">
                 <tr>

@@ -97,14 +97,31 @@ async function openUpload(path: string) {
   if (data?.signedUrl) window.open(data.signedUrl, "_blank", "noopener");
 }
 
-/** The real email, in a frame with no scripts; the frame grows to the email's height. */
+/**
+ * The real email, in a frame with no scripts. On a narrow screen the email (laid out for 600px) is scaled
+ * down to the frame's width so every column shows; the frame then grows to the email's height.
+ */
 function EmailFrame({ html, title }: { html: string; title: string }) {
   const ref = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(640);
   const fit = () => {
-    const doc = ref.current?.contentDocument;
-    if (doc?.body) setHeight(Math.max(320, Math.ceil(doc.documentElement.scrollHeight) + 2));
+    const frame = ref.current;
+    const doc = frame?.contentDocument;
+    if (!frame || !doc?.body) return;
+    doc.body.style.zoom = "";
+    const room = frame.clientWidth;
+    // Zoom changes the layout a little (rounding, body margin), so measure again and shrink until it fits.
+    let zoom = 1;
+    for (let tries = 0; room > 0 && tries < 4 && doc.documentElement.scrollWidth > room + 1; tries += 1) {
+      zoom = Math.floor(zoom * (room / doc.documentElement.scrollWidth) * 1000) / 1000;
+      doc.body.style.zoom = String(zoom);
+    }
+    setHeight(Math.max(320, Math.ceil(doc.documentElement.scrollHeight) + 2));
   };
+  useEffect(() => {
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  });
   return (
     <iframe ref={ref} className="d3-so-mail" title={title} srcDoc={html} sandbox="allow-same-origin" onLoad={fit}
       style={{ height }} data-bmq-so-mail />
@@ -140,6 +157,7 @@ function OrderLine({ item, qtyText, onQty, editing, onRemove, removing }: {
           {showKhoName ? <span>{item.item.name}</span> : null}
           <span>{item.unitPrice !== null ? `${formatVnd(item.unitPrice)}/${item.poUnit}` : "Chưa có giá"}</span>
           {item.packSizePo ? <span>bao {formatQuantity(item.packSizePo)} {item.poUnit}</span> : null}
+          <span>{item.vatRate > 0 ? `VAT ${formatQuantity(item.vatRate)}%` : "không VAT"}</span>
         </small>
         <p className="d3-so-stock">
           {stockLine(item)}
@@ -294,7 +312,10 @@ function SupplierPanel({ supplierId, onToast }: { supplierId: string; onToast: (
     .map((item) => ({ item, value: readQty(qty[item.item.id] ?? "") }))
     .filter(({ value }) => Number.isNaN(value) || value > 0), [data, qty]);
   const invalid = lines.some(({ value }) => Number.isNaN(value));
-  const total = lines.reduce((sum, { item, value }) => sum + (Number.isNaN(value) || item.unitPrice === null ? 0 : value * item.unitPrice), 0);
+  // Same rule as the server: VAT per line at the item's rate, summed, then rounded to the đồng once.
+  const subtotal = lines.reduce((sum, { item, value }) => sum + (Number.isNaN(value) || item.unitPrice === null ? 0 : value * item.unitPrice), 0);
+  const vat = Math.round(lines.reduce((sum, { item, value }) => sum + (Number.isNaN(value) || item.unitPrice === null ? 0 : value * item.unitPrice * item.vatRate / 100), 0));
+  const total = subtotal + vat;
   const blockers = data?.blockers ?? [];
   const usePrepay = Boolean(prepay && data?.prepay && !data.prepay.recentSubmission);
 
@@ -398,10 +419,16 @@ function SupplierPanel({ supplierId, onToast }: { supplierId: string; onToast: (
               ) : null}
               {preview.error ? <p className="d3-kho-error" role="alert" data-bmq-so-error>{errorText(preview.error)}</p> : null}
               <div className="d3-so-submit">
-                <p className="d3-so-total">
-                  <span>{lines.length ? `${lines.length} món` : "Chưa chọn món"}</span>
+                <div className="d3-so-total">
+                  {vat > 0 ? (
+                    <dl className="d3-so-sum" data-bmq-so-sum>
+                      <div><dt>Tiền hàng</dt><dd data-bmq-so-subtotal>{formatVnd(subtotal)}</dd></div>
+                      <div><dt>Thuế GTGT</dt><dd data-bmq-so-vat>{formatVnd(vat)}</dd></div>
+                    </dl>
+                  ) : null}
+                  <span>{lines.length ? `${lines.length} món · tổng thanh toán` : "Chưa chọn món"}</span>
                   <b data-bmq-so-total>{formatVnd(total)}</b>
-                </p>
+                </div>
                 <Button onClick={makePreview} disabled={!lines.length || invalid || blockers.length > 0 || preview.isPending} data-bmq-so-make>
                   {preview.isPending ? "Đang lập phiếu…" : "Lập phiếu đặt hàng"}
                 </Button>
@@ -419,7 +446,13 @@ function SupplierPanel({ supplierId, onToast }: { supplierId: string; onToast: (
             <dl className="d3-so-facts">
               <div><dt>Gửi tới</dt><dd className="is-wrap">{shown.toEmail || "—"}</dd></div>
               <div><dt>Tiêu đề</dt><dd className="is-wrap">{shown.subject}</dd></div>
-              <div><dt>Tổng</dt><dd>{formatVnd(shown.total)}</dd></div>
+              <div>
+                <dt>Tổng thanh toán</dt>
+                <dd data-bmq-so-preview-total>
+                  {formatVnd(shown.total)}
+                  {shown.vatAmount ? <small> · gồm VAT {formatVnd(shown.vatAmount)}</small> : null}
+                </dd>
+              </div>
               <div>
                 <dt>Gối đầu</dt>
                 <dd>{usePrepay && shown.prepay ? `Trình chi gấp ${shown.prepay.requestNumber} · ${formatVnd(shown.prepay.remaining ?? shown.prepay.totalAmount)}` : "Không trình chi"}</dd>

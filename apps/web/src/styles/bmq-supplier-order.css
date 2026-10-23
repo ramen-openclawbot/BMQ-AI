@@ -126,6 +126,11 @@ html.bmq-d3 .d3-so-remove {
 /* Total and action sit together on the left: the VNAgent launcher owns the bottom-right corner. */
 .d3-so-submit { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 28px; }
 .d3-so-total { display: grid; margin: 0; }
+.d3-so-sum { display: grid; gap: 2px; margin: 0 0 6px; }
+.d3-so-sum > div { display: flex; gap: 12px; justify-content: space-between; min-width: 200px; font-size: 13px; color: var(--d3-ink-2); font-variant-numeric: tabular-nums; }
+.d3-so-sum dt { color: var(--d3-dim); }
+.d3-so-sum dd { margin: 0; }
+.d3-so-facts dd small { font-weight: 400; color: var(--d3-dim); }
 .d3-so-total span { font-size: 12.5px; color: var(--d3-dim); }
 .d3-so-total b { font-size: 22px; font-weight: 500; line-height: 1.2; letter-spacing: -.015em; color: var(--d3-ink); font-variant-numeric: tabular-nums; }
 

@@ -182,6 +182,116 @@ test("preview keeps a PO and upload placeholder", () => {
   assert.ok(email.html.includes("sẽ được gửi kèm"));
 });
 
+test("renders VAT columns, subtotal, VAT and total rows", () => {
+  const email = buildSupplierOrderEmailLines({
+    ...baseInput,
+    poNumber: "PO-2026-003",
+    lines: [
+      {
+        productName: "Bột mì 999 Cam",
+        quantity: 25,
+        unit: "kg",
+        unitPrice: 19300,
+        lineTotal: 482500,
+        vatRate: 8,
+      },
+      {
+        productName: "Bột mì 888 Cam",
+        quantity: 25,
+        unit: "kg",
+        unitPrice: 18900,
+        lineTotal: 472500,
+        vatRate: 8,
+      },
+    ],
+    subtotal: 955000,
+    vatAmount: 76400,
+    total: 1031400,
+  });
+
+  assert.ok(email.html.includes("% VAT</th>"));
+  assert.ok(email.html.includes("8%"));
+  assert.ok(email.html.includes('colspan="5"'));
+  assert.ok(email.html.includes("Cộng tiền hàng"));
+  assert.ok(email.html.includes("Thuế GTGT"));
+  assert.ok(email.html.includes("Tổng cộng"));
+  assert.ok(email.html.includes("955.000 đ"));
+  assert.ok(email.html.includes("76.400 đ"));
+  assert.ok(email.html.includes("1.031.400 đ"));
+
+  assert.ok(email.text.includes("Cộng tiền hàng: 955.000 đ"));
+  assert.ok(email.text.includes("Thuế GTGT: 76.400 đ"));
+  assert.ok(email.text.includes("Tổng cộng: 1.031.400 đ"));
+  assert.ok(!email.text.includes("% VAT"));
+});
+
+test("keeps the no-VAT output exactly as before", () => {
+  const omitted = buildSupplierOrderEmailLines({
+    ...baseInput,
+    lines: [
+      {
+        productName: "Bơ Peerless",
+        quantity: 25,
+        unit: "kg",
+        unitPrice: 90000,
+        lineTotal: 2250000,
+      },
+    ],
+    total: 2250000,
+  });
+  const zero = buildSupplierOrderEmailLines({
+    ...baseInput,
+    lines: [
+      {
+        productName: "Bơ Peerless",
+        quantity: 25,
+        unit: "kg",
+        unitPrice: 90000,
+        lineTotal: 2250000,
+      },
+    ],
+    total: 2250000,
+    subtotal: 2250000,
+    vatAmount: 0,
+  });
+
+  assert.equal(zero.text, omitted.text);
+  assert.equal(zero.html, omitted.html);
+  assert.ok(!zero.html.includes("% VAT"));
+  assert.ok(!zero.html.includes("Thuế GTGT"));
+  assert.ok(zero.html.includes('colspan="4"'));
+  assert.ok(zero.text.includes("Tổng cộng: 2.250.000 đ"));
+});
+
+test("escapes every value on the VAT path", () => {
+  const email = buildSupplierOrderEmailLines({
+    ...baseInput,
+    supplierName: `<script>`,
+    lines: [
+      {
+        productName: `<b>Bột mì</b>`,
+        quantity: 1,
+        unit: `<i>kg</i>`,
+        unitPrice: 1,
+        lineTotal: 1,
+        vatRate: 8,
+      },
+    ],
+    subtotal: 1,
+    vatAmount: 1,
+    total: 2,
+    deliveryAddress: `<img src=x onerror=alert(1)>`,
+    note: `<iframe>`,
+  });
+
+  assert.ok(!email.html.includes("<script>"));
+  assert.ok(!email.html.includes("<iframe>"));
+  assert.ok(!email.html.includes("<img src=x"));
+  assert.ok(!email.html.includes("<b>Bột mì</b>"));
+  assert.ok(email.html.includes("&lt;b&gt;Bột mì&lt;/b&gt;"));
+  assert.ok(email.html.includes("Cộng tiền hàng"));
+});
+
 test("single-item output keeps the same subject, table and total", () => {
   const single = buildSupplierOrderEmail(baseInput);
   assert.equal(single.subject, "BMQ đặt hàng PO-2026-001 – Bơ Peerless");

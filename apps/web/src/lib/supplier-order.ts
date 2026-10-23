@@ -122,6 +122,7 @@ export type SupplierOrderCatalogItem = {
   poUnit: string;
   poUnitFactor: number;
   packSizePo: number | null;
+  vatRate: number;
   stock: SupplierOrderCatalogStock;
   proposalQty: number;
   unitPrice: number | null;
@@ -167,6 +168,7 @@ export type SupplierOrderPreviewLine = {
   unit: string;
   unitPrice: number | null;
   lineTotal: number | null;
+  vatRate: number;
 };
 
 export type SupplierOrderPreview = {
@@ -175,6 +177,8 @@ export type SupplierOrderPreview = {
   text: string;
   toEmail: string | null;
   lines: SupplierOrderPreviewLine[];
+  subtotal: number | null;
+  vatAmount: number | null;
   total: number | null;
   prepay: SupplierOrderPrepay | null;
   prepayReason: string | null;
@@ -209,12 +213,15 @@ export type SupplierOrderRequestLine = {
   unit: string;
   unitPrice: number | null;
   lineTotal: number | null;
+  vatRate: number | null;
 };
 
 export type SupplierOrderHistoryBySupplierEntry = {
   id: string | null;
   requestId: string | null;
   poNumber: string | null;
+  subtotal: number | null;
+  vatAmount: number | null;
   total: number | null;
   status: string;
   sentAt: string | null;
@@ -447,6 +454,7 @@ function parseCatalogItem(value: unknown): SupplierOrderCatalogItem | null {
     poUnit: asText(row.po_unit),
     poUnitFactor: asNumber(row.po_unit_factor) ?? 0,
     packSizePo: asNumber(row.pack_size_po),
+    vatRate: asNumber(row.vat_rate) ?? 0,
     stock: {
       onHand: asNumber(stock.on_hand),
       dailyUsage: asNumber(stock.daily_usage) ?? 0,
@@ -576,6 +584,7 @@ function parsePreviewLine(value: unknown): SupplierOrderPreviewLine | null {
     unit: asText(row.unit),
     unitPrice: asNumber(row.unit_price),
     lineTotal: asNumber(row.line_total),
+    vatRate: asNumber(row.vat_rate) ?? 0,
   };
 }
 
@@ -590,6 +599,8 @@ export function parseSupplierOrderPreview(value: unknown): SupplierOrderPreview 
     lines: (Array.isArray(root.lines) ? root.lines : [])
       .map(parsePreviewLine)
       .filter((line): line is SupplierOrderPreviewLine => line !== null),
+    subtotal: asNumber(root.subtotal),
+    vatAmount: asNumber(root.vat_amount),
     total: asNumber(root.total),
     prepay: parsePrepay(root.prepay),
     prepayReason: asNullableText(root.prepay_reason),
@@ -632,6 +643,8 @@ export function parseSupplierOrderHistoryBySupplier(
       id: asNullableText(row.id),
       requestId: asNullableText(row.request_id),
       poNumber: asNullableText(row.po_number),
+      subtotal: asNumber(row.subtotal),
+      vatAmount: asNumber(row.vat_amount),
       total: asNumber(row.total),
       status: asText(row.status),
       sentAt: asNullableText(row.sent_at),
@@ -647,6 +660,7 @@ export function parseSupplierOrderHistoryBySupplier(
           unit: asText(line.unit),
           unitPrice: asNumber(line.unit_price),
           lineTotal: asNumber(line.line_total),
+          vatRate: asNumber(line.vat_rate),
         };
       }),
       uploads: (Array.isArray(row.uploads) ? row.uploads : [])

@@ -207,6 +207,7 @@ test("parses the catalog with items, blockers, delivery and prepay", () => {
         po_unit: "kg",
         po_unit_factor: "1000",
         pack_size_po: "25",
+        vat_rate: "8",
         stock: {
           on_hand: "12500.5",
           daily_usage: "1000",
@@ -242,6 +243,7 @@ test("parses the catalog with items, blockers, delivery and prepay", () => {
   assert.equal(catalog.items.length, 1);
   assert.equal(catalog.items[0].poUnitFactor, 1000);
   assert.equal(catalog.items[0].packSizePo, 25);
+  assert.equal(catalog.items[0].vatRate, 8);
   assert.equal(catalog.items[0].proposalQty, 25);
   assert.equal(catalog.items[0].unitPrice, 19300);
   assert.equal(catalog.items[0].stock.onHand, 12500.5);
@@ -288,9 +290,12 @@ test("parses a multi-line preview payload", () => {
         unit: "kg",
         unit_price: "19300",
         line_total: "482500",
+        vat_rate: "8",
       },
     ],
-    total: "482500",
+    subtotal: "482500",
+    vat_amount: "38600",
+    total: "521100",
     prepay: null,
     prepay_reason: "none",
   });
@@ -299,7 +304,10 @@ test("parses a multi-line preview payload", () => {
   assert.equal(preview.lines[0].position, 1);
   assert.equal(preview.lines[0].quantity, 25);
   assert.equal(preview.lines[0].unitPrice, 19300);
-  assert.equal(preview.total, 482500);
+  assert.equal(preview.lines[0].vatRate, 8);
+  assert.equal(preview.subtotal, 482500);
+  assert.equal(preview.vatAmount, 38600);
+  assert.equal(preview.total, 521100);
   assert.equal(preview.prepay, null);
   assert.equal(preview.prepayReason, "none");
   assert.equal(parseSupplierOrderPreview(null), null);
@@ -334,6 +342,8 @@ test("parses supplier history with lines, uploads and prepay", () => {
         id: "row-1",
         request_id: "req-1",
         po_number: "PO-3",
+        subtotal: "955000",
+        vat_amount: "76400",
         total: "1397300",
         status: "sent",
         sent_at: "2026-10-23T00:00:00Z",
@@ -348,6 +358,7 @@ test("parses supplier history with lines, uploads and prepay", () => {
             unit: "kg",
             unit_price: "19300",
             line_total: "482500",
+            vat_rate: "8",
           },
           {
             position: 2,
@@ -357,6 +368,7 @@ test("parses supplier history with lines, uploads and prepay", () => {
             unit: "kg",
             unit_price: 18296,
             line_total: 914800,
+            vat_rate: 8,
           },
         ],
         uploads: [
@@ -378,10 +390,37 @@ test("parses supplier history with lines, uploads and prepay", () => {
   });
   assert.equal(history.length, 1);
   assert.equal(history[0].lines.length, 2);
+  assert.equal(history[0].subtotal, 955000);
+  assert.equal(history[0].vatAmount, 76400);
   assert.equal(history[0].lines[0].quantity, 25);
+  assert.equal(history[0].lines[0].vatRate, 8);
   assert.equal(history[0].lines[1].lineTotal, 914800);
+  assert.equal(history[0].lines[1].vatRate, 8);
   assert.equal(history[0].uploads[0].fileName, "hoa-don.pdf");
   assert.equal(history[0].prepay?.submissionNumber, "TC-261023-01");
   assert.deepEqual(parseSupplierOrderHistoryBySupplier(null), []);
   assert.deepEqual(parseSupplierOrderHistoryBySupplier("nope"), []);
+});
+
+test("tolerates missing VAT fields", () => {
+  const catalog = parseSupplierOrderCatalog({
+    items: [{ catalog_id: "cat-1", item: { id: "item-1", name: "Bột mì" } }],
+  });
+  assert.ok(catalog);
+  assert.equal(catalog.items[0].vatRate, 0);
+
+  const preview = parseSupplierOrderPreview({
+    lines: [{ item_id: "item-1", quantity: 1 }],
+  });
+  assert.ok(preview);
+  assert.equal(preview.lines[0].vatRate, 0);
+  assert.equal(preview.subtotal, null);
+  assert.equal(preview.vatAmount, null);
+
+  const history = parseSupplierOrderHistoryBySupplier({
+    items: [{ id: "row-1", request_id: "req-1", lines: [{ item_id: "item-1" }] }],
+  });
+  assert.equal(history[0].subtotal, null);
+  assert.equal(history[0].vatAmount, null);
+  assert.equal(history[0].lines[0].vatRate, null);
 });

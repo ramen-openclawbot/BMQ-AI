@@ -416,4 +416,152 @@ assert "over_quantity_limit" in PAGE_SMOKE
 assert "supplier_order_history_by_supplier" in PAGE_SMOKE
 assert "supplier_order_history" in PAGE_SMOKE
 
+print("== supplier order VAT migration ==")
+VAT_MIGRATIONS = sorted(ROOT.glob("supabase/migrations/*_supplier_order_vat.sql"))
+assert len(VAT_MIGRATIONS) == 1, (
+    f"expected exactly one supplier_order_vat migration, found {VAT_MIGRATIONS}"
+)
+VAT_MIGRATION = VAT_MIGRATIONS[0].read_text(encoding="utf-8")
+VAT_LOWER = VAT_MIGRATION.lower()
+
+
+def vat_block(name: str) -> str:
+    match = re.search(
+        rf"create\s+or\s+replace\s+function\s+public\.{re.escape(name)}\s*\(",
+        VAT_MIGRATION,
+        re.IGNORECASE,
+    )
+    assert match, f"missing VAT function public.{name}"
+    tail = VAT_MIGRATION[match.start():]
+    end = tail.find("\n$$;")
+    assert end != -1, f"unterminated VAT function public.{name}"
+    return tail[:end]
+
+
+print("== VAT columns and seeded rates ==")
+assert re.search(
+    r"add\s+column\s+if\s+not\s+exists\s+vat_rate\s+numeric\(5,\s*2\)\s+not\s+null\s+default\s+0",
+    VAT_LOWER,
+), "catalog vat_rate column missing"
+assert "supplier_order_catalog_items_vat_rate_check" in VAT_MIGRATION
+assert re.search(
+    r"check\s*\(\s*vat_rate\s*>=\s*0\s+and\s+vat_rate\s*<=\s*100\s*\)", VAT_LOWER
+)
+assert re.search(
+    r"add\s+column\s+if\s+not\s+exists\s+vat_rate\s+numeric\s*\(\s*5\s*,\s*2\s*\)",
+    VAT_LOWER,
+), "request line vat_rate column missing"
+assert re.search(
+    r"add\s+column\s+if\s+not\s+exists\s+vat_amount\s+numeric", VAT_LOWER
+), "request line vat_amount column missing"
+assert re.search(
+    r"add\s+column\s+if\s+not\s+exists\s+subtotal_amount\s+numeric", VAT_LOWER
+), "request subtotal_amount column missing"
+assert "bc39ded3-755c-4b31-9e4c-d7729e009608" in VAT_MIGRATION
+assert "9546bd80-18d7-4ec7-b0e5-de50798ea718" in VAT_MIGRATION
+assert re.search(r"set\s+vat_rate\s*=\s*8", VAT_LOWER)
+assert re.search(r"set\s+vat_rate\s*=\s*0", VAT_LOWER)
+
+print("== VAT functions: security definer + pinned search_path + same grants ==")
+VAT_FUNCTIONS = [
+    "supplier_order_line_price",
+    "supplier_order_catalog",
+    "supplier_order_catalog_set",
+    "create_supplier_order_multi",
+    "supplier_order_history_by_supplier",
+]
+for name in VAT_FUNCTIONS:
+    block = vat_block(name).lower()
+    assert "security definer" in block, f"{name} must be security definer"
+    assert "set search_path = public, pg_temp" in block, (
+        f"{name} must pin search_path to public, pg_temp"
+    )
+
+for name in (
+    "supplier_order_catalog",
+    "supplier_order_catalog_set",
+    "supplier_order_history_by_supplier",
+):
+    assert re.search(
+        rf"grant\s+execute\s+on\s+function\s+public\.{name}\([^)]*\)\s+to\s+authenticated\s*,\s*service_role",
+        VAT_LOWER,
+        re.DOTALL,
+    ), f"{name} must stay callable by authenticated + service_role"
+
+for name in ("supplier_order_line_price", "create_supplier_order_multi"):
+    assert re.search(
+        rf"revoke\s+all\s+on\s+function\s+public\.{name}\([^;]*?\)\s*from\s+public\s*,\s*anon",
+        VAT_LOWER,
+        re.DOTALL,
+    ), f"{name} must revoke public/anon"
+    assert re.search(
+        rf"grant\s+execute\s+on\s+function\s+public\.{name}\([^;]*?\)\s*to\s+service_role",
+        VAT_LOWER,
+        re.DOTALL,
+    ), f"{name} must stay service_role only"
+
+assert re.search(
+    r"supplier_order_catalog_set\(\s*uuid\s*,\s*uuid\s*,\s*boolean\s*,\s*text\s*,\s*numeric\s*,\s*text\s*,\s*numeric\s*\)\s+to\s+authenticated\s*,\s*service_role",
+    VAT_LOWER,
+    re.DOTALL,
+), "catalog_set must be granted with its new 7-argument signature"
+assert re.search(
+    r"drop\s+function\s+if\s+exists\s+public\.supplier_order_catalog_set\(\s*uuid\s*,\s*uuid\s*,\s*boolean\s*,\s*text\s*,\s*numeric\s*,\s*text\s*\)",
+    VAT_LOWER,
+    re.DOTALL,
+), "the old 6-argument catalog_set must be dropped"
+
+print("== price helper uses the median of the 6 newest plausible lines ==")
+price = vat_block("supplier_order_line_price").lower()
+assert "stock_unit_line_factor" in price
+assert "stock_unit_pack_factor" in price
+assert "conversion_factor" in price
+assert "limit 6" in price
+assert "median" in price
+assert " / 3" in price and " * 3" in price
+assert "poi.unit_price > 0" in price
+
+print("== catalog carries vat_rate and defaults a new item from the newest PO ==")
+catalog = vat_block("supplier_order_catalog")
+assert re.search(r"'vat_rate',\s*v_item\.vat_rate", catalog), (
+    "supplier_order_catalog must return vat_rate per item"
+)
+catalog_set = vat_block("supplier_order_catalog_set").lower()
+assert "invalid_vat_rate" in catalog_set
+assert "p_vat_rate" in catalog_set
+assert "values (0::numeric), (5::numeric), (8::numeric), (10::numeric)" in catalog_set
+assert "supplier_order_catalog_items.vat_rate" in catalog_set
+
+print("== create computes VAT server-side and caps the payable total ==")
+create_multi = vat_block("create_supplier_order_multi").lower()
+assert "v_vat_rate := coalesce(v_catalog.vat_rate, 0)" in create_multi
+assert "v_line_vat := v_line_total * v_vat_rate / 100" in create_multi
+assert "v_vat_amount := round(v_vat_total, 0)" in create_multi
+assert "v_total := v_subtotal + v_vat_amount" in create_multi
+assert "if v_total > v_max_amount then" in create_multi
+assert "order_email_max_amount" in create_multi
+assert "vat_amount" in create_multi
+assert "subtotal_amount" in create_multi
+assert "'vat_rate', v_vat_rate" in create_multi
+
+print("== supplier history exposes subtotal / VAT / line rate ==")
+history = vat_block("supplier_order_history_by_supplier").lower()
+assert "'subtotal', r.subtotal_amount" in history
+assert "'vat_amount', r.vat_amount" in history
+assert "'vat_rate', l.vat_rate" in history
+
+print("== VAT smoke is rollback-only and checks the new numbers ==")
+for token in (
+    "1031400",
+    "955000",
+    "76400",
+    "18900",
+    "vat_amount",
+    "subtotal_amount",
+    "20261102920000",
+):
+    assert token in PAGE_SMOKE, f"VAT smoke is missing {token}"
+assert "supplier_order_catalog_set" in PAGE_SMOKE
+assert "vat_rate" in PAGE_SMOKE
+
 print("supplier order page contract passed")

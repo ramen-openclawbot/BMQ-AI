@@ -678,7 +678,8 @@ try {
     }
     pass("loading shows the Sổ cái ledger on Danh mục kho + Kiểm kê");
   }
-  // Order by email (owner 23/10): item detail → Đặt hàng → confirmation → send; then the supplier's upload page.
+  // Order by email (owner 23/10): the item card opens the Đặt hàng page on its supplier (one ordering path,
+  // with VAT) and keeps the item's order history; then the supplier's upload page.
   for (const vp of [{ width: 390, height: 844 }, { width: 1440, height: 900 }]) {
     const { context, page, errors } = await open({ role: "owner" }, "/warehouse/danh-muc", vp);
     await page.waitForSelector("[data-bmq-kho-names] li");
@@ -688,48 +689,17 @@ try {
     const section = page.locator("[data-bmq-kho-order]");
     await section.waitFor();
     assert.match(await section.innerText(), /Đặt hàng · TV Food\b/);
+    assert.match(await section.innerText(), /xem trước email có VAT/);
+    await noSpill(page, "order-card", vp);
     await section.scrollIntoViewIfNeeded();
+    await page.locator("[data-bmq-kho-item-dialog]").screenshot({ path: `${EVIDENCE}/order-card-${vp.width}.png` });
     await page.locator("[data-bmq-kho-order-open]").click();
-    await page.waitForSelector("[data-bmq-kho-order-confirm]");
-    const card = await page.locator("[data-bmq-kho-order-confirm]").innerText();
-    for (const text of ["105,81 kg", "đủ ~11,9 ngày", "8,87 kg", "75 kg", "dathang@tvfood.example", "BƠ PEERLESS", "Phương Nhi"]) assert.ok(card.includes(text), `confirm card shows ${text}: ${card}`);
-    assert.equal(await page.locator("[data-bmq-kho-order-qty]").inputValue(), "75");
-    assert.match(await page.locator("[data-bmq-kho-order-total]").innerText(), /6\.750\.000 đ/);
-    await page.locator("[data-bmq-kho-order-qty]").fill("100");
-    assert.match(await page.locator("[data-bmq-kho-order-total]").innerText(), /9\.000\.000 đ/);
-    await page.locator("[data-bmq-kho-order-note]").fill("Giao trước 10h");
-    await noSpill(page, "order-confirm", vp);
-    await page.locator("[data-bmq-kho-order-confirm]").scrollIntoViewIfNeeded();
-    await page.locator("[data-bmq-kho-item-dialog]").screenshot({ path: `${EVIDENCE}/order-confirm-${vp.width}.png` });
-    await page.locator("[data-bmq-kho-order-send]").click();
-    await page.waitForSelector("[data-bmq-kho-order-confirm]", { state: "detached" });
-    const sent = (await calls(page)).find((c) => c.startsWith("invoke:supplier-order-send:"));
-    assert.ok(sent && sent.includes('"quantity":100') && sent.includes("Giao trước 10h") && /"request_id":"[0-9a-f-]{36}"/.test(sent), `send call: ${sent}`);
-    await page.waitForSelector("[data-bmq-kho-order-history] li");
-    const hist = await page.locator("[data-bmq-kho-order-history]").innerText();
-    assert.ok(/PO-000861/.test(hist) && /100 kg/.test(hist) && /Đã gửi/.test(hist) && /phieu-giao-hang-TV-Food\.jpg/.test(hist), `history: ${hist}`);
-    await noSpill(page, "order-history", vp);
-    await page.locator("[data-bmq-kho-order]").screenshot({ path: `${EVIDENCE}/order-history-${vp.width}.png` });
-    assert.deepEqual(errors, [], `order page errors @${vp.width}`);
+    await page.waitForURL(/\/dat-hang\?ncc=sup-tv$/, { timeout: 5000 });
+    await page.waitForSelector("[data-bmq-supplier-orders]");
+    assert.equal((await calls(page)).filter((c) => c.startsWith("invoke:supplier-order-send:")).length, 0, "the card itself sends nothing");
+    assert.deepEqual(errors, [], `order card errors @${vp.width}`);
     await context.close();
-
-    // Blocked: the send button stays disabled and says why.
-    // Also stock below zero (receipt not yet in the ledger): "đã hết", never "đủ ~-1 ngày".
-    const blocked = await open({ role: "owner", orderBlocked: true, orderOut: true }, "/warehouse/danh-muc", vp);
-    await blocked.page.waitForSelector("[data-bmq-kho-names] li");
-    await blocked.page.locator("[data-bmq-kho-names] li .d3-kho-row-main").first().click();
-    await blocked.page.locator("[data-bmq-kho-order-open]").click();
-    await blocked.page.waitForSelector("[data-bmq-kho-order-blockers]");
-    assert.match(await blocked.page.locator("[data-bmq-kho-order-blockers]").innerText(), /Chưa kết nối hộp thư order@bmq\.vn/);
-    assert.ok(await blocked.page.locator("[data-bmq-kho-order-send]").isDisabled(), "send disabled while blocked");
-    const outCard = await blocked.page.locator("[data-bmq-kho-order-confirm]").innerText();
-    assert.ok(outCard.includes("đã hết") && !/đủ ~-/.test(outCard), `out-of-stock card: ${outCard}`);
-    await noSpill(blocked.page, "order-out", vp);
-    await blocked.page.locator("[data-bmq-kho-order-confirm]").scrollIntoViewIfNeeded();
-    await blocked.page.locator("[data-bmq-kho-item-dialog]").screenshot({ path: `${EVIDENCE}/order-out-${vp.width}.png` });
-    await blocked.context.close();
-    pass(`Đặt hàng qua email: confirm card, total, send call, history, blocked + out-of-stock state ${vp.width}`);
-
+    pass(`Đặt hàng card: opens /dat-hang on its supplier ${vp.width}`);
     // Supplier upload page (public link, no login, no app shell).
     const ctx = await browser.newContext({ viewport: vp, reducedMotion: "reduce", locale: "vi-VN" });
     let uploads = 0;

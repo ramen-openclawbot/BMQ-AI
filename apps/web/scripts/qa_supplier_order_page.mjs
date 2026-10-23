@@ -29,9 +29,9 @@ window.__qaCalls = window.__qaCalls || [];
 const PT = "bc39ded3-755c-4b31-9e4c-d7729e009608";
 const TV = "9546bd80-18d7-4ec7-b0e5-de50798ea718";
 const delivery = { address: "24 Đường số 36, P. Tân Quy, Q7, TP.HCM", contact_name: "Huỳnh Kim Ngân", contact_phone: "0926 504 623", note: "" };
-const line = (id, name, wording, onHand, daily, proposal, price, open) => ({
+const line = (id, name, wording, onHand, daily, proposal, price, open, vat = 8) => ({
   catalog_id: "c-" + id, item: { id, name, code: "NVL-" + id.slice(0, 3), unit: "g" }, product_name: wording, po_unit: "kg",
-  po_unit_factor: "1000", pack_size_po: "25",
+  po_unit_factor: "1000", pack_size_po: "25", vat_rate: String(vat),
   stock: { on_hand: String(onHand), daily_usage: String(daily), days_left: daily > 0 ? String(Math.round(onHand / daily * 10) / 10) : null, reorder_date: "2026-11-02", last_count_date: "2026-10-16" },
   proposal_qty: String(proposal), unit_price: String(price), open_order: open || null,
 });
@@ -41,7 +41,7 @@ function catalog(id) {
   if (id === PT) {
     const items = [
       line("1039f461-8f9f-45a1-b05c-b96cb736812e", "Bột mì 999 Cam", "Bột mì 999 Cam (25kg)", 303751.946, 13561.438, 0, 19300),
-      line("64952d75-2351-43f8-886f-de5282c96ed2", "Bột mì 888 Cam", "Bột mì 888 Cam (25kg)", 232339.76, 18581.266, 0, 18296),
+      line("64952d75-2351-43f8-886f-de5282c96ed2", "Bột mì 888 Cam", "Bột mì 888 Cam (25kg)", 232339.76, 18581.266, 0, 18900),
       line("6ba549f7-d3b6-4971-a742-2fb4091800bb", "Sữa Bột Béo New Zealand", "Sữa Bột Béo New Zealand (25kg)", -5712.81, 1303.958, 25, 140740),
       ...(added().includes("c78c5281-0000-4000-8000-000000000001") ? [line("c78c5281-0000-4000-8000-000000000001", "Men khô Meizan nhãn vàng", "Men Khô Meizan - Nhãn Vàng (0.5*10kg/Thùng)", 4200, 350, 0, 92592)] : []),
     ].filter((it) => !removed().includes(it.item.id));
@@ -51,7 +51,7 @@ function catalog(id) {
     supplier: { id: TV, name: "TV Food", email: "hongtinh2603@gmail.com" }, delivery, mailbox_connected: true,
     blockers: cfg().blocked ? ["mailbox_not_connected"] : [],
     items: [line("3c16ed3f-54c7-427f-a316-5aa4fcadda5a", "Bơ Peerless Úc 25kg", "BƠ PEERLESS", 105812.654, 8870.791, 0, 90000,
-      { po_number: "PO-000862", quantity: "75", unit: "kg", sent_at: "2026-10-23T05:09:25Z" })],
+      { po_number: "PO-000862", quantity: "75", unit: "kg", sent_at: "2026-10-23T05:09:25Z" }, 0)],
     prepay: { id: "pr-1", request_number: "PR-D6E88DCB", created_at: "2026-06-17T03:53:09Z", total_amount: "9000000", remaining: "9000000", po_number: "PO-000582", recent_submission: null },
   };
 }
@@ -100,9 +100,11 @@ function priced(body) {
   const lines = body.lines.map((l, i) => {
     const it = items.find((row) => row.item.id === l.item_id);
     const price = Number(it.unit_price);
-    return { position: i + 1, item_id: l.item_id, product_name: it.product_name, quantity: l.quantity, unit: "kg", unit_price: price, line_total: Math.round(l.quantity * price * 100) / 100 };
+    return { position: i + 1, item_id: l.item_id, product_name: it.product_name, quantity: l.quantity, unit: "kg", unit_price: price, line_total: Math.round(l.quantity * price * 100) / 100, vat_rate: Number(it.vat_rate) };
   });
-  return { lines, total: lines.reduce((s, l) => s + l.line_total, 0) };
+  const subtotal = lines.reduce((s, l) => s + l.line_total, 0);
+  const vat = Math.round(lines.reduce((s, l) => s + l.line_total * l.vat_rate / 100, 0));
+  return { lines, subtotal, vat, total: subtotal + vat };
 }
 const user = { id: "qa-user", email: "qa@bmq.test", user_metadata: {} };
 const channel = { on() { return channel; }, subscribe() { return channel; }, unsubscribe() {} };
@@ -115,11 +117,11 @@ export const supabase = {
     const b = options?.body ?? {};
     if (name !== "supplier-order-send" || !Array.isArray(b.lines)) return { data: null, error: { message: "QA fixture: functions disabled" } };
     const c = catalog(b.supplier_id);
-    const { lines, total } = priced(b);
+    const { lines, subtotal, vat, total } = priced(b);
     if (b.mode === "preview") {
-      const mail = buildSupplierOrderEmailLines({ poNumber: "", supplierName: c.supplier.name, lines: lines.map((l) => ({ productName: l.product_name, quantity: l.quantity, unit: l.unit, unitPrice: l.unit_price, lineTotal: l.line_total })),
-        total, deliveryAddress: delivery.address, contactName: delivery.contact_name, contactPhone: delivery.contact_phone, note: b.note || "", requestedDate: "2026-10-23", uploadUrl: "", subjectName: c.supplier.name });
-      return { data: { subject: mail.subject, html: mail.html, text: mail.text, to_email: c.supplier.email, lines, total, prepay: c.prepay, prepay_reason: c.prepay ? null : "none" }, error: null };
+      const mail = buildSupplierOrderEmailLines({ poNumber: "", supplierName: c.supplier.name, lines: lines.map((l) => ({ productName: l.product_name, quantity: l.quantity, unit: l.unit, unitPrice: l.unit_price, lineTotal: l.line_total, vatRate: l.vat_rate })),
+        subtotal, vatAmount: vat, total, deliveryAddress: delivery.address, contactName: delivery.contact_name, contactPhone: delivery.contact_phone, note: b.note || "", requestedDate: "2026-10-23", uploadUrl: "", subjectName: c.supplier.name });
+      return { data: { subject: mail.subject, html: mail.html, text: mail.text, to_email: c.supplier.email, lines, subtotal, vat_amount: vat, total, prepay: c.prepay, prepay_reason: c.prepay ? null : "none" }, error: null };
     }
     if (cfg().sendFails) return { data: { code: "email_failed" }, error: null };
     const po = "PO-0009" + String(10 + JSON.parse(localStorage.getItem("qa-orders") || "[]").length);
@@ -245,24 +247,28 @@ try {
     const tabs = await page.locator("[data-bmq-so-suppliers] button").allInnerTexts();
     assert.ok(tabs.length === 2 && /Phúc Thịnh/.test(tabs[0]) && /3 món/.test(tabs[0]) && /TV Food/.test(tabs[1]), `supplier tabs ${tabs}`);
     const card = await page.locator("[data-bmq-so-card]").innerText();
-    for (const text of ["botmiphucthinh@gmail.com", "Bột mì 999 Cam (25kg)", "19.300 đ/kg", "18.296 đ/kg", "đã hết", "chưa cần đặt", "đề xuất 25 kg", "Huỳnh Kim Ngân", "không có phiếu chi nào đang chờ trả"]) {
+    for (const text of ["botmiphucthinh@gmail.com", "Bột mì 999 Cam (25kg)", "19.300 đ/kg", "18.900 đ/kg", "VAT 8%", "đã hết", "chưa cần đặt", "đề xuất 25 kg", "Huỳnh Kim Ngân", "không có phiếu chi nào đang chờ trả"]) {
       assert.ok(card.includes(text), `Phúc Thịnh card shows "${text}" @${vp.width}: ${card}`);
     }
     assert.ok(!EMOJI.test(card), "no emoji");
     // Proposal seeds Sữa bột 25 kg; the others start empty.
     assert.equal(await page.locator(`[data-bmq-so-qty='${IMILK}']`).inputValue(), "25");
     assert.equal(await page.locator(`[data-bmq-so-qty='${I999}']`).inputValue(), "");
-    assert.match(await page.locator("[data-bmq-so-total]").innerText(), /3\.518\.500 đ/);
+    assert.match(await page.locator("[data-bmq-so-subtotal]").innerText(), /3\.518\.500 đ/);
+    assert.match(await page.locator("[data-bmq-so-vat]").innerText(), /281\.480 đ/);
+    assert.match(await page.locator("[data-bmq-so-total]").innerText(), /3\.799\.980 đ/);
     // + adds one bag of 25 kg.
     await page.locator(`[data-bmq-so-line='${I999}'] .d3-so-stepper button`).last().click();
     assert.equal(await page.locator(`[data-bmq-so-qty='${I999}']`).inputValue(), "25");
-    assert.match(await page.locator("[data-bmq-so-total]").innerText(), /4\.001\.000 đ/);
+    assert.match(await page.locator("[data-bmq-so-total]").innerText(), /4\.321\.080 đ/);
     // A wrong number blocks Lập phiếu and says so on the line.
     await page.locator(`[data-bmq-so-qty='${I999}']`).fill("abc");
     assert.match(await page.locator(`[data-bmq-so-line='${I999}'] [data-bmq-so-line-total]`).innerText(), /Số chưa đúng/);
     assert.ok(await page.locator("[data-bmq-so-make]").isDisabled(), "Lập phiếu disabled on a bad number");
     await page.locator(`[data-bmq-so-qty='${I999}']`).fill("50");
-    assert.match(await page.locator("[data-bmq-so-total]").innerText(), /4\.483\.500 đ/);
+    assert.match(await page.locator("[data-bmq-so-subtotal]").innerText(), /4\.483\.500 đ/);
+    assert.match(await page.locator("[data-bmq-so-vat]").innerText(), /358\.680 đ/);
+    assert.match(await page.locator("[data-bmq-so-total]").innerText(), /4\.842\.180 đ/);
     await page.locator("[data-bmq-so-note]").fill("Giao trước 10h");
     // Kho name shows only when it adds something to the supplier's wording.
     assert.ok(!(await page.locator(`[data-bmq-so-line='${I999}'] .d3-so-line-main > small`).innerText()).includes("Bột mì 999 Cam\n"), "no duplicate kho name");
@@ -295,13 +301,20 @@ try {
     assert.ok(prev[0].includes('"mode":"preview"') && prev[0].includes('"quantity":50') && prev[0].includes('"quantity":25') && prev[0].includes("Giao trước 10h") && prev[0].includes('"prepay":false'), `preview body ${prev[0]}`);
     const frame = page.frameLocator("[data-bmq-so-mail]");
     const mailText = await frame.locator("body").innerText();
-    for (const text of ["Kính gửi Phúc Thịnh", "Bột mì 999 Cam (25kg)", "Sữa Bột Béo New Zealand (25kg)", "4.483.500 đ", "Huỳnh Kim Ngân", "PO mới (số cấp khi gửi)", "Giao trước 10h"]) {
+    for (const text of ["Kính gửi Phúc Thịnh", "Bột mì 999 Cam (25kg)", "Sữa Bột Béo New Zealand (25kg)", "Cộng tiền hàng", "4.483.500 đ", "Thuế GTGT", "358.680 đ", "4.842.180 đ", "8%", "Huỳnh Kim Ngân", "PO mới (số cấp khi gửi)", "Giao trước 10h"]) {
       assert.ok(mailText.includes(text), `email preview shows "${text}"`);
     }
+    // The whole email fits the frame at every width (it scales down on phones), so no column is cut off.
+    const fitFacts = await page.evaluate(() => {
+      const f = document.querySelector("[data-bmq-so-mail]");
+      const d = f?.contentDocument;
+      return d ? { wide: d.documentElement.scrollWidth, room: f.clientWidth, cell: [...d.querySelectorAll("td")].some((td) => /Tổng cộng/.test(td.textContent || "")) } : null;
+    });
+    assert.ok(fitFacts && fitFacts.wide <= fitFacts.room + 1 && fitFacts.cell, `email fits its frame @${vp.width}: ${JSON.stringify(fitFacts)}`);
     const frameBox = await page.locator("[data-bmq-so-mail]").boundingBox();
     assert.ok(frameBox && frameBox.height > 400, `email frame grows to its content: ${JSON.stringify(frameBox)}`);
     const facts = await page.locator(".d3-so-facts").innerText();
-    assert.ok(/botmiphucthinh@gmail\.com/.test(facts) && /Không trình chi/.test(facts), `preview facts ${facts}`);
+    assert.ok(/botmiphucthinh@gmail\.com/.test(facts) && /Không trình chi/.test(facts) && /4\.842\.180 đ · gồm VAT 358\.680 đ/.test(facts), `preview facts ${facts}`);
     await noSpill(page, "preview", vp);
     await shot(page, `preview-pt-${vp.width}.png`);
 
@@ -332,7 +345,7 @@ try {
     await tv.page.waitForSelector("[data-bmq-so-prepay='pr']");
     assert.ok(await tv.page.locator("[data-bmq-so-prepay-check]").isChecked(), "gối đầu ticked");
     const tvCard = await tv.page.locator("[data-bmq-so-card]").innerText();
-    assert.ok(/PR-D6E88DCB/.test(tvCard) && /9\.000\.000 đ/.test(tvCard) && /PO-000862 \(75 kg\) đã gửi, chưa nhận hàng/.test(tvCard), `TV card ${tvCard}`);
+    assert.ok(/PR-D6E88DCB/.test(tvCard) && /9\.000\.000 đ/.test(tvCard) && /PO-000862 \(75 kg\) đã gửi, chưa nhận hàng/.test(tvCard) && /không VAT/.test(tvCard), `TV card ${tvCard}`);
     assert.ok(await tv.page.locator("[data-bmq-so-make]").isDisabled(), "nothing picked yet");
     await tv.page.locator(".d3-so-stepper button").last().click();
     await tv.page.locator("[data-bmq-so-make]").click();
