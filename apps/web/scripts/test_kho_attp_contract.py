@@ -541,6 +541,17 @@ def main() -> None:
     for statement in forbidden:
         assert_true(statement not in lower, f"migration must not write {statement}")
 
+
+    # --- 20261103000000: only items the business still uses ---------------
+    scope_mig = read(ROOT / "supabase" / "migrations" / "20261103000000_kho_attp_active_scope.sql").lower()
+    scope_fn = body_after(scope_mig, "create or replace function public.kho_attp_checklist(")
+    assert_true("kii.active is true" in scope_fn, "OFF items stay excluded")
+    assert_true("public.kho_attp_default_profile(kii.item_class, kii.item_type, kii.name)) <> 'none'" in scope_fn, "items needing no paper drop out")
+    assert_true("ps.discontinued_at is null" in scope_fn and "cogs_ingredient_stock_map" in scope_fn, "recipe of a SKU still on sale keeps an item")
+    assert_true("interval '60 days'" in scope_fn, "recent production/sales use keeps an item")
+    assert_true("kii.attp_profile is not null" in scope_fn, "an owner-set paper group keeps an item")
+    assert_true("revoke all on function public.kho_attp_checklist(integer) from public, anon" in scope_mig, "grants kept")
+
     print("test_kho_attp_contract: OK")
 
 
