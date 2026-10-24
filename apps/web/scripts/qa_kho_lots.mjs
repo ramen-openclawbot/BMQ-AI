@@ -91,8 +91,29 @@ function settle(st) {
   if (st.table === "rpc:food_cert_list") return { data: (cfg().data === "empty") ? [] : [
     { id: "c1", owner_kind: "manufacturer", owner_id: "m1", owner_name: "Cty TNHH Interflour Vietnam", cert_type: "attp_facility", cert_no: "123/2025/ATTP-CNĐK", issuer: "Sở Y tế TP.HCM", issued_on: "2025-01-10", expires_on: "2026-11-05", days_left: 13, file_path: "certs/c1/gcn.pdf", file_name: "GCN-ATTP-Interflour.pdf", mime_type: "application/pdf", note: null, created_by: null, created_at: "2026-10-23T08:00:00Z", archived_at: null, archived_by: null },
     { id: "c2", owner_kind: "manufacturer", owner_id: "m2", owner_name: "Cty Sữa TH True Milk", cert_type: "coa", cert_no: "KN-2026-0912", issuer: "Quatest 3", issued_on: "2026-01-01", expires_on: "2026-10-01", days_left: -22, file_path: "certs/c2/coa.jpg", file_name: "COA-Bo-TH.jpg", mime_type: "image/jpeg", note: null, created_by: null, created_at: "2026-10-22T08:00:00Z", archived_at: null, archived_by: null },
+    { id: "cp1", owner_kind: "company", owner_id: null, owner_name: "Công ty", cert_type: "attp_facility", cert_no: "GCN-77/2024", issuer: null, issued_on: null, expires_on: "2027-10-21", days_left: 362, file_path: "certs/cp1/gcn-fonterra.jpg", file_name: "gcn-fonterra.jpg", mime_type: "image/jpeg", note: null, created_by: null, created_at: "2026-10-24T08:00:00Z", archived_at: null, archived_by: null, review_status: "pending", extracted: { scan: { ok: true, cert_type: "attp_facility", holder_name: "Fonterra Brands Việt Nam", cert_no: "GCN-77/2024", expires_on: "2027-10-21", match: null, suggested_item_ids: [] } }, linked_item_ids: ["k2"] },
     { id: "c3", owner_kind: "company", owner_id: null, owner_name: "Công ty", cert_type: "product_declaration", cert_no: null, issuer: null, issued_on: null, expires_on: null, days_left: null, file_path: "certs/c3/cb.pdf", file_name: "Cong-bo-Banh-mi-pho-mai.pdf", mime_type: "application/pdf", note: null, created_by: null, created_at: "2026-10-21T08:00:00Z", archived_at: null, archived_by: null },
   ], error: null };
+  if (st.table === "rpc:kho_attp_checklist") {
+    const R = (kind, state, o = {}) => ({ kind, state, cert_id: null, cert_no: null, expires_on: null, days_left: null, shared_count: 0, extracted: null, expired_cert: null, ...o });
+    const tot = (rs) => { const t = { ok: 0, warn: 0, wait: 0, miss: 0 }; rs.forEach((r) => { if (r.state !== "na") t[r.state]++; }); t.total = t.ok + t.warn + t.wait + t.miss; t.done = t.ok + t.warn; t.pct = t.total ? Math.round(t.done * 100 / t.total) : 100; return t; };
+    const it = (id, name, profile, maker, reqs, sup) => ({ item_id: id, item_code: "NVL-" + id, name, profile, profile_source: "default", manufacturer_id: maker ? "m-" + id : null, manufacturer_name: maker, supplier_id: sup[0], supplier_name: sup[1], requirements: reqs, totals: tot(reqs) });
+    const pt = ["sp1", "Phúc Thịnh"], dt = ["sp2", "Đại Tân Việt"], nt = ["sp3", "Ngọc Trân - Cô Trang có tên rất dài để thử xuống dòng"];
+    const items1 = [
+      it("k1", "Bột mì 999 Cam", "packaged_food", "Interflour Việt Nam", [R("attp_facility", "ok", { cert_id: "c1", cert_no: "123/2025", expires_on: "2028-11-05", days_left: 740, shared_count: 2 }), R("product_declaration", "ok"), R("coa", "miss"), R("quarantine", "na")], pt),
+      it("k2", "Sữa Bột Béo New Zealand", "packaged_food", "Fonterra", [R("attp_facility", "wait", { cert_id: "cp1", extracted: { expires_on: "2027-10-21" } }), R("product_declaration", "miss"), R("coa", "ok"), R("quarantine", "na")], pt),
+      it("k3", "Men khô Meizan nhãn vàng", "packaged_food", "Xay Lúa Mì VN", [R("attp_facility", "warn", { cert_id: "c9", expires_on: "2026-11-06", days_left: 13 }), R("product_declaration", "ok"), R("coa", "miss", { expired_cert: { cert_id: "c8", cert_no: "x", expires_on: "2026-09-01" } }), R("quarantine", "na")], pt),
+    ];
+    const items2 = [it("k4", "Phô mai ý nghiền", "packaged_food", "Đại Tân Việt", [R("attp_facility", "ok"), R("product_declaration", "ok"), R("coa", "ok"), R("quarantine", "na")], dt)];
+    const items3 = [it("k5", "Băng keo lớn", "none", null, [R("attp_facility", "na"), R("product_declaration", "na"), R("coa", "na"), R("quarantine", "na")], nt), it("k6", "Màng bọc thực phẩm", "food_contact_packaging", null, [R("attp_facility", "na"), R("product_declaration", "miss"), R("coa", "miss"), R("quarantine", "na")], nt)];
+    const sups = [[nt, items3], [pt, items1], [dt, items2]].map(([s, items]) => ({ supplier_id: s[0], name: s[1], totals: tot(items.flatMap((i) => i.requirements)), items }));
+    const all = [...items1, ...items2, ...items3];
+    if (cfg().data === "empty") return { data: { generated_at: "", days: 180, totals: tot([]), suppliers: [], items_by_item: [] }, error: null };
+    return { data: { generated_at: "2026-10-24T01:00:00Z", days: 180, totals: tot(all.flatMap((i) => i.requirements)), suppliers: sups, items_by_item: all }, error: null };
+  }
+  if (st.table === "rpc:food_cert_upload_pending") return { data: { id: "cnew", review_status: "pending", file_path: st.args.p_file_path, linked_item_ids: st.args.p_item_ids }, error: null };
+  if (st.table === "rpc:food_cert_confirm") return { data: { id: st.args.p_cert_id, review_status: "confirmed" }, error: null };
+  if (st.table === "rpc:kho_attp_set_profile") return { data: { item_id: st.args.p_item_id, attp_profile: st.args.p_profile, profile_source: "set", effective_profile: st.args.p_profile }, error: null };
   if (st.table === "rpc:kho_trace_candidates") return { data: (cfg().data === "empty") ? [] : [
     { production_order_item_id: "poi-1", production_number: "SX-20261023-001", production_date: "2026-10-23", sku_id: "s1", sku_code: "cpm-2026-v3", product_name: "BÁNH CUA PHÔ MAI", qty: 200, unit: "cái", location_code: "q7", has_issue: true },
     { production_order_item_id: "poi-2", production_number: "SX-20261022-001", production_date: "2026-10-22", sku_id: "s2", sku_code: "Croi-2026-v4", product_name: "BÁNH CROISSANT 50G có tên rất dài để thử xuống dòng trên điện thoại nhỏ", qty: 120, unit: "cái", location_code: "q7", has_issue: false },
@@ -210,7 +231,7 @@ export const supabase = {
   from: (table) => builder(table),
   rpc: (fn, args) => builder("rpc:" + fn, args),
   schema: () => ({ from: (table) => builder(table), rpc: (fn) => builder("rpc:" + fn) }),
-  functions: { invoke: async (name, opts) => { window.__qaCalls.push("fn:" + name + ":" + JSON.stringify(opts && opts.body)); if (name === "kho-review-jev") return { data: { asked: 3, cached: 0, skipped: 0, marks: [] }, error: null }; if (name === "kho-review-read-line") { await new Promise((r) => setTimeout(r, 250)); const id = opts && opts.body && opts.body.receipt_item_id; if (id === "gri-9") return { data: { ok: true, found: true, doc_unit: "hộp", doc_quantity: 7, doc_unit_price: 90000, pack_count: 100, pack_unit: "cái", evidence_text: "Bao tay y tế đen size M 7 hộp", unit_mismatch: true, ocr_engine: "indra", ocr_fallback_reason: null, cached: false }, error: null }; if (id === "gri-3") return { data: null, error: { message: "ocr_failed" } }; return { data: { ok: true, found: false, doc_unit: null, doc_quantity: null, doc_unit_price: null, pack_count: null, pack_unit: null, evidence_text: null, unit_mismatch: false, ocr_engine: "indra", ocr_fallback_reason: null, cached: false }, error: null }; } return { data: null, error: { message: "QA fixture: functions disabled" } }; } },
+  functions: { invoke: async (name, opts) => { window.__qaCalls.push("fn:" + name + ":" + JSON.stringify(opts && opts.body)); if (name === "scan-food-cert") { await new Promise((r) => setTimeout(r, 200)); return { data: { ok: true, cert_type: "attp_facility", holder_name: "CÔNG TY TNHH INTERFLOUR VIỆT NAM", cert_no: "123/2025/ATTP-CNĐK", issuer: "Sở Y tế TP.HCM", issued_on: "2025-11-06", expires_on: "2028-11-05", validity_years: 3, expires_computed: true, product_name: null, evidence: {}, ocr_engine: "indra", ocr_fallback_reason: null, match: { kind: "manufacturer", id: "m1", name: "Cty TNHH Interflour Vietnam", score: 0.94 }, suggested_item_ids: ["k1"] }, error: null }; } if (name === "kho-review-jev") return { data: { asked: 3, cached: 0, skipped: 0, marks: [] }, error: null }; if (name === "kho-review-read-line") { await new Promise((r) => setTimeout(r, 250)); const id = opts && opts.body && opts.body.receipt_item_id; if (id === "gri-9") return { data: { ok: true, found: true, doc_unit: "hộp", doc_quantity: 7, doc_unit_price: 90000, pack_count: 100, pack_unit: "cái", evidence_text: "Bao tay y tế đen size M 7 hộp", unit_mismatch: true, ocr_engine: "indra", ocr_fallback_reason: null, cached: false }, error: null }; if (id === "gri-3") return { data: null, error: { message: "ocr_failed" } }; return { data: { ok: true, found: false, doc_unit: null, doc_quantity: null, doc_unit_price: null, pack_count: null, pack_unit: null, evidence_text: null, unit_mismatch: false, ocr_engine: "indra", ocr_fallback_reason: null, cached: false }, error: null }; } return { data: null, error: { message: "QA fixture: functions disabled" } }; } },
   storage: { from: () => ({ upload: async (p) => { window.__qaCalls.push("upload:" + p); return { data: { path: p }, error: null }; }, getPublicUrl: () => ({ data: { publicUrl: "" } }), createSignedUrl: async () => ({ data: { signedUrl: "data:image/svg+xml;utf8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="600" height="840"><rect width="600" height="840" fill="#fff"/><text x="40" y="80" font-size="40">PHIẾU GIAO HÀNG</text></svg>') }, error: null }), list: async () => ({ data: [], error: null }) }) },
   auth: {
     getSession: async () => ({ data: { session: { access_token: "qa", user } }, error: null }),
@@ -297,7 +318,7 @@ async function noSpill(page, label, vp) {
     for (const el of document.querySelectorAll(".d3-kho *, [role='dialog'] *")) {
       const r = el.getBoundingClientRect();
       if (!r.width || getComputedStyle(el).position === "fixed") continue;
-      if (el.closest(".d3-kho-tabs, .d3-kho-notes-row, .d3-kho-viewer-stage, .d3-kho-viewer-photos")) continue;
+      if (el.closest(".d3-kho-tabs, .d3-attp-chips, .d3-kho-notes-row, .d3-kho-viewer-stage, .d3-kho-viewer-photos")) continue;
       if (r.right > window.innerWidth + 1 || r.left < -1) bad.push(`${el.tagName}.${String(el.className).slice(0, 60)}`);
     }
     return { doc: document.documentElement.scrollWidth - window.innerWidth, bad: bad.slice(0, 5) };
@@ -345,12 +366,75 @@ async function assertTheme(page, title, vp) {
 
 const VIEWPORTS = [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 640 }];
 
+async function attpChecks(page, vp) {
+  assert.match(await page.locator("[data-bmq-attp-pct]").innerText(), /^\d+%$/, "overall percent");
+  const desktop = vp.width > 760;
+  await noSpill(page, "attp-checklist", vp);
+  await shot(page, `attp-checklist-${vp.width}.png`);
+  if (desktop) {
+    assert.ok(await page.locator("[data-bmq-attp-detail]").isVisible(), "detail table on desktop");
+    await page.locator("[data-bmq-attp-group='sp1']").click();
+    assert.equal(await page.locator("[data-bmq-attp-detail] [data-bmq-attp-row]").count(), 3, "three items for Phúc Thịnh");
+  } else {
+    assert.ok(await page.locator("[data-bmq-attp-tree], .d3-attp-tree").first().isVisible(), "tree on phone");
+    await page.locator("[data-bmq-attp-node='sp1'] .d3-attp-nh").click();
+  }
+  const scope = desktop ? "[data-bmq-attp-detail]" : "[data-bmq-attp-node='sp1']";
+  // filter: only waiting papers
+  await page.locator("[data-bmq-attp-filter='wait']").click();
+  assert.match(await page.locator(desktop ? "[data-bmq-attp-list]" : ".d3-attp-tree").first().innerText().catch(() => "x"), /.*/);
+  await page.locator("[data-bmq-attp-filter='all']").click();
+  // profile override
+  if (desktop) await page.locator("[data-bmq-attp-group='sp1']").click(); else await page.locator("[data-bmq-attp-node='sp1'] .d3-attp-nh").click().catch(() => {});
+  if (!(await page.locator(`${scope} [data-bmq-attp-profile='k1']`).isVisible())) await page.locator("[data-bmq-attp-node='sp1'] .d3-attp-nh").click();
+  await page.locator(`${scope} [data-bmq-attp-profile='k1']`).selectOption("none");
+  assert.ok((await calls(page)).some((c) => c.startsWith("rpc:kho_attp_set_profile:") && c.includes('"p_profile":"none"')), "profile saved");
+  // review a pending paper
+  await page.locator(`${scope} [data-bmq-attp-review='cp1']`).click();
+  await page.waitForSelector("[data-bmq-attp-dialog='review']");
+  await page.waitForFunction(() => (document.querySelector("[data-bmq-attp-no]")?.value || "") === "GCN-77/2024");
+  await dialogInView(page, "[data-bmq-attp-dialog]", vp);
+  await noSpill(page, "attp-review-pending", vp);
+  await shot(page, `attp-review-pending-${vp.width}.png`, false);
+  await page.locator("[data-bmq-attp-confirm]").click();
+  await page.waitForSelector("[data-bmq-attp-dialog]", { state: "detached", timeout: 5000 });
+  let cs = await calls(page);
+  assert.ok(cs.some((c) => c.startsWith("rpc:food_manufacturer_upsert:") && c.includes("Fonterra")), "unknown holder becomes a manufacturer");
+  assert.ok(cs.some((c) => c.startsWith("rpc:food_cert_confirm:") && c.includes('"p_cert_id":"cp1"') && c.includes('"k2"')), "pending paper confirmed for its item");
+  // upload a missing paper: read → pending → review → done
+  await page.locator(`${scope} [data-bmq-attp-upload='k1:coa']`).click();
+  await page.waitForSelector("[data-bmq-attp-dialog='pick']");
+  await page.locator("[data-bmq-attp-file]").setInputFiles({ name: "coa-botmi.jpg", mimeType: "image/jpeg", buffer: Buffer.from([0xff, 0xd8, 0xff, 0xd9]) });
+  await page.waitForSelector("[data-bmq-attp-dialog='review']", { timeout: 8000 });
+  await page.waitForFunction(() => (document.querySelector("[data-bmq-attp-no]")?.value || "") === "123/2025/ATTP-CNĐK");
+  assert.match(await page.locator("[data-bmq-attp-dialog]").innerText(), /máy đọc/, "machine-read fields are marked");
+  assert.match(await page.locator("[data-bmq-attp-items]").innerText(), /Bột mì 999 Cam/, "the item it was uploaded for is ticked");
+  assert.equal(await page.locator("[data-bmq-attp-expires]").inputValue(), "2028-11-05", "expiry prefilled");
+  await noSpill(page, "attp-review-new", vp);
+  await shot(page, `attp-review-new-${vp.width}.png`, false);
+  cs = await calls(page);
+  assert.ok(cs.some((c) => c.startsWith("upload:certs/") && c.endsWith("/coa-botmi.jpg")), "file stored under certs/");
+  assert.ok(cs.some((c) => c.startsWith("fn:scan-food-cert:") && c.includes("certs/")), "machine read the stored file");
+  assert.ok(cs.some((c) => c.startsWith("rpc:food_cert_upload_pending:") && c.includes('"p_cert_type":"coa"') === false && c.includes('"k1"')), "saved as pending with the item");
+  await page.locator("[data-bmq-attp-confirm]").click();
+  await page.waitForSelector("[data-bmq-attp-dialog]", { state: "detached", timeout: 5000 });
+  cs = await calls(page);
+  assert.ok(cs.some((c) => c.startsWith("rpc:food_cert_confirm:") && c.includes('"p_cert_id":"cnew"') && c.includes('"p_owner_id":"m1"')), "new paper confirmed against the matched manufacturer");
+  pass(`ATTP checklist: filter, profile, review pending, upload → read → tick ${vp.width}`);
+  await page.mouse.move(1, 1);
+  await page.waitForTimeout(4500);
+}
+
 const READY = "[data-bmq-kho-certs]";
 try {
   for (const vp of VIEWPORTS) {
     const { context, page, errors } = await open({ role: "owner" }, "/warehouse/ho-so-attp", vp, READY);
+    await page.waitForSelector("[data-bmq-attp-sum]");
+    await attpChecks(page, vp);
+    await page.locator("[data-bmq-attp-page='papers']").click();
     await page.waitForSelector("[data-bmq-cert-list] li");
-    assert.equal(await page.locator("[data-bmq-cert-list] li").count(), 3, "three certificates");
+    assert.equal(await page.locator("[data-bmq-cert-list] li").count(), 4, "four certificates incl. one pending");
+    assert.equal(await page.locator("[data-bmq-cert-pending]").count(), 1, "pending paper is marked");
     assert.equal(await page.locator("[data-bmq-cert-exp='soon']").count(), 1, "one expiring soon");
     assert.equal(await page.locator("[data-bmq-cert-exp='expired']").count(), 1, "one expired");
     await noSpill(page, "certs-list", vp);
@@ -418,6 +502,9 @@ try {
     await cat.context.close();
   }
   const empty = await open({ role: "owner", data: "empty" }, "/warehouse/ho-so-attp", VIEWPORTS[1], READY);
+  await empty.page.waitForSelector("[data-bmq-attp-empty]");
+  await shot(empty.page, "attp-empty-390.png", false);
+  await empty.page.locator("[data-bmq-attp-page='papers']").click();
   await empty.page.waitForSelector("[data-bmq-cert-empty]");
   await shot(empty.page, "certs-empty-390.png", false);
   await empty.context.close();

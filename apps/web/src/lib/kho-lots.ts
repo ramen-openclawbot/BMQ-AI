@@ -75,10 +75,21 @@ export type FoodCertType =
   | "product_declaration"
   | "other";
 
-export const FOOD_CERT_TYPE_LABELS: Record<FoodCertType, string> = {
+/**
+ * Runtime certificates may also be a quarantine paper.  The existing KhoCerts
+ * page still types its form with FoodCertType; keep that union narrow so no
+ * page changes are needed, while the label map and the ATTP hooks accept the
+ * new value.
+ */
+export type FoodCertTypeWithQuarantine = FoodCertType | "quarantine";
+
+export type FoodCertReviewStatus = "pending" | "confirmed";
+
+export const FOOD_CERT_TYPE_LABELS: Record<FoodCertTypeWithQuarantine, string> = {
   attp_facility: "Giấy chứng nhận cơ sở đủ điều kiện ATTP",
   coa: "Phiếu kiểm nghiệm (COA)",
   product_declaration: "Bản công bố sản phẩm",
+  quarantine: "Giấy kiểm dịch",
   other: "Giấy tờ khác",
 };
 
@@ -89,12 +100,17 @@ export const FOOD_CERT_OWNER_KIND_LABELS: Record<FoodCertOwnerKind, string> = {
   company: "Công ty",
 };
 
+export interface FoodCertLinkedItem {
+  id: string;
+  name: string;
+}
+
 export interface FoodCert {
   id: string;
   owner_kind: FoodCertOwnerKind;
   owner_id: string | null;
   owner_name: string | null;
-  cert_type: FoodCertType;
+  cert_type: FoodCertTypeWithQuarantine;
   cert_no: string | null;
   issuer: string | null;
   issued_on: string | null;
@@ -108,6 +124,13 @@ export interface FoodCert {
   created_at: string;
   archived_at: string | null;
   archived_by: string | null;
+  review_status: FoodCertReviewStatus;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  extracted: Record<string, unknown> | null;
+  linked_item_ids: string[];
+  linked_items: FoodCertLinkedItem[];
+  linked_item_names: string[];
   replayed?: boolean;
 }
 
@@ -220,7 +243,7 @@ export function expiryToneForDate(
 }
 
 export function foodCertTypeLabel(value: string | null | undefined): string {
-  const key = String(value ?? "") as FoodCertType;
+  const key = String(value ?? "") as FoodCertTypeWithQuarantine;
   return FOOD_CERT_TYPE_LABELS[key] ?? FOOD_CERT_TYPE_LABELS.other;
 }
 

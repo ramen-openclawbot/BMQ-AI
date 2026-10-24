@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { FileSearch, FileText, Plus, Search, X } from "lucide-react";
+import { FileSearch, FileText, Plus, Search, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { LoadingState } from "@/components/ui/loading";
@@ -20,6 +20,8 @@ import { searchKey } from "@/lib/kho-items";
 import { cn } from "@/lib/utils";
 import { KhoDialog } from "@/components/kho/KhoDialog";
 import { KhoTraceDialog } from "@/components/kho/KhoTraceDialog";
+import { AttpChecklist, type AttpAction } from "@/components/kho/AttpChecklist";
+import { AttpUploadDialog } from "@/components/kho/AttpUploadDialog";
 import { useKhoConfirm } from "@/components/kho/KhoConfirm";
 import "@/styles/bmq-warehouse.css";
 import "@/styles/bmq-kho.css";
@@ -53,6 +55,8 @@ export default function KhoCerts() {
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
   const [tracing, setTracing] = useState(false);
+  const [page, setPage] = useState<"checklist" | "papers">("checklist");
+  const [attp, setAttp] = useState<AttpAction | "new" | null>(null);
   const rows = certs.data ?? [];
   const soon = rows.filter((c) => expiryTone(c.days_left) === "soon").length;
   const expired = rows.filter((c) => expiryTone(c.days_left) === "expired").length;
@@ -87,9 +91,17 @@ export default function KhoCerts() {
         </div>
         <div className="d3-kho-head-acts">
           <Button variant={canEdit ? "outline" : "default"} onClick={() => setTracing(true)} data-bmq-trace-open><FileSearch className="mr-1.5 h-4 w-4" />Truy xuất</Button>
-          {canEdit ? <Button onClick={() => setAdding(true)} data-bmq-cert-add><Plus className="mr-1.5 h-4 w-4" />Thêm giấy</Button> : null}
+          {canEdit ? <Button onClick={() => setAttp("new")} data-bmq-attp-new><Upload className="mr-1.5 h-4 w-4" />Tải giấy lên</Button> : null}
         </div>
       </header>
+
+      <div className="d3-kho-seg d3-attp-pages" role="tablist" aria-label="Hồ sơ ATTP">
+        {([["checklist", "Checklist hồ sơ"], ["papers", `Tất cả giấy${certs.data ? ` (${rows.length})` : ""}`]] as const).map(([id, label]) => (
+          <button key={id} type="button" role="tab" aria-selected={page === id} className={cn(page === id && "is-on")} onClick={() => setPage(id)} data-bmq-attp-page={id}>{label}</button>
+        ))}
+      </div>
+
+      {page === "checklist" ? <AttpChecklist canEdit={canEdit} onAction={setAttp} /> : (
 
       <section className="d3-wh-card d3-kho-card">
         <div className="d3-kho-tabs" role="tablist" aria-label="Lọc theo hạn">
@@ -105,6 +117,7 @@ export default function KhoCerts() {
             <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Tìm nhà sản xuất, số giấy…" aria-label="Tìm giấy tờ" enterKeyHint="search" data-bmq-cert-search />
             {query ? <button type="button" onClick={() => setQuery("")} aria-label="Xóa tìm kiếm"><X /></button> : null}
           </span>
+          {canEdit ? <Button variant="outline" onClick={() => setAdding(true)} data-bmq-cert-add><Plus className="mr-1.5 h-4 w-4" />Nhập tay</Button> : null}
         </div>
         <p className="d3-kho-hint">Giấy chứng nhận cơ sở đủ điều kiện ATTP, phiếu kiểm nghiệm và bản công bố của nhà sản xuất từng nguyên liệu. Nút “Truy xuất” dựng báo cáo theo mẫu KFM cho từng lệnh sản xuất và đính kèm các giấy này.</p>
 
@@ -125,11 +138,12 @@ export default function KhoCerts() {
                       <span>{FOOD_CERT_TYPE_LABELS[c.cert_type]}</span>
                       {c.cert_no ? <span>Số {c.cert_no}</span> : null}
                       {c.issuer ? <span>{c.issuer}</span> : null}
+                      {c.review_status === "pending" ? <span className="d3-kho-exp is-soon" data-bmq-cert-pending>chờ kiểm tra</span> : null}
                       <span className={cn(exp.tone === "expired" && "d3-kho-exp is-expired", exp.tone === "soon" && "d3-kho-exp is-soon")} data-bmq-cert-exp={exp.tone ?? ""}>{exp.text}</span>
                     </small>
                     <small className="d3-cert-file"><FileText aria-hidden="true" />{c.file_name ?? "Mở file"}</small>
                   </button>
-                  {canEdit ? <Button variant="ghost" size="sm" onClick={() => void archiveCert(c)} data-bmq-cert-archive>Lưu trữ</Button> : null}
+                  {canEdit && c.review_status === "pending" ? <Button size="sm" onClick={() => setAttp({ kind: "review", certId: c.id })}>Kiểm tra</Button> : canEdit ? <Button variant="ghost" size="sm" onClick={() => void archiveCert(c)} data-bmq-cert-archive>Lưu trữ</Button> : null}
                 </li>
               );
             })}
@@ -140,6 +154,8 @@ export default function KhoCerts() {
           </p>
         )}
       </section>
+      )}
+      {attp ? <AttpUploadDialog action={attp === "new" ? null : attp} onClose={() => setAttp(null)} /> : null}
       {adding ? <CertForm onClose={() => setAdding(false)} /> : null}
       {tracing ? <KhoTraceDialog onClose={() => setTracing(false)} /> : null}
       {dialog}

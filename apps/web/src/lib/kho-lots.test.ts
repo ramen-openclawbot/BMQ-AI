@@ -54,9 +54,11 @@ test("certificate type labels are the owner-approved Vietnamese strings", () => 
     attp_facility: "Giấy chứng nhận cơ sở đủ điều kiện ATTP",
     coa: "Phiếu kiểm nghiệm (COA)",
     product_declaration: "Bản công bố sản phẩm",
+    quarantine: "Giấy kiểm dịch",
     other: "Giấy tờ khác",
   });
   assert.equal(foodCertTypeLabel("coa"), "Phiếu kiểm nghiệm (COA)");
+  assert.equal(foodCertTypeLabel("quarantine"), "Giấy kiểm dịch");
   assert.equal(foodCertTypeLabel("unknown"), "Giấy tờ khác");
   assert.equal(foodCertTypeLabel(null), "Giấy tờ khác");
 });
