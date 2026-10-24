@@ -199,7 +199,8 @@ const handleExtract = async (
     console.error("[payment-cash-settle] OCR failed", ocrError);
   }
 
-  const ocrAmount = extracted ? numericOrNull(extracted.amount) : null;
+  const amountGroupingSuspect = extracted ? extracted.amount_grouping_suspect === true : false;
+  const ocrAmount = extracted && !amountGroupingSuspect ? numericOrNull(extracted.amount) : null;
   const row = {
     payment_request_id: requestId,
     storage_path: storagePath,
@@ -240,6 +241,7 @@ const handleExtract = async (
     success: true,
     mode: "extract",
     duplicate: false,
+    amount_grouping_suspect: amountGroupingSuspect,
     receipt: inserted,
   });
 };

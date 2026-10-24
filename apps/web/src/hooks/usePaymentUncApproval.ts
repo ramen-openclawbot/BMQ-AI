@@ -21,6 +21,10 @@ export interface UncOcrResult {
   transfer_date: string | null;
   confidence: number | null;
   amount_corrected_from_words: boolean;
+  /** True when the raw amount string had a broken digit grouping (e.g. 300,0000). */
+  amount_grouping_suspect?: boolean;
+  /** Possible whole-đồng values when amount_grouping_suspect is true. */
+  amount_candidates?: number[];
   /** Tên người/đơn vị nhận tiền (bulk UNC flow). */
   beneficiary_name?: string | null;
   /** Nội dung chuyển khoản (bulk UNC flow). */
@@ -104,6 +108,7 @@ export function usePaymentUncApproval() {
       image_base64: string;
       mime_type?: string;
       slip_type?: string;
+      expected_amount?: number;
     }) => invokePaymentUncApproval<UncExtractResponse>({ mode: "extract", ...payload }),
   });
 

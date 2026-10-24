@@ -290,7 +290,7 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
   const slipTotal = multi ? evidenceAmount : ocrAmount;
   const amountMatches = approve && slipTotal !== null && Math.round(slipTotal) === Math.round(compareTotal);
   const isLowConfidence = (d: UncExtractResponse | null | undefined) =>
-    !!d && ((d.ocr.confidence ?? 1) < LOW_CONFIDENCE || d.ocr.amount_corrected_from_words);
+    !!d && ((d.ocr.confidence ?? 1) < LOW_CONFIDENCE || d.ocr.amount_corrected_from_words || d.ocr.amount_grouping_suspect === true);
   const lowConfidence = multi ? slips.some((s) => isLowConfidence(s.draft)) : isLowConfidence(draft);
   const supplierNames = Array.from(new Set(requests.map((r) => r.supplierName).filter(Boolean)));
   const supplierMismatch = allocMode ? !areSameSupplier(requests) : match?.code === "supplier_mismatch";
@@ -358,6 +358,11 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
     const files = approve ? picked : picked.slice(0, 1);
     const run = generation.current;
     const append = approve && pickModeRef.current === "add";
+    // Only one image in the end and one amount to compare: let the server check
+    // a suspect read against the remaining amount it will be compared with.
+    const expectedAmount = (append ? slips.length : 0) + files.length === 1 && !allocMode && compareTotal > 0
+      ? Math.round(compareTotal)
+      : null;
     setError(null);
     if (!append) {
       setSlips([]);
@@ -377,7 +382,12 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
       if (generation.current !== run) return;
       setSlips((prev) => [...prev, { id, preview: image.preview, draft: null, reading: true, error: null, typed: "", done: false }]);
       try {
-        const result = await extract.mutateAsync({ image_base64: image.base64, mime_type: image.mime, slip_type: isCash ? "cash" : "unc" });
+        const result = await extract.mutateAsync({
+          image_base64: image.base64,
+          mime_type: image.mime,
+          slip_type: isCash ? "cash" : "unc",
+          ...(expectedAmount !== null ? { expected_amount: expectedAmount } : {}),
+        });
         if (generation.current !== run) return;
         setSlips((prev) =>
           prev.map((s) => {

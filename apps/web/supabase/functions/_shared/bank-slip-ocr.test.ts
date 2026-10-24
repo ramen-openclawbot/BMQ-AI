@@ -4,8 +4,13 @@ import assert from "node:assert/strict";
 
 import {
   callOpenAiVision,
+  amountGroupingCandidates,
+  isWellFormedAmountString,
+  normalizeExtractedSlip,
+  resolveSuspectOcrAmount,
   SLIP_EXTRACTION_SYSTEM_PROMPT,
   slipUserPrompt,
+  validateSlip,
 } from "./bank-slip-ocr.ts";
 import { AiOpenAIError } from "./openai-errors.ts";
 
@@ -171,4 +176,79 @@ test("unset SCAN_OCR_ENGINE keeps the image path with no OCR request", async () 
   assert.equal(result.ocr_engine, "deepseek_image");
   assert.equal(result.ocr_fallback_reason, null);
   assert.equal(ocrCalls().length, 0);
+});
+
+test("isWellFormedAmountString accepts coherent groupings and decimal tails", () => {
+  for (const value of [
+    "300,000",
+    "300.000",
+    "4,039,200",
+    "41.006.300,00",
+    "4,039,200.00",
+    "30.000.000",
+    "300000",
+    "300,000 VND",
+    " 41.006.300,00 đ ",
+    "41006300.00",
+    300000,
+  ]) {
+    assert.equal(isWellFormedAmountString(value), true, value);
+  }
+
+  for (const value of [
+    "300,0000",
+    "1.2345.000",
+    "1.234.567,8",
+    "300,00",
+    "1,234.567",
+    "",
+    "VND",
+  ]) {
+    assert.equal(isWellFormedAmountString(value), false, value);
+  }
+});
+
+test("amountGroupingCandidates offers the old parse and the truncated groups", () => {
+  const candidates = amountGroupingCandidates("300,0000");
+  assert.equal(candidates.includes(3000000), true);
+  assert.equal(candidates.includes(300000), true);
+  assert.deepEqual(amountGroupingCandidates("1.2345.000"), [12345000, 1234000]);
+  assert.deepEqual(amountGroupingCandidates("30.000.000"), []);
+  assert.deepEqual(amountGroupingCandidates("300,000 VND"), []);
+});
+
+test("normalizeExtractedSlip flags a mis-grouped read but keeps the old amount", () => {
+  const normalized = normalizeExtractedSlip({
+    amount: "300,0000",
+    amount_in_words: null,
+    confidence: 0.9,
+  });
+
+  assert.equal(normalized.amount, 3000000);
+  assert.equal(normalized.amount_grouping_suspect, true);
+  assert.deepEqual(normalized.amount_candidates, [3000000, 300000]);
+  assert.ok(Number(normalized.confidence) <= 0.4);
+  assert.equal(validateSlip(normalized), "slip_amount_check");
+});
+
+test("normalizeExtractedSlip still trusts the words and clears the flag", () => {
+  const normalized = normalizeExtractedSlip({
+    amount: "3.000.000",
+    amount_in_words: "ba mươi triệu đồng",
+    confidence: 0.9,
+  });
+
+  assert.equal(normalized.amount, 30000000);
+  assert.equal(normalized.amount_corrected_from_words, true);
+  assert.equal(normalized.amount_grouping_suspect, false);
+  assert.deepEqual(normalized.amount_candidates, []);
+});
+
+test("resolveSuspectOcrAmount only writes an expected amount that matches a candidate", () => {
+  assert.equal(resolveSuspectOcrAmount([3000000, 300000], 300000), 300000);
+  assert.equal(resolveSuspectOcrAmount([3000000, 300000], 300000.4), 300000.4);
+  assert.equal(resolveSuspectOcrAmount([3000000, 300000], 300001), null);
+  assert.equal(resolveSuspectOcrAmount([3000000], null), null);
+  assert.equal(resolveSuspectOcrAmount([3000000], 0), null);
+  assert.equal(resolveSuspectOcrAmount([], 300000), null);
 });

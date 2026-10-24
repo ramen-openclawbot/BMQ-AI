@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getCorsHeaders, corsPreflightResponse } from "../_shared/cors.ts";
-import { callOpenAiVision } from "../_shared/bank-slip-ocr.ts";
+import { callOpenAiVision, resolveSuspectOcrAmount } from "../_shared/bank-slip-ocr.ts";
 import { aiErrorJson, getAiErrorInfo } from "../_shared/openai-errors.ts";
 
 // Untyped database schema: the generated types are not shared with edge functions.
@@ -321,7 +321,9 @@ const handleExtract = async (
     return structuredError(req, 502, "ocr_failed", message.slice(0, 300));
   }
 
-  const ocrAmount = numericOrNull(extracted.amount);
+  const ocrAmount = extracted.amount_grouping_suspect === true
+    ? resolveSuspectOcrAmount(extracted.amount_candidates, numericOrNull(body.expected_amount ?? body.expectedAmount))
+    : numericOrNull(extracted.amount);
   const { error: draftError } = await supabaseAdmin
     .from("payment_unc_ocr_drafts")
     .upsert({
@@ -357,6 +359,8 @@ const handleExtract = async (
       transfer_date: extracted.transfer_date ?? null,
       confidence: numericOrNull(extracted.confidence),
       amount_corrected_from_words: extracted.amount_corrected_from_words === true,
+      amount_grouping_suspect: extracted.amount_grouping_suspect === true,
+      amount_candidates: extracted.amount_candidates ?? [],
       beneficiary_name: extracted.beneficiary_name ? String(extracted.beneficiary_name) : null,
       transfer_content: extracted.transfer_content ? String(extracted.transfer_content) : null,
     },

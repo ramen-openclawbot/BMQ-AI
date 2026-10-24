@@ -62,6 +62,90 @@ export const parseAmountVN = (v: unknown): number | null => {
   return Number.isFinite(n) && n > 0 ? Math.round(n) : null;
 };
 
+const cleanAmountString = (raw: unknown): string =>
+  String(raw ?? "")
+    .replace(/\s+/g, "")
+    .replace(/^[^\d]+/, "")
+    .replace(/[^\d]+$/, "");
+
+/** True when the amount string uses a coherent digit grouping.
+ *
+ *  A plain digit run is fine. With separators, the first group must have 1-3
+ *  digits, every later group exactly 3, and a 2-digit decimal tail is only
+ *  allowed when it uses the other separator than the thousands groups
+ *  (e.g. "41.006.300,00", "4,039,200.00"). Anything else is a mis-grouped read
+ *  such as "300,0000" or "1.2345.000".
+ */
+export const isWellFormedAmountString = (raw: unknown): boolean => {
+  // A JSON number carries no grouping to get wrong.
+  if (typeof raw === "number") return Number.isFinite(raw) && raw > 0;
+  const cleaned = cleanAmountString(raw);
+  if (!cleaned || !/^[0-9.,]+$/.test(cleaned)) return false;
+  if (!/[.,]/.test(cleaned)) return true;
+  // Ungrouped digits with a cent tail ("41006300.00") are unambiguous.
+  if (/^\d{4,}[.,]\d{2}$/.test(cleaned)) return true;
+
+  const lastSeparatorIndex = Math.max(cleaned.lastIndexOf("."), cleaned.lastIndexOf(","));
+  const lastSeparator = cleaned[lastSeparatorIndex];
+  const tail = cleaned.slice(lastSeparatorIndex + 1);
+  const hasEarlierOtherSeparator = cleaned
+    .slice(0, lastSeparatorIndex)
+    .split("")
+    .some((char) => (char === "." || char === ",") && char !== lastSeparator);
+  const integerPart = tail.length === 2 && hasEarlierOtherSeparator
+    ? cleaned.slice(0, lastSeparatorIndex)
+    : cleaned;
+  if (!/[.,]/.test(integerPart)) return false;
+
+  const groups = integerPart.split(/[.,]/);
+  if (!/^\d{1,3}$/.test(groups[0] || "")) return false;
+  if (!groups.slice(1).every((group) => /^\d{3}$/.test(group))) return false;
+
+  // Grouping must use one separator kind only; mixed separators are a bad read.
+  const groupingSeparators = new Set(
+    integerPart.split("").filter((char) => char === "." || char === ","),
+  );
+  return groupingSeparators.size === 1;
+};
+
+/** Possible values for a mis-grouped amount read, best-effort for the caller.
+ *
+ *  Candidate 1 is the old behaviour (strip every separator). Candidate 2 keeps
+ *  the first group and truncates each later group to its first 3 digits, which
+ *  repairs reads like "300,0000" -> 300000. Valid strings return no candidates.
+ */
+export const amountGroupingCandidates = (raw: unknown): number[] => {
+  const cleaned = cleanAmountString(raw);
+  if (!cleaned || isWellFormedAmountString(cleaned) || !/[.,]/.test(cleaned)) return [];
+
+  const digitsOnly = cleaned.replace(/[^\d]/g, "");
+  const groups = cleaned.split(/[.,]/);
+  const truncated = groups[0] + groups.slice(1).map((group) => group.slice(0, 3)).join("");
+  const candidates: number[] = [];
+  for (const text of [digitsOnly, truncated]) {
+    const value = Number(text);
+    if (Number.isFinite(value) && value > 0 && !candidates.includes(value)) candidates.push(value);
+  }
+  return candidates;
+};
+
+/** Pick the OCR amount for a mis-grouped read: only a matching expected amount
+ *  may be written, otherwise nothing is stored. */
+export const resolveSuspectOcrAmount = (
+  candidates: readonly number[] | null | undefined,
+  expected: number | null | undefined,
+): number | null => {
+  if (expected === null || expected === undefined) return null;
+  const expectedValue = Number(expected);
+  if (!Number.isFinite(expectedValue) || expectedValue <= 0) return null;
+  const roundedExpected = Math.round(expectedValue);
+  for (const candidate of candidates || []) {
+    const value = Number(candidate);
+    if (Number.isFinite(value) && Math.round(value) === roundedExpected) return expectedValue;
+  }
+  return null;
+};
+
 export const stripVietnamese = (value: string) =>
   value
     .normalize("NFD")
@@ -305,9 +389,15 @@ export const normalizeExtractedSlip = (data: ExtractedSlipData) => {
       && [10, 100, 1000].includes(scaleRatio)
   );
   const amount = shouldTrustWords ? wordAmount : parsedAmount;
-  const confidence = shouldTrustWords
-    ? Math.min(Number(data.confidence || 0.6), 0.68)
-    : data.confidence;
+  const groupingSuspect = !isWellFormedAmountString(data.amount) && !shouldTrustWords;
+  const rawConfidence = data.confidence === null || data.confidence === undefined || data.confidence === ""
+    ? 0.4
+    : Number(data.confidence);
+  const confidence = groupingSuspect
+    ? Math.min(Number.isFinite(rawConfidence) ? rawConfidence : 0.4, 0.4)
+    : shouldTrustWords
+      ? Math.min(Number(data.confidence || 0.6), 0.68)
+      : data.confidence;
 
   return {
     ...data,
@@ -316,6 +406,8 @@ export const normalizeExtractedSlip = (data: ExtractedSlipData) => {
     amount,
     confidence,
     amount_corrected_from_words: shouldTrustWords,
+    amount_grouping_suspect: groupingSuspect,
+    amount_candidates: groupingSuspect ? amountGroupingCandidates(data.amount) : [],
     amount_digit_value: parsedAmount,
     amount_word_value: wordAmount,
     amount_scale_ratio: shouldTrustWords ? scaleRatio : null,
@@ -380,9 +472,12 @@ const buildSlipTool = (readBeneficiary: boolean): DeepSeekToolDefinition => ({
 
 type NormalizedSlip = ReturnType<typeof normalizeExtractedSlip>;
 
-const validateSlip = (data: NormalizedSlip): string | null => {
+export const validateSlip = (data: NormalizedSlip): string | null => {
   const parsed = parseAmountVN(data.amount);
   if (!parsed || parsed <= 0) return "slip_amount_check";
+  // A mis-grouped raw read is not trustworthy even when the old parser still
+  // produced a number; let the caller turn it into a suspect amount instead.
+  if (data.amount_grouping_suspect === true) return "slip_amount_check";
   // If the digits disagreed with the words, normalizeExtractedSlip had to
   // correct them; the text read is not trustworthy enough to skip the image.
   if (data.amount_corrected_from_words === true) return "slip_amount_check";
