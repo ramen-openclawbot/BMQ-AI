@@ -289,3 +289,96 @@ test("allocations require the exact evidence sum unless overridden with a reason
   assert.equal(overridden.ok, true);
   assert.equal(overridden.allocatedTotal, 900_000);
 });
+
+// ---------------------------------------------------------------------------
+// Cash payments may bundle requests from different suppliers.
+// ---------------------------------------------------------------------------
+
+const mixedSupplierRequests = () => [
+  request({ id: "a", supplierId: "supplier-1", totalAmount: 1_000_000 }),
+  request({ id: "b", supplierId: "supplier-2", totalAmount: 500_000 }),
+];
+
+test("allocations accept mixed suppliers when the cash flag is on and the sum matches", () => {
+  const result = evaluateUncAllocations({
+    requests: mixedSupplierRequests(),
+    allocations: [allocation("a", 1_000_000), allocation("b", 500_000)],
+    evidenceAmount: 1_500_000,
+    allowMixedSuppliers: true,
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.code, "ok");
+  assert.equal(result.allocatedTotal, 1_500_000);
+});
+
+test("allocations still reject mixed suppliers without the cash flag", () => {
+  assert.equal(
+    evaluateUncAllocations({
+      requests: mixedSupplierRequests(),
+      allocations: [allocation("a", 1_000_000), allocation("b", 500_000)],
+      evidenceAmount: 1_500_000,
+    }).code,
+    "supplier_mismatch",
+  );
+});
+
+test("evaluate accepts mixed suppliers when the cash flag is on and the total matches", () => {
+  const result = evaluatePaymentUncMatch({
+    requests: mixedSupplierRequests(),
+    evidenceAmount: 1_500_000,
+    allowMixedSuppliers: true,
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.code, "ok");
+  assert.equal(result.remainingTotal, 1_500_000);
+  assert.equal(
+    evaluatePaymentUncMatch({
+      requests: mixedSupplierRequests(),
+      evidenceAmount: 1_500_000,
+    }).code,
+    "supplier_mismatch",
+  );
+});
+
+test("the cash flag does not bypass amount_mismatch or not_pending", () => {
+  assert.equal(
+    evaluatePaymentUncMatch({
+      requests: mixedSupplierRequests(),
+      evidenceAmount: 1_400_000,
+      allowMixedSuppliers: true,
+    }).code,
+    "amount_mismatch",
+  );
+  assert.equal(
+    evaluatePaymentUncMatch({
+      requests: [
+        request({ id: "a", supplierId: "supplier-1", status: "approved" }),
+        request({ id: "b", supplierId: "supplier-2", totalAmount: 500_000 }),
+      ],
+      evidenceAmount: 1_500_000,
+      allowMixedSuppliers: true,
+    }).code,
+    "not_pending",
+  );
+  assert.equal(
+    evaluateUncAllocations({
+      requests: mixedSupplierRequests(),
+      allocations: [allocation("a", 1_000_000), allocation("b", 500_000)],
+      evidenceAmount: 1_400_000,
+      allowMixedSuppliers: true,
+    }).code,
+    "amount_mismatch",
+  );
+  assert.equal(
+    evaluateUncAllocations({
+      requests: [
+        request({ id: "a", supplierId: "supplier-1", status: "rejected" }),
+        request({ id: "b", supplierId: "supplier-2", totalAmount: 500_000 }),
+      ],
+      allocations: [allocation("a", 1_000_000), allocation("b", 500_000)],
+      evidenceAmount: 1_500_000,
+      allowMixedSuppliers: true,
+    }).code,
+    "not_pending",
+  );
+});

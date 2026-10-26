@@ -76,11 +76,19 @@ export interface EvaluateUncMatchInput {
   evidenceAmount: number | null | undefined;
   manualOverride?: boolean;
   overrideReason?: string | null;
+  /** Cash payments may bundle requests from different suppliers. */
+  allowMixedSuppliers?: boolean;
 }
 
 /** Same validation order the approval RPC applies before writing anything. */
 export function evaluatePaymentUncMatch(input: EvaluateUncMatchInput): UncMatchResult {
-  const { requests, evidenceAmount, manualOverride = false, overrideReason } = input;
+  const {
+    requests,
+    evidenceAmount,
+    manualOverride = false,
+    overrideReason,
+    allowMixedSuppliers = false,
+  } = input;
   const supplierId = requests.length > 0 ? requests[0].supplierId ?? null : null;
   const remainingTotal = sumRemainingAmounts(requests);
 
@@ -103,7 +111,7 @@ export function evaluatePaymentUncMatch(input: EvaluateUncMatchInput): UncMatchR
     };
   }
 
-  if (!areSameSupplier(requests)) {
+  if (!allowMixedSuppliers && !areSameSupplier(requests)) {
     return {
       ok: false,
       code: "supplier_mismatch",
@@ -172,6 +180,8 @@ export interface EvaluateUncAllocationsInput {
   evidenceAmount: number | null | undefined;
   manualOverride?: boolean;
   overrideReason?: string | null;
+  /** Cash payments may bundle requests from different suppliers. */
+  allowMixedSuppliers?: boolean;
 }
 
 const allocationFail = (
@@ -190,7 +200,14 @@ const allocationFail = (
  * manual override is supplied.
  */
 export function evaluateUncAllocations(input: EvaluateUncAllocationsInput): UncAllocationResult {
-  const { requests, allocations, evidenceAmount, manualOverride = false, overrideReason } = input;
+  const {
+    requests,
+    allocations,
+    evidenceAmount,
+    manualOverride = false,
+    overrideReason,
+    allowMixedSuppliers = false,
+  } = input;
   const supplierId = requests.length > 0 ? requests[0].supplierId ?? null : null;
   const allocatedTotal = allocations.reduce((sum, allocation) => {
     const amount = Number(allocation.amount ?? 0);
@@ -230,7 +247,7 @@ export function evaluateUncAllocations(input: EvaluateUncAllocationsInput): UncA
     return allocationFail("not_pending", "Chỉ phân bổ cho phiếu đang chờ hoặc đã duyệt còn nợ.", allocatedTotal, supplierId);
   }
 
-  if (!areSameSupplier(requests)) {
+  if (!allowMixedSuppliers && !areSameSupplier(requests)) {
     return allocationFail("supplier_mismatch", "Các duyệt chi phải cùng một nhà cung cấp.", allocatedTotal, supplierId);
   }
 

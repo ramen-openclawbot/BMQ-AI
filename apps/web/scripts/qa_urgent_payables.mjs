@@ -430,6 +430,44 @@ try {
     await context.close();
   }
 
+  // 4b. Owner 26/10: cash goes through the accountant, so one slip may cover several suppliers;
+  //     UNC to two suppliers stays blocked.
+  for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 }]) {
+    const { context, page, errors } = await open({ role: "owner", ocrAmount: 3000000 }, "/payment-requests/submissions/sub-1", viewport);
+    await page.waitForSelector("[data-bmq-submission-row]");
+    await page.getByRole("checkbox", { name: "Chọn PR-U001" }).click();
+    await page.getByRole("checkbox", { name: "Chọn PR-U002" }).click();
+    await page.locator("[data-bmq-submission-multi-unc]").click();
+    let d = page.locator("[data-bmq-unc-dialog='approve']");
+    await d.waitFor();
+    await upload(page);
+    await page.waitForSelector("[data-bmq-unc-ocr]");
+    assert.equal(await page.locator("[data-bmq-unc-verdict='supplier']").count(), 1, "UNC to two suppliers is still blocked");
+    assert.ok(await page.locator("[data-bmq-unc-submit]").isDisabled());
+    await page.keyboard.press("Escape");
+    await d.waitFor({ state: "detached" });
+    await page.locator("[data-bmq-submission-multi-cash]").click();
+    d = page.locator("[data-bmq-unc-dialog='approve']");
+    await d.waitFor();
+    assert.equal(await d.getAttribute("data-bmq-unc-method"), "cash");
+    assert.ok((await d.textContent()).includes("nhiều nhà cung cấp"), "dialog says it covers several suppliers");
+    await upload(page);
+    await page.waitForSelector("[data-bmq-unc-verdict='match']");
+    assert.equal(await page.locator("[data-bmq-unc-verdict='supplier']").count(), 0, "no supplier warning for cash");
+    assert.ok(!(await page.locator("[data-bmq-unc-submit]").isDisabled()), "cash submit enabled");
+    assert.ok((await dialogOverflow(page)) <= 0, `cash mixed dialog no overflow ${viewport.width}`);
+    await page.waitForTimeout(250);
+    await d.screenshot({ path: `${EVIDENCE}/cash-mixed-suppliers-${viewport.width}.png` });
+    await page.locator("[data-bmq-unc-submit]").click();
+    await d.waitFor({ state: "detached" });
+    const confirm = (await page.evaluate(() => window.__qaBodies)).filter((b) => b.mode === "confirm").pop();
+    assert.equal(confirm.payment_method, "cash");
+    assert.equal(confirm.allocations.length, 2);
+    assert.deepEqual(errors, []);
+    record(`cash covers two suppliers, UNC blocked ${viewport.width}`);
+    await context.close();
+  }
+
   // 5. Accountant (no owner): sees the page read-only; CEO khai báo chip removed from the Duyệt chi zone.
   {
     const { context, page, errors } = await open({ role: "accountant" }, "/payment-requests/submissions/sub-1", { width: 1440, height: 900 });

@@ -271,9 +271,10 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
             evidenceAmount,
             manualOverride: manual,
             overrideReason: reason,
+            allowMixedSuppliers: isCash,
           })
         : null,
-    [approve, allocMode, requests, evidenceAmount, manual, reason],
+    [approve, allocMode, requests, evidenceAmount, manual, reason, isCash],
   );
   const allocMatch = allocMode
     ? evaluateUncAllocations({
@@ -282,6 +283,7 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
         evidenceAmount,
         manualOverride: manual,
         overrideReason: reason,
+        allowMixedSuppliers: isCash,
       })
     : null;
   const needTotal = allocMode ? requests.reduce((sum, r) => sum + remainingOf(r), 0) : match?.remainingTotal ?? 0;
@@ -293,7 +295,9 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
     !!d && ((d.ocr.confidence ?? 1) < LOW_CONFIDENCE || d.ocr.amount_corrected_from_words || d.ocr.amount_grouping_suspect === true);
   const lowConfidence = multi ? slips.some((s) => isLowConfidence(s.draft)) : isLowConfidence(draft);
   const supplierNames = Array.from(new Set(requests.map((r) => r.supplierName).filter(Boolean)));
-  const supplierMismatch = allocMode ? !areSameSupplier(requests) : match?.code === "supplier_mismatch";
+  // Cash settles through the accountant, so one slip may cover several suppliers; UNC stays one supplier.
+  const mixedSuppliers = !areSameSupplier(requests);
+  const supplierMismatch = !isCash && (allocMode ? mixedSuppliers : match?.code === "supplier_mismatch");
 
   // Several slips: split the amount to pay over the slips, each slip one payment.
   const slipTargets: UncAllocationInput[] = allocMode
@@ -534,7 +538,7 @@ export function UncApprovalDialog({ open, onOpenChange, mode, requests = [], onD
           </DialogTitle>
           <DialogDescription className="d3-unc-sub">
             {approve
-              ? `${requests.length} phiếu · ${supplierNames.join(", ") || "Chưa rõ nhà cung cấp"}${allocMode ? ` · gán số tiền ${docName} cho từng phiếu` : ""}`
+              ? `${requests.length} phiếu · ${supplierNames.join(", ") || "Chưa rõ nhà cung cấp"}${allocMode ? ` · gán số tiền ${docName} cho từng phiếu` : ""}${isCash && mixedSuppliers ? " · nhiều nhà cung cấp, chi chung một chứng từ" : ""}`
               : "Lương, thuế, thuê nhà hoặc khoản chuyển khoản khác. Số này cộng vào UNC trong ngày."}
           </DialogDescription>
         </DialogHeader>

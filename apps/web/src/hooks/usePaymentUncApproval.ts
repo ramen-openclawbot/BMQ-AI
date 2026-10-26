@@ -144,6 +144,7 @@ export function usePaymentUncApproval() {
           evidenceAmount: payload.amount,
           manualOverride: payload.manual_override,
           overrideReason: payload.override_reason,
+          allowMixedSuppliers: payload.payment_method === "cash",
         });
         if (!allocationMatch.ok) throw new PaymentUncApprovalError(allocationMatch.code);
 
@@ -161,6 +162,7 @@ export function usePaymentUncApproval() {
         evidenceAmount: payload.amount,
         manualOverride: payload.manual_override,
         overrideReason: payload.override_reason,
+        allowMixedSuppliers: payload.payment_method === "cash",
       });
       if (!match.ok) throw new PaymentUncApprovalError(match.code);
 
@@ -201,6 +203,7 @@ export function usePaymentUncApproval() {
             evidenceAmount: slip.amount,
             manualOverride: slip.manualOverride,
             overrideReason: payload.overrideReason,
+            allowMixedSuppliers: payload.payment_method === "cash",
           });
           if (!allocationMatch.ok) throw new PaymentUncApprovalError(allocationMatch.code);
 
