@@ -308,3 +308,8 @@ verify_jwt = false
 # webp/pdf files up to 10 MB are accepted into the private supplier-delivery-docs
 # bucket through the service role. No storage path or token is returned by GET.
 verify_jwt = false
+
+[functions.payment-stock-label-jev]
+# verify_jwt disabled: pg_cron calls it with x-worker-secret (no JWT). Auth is
+# enforced inside index.ts: either that worker secret or the service-role key.
+verify_jwt = false

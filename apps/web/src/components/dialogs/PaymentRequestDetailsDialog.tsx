@@ -24,6 +24,7 @@ import {
   Pencil,
   Plus,
   FolderSearch,
+  Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -230,6 +231,12 @@ export function PaymentRequestDetailsDialog({
   const cashSettlementStatus = (request as { cash_settlement_status?: string | null } | undefined)?.cash_settlement_status ?? null;
   const canMarkNoReceipt = !!request && needsReceipt && canEditRequests && request.status !== "rejected"
     && !request.goods_receipt_id && !request.purchase_order_id;
+  // Jev whole-request stock label: applied when confident, otherwise a suggestion only.
+  const jevLabeled = request?.stock_label_source === "jev";
+  const jevConfidence = request?.stock_label_jev_confidence;
+  const jevPercent = typeof jevConfidence === "number" ? Math.round(jevConfidence * 100) : null;
+  const jevSuggestsNoReceipt = !!request && request.stock_label_source == null && needsReceipt
+    && request.stock_label_jev_class === "non_stock" && request.status !== "rejected";
 
   const noReceiptError = (error: unknown) => {
     const code = error instanceof PaymentRequestReceiptError ? error.code : "unknown";
@@ -438,6 +445,12 @@ export function PaymentRequestDetailsDialog({
                       Không nhập kho
                     </span>
                   )}
+                  {jevLabeled && (
+                    <span className="d3-prd-chip is-blue" data-bmq-jev-stock-label title={request.stock_label_jev_reason ?? undefined}>
+                      <Sparkles className="h-3 w-3" />
+                      Jev gắn{jevPercent !== null ? ` · ${jevPercent}%` : ""}
+                    </span>
+                  )}
                   {request.goods_receipt_id && (
                     <span className="d3-prd-chip is-green">
                       <Package className="h-3 w-3" />
@@ -451,6 +464,28 @@ export function PaymentRequestDetailsDialog({
                 <p className="d3-prd-note" data-bmq-no-receipt-note>
                   <FileText className="h-4 w-4" />
                   <span>Chi không nhập kho{request.no_receipt_reason ? `: ${request.no_receipt_reason}` : ""}. Không cần giao hàng hay hóa đơn nhập kho.</span>
+                </p>
+              )}
+
+              {jevSuggestsNoReceipt && (
+                <p className="d3-prd-note is-jev" data-bmq-jev-stock-suggestion>
+                  <Sparkles className="h-4 w-4" />
+                  <span>
+                    Jev gợi ý: <b>không nhập kho</b>{jevPercent !== null ? ` (${jevPercent}%)` : ""}
+                    {request.stock_label_jev_reason ? ` — ${request.stock_label_jev_reason}` : ""}. Chưa đủ chắc nên chưa tự gắn.
+                    {canMarkNoReceipt && (
+                      <button
+                        type="button"
+                        className="d3-prd-note-action"
+                        onClick={() => {
+                          setNoReceiptReason(`Jev: ${request.stock_label_jev_reason ?? "không nhập kho"}`.slice(0, 200));
+                          setShowNoReceiptDialog(true);
+                        }}
+                      >
+                        Xem và áp dụng
+                      </button>
+                    )}
+                  </span>
                 </p>
               )}
 

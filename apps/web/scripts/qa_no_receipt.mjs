@@ -49,6 +49,8 @@ const PRS = [
   pr("66666666-6666-4666-8666-666666666666", "DC-0095", "sup-t", "Thiên An Sinh", 2883280, "approved"),
   Object.assign(pr("77777777-7777-4777-8777-777777777771", "DC-0106", "sup-t", "Thiên An Sinh", 2607720, "approved"), { purchase_orders: null, purchase_order_id: null, requires_receipt: false, no_receipt_reason: "Thuế VAT HĐ317", title: "Thuế VAT" }),
   Object.assign(pr("77777777-7777-4777-8777-777777777772", "DC-0107", "sup-t", "Thiên An Sinh", 1000000, "approved"), { purchase_orders: null, purchase_order_id: null, requires_receipt: true, title: "Phí dịch vụ" }),
+  Object.assign(pr("77777777-7777-4777-8777-777777777773", "DC-0108", "sup-h", "Công ty TNHH Kỹ thuật Điện lạnh Trung Hiếu", 6534000, "approved"), { purchase_orders: null, purchase_order_id: null, requires_receipt: false, no_receipt_reason: "Jev: Dịch vụ sửa máy lạnh", title: "Sửa máy lạnh", stock_label_source: "jev", stock_label_jev_class: "non_stock", stock_label_jev_confidence: 0.96, stock_label_jev_reason: "Dịch vụ sửa máy lạnh" }),
+  Object.assign(pr("77777777-7777-4777-8777-777777777774", "DC-0109", "sup-h", "Công ty TNHH Kỹ thuật Điện lạnh Trung Hiếu", 1200000, "pending"), { purchase_orders: null, purchase_order_id: null, requires_receipt: true, title: "Vệ sinh máy lạnh", stock_label_source: null, stock_label_jev_class: "non_stock", stock_label_jev_confidence: 0.72, stock_label_jev_reason: "Có vẻ là dịch vụ vệ sinh máy lạnh" }),
   pr("55555555-5555-4555-8555-555555555551", "DC-0096", "sup-t", "Thiên An Sinh", 10732500, "approved", true, "00"),
   pr("55555555-5555-4555-8555-555555555552", "DC-0097", "sup-t", "Thiên An Sinh", 10732500, "approved", true, "01"),
   pr("55555555-5555-4555-8555-555555555553", "DC-0098", "sup-t", "Thiên An Sinh", 11131500, "approved", true, "02"),
@@ -308,6 +310,41 @@ try {
     assert.deepEqual(errors, []);
     record("PO-linked request has no no-receipt option");
     await context.close();
+  }
+
+  // 3b. Jev whole-request label: an applied label shows a "Jev gắn" chip; a below-threshold
+  // suggestion shows a note whose action opens the existing dialog with Jev's reason prefilled.
+  for (const viewport of WIDTHS) {
+    const { context, page, errors } = await open({ role: "owner" }, "/payment-requests", viewport);
+    await openDetail(page, "DC-0108");
+    const chip = page.locator("[data-bmq-jev-stock-label]");
+    await chip.waitFor();
+    assert.ok((await chip.textContent()).includes("Jev gắn · 96%"), await chip.textContent());
+    assert.equal(await page.locator("[data-bmq-no-receipt-badge]").count(), 1);
+    assert.equal(await page.locator("[data-bmq-jev-stock-suggestion]").count(), 0, "applied label is not a suggestion");
+    assert.ok((await overflow(page)) <= 0);
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: `${EVIDENCE}/jev-label-applied-${viewport.width}.png` });
+    await context.close();
+
+    const second = await open({ role: "owner" }, "/payment-requests", viewport);
+    await openDetail(second.page, "DC-0109");
+    const note = second.page.locator("[data-bmq-jev-stock-suggestion]");
+    await note.waitFor();
+    const noteText = await note.textContent();
+    assert.ok(noteText.includes("không nhập kho") && noteText.includes("72%"), noteText);
+    assert.equal(await second.page.locator("[data-bmq-jev-stock-label]").count(), 0, "suggestion has no applied chip");
+    assert.ok((await overflow(second.page)) <= 0);
+    await second.page.waitForTimeout(300);
+    await second.page.screenshot({ path: `${EVIDENCE}/jev-label-suggestion-${viewport.width}.png` });
+    await note.getByRole("button", { name: "Xem và áp dụng" }).click();
+    const dialog = second.page.locator("[data-bmq-no-receipt-dialog]");
+    await dialog.waitFor();
+    assert.equal(await dialog.getByLabel("Lý do chi không nhập kho").inputValue(), "Jev: Có vẻ là dịch vụ vệ sinh máy lạnh");
+    assert.deepEqual((await writes(second.page)).filter((w) => w.includes("requires_receipt")), [], "opening the suggestion writes nothing");
+    assert.deepEqual([...errors, ...second.errors], []);
+    record(`jev label chip + suggestion ${viewport.width}`);
+    await second.context.close();
   }
 
   // 4. Create dialog: the option shows a reason field and blocks submit without a reason.

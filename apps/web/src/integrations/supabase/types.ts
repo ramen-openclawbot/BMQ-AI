@@ -1553,6 +1553,11 @@ export type Database = {
           no_receipt_reason: string | null
           no_receipt_set_at: string | null
           no_receipt_set_by: string | null
+          stock_label_source: "manual" | "jev" | null
+          stock_label_jev_class: "stock" | "non_stock" | null
+          stock_label_jev_confidence: number | null
+          stock_label_jev_reason: string | null
+          stock_label_jev_at: string | null
           rejection_reason: string | null
           request_number: string
           status: Database["public"]["Enums"]["payment_request_status"]
@@ -1589,6 +1594,11 @@ export type Database = {
           no_receipt_reason?: string | null
           no_receipt_set_at?: string | null
           no_receipt_set_by?: string | null
+          stock_label_source?: "manual" | "jev" | null
+          stock_label_jev_class?: "stock" | "non_stock" | null
+          stock_label_jev_confidence?: number | null
+          stock_label_jev_reason?: string | null
+          stock_label_jev_at?: string | null
           rejection_reason?: string | null
           request_number: string
           status?: Database["public"]["Enums"]["payment_request_status"]
@@ -1625,6 +1635,11 @@ export type Database = {
           no_receipt_reason?: string | null
           no_receipt_set_at?: string | null
           no_receipt_set_by?: string | null
+          stock_label_source?: "manual" | "jev" | null
+          stock_label_jev_class?: "stock" | "non_stock" | null
+          stock_label_jev_confidence?: number | null
+          stock_label_jev_reason?: string | null
+          stock_label_jev_at?: string | null
           rejection_reason?: string | null
           request_number?: string
           status?: Database["public"]["Enums"]["payment_request_status"]
