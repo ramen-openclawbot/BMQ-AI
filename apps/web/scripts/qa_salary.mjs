@@ -28,7 +28,7 @@ const WRITE = new Set(["insert", "update", "upsert", "delete"]);
 const PAYOUT_ID = "${PAYOUT_ID}";
 const STATE = JSON.parse(sessionStorage.getItem("qa-salary") || "null") || {
   payout: { id: PAYOUT_ID, payout_number: "SAL-261012-01", payroll_period_id: "per-1", period_name: "Kỳ lương T09/2026", employee_count: 3, total_amount: 23000000,
-    status: "pending", ceo_evidence_storage_path: null, ceo_evidence_sha256: null, ceo_evidence: [], ceo_paid_at: null, ceo_paid_by: null, completed_at: null, completed_by: null, created_by: "qa-user", created_at: new Date().toISOString(), note: null },
+    status: "pending", pay_method: "cash", ceo_evidence_storage_path: null, ceo_evidence_sha256: null, ceo_evidence: [], ceo_paid_at: null, ceo_paid_by: null, completed_at: null, completed_by: null, created_by: "qa-user", created_at: new Date().toISOString(), note: null },
   lines: [
     { id: "l-mai", payout_id: PAYOUT_ID, employee_code: "NV01", employee_name: "Nguyễn Thị Xuân Mai", net_pay: 8000000, receipt_storage_path: null, receipt_sha256: null, receipt_amount: null, receipt_beneficiary: null, receipt_reference: null, matched_at: null, matched_by: null },
     { id: "l-binh", payout_id: PAYOUT_ID, employee_code: "NV02", employee_name: "Trần Văn Bình", net_pay: 8000000, receipt_storage_path: null, receipt_sha256: null, receipt_amount: null, receipt_beneficiary: null, receipt_reference: null, matched_at: null, matched_by: null },
@@ -58,7 +58,13 @@ function settle(st) {
   if (st.table === "rpc:create_manual_salary_payout") { window.__qaCalls.push({ fn: "createManual", ...st.args }); STATE.payout.source = "manual"; STATE.payout.period_name = st.args.p_payload.title; save(); return { data: { payout_id: PAYOUT_ID, payout_number: STATE.payout.payout_number, period_name: st.args.p_payload.title, employee_count: st.args.p_payload.lines.length, total_amount: 0, status: "pending", source: "manual" }, error: null }; }
   if (st.table === "rpc:get_salary_payout") { if (denied()) return { data: null, error: { message: "insufficient_privilege" } }; return { data: JSON.parse(JSON.stringify(STATE)), error: null }; }
   if (st.table === "rpc:cancel_salary_payout") { window.__qaCalls.push({ fn: "cancel", ...st.args }); if (cfg().role !== "owner") return { data: null, error: { message: "insufficient_privilege" } }; if (STATE.payout.status !== "pending") return { data: null, error: { message: "not_pending" } }; STATE.payout.status = "cancelled"; save(); return { data: { payout_id: PAYOUT_ID, status: "cancelled" }, error: null }; }
-  if (st.table === "rpc:record_salary_payout_ceo_payment") { window.__qaCalls.push({ fn: "ceo", ...st.args }); const list = Array.isArray(st.args.p_evidence) ? st.args.p_evidence : [st.args.p_evidence]; STATE.payout.status = "advanced"; STATE.payout.ceo_evidence = list.map((e, i) => ({ storage_path: e.storage_path, file_sha256: e.file_sha256, ocr_amount: e.ocr_amount ?? null, position: i })); STATE.payout.ceo_evidence_storage_path = list[0]?.storage_path ?? null; STATE.payout.ceo_evidence_sha256 = list[0]?.file_sha256 ?? null; save(); return { data: { payout_id: PAYOUT_ID, status: "advanced", ceo_evidence_storage_path: STATE.payout.ceo_evidence_storage_path, ceo_evidence_sha256: STATE.payout.ceo_evidence_sha256, ceo_evidence: STATE.payout.ceo_evidence }, error: null }; }
+  if (st.table === "rpc:record_salary_payout_ceo_payment") { window.__qaCalls.push({ fn: "ceo", ...st.args }); const unc = STATE.payout.pay_method === "unc"; const list = Array.isArray(st.args.p_evidence) ? st.args.p_evidence : [st.args.p_evidence]; STATE.payout.status = unc ? "completed" : "advanced"; STATE.payout.ceo_evidence = list.map((e, i) => ({ storage_path: e.storage_path, file_sha256: e.file_sha256, ocr_amount: e.ocr_amount ?? null, position: i })); STATE.payout.ceo_evidence_storage_path = list[0]?.storage_path ?? null; STATE.payout.ceo_evidence_sha256 = list[0]?.file_sha256 ?? null; save(); return { data: { payout_id: PAYOUT_ID, status: STATE.payout.status, ceo_evidence_storage_path: STATE.payout.ceo_evidence_storage_path, ceo_evidence_sha256: STATE.payout.ceo_evidence_sha256, ceo_evidence: STATE.payout.ceo_evidence }, error: null }; }
+  if (st.table === "rpc:set_salary_payout_method") {
+    window.__qaCalls.push({ fn: "setMethod", ...st.args });
+    STATE.payout.pay_method = st.args.p_method;
+    if (st.args.p_method === "unc" && STATE.payout.status === "advanced") STATE.payout.status = "completed";
+    save(); return { data: { payout_id: PAYOUT_ID, pay_method: STATE.payout.pay_method, status: STATE.payout.status }, error: null };
+  }
   if (st.table === "rpc:discard_salary_payout_receipt") { window.__qaCalls.push({ fn: "discard", ...st.args }); const r = STATE.receipts.find((x) => x.id === st.args.p_receipt_id); if (r) r.status = "discarded"; save(); return { data: { id: st.args.p_receipt_id, status: "discarded" }, error: null }; }
   if (st.table === "rpc:submit_salary_payout_matches") {
     window.__qaCalls.push({ fn: "submit", ...st.args });
@@ -234,6 +240,7 @@ try {
     assert.ok((await page.locator("[data-bmq-salary-dialog] .d3-unc-head").textContent()).includes("Tạo phiếu lương bếp Q7"), "Q7 header");
     assert.ok(await page.$eval("[data-bmq-salary-dialog]", (el) => el.scrollWidth - el.clientWidth) <= 0, `dialog overflow ${w}`);
     await page.locator("[data-bmq-salary-dialog]").screenshot({ path: `${EVIDENCE}/create-${w}.png` });
+    assert.equal(await page.locator('[data-bmq-salary-method-choice="cash"]').getAttribute("aria-pressed"), "true", "cash is the default method");
     await page.locator("[data-bmq-salary-create-save]").click();
     await page.waitForSelector(PAGE);
     await page.waitForSelector('[data-bmq-salary-status="pending"]');
@@ -388,6 +395,78 @@ try {
     await page.locator("[data-bmq-salary-exclusions]").screenshot({ path: `${EVIDENCE}/excluded-page-${w}.png` });
     assert.deepEqual(errors, []);
     console.log("PASS", `exclude one employee ${w}`);
+    await context.close();
+  }
+  for (const w of [390, 1440]) {
+    // UNC: chosen while pending, then the CEO confirm completes the phiếu with no bank slips.
+    const { context, page, errors } = await open({ role: "owner" }, "/payment-requests", { width: w, height: 844 });
+    await page.evaluate(() => sessionStorage.removeItem("qa-salary"));
+    await page.goto(page.url().replace(/\/payment-requests.*$/, `/salary-payouts/${PAYOUT_ID}`));
+    await page.waitForSelector('[data-bmq-salary-status="pending"]');
+    assert.equal(await page.locator('[data-bmq-salary-method="cash"]').count(), 1, "default chip is cash");
+    await page.locator('[data-bmq-salary-method-set="unc"]').click();
+    await page.waitForSelector('[data-bmq-salary-method="unc"]');
+    assert.equal((await calls(page)).filter((c) => c.fn === "setMethod")[0].p_method, "unc");
+    assert.ok((await page.locator(PAGE).textContent()).includes("Chờ xác nhận UNC"));
+    assert.ok((await page.locator(PAGE).textContent()).includes("Chứng từ UNC"));
+    assert.ok(await pageOverflow(page) <= 0, `page overflow unc pending ${w}`);
+    await page.screenshot({ path: `${EVIDENCE}/unc-pending-${w}.png`, fullPage: true });
+    await page.setInputFiles("[data-bmq-salary-ceo-file]", SLIPS.slice(0, 2));
+    await page.waitForSelector('[data-bmq-salary-ceo-sum="match"]');
+    assert.ok((await page.locator('[data-bmq-salary-ceo-confirm]').textContent()).includes("Xác nhận đã chi UNC"));
+    await page.locator("[data-bmq-salary-ceo-confirm]").click();
+    await page.waitForSelector('[data-bmq-salary-status="completed"]');
+    assert.equal(await page.locator("[data-bmq-salary-slip-pick]").count(), 0, "no bank slip upload for UNC");
+    assert.equal(await page.locator("[data-bmq-salary-method-set]").count(), 0, "method locked once completed");
+    assert.ok(!(await page.locator(PAGE).textContent()).includes("đã có bank slip"), "no bank slip counter for UNC");
+    assert.ok(await pageOverflow(page) <= 0, `page overflow unc completed ${w}`);
+    await page.screenshot({ path: `${EVIDENCE}/unc-completed-${w}.png`, fullPage: true });
+    assert.deepEqual(errors, []);
+    console.log("PASS", `UNC completes without bank slips ${w}`);
+    await context.close();
+  }
+  {
+    // Creating a phiếu with UNC picked in the dialog switches it right after create.
+    const { context, page, errors } = await open({ role: "owner" }, "/payment-requests", { width: 390, height: 844 });
+    await page.evaluate(() => sessionStorage.removeItem("qa-salary"));
+    await page.locator("[data-bmq-pr-create-menu]").first().click(); await page.locator("[data-bmq-pr-create-choice='salary']").first().click();
+    await page.waitForSelector("[data-bmq-salary-period]");
+    await page.locator("[data-bmq-salary-period]").click();
+    await page.waitForFunction(() => document.querySelectorAll("[data-bmq-salary-emp]").length === 3);
+    await page.locator('[data-bmq-salary-method-choice="unc"]').click();
+    assert.equal(await page.locator('[data-bmq-salary-method-choice="unc"]').getAttribute("aria-pressed"), "true");
+    assert.ok(await page.$eval("[data-bmq-salary-dialog]", (el) => el.scrollWidth - el.clientWidth) <= 0, "dialog overflow with method choice");
+    await page.locator("[data-bmq-salary-dialog]").screenshot({ path: `${EVIDENCE}/create-unc-390.png` });
+    await page.locator("[data-bmq-salary-create-save]").click();
+    await page.waitForSelector('[data-bmq-salary-method="unc"]');
+    const sm = (await calls(page)).filter((c) => c.fn === "setMethod");
+    assert.equal(sm.length, 1); assert.equal(sm[0].p_method, "unc"); assert.equal(sm[0].p_id, PAYOUT_ID);
+    assert.deepEqual(errors, []);
+    console.log("PASS", "create with UNC picked");
+    await context.close();
+  }
+  {
+    // Cash payout already advanced with no bank slip: switching to UNC completes it (SAL-261026-02 case).
+    const { context, page, errors } = await open({ role: "owner" }, "/payment-requests", { width: 390, height: 844 });
+    await page.evaluate(() => sessionStorage.removeItem("qa-salary"));
+    await page.goto(page.url().replace(/\/payment-requests.*$/, `/salary-payouts/${PAYOUT_ID}`));
+    await page.waitForSelector('[data-bmq-salary-status="pending"]');
+    await page.setInputFiles("[data-bmq-salary-ceo-file]", SLIPS.slice(0, 2));
+    await page.waitForSelector('[data-bmq-salary-ceo-sum="match"]');
+    await page.locator("[data-bmq-salary-ceo-confirm]").click();
+    await page.waitForSelector('[data-bmq-salary-status="advanced"]');
+    assert.equal(await page.locator("[data-bmq-salary-slip-pick]").count(), 1, "cash keeps the bank slip upload");
+    await page.screenshot({ path: `${EVIDENCE}/unc-switch-advanced-390.png`, fullPage: true });
+    page.once("dialog", (d) => d.dismiss());
+    await page.locator('[data-bmq-salary-method-set="unc"]').click();
+    await page.waitForTimeout(200);
+    assert.equal((await calls(page)).filter((c) => c.fn === "setMethod").length, 0, "dismissed confirm does not switch");
+    page.once("dialog", (d) => d.accept());
+    await page.locator('[data-bmq-salary-method-set="unc"]').click();
+    await page.waitForSelector('[data-bmq-salary-status="completed"]');
+    assert.equal(await page.locator("[data-bmq-salary-slip-pick]").count(), 0);
+    assert.deepEqual(errors, []);
+    console.log("PASS", "advanced cash switched to UNC completes");
     await context.close();
   }
   {

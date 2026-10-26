@@ -19,6 +19,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { buildManualSalaryIdempotencyKey } from "@/lib/salary-manual-lines";
 import type { SalaryPayoutAttachment } from "@/lib/salary-attachments";
+import { normalizePayMethod, type SalaryPayMethod } from "@/lib/salary-pay-method";
 
 /** At most two OCR calls in flight so the OpenAI Vision gateway is not flooded. */
 export const MAX_PARALLEL_SALARY_RECEIPT_EXTRACTS = 2;
@@ -107,6 +108,7 @@ export interface SalaryPayoutHeader {
   employee_count: number;
   total_amount: number;
   status: SalaryPayoutStatus;
+  pay_method: SalaryPayMethod;
   ceo_evidence_storage_path: string | null;
   ceo_evidence_sha256: string | null;
   /** Full CEO transfer slip list; [] on older responses without the key. */
@@ -200,6 +202,12 @@ export interface SalaryPayoutCeoPaymentResult {
   idempotent?: boolean;
 }
 
+export interface SalaryPayoutMethodResult {
+  payout_id: string;
+  pay_method: SalaryPayMethod;
+  status: SalaryPayoutStatus;
+}
+
 export interface SalaryPayoutSubmitMatchInput {
   receipt_id: string;
   line_id: string;
@@ -284,7 +292,14 @@ export const loadSalaryPayout = async (payoutId: string): Promise<SalaryPayoutDa
         }))
     : [];
 
-  return { ...result, payout: { ...payout, ceo_evidence: ceoEvidence } };
+  return {
+    ...result,
+    payout: {
+      ...payout,
+      pay_method: normalizePayMethod(payout.pay_method),
+      ceo_evidence: ceoEvidence,
+    },
+  };
 };
 
 export const listPublishedPayrollPeriods = async (): Promise<SalaryPayoutPeriodOption[]> => {
@@ -365,6 +380,8 @@ const KNOWN_SALARY_PAYOUT_ERRORS = [
   "invalid_evidence_sha256",
   "invalid_evidence_amount",
   "invalid_evidence",
+  "invalid_method",
+  "method_locked",
   "invalid_payload",
   "title_required",
   "invalid_title",
@@ -549,6 +566,19 @@ export function useSalaryPayout(payoutId: string | null, periodId: string | null
       };
     },
     [],
+  );
+
+  const setPayMethod = useCallback(
+    async (payoutId: string, method: SalaryPayMethod): Promise<SalaryPayoutMethodResult> => {
+      const { data, error } = await client.rpc("set_salary_payout_method", {
+        p_id: payoutId,
+        p_method: method,
+      });
+      if (error) throw error;
+      invalidate();
+      return data as unknown as SalaryPayoutMethodResult;
+    },
+    [invalidate],
   );
 
   const recordCeoPayment = useCallback(
@@ -739,6 +769,7 @@ export function useSalaryPayout(payoutId: string | null, periodId: string | null
     createManual,
     load: loadSalaryPayout,
     ceoExtract,
+    setPayMethod,
     recordCeoPayment,
     extractReceipts,
     discard,

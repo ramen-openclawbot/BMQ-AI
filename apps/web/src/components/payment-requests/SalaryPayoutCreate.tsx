@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { useSalaryPayoutAttachments } from "@/hooks/useSalaryPayoutAttachments";
 import { SalaryAttachmentPicker, toSalaryUploadInputs } from "@/components/payment-requests/SalaryAttachments";
 import { validateManualSalaryPayout } from "@/lib/salary-manual-lines";
+import { salaryPayMethodLabel, type SalaryPayMethod } from "@/lib/salary-pay-method";
 import { LoadingState } from "@/components/ui/loading";
 import "@/styles/bmq-pr-create.css";
 
@@ -54,7 +55,8 @@ interface Props {
 
 export function SalaryPayoutCreate({ kind, onKindChange: setKind, onDone }: Props) {
   const navigate = useNavigate();
-  const { periods, isLoadingPeriods, periodsError, create, createManual } = useSalaryPayout(null);
+  const { periods, isLoadingPeriods, periodsError, create, createManual, setPayMethod } = useSalaryPayout(null);
+  const [payMethod, setPayMethodChoice] = useState<SalaryPayMethod>("cash");
   const [picked, setPicked] = useState<string | null>(null);
   // Checklist of the picked period: unticked employees are excluded with a reason.
   const { periodLines, isLoadingPeriodLines, periodLinesError } = useSalaryPayoutPeriodLines(picked);
@@ -104,6 +106,14 @@ export function SalaryPayoutCreate({ kind, onKindChange: setKind, onDone }: Prop
         if (result.failed.length) toast.warning(`Chưa đính kèm được ${result.failed.length} chứng từ. Mở phiếu để thêm lại.`);
       } catch {
         toast.warning("Chưa đính kèm được chứng từ. Mở phiếu để thêm lại.");
+      }
+    }
+    if (payMethod === "unc") {
+      // The phiếu exists as cash first; a failed switch is fixable on the phiếu page while it is pending.
+      try {
+        await setPayMethod(payoutId, "unc");
+      } catch {
+        toast.warning("Chưa chọn được hình thức UNC. Mở phiếu để chọn lại.");
       }
     }
     toast.success(`Đã tạo ${number}. Nhóm Zalo đã được báo (không kèm số tiền).`);
@@ -271,6 +281,16 @@ export function SalaryPayoutCreate({ kind, onKindChange: setKind, onDone }: Prop
           )}
         </>
       )}
+
+      <div className="d3-cs-head"><h3>Hình thức chi</h3></div>
+      <div className="d3-cpr-modes" role="group" aria-label="Hình thức chi" data-bmq-salary-method-pick>
+        {(["cash", "unc"] as const).map((m) => (
+          <button key={m} type="button" className={payMethod === m ? "is-on" : undefined} aria-pressed={payMethod === m} onClick={() => setPayMethodChoice(m)} disabled={saving} data-bmq-salary-method-choice={m}>
+            {salaryPayMethodLabel(m)}
+          </button>
+        ))}
+      </div>
+      <p className="d3-prc-hint">{payMethod === "unc" ? "UNC: hệ thống chuyển thẳng cho nhân viên. Sau khi CEO xác nhận chứng từ, phiếu hoàn tất, kế toán không cần up bank slip." : "Tiền mặt: CEO chuyển cho kế toán, kế toán chi và up bank slip từng nhân viên."}</p>
 
       <SalaryAttachmentPicker files={docs} onChange={setDocs} disabled={saving} />
 

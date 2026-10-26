@@ -19,6 +19,7 @@ import { useSalaryPayout, type SalaryPayoutCeoEvidence } from "@/hooks/useSalary
 import { SalaryAttachmentsCard } from "@/components/payment-requests/SalaryAttachments";
 import { matchSalaryPayout } from "@/lib/salary-payout-match";
 import { dedupeBySha, summarizeCeoSlips } from "@/lib/salary-ceo-evidence";
+import { needsBankSlips, salaryPayMethodLabel, type SalaryPayMethod } from "@/lib/salary-pay-method";
 import { cn } from "@/lib/utils";
 import { LoadingState } from "@/components/ui/loading";
 import "@/styles/bmq-urgent-payables.css";
@@ -79,7 +80,7 @@ export default function SalaryPayout() {
   const payoutId = id && UUID_RE.test(id) ? id : null;
   const { isOwner, canEditModule } = useAuth();
   const canEdit = isOwner || canEditModule("salary_cash");
-  const { data, isLoading, error, ceoExtract, recordCeoPayment, extractReceipts, discard, submitMatches } = useSalaryPayout(payoutId);
+  const { data, isLoading, error, ceoExtract, setPayMethod, recordCeoPayment, extractReceipts, discard, submitMatches } = useSalaryPayout(payoutId);
   const [zoom, setZoom] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const [cancelling, setCancelling] = useState(false);
@@ -101,7 +102,7 @@ export default function SalaryPayout() {
   };
   // The CEO may transfer in several parts: 1..10 slips, summed against the payout total.
   const [ceoSlips, setCeoSlips] = useState<(SalaryPayoutCeoEvidence & { preview: string })[]>([]);
-  const [busy, setBusy] = useState<"" | "ceo-read" | "ceo-save" | "receipts" | "submit">("");
+  const [busy, setBusy] = useState<"" | "ceo-read" | "ceo-save" | "receipts" | "submit" | "method">("");
   const [manualLine, setManualLine] = useState<Record<string, string>>({});
   const [manualAmount, setManualAmount] = useState<Record<string, string>>({});
   const ceoFileRef = useRef<HTMLInputElement>(null);
@@ -171,7 +172,7 @@ export default function SalaryPayout() {
     setBusy("ceo-save");
     try {
       await recordCeoPayment(payout.id, ceoSlips);
-      toast.success("Đã xác nhận chuyển tiền chi lương. Nhóm Zalo đã được báo.");
+      toast.success(isUnc ? "Đã chi lương xong. Nhóm Zalo đã được báo." : "Đã xác nhận chuyển tiền chi lương. Nhóm Zalo đã được báo.");
       setCeoSlips([]);
     } catch (err) {
       toast.error(errorText(err));
@@ -210,7 +211,25 @@ export default function SalaryPayout() {
     }
   };
 
-  const st = STATUS[payout?.status ?? ""] ?? { label: payout?.status ?? "", tone: "" };
+  const isUnc = payout ? !needsBankSlips(payout.pay_method) : false;
+  const st = isUnc && payout?.status === "pending"
+    ? { label: "Chờ xác nhận UNC", tone: "is-amber" }
+    : STATUS[payout?.status ?? ""] ?? { label: payout?.status ?? "", tone: "" };
+
+  // Pending: either way. Advanced cash with no bank slip matched yet: switch to UNC completes the phiếu.
+  const changeMethod = async (method: SalaryPayMethod) => {
+    if (!payout || payout.pay_method === method) return;
+    if (payout.status === "advanced" && !window.confirm("Chi bằng UNC: phiếu sẽ hoàn tất ngay, kế toán không cần up bank slip. Tiếp tục?")) return;
+    setBusy("method");
+    try {
+      const result = await setPayMethod(payout.id, method);
+      toast.success(result.status === "completed" ? "Đã chi lương xong. Nhóm Zalo đã được báo." : `Đã chọn chi bằng ${salaryPayMethodLabel(method)}.`);
+    } catch (err) {
+      toast.error(errorText(err));
+    } finally {
+      setBusy("");
+    }
+  };
 
   return (
     <div className="d3-ps d3-csp min-w-0 pb-24" data-bmq-salary-page>
@@ -231,6 +250,21 @@ export default function SalaryPayout() {
             <p>
               {payout.employee_count} nhân viên · <b data-bmq-salary-total>{vnd(payout.total_amount)}</b>
             </p>
+            <span className={cn("d3-up-chip", isUnc ? "is-blue" : "")} data-bmq-salary-method={payout.pay_method}>Chi bằng {salaryPayMethodLabel(payout.pay_method)}</span>
+            {canEdit && payout.status === "pending" && (
+              <div className="d3-cpr-modes d3-sal-method" role="group" aria-label="Hình thức chi">
+                {(["cash", "unc"] as const).map((m) => (
+                  <button key={m} type="button" className={payout.pay_method === m ? "is-on" : undefined} aria-pressed={payout.pay_method === m} onClick={() => void changeMethod(m)} disabled={!!busy} data-bmq-salary-method-set={m}>
+                    {salaryPayMethodLabel(m)}
+                  </button>
+                ))}
+              </div>
+            )}
+            {canEdit && payout.status === "advanced" && !isUnc && matchedCount === 0 && (
+              <button type="button" className="d3-sal-unc-switch" onClick={() => void changeMethod("unc")} disabled={!!busy} data-bmq-salary-method-set="unc">
+                {busy === "method" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Phiếu này chi bằng UNC, hoàn tất phiếu
+              </button>
+            )}
             {isOwner && payout.status === "pending" && (
               <button type="button" className="d3-sal-cancel" onClick={() => void cancelPayout()} disabled={cancelling || !!busy} data-bmq-salary-cancel>
                 {cancelling ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />} Huỷ phiếu
@@ -241,7 +275,7 @@ export default function SalaryPayout() {
           {/* CEO transfer */}
           <section className="d3-csp-card d3-cs" aria-label="CEO chuyển tiền">
             <div className="d3-cs-head">
-              <h3>CEO chuyển tiền cho kế toán</h3>
+              <h3>{isUnc ? "Chứng từ UNC" : "CEO chuyển tiền cho kế toán"}</h3>
               <span className={cn("d3-up-chip", st.tone)} data-bmq-salary-status={payout.status}>{st.label}</span>
             </div>
             {payout.ceo_evidence_storage_path || (payout.ceo_evidence ?? []).length > 0 ? (
@@ -288,32 +322,32 @@ export default function SalaryPayout() {
                         {busy === "ceo-read" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />} Thêm ảnh
                       </Button>
                       <Button className="d3-ub-go h-11" onClick={() => void confirmCeo()} disabled={!!busy} data-bmq-salary-ceo-confirm>
-                        {busy === "ceo-save" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Xác nhận đã chuyển
+                        {busy === "ceo-save" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} {isUnc ? "Xác nhận đã chi UNC" : "Xác nhận đã chuyển"}
                       </Button>
                     </div>
                   </div>
                 ) : (
                   <button type="button" className="d3-unc-drop" onClick={() => ceoFileRef.current?.click()} disabled={!!busy} data-bmq-salary-ceo-pick>
                     {busy === "ceo-read" ? <Loader2 className="h-6 w-6 animate-spin" /> : <ImagePlus className="h-6 w-6" />}
-                    <span>{busy === "ceo-read" ? "Đang đọc ảnh…" : "Up ảnh chuyển khoản cho kế toán"}</span>
+                    <span>{busy === "ceo-read" ? "Đang đọc ảnh…" : isUnc ? "Up chứng từ UNC đã chuyển cho nhân viên" : "Up ảnh chuyển khoản cho kế toán"}</span>
                     <small>Tổng cần chuyển {vnd(payout.total_amount)} · chọn được nhiều ảnh nếu chuyển nhiều lần</small>
                   </button>
                 )}
               </>
             ) : (
-              <p className="d3-unc-ev-note">{payout.status === "pending" ? "Chờ CEO chuyển tiền và up ảnh chuyển khoản." : "Chưa có ảnh chuyển khoản."}</p>
+              <p className="d3-unc-ev-note">{payout.status === "pending" ? (isUnc ? "Chờ CEO xác nhận chứng từ UNC." : "Chờ CEO chuyển tiền và up ảnh chuyển khoản.") : "Chưa có ảnh chuyển khoản."}</p>
             )}
           </section>
 
           {/* Employees */}
           <section className="d3-csp-card d3-cs" aria-label="Nhân viên">
             <div className="d3-cs-head">
-              <h3>Nhân viên · {matchedCount}/{lines.length} đã có bank slip</h3>
+              <h3>{isUnc ? `Nhân viên · ${lines.length} người` : `Nhân viên · ${matchedCount}/${lines.length} đã có bank slip`}</h3>
             </div>
-            <div className="d3-cs-bar"><span style={{ width: `${lines.length ? (matchedCount / lines.length) * 100 : 0}%` }} /></div>
+            {!isUnc && <div className="d3-cs-bar"><span style={{ width: `${lines.length ? (matchedCount / lines.length) * 100 : 0}%` }} /></div>}
             <ul className="d3-cs-items">
               {lines.map((l) => {
-                const done = !!l.receipt_storage_path;
+                const done = isUnc ? payout.status === "completed" : !!l.receipt_storage_path;
                 return (
                   <li key={l.id} className={cn(done && "is-done")} data-bmq-salary-line={done ? "done" : "open"}>
                     <div className="d3-cs-item-top">
@@ -322,7 +356,7 @@ export default function SalaryPayout() {
                       <span className="d3-cs-amt">{vnd(l.net_pay)}</span>
                     </div>
                     {l.note && <small className="d3-cs-left d3-salary-note">{l.note}</small>}
-                    {done && (
+                    {done && !isUnc && (
                       <div className="d3-cs-strip">
                         <figure>
                           <Thumb path={l.receipt_storage_path} onOpen={setZoom} />
@@ -350,7 +384,7 @@ export default function SalaryPayout() {
               </div>
             )}
 
-            {payout.status === "advanced" && canEdit && (
+            {payout.status === "advanced" && canEdit && !isUnc && (
               <>
                 <input ref={slipFileRef} type="file" accept="image/*" multiple className="sr-only" data-bmq-salary-slip-file onChange={(e) => { void pickSlips(e.target.files); e.currentTarget.value = ""; }} />
                 <button type="button" className="d3-unc-drop d3-cs-drop" onClick={() => slipFileRef.current?.click()} disabled={!!busy} data-bmq-salary-slip-pick>
@@ -361,7 +395,7 @@ export default function SalaryPayout() {
               </>
             )}
             {payout.status === "pending" && !isOwner && (
-              <p className="d3-unc-ev-note">Khi CEO xác nhận chuyển tiền, kế toán up bank slip trả lương tại đây.</p>
+              <p className="d3-unc-ev-note">{isUnc ? "Phiếu chi bằng UNC: sau khi CEO xác nhận chứng từ, phiếu hoàn tất, không cần up bank slip." : "Khi CEO xác nhận chuyển tiền, kế toán up bank slip trả lương tại đây."}</p>
             )}
 
             {openReceipts.length > 0 && (

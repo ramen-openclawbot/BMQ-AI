@@ -170,3 +170,7 @@ html .d3-unc.d3-cpr { max-width: 600px; }
 /* Huỷ phiếu chi lương (owner, chờ CEO chuyển tiền) */
 .d3-sal-cancel { display: inline-flex; align-items: center; gap: 6px; justify-self: start; width: fit-content; min-height: 36px; margin-top: 8px; padding: 0 12px; border: 1px solid #f2c4bb; border-radius: 10px; background: #fff5f3; color: #b4301f; font-size: 13px; cursor: pointer; }
 .d3-sal-cancel:disabled { opacity: .6; cursor: default; }
+.d3-sal-method { margin-top: 10px; max-width: 320px; }
+.d3-sal-unc-switch { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; margin-top: 10px; padding: 0 14px; border: 1px solid var(--d3-line-2, #d6d6d3); border-radius: 12px; background: var(--d3-white, #fdfdfc); font-size: 14px; cursor: pointer; }
+.d3-sal-unc-switch:focus-visible, .d3-sal-method button:focus-visible { outline: 2px solid var(--d3-blue, #3c91e6); outline-offset: 2px; }
+.d3-csp-head > .d3-up-chip { justify-self: start; width: fit-content; margin-top: 8px; }
