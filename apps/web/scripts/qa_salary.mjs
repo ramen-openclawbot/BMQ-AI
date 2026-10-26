@@ -28,7 +28,7 @@ const WRITE = new Set(["insert", "update", "upsert", "delete"]);
 const PAYOUT_ID = "${PAYOUT_ID}";
 const STATE = JSON.parse(sessionStorage.getItem("qa-salary") || "null") || {
   payout: { id: PAYOUT_ID, payout_number: "SAL-261012-01", payroll_period_id: "per-1", period_name: "Kỳ lương T09/2026", employee_count: 3, total_amount: 23000000,
-    status: "pending", ceo_evidence_storage_path: null, ceo_evidence_sha256: null, ceo_paid_at: null, ceo_paid_by: null, completed_at: null, completed_by: null, created_by: "qa-user", created_at: new Date().toISOString(), note: null },
+    status: "pending", ceo_evidence_storage_path: null, ceo_evidence_sha256: null, ceo_evidence: [], ceo_paid_at: null, ceo_paid_by: null, completed_at: null, completed_by: null, created_by: "qa-user", created_at: new Date().toISOString(), note: null },
   lines: [
     { id: "l-mai", payout_id: PAYOUT_ID, employee_code: "NV01", employee_name: "Nguyễn Thị Xuân Mai", net_pay: 8000000, receipt_storage_path: null, receipt_sha256: null, receipt_amount: null, receipt_beneficiary: null, receipt_reference: null, matched_at: null, matched_by: null },
     { id: "l-binh", payout_id: PAYOUT_ID, employee_code: "NV02", employee_name: "Trần Văn Bình", net_pay: 8000000, receipt_storage_path: null, receipt_sha256: null, receipt_amount: null, receipt_beneficiary: null, receipt_reference: null, matched_at: null, matched_by: null },
@@ -58,7 +58,7 @@ function settle(st) {
   if (st.table === "rpc:create_manual_salary_payout") { window.__qaCalls.push({ fn: "createManual", ...st.args }); STATE.payout.source = "manual"; STATE.payout.period_name = st.args.p_payload.title; save(); return { data: { payout_id: PAYOUT_ID, payout_number: STATE.payout.payout_number, period_name: st.args.p_payload.title, employee_count: st.args.p_payload.lines.length, total_amount: 0, status: "pending", source: "manual" }, error: null }; }
   if (st.table === "rpc:get_salary_payout") { if (denied()) return { data: null, error: { message: "insufficient_privilege" } }; return { data: JSON.parse(JSON.stringify(STATE)), error: null }; }
   if (st.table === "rpc:cancel_salary_payout") { window.__qaCalls.push({ fn: "cancel", ...st.args }); if (cfg().role !== "owner") return { data: null, error: { message: "insufficient_privilege" } }; if (STATE.payout.status !== "pending") return { data: null, error: { message: "not_pending" } }; STATE.payout.status = "cancelled"; save(); return { data: { payout_id: PAYOUT_ID, status: "cancelled" }, error: null }; }
-  if (st.table === "rpc:record_salary_payout_ceo_payment") { window.__qaCalls.push({ fn: "ceo", ...st.args }); STATE.payout.status = "advanced"; STATE.payout.ceo_evidence_storage_path = st.args.p_evidence.storage_path; STATE.payout.ceo_evidence_sha256 = st.args.p_evidence.file_sha256; save(); return { data: { payout_id: PAYOUT_ID, status: "advanced" }, error: null }; }
+  if (st.table === "rpc:record_salary_payout_ceo_payment") { window.__qaCalls.push({ fn: "ceo", ...st.args }); const list = Array.isArray(st.args.p_evidence) ? st.args.p_evidence : [st.args.p_evidence]; STATE.payout.status = "advanced"; STATE.payout.ceo_evidence = list.map((e, i) => ({ storage_path: e.storage_path, file_sha256: e.file_sha256, ocr_amount: e.ocr_amount ?? null, position: i })); STATE.payout.ceo_evidence_storage_path = list[0]?.storage_path ?? null; STATE.payout.ceo_evidence_sha256 = list[0]?.file_sha256 ?? null; save(); return { data: { payout_id: PAYOUT_ID, status: "advanced", ceo_evidence_storage_path: STATE.payout.ceo_evidence_storage_path, ceo_evidence_sha256: STATE.payout.ceo_evidence_sha256, ceo_evidence: STATE.payout.ceo_evidence }, error: null }; }
   if (st.table === "rpc:discard_salary_payout_receipt") { window.__qaCalls.push({ fn: "discard", ...st.args }); const r = STATE.receipts.find((x) => x.id === st.args.p_receipt_id); if (r) r.status = "discarded"; save(); return { data: { id: st.args.p_receipt_id, status: "discarded" }, error: null }; }
   if (st.table === "rpc:submit_salary_payout_matches") {
     window.__qaCalls.push({ fn: "submit", ...st.args });
@@ -72,6 +72,8 @@ function settle(st) {
     save();
     return { data: { payout_id: PAYOUT_ID, status: STATE.payout.status, matched_count: st.args.p_matches.length, remaining_count: STATE.lines.filter((l) => !l.receipt_storage_path).length }, error: null };
   }
+  // Read-only shell counters (bell, due notices) added after this QA was written: answer empty.
+  if (st.table === "rpc:get_auto_payment_request_count" || st.table === "rpc:get_expense_due_notices") return { data: st.table.endsWith("count") ? 0 : [], error: null };
   if (st.table.startsWith("rpc:")) { window.__qaWrites.push(st.table); return { data: null, error: { message: "QA fixture: rpc disabled" } }; }
   if (st.table === "salary_payouts" && !st.write) {
     if (denied()) return { data: [], error: null, count: 0 };
@@ -112,7 +114,7 @@ async function invoke(name, options) {
   }
   if (body.mode === "detach") { window.__qaCalls.push({ fn: "detach", id: body.attachment_id }); STATE.attachments = STATE.attachments.filter((a) => a.id !== body.attachment_id); save(); return { data: { success: true, id: body.attachment_id, removed: true }, error: null }; }
   if (body.mode === "attachment_url") { window.__qaCalls.push({ fn: "url", id: body.attachment_id }); return { data: { success: true, signed_url: SVG, expires_in: 300 }, error: null }; }
-  if (body.mode === "ceo_extract") return { data: { storage_path: "payment-unc/salary/2026/10/ceo.jpg", file_sha256: "c".repeat(64), ocr_amount: 23000000, ocr_reference: "FT1" }, error: null };
+  if (body.mode === "ceo_extract") { const k = (window.__qaCeoN = (window.__qaCeoN || 0) + 1); return { data: { storage_path: "payment-unc/salary/2026/10/ceo-" + k + ".jpg", file_sha256: (k === 1 ? "c" : "d").repeat(64), ocr_amount: k === 1 ? 15000000 : 8000000, ocr_reference: "FT" + k }, error: null }; }
   const n = (window.__qaN = (window.__qaN || 0) + 1) - 1;
   const o = OCR[n];
   const receipt = { id: "rc-" + (n + 1), payout_id: PAYOUT_ID, storage_path: "payment-unc/salary/2026/10/" + (n + 1) + ".jpg", file_sha256: String(n + 1).repeat(64), ocr_amount: o.amount, ocr_beneficiary: o.ben, ocr_reference: null, ocr_error: o.amount ? null : "ocr_failed", status: "uploaded", uploaded_by: "qa-user", created_at: new Date().toISOString() };
@@ -246,15 +248,27 @@ try {
     assert.ok(await pageOverflow(page) <= 0, `page overflow pending ${w}`);
     await page.screenshot({ path: `${EVIDENCE}/pending-${w}.png`, fullPage: true });
 
+    // CEO transfers in two parts: 15.000.000 + 8.000.000 = 23.000.000.
     await page.setInputFiles("[data-bmq-salary-ceo-file]", SLIPS.slice(0, 1));
     await page.locator("[data-bmq-salary-ceo-confirm]").waitFor();
-    assert.ok((await page.locator(PAGE).textContent()).includes("Khớp tổng lương"));
+    await page.waitForSelector('[data-bmq-salary-ceo-sum="short"]');
+    assert.ok((await page.locator("[data-bmq-salary-ceo-sum]").textContent()).includes("Còn thiếu 8.000.000"));
+    await page.locator('[aria-label="CEO chuyển tiền"]').screenshot({ path: `${EVIDENCE}/ceo-short-${w}.png` });
+    await page.setInputFiles("[data-bmq-salary-ceo-file]", SLIPS.slice(1, 2));
+    await page.waitForSelector('[data-bmq-salary-ceo-sum="match"]');
+    assert.equal(await page.locator("[data-bmq-salary-ceo-slip]").count(), 2);
+    assert.ok((await page.locator("[data-bmq-salary-ceo-sum]").textContent()).includes("Khớp tổng lương"));
+    assert.ok(await pageOverflow(page) <= 0, `page overflow ceo slips ${w}`);
+    await page.locator('[aria-label="CEO chuyển tiền"]').screenshot({ path: `${EVIDENCE}/ceo-match-${w}.png` });
     await page.locator("[data-bmq-salary-ceo-confirm]").click();
     await page.waitForSelector('[data-bmq-salary-status="advanced"]');
     assert.equal(await page.locator("[data-bmq-salary-cancel]").count(), 0, "no Huỷ phiếu after CEO transfer");
     const ceo = (await calls(page)).filter((c) => c.fn === "ceo");
     assert.equal(ceo.length, 1);
-    assert.equal(ceo[0].p_evidence.ocr_amount, 23000000);
+    assert.ok(Array.isArray(ceo[0].p_evidence), "CEO evidence is sent as an array");
+    assert.equal(ceo[0].p_evidence.length, 2);
+    assert.deepEqual(ceo[0].p_evidence.map((e) => e.ocr_amount), [15000000, 8000000]);
+    assert.equal(await page.locator("[data-bmq-salary-ceo-docs] .d3-cs-thumb").count(), 2, "both CEO slips shown after confirm");
 
     await page.setInputFiles("[data-bmq-salary-slip-file]", SLIPS.slice(1, 5));
     await page.waitForFunction(() => document.querySelectorAll("[data-bmq-salary-receipt]").length === 4, null, { timeout: 20000 });

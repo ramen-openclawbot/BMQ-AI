@@ -101,7 +101,16 @@ html .d3-unc.d3-cpr { max-width: 600px; }
 
 /* Chi lương. */
 .d3-salary-ceo { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 10px; align-items: start; padding: 10px; border-radius: 14px; background: var(--d3-card, #f7f7f5); }
-.d3-salary-ceo img.d3-cs-thumb { object-fit: cover; }
+.d3-salary-ceo img.d3-cs-thumb, .d3-cs-receipts > li > img.d3-cs-thumb { object-fit: cover; }
+.d3-sal-ceo-sum { display: grid; gap: 2px; padding: 10px 12px; border-radius: 14px; background: var(--d3-card, #f7f7f5); }
+.d3-sal-ceo-sum p { margin: 0; font-size: 14px; color: var(--d3-ink-2, #4a4a4a); }
+.d3-sal-ceo-sum b { font-weight: 500; color: var(--d3-ink, #272727); font-variant-numeric: tabular-nums; }
+.d3-sal-ceo-sum small { font-size: 12px; color: var(--d3-dim, #6b6b69); }
+.d3-sal-ceo-sum small.is-ok { color: #1f7a10; }
+.d3-sal-ceo-sum small.is-bad { color: #a32314; }
+.d3-sal-ceo-actions { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.d3-sal-ceo-actions > :first-child { flex: 0 0 auto; }
+.d3-sal-ceo-actions > :last-child { flex: 1 1 190px; }
 .d3-cs-r-body small.is-ok { color: #1f7a10; }
 .d3-cpr-modes { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .d3-cpr-modes button { min-height: 42px; border: 1px solid var(--d3-line-2, #d6d6d3); border-radius: 12px; background: var(--d3-white, #fdfdfc); font-size: 14px; cursor: pointer; }

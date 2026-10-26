@@ -18,6 +18,7 @@ import { getUncEvidenceSignedUrl } from "@/hooks/usePaymentRequestUncEvidence";
 import { useSalaryPayout, type SalaryPayoutCeoEvidence } from "@/hooks/useSalaryPayout";
 import { SalaryAttachmentsCard } from "@/components/payment-requests/SalaryAttachments";
 import { matchSalaryPayout } from "@/lib/salary-payout-match";
+import { dedupeBySha, summarizeCeoSlips } from "@/lib/salary-ceo-evidence";
 import { cn } from "@/lib/utils";
 import { LoadingState } from "@/components/ui/loading";
 import "@/styles/bmq-urgent-payables.css";
@@ -25,7 +26,8 @@ import "@/styles/bmq-unc-approval.css";
 import "@/styles/bmq-unc-bulk.css";
 import "@/styles/bmq-cash-settlement.css";
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const MAX_CEO_SLIPS = 10;
+const UUID_RE =/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const vnd = (value: number | null | undefined) =>
   value === null || value === undefined ? "—" : `${new Intl.NumberFormat("vi-VN").format(Math.round(Number(value)))} đ`;
 
@@ -97,7 +99,8 @@ export default function SalaryPayout() {
       setCancelling(false);
     }
   };
-  const [ceoEvidence, setCeoEvidence] = useState<(SalaryPayoutCeoEvidence & { preview: string }) | null>(null);
+  // The CEO may transfer in several parts: 1..10 slips, summed against the payout total.
+  const [ceoSlips, setCeoSlips] = useState<(SalaryPayoutCeoEvidence & { preview: string })[]>([]);
   const [busy, setBusy] = useState<"" | "ceo-read" | "ceo-save" | "receipts" | "submit">("");
   const [manualLine, setManualLine] = useState<Record<string, string>>({});
   const [manualAmount, setManualAmount] = useState<Record<string, string>>({});
@@ -137,28 +140,39 @@ export default function SalaryPayout() {
 
   const lineFor = (receiptId: string) => pendingMatches.find((m) => m.receipt_id === receiptId)?.line_id;
 
-  const pickCeoSlip = async (list: FileList | null) => {
-    const file = list?.[0];
-    if (!file) return;
+  const ceoSummary = useMemo(() => summarizeCeoSlips(ceoSlips, Number(payout?.total_amount ?? 0)), [ceoSlips, payout?.total_amount]);
+
+  const pickCeoSlips = async (list: FileList | null) => {
+    const files = Array.from(list ?? []).slice(0, MAX_CEO_SLIPS - ceoSlips.length);
+    if (!files.length) return;
     setBusy("ceo-read");
-    try {
-      const image = await fileToJpegBase64(file);
-      const evidence = await ceoExtract(image.base64, image.mime);
-      setCeoEvidence({ ...evidence, preview: image.preview });
-    } catch (err) {
-      toast.error(errorText(err));
-    } finally {
-      setBusy("");
+    const added: (SalaryPayoutCeoEvidence & { preview: string })[] = [];
+    let failed = 0;
+    let reused = 0;
+    for (const file of files) {
+      try {
+        const image = await fileToJpegBase64(file);
+        const evidence = await ceoExtract(image.base64, image.mime);
+        if ([...ceoSlips, ...added].some((s) => s.file_sha256 === evidence.file_sha256)) reused += 1;
+        else added.push({ ...evidence, preview: image.preview });
+      } catch (err) {
+        failed += 1;
+        if (failed === 1) toast.error(errorText(err));
+      }
     }
+    if (added.length) setCeoSlips((prev) => dedupeBySha([...prev, ...added]).slice(0, MAX_CEO_SLIPS));
+    if (reused) toast.error(`${reused} ảnh đã có trong danh sách.`);
+    if (failed > 1) toast.error(`${failed} ảnh chưa đọc được.`);
+    setBusy("");
   };
 
   const confirmCeo = async () => {
-    if (!payout || !ceoEvidence) return;
+    if (!payout || ceoSlips.length === 0) return;
     setBusy("ceo-save");
     try {
-      await recordCeoPayment(payout.id, ceoEvidence);
+      await recordCeoPayment(payout.id, ceoSlips);
       toast.success("Đã xác nhận chuyển tiền chi lương. Nhóm Zalo đã được báo.");
-      setCeoEvidence(null);
+      setCeoSlips([]);
     } catch (err) {
       toast.error(errorText(err));
     } finally {
@@ -230,30 +244,49 @@ export default function SalaryPayout() {
               <h3>CEO chuyển tiền cho kế toán</h3>
               <span className={cn("d3-up-chip", st.tone)} data-bmq-salary-status={payout.status}>{st.label}</span>
             </div>
-            {payout.ceo_evidence_storage_path ? (
-              <div className="d3-csp-docs">
-                <Thumb path={payout.ceo_evidence_storage_path} onOpen={setZoom} />
+            {payout.ceo_evidence_storage_path || (payout.ceo_evidence ?? []).length > 0 ? (
+              <div className="d3-csp-docs" data-bmq-salary-ceo-docs>
+                {((payout.ceo_evidence ?? []).length > 0 ? payout.ceo_evidence.map((e) => e.storage_path) : [payout.ceo_evidence_storage_path]).map((path) => (
+                  <Thumb key={path} path={path} onOpen={setZoom} />
+                ))}
               </div>
             ) : payout.status === "pending" && isOwner ? (
               <>
-                <input ref={ceoFileRef} type="file" accept="image/*" className="sr-only" data-bmq-salary-ceo-file onChange={(e) => { void pickCeoSlip(e.target.files); e.currentTarget.value = ""; }} />
-                {ceoEvidence ? (
+                <input ref={ceoFileRef} type="file" accept="image/*" multiple className="sr-only" data-bmq-salary-ceo-file onChange={(e) => { void pickCeoSlips(e.target.files); e.currentTarget.value = ""; }} />
+                {ceoSlips.length > 0 ? (
                   <div className="d3-cs-receipts">
-                    <div className="d3-salary-ceo">
-                      <img src={ceoEvidence.preview} alt="Ảnh chuyển khoản" className="d3-cs-thumb" />
-                      <div className="d3-cs-r-body">
-                        <span className="d3-ub-amt">{vnd(ceoEvidence.ocr_amount)}</span>
-                        {ceoEvidence.ocr_amount !== null && Number(ceoEvidence.ocr_amount) !== Number(payout.total_amount) ? (
-                          <small className="is-bad">Khác tổng lương {vnd(payout.total_amount)}. Kiểm tra lại trước khi xác nhận.</small>
-                        ) : ceoEvidence.ocr_amount !== null ? (
-                          <small className="is-ok">Khớp tổng lương.</small>
-                        ) : (
-                          <small>Chưa đọc được số tiền.</small>
-                        )}
-                      </div>
+                    <ul className="d3-cs-receipts" aria-label="Ảnh chuyển khoản">
+                      {ceoSlips.map((s) => (
+                        <li key={s.file_sha256} data-bmq-salary-ceo-slip>
+                          <img src={s.preview} alt="Ảnh chuyển khoản" className="d3-cs-thumb" />
+                          <div className="d3-cs-r-body">
+                            <span className="d3-ub-amt">{vnd(s.ocr_amount)}</span>
+                            {s.ocr_amount === null && <small className="is-bad">Chưa đọc được số tiền.</small>}
+                          </div>
+                          <button type="button" className="d3-cs-x" aria-label="Bỏ ảnh này" onClick={() => setCeoSlips((prev) => prev.filter((x) => x.file_sha256 !== s.file_sha256))} disabled={!!busy}>
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                    <div className="d3-sal-ceo-sum" data-bmq-salary-ceo-sum={ceoSummary.status}>
+                      <p>
+                        {ceoSlips.length > 1 ? `Tổng ${ceoSlips.length} ảnh` : "Số tiền"} <b>{vnd(ceoSummary.sum)}</b> / {vnd(payout.total_amount)}
+                      </p>
+                      {ceoSummary.status === "match" ? (
+                        <small className="is-ok">Khớp tổng lương.</small>
+                      ) : ceoSummary.status === "short" ? (
+                        <small className="is-bad">Còn thiếu {vnd(Number(payout.total_amount) - ceoSummary.sum)}. Thêm ảnh nếu đã chuyển nhiều lần.</small>
+                      ) : ceoSummary.status === "over" ? (
+                        <small className="is-bad">Dư {vnd(ceoSummary.sum - Number(payout.total_amount))} so với tổng lương. Kiểm tra lại trước khi xác nhận.</small>
+                      ) : (
+                        <small className="is-bad">{ceoSummary.unreadCount} ảnh chưa đọc được số tiền. Kiểm tra lại trước khi xác nhận.</small>
+                      )}
                     </div>
-                    <div className="d3-cpr-line-row">
-                      <Button variant="outline" className="h-11" onClick={() => setCeoEvidence(null)} disabled={!!busy}>Chọn ảnh khác</Button>
+                    <div className="d3-sal-ceo-actions">
+                      <Button variant="outline" className="h-11" onClick={() => ceoFileRef.current?.click()} disabled={!!busy || ceoSlips.length >= MAX_CEO_SLIPS} data-bmq-salary-ceo-add>
+                        {busy === "ceo-read" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />} Thêm ảnh
+                      </Button>
                       <Button className="d3-ub-go h-11" onClick={() => void confirmCeo()} disabled={!!busy} data-bmq-salary-ceo-confirm>
                         {busy === "ceo-save" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Xác nhận đã chuyển
                       </Button>
@@ -263,7 +296,7 @@ export default function SalaryPayout() {
                   <button type="button" className="d3-unc-drop" onClick={() => ceoFileRef.current?.click()} disabled={!!busy} data-bmq-salary-ceo-pick>
                     {busy === "ceo-read" ? <Loader2 className="h-6 w-6 animate-spin" /> : <ImagePlus className="h-6 w-6" />}
                     <span>{busy === "ceo-read" ? "Đang đọc ảnh…" : "Up ảnh chuyển khoản cho kế toán"}</span>
-                    <small>Tổng cần chuyển {vnd(payout.total_amount)}</small>
+                    <small>Tổng cần chuyển {vnd(payout.total_amount)} · chọn được nhiều ảnh nếu chuyển nhiều lần</small>
                   </button>
                 )}
               </>

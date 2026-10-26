@@ -109,6 +109,8 @@ export interface SalaryPayoutHeader {
   status: SalaryPayoutStatus;
   ceo_evidence_storage_path: string | null;
   ceo_evidence_sha256: string | null;
+  /** Full CEO transfer slip list; [] on older responses without the key. */
+  ceo_evidence: SalaryPayoutCeoEvidence[];
   ceo_paid_at: string | null;
   ceo_paid_by: string | null;
   completed_at: string | null;
@@ -194,6 +196,7 @@ export interface SalaryPayoutCeoPaymentResult {
   status: SalaryPayoutStatus;
   ceo_evidence_storage_path: string;
   ceo_evidence_sha256: string;
+  ceo_evidence: SalaryPayoutCeoEvidence[];
   idempotent?: boolean;
 }
 
@@ -233,8 +236,17 @@ export interface SalaryReceiptExtractItem {
 export const buildSalaryPayoutCreateKey = (periodId: string): string =>
   `salary-payout:create:${periodId}`;
 
-export const buildSalaryPayoutCeoPaymentKey = (payoutId: string, fileSha256: string): string =>
-  `salary-payout:ceo:${payoutId}:${fileSha256}`;
+export const buildSalaryPayoutCeoPaymentKey = (
+  payoutId: string,
+  fileSha256: string | string[],
+): string => {
+  const sortedShas = [...new Set(
+    (Array.isArray(fileSha256) ? fileSha256 : [fileSha256])
+      .map((sha) => sha.trim().toLowerCase())
+      .filter((sha) => sha.length > 0),
+  )].sort();
+  return `salary-payout:ceo:${payoutId}:${sortedShas.join(",")}`;
+};
 
 export const buildSalaryPayoutMatchKey = (
   payoutId: string,
@@ -255,7 +267,24 @@ const client = supabase as unknown as SalaryPayoutClient;
 export const loadSalaryPayout = async (payoutId: string): Promise<SalaryPayoutData | null> => {
   const { data, error } = await client.rpc("get_salary_payout", { p_id: payoutId });
   if (error) throw error;
-  return (data as unknown as SalaryPayoutData) ?? null;
+
+  const result = (data as unknown as SalaryPayoutData) ?? null;
+  if (!result?.payout) return result;
+
+  const payout = result.payout;
+  const ceoEvidence = Array.isArray(payout.ceo_evidence)
+    ? payout.ceo_evidence
+        .filter((item) => item && typeof item.storage_path === "string" && typeof item.file_sha256 === "string")
+        .map((item) => ({
+          storage_path: item.storage_path,
+          file_sha256: item.file_sha256,
+          ocr_amount: item.ocr_amount === null || item.ocr_amount === undefined
+            ? null
+            : Number(item.ocr_amount),
+        }))
+    : [];
+
+  return { ...result, payout: { ...payout, ceo_evidence: ceoEvidence } };
 };
 
 export const listPublishedPayrollPeriods = async (): Promise<SalaryPayoutPeriodOption[]> => {
@@ -335,6 +364,7 @@ const KNOWN_SALARY_PAYOUT_ERRORS = [
   "evidence_reused",
   "invalid_evidence_sha256",
   "invalid_evidence_amount",
+  "invalid_evidence",
   "invalid_payload",
   "title_required",
   "invalid_title",
@@ -524,19 +554,27 @@ export function useSalaryPayout(payoutId: string | null, periodId: string | null
   const recordCeoPayment = useCallback(
     async (
       targetPayoutId: string,
-      evidence: SalaryPayoutCeoEvidence,
+      evidence: SalaryPayoutCeoEvidence | SalaryPayoutCeoEvidence[],
       options?: { idempotencyKey?: string },
     ): Promise<SalaryPayoutCeoPaymentResult> => {
+      const evidenceList = (Array.isArray(evidence) ? evidence : [evidence])
+        .filter((item): item is SalaryPayoutCeoEvidence => !!item)
+        .map((item) => ({
+          storage_path: item.storage_path,
+          file_sha256: item.file_sha256,
+          ocr_amount: item.ocr_amount ?? null,
+        }));
+      const sortedShas = [...new Set(
+        evidenceList
+          .map((item) => item.file_sha256.trim().toLowerCase())
+          .filter((sha) => sha.length > 0),
+      )].sort();
       const idempotencyKey = options?.idempotencyKey?.trim()
-        || buildSalaryPayoutCeoPaymentKey(targetPayoutId, evidence.file_sha256);
+        || buildSalaryPayoutCeoPaymentKey(targetPayoutId, sortedShas);
       try {
         const { data, error } = await client.rpc("record_salary_payout_ceo_payment", {
           p_id: targetPayoutId,
-          p_evidence: {
-            storage_path: evidence.storage_path,
-            file_sha256: evidence.file_sha256,
-            ocr_amount: evidence.ocr_amount,
-          },
+          p_evidence: evidenceList,
           p_idempotency_key: idempotencyKey,
         });
         if (error) throw error;
@@ -545,16 +583,25 @@ export function useSalaryPayout(payoutId: string | null, periodId: string | null
       } catch (error) {
         if (knownSalaryPayoutErrorCode(error)) throw error;
         const fresh = await loadSalaryPayout(targetPayoutId);
-        if (fresh && fresh.payout.ceo_evidence_sha256 === evidence.file_sha256) {
-          invalidate();
-          return {
-            payout_id: fresh.payout.id,
-            payout_number: fresh.payout.payout_number,
-            status: fresh.payout.status,
-            ceo_evidence_storage_path: fresh.payout.ceo_evidence_storage_path || evidence.storage_path,
-            ceo_evidence_sha256: fresh.payout.ceo_evidence_sha256,
-            idempotent: true,
-          };
+        if (fresh) {
+          const landedShas = new Set(
+            (fresh.payout.ceo_evidence ?? []).map((item) => item.file_sha256.trim().toLowerCase()),
+          );
+          const landed = sortedShas.length > 0
+            && sortedShas.every((sha) => landedShas.has(sha));
+          if (landed) {
+            invalidate();
+            const first = fresh.payout.ceo_evidence[0];
+            return {
+              payout_id: fresh.payout.id,
+              payout_number: fresh.payout.payout_number,
+              status: fresh.payout.status,
+              ceo_evidence_storage_path: fresh.payout.ceo_evidence_storage_path || first.storage_path,
+              ceo_evidence_sha256: fresh.payout.ceo_evidence_sha256 || first.file_sha256,
+              ceo_evidence: fresh.payout.ceo_evidence,
+              idempotent: true,
+            };
+          }
         }
         throw error;
       }
