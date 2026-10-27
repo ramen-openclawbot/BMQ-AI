@@ -4302,6 +4302,19 @@ export type Database = {
         }
         Returns: Json
       }
+      kho_create_item: {
+        Args: {
+          p_name: string
+          p_unit: string | null
+          p_class: string | null
+          p_tan_tao: boolean | null
+          p_q7: boolean | null
+          p_note: string | null
+          p_copy_from: string | null
+          p_request_id: string
+        }
+        Returns: Json
+      }
       get_warehouse_game_snapshot: {
         Args: { p_location: string }
         Returns: Json

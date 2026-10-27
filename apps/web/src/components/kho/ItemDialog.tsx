@@ -58,7 +58,7 @@ function ItemCodeNote({ item, canEdit, onToast }: { item: KhoItem; canEdit: bool
   );
 }
 
-export function ItemDialog({ item, items, canEdit, confirm, onDone, onClose, onToast, onReplaced }: {
+export function ItemDialog({ item, items, canEdit, confirm, onDone, onClose, onToast, onReplaced, onCopy }: {
   item: KhoItem; items: KhoItem[]; canEdit: boolean;
   confirm: (options: KhoConfirmOptions) => Promise<boolean>;
   onDone: (text: string) => void; onClose: () => void;
@@ -66,6 +66,8 @@ export function ItemDialog({ item, items, canEdit, confirm, onDone, onClose, onT
   onToast: (text: string) => void;
   /** A unit change with history moves the item to a new id. */
   onReplaced: (newId: string) => void;
+  /** Open "Sao chép món" with this item as the source. */
+  onCopy?: () => void;
 }) {
   const save = useKhoSaveItem();
   const setClass = useSetStockItemClass();
@@ -237,6 +239,7 @@ export function ItemDialog({ item, items, canEdit, confirm, onDone, onClose, onT
           <Button disabled={save.isPending || name.trim().length < 2 || (!changed && !ask) || (ask !== null && !factorOk && !standard)} onClick={() => void submit()} data-bmq-kho-save>
             {save.isPending ? "Đang lưu…" : ask?.kind === "merge" ? "Gộp làm một" : "Lưu"}
           </Button>
+          {onCopy ? <Button variant="outline" onClick={onCopy} data-bmq-kho-copy>Sao chép món</Button> : null}
           <Button variant="outline" onClick={onClose}>Đóng</Button>
         </div>
       ) : null}

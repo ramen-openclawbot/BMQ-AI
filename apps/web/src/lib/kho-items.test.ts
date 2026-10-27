@@ -138,6 +138,8 @@ test("khoErrorText maps every game error", () => {
     item_not_found: "Không tìm thấy món này.",
     item_inactive_place: "Món này đang tắt (có thể vừa có người tắt). Tải lại, bật món rồi chọn kho.",
     item_name_duplicate: "Tên món đã được dùng cho món khác.",
+    invalid_class: "Chọn loại hàng: Nguyên liệu hoặc Bao bì & vật tư.",
+    kho_location_required: "Chọn ít nhất một kho cho món.",
     invalid_factor: "Hệ số quy đổi phải lớn hơn 0.",
     unit_not_allowed: "Đơn vị này không được dùng trong kho.",
     invalid_quantity: "Số lượng đếm phải lớn hơn hoặc bằng 0.",

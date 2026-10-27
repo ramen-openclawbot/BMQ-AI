@@ -2,7 +2,7 @@ import { LoadingState } from "@/components/ui/loading";
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, CalendarClock, FileText, Search, X } from "lucide-react";
+import { ArrowLeft, CalendarClock, FileText, Plus, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { GROUPS, KHO_LABEL, KHO_LOCATIONS, atKho, crateKey, fmtAmount, groupOf, newRequestId, type Group } from "@/components/kho/kho-meta";
 import { useKhoConfirm } from "@/components/kho/KhoConfirm";
 import { ItemDialog } from "@/components/kho/ItemDialog";
+import { CreateItemDialog } from "@/components/kho/CreateItemDialog";
 import { CrateDialog } from "@/components/kho/CrateDialog";
 import "@/styles/bmq-warehouse.css";
 import "@/styles/bmq-stock-ledger.css";
@@ -184,6 +185,8 @@ function Catalog({ items, loading, error, onRetry, activeCount, canEdit, newCoun
   const [query, setQuery] = useState("");
   const [showOff, setShowOff] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
+  // Thêm món (source null) or Sao chép món (source = the item being copied).
+  const [creating, setCreating] = useState<{ source: KhoItem | null } | null>(null);
   const fg = useFinishedGoods();
   const commitments = useKhoCommitments();
   const holds = useMemo(() => (commitments.data ? commitmentByItem(commitments.data) : null), [commitments.data]);
@@ -247,7 +250,12 @@ function Catalog({ items, loading, error, onRetry, activeCount, canEdit, newCoun
           <h1>Danh mục kho</h1>
           <p className="d3-wh-tag">{loading ? "Đang đọc danh mục…" : error ? "Chưa đọc được danh mục" : `${activeCount} món đang bật · ${items.length - activeCount} đã tắt`}</p>
         </div>
-        <KhoSwitch value={kho} onChange={(loc) => { setKho(loc); setShowOff(false); }} counts={loading || error ? undefined : khoCounts} />
+        <div className="d3-kho-headtools">
+          <KhoSwitch value={kho} onChange={(loc) => { setKho(loc); setShowOff(false); }} counts={loading || error ? undefined : khoCounts} />
+          {canEdit && !loading && !error ? (
+            <Button onClick={() => setCreating({ source: null })} data-bmq-kho-create-open><Plus aria-hidden="true" />Thêm món</Button>
+          ) : null}
+        </div>
       </header>
 
       {newCount ? (
@@ -367,7 +375,17 @@ function Catalog({ items, loading, error, onRetry, activeCount, canEdit, newCoun
           </>
         )}
       </section>
-      {open ? <ItemDialog key={open.id} item={open} items={items} canEdit={canEdit} confirm={confirm} onDone={(text) => { say(text); setOpenId(null); }} onClose={() => setOpenId(null)} onToast={say} onReplaced={setOpenId} /> : null}
+      {open ? <ItemDialog key={open.id} item={open} items={items} canEdit={canEdit} confirm={confirm} onDone={(text) => { say(text); setOpenId(null); }} onClose={() => setOpenId(null)} onToast={say} onReplaced={setOpenId}
+        onCopy={canEdit ? () => { setCreating({ source: open }); setOpenId(null); } : undefined} /> : null}
+      {creating ? (
+        <CreateItemDialog source={creating.source} items={items} defaultGroup={group} defaultKho={kho}
+          onClose={() => setCreating(null)}
+          onCreated={(created) => {
+            say(`Đã tạo món “${created.name}” · ${created.code}`);
+            setCreating(null);
+            setOpenId(created.id);
+          }} />
+      ) : null}
     </>
   );
 }

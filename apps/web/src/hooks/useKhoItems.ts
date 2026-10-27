@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tansta
 import { supabase } from "@/integrations/supabase/client";
 import type {
   KhoCountResult,
+  KhoCreateItemInput,
+  KhoCreateItemResult,
   KhoItemsPayload,
   KhoLocation,
   KhoSaveResult,
@@ -67,6 +69,28 @@ export function useKhoSaveItem() {
       });
       if (error) throw error;
       return data as unknown as KhoSaveResult;
+    },
+    onSuccess: () => invalidateKhoItems(queryClient),
+  });
+}
+
+/** Create a new item, or copy the catalog settings of an existing one. */
+export function useKhoCreateItem() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: KhoCreateItemInput): Promise<KhoCreateItemResult> => {
+      const { data, error } = await supabase.rpc("kho_create_item", {
+        p_name: input.name,
+        p_unit: input.unit,
+        p_class: input.itemClass,
+        p_tan_tao: input.inTanTao,
+        p_q7: input.inQ7,
+        p_note: input.note,
+        p_copy_from: input.copyFrom,
+        p_request_id: input.requestId,
+      });
+      if (error) throw error;
+      return data as unknown as KhoCreateItemResult;
     },
     onSuccess: () => invalidateKhoItems(queryClient),
   });

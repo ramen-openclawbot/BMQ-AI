@@ -76,6 +76,28 @@ export type KhoSaveResult =
   | { status: "unit_factor_needed"; from: string; to: string }
   | { status: "merged"; into: { id: string; name: string; unit: string } };
 
+export interface KhoCreateItemInput {
+  name: string;
+  unit: string | null;
+  itemClass: "raw_material" | "packaging_supply" | null;
+  inTanTao: boolean | null;
+  inQ7: boolean | null;
+  note: string | null;
+  copyFrom: string | null;
+  requestId: string;
+}
+
+export interface KhoCreateItemResult {
+  status: "created";
+  item_id: string;
+  item_code: string;
+  name: string;
+  unit: string;
+  in_tan_tao: boolean;
+  in_q7: boolean;
+  copied_from: string | null;
+}
+
 export interface KhoCountResult {
   status: "counted";
   location: KhoLocation;
@@ -186,6 +208,8 @@ const ERROR_TEXT: Record<string, string> = {
   item_not_found: "Không tìm thấy món này.",
   item_inactive_place: "Món này đang tắt (có thể vừa có người tắt). Tải lại, bật món rồi chọn kho.",
   item_name_duplicate: "Tên món đã được dùng cho món khác.",
+  invalid_class: "Chọn loại hàng: Nguyên liệu hoặc Bao bì & vật tư.",
+  kho_location_required: "Chọn ít nhất một kho cho món.",
   invalid_factor: "Hệ số quy đổi phải lớn hơn 0.",
   unit_not_allowed: "Đơn vị này không được dùng trong kho.",
   invalid_quantity: "Số lượng đếm phải lớn hơn hoặc bằng 0.",

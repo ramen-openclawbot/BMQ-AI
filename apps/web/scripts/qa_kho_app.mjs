@@ -136,6 +136,10 @@ function settle(st) {
     blockers: cfg().orderBlocked ? ["mailbox_not_connected"] : [],
   }, error: null };
   if (st.table === "rpc:supplier_order_history") return { data: { items: JSON.parse(localStorage.getItem("qa-orders") || "[]") }, error: null };
+  if (st.table === "rpc:kho_create_item") {
+    const a = st.args;
+    return { data: { status: "created", item_id: "qa-created-" + a.p_request_id, item_code: "NVL-999", name: a.p_name, unit: a.p_unit, in_tan_tao: a.p_tan_tao, in_q7: a.p_q7, copied_from: a.p_copy_from }, error: null };
+  }
   if (/^rpc:/.test(st.table)) return { data: null, error: null };
   return { data: [], error: null, count: 0 };
 }
@@ -323,6 +327,46 @@ try {
     assert.ok(await page.locator("[data-bmq-kho-new]").isVisible(), "new-names notice");
     await noSpill(page, "catalog", vp);
     await shot(page, `catalog-${vp.width}.png`);
+    await context.close();
+
+    // ---------- Thêm món / Sao chép món (owner 27/10) ----------
+    ({ context, page, errors } = await open({ role: "owner" }, "/warehouse/danh-muc", vp));
+    await page.waitForSelector("[data-bmq-kho-names] li");
+    await page.locator("[data-bmq-kho-create-open]").click();
+    await dialogInView(page, "[data-bmq-kho-create-dialog='new']", vp);
+    await page.locator("[data-bmq-kho-create-name]").fill("Bơ Peerless 2.5 kg");
+    await noSpill(page, "create dialog", vp);
+    await page.locator("[data-bmq-kho-create-dialog]").screenshot({ path: `${EVIDENCE}/create-new-${vp.width}.png` });
+    await page.locator("[data-bmq-kho-create-save]").click();
+    await page.waitForSelector("[data-bmq-kho-create-dialog]", { state: "detached", timeout: 4000 });
+    let made = (await calls(page)).filter((c) => c.startsWith("rpc:kho_create_item:")).map((c) => JSON.parse(c.slice("rpc:kho_create_item:".length)));
+    assert.equal(made.length, 1, "one create call");
+    assert.equal(made[0].p_name, "Bơ Peerless 2.5 kg");
+    assert.equal(made[0].p_copy_from, null, "new item is not a copy");
+    assert.deepEqual([made[0].p_tan_tao, made[0].p_q7, made[0].p_class], [true, false, "raw_material"], "defaults follow the open kho and group");
+    assert.match(made[0].p_request_id, /^[0-9a-f-]{36}$/, "request id");
+    const srcId = await page.locator("[data-bmq-kho-names] li [data-bmq-kho-item]").first().getAttribute("data-bmq-kho-item");
+    const srcName = (await page.locator("[data-bmq-kho-names] li .d3-kho-row-main b").first().textContent()).trim();
+    await page.locator(`[data-bmq-kho-item='${srcId}']`).click();
+    await dialogInView(page, "[data-bmq-kho-item-dialog]", vp);
+    await page.locator("[data-bmq-kho-copy]").click();
+    await dialogInView(page, "[data-bmq-kho-create-dialog='copy']", vp);
+    assert.equal(await page.locator("[data-bmq-kho-create-name]").inputValue(), `${srcName} (bản sao)`, "copy prefills the name");
+    assert.equal(await page.locator("[data-bmq-kho-create-unit]").isDisabled(), true, "copy keeps the unit");
+    await page.locator("[data-bmq-kho-create-name]").fill(srcName.toUpperCase());
+    assert.ok(await page.locator("[data-bmq-kho-create-twin]").isVisible(), "same name warns");
+    assert.equal(await page.locator("[data-bmq-kho-create-save]").isDisabled(), true, "same name cannot be saved");
+    await page.locator("[data-bmq-kho-create-name]").fill(`${srcName} khối nhỏ`);
+    await noSpill(page, "copy dialog", vp);
+    await page.locator("[data-bmq-kho-create-dialog]").screenshot({ path: `${EVIDENCE}/create-copy-${vp.width}.png` });
+    await page.locator("[data-bmq-kho-create-save]").click();
+    await page.waitForSelector("[data-bmq-kho-create-dialog]", { state: "detached", timeout: 4000 });
+    made = (await calls(page)).filter((c) => c.startsWith("rpc:kho_create_item:")).map((c) => JSON.parse(c.slice("rpc:kho_create_item:".length)));
+    assert.equal(made.length, 2, "copy creates once");
+    assert.equal(made[1].p_copy_from, srcId, "copy sends its source");
+    assert.notEqual(made[1].p_request_id, made[0].p_request_id, "each form has its own request id");
+    assert.deepEqual(errors, [], `create/copy page errors @${vp.width}`);
+    pass(`Thêm món + Sao chép món: form, twin guard, RPC args ${vp.width}`);
     await context.close();
 
     ({ context, page, errors } = await open({ role: "owner" }, "/warehouse/danh-muc", vp));

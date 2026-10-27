@@ -23,6 +23,9 @@
 :is(.d3-kho, .d3-kho-dialog, .d3-kho-confirm) :is(button, [role="button"]):active:not(:disabled) { transform: scale(.97); }
 
 /* ---------- header ---------- */
+/* Danh mục kho header: kho switch + Thêm món. */
+.d3-kho-headtools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
 .d3-kho-switch small {
   margin-left: 6px;
   font: 400 12.5px var(--d3-num);
@@ -1020,6 +1023,9 @@ html.bmq-d3 .d3-kho-unitpick .d3-kho-chip { height: 34px; min-height: 34px; padd
 @media (max-width: 760px) {
   .d3-kho .d3-wh-head { align-items: stretch; }
   .d3-kho .d3-wh-head > .d3-kho-switch { display: flex; width: 100%; }
+  .d3-kho .d3-wh-head > .d3-kho-headtools { width: 100%; }
+  .d3-kho-headtools > .d3-kho-switch { display: flex; flex: 1 1 100%; }
+  .d3-kho-headtools > button { flex: 1 1 100%; }
   .d3-kho .d3-kho-switch button { flex: 1; padding: 0 10px; }
   .d3-kho-head-actions { width: 100%; }
   .d3-kho-head-actions > button { flex: 1 1 auto; }
