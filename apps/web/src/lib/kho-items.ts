@@ -200,6 +200,10 @@ const ERROR_TEXT: Record<string, string> = {
   merge_source_inactive: "Món này đã tắt hoặc đã gộp.",
   merge_target_inactive: "Món đích đang tắt.",
   merge_factor_invalid: "Hệ số quy đổi phải lớn hơn 0.",
+  // record_q7_inventory_adjustment needs one approved Q7 mapping from the item to its own canonical material.
+  q7_mapping_identity_mismatch: "Món này chưa nối đúng mã nguyên liệu Kho Q7 nên chưa ghi được số đếm. Nhắn VNAgent giúp.",
+  q7_mapping_required: "Món này chưa nối mã nguyên liệu Kho Q7 nên chưa ghi được số đếm. Nhắn VNAgent giúp.",
+  q7_canonical_link_required: "Món này chưa gắn mã nguyên liệu nên chưa ghi được số đếm. Nhắn VNAgent giúp.",
 };
 
 function errorFields(error: unknown): { message: string; code: string } {
