@@ -7,7 +7,7 @@ import {
   Package,
   Users,
   FileText,
-  FileSearch, ShieldCheck,
+  FileSearch, ShieldCheck, History,
   Settings,
   FileCheck,
   Barcode,
@@ -119,6 +119,7 @@ export const navItems: NavItem[] = [
       { icon: Scale, labelKey: "khoCount", path: "/warehouse/kiem-ke", section: "operations", moduleKey: "inventory" },
       { icon: FileText, labelKey: "warehouseSlips", path: "/warehouse/phieu", section: "operations", moduleKey: "inventory" },
       // Temporary (owner 22/10): remove once the review list is empty.
+      { icon: History, labelKey: "khoAudit", path: "/warehouse/nhat-ky", section: "operations", moduleKey: "inventory" },
       { icon: FileSearch, labelKey: "khoReview", path: "/warehouse/ra-soat", section: "operations", moduleKey: "inventory" },
       { icon: ShieldCheck, labelKey: "khoCerts", path: "/warehouse/ho-so-attp", section: "operations", moduleKey: "inventory" },
       { icon: ClipboardList, labelKey: "stockLedger", path: "/warehouse/stock-ledger", section: "operations", moduleKey: "inventory" },

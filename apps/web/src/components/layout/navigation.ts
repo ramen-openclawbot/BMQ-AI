@@ -91,6 +91,7 @@ export const ZONES: Zone[] = [
       "/warehouse/danh-muc",
       "/warehouse/kiem-ke",
       "/warehouse/phieu",
+      "/warehouse/nhat-ky",
       "/warehouse/ra-soat",
       "/warehouse/ho-so-attp",
       "/warehouse/stock-ledger",

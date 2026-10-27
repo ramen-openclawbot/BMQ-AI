@@ -1,0 +1,70 @@
+/* Nhật ký kho (owner 27/10): filters card + a feed grouped by day. Uses the Kho design tokens (--d3-*). */
+.d3-ka-filters { display: grid; gap: 14px; min-width: 0; }
+/* Dates side by side, then the two pickers: four columns on a wide screen, two on a phone. */
+.d3-ka-fields { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; min-width: 0; }
+.d3-ka-fields > * { min-width: 0; }
+html.bmq-d3 .d3-ka-fields input[type="date"] {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--d3-line-2);
+  border-radius: 12px;
+  background: var(--d3-white);
+  color: var(--d3-ink);
+  font: inherit;
+  font-size: 15px;
+  -webkit-appearance: none;
+  appearance: none;
+}
+html.bmq-d3 .d3-ka-fields input[type="date"]:focus { border-color: var(--d3-ink); outline: none; }
+html.bmq-d3 .d3-ka-fields input[type="date"]::-webkit-date-and-time-value { text-align: left; min-height: 1.2em; }
+html.bmq-d3 .d3-ka-clear { justify-self: start; gap: 6px; }
+.d3-ka-clear svg { width: 14px; height: 14px; }
+
+.d3-ka-day + .d3-ka-day { margin-top: 18px; }
+.d3-ka-dayhead {
+  display: flex; align-items: baseline; gap: 8px;
+  margin: 0 0 4px; padding: 0 12px;
+  font-size: 12.5px; font-weight: 500; letter-spacing: .02em; color: var(--d3-dim);
+}
+.d3-ka-dayhead span { font-weight: 400; font-variant-numeric: tabular-nums; }
+.d3-ka-row { display: grid; min-width: 0; }
+.d3-ka-row + .d3-ka-row { box-shadow: 0 -1px 0 var(--d3-line); }
+html.bmq-d3 .d3-ka-main {
+  display: grid; grid-template-columns: 44px minmax(0, 1fr) 18px; align-items: start; gap: 10px;
+  width: 100%; min-width: 0; padding: 12px; border: 0; border-radius: 12px;
+  background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer;
+  transition: background .15s ease;
+}
+html.bmq-d3 .d3-ka-main:hover { background: rgba(255, 255, 255, .7); }
+html.bmq-d3 .d3-ka-main:focus-visible { outline: 2px solid var(--d3-ink); outline-offset: -2px; }
+.d3-ka-time { font-size: 13px; font-variant-numeric: tabular-nums; color: var(--d3-dim); padding-top: 2px; }
+.d3-ka-body { display: grid; gap: 3px; min-width: 0; }
+.d3-ka-body b { font-size: 14.5px; font-weight: 500; line-height: 1.35; overflow-wrap: anywhere; }
+.d3-ka-sum { font-size: 13.5px; line-height: 1.4; color: var(--d3-ink-2); overflow-wrap: anywhere; }
+.d3-ka-body small { display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: 12.5px; line-height: 1.4; color: var(--d3-dim); }
+.d3-ka-kind { color: var(--d3-ink-2); font-weight: 500; }
+.d3-ka-body small .is-system { font-style: italic; }
+.d3-ka-chev { width: 16px; height: 16px; margin-top: 3px; color: var(--d3-faint); transition: transform .2s var(--kho-ease, ease); }
+.d3-ka-chev.is-open { transform: rotate(180deg); }
+.d3-ka-detail { display: grid; gap: 6px; margin: 0 12px 12px 66px; padding: 10px 12px; border-radius: 12px; background: rgba(39, 39, 39, .04); min-width: 0; }
+.d3-ka-detail > div { display: grid; grid-template-columns: minmax(0, 9em) minmax(0, 1fr); gap: 4px 10px; font-size: 13px; line-height: 1.4; }
+.d3-ka-detail dt { color: var(--d3-dim); }
+.d3-ka-detail dd { margin: 0; color: var(--d3-ink); overflow-wrap: anywhere; }
+.d3-ka-more { display: grid; justify-items: center; padding: 14px 0 4px; }
+.d3-ka-end { text-align: center; padding: 14px 0 4px; }
+@media (max-width: 900px) {
+  .d3-ka-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 480px) {
+  .d3-ka-fields .d3-ka-pick { grid-column: 1 / -1; }
+  .d3-ka-detail { margin-left: 12px; }
+  .d3-ka-detail > div { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 360px) {
+  .d3-ka-fields { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) { .d3-ka-main, .d3-ka-chev { transition: none; } }

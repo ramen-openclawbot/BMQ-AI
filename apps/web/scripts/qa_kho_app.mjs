@@ -123,6 +123,34 @@ function settle(st) {
     const lines = (st.args.p_lines || []).map((l, i) => { const it = F.items.find((x) => x.id === l.item_id); return { transfer_id: "00000000-0000-4000-8000-00000000000" + (i + 1), transfer_number: "CK-20261027-QA000" + (i + 1), item_id: l.item_id, item_name: it ? it.name : "?", quantity: Number(l.quantity), unit: it ? it.unit : "g" }; });
     return { data: { slip_id: "00000000-0000-4000-8000-0000000000aa", slip_number: "CKP-20261027-QA0001", transfer_date: "2026-10-27", lines }, error: null };
   }
+  if (st.table === "rpc:kho_get_audit_log") {
+    if (mode === "error") return { data: null, error: { message: "insufficient_privilege", code: "42501" } };
+    if (mode === "empty") return { data: { items: [], has_more: false }, error: null };
+    if (!window.__auditRows) {
+      const F = window.__kgFixture;
+      const kinds = ["renamed", "receipt", "stock_count", "transfer", "unit_changed", "deactivated", "adjustment", "created", "conversion_changed", "places_changed"];
+      const people = [["00000000-0000-4000-8000-0000000000a1", "Nguyễn Thị Lan"], ["00000000-0000-4000-8000-0000000000a2", "Trần Văn Hùng"], [null, null]];
+      const base = Date.parse("2026-10-27T09:40:00+07:00");
+      window.__auditRows = Array.from({ length: 60 }, (_, i) => {
+        const kind = kinds[i % kinds.length]; const it = F.items[(i * 7) % F.items.length]; const [aid, an] = people[i % 3];
+        const at = new Date(base - i * 47 * 60000 - (i > 20 ? 86400000 : 0) - (i > 40 ? 86400000 * 3 : 0)).toISOString();
+        const details = kind === "renamed" ? { name: { old: it.name + " cũ", new: it.name }, action: "renamed", source: "app" }
+          : kind === "unit_changed" ? { unit: { old: "g", new: "kg" }, pastry_q7: { old: false, new: true }, action: "unit_changed", source: "app" }
+          : kind === "deactivated" ? { active: { old: true, new: false }, action: "deactivated", source: "app" }
+          : kind === "created" ? { name: { old: null, new: it.name }, unit: { old: null, new: it.unit }, item_class: { old: null, new: "raw_material" }, action: "created", source: "app" }
+          : kind === "places_changed" ? { in_tan_tao: { old: true, new: false }, pastry_q7: { old: false, new: true }, action: "places_changed", source: "app" }
+          : kind === "transfer" ? { quantity: 3.5, unit: it.unit, from_location: "tan_tao", to_location: "q7", slip_number: "CKP-20261027-AB12CD", transfer_date: "2026-10-27", note: "hàng cho ca sáng Q7" }
+          : kind === "conversion_changed" ? { unit: "thùng", action: "set_conversion" }
+          : { quantity: 12 + i, unit: it.unit, movement_date: "2026-10-27", movement_type: kind, note: i % 4 === 0 ? "NCC giao trễ" : null };
+        const summary = kind === "renamed" ? "Đổi tên: " + it.name + " cũ → " + it.name : kind === "transfer" ? "Chuyển kho Tân Tạo → Q7 3,5 " + it.unit + " (phiếu CKP-20261027-AB12CD)" : kind === "receipt" ? "Nhập kho Tân Tạo " + (12 + i) + " " + it.unit : "Thao tác " + kind;
+        return { key: "r:" + String(i).padStart(3, "0"), occurred_at: at, actor_id: aid, actor_name: an, kind, location: kind === "receipt" || kind === "stock_count" ? "tan_tao" : null, item_id: it.id, item_name: it.name, summary, details };
+      });
+    }
+    const a = st.args; const limit = a.p_limit || 50;
+    let rows = window.__auditRows.filter((r) => (!a.p_kinds || !a.p_kinds.length || a.p_kinds.includes(r.kind)) && (!a.p_actor || r.actor_id === a.p_actor) && (!a.p_item_id || r.item_id === a.p_item_id)
+      && (!a.p_before || r.occurred_at < a.p_before || (r.occurred_at === a.p_before && a.p_before_key && r.key < a.p_before_key)));
+    return { data: { items: rows.slice(0, limit), has_more: rows.length > limit }, error: null };
+  }
   if (st.table === "rpc:get_stock_transfers") return { data: (window.__kgFixture.transfers ?? []).map((t, i) => ({ ...t, source: i % 2 ? "manual" : "auto", slip_id: null, slip_number: i % 2 ? "PCK-QA-" + i : null, note: i === 1 ? "hàng cho ca sáng Q7" : null })), error: null };
   if (st.table === "rpc:get_q7_finished_goods_planned") return { data: [{ sku_id: "fg-cbc", product_name: "BÁNH MÌ CHÀ BÔNG CAY", unit: "gói", planned_qty: 40, already_received: 12, production_order_item_id: "poi-qa-1" }], error: null };
   if (st.table === "rpc:kho_set_item_note") return { data: { item_id: st.args.p_item_id, note: st.args.p_note }, error: null };
@@ -243,7 +271,7 @@ const KG_FIXTURE = JSON.parse(fs.readFileSync(path.join(ROOT, "scripts/qa_wareho
 const results = [];
 const pass = (name) => { results.push(name); console.log("PASS", name); };
 
-async function open(cfg, route, viewport, ready = "[data-bmq-kho-catalog], [data-bmq-kho-count-page], [data-bmq-warehouse-slips]") {
+async function open(cfg, route, viewport, ready = "[data-bmq-kho-catalog], [data-bmq-kho-count-page], [data-bmq-warehouse-slips], [data-bmq-kho-audit]") {
   const context = await browser.newContext({ viewport, reducedMotion: "reduce", locale: "vi-VN" });
   await context.addInitScript((fixture) => { window.__kgFixture = fixture; }, KG_FIXTURE);
   await context.addInitScript((value) => { if (!sessionStorage.getItem("qa-init")) { localStorage.clear(); sessionStorage.setItem("qa-init", "1"); } localStorage.setItem("qa-shell", JSON.stringify(value)); }, cfg);
@@ -751,6 +779,60 @@ try {
     pass(`Phiếu kho: finished goods + transfer dialogs ${vp.width}`);
     assert.deepEqual(errors, [], `page errors slips ${vp.width}`);
     await context.close();
+  }
+
+
+  // Nhật ký kho (owner 27/10): feed grouped by day, filters, load more, expandable detail.
+  for (const vp of [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 640 }]) {
+    let { context, page, errors } = await open({ role: "owner" }, "/warehouse/nhat-ky", vp);
+    await page.waitForSelector("[data-bmq-audit-row]");
+    assert.ok((await page.locator(".d3-ka-dayhead").count()) >= 3, "rows are grouped by day");
+    assert.match(await page.locator(".d3-ka-dayhead").first().innerText(), /Hôm nay|27\/10/, "first group is the newest day");
+    assert.equal(await page.locator("[data-bmq-audit-row]").count(), 50, "first page holds 50 rows");
+    await noSpill(page, "audit-feed", vp);
+    await shot(page, `audit-feed-${vp.width}.png`, false);
+    // Expand a rename row: before -> after.
+    await page.locator("[data-bmq-audit-row='renamed'] .d3-ka-main").first().click();
+    await page.waitForSelector("[data-bmq-audit-detail]");
+    assert.match(await page.locator("[data-bmq-audit-detail]").first().innerText(), /Tên[\s\S]*→/, "rename shows before → after");
+    await shot(page, `audit-detail-${vp.width}.png`, false);
+    // Load more: the remaining 10 rows, then the end note.
+    await page.locator("[data-bmq-audit-more]").scrollIntoViewIfNeeded();
+    await page.locator("[data-bmq-audit-more]").click();
+    await page.waitForFunction(() => document.querySelectorAll("[data-bmq-audit-row]").length === 60);
+    assert.equal(await page.locator("[data-bmq-audit-more]").count(), 0, "no more button at the end");
+    const keys = await page.locator("[data-bmq-audit-row]").evaluateAll((els) => els.length);
+    assert.equal(keys, 60, "no row repeated or skipped across pages");
+    // Kind group filter sends p_kinds and refetches.
+    await page.locator("[data-bmq-audit-group='stock']").click();
+    await page.waitForFunction(() => [...document.querySelectorAll("[data-bmq-audit-row]")].every((r) => ["receipt", "stock_count", "adjustment", "transfer", "production_use", "opening"].includes(r.getAttribute("data-bmq-audit-row"))));
+    assert.ok((await calls(page)).some((c) => c.startsWith("rpc:kho_get_audit_log:") && c.includes('"p_kinds":["receipt"')), "stock group sends its kinds");
+    // Date filter + clear.
+    await page.locator("[data-bmq-audit-from]").fill("2026-10-27");
+    await page.waitForTimeout(250);
+    assert.ok((await calls(page)).some((c) => c.startsWith("rpc:kho_get_audit_log:") && c.includes('"p_from":"2026-10-27"')), "date filter sent");
+    await noSpill(page, "audit-filtered", vp);
+    await shot(page, `audit-filtered-${vp.width}.png`, false);
+    await page.locator("[data-bmq-audit-clear]").click();
+    // Back to "all": the pages already loaded stay cached (60 rows), the filter is gone.
+    await page.waitForFunction(() => document.querySelectorAll("[data-bmq-audit-row]").length >= 50);
+    assert.equal(await page.locator("[data-bmq-audit-clear]").count(), 0, "clear button gone once nothing is filtered");
+    pass(`Nhật ký kho: grouped feed, detail, load more, kind + date filters ${vp.width}`);
+    assert.deepEqual(errors, [], `page errors audit ${vp.width}`);
+    await context.close();
+  }
+  {
+    const vp = { width: 390, height: 844 };
+    let { context, page } = await open({ role: "owner", data: "empty" }, "/warehouse/nhat-ky", vp);
+    await page.waitForSelector("[data-bmq-audit-empty]");
+    await shot(page, "audit-empty-390.png", false);
+    await context.close();
+    ({ context, page } = await open({ role: "owner", data: "error" }, "/warehouse/nhat-ky", vp));
+    await page.waitForSelector(".d3-kho-failed");
+    assert.match(await page.locator(".d3-kho-failed").innerText(), /chưa có quyền xem nhật ký/);
+    await shot(page, "audit-denied-390.png", false);
+    await context.close();
+    pass("Nhật ký kho: empty + no-permission states");
   }
 
   // View-only: no switches, no save, no count inputs, no transfer.
