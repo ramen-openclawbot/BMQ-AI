@@ -613,6 +613,32 @@ try {
     assert.ok(await page.locator("[data-bmq-crate-dialog]").isVisible(), "crate dialog stays after closing the photo");
     await page.locator("[data-bmq-kho-back]").count();
     pass(`new names list + pick-a-name dialog + delivery-note viewer ${vp.width}`);
+    // Sửa tên (owner 27/10): a name with no match offers "Sửa tên"; the form opens with the OCR name selected.
+    await page.keyboard.press("Escape");
+    await page.waitForSelector("[data-bmq-crate-dialog]", { state: "detached" });
+    const crateRows = page.locator("[data-bmq-kho-newlines] li .d3-kho-row-main");
+    let renameFound = false;
+    for (let i = 0; i < Math.min(await crateRows.count(), 12) && !renameFound; i++) {
+      await crateRows.nth(i).click();
+      await page.waitForSelector("[data-bmq-crate-dialog]");
+      if (await page.locator("[data-bmq-crate-rename]").count()) { renameFound = true; break; }
+      await page.keyboard.press("Escape");
+      await page.waitForSelector("[data-bmq-crate-dialog]", { state: "detached" });
+    }
+    assert.ok(renameFound, "a crate without a match shows Sửa tên");
+    await noSpill(page, "crate-nohint", vp);
+    await page.locator("[data-bmq-crate-nohint]").screenshot({ path: `${EVIDENCE}/crate-rename-${vp.width}.png` });
+    await page.locator("[data-bmq-crate-rename]").click();
+    await page.waitForSelector("[data-bmq-new-name]");
+    await page.waitForTimeout(150);
+    const sel = await page.evaluate(() => {
+      const el = document.activeElement;
+      return el?.hasAttribute("data-bmq-new-name") ? { all: el.selectionStart === 0 && el.selectionEnd === el.value.length, len: el.value.length } : null;
+    });
+    assert.ok(sel && sel.len > 0 && sel.all, `name input focused with the whole name selected: ${JSON.stringify(sel)}`);
+    await page.keyboard.type("Cắt băng keo N.2002 sửa");
+    assert.equal(await page.locator("[data-bmq-new-name]").inputValue(), "Cắt băng keo N.2002 sửa", "typing replaces the OCR name");
+    pass(`Sửa tên gợi ý: focus + select + type over ${vp.width}`);
     assert.deepEqual(errors, [], `page errors newnames ${vp.width}`);
     await context.close();
 

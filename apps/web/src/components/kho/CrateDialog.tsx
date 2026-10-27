@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Check, FileText, Plus, Search, X } from "lucide-react";
+import { Check, FileText, Pencil, Plus, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -300,7 +300,9 @@ export function CrateDialog({ location, crate, snapshot, autoPick = false, onAss
         <>
           <label className="d3-kho-field">
             <span>Tên mặt hàng mới</span>
+            {/* Owner 27/10: OCR misreads names, so the form opens with the name selected for typing over. */}
             <Input value={newName} onChange={(event) => { setNewName(event.target.value); setNameEdited(true); }} maxLength={120}
+              autoFocus onFocus={(event) => event.currentTarget.select()}
               className={cn(nameSource === "invoice" && "is-filled")} key={nameSource} data-bmq-new-name />
           </label>
           {suggestName.isPending ? <div data-bmq-name-hint="busy"><InvoiceScanner lines={notes.data} /></div>
@@ -353,8 +355,11 @@ export function CrateDialog({ location, crate, snapshot, autoPick = false, onAss
             </button>
           ) : (
             <div className="d3-kho-nohint" data-bmq-crate-nohint>
-              <p>Kho chưa có mặt hàng giống tên này.</p>
-              <Button onClick={startCreate}><Plus aria-hidden="true" />Tạo mặt hàng “{cleanCrateName(crate.raw_name)}”</Button>
+              <p>Kho chưa có mặt hàng giống tên này. Tên gợi ý: <b>{cleanCrateName(crate.raw_name)}</b></p>
+              <div className="d3-kho-actions">
+                <Button onClick={startCreate} data-bmq-crate-new><Plus aria-hidden="true" />Tạo mặt hàng mới…</Button>
+                <Button variant="outline" onClick={startCreate} data-bmq-crate-rename><Pencil aria-hidden="true" />Sửa tên</Button>
+              </div>
             </div>
           )}
           <label className="d3-kho-field">
