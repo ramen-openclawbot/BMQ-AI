@@ -1,6 +1,6 @@
 # BMQ source coverage — 2026-09-10
 
-This is an inventory, not a claim that all BMQ data is connected. Public schema: 180 base tables, 17 views. This release synchronizes 105 explicit projections and exposes 14 measures. Names/counts of contract file records do not imply contents were ingested or legal validity established. Raw-only rows are not automatically exposed to the LLM.
+This is an inventory, not a claim that all BMQ data is connected. Public schema: 180 base tables, 17 views. This release synchronizes 109 explicit projections and exposes 14 measures. Names/counts of contract file records do not imply contents were ingested or legal validity established. Raw-only rows are not automatically exposed to the LLM.
 
 ## R3 connection boundary
 
@@ -113,6 +113,7 @@ Nine minimal finance evidence projections are synchronized by raw-v6. Customer o
 | kitchen_inventory_movement_audit_logs | BASE TABLE | Operational/audit source; not a business metric by default |
 | kitchen_inventory_movements | BASE TABLE | R5 raw v8 scalar projection; source evidence only, no stock certification/chat metric |
 | kitchen_other_costs | BASE TABLE | R9 raw v12 scalar business evidence; no ledger/COGS closure |
+| kho_audit_log | BASE TABLE | R11 raw v15 scalar kitchen audit evidence; actor UUID only, no profile/notes/JSON |
 | material_master_audit_logs | BASE TABLE | Operational/audit source; not a business metric by default |
 | material_master_enforcement_config | BASE TABLE | Operational/audit source; not a business metric by default |
 | material_master_shadow_rollout_dashboard | VIEW | Derived view; reconcile underlying sources first |
@@ -198,10 +199,13 @@ Nine minimal finance evidence projections are synchronized by raw-v6. Customer o
 | sku_cogs_version_formulations | BASE TABLE | R6 raw v9 scalar projection; source evidence only, no COGS/stock certification |
 | sku_cogs_versions | BASE TABLE | R6 raw v9 scalar projection; source evidence only, no COGS/stock certification |
 | sku_formulations | BASE TABLE | R6 raw v9 scalar projection; source evidence only, no COGS/stock certification |
+| stock_transfers | BASE TABLE | R11 raw v15 scalar kitchen event evidence; one row per transfer, actor UUID only |
+| stock_unit_events | BASE TABLE | R11 raw v15 scalar kitchen event evidence; actor UUID only, no details JSON |
 | supplier_aliases | BASE TABLE | R9 raw v12 scalar business evidence; no ledger/COGS closure |
 | supplier_product_aliases | BASE TABLE | R9 raw v12 scalar business evidence; no ledger/COGS closure |
 | supplier_scan_templates | BASE TABLE | R9 raw v12 scalar business evidence; no ledger/COGS closure |
 | suppliers | BASE TABLE | Raw only; detail query not yet exposed |
+| tan_tao_material_movements | BASE TABLE | R11 raw v15 scalar kitchen event evidence; actor UUID only, no notes/JSON |
 | tan_tao_warehouse_documents | BASE TABLE | Pending source projection + business contract + reconciliation |
 | tan_tao_warehouse_movements | BASE TABLE | Pending source projection + business contract + reconciliation |
 | tan_tao_warehouse_reservations | BASE TABLE | Pending source projection + business contract + reconciliation |
@@ -304,3 +308,18 @@ source tables stay out of scope: audit logs, HR/attendance/GPS/payroll,
 accounts/sessions/OTP/rate limits, mini-CRM and Drive content, configuration,
 and all 17 views. No source mutation, HR, backup, training, model or Gateway
 change. R3 accounting review remains deferred.
+
+## R11 kho event log (raw v15)
+
+Current allowlist: 109 tables. Four new scalar-only tables:
+`tan_tao_material_movements`, `stock_transfers`, `kho_audit_log` and
+`stock_unit_events`. The new read-only event lane mirrors the five sources of
+`public.kho_get_audit_log()` (the four new tables plus the existing
+`q7_inventory_movements`), normalises one row shape and deduplicates each stock
+transfer against its two ledger rows. Actor columns are UUIDs only: profiles,
+actor names, free-text notes, change/details JSON and arbitrary payloads are
+excluded. Fixed labels/flags version `kho-rules-v1` are computed by rule, not a
+model. The existing `q7_inventory_movements` projection keeps every old field and
+adds only the scalars `source_ref_key`
+and `created_by` (actor UUID) required for Q7 stock-count labels. No new
+chat metric, source mutation, backup, training or Gateway change.

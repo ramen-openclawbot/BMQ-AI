@@ -212,6 +212,12 @@ def create_app(warehouse: Warehouse | None = None, authenticator=None):
         result = execute(engine, body, principal.tenant, principal.permission + ':' + principal.user)
         return json.loads(json.dumps(result, default=json_default))
 
+    @app.post('/v1/kho/events')
+    def kho_events(body: dict, principal: Principal = Depends(authenticator)):
+        from .bmq_kho_events import execute
+        result = execute(engine, body, principal.tenant, principal.permission + ':' + principal.user)
+        return json.loads(json.dumps(result, default=json_default))
+
     @app.post('/v1/payment')
     def payment(body: dict, principal: Principal = Depends(authenticator)):
         from .bmq_payment import execute

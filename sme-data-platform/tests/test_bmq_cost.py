@@ -586,7 +586,7 @@ def test_projection_gate_refuses_older_or_incomplete_snapshot(state):
         cost(state, question='month_totals', month='2026-04')
     with warehouse.lock(), warehouse.connect() as con:
         manifest = json.loads(con.execute('select manifest from meta_supabase_sync_runs').fetchone()[0])
-        manifest['version'] = 'bmq-supabase-raw-v14'
+        manifest['version'] = 'bmq-supabase-raw-v15'
         manifest['tables']['payment_request_items'].pop('fields')
         con.execute('update meta_supabase_sync_runs set manifest=?', [json.dumps(manifest)])
     freshness = execute(engine, {'question': 'sync_freshness'}, TENANT, 'owner:fixture')

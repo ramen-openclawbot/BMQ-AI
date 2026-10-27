@@ -1,6 +1,21 @@
-# Current release — R7 raw-v10
+# Current release — raw-v15
 
-74 scalar projections; see the R7 section below. Earlier release notes retain historical counts and versions. No change to existing chat metrics.
+109 scalar projections; see the R11 section below. Earlier release notes retain historical counts and versions. No change to existing chat metrics.
+
+## R11 kho event log (raw v15)
+
+Four new scalar-only tables bring the allowlist to 109: `tan_tao_material_movements`
+(Tân Tạo ledger), `stock_transfers` (one row per transfer), `kho_audit_log` (item
+catalog audit) and `stock_unit_events` (unit catalog audit). Actor columns
+(`created_by`, `actor_id`, `actor`) are UUIDs only; profiles, actor names, free-text
+notes, change/detail JSON and arbitrary payloads are **not** replicated. The event
+lane reads these five sources (including the existing `q7_inventory_movements`)
+read-only and deduplicates a stock transfer's two ledger rows against its single
+`stock_transfers` row. The existing `q7_inventory_movements` projection keeps every
+old field and adds only the scalars `source_ref_key`
+and `created_by` (actor UUID) needed to mirror the reviewed
+Q7 stock-count label. Fixed labels/flags are versioned `kho-rules-v1`; no model is
+called and no new chat metric is added.
 
 # R3 finance connection — raw-v6
 

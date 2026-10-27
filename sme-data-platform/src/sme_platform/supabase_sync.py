@@ -23,7 +23,7 @@ from .warehouse import Warehouse, atomic_json
 
 PROJECT = 'cxntbdvfsikwmitapony'
 TENANT = PROJECT + '.supabase.co'
-VERSION = 'bmq-supabase-raw-v14'
+VERSION = 'bmq-supabase-raw-v15'
 MAX_ROWS = 50000
 MAX_BYTES = 128 * 1024 * 1024
 # Canonical cost-reporting columns required to reproduce
@@ -144,7 +144,9 @@ FIELDS = {
     'kitchen_inventory_movements': 'id movement_date period_month item_id movement_type quantity unit unit_cost amount source source_ref_id created_at updated_at location_code',
     'kitchen_inventory_monthly_closings': 'id period_month item_id opening_qty purchase_qty usage_qty adjustment_qty system_ending_qty counted_ending_qty variance_qty unit_cost usage_amount status closed_at created_at updated_at',
     'q7_inventory_openings': 'id kitchen_inventory_item_id effective_date opening_qty unit physical_count_qty physical_count_date created_at updated_at q7_mapping_id canonical_material_id',
-    'q7_inventory_movements': 'id kitchen_inventory_item_id movement_date movement_type quantity unit source source_ref_id source_issue_id source_issue_item_id created_at q7_mapping_id canonical_material_id',
+    # R11 adds the scalar stock-count key and actor UUID so the kitchen event log
+    # can mirror kho_get_audit_log's Q7 rows; every old field stays.
+    'q7_inventory_movements': 'id kitchen_inventory_item_id movement_date movement_type quantity unit source source_ref_id source_ref_key created_by source_issue_id source_issue_item_id created_at q7_mapping_id canonical_material_id',
     'q7_material_issue_material_mappings': 'id canonical_material_id source_unit kitchen_inventory_item_id kitchen_unit conversion_factor approval_status approved_at created_at updated_at',
     'kfm_daily_material_issues': 'id issue_number issue_date revision status total_amount printed_at created_at updated_at',
     'kfm_daily_material_issue_items': 'id issue_id canonical_material_id material_code ingredient_name required_qty unit unit_cost amount sort_order created_at',
@@ -198,6 +200,13 @@ FIELDS = {
     'purchase_order_items': 'id purchase_order_id sku_id product_name quantity unit unit_price line_total created_at canonical_material_id material_resolution_status',
     'inventory_items': 'id name category quantity unit min_stock supplier_id created_at updated_at',
     'revenue_ledger_lines': 'id source_document_id source_row_number period revenue_date channel source_tab branch invoice_no customer_id parent_customer_id customer_code customer_name product_code product_name quantity unit_price gross_revenue order_gross order_discount customer_payable source_type approval_status audit_status confidence_status review_status reconciliation_status created_at updated_at route_customer_id route_customer_name',
+    # R11 kitchen event log: scalar movement/catalog evidence only. Actor UUIDs
+    # are kept without resolving profiles/names; free-text notes, changes and
+    # arbitrary details JSON are never projected.
+    'tan_tao_material_movements': 'id kitchen_inventory_item_id movement_date movement_type quantity unit source source_ref_id source_ref_key created_by created_at',
+    'stock_transfers': 'id transfer_number from_location to_location kitchen_inventory_item_id quantity unit transfer_date source goods_receipt_item_id created_by created_at',
+    'kho_audit_log': 'id occurred_at actor_id action item_id item_name source',
+    'stock_unit_events': 'id action unit item_id actor created_at',
 }
 TOTALS = {
     'payments': 'amount', 'invoices': 'total_amount',
