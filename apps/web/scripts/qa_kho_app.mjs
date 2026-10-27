@@ -546,6 +546,13 @@ try {
     pass(`conversion: preview stock impact, then save with a request id ${vp.width}`);
     // + Thêm quy đổi: 1 bao = 25 <unit>
     await page.locator("[data-bmq-conversion-add]").click();
+    // Owner 27/10 "đâu có chỗ gõ": the sentence and its number field are on screen before a unit is chosen.
+    assert.ok(await page.locator("[data-bmq-conversion-new] [data-bmq-unit-sentence-waiting] input").isVisible(), "waiting sentence shows the number field");
+    assert.ok(await page.locator("[data-bmq-conversion-new] [data-bmq-unit-sentence-waiting] input").isDisabled(), "number field waits for a unit");
+    assert.ok(await page.locator("[data-bmq-conversion-unit-new]").isVisible(), "+ Đơn vị mới beside the picker");
+    await noSpill(page, "conversion-add-waiting", vp);
+    await page.locator("[data-bmq-conversion-new]").scrollIntoViewIfNeeded();
+    await shot(page, `conversion-add-waiting-${vp.width}.png`, false);
     await page.locator("[data-bmq-conversion-new] [data-bmq-picker]").click();
     await page.locator("[data-bmq-picker-sheet] [data-bmq-picker-option='bao']").click();
     await page.waitForSelector("[data-bmq-picker-sheet]", { state: "detached" });
@@ -555,6 +562,27 @@ try {
     await page.waitForTimeout(400);
     assert.ok((await calls(page)).some((c) => c.startsWith("rpc:kho_set_item_conversion:") && c.includes('"p_unit":"bao"') && c.includes('"p_factor":25') && c.includes('"p_dry_run":false')), "add conversion call");
     pass(`add a conversion for a new delivery-note unit ${vp.width}`);
+    // + Đơn vị mới inside the conversion: creates the unit, picks it, keeps the item's own unit.
+    const unitBefore = await page.locator("[data-bmq-kho-item-dialog] [data-bmq-unit-open] .d3-kho-setrow-value").innerText();
+    await page.locator("[data-bmq-conversion-add]").click();
+    await page.locator("[data-bmq-conversion-unit-new]").click();
+    await page.locator("[data-bmq-conversion-unit-new-field] input").fill("Ram");
+    await noSpill(page, "conversion-add-typing-unit", vp);
+    await page.locator("[data-bmq-conversion-new]").scrollIntoViewIfNeeded();
+    await shot(page, `conversion-add-typing-unit-${vp.width}.png`, false);
+    await page.locator("[data-bmq-conversion-unit-new-save]").click();
+    await page.waitForSelector("[data-bmq-conversion-new] [data-bmq-unit-factor]");
+    assert.ok((await calls(page)).some((c) => c.startsWith("rpc:kho_add_stock_unit:") && c.includes('"p_label":"Ram"')), "add unit from conversion call");
+    assert.match(await page.locator("[data-bmq-conversion-new] [data-bmq-unit-sentence]").innerText(), /ram/i, "new unit picked into the sentence");
+    assert.equal(await page.locator("[data-bmq-kho-item-dialog] [data-bmq-unit-open] .d3-kho-setrow-value").innerText(), unitBefore, "item unit unchanged");
+    await page.locator("[data-bmq-conversion-new] [data-bmq-unit-factor]").fill("500");
+    await noSpill(page, "conversion-add-newunit", vp);
+    await page.locator("[data-bmq-conversion-new]").scrollIntoViewIfNeeded();
+    await shot(page, `conversion-add-newunit-${vp.width}.png`, false);
+    await page.locator("[data-bmq-conversion-add-save]").click();
+    await page.waitForTimeout(400);
+    assert.ok((await calls(page)).some((c) => c.startsWith("rpc:kho_set_item_conversion:") && c.includes('"p_unit":"ram"') && c.includes('"p_factor":500') && c.includes('"p_dry_run":false')), "conversion for the new unit");
+    pass(`create a unit from the conversion row ${vp.width}`);
     assert.deepEqual(errors, [], `page errors unit dialog ${vp.width}`);
     await context.close();
     // Kiểm kê: the item name opens the same detail

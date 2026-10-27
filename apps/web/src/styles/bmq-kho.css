@@ -838,6 +838,14 @@ html.bmq-d3 .d3-kho-sentence-n {
 }
 html.bmq-d3 .d3-kho-sentence-n:focus { border-color: var(--d3-ink); background: #fff; outline: none; }
 .d3-kho-sentence-n::placeholder { color: var(--d3-faint); }
+/* New conversion (owner 27/10): unit picker with "+ Đơn vị mới" beside it; the sentence waits, greyed, until a unit is chosen. */
+.d3-kho-convunit { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; min-width: 0; }
+.d3-kho-convunit > :first-child { flex: 1 1 200px; min-width: 0; }
+.d3-kho-convunit .d3-kho-setlink { flex: none; }
+.d3-kho-sentence.is-waiting { background: var(--d3-paper, #f6f5f1); border-style: dashed; }
+.d3-kho-sentence.is-waiting .d3-kho-sentence-one,
+.d3-kho-sentence-unit.is-blank { color: var(--d3-faint); font-weight: 400; }
+html.bmq-d3 .d3-kho-sentence.is-waiting .d3-kho-sentence-n { cursor: not-allowed; opacity: .7; }
 html.bmq-d3 .d3-kho-swap { display: grid; place-items: center; width: 38px; height: 38px; margin-left: auto; border-radius: 10px; color: var(--d3-dim); }
 html.bmq-d3 .d3-kho-swap:hover { background: rgba(39, 39, 39, .06); color: var(--d3-ink); }
 .d3-kho-swap svg { width: 17px; height: 17px; transition: transform .22s var(--kho-ease); }

@@ -197,19 +197,49 @@ function ConversionRow({ itemId, group, stockUnit, canEdit, lines, linesLoading,
   );
 }
 
-/** A conversion for a unit no supplier has written yet ("nhà cung cấp mới giao theo thùng"). */
+/**
+ * A conversion for a unit no supplier has written yet ("nhà cung cấp mới giao theo thùng").
+ * Owner 27/10 ("đâu có chỗ gõ"): the sentence with its number field is on screen from the start, waiting
+ * for a unit; a unit missing from the catalogue is created right here without touching the item's own unit.
+ */
 function NewConversion({ itemId, stockUnit, units, taken, onSaved, onClose }: {
   itemId: string; stockUnit: string; units: KhoUnit[]; taken: string[]; onSaved: (text: string) => void; onClose: () => void;
 }) {
   const [unit, setUnit] = useState("");
   const [factor, setFactor] = useState<number | null>(null);
   const [requestId, setRequestId] = useState(newRequestId);
+  const [creating, setCreating] = useState(false);
+  const [label, setLabel] = useState("");
+  const [addId, setAddId] = useState(newRequestId);
+  // A just-created unit, offered until the refetched catalogue carries it.
+  const [fresh, setFresh] = useState<string | null>(null);
   const save = useSetKhoItemConversion();
+  const add = useAddKhoUnit();
+  const newRef = useRef<HTMLInputElement>(null);
+  useEffect(() => { if (creating) newRef.current?.focus(); }, [creating]);
   // Delivery notes also write kg and lít; a count item converts those by a factor too.
   const pool: KhoUnit[] = [...units, { code: "kg", label: "kg", kind: "weight", base_code: "g", to_base: 1000 }, { code: "l", label: "lít", kind: "volume", base_code: "ml", to_base: 1000 }];
+  if (fresh && !pool.some((u) => same(u.code, fresh))) pool.push({ code: fresh, label: fresh, kind: "count", base_code: fresh, to_base: 1 });
   const options = pool
     .filter((u) => !same(u.code, stockUnit) && !taken.some((t) => same(t, u.code)) && standardUnitFactor(u.code, stockUnit) === null)
     .map((u) => ({ value: u.code, label: u.label }));
+  const createUnit = () => {
+    const clean = label.trim();
+    if (!clean || add.isPending) return;
+    add.mutate({ label: clean, requestId: addId }, {
+      onSuccess: (result) => {
+        setFresh(result.unit);
+        setCreating(false);
+        setLabel("");
+        setAddId(newRequestId());
+        setFactor(null);
+        setUnit(result.unit);
+      },
+    });
+  };
+  const closeCreate = () => { setCreating(false); setLabel(""); add.reset(); };
+  // The unit already has a conversion or is the stock unit itself: say so instead of offering it.
+  const clash = Boolean(unit) && (same(unit, stockUnit) || taken.some((t) => same(t, unit)) || standardUnitFactor(unit, stockUnit) !== null);
   const submit = () => {
     if (!unit || factor === null) return;
     save.mutate({ itemId, unit, factor, requestId }, {
@@ -224,13 +254,41 @@ function NewConversion({ itemId, stockUnit, units, taken, onSaved, onClose }: {
             <div className="d3-kho-conv-editor">
               <div className="d3-kho-field">
                 <span>Phiếu giao ghi đơn vị</span>
-                <OptionPicker value={unit} onChange={setUnit} options={options} title="Đơn vị trên phiếu" ariaLabel="Đơn vị trên phiếu" placeholder="Chọn đơn vị…" dataAttrs={{ "bmq-conversion-unit": "" }} />
+                <div className="d3-kho-convunit">
+                  <OptionPicker value={unit} onChange={(next) => { setUnit(next); setFactor(null); closeCreate(); }} options={options} title="Đơn vị trên phiếu" ariaLabel="Đơn vị trên phiếu" placeholder="Chọn đơn vị…" dataAttrs={{ "bmq-conversion-unit": "" }} />
+                  {creating ? (
+                    <span className="d3-kho-chip-new" data-bmq-conversion-unit-new-field>
+                      <input ref={newRef} value={label} onChange={(event) => setLabel(event.target.value)} maxLength={16} placeholder="vd: thùng"
+                        aria-label="Tên đơn vị mới trên phiếu" onKeyDown={(event) => { if (event.key === "Enter") createUnit(); if (event.key === "Escape") closeCreate(); }} />
+                      <button type="button" onClick={createUnit} disabled={!label.trim() || add.isPending} aria-label="Thêm đơn vị" data-bmq-conversion-unit-new-save><Check /></button>
+                      <button type="button" onClick={closeCreate} aria-label="Thôi"><X /></button>
+                    </span>
+                  ) : (
+                    <button type="button" className="d3-kho-setlink" onClick={() => setCreating(true)} data-bmq-conversion-unit-new><Plus aria-hidden="true" />Đơn vị mới</button>
+                  )}
+                </div>
+                {add.error ? <p className="d3-kho-error">{khoErrorText(add.error)}</p> : null}
               </div>
-              {unit ? <SentenceEditor key={unit} receiptUnit={unit} stockUnit={stockUnit} factor={null} onFactor={setFactor} /> : null}
+              {unit && !clash ? (
+                <SentenceEditor key={unit} receiptUnit={unit} stockUnit={stockUnit} factor={null} onFactor={setFactor} autoFocus />
+              ) : (
+                <div className="d3-kho-sentence is-waiting" data-bmq-unit-sentence-waiting>
+                  <span className="d3-kho-sentence-one">1</span>
+                  <span className="d3-kho-sentence-unit is-blank">{unit || "đơn vị"}</span>
+                  <span className="d3-kho-sentence-eq" aria-hidden="true">=</span>
+                  <input className="d3-kho-sentence-n" disabled placeholder="?" aria-label="Chọn đơn vị trên phiếu trước rồi gõ số" />
+                  <span className="d3-kho-sentence-unit">{stockUnit}</span>
+                </div>
+              )}
+              {clash ? (
+                <p className="d3-kho-impact is-quiet" data-bmq-conversion-unit-clash>Món này đã có quy đổi cho {unit}. Sửa ở dòng của nó phía trên.</p>
+              ) : !unit ? (
+                <p className="d3-kho-impact is-quiet">Chọn đơn vị trên phiếu hoặc thêm đơn vị mới, rồi gõ số vào ô trống.</p>
+              ) : null}
               {save.error ? <p className="d3-kho-error">{khoErrorText(save.error)}</p> : null}
               <div className="d3-kho-actions">
-                <Button disabled={!unit || factor === null || save.isPending} onClick={submit} data-bmq-conversion-add-save>{save.isPending ? "Đang lưu…" : "Lưu quy đổi"}</Button>
-                <Button variant="ghost" onClick={() => { setUnit(""); setFactor(null); onClose(); }}>Hủy</Button>
+                <Button disabled={!unit || clash || factor === null || save.isPending} onClick={submit} data-bmq-conversion-add-save>{save.isPending ? "Đang lưu…" : "Lưu quy đổi"}</Button>
+                <Button variant="ghost" onClick={() => { setUnit(""); setFactor(null); closeCreate(); onClose(); }}>Hủy</Button>
               </div>
             </div>
     </li>
