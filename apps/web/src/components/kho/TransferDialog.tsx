@@ -26,13 +26,15 @@ const transferError = (error: unknown) => {
  * "Phiếu chuyển kho" (owner 12/10): staff move any Tân Tạo item to Q7 on a slip.
  * Pastry items still move by themselves; supplies (băng keo, hộp…) go on a manual slip.
  */
-export function TransferDialog({ items, ttStarted, q7Started, onDone, onClose }: {
+export function TransferDialog({ items, ttStarted, q7Started, initialItemId, onDone, onClose }: {
   items: WarehouseGameItem[]; ttStarted: boolean; q7Started: boolean;
+  /** Open with this item already on the slip (from an item's detail). */
+  initialItemId?: string;
   onDone: (message: string) => void; onClose: () => void;
 }) {
   const create = useCreateManualTransfer();
   const started = ttStarted && q7Started;
-  const [lines, setLines] = useState<Line[]>([]);
+  const [lines, setLines] = useState<Line[]>(() => (initialItemId ? [{ id: initialItemId, qty: "" }] : []));
   const [query, setQuery] = useState("");
   const [note, setNote] = useState("");
   const [requestId, setRequestId] = useState(newRequestId);
@@ -86,7 +88,7 @@ export function TransferDialog({ items, ttStarted, q7Started, onDone, onClose }:
             <li key={line.id} className={cn(problem && "is-bad")} data-bmq-slip-line>
               <span className="d3-kho-slip-name"><b>{item?.name ?? "?"}</b><small>{item ? `Tân Tạo còn ${fmtQty(item.on_hand)} ${item.unit}` : ""}</small></span>
               <label className="d3-kho-qty">
-                <input inputMode="decimal" value={line.qty} placeholder="SL" aria-label={`Số lượng ${item?.name ?? ""}`} onChange={(event) => setQty(line.id, event.target.value)} />
+                <input inputMode="decimal" value={line.qty} placeholder="SL" aria-label={`Số lượng ${item?.name ?? ""}`} autoFocus={Boolean(initialItemId) && line.id === initialItemId} onChange={(event) => setQty(line.id, event.target.value)} />
                 <i>{item?.unit}</i>
               </label>
               <button type="button" className="d3-kho-icon is-small" onClick={() => remove(line.id)} aria-label={`Bỏ ${item?.name ?? "món"}`}><X /></button>

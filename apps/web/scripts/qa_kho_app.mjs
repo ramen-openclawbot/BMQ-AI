@@ -81,7 +81,8 @@ function settle(st) {
   if (st.table === "rpc:get_warehouse_game_snapshot") {
     const F = window.__kgFixture;
     const loc = st.args.p_location;
-    const items = F.items.filter((it) => loc !== "q7" || it.pastry_q7);
+    // Tân Tạo on-hand follows the kho list fixture (khoItems) so the item detail and its transfer slip agree.
+    const items = F.items.filter((it) => loc !== "q7" || it.pastry_q7).map((it) => (loc === "tan_tao" && !it.on_hand && !it.pastry_q7 ? { ...it, on_hand: (F.items.indexOf(it) * 1371) % 50000 } : it));
     const q7Skus = [{ id: "fg-cbc", sku_code: "cbc-2026-v2", product_name: "BÁNH MÌ CHÀ BÔNG CAY", unit: "gói", on_hand: 12 }];
     return { data: { location: loc, cutover_date: "2026-10-16", items, skus: loc === "tan_tao" ? F.skus : q7Skus, pending: mode === "empty" ? [] : (loc === "q7" ? F.q7 : F.tt), transfers: F.transfers ?? [], counts: {}, can_edit: role === "owner" }, error: null };
   }
@@ -116,6 +117,11 @@ function settle(st) {
         { location: "q7", sku_id: "fg-cbc", sku_code: "cbc-2026-v2", name: "BÁNH MÌ CHÀ BÔNG CAY", unit: "gói", on_hand: 12, incoming_qty: 170, committed_qty: 170, overdue_qty: 0, available: 12, orders: 1, next_date: today },
       ],
       gaps: mode === "empty" ? { pxk_lines_unposted: 0, pxk_unposted_issues: [] } : { pxk_lines_unposted: 7, pxk_unposted_issues: ["PXK-NVL-Q7-QA-009", "PXK-NVL-Q7-QA-010"] } }, error: null };
+  }
+  if (st.table === "rpc:create_manual_stock_transfer") {
+    const F = window.__kgFixture;
+    const lines = (st.args.p_lines || []).map((l, i) => { const it = F.items.find((x) => x.id === l.item_id); return { transfer_id: "00000000-0000-4000-8000-00000000000" + (i + 1), transfer_number: "CK-20261027-QA000" + (i + 1), item_id: l.item_id, item_name: it ? it.name : "?", quantity: Number(l.quantity), unit: it ? it.unit : "g" }; });
+    return { data: { slip_id: "00000000-0000-4000-8000-0000000000aa", slip_number: "CKP-20261027-QA0001", transfer_date: "2026-10-27", lines }, error: null };
   }
   if (st.table === "rpc:get_stock_transfers") return { data: (window.__kgFixture.transfers ?? []).map((t, i) => ({ ...t, source: i % 2 ? "manual" : "auto", slip_id: null, slip_number: i % 2 ? "PCK-QA-" + i : null, note: i === 1 ? "hàng cho ca sáng Q7" : null })), error: null };
   if (st.table === "rpc:get_q7_finished_goods_planned") return { data: [{ sku_id: "fg-cbc", product_name: "BÁNH MÌ CHÀ BÔNG CAY", unit: "gói", planned_qty: 40, already_received: 12, production_order_item_id: "poi-qa-1" }], error: null };
@@ -441,6 +447,31 @@ try {
     pass(`item dialog in view after scrolling + move to Bao bì & vật tư ${vp.width}`);
     await context.close();
 
+    // Chuyển sang Q7 inside the item detail (owner 27/10): same slip, item already on it.
+    ({ context, page, errors } = await open({ role: "owner" }, "/warehouse/danh-muc", vp));
+    await page.waitForSelector("[data-bmq-kho-names] li");
+    const tfId = await page.evaluate(() => { const items = window.__kgFixture.items; const i = items.findIndex((it, k) => !it.pastry_q7 && (k * 1371) % 50000 > 0 && k >= 1); return items[i].id; });
+    await page.locator(`[data-bmq-kho-item='${tfId}']`).click();
+    await dialogInView(page, "[data-bmq-kho-item-dialog]", vp);
+    await page.locator("[data-bmq-item-transfer]").scrollIntoViewIfNeeded();
+    assert.equal(await page.locator("[data-bmq-item-transfer-open]").isEnabled(), true, "transfer button enabled for an item with Tân Tạo stock");
+    await shot(page, `item-transfer-row-${vp.width}.png`, false);
+    await page.locator("[data-bmq-item-transfer-open]").click();
+    await page.waitForSelector("[data-bmq-transfer-slip]");
+    assert.equal(await page.locator("[data-bmq-transfer-slip] [data-bmq-slip-line]").count(), 1, "the item is already on the slip");
+    assert.equal(await page.locator("[data-bmq-slip-submit]").isDisabled(), true, "no quantity yet");
+    await page.locator("[data-bmq-transfer-slip] [data-bmq-slip-line] input").fill("1");
+    await page.waitForTimeout(150);
+    await noSpill(page, "item-transfer", vp);
+    await shot(page, `item-transfer-slip-${vp.width}.png`, false);
+    await page.locator("[data-bmq-slip-submit]").click();
+    await page.waitForSelector("[data-bmq-transfer-slip]", { state: "detached", timeout: 4000 });
+    assert.ok((await calls(page)).some((c) => c.startsWith("rpc:create_manual_stock_transfer:") && c.includes(tfId) && c.includes('"quantity":1') && /"p_request_id":"[0-9a-f-]{36}"/.test(c)), "transfer call carries the item, quantity and a request id");
+    assert.ok(await page.locator("[data-bmq-kho-item-dialog]").isVisible(), "item detail stays open after the transfer");
+    pass(`item detail: Chuyển sang Q7 opens the slip with the item, sends it once ${vp.width}`);
+    assert.deepEqual(errors, [], `page errors item transfer ${vp.width}`);
+    await context.close();
+
     // Rename onto an existing name -> confirm -> merge
     ({ context, page, errors } = await open({ role: "owner" }, "/warehouse/danh-muc", vp));
     await page.waitForSelector("[data-bmq-kho-names] li");
@@ -731,6 +762,7 @@ try {
     await page.waitForSelector("[data-bmq-kho-item-dialog]");
     assert.equal(await page.locator("[data-bmq-kho-save]").count(), 0, "no save for view-only");
     assert.equal(await page.locator("[data-bmq-unit-chips], [data-bmq-conversion-edit], [data-bmq-conversion-add]").count(), 0, "no unit or conversion controls for view-only");
+    assert.equal(await page.locator("[data-bmq-item-transfer]").count(), 0, "no transfer control for view-only");
     await context.close();
     ({ context, page } = await open({ role: "viewonly" }, "/warehouse/kiem-ke", vp));
     await page.waitForSelector("[data-bmq-kho-count='tan_tao'] li");

@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { CLASS_OF, GROUPS, KHO_LABEL, KHO_LOCATIONS, fmtAmount, groupOf, newRequestId, parseNum, type Group } from "./kho-meta";
 import type { KhoConfirmOptions } from "./KhoConfirm";
 import { KhoDialog } from "./KhoDialog";
+import { ItemTransfer } from "./ItemTransfer";
 import { ReceiptNotes } from "./ReceiptNotes";
 import { SupplierOrderSection } from "./SupplierOrderSection";
 import { UnitAndConversions } from "./UnitSections";
@@ -218,6 +219,7 @@ export function ItemDialog({ item, items, canEdit, confirm, onDone, onClose, onT
         <span><b>{active ? "Đang bật" : "Đã tắt"}</b><small>{active ? "Hiện khi đếm và khi đặt hàng" : "Không hiện khi đếm, sổ tồn giữ nguyên"}</small></span>
         <Switch checked={active} onCheckedChange={setActive} disabled={!canEdit} aria-label="Bật/tắt món" />
       </div>
+      <ItemTransfer item={item} canEdit={canEdit} onToast={onToast} />
       {ask ? (
         <div className="d3-kho-ask" data-bmq-kho-ask={ask.kind}>
           <b>{ask.kind === "merge" ? `Gộp vào “${ask.other.name}” (đơn vị ${ask.to})` : `Đổi đơn vị ${ask.from} → ${ask.to}`}</b>
