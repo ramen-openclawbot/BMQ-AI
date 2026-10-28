@@ -5,15 +5,29 @@ import { readFileSync } from "node:fs";
 import {
   createInvoiceInboxIngestHandler,
   extractMeinvoiceLookupCodes,
+  INVOICE_INBOX_BUCKET,
+  PDF_AMOUNT_MISMATCH_NOTE,
+  PDF_NOT_INVOICE_NOTE,
   PDF_UNREAD_NOTE,
   type GmailMessage,
   type IngestPayload,
   type IngestResult,
   type InvoiceInboxIngestDeps,
   type JevCandidates,
+  type PdfReextractPayload,
   type SupplierUploadRow,
+  type UnreadPdfInvoice,
 } from "./handler.ts";
 import type { InvoiceJevEvaluation } from "./jev.ts";
+
+const PDF_TEXT_MAB = readFileSync(
+  new URL("./fixtures/pdf-text-mab-1037992.txt", import.meta.url),
+  "utf8",
+);
+const PDF_TEXT_VIETTEL = readFileSync(
+  new URL("./fixtures/pdf-text-viettel-6016614.txt", import.meta.url),
+  "utf8",
+);
 
 const XML_BYTES = new TextEncoder().encode(
   `<?xml version="1.0" encoding="UTF-8"?>
@@ -140,6 +154,11 @@ interface FakeCalls {
   settings: { key: string; value: string }[];
   extract: number;
   meinvoice: string[];
+  pdfText: number;
+  pdfExtract: string[];
+  download: { bucket: string; path: string }[];
+  reextract: { id: string; payload: PdfReextractPayload }[];
+  notes: { id: string; note: string }[];
 }
 
 interface FakeOptions {
@@ -152,8 +171,18 @@ interface FakeOptions {
   evaluatorError?: Error;
   uploads?: SupplierUploadRow[];
   download?: Uint8Array;
+  downloadError?: Error;
   meinvoiceXml?: string | null;
   meinvoiceError?: Error;
+  pdfText?: string;
+  pdfTextByPath?: Record<string, string>;
+  pdfTextError?: Error;
+  pdfExtraction?: unknown | ((text: string) => unknown);
+  pdfExtractError?: Error;
+  unreadPdfs?: UnreadPdfInvoice[];
+  listUnreadPdfsError?: Error;
+  reextractError?: Error;
+  setNoteError?: Error;
 }
 
 function fakeDeps(options: FakeOptions = {}): {
@@ -172,6 +201,11 @@ function fakeDeps(options: FakeOptions = {}): {
     settings: [],
     extract: 0,
     meinvoice: [],
+    pdfText: 0,
+    pdfExtract: [],
+    download: [],
+    reextract: [],
+    notes: [],
   };
   const candidates: JevCandidates = options.candidates ?? {
     invoice: {
@@ -208,7 +242,11 @@ function fakeDeps(options: FakeOptions = {}): {
       },
     },
     listSupplierUploads: async () => options.uploads ?? [],
-    downloadStorage: async () => options.download ?? new Uint8Array(),
+    downloadStorage: async (bucket, path) => {
+      calls.download.push({ bucket, path });
+      if (options.downloadError) throw options.downloadError;
+      return options.download ?? new TextEncoder().encode(path);
+    },
     uploadStorage: async (_bucket, path) => {
       calls.upload.push(path);
       return { reused: false };
@@ -248,6 +286,36 @@ function fakeDeps(options: FakeOptions = {}): {
         vat_amount: 100,
         items: [{ product_name: "Hàng", quantity: 2, unit_price: 500 }],
       };
+    },
+    extractPdfText: async (bytes) => {
+      calls.pdfText += 1;
+      if (options.pdfTextError) throw options.pdfTextError;
+      if (options.pdfTextByPath) {
+        const path = new TextDecoder().decode(bytes);
+        return options.pdfTextByPath[path] ?? "";
+      }
+      return options.pdfText ?? "";
+    },
+    extractInvoiceFromText: async (text) => {
+      calls.pdfExtract.push(text);
+      if (options.pdfExtractError) throw options.pdfExtractError;
+      if (typeof options.pdfExtraction === "function") {
+        return options.pdfExtraction(text);
+      }
+      return options.pdfExtraction ?? {};
+    },
+    listUnreadPdfInvoices: async () => {
+      if (options.listUnreadPdfsError) throw options.listUnreadPdfsError;
+      return options.unreadPdfs ?? [];
+    },
+    reextractInvoice: async (id, payload) => {
+      calls.reextract.push({ id, payload });
+      if (options.reextractError) throw options.reextractError;
+      return { id, status: "matched" };
+    },
+    setInvoiceNote: async (id, note) => {
+      calls.notes.push({ id, note });
+      if (options.setNoteError) throw options.setNoteError;
     },
     evaluator: () => async () => {
       if (options.evaluatorError) throw options.evaluatorError;
@@ -532,4 +600,174 @@ test("extractMeinvoiceLookupCodes: link Code= / transactionID=", () => {
     ),
     ["XYZ_123-abc", "ABC12345"],
   );
+});
+
+const MAB_EXTRACTION = {
+  seller_name: "CÔNG TY TNHH MM MEGA MARKET (VIỆT NAM)",
+  seller_tax_code: "0302249586",
+  buyer_tax_code: "0311840107",
+  invoice_number: "1037992",
+  invoice_series: "1C26MAB",
+  invoice_date: "21/10/2026",
+  subtotal: "1.317.651",
+  vat_amount: "66.433",
+  total_amount: "1.384.084",
+  lines: [
+    {
+      name: "GAN HEO",
+      unit: "KY",
+      quantity: "10,016",
+      unit_price: "116.393",
+      amount: "982.000",
+      vat_rate: "5",
+    },
+  ],
+};
+
+test("PDF có chữ, AI đọc hợp lệ: nạp số liệu đã tách", async () => {
+  const { deps, calls } = fakeDeps({
+    messages: [{ id: "m2" }],
+    message: pdfOnlyMessage(),
+    pdfText: PDF_TEXT_MAB,
+    pdfExtraction: MAB_EXTRACTION,
+  });
+  const { response, body } = await run(deps, { source: "email" });
+
+  assert.equal(response.status, 200);
+  assert.equal(body.email.ingested, 1);
+  assert.equal(calls.pdfText, 1);
+  assert.deepEqual(calls.pdfExtract, [PDF_TEXT_MAB.trim().slice(0, 12_000)]);
+  assert.equal(calls.ingest.length, 1);
+  const payload = calls.ingest[0];
+  assert.equal(payload.source_ref, "gmail:m2:scan.pdf");
+  assert.equal(payload.file_mime, "application/pdf");
+  assert.equal(payload.seller_name, "CÔNG TY TNHH MM MEGA MARKET (VIỆT NAM)");
+  assert.equal(payload.seller_tax_code, "0302249586");
+  assert.equal(payload.invoice_number, "1037992");
+  assert.equal(payload.invoice_series, "1C26MAB");
+  assert.equal(payload.invoice_date, "2026-10-21");
+  assert.equal(payload.subtotal, 1317651);
+  assert.equal(payload.vat_amount, 66433);
+  assert.equal(payload.total_amount, 1384084);
+  assert.equal(payload.note, undefined);
+  assert.equal((payload.raw as { source: string }).source, "pdf_text");
+  assert.equal((payload.raw as { lines: unknown[] }).lines.length, 1);
+});
+
+test("PDF có chữ nhưng số tiền lệch: nạp kèm note không khớp", async () => {
+  const { deps, calls } = fakeDeps({
+    messages: [{ id: "m2" }],
+    message: pdfOnlyMessage(),
+    pdfText: PDF_TEXT_MAB,
+    pdfExtraction: { ...MAB_EXTRACTION, total_amount: "1.000.000" },
+  });
+  const { response, body } = await run(deps, { source: "email" });
+
+  assert.equal(response.status, 200);
+  assert.equal(body.email.ingested, 1);
+  assert.equal(calls.ingest.length, 1);
+  assert.equal(calls.ingest[0].note, PDF_AMOUNT_MISMATCH_NOTE);
+  assert.equal(calls.ingest[0].total_amount, undefined);
+});
+
+test("PDF catalogue không phải hoá đơn: không gọi AI tách số liệu", async () => {
+  const { deps, calls } = fakeDeps({
+    messages: [{ id: "m2" }],
+    message: pdfOnlyMessage(),
+    pdfText: "LỜI TRỊ ÂN GỬI QUÝ ĐỐI TÁC",
+  });
+  const { response, body } = await run(deps, { source: "email" });
+
+  assert.equal(response.status, 200);
+  assert.equal(body.email.ingested, 1);
+  assert.equal(calls.pdfExtract.length, 0);
+  assert.equal(calls.ingest[0].note, PDF_NOT_INVOICE_NOTE);
+});
+
+test("extractPdfText ném lỗi: quay về note PDF chưa đọc được", async () => {
+  const { deps, calls } = fakeDeps({
+    messages: [{ id: "m2" }],
+    message: pdfOnlyMessage(),
+    pdfTextError: new Error("unpdf_failed"),
+  });
+  const { response, body } = await run(deps, { source: "email" });
+
+  assert.equal(response.status, 200);
+  assert.equal(body.email.ingested, 1);
+  assert.ok(body.errors.length >= 1);
+  assert.equal(calls.pdfExtract.length, 0);
+  assert.equal(calls.ingest[0].note, PDF_UNREAD_NOTE);
+});
+
+test("reprocess_pdf: chỉ reextract dòng ok và trả đủ counts", async () => {
+  const unreadPdfs: UnreadPdfInvoice[] = [
+    {
+      id: "r1",
+      file_path: "incoming/2026-10/a.pdf",
+      file_name: "a.pdf",
+      file_mime: "application/pdf",
+    },
+    {
+      id: "r2",
+      file_path: "incoming/2026-10/b.pdf",
+      file_name: "b.pdf",
+      file_mime: "application/pdf",
+    },
+    {
+      id: "r3",
+      file_path: "incoming/2026-10/c.pdf",
+      file_name: "c.pdf",
+      file_mime: "application/pdf",
+    },
+  ];
+  const { deps, calls } = fakeDeps({
+    unreadPdfs,
+    pdfTextByPath: {
+      "incoming/2026-10/a.pdf": PDF_TEXT_MAB,
+      "incoming/2026-10/b.pdf": "LỜI TRỊ ÂN GỬI QUÝ ĐỐI TÁC",
+      "incoming/2026-10/c.pdf": PDF_TEXT_VIETTEL,
+    },
+    pdfExtraction: (text: string) => {
+      if (text.includes("MM MEGA MARKET")) return MAB_EXTRACTION;
+      if (text.includes("MOBIFONE")) {
+        return {
+          seller_name: "TỔNG CÔNG TY VIỄN THÔNG MOBIFONE",
+          seller_tax_code: "0100686209",
+          invoice_number: "6016614",
+          invoice_series: "1K26DBK",
+          invoice_date: "06/10/2026",
+          subtotal: "76.364",
+          vat_amount: "7.636",
+          total_amount: "100.000",
+          lines: [],
+        };
+      }
+      return {};
+    },
+  });
+
+  const { response, body } = await run(deps, { source: "reprocess_pdf" });
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(
+    {
+      scanned: body.scanned,
+      updated: body.updated,
+      not_invoice: body.not_invoice,
+      mismatch: body.mismatch,
+      failed: body.failed,
+    },
+    { scanned: 3, updated: 1, not_invoice: 1, mismatch: 1, failed: 0 },
+  );
+  assert.equal(calls.download.length, 3);
+  assert.equal(calls.download[0].bucket, INVOICE_INBOX_BUCKET);
+  assert.equal(calls.reextract.length, 1);
+  assert.equal(calls.reextract[0].id, "r1");
+  assert.equal(calls.reextract[0].payload.total_amount, 1384084);
+  assert.equal(calls.reextract[0].payload.period, "2026-10");
+  assert.equal((calls.reextract[0].payload.raw as { source: string }).source, "pdf_text");
+  assert.deepEqual(calls.notes, [
+    { id: "r2", note: PDF_NOT_INVOICE_NOTE },
+    { id: "r3", note: PDF_AMOUNT_MISMATCH_NOTE },
+  ]);
 });

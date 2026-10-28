@@ -343,6 +343,139 @@ async function extractInvoiceFromImage(
   return JSON.parse(toolCall.function.arguments || "{}") as Record<string, unknown>;
 }
 
+/** System prompt for the text-only PDF invoice extraction. */
+export const INVOICE_TEXT_SYSTEM_PROMPT = `Bạn đọc hoá đơn GTGT (VAT) điện tử Việt Nam từ phần chữ đã tách khỏi file PDF.
+- Chép nguyên các con số đã in; không tự tính lại, không làm tròn, không đổi thứ tự chữ số.
+- Số in trên hoá đơn Việt Nam ngăn phần nghìn bằng dấu '.', ngăn phần thập phân bằng dấu ','.
+- seller_name là bên bán / đơn vị phát hành hoá đơn, KHÔNG phải bên mua. "CÔNG TY CỔ PHẦN THỰC PHẨM BMQ" (MST 0311840107) là bên mua, không được trả về làm seller_name.
+- invoice_date trả về đúng định dạng YYYY-MM-DD.
+- Trường nào không xác định được thì trả null; không bịa số.
+- lines là từng dòng hàng: name, unit, quantity, unit_price, amount, vat_rate.`;
+
+/** Forced function tool for a text-only PDF invoice request. */
+export const INVOICE_TEXT_TOOL: DeepSeekToolDefinition = {
+  name: "invoice_fields",
+  description: "Trả về số liệu hoá đơn GTGT đã đọc từ phần chữ của PDF",
+  parameters: {
+    type: "object",
+    properties: {
+      seller_name: { type: ["string", "null"] },
+      seller_tax_code: { type: ["string", "null"] },
+      buyer_tax_code: { type: ["string", "null"] },
+      invoice_series: { type: ["string", "null"] },
+      invoice_number: { type: ["string", "null"] },
+      invoice_date: { type: ["string", "null"] },
+      subtotal: { type: ["number", "null"] },
+      vat_amount: { type: ["number", "null"] },
+      total_amount: { type: ["number", "null"] },
+      lines: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            name: { type: ["string", "null"] },
+            unit: { type: ["string", "null"] },
+            quantity: { type: ["number", "null"] },
+            unit_price: { type: ["number", "null"] },
+            amount: { type: ["number", "null"] },
+            vat_rate: { type: ["number", "null"] },
+          },
+          required: ["name", "quantity", "unit_price", "amount"],
+        },
+      },
+    },
+    required: [
+      "seller_name",
+      "seller_tax_code",
+      "invoice_number",
+      "invoice_date",
+      "total_amount",
+      "lines",
+    ],
+  },
+};
+
+export interface InvoiceTextExtractOptions {
+  text: string;
+  env?: IndraOcrEnvGetter;
+}
+
+/**
+ * Text-only invoice read: same gateway/key/model/extraBody as
+ * extractInvoicePage, but the user message is plain PDF text and the answer
+ * is forced into the 'invoice_fields' tool. Never touches the image path.
+ */
+export async function extractInvoiceFromText(
+  options: InvoiceTextExtractOptions,
+): Promise<Record<string, unknown>> {
+  const { apiKey, model, config: scanAi } = requireDeepSeek(options.env);
+
+  console.log("[scan-invoice] Calling AI gateway (pdf_text)");
+  const response = await fetch(scanAi.endpoint, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      ...scanAi.extraBody,
+      messages: [
+        { role: "system", content: INVOICE_TEXT_SYSTEM_PROMPT },
+        { role: "user", content: options.text },
+      ],
+      tools: [
+        {
+          type: "function",
+          function: INVOICE_TEXT_TOOL,
+        },
+      ],
+      tool_choice: { type: "function", function: { name: "invoice_fields" } },
+      temperature: 0,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    const info = classifyOpenAIError(response.status, errorText);
+    console.error(
+      `[scan-invoice] AI gateway error (pdf_text) kind=${info.kind}:`,
+      response.status,
+      errorText.slice(0, 300),
+    );
+    throw new AiOpenAIError(info);
+  }
+
+  const aiResponse = await response.json();
+  const toolCall = aiResponse.choices?.[0]?.message?.tool_calls?.[0];
+  if (!toolCall || toolCall.function?.name !== "invoice_fields") {
+    throw new InvoiceExtractError(
+      "model_invalid_tool",
+      "Failed to extract invoice data from PDF text",
+    );
+  }
+
+  const rawArguments = toolCall.function.arguments;
+  if (typeof rawArguments !== "string") {
+    throw new InvoiceExtractError(
+      "model_invalid_tool",
+      "Failed to extract invoice data from PDF text",
+    );
+  }
+  try {
+    const parsed = JSON.parse(rawArguments || "{}");
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("not object");
+    }
+    return parsed as Record<string, unknown>;
+  } catch {
+    throw new InvoiceExtractError(
+      "model_invalid_tool",
+      "Failed to extract invoice data from PDF text",
+    );
+  }
+}
+
 export async function extractInvoicePage(
   options: InvoicePageExtractOptions,
 ): Promise<InvoicePageExtractResult> {

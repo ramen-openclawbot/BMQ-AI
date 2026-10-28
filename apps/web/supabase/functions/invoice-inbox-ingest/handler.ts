@@ -15,6 +15,12 @@
 import { getCorsHeaders } from "../_shared/cors.ts";
 import { parseVietnamEInvoiceXml } from "../_shared/einvoice-xml.ts";
 import type { InvoiceJevEvaluation, InvoiceJevEvaluator } from "./jev.ts";
+import {
+  looksLikeInvoiceText,
+  normalizePdfInvoice,
+  validatePdfInvoice,
+  type PdfInvoice,
+} from "./pdf-invoice.ts";
 
 export const INVOICE_INGEST_BODY_LIMIT = 32_768;
 export const INVOICE_INGEST_REQUEST_BUDGET_MS = 110_000;
@@ -26,6 +32,10 @@ export const INVOICE_INBOX_BUCKET = "invoices";
 export const SUPPLIER_DOCS_BUCKET = "supplier-delivery-docs";
 export const INVOICE_GMAIL_QUERY = "(has:attachment OR meinvoice) newer_than:21d";
 export const PDF_UNREAD_NOTE = "PDF chưa đọc được tự động";
+export const PDF_NOT_INVOICE_NOTE = "Không phải hoá đơn";
+export const PDF_AMOUNT_MISMATCH_NOTE = "Số tiền đọc từ PDF không khớp";
+/** Only the first 12.000 characters of the PDF text go to the model. */
+export const PDF_TEXT_MAX_CHARS = 12_000;
 
 export class InvoiceInboxError extends Error {
   readonly code: string;
@@ -71,6 +81,28 @@ export interface SupplierUploadRow {
   size_bytes: number | null;
   supplier_id: string | null;
   purchase_order_id: string | null;
+}
+
+/** An already-ingested incoming_invoices row whose PDF still has to be read. */
+export interface UnreadPdfInvoice {
+  id: string;
+  file_path: string | null;
+  file_name: string | null;
+  file_mime: string | null;
+}
+
+/** Payload accepted by public.reextract_incoming_invoice. */
+export interface PdfReextractPayload {
+  seller_name: string | null;
+  seller_tax_code: string | null;
+  invoice_number: string | null;
+  invoice_series: string | null;
+  invoice_date: string | null;
+  period: string | null;
+  subtotal: number | null;
+  vat_amount: number | null;
+  total_amount: number | null;
+  raw: unknown;
 }
 
 export interface IngestPayload {
@@ -172,13 +204,20 @@ export interface InvoiceInboxIngestDeps {
     mimeType: string;
     fileName: string;
   }) => Promise<Record<string, unknown>>;
+  /** Text layer of a PDF, or "" when the file has none / cannot be read. */
+  extractPdfText: (bytes: Uint8Array) => Promise<string>;
+  /** AI invoice fields from PDF text; throws on gateway / model failure. */
+  extractInvoiceFromText: (text: string) => Promise<unknown>;
+  listUnreadPdfInvoices: (max: number) => Promise<UnreadPdfInvoice[]>;
+  reextractInvoice: (id: string, payload: PdfReextractPayload) => Promise<unknown>;
+  setInvoiceNote: (id: string, note: string) => Promise<void>;
   evaluator: () => InvoiceJevEvaluator | null;
   now?: () => Date;
   audit?: (event: Record<string, unknown>) => void;
 }
 
 interface ParsedInput {
-  source: "all" | "email" | "supplier_link";
+  source: "all" | "email" | "supplier_link" | "reprocess_pdf";
   max: number;
   dryRun: boolean;
 }
@@ -245,7 +284,12 @@ function parseInput(raw: Record<string, unknown>): ParsedInput {
     }
   }
   const source = raw.source === undefined || raw.source === null ? "all" : raw.source;
-  if (source !== "all" && source !== "email" && source !== "supplier_link") {
+  if (
+    source !== "all"
+    && source !== "email"
+    && source !== "supplier_link"
+    && source !== "reprocess_pdf"
+  ) {
     throw new InvoiceInboxError("invalid_request", 400);
   }
   let max = INVOICE_INGEST_DEFAULT_MAX;
@@ -597,6 +641,22 @@ export function createInvoiceInboxIngestHandler(deps: InvoiceInboxIngestDeps) {
       const input = parseInput(await readBody(req));
       signal.throwIfAborted();
 
+      if (input.source === "reprocess_pdf") {
+        const counts = await reprocessPdfInvoices(deps, input, summary, signal);
+        signal.throwIfAborted();
+        deps.audit?.({
+          event: "invoice_inbox_ingest",
+          source: "reprocess_pdf",
+          scanned: counts.scanned,
+          updated: counts.updated,
+          not_invoice: counts.not_invoice,
+          mismatch: counts.mismatch,
+          failed: counts.failed,
+          errors: summary.errors.length,
+        });
+        return json({ ...counts, errors: summary.errors });
+      }
+
       if (input.source === "all" || input.source === "email") {
         await ingestEmailInbox(deps, input, summary, signal, deadlineAt);
       }
@@ -641,6 +701,203 @@ export function createInvoiceInboxIngestHandler(deps: InvoiceInboxIngestDeps) {
       return json({ error: MESSAGES[code] ?? MESSAGES.scan_failed, code }, status);
     }
   };
+}
+
+function pdfNoteForReason(reason: string | null): string {
+  if (reason === "not_invoice") return PDF_NOT_INVOICE_NOTE;
+  if (reason === "amount_mismatch") return PDF_AMOUNT_MISMATCH_NOTE;
+  return PDF_UNREAD_NOTE;
+}
+
+/** Ingest one MISA meInvoice lookup code (email body or PDF text). */
+async function ingestMeinvoiceCode(
+  deps: InvoiceInboxIngestDeps,
+  params: { prefix: string; code: string },
+  summary: RunSummary,
+  section: SectionSummary,
+  signal: AbortSignal,
+  deadlineAt: number,
+  dryRun: boolean,
+): Promise<void> {
+  const sourceRef = `${params.prefix}:meinvoice:${params.code}`;
+  if (await deps.sourceRefExists(sourceRef, true)) {
+    section.skipped += 1;
+    return;
+  }
+  try {
+    const xml = await deps.fetchMeinvoiceXml(params.code);
+    if (xml === null) {
+      summary.errors.push(`${sourceRef}: not_found`);
+      section.skipped += 1;
+      return;
+    }
+    const invoice = parseVietnamEInvoiceXml(xml);
+    if (!invoice) {
+      summary.errors.push(`${sourceRef}: parse_failed`);
+      section.skipped += 1;
+      return;
+    }
+    const bytes = new TextEncoder().encode(xml);
+    const fileName = `${invoice.invoice_series ?? "invoice"}_${
+      invoice.invoice_number ?? params.code
+    }.xml`;
+    const persisted = await persistFile(
+      deps,
+      bytes,
+      fileName,
+      "application/xml",
+      invoice.invoice_date,
+      dryRun,
+    );
+    const result = await ingestOne(deps, {
+      source: "email",
+      source_ref: sourceRef,
+      file_path: persisted.path,
+      file_mime: persisted.file_mime,
+      file_name: persisted.file_name,
+      seller_name: invoice.seller.name,
+      seller_tax_code: invoice.seller.tax_code,
+      invoice_number: invoice.invoice_number,
+      invoice_series: invoice.invoice_series,
+      invoice_date: invoice.invoice_date,
+      subtotal: invoice.subtotal,
+      vat_amount: invoice.vat_amount,
+      total_amount: invoice.total_amount,
+      raw: { lines: invoice.lines },
+    }, summary, section, dryRun);
+    await maybeAskJev(deps, result, summary, signal, deadlineAt, dryRun);
+  } catch (error) {
+    summary.errors.push(`${sourceRef}: ${errorMessage(error)}`);
+    section.skipped += 1;
+  }
+}
+
+interface ReprocessCounts {
+  scanned: number;
+  updated: number;
+  not_invoice: number;
+  mismatch: number;
+  failed: number;
+}
+
+/**
+ * Re-read incoming_invoices PDF rows still marked PDF_UNREAD_NOTE. Successful
+ * rows go through public.reextract_incoming_invoice, which runs the same match
+ * as ingest; nothing here approves or pays.
+ */
+async function reprocessPdfInvoices(
+  deps: InvoiceInboxIngestDeps,
+  input: ParsedInput,
+  summary: RunSummary,
+  signal: AbortSignal,
+): Promise<ReprocessCounts> {
+  const counts: ReprocessCounts = {
+    scanned: 0,
+    updated: 0,
+    not_invoice: 0,
+    mismatch: 0,
+    failed: 0,
+  };
+
+  let rows: UnreadPdfInvoice[] = [];
+  try {
+    rows = await deps.listUnreadPdfInvoices(input.max);
+  } catch (error) {
+    summary.errors.push(`reprocess_list: ${errorMessage(error)}`);
+    return counts;
+  }
+  counts.scanned = rows.length;
+
+  for (const row of rows) {
+    signal.throwIfAborted();
+    if (!hasText(row.file_path)) {
+      counts.failed += 1;
+      summary.errors.push(`reprocess:${row.id}: missing_file_path`);
+      continue;
+    }
+
+    try {
+      const bytes = await deps.downloadStorage(INVOICE_INBOX_BUCKET, row.file_path);
+      let text = "";
+      try {
+        const extractedText = await deps.extractPdfText(bytes);
+        text = typeof extractedText === "string" ? extractedText : "";
+      } catch (error) {
+        counts.failed += 1;
+        summary.errors.push(`reprocess:${row.id}: pdf_text: ${errorMessage(error)}`);
+        continue;
+      }
+
+      const trimmed = text.trim();
+      if (trimmed === "") {
+        counts.failed += 1;
+        summary.errors.push(`reprocess:${row.id}: pdf_text_empty`);
+        continue;
+      }
+      if (!looksLikeInvoiceText(trimmed)) {
+        counts.not_invoice += 1;
+        if (!input.dryRun) {
+          try {
+            await deps.setInvoiceNote(row.id, PDF_NOT_INVOICE_NOTE);
+          } catch (error) {
+            summary.errors.push(`reprocess:${row.id}: set_note: ${errorMessage(error)}`);
+          }
+        }
+        continue;
+      }
+
+      let invoice: PdfInvoice;
+      try {
+        invoice = normalizePdfInvoice(
+          await deps.extractInvoiceFromText(trimmed.slice(0, PDF_TEXT_MAX_CHARS)),
+        );
+      } catch (error) {
+        counts.failed += 1;
+        summary.errors.push(`reprocess:${row.id}: pdf_extract: ${errorMessage(error)}`);
+        continue;
+      }
+
+      const validation = validatePdfInvoice(invoice);
+      if (!validation.ok) {
+        if (validation.reason === "amount_mismatch") {
+          counts.mismatch += 1;
+          if (!input.dryRun) {
+            try {
+              await deps.setInvoiceNote(row.id, PDF_AMOUNT_MISMATCH_NOTE);
+            } catch (error) {
+              summary.errors.push(`reprocess:${row.id}: set_note: ${errorMessage(error)}`);
+            }
+          }
+        } else {
+          counts.failed += 1;
+        }
+        continue;
+      }
+
+      if (!input.dryRun) {
+        await deps.reextractInvoice(row.id, {
+          seller_name: invoice.seller_name,
+          seller_tax_code: invoice.seller_tax_code,
+          invoice_number: invoice.invoice_number,
+          invoice_series: invoice.invoice_series,
+          invoice_date: invoice.invoice_date,
+          period: invoice.invoice_date === null
+            ? null
+            : invoice.invoice_date.slice(0, 7),
+          subtotal: invoice.subtotal,
+          vat_amount: invoice.vat_amount,
+          total_amount: invoice.total_amount,
+          raw: { lines: invoice.lines, source: "pdf_text" },
+        });
+      }
+      counts.updated += 1;
+    } catch (error) {
+      counts.failed += 1;
+      summary.errors.push(`reprocess:${row.id}: ${errorMessage(error)}`);
+    }
+  }
+
+  return counts;
 }
 
 async function ingestEmailInbox(
@@ -712,57 +969,15 @@ async function ingestEmailInbox(
       }
       for (const code of codes) {
         signal.throwIfAborted();
-        const sourceRef = `${prefix}:meinvoice:${code}`;
-        if (await deps.sourceRefExists(sourceRef, true)) {
-          section.skipped += 1;
-          continue;
-        }
-        try {
-          const xml = await deps.fetchMeinvoiceXml(code);
-          if (xml === null) {
-            summary.errors.push(`gmail:${ref.id}:meinvoice:${code}: not_found`);
-            section.skipped += 1;
-            continue;
-          }
-          const invoice = parseVietnamEInvoiceXml(xml);
-          if (!invoice) {
-            summary.errors.push(`gmail:${ref.id}:meinvoice:${code}: parse_failed`);
-            section.skipped += 1;
-            continue;
-          }
-          const bytes = new TextEncoder().encode(xml);
-          const fileName = `${invoice.invoice_series ?? "invoice"}_${
-            invoice.invoice_number ?? code
-          }.xml`;
-          const persisted = await persistFile(
-            deps,
-            bytes,
-            fileName,
-            "application/xml",
-            invoice.invoice_date,
-            input.dryRun,
-          );
-          const result = await ingestOne(deps, {
-            source: "email",
-            source_ref: sourceRef,
-            file_path: persisted.path,
-            file_mime: persisted.file_mime,
-            file_name: persisted.file_name,
-            seller_name: invoice.seller.name,
-            seller_tax_code: invoice.seller.tax_code,
-            invoice_number: invoice.invoice_number,
-            invoice_series: invoice.invoice_series,
-            invoice_date: invoice.invoice_date,
-            subtotal: invoice.subtotal,
-            vat_amount: invoice.vat_amount,
-            total_amount: invoice.total_amount,
-            raw: { lines: invoice.lines },
-          }, summary, section, input.dryRun);
-          await maybeAskJev(deps, result, summary, signal, deadlineAt, input.dryRun);
-        } catch (error) {
-          summary.errors.push(`gmail:${ref.id}:meinvoice:${code}: ${errorMessage(error)}`);
-          section.skipped += 1;
-        }
+        await ingestMeinvoiceCode(
+          deps,
+          { prefix, code },
+          summary,
+          section,
+          signal,
+          deadlineAt,
+          input.dryRun,
+        );
       }
       continue;
     }
@@ -875,24 +1090,107 @@ async function ingestEmailInbox(
           section.skipped += 1;
           continue;
         }
-        const persisted = await persistFile(
-          deps,
-          bytes,
-          pdf.name,
-          pdf.mime,
-          null,
-          input.dryRun,
-        );
-        const result = await ingestOne(deps, {
-          source: "email",
-          source_ref: `${prefix}:${pdf.name}`,
-          file_path: persisted.path,
-          file_mime: persisted.file_mime,
-          file_name: persisted.file_name,
-          note: PDF_UNREAD_NOTE,
-          raw: { lines: [] },
-        }, summary, section, input.dryRun);
-        await maybeAskJev(deps, result, summary, signal, deadlineAt, input.dryRun);
+
+        let text = "";
+        let textReadFailed = false;
+        try {
+          const extractedText = await deps.extractPdfText(bytes);
+          text = typeof extractedText === "string" ? extractedText : "";
+        } catch (error) {
+          textReadFailed = true;
+          summary.errors.push(
+            `gmail:${ref.id}:${pdf.name}: pdf_text: ${errorMessage(error)}`,
+          );
+        }
+
+        const trimmed = text.trim();
+        if (!textReadFailed && trimmed !== "") {
+          const codes = extractMeinvoiceLookupCodes(trimmed);
+          if (codes.length > 0) {
+            // A MISA lookup code means the signed XML is the source of truth.
+            for (const code of codes) {
+              signal.throwIfAborted();
+              await ingestMeinvoiceCode(
+                deps,
+                { prefix, code },
+                summary,
+                section,
+                signal,
+                deadlineAt,
+                input.dryRun,
+              );
+            }
+            continue;
+          }
+        }
+
+        let invoice: PdfInvoice | null = null;
+        let invalidReason: string | null = null;
+        if (textReadFailed || trimmed === "") {
+          invalidReason = "unread";
+        } else if (!looksLikeInvoiceText(trimmed)) {
+          invalidReason = "not_invoice";
+        } else {
+          try {
+            invoice = normalizePdfInvoice(
+              await deps.extractInvoiceFromText(trimmed.slice(0, PDF_TEXT_MAX_CHARS)),
+            );
+            const validation = validatePdfInvoice(invoice);
+            if (!validation.ok) invalidReason = validation.reason;
+          } catch (error) {
+            summary.errors.push(
+              `gmail:${ref.id}:${pdf.name}: pdf_extract: ${errorMessage(error)}`,
+            );
+            invalidReason = "extract_failed";
+          }
+        }
+
+        if (invalidReason === null && invoice !== null) {
+          const persisted = await persistFile(
+            deps,
+            bytes,
+            pdf.name,
+            pdf.mime,
+            invoice.invoice_date,
+            input.dryRun,
+          );
+          const result = await ingestOne(deps, {
+            source: "email",
+            source_ref: `${prefix}:${pdf.name}`,
+            file_path: persisted.path,
+            file_mime: persisted.file_mime,
+            file_name: persisted.file_name,
+            seller_name: invoice.seller_name,
+            seller_tax_code: invoice.seller_tax_code,
+            invoice_number: invoice.invoice_number,
+            invoice_series: invoice.invoice_series,
+            invoice_date: invoice.invoice_date,
+            subtotal: invoice.subtotal,
+            vat_amount: invoice.vat_amount,
+            total_amount: invoice.total_amount,
+            raw: { lines: invoice.lines, source: "pdf_text" },
+          }, summary, section, input.dryRun);
+          await maybeAskJev(deps, result, summary, signal, deadlineAt, input.dryRun);
+        } else {
+          const persisted = await persistFile(
+            deps,
+            bytes,
+            pdf.name,
+            pdf.mime,
+            null,
+            input.dryRun,
+          );
+          const result = await ingestOne(deps, {
+            source: "email",
+            source_ref: `${prefix}:${pdf.name}`,
+            file_path: persisted.path,
+            file_mime: persisted.file_mime,
+            file_name: persisted.file_name,
+            note: pdfNoteForReason(invalidReason),
+            raw: { lines: [] },
+          }, summary, section, input.dryRun);
+          await maybeAskJev(deps, result, summary, signal, deadlineAt, input.dryRun);
+        }
       } catch (error) {
         summary.errors.push(`gmail:${ref.id}:${pdf.name}: ${errorMessage(error)}`);
         section.skipped += 1;

@@ -1,0 +1,84 @@
+                                                                   HÓA ĐƠN GTGT
+                                                               Ngày 21 tháng 10 năm 2026                                 Ký hiệu: 1C26MAB
+                                                            (BẢN THỂ HIỆN CỦA HÓA ĐƠN ĐIỆN TỬ)
+                                                            Mã của CQT: M1-26-JLX8N-00201038308
+
+CÔNG TY TNHH MM MEGA MARKET (VIỆT NAM)
+Khu B, Khu đô thị mới An Phú - An Khánh, Phường Bình Trưng, Thành
+phố Hồ Chí Minh
+ĐT: (+84 28) 3 519 0390 - MST: 0302249586
+                                                                                              Tên đơn vị: CONG TY CO PHAN THUC PHAM BMQ
+Đơn vị bán hàng: CÔNG TY TNHH MM MEGA MARKET (VIỆT NAM)
+                                                                                               Mã số thẻ: 2226026852516
+Địa chỉ: Khu B, Khu đô thị mới An Phú-An Khánh, Phường Bình Trưng, Thành
+                                                                                                  Địa chỉ: TANG 2, 68 NGUYEN HUE, P SAI GON TP
+phố Hồ Chí Minh
+                                                                                                           HCM VIET NAM
+Điện thoại: 028 3622 2909
+                                                                                         Người mua hàng: DE SILVA PUNNYA NIRAAN
+Mã số thuế: 0302249586
+                                                                                             Mã số thuế: 0311840107         CCCD:
+                                                                                         Mã đơn vị QHNS:
+                                                                                                            Số hóa đơn: 1037992
+                                                                                                             Ngày mua: 21/10/2026 08:21
+Số HD nội bộ: 01037992                                                      TT: 10011        Thu ngân: CCOD      Quầy: 46
+
+  M      Mã hàng             Tên hàng hóa, dịch vụ             Đơn       Số       Đơn giá          Giảm                   Giá        %       Thành tiền
+                                                                 vị    lượng    trước thuế           giá           trước thuế      thuế      đã có thuế
+                                                               tính                GTGT                                 GTGT       GTGT        GTGT
+
+
+
+
+                                                                                                                                                            (Xuất bởi phần mềm EInvoice, Công ty TNHH Phát triển công nghệ Thái Sơn - MST: 0101300842 - www.einvoice.vn)
+###Số đơn hàng : SO10011-26-0064779
+Giao hàng đến :14/1/15, DUONG BIA TRUYEN THONG, P TAN TAO, , TP HCM
+
+        013784       GAN HEO                                   KY   10,016          116.393       230.554              935.238        5         982.000
+        076446       TOI BONG SEN TUI/TRUNG QUOC               KY     1,09           80.817         9.519               78.572        5          82.501
+        076454       NGO TA (NGO RI) DALAT                     KY    0,204          155.485             0               31.719        5          33.305
+        169843       CA ROT DALAT WRF                          KY    0,988           48.079             0               47.502        5          49.877
+        171260       CU CAI TRANG DALAT                        KY    1,942           27.527        15.457               38.000        5          39.900
+        182540       DUA LEO (DUA CHUOT)                       KY    1,928           24.606        17.440               30.000        5          31.500
+                                                               CHAI
+        209576       GIAM T.LUYEN MINH CHAU 4% 1L                       1                19.860     1.527                18.333       8           19.800
+                                                               NHUA
+        394053       HANH LA DALAT-200G                        GOI      2                21.757     4.085                39.429       5           41.401
+        394056       NGO RI (NGO TA) DALAT-100G                GOI      3                23.406    24.408                45.810       5           48.101
+        394367       OT SUNG DO DALAT-500G                     HOP      1                57.081     4.033                53.048       5           55.700
+
+Kết thúc đơn hàng : SO10011-26-0064779
+
+
+Tổng cộng số lượng: 13                              Tổng trọng lượng: 16,168 ky
+
+Tổng cộng trước thuế: KKKNT:                                            0      Tổng thuế: KKKNT:                                                      0
+Tổng cộng trước thuế: KCT:                                              0      Tổng thuế: KCT:                                                        0
+Tổng cộng trước thuế: 0%:                                               0      Tổng thuế: 0%:                                                         0
+Tổng cộng trước thuế: 5%:                                       1.299.318      Tổng thuế: 5%:                                                    64.966
+Tổng cộng trước thuế: 8%:                                          18.333      Tổng thuế: 8%:                                                     1.467
+Tổng cộng trước thuế: 10%:                                              0      Tổng thuế: 10%:                                                        0
+
+Tổng cộng trước thuế:                                           1.317.651      Tổng thuế:                                                        66.433
+                                                                               Tổng cộng số tiền đã có thuế GTGT:                             1.384.084
+
+Số tiền viết bằng chữ: Mot trieu ba tram tam muoi tu nghin khong tram tam muoi tu dong
+
+                                                                                                            Hình thức thanh       TM/CK
+                                                                                                            toán:
+
+                            Người mua hàng                                                               Người bán hàng
+                           (Chữ ký số (nếu có))                                                      (Chữ ký điện tử, Chữ ký số)
+
+
+                                                                                            Signature Valid
+                                                                                            Ký bởi: CÔNG TY TNHH MM MEGA MARKET (VIỆT NAM)
+                                                                                            Ký ngày: 21/10/2026
+
+
+
+
+                                 Mã nhận hóa đơn: YGFIZBPFINHLMYNI tra cứu tại: http://einvoice.mmvietnam.com
+                                               (Cần kiểm tra, đối chiếu khi lập, giao, nhận hóa đơn)
+                                                                                                                                                Trang 1/1
+

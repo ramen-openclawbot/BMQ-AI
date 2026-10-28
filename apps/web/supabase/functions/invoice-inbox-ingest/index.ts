@@ -11,22 +11,26 @@
 // stay in the server environment / app_settings and are never returned.
 
 import { createClient } from "npm:@supabase/supabase-js@2.90.1";
+import { extractText, getDocumentProxy } from "npm:unpdf@1.9.1";
 import {
   createInvoiceInboxIngestHandler,
   InvoiceInboxError,
+  PDF_UNREAD_NOTE,
   type GmailMessage,
   type IngestPayload,
   type IngestResult,
   type InvoiceInboxIngestDeps,
   type JevCandidates,
+  type PdfReextractPayload,
   type SupplierUploadRow,
+  type UnreadPdfInvoice,
 } from "./handler.ts";
 import {
   createInvoiceJevEvaluator,
   JEV_TIMEOUT_MS,
   type InvoiceJevEvaluator,
 } from "./jev.ts";
-import { extractInvoicePage } from "../scan-invoice/extract.ts";
+import { extractInvoiceFromText, extractInvoicePage } from "../scan-invoice/extract.ts";
 
 const url = Deno.env.get("SUPABASE_URL")!;
 const anon = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -270,6 +274,52 @@ async function applyJevTemplate(
   return data as IngestResult;
 }
 
+/** Text layer of a PDF. A scanned/image-only PDF simply returns "". */
+async function extractPdfText(bytes: Uint8Array): Promise<string> {
+  try {
+    const pdf = await getDocumentProxy(bytes);
+    const { text } = await extractText(pdf, { mergePages: true });
+    return typeof text === "string" ? text : (text as string[]).join("\n");
+  } catch {
+    return "";
+  }
+}
+
+async function listUnreadPdfInvoices(max: number): Promise<UnreadPdfInvoice[]> {
+  const { data, error } = await adminClient()
+    .from("incoming_invoices")
+    .select("id, file_path, file_name, file_mime")
+    .eq("note", PDF_UNREAD_NOTE)
+    .is("total_amount", null)
+    .or("file_mime.eq.application/pdf,file_name.ilike.%.pdf")
+    .order("created_at", { ascending: true })
+    .limit(max);
+  if (error) throw new Error(error.message);
+
+  return ((data ?? []) as Record<string, unknown>[]).map((row) => ({
+    id: String(row.id ?? ""),
+    file_path: typeof row.file_path === "string" ? row.file_path : null,
+    file_name: typeof row.file_name === "string" ? row.file_name : null,
+    file_mime: typeof row.file_mime === "string" ? row.file_mime : null,
+  }));
+}
+
+async function reextractInvoice(
+  id: string,
+  payload: PdfReextractPayload,
+): Promise<unknown> {
+  const { data, error } = await adminClient()
+    .rpc("reextract_incoming_invoice", { p_id: id, p: payload });
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+async function setInvoiceNote(id: string, note: string): Promise<void> {
+  const { error } = await adminClient()
+    .rpc("set_incoming_invoice_note", { p_id: id, p_note: note });
+  if (error) throw new Error(error.message);
+}
+
 async function downloadStorage(bucket: string, path: string): Promise<Uint8Array> {
   const { data, error } = await adminClient().storage.from(bucket).download(path);
   if (error || !data) throw new Error(error?.message ?? "storage_download_failed");
@@ -348,6 +398,11 @@ Deno.serve(createInvoiceInboxIngestHandler({
     });
     return result.data;
   },
+  extractPdfText,
+  extractInvoiceFromText: async (text) => await extractInvoiceFromText({ text }),
+  listUnreadPdfInvoices,
+  reextractInvoice,
+  setInvoiceNote,
   evaluator: invoiceEvaluator,
   audit: (event) => console.info(JSON.stringify(event)),
 } satisfies InvoiceInboxIngestDeps));
