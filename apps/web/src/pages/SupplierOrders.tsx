@@ -407,8 +407,18 @@ function PrepayChoice({ catalog, checked, onChange }: { catalog: SupplierOrderCa
       <span>
         <b>Trình chi gấp gối đầu {pr.requestNumber}</b>
         <small>
-          {formatVnd(pr.remaining ?? pr.totalAmount)} · lập ngày {dmy(pr.createdAt)}{pr.poNumber ? ` · ${pr.poNumber}` : ""}. Phiếu chi chưa trả cũ nhất của nhà cung cấp này.
+          {formatVnd(pr.remaining ?? pr.totalAmount)} · lập ngày {dmy(pr.createdAt)}{pr.poNumber ? ` · ${pr.poNumber}` : ""}. Phiếu chi chưa trả của lần giao gần nhất.
         </small>
+        {pr.officialInvoice ? (
+          <small className="d3-so-prepay-inv is-ok" data-bmq-so-prepay-invoice="official">
+            Đã có hoá đơn chính thức {pr.officialInvoice.invoiceSeries}-{pr.officialInvoice.invoiceNumber}
+            {pr.officialInvoice.invoiceDate ? ` ngày ${dmy(pr.officialInvoice.invoiceDate)}` : ""}
+          </small>
+        ) : (
+          <small className="d3-so-prepay-inv is-warn" data-bmq-so-prepay-invoice="none">
+            Chưa có hoá đơn chính thức từ hoadon@ — kiểm tra trước khi trình chi
+          </small>
+        )}
       </span>
     </label>
   );

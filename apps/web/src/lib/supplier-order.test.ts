@@ -353,6 +353,61 @@ test("parses the catalog with items, blockers, delivery and prepay", () => {
   assert.equal(parseSupplierOrderCatalog({ items: [] })?.items.length, 0);
 });
 
+test("parses prepay official invoice when present", () => {
+  const catalog = parseSupplierOrderCatalog({
+    prepay: {
+      id: "pr-1",
+      request_number: "PR-C1209293",
+      official_invoice: {
+        invoice_number: "00010771",
+        invoice_series: "1C26TNN",
+        invoice_date: "2026-10-20",
+      },
+    },
+  });
+
+  assert.ok(catalog);
+  assert.deepEqual(catalog.prepay?.officialInvoice, {
+    invoiceNumber: "00010771",
+    invoiceSeries: "1C26TNN",
+    invoiceDate: "2026-10-20",
+  });
+});
+
+test("parses prepay official invoice as null when absent", () => {
+  const catalog = parseSupplierOrderCatalog({
+    prepay: {
+      id: "pr-1",
+      request_number: "PR-C1209293",
+    },
+  });
+
+  assert.ok(catalog);
+  assert.equal(catalog.prepay?.officialInvoice, null);
+});
+
+test("parses malformed prepay official invoice defensively", () => {
+  const asTextCatalog = parseSupplierOrderCatalog({
+    prepay: {
+      id: "pr-1",
+      request_number: "PR-C1209293",
+      official_invoice: "not-an-object",
+    },
+  });
+  const asArrayCatalog = parseSupplierOrderCatalog({
+    prepay: {
+      id: "pr-1",
+      request_number: "PR-C1209293",
+      official_invoice: [{ invoice_number: "00010771" }],
+    },
+  });
+
+  assert.ok(asTextCatalog);
+  assert.ok(asArrayCatalog);
+  assert.equal(asTextCatalog.prepay?.officialInvoice, null);
+  assert.equal(asArrayCatalog.prepay?.officialInvoice, null);
+});
+
 test("parses catalog candidates", () => {
   const candidates = parseSupplierOrderCatalogCandidates([
     {

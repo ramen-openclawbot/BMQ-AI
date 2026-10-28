@@ -73,7 +73,7 @@ function catalog(id) {
     blockers: cfg().blocked ? ["mailbox_not_connected"] : [],
     items: [line("3c16ed3f-54c7-427f-a316-5aa4fcadda5a", "Bơ Peerless Úc 25kg", "BƠ PEERLESS", 105812.654, 8870.791, 0, 90000,
       { po_number: "PO-000862", quantity: "75", unit: "kg", sent_at: "2026-10-23T05:09:25Z" }, 0)],
-    prepay: { id: "pr-1", request_number: "PR-D6E88DCB", created_at: "2026-06-17T03:53:09Z", total_amount: "9000000", remaining: "9000000", po_number: "PO-000582", recent_submission: null },
+    prepay: { id: "pr-1", request_number: "PR-D6E88DCB", created_at: "2026-06-17T03:53:09Z", total_amount: "9000000", remaining: "9000000", po_number: "PO-000582", recent_submission: null, official_invoice: { invoice_number: "00003476", invoice_series: "1C26TTV", invoice_date: "2026-10-20" } },
   };
 }
 function history(id) {
@@ -403,6 +403,7 @@ try {
     // TV Food: gối đầu ticked by default, open PO note, uploads in history.
     const tv = await open({}, `/dat-hang?ncc=${TV}`, vp);
     await tv.page.waitForSelector("[data-bmq-so-prepay='pr']");
+    assert.match(await tv.page.locator("[data-bmq-so-prepay-invoice='official']").innerText(), /Đã có hoá đơn chính thức 1C26TTV-00003476 ngày 20\/10\/2026/);
     assert.ok(await tv.page.locator("[data-bmq-so-prepay-check]").isChecked(), "gối đầu ticked");
     const tvCard = await tv.page.locator("[data-bmq-so-card]").innerText();
     assert.ok(/PR-D6E88DCB/.test(tvCard) && /9\.000\.000 đ/.test(tvCard) && /PO-000862 \(75 kg\) đã gửi, chưa nhận hàng/.test(tvCard) && /không VAT/.test(tvCard), `TV card ${tvCard}`);

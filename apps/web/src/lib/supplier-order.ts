@@ -151,6 +151,12 @@ export type SupplierOrderCatalogItem = {
   openOrder: SupplierOrderCatalogOpenOrder | null;
 };
 
+export type SupplierOrderOfficialInvoice = {
+  invoiceNumber: string;
+  invoiceSeries: string;
+  invoiceDate: string | null;
+};
+
 export type SupplierOrderPrepay = {
   id: string;
   requestNumber: string;
@@ -162,6 +168,7 @@ export type SupplierOrderPrepay = {
     submissionNumber: string;
     createdAt: string | null;
   } | null;
+  officialInvoice: SupplierOrderOfficialInvoice | null;
 };
 
 export type SupplierOrderCatalog = {
@@ -645,6 +652,7 @@ function parsePrepay(value: unknown): SupplierOrderPrepay | null {
   const row = asRecord(value);
   if (Object.keys(row).length === 0) return null;
   const recent = asRecord(row.recent_submission);
+  const official = asRecord(row.official_invoice);
   return {
     id: asText(row.id),
     requestNumber: asText(row.request_number),
@@ -657,6 +665,13 @@ function parsePrepay(value: unknown): SupplierOrderPrepay | null {
       : {
           submissionNumber: asText(recent.submission_number),
           createdAt: asNullableText(recent.created_at),
+        },
+    officialInvoice: Object.keys(official).length === 0
+      ? null
+      : {
+          invoiceNumber: asText(official.invoice_number),
+          invoiceSeries: asText(official.invoice_series),
+          invoiceDate: asNullableText(official.invoice_date),
         },
   };
 }
