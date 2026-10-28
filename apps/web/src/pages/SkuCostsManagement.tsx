@@ -9,6 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import { DEFAULT_SKU_COST_TEMPLATE, DEFAULT_SKU_COST_VALUES, parseCostTemplate, parseCostValues, toNumber } from "@/lib/sku-cost-template";
 import { isFinishedSku } from "@/lib/skuType";
 import { dosageInputText, parseDosageGramInput } from "@/lib/dosage-input";
+import { withDosageUnit } from "@/lib/dosage-unit";
 import { describeSkuCogsSaveError } from "@/lib/sku-cogs-save-error";
 import { MaterialPicker } from "@/components/sku-costs/MaterialPicker";
 import { SkuCostHeader } from "@/components/sku-costs/SkuCostMenuBar";
@@ -153,6 +154,7 @@ const toDraftRow = (row: any, overrides: Record<string, any> = {}) => {
     ingredient_name: overrides.ingredient_name ?? row?.ingredient_name ?? "",
     material_code: overrides.material_code ?? row?.material_code ?? buildMaterialCode(overrides.ingredient_name ?? row?.ingredient_name),
     unit: overrides.unit ?? row?.unit ?? "g",
+    dosage_unit: overrides.dosage_unit ?? row?.dosage_unit ?? null,
     unit_price: unitPrice,
     unit_price_input: overrides.unit_price_input ?? (unitPrice === 0 ? "" : String(unitPrice)),
     dosage_qty: dosageQty,
@@ -531,6 +533,7 @@ export default function SkuCostsManagement() {
           raw_ocr_name: r.raw_ocr_name || null,
           material_code: level1Material.material_code,
           unit: level1Material.default_unit || "g",
+          dosage_unit: withDosageUnit(r, level1Material.default_unit || "g").dosage_unit,
           unit_price: parentUnitPrice,
           dosage_qty: parseDosageGramInput(r.dosage_input ?? r.dosage_qty, 0),
           wastage_percent: 0,
@@ -550,6 +553,7 @@ export default function SkuCostsManagement() {
             raw_ocr_name: child.raw_ocr_name || null,
             material_code: childMaterial.material_code,
             unit: childMaterial.default_unit || "g",
+            dosage_unit: withDosageUnit(child, childMaterial.default_unit || "g").dosage_unit,
             unit_price: toNumber(child.unit_price, 0),
             dosage_qty: parseDosageGramInput(child.dosage_input ?? child.dosage_qty, 0),
             wastage_percent: 0,
@@ -569,6 +573,7 @@ export default function SkuCostsManagement() {
         raw_ocr_name: r.raw_ocr_name || null,
         material_code: level1Material.material_code,
         unit: level1Material.default_unit || "g",
+        dosage_unit: withDosageUnit(r, level1Material.default_unit || "g").dosage_unit,
         unit_price: toNumber(r.unit_price, 0),
         dosage_qty: parseDosageGramInput(r.dosage_input ?? r.dosage_qty, 0),
         wastage_percent: 0,
