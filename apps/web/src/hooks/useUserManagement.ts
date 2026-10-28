@@ -366,7 +366,14 @@ export function useDeleteUser() {
         },
       });
 
-      if (error) throw error;
+      if (error) {
+        const context = (error as { context?: { json?: () => Promise<unknown> } }).context;
+        if (context && typeof context.json === "function") {
+          const payload = await context.json().catch(() => null) as { error?: string } | null;
+          if (payload?.error) throw new Error(payload.error);
+        }
+        throw error;
+      }
       if ((data as any)?.error) throw new Error((data as any).error);
     },
     onSuccess: () => {

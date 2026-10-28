@@ -87,30 +87,27 @@ Deno.serve(async (req) => {
       }
     }
 
-    const { data: targetAuthRows } = await admin
-      .schema("auth")
-      .from("users")
-      .select("email")
-      .eq("id", targetUserId)
-      .limit(1);
+    const { data: targetAuth } = await admin.auth.admin.getUserById(targetUserId);
+    const targetEmail = targetAuth?.user?.email ?? undefined;
 
-    const targetEmail = targetAuthRows?.[0]?.email as string | undefined;
+    // Soft delete: the account can no longer sign in, but the auth row stays so
+    // append-only audit logs that reference it (ON DELETE SET NULL) are not touched.
+    // Disable the account before cleaning app data so a failure never leaves a
+    // half-deleted user that can still sign in without a role.
+    const { error: deleteAuthError } = await admin.auth.admin.deleteUser(targetUserId, true);
+    if (deleteAuthError) {
+      return new Response(JSON.stringify({ error: `Không vô hiệu hoá được tài khoản: ${deleteAuthError.message}` }), {
+        status: 500,
+        headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
+      });
+    }
 
-    // Cleanup app data first
     await admin.from("user_module_permissions").delete().eq("user_id", targetUserId);
     await admin.from("user_roles").delete().eq("user_id", targetUserId);
     await admin.from("profiles").delete().eq("user_id", targetUserId);
 
     if (targetEmail) {
       await admin.from("user_invitations").update({ status: "cancelled" }).eq("email", targetEmail).eq("status", "pending");
-    }
-
-    const { error: deleteAuthError } = await admin.auth.admin.deleteUser(targetUserId);
-    if (deleteAuthError) {
-      return new Response(JSON.stringify({ error: `Failed to delete auth user: ${deleteAuthError.message}` }), {
-        status: 500,
-        headers: { ...getCorsHeaders(req), "Content-Type": "application/json" },
-      });
     }
 
     // Audit log
