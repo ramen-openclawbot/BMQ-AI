@@ -112,7 +112,7 @@ const GUIDES: MerchantPageGuide[] = [
   },
   { prefix: "/warehouse/kiem-ke", label: "Kiểm kê", purpose: "phiếu kiểm kê tồn thực tế", suggestions: KHO_SUGGESTIONS },
   { prefix: "/warehouse/phieu", label: "Phiếu kho", purpose: "phiếu nhập, xuất, chuyển kho", suggestions: KHO_SUGGESTIONS },
-  { prefix: "/warehouse/cho-duyet", label: "Trừ kho chờ duyệt", purpose: "duyệt hoặc bỏ những ngày trừ kho theo doanh thu bị giữ lại vì cao bất thường hoặc chưa đủ lịch sử", suggestions: KHO_SUGGESTIONS },
+  { prefix: "/warehouse/tru-kho", label: "Trừ kho theo doanh thu", purpose: "xem mỗi kênh bán bao nhiêu, hệ thống tự trừ nguyên liệu nào theo công thức giá vốn, tồn kho và cảnh báo", suggestions: KHO_SUGGESTIONS },
   { prefix: "/warehouse/nhat-ky", label: "Nhật ký kho", purpose: "ai làm gì trên kho, lúc nào, để kiểm tra và đối soát", suggestions: KHO_SUGGESTIONS },
   { prefix: "/warehouse/stock-ledger", label: "Sổ tồn NVL", purpose: "sổ nhập, xuất, tồn NVL theo ngày", suggestions: KHO_SUGGESTIONS },
   { prefix: "/warehouse/tan-tao", label: "Kho Tân Tạo", purpose: "kho chính của BMQ: tồn, nhập, xuất NVL", suggestions: KHO_SUGGESTIONS },

@@ -5,6 +5,28 @@
 /* Names and figures stay close on a wide screen: the drill-down reads as one column. */
 .d3-rv > * { max-width: 960px; }
 
+/* Day picker */
+.d3-rv-day { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 0 0 14px; }
+html.bmq-d3 .d3-rv-step {
+  display: inline-grid; place-items: center; width: 44px; height: 44px; border: 0; border-radius: 12px;
+  background: var(--d3-card); box-shadow: var(--d3-sh); color: var(--d3-ink); cursor: pointer;
+  transition: transform .16s var(--kho-ease, ease-out);
+}
+html.bmq-d3 .d3-rv-step:active:not(:disabled) { transform: scale(.96); }
+html.bmq-d3 .d3-rv-step:disabled { color: var(--d3-faint); cursor: not-allowed; }
+html.bmq-d3 .d3-rv-step:focus-visible { outline: 2px solid var(--d3-ink); outline-offset: 2px; }
+.d3-rv-step svg { width: 18px; height: 18px; }
+.d3-rv-date { display: grid; gap: 1px; min-width: 0; padding: 4px 12px; border-radius: 12px; background: var(--d3-card); box-shadow: var(--d3-sh); }
+.d3-rv-date span { font-size: 11.5px; color: var(--d3-dim); }
+html.bmq-d3 .d3-rv-date input[type="date"] {
+  min-height: 26px; padding: 0; border: 0; background: transparent; color: var(--d3-ink);
+  font: inherit; font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; -webkit-appearance: none; appearance: none;
+}
+html.bmq-d3 .d3-rv-date input[type="date"]:focus { outline: none; }
+.d3-rv-date:focus-within { box-shadow: var(--d3-sh), inset 0 0 0 2px var(--d3-ink); }
+.d3-rv-auto { flex: 1 1 220px; margin: 0; font-size: 12.5px; line-height: 1.4; color: var(--d3-dim); }
+.d3-rv-mat-qty.is-blocked { color: var(--d3-faint); text-decoration: line-through; text-decoration-thickness: 1px; }
+
 .d3-rv-demo {
   margin: 0 0 14px; padding: 10px 14px; border-radius: 12px;
   background: var(--d3-white); box-shadow: inset 0 0 0 1px var(--d3-line-2);

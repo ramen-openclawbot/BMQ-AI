@@ -3,7 +3,6 @@ import { Link } from "react-router-dom";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { usePaymentStats } from "@/hooks/usePaymentStats";
 import { useDraftPOCount } from "@/hooks/usePurchaseOrders";
-import { useKhoHoldCount } from "@/hooks/useKhoHolds";
 import { cn } from "@/lib/utils";
 import { isPageActive } from "./navigation";
 import { useShellNav } from "./useShellNav";
@@ -14,7 +13,6 @@ export function ZoneSubnav() {
   const { pathname, zones, utilities, activeZone, activeUtility, label } = useShellNav();
   const { data: paymentStats } = usePaymentStats();
   const { data: draftPOCount } = useDraftPOCount();
-  const holdCount = useKhoHoldCount();
   const navRef = useRef<HTMLElement | null>(null);
   const [more, setMore] = useState<"start" | "end" | "both" | undefined>();
 
@@ -55,7 +53,7 @@ export function ZoneSubnav() {
     <nav className="d3-subnav" aria-label={heading} ref={navRef} onScroll={measure} data-more={more}>
       {pages.map((page) => {
         const active = isPageActive(page.path, pathname, paths);
-        const count = page.showBadge ? paymentStats?.pendingTotalCount || 0 : page.showPOBadge ? draftPOCount || 0 : page.showHoldBadge ? holdCount : 0;
+        const count = page.showBadge ? paymentStats?.pendingTotalCount || 0 : page.showPOBadge ? draftPOCount || 0 : 0;
         return (
           <Link
             key={page.path}
@@ -65,7 +63,7 @@ export function ZoneSubnav() {
           >
             <page.icon className="h-4 w-4" aria-hidden="true" />
             <span>{t[page.labelKey]}</span>
-            {count > 0 && <span className={cn("d3-count", (page.showBadge || page.showHoldBadge) && "is-alert")}>{count}</span>}
+            {count > 0 && <span className={cn("d3-count", page.showBadge && "is-alert")}>{count}</span>}
           </Link>
         );
       })}

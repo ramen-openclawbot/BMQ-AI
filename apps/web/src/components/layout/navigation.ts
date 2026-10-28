@@ -18,7 +18,6 @@ export interface ShellPage {
   dataPlatformOnly?: boolean;
   showBadge?: boolean;
   showPOBadge?: boolean;
-  showHoldBadge?: boolean;
 }
 
 export interface Zone {
@@ -51,7 +50,6 @@ const PAGES: Map<string, ShellPage> = (() => {
         dataPlatformOnly: item.dataPlatformOnly,
         showBadge: item.showBadge,
         showPOBadge: item.showPOBadge,
-        showHoldBadge: item.showHoldBadge,
       });
     }
     item.children?.forEach(add);
@@ -94,7 +92,7 @@ export const ZONES: Zone[] = [
       "/warehouse/kiem-ke",
       "/warehouse/phieu",
       "/warehouse/nhat-ky",
-      "/warehouse/cho-duyet",
+      "/warehouse/tru-kho",
       "/warehouse/ra-soat",
       "/warehouse/ho-so-attp",
       "/warehouse/stock-ledger",

@@ -40,7 +40,6 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePaymentStats } from "@/hooks/usePaymentStats";
 import { useDraftPOCount } from "@/hooks/usePurchaseOrders";
-import { useKhoHoldCount } from "@/hooks/useKhoHolds";
 import { DriveImportProgressDialog } from "@/components/payment-requests/DriveImportProgressDialog";
 import bmqLogo from "@/assets/bmq-logo.png";
 import { canViewNavItem } from "./navAccess";
@@ -52,8 +51,6 @@ export interface NavItem {
   section: "operations" | "finance" | "marketingSales" | "execution" | "production";
   showBadge?: boolean;
   showPOBadge?: boolean;
-  /** Count of revenue-deduction days held for the owner (Trừ kho chờ duyệt). */
-  showHoldBadge?: boolean;
   /** Module key for permission filtering. If undefined, item is always visible. */
   moduleKey?: string;
   /** If true, only owners can see this item */
@@ -123,7 +120,7 @@ export const navItems: NavItem[] = [
       { icon: FileText, labelKey: "warehouseSlips", path: "/warehouse/phieu", section: "operations", moduleKey: "inventory" },
       // Temporary (owner 22/10): remove once the review list is empty.
       { icon: History, labelKey: "khoAudit", path: "/warehouse/nhat-ky", section: "operations", moduleKey: "inventory" },
-      { icon: Hourglass, labelKey: "khoHolds", path: "/warehouse/cho-duyet", section: "operations", ownerOnly: true, showHoldBadge: true },
+      { icon: Hourglass, labelKey: "khoHolds", path: "/warehouse/tru-kho", section: "operations", moduleKey: "inventory" },
       { icon: FileSearch, labelKey: "khoReview", path: "/warehouse/ra-soat", section: "operations", moduleKey: "inventory" },
       { icon: ShieldCheck, labelKey: "khoCerts", path: "/warehouse/ho-so-attp", section: "operations", moduleKey: "inventory" },
       { icon: ClipboardList, labelKey: "stockLedger", path: "/warehouse/stock-ledger", section: "operations", moduleKey: "inventory" },
@@ -160,7 +157,6 @@ export function Sidebar() {
   const queryClient = useQueryClient();
   const { data: paymentStats } = usePaymentStats();
   const { data: draftPOCount } = useDraftPOCount();
-  const holdCount = useKhoHoldCount();
   const navRef = useRef<HTMLElement | null>(null);
   const restoreScrollFrameRef = useRef<number | null>(null);
   // The drawer is opened by events, not a Radix trigger, so remember who opened it.
@@ -273,9 +269,6 @@ export function Sidebar() {
       )}
       {item.showPOBadge && draftPOCount && draftPOCount > 0 && (
         <span className="d3-count" aria-label={`${draftPOCount} ${language === "en" ? "draft POs" : "PO nháp"}`}>{draftPOCount}</span>
-      )}
-      {item.showHoldBadge && holdCount > 0 && (
-        <span className="d3-count is-alert" aria-label={`${holdCount} ${language === "en" ? "held" : "chờ duyệt"}`}>{holdCount}</span>
       )}
     </>
   );

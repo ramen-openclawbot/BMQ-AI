@@ -1,11 +1,13 @@
-import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { AlertTriangle, ChevronDown } from "lucide-react";
-import { TRU_KHO_DEMO_20261028 } from "@/data/tru-kho-demo-20261028";
+import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { LoadingState } from "@/components/ui/loading";
+import { useKhoRevenueDay } from "@/hooks/useKhoRevenueDay";
 import {
   KHO_ORDER,
   MATERIAL_STATE_LABELS,
   SHRINK_AUTO,
-  buildRevenueDay,
+  factorOf,
   recentPosted,
   shrinkOf,
   type ChannelPo,
@@ -13,18 +15,27 @@ import {
   type RevenueDay,
   type RevenueKho,
 } from "@/lib/kho-revenue-demo";
-import { KHO_LABEL, dmy, fmtAmount } from "@/components/kho/kho-meta";
+import { KHO_LABEL, dmy, fmtAmount, todayVN } from "@/components/kho/kho-meta";
 import { cn } from "@/lib/utils";
 import "@/styles/bmq-warehouse.css";
 import "@/styles/bmq-kho.css";
 import "@/styles/bmq-kho-revenue.css";
 
 /**
- * Trừ kho theo doanh thu — DEMO (owner 28/10). Real figures for one day, frozen in a snapshot, to preview the
- * page before it replaces "Trừ kho chờ duyệt". Read-only: the deduction runs by itself; the page shows each
- * channel's PO for the day → finished SKUs → materials deducted by the cost recipe → stock of each material.
- * Levels open one at a time with a short reveal; nothing is laid out all at once.
+ * Trừ kho theo doanh thu (owner 28–29/10). Read-only control page: the deduction runs by itself every hour.
+ * For a chosen day it shows each channel's PO (all approved revenue of that channel) → finished SKUs → materials
+ * deducted by the cost recipe per kho → stock, recent deductions, last count and learned shrinkage. Levels open
+ * one at a time with a short reveal. Abnormal days still deduct with a warning; a day that would deduct an
+ * absurd g/ml per finished item (recipe unit mistake) is blocked until the recipe is fixed.
+ * Data: kho_revenue_day(p_day), inventory permission.
  */
+
+const deniedText = (error: unknown) => {
+  const raw = error as { code?: string; message?: string } | null;
+  return raw?.code === "42501" || /insufficient_privilege|actor_required/.test(raw?.message ?? "")
+    ? "Tài khoản này chưa có quyền xem kho."
+    : "Không tải được số trừ kho. Thử lại sau ít giây.";
+};
 
 const qtyText = (n: number) => n.toLocaleString("vi-VN", { maximumFractionDigits: 0 });
 const moneyText = (n: number) =>
@@ -53,9 +64,11 @@ function WarningNote({ line }: { line: MaterialLine }) {
   return (
     <p className="d3-rv-warn" role="note" data-bmq-revenue-warning={line.warning.kind}>
       <AlertTriangle aria-hidden="true" />
-      {line.warning.kind === "usual"
+      <span>{line.warning.kind === "usual"
         ? <>Cả ngày trừ {fmtAmount(line.warning.dayTotal, line.unit)}, gấp {line.warning.multiple.toLocaleString("vi-VN")} lần mức thường ({fmtAmount(line.warning.usual, line.unit)}/ngày). Kiểm tra công thức giá vốn.</>
-        : <>{qtyText(line.warning.perUnit)} {line.unit} cho mỗi thành phẩm — nghi công thức sai đơn vị. Kiểm tra công thức giá vốn.</>}
+        : line.warning.blocked
+          ? <>{qtyText(line.warning.perUnit)} {line.unit} cho mỗi thành phẩm — nghi công thức sai đơn vị nên <b>chưa trừ</b>. Sửa công thức giá vốn, lần chạy sau tự trừ.</>
+          : <>{qtyText(line.warning.perUnit)} {line.unit} cho mỗi thành phẩm — nghi công thức sai đơn vị. Kiểm tra công thức giá vốn.</>}</span>
     </p>
   );
 }
@@ -68,6 +81,7 @@ function CountShrink({ day, line }: { day: RevenueDay; line: MaterialLine }) {
   const info = shrinkOf(day, line.location, line.itemId);
   const unit = day.items.get(line.itemId)?.unit ?? line.unit;
   const adj = info.lastCount?.adj ?? null;
+  const factor = factorOf(day, line.location, line.itemId);
   return (
     <div className={cn("d3-rv-count", info.state === "blocked" && "is-warn")} style={stagger(3)} data-bmq-revenue-shrink={info.state}>
       <p>
@@ -81,6 +95,9 @@ function CountShrink({ day, line }: { day: RevenueDay; line: MaterialLine }) {
         {info.state === "applied" && <>Hao hụt học được: <b>{pct(info.rate ?? 0)}</b> ({info.periods} kỳ kiểm kê) — đang cộng vào lượng trừ từ ngày sau kiểm kê.</>}
         {info.state === "blocked" && <>Lệch {pct(info.rate ?? 0)} so với số đã trừ ({info.periods} kỳ) — vượt ±{SHRINK_AUTO * 100}% nên <b>không áp</b>. Kiểm tra công thức hoặc thất thoát.</>}
       </p>
+      {factor && factor.factor !== 1 ? (
+        <p data-bmq-revenue-factor>Đang trừ theo công thức × <b>{factor.factor.toLocaleString("vi-VN", { maximumFractionDigits: 3 })}</b> từ {dmy(factor.effectiveFrom)}{factor.source === "learned" ? " (học từ kiểm kê)" : ""}.</p>
+      ) : null}
     </div>
   );
 }
@@ -150,9 +167,11 @@ function MaterialRow({ day, line, index }: { day: RevenueDay; line: MaterialLine
       <button type="button" className="d3-rv-mat-head" aria-expanded={open} aria-controls={regionId} onClick={() => setOpen((v) => !v)}>
         <span className="d3-rv-mat-name">
           <b>{line.name}</b>
-          {line.warning ? <small className="is-warn">Cảnh báo</small> : <small>{MATERIAL_STATE_LABELS[line.state]}</small>}
+          {line.warning?.kind === "per_unit" && line.warning.blocked
+            ? <small className="is-warn">Chặn — chưa trừ</small>
+            : line.warning ? <small className="is-warn">Tự trừ · cảnh báo</small> : <small>{MATERIAL_STATE_LABELS[line.state]}</small>}
         </span>
-        <span className="d3-rv-mat-qty">{fmtAmount(line.qty, line.unit)}</span>
+        <span className={cn("d3-rv-mat-qty", line.warning?.kind === "per_unit" && line.warning.blocked && "is-blocked")}>{fmtAmount(line.qty, line.unit)}</span>
         <ChevronDown className={cn("d3-rv-chev", open && "is-open")} aria-hidden="true" />
       </button>
       <Reveal open={open} id={regionId}><StockPanel day={day} line={line} /></Reveal>
@@ -214,8 +233,21 @@ function ChannelCard({ day, po, index }: { day: RevenueDay; po: ChannelPo; index
   );
 }
 
-export default function KhoRevenueDemo() {
-  const day = useMemo(() => buildRevenueDay(TRU_KHO_DEMO_20261028), []);
+const shiftDay = (iso: string, days: number) => {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+};
+const LOOKBACK_DAYS = 120;
+
+export default function KhoRevenue() {
+  const today = todayVN();
+  const minDay = shiftDay(today, -LOOKBACK_DAYS);
+  const [dayIso, setDayIso] = useState(today);
+  const query = useKhoRevenueDay(dayIso);
+  const day = query.data;
+  const pick = (value: string) => { if (value && value >= minDay && value <= today) setDayIso(value); };
+
   return (
     <div className="d3-wh d3-kho d3-rv min-w-0" data-bmq-kho-revenue>
       <header className="d3-wh-head">
@@ -225,23 +257,41 @@ export default function KhoRevenueDemo() {
         </div>
       </header>
 
-      <p className="d3-rv-demo" data-bmq-revenue-demo>
-        <b>Bản xem trước</b> · số thật ngày {dmy(day.day)}, chốt lúc {timeText(day.generatedAt)}. Hệ thống tự trừ kho; trang chỉ hiện số và cảnh báo, không cần duyệt.
-      </p>
+      <div className="d3-rv-day" role="group" aria-label="Chọn ngày" data-bmq-revenue-day>
+        <button type="button" className="d3-rv-step" onClick={() => pick(shiftDay(dayIso, -1))} disabled={dayIso <= minDay} aria-label="Ngày trước" data-bmq-revenue-prev><ChevronLeft aria-hidden="true" /></button>
+        <label className="d3-rv-date">
+          <span>{dayIso === today ? "Hôm nay" : "Ngày"}</span>
+          <input type="date" value={dayIso} min={minDay} max={today} onChange={(e) => pick(e.target.value)} aria-label="Ngày xem" data-bmq-revenue-date />
+        </label>
+        <button type="button" className="d3-rv-step" onClick={() => pick(shiftDay(dayIso, 1))} disabled={dayIso >= today} aria-label="Ngày sau" data-bmq-revenue-next><ChevronRight aria-hidden="true" /></button>
+        <p className="d3-rv-auto">Hệ thống tự trừ mỗi giờ · không cần duyệt{day?.generatedAt ? ` · đọc lúc ${timeText(day.generatedAt)}` : ""}</p>
+      </div>
 
       <HowItWorks />
 
-      <dl className="d3-rv-summary" aria-label="Tổng trong ngày">
-        <div><dt>Kênh bán</dt><dd>{day.totals.channels}</dd></div>
-        <div><dt>Thành phẩm</dt><dd>{qtyText(day.totals.qty)}</dd></div>
-        <div className={cn(day.totals.warnings > 0 && "is-warn")}><dt>Cảnh báo</dt><dd>{day.totals.warnings}</dd></div>
-      </dl>
-
-      <div className="d3-rv-pos d3-rv-stagger is-on">
-        {day.channels.length === 0
-          ? <p className="d3-kho-empty" data-bmq-revenue-empty>Ngày này chưa có doanh thu đã duyệt.</p>
-          : day.channels.map((po, i) => <ChannelCard key={po.channel} day={day} po={po} index={i} />)}
-      </div>
+      {query.isLoading ? (
+        <section className="d3-wh-card d3-kho-card"><LoadingState rows={4} flat label="Đang tải số trừ kho…" /></section>
+      ) : query.isError ? (
+        <section className="d3-wh-card d3-kho-card">
+          <div className="d3-kho-failed" role="alert" data-bmq-revenue-error>
+            <p>{deniedText(query.error)}</p>
+            <Button variant="outline" onClick={() => void query.refetch()}>Thử lại</Button>
+          </div>
+        </section>
+      ) : day ? (
+        <>
+          <dl className="d3-rv-summary" aria-label="Tổng trong ngày">
+            <div><dt>Kênh bán</dt><dd>{day.totals.channels}</dd></div>
+            <div><dt>Thành phẩm</dt><dd>{qtyText(day.totals.qty)}</dd></div>
+            <div className={cn(day.totals.warnings > 0 && "is-warn")}><dt>Cảnh báo</dt><dd>{day.totals.warnings}</dd></div>
+          </dl>
+          <div key={dayIso} className="d3-rv-pos d3-rv-stagger is-on">
+            {day.channels.length === 0
+              ? <p className="d3-kho-empty" data-bmq-revenue-empty>Ngày {dmy(dayIso)} chưa có doanh thu đã duyệt nên chưa có gì để trừ.</p>
+              : day.channels.map((po, i) => <ChannelCard key={po.channel} day={day} po={po} index={i} />)}
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }
