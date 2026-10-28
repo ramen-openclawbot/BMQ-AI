@@ -143,9 +143,105 @@ const normalizeInvoiceDate = (raw: string | null): string | null => {
 const readNumber = (xml: string, tag: string): number | null =>
   parseNumber(textTag(xml, tag));
 
+/**
+ * Hóa đơn theo chuẩn GDT 2014 (`inv:invoice`) — dùng bởi MISA meInvoice.
+ *
+ *   invoiceData/templateCode + invoiceSeries, invoiceNumber, invoiceIssuedDate
+ *   sellerLegalName, sellerTaxCode
+ *   items/item: itemName, unitName, quantity, unitPrice,
+ *               itemTotalAmountWithoutVat, vatPercentage
+ *   totalAmountWithoutVAT, totalVATAmount, totalAmountWithVAT
+ */
+const parseGdt2014Invoice = (xml: string): VietnamEInvoice | null => {
+  for (const tag of ["invoice", "invoiceData"]) {
+    if (!hasBalancedTag(xml, tag)) return null;
+  }
+
+  const document = innerTag(xml, "invoice") ?? xml;
+  const data = innerTag(document, "invoiceData") ?? document;
+
+  const templateCode = textTag(data, "templateCode");
+  const rawSeries = textTag(data, "invoiceSeries");
+  const invoiceSeries = rawSeries == null
+    ? templateCode
+    : templateCode != null && !rawSeries.startsWith(templateCode)
+      ? `${templateCode}${rawSeries}`
+      : rawSeries;
+
+  const sellerName = textTag(data, "sellerLegalName");
+  const sellerTaxCode = textTag(data, "sellerTaxCode");
+  const invoiceNumber = textTag(data, "invoiceNumber");
+  const invoiceDate = normalizeInvoiceDate(textTag(data, "invoiceIssuedDate"));
+
+  const subtotal = readNumber(data, "totalAmountWithoutVAT");
+  const vatAmount = readNumber(data, "totalVATAmount");
+  const totalAmount = readNumber(data, "totalAmountWithVAT");
+
+  const lines: VietnamEInvoiceLine[] = blocksTag(data, "item").map((block) => {
+    const name = textTag(block, "itemName") ?? textTag(block, "itemCode");
+    const unit = textTag(block, "unitName");
+    const quantity = readNumber(block, "quantity");
+    const unitPrice = readNumber(block, "unitPrice");
+    const amount = readNumber(block, "itemTotalAmountWithoutVat");
+    const vatRate = readNumber(block, "vatPercentage");
+    return {
+      name,
+      unit,
+      quantity,
+      unit_price: unitPrice,
+      unitPrice,
+      amount,
+      line_total: amount,
+      vat_rate: vatRate,
+      vatRate,
+    };
+  });
+
+  if (
+    sellerName == null
+    && sellerTaxCode == null
+    && invoiceNumber == null
+    && invoiceSeries == null
+    && totalAmount == null
+    && subtotal == null
+    && vatAmount == null
+    && lines.length === 0
+  ) {
+    return null;
+  }
+
+  return {
+    seller: {
+      name: sellerName,
+      tax_code: sellerTaxCode,
+      taxCode: sellerTaxCode,
+    },
+    invoice_number: invoiceNumber,
+    invoice_series: invoiceSeries,
+    invoice_date: invoiceDate,
+    invoiceNumber,
+    invoiceSeries,
+    invoiceDate,
+    subtotal,
+    vat_amount: vatAmount,
+    vat: vatAmount,
+    total_amount: totalAmount,
+    total: totalAmount,
+    lines,
+  };
+};
+
 export function parseVietnamEInvoiceXml(xml: string): VietnamEInvoice | null {
   try {    if (typeof xml !== "string" || !xml.trim()) return null;
-    if (!hasTag(xml, "HDon") && !hasTag(xml, "DLHDon")) return null;
+    if (!hasTag(xml, "HDon") && !hasTag(xml, "DLHDon")) {
+      if (
+        hasTag(xml, "invoice")
+        && (hasTag(xml, "invoiceData") || hasTag(xml, "invoiceNumber"))
+      ) {
+        return parseGdt2014Invoice(xml);
+      }
+      return null;
+    }
     for (const tag of ["HDon", "DLHDon", "TTChung", "NDHDon"]) {
       if (!hasBalancedTag(xml, tag)) return null;
     }

@@ -33,6 +33,11 @@ const anon = Deno.env.get("SUPABASE_ANON_KEY")!;
 const serviceRole = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me";
+const MEINVOICE_LOOKUP_URL =
+  "https://www.meinvoice.vn/tra-cuu/GetInvoiceDataByTransactionID";
+const MEINVOICE_TIMEOUT_MS = 15_000;
+const MEINVOICE_USER_AGENT =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
 
 let evaluatorCache: InvoiceJevEvaluator | null | undefined;
 function invoiceEvaluator(): InvoiceJevEvaluator | null {
@@ -167,6 +172,27 @@ async function getAttachment(
   );
   if (typeof body.data !== "string") throw new Error("gmail_attachment_empty");
   return decodeBase64Url(body.data);
+}
+
+async function fetchMeinvoiceXml(code: string): Promise<string | null> {
+  try {
+    const response = await fetch(MEINVOICE_LOOKUP_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        "X-Requested-With": "XMLHttpRequest",
+        "User-Agent": MEINVOICE_USER_AGENT,
+      },
+      body: `transactionID=${encodeURIComponent(code)}`,
+      signal: AbortSignal.timeout(MEINVOICE_TIMEOUT_MS),
+    });
+    if (!response.ok) return null;
+    const body = await response.json() as { success?: unknown; data?: unknown };
+    if (body.success !== true) return null;
+    return typeof body.data === "string" && body.data.startsWith("<") ? body.data : null;
+  } catch {
+    return null;
+  }
 }
 
 async function listSupplierUploads(max: number): Promise<SupplierUploadRow[]> {
@@ -308,6 +334,7 @@ Deno.serve(createInvoiceInboxIngestHandler({
   downloadStorage,
   uploadStorage,
   sourceRefExists,
+  fetchMeinvoiceXml,
   ingest,
   getJevCandidates,
   applyJevTemplate,

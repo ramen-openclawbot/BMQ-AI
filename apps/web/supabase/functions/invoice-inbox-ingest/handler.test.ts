@@ -1,8 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import {
   createInvoiceInboxIngestHandler,
+  extractMeinvoiceLookupCodes,
   PDF_UNREAD_NOTE,
   type GmailMessage,
   type IngestPayload,
@@ -46,6 +48,34 @@ const XML_BYTES = new TextEncoder().encode(
 </HDon>`,
 );
 const PDF_BYTES = new TextEncoder().encode("%PDF-1.4 fake invoice");
+const MEINVOICE_XML = readFileSync(
+  new URL("../_shared/fixtures/meinvoice-namnguyen-00010771.xml", import.meta.url),
+  "utf8",
+);
+const MEINVOICE_CODE = "L5FECPA_4K_5";
+
+function htmlBodyMessage(id: string, html: string): GmailMessage {
+  const data = Buffer.from(html, "utf8").toString("base64url");
+  return {
+    id,
+    payload: {
+      mimeType: "text/html",
+      body: { data, size: html.length },
+    },
+  };
+}
+
+function meinvoiceBodyMessage(code = MEINVOICE_CODE): GmailMessage {
+  return htmlBodyMessage(
+    "m3",
+    `<div>Tra cứu hóa đơn tại https://www.meinvoice.vn/tra-cuu</div>` +
+      `<div>Nhập mã số: ${code}</div>`,
+  );
+}
+
+function newsletterMessage(): GmailMessage {
+  return htmlBodyMessage("m4", "<div>Bản tin khuyến mãi tháng 10</div>");
+}
 
 function xmlAndPdfMessage(): GmailMessage {
   return {
@@ -109,6 +139,7 @@ interface FakeCalls {
   apply: { invoiceId: string; templateId: string; confidence: number; reason: string }[];
   settings: { key: string; value: string }[];
   extract: number;
+  meinvoice: string[];
 }
 
 interface FakeOptions {
@@ -121,6 +152,8 @@ interface FakeOptions {
   evaluatorError?: Error;
   uploads?: SupplierUploadRow[];
   download?: Uint8Array;
+  meinvoiceXml?: string | null;
+  meinvoiceError?: Error;
 }
 
 function fakeDeps(options: FakeOptions = {}): {
@@ -138,6 +171,7 @@ function fakeDeps(options: FakeOptions = {}): {
     apply: [],
     settings: [],
     extract: 0,
+    meinvoice: [],
   };
   const candidates: JevCandidates = options.candidates ?? {
     invoice: {
@@ -182,6 +216,11 @@ function fakeDeps(options: FakeOptions = {}): {
     sourceRefExists: async (value, exact) => {
       if (exact) return refs.has(value);
       return [...refs].some((ref) => ref.startsWith(value));
+    },
+    fetchMeinvoiceXml: async (code) => {
+      calls.meinvoice.push(code);
+      if (options.meinvoiceError) throw options.meinvoiceError;
+      return options.meinvoiceXml === undefined ? MEINVOICE_XML : options.meinvoiceXml;
     },
     ingest: async (payload) => {
       calls.ingest.push(payload);
@@ -403,4 +442,94 @@ test("link NCC: XML dùng supplier_id và purchase_order_id của request", asyn
   assert.equal(calls.ingest[0].file_mime, "application/xml");
   assert.equal(calls.ingest[0].total_amount, 1100);
   assert.match(calls.upload[0], /^incoming\/2026-10\/[0-9a-f]{16}\.xml$/);
+});
+
+test("meInvoice: thư chỉ có HTML + mã số được nạp từ XML tra cứu", async () => {
+  const { deps, calls } = fakeDeps({
+    messages: [{ id: "m3" }],
+    message: meinvoiceBodyMessage(),
+  });
+  const { response, body } = await run(deps, { source: "email" });
+
+  assert.equal(response.status, 200);
+  assert.equal(body.email.ingested, 1);
+  assert.equal(body.email.skipped, 0);
+  assert.deepEqual(calls.meinvoice, [MEINVOICE_CODE]);
+  assert.equal(calls.ingest.length, 1);
+  assert.equal(calls.ingest[0].source, "email");
+  assert.equal(calls.ingest[0].source_ref, `gmail:m3:meinvoice:${MEINVOICE_CODE}`);
+  assert.equal(calls.ingest[0].invoice_number, "00010771");
+  assert.equal(calls.ingest[0].invoice_series, "1C26TNN");
+  assert.equal(calls.ingest[0].invoice_date, "2026-10-20");
+  assert.equal(calls.ingest[0].total_amount, 2430000);
+  assert.equal(calls.ingest[0].file_name, "1C26TNN_00010771.xml");
+  assert.equal(calls.ingest[0].file_mime, "application/xml");
+  assert.match(calls.upload[0], /^incoming\/2026-10\/[0-9a-f]{16}\.xml$/);
+});
+
+test("meInvoice: chạy lại thì bỏ qua cả message", async () => {
+  const { deps, calls } = fakeDeps({
+    messages: [{ id: "m3" }],
+    message: meinvoiceBodyMessage(),
+  });
+  await run(deps, { source: "email" });
+  const second = await run(deps, { source: "email" });
+
+  assert.equal(second.response.status, 200);
+  assert.equal(second.body.email.skipped, 1);
+  assert.equal(calls.get, 1);
+  assert.equal(calls.meinvoice.length, 1);
+  assert.equal(calls.ingest.length, 1);
+});
+
+test("meInvoice: fetch trả null ghi lỗi, không ném", async () => {
+  const { deps, calls } = fakeDeps({
+    messages: [{ id: "m3" }],
+    message: meinvoiceBodyMessage(),
+    meinvoiceXml: null,
+  });
+  const { response, body } = await run(deps, { source: "email" });
+
+  assert.equal(response.status, 200);
+  assert.equal(body.email.ingested, 0);
+  assert.equal(body.email.skipped, 1);
+  assert.ok(body.errors.length >= 1);
+  assert.equal(calls.ingest.length, 0);
+  assert.equal(calls.upload.length, 0);
+});
+
+test("thư không đính kèm, không có mã meInvoice: vẫn bỏ qua", async () => {
+  const { deps, calls } = fakeDeps({
+    messages: [{ id: "m4" }],
+    message: newsletterMessage(),
+  });
+  const { body } = await run(deps, { source: "email" });
+
+  assert.equal(body.email.ingested, 0);
+  assert.equal(body.email.skipped, 1);
+  assert.equal(body.errors.length, 0);
+  assert.equal(calls.meinvoice.length, 0);
+  assert.equal(calls.ingest.length, 0);
+});
+
+test("extractMeinvoiceLookupCodes: văn bản tiếng Việt", () => {
+  const text = `Tra cứu tại https://www.meinvoice.vn/tra-cuu\nNhập mã số: ${MEINVOICE_CODE}`;
+  assert.deepEqual(extractMeinvoiceLookupCodes(text), [MEINVOICE_CODE]);
+});
+
+test("extractMeinvoiceLookupCodes: bản không dấu", () => {
+  assert.deepEqual(
+    extractMeinvoiceLookupCodes("meinvoice.vn - nhap ma so: ABC12345"),
+    ["ABC12345"],
+  );
+});
+
+test("extractMeinvoiceLookupCodes: link Code= / transactionID=", () => {
+  assert.deepEqual(
+    extractMeinvoiceLookupCodes(
+      "https://www.meinvoice.vn/tra-cuu?Code=XYZ_123-abc " +
+        "https://www.meinvoice.vn/tra-cuu?transactionID=ABC12345",
+    ),
+    ["XYZ_123-abc", "ABC12345"],
+  );
 });

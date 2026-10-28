@@ -1,7 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import { parseVietnamEInvoiceXml } from "./einvoice-xml.ts";
+
+const MEINVOICE_XML = readFileSync(
+  new URL("./fixtures/meinvoice-namnguyen-00010771.xml", import.meta.url),
+  "utf8",
+);
 
 // Mẫu 1 — đúng chuẩn TCT, có namespace prefix.
 const NAMESPACED_XML = `<?xml version="1.0" encoding="UTF-8"?>
@@ -173,6 +179,58 @@ test("đọc biến thể nén, tổng lấy từ TgTTTBTr", () => {
   assert.equal(invoice.lines.length, 1);
   assert.equal(invoice.lines[0].name, "Thuê nhà");
   assert.equal(invoice.lines[0].vatRate, 0);
+});
+
+test("đọc hóa đơn GDT 2014 (inv:invoice) của MISA meInvoice", () => {
+  const invoice = parseVietnamEInvoiceXml(MEINVOICE_XML);
+  assert.ok(invoice);
+  assert.equal(invoice.seller.name, "CÔNG TY TNHH TMDV NAM NGUYỄN");
+  assert.equal(invoice.seller.tax_code, "0317792499");
+  assert.equal(invoice.seller.taxCode, "0317792499");
+  assert.equal(invoice.invoice_number, "00010771");
+  assert.equal(invoice.invoice_series, "1C26TNN");
+  assert.equal(invoice.invoice_date, "2026-10-20");
+  assert.equal(invoice.subtotal, 2250000);
+  assert.equal(invoice.vat_amount, 180000);
+  assert.equal(invoice.total_amount, 2430000);
+  assert.equal(invoice.lines.length, 1);
+  assert.deepEqual(
+    {
+      name: invoice.lines[0].name,
+      unit: invoice.lines[0].unit,
+      quantity: invoice.lines[0].quantity,
+      unitPrice: invoice.lines[0].unitPrice,
+      lineTotal: invoice.lines[0].line_total,
+      vatRate: invoice.lines[0].vatRate,
+    },
+    {
+      name: "Giấy decal PVC 90x60x50m",
+      unit: "Cuộn",
+      quantity: 15,
+      unitPrice: 150000,
+      lineTotal: 2250000,
+      vatRate: 8,
+    },
+  );
+});
+
+test("đọc hóa đơn GDT 2014 khi bỏ hết namespace prefix", () => {
+  const stripped = MEINVOICE_XML.replace(/inv:/g, "");
+  const invoice = parseVietnamEInvoiceXml(stripped);
+  assert.ok(invoice);
+  assert.equal(invoice.seller.name, "CÔNG TY TNHH TMDV NAM NGUYỄN");
+  assert.equal(invoice.seller.tax_code, "0317792499");
+  assert.equal(invoice.invoice_number, "00010771");
+  assert.equal(invoice.invoice_series, "1C26TNN");
+  assert.equal(invoice.invoice_date, "2026-10-20");
+  assert.equal(invoice.subtotal, 2250000);
+  assert.equal(invoice.vat_amount, 180000);
+  assert.equal(invoice.total_amount, 2430000);
+  assert.equal(invoice.lines.length, 1);
+  assert.equal(invoice.lines[0].name, "Giấy decal PVC 90x60x50m");
+  assert.equal(invoice.lines[0].quantity, 15);
+  assert.equal(invoice.lines[0].unitPrice, 150000);
+  assert.equal(invoice.lines[0].vatRate, 8);
 });
 
 test("XML hỏng hoặc không phải hóa đơn trả null, không ném lỗi", () => {

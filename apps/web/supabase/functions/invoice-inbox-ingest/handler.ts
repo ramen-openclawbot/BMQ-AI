@@ -14,7 +14,7 @@
 
 import { getCorsHeaders } from "../_shared/cors.ts";
 import { parseVietnamEInvoiceXml } from "../_shared/einvoice-xml.ts";
-import { type InvoiceJevEvaluation, type InvoiceJevEvaluator } from "./jev.ts";
+import type { InvoiceJevEvaluation, InvoiceJevEvaluator } from "./jev.ts";
 
 export const INVOICE_INGEST_BODY_LIMIT = 32_768;
 export const INVOICE_INGEST_REQUEST_BUDGET_MS = 110_000;
@@ -24,7 +24,7 @@ export const INVOICE_INGEST_MAX_FILE_BYTES = 10 * 1024 * 1024;
 export const INVOICE_MIN_IMAGE_BYTES = 20 * 1024;
 export const INVOICE_INBOX_BUCKET = "invoices";
 export const SUPPLIER_DOCS_BUCKET = "supplier-delivery-docs";
-export const INVOICE_GMAIL_QUERY = "has:attachment newer_than:21d";
+export const INVOICE_GMAIL_QUERY = "(has:attachment OR meinvoice) newer_than:21d";
 export const PDF_UNREAD_NOTE = "PDF chưa đọc được tự động";
 
 export class InvoiceInboxError extends Error {
@@ -157,6 +157,8 @@ export interface InvoiceInboxIngestDeps {
     contentType: string,
   ) => Promise<{ reused: boolean }>;
   sourceRefExists: (value: string, exact: boolean) => Promise<boolean>;
+  /** Fetches the signed XML behind a MISA meInvoice lookup code, or null. */
+  fetchMeinvoiceXml: (code: string) => Promise<string | null>;
   ingest: (payload: IngestPayload) => Promise<IngestResult>;
   getJevCandidates: (invoiceId: string) => Promise<JevCandidates>;
   applyJevTemplate: (
@@ -348,6 +350,102 @@ export function collectGmailAttachments(
     collectGmailAttachments(part, out);
   }
   return out;
+}
+
+const MEINVOICE_CODE_PATTERN = "[A-Za-z0-9_\\-]{6,40}";
+const MEINVOICE_NEAR_DISTANCE = 500;
+
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(Number.parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(Number.parseInt(dec, 10)))
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&quot;/gi, '"')
+    .replace(/&apos;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&amp;/gi, "&");
+}
+
+function htmlToPlainText(html: string): string {
+  return decodeHtmlEntities(
+    html
+      .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, " ")
+      .replace(/<[^>]*>/g, " "),
+  ).replace(/\s+/g, " ").trim();
+}
+
+function collectGmailTextParts(payload: GmailPart, out: string[]): void {
+  const mime = (payload.mimeType ?? "").toLowerCase();
+  const filename = hasText(payload.filename) ? payload.filename!.trim() : "";
+  const data = payload.body?.data;
+  if (filename === "" && hasText(data)) {
+    const decoded = new TextDecoder().decode(decodeBase64Url(data!));
+    if (mime.startsWith("text/plain")) out.push(decoded);
+    else if (mime.startsWith("text/html")) out.push(htmlToPlainText(decoded));
+  }
+  for (const part of payload.parts ?? []) {
+    collectGmailTextParts(part, out);
+  }
+}
+
+/** Plain text from the body parts of a Gmail message payload. */
+export function extractGmailPlainText(payload: GmailPart | null | undefined): string {
+  if (!payload) return "";
+  const parts: string[] = [];
+  collectGmailTextParts(payload, parts);
+  return parts.join("\n").trim();
+}
+
+/**
+ * MISA meInvoice lookup codes in an email body:
+ *   * `mã số: <CODE>` / `ma so: <CODE>` near a meinvoice reference;
+ *   * `Code=<CODE>` / `transactionID=<CODE>` inside a meinvoice.vn URL.
+ */
+export function extractMeinvoiceLookupCodes(text: string): string[] {
+  if (typeof text !== "string" || text.trim() === "") return [];
+
+  const lower = text.toLowerCase();
+  const anchors: number[] = [];
+  let anchor = lower.indexOf("meinvoice");
+  while (anchor !== -1) {
+    anchors.push(anchor);
+    anchor = lower.indexOf("meinvoice", anchor + 1);
+  }
+  if (anchors.length === 0) return [];
+
+  const nearMeinvoice = (position: number): boolean =>
+    anchors.some((item) => Math.abs(item - position) <= MEINVOICE_NEAR_DISTANCE);
+
+  const found: { index: number; code: string }[] = [];
+  const label = new RegExp(
+    `m[ãa]\\s*s[ốo]\\s*:\\s*(${MEINVOICE_CODE_PATTERN})`,
+    "gi",
+  );
+  let match: RegExpExecArray | null;
+  while ((match = label.exec(text)) !== null) {
+    if (nearMeinvoice(match.index)) found.push({ index: match.index, code: match[1] });
+  }
+
+  const url = /(?:https?:\/\/)?[^\s"'<>]*meinvoice\.vn[^\s"'<>]*/gi;
+  while ((match = url.exec(text)) !== null) {
+    const param = new RegExp(
+      `(?:Code|transactionID)=(${MEINVOICE_CODE_PATTERN})`,
+      "i",
+    ).exec(match[0]);
+    if (!param) continue;
+    found.push({ index: match.index + param.index, code: param[1] });
+  }
+
+  found.sort((left, right) => left.index - right.index);
+  const seen = new Set<string>();
+  const codes: string[] = [];
+  for (const entry of found) {
+    if (seen.has(entry.code)) continue;
+    seen.add(entry.code);
+    codes.push(entry.code);
+  }
+  return codes;
 }
 
 function decodeBase64Url(value: string): Uint8Array {
@@ -607,7 +705,65 @@ async function ingestEmailInbox(
       });
 
     if (attachments.length === 0) {
-      section.skipped += 1;
+      const codes = extractMeinvoiceLookupCodes(extractGmailPlainText(message.payload));
+      if (codes.length === 0) {
+        section.skipped += 1;
+        continue;
+      }
+      for (const code of codes) {
+        signal.throwIfAborted();
+        const sourceRef = `${prefix}:meinvoice:${code}`;
+        if (await deps.sourceRefExists(sourceRef, true)) {
+          section.skipped += 1;
+          continue;
+        }
+        try {
+          const xml = await deps.fetchMeinvoiceXml(code);
+          if (xml === null) {
+            summary.errors.push(`gmail:${ref.id}:meinvoice:${code}: not_found`);
+            section.skipped += 1;
+            continue;
+          }
+          const invoice = parseVietnamEInvoiceXml(xml);
+          if (!invoice) {
+            summary.errors.push(`gmail:${ref.id}:meinvoice:${code}: parse_failed`);
+            section.skipped += 1;
+            continue;
+          }
+          const bytes = new TextEncoder().encode(xml);
+          const fileName = `${invoice.invoice_series ?? "invoice"}_${
+            invoice.invoice_number ?? code
+          }.xml`;
+          const persisted = await persistFile(
+            deps,
+            bytes,
+            fileName,
+            "application/xml",
+            invoice.invoice_date,
+            input.dryRun,
+          );
+          const result = await ingestOne(deps, {
+            source: "email",
+            source_ref: sourceRef,
+            file_path: persisted.path,
+            file_mime: persisted.file_mime,
+            file_name: persisted.file_name,
+            seller_name: invoice.seller.name,
+            seller_tax_code: invoice.seller.tax_code,
+            invoice_number: invoice.invoice_number,
+            invoice_series: invoice.invoice_series,
+            invoice_date: invoice.invoice_date,
+            subtotal: invoice.subtotal,
+            vat_amount: invoice.vat_amount,
+            total_amount: invoice.total_amount,
+            raw: { lines: invoice.lines },
+          }, summary, section, input.dryRun);
+          await maybeAskJev(deps, result, summary, signal, deadlineAt, input.dryRun);
+        } catch (error) {
+          summary.errors.push(`gmail:${ref.id}:meinvoice:${code}: ${errorMessage(error)}`);
+          section.skipped += 1;
+        }
+      }
       continue;
     }
 
