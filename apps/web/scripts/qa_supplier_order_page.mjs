@@ -54,8 +54,10 @@ function catalog(id) {
     const tt = { ...line("5a1e0000-0000-4000-8000-000000000011", "Cà rốt", "Cà rốt", 1888, 727.959, 8, 35700, null, 0), location: "tan_tao", estimated: true };
     const none = { ...line("5a1e0000-0000-4000-8000-000000000012", "Giấm tinh luyện 1L", "Giấm tinh luyện 1L", 0, 0, 0, 18333, null, 0), location: "tan_tao", estimated: true };
     none.stock = { ...none.stock, on_hand: null, days_left: null };
+    const decal = { ...line("5a1e0000-0000-4000-8000-000000000013", "Giấy decal PVC", "Giấy decal PVC 90x60x50m", 0, 0, 0, 150000, null, 0), location: "q7", estimated: false };
+    decal.stock = { ...decal.stock, last_count_date: null, days_left: null };
     const email = localStorage.getItem("qa-mega-email");
-    return { supplier: { id: MG, name: "Mega Market", email }, delivery, mailbox_connected: true, blockers: email ? [] : ["no_supplier_email"], items: [tt, none], prepay: null };
+    return { supplier: { id: MG, name: "Mega Market", email }, delivery, mailbox_connected: true, blockers: email ? [] : ["no_supplier_email"], items: [tt, none, decal], prepay: null };
   }
   if (id === PT) {
     const items = [
@@ -487,10 +489,11 @@ try {
     await page.waitForSelector("[data-bmq-so-email-form]");
     assert.equal(await page.locator("[data-bmq-so-suppliers]").isVisible(), wide, `list stays only when wide @${vp.width}`);
     const card = await page.locator("[data-bmq-so-card]").innerText();
-    for (const text of ["Đơn mới cho Mega Market", "chưa có email", "Tồn Tân Tạo", "(ước lượng)", "chưa có số tồn", "Nhà cung cấp chưa có email đặt hàng"]) {
+    for (const text of ["Đơn mới cho Mega Market", "chưa có email", "Tồn Tân Tạo", "(ước lượng)", "chưa có số tồn", "chưa có lượng dùng để đề xuất", "Nhà cung cấp chưa có email đặt hàng"]) {
       assert.ok(card.includes(text), `Mega card shows "${text}" @${vp.width}: ${card}`);
     }
     assert.ok(await page.locator("[data-bmq-so-make]").isDisabled(), "no email: Lập phiếu disabled");
+    assert.match(await page.locator("[data-bmq-so-line='5a1e0000-0000-4000-8000-000000000013']").innerText(), /Tồn Q7: chưa kiểm kê · chưa có lượng dùng để đề xuất/);
     await noSpill(page, "mega", vp);
     await shot(page, `mega-${vp.width}.png`);
     await page.locator("[data-bmq-so-email-input]").fill("Order@Mega.vn ");

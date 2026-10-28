@@ -93,10 +93,15 @@ function readQty(text: string): number {
 const LOCATION_LABEL: Record<string, string> = { q7: "Q7", tan_tao: "Tân Tạo" };
 const locationLabel = (code: string) => LOCATION_LABEL[code] ?? code;
 
+/** No count and no usage on record: a 0 here means "unknown", not "in stock" or "empty". */
+const neverCounted = (item: SupplierOrderCatalogItem) =>
+  !item.estimated && item.stock.lastCountDate === null && item.stock.dailyUsage <= 0;
+
 function stockLine(item: SupplierOrderCatalogItem) {
   const { onHand, daysLeft } = item.stock;
   const where = locationLabel(item.location);
   if (onHand === null) return <>Tồn {where}: chưa có số tồn</>;
+  if (neverCounted(item) && onHand <= 0) return <span data-bmq-so-uncounted>Tồn {where}: chưa kiểm kê</span>;
   return (
     <>
       Tồn {where} {fmtAmount(onHand, item.item.unit)}
@@ -239,7 +244,9 @@ function OrderLine({ item, supplierId, qtyText, onQty, editing, onRemove, removi
         </small>
         <p className="d3-so-stock">
           {stockLine(item)}
-          <span className="d3-so-proposal"> · {item.proposalQty > 0 ? `đề xuất ${formatQuantity(item.proposalQty)} ${item.poUnit}` : "chưa cần đặt"}</span>
+          <span className="d3-so-proposal"> · {item.proposalQty > 0
+            ? `đề xuất ${formatQuantity(item.proposalQty)} ${item.poUnit}`
+            : item.stock.dailyUsage <= 0 ? "chưa có lượng dùng để đề xuất" : "chưa cần đặt"}</span>
         </p>
         {item.openOrder ? (
           <p className="d3-so-open" data-bmq-so-open-po>
