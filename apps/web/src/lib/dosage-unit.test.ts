@@ -3,6 +3,8 @@ import test from "node:test";
 
 import {
   DOSAGE_UNITS,
+  dosageUnitCode,
+  dosageUnitOptions,
   effectiveDosageUnit,
   withDosageUnit,
 } from "./dosage-unit.ts";
@@ -48,4 +50,17 @@ test("withDosageUnit returns a copy and leaves the input untouched", () => {
   assert.equal(result.dosage_qty, 0.5);
   assert.equal(result.dosage_unit, "Kg");
   assert.equal("dosage_unit" in row, false);
+});
+
+test("dosageUnitCode maps stored labels onto the shared codes", () => {
+  assert.equal(dosageUnitCode("Kg"), "kg");
+  assert.equal(dosageUnitCode(" Cuộn "), "cuộn");
+  assert.equal(dosageUnitCode("phần"), "phần");
+  assert.equal(dosageUnitCode(null), "");
+});
+
+test("dosageUnitOptions keeps an unknown current unit selectable", () => {
+  assert.deepEqual(dosageUnitOptions("Kg"), [...DOSAGE_UNITS]);
+  assert.equal(dosageUnitOptions("phần")[0], "phần");
+  assert.equal(dosageUnitOptions("phần").length, DOSAGE_UNITS.length + 1);
 });

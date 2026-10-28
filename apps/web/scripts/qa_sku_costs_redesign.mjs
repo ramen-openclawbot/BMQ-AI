@@ -77,7 +77,7 @@ function fixtureRows(st) {
     ["NVL-MUOI", "Muối sấy", "g", 9, 40],
     // Real names run long (owner IMG_6072): the dialogs must wrap, never scroll sideways.
     ["NVL-MEN-KHO-MEIZAN-NHAN-VANG-0-5-10KG-THUN", "Men Khô Meizan - Nhãn Vàng (0.5*10kg/Thùng)", "g", 95.5, 30],
-  ].map(([material_code, ingredient_name, unit, unit_price, dosage_qty], i) => ({ id: "f" + i, sku_id: "sku-2", ingredient_sku_id: null, canonical_material_id: "m" + i, material_code, ingredient_name, unit, unit_price, dosage_qty, wastage_percent: 0, sort_order: i }));
+  ].map(([material_code, ingredient_name, unit, unit_price, dosage_qty], i) => ({ id: "f" + i, sku_id: "sku-2", ingredient_sku_id: null, canonical_material_id: "m" + i, material_code, ingredient_name, unit, dosage_unit: material_code === "NVL-DUONG" ? "kg" : null, unit_price, dosage_qty, wastage_percent: 0, sort_order: i }));
   if (st.table === "sku_cogs_materials") return [
     ["NVL-BOT-MI", "Bột mì số 13"], ["NVL-PATE", "Pate gan"], ["NVL-BO", "Bơ lạt"], ["NVL-DUONG", "Đường tinh luyện"], ["NVL-MUOI", "Muối sấy"],
     ["NVL-MEN-KHO-MEIZAN-NHAN-VANG-0-5-10KG-THUN", "Men Khô Meizan - Nhãn Vàng (0.5*10kg/Thùng)"],
@@ -389,6 +389,9 @@ try {
     await page.waitForTimeout(500);
     assert.ok((await dialogOverflow(page)) <= 0, `detail dialog overflow ${viewport.width}: ${await dialogOverflow(page)}`);
     if (viewport.width < 768) assert.equal(await page.locator("[data-bmq-sku-detail-lines] li").count(), 6, "6 NVL lines on the phone");
+    // Đơn vị định lượng (owner 28/10): the detail shows the dosage unit, not the material's default unit.
+    if (viewport.width < 768) assert.match(await page.locator("[data-bmq-sku-detail-lines] li", { hasText: "Đường tinh luyện" }).innerText(), /\b150 kg ×/, "detail line shows the dosage unit");
+    else assert.match(await page.locator("[data-bmq-sku-detail] table tr", { hasText: "Đường tinh luyện" }).innerText(), /\bkg\b/, "detail table shows the dosage unit");
     await dialogShot(page, `${EVIDENCE}/sku-detail-${viewport.width}.png`);
     await page.keyboard.press("Escape");
     await page.waitForTimeout(300);
@@ -396,6 +399,22 @@ try {
     await page.waitForSelector("[data-bmq-sku-edit]");
     await page.waitForTimeout(700);
     assert.ok((await dialogOverflow(page)) <= 0, `edit dialog overflow ${viewport.width}: ${await dialogOverflow(page)}`);
+    // Every NVL line has a dosage-unit picker next to Định lượng; a stored unit wins over the material default.
+    const units = page.locator("[data-bmq-dosage-unit]:visible");
+    assert.equal(await units.count(), 6, `6 dosage-unit pickers @${viewport.width}`);
+    assert.deepEqual(await units.evaluateAll((els) => els.map((el) => el.value)), ["g", "g", "g", "kg", "g", "g"], "stored kg kept, others default g");
+    for (const box of await page.locator("[data-bmq-dosage]:visible").evaluateAll((els) => els.map((el) => { const r = el.getBoundingClientRect(); const i = el.querySelector("input").getBoundingClientRect(); return { right: r.right, input: i.width }; }))) {
+      assert.ok(box.input >= 56, `dosage input too narrow @${viewport.width}: ${box.input}`);
+    }
+    if (viewport.width === 1440) {
+      await units.first().selectOption("kg");
+      await page.getByRole("button", { name: "Lưu SKU" }).click();
+      await page.waitForFunction(() => (window.__qaRpc || []).some((x) => x.startsWith("save_sku_cogs:")));
+      const saved = await page.evaluate(() => JSON.parse(window.__qaRpc.find((x) => x.startsWith("save_sku_cogs:")).slice("save_sku_cogs:".length)));
+      assert.deepEqual(saved.p_formulations.map((row) => row.dosage_unit), ["kg", "g", "g", "kg", "g", "g"], "save sends each line's dosage unit");
+      assert.deepEqual(saved.p_formulations.map((row) => row.unit), ["g", "g", "g", "g", "g", "g"], "the material unit is unchanged");
+      errors.length = 0; // the fixture answers save with no SKU, which the page reports as a save error
+    }
     // Natural scroll positions inside the edit dialog (top, NVL cards, totals).
     for (const [i, frac] of [[0, 0], [1, 0.35], [2, 0.7]]) {
       await page.evaluate((f) => { const d = document.querySelector("[role=dialog]"); d.scrollTop = (d.scrollHeight - d.clientHeight) * f; }, frac);

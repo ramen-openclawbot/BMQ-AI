@@ -45,3 +45,16 @@ export function withDosageUnit<T extends Record<string, unknown>>(
   const fallback = trimmed(materialDefaultUnit);
   return { ...row, dosage_unit: current || fallback || "g" };
 }
+
+/** The stock unit code a stored unit means ("Kg" → "kg"), or the trimmed text when it is not a known code. */
+export function dosageUnitCode(value: string | null | undefined): string {
+  const text = trimmed(value);
+  const known = DOSAGE_UNITS.find((code) => code.toLowerCase() === text.toLowerCase());
+  return known ?? text;
+}
+
+/** Choices for the dosage-unit picker: every known unit, plus the current one when it is not in the list. */
+export function dosageUnitOptions(current: string | null | undefined): string[] {
+  const code = dosageUnitCode(current);
+  return code && !DOSAGE_UNITS.includes(code) ? [code, ...DOSAGE_UNITS] : [...DOSAGE_UNITS];
+}
