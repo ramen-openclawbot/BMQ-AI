@@ -12,7 +12,8 @@ import { Link } from "react-router-dom";
 import { Supplier } from "@/hooks/useSuppliers";
 import { db } from "@/lib/supabase-helpers";
 import { supabase } from "@/integrations/supabase/client";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSupplierProfileOverview } from "@/hooks/useSupplierProfiles";
 import { SupplierAliasManager } from "@/components/settings/SupplierAliasManager";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -39,7 +40,27 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
   const [contractFile, setContractFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const queryClient = useQueryClient();
-  const { isOwner } = useAuth();
+  const { isOwner, canAccessModule } = useAuth();
+  // payment_requests RLS hides rows from people without this view, so a count would read 0, not "unknown".
+  const canSeeRequests = isOwner || canAccessModule("payment_requests");
+  const supplierId = supplier?.id ?? null;
+  // Real count of this supplier's payment requests (the old order_count field was never loaded).
+  const requestCount = useQuery({
+    queryKey: ["supplier-payment-request-count", supplierId],
+    enabled: Boolean(open && supplierId && canSeeRequests),
+    queryFn: async () => {
+      const { count, error } = await db
+        .from("payment_requests")
+        .select("id", { count: "exact", head: true })
+        .eq("supplier_id", supplierId);
+      if (error) throw error;
+      return count ?? 0;
+    },
+    staleTime: 15000,
+    retry: false,
+  });
+  const overview = useSupplierProfileOverview();
+  const profile = overview.data?.find((row) => row.id === supplierId) ?? null;
 
   // Reset form when supplier changes or dialog opens
   useEffect(() => {
@@ -480,13 +501,28 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
               )}
 
               {/* Payment Requests Count */}
+              {canSeeRequests ? (
               <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
                 <Package className="h-5 w-5 text-primary" />
-                <div>
+                <div className="min-w-0" data-bmq-supplier-requests>
                   <p className="text-sm text-muted-foreground">Đề nghị thanh toán</p>
-                  <p className="font-medium">{supplier.order_count || 0} đề nghị</p>
+                  <p className="font-medium tabular-nums">
+                    {requestCount.isLoading
+                      ? "Đang đếm…"
+                      : requestCount.data !== undefined
+                      ? `${requestCount.data.toLocaleString("vi-VN")} đề nghị`
+                      : "Chưa xem được"}
+                  </p>
+                  {profile && profile.unpaidCount > 0 ? (
+                    <p className="text-sm text-red-700 tabular-nums" data-bmq-supplier-requests-unpaid>
+                      {profile.unpaidCount} phiếu chưa trả · còn {Math.round(profile.unpaidAmount).toLocaleString("vi-VN")} đ
+                    </p>
+                  ) : profile ? (
+                    <p className="text-sm text-muted-foreground">Không còn phiếu chưa trả</p>
+                  ) : null}
                 </div>
               </div>
+              ) : null}
 
               {!supplier.phone && !supplier.email && !supplier.contract_url && (
                 <p className="text-sm text-muted-foreground text-center py-2">

@@ -107,6 +107,7 @@ function settle(st) {
     else localStorage.setItem("qa-removed", JSON.stringify([...removed(), a.p_item_id]));
     return { data: { supplier_id: a.p_supplier_id, kitchen_inventory_item_id: a.p_item_id, active: a.p_active }, error: null };
   }
+  if (st.table === "payment_requests") return { data: null, error: null, count: 3 };
   if (st.table === "suppliers") return { data: [
     { id: PT, name: "Phúc Thịnh", category: "Bột mì", description: null, phone: "0909 111 222", email: "botmiphucthinh@gmail.com", contact_name: localStorage.getItem("qa-pt-contact"), bank_account_name: null, default_payment_method: "bank_transfer", contract_url: null, payment_terms_days: 7, created_at: "2026-01-01T00:00:00Z" },
     { id: MG, name: "Mega Market", category: null, description: null, phone: null, email: null, contact_name: null, bank_account_name: null, default_payment_method: "bank_transfer", contract_url: null, payment_terms_days: null, created_at: "2026-02-01T00:00:00Z" },
@@ -536,6 +537,8 @@ try {
     await page.getByRole("button", { name: "Lưu" }).click();
     await page.waitForSelector("[data-bmq-supplier-contact]");
     assert.match(await page.locator("[data-bmq-supplier-contact]").innerText(), /Anh Phúc/);
+    await page.waitForFunction(() => /3 đề nghị/.test(document.querySelector("[data-bmq-supplier-requests]")?.textContent || ""));
+    assert.match(await page.locator("[data-bmq-supplier-requests]").innerText(), /1 phiếu chưa trả · còn 4\.842\.000 đ/);
     const saved = (await calls(page)).find((c) => c.startsWith("update:suppliers:"));
     assert.ok(saved && saved.includes('"contact_name":"Anh Phúc"'), `profile save ${saved}`);
     await shot(page, `supplier-dialog-${vp.width}.png`);
