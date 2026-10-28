@@ -35,7 +35,7 @@ export interface MaterialLine {
    */
   warning:
     | { kind: "usual"; multiple: number; usual: number; dayTotal: number }
-    | { kind: "per_unit"; perUnit: number }
+    | { kind: "per_unit"; perUnit: number; blocked?: boolean }
     | null;
   /** Fewer than REFERENCE_DAYS days of history: shown as a note, never a warning. */
   noHistory: boolean;
@@ -91,6 +91,12 @@ export function learnShrink(
   return { state, rate: rounded, periods: valid.length, lastCount };
 }
 
+export interface UsageFactor {
+  factor: number;
+  source: string;
+  effectiveFrom: string;
+}
+
 export interface RevenueDay {
   day: string;
   generatedAt: string | null;
@@ -100,6 +106,8 @@ export interface RevenueDay {
   posted: Map<string, { day: string; qty: number }[]>;
   /** Learned shrinkage per kho/item from stock counts. */
   shrink: Map<string, ShrinkInfo>;
+  /** cogs_usage_factors in effect on the day, per kho/item. */
+  factors: Map<string, UsageFactor>;
   totals: { channels: number; qty: number; warnings: number; materials: number };
 }
 
@@ -199,6 +207,52 @@ export function buildRevenueDay(raw: unknown): RevenueDay {
     if (kho && itemId) refs.set(postedKey(kho, itemId), { ref: r.ref == null ? null : num(r.ref), days: num(r.days) });
   }
 
+  // Server warnings from cogs_backflush_warnings. Older snapshots (the 28/10 demo) also carry a
+  // "warnings" key holding owner-decision rows without a kind; those are not server warnings and
+  // keep the client-side detection below. An empty server list still means "the server checked".
+  const warningRows = arr(src.warnings);
+  const hasServerWarnings =
+    Array.isArray(src.warnings) && !warningRows.some((w) => "reason" in w || "status" in w);
+  const serverWarnings = new Map<string, Record<string, unknown>>();
+  if (hasServerWarnings) {
+    for (const w of warningRows) {
+      const kho = asKho(w.loc ?? w.location);
+      const itemId = text(w.item_id);
+      const kind = text(w.kind);
+      if (kho && itemId && (kind === "usual" || kind === "unit")) {
+        serverWarnings.set(`${postedKey(kho, itemId)}:${kind}`, w);
+      }
+    }
+  }
+
+  const serverWarning = (kho: RevenueKho, itemId: string): MaterialLine["warning"] => {
+    const unit = serverWarnings.get(`${postedKey(kho, itemId)}:unit`);
+    if (unit) return { kind: "per_unit", perUnit: num(unit.per_unit), blocked: true };
+    const usual = serverWarnings.get(`${postedKey(kho, itemId)}:usual`);
+    if (!usual) return null;
+    const desired = num(usual.desired);
+    const reference = num(usual.reference);
+    return {
+      kind: "usual",
+      multiple: reference > 0 ? desired / reference : 0,
+      usual: reference,
+      dayTotal: desired,
+    };
+  };
+
+  const factors = new Map<string, UsageFactor>();
+  for (const f of arr(src.factors)) {
+    const kho = asKho(f.loc);
+    const itemId = text(f.item_id);
+    if (kho && itemId) {
+      factors.set(postedKey(kho, itemId), {
+        factor: num(f.factor),
+        source: text(f.source),
+        effectiveFrom: text(f.effective_from).slice(0, 10),
+      });
+    }
+  }
+
   // The usual-day comparison is per item per kho across every channel, like the deduction itself.
   const dayTotal = new Map<string, number>();
   const materialsRaw = arr(src.materials);
@@ -233,11 +287,14 @@ export function buildRevenueDay(raw: unknown): RevenueDay {
       const hasHistory = Boolean(ref && ref.days >= REFERENCE_DAYS && usual !== null && usual > 0);
       const unit = (item?.unit ?? "").trim().toLowerCase();
       const perUnit = deducted && num(c.qty) > 0 ? num(m.qty) / num(c.qty) : 0;
-      const warning: MaterialLine["warning"] = deducted && hasHistory && total > WARN_MULTIPLE * (usual as number)
+      const detected: MaterialLine["warning"] = deducted && hasHistory && total > WARN_MULTIPLE * (usual as number)
         ? { kind: "usual", multiple: Math.round((total / (usual as number)) * 10) / 10, usual: usual as number, dayTotal: total }
         : deducted && (unit === "g" || unit === "ml") && perUnit > WARN_PER_UNIT
           ? { kind: "per_unit", perUnit: Math.round(perUnit) }
           : null;
+      const warning = deducted && kho && itemId
+        ? (hasServerWarnings ? serverWarning(kho, itemId) : detected)
+        : null;
       if (warning) warnings += 1;
       const line: MaterialLine = {
         key: `${channel}:${key}`,
@@ -280,6 +337,7 @@ export function buildRevenueDay(raw: unknown): RevenueDay {
     items,
     posted,
     shrink,
+    factors,
     totals: {
       channels: channels.length,
       qty: channels.reduce((sum, c) => sum + c.qty, 0),
@@ -291,6 +349,11 @@ export function buildRevenueDay(raw: unknown): RevenueDay {
 
 export function shrinkOf(day: RevenueDay, kho: RevenueKho, itemId: string): ShrinkInfo {
   return day.shrink.get(postedKey(kho, itemId)) ?? { state: "none", rate: null, periods: 0, lastCount: null };
+}
+
+/** The usage factor in effect on the snapshot's day for one item at one kho, or null when none. */
+export function factorOf(day: RevenueDay, kho: RevenueKho, itemId: string): UsageFactor | null {
+  return day.factors.get(postedKey(kho, itemId)) ?? null;
 }
 
 /** Deductions of one item at one kho over the snapshot's last days, oldest first. */

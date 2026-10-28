@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildRevenueDay, channelLabel, learnShrink, recentPosted, shrinkOf, WARN_MULTIPLE } from "./kho-revenue-demo.ts";
+import { buildRevenueDay, channelLabel, factorOf, learnShrink, recentPosted, shrinkOf, WARN_MULTIPLE } from "./kho-revenue-demo.ts";
 import { TRU_KHO_DEMO_20261028 } from "../data/tru-kho-demo-20261028.ts";
 
 const raw = {
@@ -113,4 +113,43 @@ test("in the real snapshot Bơ Peerless at Q7 is blocked (count shortfall 165% o
   assert.equal(peerless.lastCount?.day, "2026-10-27");
   const applied = [...day.shrink.values()].filter((v) => v.state === "applied");
   assert.equal(applied.length, 0, "no real period is clean enough to apply yet");
+});
+
+test("server usual warnings replace client detection and use desired/reference as the multiple", () => {
+  const day = buildRevenueDay({
+    ...raw,
+    warnings: [
+      { loc: "q7", item_id: "bo", d: "2026-10-28", kind: "usual", desired: 70000, reference: 10000, reference_days: 10 },
+    ],
+  });
+  const bo = day.channels[0].materials.q7[0];
+  assert.deepEqual(bo.warning, { kind: "usual", multiple: 7, usual: 10000, dayTotal: 70000 });
+  assert.equal(day.channels[1].materials.q7[0].warning?.kind, "usual", "the same server day flags both channels");
+  assert.equal(day.totals.warnings, 2);
+});
+
+test("server unit warnings map to per_unit with blocked true", () => {
+  const day = buildRevenueDay({
+    ...raw,
+    warnings: [
+      { loc: "q7", item_id: "bo", d: "2026-10-28", kind: "unit", desired: 62000, finished_units: 100, per_unit: 620 },
+    ],
+  });
+  assert.deepEqual(day.channels[0].materials.q7[0].warning, { kind: "per_unit", perUnit: 620, blocked: true });
+});
+
+test("an empty server warnings list suppresses client detection", () => {
+  const day = buildRevenueDay({ ...raw, warnings: [] });
+  assert.equal(day.channels[0].materials.q7[0].warning, null);
+  assert.equal(day.totals.warnings, 0);
+});
+
+test("factorOf exposes the usage factor in effect per kho/item", () => {
+  const day = buildRevenueDay({
+    ...raw,
+    factors: [{ loc: "q7", item_id: "bo", factor: 1.05, source: "learned", effective_from: "2026-10-28" }],
+  });
+  assert.deepEqual(factorOf(day, "q7", "bo"), { factor: 1.05, source: "learned", effectiveFrom: "2026-10-28" });
+  assert.equal(factorOf(day, "tan_tao", "bo"), null);
+  assert.equal(factorOf(day, "q7", "missing"), null);
 });
