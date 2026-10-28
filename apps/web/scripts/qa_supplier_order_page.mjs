@@ -107,6 +107,18 @@ function settle(st) {
     else localStorage.setItem("qa-removed", JSON.stringify([...removed(), a.p_item_id]));
     return { data: { supplier_id: a.p_supplier_id, kitchen_inventory_item_id: a.p_item_id, active: a.p_active }, error: null };
   }
+  if (st.table === "suppliers") return { data: [
+    { id: PT, name: "Phúc Thịnh", category: "Bột mì", description: null, phone: "0909 111 222", email: "botmiphucthinh@gmail.com", contact_name: localStorage.getItem("qa-pt-contact"), bank_account_name: null, default_payment_method: "bank_transfer", contract_url: null, payment_terms_days: 7, created_at: "2026-01-01T00:00:00Z" },
+    { id: MG, name: "Mega Market", category: null, description: null, phone: null, email: null, contact_name: null, bank_account_name: null, default_payment_method: "bank_transfer", contract_url: null, payment_terms_days: null, created_at: "2026-02-01T00:00:00Z" },
+    { id: TV, name: "TV Food", category: "Bơ sữa", description: null, phone: "028 3333 4444", email: "hongtinh2603@gmail.com", contact_name: "Chị Tình", bank_account_name: null, default_payment_method: "bank_transfer", contract_url: null, payment_terms_days: 15, created_at: "2026-03-01T00:00:00Z" },
+    { id: "00000000-0000-4000-8000-0000000000aa", name: "Đại Phát (cũ)", category: null, description: null, phone: null, email: "dai@example.test", contact_name: null, bank_account_name: null, default_payment_method: "cash", contract_url: null, payment_terms_days: null, created_at: "2025-01-01T00:00:00Z" },
+  ], error: null };
+  if (st.table === "rpc:supplier_profile_overview") return { data: [
+    { id: MG, name: "Mega Market", email: null, phone: null, contact_name: null, default_receiving_location: null, order_item_count: 11, last_purchase_at: "2026-10-27", active_60d: true, unpaid_count: 0, unpaid_amount: 0, missing: ["email", "phone", "contact_name", "receiving_location"] },
+    { id: PT, name: "Phúc Thịnh", email: "botmiphucthinh@gmail.com", phone: "0909 111 222", contact_name: localStorage.getItem("qa-pt-contact"), default_receiving_location: "q7", order_item_count: 5, last_purchase_at: "2026-10-22", active_60d: true, unpaid_count: 1, unpaid_amount: "4842000", missing: localStorage.getItem("qa-pt-contact") ? [] : ["contact_name"] },
+    { id: TV, name: "TV Food", email: "hongtinh2603@gmail.com", phone: "028 3333 4444", contact_name: "Chị Tình", default_receiving_location: "tan_tao", order_item_count: 2, last_purchase_at: "2026-10-23", active_60d: true, unpaid_count: 2, unpaid_amount: "6750000", missing: [] },
+    { id: "00000000-0000-4000-8000-0000000000aa", name: "Đại Phát (cũ)", email: "dai@example.test", phone: null, contact_name: null, default_receiving_location: null, order_item_count: 0, last_purchase_at: "2025-06-01", active_60d: false, unpaid_count: 0, unpaid_amount: 0, missing: ["phone", "contact_name", "receiving_location"] },
+  ], error: null };
   if (st.table === "rpc:supplier_order_history_by_supplier") return { data: history(st.args.p_supplier_id), error: null };
   if (/^rpc:/.test(st.table)) return { data: null, error: null };
   return { data: [], error: null, count: 0 };
@@ -118,7 +130,15 @@ function builder(table, args) {
       if (prop === "then") return (ok, ko) => Promise.resolve().then(() => settle(st)).then(ok, ko);
       if (prop === "catch") return (ko) => Promise.resolve(settle(st)).catch(ko);
       if (prop === "finally") return (fn) => Promise.resolve(settle(st)).finally(fn);
-      return () => proxy;
+      return (...callArgs) => {
+        // suppliers.update({...}) is the profile save; keep the payload for QA asserts.
+        if (table === "suppliers" && prop === "update") {
+          st.table = "update:suppliers";
+          st.args = callArgs[0] || {};
+          if (st.args.contact_name) localStorage.setItem("qa-pt-contact", st.args.contact_name);
+        }
+        return proxy;
+      };
     },
   });
   return proxy;
@@ -485,6 +505,51 @@ try {
     assert.deepEqual(errors, []);
     await context.close();
     pass(`many suppliers: search, filters, open, email @${vp.width}`);
+  }
+
+  // Nhà cung cấp: profile facts, filters, contact person, links both ways with Đặt hàng.
+  for (const vp of [{ width: 1440, height: 900 }, { width: 1280, height: 800 }, { width: 390, height: 844 }, { width: 320, height: 640 }]) {
+    const { context, page, errors } = await open({}, "/suppliers", vp, "[data-bmq-supplier-filters]");
+    const order = await page.locator("[data-bmq-supplier-row]").evaluateAll((els) => els.map((e) => e.getAttribute("data-bmq-supplier-row")));
+    assert.deepEqual(order, [MG, PT, TV, "00000000-0000-4000-8000-0000000000aa"], `profile order ${order}`);
+    const counts = await page.locator("[data-bmq-supplier-filter]").allInnerTexts();
+    assert.deepEqual(counts.map((t) => t.replace(/\s+/g, " ").trim()), ["Tất cả 4", "Mua 60 ngày 3", "Thiếu email 1", "Thiếu thông tin 3", "Còn nợ 2"], `profile counts ${counts}`);
+    const mega = await page.locator(`[data-bmq-supplier-row='${MG}']`).innerText();
+    for (const text of ["Thiếu email", "Thiếu SĐT", "Thiếu người liên hệ", "Chưa chọn kho nhận", "11 món đặt được", "mua gần nhất 27/10/2026"]) assert.ok(mega.includes(text), `Mega row "${text}": ${mega}`);
+    const tv = await page.locator(`[data-bmq-supplier-row='${TV}']`).innerText();
+    for (const text of ["Chị Tình", "Còn nợ 6.750.000 đ · 2 phiếu", "Kho Tân Tạo"]) assert.ok(tv.includes(text), `TV row "${text}": ${tv}`);
+    await page.locator("[data-bmq-supplier-filter='missing_email']").click();
+    assert.deepEqual(await page.locator("[data-bmq-supplier-row]").evaluateAll((els) => els.map((e) => e.getAttribute("data-bmq-supplier-row"))), [MG]);
+    await page.locator("[data-bmq-supplier-filter='all']").click();
+    await page.locator("[data-bmq-supplier-search]").fill("dai phat");
+    assert.equal(await page.locator("[data-bmq-supplier-row]").count(), 1, "search without diacritics finds Đại Phát");
+    await page.locator("[data-bmq-supplier-search]").fill("chi tinh");
+    assert.deepEqual(await page.locator("[data-bmq-supplier-row]").evaluateAll((els) => els.map((e) => e.getAttribute("data-bmq-supplier-row"))), [TV], "search by contact person");
+    await page.locator("[data-bmq-supplier-search]").fill("");
+    const spill = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert.ok(spill <= 0, `suppliers page overflow ${spill} @${vp.width}`);
+    await shot(page, `suppliers-${vp.width}.png`);
+    // Open Phúc Thịnh, add the contact person, save; the dialog links to Đặt hàng.
+    await page.locator(`[data-bmq-supplier-row='${PT}']`).click();
+    await page.getByRole("button", { name: "Sửa NCC" }).click();
+    await page.locator("[data-bmq-supplier-contact-input]").fill("Anh Phúc ");
+    await page.getByRole("button", { name: "Lưu" }).click();
+    await page.waitForSelector("[data-bmq-supplier-contact]");
+    assert.match(await page.locator("[data-bmq-supplier-contact]").innerText(), /Anh Phúc/);
+    const saved = (await calls(page)).find((c) => c.startsWith("update:suppliers:"));
+    assert.ok(saved && saved.includes('"contact_name":"Anh Phúc"'), `profile save ${saved}`);
+    await shot(page, `supplier-dialog-${vp.width}.png`);
+    assert.equal(await page.locator("[data-bmq-supplier-order-link]").getAttribute("href"), `/dat-hang?ncc=${PT}`);
+    assert.deepEqual(errors, []);
+    await context.close();
+    // Đặt hàng → Hồ sơ NCC opens that supplier's profile.
+    const so = await open({}, `/dat-hang?ncc=${PT}`, vp);
+    await so.page.waitForSelector("[data-bmq-so-profile-link]");
+    await so.page.locator("[data-bmq-so-profile-link]").click();
+    await so.page.waitForSelector("[data-bmq-supplier-order-link]");
+    assert.match(await so.page.getByRole("dialog").innerText(), /Phúc Thịnh/);
+    await so.context.close();
+    pass(`Nhà cung cấp: profile facts, filters, contact, links @${vp.width}`);
   }
 
   // Forbidden and blocked states.

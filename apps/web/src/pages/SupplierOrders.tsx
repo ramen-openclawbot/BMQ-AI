@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Check, ChevronRight, FileText, Minus, Paperclip, Plus, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -516,9 +516,14 @@ function SupplierPanel({ supplierId, onToast, onBack }: { supplierId: string; on
                 <h2>Đơn mới cho {supplierName}</h2>
                 <p>Gửi tới <b className="is-wrap">{data.supplier?.email || "chưa có email"}</b> từ order@bmq.vn, kèm link để NCC tải hoá đơn giao hàng.</p>
               </div>
+              <div className="d3-so-head-actions">
+                <Button asChild variant="ghost" size="sm" data-bmq-so-profile-link>
+                  <Link to={`/suppliers?id=${supplierId}`}>Hồ sơ NCC</Link>
+                </Button>
               <Button variant="outline" size="sm" onClick={() => setEditing((value) => !value)} aria-pressed={editing} data-bmq-so-edit>
                 {editing ? <><Check aria-hidden="true" /> Xong</> : "Sửa danh mục"}
               </Button>
+              </div>
             </div>
 
             {noEmail ? <SupplierEmailEditor supplierId={supplierId} onToast={onToast} /> : null}

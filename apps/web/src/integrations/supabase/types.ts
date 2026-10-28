@@ -2721,6 +2721,7 @@ export type Database = {
           address: string | null
           bank_account_name: string | null
           category: string | null
+          contact_name: string | null
           contract_url: string | null
           created_at: string
           created_by: string | null
@@ -2745,6 +2746,7 @@ export type Database = {
           address?: string | null
           bank_account_name?: string | null
           category?: string | null
+          contact_name?: string | null
           contract_url?: string | null
           created_at?: string
           created_by?: string | null
@@ -2769,6 +2771,7 @@ export type Database = {
           address?: string | null
           bank_account_name?: string | null
           category?: string | null
+          contact_name?: string | null
           contract_url?: string | null
           created_at?: string
           created_by?: string | null
@@ -4822,6 +4825,10 @@ export type Database = {
           updated_at: string
           finished_at: string | null
         }[]
+      }
+      supplier_profile_overview: {
+        Args: never
+        Returns: Json
       }
     }
     Enums: {

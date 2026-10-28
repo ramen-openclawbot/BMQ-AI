@@ -7,7 +7,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Phone, Mail, Package, Pencil, Save, X, FileText, CreditCard, Banknote, Clock, FileUp, ExternalLink, Trash2 } from "lucide-react";
+import { Phone, Mail, Package, Pencil, Save, X, FileText, CreditCard, Banknote, Clock, FileUp, ExternalLink, Trash2, UserRound, ShoppingCart } from "lucide-react";
+import { Link } from "react-router-dom";
 import { Supplier } from "@/hooks/useSuppliers";
 import { db } from "@/lib/supabase-helpers";
 import { supabase } from "@/integrations/supabase/client";
@@ -30,6 +31,7 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
   const [description, setDescription] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  const [contactName, setContactName] = useState("");
   const [bankAccountName, setBankAccountName] = useState("");
   const [defaultPaymentMethod, setDefaultPaymentMethod] = useState<"bank_transfer" | "cash">("bank_transfer");
   const [paymentTermsDays, setPaymentTermsDays] = useState(0);
@@ -47,6 +49,7 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
       setDescription(supplier.description || "");
       setPhone(supplier.phone || "");
       setEmail(supplier.email || "");
+      setContactName(supplier.contact_name || "");
       setBankAccountName(supplier.bank_account_name || "");
       setDefaultPaymentMethod(supplier.default_payment_method || "bank_transfer");
       setPaymentTermsDays(supplier.payment_terms_days || 0);
@@ -65,6 +68,7 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
         setDescription(supplier.description || "");
         setPhone(supplier.phone || "");
         setEmail(supplier.email || "");
+        setContactName(supplier.contact_name || "");
         setBankAccountName(supplier.bank_account_name || "");
         setDefaultPaymentMethod(supplier.default_payment_method || "bank_transfer");
         setPaymentTermsDays(supplier.payment_terms_days || 0);
@@ -109,7 +113,8 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
           category: category || null,
           description: description || null,
           phone: phone || null, 
-          email: email || null,
+          email: email.trim() || null,
+          contact_name: contactName.trim().slice(0, 120) || null,
           bank_account_name: bankAccountName || null,
           default_payment_method: defaultPaymentMethod,
           payment_terms_days: paymentTermsDays || null,
@@ -120,6 +125,9 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
       if (error) throw error;
       
       queryClient.invalidateQueries({ queryKey: ["suppliers"] });
+      // The profile overview and the order page read the same row.
+      queryClient.invalidateQueries({ queryKey: ["supplier-profile-overview"] });
+      queryClient.invalidateQueries({ queryKey: ["supplier-order-suppliers"] });
       setContractUrl(newContractUrl);
       setContractFile(null);
       setIsEditing(false);
@@ -136,6 +144,7 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
     setDescription(supplier.description || "");
     setPhone(supplier.phone || "");
     setEmail(supplier.email || "");
+    setContactName(supplier.contact_name || "");
     setBankAccountName(supplier.bank_account_name || "");
     setDefaultPaymentMethod(supplier.default_payment_method || "bank_transfer");
     setPaymentTermsDays(supplier.payment_terms_days || 0);
@@ -240,9 +249,22 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
                 />
               </div>
 
+              {/* Contact person */}
+              <div className="space-y-2">
+                <Label htmlFor="edit-contact-name">Người liên hệ</Label>
+                <Input
+                  id="edit-contact-name"
+                  value={contactName}
+                  maxLength={120}
+                  onChange={(e) => setContactName(e.target.value)}
+                  placeholder="VD: Chị Hoa (kinh doanh)"
+                  data-bmq-supplier-contact-input
+                />
+              </div>
+
               {/* Email */}
               <div className="space-y-2">
-                <Label htmlFor="edit-email">Email</Label>
+                <Label htmlFor="edit-email">Email đặt hàng</Label>
                 <Input
                   id="edit-email"
                   type="email"
@@ -420,6 +442,17 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
                 </div>
               )}
 
+              {/* Contact person Display */}
+              {supplier.contact_name && (
+                <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50" data-bmq-supplier-contact>
+                  <UserRound className="h-5 w-5 text-primary" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-muted-foreground">Người liên hệ</p>
+                    <p className="font-medium break-words">{supplier.contact_name}</p>
+                  </div>
+                </div>
+              )}
+
               {/* Phone Display */}
               {supplier.phone && (
                 <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
@@ -464,7 +497,7 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
           )}
 
           {/* Action Buttons */}
-          <div className="flex gap-2 pt-2">
+          <div className="flex flex-wrap gap-2 pt-2">
             {isEditing ? (
               <>
                 <Button onClick={handleSave} disabled={loading} className="flex-1">
@@ -478,9 +511,15 @@ export function SupplierDetailsDialog({ supplier, open, onOpenChange }: Supplier
               </>
             ) : (
               <>
-                <Button variant="outline" onClick={() => setIsEditing(true)} className={isOwner ? "flex-1" : "w-full"}>
+                <Button variant="outline" onClick={() => setIsEditing(true)} className="flex-1">
                   <Pencil className="h-4 w-4 mr-2" />
                   Sửa NCC
+                </Button>
+                <Button asChild className="order-first basis-full sm:order-none sm:basis-0 sm:flex-1" data-bmq-supplier-order-link>
+                  <Link to={`/dat-hang?ncc=${supplier.id}`}>
+                    <ShoppingCart className="h-4 w-4 mr-2" />
+                    Đặt hàng
+                  </Link>
                 </Button>
                 {isOwner && (
                   <Button variant="destructive" onClick={handleDelete} disabled={loading}>

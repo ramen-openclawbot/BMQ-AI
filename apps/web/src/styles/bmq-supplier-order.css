@@ -377,3 +377,5 @@ html.bmq-d3 .d3-so-back {
   .d3-so.is-picked .d3-wh-head { display: none; }
   html.bmq-d3 .d3-so.is-picked .d3-so-back { display: inline-flex; }
 }
+.d3-so-head-actions { display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: 6px; }
+.d3-so-head-actions svg { width: 15px; height: 15px; }
