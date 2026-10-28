@@ -29,6 +29,7 @@ const cfg = () => JSON.parse(localStorage.getItem("qa-shell") || "{}");
 window.__qaCalls = window.__qaCalls || [];
 const PT = "bc39ded3-755c-4b31-9e4c-d7729e009608";
 const TV = "9546bd80-18d7-4ec7-b0e5-de50798ea718";
+const MG = "5a1e0000-0000-4000-8000-000000000001";
 const delivery = { address: "24 Đường số 36, P. Tân Quy, Q7, TP.HCM", contact_name: "Huỳnh Kim Ngân", contact_phone: "0926 504 623", note: "" };
 const prices = () => JSON.parse(localStorage.getItem("qa-prices") || "{}");
 const line = (id, name, wording, onHand, daily, proposal, price, open, vat = 8, list = null) => {
@@ -49,6 +50,13 @@ const line = (id, name, wording, onHand, daily, proposal, price, open, vat = 8, 
 const removed = () => JSON.parse(localStorage.getItem("qa-removed") || "[]");
 const added = () => JSON.parse(localStorage.getItem("qa-added") || "[]");
 function catalog(id) {
+  if (id === MG) {
+    const tt = { ...line("5a1e0000-0000-4000-8000-000000000011", "Cà rốt", "Cà rốt", 1888, 727.959, 8, 35700, null, 0), location: "tan_tao", estimated: true };
+    const none = { ...line("5a1e0000-0000-4000-8000-000000000012", "Giấm tinh luyện 1L", "Giấm tinh luyện 1L", 0, 0, 0, 18333, null, 0), location: "tan_tao", estimated: true };
+    none.stock = { ...none.stock, on_hand: null, days_left: null };
+    const email = localStorage.getItem("qa-mega-email");
+    return { supplier: { id: MG, name: "Mega Market", email }, delivery, mailbox_connected: true, blockers: email ? [] : ["no_supplier_email"], items: [tt, none], prepay: null };
+  }
   if (id === PT) {
     const items = [
       line("1039f461-8f9f-45a1-b05c-b96cb736812e", "Bột mì 999 Cam", "Bột mì 999 Cam (25kg)", 303751.946, 13561.438, 0, 19300, null, 8, 20840),
@@ -79,9 +87,14 @@ function settle(st) {
   window.__qaCalls.push(st.table + ":" + JSON.stringify(st.args));
   if (cfg().data === "forbidden" && st.table.startsWith("rpc:supplier_order_")) return { data: null, error: { message: "insufficient_privilege", code: "42501" } };
   if (st.table === "rpc:supplier_order_suppliers") return { data: [
-    { id: PT, name: "Phúc Thịnh", email: "botmiphucthinh@gmail.com", item_count: catalog(PT).items.length, last_order: null, unpaid_count: 0 },
-    { id: TV, name: "TV Food", email: "hongtinh2603@gmail.com", item_count: 1, last_order: { po_number: "PO-000862", sent_at: "2026-10-23T05:09:25Z" }, unpaid_count: 2 },
+    { id: TV, name: "TV Food", email: "hongtinh2603@gmail.com", has_email: true, item_count: 1, active_item_count: 1, need_order_count: 0, low_stock_count: 0, out_of_stock_count: 0, locations: ["q7"], urgency_rank: 4, last_order: { po_number: "PO-000862", sent_at: "2026-10-23T05:09:25Z" }, unpaid_count: 2 },
+    { id: PT, name: "Phúc Thịnh", email: "botmiphucthinh@gmail.com", has_email: true, item_count: catalog(PT).items.length, active_item_count: catalog(PT).items.length, need_order_count: 1, low_stock_count: 1, out_of_stock_count: 1, locations: ["q7", "tan_tao"], urgency_rank: 1, last_order: null, unpaid_count: 0 },
+    { id: MG, name: "Mega Market", email: localStorage.getItem("qa-mega-email"), has_email: Boolean(localStorage.getItem("qa-mega-email")), item_count: 2, active_item_count: 2, need_order_count: 1, low_stock_count: 1, out_of_stock_count: 0, locations: ["tan_tao"], urgency_rank: 2, last_order: null, unpaid_count: 0 },
   ], error: null };
+  if (st.table === "rpc:supplier_order_set_supplier_email") {
+    localStorage.setItem("qa-mega-email", st.args.p_email.trim().toLowerCase());
+    return { data: { id: st.args.p_supplier_id, email: st.args.p_email }, error: null };
+  }
   if (st.table === "rpc:supplier_order_catalog") return { data: catalog(st.args.p_supplier_id), error: null };
   if (st.table === "rpc:supplier_order_catalog_candidates") return { data: added().length ? [] : [
     { item_id: "c78c5281-0000-4000-8000-000000000001", name: "Men khô Meizan nhãn vàng", unit: "g", latest_product_name: "Men Khô Meizan - Nhãn Vàng (0.5*10kg/Thùng)", last_order_date: "2026-09-17", line_count: 11 },
@@ -227,7 +240,7 @@ async function noSpill(page, label, vp) {
     for (const el of document.querySelectorAll(".d3-so *")) {
       const r = el.getBoundingClientRect();
       if (!r.width || getComputedStyle(el).position === "fixed") continue;
-      if (el.closest(".d3-kho-tabs")) continue;
+      if (el.closest(".d3-kho-tabs, .d3-so-filters")) continue; // horizontal scrollers
       if (r.right > window.innerWidth + 1 || r.left < -1) bad.push(`${el.tagName}.${String(el.className).slice(0, 60)}`);
     }
     return { doc: document.documentElement.scrollWidth - window.innerWidth, bad: bad.slice(0, 5) };
@@ -242,13 +255,14 @@ async function shot(page, file) {
 const EMOJI = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B50}\u{FE0F}]/u;
 const PT = "bc39ded3-755c-4b31-9e4c-d7729e009608";
 const TV = "9546bd80-18d7-4ec7-b0e5-de50798ea718";
+const MG = "5a1e0000-0000-4000-8000-000000000001";
 const I999 = "1039f461-8f9f-45a1-b05c-b96cb736812e";
 const IMILK = "6ba549f7-d3b6-4971-a742-2fb4091800bb";
 const VIEWPORTS = [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 640 }];
 
 try {
   for (const vp of VIEWPORTS) {
-    const { context, page, errors } = await open({}, "/dat-hang", vp);
+    const { context, page, errors } = await open({}, `/dat-hang?ncc=${PT}`, vp);
     // Main menu: Đặt hàng is its own zone and is the active one.
     if (vp.width >= 1024) {
       const tab = page.locator(".d3-tabs a.d3-tab", { hasText: "Đặt hàng" });
@@ -257,8 +271,16 @@ try {
     }
     assert.equal((await page.locator(".d3-screen h1, [data-bmq-supplier-orders] h1").first().innerText()).trim(), "Đặt hàng");
     await page.waitForSelector("[data-bmq-so-lines] li");
-    const tabs = await page.locator("[data-bmq-so-suppliers] button").allInnerTexts();
-    assert.ok(tabs.length === 2 && /Phúc Thịnh/.test(tabs[0]) && /3 món/.test(tabs[0]) && /TV Food/.test(tabs[1]), `supplier tabs ${tabs}`);
+    if (vp.width >= 1024) {
+      // Wide: the list stays next to the order, most urgent supplier first.
+      const rows = await page.locator("[data-bmq-so-supplier]").allInnerTexts();
+      assert.ok(rows.length === 3 && /Phúc Thịnh/.test(rows[0]) && /3 món/.test(rows[0]) && /1 đã hết/.test(rows[0]) && /Mega Market/.test(rows[1]) && /chưa có email/.test(rows[1]) && /TV Food/.test(rows[2]), `supplier list ${rows}`);
+      assert.equal(await page.locator(`[data-bmq-so-supplier='${PT}']`).getAttribute("aria-current"), "true");
+    } else {
+      // Phone: a picked supplier has its own screen with a way back to the list.
+      assert.ok(!(await page.locator("[data-bmq-so-suppliers]").isVisible()), "list hidden while an order is open");
+      assert.ok(await page.locator("[data-bmq-so-back-list]").isVisible(), "back to list visible");
+    }
     const card = await page.locator("[data-bmq-so-card]").innerText();
     for (const text of ["botmiphucthinh@gmail.com", "Bột mì 999 Cam (25kg)", "20.840 đ/kg gồm VAT", "20.440 đ/kg gồm VAT", "152.000 đ/kg gồm VAT", "VAT 8%", "đã hết", "chưa cần đặt", "đề xuất 25 kg", "Huỳnh Kim Ngân", "không có phiếu chi nào đang chờ trả"]) {
       assert.ok(card.includes(text), `Phúc Thịnh card shows "${text}" @${vp.width}: ${card}`);
@@ -397,7 +419,7 @@ try {
   // Catalog: add a delivered item, remove one.
   {
     const vp = { width: 390, height: 844 };
-    const { context, page, errors } = await open({}, "/dat-hang", vp);
+    const { context, page, errors } = await open({}, `/dat-hang?ncc=${PT}`, vp);
     await page.waitForSelector("[data-bmq-so-lines] li");
     await page.locator("[data-bmq-so-edit]").click();
     await page.waitForSelector("[data-bmq-so-candidates]");
@@ -422,6 +444,49 @@ try {
     pass("Sửa danh mục: add from history, remove");
   }
 
+  // Many suppliers: search, filters, phone list → order → back, Tân Tạo estimate, save a missing email.
+  for (const vp of [{ width: 1440, height: 900 }, { width: 1280, height: 800 }, { width: 390, height: 844 }, { width: 320, height: 640 }]) {
+    const { context, page, errors } = await open({}, "/dat-hang", vp);
+    await page.waitForSelector("[data-bmq-so-supplier]");
+    const wide = vp.width >= 1024;
+    assert.equal(await page.locator("[data-bmq-so-card]").isVisible(), wide, `order beside the list only when wide @${vp.width}`);
+    await noSpill(page, "list", vp);
+    await shot(page, `list-${vp.width}.png`);
+    const counts = await page.locator("[data-bmq-so-filter]").allInnerTexts();
+    assert.deepEqual(counts.map((t) => t.replace(/\s+/g, " ").trim()), ["Tất cả 3", "Cần đặt 2", "Sắp hết 2", "Chưa có email 1"], `filter counts ${counts}`);
+    await page.locator("[data-bmq-so-filter='no_email']").click();
+    assert.deepEqual(await page.locator("[data-bmq-so-supplier]").evaluateAll((els) => els.map((e) => e.getAttribute("data-bmq-so-supplier"))), [MG]);
+    await page.locator("[data-bmq-so-filter='all']").click();
+    await page.locator("[data-bmq-so-search]").fill("phuc thinh");
+    assert.deepEqual(await page.locator("[data-bmq-so-supplier]").evaluateAll((els) => els.map((e) => e.getAttribute("data-bmq-so-supplier"))), [PT]);
+    await page.locator("[data-bmq-so-search]").fill("zzz");
+    await page.waitForSelector("[data-bmq-so-no-match]");
+    await page.locator("[data-bmq-so-search]").fill("mega");
+    await page.locator(`[data-bmq-so-supplier='${MG}']`).click();
+    await page.waitForSelector("[data-bmq-so-email-form]");
+    assert.equal(await page.locator("[data-bmq-so-suppliers]").isVisible(), wide, `list stays only when wide @${vp.width}`);
+    const card = await page.locator("[data-bmq-so-card]").innerText();
+    for (const text of ["Đơn mới cho Mega Market", "chưa có email", "Tồn Tân Tạo", "(ước lượng)", "chưa có số tồn", "Nhà cung cấp chưa có email đặt hàng"]) {
+      assert.ok(card.includes(text), `Mega card shows "${text}" @${vp.width}: ${card}`);
+    }
+    assert.ok(await page.locator("[data-bmq-so-make]").isDisabled(), "no email: Lập phiếu disabled");
+    await noSpill(page, "mega", vp);
+    await shot(page, `mega-${vp.width}.png`);
+    await page.locator("[data-bmq-so-email-input]").fill("Order@Mega.vn ");
+    await page.locator("[data-bmq-so-email-save]").click();
+    await page.waitForSelector("[data-bmq-so-email-form]", { state: "detached" });
+    assert.match(await page.locator("[data-bmq-so-card]").innerText(), /order@mega\.vn/);
+    assert.ok((await calls(page)).some((c) => c.startsWith("rpc:supplier_order_set_supplier_email:") && c.includes(MG)), "email RPC called");
+    if (!wide) {
+      await page.locator("[data-bmq-so-back-list]").click();
+      await page.waitForSelector("[data-bmq-so-suppliers]", { state: "visible" });
+      assert.ok(!(await page.locator("[data-bmq-so-card]").isVisible()), "back shows the list");
+    }
+    assert.deepEqual(errors, []);
+    await context.close();
+    pass(`many suppliers: search, filters, open, email @${vp.width}`);
+  }
+
   // Forbidden and blocked states.
   for (const vp of [{ width: 390, height: 844 }, { width: 1440, height: 900 }]) {
     const { context, page } = await open({ data: "forbidden" }, "/dat-hang", vp);
@@ -434,7 +499,7 @@ try {
     await blocked.page.locator(".d3-so-stepper button").last().click();
     assert.ok(await blocked.page.locator("[data-bmq-so-make]").isDisabled(), "blocked: Lập phiếu disabled");
     await blocked.context.close();
-    const failing = await open({ sendFails: true }, "/dat-hang", vp);
+    const failing = await open({ sendFails: true }, `/dat-hang?ncc=${PT}`, vp);
     await failing.page.waitForSelector("[data-bmq-so-lines] li");
     await failing.page.locator("[data-bmq-so-make]").click();
     await failing.page.waitForSelector("[data-bmq-so-preview]");

@@ -4,8 +4,10 @@ import test from "node:test";
 import {
   blockerLabel,
   computeOrderAmounts,
+  filterSupplierOrderSuppliers,
   formatQuantity,
   formatVnd,
+  normalizeSupplierOrderSearch,
   parsePreparedSupplierOrder,
   parseSendSupplierOrderLinesResult,
   parseSupplierOrderCatalog,
@@ -15,6 +17,8 @@ import {
   parseSupplierOrderPreview,
   parseSupplierOrderSuppliers,
   parseSupplierOrderUploadSummary,
+  sortSupplierOrderSuppliersByUrgency,
+  type SupplierOrderSupplierListEntry,
 } from "./supplier-order.ts";
 
 test("parses a prepare payload with numbers arriving as strings", () => {
@@ -574,4 +578,254 @@ test("tolerates missing VAT fields", () => {
   assert.equal(history[0].poStatus, null);
   assert.equal(history[0].receipt, null);
   assert.equal(history[0].payment, null);
+});
+
+test("parses the new supplier urgency fields from strings and missing values", () => {
+  const suppliers = parseSupplierOrderSuppliers({
+    suppliers: [
+      {
+        id: "sup-1",
+        name: "Phúc Thịnh",
+        email: "pt@example.test",
+        has_email: true,
+        item_count: "3",
+        active_item_count: "3",
+        need_order_count: "2",
+        low_stock_count: "1",
+        out_of_stock_count: "1",
+        last_activity_at: "2026-11-01T00:00:00Z",
+        locations: ["q7", "tan_tao"],
+        urgency_rank: "1",
+        last_order: { po_number: "PO-1", sent_at: "2026-10-21T00:00:00Z" },
+        unpaid_count: "2",
+      },
+      {
+        id: "sup-2",
+        name: "TV Food",
+        email: null,
+        item_count: 1,
+      },
+    ],
+  });
+
+  assert.equal(suppliers[0].hasEmail, true);
+  assert.equal(suppliers[0].activeItemCount, 3);
+  assert.equal(suppliers[0].needOrderCount, 2);
+  assert.equal(suppliers[0].lowStockCount, 1);
+  assert.equal(suppliers[0].outOfStockCount, 1);
+  assert.equal(suppliers[0].lastActivityAt, "2026-11-01T00:00:00Z");
+  assert.deepEqual(suppliers[0].locations, ["q7", "tan_tao"]);
+  assert.equal(suppliers[0].urgencyRank, 1);
+
+  assert.equal(suppliers[1].hasEmail, false);
+  assert.equal(suppliers[1].activeItemCount, 1);
+  assert.equal(suppliers[1].needOrderCount, 0);
+  assert.equal(suppliers[1].lowStockCount, 0);
+  assert.equal(suppliers[1].outOfStockCount, 0);
+  assert.equal(suppliers[1].lastActivityAt, null);
+  assert.deepEqual(suppliers[1].locations, []);
+  assert.equal(suppliers[1].urgencyRank, 4);
+});
+
+test("parses catalog location and estimated, defaulting to Q7", () => {
+  const catalog = parseSupplierOrderCatalog({
+    items: [
+      {
+        catalog_id: "cat-tt",
+        item: { id: "item-tt", name: "Bột mì Tân Tạo" },
+        location: "tan_tao",
+        estimated: true,
+        stock: {
+          on_hand: "1000",
+          daily_usage: "100",
+          days_left: "10",
+        },
+      },
+      {
+        catalog_id: "cat-q7",
+        item: { id: "item-q7", name: "Bột mì Q7" },
+      },
+    ],
+  });
+
+  assert.ok(catalog);
+  assert.equal(catalog.items[0].location, "tan_tao");
+  assert.equal(catalog.items[0].estimated, true);
+  assert.equal(catalog.items[0].stock.daysLeft, 10);
+  assert.equal(catalog.items[1].location, "q7");
+  assert.equal(catalog.items[1].estimated, false);
+});
+
+function urgencyFixture(): SupplierOrderSupplierListEntry[] {
+  return [
+    {
+      id: "sup-normal",
+      name: "Zeta",
+      email: "zeta@example.test",
+      hasEmail: true,
+      itemCount: 1,
+      activeItemCount: 1,
+      needOrderCount: 0,
+      lowStockCount: 0,
+      outOfStockCount: 0,
+      lastActivityAt: null,
+      locations: ["q7"],
+      urgencyRank: 4,
+      lastOrder: null,
+      unpaidCount: 0,
+    },
+    {
+      id: "sup-need",
+      name: "Beta",
+      email: null,
+      hasEmail: false,
+      itemCount: 2,
+      activeItemCount: 2,
+      needOrderCount: 1,
+      lowStockCount: 0,
+      outOfStockCount: 0,
+      lastActivityAt: "2026-11-01T00:00:00Z",
+      locations: ["tan_tao"],
+      urgencyRank: 2,
+      lastOrder: null,
+      unpaidCount: 0,
+    },
+    {
+      id: "sup-out",
+      name: "Alpha",
+      email: "alpha@example.test",
+      hasEmail: true,
+      itemCount: 1,
+      activeItemCount: 1,
+      needOrderCount: 1,
+      lowStockCount: 1,
+      outOfStockCount: 1,
+      lastActivityAt: "2026-11-02T00:00:00Z",
+      locations: ["q7", "tan_tao"],
+      urgencyRank: 1,
+      lastOrder: null,
+      unpaidCount: 0,
+    },
+    {
+      id: "sup-low",
+      name: "Gamma",
+      email: "gamma@example.test",
+      hasEmail: true,
+      itemCount: 1,
+      activeItemCount: 1,
+      needOrderCount: 0,
+      lowStockCount: 1,
+      outOfStockCount: 0,
+      lastActivityAt: null,
+      locations: ["q7"],
+      urgencyRank: 3,
+      lastOrder: null,
+      unpaidCount: 0,
+    },
+  ];
+}
+
+test("filters suppliers by urgency bucket and filter", () => {
+  const entries = urgencyFixture();
+  assert.equal(filterSupplierOrderSuppliers(entries, { filter: "all" }).length, 4);
+  assert.deepEqual(
+    filterSupplierOrderSuppliers(entries, { filter: "need_order" }).map((e) => e.id),
+    ["sup-need", "sup-out"],
+  );
+  assert.deepEqual(
+    filterSupplierOrderSuppliers(entries, { filter: "low_stock" }).map((e) => e.id),
+    ["sup-out", "sup-low"],
+  );
+  assert.deepEqual(
+    filterSupplierOrderSuppliers(entries, { filter: "no_email" }).map((e) => e.id),
+    ["sup-need"],
+  );
+});
+
+test("filters supplier search with and without Vietnamese diacritics", () => {
+  const entries = urgencyFixture();
+  entries[0].name = "Phúc Thịnh";
+  entries[1].name = "Tân Tạo Foods";
+  entries[2].name = "Bột mì Sài Gòn";
+  entries[3].name = "TV Food";
+
+  assert.equal(normalizeSupplierOrderSearch("Phúc Thịnh"), "phuc thinh");
+  assert.equal(normalizeSupplierOrderSearch("Đông Á"), "dong a");
+
+  assert.deepEqual(
+    filterSupplierOrderSuppliers(entries, { query: "phuc thinh" }).map((e) => e.id),
+    ["sup-normal"],
+  );
+  assert.deepEqual(
+    filterSupplierOrderSuppliers(entries, { query: "PHÚC THỊNH" }).map((e) => e.id),
+    ["sup-normal"],
+  );
+  assert.deepEqual(
+    filterSupplierOrderSuppliers(entries, { query: "tan tao" }).map((e) => e.id),
+    ["sup-need"],
+  );
+  assert.deepEqual(
+    filterSupplierOrderSuppliers(entries, { query: "bot mi" }).map((e) => e.id),
+    ["sup-out"],
+  );
+  assert.deepEqual(
+    filterSupplierOrderSuppliers(entries, { query: "alpha@example" }).map((e) => e.id),
+    ["sup-out"],
+  );
+  assert.deepEqual(
+    filterSupplierOrderSuppliers(entries, { query: "phuc", filter: "need_order" }),
+    [],
+  );
+});
+
+test("sorts suppliers by urgency rank then Vietnamese name", () => {
+  const entries = urgencyFixture();
+  assert.deepEqual(
+    sortSupplierOrderSuppliersByUrgency(entries).map((e) => e.id),
+    ["sup-out", "sup-need", "sup-low", "sup-normal"],
+  );
+  const copy = [...entries];
+  sortSupplierOrderSuppliersByUrgency(entries);
+  assert.deepEqual(entries.map((e) => e.id), copy.map((e) => e.id));
+});
+
+test("keeps the old Phúc Thịnh / TV Food supplier payload shape parsing", () => {
+  const legacy = {
+    suppliers: [
+      {
+        id: "bc39ded3-755c-4b31-9e4c-d7729e009608",
+        name: "Phúc Thịnh",
+        email: "pt@example.test",
+        item_count: 3,
+        last_order: { po_number: "PO-000865", sent_at: "2026-10-30T00:00:00Z" },
+        unpaid_count: 1,
+      },
+      {
+        id: "9546bd80-18d7-4ec7-b0e5-de50798ea718",
+        name: "TV Food",
+        email: null,
+        item_count: 1,
+        last_order: null,
+        unpaid_count: 0,
+      },
+    ],
+  };
+  const suppliers = parseSupplierOrderSuppliers(legacy);
+
+  assert.equal(suppliers[0].id, "bc39ded3-755c-4b31-9e4c-d7729e009608");
+  assert.equal(suppliers[0].name, "Phúc Thịnh");
+  assert.equal(suppliers[0].email, "pt@example.test");
+  assert.equal(suppliers[0].itemCount, 3);
+  assert.equal(suppliers[0].lastOrder?.poNumber, "PO-000865");
+  assert.equal(suppliers[0].unpaidCount, 1);
+  assert.equal(suppliers[0].activeItemCount, 3);
+  assert.equal(suppliers[0].hasEmail, true);
+  assert.equal(suppliers[0].urgencyRank, 4);
+  assert.deepEqual(suppliers[0].locations, []);
+
+  assert.equal(suppliers[1].id, "9546bd80-18d7-4ec7-b0e5-de50798ea718");
+  assert.equal(suppliers[1].email, null);
+  assert.equal(suppliers[1].itemCount, 1);
+  assert.equal(suppliers[1].lastOrder, null);
+  assert.equal(suppliers[1].hasEmail, false);
 });

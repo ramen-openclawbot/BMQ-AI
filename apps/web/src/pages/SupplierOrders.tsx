@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { ArrowLeft, Check, FileText, Minus, Paperclip, Plus, X } from "lucide-react";
+import { ArrowLeft, Check, ChevronRight, FileText, Minus, Paperclip, Plus, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { LoadingState } from "@/components/ui/loading";
@@ -11,6 +11,7 @@ import {
   usePreviewSupplierOrder,
   useSendSupplierOrderLines,
   useSetSupplierCatalogItem,
+  useSetSupplierOrderEmail,
   useSupplierCatalog,
   useSupplierCatalogCandidates,
   useSupplierOrderHistoryBySupplier,
@@ -20,13 +21,17 @@ import {
   blockerLabel,
   computeOrderAmounts,
   createSupplierOrderRequestId,
+  filterSupplierOrderSuppliers,
   formatQuantity,
   formatVnd,
+  sortSupplierOrderSuppliersByUrgency,
   type SendSupplierOrderLinesResult,
   type SupplierOrderCatalog,
   type SupplierOrderCatalogItem,
   type SupplierOrderHistoryBySupplierEntry,
   type SupplierOrderPreview,
+  type SupplierOrderSupplierFilter,
+  type SupplierOrderSupplierListEntry,
 } from "@/lib/supplier-order";
 import { cn } from "@/lib/utils";
 import { dmy, fmtAmount, parseNum } from "@/components/kho/kho-meta";
@@ -85,11 +90,17 @@ function readQty(text: string): number {
   return Number.isFinite(value) && value > 0 ? value : Number.NaN;
 }
 
+const LOCATION_LABEL: Record<string, string> = { q7: "Q7", tan_tao: "Tân Tạo" };
+const locationLabel = (code: string) => LOCATION_LABEL[code] ?? code;
+
 function stockLine(item: SupplierOrderCatalogItem) {
   const { onHand, daysLeft } = item.stock;
+  const where = locationLabel(item.location);
+  if (onHand === null) return <>Tồn {where}: chưa có số tồn</>;
   return (
     <>
-      Tồn Q7 {fmtAmount(onHand, item.item.unit)}
+      Tồn {where} {fmtAmount(onHand, item.item.unit)}
+      {item.estimated ? <span className="d3-so-est" title="Tân Tạo chưa ghi lượng dùng, số ngày ước từ phiếu nhập"> (ước lượng)</span> : null}
       {daysLeft === null ? null : daysLeft <= 0
         ? <span className="is-bad" data-bmq-so-out> · đã hết</span>
         : <> · đủ ~{formatQuantity(daysLeft)} ngày</>}
@@ -342,6 +353,35 @@ function History({ rows }: { rows: SupplierOrderHistoryBySupplierEntry[] }) {
   );
 }
 
+function SupplierEmailEditor({ supplierId, onToast }: { supplierId: string; onToast: (text: string) => void }) {
+  const save = useSetSupplierOrderEmail();
+  const [text, setText] = useState("");
+  const email = text.trim();
+  const ok = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  return (
+    <form className="d3-so-email" data-bmq-so-email-form
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!ok) return;
+        save.mutate({ supplierId, email }, {
+          onSuccess: () => onToast(`Đã lưu email ${email.toLowerCase()}`),
+          onError: (error) => onToast((error as { code?: string }).code === "42501"
+            ? "Chỉ chủ hoặc người được sửa Đặt hàng mới lưu được email."
+            : "Chưa lưu được email. Kiểm tra lại địa chỉ."),
+        });
+      }}>
+      <label className="d3-kho-field">
+        <span>Email nhận đơn của NCC</span>
+        <Input type="email" inputMode="email" autoComplete="off" value={text} onChange={(event) => setText(event.target.value)}
+          placeholder="ten@congty.vn" aria-invalid={email && !ok ? true : undefined} data-bmq-so-email-input />
+      </label>
+      <Button type="submit" variant="outline" disabled={!ok || save.isPending} data-bmq-so-email-save>
+        {save.isPending ? "Đang lưu…" : "Lưu email"}
+      </Button>
+    </form>
+  );
+}
+
 function PrepayChoice({ catalog, checked, onChange }: { catalog: SupplierOrderCatalog; checked: boolean; onChange: (value: boolean) => void }) {
   const pr = catalog.prepay;
   if (!pr) {
@@ -369,7 +409,7 @@ function PrepayChoice({ catalog, checked, onChange }: { catalog: SupplierOrderCa
 
 type Step = "form" | "preview" | "sent";
 
-function SupplierPanel({ supplierId, onToast }: { supplierId: string; onToast: (text: string) => void }) {
+function SupplierPanel({ supplierId, onToast, onBack }: { supplierId: string; onToast: (text: string) => void; onBack: () => void }) {
   const catalog = useSupplierCatalog(supplierId);
   const history = useSupplierOrderHistoryBySupplier(supplierId);
   const preview = usePreviewSupplierOrder();
@@ -461,9 +501,13 @@ function SupplierPanel({ supplierId, onToast }: { supplierId: string; onToast: (
   }
 
   const supplierName = data.supplier?.name ?? "nhà cung cấp";
+  const noEmail = !data.supplier?.email;
 
   return (
     <>
+      <button type="button" className="d3-so-back" onClick={onBack} data-bmq-so-back-list>
+        <ArrowLeft aria-hidden="true" /> Tất cả nhà cung cấp
+      </button>
       <section className="d3-wh-card d3-so-card" ref={top} data-bmq-so-card data-bmq-so-step={step}>
         {step === "form" ? (
           <>
@@ -476,6 +520,8 @@ function SupplierPanel({ supplierId, onToast }: { supplierId: string; onToast: (
                 {editing ? <><Check aria-hidden="true" /> Xong</> : "Sửa danh mục"}
               </Button>
             </div>
+
+            {noEmail ? <SupplierEmailEditor supplierId={supplierId} onToast={onToast} /> : null}
 
             {data.items.length ? (
               <ul className="d3-so-lines" data-bmq-so-lines>
@@ -583,17 +629,62 @@ function SupplierPanel({ supplierId, onToast }: { supplierId: string; onToast: (
   );
 }
 
+const FILTERS: { id: SupplierOrderSupplierFilter; label: string }[] = [
+  { id: "all", label: "Tất cả" },
+  { id: "need_order", label: "Cần đặt" },
+  { id: "low_stock", label: "Sắp hết" },
+  { id: "no_email", label: "Chưa có email" },
+];
+
+function SupplierRow({ row, on, onPick }: { row: SupplierOrderSupplierListEntry; on: boolean; onPick: () => void }) {
+  const tone = row.outOfStockCount > 0 ? "is-bad" : row.needOrderCount > 0 ? "is-warn" : row.lowStockCount > 0 ? "is-warn" : "";
+  return (
+    <li>
+      <button type="button" className={cn("d3-so-sup", on && "is-on")} onClick={onPick} aria-current={on || undefined} data-bmq-so-supplier={row.id}>
+        <span className="d3-so-sup-main">
+          <b>{row.name}</b>
+          <small>
+            <span>{row.activeItemCount} món</span>
+            {row.locations.length ? <span>{row.locations.map(locationLabel).join(" · ")}</span> : null}
+            {row.lastOrder?.sentAt ? <span>đơn gần nhất {dmy(row.lastOrder.sentAt)}</span> : null}
+            {row.unpaidCount > 0 ? <span>{row.unpaidCount} phiếu chưa trả</span> : null}
+          </small>
+        </span>
+        <span className="d3-so-sup-flags">
+          {row.outOfStockCount > 0 ? <em className="is-bad">{row.outOfStockCount} đã hết</em> : null}
+          {row.needOrderCount > 0 ? <em className={tone}>{row.needOrderCount} cần đặt</em>
+            : row.lowStockCount > 0 ? <em className="is-warn">{row.lowStockCount} sắp hết</em> : null}
+          {!row.hasEmail ? <em className="is-muted">chưa có email</em> : null}
+        </span>
+        <ChevronRight className="d3-so-sup-go" aria-hidden="true" />
+      </button>
+    </li>
+  );
+}
+
 export default function SupplierOrders() {
   const { toast } = useToast();
   const [params, setParams] = useSearchParams();
   const suppliers = useOrderSuppliers();
-  const list = suppliers.data ?? [];
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<SupplierOrderSupplierFilter>("all");
+  const list = useMemo(() => sortSupplierOrderSuppliersByUrgency(suppliers.data ?? []), [suppliers.data]);
+  const shown = useMemo(() => filterSupplierOrderSuppliers(list, { query, filter }), [list, query, filter]);
+  const counts = useMemo(() => Object.fromEntries(FILTERS.map(({ id }) => [id, filterSupplierOrderSuppliers(list, { filter: id }).length])), [list]);
   const wanted = params.get("ncc");
-  const current = list.find((row) => row.id === wanted) ?? list[0] ?? null;
+  const picked = list.find((row) => row.id === wanted) ?? null;
+  // Wide screens always show an order next to the list; on a phone the list comes first.
+  const current = picked ?? list[0] ?? null;
   const onToast = (text: string) => toast({ title: text });
+  const pick = (id: string | null) => setParams((prev) => {
+    const next = new URLSearchParams(prev);
+    if (id) next.set("ncc", id); else next.delete("ncc");
+    return next;
+  }, { replace: !id });
+  const open = (id: string | null) => { pick(id); window.scrollTo({ top: 0 }); };
 
   return (
-    <div className="d3-wh d3-kho d3-so min-w-0" data-bmq-supplier-orders>
+    <div className={cn("d3-wh d3-kho d3-so min-w-0", picked && "is-picked")} data-bmq-supplier-orders>
       <header className="d3-wh-head">
         <div className="min-w-0">
           <h1>Đặt hàng</h1>
@@ -611,20 +702,37 @@ export default function SupplierOrders() {
           </div>
         </section>
       ) : !current ? (
-        <section className="d3-wh-card"><p className="d3-kho-hint" data-bmq-so-no-suppliers>Chưa có nhà cung cấp nào có danh mục đặt hàng.</p></section>
+        <section className="d3-wh-card"><p className="d3-kho-hint" data-bmq-so-no-suppliers>Chưa có nhà cung cấp nào mua hàng trong 60 ngày gần đây.</p></section>
       ) : (
-        <>
-          <div className="d3-kho-tabs d3-so-tabs" role="tablist" aria-label="Nhà cung cấp" data-bmq-so-suppliers>
-            {list.map((row) => (
-              <button key={row.id} type="button" role="tab" aria-selected={row.id === current.id} className={cn(row.id === current.id && "is-on")}
-                onClick={() => setParams((prev) => { const next = new URLSearchParams(prev); next.set("ncc", row.id); return next; }, { replace: true })}
-                data-bmq-so-supplier={row.id}>
-                {row.name}<small>{row.itemCount} món</small>
-              </button>
-            ))}
+        <div className="d3-so-split">
+          <aside className="d3-so-list" aria-label="Nhà cung cấp" data-bmq-so-suppliers>
+            <label className="d3-so-search">
+              <Search aria-hidden="true" />
+              <input type="search" value={query} onChange={(event) => setQuery(event.target.value)}
+                placeholder="Tìm nhà cung cấp" aria-label="Tìm nhà cung cấp" data-bmq-so-search />
+            </label>
+            <div className="d3-so-filters" role="group" aria-label="Lọc nhà cung cấp">
+              {FILTERS.map(({ id, label }) => (
+                <button key={id} type="button" className={cn(filter === id && "is-on")} aria-pressed={filter === id}
+                  onClick={() => setFilter(id)} data-bmq-so-filter={id}>
+                  {label}<small>{counts[id]}</small>
+                </button>
+              ))}
+            </div>
+            {shown.length ? (
+              <ul className="d3-so-sups">
+                {shown.map((row) => (
+                  <SupplierRow key={row.id} row={row} on={row.id === current.id} onPick={() => open(row.id)} />
+                ))}
+              </ul>
+            ) : (
+              <p className="d3-kho-hint d3-so-none" data-bmq-so-no-match>Không có nhà cung cấp nào khớp. Đổi bộ lọc hoặc từ khoá.</p>
+            )}
+          </aside>
+          <div className="d3-so-detail min-w-0">
+            <SupplierPanel key={current.id} supplierId={current.id} onToast={onToast} onBack={() => open(null)} />
           </div>
-          <SupplierPanel key={current.id} supplierId={current.id} onToast={onToast} />
-        </>
+        </div>
       )}
     </div>
   );

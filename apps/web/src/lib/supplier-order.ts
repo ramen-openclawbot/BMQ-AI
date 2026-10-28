@@ -95,10 +95,24 @@ export type SupplierOrderSupplierListEntry = {
   id: string;
   name: string;
   email: string | null;
+  hasEmail: boolean;
   itemCount: number;
+  activeItemCount: number;
+  needOrderCount: number;
+  lowStockCount: number;
+  outOfStockCount: number;
+  lastActivityAt: string | null;
+  locations: string[];
+  urgencyRank: number;
   lastOrder: { poNumber: string | null; sentAt: string | null } | null;
   unpaidCount: number;
 };
+
+export type SupplierOrderSupplierFilter =
+  | "need_order"
+  | "low_stock"
+  | "no_email"
+  | "all";
 
 export type SupplierOrderCatalogStock = {
   onHand: number | null;
@@ -123,6 +137,8 @@ export type SupplierOrderCatalogItem = {
   poUnitFactor: number;
   packSizePo: number | null;
   vatRate: number;
+  location: string;
+  estimated: boolean;
   stock: SupplierOrderCatalogStock;
   proposalQty: number;
   listPrice: number | null;
@@ -597,6 +613,8 @@ function parseCatalogItem(value: unknown): SupplierOrderCatalogItem | null {
     poUnitFactor: asNumber(row.po_unit_factor) ?? 0,
     packSizePo: asNumber(row.pack_size_po),
     vatRate: asNumber(row.vat_rate) ?? 0,
+    location: asNullableText(row.location) ?? "q7",
+    estimated: row.estimated === true,
     stock: {
       onHand: asNumber(stock.on_hand),
       dailyUsage: asNumber(stock.daily_usage) ?? 0,
@@ -652,11 +670,20 @@ export function parseSupplierOrderSuppliers(value: unknown): SupplierOrderSuppli
     if (Object.keys(row).length === 0) continue;
     const lastValue = row.last_order;
     const last = lastValue === null || lastValue === undefined ? null : asRecord(lastValue);
+    const email = asNullableText(row.email);
     output.push({
       id: asText(row.id),
       name: asText(row.name),
-      email: asNullableText(row.email),
+      email,
+      hasEmail: typeof row.has_email === "boolean" ? row.has_email : email !== null,
       itemCount: asNumber(row.item_count) ?? 0,
+      activeItemCount: asNumber(row.active_item_count) ?? asNumber(row.item_count) ?? 0,
+      needOrderCount: asNumber(row.need_order_count) ?? 0,
+      lowStockCount: asNumber(row.low_stock_count) ?? 0,
+      outOfStockCount: asNumber(row.out_of_stock_count) ?? 0,
+      lastActivityAt: asNullableText(row.last_activity_at),
+      locations: asStringArray(row.locations),
+      urgencyRank: asNumber(row.urgency_rank) ?? 4,
       lastOrder: last === null || Object.keys(last).length === 0
         ? null
         : {
@@ -667,6 +694,55 @@ export function parseSupplierOrderSuppliers(value: unknown): SupplierOrderSuppli
     });
   }
   return output;
+}
+
+/** Fold Vietnamese diacritics so "phuc thinh" matches "Phúc Thịnh". */
+export function normalizeSupplierOrderSearch(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[đĐ]/g, "d")
+    .toLowerCase()
+    .trim();
+}
+
+export function filterSupplierOrderSuppliers(
+  list: SupplierOrderSupplierListEntry[],
+  options: {
+    query?: string;
+    filter?: SupplierOrderSupplierFilter;
+  } = {},
+): SupplierOrderSupplierListEntry[] {
+  const filter = options.filter ?? "all";
+  const query = normalizeSupplierOrderSearch(options.query ?? "");
+  return list.filter((entry) => {
+    const matchesFilter = filter === "need_order"
+      ? entry.needOrderCount > 0
+      : filter === "low_stock"
+      ? entry.lowStockCount > 0
+      : filter === "no_email"
+      ? !entry.hasEmail
+      : true;
+    if (!matchesFilter) return false;
+    if (!query) return true;
+    const haystack = normalizeSupplierOrderSearch(
+      `${entry.name} ${entry.email ?? ""}`,
+    );
+    return haystack.includes(query);
+  });
+}
+
+export function sortSupplierOrderSuppliersByUrgency(
+  list: SupplierOrderSupplierListEntry[],
+): SupplierOrderSupplierListEntry[] {
+  return [...list].sort((left, right) => {
+    if (left.urgencyRank !== right.urgencyRank) {
+      return left.urgencyRank - right.urgencyRank;
+    }
+    const byName = left.name.localeCompare(right.name, "vi");
+    if (byName !== 0) return byName;
+    return left.id.localeCompare(right.id);
+  });
 }
 
 export function parseSupplierOrderCatalog(value: unknown): SupplierOrderCatalog | null {

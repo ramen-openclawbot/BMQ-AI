@@ -158,6 +158,37 @@ export function useSetSupplierCatalogItem() {
   });
 }
 
+export type SetSupplierOrderEmailInput = {
+  supplierId: string;
+  email: string;
+};
+
+export function useSetSupplierOrderEmail() {
+  const queryClient = useQueryClient();
+
+  return useMutation<Record<string, unknown> | null, Error, SetSupplierOrderEmailInput>({
+    mutationFn: async (input) => {
+      const { data, error } = await (supabase as any).rpc(
+        "supplier_order_set_supplier_email",
+        {
+          p_supplier_id: input.supplierId,
+          p_email: input.email,
+        },
+      );
+      if (error) throw error;
+      return (data ?? null) as Record<string, unknown> | null;
+    },
+    onSuccess: async (_result, variables) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["supplier-order-suppliers"] }),
+        queryClient.invalidateQueries({
+          queryKey: ["supplier-order-catalog", variables.supplierId],
+        }),
+      ]);
+    },
+  });
+}
+
 export function usePreviewSupplierOrder() {
   return useMutation<SupplierOrderPreview, Error, SendSupplierOrderLinesInput>({
     mutationFn: (input) => previewSupplierOrder(input),
