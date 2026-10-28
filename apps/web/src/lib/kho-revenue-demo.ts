@@ -54,6 +54,43 @@ export interface ChannelPo {
   warnings: number;
 }
 
+/**
+ * Hao hụt học từ kiểm kê (owner 29/10). Between two counts of an item at a kho the deduction booked before the
+ * second count is what the system expected to be used; the count's shortfall is what was used on top of it.
+ * shrink = −count adjustment ÷ booked usage. Weighted over the last 3 valid periods (≥ MIN_PERIOD_DAYS, booked > 0);
+ * under SHRINK_IGNORE it counts as none; within ±SHRINK_AUTO it is applied to future deductions; beyond, it is
+ * not applied and flagged (wrong recipe or loss, not shrinkage).
+ */
+export type ShrinkState = "none" | "even" | "applied" | "blocked";
+export interface ShrinkInfo {
+  state: ShrinkState;
+  rate: number | null;
+  periods: number;
+  lastCount: { day: string; adj: number } | null;
+}
+
+export const SHRINK_AUTO = 0.15;
+export const SHRINK_IGNORE = 0.02;
+export const MIN_PERIOD_DAYS = 3;
+const SHRINK_PERIODS = 3;
+
+export function learnShrink(
+  periods: { from: string; to: string; adj: number; booked: number }[],
+  lastCount: { day: string; adj: number } | null,
+): ShrinkInfo {
+  const days = (a: string, b: string) => Math.round((Date.parse(b) - Date.parse(a)) / 86_400_000);
+  const valid = periods
+    .filter((p) => p.booked > 0 && days(p.from, p.to) >= MIN_PERIOD_DAYS)
+    .sort((a, b) => (a.to < b.to ? 1 : -1))
+    .slice(0, SHRINK_PERIODS);
+  if (!valid.length) return { state: "none", rate: null, periods: 0, lastCount };
+  const booked = valid.reduce((s, p) => s + p.booked, 0);
+  const rate = valid.reduce((s, p) => s + -p.adj, 0) / booked;
+  const rounded = Math.round(rate * 1000) / 1000;
+  const state: ShrinkState = Math.abs(rate) < SHRINK_IGNORE ? "even" : Math.abs(rate) <= SHRINK_AUTO ? "applied" : "blocked";
+  return { state, rate: rounded, periods: valid.length, lastCount };
+}
+
 export interface RevenueDay {
   day: string;
   generatedAt: string | null;
@@ -61,6 +98,8 @@ export interface RevenueDay {
   items: Map<string, ItemStock>;
   /** revenue_cogs net per kho/item/day (production_usage minus reversals). */
   posted: Map<string, { day: string; qty: number }[]>;
+  /** Learned shrinkage per kho/item from stock counts. */
+  shrink: Map<string, ShrinkInfo>;
   totals: { channels: number; qty: number; warnings: number; materials: number };
 }
 
@@ -132,6 +171,26 @@ export function buildRevenueDay(raw: unknown): RevenueDay {
     posted.set(postedKey(kho, itemId), list);
   }
   for (const list of posted.values()) list.sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0));
+
+  const lastCounts = new Map<string, { day: string; adj: number }>();
+  for (const c of arr(src.counts)) {
+    const kho = asKho(c.loc);
+    const itemId = text(c.item_id);
+    if (kho && itemId) lastCounts.set(postedKey(kho, itemId), { day: text(c.d).slice(0, 10), adj: num(c.adj) });
+  }
+  const periodsBy = new Map<string, { from: string; to: string; adj: number; booked: number }[]>();
+  for (const p of arr(src.count_periods)) {
+    const kho = asKho(p.loc);
+    const itemId = text(p.item_id);
+    if (!kho || !itemId) continue;
+    const list = periodsBy.get(postedKey(kho, itemId)) ?? [];
+    list.push({ from: text(p.from).slice(0, 10), to: text(p.to).slice(0, 10), adj: num(p.adj), booked: num(p.deducted) });
+    periodsBy.set(postedKey(kho, itemId), list);
+  }
+  const shrink = new Map<string, ShrinkInfo>();
+  for (const key of new Set([...lastCounts.keys(), ...periodsBy.keys()])) {
+    shrink.set(key, learnShrink(periodsBy.get(key) ?? [], lastCounts.get(key) ?? null));
+  }
 
   const refs = new Map<string, { ref: number | null; days: number }>();
   for (const r of arr(src.refs)) {
@@ -220,6 +279,7 @@ export function buildRevenueDay(raw: unknown): RevenueDay {
     channels,
     items,
     posted,
+    shrink,
     totals: {
       channels: channels.length,
       qty: channels.reduce((sum, c) => sum + c.qty, 0),
@@ -227,6 +287,10 @@ export function buildRevenueDay(raw: unknown): RevenueDay {
       materials: channels.reduce((sum, c) => sum + c.materials.q7.length + c.materials.tan_tao.length, 0),
     },
   };
+}
+
+export function shrinkOf(day: RevenueDay, kho: RevenueKho, itemId: string): ShrinkInfo {
+  return day.shrink.get(postedKey(kho, itemId)) ?? { state: "none", rate: null, periods: 0, lastCount: null };
 }
 
 /** Deductions of one item at one kho over the snapshot's last days, oldest first. */

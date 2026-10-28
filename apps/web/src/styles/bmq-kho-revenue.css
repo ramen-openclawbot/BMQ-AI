@@ -107,6 +107,22 @@ html.bmq-d3 .d3-rv-mat-head {
 @keyframes d3-rv-grow { from { transform: scaleY(0); } to { transform: scaleY(1); } }
 .d3-rv-quiet { margin: 0; font-size: 12.5px; color: var(--d3-dim); }
 
+/* Kiểm kê ↔ hao hụt */
+.d3-rv-count { display: grid; gap: 3px; padding: 9px 11px; border-radius: 10px; background: var(--d3-card); font-size: 12.5px; line-height: 1.45; color: var(--d3-ink-2); }
+.d3-rv-count p { margin: 0; }
+.d3-rv-count b { color: var(--d3-ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.d3-rv-count.is-warn { background: var(--rv-warn-bg); color: var(--rv-warn); }
+.d3-rv-count.is-warn b { color: var(--rv-warn); }
+
+.d3-rv-how { margin: 0 0 14px; border-radius: 12px; background: var(--d3-card); box-shadow: var(--d3-sh); overflow: hidden; }
+html.bmq-d3 .d3-rv-how > button {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; min-height: 44px; padding: 10px 14px;
+  border: 0; background: transparent; color: var(--d3-ink); font: inherit; font-size: 14px; font-weight: 500; text-align: left; cursor: pointer;
+}
+html.bmq-d3 .d3-rv-how > button:focus-visible { outline: 2px solid var(--d3-ink); outline-offset: -2px; border-radius: 12px; }
+.d3-rv-how ol { display: grid; gap: 8px; margin: 0; padding: 0 14px 14px 32px; font-size: 13px; line-height: 1.5; color: var(--d3-ink-2); }
+.d3-rv-how b { color: var(--d3-ink); font-weight: 600; }
+
 @media (hover: hover) and (pointer: fine) {
   html.bmq-d3 .d3-rv-po-head:hover .d3-rv-chev, html.bmq-d3 .d3-rv-mat-head:hover .d3-rv-chev { color: var(--d3-ink); }
   html.bmq-d3 .d3-rv-mat-head:hover { background: rgba(39, 39, 39, .03); }

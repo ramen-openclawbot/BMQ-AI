@@ -485,6 +485,23 @@ async function revenueChecks() {
     await page.waitForTimeout(700);
     assert.match(await foil.locator("[data-bmq-revenue-warning]").innerText(), /5\.000 g cho mỗi thành phẩm/);
     assert.match(await foil.locator(".d3-rv-onhand").innerText(), /Tồn Tân Tạo/);
+    // Kiểm kê ↔ hao hụt: the explainer opens on demand; Bơ Peerless at Q7 is not applied (165% off).
+    await page.locator("[data-bmq-revenue-how] > button").click();
+    await page.waitForTimeout(400);
+    assert.match(await page.locator("[data-bmq-revenue-how]").innerText(), /Hệ thống học hao hụt[\s\S]*±15%/);
+    const pastry = page.locator("[data-bmq-revenue-po='BÁNH NGỌT']");
+    await pastry.locator(".d3-rv-po-head").click();
+    await page.waitForSelector("[data-bmq-revenue-po='BÁNH NGỌT'] [data-bmq-revenue-materials]");
+    const bo = pastry.locator("[data-bmq-revenue-material='Bơ Peerless Úc 25kg']");
+    await bo.locator(".d3-rv-mat-head").click();
+    await bo.locator("[data-bmq-revenue-shrink]").waitFor();
+    await page.waitForTimeout(600);
+    assert.equal(await bo.locator("[data-bmq-revenue-shrink]").getAttribute("data-bmq-revenue-shrink"), "blocked");
+    assert.match(await bo.locator("[data-bmq-revenue-shrink]").innerText(), /Kiểm kê 27\/10\/2026: thực tế thiếu 105,81 kg[\s\S]*không áp/);
+    await noSpill(page, "revenue-shrink", vp);
+    await bo.scrollIntoViewIfNeeded();
+    await shot(page, `revenue-shrink-${vp.width}.png`, false);
+    await pastry.locator(".d3-rv-po-head").click();
     await noSpill(page, "revenue-stock", vp);
     await foil.scrollIntoViewIfNeeded();
     await shot(page, `revenue-stock-${vp.width}.png`, false);

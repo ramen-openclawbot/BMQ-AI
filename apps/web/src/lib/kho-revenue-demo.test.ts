@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildRevenueDay, channelLabel, recentPosted, WARN_MULTIPLE } from "./kho-revenue-demo.ts";
+import { buildRevenueDay, channelLabel, learnShrink, recentPosted, shrinkOf, WARN_MULTIPLE } from "./kho-revenue-demo.ts";
 import { TRU_KHO_DEMO_20261028 } from "../data/tru-kho-demo-20261028.ts";
 
 const raw = {
@@ -91,4 +91,26 @@ test("in the real 28/10 snapshot only Nhôm lá (5 kg per bánh mì) is flagged"
   const day = buildRevenueDay(TRU_KHO_DEMO_20261028);
   const flagged = day.channels.flatMap((c) => [...c.materials.q7, ...c.materials.tan_tao].filter((m) => m.warning).map((m) => m.name));
   assert.deepEqual(flagged, ["Nhôm lá GF004_5Kg M"]);
+});
+
+test("shrinkage from counts: applied within ±15%, ignored under 2%, blocked beyond", () => {
+  const p = (from: string, to: string, adj: number, booked: number) => ({ from, to, adj, booked });
+  assert.deepEqual(learnShrink([p("2026-10-01", "2026-10-08", -5000, 100000)], null), { state: "applied", rate: 0.05, periods: 1, lastCount: null });
+  assert.equal(learnShrink([p("2026-10-01", "2026-10-08", -1000, 100000)], null).state, "even");
+  assert.equal(learnShrink([p("2026-10-01", "2026-10-08", -40000, 100000)], null).state, "blocked");
+  assert.equal(learnShrink([p("2026-10-01", "2026-10-03", -5000, 100000)], null).state, "none", "periods under 3 days are skipped");
+  assert.equal(learnShrink([p("2026-10-01", "2026-10-08", -5000, 0)], null).state, "none", "nothing booked, nothing to learn");
+  const weighted = learnShrink([p("2026-10-01", "2026-10-08", -10000, 100000), p("2026-10-08", "2026-10-15", 0, 300000)], null);
+  assert.equal(weighted.rate, 0.025, "weighted by booked usage");
+  assert.equal(weighted.periods, 2);
+});
+
+test("in the real snapshot Bơ Peerless at Q7 is blocked (count shortfall 165% of booked usage)", () => {
+  const day = buildRevenueDay(TRU_KHO_DEMO_20261028);
+  const peerless = shrinkOf(day, "q7", "3c16ed3f-54c7-427f-a316-5aa4fcadda5a");
+  assert.equal(peerless.state, "blocked");
+  assert.ok((peerless.rate ?? 0) > 1.5);
+  assert.equal(peerless.lastCount?.day, "2026-10-27");
+  const applied = [...day.shrink.values()].filter((v) => v.state === "applied");
+  assert.equal(applied.length, 0, "no real period is clean enough to apply yet");
 });

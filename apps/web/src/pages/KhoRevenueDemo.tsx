@@ -4,8 +4,10 @@ import { TRU_KHO_DEMO_20261028 } from "@/data/tru-kho-demo-20261028";
 import {
   KHO_ORDER,
   MATERIAL_STATE_LABELS,
+  SHRINK_AUTO,
   buildRevenueDay,
   recentPosted,
+  shrinkOf,
   type ChannelPo,
   type MaterialLine,
   type RevenueDay,
@@ -58,6 +60,51 @@ function WarningNote({ line }: { line: MaterialLine }) {
   );
 }
 
+const pct = (rate: number) => `${rate > 0 ? "+" : ""}${(rate * 100).toLocaleString("vi-VN", { maximumFractionDigits: 1 })}%`;
+
+/** Kiểm kê ↔ trừ kho: last count's difference and the shrinkage learned from counts. */
+function CountShrink({ day, line }: { day: RevenueDay; line: MaterialLine }) {
+  if (!line.itemId || !line.location) return null;
+  const info = shrinkOf(day, line.location, line.itemId);
+  const unit = day.items.get(line.itemId)?.unit ?? line.unit;
+  const adj = info.lastCount?.adj ?? null;
+  return (
+    <div className={cn("d3-rv-count", info.state === "blocked" && "is-warn")} style={stagger(3)} data-bmq-revenue-shrink={info.state}>
+      <p>
+        {info.lastCount
+          ? <>Kiểm kê {dmy(info.lastCount.day)}: {adj === 0 ? "khớp sổ" : <>thực tế {adj !== null && adj < 0 ? "thiếu" : "dư"} <b>{fmtAmount(Math.abs(adj ?? 0), unit)}</b> so với sổ</>}</>
+          : "Chưa kiểm kê món này ở kho này."}
+      </p>
+      <p>
+        {info.state === "none" && <>Hao hụt: chưa đủ dữ liệu (cần 2 lần kiểm kê cách nhau từ 3 ngày, có số trừ ở giữa).</>}
+        {info.state === "even" && <>Hao hụt: không đáng kể ({pct(info.rate ?? 0)}, {info.periods} kỳ) — trừ đúng công thức.</>}
+        {info.state === "applied" && <>Hao hụt học được: <b>{pct(info.rate ?? 0)}</b> ({info.periods} kỳ kiểm kê) — đang cộng vào lượng trừ từ ngày sau kiểm kê.</>}
+        {info.state === "blocked" && <>Lệch {pct(info.rate ?? 0)} so với số đã trừ ({info.periods} kỳ) — vượt ±{SHRINK_AUTO * 100}% nên <b>không áp</b>. Kiểm tra công thức hoặc thất thoát.</>}
+      </p>
+    </div>
+  );
+}
+
+function HowItWorks() {
+  const [open, setOpen] = useState(false);
+  const regionId = useId();
+  return (
+    <section className="d3-rv-how" data-bmq-revenue-how>
+      <button type="button" aria-expanded={open} aria-controls={regionId} onClick={() => setOpen((v) => !v)}>
+        <span>Trừ kho và kiểm kê liên quan thế nào?</span>
+        <ChevronDown className={cn("d3-rv-chev", open && "is-open")} aria-hidden="true" />
+      </button>
+      <Reveal open={open} id={regionId}>
+        <ol className="d3-rv-stagger">
+          <li style={stagger(0)}><b>Giữa hai lần kiểm kê</b> kho tự trừ theo công thức giá vốn × số đã bán — đó là tồn sổ.</li>
+          <li style={stagger(1)}><b>Khi kiểm kê</b>, chênh lệch = số đếm − tồn sổ được ghi lại, tồn lấy theo số đếm. Những ngày đến hết ngày kiểm kê không trừ lại nữa.</li>
+          <li style={stagger(2)}><b>Hệ thống học hao hụt</b>: chênh lệch ÷ số đã trừ trong kỳ, trung bình 3 kỳ gần nhất. Trong ±{SHRINK_AUTO * 100}% thì tự cộng vào lượng trừ những ngày sau; lệch hơn thì không áp mà cảnh báo.</li>
+        </ol>
+      </Reveal>
+    </section>
+  );
+}
+
 function StockPanel({ day, line }: { day: RevenueDay; line: MaterialLine }) {
   const item = line.itemId ? day.items.get(line.itemId) : undefined;
   if (!item || !line.location) return null;
@@ -89,7 +136,8 @@ function StockPanel({ day, line }: { day: RevenueDay; line: MaterialLine }) {
           </ol>
         </div>
       ) : null}
-      {line.noHistory ? <p className="d3-rv-quiet" style={stagger(3)}>Món này chưa đủ 5 ngày lịch sử nên chưa so được với mức thường.</p> : null}
+      <CountShrink day={day} line={line} />
+      {line.noHistory ? <p className="d3-rv-quiet" style={stagger(4)}>Món này chưa đủ 5 ngày lịch sử nên chưa so được với mức thường.</p> : null}
     </div>
   );
 }
@@ -180,6 +228,8 @@ export default function KhoRevenueDemo() {
       <p className="d3-rv-demo" data-bmq-revenue-demo>
         <b>Bản xem trước</b> · số thật ngày {dmy(day.day)}, chốt lúc {timeText(day.generatedAt)}. Hệ thống tự trừ kho; trang chỉ hiện số và cảnh báo, không cần duyệt.
       </p>
+
+      <HowItWorks />
 
       <dl className="d3-rv-summary" aria-label="Tổng trong ngày">
         <div><dt>Kênh bán</dt><dd>{day.totals.channels}</dd></div>
