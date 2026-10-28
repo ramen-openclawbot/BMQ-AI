@@ -295,7 +295,7 @@ const KG_FIXTURE = JSON.parse(fs.readFileSync(path.join(ROOT, "scripts/qa_wareho
 const results = [];
 const pass = (name) => { results.push(name); console.log("PASS", name); };
 
-async function open(cfg, route, viewport, ready = "[data-bmq-kho-catalog], [data-bmq-kho-count-page], [data-bmq-warehouse-slips], [data-bmq-kho-audit], [data-bmq-kho-holds]") {
+async function open(cfg, route, viewport, ready = "[data-bmq-kho-catalog], [data-bmq-kho-count-page], [data-bmq-warehouse-slips], [data-bmq-kho-audit], [data-bmq-kho-holds], [data-bmq-kho-revenue]") {
   const context = await browser.newContext({ viewport, reducedMotion: "reduce", locale: "vi-VN" });
   await context.addInitScript((fixture) => { window.__kgFixture = fixture; }, KG_FIXTURE);
   await context.addInitScript((value) => { if (!sessionStorage.getItem("qa-init")) { localStorage.clear(); sessionStorage.setItem("qa-init", "1"); } localStorage.setItem("qa-shell", JSON.stringify(value)); }, cfg);
@@ -458,9 +458,52 @@ async function holdsChecks() {
   pass("Trừ kho chờ duyệt: owner-only");
 }
 
+/** Trừ kho theo doanh thu demo (owner 28/10): real 28/10 snapshot, levels open one at a time, warning on Nhôm lá. */
+async function revenueChecks() {
+  for (const vp of VIEWPORTS) {
+    const { context, page, errors } = await open({ role: "owner" }, "/warehouse/tru-kho-demo", vp);
+    await page.waitForSelector("[data-bmq-revenue-po]");
+    assert.deepEqual(await page.locator("[data-bmq-revenue-po] .d3-rv-po-title b").allInnerTexts(), ["Đại lý", "Bánh ngọt", "B2B BMQ"], "one PO per channel, busiest first");
+    assert.match(await page.locator("[data-bmq-revenue-po='ĐẠI LÝ']").innerText(), /Bánh mì que Pate\s*2\.200/, "channel lists its SKUs");
+    assert.equal(await page.locator("[data-bmq-revenue-materials]").count(), 0, "materials are not rendered until a PO is opened");
+    assert.match(await page.locator("[data-bmq-revenue-demo]").innerText(), /Bản xem trước · số thật ngày 28\/10\/2026/);
+    await page.waitForTimeout(500);
+    await noSpill(page, "revenue", vp);
+    await shot(page, `revenue-${vp.width}.png`, false);
+
+    const b2b = page.locator("[data-bmq-revenue-po='B2B BMQ']");
+    await b2b.locator(".d3-rv-po-head").click();
+    await page.waitForSelector("[data-bmq-revenue-po='B2B BMQ'] [data-bmq-revenue-materials]");
+    assert.equal(await b2b.locator(".d3-rv-po-head").getAttribute("aria-expanded"), "true");
+    await page.waitForTimeout(700);
+    const foil = b2b.locator("[data-bmq-revenue-material='Nhôm lá GF004_5Kg M']");
+    assert.match(await foil.innerText(), /Cảnh báo[\s\S]*790 kg/, "Nhôm lá is flagged with its quantity");
+    await foil.scrollIntoViewIfNeeded();
+    await shot(page, `revenue-po-${vp.width}.png`, false);
+    await foil.locator(".d3-rv-mat-head").click();
+    await page.waitForSelector("[data-bmq-revenue-material='Nhôm lá GF004_5Kg M'] [data-bmq-revenue-stock]");
+    await page.waitForTimeout(700);
+    assert.match(await foil.locator("[data-bmq-revenue-warning]").innerText(), /5\.000 g cho mỗi thành phẩm/);
+    assert.match(await foil.locator(".d3-rv-onhand").innerText(), /Tồn Tân Tạo/);
+    await noSpill(page, "revenue-stock", vp);
+    await foil.scrollIntoViewIfNeeded();
+    await shot(page, `revenue-stock-${vp.width}.png`, false);
+
+    // Closing a PO hides its materials from keyboard and screen readers.
+    await b2b.locator(".d3-rv-po-head").click();
+    await page.waitForTimeout(400);
+    assert.equal(await b2b.locator(".d3-rv-reveal").first().getAttribute("aria-hidden"), "true");
+    assert.equal(await b2b.locator(".d3-rv-reveal").first().evaluate((el) => el.hasAttribute("inert")), true);
+    assert.deepEqual(errors, [], `revenue page errors @${vp.width}`);
+    await context.close();
+    pass(`Trừ kho theo doanh thu demo: PO → NVL → tồn, cảnh báo Nhôm lá ${vp.width}`);
+  }
+}
+
 try {
-  await holdsChecks();
-  if (ONLY === "holds") throw Object.assign(new Error("qa-only"), { qaOnly: true });
+  if (!ONLY || ONLY === "holds") await holdsChecks();
+  if (!ONLY || ONLY === "revenue") await revenueChecks();
+  if (ONLY) throw Object.assign(new Error("qa-only"), { qaOnly: true });
   for (const vp of VIEWPORTS) {
     // ---------- Danh mục kho ----------
     let { context, page, errors } = await open({ role: "owner" }, "/warehouse/danh-muc", vp);
