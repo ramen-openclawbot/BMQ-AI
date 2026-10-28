@@ -56,6 +56,7 @@ const SupplierOrders = lazy(() => import("@/pages/SupplierOrders"));
 const KhoCount = lazy(() => import("@/pages/KhoCount"));
 const WarehouseSlips = lazy(() => import("@/pages/WarehouseSlips"));
 const KhoAuditLog = lazy(() => import("@/pages/KhoAuditLog"));
+const KhoHolds = lazy(() => import("@/pages/KhoHolds"));
 const KhoReview = lazy(() => import("@/pages/KhoReview"));
 const KhoCerts = lazy(() => import("@/pages/KhoCerts"));
 const BepBnPayroll = lazy(() => import("@/pages/BepBnPayroll"));
@@ -307,6 +308,7 @@ export function AppRoutes() {
         <Route path="/warehouse/kiem-ke" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><KhoCount /></Suspense></ModuleRoute>} />
         <Route path="/warehouse/phieu" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><WarehouseSlips /></Suspense></ModuleRoute>} />
         <Route path="/warehouse/nhat-ky" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><KhoAuditLog /></Suspense></ModuleRoute>} />
+        <Route path="/warehouse/cho-duyet" element={<OwnerRoute><Suspense fallback={<AppLoadingFallback />}><KhoHolds /></Suspense></OwnerRoute>} />
         <Route path="/warehouse/ra-soat" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><KhoReview /></Suspense></ModuleRoute>} />
         <Route path="/warehouse/ho-so-attp" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><KhoCerts /></Suspense></ModuleRoute>} />
         <Route path="/warehouse/stock-ledger" element={<ModuleRoute moduleKey="inventory"><Suspense fallback={<AppLoadingFallback />}><StockLedger /></Suspense></ModuleRoute>} />

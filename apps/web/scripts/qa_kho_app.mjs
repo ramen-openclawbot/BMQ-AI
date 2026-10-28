@@ -19,6 +19,8 @@ const EVIDENCE = process.env.EVIDENCE_DIR || "/tmp/bmq-kho-app-qa";
 const PW = process.env.PLAYWRIGHT_CORE || "/private/tmp/pwqa/node_modules/playwright-core";
 const CHROME = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const PORT = Number(process.env.QA_PORT || 5253);
+// QA_ONLY=holds runs only the Trừ kho chờ duyệt checks.
+const ONLY = process.env.QA_ONLY || "";
 const { chromium } = createRequire(import.meta.url)(PW);
 fs.mkdirSync(EVIDENCE, { recursive: true });
 
@@ -174,6 +176,28 @@ function settle(st) {
     const a = st.args;
     return { data: { status: "created", item_id: "qa-created-" + a.p_request_id, item_code: "NVL-999", name: a.p_name, unit: a.p_unit, in_tan_tao: a.p_tan_tao, in_q7: a.p_q7, copied_from: a.p_copy_from }, error: null };
   }
+  if (st.table === "rpc:cogs_backflush_list_holds" || st.table === "rpc:cogs_backflush_decide_hold") {
+    // Trừ kho chờ duyệt (owner 28/10): held revenue-deduction days, decided in place.
+    if (role !== "owner") return { data: null, error: { message: "insufficient_privilege", code: "42501" } };
+    if (mode === "error") return { data: null, error: { message: "canceling statement due to statement timeout", code: "57014" } };
+    const seed = mode === "empty" ? [] : [
+      { id: "h-peerless", location: "q7", kitchen_inventory_item_id: "it-peerless", item_name: "Bơ Peerless Úc 25kg", item_unit: "g", movement_date: "2026-10-28", desired_qty: "1024353.592", delta_qty: "1024353.592", reference_qty: "11529.633", reference_days: 7, reason: "outlier", status: "held" },
+      { id: "h-kem", location: "q7", kitchen_inventory_item_id: "it-kem", item_name: "Kem Rich's", item_unit: "g", movement_date: "2026-10-28", desired_qty: "1239", delta_qty: "1239", reference_qty: null, reference_days: 2, reason: "no_reference", status: "held" },
+      { id: "h-nac", location: "tan_tao", kitchen_inventory_item_id: "it-nac", item_name: "Nạc đùi Aurora (MC) — tên rất dài để thử xuống dòng trên điện thoại nhỏ", item_unit: "g", movement_date: "2026-10-28", desired_qty: "4999950", delta_qty: "4999950", reference_qty: null, reference_days: 0, reason: "no_reference", status: "held" },
+      { id: "h-da", location: "q7", kitchen_inventory_item_id: "it-da", item_name: "NƯỚC ĐÁ", item_unit: "g", movement_date: "2026-10-24", desired_qty: "1200", delta_qty: "1200", reference_qty: null, reference_days: 0, reason: "no_reference", status: "held" },
+      { id: "h-old", location: "tan_tao", kitchen_inventory_item_id: "it-duong", item_name: "Đường tinh luyện", item_unit: "g", movement_date: "2026-10-23", desired_qty: "92500", delta_qty: "92500", reference_qty: null, reference_days: 0, reason: "no_reference", status: "rejected", decided_at: "2026-10-28T06:40:00+00:00" },
+    ];
+    const rows = JSON.parse(localStorage.getItem("qa-holds") || "null") || seed;
+    if (st.table === "rpc:cogs_backflush_list_holds") return { data: rows.filter((r) => r.status === (st.args.p_status || "held")), error: null };
+    if (cfg().holdConflict) return { data: null, error: { message: "hold_already_decided", code: "22023" } };
+    const row = rows.find((r) => r.id === st.args.p_hold_id);
+    if (!row) return { data: null, error: { message: "hold_not_found", code: "P0002" } };
+    row.status = st.args.p_decision === "approve" ? "approved" : "rejected";
+    row.decided_at = new Date().toISOString();
+    if (row.status === "approved") row.approved_desired_qty = row.desired_qty;
+    localStorage.setItem("qa-holds", JSON.stringify(rows));
+    return { data: row, error: null };
+  }
   if (/^rpc:/.test(st.table)) return { data: null, error: null };
   return { data: [], error: null, count: 0 };
 }
@@ -271,7 +295,7 @@ const KG_FIXTURE = JSON.parse(fs.readFileSync(path.join(ROOT, "scripts/qa_wareho
 const results = [];
 const pass = (name) => { results.push(name); console.log("PASS", name); };
 
-async function open(cfg, route, viewport, ready = "[data-bmq-kho-catalog], [data-bmq-kho-count-page], [data-bmq-warehouse-slips], [data-bmq-kho-audit]") {
+async function open(cfg, route, viewport, ready = "[data-bmq-kho-catalog], [data-bmq-kho-count-page], [data-bmq-warehouse-slips], [data-bmq-kho-audit], [data-bmq-kho-holds]") {
   const context = await browser.newContext({ viewport, reducedMotion: "reduce", locale: "vi-VN" });
   await context.addInitScript((fixture) => { window.__kgFixture = fixture; }, KG_FIXTURE);
   await context.addInitScript((value) => { if (!sessionStorage.getItem("qa-init")) { localStorage.clear(); sessionStorage.setItem("qa-init", "1"); } localStorage.setItem("qa-shell", JSON.stringify(value)); }, cfg);
@@ -344,7 +368,99 @@ async function assertTheme(page, title, vp) {
 }
 
 const VIEWPORTS = [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 640 }];
+
+/** Trừ kho chờ duyệt (owner 28/10): list, filters, approve/reject with confirm, conflict, empty, error, owner-only. */
+async function holdsChecks() {
+  for (const vp of VIEWPORTS) {
+    let { context, page, errors } = await open({ role: "owner" }, "/warehouse/cho-duyet", vp);
+    await page.waitForSelector("[data-bmq-hold-row]");
+    assert.equal(await page.locator("[data-bmq-hold-row]").count(), 4, "four held rows");
+    const first = page.locator("[data-bmq-hold-row]").first();
+    assert.match(await first.innerText(), /Bơ Peerless[\s\S]*1\.024,35 kg[\s\S]*Thường 11,53 kg\/ngày[\s\S]*gấp 88,8 lần/, "outlier first with usual figure and multiple");
+    assert.match(await page.locator("[data-bmq-hold-id='h-kem']").innerText(), /Mới có 2 ngày dùng để so \(cần 5\)/, "no_reference explains the history gap");
+    const chips = await page.locator(".d3-subnav").innerText().catch(() => "");
+    if (vp.width === 1440) assert.match(chips, /Trừ kho chờ duyệt\s*4/, `Kho menu chip shows the held count: ${chips}`);
+    await noSpill(page, "holds", vp);
+    await shot(page, `holds-${vp.width}.png`, false);
+
+    await page.locator("[data-bmq-hold-kho-btn='tan_tao']").click();
+    assert.equal(await page.locator("[data-bmq-hold-row]").count(), 1, "Tân Tạo filter");
+    await page.locator("[data-bmq-hold-kho-btn='all']").click();
+    await page.locator("[data-bmq-hold-reason-btn='outlier']").click();
+    assert.equal(await page.locator("[data-bmq-hold-row]").count(), 1, "outlier filter");
+    await page.locator("[data-bmq-hold-reason-btn='all']").click();
+
+    // Approve asks first, names the quantity and kho, then calls the RPC once and the row leaves the list.
+    await first.locator("[data-bmq-hold-approve]").click();
+    await page.waitForSelector("[data-bmq-hold-confirm='approve']");
+    assert.match(await page.locator("[data-bmq-hold-confirm='approve']").innerText(), /Trừ 1\.024,35 kg Bơ Peerless Úc 25kg khỏi Kho Q7 ngày 28\/10\/2026/);
+    await noSpill(page, "holds-confirm", vp);
+    await shot(page, `holds-confirm-${vp.width}.png`, false);
+    await page.locator("[data-bmq-hold-confirm-yes]").click();
+    await page.waitForSelector("[data-bmq-hold-id='h-peerless']", { state: "detached" });
+    let c = await calls(page);
+    assert.equal(c.filter((x) => x.startsWith("rpc:cogs_backflush_decide_hold")).length, 1, "one decision call");
+    assert.ok(c.includes('rpc:cogs_backflush_decide_hold:{"p_hold_id":"h-peerless","p_decision":"approve"}'), "approve call arguments");
+
+    // Cancel never calls; reject is confirmed separately.
+    await page.locator("[data-bmq-hold-id='h-da'] [data-bmq-hold-reject]").click();
+    await page.locator("[data-bmq-hold-confirm-no]").click();
+    c = await calls(page);
+    assert.equal(c.filter((x) => x.startsWith("rpc:cogs_backflush_decide_hold")).length, 1, "cancel makes no call");
+    await page.locator("[data-bmq-hold-id='h-da'] [data-bmq-hold-reject]").click();
+    await page.locator("[data-bmq-hold-confirm-yes]").click();
+    await page.waitForSelector("[data-bmq-hold-id='h-da']", { state: "detached" });
+
+    await page.locator("[data-bmq-hold-status-btn='approved']").click();
+    await page.waitForSelector("[data-bmq-hold-id='h-peerless']");
+    assert.match(await page.locator("[data-bmq-hold-id='h-peerless']").innerText(), /Đã duyệt/);
+    assert.equal(await page.locator("[data-bmq-hold-approve]").count(), 0, "decided rows have no buttons");
+    await page.locator("[data-bmq-hold-status-btn='rejected']").click();
+    await page.waitForSelector("[data-bmq-hold-id='h-old']");
+    assert.equal(await page.locator("[data-bmq-hold-row]").count(), 2, "rejected tab lists both rejected rows");
+    assert.deepEqual(errors, [], `holds page errors @${vp.width}`);
+    await context.close();
+
+    // Someone else decided first: the row keeps its buttons and explains.
+    ({ context, page, errors } = await open({ role: "owner", holdConflict: true }, "/warehouse/cho-duyet", vp));
+    await page.waitForSelector("[data-bmq-hold-row]");
+    await page.locator("[data-bmq-hold-id='h-kem'] [data-bmq-hold-approve]").click();
+    await page.locator("[data-bmq-hold-confirm-yes]").click();
+    await page.waitForSelector("[data-bmq-hold-id='h-kem'] .d3-kho-error");
+    assert.match(await page.locator("[data-bmq-hold-id='h-kem'] .d3-kho-error").innerText(), /người khác/);
+    await noSpill(page, "holds-conflict", vp);
+    await context.close();
+
+    ({ context, page, errors } = await open({ role: "owner", data: "empty" }, "/warehouse/cho-duyet", vp));
+    await page.waitForSelector("[data-bmq-hold-empty]");
+    assert.match(await page.locator("[data-bmq-hold-empty]").innerText(), /Không có dòng nào chờ duyệt/);
+    await noSpill(page, "holds-empty", vp);
+    await shot(page, `holds-empty-${vp.width}.png`, false);
+    await context.close();
+
+    ({ context, page, errors } = await open({ role: "owner", data: "error" }, "/warehouse/cho-duyet", vp));
+    await page.waitForSelector("[data-bmq-hold-feed] .d3-kho-failed");
+    assert.match(await page.locator("[data-bmq-hold-feed] .d3-kho-failed").innerText(), /Không tải được danh sách/);
+    await noSpill(page, "holds-error", vp);
+    await shot(page, `holds-error-${vp.width}.png`, false);
+    await context.close();
+    pass(`Trừ kho chờ duyệt: list, filters, approve/reject, conflict, empty, error ${vp.width}`);
+  }
+
+  // Staff never see the page or its menu entry, and never call the owner RPCs.
+  const vp = { width: 1440, height: 900 };
+  const { context, page } = await open({ role: "staff" }, "/warehouse/cho-duyet", vp, "body");
+  await page.waitForTimeout(600);
+  assert.notEqual(new URL(page.url()).pathname, "/warehouse/cho-duyet", "staff are sent away");
+  assert.equal(await page.locator("[data-bmq-kho-holds]").count(), 0);
+  assert.ok(!(await calls(page)).some((x) => x.startsWith("rpc:cogs_backflush_")), "staff make no holds call");
+  await context.close();
+  pass("Trừ kho chờ duyệt: owner-only");
+}
+
 try {
+  await holdsChecks();
+  if (ONLY === "holds") throw Object.assign(new Error("qa-only"), { qaOnly: true });
   for (const vp of VIEWPORTS) {
     // ---------- Danh mục kho ----------
     let { context, page, errors } = await open({ role: "owner" }, "/warehouse/danh-muc", vp);
@@ -963,6 +1079,9 @@ try {
     await context.close();
   }
   console.log(`\n${results.length} checks passed · evidence ${EVIDENCE}`);
+} catch (error) {
+  if (!error?.qaOnly) throw error;
+  console.log(`\n${results.length} checks passed (QA_ONLY=${ONLY}) · evidence ${EVIDENCE}`);
 } finally {
   await browser.close();
   await server.close();
