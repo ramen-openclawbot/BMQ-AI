@@ -76,7 +76,12 @@ const PREPAY_LABEL: Record<string, string> = {
 };
 
 function errorText(error: unknown): string {
-  if (error instanceof SupplierOrderClientError) return ERROR_TEXT[error.code] ?? "Chưa thực hiện được. Thử lại.";
+  // 401 = the login session no longer exists on the server (signed out elsewhere or expired);
+  // the page can still read data, but sending needs a fresh sign-in.
+  if (error instanceof SupplierOrderClientError && error.status === 401) {
+    return "Phiên đăng nhập đã hết hạn. Đăng xuất rồi đăng nhập lại để đặt hàng.";
+  }
+  if (error instanceof SupplierOrderClientError) return ERROR_TEXT[error.code] ?? `Chưa thực hiện được (${error.code}). Thử lại.`;
   const code = (error as { code?: string } | null)?.code;
   if (code === "42501") return ERROR_TEXT.forbidden;
   return "Chưa thực hiện được. Thử lại.";
