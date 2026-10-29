@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { GmailSendError, sendGmail } from "./gmail-send.ts";
+import {
+  buildGmailRawMessage,
+  encodeHeaderValue,
+  GmailSendError,
+  sendGmail,
+} from "./gmail-send.ts";
 
 function decodeRaw(raw: string): string {
   const base64 = raw.replace(/-/g, "+").replace(/_/g, "/");
@@ -114,4 +119,107 @@ test("does not leak the access token or raw request in errors", async () => {
       return true;
     },
   );
+});
+
+test("no-attachment output is byte-identical to the legacy message", () => {
+  const originalRandomUUID = crypto.randomUUID;
+  Object.defineProperty(globalThis.crypto, "randomUUID", {
+    value: () => "legacy-uuid",
+    configurable: true,
+  });
+  try {
+    const raw = buildGmailRawMessage({
+      from: baseInput.from,
+      to: baseInput.to,
+      replyTo: baseInput.replyTo,
+      subject: baseInput.subject,
+      html: baseInput.html,
+      text: baseInput.text,
+    });
+
+    assert.equal(
+      raw,
+      "From: =?UTF-8?B?Qk1RIMSQ4bq3dCBow6BuZw==?= <order@bmq.vn>\r\n" +
+        "To: supplier@example.test\r\n" +
+        "Reply-To: order@bmq.vn\r\n" +
+        "Subject: =?UTF-8?B?Qk1RIMSR4bq3dCBow6BuZyBQTy0xMjMg4oCTIELGoSBQZWVybGVzcw==?=\r\n" +
+        "MIME-Version: 1.0\r\n" +
+        'Content-Type: multipart/alternative; boundary="bmq_order_legacy-uuid"\r\n' +
+        "\r\n" +
+        "--bmq_order_legacy-uuid\r\n" +
+        "Content-Type: text/plain; charset=UTF-8\r\n" +
+        "Content-Transfer-Encoding: base64\r\n" +
+        "\r\n" +
+        "WGluIGNow6Bv\r\n" +
+        "--bmq_order_legacy-uuid\r\n" +
+        "Content-Type: text/html; charset=UTF-8\r\n" +
+        "Content-Transfer-Encoding: base64\r\n" +
+        "\r\n" +
+        "PHA+WGluIGNow6BvPC9wPg==\r\n" +
+        "--bmq_order_legacy-uuid--\r\n",
+    );
+  } finally {
+    Object.defineProperty(globalThis.crypto, "randomUUID", {
+      value: originalRandomUUID,
+      configurable: true,
+    });
+  }
+});
+
+test("attachments produce multipart/mixed with base64 attachment parts", async () => {
+  const originalRandomUUID = crypto.randomUUID;
+  const boundaries = ["mixed-uuid", "alt-uuid"];
+  Object.defineProperty(globalThis.crypto, "randomUUID", {
+    value: () => boundaries.shift() ?? "unexpected",
+    configurable: true,
+  });
+
+  let raw = "";
+  const fetcher = async (_input: RequestInfo | URL, init?: RequestInit) => {
+    raw = String(JSON.parse(String(init?.body ?? "{}")).raw ?? "");
+    return new Response(JSON.stringify({ id: "msg-2", threadId: "thread-2" }), {
+      status: 200,
+    });
+  };
+  const attachment = {
+    filename: "Ủy nhiệm chi.png",
+    mimeType: "image/png",
+    data: new Uint8Array([0, 1, 2, 250, 255]),
+  };
+
+  try {
+    const result = await sendGmail({ ...baseInput, attachments: [attachment], fetcher });
+    assert.deepEqual(result, { id: "msg-2", threadId: "thread-2" });
+  } finally {
+    Object.defineProperty(globalThis.crypto, "randomUUID", {
+      value: originalRandomUUID,
+      configurable: true,
+    });
+  }
+
+  const message = decodeRaw(raw);
+  assert.match(message, /Content-Type: multipart\/mixed; boundary="bmq_mixed_mixed-uuid"/);
+  assert.match(
+    message,
+    /Content-Type: multipart\/alternative; boundary="bmq_order_alt-uuid"/,
+  );
+  assert.ok(
+    message.indexOf('Content-Type: multipart/alternative; boundary="bmq_order_alt-uuid"')
+      < message.indexOf("Content-Disposition: attachment"),
+    "the alternative body must come before the attachment part",
+  );
+  assert.match(message, /Content-Type: image\/png/);
+  assert.ok(
+    message.includes(
+      `Content-Disposition: attachment; filename="${
+        encodeHeaderValue(attachment.filename)
+      }"`,
+    ),
+  );
+  const base64 = message
+    .split("Content-Disposition: attachment; filename=")[1]
+    .split("\r\n\r\n")[1]
+    .split("--bmq_mixed_mixed-uuid--")[0]
+    .trim();
+  assert.deepEqual(Buffer.from(base64, "base64"), Buffer.from(attachment.data));
 });

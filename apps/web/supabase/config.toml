@@ -313,3 +313,11 @@ verify_jwt = false
 # verify_jwt disabled: pg_cron calls it with x-worker-secret (no JWT). Auth is
 # enforced inside index.ts: either that worker secret or the service-role key.
 verify_jwt = false
+
+[functions.supplier-payment-notify]
+# verify_jwt disabled: pg_cron calls it every minute with x-worker-secret (no
+# JWT). Auth is enforced inside index.ts against robot_worker_config id
+# 'supplier-payment-notify'. It claims at most 3 pending payment notifications,
+# sends one Gmail from order@bmq.vn with the bounded UNC images, then marks the
+# row and queues one Zalo message. It never approves or pays anything.
+verify_jwt = false

@@ -33,6 +33,12 @@ export type GmailFetcher = (
   init?: RequestInit,
 ) => Promise<Response>;
 
+export type GmailAttachment = {
+  filename: string;
+  mimeType: string;
+  data: Uint8Array;
+};
+
 export type SendGmailInput = {
   accessToken: string;
   from: string;
@@ -42,6 +48,7 @@ export type SendGmailInput = {
   subject: string;
   html: string;
   text: string;
+  attachments?: GmailAttachment[];
   fetcher?: GmailFetcher;
 };
 
@@ -81,6 +88,12 @@ export function encodeHeaderValue(value: string): string {
   return `=?UTF-8?B?${utf8ToBase64(value)}?=`;
 }
 
+/** Keep ASCII filenames readable; encode anything non-ASCII as RFC 2047. */
+function encodeAttachmentFilename(value: string): string {
+  if (/^[\x20-\x7E]+$/.test(value) && !/[\\"]/.test(value)) return value;
+  return encodeHeaderValue(value);
+}
+
 function encodeFromHeader(from: string): string {
   const match = /^\s*(.*?)\s*<([^>]+)>\s*$/.exec(from);
   if (!match) return from;
@@ -94,7 +107,7 @@ function encodeFromHeader(from: string): string {
   return `${encodeHeaderValue(displayName)} <${address}>`;
 }
 
-/** Build the RFC 2822 multipart/alternative message sent to Gmail. */
+/** Build the RFC 2822 message sent to Gmail. */
 export function buildGmailRawMessage(input: {
   from: string;
   to: string;
@@ -103,7 +116,45 @@ export function buildGmailRawMessage(input: {
   subject: string;
   html: string;
   text: string;
+  attachments?: GmailAttachment[];
 }): string {
+  const attachments = input.attachments ?? [];
+
+  // No attachments: keep the historical multipart/alternative output
+  // byte-for-byte identical (same headers, parts and boundaries).
+  if (attachments.length === 0) {
+    const boundary = `bmq_order_${crypto.randomUUID()}`;
+    const headers = [
+      `From: ${encodeFromHeader(input.from)}`,
+      `To: ${input.to}`,
+      ...(input.cc ? [`Cc: ${input.cc}`] : []),
+      ...(input.replyTo ? [`Reply-To: ${input.replyTo}`] : []),
+      `Subject: ${encodeHeaderValue(input.subject)}`,
+      "MIME-Version: 1.0",
+      `Content-Type: multipart/alternative; boundary="${boundary}"`,
+    ];
+
+    const parts = [
+      headers.join("\r\n"),
+      "",
+      `--${boundary}`,
+      "Content-Type: text/plain; charset=UTF-8",
+      "Content-Transfer-Encoding: base64",
+      "",
+      wrapBase64(utf8ToBase64(input.text)),
+      `--${boundary}`,
+      "Content-Type: text/html; charset=UTF-8",
+      "Content-Transfer-Encoding: base64",
+      "",
+      wrapBase64(utf8ToBase64(input.html)),
+      `--${boundary}--`,
+      "",
+    ];
+
+    return parts.join("\r\n");
+  }
+
+  const mixedBoundary = `bmq_mixed_${crypto.randomUUID()}`;
   const boundary = `bmq_order_${crypto.randomUUID()}`;
   const headers = [
     `From: ${encodeFromHeader(input.from)}`,
@@ -112,11 +163,25 @@ export function buildGmailRawMessage(input: {
     ...(input.replyTo ? [`Reply-To: ${input.replyTo}`] : []),
     `Subject: ${encodeHeaderValue(input.subject)}`,
     "MIME-Version: 1.0",
-    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+    `Content-Type: multipart/mixed; boundary="${mixedBoundary}"`,
   ];
+
+  const attachmentParts = attachments.flatMap((attachment) => [
+    `--${mixedBoundary}`,
+    `Content-Type: ${attachment.mimeType}`,
+    "Content-Transfer-Encoding: base64",
+    `Content-Disposition: attachment; filename="${
+      encodeAttachmentFilename(attachment.filename)
+    }"`,
+    "",
+    wrapBase64(bytesToBase64(attachment.data)),
+  ]);
 
   const parts = [
     headers.join("\r\n"),
+    "",
+    `--${mixedBoundary}`,
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
     "",
     `--${boundary}`,
     "Content-Type: text/plain; charset=UTF-8",
@@ -129,6 +194,8 @@ export function buildGmailRawMessage(input: {
     "",
     wrapBase64(utf8ToBase64(input.html)),
     `--${boundary}--`,
+    ...attachmentParts,
+    `--${mixedBoundary}--`,
     "",
   ];
 
