@@ -124,19 +124,53 @@ function readableStatus(status: number): string {
   return `VNAgent báo lỗi (${status}).`;
 }
 
+// fetch() cannot report upload progress; a message carrying an image goes through XHR so the
+// composer can show "Đang tải lên x%" like chat.vnagent.ai. Same headers, errors and timeout.
+function postWithUploadProgress<T>(path: string, token: string, body: string, timeoutMs: number, onUploadProgress: (fraction: number) => void): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open("POST", `${MERCHANT_AGENT_URL}${path}`);
+    request.timeout = timeoutMs;
+    request.setRequestHeader("content-type", "application/json");
+    request.setRequestHeader("authorization", `Bearer ${token}`);
+    request.upload.onprogress = (event) => {
+      if (event.lengthComputable && event.total > 0) onUploadProgress(Math.min(1, event.loaded / event.total));
+    };
+    request.upload.onload = () => onUploadProgress(1);
+    request.onload = () => {
+      let parsed: Record<string, unknown> | null = null;
+      try {
+        parsed = JSON.parse(request.responseText) as Record<string, unknown>;
+      } catch {
+        parsed = null;
+      }
+      if (request.status < 200 || request.status >= 300) {
+        const detail = parsed && (typeof parsed.error === "string" ? parsed.error : typeof parsed.detail === "string" ? parsed.detail : "");
+        reject(new MerchantAgentError(detail || readableStatus(request.status), request.status));
+        return;
+      }
+      resolve(parsed as T);
+    };
+    request.ontimeout = () => reject(new MerchantAgentError("VNAgent trả lời quá lâu. Anh thử lại giúp VNAgent.", 504));
+    request.onerror = () => reject(new MerchantAgentError("Không kết nối được VNAgent. Anh thử lại sau ít phút.", 0));
+    request.send(body);
+  });
+}
+
 export function sendMerchantMessage(
   token: string,
-  input: { message: string; sessionId?: string | null; page?: string; attachments?: MerchantAttachment[] },
+  input: { message: string; sessionId?: string | null; page?: string; attachments?: MerchantAttachment[]; onUploadProgress?: (fraction: number) => void },
 ) {
-  return call<MerchantChatResponse>("/v1/chat", token, {
-    method: "POST",
-    body: JSON.stringify({
-      message: input.message,
-      ...(input.sessionId ? { session_id: input.sessionId } : {}),
-      ...(input.page ? { page: input.page } : {}),
-      ...(input.attachments?.length ? { attachments: input.attachments } : {}),
-    }),
-  }, CHAT_TIMEOUT_MS);
+  const body = JSON.stringify({
+    message: input.message,
+    ...(input.sessionId ? { session_id: input.sessionId } : {}),
+    ...(input.page ? { page: input.page } : {}),
+    ...(input.attachments?.length ? { attachments: input.attachments } : {}),
+  });
+  if (input.attachments?.length && input.onUploadProgress && typeof XMLHttpRequest !== "undefined") {
+    return postWithUploadProgress<MerchantChatResponse>("/v1/chat", token, body, CHAT_TIMEOUT_MS, input.onUploadProgress);
+  }
+  return call<MerchantChatResponse>("/v1/chat", token, { method: "POST", body }, CHAT_TIMEOUT_MS);
 }
 
 // Paying from a bank slip runs OCR checks, the UNC confirm and the cost write in one call.

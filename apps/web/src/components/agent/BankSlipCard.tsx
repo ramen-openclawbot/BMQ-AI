@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { AlertTriangle, Check, ExternalLink, FilePlus2, Loader2, ReceiptText } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { parseDocLink, type DocLinkPayload, type MerchantChange } from "@/lib/merchantAgent";
 
@@ -138,66 +137,58 @@ export function BankSlipCard({
 
   if (status === "already_recorded") {
     return (
-      <div className="mt-3 rounded-xl border border-vn-paper/15 bg-vn-card2 p-3" data-merchant-bank-slip="already_recorded">
-        <div className="flex items-center gap-2 text-[13px] font-bold leading-5 text-vn-paper">
-          <Check className="h-4 w-4 shrink-0 text-vn-online" />
-          Bankslip này đã được ghi{requestNumber ? <> ở phiếu <span className="font-vnMono">{requestNumber}</span></> : null}. Không thanh toán lại.
+      <div className="ac-card" data-merchant-bank-slip="already_recorded">
+        <div className="ac-done">
+          <Check aria-hidden="true" />
+          <span>Bankslip này đã được ghi{requestNumber ? <> ở phiếu <span className="ac-num font-semibold">{requestNumber}</span></> : null}. Không thanh toán lại.</span>
         </div>
         {docLink ? <DocButton doc={docLink} onOpen={onOpenDoc} /> : null}
       </div>
     );
   }
 
+  const pill = status === "applied" ? "is-pos" : status === "failed" ? "is-neg" : status === "discarded" ? "" : "is-pink";
+
   return (
-    <div
-      className="mt-3 rounded-xl border border-vn-lime/30 bg-vn-lime/[.05] p-3"
-      data-merchant-bank-slip={data.changeId}
-      data-merchant-bank-slip-status={status}
-    >
+    <div className="ac-card" data-merchant-bank-slip={data.changeId} data-merchant-bank-slip-status={status}>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="font-vnMono text-[10px] uppercase tracking-[0.1em] text-vn-lime">Duyệt chi từ bankslip</div>
-          <div className="mt-1 font-vnMono text-[22px] font-bold leading-7 tracking-[-0.02em] text-vn-paper tabular-nums" data-merchant-bank-slip-amount>{formatVnd(data.amount)}</div>
-          <div className="break-words text-[13px] font-semibold leading-5 text-vn-paper/85">{data.supplierName || data.beneficiaryName || "Chưa rõ người nhận"}</div>
+          <div className="ac-value" data-merchant-bank-slip-amount>{formatVnd(data.amount)}</div>
+          <div className="ac-strong mt-0.5 break-words text-[14px] leading-5">{data.supplierName || data.beneficiaryName || "Chưa rõ người nhận"}</div>
+          <div className="ac-meta mt-0.5">Duyệt chi từ bankslip</div>
         </div>
-        <span className={cn(
-          "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold",
-          status === "applied" ? "bg-vn-online/15 text-vn-online"
-            : status === "failed" ? "bg-vn-red/15 text-vn-red"
-            : status === "discarded" ? "bg-vn-paper/10 text-vn-paper/50"
-            : "bg-vn-lime/15 text-vn-lime",
-        )}>{STATUS_LABEL[status] || status}</span>
+        <span className={cn("ac-pill", pill)}>{STATUS_LABEL[status] || status}</span>
       </div>
 
-      <div className="mt-2.5 flex items-start gap-2 rounded-lg border border-vn-paper/10 bg-vn-ink/40 px-2.5 py-2" data-merchant-bank-slip-mode={data.mode || "unknown"}>
+      <div className="ac-well mt-3 flex items-start gap-2.5" data-merchant-bank-slip-mode={data.mode || "unknown"}>
         {data.mode === "create_new"
-          ? <FilePlus2 className="mt-0.5 h-4 w-4 shrink-0 text-vn-lime" />
-          : <ReceiptText className="mt-0.5 h-4 w-4 shrink-0 text-vn-lime" />}
-        <div className="min-w-0 text-[12.5px] leading-5 text-vn-paper/85">
+          ? <FilePlus2 className="mt-0.5 h-4 w-4 shrink-0 text-[var(--ac-ink-2)]" aria-hidden="true" />
+          : <ReceiptText className="mt-0.5 h-4 w-4 shrink-0 text-[var(--ac-ink-2)]" aria-hidden="true" />}
+        <div className="min-w-0 text-[13px] leading-5">
           {data.mode === "create_new" ? (
-            <>Tạo phiếu mới rồi thanh toán{data.title ? <span className="block break-words text-vn-paper/60">{data.title}</span> : null}</>
+            <>Tạo phiếu mới rồi thanh toán{data.title ? <span className="ac-meta block break-words">{data.title}</span> : null}</>
           ) : (
-            <>Thanh toán phiếu đang chờ <span className="font-vnMono font-bold text-vn-paper">{data.requestNumber || "—"}</span>{data.title ? <span className="block break-words text-vn-paper/60">{data.title}</span> : null}</>
+            <>Thanh toán phiếu đang chờ <span className="ac-num font-semibold">{data.requestNumber || "—"}</span>{data.title ? <span className="ac-meta block break-words">{data.title}</span> : null}</>
           )}
         </div>
       </div>
 
-      <dl className="mt-2.5 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-[12px] leading-5">
-        {data.content ? <><dt className="text-vn-paper/50">Nội dung</dt><dd className="break-words text-vn-paper/85">{data.content}</dd></> : null}
-        <dt className="text-vn-paper/50">Ngày chuyển</dt><dd className="text-vn-paper/85">{formatDate(data.transferDate)}</dd>
-        {data.reference ? <><dt className="text-vn-paper/50">Mã GD</dt><dd className="break-all font-vnMono text-vn-paper/85">{data.reference}</dd></> : null}
-        {data.beneficiaryAccount ? <><dt className="text-vn-paper/50">TK nhận</dt><dd className="break-all font-vnMono text-vn-paper/85">{data.beneficiaryAccount}</dd></> : null}
+      <dl className="ac-facts mt-3">
+        {data.content ? <><dt>Nội dung</dt><dd>{data.content}</dd></> : null}
+        <dt>Ngày chuyển</dt><dd className="ac-num">{formatDate(data.transferDate)}</dd>
+        {data.reference ? <><dt>Mã GD</dt><dd className="ac-num">{data.reference}</dd></> : null}
+        {data.beneficiaryAccount ? <><dt>TK nhận</dt><dd className="ac-num">{data.beneficiaryAccount}</dd></> : null}
         {data.previous ? (
-          <><dt className="text-vn-paper/50">Kỳ trước</dt><dd className="break-words text-vn-paper/85" data-merchant-bank-slip-previous><span className="font-vnMono">{data.previous.requestNumber}</span> · <span className="whitespace-nowrap">{formatDate(data.previous.date)}</span> · <span className="whitespace-nowrap">{formatVnd(data.previous.amount)}</span></dd></>
+          <><dt>Kỳ trước</dt><dd data-merchant-bank-slip-previous><span className="ac-num">{data.previous.requestNumber}</span> · <span className="ac-num whitespace-nowrap">{formatDate(data.previous.date)}</span> · <span className="ac-num whitespace-nowrap">{formatVnd(data.previous.amount)}</span></dd></>
         ) : null}
       </dl>
 
-      <div className="mt-2.5 border-t border-vn-paper/10 pt-2.5">
-        <label className="block text-[11px] font-bold uppercase tracking-[0.08em] text-vn-paper/55" htmlFor={`slip-category-${data.changeId}`}>Loại chi phí</label>
+      <div className="ac-divide mt-3 pt-3">
+        <label className="ac-label block" htmlFor={`slip-category-${data.changeId}`}>Loại chi phí</label>
         {open && categoryOptions.length ? (
           <select
             id={`slip-category-${data.changeId}`}
-            className="mt-1 h-11 w-full rounded-xl border border-vn-paper/20 bg-vn-card2 px-3 text-base text-vn-paper outline-none transition focus:border-vn-lime sm:h-10 sm:text-[13px]"
+            className="ac-select"
             value={categoryCode}
             onChange={(event) => setCategoryCode(event.target.value)}
             disabled={busy}
@@ -207,52 +198,49 @@ export function BankSlipCard({
             {categoryOptions.map((row) => <option key={row.code} value={row.code}>{row.label}</option>)}
           </select>
         ) : (
-          <div className="mt-1 text-[13px] font-semibold text-vn-paper">{chosenLabel || "—"}</div>
+          <div className="ac-strong mt-1 text-[14px]">{chosenLabel || "—"}</div>
         )}
-        {open ? <div className="mt-1 text-[11.5px] leading-4 text-vn-paper/50" data-merchant-bank-slip-source>{sourceHint(data.category, categoryCode)}</div> : null}
+        {open ? <div className="ac-meta mt-1" data-merchant-bank-slip-source>{sourceHint(data.category, categoryCode)}</div> : null}
       </div>
 
       {open && data.warnings.length ? (
-        <ul className="mt-2.5 space-y-1 rounded-lg border border-amber-400/30 bg-amber-400/10 px-2.5 py-2" data-merchant-bank-slip-warnings>
+        <ul className="mt-3 space-y-1.5" data-merchant-bank-slip-warnings>
           {data.warnings.map((warning) => (
-            <li key={warning} className="flex gap-1.5 text-[12px] font-semibold leading-5 text-amber-200">
-              <AlertTriangle className="mt-[3px] h-3.5 w-3.5 shrink-0" />{WARNING_TEXT[warning] || warning}
-            </li>
+            <li key={warning} className="ac-notice"><AlertTriangle aria-hidden="true" />{WARNING_TEXT[warning] || warning}</li>
           ))}
         </ul>
       ) : null}
 
-      {status === "failed" && state?.error ? <div className="mt-2 text-[12px] leading-5 text-vn-red" role="alert">{state.error}</div> : null}
+      {status === "failed" && state?.error ? <div className="ac-fail" role="alert">{state.error}</div> : null}
 
       {status === "applied" ? (
-        <div className="mt-2.5 rounded-lg border border-vn-online/30 bg-vn-online/10 px-2.5 py-2 text-[12.5px] font-semibold leading-5 text-vn-paper" data-merchant-bank-slip-done>
-          <Check className="mr-1 inline h-4 w-4 align-[-3px] text-vn-online" />
-          Đã thanh toán{requestNumber ? <> <span className="font-vnMono">{requestNumber}</span></> : null} và ghi vào {chosenLabel || "chi phí"}. Nhóm Zalo duyệt chi sẽ nhận thông báo như các phiếu khác.
+        <div className="ac-done mt-3" data-merchant-bank-slip-done>
+          <Check aria-hidden="true" />
+          <span>Đã thanh toán{requestNumber ? <> <span className="ac-num font-semibold">{requestNumber}</span></> : null} và ghi vào {chosenLabel || "chi phí"}. Nhóm Zalo duyệt chi sẽ nhận thông báo như các phiếu khác.</span>
         </div>
       ) : null}
       {status === "applied" && docLink ? <DocButton doc={docLink} onOpen={onOpenDoc} /> : null}
 
       {open ? (
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          <Button
+        <div className="ac-actions">
+          <button
             type="button"
-            className="h-10 rounded-xl bg-vn-lime font-bold text-vn-ink hover:bg-vn-lime hover:brightness-105"
+            className="ac-btn ac-btn-primary"
             disabled={busy || !categoryCode}
             onClick={() => onApprove(categoryCode)}
             data-merchant-bank-slip-action="approve"
           >
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} {status === "failed" ? "Duyệt lại" : "Duyệt"}
-          </Button>
-          <Button
+            {busy ? <Loader2 className="animate-spin" /> : <Check />} {status === "failed" ? "Duyệt lại" : "Duyệt"}
+          </button>
+          <button
             type="button"
-            variant="outline"
-            className="h-10 rounded-xl border-vn-paper/20 bg-transparent font-bold text-vn-paper/80 hover:bg-vn-card hover:text-vn-paper"
+            className="ac-btn ac-btn-ghost"
             disabled={busy}
             onClick={onDiscard}
             data-merchant-bank-slip-action="discard"
           >
             Bỏ
-          </Button>
+          </button>
         </div>
       ) : null}
     </div>
@@ -263,14 +251,14 @@ function DocButton({ doc, onOpen }: { doc: DocLinkPayload; onOpen: (doc: DocLink
   return (
     <button
       type="button"
-      className="mt-2 flex min-h-[44px] w-full items-center gap-3 rounded-[12px] border border-vn-paper/[.14] bg-vn-card2 px-3 py-2 text-left transition hover:border-vn-lime active:scale-[0.99]"
+      className="ac-doc mt-2.5"
       onClick={() => onOpen(doc)}
       aria-label={`Mở phiếu ${doc.code}`}
       data-merchant-bank-slip-doc
     >
-      <span className="shrink-0 rounded-md bg-vn-cobalt/25 px-1.5 py-0.5 font-vnMono text-[10px] font-bold uppercase tracking-[0.08em] text-vn-paper/80">PR</span>
-      <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-vn-paper">{doc.title || doc.code}</span>
-      <span className="flex shrink-0 items-center gap-1 text-xs font-bold text-vn-lime">Mở phiếu<ExternalLink className="h-3.5 w-3.5" /></span>
+      <span className="ac-doc-kind">PR</span>
+      <span className="ac-doc-title">{doc.title || doc.code}</span>
+      <span className="ac-doc-open">Mở phiếu<ExternalLink aria-hidden="true" /></span>
     </button>
   );
 }

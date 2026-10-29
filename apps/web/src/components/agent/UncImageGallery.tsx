@@ -41,11 +41,11 @@ export function UncImageGallery({images,language,ownerId}:{images?:UncImage[];la
   },[images,ownerId,retry,language]);
   if(!images?.length)return null;
   return <div data-bmq-unc-images="private-v1" className="mt-3 space-y-3 whitespace-normal">
-    {images.map((image,index)=><figure key={`${image.declarationId}:${image.id}`} className="min-w-0 rounded-xl border border-vn-paper/10 bg-vn-card2 p-2">
+    {images.map((image,index)=><figure key={`${image.declarationId}:${image.id}`} className="min-w-0 rounded-[12px] bg-[var(--ac-well,#f7f7f5)] p-2">
       {loaded[image.id]?<button type="button" className="block min-h-11 w-full" onClick={()=>setExpanded(expanded===image.id?null:image.id)} aria-expanded={expanded===image.id} aria-label={`${en?'View UNC image':'Xem ảnh UNC'} ${index+1}`}>
         <img src={loaded[image.id]} alt={`UNC ${image.date.split('-').reverse().join('/')}, ${index+1}`} onError={()=>{setLoaded(current=>{const next={...current};delete next[image.id];return next;});setFailed(current=>[...current,image.id]);}} className={`mx-auto h-auto max-w-full rounded-lg object-contain ${expanded===image.id?'':'max-h-72'}`} />
-      </button>:failed.includes(image.id)?<div role="status" className="text-sm"><p>{en?'Could not load this image. Check your sign-in and retry.':'Chưa tải được ảnh. Kiểm tra đăng nhập rồi thử lại.'}</p><button type="button" className="min-h-11 font-semibold text-vn-lime underline" onClick={()=>setRetry(n=>n+1)}>{en?'Retry':'Thử lại'}</button></div>:<p role="status" className="min-h-11 text-sm">{en?'Loading image…':'Đang tải ảnh…'}</p>}
-      <figcaption className="mt-2 font-vnMono text-[10px] tracking-[0.06em] text-vn-paper/50">UNC · {image.date.split('-').reverse().join('/')} · {index+1}/{images.length}</figcaption>
+      </button>:failed.includes(image.id)?<div role="status" className="text-[13px] text-[var(--ac-ink,#272727)]"><p>{en?'Could not load this image. Check your sign-in and retry.':'Chưa tải được ảnh. Kiểm tra đăng nhập rồi thử lại.'}</p><button type="button" className="min-h-11 font-medium text-[var(--ac-ink,#272727)] underline underline-offset-2" onClick={()=>setRetry(n=>n+1)}>{en?'Retry':'Thử lại'}</button></div>:<p role="status" className="min-h-11 text-[13px] text-[var(--ac-dim,#6b6b69)]">{en?'Loading image…':'Đang tải ảnh…'}</p>}
+      <figcaption className="mt-2 text-[12px] text-[var(--ac-dim,#6b6b69)] [font-variant-numeric:tabular-nums]">UNC · {image.date.split('-').reverse().join('/')} · {index+1}/{images.length}</figcaption>
     </figure>)}
   </div>;
 }

@@ -310,8 +310,8 @@ html.bmq-d3 [role="dialog"]:focus { outline: none; --tw-ring-shadow: 0 0 #0000; 
 
 /* Dialog content kit: portalled dialogs sit outside .d3-screen, so the page kit below never
    reached them (owner IMG_5997: "Sửa lệnh sản xuất" kept the old heavy theme on iPhone).
-   The VNAgent chat sheet is also a Radix dialog but keeps its own dark theme, so the font,
-   weight, caption and field rules skip it (owner IMG_6026: its composer became a white bar). */
+   The VNAgent chat sheet is also a Radix dialog but styles itself in bmq-agent-chat.css (same
+   tokens), so the font, weight, caption and field rules skip it (owner IMG_6026). */
 html.bmq-d3 [role="dialog"]:where(:not([data-merchant-agent-chat])) { font-family: var(--d3-sans); color: var(--d3-ink); }
 /* Titles: left-aligned, light, sized for a phone, and clear of the 40px close key. */
 html.bmq-d3 [role="dialog"] > div > h2:not([class*="d3-"]) {

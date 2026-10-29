@@ -32,10 +32,10 @@ type CostBusinessCardProps = {
 };
 
 const STATUS_STYLE: Record<string, string> = {
-  needs_review: "border-amber-300/40 bg-amber-300/10 text-amber-200",
-  suggested: "border-sky-300/40 bg-sky-300/10 text-sky-200",
-  approved: "border-emerald-300/40 bg-emerald-300/10 text-emerald-200",
-  rejected: "border-rose-300/40 bg-rose-300/10 text-rose-200",
+  needs_review: "is-warn",
+  suggested: "is-info",
+  approved: "is-pos",
+  rejected: "is-neg",
 };
 
 // Disclosed meaning of the one selection rule the backend accepts. The exact rule
@@ -63,8 +63,8 @@ function formatVnd(amount: number, language: CostBlockLanguage) {
 function Detail({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
-      <dt className="font-vnMono text-[10px] font-medium uppercase tracking-[0.12em] text-vn-paper/45">{label}</dt>
-      <dd className="mt-0.5 break-words text-[13px] font-semibold text-vn-paper">{value}</dd>
+      <dt className="ac-label">{label}</dt>
+      <dd className="ac-strong mt-0.5 break-words text-[13px]">{value}</dd>
     </div>
   );
 }
@@ -84,7 +84,7 @@ function SourceDetails({ block, language }: { block: CostLineBlock; language: Co
   const selectionRuleNote = block.source.selectionRule ? SELECTION_RULE_NOTES[block.source.selectionRule]?.[language] : undefined;
 
   return (
-    <div className="mt-2 space-y-2 break-words px-3.5 pb-3 text-vn-paper/60">
+    <div className="ac-meta space-y-2 break-words px-3 pb-3">
       <dl className="grid grid-cols-1 gap-x-3 gap-y-2 sm:grid-cols-2">
         {block.line.sourceNumber ? <Detail label={labels.document} value={block.line.sourceNumber} /> : null}
         {block.line.categoryLabel || block.line.categoryCode ? <Detail label={labels.category} value={category} /> : null}
@@ -94,7 +94,7 @@ function SourceDetails({ block, language }: { block: CostLineBlock; language: Co
 
       {rule ? (
         <div>
-          <div className="font-vnMono text-[10px] font-semibold uppercase tracking-[0.12em] text-vn-paper/45">{labels.rule}</div>
+          <div className="ac-label font-medium">{labels.rule}</div>
           <div className="mt-0.5">
             {rule.name} · {rule.scope} · {labels.priority} {rule.priority} · {labels.ruleConfidence} {rule.confidence}
             {rule.effectiveFrom ? ` · ${rule.effectiveFrom} → ${rule.effectiveTo ?? labels.openEnded}` : ""}
@@ -104,7 +104,7 @@ function SourceDetails({ block, language }: { block: CostLineBlock; language: Co
 
       {alias ? (
         <div>
-          <div className="font-vnMono text-[10px] font-semibold uppercase tracking-[0.12em] text-vn-paper/45">{labels.alias}</div>
+          <div className="ac-label font-medium">{labels.alias}</div>
           <div className="mt-0.5">{alias.sourceName} → {alias.standardCode} · {alias.canonicalName}</div>
         </div>
       ) : block.evidence.aliasStatus ? (
@@ -113,8 +113,8 @@ function SourceDetails({ block, language }: { block: CostLineBlock; language: Co
 
       {block.notes.length ? (
         <div data-bmq-cost-notes>
-          <div className="font-vnMono text-[10px] font-semibold uppercase tracking-[0.12em] text-vn-paper/45">{labels.notes}</div>
-          <ul className="mt-1 space-y-1.5 text-xs leading-relaxed text-vn-paper/75">
+          <div className="ac-label font-medium">{labels.notes}</div>
+          <ul className="mt-1 space-y-1.5 text-[12px] leading-relaxed text-[var(--ac-ink-2)]">
             {block.notes.map((note, index) => <li key={index} className="break-words">- {note}</li>)}
           </ul>
         </div>
@@ -129,7 +129,7 @@ function SourceDetails({ block, language }: { block: CostLineBlock; language: Co
         {selectionRuleNote ? <div>{selectionRuleNote}</div> : null}
         {block.source.matchCount !== null ? <div>{labels.matchCount}: {block.source.matchCount}</div> : null}
         {block.source.truncated ? <div>{labels.truncated}</div> : null}
-        <div className="text-vn-paper/45">{block.source.disclaimer}</div>
+        <div>{block.source.disclaimer}</div>
       </div>
     </div>
   );
@@ -138,13 +138,13 @@ function SourceDetails({ block, language }: { block: CostLineBlock; language: Co
 function SourceDisclosure({ block, language }: { block: CostLineBlock; language: CostBlockLanguage }) {
   const labels = COST_BLOCK_LABELS[language];
   return (
-    <details data-bmq-cost-source className="border-t border-vn-paper/10 text-xs">
-      <summary className="flex min-h-[44px] cursor-pointer list-none items-center justify-between gap-2 px-3.5 font-semibold text-vn-lime">
+    <details data-bmq-cost-source className="ac-details ac-divide">
+      <summary className="px-3">
         <span className="flex items-center gap-1.5">
-          <FileText className="h-4 w-4" aria-hidden="true" />
+          <FileText className="h-4 w-4 text-[var(--ac-ink-2)]" aria-hidden="true" />
           <span>{labels.source}</span>
         </span>
-        <ChevronDown className="h-4 w-4" aria-hidden="true" />
+        <ChevronDown aria-hidden="true" />
       </summary>
       <SourceDetails block={block} language={language} />
     </details>
@@ -165,22 +165,19 @@ export function CostBusinessCard({ block, language, followUpEnabled, followUpDis
       <div
         data-bmq-business-block="cost-line-v1"
         data-bmq-business-block-mode="explanation"
-        className={cn(
-          "overflow-hidden rounded-2xl border px-3.5 py-3",
-          status === "needs_review" ? "border-amber-300/35 bg-amber-300/[.08] text-amber-100" : "border-sky-300/35 bg-sky-300/[.08] text-sky-100",
-        )}
+        className="overflow-hidden rounded-[12px] bg-[var(--ac-well)] px-3 py-3 text-[var(--ac-ink)]"
       >
         <div className="flex items-center gap-2">
-          <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
-          <h3 data-bmq-cost-label className="text-xs font-bold uppercase tracking-[0.12em]">{costBlockHeading(block, language)}</h3>
+          <AlertTriangle className={cn("h-4 w-4 shrink-0", status === "needs_review" ? "text-[#92400e]" : "text-[var(--ac-ink-2)]")} aria-hidden="true" />
+          <h3 data-bmq-cost-label className="m-0 text-[13px] font-semibold">{costBlockHeading(block, language)}</h3>
         </div>
         <div className="mt-1.5 space-y-1">
-          {summary.map((line) => <p key={line} data-bmq-cost-label className="text-sm leading-relaxed">{line}</p>)}
-          {warning ? <p data-bmq-cost-warning data-bmq-cost-label className="text-sm font-semibold leading-relaxed">{warning}</p> : null}
-          <p data-bmq-cost-label className="text-xs leading-relaxed opacity-80">{labels.openSourceHint}</p>
+          {summary.map((line) => <p key={line} data-bmq-cost-label className="m-0 text-[13px] leading-relaxed">{line}</p>)}
+          {warning ? <p data-bmq-cost-warning data-bmq-cost-label className="m-0 text-[13px] font-semibold leading-relaxed text-[#92400e]">{warning}</p> : null}
+          <p data-bmq-cost-label className="ac-meta m-0">{labels.openSourceHint}</p>
         </div>
-        <div data-bmq-cost-row-identity className="mt-2 break-words text-xs opacity-80">{identity}</div>
-        <div className="mt-2 -mx-3.5">
+        <div data-bmq-cost-row-identity className="ac-meta ac-num mt-2 break-words">{identity}</div>
+        <div className="-mx-3 mt-2">
           <SourceDisclosure block={block} language={language} />
         </div>
       </div>
@@ -193,48 +190,48 @@ export function CostBusinessCard({ block, language, followUpEnabled, followUpDis
     <article
       data-bmq-business-block="cost-line-v1"
       data-bmq-business-block-mode={block.mode}
-      className="overflow-hidden rounded-2xl border border-vn-paper/[.18] bg-vn-card text-vn-paper"
+      className="overflow-hidden rounded-[12px] bg-[var(--ac-well)] text-[var(--ac-ink)]"
     >
-      <header className="flex items-start justify-between gap-2 border-b border-vn-paper/10 px-3.5 pb-2.5 pt-3">
+      <header className="flex items-start justify-between gap-2 px-3 pb-2 pt-3">
         <div className="min-w-0">
-          <h3 data-bmq-cost-label className="font-vnMono text-[11px] font-semibold uppercase tracking-[0.14em] text-vn-paper/60">{labels.title}</h3>
-          <div className="mt-0.5 font-vnMono text-[10px] font-medium uppercase tracking-[0.12em] text-vn-paper/40">{labels.example}</div>
+          <h3 data-bmq-cost-label className="m-0 text-[13px] font-semibold">{labels.title}</h3>
+          <div className="ac-meta mt-0.5">{labels.example}</div>
         </div>
         {statusLabel ? (
-          <span data-bmq-cost-label className={cn("shrink-0 rounded-full border px-2 py-0.5 text-xs font-semibold", STATUS_STYLE[status] ?? "border-vn-paper/[.18] bg-vn-card2 text-vn-paper/70")}>{statusLabel}</span>
+          <span data-bmq-cost-label className={cn("ac-pill", STATUS_STYLE[status] ?? "")}>{statusLabel}</span>
         ) : null}
       </header>
 
-      <div className="grid grid-cols-2 gap-x-3 border-b border-vn-paper/10 px-3.5 py-2.5">
+      <div className="grid grid-cols-2 gap-x-3 px-3 pb-2">
         <div className="min-w-0">
-          <div data-bmq-cost-label className="font-vnMono text-[10px] font-medium uppercase tracking-[0.12em] text-vn-paper/45">{labels.date}</div>
-          <div className="mt-0.5 break-words text-sm font-semibold">{date ?? labels.missing}</div>
+          <div data-bmq-cost-label className="ac-label">{labels.date}</div>
+          <div className="ac-num mt-0.5 break-words text-[13px] font-semibold">{date ?? labels.missing}</div>
         </div>
         <div className="min-w-0">
-          <div data-bmq-cost-label className="font-vnMono text-[10px] font-medium uppercase tracking-[0.12em] text-vn-paper/45">{labels.supplier}</div>
-          <div className="mt-0.5 break-words text-sm font-semibold">{text(block.line.supplierName, labels.missing)}</div>
+          <div data-bmq-cost-label className="ac-label">{labels.supplier}</div>
+          <div className="mt-0.5 break-words text-[13px] font-semibold">{text(block.line.supplierName, labels.missing)}</div>
         </div>
       </div>
 
-      <div className="mx-3.5 my-3 overflow-hidden rounded-xl border border-vn-paper/10">
-        <div className="grid grid-cols-[1fr_auto] items-center bg-vn-card2">
-          <div data-bmq-cost-label className="px-3 py-1.5 font-vnMono text-[10px] font-medium uppercase tracking-[0.12em] text-vn-paper/50">{labels.item}</div>
-          <div data-bmq-cost-label className="px-3 py-1.5 text-right font-vnMono text-[10px] font-medium uppercase tracking-[0.12em] text-vn-paper/50">{labels.amount}</div>
+      <div className="mx-3 mb-3 overflow-hidden rounded-[10px] bg-[var(--ac-surface)]">
+        <div className="grid grid-cols-[1fr_auto] items-center border-b border-[var(--ac-line)]">
+          <div data-bmq-cost-label className="ac-label px-3 py-1.5">{labels.item}</div>
+          <div data-bmq-cost-label className="ac-label px-3 py-1.5 text-right">{labels.amount}</div>
         </div>
         <div className="grid grid-cols-[1fr_auto] items-center">
-          <div className="min-w-0 break-words px-3 py-2.5 text-sm font-semibold">{text(block.line.productName, labels.missing)}</div>
-          <b data-bmq-cost-amount className="break-all px-3 py-2.5 text-right font-vnMono text-lg font-semibold tabular-nums tracking-tight text-vn-lime">{formatVnd(block.line.amount, language)}</b>
+          <div className="min-w-0 break-words px-3 py-2.5 text-[13px] font-semibold">{text(block.line.productName, labels.missing)}</div>
+          <b data-bmq-cost-amount className="ac-value-sm break-all px-3 py-2.5 text-right">{formatVnd(block.line.amount, language)}</b>
         </div>
       </div>
 
       {warning ? (
-        <div data-bmq-cost-warning className="mx-3.5 mb-3 flex items-start gap-2 rounded-xl border border-amber-300/35 bg-amber-300/10 px-3 py-2 text-amber-100">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-          <span data-bmq-cost-label className="text-xs font-medium leading-relaxed">{warning}</span>
+        <div data-bmq-cost-warning className="ac-notice mx-3 mb-3">
+          <AlertTriangle aria-hidden="true" />
+          <span data-bmq-cost-label>{warning}</span>
         </div>
       ) : null}
 
-      <div className="border-t border-vn-paper/10">
+      <div className="ac-divide">
         <button
           type="button"
           data-bmq-cost-followup
@@ -242,14 +239,14 @@ export function CostBusinessCard({ block, language, followUpEnabled, followUpDis
           disabled={!followUpEnabled}
           title={followUpEnabled ? undefined : followUpDisabledReason || labels.followUpDisabled}
           className={cn(
-            "flex min-h-[44px] w-full items-center gap-1.5 px-3.5 text-left text-xs font-semibold transition",
-            followUpEnabled ? "text-vn-lime hover:bg-vn-lime/[.08]" : "cursor-not-allowed text-vn-paper/35",
+            "flex min-h-[44px] w-full items-center gap-1.5 px-3 text-left text-[13px] font-medium transition-colors",
+            followUpEnabled ? "text-[var(--ac-ink)] hover:bg-[var(--ac-surface)]" : "cursor-not-allowed text-[var(--ac-dim)]",
           )}
         >
           <HelpCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
           <span data-bmq-cost-label>{labels.followUp}</span>
         </button>
-        {!followUpEnabled && followUpDisabledReason ? <div className="px-3.5 pb-2 text-[11px] text-vn-paper/45">{followUpDisabledReason}</div> : null}
+        {!followUpEnabled && followUpDisabledReason ? <div className="ac-meta px-3 pb-2">{followUpDisabledReason}</div> : null}
       </div>
 
       <SourceDisclosure block={block} language={language} />

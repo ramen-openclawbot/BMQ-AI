@@ -268,7 +268,8 @@ async function open(viewport) {
       const pathName = new URL(url).pathname;
       const body = r.request().postDataJSON?.() || {};
       calls.push({ path: pathName, body, auth: r.request().headers()["authorization"] });
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      // Slip messages wait longer so the upload progress strip can be observed.
+      await new Promise((resolve) => setTimeout(resolve, Array.isArray(body.attachments) && body.attachments.length ? 900 : 200));
       if (pathName === "/v1/chat") { const answer = reply(body); return r.fulfill({ status: answer.status, headers, body: JSON.stringify(answer.json) }); }
       if (pathName === "/v1/changes/slip-1/approve") return r.fulfill({ status: 200, headers, body: JSON.stringify({ change_id: "slip-1", kind: "bank_slip_payment", status: "applied", request_number: "PR-MV6VLC9E", doc_link: SLIP_DOC, classification: "applied" }) });
       if (pathName.endsWith("/approve")) return r.fulfill({ status: 200, headers, body: JSON.stringify({ ...CHANGE, status: "applied" }) });
@@ -298,6 +299,10 @@ try {
   for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 640 }, { width: 1440, height: 900 }]) {
     const tag = viewport.width;
     const { context, page, errors, calls } = await open(viewport);
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: `${EVIDENCE}/launcher-page-${tag}.png` });
+    const launcherBox = await page.locator("[data-merchant-agent-launcher]").boundingBox();
+    assert.ok(launcherBox && Math.round(launcherBox.width) === 60 && launcherBox.x + launcherBox.width <= viewport.width, `launcher 60px inside the viewport ${tag}`);
     await page.locator("[data-merchant-agent-launcher]").click();
     await panel(page).waitFor();
     // Starters follow the page: /mini-crm has its own CRM set.
@@ -320,9 +325,26 @@ try {
       };
     });
     assert.equal(look.composerBg, "rgba(0, 0, 0, 0)", `composer stays transparent ${tag}`);
-    assert.ok(look.sheetFont?.startsWith("Archivo"), `chat keeps its Archivo font ${tag}: ${look.sheetFont}`);
-    assert.equal(look.titleWeight, "900", `VNAGENT title keeps its weight ${tag}`);
-    assert.equal(look.captionCase, "uppercase", `starter caption stays in caps ${tag}`);
+    assert.ok(look.sheetFont?.startsWith('"Be Vietnam Pro"') || look.sheetFont?.startsWith("Be Vietnam Pro"), `chat uses the BMQ app font ${tag}: ${look.sheetFont}`);
+    assert.equal(look.titleWeight, "600", `VNAgent title weight ${tag}`);
+    assert.equal(look.captionCase, "none", `starter caption in sentence case ${tag}`);
+    // BMQ theme (owner 30/10): pink BMQ badge in the header and on the launcher, light sheet.
+    const theme = await page.evaluate(() => {
+      const sheet = document.querySelector("[data-merchant-agent-chat]");
+      return {
+        sheetBg: getComputedStyle(sheet).backgroundColor,
+        logo: document.querySelector("[data-merchant-agent-logo]")?.getAttribute("src"),
+        launcherLogo: document.querySelector("[data-merchant-agent-launcher] img")?.getAttribute("src"),
+        logoLoaded: (() => { const img = document.querySelector("[data-merchant-agent-logo]"); return Boolean(img && img.complete && img.naturalWidth > 0); })(),
+        defaultCloseShown: Array.from(sheet.children).some((el) => el.tagName === "BUTTON" && el.querySelector(".sr-only") && getComputedStyle(el).display !== "none"),
+        composerHeight: document.querySelector("[aria-label='Tin nhắn cho VNAgent']").getBoundingClientRect().height,
+      };
+    });
+    assert.equal(theme.sheetBg, "rgb(236, 236, 234)", `sheet uses the app panel colour ${tag}: ${theme.sheetBg}`);
+    assert.ok(theme.logo?.includes("/assets/brand/bmq-logo") && theme.launcherLogo?.includes("/assets/brand/bmq-logo"), "BMQ badge in header and launcher");
+    assert.ok(theme.logoLoaded, "BMQ badge image loads");
+    assert.equal(theme.defaultCloseShown, false, `only the header close key shows ${tag}`);
+    assert.equal(theme.composerHeight, 24, `empty composer is one line ${tag}`);
     record(`chat keeps its own theme inside the dialog kit ${tag}`);
     await page.waitForTimeout(400);
     await page.screenshot({ path: `${EVIDENCE}/empty-${tag}.png` });
@@ -363,7 +385,7 @@ try {
     await page.screenshot({ path: `${EVIDENCE}/sushi-${tag}.png` });
     const panelText = await panel(page).textContent();
     for (const internal of ["Sushi", "Claude", "Haiku", "dữ liệu BMQ"]) assert.ok(!panelText.includes(internal), `no internal name "${internal}" in the chat UI`);
-    assert.ok(panelText.includes("AGENT"), "VNAgent wordmark shown");
+    assert.ok(panelText.includes("VNAgent"), "VNAgent name shown");
     record(`Sushi answer card ${tag}`);
 
     await ask(page, "Soạn thông báo khuyến mãi tuần này");
@@ -392,11 +414,21 @@ try {
     assert.ok(await page.locator("[data-merchant-send]").isEnabled(), "an image alone can be sent");
     await page.waitForTimeout(400);
     const sendBg = await page.locator("[data-merchant-send]").evaluate((el) => getComputedStyle(el).backgroundColor);
-    assert.equal(sendBg, "rgb(214, 243, 60)", `send key turns lime with only an image ${tag}: ${sendBg}`);
+    assert.equal(sendBg, "rgb(39, 39, 39)", `send key turns ink with only an image ${tag}: ${sendBg}`);
+    assert.ok((await page.locator("[data-merchant-pending-image]").textContent()).includes("1 ảnh"), "pending card header counts the image");
+    await page.locator("[data-merchant-view-image]").click();
+    const viewerEl = page.locator("[data-merchant-image-viewer]");
+    await viewerEl.waitFor();
+    await page.screenshot({ path: `${EVIDENCE}/slip-viewer-${tag}.png` });
+    await page.locator("[data-merchant-viewer-close]").click();
+    await viewerEl.waitFor({ state: "hidden" });
+    record(`pending image: header, View opens the viewer ${tag}`);
     assert.ok(await overflow(page) <= 0, `no overflow with a pending image ${tag}`);
     await page.screenshot({ path: `${EVIDENCE}/slip-pending-${tag}.png` });
     const chatCallsBefore = calls.filter((c) => c.path === "/v1/chat").length;
     await page.locator("[data-merchant-send]").click();
+    await page.locator("[data-merchant-upload-progress]").waitFor({ timeout: 3000 });
+    await page.screenshot({ path: `${EVIDENCE}/slip-uploading-${tag}.png` });
     const slipCard = page.locator("[data-merchant-bank-slip='slip-1']");
     await slipCard.waitFor({ timeout: 10000 });
     const slipCall = calls.filter((c) => c.path === "/v1/chat")[chatCallsBefore];
@@ -406,7 +438,15 @@ try {
     assert.equal(slipCall.body.attachments[0].mime_type, "image/jpeg", "slip re-encoded to JPEG");
     assert.ok(slipCall.body.attachments[0].data_base64.length > 1000 && slipCall.body.attachments[0].data_base64.length < 8_000_000, "base64 image within the 6 MB limit");
     assert.equal(await page.locator("[data-merchant-pending-image]").count(), 0, "composer cleared after sending");
-    assert.ok((await page.locator("[data-merchant-message-attachment]").last().textContent()).length > 0, "user bubble names the image");
+    assert.equal(await page.locator("[data-merchant-upload-progress]").count(), 0, "progress strip gone after the reply");
+    const sentImage = page.locator("[data-merchant-message-attachment='image'] img").last();
+    assert.ok((await sentImage.getAttribute("src")).startsWith("data:image/jpeg"), "sent bubble shows the prepared slip");
+    await page.locator("[data-merchant-message-attachment='image']").last().click();
+    await viewerEl.waitFor();
+    await page.keyboard.press("Escape");
+    await viewerEl.waitFor({ state: "hidden" });
+    assert.ok(await panel(page).isVisible(), "Escape closes the image, not the chat");
+    record(`sent slip thumbnail opens the viewer; Escape keeps the chat ${tag}`);
     const slipText = await slipCard.textContent();
     for (const expected of ["20.000.000 đ", "Lại Đình Tuấn", "PR-MV6VLC9E", "29/10/2026", "6087660296", "PR-MT71Z1SX", "24/08/2026", "Học từ PR-MV6VLC9E", "đối chiếu lại số tiền"]) {
       assert.ok(slipText.includes(expected), `slip card shows "${expected}"`);
