@@ -353,6 +353,77 @@ test("parses the catalog with items, blockers, delivery and prepay", () => {
   assert.equal(parseSupplierOrderCatalog({ items: [] })?.items.length, 0);
 });
 
+test("parses learned supplier mismatch and price outlier fields", () => {
+  const catalog = parseSupplierOrderCatalog({
+    items: [
+      {
+        catalog_id: "cat-1",
+        item: { id: "item-1", name: "Tương ớt", code: "TUONG-OT", unit: "gói" },
+        po_unit: "thùng",
+        po_unit_factor: "24",
+        stock: {},
+        proposal_qty: "0",
+        learned_supplier_mismatch: true,
+        learned_supplier: { id: "sup-2", name: "Cholimex" },
+        price_outlier: true,
+        reference_price: {
+          supplier_id: "sup-2",
+          supplier_name: "Cholimex",
+          unit_price: "124800",
+        },
+      },
+    ],
+  });
+
+  assert.ok(catalog);
+  assert.equal(catalog.items[0].learnedSupplierMismatch, true);
+  assert.deepEqual(catalog.items[0].learnedSupplier, {
+    id: "sup-2",
+    name: "Cholimex",
+  });
+  assert.equal(catalog.items[0].priceOutlier, true);
+  assert.deepEqual(catalog.items[0].referencePrice, {
+    supplierId: "sup-2",
+    supplierName: "Cholimex",
+    unitPrice: 124800,
+  });
+});
+
+test("defaults learned supplier guard fields when absent", () => {
+  const catalog = parseSupplierOrderCatalog({
+    items: [
+      {
+        catalog_id: "cat-2",
+        item: { id: "item-2", name: "Bột mì", code: "MI-1", unit: "g" },
+        po_unit: "kg",
+        po_unit_factor: "1000",
+        stock: {},
+        proposal_qty: "1",
+      },
+      {
+        catalog_id: "cat-3",
+        item: { id: "item-3", name: "Đường", code: "DUONG-1", unit: "g" },
+        po_unit: "kg",
+        po_unit_factor: "1000",
+        stock: {},
+        proposal_qty: "1",
+        learned_supplier_mismatch: "yes",
+        learned_supplier: "not-an-object",
+        price_outlier: null,
+        reference_price: {},
+      },
+    ],
+  });
+
+  assert.ok(catalog);
+  for (const item of catalog.items) {
+    assert.equal(item.learnedSupplierMismatch, false);
+    assert.equal(item.learnedSupplier, null);
+    assert.equal(item.priceOutlier, false);
+    assert.equal(item.referencePrice, null);
+  }
+});
+
 test("parses prepay official invoice when present", () => {
   const catalog = parseSupplierOrderCatalog({
     prepay: {

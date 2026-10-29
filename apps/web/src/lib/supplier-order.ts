@@ -149,6 +149,14 @@ export type SupplierOrderCatalogItem = {
   unitPrice: number | null;
   unitPriceGross: number | null;
   openOrder: SupplierOrderCatalogOpenOrder | null;
+  learnedSupplierMismatch: boolean;
+  learnedSupplier: { id: string; name: string } | null;
+  priceOutlier: boolean;
+  referencePrice: {
+    supplierId: string;
+    supplierName: string;
+    unitPrice: number;
+  } | null;
 };
 
 export type SupplierOrderOfficialInvoice = {
@@ -600,6 +608,29 @@ export function parseSupplierOrderUploadSummary(value: unknown): SupplierOrderUp
   };
 }
 
+function parseLearnedSupplier(value: unknown): { id: string; name: string } | null {
+  const row = asRecord(value);
+  const id = asNullableText(row.id);
+  if (id === null) return null;
+  return { id, name: asText(row.name) };
+}
+
+function parseReferencePrice(value: unknown): {
+  supplierId: string;
+  supplierName: string;
+  unitPrice: number;
+} | null {
+  const row = asRecord(value);
+  const supplierId = asNullableText(row.supplier_id);
+  const unitPrice = asNumber(row.unit_price);
+  if (supplierId === null || unitPrice === null) return null;
+  return {
+    supplierId,
+    supplierName: asText(row.supplier_name),
+    unitPrice,
+  };
+}
+
 function parseCatalogItem(value: unknown): SupplierOrderCatalogItem | null {
   const row = asRecord(value);
   if (Object.keys(row).length === 0) return null;
@@ -645,6 +676,10 @@ function parseCatalogItem(value: unknown): SupplierOrderCatalogItem | null {
           unit: asNullableText(open.unit),
           sentAt: asNullableText(open.sent_at),
         },
+    learnedSupplierMismatch: row.learned_supplier_mismatch === true,
+    learnedSupplier: parseLearnedSupplier(row.learned_supplier),
+    priceOutlier: row.price_outlier === true,
+    referencePrice: parseReferencePrice(row.reference_price),
   };
 }
 

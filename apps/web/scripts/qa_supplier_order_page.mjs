@@ -56,8 +56,10 @@ function catalog(id) {
     none.stock = { ...none.stock, on_hand: null, days_left: null };
     const decal = { ...line("5a1e0000-0000-4000-8000-000000000013", "Giấy decal PVC", "Giấy decal PVC 90x60x50m", 0, 0, 0, 150000, null, 0), location: "q7", estimated: false };
     decal.stock = { ...decal.stock, last_count_date: null, days_left: null };
+    Object.assign(tt, { learned_supplier_mismatch: true, learned_supplier: { id: "5a1e0000-0000-4000-8000-0000000000c1", name: "Cholimex" } });
+    const outlier = { ...line("5a1e0000-0000-4000-8000-000000000014", "Tương ớt gói 10g", "T. Ốt gói 10g", 0, 0, 0, 432000, null, 0), location: "q7", estimated: false, price_outlier: true, reference_price: { supplier_id: "5a1e0000-0000-4000-8000-0000000000c2", supplier_name: "Cholimex", unit_price: 500 } };
     const email = localStorage.getItem("qa-mega-email");
-    return { supplier: { id: MG, name: "Mega Market", email }, delivery, mailbox_connected: true, blockers: email ? [] : ["no_supplier_email"], items: [tt, none, decal], prepay: null };
+    return { supplier: { id: MG, name: "Mega Market", email }, delivery, mailbox_connected: true, blockers: email ? [] : ["no_supplier_email"], items: [tt, none, decal, outlier], prepay: null };
   }
   if (id === PT) {
     const items = [
@@ -490,7 +492,7 @@ try {
     await page.waitForSelector("[data-bmq-so-email-form]");
     assert.equal(await page.locator("[data-bmq-so-suppliers]").isVisible(), wide, `list stays only when wide @${vp.width}`);
     const card = await page.locator("[data-bmq-so-card]").innerText();
-    for (const text of ["Đơn mới cho Mega Market", "chưa có email", "Tồn Tân Tạo", "(ước lượng)", "chưa có số tồn", "chưa có lượng dùng để đề xuất", "Nhà cung cấp chưa có email đặt hàng"]) {
+    for (const text of ["Đơn mới cho Mega Market", "chưa có email", "Tồn Tân Tạo", "(ước lượng)", "chưa có số tồn", "chưa có lượng dùng để đề xuất", "Nhà cung cấp chưa có email đặt hàng", "kho thường đặt món này ở Cholimex, không tự đề xuất", "không tự đề xuất vì giá lệch xa", "lệch quá 3 lần so với Cholimex (500 đ/"]) {
       assert.ok(card.includes(text), `Mega card shows "${text}" @${vp.width}: ${card}`);
     }
     assert.ok(await page.locator("[data-bmq-so-make]").isDisabled(), "no email: Lập phiếu disabled");
@@ -577,7 +579,7 @@ try {
     await failing.page.waitForSelector("[data-bmq-so-preview]");
     await failing.page.locator("[data-bmq-so-send]").click();
     await failing.page.waitForSelector("[data-bmq-so-send-error]");
-    assert.match(await failing.page.locator("[data-bmq-so-send-error]").innerText(), /Chưa gửi được email\. Bấm gửi lại\./);
+    assert.match(await failing.page.locator("[data-bmq-so-send-error]").innerText(), /Chưa gửi được email, đơn chưa được tạo\. Bấm gửi lại\./);
     assert.ok(await failing.page.locator("[data-bmq-so-send]").isEnabled(), "retry stays possible");
     await failing.context.close();
     pass(`forbidden, mailbox blocked, send failure @${vp.width}`);

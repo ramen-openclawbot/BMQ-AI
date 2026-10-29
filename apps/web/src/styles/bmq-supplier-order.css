@@ -391,3 +391,4 @@ html.bmq-d3 .d3-so-back {
 }
 .d3-so-prepay-inv.is-ok { color: var(--kho-ok); background: var(--kho-ok-bg); }
 .d3-so-prepay-inv.is-warn { color: var(--kho-warn); background: var(--kho-warn-bg); }
+.d3-so-open.d3-so-price-warn { color: var(--kho-bad); background: var(--kho-bad-bg); }

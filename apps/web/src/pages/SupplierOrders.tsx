@@ -250,10 +250,23 @@ function OrderLine({ item, supplierId, qtyText, onQty, editing, onRemove, removi
         </small>
         <p className="d3-so-stock">
           {stockLine(item)}
-          <span className="d3-so-proposal"> · {item.proposalQty > 0
-            ? `đề xuất ${formatQuantity(item.proposalQty)} ${item.poUnit}`
-            : item.stock.dailyUsage <= 0 ? "chưa có lượng dùng để đề xuất" : "chưa cần đặt"}</span>
+          {item.learnedSupplierMismatch ? (
+            <span className="d3-so-proposal" data-bmq-so-learned-elsewhere>
+              {" "}· kho thường đặt món này ở {item.learnedSupplier?.name || "NCC khác"}, không tự đề xuất
+            </span>
+          ) : item.priceOutlier ? (
+            <span className="d3-so-proposal"> · không tự đề xuất vì giá lệch xa</span>
+          ) : (
+            <span className="d3-so-proposal"> · {item.proposalQty > 0
+              ? `đề xuất ${formatQuantity(item.proposalQty)} ${item.poUnit}`
+              : item.stock.dailyUsage <= 0 ? "chưa có lượng dùng để đề xuất" : "chưa cần đặt"}</span>
+          )}
         </p>
+        {item.priceOutlier && item.referencePrice ? (
+          <p className="d3-so-open d3-so-price-warn" data-bmq-so-price-outlier>
+            Giá này lệch quá 3 lần so với {item.referencePrice.supplierName || "NCC khác"} ({formatVnd(item.referencePrice.unitPrice)}/{item.poUnit}). Kiểm tra giá và đơn vị trước khi đặt.
+          </p>
+        ) : null}
         {item.openOrder ? (
           <p className="d3-so-open" data-bmq-so-open-po>
             {item.openOrder.poNumber} ({formatQuantity(item.openOrder.quantity)} {item.openOrder.unit}) đã gửi, chưa nhận hàng.
