@@ -15,26 +15,12 @@ import {
   buildSupplierOrderEmailLines,
   type SupplierOrderEmailLine,
 } from "../_shared/supplier-order-email.ts";
+import { GMAIL_RECONNECT_CODES, sendFailureCode } from "./failure.ts";
 
 const ORDER_MAILBOX = "order@bmq.vn";
 const FROM_ADDRESS = "BMQ Đặt hàng <order@bmq.vn>";
 const UPLOAD_BASE = "https://ai.banhmique.vn/ncc/hoa-don";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-// A revoked/expired order@bmq.vn connection needs an admin to reconnect; a
-// retry by the orderer cannot fix it, so it gets its own code.
-const GMAIL_RECONNECT_CODES = new Set([
-  "gmail_token_refresh_failed",
-  "gmail_refresh_token_missing",
-  "gmail_access_token_missing",
-  "gmail_unauthorized",
-]);
-
-function sendFailureCode(error: unknown): string {
-  return error instanceof GmailSendError && GMAIL_RECONNECT_CODES.has(error.code)
-    ? "gmail_reconnect_needed"
-    : "email_failed";
-}
 
 function logGmailFailure(requestId: string, error: unknown): void {
   console.error(
@@ -327,6 +313,21 @@ Deno.serve(async (req) => {
           return respond({ code: mapped.code }, mapped.status, mapped.code);
         }
 
+        // A preview must not offer to send while order@bmq.vn is disconnected.
+        // Reading the token writes nothing to the database; only a reconnect
+        // failure is surfaced, because any other preview data is still valid.
+        try {
+          await getGmailAccessToken(admin as any, "order_gmail_refresh_token");
+        } catch (tokenError) {
+          if (
+            tokenError instanceof GmailSendError
+            && GMAIL_RECONNECT_CODES.has(tokenError.code)
+          ) {
+            logGmailFailure(requestId, tokenError);
+            return respond({ code: "gmail_reconnect_needed" }, 502, "gmail_reconnect_needed");
+          }
+        }
+
         const quote = (quoteResult.data ?? {}) as Record<string, unknown>;
         const orderLines = readQuoteLines(quote.lines);
         const subtotal = numberValue(quote.subtotal) ?? 0;
@@ -389,6 +390,18 @@ Deno.serve(async (req) => {
         return respond({ code: "no_supplier_email" }, 409, "no_supplier_email");
       }
 
+      // Check the Gmail connection before creating anything. A missing/revoked
+      // refresh token must leave no draft PO or failed request behind, and the
+      // token fetched here is reused for the send below.
+      let accessToken: string;
+      try {
+        accessToken = await getGmailAccessToken(admin as any, "order_gmail_refresh_token");
+      } catch (tokenError) {
+        logGmailFailure(requestId, tokenError);
+        const failure = sendFailureCode(tokenError);
+        return respond({ code: failure }, 502, failure);
+      }
+
       // The edge never sends before the server-side create succeeds and never
       // trusts the client's line prices: the RPC recomputes them.
       const createResult = await admin.rpc("create_supplier_order_multi", {
@@ -404,7 +417,9 @@ Deno.serve(async (req) => {
       }
 
       const created = (createResult.data ?? {}) as Record<string, unknown>;
-      const orderRequestId = String(created.request_id ?? requestId);
+      const orderRequestId = String(
+        created.order_request_id ?? created.request_id ?? requestId,
+      );
 
       if (created.replayed === true && created.in_progress === true) {
         return respond({ code: "in_progress" }, 409, "in_progress");
@@ -467,7 +482,6 @@ Deno.serve(async (req) => {
       });
 
       try {
-        const accessToken = await getGmailAccessToken(admin as any, "order_gmail_refresh_token");
         const sent = await sendGmail({
           accessToken,
           from: FROM_ADDRESS,
@@ -607,6 +621,16 @@ Deno.serve(async (req) => {
           p_request_id: orderRequestId,
           p_error: failure,
         });
+        // Best effort: delete the failed request and cancel its untouched draft
+        // PO so a retry with the same request_id starts clean. A failure here
+        // must not change the error returned to the orderer.
+        try {
+          await admin.rpc("discard_failed_supplier_order", {
+            p_request_id: orderRequestId,
+          });
+        } catch {
+          // Keep the original send error.
+        }
         return respond({ code: failure }, 502, failure);
       }
     }
@@ -650,6 +674,17 @@ Deno.serve(async (req) => {
     const preparedSupplier = (prepared.supplier ?? {}) as Record<string, unknown>;
     const delivery = (prepared.delivery ?? {}) as Record<string, unknown>;
 
+    // Same preflight as the multi-line flow: never leave a draft PO behind when
+    // order@bmq.vn cannot mint an access token. Reuse this token for the send.
+    let accessToken: string;
+    try {
+      accessToken = await getGmailAccessToken(admin as any, "order_gmail_refresh_token");
+    } catch (tokenError) {
+      logGmailFailure(requestId, tokenError);
+      const failure = sendFailureCode(tokenError);
+      return respond({ code: failure }, 502, failure);
+    }
+
     const createResult = await admin.rpc("create_supplier_order_po", {
       p_request_id: requestId,
       p_item_id: itemId,
@@ -663,7 +698,9 @@ Deno.serve(async (req) => {
     }
 
     const created = (createResult.data ?? {}) as Record<string, unknown>;
-    const orderRequestId = String(created.request_id ?? requestId);
+    const orderRequestId = String(
+      created.order_request_id ?? created.request_id ?? requestId,
+    );
     const status = String(created.status ?? "preparing");
 
     if (created.replayed === true && created.in_progress === true) {
@@ -718,7 +755,6 @@ Deno.serve(async (req) => {
     });
 
     try {
-      const accessToken = await getGmailAccessToken(admin as any, "order_gmail_refresh_token");
       const sent = await sendGmail({
         accessToken,
         from: FROM_ADDRESS,
@@ -760,6 +796,15 @@ Deno.serve(async (req) => {
         p_request_id: orderRequestId,
         p_error: failure,
       });
+      // Best effort: remove the failed request and cancel the untouched draft
+      // PO so a retry with the same request_id creates a clean order.
+      try {
+        await admin.rpc("discard_failed_supplier_order", {
+          p_request_id: orderRequestId,
+        });
+      } catch {
+        // Keep the original send error.
+      }
       return respond({ code: failure }, 502, failure);
     }
   } catch (error) {
