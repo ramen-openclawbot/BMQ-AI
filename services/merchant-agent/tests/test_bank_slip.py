@@ -539,6 +539,8 @@ async def test_unreadable_slip_returns_guidance_and_stages_nothing(
     assert db.inserted == []
     assert result["ui"] == []
     assert "Chưa đọc được số tiền" in result["text"]
+    assert "BMQ Agent" in result["text"]
+    assert "VNAgent" not in result["text"]
 
 
 async def test_extract_failure_returns_guidance_and_stages_nothing(

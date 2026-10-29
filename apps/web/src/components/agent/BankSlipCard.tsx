@@ -86,7 +86,7 @@ const WARNING_TEXT: Record<string, string> = {
   already_paid_in_transfer_month: "Trong tháng chuyển tiền đã có phiếu của người nhận này được thanh toán. Anh kiểm tra để tránh chi trùng.",
   low_ocr_confidence: "Ảnh chưa rõ, anh đối chiếu lại số tiền trước khi duyệt.",
   missing_transfer_date: "Không đọc được ngày chuyển khoản, phiếu mới sẽ ghi theo ngày hôm nay.",
-  multiple_pending_matches: "Có nhiều phiếu chờ cùng số tiền, VNAgent chọn phiếu cũ nhất.",
+  multiple_pending_matches: "Có nhiều phiếu chờ cùng số tiền, BMQ Agent chọn phiếu cũ nhất.",
   needs_category: "Chưa có loại chi phí, anh chọn trước khi duyệt.",
 };
 

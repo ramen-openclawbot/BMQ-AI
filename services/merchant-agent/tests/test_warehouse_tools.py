@@ -696,7 +696,8 @@ def test_server_registers_all_direct_tools_and_prompt(
     assert "mcp__bmq__bmq_cost" in options.system_prompt
     assert "mcp__bmq__bmq_unc_images" in options.system_prompt
     assert "phương án cuối" in options.system_prompt
-    assert "VNAgent" in options.system_prompt
+    assert "BMQ Agent" in options.system_prompt
+    assert "VNAgent" not in options.system_prompt
     assert "Sushi" not in options.system_prompt
     assert "không có công cụ trực tiếp" in server.SUSHI_TOOL_DESCRIPTION
 

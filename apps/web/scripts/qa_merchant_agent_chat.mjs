@@ -247,10 +247,10 @@ function reply(body) {
     return { status: 200, json: { session_id: "s-1", text: "Đã đọc bankslip 20.000.000 đ cho Lại Đình Tuấn (thuê kho Bình Tân). Đề xuất thanh toán phiếu PR-MV6VLC9E.", tool_calls: ["bank_slip_intake"], ui: [{ component: "bank_slip_payment", payload: SLIP_STAGED }], pending_changes: [{ change_id: "slip-1", kind: "bank_slip_payment", status: "staged", summary: "Thanh toán phiếu PR-MV6VLC9E" }] } };
   }
   if (text.includes("snapshot")) return { status: 200, json: { session_id: "s-1", text: "Snapshot doanh thu 19/10 — từ đầu tháng so với cùng kỳ tháng trước\nTổng doanh thu: 687,7 tr (+13,6% so với cùng kỳ)", tool_calls: ["bmq_revenue_snapshot"], ui: [{ component: "revenue_snapshot", payload: SNAPSHOT }, { component: "suggestions", payload: { suggestions: ["Vì sao kênh giảm?", "Điểm bán nào chưa nộp báo cáo?", "Doanh thu tháng này theo kênh"] } }], pending_changes: [] } };
-  if (text.includes("chi tiết pr")) return { status: 200, json: { session_id: "s-1", text: "VNAgent xem được PR-MV6H33KA (DNTT 131026) của ANH HẢI (CHỦ NHÀ KHO Q.7): 28.040.000 VND, chờ duyệt.", tool_calls: ["mcp__bmq__bmq_document_link"], ui: [{ component: "doc_link", version: 1, payload: DOC_PR }, { component: "doc_link", version: 1, payload: DOC_PR }, { component: "doc_link", version: 1, payload: { ...DOC_PR, path: "javascript:alert(1)" } }, { component: "doc_link", version: 1, payload: DOC_PO }], pending_changes: [] } };
+  if (text.includes("chi tiết pr")) return { status: 200, json: { session_id: "s-1", text: "BMQ Agent xem được PR-MV6H33KA (DNTT 131026) của ANH HẢI (CHỦ NHÀ KHO Q.7): 28.040.000 VND, chờ duyệt.", tool_calls: ["mcp__bmq__bmq_document_link"], ui: [{ component: "doc_link", version: 1, payload: DOC_PR }, { component: "doc_link", version: 1, payload: DOC_PR }, { component: "doc_link", version: 1, payload: { ...DOC_PR, path: "javascript:alert(1)" } }, { component: "doc_link", version: 1, payload: DOC_PO }], pending_changes: [] } };
   if (text.includes("lỗi máy chủ")) return { status: 503, json: { detail: "Trợ lý quản trị đang không phản hồi." } };
   if (text.includes("thông báo")) return { status: 200, json: { session_id: "s-1", text: "Em đã soạn bản nháp thông báo, anh xem và bấm Duyệt nếu đồng ý.", tool_calls: ["mcp__merchant__stage_campaign"], ui: [{ component: "change_preview", payload: { change_id: "chg-1", change: CHANGE, headline: "Thông báo khuyến mãi tuần 20/10", note: "Chưa có gì được gửi." } }, { component: "suggestions", payload: { suggestions: ["Rút gọn nội dung", "Đổi thời gian áp dụng"] } }], pending_changes: [CHANGE] } };
-  if (text.includes("công nợ")) return { status: 200, json: { session_id: "s-1", text: "VNAgent đã tra công nợ nhà cung cấp.", tool_calls: ["mcp__bmq__ask_sushi"], ui: [{ component: "sushi_answer", payload: { answer: "Công nợ nhà cung cấp hiện tại là 182,4 triệu, lớn nhất là Bột Mì Sài Gòn.", costBlock: COST_BLOCK, images: [{ id: "a".repeat(64), date: "2026-10-12", declarationId: "PR-QA01", paymentStatus: "submitted_unverified" }], details: "Bột Mì Sài Gòn: 13,5 triệu\nThiên An Sinh: 10,7 triệu", citations: [{ id: "c1", title: "Bảng công nợ NCC", source: "BMQ", updated_at: "2026-10-18" }] } }], pending_changes: [] } };
+  if (text.includes("công nợ")) return { status: 200, json: { session_id: "s-1", text: "BMQ Agent đã tra công nợ nhà cung cấp.", tool_calls: ["mcp__bmq__ask_sushi"], ui: [{ component: "sushi_answer", payload: { answer: "Công nợ nhà cung cấp hiện tại là 182,4 triệu, lớn nhất là Bột Mì Sài Gòn.", costBlock: COST_BLOCK, images: [{ id: "a".repeat(64), date: "2026-10-12", declarationId: "PR-QA01", paymentStatus: "submitted_unverified" }], details: "Bột Mì Sài Gòn: 13,5 triệu\nThiên An Sinh: 10,7 triệu", citations: [{ id: "c1", title: "Bảng công nợ NCC", source: "BMQ", updated_at: "2026-10-18" }] } }], pending_changes: [] } };
   if (text.includes("vấn đề")) return { status: 200, json: { session_id: "s-1", text: "Hôm nay có 3 việc cần chú ý.", tool_calls: [], ui: [{ component: "digest", payload: { title: "Đơn đại lý hôm nay", items: [{ kind: "order_issue", headline: "Đại lý Lê Văn Lương chưa có đơn giao hôm nay", why_it_matters: "Đã đặt 5/7 ngày gần đây." }, { kind: "order_issue", headline: "Đại lý Hồng Lạc đang bị khoá đặt hàng" }] } }], pending_changes: [] } };
   return { status: 200, json: { session_id: "s-1", text: "Doanh thu tháng 9 đạt 979,5 triệu, Đại lý chiếm 46%.", tool_calls: ["mcp__merchant__query_metrics"], ui: [{ component: "metrics", payload: { title: "Doanh thu tháng 9", period: "2026-09", metrics: [{ metric: "sales", value: 979545347, change_pct: 4.2, currency: "VND" }, { metric: "orders", value: 385, change_pct: -2.1 }, { metric: "revenue", series: { metric: "revenue", unit: "VND", segment: "channel:ĐẠI LÝ", points: Array.from({ length: 30 }, (_, i) => ({ date: `2026-09-${String(i + 1).padStart(2, "0")}`, value: 12000000 + (i % 7) * 900000 })) }, note: "Kênh lớn nhất" }] } }, { component: "suggestions", payload: { suggestions: ["So với tháng 8", "Chi tiết kênh Bánh ngọt"] } }], pending_changes: [] } };
 }
@@ -291,7 +291,7 @@ async function open(viewport) {
 const panel = (page) => page.locator("[data-merchant-agent-chat]");
 const overflow = (page) => page.evaluate(() => { const el = document.querySelector("[data-merchant-agent-chat]"); return el ? el.scrollWidth - el.clientWidth : 0; });
 async function ask(page, text) {
-  await page.getByLabel("Tin nhắn cho VNAgent").fill(text);
+  await page.getByLabel("Tin nhắn cho BMQ Agent").fill(text);
   await page.locator("[data-merchant-send]").click();
 }
 
@@ -318,7 +318,7 @@ try {
       const sheet = document.querySelector("[data-merchant-agent-chat]");
       const style = (el) => (el ? getComputedStyle(el) : null);
       return {
-        composerBg: style(document.querySelector("[aria-label='Tin nhắn cho VNAgent']"))?.backgroundColor,
+        composerBg: style(document.querySelector("[aria-label='Tin nhắn cho BMQ Agent']"))?.backgroundColor,
         sheetFont: style(sheet)?.fontFamily,
         titleWeight: style(sheet?.querySelector("h2"))?.fontWeight,
         captionCase: style(document.querySelector("[data-merchant-starters] > div"))?.textTransform,
@@ -326,7 +326,7 @@ try {
     });
     assert.equal(look.composerBg, "rgba(0, 0, 0, 0)", `composer stays transparent ${tag}`);
     assert.ok(look.sheetFont?.startsWith('"Be Vietnam Pro"') || look.sheetFont?.startsWith("Be Vietnam Pro"), `chat uses the BMQ app font ${tag}: ${look.sheetFont}`);
-    assert.equal(look.titleWeight, "600", `VNAgent title weight ${tag}`);
+    assert.equal(look.titleWeight, "600", `BMQ Agent title weight ${tag}`);
     assert.equal(look.captionCase, "none", `starter caption in sentence case ${tag}`);
     // BMQ theme (owner 30/10): pink BMQ badge in the header and on the launcher, light sheet.
     const theme = await page.evaluate(() => {
@@ -337,7 +337,7 @@ try {
         launcherLogo: document.querySelector("[data-merchant-agent-launcher] img")?.getAttribute("src"),
         logoLoaded: (() => { const img = document.querySelector("[data-merchant-agent-logo]"); return Boolean(img && img.complete && img.naturalWidth > 0); })(),
         defaultCloseShown: Array.from(sheet.children).some((el) => el.tagName === "BUTTON" && el.querySelector(".sr-only") && getComputedStyle(el).display !== "none"),
-        composerHeight: document.querySelector("[aria-label='Tin nhắn cho VNAgent']").getBoundingClientRect().height,
+        composerHeight: document.querySelector("[aria-label='Tin nhắn cho BMQ Agent']").getBoundingClientRect().height,
       };
     });
     assert.equal(theme.sheetBg, "rgb(236, 236, 234)", `sheet uses the app panel colour ${tag}: ${theme.sheetBg}`);
@@ -384,8 +384,8 @@ try {
     await sushiCard.scrollIntoViewIfNeeded();
     await page.screenshot({ path: `${EVIDENCE}/sushi-${tag}.png` });
     const panelText = await panel(page).textContent();
-    for (const internal of ["Sushi", "Claude", "Haiku", "dữ liệu BMQ"]) assert.ok(!panelText.includes(internal), `no internal name "${internal}" in the chat UI`);
-    assert.ok(panelText.includes("VNAgent"), "VNAgent name shown");
+    for (const internal of ["Sushi", "Claude", "Haiku", "dữ liệu BMQ", "VNAgent"]) assert.ok(!panelText.includes(internal), `no internal name "${internal}" in the chat UI`);
+    assert.ok(panelText.includes("BMQ Agent"), "BMQ Agent name shown");
     record(`Sushi answer card ${tag}`);
 
     await ask(page, "Soạn thông báo khuyến mãi tuần này");
@@ -486,7 +486,7 @@ try {
     await ask(page, "lỗi máy chủ thử");
     await page.locator("[data-merchant-message='error']").waitFor();
     assert.ok((await page.locator("[data-merchant-message='error']").textContent()).includes("không phản hồi"));
-    assert.ok(await page.getByLabel("Tin nhắn cho VNAgent").isEnabled(), "composer usable after an error");
+    assert.ok(await page.getByLabel("Tin nhắn cho BMQ Agent").isEnabled(), "composer usable after an error");
     record(`server error shown ${tag}`);
 
     await ask(page, "Snapshot doanh thu");

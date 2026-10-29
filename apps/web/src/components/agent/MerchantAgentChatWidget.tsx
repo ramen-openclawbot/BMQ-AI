@@ -437,7 +437,7 @@ export function MerchantAgentChatWidget() {
         page: merchantPageContext(location.pathname),
         ...(prepared ? {
           attachments: [{ kind: "image" as const, mime_type: prepared.mimeType, data_base64: prepared.base64 }],
-          onUploadProgress: (fraction: number) => setSendStage(fraction >= 1 ? { label: "VNAgent đang đọc bankslip…", fraction: null } : { label: "Đang tải lên", fraction }),
+          onUploadProgress: (fraction: number) => setSendStage(fraction >= 1 ? { label: "BMQ Agent đang đọc bankslip…", fraction: null } : { label: "Đang tải lên", fraction }),
         } : {}),
       });
       setSessionId(result.session_id || sessionId);
@@ -460,7 +460,7 @@ export function MerchantAgentChatWidget() {
         return next;
       });
     } catch (error) {
-      const text = error instanceof Error ? error.message : "Không gọi được VNAgent.";
+      const text = error instanceof Error ? error.message : "Không gọi được BMQ Agent.";
       setMessages((current) => [...current, { id: newId(), role: "error", text }]);
     } finally {
       setSendStage(null);
@@ -512,7 +512,7 @@ export function MerchantAgentChatWidget() {
         // clear in bmq-shell.css ("chat launcher"), not by shrinking or hiding it here.
         className="d3-agent-launcher ac-launcher fixed bottom-[calc(1.5rem+env(safe-area-inset-bottom))] right-6 z-50"
         onClick={backToChat}
-        aria-label="Mở VNAgent"
+        aria-label="Mở BMQ Agent"
       >
         {!open ? <span aria-hidden="true" className="ac-launcher-halo animate-vnagent-halo motion-reduce:animate-none" /> : null}
         <img src={BMQ_LOGO} srcSet={BMQ_LOGO_SET} alt="" width={50} height={50} />
@@ -526,7 +526,7 @@ export function MerchantAgentChatWidget() {
           type="button"
           className="ac-backpill pointer-events-auto fixed left-0 top-[42%] z-[60]"
           onClick={backToChat}
-          aria-label={`Quay lại chat VNAgent (đang xem ${openedDoc.code})`}
+          aria-label={`Quay lại chat BMQ Agent (đang xem ${openedDoc.code})`}
           data-merchant-back-to-chat
         >
           <span className="ac-backpill-arrow"><ArrowLeft /></span>
@@ -550,14 +550,14 @@ export function MerchantAgentChatWidget() {
           <header className="ac-head">
             <img className="ac-logo" src={BMQ_LOGO} srcSet={BMQ_LOGO_SET} alt="BMQ" width={52} height={52} data-merchant-agent-logo />
             <div className="ac-head-copy">
-              <SheetTitle className="ac-title">VNAgent</SheetTitle>
+              <SheetTitle className="ac-title">BMQ Agent</SheetTitle>
               <div className="ac-status">
                 <span className={cn("ac-dot", responding && "is-busy")} />
                 <span>{responding ? "Đang trả lời" : "Sẵn sàng"} · Trợ lý AI của BMQ</span>
               </div>
             </div>
             <button type="button" className="ac-key" onClick={reset} aria-label="Tạo cuộc trò chuyện mới" data-merchant-agent-reset><RotateCcw /></button>
-            <button type="button" className="ac-key" onClick={() => setOpen(false)} aria-label="Đóng VNAgent"><X /></button>
+            <button type="button" className="ac-key" onClick={() => setOpen(false)} aria-label="Đóng BMQ Agent"><X /></button>
           </header>
 
           <div className="ac-scroll">
@@ -566,7 +566,7 @@ export function MerchantAgentChatWidget() {
                 <div className="ac-intro">
                   <img src={BMQ_LOGO} srcSet={BMQ_LOGO_SET} alt="" width={40} height={40} />
                   <div className="ac-bubble ac-bubble-agent">
-                    Xin chào{name ? `, ${name}` : ""}. VNAgent xem được doanh thu, đơn đại lý, công nợ, chi phí, SKU và giá riêng, và đọc ảnh bankslip để lên duyệt chi. Mọi thay đổi VNAgent soạn chỉ là bản nháp — anh bấm <b className="font-semibold">Duyệt</b> mới áp.
+                    Xin chào{name ? `, ${name}` : ""}. BMQ Agent xem được doanh thu, đơn đại lý, công nợ, chi phí, SKU và giá riêng, và đọc ảnh bankslip để lên duyệt chi. Mọi thay đổi BMQ Agent soạn chỉ là bản nháp — anh bấm <b className="font-semibold">Duyệt</b> mới áp.
                   </div>
                 </div>
                 <div className="ac-panel" data-merchant-starters={pageStarters ? pageGuide?.prefix : "general"}>
@@ -690,7 +690,7 @@ export function MerchantAgentChatWidget() {
             {responding ? (
               <div className="ac-thinking" data-merchant-responding>
                 <span className="ac-thinking-dots" aria-hidden="true"><i /><i /><i /></span>
-                VNAgent đang xử lý…
+                BMQ Agent đang xử lý…
               </div>
             ) : null}
             <div ref={endRef} />
@@ -723,7 +723,7 @@ export function MerchantAgentChatWidget() {
                     </button>
                     <button type="button" className="ac-tile-x" onClick={() => replacePending(null)} aria-label="Bỏ ảnh bankslip" data-merchant-remove-image><X /></button>
                   </div>
-                  <p className="ac-pending-note m-0">VNAgent đọc bankslip và soạn thẻ duyệt chi. Chưa ghi gì cho tới khi anh bấm Duyệt.</p>
+                  <p className="ac-pending-note m-0">BMQ Agent đọc bankslip và soạn thẻ duyệt chi. Chưa ghi gì cho tới khi anh bấm Duyệt.</p>
                 </div>
               </div>
             ) : null}
@@ -748,8 +748,8 @@ export function MerchantAgentChatWidget() {
                   rows={1}
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}
-                  aria-label="Tin nhắn cho VNAgent"
-                  placeholder={pendingImage ? "Thêm ghi chú…" : "Nhắn cho VNAgent…"}
+                  aria-label="Tin nhắn cho BMQ Agent"
+                  placeholder={pendingImage ? "Thêm ghi chú…" : "Nhắn cho BMQ Agent…"}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                       event.preventDefault();

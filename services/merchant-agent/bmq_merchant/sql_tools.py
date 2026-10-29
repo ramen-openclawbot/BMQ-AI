@@ -60,7 +60,7 @@ SQL_TOOL_DESCRIPTION = (
     "Quy ước nghiệp vụ: PR chỉ cần phiếu nhập khi requires_receipt = true (điện, "
     "thuê kho, dịch vụ có requires_receipt = false, không tính là thiếu phiếu "
     "nhập); phiếu nhập hoàn tất là finalized_at is not null. "
-    "Khi trả lời, tự xưng VNAgent (không xưng tôi/em) và dịch trạng thái sang "
+    "Khi trả lời, tự xưng BMQ Agent (không xưng tôi/em) và dịch trạng thái sang "
     "tiếng Việt, không để nguyên mã tiếng Anh: payment_status unpaid=chưa trả, "
     "partial=trả một phần, paid=đã trả, overpaid=trả dư; delivery_status "
     "pending=chưa giao, delivered=đã giao; status của PR pending=chờ duyệt, "

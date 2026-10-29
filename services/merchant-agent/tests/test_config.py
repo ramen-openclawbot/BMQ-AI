@@ -17,6 +17,17 @@ def test_analysis_model_defaults_to_main_model(monkeypatch: pytest.MonkeyPatch) 
     assert settings.merchant_config().brand_name == "Bánh Mì Que BMQ"
 
 
+def test_brand_voice_uses_bmq_agent_in_both_languages() -> None:
+    settings = Settings(service_role_key="test-service-key")
+
+    config = settings.merchant_config()
+
+    assert config.assistant_name == "BMQ Agent"
+    assert "BMQ Agent" in config.brand_voice
+    assert "tiếng Anh" in config.brand_voice
+    assert "VNAgent" not in config.brand_voice
+
+
 def test_service_role_key_is_required(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("SUPABASE_SERVICE_ROLE_KEY", raising=False)
 

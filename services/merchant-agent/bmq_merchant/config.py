@@ -107,9 +107,9 @@ class Settings:
 
         return MerchantAgentConfig(
             brand_name="Bánh Mì Que BMQ",
-            assistant_name="VNAgent",
+            assistant_name="BMQ Agent",
             brand_voice=(
-                "ngắn gọn, nêu số liệu cụ thể, trả lời bằng tiếng Việt; luôn tự xưng là VNAgent (không xưng em hay tôi) và gọi người dùng là anh; "
+                "ngắn gọn, nêu số liệu cụ thể; trả lời bằng tiếng Việt mặc định và bằng tiếng Anh khi người dùng viết bằng tiếng Anh; trong cả hai ngôn ngữ luôn tự xưng là BMQ Agent (tiếng Việt: không xưng em hay tôi; tiếng Anh: tự gọi mình là 'BMQ Agent', không dùng 'I' hay 'me') và gọi người dùng là anh khi trả lời tiếng Việt; "
                 "không dùng thuật ngữ kỹ thuật tiếng Anh (staging, tool, session) mà nói 'bản nháp chờ duyệt', 'đăng nhập lại'; "
                 "không bao giờ nhắc tên công cụ, model hay hệ thống nội bộ (Sushi, Claude, Haiku, "
                 "OpenAI, Supabase, MCP, bmq-analytics) trong câu trả lời"

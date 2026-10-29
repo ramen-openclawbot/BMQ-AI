@@ -109,9 +109,9 @@ async function call<T>(path: string, token: string, init: RequestInit, timeoutMs
   } catch (error) {
     if (error instanceof MerchantAgentError) throw error;
     if (error instanceof DOMException && error.name === "AbortError") {
-      throw new MerchantAgentError("VNAgent trả lời quá lâu. Anh thử lại giúp VNAgent.", 504);
+      throw new MerchantAgentError("BMQ Agent trả lời quá lâu. Anh thử lại giúp BMQ Agent.", 504);
     }
-    throw new MerchantAgentError("Không kết nối được VNAgent. Anh thử lại sau ít phút.", 0);
+    throw new MerchantAgentError("Không kết nối được BMQ Agent. Anh thử lại sau ít phút.", 0);
   } finally {
     window.clearTimeout(timer);
   }
@@ -119,9 +119,9 @@ async function call<T>(path: string, token: string, init: RequestInit, timeoutMs
 
 function readableStatus(status: number): string {
   if (status === 401) return "Phiên đăng nhập đã hết hạn. Anh tải lại trang giúp em.";
-  if (status === 403) return "Tài khoản này không có quyền dùng VNAgent.";
-  if (status === 502 || status === 503) return "VNAgent đang tạm ngắt kết nối. Anh thử lại sau ít phút.";
-  return `VNAgent báo lỗi (${status}).`;
+  if (status === 403) return "Tài khoản này không có quyền dùng BMQ Agent.";
+  if (status === 502 || status === 503) return "BMQ Agent đang tạm ngắt kết nối. Anh thử lại sau ít phút.";
+  return `BMQ Agent báo lỗi (${status}).`;
 }
 
 // fetch() cannot report upload progress; a message carrying an image goes through XHR so the
@@ -151,8 +151,8 @@ function postWithUploadProgress<T>(path: string, token: string, body: string, ti
       }
       resolve(parsed as T);
     };
-    request.ontimeout = () => reject(new MerchantAgentError("VNAgent trả lời quá lâu. Anh thử lại giúp VNAgent.", 504));
-    request.onerror = () => reject(new MerchantAgentError("Không kết nối được VNAgent. Anh thử lại sau ít phút.", 0));
+    request.ontimeout = () => reject(new MerchantAgentError("BMQ Agent trả lời quá lâu. Anh thử lại giúp BMQ Agent.", 504));
+    request.onerror = () => reject(new MerchantAgentError("Không kết nối được BMQ Agent. Anh thử lại sau ít phút.", 0));
     request.send(body);
   });
 }

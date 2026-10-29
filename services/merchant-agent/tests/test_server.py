@@ -683,7 +683,8 @@ def test_ask_sushi_tool_queues_ui_and_refreshes_the_owner_token(
     assert "mcp__bmq__ask_sushi" in options.allowed_tools
     assert options.system_prompt.startswith("BASE PROMPT")
     assert "mcp__bmq__ask_sushi" in options.system_prompt
-    assert "VNAgent" in options.system_prompt
+    assert "BMQ Agent" in options.system_prompt
+    assert "VNAgent" not in options.system_prompt
     assert "Sushi" not in options.system_prompt, "internal names stay out of the prompt text"
 
 

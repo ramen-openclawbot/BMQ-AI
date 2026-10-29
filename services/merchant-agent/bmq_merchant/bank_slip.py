@@ -770,7 +770,7 @@ async def intake(
     amount = ocr.get("amount")
     if not amount or amount <= 0:
         return _reply(
-            "Chưa đọc được số tiền trên bankslip nên VNAgent chưa tạo thẻ duyệt chi. "
+            "Chưa đọc được số tiền trên bankslip nên BMQ Agent chưa tạo thẻ duyệt chi. "
             "Anh gửi lại ảnh rõ hơn hoặc tạo phiếu trong Duyệt chi nhé."
         )
 
@@ -809,8 +809,8 @@ async def intake(
         supplier = await _supplier_by_name(db, beneficiary_name)
     if supplier is None or not supplier.get("id"):
         return _reply(
-            "VNAgent chưa nhận ra người nhận tiền trên bankslip. "
-            "Anh tạo phiếu trong Duyệt chi trước, rồi gửi lại bankslip để VNAgent "
+            "BMQ Agent chưa nhận ra người nhận tiền trên bankslip. "
+            "Anh tạo phiếu trong Duyệt chi trước, rồi gửi lại bankslip để BMQ Agent "
             "học nhà cung cấp này nhé."
         )
 
@@ -1083,7 +1083,7 @@ async def apply_bank_slip_change(
             current = await _request_payment_status(db, request_id)
             if str((current or {}).get("payment_status") or "") != "paid":
                 message = (
-                    "Chưa rõ kết quả thanh toán từ bankslip. VNAgent đã giữ phiếu chờ; "
+                    "Chưa rõ kết quả thanh toán từ bankslip. BMQ Agent đã giữ phiếu chờ; "
                     "anh thử duyệt lại sau ít phút."
                 )
                 await _mark_failed(backend, change_id, message)
