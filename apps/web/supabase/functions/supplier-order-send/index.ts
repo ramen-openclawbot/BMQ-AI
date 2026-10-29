@@ -9,7 +9,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { requireAuth } from "../_shared/auth.ts";
 import { corsPreflightResponse, getCorsHeaders } from "../_shared/cors.ts";
 import { checkAndRecordRateLimit } from "../_shared/rate-limiter.ts";
-import { getGmailAccessToken, sendGmail } from "../_shared/gmail-send.ts";
+import { GmailSendError, getGmailAccessToken, sendGmail } from "../_shared/gmail-send.ts";
 import {
   buildSupplierOrderEmail,
   buildSupplierOrderEmailLines,
@@ -20,6 +20,32 @@ const ORDER_MAILBOX = "order@bmq.vn";
 const FROM_ADDRESS = "BMQ Đặt hàng <order@bmq.vn>";
 const UPLOAD_BASE = "https://ai.banhmique.vn/ncc/hoa-don";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+// A revoked/expired order@bmq.vn connection needs an admin to reconnect; a
+// retry by the orderer cannot fix it, so it gets its own code.
+const GMAIL_RECONNECT_CODES = new Set([
+  "gmail_token_refresh_failed",
+  "gmail_refresh_token_missing",
+  "gmail_access_token_missing",
+  "gmail_unauthorized",
+]);
+
+function sendFailureCode(error: unknown): string {
+  return error instanceof GmailSendError && GMAIL_RECONNECT_CODES.has(error.code)
+    ? "gmail_reconnect_needed"
+    : "email_failed";
+}
+
+function logGmailFailure(requestId: string, error: unknown): void {
+  console.error(
+    JSON.stringify({
+      fn: "supplier-order-send",
+      event: "gmail_failed",
+      request_id: requestId || null,
+      gmail_code: error instanceof GmailSendError ? error.code : "unexpected",
+    }),
+  );
+}
 
 function jsonResponse(
   body: unknown,
@@ -574,12 +600,14 @@ Deno.serve(async (req) => {
           200,
           "sent",
         );
-      } catch {
+      } catch (sendError) {
+        logGmailFailure(requestId, sendError);
+        const failure = sendFailureCode(sendError);
         await admin.rpc("mark_supplier_order_failed", {
           p_request_id: orderRequestId,
-          p_error: "email_failed",
+          p_error: failure,
         });
-        return respond({ code: "email_failed" }, 502, "email_failed");
+        return respond({ code: failure }, 502, failure);
       }
     }
 
@@ -725,12 +753,14 @@ Deno.serve(async (req) => {
         200,
         "sent",
       );
-    } catch {
+    } catch (sendError) {
+      logGmailFailure(requestId, sendError);
+      const failure = sendFailureCode(sendError);
       await admin.rpc("mark_supplier_order_failed", {
         p_request_id: orderRequestId,
-        p_error: "email_failed",
+        p_error: failure,
       });
-      return respond({ code: "email_failed" }, 502, "email_failed");
+      return respond({ code: failure }, 502, failure);
     }
   } catch (error) {
     if (error instanceof Response) return error;

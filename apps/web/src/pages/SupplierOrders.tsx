@@ -56,6 +56,7 @@ const ERROR_TEXT: Record<string, string> = {
   item_not_found: "Một món không còn trong danh mục của nhà cung cấp. Tải lại trang.",
   in_progress: "Đơn này đang được gửi. Đợi vài giây rồi xem lại danh sách đơn đã gửi.",
   email_failed: "Chưa gửi được email. Bấm gửi lại.",
+  gmail_reconnect_needed: "Hộp thư order@bmq.vn bị mất kết nối Google. Báo quản trị vào Quản trị hệ thống → Email đặt hàng: Ngắt rồi Kết nối lại bằng order@bmq.vn, sau đó gửi lại.",
   state_update_failed: "Email có thể đã gửi nhưng chưa lưu được trạng thái. Kiểm tra hộp thư order@bmq.vn trước khi gửi lại.",
   rate_limited: "Hôm nay đã gửi quá nhiều đơn. Thử lại sau.",
 };
