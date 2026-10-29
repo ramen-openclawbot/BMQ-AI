@@ -292,7 +292,7 @@ begin
     raise exception 'CHECK FAIL: Zalo group is %, expected test group', v_group;
   end if;
   if v_message is distinct from
-    '[THỬ] BMQ đã thanh toán PO-SMOKE-SPN-0001, số tiền 1.250.000 đ. Anh vui lòng kiểm tra email để xem ảnh UNC. Trân trọng.'
+    '[THỬ] BMQ đã thanh toán PO-SMOKE-SPN-0001, số tiền 1.250.000 đ. Anh/Chị vui lòng kiểm tra email để xem ảnh UNC. Trân trọng.'
   then
     raise exception 'CHECK FAIL: Zalo message mismatch: %', v_message;
   end if;
