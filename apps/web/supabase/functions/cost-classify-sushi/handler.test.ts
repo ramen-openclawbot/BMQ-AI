@@ -354,6 +354,86 @@ test("a non-owner user token is forbidden", async () => {
   assert.equal(response.status, 403);
 });
 
+test("suggest returns one read-only category and never lists candidates or calls the writer", async () => {
+  let candidateCalls = 0;
+  const { deps, recorder } = makeDeps({
+    listCandidates: async () => {
+      candidateCalls += 1;
+      return [CANDIDATE_A];
+    },
+  });
+  const response = await createCostClassifyHandler(deps)(request({
+    mode: "suggest",
+    supplier_name: "Lại Đình Tuấn",
+    description: "Thuê kho Bình Tân tháng 10",
+    amount: 20000000,
+  }));
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.category_code, "A1_BREAD_BOUGHT");
+  assert.equal(body.label, "Bánh mì thành phẩm mua ngoài");
+  assert.equal(body.probability, 0.96);
+  assert.equal(body.product_line, "shared");
+  assert.equal(candidateCalls, 0, "suggest must not list DB candidates");
+  assert.equal(recorder.applies.length, 0, "suggest must never call the writer");
+  const state = recorder.evaluations[0].state as {
+    line: { supplier: string; product_name: string; amount: number };
+  };
+  assert.equal(state.line.supplier, "Lại Đình Tuấn");
+  assert.equal(state.line.product_name, "Thuê kho Bình Tân tháng 10");
+  assert.equal(state.line.amount, 20000000);
+});
+
+test("suggest rejects non-owner callers and worker-secret-only callers", async () => {
+  const nonOwner = createCostClassifyHandler(makeDeps({
+    authenticate: async () => { throw new CostClassifyError("forbidden", 403); },
+  }).deps);
+  const forbidden = await nonOwner(request({ mode: "suggest", description: "Thuê kho" }));
+  assert.equal(forbidden.status, 403);
+
+  let authenticated = 0;
+  const worker = createCostClassifyHandler(makeDeps({
+    authenticate: async () => { authenticated += 1; return { userId: "owner-1", owner: true }; },
+  }).deps);
+  const workerResponse = await worker(request(
+    { mode: "suggest", description: "Thuê kho" },
+    { "x-worker-secret": "worker-secret" },
+  ));
+  assert.equal(workerResponse.status, 403);
+  assert.equal(authenticated, 0);
+});
+
+test("suggest returns category_code null when the evaluator fails or is unconfigured", async () => {
+  const failed = createCostClassifyHandler(makeDeps({
+    evaluator: () => async () => { throw new JevError("jev_unavailable", 503); },
+  }).deps);
+  const failedBody = await (await failed(request({ mode: "suggest", description: "Thuê kho" }))).json();
+  assert.equal(failedBody.category_code, null);
+  assert.equal(failedBody.reason, "jev_unavailable");
+
+  const unconfigured = createCostClassifyHandler(makeDeps({
+    evaluator: () => null,
+  }).deps);
+  const unconfiguredBody = await (await unconfigured(request({ mode: "suggest", description: "Thuê kho" }))).json();
+  assert.equal(unconfiguredBody.category_code, null);
+  assert.equal(unconfiguredBody.reason, "unconfigured");
+});
+
+test("suggest still respects the cost kill switch", async () => {
+  let called = 0;
+  const handler = createCostClassifyHandler(makeDeps({
+    getSettings: async () => ({ ...SETTINGS, cost_auto_enabled: false }),
+    evaluator: () => async () => {
+      called += 1;
+      throw new Error("must not be called");
+    },
+  }).deps);
+  const response = await handler(request({ mode: "suggest", description: "Thuê kho" }));
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).code, "disabled");
+  assert.equal(called, 0);
+});
+
 test("the provider body model is pinned", () => {
   assert.equal(JEV_MODEL, "typesafe-ai/jev");
 });

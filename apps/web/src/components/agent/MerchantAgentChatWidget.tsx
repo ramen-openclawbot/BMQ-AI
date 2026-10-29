@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { AlertTriangle, ArrowLeft, ArrowUp, Check, ExternalLink, Loader2, RotateCcw, Sparkles, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowUp, Check, ExternalLink, ImagePlus, Loader2, RotateCcw, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
@@ -11,8 +11,12 @@ import { VnagentMark } from "@/components/agent/GlobalAgentChatWidget";
 import { CostBusinessCard } from "@/components/agent/CostBusinessCard";
 import { UncImageGallery } from "@/components/agent/UncImageGallery";
 import { RevenueSnapshotCard } from "@/components/agent/RevenueSnapshotCard";
+import { BankSlipCard, parseBankSlipPayload } from "@/components/agent/BankSlipCard";
 import { costLineBlockSchema, uncImageSchema } from "@/lib/bmqAnalytics";
+import { normalizeUploadImage } from "@/lib/slip-image";
 import {
+  MERCHANT_ATTACHMENT_MAX_BYTES,
+  MERCHANT_ATTACHMENT_MIME_TYPES,
   MerchantAgentError,
   approveMerchantChange,
   discardMerchantChange,
@@ -24,6 +28,7 @@ import {
   parseDocLink,
   sendMerchantMessage,
   type DocLinkPayload,
+  type MerchantAttachment,
   type MerchantChange,
   type MerchantUiBlock,
 } from "@/lib/merchantAgent";
@@ -34,7 +39,7 @@ import { merchantPageContext, merchantPageGuide } from "@/lib/merchantPageGuide"
 // 18/10 at the owner's request; nothing it proposes is applied until he taps Duyệt.
 
 type ChatMessage =
-  | { id: string; role: "user"; text: string }
+  | { id: string; role: "user"; text: string; attachmentName?: string }
   | { id: string; role: "agent"; text: string; ui: MerchantUiBlock[] }
   | { id: string; role: "error"; text: string };
 
@@ -79,6 +84,29 @@ const STARTERS = [
 ];
 
 const newId = () => crypto.randomUUID();
+
+// A bank slip sent without words still needs a message line in the conversation.
+const SLIP_DEFAULT_MESSAGE = "Duyệt chi theo bankslip";
+
+type PendingImage = { name: string; previewUrl: string; attachment: MerchantAttachment };
+
+// Downscale to the same JPEG the UNC dialogs send, then enforce the service's limits.
+async function readSlipImage(file: File): Promise<PendingImage> {
+  if (!file.type.startsWith("image/")) throw new Error("Anh chọn một ảnh bankslip (JPG, PNG hoặc WebP).");
+  const optimized = await normalizeUploadImage(file);
+  const mimeType = optimized.mimeType === "image/jpg" ? "image/jpeg" : optimized.mimeType;
+  if (!(MERCHANT_ATTACHMENT_MIME_TYPES as readonly string[]).includes(mimeType)) {
+    throw new Error("Ảnh này chưa đọc được. Anh chụp màn hình bankslip rồi gửi lại nhé.");
+  }
+  if (Math.floor(optimized.imageBase64.length * 3 / 4) > MERCHANT_ATTACHMENT_MAX_BYTES) {
+    throw new Error("Ảnh quá lớn (tối đa 6 MB). Anh chụp màn hình bankslip rồi gửi lại nhé.");
+  }
+  return {
+    name: file.name || "bankslip.jpg",
+    previewUrl: `data:${mimeType};base64,${optimized.imageBase64}`,
+    attachment: { kind: "image", mime_type: mimeType, data_base64: optimized.imageBase64 },
+  };
+}
 
 async function currentToken(fallback?: string | null): Promise<string> {
   const { data } = await supabase.auth.getSession();
@@ -279,6 +307,11 @@ export function MerchantAgentChatWidget() {
   // Set when the owner opened a phiếu from the chat; shows a "back to chat" pill.
   const [openedDoc, setOpenedDoc] = useState<DocLinkPayload | null>(null);
   const [restoredFor, setRestoredFor] = useState<string | null>(null);
+  // One bank-slip image waiting in the composer; it is not kept in sessionStorage.
+  const [pendingImage, setPendingImage] = useState<PendingImage | null>(null);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const [readingImage, setReadingImage] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
 
@@ -290,6 +323,8 @@ export function MerchantAgentChatWidget() {
     setSessionId(stored?.sessionId || null);
     setChanges(stored?.changes || {});
     setDraft("");
+    setPendingImage(null);
+    setImageError(null);
     setOpenedDoc(stored?.openedDoc || null);
     setRestoredFor(user?.id || null);
   }, [user?.id]);
@@ -323,15 +358,39 @@ export function MerchantAgentChatWidget() {
     return () => window.cancelAnimationFrame(frame);
   }, [messages, responding, open]);
 
+  const pickImage = useCallback(async (file: File | undefined) => {
+    if (!file) return;
+    setImageError(null);
+    setReadingImage(true);
+    try {
+      setPendingImage(await readSlipImage(file));
+    } catch (error) {
+      setPendingImage(null);
+      setImageError(error instanceof Error ? error.message : "Không đọc được ảnh này.");
+    } finally {
+      setReadingImage(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }, []);
+
   const send = useCallback(async (raw?: string) => {
-    const message = (raw ?? draft).trim();
-    if (!message || responding) return;
+    // Starters and suggestions send text only; the composer also sends the waiting image.
+    const image = raw === undefined ? pendingImage : null;
+    const message = (raw ?? draft).trim() || (image ? SLIP_DEFAULT_MESSAGE : "");
+    if (!message || responding || readingImage) return;
     setDraft("");
-    setMessages((current) => [...current, { id: newId(), role: "user", text: message }]);
+    if (image) setPendingImage(null);
+    setImageError(null);
+    setMessages((current) => [...current, { id: newId(), role: "user", text: message, ...(image ? { attachmentName: image.name } : {}) }]);
     setResponding(true);
     try {
       const token = await currentToken(session?.access_token);
-      const result = await sendMerchantMessage(token, { message, sessionId, page: merchantPageContext(location.pathname) });
+      const result = await sendMerchantMessage(token, {
+        message,
+        sessionId,
+        page: merchantPageContext(location.pathname),
+        ...(image ? { attachments: [image.attachment] } : {}),
+      });
       setSessionId(result.session_id || sessionId);
       setMessages((current) => [...current, { id: newId(), role: "agent", text: result.text || "", ui: result.ui || [] }]);
       setChanges((current) => {
@@ -339,6 +398,12 @@ export function MerchantAgentChatWidget() {
         for (const block of result.ui || []) {
           const change = block.component === "change_preview" ? block.payload.change as MerchantChange | undefined : undefined;
           if (change?.change_id) next[change.change_id] = { ...change, ...(next[change.change_id]?.status && next[change.change_id].status !== "staged" ? { status: next[change.change_id].status } : {}) };
+          if (block.component === "bank_slip_payment") {
+            const slip = parseBankSlipPayload(block.payload);
+            if (slip.changeId && (!next[slip.changeId] || next[slip.changeId].status === "staged")) {
+              next[slip.changeId] = { ...next[slip.changeId], change_id: slip.changeId, kind: "bank_slip_payment", status: slip.status };
+            }
+          }
         }
         for (const change of result.pending_changes || []) {
           if (!next[change.change_id] || next[change.change_id].status === "staged") next[change.change_id] = { ...next[change.change_id], ...change };
@@ -351,13 +416,13 @@ export function MerchantAgentChatWidget() {
     } finally {
       setResponding(false);
     }
-  }, [draft, responding, session?.access_token, sessionId, location.pathname]);
+  }, [draft, pendingImage, readingImage, responding, session?.access_token, sessionId, location.pathname]);
 
-  const decide = useCallback(async (changeId: string, decision: "approve" | "discard") => {
+  const decide = useCallback(async (changeId: string, decision: "approve" | "discard", categoryCode?: string) => {
     setBusyChange(changeId);
     try {
       const token = await currentToken(session?.access_token);
-      const updated = decision === "approve" ? await approveMerchantChange(token, changeId) : await discardMerchantChange(token, changeId);
+      const updated = decision === "approve" ? await approveMerchantChange(token, changeId, { categoryCode }) : await discardMerchantChange(token, changeId);
       setChanges((current) => ({ ...current, [changeId]: { ...current[changeId], ...updated } }));
     } catch (error) {
       const text = error instanceof Error ? error.message : "Không xử lý được bản nháp.";
@@ -372,6 +437,8 @@ export function MerchantAgentChatWidget() {
     setSessionId(null);
     setChanges({});
     setDraft("");
+    setPendingImage(null);
+    setImageError(null);
     setOpenedDoc(null);
   };
 
@@ -460,7 +527,16 @@ export function MerchantAgentChatWidget() {
 
             {messages.map((message) => {
               if (message.role === "user") {
-                return <div key={message.id} className="max-w-[82%] self-end whitespace-pre-wrap break-words rounded-2xl rounded-br-[5px] bg-vn-cobalt px-4 py-3 text-white shadow-[0_8px_24px_rgba(42,47,240,0.25)] motion-reduce:shadow-none" data-merchant-message="user">{message.text}</div>;
+                return (
+                  <div key={message.id} className="max-w-[82%] self-end whitespace-pre-wrap break-words rounded-2xl rounded-br-[5px] bg-vn-cobalt px-4 py-3 text-white shadow-[0_8px_24px_rgba(42,47,240,0.25)] motion-reduce:shadow-none" data-merchant-message="user">
+                    {message.attachmentName ? (
+                      <span className="mb-1.5 flex max-w-full items-center gap-1.5 rounded-lg bg-white/15 px-2 py-1 text-[12px] font-semibold" data-merchant-message-attachment>
+                        <ImagePlus className="h-3.5 w-3.5 shrink-0" /><span className="min-w-0 truncate">{message.attachmentName}</span>
+                      </span>
+                    ) : null}
+                    {message.text}
+                  </div>
+                );
               }
               if (message.role === "error") {
                 return <div key={message.id} role="alert" className="self-stretch rounded-xl border border-vn-red/40 bg-vn-red/10 p-3 text-xs leading-relaxed text-vn-paper/90" data-merchant-message="error">{message.text}</div>;
@@ -480,6 +556,20 @@ export function MerchantAgentChatWidget() {
                     if (block.component === "digest") return <DigestBlock key={index} payload={block.payload} />;
                     if (block.component === "revenue_snapshot") return <RevenueSnapshotCard key={index} payload={block.payload} />;
                     if (block.component === "sushi_answer") return <SushiBlock key={index} payload={block.payload} ownerId={user?.id || ""} />;
+                    if (block.component === "bank_slip_payment") {
+                      const slip = parseBankSlipPayload(block.payload);
+                      return (
+                        <BankSlipCard
+                          key={index}
+                          data={slip}
+                          state={slip.changeId ? changes[slip.changeId] : undefined}
+                          busy={busyChange === slip.changeId}
+                          onApprove={(categoryCode) => void decide(slip.changeId, "approve", categoryCode)}
+                          onDiscard={() => void decide(slip.changeId, "discard")}
+                          onOpenDoc={openDoc}
+                        />
+                      );
+                    }
                     if (block.component === "change_preview") {
                       const changeId = String(block.payload.change_id || (block.payload.change as MerchantChange | undefined)?.change_id || "");
                       const change = changes[changeId] || (block.payload.change as MerchantChange | undefined);
@@ -537,7 +627,36 @@ export function MerchantAgentChatWidget() {
           </div>
 
           <div className="shrink-0 border-t border-vn-paper/10 bg-vn-ink px-3.5 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3">
+            {pendingImage || readingImage || imageError ? (
+              <div className="mb-2 flex items-center gap-2.5" data-merchant-pending-image>
+                {pendingImage ? (
+                  <>
+                    <img src={pendingImage.previewUrl} alt="Bankslip sẽ gửi" className="h-14 w-14 shrink-0 rounded-[10px] border border-vn-paper/20 object-cover" />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-[13px] font-semibold text-vn-paper">{pendingImage.name}</div>
+                      <div className="text-[11.5px] leading-4 text-vn-paper/55">VNAgent đọc bankslip và soạn thẻ duyệt chi. Chưa ghi gì cho tới khi anh bấm Duyệt.</div>
+                    </div>
+                    <button type="button" className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-vn-paper/[.18] bg-vn-card text-vn-paper/70 transition hover:border-vn-lime hover:text-vn-paper" onClick={() => setPendingImage(null)} aria-label="Bỏ ảnh bankslip" data-merchant-remove-image><X className="h-4 w-4" /></button>
+                  </>
+                ) : readingImage ? (
+                  <div className="flex items-center gap-2 text-[12px] text-vn-paper/60"><Loader2 className="h-4 w-4 animate-spin" />Đang chuẩn bị ảnh…</div>
+                ) : (
+                  <div role="alert" className="flex items-start gap-1.5 text-[12px] font-semibold leading-5 text-vn-red" data-merchant-image-error><AlertTriangle className="mt-[3px] h-3.5 w-3.5 shrink-0" />{imageError}</div>
+                )}
+              </div>
+            ) : null}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(event) => void pickImage(event.target.files?.[0])}
+              data-merchant-image-input
+            />
             <div className="flex items-end gap-2">
+              <button type="button" className="grid h-12 w-12 shrink-0 place-items-center rounded-xl border border-vn-paper/[.18] bg-vn-card text-vn-paper/75 transition hover:border-vn-lime hover:text-vn-paper active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40" onClick={() => fileInputRef.current?.click()} disabled={responding || readingImage} aria-label="Gửi ảnh bankslip" title="Gửi ảnh bankslip để duyệt chi" data-merchant-attach-image>
+                <ImagePlus className="h-[19px] w-[19px]" />
+              </button>
               <div className="relative min-w-0 flex-1 overflow-clip rounded-[18px] border border-vn-paper/[.18] bg-vn-card py-3 shadow-[0_10px_30px_rgba(0,0,0,0.35)] transition focus-within:border-vn-lime">
                 <Textarea
                   ref={composerRef}
@@ -545,7 +664,7 @@ export function MerchantAgentChatWidget() {
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}
                   aria-label="Tin nhắn cho VNAgent"
-                  placeholder="Hỏi về doanh thu, đại lý, SKU, giá…"
+                  placeholder={pendingImage ? "Ghi chú (tuỳ chọn)…" : "Hỏi về doanh thu, đại lý, SKU, giá…"}
                   className="min-h-0 resize-none rounded-none border-0 bg-transparent px-4 py-0 font-vnDisp text-base leading-6 text-vn-paper shadow-none outline-none ring-0 placeholder:text-vn-paper/40 focus-visible:ring-0 focus-visible:ring-offset-0 disabled:opacity-60"
                   onKeyDown={(event) => {
                     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
@@ -556,7 +675,7 @@ export function MerchantAgentChatWidget() {
                   disabled={responding}
                 />
               </div>
-              <button type="button" className="grid h-12 w-12 shrink-0 place-items-center rounded-xl border-0 bg-vn-lime text-vn-ink transition hover:brightness-105 active:scale-[0.97] disabled:cursor-not-allowed disabled:bg-vn-card2 disabled:text-vn-paper/30" onClick={() => void send()} disabled={!draft.trim() || responding} aria-label="Gửi tin nhắn" data-merchant-send>
+              <button type="button" className="grid h-12 w-12 shrink-0 place-items-center rounded-xl border-0 bg-vn-lime text-vn-ink transition hover:brightness-105 active:scale-[0.97] disabled:cursor-not-allowed disabled:bg-vn-card2 disabled:text-vn-paper/30" onClick={() => void send()} disabled={(!draft.trim() && !pendingImage) || responding || readingImage} aria-label="Gửi tin nhắn" data-merchant-send>
                 {responding ? <Loader2 className="h-[18px] w-[18px] animate-spin" /> : <ArrowUp className="h-[18px] w-[18px] stroke-[2.2]" />}
               </button>
             </div>

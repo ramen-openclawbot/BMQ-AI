@@ -105,6 +105,12 @@ export interface CostClassifyHandlerDeps {
 interface ParsedInput {
   limit: number;
   dryRun: boolean;
+  mode: "batch" | "suggest";
+  suggest?: {
+    supplierName: string;
+    description: string;
+    amount: number | null;
+  };
 }
 
 const MESSAGES: Record<string, string> = {
@@ -175,6 +181,38 @@ async function readBody(req: Request, signal: AbortSignal): Promise<Record<strin
 }
 
 function parseInput(raw: Record<string, unknown>): ParsedInput {
+  if (raw.mode !== undefined) {
+    if (raw.mode !== "suggest") throw new CostClassifyError("invalid_request", 400);
+    for (const field of Object.keys(raw)) {
+      if (field !== "mode" && field !== "supplier_name" && field !== "description" && field !== "amount") {
+        throw new CostClassifyError("invalid_request", 400);
+      }
+    }
+    if (typeof raw.description !== "string" || raw.description.trim() === "" || raw.description.length > 500) {
+      throw new CostClassifyError("invalid_request", 400);
+    }
+    if (
+      raw.supplier_name !== undefined && raw.supplier_name !== null
+      && (typeof raw.supplier_name !== "string" || raw.supplier_name.length > 200)
+    ) {
+      throw new CostClassifyError("invalid_request", 400);
+    }
+    if (raw.amount !== undefined && raw.amount !== null) {
+      if (typeof raw.amount !== "number" || !Number.isFinite(raw.amount) || raw.amount < 0) {
+        throw new CostClassifyError("invalid_request", 400);
+      }
+    }
+    return {
+      limit: 0,
+      dryRun: true,
+      mode: "suggest",
+      suggest: {
+        supplierName: typeof raw.supplier_name === "string" ? raw.supplier_name.trim() : "",
+        description: raw.description.trim(),
+        amount: typeof raw.amount === "number" ? raw.amount : null,
+      },
+    };
+  }
   for (const field of Object.keys(raw)) {
     if (field !== "limit" && field !== "dry_run") {
       throw new CostClassifyError("invalid_request", 400);
@@ -190,7 +228,7 @@ function parseInput(raw: Record<string, unknown>): ParsedInput {
   if (raw.dry_run !== undefined && typeof raw.dry_run !== "boolean") {
     throw new CostClassifyError("invalid_request", 400);
   }
-  return { limit, dryRun: raw.dry_run === true };
+  return { limit, dryRun: raw.dry_run === true, mode: "batch" };
 }
 
 function thresholdOf(settings: CostSettings): number {
@@ -267,6 +305,56 @@ export function createCostClassifyHandler(deps: CostClassifyHandlerDeps) {
           && !activeParentCodes.has(row.code)
           && hasText(row.label))
         .map((row) => ({ code: row.code, label: categoryCriterion(row) }));
+
+      if (input.mode === "suggest") {
+        // Read-only single-line suggestion for the merchant bank-slip card.
+        // Only an owner bearer token may call it; a worker-secret caller never
+        // reaches the provider through this mode.
+        if (workerHeader !== null) throw new CostClassifyError("forbidden", 403);
+        if (options.length < 2) return json({ category_code: null, reason: "unconfigured" });
+
+        let suggestEvaluator: CostEvaluator | null = null;
+        try {
+          suggestEvaluator = deps.evaluator();
+        } catch {
+          suggestEvaluator = null;
+        }
+        if (!suggestEvaluator) return json({ category_code: null, reason: "unconfigured" });
+
+        const suggest = input.suggest!;
+        const candidate: CostClassificationCandidate = {
+          source_type: "chat_suggest",
+          source_line_id: "chat_suggest",
+          supplier_name: suggest.supplierName || null,
+          product_name: suggest.description,
+          line_amount: suggest.amount,
+        };
+        let evaluation;
+        try {
+          evaluation = await suggestEvaluator({
+            state: buildCostState(candidate),
+            options,
+            signal,
+            deadlineAt,
+          });
+        } catch (error) {
+          const reason = error instanceof JevError ? error.code : "jev_unavailable";
+          return json({ category_code: null, reason });
+        }
+        if (evaluation === null) return json({ category_code: null, reason: "jev_no_answer" });
+
+        const chosenRow = activeRows.find((row) => row.code === evaluation.category_code);
+        const productLine: ProductLineCode = evaluation.product_line_probability >= PRODUCT_LINE_THRESHOLD
+          ? evaluation.product_line
+          : "shared";
+        return json({
+          category_code: evaluation.category_code,
+          label: chosenRow?.label ?? null,
+          probability: evaluation.probability,
+          product_line: productLine,
+        });
+      }
+
       if (options.length < 2) throw new CostClassifyError("unconfigured", 503);
 
       let evaluator: CostEvaluator | null = null;

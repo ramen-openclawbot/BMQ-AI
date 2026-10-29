@@ -219,8 +219,33 @@ const SNAPSHOT = {
 };
 const DOC_PR = { kind: "pr", code: "PR-MV6H33KA", id: "11111111-1111-4111-8111-111111111111", title: "DNTT 131026 · Chi phí thuê nhà kho Q7 tháng 10 · 28,040,000 đ", path: "/payment-requests?id=11111111-1111-4111-8111-111111111111" };
 const DOC_PO = { kind: "po", code: "PO-000854", id: "22222222-2222-4222-8222-222222222222", title: "PO-000854 · 7,830,000 đ", path: "/purchase-orders?id=22222222-2222-4222-8222-222222222222" };
+// Bank slip fixture modelled on the real case (rent 21/10–20/11 to Lại Đình Tuấn, pending PR-MV6VLC9E).
+const SLIP_PR_ID = "66666666-6666-4666-8666-666666666666";
+const SLIP_CATEGORIES = [
+  { code: "B2_KIOSK_RENT", label: "Mặt bằng điểm bán" },
+  { code: "C1_WAREHOUSE_RENT", label: "Thuê kho, bếp" },
+  { code: "C2_ELECTRICITY", label: "Điện" },
+  { code: "C11_BANK_TAX_OTHER", label: "Phí ngân hàng, thuế, phí khác" },
+];
+const SLIP_STAGED = {
+  change_id: "slip-1", status: "staged", version: 1,
+  slip: { amount: 20000000, reference: "6087660296", transfer_date: "2026-10-29", beneficiary_account: "9908011986", beneficiary_name: "LAI DINH TUAN", transfer_content: "CONG TY CO PHAN THUC PHAM BMQ chuyen tien thue nha tu 2110 den 20112026 tai 14.1.15 Duong Bia Truyen Thong, Binh Tan", confidence: 0.74, file_sha256: "f".repeat(64), storage_path: "payment-unc/2026/10/x.jpg" },
+  supplier: { id: "sup-ldt", name: "Lại Đình Tuấn (thuê kho Bình Tân)" },
+  target: { mode: "pay_existing", request_id: SLIP_PR_ID, request_number: "PR-MV6VLC9E", title: "DNTT131026", line_name: "DNTT131026", amount: 20000000 },
+  category: { code: "C1_WAREHOUSE_RENT", label: "Thuê kho, bếp", source: "history", evidence: { request_numbers: ["PR-MV6VLC9E"] } },
+  previous: { request_number: "PR-MT71Z1SX", date: "2026-08-24", amount: 20000000 },
+  warnings: ["low_ocr_confidence"],
+  categories: SLIP_CATEGORIES,
+};
+const SLIP_DOC = { kind: "pr", code: "PR-MV6VLC9E", id: SLIP_PR_ID, title: "PR-MV6VLC9E · 20.000.000 đ", path: `/payment-requests?id=${SLIP_PR_ID}` };
+let slipSends = 0;
 function reply(body) {
   const text = String(body.message || "").toLowerCase();
+  if (Array.isArray(body.attachments) && body.attachments.length) {
+    slipSends += 1;
+    if (slipSends % 2 === 0) return { status: 200, json: { session_id: "s-1", text: "Bankslip này đã được ghi nhận trước đó ở phiếu PR-MV6VLC9E.", tool_calls: ["bank_slip_intake"], ui: [{ component: "bank_slip_payment", payload: { status: "already_recorded", request_number: "PR-MV6VLC9E", doc_link: SLIP_DOC } }], pending_changes: [] } };
+    return { status: 200, json: { session_id: "s-1", text: "Đã đọc bankslip 20.000.000 đ cho Lại Đình Tuấn (thuê kho Bình Tân). Đề xuất thanh toán phiếu PR-MV6VLC9E.", tool_calls: ["bank_slip_intake"], ui: [{ component: "bank_slip_payment", payload: SLIP_STAGED }], pending_changes: [{ change_id: "slip-1", kind: "bank_slip_payment", status: "staged", summary: "Thanh toán phiếu PR-MV6VLC9E" }] } };
+  }
   if (text.includes("snapshot")) return { status: 200, json: { session_id: "s-1", text: "Snapshot doanh thu 19/10 — từ đầu tháng so với cùng kỳ tháng trước\nTổng doanh thu: 687,7 tr (+13,6% so với cùng kỳ)", tool_calls: ["bmq_revenue_snapshot"], ui: [{ component: "revenue_snapshot", payload: SNAPSHOT }, { component: "suggestions", payload: { suggestions: ["Vì sao kênh giảm?", "Điểm bán nào chưa nộp báo cáo?", "Doanh thu tháng này theo kênh"] } }], pending_changes: [] } };
   if (text.includes("chi tiết pr")) return { status: 200, json: { session_id: "s-1", text: "VNAgent xem được PR-MV6H33KA (DNTT 131026) của ANH HẢI (CHỦ NHÀ KHO Q.7): 28.040.000 VND, chờ duyệt.", tool_calls: ["mcp__bmq__bmq_document_link"], ui: [{ component: "doc_link", version: 1, payload: DOC_PR }, { component: "doc_link", version: 1, payload: DOC_PR }, { component: "doc_link", version: 1, payload: { ...DOC_PR, path: "javascript:alert(1)" } }, { component: "doc_link", version: 1, payload: DOC_PO }], pending_changes: [] } };
   if (text.includes("lỗi máy chủ")) return { status: 503, json: { detail: "Trợ lý quản trị đang không phản hồi." } };
@@ -245,6 +270,7 @@ async function open(viewport) {
       calls.push({ path: pathName, body, auth: r.request().headers()["authorization"] });
       await new Promise((resolve) => setTimeout(resolve, 200));
       if (pathName === "/v1/chat") { const answer = reply(body); return r.fulfill({ status: answer.status, headers, body: JSON.stringify(answer.json) }); }
+      if (pathName === "/v1/changes/slip-1/approve") return r.fulfill({ status: 200, headers, body: JSON.stringify({ change_id: "slip-1", kind: "bank_slip_payment", status: "applied", request_number: "PR-MV6VLC9E", doc_link: SLIP_DOC, classification: "applied" }) });
       if (pathName.endsWith("/approve")) return r.fulfill({ status: 200, headers, body: JSON.stringify({ ...CHANGE, status: "applied" }) });
       if (pathName.endsWith("/discard")) return r.fulfill({ status: 200, headers, body: JSON.stringify({ ...CHANGE, status: "discarded" }) });
       return r.fulfill({ status: 404, headers, body: "{}" });
@@ -357,6 +383,65 @@ try {
     assert.ok(calls.some((c) => c.path === "/v1/changes/chg-1/approve"));
     await page.screenshot({ path: `${EVIDENCE}/applied-${tag}.png` });
     record(`draft approve applies ${tag}`);
+
+    // Bank slip: attach, read, approve with the chosen cost category, resend is refused.
+    const slipImage = process.env.QA_SLIP_IMAGE;
+    assert.ok(slipImage && fs.existsSync(slipImage), "QA_SLIP_IMAGE points to a slip image");
+    await page.locator("[data-merchant-image-input]").setInputFiles(slipImage);
+    await page.locator("[data-merchant-pending-image] img").waitFor();
+    assert.ok(await page.locator("[data-merchant-send]").isEnabled(), "an image alone can be sent");
+    await page.waitForTimeout(400);
+    const sendBg = await page.locator("[data-merchant-send]").evaluate((el) => getComputedStyle(el).backgroundColor);
+    assert.equal(sendBg, "rgb(214, 243, 60)", `send key turns lime with only an image ${tag}: ${sendBg}`);
+    assert.ok(await overflow(page) <= 0, `no overflow with a pending image ${tag}`);
+    await page.screenshot({ path: `${EVIDENCE}/slip-pending-${tag}.png` });
+    const chatCallsBefore = calls.filter((c) => c.path === "/v1/chat").length;
+    await page.locator("[data-merchant-send]").click();
+    const slipCard = page.locator("[data-merchant-bank-slip='slip-1']");
+    await slipCard.waitFor({ timeout: 10000 });
+    const slipCall = calls.filter((c) => c.path === "/v1/chat")[chatCallsBefore];
+    assert.equal(slipCall.body.message, "Duyệt chi theo bankslip");
+    assert.equal(slipCall.body.attachments.length, 1);
+    assert.equal(slipCall.body.attachments[0].kind, "image");
+    assert.equal(slipCall.body.attachments[0].mime_type, "image/jpeg", "slip re-encoded to JPEG");
+    assert.ok(slipCall.body.attachments[0].data_base64.length > 1000 && slipCall.body.attachments[0].data_base64.length < 8_000_000, "base64 image within the 6 MB limit");
+    assert.equal(await page.locator("[data-merchant-pending-image]").count(), 0, "composer cleared after sending");
+    assert.ok((await page.locator("[data-merchant-message-attachment]").last().textContent()).length > 0, "user bubble names the image");
+    const slipText = await slipCard.textContent();
+    for (const expected of ["20.000.000 đ", "Lại Đình Tuấn", "PR-MV6VLC9E", "29/10/2026", "6087660296", "PR-MT71Z1SX", "24/08/2026", "Học từ PR-MV6VLC9E", "đối chiếu lại số tiền"]) {
+      assert.ok(slipText.includes(expected), `slip card shows "${expected}"`);
+    }
+    assert.equal(await slipCard.locator("[data-merchant-bank-slip-category]").inputValue(), "C1_WAREHOUSE_RENT", "history category preselected");
+    assert.equal(calls.filter((c) => c.path.includes("/approve") && c.path.includes("slip")).length, 0, "nothing approved before the tap");
+    assert.ok(await overflow(page) <= 0, `no overflow with the slip card ${tag}`);
+    const selectBox = await slipCard.locator("[data-merchant-bank-slip-category]").boundingBox();
+    const cardBox = await slipCard.boundingBox();
+    assert.ok(selectBox && cardBox && selectBox.x + selectBox.width <= cardBox.x + cardBox.width + 0.5, `category select inside the card ${tag}`);
+    await slipCard.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `${EVIDENCE}/slip-card-${tag}.png` });
+    await slipCard.screenshot({ path: `${EVIDENCE}/slip-card-only-${tag}.png` });
+    await slipCard.locator("[data-merchant-bank-slip-category]").selectOption("C11_BANK_TAX_OTHER");
+    assert.ok((await slipCard.locator("[data-merchant-bank-slip-source]").textContent()).includes("Anh tự chọn"));
+    await slipCard.locator("[data-merchant-bank-slip-category]").selectOption("C1_WAREHOUSE_RENT");
+    await slipCard.locator("[data-merchant-bank-slip-action='approve']").click();
+    await page.locator("[data-merchant-bank-slip='slip-1'][data-merchant-bank-slip-status='applied']").waitFor();
+    const approveCall = calls.find((c) => c.path === "/v1/changes/slip-1/approve");
+    assert.deepEqual(approveCall.body, { category_code: "C1_WAREHOUSE_RENT" }, "approval carries the chosen category");
+    assert.equal(await slipCard.locator("[data-merchant-bank-slip-action]").count(), 0, "buttons gone after apply");
+    assert.equal(await slipCard.locator("[data-merchant-bank-slip-warnings]").count(), 0, "warnings hidden once applied");
+    assert.ok((await slipCard.locator("[data-merchant-bank-slip-done]").textContent()).includes("PR-MV6VLC9E"));
+    assert.equal(await slipCard.locator("[data-merchant-bank-slip-doc]").count(), 1, "open-phiếu button after apply");
+    await slipCard.scrollIntoViewIfNeeded();
+    await slipCard.screenshot({ path: `${EVIDENCE}/slip-applied-${tag}.png` });
+    record(`bank slip: attach, card, approve with category ${tag}`);
+    await page.locator("[data-merchant-image-input]").setInputFiles(slipImage);
+    await page.locator("[data-merchant-pending-image] img").waitFor();
+    await page.locator("[data-merchant-send]").click();
+    const recorded = page.locator("[data-merchant-bank-slip='already_recorded']").last();
+    await recorded.waitFor();
+    assert.ok((await recorded.textContent()).includes("đã được ghi"));
+    assert.ok(await overflow(page) <= 0, `no overflow with already-recorded card ${tag}`);
+    record(`bank slip resend shows already recorded ${tag}`);
 
     await ask(page, "lỗi máy chủ thử");
     await page.locator("[data-merchant-message='error']").waitFor();

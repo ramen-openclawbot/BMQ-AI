@@ -48,6 +48,7 @@ from merchant_agent import (
 from merchant_agent.changes import ChangeNotApplicable, check_guardrails
 from pydantic import BaseModel, Field, field_validator
 
+from . import bank_slip
 from .revenue_snapshot import build_revenue_snapshot
 from .supabase import SupabaseClient
 
@@ -65,6 +66,9 @@ _CHANGE_KIND_BY_DB_KIND = {
 class BmqStagedChange(StagedChange):
     """A StagedChange that can also expose the host's ``approved``/``failed`` states."""
 
+    # The reference ChangeKind enum predates the bank-slip kind. Keep every
+    # existing value unchanged while allowing the raw DB kind through.
+    kind: Any = ChangeKind.PRICE_UPDATE
     status: Any = ChangeStatus.STAGED
 
 
@@ -353,9 +357,12 @@ def _document_title(kind: str, row: dict[str, Any], code: str) -> str:
     return " · ".join(parts)[:200]
 
 
-def _row_change_kind(row: dict[str, Any]) -> ChangeKind:
+def _row_change_kind(row: dict[str, Any]) -> Any:
+    db_kind = str(row.get("kind") or "")
+    if db_kind == "bank_slip_payment":
+        return "bank_slip_payment"
     try:
-        return _CHANGE_KIND_BY_DB_KIND[str(row.get("kind"))]
+        return _CHANGE_KIND_BY_DB_KIND[db_kind]
     except KeyError as exc:
         raise ChangeNotApplicable(f"Loại thay đổi không hợp lệ: {row.get('kind')}") from exc
 
@@ -1567,26 +1574,109 @@ class BmqMerchantBackend(MerchantBackend):
             {"select": "*", "id": f"eq.{change_id}"},
         )
 
-    async def approve_change(self, change_id: str, decided_by: str) -> StagedChange:
+    async def approve_change(
+        self,
+        change_id: str,
+        decided_by: str,
+        *,
+        category_code: str | None = None,
+    ) -> StagedChange:
         row = await self._fetch_change(change_id)
         if row is None:
             raise ChangeNotApplicable("Không tìm thấy thay đổi cần duyệt")
         if row.get("status") == "applied":
             return _row_to_staged(row)
-        if row.get("status") not in {"staged", "approved"}:
+
+        db_kind = str(row.get("kind") or "")
+        values: dict[str, Any] = {
+            "status": "approved",
+            "decided_by": decided_by,
+            "decided_at": datetime.now(timezone.utc).isoformat(),
+        }
+        allowed_statuses = ["staged", "approved"]
+
+        if db_kind == "bank_slip_payment":
+            # A failed confirm keeps the prepared request pending; re-approving
+            # the same change must reuse it and the same unc:<sha> idempotency key.
+            if str(row.get("status") or "") == "failed":
+                allowed_statuses.append("failed")
+            payload = row.get("payload") if isinstance(row.get("payload"), dict) else {}
+            proposal = (
+                payload.get("category")
+                if isinstance(payload.get("category"), dict)
+                else {}
+            )
+            chosen = (
+                category_code
+                or payload.get("approved_category")
+                or proposal.get("code")
+                or ""
+            ).strip().upper()
+            if not chosen:
+                raise ValueError("Anh chọn loại chi phí cho khoản chi này nhé.")
+            active = await self._db.select_one(
+                "cost_categories",
+                {
+                    "select": "code,label",
+                    "code": f"eq.{chosen}",
+                    "is_active": "eq.true",
+                },
+            )
+            if active is None:
+                raise ValueError("Loại chi phí không còn hiệu lực, anh chọn lại nhé.")
+            # merchant_staged_changes has no approved_category column: keep the
+            # choice inside payload so a retry after a failed confirm reuses it.
+            values["payload"] = {**payload, "approved_category": chosen}
+            values["error"] = None
+        elif row.get("status") not in {"staged", "approved"}:
             raise ChangeNotApplicable("Chỉ có thể duyệt thay đổi đang chờ")
+
         updated = await self._db.update_staged_change(
             change_id,
-            {
-                "status": "approved",
-                "decided_by": decided_by,
-                "decided_at": datetime.now(timezone.utc).isoformat(),
-            },
-            only_statuses=["staged", "approved"],
+            values,
+            only_statuses=allowed_statuses,
         )
         if updated is None:
             raise ChangeNotApplicable("Thay đổi đã được xử lý ở nơi khác")
         return _row_to_staged(updated)
+
+    async def intake_bank_slip(
+        self,
+        session: MerchantSessionContext,
+        *,
+        owner_token: str,
+        image_base64: str,
+        mime_type: str,
+        message: str = "",
+    ) -> dict[str, Any]:
+        """Deterministic bank-slip intake; stages at most one change."""
+
+        return await bank_slip.intake(
+            self,
+            session,
+            owner_token=owner_token,
+            image_base64=image_base64,
+            mime_type=mime_type,
+            message=message,
+        )
+
+    async def apply_bank_slip_change(
+        self,
+        session: MerchantSessionContext,
+        change_id: str,
+        *,
+        category_code: str | None,
+        owner_token: str,
+    ) -> dict[str, Any]:
+        """Prepare the request, confirm with the owner token, then finalize."""
+
+        return await bank_slip.apply_bank_slip_change(
+            self,
+            session,
+            change_id,
+            category_code=category_code,
+            owner_token=owner_token,
+        )
 
     async def apply_change(
         self, session: MerchantSessionContext, change_id: str

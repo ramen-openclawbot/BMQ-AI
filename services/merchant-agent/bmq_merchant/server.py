@@ -8,6 +8,8 @@ backend tools; a staged change becomes a live write only after an owner calls
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import json
 import logging
 import time
@@ -15,7 +17,7 @@ import uuid
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Literal
 
 import uvicorn
 from claude_agent_sdk import ClaudeSDKClient, create_sdk_mcp_server, tool
@@ -26,7 +28,7 @@ from fastapi.responses import JSONResponse
 from merchant_agent import MerchantSessionContext, StagedChange
 from merchant_agent.changes import ChangeNotApplicable
 from merchant_agent_sdk import make_options, run_turn
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import sushi
@@ -82,17 +84,64 @@ SUSHI_SYSTEM_PROMPT = (
 )
 
 
+MAX_ATTACHMENT_BYTES = 6 * 1024 * 1024
+MAX_ATTACHMENT_BASE64_CHARS = 12_000_000
+ALLOWED_ATTACHMENT_MIME_TYPES = frozenset(
+    {"image/jpeg", "image/png", "image/webp"}
+)
+
+
+def _decode_attachment(value: str) -> bytes:
+    raw = value.strip()
+    if raw.startswith("data:") and "," in raw:
+        raw = raw.split(",", 1)[1]
+    raw = "".join(raw.split())
+    try:
+        return base64.b64decode(raw, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise ValueError(
+            "Ảnh đính kèm không hợp lệ, anh gửi lại ảnh JPG/PNG/WEBP nhé."
+        ) from exc
+
+
+class ChatAttachment(BaseModel):
+    kind: Literal["image"]
+    mime_type: str
+    data_base64: str = Field(min_length=1, max_length=MAX_ATTACHMENT_BASE64_CHARS)
+
+    @field_validator("mime_type")
+    @classmethod
+    def _allowed_mime(cls, value: str) -> str:
+        if value not in ALLOWED_ATTACHMENT_MIME_TYPES:
+            raise ValueError("Ảnh chỉ hỗ trợ JPG, PNG hoặc WEBP.")
+        return value
+
+    @field_validator("data_base64")
+    @classmethod
+    def _bounded_image(cls, value: str) -> str:
+        decoded = _decode_attachment(value)
+        if not decoded:
+            raise ValueError("Ảnh đính kèm rỗng, anh gửi lại ảnh nhé.")
+        if len(decoded) > MAX_ATTACHMENT_BYTES:
+            raise ValueError("Ảnh đính kèm vượt quá 6 MB.")
+        return value
+
+
 class ChatRequest(BaseModel):
     session_id: str | None = Field(default=None, min_length=1, max_length=128)
-    message: str = Field(min_length=1, max_length=4000)
+    message: str = Field(default="", max_length=4000)
     page: str | None = Field(default=None, max_length=300)
+    attachments: list[ChatAttachment] | None = Field(default=None, max_length=1)
 
-    @field_validator("message")
-    @classmethod
-    def _not_blank(cls, value: str) -> str:
-        if not value.strip():
+    @model_validator(mode="after")
+    def _message_or_attachment(self) -> "ChatRequest":
+        if not self.message.strip() and not self.attachments:
             raise ValueError("message không được để trống")
-        return value
+        return self
+
+
+class ApproveRequest(BaseModel):
+    category_code: str | None = Field(default=None, max_length=100)
 
 
 @dataclass
@@ -435,12 +484,20 @@ def create_app(
 
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(
-        _: Request, __: RequestValidationError
+        _: Request, exc: RequestValidationError
     ) -> JSONResponse:
+        message = "Dữ liệu gửi lên không hợp lệ"
+        for error in exc.errors():
+            raw = str(error.get("msg") or "")
+            if raw.startswith("Value error, "):
+                raw = raw[len("Value error, ") :]
+            if raw.startswith(("Ảnh ", "message không")):
+                message = raw
+                break
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             content={
-                "error": "Dữ liệu gửi lên không hợp lệ",
+                "error": message,
                 "code": "validation_error",
             },
         )
@@ -496,6 +553,42 @@ def create_app(
         chat_session = await get_chat_session(
             payload.session_id, owner, owner_token
         )
+        if payload.attachments:
+            attachment = payload.attachments[0]
+            context = _session_context(chat_session.session_id, owner)
+            async with chat_session.lock:
+                chat_session.last_used = time.monotonic()
+                try:
+                    result_dict = await chat_session.backend.intake_bank_slip(
+                        context,
+                        owner_token=owner_token,
+                        image_base64=attachment.data_base64,
+                        mime_type=attachment.mime_type,
+                        message=payload.message,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Không xử lý được ảnh bankslip", exc_info=True
+                    )
+                    raise HTTPException(
+                        status_code=status.HTTP_502_BAD_GATEWAY,
+                        detail=(
+                            "Không xử lý được ảnh bankslip, vui lòng thử lại"
+                        ),
+                    ) from exc
+                chat_session.last_used = time.monotonic()
+            pending = await chat_session.backend.get_pending_changes(context)
+            return {
+                "session_id": chat_session.session_id,
+                "text": str(result_dict.get("text") or ""),
+                "ui": list(result_dict.get("ui") or []),
+                "tool_calls": list(
+                    result_dict.get("tool_calls") or ["bank_slip_intake"]
+                ),
+                "pending_changes": [
+                    _serialize_change(change) for change in pending
+                ],
+            }
         if is_snapshot_command(payload.message):
             async with chat_session.lock:
                 chat_session.last_used = time.monotonic()
@@ -575,11 +668,29 @@ def create_app(
         }
 
     @app.post("/v1/changes/{change_id}/approve")
-    async def approve_change(change_id: str, request: Request) -> dict[str, Any]:
-        owner = await authenticate(request.headers.get("authorization"))
+    async def approve_change(
+        change_id: str,
+        request: Request,
+        payload: ApproveRequest | None = None,
+    ) -> dict[str, Any]:
+        authorization = request.headers.get("authorization")
+        owner = await authenticate(authorization)
+        owner_token = _bearer_token(authorization)
+        category_code = payload.category_code if payload else None
         backend = make_backend()
-        await backend.approve_change(change_id, owner.user_id)
+        change = await backend.approve_change(
+            change_id,
+            owner.user_id,
+            category_code=category_code,
+        )
         context = _session_context("host-approval", owner)
+        if str(getattr(change, "kind", "")) == "bank_slip_payment":
+            return await backend.apply_bank_slip_change(
+                context,
+                change_id,
+                category_code=category_code,
+                owner_token=owner_token,
+            )
         change = await backend.apply_change(context, change_id)
         return _serialize_change(change)
 

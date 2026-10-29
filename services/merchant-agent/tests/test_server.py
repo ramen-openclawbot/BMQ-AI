@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import base64
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any
@@ -37,6 +38,7 @@ class FakeBackend:
             "change-1": _change("change-1"),
             "change-2": _change("change-2"),
         }
+        self.intake: dict[str, Any] | None = None
 
     async def get_pending_changes(self, session: Any) -> list[StagedChange]:
         return [
@@ -45,7 +47,13 @@ class FakeBackend:
             if change.status in {"staged", "approved"}
         ]
 
-    async def approve_change(self, change_id: str, decided_by: str) -> StagedChange:
+    async def approve_change(
+        self,
+        change_id: str,
+        decided_by: str,
+        *,
+        category_code: str | None = None,
+    ) -> StagedChange:
         change = self.changes[change_id]
         updated = change.model_copy(update={"status": "approved"})
         self.changes[change_id] = updated
@@ -56,6 +64,27 @@ class FakeBackend:
         updated = change.model_copy(update={"status": "applied"})
         self.changes[change_id] = updated
         return updated
+
+    async def intake_bank_slip(
+        self,
+        session: Any,
+        *,
+        owner_token: str,
+        image_base64: str,
+        mime_type: str,
+        message: str = "",
+    ) -> dict[str, Any]:
+        self.intake = {
+            "owner_token": owner_token,
+            "image_base64": image_base64,
+            "mime_type": mime_type,
+            "message": message,
+        }
+        return {
+            "text": "Đã đọc bankslip",
+            "ui": [{"component": "bank_slip_payment", "payload": {"status": "staged"}}],
+            "tool_calls": ["bank_slip_intake"],
+        }
 
     async def discard_change(self, session: Any, change_id: str) -> StagedChange:
         change = self.changes[change_id]
@@ -376,6 +405,95 @@ def test_wire_sushi_registers_document_link_tool(
         "ask_sushi",
         "bmq_cost",
     ]
+
+
+def test_chat_empty_message_with_one_image_runs_intake_without_model(
+    settings: Settings,
+) -> None:
+    captured: dict[str, Any] = {"turns": []}
+
+    async def fake_turn(client: Any, text: str, *, toolset: Any = None) -> TurnResult:
+        captured["turns"].append(text)
+        return TurnResult(text="không được gọi")
+
+    fake = FakeBackend()
+    app = _app(settings, fake, captured, turn_runner=fake_turn)
+    png = base64.b64encode(b"\x89PNG\r\n fake image bytes").decode()
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/chat",
+            headers={"Authorization": "Bearer owner-token"},
+            json={
+                "session_id": "session-image",
+                "message": "",
+                "attachments": [
+                    {
+                        "kind": "image",
+                        "mime_type": "image/png",
+                        "data_base64": png,
+                    }
+                ],
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["text"] == "Đã đọc bankslip"
+    assert body["ui"][0]["component"] == "bank_slip_payment"
+    assert body["tool_calls"] == ["bank_slip_intake"]
+    assert captured["turns"] == [], "the image path must not call the model"
+    assert fake.intake == {
+        "owner_token": "owner-token",
+        "image_base64": png,
+        "mime_type": "image/png",
+        "message": "",
+    }
+
+
+def test_chat_rejects_bad_attachments(settings: Settings) -> None:
+    fake = FakeBackend()
+    app = _app(settings, fake, {}, turn_runner=_unused_turn)
+    png = base64.b64encode(b"small image").decode()
+    attachment = {
+        "kind": "image",
+        "mime_type": "image/png",
+        "data_base64": png,
+    }
+    too_large = base64.b64encode(b"x" * (6 * 1024 * 1024 + 1)).decode()
+
+    with TestClient(app) as client:
+        headers = {"Authorization": "Bearer owner-token"}
+        two_images = client.post(
+            "/v1/chat",
+            headers=headers,
+            json={"message": "", "attachments": [attachment, attachment]},
+        )
+        bad_mime = client.post(
+            "/v1/chat",
+            headers=headers,
+            json={
+                "message": "",
+                "attachments": [{**attachment, "mime_type": "image/gif"}],
+            },
+        )
+        oversized = client.post(
+            "/v1/chat",
+            headers=headers,
+            json={"message": "", "attachments": [{**attachment, "data_base64": too_large}]},
+        )
+        blank_without_image = client.post(
+            "/v1/chat", headers=headers, json={"message": "   "}
+        )
+
+    assert two_images.status_code == 422
+    assert "Dữ liệu" in two_images.json()["error"]
+    assert bad_mime.status_code == 422
+    assert "JPG" in bad_mime.json()["error"]
+    assert oversized.status_code == 422
+    assert "6 MB" in oversized.json()["error"]
+    assert blank_without_image.status_code == 422
+    assert "message" in blank_without_image.json()["error"]
+    assert fake.intake is None
 
 
 def test_approve_and_discard_endpoints(settings: Settings) -> None:

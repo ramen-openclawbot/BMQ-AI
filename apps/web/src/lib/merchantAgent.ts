@@ -24,7 +24,22 @@ export type MerchantChange = {
   error?: string | null;
   /** Advisory warnings from the Decisions API draft guard. */
   guardrail_notes?: string[];
+  /** Bank-slip approvals: the paid payment request and its open link. */
+  request_number?: string | null;
+  doc_link?: unknown;
+  classification?: string | null;
 };
+
+/** One image the owner attaches in chat; the service reads it as a bank slip. */
+export type MerchantAttachment = {
+  kind: "image";
+  mime_type: string;
+  data_base64: string;
+};
+
+export const MERCHANT_ATTACHMENT_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
+/** The service refuses images above 6 MB decoded. */
+export const MERCHANT_ATTACHMENT_MAX_BYTES = 6 * 1024 * 1024;
 
 export type MerchantUiBlock = {
   component: string;
@@ -109,19 +124,32 @@ function readableStatus(status: number): string {
   return `VNAgent báo lỗi (${status}).`;
 }
 
-export function sendMerchantMessage(token: string, input: { message: string; sessionId?: string | null; page?: string }) {
+export function sendMerchantMessage(
+  token: string,
+  input: { message: string; sessionId?: string | null; page?: string; attachments?: MerchantAttachment[] },
+) {
   return call<MerchantChatResponse>("/v1/chat", token, {
     method: "POST",
     body: JSON.stringify({
       message: input.message,
       ...(input.sessionId ? { session_id: input.sessionId } : {}),
       ...(input.page ? { page: input.page } : {}),
+      ...(input.attachments?.length ? { attachments: input.attachments } : {}),
     }),
   }, CHAT_TIMEOUT_MS);
 }
 
-export function approveMerchantChange(token: string, changeId: string) {
-  return call<MerchantChange>(`/v1/changes/${encodeURIComponent(changeId)}/approve`, token, { method: "POST" }, ACTION_TIMEOUT_MS);
+// Paying from a bank slip runs OCR checks, the UNC confirm and the cost write in one call.
+const BANK_SLIP_APPROVE_TIMEOUT_MS = 90_000;
+
+export function approveMerchantChange(token: string, changeId: string, input?: { categoryCode?: string | null }) {
+  const categoryCode = input?.categoryCode?.trim();
+  return call<MerchantChange>(
+    `/v1/changes/${encodeURIComponent(changeId)}/approve`,
+    token,
+    { method: "POST", ...(categoryCode ? { body: JSON.stringify({ category_code: categoryCode }) } : {}) },
+    categoryCode ? BANK_SLIP_APPROVE_TIMEOUT_MS : ACTION_TIMEOUT_MS,
+  );
 }
 
 export function discardMerchantChange(token: string, changeId: string) {
@@ -137,6 +165,7 @@ const KIND_LABELS: Record<string, string> = {
   listing_update: "Danh mục SKU",
   inventory: "Kho",
   inventory_action: "Kho",
+  bank_slip_payment: "Duyệt chi từ bankslip",
 };
 
 export function merchantChangeKindLabel(kind: string): string {

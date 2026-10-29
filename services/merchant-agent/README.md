@@ -39,12 +39,65 @@ này nếu có và ghi warning, nhưng không bao giờ in giá trị khóa.
 ## API
 
 - `GET /health`
-- `POST /v1/chat` — body `{session_id?, message, page?}`, `Authorization: Bearer <Supabase JWT>`
+- `POST /v1/chat` — body `{session_id?, message, page?, attachments?}`, `Authorization: Bearer <Supabase JWT>`
 - `GET /v1/changes`
-- `POST /v1/changes/{change_id}/approve`
+- `POST /v1/changes/{change_id}/approve` — body tuỳ chọn `{category_code?}`
 - `POST /v1/changes/{change_id}/discard`
 
+`attachments` chỉ nhận tối đa 1 ảnh:
+`{kind:"image", mime_type:"image/jpeg"|"image/png"|"image/webp", data_base64:"..."}`.
+Ảnh giải mã tối đa 6 MB; `message` được phép rỗng khi có ảnh.
+
 Lỗi trả về `{error, code}` bằng tiếng Việt, không chứa khóa hay chi tiết nội bộ.
+
+## Duyệt chi từ bankslip trong chatbox
+
+Khi owner gửi 1 ảnh bankslip, `POST /v1/chat` chạy luồng đọc bankslip
+**không gọi model** (giống shortcut snapshot doanh thu):
+
+1. Gọi edge function `payment-unc-approve` mode `extract` bằng **token của
+   owner** (không bao giờ dùng service key) để lấy OCR, `file_sha256` và
+   `storage_path`.
+2. Chặn trùng: nếu `payment_unc_evidence` đã có cùng `file_sha256` hoặc cùng
+   reference đã chuẩn hoá, trả thẻ `already_recorded` và không stage gì. Nếu đã
+   có thẻ `bank_slip_payment` staged/approved cùng file thì trả lại thẻ đó.
+3. Học người nhận từ lịch sử UNC (cùng số tài khoản) trước, sau đó mới so tên
+   nhà cung cấp (bỏ dấu, bỏ tiền tố công ty). Không khớp thì chỉ trả lời hướng
+   dẫn tạo phiếu trong Duyệt chi, không stage.
+4. Nếu có phiếu pending/unpaid cùng nhà cung cấp và còn lại đúng số tiền thì
+   đề xuất `pay_existing` (phiếu cũ nhất); ngược lại đề xuất `create_new` với
+   tiêu đề `<nội dung chuyển khoản> (bankslip dd/mm)`.
+5. Chọn loại chi phí: lịch sử 6 phiếu gần nhất của nhà cung cấp (ưu tiên
+   `approved`, bỏ `OPEX_GENERAL`/`UNMAPPED_REVIEW`); chỉ khi không có lịch sử
+   mới gọi `cost-classify-sushi` mode `suggest` bằng token owner. Jev không ghi
+   dữ liệu.
+6. Stage đúng **một** dòng `merchant_staged_changes` kind `bank_slip_payment` và
+   trả text + khối ui `{type:"bank_slip_payment", payload:{change_id,
+   status:"staged", ...}}`.
+
+**Chưa ghi gì vào `payment_requests`, `payments`, `payment_unc_evidence` hay
+`cost_line_classifications` trước khi owner bấm Duyệt.** Hủy thẻ cũng không ghi
+gì.
+
+Khi Duyệt (có thể gửi `category_code` để đè loại chi phí đề xuất):
+
+1. Kiểm tra loại chi phí còn hiệu lực, đánh dấu change `approved`.
+2. RPC `merchant_prepare_bank_slip_request` tạo hoặc tái sử dụng đúng một phiếu
+   pending (`prepared_request_id` giữ idempotency). Phiếu mới dùng
+   `payment_method = bank_transfer`, `requires_receipt = false`, ngày tạo nằm
+   trong tháng chuyển tiền để vào đúng kỳ của báo cáo chi phí.
+3. Gọi `payment-unc-approve` mode `confirm` bằng token owner với
+   `idempotency_key = unc:<file_sha256>` và bankslip làm chứng từ UNC. Đây là
+   đường duyệt chi hiện có, nên trigger Zalo duyệt chi vẫn chạy như các phiếu
+   khác.
+4. RPC `merchant_finalize_bank_slip_payment` ghi loại chi phí đã duyệt
+   (`manual_override`, `review_status = approved`, audit log) và đánh dấu change
+   `applied`.
+
+Nếu confirm lỗi, change thành `failed` với thông báo tiếng Việt và phiếu đã
+chuẩn bị vẫn pending; duyệt lại sẽ dùng lại `prepared_request_id` và cùng
+idempotency key. Nếu timeout/chưa rõ kết quả, server đọc lại trạng thái phiếu
+trước khi quyết định, không gọi confirm mù lần hai.
 
 ## Quyền và ghi dữ liệu
 
@@ -118,6 +171,9 @@ cd services/merchant-agent
 
 File `apps/web/supabase/migrations/20261102180000_merchant_agent.sql` đã được
 viết nhưng **chưa được áp dụng**. Không tự chạy migration này khi deploy GĐ1.
+Luồng bankslip dùng thêm
+`apps/web/supabase/migrations/20261103450000_merchant_bank_slip_payment.sql`
+(cũng chưa được áp dụng bởi coding agent).
 
 ## Kiểm thử
 

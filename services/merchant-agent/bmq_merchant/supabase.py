@@ -18,6 +18,8 @@ ALLOWED_RPCS = frozenset(
         "merchant_analysis_query",
         "merchant_apply_price_change",
         "merchant_apply_announcement",
+        "merchant_prepare_bank_slip_request",
+        "merchant_finalize_bank_slip_payment",
     }
 )
 
@@ -67,12 +69,17 @@ class SupabaseClient:
         params: Mapping[str, str] | None = None,
         json: Any = None,
         timeout: float | None = None,
+        service_auth: bool = True,
     ) -> httpx.Response:
-        request_headers = {
-            "apikey": self._service_key,
-            "Authorization": f"Bearer {self._service_key}",
-            "Accept": "application/json",
-        }
+        request_headers = (
+            {
+                "apikey": self._service_key,
+                "Authorization": f"Bearer {self._service_key}",
+                "Accept": "application/json",
+            }
+            if service_auth
+            else {"Accept": "application/json"}
+        )
         if headers:
             request_headers.update(headers)
         try:
@@ -215,6 +222,43 @@ class SupabaseClient:
             json=payload,
             timeout=timeout,
         )
+
+    async def call_edge_function_as_owner(
+        self,
+        name: str,
+        payload: dict[str, Any],
+        owner_token: str,
+        *,
+        timeout: float = 30.0,
+    ) -> httpx.Response:
+        """Call an Edge Function with the owner's JWT, never the service key.
+
+        Used by the bank-slip flow: payment-unc-approve and cost-classify-sushi
+        authenticate the owner themselves, so forwarding the service key would
+        bypass that contract and leak the most privileged credential.
+        """
+
+        token = str(owner_token or "").strip()
+        if not token:
+            raise SupabaseError("Thiếu phiên đăng nhập của chủ cửa hàng")
+        headers: dict[str, str] = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {token}",
+        }
+        # The anon key is the public gateway key. It is optional for functions
+        # configured without a gateway apikey and must never fall back to the
+        # service role key on this path.
+        if self._anon_key and self._anon_key != self._service_key:
+            headers["apikey"] = self._anon_key
+        response = await self._request(
+            "POST",
+            f"{self._base}/functions/v1/{name.lstrip('/')}",
+            headers=headers,
+            json=payload,
+            timeout=timeout,
+            service_auth=False,
+        )
+        return response
 
     async def rpc(self, function: str, payload: dict[str, Any] | None = None) -> Any:
         if function not in ALLOWED_RPCS:
