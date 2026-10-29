@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Check, ChevronRight, FileText, Minus, Paperclip, Plus, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -98,6 +99,48 @@ function readQty(text: string): number {
 
 const LOCATION_LABEL: Record<string, string> = { q7: "Q7", tan_tao: "Tân Tạo" };
 const locationLabel = (code: string) => LOCATION_LABEL[code] ?? code;
+
+type DeliveryContact = { address: string; contactName: string; contactPhone: string };
+
+const TAN_TAO_DELIVERY_KEYS = [
+  "order_email_tan_tao_delivery_address",
+  "order_email_tan_tao_contact_name",
+  "order_email_tan_tao_contact_phone",
+];
+
+/** Kho Tân Tạo receiving address; the email server uses the same app_settings keys. */
+function useTanTaoDelivery() {
+  return useQuery({
+    queryKey: ["supplier-order-tan-tao-delivery"],
+    staleTime: 5 * 60 * 1000,
+    queryFn: async (): Promise<DeliveryContact | null> => {
+      const { data, error } = await supabase.from("app_settings").select("key,value").in("key", TAN_TAO_DELIVERY_KEYS);
+      if (error) throw error;
+      const value = (key: string) => String((data ?? []).find((row) => row.key === key)?.value ?? "").trim();
+      const address = value("order_email_tan_tao_delivery_address");
+      return address ? {
+        address,
+        contactName: value("order_email_tan_tao_contact_name"),
+        contactPhone: value("order_email_tan_tao_contact_phone"),
+      } : null;
+    },
+  });
+}
+
+type DeliveryRow = DeliveryContact & { label: string; count: number };
+
+/** Same split as the order email: Tân Tạo items go to Tân Tạo, everything else to Q7. */
+function deliveryRows(items: SupplierOrderCatalogItem[], q7: DeliveryContact, tanTao: DeliveryContact | null): DeliveryRow[] {
+  const tanTaoCount = tanTao ? items.filter((item) => item.location === "tan_tao").length : 0;
+  const q7Count = items.length - tanTaoCount;
+  const rows: DeliveryRow[] = [];
+  if (q7Count > 0 || !items.length) rows.push({ ...q7, label: "Kho Q7", count: q7Count });
+  if (tanTao && tanTaoCount > 0) rows.push({ ...tanTao, label: "Kho Tân Tạo", count: tanTaoCount });
+  return rows;
+}
+
+const contactText = (row: DeliveryContact) =>
+  `${row.address || "—"}${row.contactName ? ` · ${row.contactName}` : ""}${row.contactPhone ? ` ${row.contactPhone}` : ""}`;
 
 /** No count and no usage on record: a 0 here means "unknown", not "in stock" or "empty". */
 const neverCounted = (item: SupplierOrderCatalogItem) =>
@@ -462,6 +505,7 @@ function SupplierPanel({ supplierId, onToast, onBack }: { supplierId: string; on
   const [result, setResult] = useState<SendSupplierOrderLinesResult | null>(null);
   const top = useRef<HTMLElement>(null);
   const data = catalog.data;
+  const tanTaoDelivery = useTanTaoDelivery().data ?? null;
 
   // Start from the proposals once per supplier; the person changes them freely afterwards.
   useEffect(() => {
@@ -581,9 +625,18 @@ function SupplierPanel({ supplierId, onToast, onBack }: { supplierId: string; on
             {editing ? <CatalogAdder supplierId={supplierId} onToast={onToast} /> : null}
 
             <div className="d3-so-foot">
-              <p className="d3-so-delivery">
-                Giao tới {data.delivery.address || "—"}{data.delivery.contactName ? ` · ${data.delivery.contactName}` : ""}{data.delivery.contactPhone ? ` ${data.delivery.contactPhone}` : ""}
-              </p>
+              {(() => {
+                // Chosen lines decide the address; with nothing chosen yet, the supplier's catalog does.
+                const chosen = lines.map(({ item }) => item);
+                const rows = deliveryRows(chosen.length ? chosen : data.items, data.delivery, tanTaoDelivery);
+                return rows.length > 1 ? rows.map((row) => (
+                  <p key={row.label} className="d3-so-delivery" data-bmq-so-delivery>
+                    {row.label} ({row.count} món): giao tới {contactText(row)}
+                  </p>
+                )) : (
+                  <p className="d3-so-delivery" data-bmq-so-delivery>Giao tới {contactText(rows[0] ?? data.delivery)}</p>
+                );
+              })()}
               <label className="d3-kho-field">
                 <span>Ghi chú cho NCC (không bắt buộc)</span>
                 <textarea className="d3-kho-notearea" rows={2} maxLength={500} value={note} onChange={(event) => setNote(event.target.value)}

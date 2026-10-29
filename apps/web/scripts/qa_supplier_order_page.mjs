@@ -111,6 +111,11 @@ function settle(st) {
     else localStorage.setItem("qa-removed", JSON.stringify([...removed(), a.p_item_id]));
     return { data: { supplier_id: a.p_supplier_id, kitchen_inventory_item_id: a.p_item_id, active: a.p_active }, error: null };
   }
+  if (st.table === "app_settings") return { data: [
+    { key: "order_email_tan_tao_delivery_address", value: "14/1/15 Bia Truyền Thống, P. Tân Tạo, Q. Bình Tân, TP.HCM" },
+    { key: "order_email_tan_tao_contact_name", value: "Võ Thị Tú Trinh" },
+    { key: "order_email_tan_tao_contact_phone", value: "0908 113 576" },
+  ], error: null };
   if (st.table === "payment_requests") return { data: null, error: null, count: 3 };
   if (st.table === "suppliers") return { data: [
     { id: PT, name: "Phúc Thịnh", category: "Bột mì", description: null, phone: "0909 111 222", email: "botmiphucthinh@gmail.com", contact_name: localStorage.getItem("qa-pt-contact"), bank_account_name: null, default_payment_method: "bank_transfer", contract_url: null, payment_terms_days: 7, created_at: "2026-01-01T00:00:00Z" },
@@ -286,6 +291,31 @@ const IMILK = "6ba549f7-d3b6-4971-a742-2fb4091800bb";
 const VIEWPORTS = [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 640 }];
 
 try {
+  for (const vp of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    // Mega Market sells Tân Tạo and Q7 items: the delivery line follows the chosen items.
+    const { context, page, errors } = await open({}, `/dat-hang?ncc=${MG}`, vp);
+    await page.waitForSelector("[data-bmq-so-lines] li");
+    const TT = "5a1e0000-0000-4000-8000-000000000011";
+    const DECAL = "5a1e0000-0000-4000-8000-000000000013";
+    for (const id of ["5a1e0000-0000-4000-8000-000000000011", "5a1e0000-0000-4000-8000-000000000012", DECAL, "5a1e0000-0000-4000-8000-000000000014"]) {
+      const box = page.locator(`[data-bmq-so-qty='${id}']`);
+      if (await box.count()) await box.fill("");
+    }
+    await page.locator(`[data-bmq-so-qty='${TT}']`).fill("10");
+    await page.waitForFunction(() => document.querySelector("[data-bmq-so-delivery]")?.textContent?.includes("Tú Trinh"));
+    let texts = await page.locator("[data-bmq-so-delivery]").allInnerTexts();
+    assert.equal(texts.length, 1, "Tân Tạo only: one row");
+    assert.ok(texts[0].startsWith("Giao tới 14/1/15 Bia Truyền Thống") && texts[0].includes("Võ Thị Tú Trinh 0908 113 576"), `Tân Tạo address ${texts[0]}`);
+    await page.locator(`[data-bmq-so-qty='${DECAL}']`).fill("2");
+    await page.waitForFunction(() => document.querySelectorAll("[data-bmq-so-delivery]").length === 2);
+    texts = await page.locator("[data-bmq-so-delivery]").allInnerTexts();
+    assert.ok(texts[0].startsWith("Kho Q7 (1 món): giao tới 24 Đường số 36") && texts[1].startsWith("Kho Tân Tạo (1 món): giao tới 14/1/15"), `two rows ${JSON.stringify(texts)}`);
+    await noSpill(page, "delivery two warehouses", vp);
+    await shot(page, `delivery-two-warehouses-${vp.width}.png`);
+    assert.deepEqual(errors, []);
+    await context.close();
+    pass(`Giao tới theo kho (Tân Tạo / hai kho) @${vp.width}`);
+  }
   for (const vp of VIEWPORTS) {
     const { context, page, errors } = await open({}, `/dat-hang?ncc=${PT}`, vp);
     // Main menu: Đặt hàng is its own zone and is the active one.
@@ -296,6 +326,18 @@ try {
     }
     assert.equal((await page.locator(".d3-screen h1, [data-bmq-supplier-orders] h1").first().innerText()).trim(), "Đặt hàng");
     await page.waitForSelector("[data-bmq-so-lines] li");
+    {
+      // Delivery follows the chosen items' warehouse, like the order email.
+      await page.waitForFunction(() => [...document.querySelectorAll("[data-bmq-so-delivery]")].some((p) => p.innerText.includes("Tân Tạo") || p.innerText.includes("Q7")));
+      const texts = await page.locator("[data-bmq-so-delivery]").allInnerTexts();
+      console.log("delivery rows @" + vp.width, JSON.stringify(texts));
+      assert.ok(texts.every((t) => /giao tới/i.test(t)), "delivery text");
+      if (texts.length > 1) {
+        assert.ok(texts.some((t) => t.startsWith("Kho Q7") && t.includes("Huỳnh Kim Ngân")), "Q7 row");
+        assert.ok(texts.some((t) => t.startsWith("Kho Tân Tạo") && t.includes("Võ Thị Tú Trinh")), "Tân Tạo row");
+      }
+      await noSpill(page, "delivery rows", vp);
+    }
     if (vp.width >= 1024) {
       // Wide: the list stays next to the order, most urgent supplier first.
       const rows = await page.locator("[data-bmq-so-supplier]").allInnerTexts();
