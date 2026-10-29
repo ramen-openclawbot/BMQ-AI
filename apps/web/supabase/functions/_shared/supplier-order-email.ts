@@ -14,6 +14,14 @@ export type SupplierOrderEmailLine = {
   vatRate?: number | null;
 };
 
+export type SupplierOrderEmailDelivery = {
+  label: string;
+  address: string;
+  contactName: string;
+  contactPhone: string;
+  items?: string[];
+};
+
 export type SupplierOrderEmailInput = {
   poNumber: string;
   supplierName: string;
@@ -30,6 +38,7 @@ export type SupplierOrderEmailInput = {
   uploadUrl: string;
   companyName?: string;
   taxCode?: string;
+  deliveries?: SupplierOrderEmailDelivery[];
 };
 
 export type SupplierOrderEmailLinesInput = {
@@ -48,6 +57,7 @@ export type SupplierOrderEmailLinesInput = {
   companyName?: string;
   taxCode?: string;
   subjectName?: string;
+  deliveries?: SupplierOrderEmailDelivery[];
 };
 
 export type SupplierOrderEmail = {
@@ -133,6 +143,12 @@ export function buildSupplierOrderEmailLines(
   const requestedDate = displayDate(input.requestedDate);
   const note = String(input.note ?? "").trim();
   const uploadUrl = String(input.uploadUrl ?? "").trim();
+  const deliveries = Array.isArray(input.deliveries) ? input.deliveries : [];
+  const multiDelivery = deliveries.length >= 2;
+  const singleDelivery = deliveries.length === 1 ? deliveries[0] : null;
+  const deliveryAddress = singleDelivery?.address ?? input.deliveryAddress;
+  const contactName = singleDelivery?.contactName ?? input.contactName;
+  const contactPhone = singleDelivery?.contactPhone ?? input.contactPhone;
   const total = input.total;
   const vatAmount = typeof input.vatAmount === "number"
       && Number.isFinite(input.vatAmount)
@@ -160,6 +176,27 @@ export function buildSupplierOrderEmailLines(
       ]
     : [`Tổng cộng: ${formatVnd(total)}`];
 
+  const deliveryTextLines = multiDelivery
+    ? [
+        "Địa chỉ giao hàng",
+        "",
+        ...deliveries.flatMap((delivery, index) => {
+          const items = Array.isArray(delivery.items) ? delivery.items : [];
+          return [
+            `${delivery.label}: ${delivery.address}`,
+            `Người nhận: ${delivery.contactName} - ${delivery.contactPhone}`,
+            ...(items.length > 0
+              ? [`Món giao về đây: ${items.join(", ")}`]
+              : []),
+            ...(index < deliveries.length - 1 ? [""] : []),
+          ];
+        }),
+      ]
+    : [
+        `Địa chỉ giao hàng: ${deliveryAddress}`,
+        `Người nhận: ${contactName} - ${contactPhone}`,
+      ];
+
   const textLines = [
     `Kính gửi ${input.supplierName},`,
     "",
@@ -172,8 +209,7 @@ export function buildSupplierOrderEmailLines(
     "",
     ...totalTextLines,
     "",
-    `Địa chỉ giao hàng: ${input.deliveryAddress}`,
-    `Người nhận: ${input.contactName} - ${input.contactPhone}`,
+    ...deliveryTextLines,
     `Ngày đặt hàng: ${requestedDate}`,
     ...(note ? [`Ghi chú: ${note}`] : []),
     "",
@@ -225,6 +261,35 @@ export function buildSupplierOrderEmailLines(
     : `<p style="margin:20px 0 12px;">Sau khi giao hàng, Quý công ty vui lòng tải lên <strong>hóa đơn / phiếu giao hàng</strong>.</p>
               <p style="margin:0 0 16px;color:#6b7280;">${escapeHtml(PREVIEW_UPLOAD_TEXT)}</p>`;
 
+  const deliveryHtmlRows = multiDelivery
+    ? `                <tr>
+                  <td colspan="2" style="padding:4px 0;vertical-align:top;color:#6b7280;font-weight:bold;">Địa chỉ giao hàng</td>
+                </tr>${
+      deliveries.map((delivery) => {
+        const items = Array.isArray(delivery.items) ? delivery.items : [];
+        return `
+                <tr>
+                  <td colspan="2" style="padding:4px 0;vertical-align:top;">
+                    <div>${escapeHtml(delivery.label)}: ${escapeHtml(delivery.address)}</div>
+                    <div>Người nhận: ${escapeHtml(delivery.contactName)} - ${escapeHtml(delivery.contactPhone)}</div>${
+          items.length > 0
+            ? `
+                    <div>Món giao về đây: ${escapeHtml(items.join(", "))}</div>`
+            : ""
+        }
+                  </td>
+                </tr>`;
+      }).join("")
+    }`
+    : `                <tr>
+                  <td style="padding:4px 0;width:150px;vertical-align:top;color:#6b7280;">Địa chỉ giao hàng</td>
+                  <td style="padding:4px 0;vertical-align:top;">${escapeHtml(deliveryAddress)}</td>
+                </tr>
+                <tr>
+                  <td style="padding:4px 0;vertical-align:top;color:#6b7280;">Người nhận</td>
+                  <td style="padding:4px 0;vertical-align:top;">${escapeHtml(contactName)} - ${escapeHtml(contactPhone)}</td>
+                </tr>`;
+
   const html = `
 <div style="margin:0;padding:0;background-color:#f5f5f5;font-family:Arial,Helvetica,sans-serif;color:#1f2937;font-size:14px;line-height:1.55;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f5f5f5;padding:16px 0;">
@@ -253,14 +318,7 @@ export function buildSupplierOrderEmailLines(
 ${summaryHtml}
               </table>
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:16px;font-size:13px;">
-                <tr>
-                  <td style="padding:4px 0;width:150px;vertical-align:top;color:#6b7280;">Địa chỉ giao hàng</td>
-                  <td style="padding:4px 0;vertical-align:top;">${escapeHtml(input.deliveryAddress)}</td>
-                </tr>
-                <tr>
-                  <td style="padding:4px 0;vertical-align:top;color:#6b7280;">Người nhận</td>
-                  <td style="padding:4px 0;vertical-align:top;">${escapeHtml(input.contactName)} - ${escapeHtml(input.contactPhone)}</td>
-                </tr>
+${deliveryHtmlRows}
                 <tr>
                   <td style="padding:4px 0;vertical-align:top;color:#6b7280;">Ngày đặt hàng</td>
                   <td style="padding:4px 0;vertical-align:top;">${escapeHtml(requestedDate)}</td>
@@ -320,5 +378,6 @@ export function buildSupplierOrderEmail(
     companyName: input.companyName,
     taxCode: input.taxCode,
     subjectName: input.productName,
+    deliveries: input.deliveries,
   });
 }

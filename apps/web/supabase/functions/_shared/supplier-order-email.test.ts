@@ -380,6 +380,62 @@ test("escapes every value on the VAT path", () => {
   assert.ok(email.html.includes("Cộng tiền hàng"));
 });
 
+test("renders two delivery blocks with the items going to each warehouse", () => {
+  const email = buildSupplierOrderEmailLines({
+    ...baseInput,
+    poNumber: "PO-2026-006",
+    lines: [
+      {
+        productName: "Bột mì 999 Cam",
+        quantity: 25,
+        unit: "kg",
+        unitPrice: 19300,
+        lineTotal: 482500,
+      },
+      {
+        productName: "Bơ Peerless",
+        quantity: 10,
+        unit: "kg",
+        unitPrice: 90000,
+        lineTotal: 900000,
+      },
+    ],
+    total: 1382500,
+    deliveries: [
+      {
+        label: "Kho Q7",
+        address: "123 Nguyễn Văn A, Quận 1",
+        contactName: "Anh Minh",
+        contactPhone: "0909 123 456",
+        items: ["Bột mì 999 Cam"],
+      },
+      {
+        label: "Kho Tân Tạo",
+        address: "Kho Tân Tạo, Bình Tân",
+        contactName: "Tú Trinh",
+        contactPhone: "0911 222 333",
+        items: ["Bơ Peerless"],
+      },
+    ],
+  });
+
+  assert.ok(email.text.includes("Địa chỉ giao hàng"));
+  assert.ok(email.text.includes("Kho Q7: 123 Nguyễn Văn A, Quận 1"));
+  assert.ok(email.text.includes("Người nhận: Anh Minh - 0909 123 456"));
+  assert.ok(email.text.includes("Món giao về đây: Bột mì 999 Cam"));
+  assert.ok(email.text.includes("Kho Tân Tạo: Kho Tân Tạo, Bình Tân"));
+  assert.ok(email.text.includes("Người nhận: Tú Trinh - 0911 222 333"));
+  assert.ok(email.text.includes("Món giao về đây: Bơ Peerless"));
+
+  assert.ok(email.html.includes("Địa chỉ giao hàng"));
+  assert.ok(email.html.includes("Kho Q7: 123 Nguyễn Văn A, Quận 1"));
+  assert.ok(email.html.includes("Người nhận: Anh Minh - 0909 123 456"));
+  assert.ok(email.html.includes("Món giao về đây: Bột mì 999 Cam"));
+  assert.ok(email.html.includes("Kho Tân Tạo: Kho Tân Tạo, Bình Tân"));
+  assert.ok(email.html.includes("Người nhận: Tú Trinh - 0911 222 333"));
+  assert.ok(email.html.includes("Món giao về đây: Bơ Peerless"));
+});
+
 test("single-item output keeps the same subject, table and total", () => {
   const single = buildSupplierOrderEmail(baseInput);
   assert.equal(single.subject, "BMQ đặt hàng PO-2026-001 – Bơ Peerless");

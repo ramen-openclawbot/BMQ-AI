@@ -15,6 +15,11 @@ import {
   buildSupplierOrderEmailLines,
   type SupplierOrderEmailLine,
 } from "../_shared/supplier-order-email.ts";
+import {
+  resolveDeliveries,
+  type DeliveryContact,
+  type DeliveryProfiles,
+} from "./delivery.ts";
 import { GMAIL_RECONNECT_CODES, sendFailureCode } from "./failure.ts";
 
 const ORDER_MAILBOX = "order@bmq.vn";
@@ -79,6 +84,42 @@ async function readSetting(db: AdminClient, key: string): Promise<string> {
     .maybeSingle();
   const row = data as { value?: string | null } | null;
   return row?.value ? String(row.value) : "";
+}
+
+const DELIVERY_SETTING_KEYS = [
+  "order_email_delivery_address",
+  "order_email_contact_name",
+  "order_email_contact_phone",
+  "order_email_tan_tao_delivery_address",
+  "order_email_tan_tao_contact_name",
+  "order_email_tan_tao_contact_phone",
+];
+
+async function readDeliveryProfiles(admin: AdminClient): Promise<DeliveryProfiles> {
+  const { data } = await admin
+    .from("app_settings")
+    .select("key,value")
+    .in("key", DELIVERY_SETTING_KEYS);
+  const values = new Map<string, string>();
+  for (const raw of Array.isArray(data) ? data : []) {
+    const row = (raw ?? {}) as Record<string, unknown>;
+    values.set(String(row.key ?? ""), String(row.value ?? "").trim());
+  }
+  const value = (key: string) => values.get(key) ?? "";
+  const q7 = {
+    address: value("order_email_delivery_address"),
+    contactName: value("order_email_contact_name"),
+    contactPhone: value("order_email_contact_phone"),
+  };
+  const tanTao = {
+    address: value("order_email_tan_tao_delivery_address"),
+    contactName: value("order_email_tan_tao_contact_name"),
+    contactPhone: value("order_email_tan_tao_contact_phone"),
+  };
+  return {
+    q7,
+    tanTao: tanTao.address ? tanTao : null,
+  };
 }
 
 function errorMessage(error: unknown): string {
@@ -199,6 +240,32 @@ function readMultiLines(value: unknown): MultiLineRequest[] | null {
   return output;
 }
 
+function readCatalogLocations(catalog: Record<string, unknown>): Map<string, string | null> {
+  const locations = new Map<string, string | null>();
+  for (const raw of Array.isArray(catalog.items) ? catalog.items : []) {
+    const row = (raw ?? {}) as Record<string, unknown>;
+    const item = (row.item ?? {}) as Record<string, unknown>;
+    const id = String(item.id ?? "").trim();
+    if (id) locations.set(id, row.location == null ? null : String(row.location));
+  }
+  return locations;
+}
+
+function deliveryFallback(delivery: Record<string, unknown>): DeliveryContact {
+  return {
+    address: String(delivery.address ?? ""),
+    contactName: String(delivery.contact_name ?? ""),
+    contactPhone: String(delivery.contact_phone ?? ""),
+  };
+}
+
+function locationOf(
+  locations: Map<string, string | null>,
+  itemId: string,
+): string | null {
+  return locations.get(itemId) ?? "q7";
+}
+
 Deno.serve(async (req) => {
   const corsHeaders = getCorsHeaders(req);
   if (req.method === "OPTIONS") return corsPreflightResponse(req);
@@ -300,6 +367,9 @@ Deno.serve(async (req) => {
         ? (catalog.prepay as Record<string, unknown>)
         : null;
       const prepayRecent = Boolean(prepayRow?.recent_submission);
+      const catalogLocations = readCatalogLocations(catalog);
+      const deliveryProfiles = await readDeliveryProfiles(admin);
+      const fallbackDelivery = deliveryFallback(delivery);
 
       if (mode === "preview") {
         // The preview uses the same server-side quote as the create RPC, so the
@@ -333,6 +403,14 @@ Deno.serve(async (req) => {
         const subtotal = numberValue(quote.subtotal) ?? 0;
         const vatAmount = numberValue(quote.vat_amount) ?? 0;
         const total = numberValue(quote.total) ?? 0;
+        const deliveries = resolveDeliveries(
+          orderLines.map((line) => ({
+            name: line.product_name,
+            location: locationOf(catalogLocations, line.item_id),
+          })),
+          deliveryProfiles,
+          fallbackDelivery,
+        );
         const email = buildSupplierOrderEmailLines({
           poNumber: "",
           supplierName,
@@ -347,9 +425,10 @@ Deno.serve(async (req) => {
           subtotal,
           vatAmount,
           total,
-          deliveryAddress: String(delivery.address ?? ""),
-          contactName: String(delivery.contact_name ?? ""),
-          contactPhone: String(delivery.contact_phone ?? ""),
+          deliveryAddress: deliveries[0]?.address ?? fallbackDelivery.address,
+          contactName: deliveries[0]?.contactName ?? fallbackDelivery.contactName,
+          contactPhone: deliveries[0]?.contactPhone ?? fallbackDelivery.contactPhone,
+          deliveries,
           note: note || String(delivery.note ?? ""),
           requestedDate: vnToday(),
           uploadUrl: "",
@@ -451,17 +530,29 @@ Deno.serve(async (req) => {
       const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
       const createdRows = Array.isArray(created.lines) ? created.lines : [];
-      const emailLines: SupplierOrderEmailLine[] = createdRows.map((raw) => {
+      const emailLines: SupplierOrderEmailLine[] = [];
+      const deliveryLines: Array<{ name: string; location: string | null }> = [];
+      for (const raw of createdRows) {
         const line = (raw ?? {}) as Record<string, unknown>;
-        return {
-          productName: String(line.product_name ?? ""),
+        const productName = String(line.product_name ?? "");
+        emailLines.push({
+          productName,
           quantity: Number(line.quantity ?? 0),
           unit: String(line.unit ?? ""),
           unitPrice: numberValue(line.unit_price),
           lineTotal: numberValue(line.line_total),
           vatRate: numberValue(line.vat_rate) ?? 0,
-        };
-      });
+        });
+        deliveryLines.push({
+          name: productName,
+          location: locationOf(catalogLocations, String(line.item_id ?? "")),
+        });
+      }
+      const deliveries = resolveDeliveries(
+        deliveryLines,
+        deliveryProfiles,
+        fallbackDelivery,
+      );
       const createdSubtotal = numberValue(created.subtotal) ?? 0;
       const createdVatAmount = numberValue(created.vat_amount) ?? 0;
       const createdTotal = numberValue(created.total) ?? 0;
@@ -472,9 +563,10 @@ Deno.serve(async (req) => {
         subtotal: createdSubtotal,
         vatAmount: createdVatAmount,
         total: createdTotal,
-        deliveryAddress: String(delivery.address ?? ""),
-        contactName: String(delivery.contact_name ?? ""),
-        contactPhone: String(delivery.contact_phone ?? ""),
+        deliveryAddress: deliveries[0]?.address ?? fallbackDelivery.address,
+        contactName: deliveries[0]?.contactName ?? fallbackDelivery.contactName,
+        contactPhone: deliveries[0]?.contactPhone ?? fallbackDelivery.contactPhone,
+        deliveries,
         note: note || String(delivery.note ?? ""),
         requestedDate: vnToday(),
         uploadUrl: `${UPLOAD_BASE}/${uploadToken}`,
@@ -737,6 +829,37 @@ Deno.serve(async (req) => {
     const productName = String(
       created.product_name ?? preparedProposal.product_name ?? "",
     );
+
+    let itemLocation = "q7";
+    const preparedSupplierId = String(preparedSupplier.id ?? "").trim();
+    if (UUID_RE.test(preparedSupplierId)) {
+      try {
+        const catalogResult = await admin.rpc("supplier_order_catalog", {
+          p_supplier_id: preparedSupplierId,
+        });
+        if (!catalogResult.error && catalogResult.data) {
+          const catalog = (catalogResult.data ?? {}) as Record<string, unknown>;
+          const rows = Array.isArray(catalog.items) ? catalog.items : [];
+          const match = rows.find((raw) => {
+            const row = (raw ?? {}) as Record<string, unknown>;
+            const item = (row.item ?? {}) as Record<string, unknown>;
+            return String(item.id ?? "") === itemId;
+          }) as Record<string, unknown> | undefined;
+          if (match?.location) itemLocation = String(match.location);
+        }
+      } catch {
+        // An unreadable catalog keeps the safe Q7 default.
+      }
+    }
+
+    const deliveryProfiles = await readDeliveryProfiles(admin);
+    const fallbackDelivery = deliveryFallback(delivery);
+    const deliveries = resolveDeliveries(
+      [{ name: productName, location: itemLocation }],
+      deliveryProfiles,
+      fallbackDelivery,
+    );
+
     const mail = buildSupplierOrderEmail({
       poNumber: String(created.po_number ?? ""),
       supplierName,
@@ -745,9 +868,10 @@ Deno.serve(async (req) => {
       unit: String(created.unit ?? ""),
       unitPrice: Number(created.unit_price ?? 0),
       lineTotal: Number(created.line_total ?? 0),
-      deliveryAddress: String(delivery.address ?? ""),
-      contactName: String(delivery.contact_name ?? ""),
-      contactPhone: String(delivery.contact_phone ?? ""),
+      deliveryAddress: deliveries[0]?.address ?? fallbackDelivery.address,
+      contactName: deliveries[0]?.contactName ?? fallbackDelivery.contactName,
+      contactPhone: deliveries[0]?.contactPhone ?? fallbackDelivery.contactPhone,
+      deliveries,
       // The orderer's note for this order wins over the standing delivery note.
       note: note || String(delivery.note ?? ""),
       requestedDate: vnToday(),
