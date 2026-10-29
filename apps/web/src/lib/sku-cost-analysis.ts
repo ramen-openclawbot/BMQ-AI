@@ -1,4 +1,5 @@
 import type { ActualCostPurchase, FormulaRow } from "@/hooks/useSkuCostBridge";
+import { effectiveDosageUnit, effectivePriceUnit, lineCost, unitConversionFactor } from "@/lib/dosage-unit";
 
 export const money = (v: number) => new Intl.NumberFormat("vi-VN").format(Number(v || 0));
 export const compactMoney = (v: number) => `${money(Math.round(Number(v || 0)))}đ`;
@@ -217,20 +218,24 @@ const isSuspiciousPrice = (actualPrice: number | null, formulaPrice: number) => 
 };
 
 const groupFormulaRowsByMaterial = (rows: FormulaRow[], materialContexts: Map<string, MaterialContext>) => {
-  const grouped = new Map<string, { rows: FormulaRow[]; totalDosage: number; totalCost: number }>();
+  const grouped = new Map<string, { rows: FormulaRow[]; totalCost: number }>();
   rows.forEach((row) => {
     const materialCode = normalizeMaterialCode(row.material_code);
     const key = materialCode || `name:${normalizeIngredientName(row.ingredient_name)}`;
-    const dosage = numberValue(row.dosage_qty) * (1 + numberValue(row.wastage_percent) / 100);
-    const current = grouped.get(key) || { rows: [], totalDosage: 0, totalCost: 0 };
+    const current = grouped.get(key) || { rows: [], totalCost: 0 };
     current.rows.push(row);
-    current.totalDosage += dosage;
-    current.totalCost += numberValue(row.unit_price) * dosage;
+    current.totalCost += lineCost(row).cost;
     grouped.set(key, current);
   });
 
-  return Array.from(grouped.values()).map(({ rows: groupedRows, totalDosage, totalCost }) => {
+  return Array.from(grouped.values()).map(({ rows: groupedRows, totalCost }) => {
     const first = groupedRows[0];
+    const firstPriceUnit = effectivePriceUnit(first);
+    const totalDosage = groupedRows.reduce((sum, row) => {
+      const dosage = numberValue(row.dosage_qty) * (1 + numberValue(row.wastage_percent) / 100);
+      const factor = unitConversionFactor(effectiveDosageUnit(row), firstPriceUnit) ?? 1;
+      return sum + dosage * factor;
+    }, 0);
     const materialContext = materialContextForRow(first, materialContexts);
     return {
       ...first,

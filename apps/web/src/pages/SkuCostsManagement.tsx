@@ -9,7 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import { DEFAULT_SKU_COST_TEMPLATE, DEFAULT_SKU_COST_VALUES, parseCostTemplate, parseCostValues, toNumber } from "@/lib/sku-cost-template";
 import { isFinishedSku } from "@/lib/skuType";
 import { dosageInputText, parseDosageGramInput } from "@/lib/dosage-input";
-import { dosageUnitCode, dosageUnitOptions, effectiveDosageUnit, withDosageUnit } from "@/lib/dosage-unit";
+import { dosageUnitCode, dosageUnitOptions, effectiveDosageUnit, effectivePriceUnit, lineCost, withDosageUnit } from "@/lib/dosage-unit";
 import { describeSkuCogsSaveError } from "@/lib/sku-cogs-save-error";
 import { MaterialPicker } from "@/components/sku-costs/MaterialPicker";
 import { SkuCostHeader } from "@/components/sku-costs/SkuCostMenuBar";
@@ -97,25 +97,6 @@ const buildMaterialCode = (name: unknown) => {
   return `NVL-${normalized || "CHUA-DAT-TEN"}`;
 };
 
-const normalizeUnitName = (u: unknown) => String(u || "").trim().toLowerCase();
-
-const convertAmountByUnit = (amount: number, fromUnit: unknown, toUnit: unknown) => {
-  const from = normalizeUnitName(fromUnit);
-  const to = normalizeUnitName(toUnit);
-  if (!from || !to || from === to) return amount;
-
-  const weightToGram: Record<string, number> = { kg: 1000, kí: 1000, ký: 1000, g: 1, gram: 1 };
-  const volumeToMl: Record<string, number> = { l: 1000, lit: 1000, litre: 1000, ml: 1 };
-
-  if (weightToGram[from] && weightToGram[to]) {
-    return amount * (weightToGram[from] / weightToGram[to]);
-  }
-  if (volumeToMl[from] && volumeToMl[to]) {
-    return amount * (volumeToMl[from] / volumeToMl[to]);
-  }
-  return amount;
-};
-
 const FORMULA_BASE_QTY = 100;
 
 /**
@@ -154,13 +135,23 @@ const splitStoredFormulaName = (name: unknown) => {
 
 const isStoredLevel2FormulaRow = (row: any) => !!splitStoredFormulaName(row?.ingredient_name);
 
-const computeDraftLineCost = (row: any) => toNumber(row?.line_cost, toNumber(row?.unit_price, 0) * toNumber(row?.dosage_qty, 0));
+const withLineCost = (row: any, patch: Record<string, any>) => {
+  const updated = { ...row, ...patch };
+  return { ...updated, line_cost: lineCost(updated).cost };
+};
+
+const computeDraftLineCost = (row: any) => {
+  const explicit = row?.line_cost;
+  if (explicit !== null && explicit !== undefined && String(explicit).trim() !== "" && Number.isFinite(Number(explicit))) {
+    return Number(explicit);
+  }
+  return lineCost(row).cost;
+};
 
 const toDraftRow = (row: any, overrides: Record<string, any> = {}) => {
   const dosageQty = parseDosageGramInput(overrides.dosage_qty ?? row?.dosage_qty, 0);
   const unitPrice = toNumber(overrides.unit_price ?? row?.unit_price, 0);
-  const lineCost = toNumber(overrides.line_cost, unitPrice * dosageQty);
-  return {
+  const draft = {
     is_level2: overrides.is_level2 ?? false,
     level1_sku_id: overrides.level1_sku_id ?? row?.ingredient_sku_id ?? "",
     ingredient_sku_id: overrides.ingredient_sku_id ?? row?.ingredient_sku_id ?? "",
@@ -175,12 +166,13 @@ const toDraftRow = (row: any, overrides: Record<string, any> = {}) => {
     material_code: overrides.material_code ?? row?.material_code ?? buildMaterialCode(overrides.ingredient_name ?? row?.ingredient_name),
     unit: overrides.unit ?? row?.unit ?? "g",
     dosage_unit: overrides.dosage_unit ?? row?.dosage_unit ?? null,
+    price_unit: overrides.price_unit ?? row?.price_unit ?? effectiveDosageUnit(row),
     unit_price: unitPrice,
     unit_price_input: overrides.unit_price_input ?? (unitPrice === 0 ? "" : String(unitPrice)),
     dosage_qty: dosageQty,
     dosage_input: overrides.dosage_input ?? (dosageQty === 0 ? "" : String(dosageQty).replace(".", ",")),
-    line_cost: lineCost,
   };
+  return { ...draft, line_cost: toNumber(overrides.line_cost, lineCost(draft).cost) };
 };
 
 const buildDraftFromStoredRows = (rows: any[]) => {
@@ -345,12 +337,10 @@ export default function SkuCostsManagement() {
       const market = r.ingredient_sku_id ? priceMap.get(r.ingredient_sku_id) : null;
       const standardUnitPrice = toNumber(r.unit_price, 0);
       const actualUnitPrice = market?.price || standardUnitPrice;
-      const dosage = toNumber(r.dosage_qty, 0);
 
       const priceUnit = selectedSku?.unit || r.unit || "";
-      const dosageInPriceUnit = convertAmountByUnit(dosage, r.unit || "", priceUnit);
-      const standardLineCost = standardUnitPrice * dosageInPriceUnit;
-      const actualLineCost = actualUnitPrice * dosageInPriceUnit;
+      const standardLineCost = lineCost(r).cost;
+      const actualLineCost = lineCost({ ...r, unit_price: actualUnitPrice }).cost;
 
       return {
         ...r,
@@ -554,6 +544,7 @@ export default function SkuCostsManagement() {
           material_code: level1Material.material_code,
           unit: level1Material.default_unit || "g",
           dosage_unit: withDosageUnit(r, level1Material.default_unit || "g").dosage_unit,
+          price_unit: effectivePriceUnit(r),
           unit_price: parentUnitPrice,
           dosage_qty: parseDosageGramInput(r.dosage_input ?? r.dosage_qty, 0),
           wastage_percent: 0,
@@ -574,6 +565,7 @@ export default function SkuCostsManagement() {
             material_code: childMaterial.material_code,
             unit: childMaterial.default_unit || "g",
             dosage_unit: withDosageUnit(child, childMaterial.default_unit || "g").dosage_unit,
+            price_unit: effectivePriceUnit(child),
             unit_price: toNumber(child.unit_price, 0),
             dosage_qty: parseDosageGramInput(child.dosage_input ?? child.dosage_qty, 0),
             wastage_percent: 0,
@@ -594,6 +586,7 @@ export default function SkuCostsManagement() {
         material_code: level1Material.material_code,
         unit: level1Material.default_unit || "g",
         dosage_unit: withDosageUnit(r, level1Material.default_unit || "g").dosage_unit,
+        price_unit: effectivePriceUnit(r),
         unit_price: toNumber(r.unit_price, 0),
         dosage_qty: parseDosageGramInput(r.dosage_input ?? r.dosage_qty, 0),
         wastage_percent: 0,
@@ -1040,8 +1033,8 @@ export default function SkuCostsManagement() {
                           />
                         </TableCell>
                         {/* DVT cố định gram theo nghiệp vụ */}
-                        <TableCell><Input disabled={hasChildren} value={hasChildren ? String(Math.round(displayUnitPrice * 1000) / 1000) : (r.unit_price_input ?? (toNumber(r.unit_price, 0) === 0 ? "" : String(toNumber(r.unit_price, 0))))} onChange={(e) => { const next = [...importedFormulaDraft]; const unit_price_input = e.target.value; const unit_price = unit_price_input === "" ? 0 : Number(unit_price_input); const dosage_qty = toNumber(next[idx].dosage_qty, 0); next[idx] = { ...next[idx], unit_price_input, unit_price: Number.isFinite(unit_price) ? unit_price : 0, line_cost: (Number.isFinite(unit_price) ? unit_price : 0) * dosage_qty }; setImportedFormulaDraft(next); }} /></TableCell>
-                        <TableCell><div className="flex min-w-[10.5rem] items-center gap-2" data-bmq-dosage><Input className="min-w-[5rem]" inputMode="decimal" value={dosageInputText(r.dosage_input, displayDosage)} onChange={(e) => { const next = [...importedFormulaDraft]; const dosage_input = e.target.value; const dosage_qty = dosage_input === "" ? 0 : parseDosageGramInput(dosage_input, 0); const unit_price = toNumber(next[idx].unit_price, 0); next[idx] = { ...next[idx], dosage_input, dosage_qty, line_cost: unit_price * dosage_qty }; setImportedFormulaDraft(next); }} /><DosageUnitSelect value={effectiveDosageUnit(r)} label={`Đơn vị định lượng ${r.ingredient_name || ""}`} onChange={(unit) => { const next = [...importedFormulaDraft]; next[idx] = { ...next[idx], dosage_unit: unit }; setImportedFormulaDraft(next); }} /></div></TableCell>
+                        <TableCell><div className="flex min-w-[9rem] items-center gap-1.5" data-bmq-price><Input className="min-w-[6.5rem]" inputMode="decimal" disabled={hasChildren} value={hasChildren ? String(Math.round(displayUnitPrice * 1000) / 1000) : (r.unit_price_input ?? (toNumber(r.unit_price, 0) === 0 ? "" : String(toNumber(r.unit_price, 0))))} onChange={(e) => { const next = [...importedFormulaDraft]; const unit_price_input = e.target.value; const unit_price = unit_price_input === "" ? 0 : Number(unit_price_input); next[idx] = withLineCost(next[idx], { unit_price_input, unit_price: Number.isFinite(unit_price) ? unit_price : 0 }); setImportedFormulaDraft(next); }} /><span className="shrink-0 text-xs text-muted-foreground" data-bmq-price-unit>/{effectivePriceUnit(r)}</span></div></TableCell>
+                        <TableCell><div className="flex min-w-[10.5rem] items-center gap-2" data-bmq-dosage><Input className="min-w-[5rem]" inputMode="decimal" value={dosageInputText(r.dosage_input, displayDosage)} onChange={(e) => { const next = [...importedFormulaDraft]; const dosage_input = e.target.value; const dosage_qty = dosage_input === "" ? 0 : parseDosageGramInput(dosage_input, 0); next[idx] = withLineCost(next[idx], { dosage_input, dosage_qty }); setImportedFormulaDraft(next); }} /><DosageUnitSelect value={effectiveDosageUnit(r)} label={`Đơn vị định lượng ${r.ingredient_name || ""}`} onChange={(unit) => { const next = [...importedFormulaDraft]; next[idx] = withLineCost(next[idx], { dosage_unit: unit }); setImportedFormulaDraft(next); }} /></div></TableCell>
                         <TableCell>{vnd(lineCost)}</TableCell>
                         <TableCell>{vnd(perUnit)}</TableCell>
                         <TableCell>
@@ -1131,14 +1124,14 @@ export default function SkuCostsManagement() {
 
                       <div className="mt-3 grid grid-cols-1 gap-3 min-[400px]:grid-cols-2">
                         <div className="space-y-1">
-                          <Label>Đơn giá (VNĐ)</Label>
-                          <Input className="h-11" disabled={hasChildren} value={hasChildren ? String(Math.round(displayUnitPrice * 1000) / 1000) : (r.unit_price_input ?? (toNumber(r.unit_price, 0) === 0 ? "" : String(toNumber(r.unit_price, 0))))} onChange={(e) => { const next = [...importedFormulaDraft]; const unit_price_input = e.target.value; const unit_price = unit_price_input === "" ? 0 : Number(unit_price_input); const dosage_qty = toNumber(next[idx].dosage_qty, 0); next[idx] = { ...next[idx], unit_price_input, unit_price: Number.isFinite(unit_price) ? unit_price : 0, line_cost: (Number.isFinite(unit_price) ? unit_price : 0) * dosage_qty }; setImportedFormulaDraft(next); }} />
+                          <Label>Đơn giá (đ/<span data-bmq-price-unit>{effectivePriceUnit(r)}</span>)</Label>
+                          <Input className="h-11" disabled={hasChildren} value={hasChildren ? String(Math.round(displayUnitPrice * 1000) / 1000) : (r.unit_price_input ?? (toNumber(r.unit_price, 0) === 0 ? "" : String(toNumber(r.unit_price, 0))))} onChange={(e) => { const next = [...importedFormulaDraft]; const unit_price_input = e.target.value; const unit_price = unit_price_input === "" ? 0 : Number(unit_price_input); next[idx] = withLineCost(next[idx], { unit_price_input, unit_price: Number.isFinite(unit_price) ? unit_price : 0 }); setImportedFormulaDraft(next); }} />
                         </div>
                         <div className="space-y-1">
                           <Label>Định lượng</Label>
                           <div className="flex min-w-0 items-center gap-2" data-bmq-dosage>
-                            <Input className="h-11 min-w-0" inputMode="decimal" value={dosageInputText(r.dosage_input, displayDosage)} onChange={(e) => { const next = [...importedFormulaDraft]; const dosage_input = e.target.value; const dosage_qty = dosage_input === "" ? 0 : parseDosageGramInput(dosage_input, 0); const unit_price = toNumber(next[idx].unit_price, 0); next[idx] = { ...next[idx], dosage_input, dosage_qty, line_cost: unit_price * dosage_qty }; setImportedFormulaDraft(next); }} />
-                            <DosageUnitSelect className="h-11" value={effectiveDosageUnit(r)} label={`Đơn vị định lượng ${r.ingredient_name || ""}`} onChange={(unit) => { const next = [...importedFormulaDraft]; next[idx] = { ...next[idx], dosage_unit: unit }; setImportedFormulaDraft(next); }} />
+                            <Input className="h-11 min-w-0" inputMode="decimal" value={dosageInputText(r.dosage_input, displayDosage)} onChange={(e) => { const next = [...importedFormulaDraft]; const dosage_input = e.target.value; const dosage_qty = dosage_input === "" ? 0 : parseDosageGramInput(dosage_input, 0); next[idx] = withLineCost(next[idx], { dosage_input, dosage_qty }); setImportedFormulaDraft(next); }} />
+                            <DosageUnitSelect className="h-11" value={effectiveDosageUnit(r)} label={`Đơn vị định lượng ${r.ingredient_name || ""}`} onChange={(unit) => { const next = [...importedFormulaDraft]; next[idx] = withLineCost(next[idx], { dosage_unit: unit }); setImportedFormulaDraft(next); }} />
                           </div>
                         </div>
                       </div>

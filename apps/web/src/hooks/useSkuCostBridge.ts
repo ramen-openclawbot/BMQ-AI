@@ -1,6 +1,7 @@
  
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { lineCost } from "@/lib/dosage-unit";
 import { parseCostValues, toNumber } from "@/lib/sku-cost-template";
 
 export type FormulaRow = {
@@ -12,6 +13,8 @@ export type FormulaRow = {
   dosage_qty: number | null;
   wastage_percent: number | null;
   unit?: string | null;
+  dosage_unit?: string | null;
+  price_unit?: string | null;
 };
 
 export type ActualCostPurchase = {
@@ -75,7 +78,7 @@ export function useSkuCostBridge() {
         skuIds.length
           ? sb
               .from("sku_formulations")
-              .select("sku_id, ingredient_sku_id, ingredient_name, material_code, unit_price, dosage_qty, wastage_percent, unit")
+              .select("sku_id, ingredient_sku_id, ingredient_name, material_code, unit_price, dosage_qty, wastage_percent, unit, dosage_unit, price_unit")
               .in("sku_id", skuIds)
           : Promise.resolve({ data: [] }),
         fetchAllRows(() =>
@@ -145,13 +148,8 @@ export function useSkuCostBridge() {
         const costValues = parseCostValues(sku.cost_values);
         const lines = formulas.filter((f) => f.sku_id === sku.id && !isLevel2FormulaRow(f.ingredient_name));
 
-        // Đồng bộ với màn Edit/Detail: dùng unit_price * dosage_qty từ công thức đã lưu
-        const materialBatchCost = lines.reduce((sum, l) => {
-          const unitPrice = toNumber(l.unit_price, 0);
-          const usage = toNumber(l.dosage_qty, 0);
-          const wastage = toNumber(l.wastage_percent, 0) / 100;
-          return sum + unitPrice * usage * (1 + wastage);
-        }, 0);
+        // Đồng bộ với màn Edit/Detail: lineCost quy đổi đơn giá theo đơn vị định lượng/đơn giá đã lưu
+        const materialBatchCost = lines.reduce((sum, l) => sum + lineCost(l).cost, 0);
 
         const outputQty = Math.max(1, toNumber(sku.finished_output_qty, 100));
         const ingredientBase = materialBatchCost / outputQty;

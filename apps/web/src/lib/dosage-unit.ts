@@ -18,6 +18,16 @@ export interface DosageUnitFields {
   unit?: string | null;
 }
 
+export interface PriceUnitFields extends DosageUnitFields {
+  price_unit?: string | null;
+}
+
+export interface LineCostFields extends PriceUnitFields {
+  unit_price?: number | string | null;
+  dosage_qty?: number | string | null;
+  wastage_percent?: number | string | null;
+}
+
 function trimmed(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -30,6 +40,63 @@ export function effectiveDosageUnit(
   if (dosageUnit) return dosageUnit;
   const unit = trimmed(row?.unit);
   return unit || "g";
+}
+
+/** price_unit when set, otherwise the effective dosage unit (the old behaviour). */
+export function effectivePriceUnit(
+  row: PriceUnitFields | null | undefined,
+): string {
+  const priceUnit = trimmed(row?.price_unit);
+  return priceUnit || effectiveDosageUnit(row);
+}
+
+/**
+ * How many `to` units one `from` unit is, using the shared stock units.
+ * Same spelling is 1, convertible weight/volume units use their base ratio,
+ * and an unknown or cross-kind pair is null (no conversion exists).
+ */
+export function unitConversionFactor(
+  from: string | null | undefined,
+  to: string | null | undefined,
+): number | null {
+  const fromText = trimmed(from);
+  const toText = trimmed(to);
+  if (!fromText || !toText) return null;
+  if (fromText.toLowerCase() === toText.toLowerCase()) return 1;
+
+  const fromUnit = STOCK_UNITS.find(
+    (unit) => unit.code.toLowerCase() === fromText.toLowerCase(),
+  );
+  const toUnit = STOCK_UNITS.find(
+    (unit) => unit.code.toLowerCase() === toText.toLowerCase(),
+  );
+  if (!fromUnit || !toUnit || fromUnit.baseCode !== toUnit.baseCode) return null;
+  return fromUnit.toBase / toUnit.toBase;
+}
+
+function numericValue(value: unknown): number {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+/**
+ * Cost of one formulation line in the unit_price's unit.
+ * cost = unit_price × dosage_qty × convert(dosage unit → price unit) × (1 + wastage).
+ * An unconvertible pair keeps factor 1 and is flagged, never NaN.
+ */
+export function lineCost(
+  row: LineCostFields | null | undefined,
+): { cost: number; factor: number | null; convertible: boolean } {
+  const factor = unitConversionFactor(
+    effectiveDosageUnit(row),
+    effectivePriceUnit(row),
+  );
+  const cost =
+    numericValue(row?.unit_price) *
+    numericValue(row?.dosage_qty) *
+    (factor ?? 1) *
+    (1 + numericValue(row?.wastage_percent) / 100);
+  return { cost, factor, convertible: factor !== null };
 }
 
 /**

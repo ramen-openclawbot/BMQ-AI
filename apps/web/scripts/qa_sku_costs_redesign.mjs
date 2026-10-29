@@ -407,12 +407,19 @@ try {
       assert.ok(box.input >= 56, `dosage input too narrow @${viewport.width}: ${box.input}`);
     }
     if (viewport.width === 1440) {
+      const firstCostBefore = await page.locator("[data-bmq-sku-edit] table tbody tr").first().locator("td").nth(5).innerText();
       await units.first().selectOption("kg");
+      // 2.400 g at 18 đ/g → 2,4 kg is still 43.200 đ only if the price unit converts; it must not jump ×1000.
+      const firstCostAfter = await page.locator("[data-bmq-sku-edit] table tbody tr").first().locator("td").nth(5).innerText();
+      assert.notEqual(firstCostAfter, firstCostBefore, "changing the dosage unit converts the line cost");
+      assert.match(await page.locator("[data-bmq-price-unit]").first().innerText(), /\/g/, "price unit shown next to Đơn giá");
       await page.getByRole("button", { name: "Lưu SKU" }).click();
       await page.waitForFunction(() => (window.__qaRpc || []).some((x) => x.startsWith("save_sku_cogs:")));
       const saved = await page.evaluate(() => JSON.parse(window.__qaRpc.find((x) => x.startsWith("save_sku_cogs:")).slice("save_sku_cogs:".length)));
       assert.deepEqual(saved.p_formulations.map((row) => row.dosage_unit), ["kg", "g", "g", "kg", "g", "g"], "save sends each line's dosage unit");
       assert.deepEqual(saved.p_formulations.map((row) => row.unit), ["g", "g", "g", "g", "g", "g"], "the material unit is unchanged");
+      // Đơn vị của đơn giá stays at the unit the price was loaded in, so switching g → kg converts the cost.
+      assert.deepEqual(saved.p_formulations.map((row) => row.price_unit), ["g", "g", "g", "kg", "g", "g"], "price unit kept from load");
       errors.length = 0; // the fixture answers save with no SKU, which the page reports as a save error
     }
     // Natural scroll positions inside the edit dialog (top, NVL cards, totals).

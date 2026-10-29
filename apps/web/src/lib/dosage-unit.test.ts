@@ -6,6 +6,9 @@ import {
   dosageUnitCode,
   dosageUnitOptions,
   effectiveDosageUnit,
+  effectivePriceUnit,
+  lineCost,
+  unitConversionFactor,
   withDosageUnit,
 } from "./dosage-unit.ts";
 
@@ -63,4 +66,112 @@ test("dosageUnitOptions keeps an unknown current unit selectable", () => {
   assert.deepEqual(dosageUnitOptions("Kg"), [...DOSAGE_UNITS]);
   assert.equal(dosageUnitOptions("phần")[0], "phần");
   assert.equal(dosageUnitOptions("phần").length, DOSAGE_UNITS.length + 1);
+});
+
+const assertCost = (actual: number, expected: number, tolerance = 0.005) =>
+  assert.ok(
+    Math.abs(actual - expected) <= tolerance,
+    `cost ${actual} is not ${expected}`,
+  );
+
+test("effectivePriceUnit prefers price_unit, else the effective dosage unit", () => {
+  assert.equal(effectivePriceUnit({ price_unit: " Kg ", dosage_unit: "g" }), "Kg");
+  assert.equal(effectivePriceUnit({ price_unit: "", dosage_unit: "ml" }), "ml");
+  assert.equal(effectivePriceUnit({ price_unit: "  ", dosage_unit: "", unit: "kg" }), "kg");
+  assert.equal(effectivePriceUnit({}), "g");
+});
+
+test("unitConversionFactor uses the shared stock units case-insensitively", () => {
+  assert.equal(unitConversionFactor("g", "kg"), 0.001);
+  assert.equal(unitConversionFactor("Kg", "g"), 1000);
+  assert.equal(unitConversionFactor("ml", "l"), 0.001);
+  assert.equal(unitConversionFactor("l", "ml"), 1000);
+  assert.equal(unitConversionFactor("KG", "Kg"), 1);
+  assert.equal(unitConversionFactor("cái", "kg"), null);
+  assert.equal(unitConversionFactor("phần", "g"), null);
+  assert.equal(unitConversionFactor("phần", "phần"), 1);
+  assert.equal(unitConversionFactor("", "g"), null);
+});
+
+test("lineCost converts a gram dosage quoted per kg", () => {
+  const result = lineCost({
+    dosage_qty: 25,
+    dosage_unit: "g",
+    unit_price: 94418,
+    price_unit: "kg",
+  });
+  assert.equal(result.convertible, true);
+  assert.equal(result.factor, 0.001);
+  assertCost(result.cost, 2360.45);
+});
+
+test("lineCost keeps a kg dosage quoted per kg unchanged", () => {
+  const result = lineCost({
+    dosage_qty: 0.025,
+    dosage_unit: "kg",
+    unit_price: 94418,
+    price_unit: "kg",
+  });
+  assert.equal(result.factor, 1);
+  assertCost(result.cost, 2360.45);
+});
+
+test("lineCost keeps a saved line without price_unit at its old cost", () => {
+  const result = lineCost({
+    dosage_qty: 0.44444,
+    dosage_unit: "Kg",
+    unit_price: 31000,
+  });
+  assert.equal(result.factor, 1);
+  assertCost(result.cost, 13777.64);
+});
+
+test("lineCost without dosage or price unit costs dosage × price", () => {
+  const result = lineCost({ dosage_qty: 12.5, unit_price: 2000 });
+  assert.equal(result.factor, 1);
+  assertCost(result.cost, 25000);
+});
+
+test("lineCost converts millilitres quoted per litre", () => {
+  assertCost(
+    lineCost({
+      dosage_qty: 500,
+      dosage_unit: "ml",
+      unit_price: 20000,
+      price_unit: "l",
+    }).cost,
+    10000,
+  );
+});
+
+test("lineCost reports an unconvertible pair and keeps factor 1", () => {
+  const result = lineCost({
+    dosage_qty: 2,
+    dosage_unit: "cái",
+    unit_price: 1500,
+    price_unit: "kg",
+  });
+  assert.equal(result.factor, null);
+  assert.equal(result.convertible, false);
+  assertCost(result.cost, 3000);
+});
+
+test("lineCost applies wastage after the unit conversion", () => {
+  const result = lineCost({
+    dosage_qty: 25,
+    dosage_unit: "g",
+    unit_price: 94418,
+    price_unit: "kg",
+    wastage_percent: 10,
+  });
+  assertCost(result.cost, 2360.45 * 1.1);
+});
+
+test("lineCost treats non-numeric inputs as 0", () => {
+  const result = lineCost({
+    dosage_qty: "không rõ",
+    unit_price: undefined,
+    wastage_percent: null,
+  });
+  assert.equal(result.cost, 0);
 });
