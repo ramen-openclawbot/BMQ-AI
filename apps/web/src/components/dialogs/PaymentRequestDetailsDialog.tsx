@@ -201,6 +201,25 @@ export function PaymentRequestDetailsDialog({
       return { paid, openCount: open.length, others: open.filter((r) => r.id !== requestId).map((r) => r.request_number) };
     },
   });
+  // Hoá đơn điện tử nhận qua hoadon@ và đã được ghép với phiếu này.
+  const { data: inboxInvoices } = useQuery({
+    queryKey: ["payment-request-inbox-invoices", requestId],
+    enabled: !!requestId,
+    queryFn: async () => {
+      // incoming_invoices is not in the generated types yet.
+      const { data, error } = await (supabase as any)
+        .from("incoming_invoices")
+        .select("id, invoice_number, invoice_date")
+        .or(`linked_payment_request_id.eq.${requestId},payment_request_id.eq.${requestId}`)
+        .order("invoice_date", { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as Array<{ id: string; invoice_number: string | null; invoice_date: string | null }>;
+    },
+  });
+  const inboxInvoiceText = (inboxInvoices ?? [])
+    .map((inv) => [inv.invoice_number, inv.invoice_date ? format(new Date(`${inv.invoice_date}T00:00:00`), "dd/MM/yyyy") : null].filter(Boolean).join(" · "))
+    .filter(Boolean)
+    .join(", ");
   const { data: detailFlags } = useFinanceReconciliationFlags({
     entityIds: [requestId, purchaseOrderId].filter((v): v is string => !!v),
     enabled: !!requestId,
@@ -518,7 +537,9 @@ export function PaymentRequestDetailsDialog({
                   <div>
                     <dt>{t.invoiceStatus}</dt>
                     <dd>
-                      {request.invoice_created ? (
+                      {inboxInvoices && inboxInvoices.length > 0 ? (
+                        <span className="d3-prd-dot is-green" data-bmq-inbox-invoice>Có hóa đơn {inboxInvoiceText} (hoadon@)</span>
+                      ) : request.invoice_created ? (
                         <span className="d3-prd-dot is-green">{t.invoiceCreated}</span>
                       ) : !needsReceipt ? (
                         <span className="d3-prd-dot" data-bmq-no-receipt-invoice>Không cần hóa đơn nhập kho</span>
