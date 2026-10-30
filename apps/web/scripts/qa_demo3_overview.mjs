@@ -93,6 +93,8 @@ function builder(table) {
   const st = { table, filters: {}, head: false, single: false, write: null };
   const proxy = new Proxy(function () {}, {
     get(_t, prop) {
+      // data "loading": reads never answer, so the loading states stay on screen.
+      if (prop === "then" && cfg().data === "loading" && !st.write) return () => new Promise(() => {});
       if (prop === "then") return (ok, ko) => Promise.resolve(settle(st)).then(ok, ko);
       if (prop === "catch") return (ko) => Promise.resolve(settle(st)).catch(ko);
       if (prop === "finally") return (fn) => Promise.resolve(settle(st)).finally(fn);
@@ -352,6 +354,36 @@ try {
     assert.deepEqual(errors, []);
     record(`data ${data}`);
     await context.close();
+  }
+
+  // 4b. Loading (owner iPhone 31/10): every Tổng quan data block shows the Sổ cái ledger, never a bare gray box,
+  // also under Reduce Motion; no overflow at phone widths.
+  for (const viewport of [{ width: 320, height: 640 }, { width: 390, height: 844 }, { width: 1440, height: 900 }]) {
+    for (const reducedMotion of ["reduce", "no-preference"]) {
+      const { context, page, errors } = await open({ role: "owner", data: "loading" }, "/", viewport, { reducedMotion });
+      await page.waitForTimeout(900);
+      const blocks = await page.$$eval(".d3-ov-loading, .d3-ov-skel", (els) => els.map((el) => {
+        const ledger = el.querySelector(".bmq-ld-ledger");
+        const oven = el.querySelector(".bmq-ld-oven");
+        const entry = el.querySelector(".bmq-ld-entry");
+        const box = ledger?.getBoundingClientRect();
+        return { cls: el.className, w: box ? Math.round(box.width) : 0, opacity: oven ? Number(getComputedStyle(oven).opacity) : 0, anim: entry ? getComputedStyle(entry).animationName : "none", bg: getComputedStyle(el).backgroundImage };
+      }));
+      assert.ok(blocks.filter((b) => b.cls.includes("d3-ov-loading")).length >= 2, `revenue + chart loading blocks @${viewport.width}: ${JSON.stringify(blocks)}`);
+      assert.ok(blocks.filter((b) => b.cls.includes("d3-ov-skel")).length >= 1, `insight loading values @${viewport.width}`);
+      for (const b of blocks) {
+        assert.ok(b.w >= 20 && b.opacity > 0.95, `ledger visible @${viewport.width} ${reducedMotion}: ${JSON.stringify(b)}`);
+        assert.equal(b.anim, reducedMotion === "reduce" ? "bmq-ld-fade" : "bmq-ld-post", `ledger animates @${viewport.width} ${reducedMotion}`);
+        assert.equal(b.bg, "none", "no gray shimmer box");
+      }
+      assert.equal(await page.locator("[class*='d3-ov-skel'][class*='is-']").count(), 0, "no old gray skeletons");
+      const ov = await overflow(page);
+      assert.ok(ov <= 0, `no overflow loading @${viewport.width}: ${ov}`);
+      await page.screenshot({ path: `${EVIDENCE}/overview-loading-${viewport.width}-${reducedMotion}.png`, fullPage: false });
+      assert.deepEqual(errors, []);
+      record(`loading ledger ${viewport.width} ${reducedMotion}`);
+      await context.close();
+    }
   }
 
   // 5. Limited user: only permitted cards, no revenue, no AI; no-permission user gets guidance.

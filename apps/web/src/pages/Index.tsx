@@ -12,6 +12,7 @@ import { useOverviewSummary } from "@/hooks/useOverviewSummary";
 import type { OverviewMetric } from "@/lib/overview/overview-summary";
 import { openAgentChat } from "@/components/layout/useShellNav";
 import { cn } from "@/lib/utils";
+import { LedgerMark, LoadingState } from "@/components/ui/loading";
 import "@/styles/bmq-overview.css";
 
 type Lang = "vi" | "en";
@@ -41,7 +42,9 @@ function MetricValue({ m, loading, language }: { m: OverviewMetric<number>; load
   if (m.status === "error") return <p className="d3-ov-state is-error">{en ? "Could not load" : "Không tải được"}</p>;
   if (m.status === "unavailable") {
     return loading ? (
-      <span className="d3-ov-skel" aria-label={en ? "Loading" : "Đang tải"} />
+      <span className="d3-ov-skel" role="status" aria-label={en ? "Loading" : "Đang tải"}>
+        <LedgerMark className="d3-ov-skel-mark" delayMs={0} />
+      </span>
     ) : (
       <p className="d3-ov-state">{en ? "No source yet" : "Chưa có nguồn"}</p>
     );
@@ -158,7 +161,7 @@ const Index = () => {
             {revenue.status === "error" ? (
               <p className="d3-ov-state is-error">{en ? "Could not load the revenue ledger." : "Không tải được sổ doanh thu."}</p>
             ) : !monthToDate ? (
-              <span className="d3-ov-skel is-big" aria-label={en ? "Loading" : "Đang tải"} />
+              <LoadingState variant="ledger" flat className="d3-ov-loading is-big" label={en ? "Loading revenue" : "Đang tải doanh thu"} />
             ) : (
               <>
                 <div className="d3-ov-big">
@@ -204,7 +207,7 @@ const Index = () => {
                 {en ? "Chart unavailable while the ledger cannot be read." : "Chưa vẽ được biểu đồ vì không đọc được sổ doanh thu."}
               </p>
             ) : !revenueSummary ? (
-              <span className="d3-ov-skel is-chart" />
+              <LoadingState variant="ledger" flat className="d3-ov-loading is-chart" label={en ? "Loading sales channels" : "Đang tải kênh bán hàng"} />
             ) : revenueSummary.total === 0 ? (
               <p className="d3-ov-state">{en ? "No controlled revenue in the last 14 days." : "14 ngày gần nhất chưa có doanh thu đã kiểm soát."}</p>
             ) : (
@@ -240,7 +243,7 @@ const Index = () => {
               {production.status === "error" ? (
                 <p className="d3-ov-state is-error">{en ? "Could not load production orders." : "Không tải được lệnh sản xuất."}</p>
               ) : !production.value ? (
-                <span className="d3-ov-skel is-big" />
+                <LoadingState variant="ledger" flat className="d3-ov-loading is-big" label={en ? "Loading production" : "Đang tải sản xuất"} />
               ) : production.value.total === 0 ? (
                 <p className="d3-ov-state">{en ? "No production orders start today." : "Hôm nay chưa có lệnh sản xuất nào bắt đầu."}</p>
               ) : (

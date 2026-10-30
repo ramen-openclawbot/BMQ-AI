@@ -279,17 +279,12 @@
 .d3-ov-insight-foot .d3-ov-state { margin: 0; }
 .d3-ov-state.is-error { color: var(--d3-red); font-weight: 500; }
 
-.d3-ov-skel {
-  display: block;
-  width: 64px;
-  height: 44px;
-  border-radius: 10px;
-  background: linear-gradient(90deg, #ececea 0%, #f6f6f4 50%, #ececea 100%) 0 0 / 200% 100%;
-  animation: d3-ov-shimmer 1.2s linear infinite;
-}
-
-.d3-ov-skel.is-big { width: 60%; height: 70px; margin-top: 18px; }
-.d3-ov-skel.is-chart { width: 100%; height: 220px; margin-top: 12px; }
+/* Loading uses the Sổ cái ledger everywhere (owner 22/10, Tổng quan 31/10): gray shimmer alone read as an empty page. */
+.d3-ov-skel { display: flex; align-items: center; height: 48px; }
+.d3-ov-skel .bmq-ld-ledger { width: 34px; }
+.d3-ov-loading.bmq-ld-block.is-center { min-height: 0; padding: 0; }
+.d3-ov-loading.is-big { height: 110px; margin-top: 12px; }
+.d3-ov-loading.is-chart { height: 232px; margin-top: 12px; }
 
 /* ---------- production + AI ---------- */
 .d3-ov-status {
@@ -339,7 +334,6 @@
 
 @keyframes d3-ov-fill { from { transform: scaleX(0); } }
 @keyframes d3-ov-draw { to { stroke-dashoffset: 0; } }
-@keyframes d3-ov-shimmer { to { background-position: -200% 0; } }
 
 /* ---------- responsive ---------- */
 @media (max-width: 1180px) {
