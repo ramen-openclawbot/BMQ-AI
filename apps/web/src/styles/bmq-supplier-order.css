@@ -13,32 +13,49 @@
 .d3-so-card-head > button svg { width: 15px; height: 15px; }
 .is-wrap { overflow-wrap: anywhere; }
 
-/* ---------- order lines ---------- */
-.d3-so-lines { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+/* ---------- order lines ----------
+ * Two rows per item (owner 31/10): name | total or "Đặt N"; price · stock | stepper.
+ * What all lines share (VAT rate, stock location) is said once in the card head. */
+.d3-so-lines { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .d3-so-line {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 10px 20px;
+  gap: 2px 12px;
   min-width: 0;
-  padding: 14px 16px;
-  border-radius: 14px;
+  padding: 10px 12px 10px 14px;
+  border-radius: 12px;
   background: var(--d3-white);
 }
-.d3-so-line-main { display: grid; gap: 3px; min-width: 0; }
-.d3-so-line-main > b { font-size: 15px; font-weight: 500; line-height: 1.35; color: var(--d3-ink); overflow-wrap: anywhere; }
-.d3-so-line-main > small {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 2px 12px;
-  font-size: 12.5px;
-  color: var(--d3-dim);
+.d3-so-line-main { display: contents; }
+.d3-so-line-main > b {
+  grid-column: 1; grid-row: 1;
+  min-width: 0;
+  font-size: 15px; font-weight: 500; line-height: 1.3; color: var(--d3-ink);
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.d3-so-meta {
+  grid-column: 1; grid-row: 2;
+  min-width: 0;
+  font-size: 12.5px; line-height: 1.4; color: var(--d3-dim);
   font-variant-numeric: tabular-nums;
 }
-.d3-so-stock { margin: 2px 0 0; font-size: 13px; line-height: 1.45; color: var(--d3-ink-2); font-variant-numeric: tabular-nums; }
-.d3-so-stock .is-bad { color: var(--kho-bad); font-weight: 500; }
-.d3-so-proposal { color: var(--d3-ink); }
+.d3-so-meta .is-bad { color: var(--kho-bad); font-weight: 500; }
+.d3-so-pending { color: var(--kho-warn); }
+.d3-so-kho { grid-column: 1 / -1; font-size: 12px; color: var(--d3-dim); }
+.d3-so-line-side { grid-column: 2; grid-row: 1; justify-self: end; display: flex; align-items: center; min-height: 22px; }
+.d3-so-line-qty { grid-column: 2; grid-row: 2; justify-self: end; }
+html.bmq-d3 .d3-so-warn {
+  display: inline-grid; place-items: center;
+  width: 22px; height: 22px; margin: -3px 0 -3px 4px; padding: 0;
+  border: 0; border-radius: 6px; vertical-align: middle;
+  background: var(--kho-bad-bg); color: var(--kho-bad); cursor: pointer;
+}
+.d3-so-warn svg { width: 13px; height: 13px; }
+.d3-so-warn:focus-visible { outline: 2px solid var(--d3-ink); outline-offset: 1px; }
 .d3-so-open {
+  grid-column: 1 / -1;
   justify-self: start;
   margin: 4px 0 0;
   padding: 3px 9px;
@@ -48,15 +65,14 @@
   background: var(--kho-warn-bg);
 }
 
-.d3-so-line-qty { display: grid; justify-items: end; gap: 6px; min-width: 0; }
-.d3-so-stepper { display: flex; align-items: center; gap: 6px; }
+.d3-so-stepper { display: flex; align-items: center; gap: 4px; }
 html.bmq-d3 .d3-so-stepper button {
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   border: 0;
-  border-radius: 10px;
+  border-radius: 9px;
   background: var(--kho-muted);
   color: var(--d3-ink);
   cursor: pointer;
@@ -64,11 +80,13 @@ html.bmq-d3 .d3-so-stepper button {
 html.bmq-d3 .d3-so-stepper button:hover:not(:disabled) { background: #deded9; }
 html.bmq-d3 .d3-so-stepper button:disabled { opacity: .4; cursor: default; }
 .d3-so-stepper button:focus-visible { outline: 2px solid var(--d3-ink); outline-offset: 1px; }
-.d3-so-stepper button svg { width: 16px; height: 16px; }
-.d3-so-stepper input { width: 84px; height: 36px; text-align: right; font-variant-numeric: tabular-nums; }
+.d3-so-stepper button svg { width: 15px; height: 15px; }
+.d3-so-stepper input { width: 64px; height: 32px; padding: 0 8px; text-align: right; font-variant-numeric: tabular-nums; }
 .d3-so-stepper input[aria-invalid="true"] { border-color: var(--kho-bad); }
-.d3-so-unit { min-width: 20px; font-size: 13px; color: var(--d3-dim); }
-.d3-so-line-total { min-height: 20px; font-size: 15px; font-weight: 500; color: var(--d3-ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.d3-so-unit { min-width: 26px; font-size: 12.5px; color: var(--d3-dim); }
+/* Wide screens name the unit beside the box; phones put it inside as the placeholder. */
+@media (min-width: 641px) { .d3-so-stepper input::placeholder { color: transparent; } }
+.d3-so-line-total { font-size: 14.5px; font-weight: 500; color: var(--d3-ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 html.bmq-d3 .d3-so-remove {
   grid-column: 1 / -1;
@@ -230,9 +248,8 @@ html.bmq-d3 .d3-so-filters button.is-clear:hover { background: none; color: var(
 html.bmq-d3 .d3-so-use {
   display: inline-flex;
   align-items: center;
-  min-height: 28px;
-  margin-left: 8px;
-  padding: 0 10px;
+  min-height: 24px;
+  padding: 0 9px;
   border: 0;
   border-radius: 999px;
   background: var(--kho-muted);
@@ -245,18 +262,16 @@ html.bmq-d3 .d3-so-use:hover { background: #deded9; }
 .d3-so-line.is-picked { box-shadow: inset 3px 0 0 var(--d3-ink); }
 
 @media (max-width: 640px) {
-  .d3-so-line { grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 12px 14px; }
-  .d3-so-stock { font-size: 12.5px; }
-  .d3-so-line-main > small { gap: 0 10px; }
+  .d3-so-line { padding: 9px 10px 9px 12px; column-gap: 8px; }
   /* The sticky bar leaves the bottom-right corner to the BMQ Agent launcher. */
   .d3-so-submit { margin: 0 -16px -16px; padding: 10px 84px 10px 16px; border-radius: 0 0 20px 20px; gap: 8px 14px; flex-wrap: wrap; }
   .d3-so-submit .d3-so-sum { display: none; }
   .d3-so-total b { font-size: 18px; }
   .d3-so-submit > button { flex: 1 1 120px; width: auto; min-width: 0; }
-  /* The total moves under the stepper when the row has no room for both. */
-  .d3-so-line-qty { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
-  .d3-so-line-total { margin-left: auto; }
-  .d3-so-stepper input { width: 72px; }
+  /* The unit moves into the empty box as its placeholder. */
+  html.bmq-d3 .d3-so-stepper button { width: 30px; height: 30px; }
+  .d3-so-stepper input { width: 54px; height: 30px; padding: 0 6px; }
+  .d3-so-unit { display: none; }
   .d3-so-facts { grid-template-columns: minmax(0, 1fr); }
   .d3-so-actions > button { flex: 1 1 auto; }
 }
@@ -375,14 +390,15 @@ html.bmq-d3 .d3-so-sup.is-on { background: var(--d3-white); outline-color: var(-
 
 .d3-so-email {
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 8px 10px;
-  padding: 14px 16px;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
   border-radius: 14px;
   background: var(--kho-warn-bg);
 }
-.d3-so-email .d3-kho-field { flex: 1 1 220px; min-width: 0; }
+.d3-so-email .d3-kho-field { flex: 1 1 auto; min-width: 0; }
+.d3-so-email > button { flex: none; }
 .d3-so-email input[aria-invalid="true"] { border-color: var(--kho-bad); }
 
 html.bmq-d3 .d3-so-back {

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Check, ChevronRight, FileText, Minus, Paperclip, Plus, Search, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Check, ChevronRight, FileText, Minus, Paperclip, Plus, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { LoadingState } from "@/components/ui/loading";
@@ -146,19 +146,20 @@ const contactText = (row: DeliveryContact) =>
 const neverCounted = (item: SupplierOrderCatalogItem) =>
   !item.estimated && item.stock.lastCountDate === null && item.stock.dailyUsage <= 0;
 
-function stockLine(item: SupplierOrderCatalogItem) {
+/** "tồn 8.500 cái · ~3 ngày": the location is named only when it differs from the page's. */
+function stockLine(item: SupplierOrderCatalogItem, commonLocation: string | null) {
   const { onHand, daysLeft } = item.stock;
-  const where = locationLabel(item.location);
-  if (onHand === null) return <>Tồn {where}: chưa có số tồn</>;
-  if (neverCounted(item) && onHand <= 0) return <span data-bmq-so-uncounted>Tồn {where}: chưa kiểm kê</span>;
+  const where = item.location === commonLocation ? "" : ` ${locationLabel(item.location)}`;
+  if (onHand === null || (neverCounted(item) && onHand <= 0)) {
+    return <span data-bmq-so-uncounted>tồn{where} chưa kiểm kê</span>;
+  }
   return (
-    <>
-      Tồn {where} {fmtAmount(onHand, item.item.unit)}
-      {item.estimated ? <span className="d3-so-est" title="Tân Tạo chưa ghi lượng dùng, số ngày ước từ phiếu nhập"> (ước lượng)</span> : null}
+    <span title={item.estimated ? "Số ngày ước từ phiếu nhập: kho chưa ghi lượng dùng" : undefined}>
+      tồn{where} {item.estimated ? "~" : ""}{fmtAmount(onHand, item.item.unit)}
       {daysLeft === null ? null : daysLeft <= 0
-        ? <span className="is-bad" data-bmq-so-out> · đã hết</span>
-        : <> · đủ ~{formatQuantity(daysLeft)} ngày</>}
-    </>
+        ? <b className="is-bad" data-bmq-so-out> · hết</b>
+        : <> · còn {formatQuantity(daysLeft)} ngày</>}
+    </span>
   );
 }
 
@@ -171,11 +172,12 @@ const amountInput = (item: SupplierOrderCatalogItem, quantity: number) => ({
   listPriceIncludesVat: item.listPriceIncludesVat,
 });
 
-/** "20.840 đ/kg gồm VAT", "90.000 đ/kg" — the price the supplier quotes, as it quotes it. */
-function priceLabel(item: SupplierOrderCatalogItem): string {
-  if (item.listPrice !== null) return `${formatVnd(item.listPrice)}/${item.poUnit}${item.vatRate > 0 ? (item.listPriceIncludesVat ? " gồm VAT" : " chưa VAT") : ""}`;
-  if (item.unitPrice !== null) return `${formatVnd(item.unitPrice)}/${item.poUnit}${item.vatRate > 0 ? " chưa VAT" : ""} · giá PO gần nhất`;
-  return "Chưa có giá";
+/** "20.840 đ/kg", "90.000 đ/kg gồm VAT": the price as the supplier quotes it. The page head says "giá chưa VAT". */
+function priceLabel(item: SupplierOrderCatalogItem, commonVat: number | null): string {
+  const vat = item.vatRate === commonVat ? "" : item.vatRate > 0 ? ` · VAT ${formatQuantity(item.vatRate)}%` : " · không VAT";
+  if (item.listPrice !== null) return `${formatVnd(item.listPrice)}/${item.poUnit}${item.vatRate > 0 && item.listPriceIncludesVat ? " gồm VAT" : ""}${vat}`;
+  if (item.unitPrice !== null) return `${formatVnd(item.unitPrice)}/${item.poUnit}${vat}`;
+  return `Chưa có giá${vat}`;
 }
 
 async function openUpload(path: string) {
@@ -271,8 +273,10 @@ function focusNextQty(event: React.KeyboardEvent<HTMLUListElement>) {
   if (next) { next.focus(); next.select(); } else (target as HTMLInputElement).blur();
 }
 
-function OrderLine({ item, supplierId, qtyText, onQty, editing, onRemove, removing, onToast }: {
+function OrderLine({ item, supplierId, qtyText, onQty, editing, onRemove, removing, onToast, commonVat, commonLocation }: {
   item: SupplierOrderCatalogItem;
+  commonVat: number | null;
+  commonLocation: string | null;
   supplierId: string;
   qtyText: string;
   onQty: (text: string) => void;
@@ -292,63 +296,63 @@ function OrderLine({ item, supplierId, qtyText, onQty, editing, onRemove, removi
     const next = Math.max(0, Math.round((base + sign * step) * 1000) / 1000);
     onQty(next > 0 ? formatQuantity(next) : "");
   };
+  const [why, setWhy] = useState(false);
   // The kho name only adds something when it is not the supplier's wording minus its "(25kg)" bracket.
   const bare = (text: string) => text.replace(/\s*\([^()]*\)\s*$/, "").trim().toLowerCase();
-  const showKhoName = bare(item.item.name) !== bare(item.productName);
+  const showKhoName = editing && bare(item.item.name) !== bare(item.productName);
+  const proposal = !item.learnedSupplierMismatch && !item.priceOutlier && item.proposalQty > 0 ? formatQuantity(item.proposalQty) : null;
+  const warn = item.priceOutlier || item.learnedSupplierMismatch;
+  const warnText = item.priceOutlier && item.referencePrice
+    ? `Giá lệch quá 3 lần so với ${item.referencePrice.supplierName || "NCC khác"} (${formatVnd(item.referencePrice.unitPrice)}/${item.poUnit}). Kiểm tra giá và đơn vị trước khi đặt.`
+    : item.priceOutlier
+      ? "Giá lệch xa so với lần mua trước, nên không tự đề xuất."
+      : `Kho thường đặt món này ở ${item.learnedSupplier?.name || "NCC khác"}, nên không tự đề xuất.`;
 
   return (
     <li className={cn("d3-so-line", qty > 0 && "is-picked")} data-bmq-so-line={item.item.id}>
       <div className="d3-so-line-main">
-        <b>{item.productName}</b>
-        <small>
-          {showKhoName ? <span>{item.item.name}</span> : null}
-          <span data-bmq-so-price-label>{priceLabel(item)}</span>
-          {item.packSizePo ? <span>bao {formatQuantity(item.packSizePo)} {item.poUnit}</span> : null}
-          <span>{item.vatRate > 0 ? `VAT ${formatQuantity(item.vatRate)}%` : "không VAT"}</span>
-        </small>
-        <p className="d3-so-stock">
-          {stockLine(item)}
-          {item.learnedSupplierMismatch ? (
-            <span className="d3-so-proposal" data-bmq-so-learned-elsewhere>
-              {" "}· kho thường đặt món này ở {item.learnedSupplier?.name || "NCC khác"}, không tự đề xuất
+        <b title={item.productName}>{item.productName}</b>
+        <small className="d3-so-meta">
+          <span data-bmq-so-price-label title={item.listPrice === null && item.unitPrice !== null ? "Giá PO gần nhất" : undefined}>{priceLabel(item, commonVat)}</span>
+          {item.packSizePo ? <span> · bao {formatQuantity(item.packSizePo)} {item.poUnit}</span> : null}
+          <span> · </span>{stockLine(item, commonLocation)}
+          {item.openOrder ? (
+            <span className="d3-so-pending" data-bmq-so-open-po
+              title={`${item.openOrder.poNumber} (${formatQuantity(item.openOrder.quantity)} ${item.openOrder.unit}) đã gửi, chưa nhận hàng`}>
+              {" "}· chờ {item.openOrder.poNumber} ({formatQuantity(item.openOrder.quantity)} {item.openOrder.unit})
             </span>
-          ) : item.priceOutlier ? (
-            <span className="d3-so-proposal"> · không tự đề xuất vì giá lệch xa</span>
-          ) : (
-            item.proposalQty > 0 ? (
-              <>
-                <span className="d3-so-proposal"> · đề xuất {formatQuantity(item.proposalQty)} {item.poUnit}</span>
-                {qtyText.trim() !== formatQuantity(item.proposalQty) ? (
-                  <button type="button" className="d3-so-use" onClick={() => onQty(formatQuantity(item.proposalQty))} data-bmq-so-use={item.item.id}>
-                    Dùng số này
-                  </button>
-                ) : null}
-              </>
-            ) : (
-              <span className="d3-so-proposal"> · {item.stock.dailyUsage <= 0 ? "chưa có lượng dùng để đề xuất" : "chưa cần đặt"}</span>
-            )
-          )}
-        </p>
-        {item.priceOutlier && item.referencePrice ? (
-          <p className="d3-so-open d3-so-price-warn" data-bmq-so-price-outlier>
-            Giá này lệch quá 3 lần so với {item.referencePrice.supplierName || "NCC khác"} ({formatVnd(item.referencePrice.unitPrice)}/{item.poUnit}). Kiểm tra giá và đơn vị trước khi đặt.
-          </p>
+          ) : null}
+          {warn ? (
+            <button type="button" className="d3-so-warn" aria-expanded={why} onClick={() => setWhy((value) => !value)}
+              aria-label="Xem cảnh báo" data-bmq-so-warn={item.item.id}>
+              <AlertTriangle aria-hidden="true" />
+            </button>
+          ) : null}
+        </small>
+        {showKhoName ? <small className="d3-so-kho">Món kho: {item.item.name}</small> : null}
+        {why ? (
+          <p className="d3-so-open d3-so-price-warn" data-bmq-so-price-outlier={item.priceOutlier || undefined}
+            data-bmq-so-learned-elsewhere={item.learnedSupplierMismatch || undefined}>{warnText}</p>
         ) : null}
-        {item.openOrder ? (
-          <p className="d3-so-open" data-bmq-so-open-po>
-            {item.openOrder.poNumber} ({formatQuantity(item.openOrder.quantity)} {item.openOrder.unit}) đã gửi, chưa nhận hàng.
-          </p>
+      </div>
+      <div className="d3-so-line-side">
+        {total !== null || bad ? (
+          <b className="d3-so-line-total" data-bmq-so-line-total>{bad ? "Số chưa đúng" : formatVnd(total)}</b>
+        ) : proposal ? (
+          <button type="button" className="d3-so-use" onClick={() => onQty(proposal)} data-bmq-so-use={item.item.id}
+            aria-label={`Dùng số đề xuất ${proposal} ${item.poUnit}`}>
+            Đặt {proposal} {item.poUnit}
+          </button>
         ) : null}
       </div>
       <div className="d3-so-line-qty">
         <div className="d3-so-stepper">
           <button type="button" onClick={() => bump(-1)} disabled={bad ? false : qty <= 0} aria-label={`Bớt ${formatQuantity(step)} ${item.poUnit} ${item.productName}`}><Minus aria-hidden="true" /></button>
-          <Input inputMode="decimal" value={qtyText} onChange={(event) => onQty(event.target.value)}
+          <Input inputMode="decimal" value={qtyText} onChange={(event) => onQty(event.target.value)} placeholder={item.poUnit}
             aria-label={`Số lượng ${item.productName} (${item.poUnit})`} aria-invalid={bad || undefined} data-bmq-so-qty={item.item.id} />
           <button type="button" onClick={() => bump(1)} aria-label={`Thêm ${formatQuantity(step)} ${item.poUnit} ${item.productName}`}><Plus aria-hidden="true" /></button>
           <span className="d3-so-unit">{item.poUnit}</span>
         </div>
-        <b className="d3-so-line-total" data-bmq-so-line-total>{bad ? "Số chưa đúng" : total !== null ? formatVnd(total) : ""}</b>
       </div>
       {editing ? (
         <>
@@ -464,9 +468,8 @@ function SupplierEmailEditor({ supplierId, onToast }: { supplierId: string; onTo
         });
       }}>
       <label className="d3-kho-field">
-        <span>Email nhận đơn của NCC</span>
         <Input type="email" inputMode="email" autoComplete="off" value={text} onChange={(event) => setText(event.target.value)}
-          placeholder="ten@congty.vn" aria-invalid={email && !ok ? true : undefined} data-bmq-so-email-input />
+          placeholder="Email nhận đơn của NCC" aria-label="Email nhận đơn của NCC" aria-invalid={email && !ok ? true : undefined} data-bmq-so-email-input />
       </label>
       <Button type="submit" variant="outline" disabled={!ok || save.isPending} data-bmq-so-email-save>
         {save.isPending ? "Đang lưu…" : "Lưu email"}
@@ -623,6 +626,10 @@ function SupplierPanel({ supplierId, onToast, onBack }: { supplierId: string; on
 
   const supplierName = data.supplier?.name ?? "nhà cung cấp";
   const noEmail = !data.supplier?.email;
+  // What every line shares is said once in the head, not on each line.
+  const shared = <T,>(values: T[]): T | null => (values.length && values.every((value) => value === values[0]) ? values[0] : null);
+  const commonVat = shared(data.items.map((item) => item.vatRate));
+  const commonLocation = shared(data.items.map((item) => item.location));
 
   return (
     <>
@@ -635,7 +642,11 @@ function SupplierPanel({ supplierId, onToast, onBack }: { supplierId: string; on
             <div className="d3-so-card-head">
               <div className="min-w-0">
                 <h2>Đơn mới cho {supplierName}</h2>
-                <p>Gửi tới <b className="is-wrap">{data.supplier?.email || "chưa có email"}</b> từ order@bmq.vn, kèm link để NCC tải hoá đơn giao hàng.</p>
+                <p title="Gửi từ order@bmq.vn, kèm link để NCC tải hoá đơn giao hàng">
+                  Gửi <b className="is-wrap">{data.supplier?.email || "chưa có email"}</b>
+                  {" · "}{commonVat === 0 ? "không VAT" : `giá chưa VAT${commonVat ? ` ${formatQuantity(commonVat)}%` : ""}`}
+                  {commonLocation ? ` · tồn ${locationLabel(commonLocation)}` : ""}
+                </p>
               </div>
               <div className="d3-so-head-actions">
                 <Button asChild variant="ghost" size="sm" data-bmq-so-profile-link>
@@ -680,7 +691,7 @@ function SupplierPanel({ supplierId, onToast, onBack }: { supplierId: string; on
             {data.items.length ? (
               <ul className="d3-so-lines" data-bmq-so-lines onKeyDown={focusNextQty}>
                 {visibleItems.map((item) => (
-                  <OrderLine key={item.item.id} item={item} supplierId={supplierId} onToast={onToast} qtyText={qty[item.item.id] ?? ""} editing={editing} removing={setItem.isPending}
+                  <OrderLine key={item.item.id} item={item} commonVat={commonVat} commonLocation={commonLocation} supplierId={supplierId} onToast={onToast} qtyText={qty[item.item.id] ?? ""} editing={editing} removing={setItem.isPending}
                     onQty={(text) => setQty((prev) => ({ ...prev, [item.item.id]: text }))}
                     onRemove={() => setItem.mutate({ supplierId, itemId: item.item.id, active: false }, {
                       onSuccess: () => { setQty((prev) => { const next = { ...prev }; delete next[item.item.id]; return next; }); onToast(`Đã bỏ ${item.item.name} khỏi danh mục`); },

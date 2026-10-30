@@ -16,7 +16,7 @@ import react from "@vitejs/plugin-react-swc";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const EVIDENCE = process.env.EVIDENCE_DIR || "/tmp/bmq-supplier-order-qa";
-const PW = process.env.PLAYWRIGHT_CORE || "/private/tmp/pwqa/node_modules/playwright-core";
+const PW = process.env.PLAYWRIGHT_CORE || `${process.env.HOME}/.openclaw/lib/node_modules/openclaw/node_modules/playwright-core`;
 const CHROME = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const PORT = Number(process.env.QA_PORT || 5263);
 const { chromium } = createRequire(import.meta.url)(PW);
@@ -358,7 +358,7 @@ try {
       assert.ok(await page.locator("[data-bmq-so-back-list]").isVisible(), "back to list visible");
     }
     const card = await page.locator("[data-bmq-so-card]").innerText();
-    for (const text of ["botmiphucthinh@gmail.com", "Bột mì 999 Cam (25kg)", "20.840 đ/kg gồm VAT", "20.440 đ/kg gồm VAT", "152.000 đ/kg gồm VAT", "VAT 8%", "đã hết", "chưa cần đặt", "đề xuất 25 kg", "Huỳnh Kim Ngân", "không có phiếu chi nào đang chờ trả"]) {
+    for (const text of ["botmiphucthinh@gmail.com", "Bột mì 999 Cam (25kg)", "20.840 đ/kg gồm VAT", "20.440 đ/kg gồm VAT", "152.000 đ/kg gồm VAT", "giá chưa VAT 8%", "· hết", "Huỳnh Kim Ngân", "không có phiếu chi nào đang chờ trả"]) {
       assert.ok(card.includes(text), `Phúc Thịnh card shows "${text}" @${vp.width}: ${card}`);
     }
     assert.ok(!EMOJI.test(card), "no emoji");
@@ -459,7 +459,7 @@ try {
     assert.match(await tv.page.locator("[data-bmq-so-prepay-invoice='official']").innerText(), /Đã có hoá đơn chính thức 1C26TTV-00003476 ngày 20\/10\/2026/);
     assert.ok(await tv.page.locator("[data-bmq-so-prepay-check]").isChecked(), "gối đầu ticked");
     const tvCard = await tv.page.locator("[data-bmq-so-card]").innerText();
-    assert.ok(/PR-D6E88DCB/.test(tvCard) && /9\.000\.000 đ/.test(tvCard) && /PO-000862 \(75 kg\) đã gửi, chưa nhận hàng/.test(tvCard) && /không VAT/.test(tvCard), `TV card ${tvCard}`);
+    assert.ok(/PR-D6E88DCB/.test(tvCard) && /9\.000\.000 đ/.test(tvCard) && /chờ PO-000862 \(75 kg\)/.test(tvCard) && /không VAT/.test(tvCard), `TV card ${tvCard}`);
     assert.ok(await tv.page.locator("[data-bmq-so-make]").isDisabled(), "nothing picked yet");
     await tv.page.locator(".d3-so-stepper button").last().click();
     await tv.page.locator("[data-bmq-so-make]").click();
@@ -543,11 +543,17 @@ try {
     await page.waitForSelector("[data-bmq-so-email-form]");
     assert.equal(await page.locator("[data-bmq-so-suppliers]").isVisible(), wide, `list stays only when wide @${vp.width}`);
     const card = await page.locator("[data-bmq-so-card]").innerText();
-    for (const text of ["Đơn mới cho Mega Market", "chưa có email", "Tồn Tân Tạo", "(ước lượng)", "chưa có số tồn", "chưa có lượng dùng để đề xuất", "Nhà cung cấp chưa có email đặt hàng", "kho thường đặt món này ở Cholimex, không tự đề xuất", "không tự đề xuất vì giá lệch xa", "lệch quá 3 lần so với Cholimex (500 đ/"]) {
+    for (const text of ["Đơn mới cho Mega Market", "chưa có email", "tồn Tân Tạo ~", "chưa kiểm kê", "Nhà cung cấp chưa có email đặt hàng"]) {
       assert.ok(card.includes(text), `Mega card shows "${text}" @${vp.width}: ${card}`);
     }
+    // Warnings sit behind a small icon; opening them shows the reason.
+    for (const button of await page.locator("[data-bmq-so-warn]").all()) await button.click();
+    const warned = await page.locator("[data-bmq-so-card]").innerText();
+    for (const text of ["Kho thường đặt món này ở Cholimex, nên không tự đề xuất", "Giá lệch quá 3 lần so với Cholimex (500 đ/"]) {
+      assert.ok(warned.includes(text), `Mega warning "${text}" @${vp.width}: ${warned}`);
+    }
     assert.ok(await page.locator("[data-bmq-so-make]").isDisabled(), "no email: Lập phiếu disabled");
-    assert.match(await page.locator("[data-bmq-so-line='5a1e0000-0000-4000-8000-000000000013']").innerText(), /Tồn Q7: chưa kiểm kê · chưa có lượng dùng để đề xuất/);
+    assert.match(await page.locator("[data-bmq-so-line='5a1e0000-0000-4000-8000-000000000013']").innerText(), /tồn Q7 chưa kiểm kê/);
     await noSpill(page, "mega", vp);
     await shot(page, `mega-${vp.width}.png`);
     await page.locator("[data-bmq-so-email-input]").fill("Order@Mega.vn ");
@@ -639,7 +645,7 @@ try {
     await first.press("Enter");
     const focusedIndex = await page.evaluate(() => [...document.querySelectorAll("input[data-bmq-so-qty]")].indexOf(document.activeElement));
     assert.equal(focusedIndex, 1, "Enter focuses the next box");
-    // Quick fill: a cleared line with a proposal offers "Dùng số này".
+    // Quick fill: a cleared line with a proposal offers "Đặt N".
     const bao = "5a1e0000-0000-4000-8000-000000000100";
     await page.locator(`[data-bmq-so-qty='${bao}']`).fill("");
     await page.locator(`[data-bmq-so-use='${bao}']`).click();
