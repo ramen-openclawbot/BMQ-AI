@@ -681,6 +681,36 @@ try {
     });
     assert.equal(inView.pos, "sticky");
     assert.ok(inView.bottom <= inView.height + 1, `sticky bar visible without scrolling ${JSON.stringify(inView)}`);
+    // Measured, not eyeballed: a long quantity fits its box, the action is balanced in the bar
+    // and never sits under the BMQ Agent launcher.
+    const boxId = await page.locator("[data-bmq-so-qty]").first().getAttribute("data-bmq-so-qty");
+    await page.locator(`[data-bmq-so-qty='${boxId}']`).fill("12500");
+    await page.evaluate(() => { const main = document.querySelector(".d3-main"); if (main) main.scrollTop = 0; window.scrollTo(0, 0); });
+    const fit = await page.evaluate((id) => {
+      const box = document.querySelector(`[data-bmq-so-qty='${id}']`);
+      const bar = document.querySelector("[data-bmq-so-submit]").getBoundingClientRect();
+      const total = document.querySelector("[data-bmq-so-submit] .d3-so-total").getBoundingClientRect();
+      const btn = document.querySelector("[data-bmq-so-make]").getBoundingClientRect();
+      const fab = document.querySelector(".ac-launcher")?.getBoundingClientRect();
+      const hit = fab && !(fab.right <= btn.left || fab.left >= btn.right || fab.bottom <= btn.top || fab.top >= btn.bottom);
+      return { clip: box.scrollWidth - box.clientWidth, leftPad: Math.round(total.left - bar.left), rightPad: Math.round(bar.right - btn.right), hit: Boolean(hit), btnW: Math.round(btn.width) };
+    }, boxId);
+    assert.ok(fit.clip <= 0, `quantity 12500 clipped ${JSON.stringify(fit)}`);
+    assert.ok(!fit.hit, `button under the launcher ${JSON.stringify(fit)}`);
+    if (vp.width < 641) assert.ok(Math.abs(fit.leftPad - fit.rightPad) <= 1 && fit.btnW >= (vp.width < 360 ? 120 : 150), `bar balanced ${JSON.stringify(fit)}`);
+    console.log(`bar @${vp.width}`, JSON.stringify(fit));
+    // Every scroll position, not only the top: the launcher must never cover the action.
+    for (const frac of [0.25, 0.5, 0.75, 1]) {
+      const hitAt = await page.evaluate((f) => {
+        const main = document.querySelector(".d3-main");
+        const el = main && main.scrollHeight > main.clientHeight ? main : document.scrollingElement;
+        el.scrollTop = (el.scrollHeight - el.clientHeight) * f;
+        const btn = document.querySelector("[data-bmq-so-make]").getBoundingClientRect();
+        const fab = document.querySelector(".ac-launcher")?.getBoundingClientRect();
+        return Boolean(fab && !(fab.right <= btn.left || fab.left >= btn.right || fab.bottom <= btn.top || fab.top >= btn.bottom));
+      }, frac);
+      assert.ok(!hitAt, `button under the launcher at scroll ${frac} @${vp.width}`);
+    }
     await noSpill(page, "long catalog", vp);
     await page.screenshot({ path: `${EVIDENCE}/long-catalog-${vp.width}.png` });
     assert.deepEqual(errors, []);

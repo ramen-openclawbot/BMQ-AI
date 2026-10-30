@@ -443,6 +443,7 @@ function OrderLine({ item, supplierId, qtyText, onQty, editing, onRemove, removi
         <div className="d3-so-stepper">
           <button type="button" onClick={() => bump(-1)} disabled={bad ? false : qty <= 0} aria-label={`Bớt ${formatQuantity(step)} ${item.poUnit} ${item.productName}`}><Minus aria-hidden="true" /></button>
           <Input inputMode="decimal" value={qtyText} onChange={(event) => onQty(event.target.value)} placeholder={item.poUnit}
+            style={{ "--qty-ch": Math.max(3, qtyText.length) } as React.CSSProperties}
             aria-label={`Số lượng ${item.productName} (${item.poUnit})`} aria-invalid={bad || undefined} data-bmq-so-qty={item.item.id} />
           <button type="button" onClick={() => bump(1)} aria-label={`Thêm ${formatQuantity(step)} ${item.poUnit} ${item.productName}`}><Plus aria-hidden="true" /></button>
           <span className="d3-so-unit">{item.poUnit}</span>
@@ -837,7 +838,7 @@ function SupplierPanel({ supplierId, onToast, onBack }: { supplierId: string; on
                     <div><dt>Thuế GTGT</dt><dd data-bmq-so-vat>{formatVnd(vat)}</dd></div>
                   </dl>
                 ) : null}
-                <span>{lines.length ? `${lines.length} món · tổng thanh toán` : "Chưa chọn món"}</span>
+                <span>{lines.length ? <>{lines.length} món<span className="d3-so-make-long"> · tổng thanh toán</span></> : "Chưa chọn món"}</span>
                 <b data-bmq-so-total>{formatVnd(total)}</b>
               </div>
               <Button onClick={makePreview} disabled={!lines.length || invalid || shipBad || blockers.length > 0 || preview.isPending} data-bmq-so-make>

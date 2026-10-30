@@ -81,7 +81,11 @@ html.bmq-d3 .d3-so-stepper button:hover:not(:disabled) { background: #deded9; }
 html.bmq-d3 .d3-so-stepper button:disabled { opacity: .4; cursor: default; }
 .d3-so-stepper button:focus-visible { outline: 2px solid var(--d3-ink); outline-offset: 1px; }
 .d3-so-stepper button svg { width: 15px; height: 15px; }
-.d3-so-stepper input { width: 64px; height: 32px; padding: 0 8px; text-align: right; font-variant-numeric: tabular-nums; }
+/* The box grows with what is typed (--qty-ch = characters): "8000" or "12.500" never clips. */
+.d3-so-stepper input {
+  width: calc(var(--qty-ch, 3) * 1ch + 20px); min-width: 60px; max-width: 112px; height: 32px; padding: 0 8px;
+  font-size: 15px; text-align: right; font-variant-numeric: tabular-nums;
+}
 .d3-so-stepper input[aria-invalid="true"] { border-color: var(--kho-bad); }
 .d3-so-unit { min-width: 26px; font-size: 12.5px; color: var(--d3-dim); }
 /* Wide screens name the unit beside the box; phones put it inside as the placeholder. */
@@ -198,6 +202,7 @@ html.bmq-d3 .d3-so-ship-saved button.is-on { border-color: var(--d3-ink); color:
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: space-between;
   gap: 12px 28px;
   margin: 0 -20px -20px;
   padding: 12px 20px;
@@ -308,7 +313,9 @@ html.bmq-d3 .d3-so-use:hover { background: #deded9; }
 @media (max-width: 640px) {
   .d3-so-line { padding: 9px 10px 9px 12px; column-gap: 8px; }
   /* The sticky bar leaves the bottom-right corner to the BMQ Agent launcher. */
-  .d3-so-submit { margin: 0 -16px -16px; padding: 10px 84px 10px 16px; border-radius: 0 0 20px 20px; gap: 8px 14px; flex-wrap: wrap; }
+  /* Phones: the sticky bar ends above the launcher (measured in QA), so it spans the card edge to edge
+     with the same 16px on both sides; the action takes all the width the total leaves. */
+  .d3-so-submit { margin: 0 -16px -16px; padding: 10px 16px; border-radius: 0 0 20px 20px; gap: 8px 16px; flex-wrap: wrap; }
   .d3-so-submit .d3-so-sum { display: none; }
   .d3-so-total b { font-size: 18px; }
   .d3-so-submit { display: grid; grid-template-columns: auto minmax(0, 1fr); }
@@ -317,7 +324,7 @@ html.bmq-d3 .d3-so-use:hover { background: #deded9; }
   .d3-so-make-long { display: none; }
   /* The unit moves into the empty box as its placeholder. */
   html.bmq-d3 .d3-so-stepper button { width: 30px; height: 30px; }
-  .d3-so-stepper input { width: 54px; height: 30px; padding: 0 6px; }
+  .d3-so-stepper input { min-width: 52px; height: 30px; padding: 0 6px; }
   .d3-so-unit { display: none; }
   .d3-so-facts { grid-template-columns: minmax(0, 1fr); }
   .d3-so-actions > button { flex: 1 1 auto; }
