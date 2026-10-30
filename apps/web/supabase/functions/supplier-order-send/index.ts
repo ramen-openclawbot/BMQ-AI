@@ -16,7 +16,9 @@ import {
   type SupplierOrderEmailLine,
 } from "../_shared/supplier-order-email.ts";
 import {
+  parseDeliveryChoice,
   resolveDeliveries,
+  resolveDeliveriesForChoice,
   type DeliveryContact,
   type DeliveryProfiles,
 } from "./delivery.ts";
@@ -251,6 +253,19 @@ function readCatalogLocations(catalog: Record<string, unknown>): Map<string, str
   return locations;
 }
 
+function readCatalogItemNames(catalog: Record<string, unknown>): Map<string, string> {
+  const names = new Map<string, string>();
+  for (const raw of Array.isArray(catalog.items) ? catalog.items : []) {
+    const row = (raw ?? {}) as Record<string, unknown>;
+    const item = (row.item ?? {}) as Record<string, unknown>;
+    const id = String(item.id ?? "").trim();
+    if (!id) continue;
+    const name = String(row.product_name ?? "").trim() || String(item.name ?? "").trim();
+    names.set(id, name);
+  }
+  return names;
+}
+
 function deliveryFallback(delivery: Record<string, unknown>): DeliveryContact {
   return {
     address: String(delivery.address ?? ""),
@@ -328,6 +343,10 @@ Deno.serve(async (req) => {
       if (!UUID_RE.test(requestId)) {
         return respond({ code: "invalid_request_id" }, 400, "invalid_request_id");
       }
+      const deliveryChoice = parseDeliveryChoice(body.delivery);
+      if (deliveryChoice === null) {
+        return respond({ code: "invalid_delivery" }, 400, "invalid_delivery");
+      }
       if (mode !== "preview" && mode !== "send") {
         return respond({ code: "invalid_mode" }, 400, "invalid_mode");
       }
@@ -368,6 +387,7 @@ Deno.serve(async (req) => {
         : null;
       const prepayRecent = Boolean(prepayRow?.recent_submission);
       const catalogLocations = readCatalogLocations(catalog);
+      const catalogItemNames = readCatalogItemNames(catalog);
       const deliveryProfiles = await readDeliveryProfiles(admin);
       const fallbackDelivery = deliveryFallback(delivery);
 
@@ -403,14 +423,18 @@ Deno.serve(async (req) => {
         const subtotal = numberValue(quote.subtotal) ?? 0;
         const vatAmount = numberValue(quote.vat_amount) ?? 0;
         const total = numberValue(quote.total) ?? 0;
-        const deliveries = resolveDeliveries(
+        const deliveries = resolveDeliveriesForChoice(
           orderLines.map((line) => ({
             name: line.product_name,
             location: locationOf(catalogLocations, line.item_id),
           })),
           deliveryProfiles,
           fallbackDelivery,
+          deliveryChoice,
         );
+        if (deliveries === "unavailable") {
+          return respond({ code: "delivery_unavailable" }, 400, "delivery_unavailable");
+        }
         const email = buildSupplierOrderEmailLines({
           poNumber: "",
           supplierName,
@@ -463,6 +487,21 @@ Deno.serve(async (req) => {
           200,
           "preview",
         );
+      }
+
+      // Validate an explicit warehouse/custom choice before the create RPC so a
+      // missing Tân Tạo profile never leaves a draft PO behind.
+      const preflightDeliveries = resolveDeliveriesForChoice(
+        requestedLines.map((line) => ({
+          name: catalogItemNames.get(line.item_id) ?? "",
+          location: locationOf(catalogLocations, line.item_id),
+        })),
+        deliveryProfiles,
+        fallbackDelivery,
+        deliveryChoice,
+      );
+      if (preflightDeliveries === "unavailable") {
+        return respond({ code: "delivery_unavailable" }, 400, "delivery_unavailable");
       }
 
       if (!toEmail) {
@@ -548,11 +587,16 @@ Deno.serve(async (req) => {
           location: locationOf(catalogLocations, String(line.item_id ?? "")),
         });
       }
-      const deliveries = resolveDeliveries(
+      const resolvedDeliveries = resolveDeliveriesForChoice(
         deliveryLines,
         deliveryProfiles,
         fallbackDelivery,
+        deliveryChoice,
       );
+      if (resolvedDeliveries === "unavailable") {
+        return respond({ code: "delivery_unavailable" }, 400, "delivery_unavailable");
+      }
+      const deliveries = resolvedDeliveries;
       const createdSubtotal = numberValue(created.subtotal) ?? 0;
       const createdVatAmount = numberValue(created.vat_amount) ?? 0;
       const createdTotal = numberValue(created.total) ?? 0;

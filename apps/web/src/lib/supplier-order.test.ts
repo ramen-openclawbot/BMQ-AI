@@ -17,6 +17,7 @@ import {
   parseSupplierOrderPreview,
   parseSupplierOrderSuppliers,
   parseSupplierOrderUploadSummary,
+  serializeDeliveryChoice,
   sortSupplierOrderSuppliersByUrgency,
   type SupplierOrderSupplierListEntry,
 } from "./supplier-order.ts";
@@ -954,4 +955,27 @@ test("keeps the old Phúc Thịnh / TV Food supplier payload shape parsing", () 
   assert.equal(suppliers[1].itemCount, 1);
   assert.equal(suppliers[1].lastOrder, null);
   assert.equal(suppliers[1].hasEmail, false);
+});
+
+test("serializes the delivery choice for preview and send", () => {
+  assert.equal(serializeDeliveryChoice(), undefined);
+  assert.equal(serializeDeliveryChoice({ target: "auto" }), undefined);
+  assert.deepEqual(serializeDeliveryChoice({ target: "q7" }), { target: "q7" });
+  assert.deepEqual(serializeDeliveryChoice({ target: "tan_tao" }), {
+    target: "tan_tao",
+  });
+  assert.deepEqual(
+    serializeDeliveryChoice({
+      target: "custom",
+      address: "45 Nguyễn Huệ, Quận 1",
+      contactName: "Chị Lan",
+      contactPhone: "0987 654 321",
+    }),
+    {
+      target: "custom",
+      address: "45 Nguyễn Huệ, Quận 1",
+      contact_name: "Chị Lan",
+      contact_phone: "0987 654 321",
+    },
+  );
 });

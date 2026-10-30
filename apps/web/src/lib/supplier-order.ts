@@ -11,6 +11,8 @@ export const SUPPLIER_ORDER_BLOCKER_LABELS = {
   no_price: "Chưa có giá mua gần nhất",
   no_po_unit: "Chưa cài đơn vị đặt hàng",
   mailbox_not_connected: "Chưa kết nối hộp thư order@bmq.vn",
+  invalid_delivery: "Địa chỉ giao chưa đúng. Kiểm tra lại địa chỉ, người nhận, số điện thoại.",
+  delivery_unavailable: "Chưa cài địa chỉ Kho Tân Tạo. Chọn kho khác hoặc nhập địa chỉ.",
 } as const;
 
 export type SupplierOrderBlocker = keyof typeof SUPPLIER_ORDER_BLOCKER_LABELS;
@@ -222,13 +224,40 @@ export type SupplierOrderPreview = {
   prepayReason: string | null;
 };
 
+export type SupplierOrderDeliveryChoice =
+  | { target: "auto" }
+  | { target: "q7" }
+  | { target: "tan_tao" }
+  | {
+    target: "custom";
+    address: string;
+    contactName: string;
+    contactPhone: string;
+  };
+
 export type SendSupplierOrderLinesInput = {
   supplierId: string;
   lines: { itemId: string; quantity: number }[];
   note?: string;
   requestId?: string;
   prepay?: boolean;
+  delivery?: SupplierOrderDeliveryChoice;
 };
+
+export function serializeDeliveryChoice(
+  choice?: SupplierOrderDeliveryChoice,
+): Record<string, string> | undefined {
+  if (!choice || choice.target === "auto") return undefined;
+  if (choice.target === "custom") {
+    return {
+      target: "custom",
+      address: choice.address,
+      contact_name: choice.contactName,
+      contact_phone: choice.contactPhone,
+    };
+  }
+  return { target: choice.target };
+}
 
 export type SendSupplierOrderLinesResult = {
   status: "sent";
@@ -1104,6 +1133,7 @@ export async function previewSupplierOrder(
       request_id: requestId,
       mode: "preview",
       prepay: input.prepay === true,
+      delivery: serializeDeliveryChoice(input.delivery),
     },
   });
 
@@ -1142,6 +1172,7 @@ export async function sendSupplierOrderLines(
       request_id: requestId,
       mode: "send",
       prepay: input.prepay === true,
+      delivery: serializeDeliveryChoice(input.delivery),
     },
   });
 

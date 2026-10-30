@@ -314,13 +314,32 @@ try {
     await page.waitForFunction(() => document.querySelector("[data-bmq-so-delivery]")?.textContent?.includes("Tú Trinh"));
     let texts = await page.locator("[data-bmq-so-delivery]").allInnerTexts();
     assert.equal(texts.length, 1, "Tân Tạo only: one row");
-    assert.ok(texts[0].startsWith("Giao tới 14/1/15 Bia Truyền Thống") && texts[0].includes("Võ Thị Tú Trinh 0908 113 576"), `Tân Tạo address ${texts[0]}`);
+    assert.ok(texts[0].startsWith("14/1/15 Bia Truyền Thống") && texts[0].includes("Võ Thị Tú Trinh 0908 113 576"), `Tân Tạo address ${texts[0]}`);
     await page.locator(`[data-bmq-so-qty='${DECAL}']`).fill("2");
     await page.waitForFunction(() => document.querySelectorAll("[data-bmq-so-delivery]").length === 2);
     texts = await page.locator("[data-bmq-so-delivery]").allInnerTexts();
-    assert.ok(texts[0].startsWith("Kho Q7 (1 món): giao tới 24 Đường số 36") && texts[1].startsWith("Kho Tân Tạo (1 món): giao tới 14/1/15"), `two rows ${JSON.stringify(texts)}`);
+    assert.ok(texts[0].startsWith("Kho Q7 (1 món): 24 Đường số 36") && texts[1].startsWith("Kho Tân Tạo (1 món): 14/1/15"), `two rows ${JSON.stringify(texts)}`);
+    assert.equal(await page.locator("[data-bmq-so-ship-target='auto']").getAttribute("aria-checked"), "true", "mixed lines: split by warehouse");
+    // Explicit Kho Q7: one address for every line.
+    await page.locator("[data-bmq-so-ship-target='q7']").click();
+    texts = await page.locator("[data-bmq-so-delivery]").allInnerTexts();
+    assert.ok(texts.length === 1 && texts[0].startsWith("24 Đường số 36"), `Q7 chosen ${JSON.stringify(texts)}`);
+    // Another address: Lập phiếu waits for an address, a recipient and a phone.
+    await page.locator("[data-bmq-so-ship-target='custom']").click();
+    await page.locator("[data-bmq-so-ship-address]").fill("45 Nguyễn Huệ, Quận 1");
+    assert.ok(await page.locator("[data-bmq-so-make]").isDisabled(), "custom without recipient: disabled");
+    await page.locator("[data-bmq-so-ship-name]").fill("Chị Lan");
+    await page.locator("[data-bmq-so-ship-phone]").fill("0987 654 321");
     await noSpill(page, "delivery two warehouses", vp);
     await shot(page, `delivery-two-warehouses-${vp.width}.png`);
+    await page.locator("[data-bmq-so-email-input]").fill("order@mega.vn");
+    await page.locator("[data-bmq-so-email-save]").click();
+    await page.waitForSelector("[data-bmq-so-email-form]", { state: "detached" });
+    await page.locator("[data-bmq-so-make]").click();
+    await page.waitForSelector("[data-bmq-so-preview]");
+    const shipCall = (await calls(page)).filter((c) => c.startsWith("invoke:supplier-order-send:")).pop();
+    assert.ok(shipCall.includes('"delivery":{"target":"custom","address":"45 Nguyễn Huệ, Quận 1","contact_name":"Chị Lan","contact_phone":"0987 654 321"}'), `custom delivery body ${shipCall}`);
+    assert.match(await page.locator("[data-bmq-so-preview-ship]").innerText(), /45 Nguyễn Huệ, Quận 1 · Chị Lan 0987 654 321/);
     assert.deepEqual(errors, []);
     await context.close();
     pass(`Giao tới theo kho (Tân Tạo / hai kho) @${vp.width}`);
@@ -340,7 +359,7 @@ try {
       await page.waitForFunction(() => [...document.querySelectorAll("[data-bmq-so-delivery]")].some((p) => p.innerText.includes("Tân Tạo") || p.innerText.includes("Q7")));
       const texts = await page.locator("[data-bmq-so-delivery]").allInnerTexts();
       console.log("delivery rows @" + vp.width, JSON.stringify(texts));
-      assert.ok(texts.every((t) => /giao tới/i.test(t)), "delivery text");
+      assert.ok(/^Giao tới/.test(await page.locator("[data-bmq-so-ship]").innerText()) && texts.every((t) => t.trim().length > 10), "delivery text");
       if (texts.length > 1) {
         assert.ok(texts.some((t) => t.startsWith("Kho Q7") && t.includes("Huỳnh Kim Ngân")), "Q7 row");
         assert.ok(texts.some((t) => t.startsWith("Kho Tân Tạo") && t.includes("Võ Thị Tú Trinh")), "Tân Tạo row");

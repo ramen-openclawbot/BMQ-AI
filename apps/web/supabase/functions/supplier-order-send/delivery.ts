@@ -4,6 +4,17 @@ export type DeliveryContact = {
   contactPhone: string;
 };
 
+export type DeliveryChoice =
+  | { target: "auto" }
+  | { target: "q7" }
+  | { target: "tan_tao" }
+  | {
+    target: "custom";
+    address: string;
+    contactName: string;
+    contactPhone: string;
+  };
+
 export type DeliveryProfiles = {
   q7: DeliveryContact;
   tanTao: DeliveryContact | null;
@@ -21,6 +32,7 @@ export type ResolvedDelivery = DeliveryContact & {
 
 const Q7_LABEL = "Kho Q7";
 const TAN_TAO_LABEL = "Kho Tân Tạo";
+const CUSTOM_LABEL = "Địa chỉ giao";
 
 function contactOrFallback(
   profile: DeliveryContact,
@@ -31,6 +43,39 @@ function contactOrFallback(
     contactName: fallback.contactName || profile.contactName,
     contactPhone: fallback.contactPhone || profile.contactPhone,
   };
+}
+
+function cleanDeliveryText(value: unknown): string {
+  if (typeof value !== "string") return "";
+  return value
+    .replace(/\r\n?/g, "\n")
+    .replace(/\n/g, ", ")
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function parseDeliveryChoice(raw: unknown): DeliveryChoice | null {
+  if (raw === undefined || raw === null) return { target: "auto" };
+  if (typeof raw !== "object" || Array.isArray(raw)) return null;
+
+  const record = raw as Record<string, unknown>;
+  if (record.target === "auto") return { target: "auto" };
+  if (record.target === "q7") return { target: "q7" };
+  if (record.target === "tan_tao") return { target: "tan_tao" };
+  if (record.target !== "custom") return null;
+
+  const address = cleanDeliveryText(record.address);
+  const contactName = cleanDeliveryText(record.contact_name);
+  const contactPhone = cleanDeliveryText(record.contact_phone);
+  if (address.length < 5 || address.length > 300) return null;
+  // The supplier's driver needs someone to call: a name and a phone with 8+ digits.
+  if (!contactName || contactName.length > 100) return null;
+  if (contactPhone.length > 40) return null;
+  if (!/^[0-9 +.()-]*$/.test(contactPhone)) return null;
+  if (contactPhone.replace(/\D/g, "").length < 8) return null;
+
+  return { target: "custom", address, contactName, contactPhone };
 }
 
 /**
@@ -75,4 +120,45 @@ export function resolveDeliveries(
     });
   }
   return deliveries;
+}
+
+export function resolveDeliveriesForChoice(
+  lines: DeliveryLine[],
+  profiles: DeliveryProfiles,
+  fallback: DeliveryContact,
+  choice: DeliveryChoice,
+): ResolvedDelivery[] | "unavailable" {
+  if (choice.target === "auto") return resolveDeliveries(lines, profiles, fallback);
+
+  const source = Array.isArray(lines) ? lines : [];
+  if (source.length === 0) return [];
+  const items = source.map((line) => line.name);
+
+  if (choice.target === "q7") {
+    return [{
+      label: Q7_LABEL,
+      ...contactOrFallback(profiles.q7, fallback),
+      items,
+    }];
+  }
+
+  if (choice.target === "tan_tao") {
+    const tanTao = profiles.tanTao;
+    if (!tanTao || !String(tanTao.address ?? "").trim()) return "unavailable";
+    return [{
+      label: TAN_TAO_LABEL,
+      address: tanTao.address,
+      contactName: tanTao.contactName,
+      contactPhone: tanTao.contactPhone,
+      items,
+    }];
+  }
+
+  return [{
+    label: CUSTOM_LABEL,
+    address: choice.address,
+    contactName: choice.contactName,
+    contactPhone: choice.contactPhone,
+    items,
+  }];
 }

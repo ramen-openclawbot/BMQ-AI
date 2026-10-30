@@ -60,6 +60,8 @@ const ERROR_TEXT: Record<string, string> = {
   gmail_reconnect_needed: "Hộp thư order@bmq.vn bị mất kết nối Google. Báo quản trị vào Quản trị hệ thống → Email đặt hàng: Ngắt rồi Kết nối lại bằng order@bmq.vn, sau đó gửi lại. Chưa có đơn nào được tạo.",
   state_update_failed: "Email có thể đã gửi nhưng chưa lưu được trạng thái. Kiểm tra hộp thư order@bmq.vn trước khi gửi lại.",
   rate_limited: "Hôm nay đã gửi quá nhiều đơn. Thử lại sau.",
+  invalid_delivery: "Địa chỉ giao chưa đúng. Kiểm tra lại địa chỉ, người nhận, số điện thoại.",
+  delivery_unavailable: "Chưa cài địa chỉ Kho Tân Tạo. Chọn kho khác hoặc nhập địa chỉ.",
 };
 
 const STATUS_LABEL: Record<string, string> = { sent: "Đã gửi", failed: "Gửi lỗi", preparing: "Đang gửi" };
@@ -128,6 +130,98 @@ function useTanTaoDelivery() {
 }
 
 type DeliveryRow = DeliveryContact & { label: string; count: number };
+
+type DeliveryTarget = "auto" | "q7" | "tan_tao" | "custom";
+const EMPTY_CUSTOM: DeliveryContact = { address: "", contactName: "", contactPhone: "" };
+const SAVED_ADDRESSES_KEY = "bmq-so-delivery-addresses";
+
+/** Same rule as the server: an address, someone to hand the goods to, a phone with 8+ digits. */
+const customDeliveryOk = (c: DeliveryContact) =>
+  c.address.trim().length >= 5 && c.address.trim().length <= 300
+  && c.contactName.trim().length > 0 && c.contactName.trim().length <= 100
+  && /^[0-9 +.()-]*$/.test(c.contactPhone.trim()) && c.contactPhone.replace(/\D/g, "").length >= 8;
+
+/** Addresses typed on this device, newest first: a new address is picked again with one tap. */
+function readSavedAddresses(): DeliveryContact[] {
+  try {
+    const rows = JSON.parse(localStorage.getItem(SAVED_ADDRESSES_KEY) || "[]");
+    return Array.isArray(rows) ? rows.filter((row) => row && customDeliveryOk({ ...EMPTY_CUSTOM, ...row })).slice(0, 5) : [];
+  } catch {
+    return [];
+  }
+}
+function rememberAddress(contact: DeliveryContact) {
+  const key = contact.address.trim().toLowerCase();
+  const rows = [contact, ...readSavedAddresses().filter((row) => row.address.trim().toLowerCase() !== key)].slice(0, 5);
+  try { localStorage.setItem(SAVED_ADDRESSES_KEY, JSON.stringify(rows)); } catch { /* private mode: nothing to remember */ }
+}
+
+function DeliveryPicker({ rows, target, onTarget, custom, onCustom, q7, tanTao }: {
+  rows: DeliveryRow[];
+  target: DeliveryTarget;
+  onTarget: (target: DeliveryTarget) => void;
+  custom: DeliveryContact;
+  onCustom: (contact: DeliveryContact) => void;
+  q7: DeliveryContact;
+  tanTao: DeliveryContact | null;
+}) {
+  const [saved] = useState(readSavedAddresses);
+  const mixed = rows.length > 1;
+  // "Theo kho của món" only exists as a choice when the lines really split; otherwise it is that warehouse.
+  const shownTarget: DeliveryTarget = target !== "auto" || mixed ? target : rows[0]?.label === "Kho Tân Tạo" ? "tan_tao" : "q7";
+  const options: { id: DeliveryTarget; label: string; off?: boolean }[] = [
+    ...(mixed ? [{ id: "auto" as const, label: "Chia theo kho" }] : []),
+    { id: "q7", label: "Q7" },
+    { id: "tan_tao", label: "Tân Tạo", off: !tanTao },
+    { id: "custom", label: "Địa chỉ khác" },
+  ];
+  const set = (key: keyof DeliveryContact) => (event: React.ChangeEvent<HTMLInputElement>) => onCustom({ ...custom, [key]: event.target.value });
+  const phoneBad = custom.contactPhone.trim() !== "" && !(/^[0-9 +.()-]*$/.test(custom.contactPhone.trim()) && custom.contactPhone.replace(/\D/g, "").length >= 8);
+
+  return (
+    <fieldset className="d3-so-ship" data-bmq-so-ship>
+      <legend>Giao tới</legend>
+      <div className="d3-so-ship-tabs" role="radiogroup" aria-label="Địa chỉ giao hàng">
+        {options.map((option) => (
+          <button key={option.id} type="button" role="radio" aria-checked={shownTarget === option.id} disabled={option.off}
+            className={cn(shownTarget === option.id && "is-on")} onClick={() => onTarget(option.id)} data-bmq-so-ship-target={option.id}
+            title={option.off ? "Chưa cài địa chỉ Kho Tân Tạo" : undefined}>
+            {option.label}
+          </button>
+        ))}
+      </div>
+      {shownTarget === "custom" ? (
+        <div className="d3-so-ship-custom" data-bmq-so-ship-custom>
+          {saved.length ? (
+            <div className="d3-so-ship-saved" aria-label="Địa chỉ đã dùng">
+              {saved.map((row) => (
+                <button key={row.address} type="button" className={cn(row.address === custom.address && "is-on")} onClick={() => onCustom(row)} data-bmq-so-ship-saved>
+                  {row.address}
+                </button>
+              ))}
+            </div>
+          ) : null}
+          <Input value={custom.address} onChange={set("address")} maxLength={300} placeholder="Địa chỉ giao hàng"
+            aria-label="Địa chỉ giao hàng" data-bmq-so-ship-address />
+          <div className="d3-so-ship-pair">
+            <Input value={custom.contactName} onChange={set("contactName")} maxLength={100} placeholder="Người nhận"
+              aria-label="Người nhận" data-bmq-so-ship-name />
+            <Input value={custom.contactPhone} onChange={set("contactPhone")} maxLength={40} inputMode="tel" placeholder="Số điện thoại"
+              aria-label="Số điện thoại người nhận" aria-invalid={phoneBad || undefined} data-bmq-so-ship-phone />
+          </div>
+        </div>
+      ) : shownTarget === "auto" ? (
+        rows.map((row) => (
+          <p key={row.label} className="d3-so-delivery" data-bmq-so-delivery>
+            {row.label} ({row.count} món): {contactText(row)}
+          </p>
+        ))
+      ) : (
+        <p className="d3-so-delivery" data-bmq-so-delivery>{contactText(shownTarget === "tan_tao" && tanTao ? tanTao : q7)}</p>
+      )}
+    </fieldset>
+  );
+}
 
 /** Same split as the order email: Tân Tạo items go to Tân Tạo, everything else to Q7. */
 function deliveryRows(items: SupplierOrderCatalogItem[], q7: DeliveryContact, tanTao: DeliveryContact | null): DeliveryRow[] {
@@ -525,6 +619,8 @@ function SupplierPanel({ supplierId, onToast, onBack }: { supplierId: string; on
   const [seeded, setSeeded] = useState(false);
   const [note, setNote] = useState("");
   const [prepay, setPrepay] = useState(true);
+  const [shipTarget, setShipTarget] = useState<DeliveryTarget>("auto");
+  const [shipCustom, setShipCustom] = useState<DeliveryContact>(EMPTY_CUSTOM);
   const [step, setStep] = useState<Step>("form");
   const [editing, setEditing] = useState(false);
   const [requestId, setRequestId] = useState(createSupplierOrderRequestId);
@@ -581,10 +677,14 @@ function SupplierPanel({ supplierId, onToast, onBack }: { supplierId: string; on
     note: note.trim(),
     requestId,
     prepay: usePrepay,
+    delivery: shipTarget === "custom"
+      ? { target: "custom" as const, address: shipCustom.address.trim(), contactName: shipCustom.contactName.trim(), contactPhone: shipCustom.contactPhone.trim() }
+      : { target: shipTarget },
   });
+  const shipBad = shipTarget === "custom" && !customDeliveryOk(shipCustom);
 
   const makePreview = () => {
-    if (!lines.length || invalid || blockers.length) return;
+    if (!lines.length || invalid || shipBad || blockers.length) return;
     send.reset();
     preview.mutate(body(), {
       onSuccess: (value) => { setShown(value); setStep("preview"); scrollTop(); },
@@ -600,6 +700,7 @@ function SupplierPanel({ supplierId, onToast, onBack }: { supplierId: string; on
   const doSend = () => {
     send.mutate(body(), {
       onSuccess: (value) => {
+        if (shipTarget === "custom") rememberAddress(shipCustom);
         setResult(value);
         setStep("sent");
         setQty({});
@@ -706,15 +807,12 @@ function SupplierPanel({ supplierId, onToast, onBack }: { supplierId: string; on
 
             <div className="d3-so-foot">
               {(() => {
-                // Chosen lines decide the address; with nothing chosen yet, the supplier's catalog does.
+                // Chosen lines decide the automatic split; with nothing chosen yet, the supplier's catalog does.
                 const chosen = lines.map(({ item }) => item);
-                const rows = deliveryRows(chosen.length ? chosen : data.items, data.delivery, tanTaoDelivery);
-                return rows.length > 1 ? rows.map((row) => (
-                  <p key={row.label} className="d3-so-delivery" data-bmq-so-delivery>
-                    {row.label} ({row.count} món): giao tới {contactText(row)}
-                  </p>
-                )) : (
-                  <p className="d3-so-delivery" data-bmq-so-delivery>Giao tới {contactText(rows[0] ?? data.delivery)}</p>
+                return (
+                  <DeliveryPicker rows={deliveryRows(chosen.length ? chosen : data.items, data.delivery, tanTaoDelivery)}
+                    target={shipTarget} onTarget={setShipTarget} custom={shipCustom} onCustom={setShipCustom}
+                    q7={data.delivery} tanTao={tanTaoDelivery} />
                 );
               })()}
               <label className="d3-kho-field">
@@ -742,8 +840,8 @@ function SupplierPanel({ supplierId, onToast, onBack }: { supplierId: string; on
                 <span>{lines.length ? `${lines.length} món · tổng thanh toán` : "Chưa chọn món"}</span>
                 <b data-bmq-so-total>{formatVnd(total)}</b>
               </div>
-              <Button onClick={makePreview} disabled={!lines.length || invalid || blockers.length > 0 || preview.isPending} data-bmq-so-make>
-                {preview.isPending ? "Đang lập phiếu…" : "Lập phiếu đặt hàng"}
+              <Button onClick={makePreview} disabled={!lines.length || invalid || shipBad || blockers.length > 0 || preview.isPending} data-bmq-so-make>
+                {preview.isPending ? "Đang lập…" : <span>Lập phiếu<span className="d3-so-make-long"> đặt hàng</span></span>}
               </Button>
             </div>
           </>
@@ -757,6 +855,16 @@ function SupplierPanel({ supplierId, onToast, onBack }: { supplierId: string; on
             </div>
             <dl className="d3-so-facts">
               <div><dt>Gửi tới</dt><dd className="is-wrap">{shown.toEmail || "—"}</dd></div>
+              <div>
+                <dt>Giao hàng</dt>
+                <dd className="is-wrap" data-bmq-so-preview-ship>
+                  {shipTarget === "custom" ? contactText(shipCustom)
+                    : shipTarget === "tan_tao" && tanTaoDelivery ? `Kho Tân Tạo · ${contactText(tanTaoDelivery)}`
+                    : shipTarget === "q7" ? `Kho Q7 · ${contactText(data.delivery)}`
+                    : deliveryRows(lines.map(({ item }) => item), data.delivery, tanTaoDelivery)
+                      .map((row) => `${row.label} · ${contactText(row)}`).join(" | ")}
+                </dd>
+              </div>
               <div><dt>Tiêu đề</dt><dd className="is-wrap">{shown.subject}</dd></div>
               <div>
                 <dt>Tổng thanh toán</dt>
