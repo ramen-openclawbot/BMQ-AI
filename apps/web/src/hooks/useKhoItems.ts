@@ -88,6 +88,7 @@ export function useKhoCreateItem() {
         p_note: input.note,
         p_copy_from: input.copyFrom,
         p_request_id: input.requestId,
+        p_supplier_ids: input.supplierIds,
       });
       if (error) throw error;
       return data as unknown as KhoCreateItemResult;

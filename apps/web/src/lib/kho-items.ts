@@ -84,6 +84,8 @@ export interface KhoCreateItemInput {
   inQ7: boolean | null;
   note: string | null;
   copyFrom: string | null;
+  /** At least one: the item is linked to its suppliers (and to their traceability papers) from creation. */
+  supplierIds: string[];
   requestId: string;
 }
 
@@ -210,6 +212,8 @@ const ERROR_TEXT: Record<string, string> = {
   item_name_duplicate: "Tên món đã được dùng cho món khác.",
   invalid_class: "Chọn loại hàng: Nguyên liệu hoặc Bao bì & vật tư.",
   kho_location_required: "Chọn ít nhất một kho cho món.",
+  supplier_required: "Chọn ít nhất một nhà cung cấp cho món.",
+  supplier_not_found: "Nhà cung cấp đã chọn không còn trong danh sách. Tải lại rồi chọn lại.",
   invalid_factor: "Hệ số quy đổi phải lớn hơn 0.",
   unit_not_allowed: "Đơn vị này không được dùng trong kho.",
   invalid_quantity: "Số lượng đếm phải lớn hơn hoặc bằng 0.",

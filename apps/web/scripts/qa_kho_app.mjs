@@ -175,7 +175,20 @@ function settle(st) {
   if (st.table === "rpc:supplier_order_history") return { data: { items: JSON.parse(localStorage.getItem("qa-orders") || "[]") }, error: null };
   if (st.table === "rpc:kho_create_item") {
     const a = st.args;
-    return { data: { status: "created", item_id: "qa-created-" + a.p_request_id, item_code: "NVL-999", name: a.p_name, unit: a.p_unit, in_tan_tao: a.p_tan_tao, in_q7: a.p_q7, copied_from: a.p_copy_from }, error: null };
+    if (!a.p_supplier_ids || a.p_supplier_ids.length === 0) return { data: null, error: { message: "supplier_required", code: "22023" } };
+    return { data: { status: "created", item_id: "qa-created-" + a.p_request_id, item_code: "NVL-999", name: a.p_name, unit: a.p_unit, in_tan_tao: a.p_tan_tao, in_q7: a.p_q7, copied_from: a.p_copy_from, supplier_ids: a.p_supplier_ids }, error: null };
+  }
+  // Nhà cung cấp của món (owner 30/10): the picker list, the stored links and the replace RPC.
+  if (st.table === "suppliers") return { data: [
+    { id: "sup-tv", name: "TV Food" }, { id: "sup-minh-tuan", name: "Bao bì Minh Tuấn" }, { id: "sup-ngoc-tran", name: "Ngọc Trân- Cô Trang" },
+    { id: "sup-gas", name: "Gas Vân Anh" }, { id: "sup-vj", name: "VJ Food" }, { id: "sup-mega", name: "Mega Market" }, { id: "sup-bn", name: "Chà bông BN" },
+    { id: "sup-a", name: "Công ty TNHH Thực phẩm An Phú Gia Long" }, { id: "sup-b", name: "Nhà cung cấp B" }, { id: "sup-c", name: "Nhà cung cấp C" },
+  ], error: null };
+  if (st.table === "kitchen_item_suppliers") return { data: JSON.parse(localStorage.getItem("qa-links") || "[]").map((id) => ({ supplier_id: id })), error: null };
+  if (st.table === "rpc:kho_set_item_suppliers") {
+    if (!st.args.p_supplier_ids || st.args.p_supplier_ids.length === 0) return { data: null, error: { message: "supplier_required", code: "22023" } };
+    localStorage.setItem("qa-links", JSON.stringify(st.args.p_supplier_ids));
+    return { data: { status: "updated", item_id: st.args.p_item_id, supplier_ids: st.args.p_supplier_ids, added: st.args.p_supplier_ids, removed: [] }, error: null };
   }
   if (st.table === "rpc:kho_revenue_day") {
     // Trừ kho theo doanh thu (owner 29/10): the 28/10 snapshot answers for 28/10; other days are empty.
@@ -459,6 +472,16 @@ try {
     await page.locator("[data-bmq-kho-create-open]").click();
     await dialogInView(page, "[data-bmq-kho-create-dialog='new']", vp);
     await page.locator("[data-bmq-kho-create-name]").fill("Bơ Peerless 2.5 kg");
+    assert.equal(await page.locator("[data-bmq-kho-create-save]").isDisabled(), true, "no supplier: cannot create");
+    await page.locator("[data-bmq-kho-supplier-search]").fill("minh tuan");
+    assert.equal(await page.locator("[data-bmq-kho-supplier-pick]").count(), 1, "search is accent-insensitive");
+    await page.locator("[data-bmq-kho-supplier-pick='sup-minh-tuan']").click();
+    await page.locator("[data-bmq-kho-supplier-search]").fill("");
+    await page.locator("[data-bmq-kho-supplier-pick='sup-gas']").click();
+    assert.equal(await page.locator(".d3-kho-sup-chips li").count(), 2, "two suppliers picked");
+    await page.locator(".d3-kho-sup-chips li button").last().click();
+    assert.equal(await page.locator(".d3-kho-sup-chips li").count(), 1, "chip removes a supplier");
+    assert.equal(await page.locator("[data-bmq-kho-create-save]").isDisabled(), false, "one supplier is enough");
     await noSpill(page, "create dialog", vp);
     await page.locator("[data-bmq-kho-create-dialog]").screenshot({ path: `${EVIDENCE}/create-new-${vp.width}.png` });
     await page.locator("[data-bmq-kho-create-save]").click();
@@ -467,6 +490,7 @@ try {
     assert.equal(made.length, 1, "one create call");
     assert.equal(made[0].p_name, "Bơ Peerless 2.5 kg");
     assert.equal(made[0].p_copy_from, null, "new item is not a copy");
+    assert.deepEqual(made[0].p_supplier_ids, ["sup-minh-tuan"], "the chosen supplier is sent");
     assert.deepEqual([made[0].p_tan_tao, made[0].p_q7, made[0].p_class], [true, false, "raw_material"], "defaults follow the open kho and group");
     assert.match(made[0].p_request_id, /^[0-9a-f-]{36}$/, "request id");
     const srcId = await page.locator("[data-bmq-kho-names] li [data-bmq-kho-item]").first().getAttribute("data-bmq-kho-item");
@@ -481,6 +505,8 @@ try {
     assert.ok(await page.locator("[data-bmq-kho-create-twin]").isVisible(), "same name warns");
     assert.equal(await page.locator("[data-bmq-kho-create-save]").isDisabled(), true, "same name cannot be saved");
     await page.locator("[data-bmq-kho-create-name]").fill(`${srcName} khối nhỏ`);
+    assert.equal(await page.locator("[data-bmq-kho-create-save]").isDisabled(), true, "a copy must pick its own supplier");
+    await page.locator("[data-bmq-kho-supplier-pick='sup-tv']").click();
     await noSpill(page, "copy dialog", vp);
     await page.locator("[data-bmq-kho-create-dialog]").screenshot({ path: `${EVIDENCE}/create-copy-${vp.width}.png` });
     await page.locator("[data-bmq-kho-create-save]").click();
@@ -488,6 +514,7 @@ try {
     made = (await calls(page)).filter((c) => c.startsWith("rpc:kho_create_item:")).map((c) => JSON.parse(c.slice("rpc:kho_create_item:".length)));
     assert.equal(made.length, 2, "copy creates once");
     assert.equal(made[1].p_copy_from, srcId, "copy sends its source");
+    assert.deepEqual(made[1].p_supplier_ids, ["sup-tv"], "copy sends the supplier picked for it");
     assert.notEqual(made[1].p_request_id, made[0].p_request_id, "each form has its own request id");
     assert.deepEqual(errors, [], `create/copy page errors @${vp.width}`);
     pass(`Thêm món + Sao chép món: form, twin guard, RPC args ${vp.width}`);
@@ -541,6 +568,35 @@ try {
     assert.ok((await calls(page)).some((c) => c.startsWith("rpc:set_item_kho_locations:") && c.includes('"p_tan_tao":true') && c.includes('"p_q7":false')), "Tân Tạo-only call");
     assert.equal(await tick("tan_tao").isDisabled(), true, "last kho locked again");
     pass(`kho ticks: add Tân Tạo, then drop Q7 with a confirm ${vp.width}`);
+    await context.close();
+
+    // ---------- Nhà cung cấp của món cũ (owner 30/10) ----------
+    ({ context, page, errors } = await open({ role: "owner" }, "/warehouse/danh-muc", vp));
+    await page.waitForSelector("[data-bmq-kho-names] li");
+    const supItemId = await page.locator("[data-bmq-kho-names] li [data-bmq-kho-item]").first().getAttribute("data-bmq-kho-item");
+    await page.locator(`[data-bmq-kho-item='${supItemId}']`).click();
+    await dialogInView(page, "[data-bmq-kho-item-dialog]", vp);
+    await page.waitForSelector("[data-bmq-kho-item-suppliers]");
+    assert.ok(await page.locator("[data-bmq-kho-supplier-missing]").isVisible(), "an old item without links shows the warning");
+    assert.equal(await page.locator("[data-bmq-kho-supplier-save]").count(), 0, "nothing to save yet");
+    await page.locator("[data-bmq-kho-supplier-pick='sup-ngoc-tran']").click();
+    await page.locator("[data-bmq-kho-supplier-pick='sup-tv']").click();
+    await noSpill(page, "item suppliers", vp);
+    await shot(page, `item-suppliers-${vp.width}.png`, false);
+    await page.locator("[data-bmq-kho-supplier-save]").click();
+    await page.waitForFunction(() => window.__qaCalls.some((c) => c.startsWith("rpc:kho_set_item_suppliers:")));
+    const setCalls = (await calls(page)).filter((c) => c.startsWith("rpc:kho_set_item_suppliers:")).map((c) => JSON.parse(c.slice("rpc:kho_set_item_suppliers:".length)));
+    assert.equal(setCalls.length, 1, "one set call");
+    assert.equal(setCalls[0].p_item_id, supItemId);
+    assert.deepEqual([...setCalls[0].p_supplier_ids].sort(), ["sup-ngoc-tran", "sup-tv"], "both suppliers sent");
+    assert.match(setCalls[0].p_request_id, /^[0-9a-f-]{36}$/, "request id");
+    await page.waitForFunction(() => !document.querySelector("[data-bmq-kho-supplier-missing]"));
+    assert.equal(await page.locator(".d3-kho-sup-chips li").count(), 2, "saved suppliers stay as chips");
+    await page.locator(".d3-kho-sup-chips li button").first().click();
+    await page.locator(".d3-kho-sup-chips li button").first().click();
+    assert.equal(await page.locator("[data-bmq-kho-supplier-save]").isDisabled(), true, "an active item cannot lose its last supplier");
+    assert.deepEqual(errors, [], `supplier section page errors @${vp.width}`);
+    pass(`Nhà cung cấp của món: cảnh báo, chọn, lưu, không bỏ hết ${vp.width}`);
     await context.close();
 
     // Item dialog: group move, after scrolling deep into the list

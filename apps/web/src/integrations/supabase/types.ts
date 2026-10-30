@@ -4315,6 +4315,15 @@ export type Database = {
           p_note: string | null
           p_copy_from: string | null
           p_request_id: string
+          p_supplier_ids: string[]
+        }
+        Returns: Json
+      }
+      kho_set_item_suppliers: {
+        Args: {
+          p_item_id: string
+          p_supplier_ids: string[]
+          p_request_id: string
         }
         Returns: Json
       }

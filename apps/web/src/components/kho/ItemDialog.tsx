@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { CLASS_OF, GROUPS, KHO_LABEL, KHO_LOCATIONS, fmtAmount, groupOf, newRequestId, parseNum, type Group } from "./kho-meta";
 import type { KhoConfirmOptions } from "./KhoConfirm";
 import { KhoDialog } from "./KhoDialog";
+import { ItemSuppliersSection } from "./ItemSuppliersSection";
 import { ItemTransfer } from "./ItemTransfer";
 import { ReceiptNotes } from "./ReceiptNotes";
 import { SupplierOrderSection } from "./SupplierOrderSection";
@@ -215,6 +216,7 @@ export function ItemDialog({ item, items, canEdit, confirm, onDone, onClose, onT
         </div>
       </div>
       {setPlace.error ? <p className="d3-kho-error">{khoErrorText(setPlace.error)}</p> : null}
+      <ItemSuppliersSection item={item} canEdit={canEdit} onToast={onToast} />
       <div className="d3-kho-switchrow">
         <span><b>{active ? "Đang bật" : "Đã tắt"}</b><small>{active ? "Hiện khi đếm và khi đặt hàng" : "Không hiện khi đếm, sổ tồn giữ nguyên"}</small></span>
         <Switch checked={active} onCheckedChange={setActive} disabled={!canEdit} aria-label="Bật/tắt món" />

@@ -487,6 +487,42 @@ html.bmq-d3 .d3-kho-check:focus-visible { outline: 2px solid var(--d3-blue); out
 .d3-kho-check.is-on .d3-kho-check-box { border-color: var(--d3-ink); background: var(--d3-ink); }
 .d3-kho-check.is-on .d3-kho-check-box svg { opacity: 1; transform: none; }
 @media (max-width: 360px) { .d3-kho-checks { grid-template-columns: minmax(0, 1fr); } }
+
+/* Nhà cung cấp của món (owner 30/10): bắt buộc khi tạo món, chọn nhiều, liên kết sang truy xuất nguồn gốc. */
+.d3-kho-sup { display: grid; gap: 8px; min-width: 0; }
+.d3-kho-sup-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.d3-kho-sup-chips li {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 4px 4px 4px 10px;
+  border-radius: 999px;
+  background: var(--d3-ink);
+  color: #fff;
+  font-size: 13px;
+}
+.d3-kho-sup-chips li span { min-width: 0; overflow-wrap: anywhere; }
+.d3-kho-sup-chips button {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .18);
+  color: #fff;
+}
+.d3-kho-sup-chips button:hover:not(:disabled) { background: rgba(255, 255, 255, .32); }
+.d3-kho-sup-chips button:focus-visible { outline: 2px solid #fff; outline-offset: 1px; }
+.d3-kho-sup-chips button svg { width: 12px; height: 12px; }
+.d3-kho-sup-search { position: relative; display: block; }
+.d3-kho-sup-search svg { position: absolute; left: 12px; top: 50%; width: 16px; height: 16px; transform: translateY(-50%); color: var(--d3-dim); pointer-events: none; }
+.d3-kho-sup-search input { padding-left: 36px; }
+.d3-kho-sup-list { display: grid; gap: 6px; }
+html.bmq-d3 .d3-kho-sup-row { min-height: 44px; padding: 8px 12px; font-size: 14px; }
 @media (prefers-reduced-motion: reduce) {
   html.bmq-d3 .d3-kho-check, .d3-kho-check-box, .d3-kho-check-box svg { transition: none; }
 }

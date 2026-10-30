@@ -3,11 +3,13 @@ import { Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useKhoCreateItem } from "@/hooks/useKhoItems";
+import { useKhoSupplierOptions } from "@/hooks/useKhoItemSuppliers";
 import { useKhoUnits } from "@/hooks/useKhoUnits";
 import { hasTanTaoPlace, khoErrorText, searchKey, type KhoItem, type KhoLocation } from "@/lib/kho-items";
 import { cn } from "@/lib/utils";
 import { CLASS_OF, GROUPS, ITEM_UNITS, KHO_LABEL, KHO_LOCATIONS, groupOf, newRequestId, type Group } from "./kho-meta";
 import { KhoDialog } from "./KhoDialog";
+import { SupplierPicker } from "./SupplierPicker";
 
 type MovableGroup = Exclude<Group, "tp">;
 
@@ -26,6 +28,7 @@ export function CreateItemDialog({ source, items, defaultGroup, defaultKho, onCr
 }) {
   const create = useKhoCreateItem();
   const units = useKhoUnits();
+  const suppliers = useKhoSupplierOptions();
   const [name, setName] = useState(source ? `${source.name} (bản sao)` : "");
   const [unit, setUnit] = useState(source?.unit ?? "g");
   const [group, setGroup] = useState<MovableGroup>(() => {
@@ -35,6 +38,8 @@ export function CreateItemDialog({ source, items, defaultGroup, defaultKho, onCr
   const [places, setPlaces] = useState<Record<KhoLocation, boolean>>(() =>
     source ? { tan_tao: hasTanTaoPlace(source), q7: source.in_q7 } : { tan_tao: defaultKho === "tan_tao", q7: defaultKho === "q7" });
   const [note, setNote] = useState(source?.note ?? "");
+  // A copy never carries the source's suppliers: the new item is a different product and picks its own.
+  const [supplierIds, setSupplierIds] = useState<string[]>([]);
   // One key per form: a double tap or a retry after a lost reply creates the item once.
   const [requestId] = useState(newRequestId);
 
@@ -56,7 +61,7 @@ export function CreateItemDialog({ source, items, defaultGroup, defaultKho, onCr
     create.mutate(
       {
         name: name.trim(), unit, itemClass: CLASS_OF[group], inTanTao: places.tan_tao, inQ7: places.q7,
-        note: note.trim() || null, copyFrom: source?.id ?? null, requestId,
+        note: note.trim() || null, copyFrom: source?.id ?? null, supplierIds, requestId,
       },
       { onSuccess: (result) => onCreated({ id: result.item_id, name: result.name, code: result.item_code }) },
     );
@@ -105,6 +110,12 @@ export function CreateItemDialog({ source, items, defaultGroup, defaultKho, onCr
           })}
         </div>
       </div>
+      <div className="d3-kho-field">
+        <span>Nhà cung cấp (bắt buộc)</span>
+        <SupplierPicker options={suppliers.data ?? []} value={supplierIds} onChange={setSupplierIds} loading={suppliers.isLoading} />
+        <small className="d3-kho-quiet">Món gắn với nhà cung cấp để nhận đúng khi scan hóa đơn và để theo dõi giấy tờ nguồn gốc (ATTP).</small>
+        {suppliers.error ? <p className="d3-kho-error">Không tải được danh sách nhà cung cấp. Tải lại trang giúp.</p> : null}
+      </div>
       <label className="d3-kho-field">
         <span>Ghi chú</span>
         <textarea className="d3-kho-notearea" value={note} onChange={(event) => setNote(event.target.value)} maxLength={500} rows={2}
@@ -113,7 +124,7 @@ export function CreateItemDialog({ source, items, defaultGroup, defaultKho, onCr
       {places.q7 ? <p className="d3-kho-hint">Món ở Kho Q7 cần gắn mã nguyên liệu thì mới đếm được ở Q7. Nhắn VNAgent để gắn sau khi tạo.</p> : null}
       {create.error ? <p className="d3-kho-error">{khoErrorText(create.error)}</p> : null}
       <div className="d3-kho-actions">
-        <Button disabled={!nameOk || Boolean(twin) || create.isPending} onClick={submit} data-bmq-kho-create-save>
+        <Button disabled={!nameOk || Boolean(twin) || supplierIds.length === 0 || create.isPending} onClick={submit} data-bmq-kho-create-save>
           {create.isPending ? "Đang tạo…" : source ? "Tạo bản sao" : "Tạo món"}
         </Button>
         <Button variant="outline" onClick={onClose}>Đóng</Button>
