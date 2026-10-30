@@ -30,6 +30,7 @@ window.__qaCalls = window.__qaCalls || [];
 const PT = "bc39ded3-755c-4b31-9e4c-d7729e009608";
 const TV = "9546bd80-18d7-4ec7-b0e5-de50798ea718";
 const MG = "5a1e0000-0000-4000-8000-000000000001";
+const MT = "5a1e0000-0000-4000-8000-0000000000b1";
 const delivery = { address: "24 Đường số 36, P. Tân Quy, Q7, TP.HCM", contact_name: "Huỳnh Kim Ngân", contact_phone: "0926 504 623", note: "" };
 const prices = () => JSON.parse(localStorage.getItem("qa-prices") || "{}");
 const line = (id, name, wording, onHand, daily, proposal, price, open, vat = 8, list = null) => {
@@ -50,6 +51,12 @@ const line = (id, name, wording, onHand, daily, proposal, price, open, vat = 8, 
 const removed = () => JSON.parse(localStorage.getItem("qa-removed") || "[]");
 const added = () => JSON.parse(localStorage.getItem("qa-added") || "[]");
 function catalog(id) {
+  if (id === MT) {
+    // Long catalog (Bao bì Minh Tuấn): 9 items, five with a proposal; enough to need the finder.
+    const names = [["Bao giấy bánh mì que", 8500, 1000, 8000], ["Bao tấm", 0, 0, 0], ["Bao giấy Ông Bầu", 300, 100, 2000], ["Tăm VJ", 90, 30, 500], ["Bánh mì lớn", 40, 10, 0], ["Túi bánh mì", 700, 200, 3000], ["Hộp kraft vuông", 120, 20, 0], ["Băng keo vàng", 55, 5, 0], ["Màng bọc thực phẩm", 12, 4, 20]];
+    const items = names.map(([name, onHand, daily, proposal], index) => ({ ...line("5a1e0000-0000-4000-8000-0000000001" + String(index).padStart(2, "0"), name, name, onHand, daily, proposal, index === 1 ? 0 : 167, null, 8), po_unit: "cái", po_unit_factor: "1", pack_size_po: null, location: "tan_tao", estimated: true }));
+    return { supplier: { id: MT, name: "Bao bì Minh Tuấn", email: "order@minhtuan.example" }, delivery, mailbox_connected: true, blockers: [], items, prepay: null };
+  }
   if (id === MG) {
     const tt = { ...line("5a1e0000-0000-4000-8000-000000000011", "Cà rốt", "Cà rốt", 1888, 727.959, 8, 35700, null, 0), location: "tan_tao", estimated: true };
     const none = { ...line("5a1e0000-0000-4000-8000-000000000012", "Giấm tinh luyện 1L", "Giấm tinh luyện 1L", 0, 0, 0, 18333, null, 0), location: "tan_tao", estimated: true };
@@ -91,6 +98,7 @@ function settle(st) {
   window.__qaCalls.push(st.table + ":" + JSON.stringify(st.args));
   if (cfg().data === "forbidden" && st.table.startsWith("rpc:supplier_order_")) return { data: null, error: { message: "insufficient_privilege", code: "42501" } };
   if (st.table === "rpc:supplier_order_suppliers") return { data: [
+    ...(cfg().long ? [{ id: MT, name: "Bao bì Minh Tuấn", email: "order@minhtuan.example", has_email: true, item_count: 9, active_item_count: 9, need_order_count: 3, low_stock_count: 0, out_of_stock_count: 0, locations: ["tan_tao"], urgency_rank: 0, last_order: null, unpaid_count: 0 }] : []),
     { id: TV, name: "TV Food", email: "hongtinh2603@gmail.com", has_email: true, item_count: 1, active_item_count: 1, need_order_count: 0, low_stock_count: 0, out_of_stock_count: 0, locations: ["q7"], urgency_rank: 4, last_order: { po_number: "PO-000862", sent_at: "2026-10-23T05:09:25Z" }, unpaid_count: 2 },
     { id: PT, name: "Phúc Thịnh", email: "botmiphucthinh@gmail.com", has_email: true, item_count: catalog(PT).items.length, active_item_count: catalog(PT).items.length, need_order_count: 1, low_stock_count: 1, out_of_stock_count: 1, locations: ["q7", "tan_tao"], urgency_rank: 1, last_order: null, unpaid_count: 0 },
     { id: MG, name: "Mega Market", email: localStorage.getItem("qa-mega-email"), has_email: Boolean(localStorage.getItem("qa-mega-email")), item_count: 2, active_item_count: 2, need_order_count: 1, low_stock_count: 1, out_of_stock_count: 0, locations: ["tan_tao"], urgency_rank: 2, last_order: null, unpaid_count: 0 },
@@ -286,6 +294,7 @@ const EMOJI = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B50}\u{FE0F}]/u;
 const PT = "bc39ded3-755c-4b31-9e4c-d7729e009608";
 const TV = "9546bd80-18d7-4ec7-b0e5-de50798ea718";
 const MG = "5a1e0000-0000-4000-8000-000000000001";
+const MT = "5a1e0000-0000-4000-8000-0000000000b1";
 const I999 = "1039f461-8f9f-45a1-b05c-b96cb736812e";
 const IMILK = "6ba549f7-d3b6-4971-a742-2fb4091800bb";
 const VIEWPORTS = [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 640 }];
@@ -601,6 +610,57 @@ try {
     assert.match(await so.page.getByRole("dialog").innerText(), /Phúc Thịnh/);
     await so.context.close();
     pass(`Nhà cung cấp: profile facts, filters, contact, links @${vp.width}`);
+  }
+
+  // Long catalog: finder, filters, quick fill, Enter to the next box, sticky total bar.
+  for (const vp of VIEWPORTS) {
+    const { context, page, errors } = await open({ long: true }, `/dat-hang?ncc=${MT}`, vp);
+    await page.waitForSelector("[data-bmq-so-lines] li");
+    assert.equal(await page.locator("[data-bmq-so-lines] li").count(), 9, "all 9 items");
+    assert.ok(await page.locator("[data-bmq-so-finder]").count() === 1, "finder shown for a long catalog");
+    // Proposals seed five lines.
+    assert.equal(await page.locator("[data-bmq-so-view='need'] small").innerText(), "5");
+    assert.equal(await page.locator("[data-bmq-so-view='picked'] small").innerText(), "5");
+    // Accent-insensitive search.
+    await page.locator("[data-bmq-so-item-search]").fill("bao giay");
+    await page.waitForFunction(() => document.querySelectorAll("[data-bmq-so-lines] li").length === 2);
+    assert.match((await page.locator("[data-bmq-so-lines]").innerText()), /Bao giấy bánh mì que[\s\S]*Bao giấy Ông Bầu/);
+    await page.locator("[data-bmq-so-item-search]").fill("zzz");
+    await page.waitForSelector("[data-bmq-so-no-item-match]");
+    await page.locator("[data-bmq-so-item-search]").fill("");
+    // "Cần đặt" shows only lines with a proposal; "Đã nhập số" follows typed quantities.
+    await page.locator("[data-bmq-so-view='need']").click();
+    await page.waitForFunction(() => document.querySelectorAll("[data-bmq-so-lines] li").length === 5);
+    await page.locator("[data-bmq-so-view='all']").click();
+    await page.waitForFunction(() => document.querySelectorAll("[data-bmq-so-lines] li").length === 9);
+    // Enter moves to the next quantity box, and a typed amount lands in the total.
+    const first = page.locator("[data-bmq-so-qty]").first();
+    await first.focus();
+    await first.press("Enter");
+    const focusedIndex = await page.evaluate(() => [...document.querySelectorAll("input[data-bmq-so-qty]")].indexOf(document.activeElement));
+    assert.equal(focusedIndex, 1, "Enter focuses the next box");
+    // Quick fill: a cleared line with a proposal offers "Dùng số này".
+    const bao = "5a1e0000-0000-4000-8000-000000000100";
+    await page.locator(`[data-bmq-so-qty='${bao}']`).fill("");
+    await page.locator(`[data-bmq-so-use='${bao}']`).click();
+    assert.notEqual(await page.locator(`[data-bmq-so-qty='${bao}']`).inputValue(), "", "quick fill wrote a quantity");
+    // Clear all typed numbers.
+    await page.locator("[data-bmq-so-clear]").click();
+    await page.waitForFunction(() => document.querySelector("[data-bmq-so-total]")?.textContent?.trim().startsWith("0"));
+    // Sticky bar: with the page scrolled to the top the bar is still inside the viewport.
+    await page.evaluate(() => { const main = document.querySelector(".d3-main"); if (main) main.scrollTop = 0; window.scrollTo(0, 0); });
+    const inView = await page.evaluate(() => {
+      const bar = document.querySelector("[data-bmq-so-submit]");
+      const r = bar.getBoundingClientRect();
+      return { bottom: Math.round(r.bottom), height: window.innerHeight, pos: getComputedStyle(bar).position };
+    });
+    assert.equal(inView.pos, "sticky");
+    assert.ok(inView.bottom <= inView.height + 1, `sticky bar visible without scrolling ${JSON.stringify(inView)}`);
+    await noSpill(page, "long catalog", vp);
+    await page.screenshot({ path: `${EVIDENCE}/long-catalog-${vp.width}.png` });
+    assert.deepEqual(errors, []);
+    await context.close();
+    pass(`Danh mục dài: tìm, lọc, dùng đề xuất, Enter, thanh tổng cố định @${vp.width}`);
   }
 
   // Forbidden and blocked states.

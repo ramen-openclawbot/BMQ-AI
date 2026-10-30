@@ -256,6 +256,21 @@ function PriceEditor({ item, supplierId, onToast }: { item: SupplierOrderCatalog
   );
 }
 
+type LineView = "all" | "need" | "picked";
+
+// Accent- and case-insensitive match, so "bao giay" finds "Bao giấy Ông Bầu".
+const fold = (text: string) => text.normalize("NFD").replace(/\p{M}/gu, "").replace(/đ/g, "d").toLowerCase();
+
+// Enter in a quantity box moves to the next line's box: many items are typed one after another.
+function focusNextQty(event: React.KeyboardEvent<HTMLUListElement>) {
+  const target = event.target as HTMLElement;
+  if (event.key !== "Enter" || !target.matches("input[data-bmq-so-qty]")) return;
+  event.preventDefault();
+  const boxes = Array.from(event.currentTarget.querySelectorAll<HTMLInputElement>("input[data-bmq-so-qty]"));
+  const next = boxes[boxes.indexOf(target as HTMLInputElement) + 1];
+  if (next) { next.focus(); next.select(); } else (target as HTMLInputElement).blur();
+}
+
 function OrderLine({ item, supplierId, qtyText, onQty, editing, onRemove, removing, onToast }: {
   item: SupplierOrderCatalogItem;
   supplierId: string;
@@ -300,9 +315,18 @@ function OrderLine({ item, supplierId, qtyText, onQty, editing, onRemove, removi
           ) : item.priceOutlier ? (
             <span className="d3-so-proposal"> · không tự đề xuất vì giá lệch xa</span>
           ) : (
-            <span className="d3-so-proposal"> · {item.proposalQty > 0
-              ? `đề xuất ${formatQuantity(item.proposalQty)} ${item.poUnit}`
-              : item.stock.dailyUsage <= 0 ? "chưa có lượng dùng để đề xuất" : "chưa cần đặt"}</span>
+            item.proposalQty > 0 ? (
+              <>
+                <span className="d3-so-proposal"> · đề xuất {formatQuantity(item.proposalQty)} {item.poUnit}</span>
+                {qtyText.trim() !== formatQuantity(item.proposalQty) ? (
+                  <button type="button" className="d3-so-use" onClick={() => onQty(formatQuantity(item.proposalQty))} data-bmq-so-use={item.item.id}>
+                    Dùng số này
+                  </button>
+                ) : null}
+              </>
+            ) : (
+              <span className="d3-so-proposal"> · {item.stock.dailyUsage <= 0 ? "chưa có lượng dùng để đề xuất" : "chưa cần đặt"}</span>
+            )
           )}
         </p>
         {item.priceOutlier && item.referencePrice ? (
@@ -501,6 +525,8 @@ function SupplierPanel({ supplierId, onToast, onBack }: { supplierId: string; on
   const [step, setStep] = useState<Step>("form");
   const [editing, setEditing] = useState(false);
   const [requestId, setRequestId] = useState(createSupplierOrderRequestId);
+  const [search, setSearch] = useState("");
+  const [view, setView] = useState<LineView>("all");
   const [shown, setShown] = useState<SupplierOrderPreview | null>(null);
   const [result, setResult] = useState<SendSupplierOrderLinesResult | null>(null);
   const top = useRef<HTMLElement>(null);
@@ -520,6 +546,21 @@ function SupplierPanel({ supplierId, onToast, onBack }: { supplierId: string; on
     .map((item) => ({ item, value: readQty(qty[item.item.id] ?? "") }))
     .filter(({ value }) => Number.isNaN(value) || value > 0), [data, qty]);
   const invalid = lines.some(({ value }) => Number.isNaN(value));
+  const needCount = (data?.items ?? []).filter((item) => item.proposalQty > 0).length;
+  // Long catalogs (20+ items) get a finder; short ones stay as plain as before.
+  const showFinder = (data?.items.length ?? 0) > 5;
+  const visibleItems = useMemo(() => {
+    const needle = fold(search);
+    return (data?.items ?? []).filter((item) => {
+      if (view === "need" && !(item.proposalQty > 0)) return false;
+      if (view === "picked") {
+        const value = readQty(qty[item.item.id] ?? "");
+        if (!(Number.isNaN(value) || value > 0)) return false;
+      }
+      if (!needle) return true;
+      return fold(`${item.productName} ${item.item.name} ${item.item.code ?? ""}`).includes(needle);
+    });
+  }, [data, qty, search, view]);
   // Same rule as the server quote (list price gồm VAT → tiền hàng = tổng / 1,08; else VAT on the PO price).
   const amounts = computeOrderAmounts(lines
     .filter(({ item, value }) => !Number.isNaN(value) && (item.listPrice !== null || item.unitPrice !== null))
@@ -608,9 +649,37 @@ function SupplierPanel({ supplierId, onToast, onBack }: { supplierId: string; on
 
             {noEmail ? <SupplierEmailEditor supplierId={supplierId} onToast={onToast} /> : null}
 
+            {showFinder ? (
+              <div className="d3-so-finder" data-bmq-so-finder>
+                <label className="d3-so-search">
+                  <Search aria-hidden="true" />
+                  <input type="search" value={search} onChange={(event) => setSearch(event.target.value)}
+                    placeholder="Tìm món theo tên hoặc mã" aria-label="Tìm món trong danh mục" data-bmq-so-item-search />
+                </label>
+                <div className="d3-so-filters" role="group" aria-label="Lọc món">
+                  {([
+                    { id: "all", label: "Tất cả", count: data.items.length },
+                    { id: "need", label: "Cần đặt", count: needCount },
+                    { id: "picked", label: "Đã nhập số", count: lines.length },
+                  ] as { id: LineView; label: string; count: number }[]).map(({ id, label, count }) => (
+                    <button key={id} type="button" className={cn(view === id && "is-on")} aria-pressed={view === id}
+                      onClick={() => setView(id)} data-bmq-so-view={id}>
+                      {label}<small>{count}</small>
+                    </button>
+                  ))}
+                  {lines.length ? (
+                    <button type="button" className="is-clear" onClick={() => setQty({})} data-bmq-so-clear>Xoá số đã nhập</button>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+
+            {data.items.length && !visibleItems.length ? (
+              <p className="d3-kho-hint" data-bmq-so-no-item-match>Không có món nào khớp. Đổi từ khoá hoặc bộ lọc.</p>
+            ) : null}
             {data.items.length ? (
-              <ul className="d3-so-lines" data-bmq-so-lines>
-                {data.items.map((item) => (
+              <ul className="d3-so-lines" data-bmq-so-lines onKeyDown={focusNextQty}>
+                {visibleItems.map((item) => (
                   <OrderLine key={item.item.id} item={item} supplierId={supplierId} onToast={onToast} qtyText={qty[item.item.id] ?? ""} editing={editing} removing={setItem.isPending}
                     onQty={(text) => setQty((prev) => ({ ...prev, [item.item.id]: text }))}
                     onRemove={() => setItem.mutate({ supplierId, itemId: item.item.id, active: false }, {
@@ -649,21 +718,22 @@ function SupplierPanel({ supplierId, onToast, onBack }: { supplierId: string; on
                 </ul>
               ) : null}
               {preview.error ? <p className="d3-kho-error" role="alert" data-bmq-so-error>{errorText(preview.error)}</p> : null}
-              <div className="d3-so-submit">
-                <div className="d3-so-total">
-                  {vat > 0 ? (
-                    <dl className="d3-so-sum" data-bmq-so-sum>
-                      <div><dt>Tiền hàng</dt><dd data-bmq-so-subtotal>{formatVnd(subtotal)}</dd></div>
-                      <div><dt>Thuế GTGT</dt><dd data-bmq-so-vat>{formatVnd(vat)}</dd></div>
-                    </dl>
-                  ) : null}
-                  <span>{lines.length ? `${lines.length} món · tổng thanh toán` : "Chưa chọn món"}</span>
-                  <b data-bmq-so-total>{formatVnd(total)}</b>
-                </div>
-                <Button onClick={makePreview} disabled={!lines.length || invalid || blockers.length > 0 || preview.isPending} data-bmq-so-make>
-                  {preview.isPending ? "Đang lập phiếu…" : "Lập phiếu đặt hàng"}
-                </Button>
+            </div>
+            {/* Last child of the card and sticky: the total and the action stay in reach however long the catalog is. */}
+            <div className="d3-so-submit" data-bmq-so-submit>
+              <div className="d3-so-total">
+                {vat > 0 ? (
+                  <dl className="d3-so-sum" data-bmq-so-sum>
+                    <div><dt>Tiền hàng</dt><dd data-bmq-so-subtotal>{formatVnd(subtotal)}</dd></div>
+                    <div><dt>Thuế GTGT</dt><dd data-bmq-so-vat>{formatVnd(vat)}</dd></div>
+                  </dl>
+                ) : null}
+                <span>{lines.length ? `${lines.length} món · tổng thanh toán` : "Chưa chọn món"}</span>
+                <b data-bmq-so-total>{formatVnd(total)}</b>
               </div>
+              <Button onClick={makePreview} disabled={!lines.length || invalid || blockers.length > 0 || preview.isPending} data-bmq-so-make>
+                {preview.isPending ? "Đang lập phiếu…" : "Lập phiếu đặt hàng"}
+              </Button>
             </div>
           </>
         ) : step === "preview" && shown ? (

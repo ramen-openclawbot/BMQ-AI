@@ -4,7 +4,7 @@
  * Motion is state only: a press, the preview and the sent note arriving.
  */
 
-.d3-so-card { display: grid; gap: 16px; }
+.d3-so-card { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
 .d3-so-card-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 10px 16px; }
 .d3-so-card-head h2 { margin: 0; font-size: 17px; font-weight: 500; line-height: 1.3; letter-spacing: -.01em; color: var(--d3-ink); }
 .d3-so-card-head p { margin: 4px 0 0; max-width: 62ch; font-size: 13.5px; line-height: 1.5; color: var(--d3-ink-2); }
@@ -143,7 +143,20 @@ html.bmq-d3 .d3-so-remove {
 .d3-so-prepay.is-none { display: block; padding: 0; background: none; font-size: 13px; line-height: 1.5; color: var(--d3-ink-2); cursor: default; }
 
 /* Total and action sit together on the left: the VNAgent launcher owns the bottom-right corner. */
-.d3-so-submit { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 28px; }
+.d3-so-submit {
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 28px;
+  margin: 0 -20px -20px;
+  padding: 12px 20px;
+  border-radius: 0 0 22px 22px;
+  background: var(--d3-card);
+  box-shadow: 0 -1px 0 var(--d3-line), 0 -10px 18px -12px rgba(18, 18, 14, .18);
+}
 .d3-so-total { display: grid; margin: 0; }
 .d3-so-sum { display: grid; gap: 2px; margin: 0 0 6px; }
 .d3-so-sum > div { display: flex; gap: 12px; justify-content: space-between; min-width: 200px; font-size: 13px; color: var(--d3-ink-2); font-variant-numeric: tabular-nums; }
@@ -209,14 +222,42 @@ html.bmq-d3 .d3-so-remove {
   .d3-so-preview, .d3-so-done { animation: none; }
 }
 
+/* ---------- finder + quick fill (long catalogs) ---------- */
+.d3-so-finder { display: grid; gap: 8px; }
+.d3-so-finder .d3-so-search { height: 40px; background: var(--d3-white); box-shadow: none; }
+html.bmq-d3 .d3-so-filters button.is-clear { background: none; color: var(--d3-dim); text-decoration: underline; text-underline-offset: 3px; }
+html.bmq-d3 .d3-so-filters button.is-clear:hover { background: none; color: var(--d3-ink); }
+html.bmq-d3 .d3-so-use {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  margin-left: 8px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--kho-muted);
+  color: var(--d3-ink);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+html.bmq-d3 .d3-so-use:hover { background: #deded9; }
+.d3-so-use:focus-visible { outline: 2px solid var(--d3-ink); outline-offset: 1px; }
+.d3-so-line.is-picked { box-shadow: inset 3px 0 0 var(--d3-ink); }
+
 @media (max-width: 640px) {
-  .d3-so-line { grid-template-columns: minmax(0, 1fr); padding: 14px; }
+  .d3-so-line { grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 12px 14px; }
+  .d3-so-stock { font-size: 12.5px; }
+  .d3-so-line-main > small { gap: 0 10px; }
+  /* The sticky bar leaves the bottom-right corner to the BMQ Agent launcher. */
+  .d3-so-submit { margin: 0 -16px -16px; padding: 10px 84px 10px 16px; border-radius: 0 0 20px 20px; gap: 8px 14px; flex-wrap: wrap; }
+  .d3-so-submit .d3-so-sum { display: none; }
+  .d3-so-total b { font-size: 18px; }
+  .d3-so-submit > button { flex: 1 1 120px; width: auto; min-width: 0; }
   /* The total moves under the stepper when the row has no room for both. */
   .d3-so-line-qty { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
   .d3-so-line-total { margin-left: auto; }
   .d3-so-stepper input { width: 72px; }
   .d3-so-facts { grid-template-columns: minmax(0, 1fr); }
-  .d3-so-submit > button { width: 100%; }
   .d3-so-actions > button { flex: 1 1 auto; }
 }
 
