@@ -4319,6 +4319,10 @@ export type Database = {
         }
         Returns: Json
       }
+      kho_get_item_suppliers: {
+        Args: { p_item_id: string }
+        Returns: string[]
+      }
       kho_set_item_suppliers: {
         Args: {
           p_item_id: string

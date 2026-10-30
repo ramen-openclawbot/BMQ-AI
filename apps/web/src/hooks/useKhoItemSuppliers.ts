@@ -12,7 +12,7 @@ export interface KhoSupplierOption {
   name: string;
 }
 
-// kho_set_item_suppliers / kitchen_item_suppliers are not in the generated types until the migration is applied.
+// kho_set_item_suppliers / kho_get_item_suppliers are not in the generated types until types are regenerated.
 const rpcUntyped = supabase.rpc.bind(supabase) as unknown as (
   fn: string,
   args?: Record<string, unknown>,
@@ -36,9 +36,9 @@ export function useKhoItemSuppliers(itemId: string) {
   return useQuery({
     queryKey: [KHO_ITEM_SUPPLIERS_KEY, itemId],
     queryFn: async (): Promise<string[]> => {
-      const { data, error } = await db.from("kitchen_item_suppliers").select("supplier_id").eq("item_id", itemId);
+      const { data, error } = await rpcUntyped("kho_get_item_suppliers", { p_item_id: itemId });
       if (error) throw error;
-      return ((data ?? []) as Array<{ supplier_id: string }>).map((row) => row.supplier_id);
+      return (data ?? []) as string[];
     },
   });
 }

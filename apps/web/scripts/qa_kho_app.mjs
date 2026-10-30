@@ -184,7 +184,7 @@ function settle(st) {
     { id: "sup-gas", name: "Gas Vân Anh" }, { id: "sup-vj", name: "VJ Food" }, { id: "sup-mega", name: "Mega Market" }, { id: "sup-bn", name: "Chà bông BN" },
     { id: "sup-a", name: "Công ty TNHH Thực phẩm An Phú Gia Long" }, { id: "sup-b", name: "Nhà cung cấp B" }, { id: "sup-c", name: "Nhà cung cấp C" },
   ], error: null };
-  if (st.table === "kitchen_item_suppliers") return { data: JSON.parse(localStorage.getItem("qa-links") || "[]").map((id) => ({ supplier_id: id })), error: null };
+  if (st.table === "rpc:kho_get_item_suppliers") return { data: JSON.parse(localStorage.getItem("qa-links") || "[]"), error: null };
   if (st.table === "rpc:kho_set_item_suppliers") {
     if (!st.args.p_supplier_ids || st.args.p_supplier_ids.length === 0) return { data: null, error: { message: "supplier_required", code: "22023" } };
     localStorage.setItem("qa-links", JSON.stringify(st.args.p_supplier_ids));
