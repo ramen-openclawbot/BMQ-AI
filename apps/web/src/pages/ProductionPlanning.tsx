@@ -1568,18 +1568,36 @@ export default function ProductionPlanning() {
                 const groupOrders = productionOrders.filter((order) => getProductionOrderDisplayStatus(order, tvProductionDateIso) === groupStatus);
                 if (groupOrders.length === 0) return null;
                 const limited = groupStatus === "completed" && !showAllDoneOrders ? groupOrders.slice(0, 5) : groupOrders;
+                // KFM MOQ belongs to a delivery day, not to one order (owner 31/10): said once per day in the group.
+                const moqDays = groupStatus === "cancelled" ? [] : [...new Set(groupOrders
+                  .filter((order) => order.is_kfm)
+                  .map((order) => getProductionOrderDateIso(order))
+                  .filter((date): date is string => Boolean(date)))].sort();
                 return (
                   <div key={groupStatus} className="d3-pp-ogroup" data-status={groupStatus}>
                     <div className="d3-pp-ogroup-h"><span>{groupLabel}</span><small>{groupOrders.length}</small></div>
+                    {moqDays.map((day) => {
+                      const pieces = kfmMoqPiecesByDate.get(day) ?? 0;
+                      const short = KFM_DAILY_MOQ_PIECES - pieces;
+                      return (
+                        <p key={day} className={`d3-pp-daymoq${short > 0 ? " is-short" : ""}`} data-testid={`kfm-day-moq-${day}`}
+                          title={isVi ? "Tổng số cái của mọi PO KFM giao cùng ngày" : "Pieces across the day's KFM POs"}>
+                          <span>MOQ KFM {formatDate(day)}</span>
+                          <b>{pieces.toLocaleString("vi-VN")}/{KFM_DAILY_MOQ_PIECES.toLocaleString("vi-VN")} cái</b>
+                          <em>{short > 0 ? (isVi ? `thiếu ${short.toLocaleString("vi-VN")}` : `${short.toLocaleString("vi-VN")} short`) : (isVi ? "đủ" : "met")}</em>
+                        </p>
+                      );
+                    })}
                     {limited.map((order) => {
-                      const totalQty = getProductionOrderTotalQty(order);
+                      // KFM orders count in pieces (boxes of 4, cua phô mai 3), the same unit as the MOQ;
+                      // other orders keep their own unit, or "sp" when their lines mix units.
+                      const units = new Set((order.items || []).map((item) => (item.unit || "").trim().toLowerCase()).filter(Boolean));
+                      const totalQty = order.is_kfm ? getProductionOrderMoqPieces(order) : getProductionOrderTotalQty(order);
                       const canGeneratePdf = canGenerateQ7MaterialIssuePdf(order);
                       const pdfLoading = materialIssuePdfOrderId === order.id;
                       const pdfMessage = materialIssuePdfMessages[order.id];
                       const expanded = expandedOrderId === order.id;
-                      const unit = order.items?.[0]?.unit || (isVi ? "sp" : "units");
-                      const orderDateIso = getProductionOrderDateIso(order);
-                      const moqPieces = order.is_kfm && orderDateIso ? kfmMoqPiecesByDate.get(orderDateIso) ?? 0 : null;
+                      const unit = order.is_kfm ? (isVi ? "cái" : "pcs") : units.size === 1 ? order.items?.[0]?.unit || "sp" : (isVi ? "sp" : "units");
                       const counterpart = [order.po_number, order.customer_name].filter(Boolean).join(" · ");
                       return (
                         <div key={order.id} className={`d3-pp-order${expanded ? " is-open" : ""}`}>
@@ -1606,15 +1624,6 @@ export default function ProductionPlanning() {
                             <span className="d3-pp-oqty">
                               <strong>{totalQty.toLocaleString("vi-VN")}</strong>
                               <small>{unit}</small>
-                              {moqPieces !== null && (
-                                <em
-                                  className={`d3-pp-omoq${moqPieces < KFM_DAILY_MOQ_PIECES ? " is-short" : ""}`}
-                                  title={isVi ? "MOQ KFM: tổng cái của các PO KFM cùng ngày" : "KFM MOQ: pieces across the day's KFM POs"}
-                                  data-testid={`kfm-moq-${order.id}`}
-                                >
-                                  MOQ {moqPieces.toLocaleString("vi-VN")}/{KFM_DAILY_MOQ_PIECES}
-                                </em>
-                              )}
                             </span>
                             <ChevronDown className="d3-pp-ochev h-4 w-4" aria-hidden="true" />
                           </button>

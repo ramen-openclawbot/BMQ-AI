@@ -16,7 +16,7 @@ import react from "@vitejs/plugin-react-swc";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const EVIDENCE = process.env.EVIDENCE_DIR || "/tmp/bmq-demo3-production-qa";
-const PW = process.env.PLAYWRIGHT_CORE || "/private/tmp/pwqa/node_modules/playwright-core";
+const PW = process.env.PLAYWRIGHT_CORE || `${process.env.HOME}/.openclaw/lib/node_modules/openclaw/node_modules/playwright-core`;
 const CHROME = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const PORT = Number(process.env.QA_PORT || 5193);
 const { chromium } = createRequire(import.meta.url)(PW);
@@ -316,8 +316,12 @@ try {
         assert.ok(await page.locator(".d3-pp-row", { hasText: "NPP-BT" }).count() > 0, "other PO row listed");
         assert.equal(await page.locator(".d3-pp-order").count(), 3, "orders listed");
         // KFM MOQ: pieces of the day's KFM orders over 1500; non-KFM orders show none.
-        assert.equal((await page.locator("[data-testid='kfm-moq-ord-1']").textContent()).trim(), "MOQ 2.700/1500", "KFM MOQ line");
-        assert.equal(await page.locator("[data-testid='kfm-moq-ord-2']").count(), 0, "no MOQ for non-KFM order");
+        // One line per KFM delivery day (today 2.700 pieces, yesterday 2.100), never one per order.
+        const dayMoq = await page.locator("[data-testid^='kfm-day-moq-']").allInnerTexts();
+        assert.equal(dayMoq.length, 2, `one MOQ line per KFM day ${JSON.stringify(dayMoq)}`);
+        assert.ok(dayMoq.some((t) => /2\.700\/1\.500 cái[\s\S]*đủ/.test(t)) && dayMoq.some((t) => /2\.100\/1\.500 cái/.test(t)), `KFM day MOQ lines ${JSON.stringify(dayMoq)}`);
+        assert.match(await page.locator(".d3-pp-order", { hasText: "SX-Q7-0301" }).locator(".d3-pp-oqty").innerText(), /2\.700\s*cái/, "KFM order counts its own pieces");
+        assert.equal(await page.locator("[data-testid^='kfm-moq-']").count(), 0, "no per-order MOQ badge");
       }
       if (data === "populated" && viewport.width === 390) {
         await page.locator(".d3-pp-order-row").first().click();
