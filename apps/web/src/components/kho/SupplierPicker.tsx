@@ -8,8 +8,9 @@ import { cn } from "@/lib/utils";
 const SHOWN = 8;
 
 /**
- * Multi-select of suppliers for one kho item. Selected suppliers stay on top as chips; the list below filters
- * by name (accent-insensitive) and shows the first few matches so a phone screen stays short.
+ * Multi-select of suppliers for one kho item. Selected suppliers stay on top as chips. With none chosen yet the
+ * first few suppliers are offered; once one is chosen the list only opens for a typed name (owner 31/10: a
+ * chosen supplier must not sit above a long list). Merged suppliers ("[ĐÃ GỘP] …") are never offered.
  */
 export function SupplierPicker({ options, value, onChange, disabled, loading }: {
   options: KhoSupplierOption[];
@@ -22,10 +23,15 @@ export function SupplierPicker({ options, value, onChange, disabled, loading }: 
   const byId = useMemo(() => new Map(options.map((o) => [o.id, o])), [options]);
   const matches = useMemo(() => {
     const key = searchKey(query);
-    const pool = key ? options.filter((o) => searchKey(o.name).includes(key)) : options;
+    if (!key && value.length) return [];
+    const live = options.filter((o) => !/^\s*\[đã gộp\]/i.test(o.name) && !value.includes(o.id));
+    const pool = key ? live.filter((o) => searchKey(o.name).includes(key)) : live;
     return pool.slice(0, SHOWN);
-  }, [options, query]);
-  const toggle = (id: string) => onChange(value.includes(id) ? value.filter((v) => v !== id) : [...value, id]);
+  }, [options, query, value]);
+  const toggle = (id: string) => {
+    onChange(value.includes(id) ? value.filter((v) => v !== id) : [...value, id]);
+    setQuery("");
+  };
 
   return (
     <div className="d3-kho-sup" data-bmq-kho-supplier-picker>
@@ -43,9 +49,9 @@ export function SupplierPicker({ options, value, onChange, disabled, loading }: 
         <>
           <label className="d3-kho-sup-search">
             <Search aria-hidden="true" />
-            <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm nhà cung cấp…" aria-label="Tìm nhà cung cấp" data-bmq-kho-supplier-search />
+            <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={value.length ? "Thêm nhà cung cấp khác…" : "Tìm nhà cung cấp…"} aria-label="Tìm nhà cung cấp" data-bmq-kho-supplier-search />
           </label>
-          {loading ? <p className="d3-kho-quiet">Đang tải danh sách…</p> : matches.length === 0 ? <p className="d3-kho-quiet">Không thấy nhà cung cấp phù hợp.</p> : (
+          {loading ? <p className="d3-kho-quiet">Đang tải danh sách…</p> : !query.trim() && value.length ? null : matches.length === 0 ? <p className="d3-kho-quiet">Không thấy nhà cung cấp phù hợp.</p> : (
             <div className="d3-kho-sup-list" role="group" aria-label="Chọn nhà cung cấp">
               {matches.map((o) => {
                 const on = value.includes(o.id);

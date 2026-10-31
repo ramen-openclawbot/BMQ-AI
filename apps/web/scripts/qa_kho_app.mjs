@@ -16,7 +16,7 @@ import react from "@vitejs/plugin-react-swc";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const EVIDENCE = process.env.EVIDENCE_DIR || "/tmp/bmq-kho-app-qa";
-const PW = process.env.PLAYWRIGHT_CORE || "/private/tmp/pwqa/node_modules/playwright-core";
+const PW = process.env.PLAYWRIGHT_CORE || `${process.env.HOME}/.openclaw/lib/node_modules/openclaw/node_modules/playwright-core`;
 const CHROME = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const PORT = Number(process.env.QA_PORT || 5253);
 // QA_ONLY=revenue runs only the Trừ kho theo doanh thu checks.
@@ -476,7 +476,8 @@ try {
     await page.locator("[data-bmq-kho-supplier-search]").fill("minh tuan");
     assert.equal(await page.locator("[data-bmq-kho-supplier-pick]").count(), 1, "search is accent-insensitive");
     await page.locator("[data-bmq-kho-supplier-pick='sup-minh-tuan']").click();
-    await page.locator("[data-bmq-kho-supplier-search]").fill("");
+    assert.equal(await page.locator("[data-bmq-kho-supplier-pick]").count(), 0, "a chosen supplier closes the list");
+    await page.locator("[data-bmq-kho-supplier-search]").fill("gas");
     await page.locator("[data-bmq-kho-supplier-pick='sup-gas']").click();
     assert.equal(await page.locator(".d3-kho-sup-chips li").count(), 2, "two suppliers picked");
     await page.locator(".d3-kho-sup-chips li button").last().click();
@@ -580,6 +581,7 @@ try {
     assert.ok(await page.locator("[data-bmq-kho-supplier-missing]").isVisible(), "an old item without links shows the warning");
     assert.equal(await page.locator("[data-bmq-kho-supplier-save]").count(), 0, "nothing to save yet");
     await page.locator("[data-bmq-kho-supplier-pick='sup-ngoc-tran']").click();
+    await page.locator("[data-bmq-kho-supplier-search]").fill("tv");
     await page.locator("[data-bmq-kho-supplier-pick='sup-tv']").click();
     await noSpill(page, "item suppliers", vp);
     await shot(page, `item-suppliers-${vp.width}.png`, false);
