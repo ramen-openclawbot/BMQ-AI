@@ -363,6 +363,18 @@ try {
         assert.equal(await page.locator("[data-bmq-kfm-daily-qty='PO1002692065']").inputValue(), "627");
         assert.equal(await page.locator("[data-bmq-kfm-daily-note='PO1002692422']").inputValue(), "Thiếu 4 hộp croffle");
         assert.equal(await page.locator("[data-bmq-kfm-daily-photo-add]").count(), 1, "owner can add photos");
+        // Photo: compressed on the device, staged with its size, then one Lưu button (nothing uploads before it).
+        const big = await page.evaluate(async () => {
+          const c = document.createElement("canvas"); c.width = 3000; c.height = 4000;
+          const g = c.getContext("2d"); for (let i = 0; i < 4000; i += 4) { g.fillStyle = `hsl(${i % 360},60%,50%)`; g.fillRect(0, i, 3000, 4); }
+          const b = await new Promise((r) => c.toBlob(r, "image/png")); return Array.from(new Uint8Array(await b.arrayBuffer()));
+        });
+        await page.locator("[data-bmq-kfm-daily-report] input[type=file]").setInputFiles({ name: "phieu.png", mimeType: "image/png", buffer: Buffer.from(big) });
+        await page.waitForSelector("[data-bmq-kfm-daily-staged]");
+        const staged = await page.locator(".kd-save span").innerText();
+        assert.match(staged, /1 ảnh mới · \d+ KB \(gốc/, `staged size ${staged}`);
+        assert.equal(await page.locator("[data-bmq-kfm-daily-save]").count(), 1, "Lưu shown");
+        assert.deepEqual(await page.evaluate(() => (window.__qaWrites || []).filter((w) => /dispatch|storage/.test(w))), [], "nothing saved before Lưu");
         await page.locator("[data-bmq-kfm-daily-report]").screenshot({ path: `${EVIDENCE}/kfm-daily-${viewport.width}.png` });
       }
       if (data === "populated" && viewport.width === 390) {

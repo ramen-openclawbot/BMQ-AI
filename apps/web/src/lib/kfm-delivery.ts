@@ -29,10 +29,22 @@ export type KfmDeliveryTotals = {
   under95Count: number;
 };
 
+export type KfmDispatchJevQuantity = {
+  poNumber: string;
+  qty: number;
+};
+
 export type KfmDispatchPhoto = {
   id: string;
   storagePath: string;
   createdAt: string | null;
+  savedAt: string | null;
+  jevStatus: string | null;
+  jevKind: string | null;
+  jevPoNumbers: string[];
+  jevQuantities: KfmDispatchJevQuantity[];
+  jevSummary: string | null;
+  jevMismatch: boolean | null;
 };
 
 export type KfmDailyDeliveryReport = {
@@ -83,6 +95,51 @@ function asBoolean(value: unknown): boolean {
   return value === true || value === 1 || value === "1" || value === "true";
 }
 
+function asNullableBoolean(value: unknown): boolean | null {
+  if (value === null || value === undefined || value === "") return null;
+  if (value === true || value === 1 || value === "1" || value === "true") return true;
+  if (value === false || value === 0 || value === "0" || value === "false") return false;
+  return null;
+}
+
+function asTextArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string") continue;
+    const text = item.trim();
+    if (text === "" || seen.has(text)) continue;
+    seen.add(text);
+    result.push(text);
+  }
+  return result;
+}
+
+function asQuantities(value: unknown): KfmDispatchJevQuantity[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const result: KfmDispatchJevQuantity[] = [];
+  for (const item of value) {
+    const row = asRecord(item);
+    const poNumber = asText(row.po_number ?? row.poNumber).trim();
+    const qty = asNumber(row.qty);
+    if (poNumber === "" || qty === null || seen.has(poNumber)) continue;
+    seen.add(poNumber);
+    result.push({ poNumber, qty });
+  }
+  return result;
+}
+
+/** Vietnamese labels for the four document kinds the server stores. */
+export function jevKindLabel(kind: string | null | undefined): string {
+  if (kind === "phieu_xuat_kho") return "Phiếu xuất kho";
+  if (kind === "bien_ban_giao_hang") return "Biên bản giao hàng";
+  if (kind === "hoa_don") return "Hoá đơn";
+  if (kind === "khac") return "Khác";
+  return "";
+}
+
 function parseDeliveryRow(value: unknown): KfmDeliveryRow | null {
   const row = asRecord(value);
   if (Object.keys(row).length === 0) return null;
@@ -116,6 +173,13 @@ function parsePhoto(value: unknown): KfmDispatchPhoto | null {
     id: asText(row.id),
     storagePath: asText(row.storage_path ?? row.storagePath),
     createdAt: asNullableText(row.created_at ?? row.createdAt),
+    savedAt: asNullableText(row.saved_at ?? row.savedAt),
+    jevStatus: asNullableText(row.jev_status ?? row.jevStatus),
+    jevKind: asNullableText(row.jev_kind ?? row.jevKind),
+    jevPoNumbers: asTextArray(row.jev_po_numbers ?? row.jevPoNumbers),
+    jevQuantities: asQuantities(row.jev_quantities ?? row.jevQuantities),
+    jevSummary: asNullableText(row.jev_summary ?? row.jevSummary),
+    jevMismatch: asNullableBoolean(row.jev_mismatch ?? row.jevMismatch),
   };
 }
 

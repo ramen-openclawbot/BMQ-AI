@@ -23,7 +23,7 @@ from .warehouse import Warehouse, atomic_json
 
 PROJECT = 'cxntbdvfsikwmitapony'
 TENANT = PROJECT + '.supabase.co'
-VERSION = 'bmq-supabase-raw-v15'
+VERSION = 'bmq-supabase-raw-v16'
 MAX_ROWS = 50000
 MAX_BYTES = 128 * 1024 * 1024
 # Canonical cost-reporting columns required to reproduce
@@ -151,6 +151,11 @@ FIELDS = {
     'kfm_daily_material_issues': 'id issue_number issue_date revision status total_amount printed_at created_at updated_at',
     'kfm_daily_material_issue_items': 'id issue_id canonical_material_id material_code ingredient_name required_qty unit unit_cost amount sort_order created_at',
     'kfm_daily_material_issue_sources': 'id issue_id production_order_id source_po_inbox_id production_number po_number created_at',
+    # R12 dispatch-report evidence: the actual delivered quantity per KFM PO and
+    # the saved photo metadata/Jev result. Image bytes stay in the private
+    # bucket; only the storage path and the typed Jev fields are projected.
+    'kfm_po_deliveries': 'id po_number customer_po_inbox_id delivery_date po_qty delivered_qty source updated_at created_at',
+    'dispatch_report_photos': 'id report_date storage_path saved_at size_bytes width height jev_status jev_kind jev_po_numbers jev_quantities jev_summary jev_mismatch jev_prompt_version jev_checked_at created_at',
     # R4 transport only: signed movements, balances and reservations remain
     # separate facts; never sum different units or infer customer delivery.
     'goods_receipt_items': 'id goods_receipt_id sku_id product_name quantity unit inventory_item_id created_at expiry_date purchase_order_item_id ordered_quantity actual_quantity unit_price line_status canonical_material_id material_resolution_status',

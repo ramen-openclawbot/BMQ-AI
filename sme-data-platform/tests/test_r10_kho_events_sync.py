@@ -23,8 +23,8 @@ ACTOR = '11111111-1111-1111-1111-111111111111'
 ITEM = '22222222-2222-2222-2222-222222222222'
 
 
-def test_r11_projection_is_scalar_uuid_only_and_raw_v15():
-    assert VERSION == 'bmq-supabase-raw-v15'
+def test_r11_projection_is_scalar_uuid_only_and_raw_v16():
+    assert VERSION == 'bmq-supabase-raw-v16'
     assert TABLES <= FIELDS.keys()
     for table, fields in EXPECTED.items():
         assert FIELDS[table].split() == fields

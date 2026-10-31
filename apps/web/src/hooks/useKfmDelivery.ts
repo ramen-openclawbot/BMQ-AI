@@ -111,9 +111,21 @@ export function useSetKfmDeliveredQty() {
   });
 }
 
+export type DispatchReportPhotoMeta = {
+  sizeBytes?: number | null;
+  width?: number | null;
+  height?: number | null;
+};
+
+function optionalDimension(value: number | null | undefined): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return null;
+  return Math.round(value);
+}
+
 export async function uploadDispatchReportPhoto(
   date: string,
   file: File,
+  meta: DispatchReportPhotoMeta = {},
 ): Promise<KfmDispatchPhoto> {
   const day = normalizeReportDate(date);
   const storagePath = `${day}/${crypto.randomUUID()}.${fileExtension(file)}`;
@@ -130,6 +142,9 @@ export async function uploadDispatchReportPhoto(
     {
       p_date: day,
       p_storage_path: storagePath,
+      p_size_bytes: optionalDimension(meta.sizeBytes),
+      p_width: optionalDimension(meta.width),
+      p_height: optionalDimension(meta.height),
     },
   );
   if (rpcError) {
@@ -173,12 +188,72 @@ export async function getDispatchReportPhotoUrl(
   return data.signedUrl;
 }
 
+export type KfmSaveDispatchPhotoResult = {
+  id: string;
+  status: "done" | "failed" | "skipped";
+  kind: string | null;
+  mismatch: boolean | null;
+};
+
+export type KfmSaveDispatchReportResult = {
+  saved: string[];
+  results: KfmSaveDispatchPhotoResult[];
+};
+
+export type SaveDispatchReportInput = {
+  date: string;
+  photoIds: string[];
+};
+
+/**
+ * Save the selected photos for one day and let the Edge Function classify the
+ * saved images with Jev. The function receives only ids; the database decides
+ * whether this caller may save, and Jev never sees the API key.
+ */
+export function useSaveDispatchReport() {
+  const queryClient = useQueryClient();
+
+  return useMutation<KfmSaveDispatchReportResult, Error, SaveDispatchReportInput>({
+    mutationFn: async (input) => {
+      const day = normalizeReportDate(input.date);
+      if (!Array.isArray(input.photoIds) || input.photoIds.length === 0) {
+        throw new Error("invalid_photo_ids");
+      }
+      if (input.photoIds.length > 10) {
+        throw new Error("too_many_photos");
+      }
+      const { data, error } = await supabase.functions.invoke(
+        "dispatch-report-jev",
+        { body: { date: day, photo_ids: input.photoIds } },
+      );
+      if (error) throw error;
+      const result = (data ?? {}) as Partial<KfmSaveDispatchReportResult>;
+      return {
+        saved: Array.isArray(result.saved) ? result.saved : [],
+        results: Array.isArray(result.results) ? result.results : [],
+      };
+    },
+    onSuccess: async (_data, variables) => {
+      await queryClient.invalidateQueries({
+        queryKey: [
+          "kfm-daily-delivery-report",
+          normalizeReportDate(variables.date),
+        ],
+      });
+    },
+  });
+}
+
 export function useDispatchReportPhotos() {
   const queryClient = useQueryClient();
 
   return {
-    uploadDispatchReportPhoto: async (date: string, file: File) => {
-      const photo = await uploadDispatchReportPhoto(date, file);
+    uploadDispatchReportPhoto: async (
+      date: string,
+      file: File,
+      meta: DispatchReportPhotoMeta = {},
+    ) => {
+      const photo = await uploadDispatchReportPhoto(date, file, meta);
       await queryClient.invalidateQueries({
         queryKey: [
           "kfm-daily-delivery-report",

@@ -4,11 +4,12 @@ import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import {
   useDispatchReportPhotos,
+  useSaveDispatchReport,
   useKfmDailyDeliveryReport,
   useKfmDeliveryVsPo,
   useSetKfmDeliveredQty,
 } from "@/hooks/useKfmDelivery";
-import { deliveryRatioBand, monthRange, type KfmDeliveryRow, type KfmDispatchPhoto } from "@/lib/kfm-delivery";
+import { deliveryRatioBand, jevKindLabel, monthRange, type KfmDeliveryRow, type KfmDispatchPhoto } from "@/lib/kfm-delivery";
 import { cn } from "@/lib/utils";
 import "@/styles/bmq-kfm-delivery.css";
 
@@ -209,6 +210,54 @@ function DeliveryLine({ row, canEdit }: { row: KfmDeliveryRow; canEdit: boolean 
   );
 }
 
+/**
+ * Shrink one photo on the device before upload (owner 01/11): long side 1600 px, JPEG 0.76.
+ * Text on a dispatch slip stays sharp enough for OCR while a 4 MB phone shot becomes ~300 KB.
+ */
+const PHOTO_MAX_SIDE = 1600;
+const PHOTO_QUALITY = 0.76;
+type StagedPhoto = { key: string; file: File; url: string; width: number; height: number; before: number };
+
+async function compressPhoto(file: File): Promise<StagedPhoto> {
+  const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" } as ImageBitmapOptions);
+  try {
+    const scale = Math.min(1, PHOTO_MAX_SIDE / Math.max(bitmap.width, bitmap.height));
+    const width = Math.max(1, Math.round(bitmap.width * scale));
+    const height = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("canvas_unavailable");
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, width, height);
+    context.drawImage(bitmap, 0, 0, width, height);
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", PHOTO_QUALITY));
+    canvas.width = canvas.height = 1;
+    if (!blob) throw new Error("encode_failed");
+    const out = blob.size < file.size ? new File([blob], "xuat-kho.jpg", { type: "image/jpeg" }) : file;
+    return { key: crypto.randomUUID(), file: out, url: URL.createObjectURL(out), width, height, before: file.size };
+  } finally {
+    bitmap.close();
+  }
+}
+
+const kb = (bytes: number) => (bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toLocaleString("vi-VN", { maximumFractionDigits: 1 })} MB` : `${Math.round(bytes / 1024)} KB`);
+
+function JevChip({ photo }: { photo: KfmDispatchPhoto }) {
+  if (!photo.savedAt) return <span className="kd-jev is-wait">Chưa lưu</span>;
+  if (photo.jevStatus === "done") {
+    return (
+      <span className={cn("kd-jev", photo.jevMismatch ? "is-bad" : "is-ok")} title={photo.jevSummary ?? undefined}>
+        {jevKindLabel(photo.jevKind) || "Đã đọc"}{photo.jevMismatch ? " · lệch SL" : ""}
+      </span>
+    );
+  }
+  if (photo.jevStatus === "failed") return <span className="kd-jev is-bad">Jev chưa đọc được</span>;
+  if (photo.jevStatus === "skipped") return <span className="kd-jev is-wait">Đã lưu</span>;
+  return <span className="kd-jev is-wait">Jev đang đọc…</span>;
+}
+
 function PhotoThumb({ photo, canEdit, onRemove }: { photo: KfmDispatchPhoto; canEdit: boolean; onRemove: () => void }) {
   const { getDispatchReportPhotoUrl } = useDispatchReportPhotos();
   const [url, setUrl] = useState<string | null>(null);
@@ -225,6 +274,7 @@ function PhotoThumb({ photo, canEdit, onRemove }: { photo: KfmDispatchPhoto; can
       {canEdit ? (
         <button type="button" onClick={onRemove} aria-label="Xoá ảnh"><X /></button>
       ) : null}
+      <JevChip photo={photo} />
     </li>
   );
 }
@@ -234,25 +284,47 @@ export function KfmDailyDeliveryReport({ todayIso, canEdit }: { todayIso: string
   const [date, setDate] = useState(todayIso);
   const report = useKfmDailyDeliveryReport(date);
   const photos = useDispatchReportPhotos();
-  const [uploading, setUploading] = useState(false);
+  const saveReport = useSaveDispatchReport();
+  const [staged, setStaged] = useState<StagedPhoto[]>([]);
+  const [busy, setBusy] = useState<"" | "compress" | "save">("");
   const fileRef = useRef<HTMLInputElement>(null);
   const data = report.data;
+  const unsaved = (data?.photos ?? []).filter((photo) => !photo.savedAt);
+  useEffect(() => () => staged.forEach((item) => URL.revokeObjectURL(item.url)), [staged]);
+  useEffect(() => { setStaged([]); }, [date]);
 
-  const upload = async (files: FileList | null) => {
+  const pick = async (files: FileList | null) => {
     if (!files?.length) return;
-    setUploading(true);
+    setBusy("compress");
+    const next: StagedPhoto[] = [];
+    for (const file of Array.from(files).slice(0, 10 - staged.length)) {
+      if (!file.type.startsWith("image/")) continue;
+      try { next.push(await compressPhoto(file)); } catch { toast.error(`${file.name} chưa đọc được ảnh`); }
+    }
+    setStaged((prev) => [...prev, ...next]);
+    setBusy("");
+    if (fileRef.current) fileRef.current.value = "";
+  };
+
+  const save = async () => {
+    if (!staged.length && !unsaved.length) return;
+    setBusy("save");
     try {
-      for (const file of Array.from(files)) {
-        if (file.size > 10 * 1024 * 1024) { toast.error(`${file.name} lớn hơn 10 MB`); continue; }
-        await photos.uploadDispatchReportPhoto(date, file);
+      const ids = unsaved.map((photo) => photo.id);
+      for (const item of staged) {
+        const photo = await photos.uploadDispatchReportPhoto(date, item.file, { sizeBytes: item.file.size, width: item.width, height: item.height });
+        ids.push(photo.id);
       }
+      setStaged([]);
+      const result = await saveReport.mutateAsync({ date, photoIds: ids.slice(0, 10) });
       await report.refetch();
-      toast.success("Đã tải ảnh báo cáo xuất kho");
+      const mismatch = result.results.filter((r) => r.mismatch).length;
+      toast.success(mismatch ? `Đã lưu ${result.saved.length} ảnh · ${mismatch} ảnh lệch SL giao` : `Đã lưu ${result.saved.length} ảnh, Jev đã phân loại`);
     } catch {
-      toast.error("Chưa tải được ảnh. Thử lại.");
+      await report.refetch();
+      toast.error("Chưa lưu xong ảnh. Bấm Lưu lại.");
     } finally {
-      setUploading(false);
-      if (fileRef.current) fileRef.current.value = "";
+      setBusy("");
     }
   };
 
@@ -285,16 +357,35 @@ export function KfmDailyDeliveryReport({ todayIso, canEdit }: { todayIso: string
             photos.removeDispatchReportPhoto(photo).then(() => report.refetch()).catch(() => toast.error("Chưa xoá được ảnh."));
           }} />
         ))}
-        {canEdit ? (
+        {staged.map((item) => (
+          <li key={item.key} className="kd-photo is-staged" data-bmq-kfm-daily-staged>
+            <img src={item.url} alt="Ảnh chờ lưu" />
+            <button type="button" onClick={() => setStaged((prev) => prev.filter((p) => p.key !== item.key))} aria-label="Bỏ ảnh"><X /></button>
+            <span className="kd-jev is-wait">{kb(item.file.size)}</span>
+          </li>
+        ))}
+        {canEdit && staged.length + (data?.photos.length ?? 0) < 10 ? (
           <li>
-            <button type="button" className="kd-photo-add" onClick={() => fileRef.current?.click()} disabled={uploading} data-bmq-kfm-daily-photo-add>
-              {uploading ? <Loader2 className="animate-spin" /> : <Camera />}
-              <span>{uploading ? "Đang tải" : "Thêm ảnh"}</span>
+            <button type="button" className="kd-photo-add" onClick={() => fileRef.current?.click()} disabled={busy !== ""} data-bmq-kfm-daily-photo-add>
+              {busy === "compress" ? <Loader2 className="animate-spin" /> : <Camera />}
+              <span>{busy === "compress" ? "Đang nén" : "Thêm ảnh"}</span>
             </button>
-            <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={(e) => void upload(e.target.files)} />
+            <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={(e) => void pick(e.target.files)} />
           </li>
         ) : null}
       </ul>
+      {canEdit && (staged.length || unsaved.length) ? (
+        <div className="kd-save">
+          <span>
+            {staged.length ? `${staged.length} ảnh mới · ${kb(staged.reduce((n, i) => n + i.file.size, 0))}` : ""}
+            {staged.length && staged.some((i) => i.before > i.file.size) ? ` (gốc ${kb(staged.reduce((n, i) => n + i.before, 0))})` : ""}
+            {unsaved.length ? `${staged.length ? " · " : ""}${unsaved.length} ảnh chưa lưu` : ""}
+          </span>
+          <button type="button" className="kd-open" onClick={() => void save()} disabled={busy !== ""} data-bmq-kfm-daily-save>
+            {busy === "save" ? "Đang lưu…" : "Lưu"}
+          </button>
+        </div>
+      ) : null}
       {!canEdit && !(data?.photos ?? []).length ? <p className="kd-quiet">Chưa có ảnh.</p> : null}
     </section>
   );

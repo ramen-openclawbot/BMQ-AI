@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   deliveryRatioBand,
+  jevKindLabel,
   monthRange,
   parseKfmDailyDeliveryReport,
   parseKfmDeliveryVsPo,
@@ -116,6 +117,64 @@ test("parses the daily report with default rows and photos", () => {
   assert.equal(report.photos.length, 1);
   assert.equal(report.photos[0].storagePath, "2026-10-31/photo-1.jpg");
   assert.equal(report.photos[0].createdAt, "2026-10-31T08:00:00Z");
+});
+
+test("parses saved/Jev photo fields and degrades when they are missing", () => {
+  const report = parseKfmDailyDeliveryReport({
+    date: "2026-11-01",
+    photos: [
+      {
+        id: "photo-1",
+        storage_path: "2026-11-01/photo-1.jpg",
+        created_at: "2026-11-01T08:00:00Z",
+        saved_at: "2026-11-01T09:00:00Z",
+        jev_status: "done",
+        jev_kind: "phieu_xuat_kho",
+        jev_po_numbers: ["PO1000000001", "PO1000000002", "PO1000000001"],
+        jev_quantities: [
+          { po_number: "PO1000000001", qty: "100.5" },
+          { po_number: "PO1000000002", qty: 50 },
+          { po_number: "bad", qty: "n/a" },
+        ],
+        jev_summary: "Phiếu xuất kho",
+        jev_mismatch: false,
+      },
+      {
+        id: "photo-2",
+        storage_path: "2026-11-01/photo-2.jpg",
+      },
+    ],
+  });
+
+  assert.equal(report.photos.length, 2);
+  assert.equal(report.photos[0].savedAt, "2026-11-01T09:00:00Z");
+  assert.equal(report.photos[0].jevStatus, "done");
+  assert.equal(report.photos[0].jevKind, "phieu_xuat_kho");
+  assert.deepEqual(report.photos[0].jevPoNumbers, ["PO1000000001", "PO1000000002"]);
+  assert.deepEqual(report.photos[0].jevQuantities, [
+    { poNumber: "PO1000000001", qty: 100.5 },
+    { poNumber: "PO1000000002", qty: 50 },
+  ]);
+  assert.equal(report.photos[0].jevSummary, "Phiếu xuất kho");
+  assert.equal(report.photos[0].jevMismatch, false);
+
+  assert.equal(report.photos[1].savedAt, null);
+  assert.equal(report.photos[1].jevStatus, null);
+  assert.equal(report.photos[1].jevKind, null);
+  assert.deepEqual(report.photos[1].jevPoNumbers, []);
+  assert.deepEqual(report.photos[1].jevQuantities, []);
+  assert.equal(report.photos[1].jevSummary, null);
+  assert.equal(report.photos[1].jevMismatch, null);
+});
+
+test("labels the four Jev document kinds in Vietnamese", () => {
+  assert.equal(jevKindLabel("phieu_xuat_kho"), "Phiếu xuất kho");
+  assert.equal(jevKindLabel("bien_ban_giao_hang"), "Biên bản giao hàng");
+  assert.equal(jevKindLabel("hoa_don"), "Hoá đơn");
+  assert.equal(jevKindLabel("khac"), "Khác");
+  assert.equal(jevKindLabel(null), "");
+  assert.equal(jevKindLabel(undefined), "");
+  assert.equal(jevKindLabel("unknown"), "");
 });
 
 test("missing daily payload becomes an empty report", () => {
