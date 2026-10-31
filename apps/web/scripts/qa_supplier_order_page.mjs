@@ -87,7 +87,10 @@ function catalog(id) {
 }
 function history(id) {
   const mine = JSON.parse(localStorage.getItem("qa-orders") || "[]").filter((row) => row.supplier_id === id);
-  if (id === TV) mine.push({ id: "h-tv", request_id: "r-tv", po_number: "PO-000862", total: "6750000", status: "sent", sent_at: "2026-10-23T05:09:25Z", to_email: "order@bmq.vn", created_at: "2026-10-23T05:09:22Z",
+  const tvCancel = JSON.parse(localStorage.getItem("qa-tv-cancel") || "null");
+  if (id === TV) mine.push({ id: "h-tv", request_id: "r-tv", po_number: "PO-000862", total: "6750000", status: tvCancel ? "cancelled" : "sent",
+    cancelled_at: tvCancel ? "2026-11-01T07:00:00Z" : null, cancel_reason: tvCancel ? tvCancel.reason : null, cancel_email_sent_at: tvCancel && !tvCancel.emailFailed ? "2026-11-01T07:00:05Z" : null,
+    subtotal: "6750000", vat_amount: "0", sent_at: "2026-10-23T05:09:25Z", to_email: "order@bmq.vn", created_at: "2026-10-23T05:09:22Z",
     lines: [{ position: 1, item_id: "3c16ed3f-54c7-427f-a316-5aa4fcadda5a", product_name: "BƠ PEERLESS", quantity: 75, unit: "kg", unit_price: 90000, line_total: 6750000 }],
     uploads: [{ file_name: "phieu-giao-hang-TV-Food.jpg", mime_type: "image/jpeg", size_bytes: 120000, created_at: "2026-10-23T08:00:00Z", storage_path: "h-tv/a.jpg" }], prepay: null,
     po_status: "sent", receipt: { id: "gr-1", receipt_number: "GRN-000607", status: "confirmed", finalized_at: null },
@@ -179,6 +182,11 @@ export const supabase = {
   functions: { invoke: async (name, options) => {
     window.__qaCalls.push("invoke:" + name + ":" + JSON.stringify(options?.body ?? {}));
     const b = options?.body ?? {};
+    if (name === "supplier-order-send" && b.action === "cancel") {
+      const emailFailed = cfg().cancelEmailFails === true && !localStorage.getItem("qa-tv-cancel");
+      localStorage.setItem("qa-tv-cancel", JSON.stringify({ reason: b.reason, emailFailed }));
+      return { data: { status: "cancelled", po_number: "PO-000862", email: emailFailed ? "failed" : "sent", zalo_queued: true }, error: null };
+    }
     if (name !== "supplier-order-send" || !Array.isArray(b.lines)) return { data: null, error: { message: "QA fixture: functions disabled" } };
     const c = catalog(b.supplier_id);
     const { lines, subtotal, vat, total } = priced(b);
@@ -510,6 +518,36 @@ try {
     assert.ok((await calls(tv2.page)).find((c) => c.includes('"mode":"send"')).includes('"prepay":false'), "unticked gối đầu sends prepay false");
     await tv2.context.close();
     pass(`TV Food: gối đầu on/off, open PO, uploads @${vp.width}`);
+
+    // Xem chi tiết + huỷ đơn: tap the row, read lines/totals, cancel with a reason.
+    const tv3 = await open({ cancelEmailFails: true }, `/dat-hang?ncc=${TV}`, vp);
+    await tv3.page.waitForSelector("[data-bmq-so-hist-open='h-tv']");
+    assert.equal(await tv3.page.locator("[data-bmq-so-detail]").count(), 0, "detail closed by default");
+    await tv3.page.locator("[data-bmq-so-hist-open='h-tv']").click();
+    await tv3.page.waitForSelector("[data-bmq-so-detail='h-tv']");
+    const detail = await tv3.page.locator("[data-bmq-so-detail='h-tv']").innerText();
+    assert.ok(/BƠ PEERLESS/.test(detail) && /75 kg/.test(detail) && /90\.000 đ/.test(detail) && /6\.750\.000 đ/.test(detail) && /order@bmq\.vn/.test(detail), `detail ${detail}`);
+    await tv3.page.locator("[data-bmq-so-cancel-open]").click();
+    assert.ok(await tv3.page.locator("[data-bmq-so-cancel-confirm]").isDisabled(), "cancel needs a reason");
+    await noSpill(tv3.page, "cancel form", vp);
+    await shot(tv3.page, `cancel-form-${vp.width}.png`);
+    await tv3.page.locator("[data-bmq-so-cancel-reason]").fill("Đặt nhầm số lượng");
+    await tv3.page.locator("[data-bmq-so-cancel-confirm]").click();
+    await tv3.page.waitForFunction(() => document.body.innerText.includes("chưa gửi được email huỷ"));
+    const cancelCall = (await calls(tv3.page)).find((c) => c.includes('"action":"cancel"'));
+    assert.ok(cancelCall && cancelCall.includes('"reason":"Đặt nhầm số lượng"') && cancelCall.includes('"request_id":"h-tv"'), `cancel call ${cancelCall}`);
+    await tv3.page.waitForFunction(() => document.querySelector("[data-bmq-so-history]")?.textContent?.includes("Đã huỷ"));
+    if (!(await tv3.page.locator("[data-bmq-so-detail='h-tv']").count())) await tv3.page.locator("[data-bmq-so-hist-open='h-tv']").click();
+    await tv3.page.waitForSelector("[data-bmq-so-cancel-resend]");
+    assert.equal(await tv3.page.locator("[data-bmq-so-cancel-open]").count(), 0, "a cancelled order has no cancel button");
+    assert.match(await tv3.page.locator("[data-bmq-so-detail='h-tv']").innerText(), /Lý do huỷ\s*Đặt nhầm số lượng/);
+    await noSpill(tv3.page, "cancelled detail", vp);
+    await shot(tv3.page, `cancelled-${vp.width}.png`);
+    await tv3.page.locator("[data-bmq-so-cancel-resend]").click();
+    await tv3.page.waitForFunction(() => !document.querySelector("[data-bmq-so-cancel-resend]"));
+    assert.deepEqual(tv3.errors, [], `cancel errors @${vp.width}`);
+    await tv3.context.close();
+    pass(`Đơn đã gửi: xem chi tiết, huỷ có lý do, gửi lại email huỷ @${vp.width}`);
   }
 
   // Catalog: add a delivered item, remove one.
@@ -693,7 +731,7 @@ try {
       const btn = document.querySelector("[data-bmq-so-make]").getBoundingClientRect();
       const fab = document.querySelector(".ac-launcher")?.getBoundingClientRect();
       const hit = fab && !(fab.right <= btn.left || fab.left >= btn.right || fab.bottom <= btn.top || fab.top >= btn.bottom);
-      return { clip: box.scrollWidth - box.clientWidth, leftPad: Math.round(total.left - bar.left), rightPad: Math.round(bar.right - btn.right), hit: Boolean(hit), btnW: Math.round(btn.width) };
+      const m = document.querySelector(".d3-main"); const card = document.querySelector("[data-bmq-so-submit]").parentElement; return { clip: box.scrollWidth - box.clientWidth, leftPad: Math.round(total.left - bar.left), rightPad: Math.round(bar.right - btn.right), hit: Boolean(hit), btnW: Math.round(btn.width) };
     }, boxId);
     assert.ok(fit.clip <= 0, `quantity 12500 clipped ${JSON.stringify(fit)}`);
     assert.ok(!fit.hit, `button under the launcher ${JSON.stringify(fit)}`);

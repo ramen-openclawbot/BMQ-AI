@@ -280,6 +280,32 @@ html.bmq-d3 .d3-so-submit > button:disabled { opacity: 1; background: var(--kho-
 .d3-so-chain dt { min-width: 76px; color: var(--d3-dim); }
 .d3-so-chain dd { margin: 0; color: var(--d3-ink-2); overflow-wrap: anywhere; }
 .d3-so-chain dd.is-ok { color: var(--kho-ok); }
+/* Đơn đã gửi: tap a row to open its detail (lines, totals, cancel). */
+.d3-so-hist-toggle { display: grid; gap: 4px; width: 100%; min-width: 0; margin: 0; padding: 0; border: 0; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.d3-so-hist-toggle:focus-visible { outline: 2px solid var(--d3-ink); outline-offset: 4px; border-radius: 6px; }
+.d3-so-hist-chev { flex: none; width: 16px; height: 16px; color: var(--d3-dim); transition: transform 160ms ease; }
+.d3-so-hist-toggle[aria-expanded="true"] .d3-so-hist-chev { transform: rotate(180deg); }
+.d3-so-hist > li.is-cancelled .d3-so-hist-head > b,
+.d3-so-hist > li.is-cancelled .d3-so-hist-lines { text-decoration: line-through; text-decoration-color: var(--d3-dim); }
+.d3-so-order-detail { display: grid; gap: 10px; margin-top: 6px; padding: 12px; border-radius: 12px; background: var(--kho-muted); }
+.d3-so-detail-lines { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+.d3-so-detail-lines th { padding: 0 6px 6px 0; font-weight: 500; text-align: left; color: var(--d3-dim); }
+.d3-so-detail-lines td { padding: 6px 6px 6px 0; vertical-align: top; color: var(--d3-ink-2); box-shadow: 0 -1px 0 var(--d3-line); overflow-wrap: anywhere; }
+.d3-so-detail-lines th:not(:first-child), .d3-so-detail-lines td:not(:first-child) { text-align: right; white-space: nowrap; }
+.d3-so-detail-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.d3-so-cancel-btn { color: var(--kho-bad); }
+.d3-so-cancel { display: grid; gap: 10px; }
+.d3-so-cancel-warn { display: flex; gap: 8px; margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--kho-bad-bg); color: var(--kho-bad); font-size: 13px; line-height: 1.45; }
+.d3-so-cancel-warn svg { flex: none; width: 16px; height: 16px; margin-top: 1px; }
+@media (max-width: 520px) {
+  .d3-so-detail-lines thead { display: none; }
+  .d3-so-detail-lines tr { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; padding: 8px 0; box-shadow: 0 -1px 0 var(--d3-line); }
+  .d3-so-detail-lines td { padding: 0; box-shadow: none; }
+  .d3-so-detail-lines td:first-child { grid-column: 1 / -1; color: var(--d3-ink); }
+  .d3-so-detail-lines td:nth-child(2) { grid-column: 1; grid-row: 2; text-align: left; }
+  .d3-so-detail-lines td:nth-child(3) { grid-column: 1; grid-row: 3; text-align: left; color: var(--d3-dim); }
+  .d3-so-detail-lines td:nth-child(4) { grid-column: 2; grid-row: 2; }
+}
 
 @keyframes d3-so-in {
   from { opacity: 0; transform: translateY(4px); }

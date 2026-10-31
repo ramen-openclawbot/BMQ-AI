@@ -10,6 +10,7 @@ import {
   normalizeSupplierOrderSearch,
   parsePreparedSupplierOrder,
   parseSendSupplierOrderLinesResult,
+  parseSupplierOrderCancelResult,
   parseSupplierOrderCatalog,
   parseSupplierOrderCatalogCandidates,
   parseSupplierOrderHistory,
@@ -559,6 +560,74 @@ test("parses a multi send result and its prepay", () => {
   assert.equal(result.prepay?.submissionNumber, "TC-261023-01");
   assert.equal(parseSendSupplierOrderLinesResult(null), null);
   assert.equal(parseSendSupplierOrderLinesResult("nope"), null);
+});
+
+test("parses a cancel result and tolerates missing fields", () => {
+  assert.deepEqual(
+    parseSupplierOrderCancelResult({
+      status: "cancelled",
+      po_number: "PO-7",
+      email: "sent",
+      zalo_queued: true,
+    }),
+    {
+      status: "cancelled",
+      poNumber: "PO-7",
+      email: "sent",
+      zaloQueued: true,
+      code: null,
+    },
+  );
+
+  assert.deepEqual(
+    parseSupplierOrderCancelResult({
+      status: "cancelled",
+      email: "failed",
+      code: "email_failed",
+    }),
+    {
+      status: "cancelled",
+      poNumber: null,
+      email: "failed",
+      zaloQueued: false,
+      code: "email_failed",
+    },
+  );
+
+  assert.equal(parseSupplierOrderCancelResult({ status: "sent" }), null);
+  assert.equal(parseSupplierOrderCancelResult(null), null);
+});
+
+test("parses cancelled history rows with the cancellation reason", () => {
+  const history = parseSupplierOrderHistoryBySupplier({
+    items: [
+      {
+        id: "row-cancelled",
+        request_id: "req-cancelled",
+        po_number: "PO-CANCELLED",
+        po_status: "cancelled",
+        status: "cancelled",
+        sent_at: "2026-10-28T03:00:00Z",
+        created_at: "2026-10-28T02:00:00Z",
+        cancelled_at: "2026-10-29T03:00:00Z",
+        cancel_reason: "Nhà cung cấp hết hàng",
+        cancel_email_sent_at: "2026-10-29T03:01:00Z",
+      },
+      {
+        id: "row-old",
+        request_id: "req-old",
+        status: "sent",
+      },
+    ],
+  });
+
+  assert.equal(history[0].status, "cancelled");
+  assert.equal(history[0].cancelledAt, "2026-10-29T03:00:00Z");
+  assert.equal(history[0].cancelReason, "Nhà cung cấp hết hàng");
+  assert.equal(history[0].cancelEmailSentAt, "2026-10-29T03:01:00Z");
+  assert.equal(history[1].cancelledAt, null);
+  assert.equal(history[1].cancelReason, null);
+  assert.equal(history[1].cancelEmailSentAt, null);
 });
 
 test("parses supplier history with lines, uploads and prepay", () => {

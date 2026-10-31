@@ -15,6 +15,8 @@ import {
   buildSupplierOrderEmailLines,
   type SupplierOrderEmailLine,
 } from "../_shared/supplier-order-email.ts";
+import { buildSupplierOrderCancelEmail } from "../_shared/supplier-order-cancel-email.ts";
+import { mapCancelError } from "./cancel.ts";
 import {
   parseDeliveryChoice,
   resolveDeliveries,
@@ -326,6 +328,132 @@ Deno.serve(async (req) => {
     }
 
     requestId = String(body.request_id ?? "").trim();
+
+    // ------------------------------------------------------------------
+    // Cancel an already-sent supplier order. Permission is enforced by the
+    // cancel_supplier_order RPC with the caller's JWT; the service role only
+    // marks the cancel email as sent after Gmail accepts it.
+    // ------------------------------------------------------------------
+    if (String(body.action ?? "").trim() === "cancel") {
+      const cancelRequestId = requestId;
+      if (!UUID_RE.test(cancelRequestId)) {
+        return respond({ code: "invalid_request_id" }, 400, "invalid_request_id");
+      }
+      const cancelReason = typeof body.reason === "string" ? body.reason : "";
+
+      // Check the Gmail connection before cancelling anything: a revoked
+      // order@bmq.vn token must not cancel the PO while no cancellation email
+      // can be sent.
+      let accessToken: string;
+      try {
+        accessToken = await getGmailAccessToken(admin as any, "order_gmail_refresh_token");
+      } catch (tokenError) {
+        logGmailFailure(cancelRequestId, tokenError);
+        const failure = sendFailureCode(tokenError);
+        return respond({ code: failure }, 502, failure);
+      }
+
+      const userDb = createClient(supabaseUrl, anonKey, {
+        global: { headers: { Authorization: `Bearer ${token}` } },
+        auth: { persistSession: false, autoRefreshToken: false },
+      });
+      const cancelResult = await userDb.rpc("cancel_supplier_order", {
+        p_request_id: cancelRequestId,
+        p_reason: cancelReason,
+      });
+      if (cancelResult.error) {
+        const mapped = mapCancelError(cancelResult.error);
+        return respond(
+          mapped.message
+            ? { code: mapped.code, error: mapped.message }
+            : { code: mapped.code },
+          mapped.status,
+          mapped.code,
+        );
+      }
+
+      const cancelled = (cancelResult.data ?? {}) as Record<string, unknown>;
+      const poNumber = cancelled.po_number == null
+        ? null
+        : String(cancelled.po_number);
+      const zaloQueued = cancelled.zalo_queued === true;
+
+      if (String(cancelled.cancel_email_sent_at ?? "").trim() !== "") {
+        return respond(
+          {
+            status: "cancelled",
+            po_number: poNumber,
+            email: "already_sent",
+            zalo_queued: zaloQueued,
+          },
+          200,
+          "cancelled_already_sent",
+        );
+      }
+
+      const cancelLines = (Array.isArray(cancelled.lines) ? cancelled.lines : [])
+        .map((raw) => {
+          const line = (raw ?? {}) as Record<string, unknown>;
+          return {
+            productName: String(line.product_name ?? ""),
+            quantity: numberValue(line.quantity) ?? 0,
+            unit: String(line.unit ?? ""),
+          };
+        });
+      const mail = buildSupplierOrderCancelEmail({
+        poNumber: poNumber ?? "",
+        supplierName: String(cancelled.supplier_name ?? ""),
+        sentAt: cancelled.sent_at == null ? "" : String(cancelled.sent_at),
+        reason: String(cancelled.cancel_reason ?? cancelReason),
+        lines: cancelLines,
+        total: numberValue(cancelled.total),
+      });
+      const recipients = String(cancelled.to_email ?? "")
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean)
+        .join(", ");
+
+      try {
+        const sent = await sendGmail({
+          accessToken,
+          from: FROM_ADDRESS,
+          to: recipients,
+          replyTo: ORDER_MAILBOX,
+          subject: mail.subject,
+          html: mail.html,
+          text: mail.text,
+        });
+        await admin.rpc("mark_supplier_order_cancel_email", {
+          p_request_id: String(cancelled.request_id ?? cancelRequestId),
+          p_gmail_message_id: sent.id,
+        });
+        return respond(
+          {
+            status: "cancelled",
+            po_number: poNumber,
+            email: "sent",
+            zalo_queued: zaloQueued,
+          },
+          200,
+          "cancelled",
+        );
+      } catch (sendError) {
+        logGmailFailure(cancelRequestId, sendError);
+        const failure = sendFailureCode(sendError);
+        return respond(
+          {
+            status: "cancelled",
+            po_number: poNumber,
+            email: "failed",
+            code: failure,
+            zalo_queued: zaloQueued,
+          },
+          200,
+          failure,
+        );
+      }
+    }
 
     // ------------------------------------------------------------------
     // Multi-line supplier order (new page). The single-item body path below

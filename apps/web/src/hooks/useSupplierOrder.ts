@@ -2,19 +2,23 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import {
   parsePreparedSupplierOrder,
+  parseSupplierOrderCancelResult,
   parseSupplierOrderCatalog,
   parseSupplierOrderCatalogCandidates,
   parseSupplierOrderHistory,
   parseSupplierOrderHistoryBySupplier,
   parseSupplierOrderSuppliers,
   previewSupplierOrder,
+  readFunctionError,
   sendSupplierOrder,
   sendSupplierOrderLines,
+  SupplierOrderClientError,
   type PreparedSupplierOrder,
   type SendSupplierOrderInput,
   type SendSupplierOrderLinesInput,
   type SendSupplierOrderLinesResult,
   type SendSupplierOrderResult,
+  type SupplierOrderCancelResult,
   type SupplierOrderCatalog,
   type SupplierOrderCatalogCandidate,
   type SupplierOrderHistoryBySupplierEntry,
@@ -235,5 +239,61 @@ export function useSupplierOrderHistoryBySupplier(
       return parseSupplierOrderHistoryBySupplier(data);
     },
     staleTime: 15000,
+  });
+}
+
+export type CancelSupplierOrderInput = {
+  requestId: string;
+  reason: string;
+};
+
+export function useCancelSupplierOrder() {
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    SupplierOrderCancelResult,
+    Error,
+    CancelSupplierOrderInput
+  >({
+    mutationFn: async (input) => {
+      const { data, error } = await (supabase as any).functions.invoke(
+        "supplier-order-send",
+        {
+          body: {
+            action: "cancel",
+            request_id: input.requestId,
+            reason: input.reason,
+          },
+        },
+      );
+      if (error) {
+        const parsed = await readFunctionError(error);
+        throw new SupplierOrderClientError(
+          parsed.code,
+          parsed.message,
+          parsed.status,
+        );
+      }
+      const parsed = parseSupplierOrderCancelResult(data);
+      if (!parsed) {
+        throw new SupplierOrderClientError(
+          "cancel_failed",
+          "Không huỷ được đơn đặt hàng",
+        );
+      }
+      return parsed;
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["supplier-order-history-by-supplier"],
+        }),
+        queryClient.invalidateQueries({ queryKey: ["supplier-order-history"] }),
+        queryClient.invalidateQueries({ queryKey: ["supplier-order-catalog"] }),
+        queryClient.invalidateQueries({ queryKey: ["supplier-order-suppliers"] }),
+        queryClient.invalidateQueries({ queryKey: ["purchase-orders"] }),
+        queryClient.invalidateQueries({ queryKey: ["payment-requests"] }),
+      ]);
+    },
   });
 }

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ArrowLeft, Check, ChevronRight, FileText, Minus, Paperclip, Plus, Search, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Check, ChevronDown, ChevronRight, FileText, Minus, Paperclip, Plus, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { LoadingState } from "@/components/ui/loading";
@@ -10,6 +10,7 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   useOrderSuppliers,
   usePreviewSupplierOrder,
+  useCancelSupplierOrder,
   useSendSupplierOrderLines,
   useSetSupplierCatalogItem,
   useSetSupplierOrderEmail,
@@ -62,9 +63,13 @@ const ERROR_TEXT: Record<string, string> = {
   rate_limited: "Hôm nay đã gửi quá nhiều đơn. Thử lại sau.",
   invalid_delivery: "Địa chỉ giao chưa đúng. Kiểm tra lại địa chỉ, người nhận, số điện thoại.",
   delivery_unavailable: "Chưa cài địa chỉ Kho Tân Tạo. Chọn kho khác hoặc nhập địa chỉ.",
+  cancel_reason_required: "Ghi lý do huỷ để báo nhà cung cấp.",
+  order_not_found: "Không tìm thấy đơn này. Tải lại trang.",
+  order_not_cancellable: "Đơn này không còn huỷ được.",
+  cancel_failed: "Chưa huỷ được đơn. Thử lại.",
 };
 
-const STATUS_LABEL: Record<string, string> = { sent: "Đã gửi", failed: "Gửi lỗi", preparing: "Đang gửi" };
+const STATUS_LABEL: Record<string, string> = { sent: "Đã gửi", failed: "Gửi lỗi", preparing: "Đang gửi", cancelled: "Đã huỷ" };
 
 const RECEIPT_LABEL: Record<string, string> = { draft: "nháp", confirmed: "chờ kho xác nhận", received: "đã nhập kho" };
 const PR_LABEL: Record<string, string> = { pending: "chờ duyệt", approved: "đã duyệt", rejected: "từ chối" };
@@ -84,6 +89,9 @@ function errorText(error: unknown): string {
   // the page can still read data, but sending needs a fresh sign-in.
   if (error instanceof SupplierOrderClientError && error.status === 401) {
     return "Phiên đăng nhập đã hết hạn. Đăng xuất rồi đăng nhập lại để đặt hàng.";
+  }
+  if (error instanceof SupplierOrderClientError && (error.code === "cancel_has_receipt" || error.code === "cancel_has_payments")) {
+    return error.message && !/^[a-z_]+$/.test(error.message) ? error.message : "Không huỷ được: đơn đã nhập kho hoặc đã trả tiền.";
   }
   if (error instanceof SupplierOrderClientError) return ERROR_TEXT[error.code] ?? `Chưa thực hiện được (${error.code}). Thử lại.`;
   const code = (error as { code?: string } | null)?.code;
@@ -493,19 +501,124 @@ function CatalogAdder({ supplierId, onToast }: { supplierId: string; onToast: (t
   );
 }
 
-function History({ rows }: { rows: SupplierOrderHistoryBySupplierEntry[] }) {
+/** A sent order that is still open: no goods received, nothing paid, not cancelled. */
+function canCancel(row: SupplierOrderHistoryBySupplierEntry): boolean {
+  if (row.status !== "sent" || row.poStatus === "cancelled") return false;
+  if (row.receipt?.status === "received") return false;
+  const paid = row.payment?.paymentStatus;
+  return paid !== "paid" && paid !== "partial" && paid !== "overpaid";
+}
+
+function OrderDetail({ row, onToast }: { row: SupplierOrderHistoryBySupplierEntry; onToast: (text: string) => void }) {
+  const cancel = useCancelSupplierOrder();
+  const [confirming, setConfirming] = useState(false);
+  const [reason, setReason] = useState("");
+  const requestId = row.id ?? row.requestId ?? "";
+  const cancelled = row.status === "cancelled";
+  const run = (why: string) => cancel.mutate({ requestId, reason: why }, {
+    onSuccess: (value) => {
+      setConfirming(false);
+      setReason("");
+      const po = value.poNumber ?? row.poNumber ?? "đơn";
+      onToast(value.email === "failed"
+        ? `Đã huỷ ${po}, nhưng chưa gửi được email huỷ. Bấm Gửi lại email huỷ.`
+        : `Đã huỷ ${po} và báo nhà cung cấp${value.zaloQueued ? " qua email và Zalo" : " qua email"}`);
+    },
+  });
+  return (
+    <div className="d3-so-order-detail" data-bmq-so-detail={requestId}>
+      {row.lines.length ? (
+        <table className="d3-so-detail-lines">
+          <thead><tr><th>Món</th><th>Số lượng</th><th>Đơn giá</th><th>Thành tiền</th></tr></thead>
+          <tbody>
+            {row.lines.map((line) => (
+              <tr key={`${line.position}-${line.itemId}`}>
+                <td>{line.productName}</td>
+                <td>{formatQuantity(line.quantity)} {line.unit}</td>
+                <td>{line.unitPrice !== null ? formatVnd(line.unitPrice) : "—"}</td>
+                <td>{line.lineTotal !== null ? formatVnd(line.lineTotal) : "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : null}
+      <dl className="d3-so-chain">
+        {row.subtotal !== null ? <div><dt>Tiền hàng</dt><dd>{formatVnd(row.subtotal)}</dd></div> : null}
+        {row.vatAmount !== null && row.vatAmount > 0 ? <div><dt>Thuế GTGT</dt><dd>{formatVnd(row.vatAmount)}</dd></div> : null}
+        {row.toEmail ? <div><dt>Gửi tới</dt><dd>{row.toEmail}</dd></div> : null}
+        {row.sentAt ? <div><dt>Lúc gửi</dt><dd>{new Date(row.sentAt).toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh", hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit", year: "numeric" })}</dd></div> : null}
+        {cancelled ? (
+          <>
+            <div><dt>Lý do huỷ</dt><dd>{row.cancelReason ?? "—"}</dd></div>
+            <div><dt>Email huỷ</dt><dd className={cn(row.cancelEmailSentAt && "is-ok")}>{row.cancelEmailSentAt ? `đã gửi ${dmy(row.cancelEmailSentAt)}` : "chưa gửi được"}</dd></div>
+          </>
+        ) : null}
+      </dl>
+
+      {cancel.isError ? <p className="d3-kho-error" role="alert" data-bmq-so-cancel-error>{errorText(cancel.error)}</p> : null}
+
+      {cancelled && !row.cancelEmailSentAt ? (
+        <div className="d3-so-detail-actions">
+          <Button size="sm" variant="outline" disabled={cancel.isPending} onClick={() => run(row.cancelReason ?? "Huỷ đơn")} data-bmq-so-cancel-resend>
+            {cancel.isPending ? "Đang gửi…" : "Gửi lại email huỷ"}
+          </Button>
+        </div>
+      ) : null}
+
+      {canCancel(row) && !confirming ? (
+        <div className="d3-so-detail-actions">
+          <Button size="sm" variant="outline" className="d3-so-cancel-btn" onClick={() => { cancel.reset(); setConfirming(true); }} data-bmq-so-cancel-open>
+            <X aria-hidden="true" /> Huỷ đơn
+          </Button>
+        </div>
+      ) : null}
+
+      {canCancel(row) && confirming ? (
+        <form className="d3-so-cancel" data-bmq-so-cancel-form
+          onSubmit={(event) => { event.preventDefault(); if (reason.trim()) run(reason.trim()); }}>
+          <p className="d3-so-cancel-warn">
+            <AlertTriangle aria-hidden="true" />
+            Huỷ {row.poNumber ?? "đơn"}: PO và phiếu chi chưa trả sẽ bị huỷ. Nhà cung cấp nhận email huỷ{" "}và tin Zalo (nếu có nhóm).
+          </p>
+          <label className="d3-kho-field">
+            <span>Lý do huỷ (gửi kèm cho nhà cung cấp)</span>
+            <textarea className="d3-kho-notearea" rows={2} maxLength={500} value={reason} autoFocus
+              onChange={(event) => setReason(event.target.value)} placeholder="Ví dụ: đặt nhầm số lượng" data-bmq-so-cancel-reason />
+          </label>
+          <div className="d3-so-detail-actions">
+            <Button type="button" size="sm" variant="outline" disabled={cancel.isPending} onClick={() => setConfirming(false)}>Thôi</Button>
+            <Button type="submit" size="sm" variant="destructive" disabled={!reason.trim() || cancel.isPending} data-bmq-so-cancel-confirm>
+              {cancel.isPending ? "Đang huỷ…" : "Huỷ đơn và báo NCC"}
+            </Button>
+          </div>
+        </form>
+      ) : null}
+    </div>
+  );
+}
+
+function History({ rows, onToast }: { rows: SupplierOrderHistoryBySupplierEntry[]; onToast: (text: string) => void }) {
+  const [open, setOpen] = useState<string | null>(null);
   if (!rows.length) return <p className="d3-kho-hint" data-bmq-so-history-empty>Chưa có đơn nào gửi qua email cho nhà cung cấp này.</p>;
   return (
     <ul className="d3-so-hist" data-bmq-so-history>
-      {rows.map((row) => (
-        <li key={row.id ?? row.requestId ?? row.poNumber ?? ""}>
+      {rows.map((row) => {
+        const key = row.id ?? row.requestId ?? row.poNumber ?? "";
+        const expanded = open === key;
+        const cancelled = row.status === "cancelled";
+        return (
+        <li key={key} className={cn(cancelled && "is-cancelled")}>
+          <button type="button" className="d3-so-hist-toggle" aria-expanded={expanded} onClick={() => setOpen(expanded ? null : key)} data-bmq-so-hist-open={key}>
           <div className="d3-so-hist-head">
             <b>{row.poNumber ?? "PO chưa tạo"}</b>
             <span>{dmy(row.sentAt ?? row.createdAt)}</span>
-            <span className={cn("d3-so-status", row.status === "failed" && "is-bad", row.status === "sent" && "is-ok")}>{STATUS_LABEL[row.status] ?? row.status}</span>
+            <span className={cn("d3-so-status", (row.status === "failed" || cancelled) && "is-bad", row.status === "sent" && "is-ok")}>{STATUS_LABEL[row.status] ?? row.status}</span>
             <b className="d3-so-hist-total">{row.total !== null ? formatVnd(row.total) : ""}</b>
+            <ChevronDown aria-hidden="true" className="d3-so-hist-chev" />
           </div>
           <p className="d3-so-hist-lines">{row.lines.map((line) => `${line.productName} ${formatQuantity(line.quantity)} ${line.unit}`).join(" · ")}</p>
+          </button>
+          {cancelled && !expanded && row.cancelReason ? <p className="d3-so-hist-meta">Lý do huỷ: {row.cancelReason}</p> : null}
           {row.receipt || row.payment ? (
             <dl className="d3-so-chain" data-bmq-so-chain>
               <div>
@@ -539,8 +652,10 @@ function History({ rows }: { rows: SupplierOrderHistoryBySupplierEntry[] }) {
           ) : row.status === "sent" ? (
             <p className="d3-so-hist-meta">Nhà cung cấp chưa tải hoá đơn giao hàng</p>
           ) : null}
+          {expanded ? <OrderDetail row={row} onToast={onToast} /> : null}
         </li>
-      ))}
+        );
+      })}
     </ul>
   );
 }
@@ -907,7 +1022,7 @@ function SupplierPanel({ supplierId, onToast, onBack }: { supplierId: string; on
 
       <section className="d3-wh-card d3-so-card" data-bmq-so-history-card>
         <div className="d3-so-card-head"><h2>Đơn đã gửi</h2></div>
-        {history.isLoading ? <LoadingState flat rows={2} label="Đang đọc đơn đã gửi" /> : <History rows={history.data ?? []} />}
+        {history.isLoading ? <LoadingState flat rows={2} label="Đang đọc đơn đã gửi" /> : <History rows={history.data ?? []} onToast={onToast} />}
       </section>
     </>
   );

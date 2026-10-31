@@ -272,6 +272,14 @@ export type SendSupplierOrderLinesResult = {
   replayed?: boolean;
 };
 
+export type SupplierOrderCancelResult = {
+  status: "cancelled";
+  poNumber: string | null;
+  email: "sent" | "already_sent" | "failed";
+  zaloQueued: boolean;
+  code: string | null;
+};
+
 export type SupplierOrderRequestLine = {
   position: number;
   itemId: string;
@@ -310,6 +318,9 @@ export type SupplierOrderHistoryBySupplierEntry = {
   sentAt: string | null;
   toEmail: string | null;
   createdAt: string | null;
+  cancelledAt: string | null;
+  cancelReason: string | null;
+  cancelEmailSentAt: string | null;
   lines: SupplierOrderRequestLine[];
   uploads: SupplierOrderUpload[];
   receipt: SupplierOrderHistoryReceipt | null;
@@ -933,6 +944,21 @@ export function parseSendSupplierOrderLinesResult(
   };
 }
 
+export function parseSupplierOrderCancelResult(
+  value: unknown,
+): SupplierOrderCancelResult | null {
+  const root = asRecord(value);
+  if (asText(root.status) !== "cancelled") return null;
+  const email = asText(root.email);
+  return {
+    status: "cancelled",
+    poNumber: asNullableText(root.po_number),
+    email: email === "sent" || email === "already_sent" ? email : "failed",
+    zaloQueued: root.zalo_queued === true,
+    code: asNullableText(root.code),
+  };
+}
+
 export function parseSupplierOrderHistoryBySupplier(
   value: unknown,
 ): SupplierOrderHistoryBySupplierEntry[] {
@@ -957,6 +983,9 @@ export function parseSupplierOrderHistoryBySupplier(
       sentAt: asNullableText(row.sent_at),
       toEmail: asNullableText(row.to_email),
       createdAt: asNullableText(row.created_at),
+      cancelledAt: asNullableText(row.cancelled_at),
+      cancelReason: asNullableText(row.cancel_reason),
+      cancelEmailSentAt: asNullableText(row.cancel_email_sent_at),
       lines: (Array.isArray(row.lines) ? row.lines : []).map((rawLine) => {
         const line = asRecord(rawLine);
         return {
@@ -1054,7 +1083,7 @@ function functionUrl(name: string): string {
   return `${base.replace(/\/$/, "")}/functions/v1/${name}`;
 }
 
-async function readFunctionError(error: unknown): Promise<{ code: string; message: string; status: number }> {
+export async function readFunctionError(error: unknown): Promise<{ code: string; message: string; status: number }> {
   const fallback = {
     code: "function_failed",
     message: "Không gọi được máy chủ",
