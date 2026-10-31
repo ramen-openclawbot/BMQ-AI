@@ -120,6 +120,19 @@ function fixtureRows(st) {
     }
     return rows;
   }
+  // KFM giao hàng so với PO: the nine accounting POs plus one PO still at the 100% default.
+  if (st.table === "rpc:kfm_delivery_vs_po") {
+    const acc = [["PO1002684496", "2026-10-24", 820, 776], ["PO1002682291", "2026-10-21", 830, 811], ["PO1002674500", "2026-10-14", 818, 646], ["PO1002673250", "2026-10-13", 809, 560], ["PO1002670572", "2026-10-10", 780, 765], ["PO1002669558", "2026-10-09", 956, 941], ["PO1002668629", "2026-10-08", 857, 851], ["PO1002666220", "2026-10-06", 727, 689], ["PO1002662319", "2026-10-01", 628, 594]];
+    const rows = [{ po_number: "PO1002692065", delivery_date: "2026-10-31", po_qty: 627, delivered_qty: 627, shortfall: 0, ratio: 1, is_default: true, source: null },
+      ...acc.map(([po, d, q, g]) => ({ po_number: po, delivery_date: d, po_qty: q, delivered_qty: g, shortfall: g - q, ratio: g / q, is_default: false, source: "ke_toan" }))];
+    return { rows, totals: { po_count: 10, po_qty: 7852, delivered_qty: 7260, shortfall: -592, ratio: 7260 / 7852, confirmed_count: 9, under_95_count: 5 } };
+  }
+  if (st.table === "rpc:kfm_daily_delivery_report") {
+    return { date: vnDay(0), pos: [
+      { po_number: "PO1002692065", delivery_date: vnDay(0), po_qty: 627, delivered_qty: 627, is_default: true, source: null, note: null },
+      { po_number: "PO1002692422", delivery_date: vnDay(0), po_qty: 16, delivered_qty: 12, is_default: false, source: "kho", note: "Thiếu 4 hộp croffle" },
+    ], photos: [] };
+  }
   if (st.table === "rpc:get_kiosk_point_revenue_reviews") {
     const names = ["Kiosk Bình Thạnh", "Kiosk Phú Nhuận", "Kiosk Bình Dương", "Kiosk Quận 7", "Kiosk Thủ Đức", "Kiosk Gò Vấp", "Kiosk Tân Bình", "Kiosk Quận 10", "Kiosk Hotline"];
     const rows = names.map((name, i) => ({
@@ -322,6 +335,23 @@ try {
         assert.ok(dayMoq.some((t) => /2\.700\/1\.500 cái[\s\S]*đủ/.test(t)) && dayMoq.some((t) => /2\.100\/1\.500 cái/.test(t)), `KFM day MOQ lines ${JSON.stringify(dayMoq)}`);
         assert.match(await page.locator(".d3-pp-order", { hasText: "SX-Q7-0301" }).locator(".d3-pp-oqty").innerText(), /2\.700\s*cái/, "KFM order counts its own pieces");
         assert.equal(await page.locator("[data-testid^='kfm-moq-']").count(), 0, "no per-order MOQ badge");
+        // Giao hàng so với PO: KPIs, one row per PO, totals, and the short-only filter.
+        await page.waitForSelector("[data-bmq-kfm-delivery-table]");
+        assert.match(await page.locator("[data-bmq-kfm-delivery-short]").innerText(), /−592/);
+        assert.equal(await page.locator("[data-bmq-kfm-delivery-row]").count(), 10, "ten PO rows");
+        await page.locator("[data-bmq-kfm-delivery-short-only]").click();
+        assert.equal(await page.locator("[data-bmq-kfm-delivery-row]").count(), 9, "short-only hides the full PO");
+        await page.locator("[data-bmq-kfm-delivery-short-only]").click();
+        const wrap = await page.evaluate(() => { const w = document.querySelector(".kd-table-wrap"); return { inner: w.scrollWidth - w.clientWidth, card: document.querySelector("[data-bmq-kfm-delivery-card]").scrollWidth - document.querySelector("[data-bmq-kfm-delivery-card]").clientWidth }; });
+        assert.ok(wrap.card <= 0, `delivery card spills ${JSON.stringify(wrap)}`);
+        assert.ok(wrap.inner <= 0, `delivery table needs sideways scroll @${viewport.width} ${JSON.stringify(wrap)}`);
+        await page.locator("[data-bmq-kfm-delivery-card]").screenshot({ path: `${EVIDENCE}/kfm-delivery-${viewport.width}.png` });
+        // Báo cáo cuối ngày: default 100% line, a short line with its reason, the photo slot.
+        await page.waitForSelector("[data-bmq-kfm-daily-line]");
+        assert.equal(await page.locator("[data-bmq-kfm-daily-qty='PO1002692065']").inputValue(), "627");
+        assert.equal(await page.locator("[data-bmq-kfm-daily-note='PO1002692422']").inputValue(), "Thiếu 4 hộp croffle");
+        assert.equal(await page.locator("[data-bmq-kfm-daily-photo-add]").count(), 1, "owner can add photos");
+        await page.locator("[data-bmq-kfm-daily-report]").screenshot({ path: `${EVIDENCE}/kfm-daily-${viewport.width}.png` });
       }
       if (data === "populated" && viewport.width === 390) {
         await page.locator(".d3-pp-order-row").first().click();

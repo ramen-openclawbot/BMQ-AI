@@ -1,0 +1,115 @@
+/*
+ * KFM giao hàng so với PO + báo cáo cuối ngày (owner 31/10), on the Sản xuất card kit.
+ * Numbers are tabular and right-aligned; colour only carries the delivery band
+ * (≥95% ok, 85–95% warn, <85% bad).
+ */
+
+.kd-card, .kd-day { --kd-ok: #1f8f0e; --kd-warn: #b56b00; --kd-bad: #c8321f; --kd-ok-bg: #e6f6e2; --kd-warn-bg: #fff1d6; --kd-bad-bg: #fde5e1; }
+
+.kd-quiet { margin: 0; padding: 8px 0; font-size: 13px; color: var(--d3-dim); }
+.kd-note { margin: 8px 0 0; font-size: 12px; line-height: 1.45; color: var(--d3-dim); }
+
+/* month switcher */
+.kd-month { display: inline-flex; align-items: center; gap: 2px; height: 32px; padding: 3px; border-radius: 10px; background: var(--d3-white); }
+.kd-month span { min-width: 104px; font-size: 13px; font-weight: 500; text-align: center; color: var(--d3-ink); font-variant-numeric: tabular-nums; }
+html.bmq-d3 .kd-month button { display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 7px; background: none; color: var(--d3-ink-2); cursor: pointer; }
+html.bmq-d3 .kd-month button:hover:not(:disabled) { background: var(--d3-panel); }
+html.bmq-d3 .kd-month button:disabled { color: var(--d3-faint); cursor: default; }
+.kd-month svg { width: 16px; height: 16px; }
+
+/* KPI strip */
+.kd-kpis { display: grid; grid-template-columns: 1.25fr repeat(4, minmax(0, 1fr)); gap: 1px; margin: 0; overflow: hidden; border-radius: 14px; background: var(--d3-line); }
+.kd-kpi { display: grid; gap: 2px; min-width: 0; padding: 12px 14px; background: var(--d3-white); }
+.kd-kpi dt { font-size: 11.5px; color: var(--d3-dim); white-space: nowrap; }
+.kd-kpi dd { margin: 0; font: 300 22px/1.15 var(--d3-num); letter-spacing: -.02em; color: var(--d3-ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.kd-kpi.is-lead dd { font-size: 30px; font-weight: 400; }
+.kd-kpi.is-lead.is-ok dd { color: var(--kd-ok); }
+.kd-kpi.is-lead.is-warn dd { color: var(--kd-warn); }
+.kd-kpi.is-lead.is-bad dd { color: var(--kd-bad); }
+.kd-kpi.is-bad dd { color: var(--kd-bad); }
+
+.kd-tools { display: flex; justify-content: flex-end; margin: 12px 0 8px; }
+html.bmq-d3 .kd-chip { height: 30px; padding: 0 12px; border: 1px solid var(--d3-line-2); border-radius: 99px; background: var(--d3-white); color: var(--d3-ink-2); font-size: 12.5px; cursor: pointer; }
+html.bmq-d3 .kd-chip.is-on { border-color: var(--d3-ink); background: var(--d3-ink); color: var(--d3-white); }
+
+/* table */
+.kd-table-wrap { max-height: 460px; overflow: auto; border: 1px solid var(--d3-line); border-radius: 14px; background: var(--d3-white); }
+.kd-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; font-variant-numeric: tabular-nums; }
+.kd-table th, .kd-table td { padding: 9px 12px; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--d3-line); }
+.kd-table thead th { position: sticky; top: 0; z-index: 1; background: var(--d3-panel); font-size: 11.5px; font-weight: 500; color: var(--d3-dim); text-transform: uppercase; letter-spacing: .03em; }
+.kd-table tbody tr:hover td { background: #f6f6f3; }
+.kd-table tbody tr:last-child td { border-bottom: 0; }
+.kd-table .is-num { text-align: right; }
+.kd-table .is-strong { font-weight: 600; color: var(--d3-ink); }
+.kd-table .is-bad { color: var(--kd-bad); font-weight: 500; }
+.kd-table .is-date { color: var(--d3-ink-2); }
+.kd-table .is-po span { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; color: var(--d3-ink); }
+.kd-table .is-po small { margin-left: 8px; padding: 1px 6px; border-radius: 6px; background: var(--d3-panel); font-size: 10.5px; color: var(--d3-dim); }
+.kd-table tr.is-default td { color: var(--d3-faint); }
+.kd-table tr.is-default .is-po span, .kd-table tr.is-default .is-strong { color: var(--d3-dim); font-weight: 400; }
+.kd-table .is-ratio { width: 160px; }
+.kd-table tfoot th, .kd-table tfoot td { position: sticky; bottom: 0; border-top: 1px solid var(--d3-line-2); border-bottom: 0; background: var(--d3-panel); font-weight: 600; color: var(--d3-ink); }
+.kd-empty { padding: 18px 12px; text-align: center !important; color: var(--d3-dim); }
+
+/* ratio cell: bar + value */
+.kd-ratio { display: inline-flex; align-items: center; gap: 8px; width: 100%; }
+.kd-ratio-bar { position: relative; flex: 1 1 auto; height: 6px; min-width: 40px; overflow: hidden; border-radius: 99px; background: var(--d3-line); }
+.kd-ratio-bar i { position: absolute; inset: 0 auto 0 0; border-radius: inherit; background: var(--d3-faint); }
+.kd-ratio b { min-width: 44px; font-weight: 600; text-align: right; }
+.kd-ratio.is-ok .kd-ratio-bar i { background: var(--kd-ok); }
+.kd-ratio.is-ok b { color: var(--kd-ok); }
+.kd-ratio.is-warn .kd-ratio-bar i { background: var(--kd-warn); }
+.kd-ratio.is-warn b { color: var(--kd-warn); }
+.kd-ratio.is-bad .kd-ratio-bar i { background: var(--kd-bad); }
+.kd-ratio.is-bad b { color: var(--kd-bad); }
+
+/* end-of-day report */
+.kd-date { height: 32px; padding: 0 10px; border: 1px solid var(--d3-line-2); border-radius: 10px; background: var(--d3-white); font: inherit; font-size: 13px; color: var(--d3-ink); }
+.kd-sub { margin: 4px 0 8px; font-size: 12px; font-weight: 500; color: var(--d3-dim); text-transform: uppercase; letter-spacing: .03em; }
+.kd-sub + .kd-quiet { padding-top: 0; }
+.kd-lines { display: grid; gap: 6px; margin: 0 0 14px; padding: 0; list-style: none; }
+.kd-line { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px 10px; padding: 10px 12px; border-radius: 12px; background: var(--d3-white); }
+.kd-line.is-short { box-shadow: inset 3px 0 0 var(--kd-bad); }
+.kd-line-main { display: grid; gap: 2px; min-width: 0; }
+.kd-line-main b { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 13px; font-weight: 500; color: var(--d3-ink); }
+.kd-line-main small { font-size: 12px; color: var(--d3-dim); font-variant-numeric: tabular-nums; }
+.kd-line-qty { display: flex; align-items: center; gap: 8px; }
+.kd-line-qty input { width: calc(var(--ch, 4) * 1ch + 22px); min-width: 64px; max-width: 110px; height: 34px; padding: 0 8px; font-size: 15px; text-align: right; font-variant-numeric: tabular-nums; }
+.kd-line-qty input[aria-invalid="true"] { border-color: var(--kd-bad); }
+.kd-line-qty .kd-ratio { width: 64px; }
+.kd-line-qty .kd-ratio-bar { display: none; }
+.kd-line-note { grid-column: 1 / -1; height: 34px; font-size: 13px; }
+
+.kd-photos { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.kd-photo { position: relative; width: 76px; height: 76px; overflow: hidden; border-radius: 12px; background: var(--d3-panel); }
+.kd-photo a, .kd-photo img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.kd-photo-wait { display: block; width: 100%; height: 100%; background: linear-gradient(90deg, var(--d3-panel), var(--d3-line), var(--d3-panel)); }
+html.bmq-d3 .kd-photo button { position: absolute; top: 4px; right: 4px; display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 99px; background: rgba(20, 20, 20, .6); color: #fff; cursor: pointer; }
+.kd-photo button svg { width: 13px; height: 13px; }
+html.bmq-d3 .kd-photo-add { display: grid; place-items: center; align-content: center; gap: 4px; width: 76px; height: 76px; padding: 0; border: 1.5px dashed var(--d3-line-2); border-radius: 12px; background: var(--d3-white); color: var(--d3-ink-2); font-size: 11.5px; cursor: pointer; }
+html.bmq-d3 .kd-photo-add:hover:not(:disabled) { border-color: var(--d3-ink); color: var(--d3-ink); }
+.kd-photo-add svg { width: 20px; height: 20px; }
+
+@media (max-width: 640px) {
+  .kd-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .kd-kpi.is-lead { grid-column: 1 / -1; }
+  /* Phones: each PO is a two-row card — date · PO on top, the four figures in equal columns below. */
+  .kd-table-wrap { max-height: none; border: 0; background: none; overflow: visible; }
+  .kd-table, .kd-table tbody, .kd-table tfoot { display: block; }
+  .kd-table thead { display: none; }
+  .kd-table tr { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px 8px; margin-bottom: 6px; padding: 10px 12px; border-radius: 12px; background: var(--d3-white); }
+  .kd-table tbody tr:hover td { background: none; }
+  .kd-table th, .kd-table td { display: block; padding: 0; border: 0; white-space: nowrap; }
+  .kd-table .is-date { grid-column: 1; grid-row: 1; align-self: center; font-size: 12.5px; }
+  .kd-table .is-po { grid-column: 2 / -1; grid-row: 1; text-align: right; }
+  .kd-table td[data-label] { display: grid; gap: 1px; text-align: right; }
+  .kd-table td[data-label]::before { content: attr(data-label); font-size: 10.5px; font-weight: 400; color: var(--d3-dim); text-transform: uppercase; letter-spacing: .03em; }
+  .kd-table .is-ratio { width: auto; }
+  .kd-table .kd-ratio { justify-content: flex-end; }
+  .kd-table .kd-ratio-bar { display: none; }
+  .kd-table .kd-ratio b { min-width: 0; }
+  .kd-table tfoot tr { position: static; background: var(--d3-panel); }
+  .kd-table tfoot th { grid-column: 1 / -1; font-size: 12.5px; }
+  .kd-table tfoot th, .kd-table tfoot td { position: static; background: none; border: 0; }
+  .kd-empty { grid-column: 1 / -1; }
+}

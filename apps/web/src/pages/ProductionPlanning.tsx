@@ -49,6 +49,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { KFM_DAILY_MOQ_PIECES, kfmMoqPieces } from "@/lib/kfm-moq";
+import { KfmDailyDeliveryReport, KfmDeliveryVsPoCard } from "@/components/production/KfmDeliveryPanels";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { Link } from "react-router-dom";
@@ -1394,7 +1395,7 @@ export default function ProductionPlanning() {
       <div className="d3-pp-dash">
         <section className="d3-pp-card d3-pp-hero" style={{ ["--i" as string]: 1 }} data-stitch-production-metrics="true">
           <div className="d3-pp-card-h">
-            <h2>{isVi ? "Sản lượng so với kế hoạch" : "Output vs plan"}</h2>
+            <h2>{isVi ? "Đã lập lệnh so với nhu cầu" : "Orders vs demand"}</h2>
             <span className="d3-pp-pill is-green">{isVi ? `Ngày giao ${deliveryLabel}` : deliveryLabel}</span>
           </div>
           <div className="d3-pp-beads-wrap">
@@ -1446,6 +1447,8 @@ export default function ProductionPlanning() {
           </section>
         </div>
       </div>
+
+      <KfmDeliveryVsPoCard todayIso={tvProductionDateIso} />
 
       <div className="d3-pp-row3">
         <section className="d3-pp-card" data-stitch-production-po-check="true" style={{ ["--i" as string]: 4 }}>
@@ -1693,6 +1696,7 @@ export default function ProductionPlanning() {
           )}
         </section>
         <aside className="min-w-0 space-y-4" data-stitch-production-insights="true">
+          <KfmDailyDeliveryReport todayIso={tvProductionDateIso} canEdit={isOwner || canEditModule("inventory")} />
           <section className="d3-pp-card" style={{ ["--i" as string]: 2 }}>
             <div className="d3-pp-card-h">
               <h2>{isVi ? "PO khác chờ lập SX" : "Other POs awaiting setup"}</h2>
