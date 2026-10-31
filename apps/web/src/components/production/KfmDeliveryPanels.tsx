@@ -42,10 +42,41 @@ function Ratio({ ratio }: { ratio: number | null }) {
   );
 }
 
-/** Dashboard: delivered vs ordered for one month, KPIs on top, one row per PO below. */
+/** Key figure for the top of Sản xuất: this month's delivered share of KFM POs. */
+export function KfmDeliveryKpi({ todayIso }: { todayIso: string }) {
+  // Early in a month nothing is confirmed yet: the figure then shows last month, labelled as such.
+  const thisRange = useMemo(() => monthRange(todayIso), [todayIso]);
+  const lastRange = useMemo(() => monthRange(shiftMonth(`${todayIso.slice(0, 7)}-01`, -1)), [todayIso]);
+  const thisQuery = useKfmDeliveryVsPo(thisRange.from, thisRange.to);
+  const useLast = Boolean(thisQuery.data && thisQuery.data.totals.confirmedCount === 0);
+  const lastQuery = useKfmDeliveryVsPo(useLast ? lastRange.from : null, useLast ? lastRange.to : null);
+  const range = useLast ? lastRange : thisRange;
+  const query = useLast ? lastQuery : thisQuery;
+  const t = query.data?.totals;
+  const band = deliveryRatioBand(t?.ratio ?? null);
+  const pending = t ? t.poCount - t.confirmedCount : 0;
+  return (
+    <article className={cn("pp-kpi", `is-${band}`)} data-pp-kpi="delivery">
+      <h2>Giao đạt so với PO · {MONTH_VI(range.from).replace("Tháng ", "T")}</h2>
+      <p className="pp-kpi-num" data-bmq-kfm-delivery-ratio>{query.isLoading ? "…" : t?.poCount ? pct(t.ratio) : "—"}</p>
+      <p className="pp-kpi-sub">
+        {t?.poCount ? `${num(t.deliveredQty)}/${num(t.poQty)} · ${t.poCount} PO` : query.error ? "Không đọc được số giao" : "Chưa có PO trong tháng"}
+      </p>
+      {t?.poCount ? (
+        <p className={cn("pp-kpi-flag", t.shortfall < 0 ? "is-bad" : "is-ok")}>
+          {t.shortfall < 0 ? `Thiếu ${num(-t.shortfall)} · ${t.under95Count} PO dưới 95%` : "Giao đủ"}
+          {pending > 0 ? ` · ${pending} tạm tính` : ""}
+        </p>
+      ) : null}
+    </article>
+  );
+}
+
+/** Delivered vs ordered per PO for one month. Closed by default: the table renders only when asked for. */
 export function KfmDeliveryVsPoCard({ todayIso }: { todayIso: string }) {
   const [month, setMonth] = useState(() => `${todayIso.slice(0, 7)}-01`);
   const [shortOnly, setShortOnly] = useState(false);
+  const [open, setOpen] = useState(false);
   const range = useMemo(() => monthRange(month), [month]);
   const query = useKfmDeliveryVsPo(range.from, range.to);
   const data = query.data;
@@ -56,7 +87,7 @@ export function KfmDeliveryVsPoCard({ todayIso }: { todayIso: string }) {
   return (
     <section className="d3-pp-card kd-card" data-bmq-kfm-delivery-card>
       <div className="d3-pp-card-h">
-        <h2>Giao hàng so với PO</h2>
+        <h2>Giao hàng theo PO</h2>
         <div className="kd-month" role="group" aria-label="Chọn tháng">
           <button type="button" onClick={() => setMonth(shiftMonth(month, -1))} aria-label="Tháng trước"><ChevronLeft /></button>
           <span data-bmq-kfm-delivery-month>{MONTH_VI(month)}</span>
@@ -70,23 +101,23 @@ export function KfmDeliveryVsPoCard({ todayIso }: { todayIso: string }) {
         <p className="kd-quiet">Không đọc được số liệu giao hàng.</p>
       ) : !t || !t.poCount ? (
         <p className="kd-quiet">Chưa có PO KFM trong tháng này.</p>
+      ) : !open ? (
+        <div className="kd-fold">
+          <p>
+            <b>{t.poCount} PO</b> · giao <b>{num(t.deliveredQty)}</b>/{num(t.poQty)}
+            {t.shortfall < 0 ? <> · <span className="is-bad">thiếu {num(-t.shortfall)}</span></> : null}
+            {t.under95Count ? <> · {t.under95Count} PO dưới 95%</> : null}
+          </p>
+          <button type="button" className="kd-open" onClick={() => setOpen(true)} data-bmq-kfm-delivery-open>Xem chi tiết</button>
+        </div>
       ) : (
         <>
-          <dl className="kd-kpis">
-            <div className={cn("kd-kpi is-lead", `is-${deliveryRatioBand(t.ratio)}`)}>
-              <dt>Tỷ lệ giao</dt>
-              <dd data-bmq-kfm-delivery-ratio>{pct(t.ratio)}</dd>
-            </div>
-            <div className="kd-kpi"><dt>SL PO</dt><dd>{num(t.poQty)}</dd></div>
-            <div className="kd-kpi"><dt>SL giao</dt><dd>{num(t.deliveredQty)}</dd></div>
-            <div className={cn("kd-kpi", t.shortfall < 0 && "is-bad")}><dt>Chênh lệch</dt><dd data-bmq-kfm-delivery-short>{signed(t.shortfall)}</dd></div>
-            <div className={cn("kd-kpi", t.under95Count > 0 && "is-bad")}><dt>PO dưới 95%</dt><dd>{t.under95Count}/{t.poCount}</dd></div>
-          </dl>
           <p className="kd-note">
             {t.confirmedCount}/{t.poCount} PO đã có số giao thực tế. PO còn lại tạm tính 100% cho đến khi kho xác nhận.
           </p>
 
           <div className="kd-tools">
+            <button type="button" className="kd-chip" onClick={() => setOpen(false)} data-bmq-kfm-delivery-close>Thu gọn</button>
             <button type="button" className={cn("kd-chip", shortOnly && "is-on")} aria-pressed={shortOnly} onClick={() => setShortOnly((v) => !v)} data-bmq-kfm-delivery-short-only>
               Chỉ PO thiếu
             </button>

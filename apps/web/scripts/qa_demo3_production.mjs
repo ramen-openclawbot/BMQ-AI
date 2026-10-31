@@ -319,6 +319,14 @@ try {
         assert.ok((await page.getByRole("button", { name: label }).count()) + (await page.getByRole("link", { name: label }).count()) > 0, `${label} present (${data} ${viewport.width})`);
       }
       if (data === "populated") {
+        // Key figures first; the plan detail (gauge, products, flow, next days) only renders once opened.
+        assert.equal(await page.locator("[data-pp-kpi]").count(), 3, "three key figures");
+        await page.locator("[data-pp-kpis]").screenshot({ path: `${EVIDENCE}/kpis-${viewport.width}.png` });
+        const kpiFit = await page.evaluate(() => [...document.querySelectorAll("[data-pp-kpi]")].map((el) => el.scrollWidth - el.clientWidth));
+        assert.ok(kpiFit.every((d) => d <= 0), `key figure spills ${kpiFit} @${viewport.width}`);
+        assert.equal(await page.locator(".d3-pp-bead").count(), 0, "plan detail closed by default");
+        await page.locator("[data-pp-plan-detail] > summary").click();
+        await page.waitForSelector(".d3-pp-bead");
         const products = await page.$$eval(".d3-pp-prod h3", (els) => els.map((el) => el.textContent));
         assert.ok(products.length >= 2, `products listed: ${products}`);
         assert.equal(await page.locator(".d3-pp-bead").count(), 21, "bead gauge drawn");
@@ -327,7 +335,9 @@ try {
         assert.equal(await page.locator(".d3-pp-step").count(), 4, "flow steps");
         assert.equal(await page.locator(".d3-pp-grp").count(), 3, "next 3 days");
         assert.ok(await page.locator(".d3-pp-row", { hasText: "NPP-BT" }).count() > 0, "other PO row listed");
-        assert.equal(await page.locator(".d3-pp-order").count(), 3, "orders listed");
+        assert.equal(await page.locator(".d3-pp-order").count(), 2, "live orders listed, past group folded");
+        await page.locator("[data-pp-group-toggle='completed']").click();
+        assert.equal(await page.locator(".d3-pp-order").count(), 3, "completed group opens on demand");
         // KFM MOQ: pieces of the day's KFM orders over 1500; non-KFM orders show none.
         // One line per KFM delivery day (today 2.700 pieces, yesterday 2.100), never one per order.
         const dayMoq = await page.locator("[data-testid^='kfm-day-moq-']").allInnerTexts();
@@ -336,8 +346,10 @@ try {
         assert.match(await page.locator(".d3-pp-order", { hasText: "SX-Q7-0301" }).locator(".d3-pp-oqty").innerText(), /2\.700\s*cái/, "KFM order counts its own pieces");
         assert.equal(await page.locator("[data-testid^='kfm-moq-']").count(), 0, "no per-order MOQ badge");
         // Giao hàng so với PO: KPIs, one row per PO, totals, and the short-only filter.
+        assert.equal(await page.locator("[data-bmq-kfm-delivery-table]").count(), 0, "PO table folded by default");
+        assert.match(await page.locator("[data-pp-kpi='delivery']").innerText(), /92,5%[\s\S]*Thiếu 592/);
+        await page.locator("[data-bmq-kfm-delivery-open]").click();
         await page.waitForSelector("[data-bmq-kfm-delivery-table]");
-        assert.match(await page.locator("[data-bmq-kfm-delivery-short]").innerText(), /−592/);
         assert.equal(await page.locator("[data-bmq-kfm-delivery-row]").count(), 10, "ten PO rows");
         await page.locator("[data-bmq-kfm-delivery-short-only]").click();
         assert.equal(await page.locator("[data-bmq-kfm-delivery-row]").count(), 9, "short-only hides the full PO");
@@ -358,6 +370,7 @@ try {
         await page.waitForSelector(".d3-pp-order.is-open .d3-pp-order-actions");
         await page.locator("[data-stitch-production-orders]").screenshot({ path: `${EVIDENCE}/production-orders-390.png` });
       }
+      if (data !== "populated") { await page.locator("[data-pp-plan-detail] > summary").click(); await page.waitForTimeout(300); }
       if (data === "error") assert.equal(await page.locator("[data-kfm-pending-error='v1']").count(), 1, "PO read error shown, not empty");
       if (data === "empty") assert.ok((await page.locator(".d3-pp").textContent()).includes("Chưa có PO chờ sản xuất"), "empty message");
       const ov = await overflow(page);
@@ -384,7 +397,7 @@ try {
     await page.getByRole("button", { name: "Thiết lập SX", exact: true }).click();
     await page.waitForSelector("[data-stitch-production-settings]");
     await page.getByRole("button", { name: "Quay lại kế hoạch" }).click();
-    await page.waitForSelector(".d3-pp-dash");
+    await page.waitForSelector("[data-pp-kpis]");
     assert.deepEqual(await page.evaluate(() => window.__qaWrites.filter((w) => !w.startsWith("invoke:"))), []);
     assert.deepEqual(errors, []);
     record("settings round-trip, order expand, no writes");

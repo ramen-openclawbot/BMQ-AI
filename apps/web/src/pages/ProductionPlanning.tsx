@@ -49,7 +49,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { KFM_DAILY_MOQ_PIECES, kfmMoqPieces } from "@/lib/kfm-moq";
-import { KfmDailyDeliveryReport, KfmDeliveryVsPoCard } from "@/components/production/KfmDeliveryPanels";
+import { KfmDailyDeliveryReport, KfmDeliveryKpi, KfmDeliveryVsPoCard } from "@/components/production/KfmDeliveryPanels";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { Link } from "react-router-dom";
@@ -418,6 +418,9 @@ export default function ProductionPlanning() {
   const [selectedPoForCreation, setSelectedPoForCreation] = useState<CustomerPoInbox | null>(null);
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
   const [showAllDoneOrders, setShowAllDoneOrders] = useState(false);
+  // Past groups stay closed until asked for (owner 01/11): a long history must not bury today.
+  const [openPastGroups, setOpenPastGroups] = useState<Record<string, boolean>>({});
+  const [planDetailOpen, setPlanDetailOpen] = useState(false);
   const [editingOrder, setEditingOrder] = useState<ProductionOrder | null>(null);
   const [deleteOrder, setDeleteOrder] = useState<ProductionOrder | null>(null);
   const [materialIssuePdfOrderId, setMaterialIssuePdfOrderId] = useState<string | null>(null);
@@ -1253,6 +1256,14 @@ export default function ProductionPlanning() {
     return { dayIso, orders: dayOrders.length, qty: dayOrders.reduce((sum, order) => sum + getProductionOrderTotalQty(order), 0) };
   });
   const maxDayQty = Math.max(1, ...upcomingDays.map((day) => day.qty));
+  // Key figures in pieces (KFM boxes of 4, cua phô mai 3), the unit KFM counts and pays in.
+  const orderPieces = (order: ProductionOrder) => (order.is_kfm ? getProductionOrderMoqPieces(order) : getProductionOrderTotalQty(order));
+  const todayOrders = liveOrders.filter((order) => getProductionOrderDateIso(order) === tvProductionDateIso);
+  const todayPieces = todayOrders.reduce((sum, order) => sum + orderPieces(order), 0);
+  const todayMoq = todayOrders.some((order) => order.is_kfm) ? kfmMoqPiecesByDate.get(tvProductionDateIso) ?? 0 : null;
+  const nextOrders = liveOrders.filter((order) => getProductionOrderDateIso(order) === productionPoDateIso);
+  const nextPendingPieces = kfmMoqPieces(aggregatedPlanItems.map((item) => ({ product_name: item.product_name, qty: item.qty })));
+  const nextPieces = nextOrders.reduce((sum, order) => sum + orderPieces(order), 0) + nextPendingPieces;
   const flowSteps = [
     { key: "po", label: isVi ? "PO đã xác nhận" : "POs confirmed", count: visiblePendingPos.length + windowOrders.length, state: visiblePendingPos.length + windowOrders.length > 0 ? "done" : "idle" },
     { key: "plan", label: isVi ? "Lập kế hoạch SX" : "Production plan", count: stats.pendingPos, state: stats.pendingPos > 0 ? "now" : windowOrders.length > 0 ? "done" : "idle" },
@@ -1276,18 +1287,12 @@ export default function ProductionPlanning() {
           <h1>
             {activeTab === "settings" ? (
               <>{isVi ? "Thiết lập " : "Production "}<b>{isVi ? "SKU sản xuất" : "SKU setup"}</b></>
-            ) : demandQty > 0 ? (
-              <>
-                {isVi ? "Đã lập lệnh " : "Orders cover "}
-                <b>{orderedPct}%</b>
-                {isVi ? " sản lượng cần làm" : " of the quantity"}
-              </>
             ) : (
-              <>{isVi ? "Chưa có " : "No "}<b>{isVi ? "đơn cần sản xuất" : "production demand"}</b>{isVi ? ` cho ${deliveryLabel}` : ` for ${deliveryLabel}`}</>
+              <>{isVi ? "Xưởng " : "Workshop "}<b>Q7</b></>
             )}
           </h1>
           <p className="d3-pp-tag">
-            {isVi ? `Sản xuất · xưởng Q7 · ngày giao ${deliveryLabel}` : `Production · Q7 workshop · delivery ${deliveryLabel}`}
+            {isVi ? `Sản xuất · hôm nay ${formatDateOnly(tvProductionDateIso)} · chuẩn bị giao ${deliveryLabel}` : `Production · today ${formatDateOnly(tvProductionDateIso)} · next delivery ${deliveryLabel}`}
           </p>
         </div>
         <div className="d3-pp-actions sm:flex sm:flex-wrap">
@@ -1300,6 +1305,9 @@ export default function ProductionPlanning() {
             <>
               <Button variant="outline" onClick={() => setActiveTab("settings")}>
                 {isVi ? "Thiết lập SX" : "Production setup"}
+              </Button>
+              <Button variant="outline" onClick={handleOpenTvMode} data-pp-tv-entry>
+                <Monitor className="mr-2 h-4 w-4" />{isVi ? "Màn hình TV" : "TV"}
               </Button>
               <KfmPoIntake canDecide={canEditLocation} isVi={isVi} paused={createDialogOpen || !!editingOrder || !!deleteOrder || tvModeOpen} onImported={handlePortalImported} awaitingSetup={awaitingSetupPos} awaitingSetupLoading={loadingPos} awaitingSetupError={pendingPosError} onRefreshAwaitingSetup={refreshPendingPos} />
               <Button asChild variant="outline" data-kfm-portal-entry="v2">
@@ -1392,146 +1400,193 @@ export default function ProductionPlanning() {
         </Card>
       ) : (
         <>
-      <div className="d3-pp-dash">
-        <section className="d3-pp-card d3-pp-hero" style={{ ["--i" as string]: 1 }} data-stitch-production-metrics="true">
-          <div className="d3-pp-card-h">
-            <h2>{isVi ? "Đã lập lệnh so với nhu cầu" : "Orders vs demand"}</h2>
-            <span className="d3-pp-pill is-green">{isVi ? `Ngày giao ${deliveryLabel}` : deliveryLabel}</span>
-          </div>
-          <div className="d3-pp-beads-wrap">
-            <svg className="d3-pp-beads" viewBox="0 0 400 225" role="img" aria-label={isVi ? `Đã lập lệnh ${orderedPct}% sản lượng cần làm` : `${orderedPct}% of demand has production orders`}>
-              <path className="d3-pp-bead-track" d={`M${beadCx - beadR} ${beadCy}A${beadR} ${beadR} 0 0 1 ${beadCx + beadR} ${beadCy}`} />
-              {beads.map((bead, k) => (
-                <g key={bead.value} className={`d3-pp-bead${bead.on ? " is-on" : ""}`} style={{ ["--dl" as string]: `${300 + k * 60}ms` }}>
-                  <circle cx={bead.x.toFixed(1)} cy={bead.y.toFixed(1)} r={13} />
-                  <text x={bead.x.toFixed(1)} y={(bead.y + 3.5).toFixed(1)} textAnchor="middle">{bead.value}</text>
-                </g>
-              ))}
-              <text x={beadCx - beadR} y={beadCy + 26} textAnchor="middle" className="d3-pp-bead-label">0%</text>
-              <text x={beadCx + beadR} y={beadCy + 26} textAnchor="middle" className="d3-pp-bead-label">100%</text>
-            </svg>
-            <div className="d3-pp-bead-center">
-              <div className="d3-pp-big">{loadingPos || loadingOrders ? "…" : pendingPosError ? "—" : orderedPct}<span className="d3-pp-dot" /></div>
-              <span className="d3-pp-sub">
-                {pendingPosError
-                  ? (isVi ? "Không đọc được PO" : "Could not read POs")
-                  : isVi
-                    ? `${orderedQty.toLocaleString("vi-VN")} / ${demandQty.toLocaleString("vi-VN")} sản phẩm đã lập lệnh`
-                    : `${orderedQty.toLocaleString("en-US")} / ${demandQty.toLocaleString("en-US")} units ordered`}
-              </span>
-            </div>
-          </div>
-        </section>
+      <section className="pp-kpis" aria-label={isVi ? "Báo cáo chính" : "Key figures"} data-pp-kpis>
+        <article className="pp-kpi" data-pp-kpi="today">
+          <h2>{isVi ? "Hôm nay sản xuất" : "Producing today"}</h2>
+          <p className="pp-kpi-num">{loadingOrders ? "…" : todayPieces.toLocaleString("vi-VN")}<small>{isVi ? "cái" : "pcs"}</small></p>
+          <p className="pp-kpi-sub">
+            {todayOrders.length ? (isVi ? `${todayOrders.length} lệnh · giao ${formatDateOnly(tvProductionDateIso)}` : `${todayOrders.length} orders`) : (isVi ? "Chưa có lệnh hôm nay" : "No orders today")}
+          </p>
+          {todayMoq !== null ? (
+            <p className={`pp-kpi-flag${todayMoq < KFM_DAILY_MOQ_PIECES ? " is-bad" : " is-ok"}`}>
+              MOQ KFM {todayMoq.toLocaleString("vi-VN")}/{KFM_DAILY_MOQ_PIECES.toLocaleString("vi-VN")}
+              {todayMoq < KFM_DAILY_MOQ_PIECES ? ` · thiếu ${(KFM_DAILY_MOQ_PIECES - todayMoq).toLocaleString("vi-VN")}` : " · đủ"}
+            </p>
+          ) : null}
+        </article>
+        <KfmDeliveryKpi todayIso={tvProductionDateIso} />
+        <article className="pp-kpi" data-pp-kpi="tomorrow">
+          <h2>{isVi ? `Chuẩn bị giao ${deliveryLabel}` : `Next delivery ${deliveryLabel}`}</h2>
+          <p className="pp-kpi-num">{loadingOrders || loadingPos ? "…" : nextPieces.toLocaleString("vi-VN")}<small>{isVi ? "cái" : "pcs"}</small></p>
+          <p className="pp-kpi-sub">
+            {isVi ? `${nextOrders.length} lệnh đã lập` : `${nextOrders.length} orders`}
+            {stats.pendingPos > 0 ? (isVi ? ` · ${stats.pendingPos} PO chờ lập` : ` · ${stats.pendingPos} POs waiting`) : ""}
+          </p>
+          {nextPieces > 0 ? (
+            <p className={`pp-kpi-flag${nextPendingPieces > 0 ? " is-warn" : " is-ok"}`}>
+              {nextPendingPieces > 0
+                ? (isVi ? `Còn ${nextPendingPieces.toLocaleString("vi-VN")} cái chưa lập lệnh` : `${nextPendingPieces} pcs not ordered`)
+                : (isVi ? "Đã lập lệnh đủ" : "Fully ordered")}
+            </p>
+          ) : null}
+        </article>
+      </section>
 
-        <div className="d3-pp-side">
-          <section className="d3-pp-card" style={{ ["--i" as string]: 2 }}>
-            <div className="d3-pp-card-h"><h2>{isVi ? "Trạng thái lệnh" : "Order status"}</h2></div>
-            <div className="d3-pp-trio">
-              <div className={stats.pendingPos > 0 ? "is-warn" : ""}><strong>{loadingPos ? "…" : pendingPosError ? "—" : stats.pendingPos}</strong><small>{isVi ? "PO chờ lập SX" : "POs to set up"}</small></div>
-              <div className="is-live"><strong>{loadingOrders ? "…" : stats.inProgressOrders}</strong><small>{isVi ? "đang sản xuất" : "in production"}</small></div>
-              <div><strong>{loadingOrders ? "…" : completedCount}</strong><small>{isVi ? "đã hoàn thành" : "completed"}</small></div>
-            </div>
-          </section>
-          <section className="d3-pp-card" style={{ ["--i" as string]: 3 }}>
-            <div className="d3-pp-card-h"><h2>{isVi ? "Màn hình xưởng" : "Workshop screen"}</h2><span className="d3-pp-pill">TV</span></div>
-            <div className="d3-pp-tv">
-              <button type="button" className="d3-pp-tv-ring" onClick={handleOpenTvMode} aria-label={isVi ? "Mở chế độ TV" : "Open TV mode"}>
-                <Monitor className="h-7 w-7" />
-              </button>
-              <div>
-                <strong>{aggregatedPlanItems.length}</strong>
-                <small>{isVi ? "SKU hiển thị cho xưởng · không lộ giá, công thức" : "SKUs on the floor screen · no prices or recipes"}</small>
-                <Button variant="outline" className="mt-2 h-9 rounded-[11px]" onClick={handleOpenTvMode}>{isVi ? "Màn hình TV" : "TV View"}</Button>
-              </div>
-            </div>
-          </section>
-        </div>
+      <div className="pp-main">
+        <KfmDailyDeliveryReport todayIso={tvProductionDateIso} canEdit={isOwner || canEditModule("inventory")} />
+        <KfmDeliveryVsPoCard todayIso={tvProductionDateIso} />
       </div>
 
-      <KfmDeliveryVsPoCard todayIso={tvProductionDateIso} />
-
-      <div className="d3-pp-row3">
-        <section className="d3-pp-card" data-stitch-production-po-check="true" style={{ ["--i" as string]: 4 }}>
-          <div className="d3-pp-card-h">
-            <h2>{isVi ? "Theo sản phẩm" : "By product"}</h2>
-            {stats.pendingPos > 0 && <span className="d3-pp-pill is-warn">{isVi ? `Còn ${stats.pendingPos} PO chờ lập SX` : `${stats.pendingPos} POs awaiting setup`}</span>}
+      <details className="pp-more" data-pp-plan-detail onToggle={(event) => setPlanDetailOpen((event.target as HTMLDetailsElement).open)}>
+        <summary>
+          <span>{isVi ? `Chi tiết chuẩn bị giao ${deliveryLabel}` : `Plan detail for ${deliveryLabel}`}</span>
+          <small>{isVi ? `${aggregatedPlanItems.length} SKU · theo sản phẩm, quy trình, 3 ngày tới` : `${aggregatedPlanItems.length} SKUs`}</small>
+        </summary>
+        {planDetailOpen ? (
+          <div className="pp-more-body">
+      <div className="d3-pp-dash">
+            <section className="d3-pp-card d3-pp-hero" style={{ ["--i" as string]: 1 }} data-stitch-production-metrics="true">
+              <div className="d3-pp-card-h">
+                <h2>{isVi ? "Đã lập lệnh so với nhu cầu" : "Orders vs demand"}</h2>
+                <span className="d3-pp-pill is-green">{isVi ? `Ngày giao ${deliveryLabel}` : deliveryLabel}</span>
+              </div>
+              <div className="d3-pp-beads-wrap">
+                <svg className="d3-pp-beads" viewBox="0 0 400 225" role="img" aria-label={isVi ? `Đã lập lệnh ${orderedPct}% sản lượng cần làm` : `${orderedPct}% of demand has production orders`}>
+                  <path className="d3-pp-bead-track" d={`M${beadCx - beadR} ${beadCy}A${beadR} ${beadR} 0 0 1 ${beadCx + beadR} ${beadCy}`} />
+                  {beads.map((bead, k) => (
+                    <g key={bead.value} className={`d3-pp-bead${bead.on ? " is-on" : ""}`} style={{ ["--dl" as string]: `${300 + k * 60}ms` }}>
+                      <circle cx={bead.x.toFixed(1)} cy={bead.y.toFixed(1)} r={13} />
+                      <text x={bead.x.toFixed(1)} y={(bead.y + 3.5).toFixed(1)} textAnchor="middle">{bead.value}</text>
+                    </g>
+                  ))}
+                  <text x={beadCx - beadR} y={beadCy + 26} textAnchor="middle" className="d3-pp-bead-label">0%</text>
+                  <text x={beadCx + beadR} y={beadCy + 26} textAnchor="middle" className="d3-pp-bead-label">100%</text>
+                </svg>
+                <div className="d3-pp-bead-center">
+                  <div className="d3-pp-big">{loadingPos || loadingOrders ? "…" : pendingPosError ? "—" : orderedPct}<span className="d3-pp-dot" /></div>
+                  <span className="d3-pp-sub">
+                    {pendingPosError
+                      ? (isVi ? "Không đọc được PO" : "Could not read POs")
+                      : isVi
+                        ? `${orderedQty.toLocaleString("vi-VN")} / ${demandQty.toLocaleString("vi-VN")} sản phẩm đã lập lệnh`
+                        : `${orderedQty.toLocaleString("en-US")} / ${demandQty.toLocaleString("en-US")} units ordered`}
+                  </span>
+                </div>
+              </div>
+            </section>
+    
+            <div className="d3-pp-side">
+              <section className="d3-pp-card" style={{ ["--i" as string]: 2 }}>
+                <div className="d3-pp-card-h"><h2>{isVi ? "Trạng thái lệnh" : "Order status"}</h2></div>
+                <div className="d3-pp-trio">
+                  <div className={stats.pendingPos > 0 ? "is-warn" : ""}><strong>{loadingPos ? "…" : pendingPosError ? "—" : stats.pendingPos}</strong><small>{isVi ? "PO chờ lập SX" : "POs to set up"}</small></div>
+                  <div className="is-live"><strong>{loadingOrders ? "…" : stats.inProgressOrders}</strong><small>{isVi ? "đang sản xuất" : "in production"}</small></div>
+                  <div><strong>{loadingOrders ? "…" : completedCount}</strong><small>{isVi ? "đã hoàn thành" : "completed"}</small></div>
+                </div>
+              </section>
+              <section className="d3-pp-card" style={{ ["--i" as string]: 3 }}>
+                <div className="d3-pp-card-h"><h2>{isVi ? "Màn hình xưởng" : "Workshop screen"}</h2><span className="d3-pp-pill">TV</span></div>
+                <div className="d3-pp-tv">
+                  <button type="button" className="d3-pp-tv-ring" onClick={handleOpenTvMode} aria-label={isVi ? "Mở chế độ TV" : "Open TV mode"}>
+                    <Monitor className="h-7 w-7" />
+                  </button>
+                  <div>
+                    <strong>{aggregatedPlanItems.length}</strong>
+                    <small>{isVi ? "SKU hiển thị cho xưởng · không lộ giá, công thức" : "SKUs on the floor screen · no prices or recipes"}</small>
+                    <Button variant="outline" className="mt-2 h-9 rounded-[11px]" onClick={handleOpenTvMode}>{isVi ? "Màn hình TV" : "TV View"}</Button>
+                  </div>
+                </div>
+              </section>
+            </div>
           </div>
-          {loadingPos ? (
-            <LoadingState rows={4} label={isVi ? "Đang tải…" : "Loading…"} />
-          ) : pendingPosError ? (
-            <div role="alert" className="d3-pp-state is-error" data-kfm-pending-error="v1">
-              <AlertCircle className="h-10 w-10" />
-              <h3>{isVi ? "Không đọc được danh sách PO" : "Could not load POs"}</h3>
-              <p>{isVi ? "Đây chưa phải là “không có PO”. Kiểm tra kết nối rồi thử lại." : "This is not “no POs”. Check the connection and retry."}</p>
-              <Button variant="outline" className="mt-2 min-h-11" onClick={() => void refetchPendingPos()}>{isVi ? "Thử lại" : "Try again"}</Button>
-            </div>
-          ) : pendingPosEmpty ? (
-            <div className="d3-pp-state">
-              <Package className="h-10 w-10" />
-              <h3>{isVi ? "Chưa có PO chờ sản xuất cho ngày giao này" : "No POs awaiting production for this delivery date"}</h3>
-              <p>{isVi ? "PO đã xác nhận và khớp SKU sẽ hiện ở đây theo ngày giao." : "Confirmed POs with matched SKUs appear here by delivery date."}</p>
-            </div>
-          ) : (
-            <>
-              <div className="d3-pp-products" data-stitch-production-table="true">
-                {aggregatedPlanItems.map((item, index) => (
-                  <article key={item.key} className="d3-pp-prod">
-                    <ProductVisual
-                      imageUrl={item.image_url}
-                      productName={item.product_name}
-                      className="h-[52px] w-[52px] rounded-[14px]"
-                      gradientClassName={productGradientClassNames[index % productGradientClassNames.length]}
-                    />
-                    <div className="min-w-0">
-                      <h3>{item.product_name}</h3>
-                      <p className="d3-pp-prod-meta">
-                        {item.poCount} PO · {formatDate(item.earliestDate)}
-                        {item.sourceNames.length > 0 ? ` · ${item.sourceNames.slice(0, 2).join(" · ")}${item.channelCount > 2 ? ` · +${item.channelCount - 2}` : ""}` : ""}
-                      </p>
-                      <div className="d3-pp-track" aria-hidden="true"><i style={{ ["--p" as string]: item.qty / maxPlanQty, ["--dl" as string]: `${300 + index * 90}ms`, background: SKU_COLORS[index % SKU_COLORS.length] }} /></div>
-                    </div>
-                    <div className="d3-pp-qty">
-                      <strong>{item.qty.toLocaleString("vi-VN")}</strong>
-                      <small>{item.unit} · {isVi ? "Sẵn sàng SX" : "Ready"}</small>
-                    </div>
-                  </article>
+    
+          <div className="d3-pp-row3">
+            <section className="d3-pp-card" data-stitch-production-po-check="true" style={{ ["--i" as string]: 4 }}>
+              <div className="d3-pp-card-h">
+                <h2>{isVi ? "Theo sản phẩm" : "By product"}</h2>
+                {stats.pendingPos > 0 && <span className="d3-pp-pill is-warn">{isVi ? `Còn ${stats.pendingPos} PO chờ lập SX` : `${stats.pendingPos} POs awaiting setup`}</span>}
+              </div>
+              {loadingPos ? (
+                <LoadingState rows={4} label={isVi ? "Đang tải…" : "Loading…"} />
+              ) : pendingPosError ? (
+                <div role="alert" className="d3-pp-state is-error" data-kfm-pending-error="v1">
+                  <AlertCircle className="h-10 w-10" />
+                  <h3>{isVi ? "Không đọc được danh sách PO" : "Could not load POs"}</h3>
+                  <p>{isVi ? "Đây chưa phải là “không có PO”. Kiểm tra kết nối rồi thử lại." : "This is not “no POs”. Check the connection and retry."}</p>
+                  <Button variant="outline" className="mt-2 min-h-11" onClick={() => void refetchPendingPos()}>{isVi ? "Thử lại" : "Try again"}</Button>
+                </div>
+              ) : pendingPosEmpty ? (
+                <div className="d3-pp-state">
+                  <Package className="h-10 w-10" />
+                  <h3>{isVi ? "Chưa có PO chờ sản xuất cho ngày giao này" : "No POs awaiting production for this delivery date"}</h3>
+                  <p>{isVi ? "PO đã xác nhận và khớp SKU sẽ hiện ở đây theo ngày giao." : "Confirmed POs with matched SKUs appear here by delivery date."}</p>
+                </div>
+              ) : (
+                <>
+                  <div className="d3-pp-products" data-stitch-production-table="true">
+                    {aggregatedPlanItems.map((item, index) => (
+                      <article key={item.key} className="d3-pp-prod">
+                        <ProductVisual
+                          imageUrl={item.image_url}
+                          productName={item.product_name}
+                          className="h-[52px] w-[52px] rounded-[14px]"
+                          gradientClassName={productGradientClassNames[index % productGradientClassNames.length]}
+                        />
+                        <div className="min-w-0">
+                          <h3>{item.product_name}</h3>
+                          <p className="d3-pp-prod-meta">
+                            {item.poCount} PO · {formatDate(item.earliestDate)}
+                            {item.sourceNames.length > 0 ? ` · ${item.sourceNames.slice(0, 2).join(" · ")}${item.channelCount > 2 ? ` · +${item.channelCount - 2}` : ""}` : ""}
+                          </p>
+                          <div className="d3-pp-track" aria-hidden="true"><i style={{ ["--p" as string]: item.qty / maxPlanQty, ["--dl" as string]: `${300 + index * 90}ms`, background: SKU_COLORS[index % SKU_COLORS.length] }} /></div>
+                        </div>
+                        <div className="d3-pp-qty">
+                          <strong>{item.qty.toLocaleString("vi-VN")}</strong>
+                          <small>{item.unit} · {isVi ? "Sẵn sàng SX" : "Ready"}</small>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                  <div className="d3-pp-foot">
+                    <span>{isVi ? `${aggregatedPlanItems.length} SKU · thanh = tỷ lệ so với SKU nhiều nhất` : `${aggregatedPlanItems.length} SKUs · bar = share of the largest SKU`}</span>
+                    <span>{isVi ? "Dữ liệu từ PO đã parse" : "Data from parsed POs"}</span>
+                  </div>
+                </>
+              )}
+            </section>
+    
+            <section className="d3-pp-card" style={{ ["--i" as string]: 5 }}>
+              <div className="d3-pp-card-h"><h2>{isVi ? "Quy trình hôm nay" : "Today's flow"}</h2></div>
+              <div className="d3-pp-steps">
+                {flowSteps.map((step, k) => (
+                  <div key={step.key} className={`d3-pp-step is-${step.state}`} style={{ ["--dl" as string]: `${300 + k * 120}ms` }}>
+                    <i>{step.state === "done" ? <CheckCircle className="h-3.5 w-3.5" /> : null}</i>
+                    <span>{step.label}</span>
+                    <small>{step.count}</small>
+                  </div>
                 ))}
               </div>
-              <div className="d3-pp-foot">
-                <span>{isVi ? `${aggregatedPlanItems.length} SKU · thanh = tỷ lệ so với SKU nhiều nhất` : `${aggregatedPlanItems.length} SKUs · bar = share of the largest SKU`}</span>
-                <span>{isVi ? "Dữ liệu từ PO đã parse" : "Data from parsed POs"}</span>
-              </div>
-            </>
-          )}
-        </section>
-
-        <section className="d3-pp-card" style={{ ["--i" as string]: 5 }}>
-          <div className="d3-pp-card-h"><h2>{isVi ? "Quy trình hôm nay" : "Today's flow"}</h2></div>
-          <div className="d3-pp-steps">
-            {flowSteps.map((step, k) => (
-              <div key={step.key} className={`d3-pp-step is-${step.state}`} style={{ ["--dl" as string]: `${300 + k * 120}ms` }}>
-                <i>{step.state === "done" ? <CheckCircle className="h-3.5 w-3.5" /> : null}</i>
-                <span>{step.label}</span>
-                <small>{step.count}</small>
-              </div>
-            ))}
+            </section>
+    
+            <section className="d3-pp-card" style={{ ["--i" as string]: 6 }}>
+              <div className="d3-pp-card-h"><h2>{isVi ? "3 ngày tới" : "Next 3 days"}</h2><span className="d3-pp-pill is-blue">{isVi ? "Theo lệnh đã lập" : "From orders"}</span></div>
+              {upcomingDays.map((day, k) => (
+                <div key={day.dayIso} className="d3-pp-grp">
+                  <span className="d3-pp-grp-label">{formatDateOnly(day.dayIso)}{k === 0 ? (isVi ? " · hôm nay" : " · today") : ""}</span>
+                  <p>{day.orders > 0 ? (isVi ? `${day.orders} lệnh sản xuất` : `${day.orders} orders`) : (isVi ? "Chưa có lệnh" : "No orders yet")}</p>
+                  <div className="d3-pp-grp-track">
+                    <span className="d3-pp-track"><i style={{ ["--p" as string]: day.qty / maxDayQty, ["--dl" as string]: `${500 + k * 150}ms`, background: ["#29bf12", "#3c91e6", "#d0679a"][k] }} /></span>
+                    <small>{day.qty.toLocaleString("vi-VN")}</small>
+                  </div>
+                </div>
+              ))}
+            </section>
           </div>
-        </section>
-
-        <section className="d3-pp-card" style={{ ["--i" as string]: 6 }}>
-          <div className="d3-pp-card-h"><h2>{isVi ? "3 ngày tới" : "Next 3 days"}</h2><span className="d3-pp-pill is-blue">{isVi ? "Theo lệnh đã lập" : "From orders"}</span></div>
-          {upcomingDays.map((day, k) => (
-            <div key={day.dayIso} className="d3-pp-grp">
-              <span className="d3-pp-grp-label">{formatDateOnly(day.dayIso)}{k === 0 ? (isVi ? " · hôm nay" : " · today") : ""}</span>
-              <p>{day.orders > 0 ? (isVi ? `${day.orders} lệnh sản xuất` : `${day.orders} orders`) : (isVi ? "Chưa có lệnh" : "No orders yet")}</p>
-              <div className="d3-pp-grp-track">
-                <span className="d3-pp-track"><i style={{ ["--p" as string]: day.qty / maxDayQty, ["--dl" as string]: `${500 + k * 150}ms`, background: ["#29bf12", "#3c91e6", "#d0679a"][k] }} /></span>
-                <small>{day.qty.toLocaleString("vi-VN")}</small>
+    
               </div>
-            </div>
-          ))}
-        </section>
-      </div>
+        ) : null}
+      </details>
+
 
       {portalPosAwaitingSetup.length > 0 && <section className="d3-pp-card" data-kfm-production-resume="v1">
         <div className="d3-pp-card-h">
@@ -1546,7 +1601,7 @@ export default function ProductionPlanning() {
         </div>
       </section>}
 
-      <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <div className={`grid min-w-0 grid-cols-1 gap-4${otherPendingPos.length > 0 ? " xl:grid-cols-[minmax(0,1fr)_360px]" : ""}`}>
         <section className="d3-pp-card" data-stitch-production-orders="true" style={{ ["--i" as string]: 7 }}>
           <div className="d3-pp-card-h">
             <h2>{isVi ? "Lệnh sản xuất" : "Production Orders"}</h2>
@@ -1572,13 +1627,23 @@ export default function ProductionPlanning() {
                 if (groupOrders.length === 0) return null;
                 const limited = groupStatus === "completed" && !showAllDoneOrders ? groupOrders.slice(0, 5) : groupOrders;
                 // KFM MOQ belongs to a delivery day, not to one order (owner 31/10): said once per day in the group.
-                const moqDays = groupStatus === "cancelled" ? [] : [...new Set(groupOrders
+                const pastGroup = groupStatus === "completed" || groupStatus === "cancelled";
+                const groupOpen = !pastGroup || Boolean(openPastGroups[groupStatus]);
+                const moqDays = pastGroup ? [] : [...new Set(groupOrders
                   .filter((order) => order.is_kfm)
                   .map((order) => getProductionOrderDateIso(order))
                   .filter((date): date is string => Boolean(date)))].sort();
                 return (
                   <div key={groupStatus} className="d3-pp-ogroup" data-status={groupStatus}>
-                    <div className="d3-pp-ogroup-h"><span>{groupLabel}</span><small>{groupOrders.length}</small></div>
+                    {pastGroup ? (
+                      <button type="button" className="d3-pp-ogroup-h is-toggle" aria-expanded={groupOpen}
+                        onClick={() => setOpenPastGroups((prev) => ({ ...prev, [groupStatus]: !prev[groupStatus] }))} data-pp-group-toggle={groupStatus}>
+                        <span>{groupLabel}</span><small>{groupOrders.length}</small>
+                        <ChevronDown className="ml-auto h-4 w-4" aria-hidden="true" />
+                      </button>
+                    ) : (
+                      <div className="d3-pp-ogroup-h"><span>{groupLabel}</span><small>{groupOrders.length}</small></div>
+                    )}
                     {moqDays.map((day) => {
                       const pieces = kfmMoqPiecesByDate.get(day) ?? 0;
                       const short = KFM_DAILY_MOQ_PIECES - pieces;
@@ -1591,7 +1656,7 @@ export default function ProductionPlanning() {
                         </p>
                       );
                     })}
-                    {limited.map((order) => {
+                    {(groupOpen ? limited : []).map((order) => {
                       // KFM orders count in pieces (boxes of 4, cua phô mai 3), the same unit as the MOQ;
                       // other orders keep their own unit, or "sp" when their lines mix units.
                       const units = new Set((order.items || []).map((item) => (item.unit || "").trim().toLowerCase()).filter(Boolean));
@@ -1684,7 +1749,7 @@ export default function ProductionPlanning() {
                         </div>
                       );
                     })}
-                    {groupStatus === "completed" && groupOrders.length > 5 && (
+                    {groupOpen && groupStatus === "completed" && groupOrders.length > 5 && (
                       <button type="button" className="d3-pp-omore" onClick={() => setShowAllDoneOrders((value) => !value)}>
                         {showAllDoneOrders ? (isVi ? "Thu gọn" : "Show less") : (isVi ? `Xem thêm ${groupOrders.length - 5} lệnh` : `Show ${groupOrders.length - 5} more`)}
                       </button>
@@ -1695,8 +1760,7 @@ export default function ProductionPlanning() {
             </div>
           )}
         </section>
-        <aside className="min-w-0 space-y-4" data-stitch-production-insights="true">
-          <KfmDailyDeliveryReport todayIso={tvProductionDateIso} canEdit={isOwner || canEditModule("inventory")} />
+        {otherPendingPos.length > 0 ? <aside className="min-w-0 space-y-4" data-stitch-production-insights="true">
           <section className="d3-pp-card" style={{ ["--i" as string]: 2 }}>
             <div className="d3-pp-card-h">
               <h2>{isVi ? "PO khác chờ lập SX" : "Other POs awaiting setup"}</h2>
@@ -1749,7 +1813,7 @@ export default function ProductionPlanning() {
               </div>
             )}
           </section>
-        </aside>
+        </aside> : null}
       </div>
         </>
       )}

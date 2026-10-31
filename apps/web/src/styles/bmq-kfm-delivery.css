@@ -113,3 +113,66 @@ html.bmq-d3 .kd-photo-add:hover:not(:disabled) { border-color: var(--d3-ink); co
   .kd-table tfoot th, .kd-table tfoot td { position: static; background: none; border: 0; }
   .kd-empty { grid-column: 1 / -1; }
 }
+
+/* ---------- Sản xuất redesign (owner 01/11): three key figures, then the day's report ----------
+ * Spacing runs on 8 / 12 / 16 / 24. One big number per figure, one caption size, one flag size. */
+.pp-kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.pp-kpi {
+  --kd-ok: #1f8f0e; --kd-warn: #b56b00; --kd-bad: #c8321f;
+  display: grid; align-content: start; gap: 8px; min-width: 0; padding: 16px 20px 18px;
+  border-radius: 20px; background: var(--d3-card); box-shadow: var(--d3-sh);
+}
+html.bmq-d3 .pp-kpi h2 { margin: 0; font-size: 13px; font-weight: 500; letter-spacing: 0; color: var(--d3-ink-2); }
+.pp-kpi-num { display: flex; align-items: baseline; gap: 6px; margin: 0; font: 300 44px/1 var(--d3-num); letter-spacing: -.03em; color: var(--d3-ink); font-variant-numeric: tabular-nums; }
+.pp-kpi-num small { font: 400 14px var(--d3-sans); letter-spacing: 0; color: var(--d3-dim); }
+.pp-kpi.is-ok .pp-kpi-num { color: var(--kd-ok); }
+.pp-kpi.is-warn .pp-kpi-num { color: var(--kd-warn); }
+.pp-kpi.is-bad .pp-kpi-num { color: var(--kd-bad); }
+.pp-kpi-sub { margin: 0; font-size: 13px; color: var(--d3-dim); font-variant-numeric: tabular-nums; }
+.pp-kpi-flag { justify-self: start; margin: 0; padding: 3px 10px; border-radius: 8px; font-size: 12.5px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.pp-kpi-flag.is-ok { color: var(--kd-ok); background: #e6f6e2; }
+.pp-kpi-flag.is-warn { color: var(--kd-warn); background: #fff1d6; }
+.pp-kpi-flag.is-bad { color: var(--kd-bad); background: #fde5e1; }
+
+.pp-main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 12px; align-items: start; }
+
+/* folded delivery card */
+.kd-fold { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+.kd-fold p { margin: 0; font-size: 13.5px; color: var(--d3-ink-2); font-variant-numeric: tabular-nums; }
+.kd-fold b { font-weight: 600; color: var(--d3-ink); }
+.kd-fold .is-bad { color: var(--kd-bad); font-weight: 500; }
+html.bmq-d3 .kd-open { height: 34px; padding: 0 14px; border: 0; border-radius: 10px; background: var(--d3-ink); color: var(--d3-white); font-size: 13px; font-weight: 500; cursor: pointer; }
+.kd-tools { gap: 8px; }
+
+/* plan detail (gauge, by product, flow, next 3 days): closed, rendered only when opened */
+.pp-more { border-radius: 20px; background: var(--d3-card); box-shadow: var(--d3-sh); }
+.pp-more > summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; padding: 16px 20px; list-style: none; cursor: pointer; }
+.pp-more > summary::-webkit-details-marker { display: none; }
+.pp-more > summary span { font-size: 15px; font-weight: 500; color: var(--d3-ink); }
+.pp-more > summary small { font-size: 12.5px; color: var(--d3-dim); }
+.pp-more > summary::after { content: ""; width: 8px; height: 8px; margin-left: auto; border-right: 1.5px solid var(--d3-ink-2); border-bottom: 1.5px solid var(--d3-ink-2); transform: rotate(45deg); transition: transform .2s var(--d3-ease); }
+.pp-more[open] > summary::after { transform: rotate(-135deg); }
+.pp-more-body { display: grid; gap: 12px; padding: 0 12px 12px; }
+.pp-more-body .d3-pp-card { box-shadow: none; background: var(--d3-panel); }
+
+/* past order groups fold behind their header */
+html.bmq-d3 .d3-pp-ogroup-h.is-toggle { width: 100%; min-height: 36px; padding: 0 8px; border: 0; border-radius: 10px; background: var(--d3-white); cursor: pointer; text-align: left; }
+.d3-pp-ogroup-h.is-toggle[aria-expanded="true"] svg { transform: rotate(180deg); }
+
+/* header actions: one compact row instead of large tiles */
+html.bmq-d3 .d3-pp-head h1 { font-size: clamp(26px, 3vw, 34px); }
+
+@media (max-width: 1023.98px) {
+  .pp-main { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 640px) {
+  .pp-kpis { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .pp-kpi { grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; padding: 14px 16px; }
+  .pp-kpi h2 { grid-column: 1 / -1; }
+  .pp-kpi-num { grid-column: 1; font-size: 36px; }
+  .pp-kpi-sub { grid-column: 1; }
+  .pp-kpi-flag { grid-column: 1 / -1; }
+  .pp-more > summary { padding: 14px 16px; }
+}
+html.bmq-d3 .d3-pp[data-bmq-production-layout] .d3-pp-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+html.bmq-d3 .d3-pp[data-bmq-production-layout] .d3-pp-actions :is(button, a) { height: 36px; padding: 0 12px; border-radius: 10px; font-size: 13px; white-space: nowrap; }
