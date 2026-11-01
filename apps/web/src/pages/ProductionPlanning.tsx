@@ -48,7 +48,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { KFM_DAILY_MOQ_PIECES, kfmMoqPieces } from "@/lib/kfm-moq";
+import { KFM_DAILY_MIN_PACKS, kfmMoqPieces } from "@/lib/kfm-moq";
 import { KfmDailyDeliveryReport, KfmDeliveryKpi, KfmDeliveryVsPoCard } from "@/components/production/KfmDeliveryPanels";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -617,6 +617,16 @@ export default function ProductionPlanning() {
       const dateIso = getProductionOrderDateIso(order);
       if (!order.is_kfm || order.status === "cancelled" || !dateIso) return;
       byDate.set(dateIso, (byDate.get(dateIso) || 0) + getProductionOrderMoqPieces(order));
+    });
+    return byDate;
+  }, [productionOrders]);
+  // Packages as ordered (each line's own gói/hộp/cái), summed per KFM delivery day: under 600 KFM does not deliver.
+  const kfmPacksByDate = useMemo(() => {
+    const byDate = new Map<string, number>();
+    productionOrders.forEach((order) => {
+      const dateIso = getProductionOrderDateIso(order);
+      if (!order.is_kfm || order.status === "cancelled" || !dateIso) return;
+      byDate.set(dateIso, (byDate.get(dateIso) || 0) + getProductionOrderTotalQty(order));
     });
     return byDate;
   }, [productionOrders]);
@@ -1260,7 +1270,7 @@ export default function ProductionPlanning() {
   const orderPieces = (order: ProductionOrder) => (order.is_kfm ? getProductionOrderMoqPieces(order) : getProductionOrderTotalQty(order));
   const todayOrders = liveOrders.filter((order) => getProductionOrderDateIso(order) === tvProductionDateIso);
   const todayPieces = todayOrders.reduce((sum, order) => sum + orderPieces(order), 0);
-  const todayMoq = todayOrders.some((order) => order.is_kfm) ? kfmMoqPiecesByDate.get(tvProductionDateIso) ?? 0 : null;
+  const todayMoq = todayOrders.some((order) => order.is_kfm) ? kfmPacksByDate.get(tvProductionDateIso) ?? 0 : null;
   const nextOrders = liveOrders.filter((order) => getProductionOrderDateIso(order) === productionPoDateIso);
   const nextPendingPieces = kfmMoqPieces(aggregatedPlanItems.map((item) => ({ product_name: item.product_name, qty: item.qty })));
   const nextPieces = nextOrders.reduce((sum, order) => sum + orderPieces(order), 0) + nextPendingPieces;
@@ -1408,9 +1418,9 @@ export default function ProductionPlanning() {
             {todayOrders.length ? (isVi ? `${todayOrders.length} lệnh · giao ${formatDateOnly(tvProductionDateIso)}` : `${todayOrders.length} orders`) : (isVi ? "Chưa có lệnh hôm nay" : "No orders today")}
           </p>
           {todayMoq !== null ? (
-            <p className={`pp-kpi-flag${todayMoq < KFM_DAILY_MOQ_PIECES ? " is-bad" : " is-ok"}`}>
-              MOQ KFM {todayMoq.toLocaleString("vi-VN")}/{KFM_DAILY_MOQ_PIECES.toLocaleString("vi-VN")}
-              {todayMoq < KFM_DAILY_MOQ_PIECES ? ` · thiếu ${(KFM_DAILY_MOQ_PIECES - todayMoq).toLocaleString("vi-VN")}` : " · đủ"}
+            <p className={`pp-kpi-flag${todayMoq < KFM_DAILY_MIN_PACKS ? " is-bad" : " is-ok"}`}>
+              KFM {todayMoq.toLocaleString("vi-VN")}/{KFM_DAILY_MIN_PACKS.toLocaleString("vi-VN")} gói
+              {todayMoq < KFM_DAILY_MIN_PACKS ? ` · thiếu ${(KFM_DAILY_MIN_PACKS - todayMoq).toLocaleString("vi-VN")}, không giao` : " · đủ để giao"}
             </p>
           ) : null}
         </article>
@@ -1646,13 +1656,15 @@ export default function ProductionPlanning() {
                     )}
                     {moqDays.map((day) => {
                       const pieces = kfmMoqPiecesByDate.get(day) ?? 0;
-                      const short = KFM_DAILY_MOQ_PIECES - pieces;
+                      const packs = kfmPacksByDate.get(day) ?? 0;
+                      const short = KFM_DAILY_MIN_PACKS - packs;
                       return (
                         <p key={day} className={`d3-pp-daymoq${short > 0 ? " is-short" : ""}`} data-testid={`kfm-day-moq-${day}`}
-                          title={isVi ? "Tổng số cái của mọi PO KFM giao cùng ngày" : "Pieces across the day's KFM POs"}>
-                          <span>MOQ KFM {formatDate(day)}</span>
-                          <b>{pieces.toLocaleString("vi-VN")}/{KFM_DAILY_MOQ_PIECES.toLocaleString("vi-VN")} cái</b>
-                          <em>{short > 0 ? (isVi ? `thiếu ${short.toLocaleString("vi-VN")}` : `${short.toLocaleString("vi-VN")} short`) : (isVi ? "đủ" : "met")}</em>
+                          title={isVi ? `Tổng gói của mọi PO KFM giao cùng ngày; dưới ${KFM_DAILY_MIN_PACKS} gói KFM không giao` : "Packages across the day's KFM POs"}>
+                          <span>KFM {formatDate(day)}</span>
+                          <b>{packs.toLocaleString("vi-VN")}/{KFM_DAILY_MIN_PACKS.toLocaleString("vi-VN")} gói</b>
+                          <small>{pieces.toLocaleString("vi-VN")} cái</small>
+                          <em>{short > 0 ? (isVi ? `thiếu ${short.toLocaleString("vi-VN")} gói · không giao` : `${short} packs short`) : (isVi ? "đủ để giao" : "met")}</em>
                         </p>
                       );
                     })}
@@ -1660,7 +1672,8 @@ export default function ProductionPlanning() {
                       // KFM orders count in pieces (boxes of 4, cua phô mai 3), the same unit as the MOQ;
                       // other orders keep their own unit, or "sp" when their lines mix units.
                       const units = new Set((order.items || []).map((item) => (item.unit || "").trim().toLowerCase()).filter(Boolean));
-                      const totalQty = order.is_kfm ? getProductionOrderMoqPieces(order) : getProductionOrderTotalQty(order);
+                      // KFM rows lead with packages (the 600-gói rule), pieces underneath.
+                      const totalQty = getProductionOrderTotalQty(order);
                       const canGeneratePdf = canGenerateQ7MaterialIssuePdf(order);
                       const pdfLoading = materialIssuePdfOrderId === order.id;
                       const pdfMessage = materialIssuePdfMessages[order.id];
@@ -1691,7 +1704,7 @@ export default function ProductionPlanning() {
                             </span>
                             <span className="d3-pp-oqty">
                               <strong>{totalQty.toLocaleString("vi-VN")}</strong>
-                              <small>{unit}</small>
+                              <small>{order.is_kfm ? `gói · ${getProductionOrderMoqPieces(order).toLocaleString("vi-VN")} cái` : unit}</small>
                             </span>
                             <ChevronDown className="d3-pp-ochev h-4 w-4" aria-hidden="true" />
                           </button>

@@ -1,5 +1,7 @@
 // KFM minimum order: the sum of all KFM POs delivered on one day, counted in pieces (cái).
 export const KFM_DAILY_MOQ_PIECES = 1500;
+// KFM does not take an order under 600 packages (gói/hộp/cái as ordered) per delivery day (owner 01/11).
+export const KFM_DAILY_MIN_PACKS = 600;
 
 const fold = (value: string) =>
   value
