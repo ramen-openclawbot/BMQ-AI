@@ -190,3 +190,17 @@ html.bmq-d3 .d3-pp[data-bmq-production-layout] .d3-pp-actions :is(button, a) { h
 .kd-save span { font-size: 12.5px; color: var(--d3-ink-2); font-variant-numeric: tabular-nums; }
 html.bmq-d3 .kd-save .kd-open { min-width: 96px; }
 .d3-pp-daymoq small { font-size: 12px; color: var(--d3-dim); font-variant-numeric: tabular-nums; }
+
+/* KFM guard in the create-order dialog (owner 01/11) */
+.pp-guard { display: grid; gap: 10px; padding: 14px 16px; border-radius: 16px; background: #e6f6e2; }
+.pp-guard.is-short { background: #fde5e1; }
+.pp-guard-total { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin: 0; font-size: 13.5px; }
+.pp-guard-total b { font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.pp-guard-total em { margin-left: auto; font-style: normal; font-weight: 600; color: #1f8f0e; }
+.pp-guard.is-short .pp-guard-total em { color: #c8321f; }
+.pp-guard-list { display: grid; gap: 6px; }
+.pp-guard-list > p { margin: 0; font-size: 12.5px; color: var(--d3-ink-2, #4a4a4a); }
+.pp-guard-list label, .pp-guard-override { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 2px 10px; padding: 8px 10px; border-radius: 10px; background: rgba(255,255,255,.75); font-size: 13px; cursor: pointer; }
+.pp-guard-list label small { grid-column: 2; font-size: 12px; color: #6b6b69; }
+.pp-guard-list label.is-locked { opacity: .6; cursor: not-allowed; }
+.pp-guard input[type="checkbox"] { width: 18px; height: 18px; accent-color: #272727; }

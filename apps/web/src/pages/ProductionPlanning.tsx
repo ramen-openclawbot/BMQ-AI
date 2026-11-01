@@ -48,7 +48,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { KFM_DAILY_MIN_PACKS, kfmMoqPieces } from "@/lib/kfm-moq";
+import { KFM_DAILY_MIN_PACKS, kfmMoqPieces, kfmShortPacks } from "@/lib/kfm-moq";
+import { useKfmProductionPreflight } from "@/hooks/useKfmProductionGuard";
 import { KfmDailyDeliveryReport, KfmDeliveryKpi, KfmDeliveryVsPoCard } from "@/components/production/KfmDeliveryPanels";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -132,6 +133,8 @@ interface ProductionOrderItem {
 type ProductionOrderDisplayStatus = ProductionOrder["status"] | "upcoming";
 
 interface CreateProductionOrderInput {
+  replace_order_ids?: string[];
+  override_min?: boolean;
   po_id: string;
   po_number: string;
   from_name: string;
@@ -421,6 +424,10 @@ export default function ProductionPlanning() {
   // Past groups stay closed until asked for (owner 01/11): a long history must not bury today.
   const [openPastGroups, setOpenPastGroups] = useState<Record<string, boolean>>({});
   const [planDetailOpen, setPlanDetailOpen] = useState(false);
+  // KFM guard in the create dialog (owner 01/11): replace the old order of the same day, 600-gói minimum.
+  const [replaceIds, setReplaceIds] = useState<string[]>([]);
+  const [overrideMin, setOverrideMin] = useState(false);
+  useEffect(() => { setReplaceIds([]); setOverrideMin(false); }, [createDialogOpen, selectedPoForCreation?.id]);
   const [editingOrder, setEditingOrder] = useState<ProductionOrder | null>(null);
   const [deleteOrder, setDeleteOrder] = useState<ProductionOrder | null>(null);
   const [materialIssuePdfOrderId, setMaterialIssuePdfOrderId] = useState<string | null>(null);
@@ -742,6 +749,8 @@ export default function ProductionPlanning() {
         p_end_date: input.planned_end_date || null,
         p_notes: input.notes || null,
         p_items: input.items,
+        p_replace_order_ids: input.replace_order_ids?.length ? input.replace_order_ids : null,
+        p_override_min: Boolean(input.override_min),
       });
       if (error) throw error;
       if (!data?.order?.id) throw new Error("Không nhận được lệnh sản xuất đã xác minh.");
@@ -770,7 +779,10 @@ export default function ProductionPlanning() {
     },
     onError: (error: any) => {
       console.error("Mutation error:", error);
-      toast.error(isVi ? "Không thể tạo lệnh sản xuất. Vui lòng thử lại." : "Failed to create production order. Please try again.");
+      const raw = String(error?.message || "");
+      if (raw.startsWith("kfm_below_min_packs:")) toast.error(raw.replace("kfm_below_min_packs:", "").trim());
+      else if (raw.includes("production_replace_invalid")) toast.error(isVi ? "Lệnh cũ đã có phiếu NVL, đã xuất hoặc đã sản xuất nên không huỷ được." : "The old order can no longer be cancelled.");
+      else toast.error(isVi ? "Không thể tạo lệnh sản xuất. Vui lòng thử lại." : "Failed to create production order. Please try again.");
     },
   });
 
@@ -1183,6 +1195,17 @@ export default function ProductionPlanning() {
     [canGenerateQ7MaterialIssuePdf, isVi]
   );
 
+  const kfmGuard = useKfmProductionPreflight(
+    createDialogOpen ? selectedPoForCreation?.id : null,
+    createDialogOpen ? formData.planned_start_date : null,
+    createDialogOpen ? formData.items : null,
+  );
+  const guard = kfmGuard.data;
+  const replacedPacks = (guard?.existing ?? []).filter((o) => replaceIds.includes(o.id)).reduce((n, o) => n + o.packs, 0);
+  const guardTotal = guard ? guard.totalPacks - replacedPacks : 0;
+  const guardShort = guard?.isKfm ? kfmShortPacks(guardTotal, guard.minPacks) : 0;
+  const guardBlocked = Boolean(guard?.isKfm && guardShort > 0 && !(isOwner && overrideMin));
+
   const handleSubmitCreate = async () => {
     if (!selectedPoForCreation) return;
     if (!canEditLocation) {
@@ -1207,6 +1230,8 @@ export default function ProductionPlanning() {
       planned_start_date: formData.planned_start_date,
       planned_end_date: formData.planned_end_date,
       notes: formData.notes,
+      replace_order_ids: replaceIds,
+      override_min: isOwner && overrideMin,
     });
   };
 
@@ -1963,11 +1988,40 @@ export default function ProductionPlanning() {
                 </AlertDescription>
               </Alert>
 
+              {guard?.isKfm ? (
+                <section className={`pp-guard${guardShort > 0 ? " is-short" : ""}`} data-pp-kfm-guard>
+                  <p className="pp-guard-total">
+                    <span>KFM giao {formatDateOnly(guard.deliveryDate)}</span>
+                    <b>{guardTotal.toLocaleString("vi-VN")}/{guard.minPacks.toLocaleString("vi-VN")} gói</b>
+                    <em>{guardShort > 0 ? `Thiếu ${guardShort.toLocaleString("vi-VN")} gói · KFM không giao` : "Đủ để giao"}</em>
+                  </p>
+                  {guard.existing.length ? (
+                    <div className="pp-guard-list">
+                      <p>Ngày này đã có lệnh KFM. KFM đặt lại thì chọn lệnh cũ để huỷ:</p>
+                      {guard.existing.map((order) => (
+                        <label key={order.id} className={order.cancellable ? "" : "is-locked"} data-pp-kfm-replace={order.productionNumber}>
+                          <input type="checkbox" disabled={!order.cancellable} checked={replaceIds.includes(order.id)}
+                            onChange={(e) => setReplaceIds((prev) => e.target.checked ? [...prev, order.id] : prev.filter((id) => id !== order.id))} />
+                          <span><b className="font-mono">{order.productionNumber}</b> · {order.poNumber} · {order.packs.toLocaleString("vi-VN")} gói</span>
+                          <small>{order.cancellable ? "Huỷ lệnh cũ, dùng PO mới" : "Đã có phiếu NVL / đã xuất, không huỷ được"}</small>
+                        </label>
+                      ))}
+                    </div>
+                  ) : null}
+                  {guardShort > 0 && isOwner ? (
+                    <label className="pp-guard-override">
+                      <input type="checkbox" checked={overrideMin} onChange={(e) => setOverrideMin(e.target.checked)} data-pp-kfm-override />
+                      <span>Vẫn lập dù dưới {guard.minPacks} gói (chỉ chủ doanh nghiệp)</span>
+                    </label>
+                  ) : null}
+                </section>
+              ) : null}
+
               <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
                 <Button variant="outline" className="h-12 rounded-2xl" onClick={() => setCreateDialogOpen(false)} disabled={createProductionOrderMutation.isPending}>
                   {isVi ? "Hủy" : "Cancel"}
                 </Button>
-                <Button className="btn-gradient h-12 rounded-2xl font-black" onClick={handleSubmitCreate} disabled={!canEditLocation || createProductionOrderMutation.isPending}>
+                <Button className="btn-gradient h-12 rounded-2xl font-black" onClick={handleSubmitCreate} disabled={!canEditLocation || createProductionOrderMutation.isPending || guardBlocked || kfmGuard.isLoading} data-pp-create-submit>
                   {createProductionOrderMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}
                   {isVi ? "Xác nhận tạo lệnh SX" : "Confirm production order"}
                 </Button>

@@ -80,6 +80,8 @@ try {
           return { data, error: null };
         };
         window.qaRpc = (name, args) => {
+          // KFM guard preview is read-only: answer it without counting it as a write.
+          if (name === "kfm_production_preflight") return { data: window.qaPreflight || { is_kfm: true, delivery_date: args.p_start_date, min_packs: 600, new_packs: 700, existing: [], other_packs: 0, total_packs: 700, below_min: false }, error: null };
           window.rpcCalls.push({ name, args });
           const order = { id: "sx-1", production_number: "SX-20260916-001", source_po_inbox_id: args.p_po_id, status: "planned", planned_start_date: args.p_start_date, planned_end_date: args.p_end_date, created_at: "2026-09-15T05:00:00Z", items: args.p_items.map((item, index) => ({ id: `item-${index}`, production_order_id: "sx-1", product_name: item.product_name, ordered_qty: item.original_qty, planned_qty: item.planned_qty, unit: item.unit, delivery_date: item.date })) };
           window.fixtureOrders.push(order); return { data: { order, reused: false }, error: null };
@@ -137,9 +139,12 @@ try {
         assert.equal(await setup.locator('input[type="number"]').count(), 6, "All six PO lines must reach setup");
         for (const name of ["BÁNH CROISSANT 50G", "BÁNH MÌ CHÀ BÔNG 70G", "BÁNH FLAN 80G", "BÁNH SU KEM 60G", "BÁNH DONUT 55G", "BÁNH MÌ NGỌT 65G"]) assert((await setup.innerText()).includes(name), name);
         await page.screenshot({ path: path.join(out, `${width}-${sidebar}-recover-setup.png`), animations: "disabled" });
+        await setup.locator("[data-pp-kfm-guard]").waitFor();
+        assert((await setup.locator("[data-pp-kfm-guard]").innerText()).includes("700/600 gói"), "KFM guard shows the day total");
         await setup.getByRole("button", { name: "Xác nhận tạo lệnh SX" }).click(); await setup.waitFor({ state: "hidden" });
         const calls = await page.evaluate(() => window.rpcCalls); assert.equal(calls.length, 1); assert.equal(calls[0].name, "create_q7_production_from_po");
         assert.equal(calls[0].args.p_items.length, 6); assert.equal(calls[0].args.p_start_date, "2026-09-16");
+        assert.equal(calls[0].args.p_replace_order_ids, null); assert.equal(calls[0].args.p_override_min, false);
         assert.deepEqual(calls[0].args.p_items.map((item) => item.sku_id).sort(), ["sku-1", "sku-2", "sku-3", "sku-4", "sku-5", "sku-6"]);
       } else if (scenario === "external-import") {
         assert.equal(await page.locator("[data-kfm-production-resume]").count(), 0, "Nothing pending before the external import");
