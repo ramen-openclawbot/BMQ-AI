@@ -1,5 +1,5 @@
 /** Portal intake: no write during polling, durable one-send decisions, GET-only recovery. */
-import { KfmPortalError, confirmOrder, rejectOrder, getTripSource, listOrders, tripOrderInScope, tripPoConfirmation, vnDate, type KfmTripSource } from './kfm-portal.ts';
+import { KfmPortalError, confirmOrder, effectiveKfmDeliveryDate, rejectOrder, getTripSource, listOrders, tripOrderInScope, tripPoConfirmation, vnDate, type KfmTripSource } from './kfm-portal.ts';
 type Row = Record<string, any>;
 type Admin = any;
 export const canonicalPo = (value: unknown) => String(value || '').trim().toUpperCase();
@@ -17,6 +17,25 @@ function historicalRange(payload: Row) {
   }
   return { deliveryDateFrom: from, deliveryDateTo: to };
 }
+/** Shift a valid ISO day; the portal list is queried by the planned date. */
+function shiftDay(value: string, days: number): string {
+  const date = new Date(`${value}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+function cancelSummary(value: Row) {
+  return {
+    noop: value?.status === 'noop',
+    cancelledCount: Number(value?.cancelled_count) || 0,
+    cancelledOrders: Array.isArray(value?.cancelled_orders) ? value.cancelled_orders : [],
+    warnings: Array.isArray(value?.warnings) ? value.warnings : [],
+  };
+}
+async function markPoCancelled(admin: Admin, poNumber: string) {
+  const result = await admin.rpc('kfm_mark_po_cancelled', { p_po_number: poNumber });
+  if (result?.error) throw new KfmPortalError('intake', 0, 'Chưa ghi nhận được PO KFM đã hủy. Chưa thay đổi dữ liệu sản xuất.');
+  return cancelSummary(result?.data);
+}
 export function intakeItems(source: KfmTripSource) {
   return source.items.map(row => ({
     productCode: String(row.productCode || ''), barcode: String(row.barcode || ''),
@@ -26,7 +45,7 @@ export function intakeItems(source: KfmTripSource) {
   }));
 }
 export function intakeSnapshot(source: KfmTripSource) {
-  return { code: canonicalPo(source.po.code), deliveryDate: String(source.po.deliveryDate || '').slice(0, 10),
+  return { code: canonicalPo(source.po.code), deliveryDate: String(effectiveKfmDeliveryDate(source.po) || '').slice(0, 10),
     locationId: Number(source.po.locationId), locationName: String(source.po.locationName || ''), items: intakeItems(source) };
 }
 export async function intakeRevision(source: KfmTripSource, withStatus = true) {
@@ -35,7 +54,7 @@ export async function intakeRevision(source: KfmTripSource, withStatus = true) {
 }
 function validSource(source: KfmTripSource) {
   const snapshot = intakeSnapshot(source);
-  return snapshot.code && isoDay(source.po.deliveryDate) && snapshot.items.length > 0 && snapshot.items.every(row => row.productCode && row.productName && row.unitName && Number.isFinite(row.qty) && row.qty >= 0 && Number.isFinite(row.unitPrice) && row.unitPrice >= 0 && Number.isFinite(row.taxRate) && row.taxRate >= 0);
+  return snapshot.code && isoDay(effectiveKfmDeliveryDate(source.po)) && snapshot.items.length > 0 && snapshot.items.every(row => row.productCode && row.productName && row.unitName && Number.isFinite(row.qty) && row.qty >= 0 && Number.isFinite(row.unitPrice) && row.unitPrice >= 0 && Number.isFinite(row.taxRate) && row.taxRate >= 0);
 }
 export function productionPayload(source: KfmTripSource, vendorId: number, actorId: string) {
   if (!validSource(source)) throw new KfmPortalError('intake', 0, 'PO thiếu ngày giao, sản phẩm hoặc số lượng hợp lệ. Chưa nhập vào sản xuất.');
@@ -182,16 +201,43 @@ async function recovery(admin: Admin, token: string, attempt: Row) {
 export async function handleKfmIntake(admin: Admin, token: string, vendorId: number, actorId: string, payload: Row) {
   if (payload.action === 'intake-list') {
     const range = historicalRange(payload);
+    const today = vnDate();
     const attempts: Row[] = checked(await admin.from('kfm_po_intake_attempts').select('*').eq('vendor_id', vendorId), 'Không tải được nhật ký PO.');
     const legacy: Row[] = checked(await admin.rpc('kfm_existing_po_numbers'), 'Không đối chiếu được PO đã nhập.');
     const imported = new Set(legacy.map(row => canonicalPo(row.po_number)));
+    const removed: Row[] = [];
+    const warnings: Row[] = [];
+    const marked = new Set<string>();
     const candidates = new Map<number, Row>();
+    // The portal filters by the planned delivery date, so look back seven days
+    // and apply the effective (supplier-confirmed) date below.
+    const listedQuery = range
+      ? { vendorId, deliveryDateFrom: shiftDay(range.deliveryDateFrom, -7), deliveryDateTo: range.deliveryDateTo }
+      : { vendorId, deliveryDateFrom: shiftDay(today, -7) };
     for (let page = 0; page < 30; page++) {
-      const result = await listOrders(token, { vendorId, ...(range || { deliveryDateFrom: vnDate() }), page, size: 100 });
+      const result = await listOrders(token, { ...listedQuery, page, size: 100 });
       for (const row of result.orders) {
         const attempt = attempts.find(a => a.order_id === row.portalId);
-        if (attempt && ['imported', 'rejected'].includes(attempt.state)) continue;
-        if (!attempt && (Number(row.status) === 6 || imported.has(canonicalPo(row.code)) || ![3, 5, 6, 9].includes(Number(row.subStatus)))) continue;
+        if (attempt?.state === 'rejected') continue;
+        const code = canonicalPo(row.code || attempt?.po_number);
+        const received = attempt ? attempt.state === 'imported' : imported.has(code);
+        if (received) {
+          // A received PO must never be imported again. If the portal now says
+          // it was cancelled, remove the inbox row and its planned orders once.
+          if (Number(row.subStatus) === 11 && code && !marked.has(code)) {
+            marked.add(code);
+            const outcome = await markPoCancelled(admin, code);
+            // A repeat call on an already-removed PO changes nothing: do not report it again.
+            if (!outcome.noop) removed.push({ orderId: Number(row.portalId), code, ...outcome });
+            for (const warning of outcome.warnings) warnings.push({ orderId: Number(row.portalId), code, ...warning });
+            if (attempt) {
+              const saved = await admin.from('kfm_po_intake_attempts').update({ state: 'rejected', updated_at: new Date().toISOString() }).eq('vendor_id', vendorId).eq('order_id', attempt.order_id);
+              if (saved?.error) throw new KfmPortalError('intake', 0, 'Đã hủy PO KFM nhưng chưa lưu được trạng thái nhật ký duyệt.');
+            }
+          }
+          continue;
+        }
+        if (Number(row.status) === 6 || ![3, 5, 6, 9].includes(Number(row.subStatus))) continue;
         candidates.set(row.portalId, row);
       }
       if (result.orders.length < 100 || (page + 1) * 100 >= result.totalElements) break;
@@ -208,17 +254,22 @@ export async function handleKfmIntake(admin: Admin, token: string, vendorId: num
       const source = await getTripSource(token, { vendorId, orderId });
       if (Number(source.po.id) !== orderId) throw new KfmPortalError('intake', 0, 'Chi tiết PO không khớp mã đã tải.');
       if (!attempt && Number(source.po.status) === 6) continue;
+      const date = effectiveKfmDeliveryDate(source.po);
       if (range) {
         if (!attempt && imported.has(canonicalPo(source.po.code))) continue;
-        const date = source.po.deliveryDate;
-        if (!isoDay(date) || (listed.portalId && (!isoDay(listed.deliveryDate) || listed.deliveryDate !== date || canonicalPo(listed.code) !== canonicalPo(source.po.code) || Number(listed.subStatus) !== Number(source.po.subStatus))) || (!attempt && (date < range.deliveryDateFrom || date > range.deliveryDateTo))) {
+        // The list row may omit the supplier-confirmed date: compare the planned
+        // dates always, and the confirmed date only when the list sends one.
+        const listedPlanned = String(listed.deliveryDate || ''), listedConfirmed = listed.vendorConfirmedDeliveryDate;
+        const dateMismatch = !isoDay(listedPlanned) || listedPlanned !== String(source.po.deliveryDate || '') || (listedConfirmed != null && effectiveKfmDeliveryDate(listed) !== date);
+        if (!isoDay(date) || (listed.portalId && (dateMismatch || canonicalPo(listed.code) !== canonicalPo(source.po.code) || Number(listed.subStatus) !== Number(source.po.subStatus)))) {
           throw new KfmPortalError('intake', 0, 'Ngày giao hoặc mã PO lịch sử không khớp danh sách/chi tiết trên KFM. Chưa trình PO để duyệt.');
         }
-      }
+        if (!attempt && (date < range.deliveryDateFrom || date > range.deliveryDateTo)) continue;
+      } else if (!attempt && (!isoDay(date) || date < today)) continue;
       if (!attempt && ![3, 5, 6, 9].includes(Number(source.po.subStatus))) continue;
       orders.push(await orderView(source, attempt));
     }
-    return { success: true, vendorId, count: orders.length, orders };
+    return { success: true, vendorId, count: orders.length, orders, removed, warnings };
   }
   const orderId = Number(payload.orderId);
   if (!Number.isSafeInteger(orderId) || orderId <= 0) throw new KfmPortalError('intake', 0, 'Thiếu mã PO hợp lệ.');

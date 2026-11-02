@@ -52,6 +52,8 @@ export type KfmOrder = {
   status: number | null;
   subStatus: number | null;
   deliveryDate: string | null;
+  /** Supplier-confirmed date; wins over `deliveryDate` when it is a real ISO day. */
+  vendorConfirmedDeliveryDate: string | null;
   vendorId: number | null;
   vendorCode: string | null;
   vendorName: string | null;
@@ -819,6 +821,7 @@ export function normalizeOrder(row: Record<string, unknown>): KfmOrder {
     status: asNumber(row.status),
     subStatus: asNumber(row.subStatus),
     deliveryDate: asString(row.deliveryDate),
+    vendorConfirmedDeliveryDate: asString(row.vendorConfirmedDeliveryDate),
     vendorId: asNumber(row.vendorId),
     vendorCode: asString(row.vendorCode),
     vendorName: asString(row.vendorName),
@@ -835,6 +838,25 @@ export function normalizeOrder(row: Record<string, unknown>): KfmOrder {
 }
 
 export const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Calendar-valid ISO day; impossible dates and suffixes never win. */
+function isIsoDay(value: string): boolean {
+  if (!ISO_DATE.test(value) || value < "0001-01-01") return false;
+  const day = new Date(`${value}T00:00:00Z`);
+  return Number.isFinite(day.getTime()) && day.toISOString().slice(0, 10) === value;
+}
+
+/**
+ * The delivery day BMQ must use: the supplier's confirmed date only when the
+ * portal sent a real ISO day, otherwise the original planned delivery date.
+ */
+export function effectiveKfmDeliveryDate(
+  po: { deliveryDate?: unknown; vendorConfirmedDeliveryDate?: unknown } | null | undefined,
+): string | null {
+  const confirmed = asString(po?.vendorConfirmedDeliveryDate);
+  if (confirmed && isIsoDay(confirmed)) return confirmed;
+  return asString(po?.deliveryDate);
+}
 
 export type ListOrdersOptions = {
   vendorId: number;
@@ -1094,6 +1116,8 @@ export type KfmOrderDetail = {
   purchaseOrderId: number | null;
   /** Warehouse the order is delivered to — the trip body's `stops[].locationId`. */
   locationId: number | null;
+  /** Supplier-confirmed delivery date from the purchase order, when present. */
+  vendorConfirmedDeliveryDate: string | null;
   lines: KfmOrderLine[];
 };
 
@@ -1110,7 +1134,7 @@ export async function getOrderDetail(
     throw new KfmPortalError("order_detail", status, "Không đọc được chi tiết đơn từ cổng KFM");
   }
   const data = ((body?.data ?? body) || {}) as Record<string, unknown>;
-  const purchaseOrder = ((data.purchaseOrder ?? {}) as Record<string, unknown>);
+  const purchaseOrder = ((data.purchaseOrder ?? data.po ?? {}) as Record<string, unknown>);
   const rows: Record<string, unknown>[] = Array.isArray(data.items) ? data.items : [];
   return {
     portalId: asNumber(data.id) ?? options.orderId,
@@ -1119,6 +1143,10 @@ export async function getOrderDetail(
       asNumber(purchaseOrder.id) ?? asNumber(data.purchaseOrderId) ?? asNumber(data.poId),
     locationId: asNumber(data.locationId),
 
+    vendorConfirmedDeliveryDate:
+      asString(purchaseOrder.vendorConfirmedDeliveryDate) ??
+      asString((data.po as Record<string, unknown> | undefined)?.vendorConfirmedDeliveryDate) ??
+      asString(data.vendorConfirmedDeliveryDate),
     lines: rows.map((row) => ({
       productCode: asString(row.productCode) ?? asString(row.barcode),
       productName: asString(row.productName),

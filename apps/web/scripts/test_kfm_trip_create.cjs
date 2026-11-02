@@ -17,6 +17,7 @@ let requests = [], transport;
 const client = moduleAt('supabase/functions/_shared/kfm-portal.ts', { fetch: (...args) => { requests.push(args); return transport(...args); } });
 const fleet = {vehicles:[{id:1,plateNumber:'TEST',defaultDriverId:2}],drivers:[{id:2,name:'Driver',phone:'0123456789'}]};
 const date = client.vnDate(1);
+const dayBefore = value => { const d = new Date(`${value}T00:00:00Z`); d.setUTCDate(d.getUTCDate() - 1); return d.toISOString().slice(0, 10); };
 const source = { po: { id: 239751, code: 'PO1002646817', deliveryDate: date, vendorId: 1865, vendorCode: 'V000217', companyId: 10, locationId: 1445, status: 2, subStatus: 6 }, items: [110,150].map((qty,i) => ({ id: i+1, productCode: 'P'+i, productName: 'Bread '+i, qty, unitName: 'CÁI', variantId: i+1 })), shippedMap: {} };
 const options = { deliveryType: null, vehicleTypes: [{ id: 1, name: 'Xe tải' }], vehicleTypeId: 1, slots: [], companyId: 10 };
 const form = { vehicleTypeId: 1, expectedTimeFrom: '08:00', expectedTimeTo: '09:00', licensePlate: 'TEST', totalCartons: 2, totalPallets: 0 };
@@ -40,8 +41,9 @@ async function payloadFor(subStatus = 6, extra = {}) {
  * raw KFM HTTP and the Postgres client are faked, so the durable intake claim
  * that gates the trip write is the production code, not a stub.
  */
-function bridge({ permission = true, vendorIds = [1865], changed = false, outcome = 'success', inScope = true, childVendor = false, poStatus = 6, pendingChanged = false, poReadFails = false, existingNotes = [], asnFailure = false, savedChanged = false, intakeOutcome = 'success', importFail = false, disabled = false, legacy = [], preTrip = false, preIntake = null, rawCatalog = false } = {}) {
+function bridge({ permission = true, vendorIds = [1865], changed = false, outcome = 'success', inScope = true, childVendor = false, poStatus = 6, pendingChanged = false, poReadFails = false, existingNotes = [], asnFailure = false, savedChanged = false, intakeOutcome = 'success', importFail = false, disabled = false, legacy = [], preTrip = false, preIntake = null, rawCatalog = false, poDeliveryDate = null, confirmedDeliveryDate = null, portalListRows = null } = {}) {
   const records = new Map(); let handler, tripPosts = 0, sourceReads = 0, catalogReads = 0, poSubStatus = poStatus;
+  const listCalls = [];
   const catalogRowsSeen = [];
   let portalConfirms = 0, portalRejects = 0, imports = 0, importFailNow = importFail;
   const intakeRows = new Map(), events = [];
@@ -49,6 +51,8 @@ function bridge({ permission = true, vendorIds = [1865], changed = false, outcom
   const currentSource = () => {
     const s = structuredClone(source);
     s.po.subStatus = poSubStatus;
+    if (poDeliveryDate !== null) s.po.deliveryDate = poDeliveryDate;
+    if (confirmedDeliveryDate !== null) s.po.vendorConfirmedDeliveryDate = confirmedDeliveryDate;
     if (changed) s.shippedMap = { P0: 5 };
     if (childVendor) s.po = { ...s.po, vendorId: 2797, vendorCode: 'V000217.1' };
     return s;
@@ -102,7 +106,7 @@ function bridge({ permission = true, vendorIds = [1865], changed = false, outcom
   };
   const shared = { ...client, openSession: async()=>({token:'fixture-only',mode:'test'}),openSessionWithLoginGuard:async()=>({token:'fixture-only',mode:'test',obtainedAt:'fixture'}),getMe:async()=>({vendorIds,vendorCode:'FIXTURE'}),getTripOptions:async()=>options,getSavedTripFleet:async()=>savedChanged?{...fleet,drivers:[{...fleet.drivers[0],phone:'changed'}]}:fleet,tripOrderInScope:async()=>inScope,getTripPendingChanges:async()=>pendingChanged?[{requestCategory:'QUALITY',itemStatus:'NEW'}]:[],
     getTripSource:async()=>{sourceReads++;if(tripPosts && poReadFails)throw Error('PO read failed');return currentSource();},
-    listOrders:async()=>({orders:[{portalId:239751,code:source.po.code,subStatus:poSubStatus}],totalElements:1}),
+    listOrders:async(token,options)=>{listCalls.push(options);const rows=portalListRows||[{portalId:239751,code:source.po.code,deliveryDate:source.po.deliveryDate,vendorConfirmedDeliveryDate:source.po.vendorConfirmedDeliveryDate,subStatus:poSubStatus}];return {orders:rows.slice((options.page||0)*(options.size||100),(options.page||0)*(options.size||100)+(options.size||100)),totalElements:rows.length};},
     confirmOrder:async()=>{portalConfirms++;events.push('confirm');if(intakeOutcome!=='missing')poSubStatus=5;if(intakeOutcome==='timeout'||intakeOutcome==='missing')throw Error('lost confirm response');},
     rejectOrder:async()=>{portalRejects++;events.push('reject');if(intakeOutcome!=='missing')poSubStatus=11;if(intakeOutcome==='timeout')throw Error('lost reject response');},
   };
@@ -122,7 +126,7 @@ function bridge({ permission = true, vendorIds = [1865], changed = false, outcom
       throw Error('Unexpected import '+spec);
     },
   });
-  return {records,intake,events,get postCount(){return tripPosts;},get tripPosts(){return tripPosts;},get sourceReads(){return sourceReads;},get catalogReads(){return catalogReads;},get catalogRowsSeen(){return catalogRowsSeen;},get portalConfirms(){return portalConfirms;},get portalRejects(){return portalRejects;},get imports(){return imports;},get intakeRows(){return intakeRows;},set poSubStatus(v){poSubStatus=v;},set importFail(v){importFailNow=v;},async call(payload){const res=await handler(new Request('https://fixture.invalid',{method:'POST',headers:{Authorization:'Bearer fixture-only','Content-Type':'application/json'},body:JSON.stringify(payload)}));return {status:res.status,...await res.json()};}};
+  return {records,intake,events,listCalls,get postCount(){return tripPosts;},get tripPosts(){return tripPosts;},get sourceReads(){return sourceReads;},get catalogReads(){return catalogReads;},get catalogRowsSeen(){return catalogRowsSeen;},get portalConfirms(){return portalConfirms;},get portalRejects(){return portalRejects;},get imports(){return imports;},get intakeRows(){return intakeRows;},set poSubStatus(v){poSubStatus=v;},set importFail(v){importFailNow=v;},async call(payload){const res=await handler(new Request('https://fixture.invalid',{method:'POST',headers:{Authorization:'Bearer fixture-only','Content-Type':'application/json'},body:JSON.stringify(payload)}));return {status:res.status,...await res.json()};}};
 }
 
 (async()=>{
@@ -339,6 +343,39 @@ function bridge({ permission = true, vendorIds = [1865], changed = false, outcom
     assert.equal(trip.success,true);assert.equal(trip.contentType,'application/pdf');assert.equal(trip.base64,btoa('%PDF'));
     assert.equal(b.portalConfirms,0);assert.equal(b.portalRejects,0);assert.equal(b.imports,0);
     assert.equal(b.catalogReads,0);assert.equal(b.tripPosts,0);assert.equal(b.records.size,0);
+  });
+  await test('confirmed supplier date is the effective delivery date only when valid ISO',()=>{
+    assert.equal(client.effectiveKfmDeliveryDate({deliveryDate:'2026-11-02',vendorConfirmedDeliveryDate:'2026-11-03'}),'2026-11-03');
+    assert.equal(client.effectiveKfmDeliveryDate({deliveryDate:'2026-11-02'}),'2026-11-02');
+    assert.equal(client.effectiveKfmDeliveryDate({deliveryDate:'2026-11-02',vendorConfirmedDeliveryDate:'2026-13-01'}),'2026-11-02');
+    assert.equal(client.effectiveKfmDeliveryDate({deliveryDate:'2026-11-02',vendorConfirmedDeliveryDate:'03/11/2026'}),'2026-11-02');
+    assert.equal(client.effectiveKfmDeliveryDate({deliveryDate:'2026-11-02',vendorConfirmedDeliveryDate:null}),'2026-11-02');
+  });
+  await test('daily list looks back seven days, uses effective date and hides cancelled POs',async()=>{
+    const b=bridge({portalListRows:[
+      {portalId:1,code:'PO-CONFIRMED',deliveryDate:'2026-11-02',vendorConfirmedDeliveryDate:'2026-11-03',subStatus:6},
+      {portalId:2,code:'PO-CANCELLED',deliveryDate:'2026-11-02',vendorConfirmedDeliveryDate:'2026-11-03',subStatus:11},
+      {portalId:3,code:'PO-OTHER',deliveryDate:'2026-11-01',vendorConfirmedDeliveryDate:null,subStatus:6},
+    ]});
+    const r=await b.call({action:'list',deliveryDate:'2026-11-03'});
+    assert.equal(r.success,true);assert.equal(r.count,1);assert.equal(r.totalElements,1);
+    assert.equal(r.orders[0].code,'PO-CONFIRMED');assert.equal(r.orders[0].deliveryDate,'2026-11-03');
+    assert.equal(r.orders[0].expectedDeliveryDate,'2026-11-02');
+    assert.deepEqual(JSON.parse(JSON.stringify(b.listCalls[0])),{vendorId:1865,deliveryDateFrom:'2026-10-27',deliveryDateTo:'2026-11-03',page:0,size:100});
+  });
+  await test('trip creation uses the confirmed effective date',async()=>{
+    const raw=dayBefore(date),effective=date;
+    const custom={...source,po:{...source.po,deliveryDate:raw,vendorConfirmedDeliveryDate:effective}};
+    const b=bridge({poStatus:6,poDeliveryDate:raw,confirmedDeliveryDate:effective});
+    const r=await b.call({action:'create-load',orderId:239751,deliveryDate:effective,revision:await client.tripRevision(custom,effective),form,confirmed:true,requestId:uuid(21)});
+    assert.equal(r.result.state,'verified');assert.equal(b.tripPosts,1);assert.equal(b.portalConfirms,0);
+  });
+  await test('trip creation refuses the raw delivery date when KFM confirmed another day',async()=>{
+    const raw=dayBefore(date),effective=date;
+    const custom={...source,po:{...source.po,deliveryDate:raw,vendorConfirmedDeliveryDate:effective}};
+    const b=bridge({poStatus:6,poDeliveryDate:raw,confirmedDeliveryDate:effective});
+    const r=await b.call({action:'create-load',orderId:239751,deliveryDate:raw,revision:await client.tripRevision(custom,raw),form,confirmed:true,requestId:uuid(22)});
+    assert.equal(r.success,false);assert.equal(b.tripPosts,0);assert.equal(b.portalConfirms,0);
   });
   console.log(`PASS ${passed} behavioral tests; no real KFM request`);
 })().catch(e=>{console.error(e);process.exitCode=1;});

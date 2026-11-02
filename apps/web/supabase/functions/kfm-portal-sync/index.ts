@@ -60,6 +60,7 @@ import {
   buildTripSubmission,
   bookTripSlot,
   createDeliveryTrip,
+  effectiveKfmDeliveryDate,
   findCreatedTrip,
   getTripOptions,
   getSavedTripFleet,
@@ -140,6 +141,14 @@ function printLayout(value: unknown): "FULL" | "NO_PRICE" {
 function printCode(value: unknown): string {
   const code = String(value ?? "").trim();
   return /^[A-Za-z0-9_-]{1,40}$/.test(code) ? code : "";
+}
+
+/** The portal list filters by planned date; recover a confirmed date up to 7 days later. */
+function lookbackDate(value: string): string {
+  const date = new Date(`${value}T00:00:00Z`);
+  if (!Number.isFinite(date.getTime())) return value;
+  date.setUTCDate(date.getUTCDate() - 7);
+  return date.toISOString().slice(0, 10);
 }
 
 async function requireUser(req: Request): Promise<string | null> {
@@ -347,6 +356,7 @@ serve(async (req) => {
       const source = await getTripSource(kfm.session.token, { vendorId, orderId });
       if (Number(source.po.id) !== orderId || !(await tripOrderInScope(kfm.session.token, vendorId, orderId))) throw new KfmPortalError("trip", 0, "PO không thuộc danh sách của nhà cung cấp đã chọn.");
       if (Number(source.po.status) === 6 || Number(source.po.subStatus) === 11) return json({ success: true, action, vendorId, result: { state: "blocked", loadId: readback.loadId, message: "PO đã hủy. Không xác nhận; kiểm tra lại trên cổng KFM." } }, 200, req);
+      if (effectiveKfmDeliveryDate(source.po) !== confirmDate) return json({ success: true, action, vendorId, result: { state: "changed", loadId: readback.loadId, message: "Ngày giao hiệu lực của PO đã đổi. Tải lại danh sách theo ngày xác nhận của KFM." } }, 200, req);
       if (await intakeRevision(source) !== revision) return json({ success: true, action, vendorId, result: { state: "changed", loadId: readback.loadId, message: "PO đã thay đổi sau khi tạo phiếu. Kiểm tra lại thông tin trước khi xác nhận." } }, 200, req);
       // Pending edit requests are not part of intakeRevision: re-read them right
       // before the explicit write instead of confirming over an unreviewed change.
@@ -383,6 +393,8 @@ serve(async (req) => {
       if (!mayCreate) return json({ success: false, error: "forbidden", message: "Chưa có phiếu để in; anh/chị chưa có quyền tạo phiếu." }, 403, req);
       const source = await getTripSource(kfm.session.token, { vendorId, orderId });
       if (Number(source.po.id) !== orderId || !(await tripOrderInScope(kfm.session.token, vendorId, orderId))) throw new KfmPortalError("trip", 0, "PO không thuộc danh sách của nhà cung cấp đã chọn.");
+      const effectiveDate = effectiveKfmDeliveryDate(source.po);
+      if (effectiveDate !== deliveryDate) throw new KfmPortalError("trip_changed", 0, "Ngày giao hiệu lực của PO đã đổi. Tải lại danh sách theo ngày xác nhận của KFM.");
       if (Number(source.po.status) === 6) throw new KfmPortalError("trip", 0, "PO đã hủy, không được tạo phiếu.");
       source.pendingChanges = await getTripPendingChanges(kfm.session.token, orderId);
       const { draft } = buildTripDraft({ deliveryDate, po: source.po, rows: source.items, shippedMap: source.shippedMap });
@@ -604,13 +616,18 @@ serve(async (req) => {
     }
 
     const size = Number.isInteger(Number(payload.size)) ? Math.min(Number(payload.size), 200) : 100;
-    const { orders, totalElements } = await listOrders(kfm.session.token, {
+    const listed = await listOrders(kfm.session.token, {
       vendorId,
-      deliveryDateFrom: deliveryDate,
+      deliveryDateFrom: lookbackDate(deliveryDate),
       deliveryDateTo: deliveryDate,
       page: 0,
       size,
     });
+    // The portal filters by the planned date. Show only POs whose effective
+    // (supplier-confirmed) date is the requested day, and drop cancelled POs.
+    const orders = listed.orders.filter((order) =>
+      Number(order.subStatus) !== 11 && effectiveKfmDeliveryDate(order) === deliveryDate
+    );
 
     return json({
       success: true,
@@ -620,8 +637,13 @@ serve(async (req) => {
       vendorId,
       vendorCode: kfm.vendorCode,
       count: orders.length,
-      totalElements,
-      orders: orders.map((order) => ({ ...order, statusLabel: statusLabel(order.status, order.subStatus) })),
+      totalElements: orders.length,
+      orders: orders.map((order) => ({
+        ...order,
+        deliveryDate,
+        expectedDeliveryDate: order.deliveryDate,
+        statusLabel: statusLabel(order.status, order.subStatus),
+      })),
       session,
       source: "kfm_portal",
     }, 200, req);

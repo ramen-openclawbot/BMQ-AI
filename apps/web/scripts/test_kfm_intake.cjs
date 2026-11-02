@@ -6,14 +6,15 @@ function load(file,env={}) { const exports={};vm.runInNewContext(ts.transpileMod
 const portal=load('supabase/functions/_shared/kfm-portal.ts',{fetch(){throw Error('Real network prohibited');}});
 const base={po:{id:11,code:'PO-TEST',deliveryDate:portal.vnDate(1),locationId:4,locationName:'Warehouse',vendorId:2797,status:2,subStatus:3},items:[{productCode:'1001',barcode:'SP001',productName:'BMQ Bread',unitName:'CÁI',qty:10,unitPrice:100,taxRate:8}],shippedMap:{}};
 const skus=[{id:'sku1',sku_code:'BREAD',product_name:'Bread',sku_type:'finished_good'}],settings=[{sku_id:'sku1',location_code:'q7',is_enabled:true}];
-function fixture({outcome='success',scope=true,changed=false,importFail=false,old=[],disabled=false,customerMissing=false,tripExists=false,catalog=skus,settingsRows=settings,catalogFailPage=null,settingsFailPage=null,sources=null,listRows=null,today=null}={}) {
- let source=structuredClone(base),posts=0,imports=0,reads=0,dbWrites=0;const listCalls=[];const rows=new Map(),payloads=[],skuRowsRead=[];
+function fixture({outcome='success',scope=true,changed=false,importFail=false,old=[],disabled=false,customerMissing=false,tripExists=false,catalog=skus,settingsRows=settings,catalogFailPage=null,settingsFailPage=null,sources=null,listRows=null,today=null,cancelResult=null}={}) {
+ let source=structuredClone(base),posts=0,imports=0,reads=0,dbWrites=0;const listCalls=[],cancelCalls=[];const rows=new Map(),payloads=[],skuRowsRead=[];
  const tripRows=new Map();if(tripExists)tripRows.set(11,{vendor_id:1865,order_id:11,state:'unknown'});
  const shared={...portal,...(today?{vnDate:()=>today}:{}),getTripSource:async(token,{orderId})=>{reads++;return structuredClone(sources?sources.get(orderId):source);},tripOrderInScope:async()=>{reads++;return scope;},listOrders:async(token,options)=>{reads++;listCalls.push(options);const all=listRows||[{portalId:11,code:source.po.code,deliveryDate:source.po.deliveryDate,subStatus:source.po.subStatus}];return {orders:all.slice(options.page*options.size,(options.page+1)*options.size),totalElements:all.length};},confirmOrder:async()=>{posts++;if(outcome!=='missing')source.po.subStatus=5;if(changed)source.items[0].qty=12;if(outcome==='timeout'||outcome==='missing')throw Error('lost');},rejectOrder:async()=>{posts++;if(outcome!=='missing')source.po.subStatus=11;if(outcome==='timeout')throw Error('lost');}};
  const intake=load('supabase/functions/_shared/kfm-intake.ts',{require:()=>shared});
  const admin={rpc:async(name,args)=>{
    if(name==='kfm_existing_po_numbers')return {data:old.map(po_number=>({po_number}))};
    if(name==='kfm_intake_customer_id')return customerMissing?{error:{message:'Missing mapping'}}:{data:'customer1'};
+   if(name==='kfm_mark_po_cancelled'){cancelCalls.push(args.p_po_number);return {data:cancelResult||{status:'cancelled',cancelled_count:1,cancelled_orders:[{id:'order-planned',status:'cancelled'}],warnings:[{id:'order-started',status:'in_progress'}]}};}
    assert.equal(name,'kfm_import_confirmed_po');dbWrites++;if(importFail)return {error:{message:'database unavailable'}};
    payloads.push(args.p_payload);
    const row=rows.get(args.p_order_id);if(row.state!=='imported')imports++;row.state='imported';row.inbox_id='inbox1';return {data:'inbox1'};
@@ -27,7 +28,7 @@ function fixture({outcome='success',scope=true,changed=false,importFail=false,ol
   if(op==='update'){dbWrites++;Object.assign(rows.get(filters.order_id),value);return {};}
   return {data:single?rows.get(filters.order_id)||null:[...rows.values()]};
  }).then(resolve,reject);}};return q;}};
- return {intake,rows,listCalls,get reads(){return reads;},get posts(){return posts;},get imports(){return imports;},get dbWrites(){return dbWrites;},get payloads(){return payloads;},get skuRowsRead(){return skuRowsRead;},set importFail(v){importFail=v;},setSource(v){source=v;},async gate(sourceArg){return intake.ensureTripIntake(admin,'fixture',1865,'actor',11,sourceArg||structuredClone(source));},async call(payload){return intake.handleKfmIntake(admin,'fixture',1865,'actor',payload);},async decide(extra={}){return this.call({action:'intake-decide',orderId:11,decision:'confirm',revision:await intake.intakeRevision(base),requestId:'00000000-0000-4000-8000-000000000001',...extra});}};
+ return {intake,rows,listCalls,cancelCalls,get reads(){return reads;},get posts(){return posts;},get imports(){return imports;},get dbWrites(){return dbWrites;},get payloads(){return payloads;},get skuRowsRead(){return skuRowsRead;},set importFail(v){importFail=v;},setSource(v){source=v;},async gate(sourceArg){return intake.ensureTripIntake(admin,'fixture',1865,'actor',11,sourceArg||structuredClone(source));},async call(payload){return intake.handleKfmIntake(admin,'fixture',1865,'actor',payload);},async decide(extra={}){return this.call({action:'intake-decide',orderId:11,decision:'confirm',revision:await intake.intakeRevision(base),requestId:'00000000-0000-4000-8000-000000000001',...extra});}};
 }
 function pagedCatalog({size=1205,targetAt=1100,targetEnabled=true,duplicate=false,catalogFailPage=null}={}) {
  const catalog=[];for(let i=0;i<size;i++)catalog.push({id:'sku-'+String(i).padStart(5,'0'),sku_code:'GEN-'+String(i).padStart(5,'0'),product_name:'BÁNH TEST '+i+' 50G',sku_type:'finished_good'});
@@ -70,11 +71,13 @@ let passed=0;async function test(name,fn){await fn();passed++;console.log('ok',n
 const history={action:'intake-list',deliveryDateFrom:'2026-10-01',deliveryDateTo:'2026-10-02'};
 const historicalSource=(id=11,date='2026-10-01',subStatus=5)=>{const s=structuredClone(base);Object.assign(s.po,{id,code:'PO-'+id,deliveryDate:date,subStatus});return s;};
 const historyFixture=(extra={})=>{const f=fixture({today:'2026-10-03',...extra});f.setSource(historicalSource());return f;};
+const dayOffset=(date,days)=>{const d=new Date(`${date}T00:00:00Z`);d.setUTCDate(d.getUTCDate()+days);return d.toISOString().slice(0,10);};
+const datedSource=(deliveryDate,confirmed=undefined)=>{const s=structuredClone(base);s.po.deliveryDate=deliveryDate;if(confirmed!==undefined)s.po.vendorConfirmedDeliveryDate=confirmed;return s;};
 await test('historical Oct1-2 discovery audits portal details without any write',async()=>{
  const f=historyFixture();const r=await f.call({...history,vendorId:9999});assert.equal(r.count,1);assert.equal(r.orders[0].deliveryDate,'2026-10-01');assert.equal(r.orders[0].code,'PO-11');assert.equal(r.orders[0].subStatus,5);
- assert.deepEqual(JSON.parse(JSON.stringify(f.listCalls[0])),{vendorId:1865,deliveryDateFrom:'2026-10-01',deliveryDateTo:'2026-10-02',page:0,size:100});assert.equal(f.rows.size,0);assert.equal(f.posts,0);assert.equal(f.imports,0);assert.equal(f.skuRowsRead.length,0);
+ assert.deepEqual(JSON.parse(JSON.stringify(f.listCalls[0])),{vendorId:1865,deliveryDateFrom:'2026-09-24',deliveryDateTo:'2026-10-02',page:0,size:100});assert.equal(f.rows.size,0);assert.equal(f.posts,0);assert.equal(f.imports,0);assert.equal(f.skuRowsRead.length,0);
 });
-await test('no-range keeps the current default query exactly',async()=>{const f=fixture();await f.call({action:'intake-list'});assert.deepEqual(JSON.parse(JSON.stringify(f.listCalls[0])),{vendorId:1865,deliveryDateFrom:portal.vnDate(),page:0,size:100});});
+await test('no-range looks back seven days before effective-date filtering',async()=>{const f=fixture();await f.call({action:'intake-list'});assert.deepEqual(JSON.parse(JSON.stringify(f.listCalls[0])),{vendorId:1865,deliveryDateFrom:portal.vnDate(-7),page:0,size:100});});
 for(const [name,range] of Object.entries({malformed:{deliveryDateFrom:'2026-1-01',deliveryDateTo:'2026-10-02'},calendar:{deliveryDateFrom:'2026-02-30',deliveryDateTo:'2026-03-01'},nonleap:{deliveryDateFrom:'2026-02-29',deliveryDateTo:'2026-03-01'},reversed:{deliveryDateFrom:'2026-10-02',deliveryDateTo:'2026-10-01'},tooLong:{deliveryDateFrom:'2026-09-25',deliveryDateTo:'2026-10-02'},future:{deliveryDateFrom:'2026-10-02',deliveryDateTo:'2026-10-04'},fromOnly:{deliveryDateFrom:'2026-10-01'},toOnly:{deliveryDateTo:'2026-10-02'},empty:{deliveryDateFrom:'',deliveryDateTo:''},null:{deliveryDateFrom:null,deliveryDateTo:null}}))await test('history rejects '+name+' before portal calls',async()=>{const f=historyFixture();await assert.rejects(()=>f.call({action:'intake-list',...range}));assert.equal(f.reads,0);assert.equal(f.rows.size,0);});
 await test('history permits seven inclusive days and valid leap day',async()=>{for(const range of [{deliveryDateFrom:'2026-09-26',deliveryDateTo:'2026-10-02'},{deliveryDateFrom:'2024-02-29',deliveryDateTo:'2024-02-29'}]){const f=historyFixture();f.setSource(historicalSource(11,range.deliveryDateFrom));assert.equal((await f.call({action:'intake-list',...range})).count,1);}});
 await test('history excludes imported, rejected journal and cancelled portal POs',async()=>{const sources=new Map([historicalSource(11),historicalSource(12),historicalSource(13,'2026-10-02',11),historicalSource(14)].map(s=>[s.po.id,s]));const listRows=[...sources.values()].map(s=>({portalId:s.po.id,code:s.po.code,deliveryDate:s.po.deliveryDate,subStatus:s.po.subStatus}));const f=historyFixture({sources,listRows,old:[' po-11 ']});f.rows.set(12,{order_id:12,state:'imported'});f.rows.set(14,{order_id:14,state:'rejected'});assert.equal((await f.call(history)).count,0);assert.equal(f.posts,0);});
@@ -86,7 +89,8 @@ await test('pending confirm recovery refuses status=6 subStatus=5 import and rem
 await test('known status=3 confirmed historical PO remains importable',async()=>{const f=historyFixture();const s=historicalSource();s.po.status=3;f.setSource(s);const r=await f.call(history);assert.equal(r.count,1);assert.equal((await f.decide({revision:r.orders[0].revision})).result.state,'imported');assert.equal(f.posts,0);assert.equal(f.imports,1);});
 await test('historical confirmed PO uses safe mapping and imports without second confirm',async()=>{const f=historyFixture();const r=await f.call(history);assert.equal(f.imports,0);const result=await f.decide({revision:r.orders[0].revision});assert.equal(result.result.state,'imported');assert.equal(f.posts,0);assert.equal(f.imports,1);assert.equal(f.payloads[0].delivery_date,'2026-10-01');assert.equal(f.payloads[0].raw_payload.source,'kfm_portal');assert.equal(f.payloads[0].raw_payload.parse_meta.revenue_posting_allowed,false);assert.equal(f.payloads[0].production_items[0].sku_id,'sku1');await f.decide({revision:r.orders[0].revision});assert.equal(f.imports,1);});
 await test('historical revision and status changes block before writes',async()=>{for(const change of ['qty','status']){const f=historyFixture();const r=await f.call(history);const s=historicalSource();if(change==='qty')s.items[0].qty=12;else s.po.subStatus=11;f.setSource(s);assert.equal((await f.decide({revision:r.orders[0].revision})).result.state,'changed');assert.equal(f.posts,0);assert.equal(f.rows.size,0);}});
-for(const [name,date,listDate] of [['invalid','2026-02-30','2026-02-30'],['suffix','2026-10-01junk','2026-10-01junk'],['missing',null,null],['out of range','2026-09-30','2026-09-30'],['list-detail mismatch','2026-10-02','2026-10-01']])await test('history fails closed on '+name+' portal delivery date',async()=>{const f=historyFixture({listRows:[{portalId:11,code:'PO-11',deliveryDate:listDate,subStatus:5}]});f.setSource(historicalSource(11,date));await assert.rejects(()=>f.call(history));assert.equal(f.posts,0);assert.equal(f.rows.size,0);});
+for(const [name,date,listDate] of [['invalid','2026-02-30','2026-02-30'],['suffix','2026-10-01junk','2026-10-01junk'],['missing',null,null],['list-detail mismatch','2026-10-02','2026-10-01']])await test('history fails closed on '+name+' portal delivery date',async()=>{const f=historyFixture({listRows:[{portalId:11,code:'PO-11',deliveryDate:listDate,subStatus:5}]});f.setSource(historicalSource(11,date));await assert.rejects(()=>f.call(history));assert.equal(f.posts,0);assert.equal(f.rows.size,0);});
+await test('history lookback rows outside the effective range are filtered, not rejected',async()=>{const f=historyFixture({listRows:[{portalId:11,code:'PO-11',deliveryDate:'2026-09-30',subStatus:5}]});f.setSource(historicalSource(11,'2026-09-30'));const r=await f.call(history);assert.equal(r.count,0);assert.equal(f.posts,0);assert.equal(f.rows.size,0);});
 await test('history mismatched list/detail status fails closed',async()=>{const f=historyFixture({listRows:[{portalId:11,code:'PO-11',deliveryDate:'2026-10-01',subStatus:3}]});await assert.rejects(()=>f.call(history));assert.equal(f.rows.size,0);});
 await test('historical import rejects date suffix after review instead of truncating',async()=>{const f=historyFixture();const r=await f.call(history);f.setSource(historicalSource(11,'2026-10-01junk'));await assert.rejects(()=>f.decide({revision:r.orders[0].revision}));assert.equal(f.rows.size,0);assert.equal(f.posts,0);});
 await test('history uncertain journal-only foreign PO denied before detail',async()=>{const f=historyFixture({scope:false,listRows:[]});f.rows.set(11,{order_id:11,state:'unknown',decision:'confirm'});await assert.rejects(()=>f.call(history));assert.equal(f.reads,2);assert.equal(f.posts,0);});
@@ -233,6 +237,85 @@ await test('50g versus 160g stay distinct when a same-named raw material is pres
   const s=structuredClone(base);s.items=[{...base.items[0],productName:name}];
   assert.equal(f.intake.mapIntakeSkus(f.intake.productionPayload(s,1865,'actor'),catalog,enabled).production_items[0].sku_code,code);
  }
+});
+await test('vendor confirmed date wins for snapshot and production dates',async()=>{
+ const f=fixture();const s=datedSource('2026-11-02','2026-11-03');
+ assert.equal(f.intake.intakeSnapshot(s).deliveryDate,'2026-11-03');
+ const payload=f.intake.productionPayload(s,1865,'actor');
+ assert.equal(payload.delivery_date,'2026-11-03');
+ assert.equal(payload.production_items[0].date,'2026-11-03');
+ assert.equal(payload.production_items[0].service_date,'2026-11-03');
+ assert.equal(portal.effectiveKfmDeliveryDate({deliveryDate:'2026-11-02',vendorConfirmedDeliveryDate:'2026-11-03'}),'2026-11-03');
+});
+await test('missing or malformed vendor confirmed date falls back to delivery date',async()=>{
+ const f=fixture();
+ for(const confirmed of [undefined,null,'','2026-13-01','2026-02-30','03/11/2026','2026-11-03junk']){
+  const s=datedSource('2026-11-02',confirmed);
+  assert.equal(f.intake.intakeSnapshot(s).deliveryDate,'2026-11-02');
+  assert.equal(f.intake.productionPayload(s,1865,'actor').delivery_date,'2026-11-02');
+ }
+});
+await test('history looks back seven days and filters by effective confirmed date',async()=>{
+ const s=datedSource('2026-11-02','2026-11-03');s.po.subStatus=5;
+ const f=fixture({today:'2026-11-04',listRows:[{portalId:11,code:s.po.code,deliveryDate:'2026-11-02',vendorConfirmedDeliveryDate:'2026-11-03',subStatus:5}]});
+ f.setSource(s);
+ const shown=await f.call({action:'intake-list',deliveryDateFrom:'2026-11-03',deliveryDateTo:'2026-11-03'});
+ assert.equal(shown.count,1);assert.equal(shown.orders[0].deliveryDate,'2026-11-03');
+ assert.equal(f.listCalls[0].deliveryDateFrom,'2026-10-27');assert.equal(f.listCalls[0].deliveryDateTo,'2026-11-03');
+ const hidden=await f.call({action:'intake-list',deliveryDateFrom:'2026-11-02',deliveryDateTo:'2026-11-02'});
+ assert.equal(hidden.count,0);
+});
+await test('history compares listed and detail effective dates and fails closed on mismatch',async()=>{
+ const s=datedSource('2026-11-02','2026-11-03');s.po.subStatus=5;
+ const f=fixture({today:'2026-11-04',listRows:[{portalId:11,code:s.po.code,deliveryDate:'2026-11-02',vendorConfirmedDeliveryDate:'2026-11-04',subStatus:5}]});
+ f.setSource(s);
+ await assert.rejects(()=>f.call({action:'intake-list',deliveryDateFrom:'2026-11-03',deliveryDateTo:'2026-11-03'}));
+});
+await test('history accepts a list row without the confirmed date and uses the detail date',async()=>{
+ const s=datedSource('2026-11-02','2026-11-03');s.po.subStatus=5;
+ const f=fixture({today:'2026-11-04',listRows:[{portalId:11,code:s.po.code,deliveryDate:'2026-11-02',subStatus:5}]});
+ f.setSource(s);
+ const r=await f.call({action:'intake-list',deliveryDateFrom:'2026-11-03',deliveryDateTo:'2026-11-03'});
+ assert.equal(r.count,1);assert.equal(r.orders[0].deliveryDate,'2026-11-03');assert.equal(f.posts,0);assert.equal(f.rows.size,0);
+});
+await test('current scan looks back seven days but keeps only today-or-later effective dates',async()=>{
+ const current=datedSource(dayOffset('2026-11-03',-1),'2026-11-03');current.po.subStatus=5;
+ const f=fixture({today:'2026-11-03',listRows:[{portalId:11,code:current.po.code,deliveryDate:'2026-11-02',vendorConfirmedDeliveryDate:'2026-11-03',subStatus:5}]});
+ f.setSource(current);
+ const r=await f.call({action:'intake-list'});
+ assert.equal(r.count,1);assert.equal(f.listCalls[0].deliveryDateFrom,'2026-10-27');
+ const stale=datedSource('2026-10-28');stale.po.subStatus=5;
+ const g=fixture({today:'2026-11-03',listRows:[{portalId:11,code:stale.po.code,deliveryDate:'2026-10-28',subStatus:5}]});
+ g.setSource(stale);
+ assert.equal((await g.call({action:'intake-list'})).count,0);
+});
+await test('received PO cancelled on KFM is marked once and never imported again',async()=>{
+ const s=datedSource('2026-11-02','2026-11-03');s.po.subStatus=11;
+ const row={portalId:11,code:'PO-TEST',deliveryDate:'2026-11-02',vendorConfirmedDeliveryDate:'2026-11-03',subStatus:11};
+ const f=fixture({today:'2026-11-04',old:['PO-TEST'],listRows:[row,{...row}]});
+ f.setSource(s);
+ const r=await f.call({action:'intake-list',deliveryDateFrom:'2026-11-03',deliveryDateTo:'2026-11-03'});
+ assert.equal(r.count,0);assert.deepEqual(f.cancelCalls,['PO-TEST']);
+ assert.equal(r.removed.length,1);assert.equal(r.removed[0].orderId,11);assert.equal(r.removed[0].cancelledCount,1);
+ assert.equal(r.warnings.length,1);assert.equal(r.warnings[0].orderId,11);assert.equal(r.warnings[0].status,'in_progress');
+ assert.equal(f.imports,0);assert.equal(f.posts,0);assert.equal(f.dbWrites,0);
+});
+await test('received PO still valid is skipped without cancel, write or import',async()=>{
+ const s=datedSource('2026-11-02','2026-11-03');s.po.subStatus=5;
+ const f=fixture({today:'2026-11-04',old:['PO-TEST'],listRows:[{portalId:11,code:'PO-TEST',deliveryDate:'2026-11-02',vendorConfirmedDeliveryDate:'2026-11-03',subStatus:5}]});
+ f.setSource(s);
+ const r=await f.call({action:'intake-list',deliveryDateFrom:'2026-11-03',deliveryDateTo:'2026-11-03'});
+ assert.equal(r.count,0);assert.deepEqual(f.cancelCalls,[]);assert.equal(f.dbWrites,0);assert.equal(f.imports,0);assert.equal(f.posts,0);
+});
+await test('imported attempt cancelled on KFM is marked and closed for recovery',async()=>{
+ const s=datedSource('2026-11-02','2026-11-03');s.po.subStatus=11;
+ const f=fixture({today:'2026-11-04',listRows:[{portalId:11,code:'PO-TEST',deliveryDate:'2026-11-02',vendorConfirmedDeliveryDate:'2026-11-03',subStatus:11}]});
+ f.setSource(s);
+ f.rows.set(11,{vendor_id:1865,order_id:11,po_number:'PO-TEST',actor_id:'actor',state:'imported',decision:'confirm',content_revision:'old',snapshot:{}});
+ const r=await f.call({action:'intake-list',deliveryDateFrom:'2026-11-03',deliveryDateTo:'2026-11-03'});
+ assert.equal(r.count,0);assert.deepEqual(f.cancelCalls,['PO-TEST']);assert.equal(f.rows.get(11).state,'rejected');
+ assert.equal((await f.call({action:'intake-result',orderId:11})).result.state,'rejected');
+ assert.equal(f.imports,0);assert.equal(f.posts,0);
 });
 console.log(`PASS ${passed} portal-intake behavioral tests`);
 })().catch(error=>{console.error(error);process.exit(1);});
