@@ -349,18 +349,18 @@ function Catalog({ items, loading, error, onRetry, activeCount, canEdit, newCoun
                         </span>
                       ) : null}
                       {!item.item_class || item.item_class === "unclassified" ? <span className="is-flag">chưa phân loại</span> : item.item_class === "non_stock" ? <span>không tính tồn</span> : null}
-                      <span className="d3-kho-row-qty-sub">Tồn {fmtAmount(item.qty[kho], item.unit)}</span>
+                      <span className="d3-kho-row-qty-sub">Tồn {fmtAmount(item.qty[kho], item.unit, item.display_unit)}</span>
                       {holds?.get(`${kho}:${item.id}`) ? (
-                        <span className="d3-kho-hold" data-bmq-kho-held>Giữ cho sản xuất {fmtAmount(holds.get(`${kho}:${item.id}`)?.committed_qty, item.unit)} · {dayLabel(asOf, holds.get(`${kho}:${item.id}`)?.next_date)}</span>
+                        <span className="d3-kho-hold" data-bmq-kho-held>Giữ cho sản xuất {fmtAmount(holds.get(`${kho}:${item.id}`)?.committed_qty, item.unit, item.display_unit)} · {dayLabel(asOf, holds.get(`${kho}:${item.id}`)?.next_date)}</span>
                       ) : null}
                     </small>
                     {item.note ? <small className="d3-kho-note-line" data-bmq-kho-note>{item.note}</small> : null}
                   </button>
                   <span className="d3-kho-row-qty">
-                    {fmtAmount(item.qty[kho], item.unit)}
+                    {fmtAmount(item.qty[kho], item.unit, item.display_unit)}
                     {holds?.get(`${kho}:${item.id}`) && item.qty[kho] !== null ? (
                       <small className={cn((item.qty[kho] ?? 0) - (holds.get(`${kho}:${item.id}`)?.committed_qty ?? 0) < 0 && "is-short")}>
-                        còn dùng {fmtAmount((item.qty[kho] ?? 0) - (holds.get(`${kho}:${item.id}`)?.committed_qty ?? 0), item.unit)}
+                        còn dùng {fmtAmount((item.qty[kho] ?? 0) - (holds.get(`${kho}:${item.id}`)?.committed_qty ?? 0), item.unit, item.display_unit)}
                       </small>
                     ) : null}
                   </span>

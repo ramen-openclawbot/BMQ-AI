@@ -50,7 +50,7 @@ export function ItemTransfer({ item, canEdit, onToast }: { item: KhoItem; canEdi
       <div className="d3-kho-switchrow" data-bmq-item-transfer>
         <span>
           <b>Chuyển sang Kho Q7</b>
-          <small>{reason ?? `Tân Tạo còn ${fmtAmount(stock, item.unit)}. Trừ ở Tân Tạo, cộng vào Q7 ngay.`}</small>
+          <small>{reason ?? `Tân Tạo còn ${fmtAmount(stock, item.unit, item.display_unit)}. Trừ ở Tân Tạo, cộng vào Q7 ngay.`}</small>
         </span>
         <Button size="sm" variant="outline" disabled={reason !== null} onClick={() => setOpen(true)} data-bmq-item-transfer-open>Chuyển</Button>
       </div>

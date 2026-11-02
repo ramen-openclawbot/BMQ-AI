@@ -1,13 +1,17 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 
 import { supabase } from "@/integrations/supabase/client";
-import type {
-  KhoCountResult,
-  KhoCreateItemInput,
-  KhoCreateItemResult,
-  KhoItemsPayload,
-  KhoLocation,
-  KhoSaveResult,
+import {
+  parseKhoItemsPayload,
+  parseKhoSetItemDisplayUnitResult,
+  type KhoCountResult,
+  type KhoCreateItemInput,
+  type KhoCreateItemResult,
+  type KhoDisplayUnit,
+  type KhoItemsPayload,
+  type KhoLocation,
+  type KhoSaveResult,
+  type KhoSetItemDisplayUnitResult,
 } from "@/lib/kho-items";
 import { STOCK_LEDGER_OVERVIEW_QUERY_KEY } from "./useStockLedger";
 import { WAREHOUSE_GAME_SNAPSHOT_QUERY_KEY } from "./useWarehouseGame";
@@ -38,7 +42,7 @@ export function useKhoItems() {
     queryFn: async (): Promise<KhoItemsPayload> => {
       const { data, error } = await supabase.rpc("kho_get_items");
       if (error) throw error;
-      return data as unknown as KhoItemsPayload;
+      return parseKhoItemsPayload(data);
     },
   });
 }
@@ -122,6 +126,33 @@ export function useKhoSetItemNote() {
       return data as KhoSetItemNoteResult;
     },
     onSuccess: () => invalidateKhoItems(queryClient),
+  });
+}
+
+export interface KhoSetItemDisplayUnitInput {
+  itemId: string;
+  /** null turns the kg/lít display off. */
+  displayUnit: KhoDisplayUnit | null;
+  requestId?: string;
+}
+
+/** Bật/tắt hiển thị kg/lít cho một món g/ml; sổ vẫn lưu bằng g/ml. */
+export function useSetKhoItemDisplayUnit() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: KhoSetItemDisplayUnitInput): Promise<KhoSetItemDisplayUnitResult> => {
+      const { data, error } = await rpcUntyped("kho_set_item_display_unit", {
+        p_item_id: input.itemId,
+        p_display_unit: input.displayUnit,
+        p_request_id: input.requestId ?? crypto.randomUUID(),
+      });
+      if (error) throw error;
+      return parseKhoSetItemDisplayUnitResult(data);
+    },
+    onSuccess: () => {
+      invalidateKhoItems(queryClient);
+      void queryClient.invalidateQueries({ queryKey: ["supplier-order-catalog"] });
+    },
   });
 }
 

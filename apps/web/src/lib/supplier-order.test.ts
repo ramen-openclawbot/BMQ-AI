@@ -301,7 +301,7 @@ test("parses the catalog with items, blockers, delivery and prepay", () => {
     items: [
       {
         catalog_id: "cat-1",
-        item: { id: "item-1", name: "Bột mì 999 Cam", code: "MI999", unit: "g" },
+        item: { id: "item-1", name: "Bột mì 999 Cam", code: "MI999", unit: "g", display_unit: "kg" },
         product_name: "Bột mì 999 Cam (25kg)",
         po_unit: "kg",
         po_unit_factor: "1000",
@@ -346,6 +346,7 @@ test("parses the catalog with items, blockers, delivery and prepay", () => {
   assert.equal(catalog.items[0].proposalQty, 25);
   assert.equal(catalog.items[0].unitPrice, 19300);
   assert.equal(catalog.items[0].stock.onHand, 12500.5);
+  assert.equal(catalog.items[0].item.displayUnit, "kg");
   assert.equal(catalog.items[0].openOrder?.poNumber, "PO-1");
   assert.equal(catalog.prepay?.requestNumber, "PR-1");
   assert.equal(catalog.prepay?.remaining, 2500000);
@@ -353,6 +354,30 @@ test("parses the catalog with items, blockers, delivery and prepay", () => {
   assert.equal(parseSupplierOrderCatalog(null), null);
   assert.equal(parseSupplierOrderCatalog("nope"), null);
   assert.equal(parseSupplierOrderCatalog({ items: [] })?.items.length, 0);
+});
+
+test("reads the catalog item display_unit and drops an unknown value", () => {
+  const catalog = parseSupplierOrderCatalog({
+    items: [
+      {
+        catalog_id: "cat-1",
+        item: { id: "item-1", name: "Nước", code: "NUOC", unit: "ml", display_unit: "lít" },
+      },
+      {
+        catalog_id: "cat-2",
+        item: { id: "item-2", name: "Muối", code: "MUOI", unit: "g", display_unit: "cái" },
+      },
+      {
+        catalog_id: "cat-3",
+        item: { id: "item-3", name: "Đường", code: "DUONG", unit: "g" },
+      },
+    ],
+  });
+
+  assert.ok(catalog);
+  assert.equal(catalog.items[0].item.displayUnit, "lít");
+  assert.equal(catalog.items[1].item.displayUnit, null);
+  assert.equal(catalog.items[2].item.displayUnit, null);
 });
 
 test("parses learned supplier mismatch and price outlier fields", () => {

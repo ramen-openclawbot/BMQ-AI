@@ -257,7 +257,7 @@ function stockLine(item: SupplierOrderCatalogItem, commonLocation: string | null
   }
   return (
     <span title={item.estimated ? "Số ngày ước từ phiếu nhập: kho chưa ghi lượng dùng" : undefined}>
-      tồn{where} {item.estimated ? "~" : ""}{fmtAmount(onHand, item.item.unit)}
+      tồn{where} {item.estimated ? "~" : ""}{fmtAmount(onHand, item.item.unit, item.item.displayUnit)}
       {daysLeft === null ? null : daysLeft <= 0
         ? <b className="is-bad" data-bmq-so-out> · hết</b>
         : <> · còn {formatQuantity(daysLeft)} ngày</>}

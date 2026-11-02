@@ -116,7 +116,7 @@ function CountRow({ item, loc, today, canCount, onSaved, onOpen, hold, asOf }: {
   hold: KhoItemCommitment | null; asOf: string;
 }) {
   const count = useKhoCountItem();
-  const units = countUnits(item.unit);
+  const units = countUnits(item.unit, item.display_unit);
   const [unitIdx, setUnitIdx] = useState(0);
   const [text, setText] = useState("");
   const [last, setLast] = useState<{ qty: number; diff: number | null } | null>(null);
@@ -135,7 +135,7 @@ function CountRow({ item, loc, today, canCount, onSaved, onOpen, hold, asOf }: {
           const diff = Number((result.result as { difference_qty?: number }).difference_qty);
           setLast({ qty, diff: Number.isFinite(diff) ? diff : null });
           setText("");
-          onSaved(`${item.name}: đã ghi ${fmtAmount(qty, item.unit)}`);
+          onSaved(`${item.name}: đã ghi ${fmtAmount(qty, item.unit, item.display_unit)}`);
         },
       },
     );
@@ -149,19 +149,19 @@ function CountRow({ item, loc, today, canCount, onSaved, onOpen, hold, asOf }: {
           {isDone ? <Check className="d3-kho-done-mark" aria-label="Đã đếm hôm nay" /> : null}{item.name}
         </button>
         <small>
-          <span>Sổ {fmtAmount(book, item.unit)}</span>
+          <span>Sổ {fmtAmount(book, item.unit, item.display_unit)}</span>
           <span>{item.last_count_date[loc] ? `Đếm ${dmy(item.last_count_date[loc])}` : "Chưa đếm lần nào"}</span>
-          {hold ? <span className="d3-kho-hold" title="Hàng này vẫn còn trên kệ hôm nay, cứ đếm bình thường">Giữ cho sản xuất {fmtAmount(hold.committed_qty, item.unit)} · {dayLabel(asOf, hold.next_date)}</span> : null}
+          {hold ? <span className="d3-kho-hold" title="Hàng này vẫn còn trên kệ hôm nay, cứ đếm bình thường">Giữ cho sản xuất {fmtAmount(hold.committed_qty, item.unit, item.display_unit)} · {dayLabel(asOf, hold.next_date)}</span> : null}
         </small>
         {last ? (
           <p className="d3-kho-done" data-bmq-kho-done>
-            Đã ghi {fmtAmount(last.qty, item.unit)}
-            {last.diff === null ? "" : last.diff === 0 ? " · khớp sổ" : ` · chênh ${last.diff > 0 ? "+" : "−"}${fmtAmount(Math.abs(last.diff), item.unit)} so với sổ`}
+            Đã ghi {fmtAmount(last.qty, item.unit, item.display_unit)}
+            {last.diff === null ? "" : last.diff === 0 ? " · khớp sổ" : ` · chênh ${last.diff > 0 ? "+" : "−"}${fmtAmount(Math.abs(last.diff), item.unit, item.display_unit)} so với sổ`}
           </p>
         ) : null}
         {canCount && pendingQty !== null && !last && !countedToday ? (
           <button type="button" className="d3-kho-textbtn" onClick={() => { setUnitIdx(0); setText(String(Math.round((pendingQty / units[0].factor) * 1000) / 1000).replace(".", ",")); }} data-bmq-kho-use-old>
-            Phiếu đếm cũ ghi {fmtAmount(pendingQty, item.unit)} · dùng số này
+            Phiếu đếm cũ ghi {fmtAmount(pendingQty, item.unit, item.display_unit)} · dùng số này
           </button>
         ) : null}
       </div>

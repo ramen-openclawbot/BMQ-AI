@@ -133,7 +133,14 @@ export type SupplierOrderCatalogOpenOrder = {
 
 export type SupplierOrderCatalogItem = {
   catalogId: string;
-  item: { id: string; name: string; code: string; unit: string };
+  item: {
+    id: string;
+    name: string;
+    code: string;
+    unit: string;
+    /** 'kg' for a g item, 'lít' for an ml item; null keeps the old g/ml display. */
+    displayUnit: "kg" | "lít" | null;
+  };
   productName: string;
   poUnit: string;
   poUnitFactor: number;
@@ -671,6 +678,11 @@ function parseReferencePrice(value: unknown): {
   };
 }
 
+/** Only kg/lít are real display units; a stale or unknown value reads as off. */
+function parseDisplayUnit(value: unknown): "kg" | "lít" | null {
+  return value === "kg" || value === "lít" ? value : null;
+}
+
 function parseCatalogItem(value: unknown): SupplierOrderCatalogItem | null {
   const row = asRecord(value);
   if (Object.keys(row).length === 0) return null;
@@ -685,6 +697,7 @@ function parseCatalogItem(value: unknown): SupplierOrderCatalogItem | null {
       name: asText(item.name),
       code: asText(item.code),
       unit: asText(item.unit),
+      displayUnit: parseDisplayUnit(item.display_unit),
     },
     productName: asText(row.product_name, asText(item.name)),
     poUnit: asText(row.po_unit),

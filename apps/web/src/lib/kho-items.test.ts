@@ -5,6 +5,9 @@ import {
   filterItems,
   hasTanTaoPlace,
   khoErrorText,
+  parseKhoDisplayUnit,
+  parseKhoItemsPayload,
+  parseKhoSetItemDisplayUnitResult,
   searchKey,
   standardUnitFactor,
   type KhoItem,
@@ -176,5 +179,51 @@ test("khoErrorText maps every game error", () => {
   assert.equal(
     khoErrorText({ message: "something unexpected" }),
     "Có lỗi xảy ra, anh/chị thử lại giúp.",
+  );
+});
+
+test("parses display_unit from kho_get_items and drops an unknown value", () => {
+  assert.equal(parseKhoDisplayUnit("kg"), "kg");
+  assert.equal(parseKhoDisplayUnit("lít"), "lít");
+  assert.equal(parseKhoDisplayUnit("L"), null);
+  assert.equal(parseKhoDisplayUnit(null), null);
+
+  const payload = parseKhoItemsPayload({
+    can_edit: true,
+    can_count: { tan_tao: true, q7: false },
+    items: [
+      { ...item({ name: "Bột mì" }), display_unit: "kg" },
+      { ...item({ name: "Nước" }), display_unit: "cái" },
+      item({ name: "Muối" }),
+    ],
+  });
+
+  assert.equal(payload.items[0].display_unit, "kg");
+  assert.equal(payload.items[1].display_unit, null);
+  assert.equal(payload.items[2].display_unit, null);
+  assert.equal(payload.items[0].name, "Bột mì");
+});
+
+test("parses the kho_set_item_display_unit result", () => {
+  assert.deepEqual(
+    parseKhoSetItemDisplayUnitResult({
+      status: "saved",
+      item_id: "item-1",
+      display_unit: "kg",
+    }),
+    { status: "saved", item_id: "item-1", display_unit: "kg" },
+  );
+  assert.deepEqual(
+    parseKhoSetItemDisplayUnitResult({
+      status: "saved",
+      item_id: "item-1",
+      display_unit: "lạ",
+    }),
+    { status: "saved", item_id: "item-1", display_unit: null },
+  );
+  assert.throws(() => parseKhoSetItemDisplayUnitResult(null), TypeError);
+  assert.throws(
+    () => parseKhoSetItemDisplayUnitResult({ status: "saved" }),
+    TypeError,
   );
 });

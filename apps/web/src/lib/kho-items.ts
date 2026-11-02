@@ -14,6 +14,8 @@
 
 export type KhoLocation = "tan_tao" | "q7";
 
+export type KhoDisplayUnit = "kg" | "lít";
+
 export interface KhoQtyByLocation {
   tan_tao: number | null;
   q7: number | null;
@@ -29,6 +31,8 @@ export interface KhoItem {
   item_code: string | null;
   name: string;
   unit: string;
+  /** 'kg' for a g item, 'lít' for an ml item; null keeps the old g/ml display. */
+  display_unit?: KhoDisplayUnit | null;
   active: boolean;
   item_class: string | null;
   /** Editor note (<= 500 characters); null when none. */
@@ -106,6 +110,49 @@ export interface KhoCountResult {
   item_id: string;
   counted_qty: number;
   result: Record<string, unknown>;
+}
+
+/** The only stored display units; anything else (old or corrupt data) is off. */
+export function parseKhoDisplayUnit(value: unknown): KhoDisplayUnit | null {
+  return value === "kg" || value === "lít" ? value : null;
+}
+
+/** Read display_unit on every kho_get_items row; other fields stay untouched. */
+export function parseKhoItemsPayload(raw: unknown): KhoItemsPayload {
+  const payload = raw as KhoItemsPayload;
+  if (!payload || typeof payload !== "object" || !Array.isArray(payload.items)) return payload;
+  return {
+    ...payload,
+    items: payload.items.map((item) => ({
+      ...item,
+      display_unit: parseKhoDisplayUnit(item.display_unit),
+    })),
+  };
+}
+
+export interface KhoSetItemDisplayUnitResult {
+  status: "saved";
+  item_id: string;
+  display_unit: KhoDisplayUnit | null;
+}
+
+/** Parse the jsonb object returned by kho_set_item_display_unit. */
+export function parseKhoSetItemDisplayUnitResult(raw: unknown): KhoSetItemDisplayUnitResult {
+  if (typeof raw !== "object" || raw === null) {
+    throw new TypeError("khoSetItemDisplayUnitResult must be an object");
+  }
+  const row = raw as Record<string, unknown>;
+  if (row.status !== "saved") {
+    throw new TypeError("khoSetItemDisplayUnitResult.status is invalid");
+  }
+  if (typeof row.item_id !== "string") {
+    throw new TypeError("khoSetItemDisplayUnitResult.item_id must be a string");
+  }
+  return {
+    status: "saved",
+    item_id: row.item_id,
+    display_unit: parseKhoDisplayUnit(row.display_unit),
+  };
 }
 
 /** Membership flags needed by the Tân Tạo fallback. */

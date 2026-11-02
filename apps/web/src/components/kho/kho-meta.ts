@@ -1,4 +1,5 @@
 import { STOCK_UNITS } from "@/lib/stock-units";
+import { countUnitsFor, displayUnitFor, toDisplayAmount } from "@/lib/kho-display-unit";
 import { hasTanTaoPlace, type KhoItem, type KhoLocation } from "@/lib/kho-items";
 import type { WarehouseGamePendingRow } from "@/lib/warehouse-game";
 
@@ -62,8 +63,12 @@ export function fmtQty(value: number): string {
 }
 
 /** 166415 g reads as 166,42 kg; ml as lít. Other units stay as they are; a missing figure is a dash. */
-export function fmtAmount(value: number | null | undefined, unit: string): string {
+export function fmtAmount(value: number | null | undefined, unit: string, displayUnit?: string | null): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  if (displayUnitFor(unit, displayUnit) !== null) {
+    const shown = toDisplayAmount(value, unit, displayUnit);
+    return `${num(shown.value)} ${shown.unit}`;
+  }
   const u = unit.trim().toLowerCase();
   if (u === "g" && Math.abs(value) >= 1000) return `${num(value / 1000)} kg`;
   if (u === "ml" && Math.abs(value) >= 1000) return `${num(value / 1000)} lít`;
@@ -71,11 +76,8 @@ export function fmtAmount(value: number | null | undefined, unit: string): strin
 }
 
 /** Units a person may type a count in: g items also take kg, ml items also take lít. */
-export function countUnits(unit: string): { label: string; factor: number }[] {
-  const u = unit.trim().toLowerCase();
-  if (u === "g") return [{ label: "kg", factor: 1000 }, { label: "g", factor: 1 }];
-  if (u === "ml") return [{ label: "lít", factor: 1000 }, { label: "ml", factor: 1 }];
-  return [{ label: unit, factor: 1 }];
+export function countUnits(unit: string, displayUnit?: string | null): { label: string; factor: number }[] {
+  return countUnitsFor(unit, displayUnit);
 }
 
 /** "1,5" and "1.5" are both 1.5; with a comma present dots are thousands ("1.250,5"). */

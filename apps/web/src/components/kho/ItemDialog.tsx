@@ -95,7 +95,7 @@ export function ItemDialog({ item, items, canEdit, confirm, onDone, onClose, onT
     if (!next[loc] && stock !== 0) {
       const ok = await confirm({
         title: `Bỏ “${item.name}” khỏi Kho ${KHO_LABEL[loc]}?`,
-        message: `Kho ${KHO_LABEL[loc]} còn ${fmtAmount(stock, item.unit)} trong sổ. Bỏ tick thì món không hiện khi đếm ở kho này; số trong sổ giữ nguyên.`,
+        message: `Kho ${KHO_LABEL[loc]} còn ${fmtAmount(stock, item.unit, item.display_unit)} trong sổ. Bỏ tick thì món không hiện khi đếm ở kho này; số trong sổ giữ nguyên.`,
         ok: "Bỏ tick", cancel: "Thôi",
       });
       if (!ok) return;
@@ -178,7 +178,7 @@ export function ItemDialog({ item, items, canEdit, confirm, onDone, onClose, onT
   };
 
   const standard = ask ? standardUnitFactor(ask.from, ask.to) : null;
-  const sub = `${placeLabel(places)} · tồn Tân Tạo ${fmtAmount(item.qty.tan_tao, item.unit)} · Q7 ${fmtAmount(item.qty.q7, item.unit)}`;
+  const sub = `${placeLabel(places)} · tồn Tân Tạo ${fmtAmount(item.qty.tan_tao, item.unit, item.display_unit)} · Q7 ${fmtAmount(item.qty.q7, item.unit, item.display_unit)}`;
 
   return (
     <KhoDialog title={item.name} sub={sub} onClose={onClose} data={{ "data-bmq-kho-item-dialog": "" }}>
@@ -209,7 +209,7 @@ export function ItemDialog({ item, items, canEdit, confirm, onDone, onClose, onT
                 disabled={!canEdit || setPlace.isPending || last} title={last ? "Món phải có ở ít nhất 1 kho" : undefined}
                 onClick={() => void togglePlace(loc)} data-bmq-kho-place-pick={loc}>
                 <span className="d3-kho-check-box" aria-hidden="true"><Check /></span>
-                <span><b>Kho {KHO_LABEL[loc]}</b><small>tồn {fmtAmount(item.qty[loc], item.unit)}</small></span>
+                <span><b>Kho {KHO_LABEL[loc]}</b><small>tồn {fmtAmount(item.qty[loc], item.unit, item.display_unit)}</small></span>
               </button>
             );
           })}
@@ -250,7 +250,7 @@ export function ItemDialog({ item, items, canEdit, confirm, onDone, onClose, onT
       {holds.map((hold) => (
         <section key={hold.location} className="d3-kho-holdsec" data-bmq-kho-hold-detail>
           <div className="d3-kho-sec-h">
-            <h3>Giữ cho sản xuất{places.tan_tao && places.q7 ? ` · Kho ${KHO_LABEL[hold.location as KhoLocation]}` : ""} · {fmtAmount(hold.committed_qty, item.unit)}</h3>
+            <h3>Giữ cho sản xuất{places.tan_tao && places.q7 ? ` · Kho ${KHO_LABEL[hold.location as KhoLocation]}` : ""} · {fmtAmount(hold.committed_qty, item.unit, item.display_unit)}</h3>
             <small>Phiếu xuất NVL cho ngày tới. Sổ tồn trừ vào đầu ngày đó; hôm nay hàng vẫn trên kệ.</small>
           </div>
           <ul className="d3-kho-holdlist">
@@ -258,11 +258,11 @@ export function ItemDialog({ item, items, canEdit, confirm, onDone, onClose, onT
               <li key={`${source.ref}-${source.date}`}>
                 <span>{source.ref}</span>
                 <span>{dayLabel(commitments.data?.as_of ?? "", source.date)}</span>
-                <b>{fmtAmount(source.qty, item.unit)}</b>
+                <b>{fmtAmount(source.qty, item.unit, item.display_unit)}</b>
               </li>
             ))}
           </ul>
-          {item.qty[hold.location as KhoLocation] !== null ? <p className="d3-kho-quiet">Còn dùng được sau khi trừ: <b>{fmtAmount((item.qty[hold.location as KhoLocation] ?? 0) - hold.committed_qty, item.unit)}</b></p> : null}
+          {item.qty[hold.location as KhoLocation] !== null ? <p className="d3-kho-quiet">Còn dùng được sau khi trừ: <b>{fmtAmount((item.qty[hold.location as KhoLocation] ?? 0) - hold.committed_qty, item.unit, item.display_unit)}</b></p> : null}
         </section>
       ))}
       <SupplierOrderSection item={item} onToast={onToast} />

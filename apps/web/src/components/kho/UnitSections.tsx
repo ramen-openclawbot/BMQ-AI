@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowLeftRight, Check, ChevronRight, Plus, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { OptionPicker } from "@/components/OptionPicker";
-import { useKhoSaveItem } from "@/hooks/useKhoItems";
+import { useKhoSaveItem, useSetKhoItemDisplayUnit } from "@/hooks/useKhoItems";
 import { useAddKhoUnit, useKhoConversionPreview, useKhoItemConversions, useKhoUnits, useSetKhoItemConversion } from "@/hooks/useKhoUnits";
 import { hasTanTaoPlace, khoErrorText, standardUnitFactor, type KhoItem } from "@/lib/kho-items";
 import { conversionSentence, type KhoConversionGroup, type KhoConversionPreview, type KhoUnit } from "@/lib/kho-units";
@@ -440,7 +441,7 @@ function UnitPicker({ item, units, unitsLoading, onDone, onToast, lines, linesLo
               {ready && book !== null ? (
                 <p className="d3-kho-impact" data-bmq-unit-after>
                   <b>Tồn sau khi đổi: {fmtAmount(after(standard ?? factor ?? 1), target)}</b>
-                  <span>đang là {fmtAmount(book, item.unit)}</span>
+                  <span>đang là {fmtAmount(book, item.unit, item.display_unit)}</span>
                 </p>
               ) : null}
               {standard === null ? <ReceiptNotes title="Phiếu giao của món này" lines={lines} loading={linesLoading} error={linesError} /> : null}
@@ -453,6 +454,31 @@ function UnitPicker({ item, units, unitsLoading, onDone, onToast, lines, linesLo
           ) : null}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** A g item can read in kg, an ml item in lít; the ledger keeps g / ml (owner 02/11). */
+function DisplayUnitSwitch({ item, canEdit, onToast }: { item: KhoItem; canEdit: boolean; onToast: (text: string) => void }) {
+  const save = useSetKhoItemDisplayUnit();
+  const big = normalizeName(item.unit) === "g" ? "kg" : normalizeName(item.unit) === "ml" ? "lít" : null;
+  if (!big) return null;
+  const on = item.display_unit === big;
+  const toggle = (next: boolean) => {
+    save.mutate({ itemId: item.id, displayUnit: next ? big : null, requestId: newRequestId() }, {
+      onSuccess: () => onToast(next ? `“${item.name}” hiện theo ${big}` : `“${item.name}” hiện theo ${item.unit}`),
+    });
+  };
+  return (
+    <div className="d3-kho-setitem">
+      <div className="d3-kho-switchrow" data-bmq-display-unit={on ? big : "off"}>
+        <span>
+          <b>Hiện theo {big}</b>
+          <small>{on ? `Tồn, kiểm kê và đặt hàng hiện bằng ${big}. Sổ vẫn lưu bằng ${item.unit}.` : `Đang hiện ${item.unit}, từ 1000 ${item.unit} trở lên tự đọc thành ${big}.`}</small>
+        </span>
+        <Switch checked={on} onCheckedChange={toggle} disabled={!canEdit || save.isPending} aria-label={`Hiện theo ${big}`} />
+      </div>
+      {save.error ? <p className="d3-kho-error d3-kho-setnote">{khoErrorText(save.error)}</p> : null}
     </div>
   );
 }
@@ -493,6 +519,7 @@ export function UnitAndConversions({ item, canEdit, lines, linesLoading, linesEr
             </div>
           </div>
         )}
+        <DisplayUnitSwitch item={item} canEdit={editable} onToast={onToast} />
         {editable && units.error ? <p className="d3-kho-error d3-kho-setnote">Chưa tải được danh sách đơn vị. {khoErrorText(units.error)}</p> : null}
 
         <div className="d3-kho-setitem">
