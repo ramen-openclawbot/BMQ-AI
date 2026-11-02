@@ -153,6 +153,8 @@ export default function KfmPoIntake({ canDecide, isVi, paused, onImported, await
       setReason("");
       setResumeInboxId(null);
       await refresh;
+      // The parallel read can predate POs this scan just removed as cancelled on KFM.
+      if (Array.isArray(value.removed) && value.removed.length > 0) await refreshAwaitingSetup();
     } catch (error) {
       if (generation !== scanGeneration.current) return;
       setScanError(error instanceof Error && error.name !== "TimeoutError" ? error.message : (isVi ? "KFM chưa phản hồi. Hãy thử kiểm tra lại." : "KFM did not respond. Please try again."));
