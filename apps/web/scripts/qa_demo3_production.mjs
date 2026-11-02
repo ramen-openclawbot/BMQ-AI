@@ -358,6 +358,37 @@ try {
         assert.ok(wrap.card <= 0, `delivery card spills ${JSON.stringify(wrap)}`);
         assert.ok(wrap.inner <= 0, `delivery table needs sideways scroll @${viewport.width} ${JSON.stringify(wrap)}`);
         await page.locator("[data-bmq-kfm-delivery-card]").screenshot({ path: `${EVIDENCE}/kfm-delivery-${viewport.width}.png` });
+        // Giao đạt so với PO (owner 03/11): any month on the card, tap for one row per delivery day.
+        const kpiMonth = page.locator("[data-bmq-kfm-kpi-month] span");
+        const monthBefore = await kpiMonth.innerText();
+        assert.ok(await page.locator("[data-bmq-kfm-kpi-month] button[aria-label='Tháng sau']").isDisabled(), "no month after the current one");
+        await page.locator("[data-bmq-kfm-kpi-month] button[aria-label='Tháng trước']").click();
+        await page.waitForFunction((before) => document.querySelector("[data-bmq-kfm-kpi-month] span")?.textContent !== before, monthBefore);
+        assert.ok(!(await page.locator("[data-bmq-kfm-kpi-month] button[aria-label='Tháng sau']").isDisabled()), "next month enabled after going back");
+        await page.waitForFunction(() => /%/.test(document.querySelector("[data-bmq-kfm-delivery-ratio]")?.textContent ?? ""));
+        await page.locator("[data-bmq-kfm-delivery-days-open]").click();
+        await page.waitForSelector("[data-bmq-kfm-day]");
+        const dayDates = await page.$$eval("[data-bmq-kfm-day]", (els) => els.map((el) => el.getAttribute("data-bmq-kfm-day")));
+        assert.equal(dayDates.length, 10, `one row per delivery day ${dayDates}`);
+        assert.equal(dayDates[0], "2026-10-31", "newest day first");
+        const bandCount = async (id) => { await page.locator(`[data-bmq-kfm-days-band='${id}']`).click(); return page.locator("[data-bmq-kfm-day]").count(); };
+        assert.equal(await bandCount("under95"), 5, "days under 95%");
+        assert.equal(await bandCount("95to98"), 1, "days 95–98%");
+        assert.equal(await bandCount("98plus"), 4, "days from 98%");
+        assert.equal(await bandCount("all"), 10, "all days");
+        await page.locator("[data-bmq-kfm-days-short]").click();
+        assert.equal(await page.locator("[data-bmq-kfm-day]").count(), 9, "short days only");
+        await page.locator("[data-bmq-kfm-days-short]").click();
+        await page.locator("[data-bmq-kfm-days-sort]").click();
+        assert.equal(await page.locator("[data-bmq-kfm-day]").first().getAttribute("data-bmq-kfm-day"), "2026-10-13", "lowest ratio first");
+        await page.locator("[data-bmq-kfm-day='2026-10-13'] .kd-dayrow-head").click();
+        assert.match(await page.locator("[data-bmq-kfm-day-po='PO1002673250']").innerText(), /560\/809[\s\S]*69,2%/);
+        const sheet = await page.evaluate(() => { const d = document.querySelector("[data-bmq-kfm-delivery-days]"); return { spill: d.scrollWidth - d.clientWidth, rows: [...d.querySelectorAll(".kd-dayrow")].map((r) => r.scrollWidth - r.clientWidth) }; });
+        assert.ok(sheet.spill <= 0 && sheet.rows.every((x) => x <= 0), `day sheet spills @${viewport.width} ${JSON.stringify(sheet)}`);
+        await page.waitForTimeout(400);
+        await page.screenshot({ path: `${EVIDENCE}/kfm-days-${viewport.width}.png` });
+        await page.keyboard.press("Escape");
+        await page.waitForSelector("[data-bmq-kfm-delivery-days]", { state: "detached" });
         // Báo cáo cuối ngày: default 100% line, a short line with its reason, the photo slot.
         await page.waitForSelector("[data-bmq-kfm-daily-line]");
         assert.equal(await page.locator("[data-bmq-kfm-daily-qty='PO1002692065']").inputValue(), "627");

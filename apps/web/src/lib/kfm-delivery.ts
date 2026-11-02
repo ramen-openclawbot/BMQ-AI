@@ -29,6 +29,19 @@ export type KfmDeliveryTotals = {
   under95Count: number;
 };
 
+export type KfmDeliveryDay = {
+  date: string | null;
+  poCount: number;
+  poQty: number;
+  deliveredQty: number;
+  shortfall: number;
+  ratio: number | null;
+  provisionalCount: number;
+  rows: KfmDeliveryRow[];
+};
+
+export type KfmDeliveryRatioFilter = "all" | "under95" | "95to98" | "98plus";
+
 export type KfmDispatchJevQuantity = {
   poNumber: string;
   qty: number;
@@ -277,6 +290,109 @@ export function deliveryRatioBand(
   if (ratio >= 0.95) return "ok";
   if (ratio >= 0.85) return "warn";
   return "bad";
+}
+
+function compareText(a: string, b: string): number {
+  if (a < b) return -1;
+  if (a > b) return 1;
+  return 0;
+}
+
+/** ISO dates sort lexicographically; the undated bucket always goes last. */
+function compareDeliveryDate(a: string | null, b: string | null): number {
+  if (a === b) return 0;
+  if (a === null) return 1;
+  if (b === null) return -1;
+  return compareText(a, b);
+}
+
+function dayFromRows(
+  date: string | null,
+  rows: KfmDeliveryRow[],
+): KfmDeliveryDay {
+  const sortedRows = [...rows].sort((a, b) => compareText(a.poNumber, b.poNumber));
+  const poQty = sortedRows.reduce((sum, row) => sum + row.poQty, 0);
+  const deliveredQty = sortedRows.reduce((sum, row) => sum + row.deliveredQty, 0);
+  return {
+    date,
+    poCount: sortedRows.length,
+    poQty,
+    deliveredQty,
+    shortfall: deliveredQty - poQty,
+    ratio: poQty === 0 ? null : deliveredQty / poQty,
+    provisionalCount: sortedRows.filter((row) => row.isDefault === true).length,
+    rows: sortedRows,
+  };
+}
+
+export function groupDeliveryByDay(rows: KfmDeliveryRow[]): KfmDeliveryDay[] {
+  const groups = new Map<string, KfmDeliveryRow[]>();
+  const undated: KfmDeliveryRow[] = [];
+  for (const row of rows) {
+    const date = row.deliveryDate ? row.deliveryDate.slice(0, 10) : null;
+    if (date === null) {
+      undated.push(row);
+      continue;
+    }
+    const bucket = groups.get(date);
+    if (bucket) bucket.push(row);
+    else groups.set(date, [row]);
+  }
+
+  const days = Array.from(groups, ([date, dayRows]) => dayFromRows(date, dayRows));
+  if (undated.length > 0) days.push(dayFromRows(null, undated));
+  return days.sort((a, b) => compareDeliveryDate(a.date, b.date));
+}
+
+export function filterDeliveryDays(
+  days: KfmDeliveryDay[],
+  { shortOnly, band }: { shortOnly: boolean; band: KfmDeliveryRatioFilter },
+): KfmDeliveryDay[] {
+  return days.filter((day) => {
+    if (shortOnly && day.shortfall >= 0) return false;
+    if (band === "all") return true;
+    if (day.ratio === null) return false;
+    if (band === "under95") return day.ratio < 0.95;
+    if (band === "95to98") return day.ratio >= 0.95 && day.ratio < 0.98;
+    return day.ratio >= 0.98;
+  });
+}
+
+export function sortDeliveryDays(
+  days: KfmDeliveryDay[],
+  by: "date" | "ratio",
+): KfmDeliveryDay[] {
+  const sorted = [...days];
+  if (by === "date") {
+    return sorted.sort((a, b) => compareDeliveryDate(a.date, b.date));
+  }
+  return sorted.sort((a, b) => {
+    if (a.ratio !== b.ratio) {
+      if (a.ratio === null) return 1;
+      if (b.ratio === null) return -1;
+      return a.ratio < b.ratio ? -1 : 1;
+    }
+    return compareDeliveryDate(a.date, b.date);
+  });
+}
+
+export function sumDeliveryDays(days: KfmDeliveryDay[]): {
+  poCount: number;
+  poQty: number;
+  deliveredQty: number;
+  shortfall: number;
+  ratio: number | null;
+} {
+  const poCount = days.reduce((sum, day) => sum + day.poCount, 0);
+  const poQty = days.reduce((sum, day) => sum + day.poQty, 0);
+  const deliveredQty = days.reduce((sum, day) => sum + day.deliveredQty, 0);
+  return {
+    poCount,
+    poQty,
+    deliveredQty,
+    shortfall: deliveredQty - poQty,
+    ratio: poQty === 0 ? null : deliveredQty / poQty,
+  };
 }
 
 export function monthRange(dateIso: string): { from: string; to: string } {

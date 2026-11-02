@@ -9,8 +9,13 @@ import {
   useKfmDeliveryVsPo,
   useSetKfmDeliveredQty,
 } from "@/hooks/useKfmDelivery";
-import { deliveryRatioBand, jevKindLabel, monthRange, type KfmDeliveryRow, type KfmDispatchPhoto } from "@/lib/kfm-delivery";
+import {
+  deliveryRatioBand, filterDeliveryDays, groupDeliveryByDay, jevKindLabel, monthRange, sortDeliveryDays,
+  type KfmDeliveryDay, type KfmDeliveryRatioFilter, type KfmDeliveryRow, type KfmDeliveryVsPo, type KfmDispatchPhoto,
+} from "@/lib/kfm-delivery";
+import { KhoDialog } from "@/components/kho/KhoDialog";
 import { cn } from "@/lib/utils";
+import "@/styles/bmq-kho.css";
 import "@/styles/bmq-kfm-delivery.css";
 
 /*
@@ -43,33 +48,181 @@ function Ratio({ ratio }: { ratio: number | null }) {
   );
 }
 
-/** Key figure for the top of Sản xuất: this month's delivered share of KFM POs. */
+/**
+ * Key figure for the top of Sản xuất: one month's delivered share of KFM POs (owner 03/11: any month,
+ * tap for the day-by-day detail). Early in a month nothing is confirmed yet: until the month is picked
+ * by hand the figure shows last month, labelled as such.
+ */
 export function KfmDeliveryKpi({ todayIso }: { todayIso: string }) {
-  // Early in a month nothing is confirmed yet: the figure then shows last month, labelled as such.
+  const current = `${todayIso.slice(0, 7)}-01`;
+  const [picked, setPicked] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
   const thisRange = useMemo(() => monthRange(todayIso), [todayIso]);
-  const lastRange = useMemo(() => monthRange(shiftMonth(`${todayIso.slice(0, 7)}-01`, -1)), [todayIso]);
-  const thisQuery = useKfmDeliveryVsPo(thisRange.from, thisRange.to);
-  const useLast = Boolean(thisQuery.data && thisQuery.data.totals.confirmedCount === 0);
-  const lastQuery = useKfmDeliveryVsPo(useLast ? lastRange.from : null, useLast ? lastRange.to : null);
-  const range = useLast ? lastRange : thisRange;
-  const query = useLast ? lastQuery : thisQuery;
+  const lastRange = useMemo(() => monthRange(shiftMonth(current, -1)), [current]);
+  const thisQuery = useKfmDeliveryVsPo(picked ? null : thisRange.from, picked ? null : thisRange.to);
+  const useLast = !picked && Boolean(thisQuery.data && thisQuery.data.totals.confirmedCount === 0);
+  const pickedRange = useMemo(() => (picked ? monthRange(picked) : null), [picked]);
+  const shownRange = pickedRange ?? (useLast ? lastRange : thisRange);
+  const otherQuery = useKfmDeliveryVsPo(picked || useLast ? shownRange.from : null, picked || useLast ? shownRange.to : null);
+  const query = picked || useLast ? otherQuery : thisQuery;
+  const month = shownRange.from;
   const t = query.data?.totals;
   const band = deliveryRatioBand(t?.ratio ?? null);
   const pending = t ? t.poCount - t.confirmedCount : 0;
+  const canOpen = Boolean(t?.poCount);
   return (
-    <article className={cn("pp-kpi", `is-${band}`)} data-pp-kpi="delivery">
-      <h2>Giao đạt so với PO · {MONTH_VI(range.from).replace("Tháng ", "T")}</h2>
-      <p className="pp-kpi-num" data-bmq-kfm-delivery-ratio>{query.isLoading ? "…" : t?.poCount ? pct(t.ratio) : "—"}</p>
-      <p className="pp-kpi-sub">
-        {t?.poCount ? `${num(t.deliveredQty)}/${num(t.poQty)} · ${t.poCount} PO` : query.error ? "Không đọc được số giao" : "Chưa có PO trong tháng"}
-      </p>
-      {t?.poCount ? (
-        <p className={cn("pp-kpi-flag", t.shortfall < 0 ? "is-bad" : "is-ok")}>
-          {t.shortfall < 0 ? `Thiếu ${num(-t.shortfall)} · ${t.under95Count} PO dưới 95%` : "Giao đủ"}
-          {pending > 0 ? ` · ${pending} tạm tính` : ""}
-        </p>
+    <article className={cn("pp-kpi", "pp-kpi-delivery", `is-${band}`)} data-pp-kpi="delivery">
+      <div className="pp-kpi-head">
+        <h2>Giao đạt so với PO</h2>
+        <MonthSwitch month={month} current={current} onChange={setPicked} compact />
+      </div>
+      <button type="button" className="pp-kpi-open" onClick={() => setOpen(true)} disabled={!canOpen}
+        aria-label={`Xem tỷ lệ giao từng ngày ${MONTH_VI(month)}`} data-bmq-kfm-delivery-days-open>
+        <span className="pp-kpi-num" data-bmq-kfm-delivery-ratio>{query.isLoading ? "…" : t?.poCount ? pct(t.ratio) : "—"}</span>
+        <span className="pp-kpi-sub">
+          {t?.poCount ? `${num(t.deliveredQty)}/${num(t.poQty)} · ${t.poCount} PO` : query.error ? "Không đọc được số giao" : query.isLoading ? "Đang tải…" : "Chưa có PO trong tháng"}
+        </span>
+        {t?.poCount ? (
+          <span className="pp-kpi-foot">
+            <span className={cn("pp-kpi-flag", t.shortfall < 0 ? "is-bad" : "is-ok")}>
+              {t.shortfall < 0 ? `Thiếu ${num(-t.shortfall)} · ${t.under95Count} PO dưới 95%` : "Giao đủ"}
+              {pending > 0 ? ` · ${pending} tạm tính` : ""}
+            </span>
+            <span className="pp-kpi-more">Theo ngày<ChevronRight aria-hidden="true" /></span>
+          </span>
+        ) : null}
+      </button>
+      {open && query.data ? (
+        <KfmDeliveryDaysDialog month={month} data={query.data} onClose={() => setOpen(false)} />
       ) : null}
     </article>
+  );
+}
+
+function MonthSwitch({ month, current, onChange, compact = false }: {
+  month: string; current: string; onChange: (month: string) => void; compact?: boolean;
+}) {
+  const atCurrent = month.slice(0, 7) >= current.slice(0, 7);
+  return (
+    <div className={cn("kd-month", compact && "is-compact")} role="group" aria-label="Chọn tháng" data-bmq-kfm-kpi-month>
+      <button type="button" onClick={() => onChange(shiftMonth(month, -1))} aria-label="Tháng trước"><ChevronLeft /></button>
+      <span>{compact ? MONTH_VI(month).replace("Tháng ", "T") : MONTH_VI(month)}</span>
+      <button type="button" onClick={() => onChange(shiftMonth(month, 1))} disabled={atCurrent} aria-label="Tháng sau"><ChevronRight /></button>
+    </div>
+  );
+}
+
+const WEEKDAY = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
+const weekday = (iso: string) => WEEKDAY[new Date(`${iso.slice(0, 10)}T00:00:00Z`).getUTCDay()];
+
+const BAND_FILTERS: { id: KfmDeliveryRatioFilter; label: string }[] = [
+  { id: "all", label: "Tất cả" },
+  { id: "under95", label: "Dưới 95%" },
+  { id: "95to98", label: "95–98%" },
+  { id: "98plus", label: "Từ 98%" },
+];
+
+/** Day-by-day delivered vs ordered for one month, with short-day / ratio filters and the POs of each day. */
+function KfmDeliveryDaysDialog({ month, data, onClose }: { month: string; data: KfmDeliveryVsPo; onClose: () => void }) {
+  const [shortOnly, setShortOnly] = useState(false);
+  const [band, setBand] = useState<KfmDeliveryRatioFilter>("all");
+  const [by, setBy] = useState<"date" | "ratio">("date");
+  const [openDay, setOpenDay] = useState<string | null>(null);
+  const days = useMemo(() => groupDeliveryByDay(data.rows), [data.rows]);
+  const counts = useMemo(() => Object.fromEntries(BAND_FILTERS.map((f) => [f.id, filterDeliveryDays(days, { shortOnly, band: f.id }).length])), [days, shortOnly]);
+  const shown = useMemo(() => {
+    const kept = filterDeliveryDays(days, { shortOnly, band });
+    if (by === "ratio") return sortDeliveryDays(kept, "ratio");
+    // Newest day first, like the accounting sheet; an undated group stays last.
+    const sorted = sortDeliveryDays(kept, "date");
+    const dated = sorted.filter((day) => day.date !== null).reverse();
+    return [...dated, ...sorted.filter((day) => day.date === null)];
+  }, [days, shortOnly, band, by]);
+  const t = data.totals;
+  const shortDays = days.filter((day) => day.shortfall < 0).length;
+
+  return (
+    <KhoDialog wide title={`Giao đạt so với PO · ${MONTH_VI(month)}`}
+      sub={`${days.length} ngày giao · ${t.poCount} PO · ${shortDays} ngày giao thiếu`} onClose={onClose}
+      data={{ "data-bmq-kfm-delivery-days": month }}>
+      <div className="kd-days">
+        <dl className="kd-days-sum">
+          <div className={cn("is-lead", `is-${deliveryRatioBand(t.ratio)}`)}><dt>Tỷ lệ giao</dt><dd>{pct(t.ratio)}</dd></div>
+          <div><dt>SL giao / SL PO</dt><dd>{num(t.deliveredQty)}<small>/{num(t.poQty)}</small></dd></div>
+          <div className={cn(t.shortfall < 0 && "is-bad")}><dt>Chênh lệch</dt><dd>{signed(t.shortfall)}</dd></div>
+        </dl>
+
+        <div className="kd-days-tools">
+          <div className="kd-seg" role="group" aria-label="Lọc theo tỷ lệ giao">
+            {BAND_FILTERS.map((f) => (
+              <button key={f.id} type="button" aria-pressed={band === f.id} className={cn(band === f.id && "is-on")}
+                onClick={() => setBand(f.id)} data-bmq-kfm-days-band={f.id}>
+                {f.label}<small>{counts[f.id]}</small>
+              </button>
+            ))}
+          </div>
+          <div className="kd-days-row">
+            <button type="button" className={cn("kd-chip", shortOnly && "is-on")} aria-pressed={shortOnly}
+              onClick={() => setShortOnly((v) => !v)} data-bmq-kfm-days-short>Chỉ ngày giao thiếu</button>
+            <button type="button" className="kd-sort" onClick={() => setBy((v) => (v === "date" ? "ratio" : "date"))} data-bmq-kfm-days-sort={by}>
+              {by === "date" ? "Mới nhất trước" : "Tỷ lệ thấp trước"}
+            </button>
+          </div>
+        </div>
+
+        {shown.length ? (
+          <ul className="kd-daylist" data-bmq-kfm-days-list>
+            {shown.map((day) => (
+              <DeliveryDayRow key={day.date ?? "none"} day={day} open={openDay === (day.date ?? "none")}
+                onToggle={() => setOpenDay((v) => (v === (day.date ?? "none") ? null : day.date ?? "none"))} />
+            ))}
+          </ul>
+        ) : (
+          <p className="kd-days-empty">Không có ngày nào khớp bộ lọc.</p>
+        )}
+        {t.poCount - t.confirmedCount > 0 ? (
+          <p className="kd-note">{t.poCount - t.confirmedCount} PO chưa có số giao thực tế, đang tạm tính 100%.</p>
+        ) : null}
+      </div>
+    </KhoDialog>
+  );
+}
+
+function DeliveryDayRow({ day, open, onToggle }: { day: KfmDeliveryDay; open: boolean; onToggle: () => void }) {
+  const band = deliveryRatioBand(day.ratio);
+  const width = day.ratio === null ? 0 : Math.max(0, Math.min(1, day.ratio)) * 100;
+  return (
+    <li className={cn("kd-dayrow", `is-${band}`, open && "is-open")} data-bmq-kfm-day={day.date ?? "none"}>
+      <button type="button" className="kd-dayrow-head" aria-expanded={open} onClick={onToggle}>
+        <span className="kd-dayrow-date">
+          {day.date ? <><b>{ddmm(day.date)}</b><small>{weekday(day.date)}</small></> : <b>Chưa có ngày</b>}
+        </span>
+        <span className="kd-dayrow-mid">
+          <span className="kd-dayrow-qty"><b>{num(day.deliveredQty)}</b>/{num(day.poQty)}</span>
+          <small>
+            {day.poCount} PO{day.provisionalCount ? ` · ${day.provisionalCount} tạm tính` : ""}
+            {day.shortfall < 0 ? <> · <em>thiếu {num(-day.shortfall)}</em></> : day.shortfall > 0 ? ` · dư ${num(day.shortfall)}` : ""}
+          </small>
+        </span>
+        <span className="kd-dayrow-ratio">
+          <b>{pct(day.ratio)}</b>
+          <span className="kd-ratio-bar" aria-hidden="true"><i style={{ width: `${width}%` }} /></span>
+        </span>
+        <ChevronRight className="kd-dayrow-chev" aria-hidden="true" />
+      </button>
+      {open ? (
+        <ul className="kd-dayrow-pos">
+          {day.rows.map((row) => (
+            <li key={row.poNumber} className={cn(row.isDefault && "is-default")} data-bmq-kfm-day-po={row.poNumber}>
+              <span className="kd-dayrow-po">{row.poNumber}<small>{row.isDefault ? "tạm tính" : row.source === "ke_toan" ? "kế toán" : "kho"}</small></span>
+              <span className="kd-dayrow-poqty">{num(row.deliveredQty)}/{num(row.poQty)}</span>
+              <span className={cn("kd-dayrow-pocl", row.shortfall < 0 && "is-bad")}>{signed(row.shortfall)}</span>
+              <span className={cn("kd-dayrow-popct", `is-${deliveryRatioBand(row.ratio)}`)}>{pct(row.ratio)}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </li>
   );
 }
 
