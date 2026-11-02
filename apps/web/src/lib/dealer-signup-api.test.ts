@@ -11,7 +11,7 @@ test("review band default matches the server default", () => {
   assert.equal(DEALER_SIGNUP_REVIEW_BAND_M, 500);
 });
 
-test("Photon geocoder sends q, limit and Vietnam bbox without lang", async () => {
+test("Photon geocoder sends q, limit, lang=default and Vietnam bbox", async () => {
   let requestedUrl = "";
   let requestedHeaders: Record<string, string> = {};
   const fetcher: PhotonFetcher = async (input, init) => {
@@ -39,7 +39,7 @@ test("Photon geocoder sends q, limit and Vietnam bbox without lang", async () =>
   assert.equal(url.origin + url.pathname, "https://photon.komoot.io/api/");
   assert.equal(url.searchParams.get("q"), "12 Lê Lợi, Quận 1");
   assert.equal(url.searchParams.get("limit"), "5");
-  assert.equal(url.searchParams.has("lang"), false);
+  assert.equal(url.searchParams.get("lang"), "default");
   assert.equal(url.searchParams.get("bbox"), "102,8,110,24");
   assert.equal(requestedHeaders.Accept, "application/json");
   assert.deepEqual(results, [{

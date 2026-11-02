@@ -155,8 +155,8 @@ function photonLabel(properties: Record<string, unknown>): string {
 
 /**
  * Geocode an address through Photon (OpenStreetMap) inside Vietnam's bbox.
- * No lang parameter: Photon rejects "vi" with HTTP 400 (only default/de/en/fr);
- * the default returns the local Vietnamese names.
+ * lang=default: Photon rejects "vi" with HTTP 400 (only default/de/en/fr);
+ * "default" returns local Vietnamese names whatever the browser language.
  * Returns at most five suggestions; provider failures yield an empty list.
  */
 export async function geocodeAddressPhoton(
@@ -169,6 +169,7 @@ export async function geocodeAddressPhoton(
   const params = new URLSearchParams({
     q: trimmed,
     limit: "5",
+    lang: "default",
     bbox: "102,8,110,24",
   });
   const url = `${DEALER_SIGNUP_GEOCODER_URL}?${params.toString().replace(/%2C/g, ",")}`;

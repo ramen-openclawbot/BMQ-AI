@@ -122,6 +122,7 @@ async function geocodeOne(address) {
   const query = new URLSearchParams({
     q: address,
     limit: "1",
+    lang: "default",
     bbox: BBOX_VIETNAM,
   });
 
