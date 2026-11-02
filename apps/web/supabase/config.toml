@@ -96,6 +96,23 @@ verify_jwt = false
 [functions.dealer-public-config]
 verify_jwt = false
 
+[functions.dealer-signup-check]
+# Public dealer signup check; validated and rate-limited inside the function.
+verify_jwt = false
+
+[functions.dealer-signup-submit]
+# Public dealer signup submit; validated, rate-limited and idempotent in code.
+# The checked-in Vietnamese PDF fonts must be part of the deployed bundle.
+verify_jwt = false
+static_files = [
+  "./functions/_shared/fonts/NotoSans-Regular.ttf",
+  "./functions/_shared/fonts/NotoSans-Bold.ttf",
+]
+
+[functions.dealer-signup-config]
+# Public browser map configuration (OpenStreetMap tiles/geocoder, no keys).
+verify_jwt = false
+
 [functions.dealer-order-submit]
 verify_jwt = false
 

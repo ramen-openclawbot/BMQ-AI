@@ -11,6 +11,8 @@ const PAYSLIP_HOST = "payroll.banhmique.vn";
 
 // Employee payslip portal; loaded only on its own host.
 const PayslipPortalHost = lazy(() => import("@/pages/PayslipPortalHost"));
+// Public new-dealer franchise page: dathang.banhmique.vn/dai-ly-moi.
+const DealerSignupPage = lazy(() => import("@/pages/DealerSignupPage"));
 // Supplier delivery-invoice upload page (public link from the order email).
 const SupplierUploadPortal = lazy(() => import("@/pages/SupplierUploadPortal"));
 const ADMIN_APP_TITLE = "BMQ AI Quản Trị";
@@ -75,6 +77,12 @@ function supplierUploadToken(): string | null {
   return match ? match[1] : null;
 }
 
+function isDealerSignupRoute(): boolean {
+  const host = window.location.hostname;
+  const allowedHost = host === DEALER_ORDERING_HOST || host === "localhost" || host === "127.0.0.1";
+  return allowedHost && /^\/dai-ly-moi\/?$/.test(window.location.pathname);
+}
+
 function isKioskReportHost(): boolean {
   return window.location.hostname === KIOSK_REPORT_HOST;
 }
@@ -96,6 +104,15 @@ function App() {
     return (
       <Suspense fallback={<PageLoader />}>
         <PayslipPortalHost />
+      </Suspense>
+    );
+  }
+
+  // New-dealer signup is public: no login, no internal providers.
+  if (isDealerSignupRoute()) {
+    return (
+      <Suspense fallback={<PageLoader />}>
+        <DealerSignupPage />
       </Suspense>
     );
   }
