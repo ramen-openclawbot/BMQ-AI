@@ -22,6 +22,7 @@ import { SalesPoQuickViewEditor } from "@/components/mini-crm/SalesPoQuickViewEd
 import { KnowledgeBaseProfileEditor } from "@/components/mini-crm/KnowledgeBaseProfileEditor";
 import { KioskReportAdminPanel } from "@/components/mini-crm/KioskReportAdminPanel";
 import { AttendanceGeofenceAdminPanel } from "@/components/mini-crm/AttendanceGeofenceAdminPanel";
+import { DealerLocationPinPanel } from "@/components/mini-crm/DealerLocationPinPanel";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   buildManualSummaryMessage,
@@ -522,7 +523,7 @@ export default function MiniCrm() {
   const [setupModalOpen, setSetupModalOpen] = useState(false);
   const [setupDealerPhone, setSetupDealerPhone] = useState("");
   const [viewCustomer, setViewCustomer] = useState<any | null>(null);
-  const [miniCrmSection, setMiniCrmSection] = useState<"customers" | "locations" | "staff" | "attendance_geofences">("customers");
+  const [miniCrmSection, setMiniCrmSection] = useState<"customers" | "locations" | "dealer_pins" | "staff" | "attendance_geofences">("customers");
   const [setupPriceRows, setSetupPriceRows] = useState<Array<{ skuId: string; price: string }>>([{ skuId: "", price: "" }]);
   const [setupEmailBodyTemplate, setSetupEmailBodyTemplate] = useState("");
   const [setupIsNpp, setSetupIsNpp] = useState(false);
@@ -2958,13 +2959,14 @@ export default function MiniCrm() {
 
       <Tabs
         value={miniCrmSection}
-        onValueChange={(value) => setMiniCrmSection(value as "customers" | "locations" | "staff" | "attendance_geofences")}
+        onValueChange={(value) => setMiniCrmSection(value as "customers" | "locations" | "dealer_pins" | "staff" | "attendance_geofences")}
         className="w-full"
         data-kiosk-report-admin-function="kiosk-report-admin"
       >
-        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 md:w-auto md:grid-cols-4">
+        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 md:w-auto md:grid-cols-5">
           <TabsTrigger value="customers">Khách hàng</TabsTrigger>
           <TabsTrigger value="locations">Điểm bán</TabsTrigger>
+          <TabsTrigger value="dealer_pins">Vị trí đại lý</TabsTrigger>
           <TabsTrigger value="staff">Nhân viên bán hàng</TabsTrigger>
           <TabsTrigger value="attendance_geofences">GPS chấm công</TabsTrigger>
         </TabsList>
@@ -3308,6 +3310,10 @@ export default function MiniCrm() {
 
       {miniCrmSection === "locations" && (
         <KioskReportAdminPanel mode="locations" canView={canViewKioskAdmin} canEdit={canEditKioskAdmin} />
+      )}
+
+      {miniCrmSection === "dealer_pins" && (
+        <DealerLocationPinPanel canView={canViewKioskAdmin} canEdit={canEditKioskAdmin} />
       )}
 
       {miniCrmSection === "staff" && (

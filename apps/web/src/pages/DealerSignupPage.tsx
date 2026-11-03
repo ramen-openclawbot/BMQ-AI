@@ -13,6 +13,7 @@ import {
   type DealerSignupSubmitResult,
   type PhotonGeocodeResult,
 } from "@/lib/dealer-signup-api";
+import { HCMC, OSM_TILES, loadLeaflet, type LMap, type LMarker, type LatLng } from "@/lib/leaflet-loader";
 
 /*
  * Public franchise landing + signup for new BMQ dealers (dathang.banhmique.vn/dai-ly-moi).
@@ -20,63 +21,6 @@ import {
  * OpenStreetMap (Leaflet) map, checks the 2 km route rule on the server and requests
  * the contract by email. Palette follows the dealer portal (pink on warm paper).
  */
-
-type LatLng = { lat: number; lng: number };
-
-// Minimal typing for the Leaflet objects this page uses.
-type LPoint = [number, number];
-type LMap = {
-  setView(p: LPoint, zoom: number): LMap;
-  panTo(p: LPoint): void;
-  on(event: string, f: (ev: { latlng: LatLng }) => void): void;
-  remove(): void;
-};
-type LMarker = { setLatLng(p: LPoint): void; getLatLng(): LatLng; on(event: string, f: () => void): void; addTo(m: LMap): LMarker };
-type Leaflet = {
-  map(el: HTMLElement, opts?: Record<string, unknown>): LMap;
-  tileLayer(url: string, opts: Record<string, unknown>): { addTo(m: LMap): void };
-  marker(p: LPoint, opts: Record<string, unknown>): LMarker;
-  divIcon(opts: Record<string, unknown>): unknown;
-};
-
-declare global {
-  interface Window {
-    L?: Leaflet;
-  }
-}
-
-const HCMC: LatLng = { lat: 10.7769, lng: 106.7009 };
-const OSM_TILES = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
-
-// Leaflet 1.9.4 from unpkg, pinned by Subresource Integrity so a changed file is refused.
-const LEAFLET_JS = { src: "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js", integrity: "sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" };
-const LEAFLET_CSS = { href: "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css", integrity: "sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" };
-
-let leafletPromise: Promise<Leaflet> | null = null;
-function loadLeaflet(): Promise<Leaflet> {
-  if (window.L) return Promise.resolve(window.L);
-  if (leafletPromise) return leafletPromise;
-  leafletPromise = new Promise<Leaflet>((resolve, reject) => {
-    const css = document.createElement("link");
-    css.rel = "stylesheet";
-    css.href = LEAFLET_CSS.href;
-    css.integrity = LEAFLET_CSS.integrity;
-    css.crossOrigin = "";
-    document.head.appendChild(css);
-    const script = document.createElement("script");
-    script.src = LEAFLET_JS.src;
-    script.integrity = LEAFLET_JS.integrity;
-    script.crossOrigin = "";
-    script.async = true;
-    script.onload = () => (window.L ? resolve(window.L) : reject(new Error("leaflet_missing")));
-    script.onerror = () => {
-      leafletPromise = null;
-      reject(new Error("leaflet_load_failed"));
-    };
-    document.head.appendChild(script);
-  });
-  return leafletPromise;
-}
 
 const PIN_HTML =
   '<div style="width:26px;height:26px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:#d94f8a;border:3px solid #fff;box-shadow:0 2px 8px rgba(52,37,44,.35)"></div>';

@@ -4843,6 +4843,32 @@ export type Database = {
         Args: never
         Returns: Json
       }
+      crm_list_dealer_locations: {
+        Args: never
+        Returns: {
+          id: string
+          customer_name: string
+          customer_group: string | null
+          address: string | null
+          phone: string | null
+          location_lat: number | null
+          location_lng: number | null
+          location_source: string | null
+          location_verified_at: string | null
+        }[]
+      }
+      crm_set_dealer_location: {
+        Args: {
+          p_customer_id: string
+          p_lat: number | null
+          p_lng: number | null
+          p_source: string | null
+          p_note?: string | null
+          p_request_id?: string | null
+          p_clear?: boolean
+        }
+        Returns: Json
+      }
     }
     Enums: {
       app_role: "owner" | "staff" | "viewer" | "warehouse"
